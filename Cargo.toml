@@ -1,0 +1,14 @@
+[package]
+name = "fgf"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Faster Galois Fields: SIMD and portable binary tower arithmetic and vector kernels"
+license = "MIT"
+repository = "https://github.com/nanithefkuc/fff"
+homepage = "https://github.com/nanithefkuc/fff"
+readme = "README.md"
+keywords = ["galois-field", "finite-field", "simd", "erasure-coding", "gf256"]
+categories = ["algorithms", "no-std", "encoding"]
+
+[dependencies]
