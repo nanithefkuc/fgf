@@ -1,13 +1,13 @@
 [package]
-name = "fff"
+name = "fgf"
 version = "0.2.0"
 edition = "2024"
 rust-version = "1.89"
-description = "Faster Finite Fields: SIMD and portable binary tower arithmetic and vector kernels"
+description = "Faster Galois Fields: SIMD and portable binary tower arithmetic and vector kernels"
 license = "MIT"
-repository = "https://github.com/nanithefkuc/fff"
+repository = "https://github.com/nanithefkuc/fgf"
 readme = "README.md"
-homepage = "https://github.com/nanithefkuc/fff"
+homepage = "https://github.com/nanithefkuc/fgf"
 publish = false
 
 [features]

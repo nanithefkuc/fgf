@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`fff` is a dependency-free Rust library for binary finite-field arithmetic. It
+`fgf` is a dependency-free Rust library for binary finite-field arithmetic. It
 provides const-capable scalar elements and safe, runtime-dispatched kernels over
 packed byte buffers for erasure coders, proof systems, and similar consumers.
 It is deliberately not a codec: matrix recipes, shard ownership, inversion,
@@ -143,7 +143,6 @@ and host-specific compiler flags.
 - `README.md` — user-facing supported fields, operations, platforms, and scope.
 - `CONTRIBUTING.md` — unsafe and differential-testing policies.
 - `BENCHMARKS.md` — benchmark interpretation and reproducibility requirements.
-- `ROADMAP.md` — future work, not current API contract.
 - `CHANGELOG.md` — notable user-facing changes; keep unreleased entries current.
 - `.github/workflows/ci.yml` — authoritative automated command matrix.
 

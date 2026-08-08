@@ -222,7 +222,7 @@ impl FieldKernels for Gf16 {
             Backend::V3 | Backend::V2 | Backend::NeonAes | Backend::Neon | Backend::Wasm128 => {
                 Prepared::Tables(TowerTables::new(coeff))
             }
-            // Portable fallback: Scalar and any future tier FFF does not
+            // Portable fallback: Scalar and any future tier FGF does not
             // vectorize prepare the plain element form (`Backend` is
             // `#[non_exhaustive]`).
             _ => Prepared::Plain(coeff),

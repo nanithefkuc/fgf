@@ -34,13 +34,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --all-features
         env:
-          FFF_BACKEND: avx2
+          SIMD_BACKEND: v3
       - run: cargo test --all-features
         env:
-          FFF_BACKEND: ssse3
+          SIMD_BACKEND: v2
       - run: cargo test --all-features
         env:
-          FFF_BACKEND: scalar
+          SIMD_BACKEND: scalar
 
   cross:
     name: build ${{ matrix.target }}

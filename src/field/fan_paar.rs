@@ -32,8 +32,8 @@
 //! and its products.
 //!
 //! ```
-//! use fff::fan_paar::{FanPaar16, fp8, fp16};
-//! use fff::field::Field;
+//! use fgf::fan_paar::{FanPaar16, fp8, fp16};
+//! use fgf::field::Field;
 //!
 //! let (a, b) = (fp8::Elem(0x1b), fp8::Elem(0xa8));
 //! assert_eq!(a.mul(b), fp8::Elem(0x09));
@@ -195,7 +195,7 @@ macro_rules! define_fan_paar_level {
         #[doc = $module_doc]
         #[doc = ""]
         #[doc = "```"]
-        #[doc = concat!("use fff::fan_paar::", stringify!($module), "::{ALPHA, Elem, GENERATOR};")]
+        #[doc = concat!("use fgf::fan_paar::", stringify!($module), "::{ALPHA, Elem, GENERATOR};")]
         #[doc = ""]
         #[doc = "assert_eq!(Elem::ONE.mul_alpha(), ALPHA);"]
         #[doc = "assert_eq!(Elem::from_raw(GENERATOR.to_raw()), GENERATOR);"]

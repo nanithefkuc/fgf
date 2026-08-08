@@ -5,8 +5,8 @@
 //! against the portable path; the per-backend differential sweep that covers
 //! every backend in one process lives in the crate's unit tests.
 
-use fff::field::{Elem as _, Field};
-use fff::{
+use fgf::field::{Elem as _, Field};
+use fgf::{
     FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8, Gf16, Gf32, Gf64, fan_paar, gf8, gf16, gf32,
     gf64, ops,
 };
@@ -481,7 +481,7 @@ fn coefficient_plans_drive_all_multi_row_shapes() {
 }
 
 #[cfg(feature = "std")]
-fn assert_blocked_plan_shapes<F: fff::FieldKernels>(row_len: usize, seed: u64) {
+fn assert_blocked_plan_shapes<F: fgf::FieldKernels>(row_len: usize, seed: u64) {
     const NROWS: usize = 5;
     const NTERMS: usize = 9;
 
@@ -715,7 +715,7 @@ fn empty_buffers_are_no_ops() {
     ops::mul_add_gather::<Gf8>(&mut empty, &[], &[]);
 }
 
-fn check_wide_field_ops<F: fff::FieldKernels>(coeffs: &[F::Elem]) {
+fn check_wide_field_ops<F: fgf::FieldKernels>(coeffs: &[F::Elem]) {
     let row_len = F::BYTES * 17;
     let src0 = noise(row_len, 0x3200 + u64::from(F::BITS));
     let src1 = noise(row_len, 0x6400 + u64::from(F::BITS));

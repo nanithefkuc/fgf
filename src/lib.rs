@@ -1,4 +1,4 @@
-//! # Faster Finite Fields
+//! # Faster Galois Fields
 //!
 //! SIMD-optimized binary finite fields and the vector kernels erasure codes
 //! are built out of.
@@ -25,7 +25,7 @@
 //! **Scalar algebra** — [`field::Elem`] gives
 //! `add`/`sub`/`mul`/`square`/`inv`/`div`/`pow` over single elements. The
 //! concrete element types carry the same methods inherently and `const`, so
-//! coding matrices can be built at compile time; `use fff::field::Elem;` to
+//! coding matrices can be built at compile time; `use fgf::field::Elem;` to
 //! get them in scope when writing code generic over the field.
 //!
 //! **Vector kernels** — [`ops`] operates on `&[u8]` buffers of packed
@@ -33,7 +33,7 @@
 //! supports ([`Backend`]).
 //!
 //! ```
-//! use fff::{Gf8, gf8, ops};
+//! use fgf::{Gf8, gf8, ops};
 //!
 //! let src = [0x01u8, 0x02, 0x03, 0x04];
 //! let mut dst = [0u8; 4];
@@ -51,7 +51,7 @@
 //! pairs:
 //!
 //! ```
-//! use fff::{Gf16, gf16, ops};
+//! use fgf::{Gf16, gf16, ops};
 //!
 //! let src = 0x1234u16.to_le_bytes();
 //! let mut dst = [0u8; 2];
@@ -96,7 +96,7 @@
 //! a SIMD host. Detection and ordering are single-source: [`Backend`] is a
 //! re-export of [`simdispatch::Backend`](https://docs.rs/simdispatch), and
 //! selection is [`simdispatch`](https://github.com/nanithefkuc/simdispatch)'s
-//! `Selection` resolved over [`kernel::FFF_TIERS`], with the downgrade-only
+//! `Selection` resolved over [`kernel::FGF_TIERS`], with the downgrade-only
 //! `SIMD_BACKEND` override.
 //!
 //! ## Safety and scope

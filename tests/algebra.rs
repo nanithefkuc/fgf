@@ -5,8 +5,8 @@
 //! uses the Karatsuba form under test, so reduction bugs remain visible rather
 //! than self-consistent.
 
-use fff::field::Field;
-use fff::{
+use fgf::field::Field;
+use fgf::{
     FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8, Gf16, Gf32, Gf64, fan_paar, gf8, gf16, gf32,
     gf64,
 };

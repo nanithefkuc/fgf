@@ -94,16 +94,16 @@ impl private::Sealed for crate::field::fan_paar::FanPaar32 {}
 impl private::Sealed for crate::field::fan_paar::FanPaar64 {}
 
 // The backend ladder is owned by `simdispatch` (the Level 0 single source for
-// detection and ordering); FFF re-exports it so downstream consumers keep
+// detection and ordering); FGF re-exports it so downstream consumers keep
 // compiling, and builds its own `Selection` over the tiers it implements.
 pub use simdispatch::{Backend, ParseBackendError};
 
-/// The tiers FFF implements kernels for, in detection-preference order: the
-/// common ladder minus the x86 `V1` floor (FFF's 16-byte multiply kernels
+/// The tiers FGF implements kernels for, in detection-preference order: the
+/// common ladder minus the x86 `V1` floor (FGF's 16-byte multiply kernels
 /// require SSSE3, not plain SSE2, so a V1-only host resolves to
 /// [`Backend::Scalar`]) and minus the deferred 64-byte AVX-512 tier (V4x,
-/// fff's `avx512.rs` kernels are cross-compile-only and not validated).
-pub const FFF_TIERS: &[Backend] = &[
+/// fgf's `avx512.rs` kernels are cross-compile-only and not validated).
+pub const FGF_TIERS: &[Backend] = &[
     Backend::V3GfniCrypto,
     Backend::V3,
     Backend::V2,
@@ -113,7 +113,7 @@ pub const FFF_TIERS: &[Backend] = &[
     Backend::Scalar,
 ];
 
-/// FFF's kernel-policy questions over the shared ladder.
+/// FGF's kernel-policy questions over the shared ladder.
 ///
 /// `simdispatch::Backend` is capability; these two derive from the kernels
 /// this crate actually implements, so they stay here (field-kernel policy,
@@ -145,7 +145,7 @@ impl KernelBackend for Backend {
 
 /// The backend these kernels use, resolved once per process.
 ///
-/// Runs [`Selection`] over [`FFF_TIERS`] — every tier this crate implements
+/// Runs [`Selection`] over [`FGF_TIERS`] — every tier this crate implements
 /// kernels for, or [`Backend::Scalar`] when SIMD is compiled out — then
 /// adjusted by the downgrade-only `SIMD_BACKEND` override. May be downgraded
 /// at startup via `SIMD_BACKEND` (`v3_gfni_crypto`, `v3`, `v2`, `neon_aes`,
@@ -165,12 +165,12 @@ pub fn backend() -> Backend {
     }
 }
 
-/// Memoized [`Selection`] over [`FFF_TIERS`], so dispatch never touches the
+/// Memoized [`Selection`] over [`FGF_TIERS`], so dispatch never touches the
 /// environment per call — a cache of the single-source resolve, not a second
 /// resolver.
 #[cfg(feature = "simd")]
 static BACKEND: std::sync::LazyLock<Backend> =
-    std::sync::LazyLock::new(|| Selection::new("SIMD_BACKEND").supports(FFF_TIERS).resolve());
+    std::sync::LazyLock::new(|| Selection::new("SIMD_BACKEND").supports(FGF_TIERS).resolve());
 /// The backend used for a particular field.
 ///
 /// Wider polynomial towers and the Fan–Paar fields currently report
@@ -474,18 +474,18 @@ pub trait FieldKernels: Field + private::Sealed {
 /// Panics if the slices differ in length.
 #[cfg(feature = "internals")]
 pub fn xor(dst: &mut [u8], src: &[u8]) {
-    assert_eq!(dst.len(), src.len(), "fff::xor: length mismatch");
+    assert_eq!(dst.len(), src.len(), "fgf::xor: length mismatch");
     xor_impl(dst, src);
 }
 
 #[cfg(not(feature = "internals"))]
 pub(crate) fn xor(dst: &mut [u8], src: &[u8]) {
-    assert_eq!(dst.len(), src.len(), "fff::xor: length mismatch");
+    assert_eq!(dst.len(), src.len(), "fgf::xor: length mismatch");
     xor_impl(dst, src);
 }
 
 fn xor_impl(dst: &mut [u8], src: &[u8]) {
-    assert_eq!(dst.len(), src.len(), "fff::xor: length mismatch");
+    assert_eq!(dst.len(), src.len(), "fgf::xor: length mismatch");
 
     match backend() {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]

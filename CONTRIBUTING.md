@@ -1,29 +1,19 @@
 # Contributing
 
-## Ground rules for this crate
-
-`fff` is a small crate with an unusually large unsafe surface. Two rules follow
-from that and are not negotiable:
-
-1. **Every backend is differentially tested against the portable reference.**
-   `src/kernel/scalar.rs` is the oracle. A new kernel is not done until
-   `src/kernel/tests.rs` exercises it past dispatch, over lane boundaries, zero
-   and one coefficients, and odd geometry.
-2. **All `unsafe` lives in `src/kernel/{x86,aarch64,wasm32}`.** These modules
-   are `pub(crate)`; nothing above them may be unsafe. Each `unsafe fn` carries
-   a `# Safety` section naming the target features it requires, and each call
-   site carries a `// SAFETY:` comment naming the dispatch arm that guarantees
-   them.
+Thanks for your interest. Contributions go through Pull Requests; what changed
+and why belong in the PR and in `CHANGELOG.md`.
 
 ## Running the tests
 
 ```sh
 cargo test --all-features
-cargo test --no-default-features   # portable kernels only
+cargo test --no-default-features   # portable path only
 ```
 
 Backend dispatch resolves once per process, so one run only covers the host's
-best backend. Sweep the weaker ones explicitly:
+best backend. Sweep the weaker ones explicitly with the `SIMD_BACKEND`
+override (owned by `simdispatch`); it is downgrade-only, so a request for a
+backend the host cannot execute is ignored rather than faked:
 
 ```sh
 SIMD_BACKEND=v3     cargo test
@@ -31,19 +21,15 @@ SIMD_BACKEND=v2     cargo test
 SIMD_BACKEND=scalar cargo test
 ```
 
-`SIMD_BACKEND` (owned by `simdispatch`) is downgrade-only: asking for a
-backend the host cannot execute is ignored rather than faked.
-
 ## Benchmarks
 
 ```sh
-cargo bench --bench kernels    # this crate's kernel shapes
-cargo bench --bench compare    # against reed-solomon-erasure
+cargo bench --bench kernels
+cargo bench --bench compare
 ```
 
-Both print throughput tables rather than using a harness. Record the CPU when
-quoting a number; see `BENCHMARKS.md` for the existing measurements and the
-methodology they were taken under.
+Record the CPU when quoting a number; see `BENCHMARKS.md` for the existing
+measurements and the methodology behind them.
 
 ## Before opening a PR
 
@@ -53,19 +39,12 @@ cargo clippy --all-features --all-targets
 cargo doc --all-features --no-deps
 ```
 
-The crate denies `missing_docs` and warns on `clippy::pedantic`, so new public
-items need doc comments. MSRV is 1.89 and is checked in CI; do not reach for
-newer standard-library APIs without raising it deliberately.
+New public items need doc comments. MSRV is 1.89 and is checked in CI; do not
+reach for newer standard-library APIs without raising it deliberately.
 
-Commit messages follow the ecosystem rule (umbrella `AGENTS.md`): subject at
-most ~10 words, no implementation detail (that goes in the PR and
-`CHANGELOG.md`), and no references to planning artifacts (`.plans/` milestone
-tags and the like).
+## Commit messages
 
-## Adding a field
-
-A new field needs a `Field` + `Elem` impl in `src/field/`, a `FieldKernels`
-impl in `src/kernel/`, and coverage in `tests/algebra.rs`. If it has no
-hand-written backend, wire it to the portable kernels with
-`impl_field_kernels!` and say so in the crate docs — the field table records
-which families have SIMD backends and which do not.
+Subject lines are at most ~10 words and carry the change at a glance
+(`fgf: short verb phrase`). Implementation detail belongs in the Pull Request
+and `CHANGELOG.md`, not the message, and messages never reference planning
+artifacts.

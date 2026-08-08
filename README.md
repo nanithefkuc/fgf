@@ -1,36 +1,48 @@
-# fff — Faster Finite Fields
+> [!WARNING]
+> This library was made with the help of AI. While the library has tests
+to check for regressions, things may break. Audit the code yourself, or with
+your own agent before using.
 
-`fff` provides scalar arithmetic and runtime-dispatched vector kernels for
-binary finite fields. It is the arithmetic layer underneath erasure coders,
-proof systems, and other applications that operate on packed field elements;
-it is deliberately not a codec.
+# fgf - Faster Galois Fields
 
-- Stable little-endian byte encodings.
-- Portable `no_std` scalar implementation.
-- SIMD kernels for GF(2^8) and GF(2^16) on every SIMD backend; GF(2^32) and
-  GF(2^64) on x86 GFNI, with the same tower identity one and two levels up.
-- Const-callable scalar arithmetic on every concrete element type.
-- No dependencies in normal builds.
+`fgf` provides safe APIs for scalar arithmetic and runtime-dispatched vector kernels for binary finite fields. 
 
-## Install
+## Usage
 
-`fff` is distributed through git only; it is not published to crates.io.
+The MSRV is Rust 1.89.
+
+`fgf` is distributed through git only; it is not published to [crates.io](https://crates.io).
 
 ```toml
 [dependencies]
-fff = { git = "https://github.com/nanithefkuc/fff" }
+fgf = { git = "https://github.com/nanithefkuc/fgf" }
 ```
 
-The default enables `std` and SIMD dispatch. Portable `no_std` builds use:
+Portable `no_std` builds are also available:
 
 ```toml
 [dependencies]
-fff = { git = "https://github.com/nanithefkuc/fff", default-features = false }
+fgf = { git = "https://github.com/nanithefkuc/fgf", default-features = false }
 ```
 
-MSRV is Rust 1.89.
+### Features
 
-## Fields
+| Feature | Result |
+| --- | --- |
+| default (`std`, `simd`) | runtime CPU detection and vector kernels |
+| `std` without `simd` | portable kernels with allocation-backed plans |
+| `--no-default-features` | `no_std`, portable kernels, allocation-free API |
+
+### Platforms
+
+| Platform | Result |
+| --- | --- |
+| x86/x86_64 | GFNI/AVX2/SSSE3 runtime dispatch |
+| AArch64 | NEON runtime dispatch, optional PMULL |
+| wasm32 + `simd128` | WebAssembly vector kernels |
+| other targets | portable scalar kernels |
+
+### Fields
 
 | Field | Marker | Element | Construction | Vector backend |
 | --- | --- | --- | --- | --- |
@@ -43,37 +55,33 @@ MSRV is Rust 1.89.
 | Fan–Paar GF(2^32) | `FanPaar32` | `fan_paar::fp32::Elem` | canonical recursive tower | x86 AVX2 |
 | Fan–Paar GF(2^64) | `FanPaar64` | `fan_paar::fp64::Elem` | canonical recursive tower | x86 AVX2 |
 
-## Scalar arithmetic
+### Scalar arithmetic
 
-Concrete methods are `const fn`, so coefficients and coding matrices can be
-built at compile time. Import `fff::field::Elem` when generic code needs the
-trait methods in scope.
+Concrete methods are `const fn` so coefficients and coding matrices can be built at compile time.
+Import `fgf::field::Elem` when generic code needs the trait methods in scope.
 
 ```rust
-use fff::gf16;
+use fgf::gf16;
 
 const A: gf16::Elem = gf16::Elem(0x1234);
 const B: gf16::Elem = gf16::Elem(0x0108);
 const PRODUCT: gf16::Elem = A.mul(B);
 
 assert_eq!(PRODUCT.div(B), A);
-assert_eq!(A + B, A.sub(B)); // characteristic two
+assert_eq!(A + B, A.sub(B));
 ```
 
-By library-wide convention `inv(0) == 0` and `x / 0 == 0`. This makes the
-scalar contract total; it does not claim zero is mathematically invertible.
-
-All element families implement `Add`, `Sub`, `Mul`, `Div`, their assignment
+By library-wide convention `inv(0) == 0` and `x / 0 == 0`. All element families implement `Add`, `Sub`, `Mul`, `Div`, their assignment
 forms, `Sum`, `Product`, `Display`, and representation-order `Ord`. `Ord` is
 for map keys only and has no field-theoretic meaning.
 
-## Packed vector operations
+### Packed vector operations
 
 Buffers contain consecutive stable little-endian element encodings. Their
 length must be a multiple of `F::BYTES`.
 
 ```rust
-use fff::{Gf8, gf8, ops};
+use fgf::{Gf8, gf8, ops};
 
 let src = [0x01u8, 0x02, 0x03, 0x04];
 let mut dst = [0u8; 4];
@@ -103,7 +111,7 @@ row-major matrix once and drives every multi-row `_with` operation directly.
 A matrix plan has dimensions `(sources, destination_rows)`:
 
 ```rust
-use fff::{Gf16, gf16, ops};
+use fgf::{Gf16, gf16, ops};
 
 let coeffs = [
     gf16::Elem(1), gf16::Elem(2),
@@ -120,6 +128,17 @@ ops::mul_add_matrix_with(&mut rows, 4, 2, &plan, &sources);
 
 Use `ops::pack`, `ops::unpack`, or `ops::pack_to_vec` at element/buffer
 boundaries instead of writing chunk loops by hand.
+
+## Building
+
+`fgf` builds on stable Rust (edition 2024, MSRV 1.89) with no extra tooling or
+target-feature flags — SIMD kernels are selected at runtime:
+
+```sh
+cargo build                        # default: std + simd
+cargo build --no-default-features  # portable no_std
+cargo test --all-features
+```
 
 ## Backends
 
@@ -140,56 +159,22 @@ boundary of `mul_elementwise`.
 | `wasm128` | WebAssembly `simd128` | 16 bytes |
 | `scalar` | portable fallback | scalar |
 
-The 64-byte AVX-512 GFNI tier is deferred: fff's `avx512.rs` kernels are
-cross-compile-only and are not in the shared ladder until validated on
-executing hardware (V4x, gated on fgf 1.0.0).
-
 `SIMD_BACKEND=v3_gfni_crypto|v3|v2|neon_aes|neon|wasm128|scalar` requests a
 backend at process startup. It is downgrade-only: an unsupported upgrade is
 ignored. Backends are a re-export of `simdispatch::Backend`; `name`,
 `from_name`, `Display`, and `FromStr` support diagnostics and CLI wiring.
 
-## Features and platforms
-
-| Configuration | Result |
-| --- | --- |
-| default (`std`, `simd`) | runtime CPU detection and vector kernels |
-| `std` without `simd` | portable kernels with allocation-backed plans |
-| `--no-default-features` | `no_std`, portable kernels, allocation-free API |
-| x86/x86_64 | AVX-512/GFNI/AVX2/SSSE3 runtime dispatch |
-| AArch64 | NEON runtime dispatch, optional PMULL |
-| wasm32 + `simd128` | WebAssembly vector kernels |
-| other targets | portable scalar kernels |
-
-## Safety
-
-The public API is safe. Unsafe code is confined to architecture modules under
-`src/kernel/`; runtime dispatch establishes the target-feature preconditions
-before those functions are called. Every backend is differentially tested
-against the portable scalar implementation across lane boundaries and odd row
-geometry. See [CONTRIBUTING.md](CONTRIBUTING.md) for the enforced policy and
-[ROADMAP.md](ROADMAP.md) for remaining hardware-verification work.
-
-## Scope
-
-`fff` provides fields, representations, and vector arithmetic. It does not
-provide Cauchy/Vandermonde construction, matrix inversion, shard ownership,
-streaming decoders, or an erasure-code recipe. Those belong in a codec layer;
-keeping them separate lets this crate stay useful to proof systems and other
-non-codec users.
+The 64-byte AVX-512 GFNI tier is written (`kernel::x86::avx512`, under the
+`internals` feature) but deferred: it is cross-compile-only and stays out of
+the dispatch ladder until validated on executing hardware, so AVX-512 hosts
+resolve to the 32-byte GFNI tier.
 
 ## Benchmarks
 
 `cargo bench --bench kernels` measures the operation shapes;
 `cargo bench --bench compare` compares against `reed-solomon-erasure`.
-Measurements and reproduction notes live in [BENCHMARKS.md](BENCHMARKS.md).
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md). CI covers stable Rust on Linux, macOS,
-and Windows, the 1.89 MSRV, scalar/no_std builds, AArch64 and Wasm cross-builds,
-backend sweeps, clippy, rustdoc, and scalar-path Miri.
+Measurement and reproduction notes are in [BENCHMARKS.md](BENCHMARKS.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE)

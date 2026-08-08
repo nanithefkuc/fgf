@@ -1,4 +1,4 @@
-//! `fff` side of the external-library comparison (see external-bench/PLAN.md).
+//! `fgf` side of the external-library comparison (see external-bench/PLAN.md).
 //!
 //! Same harness shape as the C/C++ side: scalar multiply and
 //! `dst ^= c * src` over 64 KiB, GF(2^8) and GF(2^16).
@@ -10,7 +10,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fff::{Gf8, Gf16, backend, gf8, gf16, ops};
+use fgf::{Gf8, Gf16, backend, gf8, gf16, ops};
 
 const BYTES: usize = 64 * 1024;
 const SCALAR_ITERS: usize = 1 << 20;
@@ -65,7 +65,7 @@ fn bench_scalar(label: &str, mut body: impl FnMut()) {
 }
 
 fn main() {
-    println!("fff — backend: {}", backend().name());
+    println!("fgf — backend: {}", backend().name());
 
     let src8 = noise(BYTES, 0x600);
     let mut dst8 = noise(BYTES, 0x601);

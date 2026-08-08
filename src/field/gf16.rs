@@ -27,8 +27,8 @@
 //! pair of base-field planes at stride two.
 //!
 //! ```
-//! use fff::gf16::{self, Elem, DELTA};
-//! use fff::gf8;
+//! use fgf::gf16::{self, Elem, DELTA};
+//! use fgf::gf8;
 //!
 //! let x = Elem::from_components(gf8::Elem(0x12), gf8::Elem(0x34));
 //! assert_eq!(x.to_raw(), 0x3412);

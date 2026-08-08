@@ -22,7 +22,7 @@
 //! not. [`Coeff`] hoists it:
 //!
 //! ```
-//! use fff::{Gf16, gf16, ops};
+//! use fgf::{Gf16, gf16, ops};
 //!
 //! let coeff = ops::Coeff::<Gf16>::new(gf16::Elem(0x0108));
 //! let src = [0u8; 64];

@@ -14,7 +14,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fff::{
+use fgf::{
     FanPaar16, FanPaar32, FanPaar64, Gf8, Gf16, Gf32, Gf64, backend, fan_paar, gf8, gf16, gf32,
     gf64, ops,
 };
@@ -160,8 +160,8 @@ fn bench_network_payloads() {
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 fn bench_blocked_vs_axpy() {
-    use fff::kernel::tables::{TowerCoeff, TowerTables};
-    use fff::kernel::x86;
+    use fgf::kernel::tables::{TowerCoeff, TowerTables};
+    use fgf::kernel::x86;
 
     let has_avx2 = std::arch::is_x86_feature_detected!("avx2");
     let has_gfni = has_avx2 && std::arch::is_x86_feature_detected!("gfni");
@@ -455,7 +455,7 @@ fn bench_small_row_shapes() {
 }
 
 fn main() {
-    println!("fff kernel benchmark — backend: {}", backend().name());
+    println!("fgf kernel benchmark — backend: {}", backend().name());
     println!("  (override with SIMD_BACKEND=v3_gfni_crypto|v3|v2|neon|scalar)\n");
 
     bench_preparation_crossover();

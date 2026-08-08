@@ -11,8 +11,8 @@
 //! `[a, b]`.
 //!
 //! ```
-//! use fff::gf64::Elem;
-//! use fff::gf32;
+//! use fgf::gf64::Elem;
+//! use fgf::gf32;
 //!
 //! let x = Elem::from_components(gf32::Elem(0xdead_beef), gf32::Elem(0x0123_4567));
 //! assert_eq!(x.to_bytes(), 0x0123_4567_dead_beefu64.to_le_bytes());

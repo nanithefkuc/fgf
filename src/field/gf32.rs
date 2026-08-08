@@ -11,8 +11,8 @@
 //! `[a, b]`.
 //!
 //! ```
-//! use fff::gf32::{self, Elem};
-//! use fff::gf16;
+//! use fgf::gf32::{self, Elem};
+//! use fgf::gf16;
 //!
 //! const X: Elem = Elem::from_components(gf16::Elem(0x1234), gf16::Elem(0x5678));
 //! const _: () = assert!(X.to_raw() == 0x5678_1234);

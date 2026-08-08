@@ -22,7 +22,7 @@
 //! 3-by-4 Vandermonde matrix `V[i][j] = x_j^i` at compile time:
 //!
 //! ```
-//! use fff::gf8::Elem;
+//! use fgf::gf8::Elem;
 //!
 //! const POINTS: [Elem; 4] = [Elem(1), Elem(2), Elem(3), Elem(4)];
 //! const V: [[Elem; 4]; 3] = {

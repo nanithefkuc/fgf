@@ -1,6 +1,6 @@
 # Benchmarks
 
-`fff` uses small custom benchmark binaries rather than a statistical harness.
+`fgf` uses small custom benchmark binaries rather than a statistical harness.
 They print throughput directly so operation shape, row size, and backend remain
 visible beside each result.
 
@@ -17,9 +17,9 @@ the historical `FFF_BACKEND`; the override is now `SIMD_BACKEND`, owned by
 renamed: `avx2`→`v3`, `ssse3`→`v2`):
 
 ```sh
-FFF_BACKEND=avx2  cargo bench --bench kernels
-FFF_BACKEND=ssse3 cargo bench --bench kernels
-FFF_BACKEND=scalar cargo bench --bench kernels
+SIMD_BACKEND=v3  cargo bench --bench kernels
+SIMD_BACKEND=v2 cargo bench --bench kernels
+SIMD_BACKEND=scalar cargo bench --bench kernels
 ```
 
 Non-x86 targets need a runner. The `aarch64` and `wasm32` kernels were
