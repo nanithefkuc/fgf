@@ -4,17 +4,26 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.0] - 2026-08-08
+
+This release renames the crate from `fff` to `fgf` (Faster Galois Fields) and
+moves backend detection onto the extracted Level 0 `simdispatch` crate. The
+field arithmetic, kernels, and operation surface are unchanged.
 
 ### Changed
 
-- **Backend migration onto `simdispatch` (umbrella P2).** `Backend` is now a
+- **Breaking: crate renamed `fff` → `fgf`.** The repository moves to
+  [github.com/nanithefkuc/fgf](https://github.com/nanithefkuc/fgf). Imports
+  change from `use fff::…` to `use fgf::…` and the dependency key to `fgf`;
+  the features (`std`, `simd`, `internals`) and the API are otherwise
+  unchanged. The internals-only tier list `FFF_TIERS` is now `FGF_TIERS`.
+- **Backend migration onto `simdispatch`.** `Backend` is now a
   re-export of `simdispatch::Backend`; detection, ordering, the `BACKEND`
   static, and the downgrade-only override are owned by `simdispatch` (Level 0,
   via `archmage` `summon()`). This crate's `detect()`, `resolve_backend()`,
   `BACKEND`, `Backend::ALL`, `is_for_current_arch`, local
   `Display`/`FromStr`/`ParseBackendError`, and the `FFF_BACKEND` override are
-  deleted. Selection resolves `simdispatch::Selection` over `FFF_TIERS` once
+  deleted. Selection resolves `simdispatch::Selection` over `FGF_TIERS` once
   per process and is cached. The field-kernel policy methods `has_native_mul`
   and `has_blocked_rows` stay in this crate as the new `KernelBackend`
   extension trait (they are policy, not hardware facts).
@@ -121,8 +130,8 @@ are deliberately not repeated here.
 - Uniform field element `Display`, assignment, iterator, byte-conversion,
   component, and raw-representation APIs.
 - Fan–Paar level modules (`fan_paar::fp8` through `fp64`).
-- Release metadata, CI, contributing guidance, public roadmap, benchmarks
-  guide, and MIT license.
+- Release metadata, CI, contributing guidance, benchmarks guide, and MIT
+  license.
 
 ### Changed
 
@@ -140,7 +149,8 @@ are deliberately not repeated here.
 
 Initial public release.
 
-[Unreleased]: https://github.com/nanithefkuc/fff/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/nanithefkuc/fff/compare/v0.1.1...v0.2.0
-[0.1.1]: https://github.com/nanithefkuc/fff/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/nanithefkuc/fff/releases/tag/v0.1.0
+[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/nanithefkuc/fgf/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/nanithefkuc/fgf/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/nanithefkuc/fgf/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/nanithefkuc/fgf/releases/tag/v0.1.0
