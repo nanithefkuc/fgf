@@ -456,6 +456,30 @@ pub trait FieldKernels: Field + private::Sealed {
         }
     }
 
+    /// Many sources into many disjoint rows scattered through `dst`: for each
+    /// `(coeffs, src)` term, `dst[row_starts[j]..][..row_len] ^= coeffs[j] *
+    /// src` for every `j`.
+    ///
+    /// Like [`FieldKernels::mul_add_matrix`], but the destination rows are not
+    /// contiguous — row `j` occupies `dst[row_starts[j] .. row_starts[j] +
+    /// row_len]`. [`crate::ops::mul_add_matrix_scattered`] validates the
+    /// offsets are in-bounds and pairwise disjoint before dispatch, so a
+    /// blocked backend can write each recovered row to its final scattered
+    /// slot and skip the staging copy a contiguous kernel forces on scattered
+    /// decode outputs.
+    ///
+    /// The default applies each term row by row through the portable path.
+    /// Register-blocked backends override it to retain destination tiles in
+    /// registers across terms.
+    fn mul_add_matrix_scattered(
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        terms: &[(&[Self::Elem], &[u8])],
+    ) {
+        scalar::mul_add_matrix_scattered::<Self>(dst, row_len, row_starts, terms);
+    }
+
     /// `dst[i] = a[i] * b[i]`, elementwise over two full vectors.
     ///
     /// Both operands vary per lane, so there is no coefficient to broadcast

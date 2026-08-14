@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `mul_add_matrix_scattered` reconstructs disjoint destination rows directly
+  in their final positions. GF(2^8) uses the register-blocked x86 GFNI matrix
+  kernel; other backends use the portable path.
+
 ## [0.3.0] - 2026-08-08
 
 This release renames the crate from `fff` to `fgf` (Faster Galois Fields) and

@@ -72,6 +72,7 @@
 //! | one source, many rows | [`ops::mul_add_scatter`] | `ops::mul_add_scatter_with` | systematic encode |
 //! | many sources, one row | [`ops::mul_add_gather`] | `ops::mul_add_gather_with` | recovered symbol |
 //! | many sources, many rows | [`ops::mul_add_matrix`] | `ops::mul_add_matrix_with` | reconstruction |
+//! | many sources, scattered rows | [`ops::mul_add_matrix_scattered`] | — | in-place reconstruction |
 //! | varying pair per lane | [`ops::mul_elementwise`] | — | pointwise products |
 //!
 //! Prefer the widest shape that fits: [`ops::mul_add_matrix`] holds its

@@ -684,6 +684,80 @@ pub fn mul_add_matrix_with<F: FieldKernels>(
     );
 }
 
+/// Apply many sources to many disjoint rows scattered through `dst`: for each
+/// `(coeffs, src)` term, `dst[row_starts[j]..][..row_len] ^= coeffs[j] * src`
+/// for every `j` in `0..row_starts.len()`.
+///
+/// The reconstruction shape when recovered rows land at scattered positions in
+/// a larger buffer — their natural slots in a codeword. Unlike
+/// [`mul_add_matrix`], no contiguous staging buffer and copy-out is required:
+/// a blocked backend writes each recovered row straight to its final location.
+///
+/// `row_starts` must address pairwise-disjoint, in-bounds rows of `row_len`
+/// bytes, each starting on an element boundary. Disjointness is the safety
+/// contract the kernel relies on and is checked here, before dispatch.
+///
+/// # Panics
+/// Panics unless every `row_starts[j] + row_len <= dst.len()`, every row start
+/// is a whole number of elements, the rows are pairwise disjoint, every term
+/// supplies `row_starts.len()` coefficients, and every source is `row_len`
+/// bytes; or on a partial trailing element.
+pub fn mul_add_matrix_scattered<F: FieldKernels>(
+    dst: &mut [u8],
+    row_len: usize,
+    row_starts: &[usize],
+    terms: &[(&[F::Elem], &[u8])],
+) {
+    check_width::<F>("mul_add_matrix_scattered", row_len);
+    for (j, &start) in row_starts.iter().enumerate() {
+        let end = start
+            .checked_add(row_len)
+            .expect("mul_add_matrix_scattered: row offset + length overflows");
+        assert!(
+            end <= dst.len(),
+            "mul_add_matrix_scattered: row {j} spans {start}..{end} but dst is {} bytes",
+            dst.len(),
+        );
+        assert!(
+            start.is_multiple_of(F::BYTES),
+            "mul_add_matrix_scattered: row {j} offset {start} is not a whole number of {} elements",
+            F::NAME,
+        );
+    }
+    // Pairwise disjointness. `O(r^2)` in the erasure count `r`, but this is a
+    // per-solve setup cost paid once per pattern, not per byte, and it
+    // allocates nothing. Overlap is a caller error: the kernel writes each row
+    // through a raw pointer and cannot tolerate aliasing.
+    for (a, &sa) in row_starts.iter().enumerate() {
+        for &sb in &row_starts[a + 1..] {
+            let (lo, hi) = if sa <= sb { (sa, sb) } else { (sb, sa) };
+            assert!(
+                hi - lo >= row_len,
+                "mul_add_matrix_scattered: rows at {sa} and {sb} overlap for {row_len}-byte rows",
+            );
+        }
+    }
+    let nrows = row_starts.len();
+    for &(coeffs, src) in terms {
+        assert_eq!(
+            coeffs.len(),
+            nrows,
+            "mul_add_matrix_scattered: term supplies {} coefficients for {nrows} rows",
+            coeffs.len(),
+        );
+        assert_eq!(
+            src.len(),
+            row_len,
+            "mul_add_matrix_scattered: source is {} bytes, expected {row_len}",
+            src.len(),
+        );
+    }
+    if nrows == 0 || terms.is_empty() {
+        return;
+    }
+    F::mul_add_matrix_scattered(dst, row_len, row_starts, terms);
+}
+
 /// Elementwise product: `dst[i] = a[i] * b[i]`.
 ///
 /// Both operands vary per lane, so there is no coefficient to broadcast and

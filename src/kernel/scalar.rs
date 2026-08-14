@@ -92,6 +92,22 @@ pub fn mul_add_matrix<F: Field>(
     }
 }
 
+/// Apply every `(coeffs, src)` term to disjoint `row_len`-byte rows scattered
+/// through `dst` at byte offsets `row_starts`: row `j` is
+/// `dst[row_starts[j] .. row_starts[j] + row_len]`.
+pub fn mul_add_matrix_scattered<F: Field>(
+    dst: &mut [u8],
+    row_len: usize,
+    row_starts: &[usize],
+    terms: &[(&[F::Elem], &[u8])],
+) {
+    for &(coeffs, src) in terms {
+        for (&start, &coeff) in row_starts.iter().zip(coeffs) {
+            mul_add::<F>(&mut dst[start..start + row_len], coeff, src);
+        }
+    }
+}
+
 /// `dst ^= sum(coeffs[i] * srcs[i])`.
 pub fn mul_add_gather<F: Field>(dst: &mut [u8], coeffs: &[F::Elem], srcs: &[&[u8]]) {
     for (&coeff, &src) in coeffs.iter().zip(srcs) {

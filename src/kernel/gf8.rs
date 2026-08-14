@@ -274,6 +274,23 @@ impl FieldKernels for Gf8 {
         }
     }
 
+    fn mul_add_matrix_scattered(
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        terms: &[(&[Elem], &[u8])],
+    ) {
+        match backend() {
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V3GfniCrypto => {
+                x86::gf8::matrix_scattered_gfni(dst, row_len, row_starts, terms);
+            }
+            // The shuffle and non-x86 backends have no scattered kernel yet;
+            // the portable path is correct and skips the same staging copy.
+            _ => scalar::mul_add_matrix_scattered::<Self>(dst, row_len, row_starts, terms),
+        }
+    }
+
     fn mul_elementwise(dst: &mut [u8], a: &[u8], b: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]

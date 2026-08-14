@@ -842,6 +842,101 @@ unsafe fn matrix_gfni_impl<M: Matrix<Elem> + ?Sized>(
     }
 }
 
+/// [`matrix_gfni`], but the destination rows are disjoint and scattered
+/// through `dst` at byte offsets `row_starts` rather than laid out
+/// contiguously. Reuses the same register-blocked row groups; only the base
+/// pointer of each row differs.
+///
+/// # Panics
+/// Panics unless every `row_starts[j] + row_len <= dst.len()` and every term
+/// supplies `row_starts.len()` coefficients for a `row_len`-byte source.
+pub fn matrix_scattered_gfni(
+    dst: &mut [u8],
+    row_len: usize,
+    row_starts: &[usize],
+    terms: &[(&[Elem], &[u8])],
+) {
+    matrix_scattered_gfni_with(dst, row_len, row_starts, terms);
+}
+
+/// [`matrix_scattered_gfni`] over a generic matrix source.
+///
+/// # Panics
+/// As [`matrix_scattered_gfni`].
+pub fn matrix_scattered_gfni_with<M: Matrix<Elem> + ?Sized>(
+    dst: &mut [u8],
+    row_len: usize,
+    row_starts: &[usize],
+    terms: &M,
+) {
+    for &start in row_starts {
+        assert!(
+            start
+                .checked_add(row_len)
+                .is_some_and(|end| end <= dst.len()),
+            "matrix_scattered_gfni: row at {start} does not fit {row_len} bytes in dst"
+        );
+    }
+    for term in 0..terms.len() {
+        assert_eq!(terms.source(term).len(), row_len);
+    }
+    if terms.len() == 0 || row_starts.is_empty() {
+        return;
+    }
+    // SAFETY: the caller selected the GFNI backend (AVX2 + GFNI detected). The
+    // offsets are bounded above, and the public `ops` wrapper checked they are
+    // pairwise disjoint, so the row pointers built below address distinct,
+    // in-bounds rows of `row_len` bytes.
+    unsafe { matrix_scattered_gfni_impl(dst, row_len, row_starts, terms) }
+}
+
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn matrix_scattered_gfni_impl<M: Matrix<Elem> + ?Sized>(
+    dst: &mut [u8],
+    row_len: usize,
+    row_starts: &[usize],
+    terms: &M,
+) {
+    let base = dst.as_mut_ptr();
+    let nrows = row_starts.len();
+    // Rows are grouped four, then a pair, then a single leftover — the same
+    // blocking as `matrix_gfni_impl`, but each row starts at an arbitrary
+    // disjoint offset instead of `g * row_len`.
+    let mut g = 0;
+    while g + 4 <= nrows {
+        // SAFETY: each offset + `row_len` was bounded within `dst`, and the
+        // offsets are pairwise disjoint, so these four pointers address
+        // distinct in-bounds rows of `row_len` bytes.
+        let ptrs = unsafe {
+            [
+                base.add(row_starts[g]),
+                base.add(row_starts[g + 1]),
+                base.add(row_starts[g + 2]),
+                base.add(row_starts[g + 3]),
+            ]
+        };
+        // SAFETY: four in-bounds, disjoint rows; every term covers coefficient
+        // index `g + 3` over a `row_len`-byte source.
+        unsafe { matrix_rows4(ptrs, row_len, g, terms) }
+        g += 4;
+    }
+    if g + 2 <= nrows {
+        // SAFETY: as above, for the two rows at `g` and `g + 1`.
+        let ptrs = unsafe { [base.add(row_starts[g]), base.add(row_starts[g + 1])] };
+        // SAFETY: two in-bounds, disjoint rows, and every term covers row
+        // `g + 1`.
+        unsafe { matrix_rows2(ptrs, row_len, g, terms) }
+        g += 2;
+    }
+    if g < nrows {
+        // SAFETY: as above, for the last row.
+        let ptr = unsafe { base.add(row_starts[g]) };
+        // SAFETY: one in-bounds row of `row_len` bytes, and every term covers
+        // row `g`.
+        unsafe { matrix_rows1(ptr, row_len, g, terms) }
+    }
+}
+
 /// Fold every term into four rows, 64 bytes of each row at a time.
 ///
 /// # Safety

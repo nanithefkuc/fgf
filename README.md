@@ -99,6 +99,7 @@ assert_eq!(dst, [0x03, 0x06, 0x05, 0x0c]);
 | one source, many rows | `mul_add_scatter` / `mul_add_scatter_with` | systematic encode |
 | many sources, one row | `mul_add_gather` / `mul_add_gather_with` | recover one symbol |
 | many sources, many rows | `mul_add_matrix` / `mul_add_matrix_with` | reconstruction |
+| many sources, scattered rows | `mul_add_matrix_scattered` | in-place reconstruction |
 | varying pair per lane | `mul_elementwise` | pointwise products |
 
 Prefer the widest shape that matches the operation. The blocked kernels can

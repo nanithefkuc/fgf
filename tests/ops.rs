@@ -306,6 +306,129 @@ fn gf16_matrix_matches_repeated_scatter() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// mul_add_matrix_scattered
+// ---------------------------------------------------------------------------
+
+/// Scattered reconstruction must equal the contiguous matrix kernel gathered
+/// back into place, and must not touch the gaps between rows. The contiguous
+/// kernel is independently validated above, so this pins the scattered path to
+/// it across lane/tile boundaries, row-group sizes, and term counts.
+fn check_matrix_scattered<F: fgf::FieldKernels>(tag: &str, seed: u64) {
+    let b = F::BYTES;
+    for &rl_elems in &[1usize, 16, 33, 64, 100, 512] {
+        let row_len = rl_elems * b;
+        for &nrows in &[1usize, 2, 3, 4, 6, 8] {
+            for &nterms in &[1usize, 2, 5] {
+                let sources: Vec<Vec<u8>> = (0..nterms)
+                    .map(|t| noise(row_len, seed + 0x100 + t as u64))
+                    .collect();
+                let coeff_sets: Vec<Vec<F::Elem>> = (0..nterms)
+                    .map(|t| {
+                        noise(nrows * b, seed + 0x200 + t as u64)
+                            .chunks_exact(b)
+                            .map(F::read)
+                            .collect()
+                    })
+                    .collect();
+                let terms: Vec<(&[F::Elem], &[u8])> = coeff_sets
+                    .iter()
+                    .zip(&sources)
+                    .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                    .collect();
+
+                // Contiguous reference over the same initial row bytes.
+                let init = noise(row_len * nrows, seed + 0x300);
+                let mut want = init.clone();
+                ops::mul_add_matrix::<F>(&mut want, row_len, nrows, &terms);
+
+                // Scattered destination: each row separated by an
+                // element-aligned gap, seeded with the contiguous row bytes.
+                let gap = b * 7;
+                let stride = row_len + gap;
+                let mut dst = noise(stride * nrows, seed + 0x400);
+                let row_starts: Vec<usize> = (0..nrows).map(|j| j * stride).collect();
+                for j in 0..nrows {
+                    dst[row_starts[j]..row_starts[j] + row_len]
+                        .copy_from_slice(&init[j * row_len..(j + 1) * row_len]);
+                }
+                let before = dst.clone();
+
+                ops::mul_add_matrix_scattered::<F>(&mut dst, row_len, &row_starts, &terms);
+
+                for j in 0..nrows {
+                    assert_eq!(
+                        &dst[row_starts[j]..row_starts[j] + row_len],
+                        &want[j * row_len..(j + 1) * row_len],
+                        "{tag}: row {j} rl={row_len} nrows={nrows} nterms={nterms}"
+                    );
+                    let g = row_starts[j] + row_len;
+                    assert_eq!(
+                        &dst[g..g + gap],
+                        &before[g..g + gap],
+                        "{tag}: gap after row {j} was modified"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn gf8_matrix_scattered_matches_contiguous() {
+    check_matrix_scattered::<Gf8>("gf8", 0x5ca7);
+}
+
+#[test]
+fn gf16_matrix_scattered_matches_contiguous() {
+    check_matrix_scattered::<Gf16>("gf16", 0x5ca8);
+}
+
+#[test]
+fn matrix_scattered_pairs_coefficients_to_out_of_order_rows() {
+    // Row offsets need not be monotonic: coefficient `j` binds to
+    // `row_starts[j]`, whatever order the offsets appear in.
+    let row_len = 64;
+    let src = noise(row_len, 0x11);
+    let coeffs = [gf8::Elem(2), gf8::Elem(9), gf8::Elem(200)];
+    // Three rows placed high-to-low, so offset order is the reverse of index
+    // order.
+    let row_starts = [2 * row_len, row_len, 0usize];
+    let mut dst = vec![0u8; 3 * row_len];
+    ops::mul_add_matrix_scattered::<Gf8>(&mut dst, row_len, &row_starts, &[(&coeffs, &src)]);
+
+    for (j, &start) in row_starts.iter().enumerate() {
+        let mut want = vec![0u8; row_len];
+        oracle_mul_add::<Gf8>(&mut want, coeffs[j], &src);
+        assert_eq!(&dst[start..start + row_len], &want[..], "row {j}");
+    }
+}
+
+#[test]
+#[should_panic(expected = "overlap")]
+fn matrix_scattered_rejects_overlapping_rows() {
+    let mut dst = [0u8; 64];
+    let coeffs = [gf8::Elem(1); 2];
+    // Second row starts 8 bytes into the first 16-byte row.
+    ops::mul_add_matrix_scattered::<Gf8>(&mut dst, 16, &[0, 8], &[(&coeffs, &[0u8; 16])]);
+}
+
+#[test]
+#[should_panic(expected = "but dst is")]
+fn matrix_scattered_rejects_out_of_bounds_row() {
+    let mut dst = [0u8; 32];
+    let coeffs = [gf8::Elem(1); 2];
+    ops::mul_add_matrix_scattered::<Gf8>(&mut dst, 16, &[0, 24], &[(&coeffs, &[0u8; 16])]);
+}
+
+#[test]
+#[should_panic(expected = "coefficients for")]
+fn matrix_scattered_rejects_wrong_coefficient_count() {
+    let mut dst = [0u8; 64];
+    let coeffs = [gf8::Elem(1); 2];
+    ops::mul_add_matrix_scattered::<Gf8>(&mut dst, 16, &[0, 16, 32], &[(&coeffs, &[0u8; 16])]);
+}
+
 #[test]
 fn matrix_leaves_rows_beyond_nrows_untouched() {
     // `rows` may be longer than `nrows * row_len`; the surplus is not ours.
