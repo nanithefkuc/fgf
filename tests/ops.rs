@@ -7,8 +7,8 @@
 
 use fgf::field::{Elem as _, Field};
 use fgf::{
-    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf16, Gf32, Gf64, fan_paar, gf8b, gf16, gf32,
-    gf64, ops,
+    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf8D, Gf16, Gf32, Gf64, fan_paar, gf8b, gf8d,
+    gf16, gf32, gf64, ops,
 };
 
 /// Deterministic pseudo-random bytes. No dependency, reproducible failures.
@@ -924,4 +924,77 @@ fn tier3_field_public_ops_match_oracle() {
         fan_paar::fp64::Elem::ONE,
         fan_paar::fp64::Elem(0xa55a_1234_dead_beef),
     ]);
+}
+
+#[test]
+fn gf8d_public_ops_match_oracle() {
+    // Single-coefficient AXPY over every coefficient and lane boundary: this
+    // drives the reused shuffle kernels with the 0x11D bank.
+    for len in LENGTHS {
+        let src = noise(len, 0x11d0);
+        for coeff in (0..=u8::MAX).map(gf8d::Elem) {
+            let mut got = noise(len, 0x11d1);
+            let mut want = got.clone();
+            ops::mul_add::<Gf8D>(&mut got, coeff, &src);
+            oracle_mul_add::<Gf8D>(&mut want, coeff, &src);
+            assert_eq!(got, want, "gf8d mul_add len {len}, coeff {coeff:?}");
+        }
+    }
+
+    // Fused mul_into / mul_assign over every coefficient.
+    for len in [16usize, 17, 64, 254] {
+        let src = noise(len, 0x11d2);
+        for coeff in (0..=u8::MAX).map(gf8d::Elem) {
+            let mut into = vec![0xaa; len];
+            ops::mul_into::<Gf8D>(&mut into, coeff, &src);
+            let mut assign = src.clone();
+            ops::mul_assign::<Gf8D>(&mut assign, coeff);
+            let mut want = vec![0u8; len];
+            oracle_mul_add::<Gf8D>(&mut want, coeff, &src);
+            assert_eq!(into, want, "gf8d mul_into len {len} coeff {coeff:?}");
+            assert_eq!(assign, want, "gf8d mul_assign len {len} coeff {coeff:?}");
+        }
+    }
+
+    // Elementwise across every boundary.
+    for len in LENGTHS {
+        let a = noise(len, 0x11d3);
+        let b = noise(len, 0x11d4);
+        let mut got = vec![0u8; len];
+        ops::mul_elementwise::<Gf8D>(&mut got, &a, &b);
+        for ((d, &x), &y) in got.iter().zip(&a).zip(&b) {
+            assert_eq!(
+                *d,
+                gf8d::Elem(x).mul(gf8d::Elem(y)).0,
+                "gf8d elementwise len {len}"
+            );
+        }
+    }
+
+    // Every multi-row shape against the oracle.
+    check_wide_field_ops::<Gf8D>(&[
+        gf8d::Elem::ZERO,
+        gf8d::Elem::ONE,
+        gf8d::Elem(0x53),
+        gf8d::Elem(0xff),
+        gf8d::Elem(0x02),
+    ]);
+
+    // Prepared coefficients: value recovery (via the bank's byte label) and
+    // byte-for-byte agreement with the one-shot path.
+    for coeff in [0u8, 1, 2, 0x53, 0xff].map(gf8d::Elem) {
+        let prepared = ops::Coeff::<Gf8D>::new(coeff);
+        assert_eq!(prepared.value(), coeff, "gf8d prepared_coeff recovery");
+        let src = noise(64, 0x11d5);
+        let mut got = noise(64, 0x11d6);
+        let mut want = got.clone();
+        ops::mul_add_with::<Gf8D>(&mut got, &prepared, &src);
+        ops::mul_add::<Gf8D>(&mut want, coeff, &src);
+        assert_eq!(got, want, "gf8d mul_add_with coeff {coeff:?}");
+    }
+}
+
+#[test]
+fn gf8d_matrix_scattered_matches_contiguous() {
+    check_matrix_scattered::<Gf8D>("gf8d", 0x8d5c);
 }

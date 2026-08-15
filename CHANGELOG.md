@@ -13,7 +13,10 @@ All notable changes to this project are documented here. The format follows
   kernel; other backends use the portable path.
 - `Gf8D`, a second GF(2^8) field under the polynomial `0x11D` (generator `2`),
   for byte-identical Reed–Solomon interop with ISA-L and
-  `klauspost/reedsolomon`. Its scalar arithmetic is `const`, mirroring `Gf8B`.
+  `klauspost/reedsolomon`. It carries the full `const` scalar arithmetic and the
+  complete checked ops surface: it reuses the field-agnostic split-nibble
+  shuffle kernels for its `0x11D` products (a GFNI host uses the AVX2 shuffle,
+  since `GF2P8MULB` is the AES field), with elementwise on the portable path.
 
 ### Changed
 

@@ -11,6 +11,8 @@
 //! precomputed in rodata.
 
 use crate::field::gf8b::{Elem, Gf8B};
+use crate::field::gf8d::{self, Gf8D};
+use crate::kernel::tables::scale_table_8d;
 use crate::kernel::tables::{ScaleTable, scale_table};
 // `Backend` is referenced only from the SIMD dispatch arms, which cfg away
 // entirely on a scalar-only build.
@@ -317,5 +319,108 @@ impl FieldKernels for Gf8B {
             Backend::V2 => x86::gf8::elementwise_ssse3(dst, a, b),
             _ => scalar::mul_elementwise::<Gf8B>(dst, a, b),
         }
+    }
+}
+
+/// Reed–Solomon interop field, GF(2^8) under `0x11D`.
+///
+/// The split-nibble shuffle kernels are field-agnostic — they read only a
+/// coefficient's `lo`/`hi` tables — so this field reuses [`Gf8B`]'s kernels
+/// verbatim by handing them the `0x11D` bank ([`scale_table_8d`]). `GF2P8MULB`
+/// is the AES field and MUST NOT be used, so a GFNI host runs the AVX2 shuffle
+/// for single-coefficient work. Multi-row shapes compose the single-coefficient
+/// kernel per row (SIMD, not yet register-blocked); elementwise, whose two
+/// varying operands have no fixed table, runs the portable shift/reduce path.
+impl FieldKernels for Gf8D {
+    type Prepared = &'static ScaleTable;
+
+    #[inline]
+    fn prepare(coeff: gf8d::Elem) -> Self::Prepared {
+        scale_table_8d(coeff)
+    }
+
+    #[inline]
+    fn prepared_coeff(prepared: &Self::Prepared) -> gf8d::Elem {
+        gf8d::Elem(prepared.coeff.0)
+    }
+
+    #[inline]
+    fn active_backend() -> Backend {
+        // GF2P8MULB is the AES field, so a GFNI host runs the AVX2 shuffle.
+        match backend() {
+            Backend::V3GfniCrypto => Backend::V3,
+            other => other,
+        }
+    }
+
+    fn mul_add(dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
+        match backend() {
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V3GfniCrypto | Backend::V3 => x86::gf8::mul_add_avx2(dst, coeff, src),
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V2 => x86::gf8::mul_add_ssse3(dst, coeff, src),
+            #[cfg(all(feature = "simd", target_arch = "aarch64"))]
+            Backend::Neon | Backend::NeonAes => aarch64::gf8::mul_add_neon(dst, coeff, src),
+            #[cfg(all(feature = "simd", target_arch = "wasm32"))]
+            Backend::Wasm128 => wasm32::gf8::mul_add_simd128(dst, coeff, src),
+            _ => mul_add_nibble(dst, coeff, src),
+        }
+    }
+
+    fn mul_assign(dst: &mut [u8], coeff: &Self::Prepared) {
+        match backend() {
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V3GfniCrypto | Backend::V3 => x86::gf8::mul_assign_avx2(dst, coeff),
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V2 => x86::gf8::mul_assign_ssse3(dst, coeff),
+            #[cfg(all(feature = "simd", target_arch = "aarch64"))]
+            Backend::Neon | Backend::NeonAes => aarch64::gf8::mul_assign_neon(dst, coeff),
+            #[cfg(all(feature = "simd", target_arch = "wasm32"))]
+            Backend::Wasm128 => wasm32::gf8::mul_assign_simd128(dst, coeff),
+            _ => mul_assign_nibble(dst, coeff),
+        }
+    }
+
+    fn mul_into(dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
+        match backend() {
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V3GfniCrypto | Backend::V3 => x86::gf8::mul_into_avx2(dst, coeff, src),
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V2 => x86::gf8::mul_into_ssse3(dst, coeff, src),
+            #[cfg(all(feature = "simd", target_arch = "aarch64"))]
+            Backend::Neon | Backend::NeonAes => aarch64::gf8::mul_into_neon(dst, coeff, src),
+            #[cfg(all(feature = "simd", target_arch = "wasm32"))]
+            Backend::Wasm128 => wasm32::gf8::mul_into_simd128(dst, coeff, src),
+            _ => mul_into_nibble(dst, coeff, src),
+        }
+    }
+
+    fn mul_add_scatter(rows: &mut [u8], row_len: usize, coeffs: &[gf8d::Elem], src: &[u8]) {
+        for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
+            Self::mul_add(row, &scale_table_8d(coeff), src);
+        }
+    }
+
+    fn mul_add_gather(dst: &mut [u8], coeffs: &[gf8d::Elem], srcs: &[&[u8]]) {
+        for (&coeff, &src) in coeffs.iter().zip(srcs) {
+            Self::mul_add(dst, &scale_table_8d(coeff), src);
+        }
+    }
+
+    fn mul_add_matrix(
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        terms: &[(&[gf8d::Elem], &[u8])],
+    ) {
+        for &(coeffs, src) in terms {
+            for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
+                Self::mul_add(row, &scale_table_8d(coeff), src);
+            }
+        }
+    }
+
+    fn mul_elementwise(dst: &mut [u8], a: &[u8], b: &[u8]) {
+        scalar::mul_elementwise::<Gf8D>(dst, a, b);
     }
 }

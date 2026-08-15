@@ -85,6 +85,7 @@ mod private {
     pub trait Sealed {}
 }
 impl private::Sealed for crate::field::gf8b::Gf8B {}
+impl private::Sealed for crate::field::gf8d::Gf8D {}
 impl private::Sealed for crate::field::gf16::Gf16 {}
 impl private::Sealed for crate::field::gf32::Gf32 {}
 impl private::Sealed for crate::field::gf64::Gf64 {}

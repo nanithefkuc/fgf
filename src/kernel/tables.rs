@@ -20,7 +20,7 @@
 //! whole buffer, or hoisted out entirely with `Coeff`/`Plan`.
 
 use crate::field::fan_paar::{fp8, fp16};
-use crate::field::{gf8b, gf16};
+use crate::field::{gf8b, gf8d, gf16};
 
 /// Split-nibble multiplication tables for one GF(2^8) coefficient.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,6 +76,51 @@ pub fn scale_table(coeff: gf8b::Elem) -> &'static ScaleTable {
     &SCALE_TABLE_BANK[coeff.0 as usize]
 }
 
+/// GF(2^8)/`0x11D` nibble-table bank, one entry per coefficient.
+///
+/// Same layout and 8 KiB budget as the AES [`SCALE_TABLE_BANK`]; only the
+/// products differ. Because the shuffle kernels read nothing but `lo`/`hi`,
+/// one implementation serves both byte fields — this bank just carries the
+/// `0x11D` products.
+static SCALE_TABLE_BANK_8D: [ScaleTable; 256] = build_bank_8d();
+
+#[allow(clippy::cast_possible_truncation)]
+const fn build_bank_8d() -> [ScaleTable; 256] {
+    let mut bank = [ScaleTable {
+        coeff: gf8b::Elem(0),
+        lo: [0; 16],
+        hi: [0; 16],
+    }; 256];
+    let mut i = 0;
+    while i < 256 {
+        let c = gf8d::Elem(i as u8);
+        let mut lo = [0u8; 16];
+        let mut hi = [0u8; 16];
+        let mut j = 0;
+        while j < 16 {
+            lo[j] = gf8d::Elem(j as u8).mul(c).0;
+            hi[j] = gf8d::Elem((j as u8) << 4).mul(c).0;
+            j += 1;
+        }
+        // `coeff` stores the coefficient byte; its AES-typed wrapper is inert
+        // storage the field-agnostic shuffle kernels never read.
+        bank[i] = ScaleTable {
+            coeff: gf8b::Elem(i as u8),
+            lo,
+            hi,
+        };
+        i += 1;
+    }
+    bank
+}
+
+/// Return the shared `0x11D` nibble tables for a coefficient.
+#[inline]
+#[must_use]
+pub fn scale_table_8d(coeff: gf8d::Elem) -> &'static ScaleTable {
+    &SCALE_TABLE_BANK_8D[coeff.0 as usize]
+}
+
 /// Broadcast factors that express one GF(2^16) tower multiply as two
 /// byte-wide GF(2^8) multiplies.
 ///
@@ -119,7 +164,12 @@ impl TowerCoeff {
     pub const fn factors(self) -> [gf8b::Elem; 4] {
         let [s0, s1] = self.same.to_le_bytes();
         let [x0, x1] = self.cross.to_le_bytes();
-        [gf8b::Elem(s0), gf8b::Elem(s1), gf8b::Elem(x0), gf8b::Elem(x1)]
+        [
+            gf8b::Elem(s0),
+            gf8b::Elem(s1),
+            gf8b::Elem(x0),
+            gf8b::Elem(x1),
+        ]
     }
 }
 

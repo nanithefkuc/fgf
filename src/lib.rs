@@ -14,7 +14,8 @@
 //! | GF(2^64) | [`Gf64`] | [`gf64::Elem`] | quadratic tower over [`Gf32`] |
 //! | GF(2^8)..GF(2^64) | [`FanPaar8`]..[`FanPaar64`] | [`fan_paar::fp8::Elem`]..[`fan_paar::fp64::Elem`] | canonical Fan–Paar tower |
 //!
-//! `Gf8B` and `Gf16` have hand-written SIMD backends. The wider polynomial
+//! `Gf8B` and `Gf16` have hand-written SIMD backends, and `Gf8D` reuses
+//! `Gf8B`'s split-nibble shuffle kernels for its `0x11D` products. The wider polynomial
 //! towers `Gf32`/`Gf64` run the same tower identity on x86 GFNI, and the
 //! canonical Fan–Paar `FanPaar16`/`FanPaar32`/`FanPaar64` run their nibble-
 //! shuffle tower on x86 AVX2 (and `FanPaar16` on SSSE3); on every other target
