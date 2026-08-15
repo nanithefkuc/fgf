@@ -121,6 +121,62 @@ pub fn scale_table_8d(coeff: gf8d::Elem) -> &'static ScaleTable {
     &SCALE_TABLE_BANK_8D[coeff.0 as usize]
 }
 
+/// GF(2^8)/`0x11D` affine-map bank, one `VGF2P8AFFINEQB` matrix qword per
+/// coefficient.
+///
+/// Multiplication by a fixed coefficient in any GF(2^8) is an 8×8 GF(2)
+/// linear map, and `VGF2P8AFFINEQB` applies an arbitrary such map per byte
+/// lane — unlike `GF2P8MULB`, which bakes in the AES polynomial. The
+/// instruction computes `dst.bit[b] = parity(map.byte[7 - b] & x)` per lane,
+/// so the qword for coefficient `c` stores the product map transposed and
+/// row-reversed: byte `r`, bit `k` is bit `7 - r` of the column `c * x^k`.
+/// Every entry derives from the crate's own [`gf8d::Elem::mul`] oracle —
+/// never from another library's tables — and the derivation is validated
+/// exhaustively: the bank against a scalar model of the instruction in this
+/// module's tests, the hardware kernels against the scalar oracle over all
+/// 65 536 products in `kernel::tests`.
+///
+/// 2 KiB of rodata, touched only by the `Gf8D` GFNI kernels: the map is dead
+/// weight on targets with no affine kernel to consume it.
+#[allow(dead_code)]
+static AFFINE_BANK_8D: [u64; 256] = build_affine_bank_8d();
+
+#[allow(clippy::cast_possible_truncation, dead_code)]
+const fn build_affine_bank_8d() -> [u64; 256] {
+    let mut bank = [0u64; 256];
+    let mut i = 0;
+    while i < 256 {
+        let c = gf8d::Elem(i as u8);
+        let mut map = 0u64;
+        // Row `r` of the instruction's matrix carries, across bits `k`, bit
+        // `7 - r` of every column `c * x^k` of the multiplication map.
+        let mut r = 0u8;
+        while r < 8 {
+            let mut row = 0u8;
+            let mut k = 0u8;
+            while k < 8 {
+                let column = c.mul(gf8d::Elem(1 << k)).0;
+                row |= ((column >> (7 - r)) & 1) << k;
+                k += 1;
+            }
+            map |= (row as u64) << (8 * r);
+            r += 1;
+        }
+        bank[i] = map;
+        i += 1;
+    }
+    bank
+}
+
+/// Return the `VGF2P8AFFINEQB` matrix qword that multiplies by `coeff` under
+/// `0x11D`.
+#[inline]
+#[must_use]
+#[allow(dead_code)]
+pub fn affine_8d(coeff: gf8d::Elem) -> u64 {
+    AFFINE_BANK_8D[coeff.0 as usize]
+}
+
 /// Broadcast factors that express one GF(2^16) tower multiply as two
 /// byte-wide GF(2^8) multiplies.
 ///
@@ -416,6 +472,36 @@ mod tests {
             for x in 0..=u8::MAX {
                 let split = table.lo[(x & 0x0f) as usize] ^ table.hi[(x >> 4) as usize];
                 assert_eq!(split, E8(x).mul(E8(c)).0, "coeff {c:#04x} value {x:#04x}");
+            }
+        }
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn affine_bank_8d_matches_the_instruction_model() {
+        // The semantics `VGF2P8AFFINEQB` documents, modeled in scalar code:
+        // `dst.bit[b] = parity(map.byte[7 - b] & x)`. This proves the const
+        // derivation fills the bank to that convention; that silicon agrees
+        // with the convention is proven by the exhaustive hardware
+        // differential in `kernel::tests`.
+        fn apply(map: u64, x: u8) -> u8 {
+            let mut out = 0u8;
+            for b in 0..8u8 {
+                let row = (map >> (8 * (7 - b))) as u8;
+                let parity = (row & x).count_ones() & 1;
+                out |= u8::try_from(parity).unwrap() << b;
+            }
+            out
+        }
+
+        for c in 0..=u8::MAX {
+            let map = affine_8d(gf8d::Elem(c));
+            for x in 0..=u8::MAX {
+                assert_eq!(
+                    apply(map, x),
+                    gf8d::Elem(c).mul(gf8d::Elem(x)).0,
+                    "coeff {c:#04x} value {x:#04x}"
+                );
             }
         }
     }
