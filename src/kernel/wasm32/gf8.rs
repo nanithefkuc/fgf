@@ -2,7 +2,7 @@
 
 use core::arch::wasm32::*;
 
-use crate::field::gf8::{Elem, Gf8};
+use crate::field::gf8b::{Elem, Gf8B};
 use crate::kernel::gf8::mul_add_nibble;
 use crate::kernel::tables::{ScaleTable, scale_table};
 
@@ -153,7 +153,7 @@ unsafe fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         }
         offset += 16;
     }
-    crate::kernel::scalar::mul_elementwise::<Gf8>(&mut dst[len..], &a[len..], &b[len..]);
+    crate::kernel::scalar::mul_elementwise::<Gf8B>(&mut dst[len..], &a[len..], &b[len..]);
 }
 
 /// Which of the three cases a row's coefficient falls into.

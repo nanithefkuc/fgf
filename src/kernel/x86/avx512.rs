@@ -5,7 +5,7 @@
 //! source load across eight rows, gather holds a 512-byte destination tile,
 //! and matrix holds 128 bytes from each of eight rows across all terms.
 
-use crate::field::{gf8, gf16};
+use crate::field::{gf8b, gf16};
 use crate::kernel::tables::{TowerCoeff, scale_table};
 
 #[cfg(target_arch = "x86")]
@@ -80,14 +80,14 @@ fn scale16(value: __m512i, swap: __m512i, same: __m512i, cross: __m512i) -> __m5
 }
 
 /// `dst ^= coeff * src` over 64 byte-wide GFNI lanes.
-pub fn gf8_mul_add(dst: &mut [u8], coeff: gf8::Elem, src: &[u8]) {
+pub fn gf8_mul_add(dst: &mut [u8], coeff: gf8b::Elem, src: &[u8]) {
     debug_assert_eq!(dst.len(), src.len());
     // SAFETY: dispatch established AVX-512F, AVX-512BW, and GFNI.
     unsafe { gf8_mul_add_impl(dst, coeff, src) }
 }
 
 #[target_feature(enable = "avx512f,avx512bw,gfni")]
-unsafe fn gf8_mul_add_impl(dst: &mut [u8], coeff: gf8::Elem, src: &[u8]) {
+unsafe fn gf8_mul_add_impl(dst: &mut [u8], coeff: gf8b::Elem, src: &[u8]) {
     let len = dst.len().min(src.len()) & !(LANE - 1);
     let (dst_ptr, src_ptr) = (dst.as_mut_ptr(), src.as_ptr());
     let factor = _mm512_set1_epi8(coeff.0.cast_signed());
@@ -108,13 +108,13 @@ unsafe fn gf8_mul_add_impl(dst: &mut [u8], coeff: gf8::Elem, src: &[u8]) {
 }
 
 /// `dst = coeff * dst` over 64 byte-wide GFNI lanes.
-pub fn gf8_mul_assign(dst: &mut [u8], coeff: gf8::Elem) {
+pub fn gf8_mul_assign(dst: &mut [u8], coeff: gf8b::Elem) {
     // SAFETY: dispatch established AVX-512F, AVX-512BW, and GFNI.
     unsafe { gf8_mul_assign_impl(dst, coeff) }
 }
 
 #[target_feature(enable = "avx512f,avx512bw,gfni")]
-unsafe fn gf8_mul_assign_impl(dst: &mut [u8], coeff: gf8::Elem) {
+unsafe fn gf8_mul_assign_impl(dst: &mut [u8], coeff: gf8b::Elem) {
     let len = dst.len() & !(LANE - 1);
     let ptr = dst.as_mut_ptr();
     let factor = _mm512_set1_epi8(coeff.0.cast_signed());
@@ -133,14 +133,14 @@ unsafe fn gf8_mul_assign_impl(dst: &mut [u8], coeff: gf8::Elem) {
 /// `dst = coeff * src` over 64 byte-wide GFNI lanes, out of place.
 ///
 /// Fused form of copy-then-scale: one pass, `dst` is never read.
-pub fn gf8_mul_into(dst: &mut [u8], coeff: gf8::Elem, src: &[u8]) {
+pub fn gf8_mul_into(dst: &mut [u8], coeff: gf8b::Elem, src: &[u8]) {
     debug_assert_eq!(dst.len(), src.len());
     // SAFETY: dispatch established AVX-512F, AVX-512BW, and GFNI.
     unsafe { gf8_mul_into_impl(dst, coeff, src) }
 }
 
 #[target_feature(enable = "avx512f,avx512bw,gfni")]
-unsafe fn gf8_mul_into_impl(dst: &mut [u8], coeff: gf8::Elem, src: &[u8]) {
+unsafe fn gf8_mul_into_impl(dst: &mut [u8], coeff: gf8b::Elem, src: &[u8]) {
     let len = dst.len().min(src.len()) & !(LANE - 1);
     let (dst_ptr, src_ptr) = (dst.as_mut_ptr(), src.as_ptr());
     let factor = _mm512_set1_epi8(coeff.0.cast_signed());
@@ -178,7 +178,7 @@ unsafe fn gf8_elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         }
         offset += LANE;
     }
-    crate::kernel::scalar::mul_elementwise::<gf8::Gf8>(&mut dst[len..], &a[len..], &b[len..]);
+    crate::kernel::scalar::mul_elementwise::<gf8b::Gf8B>(&mut dst[len..], &a[len..], &b[len..]);
 }
 
 /// `dst ^= coeff * src` over 64-byte tower-field lanes.
@@ -300,7 +300,7 @@ unsafe fn gf16_elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
 }
 
 /// One GF(2^8) source into many rows, sharing each load across eight rows.
-pub fn gf8_scatter(rows: &mut [u8], row_len: usize, coeffs: &[gf8::Elem], src: &[u8]) {
+pub fn gf8_scatter(rows: &mut [u8], row_len: usize, coeffs: &[gf8b::Elem], src: &[u8]) {
     debug_assert_eq!(rows.len(), row_len * coeffs.len());
     debug_assert_eq!(src.len(), row_len);
     // SAFETY: dispatch established the features and rows are disjoint by construction.
@@ -308,7 +308,7 @@ pub fn gf8_scatter(rows: &mut [u8], row_len: usize, coeffs: &[gf8::Elem], src: &
 }
 
 #[target_feature(enable = "avx512f,avx512bw,gfni")]
-unsafe fn gf8_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[gf8::Elem], src: &[u8]) {
+unsafe fn gf8_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[gf8b::Elem], src: &[u8]) {
     let mut row = 0;
     while row + 8 <= coeffs.len() {
         // SAFETY: this group addresses eight complete, disjoint rows.
@@ -340,7 +340,7 @@ unsafe fn gf8_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[gf8::Elem]
 unsafe fn gf8_scatter_group<const N: usize>(
     base: *mut u8,
     stride: usize,
-    coeffs: &[gf8::Elem],
+    coeffs: &[gf8b::Elem],
     src: &[u8],
 ) {
     let len = src.len().min(stride) & !(LANE - 1);
@@ -371,14 +371,14 @@ unsafe fn gf8_scatter_group<const N: usize>(
 }
 
 /// Many GF(2^8) sources into one destination, blocked over 512-byte tiles.
-pub fn gf8_gather(dst: &mut [u8], coeffs: &[gf8::Elem], srcs: &[&[u8]]) {
+pub fn gf8_gather(dst: &mut [u8], coeffs: &[gf8b::Elem], srcs: &[&[u8]]) {
     debug_assert_eq!(coeffs.len(), srcs.len());
     // SAFETY: dispatch established AVX-512F, AVX-512BW, and GFNI.
     unsafe { gf8_gather_impl(dst, coeffs, srcs) }
 }
 
 #[target_feature(enable = "avx512f,avx512bw,gfni")]
-unsafe fn gf8_gather_impl(dst: &mut [u8], coeffs: &[gf8::Elem], srcs: &[&[u8]]) {
+unsafe fn gf8_gather_impl(dst: &mut [u8], coeffs: &[gf8b::Elem], srcs: &[&[u8]]) {
     let tile = LANE * TILE_VECTORS;
     let len = dst.len() / tile * tile;
     let ptr = dst.as_mut_ptr();
@@ -407,7 +407,7 @@ unsafe fn gf8_gather_impl(dst: &mut [u8], coeffs: &[gf8::Elem], srcs: &[&[u8]]) 
 }
 
 /// Many sources into many GF(2^8) rows, eight rows by 128 bytes per tile.
-pub fn gf8_matrix(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[gf8::Elem], &[u8])]) {
+pub fn gf8_matrix(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[gf8b::Elem], &[u8])]) {
     // SAFETY: public wrappers validated all geometry and dispatch established the features.
     unsafe { gf8_matrix_impl(rows, row_len, nrows, terms) }
 }
@@ -417,7 +417,7 @@ unsafe fn gf8_matrix_impl(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[gf8::Elem], &[u8])],
+    terms: &[(&[gf8b::Elem], &[u8])],
 ) {
     let mut row = 0;
     while row + 8 <= nrows {
@@ -437,7 +437,7 @@ unsafe fn gf8_matrix_group<const N: usize>(
     base: *mut u8,
     stride: usize,
     first: usize,
-    terms: &[(&[gf8::Elem], &[u8])],
+    terms: &[(&[gf8b::Elem], &[u8])],
 ) {
     let tile = 2 * LANE;
     let len = stride / tile * tile;

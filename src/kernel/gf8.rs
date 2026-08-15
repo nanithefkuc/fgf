@@ -10,7 +10,7 @@
 //! GF(2^16), this field has nothing worth caching beyond what is already
 //! precomputed in rodata.
 
-use crate::field::gf8::{Elem, Gf8};
+use crate::field::gf8b::{Elem, Gf8B};
 use crate::kernel::tables::{ScaleTable, scale_table};
 // `Backend` is referenced only from the SIMD dispatch arms, which cfg away
 // entirely on a scalar-only build.
@@ -84,7 +84,7 @@ fn mul_into_nibble_impl(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
     }
 }
 
-impl FieldKernels for Gf8 {
+impl FieldKernels for Gf8B {
     type Prepared = &'static ScaleTable;
 
     #[inline]
@@ -315,7 +315,7 @@ impl FieldKernels for Gf8 {
             Backend::V3 => x86::gf8::elementwise_avx2(dst, a, b),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V2 => x86::gf8::elementwise_ssse3(dst, a, b),
-            _ => scalar::mul_elementwise::<Gf8>(dst, a, b),
+            _ => scalar::mul_elementwise::<Gf8B>(dst, a, b),
         }
     }
 }

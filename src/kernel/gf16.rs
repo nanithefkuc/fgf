@@ -469,12 +469,12 @@ impl FieldKernels for Gf16 {
             // measured behind these bit-serial rounds, so that kernel was
             // removed rather than wired. GF(2^8) elementwise, where PMULL
             // replaces eight bit-serial rounds with two multiplies, does win
-            // — see `Gf8::mul_elementwise` and BENCHMARKS.md.
+            // — see `Gf8B::mul_elementwise` and BENCHMARKS.md.
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
             Backend::Neon | Backend::NeonAes => aarch64::gf16::elementwise_neon(dst, a, b),
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
             Backend::Wasm128 => wasm32::gf16::elementwise_simd128(dst, a, b),
-            // See `Gf8::mul_elementwise`: no fixed coefficient, so the
+            // See `Gf8B::mul_elementwise`: no fixed coefficient, so the
             // shuffle backends multiply the two varying base-field operands
             // bit-serially and keep a nibble table only for constant `DELTA`.
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]

@@ -7,13 +7,13 @@
 
 use fgf::field::Field;
 use fgf::{
-    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8, Gf16, Gf32, Gf64, fan_paar, gf8, gf16, gf32,
+    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf16, Gf32, Gf64, fan_paar, gf8b, gf16, gf32,
     gf64,
 };
 
 /// Every nonzero element, plus zero, in ascending order.
-fn all_gf8() -> impl Iterator<Item = gf8::Elem> {
-    (0..=u8::MAX).map(gf8::Elem)
+fn all_gf8() -> impl Iterator<Item = gf8b::Elem> {
+    (0..=u8::MAX).map(gf8b::Elem)
 }
 
 /// A spread of GF(2^16) elements: boundaries, both component planes, and a
@@ -57,11 +57,11 @@ fn gf8_table_multiply_matches_shift_and_xor() {
 
 #[test]
 fn gf8_inverse_matches_fermat_and_round_trips() {
-    assert_eq!(gf8::Elem::ZERO.inv(), gf8::Elem::ZERO, "inv(0) must be 0");
+    assert_eq!(gf8b::Elem::ZERO.inv(), gf8b::Elem::ZERO, "inv(0) must be 0");
     for a in all_gf8().skip(1) {
         assert_eq!(a.inv(), a.inv_xtime(), "inverse backends disagree on {a:?}");
-        assert_eq!(a.mul(a.inv()), gf8::Elem::ONE, "{a:?} * inv({a:?}) != 1");
-        assert_eq!(a.div(a), gf8::Elem::ONE, "{a:?} / {a:?} != 1");
+        assert_eq!(a.mul(a.inv()), gf8b::Elem::ONE, "{a:?} * inv({a:?}) != 1");
+        assert_eq!(a.div(a), gf8b::Elem::ONE, "{a:?} / {a:?} != 1");
     }
 }
 
@@ -69,13 +69,13 @@ fn gf8_inverse_matches_fermat_and_round_trips() {
 fn gf8_generator_has_full_order() {
     // 0x03 must generate all 255 nonzero elements and no fewer.
     let mut seen = [false; 256];
-    let mut value = gf8::Elem::ONE;
+    let mut value = gf8b::Elem::ONE;
     for step in 0..255u32 {
         assert!(!seen[value.0 as usize], "generator repeats at step {step}");
         seen[value.0 as usize] = true;
-        value = value.mul(Gf8::GENERATOR);
+        value = value.mul(Gf8B::GENERATOR);
     }
-    assert_eq!(value, gf8::Elem::ONE, "generator order is not 255");
+    assert_eq!(value, gf8b::Elem::ONE, "generator order is not 255");
     assert!(
         seen.iter().skip(1).all(|&hit| hit),
         "orbit misses an element"
@@ -86,11 +86,11 @@ fn gf8_generator_has_full_order() {
 fn gf8_field_axioms() {
     let sample: Vec<_> = all_gf8().step_by(7).collect();
     for &a in &sample {
-        assert_eq!(a.add(gf8::Elem::ZERO), a);
-        assert_eq!(a.mul(gf8::Elem::ONE), a);
-        assert_eq!(a.mul(gf8::Elem::ZERO), gf8::Elem::ZERO);
-        assert_eq!(a.add(a), gf8::Elem::ZERO, "characteristic two");
-        assert_eq!(a.sub(a), gf8::Elem::ZERO);
+        assert_eq!(a.add(gf8b::Elem::ZERO), a);
+        assert_eq!(a.mul(gf8b::Elem::ONE), a);
+        assert_eq!(a.mul(gf8b::Elem::ZERO), gf8b::Elem::ZERO);
+        assert_eq!(a.add(a), gf8b::Elem::ZERO, "characteristic two");
+        assert_eq!(a.sub(a), gf8b::Elem::ZERO);
         for &b in &sample {
             assert_eq!(a.add(b), b.add(a), "addition commutes");
             assert_eq!(a.mul(b), b.mul(a), "multiplication commutes");
@@ -114,7 +114,7 @@ fn gf8_field_axioms() {
 #[test]
 fn gf8_pow_matches_repeated_multiplication() {
     for a in all_gf8().step_by(11) {
-        let mut expected = gf8::Elem::ONE;
+        let mut expected = gf8b::Elem::ONE;
         for exponent in 0..20u64 {
             assert_eq!(a.pow(exponent), expected, "{a:?}^{exponent}");
             expected = expected.mul(a);
@@ -219,14 +219,14 @@ fn gf16_embeds_the_base_field() {
     for a in all_gf8().step_by(5) {
         for b in all_gf8().step_by(7) {
             let lifted = gf16::Elem::from_components(a, b)
-                .mul(gf16::Elem::from_components(gf8::Elem(0), gf8::Elem(0)));
+                .mul(gf16::Elem::from_components(gf8b::Elem(0), gf8b::Elem(0)));
             assert_eq!(lifted, gf16::Elem::ZERO);
 
-            let x = gf16::Elem::from_components(a, gf8::Elem(0));
-            let y = gf16::Elem::from_components(b, gf8::Elem(0));
+            let x = gf16::Elem::from_components(a, gf8b::Elem(0));
+            let y = gf16::Elem::from_components(b, gf8b::Elem(0));
             assert_eq!(
                 x.mul(y),
-                gf16::Elem::from_components(a.mul(b), gf8::Elem(0)),
+                gf16::Elem::from_components(a.mul(b), gf8b::Elem(0)),
                 "base-field embedding broken for {a:?} * {b:?}"
             );
         }
@@ -459,8 +459,8 @@ fn fan_paar_subfield_encodings_are_nested() {
 fn byte_representation_round_trips() {
     for a in all_gf8() {
         let mut buffer = [0u8; 1];
-        Gf8::write(&mut buffer, a);
-        assert_eq!(Gf8::read(&buffer), a);
+        Gf8B::write(&mut buffer, a);
+        assert_eq!(Gf8B::read(&buffer), a);
     }
     for a in sample_gf16() {
         let mut buffer = [0u8; 2];
@@ -497,8 +497,8 @@ fn byte_representation_round_trips() {
 
 #[test]
 fn field_constants_are_consistent() {
-    assert_eq!(Gf8::BYTES, 1);
-    assert_eq!(Gf8::ORDER, 1u128 << Gf8::BITS);
+    assert_eq!(Gf8B::BYTES, 1);
+    assert_eq!(Gf8B::ORDER, 1u128 << Gf8B::BITS);
     assert_eq!(Gf16::BYTES, 2);
     assert_eq!(Gf16::ORDER, 1u128 << Gf16::BITS);
     assert_eq!(Gf32::BYTES, 4);
@@ -506,7 +506,7 @@ fn field_constants_are_consistent() {
     assert_eq!(Gf64::BYTES, 8);
     assert_eq!(Gf64::ORDER, 1u128 << Gf64::BITS);
     for (bytes, bits) in [
-        (Gf8::BYTES, Gf8::BITS),
+        (Gf8B::BYTES, Gf8B::BITS),
         (Gf16::BYTES, Gf16::BITS),
         (Gf32::BYTES, Gf32::BITS),
         (Gf64::BYTES, Gf64::BITS),

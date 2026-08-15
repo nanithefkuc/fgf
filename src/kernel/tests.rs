@@ -24,7 +24,7 @@ extern crate std;
 use std::vec;
 use std::vec::Vec;
 
-use crate::field::{FanPaar16, FanPaar32, FanPaar64, Gf32, Gf64, fan_paar, gf8, gf16, gf32, gf64};
+use crate::field::{FanPaar16, FanPaar32, FanPaar64, Gf32, Gf64, fan_paar, gf8b, gf16, gf32, gf64};
 use crate::kernel::scalar;
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::kernel::tables::FpTowerTables;
@@ -50,9 +50,9 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
 
 /// GF(2^8) coefficients worth testing: the two short-circuits, the extremes,
 /// and a spread through the field.
-fn gf8_coeffs() -> Vec<gf8::Elem> {
-    let mut coeffs = vec![gf8::Elem(0), gf8::Elem(1), gf8::Elem(2), gf8::Elem(0xff)];
-    coeffs.extend((0..=u8::MAX).step_by(23).map(gf8::Elem));
+fn gf8_coeffs() -> Vec<gf8b::Elem> {
+    let mut coeffs = vec![gf8b::Elem(0), gf8b::Elem(1), gf8b::Elem(2), gf8b::Elem(0xff)];
+    coeffs.extend((0..=u8::MAX).step_by(23).map(gf8b::Elem));
     coeffs
 }
 
@@ -111,7 +111,7 @@ fn check_gf8_mul_add(name: &str, kernel: impl Fn(&mut [u8], &ScaleTable, &[u8]))
             let mut got = noise(len, 0x62);
             let mut want = got.clone();
             kernel(&mut got, scale_table(coeff), &src);
-            scalar::mul_add::<gf8::Gf8>(&mut want, coeff, &src);
+            scalar::mul_add::<gf8b::Gf8B>(&mut want, coeff, &src);
             assert_eq!(got, want, "{name}: len {len}, coeff {coeff:?}");
         }
     }
@@ -123,7 +123,7 @@ fn check_gf8_mul_assign(name: &str, kernel: impl Fn(&mut [u8], &ScaleTable)) {
             let mut got = noise(len, 0x73);
             let mut want = got.clone();
             kernel(&mut got, scale_table(coeff));
-            scalar::mul_assign::<gf8::Gf8>(&mut want, coeff);
+            scalar::mul_assign::<gf8b::Gf8B>(&mut want, coeff);
             assert_eq!(got, want, "{name}: len {len}, coeff {coeff:?}");
         }
     }
@@ -163,7 +163,7 @@ fn check_gf8_mul_into(name: &str, kernel: impl Fn(&mut [u8], &ScaleTable, &[u8])
             let mut got = noise(len, 0x147);
             let mut want = src.clone();
             kernel(&mut got, scale_table(coeff), &src);
-            scalar::mul_assign::<gf8::Gf8>(&mut want, coeff);
+            scalar::mul_assign::<gf8b::Gf8B>(&mut want, coeff);
             assert_eq!(got, want, "{name}: len {len}, coeff {coeff:?}");
         }
     }
@@ -281,7 +281,7 @@ fn check_gf8_elementwise(name: &str, kernel: impl Fn(&mut [u8], &[u8], &[u8])) {
         let mut got = vec![0; len];
         let mut want = vec![0; len];
         kernel(&mut got, &a, &b);
-        scalar::mul_elementwise::<gf8::Gf8>(&mut want, &a, &b);
+        scalar::mul_elementwise::<gf8b::Gf8B>(&mut want, &a, &b);
         assert_eq!(got, want, "{name}: len {len}");
     }
 }
@@ -358,14 +358,14 @@ fn check_tower_mul_into<E: Copy + core::fmt::Debug>(
     }
 }
 
-fn gf8_coeff_at(j: usize) -> gf8::Elem {
+fn gf8_coeff_at(j: usize) -> gf8b::Elem {
     // Includes 0 and 1 as j sweeps, which is what we want: the blocked
     // kernels must handle degenerate coefficients per row, not per call.
-    gf8::Elem((j as u8).wrapping_mul(29))
+    gf8b::Elem((j as u8).wrapping_mul(29))
 }
 
-fn gf8_coeff_at2(t: usize, j: usize) -> gf8::Elem {
-    gf8::Elem(((t * 31 + j * 29) % 256) as u8)
+fn gf8_coeff_at2(t: usize, j: usize) -> gf8b::Elem {
+    gf8b::Elem(((t * 31 + j * 29) % 256) as u8)
 }
 
 fn gf16_coeff_at(j: usize) -> gf16::Elem {
@@ -376,8 +376,8 @@ fn gf16_coeff_at2(t: usize, j: usize) -> gf16::Elem {
     gf16::Elem(((t * 7919 + j * 613) % 65536) as u16)
 }
 
-fn gf8_reference(dst: &mut [u8], coeff: gf8::Elem, src: &[u8]) {
-    scalar::mul_add::<gf8::Gf8>(dst, coeff, src);
+fn gf8_reference(dst: &mut [u8], coeff: gf8b::Elem, src: &[u8]) {
+    scalar::mul_add::<gf8b::Gf8B>(dst, coeff, src);
 }
 
 fn gf16_reference(dst: &mut [u8], coeff: gf16::Elem, src: &[u8]) {
@@ -1066,7 +1066,7 @@ mod x86 {
         const NT_LEN: usize = (2 << 20) + 130;
         // The non-temporal split is a store-side choice, independent of the
         // coefficient, so a zero, a one and a mixed value are enough.
-        const GF8_COEFFS: [gf8::Elem; 3] = [gf8::Elem(0), gf8::Elem(1), gf8::Elem(0x53)];
+        const GF8_COEFFS: [gf8b::Elem; 3] = [gf8b::Elem(0), gf8b::Elem(1), gf8b::Elem(0x53)];
         const GF16_COEFFS: [gf16::Elem; 3] = [gf16::Elem(0), gf16::Elem(1), gf16::Elem(0x53a7)];
 
         let source = noise(NT_LEN + 2, 0x1a7);
@@ -1077,7 +1077,7 @@ mod x86 {
             for coeff in GF8_COEFFS {
                 let table = scale_table(coeff);
                 let mut want = src.to_vec();
-                scalar::mul_assign::<gf8::Gf8>(&mut want, coeff);
+                scalar::mul_assign::<gf8b::Gf8B>(&mut want, coeff);
                 if host_supports(&[Backend::V3GfniCrypto]) {
                     let got = &mut got[offset..offset + NT_LEN];
                     x86::gf8::mul_into_gfni(got, coeff, src);

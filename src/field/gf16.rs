@@ -1,4 +1,4 @@
-//! GF(2^16) as a quadratic tower over [`crate::field::gf8`].
+//! GF(2^16) as a quadratic tower over [`crate::field::gf8b`].
 //!
 //! With `F = GF(2^8)` under the Rijndael polynomial, an element here is
 //! `a + b*u` with `a, b in F` and
@@ -28,15 +28,15 @@
 //!
 //! ```
 //! use fgf::gf16::{self, Elem, DELTA};
-//! use fgf::gf8;
+//! use fgf::gf8b;
 //!
-//! let x = Elem::from_components(gf8::Elem(0x12), gf8::Elem(0x34));
+//! let x = Elem::from_components(gf8b::Elem(0x12), gf8b::Elem(0x34));
 //! assert_eq!(x.to_raw(), 0x3412);
 //! assert_eq!(x.to_bytes(), [0x12, 0x34]);
 //!
 //! // The defining relation: u^2 == u + DELTA.
-//! const U: Elem = Elem::from_components(gf8::Elem::ZERO, gf8::Elem::ONE);
-//! const DELTA_LIFTED: Elem = Elem::from_components(DELTA, gf8::Elem::ZERO);
+//! const U: Elem = Elem::from_components(gf8b::Elem::ZERO, gf8b::Elem::ONE);
+//! const DELTA_LIFTED: Elem = Elem::from_components(DELTA, gf8b::Elem::ZERO);
 //! const _: () = assert!(U.square().to_raw() == U.add(DELTA_LIFTED).to_raw());
 //!
 //! // The documented generator really does have order 65535.
@@ -48,7 +48,7 @@
 
 use core::fmt;
 
-use super::gf8::Elem as Base;
+use super::gf8b::Elem as Base;
 use super::{Elem as ElemTrait, Field};
 
 /// Constant term of the irreducible tower polynomial `u^2 + u + DELTA`.

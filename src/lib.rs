@@ -7,13 +7,13 @@
 //!
 //! | Field | Type | Element | Construction |
 //! | --- | --- | --- | --- |
-//! | GF(2^8) | [`Gf8`] | [`gf8::Elem`] | AES polynomial `0x11B` |
-//! | GF(2^16) | [`Gf16`] | [`gf16::Elem`] | quadratic tower over [`Gf8`] |
+//! | GF(2^8) | [`Gf8B`] | [`gf8b::Elem`] | AES polynomial `0x11B` |
+//! | GF(2^16) | [`Gf16`] | [`gf16::Elem`] | quadratic tower over [`Gf8B`] |
 //! | GF(2^32) | [`Gf32`] | [`gf32::Elem`] | quadratic tower over [`Gf16`] |
 //! | GF(2^64) | [`Gf64`] | [`gf64::Elem`] | quadratic tower over [`Gf32`] |
 //! | GF(2^8)..GF(2^64) | [`FanPaar8`]..[`FanPaar64`] | [`fan_paar::fp8::Elem`]..[`fan_paar::fp64::Elem`] | canonical Fan–Paar tower |
 //!
-//! `Gf8` and `Gf16` have hand-written SIMD backends. The wider polynomial
+//! `Gf8B` and `Gf16` have hand-written SIMD backends. The wider polynomial
 //! towers `Gf32`/`Gf64` run the same tower identity on x86 GFNI, and the
 //! canonical Fan–Paar `FanPaar16`/`FanPaar32`/`FanPaar64` run their nibble-
 //! shuffle tower on x86 AVX2 (and `FanPaar16` on SSSE3); on every other target
@@ -33,17 +33,17 @@
 //! supports ([`Backend`]).
 //!
 //! ```
-//! use fgf::{Gf8, gf8, ops};
+//! use fgf::{Gf8B, gf8b, ops};
 //!
 //! let src = [0x01u8, 0x02, 0x03, 0x04];
 //! let mut dst = [0u8; 4];
 //!
 //! // dst ^= 0x03 * src
-//! ops::mul_add::<Gf8>(&mut dst, gf8::Elem(0x03), &src);
+//! ops::mul_add::<Gf8B>(&mut dst, gf8b::Elem(0x03), &src);
 //! assert_eq!(dst, [0x03, 0x06, 0x05, 0x0c]);
 //!
 //! // Undo it: adding the same term back is subtracting it.
-//! ops::mul_add::<Gf8>(&mut dst, gf8::Elem(0x03), &src);
+//! ops::mul_add::<Gf8B>(&mut dst, gf8b::Elem(0x03), &src);
 //! assert_eq!(dst, [0, 0, 0, 0]);
 //! ```
 //!
@@ -127,7 +127,7 @@ pub mod kernel;
 pub mod ops;
 
 pub use field::{
-    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Field, Gf8, Gf16, Gf32, Gf64, fan_paar, gf8, gf16,
+    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Field, Gf8B, Gf16, Gf32, Gf64, fan_paar, gf8b, gf16,
     gf32, gf64,
 };
 pub use kernel::{

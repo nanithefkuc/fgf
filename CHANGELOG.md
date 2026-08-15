@@ -12,6 +12,16 @@ All notable changes to this project are documented here. The format follows
   in their final positions. GF(2^8) uses the register-blocked x86 GFNI matrix
   kernel; other backends use the portable path.
 
+### Changed
+
+- **Breaking: `Gf8` renamed to `Gf8B`, module `gf8` to `gf8b`.** The two
+  GF(2^8) representations are now named consistently by polynomial
+  (`Gf8B`/`0x11B`, `Gf8D`/`0x11D`). Update `use fgf::{Gf8, gf8}` to
+  `use fgf::{Gf8B, gf8b}`; the field's bytes, tables, and kernels are unchanged.
+- The flat GF(2^8) markers expose their reduction polynomial through
+  `field_poly()` and the `REDUCTION_POLY` module constant, for compile-time
+  representation introspection.
+
 ## [0.3.0] - 2026-08-08
 
 This release renames the crate from `fff` to `fgf` (Faster Galois Fields) and

@@ -23,7 +23,7 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-use crate::field::gf8::Elem;
+use crate::field::gf8b::Elem;
 use crate::kernel::Matrix;
 use crate::kernel::gf8::{mul_add_nibble, mul_assign_nibble, mul_into_nibble};
 use crate::kernel::tables::{ScaleTable, scale_table};

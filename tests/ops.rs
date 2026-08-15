@@ -7,7 +7,7 @@
 
 use fgf::field::{Elem as _, Field};
 use fgf::{
-    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8, Gf16, Gf32, Gf64, fan_paar, gf8, gf16, gf32,
+    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf16, Gf32, Gf64, fan_paar, gf8b, gf16, gf32,
     gf64, ops,
 };
 
@@ -48,11 +48,11 @@ const LENGTHS: [usize; 12] = [0, 2, 8, 16, 18, 32, 34, 64, 66, 128, 254, 1024];
 fn gf8_mul_add_matches_oracle() {
     for len in LENGTHS {
         let src = noise(len, 0xa1);
-        for coeff in (0..=u8::MAX).map(gf8::Elem) {
+        for coeff in (0..=u8::MAX).map(gf8b::Elem) {
             let mut got = noise(len, 0xb2);
             let mut want = got.clone();
-            ops::mul_add::<Gf8>(&mut got, coeff, &src);
-            oracle_mul_add::<Gf8>(&mut want, coeff, &src);
+            ops::mul_add::<Gf8B>(&mut got, coeff, &src);
+            oracle_mul_add::<Gf8B>(&mut want, coeff, &src);
             assert_eq!(got, want, "len {len}, coeff {coeff:?}");
         }
     }
@@ -86,9 +86,9 @@ fn mul_add_is_its_own_inverse() {
     let original = noise(300, 0xf6);
 
     let mut buffer = original.clone();
-    ops::mul_add::<Gf8>(&mut buffer, gf8::Elem(0x8d), &src);
+    ops::mul_add::<Gf8B>(&mut buffer, gf8b::Elem(0x8d), &src);
     assert_ne!(buffer, original, "coefficient had no effect");
-    ops::mul_add::<Gf8>(&mut buffer, gf8::Elem(0x8d), &src);
+    ops::mul_add::<Gf8B>(&mut buffer, gf8b::Elem(0x8d), &src);
     assert_eq!(buffer, original);
 
     let mut buffer = original.clone();
@@ -106,15 +106,15 @@ fn mul_add_is_its_own_inverse() {
 fn gf8_mul_into_and_mul_assign_agree() {
     for len in LENGTHS {
         let src = noise(len, 0x11);
-        for coeff in (0..=u8::MAX).map(gf8::Elem) {
+        for coeff in (0..=u8::MAX).map(gf8b::Elem) {
             let mut into = vec![0xaa; len];
-            ops::mul_into::<Gf8>(&mut into, coeff, &src);
+            ops::mul_into::<Gf8B>(&mut into, coeff, &src);
 
             let mut assign = src.clone();
-            ops::mul_assign::<Gf8>(&mut assign, coeff);
+            ops::mul_assign::<Gf8B>(&mut assign, coeff);
 
             let mut want = vec![0u8; len];
-            oracle_mul_add::<Gf8>(&mut want, coeff, &src);
+            oracle_mul_add::<Gf8B>(&mut want, coeff, &src);
 
             assert_eq!(into, want, "mul_into len {len} coeff {coeff:?}");
             assert_eq!(assign, want, "mul_assign len {len} coeff {coeff:?}");
@@ -148,9 +148,9 @@ fn scaling_by_a_coefficient_then_its_inverse_is_identity() {
     let original = noise(512, 0x33);
 
     let mut buffer = original.clone();
-    let c = gf8::Elem(0x57);
-    ops::mul_assign::<Gf8>(&mut buffer, c);
-    ops::mul_assign::<Gf8>(&mut buffer, c.inv());
+    let c = gf8b::Elem(0x57);
+    ops::mul_assign::<Gf8B>(&mut buffer, c);
+    ops::mul_assign::<Gf8B>(&mut buffer, c.inv());
     assert_eq!(buffer, original);
 
     let mut buffer = original.clone();
@@ -171,11 +171,11 @@ fn add_assign_is_xor_and_self_cancels() {
         let original = noise(len, 0x55);
 
         let mut buffer = original.clone();
-        ops::add_assign::<Gf8>(&mut buffer, &src);
+        ops::add_assign::<Gf8B>(&mut buffer, &src);
         let want: Vec<u8> = original.iter().zip(&src).map(|(a, b)| a ^ b).collect();
         assert_eq!(buffer, want, "len {len}");
 
-        ops::sub_assign::<Gf8>(&mut buffer, &src);
+        ops::sub_assign::<Gf8B>(&mut buffer, &src);
         assert_eq!(buffer, original, "len {len}");
     }
 }
@@ -192,15 +192,15 @@ fn gf8_scatter_matches_repeated_mul_add() {
         for nrows in [1usize, 2, 3, 4, 5, 7, 8, 9] {
             let src = noise(row_len, 0x66);
             let coeffs: Vec<_> = (0..nrows)
-                .map(|j| gf8::Elem((j as u8).wrapping_mul(37)))
+                .map(|j| gf8b::Elem((j as u8).wrapping_mul(37)))
                 .collect();
 
             let mut got = noise(row_len * nrows, 0x77);
             let mut want = got.clone();
 
-            ops::mul_add_scatter::<Gf8>(&mut got, row_len, &coeffs, &src);
+            ops::mul_add_scatter::<Gf8B>(&mut got, row_len, &coeffs, &src);
             for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs) {
-                oracle_mul_add::<Gf8>(row, coeff, &src);
+                oracle_mul_add::<Gf8B>(row, coeff, &src);
             }
             assert_eq!(got, want, "row_len {row_len}, nrows {nrows}");
         }
@@ -236,14 +236,14 @@ fn gf8_matrix_matches_repeated_scatter() {
                 let sources: Vec<Vec<u8>> = (0..nterms)
                     .map(|t| noise(row_len, 0x100 + t as u64))
                     .collect();
-                let coeff_sets: Vec<Vec<gf8::Elem>> = (0..nterms)
+                let coeff_sets: Vec<Vec<gf8b::Elem>> = (0..nterms)
                     .map(|t| {
                         (0..nrows)
-                            .map(|j| gf8::Elem(((t * 31 + j * 17) as u8).wrapping_add(1)))
+                            .map(|j| gf8b::Elem(((t * 31 + j * 17) as u8).wrapping_add(1)))
                             .collect()
                     })
                     .collect();
-                let terms: Vec<(&[gf8::Elem], &[u8])> = coeff_sets
+                let terms: Vec<(&[gf8b::Elem], &[u8])> = coeff_sets
                     .iter()
                     .zip(&sources)
                     .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -252,10 +252,10 @@ fn gf8_matrix_matches_repeated_scatter() {
                 let mut got = noise(row_len * nrows, 0xaa);
                 let mut want = got.clone();
 
-                ops::mul_add_matrix::<Gf8>(&mut got, row_len, nrows, &terms);
+                ops::mul_add_matrix::<Gf8B>(&mut got, row_len, nrows, &terms);
                 for &(coeffs, src) in &terms {
                     for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
-                        oracle_mul_add::<Gf8>(row, coeff, src);
+                        oracle_mul_add::<Gf8B>(row, coeff, src);
                     }
                 }
                 assert_eq!(
@@ -376,7 +376,7 @@ fn check_matrix_scattered<F: fgf::FieldKernels>(tag: &str, seed: u64) {
 
 #[test]
 fn gf8_matrix_scattered_matches_contiguous() {
-    check_matrix_scattered::<Gf8>("gf8", 0x5ca7);
+    check_matrix_scattered::<Gf8B>("gf8", 0x5ca7);
 }
 
 #[test]
@@ -390,16 +390,16 @@ fn matrix_scattered_pairs_coefficients_to_out_of_order_rows() {
     // `row_starts[j]`, whatever order the offsets appear in.
     let row_len = 64;
     let src = noise(row_len, 0x11);
-    let coeffs = [gf8::Elem(2), gf8::Elem(9), gf8::Elem(200)];
+    let coeffs = [gf8b::Elem(2), gf8b::Elem(9), gf8b::Elem(200)];
     // Three rows placed high-to-low, so offset order is the reverse of index
     // order.
     let row_starts = [2 * row_len, row_len, 0usize];
     let mut dst = vec![0u8; 3 * row_len];
-    ops::mul_add_matrix_scattered::<Gf8>(&mut dst, row_len, &row_starts, &[(&coeffs, &src)]);
+    ops::mul_add_matrix_scattered::<Gf8B>(&mut dst, row_len, &row_starts, &[(&coeffs, &src)]);
 
     for (j, &start) in row_starts.iter().enumerate() {
         let mut want = vec![0u8; row_len];
-        oracle_mul_add::<Gf8>(&mut want, coeffs[j], &src);
+        oracle_mul_add::<Gf8B>(&mut want, coeffs[j], &src);
         assert_eq!(&dst[start..start + row_len], &want[..], "row {j}");
     }
 }
@@ -408,25 +408,25 @@ fn matrix_scattered_pairs_coefficients_to_out_of_order_rows() {
 #[should_panic(expected = "overlap")]
 fn matrix_scattered_rejects_overlapping_rows() {
     let mut dst = [0u8; 64];
-    let coeffs = [gf8::Elem(1); 2];
+    let coeffs = [gf8b::Elem(1); 2];
     // Second row starts 8 bytes into the first 16-byte row.
-    ops::mul_add_matrix_scattered::<Gf8>(&mut dst, 16, &[0, 8], &[(&coeffs, &[0u8; 16])]);
+    ops::mul_add_matrix_scattered::<Gf8B>(&mut dst, 16, &[0, 8], &[(&coeffs, &[0u8; 16])]);
 }
 
 #[test]
 #[should_panic(expected = "but dst is")]
 fn matrix_scattered_rejects_out_of_bounds_row() {
     let mut dst = [0u8; 32];
-    let coeffs = [gf8::Elem(1); 2];
-    ops::mul_add_matrix_scattered::<Gf8>(&mut dst, 16, &[0, 24], &[(&coeffs, &[0u8; 16])]);
+    let coeffs = [gf8b::Elem(1); 2];
+    ops::mul_add_matrix_scattered::<Gf8B>(&mut dst, 16, &[0, 24], &[(&coeffs, &[0u8; 16])]);
 }
 
 #[test]
 #[should_panic(expected = "coefficients for")]
 fn matrix_scattered_rejects_wrong_coefficient_count() {
     let mut dst = [0u8; 64];
-    let coeffs = [gf8::Elem(1); 2];
-    ops::mul_add_matrix_scattered::<Gf8>(&mut dst, 16, &[0, 16, 32], &[(&coeffs, &[0u8; 16])]);
+    let coeffs = [gf8b::Elem(1); 2];
+    ops::mul_add_matrix_scattered::<Gf8B>(&mut dst, 16, &[0, 16, 32], &[(&coeffs, &[0u8; 16])]);
 }
 
 #[test]
@@ -437,8 +437,8 @@ fn matrix_leaves_rows_beyond_nrows_untouched() {
     let untouched = buffer[row_len * 3..].to_vec();
 
     let src = noise(row_len, 0xdd);
-    let coeffs = [gf8::Elem(2), gf8::Elem(3), gf8::Elem(4)];
-    ops::mul_add_matrix::<Gf8>(&mut buffer, row_len, 3, &[(&coeffs, &src)]);
+    let coeffs = [gf8b::Elem(2), gf8b::Elem(3), gf8b::Elem(4)];
+    ops::mul_add_matrix::<Gf8B>(&mut buffer, row_len, 3, &[(&coeffs, &src)]);
 
     assert_eq!(&buffer[row_len * 3..], &untouched[..]);
 }
@@ -450,14 +450,14 @@ fn gather_matches_summed_mul_add() {
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
 
     // Include zero and one to exercise the short-circuits.
-    let coeffs = [0u8, 1, 0x53, 0xff, 2, 0x1d].map(gf8::Elem);
+    let coeffs = [0u8, 1, 0x53, 0xff, 2, 0x1d].map(gf8b::Elem);
 
     let mut got = noise(len, 0xee);
     let mut want = got.clone();
 
-    ops::mul_add_gather::<Gf8>(&mut got, &coeffs, &refs);
+    ops::mul_add_gather::<Gf8B>(&mut got, &coeffs, &refs);
     for (&coeff, &src) in coeffs.iter().zip(&refs) {
-        oracle_mul_add::<Gf8>(&mut want, coeff, src);
+        oracle_mul_add::<Gf8B>(&mut want, coeff, src);
     }
     assert_eq!(got, want);
 }
@@ -480,20 +480,20 @@ fn gf16_gather_matches_summed_mul_add() {
 #[test]
 fn prepared_coefficients_match_one_shot_operations() {
     let src8 = noise(258, 0x350);
-    for coeff in [0u8, 1, 2, 0x53, 0xff].map(gf8::Elem) {
-        let prepared = ops::Coeff::<Gf8>::new(coeff);
+    for coeff in [0u8, 1, 2, 0x53, 0xff].map(gf8b::Elem) {
+        let prepared = ops::Coeff::<Gf8B>::new(coeff);
         assert_eq!(prepared.value(), coeff);
 
         let mut got = noise(src8.len(), 0x351);
         let mut want = got.clone();
         ops::mul_add_with(&mut got, &prepared, &src8);
-        ops::mul_add::<Gf8>(&mut want, coeff, &src8);
+        ops::mul_add::<Gf8B>(&mut want, coeff, &src8);
         assert_eq!(got, want, "GF8 prepared AXPY for {coeff:?}");
 
         let mut got = vec![0; src8.len()];
         let mut want = vec![0; src8.len()];
         ops::mul_into_with(&mut got, &prepared, &src8);
-        ops::mul_into::<Gf8>(&mut want, coeff, &src8);
+        ops::mul_into::<Gf8B>(&mut want, coeff, &src8);
         assert_eq!(got, want, "GF8 prepared scale for {coeff:?}");
     }
 
@@ -653,7 +653,7 @@ fn assert_blocked_plan_shapes<F: fgf::FieldKernels>(row_len: usize, seed: u64) {
 #[test]
 #[cfg(feature = "std")]
 fn blocked_plans_match_raw_operations_across_group_boundaries() {
-    assert_blocked_plan_shapes::<Gf8>(79, 0x370);
+    assert_blocked_plan_shapes::<Gf8B>(79, 0x370);
     assert_blocked_plan_shapes::<Gf16>(78, 0x380);
 }
 
@@ -685,9 +685,9 @@ fn elementwise_products_match_field_arithmetic() {
         let b = noise(len, 0x355);
         let mut got = vec![0; len];
         let mut want = vec![0; len];
-        ops::mul_elementwise::<Gf8>(&mut got, &a, &b);
+        ops::mul_elementwise::<Gf8B>(&mut got, &a, &b);
         for ((d, &x), &y) in want.iter_mut().zip(&a).zip(&b) {
-            *d = gf8::Elem(x).mul(gf8::Elem(y)).0;
+            *d = gf8b::Elem(x).mul(gf8b::Elem(y)).0;
         }
         assert_eq!(got, want, "GF8 elementwise len {len}");
     }
@@ -720,11 +720,11 @@ fn zero_and_one_coefficients_behave() {
     let original = noise(len, 0x0f);
 
     let mut buffer = original.clone();
-    ops::mul_add::<Gf8>(&mut buffer, gf8::Elem::ZERO, &src);
+    ops::mul_add::<Gf8B>(&mut buffer, gf8b::Elem::ZERO, &src);
     assert_eq!(buffer, original, "zero coefficient must be a no-op");
 
     let mut buffer = original.clone();
-    ops::mul_add::<Gf8>(&mut buffer, gf8::Elem::ONE, &src);
+    ops::mul_add::<Gf8B>(&mut buffer, gf8b::Elem::ONE, &src);
     let want: Vec<u8> = original.iter().zip(&src).map(|(a, b)| a ^ b).collect();
     assert_eq!(buffer, want, "unit coefficient must be plain XOR");
 
@@ -749,12 +749,12 @@ fn erasure_round_trip_gf8() {
     let data: Vec<u8> = noise(k * row_len, 0x5150);
 
     // parity[j] = sum_i coeff(i, j) * data[i], coeff(i, j) = g^((i+1)*(j+1)).
-    let coeff = |i: usize, j: usize| Gf8::GENERATOR.pow(((i + 1) * (j + 1)) as u64);
+    let coeff = |i: usize, j: usize| Gf8B::GENERATOR.pow(((i + 1) * (j + 1)) as u64);
 
     let mut parity = vec![0u8; m * row_len];
     for i in 0..k {
         let coeffs: Vec<_> = (0..m).map(|j| coeff(i, j)).collect();
-        ops::mul_add_scatter::<Gf8>(
+        ops::mul_add_scatter::<Gf8B>(
             &mut parity,
             row_len,
             &coeffs,
@@ -768,7 +768,7 @@ fn erasure_round_trip_gf8() {
     let mut residual = parity[..2 * row_len].to_vec();
     for i in (0..k).filter(|i| !lost.contains(i)) {
         let coeffs = [coeff(i, 0), coeff(i, 1)];
-        ops::mul_add_matrix::<Gf8>(
+        ops::mul_add_matrix::<Gf8B>(
             &mut residual,
             row_len,
             2,
@@ -780,15 +780,15 @@ fn erasure_round_trip_gf8() {
     let (a0, b0) = (coeff(lost[0], 0), coeff(lost[1], 0));
     let (a1, b1) = (coeff(lost[0], 1), coeff(lost[1], 1));
     let det = a0.mul(b1).add(a1.mul(b0));
-    assert_ne!(det, gf8::Elem::ZERO, "chosen submatrix is singular");
+    assert_ne!(det, gf8b::Elem::ZERO, "chosen submatrix is singular");
     let det_inv = det.inv();
 
     // Cramer's rule, characteristic two so signs vanish.
     let (r0, r1) = residual.split_at(row_len);
     let mut x = vec![0u8; row_len];
-    ops::mul_add_gather::<Gf8>(&mut x, &[b1.mul(det_inv), b0.mul(det_inv)], &[r0, r1]);
+    ops::mul_add_gather::<Gf8B>(&mut x, &[b1.mul(det_inv), b0.mul(det_inv)], &[r0, r1]);
     let mut y = vec![0u8; row_len];
-    ops::mul_add_gather::<Gf8>(&mut y, &[a1.mul(det_inv), a0.mul(det_inv)], &[r0, r1]);
+    ops::mul_add_gather::<Gf8B>(&mut y, &[a1.mul(det_inv), a0.mul(det_inv)], &[r0, r1]);
 
     assert_eq!(x, data[lost[0] * row_len..(lost[0] + 1) * row_len], "row 1");
     assert_eq!(y, data[lost[1] * row_len..(lost[1] + 1) * row_len], "row 4");
@@ -802,7 +802,7 @@ fn erasure_round_trip_gf8() {
 #[should_panic(expected = "dst is 8 bytes but src is 4 bytes")]
 fn mul_add_rejects_length_mismatch() {
     let mut dst = [0u8; 8];
-    ops::mul_add::<Gf8>(&mut dst, gf8::Elem(2), &[0u8; 4]);
+    ops::mul_add::<Gf8B>(&mut dst, gf8b::Elem(2), &[0u8; 4]);
 }
 
 #[test]
@@ -816,26 +816,26 @@ fn gf16_rejects_odd_length() {
 #[should_panic(expected = "rows is 30 bytes")]
 fn scatter_rejects_wrong_row_count() {
     let mut rows = [0u8; 30];
-    let coeffs = [gf8::Elem(1); 4];
-    ops::mul_add_scatter::<Gf8>(&mut rows, 8, &coeffs, &[0u8; 8]);
+    let coeffs = [gf8b::Elem(1); 4];
+    ops::mul_add_scatter::<Gf8B>(&mut rows, 8, &coeffs, &[0u8; 8]);
 }
 
 #[test]
 #[should_panic(expected = "coefficients for")]
 fn matrix_rejects_wrong_coefficient_count() {
     let mut rows = [0u8; 32];
-    let coeffs = [gf8::Elem(1); 2];
-    ops::mul_add_matrix::<Gf8>(&mut rows, 8, 4, &[(&coeffs, &[0u8; 8])]);
+    let coeffs = [gf8b::Elem(1); 2];
+    ops::mul_add_matrix::<Gf8B>(&mut rows, 8, 4, &[(&coeffs, &[0u8; 8])]);
 }
 
 #[test]
 fn empty_buffers_are_no_ops() {
     let mut empty: [u8; 0] = [];
-    ops::mul_add::<Gf8>(&mut empty, gf8::Elem(7), &[]);
+    ops::mul_add::<Gf8B>(&mut empty, gf8b::Elem(7), &[]);
     ops::mul_assign::<Gf16>(&mut empty, gf16::Elem(7));
-    ops::mul_add_scatter::<Gf8>(&mut empty, 0, &[], &[]);
-    ops::mul_add_matrix::<Gf8>(&mut empty, 8, 0, &[]);
-    ops::mul_add_gather::<Gf8>(&mut empty, &[], &[]);
+    ops::mul_add_scatter::<Gf8B>(&mut empty, 0, &[], &[]);
+    ops::mul_add_matrix::<Gf8B>(&mut empty, 8, 0, &[]);
+    ops::mul_add_gather::<Gf8B>(&mut empty, &[], &[]);
 }
 
 fn check_wide_field_ops<F: fgf::FieldKernels>(coeffs: &[F::Elem]) {

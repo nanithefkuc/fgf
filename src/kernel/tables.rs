@@ -20,13 +20,13 @@
 //! whole buffer, or hoisted out entirely with `Coeff`/`Plan`.
 
 use crate::field::fan_paar::{fp8, fp16};
-use crate::field::{gf8, gf16};
+use crate::field::{gf8b, gf16};
 
 /// Split-nibble multiplication tables for one GF(2^8) coefficient.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScaleTable {
     /// The coefficient these tables multiply by.
-    pub coeff: gf8::Elem,
+    pub coeff: gf8b::Elem,
     /// `lo[i] = coeff * i` for the low nibble.
     pub lo: [u8; 16],
     /// `hi[i] = coeff * (i << 4)` for the high nibble.
@@ -39,13 +39,13 @@ impl ScaleTable {
     // Loop counters are bounded by the array sizes (16, 256), so every cast
     // below is exact; `const fn` rules out `try_into`.
     #[allow(clippy::cast_possible_truncation)]
-    pub const fn new(coeff: gf8::Elem) -> Self {
+    pub const fn new(coeff: gf8b::Elem) -> Self {
         let mut lo = [0u8; 16];
         let mut hi = [0u8; 16];
         let mut i = 0;
         while i < 16 {
-            lo[i] = gf8::Elem(i as u8).mul(coeff).0;
-            hi[i] = gf8::Elem((i as u8) << 4).mul(coeff).0;
+            lo[i] = gf8b::Elem(i as u8).mul(coeff).0;
+            hi[i] = gf8b::Elem((i as u8) << 4).mul(coeff).0;
             i += 1;
         }
         Self { coeff, lo, hi }
@@ -60,10 +60,10 @@ static SCALE_TABLE_BANK: [ScaleTable; 256] = build_bank();
 
 #[allow(clippy::cast_possible_truncation)]
 const fn build_bank() -> [ScaleTable; 256] {
-    let mut bank = [ScaleTable::new(gf8::Elem(0)); 256];
+    let mut bank = [ScaleTable::new(gf8b::Elem(0)); 256];
     let mut i = 0;
     while i < 256 {
-        bank[i] = ScaleTable::new(gf8::Elem(i as u8));
+        bank[i] = ScaleTable::new(gf8b::Elem(i as u8));
         i += 1;
     }
     bank
@@ -72,7 +72,7 @@ const fn build_bank() -> [ScaleTable; 256] {
 /// Return the shared nibble tables for a GF(2^8) coefficient.
 #[inline]
 #[must_use]
-pub fn scale_table(coeff: gf8::Elem) -> &'static ScaleTable {
+pub fn scale_table(coeff: gf8b::Elem) -> &'static ScaleTable {
     &SCALE_TABLE_BANK[coeff.0 as usize]
 }
 
@@ -116,10 +116,10 @@ impl TowerCoeff {
     /// cross.1]` order, i.e. `[c0, c0+c1, DELTA*c1, c1]`.
     #[inline]
     #[must_use]
-    pub const fn factors(self) -> [gf8::Elem; 4] {
+    pub const fn factors(self) -> [gf8b::Elem; 4] {
         let [s0, s1] = self.same.to_le_bytes();
         let [x0, x1] = self.cross.to_le_bytes();
-        [gf8::Elem(s0), gf8::Elem(s1), gf8::Elem(x0), gf8::Elem(x1)]
+        [gf8b::Elem(s0), gf8b::Elem(s1), gf8b::Elem(x0), gf8b::Elem(x1)]
     }
 }
 
@@ -357,7 +357,7 @@ impl<E: crate::field::Elem> Tower2Coeff<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::field::gf8::Elem as E8;
+    use crate::field::gf8b::Elem as E8;
 
     #[test]
     fn nibble_tables_reconstruct_the_product() {

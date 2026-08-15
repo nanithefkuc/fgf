@@ -22,7 +22,7 @@
 
 use core::arch::aarch64::*;
 
-use crate::field::gf8::Elem;
+use crate::field::gf8b::Elem;
 use crate::kernel::gf8::{mul_add_nibble, mul_assign_nibble, mul_into_nibble};
 use crate::kernel::tables::{ScaleTable, scale_table};
 
