@@ -214,6 +214,227 @@ unsafe fn mul_into_gfni_impl<const NT: bool>(dst: &mut [u8], coeff: Elem, src: &
 }
 
 // ---------------------------------------------------------------------------
+// Single buffer: GFNI affine.
+//
+// `VGF2P8AFFINEQB` applies an arbitrary 8×8 GF(2) linear map per byte lane,
+// so it multiplies in *any* GF(2^8): the polynomial lives in the prepared
+// matrix qword, not in the instruction. `Gf8D` (`0x11D`) uses these kernels;
+// `Gf8B` has the native `GF2P8MULB` and never needs them. Each loop mirrors
+// its `GF2P8MULB` counterpart exactly — same unroll, same lane descent — and
+// only the multiply instruction differs. The coefficient enters as its
+// affine matrix qword (see `tables::affine_8d`); its nibble table covers the
+// sub-XMM tail, so both prepared forms arrive as arguments and no kernel
+// below reaches for a bank.
+// ---------------------------------------------------------------------------
+
+/// `dst ^= coeff * src` using `VGF2P8AFFINEQB` over 32-byte lanes.
+///
+/// # Panics
+/// Panics if the slices differ in length.
+// Wired into `Gf8D` dispatch by the affine adoption; a kernel with
+// no consumer until then.
+#[allow(dead_code)]
+pub fn mul_add_affine(dst: &mut [u8], map: u64, table: &ScaleTable, src: &[u8]) {
+    assert_eq!(dst.len(), src.len());
+    // SAFETY: the caller selected the GFNI backend, which detected both AVX2
+    // and GFNI; the slices are equal-length and independently borrowed.
+    unsafe { mul_add_affine_impl(dst, map, table, src) }
+}
+
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn mul_add_affine_impl(dst: &mut [u8], map: u64, table: &ScaleTable, src: &[u8]) {
+    let factor = _mm256_set1_epi64x(map.cast_signed());
+    let factor128 = _mm256_castsi256_si128(factor);
+    let len = dst.len();
+    let (dst_ptr, src_ptr) = (dst.as_mut_ptr(), src.as_ptr());
+    let mut offset = 0;
+
+    // Four independent multiply chains per iteration. A single destination
+    // AXPY is latency-bound on `VGF2P8AFFINEQB`, and the unroll is what
+    // covers it.
+    while offset + 128 <= len {
+        // SAFETY: `offset + 128 <= len == dst.len() == src.len()`, so all
+        // twelve unaligned accesses stay inside their slice.
+        unsafe {
+            let sp = src_ptr.add(offset);
+            let dp = dst_ptr.add(offset);
+            let x0 = _mm256_loadu_si256(sp.cast());
+            let x1 = _mm256_loadu_si256(sp.add(32).cast());
+            let x2 = _mm256_loadu_si256(sp.add(64).cast());
+            let x3 = _mm256_loadu_si256(sp.add(96).cast());
+            let d0 = _mm256_loadu_si256(dp.cast());
+            let d1 = _mm256_loadu_si256(dp.add(32).cast());
+            let d2 = _mm256_loadu_si256(dp.add(64).cast());
+            let d3 = _mm256_loadu_si256(dp.add(96).cast());
+            let r0 = _mm256_xor_si256(d0, _mm256_gf2p8affine_epi64_epi8::<0>(x0, factor));
+            let r1 = _mm256_xor_si256(d1, _mm256_gf2p8affine_epi64_epi8::<0>(x1, factor));
+            let r2 = _mm256_xor_si256(d2, _mm256_gf2p8affine_epi64_epi8::<0>(x2, factor));
+            let r3 = _mm256_xor_si256(d3, _mm256_gf2p8affine_epi64_epi8::<0>(x3, factor));
+            _mm256_storeu_si256(dp.cast(), r0);
+            _mm256_storeu_si256(dp.add(32).cast(), r1);
+            _mm256_storeu_si256(dp.add(64).cast(), r2);
+            _mm256_storeu_si256(dp.add(96).cast(), r3);
+        }
+        offset += 128;
+    }
+    while offset + 32 <= len {
+        // SAFETY: `offset + 32 <= len == dst.len() == src.len()`.
+        unsafe {
+            let x = _mm256_loadu_si256(src_ptr.add(offset).cast());
+            let d = _mm256_loadu_si256(dst_ptr.add(offset).cast());
+            let r = _mm256_xor_si256(d, _mm256_gf2p8affine_epi64_epi8::<0>(x, factor));
+            _mm256_storeu_si256(dst_ptr.add(offset).cast(), r);
+        }
+        offset += 32;
+    }
+    if offset + 16 <= len {
+        // SAFETY: `offset + 16 <= len == dst.len() == src.len()`.
+        unsafe {
+            let x = _mm_loadu_si128(src_ptr.add(offset).cast());
+            let d = _mm_loadu_si128(dst_ptr.add(offset).cast());
+            let r = _mm_xor_si128(d, _mm_gf2p8affine_epi64_epi8::<0>(x, factor128));
+            _mm_storeu_si128(dst_ptr.add(offset).cast(), r);
+        }
+        offset += 16;
+    }
+
+    mul_add_nibble(&mut dst[offset..], table, &src[offset..]);
+}
+
+/// `dst = coeff * dst` using `VGF2P8AFFINEQB` over 32-byte lanes.
+// Wired into `Gf8D` dispatch by the affine adoption; a kernel with
+// no consumer until then.
+#[allow(dead_code)]
+pub fn mul_assign_affine(dst: &mut [u8], map: u64, table: &ScaleTable) {
+    // SAFETY: the caller selected the GFNI backend, which detected both AVX2
+    // and GFNI.
+    unsafe { mul_assign_affine_impl(dst, map, table) }
+}
+
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn mul_assign_affine_impl(dst: &mut [u8], map: u64, table: &ScaleTable) {
+    let factor = _mm256_set1_epi64x(map.cast_signed());
+    let factor128 = _mm256_castsi256_si128(factor);
+    let len = dst.len() & !31;
+    let dst_ptr = dst.as_mut_ptr();
+    let mut offset = 0;
+    // In-place scaling is store-bound and rare next to the AXPY shapes, so
+    // one accumulator is enough; the loads have no dependency to cover.
+    while offset < len {
+        // SAFETY: `offset + 32 <= len <= dst.len()`.
+        unsafe {
+            let d = _mm256_loadu_si256(dst_ptr.add(offset).cast());
+            _mm256_storeu_si256(
+                dst_ptr.add(offset).cast(),
+                _mm256_gf2p8affine_epi64_epi8::<0>(d, factor),
+            );
+        }
+        offset += 32;
+    }
+    let mut offset = len;
+    if offset + 16 <= dst.len() {
+        // SAFETY: `offset + 16 <= dst.len()`.
+        unsafe {
+            let d = _mm_loadu_si128(dst_ptr.add(offset).cast());
+            _mm_storeu_si128(
+                dst_ptr.add(offset).cast(),
+                _mm_gf2p8affine_epi64_epi8::<0>(d, factor128),
+            );
+        }
+        offset += 16;
+    }
+
+    mul_assign_nibble(&mut dst[offset..], table);
+}
+
+/// `dst = coeff * src` using `VGF2P8AFFINEQB` over 32-byte lanes.
+///
+/// Fused out-of-place multiply: one pass, one read of `src` and one write of
+/// `dst`, versus the copy-then-scale pair the trait default runs.
+///
+/// # Panics
+/// Panics if the slices differ in length.
+// Wired into `Gf8D` dispatch by the affine adoption; a kernel with
+// no consumer until then.
+#[allow(dead_code)]
+pub fn mul_into_affine(dst: &mut [u8], map: u64, table: &ScaleTable, src: &[u8]) {
+    assert_eq!(dst.len(), src.len());
+    // SAFETY: the caller selected the GFNI backend, which detected both AVX2
+    // and GFNI; the slices are equal-length and independently borrowed, and
+    // `nt_split` returns a 32-byte-aligned split for the non-temporal body.
+    unsafe {
+        match super::nt_split(dst, 1) {
+            Some(peel) => {
+                let (head, body) = dst.split_at_mut(peel);
+                let (src_head, src_body) = src.split_at(peel);
+                mul_into_affine_impl::<false>(head, map, table, src_head);
+                mul_into_affine_impl::<true>(body, map, table, src_body);
+                _mm_sfence();
+            }
+            None => mul_into_affine_impl::<false>(dst, map, table, src),
+        }
+    }
+}
+
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn mul_into_affine_impl<const NT: bool>(
+    dst: &mut [u8],
+    map: u64,
+    table: &ScaleTable,
+    src: &[u8],
+) {
+    let factor = _mm256_set1_epi64x(map.cast_signed());
+    let factor128 = _mm256_castsi256_si128(factor);
+    let len = dst.len();
+    let (dst_ptr, src_ptr) = (dst.as_mut_ptr(), src.as_ptr());
+    let mut offset = 0;
+
+    // Four independent multiply chains, as in the AXPY: `VGF2P8AFFINEQB` is
+    // pipelined, and with no destination read there is even less other work
+    // to hide its latency behind.
+    while offset + 128 <= len {
+        // SAFETY: `offset + 128 <= len == dst.len() == src.len()`.
+        unsafe {
+            let sp = src_ptr.add(offset);
+            let dp = dst_ptr.add(offset);
+            let r0 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(sp.cast()), factor);
+            let r1 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(sp.add(32).cast()), factor);
+            let r2 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(sp.add(64).cast()), factor);
+            let r3 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(sp.add(96).cast()), factor);
+            super::store256::<NT>(dp, r0);
+            super::store256::<NT>(dp.add(32), r1);
+            super::store256::<NT>(dp.add(64), r2);
+            super::store256::<NT>(dp.add(96), r3);
+        }
+        offset += 128;
+    }
+    while offset + 32 <= len {
+        // SAFETY: `offset + 32 <= len == dst.len() == src.len()`.
+        unsafe {
+            let x = _mm256_loadu_si256(src_ptr.add(offset).cast());
+            _mm256_storeu_si256(
+                dst_ptr.add(offset).cast(),
+                _mm256_gf2p8affine_epi64_epi8::<0>(x, factor),
+            );
+        }
+        offset += 32;
+    }
+    if offset + 16 <= len {
+        // SAFETY: `offset + 16 <= len == dst.len() == src.len()`.
+        unsafe {
+            let x = _mm_loadu_si128(src_ptr.add(offset).cast());
+            _mm_storeu_si128(
+                dst_ptr.add(offset).cast(),
+                _mm_gf2p8affine_epi64_epi8::<0>(x, factor128),
+            );
+        }
+        offset += 16;
+    }
+
+    mul_into_nibble(&mut dst[offset..], table, &src[offset..]);
+}
+
+// ---------------------------------------------------------------------------
 // Single buffer: nibble shuffle.
 // ---------------------------------------------------------------------------
 

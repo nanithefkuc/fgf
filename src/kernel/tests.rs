@@ -24,11 +24,15 @@ extern crate std;
 use std::vec;
 use std::vec::Vec;
 
-use crate::field::{FanPaar16, FanPaar32, FanPaar64, Gf32, Gf64, fan_paar, gf8b, gf16, gf32, gf64};
+use crate::field::{
+    FanPaar16, FanPaar32, FanPaar64, Gf32, Gf64, fan_paar, gf8b, gf8d, gf16, gf32, gf64,
+};
 use crate::kernel::scalar;
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::kernel::tables::FpTowerTables;
 use crate::kernel::tables::{ScaleTable, TowerCoeff, TowerTables, scale_table};
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+use crate::kernel::tables::{affine_8d, scale_table_8d};
 
 /// Lengths covering: empty, sub-lane, exact lanes, lane+1, several unroll
 /// tiles, and a large odd size. All even so GF(2^16) can use the same list.
@@ -277,6 +281,61 @@ fn check_gather<E: Copy, F>(
             assert_eq!(got, want, "{name}: len {len}, terms {nterms}");
         }
     }
+}
+
+/// All 256 `0x11D` coefficients against noise sources at every lane-boundary
+/// length, then against a source holding every byte value — so between the
+/// two sweeps the affine kernels below see all 65 536 products outright.
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+fn for_each_gf8d_affine_case(case: impl FnMut(gf8d::Elem, &[u8])) {
+    let mut case = case;
+    for &len in LENGTHS {
+        let src = noise(len, 0x51);
+        for c in 0..=u8::MAX {
+            case(gf8d::Elem(c), &src);
+        }
+    }
+    let every_byte: Vec<u8> = (0..=u8::MAX).collect();
+    for c in 0..=u8::MAX {
+        case(gf8d::Elem(c), &every_byte);
+    }
+}
+
+/// Compare a `0x11D` affine `mul_add` kernel against the reference at every
+/// length and coefficient.
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+fn check_gf8d_affine_mul_add(name: &str, kernel: impl Fn(&mut [u8], u64, &ScaleTable, &[u8])) {
+    for_each_gf8d_affine_case(|coeff, src| {
+        let mut got = noise(src.len(), 0x62);
+        let mut want = got.clone();
+        kernel(&mut got, affine_8d(coeff), scale_table_8d(coeff), src);
+        scalar::mul_add::<gf8d::Gf8D>(&mut want, coeff, src);
+        assert_eq!(got, want, "{name}: len {}, coeff {coeff:?}", src.len());
+    });
+}
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+fn check_gf8d_affine_mul_assign(name: &str, kernel: impl Fn(&mut [u8], u64, &ScaleTable)) {
+    for_each_gf8d_affine_case(|coeff, src| {
+        let mut got = noise(src.len(), 0x73);
+        let mut want = got.clone();
+        kernel(&mut got, affine_8d(coeff), scale_table_8d(coeff));
+        scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
+        assert_eq!(got, want, "{name}: len {}, coeff {coeff:?}", src.len());
+    });
+}
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+fn check_gf8d_affine_mul_into(name: &str, kernel: impl Fn(&mut [u8], u64, &ScaleTable, &[u8])) {
+    for_each_gf8d_affine_case(|coeff, src| {
+        // Pre-fill the destination with noise: a fused kernel must overwrite
+        // it, never accumulate into it.
+        let mut got = noise(src.len(), 0x147);
+        let mut want = src.to_vec();
+        kernel(&mut got, affine_8d(coeff), scale_table_8d(coeff), src);
+        scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
+        assert_eq!(got, want, "{name}: len {}, coeff {coeff:?}", src.len());
+    });
 }
 
 fn check_gf8_elementwise(name: &str, kernel: impl Fn(&mut [u8], &[u8], &[u8])) {
@@ -819,6 +878,44 @@ mod x86 {
                 x86::gf64::mul_into_gfni(dst, coeff, x86::gf64::gf64_tiles(coeff), src);
             },
         );
+    }
+
+    /// The `0x11D` field's GFNI path: `VGF2P8AFFINEQB` with the const-derived
+    /// affine bank. The sweep is exhaustive over coefficients, and the
+    /// all-byte-values source makes it exhaustive over products — this is the
+    /// silicon-level proof of the affine map's bit-order convention, and the
+    /// loud failure if `GF2P8MULB` (the AES field) were ever substituted.
+    #[test]
+    fn gf8d_affine_kernels_match_reference() {
+        if !(host_supports(&[Backend::V3GfniCrypto])) {
+            eprintln!("skipping: no AVX2+GFNI on this host");
+            return;
+        }
+
+        check_gf8d_affine_mul_add("gf8d affine", x86::gf8::mul_add_affine);
+        check_gf8d_affine_mul_assign("gf8d affine", x86::gf8::mul_assign_affine);
+        check_gf8d_affine_mul_into("gf8d affine", x86::gf8::mul_into_affine);
+
+        // The non-temporal `mul_into` body sits far above the shared lengths;
+        // destination offsets 0 and 1 cover both sides of the alignment peel.
+        const NT_LEN: usize = (2 << 20) + 130;
+        let source = noise(NT_LEN + 2, 0x2b8);
+        for offset in [0, 1] {
+            let src = &source[offset..offset + NT_LEN];
+            let mut buffer = vec![0u8; NT_LEN + 1];
+            for coeff in [0u8, 1, 0x53, 0xff].map(gf8d::Elem) {
+                let mut want = src.to_vec();
+                scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
+                let got = &mut buffer[offset..offset + NT_LEN];
+                x86::gf8::mul_into_affine(
+                    got,
+                    affine_8d(coeff),
+                    scale_table_8d(coeff),
+                    src,
+                );
+                assert_eq!(got, want.as_slice(), "gf8d affine nt mul_into: {coeff:?}");
+            }
+        }
     }
 
     #[test]
