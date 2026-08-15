@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows
 - `mul_add_matrix_scattered` reconstructs disjoint destination rows directly
   in their final positions. GF(2^8) uses the register-blocked x86 GFNI matrix
   kernel; other backends use the portable path.
+- `Gf8D`, a second GF(2^8) field under the polynomial `0x11D` (generator `2`),
+  for byte-identical Reed–Solomon interop with ISA-L and
+  `klauspost/reedsolomon`. Its scalar arithmetic is `const`, mirroring `Gf8B`.
 
 ### Changed
 

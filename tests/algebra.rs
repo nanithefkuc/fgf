@@ -7,8 +7,8 @@
 
 use fgf::field::Field;
 use fgf::{
-    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf16, Gf32, Gf64, fan_paar, gf8b, gf16, gf32,
-    gf64,
+    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf8D, Gf16, Gf32, Gf64, fan_paar, gf8b, gf8d,
+    gf16, gf32, gf64,
 };
 
 /// Every nonzero element, plus zero, in ascending order.
@@ -120,6 +120,128 @@ fn gf8_pow_matches_repeated_multiplication() {
             expected = expected.mul(a);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// GF(2^8) under 0x11D
+// ---------------------------------------------------------------------------
+
+/// Every element of the 0x11D field, in ascending raw order.
+fn all_gf8d() -> impl Iterator<Item = gf8d::Elem> {
+    (0..=u8::MAX).map(gf8d::Elem)
+}
+
+#[test]
+fn gf8d_table_multiply_matches_shift_and_xor() {
+    for a in all_gf8d() {
+        for b in all_gf8d() {
+            assert_eq!(
+                a.mul(b),
+                a.mul_xtime(b),
+                "table and xtime disagree on {a:?} * {b:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn gf8d_inverse_matches_fermat_and_round_trips() {
+    assert_eq!(gf8d::Elem::ZERO.inv(), gf8d::Elem::ZERO, "inv(0) must be 0");
+    for a in all_gf8d().skip(1) {
+        assert_eq!(a.inv(), a.inv_xtime(), "inverse backends disagree on {a:?}");
+        assert_eq!(a.mul(a.inv()), gf8d::Elem::ONE, "{a:?} * inv({a:?}) != 1");
+        assert_eq!(a.div(a), gf8d::Elem::ONE, "{a:?} / {a:?} != 1");
+    }
+}
+
+#[test]
+fn gf8d_generator_has_full_order() {
+    // Under 0x11D the primitive element is x = 2, not 3.
+    assert_eq!(Gf8D::GENERATOR, gf8d::Elem(0x02), "0x11D generator is 2");
+    let mut seen = [false; 256];
+    let mut value = gf8d::Elem::ONE;
+    for step in 0..255u32 {
+        assert!(!seen[value.0 as usize], "generator repeats at step {step}");
+        seen[value.0 as usize] = true;
+        value = value.mul(Gf8D::GENERATOR);
+    }
+    assert_eq!(value, gf8d::Elem::ONE, "generator order is not 255");
+    assert!(
+        seen.iter().skip(1).all(|&hit| hit),
+        "orbit misses an element"
+    );
+}
+
+#[test]
+fn gf8d_field_axioms() {
+    let sample: Vec<_> = all_gf8d().step_by(7).collect();
+    for &a in &sample {
+        assert_eq!(a.add(gf8d::Elem::ZERO), a);
+        assert_eq!(a.mul(gf8d::Elem::ONE), a);
+        assert_eq!(a.mul(gf8d::Elem::ZERO), gf8d::Elem::ZERO);
+        assert_eq!(a.add(a), gf8d::Elem::ZERO, "characteristic two");
+        assert_eq!(a.sub(a), gf8d::Elem::ZERO);
+        for &b in &sample {
+            assert_eq!(a.add(b), b.add(a), "addition commutes");
+            assert_eq!(a.mul(b), b.mul(a), "multiplication commutes");
+            for &c in &sample {
+                assert_eq!(a.add(b).add(c), a.add(b.add(c)), "addition associates");
+                assert_eq!(
+                    a.mul(b).mul(c),
+                    a.mul(b.mul(c)),
+                    "multiplication associates"
+                );
+                assert_eq!(
+                    a.mul(b.add(c)),
+                    a.mul(b).add(a.mul(c)),
+                    "multiplication distributes"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn gf8d_pow_matches_repeated_multiplication() {
+    for a in all_gf8d().step_by(11) {
+        let mut expected = gf8d::Elem::ONE;
+        for exponent in 0..20u64 {
+            assert_eq!(a.pow(exponent), expected, "{a:?}^{exponent}");
+            expected = expected.mul(a);
+        }
+    }
+}
+
+#[test]
+fn gf8d_known_answer_products() {
+    // The 0x11D field used by ISA-L / klauspost-reedsolomon, independently
+    // computed from the shift/XOR oracle.
+    assert_eq!(gf8d::Elem(0x53).mul(gf8d::Elem(0xca)), gf8d::Elem(0x8f));
+    assert_eq!(gf8d::Elem(0x57).mul(gf8d::Elem(0x83)), gf8d::Elem(0x31));
+    assert_eq!(gf8d::Elem(0xff).mul(gf8d::Elem(0xff)), gf8d::Elem(0xe2));
+}
+
+#[test]
+fn field_polynomials_are_introspectable() {
+    assert_eq!(Gf8B::field_poly(), 0x11B);
+    assert_eq!(Gf8D::field_poly(), 0x11D);
+    assert_eq!(gf8b::REDUCTION_POLY, 0x11B);
+    assert_eq!(gf8d::REDUCTION_POLY, 0x11D);
+}
+
+#[test]
+fn gf8d_is_distinct_from_gf8b() {
+    // Same raw bytes, genuinely different products: the guard against filling
+    // the 0x11D tables from the 0x11B arithmetic.
+    assert_eq!(gf8b::Elem(0x53).mul(gf8b::Elem(0xca)), gf8b::Elem(0x01));
+    assert_eq!(gf8b::Elem(0xff).mul(gf8b::Elem(0xff)), gf8b::Elem(0x13));
+    let differ = (0u16..=255)
+        .flat_map(|a| (0u16..=255).map(move |b| (a as u8, b as u8)))
+        .filter(|&(a, b)| {
+            gf8b::Elem(a).mul(gf8b::Elem(b)).to_raw() != gf8d::Elem(a).mul(gf8d::Elem(b)).to_raw()
+        })
+        .count();
+    assert_eq!(differ, 63_232, "0x11B and 0x11D must differ on most products");
 }
 
 // ---------------------------------------------------------------------------

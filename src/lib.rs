@@ -8,6 +8,7 @@
 //! | Field | Type | Element | Construction |
 //! | --- | --- | --- | --- |
 //! | GF(2^8) | [`Gf8B`] | [`gf8b::Elem`] | AES polynomial `0x11B` |
+//! | GF(2^8) | [`Gf8D`] | [`gf8d::Elem`] | polynomial `0x11D` (RS interop) |
 //! | GF(2^16) | [`Gf16`] | [`gf16::Elem`] | quadratic tower over [`Gf8B`] |
 //! | GF(2^32) | [`Gf32`] | [`gf32::Elem`] | quadratic tower over [`Gf16`] |
 //! | GF(2^64) | [`Gf64`] | [`gf64::Elem`] | quadratic tower over [`Gf32`] |
@@ -127,8 +128,8 @@ pub mod kernel;
 pub mod ops;
 
 pub use field::{
-    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Field, Gf8B, Gf16, Gf32, Gf64, fan_paar, gf8b, gf16,
-    gf32, gf64,
+    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Field, Gf8B, Gf8D, Gf16, Gf32, Gf64, fan_paar, gf8b,
+    gf8d, gf16, gf32, gf64,
 };
 pub use kernel::{
     Backend, FieldKernels, KernelBackend, ParseBackendError, backend, backend_for,

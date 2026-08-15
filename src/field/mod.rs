@@ -20,9 +20,11 @@ pub mod gf32;
 pub mod gf64;
 mod flat8;
 pub mod gf8b;
+pub mod gf8d;
 
 pub use fan_paar::{FanPaar8, FanPaar16, FanPaar32, FanPaar64};
 pub use gf8b::Gf8B;
+pub use gf8d::Gf8D;
 pub use gf16::Gf16;
 pub use gf32::Gf32;
 pub use gf64::Gf64;
