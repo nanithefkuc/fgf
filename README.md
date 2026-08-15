@@ -47,7 +47,7 @@ fgf = { git = "https://github.com/nanithefkuc/fgf", default-features = false }
 | Field | Marker | Element | Construction | Vector backend |
 | --- | --- | --- | --- | --- |
 | GF(2^8) | `Gf8B` | `gf8b::Elem` | AES polynomial `0x11B` | GFNI x86 |
-| GF(2^8) | `Gf8D` | `gf8d::Elem` | polynomial `0x11D` (RS interop) | AVX2/SSSE3/NEON/wasm shuffle |
+| GF(2^8) | `Gf8D` | `gf8d::Elem` | polynomial `0x11D` (RS interop) | x86 GFNI affine, AVX2/SSSE3/NEON/wasm shuffle |
 | GF(2^16) | `Gf16` | `gf16::Elem` | quadratic tower over `Gf8B` | GFNI x86 |
 | GF(2^32) | `Gf32` | `gf32::Elem` | quadratic tower over `Gf16` | GFNI x86 |
 | GF(2^64) | `Gf64` | `gf64::Elem` | quadratic tower over `Gf32` | GFNI x86 |

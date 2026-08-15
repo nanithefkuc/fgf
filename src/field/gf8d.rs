@@ -13,8 +13,9 @@
 //! encoding are frozen.
 //!
 //! `0x11D` has no native hardware multiply — `GF2P8MULB` (GFNI) implements
-//! only the AES field — so its accelerated backends use the polynomial-agnostic
-//! nibble-shuffle kernels (and, where measured, a `VGF2P8AFFINEQB` affine map).
+//! only the AES field — so on x86 GFNI hosts this field multiplies through
+//! `VGF2P8AFFINEQB` affine maps const-derived from the scalar oracle below,
+//! and elsewhere uses the polynomial-agnostic nibble-shuffle kernels.
 //! Scalar arithmetic here is `const`, exactly as in [`gf8b`](crate::field::gf8b),
 //! so `0x11D` coding matrices are equally `const` items.
 //!

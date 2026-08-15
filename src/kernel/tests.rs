@@ -24,9 +24,9 @@ extern crate std;
 use std::vec;
 use std::vec::Vec;
 
-use crate::field::{
-    FanPaar16, FanPaar32, FanPaar64, Gf32, Gf64, fan_paar, gf8b, gf8d, gf16, gf32, gf64,
-};
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+use crate::field::gf8d;
+use crate::field::{FanPaar16, FanPaar32, FanPaar64, Gf32, Gf64, fan_paar, gf8b, gf16, gf32, gf64};
 use crate::kernel::scalar;
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::kernel::tables::FpTowerTables;
@@ -887,6 +887,10 @@ mod x86 {
     /// loud failure if `GF2P8MULB` (the AES field) were ever substituted.
     #[test]
     fn gf8d_affine_kernels_match_reference() {
+        // The non-temporal `mul_into` body sits far above the shared lengths;
+        // destination offsets 0 and 1 cover both sides of the alignment peel.
+        const NT_LEN: usize = (2 << 20) + 130;
+
         if !(host_supports(&[Backend::V3GfniCrypto])) {
             eprintln!("skipping: no AVX2+GFNI on this host");
             return;
@@ -895,10 +899,6 @@ mod x86 {
         check_gf8d_affine_mul_add("gf8d affine", x86::gf8::mul_add_affine);
         check_gf8d_affine_mul_assign("gf8d affine", x86::gf8::mul_assign_affine);
         check_gf8d_affine_mul_into("gf8d affine", x86::gf8::mul_into_affine);
-
-        // The non-temporal `mul_into` body sits far above the shared lengths;
-        // destination offsets 0 and 1 cover both sides of the alignment peel.
-        const NT_LEN: usize = (2 << 20) + 130;
         let source = noise(NT_LEN + 2, 0x2b8);
         for offset in [0, 1] {
             let src = &source[offset..offset + NT_LEN];
@@ -907,12 +907,7 @@ mod x86 {
                 let mut want = src.to_vec();
                 scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
                 let got = &mut buffer[offset..offset + NT_LEN];
-                x86::gf8::mul_into_affine(
-                    got,
-                    affine_8d(coeff),
-                    scale_table_8d(coeff),
-                    src,
-                );
+                x86::gf8::mul_into_affine(got, affine_8d(coeff), scale_table_8d(coeff), src);
                 assert_eq!(got, want.as_slice(), "gf8d affine nt mul_into: {coeff:?}");
             }
         }

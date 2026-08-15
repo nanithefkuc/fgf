@@ -231,9 +231,6 @@ unsafe fn mul_into_gfni_impl<const NT: bool>(dst: &mut [u8], coeff: Elem, src: &
 ///
 /// # Panics
 /// Panics if the slices differ in length.
-// Wired into `Gf8D` dispatch by the affine adoption; a kernel with
-// no consumer until then.
-#[allow(dead_code)]
 pub fn mul_add_affine(dst: &mut [u8], map: u64, table: &ScaleTable, src: &[u8]) {
     assert_eq!(dst.len(), src.len());
     // SAFETY: the caller selected the GFNI backend, which detected both AVX2
@@ -302,9 +299,6 @@ unsafe fn mul_add_affine_impl(dst: &mut [u8], map: u64, table: &ScaleTable, src:
 }
 
 /// `dst = coeff * dst` using `VGF2P8AFFINEQB` over 32-byte lanes.
-// Wired into `Gf8D` dispatch by the affine adoption; a kernel with
-// no consumer until then.
-#[allow(dead_code)]
 pub fn mul_assign_affine(dst: &mut [u8], map: u64, table: &ScaleTable) {
     // SAFETY: the caller selected the GFNI backend, which detected both AVX2
     // and GFNI.
@@ -354,9 +348,6 @@ unsafe fn mul_assign_affine_impl(dst: &mut [u8], map: u64, table: &ScaleTable) {
 ///
 /// # Panics
 /// Panics if the slices differ in length.
-// Wired into `Gf8D` dispatch by the affine adoption; a kernel with
-// no consumer until then.
-#[allow(dead_code)]
 pub fn mul_into_affine(dst: &mut [u8], map: u64, table: &ScaleTable, src: &[u8]) {
     assert_eq!(dst.len(), src.len());
     // SAFETY: the caller selected the GFNI backend, which detected both AVX2
@@ -398,9 +389,12 @@ unsafe fn mul_into_affine_impl<const NT: bool>(
             let sp = src_ptr.add(offset);
             let dp = dst_ptr.add(offset);
             let r0 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(sp.cast()), factor);
-            let r1 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(sp.add(32).cast()), factor);
-            let r2 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(sp.add(64).cast()), factor);
-            let r3 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(sp.add(96).cast()), factor);
+            let r1 =
+                _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(sp.add(32).cast()), factor);
+            let r2 =
+                _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(sp.add(64).cast()), factor);
+            let r3 =
+                _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(sp.add(96).cast()), factor);
             super::store256::<NT>(dp, r0);
             super::store256::<NT>(dp.add(32), r1);
             super::store256::<NT>(dp.add(64), r2);

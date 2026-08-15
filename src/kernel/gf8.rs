@@ -3,17 +3,18 @@
 //! Owns the runtime backend selection for the field and provides the nibble
 //! scalar path that every vector loop uses for its sub-lane tail.
 //!
-//! The prepared form of a coefficient is simply a borrow of its entry in the
-//! shared nibble table bank. Every backend can use it: the shuffle backends
-//! index the tables directly, and GFNI reads back the coefficient byte to
-//! broadcast. Preparation is therefore a single array index — unlike
+//! The prepared form of a `Gf8B` coefficient is simply a borrow of its entry
+//! in the shared nibble table bank. Every backend can use it: the shuffle
+//! backends index the tables directly, and GFNI reads back the coefficient
+//! byte to broadcast. Preparation is therefore a single array index — unlike
 //! GF(2^16), this field has nothing worth caching beyond what is already
-//! precomputed in rodata.
+//! precomputed in rodata. `Gf8D` prepares the same bank borrow plus the
+//! coefficient's `VGF2P8AFFINEQB` matrix qword ([`Prepared8D`]), because
+//! `GF2P8MULB` is the AES field and cannot multiply under `0x11D`.
 
 use crate::field::gf8b::{Elem, Gf8B};
 use crate::field::gf8d::{self, Gf8D};
-use crate::kernel::tables::scale_table_8d;
-use crate::kernel::tables::{ScaleTable, scale_table};
+use crate::kernel::tables::{ScaleTable, affine_8d, scale_table, scale_table_8d};
 // `Backend` is referenced only from the SIMD dispatch arms, which cfg away
 // entirely on a scalar-only build.
 #[allow(unused_imports)]
@@ -322,88 +323,116 @@ impl FieldKernels for Gf8B {
     }
 }
 
+/// The backend-ready form of a `Gf8D` coefficient.
+///
+/// One preparation gives every backend what it can consume: the GFNI kernels
+/// read the `VGF2P8AFFINEQB` matrix qword, the shuffle backends and the
+/// sub-lane scalar tails read the `0x11D` nibble tables.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Prepared8D {
+    table: &'static ScaleTable,
+    affine: u64,
+}
+
 /// Reed–Solomon interop field, GF(2^8) under `0x11D`.
 ///
 /// The split-nibble shuffle kernels are field-agnostic — they read only a
 /// coefficient's `lo`/`hi` tables — so this field reuses [`Gf8B`]'s kernels
 /// verbatim by handing them the `0x11D` bank ([`scale_table_8d`]). `GF2P8MULB`
-/// is the AES field and MUST NOT be used, so a GFNI host runs the AVX2 shuffle
-/// for single-coefficient work. Multi-row shapes compose the single-coefficient
-/// kernel per row (SIMD, not yet register-blocked); elementwise, whose two
-/// varying operands have no fixed table, runs the portable shift/reduce path.
+/// is the AES field and MUST NOT be used; a GFNI host instead multiplies
+/// through `VGF2P8AFFINEQB`, which is polynomial-independent, with the
+/// const-derived `0x11D` affine bank ([`affine_8d`]). Multi-row shapes compose
+/// the single-coefficient kernel per row (SIMD, not yet register-blocked);
+/// elementwise, whose two varying operands have no fixed table, runs the
+/// portable shift/reduce path.
 impl FieldKernels for Gf8D {
-    type Prepared = &'static ScaleTable;
+    type Prepared = Prepared8D;
 
     #[inline]
     fn prepare(coeff: gf8d::Elem) -> Self::Prepared {
-        scale_table_8d(coeff)
+        Prepared8D {
+            table: scale_table_8d(coeff),
+            affine: affine_8d(coeff),
+        }
     }
 
     #[inline]
     fn prepared_coeff(prepared: &Self::Prepared) -> gf8d::Elem {
-        gf8d::Elem(prepared.coeff.0)
+        gf8d::Elem(prepared.table.coeff.0)
     }
 
     #[inline]
     fn active_backend() -> Backend {
-        // GF2P8MULB is the AES field, so a GFNI host runs the AVX2 shuffle.
-        match backend() {
-            Backend::V3GfniCrypto => Backend::V3,
-            other => other,
-        }
+        backend()
     }
 
     fn mul_add(dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => x86::gf8::mul_add_avx2(dst, coeff, src),
+            Backend::V3GfniCrypto => x86::gf8::mul_add_affine(dst, coeff.affine, coeff.table, src),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V2 => x86::gf8::mul_add_ssse3(dst, coeff, src),
+            Backend::V3 => x86::gf8::mul_add_avx2(dst, coeff.table, src),
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V2 => x86::gf8::mul_add_ssse3(dst, coeff.table, src),
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-            Backend::Neon | Backend::NeonAes => aarch64::gf8::mul_add_neon(dst, coeff, src),
+            Backend::Neon | Backend::NeonAes => aarch64::gf8::mul_add_neon(dst, coeff.table, src),
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::gf8::mul_add_simd128(dst, coeff, src),
-            _ => mul_add_nibble(dst, coeff, src),
+            Backend::Wasm128 => wasm32::gf8::mul_add_simd128(dst, coeff.table, src),
+            _ => mul_add_nibble(dst, coeff.table, src),
         }
     }
 
     fn mul_assign(dst: &mut [u8], coeff: &Self::Prepared) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => x86::gf8::mul_assign_avx2(dst, coeff),
+            Backend::V3GfniCrypto => {
+                // The one measured exception to "affine on GFNI": in-place
+                // scaling is single-stream, and past 64 KiB the shuffle
+                // outruns both single-instruction forms by ~15% on the
+                // Core Ultra 7 258V (BENCHMARKS.md).
+                if dst.len() < 65_536 {
+                    x86::gf8::mul_assign_affine(dst, coeff.affine, coeff.table);
+                } else {
+                    x86::gf8::mul_assign_avx2(dst, coeff.table);
+                }
+            }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V2 => x86::gf8::mul_assign_ssse3(dst, coeff),
+            Backend::V3 => x86::gf8::mul_assign_avx2(dst, coeff.table),
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V2 => x86::gf8::mul_assign_ssse3(dst, coeff.table),
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-            Backend::Neon | Backend::NeonAes => aarch64::gf8::mul_assign_neon(dst, coeff),
+            Backend::Neon | Backend::NeonAes => aarch64::gf8::mul_assign_neon(dst, coeff.table),
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::gf8::mul_assign_simd128(dst, coeff),
-            _ => mul_assign_nibble(dst, coeff),
+            Backend::Wasm128 => wasm32::gf8::mul_assign_simd128(dst, coeff.table),
+            _ => mul_assign_nibble(dst, coeff.table),
         }
     }
 
     fn mul_into(dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => x86::gf8::mul_into_avx2(dst, coeff, src),
+            Backend::V3GfniCrypto => x86::gf8::mul_into_affine(dst, coeff.affine, coeff.table, src),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V2 => x86::gf8::mul_into_ssse3(dst, coeff, src),
+            Backend::V3 => x86::gf8::mul_into_avx2(dst, coeff.table, src),
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V2 => x86::gf8::mul_into_ssse3(dst, coeff.table, src),
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-            Backend::Neon | Backend::NeonAes => aarch64::gf8::mul_into_neon(dst, coeff, src),
+            Backend::Neon | Backend::NeonAes => aarch64::gf8::mul_into_neon(dst, coeff.table, src),
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::gf8::mul_into_simd128(dst, coeff, src),
-            _ => mul_into_nibble(dst, coeff, src),
+            Backend::Wasm128 => wasm32::gf8::mul_into_simd128(dst, coeff.table, src),
+            _ => mul_into_nibble(dst, coeff.table, src),
         }
     }
 
     fn mul_add_scatter(rows: &mut [u8], row_len: usize, coeffs: &[gf8d::Elem], src: &[u8]) {
         for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-            Self::mul_add(row, &scale_table_8d(coeff), src);
+            Self::mul_add(row, &Self::prepare(coeff), src);
         }
     }
 
     fn mul_add_gather(dst: &mut [u8], coeffs: &[gf8d::Elem], srcs: &[&[u8]]) {
         for (&coeff, &src) in coeffs.iter().zip(srcs) {
-            Self::mul_add(dst, &scale_table_8d(coeff), src);
+            Self::mul_add(dst, &Self::prepare(coeff), src);
         }
     }
 
@@ -415,7 +444,7 @@ impl FieldKernels for Gf8D {
     ) {
         for &(coeffs, src) in terms {
             for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
-                Self::mul_add(row, &scale_table_8d(coeff), src);
+                Self::mul_add(row, &Self::prepare(coeff), src);
             }
         }
     }

@@ -136,12 +136,11 @@ pub fn scale_table_8d(coeff: gf8d::Elem) -> &'static ScaleTable {
 /// module's tests, the hardware kernels against the scalar oracle over all
 /// 65 536 products in `kernel::tests`.
 ///
-/// 2 KiB of rodata, touched only by the `Gf8D` GFNI kernels: the map is dead
-/// weight on targets with no affine kernel to consume it.
-#[allow(dead_code)]
+/// 2 KiB of rodata. Only the `Gf8D` GFNI kernels read the maps, but
+/// `Gf8D::prepare` fills them on every target.
 static AFFINE_BANK_8D: [u64; 256] = build_affine_bank_8d();
 
-#[allow(clippy::cast_possible_truncation, dead_code)]
+#[allow(clippy::cast_possible_truncation)]
 const fn build_affine_bank_8d() -> [u64; 256] {
     let mut bank = [0u64; 256];
     let mut i = 0;
@@ -172,7 +171,6 @@ const fn build_affine_bank_8d() -> [u64; 256] {
 /// `0x11D`.
 #[inline]
 #[must_use]
-#[allow(dead_code)]
 pub fn affine_8d(coeff: gf8d::Elem) -> u64 {
     AFFINE_BANK_8D[coeff.0 as usize]
 }
