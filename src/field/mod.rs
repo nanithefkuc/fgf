@@ -15,10 +15,10 @@
 //! without a transmute.
 
 pub mod fan_paar;
+mod flat8;
 pub mod gf16;
 pub mod gf32;
 pub mod gf64;
-mod flat8;
 pub mod gf8b;
 pub mod gf8d;
 

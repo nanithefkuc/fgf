@@ -241,7 +241,10 @@ fn gf8d_is_distinct_from_gf8b() {
             gf8b::Elem(a).mul(gf8b::Elem(b)).to_raw() != gf8d::Elem(a).mul(gf8d::Elem(b)).to_raw()
         })
         .count();
-    assert_eq!(differ, 63_232, "0x11B and 0x11D must differ on most products");
+    assert_eq!(
+        differ, 63_232,
+        "0x11B and 0x11D must differ on most products"
+    );
 }
 
 // ---------------------------------------------------------------------------

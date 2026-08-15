@@ -643,7 +643,11 @@ fn main() {
         let gather_plan16 = ops::Plan::<Gf16>::new(&coeffs16);
         let gather_traffic = row_len * nrows;
         bench("gather (selected)          gf8", gather_traffic, || {
-            ops::mul_add_gather::<Gf8B>(black_box(&mut gathered), &coeffs8, black_box(&gather_srcs));
+            ops::mul_add_gather::<Gf8B>(
+                black_box(&mut gathered),
+                &coeffs8,
+                black_box(&gather_srcs),
+            );
         });
         bench("gather (unblocked)        gf8", gather_traffic, || {
             for (&coeff, &source) in coeffs8.iter().zip(&gather_srcs) {

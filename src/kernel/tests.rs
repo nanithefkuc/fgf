@@ -51,7 +51,12 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
 /// GF(2^8) coefficients worth testing: the two short-circuits, the extremes,
 /// and a spread through the field.
 fn gf8_coeffs() -> Vec<gf8b::Elem> {
-    let mut coeffs = vec![gf8b::Elem(0), gf8b::Elem(1), gf8b::Elem(2), gf8b::Elem(0xff)];
+    let mut coeffs = vec![
+        gf8b::Elem(0),
+        gf8b::Elem(1),
+        gf8b::Elem(2),
+        gf8b::Elem(0xff),
+    ];
     coeffs.extend((0..=u8::MAX).step_by(23).map(gf8b::Elem));
     coeffs
 }
