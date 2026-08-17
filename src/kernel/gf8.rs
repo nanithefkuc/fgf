@@ -315,9 +315,9 @@ impl FieldKernels for Gf8B {
             // backends use the same eight branchless shift/reduce rounds as
             // baseline NEON and wasm.
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3 => x86::gf8::elementwise_avx2(dst, a, b),
+            Backend::V3 => x86::gf8::elementwise_avx2::<0x1b>(dst, a, b),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V2 => x86::gf8::elementwise_ssse3(dst, a, b),
+            Backend::V2 => x86::gf8::elementwise_ssse3::<0x1b>(dst, a, b),
             _ => scalar::mul_elementwise::<Gf8B>(dst, a, b),
         }
     }

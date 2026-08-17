@@ -350,6 +350,22 @@ fn check_gf8_elementwise(name: &str, kernel: impl Fn(&mut [u8], &[u8], &[u8])) {
     }
 }
 
+/// Differential check for a `0x11D` elementwise kernel against the `Gf8D`
+/// scalar oracle. `GF2P8MULB` is the AES field, so the `0x11D` field runs the
+/// shift/reduce vector multiply on every x86 backend, including GFNI.
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+fn check_gf8d_elementwise(name: &str, kernel: impl Fn(&mut [u8], &[u8], &[u8])) {
+    for &len in LENGTHS {
+        let a = noise(len, 0xf2);
+        let b = noise(len, 0x103);
+        let mut got = vec![0; len];
+        let mut want = vec![0; len];
+        kernel(&mut got, &a, &b);
+        scalar::mul_elementwise::<gf8d::Gf8D>(&mut want, &a, &b);
+        assert_eq!(got, want, "{name}: len {len}");
+    }
+}
+
 fn check_gf16_elementwise(name: &str, kernel: impl Fn(&mut [u8], &[u8], &[u8])) {
     for &len in LENGTHS {
         let a = noise(len, 0x114);
@@ -961,7 +977,8 @@ mod x86 {
             gf16_reference,
             x86::gf16::matrix_avx2,
         );
-        check_gf8_elementwise("gf8 avx2 elementwise", x86::gf8::elementwise_avx2);
+        check_gf8_elementwise("gf8 avx2 elementwise", x86::gf8::elementwise_avx2::<0x1b>);
+        check_gf8d_elementwise("gf8d avx2 elementwise", x86::gf8::elementwise_avx2::<0x1d>);
         check_gf16_elementwise("gf16 avx2 elementwise", x86::gf16::elementwise_avx2);
         // Fan–Paar tower (GF(2^16)/32/64): the fp8 nibble tower and its
         // period-2 lane-mul extensions.
@@ -1103,7 +1120,11 @@ mod x86 {
             gf16_reference,
             x86::gf16::matrix_ssse3,
         );
-        check_gf8_elementwise("gf8 ssse3 elementwise", x86::gf8::elementwise_ssse3);
+        check_gf8_elementwise("gf8 ssse3 elementwise", x86::gf8::elementwise_ssse3::<0x1b>);
+        check_gf8d_elementwise(
+            "gf8d ssse3 elementwise",
+            x86::gf8::elementwise_ssse3::<0x1d>,
+        );
         check_gf16_elementwise("gf16 ssse3 elementwise", x86::gf16::elementwise_ssse3);
         check_tower_mul_add(
             "fp16 ssse3 mul_add",

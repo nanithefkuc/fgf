@@ -1514,6 +1514,26 @@ unsafe fn elementwise_gfni_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
     }
 }
 
+/// Reference GF(2^8) product under reduction-polynomial low byte `RED`, for
+/// the sub-lane elementwise tail. Field-agnostic: `RED` is `0x1b` for the AES
+/// field and `0x1d` for the Reed–Solomon field.
+#[inline]
+fn gf_mul_ref<const RED: u8>(mut a: u8, mut b: u8) -> u8 {
+    let mut product = 0u8;
+    for _ in 0..8 {
+        if b & 1 != 0 {
+            product ^= a;
+        }
+        let carry = a & 0x80 != 0;
+        a <<= 1;
+        if carry {
+            a ^= RED;
+        }
+        b >>= 1;
+    }
+    product
+}
+
 /// Lane-parallel GF(2^8) multiplication of two varying byte vectors.
 ///
 /// Without `GF2P8MULB` there is no fixed coefficient to build a nibble table
@@ -1523,10 +1543,10 @@ unsafe fn elementwise_gfni_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
 /// `PCMPGTB` against zero recovers the bit it dropped.
 #[inline]
 #[target_feature(enable = "avx2")]
-pub(super) fn multiply_vectors_avx2(mut a: __m256i, mut b: __m256i) -> __m256i {
+pub(super) fn multiply_vectors_avx2<const RED: u8>(mut a: __m256i, mut b: __m256i) -> __m256i {
     let zero = _mm256_setzero_si256();
     let one = _mm256_set1_epi8(1);
-    let reduction = _mm256_set1_epi8(0x1b);
+    let reduction = _mm256_set1_epi8(RED.cast_signed());
     let low7 = _mm256_set1_epi8(0x7f);
     let mut product = zero;
     for round in 0..8 {
@@ -1545,10 +1565,10 @@ pub(super) fn multiply_vectors_avx2(mut a: __m256i, mut b: __m256i) -> __m256i {
 /// The 16-byte form of [`multiply_vectors_avx2`].
 #[inline]
 #[target_feature(enable = "ssse3")]
-pub(super) fn multiply_vectors_sse(mut a: __m128i, mut b: __m128i) -> __m128i {
+pub(super) fn multiply_vectors_sse<const RED: u8>(mut a: __m128i, mut b: __m128i) -> __m128i {
     let zero = _mm_setzero_si128();
     let one = _mm_set1_epi8(1);
-    let reduction = _mm_set1_epi8(0x1b);
+    let reduction = _mm_set1_epi8(RED.cast_signed());
     let low7 = _mm_set1_epi8(0x7f);
     let mut product = zero;
     for round in 0..8 {
@@ -1565,16 +1585,16 @@ pub(super) fn multiply_vectors_sse(mut a: __m128i, mut b: __m128i) -> __m128i {
 }
 
 /// `dst[i] = a[i] * b[i]` by branchless shift/reduce over 32-byte lanes.
-pub fn elementwise_avx2(dst: &mut [u8], a: &[u8], b: &[u8]) {
+pub fn elementwise_avx2<const RED: u8>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     debug_assert_eq!(dst.len(), a.len());
     debug_assert_eq!(dst.len(), b.len());
     // SAFETY: the selected backend guarantees AVX2, and all three lengths
     // match.
-    unsafe { elementwise_avx2_impl(dst, a, b) }
+    unsafe { elementwise_avx2_impl::<RED>(dst, a, b) }
 }
 
 #[target_feature(enable = "avx2")]
-unsafe fn elementwise_avx2_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
+unsafe fn elementwise_avx2_impl<const RED: u8>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     let len = dst.len().min(a.len()).min(b.len()) & !31;
     let (dst_ptr, a_ptr, b_ptr) = (dst.as_mut_ptr(), a.as_ptr(), b.as_ptr());
     let mut offset = 0;
@@ -1583,26 +1603,29 @@ unsafe fn elementwise_avx2_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         unsafe {
             let x = _mm256_loadu_si256(a_ptr.add(offset).cast());
             let y = _mm256_loadu_si256(b_ptr.add(offset).cast());
-            _mm256_storeu_si256(dst_ptr.add(offset).cast(), multiply_vectors_avx2(x, y));
+            _mm256_storeu_si256(
+                dst_ptr.add(offset).cast(),
+                multiply_vectors_avx2::<RED>(x, y),
+            );
         }
         offset += 32;
     }
     // SAFETY: AVX2 implies SSSE3, and the remainders keep equal lengths.
-    unsafe { elementwise_ssse3_impl(&mut dst[len..], &a[len..], &b[len..]) }
+    unsafe { elementwise_ssse3_impl::<RED>(&mut dst[len..], &a[len..], &b[len..]) }
 }
 
 /// `dst[i] = a[i] * b[i]` by branchless shift/reduce over 16-byte lanes.
-pub fn elementwise_ssse3(dst: &mut [u8], a: &[u8], b: &[u8]) {
+pub fn elementwise_ssse3<const RED: u8>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     debug_assert_eq!(dst.len(), a.len());
     debug_assert_eq!(dst.len(), b.len());
     // SAFETY: the selected backend guarantees SSSE3, and all three lengths
     // match.
-    unsafe { elementwise_ssse3_impl(dst, a, b) }
+    unsafe { elementwise_ssse3_impl::<RED>(dst, a, b) }
 }
 
 #[inline]
 #[target_feature(enable = "ssse3")]
-unsafe fn elementwise_ssse3_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
+unsafe fn elementwise_ssse3_impl<const RED: u8>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     let len = dst.len().min(a.len()).min(b.len()) & !15;
     let (dst_ptr, a_ptr, b_ptr) = (dst.as_mut_ptr(), a.as_ptr(), b.as_ptr());
     let mut offset = 0;
@@ -1611,12 +1634,15 @@ unsafe fn elementwise_ssse3_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         unsafe {
             let x = _mm_loadu_si128(a_ptr.add(offset).cast());
             let y = _mm_loadu_si128(b_ptr.add(offset).cast());
-            _mm_storeu_si128(dst_ptr.add(offset).cast(), multiply_vectors_sse(x, y));
+            _mm_storeu_si128(
+                dst_ptr.add(offset).cast(),
+                multiply_vectors_sse::<RED>(x, y),
+            );
         }
         offset += 16;
     }
     for ((d, &x), &y) in dst[len..].iter_mut().zip(&a[len..]).zip(&b[len..]) {
-        *d = Elem(x).mul(Elem(y)).0;
+        *d = gf_mul_ref::<RED>(x, y);
     }
 }
 
