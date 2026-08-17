@@ -341,10 +341,13 @@ pub struct Prepared8D {
 /// verbatim by handing them the `0x11D` bank ([`scale_table_8d`]). `GF2P8MULB`
 /// is the AES field and MUST NOT be used; a GFNI host instead multiplies
 /// through `VGF2P8AFFINEQB`, which is polynomial-independent, with the
-/// const-derived `0x11D` affine bank ([`affine_8d`]). Multi-row shapes compose
-/// the single-coefficient kernel per row (SIMD, not yet register-blocked);
-/// elementwise, whose two varying operands have no fixed table, runs the
-/// portable shift/reduce path.
+/// const-derived `0x11D` affine bank ([`affine_8d`]). On a GFNI host the
+/// register-blocked multi-row shapes (scatter/gather/matrix) fold rows in with
+/// the affine map, holding a destination tile in registers across sources or
+/// terms; other backends compose the single-coefficient shuffle per row.
+/// Elementwise, whose two varying operands have no fixed table, runs the
+/// branchless shift/reduce vector multiply threading the `0x11D` reduction
+/// byte (portable scalar off x86).
 impl FieldKernels for Gf8D {
     type Prepared = Prepared8D;
 
@@ -425,15 +428,44 @@ impl FieldKernels for Gf8D {
     }
 
     fn mul_add_scatter(rows: &mut [u8], row_len: usize, coeffs: &[gf8d::Elem], src: &[u8]) {
+        // Blocked affine on a GFNI host shares one source load across a row
+        // group; other backends compose the single-coefficient kernel per row.
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if backend() == Backend::V3GfniCrypto {
+            return x86::gf8::scatter_affine(rows, row_len, coeffs, src);
+        }
         for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
             Self::mul_add(row, &Self::prepare(coeff), src);
         }
     }
+    fn mul_add_scatter_plan(
+        rows: &mut [u8],
+        row_len: usize,
+        values: &[gf8d::Elem],
+        _coeffs: &[Self::Prepared],
+        src: &[u8],
+    ) {
+        Self::mul_add_scatter(rows, row_len, values, src);
+    }
 
     fn mul_add_gather(dst: &mut [u8], coeffs: &[gf8d::Elem], srcs: &[&[u8]]) {
+        // Blocked affine holds the destination tile in registers across every
+        // source, so it is read and written once per tile, not once per source.
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if backend() == Backend::V3GfniCrypto {
+            return x86::gf8::gather_affine(dst, coeffs, srcs);
+        }
         for (&coeff, &src) in coeffs.iter().zip(srcs) {
             Self::mul_add(dst, &Self::prepare(coeff), src);
         }
+    }
+    fn mul_add_gather_plan(
+        dst: &mut [u8],
+        values: &[gf8d::Elem],
+        _coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        Self::mul_add_gather(dst, values, srcs);
     }
 
     fn mul_add_matrix(
@@ -442,14 +474,86 @@ impl FieldKernels for Gf8D {
         nrows: usize,
         terms: &[(&[gf8d::Elem], &[u8])],
     ) {
+        // Blocked affine holds a row-group tile in registers across all terms,
+        // making destination traffic independent of the term count.
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if backend() == Backend::V3GfniCrypto {
+            return x86::gf8::matrix_affine(rows, row_len, nrows, terms);
+        }
         for &(coeffs, src) in terms {
             for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
                 Self::mul_add(row, &Self::prepare(coeff), src);
             }
         }
     }
+    fn mul_add_matrix_plan(
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        values: &[gf8d::Elem],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        let _ = values;
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if backend() == Backend::V3GfniCrypto {
+            let terms = crate::kernel::FlatMatrix {
+                coefficients: values,
+                nrows,
+                sources: srcs,
+            };
+            return x86::gf8::matrix_affine_with(rows, row_len, nrows, &terms);
+        }
+        for (term, &src) in srcs.iter().enumerate() {
+            let start = term * nrows;
+            for (row, coeff) in rows
+                .chunks_exact_mut(row_len)
+                .take(nrows)
+                .zip(&coeffs[start..start + nrows])
+            {
+                Self::mul_add(row, coeff, src);
+            }
+        }
+    }
+
+    fn mul_add_matrix_scattered(
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        terms: &[(&[gf8d::Elem], &[u8])],
+    ) {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if backend() == Backend::V3GfniCrypto {
+            return x86::gf8::matrix_scattered_affine(dst, row_len, row_starts, terms);
+        }
+        // Shuffle and non-x86 backends have no scattered kernel; the portable
+        // path is correct and skips the same staging copy.
+        scalar::mul_add_matrix_scattered::<Self>(dst, row_len, row_starts, terms);
+    }
+
+    #[inline]
+    fn has_vector_elementwise() -> bool {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        {
+            matches!(backend(), Backend::V3GfniCrypto | Backend::V3 | Backend::V2)
+        }
+        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        {
+            false
+        }
+    }
 
     fn mul_elementwise(dst: &mut [u8], a: &[u8], b: &[u8]) {
-        scalar::mul_elementwise::<Gf8D>(dst, a, b);
+        match backend() {
+            // `GF2P8MULB` is the AES field and cannot multiply under `0x11D`,
+            // so even a GFNI host runs the branchless shift/reduce vector
+            // multiply, threading the `0x11D` reduction byte (`0x1d`).
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V3GfniCrypto | Backend::V3 => x86::gf8::elementwise_avx2::<0x1d>(dst, a, b),
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V2 => x86::gf8::elementwise_ssse3::<0x1d>(dst, a, b),
+            _ => scalar::mul_elementwise::<Gf8D>(dst, a, b),
+        }
     }
 }

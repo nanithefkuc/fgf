@@ -16,9 +16,11 @@ All notable changes to this project are documented here. The format follows
   `klauspost/reedsolomon`. It carries the full `const` scalar arithmetic and
   the complete checked ops surface: on x86 GFNI hosts it multiplies through
   `VGF2P8AFFINEQB` affine maps const-derived from its own scalar oracle
-  (`GF2P8MULB` is the AES field and is never used), and elsewhere runs the
-  field-agnostic split-nibble shuffle kernels, with elementwise on the
-  portable path.
+  (`GF2P8MULB` is the AES field and is never used), including the
+  register-blocked scatter/gather/matrix shapes; elsewhere it runs the
+  field-agnostic split-nibble shuffle kernels. Elementwise multiplication is
+  vectorized on every x86 backend through a branchless shift/reduce that
+  threads the `0x11D` reduction byte (the AES `GF2P8MULB` cannot serve it).
 
 ### Changed
 

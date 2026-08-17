@@ -460,6 +460,21 @@ fn gf8_reference(dst: &mut [u8], coeff: gf8b::Elem, src: &[u8]) {
     scalar::mul_add::<gf8b::Gf8B>(dst, coeff, src);
 }
 
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+fn gf8d_coeff_at(j: usize) -> gf8d::Elem {
+    gf8d::Elem((j as u8).wrapping_mul(29))
+}
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+fn gf8d_coeff_at2(t: usize, j: usize) -> gf8d::Elem {
+    gf8d::Elem(((t * 31 + j * 29) % 256) as u8)
+}
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+fn gf8d_reference(dst: &mut [u8], coeff: gf8d::Elem, src: &[u8]) {
+    scalar::mul_add::<gf8d::Gf8D>(dst, coeff, src);
+}
+
 fn gf16_reference(dst: &mut [u8], coeff: gf16::Elem, src: &[u8]) {
     scalar::mul_add::<gf16::Gf16>(dst, coeff, src);
 }
@@ -925,6 +940,61 @@ mod x86 {
                 let got = &mut buffer[offset..offset + NT_LEN];
                 x86::gf8::mul_into_affine(got, affine_8d(coeff), scale_table_8d(coeff), src);
                 assert_eq!(got, want.as_slice(), "gf8d affine nt mul_into: {coeff:?}");
+            }
+        }
+
+        // The register-blocked affine multi-row shapes against per-row AXPY,
+        // over the same row-group and tile boundaries as the `Gf8B` kernels.
+        check_scatter(
+            "gf8d affine scatter",
+            gf8d_coeff_at,
+            gf8d_reference,
+            x86::gf8::scatter_affine,
+        );
+        check_matrix(
+            "gf8d affine matrix",
+            gf8d_coeff_at2,
+            gf8d_reference,
+            x86::gf8::matrix_affine,
+        );
+        check_gather(
+            "gf8d affine gather",
+            gf8d_coeff_at,
+            gf8d_reference,
+            x86::gf8::gather_affine,
+        );
+        // Scattered rows: disjoint offsets, blocked affine against per-term AXPY.
+        for &row_len in ROW_LENS {
+            for &nrows in ROW_COUNTS {
+                let starts: Vec<usize> = (0..nrows).map(|j| j * (row_len + 7)).collect();
+                let span = starts.last().map_or(0, |&s| s + row_len);
+                let sources: Vec<Vec<u8>> = (0..3usize)
+                    .map(|t| noise(row_len, 0x900 + t as u64))
+                    .collect();
+                let coeff_sets: Vec<Vec<gf8d::Elem>> = (0..3usize)
+                    .map(|t| (0..nrows).map(|j| gf8d_coeff_at2(t, j)).collect())
+                    .collect();
+                let terms: Vec<(&[gf8d::Elem], &[u8])> = coeff_sets
+                    .iter()
+                    .zip(&sources)
+                    .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                    .collect();
+                let mut got = noise(span, 0xda);
+                let mut want = got.clone();
+                x86::gf8::matrix_scattered_affine(&mut got, row_len, &starts, &terms);
+                for &(coeffs, src) in &terms {
+                    for (j, &coeff) in coeffs.iter().enumerate() {
+                        scalar::mul_add::<gf8d::Gf8D>(
+                            &mut want[starts[j]..starts[j] + row_len],
+                            coeff,
+                            src,
+                        );
+                    }
+                }
+                assert_eq!(
+                    got, want,
+                    "gf8d affine matrix_scattered: row_len {row_len}, nrows {nrows}"
+                );
             }
         }
     }

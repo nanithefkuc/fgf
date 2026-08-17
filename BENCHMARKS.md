@@ -342,8 +342,9 @@ Composed scatter (per-row `mul_add`), ratio only: 4×16 KiB 1.29, 16×16 KiB
 1.02, 4×64 KiB 1.14, 16×64 KiB 1.20.
 
 Decision: affine for `mul_add` and `mul_into` at every size, and for
-`mul_assign` below 64 KiB; the multi-row shapes compose `mul_add` per row and
-inherit it. The affine/native column holds 0.96–1.08 throughout — the map
+`mul_assign` below 64 KiB; the register-blocked multi-row shapes build on the
+affine `mul_add` (see the next section). The affine/native column holds
+0.96–1.08 throughout — the map
 reaches native-multiply speed, and the 64 B loss is a sub-nanosecond
 small-buffer effect the native loop shares. `mul_assign` at and past 64 KiB
 is the one measured exception: in-place scaling is single-stream, both
@@ -351,6 +352,41 @@ single-instruction forms fall ~15% behind the shuffle there (affine/native
 0.98–0.99, so the cause is the host's store path, not the map), and dispatch
 keeps the shuffle for it. At 4 MiB `mul_into` both candidates are
 non-temporal-store-bound and even.
+
+### Register-blocked multi-row for `Gf8D` (`scatter_affine`/`gather_affine`/`matrix_affine`)
+
+The multi-row shapes were first composed as a per-row affine `mul_add`. Holding
+a destination tile in registers across sources (gather) or terms (matrix), and
+one source load across a row group (scatter), removes the redundant destination
+traffic — the same blocking `Gf8B`'s GFNI kernels use. Both run
+`VGF2P8AFFINEQB`; the strategy seam (`kernel::x86::gf8::Blocked`) monomorphizes
+the `GF2P8MULB` and affine forms from one body, so `Gf8B` is byte-identical and
+unchanged. `cargo bench --features internals --bench affine`, blocked ÷ per-row
+affine:
+
+| Shape | Small (4 KiB rows) | Mid (16 KiB) | Large (64 KiB) | 256 KiB |
+| --- | --- | --- | --- | --- |
+| gather, 4 sources | 1.74 | 0.99 | 1.25 | 1.36 |
+| gather, 16 sources | 1.57 | 0.97 | 1.58 | 1.18 |
+| scatter, 4 rows | — | 1.09 | 1.61 | — |
+| scatter, 16 rows | — | 1.01 | 1.46 | — |
+| matrix, 4 rows × 8 terms | 1.86 | 1.99 | 2.07 | — |
+| matrix, 16 rows × 16 terms | 1.38 | 2.12 | 2.44 | — |
+
+Decision: dispatch `Gf8D` scatter/gather/matrix (and the scattered matrix) to
+the blocked affine kernels on a GFNI host. Matrix wins everywhere (1.38–2.44×,
+largest where the term count is high and the destination reread dominates);
+gather and scatter win at every size but the two 16 KiB gather points, which
+are a wash (0.97–0.99) — a single L2-resident tile leaves nothing for blocking
+to save there. Non-GFNI backends keep the per-row shuffle composition.
+
+### `Gf8D` elementwise (`elementwise_avx2::<0x1d>`)
+
+Two varying operands have no fixed coefficient, so `GF2P8MULB` is out even on a
+GFNI host; the branchless eight-round shift/reduce vector multiply, with the
+`0x11D` reduction byte threaded as a const generic, replaces the scalar
+reference. 7.1–7.9 GiB/s against the reference's ~1.1 GiB/s — 6.2–7.1× from
+64 B up, the win flat across sizes because the loop is compute-bound.
 
 ## Comparative benchmark
 
