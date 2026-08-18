@@ -20,13 +20,13 @@
 //! whole buffer, or hoisted out entirely with `Coeff`/`Plan`.
 
 use crate::field::fan_paar::{fp8, fp16};
-use crate::field::{gf8, gf16};
+use crate::field::{gf8b, gf8d, gf16};
 
 /// Split-nibble multiplication tables for one GF(2^8) coefficient.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScaleTable {
     /// The coefficient these tables multiply by.
-    pub coeff: gf8::Elem,
+    pub coeff: gf8b::Elem,
     /// `lo[i] = coeff * i` for the low nibble.
     pub lo: [u8; 16],
     /// `hi[i] = coeff * (i << 4)` for the high nibble.
@@ -39,13 +39,13 @@ impl ScaleTable {
     // Loop counters are bounded by the array sizes (16, 256), so every cast
     // below is exact; `const fn` rules out `try_into`.
     #[allow(clippy::cast_possible_truncation)]
-    pub const fn new(coeff: gf8::Elem) -> Self {
+    pub const fn new(coeff: gf8b::Elem) -> Self {
         let mut lo = [0u8; 16];
         let mut hi = [0u8; 16];
         let mut i = 0;
         while i < 16 {
-            lo[i] = gf8::Elem(i as u8).mul(coeff).0;
-            hi[i] = gf8::Elem((i as u8) << 4).mul(coeff).0;
+            lo[i] = gf8b::Elem(i as u8).mul(coeff).0;
+            hi[i] = gf8b::Elem((i as u8) << 4).mul(coeff).0;
             i += 1;
         }
         Self { coeff, lo, hi }
@@ -60,10 +60,10 @@ static SCALE_TABLE_BANK: [ScaleTable; 256] = build_bank();
 
 #[allow(clippy::cast_possible_truncation)]
 const fn build_bank() -> [ScaleTable; 256] {
-    let mut bank = [ScaleTable::new(gf8::Elem(0)); 256];
+    let mut bank = [ScaleTable::new(gf8b::Elem(0)); 256];
     let mut i = 0;
     while i < 256 {
-        bank[i] = ScaleTable::new(gf8::Elem(i as u8));
+        bank[i] = ScaleTable::new(gf8b::Elem(i as u8));
         i += 1;
     }
     bank
@@ -72,8 +72,107 @@ const fn build_bank() -> [ScaleTable; 256] {
 /// Return the shared nibble tables for a GF(2^8) coefficient.
 #[inline]
 #[must_use]
-pub fn scale_table(coeff: gf8::Elem) -> &'static ScaleTable {
+pub fn scale_table(coeff: gf8b::Elem) -> &'static ScaleTable {
     &SCALE_TABLE_BANK[coeff.0 as usize]
+}
+
+/// GF(2^8)/`0x11D` nibble-table bank, one entry per coefficient.
+///
+/// Same layout and 8 KiB budget as the AES [`SCALE_TABLE_BANK`]; only the
+/// products differ. Because the shuffle kernels read nothing but `lo`/`hi`,
+/// one implementation serves both byte fields — this bank just carries the
+/// `0x11D` products.
+static SCALE_TABLE_BANK_8D: [ScaleTable; 256] = build_bank_8d();
+
+#[allow(clippy::cast_possible_truncation)]
+const fn build_bank_8d() -> [ScaleTable; 256] {
+    let mut bank = [ScaleTable {
+        coeff: gf8b::Elem(0),
+        lo: [0; 16],
+        hi: [0; 16],
+    }; 256];
+    let mut i = 0;
+    while i < 256 {
+        let c = gf8d::Elem(i as u8);
+        let mut lo = [0u8; 16];
+        let mut hi = [0u8; 16];
+        let mut j = 0;
+        while j < 16 {
+            lo[j] = gf8d::Elem(j as u8).mul(c).0;
+            hi[j] = gf8d::Elem((j as u8) << 4).mul(c).0;
+            j += 1;
+        }
+        // `coeff` stores the coefficient byte; its AES-typed wrapper is inert
+        // storage the field-agnostic shuffle kernels never read.
+        bank[i] = ScaleTable {
+            coeff: gf8b::Elem(i as u8),
+            lo,
+            hi,
+        };
+        i += 1;
+    }
+    bank
+}
+
+/// Return the shared `0x11D` nibble tables for a coefficient.
+#[inline]
+#[must_use]
+pub fn scale_table_8d(coeff: gf8d::Elem) -> &'static ScaleTable {
+    &SCALE_TABLE_BANK_8D[coeff.0 as usize]
+}
+
+/// GF(2^8)/`0x11D` affine-map bank, one `VGF2P8AFFINEQB` matrix qword per
+/// coefficient.
+///
+/// Multiplication by a fixed coefficient in any GF(2^8) is an 8×8 GF(2)
+/// linear map, and `VGF2P8AFFINEQB` applies an arbitrary such map per byte
+/// lane — unlike `GF2P8MULB`, which bakes in the AES polynomial. The
+/// instruction computes `dst.bit[b] = parity(map.byte[7 - b] & x)` per lane,
+/// so the qword for coefficient `c` stores the product map transposed and
+/// row-reversed: byte `r`, bit `k` is bit `7 - r` of the column `c * x^k`.
+/// Every entry derives from the crate's own [`gf8d::Elem::mul`] oracle —
+/// never from another library's tables — and the derivation is validated
+/// exhaustively: the bank against a scalar model of the instruction in this
+/// module's tests, the hardware kernels against the scalar oracle over all
+/// 65 536 products in `kernel::tests`.
+///
+/// 2 KiB of rodata. Only the `Gf8D` GFNI kernels read the maps, but
+/// `Gf8D::prepare` fills them on every target.
+static AFFINE_BANK_8D: [u64; 256] = build_affine_bank_8d();
+
+#[allow(clippy::cast_possible_truncation)]
+const fn build_affine_bank_8d() -> [u64; 256] {
+    let mut bank = [0u64; 256];
+    let mut i = 0;
+    while i < 256 {
+        let c = gf8d::Elem(i as u8);
+        let mut map = 0u64;
+        // Row `r` of the instruction's matrix carries, across bits `k`, bit
+        // `7 - r` of every column `c * x^k` of the multiplication map.
+        let mut r = 0u8;
+        while r < 8 {
+            let mut row = 0u8;
+            let mut k = 0u8;
+            while k < 8 {
+                let column = c.mul(gf8d::Elem(1 << k)).0;
+                row |= ((column >> (7 - r)) & 1) << k;
+                k += 1;
+            }
+            map |= (row as u64) << (8 * r);
+            r += 1;
+        }
+        bank[i] = map;
+        i += 1;
+    }
+    bank
+}
+
+/// Return the `VGF2P8AFFINEQB` matrix qword that multiplies by `coeff` under
+/// `0x11D`.
+#[inline]
+#[must_use]
+pub fn affine_8d(coeff: gf8d::Elem) -> u64 {
+    AFFINE_BANK_8D[coeff.0 as usize]
 }
 
 /// Broadcast factors that express one GF(2^16) tower multiply as two
@@ -116,10 +215,15 @@ impl TowerCoeff {
     /// cross.1]` order, i.e. `[c0, c0+c1, DELTA*c1, c1]`.
     #[inline]
     #[must_use]
-    pub const fn factors(self) -> [gf8::Elem; 4] {
+    pub const fn factors(self) -> [gf8b::Elem; 4] {
         let [s0, s1] = self.same.to_le_bytes();
         let [x0, x1] = self.cross.to_le_bytes();
-        [gf8::Elem(s0), gf8::Elem(s1), gf8::Elem(x0), gf8::Elem(x1)]
+        [
+            gf8b::Elem(s0),
+            gf8b::Elem(s1),
+            gf8b::Elem(x0),
+            gf8b::Elem(x1),
+        ]
     }
 }
 
@@ -357,7 +461,7 @@ impl<E: crate::field::Elem> Tower2Coeff<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::field::gf8::Elem as E8;
+    use crate::field::gf8b::Elem as E8;
 
     #[test]
     fn nibble_tables_reconstruct_the_product() {
@@ -366,6 +470,36 @@ mod tests {
             for x in 0..=u8::MAX {
                 let split = table.lo[(x & 0x0f) as usize] ^ table.hi[(x >> 4) as usize];
                 assert_eq!(split, E8(x).mul(E8(c)).0, "coeff {c:#04x} value {x:#04x}");
+            }
+        }
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn affine_bank_8d_matches_the_instruction_model() {
+        // The semantics `VGF2P8AFFINEQB` documents, modeled in scalar code:
+        // `dst.bit[b] = parity(map.byte[7 - b] & x)`. This proves the const
+        // derivation fills the bank to that convention; that silicon agrees
+        // with the convention is proven by the exhaustive hardware
+        // differential in `kernel::tests`.
+        fn apply(map: u64, x: u8) -> u8 {
+            let mut out = 0u8;
+            for b in 0..8u8 {
+                let row = (map >> (8 * (7 - b))) as u8;
+                let parity = (row & x).count_ones() & 1;
+                out |= u8::try_from(parity).unwrap() << b;
+            }
+            out
+        }
+
+        for c in 0..=u8::MAX {
+            let map = affine_8d(gf8d::Elem(c));
+            for x in 0..=u8::MAX {
+                assert_eq!(
+                    apply(map, x),
+                    gf8d::Elem(c).mul(gf8d::Elem(x)).0,
+                    "coeff {c:#04x} value {x:#04x}"
+                );
             }
         }
     }

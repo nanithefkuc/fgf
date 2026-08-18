@@ -23,10 +23,11 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-use crate::field::gf8::Elem;
+use crate::field::gf8b::Elem;
+use crate::field::gf8d;
 use crate::kernel::Matrix;
 use crate::kernel::gf8::{mul_add_nibble, mul_assign_nibble, mul_into_nibble};
-use crate::kernel::tables::{ScaleTable, scale_table};
+use crate::kernel::tables::{ScaleTable, affine_8d, scale_table, scale_table_8d};
 
 // ---------------------------------------------------------------------------
 // Single buffer: GFNI.
@@ -211,6 +212,221 @@ unsafe fn mul_into_gfni_impl<const NT: bool>(dst: &mut [u8], coeff: Elem, src: &
     }
 
     mul_into_nibble(&mut dst[offset..], scale_table(coeff), &src[offset..]);
+}
+
+// ---------------------------------------------------------------------------
+// Single buffer: GFNI affine.
+//
+// `VGF2P8AFFINEQB` applies an arbitrary 8×8 GF(2) linear map per byte lane,
+// so it multiplies in *any* GF(2^8): the polynomial lives in the prepared
+// matrix qword, not in the instruction. `Gf8D` (`0x11D`) uses these kernels;
+// `Gf8B` has the native `GF2P8MULB` and never needs them. Each loop mirrors
+// its `GF2P8MULB` counterpart exactly — same unroll, same lane descent — and
+// only the multiply instruction differs. The coefficient enters as its
+// affine matrix qword (see `tables::affine_8d`); its nibble table covers the
+// sub-XMM tail, so both prepared forms arrive as arguments and no kernel
+// below reaches for a bank.
+// ---------------------------------------------------------------------------
+
+/// `dst ^= coeff * src` using `VGF2P8AFFINEQB` over 32-byte lanes.
+///
+/// # Panics
+/// Panics if the slices differ in length.
+pub fn mul_add_affine(dst: &mut [u8], map: u64, table: &ScaleTable, src: &[u8]) {
+    assert_eq!(dst.len(), src.len());
+    // SAFETY: the caller selected the GFNI backend, which detected both AVX2
+    // and GFNI; the slices are equal-length and independently borrowed.
+    unsafe { mul_add_affine_impl(dst, map, table, src) }
+}
+
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn mul_add_affine_impl(dst: &mut [u8], map: u64, table: &ScaleTable, src: &[u8]) {
+    let factor = _mm256_set1_epi64x(map.cast_signed());
+    let factor128 = _mm256_castsi256_si128(factor);
+    let len = dst.len();
+    let (dst_ptr, src_ptr) = (dst.as_mut_ptr(), src.as_ptr());
+    let mut offset = 0;
+
+    // Four independent multiply chains per iteration. A single destination
+    // AXPY is latency-bound on `VGF2P8AFFINEQB`, and the unroll is what
+    // covers it.
+    while offset + 128 <= len {
+        // SAFETY: `offset + 128 <= len == dst.len() == src.len()`, so all
+        // twelve unaligned accesses stay inside their slice.
+        unsafe {
+            let sp = src_ptr.add(offset);
+            let dp = dst_ptr.add(offset);
+            let x0 = _mm256_loadu_si256(sp.cast());
+            let x1 = _mm256_loadu_si256(sp.add(32).cast());
+            let x2 = _mm256_loadu_si256(sp.add(64).cast());
+            let x3 = _mm256_loadu_si256(sp.add(96).cast());
+            let d0 = _mm256_loadu_si256(dp.cast());
+            let d1 = _mm256_loadu_si256(dp.add(32).cast());
+            let d2 = _mm256_loadu_si256(dp.add(64).cast());
+            let d3 = _mm256_loadu_si256(dp.add(96).cast());
+            let r0 = _mm256_xor_si256(d0, _mm256_gf2p8affine_epi64_epi8::<0>(x0, factor));
+            let r1 = _mm256_xor_si256(d1, _mm256_gf2p8affine_epi64_epi8::<0>(x1, factor));
+            let r2 = _mm256_xor_si256(d2, _mm256_gf2p8affine_epi64_epi8::<0>(x2, factor));
+            let r3 = _mm256_xor_si256(d3, _mm256_gf2p8affine_epi64_epi8::<0>(x3, factor));
+            _mm256_storeu_si256(dp.cast(), r0);
+            _mm256_storeu_si256(dp.add(32).cast(), r1);
+            _mm256_storeu_si256(dp.add(64).cast(), r2);
+            _mm256_storeu_si256(dp.add(96).cast(), r3);
+        }
+        offset += 128;
+    }
+    while offset + 32 <= len {
+        // SAFETY: `offset + 32 <= len == dst.len() == src.len()`.
+        unsafe {
+            let x = _mm256_loadu_si256(src_ptr.add(offset).cast());
+            let d = _mm256_loadu_si256(dst_ptr.add(offset).cast());
+            let r = _mm256_xor_si256(d, _mm256_gf2p8affine_epi64_epi8::<0>(x, factor));
+            _mm256_storeu_si256(dst_ptr.add(offset).cast(), r);
+        }
+        offset += 32;
+    }
+    if offset + 16 <= len {
+        // SAFETY: `offset + 16 <= len == dst.len() == src.len()`.
+        unsafe {
+            let x = _mm_loadu_si128(src_ptr.add(offset).cast());
+            let d = _mm_loadu_si128(dst_ptr.add(offset).cast());
+            let r = _mm_xor_si128(d, _mm_gf2p8affine_epi64_epi8::<0>(x, factor128));
+            _mm_storeu_si128(dst_ptr.add(offset).cast(), r);
+        }
+        offset += 16;
+    }
+
+    mul_add_nibble(&mut dst[offset..], table, &src[offset..]);
+}
+
+/// `dst = coeff * dst` using `VGF2P8AFFINEQB` over 32-byte lanes.
+pub fn mul_assign_affine(dst: &mut [u8], map: u64, table: &ScaleTable) {
+    // SAFETY: the caller selected the GFNI backend, which detected both AVX2
+    // and GFNI.
+    unsafe { mul_assign_affine_impl(dst, map, table) }
+}
+
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn mul_assign_affine_impl(dst: &mut [u8], map: u64, table: &ScaleTable) {
+    let factor = _mm256_set1_epi64x(map.cast_signed());
+    let factor128 = _mm256_castsi256_si128(factor);
+    let len = dst.len() & !31;
+    let dst_ptr = dst.as_mut_ptr();
+    let mut offset = 0;
+    // In-place scaling is store-bound and rare next to the AXPY shapes, so
+    // one accumulator is enough; the loads have no dependency to cover.
+    while offset < len {
+        // SAFETY: `offset + 32 <= len <= dst.len()`.
+        unsafe {
+            let d = _mm256_loadu_si256(dst_ptr.add(offset).cast());
+            _mm256_storeu_si256(
+                dst_ptr.add(offset).cast(),
+                _mm256_gf2p8affine_epi64_epi8::<0>(d, factor),
+            );
+        }
+        offset += 32;
+    }
+    let mut offset = len;
+    if offset + 16 <= dst.len() {
+        // SAFETY: `offset + 16 <= dst.len()`.
+        unsafe {
+            let d = _mm_loadu_si128(dst_ptr.add(offset).cast());
+            _mm_storeu_si128(
+                dst_ptr.add(offset).cast(),
+                _mm_gf2p8affine_epi64_epi8::<0>(d, factor128),
+            );
+        }
+        offset += 16;
+    }
+
+    mul_assign_nibble(&mut dst[offset..], table);
+}
+
+/// `dst = coeff * src` using `VGF2P8AFFINEQB` over 32-byte lanes.
+///
+/// Fused out-of-place multiply: one pass, one read of `src` and one write of
+/// `dst`, versus the copy-then-scale pair the trait default runs.
+///
+/// # Panics
+/// Panics if the slices differ in length.
+pub fn mul_into_affine(dst: &mut [u8], map: u64, table: &ScaleTable, src: &[u8]) {
+    assert_eq!(dst.len(), src.len());
+    // SAFETY: the caller selected the GFNI backend, which detected both AVX2
+    // and GFNI; the slices are equal-length and independently borrowed, and
+    // `nt_split` returns a 32-byte-aligned split for the non-temporal body.
+    unsafe {
+        match super::nt_split(dst, 1) {
+            Some(peel) => {
+                let (head, body) = dst.split_at_mut(peel);
+                let (src_head, src_body) = src.split_at(peel);
+                mul_into_affine_impl::<false>(head, map, table, src_head);
+                mul_into_affine_impl::<true>(body, map, table, src_body);
+                _mm_sfence();
+            }
+            None => mul_into_affine_impl::<false>(dst, map, table, src),
+        }
+    }
+}
+
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn mul_into_affine_impl<const NT: bool>(
+    dst: &mut [u8],
+    map: u64,
+    table: &ScaleTable,
+    src: &[u8],
+) {
+    let factor = _mm256_set1_epi64x(map.cast_signed());
+    let factor128 = _mm256_castsi256_si128(factor);
+    let len = dst.len();
+    let (dst_ptr, src_ptr) = (dst.as_mut_ptr(), src.as_ptr());
+    let mut offset = 0;
+
+    // Four independent multiply chains, as in the AXPY: `VGF2P8AFFINEQB` is
+    // pipelined, and with no destination read there is even less other work
+    // to hide its latency behind.
+    while offset + 128 <= len {
+        // SAFETY: `offset + 128 <= len == dst.len() == src.len()`.
+        unsafe {
+            let sp = src_ptr.add(offset);
+            let dp = dst_ptr.add(offset);
+            let r0 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(sp.cast()), factor);
+            let r1 =
+                _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(sp.add(32).cast()), factor);
+            let r2 =
+                _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(sp.add(64).cast()), factor);
+            let r3 =
+                _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(sp.add(96).cast()), factor);
+            super::store256::<NT>(dp, r0);
+            super::store256::<NT>(dp.add(32), r1);
+            super::store256::<NT>(dp.add(64), r2);
+            super::store256::<NT>(dp.add(96), r3);
+        }
+        offset += 128;
+    }
+    while offset + 32 <= len {
+        // SAFETY: `offset + 32 <= len == dst.len() == src.len()`.
+        unsafe {
+            let x = _mm256_loadu_si256(src_ptr.add(offset).cast());
+            _mm256_storeu_si256(
+                dst_ptr.add(offset).cast(),
+                _mm256_gf2p8affine_epi64_epi8::<0>(x, factor),
+            );
+        }
+        offset += 32;
+    }
+    if offset + 16 <= len {
+        // SAFETY: `offset + 16 <= len == dst.len() == src.len()`.
+        unsafe {
+            let x = _mm_loadu_si128(src_ptr.add(offset).cast());
+            _mm_storeu_si128(
+                dst_ptr.add(offset).cast(),
+                _mm_gf2p8affine_epi64_epi8::<0>(x, factor128),
+            );
+        }
+        offset += 16;
+    }
+
+    mul_into_nibble(&mut dst[offset..], table, &src[offset..]);
 }
 
 // ---------------------------------------------------------------------------
@@ -483,6 +699,139 @@ unsafe fn mul_into_ssse3_impl<const NT: bool>(dst: &mut [u8], table: &ScaleTable
 }
 
 // ---------------------------------------------------------------------------
+// Blocked multi-row strategy.
+//
+// The register-blocked scatter/gather/matrix kernels differ between the two
+// byte fields in exactly three places: how a coefficient becomes a factor
+// vector, which one-instruction multiply folds it in, and which nibble bank
+// the sub-lane tail reads. `GF2P8MULB` is the native `0x11B` multiply for
+// `Gf8B`; `VGF2P8AFFINEQB` applies an arbitrary GF(2) map and so multiplies
+// under `0x11D` for `Gf8D`. Everything else — the tiling, the register
+// budget, the remainder ladder — is identical, so the kernels are generic
+// over this seam and monomorphize back to the code each field had alone.
+// ---------------------------------------------------------------------------
+
+/// The per-field multiply seam for the blocked GF(2^8) kernels.
+pub(super) trait Blocked {
+    /// Coefficient element: `Elem` (`0x11B`) or [`gf8d::Elem`] (`0x11D`).
+    type Coeff: Copy;
+    /// The additive identity, for staging arrays.
+    fn zero() -> Self::Coeff;
+    /// `true` when the multiply is `VGF2P8AFFINEQB`, `false` for `GF2P8MULB`.
+    const AFFINE: bool;
+    /// Raw coefficient byte.
+    fn byte(coeff: Self::Coeff) -> u8;
+    /// The `VGF2P8AFFINEQB` matrix qword (unused when `AFFINE` is false).
+    fn map(coeff: Self::Coeff) -> u64;
+    /// The coefficient's sub-lane nibble tables, from this field's bank.
+    fn table(coeff: Self::Coeff) -> &'static ScaleTable;
+}
+
+/// Native GFNI multiply in the AES field `0x11B` (`Gf8B`).
+pub(super) enum Gfni {}
+impl Blocked for Gfni {
+    type Coeff = Elem;
+    const AFFINE: bool = false;
+    #[inline]
+    fn zero() -> Elem {
+        Elem(0)
+    }
+    #[inline]
+    fn byte(coeff: Elem) -> u8 {
+        coeff.0
+    }
+    #[inline]
+    fn map(_coeff: Elem) -> u64 {
+        0
+    }
+    #[inline]
+    fn table(coeff: Elem) -> &'static ScaleTable {
+        scale_table(coeff)
+    }
+}
+
+/// Affine-map multiply in the Reed–Solomon field `0x11D` (`Gf8D`).
+pub(super) enum Affine8D {}
+impl Blocked for Affine8D {
+    type Coeff = gf8d::Elem;
+    const AFFINE: bool = true;
+    #[inline]
+    fn zero() -> gf8d::Elem {
+        gf8d::Elem(0)
+    }
+    #[inline]
+    fn byte(coeff: gf8d::Elem) -> u8 {
+        coeff.0
+    }
+    #[inline]
+    fn map(coeff: gf8d::Elem) -> u64 {
+        affine_8d(coeff)
+    }
+    #[inline]
+    fn table(coeff: gf8d::Elem) -> &'static ScaleTable {
+        scale_table_8d(coeff)
+    }
+}
+
+/// Broadcast a coefficient into a 256-bit multiply factor.
+#[inline]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn bfactor<S: Blocked>(coeff: S::Coeff) -> __m256i {
+    if S::AFFINE {
+        _mm256_set1_epi64x(S::map(coeff).cast_signed())
+    } else {
+        _mm256_set1_epi8(S::byte(coeff).cast_signed())
+    }
+}
+
+/// Broadcast a coefficient into a 128-bit multiply factor.
+#[inline]
+#[target_feature(enable = "sse2,gfni")]
+unsafe fn bfactor128<S: Blocked>(coeff: S::Coeff) -> __m128i {
+    if S::AFFINE {
+        _mm_set1_epi64x(S::map(coeff).cast_signed())
+    } else {
+        _mm_set1_epi8(S::byte(coeff).cast_signed())
+    }
+}
+
+/// `coeff * x` over a 256-bit lane, one instruction.
+#[inline]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn bmul<S: Blocked>(x: __m256i, factor: __m256i) -> __m256i {
+    if S::AFFINE {
+        _mm256_gf2p8affine_epi64_epi8::<0>(x, factor)
+    } else {
+        _mm256_gf2p8mul_epi8(x, factor)
+    }
+}
+
+/// `coeff * x` over a 128-bit lane, one instruction.
+#[inline]
+#[target_feature(enable = "sse2,gfni")]
+unsafe fn bmul128<S: Blocked>(x: __m128i, factor: __m128i) -> __m128i {
+    if S::AFFINE {
+        _mm_gf2p8affine_epi64_epi8::<0>(x, factor)
+    } else {
+        _mm_gf2p8mul_epi8(x, factor)
+    }
+}
+
+/// Single-row remainder AXPY (`dst ^= coeff * src`) for this field: whole
+/// 32/16-byte lanes on the one-instruction multiply, sub-XMM tail on the
+/// nibble bank.
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn brem<S: Blocked>(dst: &mut [u8], coeff: S::Coeff, src: &[u8]) {
+    if S::AFFINE {
+        // SAFETY: the caller established AVX2+GFNI and equal slice lengths.
+        unsafe { mul_add_affine_impl(dst, S::map(coeff), S::table(coeff), src) }
+    } else {
+        // SAFETY: as above.
+        unsafe { mul_add_gfni_impl(dst, Elem(S::byte(coeff)), src) }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // One source, many rows.
 // ---------------------------------------------------------------------------
 
@@ -508,18 +857,43 @@ pub fn scatter_gfni(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]
     );
     // SAFETY: the caller selected the GFNI backend, which detected both AVX2
     // and GFNI, and the geometry asserted above bounds every row.
-    unsafe { scatter_gfni_impl(rows, row_len, coeffs, src) }
+    unsafe { scatter_impl::<Gfni>(rows, row_len, coeffs, src) }
+}
+
+/// [`scatter_gfni`] under `0x11D`: one source into many rows, folding each in
+/// with its `VGF2P8AFFINEQB` map instead of `GF2P8MULB`.
+///
+/// # Panics
+/// As [`scatter_gfni`].
+pub fn scatter_affine(rows: &mut [u8], row_len: usize, coeffs: &[gf8d::Elem], src: &[u8]) {
+    assert_eq!(row_len, src.len());
+    assert!(
+        coeffs
+            .len()
+            .checked_mul(row_len)
+            .is_some_and(|needed| needed <= rows.len()),
+        "scatter_affine: rows buffer does not hold {} rows of {row_len} bytes",
+        coeffs.len()
+    );
+    // SAFETY: the caller selected the GFNI backend (AVX2+GFNI detected); the
+    // geometry asserted above bounds every row.
+    unsafe { scatter_impl::<Affine8D>(rows, row_len, coeffs, src) }
 }
 
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn scatter_gfni_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
+unsafe fn scatter_impl<S: Blocked>(
+    rows: &mut [u8],
+    row_len: usize,
+    coeffs: &[S::Coeff],
+    src: &[u8],
+) {
     let base = rows.as_mut_ptr();
     let mut ptrs = [base; 4];
-    let mut group = [Elem::ZERO; 4];
+    let mut group = [S::zero(); 4];
     let mut filled = 0;
 
     for (j, &coeff) in coeffs.iter().enumerate() {
-        if coeff.0 == 0 {
+        if S::byte(coeff) == 0 {
             // `row ^= 0 * src` is the identity: skip the row entirely rather
             // than stream it through the multiplier to add zero.
             continue;
@@ -532,9 +906,8 @@ unsafe fn scatter_gfni_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], sr
         filled += 1;
         if filled == 4 {
             // SAFETY: four in-bounds, pairwise disjoint rows of `src.len()`
-            // bytes; `Elem(1)` and every other nonzero coefficient is exact
-            // under `GF2P8MULB`.
-            unsafe { scatter_rows4(ptrs, group, src) }
+            // bytes; every nonzero coefficient is exact under the multiply.
+            unsafe { scatter_rows4::<S>(ptrs, group, src) }
             filled = 0;
         }
     }
@@ -542,7 +915,7 @@ unsafe fn scatter_gfni_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], sr
     // 3 left over is a pair plus a single; 2 a pair; 1 a single.
     if filled >= 2 {
         // SAFETY: as above, for the first two staged rows.
-        unsafe { scatter_rows2([ptrs[0], ptrs[1]], [group[0], group[1]], src) }
+        unsafe { scatter_rows2::<S>([ptrs[0], ptrs[1]], [group[0], group[1]], src) }
     }
     if filled == 1 || filled == 3 {
         let last = filled - 1;
@@ -550,19 +923,21 @@ unsafe fn scatter_gfni_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], sr
         // no other slice into `rows` is live.
         let row = unsafe { core::slice::from_raw_parts_mut(ptrs[last], src.len()) };
         // SAFETY: this function's target features are a superset.
-        unsafe { mul_add_gfni_impl(row, group[last], src) }
+        unsafe { brem::<S>(row, group[last], src) }
     }
 }
 
 /// `rows[i] ^= coeffs[i] * src` for four disjoint rows of `src.len()` bytes.
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn scatter_rows4(ptrs: [*mut u8; 4], coeffs: [Elem; 4], src: &[u8]) {
-    let factors = [
-        _mm256_set1_epi8(coeffs[0].0.cast_signed()),
-        _mm256_set1_epi8(coeffs[1].0.cast_signed()),
-        _mm256_set1_epi8(coeffs[2].0.cast_signed()),
-        _mm256_set1_epi8(coeffs[3].0.cast_signed()),
-    ];
+unsafe fn scatter_rows4<S: Blocked>(ptrs: [*mut u8; 4], coeffs: [S::Coeff; 4], src: &[u8]) {
+    let factors = unsafe {
+        [
+            bfactor::<S>(coeffs[0]),
+            bfactor::<S>(coeffs[1]),
+            bfactor::<S>(coeffs[2]),
+            bfactor::<S>(coeffs[3]),
+        ]
+    };
     let len = src.len();
     let src_ptr = src.as_ptr();
 
@@ -572,7 +947,7 @@ unsafe fn scatter_rows4(ptrs: [*mut u8; 4], coeffs: [Elem; 4], src: &[u8]) {
     // SAFETY: `head <= len`, the length shared by `src` and every row, so
     // `0..head` is a sub-range of each; the four rows are distinct and
     // in-bounds, and no slice into them is live here.
-    unsafe { scatter_span(ptrs.iter().zip(&coeffs), 0, head, src) }
+    unsafe { scatter_span::<S>(ptrs.iter().zip(&coeffs), 0, head, src) }
     let mut offset = head;
 
     // One 128-byte source window feeds all four rows, and each row runs four
@@ -592,10 +967,10 @@ unsafe fn scatter_rows4(ptrs: [*mut u8; 4], coeffs: [Elem; 4], src: &[u8]) {
                 let d1 = _mm256_loadu_si256(rp.add(32).cast());
                 let d2 = _mm256_loadu_si256(rp.add(64).cast());
                 let d3 = _mm256_loadu_si256(rp.add(96).cast());
-                let r0 = _mm256_xor_si256(d0, _mm256_gf2p8mul_epi8(x0, factor));
-                let r1 = _mm256_xor_si256(d1, _mm256_gf2p8mul_epi8(x1, factor));
-                let r2 = _mm256_xor_si256(d2, _mm256_gf2p8mul_epi8(x2, factor));
-                let r3 = _mm256_xor_si256(d3, _mm256_gf2p8mul_epi8(x3, factor));
+                let r0 = _mm256_xor_si256(d0, bmul::<S>(x0, factor));
+                let r1 = _mm256_xor_si256(d1, bmul::<S>(x1, factor));
+                let r2 = _mm256_xor_si256(d2, bmul::<S>(x2, factor));
+                let r3 = _mm256_xor_si256(d3, bmul::<S>(x3, factor));
                 _mm256_storeu_si256(rp.cast(), r0);
                 _mm256_storeu_si256(rp.add(32).cast(), r1);
                 _mm256_storeu_si256(rp.add(64).cast(), r2);
@@ -612,10 +987,7 @@ unsafe fn scatter_rows4(ptrs: [*mut u8; 4], coeffs: [Elem; 4], src: &[u8]) {
             for (&row, &factor) in ptrs.iter().zip(&factors) {
                 let rp = row.add(offset);
                 let d = _mm256_loadu_si256(rp.cast());
-                _mm256_storeu_si256(
-                    rp.cast(),
-                    _mm256_xor_si256(d, _mm256_gf2p8mul_epi8(x, factor)),
-                );
+                _mm256_storeu_si256(rp.cast(), _mm256_xor_si256(d, bmul::<S>(x, factor)));
             }
         }
         offset += 32;
@@ -623,16 +995,13 @@ unsafe fn scatter_rows4(ptrs: [*mut u8; 4], coeffs: [Elem; 4], src: &[u8]) {
 
     // SAFETY: the four rows are distinct, in-bounds, and `src.len()` bytes
     // long; no slice into them is live here.
-    unsafe { scatter_span(ptrs.iter().zip(&coeffs), offset, len, src) }
+    unsafe { scatter_span::<S>(ptrs.iter().zip(&coeffs), offset, len, src) }
 }
 
 /// `rows[i] ^= coeffs[i] * src` for two disjoint rows of `src.len()` bytes.
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn scatter_rows2(ptrs: [*mut u8; 2], coeffs: [Elem; 2], src: &[u8]) {
-    let factors = [
-        _mm256_set1_epi8(coeffs[0].0.cast_signed()),
-        _mm256_set1_epi8(coeffs[1].0.cast_signed()),
-    ];
+unsafe fn scatter_rows2<S: Blocked>(ptrs: [*mut u8; 2], coeffs: [S::Coeff; 2], src: &[u8]) {
+    let factors = unsafe { [bfactor::<S>(coeffs[0]), bfactor::<S>(coeffs[1])] };
     let len = src.len();
     let src_ptr = src.as_ptr();
 
@@ -642,7 +1011,7 @@ unsafe fn scatter_rows2(ptrs: [*mut u8; 2], coeffs: [Elem; 2], src: &[u8]) {
     // SAFETY: `head <= len`, the length shared by `src` and both rows, so
     // `0..head` is a sub-range of each; the rows are distinct, in-bounds,
     // and no slice into them is live here.
-    unsafe { scatter_span(ptrs.iter().zip(&coeffs), 0, head, src) }
+    unsafe { scatter_span::<S>(ptrs.iter().zip(&coeffs), 0, head, src) }
     let mut offset = head;
 
     // With only two rows the 128-byte window leaves room for eight chains.
@@ -661,10 +1030,10 @@ unsafe fn scatter_rows2(ptrs: [*mut u8; 2], coeffs: [Elem; 2], src: &[u8]) {
                 let d1 = _mm256_loadu_si256(rp.add(32).cast());
                 let d2 = _mm256_loadu_si256(rp.add(64).cast());
                 let d3 = _mm256_loadu_si256(rp.add(96).cast());
-                let r0 = _mm256_xor_si256(d0, _mm256_gf2p8mul_epi8(x0, factor));
-                let r1 = _mm256_xor_si256(d1, _mm256_gf2p8mul_epi8(x1, factor));
-                let r2 = _mm256_xor_si256(d2, _mm256_gf2p8mul_epi8(x2, factor));
-                let r3 = _mm256_xor_si256(d3, _mm256_gf2p8mul_epi8(x3, factor));
+                let r0 = _mm256_xor_si256(d0, bmul::<S>(x0, factor));
+                let r1 = _mm256_xor_si256(d1, bmul::<S>(x1, factor));
+                let r2 = _mm256_xor_si256(d2, bmul::<S>(x2, factor));
+                let r3 = _mm256_xor_si256(d3, bmul::<S>(x3, factor));
                 _mm256_storeu_si256(rp.cast(), r0);
                 _mm256_storeu_si256(rp.add(32).cast(), r1);
                 _mm256_storeu_si256(rp.add(64).cast(), r2);
@@ -681,10 +1050,7 @@ unsafe fn scatter_rows2(ptrs: [*mut u8; 2], coeffs: [Elem; 2], src: &[u8]) {
             for (&row, &factor) in ptrs.iter().zip(&factors) {
                 let rp = row.add(offset);
                 let d = _mm256_loadu_si256(rp.cast());
-                _mm256_storeu_si256(
-                    rp.cast(),
-                    _mm256_xor_si256(d, _mm256_gf2p8mul_epi8(x, factor)),
-                );
+                _mm256_storeu_si256(rp.cast(), _mm256_xor_si256(d, bmul::<S>(x, factor)));
             }
         }
         offset += 32;
@@ -692,31 +1058,33 @@ unsafe fn scatter_rows2(ptrs: [*mut u8; 2], coeffs: [Elem; 2], src: &[u8]) {
 
     // SAFETY: the two rows are distinct, in-bounds, and `src.len()` bytes
     // long; no slice into them is live here.
-    unsafe { scatter_span(ptrs.iter().zip(&coeffs), offset, len, src) }
+    unsafe { scatter_span::<S>(ptrs.iter().zip(&coeffs), offset, len, src) }
 }
 
-/// Narrow SIMD span shared by the GFNI scatter row groups.
+/// Narrow SIMD span shared by the scatter row groups.
 ///
-/// Processes complete 16-byte lanes with GFNI and leaves fewer than 16 bytes
-/// to the scalar nibble kernel.
+/// Processes complete 16-byte lanes with the field's one-instruction multiply
+/// and leaves fewer than 16 bytes to the scalar nibble kernel.
 ///
 /// # Safety
 /// Every pointer must address a distinct, in-bounds row of at least
 /// `src.len()` bytes, `start..end` must lie within `0..=src.len()`, no slice
 /// into those rows may be live, and the caller must have selected GFNI.
 #[target_feature(enable = "sse2,gfni")]
-unsafe fn scatter_span<'a>(
-    rows: impl Iterator<Item = (&'a *mut u8, &'a Elem)>,
+unsafe fn scatter_span<'a, S: Blocked>(
+    rows: impl Iterator<Item = (&'a *mut u8, &'a S::Coeff)>,
     start: usize,
     end: usize,
     src: &[u8],
-) {
+) where
+    S::Coeff: 'a,
+{
     if start >= end {
         return;
     }
     let vector_end = start + ((end - start) & !15);
     for (&row, &coeff) in rows {
-        let factor = _mm_set1_epi8(coeff.0.cast_signed());
+        let factor = unsafe { bfactor128::<S>(coeff) };
         let mut offset = start;
         while offset < vector_end {
             // SAFETY: `offset + 16 <= vector_end <= end <= src.len()` bounds
@@ -725,7 +1093,7 @@ unsafe fn scatter_span<'a>(
                 let x = _mm_loadu_si128(src.as_ptr().add(offset).cast());
                 let ptr = row.add(offset);
                 let d = _mm_loadu_si128(ptr.cast());
-                _mm_storeu_si128(ptr.cast(), _mm_xor_si128(d, _mm_gf2p8mul_epi8(x, factor)));
+                _mm_storeu_si128(ptr.cast(), _mm_xor_si128(d, bmul128::<S>(x, factor)));
             }
             offset += 16;
         }
@@ -734,7 +1102,7 @@ unsafe fn scatter_span<'a>(
             // are disjoint and only one mutable slice is live at a time.
             let dst =
                 unsafe { core::slice::from_raw_parts_mut(row.add(vector_end), end - vector_end) };
-            mul_add_nibble(dst, scale_table(coeff), &src[vector_end..end]);
+            mul_add_nibble(dst, S::table(coeff), &src[vector_end..end]);
         }
     }
 }
@@ -793,11 +1161,51 @@ pub fn matrix_gfni_with<M: Matrix<Elem> + ?Sized>(
     }
     // SAFETY: the caller selected the GFNI backend, which detected both AVX2
     // and GFNI; the geometry asserted above bounds every row and every term.
-    unsafe { matrix_gfni_impl(rows, row_len, nrows, terms) }
+    unsafe { matrix_impl::<Gfni, M>(rows, row_len, nrows, terms) }
+}
+
+/// [`matrix_gfni`] under `0x11D`, folding every term in with its affine map.
+///
+/// # Panics
+/// As [`matrix_gfni`].
+pub fn matrix_affine(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &[(&[gf8d::Elem], &[u8])],
+) {
+    matrix_affine_with(rows, row_len, nrows, terms);
+}
+
+/// [`matrix_affine`] over a generic matrix source.
+///
+/// # Panics
+/// As [`matrix_gfni`].
+pub fn matrix_affine_with<M: Matrix<gf8d::Elem> + ?Sized>(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &M,
+) {
+    assert!(
+        nrows
+            .checked_mul(row_len)
+            .is_some_and(|needed| needed <= rows.len()),
+        "matrix_affine: rows buffer does not hold {nrows} rows of {row_len} bytes"
+    );
+    for term in 0..terms.len() {
+        assert_eq!(terms.source(term).len(), row_len);
+    }
+    if terms.len() == 0 {
+        return;
+    }
+    // SAFETY: the caller selected the GFNI backend (AVX2+GFNI detected); the
+    // geometry asserted above bounds every row and every term.
+    unsafe { matrix_impl::<Affine8D, M>(rows, row_len, nrows, terms) }
 }
 
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn matrix_gfni_impl<M: Matrix<Elem> + ?Sized>(
+unsafe fn matrix_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
@@ -822,7 +1230,7 @@ unsafe fn matrix_gfni_impl<M: Matrix<Elem> + ?Sized>(
         // SAFETY: four in-bounds rows of `row_len` bytes, pairwise disjoint
         // because distinct rows are `row_len` apart; the wrapper checked every
         // term for `nrows` coefficients over a `row_len`-byte source.
-        unsafe { matrix_rows4(ptrs, row_len, g, terms) }
+        unsafe { matrix_rows4::<S, M>(ptrs, row_len, g, terms) }
         g += 4;
     }
     if g + 2 <= nrows {
@@ -830,7 +1238,7 @@ unsafe fn matrix_gfni_impl<M: Matrix<Elem> + ?Sized>(
         let ptrs = unsafe { [base.add(g * row_len), base.add((g + 1) * row_len)] };
         // SAFETY: two in-bounds, disjoint rows of `row_len` bytes, and every
         // term covers row `g + 1`.
-        unsafe { matrix_rows2(ptrs, row_len, g, terms) }
+        unsafe { matrix_rows2::<S, M>(ptrs, row_len, g, terms) }
         g += 2;
     }
     if g < nrows {
@@ -838,7 +1246,7 @@ unsafe fn matrix_gfni_impl<M: Matrix<Elem> + ?Sized>(
         let ptr = unsafe { base.add(g * row_len) };
         // SAFETY: one in-bounds row of `row_len` bytes, and every term covers
         // row `g`.
-        unsafe { matrix_rows1(ptr, row_len, g, terms) }
+        unsafe { matrix_rows1::<S, M>(ptr, row_len, g, terms) }
     }
 }
 
@@ -869,12 +1277,49 @@ pub fn matrix_scattered_gfni_with<M: Matrix<Elem> + ?Sized>(
     row_starts: &[usize],
     terms: &M,
 ) {
+    matrix_scattered_checked::<Gfni, M>(dst, row_len, row_starts, terms);
+}
+
+/// [`matrix_scattered_gfni`] under `0x11D`, folding terms in with the affine
+/// map.
+///
+/// # Panics
+/// As [`matrix_scattered_gfni`].
+pub fn matrix_scattered_affine(
+    dst: &mut [u8],
+    row_len: usize,
+    row_starts: &[usize],
+    terms: &[(&[gf8d::Elem], &[u8])],
+) {
+    matrix_scattered_affine_with(dst, row_len, row_starts, terms);
+}
+
+/// [`matrix_scattered_affine`] over a generic matrix source.
+///
+/// # Panics
+/// As [`matrix_scattered_gfni`].
+pub fn matrix_scattered_affine_with<M: Matrix<gf8d::Elem> + ?Sized>(
+    dst: &mut [u8],
+    row_len: usize,
+    row_starts: &[usize],
+    terms: &M,
+) {
+    matrix_scattered_checked::<Affine8D, M>(dst, row_len, row_starts, terms);
+}
+
+/// Shared geometry check and dispatch for the scattered matrix kernels.
+fn matrix_scattered_checked<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
+    dst: &mut [u8],
+    row_len: usize,
+    row_starts: &[usize],
+    terms: &M,
+) {
     for &start in row_starts {
         assert!(
             start
                 .checked_add(row_len)
                 .is_some_and(|end| end <= dst.len()),
-            "matrix_scattered_gfni: row at {start} does not fit {row_len} bytes in dst"
+            "matrix_scattered: row at {start} does not fit {row_len} bytes in dst"
         );
     }
     for term in 0..terms.len() {
@@ -887,11 +1332,11 @@ pub fn matrix_scattered_gfni_with<M: Matrix<Elem> + ?Sized>(
     // offsets are bounded above, and the public `ops` wrapper checked they are
     // pairwise disjoint, so the row pointers built below address distinct,
     // in-bounds rows of `row_len` bytes.
-    unsafe { matrix_scattered_gfni_impl(dst, row_len, row_starts, terms) }
+    unsafe { matrix_scattered_impl::<S, M>(dst, row_len, row_starts, terms) }
 }
 
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn matrix_scattered_gfni_impl<M: Matrix<Elem> + ?Sized>(
+unsafe fn matrix_scattered_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
     dst: &mut [u8],
     row_len: usize,
     row_starts: &[usize],
@@ -900,8 +1345,8 @@ unsafe fn matrix_scattered_gfni_impl<M: Matrix<Elem> + ?Sized>(
     let base = dst.as_mut_ptr();
     let nrows = row_starts.len();
     // Rows are grouped four, then a pair, then a single leftover — the same
-    // blocking as `matrix_gfni_impl`, but each row starts at an arbitrary
-    // disjoint offset instead of `g * row_len`.
+    // blocking as `matrix_impl`, but each row starts at an arbitrary disjoint
+    // offset instead of `g * row_len`.
     let mut g = 0;
     while g + 4 <= nrows {
         // SAFETY: each offset + `row_len` was bounded within `dst`, and the
@@ -917,7 +1362,7 @@ unsafe fn matrix_scattered_gfni_impl<M: Matrix<Elem> + ?Sized>(
         };
         // SAFETY: four in-bounds, disjoint rows; every term covers coefficient
         // index `g + 3` over a `row_len`-byte source.
-        unsafe { matrix_rows4(ptrs, row_len, g, terms) }
+        unsafe { matrix_rows4::<S, M>(ptrs, row_len, g, terms) }
         g += 4;
     }
     if g + 2 <= nrows {
@@ -925,7 +1370,7 @@ unsafe fn matrix_scattered_gfni_impl<M: Matrix<Elem> + ?Sized>(
         let ptrs = unsafe { [base.add(row_starts[g]), base.add(row_starts[g + 1])] };
         // SAFETY: two in-bounds, disjoint rows, and every term covers row
         // `g + 1`.
-        unsafe { matrix_rows2(ptrs, row_len, g, terms) }
+        unsafe { matrix_rows2::<S, M>(ptrs, row_len, g, terms) }
         g += 2;
     }
     if g < nrows {
@@ -933,7 +1378,7 @@ unsafe fn matrix_scattered_gfni_impl<M: Matrix<Elem> + ?Sized>(
         let ptr = unsafe { base.add(row_starts[g]) };
         // SAFETY: one in-bounds row of `row_len` bytes, and every term covers
         // row `g`.
-        unsafe { matrix_rows1(ptr, row_len, g, terms) }
+        unsafe { matrix_rows1::<S, M>(ptr, row_len, g, terms) }
     }
 }
 
@@ -944,7 +1389,7 @@ unsafe fn matrix_scattered_gfni_impl<M: Matrix<Elem> + ?Sized>(
 /// bytes, every term's source must be `row_len` bytes, and every term must
 /// supply coefficients through index `g + 3`.
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn matrix_rows4<M: Matrix<Elem> + ?Sized>(
+unsafe fn matrix_rows4<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
     ptrs: [*mut u8; 4],
     row_len: usize,
     g: usize,
@@ -980,18 +1425,18 @@ unsafe fn matrix_rows4<M: Matrix<Elem> + ?Sized>(
                 let sp = src.as_ptr().add(tile);
                 let x0 = _mm256_loadu_si256(sp.cast());
                 let x1 = _mm256_loadu_si256(sp.add(32).cast());
-                let f0 = _mm256_set1_epi8(coeffs[0].0.cast_signed());
-                let f1 = _mm256_set1_epi8(coeffs[1].0.cast_signed());
-                let f2 = _mm256_set1_epi8(coeffs[2].0.cast_signed());
-                let f3 = _mm256_set1_epi8(coeffs[3].0.cast_signed());
-                a00 = _mm256_xor_si256(a00, _mm256_gf2p8mul_epi8(x0, f0));
-                a01 = _mm256_xor_si256(a01, _mm256_gf2p8mul_epi8(x1, f0));
-                a10 = _mm256_xor_si256(a10, _mm256_gf2p8mul_epi8(x0, f1));
-                a11 = _mm256_xor_si256(a11, _mm256_gf2p8mul_epi8(x1, f1));
-                a20 = _mm256_xor_si256(a20, _mm256_gf2p8mul_epi8(x0, f2));
-                a21 = _mm256_xor_si256(a21, _mm256_gf2p8mul_epi8(x1, f2));
-                a30 = _mm256_xor_si256(a30, _mm256_gf2p8mul_epi8(x0, f3));
-                a31 = _mm256_xor_si256(a31, _mm256_gf2p8mul_epi8(x1, f3));
+                let f0 = bfactor::<S>(coeffs[0]);
+                let f1 = bfactor::<S>(coeffs[1]);
+                let f2 = bfactor::<S>(coeffs[2]);
+                let f3 = bfactor::<S>(coeffs[3]);
+                a00 = _mm256_xor_si256(a00, bmul::<S>(x0, f0));
+                a01 = _mm256_xor_si256(a01, bmul::<S>(x1, f0));
+                a10 = _mm256_xor_si256(a10, bmul::<S>(x0, f1));
+                a11 = _mm256_xor_si256(a11, bmul::<S>(x1, f1));
+                a20 = _mm256_xor_si256(a20, bmul::<S>(x0, f2));
+                a21 = _mm256_xor_si256(a21, bmul::<S>(x1, f2));
+                a30 = _mm256_xor_si256(a30, bmul::<S>(x0, f3));
+                a31 = _mm256_xor_si256(a31, bmul::<S>(x1, f3));
             }
         }
         // SAFETY: same bounds and disjointness as the loads above.
@@ -1029,14 +1474,14 @@ unsafe fn matrix_rows4<M: Matrix<Elem> + ?Sized>(
             // SAFETY: every source is `row_len` bytes and bounds this load.
             unsafe {
                 let x = _mm256_loadu_si256(src.as_ptr().add(tile).cast());
-                let f0 = _mm256_set1_epi8(coeffs[0].0.cast_signed());
-                let f1 = _mm256_set1_epi8(coeffs[1].0.cast_signed());
-                let f2 = _mm256_set1_epi8(coeffs[2].0.cast_signed());
-                let f3 = _mm256_set1_epi8(coeffs[3].0.cast_signed());
-                a0 = _mm256_xor_si256(a0, _mm256_gf2p8mul_epi8(x, f0));
-                a1 = _mm256_xor_si256(a1, _mm256_gf2p8mul_epi8(x, f1));
-                a2 = _mm256_xor_si256(a2, _mm256_gf2p8mul_epi8(x, f2));
-                a3 = _mm256_xor_si256(a3, _mm256_gf2p8mul_epi8(x, f3));
+                let f0 = bfactor::<S>(coeffs[0]);
+                let f1 = bfactor::<S>(coeffs[1]);
+                let f2 = bfactor::<S>(coeffs[2]);
+                let f3 = bfactor::<S>(coeffs[3]);
+                a0 = _mm256_xor_si256(a0, bmul::<S>(x, f0));
+                a1 = _mm256_xor_si256(a1, bmul::<S>(x, f1));
+                a2 = _mm256_xor_si256(a2, bmul::<S>(x, f2));
+                a3 = _mm256_xor_si256(a3, bmul::<S>(x, f3));
             }
         }
         // SAFETY: same bounds and disjointness as the loads above.
@@ -1049,7 +1494,7 @@ unsafe fn matrix_rows4<M: Matrix<Elem> + ?Sized>(
         tile += 32;
     }
     // SAFETY: the pointers address distinct in-bounds rows of `row_len` bytes.
-    unsafe { matrix_tail(&ptrs, row_len, g, tile, terms) }
+    unsafe { matrix_tail::<S, M>(&ptrs, row_len, g, tile, terms) }
 }
 
 /// Fold every term into two rows, 128 bytes of each row at a time.
@@ -1057,7 +1502,7 @@ unsafe fn matrix_rows4<M: Matrix<Elem> + ?Sized>(
 /// # Safety
 /// As [`matrix_rows4`], for two rows and coefficients through `g + 1`.
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn matrix_rows2<M: Matrix<Elem> + ?Sized>(
+unsafe fn matrix_rows2<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
     ptrs: [*mut u8; 2],
     row_len: usize,
     g: usize,
@@ -1090,16 +1535,16 @@ unsafe fn matrix_rows2<M: Matrix<Elem> + ?Sized>(
                 let x1 = _mm256_loadu_si256(sp.add(32).cast());
                 let x2 = _mm256_loadu_si256(sp.add(64).cast());
                 let x3 = _mm256_loadu_si256(sp.add(96).cast());
-                let f0 = _mm256_set1_epi8(coeffs[0].0.cast_signed());
-                let f1 = _mm256_set1_epi8(coeffs[1].0.cast_signed());
-                a00 = _mm256_xor_si256(a00, _mm256_gf2p8mul_epi8(x0, f0));
-                a01 = _mm256_xor_si256(a01, _mm256_gf2p8mul_epi8(x1, f0));
-                a02 = _mm256_xor_si256(a02, _mm256_gf2p8mul_epi8(x2, f0));
-                a03 = _mm256_xor_si256(a03, _mm256_gf2p8mul_epi8(x3, f0));
-                a10 = _mm256_xor_si256(a10, _mm256_gf2p8mul_epi8(x0, f1));
-                a11 = _mm256_xor_si256(a11, _mm256_gf2p8mul_epi8(x1, f1));
-                a12 = _mm256_xor_si256(a12, _mm256_gf2p8mul_epi8(x2, f1));
-                a13 = _mm256_xor_si256(a13, _mm256_gf2p8mul_epi8(x3, f1));
+                let f0 = bfactor::<S>(coeffs[0]);
+                let f1 = bfactor::<S>(coeffs[1]);
+                a00 = _mm256_xor_si256(a00, bmul::<S>(x0, f0));
+                a01 = _mm256_xor_si256(a01, bmul::<S>(x1, f0));
+                a02 = _mm256_xor_si256(a02, bmul::<S>(x2, f0));
+                a03 = _mm256_xor_si256(a03, bmul::<S>(x3, f0));
+                a10 = _mm256_xor_si256(a10, bmul::<S>(x0, f1));
+                a11 = _mm256_xor_si256(a11, bmul::<S>(x1, f1));
+                a12 = _mm256_xor_si256(a12, bmul::<S>(x2, f1));
+                a13 = _mm256_xor_si256(a13, bmul::<S>(x3, f1));
             }
         }
         // SAFETY: same bounds and disjointness as the loads above.
@@ -1130,10 +1575,10 @@ unsafe fn matrix_rows2<M: Matrix<Elem> + ?Sized>(
             // SAFETY: every source is `row_len` bytes and bounds the load.
             unsafe {
                 let x = _mm256_loadu_si256(src.as_ptr().add(tile).cast());
-                let f0 = _mm256_set1_epi8(coeff0.0.cast_signed());
-                let f1 = _mm256_set1_epi8(coeff1.0.cast_signed());
-                a0 = _mm256_xor_si256(a0, _mm256_gf2p8mul_epi8(x, f0));
-                a1 = _mm256_xor_si256(a1, _mm256_gf2p8mul_epi8(x, f1));
+                let f0 = bfactor::<S>(coeff0);
+                let f1 = bfactor::<S>(coeff1);
+                a0 = _mm256_xor_si256(a0, bmul::<S>(x, f0));
+                a1 = _mm256_xor_si256(a1, bmul::<S>(x, f1));
             }
         }
         // SAFETY: same bounds and disjointness as the loads above.
@@ -1144,7 +1589,7 @@ unsafe fn matrix_rows2<M: Matrix<Elem> + ?Sized>(
         tile += 32;
     }
     // SAFETY: the pointers address distinct in-bounds rows of `row_len` bytes.
-    unsafe { matrix_tail(&ptrs, row_len, g, tile, terms) }
+    unsafe { matrix_tail::<S, M>(&ptrs, row_len, g, tile, terms) }
 }
 
 /// Fold every term into one row, 128 bytes at a time.
@@ -1152,7 +1597,7 @@ unsafe fn matrix_rows2<M: Matrix<Elem> + ?Sized>(
 /// # Safety
 /// As [`matrix_rows4`], for one row and coefficient `g`.
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn matrix_rows1<M: Matrix<Elem> + ?Sized>(
+unsafe fn matrix_rows1<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
     ptr: *mut u8,
     row_len: usize,
     g: usize,
@@ -1176,15 +1621,15 @@ unsafe fn matrix_rows1<M: Matrix<Elem> + ?Sized>(
             // the loads.
             unsafe {
                 let sp = src.as_ptr().add(tile);
-                let f = _mm256_set1_epi8(coeff.0.cast_signed());
+                let f = bfactor::<S>(coeff);
                 let x0 = _mm256_loadu_si256(sp.cast());
                 let x1 = _mm256_loadu_si256(sp.add(32).cast());
                 let x2 = _mm256_loadu_si256(sp.add(64).cast());
                 let x3 = _mm256_loadu_si256(sp.add(96).cast());
-                a0 = _mm256_xor_si256(a0, _mm256_gf2p8mul_epi8(x0, f));
-                a1 = _mm256_xor_si256(a1, _mm256_gf2p8mul_epi8(x1, f));
-                a2 = _mm256_xor_si256(a2, _mm256_gf2p8mul_epi8(x2, f));
-                a3 = _mm256_xor_si256(a3, _mm256_gf2p8mul_epi8(x3, f));
+                a0 = _mm256_xor_si256(a0, bmul::<S>(x0, f));
+                a1 = _mm256_xor_si256(a1, bmul::<S>(x1, f));
+                a2 = _mm256_xor_si256(a2, bmul::<S>(x2, f));
+                a3 = _mm256_xor_si256(a3, bmul::<S>(x3, f));
             }
         }
         // SAFETY: same bounds as the loads above.
@@ -1204,9 +1649,9 @@ unsafe fn matrix_rows1<M: Matrix<Elem> + ?Sized>(
             let coeff = *terms.coefficient(term, g);
             // SAFETY: every source is `row_len` bytes and bounds the load.
             unsafe {
-                let f = _mm256_set1_epi8(coeff.0.cast_signed());
+                let f = bfactor::<S>(coeff);
                 let x = _mm256_loadu_si256(src.as_ptr().add(tile).cast());
-                a0 = _mm256_xor_si256(a0, _mm256_gf2p8mul_epi8(x, f));
+                a0 = _mm256_xor_si256(a0, bmul::<S>(x, f));
             }
         }
         // SAFETY: same bounds as the load above.
@@ -1215,13 +1660,14 @@ unsafe fn matrix_rows1<M: Matrix<Elem> + ?Sized>(
     }
 
     // SAFETY: the pointer addresses an in-bounds row of `row_len` bytes.
-    unsafe { matrix_tail(&[ptr], row_len, g, tile, terms) }
+    unsafe { matrix_tail::<S, M>(&[ptr], row_len, g, tile, terms) }
 }
 
-/// Hierarchical remainder shared by the GFNI matrix row groups.
+/// Hierarchical remainder shared by the matrix row groups.
 ///
-/// Complete 32- and 16-byte lanes stay on GFNI through
-/// [`mul_add_gfni_impl`]; only the final sub-XMM bytes use scalar arithmetic.
+/// Complete 32- and 16-byte lanes stay on the one-instruction multiply through
+/// the field's single-row remainder; only the final sub-XMM bytes use scalar
+/// arithmetic.
 ///
 /// # Safety
 /// Every pointer must address a distinct, in-bounds row of `row_len` bytes,
@@ -1229,7 +1675,7 @@ unsafe fn matrix_rows1<M: Matrix<Elem> + ?Sized>(
 /// through `g + ptrs.len() - 1` over a source of `row_len` bytes, and the
 /// caller must have selected AVX2 + GFNI.
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn matrix_tail<M: Matrix<Elem> + ?Sized>(
+unsafe fn matrix_tail<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
     ptrs: &[*mut u8],
     row_len: usize,
     g: usize,
@@ -1248,10 +1694,10 @@ unsafe fn matrix_tail<M: Matrix<Elem> + ?Sized>(
         for term in 0..terms.len() {
             let src = terms.source(term);
             let coeff = *terms.coefficient(term, g + slot);
-            if coeff.0 != 0 {
+            if S::byte(coeff) != 0 {
                 // SAFETY: the tail and source remainder have equal lengths,
                 // and this function's target features match the callee.
-                unsafe { mul_add_gfni_impl(tail, coeff, &src[tile..]) }
+                unsafe { brem::<S>(tail, coeff, &src[tile..]) }
             }
         }
     }
@@ -1299,6 +1745,26 @@ unsafe fn elementwise_gfni_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
     }
 }
 
+/// Reference GF(2^8) product under reduction-polynomial low byte `RED`, for
+/// the sub-lane elementwise tail. Field-agnostic: `RED` is `0x1b` for the AES
+/// field and `0x1d` for the Reed–Solomon field.
+#[inline]
+fn gf_mul_ref<const RED: u8>(mut a: u8, mut b: u8) -> u8 {
+    let mut product = 0u8;
+    for _ in 0..8 {
+        if b & 1 != 0 {
+            product ^= a;
+        }
+        let carry = a & 0x80 != 0;
+        a <<= 1;
+        if carry {
+            a ^= RED;
+        }
+        b >>= 1;
+    }
+    product
+}
+
 /// Lane-parallel GF(2^8) multiplication of two varying byte vectors.
 ///
 /// Without `GF2P8MULB` there is no fixed coefficient to build a nibble table
@@ -1308,10 +1774,10 @@ unsafe fn elementwise_gfni_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
 /// `PCMPGTB` against zero recovers the bit it dropped.
 #[inline]
 #[target_feature(enable = "avx2")]
-pub(super) fn multiply_vectors_avx2(mut a: __m256i, mut b: __m256i) -> __m256i {
+pub(super) fn multiply_vectors_avx2<const RED: u8>(mut a: __m256i, mut b: __m256i) -> __m256i {
     let zero = _mm256_setzero_si256();
     let one = _mm256_set1_epi8(1);
-    let reduction = _mm256_set1_epi8(0x1b);
+    let reduction = _mm256_set1_epi8(RED.cast_signed());
     let low7 = _mm256_set1_epi8(0x7f);
     let mut product = zero;
     for round in 0..8 {
@@ -1330,10 +1796,10 @@ pub(super) fn multiply_vectors_avx2(mut a: __m256i, mut b: __m256i) -> __m256i {
 /// The 16-byte form of [`multiply_vectors_avx2`].
 #[inline]
 #[target_feature(enable = "ssse3")]
-pub(super) fn multiply_vectors_sse(mut a: __m128i, mut b: __m128i) -> __m128i {
+pub(super) fn multiply_vectors_sse<const RED: u8>(mut a: __m128i, mut b: __m128i) -> __m128i {
     let zero = _mm_setzero_si128();
     let one = _mm_set1_epi8(1);
-    let reduction = _mm_set1_epi8(0x1b);
+    let reduction = _mm_set1_epi8(RED.cast_signed());
     let low7 = _mm_set1_epi8(0x7f);
     let mut product = zero;
     for round in 0..8 {
@@ -1350,16 +1816,16 @@ pub(super) fn multiply_vectors_sse(mut a: __m128i, mut b: __m128i) -> __m128i {
 }
 
 /// `dst[i] = a[i] * b[i]` by branchless shift/reduce over 32-byte lanes.
-pub fn elementwise_avx2(dst: &mut [u8], a: &[u8], b: &[u8]) {
+pub fn elementwise_avx2<const RED: u8>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     debug_assert_eq!(dst.len(), a.len());
     debug_assert_eq!(dst.len(), b.len());
     // SAFETY: the selected backend guarantees AVX2, and all three lengths
     // match.
-    unsafe { elementwise_avx2_impl(dst, a, b) }
+    unsafe { elementwise_avx2_impl::<RED>(dst, a, b) }
 }
 
 #[target_feature(enable = "avx2")]
-unsafe fn elementwise_avx2_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
+unsafe fn elementwise_avx2_impl<const RED: u8>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     let len = dst.len().min(a.len()).min(b.len()) & !31;
     let (dst_ptr, a_ptr, b_ptr) = (dst.as_mut_ptr(), a.as_ptr(), b.as_ptr());
     let mut offset = 0;
@@ -1368,26 +1834,29 @@ unsafe fn elementwise_avx2_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         unsafe {
             let x = _mm256_loadu_si256(a_ptr.add(offset).cast());
             let y = _mm256_loadu_si256(b_ptr.add(offset).cast());
-            _mm256_storeu_si256(dst_ptr.add(offset).cast(), multiply_vectors_avx2(x, y));
+            _mm256_storeu_si256(
+                dst_ptr.add(offset).cast(),
+                multiply_vectors_avx2::<RED>(x, y),
+            );
         }
         offset += 32;
     }
     // SAFETY: AVX2 implies SSSE3, and the remainders keep equal lengths.
-    unsafe { elementwise_ssse3_impl(&mut dst[len..], &a[len..], &b[len..]) }
+    unsafe { elementwise_ssse3_impl::<RED>(&mut dst[len..], &a[len..], &b[len..]) }
 }
 
 /// `dst[i] = a[i] * b[i]` by branchless shift/reduce over 16-byte lanes.
-pub fn elementwise_ssse3(dst: &mut [u8], a: &[u8], b: &[u8]) {
+pub fn elementwise_ssse3<const RED: u8>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     debug_assert_eq!(dst.len(), a.len());
     debug_assert_eq!(dst.len(), b.len());
     // SAFETY: the selected backend guarantees SSSE3, and all three lengths
     // match.
-    unsafe { elementwise_ssse3_impl(dst, a, b) }
+    unsafe { elementwise_ssse3_impl::<RED>(dst, a, b) }
 }
 
 #[inline]
 #[target_feature(enable = "ssse3")]
-unsafe fn elementwise_ssse3_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
+unsafe fn elementwise_ssse3_impl<const RED: u8>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     let len = dst.len().min(a.len()).min(b.len()) & !15;
     let (dst_ptr, a_ptr, b_ptr) = (dst.as_mut_ptr(), a.as_ptr(), b.as_ptr());
     let mut offset = 0;
@@ -1396,12 +1865,15 @@ unsafe fn elementwise_ssse3_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         unsafe {
             let x = _mm_loadu_si128(a_ptr.add(offset).cast());
             let y = _mm_loadu_si128(b_ptr.add(offset).cast());
-            _mm_storeu_si128(dst_ptr.add(offset).cast(), multiply_vectors_sse(x, y));
+            _mm_storeu_si128(
+                dst_ptr.add(offset).cast(),
+                multiply_vectors_sse::<RED>(x, y),
+            );
         }
         offset += 16;
     }
     for ((d, &x), &y) in dst[len..].iter_mut().zip(&a[len..]).zip(&b[len..]) {
-        *d = Elem(x).mul(Elem(y)).0;
+        *d = gf_mul_ref::<RED>(x, y);
     }
 }
 
@@ -1410,11 +1882,20 @@ pub fn gather_gfni(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     debug_assert_eq!(coeffs.len(), srcs.len());
     // SAFETY: the selected backend guarantees AVX2 and GFNI; callers checked
     // every source length against `dst`.
-    unsafe { gather_gfni_impl(dst, coeffs, srcs) }
+    unsafe { gather_impl::<Gfni>(dst, coeffs, srcs) }
+}
+
+/// [`gather_gfni`] under `0x11D`: many sources into one destination, each
+/// folded in with its `VGF2P8AFFINEQB` map.
+pub fn gather_affine(dst: &mut [u8], coeffs: &[gf8d::Elem], srcs: &[&[u8]]) {
+    debug_assert_eq!(coeffs.len(), srcs.len());
+    // SAFETY: the selected backend guarantees AVX2 and GFNI; callers checked
+    // every source length against `dst`.
+    unsafe { gather_impl::<Affine8D>(dst, coeffs, srcs) }
 }
 
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn gather_gfni_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+unsafe fn gather_impl<S: Blocked>(dst: &mut [u8], coeffs: &[S::Coeff], srcs: &[&[u8]]) {
     let len = dst.len() & !127;
     let dst_ptr = dst.as_mut_ptr();
     let mut offset = 0;
@@ -1429,13 +1910,13 @@ unsafe fn gather_gfni_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
             ]
         };
         for (&coeff, &src) in coeffs.iter().zip(srcs) {
-            let factor = _mm256_set1_epi8(coeff.0.cast_signed());
+            let factor = unsafe { bfactor::<S>(coeff) };
             let src_ptr = src.as_ptr();
             // SAFETY: every source is at least `dst.len()` bytes.
             unsafe {
                 for (lane, slot) in acc.iter_mut().enumerate() {
                     let x = _mm256_loadu_si256(src_ptr.add(offset + lane * 32).cast());
-                    *slot = _mm256_xor_si256(*slot, _mm256_gf2p8mul_epi8(x, factor));
+                    *slot = _mm256_xor_si256(*slot, bmul::<S>(x, factor));
                 }
             }
         }
@@ -1450,7 +1931,7 @@ unsafe fn gather_gfni_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     for (&coeff, &src) in coeffs.iter().zip(srcs) {
         // SAFETY: the destination and source remainders have equal lengths,
         // and this function's target features match the callee.
-        unsafe { mul_add_gfni_impl(&mut dst[len..], coeff, &src[len..]) }
+        unsafe { brem::<S>(&mut dst[len..], coeff, &src[len..]) }
     }
 }
 

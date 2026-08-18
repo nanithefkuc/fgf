@@ -46,8 +46,9 @@ fgf = { git = "https://github.com/nanithefkuc/fgf", default-features = false }
 
 | Field | Marker | Element | Construction | Vector backend |
 | --- | --- | --- | --- | --- |
-| GF(2^8) | `Gf8` | `gf8::Elem` | AES polynomial `0x11B` | GFNI x86 |
-| GF(2^16) | `Gf16` | `gf16::Elem` | quadratic tower over `Gf8` | GFNI x86 |
+| GF(2^8) | `Gf8B` | `gf8b::Elem` | AES polynomial `0x11B` | GFNI x86 |
+| GF(2^8) | `Gf8D` | `gf8d::Elem` | polynomial `0x11D` (RS interop) | x86 GFNI affine, AVX2/SSSE3/NEON/wasm shuffle |
+| GF(2^16) | `Gf16` | `gf16::Elem` | quadratic tower over `Gf8B` | GFNI x86 |
 | GF(2^32) | `Gf32` | `gf32::Elem` | quadratic tower over `Gf16` | GFNI x86 |
 | GF(2^64) | `Gf64` | `gf64::Elem` | quadratic tower over `Gf32` | GFNI x86 |
 | Fan–Paar GF(2^8) | `FanPaar8` | `fan_paar::fp8::Elem` | canonical recursive tower | portable |
@@ -81,12 +82,12 @@ Buffers contain consecutive stable little-endian element encodings. Their
 length must be a multiple of `F::BYTES`.
 
 ```rust
-use fgf::{Gf8, gf8, ops};
+use fgf::{Gf8B, gf8b, ops};
 
 let src = [0x01u8, 0x02, 0x03, 0x04];
 let mut dst = [0u8; 4];
 
-ops::mul_add::<Gf8>(&mut dst, gf8::Elem(0x03), &src);
+ops::mul_add::<Gf8B>(&mut dst, gf8b::Elem(0x03), &src);
 assert_eq!(dst, [0x03, 0x06, 0x05, 0x0c]);
 ```
 

@@ -2,7 +2,9 @@
 
 `fgf` uses small custom benchmark binaries rather than a statistical harness.
 They print throughput directly so operation shape, row size, and backend remain
-visible beside each result.
+visible beside each result. The one Criterion harness is `benches/affine.rs`,
+which decided the `0x11D` GFNI affine adoption; its command and numbers are
+under "Crossover and dispatch decisions" below.
 
 ## Reproduce
 
@@ -276,6 +278,115 @@ which stops each factor broadcast from folding into a memory-operand
 `vpbroadcastb`. Over eight terms and 64 KiB rows the check cost ~9%. Sparsity
 is handled in the scatter shape instead, which drops zero rows before grouping
 and outside any loop.
+
+### GFNI affine multiply for `Gf8D` (`kernel::x86::gf8::mul_*_affine`)
+
+`GF2P8MULB` multiplies only in the AES field, so `Gf8D` (`0x11D`) uses
+`VGF2P8AFFINEQB`, which applies an arbitrary 8×8 GF(2) linear map per byte
+lane: fixed-coefficient multiplication in any GF(2^8), one instruction per 32
+lanes. The maps are const-derived from `gf8d::Elem::mul` (see
+`kernel::tables::affine_8d`), never copied from another library, and the
+kernels are the `GF2P8MULB` loops with only the multiply instruction
+substituted. The candidate ran against the AVX2 nibble shuffle a GFNI host
+would otherwise dispatch to, with the native `Gf8B` `GF2P8MULB` loop as the
+single-instruction control:
+
+```sh
+cargo bench --features internals --bench affine
+```
+
+Criterion 0.8, 100 samples per point (20 at 4 MiB), candidates interleaved
+per size. GiB/s, mean of the estimate interval; ratio is affine ÷ shuffle.
+
+`mul_add` (`dst ^= c * src`):
+
+| Size | Shuffle AVX2 | Affine GFNI | Native `0x11B` | Ratio |
+| --- | --- | --- | --- | --- |
+| 64 B | 23.40 | 21.61 | 20.29 | 0.92 |
+| 256 B | 43.31 | 53.02 | 57.24 | 1.22 |
+| 1 KiB | 55.04 | 75.95 | 78.33 | 1.38 |
+| 4 KiB | 56.99 | 118.00 | 120.17 | 2.07 |
+| 16 KiB | 64.42 | 129.94 | 120.54 | 2.02 |
+| 64 KiB | 54.08 | 59.36 | 61.45 | 1.10 |
+| 256 KiB | 43.50 | 48.33 | 50.33 | 1.11 |
+| 1 MiB | 34.35 | 36.20 | 36.11 | 1.05 |
+
+`mul_assign` (`dst *= c`, single stream, in place):
+
+| Size | Shuffle AVX2 | Affine GFNI | Native `0x11B` | Ratio |
+| --- | --- | --- | --- | --- |
+| 64 B | 21.51 | 21.75 | 22.03 | 1.01 |
+| 256 B | 50.04 | 56.03 | 51.78 | 1.12 |
+| 1 KiB | 69.08 | 84.73 | 86.06 | 1.23 |
+| 4 KiB | 64.54 | 185.91 | 191.38 | 2.88 |
+| 16 KiB | 72.32 | 81.08 | 80.96 | 1.12 |
+| 64 KiB | 62.64 | 61.17 | 62.23 | 0.98 |
+| 256 KiB | 59.55 | 50.23 | 51.11 | 0.84 |
+| 1 MiB | 54.57 | 46.87 | 47.52 | 0.86 |
+
+`mul_into` (`dst = c * src`, fused out-of-place):
+
+| Size | Shuffle AVX2 | Affine GFNI | Native `0x11B` | Ratio |
+| --- | --- | --- | --- | --- |
+| 64 B | 24.82 | 23.63 | 25.95 | 0.95 |
+| 256 B | 46.31 | 64.00 | 74.38 | 1.38 |
+| 1 KiB | 63.86 | 81.16 | 77.14 | 1.27 |
+| 4 KiB | 66.01 | 79.51 | 77.83 | 1.20 |
+| 16 KiB | 75.87 | 79.69 | 79.97 | 1.05 |
+| 64 KiB | 55.71 | 58.23 | 58.71 | 1.05 |
+| 256 KiB | 42.99 | 55.99 | 55.78 | 1.30 |
+| 1 MiB | 38.34 | 46.23 | 48.01 | 1.21 |
+| 4 MiB | 36.60 | 35.72 | 34.49 | 0.98 |
+
+Composed scatter (per-row `mul_add`), ratio only: 4×16 KiB 1.29, 16×16 KiB
+1.02, 4×64 KiB 1.14, 16×64 KiB 1.20.
+
+Decision: affine for `mul_add` and `mul_into` at every size, and for
+`mul_assign` below 64 KiB; the register-blocked multi-row shapes build on the
+affine `mul_add` (see the next section). The affine/native column holds
+0.96–1.08 throughout — the map
+reaches native-multiply speed, and the 64 B loss is a sub-nanosecond
+small-buffer effect the native loop shares. `mul_assign` at and past 64 KiB
+is the one measured exception: in-place scaling is single-stream, both
+single-instruction forms fall ~15% behind the shuffle there (affine/native
+0.98–0.99, so the cause is the host's store path, not the map), and dispatch
+keeps the shuffle for it. At 4 MiB `mul_into` both candidates are
+non-temporal-store-bound and even.
+
+### Register-blocked multi-row for `Gf8D` (`scatter_affine`/`gather_affine`/`matrix_affine`)
+
+The multi-row shapes were first composed as a per-row affine `mul_add`. Holding
+a destination tile in registers across sources (gather) or terms (matrix), and
+one source load across a row group (scatter), removes the redundant destination
+traffic — the same blocking `Gf8B`'s GFNI kernels use. Both run
+`VGF2P8AFFINEQB`; the strategy seam (`kernel::x86::gf8::Blocked`) monomorphizes
+the `GF2P8MULB` and affine forms from one body, so `Gf8B` is byte-identical and
+unchanged. `cargo bench --features internals --bench affine`, blocked ÷ per-row
+affine:
+
+| Shape | Small (4 KiB rows) | Mid (16 KiB) | Large (64 KiB) | 256 KiB |
+| --- | --- | --- | --- | --- |
+| gather, 4 sources | 1.74 | 0.99 | 1.25 | 1.36 |
+| gather, 16 sources | 1.57 | 0.97 | 1.58 | 1.18 |
+| scatter, 4 rows | — | 1.09 | 1.61 | — |
+| scatter, 16 rows | — | 1.01 | 1.46 | — |
+| matrix, 4 rows × 8 terms | 1.86 | 1.99 | 2.07 | — |
+| matrix, 16 rows × 16 terms | 1.38 | 2.12 | 2.44 | — |
+
+Decision: dispatch `Gf8D` scatter/gather/matrix (and the scattered matrix) to
+the blocked affine kernels on a GFNI host. Matrix wins everywhere (1.38–2.44×,
+largest where the term count is high and the destination reread dominates);
+gather and scatter win at every size but the two 16 KiB gather points, which
+are a wash (0.97–0.99) — a single L2-resident tile leaves nothing for blocking
+to save there. Non-GFNI backends keep the per-row shuffle composition.
+
+### `Gf8D` elementwise (`elementwise_avx2::<0x1d>`)
+
+Two varying operands have no fixed coefficient, so `GF2P8MULB` is out even on a
+GFNI host; the branchless eight-round shift/reduce vector multiply, with the
+`0x11D` reduction byte threaded as a const generic, replaces the scalar
+reference. 7.1–7.9 GiB/s against the reference's ~1.1 GiB/s — 6.2–7.1× from
+64 B up, the win flat across sizes because the loop is compute-bound.
 
 ## Comparative benchmark
 

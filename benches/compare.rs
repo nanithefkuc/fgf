@@ -10,7 +10,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::{Gf8, Gf16, backend, gf8, gf16, ops};
+use fgf::{Gf8B, Gf16, backend, gf8b, gf16, ops};
 
 const BYTES: usize = 64 * 1024;
 const SCALAR_ITERS: usize = 1 << 20;
@@ -73,19 +73,19 @@ fn main() {
     let mut dst16 = noise(BYTES, 0x603);
 
     // w8
-    let c8 = gf8::Elem(0x53);
+    let c8 = gf8b::Elem(0x53);
     bench_scalar("w8 scalar mul", || {
-        let mut x = gf8::Elem(0xA5);
+        let mut x = gf8b::Elem(0xA5);
         for i in 0..SCALAR_ITERS {
-            x = black_box(x).mul(gf8::Elem((0x53u8).wrapping_add(i as u8)));
+            x = black_box(x).mul(gf8b::Elem((0x53u8).wrapping_add(i as u8)));
         }
         black_box(x);
     });
     bench_region("w8 mul_add (dst ^= c*src)", BYTES, || {
-        ops::mul_add::<Gf8>(black_box(&mut dst8), c8, black_box(&src8));
+        ops::mul_add::<Gf8B>(black_box(&mut dst8), c8, black_box(&src8));
     });
     bench_region("w8 mul_into (dst = c*src)", BYTES, || {
-        ops::mul_into::<Gf8>(black_box(&mut dst8), c8, black_box(&src8));
+        ops::mul_into::<Gf8B>(black_box(&mut dst8), c8, black_box(&src8));
     });
 
     // w16

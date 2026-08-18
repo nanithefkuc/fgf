@@ -11,6 +11,26 @@ All notable changes to this project are documented here. The format follows
 - `mul_add_matrix_scattered` reconstructs disjoint destination rows directly
   in their final positions. GF(2^8) uses the register-blocked x86 GFNI matrix
   kernel; other backends use the portable path.
+- `Gf8D`, a second GF(2^8) field under the polynomial `0x11D` (generator `2`),
+  for byte-identical Reed–Solomon interop with ISA-L and
+  `klauspost/reedsolomon`. It carries the full `const` scalar arithmetic and
+  the complete checked ops surface: on x86 GFNI hosts it multiplies through
+  `VGF2P8AFFINEQB` affine maps const-derived from its own scalar oracle
+  (`GF2P8MULB` is the AES field and is never used), including the
+  register-blocked scatter/gather/matrix shapes; elsewhere it runs the
+  field-agnostic split-nibble shuffle kernels. Elementwise multiplication is
+  vectorized on every x86 backend through a branchless shift/reduce that
+  threads the `0x11D` reduction byte (the AES `GF2P8MULB` cannot serve it).
+
+### Changed
+
+- **Breaking: `Gf8` renamed to `Gf8B`, module `gf8` to `gf8b`.** The two
+  GF(2^8) representations are now named consistently by polynomial
+  (`Gf8B`/`0x11B`, `Gf8D`/`0x11D`). Update `use fgf::{Gf8, gf8}` to
+  `use fgf::{Gf8B, gf8b}`; the field's bytes, tables, and kernels are unchanged.
+- The flat GF(2^8) markers expose their reduction polynomial through
+  `field_poly()` and the `REDUCTION_POLY` module constant, for compile-time
+  representation introspection.
 
 ## [0.3.0] - 2026-08-08
 

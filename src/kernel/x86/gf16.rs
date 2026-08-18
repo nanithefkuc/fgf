@@ -1179,8 +1179,9 @@ unsafe fn elementwise_avx2_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         unsafe {
             let x = _mm256_loadu_si256(a_ptr.add(offset).cast());
             let y = _mm256_loadu_si256(b_ptr.add(offset).cast());
-            let direct = super::gf8::multiply_vectors_avx2(x, y);
-            let crossed = super::gf8::multiply_vectors_avx2(x, _mm256_shuffle_epi8(y, swap));
+            let direct = super::gf8::multiply_vectors_avx2::<0x1b>(x, y);
+            let crossed =
+                super::gf8::multiply_vectors_avx2::<0x1b>(x, _mm256_shuffle_epi8(y, swap));
             let delta_bd = scale_delta_avx2(
                 _mm256_shuffle_epi8(direct, swap),
                 delta_lo,
@@ -1233,8 +1234,8 @@ unsafe fn elementwise_ssse3_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         unsafe {
             let x = _mm_loadu_si128(a_ptr.add(offset).cast());
             let y = _mm_loadu_si128(b_ptr.add(offset).cast());
-            let direct = super::gf8::multiply_vectors_sse(x, y);
-            let crossed = super::gf8::multiply_vectors_sse(x, _mm_shuffle_epi8(y, swap));
+            let direct = super::gf8::multiply_vectors_sse::<0x1b>(x, y);
+            let crossed = super::gf8::multiply_vectors_sse::<0x1b>(x, _mm_shuffle_epi8(y, swap));
             let delta_bd =
                 scale_delta_sse(_mm_shuffle_epi8(direct, swap), delta_lo, delta_hi, nibble);
             let constant = _mm_xor_si128(direct, delta_bd);

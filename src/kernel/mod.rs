@@ -84,7 +84,8 @@ use simdispatch::Selection;
 mod private {
     pub trait Sealed {}
 }
-impl private::Sealed for crate::field::gf8::Gf8 {}
+impl private::Sealed for crate::field::gf8b::Gf8B {}
+impl private::Sealed for crate::field::gf8d::Gf8D {}
 impl private::Sealed for crate::field::gf16::Gf16 {}
 impl private::Sealed for crate::field::gf32::Gf32 {}
 impl private::Sealed for crate::field::gf64::Gf64 {}
@@ -175,7 +176,7 @@ static BACKEND: std::sync::LazyLock<Backend> =
 ///
 /// Wider polynomial towers and the Fan–Paar fields currently report
 /// [`Backend::Scalar`] even when [`backend()`] selected a vector backend for
-/// `Gf8` and `Gf16`.
+/// `Gf8B` and `Gf16`.
 #[inline]
 #[must_use]
 pub fn backend_for<F: FieldKernels>() -> Backend {
