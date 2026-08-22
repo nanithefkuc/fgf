@@ -11,6 +11,9 @@ under "Crossover and dispatch decisions" below.
 ```sh
 cargo bench --bench kernels
 cargo bench --bench compare
+cargo bench --features internals --bench dot_product
+cargo bench --features internals --bench dot_product -- --smoke
+cargo bench --features internals --bench dot_product -- --tails
 ```
 
 Pin a weaker backend to measure a dispatch crossover (commands recorded with
@@ -86,6 +89,40 @@ is `avx512` or `gfni`.
   7 258V (Linux, rustc 1.93), 256 KiB buffers: gf8 0.78 → 7.97 GiB/s (AVX2)
   and 2.62 GiB/s (SSSE3); gf16 0.43 → 4.39 GiB/s (AVX2) and 1.48 GiB/s
   (SSSE3). The wider fields still use the scalar reference.
+
+`dot_product` freezes the direct GF(2^8) N-to-1 baseline before the overwrite
+kernel exists. It interleaves the raw AXPY-tail control, raw fused-tail
+candidate, public accumulating operation, and today's honest overwrite
+composition (`fill(0)` plus raw gather, with zeroing timed). Every body is
+validated and allocation-free in the timed region. The full run covers dense
+nontrivial coefficients, 1/2/3/4/8/12/16/24/32 sources, SIMD boundaries
+through 513 B, and 1–64 KiB rows; `--smoke` keeps the same identifiers on a
+focused boundary grid, while `--tails` isolates 16/32/64/96/128-byte rows
+across source counts 1/2/3/4/8/16/32. Fixtures are 32-byte-aligned and
+hot-cache. Controlled misalignment, displaced-cache, and
+coefficient-distribution variants remain separate additions.
+
+### Native GFNI source-fused short rows (2026-08-22)
+
+The pre-change N-to-1 gather sent every row below 128 bytes through repeated
+single-source AXPY. `gather_gfni` now selects a source-fused body only for
+rows of exactly 32, 64, or 96 bytes with at least three sources. The
+`gather_gfni_axpy_tail` preserves the old body for an interleaved control in
+the same binary. Core Ultra 7 258V CPU 2, Linux, rustc 1.93, backend
+`v3_gfni_crypto`, 32-byte-aligned hot fixtures, dense nontrivial coefficients:
+
+| Row | 4 sources | 16 sources |
+| ---: | ---: | ---: |
+| 32 B | 1.50x | 1.49x |
+| 64 B | 1.41x | 1.11x |
+| 96 B | 1.49x | 1.48x |
+
+Ratios are fused divided by the interleaved AXPY-tail control. A fused 16-byte
+prototype lost at low source counts and did not produce a stable 16-source win.
+Fusing a remainder after the 128-byte main body was neutral-to-slower.
+Production therefore keeps AXPY for one source, 16-byte/sub-lane and compound
+scalar remainders, and every row at or above 128 bytes. Interleaved controls at
+16/31/95/97/127/128/129 B, 4 KiB, and 4 KiB + 64 B remain at parity.
 
 Small GF(2^16) rows are sensitive to coefficient preparation because a shuffle
 backend builds four nibble tables per coefficient. Use `Coeff` or `Plan` when a

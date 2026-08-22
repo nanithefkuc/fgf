@@ -94,6 +94,13 @@ fn gf16_coeffs() -> Vec<gf16::Elem> {
 const ROW_COUNTS: &[usize] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 13];
 const ROW_LENS: &[usize] = &[2, 16, 32, 34, 64, 66, 128, 300];
 
+/// Gather lengths exercise each side of the native 16/32/64/128-byte ladder,
+/// compound remainders, and a body-plus-tail case.
+const GATHER_LENGTHS: &[usize] = &[
+    0, 1, 15, 16, 17, 31, 32, 33, 47, 48, 49, 63, 64, 65, 79, 80, 81, 95, 96, 97, 111, 112, 113,
+    127, 128, 129, 143, 144, 145, 255, 256, 257, 300,
+];
+
 /// Whether the host resolves to one of the tiers in `supported` — the shared
 /// substitute for the crate's old `std::is_*_feature_detected!` test gates.
 ///
@@ -267,8 +274,8 @@ fn check_gather<E: Copy, F>(
 ) where
     F: Fn(&mut [u8], E, &[u8]),
 {
-    for &len in ROW_LENS {
-        for nterms in [0usize, 1, 2, 7, 8, 9, 17] {
+    for &len in GATHER_LENGTHS {
+        for nterms in [0usize, 1, 2, 3, 4, 7, 8, 9, 16, 17, 32] {
             let sources: Vec<Vec<u8>> = (0..nterms).map(|i| noise(len, 0x500 + i as u64)).collect();
             let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
             let coeffs: Vec<E> = (0..nterms).map(&coeff_at).collect();

@@ -1877,12 +1877,38 @@ unsafe fn elementwise_ssse3_impl<const RED: u8>(dst: &mut [u8], a: &[u8], b: &[u
     }
 }
 
-/// Many sources into one destination, register-blocked over 128-byte tiles.
+/// Many sources into one destination, register-blocked over 128-byte tiles
+/// with source-fused 64/32-byte tails where at least three sources participate.
+#[inline]
 pub fn gather_gfni(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     debug_assert_eq!(coeffs.len(), srcs.len());
+    let remainder = dst.len() & 127;
+    let fused =
+        dst.len() < 128 && coeffs.len() > 2 && remainder != 0 && remainder.trailing_zeros() >= 5;
     // SAFETY: the selected backend guarantees AVX2 and GFNI; callers checked
-    // every source length against `dst`.
-    unsafe { gather_impl::<Gfni>(dst, coeffs, srcs) }
+    // every source length against `dst`. The const alternatives keep the
+    // measured AXPY path for one source, 16-byte/sub-lane tails, compound
+    // scalar remainders, and rows that already execute the 128-byte main body.
+    unsafe {
+        if fused {
+            gather_impl::<Gfni, true>(dst, coeffs, srcs);
+        } else {
+            gather_impl::<Gfni, false>(dst, coeffs, srcs);
+        }
+    }
+}
+
+/// Pre-fusion GFNI gather retained only as an interleaved benchmark control.
+///
+/// The 128-byte body is identical to [`gather_gfni`], but every remainder is
+/// composed from single-source AXPY calls. This is not a dispatch candidate.
+#[cfg(feature = "internals")]
+#[inline]
+pub fn gather_gfni_axpy_tail(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+    debug_assert_eq!(coeffs.len(), srcs.len());
+    // SAFETY: the direct benchmark checks AVX2+GFNI before calling this
+    // control; callers checked every source length against `dst`.
+    unsafe { gather_impl::<Gfni, false>(dst, coeffs, srcs) }
 }
 
 /// [`gather_gfni`] under `0x11D`: many sources into one destination, each
@@ -1891,11 +1917,16 @@ pub fn gather_affine(dst: &mut [u8], coeffs: &[gf8d::Elem], srcs: &[&[u8]]) {
     debug_assert_eq!(coeffs.len(), srcs.len());
     // SAFETY: the selected backend guarantees AVX2 and GFNI; callers checked
     // every source length against `dst`.
-    unsafe { gather_impl::<Affine8D>(dst, coeffs, srcs) }
+    unsafe { gather_impl::<Affine8D, false>(dst, coeffs, srcs) }
 }
 
+#[inline(never)]
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn gather_impl<S: Blocked>(dst: &mut [u8], coeffs: &[S::Coeff], srcs: &[&[u8]]) {
+unsafe fn gather_impl<S: Blocked, const FUSED_NATIVE_TAIL: bool>(
+    dst: &mut [u8],
+    coeffs: &[S::Coeff],
+    srcs: &[&[u8]],
+) {
     let len = dst.len() & !127;
     let dst_ptr = dst.as_mut_ptr();
     let mut offset = 0;
@@ -1928,10 +1959,57 @@ unsafe fn gather_impl<S: Blocked>(dst: &mut [u8], coeffs: &[S::Coeff], srcs: &[&
         }
         offset += 128;
     }
+    let mut tail = len;
+    // The wrapper selects this specialization only for measured multi-source
+    // remainders that consist entirely of 32-byte lanes.
+    if FUSED_NATIVE_TAIL {
+        if tail + 64 <= dst.len() {
+            // SAFETY: `tail + 64 <= dst.len()` bounds both destination lanes.
+            let (mut a0, mut a1) = unsafe {
+                (
+                    _mm256_loadu_si256(dst_ptr.add(tail).cast()),
+                    _mm256_loadu_si256(dst_ptr.add(tail + 32).cast()),
+                )
+            };
+            for (&coeff, &src) in coeffs.iter().zip(srcs) {
+                // SAFETY: every source is at least `dst.len()` bytes, and this
+                // function executes only after AVX2+GFNI dispatch.
+                unsafe {
+                    let factor = bfactor::<S>(coeff);
+                    let sp = src.as_ptr().add(tail);
+                    let x0 = _mm256_loadu_si256(sp.cast());
+                    let x1 = _mm256_loadu_si256(sp.add(32).cast());
+                    a0 = _mm256_xor_si256(a0, bmul::<S>(x0, factor));
+                    a1 = _mm256_xor_si256(a1, bmul::<S>(x1, factor));
+                }
+            }
+            // SAFETY: the same two in-bounds destination lanes were loaded.
+            unsafe {
+                _mm256_storeu_si256(dst_ptr.add(tail).cast(), a0);
+                _mm256_storeu_si256(dst_ptr.add(tail + 32).cast(), a1);
+            }
+            tail += 64;
+        }
+        if tail + 32 <= dst.len() {
+            // SAFETY: `tail + 32 <= dst.len()` bounds this destination lane.
+            let mut acc = unsafe { _mm256_loadu_si256(dst_ptr.add(tail).cast()) };
+            for (&coeff, &src) in coeffs.iter().zip(srcs) {
+                // SAFETY: every source is at least `dst.len()` bytes.
+                unsafe {
+                    let factor = bfactor::<S>(coeff);
+                    let x = _mm256_loadu_si256(src.as_ptr().add(tail).cast());
+                    acc = _mm256_xor_si256(acc, bmul::<S>(x, factor));
+                }
+            }
+            // SAFETY: the same in-bounds destination lane was loaded above.
+            unsafe { _mm256_storeu_si256(dst_ptr.add(tail).cast(), acc) }
+            tail += 32;
+        }
+    }
     for (&coeff, &src) in coeffs.iter().zip(srcs) {
         // SAFETY: the destination and source remainders have equal lengths,
         // and this function's target features match the callee.
-        unsafe { brem::<S>(&mut dst[len..], coeff, &src[len..]) }
+        unsafe { brem::<S>(&mut dst[tail..], coeff, &src[tail..]) }
     }
 }
 

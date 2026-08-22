@@ -56,3 +56,9 @@ name = "affine"
 harness = false
 # Direct kernel calls need the kernel modules public.
 required-features = ["std", "internals"]
+
+[[bench]]
+name = "dot_product"
+harness = false
+# Direct GFNI kernel calls need the internal architecture modules.
+required-features = ["std", "internals"]

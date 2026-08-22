@@ -31,6 +31,9 @@ All notable changes to this project are documented here. The format follows
 - The flat GF(2^8) markers expose their reduction polynomial through
   `field_poly()` and the `REDUCTION_POLY` module constant, for compile-time
   representation introspection.
+- Native GFNI N-to-1 gathers now keep 32/64/96-byte multi-source rows fused
+  across sources instead of composing single-source AXPY calls. Measured
+  16-byte and body-plus-tail variants remain on the prior path.
 
 ## [0.3.0] - 2026-08-08
 
