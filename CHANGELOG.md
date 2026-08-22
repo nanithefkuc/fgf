@@ -38,6 +38,9 @@ All notable changes to this project are documented here. The format follows
 - Native GFNI N-to-1 gathers now keep 32/64/96-byte multi-source rows fused
   across sources instead of composing single-source AXPY calls. Measured
   16-byte and body-plus-tail variants remain on the prior path.
+- `Gf8B` remains on native `GF2P8MULB` for every production gather shape.
+  An internals-only prepared-affine gather and benchmark record the rejected
+  fixed-map policy without changing public dispatch.
 
 ## [0.3.0] - 2026-08-08
 

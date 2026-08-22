@@ -1,14 +1,15 @@
-//! Direct GF(2^8) N-to-1 baseline: accumulate versus today's overwrite composition.
+//! Direct GF(2^8) N-to-1 benchmarks for accumulate, overwrite, short-row
+//! fusion, and the experimental prepared-affine multiply policy.
 //!
-//! The raw samples bypass public dispatch through `internals`. `zero_then_gather`
-//! is intentionally not called a dot-product kernel: it times the current honest
-//! overwrite composition, including destination zeroing, until a zero-accumulator
-//! body exists. Every fixture is validated before timing.
+//! Raw samples bypass public dispatch through `internals`. Overwrite controls
+//! time destination zeroing. Every fixture is validated before timing, and the
+//! affine mode reports prepared-map and prepare-plus-gather costs separately.
 //!
 //! ```sh
 //! cargo bench --features internals --bench dot_product
 //! cargo bench --features internals --bench dot_product -- --smoke
 //! cargo bench --features internals --bench dot_product -- --tails
+//! cargo bench --features internals --bench dot_product -- --affine
 //! ```
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -31,6 +32,8 @@ mod imp {
     const SMOKE_SOURCE_COUNTS: &[usize] = &[1, 4, 16];
     const TAIL_LENGTHS: &[usize] = &[16, 32, 64, 96, 128];
     const TAIL_SOURCE_COUNTS: &[usize] = &[1, 2, 3, 4, 8, 16, 32];
+    const AFFINE_LENGTHS: &[usize] = &[16, 32, 64, 96, 128, 256, 1_024, 4_096, 4_160, 16_384];
+    const AFFINE_SOURCE_COUNTS: &[usize] = &[1, 2, 3, 4, 8, 12, 16, 24, 32];
 
     struct AlignedBuf {
         storage: Vec<u8>,
@@ -270,6 +273,120 @@ mod imp {
         );
     }
 
+    fn bench_affine() {
+        println!("GF(2^8) native-versus-affine N-to-1 prototype");
+        println!("  coefficients: dense nontrivial; alignment: 32-byte; cache mode: hot");
+        println!("  speedup is native time / affine time; values above 1 favor affine\n");
+
+        for &len in AFFINE_LENGTHS {
+            for &source_count in AFFINE_SOURCE_COUNTS {
+                let sources: Vec<AlignedBuf> = (0..source_count)
+                    .map(|index| AlignedBuf::noise(len, 0, 0x7100 + index as u64 * 17 + len as u64))
+                    .collect();
+                let srcs: Vec<&[u8]> = sources.iter().map(AlignedBuf::as_slice).collect();
+                let coeffs = dense_coefficients(source_count);
+                let factors: Vec<_> = coeffs
+                    .iter()
+                    .copied()
+                    .map(x86_gf8::prepare_affine_8b)
+                    .collect();
+                let initial = noise(len, 0x7200 + len as u64 + source_count as u64);
+                let expected_accumulate = reference(initial.clone(), &coeffs, &srcs);
+                let expected_overwrite = reference(vec![0; len], &coeffs, &srcs);
+
+                let mut affine_check = initial.clone();
+                x86_gf8::gather_affine_8b(&mut affine_check, &factors, &srcs);
+                assert_eq!(
+                    affine_check, expected_accumulate,
+                    "prepared affine accumulate fixture mismatch"
+                );
+                affine_check.fill(0);
+                x86_gf8::gather_affine_8b(&mut affine_check, &factors, &srcs);
+                assert_eq!(
+                    affine_check, expected_overwrite,
+                    "prepared affine overwrite fixture mismatch"
+                );
+
+                let mut native_dst = AlignedBuf::noise(len, 0, 0x7300 + len as u64);
+                let mut affine_dst = AlignedBuf::noise(len, 0, 0x7400 + len as u64);
+                let mut native_overwrite = AlignedBuf::noise(len, 0, 0x7500 + len as u64);
+                let mut affine_overwrite = AlignedBuf::noise(len, 0, 0x7600 + len as u64);
+                let mut native_one_shot = AlignedBuf::noise(len, 0, 0x7700 + len as u64);
+                let mut affine_one_shot = AlignedBuf::noise(len, 0, 0x7800 + len as u64);
+                native_dst.as_mut_slice().copy_from_slice(&initial);
+                affine_dst.as_mut_slice().copy_from_slice(&initial);
+                let mut one_shot_factors = factors.clone();
+                let logical_bytes = len * source_count;
+
+                println!("  {len:>5} B x {source_count:>2} sources:");
+                let [native, affine] = bench_pair(
+                    || {
+                        x86_gf8::gather_gfni(
+                            black_box(native_dst.as_mut_slice()),
+                            black_box(&coeffs),
+                            black_box(&srcs),
+                        );
+                    },
+                    || {
+                        x86_gf8::gather_affine_8b(
+                            black_box(affine_dst.as_mut_slice()),
+                            black_box(&factors),
+                            black_box(&srcs),
+                        );
+                    },
+                );
+                print_timing("native accumulate", logical_bytes, native);
+                print_timing("prepared affine accumulate", logical_bytes, affine);
+                println!("      prepared affine speedup {:.2}x", native / affine);
+
+                let [native, affine] = bench_pair(
+                    || {
+                        native_overwrite.as_mut_slice().fill(0);
+                        x86_gf8::gather_gfni(
+                            black_box(native_overwrite.as_mut_slice()),
+                            black_box(&coeffs),
+                            black_box(&srcs),
+                        );
+                    },
+                    || {
+                        affine_overwrite.as_mut_slice().fill(0);
+                        x86_gf8::gather_affine_8b(
+                            black_box(affine_overwrite.as_mut_slice()),
+                            black_box(&factors),
+                            black_box(&srcs),
+                        );
+                    },
+                );
+                print_timing("native overwrite", logical_bytes, native);
+                print_timing("prepared affine overwrite", logical_bytes, affine);
+                println!("      affine overwrite speedup {:.2}x", native / affine);
+
+                let [native, affine] = bench_pair(
+                    || {
+                        x86_gf8::gather_gfni(
+                            black_box(native_one_shot.as_mut_slice()),
+                            black_box(&coeffs),
+                            black_box(&srcs),
+                        );
+                    },
+                    || {
+                        for (factor, &coeff) in one_shot_factors.iter_mut().zip(&coeffs) {
+                            *factor = x86_gf8::prepare_affine_8b(black_box(coeff));
+                        }
+                        x86_gf8::gather_affine_8b(
+                            black_box(affine_one_shot.as_mut_slice()),
+                            black_box(&one_shot_factors),
+                            black_box(&srcs),
+                        );
+                    },
+                );
+                print_timing("native one-shot", logical_bytes, native);
+                print_timing("prepare + affine gather", logical_bytes, affine);
+                println!("      affine one-shot speedup {:.2}x", native / affine);
+            }
+        }
+    }
+
     pub fn main() {
         let has_gfni = std::arch::is_x86_feature_detected!("avx2")
             && std::arch::is_x86_feature_detected!("gfni");
@@ -290,6 +407,11 @@ mod imp {
         let arguments: Vec<_> = std::env::args().collect();
         let smoke = arguments.iter().any(|argument| argument == "--smoke");
         let tails = arguments.iter().any(|argument| argument == "--tails");
+        let affine = arguments.iter().any(|argument| argument == "--affine");
+        if affine {
+            bench_affine();
+            return;
+        }
         let (lengths, source_counts) = if tails {
             (TAIL_LENGTHS, TAIL_SOURCE_COUNTS)
         } else if smoke {

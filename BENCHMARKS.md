@@ -96,11 +96,12 @@ fused-tail candidate, public accumulating operation, timed zero-then-gather,
 and public `dot_product`. Every body is validated and allocation-free in the
 timed region. The full run covers dense nontrivial coefficients,
 1/2/3/4/8/12/16/24/32 sources, SIMD boundaries through 513 B, and 1–64 KiB
-rows; `--smoke` keeps the same identifiers on a focused boundary grid, while
+rows; `--smoke` keeps the same identifiers on a focused boundary grid,
 `--tails` isolates 16/32/64/96/128-byte rows across source counts
-1/2/3/4/8/16/32. Fixtures are 32-byte-aligned and hot-cache. Controlled
-misalignment, displaced-cache, and coefficient-distribution variants remain
-separate additions.
+1/2/3/4/8/16/32, and `--affine` interleaves native GFNI with the prepared
+`Gf8B` affine-map prototype. Fixtures are 32-byte-aligned and hot-cache.
+Controlled misalignment, displaced-cache, and coefficient-distribution
+variants remain separate additions.
 
 ### Native GFNI source-fused short rows (2026-08-22)
 
@@ -142,6 +143,47 @@ upward on the pinned 16–128 B panel; smaller multi-source calls pay up to abou
 10% for validation and the all-zero shortcut. Both forms are proven
 allocation-free in `tests/zero_alloc.rs`. Consumer-level measurement, not this
 microbenchmark, decides whether callers migrate.
+
+### Prepared `Gf8B` affine gather prototype (2026-08-22)
+
+The `--affine` panel substitutes prepared `VGF2P8AFFINEQB` maps for native
+`GF2P8MULB` inside the same generic 128-byte gather body and the same measured
+short-row fusion rule. Map lookup happens before the prepared sample; a
+separate one-shot sample rewrites a preallocated factor slice before gathering.
+Overwrite times `fill(0)` on both sides. The scalar map model and the hardware
+gather each cover all 65,536 coefficient/input products. Generated assembly
+broadcasts each map directly from the prepared slice into
+`VGF2P8AFFINEQB`; the main loop does not spill maps.
+
+Core Ultra 7 258V CPU 2, Linux, rustc 1.93, backend `v3_gfni_crypto`,
+32-byte-aligned hot fixtures, dense nontrivial coefficients. Ratios are native
+time divided by prepared-affine time, so values above 1 favor affine:
+
+| Row | 4 sources | 8 sources | 16 sources |
+| ---: | ---: | ---: | ---: |
+| 32 B | 0.72x | 0.77x | 1.02x |
+| 64 B | 0.74x | 0.69x | 1.01x |
+| 96 B | 0.78x | 0.72x | 1.05x |
+| 128 B | 0.62x | 0.58x | 0.57x |
+| 256 B | 0.74x | 0.65x | 0.72x |
+| 1 KiB | 0.92x | 0.90x | 0.92x |
+| 4 KiB | 1.04x | 0.94x | 1.03x |
+| 16 KiB | 0.97x | 1.05x | 1.06x |
+
+A repeated pinned run preserved the pattern. Prepared affine is substantially
+slower through 1 KiB in the source-count region the prototype targeted. At
+4 KiB the sign changes with source count; at 16 KiB it wins 3–6% from eight
+sources upward, but the neighboring three/four-source shapes remain
+neutral-to-slower. Overwrite follows the same topology: 128 B x 8–16 is
+0.55–0.56x, while 16 KiB x 8–32 is 1.03–1.04x. Preparation does not erase the
+long-row wins, but deepens the short-row losses.
+
+Production therefore remains entirely on native `GF2P8MULB`: there is no
+single multiply policy for the next tile sweep, and the modest long-row region
+does not justify a new source-count/length dispatch without alignment,
+cache-displacement, counter, and second-host evidence. The affine body and map
+bank remain available only through `internals` so that exact cross-host rerun
+stays reproducible; no public operation dispatches to them.
 
 Small GF(2^16) rows are sensitive to coefficient preparation because a shuffle
 backend builds four nibble tables per coefficient. Use `Coeff` or `Plan` when a

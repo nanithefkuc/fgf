@@ -121,6 +121,51 @@ pub fn scale_table_8d(coeff: gf8d::Elem) -> &'static ScaleTable {
     &SCALE_TABLE_BANK_8D[coeff.0 as usize]
 }
 
+/// Experimental GF(2^8)/`0x11B` affine-map bank, one
+/// `VGF2P8AFFINEQB` matrix qword per coefficient.
+///
+/// This uses the same instruction convention as [`affine_8d`], but derives
+/// each column from [`gf8b::Elem::mul`]. It exists only for tests and the
+/// `internals` benchmark prototype; production `Gf8B` kernels continue to use
+/// native `GF2P8MULB`.
+#[cfg(any(test, feature = "internals"))]
+static AFFINE_BANK_8B: [u64; 256] = build_affine_bank_8b();
+
+#[cfg(any(test, feature = "internals"))]
+#[allow(clippy::cast_possible_truncation)]
+const fn build_affine_bank_8b() -> [u64; 256] {
+    let mut bank = [0u64; 256];
+    let mut i = 0;
+    while i < 256 {
+        let c = gf8b::Elem(i as u8);
+        let mut map = 0u64;
+        let mut r = 0u8;
+        while r < 8 {
+            let mut row = 0u8;
+            let mut k = 0u8;
+            while k < 8 {
+                let column = c.mul(gf8b::Elem(1 << k)).0;
+                row |= ((column >> (7 - r)) & 1) << k;
+                k += 1;
+            }
+            map |= (row as u64) << (8 * r);
+            r += 1;
+        }
+        bank[i] = map;
+        i += 1;
+    }
+    bank
+}
+
+/// Return the experimental `VGF2P8AFFINEQB` matrix qword that multiplies by
+/// `coeff` under `0x11B`.
+#[cfg(any(test, feature = "internals"))]
+#[inline]
+#[must_use]
+pub fn affine_8b(coeff: gf8b::Elem) -> u64 {
+    AFFINE_BANK_8B[coeff.0 as usize]
+}
+
 /// GF(2^8)/`0x11D` affine-map bank, one `VGF2P8AFFINEQB` matrix qword per
 /// coefficient.
 ///
@@ -476,12 +521,10 @@ mod tests {
 
     #[test]
     #[allow(clippy::cast_possible_truncation)]
-    fn affine_bank_8d_matches_the_instruction_model() {
+    fn affine_bank_matches_the_instruction_model() {
         // The semantics `VGF2P8AFFINEQB` documents, modeled in scalar code:
-        // `dst.bit[b] = parity(map.byte[7 - b] & x)`. This proves the const
-        // derivation fills the bank to that convention; that silicon agrees
-        // with the convention is proven by the exhaustive hardware
-        // differential in `kernel::tests`.
+        // `dst.bit[b] = parity(map.byte[7 - b] & x)`. This proves both const
+        // banks use the hardware bit-order convention.
         fn apply(map: u64, x: u8) -> u8 {
             let mut out = 0u8;
             for b in 0..8u8 {
@@ -493,12 +536,18 @@ mod tests {
         }
 
         for c in 0..=u8::MAX {
-            let map = affine_8d(gf8d::Elem(c));
+            let aes_map = affine_8b(gf8b::Elem(c));
+            let rs_map = affine_8d(gf8d::Elem(c));
             for x in 0..=u8::MAX {
                 assert_eq!(
-                    apply(map, x),
+                    apply(aes_map, x),
+                    gf8b::Elem(c).mul(gf8b::Elem(x)).0,
+                    "0x11B coeff {c:#04x} value {x:#04x}"
+                );
+                assert_eq!(
+                    apply(rs_map, x),
                     gf8d::Elem(c).mul(gf8d::Elem(x)).0,
-                    "coeff {c:#04x} value {x:#04x}"
+                    "0x11D coeff {c:#04x} value {x:#04x}"
                 );
             }
         }

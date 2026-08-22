@@ -918,6 +918,42 @@ mod x86 {
         );
     }
 
+    /// Exhaustive silicon check for the experimental `Gf8B` affine map and
+    /// differential coverage across the gather tile/remainder ladder.
+    #[test]
+    fn gf8b_affine_gather_matches_reference() {
+        if !(host_supports(&[Backend::V3GfniCrypto])) {
+            eprintln!("skipping: no AVX2+GFNI on this host");
+            return;
+        }
+
+        let every_byte: Vec<u8> = (0..=u8::MAX).collect();
+        let srcs = [every_byte.as_slice()];
+        for c in 0..=u8::MAX {
+            let coeff = gf8b::Elem(c);
+            let factors = [x86::gf8::prepare_affine_8b(coeff)];
+            let mut got = vec![0u8; every_byte.len()];
+            x86::gf8::gather_affine_8b(&mut got, &factors, &srcs);
+            let mut want = vec![0u8; every_byte.len()];
+            scalar::mul_add::<gf8b::Gf8B>(&mut want, coeff, &every_byte);
+            assert_eq!(got, want, "gf8b affine coeff {c:#04x}");
+        }
+
+        check_gather(
+            "gf8b affine gather",
+            gf8_coeff_at,
+            gf8_reference,
+            |dst, coeffs, srcs| {
+                let factors: Vec<_> = coeffs
+                    .iter()
+                    .copied()
+                    .map(x86::gf8::prepare_affine_8b)
+                    .collect();
+                x86::gf8::gather_affine_8b(dst, &factors, srcs);
+            },
+        );
+    }
+
     /// The `0x11D` field's GFNI path: `VGF2P8AFFINEQB` with the const-derived
     /// affine bank. The sweep is exhaustive over coefficients, and the
     /// all-byte-values source makes it exhaustive over products — this is the

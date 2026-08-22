@@ -27,6 +27,8 @@ use crate::field::gf8b::Elem;
 use crate::field::gf8d;
 use crate::kernel::Matrix;
 use crate::kernel::gf8::{mul_add_nibble, mul_assign_nibble, mul_into_nibble};
+#[cfg(any(test, feature = "internals"))]
+use crate::kernel::tables::affine_8b;
 use crate::kernel::tables::{ScaleTable, affine_8d, scale_table, scale_table_8d};
 
 // ---------------------------------------------------------------------------
@@ -713,7 +715,7 @@ unsafe fn mul_into_ssse3_impl<const NT: bool>(dst: &mut [u8], table: &ScaleTable
 
 /// The per-field multiply seam for the blocked GF(2^8) kernels.
 pub(super) trait Blocked {
-    /// Coefficient element: `Elem` (`0x11B`) or [`gf8d::Elem`] (`0x11D`).
+    /// Coefficient form selected by the strategy.
     type Coeff: Copy;
     /// The additive identity, for staging arrays.
     fn zero() -> Self::Coeff;
@@ -747,6 +749,53 @@ impl Blocked for Gfni {
     #[inline]
     fn table(coeff: Elem) -> &'static ScaleTable {
         scale_table(coeff)
+    }
+}
+
+/// Prepared fixed multiply for the experimental `Gf8B` affine gather.
+///
+/// Map lookup stays outside the timed gather body. The nibble table remains
+/// attached only for sub-XMM remainders.
+#[cfg(any(test, feature = "internals"))]
+#[derive(Clone, Copy)]
+pub struct Affine8BFactor {
+    map: u64,
+    table: &'static ScaleTable,
+}
+
+/// Prepare one `Gf8B` coefficient for [`gather_affine_8b`].
+#[cfg(any(test, feature = "internals"))]
+#[inline]
+#[must_use]
+pub fn prepare_affine_8b(coeff: Elem) -> Affine8BFactor {
+    Affine8BFactor {
+        map: affine_8b(coeff),
+        table: scale_table(coeff),
+    }
+}
+
+/// Experimental affine-map multiply in the AES field `0x11B` (`Gf8B`).
+#[cfg(any(test, feature = "internals"))]
+enum Affine8B {}
+#[cfg(any(test, feature = "internals"))]
+impl Blocked for Affine8B {
+    type Coeff = Affine8BFactor;
+    const AFFINE: bool = true;
+    #[inline]
+    fn zero() -> Affine8BFactor {
+        prepare_affine_8b(Elem(0))
+    }
+    #[inline]
+    fn byte(coeff: Affine8BFactor) -> u8 {
+        coeff.table.coeff.0
+    }
+    #[inline]
+    fn map(coeff: Affine8BFactor) -> u64 {
+        coeff.map
+    }
+    #[inline]
+    fn table(coeff: Affine8BFactor) -> &'static ScaleTable {
+        coeff.table
     }
 }
 
@@ -1894,6 +1943,30 @@ pub fn gather_gfni(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
             gather_impl::<Gfni, true>(dst, coeffs, srcs);
         } else {
             gather_impl::<Gfni, false>(dst, coeffs, srcs);
+        }
+    }
+}
+
+/// Experimental `Gf8B` gather using prepared `VGF2P8AFFINEQB` maps.
+///
+/// This is benchmark-only production-policy evidence. It deliberately shares
+/// the native gather body and the short-row fusion rule with [`gather_gfni`], so the
+/// multiply instruction and prepared factor representation are the only
+/// differences.
+#[cfg(any(test, feature = "internals"))]
+#[inline]
+pub fn gather_affine_8b(dst: &mut [u8], factors: &[Affine8BFactor], srcs: &[&[u8]]) {
+    debug_assert_eq!(factors.len(), srcs.len());
+    let remainder = dst.len() & 127;
+    let fused =
+        dst.len() < 128 && factors.len() > 2 && remainder != 0 && remainder.trailing_zeros() >= 5;
+    // SAFETY: direct tests and benchmarks require AVX2+GFNI and validate every
+    // source length against `dst`.
+    unsafe {
+        if fused {
+            gather_impl::<Affine8B, true>(dst, factors, srcs);
+        } else {
+            gather_impl::<Affine8B, false>(dst, factors, srcs);
         }
     }
 }
