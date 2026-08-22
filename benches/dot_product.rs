@@ -261,6 +261,13 @@ mod imp {
             overwrite, expected_overwrite,
             "zero-then-gather fixture mismatch"
         );
+
+        let mut public_dot = initial.to_vec();
+        ops::dot_product::<Gf8B>(&mut public_dot, coeffs, srcs);
+        assert_eq!(
+            public_dot, expected_overwrite,
+            "public dot-product fixture mismatch"
+        );
     }
 
     pub fn main() {
@@ -320,10 +327,12 @@ mod imp {
                 let mut control_dst = AlignedBuf::noise(len, 0, 0x2800 + len as u64);
                 let mut public_dst = AlignedBuf::noise(len, 0, 0x4000 + len as u64);
                 let mut overwrite_dst = AlignedBuf::noise(len, 0, 0x5000 + len as u64);
+                let mut public_dot_dst = AlignedBuf::noise(len, 0, 0x6000 + len as u64);
                 raw_dst.as_mut_slice().copy_from_slice(&initial);
                 control_dst.as_mut_slice().copy_from_slice(&initial);
                 public_dst.as_mut_slice().copy_from_slice(&initial);
                 overwrite_dst.as_mut_slice().copy_from_slice(&initial);
+                public_dot_dst.as_mut_slice().copy_from_slice(&initial);
                 let logical_bytes = len * source_count;
 
                 println!("  {len:>5} B x {source_count:>2} sources:");
@@ -377,6 +386,33 @@ mod imp {
                     "      public/raw {:.2}x, zero_then_gather/raw {:.2}x",
                     public / raw,
                     overwrite / raw
+                );
+                let [zero_then_gather, public_dot] = bench_pair(
+                    || {
+                        public_dst.as_mut_slice().fill(0);
+                        ops::mul_add_gather::<Gf8B>(
+                            black_box(public_dst.as_mut_slice()),
+                            black_box(&coeffs),
+                            black_box(&srcs),
+                        );
+                    },
+                    || {
+                        ops::dot_product::<Gf8B>(
+                            black_box(public_dot_dst.as_mut_slice()),
+                            black_box(&coeffs),
+                            black_box(&srcs),
+                        );
+                    },
+                );
+                print_timing(
+                    "public zero_then_gather ctl",
+                    logical_bytes,
+                    zero_then_gather,
+                );
+                print_timing("public overwrite dot", logical_bytes, public_dot);
+                println!(
+                    "      public overwrite/composition {:.2}x",
+                    public_dot / zero_then_gather
                 );
             }
         }

@@ -74,6 +74,7 @@
 //! | `dst *= c` | [`ops::mul_assign`] | [`ops::mul_assign_with`] | in-place scaling |
 //! | one source, many rows | [`ops::mul_add_scatter`] | `ops::mul_add_scatter_with` | systematic encode |
 //! | many sources, one row | [`ops::mul_add_gather`] | `ops::mul_add_gather_with` | recovered symbol |
+//! | many sources overwrite one row | [`ops::dot_product`] | `ops::dot_product_with` | fresh recovered symbol |
 //! | many sources, many rows | [`ops::mul_add_matrix`] | `ops::mul_add_matrix_with` | reconstruction |
 //! | many sources, scattered rows | [`ops::mul_add_matrix_scattered`] | — | in-place reconstruction |
 //! | varying pair per lane | [`ops::mul_elementwise`] | — | pointwise products |

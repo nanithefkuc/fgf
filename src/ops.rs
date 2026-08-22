@@ -584,6 +584,81 @@ pub fn mul_add_gather_with<F: FieldKernels>(dst: &mut [u8], plan: &Plan<F>, srcs
     F::mul_add_gather_plan(dst, &plan.values, &plan.prepared, srcs);
 }
 
+/// Overwrite one row with a field dot product:
+/// `dst = sum(coeffs[i] * srcs[i])`.
+///
+/// Unlike [`mul_add_gather`], the previous destination is ignored. Zero
+/// sources or all-zero coefficients fill `dst` with zero; one source is the
+/// same operation as [`mul_into`].
+///
+/// # Panics
+/// Panics unless `coeffs.len() == srcs.len()` and every source matches
+/// `dst` in length, or on a partial trailing element.
+pub fn dot_product<F: FieldKernels>(dst: &mut [u8], coeffs: &[F::Elem], srcs: &[&[u8]]) {
+    check_width::<F>("dot_product", dst.len());
+    assert_eq!(
+        coeffs.len(),
+        srcs.len(),
+        "dot_product: {} coefficients for {} sources",
+        coeffs.len(),
+        srcs.len()
+    );
+    for (index, &src) in srcs.iter().enumerate() {
+        assert_eq!(
+            dst.len(),
+            src.len(),
+            "dot_product: source {index} is {} bytes, expected {}",
+            src.len(),
+            dst.len()
+        );
+    }
+    if srcs.is_empty() || coeffs.iter().all(|coeff| coeff.is_zero()) {
+        dst.fill(0);
+        return;
+    }
+    if let [coeff] = coeffs {
+        mul_into::<F>(dst, *coeff, srcs[0]);
+        return;
+    }
+    F::dot_product(dst, coeffs, srcs);
+}
+
+/// Overwrite one row with a field dot product using a prepared plan.
+///
+/// # Panics
+/// Panics unless `plan.len() == srcs.len()` and every source matches `dst` in
+/// length, or on a partial trailing element.
+#[cfg(feature = "std")]
+pub fn dot_product_with<F: FieldKernels>(dst: &mut [u8], plan: &Plan<F>, srcs: &[&[u8]]) {
+    check_width::<F>("dot_product_with", dst.len());
+    assert_eq!(
+        plan.len(),
+        srcs.len(),
+        "dot_product_with: plan has {} coefficients but there are {} sources",
+        plan.len(),
+        srcs.len(),
+    );
+    for (index, &src) in srcs.iter().enumerate() {
+        assert_eq!(
+            dst.len(),
+            src.len(),
+            "dot_product_with: source {index} is {} bytes, expected {}",
+            src.len(),
+            dst.len(),
+        );
+    }
+    if srcs.is_empty() || plan.values().all(Elem::is_zero) {
+        dst.fill(0);
+        return;
+    }
+    if plan.len() == 1 {
+        let coeff = plan.get(0).expect("single-entry plan has one coefficient");
+        mul_into_with::<F>(dst, &coeff, srcs[0]);
+        return;
+    }
+    F::dot_product_plan(dst, &plan.values, &plan.prepared, srcs);
+}
+
 /// Apply many sources to many rows: for each `(coeffs, src)` term,
 /// `rows[j] ^= coeffs[j] * src` for every `j` in `0..nrows`.
 ///

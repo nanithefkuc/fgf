@@ -478,6 +478,66 @@ fn gf16_gather_matches_summed_mul_add() {
 }
 
 #[test]
+fn dot_product_overwrites_and_matches_gather_from_zero() {
+    let len = 96;
+    let sources: Vec<Vec<u8>> = (0..6).map(|i| noise(len, 0x348 + i)).collect();
+    let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+    let coeffs = [0u8, 1, 0x53, 0xff, 2, 0x1d].map(gf8b::Elem);
+
+    let mut want = vec![0; len];
+    for (&coeff, &src) in coeffs.iter().zip(&refs) {
+        oracle_mul_add::<Gf8B>(&mut want, coeff, src);
+    }
+
+    let initial = noise(len, 0x34f);
+    let mut got = initial.clone();
+    ops::dot_product::<Gf8B>(&mut got, &coeffs, &refs);
+    assert_eq!(got, want);
+
+    let mut accumulated = initial.clone();
+    ops::mul_add_gather::<Gf8B>(&mut accumulated, &coeffs, &refs);
+    for (value, &prefix) in accumulated.iter_mut().zip(&initial) {
+        *value ^= prefix;
+    }
+    assert_eq!(accumulated, want);
+}
+
+#[test]
+#[cfg(feature = "std")]
+fn prepared_dot_product_matches_one_shot_over_gf16() {
+    let len = 66;
+    let sources = [noise(len, 0x371), noise(len, 0x372), noise(len, 0x373)];
+    let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+    let coeffs = [gf16::Elem(0x0108), gf16::Elem(0), gf16::Elem(0xabcd)];
+    let plan = ops::Plan::<Gf16>::new(&coeffs);
+
+    let mut one_shot = noise(len, 0x374);
+    let mut prepared = noise(len, 0x375);
+    ops::dot_product::<Gf16>(&mut one_shot, &coeffs, &refs);
+    ops::dot_product_with::<Gf16>(&mut prepared, &plan, &refs);
+    assert_eq!(prepared, one_shot);
+
+    let mut single = noise(len, 0x376);
+    let mut scaled = vec![0; len];
+    ops::dot_product::<Gf16>(&mut single, &coeffs[..1], &refs[..1]);
+    ops::mul_into::<Gf16>(&mut scaled, coeffs[0], refs[0]);
+    assert_eq!(single, scaled);
+}
+
+#[test]
+fn empty_and_zero_dot_products_zero_the_destination() {
+    let mut empty_terms = noise(32, 0x377);
+    ops::dot_product::<Gf8B>(&mut empty_terms, &[], &[]);
+    assert!(empty_terms.iter().all(|&value| value == 0));
+
+    let sources = [noise(32, 0x378), noise(32, 0x379)];
+    let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+    let mut zero_coefficients = noise(32, 0x37a);
+    ops::dot_product::<Gf8B>(&mut zero_coefficients, &[gf8b::Elem::ZERO; 2], &refs);
+    assert!(zero_coefficients.iter().all(|&value| value == 0));
+}
+
+#[test]
 fn prepared_coefficients_match_one_shot_operations() {
     let src8 = noise(258, 0x350);
     for coeff in [0u8, 1, 2, 0x53, 0xff].map(gf8b::Elem) {
@@ -792,6 +852,20 @@ fn erasure_round_trip_gf8() {
 
     assert_eq!(x, data[lost[0] * row_len..(lost[0] + 1) * row_len], "row 1");
     assert_eq!(y, data[lost[1] * row_len..(lost[1] + 1) * row_len], "row 4");
+}
+
+#[test]
+#[should_panic(expected = "dot_product: 2 coefficients for 1 sources")]
+fn dot_product_rejects_mismatched_source_count() {
+    let mut dst = [0u8; 8];
+    ops::dot_product::<Gf8B>(&mut dst, &[gf8b::Elem(2), gf8b::Elem(3)], &[&[0u8; 8]]);
+}
+
+#[test]
+#[should_panic(expected = "dot_product: source 0 is 7 bytes, expected 8")]
+fn dot_product_rejects_wrong_source_length() {
+    let mut dst = [0u8; 8];
+    ops::dot_product::<Gf8B>(&mut dst, &[gf8b::Elem(2)], &[&[0u8; 7]]);
 }
 
 // ---------------------------------------------------------------------------

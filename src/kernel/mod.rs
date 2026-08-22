@@ -350,6 +350,23 @@ pub trait FieldKernels: Field + private::Sealed {
     /// See [`FieldKernels::mul_add_gather_with`] for the prepared form.
     fn mul_add_gather(dst: &mut [u8], coeffs: &[Self::Elem], srcs: &[&[u8]]);
 
+    /// Many sources overwrite one row: `dst = sum(coeffs[i] * srcs[i])`.
+    ///
+    /// Unlike [`FieldKernels::mul_add_gather`], the previous destination is
+    /// ignored. The default starts with a fused single-source [`FieldKernels::mul_into`],
+    /// then accumulates the remaining prepared terms without allocation.
+    fn dot_product(dst: &mut [u8], coeffs: &[Self::Elem], srcs: &[&[u8]]) {
+        let mut pairs = coeffs.iter().copied().zip(srcs.iter().copied());
+        let Some((first, src)) = pairs.next() else {
+            dst.fill(0);
+            return;
+        };
+        Self::mul_into(dst, &Self::prepare(first), src);
+        for (coeff, src) in pairs {
+            Self::mul_add(dst, &Self::prepare(coeff), src);
+        }
+    }
+
     /// Many sources into many rows: for each `(coeffs, src)` term,
     /// `rows[j] ^= coeffs[j] * src` for every `j` in `0..nrows`.
     ///
@@ -415,6 +432,29 @@ pub trait FieldKernels: Field + private::Sealed {
         srcs: &[&[u8]],
     ) {
         Self::mul_add_gather_with(dst, coeffs, srcs);
+    }
+
+    /// [`FieldKernels::dot_product`] over already-prepared coefficients.
+    fn dot_product_with(dst: &mut [u8], coeffs: &[Self::Prepared], srcs: &[&[u8]]) {
+        let mut pairs = coeffs.iter().zip(srcs.iter().copied());
+        let Some((first, src)) = pairs.next() else {
+            dst.fill(0);
+            return;
+        };
+        Self::mul_into(dst, first, src);
+        for (coeff, src) in pairs {
+            Self::mul_add(dst, coeff, src);
+        }
+    }
+
+    /// Prepared-plan dot product with original and resolved coefficients.
+    fn dot_product_plan(
+        dst: &mut [u8],
+        _values: &[Self::Elem],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        Self::dot_product_with(dst, coeffs, srcs);
     }
 
     /// [`FieldKernels::mul_add_matrix`] over already-prepared coefficients.

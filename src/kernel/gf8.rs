@@ -218,6 +218,20 @@ impl FieldKernels for Gf8B {
         Self::mul_add_gather(dst, values, srcs);
     }
 
+    fn dot_product(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+        dst.fill(0);
+        Self::mul_add_gather(dst, coeffs, srcs);
+    }
+
+    fn dot_product_plan(
+        dst: &mut [u8],
+        values: &[Elem],
+        _coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        Self::dot_product(dst, values, srcs);
+    }
+
     fn mul_add_matrix(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[Elem], &[u8])]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]

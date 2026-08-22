@@ -21,6 +21,10 @@ All notable changes to this project are documented here. The format follows
   field-agnostic split-nibble shuffle kernels. Elementwise multiplication is
   vectorized on every x86 backend through a branchless shift/reduce that
   threads the `0x11D` reduction byte (the AES `GF2P8MULB` cannot serve it).
+- `dot_product` and `dot_product_with` overwrite one destination with an
+  N-to-1 field dot product, distinct from accumulating `mul_add_gather`.
+  Empty/all-zero inputs clear the destination, one source uses `mul_into`, and
+  prepared plans remain allocation-free.
 
 ### Changed
 
