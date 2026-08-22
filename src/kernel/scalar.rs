@@ -115,12 +115,6 @@ pub fn mul_add_gather<F: Field>(dst: &mut [u8], coeffs: &[F::Elem], srcs: &[&[u8
     }
 }
 
-/// `dst = sum(coeffs[i] * srcs[i])`.
-pub fn dot_product<F: Field>(dst: &mut [u8], coeffs: &[F::Elem], srcs: &[&[u8]]) {
-    dst.fill(0);
-    mul_add_gather::<F>(dst, coeffs, srcs);
-}
-
 /// `dst[i] = a[i] * b[i]`, elementwise.
 pub fn mul_elementwise<F: Field>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     debug_assert_eq!(dst.len(), a.len());

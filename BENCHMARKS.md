@@ -544,11 +544,31 @@ reference. 7.1–7.9 GiB/s against the reference's ~1.1 GiB/s — 6.2–7.1× fr
 
 ## Comparative benchmark
 
-`benches/compare.rs` compares compatible GF(2^8) operations against
-`reed-solomon-erasure` with its `simd-accel` feature. It is a development
-comparison, not a claim that the crates expose identical abstractions. Run it
-on the same machine and toolchain before quoting a ratio.
+`benches/compare.rs` compares aligned, compatible GF(2^8)/`0x11D` operations
+against `reed-solomon-erasure` 6 with `simd-accel`. The single-source region is
+64 KiB; overwrite dot products use 16 dense nontrivial coefficients over 4 KiB
+and 16 KiB rows. `Gf8D` and RSE outputs are checked byte-for-byte before timing.
+`Gf8B` is included as the native-GFNI throughput control, not as a
+bit-compatible result.
 
-Historical measurements from local development are intentionally not copied
-into the crate landing page: results without their original CPU and command
-line are not reproducible evidence.
+Five independent pinned process runs on a Core Ultra 7 258V with rustc 1.93 and
+backend `v3_gfni_crypto`. Every buffer is 64-byte aligned. Each cell is the
+median of the five process medians, followed by the full run range in brackets,
+GiB/s:
+
+| Implementation | 64 KiB `dst ^= c*src` | 64 KiB `dst = c*src` | 4 KiB x 16 overwrite dot | 16 KiB x 16 overwrite dot |
+| --- | ---: | ---: | ---: | ---: |
+| `fgf` `Gf8B` | 75.1 [59.8–79.9] | 66.4 [51.6–66.6] | 105.6 [98.1–112.6] | 90.3 [84.2–97.9] |
+| `fgf` `Gf8D` | 69.9 [65.5–79.7] | 58.5 [58.2–66.3] | 112.6 [99.1–113.2] | 98.1 [89.4–103.9] |
+| RSE `0x11D` | 62.9 [59.7–63.7] | 59.7 [52.4–64.7] | 59.0 [58.9–62.4] | 64.6 [62.2–67.5] |
+
+The machine is visibly noisy, but the useful bands separate. Bit-compatible
+`Gf8D` is about 1.11x RSE on single-source accumulate and at parity on
+single-source overwrite. Its prepared overwrite dot is 1.91x RSE at 4 KiB x
+16 and 1.52x at 16 KiB x 16. No production policy is selected from this
+development comparison.
+
+Run `taskset -c <p-core> cargo bench --bench compare` on the same machine and
+toolchain before quoting a ratio. ISA-L and gf-complete use local system-library
+adapters that remain outside the published crate; their snapshots stay in the
+ignored experiment record rather than becoming unreproducible public numbers.
