@@ -1928,6 +1928,10 @@ unsafe fn elementwise_ssse3_impl<const RED: u8>(dst: &mut [u8], a: &[u8], b: &[u
 
 /// Many sources into one destination, register-blocked over 128-byte tiles
 /// with source-fused 64/32-byte tails where at least three sources participate.
+///
+/// The main tile stays statically 128 bytes: narrower and split-chain
+/// candidates reversed across neighboring page layouts. See the GFNI gather
+/// tile record in `BENCHMARKS.md`.
 #[inline]
 pub fn gather_gfni(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     debug_assert_eq!(coeffs.len(), srcs.len());
@@ -1940,9 +1944,9 @@ pub fn gather_gfni(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     // scalar remainders, and rows that already execute the 128-byte main body.
     unsafe {
         if fused {
-            gather_impl::<Gfni, true>(dst, coeffs, srcs);
+            gather_impl::<Gfni, true, 4>(dst, coeffs, srcs);
         } else {
-            gather_impl::<Gfni, false>(dst, coeffs, srcs);
+            gather_impl::<Gfni, false, 4>(dst, coeffs, srcs);
         }
     }
 }
@@ -1964,9 +1968,9 @@ pub fn gather_affine_8b(dst: &mut [u8], factors: &[Affine8BFactor], srcs: &[&[u8
     // source length against `dst`.
     unsafe {
         if fused {
-            gather_impl::<Affine8B, true>(dst, factors, srcs);
+            gather_impl::<Affine8B, true, 4>(dst, factors, srcs);
         } else {
-            gather_impl::<Affine8B, false>(dst, factors, srcs);
+            gather_impl::<Affine8B, false, 4>(dst, factors, srcs);
         }
     }
 }
@@ -1981,7 +1985,32 @@ pub fn gather_gfni_axpy_tail(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     debug_assert_eq!(coeffs.len(), srcs.len());
     // SAFETY: the direct benchmark checks AVX2+GFNI before calling this
     // control; callers checked every source length against `dst`.
-    unsafe { gather_impl::<Gfni, false>(dst, coeffs, srcs) }
+    unsafe { gather_impl::<Gfni, false, 4>(dst, coeffs, srcs) }
+}
+
+/// Benchmark a native GFNI gather with `TILE_LANES` 32-byte accumulators.
+///
+/// Width four delegates to [`gather_gfni`] and is the exact production
+/// control, including its measured short-row fusion. Widths one through three
+/// use the same gather body with the existing single-source AXPY remainder.
+///
+/// # Panics
+/// Panics unless `TILE_LANES` is in `1..=4`.
+#[cfg(any(test, feature = "internals"))]
+#[inline]
+pub fn gather_gfni_tile<const TILE_LANES: usize>(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+    assert!(
+        (1..=4).contains(&TILE_LANES),
+        "GFNI gather tile must contain 1–4 lanes"
+    );
+    debug_assert_eq!(coeffs.len(), srcs.len());
+    if TILE_LANES == 4 {
+        gather_gfni(dst, coeffs, srcs);
+        return;
+    }
+    // SAFETY: direct tests and benchmarks require AVX2+GFNI and validate every
+    // source length against `dst`.
+    unsafe { gather_impl::<Gfni, false, TILE_LANES>(dst, coeffs, srcs) }
 }
 
 /// [`gather_gfni`] under `0x11D`: many sources into one destination, each
@@ -1990,29 +2019,26 @@ pub fn gather_affine(dst: &mut [u8], coeffs: &[gf8d::Elem], srcs: &[&[u8]]) {
     debug_assert_eq!(coeffs.len(), srcs.len());
     // SAFETY: the selected backend guarantees AVX2 and GFNI; callers checked
     // every source length against `dst`.
-    unsafe { gather_impl::<Affine8D, false>(dst, coeffs, srcs) }
+    unsafe { gather_impl::<Affine8D, false, 4>(dst, coeffs, srcs) }
 }
 
 #[inline(never)]
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn gather_impl<S: Blocked, const FUSED_NATIVE_TAIL: bool>(
+unsafe fn gather_impl<S: Blocked, const FUSED_NATIVE_TAIL: bool, const TILE_LANES: usize>(
     dst: &mut [u8],
     coeffs: &[S::Coeff],
     srcs: &[&[u8]],
 ) {
-    let len = dst.len() & !127;
+    assert!((1..=4).contains(&TILE_LANES));
+    let tile = 32 * TILE_LANES;
+    let len = dst.len() / tile * tile;
     let dst_ptr = dst.as_mut_ptr();
     let mut offset = 0;
     while offset < len {
-        // SAFETY: `offset + 128 <= len <= dst.len()`.
-        let mut acc = unsafe {
-            [
-                _mm256_loadu_si256(dst_ptr.add(offset).cast()),
-                _mm256_loadu_si256(dst_ptr.add(offset + 32).cast()),
-                _mm256_loadu_si256(dst_ptr.add(offset + 64).cast()),
-                _mm256_loadu_si256(dst_ptr.add(offset + 96).cast()),
-            ]
-        };
+        // SAFETY: `offset + tile <= len <= dst.len()`.
+        let mut acc: [__m256i; TILE_LANES] = core::array::from_fn(|lane| unsafe {
+            _mm256_loadu_si256(dst_ptr.add(offset + lane * 32).cast())
+        });
         for (&coeff, &src) in coeffs.iter().zip(srcs) {
             let factor = unsafe { bfactor::<S>(coeff) };
             let src_ptr = src.as_ptr();
@@ -2024,13 +2050,13 @@ unsafe fn gather_impl<S: Blocked, const FUSED_NATIVE_TAIL: bool>(
                 }
             }
         }
-        // SAFETY: the same 128-byte destination window loaded above.
+        // SAFETY: the same destination tile loaded above.
         unsafe {
             for (lane, &value) in acc.iter().enumerate() {
                 _mm256_storeu_si256(dst_ptr.add(offset + lane * 32).cast(), value);
             }
         }
-        offset += 128;
+        offset += tile;
     }
     let mut tail = len;
     // The wrapper selects this specialization only for measured multi-source
@@ -2083,6 +2109,82 @@ unsafe fn gather_impl<S: Blocked, const FUSED_NATIVE_TAIL: bool>(
         // SAFETY: the destination and source remainders have equal lengths,
         // and this function's target features match the callee.
         unsafe { brem::<S>(&mut dst[tail..], coeff, &src[tail..]) }
+    }
+}
+
+/// Benchmark the production 128-byte tile with even/odd source chains split.
+///
+/// The second accumulator bank breaks each lane's source dependency chain.
+/// This is counter-driven evidence only; production continues through
+/// [`gather_gfni`].
+#[cfg(any(test, feature = "internals"))]
+#[inline]
+pub fn gather_gfni_split(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+    debug_assert_eq!(coeffs.len(), srcs.len());
+    // SAFETY: direct tests and benchmarks require AVX2+GFNI and validate every
+    // source length against `dst`.
+    unsafe { gather_gfni_split_impl(dst, coeffs, srcs) }
+}
+
+#[cfg(any(test, feature = "internals"))]
+#[inline(never)]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn gather_gfni_split_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+    const TILE: usize = 128;
+    let len = dst.len() / TILE * TILE;
+    let dst_ptr = dst.as_mut_ptr();
+    let mut offset = 0;
+    while offset < len {
+        // SAFETY: `offset + TILE <= len <= dst.len()`.
+        let mut even: [__m256i; 4] = core::array::from_fn(|lane| unsafe {
+            _mm256_loadu_si256(dst_ptr.add(offset + lane * 32).cast())
+        });
+        let mut odd = [_mm256_setzero_si256(); 4];
+        for pair in 0..coeffs.len() / 2 {
+            let index = pair * 2;
+            let even_factor = _mm256_set1_epi8(coeffs[index].0.cast_signed());
+            let odd_factor = _mm256_set1_epi8(coeffs[index + 1].0.cast_signed());
+            let even_src = srcs[index].as_ptr();
+            let odd_src = srcs[index + 1].as_ptr();
+            // SAFETY: every source is at least `dst.len()` bytes.
+            unsafe {
+                for lane in 0..4 {
+                    let lane_offset = offset + lane * 32;
+                    let even_x = _mm256_loadu_si256(even_src.add(lane_offset).cast());
+                    let odd_x = _mm256_loadu_si256(odd_src.add(lane_offset).cast());
+                    even[lane] =
+                        _mm256_xor_si256(even[lane], _mm256_gf2p8mul_epi8(even_x, even_factor));
+                    odd[lane] =
+                        _mm256_xor_si256(odd[lane], _mm256_gf2p8mul_epi8(odd_x, odd_factor));
+                }
+            }
+        }
+        if coeffs.len() & 1 != 0 {
+            let index = coeffs.len() - 1;
+            let factor = _mm256_set1_epi8(coeffs[index].0.cast_signed());
+            let src = srcs[index].as_ptr();
+            // SAFETY: the final source is at least `dst.len()` bytes.
+            unsafe {
+                for (lane, slot) in even.iter_mut().enumerate() {
+                    let x = _mm256_loadu_si256(src.add(offset + lane * 32).cast());
+                    *slot = _mm256_xor_si256(*slot, _mm256_gf2p8mul_epi8(x, factor));
+                }
+            }
+        }
+        // SAFETY: the same destination tile loaded above.
+        unsafe {
+            for lane in 0..4 {
+                _mm256_storeu_si256(
+                    dst_ptr.add(offset + lane * 32).cast(),
+                    _mm256_xor_si256(even[lane], odd[lane]),
+                );
+            }
+        }
+        offset += TILE;
+    }
+    for (&coeff, &src) in coeffs.iter().zip(srcs) {
+        // SAFETY: equal-length remainders and matching target features.
+        unsafe { brem::<Gfni>(&mut dst[len..], coeff, &src[len..]) }
     }
 }
 

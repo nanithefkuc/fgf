@@ -846,6 +846,30 @@ mod x86 {
             x86::gf8::gather_gfni,
         );
         check_gather(
+            "gf8 gfni 32-byte tile",
+            gf8_coeff_at,
+            gf8_reference,
+            x86::gf8::gather_gfni_tile::<1>,
+        );
+        check_gather(
+            "gf8 gfni 64-byte tile",
+            gf8_coeff_at,
+            gf8_reference,
+            x86::gf8::gather_gfni_tile::<2>,
+        );
+        check_gather(
+            "gf8 gfni 96-byte tile",
+            gf8_coeff_at,
+            gf8_reference,
+            x86::gf8::gather_gfni_tile::<3>,
+        );
+        check_gather(
+            "gf8 gfni split accumulators",
+            gf8_coeff_at,
+            gf8_reference,
+            x86::gf8::gather_gfni_split,
+        );
+        check_gather(
             "gf16 gfni gather",
             gf16_coeff_at,
             gf16_reference,

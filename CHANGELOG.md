@@ -41,6 +41,9 @@ All notable changes to this project are documented here. The format follows
 - `Gf8B` remains on native `GF2P8MULB` for every production gather shape.
   An internals-only prepared-affine gather and benchmark record the rejected
   fixed-map policy without changing public dispatch.
+- The production GFNI gather retains its static 128-byte tile. Internals-only
+  32/64/96-byte and split-accumulator bodies support page-controlled benchmark
+  reruns; measured wins reversed across neighboring layouts.
 
 ## [0.3.0] - 2026-08-08
 

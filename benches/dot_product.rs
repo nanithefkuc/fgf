@@ -1,15 +1,17 @@
 //! Direct GF(2^8) N-to-1 benchmarks for accumulate, overwrite, short-row
-//! fusion, and the experimental prepared-affine multiply policy.
+//! fusion, prepared-affine multiplication, and gather tile/page topology.
 //!
 //! Raw samples bypass public dispatch through `internals`. Overwrite controls
-//! time destination zeroing. Every fixture is validated before timing, and the
-//! affine mode reports prepared-map and prepare-plus-gather costs separately.
+//! time destination zeroing. Every fixture is validated before timing.
 //!
 //! ```sh
 //! cargo bench --features internals --bench dot_product
 //! cargo bench --features internals --bench dot_product -- --smoke
 //! cargo bench --features internals --bench dot_product -- --tails
 //! cargo bench --features internals --bench dot_product -- --affine
+//! cargo bench --features internals --bench dot_product -- --tiles
+//! cargo bench --features internals --bench dot_product -- --tiles --counter --tile-lanes=4
+//! cargo bench --features internals --bench dot_product -- --tiles --counter --tile-split
 //! ```
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -34,6 +36,16 @@ mod imp {
     const TAIL_SOURCE_COUNTS: &[usize] = &[1, 2, 3, 4, 8, 16, 32];
     const AFFINE_LENGTHS: &[usize] = &[16, 32, 64, 96, 128, 256, 1_024, 4_096, 4_160, 16_384];
     const AFFINE_SOURCE_COUNTS: &[usize] = &[1, 2, 3, 4, 8, 12, 16, 24, 32];
+    const TILE_LENGTHS: &[usize] = &[128, 256, 1_024, 4_096, 4_160, 16_384];
+    const TILE_SOURCE_COUNTS: &[usize] = &[4, 8, 16, 32];
+    const TILE_TOPOLOGY_LAYOUTS: &[&str] = &[
+        "src+1",
+        "dst+1",
+        "both+1",
+        "page-zero",
+        "page-end",
+        "page-stagger",
+    ];
 
     struct AlignedBuf {
         storage: Vec<u8>,
@@ -58,6 +70,21 @@ mod imp {
             result
         }
 
+        fn page_noise(len: usize, page_offset: usize, seed: u64) -> Self {
+            assert!(page_offset < 4_096);
+            let mut storage = vec![0; len + 4_095];
+            let base = storage.as_ptr() as usize;
+            let start = (page_offset + 4_096 - (base & 4_095)) & 4_095;
+            let bytes = noise(len, seed);
+            storage[start..start + len].copy_from_slice(&bytes);
+            let result = Self {
+                storage,
+                start,
+                len,
+            };
+            assert_eq!((result.as_slice().as_ptr() as usize) & 4_095, page_offset);
+            result
+        }
         fn as_slice(&self) -> &[u8] {
             &self.storage[self.start..self.start + self.len]
         }
@@ -273,6 +300,302 @@ mod imp {
         );
     }
 
+    fn usize_argument(arguments: &[String], prefix: &str) -> Option<usize> {
+        arguments.iter().find_map(|argument| {
+            argument.strip_prefix(prefix).map(|value| {
+                value
+                    .parse()
+                    .unwrap_or_else(|_| panic!("invalid integer in {argument}"))
+            })
+        })
+    }
+
+    fn string_argument<'a>(arguments: &'a [String], prefix: &str) -> Option<&'a str> {
+        arguments
+            .iter()
+            .find_map(|argument| argument.strip_prefix(prefix))
+    }
+
+    fn tile_buffer(len: usize, layout: &str, source: Option<usize>, seed: u64) -> AlignedBuf {
+        match layout {
+            "aligned" => AlignedBuf::noise(len, 0, seed),
+            "src+1" => AlignedBuf::noise(len, usize::from(source.is_some()), seed),
+            "dst+1" => AlignedBuf::noise(len, usize::from(source.is_none()), seed),
+            "both+1" => AlignedBuf::noise(len, 1, seed),
+            "page-zero" => AlignedBuf::page_noise(len, 0, seed),
+            "page-end" => AlignedBuf::page_noise(len, 4_032, seed),
+            "page-stagger" => {
+                let offset = source.map_or(0, |index| (index * 64) & 4_095);
+                AlignedBuf::page_noise(len, offset, seed)
+            }
+            _ => panic!("unknown tile layout {layout}"),
+        }
+    }
+
+    fn apply_tile(lanes: usize, dst: &mut [u8], coeffs: &[gf8b::Elem], srcs: &[&[u8]]) {
+        match lanes {
+            1 => x86_gf8::gather_gfni_tile::<1>(dst, coeffs, srcs),
+            2 => x86_gf8::gather_gfni_tile::<2>(dst, coeffs, srcs),
+            3 => x86_gf8::gather_gfni_tile::<3>(dst, coeffs, srcs),
+            4 => x86_gf8::gather_gfni_tile::<4>(dst, coeffs, srcs),
+            _ => panic!("tile lane count must be 1–4"),
+        }
+    }
+
+    fn bench_tile_pair<const LANES: usize>(
+        control: &mut AlignedBuf,
+        candidate: &mut AlignedBuf,
+        coeffs: &[gf8b::Elem],
+        srcs: &[&[u8]],
+    ) -> [f64; 2] {
+        bench_pair(
+            || {
+                x86_gf8::gather_gfni_tile::<4>(
+                    black_box(control.as_mut_slice()),
+                    black_box(coeffs),
+                    black_box(srcs),
+                );
+            },
+            || {
+                x86_gf8::gather_gfni_tile::<LANES>(
+                    black_box(candidate.as_mut_slice()),
+                    black_box(coeffs),
+                    black_box(srcs),
+                );
+            },
+        )
+    }
+
+    fn bench_split_pair(
+        control: &mut AlignedBuf,
+        candidate: &mut AlignedBuf,
+        coeffs: &[gf8b::Elem],
+        srcs: &[&[u8]],
+    ) -> [f64; 2] {
+        bench_pair(
+            || {
+                x86_gf8::gather_gfni(
+                    black_box(control.as_mut_slice()),
+                    black_box(coeffs),
+                    black_box(srcs),
+                );
+            },
+            || {
+                x86_gf8::gather_gfni_split(
+                    black_box(candidate.as_mut_slice()),
+                    black_box(coeffs),
+                    black_box(srcs),
+                );
+            },
+        )
+    }
+
+    fn run_counter<const LANES: usize>(
+        dst: &mut AlignedBuf,
+        coeffs: &[gf8b::Elem],
+        srcs: &[&[u8]],
+        iterations: usize,
+    ) {
+        for _ in 0..iterations {
+            x86_gf8::gather_gfni_tile::<LANES>(
+                black_box(dst.as_mut_slice()),
+                black_box(coeffs),
+                black_box(srcs),
+            );
+        }
+    }
+
+    fn run_split_counter(
+        dst: &mut AlignedBuf,
+        coeffs: &[gf8b::Elem],
+        srcs: &[&[u8]],
+        iterations: usize,
+    ) {
+        for _ in 0..iterations {
+            x86_gf8::gather_gfni_split(
+                black_box(dst.as_mut_slice()),
+                black_box(coeffs),
+                black_box(srcs),
+            );
+        }
+    }
+
+    fn bench_tile_case(
+        len: usize,
+        source_count: usize,
+        layout: &str,
+        counter_lanes: Option<usize>,
+        counter_split: bool,
+    ) {
+        let sources: Vec<AlignedBuf> = (0..source_count)
+            .map(|index| {
+                tile_buffer(
+                    len,
+                    layout,
+                    Some(index),
+                    0x8100 + index as u64 * 17 + len as u64,
+                )
+            })
+            .collect();
+        let srcs: Vec<&[u8]> = sources.iter().map(AlignedBuf::as_slice).collect();
+        let coeffs = dense_coefficients(source_count);
+        let initial = noise(len, 0x8200 + len as u64 + source_count as u64);
+        let expected = reference(initial.clone(), &coeffs, &srcs);
+        for lanes in 1..=4 {
+            let mut got = initial.clone();
+            apply_tile(lanes, &mut got, &coeffs, &srcs);
+            assert_eq!(
+                got, expected,
+                "{lanes}-lane tile fixture mismatch: {len} B x {source_count}, {layout}"
+            );
+        }
+        let mut split = initial.clone();
+        x86_gf8::gather_gfni_split(&mut split, &coeffs, &srcs);
+        assert_eq!(
+            split, expected,
+            "split tile fixture mismatch: {len} B x {source_count}, {layout}"
+        );
+
+        if counter_lanes.is_some() || counter_split {
+            let mut dst = tile_buffer(len, layout, None, 0x8300 + len as u64);
+            dst.as_mut_slice().copy_from_slice(&initial);
+            const ITERATIONS: usize = 1 << 20;
+            let start = Instant::now();
+            if counter_split {
+                run_split_counter(&mut dst, &coeffs, &srcs, ITERATIONS);
+            } else {
+                match counter_lanes.expect("counter lane checked above") {
+                    1 => run_counter::<1>(&mut dst, &coeffs, &srcs, ITERATIONS),
+                    2 => run_counter::<2>(&mut dst, &coeffs, &srcs, ITERATIONS),
+                    3 => run_counter::<3>(&mut dst, &coeffs, &srcs, ITERATIONS),
+                    4 => run_counter::<4>(&mut dst, &coeffs, &srcs, ITERATIONS),
+                    _ => panic!("tile lane count must be 1–4"),
+                }
+            }
+            let checksum = dst
+                .as_slice()
+                .iter()
+                .fold(0u8, |accumulator, &byte| accumulator ^ byte);
+            let counter_label = if counter_split {
+                "split accumulators"
+            } else {
+                match counter_lanes.expect("counter lane checked above") {
+                    1 => "1 lane",
+                    2 => "2 lanes",
+                    3 => "3 lanes",
+                    4 => "4 lanes",
+                    _ => unreachable!(),
+                }
+            };
+            println!(
+                "tile counter: {len} B x {source_count}, {layout}, {}, \
+                 {ITERATIONS} iterations, {:?}, checksum {checksum:#04x}",
+                counter_label,
+                start.elapsed()
+            );
+            return;
+        }
+
+        let logical_bytes = len * source_count;
+        println!("  {len:>5} B x {source_count:>2} sources, {layout}:");
+        for lanes in 1..=3 {
+            let mut control =
+                tile_buffer(len, layout, None, 0x8400 + len as u64 + lanes as u64 * 31);
+            let mut candidate =
+                tile_buffer(len, layout, None, 0x8500 + len as u64 + lanes as u64 * 31);
+            control.as_mut_slice().copy_from_slice(&initial);
+            candidate.as_mut_slice().copy_from_slice(&initial);
+            let [production, candidate] = match lanes {
+                1 => bench_tile_pair::<1>(&mut control, &mut candidate, &coeffs, &srcs),
+                2 => bench_tile_pair::<2>(&mut control, &mut candidate, &coeffs, &srcs),
+                3 => bench_tile_pair::<3>(&mut control, &mut candidate, &coeffs, &srcs),
+                _ => unreachable!(),
+            };
+            print_timing("128-byte production", logical_bytes, production);
+            print_timing(
+                match lanes {
+                    1 => "32-byte candidate",
+                    2 => "64-byte candidate",
+                    3 => "96-byte candidate",
+                    _ => unreachable!(),
+                },
+                logical_bytes,
+                candidate,
+            );
+            println!(
+                "      {}-byte speedup {:.2}x",
+                lanes * 32,
+                production / candidate
+            );
+        }
+        let mut control = tile_buffer(len, layout, None, 0x8600 + len as u64);
+        let mut split = tile_buffer(len, layout, None, 0x8700 + len as u64);
+        control.as_mut_slice().copy_from_slice(&initial);
+        split.as_mut_slice().copy_from_slice(&initial);
+        let [production, candidate] = bench_split_pair(&mut control, &mut split, &coeffs, &srcs);
+        print_timing("128-byte production", logical_bytes, production);
+        print_timing("128-byte split candidate", logical_bytes, candidate);
+        println!("      split speedup {:.2}x", production / candidate);
+    }
+
+    fn bench_tiles(arguments: &[String]) {
+        let requested_len = usize_argument(arguments, "--tile-len=");
+        let requested_sources = usize_argument(arguments, "--tile-sources=");
+        let requested_layout = string_argument(arguments, "--tile-layout=");
+        let counter = arguments.iter().any(|argument| argument == "--counter");
+        let counter_lanes = usize_argument(arguments, "--tile-lanes=");
+        let counter_split = arguments.iter().any(|argument| argument == "--tile-split");
+
+        if counter {
+            assert!(
+                counter_split || counter_lanes.is_some(),
+                "--counter requires --tile-lanes=1..4 or --tile-split"
+            );
+            bench_tile_case(
+                requested_len.unwrap_or(4_096),
+                requested_sources.unwrap_or(16),
+                requested_layout.unwrap_or("aligned"),
+                counter_lanes,
+                counter_split,
+            );
+            return;
+        }
+
+        println!("GF(2^8) native GFNI gather tile sweep");
+        println!("  candidates: 32/64/96 B; production control: 128 B");
+        println!("  speedup is production time / candidate time; values above 1 favor candidate\n");
+
+        let mut cases = Vec::new();
+        let base_layout = requested_layout.unwrap_or("aligned");
+        for &len in TILE_LENGTHS {
+            for &source_count in TILE_SOURCE_COUNTS {
+                if requested_len.is_none_or(|requested| requested == len)
+                    && requested_sources.is_none_or(|requested| requested == source_count)
+                {
+                    cases.push((len, source_count, base_layout));
+                }
+            }
+        }
+        if requested_layout.is_none() {
+            for &len in &[4_096, 4_160, 16_384] {
+                for &layout in TILE_TOPOLOGY_LAYOUTS {
+                    if requested_len.is_none_or(|requested| requested == len)
+                        && requested_sources.is_none_or(|requested| requested == 16)
+                    {
+                        cases.push((len, 16, layout));
+                    }
+                }
+            }
+        }
+        assert!(
+            !cases.is_empty(),
+            "tile filters selected no benchmark cases"
+        );
+        for (len, source_count, layout) in cases {
+            bench_tile_case(len, source_count, layout, None, false);
+        }
+    }
+
     fn bench_affine() {
         println!("GF(2^8) native-versus-affine N-to-1 prototype");
         println!("  coefficients: dense nontrivial; alignment: 32-byte; cache mode: hot");
@@ -408,6 +731,11 @@ mod imp {
         let smoke = arguments.iter().any(|argument| argument == "--smoke");
         let tails = arguments.iter().any(|argument| argument == "--tails");
         let affine = arguments.iter().any(|argument| argument == "--affine");
+        let tiles = arguments.iter().any(|argument| argument == "--tiles");
+        if tiles {
+            bench_tiles(&arguments);
+            return;
+        }
         if affine {
             bench_affine();
             return;

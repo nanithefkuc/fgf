@@ -109,7 +109,7 @@ The pre-change N-to-1 gather sent every row below 128 bytes through repeated
 single-source AXPY. `gather_gfni` now selects a source-fused body only for
 rows of exactly 32, 64, or 96 bytes with at least three sources. The
 `gather_gfni_axpy_tail` preserves the old body for an interleaved control in
-the same binary. Core Ultra 7 258V CPU 2, Linux, rustc 1.93, backend
+the same binary. Core Ultra 7 258V, Linux, rustc 1.93, backend
 `v3_gfni_crypto`, 32-byte-aligned hot fixtures, dense nontrivial coefficients:
 
 | Row | 4 sources | 16 sources |
@@ -155,7 +155,7 @@ gather each cover all 65,536 coefficient/input products. Generated assembly
 broadcasts each map directly from the prepared slice into
 `VGF2P8AFFINEQB`; the main loop does not spill maps.
 
-Core Ultra 7 258V CPU 2, Linux, rustc 1.93, backend `v3_gfni_crypto`,
+Core Ultra 7 258V, Linux, rustc 1.93, backend `v3_gfni_crypto`,
 32-byte-aligned hot fixtures, dense nontrivial coefficients. Ratios are native
 time divided by prepared-affine time, so values above 1 favor affine:
 
@@ -184,6 +184,62 @@ does not justify a new source-count/length dispatch without alignment,
 cache-displacement, counter, and second-host evidence. The affine body and map
 bank remain available only through `internals` so that exact cross-host rerun
 stays reproducible; no public operation dispatches to them.
+
+### GFNI gather tile and page-topology sweep (2026-08-22)
+
+The `--tiles` panel instantiates the native gather body with one through four
+32-byte accumulator lanes. Four lanes/128 bytes is the exact production
+control, including its short-row policy; narrower candidates retain the same
+single-source AXPY remainder. Fixtures cover 128 B through 16 KiB and
+4/8/16/32 sources. The focused topology panel independently controls source
+and destination misalignment, equal page offsets at 0 and 4032 bytes, and
+64-byte-staggered source page offsets. All comparisons are interleaved and
+differentially validated before timing.
+
+Ratios are production time divided by candidate time:
+
+| Shape/layout | 32 B tile | 64 B tile | 96 B tile | split 128 B |
+| --- | ---: | ---: | ---: | ---: |
+| 128 B x 16, aligned | 0.45x | 0.52x | 0.52x | — |
+| 1 KiB x 16, aligned | 0.53x | 0.73x | 0.75x | — |
+| 4 KiB x 16, aligned | 0.69x | 0.88x | 0.94–0.97x | 0.92x |
+| 4 KiB x 16, page offset 0 | 0.78x | 1.07x | 1.09x | 1.02x |
+| 16 KiB x 4, aligned | 0.72x | 0.90x | 0.95x | 0.95x |
+| 16 KiB x 8, aligned | 0.76x | 0.94x | 1.02x | 1.01x |
+| 16 KiB x 16, aligned | 0.86x | 1.01x | 1.02x | 1.04x |
+| 16 KiB x 32, aligned | 0.80x | 0.95x | 0.96x | 1.01x |
+
+The 4 KiB x 16 result is page topology, not a 32-byte-tile advantage. The
+96-byte tile loses 3–6% with allocator-aligned fixtures but wins 4–9% when all
+streams start at fixed 32-byte-aligned page offsets. Source misalignment moves
+it back to parity; destination misalignment makes it lose up to 10%. The
+32-byte candidate loses every controlled 4 KiB x 16 layout, by 16–31%.
+Consequently the earlier external 1.73x result cannot be attributed to tile
+width and is removed as an optimization target until both implementations run
+inside one page-controlled harness.
+
+`perf stat -d` over 1,048,576 iterations of page-zero 4 KiB x 16 explains why
+96 bytes can win that one layout:
+
+| Variant | Core cycles | Instructions | IPC | Backend bound |
+| --- | ---: | ---: | ---: | ---: |
+| production 128 B | 2.64B | 8.44B | 3.2 | 49.8% |
+| 96 B | 2.45B | 10.26B | 4.2 | 32.7% |
+| split 128 B | 2.61B | 10.17B | 3.9 | 42.7% |
+
+L1D misses were only 1.5–2.6 thousand and the detailed 96/128-byte runs each
+reported about 220 dTLB misses, so cache/TLB misses do not explain the cycle
+gap. A counter-triggered even/odd source-chain split reduced backend pressure
+but paid enough extra instructions and branches to lose on ordinary 4 KiB
+layouts; its wins remained page-offset-dependent. Generated main loops for all
+tile widths keep vector state in registers.
+
+Production therefore keeps the single static 128-byte tile. A 96-byte or split
+long-row dispatch is rejected: gains are small, source-count-dependent, and
+reverse under neighboring alignment/page layouts. No second-host gate is
+needed because no production policy changes. The tile and split bodies remain
+available only through `internals` so the controlled sweep and counter workload
+stay reproducible.
 
 Small GF(2^16) rows are sensitive to coefficient preparation because a shuffle
 backend builds four nibble tables per coefficient. Use `Coeff` or `Plan` when a
