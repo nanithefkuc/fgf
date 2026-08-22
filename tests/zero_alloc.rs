@@ -1,30 +1,40 @@
 #![cfg(feature = "std")]
 
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use fgf::{Gf8B, gf8b, ops};
 
 struct CountingAllocator;
 
-static TRACKING: AtomicBool = AtomicBool::new(false);
-static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
+// Per-thread tracking: a process-global counter would also count allocations
+// made by other libtest threads (result formatting, timers) that race into the
+// counted window, producing false positives under CI load. Thread-locals keep
+// the count to the test thread alone.
+thread_local! {
+    static TRACKING: Cell<bool> = const { Cell::new(false) };
+    static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
+}
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if TRACKING.load(Ordering::Relaxed) {
-            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        }
+        TRACKING.with(|t| {
+            if t.get() {
+                ALLOCATIONS.with(|c| c.set(c.get() + 1));
+            }
+        });
         // SAFETY: forwarding the allocator contract unchanged to `System`.
         unsafe { System.alloc(layout) }
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        if TRACKING.load(Ordering::Relaxed) {
-            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        }
+        TRACKING.with(|t| {
+            if t.get() {
+                ALLOCATIONS.with(|c| c.set(c.get() + 1));
+            }
+        });
         // SAFETY: forwarding the allocator contract unchanged to `System`.
         unsafe { System.alloc_zeroed(layout) }
     }
@@ -35,9 +45,11 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        if TRACKING.load(Ordering::Relaxed) {
-            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-        }
+        TRACKING.with(|t| {
+            if t.get() {
+                ALLOCATIONS.with(|c| c.set(c.get() + 1));
+            }
+        });
         // SAFETY: forwarding the allocator contract unchanged to `System`.
         unsafe { System.realloc(ptr, layout, new_size) }
     }
@@ -59,11 +71,11 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
 }
 
 fn count_allocations(body: impl FnOnce()) -> usize {
-    ALLOCATIONS.store(0, Ordering::Relaxed);
-    TRACKING.store(true, Ordering::SeqCst);
+    ALLOCATIONS.with(|c| c.set(0));
+    TRACKING.with(|t| t.set(true));
     body();
-    TRACKING.store(false, Ordering::SeqCst);
-    ALLOCATIONS.load(Ordering::Relaxed)
+    TRACKING.with(|t| t.set(false));
+    ALLOCATIONS.with(|c| c.get())
 }
 
 #[test]

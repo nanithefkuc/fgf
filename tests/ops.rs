@@ -5,6 +5,8 @@
 //! against the portable path; the per-backend differential sweep that covers
 //! every backend in one process lives in the crate's unit tests.
 
+// Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
+#![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 use fgf::field::{Elem as _, Field};
 use fgf::{
     FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf8D, Gf16, Gf32, Gf64, fan_paar, gf8b, gf8d,

@@ -12,7 +12,10 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "internals")]
+#[cfg(all(
+    feature = "internals",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
 use fgf::kernel::tables::{ScaleTable, scale_table, scale_table_8d};
 use fgf::{Gf8B, Gf8D, Gf16, backend, gf8b, gf8d, gf16, ops};
 
@@ -35,7 +38,10 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
         .collect()
 }
 
-#[cfg(feature = "internals")]
+#[cfg(all(
+    feature = "internals",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
 fn pack_table(table: &ScaleTable) -> [u8; 32] {
     let mut packed = [0u8; 32];
     packed[..16].copy_from_slice(&table.lo);
@@ -208,7 +214,10 @@ fn bench_encode(nrows: usize) {
         );
     });
 
-    #[cfg(feature = "internals")]
+    #[cfg(all(
+        feature = "internals",
+        any(target_arch = "x86", target_arch = "x86_64")
+    ))]
     if nrows == 6 {
         let source_refs: Vec<&[u8]> = sources.iter().map(AlignedBuf::as_slice).collect();
         let packed_8b: Vec<[u8; 32]> = columns_8b

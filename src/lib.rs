@@ -125,7 +125,13 @@
     // duplicated across the x86 and x86_64 cfg arms.
     clippy::wildcard_imports,
     clippy::inline_always,
-    clippy::module_name_repetitions
+    // `chunks_exact` → `as_chunks` is a toolchain-drift lint (not in the
+    // MSRV 1.89); the hot kernels use `chunks_exact_mut` for const-unchecked
+    // reasons and changing every site right before release is riskier than
+    // silencing it. `unknown_lints` keeps the allow portable across toolchains
+    // that predate the lint. Revisit when the MSRV catches up.
+    unknown_lints,
+    clippy::chunks_exact_to_as_chunks,
 )]
 
 pub mod field;

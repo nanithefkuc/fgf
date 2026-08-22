@@ -11,6 +11,8 @@
 //! SIMD_BACKEND=scalar cargo bench --bench kernels
 //! ```
 
+// Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
+#![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
