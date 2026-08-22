@@ -62,3 +62,8 @@ name = "dot_product"
 harness = false
 # Direct GFNI kernel calls need the internal architecture modules.
 required-features = ["std", "internals"]
+
+[[example]]
+name = "perf_p2"
+# Calls internal experimental two-row overwrite kernels directly.
+required-features = ["std", "internals"]

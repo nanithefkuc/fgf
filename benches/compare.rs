@@ -12,6 +12,8 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "internals")]
+use fgf::kernel::tables::{ScaleTable, scale_table, scale_table_8d};
 use fgf::{Gf8B, Gf8D, Gf16, backend, gf8b, gf8d, gf16, ops};
 
 const BYTES: usize = 64 * 1024;
@@ -31,6 +33,14 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
             (state >> 33) as u8
         })
         .collect()
+}
+
+#[cfg(feature = "internals")]
+fn pack_table(table: &ScaleTable) -> [u8; 32] {
+    let mut packed = [0u8; 32];
+    packed[..16].copy_from_slice(&table.lo);
+    packed[16..].copy_from_slice(&table.hi);
+    packed
 }
 
 struct AlignedBuf {
@@ -197,6 +207,105 @@ fn bench_encode(nrows: usize) {
             black_box(&terms_8d),
         );
     });
+
+    #[cfg(feature = "internals")]
+    if nrows == 6 {
+        let source_refs: Vec<&[u8]> = sources.iter().map(AlignedBuf::as_slice).collect();
+        let packed_8b: Vec<[u8; 32]> = columns_8b
+            .iter()
+            .flat_map(|coeffs| {
+                coeffs
+                    .iter()
+                    .map(|&coefficient| pack_table(scale_table(coefficient)))
+            })
+            .collect();
+        let packed_8d: Vec<[u8; 32]> = columns_8d
+            .iter()
+            .flat_map(|coeffs| {
+                coeffs
+                    .iter()
+                    .map(|&coefficient| pack_table(scale_table_8d(coefficient)))
+            })
+            .collect();
+        let mut raw_8b = AlignedBuf::noise(BYTES * nrows, 0xb04);
+        let mut packed_rows_8b = AlignedBuf::noise(BYTES * nrows, 0xb05);
+        let mut raw_8d = AlignedBuf::noise(BYTES * nrows, 0xb06);
+        let mut packed_rows_8d = AlignedBuf::noise(BYTES * nrows, 0xb07);
+
+        fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_8b(
+            raw_8b.as_mut_slice(),
+            BYTES,
+            &terms_8b,
+        );
+        fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_packed_8b(
+            packed_rows_8b.as_mut_slice(),
+            BYTES,
+            &packed_8b,
+            &source_refs,
+        );
+        fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_8d(
+            raw_8d.as_mut_slice(),
+            BYTES,
+            &terms_8d,
+        );
+        fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_packed_8d(
+            packed_rows_8d.as_mut_slice(),
+            BYTES,
+            &packed_8d,
+            &source_refs,
+        );
+        assert_eq!(
+            new_8b.as_slice(),
+            raw_8b.as_slice(),
+            "Gf8B raw shuffle differs"
+        );
+        assert_eq!(
+            new_8b.as_slice(),
+            packed_rows_8b.as_slice(),
+            "Gf8B packed shuffle differs"
+        );
+        assert_eq!(
+            new_8d.as_slice(),
+            raw_8d.as_slice(),
+            "Gf8D raw shuffle differs"
+        );
+        assert_eq!(
+            new_8d.as_slice(),
+            packed_rows_8d.as_slice(),
+            "Gf8D packed shuffle differs"
+        );
+
+        bench_region("fgf Gf8B six-row raw shuffle", logical_bytes, || {
+            fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_8b(
+                black_box(raw_8b.as_mut_slice()),
+                BYTES,
+                black_box(&terms_8b),
+            );
+        });
+        bench_region("fgf Gf8B six-row packed shuffle", logical_bytes, || {
+            fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_packed_8b(
+                black_box(packed_rows_8b.as_mut_slice()),
+                BYTES,
+                black_box(&packed_8b),
+                black_box(&source_refs),
+            );
+        });
+        bench_region("fgf Gf8D six-row raw shuffle", logical_bytes, || {
+            fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_8d(
+                black_box(raw_8d.as_mut_slice()),
+                BYTES,
+                black_box(&terms_8d),
+            );
+        });
+        bench_region("fgf Gf8D six-row packed shuffle", logical_bytes, || {
+            fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_packed_8d(
+                black_box(packed_rows_8d.as_mut_slice()),
+                BYTES,
+                black_box(&packed_8d),
+                black_box(&source_refs),
+            );
+        });
+    }
 }
 
 fn bench_region(label: &str, bytes: usize, mut body: impl FnMut()) {

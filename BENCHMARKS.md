@@ -263,11 +263,83 @@ matching the existing dot-product convention. Core Ultra 7 258V, Linux, rustc
 At four outputs bit-compatible `Gf8D` is 3–6% faster than ISA-L and native
 `Gf8B` is 12–15% faster. The old path's gap was destination traffic:
 `fill` + matrix destination read + matrix destination write versus overwrite's
-one write. A six-output/32-byte-tile prototype intended to match ISA-L's
-source-load batching was reverted: it lost instruction-level parallelism and
-regressed `Gf8D` by about 2x. The remaining six-output gap is the current 4+2
-row grouping re-reading sources; any later six-row overwrite body must preserve
-the accepted kernels' wider-tile ILP and prove no register spills.
+one write.
+
+### Rejected: ISA-L-shaped six-output shuffle (2026-08-22)
+
+The residual six-output gap is not principally memory bandwidth. `perf stat`
+over the 64 KiB x 10-source x 6-output overwrite reported only 3.5–3.9% memory
+bound, versus 32% (`Gf8B`) / 39% (`Gf8D`) core backend-bound. Production's
+4+2 GFNI loops use 15 YMM registers without vector spills.
+
+ISA-L 2.32 on this AVX2/GFNI-but-no-AVX512 host dispatches
+`gf_6vect_dot_prod_avx2`: six 32-byte accumulators, one shared source load,
+and prepacked contiguous 32-byte nibble-table records. fgf reproduced that
+topology in two `internals` candidates. Three pinned interleaved runs:
+
+| 64 KiB x 10 -> 6 | `Gf8B` | `Gf8D` |
+| --- | ---: | ---: |
+| production 4+2 GFNI | 24.9–26.1 | 22.9–23.5 |
+| raw static-table shuffle | 11.0–11.2 | 11.1–12.0 |
+| prepacked contiguous shuffle | 17.7–17.8 | 17.7–17.8 |
+| ISA-L `ec_encode_data` | 31.8–32.1 | 31.8–32.1 |
+
+Packing removes hot-loop bounds/index work and improves the shuffle candidate
+by 1.5–1.7x, but it remains 22–32% behind production GFNI and about 45% behind
+ISA-L. Its arithmetic requires 12 table broadcasts, 12 `PSHUFB`s, and 12 XORs
+per source tile versus production's six GFNI/affine multiplies and six XORs;
+the saved source reads cannot repay that core work. Production remains 4+2
+GFNI. The raw/packed bodies and differential coverage remain behind
+`internals`; reproduce with `cargo bench --features internals --bench compare`.
+
+### Rejected: p2 store, tile, and shuffle candidates (2026-08-22)
+
+The two-output-row encode (`p2`) trails ISA-L by 1.17–1.19x at 64 KiB. Three
+candidates were measured against production `dot_product_matrix` through the
+isolated `examples/perf_p2` harness (64 KiB x 10 sources -> 2 rows, Core Ultra
+7 258V, P-core pinned, backend `v3_gfni_crypto`), each validated against
+production before timing. Reproduce with, e.g.:
+
+```sh
+taskset -c <p-core> cargo run --release --features internals --example perf_p2 \
+  -- 8b 2 20000 <prod|nt4|t2|sh1|sh2>
+```
+
+`perf stat` first shows why p2 is not memory-bound. TopdownL2 over production
+is core-bound 47.8% (`Gf8B`) / 43.9% (`Gf8D`) and memory-bound only 2.7% /
+2.0%, at IPC 4.33. Cycles (2.44B) equal the `GF2P8MULB` count (2.46B):
+~1.0 multiply/cycle, the single-port GFNI-multiply throughput ceiling, already
+reached. GiB/s over source bytes, production ratio in the last column:
+
+| Candidate | `Gf8B` | `Gf8D` | vs production |
+| --- | ---: | ---: | ---: |
+| production 4-way temporal | 68.7–70.3 | 65.6–67.4 | 1.00x |
+| non-temporal stores (`nt4`) | 69.1 | 68.6 | ~1.00x |
+| 2-way tile / 64 B (`t2`) | 55.97 | 51.61 | 0.80–0.82x |
+| shuffle, 32 B/iter (`sh1`) | 39.67 | 39.91 | 0.58–0.61x |
+| shuffle, 64 B/iter (`sh2`) | 42.12 | 41.81 | 0.61x |
+
+- **Non-temporal stores are neutral.** Removing the overwrite RFO recovers only
+  the ~2% memory-bound slots; at 64 KiB the 128 KiB destination is L2-resident
+  and the RFO hits L2. Cycles move +1.5%, memory-bound 2.7% -> 3.9%.
+- **The 2-way tile regresses.** Cutting the tile from 128 to 64 bytes/row (eight
+  accumulators to four) lifts cycles 2.44B -> 3.02B (+24%, 1.23 cyc/mul:
+  latency-exposed) and instructions 10.6B -> 14.5B — the halved tile doubles the
+  loop count, hence factor rebroadcasts and loop overhead, and four accumulators
+  no longer cover the multiply latency. Eight is the ILP sweet spot; wider
+  spills the register file.
+- **The two shuffle ports lose outright.** A packed p2 nibble-shuffle body
+  (tables hoisted per term, raw source pointers) executes ~2x the instructions
+  (20.6B vs 10.6B) at +62% cycles. Two `PSHUFB` per multiply on ports 1/5 only
+  match one `GF2P8MULB` on port 0; the extra nibble split, table broadcast, and
+  combine-XOR then sink it. ISA-L's 1.17x is hand-scheduled asm that does not
+  transfer to this field's Rust codegen, matching the six-output rejection.
+
+Production keeps the 4-way temporal `matrix_rows2`. The p2 residual is the GFNI
+multiply-port ceiling, which production already saturates; store policy, tile
+width, and the shuffle ports all fail to move it. `matrix_overwrite2_{8b,8d}`
+and `matrix_overwrite2_shuffle_packed` stay behind `internals` with
+temporal/non-temporal, both-width differentials for exact reruns.
 
 Small GF(2^16) rows are sensitive to coefficient preparation because a shuffle
 backend builds four nibble tables per coefficient. Use `Coeff` or `Plan` when a

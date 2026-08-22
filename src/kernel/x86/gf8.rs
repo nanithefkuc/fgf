@@ -1367,6 +1367,639 @@ pub fn matrix_overwrite_affine_with<M: Matrix<gf8d::Elem> + ?Sized>(
     unsafe { matrix_impl::<Affine8D, M, true>(rows, row_len, nrows, terms) }
 }
 
+/// Experimental two-row overwrite matrix (`p2` erasure encode) with a tunable
+/// main-tile width and store policy, for profiling against production's
+/// four-lane temporal `matrix_rows2`.
+///
+/// `lanes` is the number of 32-byte lanes per row folded per main-loop
+/// iteration (`2` = 64-byte "2-way" tile, `4` = production's 128-byte tile);
+/// `nt` selects non-temporal (`vmovntdq`) destination stores. Benchmark
+/// evidence only; production dispatch is unchanged.
+///
+/// # Panics
+/// Panics unless `rows` holds two `row_len`-byte rows, each term supplies two
+/// coefficients over a `row_len`-byte source, and `lanes` is `2` or `4`.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite2_8b(
+    rows: &mut [u8],
+    row_len: usize,
+    terms: &[(&[Elem], &[u8])],
+    nt: bool,
+    lanes: usize,
+) {
+    matrix_overwrite2_checked::<Gfni>(rows, row_len, terms, nt, lanes);
+}
+
+/// [`matrix_overwrite2_8b`] under the `Gf8D` polynomial `0x11D`.
+///
+/// # Panics
+/// As [`matrix_overwrite2_8b`].
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite2_8d(
+    rows: &mut [u8],
+    row_len: usize,
+    terms: &[(&[gf8d::Elem], &[u8])],
+    nt: bool,
+    lanes: usize,
+) {
+    matrix_overwrite2_checked::<Affine8D>(rows, row_len, terms, nt, lanes);
+}
+
+#[cfg(any(test, feature = "internals"))]
+fn matrix_overwrite2_checked<S: Blocked>(
+    rows: &mut [u8],
+    row_len: usize,
+    terms: &[(&[S::Coeff], &[u8])],
+    nt: bool,
+    lanes: usize,
+) {
+    assert!(
+        2usize
+            .checked_mul(row_len)
+            .is_some_and(|needed| needed <= rows.len()),
+        "matrix_overwrite2: rows buffer does not hold two rows of {row_len} bytes"
+    );
+    for (coeffs, src) in terms {
+        assert_eq!(src.len(), row_len);
+        assert!(
+            coeffs.len() >= 2,
+            "matrix_overwrite2: term needs two coefficients"
+        );
+    }
+    if nt {
+        debug_assert_eq!(
+            rows.as_ptr() as usize % 32,
+            0,
+            "matrix_overwrite2: non-temporal stores need a 32-byte-aligned buffer"
+        );
+        debug_assert_eq!(
+            row_len % 32,
+            0,
+            "matrix_overwrite2: non-temporal stores need a 32-byte row"
+        );
+    }
+    let base = rows.as_mut_ptr();
+    // SAFETY: two disjoint in-bounds rows of `row_len` bytes; every term was
+    // checked for two coefficients over a `row_len`-byte source; the backend
+    // guarantees AVX2 + GFNI. `nt` alignment is debug-asserted above.
+    unsafe {
+        let ptr0 = base;
+        let ptr1 = base.add(row_len);
+        match (nt, lanes) {
+            (false, 2) => matrix2_body::<S, false, 2>(ptr0, ptr1, row_len, terms),
+            (false, 4) => matrix2_body::<S, false, 4>(ptr0, ptr1, row_len, terms),
+            (true, 2) => matrix2_body::<S, true, 2>(ptr0, ptr1, row_len, terms),
+            (true, 4) => matrix2_body::<S, true, 4>(ptr0, ptr1, row_len, terms),
+            _ => panic!("matrix_overwrite2: lanes must be 2 or 4"),
+        }
+    }
+}
+
+/// Two-row overwrite body: `LANES` 32-byte lanes per row per iteration, seeded
+/// from zero, `NT`-selected stores.
+///
+/// # Safety
+/// `ptr0` and `ptr1` address distinct in-bounds rows of `row_len` bytes, every
+/// term supplies two coefficients over a `row_len`-byte source, the backend is
+/// AVX2 + GFNI, and when `NT` both rows are 32-byte aligned with a 32-byte
+/// `row_len`.
+#[cfg(any(test, feature = "internals"))]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn matrix2_body<S: Blocked, const NT: bool, const LANES: usize>(
+    ptr0: *mut u8,
+    ptr1: *mut u8,
+    row_len: usize,
+    terms: &[(&[S::Coeff], &[u8])],
+) {
+    let step = 32 * LANES;
+    let mut tile = 0;
+    while tile + step <= row_len {
+        let mut a0 = [_mm256_setzero_si256(); LANES];
+        let mut a1 = [_mm256_setzero_si256(); LANES];
+        for (coeffs, src) in terms {
+            // SAFETY: every source is `row_len` bytes, so `tile + step` bounds
+            // each of the `LANES` loads.
+            unsafe {
+                let f0 = bfactor::<S>(coeffs[0]);
+                let f1 = bfactor::<S>(coeffs[1]);
+                let sp = src.as_ptr().add(tile);
+                for l in 0..LANES {
+                    let x = _mm256_loadu_si256(sp.add(32 * l).cast());
+                    a0[l] = _mm256_xor_si256(a0[l], bmul::<S>(x, f0));
+                    a1[l] = _mm256_xor_si256(a1[l], bmul::<S>(x, f1));
+                }
+            }
+        }
+        // SAFETY: same bounds and disjointness as the loads; `NT` alignment is
+        // guaranteed by the caller.
+        unsafe {
+            for l in 0..LANES {
+                super::store256::<NT>(ptr0.add(tile + 32 * l), a0[l]);
+                super::store256::<NT>(ptr1.add(tile + 32 * l), a1[l]);
+            }
+        }
+        tile += step;
+    }
+    while tile + 32 <= row_len {
+        let mut a0 = _mm256_setzero_si256();
+        let mut a1 = _mm256_setzero_si256();
+        for (coeffs, src) in terms {
+            // SAFETY: `tile + 32 <= row_len == src.len()` bounds the load.
+            unsafe {
+                let f0 = bfactor::<S>(coeffs[0]);
+                let f1 = bfactor::<S>(coeffs[1]);
+                let x = _mm256_loadu_si256(src.as_ptr().add(tile).cast());
+                a0 = _mm256_xor_si256(a0, bmul::<S>(x, f0));
+                a1 = _mm256_xor_si256(a1, bmul::<S>(x, f1));
+            }
+        }
+        // SAFETY: `tile + 32 <= row_len`; the cleanup keeps ordinary stores so
+        // it needs no alignment even under `NT`.
+        unsafe {
+            _mm256_storeu_si256(ptr0.add(tile).cast(), a0);
+            _mm256_storeu_si256(ptr1.add(tile).cast(), a1);
+        }
+        tile += 32;
+    }
+    // SAFETY: distinct in-bounds rows; every term covers coefficient index 1.
+    // The `sfence` orders the non-temporal stores before any later observer and
+    // shares this block so it stays a required `unsafe` across the MSRV.
+    unsafe {
+        matrix_tail::<S, [(&[S::Coeff], &[u8])], true>(&[ptr0, ptr1], row_len, 0, tile, terms);
+        if NT {
+            _mm_sfence();
+        }
+    }
+}
+
+/// Experimental six-output overwrite matrix using AVX2 nibble shuffles for
+/// `Gf8B`, even on a GFNI host.
+///
+/// This mirrors ISA-L's `gf_6vect_dot_prod_avx2`: one source load feeds six
+/// output accumulators. It is benchmark evidence only; production dispatch is
+/// unchanged.
+///
+/// # Panics
+/// Panics unless `rows` holds six `row_len`-byte rows and each term supplies
+/// six coefficients over a `row_len`-byte source.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite6_shuffle_8b(rows: &mut [u8], row_len: usize, terms: &[(&[Elem], &[u8])]) {
+    matrix_overwrite6_shuffle_checked::<Gfni>(rows, row_len, terms);
+}
+
+/// [`matrix_overwrite6_shuffle_8b`] under the `Gf8D` polynomial `0x11D`.
+///
+/// # Panics
+/// As [`matrix_overwrite6_shuffle_8b`].
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite6_shuffle_8d(
+    rows: &mut [u8],
+    row_len: usize,
+    terms: &[(&[gf8d::Elem], &[u8])],
+) {
+    matrix_overwrite6_shuffle_checked::<Affine8D>(rows, row_len, terms);
+}
+
+#[cfg(any(test, feature = "internals"))]
+fn matrix_overwrite6_shuffle_checked<S: Blocked>(
+    rows: &mut [u8],
+    row_len: usize,
+    terms: &[(&[S::Coeff], &[u8])],
+) {
+    assert!(
+        row_len
+            .checked_mul(6)
+            .is_some_and(|needed| needed <= rows.len()),
+        "six-row shuffle matrix: rows buffer does not hold six rows of {row_len} bytes"
+    );
+    for &(coeffs, src) in terms {
+        assert_eq!(coeffs.len(), 6);
+        assert_eq!(src.len(), row_len);
+    }
+    // SAFETY: internals callers check AVX2+GFNI before executing; the geometry
+    // above bounds six disjoint rows and every term coefficient/source.
+    unsafe { matrix_overwrite6_shuffle_impl::<S, _>(rows, row_len, terms) }
+}
+
+#[cfg(any(test, feature = "internals"))]
+#[inline]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn nibble_product<S: Blocked>(lo: __m256i, hi: __m256i, coeff: S::Coeff) -> __m256i {
+    let table = S::table(coeff);
+    // SAFETY: each table half is exactly 16 readable bytes.
+    let (lo_table, hi_table) = unsafe {
+        (
+            _mm256_broadcastsi128_si256(_mm_loadu_si128(table.lo.as_ptr().cast())),
+            _mm256_broadcastsi128_si256(_mm_loadu_si128(table.hi.as_ptr().cast())),
+        )
+    };
+    _mm256_xor_si256(
+        _mm256_shuffle_epi8(lo_table, lo),
+        _mm256_shuffle_epi8(hi_table, hi),
+    )
+}
+
+#[cfg(any(test, feature = "internals"))]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn matrix_overwrite6_shuffle_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
+    rows: &mut [u8],
+    row_len: usize,
+    terms: &M,
+) {
+    let base = rows.as_mut_ptr();
+    // SAFETY: the checked wrapper proved all six rows lie in `rows`.
+    let ptrs = unsafe {
+        [
+            base,
+            base.add(row_len),
+            base.add(row_len * 2),
+            base.add(row_len * 3),
+            base.add(row_len * 4),
+            base.add(row_len * 5),
+        ]
+    };
+    let mask = _mm256_set1_epi8(0x0f);
+    let len = row_len & !31;
+    let mut offset = 0;
+    while offset < len {
+        let (mut a0, mut a1, mut a2, mut a3, mut a4, mut a5) = (
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+        );
+        for term in 0..terms.len() {
+            let src = terms.source(term);
+            // SAFETY: every source is `row_len` bytes and `offset + 32 <= len`.
+            let x = unsafe { _mm256_loadu_si256(src.as_ptr().add(offset).cast()) };
+            let lo = _mm256_and_si256(x, mask);
+            let hi = _mm256_and_si256(_mm256_srli_epi16::<4>(x), mask);
+            // SAFETY: target features match; coefficient rows contain six entries.
+            unsafe {
+                a0 = _mm256_xor_si256(a0, nibble_product::<S>(lo, hi, *terms.coefficient(term, 0)));
+                a1 = _mm256_xor_si256(a1, nibble_product::<S>(lo, hi, *terms.coefficient(term, 1)));
+                a2 = _mm256_xor_si256(a2, nibble_product::<S>(lo, hi, *terms.coefficient(term, 2)));
+                a3 = _mm256_xor_si256(a3, nibble_product::<S>(lo, hi, *terms.coefficient(term, 3)));
+                a4 = _mm256_xor_si256(a4, nibble_product::<S>(lo, hi, *terms.coefficient(term, 4)));
+                a5 = _mm256_xor_si256(a5, nibble_product::<S>(lo, hi, *terms.coefficient(term, 5)));
+            }
+        }
+        // SAFETY: the checked six disjoint rows each contain this 32-byte tile.
+        unsafe {
+            _mm256_storeu_si256(ptrs[0].add(offset).cast(), a0);
+            _mm256_storeu_si256(ptrs[1].add(offset).cast(), a1);
+            _mm256_storeu_si256(ptrs[2].add(offset).cast(), a2);
+            _mm256_storeu_si256(ptrs[3].add(offset).cast(), a3);
+            _mm256_storeu_si256(ptrs[4].add(offset).cast(), a4);
+            _mm256_storeu_si256(ptrs[5].add(offset).cast(), a5);
+        }
+        offset += 32;
+    }
+    if offset == row_len {
+        return;
+    }
+    let remaining = row_len - offset;
+    for (row_index, &ptr) in ptrs.iter().enumerate() {
+        // SAFETY: `offset + remaining == row_len`; rows are disjoint.
+        let tail = unsafe { core::slice::from_raw_parts_mut(ptr.add(offset), remaining) };
+        tail.fill(0);
+        for term in 0..terms.len() {
+            let coeff = *terms.coefficient(term, row_index);
+            if S::byte(coeff) != 0 {
+                // SAFETY: equal remainder lengths; target features match.
+                unsafe { brem::<S>(tail, coeff, &terms.source(term)[offset..]) }
+            }
+        }
+    }
+}
+
+/// Experimental six-output shuffle kernel over prepacked 32-byte coefficient
+/// records for `Gf8B`.
+///
+/// `tables[term * 6 + row]` is `[lo_table, hi_table]`. Preparation and matrix
+/// geometry are outside the hot loop, matching ISA-L's `gftbls` contract.
+///
+/// # Panics
+/// Panics unless `rows` holds six rows, `tables.len() == srcs.len() * 6`, and
+/// every source is `row_len` bytes.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite6_shuffle_packed_8b(
+    rows: &mut [u8],
+    row_len: usize,
+    tables: &[[u8; 32]],
+    srcs: &[&[u8]],
+) {
+    matrix_overwrite6_shuffle_packed_checked(rows, row_len, tables, srcs);
+}
+
+/// [`matrix_overwrite6_shuffle_packed_8b`] under `Gf8D` polynomial `0x11D`.
+///
+/// # Panics
+/// As [`matrix_overwrite6_shuffle_packed_8b`].
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite6_shuffle_packed_8d(
+    rows: &mut [u8],
+    row_len: usize,
+    tables: &[[u8; 32]],
+    srcs: &[&[u8]],
+) {
+    matrix_overwrite6_shuffle_packed_checked(rows, row_len, tables, srcs);
+}
+
+#[cfg(any(test, feature = "internals"))]
+fn matrix_overwrite6_shuffle_packed_checked(
+    rows: &mut [u8],
+    row_len: usize,
+    tables: &[[u8; 32]],
+    srcs: &[&[u8]],
+) {
+    assert!(
+        row_len
+            .checked_mul(6)
+            .is_some_and(|needed| needed <= rows.len()),
+        "packed six-row shuffle matrix: rows buffer does not hold six rows of {row_len} bytes"
+    );
+    assert_eq!(tables.len(), srcs.len() * 6);
+    for &src in srcs {
+        assert_eq!(src.len(), row_len);
+    }
+    // SAFETY: internals callers check AVX2+GFNI; all source/table/row geometry
+    // was validated once above, outside the hot loop.
+    unsafe { matrix_overwrite6_shuffle_packed_impl(rows, row_len, tables, srcs) }
+}
+
+#[cfg(any(test, feature = "internals"))]
+#[inline]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn packed_nibble_product(lo: __m256i, hi: __m256i, table: *const [u8; 32]) -> __m256i {
+    // SAFETY: the checked wrapper bounds every 32-byte table record.
+    let (lo_table, hi_table) = unsafe {
+        let bytes = table.cast::<u8>();
+        (
+            _mm256_broadcastsi128_si256(_mm_loadu_si128(bytes.cast())),
+            _mm256_broadcastsi128_si256(_mm_loadu_si128(bytes.add(16).cast())),
+        )
+    };
+    _mm256_xor_si256(
+        _mm256_shuffle_epi8(lo_table, lo),
+        _mm256_shuffle_epi8(hi_table, hi),
+    )
+}
+
+#[cfg(any(test, feature = "internals"))]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn matrix_overwrite6_shuffle_packed_impl(
+    rows: &mut [u8],
+    row_len: usize,
+    tables: &[[u8; 32]],
+    srcs: &[&[u8]],
+) {
+    let base = rows.as_mut_ptr();
+    // SAFETY: the checked wrapper proved all six rows lie in `rows`.
+    let ptrs = unsafe {
+        [
+            base,
+            base.add(row_len),
+            base.add(row_len * 2),
+            base.add(row_len * 3),
+            base.add(row_len * 4),
+            base.add(row_len * 5),
+        ]
+    };
+    let mask = _mm256_set1_epi8(0x0f);
+    let len = row_len & !31;
+    let table_ptr = tables.as_ptr();
+    let source_ptr = srcs.as_ptr();
+    let mut offset = 0;
+    while offset < len {
+        let (mut a0, mut a1, mut a2, mut a3, mut a4, mut a5) = (
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+        );
+        for term in 0..srcs.len() {
+            // SAFETY: the checked wrapper bounds the source pointer and six
+            // packed table records for every term.
+            let (src, term_tables) = unsafe { (*source_ptr.add(term), table_ptr.add(term * 6)) };
+            // SAFETY: `offset + 32 <= len <= src.len()`.
+            let x = unsafe { _mm256_loadu_si256(src.as_ptr().add(offset).cast()) };
+            let lo = _mm256_and_si256(x, mask);
+            let hi = _mm256_and_si256(_mm256_srli_epi16::<4>(x), mask);
+            // SAFETY: all six packed table records are in-bounds; target
+            // features match this function.
+            unsafe {
+                a0 = _mm256_xor_si256(a0, packed_nibble_product(lo, hi, term_tables));
+                a1 = _mm256_xor_si256(a1, packed_nibble_product(lo, hi, term_tables.add(1)));
+                a2 = _mm256_xor_si256(a2, packed_nibble_product(lo, hi, term_tables.add(2)));
+                a3 = _mm256_xor_si256(a3, packed_nibble_product(lo, hi, term_tables.add(3)));
+                a4 = _mm256_xor_si256(a4, packed_nibble_product(lo, hi, term_tables.add(4)));
+                a5 = _mm256_xor_si256(a5, packed_nibble_product(lo, hi, term_tables.add(5)));
+            }
+        }
+        // SAFETY: six checked rows each contain this 32-byte tile.
+        unsafe {
+            _mm256_storeu_si256(ptrs[0].add(offset).cast(), a0);
+            _mm256_storeu_si256(ptrs[1].add(offset).cast(), a1);
+            _mm256_storeu_si256(ptrs[2].add(offset).cast(), a2);
+            _mm256_storeu_si256(ptrs[3].add(offset).cast(), a3);
+            _mm256_storeu_si256(ptrs[4].add(offset).cast(), a4);
+            _mm256_storeu_si256(ptrs[5].add(offset).cast(), a5);
+        }
+        offset += 32;
+    }
+    if offset == row_len {
+        return;
+    }
+    let remaining = row_len - offset;
+    for (row_index, &ptr) in ptrs.iter().enumerate() {
+        // SAFETY: `offset + remaining == row_len`; rows are disjoint.
+        let tail = unsafe { core::slice::from_raw_parts_mut(ptr.add(offset), remaining) };
+        tail.fill(0);
+        for (term, &src) in srcs.iter().enumerate() {
+            // Packed records do not retain the coefficient byte; recover it
+            // from the low table's `c * 1` entry.
+            let coefficient = tables[term * 6 + row_index][1];
+            if coefficient != 0 {
+                // The benchmark target rows are lane-aligned. Leave arbitrary
+                // tails to the scalar fallback by multiplying from the packed
+                // table directly.
+                for (dst, &value) in tail.iter_mut().zip(&src[offset..]) {
+                    let low = tables[term * 6 + row_index][usize::from(value & 0x0f)];
+                    let high = tables[term * 6 + row_index][16 + usize::from(value >> 4)];
+                    *dst ^= low ^ high;
+                }
+            }
+        }
+    }
+}
+
+/// Experimental two-row overwrite matrix (`p2`) using AVX2 nibble shuffles
+/// instead of the GFNI multiply, to test whether spreading the multiply across
+/// the two `PSHUFB` ports beats production's single-port `GF2P8MULB` ceiling.
+///
+/// Field-agnostic: `tables[term * 2 + row]` is the packed `[lo;16, hi;16]`
+/// scale table for that coefficient, so the same body serves `Gf8B` and
+/// `Gf8D`. Each term broadcasts its two rows' four table halves once and reuses
+/// them across `lanes` 32-byte lanes (`1` = ISA-L's 32-byte/iter geometry,
+/// `2` = a 64-byte spatial unroll for more shuffle ILP). Benchmark evidence
+/// only; production dispatch is unchanged.
+///
+/// # Panics
+/// Panics unless `rows` holds two `row_len`-byte rows, `tables.len() ==
+/// srcs.len() * 2`, every source is `row_len` bytes, and `lanes` is `1` or `2`.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite2_shuffle_packed(
+    rows: &mut [u8],
+    row_len: usize,
+    tables: &[[u8; 32]],
+    srcs: &[&[u8]],
+    lanes: usize,
+) {
+    assert!(
+        2usize
+            .checked_mul(row_len)
+            .is_some_and(|needed| needed <= rows.len()),
+        "matrix_overwrite2_shuffle: rows buffer does not hold two rows of {row_len} bytes"
+    );
+    assert_eq!(tables.len(), srcs.len() * 2);
+    for &src in srcs {
+        assert_eq!(src.len(), row_len);
+    }
+    // SAFETY: internals callers check AVX2 before executing; the geometry above
+    // bounds two disjoint rows and every source/table record.
+    unsafe {
+        match lanes {
+            1 => matrix_overwrite2_shuffle_body::<1>(rows, row_len, tables, srcs),
+            2 => matrix_overwrite2_shuffle_body::<2>(rows, row_len, tables, srcs),
+            _ => panic!("matrix_overwrite2_shuffle: lanes must be 1 or 2"),
+        }
+    }
+}
+
+/// # Safety
+/// `rows` holds two disjoint in-bounds rows of `row_len` bytes,
+/// `tables.len() == srcs.len() * 2`, every source is `row_len` bytes, and the
+/// backend is AVX2.
+#[cfg(any(test, feature = "internals"))]
+#[target_feature(enable = "avx2")]
+unsafe fn matrix_overwrite2_shuffle_body<const LANES: usize>(
+    rows: &mut [u8],
+    row_len: usize,
+    tables: &[[u8; 32]],
+    srcs: &[&[u8]],
+) {
+    let base = rows.as_mut_ptr();
+    // SAFETY: the checked wrapper proved both rows lie in `rows`.
+    let (ptr0, ptr1) = unsafe { (base, base.add(row_len)) };
+    let mask = _mm256_set1_epi8(0x0f);
+    let table_ptr = tables.as_ptr();
+    let source_ptr = srcs.as_ptr();
+    let step = 32 * LANES;
+    let mut offset = 0;
+    while offset + step <= row_len {
+        let mut a0 = [_mm256_setzero_si256(); LANES];
+        let mut a1 = [_mm256_setzero_si256(); LANES];
+        for term in 0..srcs.len() {
+            // SAFETY: the wrapper bounds the source pointer and both packed
+            // table records for every term.
+            unsafe {
+                let src = *source_ptr.add(term);
+                let t = table_ptr.add(term * 2).cast::<u8>();
+                // Broadcast both rows' table halves once, reused across lanes.
+                let lo0 = _mm256_broadcastsi128_si256(_mm_loadu_si128(t.cast()));
+                let hi0 = _mm256_broadcastsi128_si256(_mm_loadu_si128(t.add(16).cast()));
+                let lo1 = _mm256_broadcastsi128_si256(_mm_loadu_si128(t.add(32).cast()));
+                let hi1 = _mm256_broadcastsi128_si256(_mm_loadu_si128(t.add(48).cast()));
+                let sp = src.as_ptr().add(offset);
+                for l in 0..LANES {
+                    let x = _mm256_loadu_si256(sp.add(32 * l).cast());
+                    let lo = _mm256_and_si256(x, mask);
+                    let hi = _mm256_and_si256(_mm256_srli_epi16::<4>(x), mask);
+                    a0[l] = _mm256_xor_si256(
+                        a0[l],
+                        _mm256_xor_si256(
+                            _mm256_shuffle_epi8(lo0, lo),
+                            _mm256_shuffle_epi8(hi0, hi),
+                        ),
+                    );
+                    a1[l] = _mm256_xor_si256(
+                        a1[l],
+                        _mm256_xor_si256(
+                            _mm256_shuffle_epi8(lo1, lo),
+                            _mm256_shuffle_epi8(hi1, hi),
+                        ),
+                    );
+                }
+            }
+        }
+        // SAFETY: both rows contain this `step`-byte tile.
+        unsafe {
+            for l in 0..LANES {
+                _mm256_storeu_si256(ptr0.add(offset + 32 * l).cast(), a0[l]);
+                _mm256_storeu_si256(ptr1.add(offset + 32 * l).cast(), a1[l]);
+            }
+        }
+        offset += step;
+    }
+    while offset + 32 <= row_len {
+        let mut a0 = _mm256_setzero_si256();
+        let mut a1 = _mm256_setzero_si256();
+        for term in 0..srcs.len() {
+            // SAFETY: as above, for a single 32-byte lane.
+            unsafe {
+                let src = *source_ptr.add(term);
+                let t = table_ptr.add(term * 2).cast::<u8>();
+                let x = _mm256_loadu_si256(src.as_ptr().add(offset).cast());
+                let lo = _mm256_and_si256(x, mask);
+                let hi = _mm256_and_si256(_mm256_srli_epi16::<4>(x), mask);
+                let lo0 = _mm256_broadcastsi128_si256(_mm_loadu_si128(t.cast()));
+                let hi0 = _mm256_broadcastsi128_si256(_mm_loadu_si128(t.add(16).cast()));
+                let lo1 = _mm256_broadcastsi128_si256(_mm_loadu_si128(t.add(32).cast()));
+                let hi1 = _mm256_broadcastsi128_si256(_mm_loadu_si128(t.add(48).cast()));
+                a0 = _mm256_xor_si256(
+                    a0,
+                    _mm256_xor_si256(_mm256_shuffle_epi8(lo0, lo), _mm256_shuffle_epi8(hi0, hi)),
+                );
+                a1 = _mm256_xor_si256(
+                    a1,
+                    _mm256_xor_si256(_mm256_shuffle_epi8(lo1, lo), _mm256_shuffle_epi8(hi1, hi)),
+                );
+            }
+        }
+        // SAFETY: both rows contain this 32-byte lane.
+        unsafe {
+            _mm256_storeu_si256(ptr0.add(offset).cast(), a0);
+            _mm256_storeu_si256(ptr1.add(offset).cast(), a1);
+        }
+        offset += 32;
+    }
+    if offset == row_len {
+        return;
+    }
+    let remaining = row_len - offset;
+    for (row, &ptr) in [ptr0, ptr1].iter().enumerate() {
+        // SAFETY: `offset + remaining == row_len`; the two rows are disjoint.
+        let tail = unsafe { core::slice::from_raw_parts_mut(ptr.add(offset), remaining) };
+        tail.fill(0);
+        for (term, &src) in srcs.iter().enumerate() {
+            let record = &tables[term * 2 + row];
+            // Recover `c == c * 1` from the low table to skip zero terms.
+            if record[1] != 0 || record[16] != 0 {
+                for (dst, &value) in tail.iter_mut().zip(&src[offset..]) {
+                    let low = record[usize::from(value & 0x0f)];
+                    let high = record[16 + usize::from(value >> 4)];
+                    *dst ^= low ^ high;
+                }
+            }
+        }
+    }
+}
+
 /// Load a 32-byte destination lane, or zero it in a register when overwriting.
 ///
 /// The overwrite matrix kernels seed their accumulators from zero instead of

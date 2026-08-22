@@ -311,6 +311,193 @@ fn check_matrix_overwrite<E: Copy, F>(
     }
 }
 
+/// Fixed-six-row overwrite differential for ISA-L-shaped experimental bodies.
+fn check_matrix_overwrite6<E: Copy, F>(
+    name: &str,
+    coeff_at: impl Fn(usize, usize) -> E,
+    reference: F,
+    kernel: impl Fn(&mut [u8], usize, &[(&[E], &[u8])]),
+) where
+    F: Fn(&mut [u8], E, &[u8]),
+{
+    const NROWS: usize = 6;
+    for &row_len in ROW_LENS {
+        for nterms in [1usize, 2, 3, 7, 8, 9, 17] {
+            let sources: Vec<Vec<u8>> = (0..nterms)
+                .map(|term| noise(row_len, 0x460 + term as u64))
+                .collect();
+            let coeff_sets: Vec<Vec<E>> = (0..nterms)
+                .map(|term| (0..NROWS).map(|row| coeff_at(term, row)).collect())
+                .collect();
+            let terms: Vec<(&[E], &[u8])> = coeff_sets
+                .iter()
+                .zip(&sources)
+                .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
+                .collect();
+            let mut got = noise(row_len * NROWS, 0xda);
+            let mut want = vec![0u8; row_len * NROWS];
+
+            kernel(&mut got, row_len, &terms);
+            for &(coeffs, src) in &terms {
+                for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                    reference(row, coeff, src);
+                }
+            }
+            assert_eq!(got, want, "{name}: row_len {row_len}, terms {nterms}");
+        }
+    }
+}
+
+/// Fixed-six-row differential for prepacked shuffle-table candidates.
+fn check_matrix_overwrite6_packed<E: Copy>(
+    name: &str,
+    coeff_at: impl Fn(usize, usize) -> E,
+    reference: impl Fn(&mut [u8], E, &[u8]),
+    pack: impl Fn(E) -> [u8; 32],
+    kernel: impl Fn(&mut [u8], usize, &[[u8; 32]], &[&[u8]]),
+) {
+    const NROWS: usize = 6;
+    for &row_len in ROW_LENS {
+        for nterms in [1usize, 2, 3, 7, 8, 9, 17] {
+            let sources: Vec<Vec<u8>> = (0..nterms)
+                .map(|term| noise(row_len, 0x480 + term as u64))
+                .collect();
+            let source_refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+            let coeff_sets: Vec<Vec<E>> = (0..nterms)
+                .map(|term| (0..NROWS).map(|row| coeff_at(term, row)).collect())
+                .collect();
+            let tables: Vec<[u8; 32]> = coeff_sets
+                .iter()
+                .flat_map(|coeffs| coeffs.iter().copied().map(&pack))
+                .collect();
+            let mut got = noise(row_len * NROWS, 0xdb);
+            let mut want = vec![0u8; row_len * NROWS];
+
+            kernel(&mut got, row_len, &tables, &source_refs);
+            for (coeffs, src) in coeff_sets.iter().zip(&sources) {
+                for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                    reference(row, coeff, src);
+                }
+            }
+            assert_eq!(got, want, "{name}: row_len {row_len}, terms {nterms}");
+        }
+    }
+}
+
+/// Differential for the experimental two-row overwrite matrix (`p2`) over its
+/// tunable tile width and store policy.
+///
+/// Temporal cases sweep arbitrary lengths (short bodies, 32-byte cleanup, and
+/// sub-XMM tails); non-temporal cases use a 32-byte-aligned backing and
+/// 32-multiple lengths, matching the store precondition. The destination
+/// starts nonzero so only an overwrite (seed-from-zero) kernel agrees.
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+fn check_matrix_overwrite2<E: Copy>(
+    name: &str,
+    coeff_at: impl Fn(usize, usize) -> E,
+    reference: impl Fn(&mut [u8], E, &[u8]),
+    kernel: impl Fn(&mut [u8], usize, &[(&[E], &[u8])], bool, usize),
+) {
+    const NROWS: usize = 2;
+    let temporal_lens: &[usize] = &[32, 34, 64, 66, 128, 130, 256, 300];
+    let nt_lens: &[usize] = &[32, 64, 128, 256];
+    for &nt in &[false, true] {
+        for &lanes in &[2usize, 4] {
+            let lens = if nt { nt_lens } else { temporal_lens };
+            for &row_len in lens {
+                for nterms in [1usize, 2, 3, 8, 17] {
+                    let sources: Vec<Vec<u8>> = (0..nterms)
+                        .map(|t| noise(row_len, 0x420 + t as u64))
+                        .collect();
+                    let coeff_sets: Vec<Vec<E>> = (0..nterms)
+                        .map(|t| (0..NROWS).map(|j| coeff_at(t, j)).collect())
+                        .collect();
+                    let terms: Vec<(&[E], &[u8])> = coeff_sets
+                        .iter()
+                        .zip(&sources)
+                        .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                        .collect();
+
+                    let mut want = vec![0u8; row_len * NROWS];
+                    for &(coeffs, src) in &terms {
+                        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                            reference(row, coeff, src);
+                        }
+                    }
+
+                    if nt {
+                        let mut backing = noise(row_len * NROWS + 32, 0xd7);
+                        let off = backing.as_ptr().align_offset(32);
+                        let got = &mut backing[off..off + row_len * NROWS];
+                        got.fill(0xaa);
+                        kernel(got, row_len, &terms, nt, lanes);
+                        assert_eq!(
+                            got,
+                            want.as_slice(),
+                            "{name}: nt lanes {lanes} row_len {row_len} terms {nterms}"
+                        );
+                    } else {
+                        let mut got = noise(row_len * NROWS, 0xd8);
+                        kernel(&mut got, row_len, &terms, nt, lanes);
+                        assert_eq!(
+                            got,
+                            want.as_slice(),
+                            "{name}: temporal lanes {lanes} row_len {row_len} terms {nterms}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Differential for the experimental two-row shuffle overwrite matrix (`p2`)
+/// over both spatial-unroll widths. `pack(coeff)` builds the `[lo;16, hi;16]`
+/// packed record the kernel consumes.
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+fn check_matrix_overwrite2_shuffle<E: Copy>(
+    name: &str,
+    coeff_at: impl Fn(usize, usize) -> E,
+    reference: impl Fn(&mut [u8], E, &[u8]),
+    pack: impl Fn(E) -> [u8; 32],
+) {
+    const NROWS: usize = 2;
+    let lens: &[usize] = &[32, 34, 64, 66, 128, 130, 256, 300];
+    for &lanes in &[1usize, 2] {
+        for &row_len in lens {
+            for nterms in [1usize, 2, 3, 8, 17] {
+                let sources: Vec<Vec<u8>> = (0..nterms)
+                    .map(|t| noise(row_len, 0x440 + t as u64))
+                    .collect();
+                let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+                let coeff_sets: Vec<Vec<E>> = (0..nterms)
+                    .map(|t| (0..NROWS).map(|j| coeff_at(t, j)).collect())
+                    .collect();
+                let packed: Vec<[u8; 32]> = coeff_sets
+                    .iter()
+                    .flat_map(|cs| cs.iter().map(|&c| pack(c)))
+                    .collect();
+
+                let mut want = vec![0u8; row_len * NROWS];
+                for (t, cs) in coeff_sets.iter().enumerate() {
+                    for (row, &coeff) in want.chunks_exact_mut(row_len).zip(cs) {
+                        reference(row, coeff, srcs[t]);
+                    }
+                }
+                let mut got = noise(row_len * NROWS, 0xd6);
+                crate::kernel::x86::gf8::matrix_overwrite2_shuffle_packed(
+                    &mut got, row_len, &packed, &srcs, lanes,
+                );
+                assert_eq!(
+                    got,
+                    want.as_slice(),
+                    "{name}: lanes {lanes} row_len {row_len} terms {nterms}"
+                );
+            }
+        }
+    }
+}
+
 /// Compare a gather kernel against repeated scalar AXPY calls.
 fn check_gather<E: Copy, F>(
     name: &str,
@@ -841,6 +1028,92 @@ mod x86 {
         }
     }
 
+    fn check_gf8_six_row_shuffle_candidates() {
+        check_matrix_overwrite6(
+            "gf8 six-row shuffle overwrite",
+            gf8_coeff_at2,
+            gf8_reference,
+            x86::gf8::matrix_overwrite6_shuffle_8b,
+        );
+        check_matrix_overwrite6_packed(
+            "gf8 six-row packed shuffle overwrite",
+            gf8_coeff_at2,
+            gf8_reference,
+            |coefficient| {
+                let table = scale_table(coefficient);
+                let mut packed = [0u8; 32];
+                packed[..16].copy_from_slice(&table.lo);
+                packed[16..].copy_from_slice(&table.hi);
+                packed
+            },
+            x86::gf8::matrix_overwrite6_shuffle_packed_8b,
+        );
+    }
+
+    fn check_gf8d_six_row_shuffle_candidates() {
+        check_matrix_overwrite6(
+            "gf8d six-row shuffle overwrite",
+            gf8d_coeff_at2,
+            gf8d_reference,
+            x86::gf8::matrix_overwrite6_shuffle_8d,
+        );
+        check_matrix_overwrite6_packed(
+            "gf8d six-row packed shuffle overwrite",
+            gf8d_coeff_at2,
+            gf8d_reference,
+            |coefficient| {
+                let table = scale_table_8d(coefficient);
+                let mut packed = [0u8; 32];
+                packed[..16].copy_from_slice(&table.lo);
+                packed[16..].copy_from_slice(&table.hi);
+                packed
+            },
+            x86::gf8::matrix_overwrite6_shuffle_packed_8d,
+        );
+    }
+
+    fn check_gf8_two_row_candidates() {
+        check_matrix_overwrite2(
+            "gf8 two-row overwrite",
+            gf8_coeff_at2,
+            gf8_reference,
+            x86::gf8::matrix_overwrite2_8b,
+        );
+        check_matrix_overwrite2_shuffle(
+            "gf8 two-row shuffle overwrite",
+            gf8_coeff_at2,
+            gf8_reference,
+            |coefficient| {
+                let table = scale_table(coefficient);
+                let mut packed = [0u8; 32];
+                packed[..16].copy_from_slice(&table.lo);
+                packed[16..].copy_from_slice(&table.hi);
+                packed
+            },
+        );
+    }
+
+    fn check_gf8d_two_row_candidates() {
+        check_matrix_overwrite2(
+            "gf8d two-row overwrite",
+            gf8d_coeff_at2,
+            gf8d_reference,
+            x86::gf8::matrix_overwrite2_8d,
+        );
+        check_matrix_overwrite2_shuffle(
+            "gf8d two-row shuffle overwrite",
+            gf8d_coeff_at2,
+            gf8d_reference,
+            |coefficient| {
+                let table = scale_table_8d(coefficient);
+                let mut packed = [0u8; 32];
+                packed[..16].copy_from_slice(&table.lo);
+                packed[16..].copy_from_slice(&table.hi);
+                packed
+            },
+        );
+    }
+
     #[test]
     fn gfni_kernels_match_reference() {
         if !(host_supports(&[Backend::V3GfniCrypto])) {
@@ -885,6 +1158,8 @@ mod x86 {
             gf8_reference,
             x86::gf8::matrix_overwrite_gfni,
         );
+        check_gf8_six_row_shuffle_candidates();
+        check_gf8_two_row_candidates();
         check_matrix(
             "gf16 gfni matrix",
             gf16_coeff_at2,
@@ -1082,6 +1357,8 @@ mod x86 {
             gf8d_reference,
             x86::gf8::matrix_overwrite_affine,
         );
+        check_gf8d_six_row_shuffle_candidates();
+        check_gf8d_two_row_candidates();
         check_gather(
             "gf8d affine gather",
             gf8d_coeff_at,
