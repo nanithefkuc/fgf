@@ -241,6 +241,34 @@ needed because no production policy changes. The tile and split bodies remain
 available only through `internals` so the controlled sweep and counter workload
 stay reproducible.
 
+### Overwrite matrix / erasure encode (2026-08-22)
+
+`dot_product_matrix` computes multiple fresh output rows in one blocked pass.
+Unlike `fill(0)` plus accumulating `mul_add_matrix`, the GFNI kernels seed
+accumulators from zero in registers: no destination read and no separate
+zero-fill. Other backends use that equivalent portable composition.
+
+The comparison used 10 sources and 2/4/6 output rows. ISA-L ran
+`ec_encode_data`, which overwrites and dispatches internally to its
+`gf_Nvect_dot_prod` kernels. Throughput counts source bytes (`row_len * 10`),
+matching the existing dot-product convention. Core Ultra 7 258V, Linux, rustc
+1.93, P-core pinned, backend `v3_gfni_crypto`, three process runs:
+
+| Shape | `Gf8B` fill+matrix | `Gf8B` overwrite | `Gf8D` fill+matrix | `Gf8D` overwrite | ISA-L |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 64 KiB, 2 rows | 63.3–64.5 | 74.8–74.9 | 53.8–55.1 | 67.7–68.9 | 80.6–80.7 |
+| 64 KiB, 4 rows | 33.7–34.1 | 42.2–42.9 | 30.2–30.6 | 38.8–39.3 | 37.1–37.5 |
+| 64 KiB, 6 rows | 20.6–21.0 | 26.7–27.1 | 18.8 | 24.5–24.9 | 31.8–32.1 |
+
+At four outputs bit-compatible `Gf8D` is 3–6% faster than ISA-L and native
+`Gf8B` is 12–15% faster. The old path's gap was destination traffic:
+`fill` + matrix destination read + matrix destination write versus overwrite's
+one write. A six-output/32-byte-tile prototype intended to match ISA-L's
+source-load batching was reverted: it lost instruction-level parallelism and
+regressed `Gf8D` by about 2x. The remaining six-output gap is the current 4+2
+row grouping re-reading sources; any later six-row overwrite body must preserve
+the accepted kernels' wider-tile ILP and prove no register spills.
+
 Small GF(2^16) rows are sensitive to coefficient preparation because a shuffle
 backend builds four nibble tables per coefficient. Use `Coeff` or `Plan` when a
 coding matrix is reused. Large rows amortize the same setup in the byte loop.

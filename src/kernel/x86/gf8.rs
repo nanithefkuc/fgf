@@ -1246,7 +1246,7 @@ pub fn matrix_gfni_with<M: Matrix<Elem> + ?Sized>(
     }
     // SAFETY: the caller selected the GFNI backend, which detected both AVX2
     // and GFNI; the geometry asserted above bounds every row and every term.
-    unsafe { matrix_impl::<Gfni, M>(rows, row_len, nrows, terms) }
+    unsafe { matrix_impl::<Gfni, M, false>(rows, row_len, nrows, terms) }
 }
 
 /// [`matrix_gfni`] under `0x11D`, folding every term in with its affine map.
@@ -1286,11 +1286,109 @@ pub fn matrix_affine_with<M: Matrix<gf8d::Elem> + ?Sized>(
     }
     // SAFETY: the caller selected the GFNI backend (AVX2+GFNI detected); the
     // geometry asserted above bounds every row and every term.
-    unsafe { matrix_impl::<Affine8D, M>(rows, row_len, nrows, terms) }
+    unsafe { matrix_impl::<Affine8D, M, false>(rows, row_len, nrows, terms) }
+}
+
+/// [`matrix_gfni`] with overwrite semantics: `rows[j] = sum_t coeffs[t][j] * src[t]`.
+///
+/// Accumulators are seeded from zero in registers instead of the destination,
+/// so the destination is written once with no read and no separate `fill(0)` —
+/// the erasure-encode shape.
+///
+/// # Panics
+/// As [`matrix_gfni`].
+pub fn matrix_overwrite_gfni(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &[(&[Elem], &[u8])],
+) {
+    matrix_overwrite_gfni_with(rows, row_len, nrows, terms);
+}
+
+/// [`matrix_overwrite_gfni`] over a generic matrix source.
+///
+/// # Panics
+/// As [`matrix_gfni`].
+pub fn matrix_overwrite_gfni_with<M: Matrix<Elem> + ?Sized>(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &M,
+) {
+    assert!(
+        nrows
+            .checked_mul(row_len)
+            .is_some_and(|needed| needed <= rows.len()),
+        "matrix_overwrite_gfni: rows buffer does not hold {nrows} rows of {row_len} bytes"
+    );
+    for term in 0..terms.len() {
+        assert_eq!(terms.source(term).len(), row_len);
+    }
+    // SAFETY: the caller selected the GFNI backend (AVX2+GFNI detected); the
+    // geometry asserted above bounds every row and every term. Overwrite seeds
+    // accumulators from zero, so no destination bytes are read.
+    unsafe { matrix_impl::<Gfni, M, true>(rows, row_len, nrows, terms) }
+}
+
+/// [`matrix_affine`] with overwrite semantics under `0x11D`.
+///
+/// # Panics
+/// As [`matrix_gfni`].
+pub fn matrix_overwrite_affine(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &[(&[gf8d::Elem], &[u8])],
+) {
+    matrix_overwrite_affine_with(rows, row_len, nrows, terms);
+}
+
+/// [`matrix_overwrite_affine`] over a generic matrix source.
+///
+/// # Panics
+/// As [`matrix_gfni`].
+pub fn matrix_overwrite_affine_with<M: Matrix<gf8d::Elem> + ?Sized>(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &M,
+) {
+    assert!(
+        nrows
+            .checked_mul(row_len)
+            .is_some_and(|needed| needed <= rows.len()),
+        "matrix_overwrite_affine: rows buffer does not hold {nrows} rows of {row_len} bytes"
+    );
+    for term in 0..terms.len() {
+        assert_eq!(terms.source(term).len(), row_len);
+    }
+    // SAFETY: as `matrix_overwrite_gfni_with`, with the affine map multiply.
+    unsafe { matrix_impl::<Affine8D, M, true>(rows, row_len, nrows, terms) }
+}
+
+/// Load a 32-byte destination lane, or zero it in a register when overwriting.
+///
+/// The overwrite matrix kernels seed their accumulators from zero instead of
+/// reading the destination, so `dst = sum(terms)` costs one write pass with no
+/// destination read and no separate `fill(0)`.
+///
+/// # Safety
+/// When not overwriting, `ptr` must address 32 readable bytes; the caller must
+/// have selected AVX2 + GFNI.
+#[inline]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn load_or_zero<const OVERWRITE: bool>(ptr: *const u8) -> __m256i {
+    if OVERWRITE {
+        _mm256_setzero_si256()
+    } else {
+        // SAFETY: the caller guarantees 32 readable bytes at `ptr`.
+        unsafe { _mm256_loadu_si256(ptr.cast()) }
+    }
 }
 
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn matrix_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
+unsafe fn matrix_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
@@ -1315,7 +1413,7 @@ unsafe fn matrix_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
         // SAFETY: four in-bounds rows of `row_len` bytes, pairwise disjoint
         // because distinct rows are `row_len` apart; the wrapper checked every
         // term for `nrows` coefficients over a `row_len`-byte source.
-        unsafe { matrix_rows4::<S, M>(ptrs, row_len, g, terms) }
+        unsafe { matrix_rows4::<S, M, OVERWRITE>(ptrs, row_len, g, terms) }
         g += 4;
     }
     if g + 2 <= nrows {
@@ -1323,7 +1421,7 @@ unsafe fn matrix_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
         let ptrs = unsafe { [base.add(g * row_len), base.add((g + 1) * row_len)] };
         // SAFETY: two in-bounds, disjoint rows of `row_len` bytes, and every
         // term covers row `g + 1`.
-        unsafe { matrix_rows2::<S, M>(ptrs, row_len, g, terms) }
+        unsafe { matrix_rows2::<S, M, OVERWRITE>(ptrs, row_len, g, terms) }
         g += 2;
     }
     if g < nrows {
@@ -1331,7 +1429,7 @@ unsafe fn matrix_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
         let ptr = unsafe { base.add(g * row_len) };
         // SAFETY: one in-bounds row of `row_len` bytes, and every term covers
         // row `g`.
-        unsafe { matrix_rows1::<S, M>(ptr, row_len, g, terms) }
+        unsafe { matrix_rows1::<S, M, OVERWRITE>(ptr, row_len, g, terms) }
     }
 }
 
@@ -1447,7 +1545,7 @@ unsafe fn matrix_scattered_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
         };
         // SAFETY: four in-bounds, disjoint rows; every term covers coefficient
         // index `g + 3` over a `row_len`-byte source.
-        unsafe { matrix_rows4::<S, M>(ptrs, row_len, g, terms) }
+        unsafe { matrix_rows4::<S, M, false>(ptrs, row_len, g, terms) }
         g += 4;
     }
     if g + 2 <= nrows {
@@ -1455,7 +1553,7 @@ unsafe fn matrix_scattered_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
         let ptrs = unsafe { [base.add(row_starts[g]), base.add(row_starts[g + 1])] };
         // SAFETY: two in-bounds, disjoint rows, and every term covers row
         // `g + 1`.
-        unsafe { matrix_rows2::<S, M>(ptrs, row_len, g, terms) }
+        unsafe { matrix_rows2::<S, M, false>(ptrs, row_len, g, terms) }
         g += 2;
     }
     if g < nrows {
@@ -1463,7 +1561,7 @@ unsafe fn matrix_scattered_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
         let ptr = unsafe { base.add(row_starts[g]) };
         // SAFETY: one in-bounds row of `row_len` bytes, and every term covers
         // row `g`.
-        unsafe { matrix_rows1::<S, M>(ptr, row_len, g, terms) }
+        unsafe { matrix_rows1::<S, M, false>(ptr, row_len, g, terms) }
     }
 }
 
@@ -1474,7 +1572,7 @@ unsafe fn matrix_scattered_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
 /// bytes, every term's source must be `row_len` bytes, and every term must
 /// supply coefficients through index `g + 3`.
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn matrix_rows4<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
+unsafe fn matrix_rows4<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
     ptrs: [*mut u8; 4],
     row_len: usize,
     g: usize,
@@ -1486,14 +1584,14 @@ unsafe fn matrix_rows4<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
         // are disjoint.
         let (mut a00, mut a01, mut a10, mut a11, mut a20, mut a21, mut a30, mut a31) = unsafe {
             (
-                _mm256_loadu_si256(ptrs[0].add(tile).cast()),
-                _mm256_loadu_si256(ptrs[0].add(tile + 32).cast()),
-                _mm256_loadu_si256(ptrs[1].add(tile).cast()),
-                _mm256_loadu_si256(ptrs[1].add(tile + 32).cast()),
-                _mm256_loadu_si256(ptrs[2].add(tile).cast()),
-                _mm256_loadu_si256(ptrs[2].add(tile + 32).cast()),
-                _mm256_loadu_si256(ptrs[3].add(tile).cast()),
-                _mm256_loadu_si256(ptrs[3].add(tile + 32).cast()),
+                load_or_zero::<OVERWRITE>(ptrs[0].add(tile)),
+                load_or_zero::<OVERWRITE>(ptrs[0].add(tile + 32)),
+                load_or_zero::<OVERWRITE>(ptrs[1].add(tile)),
+                load_or_zero::<OVERWRITE>(ptrs[1].add(tile + 32)),
+                load_or_zero::<OVERWRITE>(ptrs[2].add(tile)),
+                load_or_zero::<OVERWRITE>(ptrs[2].add(tile + 32)),
+                load_or_zero::<OVERWRITE>(ptrs[3].add(tile)),
+                load_or_zero::<OVERWRITE>(ptrs[3].add(tile + 32)),
             )
         };
         for term in 0..terms.len() {
@@ -1542,10 +1640,10 @@ unsafe fn matrix_rows4<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
         // SAFETY: `tile + 32 <= row_len`; the rows are disjoint.
         let (mut a0, mut a1, mut a2, mut a3) = unsafe {
             (
-                _mm256_loadu_si256(ptrs[0].add(tile).cast()),
-                _mm256_loadu_si256(ptrs[1].add(tile).cast()),
-                _mm256_loadu_si256(ptrs[2].add(tile).cast()),
-                _mm256_loadu_si256(ptrs[3].add(tile).cast()),
+                load_or_zero::<OVERWRITE>(ptrs[0].add(tile)),
+                load_or_zero::<OVERWRITE>(ptrs[1].add(tile)),
+                load_or_zero::<OVERWRITE>(ptrs[2].add(tile)),
+                load_or_zero::<OVERWRITE>(ptrs[3].add(tile)),
             )
         };
         for term in 0..terms.len() {
@@ -1579,7 +1677,7 @@ unsafe fn matrix_rows4<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
         tile += 32;
     }
     // SAFETY: the pointers address distinct in-bounds rows of `row_len` bytes.
-    unsafe { matrix_tail::<S, M>(&ptrs, row_len, g, tile, terms) }
+    unsafe { matrix_tail::<S, M, OVERWRITE>(&ptrs, row_len, g, tile, terms) }
 }
 
 /// Fold every term into two rows, 128 bytes of each row at a time.
@@ -1587,7 +1685,7 @@ unsafe fn matrix_rows4<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
 /// # Safety
 /// As [`matrix_rows4`], for two rows and coefficients through `g + 1`.
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn matrix_rows2<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
+unsafe fn matrix_rows2<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
     ptrs: [*mut u8; 2],
     row_len: usize,
     g: usize,
@@ -1599,14 +1697,14 @@ unsafe fn matrix_rows2<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
         // are disjoint.
         let (mut a00, mut a01, mut a02, mut a03, mut a10, mut a11, mut a12, mut a13) = unsafe {
             (
-                _mm256_loadu_si256(ptrs[0].add(tile).cast()),
-                _mm256_loadu_si256(ptrs[0].add(tile + 32).cast()),
-                _mm256_loadu_si256(ptrs[0].add(tile + 64).cast()),
-                _mm256_loadu_si256(ptrs[0].add(tile + 96).cast()),
-                _mm256_loadu_si256(ptrs[1].add(tile).cast()),
-                _mm256_loadu_si256(ptrs[1].add(tile + 32).cast()),
-                _mm256_loadu_si256(ptrs[1].add(tile + 64).cast()),
-                _mm256_loadu_si256(ptrs[1].add(tile + 96).cast()),
+                load_or_zero::<OVERWRITE>(ptrs[0].add(tile)),
+                load_or_zero::<OVERWRITE>(ptrs[0].add(tile + 32)),
+                load_or_zero::<OVERWRITE>(ptrs[0].add(tile + 64)),
+                load_or_zero::<OVERWRITE>(ptrs[0].add(tile + 96)),
+                load_or_zero::<OVERWRITE>(ptrs[1].add(tile)),
+                load_or_zero::<OVERWRITE>(ptrs[1].add(tile + 32)),
+                load_or_zero::<OVERWRITE>(ptrs[1].add(tile + 64)),
+                load_or_zero::<OVERWRITE>(ptrs[1].add(tile + 96)),
             )
         };
         for term in 0..terms.len() {
@@ -1649,8 +1747,8 @@ unsafe fn matrix_rows2<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
         // SAFETY: `tile + 32 <= row_len`; the rows are disjoint.
         let (mut a0, mut a1) = unsafe {
             (
-                _mm256_loadu_si256(ptrs[0].add(tile).cast()),
-                _mm256_loadu_si256(ptrs[1].add(tile).cast()),
+                load_or_zero::<OVERWRITE>(ptrs[0].add(tile)),
+                load_or_zero::<OVERWRITE>(ptrs[1].add(tile)),
             )
         };
         for term in 0..terms.len() {
@@ -1674,7 +1772,7 @@ unsafe fn matrix_rows2<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
         tile += 32;
     }
     // SAFETY: the pointers address distinct in-bounds rows of `row_len` bytes.
-    unsafe { matrix_tail::<S, M>(&ptrs, row_len, g, tile, terms) }
+    unsafe { matrix_tail::<S, M, OVERWRITE>(&ptrs, row_len, g, tile, terms) }
 }
 
 /// Fold every term into one row, 128 bytes at a time.
@@ -1682,7 +1780,7 @@ unsafe fn matrix_rows2<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
 /// # Safety
 /// As [`matrix_rows4`], for one row and coefficient `g`.
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn matrix_rows1<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
+unsafe fn matrix_rows1<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
     ptr: *mut u8,
     row_len: usize,
     g: usize,
@@ -1693,10 +1791,10 @@ unsafe fn matrix_rows1<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
         // SAFETY: `tile + 128 <= row_len`, the length of the row.
         let (mut a0, mut a1, mut a2, mut a3) = unsafe {
             (
-                _mm256_loadu_si256(ptr.add(tile).cast()),
-                _mm256_loadu_si256(ptr.add(tile + 32).cast()),
-                _mm256_loadu_si256(ptr.add(tile + 64).cast()),
-                _mm256_loadu_si256(ptr.add(tile + 96).cast()),
+                load_or_zero::<OVERWRITE>(ptr.add(tile)),
+                load_or_zero::<OVERWRITE>(ptr.add(tile + 32)),
+                load_or_zero::<OVERWRITE>(ptr.add(tile + 64)),
+                load_or_zero::<OVERWRITE>(ptr.add(tile + 96)),
             )
         };
         for term in 0..terms.len() {
@@ -1728,7 +1826,7 @@ unsafe fn matrix_rows1<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
     }
     while tile + 32 <= row_len {
         // SAFETY: `tile + 32 <= row_len`.
-        let mut a0 = unsafe { _mm256_loadu_si256(ptr.add(tile).cast()) };
+        let mut a0 = unsafe { load_or_zero::<OVERWRITE>(ptr.add(tile)) };
         for term in 0..terms.len() {
             let src = terms.source(term);
             let coeff = *terms.coefficient(term, g);
@@ -1745,7 +1843,7 @@ unsafe fn matrix_rows1<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
     }
 
     // SAFETY: the pointer addresses an in-bounds row of `row_len` bytes.
-    unsafe { matrix_tail::<S, M>(&[ptr], row_len, g, tile, terms) }
+    unsafe { matrix_tail::<S, M, OVERWRITE>(&[ptr], row_len, g, tile, terms) }
 }
 
 /// Hierarchical remainder shared by the matrix row groups.
@@ -1760,7 +1858,7 @@ unsafe fn matrix_rows1<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
 /// through `g + ptrs.len() - 1` over a source of `row_len` bytes, and the
 /// caller must have selected AVX2 + GFNI.
 #[target_feature(enable = "avx2,gfni")]
-unsafe fn matrix_tail<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
+unsafe fn matrix_tail<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
     ptrs: &[*mut u8],
     row_len: usize,
     g: usize,
@@ -1776,6 +1874,11 @@ unsafe fn matrix_tail<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
         // tail; the rows are disjoint and only one tail slice is live at a
         // time.
         let tail = unsafe { core::slice::from_raw_parts_mut(row.add(tile), remaining) };
+        // Overwrite: start the tail at zero so the accumulating brem below
+        // yields `sum(terms)` without reading prior destination bytes.
+        if OVERWRITE {
+            tail.fill(0);
+        }
         for term in 0..terms.len() {
             let src = terms.source(term);
             let coeff = *terms.coefficient(term, g + slot);

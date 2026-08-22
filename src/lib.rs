@@ -76,12 +76,14 @@
 //! | many sources, one row | [`ops::mul_add_gather`] | `ops::mul_add_gather_with` | recovered symbol |
 //! | many sources overwrite one row | [`ops::dot_product`] | `ops::dot_product_with` | fresh recovered symbol |
 //! | many sources, many rows | [`ops::mul_add_matrix`] | `ops::mul_add_matrix_with` | reconstruction |
+//! | many sources overwrite many rows | [`ops::dot_product_matrix`] | `ops::dot_product_matrix_with` | erasure encode |
 //! | many sources, scattered rows | [`ops::mul_add_matrix_scattered`] | — | in-place reconstruction |
 //! | varying pair per lane | [`ops::mul_elementwise`] | — | pointwise products |
 //!
-//! Prefer the widest shape that fits: [`ops::mul_add_matrix`] holds its
-//! destination tiles in registers across all sources, so its destination
-//! memory traffic does not grow with the source count.
+//! Prefer the widest shape that fits. [`ops::mul_add_matrix`] holds destination
+//! tiles in registers across all sources; [`ops::dot_product_matrix`] also
+//! starts those accumulators at zero, avoiding a destination read and separate
+//! zero-fill when producing fresh rows.
 //!
 //! [`ops::Coeff`] prepares one coefficient. With `std`, `ops::Plan` stores a
 //! prepared vector or row-major matrix for the multi-row `_with` operations.

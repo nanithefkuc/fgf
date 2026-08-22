@@ -1,8 +1,9 @@
 //! `fgf` side of the external-library comparison (see external-bench/PLAN.md).
 //!
-//! Measures scalar and 64 KiB single-source region operations plus prepared
-//! 16-source overwrite dot products at 4 and 16 KiB. Buffers are 64-byte
-//! aligned to match the ISA-L harness.
+//! Measures scalar and 64 KiB single-source region operations, prepared
+//! 16-source overwrite dot products at 4 and 16 KiB, and 64 KiB ten-source
+//! erasure encodes over 2/4/6 output rows. Buffers are 64-byte aligned to match
+//! the ISA-L harness.
 //!
 //! ```sh
 //! cargo bench --bench compare
@@ -17,6 +18,8 @@ const BYTES: usize = 64 * 1024;
 const SCALAR_ITERS: usize = 1 << 20;
 const DOT_SOURCES: usize = 16;
 const DOT_LENGTHS: &[usize] = &[4 * 1024, 16 * 1024];
+const ENCODE_SOURCES: usize = 10;
+const ENCODE_ROWS: &[usize] = &[2, 4, 6];
 
 fn noise(len: usize, seed: u64) -> Vec<u8> {
     let mut state = seed | 1;
@@ -104,6 +107,95 @@ fn bench_dot_product(len: usize) {
                 black_box(rse_dst.as_mut_slice()),
             );
         }
+    });
+}
+
+fn bench_encode(nrows: usize) {
+    let sources: Vec<AlignedBuf> = (0..ENCODE_SOURCES)
+        .map(|term| AlignedBuf::noise(BYTES, 0xa00 + term as u64))
+        .collect();
+    let columns_8b: Vec<Vec<gf8b::Elem>> = (0..ENCODE_SOURCES)
+        .map(|term| {
+            (0..nrows)
+                .map(|row| gf8b::Elem((1 + ((row * ENCODE_SOURCES + term) * 97 + 13) % 255) as u8))
+                .collect()
+        })
+        .collect();
+    let columns_8d: Vec<Vec<gf8d::Elem>> = (0..ENCODE_SOURCES)
+        .map(|term| {
+            (0..nrows)
+                .map(|row| gf8d::Elem((1 + ((row * ENCODE_SOURCES + term) * 97 + 13) % 255) as u8))
+                .collect()
+        })
+        .collect();
+    let terms_8b: Vec<(&[gf8b::Elem], &[u8])> = columns_8b
+        .iter()
+        .zip(&sources)
+        .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
+        .collect();
+    let terms_8d: Vec<(&[gf8d::Elem], &[u8])> = columns_8d
+        .iter()
+        .zip(&sources)
+        .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
+        .collect();
+    let mut old_8b = AlignedBuf::noise(BYTES * nrows, 0xb00);
+    let mut new_8b = AlignedBuf::noise(BYTES * nrows, 0xb01);
+    let mut old_8d = AlignedBuf::noise(BYTES * nrows, 0xb02);
+    let mut new_8d = AlignedBuf::noise(BYTES * nrows, 0xb03);
+
+    old_8b.as_mut_slice().fill(0);
+    ops::mul_add_matrix::<Gf8B>(old_8b.as_mut_slice(), BYTES, nrows, &terms_8b);
+    ops::dot_product_matrix::<Gf8B>(new_8b.as_mut_slice(), BYTES, nrows, &terms_8b);
+    assert_eq!(
+        old_8b.as_slice(),
+        new_8b.as_slice(),
+        "Gf8B matrix overwrite differs"
+    );
+
+    old_8d.as_mut_slice().fill(0);
+    ops::mul_add_matrix::<Gf8D>(old_8d.as_mut_slice(), BYTES, nrows, &terms_8d);
+    ops::dot_product_matrix::<Gf8D>(new_8d.as_mut_slice(), BYTES, nrows, &terms_8d);
+    assert_eq!(
+        old_8d.as_slice(),
+        new_8d.as_slice(),
+        "Gf8D matrix overwrite differs"
+    );
+
+    println!("{BYTES} B x {ENCODE_SOURCES} sources -> {nrows} rows encode");
+    let logical_bytes = BYTES * ENCODE_SOURCES;
+    bench_region("fgf Gf8B fill + mul_add_matrix", logical_bytes, || {
+        old_8b.as_mut_slice().fill(0);
+        ops::mul_add_matrix::<Gf8B>(
+            black_box(old_8b.as_mut_slice()),
+            BYTES,
+            nrows,
+            black_box(&terms_8b),
+        );
+    });
+    bench_region("fgf Gf8B dot_product_matrix", logical_bytes, || {
+        ops::dot_product_matrix::<Gf8B>(
+            black_box(new_8b.as_mut_slice()),
+            BYTES,
+            nrows,
+            black_box(&terms_8b),
+        );
+    });
+    bench_region("fgf Gf8D fill + mul_add_matrix", logical_bytes, || {
+        old_8d.as_mut_slice().fill(0);
+        ops::mul_add_matrix::<Gf8D>(
+            black_box(old_8d.as_mut_slice()),
+            BYTES,
+            nrows,
+            black_box(&terms_8d),
+        );
+    });
+    bench_region("fgf Gf8D dot_product_matrix", logical_bytes, || {
+        ops::dot_product_matrix::<Gf8D>(
+            black_box(new_8d.as_mut_slice()),
+            BYTES,
+            nrows,
+            black_box(&terms_8d),
+        );
     });
 }
 
@@ -251,5 +343,9 @@ fn main() {
 
     for &len in DOT_LENGTHS {
         bench_dot_product(len);
+    }
+
+    for &nrows in ENCODE_ROWS {
+        bench_encode(nrows);
     }
 }

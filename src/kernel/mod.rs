@@ -497,6 +497,41 @@ pub trait FieldKernels: Field + private::Sealed {
         }
     }
 
+    /// Many sources overwrite many rows: `rows[j] = sum_t coeffs[t][j] * src[t]`.
+    ///
+    /// The overwrite counterpart of [`FieldKernels::mul_add_matrix`] and the
+    /// erasure-encode shape: the previous destination is ignored. The default
+    /// zeroes the first `nrows` rows and accumulates; register-blocked backends
+    /// override it to seed accumulators from zero in registers, writing each row
+    /// once with no destination read and no separate fill.
+    fn dot_product_matrix(
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        terms: &[(&[Self::Elem], &[u8])],
+    ) {
+        for row in rows.chunks_exact_mut(row_len).take(nrows) {
+            row.fill(0);
+        }
+        Self::mul_add_matrix(rows, row_len, nrows, terms);
+    }
+
+    /// Prepared-plan overwrite matrix, the overwrite form of
+    /// [`FieldKernels::mul_add_matrix_plan`].
+    fn dot_product_matrix_plan(
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        values: &[Self::Elem],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        for row in rows.chunks_exact_mut(row_len).take(nrows) {
+            row.fill(0);
+        }
+        Self::mul_add_matrix_plan(rows, row_len, nrows, values, coeffs, srcs);
+    }
+
     /// Many sources into many disjoint rows scattered through `dst`: for each
     /// `(coeffs, src)` term, `dst[row_starts[j]..][..row_len] ^= coeffs[j] *
     /// src` for every `j`.

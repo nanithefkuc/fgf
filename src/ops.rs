@@ -759,6 +759,113 @@ pub fn mul_add_matrix_with<F: FieldKernels>(
     );
 }
 
+/// Overwrite many rows with field dot products: for each output row `j`,
+/// `rows[j] = sum_t coeffs[t][j] * src[t]`.
+///
+/// The overwrite counterpart of [`mul_add_matrix`] and the erasure-encode
+/// shape: the previous destination is ignored, so callers need not zero it.
+/// A register-blocked backend seeds accumulators from zero and writes each row
+/// once, with no destination read and no separate `fill(0)`.
+///
+/// # Panics
+/// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes, every
+/// term supplies `nrows` coefficients, and every source is `row_len` bytes.
+pub fn dot_product_matrix<F: FieldKernels>(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &[(&[F::Elem], &[u8])],
+) {
+    check_width::<F>("dot_product_matrix", row_len);
+    let used = nrows
+        .checked_mul(row_len)
+        .expect("dot_product_matrix: row geometry overflows");
+    assert!(
+        rows.len() >= used,
+        "dot_product_matrix: rows is {} bytes but {nrows} rows of {row_len} bytes need {used}",
+        rows.len(),
+    );
+    for &(coeffs, src) in terms {
+        assert_eq!(
+            coeffs.len(),
+            nrows,
+            "dot_product_matrix: term supplies {} coefficients for {nrows} rows",
+            coeffs.len()
+        );
+        assert_eq!(
+            src.len(),
+            row_len,
+            "dot_product_matrix: source is {} bytes, expected {row_len}",
+            src.len()
+        );
+    }
+    if nrows == 0 {
+        return;
+    }
+    if terms.is_empty() {
+        rows[..used].fill(0);
+        return;
+    }
+    F::dot_product_matrix(&mut rows[..used], row_len, nrows, terms);
+}
+
+/// Overwrite many rows with field dot products using a prepared coefficient
+/// plan: `rows[j] = sum_t coeffs[t][j] * src[t]`.
+///
+/// The overwrite counterpart of [`mul_add_matrix_with`]. `plan` must have
+/// dimensions `(srcs.len(), nrows)`.
+///
+/// # Panics
+/// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes,
+/// `plan.dimensions() == (srcs.len(), nrows)`, and every source is `row_len`
+/// bytes.
+#[cfg(feature = "std")]
+pub fn dot_product_matrix_with<F: FieldKernels>(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    plan: &Plan<F>,
+    srcs: &[&[u8]],
+) {
+    check_width::<F>("dot_product_matrix_with", row_len);
+    let used = nrows
+        .checked_mul(row_len)
+        .expect("dot_product_matrix_with: row geometry overflows");
+    assert!(
+        rows.len() >= used,
+        "dot_product_matrix_with: rows is {} bytes but {nrows} rows of {row_len} bytes need {used}",
+        rows.len(),
+    );
+    assert_eq!(
+        plan.dimensions(),
+        (srcs.len(), nrows),
+        "dot_product_matrix_with: plan dimensions do not match (sources, rows)",
+    );
+    for (index, &src) in srcs.iter().enumerate() {
+        assert_eq!(
+            src.len(),
+            row_len,
+            "dot_product_matrix_with: source {index} is {} bytes, expected {row_len}",
+            src.len(),
+        );
+    }
+    if nrows == 0 {
+        return;
+    }
+    if srcs.is_empty() {
+        rows[..used].fill(0);
+        return;
+    }
+    F::dot_product_matrix_plan(
+        &mut rows[..used],
+        row_len,
+        nrows,
+        &plan.values,
+        &plan.prepared,
+        srcs,
+    );
+}
+
 /// Apply many sources to many disjoint rows scattered through `dst`: for each
 /// `(coeffs, src)` term, `dst[row_starts[j]..][..row_len] ^= coeffs[j] * src`
 /// for every `j` in `0..row_starts.len()`.

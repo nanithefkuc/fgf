@@ -265,6 +265,52 @@ fn check_matrix<E: Copy, F>(
     }
 }
 
+/// Compare an overwrite matrix kernel against a per-term reference sum.
+///
+/// Unlike [`check_matrix`], the destination starts as nonzero noise the kernel
+/// must ignore and the reference accumulates from zero, so the two agree only
+/// if the kernel overwrites `rows[j] = sum_t coeffs[t][j] * src[t]`.
+fn check_matrix_overwrite<E: Copy, F>(
+    name: &str,
+    coeff_at: impl Fn(usize, usize) -> E,
+    reference: F,
+    kernel: impl Fn(&mut [u8], usize, usize, &[(&[E], &[u8])]),
+) where
+    F: Fn(&mut [u8], E, &[u8]),
+{
+    for &row_len in ROW_LENS {
+        for &nrows in ROW_COUNTS {
+            for nterms in [1usize, 2, 3, 7, 8, 9, 17] {
+                let sources: Vec<Vec<u8>> = (0..nterms)
+                    .map(|t| noise(row_len, 0x400 + t as u64))
+                    .collect();
+                let coeff_sets: Vec<Vec<E>> = (0..nterms)
+                    .map(|t| (0..nrows).map(|j| coeff_at(t, j)).collect())
+                    .collect();
+                let terms: Vec<(&[E], &[u8])> = coeff_sets
+                    .iter()
+                    .zip(&sources)
+                    .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                    .collect();
+
+                let mut got = noise(row_len * nrows, 0xd9);
+                let mut want = vec![0u8; row_len * nrows];
+
+                kernel(&mut got, row_len, nrows, &terms);
+                for &(coeffs, src) in &terms {
+                    for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                        reference(row, coeff, src);
+                    }
+                }
+                assert_eq!(
+                    got, want,
+                    "{name}: row_len {row_len}, nrows {nrows}, terms {nterms}"
+                );
+            }
+        }
+    }
+}
+
 /// Compare a gather kernel against repeated scalar AXPY calls.
 fn check_gather<E: Copy, F>(
     name: &str,
@@ -833,6 +879,12 @@ mod x86 {
             gf8_reference,
             x86::gf8::matrix_gfni,
         );
+        check_matrix_overwrite(
+            "gf8 gfni matrix overwrite",
+            gf8_coeff_at2,
+            gf8_reference,
+            x86::gf8::matrix_overwrite_gfni,
+        );
         check_matrix(
             "gf16 gfni matrix",
             gf16_coeff_at2,
@@ -1023,6 +1075,12 @@ mod x86 {
             gf8d_coeff_at2,
             gf8d_reference,
             x86::gf8::matrix_affine,
+        );
+        check_matrix_overwrite(
+            "gf8d affine matrix overwrite",
+            gf8d_coeff_at2,
+            gf8d_reference,
+            x86::gf8::matrix_overwrite_affine,
         );
         check_gather(
             "gf8d affine gather",

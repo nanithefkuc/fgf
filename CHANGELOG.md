@@ -25,6 +25,11 @@ All notable changes to this project are documented here. The format follows
   N-to-1 field dot product, distinct from accumulating `mul_add_gather`.
   Empty/all-zero inputs clear the destination, one source uses `mul_into`, and
   prepared plans remain allocation-free.
+- `dot_product_matrix` and `dot_product_matrix_with` overwrite multiple rows
+  with field dot products for erasure encoding. On x86 GFNI, `Gf8B` and
+  `Gf8D` seed blocked accumulators from zero in registers, eliminating the
+  separate zero-fill and destination read; other backends use the equivalent
+  zero-then-accumulate composition.
 
 ### Changed
 

@@ -290,6 +290,45 @@ impl FieldKernels for Gf8B {
             }
         }
     }
+    fn dot_product_matrix(
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        terms: &[(&[Elem], &[u8])],
+    ) {
+        // Overwrite seeds accumulators from zero in registers: one write pass,
+        // no destination read, no separate fill.
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if backend() == Backend::V3GfniCrypto {
+            return x86::gf8::matrix_overwrite_gfni(rows, row_len, nrows, terms);
+        }
+        for row in rows.chunks_exact_mut(row_len).take(nrows) {
+            row.fill(0);
+        }
+        Self::mul_add_matrix(rows, row_len, nrows, terms);
+    }
+    fn dot_product_matrix_plan(
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        values: &[Elem],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if backend() == Backend::V3GfniCrypto {
+            let terms = crate::kernel::FlatMatrix {
+                coefficients: values,
+                nrows,
+                sources: srcs,
+            };
+            return x86::gf8::matrix_overwrite_gfni_with(rows, row_len, nrows, &terms);
+        }
+        for row in rows.chunks_exact_mut(row_len).take(nrows) {
+            row.fill(0);
+        }
+        Self::mul_add_matrix_plan(rows, row_len, nrows, values, coeffs, srcs);
+    }
 
     fn mul_add_matrix_scattered(
         dst: &mut [u8],
@@ -529,6 +568,43 @@ impl FieldKernels for Gf8D {
                 Self::mul_add(row, coeff, src);
             }
         }
+    }
+    fn dot_product_matrix(
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        terms: &[(&[gf8d::Elem], &[u8])],
+    ) {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if backend() == Backend::V3GfniCrypto {
+            return x86::gf8::matrix_overwrite_affine(rows, row_len, nrows, terms);
+        }
+        for row in rows.chunks_exact_mut(row_len).take(nrows) {
+            row.fill(0);
+        }
+        Self::mul_add_matrix(rows, row_len, nrows, terms);
+    }
+    fn dot_product_matrix_plan(
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        values: &[gf8d::Elem],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if backend() == Backend::V3GfniCrypto {
+            let terms = crate::kernel::FlatMatrix {
+                coefficients: values,
+                nrows,
+                sources: srcs,
+            };
+            return x86::gf8::matrix_overwrite_affine_with(rows, row_len, nrows, &terms);
+        }
+        for row in rows.chunks_exact_mut(row_len).take(nrows) {
+            row.fill(0);
+        }
+        Self::mul_add_matrix_plan(rows, row_len, nrows, values, coeffs, srcs);
     }
 
     fn mul_add_matrix_scattered(

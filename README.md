@@ -101,6 +101,7 @@ assert_eq!(dst, [0x03, 0x06, 0x05, 0x0c]);
 | many sources, one row | `mul_add_gather` / `mul_add_gather_with` | recover one symbol |
 | many sources overwrite one row | `dot_product` / `dot_product_with` | fresh recovered symbol |
 | many sources, many rows | `mul_add_matrix` / `mul_add_matrix_with` | reconstruction |
+| many sources overwrite many rows | `dot_product_matrix` / `dot_product_matrix_with` | erasure encode |
 | many sources, scattered rows | `mul_add_matrix_scattered` | in-place reconstruction |
 | varying pair per lane | `mul_elementwise` | pointwise products |
 
@@ -126,7 +127,7 @@ let b = [3u8, 0, 4, 0];
 let sources = [&a[..], &b[..]];
 let mut rows = [0u8; 8];
 
-ops::mul_add_matrix_with(&mut rows, 4, 2, &plan, &sources);
+ops::dot_product_matrix_with(&mut rows, 4, 2, &plan, &sources);
 ```
 
 Use `ops::pack`, `ops::unpack`, or `ops::pack_to_vec` at element/buffer

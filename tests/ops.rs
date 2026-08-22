@@ -306,6 +306,97 @@ fn gf16_matrix_matches_repeated_scatter() {
     }
 }
 
+/// The overwrite matrix ignores prior destination bytes, matches the zeroed
+/// accumulate over the same terms, leaves surplus rows untouched, and agrees
+/// with its prepared plan form.
+fn check_dot_product_matrix<F: fgf::FieldKernels>(tag: &str, seed: u64) {
+    let b = F::BYTES;
+    for &rl_elems in &[1usize, 16, 33, 64, 100, 512] {
+        let row_len = rl_elems * b;
+        for &nrows in &[1usize, 2, 3, 4, 5, 6, 8] {
+            for &nterms in &[0usize, 1, 2, 5] {
+                let sources: Vec<Vec<u8>> = (0..nterms)
+                    .map(|t| noise(row_len, seed + 0x100 + t as u64))
+                    .collect();
+                #[cfg(feature = "std")]
+                let src_refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+                let coeff_sets: Vec<Vec<F::Elem>> = (0..nterms)
+                    .map(|t| {
+                        noise(nrows * b, seed + 0x200 + t as u64)
+                            .chunks_exact(b)
+                            .map(F::read)
+                            .collect()
+                    })
+                    .collect();
+                let terms: Vec<(&[F::Elem], &[u8])> = coeff_sets
+                    .iter()
+                    .zip(&sources)
+                    .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                    .collect();
+
+                // Oracle: zero, then accumulate every term.
+                let mut want = vec![0u8; row_len * nrows];
+                for &(coeffs, src) in &terms {
+                    for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                        oracle_mul_add::<F>(row, coeff, src);
+                    }
+                }
+
+                // One extra row of nonzero noise proves overwrite ignores the
+                // prior destination and never touches surplus rows.
+                let mut got = noise(row_len * (nrows + 1), seed + 0x300);
+                let surplus = got[row_len * nrows..].to_vec();
+                ops::dot_product_matrix::<F>(&mut got, row_len, nrows, &terms);
+                assert_eq!(
+                    &got[..row_len * nrows],
+                    want.as_slice(),
+                    "{tag}: overwrite rl={row_len} nrows={nrows} nterms={nterms}"
+                );
+                assert_eq!(
+                    &got[row_len * nrows..],
+                    surplus.as_slice(),
+                    "{tag}: overwrite touched surplus rl={row_len} nrows={nrows} nterms={nterms}"
+                );
+
+                // The prepared plan form must match the one-shot overwrite.
+                #[cfg(feature = "std")]
+                if nterms > 0 {
+                    let flat: Vec<F::Elem> =
+                        coeff_sets.iter().flat_map(|c| c.iter().copied()).collect();
+                    let plan = ops::Plan::<F>::matrix(nterms, nrows, &flat);
+                    let mut prepared = noise(row_len * nrows, seed + 0x500);
+                    ops::dot_product_matrix_with::<F>(
+                        &mut prepared,
+                        row_len,
+                        nrows,
+                        &plan,
+                        &src_refs,
+                    );
+                    assert_eq!(
+                        prepared, want,
+                        "{tag}: prepared rl={row_len} nrows={nrows} nterms={nterms}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn gf8_dot_product_matrix_overwrites() {
+    check_dot_product_matrix::<Gf8B>("gf8b", 0x7a1);
+}
+
+#[test]
+fn gf8d_dot_product_matrix_overwrites() {
+    check_dot_product_matrix::<Gf8D>("gf8d", 0x7a2);
+}
+
+#[test]
+fn gf16_dot_product_matrix_overwrites() {
+    check_dot_product_matrix::<Gf16>("gf16", 0x7a3);
+}
+
 // ---------------------------------------------------------------------------
 // mul_add_matrix_scattered
 // ---------------------------------------------------------------------------
@@ -903,12 +994,31 @@ fn matrix_rejects_wrong_coefficient_count() {
 }
 
 #[test]
+#[should_panic(expected = "dot_product_matrix: term supplies 2 coefficients for 4 rows")]
+fn dot_product_matrix_rejects_wrong_coefficient_count() {
+    let mut rows = [0u8; 32];
+    let coeffs = [gf8b::Elem(1); 2];
+    ops::dot_product_matrix::<Gf8B>(&mut rows, 8, 4, &[(&coeffs, &[0u8; 8])]);
+}
+
+#[cfg(feature = "std")]
+#[test]
+#[should_panic(expected = "dot_product_matrix_with: plan dimensions do not match")]
+fn dot_product_matrix_with_rejects_wrong_plan_dimensions() {
+    let mut rows = [0u8; 32];
+    let plan = ops::Plan::<Gf8B>::matrix(1, 2, &[gf8b::Elem(1); 2]);
+    let sources = [&[0u8; 8][..], &[0u8; 8][..]];
+    ops::dot_product_matrix_with::<Gf8B>(&mut rows, 8, 4, &plan, &sources);
+}
+
+#[test]
 fn empty_buffers_are_no_ops() {
     let mut empty: [u8; 0] = [];
     ops::mul_add::<Gf8B>(&mut empty, gf8b::Elem(7), &[]);
     ops::mul_assign::<Gf16>(&mut empty, gf16::Elem(7));
     ops::mul_add_scatter::<Gf8B>(&mut empty, 0, &[], &[]);
     ops::mul_add_matrix::<Gf8B>(&mut empty, 8, 0, &[]);
+    ops::dot_product_matrix::<Gf8B>(&mut empty, 8, 0, &[]);
     ops::mul_add_gather::<Gf8B>(&mut empty, &[], &[]);
 }
 
