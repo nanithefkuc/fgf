@@ -344,8 +344,8 @@ impl FieldKernels for Gf8B {
 /// sub-lane scalar tails read the `0x11D` nibble tables.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Prepared8D {
-    table: &'static ScaleTable,
-    affine: u64,
+    pub(crate) table: &'static ScaleTable,
+    pub(crate) affine: u64,
 }
 
 /// Reed–Solomon interop field, GF(2^8) under `0x11D`.

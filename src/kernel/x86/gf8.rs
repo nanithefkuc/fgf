@@ -26,6 +26,8 @@ use core::arch::x86_64::*;
 use crate::field::gf8b::Elem;
 use crate::field::gf8d;
 use crate::kernel::Matrix;
+#[cfg(any(test, feature = "internals"))]
+use crate::kernel::gf8::Prepared8D;
 use crate::kernel::gf8::{mul_add_nibble, mul_assign_nibble, mul_into_nibble};
 #[cfg(any(test, feature = "internals"))]
 use crate::kernel::tables::affine_8b;
@@ -819,6 +821,40 @@ impl Blocked for Affine8D {
     #[inline]
     fn table(coeff: gf8d::Elem) -> &'static ScaleTable {
         scale_table_8d(coeff)
+    }
+}
+
+#[cfg(any(test, feature = "internals"))]
+/// Affine-map multiply for `Gf8D` consuming a coefficient prepared once.
+///
+/// Identical to [`Affine8D`] except the `VGF2P8AFFINEQB` map is read straight
+/// from [`Prepared8D`] instead of re-derived from the coefficient byte inside
+/// the tile loop. The prepared gather then does one broadcast-load per source
+/// per tile rather than a dependent coefficient load feeding an indexed
+/// affine-map broadcast-load.
+enum Affine8DPrepared {}
+#[cfg(any(test, feature = "internals"))]
+impl Blocked for Affine8DPrepared {
+    type Coeff = Prepared8D;
+    const AFFINE: bool = true;
+    #[inline]
+    fn zero() -> Prepared8D {
+        Prepared8D {
+            table: scale_table_8d(gf8d::Elem(0)),
+            affine: affine_8d(gf8d::Elem(0)),
+        }
+    }
+    #[inline]
+    fn byte(coeff: Prepared8D) -> u8 {
+        coeff.table.coeff.0
+    }
+    #[inline]
+    fn map(coeff: Prepared8D) -> u64 {
+        coeff.affine
+    }
+    #[inline]
+    fn table(coeff: Prepared8D) -> &'static ScaleTable {
+        coeff.table
     }
 }
 
@@ -2020,6 +2056,18 @@ pub fn gather_affine(dst: &mut [u8], coeffs: &[gf8d::Elem], srcs: &[&[u8]]) {
     // SAFETY: the selected backend guarantees AVX2 and GFNI; callers checked
     // every source length against `dst`.
     unsafe { gather_impl::<Affine8D, false, 4>(dst, coeffs, srcs) }
+}
+
+#[cfg(any(test, feature = "internals"))]
+/// [`gather_affine`] over `Gf8D` coefficients prepared once.
+///
+/// Broadcasts each stored `VGF2P8AFFINEQB` map directly, so the tile loop
+/// carries no per-tile coefficient load or affine-map lookup.
+pub fn gather_affine_prepared(dst: &mut [u8], prepared: &[Prepared8D], srcs: &[&[u8]]) {
+    debug_assert_eq!(prepared.len(), srcs.len());
+    // SAFETY: the selected backend guarantees AVX2 and GFNI; callers checked
+    // every source length against `dst`.
+    unsafe { gather_impl::<Affine8DPrepared, false, 4>(dst, prepared, srcs) }
 }
 
 #[inline(never)]

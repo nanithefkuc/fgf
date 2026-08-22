@@ -1030,6 +1030,22 @@ mod x86 {
             gf8d_reference,
             x86::gf8::gather_affine,
         );
+        // Prepared coefficients broadcast the stored affine map straight into
+        // the gather, hoisting the per-tile lookup; output must be identical.
+        check_gather(
+            "gf8d affine gather prepared",
+            |j| {
+                let c = gf8d_coeff_at(j);
+                crate::kernel::gf8::Prepared8D {
+                    table: scale_table_8d(c),
+                    affine: affine_8d(c),
+                }
+            },
+            |dst, prep: crate::kernel::gf8::Prepared8D, src| {
+                gf8d_reference(dst, gf8d::Elem(prep.table.coeff.0), src);
+            },
+            x86::gf8::gather_affine_prepared,
+        );
         // Scattered rows: disjoint offsets, blocked affine against per-term AXPY.
         for &row_len in ROW_LENS {
             for &nrows in ROW_COUNTS {
