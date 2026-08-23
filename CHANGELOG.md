@@ -14,6 +14,18 @@ All notable changes to this project are documented here. The format follows
   Raw-lane totality is unchanged. `Elem::square` uses a dedicated
   `(a²−b²) + 2ab·i` form (3 base multiplies instead of 4).
 
+### Added
+
+- `QuadMersenne31`, the quadratic extension GF((2^31 − 1)²) over `Mersenne31` with `i² = −1` (the QM31 construction). 8-byte interleaved `re,im` little-endian encoding, `const` scalar arithmetic (schoolbook multiply, conjugate/norm inverse), generator `(1,12)` of order `p²−1`, total over raw limbs, and the complete checked ops surface composed from the `Mersenne31` lanes (portable `scalar` today, no new `unsafe`).
+
+## [0.6.0] - 2026-08-23
+
+This release adds `QuadMersenne31`, the degree-2 extension of `Mersenne31` (`i²=−1`) used by circle STARKs. The binary-tower and prime fields are byte-identical to 0.5.0.
+
+### Added
+
+- `QuadMersenne31` (GF((2^31−1)²)). See Unreleased entry above.
+
 ## [0.5.0] - 2026-08-23
 
 This release widens the crate from binary tower fields to also cover prime
@@ -261,7 +273,8 @@ are deliberately not repeated here.
 
 Initial public release.
 
-[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/nanithefkuc/fgf/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/nanithefkuc/fgf/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/nanithefkuc/fgf/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/nanithefkuc/fgf/compare/v0.2.0...v0.3.0

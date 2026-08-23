@@ -57,12 +57,13 @@ fgf = { git = "https://github.com/nanithefkuc/fgf", default-features = false }
 | Fan–Paar GF(2^64) | `FanPaar64` | `fan_paar::fp64::Elem` | canonical recursive tower | x86 AVX2 |
 | GF(2^31 − 1) | `Mersenne31` | `mersenne31::Elem` | Mersenne prime, `u32` lanes | x86 AVX2/SSE4.2 integer SIMD |
 | GF(2^64 − 2^32 + 1) | `Goldilocks` | `goldilocks::Elem` | Goldilocks prime, `u64` lanes | x86 AVX2/SSE4.2 integer SIMD |
+| GF((2^31 − 1)²) | `QuadMersenne31` | `quad_mersenne31::Elem` | QM31 extension `i²=−1` over `Mersenne31` | portable (composes `Mersenne31` lanes) |
 
 The prime fields are lane-packed integer arithmetic with a modular fold
 (`2^31 ≡ 1` for Mersenne31; the `2^64 ≡ 2^32 − 1` split-fold for Goldilocks).
-They are total over raw lanes — any bit pattern is a legal input and every
-arithmetic output is canonical (`< p`) — and variable-time, so they are not for
-secret data. On non-x86 targets they run the portable path.
+They and their quadratic extension `QuadMersenne31` (`i²=−1` over `Mersenne31`, 8-byte `re,im`) are total over raw lanes — any bit pattern is a legal input and every
+arithmetic output is canonical (`< p` per limb) — and variable-time, so they are not for
+secret data. The prime fields run integer SIMD on x86; the extension composes those lanes and reports `scalar` today, and on non-x86 targets all three run the portable path.
 
 ### Scalar arithmetic
 
