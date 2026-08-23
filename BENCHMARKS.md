@@ -642,6 +642,46 @@ GFNI host; the branchless eight-round shift/reduce vector multiply, with the
 reference. 7.1–7.9 GiB/s against the reference's ~1.1 GiB/s — 6.2–7.1× from
 64 B up, the win flat across sizes because the loop is compute-bound.
 
+### Rejected: Karatsuba for `QuadMersenne31` (2026-08-23)
+
+`QuadMersenne31` `(a+bi)(c+di) = (ac−bd)+(ad+bc)i` can be done as 3 base
+multiplies (Karatsuba) instead of 4 (schoolbook): `ac`, `bd`, `t=(a+b)(c+d)`,
+`ad+bc = t−ac−bd`. The scalar textbook and the vector `ops::mul_add` both
+compose `mersenne31::Elem` (`reduce` + fold), so the trade is one `m31_mul`
+saved against two `m31_add` and two `m31_sub` added, plus the extra
+canonicalizations they imply. `Elem::square` via `mul` already covers the
+square case; a dedicated 3-mul square (`a²`, `b²`, `ab`, `2ab`) was measured
+alongside the general multiply.
+
+Core Ultra 7 258V (Lunar Lake), Linux 7.1.8-arch1-3, rustc 1.93.0, `release`,
+`fgf` 0.6.0, P-core 3 isolated (`isolcpus=managed_irq,domain,3 nohz_full=3`),
+`taskset -c 3`, `performance` governor at 3.70 GHz, backend `scalar` for
+`QuadMersenne31` (portable composition; `backend_for::<QuadMersenne31>() ==
+Scalar` even though `backend()==V3`). Five interleaved pinned runs, median
+of process medians; scalar timing is `Instant` over 20 M iterations with
+`black_box`, vector timing is logical GiB/s over 64 KiB `dst ^= coeff*src`
+(`ops::mul_add`) over 2000 iterations, validated byte-for-byte against the
+schoolbook oracle before timing.
+
+| Shape | schoolbook (4-mul) | Karatsuba (3-mul) | Kara / schoolbook |
+| --- | ---: | ---: | ---: |
+| `Elem::mul` scalar | 4.68 ns/op [4.65–4.73] | 13.28 ns/op [13.20–13.35] | 2.83× slower |
+| `ops::mul_add` 64 KiB, 1 source | 1.45 GiB/s [1.43–1.46] | 1.36 GiB/s [1.34–1.37] | 0.94× (6% slower) |
+| `Elem::square` via `mul` vs 3-mul | 4.68 ns/op (same as mul) | 4.95 ns/op (kara square) | 1.06× slower |
+
+Karatsuba loses in both domains on this host: the extra modular adds/subs and
+their min-chain reductions cost more than the one `m31_mul` they save,
+because the Mersenne fold is already only a mask/shift/add plus one
+conditional subtract. The vector loss is smaller because the 64 KiB loop is
+partly memory-bound, but still a loss in every run with intervals excluding
+parity. Production keeps the 4-mul schoolbook general multiply; `square`
+gains a dedicated 3-mul form in the follow-up below, which measured faster
+than both karatsuba candidates.
+The karatsuba bodies were deleted, not left behind disabled; reproduce the
+comparison by timing `Elem::mul` against a 3-mul variant and `ops::mul_add`
+with `taskset -c 3 cargo bench --bench kernels` restricted to
+`QuadMersenne31` `mul_add`.
+
 ### `QuadMersenne31` kernels: canonicalize-once limbs (2026-08-23)
 
 The first `QuadMersenne31` kernel composition called the scalar helpers
@@ -678,6 +718,20 @@ saves here. The multiply shapes — the ones this field exists for — gain
 20–40%, so the composition is accepted as a whole; the sub regression is
 recorded rather than dispatched around, pending a measured min-chain form
 that does not reintroduce the double canonicalization.
+
+### Prime-field follow-up candidates: disposition (2026-08-23)
+
+The quadratic-extension round closed with one candidate measured and rejected
+(Karatsuba, above); the remaining prime-field candidates stay gated on the
+concrete-demand and validation triggers recorded here:
+
+| Candidate | Disposition | Trigger / blocker |
+| --- | --- | --- |
+| AVX-512 `vpmullq` for Goldilocks (`V4x`) | Deferred, not measured | `FGF_TIERS` excludes `V4x` process-wide; admitting it per-family needs a `simdispatch` policy change; Lunar Lake host has no AVX-512 to validate on (charter: no AVX-512 tuning without executing hardware). External-bench `plonky2_field` adapter provides the AVX-512 datapoint until then. |
+| Mersenne61 `GF(2⁶¹−1)` for `gfm` fingerprints | Deferred | One-field-per-concrete-demand rule: `gfm` has not yet pinned a fingerprint modulus. Precedent is `libfqfft` `fp61` (`p=2⁶¹−1`, generator 37). When `gfm` names it, the field is a 64-bit-lane Mersenne fold like `Mersenne31`, no new reduction core. |
+| Shoup/Barrett prepared forms for non-Mersenne u32 primes (BabyBear etc.) | Deferred | Only pays for non-Mersenne reduction; no NTT/STARK consumer has requested BabyBear/KoalaBear. Baseline stays broadcast word; Shoup pair `c, ⌊c·2^k/p⌋` is the measured candidate when such a prime is requested. |
+| Small-prime set `p < 2¹⁶`, 2-byte lanes for `latticode` | Deferred | `latticode` Construction A/D has no pinned small-prime alphabet yet. When it does, a 2-byte `u16` lane field set is the primitive, not a generic `Fp<P>`. |
+| Lazy-reduction internal pipelines (keep `0..2p` internally, canonical only at public bytes) | Deferred, not separately measured | Would compose with the scalar/AVX2 `m31_mul` body; no independent win was measured after Karatsuba showed the `m31_mul` itself is already only a fold + conditional subtract. Revisit only as part of a vectorized `QuadMersenne31` that stays canonical at every `ops` boundary regardless. |
 
 ## Comparative benchmark
 

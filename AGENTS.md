@@ -10,10 +10,12 @@ It is deliberately not a codec: matrix recipes, shard ownership, inversion,
 and streaming recovery belong above this crate.
 
 The public fields are the binary towers `Gf8B`/`Gf8D`/`Gf16`/`Gf32`/`Gf64`,
-canonical Fan–Paar `FanPaar8/16/32/64`, and the prime fields `Mersenne31`
-(GF(2^31 − 1)) and `Goldilocks` (GF(2^64 − 2^32 + 1)). `Gf8B`/`Gf16` have
+canonical Fan–Paar `FanPaar8/16/32/64`, the prime fields `Mersenne31`
+(GF(2^31 − 1)) and `Goldilocks` (GF(2^64 − 2^32 + 1)), and their quadratic
+extension `QuadMersenne31` (GF((2^31−1)²), `i²=−1`). `Gf8B`/`Gf16` have
 hand-written binary SIMD kernels; the prime fields have x86 integer-SIMD
-kernels (AVX2/SSE4.2); wider towers, Fan–Paar fields, and the prime fields on
+kernels (AVX2/SSE4.2) and `QuadMersenne31` composes the `Mersenne31` lanes
+(portable `scalar` today); wider towers, Fan–Paar fields, and the prime fields on
 non-x86 targets use the portable implementation.
 
 ## Architecture & Data Flow
