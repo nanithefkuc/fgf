@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `QuadMersenne31` kernels canonicalize each limb once per load instead of
+  re-reducing operands in every helper: `mul_add`, `mul_assign`, `mul_into`,
+  and `mul_elementwise` run about 1.2–1.4x faster on 64 KiB buffers.
+  Raw-lane totality is unchanged. `Elem::square` uses a dedicated
+  `(a²−b²) + 2ab·i` form (3 base multiplies instead of 4).
+
 ## [0.5.0] - 2026-08-23
 
 This release widens the crate from binary tower fields to also cover prime

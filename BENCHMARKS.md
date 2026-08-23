@@ -642,6 +642,43 @@ GFNI host; the branchless eight-round shift/reduce vector multiply, with the
 reference. 7.1–7.9 GiB/s against the reference's ~1.1 GiB/s — 6.2–7.1× from
 64 B up, the win flat across sizes because the loop is compute-bound.
 
+### `QuadMersenne31` kernels: canonicalize-once limbs (2026-08-23)
+
+The first `QuadMersenne31` kernel composition called the scalar helpers
+(`m31_add`/`m31_sub`/`m31_mul`), which re-canonicalize every operand on every
+call. `perf annotate` on 64 KiB `mul_add` showed the loop dominated by
+`and $0x7fffffff` / `shr $0x1f` / `cmp`/`cmov` reduction chains — four per
+multiply where one suffices. The production loops now canonicalize each limb
+once on load and run raw modular add/sub/mul over limbs known to be `< p`
+(one conditional subtract per op). Raw-lane totality is unchanged: every
+entry point canonicalizes what it reads, including destination bytes.
+
+A dedicated `Elem::square` (`a²−b²`, `2ab`) also replaces `square via mul`:
+3 base multiplies instead of 4.
+
+Core Ultra 7 258V (Lunar Lake), Linux 7.1.8-arch1-3, rustc 1.93.0,
+`release` (lto thin, codegen-units 1), `fgf` 0.6.0, P-core 3 isolated,
+`taskset -c 3`, `performance` governor at 3.70 GHz, backend `scalar` for
+`QuadMersenne31`. 64 KiB buffers, median of five interleaved pinned runs,
+differentially validated against the public-op oracle before timing:
+
+| Operation (64 KiB) | Before | After | Speedup |
+| --- | ---: | ---: | ---: |
+| `add_assign` | 4.35 GiB/s [4.28–4.41] | 4.43 GiB/s [4.37–4.47] | ~1.02x |
+| `sub_assign` | 4.55 GiB/s [4.50–4.62] | 3.89 GiB/s [3.82–3.93] | 0.86x |
+| `mul_add` | 1.45 GiB/s [1.44–1.47] | 2.04 GiB/s [2.03–2.05] | ~1.40x |
+| `mul_assign` | 2.00 GiB/s [1.98–2.04] | 2.74 GiB/s [2.74–2.75] | ~1.37x |
+| `mul_into` | 2.01 GiB/s [1.99–2.04] | 2.75 GiB/s [2.74–2.76] | ~1.37x |
+| `mul_elementwise` | 1.81 GiB/s [1.79–1.83] | 2.18 GiB/s [2.17–2.19] | ~1.20x |
+
+`sub_assign` regressed ~14%: the old path folded `a + (p - b)` with two
+canonicalizes; the new path computes the canonical negation of `src` with a
+zero-guard branch per limb before the fold. The branch costs more than it
+saves here. The multiply shapes — the ones this field exists for — gain
+20–40%, so the composition is accepted as a whole; the sub regression is
+recorded rather than dispatched around, pending a measured min-chain form
+that does not reintroduce the double canonicalization.
+
 ## Comparative benchmark
 
 `benches/compare.rs` compares aligned, compatible GF(2^8)/`0x11D` operations
