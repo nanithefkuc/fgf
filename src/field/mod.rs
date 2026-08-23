@@ -23,6 +23,7 @@ pub mod gf8b;
 pub mod gf8d;
 pub mod goldilocks;
 pub mod mersenne31;
+pub mod quad_mersenne31;
 
 pub use fan_paar::{FanPaar8, FanPaar16, FanPaar32, FanPaar64};
 pub use gf8b::Gf8B;
@@ -32,7 +33,7 @@ pub use gf32::Gf32;
 pub use gf64::Gf64;
 pub use goldilocks::Goldilocks;
 pub use mersenne31::Mersenne31;
-
+pub use quad_mersenne31::QuadMersenne31;
 /// Scalar arithmetic over a finite field.
 ///
 /// In characteristic two — every binary tower field in this crate — addition

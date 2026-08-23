@@ -51,10 +51,14 @@ pub mod mersenne31;
 pub(crate) mod mersenne31;
 
 #[cfg(feature = "internals")]
+pub mod quad_mersenne31;
+#[cfg(not(feature = "internals"))]
+pub(crate) mod quad_mersenne31;
+
+#[cfg(feature = "internals")]
 pub mod prime;
 #[cfg(not(feature = "internals"))]
 pub(crate) mod prime;
-
 #[cfg(feature = "internals")]
 pub mod scalar;
 #[cfg(not(feature = "internals"))]
@@ -110,6 +114,7 @@ impl private::Sealed for crate::field::fan_paar::FanPaar32 {}
 impl private::Sealed for crate::field::fan_paar::FanPaar64 {}
 impl private::Sealed for crate::field::mersenne31::Mersenne31 {}
 impl private::Sealed for crate::field::goldilocks::Goldilocks {}
+impl private::Sealed for crate::field::quad_mersenne31::QuadMersenne31 {}
 
 // The backend ladder is owned by `simdispatch` (the Level 0 single source for
 // detection and ordering); FGF re-exports it so downstream consumers keep
