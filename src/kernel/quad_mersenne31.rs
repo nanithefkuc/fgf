@@ -3,16 +3,84 @@
 //! Extension arithmetic over Mersenne31 pairs with `i² = −1`. Kernels are
 //! composed from the base Mersenne31 lane kernels — no hand-written SIMD
 //! for the extension yet — so every backend currently reports `Scalar`.
-//! Correctness is differential-tested against the portable `prime` oracle
-//! adapted for the extension (the scalar `Elem` itself is the oracle).
+//!
+//! The loops canonicalize each loaded limb once and then run raw modular
+//! add/sub/mul on limbs known to be `< p`: one conditional subtract per op,
+//! no re-reduction of already-canonical operands. Raw non-canonical lanes in
+//! a destination are still legal input — every entry point canonicalizes what
+//! it reads before computing. Measured against the canonicalize-per-helper
+//! form in BENCHMARKS.md.
 
-use crate::field::Elem as ElemTrait;
 use crate::field::Field;
 use crate::field::quad_mersenne31::{Elem, QuadMersenne31};
 use crate::kernel::FieldKernels;
 
+/// Reduce an arbitrary 32-bit lane to the canonical range `0..p`
+/// (the Mersenne fold, `2^31 ≡ 1`).
+#[inline]
+#[must_use]
+const fn canon(x: u32) -> u32 {
+    let s = (x & crate::field::mersenne31::MODULUS) + (x >> 31);
+    if s >= crate::field::mersenne31::MODULUS {
+        s - crate::field::mersenne31::MODULUS
+    } else {
+        s
+    }
+}
+
+/// Modular multiply of two canonical (`< p`) limbs.
+#[inline]
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
+const fn raw_mul(a: u32, b: u32) -> u32 {
+    let prod = (a as u64) * (b as u64);
+    let s = ((prod as u32) & crate::field::mersenne31::MODULUS) + (prod >> 31) as u32;
+    if s >= crate::field::mersenne31::MODULUS {
+        s - crate::field::mersenne31::MODULUS
+    } else {
+        s
+    }
+}
+
+/// Modular add of two canonical limbs.
+#[inline]
+#[must_use]
+const fn raw_add(a: u32, b: u32) -> u32 {
+    let s = a + b;
+    if s >= crate::field::mersenne31::MODULUS {
+        s - crate::field::mersenne31::MODULUS
+    } else {
+        s
+    }
+}
+
+/// `ac - bd` for canonical limbs; the wrapping add of `p` absorbs the borrow.
+#[inline]
+#[must_use]
+const fn raw_sub(ac: u32, bd: u32) -> u32 {
+    let s = ac
+        .wrapping_sub(bd)
+        .wrapping_add(crate::field::mersenne31::MODULUS);
+    if s >= crate::field::mersenne31::MODULUS {
+        s - crate::field::mersenne31::MODULUS
+    } else {
+        s
+    }
+}
+
+/// `(a+bi)(c+di)` over canonical limbs.
+#[inline]
+#[must_use]
+const fn qmul(ar: u32, ai: u32, br: u32, bi: u32) -> Elem {
+    let ac = raw_mul(ar, br);
+    let bd = raw_mul(ai, bi);
+    let ad = raw_mul(ar, bi);
+    let bc = raw_mul(ai, br);
+    Elem(raw_sub(ac, bd), raw_add(ad, bc))
+}
+
 impl FieldKernels for QuadMersenne31 {
-    /// Canonical pair `(re, im)`, used as-is.
+    /// The canonical pair `(re, im)`, used as-is.
     type Prepared = Elem;
 
     #[inline]
@@ -35,7 +103,16 @@ impl FieldKernels for QuadMersenne31 {
         for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
             let a = QuadMersenne31::read(d);
             let b = QuadMersenne31::read(s);
-            QuadMersenne31::write(d, a.add(b));
+            // Both buffers are caller-owned bytes and may hold non-canonical
+            // raw lanes; canonicalize each limb once, then one conditional
+            // subtract folds the sum.
+            QuadMersenne31::write(
+                d,
+                Elem(
+                    raw_add(canon(a.0), canon(b.0)),
+                    raw_add(canon(a.1), canon(b.1)),
+                ),
+            );
         }
     }
 
@@ -44,47 +121,82 @@ impl FieldKernels for QuadMersenne31 {
         for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
             let a = QuadMersenne31::read(d);
             let b = QuadMersenne31::read(s);
-            QuadMersenne31::write(d, a.sub(b));
+            // dst + (-src); negation of a canonical limb is p - limb (0 stays 0).
+            let br = canon(b.0);
+            let bi = canon(b.1);
+            let ar = canon(a.0);
+            let ai = canon(a.1);
+            QuadMersenne31::write(
+                d,
+                Elem(
+                    raw_add(
+                        ar,
+                        if br == 0 {
+                            0
+                        } else {
+                            crate::field::mersenne31::MODULUS - br
+                        },
+                    ),
+                    raw_add(
+                        ai,
+                        if bi == 0 {
+                            0
+                        } else {
+                            crate::field::mersenne31::MODULUS - bi
+                        },
+                    ),
+                ),
+            );
         }
     }
 
     fn mul_add(dst: &mut [u8], coeff: &Elem, src: &[u8]) {
-        if coeff.is_zero() {
+        let cr = canon(coeff.0);
+        let ci = canon(coeff.1);
+        if cr == 0 && ci == 0 {
             return;
         }
-        if coeff.is_one() {
+        if cr == 1 && ci == 0 {
             Self::add_assign(dst, src);
             return;
         }
         for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
             let a = QuadMersenne31::read(d);
             let b = QuadMersenne31::read(s);
-            QuadMersenne31::write(d, a.add(b.mul(*coeff)));
+            let prod = qmul(canon(b.0), canon(b.1), cr, ci);
+            QuadMersenne31::write(
+                d,
+                Elem(raw_add(canon(a.0), prod.0), raw_add(canon(a.1), prod.1)),
+            );
         }
     }
 
     fn mul_assign(dst: &mut [u8], coeff: &Elem) {
-        if coeff.is_one() {
+        let cr = canon(coeff.0);
+        let ci = canon(coeff.1);
+        if cr == 0 && ci == 0 {
+            dst.fill(0);
             return;
         }
-        if coeff.is_zero() {
-            dst.fill(0);
+        if cr == 1 && ci == 0 {
             return;
         }
         for d in dst.chunks_exact_mut(8) {
             let a = QuadMersenne31::read(d);
-            QuadMersenne31::write(d, a.mul(*coeff));
+            QuadMersenne31::write(d, qmul(canon(a.0), canon(a.1), cr, ci));
         }
     }
 
     fn mul_into(dst: &mut [u8], coeff: &Elem, src: &[u8]) {
-        if coeff.is_zero() {
+        let cr = canon(coeff.0);
+        let ci = canon(coeff.1);
+        if cr == 0 && ci == 0 {
             dst.fill(0);
             return;
         }
         for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
-            let v = QuadMersenne31::read(s).mul(*coeff);
-            QuadMersenne31::write(d, v);
+            let b = QuadMersenne31::read(s);
+            QuadMersenne31::write(d, qmul(canon(b.0), canon(b.1), cr, ci));
         }
     }
 
@@ -116,7 +228,9 @@ impl FieldKernels for QuadMersenne31 {
             .zip(a.chunks_exact(8))
             .zip(b.chunks_exact(8))
         {
-            QuadMersenne31::write(d, QuadMersenne31::read(x).mul(QuadMersenne31::read(y)));
+            let xa = QuadMersenne31::read(x);
+            let xb = QuadMersenne31::read(y);
+            QuadMersenne31::write(d, qmul(canon(xa.0), canon(xa.1), canon(xb.0), canon(xb.1)));
         }
     }
 }

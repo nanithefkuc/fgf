@@ -213,11 +213,19 @@ impl Elem {
         Self(m31_sub(ac, bd), m31_add(ad, bc))
     }
 
-    /// Square.
+    /// Square: `(a+bi)² = (a²−b²) + 2ab·i`.
+    ///
+    /// Three base multiplies instead of the four a general multiply costs;
+    /// `2ab` is one modular add of `ab` with itself, cheaper than another
+    /// multiply. Measured faster than `square via mul` on the reference host
+    /// (BENCHMARKS.md).
     #[inline]
     #[must_use]
     pub const fn square(self) -> Self {
-        self.mul(self)
+        let a2 = m31_mul(self.0, self.0);
+        let b2 = m31_mul(self.1, self.1);
+        let ab = m31_mul(self.0, self.1);
+        Self(m31_sub(a2, b2), m31_add(ab, ab))
     }
 
     /// Multiplicative inverse via conjugate / norm.
