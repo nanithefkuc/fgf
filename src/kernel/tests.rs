@@ -26,7 +26,11 @@ use std::vec::Vec;
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::field::gf8d;
-use crate::field::{FanPaar16, FanPaar32, FanPaar64, Gf32, Gf64, fan_paar, gf8b, gf16, gf32, gf64};
+use crate::field::{
+    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf32, Gf64, Goldilocks, fan_paar, gf8b, gf16, gf32,
+    gf64, quad_mersenne31,
+};
+use crate::kernel::FieldKernels;
 use crate::kernel::scalar;
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::kernel::tables::FpTowerTables;
@@ -1016,6 +1020,24 @@ mod x86 {
             gf16_reference,
             x86::avx512::gf16_matrix,
         );
+        // The overwrite kernels: junk destination, must equal scaling from
+        // a zeroed one.
+        for &len in LENGTHS {
+            let src = noise(len, 0x3a);
+            let coeff = gf8_coeff_at(5);
+            let mut base = vec![0u8; len];
+            scalar::mul_add::<gf8b::Gf8B>(&mut base, coeff, &src);
+            let mut got = noise(len, 0x3b);
+            x86::avx512::gf8_mul_into(&mut got, coeff, &src);
+            assert_eq!(got, base, "gf8 avx512 mul_into at len {len}");
+
+            let coeff = TowerCoeff::new(gf16_coeff_at(7));
+            let mut base = vec![0u8; len];
+            scalar::mul_add::<gf16::Gf16>(&mut base, coeff.coeff, &src);
+            let mut got = noise(len, 0x3c);
+            x86::avx512::gf16_mul_into(&mut got, coeff, &src);
+            assert_eq!(got, base, "gf16 avx512 mul_into at len {len}");
+        }
         check_gf8_elementwise("gf8 avx512 elementwise", x86::avx512::gf8_elementwise);
         check_gf16_elementwise("gf16 avx512 elementwise", x86::avx512::gf16_elementwise);
         for &len in LENGTHS {
@@ -1279,6 +1301,24 @@ mod x86 {
         }
 
         let every_byte: Vec<u8> = (0..=u8::MAX).collect();
+        // Remainder lengths, so the scalar tail past the last vector also
+        // runs through the blocked coefficient accessors.
+        for tail_len in [1usize, 27, 33] {
+            let tail = &every_byte[..tail_len];
+            let tail_srcs = [tail];
+            for c in [0u8, 1, 0x53] {
+                let coeff = gf8b::Elem(c);
+                let factors = [x86::gf8::prepare_affine_8b(coeff)];
+                let mut got = vec![0u8; tail_len];
+                x86::gf8::gather_affine_8b(&mut got, &factors, &tail_srcs);
+                let mut want = vec![0u8; tail_len];
+                scalar::mul_add::<gf8b::Gf8B>(&mut want, coeff, tail);
+                assert_eq!(
+                    got, want,
+                    "affine gather tail len {tail_len} coeff {c:#04x}"
+                );
+            }
+        }
         let srcs = [every_byte.as_slice()];
         for c in 0..=u8::MAX {
             let coeff = gf8b::Elem(c);
@@ -2126,4 +2166,262 @@ mod wasm32 {
             assert_eq!(simd, want, "simd128 xor: len {len}");
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Coverage of dispatch-level contracts the differential drivers skip
+// ---------------------------------------------------------------------------
+
+#[test]
+fn default_kernels_handle_empty_terms() {
+    // The defaulted `FieldKernels::dot_product` (used by the prime and
+    // Fan-Paar fields) zeroes the destination when there are no terms.
+    let mut dst = noise(16, 0x5a);
+    <Goldilocks as FieldKernels>::dot_product(&mut dst, &[], &[]);
+    assert!(dst.iter().all(|&b| b == 0), "empty terms must zero dst");
+    let mut dst = noise(16, 0x5b);
+    <FanPaar32 as FieldKernels>::dot_product(&mut dst, &[], &[]);
+    assert!(dst.iter().all(|&b| b == 0), "empty terms must zero dst");
+}
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(feature = "internals")]
+#[test]
+fn internals_only_gfni_controls_match_reference() {
+    use crate::kernel::x86;
+
+    if !host_supports(&[crate::kernel::Backend::V3GfniCrypto]) {
+        eprintln!("skipping: no AVX2+GFNI on this host");
+        return;
+    }
+
+    // The retained pre-fusion gather control and the full-width tile
+    // delegation must agree with the production gather.
+    check_gather(
+        "gf8 gfni axpy-tail control",
+        gf8_coeff_at,
+        gf8_reference,
+        x86::gf8::gather_gfni_axpy_tail,
+    );
+    check_gather(
+        "gf8 gfni 128-byte tile",
+        gf8_coeff_at,
+        gf8_reference,
+        x86::gf8::gather_gfni_tile::<4>,
+    );
+
+    // `TableCoefficient::with_tables` must fall back to building tables for
+    // the `Plain` prepared form, which the dispatch layer never produces on
+    // a shuffle host but internals callers may hold.
+    if !std::is_x86_feature_detected!("avx2") {
+        eprintln!("skipping: no AVX2 on this host");
+        return;
+    }
+    for &len in LENGTHS {
+        let src = noise(len, 0x61);
+        let mut got = noise(2 * len, 0x62);
+        let mut want = got.clone();
+        let coeffs = [
+            crate::kernel::gf16::Prepared::Plain(gf16_coeff_at(1)),
+            crate::kernel::gf16::Prepared::Plain(gf16_coeff_at(2)),
+        ];
+        x86::gf16::scatter_avx2(&mut got, len, &coeffs, &src);
+        scalar::mul_add::<gf16::Gf16>(&mut want[..len], gf16_coeff_at(1), &src);
+        scalar::mul_add::<gf16::Gf16>(&mut want[len..], gf16_coeff_at(2), &src);
+        assert_eq!(got, want, "plain-prepared scatter at len {len}");
+    }
+}
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(feature = "internals")]
+#[test]
+fn x86_geometry_guards_accept_zero_length_rows() {
+    use crate::kernel::x86;
+
+    // `row_len == 0` must fall through the vector prologues untouched.
+    if !std::is_x86_feature_detected!("ssse3") {
+        eprintln!("skipping: no SSSE3 on this host");
+        return;
+    }
+
+    let coeffs = [gf8b::Elem(3)];
+    x86::gf8::scatter_ssse3(&mut [], 0, &coeffs, &[]);
+    let gf16_coeffs = [crate::kernel::gf16::Prepared::Plain(gf16::Elem(5))];
+    x86::gf16::scatter_ssse3(&mut [], 0, &gf16_coeffs, &[]);
+
+    if std::is_x86_feature_detected!("avx2") {
+        x86::gf8::scatter_avx2(&mut [], 0, &coeffs, &[]);
+        x86::gf16::scatter_avx2(&mut [], 0, &gf16_coeffs, &[]);
+        x86::gf8::matrix_avx2(&mut [], 0, 1, &[]);
+        x86::gf16::matrix_avx2(&mut [], 0, 1, &[]);
+    }
+    x86::gf8::matrix_ssse3(&mut [], 0, 1, &[]);
+    x86::gf16::matrix_ssse3(&mut [], 0, 1, &[]);
+
+    // Empty term lists must return before any store, in the checked
+    // scattered wrappers as well.
+    let mut dst = [0u8; 8];
+    x86::gf8::matrix_scattered_gfni(&mut dst, 8, &[0], &[]);
+    assert_eq!(dst, [0; 8]);
+}
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[test]
+#[should_panic(expected = "scatter_gfni: rows buffer does not hold")]
+fn scatter_gfni_rejects_short_rows_buffer() {
+    use crate::kernel::x86;
+    // Geometry panics only fire on a host that can select the GFNI tier;
+    // elsewhere this passes as a skip, like the differential drivers.
+    if host_supports(&[crate::kernel::Backend::V3GfniCrypto]) {
+        x86::gf8::scatter_gfni(&mut [0u8; 4], 4, &[gf8b::Elem(1), gf8b::Elem(2)], &[0u8; 4]);
+    }
+}
+
+#[test]
+fn macro_kernels_matrix_with_matches_per_row_application() {
+    // `impl_field_kernels!`'s prepared-terms matrix override (FanPaar8):
+    // apply the same prepared coefficients row by row and compare.
+    let row_len = 8;
+    let srcs: Vec<Vec<u8>> = vec![noise(row_len, 0x71), noise(row_len, 0x72)];
+    let coeffs = [fan_paar::fp8::Elem(1), fan_paar::fp8::Elem(0x8d)];
+    let prepared: Vec<_> = coeffs.iter().copied().map(FanPaar8::prepare).collect();
+
+    let mut got = noise(2 * row_len, 0x73);
+    let mut want = got.clone();
+    <FanPaar8 as FieldKernels>::mul_add_matrix_with(
+        &mut got,
+        row_len,
+        2,
+        &[
+            (&[prepared[0], prepared[1]], &srcs[0]),
+            (&[prepared[1], prepared[0]], &srcs[1]),
+        ],
+    );
+    for (term, src) in srcs.iter().enumerate() {
+        let row_coeffs = if term == 0 {
+            [&prepared[0], &prepared[1]]
+        } else {
+            [&prepared[1], &prepared[0]]
+        };
+        for (row, coeff) in want.chunks_exact_mut(row_len).zip(row_coeffs) {
+            <FanPaar8 as FieldKernels>::mul_add(row, coeff, src);
+        }
+    }
+    assert_eq!(got, want, "prepared matrix");
+}
+
+#[test]
+fn default_prepared_kernels_handle_empty_inputs() {
+    // `FieldKernels::dot_product_with`'s defaulted empty arm (the scalar and
+    // Fan-Paar fields): no terms zeroes the destination.
+    let mut dst = noise(16, 0x66);
+    <FanPaar8 as FieldKernels>::dot_product_with(&mut dst, &[], &[]);
+    assert!(dst.iter().all(|&b| b == 0), "empty terms must zero dst");
+}
+
+#[test]
+fn quad_mersenne31_kernel_handles_zero_and_one_coefficients() {
+    // The kernel-level zero/one shortcuts sit below the `ops` wrappers,
+    // which short-circuit first; drive them directly.
+    use crate::field::QuadMersenne31;
+
+    let mut zeroed = noise(16, 0x67);
+    <QuadMersenne31 as FieldKernels>::mul_assign(
+        &mut zeroed,
+        &QuadMersenne31::prepare(quad_zero()),
+    );
+    assert!(
+        zeroed.iter().all(|&b| b == 0),
+        "zero coefficient fills zero"
+    );
+
+    let original = noise(16, 0x68);
+    let mut scaled = original.clone();
+    <QuadMersenne31 as FieldKernels>::mul_assign(&mut scaled, &QuadMersenne31::prepare(quad_one()));
+    assert_eq!(scaled, original, "one coefficient is the identity");
+}
+
+fn quad_zero() -> quad_mersenne31::Elem {
+    quad_mersenne31::Elem(0, 0)
+}
+
+fn quad_one() -> quad_mersenne31::Elem {
+    quad_mersenne31::Elem(1, 0)
+}
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(feature = "internals")]
+#[test]
+fn gfni_matrix_wrappers_accept_empty_terms() {
+    use crate::kernel::FlatMatrix;
+    use crate::kernel::x86;
+
+    if !host_supports(&[crate::kernel::Backend::V3GfniCrypto]) {
+        eprintln!("skipping: no AVX2+GFNI on this host");
+        return;
+    }
+
+    // Zero-row and empty-source matrices return before any store, through
+    // both the element and prepared coefficient entry points.
+    let empty: FlatMatrix<'_, gf8b::Elem> = FlatMatrix {
+        coefficients: &[],
+        nrows: 0,
+        sources: &[],
+    };
+    let mut rows = [0u8; 8];
+    x86::gf8::matrix_gfni_with(&mut rows, 8, 0, &empty);
+    let empty_8d: FlatMatrix<'_, gf8d::Elem> = FlatMatrix {
+        coefficients: &[],
+        nrows: 0,
+        sources: &[],
+    };
+    x86::gf8::matrix_affine_with(&mut rows, 8, 0, &empty_8d);
+    let gf16_empty: FlatMatrix<'_, gf16::Elem> = FlatMatrix {
+        coefficients: &[],
+        nrows: 0,
+        sources: &[],
+    };
+    x86::gf16::matrix_gfni_with(&mut rows, 8, 0, &gf16_empty);
+    assert_eq!(rows, [0; 8]);
+}
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(feature = "internals")]
+#[test]
+#[should_panic(expected = "scatter_affine: rows buffer does not hold")]
+fn scatter_affine_rejects_short_rows_buffer() {
+    use crate::kernel::x86;
+
+    if host_supports(&[crate::kernel::Backend::V3GfniCrypto]) {
+        x86::gf8::scatter_affine(&mut [0u8; 4], 4, &[gf8d::Elem(1), gf8d::Elem(2)], &[0u8; 4]);
+    }
+}
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(feature = "internals")]
+#[test]
+fn gf16_gfni_wrappers_tolerate_degenerate_geometry() {
+    use crate::kernel::x86;
+
+    if !host_supports(&[crate::kernel::Backend::V3GfniCrypto]) {
+        eprintln!("skipping: no AVX2+GFNI on this host");
+        return;
+    }
+
+    // The gf16 wrappers clamp rather than panic: zero-length rows, zero
+    // rows, and room for fewer rows than coefficients are all no-ops.
+    x86::gf16::scatter_gfni(&mut [], 0, &[gf16::Elem(1)], &[]);
+    let mut rows = [0u8; 8];
+    x86::gf16::scatter_gfni(&mut rows, 0, &[gf16::Elem(1)], &[]);
+    assert_eq!(rows, [0; 8]);
+
+    let empty: crate::kernel::FlatMatrix<'_, gf16::Elem> = crate::kernel::FlatMatrix {
+        coefficients: &[],
+        nrows: 0,
+        sources: &[],
+    };
+    x86::gf16::matrix_gfni_with(&mut rows, 8, 2, &empty);
+    x86::gf16::matrix_gfni_with(&mut rows, 0, 2, &empty);
+    x86::gf16::matrix_gfni_with(&mut rows, 8, 0, &empty);
+    assert_eq!(rows, [0; 8]);
 }

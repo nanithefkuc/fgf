@@ -573,4 +573,27 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn const_built_banks_match_their_runtime_builders() {
+        // The banks are `const`-evaluated into rodata; running the same
+        // builders at runtime must reproduce them bit for bit. This is the
+        // only place the builder bodies execute, and it doubles as a
+        // differential between compile-time and runtime evaluation.
+        assert_eq!(build_bank(), SCALE_TABLE_BANK);
+        assert_eq!(build_bank_8d(), SCALE_TABLE_BANK_8D);
+        assert_eq!(build_affine_bank_8d(), AFFINE_BANK_8D);
+        assert_eq!(build_fp_bank(), FP_SCALE_TABLE_BANK);
+        for c in 0..=u8::MAX {
+            let runtime = ScaleTable::new(E8(c));
+            assert_eq!(&runtime, scale_table(E8(c)), "0x11B coeff {c:#04x}");
+            let runtime = FpScaleTable::new(fp8::Elem(c));
+            assert_eq!(&runtime, fp_scale_table(fp8::Elem(c)), "fp8 coeff {c:#04x}");
+        }
+    }
+
+    #[test]
+    fn experimental_affine_bank_matches_its_runtime_builder() {
+        assert_eq!(build_affine_bank_8b(), AFFINE_BANK_8B);
+    }
 }

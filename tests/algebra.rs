@@ -58,6 +58,11 @@ fn gf8_table_multiply_matches_shift_and_xor() {
 
 #[test]
 fn gf8_inverse_matches_fermat_and_round_trips() {
+    assert_eq!(
+        gf8b::Elem::ZERO.inv_xtime(),
+        gf8b::Elem::ZERO,
+        "inv_xtime(0) must be 0"
+    );
     assert_eq!(gf8b::Elem::ZERO.inv(), gf8b::Elem::ZERO, "inv(0) must be 0");
     for a in all_gf8().skip(1) {
         assert_eq!(a.inv(), a.inv_xtime(), "inverse backends disagree on {a:?}");
@@ -147,6 +152,11 @@ fn gf8d_table_multiply_matches_shift_and_xor() {
 
 #[test]
 fn gf8d_inverse_matches_fermat_and_round_trips() {
+    assert_eq!(
+        gf8d::Elem::ZERO.inv_xtime(),
+        gf8d::Elem::ZERO,
+        "inv_xtime(0) must be 0"
+    );
     assert_eq!(gf8d::Elem::ZERO.inv(), gf8d::Elem::ZERO, "inv(0) must be 0");
     for a in all_gf8d().skip(1) {
         assert_eq!(a.inv(), a.inv_xtime(), "inverse backends disagree on {a:?}");
@@ -1097,4 +1107,493 @@ fn field_constants_are_consistent() {
     ] {
         assert_eq!(bytes * 8, bits as usize);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Shared trait, operator, and formatting surface
+// ---------------------------------------------------------------------------
+//
+// The per-field tests above drive the inherent `const` methods. Generic
+// consumers reach the same algebra through the `field::Elem` trait, the
+// `core::ops` operator impls, the `Sum`/`Product` folds, and the
+// `Debug`/`Display`/`Default`/`Hash` impls — none of which the inherent
+// callsites touch. This section exercises those surfaces for every field
+// against the same laws, so a broken delegation cannot hide behind a correct
+// inherent body.
+
+use fgf::field::Elem as _;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+fn hashes_equal<T: Hash>(a: &T, b: &T) -> bool {
+    let mut ha = DefaultHasher::new();
+    let mut hb = DefaultHasher::new();
+    a.hash(&mut ha);
+    b.hash(&mut hb);
+    ha.finish() == hb.finish()
+}
+
+fn empty_sum_of<E: fgf::field::Elem + Sum>(_seed: E) -> E {
+    std::iter::empty::<E>().sum()
+}
+
+fn empty_product_of<E: fgf::field::Elem + Product>(_seed: E) -> E {
+    std::iter::empty::<E>().product()
+}
+
+fn sum_of<E: fgf::field::Elem + Sum>(it: impl Iterator<Item = E>) -> E {
+    it.sum()
+}
+
+fn product_of<E: fgf::field::Elem + Product>(it: impl Iterator<Item = E>) -> E {
+    it.product()
+}
+
+fn sum_of_ref<'a, E: fgf::field::Elem + Sum<&'a E>>(it: impl Iterator<Item = &'a E>) -> E {
+    it.sum()
+}
+
+fn product_of_ref<'a, E: fgf::field::Elem + Product<&'a E>>(it: impl Iterator<Item = &'a E>) -> E {
+    it.product()
+}
+
+fn empty_sum_of_ref<'a, E: fgf::field::Elem + Sum<&'a E>>(_seed: &'a E) -> E {
+    std::iter::empty::<&'a E>().sum()
+}
+
+fn empty_product_of_ref<'a, E: fgf::field::Elem + Product<&'a E>>(_seed: &'a E) -> E {
+    std::iter::empty::<&'a E>().product()
+}
+
+use std::iter::{Product, Sum};
+
+/// Every `field::Elem`/`field::Field` surface reachable from generic code:
+/// the trait's arithmetic (including defaulted methods), the total
+/// zero conventions, `Debug`/`Hash`/`Default`, and the byte codec.
+fn exercise_surface<F: Field>(samples: &[F::Elem]) {
+    let zero = F::Elem::ZERO;
+    let one = F::Elem::ONE;
+    assert!(samples.len() >= 2, "surface sweep needs samples");
+    assert_eq!(
+        F::Elem::default(),
+        zero,
+        "Default must be the additive identity"
+    );
+
+    // Field facts that hold for every field, checked through the trait.
+    assert!(!F::NAME.is_empty());
+    assert_eq!(F::BITS as usize, 8 * F::BYTES);
+    assert_eq!(F::elem_count(3 * F::BYTES), 3);
+    assert!(!F::GENERATOR.is_zero());
+    assert!(zero.is_zero());
+    assert!(!one.is_zero());
+    assert!(one.is_one());
+    assert!(!zero.is_one());
+
+    for &a in samples {
+        // Stable encoding round trip through the Field contract.
+        let mut buffer = [0u8; 16];
+        F::write(&mut buffer[..F::BYTES], a);
+        assert_eq!(F::read(&buffer[..F::BYTES]), a, "write/read round trip");
+
+        // Laws that hold in every field, through the trait methods.
+        assert_eq!(a.add(zero), a, "a + 0");
+        assert_eq!(a.sub(zero), a, "a - 0");
+        assert_eq!(a.sub(a), zero, "a - a");
+        assert_eq!(a.add(a.neg()), zero, "a + (-a)");
+        assert_eq!(a.mul(one), a, "a * 1");
+        assert_eq!(a.mul(zero), zero, "a * 0");
+        assert_eq!(a.square(), a.mul(a), "square");
+        assert_eq!(a.pow(0), one, "a^0");
+        assert_eq!(a.pow(1), a, "a^1");
+        assert_eq!(a.pow(3), a.mul(a).mul(a), "a^3");
+        assert_eq!(zero.pow(7), zero, "0^7");
+        assert_eq!(a.inv().mul(a), if a.is_zero() { zero } else { one }, "inv");
+        assert_eq!(a.div(a), if a.is_zero() { zero } else { one }, "a / a");
+        assert_eq!(a.div(zero), zero, "a / 0");
+        assert_eq!(zero.div(a), zero, "0 / a");
+
+        // Formatting and hashing are supertraits of every element.
+        assert!(!format!("{a:?}").is_empty(), "Debug");
+        assert_eq!(format!("{a:?}"), format!("{:?}", a.clone()), "Clone/Debug");
+        assert!(hashes_equal(&a, &a.clone()), "equal elements hash equally");
+    }
+}
+
+/// The per-concrete-type surfaces generic code cannot reach: the
+/// `core::ops` operator overloads, the `Sum`/`Product` folds, and
+/// `Display`. Each field implements these on its own element type, so each
+/// gets instantiated here against the same trait-checked laws.
+macro_rules! exercise_operators {
+    ($samples:expr) => {{
+        let samples: Vec<_> = $samples;
+        let [a, b, ..] = samples[..] else {
+            panic!("operator sweep needs samples");
+        };
+        let zero = a - a;
+        let one = a.pow(0);
+        assert_eq!(a + b, a.add(b), "Add");
+        assert_eq!(a - b, a.sub(b), "Sub");
+        assert_eq!(a * b, a.mul(b), "Mul");
+        assert_eq!(a / b, a.div(b), "Div");
+        let mut assigned = a;
+        assigned += b;
+        assert_eq!(assigned, a.add(b), "AddAssign");
+        assigned -= b;
+        assert_eq!(assigned, a, "SubAssign");
+        assigned *= b;
+        assert_eq!(assigned, a.mul(b), "MulAssign");
+        assigned /= b;
+        assert_eq!(assigned, if b.is_zero() { zero } else { a }, "DivAssign");
+
+        let empty_sum = empty_sum_of(a);
+        assert_eq!(empty_sum, zero, "empty Sum must be ZERO");
+        let empty_product = empty_product_of(a);
+        assert_eq!(empty_product, one, "empty Product must be ONE");
+        let empty_ref_sum = empty_sum_of_ref(&a);
+        assert_eq!(empty_ref_sum, zero, "empty by-reference Sum must be ZERO");
+        let empty_ref_product = empty_product_of_ref(&a);
+        assert_eq!(
+            empty_ref_product, one,
+            "empty by-reference Product must be ONE"
+        );
+        assert_eq!(
+            sum_of(samples.iter().copied()),
+            samples.iter().fold(zero, |acc, &x| acc.add(x)),
+            "Sum (owned) must fold by addition"
+        );
+        assert_eq!(
+            sum_of_ref(samples.iter()),
+            samples.iter().fold(zero, |acc, &x| acc.add(x)),
+            "Sum (by reference) must fold by addition"
+        );
+        assert_eq!(
+            product_of(samples.iter().copied()),
+            samples.iter().fold(one, |acc, &x| acc.mul(x)),
+            "Product (owned) must fold by multiplication"
+        );
+        assert_eq!(
+            product_of_ref(samples.iter()),
+            samples.iter().fold(one, |acc, &x| acc.mul(x)),
+            "Product (by reference) must fold by multiplication"
+        );
+
+        assert!(!format!("{a}").is_empty(), "Display");
+    }};
+}
+
+#[test]
+fn gf8b_trait_operator_and_formatting_surface() {
+    let samples: Vec<_> = all_gf8().step_by(97).collect();
+    exercise_surface::<Gf8B>(&samples);
+    exercise_operators!(samples);
+}
+
+#[test]
+fn gf8d_trait_operator_and_formatting_surface() {
+    let samples: Vec<_> = all_gf8d().step_by(97).collect();
+    exercise_surface::<Gf8D>(&samples);
+    exercise_operators!(samples);
+}
+
+#[test]
+fn gf16_trait_operator_and_formatting_surface() {
+    let samples: Vec<_> = sample_gf16().into_iter().step_by(61).collect();
+    exercise_surface::<Gf16>(&samples);
+    exercise_operators!(samples);
+}
+
+#[test]
+fn gf32_trait_operator_and_formatting_surface() {
+    let samples: Vec<_> = sample_gf32().into_iter().step_by(7).collect();
+    exercise_surface::<Gf32>(&samples);
+    exercise_operators!(samples);
+}
+
+#[test]
+fn gf64_trait_operator_and_formatting_surface() {
+    let samples: Vec<_> = sample_gf64().into_iter().step_by(7).collect();
+    exercise_surface::<Gf64>(&samples);
+    exercise_operators!(samples);
+}
+
+#[test]
+fn fan_paar_trait_operator_and_formatting_surface() {
+    let fp8: Vec<_> = (0..=u8::MAX).step_by(97).map(fan_paar::fp8::Elem).collect();
+    exercise_surface::<FanPaar8>(&fp8);
+    exercise_operators!(fp8);
+    let fp16: Vec<_> = [0, 1, 0x0100, 0xffff, 0xa55a, 0x1234]
+        .into_iter()
+        .map(fan_paar::fp16::Elem)
+        .collect();
+    exercise_surface::<FanPaar16>(&fp16);
+    exercise_operators!(fp16);
+    let fp32: Vec<_> = [0, 1, 0x10000, 0xffff_ffff, 0xa55a_1234]
+        .into_iter()
+        .map(fan_paar::fp32::Elem)
+        .collect();
+    exercise_surface::<FanPaar32>(&fp32);
+    exercise_operators!(fp32);
+    let fp64: Vec<_> = [0, 1, 1 << 32, u64::MAX, 0xa55a_1234_dead_beef]
+        .into_iter()
+        .map(fan_paar::fp64::Elem)
+        .collect();
+    exercise_surface::<FanPaar64>(&fp64);
+    exercise_operators!(fp64);
+}
+
+#[test]
+fn prime_trait_operator_and_formatting_surface() {
+    // Only the odd-character fields implement unary negation.
+    {
+        let a = mersenne31::Elem(7).canonical();
+        assert_eq!(-a, a.neg(), "M31 Neg");
+        let a = goldilocks::Elem(7).canonical();
+        assert_eq!(-a, a.neg(), "Goldilocks Neg");
+        let a = quad_mersenne31::Elem(7, 9).canonical();
+        assert_eq!(-a, a.neg(), "QM31 Neg");
+    }
+    // The surface laws compare elements for equality, so they need canonical
+    // representatives: the raw samples deliberately include non-canonical
+    // lanes, and prime-field arithmetic canonicalizes its outputs.
+    let m31: Vec<_> = sample_m31()
+        .into_iter()
+        .step_by(7)
+        .map(|a| a.canonical())
+        .collect();
+    exercise_surface::<Mersenne31>(&m31);
+    exercise_operators!(m31);
+    let gld: Vec<_> = sample_gld()
+        .into_iter()
+        .step_by(7)
+        .map(|a| a.canonical())
+        .collect();
+    exercise_surface::<Goldilocks>(&gld);
+    exercise_operators!(gld);
+    let qm: Vec<_> = sample_qm()
+        .into_iter()
+        .step_by(7)
+        .map(|a| a.canonical())
+        .collect();
+    exercise_surface::<QuadMersenne31>(&qm);
+    exercise_operators!(qm);
+}
+
+/// Inherent helpers that exist beside the trait surface: raw/byte conversions
+/// and the tower/extension projections. Each is a distinct public entry point
+/// generic code cannot reach, so each gets called here.
+#[test]
+fn inherent_conversion_helpers_round_trip() {
+    // GF(2^8) flat fields.
+    for a in all_gf8().step_by(53) {
+        assert_eq!(gf8b::Elem::from_raw(a.to_raw()), a);
+        assert_eq!(gf8b::Elem::from_bytes(a.to_bytes()), a);
+    }
+    for a in all_gf8d().step_by(53) {
+        assert_eq!(gf8d::Elem::from_raw(a.to_raw()), a);
+        assert_eq!(gf8d::Elem::from_bytes(a.to_bytes()), a);
+    }
+    // Towers: component projection is a bijection with from_components.
+    for a in sample_gf16().into_iter().step_by(61) {
+        let (lo, hi) = a.components();
+        assert_eq!(gf16::Elem::from_components(lo, hi), a);
+        assert_eq!(gf16::Elem::from_raw(a.to_raw()), a);
+        assert_eq!(gf16::Elem::from_bytes(a.to_bytes()), a);
+    }
+    for a in sample_gf32().into_iter().step_by(11) {
+        let (lo, hi) = a.components();
+        assert_eq!(gf32::Elem::from_components(lo, hi), a);
+        assert_eq!(gf32::Elem::from_raw(a.to_raw()), a);
+        assert_eq!(gf32::Elem::from_bytes(a.to_bytes()), a);
+    }
+    for a in sample_gf64().into_iter().step_by(11) {
+        let (lo, hi) = a.components();
+        assert_eq!(gf64::Elem::from_components(lo, hi), a);
+        assert_eq!(gf64::Elem::from_raw(a.to_raw()), a);
+        assert_eq!(gf64::Elem::from_bytes(a.to_bytes()), a);
+    }
+    // Prime fields: canonical representatives and raw lanes.
+    for a in sample_m31().into_iter().step_by(7) {
+        assert_eq!(
+            a.canonical().to_raw(),
+            a.to_raw() % 0x7FFF_FFFF,
+            "canonical"
+        );
+        assert_eq!(mersenne31::Elem::from_raw(a.to_raw()), a);
+        assert_eq!(mersenne31::Elem::from_bytes(a.to_bytes()), a);
+        assert_eq!(
+            mersenne31::reduce(a.to_raw()),
+            a.canonical().to_raw(),
+            "reduce"
+        );
+    }
+    for a in sample_gld().into_iter().step_by(7) {
+        assert!(
+            a.canonical().to_raw() < 0xFFFF_FFFF_0000_0001,
+            "canonical is below the modulus"
+        );
+        assert_eq!(goldilocks::Elem::from_raw(a.to_raw()), a);
+        assert_eq!(goldilocks::Elem::from_bytes(a.to_bytes()), a);
+    }
+    // Quadratic extension: conjugation and the norm land in the base field.
+    for a in sample_qm().into_iter().step_by(7) {
+        let a = a.canonical();
+        assert_eq!(
+            quad_mersenne31::Elem::from_raw(a.to_raw().0, a.to_raw().1),
+            a
+        );
+        assert_eq!(quad_mersenne31::Elem::from_bytes(a.to_bytes()), a);
+        let (re, im) = a.components();
+        assert_eq!(quad_mersenne31::Elem::from_components(re, im), a);
+        assert_eq!(a.conjugate().conjugate(), a, "conjugation is an involution");
+        assert_eq!(
+            a.conjugate().norm(),
+            a.norm(),
+            "norm is fixed under conjugation"
+        );
+        assert!(a.norm() < 0x7FFF_FFFF, "norm lands in the base field");
+        let (re, im) = a.mul(a.conjugate()).canonical().components();
+        assert_eq!(re.to_raw(), a.norm(), "a * conj(a) is the norm, really");
+        assert!(im.to_raw() == 0, "a * conj(a) is real");
+    }
+    // Fan–Paar levels expose the same raw/byte/component surface.
+    macro_rules! fp_level {
+        ($elem:ty, $value:expr) => {{
+            let a = $value;
+            assert_eq!(<$elem>::from_raw(a.to_raw()), a);
+            assert_eq!(<$elem>::from_bytes(a.to_bytes()), a);
+            let (lo, hi) = a.components();
+            assert_eq!(<$elem>::from_components(lo, hi), a);
+        }};
+    }
+    fp_level!(fan_paar::fp16::Elem, fan_paar::fp16::Elem(0xa55a));
+    fp_level!(fan_paar::fp32::Elem, fan_paar::fp32::Elem(0xa55a_1234));
+    fp_level!(
+        fan_paar::fp64::Elem,
+        fan_paar::fp64::Elem(0xa55a_1234_dead_beef)
+    );
+    assert_eq!(
+        fan_paar::fp8::Elem(0xa5).mul_alpha(),
+        fan_paar::fp8::Elem(0xa5).mul(fan_paar::fp8::ALPHA)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Trait default bodies
+// ---------------------------------------------------------------------------
+
+mod toy {
+    //! Minimal GF(2^3) over `x^3 + x + 1` implementing only the required
+    //! `Elem`/`Field` methods. The trait's defaulted `neg`, `square`, `pow`,
+    //! `is_zero`, `is_one`, and `elem_count` bodies run here — every real
+    //! field overrides the algebraic ones, so this is the only implementor
+    //! where those defaults execute.
+    use fgf::field::{Elem, Field};
+
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Default)]
+    pub struct Elem7(pub u8);
+
+    #[derive(Debug, Clone, Copy)]
+    pub struct Gf8Toy;
+
+    impl Elem for Elem7 {
+        const ZERO: Self = Self(0);
+        const ONE: Self = Self(1);
+
+        fn add(self, rhs: Self) -> Self {
+            Self(self.0 ^ rhs.0)
+        }
+        fn sub(self, rhs: Self) -> Self {
+            self.add(rhs)
+        }
+        fn mul(self, rhs: Self) -> Self {
+            let mut acc = 0u8;
+            let mut a = self.0;
+            let b = rhs.0;
+            for i in 0..8 {
+                if (b >> i) & 1 == 1 {
+                    acc ^= a;
+                }
+                let overflow = a & 0x04 != 0;
+                a <<= 1;
+                if overflow {
+                    a ^= 0x0B; // x^3 = x + 1
+                }
+            }
+            Self(acc & 7)
+        }
+        fn inv(self) -> Self {
+            if self.0 == 0 {
+                return Self::ZERO;
+            }
+            for candidate in 1..8u8 {
+                let product = Self(self.0).mul(Self(candidate));
+                if product == Self::ONE {
+                    return Self(candidate);
+                }
+            }
+            unreachable!("every nonzero element of GF(8) is invertible");
+        }
+        fn div(self, rhs: Self) -> Self {
+            if self.0 == 0 || rhs.0 == 0 {
+                return Self::ZERO;
+            }
+            self.mul(rhs.inv())
+        }
+    }
+
+    impl Field for Gf8Toy {
+        type Elem = Elem7;
+
+        const NAME: &'static str = "GF(2^3) toy";
+        const BITS: u32 = 8;
+        const BYTES: usize = 1;
+        const ORDER: u128 = 8;
+        const GENERATOR: Elem7 = Elem7(2);
+
+        fn read(bytes: &[u8]) -> Elem7 {
+            Elem7(bytes[0] & 7)
+        }
+        fn write(bytes: &mut [u8], value: Elem7) {
+            bytes[0] = value.0;
+        }
+    }
+}
+
+#[test]
+fn elem_trait_defaults_are_correct_for_minimal_implementors() {
+    let samples: Vec<toy::Elem7> = (0..8u8).map(toy::Elem7).collect();
+    exercise_surface::<toy::Gf8Toy>(&samples);
+
+    // The defaulted bodies specifically: neg is the identity in
+    // characteristic two, square is mul, pow is square-and-multiply.
+    for a in samples {
+        assert_eq!(a.neg(), a, "default neg in characteristic two");
+        assert_eq!(a.square(), a.mul(a), "default square");
+        assert_eq!(a.pow(5), a.mul(a).mul(a).mul(a).mul(a), "default pow");
+    }
+    // GF(8)* has order 7: the generator must have full order through the
+    // defaulted pow.
+    let g = toy::Gf8Toy::GENERATOR;
+    assert_eq!(g.pow(7), toy::Elem7::ONE);
+    assert_ne!(g.pow(1), toy::Elem7::ONE);
+}
+
+#[test]
+fn qm31_pow_u128_matches_pow_and_repeated_squaring() {
+    let a = quad_mersenne31::Elem(0x1234_5678, 0x9abc_def0).canonical();
+    // Inside u64 the two exponentiation paths must agree exactly.
+    for exponent in [0u128, 1, 2, 3, 7, 255, 1 << 32, u64::MAX as u128] {
+        assert_eq!(
+            a.pow_u128(exponent),
+            a.pow(exponent as u64),
+            "pow_u128({exponent})"
+        );
+    }
+    // Past u64, check against manual square-and-multiply over mul.
+    let mut expected = a;
+    for _ in 0..70 {
+        expected = expected.square();
+    }
+    assert_eq!(a.pow_u128(1u128 << 70), expected, "pow_u128(2^70)");
 }

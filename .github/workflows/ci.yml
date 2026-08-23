@@ -42,6 +42,38 @@ jobs:
         env:
           SIMD_BACKEND: scalar
 
+  # Ground rule: line coverage of the crate's own source must stay at or
+  # above 95%. One run per forced backend tier, merged, so every
+  # dispatchable backend counts; the default run also exercises the AVX-512
+  # kernels in kernel/x86/avx512.rs, which only execute on this runner's
+  # AVX-512 host (they are the deferred tier and never dispatch).
+  coverage:
+    name: coverage >=95% (llvm-cov)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov@0.9.0
+      - run: cargo llvm-cov --no-report --all-features
+      - run: cargo llvm-cov --no-report --all-features
+        env:
+          SIMD_BACKEND: v3
+      - run: cargo llvm-cov --no-report --all-features
+        env:
+          SIMD_BACKEND: v2
+      - run: cargo llvm-cov --no-report --all-features
+        env:
+          SIMD_BACKEND: scalar
+      - run: cargo llvm-cov report --fail-under-lines 95 --lcov --output-path coverage.lcov
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage.lcov
+
   cross:
     name: build ${{ matrix.target }}
     runs-on: ubuntu-latest

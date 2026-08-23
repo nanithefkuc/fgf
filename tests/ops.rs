@@ -1482,3 +1482,700 @@ fn goldilocks_public_ops_match_oracle() {
     check_prime_shapes::<Goldilocks>(24, &coeffs[1..6]);
     check_prime_recovery::<Goldilocks>(64, gld(3), gld(0x1234_5678_9abc_def0));
 }
+
+// ---------------------------------------------------------------------------
+// Backend queries and prepared-coefficient plumbing
+// ---------------------------------------------------------------------------
+
+#[test]
+fn backend_queries_are_consistent_per_field() {
+    use fgf::{Backend, KernelBackend, backend, backend_for, has_vector_elementwise};
+
+    let process = backend();
+    if cfg!(not(feature = "simd")) {
+        assert!(matches!(process, Backend::Scalar), "simd is compiled out");
+    }
+    if process == Backend::Scalar {
+        assert!(!process.has_native_mul(), "scalar has no native multiply");
+        assert!(!process.has_blocked_rows(), "scalar has no blocked rows");
+    }
+
+    macro_rules! queries {
+        ($($field:ty),+ $(,)?) => {$(
+            let per_field = backend_for::<$field>();
+            // `Backend` order is descending capability (stronger sorts less),
+            // so a field's backend is always at or below the process one.
+            assert!(
+                per_field >= process,
+                concat!(stringify!($field), ": field backend exceeds the process backend")
+            );
+            let vectorized = has_vector_elementwise::<$field>();
+            assert!(
+                !vectorized || per_field != Backend::Scalar,
+                concat!(stringify!($field), ": vectorized elementwise requires a vector field backend")
+            );
+        )+};
+    }
+    queries!(
+        Gf8B,
+        Gf8D,
+        Gf16,
+        Gf32,
+        Gf64,
+        FanPaar8,
+        FanPaar16,
+        FanPaar32,
+        FanPaar64,
+        Mersenne31,
+        Goldilocks,
+        QuadMersenne31,
+    );
+}
+
+/// Every field's `add_assign`/`sub_assign` against the elementwise oracle,
+/// including the prime fields where subtraction is a different fold.
+#[test]
+fn add_and_sub_assign_match_oracle_for_every_field() {
+    fn check<F: FieldKernels>(len: usize, coeff: F::Elem) {
+        let a = noise(len, 0x11);
+        let mut b = noise(len, 0x22);
+        // Plant zero element lanes: the prime-field subtraction fold has
+        // per-limb zero shortcuts that random bytes never trigger.
+        for lane in b.chunks_exact_mut(F::BYTES).step_by(3) {
+            lane.fill(0);
+        }
+        let mut got = a.clone();
+        let mut want = a.clone();
+        ops::add_assign::<F>(&mut got, &b);
+        for (d, s) in want
+            .chunks_exact_mut(F::BYTES)
+            .zip(b.chunks_exact(F::BYTES))
+        {
+            let value = F::read(d).add(F::read(s));
+            F::write(d, value);
+        }
+        assert_eq!(got, want, "add_assign over {} bytes", len);
+
+        let mut got = a.clone();
+        let mut want = a.clone();
+        ops::sub_assign::<F>(&mut got, &b);
+        for (d, s) in want
+            .chunks_exact_mut(F::BYTES)
+            .zip(b.chunks_exact(F::BYTES))
+        {
+            let value = F::read(d).sub(F::read(s));
+            F::write(d, value);
+        }
+        assert_eq!(got, want, "sub_assign over {} bytes", len);
+        let _ = coeff;
+    }
+    check::<Gf8B>(8, gf8b::Elem(3));
+    check::<Gf8D>(8, gf8d::Elem(3));
+    check::<Gf16>(8, gf16::Elem(3));
+    check::<Gf32>(8, gf32::Elem(3));
+    check::<Gf64>(8, gf64::Elem(3));
+    check::<FanPaar8>(8, fan_paar::fp8::Elem(3));
+    check::<FanPaar16>(8, fan_paar::fp16::Elem(3));
+    check::<FanPaar32>(8, fan_paar::fp32::Elem(3));
+    check::<FanPaar64>(8, fan_paar::fp64::Elem(3));
+    check::<Mersenne31>(8, mersenne31::Elem(3));
+    check::<Goldilocks>(8, goldilocks::Elem(3));
+    check::<QuadMersenne31>(8, quad_mersenne31::Elem(3, 5));
+}
+
+#[test]
+#[cfg(feature = "std")]
+fn coeff_and_plan_accessors_report_their_contents() {
+    let coeffs = [gf16::Elem(0x0102), gf16::Elem(0), gf16::Elem(0xbeef)];
+
+    let coeff = ops::Coeff::<Gf16>::new(coeffs[0]);
+    assert_eq!(coeff.value(), coeffs[0]);
+    assert_eq!(coeff.clone().value(), coeffs[0]);
+    assert!(format!("{coeff:?}").contains("Coeff"), "Coeff Debug");
+
+    let plan = ops::Plan::<Gf16>::new(&coeffs);
+    assert_eq!(plan.len(), 3);
+    assert!(!plan.is_empty());
+    assert_eq!(plan.dimensions(), (1, 3));
+    assert_eq!(plan.values().collect::<Vec<_>>(), coeffs);
+    assert_eq!(plan.coeffs().map(|c| c.value()).collect::<Vec<_>>(), coeffs);
+    assert_eq!(plan.get(1).map(|c| c.value()), Some(coeffs[1]));
+    assert!(plan.get(3).is_none());
+    assert_eq!(plan.clone().values().collect::<Vec<_>>(), coeffs);
+    assert!(format!("{plan:?}").contains("Plan"), "Plan Debug");
+
+    let empty = ops::Plan::<Gf16>::new(&[]);
+    assert!(empty.is_empty());
+    assert_eq!(empty.len(), 0);
+    assert!(empty.get(0).is_none());
+    // A 1x0 plan has one (empty) row; every row index reads the same
+    // zero-length slice, so out-of-bounds detection needs columns > 0.
+    assert_eq!(empty.row(0).map(|row| row.count()), Some(0));
+
+    let matrix = ops::Plan::<Gf16>::matrix(
+        2,
+        3,
+        &[
+            coeffs[0], coeffs[1], coeffs[2], coeffs[2], coeffs[1], coeffs[0],
+        ],
+    );
+    assert_eq!(matrix.dimensions(), (2, 3));
+    assert_eq!(matrix.get_at(1, 2).map(|c| c.value()), Some(coeffs[0]));
+    assert!(matrix.get_at(2, 0).is_none(), "row out of bounds");
+    assert!(matrix.get_at(0, 3).is_none(), "column out of bounds");
+    assert_eq!(
+        matrix
+            .row(1)
+            .map(|row| row.map(|c| c.value()).collect::<Vec<_>>()),
+        Some(vec![coeffs[2], coeffs[1], coeffs[0]])
+    );
+    assert!(matrix.row(2).is_none(), "row out of bounds");
+    // A single-row plan still reads through `row`.
+    let vector = ops::Plan::<Gf16>::new(&coeffs);
+    assert_eq!(
+        vector
+            .row(0)
+            .map(|row| row.map(|c| c.value()).collect::<Vec<_>>()),
+        Some(coeffs.to_vec())
+    );
+}
+
+#[test]
+#[cfg(feature = "std")]
+#[should_panic(expected = "Plan::matrix: 3 coefficients for 2x2 matrix")]
+fn plan_matrix_rejects_wrong_coefficient_count() {
+    let _ = ops::Plan::<Gf8B>::matrix(2, 2, &[gf8b::Elem(1); 3]);
+}
+
+#[test]
+#[cfg(feature = "std")]
+#[should_panic(expected = "Plan::matrix: dimensions overflow")]
+fn plan_matrix_rejects_overflowing_dimensions() {
+    let _ = ops::Plan::<Gf8B>::matrix(usize::MAX, 2, &[]);
+}
+
+// ---------------------------------------------------------------------------
+// Geometry validation and degenerate inputs
+// ---------------------------------------------------------------------------
+
+#[test]
+#[cfg(feature = "std")]
+fn zero_and_empty_inputs_are_well_defined() {
+    // All-zero coefficient plans skip the kernel entirely and leave the
+    // destination untouched (or zeroed, for the overwrite shapes).
+    let srcs: Vec<Vec<u8>> = [noise(8, 0x31), noise(8, 0x32)].to_vec();
+    let refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
+    let zero_plan = ops::Plan::<Gf8B>::new(&[gf8b::Elem(0); 2]);
+
+    let mut rows = noise(16, 0x33);
+    let before = rows.clone();
+    ops::mul_add_scatter_with(&mut rows, 8, &zero_plan, &srcs[0]);
+    assert_eq!(rows, before, "all-zero scatter plan is a no-op");
+
+    let mut dst = noise(8, 0x34);
+    let before = dst.clone();
+    ops::mul_add_gather::<Gf8B>(&mut dst, &[gf8b::Elem(0), gf8b::Elem(0)], &refs);
+    assert_eq!(dst, before, "all-zero gather is a no-op");
+    ops::mul_add_gather_with(&mut dst, &zero_plan, &refs);
+    assert_eq!(dst, before, "all-zero gather plan is a no-op");
+
+    // Overwrite shapes zero the destination instead.
+    let mut dst = noise(8, 0x35);
+    ops::dot_product::<Gf8B>(&mut dst, &[gf8b::Elem(0), gf8b::Elem(0)], &refs);
+    assert_eq!(dst, vec![0; 8], "all-zero dot product fills zero");
+    ops::dot_product_with(&mut dst, &zero_plan, &refs);
+    assert_eq!(dst, vec![0; 8], "all-zero dot product plan fills zero");
+
+    // Empty inputs.
+    let mut dst = noise(8, 0x36);
+    ops::dot_product::<Gf8B>(&mut dst, &[], &[]);
+    assert_eq!(dst, vec![0; 8], "no sources fills zero");
+    ops::dot_product_with(&mut dst, &ops::Plan::<Gf8B>::new(&[]), &[]);
+    assert_eq!(dst, vec![0; 8], "empty plan fills zero");
+
+    let mut rows = noise(16, 0x37);
+    let before = rows.clone();
+    ops::mul_add_matrix::<Gf8B>(&mut rows, 8, 2, &[]);
+    assert_eq!(rows, before, "no terms is a no-op");
+    ops::mul_add_matrix::<Gf8B>(&mut rows, 8, 0, &[(&[], &srcs[0])]);
+    assert_eq!(rows, before, "zero rows is a no-op");
+    ops::mul_add_matrix_with(
+        &mut rows,
+        8,
+        0,
+        &ops::Plan::<Gf8B>::matrix(1, 0, &[]),
+        &[&srcs[0]],
+    );
+    assert_eq!(rows, before, "zero-row matrix plan is a no-op");
+    ops::mul_add_matrix_with(&mut rows, 8, 2, &ops::Plan::<Gf8B>::matrix(0, 2, &[]), &[]);
+    assert_eq!(rows, before, "empty-source matrix plan is a no-op");
+
+    let mut overwritten = vec![1u8; 16];
+    ops::dot_product_matrix::<Gf8B>(&mut overwritten, 8, 0, &[(&[], &srcs[0])]);
+    ops::dot_product_matrix::<Gf8B>(&mut overwritten, 8, 2, &[]);
+    assert_eq!(overwritten, vec![0; 16], "empty terms zero the rows");
+    ops::dot_product_matrix_with(
+        &mut overwritten,
+        8,
+        0,
+        &ops::Plan::<Gf8B>::matrix(0, 0, &[]),
+        &[],
+    );
+    assert_eq!(overwritten, vec![0; 16], "zero-row matrix plan keeps bytes");
+    let mut seeded = vec![1u8; 16];
+    ops::dot_product_matrix_with(
+        &mut seeded,
+        8,
+        2,
+        &ops::Plan::<Gf8B>::matrix(0, 2, &[]),
+        &[],
+    );
+    assert_eq!(
+        seeded,
+        vec![0; 16],
+        "empty-source matrix plan zeros the rows"
+    );
+
+    // Scattered reconstruction with nothing to do.
+    ops::mul_add_matrix_scattered::<Gf8B>(&mut rows, 8, &[0, 8], &[]);
+    ops::mul_add_matrix_scattered::<Gf8B>(&mut rows, 8, &[], &[(&[], &srcs[0])]);
+}
+
+#[test]
+#[cfg(feature = "std")]
+fn single_term_dot_products_match_mul_into() {
+    let src = noise(12, 0x41);
+    let coeff = gf16::Elem(0x0a5a);
+    let mut dotted = noise(12, 0x42);
+    ops::dot_product::<Gf16>(&mut dotted, &[coeff], &[&src]);
+    let mut scaled = [0u8; 12];
+    ops::mul_into::<Gf16>(&mut scaled, coeff, &src);
+    assert_eq!(dotted, scaled);
+
+    let mut planned = noise(12, 0x43);
+    ops::dot_product_with::<Gf16>(&mut planned, &ops::Plan::new(&[coeff]), &[&src]);
+    assert_eq!(planned, scaled);
+}
+
+#[test]
+#[cfg(feature = "std")]
+#[should_panic(expected = "mul_add_scatter_with: rows is 8 bytes")]
+fn scatter_with_rejects_short_rows_buffer() {
+    let plan = ops::Plan::<Gf8B>::new(&[gf8b::Elem(1); 2]);
+    let mut rows = vec![0u8; 8];
+    ops::mul_add_scatter_with(&mut rows, 8, &plan, &[0u8; 8]);
+}
+
+#[test]
+#[should_panic(expected = "mul_add_gather: 2 coefficients for 1 sources")]
+fn gather_rejects_coefficient_count_mismatch() {
+    let src = [0u8; 8];
+    let mut dst = vec![0u8; 8];
+    ops::mul_add_gather::<Gf8B>(&mut dst, &[gf8b::Elem(1), gf8b::Elem(2)], &[&src]);
+}
+
+#[test]
+#[should_panic(expected = "mul_add_gather: source is 7 bytes")]
+fn gather_rejects_source_length_mismatch() {
+    let src = [0u8; 7];
+    let mut dst = vec![0u8; 8];
+    ops::mul_add_gather::<Gf8B>(&mut dst, &[gf8b::Elem(1)], &[&src]);
+}
+
+#[test]
+#[cfg(feature = "std")]
+#[should_panic(expected = "mul_add_gather_with: plan has 2 coefficients")]
+fn gather_with_rejects_plan_source_mismatch() {
+    let src = [0u8; 8];
+    let mut dst = vec![0u8; 8];
+    let plan = ops::Plan::<Gf8B>::new(&[gf8b::Elem(1), gf8b::Elem(2)]);
+    ops::mul_add_gather_with(&mut dst, &plan, &[&src]);
+}
+
+#[test]
+#[cfg(feature = "std")]
+#[should_panic(expected = "mul_add_gather_with: source 0 is 7 bytes")]
+fn gather_with_rejects_source_length_mismatch() {
+    let src = [0u8; 7];
+    let mut dst = vec![0u8; 8];
+    let plan = ops::Plan::<Gf8B>::new(&[gf8b::Elem(1)]);
+    ops::mul_add_gather_with(&mut dst, &plan, &[&src]);
+}
+
+#[test]
+#[cfg(feature = "std")]
+#[should_panic(expected = "dot_product_with: plan has 2 coefficients")]
+fn dot_product_with_rejects_plan_source_mismatch() {
+    let src = [0u8; 8];
+    let mut dst = vec![0u8; 8];
+    let plan = ops::Plan::<Gf8B>::new(&[gf8b::Elem(1), gf8b::Elem(2)]);
+    ops::dot_product_with(&mut dst, &plan, &[&src]);
+}
+
+#[test]
+#[cfg(feature = "std")]
+#[should_panic(expected = "dot_product_with: source 1 is 9 bytes")]
+fn dot_product_with_rejects_source_length_mismatch() {
+    let srcs = [vec![0u8; 8], vec![0u8; 9]];
+    let mut dst = vec![0u8; 8];
+    let plan = ops::Plan::<Gf8B>::new(&[gf8b::Elem(1), gf8b::Elem(2)]);
+    ops::dot_product_with(&mut dst, &plan, &[srcs[0].as_slice(), srcs[1].as_slice()]);
+}
+
+#[test]
+#[should_panic(expected = "mul_add_matrix: rows is 8 bytes")]
+fn matrix_rejects_short_rows_buffer() {
+    let mut rows = vec![0u8; 8];
+    ops::mul_add_matrix::<Gf8B>(&mut rows, 8, 2, &[(&[gf8b::Elem(1); 2], &[0u8; 8])]);
+}
+
+#[test]
+#[should_panic(expected = "mul_add_matrix: term supplies 1 coefficients for 2 rows")]
+fn matrix_rejects_term_coefficient_count() {
+    let mut rows = vec![0u8; 16];
+    ops::mul_add_matrix::<Gf8B>(&mut rows, 8, 2, &[(&[gf8b::Elem(1)], &[0u8; 8])]);
+}
+
+#[test]
+#[should_panic(expected = "mul_add_matrix: source is 7 bytes")]
+fn matrix_rejects_source_length_mismatch() {
+    let mut rows = vec![0u8; 16];
+    ops::mul_add_matrix::<Gf8B>(&mut rows, 8, 2, &[(&[gf8b::Elem(1); 2], &[0u8; 7])]);
+}
+
+#[test]
+#[cfg(feature = "std")]
+#[should_panic(expected = "mul_add_matrix_with: rows is 8 bytes")]
+fn matrix_with_rejects_short_rows_buffer() {
+    let mut rows = vec![0u8; 8];
+    let plan = ops::Plan::<Gf8B>::matrix(1, 2, &[gf8b::Elem(1), gf8b::Elem(2)]);
+    ops::mul_add_matrix_with(&mut rows, 8, 2, &plan, &[&[0u8; 8]]);
+}
+
+#[test]
+#[cfg(feature = "std")]
+#[should_panic(expected = "plan dimensions do not match")]
+fn matrix_with_rejects_dimension_mismatch() {
+    let mut rows = vec![0u8; 16];
+    let plan = ops::Plan::<Gf8B>::matrix(2, 2, &[gf8b::Elem(1); 4]);
+    ops::mul_add_matrix_with(&mut rows, 8, 2, &plan, &[&[0u8; 8]]);
+}
+
+#[test]
+#[cfg(feature = "std")]
+#[should_panic(expected = "mul_add_matrix_with: source 0 is 7 bytes")]
+fn matrix_with_rejects_source_length_mismatch() {
+    let mut rows = vec![0u8; 16];
+    let plan = ops::Plan::<Gf8B>::matrix(1, 2, &[gf8b::Elem(1), gf8b::Elem(2)]);
+    ops::mul_add_matrix_with(&mut rows, 8, 2, &plan, &[&[0u8; 7]]);
+}
+
+#[test]
+#[should_panic(expected = "dot_product_matrix: rows is 8 bytes")]
+fn dot_product_matrix_rejects_short_rows_buffer() {
+    let mut rows = vec![0u8; 8];
+    ops::dot_product_matrix::<Gf8B>(&mut rows, 8, 2, &[(&[gf8b::Elem(1); 2], &[0u8; 8])]);
+}
+
+#[test]
+#[should_panic(expected = "dot_product_matrix: term supplies 1 coefficients")]
+fn dot_product_matrix_rejects_term_coefficient_count() {
+    let mut rows = vec![0u8; 16];
+    ops::dot_product_matrix::<Gf8B>(&mut rows, 8, 2, &[(&[gf8b::Elem(1)], &[0u8; 8])]);
+}
+
+#[test]
+#[should_panic(expected = "dot_product_matrix: source is 7 bytes")]
+fn dot_product_matrix_rejects_source_length_mismatch() {
+    let mut rows = vec![0u8; 16];
+    ops::dot_product_matrix::<Gf8B>(&mut rows, 8, 2, &[(&[gf8b::Elem(1); 2], &[0u8; 7])]);
+}
+
+#[test]
+#[cfg(feature = "std")]
+#[should_panic(expected = "dot_product_matrix_with: rows is 8 bytes")]
+fn dot_product_matrix_with_rejects_short_rows_buffer() {
+    let mut rows = vec![0u8; 8];
+    let plan = ops::Plan::<Gf8B>::matrix(1, 2, &[gf8b::Elem(1), gf8b::Elem(2)]);
+    ops::dot_product_matrix_with(&mut rows, 8, 2, &plan, &[&[0u8; 8]]);
+}
+
+#[test]
+#[cfg(feature = "std")]
+#[should_panic(expected = "plan dimensions do not match")]
+fn dot_product_matrix_with_rejects_dimension_mismatch() {
+    let mut rows = vec![0u8; 16];
+    let plan = ops::Plan::<Gf8B>::matrix(3, 2, &[gf8b::Elem(1); 6]);
+    ops::dot_product_matrix_with(&mut rows, 8, 2, &plan, &[&[0u8; 8]]);
+}
+
+#[test]
+#[cfg(feature = "std")]
+#[should_panic(expected = "dot_product_matrix_with: source 0 is 7 bytes")]
+fn dot_product_matrix_with_rejects_source_length_mismatch() {
+    let mut rows = vec![0u8; 16];
+    let plan = ops::Plan::<Gf8B>::matrix(1, 2, &[gf8b::Elem(1), gf8b::Elem(2)]);
+    ops::dot_product_matrix_with(&mut rows, 8, 2, &plan, &[&[0u8; 7]]);
+}
+
+#[test]
+#[should_panic(expected = "spans 8..16 but dst is 12 bytes")]
+fn scattered_rejects_out_of_bounds_row() {
+    let mut dst = vec![0u8; 12];
+    ops::mul_add_matrix_scattered::<Gf8B>(
+        &mut dst,
+        8,
+        &[0, 8],
+        &[(&[gf8b::Elem(1); 2], &[0u8; 8])],
+    );
+}
+
+#[test]
+#[should_panic(expected = "not a whole number of")]
+fn scattered_rejects_misaligned_row_start() {
+    let mut dst = vec![0u8; 32];
+    ops::mul_add_matrix_scattered::<Gf16>(
+        &mut dst,
+        8,
+        &[0, 13],
+        &[(&[gf16::Elem(1); 2], &[0u8; 8])],
+    );
+}
+
+#[test]
+#[should_panic(expected = "mul_add_matrix_scattered: term supplies 1 coefficients")]
+fn scattered_rejects_term_coefficient_count() {
+    let mut dst = vec![0u8; 16];
+    ops::mul_add_matrix_scattered::<Gf8B>(&mut dst, 8, &[0, 8], &[(&[gf8b::Elem(1)], &[0u8; 8])]);
+}
+
+#[test]
+#[should_panic(expected = "mul_add_matrix_scattered: source is 7 bytes")]
+fn scattered_rejects_source_length_mismatch() {
+    let mut dst = vec![0u8; 16];
+    ops::mul_add_matrix_scattered::<Gf8B>(
+        &mut dst,
+        8,
+        &[0, 8],
+        &[(&[gf8b::Elem(1); 2], &[0u8; 7])],
+    );
+}
+
+#[test]
+#[should_panic(expected = "mul_elementwise: dst is 8 bytes but a is 7 bytes")]
+fn elementwise_rejects_first_operand_mismatch() {
+    let mut dst = vec![0u8; 8];
+    ops::mul_elementwise::<Gf8B>(&mut dst, &[0u8; 7], &[0u8; 8]);
+}
+
+#[test]
+#[should_panic(expected = "mul_elementwise: dst is 8 bytes but b is 9 bytes")]
+fn elementwise_rejects_second_operand_mismatch() {
+    let mut dst = vec![0u8; 8];
+    ops::mul_elementwise::<Gf8B>(&mut dst, &[0u8; 8], &[0u8; 9]);
+}
+
+#[test]
+#[should_panic(expected = "pack: dst is 2 bytes but 3 GF(2^8) elements")]
+fn pack_rejects_destination_mismatch() {
+    let mut dst = [0u8; 2];
+    ops::pack::<Gf8B>(&mut dst, &[gf8b::Elem(1), gf8b::Elem(2), gf8b::Elem(3)]);
+}
+
+#[test]
+#[should_panic(expected = "unpack: src is 2 bytes but dst holds 3 GF(2^8) elements")]
+fn unpack_rejects_source_mismatch() {
+    let mut dst = [gf8b::Elem(0); 3];
+    ops::unpack::<Gf8B>(&mut dst, &[0u8; 2]);
+}
+
+#[test]
+fn gf8d_large_buffer_mul_assign_matches_oracle() {
+    // Past 64 KiB the GFNI in-place scale takes its shuffle variant
+    // (BENCHMARKS.md); hold both sides of the crossover to the oracle.
+    for len in [65_536 - 8, 65_536 + 7] {
+        let mut got = noise(len, 0x62);
+        let mut want = got.clone();
+        ops::mul_assign::<Gf8D>(&mut got, gf8d::Elem(0x53));
+        oracle_mul_assign::<Gf8D>(&mut want, gf8d::Elem(0x53));
+        assert_eq!(got, want, "in-place scale at {len} bytes");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Prepared-plan operations match their one-shot forms
+// ---------------------------------------------------------------------------
+
+/// Every `_with` shape must produce byte-identical results to the one-shot
+/// operation over the same coefficients, for a representative of each kernel
+/// family: GFNI-blocked (`Gf8B`), affine-blocked (`Gf8D`), tower (`Gf16`),
+/// scalar-defaulted wider towers (`Gf32`), Fan–Paar, and the prime fields.
+#[test]
+#[cfg(feature = "std")]
+fn plan_variants_match_one_shot_operations() {
+    fn run<F: FieldKernels>(srcs: Vec<Vec<u8>>, coeffs: Vec<F::Elem>) {
+        const ELEMS: usize = 8;
+        let row_len = ELEMS * F::BYTES;
+        // Kernel arithmetic is contracted over canonical inputs for the prime
+        // fields (raw-lane totality is scalar-algebra territory), and this
+        // sweep compares kernel paths against each other.
+        let seed = || {
+            let mut b = noise(2 * row_len, 0xa0);
+            canon::<F>(&mut b);
+            b
+        };
+        let fresh = |seed_id: u64| {
+            let mut b = noise(row_len, seed_id);
+            canon::<F>(&mut b);
+            b
+        };
+        let refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
+        let [c0, c1, c2, ..] = coeffs[..] else {
+            unreachable!("three coefficients")
+        };
+
+        // Scatter: one source into as many rows as the plan has coefficients.
+        let mut one_shot = seed();
+        let mut planned = one_shot.clone();
+        ops::mul_add_scatter::<F>(&mut one_shot, row_len, &coeffs[..2], &srcs[0]);
+        ops::mul_add_scatter_with::<F>(
+            &mut planned,
+            row_len,
+            &ops::Plan::new(&coeffs[..2]),
+            &srcs[0],
+        );
+        assert_eq!(one_shot, planned, "scatter");
+
+        // Gather: many sources into one row.
+        let mut one_shot = fresh(0xa1);
+        let mut planned = one_shot.clone();
+        ops::mul_add_gather::<F>(&mut one_shot, &coeffs, &refs);
+        ops::mul_add_gather_with::<F>(&mut planned, &ops::Plan::new(&coeffs), &refs);
+        assert_eq!(one_shot, planned, "gather");
+
+        // Dot product: overwrite one row.
+        let mut one_shot = fresh(0xa2);
+        let mut planned = one_shot.clone();
+        ops::dot_product::<F>(&mut one_shot, &coeffs, &refs);
+        ops::dot_product_with::<F>(&mut planned, &ops::Plan::new(&coeffs), &refs);
+        assert_eq!(one_shot, planned, "dot product");
+
+        // Matrix: two terms into two rows, accumulating.
+        let terms = &[
+            (coeffs[..2].as_ref(), srcs[0].as_slice()),
+            (coeffs[1..3].as_ref(), srcs[2].as_slice()),
+        ];
+        let mut one_shot = seed();
+        let mut planned = one_shot.clone();
+        ops::mul_add_matrix::<F>(&mut one_shot, row_len, 2, terms);
+        let flat = [coeffs[0], coeffs[1], coeffs[1], coeffs[2]];
+        let matrix = ops::Plan::<F>::matrix(2, 2, &flat);
+        ops::mul_add_matrix_with::<F>(
+            &mut planned,
+            row_len,
+            2,
+            &matrix,
+            &[srcs[0].as_slice(), srcs[2].as_slice()],
+        );
+        assert_eq!(one_shot, planned, "matrix");
+
+        // Overwrite matrix: fresh rows from zero.
+        let mut one_shot = vec![0u8; 2 * row_len];
+        let mut planned = one_shot.clone();
+        ops::dot_product_matrix::<F>(&mut one_shot, row_len, 2, terms);
+        ops::dot_product_matrix_with::<F>(
+            &mut planned,
+            row_len,
+            2,
+            &matrix,
+            &[srcs[0].as_slice(), srcs[2].as_slice()],
+        );
+        assert_eq!(one_shot, planned, "dot product matrix");
+
+        // Single-coefficient prepared forms, through both `Coeff` and a
+        // borrowed `CoeffRef` from a plan.
+        let mut one_shot = fresh(0xa4);
+        let mut from_coeff = one_shot.clone();
+        let mut from_coeff_ref = one_shot.clone();
+        ops::mul_add::<F>(&mut one_shot, c2, &srcs[1]);
+        ops::mul_add_with::<F>(&mut from_coeff, &ops::Coeff::new(c2), &srcs[1]);
+        let plan = ops::Plan::<F>::new(&coeffs);
+        let borrowed = plan.get(2).expect("three coefficients");
+        ops::mul_add_with::<F>(&mut from_coeff_ref, &borrowed, &srcs[1]);
+        assert_eq!(one_shot, from_coeff, "mul_add_with through Coeff");
+        assert_eq!(one_shot, from_coeff_ref, "mul_add_with through CoeffRef");
+
+        let mut one_shot = fresh(0xa5);
+        let mut planned = one_shot.clone();
+        ops::mul_into::<F>(&mut one_shot, c1, &srcs[0]);
+        ops::mul_into_with::<F>(&mut planned, &ops::Coeff::new(c1), &srcs[0]);
+        assert_eq!(one_shot, planned, "mul_into_with");
+
+        let mut one_shot = fresh(0xa6);
+        let mut planned = one_shot.clone();
+        ops::mul_assign::<F>(&mut one_shot, c1);
+        ops::mul_assign_with::<F>(&mut planned, &ops::Coeff::new(c1));
+        assert_eq!(one_shot, planned, "mul_assign_with");
+        let _ = c0;
+    }
+
+    macro_rules! check {
+        ($field:ty, $($coeff:expr),+ $(,)?) => {{
+            let row_len = 8 * <$field as Field>::BYTES;
+            let srcs: Vec<Vec<u8>> = (0..3).map(|i| noise(row_len, 0x90 + i)).collect();
+            run::<$field>(srcs, vec![$($coeff),+]);
+        }};
+    }
+    check!(Gf8B, gf8b::Elem(0), gf8b::Elem(1), gf8b::Elem(0x8d));
+    check!(Gf8D, gf8d::Elem(0), gf8d::Elem(1), gf8d::Elem(0x53));
+    check!(Gf16, gf16::Elem(0), gf16::Elem(1), gf16::Elem(0x0a5a));
+    check!(Gf32, gf32::Elem(0), gf32::Elem(1), gf32::Elem(0x0a5a_1234));
+    check!(
+        Gf64,
+        gf64::Elem(0),
+        gf64::Elem(1),
+        gf64::Elem(0x0a5a_1234_dead_beef)
+    );
+    check!(
+        FanPaar8,
+        fan_paar::fp8::Elem(0),
+        fan_paar::fp8::Elem(1),
+        fan_paar::fp8::Elem(0x8d)
+    );
+    check!(
+        FanPaar16,
+        fan_paar::fp16::Elem(0),
+        fan_paar::fp16::Elem(1),
+        fan_paar::fp16::Elem(0xa55a)
+    );
+    check!(
+        FanPaar32,
+        fan_paar::fp32::Elem(0),
+        fan_paar::fp32::Elem(1),
+        fan_paar::fp32::Elem(0xa55a_1234)
+    );
+    check!(
+        FanPaar64,
+        fan_paar::fp64::Elem(0),
+        fan_paar::fp64::Elem(1),
+        fan_paar::fp64::Elem(0xa55a_1234_dead_beef)
+    );
+    check!(
+        Mersenne31,
+        mersenne31::Elem(0),
+        mersenne31::Elem(1),
+        mersenne31::Elem(0x1234_5678)
+    );
+    check!(
+        Goldilocks,
+        goldilocks::Elem(0),
+        goldilocks::Elem(1),
+        goldilocks::Elem(0x1234_5678_9abc_def0)
+    );
+    check!(
+        QuadMersenne31,
+        quad_mersenne31::Elem(0, 0),
+        quad_mersenne31::Elem(1, 0),
+        quad_mersenne31::Elem(0x1234_5678, 0x9abc_def0)
+    );
+}

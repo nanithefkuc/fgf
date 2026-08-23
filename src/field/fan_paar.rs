@@ -593,3 +593,51 @@ pub use fp8::FanPaar8;
 pub use fp16::FanPaar16;
 pub use fp32::FanPaar32;
 pub use fp64::FanPaar64;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn const_tables_match_their_runtime_builders() {
+        // The log/exp tables are `const`-evaluated; running the same builders
+        // at runtime must reproduce them exactly, and the recursive and
+        // table-based multipliers must agree everywhere they overlap.
+        assert_eq!(build_exp8(), EXP8);
+        assert_eq!(build_log8(), LOG8);
+        for (i, &g) in EXP8.iter().enumerate() {
+            assert_eq!(LOG8[g as usize] as usize, i, "log/exp inverse at {i}");
+        }
+        let mut state = 0x0123_4567_89ab_cdefu64;
+        for _ in 0..64 {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            let a = state;
+            let b = state >> 32;
+            for bits in [8u32, 16, 32, 64] {
+                let mask = low_mask(bits);
+                assert_eq!(
+                    multiply_recursive(a, b, bits),
+                    multiply(a & mask, b & mask, bits),
+                    "recursive vs table multiply at {bits} bits"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn generator_orbit_generates_the_byte_field() {
+        let mut seen = [false; 256];
+        let mut value = 1u8;
+        for _ in 0..255 {
+            seen[value as usize] = true;
+            value = multiply(u64::from(value), 0x2d, 8) as u8;
+        }
+        assert!(
+            seen[1..].iter().all(|&hit| hit),
+            "generator misses elements"
+        );
+        assert_eq!(value, 1, "generator order is not 255");
+    }
+}

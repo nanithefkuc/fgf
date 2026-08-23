@@ -404,6 +404,26 @@ macro_rules! flat_gf8 {
             }
             table
         }
+
+        /// The `const`-evaluated tables must match their runtime builders.
+        #[cfg(test)]
+        mod table_builders {
+            use super::*;
+
+            #[test]
+            fn const_tables_match_their_runtime_builders() {
+                assert_eq!(build_exp(), EXP);
+                assert_eq!(build_log(), LOG);
+                for (i, &g) in EXP.iter().enumerate() {
+                    assert_eq!(LOG[g as usize] as usize, i, "log/exp inverse at {i}");
+                }
+                assert_eq!(
+                    Elem(1).mul_xtime(GENERATOR),
+                    GENERATOR,
+                    "the generator generates"
+                );
+            }
+        }
     };
 }
 

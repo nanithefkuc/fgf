@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- CI now measures line coverage with `cargo-llvm-cov` and fails below 95%,
+  merging one test run per forced `SIMD_BACKEND` tier so every dispatchable
+  backend counts toward the total.
+- Test coverage for surfaces the suites previously drove only through
+  inherent methods: the `field::Elem` trait and its defaulted bodies, the
+  `core::ops` operator overloads, `Sum`/`Product` folds, `Display`, the
+  prime-field `Neg`, prepared-plan `_with` operations for every kernel
+  family, `Coeff`/`Plan` accessors, the geometry-validation panic arms of
+  every `ops` entry point, and runtime re-evaluation of the `const`
+  table builders against the committed banks.
+
 ### Changed
 
 - `QuadMersenne31` kernels canonicalize each limb once per load instead of

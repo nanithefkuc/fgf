@@ -94,6 +94,16 @@ cargo clippy --all-features --all-targets -- -D warnings
 cargo clippy --no-default-features --all-targets -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
 
+# Coverage (CI enforces >= 95% line coverage; merge one run per forced tier,
+# exactly like the CI coverage job). cargo-llvm-cov is installed with
+# `cargo install cargo-llvm-cov`, never a dev-dependency.
+cargo llvm-cov clean --workspace
+cargo llvm-cov --no-report --all-features
+SIMD_BACKEND=v3     cargo llvm-cov --no-report --all-features
+SIMD_BACKEND=v2     cargo llvm-cov --no-report --all-features
+SIMD_BACKEND=scalar cargo llvm-cov --no-report --all-features
+cargo llvm-cov report --fail-under-lines 95
+
 # Cross-builds and MSRV
 cargo build --target aarch64-unknown-linux-gnu
 cargo build --target wasm32-unknown-unknown
@@ -206,6 +216,12 @@ When changing behavior:
 - Prepared-path change: compare `_with` byte-for-byte with one-shot operations;
   preserve plan dimensions, iteration/index access, and scatter/gather/matrix
   equivalence.
+
+Coverage is a CI gate, not an aspiration: at least 95% of lines, measured
+over the merged forced-backend runs. Code that cannot execute in CI needs a
+justified exclusion in the workflow, not a silent gap; `kernel/x86/avx512.rs`
+counts on the default run of the coverage job because the AVX-512 runner is
+the only host where those kernels execute.
 
 Benchmarks are not CI correctness checks. When quoting results, record CPU, OS,
 Rust version, actual process/per-field backend, row size/count, and source
