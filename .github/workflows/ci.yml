@@ -89,3 +89,7 @@ jobs:
       # Miri cannot execute the SIMD intrinsics; pin to the portable backend so
       # it validates the slice and pointer arithmetic in the wrappers instead.
       - run: cargo miri test --no-default-features
+        env:
+          # Optimize the interpreted MIR; the arithmetic-heavy scalar suites
+          # dominate the job otherwise.
+          MIRIFLAGS: -Zmir-opt-level=3
