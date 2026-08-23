@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.5.0]
+## [0.5.0] - 2026-08-23
 
 This release widens the crate from binary tower fields to also cover prime
 fields: `Mersenne31` (GF(2^31 − 1)) and `Goldilocks` (GF(2^64 − 2^32 + 1)),
