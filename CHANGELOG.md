@@ -40,6 +40,20 @@ fields are byte-identical to 0.4.0.
 - On non-x86 targets the prime fields use the portable path and report
   `scalar`, consistent with the crate's rule that a cross-compiled kernel is
   never promoted without validation on executing hardware.
+- Faster prime-field x86 kernels: `Mersenne31` add/sub/multiply rebuilt on
+  the Mersenne fold with a doubled-odd-limb multiply and loop-invariant
+  coefficient canonicalization, and `Goldilocks` AVX2 multiplies rebuilt in
+  the bias-shifted domain so borrow/carry detection is a single signed
+  compare. On the reference AVX2 host the 64 KiB overwrite region runs about
+  1.9x faster for `Mersenne31` and 1.3x for `Goldilocks`, accumulate about
+  1.3x and 1.2x. The binary-tower paths are untouched.
+
+### Fixed
+
+- `Mersenne31` and `Goldilocks` now override `FieldKernels::mul_into`.
+  The overwrite region op previously fell back to the copy-then-scale
+  default, two passes over every buffer; it is now a single fused pass on
+  every x86 backend, and the kernel differential tests cover it.
 
 ## [0.4.0] - 2026-08-22
 

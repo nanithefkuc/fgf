@@ -1844,6 +1844,7 @@ mod x86 {
         add: fn(&mut [u8], &[u8]),
         sub: fn(&mut [u8], &[u8]),
         muladd: fn(&mut [u8], C, &[u8]),
+        mulinto: fn(&mut [u8], C, &[u8]),
         mulassign: fn(&mut [u8], C),
         elemwise: fn(&mut [u8], &[u8], &[u8]),
         label: &str,
@@ -1888,6 +1889,12 @@ mod x86 {
                 assert_eq!(got, want, "{label} mul_add len {len} coeff {c:?}");
 
                 let mut got = base.clone();
+                let mut want = src.clone();
+                mulinto(&mut got, c, &src);
+                prime::mul_assign::<F>(&mut want, to_elem(c));
+                assert_eq!(got, want, "{label} mul_into len {len} coeff {c:?}");
+
+                let mut got = base.clone();
                 let mut want = base.clone();
                 mulassign(&mut got, c);
                 prime::mul_assign::<F>(&mut want, to_elem(c));
@@ -1909,6 +1916,7 @@ mod x86 {
             x86::prime::add_assign_m31_avx2,
             x86::prime::sub_assign_m31_avx2,
             x86::prime::mul_add_m31_avx2,
+            x86::prime::mul_into_m31_avx2,
             x86::prime::mul_assign_m31_avx2,
             x86::prime::mul_elementwise_m31_avx2,
             "m31 avx2",
@@ -1920,6 +1928,7 @@ mod x86 {
             x86::prime::add_assign_gld_avx2,
             x86::prime::sub_assign_gld_avx2,
             x86::prime::mul_add_gld_avx2,
+            x86::prime::mul_into_gld_avx2,
             x86::prime::mul_assign_gld_avx2,
             x86::prime::mul_elementwise_gld_avx2,
             "gld avx2",
@@ -1939,6 +1948,7 @@ mod x86 {
             x86::prime::add_assign_m31_sse41,
             x86::prime::sub_assign_m31_sse41,
             x86::prime::mul_add_m31_sse41,
+            x86::prime::mul_into_m31_sse41,
             x86::prime::mul_assign_m31_sse41,
             x86::prime::mul_elementwise_m31_sse41,
             "m31 sse4.2",
@@ -1950,6 +1960,7 @@ mod x86 {
             x86::prime::add_assign_gld_sse41,
             x86::prime::sub_assign_gld_sse41,
             x86::prime::mul_add_gld_sse41,
+            x86::prime::mul_into_gld_sse41,
             x86::prime::mul_assign_gld_sse41,
             x86::prime::mul_elementwise_gld_sse41,
             "gld sse4.2",

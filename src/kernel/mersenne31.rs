@@ -107,6 +107,23 @@ impl FieldKernels for Mersenne31 {
         }
     }
 
+    fn mul_into(dst: &mut [u8], coeff: &Elem, src: &[u8]) {
+        match backend() {
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V3GfniCrypto | Backend::V3 => {
+                x86::prime::mul_into_m31_avx2(dst, coeff.to_raw(), src);
+            }
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V2 => x86::prime::mul_into_m31_sse41(dst, coeff.to_raw(), src),
+            _ => {
+                for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+                    let v = *coeff * Elem(u32::from_le_bytes(s.try_into().unwrap()));
+                    d.copy_from_slice(&v.to_raw().to_le_bytes());
+                }
+            }
+        }
+    }
+
     fn mul_add_scatter(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
         prime::mul_add_scatter::<Mersenne31>(rows, row_len, coeffs, src);
     }
