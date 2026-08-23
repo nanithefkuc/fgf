@@ -8,7 +8,8 @@
 use fgf::field::Field;
 use fgf::{
     FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf8D, Gf16, Gf32, Gf64, Goldilocks,
-    Mersenne31, fan_paar, gf8b, gf8d, gf16, gf32, gf64, goldilocks, mersenne31,
+    Mersenne31, QuadMersenne31, fan_paar, gf8b, gf8d, gf16, gf32, gf64, goldilocks, mersenne31,
+    quad_mersenne31,
 };
 
 /// Every nonzero element, plus zero, in ascending order.
@@ -734,6 +735,174 @@ fn prime_arithmetic_is_total_over_raw_lanes() {
 }
 
 // ---------------------------------------------------------------------------
+// GF((2^31 - 1)^2) - QuadMersenne31
+// ---------------------------------------------------------------------------
+
+// The independent oracle is schoolbook (a+bi)(c+di) over u128 % p base
+// arithmetic: no fold, no lane tricks.
+fn qm_mul_oracle(x: quad_mersenne31::Elem, y: quad_mersenne31::Elem) -> quad_mersenne31::Elem {
+    let ar = x.0 as u128 % M31_P;
+    let ai = x.1 as u128 % M31_P;
+    let br = y.0 as u128 % M31_P;
+    let bi = y.1 as u128 % M31_P;
+    let re = (ar * br + M31_P * M31_P - ai * bi) % M31_P;
+    let im = (ar * bi + ai * br) % M31_P;
+    quad_mersenne31::Elem(re as u32, im as u32)
+}
+fn qm_add_oracle(x: quad_mersenne31::Elem, y: quad_mersenne31::Elem) -> quad_mersenne31::Elem {
+    let re = (x.0 as u128 % M31_P + y.0 as u128 % M31_P) % M31_P;
+    let im = (x.1 as u128 % M31_P + y.1 as u128 % M31_P) % M31_P;
+    quad_mersenne31::Elem(re as u32, im as u32)
+}
+fn qm_sub_oracle(x: quad_mersenne31::Elem, y: quad_mersenne31::Elem) -> quad_mersenne31::Elem {
+    let re = (x.0 as u128 % M31_P + M31_P - y.0 as u128 % M31_P) % M31_P;
+    let im = (x.1 as u128 % M31_P + M31_P - y.1 as u128 % M31_P) % M31_P;
+    quad_mersenne31::Elem(re as u32, im as u32)
+}
+
+fn sample_qm() -> Vec<quad_mersenne31::Elem> {
+    // Boundary pairs plus a deterministic spray of limb pairs.
+    let mut values: Vec<quad_mersenne31::Elem> = [
+        (0, 0),
+        (1, 0),
+        (0, 1),
+        (2, 3),
+        (0x7FFF_FFFE, 0x7FFF_FFFD), // p-2, p-3
+        (0x7FFF_FFFF, 0x8000_0000), // raw p and p+1
+        (0xFFFF_FFFF, 0x5555_5555),
+        (7, 12),
+    ]
+    .into_iter()
+    .map(|(re, im)| quad_mersenne31::Elem(re, im))
+    .collect();
+    let mut state = 0x243f_6a88u32;
+    for _ in 0..48 {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        values.push(quad_mersenne31::Elem(state, state.rotate_left(7)));
+    }
+    values
+}
+
+#[test]
+fn qm31_known_answer_products() {
+    use quad_mersenne31::Elem;
+    // i^2 = -1
+    assert_eq!(Elem(0, 1).square(), Elem(0x7FFF_FFFE, 0));
+    assert_eq!(Elem(0, 1).mul(Elem(0, 1)), Elem(0x7FFF_FFFE, 0));
+    // (a+ai)^2 = 0 + 2a^2 i with a^2 = 0x71C7_1C71 (the frozen M31 KAT).
+    assert_eq!(
+        Elem(0x5555_5555, 0x5555_5555).square(),
+        Elem(
+            0,
+            mersenne31::Elem(0x71C7_1C71)
+                .add(mersenne31::Elem(0x71C7_1C71))
+                .0
+        )
+    );
+    // Conjugate/norm inverse: inv(a+bi) = (a-bi)/(a^2+b^2).
+    let x = Elem(0x1234_5678, 0x9abc_def0 % 0x7FFF_FFFF);
+    assert_eq!(x.mul(x.inv()), Elem::ONE);
+    assert_eq!(Elem::ZERO.inv(), Elem::ZERO);
+}
+
+#[test]
+fn qm31_field_axioms() {
+    let sample = sample_qm();
+    for (i, &a) in sample.iter().enumerate() {
+        let b = sample[(i * 7 + 3) % sample.len()];
+        let c = sample[(i * 13 + 5) % sample.len()];
+        // Every output is canonical per limb on any input.
+        assert!(
+            a.mul(b).0 < 0x7FFF_FFFF && a.mul(b).1 < 0x7FFF_FFFF,
+            "mul canonical"
+        );
+        assert!(
+            a.add(b).0 < 0x7FFF_FFFF && a.add(b).1 < 0x7FFF_FFFF,
+            "add canonical"
+        );
+        assert!(
+            a.sub(b).0 < 0x7FFF_FFFF && a.sub(b).1 < 0x7FFF_FFFF,
+            "sub canonical"
+        );
+        assert!(
+            a.neg().0 < 0x7FFF_FFFF && a.neg().1 < 0x7FFF_FFFF,
+            "neg canonical"
+        );
+        // Differentials against the u128 oracle.
+        assert_eq!(a.mul(b), qm_mul_oracle(a, b), "{a:?} * {b:?}");
+        assert_eq!(a.add(b), qm_add_oracle(a, b), "{a:?} + {b:?}");
+        assert_eq!(a.sub(b), qm_sub_oracle(a, b), "{a:?} - {b:?}");
+        // Negation laws and sub == add of neg.
+        assert_eq!(a.add(a.neg()), quad_mersenne31::Elem::ZERO);
+        assert_eq!(a.neg().neg(), a.canonical());
+        assert_eq!(a.sub(b), a.add(b.neg()));
+        // Ring laws.
+        assert_eq!(a.add(b), b.add(a));
+        assert_eq!(a.mul(b), b.mul(a));
+        assert_eq!(a.mul(b.add(c)), a.mul(b).add(a.mul(c)));
+        assert_eq!(a.mul(b).mul(c), a.mul(b.mul(c)));
+        assert_eq!(a.square(), a.mul(a));
+        // Inverse/division totality and round trip.
+        assert_eq!(
+            a.div(quad_mersenne31::Elem::ZERO),
+            quad_mersenne31::Elem::ZERO
+        );
+        if a.canonical() != quad_mersenne31::Elem::ZERO {
+            assert_eq!(a.mul(a.inv()), quad_mersenne31::Elem::ONE, "inv({a:?})");
+            assert_eq!(a.div(a), quad_mersenne31::Elem::ONE);
+        }
+        // Norm is the base-field element a^2 + b^2.
+        let n = a.norm();
+        assert_eq!(
+            n,
+            mersenne31::Elem(a.0)
+                .mul(mersenne31::Elem(a.0))
+                .add(mersenne31::Elem(a.1).mul(mersenne31::Elem(a.1)))
+                .0
+        );
+    }
+    assert_eq!(
+        quad_mersenne31::Elem::ZERO.inv(),
+        quad_mersenne31::Elem::ZERO
+    );
+}
+
+#[test]
+fn qm31_generator_has_full_order() {
+    // p^2 - 1 = 2^32 * 3^2 * 7 * 11 * 31 * 151 * 331; order is exactly that.
+    let g = quad_mersenne31::GENERATOR;
+    let order = 0x3FFF_FFFF_0000_0000u64;
+    assert_eq!(g.pow(order), quad_mersenne31::Elem::ONE);
+    for q in [2u64, 3, 7, 11, 31, 151, 331] {
+        assert_ne!(
+            g.pow(order / q),
+            quad_mersenne31::Elem::ONE,
+            "QM factor {q}"
+        );
+    }
+}
+
+#[test]
+fn qm31_arithmetic_is_total_over_raw_limbs() {
+    let raws = [
+        (0x7FFF_FFFFu32, 0x8000_0000),
+        (0xFFFF_FFFF, 0xC000_0000),
+        (0xBFFF_FFFE, 0xFFFF_FFFF),
+    ];
+    for &(ra, rai) in &raws {
+        for &(rb, rbi) in &raws {
+            let a = quad_mersenne31::Elem(ra, rai);
+            let b = quad_mersenne31::Elem(rb, rbi);
+            let m = a.mul(b);
+            assert!(m.0 < 0x7FFF_FFFF && m.1 < 0x7FFF_FFFF);
+            assert_eq!(m, qm_mul_oracle(a, b));
+            assert_eq!(a.add(b), qm_add_oracle(a, b));
+            assert_eq!(a.sub(b), qm_sub_oracle(a, b));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Canonical Fan-Paar tower
 // ---------------------------------------------------------------------------
 
@@ -909,6 +1078,8 @@ fn field_constants_are_consistent() {
     // width (8 * BYTES), not log2(ORDER).
     assert_eq!(Mersenne31::BYTES, 4);
     assert_eq!(Mersenne31::ORDER, 0x7FFF_FFFF);
+    assert_eq!(QuadMersenne31::BYTES, 8);
+    assert_eq!(QuadMersenne31::ORDER, 0x3FFF_FFFF_0000_0001);
     assert_eq!(Goldilocks::BYTES, 8);
     assert_eq!(Goldilocks::ORDER, 0xFFFF_FFFF_0000_0001);
     for (bytes, bits) in [
@@ -922,6 +1093,7 @@ fn field_constants_are_consistent() {
         (FanPaar64::BYTES, FanPaar64::BITS),
         (Mersenne31::BYTES, Mersenne31::BITS),
         (Goldilocks::BYTES, Goldilocks::BITS),
+        (QuadMersenne31::BYTES, QuadMersenne31::BITS),
     ] {
         assert_eq!(bytes * 8, bits as usize);
     }

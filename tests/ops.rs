@@ -10,7 +10,8 @@
 use fgf::field::{Elem as _, Field};
 use fgf::{
     FanPaar8, FanPaar16, FanPaar32, FanPaar64, FieldKernels, Gf8B, Gf8D, Gf16, Gf32, Gf64,
-    Goldilocks, Mersenne31, fan_paar, gf8b, gf8d, gf16, gf32, gf64, goldilocks, mersenne31, ops,
+    Goldilocks, Mersenne31, QuadMersenne31, fan_paar, gf8b, gf8d, gf16, gf32, gf64, goldilocks,
+    mersenne31, ops, quad_mersenne31,
 };
 
 /// Deterministic pseudo-random bytes. No dependency, reproducible failures.
@@ -1309,7 +1310,11 @@ fn check_prime_ops<F: FieldKernels>(lens: &[usize], coeffs: &[F::Elem]) {
 fn check_prime_shapes<F: FieldKernels>(row_len: usize, coeffs: &[F::Elem]) {
     let nsrc = coeffs.len();
     let srcs: Vec<Vec<u8>> = (0..nsrc)
-        .map(|i| noise(row_len, 0x100 + i as u64))
+        .map(|i| {
+            let mut s = noise(row_len, 0x100 + i as u64);
+            canon::<F>(&mut s);
+            s
+        })
         .collect();
     let src_refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
 
@@ -1405,6 +1410,33 @@ fn mersenne31_public_ops_match_oracle() {
     check_prime_shapes::<Mersenne31>(64, &coeffs[1..6]);
     check_prime_shapes::<Mersenne31>(20, &coeffs[1..6]);
     check_prime_recovery::<Mersenne31>(64, m31(3), m31(0x1234_5678));
+}
+
+fn qm(re: u32, im: u32) -> quad_mersenne31::Elem {
+    quad_mersenne31::Elem(re, im)
+}
+
+/// 8-byte element lengths straddling the SSE (16 B = 2 elements) and AVX2
+/// (32 B = 4 elements) lane boundaries plus odd-element tails.
+const QM_LENS: [usize; 12] = [0, 8, 16, 24, 32, 40, 64, 72, 128, 256, 512, 1016];
+
+#[test]
+fn quad_mersenne31_public_ops_match_oracle() {
+    let coeffs = [
+        qm(0, 0),
+        qm(1, 0),
+        qm(0, 1), // i
+        qm(2, 7),
+        qm(0x5555_5555, 0x1234_5678),
+        qm(0x7FFF_FFFE, 0x7FFF_FFFF), // non-canonical zero in im
+        qm(0xFFFF_FFFF, 0x8000_0000), // non-canonical limbs
+    ];
+    check_prime_ops::<QuadMersenne31>(&QM_LENS, &coeffs);
+    check_prime_shapes::<QuadMersenne31>(64, &coeffs[1..6]);
+    check_prime_shapes::<QuadMersenne31>(24, &coeffs[1..6]);
+    // Recovery needs two independent coefficients with a nonzero determinant;
+    // (3+i) and (5+2i) qualify.
+    check_prime_recovery::<QuadMersenne31>(64, qm(3, 1), qm(5, 2));
 }
 
 #[test]
