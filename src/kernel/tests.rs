@@ -1805,6 +1805,156 @@ mod x86 {
             }
         }
     }
+
+    // Prime-field integer-SIMD kernels versus the portable prime reference.
+    use crate::field::goldilocks::{self, Goldilocks};
+    use crate::field::mersenne31::{self, Mersenne31};
+    use crate::kernel::prime;
+
+    // Multiples of 4 (Mersenne31) / 8 (Goldilocks) straddling the 16-byte SSE
+    // and 32-byte AVX2 lanes, with odd element tails.
+    const M31_LENS: &[usize] = &[0, 4, 8, 16, 20, 32, 36, 64, 68, 128, 260, 1020];
+    const GLD_LENS: &[usize] = &[0, 8, 16, 24, 32, 40, 64, 72, 128, 264, 1024];
+    const M31_COEFFS: [u32; 8] = [
+        0,
+        1,
+        2,
+        7,
+        0x5555_5555,
+        0x7FFF_FFFE,
+        0x7FFF_FFFF, // non-canonical zero
+        0xFFFF_FFFF, // non-canonical one
+    ];
+    const GLD_COEFFS: [u64; 8] = [
+        0,
+        1,
+        2,
+        7,
+        0x5555_5555_5555_5555,
+        goldilocks::MODULUS - 1,
+        goldilocks::MODULUS, // non-canonical zero
+        u64::MAX,
+    ];
+
+    #[allow(clippy::too_many_arguments)]
+    fn drive_prime<F: crate::field::Field, C: Copy + core::fmt::Debug>(
+        lens: &[usize],
+        coeffs: &[C],
+        to_elem: impl Fn(C) -> F::Elem,
+        add: fn(&mut [u8], &[u8]),
+        sub: fn(&mut [u8], &[u8]),
+        muladd: fn(&mut [u8], C, &[u8]),
+        mulassign: fn(&mut [u8], C),
+        elemwise: fn(&mut [u8], &[u8], &[u8]),
+        label: &str,
+    ) {
+        // Canonicalize a buffer through the portable field so both sides start
+        // from the canonical bytes the kernels are contracted to produce.
+        let canon = |buf: &mut Vec<u8>| {
+            let z = vec![0u8; buf.len()];
+            prime::add_assign::<F>(buf, &z);
+        };
+        for &len in lens {
+            let mut src = noise(len, 0xa1);
+            canon(&mut src);
+            let mut base = noise(len, 0xb2);
+            canon(&mut base);
+
+            let mut got = base.clone();
+            let mut want = base.clone();
+            add(&mut got, &src);
+            prime::add_assign::<F>(&mut want, &src);
+            assert_eq!(got, want, "{label} add_assign len {len}");
+
+            let mut got = base.clone();
+            let mut want = base.clone();
+            sub(&mut got, &src);
+            prime::sub_assign::<F>(&mut want, &src);
+            assert_eq!(got, want, "{label} sub_assign len {len}");
+
+            let mut b2 = noise(len, 0xc3);
+            canon(&mut b2);
+            let mut got = vec![0u8; len];
+            let mut want = vec![0u8; len];
+            elemwise(&mut got, &src, &b2);
+            prime::mul_elementwise::<F>(&mut want, &src, &b2);
+            assert_eq!(got, want, "{label} mul_elementwise len {len}");
+
+            for &c in coeffs {
+                let mut got = base.clone();
+                let mut want = base.clone();
+                muladd(&mut got, c, &src);
+                prime::mul_add::<F>(&mut want, to_elem(c), &src);
+                assert_eq!(got, want, "{label} mul_add len {len} coeff {c:?}");
+
+                let mut got = base.clone();
+                let mut want = base.clone();
+                mulassign(&mut got, c);
+                prime::mul_assign::<F>(&mut want, to_elem(c));
+                assert_eq!(got, want, "{label} mul_assign len {len} coeff {c:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn prime_avx2_kernels_match_reference() {
+        if !host_supports(&[Backend::V3]) {
+            eprintln!("skipping: no AVX2 on this host");
+            return;
+        }
+        drive_prime::<Mersenne31, u32>(
+            M31_LENS,
+            &M31_COEFFS,
+            mersenne31::Elem,
+            x86::prime::add_assign_m31_avx2,
+            x86::prime::sub_assign_m31_avx2,
+            x86::prime::mul_add_m31_avx2,
+            x86::prime::mul_assign_m31_avx2,
+            x86::prime::mul_elementwise_m31_avx2,
+            "m31 avx2",
+        );
+        drive_prime::<Goldilocks, u64>(
+            GLD_LENS,
+            &GLD_COEFFS,
+            goldilocks::Elem,
+            x86::prime::add_assign_gld_avx2,
+            x86::prime::sub_assign_gld_avx2,
+            x86::prime::mul_add_gld_avx2,
+            x86::prime::mul_assign_gld_avx2,
+            x86::prime::mul_elementwise_gld_avx2,
+            "gld avx2",
+        );
+    }
+
+    #[test]
+    fn prime_sse42_kernels_match_reference() {
+        if !host_supports(&[Backend::V2]) {
+            eprintln!("skipping: no SSE4.2 on this host");
+            return;
+        }
+        drive_prime::<Mersenne31, u32>(
+            M31_LENS,
+            &M31_COEFFS,
+            mersenne31::Elem,
+            x86::prime::add_assign_m31_sse41,
+            x86::prime::sub_assign_m31_sse41,
+            x86::prime::mul_add_m31_sse41,
+            x86::prime::mul_assign_m31_sse41,
+            x86::prime::mul_elementwise_m31_sse41,
+            "m31 sse4.2",
+        );
+        drive_prime::<Goldilocks, u64>(
+            GLD_LENS,
+            &GLD_COEFFS,
+            goldilocks::Elem,
+            x86::prime::add_assign_gld_sse41,
+            x86::prime::sub_assign_gld_sse41,
+            x86::prime::mul_add_gld_sse41,
+            x86::prime::mul_assign_gld_sse41,
+            x86::prime::mul_elementwise_gld_sse41,
+            "gld sse4.2",
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

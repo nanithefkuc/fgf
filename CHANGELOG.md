@@ -6,6 +6,41 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0]
+
+This release widens the crate from binary tower fields to also cover prime
+fields: `Mersenne31` (GF(2^31 − 1)) and `Goldilocks` (GF(2^64 − 2^32 + 1)),
+lane-packed integer arithmetic with x86 integer-SIMD kernels. The binary-tower
+fields are byte-identical to 0.4.0.
+
+### Added
+
+- `Mersenne31`, the prime field GF(2^31 − 1). Full `const` scalar arithmetic
+  over `u32` lanes with a Mersenne fold (`2^31 ≡ 1`), the complete checked ops
+  surface, and x86 AVX2 (`v3`) / SSE4.2 (`v2`) integer-SIMD kernels for
+  add/sub/multiply/elementwise using `vpmuludq` even/odd lane products. It is
+  total over raw lanes and variable-time (not for secret data).
+- `Goldilocks`, the prime field GF(2^64 − 2^32 + 1). Full `const` scalar
+  arithmetic over `u64` lanes with the split-fold reduction (`2^64 ≡ 2^32 − 1`),
+  the complete checked ops surface, and x86 AVX2/SSE4.2 kernels building the
+  128-bit product from four `vpmuludq` half-products. Total over raw lanes and
+  variable-time.
+- `Elem::neg`, the additive inverse, defaulting to the identity in
+  characteristic two and overridden by the prime fields.
+
+### Changed
+
+- `FieldKernels` now requires `add_assign`/`sub_assign` so `ops::add_assign`
+  and `ops::sub_assign` route through the field: XOR for the binary towers,
+  a modular fold for the prime fields. The binary-field bytes are unchanged.
+- `Field::BITS` documents the element storage width (`8 * BYTES`); for the
+  binary towers this still equals the extension degree over GF(2), while the
+  prime fields set the lane width (32/64), not `log2(ORDER)`. No binary value
+  changed.
+- On non-x86 targets the prime fields use the portable path and report
+  `scalar`, consistent with the crate's rule that a cross-compiled kernel is
+  never promoted without validation on executing hardware.
+
 ## [0.4.0] - 2026-08-22
 
 This release adds `Gf8D`, a second GF(2^8) representation under the
@@ -204,7 +239,8 @@ are deliberately not repeated here.
 
 Initial public release.
 
-[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/nanithefkuc/fgf/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/nanithefkuc/fgf/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/nanithefkuc/fgf/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/nanithefkuc/fgf/compare/v0.1.1...v0.2.0

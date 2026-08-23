@@ -21,6 +21,8 @@ pub mod gf32;
 pub mod gf64;
 pub mod gf8b;
 pub mod gf8d;
+pub mod goldilocks;
+pub mod mersenne31;
 
 pub use fan_paar::{FanPaar8, FanPaar16, FanPaar32, FanPaar64};
 pub use gf8b::Gf8B;
@@ -28,12 +30,16 @@ pub use gf8d::Gf8D;
 pub use gf16::Gf16;
 pub use gf32::Gf32;
 pub use gf64::Gf64;
+pub use goldilocks::Goldilocks;
+pub use mersenne31::Mersenne31;
 
-/// Scalar arithmetic over a binary field.
+/// Scalar arithmetic over a finite field.
 ///
-/// All binary fields have characteristic two, so addition and subtraction are
-/// the same operation (XOR). Both are provided because algorithms read more
-/// clearly when they say what they mean.
+/// In characteristic two — every binary tower field in this crate — addition
+/// and subtraction are the same operation (XOR) and negation is the identity.
+/// Prime fields reduce modulo their characteristic instead. Both `add` and
+/// `sub` are provided because algorithms read more clearly when they say what
+/// they mean.
 ///
 /// By library-wide convention `inv(0) == 0` and `x / 0 == 0`, in every build
 /// profile and under `const` evaluation alike. This is a total-function
@@ -47,12 +53,21 @@ pub trait Elem:
     /// The multiplicative identity.
     const ONE: Self;
 
-    /// Field addition (XOR).
+    /// Field addition. XOR in characteristic two.
     #[must_use]
     fn add(self, rhs: Self) -> Self;
     /// Field subtraction. Identical to [`Elem::add`] in characteristic two.
     #[must_use]
     fn sub(self, rhs: Self) -> Self;
+    /// Additive inverse: the unique `y` with `self.add(y) == ZERO`.
+    ///
+    /// Defaults to the identity, correct in characteristic two where every
+    /// element is its own negation. Odd-characteristic fields override it.
+    #[inline]
+    #[must_use]
+    fn neg(self) -> Self {
+        self
+    }
     /// Field multiplication.
     #[must_use]
     fn mul(self, rhs: Self) -> Self;
@@ -107,14 +122,17 @@ pub trait Elem:
     }
 }
 
-/// A binary field supported by this crate.
+/// A finite field supported by this crate.
 pub trait Field: Copy + Clone + core::fmt::Debug + 'static {
     /// The scalar element type.
     type Elem: Elem;
 
     /// Human-readable field name, e.g. `"GF(2^8)"`.
     const NAME: &'static str;
-    /// Extension degree over GF(2).
+    /// Storage bit width of one element (`8 * BYTES`).
+    ///
+    /// For the binary tower fields this coincides with the extension degree
+    /// over GF(2); for prime fields it is the lane width, not `log2(ORDER)`.
     const BITS: u32;
     /// Width of the stable byte representation of one element.
     const BYTES: usize;

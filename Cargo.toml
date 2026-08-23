@@ -1,9 +1,9 @@
 [package]
 name = "fgf"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.89"
-description = "Faster Galois Fields: SIMD and portable binary tower arithmetic and vector kernels"
+description = "Faster Galois Fields: SIMD and portable finite-field arithmetic (binary towers and prime fields) and vector kernels"
 license = "MIT"
 repository = "https://github.com/nanithefkuc/fgf"
 readme = "README.md"

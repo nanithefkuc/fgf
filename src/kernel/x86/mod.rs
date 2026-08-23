@@ -29,6 +29,7 @@ pub mod gf16;
 pub mod gf32;
 pub mod gf64;
 pub mod gf8;
+pub mod prime;
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;

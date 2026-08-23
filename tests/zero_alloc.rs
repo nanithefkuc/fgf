@@ -4,7 +4,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::sync::Mutex;
 
-use fgf::{Gf8B, gf8b, ops};
+use fgf::{FieldKernels, Gf8B, Goldilocks, Mersenne31, gf8b, goldilocks, mersenne31, ops};
 
 struct CountingAllocator;
 
@@ -145,4 +145,50 @@ fn dot_product_matrix_steady_state_allocates_nothing() {
         ops::dot_product_matrix_with::<Gf8B>(&mut rows, ROW_LEN, NROWS, &plan, &refs);
     });
     assert_eq!(prepared, 0, "prepared overwrite matrix allocated");
+}
+
+/// Steady-state prime-field ops must not allocate on the hot path.
+fn assert_prime_steady_state_zero_alloc<F: FieldKernels>(coeff: F::Elem) {
+    let len = 4096;
+    let src = noise(len, 0x111);
+    let b = noise(len, 0x222);
+    let mut dst = noise(len, 0x333);
+    let mut ew = vec![0u8; len];
+    let sources: Vec<Vec<u8>> = (0..4).map(|i| noise(len, 0x400 + i)).collect();
+    let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+    let coeffs = vec![coeff; 4];
+
+    // Warm dispatch and every code path before counting.
+    ops::mul_add::<F>(&mut dst, coeff, &src);
+    ops::mul_assign::<F>(&mut dst, coeff);
+    ops::add_assign::<F>(&mut dst, &src);
+    ops::sub_assign::<F>(&mut dst, &src);
+    ops::mul_add_gather::<F>(&mut dst, &coeffs, &refs);
+    ops::mul_elementwise::<F>(&mut ew, &src, &b);
+
+    let allocations = count_allocations(|| {
+        ops::mul_add::<F>(&mut dst, coeff, &src);
+        ops::mul_assign::<F>(&mut dst, coeff);
+        ops::add_assign::<F>(&mut dst, &src);
+        ops::sub_assign::<F>(&mut dst, &src);
+        ops::mul_add_gather::<F>(&mut dst, &coeffs, &refs);
+        ops::mul_elementwise::<F>(&mut ew, &src, &b);
+    });
+    assert_eq!(allocations, 0, "prime steady-state op allocated");
+}
+
+#[test]
+fn mersenne31_steady_state_allocates_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    assert_prime_steady_state_zero_alloc::<Mersenne31>(mersenne31::Elem(7));
+}
+
+#[test]
+fn goldilocks_steady_state_allocates_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    assert_prime_steady_state_zero_alloc::<Goldilocks>(goldilocks::Elem(7));
 }
