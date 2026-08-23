@@ -15,7 +15,8 @@
 //! | GF(2^8)..GF(2^64) | [`FanPaar8`]..[`FanPaar64`] | [`fan_paar::fp8::Elem`]..[`fan_paar::fp64::Elem`] | canonical Fan–Paar tower |
 //! | GF(2^31 − 1) | [`Mersenne31`] | [`mersenne31::Elem`] | Mersenne prime, `u32` lanes |
 //! | GF(2^64 − 2^32 + 1) | [`Goldilocks`] | [`goldilocks::Elem`] | Goldilocks prime, `u64` lanes |
-//!
+//! | GF((2^31 − 1)²) | [`QuadMersenne31`] | [`quad_mersenne31::Elem`] | QM31 extension, `i² = −1` over [`Mersenne31`] |
+
 //! `Gf8B` and `Gf16` have hand-written SIMD backends, and `Gf8D` multiplies
 //! through `VGF2P8AFFINEQB` affine maps on x86 GFNI hosts and `Gf8B`'s
 //! split-nibble shuffle kernels elsewhere. The wider polynomial
@@ -24,13 +25,15 @@
 //! shuffle tower on x86 AVX2 (and `FanPaar16` on SSSE3); on every other target
 //! those and `FanPaar8` use the portable kernels. All types share the same
 //! checked [`ops`] surface and stable little-endian encoding.
-//!
+
 //! The prime fields [`Mersenne31`] and [`Goldilocks`] are lane-packed integer
 //! arithmetic: on x86 with AVX2 (`V3`) or SSE4.2 (`V2`) their add, subtract,
 //! and multiply run over `u32`/`u64` lanes with a modular fold; on every other
-//! target they use the portable path. They are total over raw lanes (any bit
-//! pattern is a legal input; every arithmetic output is canonical) and
-//! variable-time — not for secret data. The binary-tower fields are unchanged.
+//! target they use the portable path. Their quadratic extension
+//! [`QuadMersenne31`] composes the [`Mersenne31`] lanes and reports `Scalar`
+//! (portable) today. All three are total over raw lanes (any bit pattern is a
+//! legal input; every arithmetic output is canonical) and variable-time — not
+//! for secret data. The binary-tower fields are unchanged.
 //!
 //! ## Two layers
 //!
@@ -149,7 +152,8 @@ pub mod ops;
 
 pub use field::{
     FanPaar8, FanPaar16, FanPaar32, FanPaar64, Field, Gf8B, Gf8D, Gf16, Gf32, Gf64, Goldilocks,
-    Mersenne31, fan_paar, gf8b, gf8d, gf16, gf32, gf64, goldilocks, mersenne31,
+    Mersenne31, QuadMersenne31, fan_paar, gf8b, gf8d, gf16, gf32, gf64, goldilocks, mersenne31,
+    quad_mersenne31,
 };
 pub use kernel::{
     Backend, FieldKernels, KernelBackend, ParseBackendError, backend, backend_for,
