@@ -99,6 +99,16 @@ impl FieldKernels for Gf8B {
     fn prepared_coeff(prepared: &Self::Prepared) -> Elem {
         prepared.coeff
     }
+
+    #[inline]
+    fn add_assign(dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
+    }
+
+    #[inline]
+    fn sub_assign(dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
+    }
     #[inline]
     fn active_backend() -> Backend {
         backend()
@@ -415,6 +425,16 @@ impl FieldKernels for Gf8D {
     #[inline]
     fn prepared_coeff(prepared: &Self::Prepared) -> gf8d::Elem {
         gf8d::Elem(prepared.table.coeff.0)
+    }
+
+    #[inline]
+    fn add_assign(dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
+    }
+
+    #[inline]
+    fn sub_assign(dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
     }
 
     #[inline]

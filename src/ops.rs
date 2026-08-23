@@ -39,7 +39,7 @@
 //! violation panics rather than silently corrupting.
 
 use crate::field::{Elem, Field};
-use crate::kernel::{self, FieldKernels};
+use crate::kernel::FieldKernels;
 
 /// A coefficient already resolved into the host backend's preferred form.
 ///
@@ -315,14 +315,16 @@ fn check_pair<F: Field>(name: &str, left_name: &str, left: usize, right_name: &s
     check_width::<F>(name, left);
 }
 
-/// `dst += src`, i.e. `dst ^= src`.
+/// `dst += src`, field addition.
+///
+/// XOR in characteristic two; a canonical modular fold in the prime fields.
 ///
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.
 #[inline]
 pub fn add_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
     check_pair::<F>("add_assign", "dst", dst.len(), "src", src.len());
-    kernel::xor(dst, src);
+    F::add_assign(dst, src);
 }
 
 /// `dst -= src`. Identical to [`add_assign`] in characteristic two.
@@ -331,7 +333,8 @@ pub fn add_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 /// Panics on a length mismatch or a partial trailing element.
 #[inline]
 pub fn sub_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
-    add_assign::<F>(dst, src);
+    check_pair::<F>("sub_assign", "dst", dst.len(), "src", src.len());
+    F::sub_assign(dst, src);
 }
 
 /// `dst ^= coeff * src`.
@@ -345,7 +348,7 @@ pub fn mul_add<F: FieldKernels>(dst: &mut [u8], coeff: F::Elem, src: &[u8]) {
         return;
     }
     if coeff.is_one() {
-        kernel::xor(dst, src);
+        F::add_assign(dst, src);
         return;
     }
     F::mul_add(dst, &F::prepare(coeff), src);
@@ -367,7 +370,7 @@ pub fn mul_add_with<F: FieldKernels>(
         return;
     }
     if value.is_one() {
-        kernel::xor(dst, src);
+        F::add_assign(dst, src);
         return;
     }
     F::mul_add(dst, coeff.prepared(), src);

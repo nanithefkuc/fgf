@@ -2,15 +2,19 @@
 
 ## Project Overview
 
-`fgf` is a dependency-free Rust library for binary finite-field arithmetic. It
+`fgf` is a dependency-free Rust library for finite-field arithmetic — binary
+towers GF(2^m) and prime fields GF(p). It
 provides const-capable scalar elements and safe, runtime-dispatched kernels over
 packed byte buffers for erasure coders, proof systems, and similar consumers.
 It is deliberately not a codec: matrix recipes, shard ownership, inversion,
 and streaming recovery belong above this crate.
 
-The public fields are `Gf8`, `Gf16`, `Gf32`, `Gf64`, and canonical Fan–Paar
-`FanPaar8/16/32/64`. Only `Gf8` and `Gf16` have hand-written SIMD kernels;
-wider and Fan–Paar fields use the portable implementation.
+The public fields are the binary towers `Gf8B`/`Gf8D`/`Gf16`/`Gf32`/`Gf64`,
+canonical Fan–Paar `FanPaar8/16/32/64`, and the prime fields `Mersenne31`
+(GF(2^31 − 1)) and `Goldilocks` (GF(2^64 − 2^32 + 1)). `Gf8B`/`Gf16` have
+hand-written binary SIMD kernels; the prime fields have x86 integer-SIMD
+kernels (AVX2/SSE4.2); wider towers, Fan–Paar fields, and the prime fields on
+non-x86 targets use the portable implementation.
 
 ## Architecture & Data Flow
 
@@ -32,7 +36,9 @@ wider and Fan–Paar fields use the portable implementation.
 Preserve these invariants:
 
 - Encodings are stable, fixed-width, little-endian, and alignment-free.
-- Addition and subtraction are XOR. By convention `inv(0) == 0` and
+- In characteristic two, addition and subtraction are XOR; the prime fields
+  reduce canonically and are total over raw lanes (any bit pattern is a legal
+  input, every arithmetic output is `< p`). By convention `inv(0) == 0` and
   `x / 0 == 0`; do not turn these total operations into errors.
 - Backend selection is cached once and `SIMD_BACKEND` (owned by `simdispatch`)
   is downgrade-only. Detection and ordering are single-source: `Backend` is a

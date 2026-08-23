@@ -141,6 +141,14 @@ macro_rules! impl_field_kernels {
                 coeff
             }
 
+            fn add_assign(dst: &mut [u8], src: &[u8]) {
+                crate::kernel::xor(dst, src);
+            }
+
+            fn sub_assign(dst: &mut [u8], src: &[u8]) {
+                crate::kernel::xor(dst, src);
+            }
+
             #[inline]
             fn prepared_coeff(prepared: &Self::Prepared) -> Self::Elem {
                 *prepared

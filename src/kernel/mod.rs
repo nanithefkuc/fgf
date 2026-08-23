@@ -41,6 +41,21 @@ pub mod gf8;
 pub(crate) mod gf8;
 
 #[cfg(feature = "internals")]
+pub mod goldilocks;
+#[cfg(not(feature = "internals"))]
+pub(crate) mod goldilocks;
+
+#[cfg(feature = "internals")]
+pub mod mersenne31;
+#[cfg(not(feature = "internals"))]
+pub(crate) mod mersenne31;
+
+#[cfg(feature = "internals")]
+pub mod prime;
+#[cfg(not(feature = "internals"))]
+pub(crate) mod prime;
+
+#[cfg(feature = "internals")]
 pub mod scalar;
 #[cfg(not(feature = "internals"))]
 pub(crate) mod scalar;
@@ -93,6 +108,8 @@ impl private::Sealed for crate::field::fan_paar::FanPaar8 {}
 impl private::Sealed for crate::field::fan_paar::FanPaar16 {}
 impl private::Sealed for crate::field::fan_paar::FanPaar32 {}
 impl private::Sealed for crate::field::fan_paar::FanPaar64 {}
+impl private::Sealed for crate::field::mersenne31::Mersenne31 {}
+impl private::Sealed for crate::field::goldilocks::Goldilocks {}
 
 // The backend ladder is owned by `simdispatch` (the Level 0 single source for
 // detection and ordering); FGF re-exports it so downstream consumers keep
@@ -309,6 +326,21 @@ pub trait FieldKernels: Field + private::Sealed {
     fn has_vector_elementwise() -> bool {
         false
     }
+
+    /// `dst += src`, elementwise field addition.
+    ///
+    /// Required, with no default: addition is XOR for the binary fields and a
+    /// characteristic-`p` fold for the prime fields, so a wrong-by-default
+    /// body would be a silent defect. Binary impls route to
+    /// [`crate::kernel::xor`].
+    fn add_assign(dst: &mut [u8], src: &[u8]);
+
+    /// `dst -= src`, elementwise field subtraction.
+    ///
+    /// Identical to [`FieldKernels::add_assign`] in characteristic two; prime
+    /// fields subtract with a canonicalizing fold. Required, no default, for
+    /// the same reason.
+    fn sub_assign(dst: &mut [u8], src: &[u8]);
 
     /// `dst ^= coeff * src`. The workhorse AXPY.
     fn mul_add(dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]);

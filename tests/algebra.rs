@@ -7,8 +7,8 @@
 
 use fgf::field::Field;
 use fgf::{
-    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf8D, Gf16, Gf32, Gf64, fan_paar, gf8b, gf8d,
-    gf16, gf32, gf64,
+    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf8D, Gf16, Gf32, Gf64, Goldilocks,
+    Mersenne31, fan_paar, gf8b, gf8d, gf16, gf32, gf64, goldilocks, mersenne31,
 };
 
 /// Every nonzero element, plus zero, in ascending order.
@@ -471,6 +471,269 @@ fn larger_tower_generators_have_full_order() {
 }
 
 // ---------------------------------------------------------------------------
+// Prime fields GF(2^31 - 1) and GF(2^64 - 2^32 + 1)
+// ---------------------------------------------------------------------------
+
+// The independent oracle is `u128 % p` schoolbook arithmetic: no fold, no
+// Shoup, no lane tricks, so a reduction bug stays visible instead of being
+// self-consistent with the implementation under test.
+const M31_P: u128 = 0x7FFF_FFFF;
+const GLD_P: u128 = 0xFFFF_FFFF_0000_0001;
+
+fn sample_m31() -> Vec<mersenne31::Elem> {
+    // Canonical boundaries, non-canonical raw lanes (>= p), and a spray.
+    let mut values: Vec<mersenne31::Elem> = [
+        0,
+        1,
+        2,
+        3,
+        0x7FFF_FFFD,
+        0x7FFF_FFFE, // 0, 1, 2, 3, p-2, p-1
+        0x7FFF_FFFF,
+        0x8000_0000,
+        0xFFFF_FFFF, // p, p+1, 2p+1 (non-canonical)
+        0x5555_5555,
+        0xAAAA_AAAA,
+        7,
+    ]
+    .into_iter()
+    .map(mersenne31::Elem)
+    .collect();
+    let mut state = 0x243f_6a88u32;
+    for _ in 0..64 {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        values.push(mersenne31::Elem(state));
+    }
+    values
+}
+
+fn sample_gld() -> Vec<goldilocks::Elem> {
+    let mut values: Vec<goldilocks::Elem> = [
+        0,
+        1,
+        2,
+        3,
+        0xFFFF_FFFE_FFFF_FFFF,
+        0xFFFF_FFFF_0000_0000, // p-2, p-1
+        0xFFFF_FFFF_0000_0001,
+        0xFFFF_FFFF_0000_0002,
+        0xFFFF_FFFF_FFFF_FFFF, // p, p+1, 2^64-1
+        0x5555_5555_5555_5555,
+        0xAAAA_AAAA_AAAA_AAAA,
+        7,
+    ]
+    .into_iter()
+    .map(goldilocks::Elem)
+    .collect();
+    let mut state = 0x243f_6a88_85a3_08d3u64;
+    for _ in 0..48 {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        values.push(goldilocks::Elem(state));
+    }
+    values
+}
+
+fn m31_mul_oracle(x: mersenne31::Elem, y: mersenne31::Elem) -> mersenne31::Elem {
+    let a = x.to_raw() as u128 % M31_P;
+    let b = y.to_raw() as u128 % M31_P;
+    mersenne31::Elem((a * b % M31_P) as u32)
+}
+fn m31_add_oracle(x: mersenne31::Elem, y: mersenne31::Elem) -> mersenne31::Elem {
+    let a = x.to_raw() as u128 % M31_P;
+    let b = y.to_raw() as u128 % M31_P;
+    mersenne31::Elem(((a + b) % M31_P) as u32)
+}
+fn m31_sub_oracle(x: mersenne31::Elem, y: mersenne31::Elem) -> mersenne31::Elem {
+    let a = x.to_raw() as u128 % M31_P;
+    let b = y.to_raw() as u128 % M31_P;
+    mersenne31::Elem(((a + M31_P - b) % M31_P) as u32)
+}
+fn gld_mul_oracle(x: goldilocks::Elem, y: goldilocks::Elem) -> goldilocks::Elem {
+    let a = u128::from(x.to_raw()) % GLD_P;
+    let b = u128::from(y.to_raw()) % GLD_P;
+    goldilocks::Elem((a * b % GLD_P) as u64)
+}
+fn gld_add_oracle(x: goldilocks::Elem, y: goldilocks::Elem) -> goldilocks::Elem {
+    let a = u128::from(x.to_raw()) % GLD_P;
+    let b = u128::from(y.to_raw()) % GLD_P;
+    goldilocks::Elem(((a + b) % GLD_P) as u64)
+}
+fn gld_sub_oracle(x: goldilocks::Elem, y: goldilocks::Elem) -> goldilocks::Elem {
+    let a = u128::from(x.to_raw()) % GLD_P;
+    let b = u128::from(y.to_raw()) % GLD_P;
+    goldilocks::Elem(((a + GLD_P - b) % GLD_P) as u64)
+}
+
+#[test]
+fn m31_known_answer_products() {
+    use mersenne31::Elem;
+    assert_eq!(Elem(0x5555_5555).mul(Elem(0x5555_5555)), Elem(0x71C7_1C71));
+    assert_eq!(Elem(0x5555_5555).mul(Elem(0x7FFF_FFFE)), Elem(0x2AAA_AAAA));
+    assert_eq!(Elem(0x7FFF_FFFE).mul(Elem(0x7FFF_FFFE)), Elem(0x0000_0001));
+    assert_eq!(Elem(0x7FFF_FFFD).mul(Elem(0x7FFF_FFFE)), Elem(0x0000_0002));
+    assert_eq!(Elem(0x5555_5555).mul(Elem(0x5EAD_BEF0)), Elem(0x74E4_94FA));
+    assert_eq!(Elem(2).inv(), Elem(0x4000_0000));
+    assert_eq!(Elem(0x5555_5555).inv(), Elem(3));
+    // Fold known-answers: non-canonical lanes reduce branchlessly.
+    assert_eq!(mersenne31::reduce(0x8000_0000), 1);
+    assert_eq!(mersenne31::reduce(0xFFFF_FFFF), 1);
+    assert_eq!(mersenne31::reduce(0x7FFF_FFFF), 0);
+}
+
+#[test]
+fn gld_known_answer_products() {
+    use goldilocks::Elem;
+    assert_eq!(
+        Elem(0x5555_5555_5555_5555).mul(Elem(0xAAAA_AAAA_AAAA_AAAA)),
+        Elem(0xFFFF_FFFE_5555_5557)
+    );
+    assert_eq!(
+        Elem(0xFFFF_FFFF_0000_0000).mul(Elem(0xFFFF_FFFF_0000_0000)),
+        Elem(0x0000_0000_0000_0001)
+    );
+    assert_eq!(
+        Elem(0x7FFF_FFFF_FFFF_FFFF).mul(Elem(0x7FFF_FFFF_FFFF_FFFF)),
+        Elem(0xFFFF_FFFD_C000_0003)
+    );
+    assert_eq!(
+        Elem(0x0000_0000_7FFF_FFFF).mul(Elem(0xFFFF_FFFF_0000_0000)),
+        Elem(0xFFFF_FFFE_8000_0002)
+    );
+    assert_eq!(Elem(2).inv(), Elem(0x7FFF_FFFF_8000_0001));
+    assert_eq!(Elem(7).inv(), Elem(0x2492_4924_6DB6_DB6E));
+    // Fold known-answers pinning the split reduction chain.
+    assert_eq!(goldilocks::canonical(goldilocks::MODULUS), 0);
+    assert_eq!(goldilocks::canonical(u64::MAX), 0xFFFF_FFFE);
+    assert_eq!(goldilocks::reduce128(1u128 << 64), 0xFFFF_FFFF); // 2^64 = 2^32 - 1
+    assert_eq!(goldilocks::reduce128(1u128 << 96), 0xFFFF_FFFF_0000_0000); // 2^96 = -1
+}
+
+#[test]
+fn m31_field_axioms() {
+    let sample = sample_m31();
+    for (i, &a) in sample.iter().enumerate() {
+        let b = sample[(i * 7 + 3) % sample.len()];
+        let c = sample[(i * 13 + 5) % sample.len()];
+        // Every output is canonical (< p) on any input, canonical or not.
+        assert!(a.mul(b).to_raw() < 0x7FFF_FFFF, "mul canonical {a:?}*{b:?}");
+        assert!(a.add(b).to_raw() < 0x7FFF_FFFF, "add canonical");
+        assert!(a.sub(b).to_raw() < 0x7FFF_FFFF, "sub canonical");
+        assert!(a.neg().to_raw() < 0x7FFF_FFFF, "neg canonical");
+        // Differentials against the u128 oracle.
+        assert_eq!(a.mul(b), m31_mul_oracle(a, b), "{a:?} * {b:?}");
+        assert_eq!(a.add(b), m31_add_oracle(a, b), "{a:?} + {b:?}");
+        assert_eq!(a.sub(b), m31_sub_oracle(a, b), "{a:?} - {b:?}");
+        // Negation laws and sub == add of neg.
+        assert_eq!(a.add(a.neg()), mersenne31::Elem::ZERO);
+        assert_eq!(a.neg().neg(), a.canonical());
+        assert_eq!(a.sub(b), a.add(b.neg()));
+        // Ring laws.
+        assert_eq!(a.add(b), b.add(a));
+        assert_eq!(a.mul(b), b.mul(a));
+        assert_eq!(a.mul(b.add(c)), a.mul(b).add(a.mul(c)));
+        assert_eq!(a.mul(b).mul(c), a.mul(b.mul(c)));
+        assert_eq!(a.square(), a.mul(a));
+        // Inverse/division totality and round trip.
+        assert_eq!(a.div(mersenne31::Elem::ZERO), mersenne31::Elem::ZERO);
+        if a.canonical() != mersenne31::Elem::ZERO {
+            assert_eq!(a.mul(a.inv()), mersenne31::Elem::ONE, "inv({a:?})");
+            assert_eq!(a.div(a), mersenne31::Elem::ONE);
+        }
+    }
+    assert_eq!(mersenne31::Elem::ZERO.inv(), mersenne31::Elem::ZERO);
+}
+
+#[test]
+fn gld_field_axioms() {
+    let sample = sample_gld();
+    for (i, &a) in sample.iter().enumerate() {
+        let b = sample[(i * 7 + 3) % sample.len()];
+        let c = sample[(i * 13 + 5) % sample.len()];
+        assert!(a.mul(b).to_raw() < goldilocks::MODULUS, "mul canonical");
+        assert!(a.add(b).to_raw() < goldilocks::MODULUS, "add canonical");
+        assert!(a.sub(b).to_raw() < goldilocks::MODULUS, "sub canonical");
+        assert!(a.neg().to_raw() < goldilocks::MODULUS, "neg canonical");
+        assert_eq!(a.mul(b), gld_mul_oracle(a, b), "{a:?} * {b:?}");
+        assert_eq!(a.add(b), gld_add_oracle(a, b), "{a:?} + {b:?}");
+        assert_eq!(a.sub(b), gld_sub_oracle(a, b), "{a:?} - {b:?}");
+        assert_eq!(a.add(a.neg()), goldilocks::Elem::ZERO);
+        assert_eq!(a.neg().neg(), a.canonical());
+        assert_eq!(a.sub(b), a.add(b.neg()));
+        assert_eq!(a.add(b), b.add(a));
+        assert_eq!(a.mul(b), b.mul(a));
+        assert_eq!(a.mul(b.add(c)), a.mul(b).add(a.mul(c)));
+        assert_eq!(a.mul(b).mul(c), a.mul(b.mul(c)));
+        assert_eq!(a.square(), a.mul(a));
+        assert_eq!(a.div(goldilocks::Elem::ZERO), goldilocks::Elem::ZERO);
+        if a.canonical() != goldilocks::Elem::ZERO {
+            assert_eq!(a.mul(a.inv()), goldilocks::Elem::ONE, "inv({a:?})");
+            assert_eq!(a.div(a), goldilocks::Elem::ONE);
+        }
+    }
+    assert_eq!(goldilocks::Elem::ZERO.inv(), goldilocks::Elem::ZERO);
+}
+
+#[test]
+fn prime_generators_have_full_order() {
+    // Multiplicative order is exactly p - 1: full order, and not a proper
+    // divisor for any prime factor q of p - 1.
+    let g = mersenne31::GENERATOR;
+    let order = 0x7FFF_FFFEu64; // p - 1 = 2 * 3^2 * 7 * 11 * 31 * 151 * 331
+    assert_eq!(g.pow(order), mersenne31::Elem::ONE);
+    for q in [2u64, 3, 7, 11, 31, 151, 331] {
+        assert_ne!(g.pow(order / q), mersenne31::Elem::ONE, "M31 factor {q}");
+    }
+
+    let g = goldilocks::GENERATOR;
+    let order = 0xFFFF_FFFF_0000_0000u64; // p - 1 = 2^32 * 3 * 5 * 17 * 257 * 65537
+    assert_eq!(g.pow(order), goldilocks::Elem::ONE);
+    for q in [2u64, 3, 5, 17, 257, 65_537] {
+        assert_ne!(g.pow(order / q), goldilocks::Elem::ONE, "GLD factor {q}");
+    }
+}
+
+#[test]
+fn prime_arithmetic_is_total_over_raw_lanes() {
+    // Non-canonical raw lanes (>= p) are legal input; every output is
+    // canonical and equals the oracle on the reduced operands.
+    let raws31 = [
+        0x7FFF_FFFFu32,
+        0x8000_0000,
+        0xFFFF_FFFF,
+        0xC000_0000,
+        0xBFFF_FFFE,
+    ];
+    for &ra in &raws31 {
+        for &rb in &raws31 {
+            let a = mersenne31::Elem::from_raw(ra);
+            let b = mersenne31::Elem::from_raw(rb);
+            assert!(a.mul(b).to_raw() < 0x7FFF_FFFF);
+            assert_eq!(a.mul(b), m31_mul_oracle(a, b), "raw {ra:#x} * {rb:#x}");
+            assert_eq!(a.add(b), m31_add_oracle(a, b));
+            assert_eq!(a.sub(b), m31_sub_oracle(a, b));
+        }
+    }
+    let raws64 = [
+        goldilocks::MODULUS,
+        goldilocks::MODULUS + 1,
+        u64::MAX,
+        0xFFFF_FFFF_8000_0000,
+    ];
+    for &ra in &raws64 {
+        for &rb in &raws64 {
+            let a = goldilocks::Elem::from_raw(ra);
+            let b = goldilocks::Elem::from_raw(rb);
+            assert!(a.mul(b).to_raw() < goldilocks::MODULUS);
+            assert_eq!(a.mul(b), gld_mul_oracle(a, b), "raw {ra:#x} * {rb:#x}");
+            assert_eq!(a.add(b), gld_add_oracle(a, b));
+            assert_eq!(a.sub(b), gld_sub_oracle(a, b));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Canonical Fan-Paar tower
 // ---------------------------------------------------------------------------
 
@@ -605,6 +868,18 @@ fn byte_representation_round_trips() {
         assert_eq!(Gf64::read(&buffer), a);
         assert_eq!(buffer, a.to_raw().to_le_bytes(), "representation is not LE");
     }
+    for a in sample_m31() {
+        let mut buffer = [0u8; 4];
+        Mersenne31::write(&mut buffer, a);
+        assert_eq!(Mersenne31::read(&buffer), a);
+        assert_eq!(buffer, a.to_raw().to_le_bytes(), "representation is not LE");
+    }
+    for a in sample_gld() {
+        let mut buffer = [0u8; 8];
+        Goldilocks::write(&mut buffer, a);
+        assert_eq!(Goldilocks::read(&buffer), a);
+        assert_eq!(buffer, a.to_raw().to_le_bytes(), "representation is not LE");
+    }
     macro_rules! check_fan_paar_repr {
         ($field:ty, $elem:expr, $bytes:literal) => {{
             let value = $elem;
@@ -630,6 +905,12 @@ fn field_constants_are_consistent() {
     assert_eq!(Gf32::ORDER, 1u128 << Gf32::BITS);
     assert_eq!(Gf64::BYTES, 8);
     assert_eq!(Gf64::ORDER, 1u128 << Gf64::BITS);
+    // Prime fields: ORDER is the modulus, not 2^BITS, and BITS is the lane
+    // width (8 * BYTES), not log2(ORDER).
+    assert_eq!(Mersenne31::BYTES, 4);
+    assert_eq!(Mersenne31::ORDER, 0x7FFF_FFFF);
+    assert_eq!(Goldilocks::BYTES, 8);
+    assert_eq!(Goldilocks::ORDER, 0xFFFF_FFFF_0000_0001);
     for (bytes, bits) in [
         (Gf8B::BYTES, Gf8B::BITS),
         (Gf16::BYTES, Gf16::BITS),
@@ -639,6 +920,8 @@ fn field_constants_are_consistent() {
         (FanPaar16::BYTES, FanPaar16::BITS),
         (FanPaar32::BYTES, FanPaar32::BITS),
         (FanPaar64::BYTES, FanPaar64::BITS),
+        (Mersenne31::BYTES, Mersenne31::BITS),
+        (Goldilocks::BYTES, Goldilocks::BITS),
     ] {
         assert_eq!(bytes * 8, bits as usize);
     }

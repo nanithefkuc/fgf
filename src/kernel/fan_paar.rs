@@ -32,6 +32,16 @@ impl FieldKernels for FanPaar32 {
     }
 
     #[inline]
+    fn add_assign(dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
+    }
+
+    #[inline]
+    fn sub_assign(dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
+    }
+
+    #[inline]
     fn active_backend() -> Backend {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -126,6 +136,16 @@ impl FieldKernels for FanPaar64 {
     #[inline]
     fn prepared_coeff(prepared: &Self::Prepared) -> fp64::Elem {
         *prepared
+    }
+
+    #[inline]
+    fn add_assign(dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
+    }
+
+    #[inline]
+    fn sub_assign(dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
     }
 
     #[inline]
@@ -260,6 +280,16 @@ impl FieldKernels for FanPaar16 {
     #[inline]
     fn prepared_coeff(prepared: &Fp16Prepared) -> fp16::Elem {
         prepared.coeff()
+    }
+
+    #[inline]
+    fn add_assign(dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
+    }
+
+    #[inline]
+    fn sub_assign(dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
     }
 
     #[inline]

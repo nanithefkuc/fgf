@@ -233,6 +233,16 @@ impl FieldKernels for Gf16 {
     fn prepared_coeff(prepared: &Prepared) -> Elem {
         prepared.coeff()
     }
+
+    #[inline]
+    fn add_assign(dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
+    }
+
+    #[inline]
+    fn sub_assign(dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
+    }
     #[inline]
     fn active_backend() -> Backend {
         backend()

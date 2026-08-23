@@ -5,7 +5,7 @@ your own agent before using.
 
 # fgf - Faster Galois Fields
 
-`fgf` provides safe APIs for scalar arithmetic and runtime-dispatched vector kernels for binary finite fields. 
+`fgf` provides safe APIs for scalar arithmetic and runtime-dispatched vector kernels for finite fields: binary towers GF(2^m) and prime fields GF(p).
 
 ## Usage
 
@@ -55,6 +55,14 @@ fgf = { git = "https://github.com/nanithefkuc/fgf", default-features = false }
 | Fan–Paar GF(2^16) | `FanPaar16` | `fan_paar::fp16::Elem` | canonical recursive tower | x86 AVX2/SSSE3 |
 | Fan–Paar GF(2^32) | `FanPaar32` | `fan_paar::fp32::Elem` | canonical recursive tower | x86 AVX2 |
 | Fan–Paar GF(2^64) | `FanPaar64` | `fan_paar::fp64::Elem` | canonical recursive tower | x86 AVX2 |
+| GF(2^31 − 1) | `Mersenne31` | `mersenne31::Elem` | Mersenne prime, `u32` lanes | x86 AVX2/SSE4.2 integer SIMD |
+| GF(2^64 − 2^32 + 1) | `Goldilocks` | `goldilocks::Elem` | Goldilocks prime, `u64` lanes | x86 AVX2/SSE4.2 integer SIMD |
+
+The prime fields are lane-packed integer arithmetic with a modular fold
+(`2^31 ≡ 1` for Mersenne31; the `2^64 ≡ 2^32 − 1` split-fold for Goldilocks).
+They are total over raw lanes — any bit pattern is a legal input and every
+arithmetic output is canonical (`< p`) — and variable-time, so they are not for
+secret data. On non-x86 targets they run the portable path.
 
 ### Scalar arithmetic
 
@@ -93,7 +101,7 @@ assert_eq!(dst, [0x03, 0x06, 0x05, 0x0c]);
 
 | Shape | Function | Typical use |
 | --- | --- | --- |
-| `dst ^= src` | `add_assign` / `sub_assign` | XOR parity |
+| `dst += src` | `add_assign` / `sub_assign` | parity (XOR) or modular field add |
 | `dst ^= c * src` | `mul_add` / `mul_add_with` | AXPY |
 | `dst = c * src` | `mul_into` / `mul_into_with` | scale a row |
 | `dst *= c` | `mul_assign` / `mul_assign_with` | in-place scale |
@@ -149,9 +157,10 @@ cargo test --all-features
 `backend()` reports the process-wide SIMD selection. `backend_for::<F>()`
 reports what a particular field actually uses; the GF(2^32)/GF(2^64) towers
 report the GFNI backend on x86 GFNI hosts, the canonical Fan–Paar GF(2^16)/
-GF(2^32)/GF(2^64) report AVX2/SSSE3 on x86, and the remaining fields report
-`scalar`. `has_vector_elementwise::<F>()` exposes the notable performance
-boundary of `mul_elementwise`.
+GF(2^32)/GF(2^64) report AVX2/SSSE3 on x86, the prime fields `Mersenne31`/
+`Goldilocks` report `v3`/`v2` on x86 and `scalar` elsewhere, and the remaining
+fields report `scalar`. `has_vector_elementwise::<F>()` exposes the notable
+performance boundary of `mul_elementwise`.
 
 | Identifier | Target and requirements | Lane width |
 | --- | --- | --- |

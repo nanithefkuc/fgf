@@ -9,8 +9,8 @@
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 use fgf::field::{Elem as _, Field};
 use fgf::{
-    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf8D, Gf16, Gf32, Gf64, fan_paar, gf8b, gf8d,
-    gf16, gf32, gf64, ops,
+    FanPaar8, FanPaar16, FanPaar32, FanPaar64, FieldKernels, Gf8B, Gf8D, Gf16, Gf32, Gf64,
+    Goldilocks, Mersenne31, fan_paar, gf8b, gf8d, gf16, gf32, gf64, goldilocks, mersenne31, ops,
 };
 
 /// Deterministic pseudo-random bytes. No dependency, reproducible failures.
@@ -1183,4 +1183,244 @@ fn gf8d_public_ops_match_oracle() {
 #[test]
 fn gf8d_matrix_scattered_matches_contiguous() {
     check_matrix_scattered::<Gf8D>("gf8d", 0x8d5c);
+}
+
+// ---------------------------------------------------------------------------
+// Prime fields GF(2^31 - 1) and GF(2^64 - 2^32 + 1)
+// ---------------------------------------------------------------------------
+
+// Byte lengths straddling the SSE (16 B) and AVX2 (32 B) lane boundaries plus
+// odd element tails; Mersenne31 is 4-byte, Goldilocks 8-byte.
+const M31_LENS: [usize; 12] = [0, 4, 8, 16, 20, 32, 36, 64, 68, 128, 256, 1020];
+const GLD_LENS: [usize; 11] = [0, 8, 16, 24, 32, 40, 64, 72, 128, 256, 1024];
+
+fn oracle_add_assign<F: Field>(dst: &mut [u8], src: &[u8]) {
+    for (d, s) in dst
+        .chunks_exact_mut(F::BYTES)
+        .zip(src.chunks_exact(F::BYTES))
+    {
+        let v = F::read(d).add(F::read(s));
+        F::write(d, v);
+    }
+}
+
+fn oracle_sub_assign<F: Field>(dst: &mut [u8], src: &[u8]) {
+    for (d, s) in dst
+        .chunks_exact_mut(F::BYTES)
+        .zip(src.chunks_exact(F::BYTES))
+    {
+        let v = F::read(d).sub(F::read(s));
+        F::write(d, v);
+    }
+}
+
+fn oracle_mul_assign<F: Field>(dst: &mut [u8], coeff: F::Elem) {
+    for d in dst.chunks_exact_mut(F::BYTES) {
+        let v = F::read(d).mul(coeff);
+        F::write(d, v);
+    }
+}
+
+fn oracle_mul_elementwise<F: Field>(dst: &mut [u8], a: &[u8], b: &[u8]) {
+    for ((d, x), y) in dst
+        .chunks_exact_mut(F::BYTES)
+        .zip(a.chunks_exact(F::BYTES))
+        .zip(b.chunks_exact(F::BYTES))
+    {
+        F::write(d, F::read(x).mul(F::read(y)));
+    }
+}
+
+/// Canonicalize every lane of `buf` in place through the scalar field, giving
+/// the canonical bytes the vector kernels must produce.
+fn canon<F: Field>(buf: &mut [u8]) {
+    let zero = vec![0u8; buf.len()];
+    oracle_add_assign::<F>(buf, &zero);
+}
+
+/// Exercise the full public operation surface for a prime field against the
+/// scalar-field oracle, on whatever backend the host selected.
+fn check_prime_ops<F: FieldKernels>(lens: &[usize], coeffs: &[F::Elem]) {
+    for &len in lens {
+        // Kernel arithmetic is contracted over canonical inputs; raw-lane
+        // totality is covered by the scalar algebra suite.
+        let mut src = noise(len, 0xa1);
+        canon::<F>(&mut src);
+        let dst0 = {
+            let mut b = noise(len, 0xb2);
+            canon::<F>(&mut b);
+            b
+        };
+
+        // add_assign / sub_assign and their round trip.
+        {
+            let mut got = dst0.clone();
+            let mut want = dst0.clone();
+            ops::add_assign::<F>(&mut got, &src);
+            oracle_add_assign::<F>(&mut want, &src);
+            assert_eq!(got, want, "add_assign len {len}");
+
+            let mut got = dst0.clone();
+            let mut want = dst0.clone();
+            ops::sub_assign::<F>(&mut got, &src);
+            oracle_sub_assign::<F>(&mut want, &src);
+            assert_eq!(got, want, "sub_assign len {len}");
+
+            let mut rt = dst0.clone();
+            ops::add_assign::<F>(&mut rt, &src);
+            ops::sub_assign::<F>(&mut rt, &src);
+            assert_eq!(rt, dst0, "add then sub restores the addend len {len}");
+        }
+
+        // mul_elementwise: both operands vary per lane.
+        {
+            let mut b = noise(len, 0xc3);
+            canon::<F>(&mut b);
+            let mut got = vec![0u8; len];
+            let mut want = vec![0u8; len];
+            ops::mul_elementwise::<F>(&mut got, &src, &b);
+            oracle_mul_elementwise::<F>(&mut want, &src, &b);
+            assert_eq!(got, want, "mul_elementwise len {len}");
+        }
+
+        for &coeff in coeffs {
+            let mut got = dst0.clone();
+            let mut want = dst0.clone();
+            ops::mul_add::<F>(&mut got, coeff, &src);
+            oracle_mul_add::<F>(&mut want, coeff, &src);
+            assert_eq!(got, want, "mul_add len {len} coeff {coeff:?}");
+
+            let mut got = dst0.clone();
+            let mut want = dst0.clone();
+            ops::mul_assign::<F>(&mut got, coeff);
+            oracle_mul_assign::<F>(&mut want, coeff);
+            assert_eq!(got, want, "mul_assign len {len} coeff {coeff:?}");
+
+            let mut got = dst0.clone();
+            let mut want = src.clone();
+            ops::mul_into::<F>(&mut got, coeff, &src);
+            oracle_mul_assign::<F>(&mut want, coeff);
+            assert_eq!(got, want, "mul_into len {len} coeff {coeff:?}");
+        }
+    }
+}
+
+/// Gather/scatter/matrix and an erasure round trip for a prime field.
+fn check_prime_shapes<F: FieldKernels>(row_len: usize, coeffs: &[F::Elem]) {
+    let nsrc = coeffs.len();
+    let srcs: Vec<Vec<u8>> = (0..nsrc)
+        .map(|i| noise(row_len, 0x100 + i as u64))
+        .collect();
+    let src_refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
+
+    // gather: dst += sum(coeffs[i] * srcs[i]).
+    {
+        let mut got = noise(row_len, 0x55);
+        let mut want = got.clone();
+        ops::mul_add_gather::<F>(&mut got, coeffs, &src_refs);
+        for (&c, s) in coeffs.iter().zip(&src_refs) {
+            oracle_mul_add::<F>(&mut want, c, s);
+        }
+        assert_eq!(got, want, "gather");
+    }
+
+    // dot_product: overwrite dst = sum(coeffs[i] * srcs[i]).
+    {
+        let mut got = noise(row_len, 0x55);
+        let mut want = vec![0u8; row_len];
+        ops::dot_product::<F>(&mut got, coeffs, &src_refs);
+        for (&c, s) in coeffs.iter().zip(&src_refs) {
+            oracle_mul_add::<F>(&mut want, c, s);
+        }
+        assert_eq!(got, want, "dot_product");
+    }
+
+    // scatter: one source into many rows.
+    {
+        let mut got = noise(row_len * nsrc, 0x66);
+        let mut want = got.clone();
+        ops::mul_add_scatter::<F>(&mut got, row_len, coeffs, &srcs[0]);
+        for (row, &c) in want.chunks_exact_mut(row_len).zip(coeffs) {
+            oracle_mul_add::<F>(row, c, &srcs[0]);
+        }
+        assert_eq!(got, want, "scatter");
+    }
+
+    // matrix: many sources into many rows.
+    {
+        let nrows = nsrc;
+        let terms: Vec<(&[F::Elem], &[u8])> = src_refs.iter().map(|s| (coeffs, *s)).collect();
+        let mut got = noise(row_len * nrows, 0x77);
+        let mut want = got.clone();
+        ops::mul_add_matrix::<F>(&mut got, row_len, nrows, &terms);
+        for &(cs, s) in &terms {
+            for (row, &c) in want.chunks_exact_mut(row_len).take(nrows).zip(cs) {
+                oracle_mul_add::<F>(row, c, s);
+            }
+        }
+        assert_eq!(got, want, "matrix");
+    }
+}
+
+/// Recover a lost symbol over GF(p): a subtraction the binary fields never do.
+fn check_prime_recovery<F: FieldKernels>(row_len: usize, a: F::Elem, b: F::Elem) {
+    // parity = a*x + b*y; recover x = (parity - b*y) / a.
+    let x = noise(row_len, 0x11);
+    let y = noise(row_len, 0x22);
+    let mut parity = vec![0u8; row_len];
+    oracle_mul_add::<F>(&mut parity, a, &x);
+    oracle_mul_add::<F>(&mut parity, b, &y);
+
+    let mut recovered = parity.clone();
+    let mut by = vec![0u8; row_len];
+    ops::mul_into::<F>(&mut by, b, &y);
+    ops::sub_assign::<F>(&mut recovered, &by); // parity - b*y == a*x
+    ops::mul_assign::<F>(&mut recovered, a.inv()); // / a
+
+    let mut want = x.to_vec();
+    canon::<F>(&mut want);
+    assert_eq!(recovered, want, "erasure recovery over GF(p)");
+}
+
+fn m31(v: u32) -> mersenne31::Elem {
+    mersenne31::Elem(v)
+}
+fn gld(v: u64) -> goldilocks::Elem {
+    goldilocks::Elem(v)
+}
+
+#[test]
+fn mersenne31_public_ops_match_oracle() {
+    let coeffs = [
+        m31(0),
+        m31(1),
+        m31(2),
+        m31(7),
+        m31(0x5555_5555),
+        m31(0x7FFF_FFFE),
+        m31(0x7FFF_FFFF), // non-canonical zero
+        m31(0xFFFF_FFFF), // non-canonical one
+    ];
+    check_prime_ops::<Mersenne31>(&M31_LENS, &coeffs);
+    check_prime_shapes::<Mersenne31>(64, &coeffs[1..6]);
+    check_prime_shapes::<Mersenne31>(20, &coeffs[1..6]);
+    check_prime_recovery::<Mersenne31>(64, m31(3), m31(0x1234_5678));
+}
+
+#[test]
+fn goldilocks_public_ops_match_oracle() {
+    let coeffs = [
+        gld(0),
+        gld(1),
+        gld(2),
+        gld(7),
+        gld(0x5555_5555_5555_5555),
+        gld(goldilocks::MODULUS - 1),
+        gld(goldilocks::MODULUS), // non-canonical zero
+        gld(u64::MAX),            // non-canonical
+    ];
+    check_prime_ops::<Goldilocks>(&GLD_LENS, &coeffs);
+    check_prime_shapes::<Goldilocks>(64, &coeffs[1..6]);
+    check_prime_shapes::<Goldilocks>(24, &coeffs[1..6]);
+    check_prime_recovery::<Goldilocks>(64, gld(3), gld(0x1234_5678_9abc_def0));
 }
