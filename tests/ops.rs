@@ -41,7 +41,22 @@ fn oracle_mul_add<F: Field>(dst: &mut [u8], coeff: F::Elem, src: &[u8]) {
 /// Lengths chosen to straddle every lane boundary in the crate: below one
 /// lane, exactly one, one plus a byte, and several unroll tiles plus an odd
 /// tail. GF(2^16) needs even lengths, so all of these are even.
+///
+/// Under Miri the sweep truncates to the boundary cases: the interpreter
+/// executes every scalar op itself, so full-length rows only multiply the
+/// runtime; aliasing and overflow bugs appear at length 2 just as at 1024.
+#[cfg(not(miri))]
 const LENGTHS: [usize; 12] = [0, 2, 8, 16, 18, 32, 34, 64, 66, 128, 254, 1024];
+#[cfg(miri)]
+const LENGTHS: [usize; 7] = [0, 2, 8, 16, 18, 32, 34];
+
+/// Row lengths in elements for the dot-product/matrix sweeps: one element,
+/// whole lanes, an unaligned tile, and a long row. Truncated under Miri to
+/// the same boundary cases (see `LENGTHS`).
+#[cfg(not(miri))]
+const RL_ELEMS: [usize; 6] = [1, 16, 33, 64, 100, 512];
+#[cfg(miri)]
+const RL_ELEMS: [usize; 3] = [1, 16, 33];
 
 // ---------------------------------------------------------------------------
 // mul_add
@@ -233,7 +248,7 @@ fn gf16_scatter_matches_repeated_mul_add() {
 
 #[test]
 fn gf8_matrix_matches_repeated_scatter() {
-    for row_len in [1usize, 16, 33, 64, 100, 512] {
+    for row_len in RL_ELEMS {
         for nrows in [1usize, 2, 3, 4, 6, 8] {
             for nterms in [1usize, 2, 5] {
                 let sources: Vec<Vec<u8>> = (0..nterms)
@@ -314,7 +329,7 @@ fn gf16_matrix_matches_repeated_scatter() {
 /// with its prepared plan form.
 fn check_dot_product_matrix<F: fgf::FieldKernels>(tag: &str, seed: u64) {
     let b = F::BYTES;
-    for &rl_elems in &[1usize, 16, 33, 64, 100, 512] {
+    for &rl_elems in &RL_ELEMS {
         let row_len = rl_elems * b;
         for &nrows in &[1usize, 2, 3, 4, 5, 6, 8] {
             for &nterms in &[0usize, 1, 2, 5] {
@@ -410,7 +425,7 @@ fn gf16_dot_product_matrix_overwrites() {
 /// it across lane/tile boundaries, row-group sizes, and term counts.
 fn check_matrix_scattered<F: fgf::FieldKernels>(tag: &str, seed: u64) {
     let b = F::BYTES;
-    for &rl_elems in &[1usize, 16, 33, 64, 100, 512] {
+    for &rl_elems in &RL_ELEMS {
         let row_len = rl_elems * b;
         for &nrows in &[1usize, 2, 3, 4, 6, 8] {
             for &nterms in &[1usize, 2, 5] {
@@ -898,7 +913,8 @@ fn zero_and_one_coefficients_behave() {
 fn erasure_round_trip_gf8() {
     let k = 6usize;
     let m = 3usize;
-    let row_len = 1024;
+    // Miri interprets every scalar op; keep the round-trip rows small there.
+    let row_len = if cfg!(miri) { 64 } else { 1024 };
 
     let data: Vec<u8> = noise(k * row_len, 0x5150);
 
@@ -1189,11 +1205,17 @@ fn gf8d_matrix_scattered_matches_contiguous() {
 // ---------------------------------------------------------------------------
 // Prime fields GF(2^31 - 1) and GF(2^64 - 2^32 + 1)
 // ---------------------------------------------------------------------------
-
 // Byte lengths straddling the SSE (16 B) and AVX2 (32 B) lane boundaries plus
-// odd element tails; Mersenne31 is 4-byte, Goldilocks 8-byte.
+// odd element tails; Mersenne31 is 4-byte, Goldilocks 8-byte. Truncated under
+// Miri to the same boundary cases (see `LENGTHS`).
+#[cfg(not(miri))]
 const M31_LENS: [usize; 12] = [0, 4, 8, 16, 20, 32, 36, 64, 68, 128, 256, 1020];
+#[cfg(miri)]
+const M31_LENS: [usize; 6] = [0, 4, 8, 16, 20, 36];
+#[cfg(not(miri))]
 const GLD_LENS: [usize; 11] = [0, 8, 16, 24, 32, 40, 64, 72, 128, 256, 1024];
+#[cfg(miri)]
+const GLD_LENS: [usize; 5] = [0, 8, 16, 24, 40];
 
 fn oracle_add_assign<F: Field>(dst: &mut [u8], src: &[u8]) {
     for (d, s) in dst
@@ -1417,8 +1439,12 @@ fn qm(re: u32, im: u32) -> quad_mersenne31::Elem {
 }
 
 /// 8-byte element lengths straddling the SSE (16 B = 2 elements) and AVX2
-/// (32 B = 4 elements) lane boundaries plus odd-element tails.
+/// (32 B = 4 elements) lane boundaries plus odd-element tails. Truncated
+/// under Miri to the same boundary cases (see `LENGTHS`).
+#[cfg(not(miri))]
 const QM_LENS: [usize; 12] = [0, 8, 16, 24, 32, 40, 64, 72, 128, 256, 512, 1016];
+#[cfg(miri)]
+const QM_LENS: [usize; 5] = [0, 8, 16, 24, 40];
 
 #[test]
 fn quad_mersenne31_public_ops_match_oracle() {
