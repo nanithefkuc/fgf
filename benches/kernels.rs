@@ -551,6 +551,72 @@ fn bench_gf2_short_rows() {
         one_shot.as_secs_f64() / prepared.as_secs_f64()
     );
 }
+/// The dominant gfm trailing-update shape: a byte-aligned suffix prepared
+/// once, then applied to many row pairs. Both end masks are fully live, so
+/// this catches accidental scalar peeling around the dispatched bulk XOR.
+fn bench_gf2_aligned_suffixes() {
+    const ROWS: usize = 512;
+    println!("GF(2) prepared byte-aligned suffixes (gfm trailing update):");
+    for &row_bytes in &[16usize, 32, 64, 128] {
+        let mut dst = noise(ROWS * row_bytes, 0x5300 + row_bytes as u64);
+        #[cfg(feature = "internals")]
+        let mut legacy_dst = dst.clone();
+        let src = noise(ROWS * row_bytes, 0x5400 + row_bytes as u64);
+        let bits = row_bytes * 8;
+        let plan = fgf::bits::RangeXor::new(bits, 8, bits);
+        #[cfg(feature = "internals")]
+        let legacy = bench(
+            &format!("  peeled control,  {row_bytes:>3}-byte row"),
+            row_bytes * ROWS,
+            || {
+                for row in 0..ROWS {
+                    let off = row * row_bytes;
+                    fgf::bits::benchmark_xor_range_with_peeled(
+                        black_box(&mut legacy_dst[off..off + row_bytes]),
+                        black_box(&src[off..off + row_bytes]),
+                        black_box(&plan),
+                    );
+                }
+            },
+        );
+        let elapsed = bench(
+            &format!("  RangeXor suffix, {row_bytes:>3}-byte row"),
+            row_bytes * ROWS,
+            || {
+                for row in 0..ROWS {
+                    let off = row * row_bytes;
+                    fgf::bits::xor_range_with(
+                        black_box(&mut dst[off..off + row_bytes]),
+                        black_box(&src[off..off + row_bytes]),
+                        black_box(&plan),
+                    );
+                }
+            },
+        );
+        #[cfg(feature = "internals")]
+        let control = bench(
+            &format!("  peeled control2, {row_bytes:>3}-byte row"),
+            row_bytes * ROWS,
+            || {
+                for row in 0..ROWS {
+                    let off = row * row_bytes;
+                    fgf::bits::benchmark_xor_range_with_peeled(
+                        black_box(&mut legacy_dst[off..off + row_bytes]),
+                        black_box(&src[off..off + row_bytes]),
+                        black_box(&plan),
+                    );
+                }
+            },
+        );
+        #[cfg(feature = "internals")]
+        println!(
+            "    peeled/new {:.2}x (slower control retained)",
+            legacy.max(control).as_secs_f64() / elapsed.as_secs_f64()
+        );
+        println!("    {:.2} ns/call", elapsed.as_nanos() as f64 / ROWS as f64);
+    }
+    println!();
+}
 
 fn main() {
     println!("fgf kernel benchmark — backend: {}", backend().name());
@@ -569,6 +635,7 @@ fn main() {
     bench_network_payloads();
     bench_gf2_bits();
     bench_gf2_short_rows();
+    bench_gf2_aligned_suffixes();
 
     // L1-resident, L2-resident, and DRAM-resident.
     for &len in &[4 * 1024usize, 256 * 1024, 8 * 1024 * 1024] {

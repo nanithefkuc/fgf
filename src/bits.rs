@@ -118,14 +118,14 @@ pub fn xor_range(dst: &mut [u8], src: &[u8], bits: usize, from: usize, to: usize
     xor_range_with(dst, src, &RangeXor::new(bits, from, to));
 }
 
-/// A prepared bit range for repeated `dst ^= src`: the window and end
-/// masks of `[from, to)` derived once, applied to many buffer pairs.
+/// A prepared bit range for repeated `dst ^= src`: the window, end masks,
+/// and XOR backend of `[from, to)` derived once, applied to many buffer pairs.
 ///
 /// The prepared form of [`xor_range`], in the same split [`crate::ops`]
 /// uses for prepared coefficients: an elimination that XORs the same
-/// column range into many rows pays the range checks and mask arithmetic
-/// once per range instead of once per row. An empty range is valid and
-/// [`xor_range_with`] applies it as a no-op.
+/// column range into many rows pays the range checks, mask arithmetic, and
+/// backend resolution once per range instead of once per row. An empty range
+/// is valid and [`xor_range_with`] applies it as a no-op.
 ///
 /// The plan is independent of the buffers it is applied to: buffers may be
 /// longer than the planned window (the surplus is padding like any other),
@@ -133,6 +133,7 @@ pub fn xor_range(dst: &mut [u8], src: &[u8], bits: usize, from: usize, to: usize
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RangeXor {
     window: kernel::gf2::Window,
+    backend: kernel::Backend,
 }
 
 impl RangeXor {
@@ -146,6 +147,7 @@ impl RangeXor {
         check_range("RangeXor::new", bits, from, to);
         Self {
             window: kernel::gf2::window(from, to),
+            backend: kernel::backend(),
         }
     }
 }
@@ -172,7 +174,24 @@ pub fn xor_range_with(dst: &mut [u8], src: &[u8], range: &RangeXor) {
         dst.len(),
         src.len()
     );
-    kernel::gf2::xor_window(dst, src, &range.window);
+    kernel::gf2::xor_window(dst, src, &range.window, range.backend);
+}
+
+/// Legacy prepared-range apply retained for internal A/B benchmarks.
+#[cfg(feature = "internals")]
+#[doc(hidden)]
+pub fn benchmark_xor_range_with_peeled(dst: &mut [u8], src: &[u8], range: &RangeXor) {
+    let end = range.window.end;
+    if end == 0 {
+        return;
+    }
+    assert!(
+        end <= dst.len() && end <= src.len(),
+        "bits::benchmark_xor_range_with_peeled: the planned range needs {end} bytes but dst holds {} and src holds {}",
+        dst.len(),
+        src.len()
+    );
+    kernel::gf2::xor_window_peeled(dst, src, &range.window);
 }
 
 /// `dst = a & b`: elementwise GF(2) multiplication.

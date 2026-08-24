@@ -9,14 +9,15 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - `bits::RangeXor` and `bits::xor_range_with`: the prepared form of
-  `bits::xor_range`. The bit range's byte window and end masks are derived
-  once and applied to many buffer pairs, the same prepare/apply split `ops`
-  uses for coefficients; buffers of different lengths are accepted as long
-  as each covers the planned window. `xor_range` itself now routes through
-  the shared byte-window core, which replaces the word-assembly path for
-  sub-word ranges (one or two masked byte operations) and the masked end
-  words of longer ranges. On the eight-bit-range short-row shape the split
-  measures 3.6x the one-shot form per call; see `BENCHMARKS.md`.
+  `bits::xor_range`. The bit range's byte window, end masks, and resolved XOR
+  backend are derived once and applied to many buffer pairs, the same
+  prepare/apply split `ops` uses for coefficients; buffers of different
+  lengths are accepted as long as each covers the planned window.
+  `xor_range` itself routes through the shared byte-window core, which
+  replaces word assembly for sub-word ranges and keeps fully-live end bytes
+  in the bulk XOR. On the eight-bit-range short-row shape the split measures
+  3.6x the one-shot form; byte-aligned prepared suffixes improve 1.17–1.21x
+  per call and close gfm's remaining GF(2) cutover cost. See `BENCHMARKS.md`.
 
 ## [0.7.0] - 2026-08-24
 

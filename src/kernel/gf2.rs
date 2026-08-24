@@ -144,11 +144,54 @@ pub(crate) fn window(from: usize, to: usize) -> Window {
     }
 }
 
-/// `dst ^= src` over a derived [`Window`]: the two masked end bytes as
-/// scalars, the fully-live interior through the dispatched whole-buffer
-/// byte XOR (whose short-buffer path inlines). Both buffers must cover
-/// the window — the checked surface guarantees it.
-pub(crate) fn xor_window(dst: &mut [u8], src: &[u8], w: &Window) {
+/// `dst ^= src` over a derived [`Window`]. Fully-live ends stay in the bulk
+/// XOR; only genuinely partial end bytes are peeled into masked scalar ops.
+/// Both buffers must cover the window — the checked surface guarantees it.
+#[inline]
+pub(crate) fn xor_window(dst: &mut [u8], src: &[u8], w: &Window, backend: super::Backend) {
+    if w.start >= w.end {
+        return;
+    }
+    debug_assert!(w.end <= dst.len() && w.end <= src.len());
+    let last = w.end - 1;
+
+    if w.lead == u8::MAX {
+        if w.trail == u8::MAX {
+            super::xor_impl_for(backend, &mut dst[w.start..w.end], &src[w.start..w.end]);
+            return;
+        }
+        if w.start < last {
+            super::xor_impl_for(backend, &mut dst[w.start..last], &src[w.start..last]);
+        }
+        dst[last] ^= src[last] & w.trail;
+        return;
+    }
+
+    dst[w.start] ^= src[w.start] & w.lead;
+    if last == w.start {
+        return;
+    }
+    if w.trail == u8::MAX {
+        super::xor_impl_for(
+            backend,
+            &mut dst[w.start + 1..w.end],
+            &src[w.start + 1..w.end],
+        );
+        return;
+    }
+    dst[last] ^= src[last] & w.trail;
+    if w.start + 1 < last {
+        super::xor_impl_for(
+            backend,
+            &mut dst[w.start + 1..last],
+            &src[w.start + 1..last],
+        );
+    }
+}
+/// Legacy prepared-range apply that peels both end bytes even when fully live.
+/// Retained only as the A/B benchmark twin for [`xor_window`].
+#[cfg(feature = "internals")]
+pub(crate) fn xor_window_peeled(dst: &mut [u8], src: &[u8], w: &Window) {
     if w.start >= w.end {
         return;
     }

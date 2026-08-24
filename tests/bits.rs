@@ -261,6 +261,15 @@ fn range_ops_match_per_bit_oracle() {
             let plan = bits::RangeXor::new(bits_len, from, to);
             bits::xor_range_with(&mut split, &src, &plan);
             assert_eq!(split, dst, "xor_range_with {from}..{to} of {bits_len}");
+            #[cfg(feature = "internals")]
+            {
+                let mut peeled = base.clone();
+                bits::benchmark_xor_range_with_peeled(&mut peeled, &src, &plan);
+                assert_eq!(
+                    peeled, dst,
+                    "peeled RangeXor twin {from}..{to} of {bits_len}"
+                );
+            }
             // The plan applies repeatedly and to buffers of different
             // lengths: a longer `src` contributes nothing past its live
             // bits, exactly like the one-shot form.

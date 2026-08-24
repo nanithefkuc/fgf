@@ -592,6 +592,36 @@ Long ranges are unaffected — the derivation amortizes to nothing there
 64 MiB, within run noise). The consumer-level effect (gfm's GF(2)
 elimination) is recorded in gfm's `BENCHMARKS.md`.
 
+### Prepared backend and fully-live windows (2026-08-24)
+
+The first prepared-range version still called `backend()` on every apply and
+always peeled the first and last bytes as masked scalars, even when both masks
+were `0xFF`. Gfm's dominant trailing update is a byte-aligned suffix, so both
+costs sat directly on its per-row path. `RangeXor::new` now captures the
+resolved XOR backend with the window, and `xor_window` sends fully-live ends
+through the bulk XOR; one genuinely partial end costs one scalar op, two
+partial ends retain the original two-scalar shape.
+
+`internals` retains the original per-apply-dispatch, always-peeled twin as
+`benchmark_xor_range_with_peeled`. `bench_gf2_aligned_suffixes` runs
+peeled/new/peeled back-to-back and uses the slower control. Core Ultra 7 258V,
+Linux, rustc 1.93, backend `v3_gfni_crypto`, 512 hot row pairs:
+
+| Row bytes | peeled / prepared-backend |
+| ---: | ---: |
+| 16 | 1.21x |
+| 32 | 1.19x |
+| 64 | 1.18x |
+| 128 | 1.17x |
+
+The partial-range control (`bits 61..69`) remains at 1.3–1.6 ns per prepared
+call, so specializing fully-live ends does not penalize the masked shape.
+Downstream, three paired pinned-fgf/local-fgf runs of gfm's M4RI elimination
+improved orders 256/512/1024 by 3.6–10.6%. Using the slowest optimized median
+at each order leaves only +3.2%/+1.0%/+0.4% against gfm's private-loop
+pre-cutover baseline; the reported 5–10% cutover cost is closed.
+
+
 ### Destination alignment peel (`kernel::x86::peel_to_align`)
 
 A 32-byte `vmovdqu` at an odd multiple of 32 straddles two cache lines, and a

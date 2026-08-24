@@ -634,13 +634,17 @@ pub(crate) fn xor(dst: &mut [u8], src: &[u8]) {
 const XOR_INLINE_MAX: usize = 31;
 
 fn xor_impl(dst: &mut [u8], src: &[u8]) {
-    assert_eq!(dst.len(), src.len(), "fgf::xor: length mismatch");
+    debug_assert_eq!(dst.len(), src.len());
+    xor_impl_for(backend(), dst, src);
+}
 
+fn xor_impl_for(selected: Backend, dst: &mut [u8], src: &[u8]) {
+    debug_assert_eq!(dst.len(), src.len());
     if dst.len() <= XOR_INLINE_MAX {
         scalar::xor(dst, src);
         return;
     }
-    match backend() {
+    match selected {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         Backend::V3GfniCrypto | Backend::V3 => x86::xor_avx2(dst, src),
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
