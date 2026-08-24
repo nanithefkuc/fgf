@@ -484,8 +484,8 @@ the `bench_gf2_bits` section of `cargo bench --bench kernels`):
 | `bits::xor` (dispatched) | 68.1 GiB/s | 61.0 GiB/s | 9.0 GiB/s | 16.7 GiB/s |
 | `ops::add_assign` GF(2^8) control | 56.9 GiB/s | 62.1 GiB/s | 9.0 GiB/s | 16.5 GiB/s |
 | `bits::and_into` (portable, 3 streams) | 82.9 GiB/s | 32.8 GiB/s | 6.6 GiB/s | 10.7 GiB/s |
-| `bits::weight` (portable, read-only) | 18.6 GiB/s | 18.8 GiB/s | 18.5 GiB/s | 12.8 GiB/s |
-| `bits::parity_dot` (portable, read-only) | 30.5 GiB/s | 22.7 GiB/s | 17.4 GiB/s | 12.1 GiB/s |
+| `bits::weight` (portable, read-only) | 25.3 GiB/s | 26.0 GiB/s | 25.5 GiB/s | 19.7 GiB/s |
+| `bits::parity_dot` (portable, read-only) | 52.3 GiB/s | 44.4 GiB/s | 23.0 GiB/s | 14.6 GiB/s |
 
 Readings:
 
@@ -497,12 +497,18 @@ Readings:
   two; per raw traffic byte it matches the same memory ceiling (at 64 MiB:
   `xor` 2 × 16.7 ≈ 33 GiB/s raw, `and_into` 3 × 10.7 ≈ 32 GiB/s raw). The
   autovectorized word loop saturates bandwidth.
-- `weight`/`parity_dot` are read-only folds: at DRAM sizes they ride the
-  single-stream read ceiling, but in-cache they run ~3x below the copy
-  ceiling (18.6 vs 68 GiB/s in L1) — that residual is the compute-bound
-  scalar `popcount` fold, the genuine `VPOPCNTQ`/NEON `CNT` target. That
-  body is gated on an AVX-512 tier `FGF_TIERS` does not expose (untestable
-  on this host) and stays a recorded follow-up, not an accepted kernel.
+- `weight`/`parity_dot` are read-only folds. Their portable bodies run
+  independent accumulators — eight `popcount` lanes in `weight`, four AND-XOR
+  lanes in `parity_dot` — because a single-accumulator fold pins the loop to
+  the `popcnt`/XOR dependency latency instead of port throughput: the split
+  forms measured 1.2–1.5x (`weight`) and 1.2–2.0x (`parity_dot`) across these
+  tiers on this host (Core Ultra 7 258V, Linux, rustc 1.93.0, unpinned,
+  medians of the same bench section; single-accumulator numbers were
+  weight 18.6/18.8/18.5/12.8 and parity_dot 30.5/22.7/17.4/12.1 GiB/s). They
+  remain compute-bound in-cache — weight sits ~2.7x under the copy ceiling at
+  4 KiB — so a `VPOPCNTQ` body is still the next step for that residual, and
+  it stays gated on an AVX-512 tier `FGF_TIERS` does not expose (untestable
+  on this host).
 - Open follow-up, not a rejection: a non-temporal-store overwrite variant of
   `and_into`/`xor` for far-out-of-cache destinations would follow the same
   measured path as `mul_into`'s `NT_STORE_MIN` (the section above); it is

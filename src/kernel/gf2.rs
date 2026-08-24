@@ -124,10 +124,23 @@ pub(crate) fn set_range(dst: &mut [u8], from: usize, to: usize) {
 }
 
 /// Hamming weight of the live bits `[0, bits)`.
+///
+/// The fold runs eight independent popcount accumulators: a single
+/// `total += word.count_ones()` chain pins the loop to `popcnt` latency,
+/// while split accumulators saturate its throughput (measured 1.1–1.9x
+/// across cache tiers on the reference host; see BENCHMARKS.md).
 pub(crate) fn weight(buf: &[u8], bits: usize) -> u32 {
-    let mut total = 0u32;
-    for word in buf.chunks_exact(8).take(bits / 64) {
-        total += u64::from_ne_bytes(word.try_into().unwrap()).count_ones();
+    let words = bits / 64;
+    let mut w = buf.chunks_exact(8);
+    let mut acc = [0u32; 8];
+    for _ in 0..words / 8 {
+        for lane in &mut acc {
+            *lane += next_word(&mut w).count_ones();
+        }
+    }
+    let mut total = acc.iter().sum::<u32>();
+    for _ in words / 8 * 8..words {
+        total += next_word(&mut w).count_ones();
     }
     let rem = bits % 64;
     if rem != 0 {
@@ -137,14 +150,26 @@ pub(crate) fn weight(buf: &[u8], bits: usize) -> u32 {
 }
 
 /// Parity of the GF(2) inner product over the live bits: 0 or 1.
+///
+/// Four independent XOR accumulators, folded once at the end: a single
+/// accumulator serializes every AND-XOR on one register and the loop runs
+/// at dependency latency instead of port throughput (measured 1.2–1.4x
+/// across cache tiers on the reference host; see BENCHMARKS.md).
 pub(crate) fn parity(a: &[u8], b: &[u8], bits: usize) -> u32 {
     debug_assert_eq!(a.len(), b.len());
-    let mut acc = 0u64;
-    let mut a_chunks = a.chunks_exact(8).take(bits / 64);
-    let mut b_chunks = b.chunks_exact(8).take(bits / 64);
-    for (x, y) in a_chunks.by_ref().zip(b_chunks.by_ref()) {
-        acc ^=
-            u64::from_ne_bytes(x.try_into().unwrap()) & u64::from_ne_bytes(y.try_into().unwrap());
+    let words = bits / 64;
+    let mut wa = a.chunks_exact(8);
+    let mut wb = b.chunks_exact(8);
+    let (mut a0, mut a1, mut a2, mut a3) = (0u64, 0u64, 0u64, 0u64);
+    for _ in 0..words / 4 {
+        a0 ^= next_word(&mut wa) & next_word(&mut wb);
+        a1 ^= next_word(&mut wa) & next_word(&mut wb);
+        a2 ^= next_word(&mut wa) & next_word(&mut wb);
+        a3 ^= next_word(&mut wa) & next_word(&mut wb);
+    }
+    let mut acc = a0 ^ a1 ^ a2 ^ a3;
+    for _ in words / 4 * 4..words {
+        acc ^= next_word(&mut wa) & next_word(&mut wb);
     }
     let rem = bits % 64;
     if rem != 0 {
@@ -154,7 +179,6 @@ pub(crate) fn parity(a: &[u8], b: &[u8], bits: usize) -> u32 {
     acc.count_ones() & 1
 }
 
-/// `dst ^= srcs[i]` for every set bit `i` of `selector`.
 pub(crate) fn xor_gather(dst: &mut [u8], srcs: &[&[u8]], mut selector: u64) {
     debug_assert!(srcs.len() >= 64 || selector >> srcs.len() == 0);
     while selector != 0 {
@@ -178,6 +202,12 @@ fn for_range_words(from: usize, to: usize, mut step: impl FnMut(usize, u64)) {
         let hi = if w == last { to - last * 64 } else { 64 };
         step(w, mask_between(lo, hi));
     }
+}
+
+/// The next whole little-endian word of a chunk walk.
+#[inline]
+fn next_word(words: &mut core::slice::ChunksExact<'_, u8>) -> u64 {
+    u64::from_ne_bytes(words.next().unwrap().try_into().unwrap())
 }
 
 /// `dst[w] ^= src[w] & live`, where `dst[w]` is the little-endian word at

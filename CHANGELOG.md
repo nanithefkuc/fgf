@@ -32,6 +32,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The bit-packed GF(2) folds run split accumulators: `bits::weight` uses
+  eight independent `popcount` lanes and `bits::parity_dot` four independent
+  AND-XOR lanes, folded once at the end, so the loops saturate execution-port
+  throughput instead of riding one register's dependency chain. Measured
+  1.2–1.5x (`weight`) and 1.2–2.0x (`parity_dot`) across L1/DRAM buffer
+  sizes on the reference host. Results are unchanged.
+
 - `QuadMersenne31` kernels canonicalize each limb once per load instead of
   re-reducing operands in every helper: `mul_add`, `mul_assign`, `mul_into`,
   and `mul_elementwise` run about 1.2–1.4x faster on 64 KiB buffers.
