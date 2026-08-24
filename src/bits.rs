@@ -21,7 +21,9 @@
 //! Multiplying by a coefficient is masked out of the API on purpose: the
 //! coefficient of GF(2) is a bit — multiply by zero is "skip", by one is
 //! "XOR" — so there is no prepared-coefficient form and no [`crate::ops`]
-//! counterpart. The scalar oracle for this surface is
+//! counterpart. What *is* prepared is geometry: a [`RangeXor`] derives a
+//! bit range's window and masks once for [`xor_range_with`] to apply to
+//! many buffer pairs. The scalar oracle for this surface is
 //! [`crate::gf2::Elem`](crate::field::gf2::Elem).
 //!
 //! ```
@@ -101,14 +103,76 @@ pub fn xor(dst: &mut [u8], src: &[u8]) {
 /// Bits outside the range — including padding — are untouched. `dst` and
 /// `src` must not alias.
 ///
+/// The checked one-shot form of [`xor_range_with`]: an operation applied
+/// once pays one construction; an operation applied to many buffer pairs
+/// over the same range should prepare a [`RangeXor`] instead.
+///
 /// # Panics
 /// Panics if the slices differ in length, if `from > to`, if `to > bits`,
 /// or if the buffers are shorter than [`bytes_for`]`(bits)`.
+#[inline]
 pub fn xor_range(dst: &mut [u8], src: &[u8], bits: usize, from: usize, to: usize) {
     check_pair("bits::xor_range", "dst", dst.len(), "src", src.len());
     check_range("bits::xor_range", bits, from, to);
     check_holds("bits::xor_range", "dst", dst.len(), bits);
-    kernel::gf2::xor_range(dst, src, from, to);
+    xor_range_with(dst, src, &RangeXor::new(bits, from, to));
+}
+
+/// A prepared bit range for repeated `dst ^= src`: the window and end
+/// masks of `[from, to)` derived once, applied to many buffer pairs.
+///
+/// The prepared form of [`xor_range`], in the same split [`crate::ops`]
+/// uses for prepared coefficients: an elimination that XORs the same
+/// column range into many rows pays the range checks and mask arithmetic
+/// once per range instead of once per row. An empty range is valid and
+/// [`xor_range_with`] applies it as a no-op.
+///
+/// The plan is independent of the buffers it is applied to: buffers may be
+/// longer than the planned window (the surplus is padding like any other),
+/// and bits outside the window are untouched.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RangeXor {
+    window: kernel::gf2::Window,
+}
+
+impl RangeXor {
+    /// Prepares the bit range `[from, to)` of a vector `bits` long.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `from > to` or `to > bits`.
+    #[must_use]
+    pub fn new(bits: usize, from: usize, to: usize) -> Self {
+        check_range("RangeXor::new", bits, from, to);
+        Self {
+            window: kernel::gf2::window(from, to),
+        }
+    }
+}
+
+/// `dst ^= src` over a prepared [`RangeXor`]: the per-row apply of the
+/// split form of [`xor_range`].
+///
+/// Bits outside the planned window — including padding — are untouched.
+/// `dst` and `src` must not alias. The buffers may differ in length; each
+/// must cover the planned window.
+///
+/// # Panics
+///
+/// Panics if either buffer is shorter than the planned window.
+#[inline]
+pub fn xor_range_with(dst: &mut [u8], src: &[u8], range: &RangeXor) {
+    let end = range.window.end;
+    if end == 0 {
+        return;
+    }
+    assert!(
+        end <= dst.len() && end <= src.len(),
+        "bits::xor_range_with: the planned range needs {end} bytes but dst holds {} and src holds {}",
+        dst.len(),
+        src.len()
+    );
+    kernel::gf2::xor_window(dst, src, &range.window);
 }
 
 /// `dst = a & b`: elementwise GF(2) multiplication.
@@ -150,6 +214,7 @@ pub fn andnot_assign(dst: &mut [u8], mask: &[u8]) {
 /// # Panics
 /// Panics if `from > to`, if `to > bits`, or if `dst` is shorter than
 /// [`bytes_for`]`(bits)`.
+#[inline]
 pub fn clear_range(dst: &mut [u8], bits: usize, from: usize, to: usize) {
     check_range("bits::clear_range", bits, from, to);
     check_holds("bits::clear_range", "dst", dst.len(), bits);

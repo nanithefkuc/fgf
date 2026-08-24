@@ -97,30 +97,117 @@ pub(crate) fn andnot_assign(dst: &mut [u8], mask: &[u8]) {
     }
 }
 
-/// `dst ^= src` over bits `[from, to)`, ends masked; all other bits —
-/// including padding — untouched.
-pub(crate) fn xor_range(dst: &mut [u8], src: &[u8], from: usize, to: usize) {
-    debug_assert_eq!(dst.len(), src.len());
+/// The byte window of a bit range `[from, to)`: derived once, applied to
+/// many buffer pairs by [`xor_window`]. `end == 0` marks the empty range.
+///
+/// The window is byte-granular — `start` holds the low-masked `lead` bits,
+/// `end - 1` the `trail` bits, and everything between is fully live — so
+/// it never runs past a buffer that covers the range, and sub-word ranges
+/// (the panel-elimination shape) are one or two masked byte ops.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Window {
+    /// First byte of the window.
+    pub(crate) start: usize,
+    /// One past the last byte of the window; `0` for an empty range.
+    pub(crate) end: usize,
+    /// Live-bit mask of byte `start`.
+    pub(crate) lead: u8,
+    /// Live-bit mask of byte `end - 1` (folded into `lead` when the
+    /// window is one byte wide).
+    pub(crate) trail: u8,
+}
+
+/// Derives the [`Window`] of bits `[from, to)`. An empty or inverted range
+/// yields the empty window.
+pub(crate) fn window(from: usize, to: usize) -> Window {
     if from >= to {
+        return Window {
+            start: 0,
+            end: 0,
+            lead: 0,
+            trail: 0,
+        };
+    }
+    let start = from / 8;
+    let last = (to - 1) / 8;
+    let span = to - last * 8; // 1..=8 live bits in the last byte.
+    let trail = if span == 8 { 0xFF } else { (1u8 << span) - 1 };
+    let mut lead = 0xFFu8 << (from - start * 8);
+    if start == last {
+        lead &= trail;
+    }
+    Window {
+        start,
+        end: last + 1,
+        lead,
+        trail,
+    }
+}
+
+/// `dst ^= src` over a derived [`Window`]: the two masked end bytes as
+/// scalars, the fully-live interior through the dispatched whole-buffer
+/// byte XOR (whose short-buffer path inlines). Both buffers must cover
+/// the window — the checked surface guarantees it.
+pub(crate) fn xor_window(dst: &mut [u8], src: &[u8], w: &Window) {
+    if w.start >= w.end {
         return;
     }
-    for_range_words(from, to, |w, live| xor_masked_word(dst, src, w, live));
+    debug_assert!(w.end <= dst.len() && w.end <= src.len());
+    dst[w.start] ^= src[w.start] & w.lead;
+    let last = w.end - 1;
+    if last > w.start {
+        dst[last] ^= src[last] & w.trail;
+        let mid = w.start + 1..last;
+        if !mid.is_empty() {
+            super::xor_impl(&mut dst[mid.clone()], &src[mid]);
+        }
+    }
 }
 
 /// Zeros bits `[from, to)` of `dst`.
+///
+/// Interior words are fully live and become one bulk fill; only the two
+/// end words are masked scalars.
 pub(crate) fn clear_range(dst: &mut [u8], from: usize, to: usize) {
     if from >= to {
         return;
     }
-    for_range_words(from, to, |w, live| read_modify_word(dst, w, live, false));
+    let (first, last) = (from / 64, (to - 1) / 64);
+    if first == last {
+        read_modify_word(
+            dst,
+            first,
+            mask_between(from - first * 64, to - first * 64),
+            false,
+        );
+        return;
+    }
+    read_modify_word(dst, first, u64::MAX << (from - first * 64), false);
+    dst[(first + 1) * 8..last * 8].fill(0);
+    read_modify_word(dst, last, low_mask(to - last * 64), false);
 }
 
 /// Sets bits `[from, to)` of `dst` to one.
+///
+/// Interior words are fully live and become one bulk fill; only the two
+/// end words are masked scalars.
 pub(crate) fn set_range(dst: &mut [u8], from: usize, to: usize) {
     if from >= to {
         return;
     }
-    for_range_words(from, to, |w, live| read_modify_word(dst, w, live, true));
+    let (first, last) = (from / 64, (to - 1) / 64);
+    if first == last {
+        read_modify_word(
+            dst,
+            first,
+            mask_between(from - first * 64, to - first * 64),
+            true,
+        );
+        return;
+    }
+    read_modify_word(dst, first, u64::MAX << (from - first * 64), true);
+    dst[(first + 1) * 8..last * 8].fill(u8::MAX);
+    read_modify_word(dst, last, low_mask(to - last * 64), true);
 }
 
 /// Hamming weight of the live bits `[0, bits)`.
@@ -188,48 +275,16 @@ pub(crate) fn xor_gather(dst: &mut [u8], srcs: &[&[u8]], mut selector: u64) {
     }
 }
 
-/// Runs `step` for each 64-bit word index covering bits `[from, to)`,
-/// passing the live-bit mask for that word. Requires `from < to`.
-///
-/// One loop drives every masked-range kernel: the whole-buffer and
-/// masked-range forms of an operation share their word walk, per the
-/// one-arithmetic-core rule.
-fn for_range_words(from: usize, to: usize, mut step: impl FnMut(usize, u64)) {
-    let first = from / 64;
-    let last = (to - 1) / 64;
-    for w in first..=last {
-        let lo = if w == first { from - first * 64 } else { 0 };
-        let hi = if w == last { to - last * 64 } else { 64 };
-        step(w, mask_between(lo, hi));
-    }
-}
-
 /// The next whole little-endian word of a chunk walk.
 #[inline]
 fn next_word(words: &mut core::slice::ChunksExact<'_, u8>) -> u64 {
     u64::from_ne_bytes(words.next().unwrap().try_into().unwrap())
 }
 
-/// `dst[w] ^= src[w] & live`, where `dst[w]` is the little-endian word at
-/// byte offset `8 * w`. A word running past the end of the buffers falls
-/// back to masked bytes.
-fn xor_masked_word(dst: &mut [u8], src: &[u8], w: usize, live: u64) {
-    let offset = 8 * w;
-    if offset + 8 <= dst.len() {
-        let d = u64::from_le_bytes(dst[offset..offset + 8].try_into().unwrap());
-        let s = u64::from_le_bytes(src[offset..offset + 8].try_into().unwrap());
-        dst[offset..offset + 8].copy_from_slice(&(d ^ (s & live)).to_le_bytes());
-    } else {
-        #[allow(clippy::cast_possible_truncation)] // extracting the low byte
-        for b in 0..dst.len() - offset {
-            dst[offset + b] ^= src[offset + b] & (live >> (8 * b)) as u8;
-        }
-    }
-}
-
 /// Clears (`set == false`) or sets (`set == true`) the live bits of word `w`
 /// of `dst`; a word running past the end of the buffer falls back to masked
 /// bytes.
+#[inline]
 fn read_modify_word(dst: &mut [u8], w: usize, live: u64, set: bool) {
     let offset = 8 * w;
     if offset + 8 <= dst.len() {

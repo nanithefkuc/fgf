@@ -493,11 +493,63 @@ fn bench_gf2_bits() {
         bench("  bits::xor_range  5/8    packed", bytes, || {
             fgf::bits::xor_range(black_box(&mut dst), black_box(&a), bits, from, to);
         });
+        let plan = fgf::bits::RangeXor::new(bits, from, to);
+        bench("  bits::RangeXor   5/8    packed", bytes, || {
+            fgf::bits::xor_range_with(black_box(&mut dst), black_box(&a), black_box(&plan));
+        });
         bench("  ops::add_assign  gf8 control", bytes, || {
             ops::add_assign::<Gf8B>(black_box(&mut dst), black_box(&a));
         });
     }
     println!();
+}
+
+/// The GF(2) elimination's per-call shape: short rows, sub-word ranges.
+///
+/// An elimination XORs an eight-bit range of one row into another, once
+/// per row per pivot. Bandwidth is irrelevant at this size — the cost is
+/// the per-call surface — so this section compares the checked one-shot
+/// `xor_range` against the prepared `RangeXor` + `xor_range_with` split
+/// over the same buffer pairs. The range `[61, 69)` straddles a byte
+/// boundary, the worst two-byte window.
+fn bench_gf2_short_rows() {
+    const ROWS: usize = 512;
+    const ROW_BYTES: usize = 16; // 128 elements: the 128-column row shape
+    let mut dst = noise(ROWS * ROW_BYTES, 0x5100);
+    let src = noise(ROWS * ROW_BYTES, 0x5200);
+    let bits = ROW_BYTES * 8;
+    let pairs = ROWS / 2;
+    println!("  {pairs} row pairs, 16-byte rows, bits 61..69:");
+    let one_shot = bench("  bits::xor_range  8-bit row", ROW_BYTES * pairs, || {
+        for i in 0..pairs {
+            let off = i * 2 * ROW_BYTES;
+            fgf::bits::xor_range(
+                black_box(&mut dst[off..off + ROW_BYTES]),
+                black_box(&src[off..off + ROW_BYTES]),
+                bits,
+                61,
+                69,
+            );
+        }
+    });
+    let plan = fgf::bits::RangeXor::new(bits, 61, 69);
+    let prepared = bench("  bits::RangeXor   8-bit row", ROW_BYTES * pairs, || {
+        for i in 0..pairs {
+            let off = i * 2 * ROW_BYTES;
+            fgf::bits::xor_range_with(
+                black_box(&mut dst[off..off + ROW_BYTES]),
+                black_box(&src[off..off + ROW_BYTES]),
+                black_box(&plan),
+            );
+        }
+    });
+    let per_call = |d: Duration| d.as_nanos() as f64 / pairs as f64;
+    println!(
+        "  per call: one-shot {:.2} ns, prepared {:.2} ns ({:.2}x)\n",
+        per_call(one_shot),
+        per_call(prepared),
+        one_shot.as_secs_f64() / prepared.as_secs_f64()
+    );
 }
 
 fn main() {
@@ -516,6 +568,7 @@ fn main() {
 
     bench_network_payloads();
     bench_gf2_bits();
+    bench_gf2_short_rows();
 
     // L1-resident, L2-resident, and DRAM-resident.
     for &len in &[4 * 1024usize, 256 * 1024, 8 * 1024 * 1024] {

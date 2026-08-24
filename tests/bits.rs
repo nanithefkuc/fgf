@@ -244,7 +244,7 @@ fn range_ops_match_per_bit_oracle() {
             let src = live(bits_len, 0x700 + bits_len as u64, false);
             let base = live(bits_len, 0x800 + bits_len as u64, false);
 
-            // xor_range
+            // xor_range, and the split prepare/apply form of the same op
             let mut dst = base.clone();
             let mut oracle = base.clone();
             for i in from..to {
@@ -256,6 +256,20 @@ fn range_ops_match_per_bit_oracle() {
             bits::xor_range(&mut dst, &src, bits_len, from, to);
             assert_eq!(dst, oracle, "xor_range {from}..{to} of {bits_len}");
             assert_padding_zero(&dst, bits_len);
+
+            let mut split = base.clone();
+            let plan = bits::RangeXor::new(bits_len, from, to);
+            bits::xor_range_with(&mut split, &src, &plan);
+            assert_eq!(split, dst, "xor_range_with {from}..{to} of {bits_len}");
+            // The plan applies repeatedly and to buffers of different
+            // lengths: a longer `src` contributes nothing past its live
+            // bits, exactly like the one-shot form.
+            let mut long_src = src.clone();
+            long_src.resize(src.len() + 8, 0xA5);
+            bits::xor_range_with(&mut split, &long_src, &plan);
+            bits::xor_range(&mut dst, &src, bits_len, from, to);
+            assert_eq!(split, dst, "repeated apply {from}..{to} of {bits_len}");
+            assert_padding_zero(&split, bits_len);
 
             // clear_range
             let mut dst = base.clone();
@@ -416,6 +430,26 @@ fn xor_range_rejects_range_past_live_bits() {
     bits::xor_range(&mut [0u8; 1], &[0u8; 1], 8, 5, 13);
 }
 
+#[test]
+#[should_panic(expected = "RangeXor::new: range start 9 exceeds end 5")]
+fn range_xor_rejects_inverted_range() {
+    let _ = bits::RangeXor::new(16, 9, 5);
+}
+
+#[test]
+#[should_panic(expected = "RangeXor::new: range end 13 exceeds the 8 live bits")]
+fn range_xor_rejects_range_past_live_bits() {
+    let _ = bits::RangeXor::new(8, 5, 13);
+}
+
+#[test]
+#[should_panic(
+    expected = "bits::xor_range_with: the planned range needs 2 bytes but dst holds 1 and src holds 1"
+)]
+fn xor_range_with_rejects_short_buffers() {
+    let plan = bits::RangeXor::new(13, 5, 13);
+    bits::xor_range_with(&mut [0u8; 1], &[0u8; 1], &plan);
+}
 #[test]
 #[should_panic(expected = "bits::xor_range: 13 bits need at least 2 bytes but dst holds 1")]
 fn xor_range_rejects_short_buffer() {
