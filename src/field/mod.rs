@@ -17,6 +17,7 @@
 pub mod fan_paar;
 mod flat8;
 pub mod gf16;
+pub mod gf2;
 pub mod gf32;
 pub mod gf64;
 pub mod gf8b;
@@ -26,6 +27,7 @@ pub mod mersenne31;
 pub mod quad_mersenne31;
 
 pub use fan_paar::{FanPaar8, FanPaar16, FanPaar32, FanPaar64};
+pub use gf2::Gf2;
 pub use gf8b::Gf8B;
 pub use gf8d::Gf8D;
 pub use gf16::Gf16;
@@ -35,12 +37,11 @@ pub use goldilocks::Goldilocks;
 pub use mersenne31::Mersenne31;
 pub use quad_mersenne31::QuadMersenne31;
 /// Scalar arithmetic over a finite field.
-///
-/// In characteristic two — every binary tower field in this crate — addition
-/// and subtraction are the same operation (XOR) and negation is the identity.
-/// Prime fields reduce modulo their characteristic instead. Both `add` and
-/// `sub` are provided because algorithms read more clearly when they say what
-/// they mean.
+/// In characteristic two — every binary field in this crate, GF(2)
+/// included — addition and subtraction are the same operation (XOR) and
+/// negation is the identity. Prime fields reduce modulo their
+/// characteristic instead. Both `add` and `sub` are provided because
+/// algorithms read more clearly when they say what they mean.
 ///
 /// By library-wide convention `inv(0) == 0` and `x / 0 == 0`, in every build
 /// profile and under `const` evaluation alike. This is a total-function

@@ -4,10 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.7.0] - 2026-08-24
 
 ### Added
 
+- Native GF(2). The `Gf2` marker with `gf2::Elem` scalar arithmetic (add is
+  XOR, multiply is AND, negation/squaring the identity, `const` throughout,
+  total over raw bytes), and the `bits` module: a bit-packed vector surface
+  over `&[u8]` buffers holding one element per bit LSB-first — `xor`,
+  `xor_range`, `and_into`/`and_assign`/`andnot_assign`,
+  `clear_range`/`set_range`, `weight`, `parity_dot`, and `xor_gather`, with
+  an explicit bit count where the byte length cannot recover it and padding
+  bits kept zero on every output. The bit order is a frozen wire convention.
+  `bits::xor` reuses the dispatched byte-XOR kernel; the other kernels are
+  portable `u64` word loops (intrinsic acceleration is measured-only and
+  the bandwidth-bound shapes are expected to stay portable).
 - CI now measures line coverage with `cargo-llvm-cov` and fails below 95%,
   merging one test run per forced `SIMD_BACKEND` tier so every dispatchable
   backend counts toward the total.
@@ -20,6 +31,13 @@ All notable changes to this project are documented here. The format follows
   table builders against the committed banks.
 
 ### Changed
+
+- The bit-packed GF(2) folds run split accumulators: `bits::weight` uses
+  eight independent `popcount` lanes and `bits::parity_dot` four independent
+  AND-XOR lanes, folded once at the end, so the loops saturate execution-port
+  throughput instead of riding one register's dependency chain. Measured
+  1.2–1.5x (`weight`) and 1.2–2.0x (`parity_dot`) across L1/DRAM buffer
+  sizes on the reference host. Results are unchanged.
 
 - `QuadMersenne31` kernels canonicalize each limb once per load instead of
   re-reducing operands in every helper: `mul_add`, `mul_assign`, `mul_into`,
@@ -286,7 +304,8 @@ are deliberately not repeated here.
 
 Initial public release.
 
-[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/nanithefkuc/fgf/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/nanithefkuc/fgf/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/nanithefkuc/fgf/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/nanithefkuc/fgf/compare/v0.3.0...v0.4.0

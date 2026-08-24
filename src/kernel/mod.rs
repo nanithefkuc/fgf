@@ -41,6 +41,11 @@ pub mod gf8;
 pub(crate) mod gf8;
 
 #[cfg(feature = "internals")]
+pub mod gf2;
+#[cfg(not(feature = "internals"))]
+pub(crate) mod gf2;
+
+#[cfg(feature = "internals")]
 pub mod goldilocks;
 #[cfg(not(feature = "internals"))]
 pub(crate) mod goldilocks;
