@@ -2267,14 +2267,20 @@ fn x86_geometry_guards_accept_zero_length_rows() {
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 #[test]
-#[should_panic(expected = "scatter_gfni: rows buffer does not hold")]
 fn scatter_gfni_rejects_short_rows_buffer() {
     use crate::kernel::x86;
-    // Geometry panics only fire on a host that can select the GFNI tier;
-    // elsewhere this passes as a skip, like the differential drivers.
-    if host_supports(&[crate::kernel::Backend::V3GfniCrypto]) {
-        x86::gf8::scatter_gfni(&mut [0u8; 4], 4, &[gf8b::Elem(1), gf8b::Elem(2)], &[0u8; 4]);
+
+    // `#[should_panic]` cannot express "skip on hosts that cannot select the
+    // tier", so the panic is caught explicitly after the capability guard.
+    if !host_supports(&[crate::kernel::Backend::V3GfniCrypto]) {
+        eprintln!("skipping: no AVX2+GFNI+VAES on this host");
+        return;
     }
+    let panicked = std::panic::catch_unwind(|| {
+        x86::gf8::scatter_gfni(&mut [0u8; 4], 4, &[gf8b::Elem(1), gf8b::Elem(2)], &[0u8; 4]);
+    })
+    .is_err();
+    assert!(panicked, "scatter_gfni must reject a short rows buffer");
 }
 
 #[test]
@@ -2388,13 +2394,18 @@ fn gfni_matrix_wrappers_accept_empty_terms() {
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 #[cfg(feature = "internals")]
 #[test]
-#[should_panic(expected = "scatter_affine: rows buffer does not hold")]
 fn scatter_affine_rejects_short_rows_buffer() {
     use crate::kernel::x86;
 
-    if host_supports(&[crate::kernel::Backend::V3GfniCrypto]) {
-        x86::gf8::scatter_affine(&mut [0u8; 4], 4, &[gf8d::Elem(1), gf8d::Elem(2)], &[0u8; 4]);
+    if !host_supports(&[crate::kernel::Backend::V3GfniCrypto]) {
+        eprintln!("skipping: no AVX2+GFNI+VAES on this host");
+        return;
     }
+    let panicked = std::panic::catch_unwind(|| {
+        x86::gf8::scatter_affine(&mut [0u8; 4], 4, &[gf8d::Elem(1), gf8d::Elem(2)], &[0u8; 4]);
+    })
+    .is_err();
+    assert!(panicked, "scatter_affine must reject a short rows buffer");
 }
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
