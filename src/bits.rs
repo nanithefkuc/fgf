@@ -103,7 +103,7 @@ pub fn xor(dst: &mut [u8], src: &[u8]) {
 ///
 /// # Panics
 /// Panics if the slices differ in length, if `from > to`, if `to > bits`,
-/// or if the buffers are shorter than [`bytes_for`]`(bits)`.
+#[inline]
 pub fn xor_range(dst: &mut [u8], src: &[u8], bits: usize, from: usize, to: usize) {
     check_pair("bits::xor_range", "dst", dst.len(), "src", src.len());
     check_range("bits::xor_range", bits, from, to);
@@ -150,6 +150,7 @@ pub fn andnot_assign(dst: &mut [u8], mask: &[u8]) {
 /// # Panics
 /// Panics if `from > to`, if `to > bits`, or if `dst` is shorter than
 /// [`bytes_for`]`(bits)`.
+#[inline]
 pub fn clear_range(dst: &mut [u8], bits: usize, from: usize, to: usize) {
     check_range("bits::clear_range", bits, from, to);
     check_holds("bits::clear_range", "dst", dst.len(), bits);

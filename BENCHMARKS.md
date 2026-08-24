@@ -523,30 +523,48 @@ line fills: 5.41/5.44 GiB/s ordinary against 4.84/4.79 non-temporal at
 32 MiB. The GF(2^8) SSSE3 kernel does reach the ceiling (19.7 GiB/s) and does
 use them.
 
-### Masked range kernels: bulk interior through the dispatched XOR (2026-08-24)
+### Masked range kernels and the short-buffer floor (2026-08-24)
 
 `xor_range`/`clear_range`/`set_range` first shipped walking *every* word of
 the range through the masked byte-assembly helpers
-(`xor_masked_word`/`read_modify_word`), even fully-live interior words.
-Restructured: the two end words stay masked scalars and the interior is
-sliced out and run through the dispatched whole-buffer byte XOR
-(`xor_range`) or one bulk fill (`clear_range`/`set_range`). Same host and
-method as the table above; `bits::xor_range 5/8 packed` masked walk vs bulk
-interior:
+(`xor_masked_word`/`read_modify_word`), even fully-live interior words, and
+every `bits::xor` paid the dispatched `#[target_feature]` call boundary.
+Three changes, each measured:
 
-| Shape | masked walk | bulk interior | speedup |
-| --- | --- | --- | --- |
-| 4 KiB (L1) | 317 ns / 12.0 GiB/s | 45 ns / 84.8 GiB/s | 7.0x |
-| 256 KiB (L2) | 19.15 µs / 12.8 GiB/s | 3.46 µs / 70.6 GiB/s | 5.5x |
-| 8 MiB | 737 µs / 10.6 GiB/s | 735 µs / 10.6 GiB/s | 1.00x |
-| 64 MiB | 5.38 ms / 11.6 GiB/s | 2.33 ms / 26.8 GiB/s | 2.3x |
+1. **Bulk interior.** The two end words stay masked scalars and the
+   interior is sliced out and run through the dispatched whole-buffer byte
+   XOR (`xor_range`) or one bulk fill (`clear_range`/`set_range`). Same
+   host and method as the ceiling table above; `bits::xor_range 5/8
+   packed`, masked walk vs bulk interior:
 
-The interior now moves at the whole-buffer `bits::xor` rate (compare the
-ceiling table above). The 8 MiB tier is memory-bound for both forms at
-~1.00x; at 64 MiB the masked walk's per-word read-modify-write round trip
-still underuses bandwidth and the bulk path doubles it. The masked walk
-remains only where masking is real: the two end words of a range, and
-words that run past the end of a short buffer.
+   | Shape | masked walk | bulk interior | speedup |
+   | --- | --- | --- | --- |
+   | 4 KiB (L1) | 317 ns / 12.0 GiB/s | 43 ns / 88.7 GiB/s | 7.4x |
+   | 256 KiB (L2) | 19.15 µs / 12.8 GiB/s | 3.38 µs / 72.3 GiB/s | 5.7x |
+   | 8 MiB | 737 µs / 10.6 GiB/s | 735 µs / 10.6 GiB/s | 1.00x |
+   | 64 MiB | 5.38 ms / 11.6 GiB/s | 2.35 ms / 26.5 GiB/s | 2.3x |
+
+   The interior now moves at or above the whole-buffer `bits::xor` rate
+   (it touches 5/8 of the bytes with the same kernel). The 8 MiB tier is
+   memory-bound for both forms at ~1.00x. The masked walk remains only
+   where masking is real: the two end words of a range, and words that
+   run past the end of a short buffer.
+
+2. **Short-buffer inline path.** `kernel::xor_impl` routes buffers of at
+   most `XOR_INLINE_MAX` (31) bytes to `scalar::xor`, now `#[inline]`:
+   below one vector the dispatched call boundary cost more than the body
+   saved. On the consumer's panel pattern (16-byte GF(2) rows, one XOR
+   per row per pivot) this alone took whole-buffer `bits::xor` from
+   ~5.0 ns to ~3.3 ns per call.
+
+3. **Sub-word byte path.** Ranges spanning at most two bytes — the
+   panel-elimination shape, at most eight pivots wide — are one or two
+   masked byte operations with no word round trip. Together with `#[inline]`
+   on the checked `bits` entry points, the same panel pattern runs at
+   ~3.7 ns per call against ~1.1 ns for a bare inlined `u64` masked XOR:
+   the residual is the surface's length/range/coverage contract checks
+   plus mask arithmetic, not call frames or word assembly. The end-to-end
+   cost at the consumer is recorded in gfm's `BENCHMARKS.md`.
 
 ### Destination alignment peel (`kernel::x86::peel_to_align`)
 

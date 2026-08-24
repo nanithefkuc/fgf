@@ -15,8 +15,13 @@ use crate::field::{Elem, Field};
 
 /// `dst ^= src`, eight bytes at a time.
 ///
+/// `#[inline]`: the short-buffer callers reach it as their whole kernel,
+/// and the call boundary alone cost more than the body below one vector
+/// (see `kernel::xor_impl`'s short path and BENCHMARKS.md).
+///
 /// # Panics
 /// Panics if the slices differ in length.
+#[inline]
 pub fn xor(dst: &mut [u8], src: &[u8]) {
     assert_eq!(dst.len(), src.len(), "xor: length mismatch");
 

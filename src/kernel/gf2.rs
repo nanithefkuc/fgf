@@ -99,14 +99,24 @@ pub(crate) fn andnot_assign(dst: &mut [u8], mask: &[u8]) {
 
 /// `dst ^= src` over bits `[from, to)`, ends masked; all other bits —
 /// including padding — untouched.
-/// The two end words are masked scalars; every interior word is fully
-/// live, so the interior runs through the dispatched whole-buffer byte
-/// XOR. Ranges are dominated by their interior, and the masked walk paid
-/// a byte-assembly round trip per word there: 5.5–7x in the cache tiers
-/// and up to 2.3x at 64 MiB on the reference host (see BENCHMARKS.md).
+///
+/// Sub-word ranges — the panel-elimination shape — are one or two masked
+/// byte ops. Longer ranges mask the two end words as scalars and run the
+/// fully-live interior through the dispatched whole-buffer byte XOR,
+/// whose short-buffer path inlines. Against the original all-masked walk
+/// this measured 5.5–7x in the cache tiers on the reference host (see
+/// BENCHMARKS.md).
+#[inline]
 pub(crate) fn xor_range(dst: &mut [u8], src: &[u8], from: usize, to: usize) {
     debug_assert_eq!(dst.len(), src.len());
     if from >= to {
+        return;
+    }
+    let (b0, b1) = (from / 8, (to - 1) / 8);
+    if b1 - b0 <= 1 {
+        for b in b0..=b1 {
+            dst[b] ^= src[b] & byte_live(from, to, b);
+        }
         return;
     }
     let (first, last) = (from / 64, (to - 1) / 64);
@@ -123,6 +133,15 @@ pub(crate) fn xor_range(dst: &mut [u8], src: &[u8], from: usize, to: usize) {
     let mid = (first + 1) * 8..last * 8;
     super::xor_impl(&mut dst[mid.clone()], &src[mid]);
     xor_masked_word(dst, src, last, low_mask(to - last * 64));
+}
+
+/// The live-bit mask of byte `b` for a range `[from, to)`, `0 <= from <
+/// to`: bits `[from, to)` intersected with byte `b`'s eight bits.
+#[inline]
+fn byte_live(from: usize, to: usize, b: usize) -> u8 {
+    let lo = from.saturating_sub(b * 8).min(8);
+    let hi = to.saturating_sub(b * 8).min(8);
+    (((u16::MAX << lo) & ((1u16 << hi).wrapping_sub(1))) & 0xFF) as u8
 }
 
 /// Zeros bits `[from, to)` of `dst`.
@@ -245,6 +264,7 @@ fn next_word(words: &mut core::slice::ChunksExact<'_, u8>) -> u64 {
 /// `dst[w] ^= src[w] & live`, where `dst[w]` is the little-endian word at
 /// byte offset `8 * w`. A word running past the end of the buffers falls
 /// back to masked bytes.
+#[inline]
 fn xor_masked_word(dst: &mut [u8], src: &[u8], w: usize, live: u64) {
     let offset = 8 * w;
     if offset + 8 <= dst.len() {
@@ -262,6 +282,7 @@ fn xor_masked_word(dst: &mut [u8], src: &[u8], w: usize, live: u64) {
 /// Clears (`set == false`) or sets (`set == true`) the live bits of word `w`
 /// of `dst`; a word running past the end of the buffer falls back to masked
 /// bytes.
+#[inline]
 fn read_modify_word(dst: &mut [u8], w: usize, live: u64, set: bool) {
     let offset = 8 * w;
     if offset + 8 <= dst.len() {
