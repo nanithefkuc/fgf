@@ -471,6 +471,45 @@ there. The forced `avx2` and `ssse3` arms hit the same ~14 GiB/s ceiling at
 `mul_assign` reads its destination anyway and measures 22.0 GiB/s either way
 at 64 MiB, 0.5x at 256 KiB — it keeps ordinary stores.
 
+### Bit-packed GF(2) kernels: portable word loops are the final kernels
+
+The `bits` surface ships `xor` on the already-dispatched field-independent
+byte XOR and everything else on portable `u64` word loops. No GF(2)-specific
+intrinsic was written; the measurements that justify that (Core Ultra 7
+258V, Linux, rustc 1.93.0, backend `v3_gfni_crypto`, unpinned, median of
+the `bench_gf2_bits` section of `cargo bench --bench kernels`):
+
+| Shape | 4 KiB (L1) | 256 KiB (L2) | 8 MiB | 64 MiB |
+| --- | --- | --- | --- | --- |
+| `bits::xor` (dispatched) | 68.1 GiB/s | 61.0 GiB/s | 9.0 GiB/s | 16.7 GiB/s |
+| `ops::add_assign` GF(2^8) control | 56.9 GiB/s | 62.1 GiB/s | 9.0 GiB/s | 16.5 GiB/s |
+| `bits::and_into` (portable, 3 streams) | 82.9 GiB/s | 32.8 GiB/s | 6.6 GiB/s | 10.7 GiB/s |
+| `bits::weight` (portable, read-only) | 18.6 GiB/s | 18.8 GiB/s | 18.5 GiB/s | 12.8 GiB/s |
+| `bits::parity_dot` (portable, read-only) | 30.5 GiB/s | 22.7 GiB/s | 17.4 GiB/s | 12.1 GiB/s |
+
+Readings:
+
+- `bits::xor` sits on the same dispatched kernel and the same ceiling as the
+  GF(2^8) control at every tier — with 8x the elements per byte, which is
+  the whole point of the packing. There is nothing left for a private
+  GF(2)-specific XOR body to win.
+- `and_into` moves three streams (`a`, `b`, and the write) where `xor` moves
+  two; per raw traffic byte it matches the same memory ceiling (at 64 MiB:
+  `xor` 2 × 16.7 ≈ 33 GiB/s raw, `and_into` 3 × 10.7 ≈ 32 GiB/s raw). The
+  autovectorized word loop saturates bandwidth.
+- `weight`/`parity_dot` are read-only folds: at DRAM sizes they ride the
+  single-stream read ceiling, but in-cache they run ~3x below the copy
+  ceiling (18.6 vs 68 GiB/s in L1) — that residual is the compute-bound
+  scalar `popcount` fold, the genuine `VPOPCNTQ`/NEON `CNT` target. That
+  body is gated on an AVX-512 tier `FGF_TIERS` does not expose (untestable
+  on this host) and stays a recorded follow-up, not an accepted kernel.
+- Open follow-up, not a rejection: a non-temporal-store overwrite variant of
+  `and_into`/`xor` for far-out-of-cache destinations would follow the same
+  measured path as `mul_into`'s `NT_STORE_MIN` (the section above); it is
+  deferred until a consumer's grid shows repeated out-of-cache overwrites
+  through the `bits` surface, rather than landing a gated body on
+  speculation.
+
 **Not taken:** GF(2^16) on SSSE3. Eight `PSHUFB` per 16 bytes hold that loop
 to ~5.9 GiB/s, well under the host's write bandwidth, and 16-byte
 non-temporal stores from a slow loop flush write-combining buffers before a

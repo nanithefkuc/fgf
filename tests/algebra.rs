@@ -8,8 +8,8 @@
 use fgf::field::Field;
 use fgf::{
     FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf8D, Gf16, Gf32, Gf64, Goldilocks,
-    Mersenne31, QuadMersenne31, fan_paar, gf8b, gf8d, gf16, gf32, gf64, goldilocks, mersenne31,
-    quad_mersenne31,
+    Mersenne31, QuadMersenne31, fan_paar, gf2, gf8b, gf8d, gf16, gf32, gf64, goldilocks,
+    mersenne31, quad_mersenne31,
 };
 
 /// Every nonzero element, plus zero, in ascending order.
@@ -1476,6 +1476,168 @@ fn inherent_conversion_helpers_round_trip() {
         fan_paar::fp8::Elem(0xa5).mul_alpha(),
         fan_paar::fp8::Elem(0xa5).mul(fan_paar::fp8::ALPHA)
     );
+}
+
+// ---------------------------------------------------------------------------
+// GF(2)
+// ---------------------------------------------------------------------------
+
+/// The whole field, exhaustively: the four ordered pairs.
+fn all_gf2_pairs() -> impl Iterator<Item = (gf2::Elem, gf2::Elem)> {
+    let elems = [gf2::Elem(0), gf2::Elem(1)];
+    elems.into_iter().flat_map(move |a| {
+        let elems = [gf2::Elem(0), gf2::Elem(1)];
+        elems.into_iter().map(move |b| (a, b))
+    })
+}
+
+#[test]
+fn gf2_add_and_mul_are_xor_and_and() {
+    for (a, b) in all_gf2_pairs() {
+        assert_eq!(a.add(b).to_raw(), a.to_raw() ^ b.to_raw());
+        assert_eq!(a.mul(b).to_raw(), a.to_raw() & b.to_raw());
+        assert_eq!(a.sub(b), a.add(b), "sub is add in characteristic two");
+        assert_eq!(a.neg(), a, "neg is the identity");
+        assert_eq!(a.square(), a, "x^2 = x");
+        assert_eq!(a + b, a.add(b));
+        assert_eq!(a - b, a.sub(b));
+        assert_eq!(a * b, a.mul(b));
+        assert_eq!(-a, a);
+    }
+}
+
+#[test]
+fn gf2_inverse_division_and_power_conventions() {
+    for (a, b) in all_gf2_pairs() {
+        assert_eq!(a.inv(), a, "inv is the identity on canonical values");
+        let quotient = a.div(b).to_raw();
+        let expected = if b.to_raw() == 0 { 0 } else { a.to_raw() };
+        assert_eq!(quotient, expected, "x / 0 == 0 and x / 1 == x");
+        assert_eq!(a / b, a.div(b));
+    }
+    for a in [gf2::Elem(0), gf2::Elem(1)] {
+        assert_eq!(a.pow(0), gf2::Elem::ONE, "pow(_, 0) is one");
+        for exponent in [1u64, 2, 3, 63, u64::MAX] {
+            assert_eq!(a.pow(exponent), a, "x^n = x for n > 0");
+        }
+    }
+    // Division stays total in const context.
+    const _: () = assert!(gf2::Elem(1).div(gf2::Elem(0)).to_raw() == 0);
+    const _: () = assert!(gf2::Elem(1).pow(0).to_raw() == 1);
+}
+
+#[test]
+fn gf2_constants_and_predicates() {
+    assert_eq!(gf2::ORDER, 2);
+    assert_eq!(gf2::Gf2::NAME, "GF(2)");
+    // The multiplicative group is trivial: the generator is one and has
+    // order 1.
+    assert_eq!(gf2::GENERATOR, gf2::Elem::ONE);
+    for exponent in [0u64, 1, 2, 100] {
+        assert_eq!(gf2::GENERATOR.pow(exponent), gf2::Elem::ONE);
+    }
+    assert!(gf2::Elem(0).is_zero());
+    assert!(gf2::Elem(1).is_one());
+    assert_eq!(gf2::Elem::ZERO.to_raw(), 0);
+    assert_eq!(gf2::Elem::ONE.to_raw(), 1);
+    assert_eq!(gf2::Elem::default(), gf2::Elem::ZERO);
+}
+
+#[test]
+fn gf2_elem_trait_bodies_match_inherent() {
+    use fgf::field::Elem;
+
+    // Through a generic: only the trait's methods are visible, so the
+    // delegating bodies themselves execute.
+    fn through_trait<E: Elem>(a: E, b: E) {
+        let zero = E::ZERO;
+        let one = E::ONE;
+        assert_eq!(a.add(zero), a, "a + 0");
+        assert_eq!(a.sub(a), zero, "a - a");
+        assert_eq!(a.sub(b), a.add(b.neg()), "a - b in characteristic two");
+        assert_eq!(a.mul(one), a, "a * 1");
+        assert_eq!(a.mul(zero), zero, "a * 0");
+        assert_eq!(a.square(), a, "x^2 = x");
+        assert_eq!(a.pow(0), one, "a^0");
+        assert_eq!(a.pow(5), a, "x^5 = x");
+        assert_eq!(
+            a.inv().mul(a),
+            if a.is_zero() { zero } else { one },
+            "inv round trip"
+        );
+        assert_eq!(a.div(zero), zero, "a / 0");
+        assert_eq!(a.div(one), a, "a / 1");
+        assert_eq!(a.is_zero(), a == zero);
+        assert_eq!(a.is_one(), a == one);
+    }
+
+    for (a, b) in all_gf2_pairs() {
+        through_trait(a, b);
+        assert_eq!(<gf2::Elem as Elem>::add(a, b), gf2::Elem::add(a, b));
+        assert_eq!(<gf2::Elem as Elem>::sub(a, b), gf2::Elem::sub(a, b));
+        assert_eq!(<gf2::Elem as Elem>::neg(a), gf2::Elem::neg(a));
+        assert_eq!(<gf2::Elem as Elem>::mul(a, b), gf2::Elem::mul(a, b));
+        assert_eq!(<gf2::Elem as Elem>::square(a), gf2::Elem::square(a));
+        assert_eq!(<gf2::Elem as Elem>::inv(a), gf2::Elem::inv(a));
+        assert_eq!(<gf2::Elem as Elem>::div(a, b), gf2::Elem::div(a, b));
+        assert_eq!(<gf2::Elem as Elem>::pow(a, 7), gf2::Elem::pow(a, 7));
+        assert_eq!(<gf2::Elem as Elem>::is_zero(a), gf2::Elem::is_zero(a));
+        assert_eq!(<gf2::Elem as Elem>::is_one(a), gf2::Elem::is_one(a));
+    }
+}
+
+#[test]
+fn gf2_raw_lanes_are_total_and_outputs_canonical() {
+    // Any raw byte is a legal input; only bit 0 is meaningful, and every
+    // arithmetic output is canonical — the crate's totality convention.
+    for raw in [0u8, 1, 2, 3, 0x7f, 0x80, 0xfe, 0xff] {
+        let a = gf2::Elem(raw);
+        assert_eq!(a.add(gf2::Elem(1)).to_raw(), (raw & 1) ^ 1);
+        assert_eq!(a.mul(gf2::Elem(1)).to_raw(), raw & 1);
+        assert_eq!(a.square().to_raw(), raw & 1);
+        assert_eq!(a.inv().to_raw(), raw & 1);
+        assert_eq!(a.div(gf2::Elem(0)).to_raw(), 0);
+        assert_eq!(a.is_zero(), raw & 1 == 0);
+        assert_eq!(a.is_one(), raw & 1 == 1);
+    }
+    assert_eq!(gf2::Elem::from_raw(0xfe).to_raw(), 0, "from_raw masks");
+    assert_eq!(
+        gf2::Elem::from_bytes([0xfe]).to_bytes(),
+        [0],
+        "byte round trip masks"
+    );
+    assert_eq!(gf2::Elem(1).canonical(), gf2::Elem::ONE);
+}
+
+#[test]
+fn gf2_operators_folds_and_display() {
+    use std::fmt::Write as _;
+
+    let mut a = gf2::Elem(1);
+    a += gf2::Elem(1);
+    assert_eq!(a, gf2::Elem::ZERO);
+    a -= gf2::Elem(1);
+    assert_eq!(a, gf2::Elem::ONE);
+    a *= gf2::Elem(0);
+    assert_eq!(a, gf2::Elem::ZERO);
+    a += gf2::Elem(1);
+    a /= gf2::Elem(1);
+    assert_eq!(a, gf2::Elem::ONE);
+    a /= gf2::Elem::ZERO;
+    assert_eq!(a, gf2::Elem::ZERO);
+
+    let xor_sum: gf2::Elem = [gf2::Elem(1), gf2::Elem(1), gf2::Elem(1)].into_iter().sum();
+    assert_eq!(xor_sum, gf2::Elem::ONE, "sum of three ones");
+    let and_product: gf2::Elem = [gf2::Elem(1), gf2::Elem(1)].into_iter().product();
+    assert_eq!(and_product, gf2::Elem::ONE);
+    let borrowed_sum: gf2::Elem = [&gf2::Elem(1), &gf2::Elem(1)].into_iter().sum();
+    assert_eq!(borrowed_sum, gf2::Elem::ZERO);
+    let borrowed_product: gf2::Elem = [&gf2::Elem(1), &gf2::Elem(1)].into_iter().product();
+    assert_eq!(borrowed_product, gf2::Elem::ONE);
+
+    let mut text = String::new();
+    write!(text, "{} {:?}", gf2::Elem(1), gf2::Elem(0)).unwrap();
+    assert_eq!(text, "1 Gf2(0)");
 }
 
 // ---------------------------------------------------------------------------

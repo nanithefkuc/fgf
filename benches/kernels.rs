@@ -456,6 +456,50 @@ fn bench_small_row_shapes() {
     println!();
 }
 
+/// Bit-packed GF(2) surface: xor (dispatched byte XOR), the portable AND
+/// word loop, the popcount folds, and a masked range — against the
+/// byte-per-element GF(2^8) add as the density control. The packing itself
+/// is the expected win (8x the elements per byte); the interesting number
+/// is whether the portable loops sit at the same memory ceiling as the
+/// dispatched kernel.
+fn bench_gf2_bits() {
+    println!("bit-packed GF(2) — packed vs byte-per-element control:");
+    // L1-resident, L2-resident, and DRAM-resident buffer sizes.
+    for &bytes in &[4 * 1024usize, 256 * 1024, 8 * 1024 * 1024, 64 * 1024 * 1024] {
+        let bits = 8 * bytes;
+        let human = if bytes >= 1024 * 1024 {
+            format!("{} MiB", bytes / (1024 * 1024))
+        } else {
+            format!("{} KiB", bytes / 1024)
+        };
+        let a = noise(bytes, 0x2100 + bytes as u64);
+        let b = noise(bytes, 0x2200 + bytes as u64);
+        let mut dst = noise(bytes, 0x2300 + bytes as u64);
+        println!("  {human} buffers ({bits} elements):");
+        bench("  bits::xor              packed", bytes, || {
+            fgf::bits::xor(black_box(&mut dst), black_box(&a));
+        });
+        bench("  bits::and_into         packed", bytes, || {
+            fgf::bits::and_into(black_box(&mut dst), black_box(&a), black_box(&b));
+        });
+        bench("  bits::weight           packed", bytes, || {
+            black_box(fgf::bits::weight(black_box(&a), bits));
+        });
+        bench("  bits::parity_dot       packed", bytes, || {
+            black_box(fgf::bits::parity_dot(black_box(&a), black_box(&b), bits));
+        });
+        let from = bits / 4;
+        let to = bits - bits / 8;
+        bench("  bits::xor_range  5/8    packed", bytes, || {
+            fgf::bits::xor_range(black_box(&mut dst), black_box(&a), bits, from, to);
+        });
+        bench("  ops::add_assign  gf8 control", bytes, || {
+            ops::add_assign::<Gf8B>(black_box(&mut dst), black_box(&a));
+        });
+    }
+    println!();
+}
+
 fn main() {
     println!("fgf kernel benchmark — backend: {}", backend().name());
     println!("  (override with SIMD_BACKEND=v3_gfni_crypto|v3|v2|neon|scalar)\n");
@@ -471,6 +515,7 @@ fn main() {
     bench_blocked_vs_axpy();
 
     bench_network_payloads();
+    bench_gf2_bits();
 
     // L1-resident, L2-resident, and DRAM-resident.
     for &len in &[4 * 1024usize, 256 * 1024, 8 * 1024 * 1024] {

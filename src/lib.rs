@@ -16,7 +16,8 @@
 //! | GF(2^31 − 1) | [`Mersenne31`] | [`mersenne31::Elem`] | Mersenne prime, `u32` lanes |
 //! | GF(2^64 − 2^32 + 1) | [`Goldilocks`] | [`goldilocks::Elem`] | Goldilocks prime, `u64` lanes |
 //! | GF((2^31 − 1)²) | [`QuadMersenne31`] | [`quad_mersenne31::Elem`] | QM31 extension, `i² = −1` over [`Mersenne31`] |
-
+//! | GF(2) | [`Gf2`] | [`gf2::Elem`] | bit-packed, one element per bit |
+//!
 //! `Gf8B` and `Gf16` have hand-written SIMD backends, and `Gf8D` multiplies
 //! through `VGF2P8AFFINEQB` affine maps on x86 GFNI hosts and `Gf8B`'s
 //! split-nibble shuffle kernels elsewhere. The wider polynomial
@@ -46,6 +47,20 @@
 //! **Vector kernels** — [`ops`] operates on `&[u8]` buffers of packed
 //! elements, dispatching once per process to the best backend the host
 //! supports ([`Backend`]).
+//!
+//! ## Bit-packed GF(2)
+//!
+//! The base field itself is sub-byte, so it sits beside those two layers
+//! rather than inside them. [`Gf2`]/[`gf2::Elem`] is the scalar object (a
+//! one-bit element: add is XOR, multiply is AND, everything is `const`), and
+//! [`bits`] is its vector surface — XOR/AND/range kernels over `&[u8]`
+//! buffers holding **one element per bit**, LSB-first, eight per byte. That
+//! packing is the win: 8x the density of a byte-per-element layout for the
+//! bandwidth-bound shapes GF(2) work lives in. The surface is standalone
+//! functions, not [`ops`] methods, because a byte count cannot recover an
+//! element count (operations carry an explicit bit count and bit ranges)
+//! and the GF(2) coefficient is a bit — multiply by one is XOR, by zero is
+//! skip — so there is no prepared-coefficient form to hoist.
 //!
 //! ```
 //! use fgf::{Gf8B, gf8b, ops};
@@ -146,14 +161,15 @@
     clippy::chunks_exact_to_as_chunks,
 )]
 
+pub mod bits;
 pub mod field;
 pub mod kernel;
 pub mod ops;
 
 pub use field::{
-    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Field, Gf8B, Gf8D, Gf16, Gf32, Gf64, Goldilocks,
-    Mersenne31, QuadMersenne31, fan_paar, gf8b, gf8d, gf16, gf32, gf64, goldilocks, mersenne31,
-    quad_mersenne31,
+    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Field, Gf2, Gf8B, Gf8D, Gf16, Gf32, Gf64,
+    Goldilocks, Mersenne31, QuadMersenne31, fan_paar, gf2, gf8b, gf8d, gf16, gf32, gf64,
+    goldilocks, mersenne31, quad_mersenne31,
 };
 pub use kernel::{
     Backend, FieldKernels, KernelBackend, ParseBackendError, backend, backend_for,

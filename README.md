@@ -57,7 +57,12 @@ fgf = { git = "https://github.com/nanithefkuc/fgf", default-features = false }
 | Fan–Paar GF(2^64) | `FanPaar64` | `fan_paar::fp64::Elem` | canonical recursive tower | x86 AVX2 |
 | GF(2^31 − 1) | `Mersenne31` | `mersenne31::Elem` | Mersenne prime, `u32` lanes | x86 AVX2/SSE4.2 integer SIMD |
 | GF(2^64 − 2^32 + 1) | `Goldilocks` | `goldilocks::Elem` | Goldilocks prime, `u64` lanes | x86 AVX2/SSE4.2 integer SIMD |
-| GF((2^31 − 1)²) | `QuadMersenne31` | `quad_mersenne31::Elem` | QM31 extension `i²=−1` over `Mersenne31` | portable (composes `Mersenne31` lanes) |
+| GF(2) | `Gf2` | `gf2::Elem` | bit-packed, one element per bit | dispatched byte XOR; portable word kernels |
+
+GF(2) — the base field of every tower — has no byte-per-element vector form:
+one element is one *bit*. Its packed surface is the separate [`bits`](#bit-packed-gf2)
+module (below), not `ops`; scalar arithmetic is `gf2::Elem`, total over raw
+lanes like the prime fields.
 
 The prime fields are lane-packed integer arithmetic with a modular fold
 (`2^31 ≡ 1` for Mersenne31; the `2^64 ≡ 2^32 − 1` split-fold for Goldilocks).
@@ -116,6 +121,35 @@ assert_eq!(dst, [0x03, 0x06, 0x05, 0x0c]);
 
 Prefer the widest shape that matches the operation. The blocked kernels can
 retain destination tiles in registers across sources.
+
+### Bit-packed GF(2)
+
+GF(2) buffers pack one element per bit, LSB-first, eight per byte — 8x the
+density of a byte-per-element layout, which is the whole win for the
+bandwidth-bound shapes GF(2) work lives in:
+
+```rust
+use fgf::bits;
+
+let mut a = [0u8; 1];
+bits::set_range(&mut a, 7, 0, 7);      // seven live elements, all one
+bits::clear_range(&mut a, 7, 1, 3);
+assert_eq!(a[0], 0b0111_1001);
+assert_eq!(bits::weight(&a, 7), 5);
+
+let mut symbol = [0u8; 1];
+bits::xor(&mut symbol, &a);            // field addition is XOR
+```
+
+The surface is standalone functions rather than `ops` methods because the
+element count is not recoverable from the byte length (bit-count-sensitive
+operations carry an explicit `bits` and bit ranges) and the GF(2) coefficient
+is a bit — multiply by one is XOR, by zero is skip — so there is no prepared
+form. Bits past the logical length are padding and stay zero on every output.
+`bits::xor` rides the same dispatched byte-XOR kernel as field addition; the
+remaining kernels are portable `u64` word loops that already saturate memory
+bandwidth — intrinsic acceleration is measured-only and most shapes are
+expected to stay portable.
 
 ### Reusing coefficients
 

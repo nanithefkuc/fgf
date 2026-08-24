@@ -8,6 +8,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Native GF(2). The `Gf2` marker with `gf2::Elem` scalar arithmetic (add is
+  XOR, multiply is AND, negation/squaring the identity, `const` throughout,
+  total over raw bytes), and the `bits` module: a bit-packed vector surface
+  over `&[u8]` buffers holding one element per bit LSB-first — `xor`,
+  `xor_range`, `and_into`/`and_assign`/`andnot_assign`,
+  `clear_range`/`set_range`, `weight`, `parity_dot`, and `xor_gather`, with
+  an explicit bit count where the byte length cannot recover it and padding
+  bits kept zero on every output. The bit order is a frozen wire convention.
+  `bits::xor` reuses the dispatched byte-XOR kernel; the other kernels are
+  portable `u64` word loops (intrinsic acceleration is measured-only and
+  the bandwidth-bound shapes are expected to stay portable).
 - CI now measures line coverage with `cargo-llvm-cov` and fails below 95%,
   merging one test run per forced `SIMD_BACKEND` tier so every dispatchable
   backend counts toward the total.

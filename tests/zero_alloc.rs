@@ -192,3 +192,43 @@ fn goldilocks_steady_state_allocates_nothing() {
         .expect("zero-allocation test lock poisoned");
     assert_prime_steady_state_zero_alloc::<Goldilocks>(goldilocks::Elem(7));
 }
+
+#[test]
+fn bits_steady_state_allocates_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    let bits = 4096;
+    let len = fgf::bits::bytes_for(bits);
+    let a = noise(len, 0x100);
+    let b = noise(len, 0x200);
+    let mut dst = noise(len, 0x300);
+    let sources: Vec<Vec<u8>> = (0..4).map(|i| noise(len, 0x400 + i)).collect();
+    let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+
+    // Warm dispatch before counting.
+    fgf::bits::xor(&mut dst, &a);
+    fgf::bits::xor_range(&mut dst, &a, bits, 100, 4000);
+    fgf::bits::and_into(&mut dst, &a, &b);
+    fgf::bits::and_assign(&mut dst, &a);
+    fgf::bits::andnot_assign(&mut dst, &a);
+    fgf::bits::clear_range(&mut dst, bits, 0, 64);
+    fgf::bits::set_range(&mut dst, bits, 0, 64);
+    let _ = fgf::bits::weight(&dst, bits);
+    let _ = fgf::bits::parity_dot(&dst, &a, bits);
+    fgf::bits::xor_gather(&mut dst, &refs, 0b0101, bits);
+
+    let allocations = count_allocations(|| {
+        fgf::bits::xor(&mut dst, &a);
+        fgf::bits::xor_range(&mut dst, &a, bits, 100, 4000);
+        fgf::bits::and_into(&mut dst, &a, &b);
+        fgf::bits::and_assign(&mut dst, &a);
+        fgf::bits::andnot_assign(&mut dst, &a);
+        fgf::bits::clear_range(&mut dst, bits, 0, 64);
+        fgf::bits::set_range(&mut dst, bits, 0, 64);
+        let _ = fgf::bits::weight(&dst, bits);
+        let _ = fgf::bits::parity_dot(&dst, &a, bits);
+        fgf::bits::xor_gather(&mut dst, &refs, 0b0101, bits);
+    });
+    assert_eq!(allocations, 0, "bits steady-state op allocated");
+}

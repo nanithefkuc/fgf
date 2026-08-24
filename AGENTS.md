@@ -11,12 +11,18 @@ and streaming recovery belong above this crate.
 
 The public fields are the binary towers `Gf8B`/`Gf8D`/`Gf16`/`Gf32`/`Gf64`,
 canonical Fan–Paar `FanPaar8/16/32/64`, the prime fields `Mersenne31`
-(GF(2^31 − 1)) and `Goldilocks` (GF(2^64 − 2^32 + 1)), and their quadratic
-extension `QuadMersenne31` (GF((2^31−1)²), `i²=−1`). `Gf8B`/`Gf16` have
+(GF(2^31 − 1)) and `Goldilocks` (GF(2^64 − 2^32 + 1)), their quadratic
+extension `QuadMersenne31` (GF((2^31−1)²), `i²=−1`), and GF(2) itself
+(`Gf2`, `gf2::Elem`) — the one sub-byte field, carried by the separate
+bit-packed `bits` surface rather than `ops`. `Gf8B`/`Gf16` have
 hand-written binary SIMD kernels; the prime fields have x86 integer-SIMD
 kernels (AVX2/SSE4.2) and `QuadMersenne31` composes the `Mersenne31` lanes
-(portable `scalar` today); wider towers, Fan–Paar fields, and the prime fields on
-non-x86 targets use the portable implementation.
+(portable `scalar` today); `bits::xor` reuses the dispatched byte-XOR kernel
+and the other bit-packed kernels are portable word loops; wider towers,
+Fan–Paar fields, and the prime fields on non-x86 targets use the portable
+implementation. Bit-packed GF(2) row kernels are `fgf`'s — downstream
+bit-matrix code (`gfm`'s bit domain) composes them instead of hand-rolling
+word loops.
 
 ## Architecture & Data Flow
 
@@ -57,14 +63,16 @@ and immutable lookup data.
 
 ## Key Directories
 
+- `src/bits.rs` — the checked bit-packed GF(2) surface over `&[u8]`.
 - `src/field/` — `Elem`/`Field` contracts, concrete fields, constants,
   conversions, and scalar algebra.
 - `src/kernel/` — sealed dispatch contract, portable oracle/fallback,
   coefficient tables, per-field routing, and backend reporting.
 - `src/kernel/{x86,aarch64,wasm32}/` — crate-private intrinsic implementations
   and the only allowed unsafe boundary.
-- `tests/` — public integration tests: `algebra.rs` for field laws and
-  `ops.rs` for checked/dispatched buffer operations.
+- `tests/` — public integration tests: `algebra.rs` for field laws,
+  `ops.rs` for checked/dispatched buffer operations, `bits.rs` for the
+  bit-packed GF(2) surface, `zero_alloc.rs` for steady-state allocation.
 - `benches/` — custom throughput binaries, not Criterion harnesses.
 - `external-bench/` — ignored, Linux/x86-oriented comparisons against external
   libraries; dependencies must be installed or built separately.
