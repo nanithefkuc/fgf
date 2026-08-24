@@ -99,28 +99,76 @@ pub(crate) fn andnot_assign(dst: &mut [u8], mask: &[u8]) {
 
 /// `dst ^= src` over bits `[from, to)`, ends masked; all other bits —
 /// including padding — untouched.
+/// The two end words are masked scalars; every interior word is fully
+/// live, so the interior runs through the dispatched whole-buffer byte
+/// XOR. Ranges are dominated by their interior, and the masked walk paid
+/// a byte-assembly round trip per word there: 5.5–7x in the cache tiers
+/// and up to 2.3x at 64 MiB on the reference host (see BENCHMARKS.md).
 pub(crate) fn xor_range(dst: &mut [u8], src: &[u8], from: usize, to: usize) {
     debug_assert_eq!(dst.len(), src.len());
     if from >= to {
         return;
     }
-    for_range_words(from, to, |w, live| xor_masked_word(dst, src, w, live));
+    let (first, last) = (from / 64, (to - 1) / 64);
+    if first == last {
+        xor_masked_word(
+            dst,
+            src,
+            first,
+            mask_between(from - first * 64, to - first * 64),
+        );
+        return;
+    }
+    xor_masked_word(dst, src, first, u64::MAX << (from - first * 64));
+    let mid = (first + 1) * 8..last * 8;
+    super::xor_impl(&mut dst[mid.clone()], &src[mid]);
+    xor_masked_word(dst, src, last, low_mask(to - last * 64));
 }
 
 /// Zeros bits `[from, to)` of `dst`.
+///
+/// Interior words are fully live and become one bulk fill; only the two
+/// end words are masked scalars.
 pub(crate) fn clear_range(dst: &mut [u8], from: usize, to: usize) {
     if from >= to {
         return;
     }
-    for_range_words(from, to, |w, live| read_modify_word(dst, w, live, false));
+    let (first, last) = (from / 64, (to - 1) / 64);
+    if first == last {
+        read_modify_word(
+            dst,
+            first,
+            mask_between(from - first * 64, to - first * 64),
+            false,
+        );
+        return;
+    }
+    read_modify_word(dst, first, u64::MAX << (from - first * 64), false);
+    dst[(first + 1) * 8..last * 8].fill(0);
+    read_modify_word(dst, last, low_mask(to - last * 64), false);
 }
 
 /// Sets bits `[from, to)` of `dst` to one.
+///
+/// Interior words are fully live and become one bulk fill; only the two
+/// end words are masked scalars.
 pub(crate) fn set_range(dst: &mut [u8], from: usize, to: usize) {
     if from >= to {
         return;
     }
-    for_range_words(from, to, |w, live| read_modify_word(dst, w, live, true));
+    let (first, last) = (from / 64, (to - 1) / 64);
+    if first == last {
+        read_modify_word(
+            dst,
+            first,
+            mask_between(from - first * 64, to - first * 64),
+            true,
+        );
+        return;
+    }
+    read_modify_word(dst, first, u64::MAX << (from - first * 64), true);
+    dst[(first + 1) * 8..last * 8].fill(u8::MAX);
+    read_modify_word(dst, last, low_mask(to - last * 64), true);
 }
 
 /// Hamming weight of the live bits `[0, bits)`.
@@ -185,22 +233,6 @@ pub(crate) fn xor_gather(dst: &mut [u8], srcs: &[&[u8]], mut selector: u64) {
         let index = selector.trailing_zeros() as usize;
         xor(dst, srcs[index]);
         selector &= selector - 1;
-    }
-}
-
-/// Runs `step` for each 64-bit word index covering bits `[from, to)`,
-/// passing the live-bit mask for that word. Requires `from < to`.
-///
-/// One loop drives every masked-range kernel: the whole-buffer and
-/// masked-range forms of an operation share their word walk, per the
-/// one-arithmetic-core rule.
-fn for_range_words(from: usize, to: usize, mut step: impl FnMut(usize, u64)) {
-    let first = from / 64;
-    let last = (to - 1) / 64;
-    for w in first..=last {
-        let lo = if w == first { from - first * 64 } else { 0 };
-        let hi = if w == last { to - last * 64 } else { 64 };
-        step(w, mask_between(lo, hi));
     }
 }
 

@@ -523,6 +523,31 @@ line fills: 5.41/5.44 GiB/s ordinary against 4.84/4.79 non-temporal at
 32 MiB. The GF(2^8) SSSE3 kernel does reach the ceiling (19.7 GiB/s) and does
 use them.
 
+### Masked range kernels: bulk interior through the dispatched XOR (2026-08-24)
+
+`xor_range`/`clear_range`/`set_range` first shipped walking *every* word of
+the range through the masked byte-assembly helpers
+(`xor_masked_word`/`read_modify_word`), even fully-live interior words.
+Restructured: the two end words stay masked scalars and the interior is
+sliced out and run through the dispatched whole-buffer byte XOR
+(`xor_range`) or one bulk fill (`clear_range`/`set_range`). Same host and
+method as the table above; `bits::xor_range 5/8 packed` masked walk vs bulk
+interior:
+
+| Shape | masked walk | bulk interior | speedup |
+| --- | --- | --- | --- |
+| 4 KiB (L1) | 317 ns / 12.0 GiB/s | 45 ns / 84.8 GiB/s | 7.0x |
+| 256 KiB (L2) | 19.15 µs / 12.8 GiB/s | 3.46 µs / 70.6 GiB/s | 5.5x |
+| 8 MiB | 737 µs / 10.6 GiB/s | 735 µs / 10.6 GiB/s | 1.00x |
+| 64 MiB | 5.38 ms / 11.6 GiB/s | 2.33 ms / 26.8 GiB/s | 2.3x |
+
+The interior now moves at the whole-buffer `bits::xor` rate (compare the
+ceiling table above). The 8 MiB tier is memory-bound for both forms at
+~1.00x; at 64 MiB the masked walk's per-word read-modify-write round trip
+still underuses bandwidth and the bulk path doubles it. The masked walk
+remains only where masking is real: the two end words of a range, and
+words that run past the end of a short buffer.
+
 ### Destination alignment peel (`kernel::x86::peel_to_align`)
 
 A 32-byte `vmovdqu` at an odd multiple of 32 straddles two cache lines, and a
