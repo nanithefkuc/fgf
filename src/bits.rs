@@ -21,10 +21,9 @@
 //! Multiplying by a coefficient is masked out of the API on purpose: the
 //! coefficient of GF(2) is a bit — multiply by zero is "skip", by one is
 //! "XOR" — so there is no prepared-coefficient form and no [`crate::ops`]
-//! counterpart. What *is* prepared is geometry: [`RangeXor`](crate::bits::RangeXor)
-//! derives a bit range's window and masks once for
-//! [`xor_range_with`](crate::bits::xor_range_with) to apply to many buffer
-//! pairs. The scalar oracle for this surface is
+//! counterpart. What *is* prepared is geometry: a [`RangeXor`] derives a
+//! bit range's window and masks once for [`xor_range_with`] to apply to
+//! many buffer pairs. The scalar oracle for this surface is
 //! [`crate::gf2::Elem`](crate::field::gf2::Elem).
 //!
 //! ```
