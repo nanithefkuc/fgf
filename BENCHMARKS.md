@@ -561,10 +561,36 @@ Three changes, each measured:
    panel-elimination shape, at most eight pivots wide — are one or two
    masked byte operations with no word round trip. Together with `#[inline]`
    on the checked `bits` entry points, the same panel pattern runs at
-   ~3.7 ns per call against ~1.1 ns for a bare inlined `u64` masked XOR:
-   the residual is the surface's length/range/coverage contract checks
-   plus mask arithmetic, not call frames or word assembly. The end-to-end
-   cost at the consumer is recorded in gfm's `BENCHMARKS.md`.
+   ~3.7 ns per call against ~1.1 ns for a bare inlined `u64` masked XOR;
+   the residual is the contract checks plus mask arithmetic, not call
+   frames or word assembly. The end-to-end cost at the consumer is
+   recorded in gfm's `BENCHMARKS.md` (and shrinks again with the prepared
+   ranges below).
+
+### Prepared ranges: `RangeXor` + `xor_range_with` (2026-08-24)
+
+The checked one-shot `xor_range` pays its length/range/coverage contract
+and its window derivation on every call. An elimination XORs the same
+column range into many rows, so the surface gained the prepare/apply split
+`ops` already uses for coefficients: `RangeXor::new(bits, from, to)`
+derives the byte window and end masks once, `xor_range_with` applies them
+with a single coverage check. The apply core is shared — `xor_range` routes
+through it too, and the window is byte-granular, so sub-word ranges are one
+or two masked byte operations and no path assembles words anymore.
+
+`bench_gf2_short_rows` (same host and method as above): 256 pairs of
+16-byte rows, the eight-bit range `bits 61..69` (a byte-boundary-straddling
+window), median ns per call:
+
+| Form | per call |
+| --- | ---: |
+| `bits::xor_range` one-shot | 5.46 ns |
+| `bits::RangeXor` + `xor_range_with` | 1.52 ns (3.59x) |
+
+Long ranges are unaffected — the derivation amortizes to nothing there
+(`bits::xor_range 5/8 packed`: 48 vs 44 ns at 4 KiB, 2.32 vs 2.31 ms at
+64 MiB, within run noise). The consumer-level effect (gfm's GF(2)
+elimination) is recorded in gfm's `BENCHMARKS.md`.
 
 ### Destination alignment peel (`kernel::x86::peel_to_align`)
 

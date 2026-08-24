@@ -2550,14 +2550,14 @@ mod gf2_bits {
 
                     let mut dst = noise_bits(bits_len, 0x40 + bits_len as u64);
                     let mut oracle = dst.clone();
-                    k::xor_range(&mut dst, &src, from, to);
+                    k::xor_window(&mut dst, &src, &k::window(from, to));
                     for i in from..to {
                         if bit(&src, i) {
                             let flipped = !bit(&oracle, i);
                             put(&mut oracle, i, flipped);
                         }
                     }
-                    assert_eq!(dst, oracle, "xor_range {from}..{to} of {bits_len}");
+                    assert_eq!(dst, oracle, "xor_window {from}..{to} of {bits_len}");
 
                     let mut dst = noise_bits(bits_len, 0x50 + bits_len as u64);
                     let original = dst.clone();
@@ -2634,7 +2634,7 @@ mod gf2_bits {
     fn empty_ranges_are_no_ops() {
         let mut dst = [0b1010_1010u8];
         let src = [0b0101_0101u8];
-        k::xor_range(&mut dst, &src, 3, 3);
+        k::xor_window(&mut dst, &src, &k::window(3, 3));
         k::clear_range(&mut dst, 4, 4);
         k::set_range(&mut dst, 5, 5);
         assert_eq!(dst, [0b1010_1010]);

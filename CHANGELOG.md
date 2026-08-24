@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `bits::RangeXor` and `bits::xor_range_with`: the prepared form of
+  `bits::xor_range`. The bit range's byte window and end masks are derived
+  once and applied to many buffer pairs, the same prepare/apply split `ops`
+  uses for coefficients; buffers of different lengths are accepted as long
+  as each covers the planned window. `xor_range` itself now routes through
+  the shared byte-window core, which replaces the word-assembly path for
+  sub-word ranges (one or two masked byte operations) and the masked end
+  words of longer ranges. On the eight-bit-range short-row shape the split
+  measures 3.6x the one-shot form per call; see `BENCHMARKS.md`.
+
 ## [0.7.0] - 2026-08-24
 
 ### Added

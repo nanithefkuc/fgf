@@ -97,51 +97,71 @@ pub(crate) fn andnot_assign(dst: &mut [u8], mask: &[u8]) {
     }
 }
 
-/// `dst ^= src` over bits `[from, to)`, ends masked; all other bits —
-/// including padding — untouched.
+/// The byte window of a bit range `[from, to)`: derived once, applied to
+/// many buffer pairs by [`xor_window`]. `end == 0` marks the empty range.
 ///
-/// Sub-word ranges — the panel-elimination shape — are one or two masked
-/// byte ops. Longer ranges mask the two end words as scalars and run the
-/// fully-live interior through the dispatched whole-buffer byte XOR,
-/// whose short-buffer path inlines. Against the original all-masked walk
-/// this measured 5.5–7x in the cache tiers on the reference host (see
-/// BENCHMARKS.md).
-#[inline]
-pub(crate) fn xor_range(dst: &mut [u8], src: &[u8], from: usize, to: usize) {
-    debug_assert_eq!(dst.len(), src.len());
-    if from >= to {
-        return;
-    }
-    let (b0, b1) = (from / 8, (to - 1) / 8);
-    if b1 - b0 <= 1 {
-        for b in b0..=b1 {
-            dst[b] ^= src[b] & byte_live(from, to, b);
-        }
-        return;
-    }
-    let (first, last) = (from / 64, (to - 1) / 64);
-    if first == last {
-        xor_masked_word(
-            dst,
-            src,
-            first,
-            mask_between(from - first * 64, to - first * 64),
-        );
-        return;
-    }
-    xor_masked_word(dst, src, first, u64::MAX << (from - first * 64));
-    let mid = (first + 1) * 8..last * 8;
-    super::xor_impl(&mut dst[mid.clone()], &src[mid]);
-    xor_masked_word(dst, src, last, low_mask(to - last * 64));
+/// The window is byte-granular — `start` holds the low-masked `lead` bits,
+/// `end - 1` the `trail` bits, and everything between is fully live — so
+/// it never runs past a buffer that covers the range, and sub-word ranges
+/// (the panel-elimination shape) are one or two masked byte ops.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Window {
+    /// First byte of the window.
+    pub(crate) start: usize,
+    /// One past the last byte of the window; `0` for an empty range.
+    pub(crate) end: usize,
+    /// Live-bit mask of byte `start`.
+    pub(crate) lead: u8,
+    /// Live-bit mask of byte `end - 1` (folded into `lead` when the
+    /// window is one byte wide).
+    pub(crate) trail: u8,
 }
 
-/// The live-bit mask of byte `b` for a range `[from, to)`, `0 <= from <
-/// to`: bits `[from, to)` intersected with byte `b`'s eight bits.
-#[inline]
-fn byte_live(from: usize, to: usize, b: usize) -> u8 {
-    let lo = from.saturating_sub(b * 8).min(8);
-    let hi = to.saturating_sub(b * 8).min(8);
-    (((u16::MAX << lo) & ((1u16 << hi).wrapping_sub(1))) & 0xFF) as u8
+/// Derives the [`Window`] of bits `[from, to)`. An empty or inverted range
+/// yields the empty window.
+pub(crate) fn window(from: usize, to: usize) -> Window {
+    if from >= to {
+        return Window {
+            start: 0,
+            end: 0,
+            lead: 0,
+            trail: 0,
+        };
+    }
+    let start = from / 8;
+    let last = (to - 1) / 8;
+    let span = to - last * 8; // 1..=8 live bits in the last byte.
+    let trail = if span == 8 { 0xFF } else { (1u8 << span) - 1 };
+    let mut lead = 0xFFu8 << (from - start * 8);
+    if start == last {
+        lead &= trail;
+    }
+    Window {
+        start,
+        end: last + 1,
+        lead,
+        trail,
+    }
+}
+
+/// `dst ^= src` over a derived [`Window`]: the two masked end bytes as
+/// scalars, the fully-live interior through the dispatched whole-buffer
+/// byte XOR (whose short-buffer path inlines). Both buffers must cover
+/// the window — the checked surface guarantees it.
+pub(crate) fn xor_window(dst: &mut [u8], src: &[u8], w: &Window) {
+    if w.start >= w.end {
+        return;
+    }
+    debug_assert!(w.end <= dst.len() && w.end <= src.len());
+    dst[w.start] ^= src[w.start] & w.lead;
+    let last = w.end - 1;
+    if last > w.start {
+        dst[last] ^= src[last] & w.trail;
+        let mid = w.start + 1..last;
+        if !mid.is_empty() {
+            super::xor_impl(&mut dst[mid.clone()], &src[mid]);
+        }
+    }
 }
 
 /// Zeros bits `[from, to)` of `dst`.
@@ -259,24 +279,6 @@ pub(crate) fn xor_gather(dst: &mut [u8], srcs: &[&[u8]], mut selector: u64) {
 #[inline]
 fn next_word(words: &mut core::slice::ChunksExact<'_, u8>) -> u64 {
     u64::from_ne_bytes(words.next().unwrap().try_into().unwrap())
-}
-
-/// `dst[w] ^= src[w] & live`, where `dst[w]` is the little-endian word at
-/// byte offset `8 * w`. A word running past the end of the buffers falls
-/// back to masked bytes.
-#[inline]
-fn xor_masked_word(dst: &mut [u8], src: &[u8], w: usize, live: u64) {
-    let offset = 8 * w;
-    if offset + 8 <= dst.len() {
-        let d = u64::from_le_bytes(dst[offset..offset + 8].try_into().unwrap());
-        let s = u64::from_le_bytes(src[offset..offset + 8].try_into().unwrap());
-        dst[offset..offset + 8].copy_from_slice(&(d ^ (s & live)).to_le_bytes());
-    } else {
-        #[allow(clippy::cast_possible_truncation)] // extracting the low byte
-        for b in 0..dst.len() - offset {
-            dst[offset + b] ^= src[offset + b] & (live >> (8 * b)) as u8;
-        }
-    }
 }
 
 /// Clears (`set == false`) or sets (`set == true`) the live bits of word `w`
