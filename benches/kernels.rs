@@ -17,8 +17,8 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use fgf::{
-    FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf16, Gf32, Gf64, backend, fan_paar, gf8b, gf16, gf32,
-    gf64, ops,
+    FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf16, Gf32, Gf64, Mersenne31, backend, fan_paar, gf8b,
+    gf16, gf32, gf64, ops,
 };
 
 fn noise(len: usize, seed: u64) -> Vec<u8> {
@@ -552,12 +552,52 @@ fn bench_gf2_short_rows() {
     );
 }
 
+/// The row-interleaved addition matrix: flat `add_assign` against
+/// `add_assign_rows` and a literal row-by-row loop, over the row counts and
+/// row lengths where four-stream interleaving should pay (and its edges,
+/// where it must not regress). Rerun under each `SIMD_BACKEND` tier for the
+/// per-backend numbers; the crossover thresholds in `kernel::xor_rows` were
+/// set from this matrix on the reference host.
+fn bench_add_assign_rows<F: fgf::FieldKernels>(name: &str) {
+    println!("add_assign_rows — {name}:");
+    for &row_len in &[64usize, 1024, 64 * 1024] {
+        for &rows in &[1usize, 2, 4, 8, 16, 32] {
+            let len = row_len * rows;
+            let src = noise(len, 0x2a00 + row_len as u64);
+            let mut dst = noise(len, 0x2b00 + rows as u64);
+
+            let flat = bench("  flat add_assign", len, || {
+                ops::add_assign::<F>(black_box(&mut dst), black_box(&src));
+            });
+            let interleaved = bench("  add_assign_rows", len, || {
+                ops::add_assign_rows::<F>(black_box(&mut dst), black_box(&src), row_len);
+            });
+            let looped = bench("  add_assign per row", len, || {
+                let dst = black_box(&mut dst);
+                let src = black_box(&src);
+                for (d, s) in dst.chunks_exact_mut(row_len).zip(src.chunks_exact(row_len)) {
+                    ops::add_assign::<F>(d, s);
+                }
+            });
+            println!(
+                "    rows/flat: {:.2}x, rows/loop: {:.2}x  ({rows} rows x {row_len} B)",
+                flat.as_secs_f64() / interleaved.as_secs_f64(),
+                looped.as_secs_f64() / interleaved.as_secs_f64(),
+            );
+        }
+    }
+    println!();
+}
+
 fn main() {
     println!("fgf kernel benchmark — backend: {}", backend().name());
     println!("  (override with SIMD_BACKEND=v3_gfni_crypto|v3|v2|neon|scalar)\n");
 
     bench_preparation_crossover();
     bench_small_row_shapes();
+    bench_add_assign_rows::<Gf8B>("gf8");
+    bench_add_assign_rows::<Gf16>("gf16");
+    bench_add_assign_rows::<Mersenne31>("m31 (prime control, flat default)");
     bench_large_destination();
     bench_destination_alignment();
     #[cfg(all(

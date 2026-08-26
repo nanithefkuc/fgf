@@ -352,6 +352,24 @@ pub trait FieldKernels: Field + private::Sealed {
     /// the same reason.
     fn sub_assign(dst: &mut [u8], src: &[u8]);
 
+    /// Pairwise row addition over two equal flat row buffers.
+    ///
+    /// Both buffers hold the same whole number of contiguous `row_len`-byte
+    /// rows, and every row pair adds fieldwise: `dst_row[j] += src_row[j]`.
+    /// Row boundaries do not change elementwise addition, so running
+    /// [`FieldKernels::add_assign`] over the whole buffers is exact for every
+    /// field — that is the default, and on the reference host it is also the
+    /// fastest known implementation at every measured geometry: a four-stream
+    /// row-interleaved XOR candidate matched or trailed it from L1 to DRAM
+    /// (BENCHMARKS.md, "Row-interleaved XOR"). The experimental interleaved
+    /// kernels live behind `internals` for future evaluation; no backend
+    /// override is wired until one measures a repeatable win. The prime
+    /// fields additionally fold lanes rather than bytes, so their default is
+    /// semantic, not just an optimization choice.
+    fn add_assign_rows(dst: &mut [u8], src: &[u8], _row_len: usize) {
+        Self::add_assign(dst, src);
+    }
+
     /// `dst ^= coeff * src`. The workhorse AXPY.
     fn mul_add(dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]);
 

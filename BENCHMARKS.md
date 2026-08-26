@@ -847,6 +847,63 @@ concrete-demand and validation triggers recorded here:
 | Small-prime set `p < 2¹⁶`, 2-byte lanes for `latticode` | Deferred | `latticode` Construction A/D has no pinned small-prime alphabet yet. When it does, a 2-byte `u16` lane field set is the primitive, not a generic `Fp<P>`. |
 | Lazy-reduction internal pipelines (keep `0..2p` internally, canonical only at public bytes) | Deferred, not separately measured | Would compose with the scalar/AVX2 `m31_mul` body; no independent win was measured after Karatsuba showed the `m31_mul` itself is already only a fold + conditional subtract. Revisit only as part of a vectorized `QuadMersenne31` that stays canonical at every `ops` boundary regardless. |
 
+### Row-interleaved XOR: candidate measured, not wired (2026-08-26)
+
+The row-aware addition primitive `ops::add_assign_rows` exists so backends
+*could* interleave independent row streams, the shape of leopard's
+`xor_mem4`. The hypothesis under test came from additive-FFT derivative
+sweeps: leopard's FF16 derivative groups four row pairs into one unrolled
+XOR body and measured 1.6–7x ahead of this crate's consumers on wide-row
+cases. A four-stream AVX2 kernel (`x86::xor_rows_avx2`, 128-byte tiles per
+stream), its SSE2 twin, and an unwired NEON sketch were built and run
+against the flat dispatched XOR. **Result: parity or behind at every
+geometry; no backend override is wired.** The kernels stay under
+`internals`, differentially tested against `scalar::xor` per row, pending a
+host where single-stream throughput falls short of the memory ceiling.
+
+Method: `cargo bench --bench kernels` (median of ≥24 samples of a warm
+loop, thin LTO, one codegen unit) and standalone sweep probes in one
+process. Host as above, rustc 1.98, backend `v3_gfni_crypto`.
+
+Single-call matrix, GF(2^16), `add_assign_rows` / flat `add_assign` ratio
+(below 1.00 = interleaved slower):
+
+| Rows | 64 B rows | 1 KiB rows | 64 KiB rows |
+| ---: | ---: | ---: | ---: |
+| 1 | 0.83x | 0.83x | 1.00x |
+| 2 | 0.83x | 0.80x | 1.00x |
+| 4 | 0.71x | 0.79x | 0.92x |
+| 8 | 0.90x | 0.88x | 0.94x |
+| 16 | 0.87x | 0.96x | 0.95x |
+| 32 | 1.05x | 1.03x | 1.00x |
+
+GF(2^8) and Mersenne31 (defaulted path) agree in shape. At DRAM scale the
+gap closes to noise in favor of neither: 32 MiB single calls measure
+1.03–1.05x for the interleaved form across two row geometries — inside
+run-to-run variation.
+
+**Why leopard looked 7x faster, and why that is not this.** Reproducing
+the consumer comparison (`butterfly-fft` derivative sweep vs the pinned
+catid/leopard adapter, Criterion, same host) gave p32_r65536:
+butterfly-fft 825 µs vs leopard 117 µs — but the same sweep in a hot
+process runs in ~250 µs, and the difference is the destination buffer,
+not the kernel:
+
+| Destination state before the timed region | p32_r65536 sweep |
+| --- | ---: |
+| fresh `vec![0; 2 MiB]` (calloc pages, first touch inside timing) | 1.39 ms |
+| same buffer pre-touched (one byte per page) | 220 µs |
+| fresh + `add_assign_rows` instead of flat | 1.37 ms |
+
+The out-of-place API pays ~512 first-touch soft faults plus TLB cold
+starts *inside* the measurement; leopard's in-place adapter operates on
+pages its setup clone just touched. Kernel choice moves nothing (0.99–
+1.01x across both allocation regimes). The honest consumer-side follow-ups
+are therefore API-level — reusing or pre-touching derivative output
+buffers, or an in-place variant owned by the transform crate — not
+byte-kernel scheduling. Re-wiring the interleaved kernels into dispatch
+requires a host where they beat flat by more than run noise.
+
 ## Comparative benchmark
 
 `benches/compare.rs` compares aligned, compatible GF(2^8)/`0x11D` operations

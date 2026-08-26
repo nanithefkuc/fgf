@@ -2179,3 +2179,165 @@ fn plan_variants_match_one_shot_operations() {
         quad_mersenne31::Elem(0x1234_5678, 0x9abc_def0)
     );
 }
+
+// ---------------------------------------------------------------------------
+// add_assign_rows
+// ---------------------------------------------------------------------------
+
+/// Independent row-wise oracle: decode every element, add through the
+/// field-value API, and encode again. Deliberately never touches
+/// `add_assign`, `add_assign_rows`, or any XOR kernel.
+fn oracle_add_assign_rows<F: Field>(dst: &mut [u8], src: &[u8], row_len: usize) {
+    for (d, s) in dst.chunks_exact_mut(row_len).zip(src.chunks_exact(row_len)) {
+        for (de, se) in d.chunks_exact_mut(F::BYTES).zip(s.chunks_exact(F::BYTES)) {
+            let value = F::read(de).add(F::read(se));
+            F::write(de, value);
+        }
+    }
+}
+
+/// Row lengths in elements: below/exact/above the 16-, 32-, and 64-byte lane
+/// boundaries (whatever the element width), plus 1 KiB. Truncated under Miri
+/// to the boundary cases (see `LENGTHS`).
+#[cfg(not(miri))]
+const ROW_LEN_ELEMS: [usize; 12] = [3, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 1024];
+#[cfg(miri)]
+const ROW_LEN_ELEMS: [usize; 6] = [3, 7, 8, 9, 15, 16];
+
+/// Row counts straddling the four-row group of the interleaved backends and
+/// its two-/one-row remainders, including zero rows (empty buffers).
+const ROW_COUNTS: [usize; 9] = [0, 1, 2, 3, 4, 5, 7, 8, 9];
+
+fn check_add_assign_rows<F: FieldKernels>(seed: u64) {
+    for &elems in &ROW_LEN_ELEMS {
+        let row_len = elems * F::BYTES;
+        for &rows in &ROW_COUNTS {
+            let len = rows * row_len;
+            let src = noise(len, seed ^ row_len as u64);
+            let mut got = noise(len, seed.wrapping_add(0x515) ^ rows as u64);
+            let mut want = got.clone();
+            ops::add_assign_rows::<F>(&mut got, &src, row_len);
+            oracle_add_assign_rows::<F>(&mut want, &src, row_len);
+            assert_eq!(
+                got,
+                want,
+                "{}: row_len {row_len} ({elems} elements), rows {rows}",
+                F::NAME,
+            );
+        }
+    }
+}
+
+#[test]
+fn gf8_add_assign_rows_matches_oracle() {
+    check_add_assign_rows::<Gf8B>(0x1001);
+}
+
+#[test]
+fn gf16_add_assign_rows_matches_oracle() {
+    check_add_assign_rows::<Gf16>(0x2002);
+}
+
+#[test]
+fn gf64_add_assign_rows_matches_oracle() {
+    check_add_assign_rows::<Gf64>(0x3003);
+}
+
+#[test]
+fn fan_paar8_add_assign_rows_matches_oracle() {
+    check_add_assign_rows::<FanPaar8>(0x4004);
+}
+
+/// The prime fields have no interleaved kernel: their addition folds lanes,
+/// so `add_assign_rows` must keep the defaulted semantic path and stay exact.
+#[test]
+fn mersenne31_add_assign_rows_matches_oracle() {
+    check_add_assign_rows::<Mersenne31>(0x5005);
+}
+
+/// All-zero and all-one buffers through one geometry per binary field:
+/// zero catches reads of uninitialized memory, all-one catches dropped
+/// stores. The prime-field control uses its maximum canonical element
+/// instead of the all-one byte pattern, which is not a valid Mersenne31
+/// lane.
+#[test]
+fn add_assign_rows_extreme_patterns_match_oracle() {
+    fn patterns<F: FieldKernels>(fill: u8) {
+        let row_len = 32 * F::BYTES;
+        let rows = 5;
+        let len = row_len * rows;
+        let src = vec![fill; len];
+        let mut got = vec![fill; len];
+        let mut want = vec![fill; len];
+        ops::add_assign_rows::<F>(&mut got, &src, row_len);
+        oracle_add_assign_rows::<F>(&mut want, &src, row_len);
+        assert_eq!(got, want, "{}: fill {fill:#04x}", F::NAME);
+    }
+    patterns::<Gf8B>(0x00);
+    patterns::<Gf8B>(0xff);
+    patterns::<Gf16>(0x00);
+    patterns::<Gf16>(0xff);
+    patterns::<Mersenne31>(0x00);
+    // `0x7fff_ffff` is p − 1, the largest canonical Mersenne31 element.
+    patterns::<Mersenne31>(0x7f);
+}
+
+/// The wide-row shapes from the benchmark matrix at reduced row counts.
+#[cfg(not(miri))]
+#[test]
+fn gf16_add_assign_rows_wide_rows_match_oracle() {
+    for &row_len in &[1024usize, 65_536] {
+        for &rows in &[4usize, 7] {
+            let len = rows * row_len;
+            let src = noise(len, 0x6006 ^ row_len as u64);
+            let mut got = noise(len, 0x6007 ^ rows as u64);
+            let mut want = got.clone();
+            ops::add_assign_rows::<Gf16>(&mut got, &src, row_len);
+            oracle_add_assign_rows::<Gf16>(&mut want, &src, row_len);
+            assert_eq!(got, want, "wide row_len {row_len}, rows {rows}");
+        }
+    }
+}
+
+#[test]
+#[should_panic(expected = "add_assign_rows: row length must be nonzero")]
+fn add_assign_rows_rejects_zero_row_length() {
+    let mut dst = [0u8; 8];
+    let src = [0u8; 8];
+    ops::add_assign_rows::<Gf8B>(&mut dst, &src, 0);
+}
+
+#[test]
+#[should_panic(expected = "add_assign_rows: buffer of 3 bytes is not a whole number")]
+fn add_assign_rows_rejects_row_length_with_partial_element() {
+    // Three bytes is not a whole number of two-byte GF(2^16) elements.
+    let mut dst = [0u8; 6];
+    let src = [0u8; 6];
+    ops::add_assign_rows::<Gf16>(&mut dst, &src, 3);
+}
+
+#[test]
+#[should_panic(expected = "add_assign_rows: dst is 6 bytes but src is 4 bytes")]
+fn add_assign_rows_rejects_mismatched_buffers() {
+    let mut dst = [0u8; 6];
+    let src = [0u8; 4];
+    ops::add_assign_rows::<Gf8B>(&mut dst, &src, 2);
+}
+
+#[test]
+#[should_panic(expected = "add_assign_rows: partial trailing row")]
+fn add_assign_rows_rejects_partial_trailing_row() {
+    // Ten bytes into four-byte rows leaves a two-byte remainder.
+    let mut dst = [0u8; 10];
+    let src = [0u8; 10];
+    ops::add_assign_rows::<Gf8B>(&mut dst, &src, 4);
+}
+
+/// Empty buffers with a valid nonzero `row_len` are a no-op, not an error.
+#[test]
+fn add_assign_rows_accepts_empty_buffers() {
+    let mut dst: [u8; 0] = [];
+    let src: [u8; 0] = [];
+    ops::add_assign_rows::<Gf8B>(&mut dst, &src, 16);
+    ops::add_assign_rows::<Gf16>(&mut dst, &src, 2);
+}

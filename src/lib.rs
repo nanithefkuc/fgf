@@ -96,6 +96,7 @@
 //! | Shape | One-shot | Prepared | Where it appears |
 //! | --- | --- | --- | --- |
 //! | `dst += src` | [`ops::add_assign`] | — | parity / field add |
+//! | `dst_row += src_row` by rows | [`ops::add_assign_rows`] | — | row-shaped parity |
 //! | `dst ^= c * src` | [`ops::mul_add`] | [`ops::mul_add_with`] | AXPY |
 //! | `dst = c * src` | [`ops::mul_into`] | [`ops::mul_into_with`] | row scaling |
 //! | `dst *= c` | [`ops::mul_assign`] | [`ops::mul_assign_with`] | in-place scaling |

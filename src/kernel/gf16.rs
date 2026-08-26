@@ -243,6 +243,7 @@ impl FieldKernels for Gf16 {
     fn sub_assign(dst: &mut [u8], src: &[u8]) {
         crate::kernel::xor(dst, src);
     }
+
     #[inline]
     fn active_backend() -> Backend {
         backend()

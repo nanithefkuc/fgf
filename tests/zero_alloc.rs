@@ -232,3 +232,33 @@ fn bits_steady_state_allocates_nothing() {
     });
     assert_eq!(allocations, 0, "bits steady-state op allocated");
 }
+
+#[test]
+fn add_assign_rows_steady_state_allocates_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    let row_len = 256;
+    let rows = 8;
+    let len = row_len * rows;
+    let src = noise(len, 0xa00);
+    let mut dst = noise(len, 0xa01);
+    // A prime-field control: `add_assign_rows` keeps the defaulted semantic
+    // path there, which must be just as allocation-free.
+    let src_p = noise(len, 0xa02);
+    let mut dst_p = noise(len, 0xa03);
+
+    // Resolve backend selection and warm every code path before counting.
+    ops::add_assign_rows::<Gf8B>(&mut dst, &src, row_len);
+    ops::add_assign_rows::<Mersenne31>(&mut dst_p, &src_p, row_len);
+
+    let binary = count_allocations(|| {
+        ops::add_assign_rows::<Gf8B>(&mut dst, &src, row_len);
+    });
+    assert_eq!(binary, 0, "row-interleaved binary add allocated");
+
+    let prime = count_allocations(|| {
+        ops::add_assign_rows::<Mersenne31>(&mut dst_p, &src_p, row_len);
+    });
+    assert_eq!(prime, 0, "prime-field row add allocated");
+}

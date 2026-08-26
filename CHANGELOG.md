@@ -8,6 +8,19 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `ops::add_assign_rows`: pairwise row addition over two equal flat
+  row buffers, `dst_row[j] += src_row[j]`. Semantically identical to
+  `add_assign` (and currently implemented through it on every backend);
+  the checked row geometry documents caller intent so backends may
+  interleave independent row streams where a platform measures a win.
+  The defaulted `FieldKernels::add_assign_rows` carries the semantic
+  contract; experimental four-stream interleaved XOR kernels for x86
+  AVX2/SSE2 and an AArch64 NEON sketch are exposed behind `internals`,
+  differentially tested, and deliberately not wired — they measured at
+  parity or behind the flat XOR from L1 to DRAM on the reference host,
+  and the additive-FFT derivative gap they targeted turned out to be a
+  first-touch page-fault effect of out-of-place output buffers, not
+  memory-level parallelism. See `BENCHMARKS.md`, "Row-interleaved XOR".
 - `bits::RangeXor` and `bits::xor_range_with`: the prepared form of
   `bits::xor_range`. The bit range's byte window and end masks are derived
   once and applied to many buffer pairs, the same prepare/apply split `ops`
