@@ -45,12 +45,14 @@ unsafe fn xor_neon_impl(dst: &mut [u8], src: &[u8]) {
     scalar::xor(&mut dst[len..], &src[len..]);
 }
 
+#[cfg(any(test, feature = "internals"))]
 /// Bytes of one row covered by a fully-unrolled tile iteration: four 16-byte
 /// vectors per stream. Shared with the x86 row kernels' tile constant by
 /// value; NEON keeps its own copy because the architecture modules are
 /// compiled independently.
 const NEON_ROW_TILE: usize = 4 * 16;
 
+#[cfg(any(test, feature = "internals"))]
 /// `dst ^= src` over contiguous `row_len`-byte rows with four interleaved
 /// streams.
 ///
@@ -79,6 +81,7 @@ pub fn xor_rows_neon(dst: &mut [u8], src: &[u8], row_len: usize) {
 /// `dst` must be writable and `src` readable for `rows * row_len` bytes,
 /// both derived from live, independently borrowed slices; `row_len != 0`;
 /// `rows >= 1`.
+#[cfg(any(test, feature = "internals"))]
 #[target_feature(enable = "neon")]
 unsafe fn xor_rows_neon_impl(dst: *mut u8, src: *const u8, rows: usize, row_len: usize) {
     let fours = rows / 4;
@@ -105,6 +108,7 @@ unsafe fn xor_rows_neon_impl(dst: *mut u8, src: *const u8, rows: usize, row_len:
     }
 }
 
+#[cfg(any(test, feature = "internals"))]
 /// XOR `groups` groups of `W` consecutive `row_len`-byte rows, `W` streams
 /// interleaved.
 ///
