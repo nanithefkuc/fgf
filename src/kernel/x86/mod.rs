@@ -180,6 +180,75 @@ unsafe fn xor_avx2_impl(dst: &mut [u8], src: &[u8]) {
     scalar::xor(&mut dst[offset..], &src[offset..]);
 }
 
+/// `dst ^= sum(srcs[i])` holding the destination in registers across the
+/// whole source list.
+///
+/// The gather shape of back-substitution: many sources fold into one short
+/// row, so the destination is read and written once per 32-byte lane, not
+/// once per source. Destinations wider than eight vectors (256 bytes) or
+/// with a sub-vector tail fall back to a per-source [`xor_avx2`], which
+/// owns the tail handling; the consumer this kernel exists for writes
+/// 64-byte rows.
+///
+/// # Panics
+/// Panics if any offset plus `dst.len()` exceeds the region length.
+pub fn xor_gather_avx2(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+    let whole = dst.len() & !31;
+    let tail = dst.len() - whole;
+    if whole == 0 || whole > 8 * 32 || tail != 0 {
+        for &start in offsets {
+            let start = start as usize;
+            assert!(
+                start + dst.len() <= region.len(),
+                "xor_gather_avx2: source out of region bounds",
+            );
+            xor_avx2(dst, &region[start..start + dst.len()]);
+        }
+        return;
+    }
+    for (index, &start) in offsets.iter().enumerate() {
+        let start = start as usize;
+        assert!(
+            start + dst.len() <= region.len(),
+            "xor_gather_avx2: offset {index} ({start}) + {} exceeds region of {} bytes",
+            dst.len(),
+            region.len(),
+        );
+    }
+    // SAFETY: the caller selected an AVX2-capable backend; every source is
+    // bounds-checked above; and `region`/`dst` do not overlap (the `ops`
+    // wrapper rejects overlap, and back-substitution folds a read-only
+    // solution block into a distinct payload matrix).
+    unsafe { xor_gather_avx2_impl(region, dst, offsets) }
+}
+
+#[target_feature(enable = "avx2")]
+unsafe fn xor_gather_avx2_impl(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+    let (dst_ptr, region_ptr) = (dst.as_mut_ptr(), region.as_ptr());
+    // SAFETY: up to eight 32-byte accumulators stay in registers across the
+    // source loop; every access is within the bounds validated by the
+    // caller; and the two buffers are disjoint.
+    unsafe {
+        for lane in 0..whole_lanes(dst.len()) {
+            let dp = dst_ptr.add(lane * 32).cast();
+            let mut acc = _mm256_loadu_si256(dp);
+            for &start in offsets {
+                let sp = region_ptr.add(start as usize + lane * 32).cast();
+                acc = _mm256_xor_si256(acc, _mm256_loadu_si256(sp));
+            }
+            _mm256_storeu_si256(dp, acc);
+        }
+    }
+}
+
+/// Number of whole 32-byte lanes in `len`; caller guarantees a nonzero
+/// multiple of 32 no wider than the register budget.
+#[inline]
+fn whole_lanes(len: usize) -> usize {
+    debug_assert!(len > 0 && len <= 8 * 32 && len.is_multiple_of(32));
+    len / 32
+}
+
 /// `dst ^= src` using 16-byte SSE2 lanes.
 ///
 /// # Panics

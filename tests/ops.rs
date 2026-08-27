@@ -2341,3 +2341,124 @@ fn add_assign_rows_accepts_empty_buffers() {
     ops::add_assign_rows::<Gf8B>(&mut dst, &src, 16);
     ops::add_assign_rows::<Gf16>(&mut dst, &src, 2);
 }
+
+// ---------------------------------------------------------------------------
+// add_gather
+// ---------------------------------------------------------------------------
+
+/// Independent gather oracle: fold each source in turn through the
+/// field-value API. Deliberately never touches `add_gather` or any XOR
+/// kernel, so it stays a valid reference for both the blocked and
+/// per-source paths.
+fn oracle_add_gather<F: Field>(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+    let live = dst.len();
+    for &start in offsets {
+        let start = start as usize;
+        for (de, se) in dst
+            .chunks_exact_mut(F::BYTES)
+            .zip(region[start..start + live].chunks_exact(F::BYTES))
+        {
+            let value = F::read(de).add(F::read(se));
+            F::write(de, value);
+        }
+    }
+}
+
+/// Destination sizes in bytes straddling the blocked kernel's 32-byte lane
+/// boundary, its eight-lane register budget, and the sub-lane inline path.
+const GATHER_DST_BYTES: [usize; 9] = [0, 8, 16, 31, 32, 64, 96, 256, 320];
+
+fn check_add_gather<F: FieldKernels>(seed: u64) {
+    for &live in &GATHER_DST_BYTES {
+        if !live.is_multiple_of(F::BYTES) {
+            continue;
+        }
+        // A region of five rows the size of `dst`, so offsets can repeat,
+        // overlap, and hit the last row exactly.
+        let region = noise(live * 5, seed ^ live as u64);
+        let offset_sets: [&[u32]; 6] = [
+            &[],
+            &[0],
+            &[live as u32],
+            &[4 * live as u32],
+            &[0, 2 * live as u32, 0],
+            &[
+                0,
+                live as u32,
+                2 * live as u32,
+                3 * live as u32,
+                4 * live as u32,
+                live as u32,
+            ],
+        ];
+        for (set, &offsets) in offset_sets.iter().enumerate() {
+            let mut got = noise(live, seed.wrapping_add(0xa9a) ^ set as u64);
+            let mut want = got.clone();
+            ops::add_gather::<F>(&region, &mut got, offsets);
+            oracle_add_gather::<F>(&region, &mut want, offsets);
+            assert_eq!(got, want, "{}: len {live}, set {set}", F::NAME);
+        }
+    }
+}
+
+#[test]
+fn gf8_add_gather_matches_oracle() {
+    check_add_gather::<Gf8B>(0x7101);
+}
+
+#[test]
+fn gf8d_add_gather_matches_oracle() {
+    check_add_gather::<Gf8D>(0x7202);
+}
+
+#[test]
+fn gf16_add_gather_matches_oracle() {
+    check_add_gather::<Gf16>(0x7303);
+}
+
+#[test]
+fn gf64_add_gather_matches_oracle() {
+    check_add_gather::<Gf64>(0x7404);
+}
+
+#[test]
+fn fan_paar8_add_gather_matches_oracle() {
+    check_add_gather::<FanPaar8>(0x7505);
+}
+
+/// The prime fields fold modularly, not by XOR: their addition must stay
+/// exact through the defaulted semantic path.
+#[test]
+fn mersenne31_add_gather_matches_oracle() {
+    check_add_gather::<Mersenne31>(0x7606);
+}
+
+/// All-identical sources cancel in pairs; all-one bytes catch dropped
+/// stores and uninitialized reads.
+#[test]
+fn add_gather_extreme_patterns_match_oracle() {
+    let live = 64;
+    let region = vec![0xffu8; live * 2];
+    let offsets = [0u32, 0, live as u32, live as u32, 0];
+    let mut got = vec![0xffu8; live];
+    let mut want = got.clone();
+    ops::add_gather::<Gf8B>(&region, &mut got, &offsets);
+    oracle_add_gather::<Gf8B>(&region, &mut want, &offsets);
+    assert_eq!(got, want);
+}
+
+#[test]
+#[should_panic(expected = "add_gather: offset 1 (48) + 40 exceeds region of 80 bytes")]
+fn add_gather_rejects_offset_out_of_region() {
+    let region = [0u8; 80];
+    let mut dst = [0u8; 40];
+    ops::add_gather::<Gf8B>(&region, &mut dst, &[0, 48]);
+}
+
+/// Empty destination with valid offsets is a no-op, not an error.
+#[test]
+fn add_gather_accepts_empty_destination() {
+    let region = [0x11u8; 16];
+    let mut dst: [u8; 0] = [];
+    ops::add_gather::<Gf8B>(&region, &mut dst, &[0, 8]);
+}

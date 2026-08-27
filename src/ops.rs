@@ -374,6 +374,47 @@ pub fn add_assign_rows<F: FieldKernels>(dst: &mut [u8], src: &[u8], row_len: usi
     F::add_assign_rows(dst, src, row_len);
 }
 
+/// Fold byte-offset sources out of one backing region into one row, every
+/// coefficient implicitly one: `dst ^= sum(region[off..off + dst.len()])`
+/// (field addition, not byte XOR, for the prime fields).
+///
+/// The unit-coefficient gather: sources are rows of one buffer — a solved
+/// solution block, a table of packed elements — addressed by their start
+/// offsets, so a caller folds an index table without staging a slice per
+/// source. Fields whose addition is XOR hold the destination in registers
+/// across the whole source list; the rest fold one [`add_assign`] per
+/// source.
+///
+/// ```
+/// use fgf::{Gf8B, ops};
+///
+/// // Two 2-byte rows in one backing region, folded into `dst`.
+/// let region = [0x01u8, 0x02, 0x10, 0x20];
+/// let mut dst = [0x40u8, 0x80];
+/// ops::add_gather::<Gf8B>(&region, &mut dst, &[0, 2]);
+/// assert_eq!(dst, [0x51, 0xa2]);
+/// ```
+///
+/// # Panics
+/// Panics if `dst` is not a whole number of field elements, or if any
+/// offset plus `dst.len()` falls outside `region`. `region` and `dst`
+/// borrow disjoint memory by construction, as with every two-slice
+/// operation in this crate.
+#[inline]
+pub fn add_gather<F: FieldKernels>(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+    check_width::<F>("add_gather", dst.len());
+    let live = dst.len();
+    for (index, &start) in offsets.iter().enumerate() {
+        let start = start as usize;
+        assert!(
+            start + live <= region.len(),
+            "add_gather: offset {index} ({start}) + {live} exceeds region of {} bytes",
+            region.len(),
+        );
+    }
+    F::add_gather_offsets(region, dst, offsets);
+}
+
 /// `dst -= src`. Identical to [`add_assign`] in characteristic two.
 ///
 /// # Panics

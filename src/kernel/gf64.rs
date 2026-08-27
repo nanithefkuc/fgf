@@ -70,6 +70,11 @@ impl FieldKernels for Gf64 {
     }
 
     #[inline]
+    fn add_gather_offsets(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+        crate::kernel::xor_gather(region, dst, offsets);
+    }
+
+    #[inline]
     fn sub_assign(dst: &mut [u8], src: &[u8]) {
         crate::kernel::xor(dst, src);
     }

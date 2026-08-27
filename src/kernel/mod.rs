@@ -345,6 +345,25 @@ pub trait FieldKernels: Field + private::Sealed {
     /// [`crate::kernel::xor`].
     fn add_assign(dst: &mut [u8], src: &[u8]);
 
+    /// `dst ^= sum(srcs[i])`: fold byte-offset sources out of one backing
+    /// region into one row, every coefficient implicitly one.
+    ///
+    /// The gather whose coefficients are all the multiplicative identity —
+    /// the shape of back-substitution over solved rows. The default folds
+    /// sources one at a time through [`FieldKernels::add_assign`], which is
+    /// exact for every field; fields whose addition is XOR override it with
+    /// the crate's blocked XOR gather, which holds the destination in
+    /// registers across the whole source list.
+    ///
+    /// Callers pass offsets that satisfy `offset + dst.len() <=
+    /// region.len()`; [`crate::ops::add_gather`] validates that.
+    fn add_gather_offsets(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+        let live = dst.len();
+        for &start in offsets {
+            Self::add_assign(dst, &region[start as usize..start as usize + live]);
+        }
+    }
+
     /// `dst -= src`, elementwise field subtraction.
     ///
     /// Identical to [`FieldKernels::add_assign`] in characteristic two; prime
@@ -642,6 +661,68 @@ pub fn xor(dst: &mut [u8], src: &[u8]) {
 pub(crate) fn xor(dst: &mut [u8], src: &[u8]) {
     assert_eq!(dst.len(), src.len(), "fgf::xor: length mismatch");
     xor_impl(dst, src);
+}
+
+/// `dst ^= sum(srcs[i])` — a blocked XOR gather over byte offsets into one
+/// backing region.
+///
+/// The field-independent shape of back-substitution: every coefficient is
+/// one, so a many-source fold is pure XOR, and the sources are rows of one
+/// buffer addressed by their start offsets. Addressing sources by offset
+/// rather than slice lets a caller walk an index table without staging fat
+/// pointers per source.
+///
+/// This is the XOR primitive under [`FieldKernels::add_gather_offsets`];
+/// only fields whose addition is XOR dispatch to it.
+///
+/// # Panics
+/// Panics if any offset plus `dst.len()` falls outside `region`.
+pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+    let live = dst.len();
+    for (index, &start) in offsets.iter().enumerate() {
+        let start = start as usize;
+        assert!(
+            start + live <= region.len(),
+            "xor_gather: offset {index} ({start}) + {live} exceeds region of {} bytes",
+            region.len(),
+        );
+    }
+    if offsets.is_empty() {
+        return;
+    }
+    if live <= XOR_INLINE_MAX {
+        for &start in offsets {
+            scalar::xor(dst, &region[start as usize..start as usize + live]);
+        }
+        return;
+    }
+    match backend() {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        Backend::V3GfniCrypto | Backend::V3 => x86::xor_gather_avx2(region, dst, offsets),
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        Backend::V2 => {
+            for &start in offsets {
+                x86::xor_sse2(dst, &region[start as usize..start as usize + live]);
+            }
+        }
+        #[cfg(all(feature = "simd", target_arch = "aarch64"))]
+        Backend::Neon | Backend::NeonAes => {
+            for &start in offsets {
+                aarch64::xor_neon(dst, &region[start as usize..start as usize + live]);
+            }
+        }
+        #[cfg(all(feature = "simd", target_arch = "wasm32"))]
+        Backend::Wasm128 => {
+            for &start in offsets {
+                wasm32::xor_simd128(dst, &region[start as usize..start as usize + live]);
+            }
+        }
+        _ => {
+            for &start in offsets {
+                scalar::xor(dst, &region[start as usize..start as usize + live]);
+            }
+        }
+    }
 }
 
 /// Buffers at most this long skip the dispatched SIMD XOR for the inline

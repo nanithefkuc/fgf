@@ -59,6 +59,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `ops::add_gather` (and `FieldKernels::add_gather_offsets`): the
+  unit-coefficient gather — fold byte-offset rows of one backing region
+  into one row. Fields whose addition is XOR dispatch to a new blocked
+  kernel that holds the destination in AVX2 registers across the whole
+  source list; prime fields fold per source through their canonical
+  addition. Offsets are `u32` byte offsets, so callers fold an index table
+  without staging a slice per source. Measured 1.4–2.4x over the staged
+  all-ones `mul_add_gather` call it replaces — see `BENCHMARKS.md`,
+  "Blocked XOR gather".
+
 - `Gf8D`'s N-to-1 gather takes the source-fused body on short rows, the
   same selection rule `Gf8B`'s `GF2P8MULB` gather has used since the
   short-row measurement. It was wired to the unfused specialization when

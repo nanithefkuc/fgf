@@ -155,6 +155,36 @@ unchanged.
 
 ### Blocked XOR gather (2026-08-27)
 
+`ops::add_gather` / `kernel::xor_gather` fold byte-offset rows of one region
+into a destination held in AVX2 registers across the whole source list — the
+unit-coefficient gather back-substitution wants. The destination is read once
+per 32-byte lane and written once per lane; a source costs one unaligned load
+and one XOR per lane. Destinations beyond eight lanes or with a sub-lane tail
+fall back to per-source `xor_avx2`.
+
+Interleaved against the previous consumer path — per-call staging of `&[u8]`
+fat pointers into a group array, folded through `mul_add_gather` with all-ones
+coefficients — 64-byte rows, one `Gf8D` call, minimum of twenty iterations
+per side, `taskset -c 2`, host `v3_gfni_crypto`:
+
+| Region rows | Sources | old | new | change |
+| ---: | ---: | ---: | ---: | ---: |
+| 64 (L1) | 8 | 0.02 µs | 0.01 µs | 1.9–2.4x |
+| 64 (L1) | 64 | 0.14 µs | 0.09 µs | 1.4–1.5x |
+| 64 (L1) | 187 | 0.41–0.45 µs | 0.23–0.28 µs | 1.5–1.9x |
+| 4096 (L2) | 64 | 0.14–0.16 µs | 0.09 µs | 1.5–1.7x |
+| 4096 (L2) | 187 | 0.42–0.45 µs | 0.24 µs | 1.7–1.9x |
+
+The old side includes its staging cost, as the production call site paid it.
+End to end in `gfm`'s max-`K` decode this is −5.4% and in encoder preparation
+−5.5% (worst-of-three, paired and interleaved; `gfm` BENCHMARKS.md, seventh
+round).
+
+NEON and Wasm SIMD have no blocked gather; they fold one source at a time
+through the flat XOR, correct everywhere and unmeasured on this host. The
+differential suite covers the default and every override, and the scalar
+backend tier reruns the same assertions.
+
 ### Overwrite accumulator policy (2026-08-22)
 
 The overwrite candidate shared the GFNI gather loop but seeded each destination
