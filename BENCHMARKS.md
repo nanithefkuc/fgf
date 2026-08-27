@@ -125,6 +125,66 @@ Production therefore keeps AXPY for one source, 16-byte/sub-lane and compound
 scalar remainders, and every row at or above 128 bytes. Interleaved controls at
 16/31/95/97/127/128/129 B, 4 KiB, and 4 KiB + 64 B remain at parity.
 
+### `Gf8D` inherits the source-fused short-row rule (2026-08-27)
+
+`gather_affine` was wired to `gather_impl::<Affine8D, false, 4>` when the
+`Blocked` seam landed, and the `Gf8D` panel above only exercised rows at
+4 KiB and larger. Below the 128-byte main tile that specialization falls
+through to the per-source remainder — exactly the repeated single-source
+AXPY body the `Gf8B` measurement replaced. `gather_affine` now applies
+`gather_gfni`'s selection rule verbatim; the `Blocked` seam monomorphizes
+one body, so the affine form crosses at the shapes the `GF2P8MULB` form was
+measured at, and `Gf8B` is untouched.
+
+Consumer measurement, since this is a shape the panel does not cover:
+`gfm`'s `Hybrid` back-substitution folds 64-byte symbol rows in groups of
+sixty-four sources through `ops::mul_add_gather`. Core Ultra 7 258V,
+rustc 1.98.0, `v3_gfni_crypto`, `taskset -c 2`, `raptor-q` at
+`K = 56403`, `T = 64`, interleaved minimum-of-four (prepare) and
+minimum-of-three (decode) per binary:
+
+| Case | unfused | fused | change |
+| --- | ---: | ---: | ---: |
+| prepare | 252.6 / 248.6 / 251.2 ms | 243.7 / 247.9 / 243.9 ms | −1.5…−3.5% |
+| decode | 237.7 / 234.6 / 233.7 ms | 232.8 / 232.5 / 229.4 ms | −1.8…−2.1% |
+
+The whole gather kernel is 9.0% of that consumer's profile, so the ratio on
+the kernel itself is consistent with the 1.11–1.41x the `Gf8B` panel
+recorded at 64 bytes. The differential and cross-backend suites are
+unchanged.
+
+### Blocked XOR gather (2026-08-27)
+
+`ops::add_gather` / `kernel::xor_gather` fold byte-offset rows of one region
+into a destination held in AVX2 registers across the whole source list — the
+unit-coefficient gather back-substitution wants. The destination is read once
+per 32-byte lane and written once per lane; a source costs one unaligned load
+and one XOR per lane. Destinations beyond eight lanes or with a sub-lane tail
+fall back to per-source `xor_avx2`.
+
+Interleaved against the previous consumer path — per-call staging of `&[u8]`
+fat pointers into a group array, folded through `mul_add_gather` with all-ones
+coefficients — 64-byte rows, one `Gf8D` call, minimum of twenty iterations
+per side, `taskset -c 2`, host `v3_gfni_crypto`:
+
+| Region rows | Sources | old | new | change |
+| ---: | ---: | ---: | ---: | ---: |
+| 64 (L1) | 8 | 0.02 µs | 0.01 µs | 1.9–2.4x |
+| 64 (L1) | 64 | 0.14 µs | 0.09 µs | 1.4–1.5x |
+| 64 (L1) | 187 | 0.41–0.45 µs | 0.23–0.28 µs | 1.5–1.9x |
+| 4096 (L2) | 64 | 0.14–0.16 µs | 0.09 µs | 1.5–1.7x |
+| 4096 (L2) | 187 | 0.42–0.45 µs | 0.24 µs | 1.7–1.9x |
+
+The old side includes its staging cost, as the production call site paid it.
+End to end in `gfm`'s max-`K` decode this is −5.4% and in encoder preparation
+−5.5% (worst-of-three, paired and interleaved; `gfm` BENCHMARKS.md, seventh
+round).
+
+NEON and Wasm SIMD have no blocked gather; they fold one source at a time
+through the flat XOR, correct everywhere and unmeasured on this host. The
+differential suite covers the default and every override, and the scalar
+backend tier reruns the same assertions.
+
 ### Overwrite accumulator policy (2026-08-22)
 
 The overwrite candidate shared the GFNI gather loop but seeded each destination
@@ -846,6 +906,63 @@ concrete-demand and validation triggers recorded here:
 | Shoup/Barrett prepared forms for non-Mersenne u32 primes (BabyBear etc.) | Deferred | Only pays for non-Mersenne reduction; no NTT/STARK consumer has requested BabyBear/KoalaBear. Baseline stays broadcast word; Shoup pair `c, ⌊c·2^k/p⌋` is the measured candidate when such a prime is requested. |
 | Small-prime set `p < 2¹⁶`, 2-byte lanes for `latticode` | Deferred | `latticode` Construction A/D has no pinned small-prime alphabet yet. When it does, a 2-byte `u16` lane field set is the primitive, not a generic `Fp<P>`. |
 | Lazy-reduction internal pipelines (keep `0..2p` internally, canonical only at public bytes) | Deferred, not separately measured | Would compose with the scalar/AVX2 `m31_mul` body; no independent win was measured after Karatsuba showed the `m31_mul` itself is already only a fold + conditional subtract. Revisit only as part of a vectorized `QuadMersenne31` that stays canonical at every `ops` boundary regardless. |
+
+### Row-interleaved XOR: candidate measured, not wired (2026-08-26)
+
+The row-aware addition primitive `ops::add_assign_rows` exists so backends
+*could* interleave independent row streams, the shape of leopard's
+`xor_mem4`. The hypothesis under test came from additive-FFT derivative
+sweeps: leopard's FF16 derivative groups four row pairs into one unrolled
+XOR body and measured 1.6–7x ahead of this crate's consumers on wide-row
+cases. A four-stream AVX2 kernel (`x86::xor_rows_avx2`, 128-byte tiles per
+stream), its SSE2 twin, and an unwired NEON sketch were built and run
+against the flat dispatched XOR. **Result: parity or behind at every
+geometry; no backend override is wired.** The kernels stay under
+`internals`, differentially tested against `scalar::xor` per row, pending a
+host where single-stream throughput falls short of the memory ceiling.
+
+Method: `cargo bench --bench kernels` (median of ≥24 samples of a warm
+loop, thin LTO, one codegen unit) and standalone sweep probes in one
+process. Host as above, rustc 1.98, backend `v3_gfni_crypto`.
+
+Single-call matrix, GF(2^16), `add_assign_rows` / flat `add_assign` ratio
+(below 1.00 = interleaved slower):
+
+| Rows | 64 B rows | 1 KiB rows | 64 KiB rows |
+| ---: | ---: | ---: | ---: |
+| 1 | 0.83x | 0.83x | 1.00x |
+| 2 | 0.83x | 0.80x | 1.00x |
+| 4 | 0.71x | 0.79x | 0.92x |
+| 8 | 0.90x | 0.88x | 0.94x |
+| 16 | 0.87x | 0.96x | 0.95x |
+| 32 | 1.05x | 1.03x | 1.00x |
+
+GF(2^8) and Mersenne31 (defaulted path) agree in shape. At DRAM scale the
+gap closes to noise in favor of neither: 32 MiB single calls measure
+1.03–1.05x for the interleaved form across two row geometries — inside
+run-to-run variation.
+
+**Why leopard looked 7x faster, and why that is not this.** Reproducing
+the consumer comparison (`butterfly-fft` derivative sweep vs the pinned
+catid/leopard adapter, Criterion, same host) gave p32_r65536:
+butterfly-fft 825 µs vs leopard 117 µs — but the same sweep in a hot
+process runs in ~250 µs, and the difference is the destination buffer,
+not the kernel:
+
+| Destination state before the timed region | p32_r65536 sweep |
+| --- | ---: |
+| fresh `vec![0; 2 MiB]` (calloc pages, first touch inside timing) | 1.39 ms |
+| same buffer pre-touched (one byte per page) | 220 µs |
+| fresh + `add_assign_rows` instead of flat | 1.37 ms |
+
+The out-of-place API pays ~512 first-touch soft faults plus TLB cold
+starts *inside* the measurement; leopard's in-place adapter operates on
+pages its setup clone just touched. Kernel choice moves nothing (0.99–
+1.01x across both allocation regimes). The honest consumer-side follow-ups
+are therefore API-level — reusing or pre-touching derivative output
+buffers, or an in-place variant owned by the transform crate — not
+byte-kernel scheduling. Re-wiring the interleaved kernels into dispatch
+requires a host where they beat flat by more than run noise.
 
 ## Comparative benchmark
 

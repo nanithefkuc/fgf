@@ -345,12 +345,49 @@ pub trait FieldKernels: Field + private::Sealed {
     /// [`crate::kernel::xor`].
     fn add_assign(dst: &mut [u8], src: &[u8]);
 
+    /// `dst ^= sum(srcs[i])`: fold byte-offset sources out of one backing
+    /// region into one row, every coefficient implicitly one.
+    ///
+    /// The gather whose coefficients are all the multiplicative identity —
+    /// the shape of back-substitution over solved rows. The default folds
+    /// sources one at a time through [`FieldKernels::add_assign`], which is
+    /// exact for every field; fields whose addition is XOR override it with
+    /// the crate's blocked XOR gather, which holds the destination in
+    /// registers across the whole source list.
+    ///
+    /// Callers pass offsets that satisfy `offset + dst.len() <=
+    /// region.len()`; [`crate::ops::add_gather`] validates that.
+    fn add_gather_offsets(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+        let live = dst.len();
+        for &start in offsets {
+            Self::add_assign(dst, &region[start as usize..start as usize + live]);
+        }
+    }
+
     /// `dst -= src`, elementwise field subtraction.
     ///
     /// Identical to [`FieldKernels::add_assign`] in characteristic two; prime
     /// fields subtract with a canonicalizing fold. Required, no default, for
     /// the same reason.
     fn sub_assign(dst: &mut [u8], src: &[u8]);
+
+    /// Pairwise row addition over two equal flat row buffers.
+    ///
+    /// Both buffers hold the same whole number of contiguous `row_len`-byte
+    /// rows, and every row pair adds fieldwise: `dst_row[j] += src_row[j]`.
+    /// Row boundaries do not change elementwise addition, so running
+    /// [`FieldKernels::add_assign`] over the whole buffers is exact for every
+    /// field — that is the default, and on the reference host it is also the
+    /// fastest known implementation at every measured geometry: a four-stream
+    /// row-interleaved XOR candidate matched or trailed it from L1 to DRAM
+    /// (BENCHMARKS.md, "Row-interleaved XOR"). The experimental interleaved
+    /// kernels live behind `internals` for future evaluation; no backend
+    /// override is wired until one measures a repeatable win. The prime
+    /// fields additionally fold lanes rather than bytes, so their default is
+    /// semantic, not just an optimization choice.
+    fn add_assign_rows(dst: &mut [u8], src: &[u8], _row_len: usize) {
+        Self::add_assign(dst, src);
+    }
 
     /// `dst ^= coeff * src`. The workhorse AXPY.
     fn mul_add(dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]);
@@ -624,6 +661,68 @@ pub fn xor(dst: &mut [u8], src: &[u8]) {
 pub(crate) fn xor(dst: &mut [u8], src: &[u8]) {
     assert_eq!(dst.len(), src.len(), "fgf::xor: length mismatch");
     xor_impl(dst, src);
+}
+
+/// `dst ^= sum(srcs[i])` — a blocked XOR gather over byte offsets into one
+/// backing region.
+///
+/// The field-independent shape of back-substitution: every coefficient is
+/// one, so a many-source fold is pure XOR, and the sources are rows of one
+/// buffer addressed by their start offsets. Addressing sources by offset
+/// rather than slice lets a caller walk an index table without staging fat
+/// pointers per source.
+///
+/// This is the XOR primitive under [`FieldKernels::add_gather_offsets`];
+/// only fields whose addition is XOR dispatch to it.
+///
+/// # Panics
+/// Panics if any offset plus `dst.len()` falls outside `region`.
+pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+    let live = dst.len();
+    for (index, &start) in offsets.iter().enumerate() {
+        let start = start as usize;
+        assert!(
+            start + live <= region.len(),
+            "xor_gather: offset {index} ({start}) + {live} exceeds region of {} bytes",
+            region.len(),
+        );
+    }
+    if offsets.is_empty() {
+        return;
+    }
+    if live <= XOR_INLINE_MAX {
+        for &start in offsets {
+            scalar::xor(dst, &region[start as usize..start as usize + live]);
+        }
+        return;
+    }
+    match backend() {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        Backend::V3GfniCrypto | Backend::V3 => x86::xor_gather_avx2(region, dst, offsets),
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        Backend::V2 => {
+            for &start in offsets {
+                x86::xor_sse2(dst, &region[start as usize..start as usize + live]);
+            }
+        }
+        #[cfg(all(feature = "simd", target_arch = "aarch64"))]
+        Backend::Neon | Backend::NeonAes => {
+            for &start in offsets {
+                aarch64::xor_neon(dst, &region[start as usize..start as usize + live]);
+            }
+        }
+        #[cfg(all(feature = "simd", target_arch = "wasm32"))]
+        Backend::Wasm128 => {
+            for &start in offsets {
+                wasm32::xor_simd128(dst, &region[start as usize..start as usize + live]);
+            }
+        }
+        _ => {
+            for &start in offsets {
+                scalar::xor(dst, &region[start as usize..start as usize + live]);
+            }
+        }
+    }
 }
 
 /// Buffers at most this long skip the dispatched SIMD XOR for the inline

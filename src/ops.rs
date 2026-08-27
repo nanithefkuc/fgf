@@ -327,6 +327,94 @@ pub fn add_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
     F::add_assign(dst, src);
 }
 
+/// Add pairwise rows: `dst_row[j] += src_row[j]` for every row.
+///
+/// Both buffers are interpreted as the same number of contiguous
+/// `row_len`-byte rows. Semantically identical to [`add_assign`] — row
+/// boundaries cannot change elementwise addition — and currently implemented
+/// exactly that way on every backend: a four-stream row-interleaved XOR
+/// candidate built for this shape measured at parity with the flat kernel
+/// from L1 to DRAM on the reference host, so no override is wired
+/// (BENCHMARKS.md, "Row-interleaved XOR"). Call it anyway when the row
+/// geometry is known: backends may interleave independent row streams once
+/// any platform measures a repeatable win, at which point existing callers
+/// pick it up without code changes.
+///
+/// ```
+/// use fgf::{Gf8B, ops};
+///
+/// let src = [0x01u8, 0x02, 0x03, 0x04];
+/// let mut dst = [0x10u8, 0x20, 0x30, 0x40];
+///
+/// // Two rows of two bytes each, added pairwise.
+/// ops::add_assign_rows::<Gf8B>(&mut dst, &src, 2);
+/// assert_eq!(dst, [0x11, 0x22, 0x33, 0x44]);
+/// ```
+///
+/// # Panics
+/// Panics if `row_len == 0`, if `row_len` is not a whole number of field
+/// elements, if the buffers differ in length, or if their length is not a
+/// whole number of rows.
+#[inline]
+pub fn add_assign_rows<F: FieldKernels>(dst: &mut [u8], src: &[u8], row_len: usize) {
+    assert_ne!(row_len, 0, "add_assign_rows: row length must be nonzero");
+    check_width::<F>("add_assign_rows", row_len);
+    assert_eq!(
+        dst.len(),
+        src.len(),
+        "add_assign_rows: dst is {} bytes but src is {} bytes",
+        dst.len(),
+        src.len(),
+    );
+    assert_eq!(
+        dst.len() % row_len,
+        0,
+        "add_assign_rows: partial trailing row",
+    );
+    F::add_assign_rows(dst, src, row_len);
+}
+
+/// Fold byte-offset sources out of one backing region into one row, every
+/// coefficient implicitly one: `dst ^= sum(region[off..off + dst.len()])`
+/// (field addition, not byte XOR, for the prime fields).
+///
+/// The unit-coefficient gather: sources are rows of one buffer — a solved
+/// solution block, a table of packed elements — addressed by their start
+/// offsets, so a caller folds an index table without staging a slice per
+/// source. Fields whose addition is XOR hold the destination in registers
+/// across the whole source list; the rest fold one [`add_assign`] per
+/// source.
+///
+/// ```
+/// use fgf::{Gf8B, ops};
+///
+/// // Two 2-byte rows in one backing region, folded into `dst`.
+/// let region = [0x01u8, 0x02, 0x10, 0x20];
+/// let mut dst = [0x40u8, 0x80];
+/// ops::add_gather::<Gf8B>(&region, &mut dst, &[0, 2]);
+/// assert_eq!(dst, [0x51, 0xa2]);
+/// ```
+///
+/// # Panics
+/// Panics if `dst` is not a whole number of field elements, or if any
+/// offset plus `dst.len()` falls outside `region`. `region` and `dst`
+/// borrow disjoint memory by construction, as with every two-slice
+/// operation in this crate.
+#[inline]
+pub fn add_gather<F: FieldKernels>(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+    check_width::<F>("add_gather", dst.len());
+    let live = dst.len();
+    for (index, &start) in offsets.iter().enumerate() {
+        let start = start as usize;
+        assert!(
+            start + live <= region.len(),
+            "add_gather: offset {index} ({start}) + {live} exceeds region of {} bytes",
+            region.len(),
+        );
+    }
+    F::add_gather_offsets(region, dst, offsets);
+}
+
 /// `dst -= src`. Identical to [`add_assign`] in characteristic two.
 ///
 /// # Panics

@@ -8,6 +8,19 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `ops::add_assign_rows`: pairwise row addition over two equal flat
+  row buffers, `dst_row[j] += src_row[j]`. Semantically identical to
+  `add_assign` (and currently implemented through it on every backend);
+  the checked row geometry documents caller intent so backends may
+  interleave independent row streams where a platform measures a win.
+  The defaulted `FieldKernels::add_assign_rows` carries the semantic
+  contract; experimental four-stream interleaved XOR kernels for x86
+  AVX2/SSE2 and an AArch64 NEON sketch are exposed behind `internals`,
+  differentially tested, and deliberately not wired — they measured at
+  parity or behind the flat XOR from L1 to DRAM on the reference host,
+  and the additive-FFT derivative gap they targeted turned out to be a
+  first-touch page-fault effect of out-of-place output buffers, not
+  memory-level parallelism. See `BENCHMARKS.md`, "Row-interleaved XOR".
 - `bits::RangeXor` and `bits::xor_range_with`: the prepared form of
   `bits::xor_range`. The bit range's byte window and end masks are derived
   once and applied to many buffer pairs, the same prepare/apply split `ops`
@@ -45,6 +58,25 @@ All notable changes to this project are documented here. The format follows
   table builders against the committed banks.
 
 ### Changed
+
+- `ops::add_gather` (and `FieldKernels::add_gather_offsets`): the
+  unit-coefficient gather — fold byte-offset rows of one backing region
+  into one row. Fields whose addition is XOR dispatch to a new blocked
+  kernel that holds the destination in AVX2 registers across the whole
+  source list; prime fields fold per source through their canonical
+  addition. Offsets are `u32` byte offsets, so callers fold an index table
+  without staging a slice per source. Measured 1.4–2.4x over the staged
+  all-ones `mul_add_gather` call it replaces — see `BENCHMARKS.md`,
+  "Blocked XOR gather".
+
+- `Gf8D`'s N-to-1 gather takes the source-fused body on short rows, the
+  same selection rule `Gf8B`'s `GF2P8MULB` gather has used since the
+  short-row measurement. It was wired to the unfused specialization when
+  the blocked-affine seam landed, so rows below the 128-byte main tile fell
+  through to one single-source AXPY per source. Results are unchanged;
+  `Gf8B` is untouched. Measured on a 64-byte, sixty-four-source consumer
+  shape at 1.5–3.5% end to end — see `BENCHMARKS.md`, "`Gf8D` inherits the
+  source-fused short-row rule".
 
 - The bit-packed GF(2) folds run split accumulators: `bits::weight` uses
   eight independent `popcount` lanes and `bits::parity_dot` four independent

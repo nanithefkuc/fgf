@@ -180,6 +180,75 @@ unsafe fn xor_avx2_impl(dst: &mut [u8], src: &[u8]) {
     scalar::xor(&mut dst[offset..], &src[offset..]);
 }
 
+/// `dst ^= sum(srcs[i])` holding the destination in registers across the
+/// whole source list.
+///
+/// The gather shape of back-substitution: many sources fold into one short
+/// row, so the destination is read and written once per 32-byte lane, not
+/// once per source. Destinations wider than eight vectors (256 bytes) or
+/// with a sub-vector tail fall back to a per-source [`xor_avx2`], which
+/// owns the tail handling; the consumer this kernel exists for writes
+/// 64-byte rows.
+///
+/// # Panics
+/// Panics if any offset plus `dst.len()` exceeds the region length.
+pub fn xor_gather_avx2(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+    let whole = dst.len() & !31;
+    let tail = dst.len() - whole;
+    if whole == 0 || whole > 8 * 32 || tail != 0 {
+        for &start in offsets {
+            let start = start as usize;
+            assert!(
+                start + dst.len() <= region.len(),
+                "xor_gather_avx2: source out of region bounds",
+            );
+            xor_avx2(dst, &region[start..start + dst.len()]);
+        }
+        return;
+    }
+    for (index, &start) in offsets.iter().enumerate() {
+        let start = start as usize;
+        assert!(
+            start + dst.len() <= region.len(),
+            "xor_gather_avx2: offset {index} ({start}) + {} exceeds region of {} bytes",
+            dst.len(),
+            region.len(),
+        );
+    }
+    // SAFETY: the caller selected an AVX2-capable backend; every source is
+    // bounds-checked above; and `region`/`dst` do not overlap (the `ops`
+    // wrapper rejects overlap, and back-substitution folds a read-only
+    // solution block into a distinct payload matrix).
+    unsafe { xor_gather_avx2_impl(region, dst, offsets) }
+}
+
+#[target_feature(enable = "avx2")]
+unsafe fn xor_gather_avx2_impl(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+    let (dst_ptr, region_ptr) = (dst.as_mut_ptr(), region.as_ptr());
+    // SAFETY: up to eight 32-byte accumulators stay in registers across the
+    // source loop; every access is within the bounds validated by the
+    // caller; and the two buffers are disjoint.
+    unsafe {
+        for lane in 0..whole_lanes(dst.len()) {
+            let dp = dst_ptr.add(lane * 32).cast();
+            let mut acc = _mm256_loadu_si256(dp);
+            for &start in offsets {
+                let sp = region_ptr.add(start as usize + lane * 32).cast();
+                acc = _mm256_xor_si256(acc, _mm256_loadu_si256(sp));
+            }
+            _mm256_storeu_si256(dp, acc);
+        }
+    }
+}
+
+/// Number of whole 32-byte lanes in `len`; caller guarantees a nonzero
+/// multiple of 32 no wider than the register budget.
+#[inline]
+fn whole_lanes(len: usize) -> usize {
+    debug_assert!(len > 0 && len <= 8 * 32 && len.is_multiple_of(32));
+    len / 32
+}
+
 /// `dst ^= src` using 16-byte SSE2 lanes.
 ///
 /// # Panics
@@ -206,4 +275,265 @@ unsafe fn xor_sse2_impl(dst: &mut [u8], src: &[u8]) {
         offset += 16;
     }
     scalar::xor(&mut dst[len..], &src[len..]);
+}
+
+// ---------------------------------------------------------------------------
+// Row-interleaved XOR
+// ---------------------------------------------------------------------------
+
+/// Bytes of one row covered by a fully-unrolled AVX2 tile iteration: four
+/// 32-byte vectors per stream, the leopard `xor_mem4` unroll width.
+const AVX2_ROW_TILE: usize = 4 * 32;
+
+/// Bytes of one row covered by a fully-unrolled SSE2 tile iteration: four
+/// 16-byte vectors per stream.
+const SSE2_ROW_TILE: usize = 4 * 16;
+
+/// `dst ^= src` over contiguous `row_len`-byte rows with four interleaved
+/// streams.
+///
+/// Both buffers hold the same whole number of rows (validated here); every
+/// group of four row pairs walks `row_len` in tiles, each stream issuing its
+/// own load/xor/store chain per tile. The four independent streams keep the
+/// core's line-fill buffers busy where one sequential stream cannot — the
+/// shape of leopard's `xor_mem4`.
+///
+/// This is an *unwired candidate*: on the reference host it measured at
+/// parity with the flat XOR from L1 to DRAM across the whole benchmark
+/// matrix, so dispatch keeps routing `FieldKernels::add_assign_rows` to
+/// [`xor_avx2`] through the portable default. Kept for future hosts where
+/// single-stream throughput falls short of the memory ceiling; see
+/// BENCHMARKS.md, "Row-interleaved XOR".
+///
+/// # Panics
+/// Panics if the slices differ in length or their length is not a whole
+/// number of rows.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub fn xor_rows_avx2(dst: &mut [u8], src: &[u8], row_len: usize) {
+    assert_eq!(dst.len(), src.len());
+    assert!(dst.len().is_multiple_of(row_len));
+    debug_assert_ne!(row_len, 0);
+    // SAFETY: an AVX2-capable backend was selected, the slices are
+    // equal-length and independently borrowed, and `row_len` divides their
+    // length.
+    unsafe { xor_rows_avx2_impl(dst.as_mut_ptr(), src.as_ptr(), dst.len() / row_len, row_len) }
+}
+
+/// Walk `groups` four-row groups from `dst`/`src`, then the two-row and
+/// one-row remainders through narrower bodies.
+///
+/// Rows are consecutive in both buffers, so group and remainder regions are
+/// plain pointer arithmetic over validated lengths; the final single row
+/// reuses the flat AVX2 body, which also owns the sub-32-byte tail handling.
+///
+/// # Safety
+/// `dst` must be writable and `src` readable for `rows * row_len` bytes,
+/// both derived from live, independently borrowed slices; `row_len != 0`;
+/// `rows >= 1`.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn xor_rows_avx2_impl(dst: *mut u8, src: *const u8, rows: usize, row_len: usize) {
+    let fours = rows / 4;
+    let twos = (rows % 4) / 2;
+    // SAFETY: all pointers stay within the `rows * row_len` bytes the caller
+    // guarantees for both buffers; each region is disjoint by construction.
+    unsafe {
+        let (mut d, mut s) = (dst, src);
+        if fours > 0 {
+            xor_streams_avx2::<4>(d, s, fours, row_len);
+            d = d.add(fours * 4 * row_len);
+            s = s.add(fours * 4 * row_len);
+        }
+        if twos > 0 {
+            xor_streams_avx2::<2>(d, s, twos, row_len);
+            d = d.add(2 * row_len);
+            s = s.add(2 * row_len);
+        }
+        if rows % 2 == 1 {
+            let tail = core::slice::from_raw_parts_mut(d, row_len);
+            let tail_src = core::slice::from_raw_parts(s, row_len);
+            xor_avx2_impl(tail, tail_src);
+        }
+    }
+}
+
+/// XOR `groups` groups of `W` consecutive `row_len`-byte rows, `W` streams
+/// interleaved.
+///
+/// Each pass takes one group: fully-unrolled [`AVX2_ROW_TILE`] tiles across the
+/// row — one tile covers [`AVX2_ROW_TILE`] bytes of *every* stream at the same
+/// offset — then single vectors over the remaining tail, and scalar bytes at
+/// the end. The inner loops run to the const bound `W`, so LLVM unrolls them
+/// away and the body issues one independent load/xor/store chain per stream
+/// per tile without index arithmetic.
+///
+/// # Safety
+/// Same contract as [`xor_rows_avx2_impl`], with `rows == groups * W >= W`
+/// so every full-width stream below stays in bounds.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn xor_streams_avx2<const W: usize>(
+    dst: *mut u8,
+    src: *const u8,
+    groups: usize,
+    row_len: usize,
+) {
+    for group in 0..groups {
+        // SAFETY: the group spans `[base, base + W * row_len)` bytes of both
+        // buffers, inside the region the caller guarantees.
+        let (base_d, base_s) =
+            unsafe { (dst.add(group * W * row_len), src.add(group * W * row_len)) };
+        let mut offset = 0;
+        while offset + AVX2_ROW_TILE <= row_len {
+            for r in 0..W {
+                // SAFETY: row `r` of this group spans
+                // `[base + r * row_len, base + r * row_len + row_len)` and
+                // `offset` plus the unrolled vectors stay inside it.
+                unsafe {
+                    let d = base_d.add(r * row_len + offset);
+                    let s = base_s.add(r * row_len + offset);
+                    for v in 0..AVX2_ROW_TILE / 32 {
+                        let dv = _mm256_loadu_si256(d.add(v * 32).cast());
+                        let sv = _mm256_loadu_si256(s.add(v * 32).cast());
+                        _mm256_storeu_si256(d.add(v * 32).cast(), _mm256_xor_si256(dv, sv));
+                    }
+                }
+            }
+            offset += AVX2_ROW_TILE;
+        }
+        while offset + 32 <= row_len {
+            for r in 0..W {
+                // SAFETY: `offset + 32 <= row_len`, so the vector sits
+                // inside row `r` of this group.
+                unsafe {
+                    let d = base_d.add(r * row_len + offset).cast();
+                    let s = base_s.add(r * row_len + offset).cast();
+                    _mm256_storeu_si256(
+                        d,
+                        _mm256_xor_si256(_mm256_loadu_si256(d), _mm256_loadu_si256(s)),
+                    );
+                }
+            }
+            offset += 32;
+        }
+        if offset < row_len {
+            for r in 0..W {
+                // SAFETY: `[base + r * row_len; row_len]` is inside this
+                // group's region, and so is every index below it.
+                let tail =
+                    unsafe { core::slice::from_raw_parts_mut(base_d.add(r * row_len), row_len) };
+                let tail_src =
+                    unsafe { core::slice::from_raw_parts(base_s.add(r * row_len), row_len) };
+                scalar::xor(&mut tail[offset..], &tail_src[offset..]);
+            }
+        }
+    }
+}
+
+/// [`xor_rows_avx2`] over 16-byte SSE2 lanes, for the `V2` tier.
+///
+/// # Panics
+/// Panics if the slices differ in length or their length is not a whole
+/// number of rows.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub fn xor_rows_sse2(dst: &mut [u8], src: &[u8], row_len: usize) {
+    assert_eq!(dst.len(), src.len());
+    assert!(dst.len().is_multiple_of(row_len));
+    debug_assert_ne!(row_len, 0);
+    // SAFETY: SSE2 is baseline on x86_64 and implied by the SSSE3 backend on
+    // x86; the slices are equal-length, independently borrowed, and whole
+    // numbers of rows.
+    unsafe { xor_rows_sse2_impl(dst.as_mut_ptr(), src.as_ptr(), dst.len() / row_len, row_len) }
+}
+
+/// SSE2 twin of [`xor_rows_avx2_impl`]; see that function for the layout.
+///
+/// # Safety
+/// Same contract as [`xor_rows_avx2_impl`].
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "sse2")]
+unsafe fn xor_rows_sse2_impl(dst: *mut u8, src: *const u8, rows: usize, row_len: usize) {
+    let fours = rows / 4;
+    let twos = (rows % 4) / 2;
+    // SAFETY: all pointers stay within the `rows * row_len` bytes the caller
+    // guarantees for both buffers; each region is disjoint by construction.
+    unsafe {
+        let (mut d, mut s) = (dst, src);
+        if fours > 0 {
+            xor_streams_sse2::<4>(d, s, fours, row_len);
+            d = d.add(fours * 4 * row_len);
+            s = s.add(fours * 4 * row_len);
+        }
+        if twos > 0 {
+            xor_streams_sse2::<2>(d, s, twos, row_len);
+            d = d.add(2 * row_len);
+            s = s.add(2 * row_len);
+        }
+        if rows % 2 == 1 {
+            let tail = core::slice::from_raw_parts_mut(d, row_len);
+            let tail_src = core::slice::from_raw_parts(s, row_len);
+            xor_sse2_impl(tail, tail_src);
+        }
+    }
+}
+
+/// SSE2 twin of [`xor_streams_avx2`]; see that function for the layout.
+///
+/// # Safety
+/// Same contract as [`xor_streams_avx2`].
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "sse2")]
+unsafe fn xor_streams_sse2<const W: usize>(
+    dst: *mut u8,
+    src: *const u8,
+    groups: usize,
+    row_len: usize,
+) {
+    for group in 0..groups {
+        // SAFETY: the group spans `[base, base + W * row_len)` bytes of both
+        // buffers, inside the region the caller guarantees.
+        let (base_d, base_s) =
+            unsafe { (dst.add(group * W * row_len), src.add(group * W * row_len)) };
+        let mut offset = 0;
+        while offset + SSE2_ROW_TILE <= row_len {
+            for r in 0..W {
+                // SAFETY: row `r` of this group spans
+                // `[base + r * row_len, base + r * row_len + row_len)` and
+                // `offset` plus the unrolled vectors stay inside it.
+                unsafe {
+                    let d = base_d.add(r * row_len + offset);
+                    let s = base_s.add(r * row_len + offset);
+                    for v in 0..SSE2_ROW_TILE / 16 {
+                        let dv = _mm_loadu_si128(d.add(v * 16).cast());
+                        let sv = _mm_loadu_si128(s.add(v * 16).cast());
+                        _mm_storeu_si128(d.add(v * 16).cast(), _mm_xor_si128(dv, sv));
+                    }
+                }
+            }
+            offset += SSE2_ROW_TILE;
+        }
+        while offset + 16 <= row_len {
+            for r in 0..W {
+                // SAFETY: `offset + 16 <= row_len`, so the vector sits
+                // inside row `r` of this group.
+                unsafe {
+                    let d = base_d.add(r * row_len + offset).cast();
+                    let s = base_s.add(r * row_len + offset).cast();
+                    _mm_storeu_si128(d, _mm_xor_si128(_mm_loadu_si128(d), _mm_loadu_si128(s)));
+                }
+            }
+            offset += 16;
+        }
+        if offset < row_len {
+            for r in 0..W {
+                // SAFETY: `[base + r * row_len; row_len]` is inside this
+                // group's region, and so is every index below it.
+                let tail =
+                    unsafe { core::slice::from_raw_parts_mut(base_d.add(r * row_len), row_len) };
+                let tail_src =
+                    unsafe { core::slice::from_raw_parts(base_s.add(r * row_len), row_len) };
+                scalar::xor(&mut tail[offset..], &tail_src[offset..]);
+            }
+        }
+    }
 }

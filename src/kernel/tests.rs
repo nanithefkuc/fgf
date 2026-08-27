@@ -527,6 +527,71 @@ fn check_gather<E: Copy, F>(
     }
 }
 
+/// Row counts straddling the interleaved kernels' four-row group and its
+/// two-/one-row remainders.
+const ROW_XOR_COUNTS: &[usize] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 13];
+
+/// Row lengths below/exact/above the 32-byte vector step and the 128-byte
+/// tile of the interleaved bodies, plus one wide row. All even so GF(2^16)
+/// can share the sweep.
+const ROW_XOR_LENS: &[usize] = &[2, 30, 32, 34, 62, 64, 66, 126, 128, 130, 300];
+
+/// Compare an interleaved row XOR against scalar XOR applied row by row.
+///
+/// The oracle is the portable [`scalar::xor`] over each row pair — never the
+/// kernel under test — so a wrong stream index, tile split, or tail lands in
+/// exactly the rows it corrupted. All-zero and all-one patterns ride along:
+/// zero catches reads of uninitialized memory, all-one catches dropped
+/// stores.
+fn check_xor_rows(name: &str, kernel: impl Fn(&mut [u8], &[u8], usize)) {
+    for (pattern_seed, fill) in [(u64::MIN, None), (0x515, Some(0x00)), (0x616, Some(0xff))] {
+        for &row_len in ROW_XOR_LENS {
+            for &nrows in ROW_XOR_COUNTS {
+                let len = nrows * row_len;
+                let src = match fill {
+                    Some(byte) => vec![byte; len],
+                    None => noise(len, pattern_seed),
+                };
+                let mut got = match fill {
+                    Some(byte) => vec![byte; len],
+                    None => noise(len, pattern_seed + 1),
+                };
+                let mut want = got.clone();
+                kernel(&mut got, &src, row_len);
+                for row in 0..nrows {
+                    let (w, s) = (
+                        &mut want[row * row_len..(row + 1) * row_len],
+                        &src[row * row_len..(row + 1) * row_len],
+                    );
+                    scalar::xor(w, s);
+                }
+                assert_eq!(
+                    got, want,
+                    "{name}: row_len {row_len}, nrows {nrows}, pattern {pattern_seed:#x}"
+                );
+            }
+        }
+    }
+    // Wide rows through every remainder shape at reduced row counts.
+    for &row_len in &[1024usize, 65_536] {
+        for &nrows in &[1usize, 3, 4, 5, 9] {
+            let len = nrows * row_len;
+            let src = noise(len, 0x700 ^ row_len as u64);
+            let mut got = noise(len, 0x701 ^ nrows as u64);
+            let mut want = got.clone();
+            kernel(&mut got, &src, row_len);
+            for row in 0..nrows {
+                let (w, s) = (
+                    &mut want[row * row_len..(row + 1) * row_len],
+                    &src[row * row_len..(row + 1) * row_len],
+                );
+                scalar::xor(w, s);
+            }
+            assert_eq!(got, want, "{name}: wide row_len {row_len}, nrows {nrows}");
+        }
+    }
+}
+
 /// All 256 `0x11D` coefficients against noise sources at every lane-boundary
 /// length, then against a source holding every byte value — so between the
 /// two sweeps the affine kernels below see all 65 536 products outright.
@@ -1700,6 +1765,26 @@ mod x86 {
         }
     }
 
+    /// The interleaved row candidate kernels directly — every remainder
+    /// shape (four-, two-, one-row groups), every tile/vector/scalar tail.
+    /// They are unwired (the flat path measured at parity or better), so only
+    /// these direct calls exercise them; see BENCHMARKS.md,
+    /// "Row-interleaved XOR".
+    #[test]
+    fn row_interleaved_xor_matches_scalar_xor() {
+        if host_supports(&[Backend::V3]) {
+            check_xor_rows("avx2 rows", |dst, src, row_len| {
+                x86::xor_rows_avx2(dst, src, row_len);
+            });
+        } else {
+            eprintln!("skipping: no AVX2 on this host");
+        }
+        // SSE2 is baseline on x86_64.
+        check_xor_rows("sse2 rows", |dst, src, row_len| {
+            x86::xor_rows_sse2(dst, src, row_len);
+        });
+    }
+
     /// `mul_into` over a buffer past the non-temporal store threshold.
     ///
     /// The shared `LENGTHS` are all far below it, so nothing else reaches the
@@ -2092,6 +2177,13 @@ mod aarch64 {
             aarch64::xor_neon(&mut neon, &src);
             assert_eq!(neon, want, "neon xor: len {len}");
         }
+    }
+
+    #[test]
+    fn row_interleaved_xor_matches_scalar_xor() {
+        check_xor_rows("neon rows", |dst, src, row_len| {
+            aarch64::xor_rows_neon(dst, src, row_len);
+        });
     }
 }
 

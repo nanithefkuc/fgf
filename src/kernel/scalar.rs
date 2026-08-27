@@ -150,6 +150,10 @@ macro_rules! impl_field_kernels {
                 crate::kernel::xor(dst, src);
             }
 
+            fn add_gather_offsets(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+                crate::kernel::xor_gather(region, dst, offsets);
+            }
+
             fn sub_assign(dst: &mut [u8], src: &[u8]) {
                 crate::kernel::xor(dst, src);
             }
