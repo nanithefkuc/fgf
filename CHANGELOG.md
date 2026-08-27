@@ -59,6 +59,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `Gf8D`'s N-to-1 gather takes the source-fused body on short rows, the
+  same selection rule `Gf8B`'s `GF2P8MULB` gather has used since the
+  short-row measurement. It was wired to the unfused specialization when
+  the blocked-affine seam landed, so rows below the 128-byte main tile fell
+  through to one single-source AXPY per source. Results are unchanged;
+  `Gf8B` is untouched. Measured on a 64-byte, sixty-four-source consumer
+  shape at 1.5–3.5% end to end — see `BENCHMARKS.md`, "`Gf8D` inherits the
+  source-fused short-row rule".
+
 - The bit-packed GF(2) folds run split accumulators: `bits::weight` uses
   eight independent `popcount` lanes and `bits::parity_dot` four independent
   AND-XOR lanes, folded once at the end, so the loops saturate execution-port

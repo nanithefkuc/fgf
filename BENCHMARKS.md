@@ -125,6 +125,36 @@ Production therefore keeps AXPY for one source, 16-byte/sub-lane and compound
 scalar remainders, and every row at or above 128 bytes. Interleaved controls at
 16/31/95/97/127/128/129 B, 4 KiB, and 4 KiB + 64 B remain at parity.
 
+### `Gf8D` inherits the source-fused short-row rule (2026-08-27)
+
+`gather_affine` was wired to `gather_impl::<Affine8D, false, 4>` when the
+`Blocked` seam landed, and the `Gf8D` panel above only exercised rows at
+4 KiB and larger. Below the 128-byte main tile that specialization falls
+through to the per-source remainder — exactly the repeated single-source
+AXPY body the `Gf8B` measurement replaced. `gather_affine` now applies
+`gather_gfni`'s selection rule verbatim; the `Blocked` seam monomorphizes
+one body, so the affine form crosses at the shapes the `GF2P8MULB` form was
+measured at, and `Gf8B` is untouched.
+
+Consumer measurement, since this is a shape the panel does not cover:
+`gfm`'s `Hybrid` back-substitution folds 64-byte symbol rows in groups of
+sixty-four sources through `ops::mul_add_gather`. Core Ultra 7 258V,
+rustc 1.98.0, `v3_gfni_crypto`, `taskset -c 2`, `raptor-q` at
+`K = 56403`, `T = 64`, interleaved minimum-of-four (prepare) and
+minimum-of-three (decode) per binary:
+
+| Case | unfused | fused | change |
+| --- | ---: | ---: | ---: |
+| prepare | 252.6 / 248.6 / 251.2 ms | 243.7 / 247.9 / 243.9 ms | −1.5…−3.5% |
+| decode | 237.7 / 234.6 / 233.7 ms | 232.8 / 232.5 / 229.4 ms | −1.8…−2.1% |
+
+The whole gather kernel is 9.0% of that consumer's profile, so the ratio on
+the kernel itself is consistent with the 1.11–1.41x the `Gf8B` panel
+recorded at 64 bytes. The differential and cross-backend suites are
+unchanged.
+
+### Blocked XOR gather (2026-08-27)
+
 ### Overwrite accumulator policy (2026-08-22)
 
 The overwrite candidate shared the GFNI gather loop but seeded each destination

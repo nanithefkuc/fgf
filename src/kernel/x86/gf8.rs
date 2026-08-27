@@ -2787,11 +2787,28 @@ pub fn gather_gfni_tile<const TILE_LANES: usize>(dst: &mut [u8], coeffs: &[Elem]
 
 /// [`gather_gfni`] under `0x11D`: many sources into one destination, each
 /// folded in with its `VGF2P8AFFINEQB` map.
+///
+/// Short rows take the same source-fused body `gather_gfni` selects: below
+/// the 128-byte main tile the per-row loop would otherwise degenerate into
+/// one single-source AXPY per source, reloading the destination every time.
+/// The rule is `gather_gfni`'s verbatim — the `Blocked` seam monomorphizes
+/// one body, so the affine form crosses at the same shapes the `GF2P8MULB`
+/// form was measured at.
+#[inline]
 pub fn gather_affine(dst: &mut [u8], coeffs: &[gf8d::Elem], srcs: &[&[u8]]) {
     debug_assert_eq!(coeffs.len(), srcs.len());
+    let remainder = dst.len() & 127;
+    let fused =
+        dst.len() < 128 && coeffs.len() > 2 && remainder != 0 && remainder.trailing_zeros() >= 5;
     // SAFETY: the selected backend guarantees AVX2 and GFNI; callers checked
     // every source length against `dst`.
-    unsafe { gather_impl::<Affine8D, false, 4>(dst, coeffs, srcs) }
+    unsafe {
+        if fused {
+            gather_impl::<Affine8D, true, 4>(dst, coeffs, srcs);
+        } else {
+            gather_impl::<Affine8D, false, 4>(dst, coeffs, srcs);
+        }
+    }
 }
 
 #[cfg(any(test, feature = "internals"))]
