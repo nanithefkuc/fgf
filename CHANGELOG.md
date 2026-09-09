@@ -31,6 +31,23 @@ All notable changes to this project are documented here. The format follows
   words of longer ranges. On the eight-bit-range short-row shape the split
   measures 3.6x the one-shot form per call; see `BENCHMARKS.md`.
 
+### Changed
+
+- The GFNI GF(2^8) matrix kernels resolve each destination row group's
+  coefficients into one stack array before their tile loops run, instead
+  of loading a coefficient inside the loop. The per-tile coefficient load,
+  its bounds check, the term pointer walk and the dependent affine-map
+  lookup all leave the multiply loop; grouping, tile widths, and every
+  public contract are unchanged, and the steady state stays allocation-free.
+  Both GF(2^8) fields, overwrite and accumulate, plan forms and scattered
+  rows inherit it. On the reference host (Core Ultra 7 258V, AVX2+GFNI) it
+  measures 1.07-1.34x the previous throughput across 4-64 KiB rows, 6-16
+  sources and one to six output rows, with no shape regressing; see
+  `BENCHMARKS.md`, "Pre-resolved coefficients in the matrix row groups".
+  Coefficient counts above 32 terms per call fold in several passes over
+  the destination, so a caller that folds hundreds of sources into one call
+  sees the destination read once per 32-term pass.
+
 ## [0.7.1] - 2026-09-09
 
 ### Changed

@@ -401,6 +401,123 @@ width, and the shuffle ports all fail to move it. `matrix_overwrite2_{8b,8d}`
 and `matrix_overwrite2_shuffle_packed` stay behind `internals` with
 temporal/non-temporal, both-width differentials for exact reruns.
 
+### ISA-L scheduling comparison: schedule rejected, records pending (2026-09-09)
+
+A same-process interleaved harness (`external-bench/isal-fgf`, links system
+ISA-L 2.32) compared `Gf8D` overwrite dot products against ISA-L's
+runtime-selected AVX2-GFNI kernels, isolating ISA-L's schedules (96-byte
+one/two-output bodies, 3+1, 3+3), fgf's dense prepared affine-map records, and
+their combination over 4/16/64 KiB rows, 6/10/16 sources, 1/2/4/6 outputs.
+Every arm was differentially validated against the scalar oracle first (792
+arm-checks, byte-identical), preparation stayed outside timing, and arm order
+rotated per sample. Core Ultra 7 258V, Linux 7.2.4, rustc 1.98.0, P-core
+pinned, backend `v3_gfni_crypto`, three runs per table.
+
+Sampled dispatch (perf record): the runtime encode path composes
+`gf_3vect_dot_prod_avx2_gfni` twice at six outputs (3+3) and 3+1 at four —
+correcting the 2026-08-22 note that this host selected the PSHUFB
+`gf_6vect_dot_prod_avx2`; the PSHUFB symbols remain reachable only through
+the explicit `*_avx2` entries, which ran as the negative control at
+0.48-0.82x of production.
+
+- **Scheduling rejected.** ISA-L's schedules transplanted into fgf (byte
+  coefficients, schedule otherwise identical) never beat production:
+  0.86-1.08x at one output, 0.90-1.01x at two, 0.68-0.91x at four (3+1),
+  0.91-1.00x at six (3+3). The residual one/two/six-output gaps to ISA-L are
+  not ISA-L's schedules.
+- **Prepared records are the live candidate.** Records remove 11-29% of
+  retired loads and win elapsed time with intervals excluding parity in 13 of
+  27 grid cells (+11-33% at one output on 4-16 KiB; +5-11% at 2/4/6 outputs on
+  64 KiB), worst neighboring regression 2.2%. At one output on 64 KiB the
+  loads drop but cycles do not (IPC 3.02 -> 2.73): latency-bound there, so the
+  win is cache-residency-dependent.
+- **The remaining 21-28% at one/two outputs is loop shape, not work.** With
+  instructions equal to ISA-L at one output (174/kB) fgf still needs IPC 2.73
+  vs ISA-L's 3.50: per (tile, source) every fgf body carries a coefficient
+  slice-length check and branch, term-tuple double indirection, and a
+  `vpbroadcastq` between the record load and the multiplies, where ISA-L's
+  record load feeds `vgf2p8affineqb` directly. The next entry closes that
+  gap without unchecked access, so the earlier reading of it — "checked
+  slices versus raw-pointer loops" — was wrong: what cost the cycles was
+  resolving a coefficient *inside* the tile loop, not the check itself.
+- **3+3 over records wins at six outputs** (1.12-1.17 vs 1.05-1.10 for the
+  production grouping over records) while 3+3 over bytes is parity; a
+  six-output candidate should evaluate both on a second host.
+
+No production change landed: the record layout and the 3+3-over-records arm
+stay behind `internals` (`matrix_overwrite_affine_prepared`,
+`matrix_overwrite{1,2,3,6_33}_8d_prepared`, `gather_affine_prepared_tile`)
+awaiting a second GFNI microarchitecture before any dispatch decision; the
+losing byte-coefficient ISA-L-shaped bodies were removed after their code
+shape and assembly were captured.
+
+Two caveats on the ratios above, both found while following the entry up.
+The harness built its `fgf` terms from copies of the source buffers, so the
+production and prepared-record arms read 16-byte-aligned heap allocations
+while the ISA-L arms read the page-aligned fixtures and took no split
+32-byte loads; Topdown reported the difference as memory-bound slots (9.8%
+vs 5.1% at 64 KiB x 10, one output) at equal instruction counts. And the
+`cyc/kB` figures divided whole-process counters by the timed loop's work,
+which at 20 000 iterations inflates them 10-30%. Both are fixed in the
+harness; the direction of every conclusion above survives, but re-measure
+before quoting a magnitude.
+
+### Pre-resolved coefficients in the matrix row groups (2026-09-09)
+
+The row groups now resolve each group's coefficients into one stack array
+before their tile loops run, instead of loading a coefficient per (tile,
+term): `matrix_rows{4,2,1}` delegate to a shared body over
+`maps[term][row]`, a fixed-size row array the loop walks in lockstep with
+the sources and indexes nowhere. That removes the slice-length check, the
+term-tuple pointer walk, and the dependent affine-bank lookup from the loop
+the multiplier runs in, keeping grouping and tile widths (4x64 B, 2x128 B,
+1x128 B, 4+2 at six outputs) unchanged. Term counts above the 32-term chunk
+fold in further passes, the first carrying the caller's overwrite policy.
+Every GFNI matrix entry inherits it: overwrite and accumulate, plan forms,
+scattered rows, and both GF(2^8) fields.
+
+Core Ultra 7 258V, Linux 7.2.4, rustc 1.98.0, P-core pinned, backend
+`v3_gfni_crypto`, three pinned runs per build, 32 interleaved rounds per arm
+per run, paired per-round ratios with bootstrap intervals. Two builds of one
+harness, with ISA-L and the pre-resolved reference bodies as byte-identical
+anchors (anchor drift median 1.023):
+
+| Shape | Outputs | Before | After | Change |
+| --- | ---: | ---: | ---: | ---: |
+| 4 KiB x 10 | 1 | 118.7 | 154.0 | 1.30x |
+| 16 KiB x 6 | 4 | 37.6 | 50.2 | 1.34x |
+| 16 KiB x 16 | 4 | 37.3 | 46.8 | 1.25x |
+| 64 KiB x 10 | 4 | 36.7 | 46.5 | 1.27x |
+| 64 KiB x 16 | 6 | 22.8 | 28.1 | 1.23x |
+
+GiB/s over source bytes. Median over the whole 36-cell grid is 1.219, range
+1.073-1.336, with no cell regressing. Against ISA-L 2.32's explicit
+AVX2-GFNI symbols the path moves from 0.932 of ISA-L (ahead in 9 of 36
+cells) to 1.094 (ahead in 27), and the same against its runtime dispatcher.
+What ISA-L still holds is one output — median 0.946, its 96-byte tile
+against this 128-byte one — while two, four and six outputs lead by median
+1.140. Accumulate improves too: `fill + mul_add_matrix` in
+`benches/compare` reports `Gf8D` 50.09 -> 58.64, 23.80 -> 34.21 and
+15.73 -> 20.38 GiB/s across its three sizes, `Gf8B` 5-8%.
+
+Per 1024 source bytes at 64 KiB x 10, one output (200 000 timed iterations,
+so the counter bias noted above is ~2%): 50.07 cycles / 154.0 instructions /
+49.8 retired loads, against 55.07 / 174.7 / 64.9 for prepared records and
+51.68 / 175.5 / 54.1 for ISA-L. The emitted one-row loop is 17 instructions
+per four multiplies with one broadcast, one source-pointer load, no compare
+and no branch — the same shape as the reference body, which stays 3.4% ahead
+only because it prepares coefficients outside the timed region.
+
+Two codegen notes worth keeping. Seeding the accumulators through a loop
+stops LLVM promoting the array out of memory and the overwrite path spills a
+tile per source (0.875 of the reference body instead of 0.966), so seeding
+stays a plain array initializer with the destination load under
+`if !OVERWRITE`. And this is one microarchitecture: the grouping and
+tile-width candidates the entry above parked — a 96-byte one-output tile,
+3+3 at six outputs, 32-byte replicated map records at 16 sources — are each
+worth 3-16% on some shapes and negative on others, so they still need a
+second GFNI host before any dispatch policy moves.
+
 Small GF(2^16) rows are sensitive to coefficient preparation because a shuffle
 backend builds four nibble tables per coefficient. Use `Coeff` or `Plan` when a
 coding matrix is reused. Large rows amortize the same setup in the byte loop.
