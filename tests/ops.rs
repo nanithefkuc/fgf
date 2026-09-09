@@ -415,6 +415,78 @@ fn gf16_dot_product_matrix_overwrites() {
     check_dot_product_matrix::<Gf16>("gf16", 0x7a3);
 }
 
+/// Term counts above the kernel's per-group resolve chunk fold in several
+/// passes, so the seam between passes must neither drop a term nor re-seed
+/// the destination: the overwrite form must still ignore prior bytes and the
+/// accumulate form must still add to them.
+fn check_matrix_wide_term_counts<F: fgf::FieldKernels>(tag: &str, seed: u64) {
+    let b = F::BYTES;
+    for &rl_elems in &[16usize, 33, 100] {
+        let row_len = rl_elems * b;
+        for &nrows in &[1usize, 2, 4, 6] {
+            for &nterms in &[31usize, 32, 33, 64, 65] {
+                // One noise stream for every (term, row) coefficient: seeding
+                // per term from adjacent seeds repeats coefficient bytes,
+                // and repeated coefficients cancel in a characteristic-two
+                // sum, which can hide a dropped pass.
+                let coefficients = noise(nterms * nrows * b, seed + 0x200);
+                let sources: Vec<Vec<u8>> = (0..nterms)
+                    .map(|t| noise(row_len, seed + 0x100 + t as u64 * 0x9e37))
+                    .collect();
+                let coeff_sets: Vec<Vec<F::Elem>> = coefficients
+                    .chunks_exact(nrows * b)
+                    .map(|row| row.chunks_exact(b).map(F::read).collect())
+                    .collect();
+                let terms: Vec<(&[F::Elem], &[u8])> = coeff_sets
+                    .iter()
+                    .zip(&sources)
+                    .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                    .collect();
+
+                let mut sum = vec![0u8; row_len * nrows];
+                for &(coeffs, src) in &terms {
+                    for (row, &coeff) in sum.chunks_exact_mut(row_len).zip(coeffs) {
+                        oracle_mul_add::<F>(row, coeff, src);
+                    }
+                }
+
+                let mut got = noise(row_len * nrows, seed + 0x300);
+                ops::dot_product_matrix::<F>(&mut got, row_len, nrows, &terms);
+                assert_eq!(
+                    got,
+                    sum.as_slice(),
+                    "{tag}: overwrite rl={row_len} nrows={nrows} nterms={nterms}"
+                );
+
+                // Accumulate: the destination's prior bytes stay in the sum.
+                let prior = noise(row_len * nrows, seed + 0x400);
+                let mut want = prior.clone();
+                for (out, &added) in want.iter_mut().zip(&sum) {
+                    // Both fields are characteristic two, so accumulate is XOR.
+                    *out ^= added;
+                }
+                let mut got = prior;
+                ops::mul_add_matrix::<F>(&mut got, row_len, nrows, &terms);
+                assert_eq!(
+                    got,
+                    want.as_slice(),
+                    "{tag}: accumulate rl={row_len} nrows={nrows} nterms={nterms}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn gf8_matrix_handles_term_counts_past_the_resolve_chunk() {
+    check_matrix_wide_term_counts::<Gf8B>("gf8b", 0x8b1);
+}
+
+#[test]
+fn gf8d_matrix_handles_term_counts_past_the_resolve_chunk() {
+    check_matrix_wide_term_counts::<Gf8D>("gf8d", 0x8b2);
+}
+
 // ---------------------------------------------------------------------------
 // mul_add_matrix_scattered
 // ---------------------------------------------------------------------------

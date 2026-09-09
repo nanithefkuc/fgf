@@ -1367,18 +1367,55 @@ pub fn matrix_overwrite_affine_with<M: Matrix<gf8d::Elem> + ?Sized>(
     unsafe { matrix_impl::<Affine8D, M, true>(rows, row_len, nrows, terms) }
 }
 
+/// [`matrix_overwrite_affine`] over dense prepared affine-map records.
+///
+/// The production row grouping (fours, then a pair, then a single) with only
+/// the coefficient storage changed: the tile loop broadcasts each stored
+/// `VGF2P8AFFINEQB` map directly instead of re-deriving it from the
+/// coefficient byte through the static bank. Benchmark evidence only;
+/// production dispatch is unchanged.
+///
+/// # Panics
+/// As [`matrix_overwrite_affine`], over `Prepared8D` coefficient columns.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite_affine_prepared(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &[(&[Prepared8D], &[u8])],
+) {
+    assert!(
+        nrows
+            .checked_mul(row_len)
+            .is_some_and(|needed| needed <= rows.len()),
+        "matrix_overwrite_affine_prepared: rows buffer does not hold {nrows} rows of {row_len} bytes"
+    );
+    for term in 0..terms.len() {
+        assert_eq!(terms.source(term).len(), row_len);
+    }
+    // SAFETY: as `matrix_overwrite_affine_with` — the geometry asserted above
+    // bounds every row and every term; overwriting seeds accumulators from
+    // zero so no destination bytes are read.
+    unsafe {
+        matrix_impl::<Affine8DPrepared, [(&[Prepared8D], &[u8])], true>(
+            rows, row_len, nrows, terms,
+        );
+    }
+}
+
 /// Experimental two-row overwrite matrix (`p2` erasure encode) with a tunable
 /// main-tile width and store policy, for profiling against production's
 /// four-lane temporal `matrix_rows2`.
 ///
 /// `lanes` is the number of 32-byte lanes per row folded per main-loop
-/// iteration (`2` = 64-byte "2-way" tile, `4` = production's 128-byte tile);
-/// `nt` selects non-temporal (`vmovntdq`) destination stores. Benchmark
-/// evidence only; production dispatch is unchanged.
+/// iteration (`2` = 64-byte "2-way" tile, `3` = ISA-L's 96-byte schedule,
+/// `4` = production's 128-byte tile); `nt` selects non-temporal
+/// (`vmovntdq`) destination stores. Benchmark evidence only; production
+/// dispatch is unchanged.
 ///
 /// # Panics
 /// Panics unless `rows` holds two `row_len`-byte rows, each term supplies two
-/// coefficients over a `row_len`-byte source, and `lanes` is `2` or `4`.
+/// coefficients over a `row_len`-byte source, and `lanes` is `2` to `4`.
 #[cfg(any(test, feature = "internals"))]
 pub fn matrix_overwrite2_8b(
     rows: &mut [u8],
@@ -1447,12 +1484,240 @@ fn matrix_overwrite2_checked<S: Blocked>(
         let ptr1 = base.add(row_len);
         match (nt, lanes) {
             (false, 2) => matrix2_body::<S, false, 2>(ptr0, ptr1, row_len, terms),
+            (false, 3) => matrix2_body::<S, false, 3>(ptr0, ptr1, row_len, terms),
             (false, 4) => matrix2_body::<S, false, 4>(ptr0, ptr1, row_len, terms),
             (true, 2) => matrix2_body::<S, true, 2>(ptr0, ptr1, row_len, terms),
+            (true, 3) => matrix2_body::<S, true, 3>(ptr0, ptr1, row_len, terms),
             (true, 4) => matrix2_body::<S, true, 4>(ptr0, ptr1, row_len, terms),
-            _ => panic!("matrix_overwrite2: lanes must be 2 or 4"),
+            _ => panic!("matrix_overwrite2: lanes must be 2, 3, or 4"),
         }
     }
+}
+
+/// [`matrix_overwrite2_8d`] over dense prepared affine-map records.
+///
+/// Same body and schedule control as [`matrix_overwrite2_8d`]; only the
+/// coefficient storage differs — the tile loop broadcasts each stored
+/// `VGF2P8AFFINEQB` map directly instead of re-deriving it from the
+/// coefficient byte through the static bank.
+///
+/// # Panics
+/// As [`matrix_overwrite2_8d`], over `Prepared8D` coefficient columns.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite2_8d_prepared(
+    rows: &mut [u8],
+    row_len: usize,
+    terms: &[(&[Prepared8D], &[u8])],
+    nt: bool,
+    lanes: usize,
+) {
+    matrix_overwrite2_checked::<Affine8DPrepared>(rows, row_len, terms, nt, lanes);
+}
+
+/// Shared geometry check and grouping for the ISA-L-shaped three-row
+/// overwrite schedules over prepared records: `nrows` 3 or 6 (3+3).
+///
+/// ISA-L's AVX2-GFNI family provides one-, two-, and three-output bodies
+/// only; `ec_encode_data` composes larger output counts from them, so this
+/// mirrors the grouping its dispatcher uses. The coefficient-byte and 3+1
+/// variants were measured and removed: across 4-64 KiB rows and 6-16 sources
+/// they never beat production's 4x64 B + 2x128 B grouping on the reference
+/// host (medians 0.68-1.08x, worst at four outputs). Benchmark evidence only;
+/// production dispatch is unchanged.
+///
+/// # Panics
+/// Panics unless `nrows` is 3 or 6, `rows` holds `nrows` rows of
+/// `row_len` bytes, and every term supplies `nrows` coefficients over a
+/// `row_len`-byte source.
+#[cfg(any(test, feature = "internals"))]
+fn matrix_overwrite_group3_checked<S: Blocked>(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &[(&[S::Coeff], &[u8])],
+) {
+    assert!(
+        matches!(nrows, 3 | 6),
+        "matrix_overwrite group3: nrows must be 3 or 6"
+    );
+    assert!(
+        nrows
+            .checked_mul(row_len)
+            .is_some_and(|needed| needed <= rows.len()),
+        "matrix_overwrite group3: rows buffer does not hold {nrows} rows of {row_len} bytes"
+    );
+    for (coeffs, src) in terms {
+        assert_eq!(src.len(), row_len);
+        assert!(
+            coeffs.len() >= nrows,
+            "matrix_overwrite group3: term needs {nrows} coefficients"
+        );
+    }
+    let base = rows.as_mut_ptr();
+    // SAFETY: `nrows` in-bounds rows of `row_len` bytes, pairwise disjoint
+    // because distinct rows are `row_len` apart; every term was checked for
+    // `nrows` coefficients over a `row_len`-byte source; the backend
+    // guarantees AVX2 + GFNI.
+    unsafe {
+        let ptrs = |g: usize| {
+            [
+                base.add(g * row_len),
+                base.add((g + 1) * row_len),
+                base.add((g + 2) * row_len),
+            ]
+        };
+        // SAFETY: as above, for the rows named by each group index.
+        matrix_rows3::<S, [(&[S::Coeff], &[u8])], true>(ptrs(0), row_len, 0, terms);
+        match nrows {
+            3 => {}
+            _ => {
+                // SAFETY: as above, for rows 3 through 5.
+                matrix_rows3::<S, [(&[S::Coeff], &[u8])], true>(ptrs(3), row_len, 3, terms);
+            }
+        }
+    }
+}
+
+/// Experimental three-row overwrite matrix over dense prepared affine-map
+/// records, mirroring ISA-L's 64-byte `gf_3vect_dot_prod_avx2_gfni` schedule
+/// under `0x11D`.
+///
+/// # Panics
+/// Panics unless `rows` holds three `row_len`-byte rows and each term
+/// supplies three coefficients over a `row_len`-byte source.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite3_8d_prepared(
+    rows: &mut [u8],
+    row_len: usize,
+    terms: &[(&[Prepared8D], &[u8])],
+) {
+    matrix_overwrite_group3_checked::<Affine8DPrepared>(rows, row_len, 3, terms);
+}
+
+/// Experimental six-row overwrite matrix in ISA-L's 3+3 grouping over dense
+/// prepared affine-map records — the one ISA-L-shaped schedule that beat
+/// production over records at six outputs on the reference host.
+///
+/// # Panics
+/// Panics unless `rows` holds six `row_len`-byte rows and each term
+/// supplies six coefficients over a `row_len`-byte source.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite6_33_8d_prepared(
+    rows: &mut [u8],
+    row_len: usize,
+    terms: &[(&[Prepared8D], &[u8])],
+) {
+    matrix_overwrite_group3_checked::<Affine8DPrepared>(rows, row_len, 6, terms);
+}
+
+/// Experimental one-row overwrite matrix over dense prepared affine-map
+/// records with a tunable main-tile width.
+///
+/// `lanes` 4 is production's `matrix_rows1` shape (the public one-row
+/// `dot_product_matrix` path); `lanes` 3 is ISA-L's 96-byte one-output
+/// schedule. The coefficient-byte form was measured and removed: it sat at
+/// 0.86-1.08x of production across the comparison grid. Benchmark evidence
+/// only; production dispatch is unchanged.
+///
+/// # Panics
+/// Panics unless `rows` holds one `row_len`-byte row, each term supplies at
+/// least one coefficient over a `row_len`-byte source, and `lanes` is 3 or 4.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite1_8d_prepared(
+    rows: &mut [u8],
+    row_len: usize,
+    terms: &[(&[Prepared8D], &[u8])],
+    lanes: usize,
+) {
+    matrix_overwrite1_checked::<Affine8DPrepared>(rows, row_len, terms, lanes);
+}
+
+#[cfg(any(test, feature = "internals"))]
+fn matrix_overwrite1_checked<S: Blocked>(
+    rows: &mut [u8],
+    row_len: usize,
+    terms: &[(&[S::Coeff], &[u8])],
+    lanes: usize,
+) {
+    assert!(
+        row_len <= rows.len(),
+        "matrix_overwrite1: rows buffer does not hold one row of {row_len} bytes"
+    );
+    for (coeffs, src) in terms {
+        assert_eq!(src.len(), row_len);
+        assert!(
+            !coeffs.is_empty(),
+            "matrix_overwrite1: term needs one coefficient"
+        );
+    }
+    let ptr = rows.as_mut_ptr();
+    // SAFETY: one in-bounds row of `row_len` bytes; every term was checked
+    // for one coefficient over a `row_len`-byte source; the backend
+    // guarantees AVX2 + GFNI.
+    unsafe {
+        match lanes {
+            3 => matrix1_body::<S, 3>(ptr, row_len, 0, terms),
+            4 => matrix1_body::<S, 4>(ptr, row_len, 0, terms),
+            _ => panic!("matrix_overwrite1: lanes must be 3 or 4"),
+        }
+    }
+}
+
+/// One-row overwrite body: `LANES` 32-byte lanes per iteration, seeded from
+/// zero.
+///
+/// # Safety
+/// `ptr` addresses an in-bounds row of `row_len` bytes, every term supplies
+/// one coefficient over a `row_len`-byte source, and the backend is
+/// AVX2 + GFNI.
+#[cfg(any(test, feature = "internals"))]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn matrix1_body<S: Blocked, const LANES: usize>(
+    ptr: *mut u8,
+    row_len: usize,
+    g: usize,
+    terms: &[(&[S::Coeff], &[u8])],
+) {
+    let step = 32 * LANES;
+    let mut tile = 0;
+    while tile + step <= row_len {
+        let mut acc = [_mm256_setzero_si256(); LANES];
+        for (coeffs, src) in terms {
+            // SAFETY: every source is `row_len` bytes, so `tile + step`
+            // bounds each of the `LANES` loads.
+            unsafe {
+                let factor = bfactor::<S>(coeffs[g]);
+                let sp = src.as_ptr().add(tile);
+                for (l, slot) in acc.iter_mut().enumerate() {
+                    let x = _mm256_loadu_si256(sp.add(32 * l).cast());
+                    *slot = _mm256_xor_si256(*slot, bmul::<S>(x, factor));
+                }
+            }
+        }
+        // SAFETY: same bounds as the loads above.
+        unsafe {
+            for (l, &value) in acc.iter().enumerate() {
+                _mm256_storeu_si256(ptr.add(tile + 32 * l).cast(), value);
+            }
+        }
+        tile += step;
+    }
+    while tile + 32 <= row_len {
+        let mut acc = _mm256_setzero_si256();
+        for (coeffs, src) in terms {
+            // SAFETY: `tile + 32 <= row_len` bounds the load.
+            unsafe {
+                let factor = bfactor::<S>(coeffs[g]);
+                let x = _mm256_loadu_si256(src.as_ptr().add(tile).cast());
+                acc = _mm256_xor_si256(acc, bmul::<S>(x, factor));
+            }
+        }
+        // SAFETY: `tile + 32 <= row_len`.
+        unsafe { _mm256_storeu_si256(ptr.add(tile).cast(), acc) }
+        tile += 32;
+    }
+    // SAFETY: distinct in-bounds row; every term covers coefficient index `g`.
+    unsafe { matrix_tail::<S, [(&[S::Coeff], &[u8])], true>(&[ptr], row_len, g, tile, terms) }
 }
 
 /// Two-row overwrite body: `LANES` 32-byte lanes per row per iteration, seeded
@@ -2020,6 +2285,201 @@ unsafe fn load_or_zero<const OVERWRITE: bool>(ptr: *const u8) -> __m256i {
     }
 }
 
+/// How many terms a row group resolves into one stack array before its tile
+/// loops run.
+///
+/// Resolving a coefficient costs one map (or byte) read per term per row, so
+/// doing it per group instead of per tile removes the per-(tile, term)
+/// coefficient load, its slice bounds check, and the term pointer walk from
+/// the loop the multiplier runs in. The chunk bounds the scratch array
+/// (`32 * 4 * 8` bytes at the widest group); term counts above it split into
+/// further passes, each of which re-reads the destination it accumulates
+/// into, so the chunk is sized to keep the erasure widths that matter
+/// (`k <= 32`) in a single pass.
+const RESOLVE_CHUNK: usize = 32;
+
+/// The multiply factor of one coefficient, as a word the tile loop can
+/// broadcast without touching a table: the `VGF2P8AFFINEQB` map on the affine
+/// fields, the raw coefficient byte on the native `GF2P8MULB` one.
+#[inline]
+fn factor_word<S: Blocked>(coeff: S::Coeff) -> u64 {
+    if S::AFFINE {
+        S::map(coeff)
+    } else {
+        u64::from(S::byte(coeff))
+    }
+}
+
+/// Broadcast a resolved factor word into a 256-bit multiply factor.
+#[inline]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn wfactor<S: Blocked>(word: u64) -> __m256i {
+    if S::AFFINE {
+        _mm256_set1_epi64x(word.cast_signed())
+    } else {
+        // The byte fields park the coefficient in the word's low byte.
+        _mm256_set1_epi8(word.to_le_bytes()[0].cast_signed())
+    }
+}
+
+/// Fold one chunk of resolved terms into `ROWS` rows, `LANES` 32-byte lanes
+/// per row per iteration, then whole 32-byte lanes.
+///
+/// `maps[term][row]` is the resolved factor word, so the loop walks the
+/// factor array and the source array in lockstep and indexes neither.
+///
+/// # Safety
+/// Every pointer must address a distinct, in-bounds row of at least
+/// `vector_len` bytes, `maps` and `srcs` must have equal length, every source
+/// must span `vector_len` bytes, `vector_len` must be a 32-byte multiple, and
+/// the caller must have selected AVX2 + GFNI.
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn rows_body<S: Blocked, const ROWS: usize, const LANES: usize, const OVERWRITE: bool>(
+    ptrs: [*mut u8; ROWS],
+    vector_len: usize,
+    maps: &[[u64; ROWS]],
+    srcs: &[&[u8]],
+) {
+    let step = 32 * LANES;
+    let mut tile = 0;
+    while tile + step <= vector_len {
+        // Seeding from zero must stay a plain array initializer: a seeding
+        // loop over the accumulator array keeps LLVM from promoting it out of
+        // memory, and the overwrite path then spills a tile per source.
+        let mut acc = [[_mm256_setzero_si256(); LANES]; ROWS];
+        if !OVERWRITE {
+            // SAFETY: `tile + step <= vector_len` bounds every lane of every
+            // row, and the rows are disjoint.
+            unsafe {
+                for (&ptr, slots) in ptrs.iter().zip(acc.iter_mut()) {
+                    for (lane, slot) in slots.iter_mut().enumerate() {
+                        *slot = _mm256_loadu_si256(ptr.add(tile + 32 * lane).cast());
+                    }
+                }
+            }
+        }
+        for (map, src) in maps.iter().zip(srcs) {
+            // SAFETY: every source spans `vector_len` bytes, so `tile + step`
+            // bounds each of the `LANES` loads.
+            unsafe {
+                let mut factor = [_mm256_setzero_si256(); ROWS];
+                for (slot, &word) in factor.iter_mut().zip(map) {
+                    *slot = wfactor::<S>(word);
+                }
+                let sp = src.as_ptr().add(tile);
+                let mut x = [_mm256_setzero_si256(); LANES];
+                for (lane, slot) in x.iter_mut().enumerate() {
+                    *slot = _mm256_loadu_si256(sp.add(32 * lane).cast());
+                }
+                for (slots, &f) in acc.iter_mut().zip(&factor) {
+                    for (slot, &value) in slots.iter_mut().zip(&x) {
+                        *slot = _mm256_xor_si256(*slot, bmul::<S>(value, f));
+                    }
+                }
+            }
+        }
+        // SAFETY: the same bounds and disjointness as the loads above.
+        unsafe {
+            for (&ptr, slots) in ptrs.iter().zip(&acc) {
+                for (lane, &value) in slots.iter().enumerate() {
+                    _mm256_storeu_si256(ptr.add(tile + 32 * lane).cast(), value);
+                }
+            }
+        }
+        tile += step;
+    }
+    while tile + 32 <= vector_len {
+        let mut acc = [_mm256_setzero_si256(); ROWS];
+        if !OVERWRITE {
+            // SAFETY: `tile + 32 <= vector_len`; the rows are disjoint.
+            unsafe {
+                for (&ptr, slot) in ptrs.iter().zip(acc.iter_mut()) {
+                    *slot = _mm256_loadu_si256(ptr.add(tile).cast());
+                }
+            }
+        }
+        for (map, src) in maps.iter().zip(srcs) {
+            // SAFETY: `tile + 32 <= vector_len` bounds the load.
+            unsafe {
+                let x = _mm256_loadu_si256(src.as_ptr().add(tile).cast());
+                for (slot, &word) in acc.iter_mut().zip(map) {
+                    *slot = _mm256_xor_si256(*slot, bmul::<S>(x, wfactor::<S>(word)));
+                }
+            }
+        }
+        // SAFETY: the same bounds and disjointness as the loads above.
+        unsafe {
+            for (&ptr, &value) in ptrs.iter().zip(&acc) {
+                _mm256_storeu_si256(ptr.add(tile).cast(), value);
+            }
+        }
+        tile += 32;
+    }
+}
+
+/// Resolve a row group's coefficients chunk by chunk, run the tile loops over
+/// each chunk, then finish the sub-lane remainder from the terms themselves.
+///
+/// The first chunk carries the caller's overwrite policy; every later chunk
+/// accumulates into what the earlier ones wrote.
+///
+/// # Safety
+/// As [`rows_body`], with `terms` supplying coefficients through
+/// `g + ROWS - 1` over `row_len`-byte sources, and every row spanning
+/// `row_len` bytes.
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn rows_resolved<
+    S: Blocked,
+    M: Matrix<S::Coeff> + ?Sized,
+    const ROWS: usize,
+    const LANES: usize,
+    const OVERWRITE: bool,
+>(
+    ptrs: [*mut u8; ROWS],
+    row_len: usize,
+    g: usize,
+    terms: &M,
+) {
+    let vector_len = row_len & !31;
+    let count = terms.len();
+    let mut start = 0;
+    let mut first = true;
+    loop {
+        let taken = (count - start).min(RESOLVE_CHUNK);
+        let mut maps = [[0u64; ROWS]; RESOLVE_CHUNK];
+        let mut srcs: [&[u8]; RESOLVE_CHUNK] = [&[]; RESOLVE_CHUNK];
+        for (offset, (words, src)) in maps.iter_mut().zip(srcs.iter_mut()).take(taken).enumerate() {
+            let term = start + offset;
+            for (row, word) in words.iter_mut().enumerate() {
+                *word = factor_word::<S>(*terms.coefficient(term, g + row));
+            }
+            *src = terms.source(term);
+        }
+        // SAFETY: the wrapper checked every row and source geometry; the
+        // resolved chunk covers exactly `taken` terms.
+        unsafe {
+            if OVERWRITE && first {
+                rows_body::<S, ROWS, LANES, true>(ptrs, vector_len, &maps[..taken], &srcs[..taken]);
+            } else {
+                rows_body::<S, ROWS, LANES, false>(
+                    ptrs,
+                    vector_len,
+                    &maps[..taken],
+                    &srcs[..taken],
+                );
+            }
+        }
+        first = false;
+        start += taken;
+        if start >= count {
+            break;
+        }
+    }
+    // SAFETY: the pointers address distinct in-bounds rows of `row_len`
+    // bytes, and the remainder starts at the vector-covered prefix.
+    unsafe { matrix_tail::<S, M, OVERWRITE>(&ptrs, row_len, g, vector_len, terms) }
+}
+
 #[target_feature(enable = "avx2,gfni")]
 unsafe fn matrix_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
     rows: &mut [u8],
@@ -2211,106 +2671,9 @@ unsafe fn matrix_rows4<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE
     g: usize,
     terms: &M,
 ) {
-    let mut tile = 0;
-    while tile + 64 <= row_len {
-        // SAFETY: `tile + 64 <= row_len`, the length of every row; the rows
-        // are disjoint.
-        let (mut a00, mut a01, mut a10, mut a11, mut a20, mut a21, mut a30, mut a31) = unsafe {
-            (
-                load_or_zero::<OVERWRITE>(ptrs[0].add(tile)),
-                load_or_zero::<OVERWRITE>(ptrs[0].add(tile + 32)),
-                load_or_zero::<OVERWRITE>(ptrs[1].add(tile)),
-                load_or_zero::<OVERWRITE>(ptrs[1].add(tile + 32)),
-                load_or_zero::<OVERWRITE>(ptrs[2].add(tile)),
-                load_or_zero::<OVERWRITE>(ptrs[2].add(tile + 32)),
-                load_or_zero::<OVERWRITE>(ptrs[3].add(tile)),
-                load_or_zero::<OVERWRITE>(ptrs[3].add(tile + 32)),
-            )
-        };
-        for term in 0..terms.len() {
-            let src = terms.source(term);
-            let coeffs = [
-                *terms.coefficient(term, g),
-                *terms.coefficient(term, g + 1),
-                *terms.coefficient(term, g + 2),
-                *terms.coefficient(term, g + 3),
-            ];
-            // SAFETY: every source is `row_len` bytes, so `tile + 64` bounds
-            // both loads.
-            unsafe {
-                let sp = src.as_ptr().add(tile);
-                let x0 = _mm256_loadu_si256(sp.cast());
-                let x1 = _mm256_loadu_si256(sp.add(32).cast());
-                let f0 = bfactor::<S>(coeffs[0]);
-                let f1 = bfactor::<S>(coeffs[1]);
-                let f2 = bfactor::<S>(coeffs[2]);
-                let f3 = bfactor::<S>(coeffs[3]);
-                a00 = _mm256_xor_si256(a00, bmul::<S>(x0, f0));
-                a01 = _mm256_xor_si256(a01, bmul::<S>(x1, f0));
-                a10 = _mm256_xor_si256(a10, bmul::<S>(x0, f1));
-                a11 = _mm256_xor_si256(a11, bmul::<S>(x1, f1));
-                a20 = _mm256_xor_si256(a20, bmul::<S>(x0, f2));
-                a21 = _mm256_xor_si256(a21, bmul::<S>(x1, f2));
-                a30 = _mm256_xor_si256(a30, bmul::<S>(x0, f3));
-                a31 = _mm256_xor_si256(a31, bmul::<S>(x1, f3));
-            }
-        }
-        // SAFETY: same bounds and disjointness as the loads above.
-        unsafe {
-            _mm256_storeu_si256(ptrs[0].add(tile).cast(), a00);
-            _mm256_storeu_si256(ptrs[0].add(tile + 32).cast(), a01);
-            _mm256_storeu_si256(ptrs[1].add(tile).cast(), a10);
-            _mm256_storeu_si256(ptrs[1].add(tile + 32).cast(), a11);
-            _mm256_storeu_si256(ptrs[2].add(tile).cast(), a20);
-            _mm256_storeu_si256(ptrs[2].add(tile + 32).cast(), a21);
-            _mm256_storeu_si256(ptrs[3].add(tile).cast(), a30);
-            _mm256_storeu_si256(ptrs[3].add(tile + 32).cast(), a31);
-        }
-        tile += 64;
-    }
-    // At most one 32-byte tile survives the 64-byte loop.
-    if tile + 32 <= row_len {
-        // SAFETY: `tile + 32 <= row_len`; the rows are disjoint.
-        let (mut a0, mut a1, mut a2, mut a3) = unsafe {
-            (
-                load_or_zero::<OVERWRITE>(ptrs[0].add(tile)),
-                load_or_zero::<OVERWRITE>(ptrs[1].add(tile)),
-                load_or_zero::<OVERWRITE>(ptrs[2].add(tile)),
-                load_or_zero::<OVERWRITE>(ptrs[3].add(tile)),
-            )
-        };
-        for term in 0..terms.len() {
-            let src = terms.source(term);
-            let coeffs = [
-                *terms.coefficient(term, g),
-                *terms.coefficient(term, g + 1),
-                *terms.coefficient(term, g + 2),
-                *terms.coefficient(term, g + 3),
-            ];
-            // SAFETY: every source is `row_len` bytes and bounds this load.
-            unsafe {
-                let x = _mm256_loadu_si256(src.as_ptr().add(tile).cast());
-                let f0 = bfactor::<S>(coeffs[0]);
-                let f1 = bfactor::<S>(coeffs[1]);
-                let f2 = bfactor::<S>(coeffs[2]);
-                let f3 = bfactor::<S>(coeffs[3]);
-                a0 = _mm256_xor_si256(a0, bmul::<S>(x, f0));
-                a1 = _mm256_xor_si256(a1, bmul::<S>(x, f1));
-                a2 = _mm256_xor_si256(a2, bmul::<S>(x, f2));
-                a3 = _mm256_xor_si256(a3, bmul::<S>(x, f3));
-            }
-        }
-        // SAFETY: same bounds and disjointness as the loads above.
-        unsafe {
-            _mm256_storeu_si256(ptrs[0].add(tile).cast(), a0);
-            _mm256_storeu_si256(ptrs[1].add(tile).cast(), a1);
-            _mm256_storeu_si256(ptrs[2].add(tile).cast(), a2);
-            _mm256_storeu_si256(ptrs[3].add(tile).cast(), a3);
-        }
-        tile += 32;
-    }
-    // SAFETY: the pointers address distinct in-bounds rows of `row_len` bytes.
-    unsafe { matrix_tail::<S, M, OVERWRITE>(&ptrs, row_len, g, tile, terms) }
+    // SAFETY: four disjoint in-bounds rows of `row_len` bytes; every term
+    // covers coefficients `g` through `g + 3` over a `row_len`-byte source.
+    unsafe { rows_resolved::<S, M, 4, 2, OVERWRITE>(ptrs, row_len, g, terms) }
 }
 
 /// Fold every term into two rows, 128 bytes of each row at a time.
@@ -2324,83 +2687,110 @@ unsafe fn matrix_rows2<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE
     g: usize,
     terms: &M,
 ) {
+    // SAFETY: two disjoint in-bounds rows of `row_len` bytes; every term
+    // covers coefficients `g` and `g + 1` over a `row_len`-byte source.
+    unsafe { rows_resolved::<S, M, 2, 4, OVERWRITE>(ptrs, row_len, g, terms) }
+}
+
+/// Fold every term into three rows, 64 bytes of each row at a time.
+///
+/// The register budget mirrors ISA-L's three-output AVX2-GFNI loop: six
+/// accumulators, two lanes per row, one shared pair of source loads per
+/// term. It exists for the scheduling comparison only; production groups
+/// rows in fours and pairs.
+///
+/// # Safety
+/// As [`matrix_rows4`], for three rows and coefficients through `g + 2`.
+#[cfg(any(test, feature = "internals"))]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn matrix_rows3<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
+    ptrs: [*mut u8; 3],
+    row_len: usize,
+    g: usize,
+    terms: &M,
+) {
     let mut tile = 0;
-    while tile + 128 <= row_len {
-        // SAFETY: `tile + 128 <= row_len`, the length of both rows; the rows
+    while tile + 64 <= row_len {
+        // SAFETY: `tile + 64 <= row_len`, the length of every row; the rows
         // are disjoint.
-        let (mut a00, mut a01, mut a02, mut a03, mut a10, mut a11, mut a12, mut a13) = unsafe {
+        let (mut a00, mut a01, mut a10, mut a11, mut a20, mut a21) = unsafe {
             (
                 load_or_zero::<OVERWRITE>(ptrs[0].add(tile)),
                 load_or_zero::<OVERWRITE>(ptrs[0].add(tile + 32)),
-                load_or_zero::<OVERWRITE>(ptrs[0].add(tile + 64)),
-                load_or_zero::<OVERWRITE>(ptrs[0].add(tile + 96)),
                 load_or_zero::<OVERWRITE>(ptrs[1].add(tile)),
                 load_or_zero::<OVERWRITE>(ptrs[1].add(tile + 32)),
-                load_or_zero::<OVERWRITE>(ptrs[1].add(tile + 64)),
-                load_or_zero::<OVERWRITE>(ptrs[1].add(tile + 96)),
+                load_or_zero::<OVERWRITE>(ptrs[2].add(tile)),
+                load_or_zero::<OVERWRITE>(ptrs[2].add(tile + 32)),
             )
         };
         for term in 0..terms.len() {
             let src = terms.source(term);
-            let coeffs = [*terms.coefficient(term, g), *terms.coefficient(term, g + 1)];
-            // SAFETY: every source is `row_len` bytes, so `tile + 128` bounds
-            // the loads.
+            let coeffs = [
+                *terms.coefficient(term, g),
+                *terms.coefficient(term, g + 1),
+                *terms.coefficient(term, g + 2),
+            ];
+            // SAFETY: every source is `row_len` bytes, so `tile + 64` bounds
+            // both loads.
             unsafe {
                 let sp = src.as_ptr().add(tile);
                 let x0 = _mm256_loadu_si256(sp.cast());
                 let x1 = _mm256_loadu_si256(sp.add(32).cast());
-                let x2 = _mm256_loadu_si256(sp.add(64).cast());
-                let x3 = _mm256_loadu_si256(sp.add(96).cast());
                 let f0 = bfactor::<S>(coeffs[0]);
                 let f1 = bfactor::<S>(coeffs[1]);
+                let f2 = bfactor::<S>(coeffs[2]);
                 a00 = _mm256_xor_si256(a00, bmul::<S>(x0, f0));
                 a01 = _mm256_xor_si256(a01, bmul::<S>(x1, f0));
-                a02 = _mm256_xor_si256(a02, bmul::<S>(x2, f0));
-                a03 = _mm256_xor_si256(a03, bmul::<S>(x3, f0));
                 a10 = _mm256_xor_si256(a10, bmul::<S>(x0, f1));
                 a11 = _mm256_xor_si256(a11, bmul::<S>(x1, f1));
-                a12 = _mm256_xor_si256(a12, bmul::<S>(x2, f1));
-                a13 = _mm256_xor_si256(a13, bmul::<S>(x3, f1));
+                a20 = _mm256_xor_si256(a20, bmul::<S>(x0, f2));
+                a21 = _mm256_xor_si256(a21, bmul::<S>(x1, f2));
             }
         }
         // SAFETY: same bounds and disjointness as the loads above.
         unsafe {
             _mm256_storeu_si256(ptrs[0].add(tile).cast(), a00);
             _mm256_storeu_si256(ptrs[0].add(tile + 32).cast(), a01);
-            _mm256_storeu_si256(ptrs[0].add(tile + 64).cast(), a02);
-            _mm256_storeu_si256(ptrs[0].add(tile + 96).cast(), a03);
             _mm256_storeu_si256(ptrs[1].add(tile).cast(), a10);
             _mm256_storeu_si256(ptrs[1].add(tile + 32).cast(), a11);
-            _mm256_storeu_si256(ptrs[1].add(tile + 64).cast(), a12);
-            _mm256_storeu_si256(ptrs[1].add(tile + 96).cast(), a13);
+            _mm256_storeu_si256(ptrs[2].add(tile).cast(), a20);
+            _mm256_storeu_si256(ptrs[2].add(tile + 32).cast(), a21);
         }
-        tile += 128;
+        tile += 64;
     }
-    while tile + 32 <= row_len {
+    // At most one 32-byte tile survives the 64-byte loop.
+    if tile + 32 <= row_len {
         // SAFETY: `tile + 32 <= row_len`; the rows are disjoint.
-        let (mut a0, mut a1) = unsafe {
+        let (mut a0, mut a1, mut a2) = unsafe {
             (
                 load_or_zero::<OVERWRITE>(ptrs[0].add(tile)),
                 load_or_zero::<OVERWRITE>(ptrs[1].add(tile)),
+                load_or_zero::<OVERWRITE>(ptrs[2].add(tile)),
             )
         };
         for term in 0..terms.len() {
             let src = terms.source(term);
-            let coeff0 = *terms.coefficient(term, g);
-            let coeff1 = *terms.coefficient(term, g + 1);
-            // SAFETY: every source is `row_len` bytes and bounds the load.
+            let coeffs = [
+                *terms.coefficient(term, g),
+                *terms.coefficient(term, g + 1),
+                *terms.coefficient(term, g + 2),
+            ];
+            // SAFETY: every source is `row_len` bytes and bounds this load.
             unsafe {
                 let x = _mm256_loadu_si256(src.as_ptr().add(tile).cast());
-                let f0 = bfactor::<S>(coeff0);
-                let f1 = bfactor::<S>(coeff1);
+                let f0 = bfactor::<S>(coeffs[0]);
+                let f1 = bfactor::<S>(coeffs[1]);
+                let f2 = bfactor::<S>(coeffs[2]);
                 a0 = _mm256_xor_si256(a0, bmul::<S>(x, f0));
                 a1 = _mm256_xor_si256(a1, bmul::<S>(x, f1));
+                a2 = _mm256_xor_si256(a2, bmul::<S>(x, f2));
             }
         }
         // SAFETY: same bounds and disjointness as the loads above.
         unsafe {
             _mm256_storeu_si256(ptrs[0].add(tile).cast(), a0);
             _mm256_storeu_si256(ptrs[1].add(tile).cast(), a1);
+            _mm256_storeu_si256(ptrs[2].add(tile).cast(), a2);
         }
         tile += 32;
     }
@@ -2419,64 +2809,9 @@ unsafe fn matrix_rows1<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE
     g: usize,
     terms: &M,
 ) {
-    let mut tile = 0;
-    while tile + 128 <= row_len {
-        // SAFETY: `tile + 128 <= row_len`, the length of the row.
-        let (mut a0, mut a1, mut a2, mut a3) = unsafe {
-            (
-                load_or_zero::<OVERWRITE>(ptr.add(tile)),
-                load_or_zero::<OVERWRITE>(ptr.add(tile + 32)),
-                load_or_zero::<OVERWRITE>(ptr.add(tile + 64)),
-                load_or_zero::<OVERWRITE>(ptr.add(tile + 96)),
-            )
-        };
-        for term in 0..terms.len() {
-            let src = terms.source(term);
-            let coeff = *terms.coefficient(term, g);
-            // SAFETY: every source is `row_len` bytes, so `tile + 128` bounds
-            // the loads.
-            unsafe {
-                let sp = src.as_ptr().add(tile);
-                let f = bfactor::<S>(coeff);
-                let x0 = _mm256_loadu_si256(sp.cast());
-                let x1 = _mm256_loadu_si256(sp.add(32).cast());
-                let x2 = _mm256_loadu_si256(sp.add(64).cast());
-                let x3 = _mm256_loadu_si256(sp.add(96).cast());
-                a0 = _mm256_xor_si256(a0, bmul::<S>(x0, f));
-                a1 = _mm256_xor_si256(a1, bmul::<S>(x1, f));
-                a2 = _mm256_xor_si256(a2, bmul::<S>(x2, f));
-                a3 = _mm256_xor_si256(a3, bmul::<S>(x3, f));
-            }
-        }
-        // SAFETY: same bounds as the loads above.
-        unsafe {
-            _mm256_storeu_si256(ptr.add(tile).cast(), a0);
-            _mm256_storeu_si256(ptr.add(tile + 32).cast(), a1);
-            _mm256_storeu_si256(ptr.add(tile + 64).cast(), a2);
-            _mm256_storeu_si256(ptr.add(tile + 96).cast(), a3);
-        }
-        tile += 128;
-    }
-    while tile + 32 <= row_len {
-        // SAFETY: `tile + 32 <= row_len`.
-        let mut a0 = unsafe { load_or_zero::<OVERWRITE>(ptr.add(tile)) };
-        for term in 0..terms.len() {
-            let src = terms.source(term);
-            let coeff = *terms.coefficient(term, g);
-            // SAFETY: every source is `row_len` bytes and bounds the load.
-            unsafe {
-                let f = bfactor::<S>(coeff);
-                let x = _mm256_loadu_si256(src.as_ptr().add(tile).cast());
-                a0 = _mm256_xor_si256(a0, bmul::<S>(x, f));
-            }
-        }
-        // SAFETY: same bounds as the load above.
-        unsafe { _mm256_storeu_si256(ptr.add(tile).cast(), a0) }
-        tile += 32;
-    }
-
-    // SAFETY: the pointer addresses an in-bounds row of `row_len` bytes.
-    unsafe { matrix_tail::<S, M, OVERWRITE>(&[ptr], row_len, g, tile, terms) }
+    // SAFETY: one in-bounds row of `row_len` bytes; every term covers
+    // coefficient `g` over a `row_len`-byte source.
+    unsafe { rows_resolved::<S, M, 1, 4, OVERWRITE>([ptr], row_len, g, terms) }
 }
 
 /// Hierarchical remainder shared by the matrix row groups.
@@ -2821,6 +3156,35 @@ pub fn gather_affine_prepared(dst: &mut [u8], prepared: &[Prepared8D], srcs: &[&
     // SAFETY: the selected backend guarantees AVX2 and GFNI; callers checked
     // every source length against `dst`.
     unsafe { gather_impl::<Affine8DPrepared, false, 4>(dst, prepared, srcs) }
+}
+
+/// Benchmark the prepared `Gf8D` affine gather with `TILE_LANES` accumulators.
+///
+/// Width four is [`gather_affine_prepared`] verbatim (the layout-only arm:
+/// production schedule over dense prepared records); width three combines it
+/// with ISA-L's 96-byte schedule.
+///
+/// # Panics
+/// Panics unless `TILE_LANES` is in `1..=4`.
+#[cfg(any(test, feature = "internals"))]
+#[inline]
+pub fn gather_affine_prepared_tile<const TILE_LANES: usize>(
+    dst: &mut [u8],
+    prepared: &[Prepared8D],
+    srcs: &[&[u8]],
+) {
+    assert!(
+        (1..=4).contains(&TILE_LANES),
+        "prepared affine gather tile must contain 1–4 lanes"
+    );
+    debug_assert_eq!(prepared.len(), srcs.len());
+    if TILE_LANES == 4 {
+        gather_affine_prepared(dst, prepared, srcs);
+        return;
+    }
+    // SAFETY: direct tests and benchmarks require AVX2+GFNI and validate every
+    // source length against `dst`.
+    unsafe { gather_impl::<Affine8DPrepared, false, TILE_LANES>(dst, prepared, srcs) }
 }
 
 #[inline(never)]
@@ -3563,4 +3927,293 @@ unsafe fn matrix_ssse3_impl<M: Matrix<Elem> + ?Sized>(
         }
         group += count;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Experimental pre-resolved coefficient bodies (internals; benchmark only).
+//
+// One loop shape, two coefficient stores. The coefficient for an output row
+// is resolved into its `VGF2P8AFFINEQB` map before the tile loop and read
+// from a per-source array element at a constant offset, so the tile loop
+// carries no coefficient-slice length check and no coefficient-slice pointer
+// walk. `CompactMap` keeps one map qword per (source, row) and broadcasts it;
+// `ReplicatedMap` keeps the map replicated across a 32-byte record and reads
+// it with one aligned vector load, the form ISA-L's `gftbls` uses.
+//
+// Row length must be a 32-byte multiple: these bodies carry no sub-lane tail,
+// matching the contract of ISA-L's explicit architecture kernels. Production
+// dispatch is unchanged; this is measurement scaffolding.
+// ---------------------------------------------------------------------------
+
+/// A `VGF2P8AFFINEQB` map replicated across all four qwords of a 256-bit
+/// register, so a multiply reads its factor with one aligned vector load.
+#[cfg(any(test, feature = "internals"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(C, align(32))]
+pub struct Map32([u64; 4]);
+
+/// Replicate one `Gf8D` coefficient's affine map for the [`Map32`] bodies.
+#[cfg(any(test, feature = "internals"))]
+#[inline]
+#[must_use]
+pub fn prepare_map32_8d(coeff: gf8d::Elem) -> Map32 {
+    let map = affine_8d(coeff);
+    Map32([map; 4])
+}
+
+/// The coefficient store a pre-resolved body reads.
+#[cfg(any(test, feature = "internals"))]
+trait Store {
+    /// One resolved coefficient, as stored per (source, row).
+    type Elem: Copy;
+    /// `true` when the factor is an aligned 32-byte load, `false` when it is
+    /// a qword broadcast.
+    const REPLICATED: bool;
+    /// The map qword, for the broadcast form.
+    fn qword(elem: &Self::Elem) -> u64;
+    /// The record address, for the aligned-load form.
+    fn addr(elem: &Self::Elem) -> *const u8;
+}
+
+/// One map qword per (source, row); the factor is a `VPBROADCASTQ`.
+#[cfg(any(test, feature = "internals"))]
+enum CompactMap {}
+#[cfg(any(test, feature = "internals"))]
+impl Store for CompactMap {
+    type Elem = u64;
+    const REPLICATED: bool = false;
+    #[inline]
+    fn qword(elem: &u64) -> u64 {
+        *elem
+    }
+    #[inline]
+    fn addr(elem: &u64) -> *const u8 {
+        core::ptr::from_ref(elem).cast()
+    }
+}
+
+/// One 32-byte replicated record per (source, row); the factor is a load.
+#[cfg(any(test, feature = "internals"))]
+enum ReplicatedMap {}
+#[cfg(any(test, feature = "internals"))]
+impl Store for ReplicatedMap {
+    type Elem = Map32;
+    const REPLICATED: bool = true;
+    #[inline]
+    fn qword(elem: &Map32) -> u64 {
+        elem.0[0]
+    }
+    #[inline]
+    fn addr(elem: &Map32) -> *const u8 {
+        core::ptr::from_ref(elem).cast()
+    }
+}
+
+/// The multiply factor for one resolved coefficient.
+///
+/// # Safety
+/// For [`ReplicatedMap`] the element must be 32-byte aligned, which its
+/// `repr(align(32))` guarantees for every reference. The backend is
+/// AVX2 + GFNI.
+#[cfg(any(test, feature = "internals"))]
+#[inline]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn sfactor<S: Store>(elem: &S::Elem) -> __m256i {
+    if S::REPLICATED {
+        // SAFETY: `Map32` is `align(32)`, so the record address is aligned.
+        unsafe { _mm256_load_si256(S::addr(elem).cast()) }
+    } else {
+        _mm256_set1_epi64x(S::qword(elem).cast_signed())
+    }
+}
+
+/// Overwrite dot product over pre-resolved coefficients: `ROWS` output rows,
+/// `LANES` 32-byte lanes per row per iteration.
+///
+/// `maps[source][row]` is the resolved coefficient, one array element per
+/// source, so the tile loop walks the map array and the source array in
+/// lockstep with no indexing inside.
+///
+/// # Safety
+/// Every pointer in `ptrs` addresses a distinct in-bounds row of `row_len`
+/// bytes, `maps` and `srcs` have equal length, every source spans `row_len`
+/// bytes, `row_len` is a 32-byte multiple, and the backend is AVX2 + GFNI.
+#[cfg(any(test, feature = "internals"))]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn dot_body<S: Store, const ROWS: usize, const LANES: usize>(
+    ptrs: [*mut u8; ROWS],
+    row_len: usize,
+    maps: &[[S::Elem; ROWS]],
+    srcs: &[&[u8]],
+) {
+    let step = 32 * LANES;
+    let mut tile = 0;
+    while tile + step <= row_len {
+        let mut acc = [[_mm256_setzero_si256(); LANES]; ROWS];
+        for (map, src) in maps.iter().zip(srcs) {
+            // SAFETY: every source spans `row_len` bytes, so `tile + step`
+            // bounds each of the `LANES` loads.
+            unsafe {
+                let mut factor = [_mm256_setzero_si256(); ROWS];
+                for (slot, resolved) in factor.iter_mut().zip(map) {
+                    *slot = sfactor::<S>(resolved);
+                }
+                let sp = src.as_ptr().add(tile);
+                let mut x = [_mm256_setzero_si256(); LANES];
+                for (lane, slot) in x.iter_mut().enumerate() {
+                    *slot = _mm256_loadu_si256(sp.add(32 * lane).cast());
+                }
+                for (row, &f) in acc.iter_mut().zip(&factor) {
+                    for (slot, &value) in row.iter_mut().zip(&x) {
+                        *slot =
+                            _mm256_xor_si256(*slot, _mm256_gf2p8affine_epi64_epi8::<0>(value, f));
+                    }
+                }
+            }
+        }
+        // SAFETY: same bounds as the loads; the rows are pairwise disjoint.
+        unsafe {
+            for (&ptr, row) in ptrs.iter().zip(&acc) {
+                for (lane, &value) in row.iter().enumerate() {
+                    _mm256_storeu_si256(ptr.add(tile + 32 * lane).cast(), value);
+                }
+            }
+        }
+        tile += step;
+    }
+    while tile + 32 <= row_len {
+        let mut acc = [_mm256_setzero_si256(); ROWS];
+        for (map, src) in maps.iter().zip(srcs) {
+            // SAFETY: `tile + 32 <= row_len == src.len()` bounds the load.
+            unsafe {
+                let x = _mm256_loadu_si256(src.as_ptr().add(tile).cast());
+                for (slot, resolved) in acc.iter_mut().zip(map) {
+                    *slot = _mm256_xor_si256(
+                        *slot,
+                        _mm256_gf2p8affine_epi64_epi8::<0>(x, sfactor::<S>(resolved)),
+                    );
+                }
+            }
+        }
+        // SAFETY: `tile + 32 <= row_len` for every disjoint row.
+        unsafe {
+            for (&ptr, &value) in ptrs.iter().zip(&acc) {
+                _mm256_storeu_si256(ptr.add(tile).cast(), value);
+            }
+        }
+        tile += 32;
+    }
+}
+
+/// Resolve the row pointers and the per-source map chunks, then run the body.
+///
+/// # Safety
+/// As [`dot_body`], with `maps.len() == srcs.len() * ROWS`.
+#[cfg(any(test, feature = "internals"))]
+unsafe fn dot_group<S: Store, const ROWS: usize, const LANES: usize>(
+    base: *mut u8,
+    row_len: usize,
+    maps: &[S::Elem],
+    srcs: &[&[u8]],
+) {
+    let (chunks, rest) = maps.as_chunks::<ROWS>();
+    debug_assert!(rest.is_empty(), "map array is not a whole number of rows");
+    debug_assert_eq!(chunks.len(), srcs.len(), "map array does not match sources");
+    let mut ptrs = [base; ROWS];
+    for (row, slot) in ptrs.iter_mut().enumerate() {
+        // SAFETY: the caller guarantees `ROWS` in-bounds rows of `row_len`.
+        *slot = unsafe { base.add(row * row_len) };
+    }
+    // SAFETY: the caller's contract is `dot_body`'s.
+    unsafe { dot_body::<S, ROWS, LANES>(ptrs, row_len, chunks, srcs) }
+}
+
+#[cfg(any(test, feature = "internals"))]
+fn dot_checked<S: Store>(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    maps: &[S::Elem],
+    srcs: &[&[u8]],
+    lanes: usize,
+) {
+    assert_eq!(
+        row_len % 32,
+        0,
+        "dot_overwrite: pre-resolved bodies need a 32-byte-multiple row"
+    );
+    assert!(
+        nrows
+            .checked_mul(row_len)
+            .is_some_and(|needed| needed <= rows.len()),
+        "dot_overwrite: rows buffer does not hold {nrows} rows of {row_len} bytes"
+    );
+    for src in srcs {
+        assert_eq!(src.len(), row_len, "dot_overwrite: source length");
+    }
+    assert_eq!(
+        maps.len(),
+        srcs.len() * nrows,
+        "dot_overwrite: map array must hold one resolved coefficient per (source, row)"
+    );
+    let base = rows.as_mut_ptr();
+    // SAFETY: `nrows` in-bounds rows of `row_len` bytes, pairwise disjoint
+    // because distinct rows are `row_len` apart; the map array was checked to
+    // cover every (source, row); every source spans `row_len` bytes; the
+    // caller resolved an AVX2 + GFNI backend.
+    unsafe {
+        match (nrows, lanes) {
+            (1, 2) => dot_group::<S, 1, 2>(base, row_len, maps, srcs),
+            (1, 3) => dot_group::<S, 1, 3>(base, row_len, maps, srcs),
+            (1, 4) => dot_group::<S, 1, 4>(base, row_len, maps, srcs),
+            (1, 6) => dot_group::<S, 1, 6>(base, row_len, maps, srcs),
+            (2, 2) => dot_group::<S, 2, 2>(base, row_len, maps, srcs),
+            (2, 3) => dot_group::<S, 2, 3>(base, row_len, maps, srcs),
+            (2, 4) => dot_group::<S, 2, 4>(base, row_len, maps, srcs),
+            (3, 2) => dot_group::<S, 3, 2>(base, row_len, maps, srcs),
+            (3, 3) => dot_group::<S, 3, 3>(base, row_len, maps, srcs),
+            (4, 2) => dot_group::<S, 4, 2>(base, row_len, maps, srcs),
+            (4, 3) => dot_group::<S, 4, 3>(base, row_len, maps, srcs),
+            _ => panic!("dot_overwrite: unsupported (rows {nrows}, lanes {lanes})"),
+        }
+    }
+}
+
+/// Experimental overwrite dot product over compact pre-resolved affine maps.
+///
+/// `maps` holds one map qword per (source, row), source-major:
+/// `maps[source * nrows + row]`. Benchmark evidence only; production dispatch
+/// is unchanged.
+///
+/// # Panics
+/// Panics unless `row_len` is a 32-byte multiple, `rows` holds `nrows` rows of
+/// `row_len` bytes, every source spans `row_len` bytes, `maps` covers every
+/// (source, row), and `(nrows, lanes)` is a supported shape.
+#[cfg(any(test, feature = "internals"))]
+pub fn dot_overwrite_compact_8d(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    maps: &[u64],
+    srcs: &[&[u8]],
+    lanes: usize,
+) {
+    dot_checked::<CompactMap>(rows, row_len, nrows, maps, srcs, lanes);
+}
+
+/// Experimental overwrite dot product over 32-byte replicated affine maps —
+/// the coefficient record shape ISA-L's `gftbls` carries on a GFNI host.
+///
+/// # Panics
+/// As [`dot_overwrite_compact_8d`].
+#[cfg(any(test, feature = "internals"))]
+pub fn dot_overwrite_replicated_8d(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    maps: &[Map32],
+    srcs: &[&[u8]],
+    lanes: usize,
+) {
+    dot_checked::<ReplicatedMap>(rows, row_len, nrows, maps, srcs, lanes);
 }
