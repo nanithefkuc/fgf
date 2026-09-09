@@ -1321,6 +1321,14 @@ mod x86 {
             gf8d_prepared_reference,
             x86::gf8::matrix_overwrite1_8d_prepared,
         );
+        // The production resolved path at both main-tile widths: 128 bytes is
+        // what production dispatches, 96 bytes is ISA-L's one-output tile.
+        check_matrix_overwrite1_prepared(
+            "gf8d one-row overwrite resolved tile",
+            gf8d_coeff_at2,
+            gf8d_reference,
+            x86::gf8::matrix_overwrite1_tile_8d,
+        );
     }
 
     fn check_gf8d_group3_candidates() {
@@ -1333,6 +1341,69 @@ mod x86 {
                 _ => x86::gf8::matrix_overwrite6_33_8d_prepared(rows, row_len, terms),
             },
         );
+    }
+
+    /// Differential for the one-row production body fed coefficients resolved
+    /// outside the call: both tile widths, over whole tiles and the 32-byte
+    /// cleanup, plus the resolve probe that prices resolution on its own.
+    fn check_gf8d_one_row_external_maps() {
+        // 384 is the first common multiple of both tile widths; the residues
+        // exercise each body's cleanup loop.
+        const LENGTHS: &[usize] = &[32, 64, 96, 128, 384, 416, 448, 3840, 3872];
+        for &row_len in LENGTHS {
+            for &lanes in &[3usize, 4] {
+                for sources in [1usize, 2, 5, 33] {
+                    let buffers: Vec<Vec<u8>> = (0..sources)
+                        .map(|t| noise(row_len, 0x6a1 + t as u64 * 17 + row_len as u64))
+                        .collect();
+                    let srcs: Vec<&[u8]> = buffers.iter().map(Vec::as_slice).collect();
+                    let coeffs: Vec<gf8d::Elem> = (0..sources).map(gf8d_coeff_at).collect();
+                    let maps: Vec<u64> = coeffs.iter().copied().map(affine_8d).collect();
+
+                    let mut want = vec![0u8; row_len];
+                    for (&coeff, src) in coeffs.iter().zip(&srcs) {
+                        gf8d_reference(&mut want, coeff, src);
+                    }
+
+                    let mut got = noise(row_len, 0x6b2);
+                    x86::gf8::matrix_overwrite1_external_8d(&mut got, row_len, &maps, &srcs, lanes);
+                    assert_eq!(
+                        got, want,
+                        "gf8d one-row external maps: len {row_len} lanes {lanes} sources {sources}"
+                    );
+
+                    // The resolve probe must see every term's coefficient: its
+                    // checksum changes when any one of them changes.
+                    let terms: Vec<(&[gf8d::Elem], &[u8])> = coeffs
+                        .iter()
+                        .zip(&srcs)
+                        .map(|(c, s)| (core::slice::from_ref(c), *s))
+                        .collect();
+                    let base = x86::gf8::resolve_probe_8d(&terms);
+                    let bumped: Vec<gf8d::Elem> = coeffs
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &c)| {
+                            if i + 1 == sources {
+                                gf8d::Elem(c.0 ^ 0x5a)
+                            } else {
+                                c
+                            }
+                        })
+                        .collect();
+                    let bumped_terms: Vec<(&[gf8d::Elem], &[u8])> = bumped
+                        .iter()
+                        .zip(&srcs)
+                        .map(|(c, s)| (core::slice::from_ref(c), *s))
+                        .collect();
+                    assert_ne!(
+                        base,
+                        x86::gf8::resolve_probe_8d(&bumped_terms),
+                        "gf8d resolve probe ignores a coefficient: sources {sources}"
+                    );
+                }
+            }
+        }
     }
 
     fn check_gf8d_prepared_gather_tiles() {
@@ -1750,6 +1821,7 @@ mod x86 {
         check_gf8d_prepared_one_row_candidate();
         check_gf8d_group3_candidates();
         check_gf8d_pre_resolved_bodies();
+        check_gf8d_one_row_external_maps();
         check_gather(
             "gf8d affine gather",
             gf8d_coeff_at,

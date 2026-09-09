@@ -2814,6 +2814,156 @@ unsafe fn matrix_rows1<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE
     unsafe { rows_resolved::<S, M, 1, 4, OVERWRITE>([ptr], row_len, g, terms) }
 }
 
+/// Experimental one-row overwrite matrix on the production resolved path with
+/// a selectable main-tile width.
+///
+/// `lanes` 4 is production's 128-byte tile, `lanes` 3 is ISA-L's 96-byte
+/// one-output tile. Same coefficient resolution, same remainder, same public
+/// geometry checks: only the tile width differs, so the two measure the width
+/// alone. Benchmark evidence only; production dispatch is unchanged.
+///
+/// # Panics
+/// Panics unless `rows` holds one `row_len`-byte row, every term supplies at
+/// least one coefficient over a `row_len`-byte source, and `lanes` is 3 or 4.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite1_tile_8d(
+    rows: &mut [u8],
+    row_len: usize,
+    terms: &[(&[gf8d::Elem], &[u8])],
+    lanes: usize,
+) {
+    assert!(
+        row_len <= rows.len(),
+        "matrix_overwrite1_tile: rows buffer does not hold one row of {row_len} bytes"
+    );
+    for (coeffs, src) in terms {
+        assert_eq!(src.len(), row_len);
+        assert!(
+            !coeffs.is_empty(),
+            "matrix_overwrite1_tile: term needs one coefficient"
+        );
+    }
+    let ptr = rows.as_mut_ptr();
+    // SAFETY: one in-bounds row of `row_len` bytes; every term was checked for
+    // one coefficient over a `row_len`-byte source; the backend guarantees
+    // AVX2 + GFNI.
+    unsafe {
+        match lanes {
+            3 => rows_resolved::<Affine8D, [(&[gf8d::Elem], &[u8])], 1, 3, true>(
+                [ptr],
+                row_len,
+                0,
+                terms,
+            ),
+            4 => rows_resolved::<Affine8D, [(&[gf8d::Elem], &[u8])], 1, 4, true>(
+                [ptr],
+                row_len,
+                0,
+                terms,
+            ),
+            _ => panic!("matrix_overwrite1_tile: lanes must be 3 or 4"),
+        }
+    }
+}
+
+/// Experimental one-row overwrite matrix running the production body over
+/// coefficients resolved *outside* the call.
+///
+/// The body, tile width, lane count and store policy are the production
+/// path's; only the resolution moves out of the timed region. Paired against
+/// [`matrix_overwrite1_tile_8d`] at the same length this prices per-call
+/// coefficient resolution, with nothing else varying.
+///
+/// `maps` holds one `VGF2P8AFFINEQB` map qword per source, in source order.
+/// The sub-32-byte remainder is *not* handled: `row_len` must be a 32-byte
+/// multiple, matching what the pairing needs and what ISA-L's explicit
+/// kernels contract.
+///
+/// # Panics
+/// Panics unless `row_len` is a 32-byte multiple, `rows` holds one
+/// `row_len`-byte row, `maps` covers every source, every source spans
+/// `row_len` bytes, and `lanes` is 3 or 4.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite1_external_8d(
+    rows: &mut [u8],
+    row_len: usize,
+    maps: &[u64],
+    srcs: &[&[u8]],
+    lanes: usize,
+) {
+    assert_eq!(
+        row_len % 32,
+        0,
+        "matrix_overwrite1_external: needs a 32-byte-multiple row"
+    );
+    assert!(
+        row_len <= rows.len(),
+        "matrix_overwrite1_external: rows buffer does not hold one row of {row_len} bytes"
+    );
+    assert_eq!(
+        maps.len(),
+        srcs.len(),
+        "matrix_overwrite1_external: one resolved map per source"
+    );
+    for src in srcs {
+        assert_eq!(src.len(), row_len);
+    }
+    // The body reads `[u64; 1]` rows; a flat map slice has that layout.
+    let (chunks, rest) = maps.as_chunks::<1>();
+    debug_assert!(rest.is_empty());
+    let ptr = rows.as_mut_ptr();
+    // SAFETY: one in-bounds row of `row_len` bytes, `row_len` a 32-byte
+    // multiple, one resolved map per `row_len`-byte source, and the backend
+    // guarantees AVX2 + GFNI.
+    unsafe {
+        match lanes {
+            3 => rows_body::<Affine8D, 1, 3, true>([ptr], row_len, chunks, srcs),
+            4 => rows_body::<Affine8D, 1, 4, true>([ptr], row_len, chunks, srcs),
+            _ => panic!("matrix_overwrite1_external: lanes must be 3 or 4"),
+        }
+    }
+}
+
+/// Resolve a one-row group's coefficients exactly as the production path
+/// does, touch no destination, and return a checksum of the resolved state.
+///
+/// This is the resolution half of [`matrix_overwrite1_tile_8d`] with the tile
+/// loops removed, for pricing resolution on its own. The checksum exists so
+/// the work cannot be optimized away; its value is not a contract.
+///
+/// # Panics
+/// Panics unless every term supplies at least one coefficient.
+#[cfg(any(test, feature = "internals"))]
+#[must_use]
+pub fn resolve_probe_8d(terms: &[(&[gf8d::Elem], &[u8])]) -> u64 {
+    for (coeffs, _) in terms {
+        assert!(
+            !coeffs.is_empty(),
+            "resolve_probe: term needs one coefficient"
+        );
+    }
+    let count = terms.len();
+    let mut sink = 0u64;
+    let mut start = 0;
+    loop {
+        let taken = (count - start).min(RESOLVE_CHUNK);
+        let mut maps = [[0u64; 1]; RESOLVE_CHUNK];
+        let mut srcs: [&[u8]; RESOLVE_CHUNK] = [&[]; RESOLVE_CHUNK];
+        for (offset, (words, src)) in maps.iter_mut().zip(srcs.iter_mut()).take(taken).enumerate() {
+            let (coeffs, source) = terms[start + offset];
+            words[0] = factor_word::<Affine8D>(coeffs[0]);
+            *src = source;
+        }
+        for (words, src) in maps.iter().zip(&srcs).take(taken) {
+            sink ^= words[0] ^ src.as_ptr() as u64;
+        }
+        start += taken;
+        if start >= count {
+            return sink;
+        }
+    }
+}
+
 /// Hierarchical remainder shared by the matrix row groups.
 ///
 /// Complete 32- and 16-byte lanes stay on the one-instruction multiply through
