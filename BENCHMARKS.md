@@ -571,6 +571,50 @@ chunk or resolution hoisted into `Plan` would attack that, unmeasured. The
 one open shape is one output, where a 96-byte tile is the next candidate
 worth measuring on both hosts.
 
+### One output: the gap is resolution, and 96 bytes loses (2026-09-09)
+
+Seven arms over one fixture set on both GFNI hosts, each pair differing in one
+factor: the public entry, the production resolved path at 128 and 96 bytes,
+the same body fed coefficients resolved outside the timed region at both
+widths, resolution alone, and ISA-L's `gf_vect_dot_prod_avx2_gfni`. Lengths
+are multiples of 384 (both widths run whole tiles, neither cleans up) plus
+`+32`/`+64` residues that force cleanup in one width only, plus the shipped
+grid's 4/16/64 KiB; sources 6/10/16/33. The inference unit is the run: one
+paired-ratio median per run, a 95% interval over three runs, Holm-adjusted
+across the 28-cell family.
+
+Per-call coefficient resolution costs 12.5 cycles per source at ten sources
+and 10.9 at thirty-three (Golden Cove, elapsed x 4.95 GHz) — about 2.0-2.3 ns
+per source per call, one bank load plus one scratch store plus a pointer copy.
+Two independent measurements agree, the paired difference and a standalone
+resolve probe, and the model predicts held-out shapes: resolution added to the
+resolution-free body reproduces the production path within a median +1.2%
+(Lunar Lake) and +0.8% (Golden Cove), worst cell +5.9%. Public-entry
+validation is within 2% either way, and the vector remainder moves a width by
+under 2% relative to its whole-tile neighbour.
+
+ISA-L wins two cells and they have different causes. At 4 KiB x 10 on Lunar
+Lake it is 204.5 ns against production's 223.0 ns, a gap of 18.4 ns against a
+resolution cost of 23.4 ns: resolution is the whole story, and with resolution
+outside the timed region fgf leads (1.011). At 64 KiB x 33 on Golden Cove
+ISA-L is 29.0 against 31.1 microseconds and beats even the resolution-free
+body (0.951); per call that arm spends +10% instructions and +11% loads for
+-9.5% L2 line fills (34.2k against 37.7k) and wins 6% of cycles. Thirty-three
+streams times a 128-byte tile is four lines per stream in flight where 96
+bytes is three, so the wider tile spills L1 and refetches from L2. At 4 KiB x
+10, where both fit L1 and `l2_lines_in` is ~0, the 128-byte tile is ahead.
+
+The 96-byte tile is rejected. Over the same coefficient store it is slower on
+both hosts (median 0.951 and 0.940, worst 0.855), its only cross-host win is
+~3.8 KiB rows at 16 sources (+8.4% on Lunar Lake but +2.3% on Golden Cove),
+and the enumerated neighbours regress to 0.865 at 33 sources on both hosts —
+far past a 3% noninferiority bound. Production keeps the 128-byte tile. What
+the panel does justify measuring next is hoisting resolution into `Plan`
+(bounded by the resolve probe: 6-10% at 4 KiB, under 1% at 64 KiB), the
+32-term resolve chunk that makes 33 sources take a second destination pass,
+and tile width keyed on source count rather than row length, since L1
+footprint is the only real width effect.
+
 Small GF(2^16) rows are sensitive to coefficient preparation because a shuffle
 backend builds four nibble tables per coefficient. Use `Coeff` or `Plan` when a
 coding matrix is reused. Large rows amortize the same setup in the byte loop.
