@@ -1,6 +1,6 @@
 [package]
 name = "fgf"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2024"
 rust-version = "1.89"
 description = "Faster Galois Fields: SIMD and portable finite-field arithmetic (binary towers and prime fields) and vector kernels"
@@ -25,7 +25,7 @@ simd = ["std"]
 internals = []
 
 [dependencies]
-simdispatch = { git = "https://github.com/nanithefkuc/simdispatch", rev = "5940194107384953cd8cd9f45c8d902b26d5686e" }
+simdispatch = "=0.1.0"
 
 # Comparison benchmarks only; the C `simd-accel` path has no wasm sysroot, and
 # scoping it here keeps `cargo test --target wasm32-*` buildable.

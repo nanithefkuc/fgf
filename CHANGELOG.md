@@ -31,6 +31,13 @@ All notable changes to this project are documented here. The format follows
   words of longer ranges. On the eight-bit-range short-row shape the split
   measures 3.6x the one-shot form per call; see `BENCHMARKS.md`.
 
+## [0.7.1] - 2026-09-09
+
+### Changed
+
+- The `simdispatch` dependency now uses the exact crates.io `=0.1.0`
+  release for the stack's published backend-selection source.
+
 ## [0.7.0] - 2026-08-24
 
 ### Added
@@ -350,8 +357,8 @@ are deliberately not repeated here.
 
 Initial public release.
 
-[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v0.7.0...HEAD
-[0.7.0]: https://github.com/nanithefkuc/fgf/compare/v0.6.0...v0.7.0
+[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/nanithefkuc/fgf/compare/v0.7.0...v0.7.1
 [0.6.0]: https://github.com/nanithefkuc/fgf/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/nanithefkuc/fgf/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/nanithefkuc/fgf/compare/v0.3.0...v0.4.0
