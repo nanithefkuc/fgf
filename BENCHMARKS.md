@@ -444,12 +444,11 @@ the explicit `*_avx2` entries, which ran as the negative control at
   production grouping over records) while 3+3 over bytes is parity; a
   six-output candidate should evaluate both on a second host.
 
-No production change landed: the record layout and the 3+3-over-records arm
-stay behind `internals` (`matrix_overwrite_affine_prepared`,
-`matrix_overwrite{1,2,3,6_33}_8d_prepared`, `gather_affine_prepared_tile`)
-awaiting a second GFNI microarchitecture before any dispatch decision; the
-losing byte-coefficient ISA-L-shaped bodies were removed after their code
-shape and assembly were captured.
+No production change landed from this entry: the record layout and the
+3+3-over-records arm waited on a second GFNI microarchitecture, which later
+rejected both, so their bodies are gone too — only this record and the raw
+artifacts remain. The losing byte-coefficient ISA-L-shaped bodies were removed
+when they were measured.
 
 Two caveats on the ratios above, both found while following the entry up.
 The harness built its `fgf` terms from copies of the source buffers, so the
@@ -613,7 +612,12 @@ the panel does justify measuring next is hoisting resolution into `Plan`
 (bounded by the resolve probe: 6-10% at 4 KiB, under 1% at 64 KiB), the
 32-term resolve chunk that makes 33 sources take a second destination pass,
 and tile width keyed on source count rather than row length, since L1
-footprint is the only real width effect.
+footprint is the only real width effect. The bodies this entry kept are the
+ones those follow-ups need: `matrix_overwrite1_tile_8d` (tile width on the
+production path), `matrix_overwrite1_external_8d` (the same body with
+resolution hoisted out) and `resolve_probe_8d` (resolution alone). The
+rejected replicated-map, ISA-L-grouping, 3+3 and prepared-record bodies were
+removed.
 
 Small GF(2^16) rows are sensitive to coefficient preparation because a shuffle
 backend builds four nibble tables per coefficient. Use `Coeff` or `Plan` when a

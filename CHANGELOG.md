@@ -50,6 +50,21 @@ All notable changes to this project are documented here. The format follows
   the destination, so a caller that folds hundreds of sources into one call
   sees the destination read once per 32-term pass.
 
+### Removed
+
+- The `internals` benchmark bodies for four candidates that two GFNI
+  microarchitectures rejected: dense prepared affine-map records
+  (`matrix_overwrite_affine_prepared`, `matrix_overwrite{1,2}_8d_prepared`,
+  `gather_affine_prepared`, `gather_affine_prepared_tile`), ISA-L's
+  three-row grouping (`matrix_overwrite{3,6_33}_8d_prepared`), the 32-byte
+  replicated affine-map store (`Map32`, `prepare_map32_8d`,
+  `dot_overwrite_replicated_8d`), and the pre-resolved reference body that
+  the production path superseded (`dot_overwrite_compact_8d`). Nothing behind
+  `internals` is a compatibility promise; the measurements that killed them
+  are recorded in `BENCHMARKS.md`. The bodies the recorded follow-ups need —
+  `matrix_overwrite1_tile_8d`, `matrix_overwrite1_external_8d` and
+  `resolve_probe_8d` — stay.
+
 ## [0.7.1] - 2026-09-09
 
 ### Changed

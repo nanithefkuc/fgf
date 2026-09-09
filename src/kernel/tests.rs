@@ -502,50 +502,8 @@ fn check_matrix_overwrite2_shuffle<E: Copy>(
     }
 }
 
-/// Differential for the ISA-L-shaped three-row-group overwrite schedules over
-/// their 3 and 3+3 output groupings; the kernel selects its grouping from
-/// `nrows`.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-fn check_matrix_overwrite3_groups<E: Copy>(
-    name: &str,
-    coeff_at: impl Fn(usize, usize) -> E,
-    reference: impl Fn(&mut [u8], E, &[u8]),
-    kernel: impl Fn(usize, &mut [u8], usize, &[(&[E], &[u8])]),
-) {
-    for &nrows in &[3usize, 6] {
-        for &row_len in ROW_LENS {
-            for nterms in [1usize, 2, 3, 7, 8, 9, 17] {
-                let sources: Vec<Vec<u8>> = (0..nterms)
-                    .map(|term| noise(row_len, 0x4a0 + term as u64))
-                    .collect();
-                let coeff_sets: Vec<Vec<E>> = (0..nterms)
-                    .map(|term| (0..nrows).map(|row| coeff_at(term, row)).collect())
-                    .collect();
-                let terms: Vec<(&[E], &[u8])> = coeff_sets
-                    .iter()
-                    .zip(&sources)
-                    .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
-                    .collect();
-                let mut got = noise(row_len * nrows, 0xdc);
-                let mut want = vec![0u8; row_len * nrows];
-
-                kernel(nrows, &mut got, row_len, &terms);
-                for &(coeffs, src) in &terms {
-                    for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
-                        reference(row, coeff, src);
-                    }
-                }
-                assert_eq!(
-                    got, want,
-                    "{name}: nrows {nrows}, row_len {row_len}, terms {nterms}"
-                );
-            }
-        }
-    }
-}
-
-/// Differential for the prepared one-row overwrite body over both of its
-/// main-tile widths.
+/// Differential for a one-row overwrite body over both of its main-tile
+/// widths.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn check_matrix_overwrite1_prepared<E: Copy>(
     name: &str,
@@ -1285,61 +1243,15 @@ mod x86 {
         );
     }
 
-    fn gf8d_prepared_coeff_at(t: usize, j: usize) -> crate::kernel::gf8::Prepared8D {
-        let c = gf8d_coeff_at2(t, j);
-        crate::kernel::gf8::Prepared8D {
-            table: scale_table_8d(c),
-            affine: affine_8d(c),
-        }
-    }
-
-    fn gf8d_prepared_coeff_at_j(j: usize) -> crate::kernel::gf8::Prepared8D {
-        let c = gf8d_coeff_at(j);
-        crate::kernel::gf8::Prepared8D {
-            table: scale_table_8d(c),
-            affine: affine_8d(c),
-        }
-    }
-
-    fn gf8d_prepared_reference(dst: &mut [u8], prep: crate::kernel::gf8::Prepared8D, src: &[u8]) {
-        gf8d_reference(dst, gf8d::Elem(prep.table.coeff.0), src);
-    }
-
-    fn check_gf8d_prepared_two_row_candidate() {
-        check_matrix_overwrite2(
-            "gf8d two-row overwrite prepared",
-            gf8d_prepared_coeff_at,
-            gf8d_prepared_reference,
-            x86::gf8::matrix_overwrite2_8d_prepared,
-        );
-    }
-
-    fn check_gf8d_prepared_one_row_candidate() {
-        check_matrix_overwrite1_prepared(
-            "gf8d one-row overwrite prepared",
-            gf8d_prepared_coeff_at,
-            gf8d_prepared_reference,
-            x86::gf8::matrix_overwrite1_8d_prepared,
-        );
+    fn check_gf8d_one_row_tile_widths() {
         // The production resolved path at both main-tile widths: 128 bytes is
-        // what production dispatches, 96 bytes is ISA-L's one-output tile.
+        // what production dispatches, 96 bytes the measured and rejected
+        // one-output candidate.
         check_matrix_overwrite1_prepared(
             "gf8d one-row overwrite resolved tile",
             gf8d_coeff_at2,
             gf8d_reference,
             x86::gf8::matrix_overwrite1_tile_8d,
-        );
-    }
-
-    fn check_gf8d_group3_candidates() {
-        check_matrix_overwrite3_groups(
-            "gf8d three-row-group overwrite prepared",
-            gf8d_prepared_coeff_at,
-            gf8d_prepared_reference,
-            |nrows, rows, row_len, terms| match nrows {
-                3 => x86::gf8::matrix_overwrite3_8d_prepared(rows, row_len, terms),
-                _ => x86::gf8::matrix_overwrite6_33_8d_prepared(rows, row_len, terms),
-            },
         );
     }
 
@@ -1400,110 +1312,6 @@ mod x86 {
                         base,
                         x86::gf8::resolve_probe_8d(&bumped_terms),
                         "gf8d resolve probe ignores a coefficient: sources {sources}"
-                    );
-                }
-            }
-        }
-    }
-
-    fn check_gf8d_prepared_gather_tiles() {
-        // Prepared records over a tile sweep (96 bytes is the
-        // schedule-plus-layout arm; widths one and two complete the body).
-        check_gather(
-            "gf8d affine prepared 32-byte tile",
-            gf8d_prepared_coeff_at_j,
-            gf8d_prepared_reference,
-            x86::gf8::gather_affine_prepared_tile::<1>,
-        );
-        check_gather(
-            "gf8d affine prepared 64-byte tile",
-            gf8d_prepared_coeff_at_j,
-            gf8d_prepared_reference,
-            x86::gf8::gather_affine_prepared_tile::<2>,
-        );
-        check_gather(
-            "gf8d affine prepared 96-byte tile",
-            gf8d_prepared_coeff_at_j,
-            gf8d_prepared_reference,
-            x86::gf8::gather_affine_prepared_tile::<3>,
-        );
-    }
-
-    /// Differential for the pre-resolved coefficient bodies: both coefficient
-    /// stores, every supported `(rows, lanes)` shape, over the 32-byte-multiple
-    /// lengths they contract for — including lengths that are not a whole
-    /// number of main tiles, so the 32-byte cleanup loop is exercised.
-    fn check_gf8d_pre_resolved_bodies() {
-        const LENGTHS: &[usize] = &[32, 64, 96, 128, 160, 192, 224, 256, 288, 4096];
-        const SHAPES: &[(usize, usize)] = &[
-            (1, 2),
-            (1, 3),
-            (1, 4),
-            (1, 6),
-            (2, 2),
-            (2, 3),
-            (2, 4),
-            (3, 2),
-            (3, 3),
-            (4, 2),
-            (4, 3),
-        ];
-        for &row_len in LENGTHS {
-            for &(nrows, lanes) in SHAPES {
-                for sources in [1usize, 3, 5] {
-                    let buffers: Vec<Vec<u8>> = (0..sources)
-                        .map(|t| noise(row_len, 0x9e37 + (t as u64) * 31 + row_len as u64))
-                        .collect();
-                    let srcs: Vec<&[u8]> = buffers.iter().map(Vec::as_slice).collect();
-                    // Source-major `(source, row)` coefficient order, the
-                    // layout both bodies contract for.
-                    let coeffs: Vec<gf8d::Elem> = (0..sources * nrows)
-                        .map(|i| gf8d_coeff_at2(i / nrows, i % nrows))
-                        .collect();
-                    let compact: Vec<u64> = coeffs.iter().copied().map(affine_8d).collect();
-                    let replicated: Vec<x86::gf8::Map32> = coeffs
-                        .iter()
-                        .copied()
-                        .map(x86::gf8::prepare_map32_8d)
-                        .collect();
-
-                    let mut want = vec![0u8; nrows * row_len];
-                    for (source, src) in srcs.iter().enumerate() {
-                        for row in 0..nrows {
-                            let base = row * row_len;
-                            gf8d_reference(
-                                &mut want[base..base + row_len],
-                                coeffs[source * nrows + row],
-                                src,
-                            );
-                        }
-                    }
-
-                    // Seeded with noise: only an overwrite body agrees.
-                    let seed = noise(nrows * row_len, 0x51ed + row_len as u64);
-                    let mut got = seed.clone();
-                    x86::gf8::dot_overwrite_compact_8d(
-                        &mut got, row_len, nrows, &compact, &srcs, lanes,
-                    );
-                    assert_eq!(
-                        got, want,
-                        "gf8d compact pre-resolved: len {row_len} rows {nrows} \
-                         lanes {lanes} sources {sources}"
-                    );
-
-                    let mut got = seed;
-                    x86::gf8::dot_overwrite_replicated_8d(
-                        &mut got,
-                        row_len,
-                        nrows,
-                        &replicated,
-                        &srcs,
-                        lanes,
-                    );
-                    assert_eq!(
-                        got, want,
-                        "gf8d replicated pre-resolved: len {row_len} rows {nrows} \
-                         lanes {lanes} sources {sources}"
                     );
                 }
             }
@@ -1809,18 +1617,9 @@ mod x86 {
             gf8d_reference,
             x86::gf8::matrix_overwrite_affine,
         );
-        check_matrix_overwrite(
-            "gf8d affine matrix overwrite prepared",
-            gf8d_prepared_coeff_at,
-            gf8d_prepared_reference,
-            x86::gf8::matrix_overwrite_affine_prepared,
-        );
         check_gf8d_six_row_shuffle_candidates();
         check_gf8d_two_row_candidates();
-        check_gf8d_prepared_two_row_candidate();
-        check_gf8d_prepared_one_row_candidate();
-        check_gf8d_group3_candidates();
-        check_gf8d_pre_resolved_bodies();
+        check_gf8d_one_row_tile_widths();
         check_gf8d_one_row_external_maps();
         check_gather(
             "gf8d affine gather",
@@ -1828,23 +1627,6 @@ mod x86 {
             gf8d_reference,
             x86::gf8::gather_affine,
         );
-        // Prepared coefficients broadcast the stored affine map straight into
-        // the gather, hoisting the per-tile lookup; output must be identical.
-        check_gather(
-            "gf8d affine gather prepared",
-            |j| {
-                let c = gf8d_coeff_at(j);
-                crate::kernel::gf8::Prepared8D {
-                    table: scale_table_8d(c),
-                    affine: affine_8d(c),
-                }
-            },
-            |dst, prep: crate::kernel::gf8::Prepared8D, src| {
-                gf8d_reference(dst, gf8d::Elem(prep.table.coeff.0), src);
-            },
-            x86::gf8::gather_affine_prepared,
-        );
-        check_gf8d_prepared_gather_tiles();
         check_gf8d_scattered_affine_rows();
     }
 
