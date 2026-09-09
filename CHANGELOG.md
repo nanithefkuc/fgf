@@ -40,10 +40,12 @@ All notable changes to this project are documented here. The format follows
   lookup all leave the multiply loop; grouping, tile widths, and every
   public contract are unchanged, and the steady state stays allocation-free.
   Both GF(2^8) fields, overwrite and accumulate, plan forms and scattered
-  rows inherit it. On the reference host (Core Ultra 7 258V, AVX2+GFNI) it
-  measures 1.07-1.34x the previous throughput across 4-64 KiB rows, 6-16
-  sources and one to six output rows, with no shape regressing; see
-  `BENCHMARKS.md`, "Pre-resolved coefficients in the matrix row groups".
+  rows inherit it. Measured on two GFNI microarchitectures — Core Ultra 7
+  258V (Lunar Lake) at 1.07-1.34x and i7-12700K (Golden Cove) at 1.05-1.29x
+  the previous throughput across 4-64 KiB rows, 6-16 sources and one to six
+  output rows, with no shape regressing on either host; see `BENCHMARKS.md`,
+  "Pre-resolved coefficients in the matrix row groups" and "Second GFNI
+  host".
   Coefficient counts above 32 terms per call fold in several passes over
   the destination, so a caller that folds hundreds of sources into one call
   sees the destination read once per 32-term pass.

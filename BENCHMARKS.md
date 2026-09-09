@@ -518,6 +518,59 @@ tile-width candidates the entry above parked — a 96-byte one-output tile,
 worth 3-16% on some shapes and negative on others, so they still need a
 second GFNI host before any dispatch policy moves.
 
+### Second GFNI host: Golden Cove confirms, three candidates die (2026-09-09)
+
+The same grid on a second microarchitecture: i7-12700K, measured on CPU 8, a
+Golden Cove P-core (`core_id` 16, siblings 8-9, 5.0 GHz) isolated with
+`isolcpus=domain,managed_irq,8-11 nohz_full=8-11 rcu_nocbs=8-11
+irqaffinity=0-7,12-19 nowatchdog`, CachyOS 7.2.3, `nmi_watchdog=0`, governor
+`powersave`, rustc 1.98.1, ISA-L 2.32.0, backend `v3_gfni_crypto`. Three
+release builds of one harness source so the compared arm sets match — the
+pre-change tree, the same tree's four-arm build, and the ten-arm build for
+the candidate comparisons — with the ISA-L arms as byte-identical anchors
+(drift median 1.001 against 1.023 on the non-isolated reference core). Arm
+sets have to match: `prod` at 64 KiB x 10, one output reads 93.3 GiB/s in the
+four-arm build and 82.5 GiB/s with nine other arms interleaved around it.
+
+| Measure | Lunar Lake | Golden Cove |
+| --- | ---: | ---: |
+| New / old production, median | 1.219 | 1.122 |
+| New / old production, range | 1.073-1.336 | 1.047-1.286 |
+| Cells improved | 36/36 | 36/36 |
+| Versus ISA-L GFNI, before | 0.932 | 0.992 |
+| Versus ISA-L GFNI, after | 1.094 | 1.124 |
+
+Same mechanism: per 1024 source bytes at 64 KiB x 10, instructions fall
+191.5 -> 153.8 and loads 74.0 -> 49.8 at one output, 997.7 -> 692.6 and
+309.4 -> 176.7 at six, with cycles 50.77 -> 47.53 and 217.99 -> 185.46. The
+smaller headline (+12% against +22%) follows from the old path already
+sitting closer to ISA-L here. What ISA-L keeps is one output: median 1.024,
+winning three cells by 3-4%, while two, four and six outputs lead by 1.133.
+
+`ld_blocks.address_alias`, which Lunar Lake does not expose, is at most 0.07
+per kB for every arm and shape. The load-side stall that separated
+production from the pre-resolved reference body on the reference host was the
+harness's unaligned source copies, not 4K aliasing.
+
+Three candidates parked above are rejected on cross-host evidence: 32-byte
+replicated map records (0.997 there with wins at 64 KiB x 16, 0.958 here with
+35 of 36 cells losing), ISA-L's grouping over the same coefficient store
+(0.961-0.971 with 8-12 winning cells there, 0.946 with none here), and
+3+3-over-records at six outputs (1.12-1.17 there, 0.901 here losing all 27
+cells, worst 0.827). Production's 4x64 B + 2x128 B grouping over compact map
+qwords is the choice on both microarchitectures, which is what already ships,
+so no dispatch change follows from this run either. Prepared records are done
+as a candidate too: 0.992 against production here, and the two share the
+resolved body above one output.
+
+Placement still moves single cells (-9.4% to +11.6% at 64-byte stagger,
+median +0.9 to +2.2% per arm) without flipping a verdict. Production stays
+4.9% behind the pre-resolved reference body (0.951 median, worst 0.867),
+per-call coefficient resolution as on the reference host; a wider resolve
+chunk or resolution hoisted into `Plan` would attack that, unmeasured. The
+one open shape is one output, where a 96-byte tile is the next candidate
+worth measuring on both hosts.
+
 Small GF(2^16) rows are sensitive to coefficient preparation because a shuffle
 backend builds four nibble tables per coefficient. Use `Coeff` or `Plan` when a
 coding matrix is reused. Large rows amortize the same setup in the byte loop.
