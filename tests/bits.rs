@@ -307,7 +307,7 @@ fn weight_and_parity_match_per_bit_oracle() {
             let a = live(bits_len, 0x900 + bits_len as u64, word_padded);
             let b = live(bits_len, 0xa00 + bits_len as u64, word_padded);
 
-            let expected_weight: u32 = (0..bits_len).map(|i| u32::from(bit(&a, i))).sum();
+            let expected_weight: usize = (0..bits_len).map(|i| usize::from(bit(&a, i))).sum();
             assert_eq!(
                 bits::weight(&a, bits_len),
                 expected_weight,
@@ -366,7 +366,7 @@ fn surplus_bytes_are_padding_not_elements() {
     assert_eq!(buf.len(), 16);
 
     // weight and parity stop at 100 bits.
-    let expected_weight: u32 = (0..100).map(|i| u32::from(bit(&buf, i))).sum();
+    let expected_weight: usize = (0..100).map(|i| usize::from(bit(&buf, i))).sum();
     assert_eq!(bits::weight(&buf, 100), expected_weight);
     let mut acc = 0u32;
     for i in 0..100 {

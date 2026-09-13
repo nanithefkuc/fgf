@@ -33,10 +33,13 @@ macro_rules! flat_gf8 {
         /// An element of this GF(2^8) field, stored as its polynomial
         /// coefficient vector.
         ///
-        /// The derived [`Ord`] is raw-representation order, useful for map keys
-        /// and deterministic iteration; it carries no field-theoretic meaning.
+        /// Every byte is a distinct field value, so the derived
+        /// [`PartialEq`]/[`Hash`]/[`Ord`] — raw-byte order — compare field
+        /// values. That order is a deterministic total order for map keys and
+        /// sorting; no order compatible with addition exists in
+        /// characteristic two.
         #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-        pub struct Elem(pub u8);
+        pub struct Elem(pub(crate) u8);
 
         impl $field {
             /// This field's irreducible reduction polynomial, e.g. `0x11B` for
@@ -249,6 +252,7 @@ macro_rules! flat_gf8 {
             const BITS: u32 = 8;
             const BYTES: usize = 1;
             const ORDER: u128 = 256;
+            const CHARACTERISTIC: u64 = 2;
             const GENERATOR: Elem = GENERATOR;
 
             #[inline]

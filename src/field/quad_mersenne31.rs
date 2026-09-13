@@ -9,7 +9,11 @@
 //!
 //! As with the prime fields, every raw limb bit pattern is a legal input and
 //! every arithmetic output is canonical (`< p` per limb). `from_raw` does not
-//! canonicalize; `canonical` and every arithmetic operation does.
+//! canonicalize; `canonical` and every arithmetic operation does. Equality,
+//! hashing, and ordering follow the field value — both limbs reduced modulo
+//! `p` — so elements whose limbs agree modulo `p` compare equal, hash
+//! equally, and sort as one element. Inspect the stored limbs with
+//! [`Elem::to_raw`].
 //!
 //! Arithmetic is variable-time and not for secret data.
 //!
@@ -17,19 +21,20 @@
 //! use fgf::quad_mersenne31::{self, Elem};
 //!
 //! // i² = −1  →  (0 + i)² = (−1 + 0·i)
-//! const I: Elem = Elem(0, 1);
-//! const _: () = assert!(I.square().0 == 0x7FFF_FFFE);
-//! const _: () = assert!(I.square().1 == 0);
+//! const I: Elem = Elem::from_raw(0, 1);
+//! const _: () = assert!(I.square().to_raw().0 == 0x7FFF_FFFE);
+//! const _: () = assert!(I.square().to_raw().1 == 0);
 //!
-//! // Known product
-//! const A: Elem = Elem(0x5555_5555, 0x5555_5555);
-//! const B: Elem = Elem(0x5555_5555, 0x5555_5555);
-//! // (a+ai)² = 0 + 2a²·i ; 2·(0x71C71C71) reduced etc — checked against u128 oracle
-//! let _ = A.mul(B);
+//! // Known product, pinned against the frozen M31 known answer
+//! // a² = 0x71C7_1C71: (a + a·i)² = 0 + 2a²·i with 2a² mod p = 0x638E_38E3.
+//! const A: Elem = Elem::from_raw(0x5555_5555, 0x5555_5555);
+//! const B: Elem = Elem::from_raw(0x5555_5555, 0x5555_5555);
+//! const _: () = assert!(A.mul(B).to_raw().0 == 0);
+//! const _: () = assert!(A.mul(B).to_raw().1 == 0x638E_38E3);
 //!
 //! // Division total
-//! const _: () = assert!(A.div(Elem::ZERO).0 == 0);
-//! const _: () = assert!(A.div(Elem::ZERO).1 == 0);
+//! const _: () = assert!(A.div(Elem::ZERO).to_raw().0 == 0);
+//! const _: () = assert!(A.div(Elem::ZERO).to_raw().1 == 0);
 //!
 //! // Generator has full order p²−1
 //! assert_eq!(quad_mersenne31::GENERATOR.pow(0x3FFF_FFFF_0000_0000), Elem::ONE);
@@ -57,9 +62,50 @@ pub struct QuadMersenne31;
 
 /// An element of GF((2³¹ − 1)²), stored as interleaved `u32` limbs `(re, im)`.
 ///
-/// The derived `Ord`/`Hash` are raw-representation order, not field order.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-pub struct Elem(pub u32, pub u32);
+/// The limbs are stored exactly as passed to [`Elem::from_raw`], so either
+/// may hold a non-canonical bit pattern (≥ p). Equality, hashing, and
+/// ordering follow the field value — both limbs reduced modulo `p` — so
+/// elements whose limbs agree modulo `p` compare equal, hash equally, and
+/// sort as a single element. Ordering is lexicographic over the canonical
+/// `(re, im)` pair: a deterministic total order for maps and sorting, not an
+/// order compatible with field arithmetic. [`Elem::to_raw`] exposes the
+/// stored limbs.
+#[derive(Clone, Copy, Default)]
+pub struct Elem(pub(crate) u32, pub(crate) u32);
+
+impl PartialEq for Elem {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        m31_canonical(self.0) == m31_canonical(other.0)
+            && m31_canonical(self.1) == m31_canonical(other.1)
+    }
+}
+
+impl Eq for Elem {}
+
+impl core::hash::Hash for Elem {
+    #[inline]
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        state.write_u32(m31_canonical(self.0));
+        state.write_u32(m31_canonical(self.1));
+    }
+}
+
+impl PartialOrd for Elem {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Elem {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        m31_canonical(self.0)
+            .cmp(&m31_canonical(other.0))
+            .then_with(|| m31_canonical(self.1).cmp(&m31_canonical(other.1)))
+    }
+}
 
 #[inline]
 #[must_use]
@@ -130,7 +176,8 @@ impl Elem {
         [re[0], re[1], re[2], re[3], im[0], im[1], im[2], im[3]]
     }
 
-    /// Wrap raw limbs. Does not canonicalize.
+    /// Wrap raw limbs. Does not canonicalize: the stored limbs keep the exact
+    /// bits passed in, and equality reduces each modulo `p`.
     #[inline]
     #[must_use]
     pub const fn from_raw(re: u32, im: u32) -> Self {
@@ -273,7 +320,12 @@ impl Elem {
         result
     }
 
-    /// Raise to `u128` exponent (needed for `p²−1` which exceeds `u64`? actually fits in 63 bits, but convenience).
+    /// Raise to a `u128` exponent.
+    ///
+    /// The group order `p² − 1 = 2^62 − 2^32` fits comfortably in a `u64`,
+    /// so [`Elem::pow`] covers every exponent this field's arithmetic can
+    /// produce; this variant exists for callers that already hold a `u128`
+    /// exponent.
     #[inline]
     #[must_use]
     pub const fn pow_u128(self, mut exponent: u128) -> Self {
@@ -343,6 +395,7 @@ impl Field for QuadMersenne31 {
     const BITS: u32 = 64;
     const BYTES: usize = 8;
     const ORDER: u128 = ORDER;
+    const CHARACTERISTIC: u64 = MODULUS as u64;
     const GENERATOR: Elem = GENERATOR;
 
     #[inline]

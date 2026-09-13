@@ -14,9 +14,16 @@ use std::time::{Duration, Instant};
 
 #[cfg(all(
     feature = "internals",
+    feature = "simd",
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 use fgf::kernel::tables::{ScaleTable, scale_table, scale_table_8d};
+#[cfg(all(
+    feature = "internals",
+    feature = "simd",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+use fgf::kernel::{SimdToken, X64V3GfniCryptoToken};
 use fgf::{Gf8B, Gf8D, Gf16, backend, gf8b, gf8d, gf16, ops};
 
 const BYTES: usize = 64 * 1024;
@@ -40,6 +47,7 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
 
 #[cfg(all(
     feature = "internals",
+    feature = "simd",
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 fn pack_table(table: &ScaleTable) -> [u8; 32] {
@@ -87,8 +95,16 @@ fn bench_dot_product(len: usize) {
     let coefficient_bytes: Vec<u8> = (0..DOT_SOURCES)
         .map(|index| 2 + ((index * 73 + 19) % 254) as u8)
         .collect();
-    let coeffs_8b: Vec<_> = coefficient_bytes.iter().copied().map(gf8b::Elem).collect();
-    let coeffs_8d: Vec<_> = coefficient_bytes.iter().copied().map(gf8d::Elem).collect();
+    let coeffs_8b: Vec<_> = coefficient_bytes
+        .iter()
+        .copied()
+        .map(gf8b::Elem::from_raw)
+        .collect();
+    let coeffs_8d: Vec<_> = coefficient_bytes
+        .iter()
+        .copied()
+        .map(gf8d::Elem::from_raw)
+        .collect();
     let plan_8b = ops::Plan::<Gf8B>::new(&coeffs_8b);
     let plan_8d = ops::Plan::<Gf8D>::new(&coeffs_8d);
     let mut dst_8b = AlignedBuf::noise(len, 0x900);
@@ -133,14 +149,22 @@ fn bench_encode(nrows: usize) {
     let columns_8b: Vec<Vec<gf8b::Elem>> = (0..ENCODE_SOURCES)
         .map(|term| {
             (0..nrows)
-                .map(|row| gf8b::Elem((1 + ((row * ENCODE_SOURCES + term) * 97 + 13) % 255) as u8))
+                .map(|row| {
+                    gf8b::Elem::from_raw(
+                        (1 + ((row * ENCODE_SOURCES + term) * 97 + 13) % 255) as u8,
+                    )
+                })
                 .collect()
         })
         .collect();
     let columns_8d: Vec<Vec<gf8d::Elem>> = (0..ENCODE_SOURCES)
         .map(|term| {
             (0..nrows)
-                .map(|row| gf8d::Elem((1 + ((row * ENCODE_SOURCES + term) * 97 + 13) % 255) as u8))
+                .map(|row| {
+                    gf8d::Elem::from_raw(
+                        (1 + ((row * ENCODE_SOURCES + term) * 97 + 13) % 255) as u8,
+                    )
+                })
                 .collect()
         })
         .collect();
@@ -216,9 +240,16 @@ fn bench_encode(nrows: usize) {
 
     #[cfg(all(
         feature = "internals",
+        feature = "simd",
         any(target_arch = "x86", target_arch = "x86_64")
     ))]
     if nrows == 6 {
+        // A genuine capability token proves AVX2+GFNI for the shuffle
+        // kernels; skip the comparison on hosts that cannot run them.
+        let Some(gfni) = X64V3GfniCryptoToken::summon() else {
+            eprintln!("skipping: six-row shuffle comparison needs AVX2+GFNI");
+            return;
+        };
         let source_refs: Vec<&[u8]> = sources.iter().map(AlignedBuf::as_slice).collect();
         let packed_8b: Vec<[u8; 32]> = columns_8b
             .iter()
@@ -241,23 +272,27 @@ fn bench_encode(nrows: usize) {
         let mut raw_8d = AlignedBuf::noise(BYTES * nrows, 0xb06);
         let mut packed_rows_8d = AlignedBuf::noise(BYTES * nrows, 0xb07);
 
-        fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_8b(
+        fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_8b(
+            gfni,
             raw_8b.as_mut_slice(),
             BYTES,
             &terms_8b,
         );
-        fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_packed_8b(
+        fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_packed_8b(
+            gfni,
             packed_rows_8b.as_mut_slice(),
             BYTES,
             &packed_8b,
             &source_refs,
         );
-        fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_8d(
+        fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_8d(
+            gfni,
             raw_8d.as_mut_slice(),
             BYTES,
             &terms_8d,
         );
-        fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_packed_8d(
+        fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_packed_8d(
+            gfni,
             packed_rows_8d.as_mut_slice(),
             BYTES,
             &packed_8d,
@@ -285,14 +320,16 @@ fn bench_encode(nrows: usize) {
         );
 
         bench_region("fgf Gf8B six-row raw shuffle", logical_bytes, || {
-            fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_8b(
+            fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_8b(
+                gfni,
                 black_box(raw_8b.as_mut_slice()),
                 BYTES,
                 black_box(&terms_8b),
             );
         });
         bench_region("fgf Gf8B six-row packed shuffle", logical_bytes, || {
-            fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_packed_8b(
+            fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_packed_8b(
+                gfni,
                 black_box(packed_rows_8b.as_mut_slice()),
                 BYTES,
                 black_box(&packed_8b),
@@ -300,14 +337,16 @@ fn bench_encode(nrows: usize) {
             );
         });
         bench_region("fgf Gf8D six-row raw shuffle", logical_bytes, || {
-            fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_8d(
+            fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_8d(
+                gfni,
                 black_box(raw_8d.as_mut_slice()),
                 BYTES,
                 black_box(&terms_8d),
             );
         });
         bench_region("fgf Gf8D six-row packed shuffle", logical_bytes, || {
-            fgf::kernel::x86::gf8::matrix_overwrite6_shuffle_packed_8d(
+            fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_packed_8d(
+                gfni,
                 black_box(packed_rows_8d.as_mut_slice()),
                 BYTES,
                 black_box(&packed_8d),
@@ -363,11 +402,11 @@ fn main() {
     let mut dst16 = AlignedBuf::noise(BYTES, 0x603);
 
     // w8
-    let c8 = gf8b::Elem(0x53);
+    let c8 = gf8b::Elem::from_raw(0x53);
     bench_scalar("w8 scalar mul", || {
-        let mut x = gf8b::Elem(0xA5);
+        let mut x = gf8b::Elem::from_raw(0xA5);
         for i in 0..SCALAR_ITERS {
-            x = black_box(x).mul(gf8b::Elem((0x53u8).wrapping_add(i as u8)));
+            x = black_box(x).mul(gf8b::Elem::from_raw((0x53u8).wrapping_add(i as u8)));
         }
         black_box(x);
     });
@@ -387,11 +426,11 @@ fn main() {
     });
 
     // Bit-compatible GF(2^8)/0x11D used by ISA-L and RSE.
-    let c8d = gf8d::Elem(0x53);
+    let c8d = gf8d::Elem::from_raw(0x53);
     bench_scalar("w8d scalar mul", || {
-        let mut x = gf8d::Elem(0xA5);
+        let mut x = gf8d::Elem::from_raw(0xA5);
         for i in 0..SCALAR_ITERS {
-            x = black_box(x).mul(gf8d::Elem((0x53u8).wrapping_add(i as u8)));
+            x = black_box(x).mul(gf8d::Elem::from_raw((0x53u8).wrapping_add(i as u8)));
         }
         black_box(x);
     });
@@ -411,11 +450,11 @@ fn main() {
     });
 
     // w16
-    let c16 = gf16::Elem(0x53A7);
+    let c16 = gf16::Elem::from_raw(0x53A7);
     bench_scalar("w16 scalar mul", || {
-        let mut x = gf16::Elem(0x1234);
+        let mut x = gf16::Elem::from_raw(0x1234);
         for i in 0..SCALAR_ITERS {
-            x = black_box(x).mul(gf16::Elem((0x53A7u16).wrapping_add(i as u16)));
+            x = black_box(x).mul(gf16::Elem::from_raw((0x53A7u16).wrapping_add(i as u16)));
         }
         black_box(x);
     });

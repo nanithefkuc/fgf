@@ -8,12 +8,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `Field::CHARACTERISTIC`: the field's characteristic as a first-class
+  constant — `2` for every binary tower, the base prime `2^31 − 1` for
+  `Mersenne31` and the quadratic extension `QuadMersenne31` (whose `ORDER`
+  is `p²`), and the Goldilocks prime for `Goldilocks`. A required associated
+  constant, so external `Field` implementers must add it; it cannot be
+  derived from `ORDER`, which is the defect it exists to prevent.
 - `ops::add_assign_rows`: pairwise row addition over two equal flat
   row buffers, `dst_row[j] += src_row[j]`. Semantically identical to
   `add_assign` (and currently implemented through it on every backend);
   the checked row geometry documents caller intent so backends may
   interleave independent row streams where a platform measures a win.
-  The defaulted `FieldKernels::add_assign_rows` carries the semantic
+  The defaulted internal row-addition method carries the semantic
   contract; experimental four-stream interleaved XOR kernels for x86
   AVX2/SSE2 and an AArch64 NEON sketch are exposed behind `internals`,
   differentially tested, and deliberately not wired — they measured at
@@ -30,6 +36,30 @@ All notable changes to this project are documented here. The format follows
   sub-word ranges (one or two masked byte operations) and the masked end
   words of longer ranges. On the eight-bit-range short-row shape the split
   measures 3.6x the one-shot form per call; see `BENCHMARKS.md`.
+- `internals` entries for the crossed resolution x chunk panel:
+  `matrix_overwrite1_fullinit_8d` (the production one-row path with the
+  original full-array scratch policy), `matrix_overwrite1_chunk_8d` and
+  `matrix_overwrite_chunk_8d` (resolved path at chunk 32/64/96, one row and
+  grouped), `matrix_overwrite1_external_chunk_8d` and
+  `matrix_overwrite_external_grouped_8d` (the production body over externally
+  resolved maps, chunked or single-pass). Benchmark evidence only; production
+  dispatch is unchanged. See `BENCHMARKS.md`, "Crossed resolution x chunk
+  panel".
+- `internals` entries for the plan-hoisting experiment:
+  `matrix_affine_prepared_with` and `matrix_overwrite_affine_prepared_with`
+  run the production row-group bodies over `Prepared8D` coefficients (the
+  affine word read from the prepared form). Measured and rejected for the
+  plan entries — parity-to-worse against the term-list baseline on both
+  hosts, closing none of the gap to the resolution-free body — so production
+  still
+  resolves from scalar values; see `BENCHMARKS.md`, "Plan-hoisted
+  resolution measured and rejected".
+- CI now builds the docs with `-D warnings` in every feature configuration
+  the test jobs exercise (default, `--no-default-features`,
+  `--no-default-features --features std`, `--all-features`), compiles the
+  `simd` feature for `wasm32-unknown-unknown` with `+simd128` enabled
+  explicitly, and the MSRV job runs
+  `cargo check --locked --all-features --all-targets` on Rust 1.89.
 
 ### Changed
 
@@ -49,6 +79,82 @@ All notable changes to this project are documented here. The format follows
   Coefficient counts above 32 terms per call fold in several passes over
   the destination, so a caller that folds hundreds of sources into one call
   sees the destination read once per 32-term pass.
+- The GFNI GF(2^8) resolve-chunk scratch is written only for the occupied
+  chunk terms (`MaybeUninit` staging) instead of declaring the full arrays
+  initialized. Measured kernel-neutral on both GFNI hosts — the full-init
+  cost the old resolve probe showed was the probe's own artifact — but the
+  probe now mirrors production, and `RESOLVE_CHUNK` stays 32: chunk 64/96
+  fail the both-host noninferiority gate at 65 sources. No observable
+  behaviour change; see `BENCHMARKS.md`, "Crossed resolution x chunk panel".
+- **Breaking: scalar element tuple fields are now private.** Construct and
+  read elements through the named `const` conversions — `Elem::from_raw` /
+  `Elem::to_raw`, with `from_components` / `components` on the towers. Raw
+  byte encodings and scalar arithmetic are unchanged; the migration is
+  mechanical (`Elem(x)` → `Elem::from_raw(x)`, `e.0` → `e.to_raw()`).
+- **Breaking: `Gf2` and the prime-family elements (`Mersenne31`,
+  `Goldilocks`, `QuadMersenne31`) now compare, hash, and order by canonical
+  field value**, so equivalent raw lanes (a prime lane holding `p` and one
+  holding `0`) denote the same element. Binary-tower equality is unchanged:
+  those fields still compare representations, which is value equality
+  there. `to_raw` still returns the raw lane as stored — it is not a
+  canonicalizing accessor; compare `to_raw()` values directly when raw
+  representation equality is what you need.
+- **Clarified packed prime-field inputs:** canonical input lanes produce
+  canonical output lanes. Packed calls do not normalize arbitrary input
+  bytes; raw-lane totality remains a scalar-arithmetic contract.
+- **Breaking: `FieldKernels` remains a usable generic public bound, but its
+  raw unchecked dispatch and preparation entry points are no longer exposed
+  to normal consumers**, and `PreparedCoefficient` no longer lets consumers
+  extract the implementation's prepared form. The checked operations retain
+  their one-shot and borrowed prepared-coefficient usage flows; matrix-plan
+  signature changes are listed below.
+- `bits` padding is caller-maintained. Range operations leave padding
+  untouched; whole-buffer operations preserve zero padding for valid
+  inputs, but do not promise to sanitize nonzero padding. This corrects
+  the earlier blanket zero-padding guarantee.
+- `internals` is documented as explicitly unstable — nothing behind it is a
+  compatibility promise — while remaining subject to Rust's safety and
+  soundness contracts.
+- Documentation corrections: the `no_std` story now states that the crate's
+  own portable configuration exists but the `simdispatch`/`archmage`
+  dependency graph still enables `std`, so bare-metal support awaits a
+  separate dependency review; the fields table gained the missing
+  `QuadMersenne31` row; value equality/hash/ordering, canonical prime
+  lanes, caller-maintained bit padding, fused `+=` arithmetic (XOR only in
+  characteristic two), and a crate-wide no-constant-time guarantee are
+  stated explicitly.
+- `cargo package` now uses an explicit include allowlist (source, the
+  intentional tests/benches/examples, and the public doc/license set);
+  local-only working files, markdownlint configuration, CI workflow
+  definitions, and `external-bench` are excluded.
+- `ops::Plan` accessors renamed: `dimensions()` is replaced by
+  `source_count()` / `output_count()`, and `row(i)` by `source(i)`.
+  `Plan::matrix(sources, outputs, coeffs)` is unchanged.
+- `mul_add_matrix_with` and `dot_product_matrix_with` no longer take the
+  row-count argument; it derives from the plan's `output_count()`.
+- Direct architecture entrypoints under `internals` now live in
+  `kernel::{architecture}::proven` and require genuine Archmage capability
+  tokens. Safe entrypoints validate geometry; generic raw-provider calls
+  additionally require an unsafe caller contract. The normal dispatch path
+  retains its existing once-per-process capability selection.
+- `internals` enables optional `archmage =0.9.29`, matching the version
+  already used by `simdispatch`. Default builds retain only `simdispatch`
+  as a direct runtime dependency.
+- **Breaking:** `bits::weight` returns `usize` rather than `u32`.
+
+### Fixed
+
+- Valid zero-byte scatter and matrix shapes are no-ops on every backend,
+  while malformed coefficient/source geometry still panics.
+- Prepared-plan source lookup checks logical bounds before arithmetic,
+  including zero-output plans and `usize::MAX` indices.
+- Bit population counts no longer overflow at `2^32` set bits; the public
+  operation sums bounded segments without changing the inner kernel.
+- Direct overwrite entrypoints replace addressed rows rather than accumulate
+  into their previous contents, including zeroing them for an empty source
+  set; surplus destination bytes remain untouched.
+- GF16 scatter accepts surplus destination rows in debug builds, matching
+  the checked buffer contract and release behavior.
 
 ### Removed
 

@@ -4,13 +4,19 @@
 //!
 //! - [`Backend`] — which instruction set the kernels will use, detected once
 //!   per process.
-//! - [`FieldKernels`] — the per-field kernel contract. GF(2^8) and GF(2^16)
-//!   own hand-written SIMD dispatch; wider and Fan–Paar fields use the
-//!   portable `scalar` kernels.
+//! - [`FieldKernels`] — the sealed public bound over a field's kernels;
+//!   the raw entry points it dispatches to live on a crate-private
+//!   `KernelDispatch` supertrait reachable only through [`crate::ops`] or,
+//!   under `internals`, the token-gated `proven` modules below.
 //! - `scalar` — the portable reference and fallback implementation. Every
 //!   SIMD backend is differentially tested against it, and vector loops use
 //!   it for sub-lane tails.
-//! - `x86` / `aarch64` / `wasm32` — architecture-local intrinsics.
+//! - `x86` / `aarch64` / `wasm32` — architecture-local intrinsics. With the
+//!   `internals` feature each submodule also exposes a `proven` module:
+//!   public copies of the kernel entries that take a genuine
+//!   `archmage` capability token proving the ISA, plus full geometry
+//!   validation, so an `internals` consumer can never reach a
+//!   target-feature body unchecked.
 //!
 //! Callers should use the safe, validated wrappers in [`crate::ops`] rather
 //! than this module directly.
@@ -173,7 +179,7 @@ impl KernelBackend for Backend {
 
 /// The backend these kernels use, resolved once per process.
 ///
-/// Runs [`Selection`] over [`FGF_TIERS`] — every tier this crate implements
+/// Runs [`simdispatch::Selection`] over [`FGF_TIERS`] — every tier this crate implements
 /// kernels for, or [`Backend::Scalar`] when SIMD is compiled out — then
 /// adjusted by the downgrade-only `SIMD_BACKEND` override. May be downgraded
 /// at startup via `SIMD_BACKEND` (`v3_gfni_crypto`, `v3`, `v2`, `neon_aes`,
@@ -294,35 +300,20 @@ impl<C> Matrix<C> for FlatMatrix<'_, C> {
     }
 }
 
-/// The per-field vector kernel contract.
+/// The per-field vector kernel contract, as a public bound.
 ///
-/// Implementations own runtime dispatch for their field. Every method's
-/// preconditions are checked by the [`crate::ops`] wrappers, not here.
-///
-/// # Preconditions
-///
-/// All slice lengths are in **bytes** and must be whole multiples of
-/// `Self::BYTES`. `dst` and `src` must have equal length.
-// The seal stays private even under `internals`: implementors are fixed.
-#[allow(private_interfaces)]
-pub trait FieldKernels: Field + private::Sealed {
-    /// The backend-ready form of one coefficient.
-    ///
-    /// Different backends want different things from a coefficient: GFNI
-    /// wants a broadcast word, the shuffle backends want nibble tables, the
-    /// scalar path wants the element itself. [`FieldKernels::prepare`]
-    /// resolves that once — which is why the single-coefficient kernels below
-    /// take a `Prepared` and not an `Elem`. The backend is fixed for the life
-    /// of the process, so this moves the backend decision *out* of the hot
-    /// call rather than adding one.
-    type Prepared: Clone + Send + Sync + core::fmt::Debug;
-
-    /// Resolve a coefficient into the form this host's backend wants.
-    fn prepare(coeff: Self::Elem) -> Self::Prepared;
-
-    /// Recover the coefficient a [`FieldKernels::Prepared`] was built from.
-    fn prepared_coeff(prepared: &Self::Prepared) -> Self::Elem;
-
+/// This trait is the *nameable* half of the kernel surface: generic code
+/// writes `F: FieldKernels` and, through [`crate::ops`], gets that field's
+/// dispatched kernels with every precondition checked. It is sealed — the
+/// implementor set is fixed — and intentionally carries no methods beyond
+/// two safe queries: the raw entry points live on the crate-private
+/// `KernelDispatch` supertrait, so outside this crate they can be reached
+/// only through the validated [`crate::ops`] facade (or, under the
+/// unstable `internals` feature, through the token-gated architecture
+/// modules — never as bare unchecked dispatch).
+// Raw dispatch is sealed behind a private proof argument.
+#[allow(private_bounds)]
+pub trait FieldKernels: Field + private::Sealed + KernelDispatch {
     /// Backend used by this field's kernels.
     #[inline]
     #[must_use]
@@ -330,12 +321,47 @@ pub trait FieldKernels: Field + private::Sealed {
         Backend::Scalar
     }
 
-    /// Whether [`FieldKernels::mul_elementwise`] uses a vector implementation.
+    /// Whether elementwise multiplication is vectorized for this field on
+    /// this host.
     #[inline]
     #[must_use]
     fn has_vector_elementwise() -> bool {
         false
     }
+}
+
+/// The raw per-field kernel entry points.
+///
+/// Implementations own runtime dispatch for their field. Every method's
+/// preconditions are checked by the [`crate::ops`] wrappers, not here.
+///
+/// This trait is deliberately crate-private and a supertrait of
+/// [`FieldKernels`]: external code can hold the `F: FieldKernels` bound but
+/// cannot construct the private `RawDispatch` argument required by every
+/// entry point. The seal stays private even under `internals`: implementors
+/// are fixed.
+///
+/// # Preconditions
+///
+/// All slice lengths are in **bytes** and must be whole multiples of
+/// `Self::BYTES`. `dst` and `src` must have equal length.
+pub(crate) trait KernelDispatch: Field {
+    /// The backend-ready form of one coefficient.
+    ///
+    /// Different backends want different things from a coefficient: GFNI
+    /// wants a broadcast word, the shuffle backends want nibble tables, the
+    /// scalar path wants the element itself. [`KernelDispatch::prepare`]
+    /// resolves that once — which is why the single-coefficient kernels below
+    /// take a `Prepared` and not an `Elem`. The backend is fixed for the life
+    /// of the process, so this moves the backend decision *out* of the hot
+    /// call rather than adding one.
+    type Prepared: Clone + Send + Sync + core::fmt::Debug;
+
+    /// Resolve a coefficient into the form this host's backend wants.
+    fn prepare(_proof: RawDispatch, coeff: Self::Elem) -> Self::Prepared;
+
+    /// Recover the coefficient a [`KernelDispatch::Prepared`] was built from.
+    fn prepared_coeff(_proof: RawDispatch, prepared: &Self::Prepared) -> Self::Elem;
 
     /// `dst += src`, elementwise field addition.
     ///
@@ -343,40 +369,44 @@ pub trait FieldKernels: Field + private::Sealed {
     /// characteristic-`p` fold for the prime fields, so a wrong-by-default
     /// body would be a silent defect. Binary impls route to
     /// [`crate::kernel::xor`].
-    fn add_assign(dst: &mut [u8], src: &[u8]);
+    fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]);
 
-    /// `dst ^= sum(srcs[i])`: fold byte-offset sources out of one backing
+    /// `dst += sum(srcs[i])`: fold byte-offset sources out of one backing
     /// region into one row, every coefficient implicitly one.
     ///
     /// The gather whose coefficients are all the multiplicative identity —
     /// the shape of back-substitution over solved rows. The default folds
-    /// sources one at a time through [`FieldKernels::add_assign`], which is
+    /// sources one at a time through [`KernelDispatch::add_assign`], which is
     /// exact for every field; fields whose addition is XOR override it with
     /// the crate's blocked XOR gather, which holds the destination in
     /// registers across the whole source list.
     ///
     /// Callers pass offsets that satisfy `offset + dst.len() <=
     /// region.len()`; [`crate::ops::add_gather`] validates that.
-    fn add_gather_offsets(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+    fn add_gather_offsets(_proof: RawDispatch, region: &[u8], dst: &mut [u8], offsets: &[u32]) {
         let live = dst.len();
         for &start in offsets {
-            Self::add_assign(dst, &region[start as usize..start as usize + live]);
+            Self::add_assign(
+                RawDispatch,
+                dst,
+                &region[start as usize..start as usize + live],
+            );
         }
     }
 
     /// `dst -= src`, elementwise field subtraction.
     ///
-    /// Identical to [`FieldKernels::add_assign`] in characteristic two; prime
+    /// Identical to [`KernelDispatch::add_assign`] in characteristic two; prime
     /// fields subtract with a canonicalizing fold. Required, no default, for
     /// the same reason.
-    fn sub_assign(dst: &mut [u8], src: &[u8]);
+    fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]);
 
     /// Pairwise row addition over two equal flat row buffers.
     ///
     /// Both buffers hold the same whole number of contiguous `row_len`-byte
     /// rows, and every row pair adds fieldwise: `dst_row[j] += src_row[j]`.
     /// Row boundaries do not change elementwise addition, so running
-    /// [`FieldKernels::add_assign`] over the whole buffers is exact for every
+    /// [`KernelDispatch::add_assign`] over the whole buffers is exact for every
     /// field — that is the default, and on the reference host it is also the
     /// fastest known implementation at every measured geometry: a four-stream
     /// row-interleaved XOR candidate matched or trailed it from L1 to DRAM
@@ -385,12 +415,12 @@ pub trait FieldKernels: Field + private::Sealed {
     /// override is wired until one measures a repeatable win. The prime
     /// fields additionally fold lanes rather than bytes, so their default is
     /// semantic, not just an optimization choice.
-    fn add_assign_rows(dst: &mut [u8], src: &[u8], _row_len: usize) {
-        Self::add_assign(dst, src);
+    fn add_assign_rows(_proof: RawDispatch, dst: &mut [u8], src: &[u8], _row_len: usize) {
+        Self::add_assign(RawDispatch, dst, src);
     }
 
-    /// `dst ^= coeff * src`. The workhorse AXPY.
-    fn mul_add(dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]);
+    /// `dst += coeff * src`. The workhorse AXPY.
+    fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]);
 
     /// `dst = coeff * src`, out of place.
     ///
@@ -400,15 +430,15 @@ pub trait FieldKernels: Field + private::Sealed {
     /// the kernel is bandwidth-bound (x86 GF(2^8)/GF(2^16)); where it is
     /// compute-bound instead, as GF(2^16) is on NEON and wasm, halving
     /// destination traffic buys only a few percent (BENCHMARKS.md).
-    fn mul_into(dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
+    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         dst.copy_from_slice(src);
-        Self::mul_assign(dst, coeff);
+        Self::mul_assign(RawDispatch, dst, coeff);
     }
 
     /// `dst *= coeff`, in place.
-    fn mul_assign(dst: &mut [u8], coeff: &Self::Prepared);
+    fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared);
 
-    /// One source into many rows: `rows[j] ^= coeffs[j] * src` for each `j`.
+    /// One source into many rows: `rows[j] += coeffs[j] * src` for each `j`.
     ///
     /// `rows` is a flat buffer of `coeffs.len()` contiguous rows of
     /// `row_len` bytes. This is the systematic-encode shape; blocked
@@ -416,131 +446,163 @@ pub trait FieldKernels: Field + private::Sealed {
     ///
     /// The coefficients are raw elements, so every backend has to resolve
     /// each one into its own form before it can use it. Callers holding the
-    /// resolved form should call [`FieldKernels::mul_add_scatter_with`].
-    fn mul_add_scatter(rows: &mut [u8], row_len: usize, coeffs: &[Self::Elem], src: &[u8]);
+    /// resolved form should call [`KernelDispatch::mul_add_scatter_with`].
+    fn mul_add_scatter(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        coeffs: &[Self::Elem],
+        src: &[u8],
+    );
 
-    /// Many sources into one row: `dst ^= sum(coeffs[i] * srcs[i])`.
+    /// Many sources into one row: `dst += sum(coeffs[i] * srcs[i])`.
     ///
-    /// The transpose of [`FieldKernels::mul_add_scatter`], and the shape that
+    /// The transpose of [`KernelDispatch::mul_add_scatter`], and the shape that
     /// rebuilds a single lost symbol. Blocked backends hold the destination
     /// tile in registers while every source is folded in, so the destination
     /// is read and written once per tile rather than once per source.
     ///
-    /// See [`FieldKernels::mul_add_gather_with`] for the prepared form.
-    fn mul_add_gather(dst: &mut [u8], coeffs: &[Self::Elem], srcs: &[&[u8]]);
+    /// See [`KernelDispatch::mul_add_gather_with`] for the prepared form.
+    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Self::Elem], srcs: &[&[u8]]);
 
     /// Many sources overwrite one row: `dst = sum(coeffs[i] * srcs[i])`.
     ///
-    /// Unlike [`FieldKernels::mul_add_gather`], the previous destination is
-    /// ignored. The default starts with a fused single-source [`FieldKernels::mul_into`],
-    /// then accumulates the remaining prepared terms without allocation.
-    fn dot_product(dst: &mut [u8], coeffs: &[Self::Elem], srcs: &[&[u8]]) {
+    /// Unlike [`KernelDispatch::mul_add_gather`], the previous destination is
+    /// ignored. The default starts with a fused single-source
+    /// [`KernelDispatch::mul_into`], then accumulates the remaining prepared
+    /// terms without allocation.
+    fn dot_product(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Self::Elem], srcs: &[&[u8]]) {
         let mut pairs = coeffs.iter().copied().zip(srcs.iter().copied());
         let Some((first, src)) = pairs.next() else {
             dst.fill(0);
             return;
         };
-        Self::mul_into(dst, &Self::prepare(first), src);
+        Self::mul_into(RawDispatch, dst, &Self::prepare(RawDispatch, first), src);
         for (coeff, src) in pairs {
-            Self::mul_add(dst, &Self::prepare(coeff), src);
+            Self::mul_add(RawDispatch, dst, &Self::prepare(RawDispatch, coeff), src);
         }
     }
 
     /// Many sources into many rows: for each `(coeffs, src)` term,
-    /// `rows[j] ^= coeffs[j] * src` for every `j` in `0..nrows`.
+    /// `rows[j] += coeffs[j] * src` for every `j` in `0..nrows`.
     ///
-    /// Equivalent to a [`FieldKernels::mul_add_scatter`] per term, but
+    /// Equivalent to a [`KernelDispatch::mul_add_scatter`] per term, but
     /// blocked backends hold a destination tile in registers across all
     /// terms, so destination memory traffic is independent of the term
     /// count. This is the decode/reconstruction shape.
     ///
-    /// See [`FieldKernels::mul_add_matrix_with`] for the prepared form.
+    /// See [`KernelDispatch::mul_add_matrix_with`] for the prepared form.
     fn mul_add_matrix(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
         terms: &[(&[Self::Elem], &[u8])],
     );
 
-    /// [`FieldKernels::mul_add_scatter`] over already-prepared coefficients.
+    /// [`KernelDispatch::mul_add_scatter`] over already-prepared coefficients.
     ///
     /// The default keeps preparation out of the row loop by applying the
     /// single-coefficient kernel to each row. Fields may override this when a
     /// backend can retain several prepared coefficients in registers.
+    #[cfg(feature = "std")]
     fn mul_add_scatter_with(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         coeffs: &[Self::Prepared],
         src: &[u8],
     ) {
         for (row, coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-            Self::mul_add(row, coeff, src);
+            Self::mul_add(RawDispatch, row, coeff, src);
         }
     }
+
     /// Prepared-plan scatter with access to both original and resolved
     /// coefficients.
     ///
     /// The default uses the prepared single-row path. Blocked backends may use
     /// `values` for representations whose preparation is already free.
+    #[cfg(feature = "std")]
     fn mul_add_scatter_plan(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         _values: &[Self::Elem],
         coeffs: &[Self::Prepared],
         src: &[u8],
     ) {
-        Self::mul_add_scatter_with(rows, row_len, coeffs, src);
+        Self::mul_add_scatter_with(RawDispatch, rows, row_len, coeffs, src);
     }
 
-    /// [`FieldKernels::mul_add_gather`] over already-prepared coefficients.
+    /// [`KernelDispatch::mul_add_gather`] over already-prepared coefficients.
     ///
     /// The default applies the single-coefficient kernel once per source.
-    fn mul_add_gather_with(dst: &mut [u8], coeffs: &[Self::Prepared], srcs: &[&[u8]]) {
+    #[cfg(feature = "std")]
+    fn mul_add_gather_with(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
         for (coeff, &src) in coeffs.iter().zip(srcs) {
-            Self::mul_add(dst, coeff, src);
+            Self::mul_add(RawDispatch, dst, coeff, src);
         }
     }
+
     /// Prepared-plan gather with access to both original and resolved
     /// coefficients.
     ///
     /// The default applies prepared AXPY once per source.
+    #[cfg(feature = "std")]
     fn mul_add_gather_plan(
+        _proof: RawDispatch,
         dst: &mut [u8],
         _values: &[Self::Elem],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        Self::mul_add_gather_with(dst, coeffs, srcs);
+        Self::mul_add_gather_with(RawDispatch, dst, coeffs, srcs);
     }
 
-    /// [`FieldKernels::dot_product`] over already-prepared coefficients.
-    fn dot_product_with(dst: &mut [u8], coeffs: &[Self::Prepared], srcs: &[&[u8]]) {
+    /// [`KernelDispatch::dot_product`] over already-prepared coefficients.
+    #[cfg(any(feature = "std", test))]
+    fn dot_product_with(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
         let mut pairs = coeffs.iter().zip(srcs.iter().copied());
         let Some((first, src)) = pairs.next() else {
             dst.fill(0);
             return;
         };
-        Self::mul_into(dst, first, src);
+        Self::mul_into(RawDispatch, dst, first, src);
         for (coeff, src) in pairs {
-            Self::mul_add(dst, coeff, src);
+            Self::mul_add(RawDispatch, dst, coeff, src);
         }
     }
 
     /// Prepared-plan dot product with original and resolved coefficients.
+    #[cfg(feature = "std")]
     fn dot_product_plan(
+        _proof: RawDispatch,
         dst: &mut [u8],
         _values: &[Self::Elem],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        Self::dot_product_with(dst, coeffs, srcs);
+        Self::dot_product_with(RawDispatch, dst, coeffs, srcs);
     }
 
-    /// [`FieldKernels::mul_add_matrix`] over already-prepared coefficients.
+    /// [`KernelDispatch::mul_add_matrix`] over already-prepared coefficients.
     ///
     /// The default applies each term row by row. Fields may override this with
     /// a blocked implementation that retains destination tiles in registers.
+    #[cfg(test)]
     fn mul_add_matrix_with(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -548,15 +610,18 @@ pub trait FieldKernels: Field + private::Sealed {
     ) {
         for &(coeffs, src) in terms {
             for (row, coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
-                Self::mul_add(row, coeff, src);
+                Self::mul_add(RawDispatch, row, coeff, src);
             }
         }
     }
+
     /// Prepared-plan matrix using flat row-major coefficients and source rows.
     ///
     /// The default is allocation-free repeated prepared AXPY. Register-blocked
     /// backends may override it and consume the same flat geometry directly.
+    #[cfg(feature = "std")]
     fn mul_add_matrix_plan(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -571,19 +636,20 @@ pub trait FieldKernels: Field + private::Sealed {
                 .take(nrows)
                 .zip(&coeffs[start..start + nrows])
             {
-                Self::mul_add(row, coeff, src);
+                Self::mul_add(RawDispatch, row, coeff, src);
             }
         }
     }
 
     /// Many sources overwrite many rows: `rows[j] = sum_t coeffs[t][j] * src[t]`.
     ///
-    /// The overwrite counterpart of [`FieldKernels::mul_add_matrix`] and the
+    /// The overwrite counterpart of [`KernelDispatch::mul_add_matrix`] and the
     /// erasure-encode shape: the previous destination is ignored. The default
     /// zeroes the first `nrows` rows and accumulates; register-blocked backends
     /// override it to seed accumulators from zero in registers, writing each row
     /// once with no destination read and no separate fill.
     fn dot_product_matrix(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -592,12 +658,13 @@ pub trait FieldKernels: Field + private::Sealed {
         for row in rows.chunks_exact_mut(row_len).take(nrows) {
             row.fill(0);
         }
-        Self::mul_add_matrix(rows, row_len, nrows, terms);
+        Self::mul_add_matrix(RawDispatch, rows, row_len, nrows, terms);
     }
 
-    /// Prepared-plan overwrite matrix, the overwrite form of
-    /// [`FieldKernels::mul_add_matrix_plan`].
+    /// [`KernelDispatch::mul_add_matrix_plan`].
+    #[cfg(feature = "std")]
     fn dot_product_matrix_plan(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -608,14 +675,14 @@ pub trait FieldKernels: Field + private::Sealed {
         for row in rows.chunks_exact_mut(row_len).take(nrows) {
             row.fill(0);
         }
-        Self::mul_add_matrix_plan(rows, row_len, nrows, values, coeffs, srcs);
+        Self::mul_add_matrix_plan(RawDispatch, rows, row_len, nrows, values, coeffs, srcs);
     }
 
     /// Many sources into many disjoint rows scattered through `dst`: for each
-    /// `(coeffs, src)` term, `dst[row_starts[j]..][..row_len] ^= coeffs[j] *
+    /// `(coeffs, src)` term, `dst[row_starts[j]..][..row_len] += coeffs[j] *
     /// src` for every `j`.
     ///
-    /// Like [`FieldKernels::mul_add_matrix`], but the destination rows are not
+    /// Like [`KernelDispatch::mul_add_matrix`], but the destination rows are not
     /// contiguous — row `j` occupies `dst[row_starts[j] .. row_starts[j] +
     /// row_len]`. [`crate::ops::mul_add_matrix_scattered`] validates the
     /// offsets are in-bounds and pairwise disjoint before dispatch, so a
@@ -627,6 +694,7 @@ pub trait FieldKernels: Field + private::Sealed {
     /// Register-blocked backends override it to retain destination tiles in
     /// registers across terms.
     fn mul_add_matrix_scattered(
+        _proof: RawDispatch,
         dst: &mut [u8],
         row_len: usize,
         row_starts: &[usize],
@@ -641,7 +709,132 @@ pub trait FieldKernels: Field + private::Sealed {
     /// and no table to index. GFNI multiplies vectors directly; `AArch64`,
     /// Wasm, and the shuffle-only x86 backends use a branchless
     /// shift/reduce vector multiply. The wider fields run the reference path.
-    fn mul_elementwise(dst: &mut [u8], a: &[u8], b: &[u8]);
+    fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]);
+}
+
+/// Zero-sized proof of the right to call [`KernelDispatch`] entry points.
+///
+/// Private-supertrait sealing alone is not enough: bound elaboration lets
+/// external generic code holding only the public [`FieldKernels`] bound name
+/// `F::add_assign` and friends, trait-name privacy notwithstanding. Every
+/// `KernelDispatch` method therefore also takes this argument, and the type
+/// is `pub(crate)` — outside the crate it cannot be named, constructed, or
+/// accepted as a parameter, so those elaborated paths have no argument to
+/// call them with. Inside the crate it costs nothing: `RawDispatch` is a
+/// zero-sized unit struct and the argument exists only in the type system.
+pub(crate) struct RawDispatch;
+
+// Capability-token re-exports for the `internals` `proven` surface. The
+// tokens are genuine archmage proofs (sealed, unforgeable); re-exporting
+// them keeps internals consumers and fgf's own benches free of a direct
+// archmage dependency. cfg'd per architecture so a wrong-arch token never
+// even appears.
+#[cfg(feature = "internals")]
+pub use archmage::SimdToken;
+#[cfg(all(
+    feature = "internals",
+    all(target_arch = "wasm32", target_feature = "simd128")
+))]
+pub use archmage::Wasm128Token;
+#[cfg(all(feature = "internals", target_arch = "aarch64"))]
+pub use archmage::{NeonAesToken, NeonToken};
+#[cfg(all(
+    feature = "internals",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+pub use archmage::{X64V2Token, X64V3GfniCryptoToken, X64V3Token, X64V4Token, X64V4xToken};
+
+/// Shared runtime validation for the token-proven `internals` wrappers.
+///
+/// The selected entrypoints behind `proven` wrappers carry only
+/// `debug_assert`s — compiled out in release — because normal callers reach
+/// them through the [`crate::ops`] facade. A `proven` wrapper is public and
+/// safe, so it re-establishes the facade's checks here, before dispatch and
+/// outside the kernel loops.
+// Compiled only where a `proven` module exists (internals plus an
+// architecture module); without that combination there is no caller and the
+// items would be dead code.
+#[cfg(all(
+    feature = "internals",
+    feature = "simd",
+    any(
+        target_arch = "x86",
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "wasm32"
+    )
+))]
+pub(crate) mod proven_checks {
+    /// Paired length equality.
+    #[inline]
+    pub(crate) fn check_equal(
+        name: &str,
+        left_name: impl core::fmt::Display,
+        left: usize,
+        right_name: impl core::fmt::Display,
+        right: usize,
+    ) {
+        assert_eq!(
+            left, right,
+            "{name}: {left_name} is {left} bytes but {right_name} is {right} bytes"
+        );
+    }
+
+    /// Whole-element lengths.
+    #[inline]
+    pub(crate) fn check_elem_multiple(name: &str, len: usize, elem_bytes: usize) {
+        assert!(
+            len.is_multiple_of(elem_bytes),
+            "{name}: buffer of {len} bytes is not a whole number of {elem_bytes}-byte elements"
+        );
+    }
+
+    /// A flat row buffer must hold at least `count` rows of `row_len` bytes.
+    #[inline]
+    pub(crate) fn check_row_span(name: &str, buffer_len: usize, row_len: usize, count: usize) {
+        let used = count
+            .checked_mul(row_len)
+            .unwrap_or_else(|| panic!("{name}: row geometry overflows"));
+        assert!(
+            buffer_len >= used,
+            "{name}: rows is {buffer_len} bytes but {count} rows of {row_len} bytes need {used}"
+        );
+    }
+
+    /// Scattered rows: in-bounds, element-aligned, pairwise disjoint — the
+    /// same rules [`crate::ops::mul_add_matrix_scattered`] enforces before
+    /// dispatch.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    pub(crate) fn check_scattered(
+        name: &str,
+        dst_len: usize,
+        row_len: usize,
+        row_starts: &[usize],
+        elem_bytes: usize,
+    ) {
+        for (j, &start) in row_starts.iter().enumerate() {
+            let end = start
+                .checked_add(row_len)
+                .unwrap_or_else(|| panic!("{name}: row offset + length overflows"));
+            assert!(
+                end <= dst_len,
+                "{name}: row {j} spans {start}..{end} but dst is {dst_len} bytes"
+            );
+            assert!(
+                start.is_multiple_of(elem_bytes),
+                "{name}: row {j} offset {start} is not element-aligned"
+            );
+        }
+        for (a, &sa) in row_starts.iter().enumerate() {
+            for &sb in &row_starts[a + 1..] {
+                let (lo, hi) = if sa <= sb { (sa, sb) } else { (sb, sa) };
+                assert!(
+                    hi - lo >= row_len,
+                    "{name}: rows at {sa} and {sb} overlap for {row_len}-byte rows"
+                );
+            }
+        }
+    }
 }
 
 /// `dst ^= src` over raw bytes.

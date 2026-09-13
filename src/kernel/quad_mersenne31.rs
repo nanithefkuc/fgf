@@ -13,7 +13,7 @@
 
 use crate::field::Field;
 use crate::field::quad_mersenne31::{Elem, QuadMersenne31};
-use crate::kernel::FieldKernels;
+use crate::kernel::{FieldKernels, KernelDispatch, RawDispatch};
 
 /// Reduce an arbitrary 32-bit lane to the canonical range `0..p`
 /// (the Mersenne fold, `2^31 ≡ 1`).
@@ -80,25 +80,27 @@ const fn qmul(ar: u32, ai: u32, br: u32, bi: u32) -> Elem {
 }
 
 impl FieldKernels for QuadMersenne31 {
-    /// The canonical pair `(re, im)`, used as-is.
-    type Prepared = Elem;
-
-    #[inline]
-    fn prepare(coeff: Elem) -> Elem {
-        coeff.canonical()
-    }
-
-    #[inline]
-    fn prepared_coeff(prepared: &Elem) -> Elem {
-        *prepared
-    }
-
     #[inline]
     fn has_vector_elementwise() -> bool {
         false
     }
+}
 
-    fn add_assign(dst: &mut [u8], src: &[u8]) {
+impl KernelDispatch for QuadMersenne31 {
+    /// The canonical pair `(re, im)`, used as-is.
+    type Prepared = Elem;
+
+    #[inline]
+    fn prepare(_proof: RawDispatch, coeff: Elem) -> Elem {
+        coeff.canonical()
+    }
+
+    #[inline]
+    fn prepared_coeff(_proof: RawDispatch, prepared: &Elem) -> Elem {
+        *prepared
+    }
+
+    fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         debug_assert_eq!(dst.len(), src.len());
         for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
             let a = QuadMersenne31::read(d);
@@ -116,7 +118,7 @@ impl FieldKernels for QuadMersenne31 {
         }
     }
 
-    fn sub_assign(dst: &mut [u8], src: &[u8]) {
+    fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         debug_assert_eq!(dst.len(), src.len());
         for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
             let a = QuadMersenne31::read(d);
@@ -150,14 +152,14 @@ impl FieldKernels for QuadMersenne31 {
         }
     }
 
-    fn mul_add(dst: &mut [u8], coeff: &Elem, src: &[u8]) {
+    fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
         let cr = canon(coeff.0);
         let ci = canon(coeff.1);
         if cr == 0 && ci == 0 {
             return;
         }
         if cr == 1 && ci == 0 {
-            Self::add_assign(dst, src);
+            Self::add_assign(RawDispatch, dst, src);
             return;
         }
         for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
@@ -171,7 +173,7 @@ impl FieldKernels for QuadMersenne31 {
         }
     }
 
-    fn mul_assign(dst: &mut [u8], coeff: &Elem) {
+    fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem) {
         let cr = canon(coeff.0);
         let ci = canon(coeff.1);
         if cr == 0 && ci == 0 {
@@ -187,7 +189,7 @@ impl FieldKernels for QuadMersenne31 {
         }
     }
 
-    fn mul_into(dst: &mut [u8], coeff: &Elem, src: &[u8]) {
+    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
         let cr = canon(coeff.0);
         let ci = canon(coeff.1);
         if cr == 0 && ci == 0 {
@@ -200,27 +202,39 @@ impl FieldKernels for QuadMersenne31 {
         }
     }
 
-    fn mul_add_scatter(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
+    fn mul_add_scatter(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        coeffs: &[Elem],
+        src: &[u8],
+    ) {
         for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-            Self::mul_add(row, &coeff, src);
+            Self::mul_add(RawDispatch, row, &coeff, src);
         }
     }
 
-    fn mul_add_gather(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
         for (&coeff, &src) in coeffs.iter().zip(srcs) {
-            Self::mul_add(dst, &coeff, src);
+            Self::mul_add(RawDispatch, dst, &coeff, src);
         }
     }
 
-    fn mul_add_matrix(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[Elem], &[u8])]) {
+    fn mul_add_matrix(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        terms: &[(&[Elem], &[u8])],
+    ) {
         for &(coeffs, src) in terms {
             for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
-                Self::mul_add(row, &coeff, src);
+                Self::mul_add(RawDispatch, row, &coeff, src);
             }
         }
     }
 
-    fn mul_elementwise(dst: &mut [u8], a: &[u8], b: &[u8]) {
+    fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
         debug_assert_eq!(dst.len(), a.len());
         debug_assert_eq!(dst.len(), b.len());
         for ((d, x), y) in dst

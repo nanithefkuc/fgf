@@ -30,7 +30,7 @@
 //! use fgf::gf16::{self, Elem, DELTA};
 //! use fgf::gf8b;
 //!
-//! let x = Elem::from_components(gf8b::Elem(0x12), gf8b::Elem(0x34));
+//! let x = Elem::from_components(gf8b::Elem::from_raw(0x12), gf8b::Elem::from_raw(0x34));
 //! assert_eq!(x.to_raw(), 0x3412);
 //! assert_eq!(x.to_bytes(), [0x12, 0x34]);
 //!
@@ -43,7 +43,7 @@
 //! assert_eq!(gf16::GENERATOR.pow(65_535), Elem::ONE);
 //!
 //! // Division is total: `x / 0` is zero, in `const` context too.
-//! const _: () = assert!(Elem(0x0108).div(Elem::ZERO).to_raw() == 0);
+//! const _: () = assert!(Elem::from_raw(0x0108).div(Elem::ZERO).to_raw() == 0);
 //! ```
 
 use core::fmt;
@@ -65,10 +65,12 @@ pub struct Gf16;
 
 /// An element of `GF((2^8)^2)`, stored as `a + b*u` with `a` in the low byte.
 ///
-/// The derived [`Ord`] is raw-representation order, useful for map keys and
-/// deterministic iteration; it carries no field-theoretic meaning.
+/// Every 16-bit pattern is a distinct field value, so the derived
+/// [`PartialEq`]/[`Hash`]/[`Ord`] — raw-bit order — compare field values.
+/// That order is a deterministic total order for map keys and sorting; no
+/// order compatible with addition exists in characteristic two.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-pub struct Elem(pub u16);
+pub struct Elem(pub(crate) u16);
 
 impl Elem {
     /// The additive identity.
@@ -250,6 +252,7 @@ impl Field for Gf16 {
     const BITS: u32 = 16;
     const BYTES: usize = 2;
     const ORDER: u128 = 65_536;
+    const CHARACTERISTIC: u64 = 2;
     const GENERATOR: Elem = GENERATOR;
 
     #[inline]

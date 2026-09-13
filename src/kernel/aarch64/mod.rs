@@ -10,8 +10,10 @@
 
 #![allow(unsafe_code)]
 
-pub mod gf16;
-pub mod gf8;
+pub(crate) mod gf16;
+pub(crate) mod gf8;
+#[cfg(feature = "internals")]
+pub mod proven;
 
 use core::arch::aarch64::*;
 
@@ -21,7 +23,7 @@ use crate::kernel::scalar;
 ///
 /// # Panics
 /// Panics if the slices differ in length.
-pub fn xor_neon(dst: &mut [u8], src: &[u8]) {
+pub(crate) fn xor_neon(dst: &mut [u8], src: &[u8]) {
     assert_eq!(dst.len(), src.len());
     // SAFETY: NEON is baseline on AArch64; the slices are equal-length and
     // independently borrowed.
@@ -65,7 +67,7 @@ const NEON_ROW_TILE: usize = 4 * 16;
 /// # Panics
 /// Panics if the slices differ in length or their length is not a whole
 /// number of rows.
-pub fn xor_rows_neon(dst: &mut [u8], src: &[u8], row_len: usize) {
+pub(crate) fn xor_rows_neon(dst: &mut [u8], src: &[u8], row_len: usize) {
     assert_eq!(dst.len(), src.len());
     assert!(dst.len().is_multiple_of(row_len));
     debug_assert_ne!(row_len, 0);

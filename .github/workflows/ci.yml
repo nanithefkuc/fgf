@@ -96,6 +96,12 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - run: cargo build --target ${{ matrix.target }}
+      # Explicit compile validation of the wasm `simd128` lane: the
+      # `wasm128` backend needs the target feature enabled at compile time.
+      - run: cargo build --target wasm32-unknown-unknown --features simd
+        if: matrix.target == 'wasm32-unknown-unknown'
+        env:
+          RUSTFLAGS: -D warnings -C target-feature=+simd128
 
   msrv:
     name: msrv 1.89
@@ -103,11 +109,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.89.0
-      - run: cargo build --all-features
+      - run: cargo check --locked --all-features --all-targets
 
   lint:
     name: fmt + clippy + docs
     runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -115,9 +123,12 @@ jobs:
           components: rustfmt, clippy
       - run: cargo fmt --check
       - run: cargo clippy --all-features --all-targets
+      # Doc warnings fail the build in every feature configuration the
+      # test jobs exercise.
+      - run: cargo doc --no-deps
+      - run: cargo doc --no-default-features --no-deps
+      - run: cargo doc --no-default-features --features std --no-deps
       - run: cargo doc --all-features --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
 
   miri:
     name: miri (scalar paths)

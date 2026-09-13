@@ -796,7 +796,7 @@ pub fn scatter_gfni(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]
     if row_len == 0 {
         return;
     }
-    debug_assert_eq!(rows.len() / row_len, coeffs.len());
+    debug_assert!(rows.len() / row_len >= coeffs.len());
     let nrows = coeffs.len().min(rows.len() / row_len);
     let span = row_len.min(src.len());
     if nrows == 0 || span == 0 {

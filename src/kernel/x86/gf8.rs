@@ -763,7 +763,7 @@ pub struct Affine8BFactor {
     table: &'static ScaleTable,
 }
 
-/// Prepare one `Gf8B` coefficient for [`gather_affine_8b`].
+/// Prepare one `Gf8B` coefficient for [`gather_affine_8b`](crate::kernel::x86::proven::gf8::gather_affine_8b).
 #[cfg(any(test, feature = "internals"))]
 #[inline]
 #[must_use]
@@ -819,6 +819,67 @@ impl Blocked for Affine8D {
     #[inline]
     fn table(coeff: gf8d::Elem) -> &'static ScaleTable {
         scale_table_8d(coeff)
+    }
+}
+
+/// [`Affine8D`] over coefficients already prepared by the caller.
+///
+/// The multiply word is the stored affine map, so the resolve loop reads a
+/// struct field instead of recomputing the bank lookup. The plan entries use
+/// this to consume `Plan`'s prepared coefficients without rebuilding them
+/// per call; the sub-lane remainder still reads the attached nibble table.
+#[cfg(any(test, feature = "internals"))]
+pub(super) enum Affine8DPrepared {}
+#[cfg(any(test, feature = "internals"))]
+impl Blocked for Affine8DPrepared {
+    type Coeff = crate::kernel::gf8::Prepared8D;
+    const AFFINE: bool = true;
+    #[inline]
+    fn zero() -> Self::Coeff {
+        crate::kernel::gf8::Prepared8D {
+            table: scale_table_8d(gf8d::Elem(0)),
+            affine: affine_8d(gf8d::Elem(0)),
+        }
+    }
+    #[inline]
+    fn byte(coeff: Self::Coeff) -> u8 {
+        coeff.table.coeff.0
+    }
+    #[inline]
+    fn map(coeff: Self::Coeff) -> u64 {
+        coeff.affine
+    }
+    #[inline]
+    fn table(coeff: Self::Coeff) -> &'static ScaleTable {
+        coeff.table
+    }
+}
+
+/// A row-major coefficient matrix over already-prepared coefficients, in the
+/// same term-major order a `Plan` stores: index `term * nrows + row`.
+#[cfg(any(test, feature = "internals"))]
+pub(super) struct PreparedMatrix<'a> {
+    /// Prepared coefficients, `terms * nrows` entries.
+    pub(super) prepared: &'a [crate::kernel::gf8::Prepared8D],
+    /// Destination row count.
+    pub(super) nrows: usize,
+    /// Source buffer of each term.
+    pub(super) sources: &'a [&'a [u8]],
+}
+
+#[cfg(any(test, feature = "internals"))]
+impl Matrix<crate::kernel::gf8::Prepared8D> for PreparedMatrix<'_> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.sources.len()
+    }
+    #[inline]
+    fn coefficient(&self, term: usize, row: usize) -> &crate::kernel::gf8::Prepared8D {
+        &self.prepared[term * self.nrows + row]
+    }
+    #[inline]
+    fn source(&self, term: usize) -> &[u8] {
+        self.sources[term]
     }
 }
 
@@ -1353,6 +1414,93 @@ pub fn matrix_overwrite2_8b(
     lanes: usize,
 ) {
     matrix_overwrite2_checked::<Gfni>(rows, row_len, terms, nt, lanes);
+}
+
+/// [`matrix_affine_with`] over already-prepared coefficients: accumulate
+/// `rows[j] ^= sum_t coeffs[t][j] * src[t]` with the affine map read from each
+/// prepared coefficient instead of recomputed.
+///
+/// `prepared` is term-major, `term * nrows + row`, the order a plan stores.
+///
+/// # Panics
+/// As [`matrix_gfni`], plus unless `prepared` holds `nrows` coefficients per
+/// source.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_affine_prepared_with(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    prepared: &[crate::kernel::gf8::Prepared8D],
+    srcs: &[&[u8]],
+) {
+    assert!(
+        nrows
+            .checked_mul(row_len)
+            .is_some_and(|needed| needed <= rows.len()),
+        "matrix_affine_prepared: rows buffer does not hold {nrows} rows of {row_len} bytes"
+    );
+    assert_eq!(
+        prepared.len(),
+        nrows * srcs.len(),
+        "matrix_affine_prepared: one prepared coefficient per (term, row)"
+    );
+    for src in srcs {
+        assert_eq!(src.len(), row_len);
+    }
+    if srcs.is_empty() {
+        return;
+    }
+    let terms = PreparedMatrix {
+        prepared,
+        nrows,
+        sources: srcs,
+    };
+    // SAFETY: the geometry asserted above bounds every row and every term;
+    // the backend guarantees AVX2 + GFNI.
+    unsafe { matrix_impl::<Affine8DPrepared, PreparedMatrix, false>(rows, row_len, nrows, &terms) }
+}
+
+/// [`matrix_affine_prepared_with`] with overwrite semantics: the erasure-
+/// encode shape over prepared coefficients.
+///
+/// # Panics
+/// As [`matrix_affine_prepared_with`].
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite_affine_prepared_with(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    prepared: &[crate::kernel::gf8::Prepared8D],
+    srcs: &[&[u8]],
+) {
+    assert!(
+        nrows
+            .checked_mul(row_len)
+            .is_some_and(|needed| needed <= rows.len()),
+        "matrix_overwrite_affine_prepared: rows buffer does not hold {nrows} rows of {row_len} bytes"
+    );
+    assert_eq!(
+        prepared.len(),
+        nrows * srcs.len(),
+        "matrix_overwrite_affine_prepared: one prepared coefficient per (term, row)"
+    );
+    for src in srcs {
+        assert_eq!(src.len(), row_len);
+    }
+    if srcs.is_empty() {
+        // The empty overwrite sum is zero: match the resolved path, whose
+        // tile loop stores zeroed accumulators even with no terms.
+        rows[..nrows * row_len].fill(0);
+        return;
+    }
+    let terms = PreparedMatrix {
+        prepared,
+        nrows,
+        sources: srcs,
+    };
+    // SAFETY: as `matrix_affine_prepared_with`; overwrite seeds accumulators
+    // from zero, so no destination bytes are read.
+    unsafe { matrix_impl::<Affine8DPrepared, PreparedMatrix, true>(rows, row_len, nrows, &terms) }
 }
 
 /// [`matrix_overwrite2_8b`] under the `Gf8D` polynomial `0x11D`.
@@ -2122,33 +2270,86 @@ unsafe fn rows_resolved<
     g: usize,
     terms: &M,
 ) {
+    // SAFETY: the caller checked every row and source geometry.
+    unsafe {
+        rows_resolved_chunked::<S, M, ROWS, LANES, OVERWRITE, RESOLVE_CHUNK, false>(
+            ptrs, row_len, g, terms,
+        );
+    }
+}
+
+/// The chunk loop behind [`rows_resolved`], parameterized for measurement.
+///
+/// `CHUNK` is the resolve-chunk width and `FULL_INIT` selects the scratch
+/// policy: `true` declares the scratch arrays initialized (the policy this
+/// path shipped first, which touches `CHUNK * (ROWS * 8 + 16)` bytes of stack
+/// on every chunk regardless of how many terms it covers), `false` writes
+/// only the occupied prefix. Everything else — resolution order, tile loops,
+/// remainder, overwrite policy — is identical, so `CHUNK = RESOLVE_CHUNK`
+/// with either policy is a scratch-policy contrast and nothing else.
+///
+/// # Safety
+/// As [`rows_resolved`].
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn rows_resolved_chunked<
+    S: Blocked,
+    M: Matrix<S::Coeff> + ?Sized,
+    const ROWS: usize,
+    const LANES: usize,
+    const OVERWRITE: bool,
+    const CHUNK: usize,
+    const FULL_INIT: bool,
+>(
+    ptrs: [*mut u8; ROWS],
+    row_len: usize,
+    g: usize,
+    terms: &M,
+) {
     let vector_len = row_len & !31;
     let count = terms.len();
     let mut start = 0;
     let mut first = true;
     loop {
-        let taken = (count - start).min(RESOLVE_CHUNK);
-        let mut maps = [[0u64; ROWS]; RESOLVE_CHUNK];
-        let mut srcs: [&[u8]; RESOLVE_CHUNK] = [&[]; RESOLVE_CHUNK];
-        for (offset, (words, src)) in maps.iter_mut().zip(srcs.iter_mut()).take(taken).enumerate() {
+        let taken = (count - start).min(CHUNK);
+        // Declaring the scratch as `MaybeUninit` keeps the unused tail
+        // unwritten: a plain declaration initializes all `CHUNK` slots, which
+        // costs a fixed per-chunk store burst even when `taken` is small.
+        // SAFETY: `MaybeUninit` has no validity invariant, so an array of it
+        // may be assumed initialized.
+        let mut maps: [core::mem::MaybeUninit<[u64; ROWS]>; CHUNK] =
+            unsafe { core::mem::MaybeUninit::uninit().assume_init() };
+        let mut srcs: [core::mem::MaybeUninit<&[u8]>; CHUNK] =
+            unsafe { core::mem::MaybeUninit::uninit().assume_init() };
+        if FULL_INIT {
+            for (words, src) in maps.iter_mut().zip(srcs.iter_mut()) {
+                words.write([0u64; ROWS]);
+                src.write(&[]);
+            }
+        }
+        for offset in 0..taken {
             let term = start + offset;
+            let mut words = [0u64; ROWS];
             for (row, word) in words.iter_mut().enumerate() {
                 *word = factor_word::<S>(*terms.coefficient(term, g + row));
             }
-            *src = terms.source(term);
+            maps[offset].write(words);
+            srcs[offset].write(terms.source(term));
         }
+        // SAFETY: exactly `taken` slots were written above; the slice covers
+        // only those.
+        let (maps, srcs): (&[[u64; ROWS]], &[&[u8]]) = unsafe {
+            (
+                core::slice::from_raw_parts(maps.as_ptr().cast::<[u64; ROWS]>(), taken),
+                core::slice::from_raw_parts(srcs.as_ptr().cast::<&[u8]>(), taken),
+            )
+        };
         // SAFETY: the wrapper checked every row and source geometry; the
         // resolved chunk covers exactly `taken` terms.
         unsafe {
             if OVERWRITE && first {
-                rows_body::<S, ROWS, LANES, true>(ptrs, vector_len, &maps[..taken], &srcs[..taken]);
+                rows_body::<S, ROWS, LANES, true>(ptrs, vector_len, maps, srcs);
             } else {
-                rows_body::<S, ROWS, LANES, false>(
-                    ptrs,
-                    vector_len,
-                    &maps[..taken],
-                    &srcs[..taken],
-                );
+                rows_body::<S, ROWS, LANES, false>(ptrs, vector_len, maps, srcs);
             }
         }
         first = false;
@@ -2501,9 +2702,10 @@ pub fn matrix_overwrite1_external_8d(
 }
 
 /// Resolve a one-row group's coefficients exactly as the production path
-/// does, touch no destination, and return a checksum of the resolved state.
+/// does — chunked at the production resolve chunk, scratch sized to the occupied prefix —
+/// touch no destination, and return a checksum of the resolved state.
 ///
-/// This is the resolution half of [`matrix_overwrite1_tile_8d`] with the tile
+/// This is the resolution half of `matrix_overwrite1_tile_8d` with the tile
 /// loops removed, for pricing resolution on its own. The checksum exists so
 /// the work cannot be optimized away; its value is not a contract.
 ///
@@ -2523,19 +2725,497 @@ pub fn resolve_probe_8d(terms: &[(&[gf8d::Elem], &[u8])]) -> u64 {
     let mut start = 0;
     loop {
         let taken = (count - start).min(RESOLVE_CHUNK);
-        let mut maps = [[0u64; 1]; RESOLVE_CHUNK];
-        let mut srcs: [&[u8]; RESOLVE_CHUNK] = [&[]; RESOLVE_CHUNK];
-        for (offset, (words, src)) in maps.iter_mut().zip(srcs.iter_mut()).take(taken).enumerate() {
+        // The arrays live in the loop body's scope so the slices below
+        // reference storage that outlives their consumption; only the
+        // occupied prefix is written, and the checksum reads exactly that
+        // prefix.
+        // SAFETY: `MaybeUninit` has no validity invariant, so an array of it
+        // may be assumed initialized; exactly `taken` slots are then written
+        // before the prefix is reinterpreted.
+        let mut maps: [core::mem::MaybeUninit<[u64; 1]>; RESOLVE_CHUNK] =
+            unsafe { core::mem::MaybeUninit::uninit().assume_init() };
+        let mut srcs: [core::mem::MaybeUninit<&[u8]>; RESOLVE_CHUNK] =
+            unsafe { core::mem::MaybeUninit::uninit().assume_init() };
+        for offset in 0..taken {
             let (coeffs, source) = terms[start + offset];
-            words[0] = factor_word::<Affine8D>(coeffs[0]);
-            *src = source;
+            maps[offset].write([factor_word::<Affine8D>(coeffs[0])]);
+            srcs[offset].write(source);
         }
-        for (words, src) in maps.iter().zip(&srcs).take(taken) {
+        // SAFETY: the slices cover only the `taken` initialized slots.
+        let (maps, srcs): (&[[u64; 1]], &[&[u8]]) = unsafe {
+            (
+                core::slice::from_raw_parts(maps.as_ptr().cast::<[u64; 1]>(), taken),
+                core::slice::from_raw_parts(srcs.as_ptr().cast::<&[u8]>(), taken),
+            )
+        };
+        for (words, src) in maps.iter().zip(srcs) {
             sink ^= words[0] ^ src.as_ptr() as u64;
         }
         start += taken;
         if start >= count {
             return sink;
+        }
+    }
+}
+
+/// Experimental one-row overwrite matrix on the production resolved path with
+/// the *shipped* scratch policy replaced by the original full-array
+/// initialization.
+///
+/// Identical to [`matrix_overwrite1_tile_8d`] in resolution order, tile width,
+/// remainder and checks; only the scratch initialization differs, so the pair
+/// prices that policy alone. Benchmark evidence only; production dispatch is
+/// unchanged.
+///
+/// # Panics
+/// Panics unless `rows` holds one `row_len`-byte row, every term supplies at
+/// least one coefficient over a `row_len`-byte source, and `lanes` is 3 or 4.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite1_fullinit_8d(
+    rows: &mut [u8],
+    row_len: usize,
+    terms: &[(&[gf8d::Elem], &[u8])],
+    lanes: usize,
+) {
+    assert!(
+        row_len <= rows.len(),
+        "matrix_overwrite1_fullinit: rows buffer does not hold one row of {row_len} bytes"
+    );
+    for (coeffs, src) in terms {
+        assert_eq!(src.len(), row_len);
+        assert!(
+            !coeffs.is_empty(),
+            "matrix_overwrite1_fullinit: term needs one coefficient"
+        );
+    }
+    let ptr = rows.as_mut_ptr();
+    // SAFETY: one in-bounds row of `row_len` bytes; every term was checked for
+    // one coefficient over a `row_len`-byte source; the backend guarantees
+    // AVX2 + GFNI.
+    unsafe {
+        match lanes {
+            3 => rows_resolved_chunked::<
+                Affine8D,
+                [(&[gf8d::Elem], &[u8])],
+                1,
+                3,
+                true,
+                RESOLVE_CHUNK,
+                true,
+            >([ptr], row_len, 0, terms),
+            4 => rows_resolved_chunked::<
+                Affine8D,
+                [(&[gf8d::Elem], &[u8])],
+                1,
+                4,
+                true,
+                RESOLVE_CHUNK,
+                true,
+            >([ptr], row_len, 0, terms),
+            _ => panic!("matrix_overwrite1_fullinit: lanes must be 3 or 4"),
+        }
+    }
+}
+
+/// Experimental one-row overwrite matrix on the production resolved path with
+/// a selectable resolve-chunk width.
+///
+/// Same resolution, tile width, remainder and checks as
+/// [`matrix_overwrite1_tile_8d`]; only the chunk width (and therefore the
+/// destination pass count above 32 terms) differs. `chunk` 32 is production
+/// by construction. Benchmark evidence only; production dispatch is unchanged.
+///
+/// # Panics
+/// Panics unless `rows` holds one `row_len`-byte row, every term supplies at
+/// least one coefficient over a `row_len`-byte source, `lanes` is 3 or 4, and
+/// `chunk` is 32, 64 or 96.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite1_chunk_8d(
+    rows: &mut [u8],
+    row_len: usize,
+    terms: &[(&[gf8d::Elem], &[u8])],
+    lanes: usize,
+    chunk: usize,
+) {
+    assert!(
+        row_len <= rows.len(),
+        "matrix_overwrite1_chunk: rows buffer does not hold one row of {row_len} bytes"
+    );
+    for (coeffs, src) in terms {
+        assert_eq!(src.len(), row_len);
+        assert!(
+            !coeffs.is_empty(),
+            "matrix_overwrite1_chunk: term needs one coefficient"
+        );
+    }
+    let ptr = rows.as_mut_ptr();
+    // SAFETY: one in-bounds row of `row_len` bytes; every term was checked for
+    // one coefficient over a `row_len`-byte source; the backend guarantees
+    // AVX2 + GFNI.
+    unsafe {
+        match (lanes, chunk) {
+            (3, 32) => {
+                rows_resolved_chunked::<Affine8D, [(&[gf8d::Elem], &[u8])], 1, 3, true, 32, false>(
+                    [ptr],
+                    row_len,
+                    0,
+                    terms,
+                );
+            }
+            (4, 32) => {
+                rows_resolved_chunked::<Affine8D, [(&[gf8d::Elem], &[u8])], 1, 4, true, 32, false>(
+                    [ptr],
+                    row_len,
+                    0,
+                    terms,
+                );
+            }
+            (3, 64) => {
+                rows_resolved_chunked::<Affine8D, [(&[gf8d::Elem], &[u8])], 1, 3, true, 64, false>(
+                    [ptr],
+                    row_len,
+                    0,
+                    terms,
+                );
+            }
+            (4, 64) => {
+                rows_resolved_chunked::<Affine8D, [(&[gf8d::Elem], &[u8])], 1, 4, true, 64, false>(
+                    [ptr],
+                    row_len,
+                    0,
+                    terms,
+                );
+            }
+            (3, 96) => {
+                rows_resolved_chunked::<Affine8D, [(&[gf8d::Elem], &[u8])], 1, 3, true, 96, false>(
+                    [ptr],
+                    row_len,
+                    0,
+                    terms,
+                );
+            }
+            (4, 96) => {
+                rows_resolved_chunked::<Affine8D, [(&[gf8d::Elem], &[u8])], 1, 4, true, 96, false>(
+                    [ptr],
+                    row_len,
+                    0,
+                    terms,
+                );
+            }
+            _ => panic!("matrix_overwrite1_chunk: lanes must be 3 or 4, chunk 32/64/96"),
+        }
+    }
+}
+
+/// Run the production tile body over externally resolved map words, in chunks
+/// of `chunk` terms (`0` folds every term into one pass).
+///
+/// The first chunk overwrites; later chunks accumulate, exactly as the
+/// resolved path's chunk loop.
+///
+/// # Safety
+/// As [`rows_body`], over the full term set.
+#[cfg(any(test, feature = "internals"))]
+#[target_feature(enable = "avx2,gfni")]
+unsafe fn rows_external_chunked<const ROWS: usize, const LANES: usize>(
+    ptrs: [*mut u8; ROWS],
+    vector_len: usize,
+    maps: &[[u64; ROWS]],
+    srcs: &[&[u8]],
+    chunk: usize,
+) {
+    let terms = maps.len();
+    let step = if chunk == 0 { terms.max(1) } else { chunk };
+    let mut start = 0;
+    let mut first = true;
+    while start < terms {
+        let taken = (terms - start).min(step);
+        // SAFETY: the caller checked every row and source geometry; the chunk
+        // covers exactly `taken` terms.
+        unsafe {
+            if first {
+                rows_body::<Affine8D, ROWS, LANES, true>(
+                    ptrs,
+                    vector_len,
+                    &maps[start..start + taken],
+                    &srcs[start..start + taken],
+                );
+            } else {
+                rows_body::<Affine8D, ROWS, LANES, false>(
+                    ptrs,
+                    vector_len,
+                    &maps[start..start + taken],
+                    &srcs[start..start + taken],
+                );
+            }
+        }
+        first = false;
+        start += taken;
+    }
+}
+
+/// Experimental one-row overwrite matrix running the production body over
+/// externally resolved map words, in chunks of `chunk` terms.
+///
+/// [`matrix_overwrite1_external_8d`] is the `chunk == 0` single-pass case; a
+/// finite chunk adds the destination pass structure of the resolved path
+/// without its per-call resolution, so resolved-chunked versus
+/// external-chunked at the same chunk prices resolution alone, and
+/// external-chunked versus external single-pass prices the passes alone.
+/// Benchmark evidence only; production dispatch is unchanged.
+///
+/// # Panics
+/// Panics unless `row_len` is a 32-byte multiple, `rows` holds one
+/// `row_len`-byte row, `maps` covers every source, every source spans
+/// `row_len` bytes, `lanes` is 3 or 4, and `chunk` is 0, 32, 64 or 96.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite1_external_chunk_8d(
+    rows: &mut [u8],
+    row_len: usize,
+    maps: &[u64],
+    srcs: &[&[u8]],
+    lanes: usize,
+    chunk: usize,
+) {
+    assert_eq!(
+        row_len % 32,
+        0,
+        "matrix_overwrite1_external_chunk: needs a 32-byte-multiple row"
+    );
+    assert!(
+        row_len <= rows.len(),
+        "matrix_overwrite1_external_chunk: rows buffer does not hold one row of {row_len} bytes"
+    );
+    assert_eq!(
+        maps.len(),
+        srcs.len(),
+        "matrix_overwrite1_external_chunk: one resolved map per source"
+    );
+    for src in srcs {
+        assert_eq!(src.len(), row_len);
+    }
+    assert!(
+        matches!(chunk, 0 | 32 | 64 | 96),
+        "matrix_overwrite1_external_chunk: chunk must be 0, 32, 64 or 96"
+    );
+    assert!(
+        matches!(lanes, 3 | 4),
+        "matrix_overwrite1_external_chunk: lanes must be 3 or 4"
+    );
+    if maps.is_empty() {
+        // The empty overwrite sum is zero, as the unchunked external body's
+        // single `rows_body` call produces.
+        rows[..row_len].fill(0);
+        return;
+    }
+    let (words, rest) = maps.as_chunks::<1>();
+    debug_assert!(rest.is_empty());
+    let ptr = rows.as_mut_ptr();
+    // SAFETY: one in-bounds row of `row_len` bytes, `row_len` a 32-byte
+    // multiple, one resolved map per `row_len`-byte source, and the backend
+    // guarantees AVX2 + GFNI.
+    unsafe {
+        match lanes {
+            3 => rows_external_chunked::<1, 3>([ptr], row_len, words, srcs, chunk),
+            4 => rows_external_chunked::<1, 4>([ptr], row_len, words, srcs, chunk),
+            _ => panic!("matrix_overwrite1_external_chunk: lanes must be 3 or 4"),
+        }
+    }
+}
+
+/// Experimental multi-row overwrite matrix on the production resolved path
+/// with a selectable resolve-chunk width.
+///
+/// Same grouping (four rows at a 64-byte tile, then a pair and a single row at
+/// 128 bytes), resolution and remainder as the production `matrix_overwrite`
+/// path; `chunk` 32 is production by construction. Paired against
+/// [`matrix_overwrite_external_grouped_8d`] it extends the one-output crossed
+/// panel to every output count. Benchmark evidence only; production dispatch
+/// is unchanged.
+///
+/// # Panics
+/// Panics unless `rows` holds `nrows` rows of `row_len` bytes, every term
+/// supplies `nrows` coefficients over a `row_len`-byte source, and `chunk` is
+/// 32, 64 or 96.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite_chunk_8d(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &[(&[gf8d::Elem], &[u8])],
+    chunk: usize,
+) {
+    type Terms<'a> = [(&'a [gf8d::Elem], &'a [u8])];
+    assert!(
+        nrows
+            .checked_mul(row_len)
+            .is_some_and(|used| used <= rows.len()),
+        "matrix_overwrite_chunk: rows buffer does not hold {nrows} rows of {row_len} bytes"
+    );
+    for (coeffs, src) in terms {
+        assert_eq!(src.len(), row_len);
+        assert_eq!(
+            coeffs.len(),
+            nrows,
+            "matrix_overwrite_chunk: term needs {nrows} coefficients"
+        );
+    }
+    assert!(
+        matches!(chunk, 32 | 64 | 96),
+        "matrix_overwrite_chunk: chunk must be 32, 64 or 96"
+    );
+    let base = rows.as_mut_ptr();
+    // SAFETY: the grouping mirrors `matrix_impl` over checked rows; every term
+    // was checked for `nrows` coefficients over a `row_len`-byte source; the
+    // backend guarantees AVX2 + GFNI.
+    unsafe {
+        let mut g = 0;
+        while g + 4 <= nrows {
+            let ptrs = [
+                base.add(g * row_len),
+                base.add((g + 1) * row_len),
+                base.add((g + 2) * row_len),
+                base.add((g + 3) * row_len),
+            ];
+            match chunk {
+                32 => rows_resolved_chunked::<Affine8D, Terms, 4, 2, true, 32, false>(
+                    ptrs, row_len, g, terms,
+                ),
+                64 => rows_resolved_chunked::<Affine8D, Terms, 4, 2, true, 64, false>(
+                    ptrs, row_len, g, terms,
+                ),
+                _ => rows_resolved_chunked::<Affine8D, Terms, 4, 2, true, 96, false>(
+                    ptrs, row_len, g, terms,
+                ),
+            }
+            g += 4;
+        }
+        if g + 2 <= nrows {
+            let ptrs = [base.add(g * row_len), base.add((g + 1) * row_len)];
+            match chunk {
+                32 => rows_resolved_chunked::<Affine8D, Terms, 2, 4, true, 32, false>(
+                    ptrs, row_len, g, terms,
+                ),
+                64 => rows_resolved_chunked::<Affine8D, Terms, 2, 4, true, 64, false>(
+                    ptrs, row_len, g, terms,
+                ),
+                _ => rows_resolved_chunked::<Affine8D, Terms, 2, 4, true, 96, false>(
+                    ptrs, row_len, g, terms,
+                ),
+            }
+            g += 2;
+        }
+        if g < nrows {
+            let ptrs = [base.add(g * row_len)];
+            match chunk {
+                32 => rows_resolved_chunked::<Affine8D, Terms, 1, 4, true, 32, false>(
+                    ptrs, row_len, g, terms,
+                ),
+                64 => rows_resolved_chunked::<Affine8D, Terms, 1, 4, true, 64, false>(
+                    ptrs, row_len, g, terms,
+                ),
+                _ => rows_resolved_chunked::<Affine8D, Terms, 1, 4, true, 96, false>(
+                    ptrs, row_len, g, terms,
+                ),
+            }
+        }
+    }
+}
+
+/// Experimental multi-row overwrite matrix running the production row-group
+/// bodies over externally resolved map words, chunked at `chunk` terms.
+///
+/// `maps` is group-major: every four-row group's words first, then the
+/// pair's, then the single row's, each group term-major (`maps[term * rows +
+/// row within group]`). `chunk` 0 folds all terms in one pass. This is the
+/// resolution-free half of the multi-row crossed panel.
+/// Benchmark evidence only; production dispatch is unchanged.
+///
+/// # Panics
+/// Panics unless `row_len` is a 32-byte multiple, `rows` holds `nrows` rows
+/// of `row_len` bytes, `maps` holds `nrows * srcs.len()` words in group-major
+/// order, every source spans `row_len` bytes, and `chunk` is 0, 32, 64 or 96.
+#[cfg(any(test, feature = "internals"))]
+pub fn matrix_overwrite_external_grouped_8d(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    maps: &[u64],
+    srcs: &[&[u8]],
+    chunk: usize,
+) {
+    assert_eq!(
+        row_len % 32,
+        0,
+        "matrix_overwrite_external_grouped: needs a 32-byte-multiple row"
+    );
+    assert!(
+        nrows
+            .checked_mul(row_len)
+            .is_some_and(|used| used <= rows.len()),
+        "matrix_overwrite_external_grouped: rows buffer does not hold {nrows} rows of {row_len} bytes"
+    );
+    assert_eq!(
+        maps.len(),
+        nrows * srcs.len(),
+        "matrix_overwrite_external_grouped: one map word per (term, row)"
+    );
+    for src in srcs {
+        assert_eq!(src.len(), row_len);
+    }
+    assert!(
+        matches!(chunk, 0 | 32 | 64 | 96),
+        "matrix_overwrite_external_grouped: chunk must be 0, 32, 64 or 96"
+    );
+    let terms = srcs.len();
+    if terms == 0 {
+        // The empty overwrite sum is zero, as the resolved path's tile loops
+        // produce.
+        rows[..nrows * row_len].fill(0);
+        return;
+    }
+    let base = rows.as_mut_ptr();
+    // SAFETY: the grouping mirrors `matrix_impl` over checked rows; `maps`
+    // holds one word per (term, row) in the exact order each group walk
+    // reads; the backend guarantees AVX2 + GFNI.
+    unsafe {
+        let mut cursor = 0;
+        let mut g = 0;
+        while g + 4 <= nrows {
+            let (group, rest) = maps[cursor..cursor + terms * 4].as_chunks::<4>();
+            debug_assert!(rest.is_empty());
+            rows_external_chunked::<4, 2>(
+                [
+                    base.add(g * row_len),
+                    base.add((g + 1) * row_len),
+                    base.add((g + 2) * row_len),
+                    base.add((g + 3) * row_len),
+                ],
+                row_len,
+                group,
+                srcs,
+                chunk,
+            );
+            cursor += terms * 4;
+            g += 4;
+        }
+        if g + 2 <= nrows {
+            let (group, rest) = maps[cursor..cursor + terms * 2].as_chunks::<2>();
+            debug_assert!(rest.is_empty());
+            rows_external_chunked::<2, 4>(
+                [base.add(g * row_len), base.add((g + 1) * row_len)],
+                row_len,
+                group,
+                srcs,
+                chunk,
+            );
+            cursor += terms * 2;
+            g += 2;
+        }
+        if g < nrows {
+            let (group, rest) = maps[cursor..cursor + terms].as_chunks::<1>();
+            debug_assert!(rest.is_empty());
+            rows_external_chunked::<1, 4>([base.add(g * row_len)], row_len, group, srcs, chunk);
         }
     }
 }

@@ -25,7 +25,12 @@
 //! ```
 //! use fgf::gf8b::Elem;
 //!
-//! const POINTS: [Elem; 4] = [Elem(1), Elem(2), Elem(3), Elem(4)];
+//! const POINTS: [Elem; 4] = [
+//!     Elem::from_raw(1),
+//!     Elem::from_raw(2),
+//!     Elem::from_raw(3),
+//!     Elem::from_raw(4),
+//! ];
 //! const V: [[Elem; 4]; 3] = {
 //!     let mut rows = [[Elem::ZERO; 4]; 3];
 //!     let mut i = 0;
@@ -42,16 +47,26 @@
 //!
 //! assert_eq!(V[0], [Elem::ONE; 4]);
 //! assert_eq!(V[1], POINTS);
-//! assert_eq!(V[2][3], Elem(4).square());
+//! assert_eq!(V[2][3], Elem::from_raw(4).square());
 //!
 //! // A parity symbol is one Vandermonde row dotted with the data symbols.
-//! let data = [Elem(0x11), Elem(0x22), Elem(0x33), Elem(0x44)];
+//! let data = [
+//!     Elem::from_raw(0x11),
+//!     Elem::from_raw(0x22),
+//!     Elem::from_raw(0x33),
+//!     Elem::from_raw(0x44),
+//! ];
 //! let parity: Elem = V[1].iter().zip(data).map(|(&v, d)| v.mul(d)).sum();
-//! assert_eq!(parity, Elem(0x11).mul(Elem(1)).add(Elem(0x22).mul(Elem(2)))
-//!     .add(Elem(0x33).mul(Elem(3))).add(Elem(0x44).mul(Elem(4))));
+//! assert_eq!(
+//!     parity,
+//!     Elem::from_raw(0x11).mul(Elem::from_raw(1))
+//!         .add(Elem::from_raw(0x22).mul(Elem::from_raw(2)))
+//!         .add(Elem::from_raw(0x33).mul(Elem::from_raw(3)))
+//!         .add(Elem::from_raw(0x44).mul(Elem::from_raw(4)))
+//! );
 //!
 //! // Division is total: `x / 0` is zero, in `const` context too.
-//! const _: () = assert!(Elem(0x57).div(Elem::ZERO).to_raw() == 0);
+//! const _: () = assert!(Elem::from_raw(0x57).div(Elem::ZERO).to_raw() == 0);
 //! ```
 
 crate::field::flat8::flat_gf8!(Gf8B, 0x11B, 0x1B, 0x03, "GF(2^8)");

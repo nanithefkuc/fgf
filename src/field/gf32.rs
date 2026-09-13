@@ -14,7 +14,7 @@
 //! use fgf::gf32::{self, Elem};
 //! use fgf::gf16;
 //!
-//! const X: Elem = Elem::from_components(gf16::Elem(0x1234), gf16::Elem(0x5678));
+//! const X: Elem = Elem::from_components(gf16::Elem::from_raw(0x1234), gf16::Elem::from_raw(0x5678));
 //! const _: () = assert!(X.to_raw() == 0x5678_1234);
 //!
 //! // `inv` is `const`, so a reciprocal table can be a `const` item.
@@ -24,7 +24,7 @@
 //! // Division is total: `x / 0` is zero, in `const` context too.
 //! const _: () = assert!(X.div(Elem::ZERO).to_raw() == 0);
 //!
-//! assert_eq!(X.components(), (gf16::Elem(0x1234), gf16::Elem(0x5678)));
+//! assert_eq!(X.components(), (gf16::Elem::from_raw(0x1234), gf16::Elem::from_raw(0x5678)));
 //! assert_eq!(gf32::GENERATOR.pow(u64::from(u32::MAX)), Elem::ONE);
 //! ```
 
@@ -47,10 +47,12 @@ pub struct Gf32;
 
 /// An element of `GF((2^16)^2)`, stored as `a + b*v` with `a` in the low half.
 ///
-/// The derived [`Ord`] is raw-representation order, useful for map keys and
-/// deterministic iteration; it carries no field-theoretic meaning.
+/// Every 32-bit pattern is a distinct field value, so the derived
+/// [`PartialEq`]/[`Hash`]/[`Ord`] — raw-bit order — compare field values.
+/// That order is a deterministic total order for map keys and sorting; no
+/// order compatible with addition exists in characteristic two.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-pub struct Elem(pub u32);
+pub struct Elem(pub(crate) u32);
 
 impl Elem {
     /// The additive identity.
@@ -222,6 +224,7 @@ impl Field for Gf32 {
     const BITS: u32 = 32;
     const BYTES: usize = 4;
     const ORDER: u128 = 1u128 << 32;
+    const CHARACTERISTIC: u64 = 2;
     const GENERATOR: Elem = GENERATOR;
 
     #[inline]

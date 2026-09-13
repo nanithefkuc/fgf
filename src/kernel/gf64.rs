@@ -5,11 +5,11 @@
 //! four-`GF2P8MULB` [`crate::kernel::gf32`] scale, so eight `GF2P8MULB` per
 //! 32-byte lane. Everywhere else the portable scalar kernel applies. As
 //! with GF(2^32), the trait defaults carry every multi-row and prepared
-//! operation from [`FieldKernels::mul_add`].
+//! operation from the single-row multiply.
 
 use crate::field::gf64::{Elem, Gf64};
 #[allow(unused_imports)]
-use crate::kernel::{Backend, FieldKernels, backend, scalar};
+use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, scalar};
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::kernel::x86;
@@ -17,12 +17,16 @@ use crate::kernel::x86;
 /// A GF(2^64) coefficient resolved into the form this host's backend wants.
 ///
 /// `Compact` carries the eight 8-byte GFNI broadcast tiles derived once in
-/// [`FieldKernels::prepare`]; `Plain` hands the element to the portable
+/// coefficient preparation; `Plain` hands the element to the portable
 /// scalar kernel. See [`crate::kernel::gf32::Prepared`] for the rationale.
 #[derive(Clone, Debug)]
 pub enum Prepared {
     /// GFNI: eight 8-byte broadcast tiles, plus the element for the scalar
     /// tail.
+    #[cfg(any(
+        all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")),
+        feature = "internals"
+    ))]
     Compact {
         /// The GF(2^64) coefficient, for the portable tail.
         coeff: Elem,
@@ -40,45 +44,17 @@ impl Prepared {
     #[must_use]
     pub const fn coeff(&self) -> Elem {
         match self {
-            Self::Plain(coeff) | Self::Compact { coeff, .. } => *coeff,
+            Self::Plain(coeff) => *coeff,
+            #[cfg(any(
+                all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")),
+                feature = "internals"
+            ))]
+            Self::Compact { coeff, .. } => *coeff,
         }
     }
 }
 
 impl FieldKernels for Gf64 {
-    type Prepared = Prepared;
-
-    fn prepare(coeff: Elem) -> Prepared {
-        match backend() {
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto => Prepared::Compact {
-                coeff,
-                tiles: x86::gf64::gf64_tiles(coeff),
-            },
-            _ => Prepared::Plain(coeff),
-        }
-    }
-
-    #[inline]
-    fn prepared_coeff(prepared: &Prepared) -> Elem {
-        prepared.coeff()
-    }
-
-    #[inline]
-    fn add_assign(dst: &mut [u8], src: &[u8]) {
-        crate::kernel::xor(dst, src);
-    }
-
-    #[inline]
-    fn add_gather_offsets(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
-        crate::kernel::xor_gather(region, dst, offsets);
-    }
-
-    #[inline]
-    fn sub_assign(dst: &mut [u8], src: &[u8]) {
-        crate::kernel::xor(dst, src);
-    }
-
     #[inline]
     fn active_backend() -> Backend {
         match backend() {
@@ -91,8 +67,43 @@ impl FieldKernels for Gf64 {
     fn has_vector_elementwise() -> bool {
         false
     }
+}
 
-    fn mul_add(dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
+impl KernelDispatch for Gf64 {
+    type Prepared = Prepared;
+
+    fn prepare(_proof: RawDispatch, coeff: Elem) -> Prepared {
+        match backend() {
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V3GfniCrypto => Prepared::Compact {
+                coeff,
+                tiles: x86::gf64::gf64_tiles(coeff),
+            },
+            _ => Prepared::Plain(coeff),
+        }
+    }
+
+    #[inline]
+    fn prepared_coeff(_proof: RawDispatch, prepared: &Prepared) -> Elem {
+        prepared.coeff()
+    }
+
+    #[inline]
+    fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
+    }
+
+    #[inline]
+    fn add_gather_offsets(_proof: RawDispatch, region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+        crate::kernel::xor_gather(region, dst, offsets);
+    }
+
+    #[inline]
+    fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
+    }
+
+    fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
         match coeff {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Prepared::Compact { coeff, tiles } => x86::gf64::mul_add_gfni(dst, *coeff, *tiles, src),
@@ -100,7 +111,7 @@ impl FieldKernels for Gf64 {
         }
     }
 
-    fn mul_assign(dst: &mut [u8], coeff: &Prepared) {
+    fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared) {
         match coeff {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Prepared::Compact { coeff, tiles } => x86::gf64::mul_assign_gfni(dst, *coeff, *tiles),
@@ -108,7 +119,7 @@ impl FieldKernels for Gf64 {
         }
     }
 
-    fn mul_into(dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
+    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
         match coeff {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Prepared::Compact { coeff, tiles } => {
@@ -116,32 +127,44 @@ impl FieldKernels for Gf64 {
             }
             other => {
                 dst.copy_from_slice(src);
-                Self::mul_assign(dst, other);
+                Self::mul_assign(RawDispatch, dst, other);
             }
         }
     }
 
-    fn mul_add_scatter(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
+    fn mul_add_scatter(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        coeffs: &[Elem],
+        src: &[u8],
+    ) {
         for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-            Self::mul_add(row, &Self::prepare(coeff), src);
+            Self::mul_add(RawDispatch, row, &Self::prepare(RawDispatch, coeff), src);
         }
     }
 
-    fn mul_add_gather(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
         for (&coeff, &src) in coeffs.iter().zip(srcs) {
-            Self::mul_add(dst, &Self::prepare(coeff), src);
+            Self::mul_add(RawDispatch, dst, &Self::prepare(RawDispatch, coeff), src);
         }
     }
 
-    fn mul_add_matrix(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[Elem], &[u8])]) {
+    fn mul_add_matrix(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        terms: &[(&[Elem], &[u8])],
+    ) {
         for &(coeffs, src) in terms {
             for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
-                Self::mul_add(row, &Self::prepare(coeff), src);
+                Self::mul_add(RawDispatch, row, &Self::prepare(RawDispatch, coeff), src);
             }
         }
     }
 
-    fn mul_elementwise(dst: &mut [u8], a: &[u8], b: &[u8]) {
+    fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
         scalar::mul_elementwise::<Gf64>(dst, a, b);
     }
 }

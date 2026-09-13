@@ -537,7 +537,7 @@ four-arm build and 82.5 GiB/s with nine other arms interleaved around it.
 | New / old production, range | 1.073-1.336 | 1.047-1.286 |
 | Cells improved | 36/36 | 36/36 |
 | Versus ISA-L GFNI, before | 0.932 | 0.992 |
-| Versus ISA-L GFNI, after | 1.094 | 1.124 |
+| Versus ISA-L GFNI, after | 1.094 | 1.1215 |
 
 Same mechanism: per 1024 source bytes at 64 KiB x 10, instructions fall
 191.5 -> 153.8 and loads 74.0 -> 49.8 at one output, 997.7 -> 692.6 and
@@ -618,6 +618,151 @@ production path), `matrix_overwrite1_external_8d` (the same body with
 resolution hoisted out) and `resolve_probe_8d` (resolution alone). The
 rejected replicated-map, ISA-L-grouping, 3+3 and prepared-record bodies were
 removed.
+
+### Crossed resolution x chunk panel: pass cost is small, no chunk change (2026-09-10)
+
+The 33-source claims above needed a panel that separates three effects the old
+arms bundled: per-call coefficient resolution, the chunk-boundary scratch
+initialization, and the second destination pass. The crossed panel holds two of
+the three fixed in every arm — production resolved path (`prod32`), the same
+path with the original full-array scratch init (`full32`), the same path at
+chunk 64 and 96 (`prodK`), the production body over externally resolved maps
+chunked at 32 (`ext32`) and single-pass (`ext1`), the resolve probe, ISA-L, and
+the public entry. Grid 4/16/64 KiB x 32/33/65 sources x 1/2/4/6 outputs, 32
+interleaved rounds, three runs per chunk setting, run-blocked 95% t-intervals,
+both GFNI hosts (`.lucid/artifacts/fgf-chunk-cross-raw.txt`, per-round samples
+included). Every timed arm is byte-identical to the scalar oracle first.
+
+Correction first: the "12.5 and 10.9 cycles per source" resolution figure above
+is mostly the resolve probe's own scratch initialization, not kernel cost. The
+probe's old form declares `[[u64; ROWS]; 32]` and `[&[u8]; 32]` fully
+initialized on every chunk, so its cost jumped 34.0 -> 72.8 ns from 16 to 33
+sources on Golden Cove — the second chunk's fixed init, not per-source work.
+Production never showed that jump: `full32` (original policy) against
+`prod32` (scratch now written only for the occupied terms) is median 1.001 on
+both hosts, no cell beyond noise. The kernel hides the init; the probe did
+not. In-kernel per-call resolution, priced by the chunk-matched pair
+`prod32/ext32`, is median 1.010/1.012 (Lunar Lake) and 1.003/1.019 (Golden
+Cove) at one/multiple outputs — roughly 0.5-1.5 ns per source, not 2-2.3.
+
+`prod32` (scratch now written only for the occupied terms) is median 1.001 on
+both hosts; the two Golden Cove cells whose intervals exclude 1 sit at most
++0.3% away. Against a 1% equivalence margin — declared at analysis time, not
+beforehand, a deviation this record owns — that is a point-estimate
+equivalence, not an established one; the honest reading is "no measurable
+kernel effect of the scratch policy".
+
+The second destination pass above 32 terms is real but small, and consistent
+with destination traffic: `ext32/ext1` is median 1.005/1.013 (Lunar Lake) and
+1.005/1.002 (Golden Cove) overall, worst 1.071 at 64 KiB x 33 x 6 outputs on
+Golden Cove — material against the same margin at the high-output shapes.
+Counters there (isolated core, 20 000 calls): chunked 194 293 LLC
+misses against single-pass 64 687 at four outputs, matching the direction the
+extra destination read-write per pass predicts; the counters corroborate, they
+do not identify accesses.
+
+Chunk widening is rejected by the pre-declared gate. Chunk 64 and 96 recover
+the 33-source multi-output pass cost (Golden Cove 64 KiB x 2/4/6 outputs:
+1.057/1.064/1.076) but lose at 65 sources on the same host — 0.908-0.984,
+significantly — and mix wins and losses on Lunar Lake, so neither clears the
+both-host noninferiority bound over the enumerated neighbours. The 40- and
+64-source runs completed after the first pass of this entry agree: chunk 64 at
+those counts is median 1.015/1.004 (Lunar Lake/Golden Cove) with significant
+losses on Golden Cove (to 0.898), chunk 96 the same picture. A second,
+independent reason chunk 96 cannot ship: its four-row stack frame. The
+declared arrays alone are 96 x (4 x 8 + 16) = 4 608 bytes, and the disassembly
+agrees — the four-row chunk-32 frame's high-water mark including spills is
+0xc68 (3 176) bytes, inside the 4 KiB budget, while chunk 96 opens with
+`sub $0x1000, %rsp` and climbs past it. `RESOLVE_CHUNK` stays 32: at high
+source counts the chunked traversal's cache behaviour is a benefit at some
+shapes, not only a cost.
+
+Resolution in a hot back-to-back loop is larger than the interleaved panel's
+1-2% — 5% at 64 KiB x 33 with the affine-bank reads showing as 724 673 LLC
+misses per 20 000 calls against 295 923 for the external body — the regime
+the plan-hoisting experiment below targets.
+
+### Plan-hoisted resolution measured and rejected (2026-09-10)
+
+The follow-up the crossed panel pointed at — feeding the plan entries their
+already-resolved affine words so the call skips the bank lookup — was routed
+into `dot_product_matrix_with` / `mul_add_matrix_with` (`Prepared8D` as the
+blocked coefficient, `PreparedMatrix` in the term-major order a plan stores)
+and measured on both hosts with `plan` (prepared overwrite), `planadd`
+(prepared accumulate), `api` (term-list overwrite) and `apiadd` (term-list
+accumulate) arms over 48 cells (4/16/64 KiB x 6/10/16/33 sources x 1/2/4/6
+outputs), three runs per host, per-round samples in
+`.lucid/artifacts/fgf-plan-hoisting-raw.txt`. The first version of this entry
+was measured with a harness that allocated its source views inside the timed
+region; every number below is from the corrected allocation-free harness.
+
+It is rejected and the routing reverted. Against its matched term-list
+baseline the prepared plan is median 1.0018/0.9971 (Lunar Lake/Golden Cove)
+with Golden Cove significantly slower in 3 cells (worst 1.027 at 4 KiB x 10 x
+1) and significantly faster in 3 — parity with noise, slightly the wrong way.
+The pre-declared estimand `(B - P) - 1/2 (B - E)` is significantly negative on
+both hosts at one output for both policies (overwrite -19.4/-14.9 ns,
+accumulate -35.2/-17.1 ns): the prepared path closes none of the gap to the
+resolution-free body. Whatever the microarchitectural reason — the wider
+coefficient fetch and the unchanged scratch build and pointer copy are the
+candidates this panel separates but does not isolate — a representation that
+keeps per-call resolution cannot pay for itself, and with the clean-pair
+ceiling at 1.7-1.9% median the packed plan-side seam (a public `FieldKernels`
+change) is not justified either. Production keeps resolving from scalar
+values; the reverted build re-measures at parity (median 1.0012 both hosts).
+
+The prepared bodies stay behind `internals`
+(`matrix_affine_prepared_with`, `matrix_overwrite_affine_prepared_with`),
+differentially tested at every group split through 16 rows with zero and one
+coefficients, zero sources (the empty overwrite writes zeros and leaves
+surplus bytes alone), sub-32-byte tails and surplus destinations, for the day
+a representation change wants them.
+
+### Placement grid at 64 KiB x 33: the width effect is placement-bound, no rule (2026-09-10)
+
+The one cell where the 96-byte tile beat the 128-byte one — 64 KiB rows, 33
+sources, Golden Cove — had never been measured at any stagger: every earlier
+panel and counter run sat at stagger 0. The grid covers staggers 0, 64, 192,
+320 and 4160 (4096+64: the same L1 set-index sequence as 64 but one page
+further in), at 65536 paired with 61440 where both widths run whole tiles,
+three runs per point per host, per-round samples in
+`.lucid/artifacts/fgf-placement-raw.txt`. Ratios below are `ext-96/ext-128`
+nanoseconds; below 1 means the narrow tile is faster.
+
+Golden Cove, 65536: the narrow tile wins at every placement — 0.956 at
+stagger 0, 0.923-0.939 at 64/192/320, 0.981 at 4160 — and ISA-L leads the
+production path (0.887-0.962) and even the resolution-free body (0.913-0.989)
+at every placement. Lunar Lake, 65536: the verdict flips with placement alone,
+0.873-0.895 for the narrow tile at 64/192/320, parity at 0, and 1.043 against
+it at 4160. At the geometry-clean 61440 the narrow tile loses at stagger 0/64
+on both hosts (to 1.167) and wins at 320 on Golden Cove (0.953).
+
+Neither candidate mechanism survives this grid. L1 capacity was already
+refuted by the counters (replacements run higher for the narrow tile); the L2
+set-period story predicted that rotating the set indices would relieve the
+wide tile, and the opposite happens — set rotation makes the narrow tile win
+by more. A source-count sweep at the same length (24/28/40, three runs per
+host) shows the narrow tile significantly ahead at 28 and 40 on Golden Cove
+(0.945/0.982) and at parity on Lunar Lake: the effect is not 33-specific
+there, and it still tracks placement. Counters at the placements confirm the
+swing is memory-system traffic, not scheduling: at 65536 x 33 the
+resolution-free wide body's LLC misses per 20 000 calls move 148 108 (stagger
+0) -> 265 629 (64) -> 20 817 339 (4160) while its time improves 30.7 -> 28.8
+-> 26.4 µs — the page count of the offset changes both arms far more than the
+width does.
+
+On this evidence the width effect moves with the buffer placement and the
+page count of the offset far more than with anything the kernel knows: no rule
+keyed on values available at dispatch (source count, row length) could be
+confirmed over a placement-varying confirmation domain, so none ships. Two
+planned interventions remain unrun and are recorded as such: software-prefetch
+and huge-page arms (each needs new kernel or harness bodies), and the MSR
+prefetch disable, which this host does not allow (`sudo` requires a password
+and no `/dev/cpu/*/msr` exists). The static 128-byte tile stands, and the
+earlier "spills L1" and sector-count arithmetic in the one-output entry above
+is superseded — the measured cells and counters stand, the causal sentence
+does not. The mechanism beyond "placement-modulated memory behaviour" remains
+unestablished.
 
 Small GF(2^16) rows are sensitive to coefficient preparation because a shuffle
 backend builds four nibble tables per coefficient. Use `Coeff` or `Plan` when a

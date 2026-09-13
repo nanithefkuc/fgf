@@ -14,12 +14,17 @@
 //! cargo bench --features internals --bench dot_product -- --tiles --counter --tile-split
 //! ```
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(
+    feature = "internals",
+    feature = "simd",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
 mod imp {
     use std::hint::black_box;
     use std::time::{Duration, Instant};
 
-    use fgf::kernel::x86::gf8 as x86_gf8;
+    use fgf::kernel::x86::proven;
+    use fgf::kernel::{SimdToken, X64V3GfniCryptoToken};
     use fgf::{Backend, Gf8B, backend_for, gf8b, ops};
 
     const FULL_LENGTHS: &[usize] = &[
@@ -108,14 +113,14 @@ mod imp {
 
     fn dense_coefficients(count: usize) -> Vec<gf8b::Elem> {
         (0..count)
-            .map(|index| gf8b::Elem(2 + ((index * 73 + 19) % 254) as u8))
+            .map(|index| gf8b::Elem::from_raw(2 + ((index * 73 + 19) % 254) as u8))
             .collect()
     }
 
     fn reference(mut dst: Vec<u8>, coeffs: &[gf8b::Elem], srcs: &[&[u8]]) -> Vec<u8> {
         for (&coefficient, &source) in coeffs.iter().zip(srcs) {
             for (&value, output) in source.iter().zip(&mut dst) {
-                *output ^= coefficient.mul(gf8b::Elem(value)).0;
+                *output ^= coefficient.mul(gf8b::Elem::from_raw(value)).to_raw();
             }
         }
         dst
@@ -265,13 +270,14 @@ mod imp {
         expected_overwrite: &[u8],
         coeffs: &[gf8b::Elem],
         srcs: &[&[u8]],
+        gfni: X64V3GfniCryptoToken,
     ) {
         let mut raw = initial.to_vec();
-        x86_gf8::gather_gfni(&mut raw, coeffs, srcs);
+        proven::gf8::gather_gfni(gfni, &mut raw, coeffs, srcs);
         assert_eq!(raw, expected_accumulate, "raw accumulate fixture mismatch");
 
         let mut control = initial.to_vec();
-        x86_gf8::gather_gfni_axpy_tail(&mut control, coeffs, srcs);
+        proven::gf8::gather_gfni_axpy_tail(gfni, &mut control, coeffs, srcs);
         assert_eq!(
             control, expected_accumulate,
             "AXPY-tail control fixture mismatch"
@@ -286,7 +292,7 @@ mod imp {
 
         let mut overwrite = initial.to_vec();
         overwrite.fill(0);
-        x86_gf8::gather_gfni(&mut overwrite, coeffs, srcs);
+        proven::gf8::gather_gfni(gfni, &mut overwrite, coeffs, srcs);
         assert_eq!(
             overwrite, expected_overwrite,
             "zero-then-gather fixture mismatch"
@@ -332,12 +338,18 @@ mod imp {
         }
     }
 
-    fn apply_tile(lanes: usize, dst: &mut [u8], coeffs: &[gf8b::Elem], srcs: &[&[u8]]) {
+    fn apply_tile(
+        lanes: usize,
+        dst: &mut [u8],
+        coeffs: &[gf8b::Elem],
+        srcs: &[&[u8]],
+        gfni: X64V3GfniCryptoToken,
+    ) {
         match lanes {
-            1 => x86_gf8::gather_gfni_tile::<1>(dst, coeffs, srcs),
-            2 => x86_gf8::gather_gfni_tile::<2>(dst, coeffs, srcs),
-            3 => x86_gf8::gather_gfni_tile::<3>(dst, coeffs, srcs),
-            4 => x86_gf8::gather_gfni_tile::<4>(dst, coeffs, srcs),
+            1 => proven::gf8::gather_gfni_tile::<1>(gfni, dst, coeffs, srcs),
+            2 => proven::gf8::gather_gfni_tile::<2>(gfni, dst, coeffs, srcs),
+            3 => proven::gf8::gather_gfni_tile::<3>(gfni, dst, coeffs, srcs),
+            4 => proven::gf8::gather_gfni_tile::<4>(gfni, dst, coeffs, srcs),
             _ => panic!("tile lane count must be 1–4"),
         }
     }
@@ -347,17 +359,20 @@ mod imp {
         candidate: &mut AlignedBuf,
         coeffs: &[gf8b::Elem],
         srcs: &[&[u8]],
+        gfni: X64V3GfniCryptoToken,
     ) -> [f64; 2] {
         bench_pair(
             || {
-                x86_gf8::gather_gfni_tile::<4>(
+                proven::gf8::gather_gfni_tile::<4>(
+                    gfni,
                     black_box(control.as_mut_slice()),
                     black_box(coeffs),
                     black_box(srcs),
                 );
             },
             || {
-                x86_gf8::gather_gfni_tile::<LANES>(
+                proven::gf8::gather_gfni_tile::<LANES>(
+                    gfni,
                     black_box(candidate.as_mut_slice()),
                     black_box(coeffs),
                     black_box(srcs),
@@ -371,17 +386,20 @@ mod imp {
         candidate: &mut AlignedBuf,
         coeffs: &[gf8b::Elem],
         srcs: &[&[u8]],
+        gfni: X64V3GfniCryptoToken,
     ) -> [f64; 2] {
         bench_pair(
             || {
-                x86_gf8::gather_gfni(
+                proven::gf8::gather_gfni(
+                    gfni,
                     black_box(control.as_mut_slice()),
                     black_box(coeffs),
                     black_box(srcs),
                 );
             },
             || {
-                x86_gf8::gather_gfni_split(
+                proven::gf8::gather_gfni_split(
+                    gfni,
                     black_box(candidate.as_mut_slice()),
                     black_box(coeffs),
                     black_box(srcs),
@@ -395,9 +413,11 @@ mod imp {
         coeffs: &[gf8b::Elem],
         srcs: &[&[u8]],
         iterations: usize,
+        gfni: X64V3GfniCryptoToken,
     ) {
         for _ in 0..iterations {
-            x86_gf8::gather_gfni_tile::<LANES>(
+            proven::gf8::gather_gfni_tile::<LANES>(
+                gfni,
                 black_box(dst.as_mut_slice()),
                 black_box(coeffs),
                 black_box(srcs),
@@ -410,9 +430,11 @@ mod imp {
         coeffs: &[gf8b::Elem],
         srcs: &[&[u8]],
         iterations: usize,
+        gfni: X64V3GfniCryptoToken,
     ) {
         for _ in 0..iterations {
-            x86_gf8::gather_gfni_split(
+            proven::gf8::gather_gfni_split(
+                gfni,
                 black_box(dst.as_mut_slice()),
                 black_box(coeffs),
                 black_box(srcs),
@@ -426,6 +448,7 @@ mod imp {
         layout: &str,
         counter_lanes: Option<usize>,
         counter_split: bool,
+        gfni: X64V3GfniCryptoToken,
     ) {
         let sources: Vec<AlignedBuf> = (0..source_count)
             .map(|index| {
@@ -443,14 +466,14 @@ mod imp {
         let expected = reference(initial.clone(), &coeffs, &srcs);
         for lanes in 1..=4 {
             let mut got = initial.clone();
-            apply_tile(lanes, &mut got, &coeffs, &srcs);
+            apply_tile(lanes, &mut got, &coeffs, &srcs, gfni);
             assert_eq!(
                 got, expected,
                 "{lanes}-lane tile fixture mismatch: {len} B x {source_count}, {layout}"
             );
         }
         let mut split = initial.clone();
-        x86_gf8::gather_gfni_split(&mut split, &coeffs, &srcs);
+        proven::gf8::gather_gfni_split(gfni, &mut split, &coeffs, &srcs);
         assert_eq!(
             split, expected,
             "split tile fixture mismatch: {len} B x {source_count}, {layout}"
@@ -462,13 +485,13 @@ mod imp {
             const ITERATIONS: usize = 1 << 20;
             let start = Instant::now();
             if counter_split {
-                run_split_counter(&mut dst, &coeffs, &srcs, ITERATIONS);
+                run_split_counter(&mut dst, &coeffs, &srcs, ITERATIONS, gfni);
             } else {
                 match counter_lanes.expect("counter lane checked above") {
-                    1 => run_counter::<1>(&mut dst, &coeffs, &srcs, ITERATIONS),
-                    2 => run_counter::<2>(&mut dst, &coeffs, &srcs, ITERATIONS),
-                    3 => run_counter::<3>(&mut dst, &coeffs, &srcs, ITERATIONS),
-                    4 => run_counter::<4>(&mut dst, &coeffs, &srcs, ITERATIONS),
+                    1 => run_counter::<1>(&mut dst, &coeffs, &srcs, ITERATIONS, gfni),
+                    2 => run_counter::<2>(&mut dst, &coeffs, &srcs, ITERATIONS, gfni),
+                    3 => run_counter::<3>(&mut dst, &coeffs, &srcs, ITERATIONS, gfni),
+                    4 => run_counter::<4>(&mut dst, &coeffs, &srcs, ITERATIONS, gfni),
                     _ => panic!("tile lane count must be 1–4"),
                 }
             }
@@ -506,9 +529,9 @@ mod imp {
             control.as_mut_slice().copy_from_slice(&initial);
             candidate.as_mut_slice().copy_from_slice(&initial);
             let [production, candidate] = match lanes {
-                1 => bench_tile_pair::<1>(&mut control, &mut candidate, &coeffs, &srcs),
-                2 => bench_tile_pair::<2>(&mut control, &mut candidate, &coeffs, &srcs),
-                3 => bench_tile_pair::<3>(&mut control, &mut candidate, &coeffs, &srcs),
+                1 => bench_tile_pair::<1>(&mut control, &mut candidate, &coeffs, &srcs, gfni),
+                2 => bench_tile_pair::<2>(&mut control, &mut candidate, &coeffs, &srcs, gfni),
+                3 => bench_tile_pair::<3>(&mut control, &mut candidate, &coeffs, &srcs, gfni),
                 _ => unreachable!(),
             };
             print_timing("128-byte production", logical_bytes, production);
@@ -532,13 +555,14 @@ mod imp {
         let mut split = tile_buffer(len, layout, None, 0x8700 + len as u64);
         control.as_mut_slice().copy_from_slice(&initial);
         split.as_mut_slice().copy_from_slice(&initial);
-        let [production, candidate] = bench_split_pair(&mut control, &mut split, &coeffs, &srcs);
+        let [production, candidate] =
+            bench_split_pair(&mut control, &mut split, &coeffs, &srcs, gfni);
         print_timing("128-byte production", logical_bytes, production);
         print_timing("128-byte split candidate", logical_bytes, candidate);
         println!("      split speedup {:.2}x", production / candidate);
     }
 
-    fn bench_tiles(arguments: &[String]) {
+    fn bench_tiles(arguments: &[String], gfni: X64V3GfniCryptoToken) {
         let requested_len = usize_argument(arguments, "--tile-len=");
         let requested_sources = usize_argument(arguments, "--tile-sources=");
         let requested_layout = string_argument(arguments, "--tile-layout=");
@@ -557,6 +581,7 @@ mod imp {
                 requested_layout.unwrap_or("aligned"),
                 counter_lanes,
                 counter_split,
+                gfni,
             );
             return;
         }
@@ -592,11 +617,11 @@ mod imp {
             "tile filters selected no benchmark cases"
         );
         for (len, source_count, layout) in cases {
-            bench_tile_case(len, source_count, layout, None, false);
+            bench_tile_case(len, source_count, layout, None, false, gfni);
         }
     }
 
-    fn bench_affine() {
+    fn bench_affine(gfni: X64V3GfniCryptoToken) {
         println!("GF(2^8) native-versus-affine N-to-1 prototype");
         println!("  coefficients: dense nontrivial; alignment: 32-byte; cache mode: hot");
         println!("  speedup is native time / affine time; values above 1 favor affine\n");
@@ -611,20 +636,20 @@ mod imp {
                 let factors: Vec<_> = coeffs
                     .iter()
                     .copied()
-                    .map(x86_gf8::prepare_affine_8b)
+                    .map(proven::prepare_affine_8b)
                     .collect();
                 let initial = noise(len, 0x7200 + len as u64 + source_count as u64);
                 let expected_accumulate = reference(initial.clone(), &coeffs, &srcs);
                 let expected_overwrite = reference(vec![0; len], &coeffs, &srcs);
 
                 let mut affine_check = initial.clone();
-                x86_gf8::gather_affine_8b(&mut affine_check, &factors, &srcs);
+                proven::gf8::gather_affine_8b(gfni, &mut affine_check, &factors, &srcs);
                 assert_eq!(
                     affine_check, expected_accumulate,
                     "prepared affine accumulate fixture mismatch"
                 );
                 affine_check.fill(0);
-                x86_gf8::gather_affine_8b(&mut affine_check, &factors, &srcs);
+                proven::gf8::gather_affine_8b(gfni, &mut affine_check, &factors, &srcs);
                 assert_eq!(
                     affine_check, expected_overwrite,
                     "prepared affine overwrite fixture mismatch"
@@ -644,14 +669,16 @@ mod imp {
                 println!("  {len:>5} B x {source_count:>2} sources:");
                 let [native, affine] = bench_pair(
                     || {
-                        x86_gf8::gather_gfni(
+                        proven::gf8::gather_gfni(
+                            gfni,
                             black_box(native_dst.as_mut_slice()),
                             black_box(&coeffs),
                             black_box(&srcs),
                         );
                     },
                     || {
-                        x86_gf8::gather_affine_8b(
+                        proven::gf8::gather_affine_8b(
+                            gfni,
                             black_box(affine_dst.as_mut_slice()),
                             black_box(&factors),
                             black_box(&srcs),
@@ -665,7 +692,8 @@ mod imp {
                 let [native, affine] = bench_pair(
                     || {
                         native_overwrite.as_mut_slice().fill(0);
-                        x86_gf8::gather_gfni(
+                        proven::gf8::gather_gfni(
+                            gfni,
                             black_box(native_overwrite.as_mut_slice()),
                             black_box(&coeffs),
                             black_box(&srcs),
@@ -673,7 +701,8 @@ mod imp {
                     },
                     || {
                         affine_overwrite.as_mut_slice().fill(0);
-                        x86_gf8::gather_affine_8b(
+                        proven::gf8::gather_affine_8b(
+                            gfni,
                             black_box(affine_overwrite.as_mut_slice()),
                             black_box(&factors),
                             black_box(&srcs),
@@ -686,7 +715,8 @@ mod imp {
 
                 let [native, affine] = bench_pair(
                     || {
-                        x86_gf8::gather_gfni(
+                        proven::gf8::gather_gfni(
+                            gfni,
                             black_box(native_one_shot.as_mut_slice()),
                             black_box(&coeffs),
                             black_box(&srcs),
@@ -694,9 +724,10 @@ mod imp {
                     },
                     || {
                         for (factor, &coeff) in one_shot_factors.iter_mut().zip(&coeffs) {
-                            *factor = x86_gf8::prepare_affine_8b(black_box(coeff));
+                            *factor = proven::prepare_affine_8b(black_box(coeff));
                         }
-                        x86_gf8::gather_affine_8b(
+                        proven::gf8::gather_affine_8b(
+                            gfni,
                             black_box(affine_one_shot.as_mut_slice()),
                             black_box(&one_shot_factors),
                             black_box(&srcs),
@@ -711,12 +742,12 @@ mod imp {
     }
 
     pub fn main() {
-        let has_gfni = std::arch::is_x86_feature_detected!("avx2")
-            && std::arch::is_x86_feature_detected!("gfni");
-        if !has_gfni {
+        // A genuine capability token proves AVX2+GFNI once for the whole
+        // harness; the backend check below still pins the public dispatch.
+        let Some(gfni) = X64V3GfniCryptoToken::summon() else {
             eprintln!("skipping: direct dot-product baseline requires AVX2+GFNI");
             return;
-        }
+        };
 
         let selected = backend_for::<Gf8B>();
         if selected != Backend::V3GfniCrypto {
@@ -733,11 +764,11 @@ mod imp {
         let affine = arguments.iter().any(|argument| argument == "--affine");
         let tiles = arguments.iter().any(|argument| argument == "--tiles");
         if tiles {
-            bench_tiles(&arguments);
+            bench_tiles(&arguments, gfni);
             return;
         }
         if affine {
-            bench_affine();
+            bench_affine(gfni);
             return;
         }
         let (lengths, source_counts) = if tails {
@@ -771,6 +802,7 @@ mod imp {
                     &expected_overwrite,
                     &coeffs,
                     &srcs,
+                    gfni,
                 );
 
                 let mut raw_dst = AlignedBuf::noise(len, 0, 0x3000 + len as u64);
@@ -788,14 +820,16 @@ mod imp {
                 println!("  {len:>5} B x {source_count:>2} sources:");
                 let [control, fused] = bench_pair(
                     || {
-                        x86_gf8::gather_gfni_axpy_tail(
+                        proven::gf8::gather_gfni_axpy_tail(
+                            gfni,
                             black_box(control_dst.as_mut_slice()),
                             black_box(&coeffs),
                             black_box(&srcs),
                         );
                     },
                     || {
-                        x86_gf8::gather_gfni(
+                        proven::gf8::gather_gfni(
+                            gfni,
                             black_box(raw_dst.as_mut_slice()),
                             black_box(&coeffs),
                             black_box(&srcs),
@@ -807,7 +841,8 @@ mod imp {
                 println!("      fused-tail speedup {:.2}x", control / fused);
                 let [raw, public, overwrite] = bench_case(
                     || {
-                        x86_gf8::gather_gfni(
+                        proven::gf8::gather_gfni(
+                            gfni,
                             black_box(raw_dst.as_mut_slice()),
                             black_box(&coeffs),
                             black_box(&srcs),
@@ -822,7 +857,8 @@ mod imp {
                     },
                     || {
                         overwrite_dst.as_mut_slice().fill(0);
-                        x86_gf8::gather_gfni(
+                        proven::gf8::gather_gfni(
+                            gfni,
                             black_box(overwrite_dst.as_mut_slice()),
                             black_box(&coeffs),
                             black_box(&srcs),
@@ -869,12 +905,20 @@ mod imp {
     }
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(
+    feature = "internals",
+    feature = "simd",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
 fn main() {
     imp::main();
 }
 
-#[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+#[cfg(not(all(
+    feature = "internals",
+    feature = "simd",
+    any(target_arch = "x86", target_arch = "x86_64")
+)))]
 fn main() {
     eprintln!("skipping: direct dot-product baseline is x86 SIMD-only");
 }

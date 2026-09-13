@@ -18,7 +18,7 @@ use crate::kernel::tables::{ScaleTable, affine_8d, scale_table, scale_table_8d};
 // `Backend` is referenced only from the SIMD dispatch arms, which cfg away
 // entirely on a scalar-only build.
 #[allow(unused_imports)]
-use crate::kernel::{Backend, FieldKernels, backend, scalar};
+use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, scalar};
 
 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
 use crate::kernel::aarch64;
@@ -88,32 +88,6 @@ fn mul_into_nibble_impl(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
 }
 
 impl FieldKernels for Gf8B {
-    type Prepared = &'static ScaleTable;
-
-    #[inline]
-    fn prepare(coeff: Elem) -> Self::Prepared {
-        scale_table(coeff)
-    }
-
-    #[inline]
-    fn prepared_coeff(prepared: &Self::Prepared) -> Elem {
-        prepared.coeff
-    }
-
-    #[inline]
-    fn add_assign(dst: &mut [u8], src: &[u8]) {
-        crate::kernel::xor(dst, src);
-    }
-
-    #[inline]
-    fn add_gather_offsets(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
-        crate::kernel::xor_gather(region, dst, offsets);
-    }
-
-    #[inline]
-    fn sub_assign(dst: &mut [u8], src: &[u8]) {
-        crate::kernel::xor(dst, src);
-    }
     #[inline]
     fn active_backend() -> Backend {
         backend()
@@ -131,8 +105,37 @@ impl FieldKernels for Gf8B {
                 | Backend::Wasm128
         )
     }
+}
 
-    fn mul_add(dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
+impl KernelDispatch for Gf8B {
+    type Prepared = &'static ScaleTable;
+
+    #[inline]
+    fn prepare(_proof: RawDispatch, coeff: Elem) -> Self::Prepared {
+        scale_table(coeff)
+    }
+
+    #[inline]
+    fn prepared_coeff(_proof: RawDispatch, prepared: &Self::Prepared) -> Elem {
+        prepared.coeff
+    }
+
+    #[inline]
+    fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
+    }
+
+    #[inline]
+    fn add_gather_offsets(_proof: RawDispatch, region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+        crate::kernel::xor_gather(region, dst, offsets);
+    }
+
+    #[inline]
+    fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
+    }
+
+    fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => x86::gf8::mul_add_gfni(dst, coeff.coeff, src),
@@ -150,7 +153,7 @@ impl FieldKernels for Gf8B {
         }
     }
 
-    fn mul_assign(dst: &mut [u8], coeff: &Self::Prepared) {
+    fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => x86::gf8::mul_assign_gfni(dst, coeff.coeff),
@@ -166,7 +169,7 @@ impl FieldKernels for Gf8B {
         }
     }
 
-    fn mul_into(dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
+    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => x86::gf8::mul_into_gfni(dst, coeff.coeff, src),
@@ -182,7 +185,13 @@ impl FieldKernels for Gf8B {
         }
     }
 
-    fn mul_add_scatter(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
+    fn mul_add_scatter(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        coeffs: &[Elem],
+        src: &[u8],
+    ) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => x86::gf8::scatter_gfni(rows, row_len, coeffs, src),
@@ -199,17 +208,19 @@ impl FieldKernels for Gf8B {
             _ => scalar::mul_add_scatter::<Self>(rows, row_len, coeffs, src),
         }
     }
+    #[cfg(feature = "std")]
     fn mul_add_scatter_plan(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         values: &[Elem],
         _coeffs: &[Self::Prepared],
         src: &[u8],
     ) {
-        Self::mul_add_scatter(rows, row_len, values, src);
+        Self::mul_add_scatter(RawDispatch, rows, row_len, values, src);
     }
 
-    fn mul_add_gather(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => x86::gf8::gather_gfni(dst, coeffs, srcs),
@@ -224,30 +235,40 @@ impl FieldKernels for Gf8B {
             _ => scalar::mul_add_gather::<Self>(dst, coeffs, srcs),
         }
     }
+    #[cfg(feature = "std")]
     fn mul_add_gather_plan(
+        _proof: RawDispatch,
         dst: &mut [u8],
         values: &[Elem],
         _coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        Self::mul_add_gather(dst, values, srcs);
+        Self::mul_add_gather(RawDispatch, dst, values, srcs);
     }
 
-    fn dot_product(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+    fn dot_product(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
         dst.fill(0);
-        Self::mul_add_gather(dst, coeffs, srcs);
+        Self::mul_add_gather(RawDispatch, dst, coeffs, srcs);
     }
 
+    #[cfg(feature = "std")]
     fn dot_product_plan(
+        _proof: RawDispatch,
         dst: &mut [u8],
         values: &[Elem],
         _coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        Self::dot_product(dst, values, srcs);
+        Self::dot_product(RawDispatch, dst, values, srcs);
     }
 
-    fn mul_add_matrix(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[Elem], &[u8])]) {
+    fn mul_add_matrix(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        terms: &[(&[Elem], &[u8])],
+    ) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => x86::gf8::matrix_gfni(rows, row_len, nrows, terms),
@@ -264,7 +285,9 @@ impl FieldKernels for Gf8B {
             _ => scalar::mul_add_matrix::<Self>(rows, row_len, nrows, terms),
         }
     }
+    #[cfg(feature = "std")]
     fn mul_add_matrix_plan(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -301,11 +324,12 @@ impl FieldKernels for Gf8B {
                 .take(nrows)
                 .zip(&coeffs[start..start + nrows])
             {
-                Self::mul_add(row, coeff, src);
+                Self::mul_add(RawDispatch, row, coeff, src);
             }
         }
     }
     fn dot_product_matrix(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -320,9 +344,11 @@ impl FieldKernels for Gf8B {
         for row in rows.chunks_exact_mut(row_len).take(nrows) {
             row.fill(0);
         }
-        Self::mul_add_matrix(rows, row_len, nrows, terms);
+        Self::mul_add_matrix(RawDispatch, rows, row_len, nrows, terms);
     }
+    #[cfg(feature = "std")]
     fn dot_product_matrix_plan(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -342,10 +368,11 @@ impl FieldKernels for Gf8B {
         for row in rows.chunks_exact_mut(row_len).take(nrows) {
             row.fill(0);
         }
-        Self::mul_add_matrix_plan(rows, row_len, nrows, values, coeffs, srcs);
+        Self::mul_add_matrix_plan(RawDispatch, rows, row_len, nrows, values, coeffs, srcs);
     }
 
     fn mul_add_matrix_scattered(
+        _proof: RawDispatch,
         dst: &mut [u8],
         row_len: usize,
         row_starts: &[usize],
@@ -362,7 +389,7 @@ impl FieldKernels for Gf8B {
         }
     }
 
-    fn mul_elementwise(dst: &mut [u8], a: &[u8], b: &[u8]) {
+    fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             // `GF2P8MULB` multiplies two vectors directly: no broadcast, no
@@ -406,10 +433,10 @@ pub struct Prepared8D {
 ///
 /// The split-nibble shuffle kernels are field-agnostic — they read only a
 /// coefficient's `lo`/`hi` tables — so this field reuses [`Gf8B`]'s kernels
-/// verbatim by handing them the `0x11D` bank ([`scale_table_8d`]). `GF2P8MULB`
+/// verbatim by handing them the `0x11D` bank (`scale_table_8d`). `GF2P8MULB`
 /// is the AES field and MUST NOT be used; a GFNI host instead multiplies
 /// through `VGF2P8AFFINEQB`, which is polynomial-independent, with the
-/// const-derived `0x11D` affine bank ([`affine_8d`]). On a GFNI host the
+/// const-derived `0x11D` affine bank (`affine_8d`). On a GFNI host the
 /// register-blocked multi-row shapes (scatter/gather/matrix) fold rows in with
 /// the affine map, holding a destination tile in registers across sources or
 /// terms; other backends compose the single-coefficient shuffle per row.
@@ -417,10 +444,28 @@ pub struct Prepared8D {
 /// branchless shift/reduce vector multiply threading the `0x11D` reduction
 /// byte (portable scalar off x86).
 impl FieldKernels for Gf8D {
+    #[inline]
+    fn active_backend() -> Backend {
+        backend()
+    }
+
+    #[inline]
+    fn has_vector_elementwise() -> bool {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        {
+            matches!(backend(), Backend::V3GfniCrypto | Backend::V3 | Backend::V2)
+        }
+        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        {
+            false
+        }
+    }
+}
+impl KernelDispatch for Gf8D {
     type Prepared = Prepared8D;
 
     #[inline]
-    fn prepare(coeff: gf8d::Elem) -> Self::Prepared {
+    fn prepare(_proof: RawDispatch, coeff: gf8d::Elem) -> Self::Prepared {
         Prepared8D {
             table: scale_table_8d(coeff),
             affine: affine_8d(coeff),
@@ -428,30 +473,25 @@ impl FieldKernels for Gf8D {
     }
 
     #[inline]
-    fn prepared_coeff(prepared: &Self::Prepared) -> gf8d::Elem {
-        gf8d::Elem(prepared.table.coeff.0)
+    fn prepared_coeff(_proof: RawDispatch, prepared: &Self::Prepared) -> gf8d::Elem {
+        gf8d::Elem::from_raw(prepared.table.coeff.0)
     }
     #[inline]
-    fn add_assign(dst: &mut [u8], src: &[u8]) {
+    fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         crate::kernel::xor(dst, src);
     }
 
     #[inline]
-    fn add_gather_offsets(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+    fn add_gather_offsets(_proof: RawDispatch, region: &[u8], dst: &mut [u8], offsets: &[u32]) {
         crate::kernel::xor_gather(region, dst, offsets);
     }
 
     #[inline]
-    fn sub_assign(dst: &mut [u8], src: &[u8]) {
+    fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         crate::kernel::xor(dst, src);
     }
 
-    #[inline]
-    fn active_backend() -> Backend {
-        backend()
-    }
-
-    fn mul_add(dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
+    fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => x86::gf8::mul_add_affine(dst, coeff.affine, coeff.table, src),
@@ -467,7 +507,7 @@ impl FieldKernels for Gf8D {
         }
     }
 
-    fn mul_assign(dst: &mut [u8], coeff: &Self::Prepared) {
+    fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => {
@@ -493,7 +533,7 @@ impl FieldKernels for Gf8D {
         }
     }
 
-    fn mul_into(dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
+    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => x86::gf8::mul_into_affine(dst, coeff.affine, coeff.table, src),
@@ -509,7 +549,13 @@ impl FieldKernels for Gf8D {
         }
     }
 
-    fn mul_add_scatter(rows: &mut [u8], row_len: usize, coeffs: &[gf8d::Elem], src: &[u8]) {
+    fn mul_add_scatter(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        coeffs: &[gf8d::Elem],
+        src: &[u8],
+    ) {
         // Blocked affine on a GFNI host shares one source load across a row
         // group; other backends compose the single-coefficient kernel per row.
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -517,20 +563,22 @@ impl FieldKernels for Gf8D {
             return x86::gf8::scatter_affine(rows, row_len, coeffs, src);
         }
         for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-            Self::mul_add(row, &Self::prepare(coeff), src);
+            Self::mul_add(RawDispatch, row, &Self::prepare(RawDispatch, coeff), src);
         }
     }
+    #[cfg(feature = "std")]
     fn mul_add_scatter_plan(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         values: &[gf8d::Elem],
         _coeffs: &[Self::Prepared],
         src: &[u8],
     ) {
-        Self::mul_add_scatter(rows, row_len, values, src);
+        Self::mul_add_scatter(RawDispatch, rows, row_len, values, src);
     }
 
-    fn mul_add_gather(dst: &mut [u8], coeffs: &[gf8d::Elem], srcs: &[&[u8]]) {
+    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[gf8d::Elem], srcs: &[&[u8]]) {
         // Blocked affine holds the destination tile in registers across every
         // source, so it is read and written once per tile, not once per source.
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -538,19 +586,21 @@ impl FieldKernels for Gf8D {
             return x86::gf8::gather_affine(dst, coeffs, srcs);
         }
         for (&coeff, &src) in coeffs.iter().zip(srcs) {
-            Self::mul_add(dst, &Self::prepare(coeff), src);
+            Self::mul_add(RawDispatch, dst, &Self::prepare(RawDispatch, coeff), src);
         }
     }
+    #[cfg(feature = "std")]
     fn mul_add_gather_plan(
+        _proof: RawDispatch,
         dst: &mut [u8],
         values: &[gf8d::Elem],
         _coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        Self::mul_add_gather(dst, values, srcs);
+        Self::mul_add_gather(RawDispatch, dst, values, srcs);
     }
-
     fn mul_add_matrix(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -564,11 +614,13 @@ impl FieldKernels for Gf8D {
         }
         for &(coeffs, src) in terms {
             for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
-                Self::mul_add(row, &Self::prepare(coeff), src);
+                Self::mul_add(RawDispatch, row, &Self::prepare(RawDispatch, coeff), src);
             }
         }
     }
+    #[cfg(feature = "std")]
     fn mul_add_matrix_plan(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -594,11 +646,12 @@ impl FieldKernels for Gf8D {
                 .take(nrows)
                 .zip(&coeffs[start..start + nrows])
             {
-                Self::mul_add(row, coeff, src);
+                Self::mul_add(RawDispatch, row, coeff, src);
             }
         }
     }
     fn dot_product_matrix(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -611,9 +664,11 @@ impl FieldKernels for Gf8D {
         for row in rows.chunks_exact_mut(row_len).take(nrows) {
             row.fill(0);
         }
-        Self::mul_add_matrix(rows, row_len, nrows, terms);
+        Self::mul_add_matrix(RawDispatch, rows, row_len, nrows, terms);
     }
+    #[cfg(feature = "std")]
     fn dot_product_matrix_plan(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -633,10 +688,11 @@ impl FieldKernels for Gf8D {
         for row in rows.chunks_exact_mut(row_len).take(nrows) {
             row.fill(0);
         }
-        Self::mul_add_matrix_plan(rows, row_len, nrows, values, coeffs, srcs);
+        Self::mul_add_matrix_plan(RawDispatch, rows, row_len, nrows, values, coeffs, srcs);
     }
 
     fn mul_add_matrix_scattered(
+        _proof: RawDispatch,
         dst: &mut [u8],
         row_len: usize,
         row_starts: &[usize],
@@ -651,19 +707,7 @@ impl FieldKernels for Gf8D {
         scalar::mul_add_matrix_scattered::<Self>(dst, row_len, row_starts, terms);
     }
 
-    #[inline]
-    fn has_vector_elementwise() -> bool {
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-        {
-            matches!(backend(), Backend::V3GfniCrypto | Backend::V3 | Backend::V2)
-        }
-        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
-        {
-            false
-        }
-    }
-
-    fn mul_elementwise(dst: &mut [u8], a: &[u8], b: &[u8]) {
+    fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
         match backend() {
             // `GF2P8MULB` is the AES field and cannot multiply under `0x11D`,
             // so even a GFNI host runs the branchless shift/reduce vector

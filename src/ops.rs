@@ -2,16 +2,18 @@
 //!
 //! Every function here is generic over [`Field`] and monomorphizes to that
 //! field's dispatched SIMD kernel. Buffers are plain `&[u8]` holding packed
-//! elements in the field's stable little-endian representation, so payloads
-//! from the network or disk need no conversion.
+//! elements in the field's stable little-endian representation. Canonically
+//! encoded payloads need no repacking; prime-field inputs must meet the
+//! canonical-lane contract below.
 //!
 //! # Naming
 //!
-//! `mul_add` is the fused `dst ^= coeff * src` (an AXPY). `_scatter` fans one
-//! source out to many rows, `_gather` folds many sources into one row, and
-//! `_matrix` does many-to-many with the destination held in registers across
-//! sources. These three shapes cover systematic encoding, symbol
-//! reconstruction, and erasure decoding respectively.
+//! `mul_add` is the fused `dst += coeff * src` (an AXPY; XOR in
+//! characteristic two). `_scatter` fans one source out to many rows,
+//! `_gather` folds many sources into one row, and `_matrix` does
+//! many-to-many with the destination held in registers across sources.
+//! These three shapes cover systematic encoding, symbol reconstruction,
+//! and erasure decoding respectively.
 //!
 //! # Reusing a coefficient
 //!
@@ -24,7 +26,7 @@
 //! ```
 //! use fgf::{Gf16, gf16, ops};
 //!
-//! let coeff = ops::Coeff::<Gf16>::new(gf16::Elem(0x0108));
+//! let coeff = ops::Coeff::<Gf16>::new(gf16::Elem::from_raw(0x0108));
 //! let src = [0u8; 64];
 //! for _ in 0..3 {
 //!     let mut symbol = [0u8; 64];
@@ -35,11 +37,27 @@
 //! # Preconditions
 //!
 //! Buffer lengths must be whole multiples of `F::BYTES`, paired buffers must
-//! be equal in length, and `dst`/`src` must not alias. All are checked; a
-//! violation panics rather than silently corrupting.
+//! be equal in length, and `dst`/`src` must not alias. Length constraints are
+//! checked and violations panic; Rust's borrowing rules enforce disjointness.
+//!
+//! # Prime fields: canonical lanes in, canonical lanes out
+//!
+//! The packed operations over the prime fields ([`Mersenne31`], [`Goldilocks`],
+//! [`QuadMersenne31`]) are defined on **canonical lanes** — every input lane
+//! below the modulus — and produce canonical lanes on output. That is the
+//! invariant a codec maintains over its buffers, and it is what these kernels
+//! preserve; no normalization pass runs inside them. Feeding a packed buffer
+//! whose lanes hold arbitrary raw bit patterns computes unspecified field
+//! values without memory-unsafety. Scalar element arithmetic is different and
+//! stronger: the [`Elem`] operations are total over any
+//! raw lane value and always reduce canonically.
+//!
+//! [`Mersenne31`]: crate::Mersenne31
+//! [`Goldilocks`]: crate::Goldilocks
+//! [`QuadMersenne31`]: crate::QuadMersenne31
 
 use crate::field::{Elem, Field};
-use crate::kernel::FieldKernels;
+use crate::kernel::{FieldKernels, KernelDispatch, RawDispatch};
 
 /// A coefficient already resolved into the host backend's preferred form.
 ///
@@ -47,11 +65,14 @@ use crate::kernel::FieldKernels;
 /// the module docs — but it is idempotent and the result is immutable, so a
 /// `Coeff` can be cached alongside a coding matrix for the life of a codec.
 ///
+/// The prepared representation is backend-defined and deliberately opaque:
+/// the element it multiplies by is the whole public surface ([`Coeff::value`]).
+///
 /// Bound to the process's backend at construction. That is not a hazard in
 /// practice (the backend is fixed after first use), but it does mean a
 /// `Coeff` is not meaningful to serialize — rebuild it from the element.
 pub struct Coeff<F: FieldKernels> {
-    prepared: F::Prepared,
+    prepared: <F as KernelDispatch>::Prepared,
 }
 
 impl<F: FieldKernels> Coeff<F> {
@@ -60,7 +81,7 @@ impl<F: FieldKernels> Coeff<F> {
     #[must_use]
     pub fn new(coeff: F::Elem) -> Self {
         Self {
-            prepared: F::prepare(coeff),
+            prepared: F::prepare(RawDispatch, coeff),
         }
     }
 
@@ -68,7 +89,7 @@ impl<F: FieldKernels> Coeff<F> {
     #[inline]
     #[must_use]
     pub fn value(&self) -> F::Elem {
-        F::prepared_coeff(&self.prepared)
+        F::prepared_coeff(RawDispatch, &self.prepared)
     }
 }
 
@@ -94,14 +115,26 @@ mod private {
 ///
 /// This trait is sealed: values come from [`Coeff`] or, with `std`, a `Plan`.
 /// It exists so the `_with` operations can consume either without cloning the
-/// prepared tables.
-pub trait PreparedCoefficient<F: FieldKernels>: private::Sealed {
+/// prepared tables. It exposes the coefficient's field value only — the
+/// backend representation stays crate-private, so no consumer can extract or
+/// depend on a preparation format.
+// The private supertrait seals access to backend preparation.
+#[allow(private_bounds)]
+pub trait PreparedCoefficient<F: FieldKernels>: private::Sealed + PreparedRepr<F> {
     /// The field element this prepared representation multiplies by.
     fn value(&self) -> F::Elem;
+}
 
+/// Crate-private access to the backend representation behind
+/// [`PreparedCoefficient`].
+///
+/// A supertrait with an unnameable proof argument: external generic code
+/// bound on `PreparedCoefficient` can see the method through bound
+/// elaboration but cannot construct the [`RawDispatch`] it takes, so the
+/// representation is unreachable outside the crate.
+pub(crate) trait PreparedRepr<F: FieldKernels>: private::Sealed {
     /// Borrow the backend-private representation.
-    #[doc(hidden)]
-    fn prepared(&self) -> &F::Prepared;
+    fn repr(&self, _proof: RawDispatch) -> &<F as KernelDispatch>::Prepared;
 }
 
 impl<F: FieldKernels> private::Sealed for Coeff<F> {}
@@ -111,9 +144,11 @@ impl<F: FieldKernels> PreparedCoefficient<F> for Coeff<F> {
     fn value(&self) -> F::Elem {
         Coeff::value(self)
     }
+}
 
+impl<F: FieldKernels> PreparedRepr<F> for Coeff<F> {
     #[inline]
-    fn prepared(&self) -> &F::Prepared {
+    fn repr(&self, _proof: RawDispatch) -> &<F as KernelDispatch>::Prepared {
         &self.prepared
     }
 }
@@ -125,7 +160,7 @@ impl<F: FieldKernels> PreparedCoefficient<F> for Coeff<F> {
 #[cfg(feature = "std")]
 #[derive(Clone, Copy)]
 pub struct CoeffRef<'a, F: FieldKernels> {
-    prepared: &'a F::Prepared,
+    prepared: &'a <F as KernelDispatch>::Prepared,
     field: core::marker::PhantomData<F>,
 }
 
@@ -135,7 +170,7 @@ impl<F: FieldKernels> CoeffRef<'_, F> {
     #[inline]
     #[must_use]
     pub fn value(self) -> F::Elem {
-        F::prepared_coeff(self.prepared)
+        F::prepared_coeff(RawDispatch, self.prepared)
     }
 }
 
@@ -146,27 +181,37 @@ impl<F: FieldKernels> private::Sealed for CoeffRef<'_, F> {}
 impl<F: FieldKernels> PreparedCoefficient<F> for CoeffRef<'_, F> {
     #[inline]
     fn value(&self) -> F::Elem {
-        F::prepared_coeff(self.prepared)
+        F::prepared_coeff(RawDispatch, self.prepared)
     }
+}
 
+#[cfg(feature = "std")]
+impl<F: FieldKernels> PreparedRepr<F> for CoeffRef<'_, F> {
     #[inline]
-    fn prepared(&self) -> &F::Prepared {
+    fn repr(&self, _proof: RawDispatch) -> &<F as KernelDispatch>::Prepared {
         self.prepared
     }
 }
 
-/// A reusable vector or row-major matrix of prepared coefficients.
+/// A reusable vector or source-major matrix of prepared coefficients.
 ///
 /// Plans are available with `std` because they own a dynamically sized
 /// coefficient collection. Preparation happens once in the constructor;
 /// [`Plan::get`] then borrows an entry without rebuilding or copying its
 /// backend tables. Store a plan beside the coding matrix it represents.
+///
+/// A matrix plan is **source-major**: the coefficient pairing source `s`
+/// with output row `o` is `coeffs[s * outputs + o]` — `coeff[source][output]`
+/// in two-dimensional notation. A plan built by [`Plan::new`] is a flat
+/// coefficient vector whose interpretation follows the consuming operation
+/// (one coefficient per output row for the scatter ops, per source for the
+/// gather and dot-product ops).
 #[cfg(feature = "std")]
 pub struct Plan<F: FieldKernels> {
-    prepared: std::boxed::Box<[F::Prepared]>,
+    prepared: std::boxed::Box<[<F as KernelDispatch>::Prepared]>,
     values: std::boxed::Box<[F::Elem]>,
-    rows: usize,
-    cols: usize,
+    sources: usize,
+    outputs: usize,
 }
 
 #[cfg(feature = "std")]
@@ -178,36 +223,40 @@ impl<F: FieldKernels> Plan<F> {
         let prepared = values
             .iter()
             .copied()
-            .map(F::prepare)
+            .map(|coeff| F::prepare(RawDispatch, coeff))
             .collect::<std::vec::Vec<_>>()
             .into_boxed_slice();
         Self {
             prepared,
             values,
-            rows: 1,
-            cols: coeffs.len(),
+            sources: 1,
+            outputs: coeffs.len(),
         }
     }
 
-    /// Prepare a row-major `rows × cols` coefficient matrix.
+    /// Prepare a source-major `sources × outputs` coefficient matrix.
+    ///
+    /// The coefficient pairing source `s` with output row `o` is
+    /// `coeffs[s * outputs + o]`.
     ///
     /// # Panics
     ///
-    /// Panics if `coeffs.len() != rows * cols` or the product overflows.
+    /// Panics if `coeffs.len() != sources * outputs` or the product
+    /// overflows.
     #[must_use]
-    pub fn matrix(rows: usize, cols: usize, coeffs: &[F::Elem]) -> Self {
-        let len = rows
-            .checked_mul(cols)
+    pub fn matrix(sources: usize, outputs: usize, coeffs: &[F::Elem]) -> Self {
+        let len = sources
+            .checked_mul(outputs)
             .expect("Plan::matrix: dimensions overflow");
         assert_eq!(
             coeffs.len(),
             len,
-            "Plan::matrix: {} coefficients for {rows}x{cols} matrix",
+            "Plan::matrix: {} coefficients for {sources}x{outputs} source-major matrix",
             coeffs.len()
         );
         let mut plan = Self::new(coeffs);
-        plan.rows = rows;
-        plan.cols = cols;
+        plan.sources = sources;
+        plan.outputs = outputs;
         plan
     }
 
@@ -225,11 +274,21 @@ impl<F: FieldKernels> Plan<F> {
         self.prepared.is_empty()
     }
 
-    /// Matrix dimensions as `(rows, cols)`.
+    /// Number of source terms the plan's coefficients are grouped by.
+    ///
+    /// A vector plan ([`Plan::new`]) reports `1`; a zero-coefficient vector
+    /// plan has `1` source and `0` outputs.
     #[inline]
     #[must_use]
-    pub const fn dimensions(&self) -> (usize, usize) {
-        (self.rows, self.cols)
+    pub const fn source_count(&self) -> usize {
+        self.sources
+    }
+
+    /// Number of output rows each source's coefficients address.
+    #[inline]
+    #[must_use]
+    pub const fn output_count(&self) -> usize {
+        self.outputs
     }
 
     /// Borrow coefficient `index`, or return `None` when out of bounds.
@@ -241,14 +300,17 @@ impl<F: FieldKernels> Plan<F> {
             field: core::marker::PhantomData,
         })
     }
-    /// Borrow coefficient `(row, col)`, or return `None` when out of bounds.
+
+    /// Borrow the coefficient pairing `source` with `output`, or return
+    /// `None` when either is out of bounds.
     #[inline]
     #[must_use]
-    pub fn get_at(&self, row: usize, col: usize) -> Option<CoeffRef<'_, F>> {
-        (row < self.rows && col < self.cols)
-            .then(|| row * self.cols + col)
+    pub fn get_at(&self, source: usize, output: usize) -> Option<CoeffRef<'_, F>> {
+        (source < self.sources && output < self.outputs)
+            .then(|| source * self.outputs + output)
             .and_then(|index| self.get(index))
     }
+
     /// Iterate over prepared coefficients without copying their backend form.
     #[must_use]
     pub fn coeffs(&self) -> impl ExactSizeIterator<Item = CoeffRef<'_, F>> {
@@ -257,18 +319,34 @@ impl<F: FieldKernels> Plan<F> {
             field: core::marker::PhantomData,
         })
     }
-    /// Iterate over one matrix row, or return `None` when out of bounds.
+
+    /// Iterate the `output_count()` coefficients pairing source `source`
+    /// with every output row, or return `None` when `source` is out of
+    /// bounds.
+    ///
+    /// Total: every `usize` answers without overflow, `usize::MAX` included,
+    /// and a zero-output plan yields an empty iterator for each of its
+    /// sources.
     #[must_use]
-    pub fn row(&self, row: usize) -> Option<impl ExactSizeIterator<Item = CoeffRef<'_, F>> + '_> {
-        let start = row.checked_mul(self.cols)?;
-        let prepared = self.prepared.get(start..start + self.cols)?;
+    pub fn source(
+        &self,
+        source: usize,
+    ) -> Option<impl ExactSizeIterator<Item = CoeffRef<'_, F>> + '_> {
+        if source >= self.sources {
+            return None;
+        }
+        // `source < sources` and `sources * outputs == len`, so both bounds
+        // are within `len` and cannot overflow.
+        let start = source * self.outputs;
+        let end = start + self.outputs;
+        let prepared = self.prepared.get(start..end)?;
         Some(prepared.iter().map(|prepared| CoeffRef {
             prepared,
             field: core::marker::PhantomData,
         }))
     }
 
-    /// Iterate over the original field elements in row-major order.
+    /// Iterate over the original field elements in source-major order.
     #[must_use]
     pub fn values(&self) -> impl ExactSizeIterator<Item = F::Elem> + '_ {
         self.values.iter().copied()
@@ -281,8 +359,8 @@ impl<F: FieldKernels> Clone for Plan<F> {
         Self {
             prepared: self.prepared.clone(),
             values: self.values.clone(),
-            rows: self.rows,
-            cols: self.cols,
+            sources: self.sources,
+            outputs: self.outputs,
         }
     }
 }
@@ -291,7 +369,8 @@ impl<F: FieldKernels> Clone for Plan<F> {
 impl<F: FieldKernels> core::fmt::Debug for Plan<F> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Plan")
-            .field("dimensions", &self.dimensions())
+            .field("sources", &self.source_count())
+            .field("outputs", &self.output_count())
             .field("len", &self.len())
             .finish_non_exhaustive()
     }
@@ -324,7 +403,7 @@ fn check_pair<F: Field>(name: &str, left_name: &str, left: usize, right_name: &s
 #[inline]
 pub fn add_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
     check_pair::<F>("add_assign", "dst", dst.len(), "src", src.len());
-    F::add_assign(dst, src);
+    F::add_assign(RawDispatch, dst, src);
 }
 
 /// Add pairwise rows: `dst_row[j] += src_row[j]` for every row.
@@ -371,12 +450,12 @@ pub fn add_assign_rows<F: FieldKernels>(dst: &mut [u8], src: &[u8], row_len: usi
         0,
         "add_assign_rows: partial trailing row",
     );
-    F::add_assign_rows(dst, src, row_len);
+    F::add_assign_rows(RawDispatch, dst, src, row_len);
 }
 
 /// Fold byte-offset sources out of one backing region into one row, every
-/// coefficient implicitly one: `dst ^= sum(region[off..off + dst.len()])`
-/// (field addition, not byte XOR, for the prime fields).
+/// coefficient implicitly one: `dst += sum(region[off..off + dst.len()])`
+/// (field addition; byte XOR only in characteristic two).
 ///
 /// The unit-coefficient gather: sources are rows of one buffer — a solved
 /// solution block, a table of packed elements — addressed by their start
@@ -412,7 +491,7 @@ pub fn add_gather<F: FieldKernels>(region: &[u8], dst: &mut [u8], offsets: &[u32
             region.len(),
         );
     }
-    F::add_gather_offsets(region, dst, offsets);
+    F::add_gather_offsets(RawDispatch, region, dst, offsets);
 }
 
 /// `dst -= src`. Identical to [`add_assign`] in characteristic two.
@@ -422,10 +501,10 @@ pub fn add_gather<F: FieldKernels>(region: &[u8], dst: &mut [u8], offsets: &[u32
 #[inline]
 pub fn sub_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
     check_pair::<F>("sub_assign", "dst", dst.len(), "src", src.len());
-    F::sub_assign(dst, src);
+    F::sub_assign(RawDispatch, dst, src);
 }
 
-/// `dst ^= coeff * src`.
+/// `dst += coeff * src`.
 ///
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.
@@ -436,13 +515,13 @@ pub fn mul_add<F: FieldKernels>(dst: &mut [u8], coeff: F::Elem, src: &[u8]) {
         return;
     }
     if coeff.is_one() {
-        F::add_assign(dst, src);
+        F::add_assign(RawDispatch, dst, src);
         return;
     }
-    F::mul_add(dst, &F::prepare(coeff), src);
+    F::mul_add(RawDispatch, dst, &F::prepare(RawDispatch, coeff), src);
 }
 
-/// `dst ^= coeff * src`, reusing an already-prepared coefficient.
+/// `dst += coeff * src`, reusing an already-prepared coefficient.
 ///
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.
@@ -458,10 +537,10 @@ pub fn mul_add_with<F: FieldKernels>(
         return;
     }
     if value.is_one() {
-        F::add_assign(dst, src);
+        F::add_assign(RawDispatch, dst, src);
         return;
     }
-    F::mul_add(dst, coeff.prepared(), src);
+    F::mul_add(RawDispatch, dst, coeff.repr(RawDispatch), src);
 }
 
 /// `dst = coeff * src`, overwriting `dst`.
@@ -479,7 +558,7 @@ pub fn mul_into<F: FieldKernels>(dst: &mut [u8], coeff: F::Elem, src: &[u8]) {
         dst.copy_from_slice(src);
         return;
     }
-    F::mul_into(dst, &F::prepare(coeff), src);
+    F::mul_into(RawDispatch, dst, &F::prepare(RawDispatch, coeff), src);
 }
 
 /// `dst = coeff * src`, reusing an already-prepared coefficient.
@@ -502,7 +581,7 @@ pub fn mul_into_with<F: FieldKernels>(
         dst.copy_from_slice(src);
         return;
     }
-    F::mul_into(dst, coeff.prepared(), src);
+    F::mul_into(RawDispatch, dst, coeff.repr(RawDispatch), src);
 }
 
 /// `dst *= coeff`, in place.
@@ -519,7 +598,7 @@ pub fn mul_assign<F: FieldKernels>(dst: &mut [u8], coeff: F::Elem) {
         dst.fill(0);
         return;
     }
-    F::mul_assign(dst, &F::prepare(coeff));
+    F::mul_assign(RawDispatch, dst, &F::prepare(RawDispatch, coeff));
 }
 
 /// `dst *= coeff`, reusing an already-prepared coefficient.
@@ -537,14 +616,17 @@ pub fn mul_assign_with<F: FieldKernels>(dst: &mut [u8], coeff: &impl PreparedCoe
         dst.fill(0);
         return;
     }
-    F::mul_assign(dst, coeff.prepared());
+    F::mul_assign(RawDispatch, dst, coeff.repr(RawDispatch));
 }
 
-/// Fan one source out to many rows: `rows[j] ^= coeffs[j] * src`.
+/// Fan one source out to many rows: `rows[j] += coeffs[j] * src`.
 ///
 /// `rows` is a flat buffer of `coeffs.len()` contiguous rows, each `row_len`
 /// bytes and the same length as `src`. This is the systematic-encode shape:
 /// one arriving data symbol updates every parity row.
+///
+/// A zero-length row with a zero-length source is a valid zero-work shape
+/// and a no-op; the structural checks above still apply.
 ///
 /// # Panics
 /// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len` bytes
@@ -566,10 +648,10 @@ pub fn mul_add_scatter<F: FieldKernels>(
         rows.len(),
         coeffs.len(),
     );
-    if coeffs.iter().all(|c| c.is_zero()) {
+    if row_len == 0 || coeffs.is_empty() || coeffs.iter().all(|c| c.is_zero()) {
         return;
     }
-    F::mul_add_scatter(&mut rows[..used], row_len, coeffs, src);
+    F::mul_add_scatter(RawDispatch, &mut rows[..used], row_len, coeffs, src);
 }
 
 /// Fan one source out to many rows using a prepared coefficient plan.
@@ -598,10 +680,11 @@ pub fn mul_add_scatter_with<F: FieldKernels>(
         rows.len(),
         plan.len(),
     );
-    if plan.values().all(Elem::is_zero) {
+    if row_len == 0 || plan.values().all(Elem::is_zero) {
         return;
     }
     F::mul_add_scatter_plan(
+        RawDispatch,
         &mut rows[..used],
         row_len,
         &plan.values,
@@ -610,7 +693,7 @@ pub fn mul_add_scatter_with<F: FieldKernels>(
     );
 }
 
-/// Fold many sources into one row: `dst ^= sum(coeffs[i] * srcs[i])`.
+/// Fold many sources into one row: `dst += sum(coeffs[i] * srcs[i])`.
 ///
 /// The transpose of [`mul_add_scatter`], and the shape that rebuilds a single
 /// lost symbol from its survivors. Blocked backends hold the destination tile
@@ -639,10 +722,10 @@ pub fn mul_add_gather<F: FieldKernels>(dst: &mut [u8], coeffs: &[F::Elem], srcs:
             dst.len()
         );
     }
-    if srcs.is_empty() || coeffs.iter().all(|c| c.is_zero()) {
+    if dst.is_empty() || srcs.is_empty() || coeffs.iter().all(|c| c.is_zero()) {
         return;
     }
-    F::mul_add_gather(dst, coeffs, srcs);
+    F::mul_add_gather(RawDispatch, dst, coeffs, srcs);
 }
 
 /// Fold many sources into one row using a prepared coefficient plan.
@@ -669,10 +752,10 @@ pub fn mul_add_gather_with<F: FieldKernels>(dst: &mut [u8], plan: &Plan<F>, srcs
             dst.len(),
         );
     }
-    if srcs.is_empty() || plan.values().all(Elem::is_zero) {
+    if dst.is_empty() || srcs.is_empty() || plan.values().all(Elem::is_zero) {
         return;
     }
-    F::mul_add_gather_plan(dst, &plan.values, &plan.prepared, srcs);
+    F::mul_add_gather_plan(RawDispatch, dst, &plan.values, &plan.prepared, srcs);
 }
 
 /// Overwrite one row with a field dot product:
@@ -703,7 +786,7 @@ pub fn dot_product<F: FieldKernels>(dst: &mut [u8], coeffs: &[F::Elem], srcs: &[
             dst.len()
         );
     }
-    if srcs.is_empty() || coeffs.iter().all(|coeff| coeff.is_zero()) {
+    if dst.is_empty() || srcs.is_empty() || coeffs.iter().all(|coeff| coeff.is_zero()) {
         dst.fill(0);
         return;
     }
@@ -711,7 +794,7 @@ pub fn dot_product<F: FieldKernels>(dst: &mut [u8], coeffs: &[F::Elem], srcs: &[
         mul_into::<F>(dst, *coeff, srcs[0]);
         return;
     }
-    F::dot_product(dst, coeffs, srcs);
+    F::dot_product(RawDispatch, dst, coeffs, srcs);
 }
 
 /// Overwrite one row with a field dot product using a prepared plan.
@@ -738,7 +821,7 @@ pub fn dot_product_with<F: FieldKernels>(dst: &mut [u8], plan: &Plan<F>, srcs: &
             dst.len(),
         );
     }
-    if srcs.is_empty() || plan.values().all(Elem::is_zero) {
+    if dst.is_empty() || srcs.is_empty() || plan.values().all(Elem::is_zero) {
         dst.fill(0);
         return;
     }
@@ -747,11 +830,11 @@ pub fn dot_product_with<F: FieldKernels>(dst: &mut [u8], plan: &Plan<F>, srcs: &
         mul_into_with::<F>(dst, &coeff, srcs[0]);
         return;
     }
-    F::dot_product_plan(dst, &plan.values, &plan.prepared, srcs);
+    F::dot_product_plan(RawDispatch, dst, &plan.values, &plan.prepared, srcs);
 }
 
 /// Apply many sources to many rows: for each `(coeffs, src)` term,
-/// `rows[j] ^= coeffs[j] * src` for every `j` in `0..nrows`.
+/// `rows[j] += coeffs[j] * src` for every `j` in `0..nrows`.
 ///
 /// Semantically a [`mul_add_scatter`] per term. The difference is memory
 /// traffic: blocked backends keep a destination tile in registers while every
@@ -759,6 +842,9 @@ pub fn dot_product_with<F: FieldKernels>(dst: &mut [u8], plan: &Plan<F>, srcs: &
 /// rather than once per term. That is the whole game once
 /// `nrows * row_len` exceeds L1 — which is the normal case for erasure
 /// reconstruction.
+///
+/// A zero-length row with zero-length sources is a valid zero-work shape and
+/// a no-op; the structural checks above still apply.
 ///
 /// # Panics
 /// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes, every
@@ -792,30 +878,33 @@ pub fn mul_add_matrix<F: FieldKernels>(
             src.len()
         );
     }
-    if nrows == 0 || terms.is_empty() {
+    if nrows == 0 || row_len == 0 || terms.is_empty() {
         return;
     }
-    F::mul_add_matrix(&mut rows[..used], row_len, nrows, terms);
+    F::mul_add_matrix(RawDispatch, &mut rows[..used], row_len, nrows, terms);
 }
 
-/// Apply many sources to many rows using a prepared row-major coefficient plan.
+/// Apply many sources to many rows using a prepared source-major coefficient
+/// plan.
 ///
-/// `plan` must have dimensions `(srcs.len(), nrows)`: each plan row holds the
-/// coefficients for one source term.
+/// The plan must have dimensions `(srcs.len(), n)` in `(sources, outputs)`:
+/// plan row `s` holds the coefficients pairing source `s` with every output
+/// row. The output-row count is the plan's [`output_count`](Plan::output_count)
+/// — it is not a parameter.
 ///
 /// # Panics
-/// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes,
-/// `plan.dimensions() == (srcs.len(), nrows)`, and every source is `row_len`
-/// bytes.
+/// Panics unless `rows` holds at least `plan.output_count()` rows of
+/// `row_len` bytes, `plan.source_count() == srcs.len()`, and every source is
+/// `row_len` bytes.
 #[cfg(feature = "std")]
 pub fn mul_add_matrix_with<F: FieldKernels>(
     rows: &mut [u8],
     row_len: usize,
-    nrows: usize,
     plan: &Plan<F>,
     srcs: &[&[u8]],
 ) {
     check_width::<F>("mul_add_matrix_with", row_len);
+    let nrows = plan.output_count();
     let used = nrows
         .checked_mul(row_len)
         .expect("mul_add_matrix_with: row geometry overflows");
@@ -825,9 +914,11 @@ pub fn mul_add_matrix_with<F: FieldKernels>(
         rows.len(),
     );
     assert_eq!(
-        plan.dimensions(),
-        (srcs.len(), nrows),
-        "mul_add_matrix_with: plan dimensions do not match (sources, rows)",
+        plan.source_count(),
+        srcs.len(),
+        "mul_add_matrix_with: plan holds coefficients for {} sources but there are {}",
+        plan.source_count(),
+        srcs.len(),
     );
     for (index, &src) in srcs.iter().enumerate() {
         assert_eq!(
@@ -837,10 +928,11 @@ pub fn mul_add_matrix_with<F: FieldKernels>(
             src.len(),
         );
     }
-    if nrows == 0 || srcs.is_empty() {
+    if nrows == 0 || row_len == 0 || srcs.is_empty() {
         return;
     }
     F::mul_add_matrix_plan(
+        RawDispatch,
         &mut rows[..used],
         row_len,
         nrows,
@@ -890,35 +982,36 @@ pub fn dot_product_matrix<F: FieldKernels>(
             src.len()
         );
     }
-    if nrows == 0 {
+    if nrows == 0 || row_len == 0 {
         return;
     }
     if terms.is_empty() {
         rows[..used].fill(0);
         return;
     }
-    F::dot_product_matrix(&mut rows[..used], row_len, nrows, terms);
+    F::dot_product_matrix(RawDispatch, &mut rows[..used], row_len, nrows, terms);
 }
 
-/// Overwrite many rows with field dot products using a prepared coefficient
-/// plan: `rows[j] = sum_t coeffs[t][j] * src[t]`.
+/// Overwrite many rows with field dot products using a prepared
+/// source-major coefficient plan: `rows[j] = sum_t coeffs[t][j] * src[t]`.
 ///
-/// The overwrite counterpart of [`mul_add_matrix_with`]. `plan` must have
-/// dimensions `(srcs.len(), nrows)`.
+/// The overwrite counterpart of [`mul_add_matrix_with`]. The plan must have
+/// `srcs.len()` sources; the output-row count is the plan's
+/// [`output_count`](Plan::output_count).
 ///
 /// # Panics
-/// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes,
-/// `plan.dimensions() == (srcs.len(), nrows)`, and every source is `row_len`
-/// bytes.
+/// Panics unless `rows` holds at least `plan.output_count()` rows of
+/// `row_len` bytes, `plan.source_count() == srcs.len()`, and every source is
+/// `row_len` bytes.
 #[cfg(feature = "std")]
 pub fn dot_product_matrix_with<F: FieldKernels>(
     rows: &mut [u8],
     row_len: usize,
-    nrows: usize,
     plan: &Plan<F>,
     srcs: &[&[u8]],
 ) {
     check_width::<F>("dot_product_matrix_with", row_len);
+    let nrows = plan.output_count();
     let used = nrows
         .checked_mul(row_len)
         .expect("dot_product_matrix_with: row geometry overflows");
@@ -928,9 +1021,11 @@ pub fn dot_product_matrix_with<F: FieldKernels>(
         rows.len(),
     );
     assert_eq!(
-        plan.dimensions(),
-        (srcs.len(), nrows),
-        "dot_product_matrix_with: plan dimensions do not match (sources, rows)",
+        plan.source_count(),
+        srcs.len(),
+        "dot_product_matrix_with: plan holds coefficients for {} sources but there are {}",
+        plan.source_count(),
+        srcs.len(),
     );
     for (index, &src) in srcs.iter().enumerate() {
         assert_eq!(
@@ -940,7 +1035,7 @@ pub fn dot_product_matrix_with<F: FieldKernels>(
             src.len(),
         );
     }
-    if nrows == 0 {
+    if nrows == 0 || row_len == 0 {
         return;
     }
     if srcs.is_empty() {
@@ -948,6 +1043,7 @@ pub fn dot_product_matrix_with<F: FieldKernels>(
         return;
     }
     F::dot_product_matrix_plan(
+        RawDispatch,
         &mut rows[..used],
         row_len,
         nrows,
@@ -958,7 +1054,7 @@ pub fn dot_product_matrix_with<F: FieldKernels>(
 }
 
 /// Apply many sources to many disjoint rows scattered through `dst`: for each
-/// `(coeffs, src)` term, `dst[row_starts[j]..][..row_len] ^= coeffs[j] * src`
+/// `(coeffs, src)` term, `dst[row_starts[j]..][..row_len] += coeffs[j] * src`
 /// for every `j` in `0..row_starts.len()`.
 ///
 /// The reconstruction shape when recovered rows land at scattered positions in
@@ -969,6 +1065,9 @@ pub fn dot_product_matrix_with<F: FieldKernels>(
 /// `row_starts` must address pairwise-disjoint, in-bounds rows of `row_len`
 /// bytes, each starting on an element boundary. Disjointness is the safety
 /// contract the kernel relies on and is checked here, before dispatch.
+///
+/// A zero-length row is a valid zero-work shape and a no-op; the structural
+/// checks above (including disjointness of the named rows) still apply.
 ///
 /// # Panics
 /// Panics unless every `row_starts[j] + row_len <= dst.len()`, every row start
@@ -1022,13 +1121,13 @@ pub fn mul_add_matrix_scattered<F: FieldKernels>(
             src.len(),
             row_len,
             "mul_add_matrix_scattered: source is {} bytes, expected {row_len}",
-            src.len(),
+            src.len()
         );
     }
-    if nrows == 0 || terms.is_empty() {
+    if nrows == 0 || row_len == 0 || terms.is_empty() {
         return;
     }
-    F::mul_add_matrix_scattered(dst, row_len, row_starts, terms);
+    F::mul_add_matrix_scattered(RawDispatch, dst, row_len, row_starts, terms);
 }
 
 /// Elementwise product: `dst[i] = a[i] * b[i]`.
@@ -1044,10 +1143,13 @@ pub fn mul_add_matrix_scattered<F: FieldKernels>(
 pub fn mul_elementwise<F: FieldKernels>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     check_pair::<F>("mul_elementwise", "dst", dst.len(), "a", a.len());
     check_pair::<F>("mul_elementwise", "dst", dst.len(), "b", b.len());
-    F::mul_elementwise(dst, a, b);
+    F::mul_elementwise(RawDispatch, dst, a, b);
 }
 
 /// Pack field elements into their stable little-endian byte representation.
+///
+/// Prime-field representations are preserved, not normalized. Canonicalize
+/// raw prime elements before packing inputs for the arithmetic operations.
 ///
 /// # Panics
 /// Panics unless `dst.len() == elems.len() * F::BYTES`.
@@ -1071,6 +1173,9 @@ pub fn pack<F: Field>(dst: &mut [u8], elems: &[F::Elem]) {
 
 /// Decode packed little-endian bytes into field elements.
 ///
+/// Prime-field lanes retain their raw representation, including
+/// noncanonical values; this conversion does not validate field canonicality.
+///
 /// # Panics
 /// Panics unless `src.len() == dst.len() * F::BYTES`.
 pub fn unpack<F: Field>(dst: &mut [F::Elem], src: &[u8]) {
@@ -1093,6 +1198,8 @@ pub fn unpack<F: Field>(dst: &mut [F::Elem], src: &[u8]) {
 
 /// Pack field elements into a newly allocated byte vector.
 ///
+/// Like [`pack`], this preserves prime-field raw representations.
+///
 /// # Panics
 /// Panics if the required byte length overflows `usize`.
 #[cfg(feature = "std")]
@@ -1105,4 +1212,138 @@ pub fn pack_to_vec<F: Field>(elems: &[F::Elem]) -> std::vec::Vec<u8> {
     let mut bytes = std::vec![0; len];
     pack::<F>(&mut bytes, elems);
     bytes
+}
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::*;
+    use crate::{Gf8B, Gf16, gf8b, gf16};
+
+    /// `row_len == 0` with otherwise valid geometry is a no-op everywhere —
+    /// including the scalar backend, whose `chunks_exact_mut(0)` used to
+    /// panic where GFNI silently succeeded.
+    #[test]
+    fn zero_row_length_is_a_no_op() {
+        let coeffs = [gf8b::Elem::from_raw(0x07); 3];
+        let mut rows = [0xA5u8; 8];
+        mul_add_scatter::<Gf8B>(&mut rows, 0, &coeffs, &[]);
+        assert_eq!(rows, [0xA5; 8]);
+
+        let plan = Plan::<Gf8B>::new(&coeffs);
+        mul_add_scatter_with::<Gf8B>(&mut rows, 0, &plan, &[]);
+        assert_eq!(rows, [0xA5; 8]);
+
+        let terms: &[(&[gf8b::Elem], &[u8])] = &[(&coeffs, &[])];
+        mul_add_matrix::<Gf8B>(&mut rows, 0, 3, terms);
+        assert_eq!(rows, [0xA5; 8]);
+        dot_product_matrix::<Gf8B>(&mut rows, 0, 3, terms);
+        assert_eq!(rows, [0xA5; 8]);
+        mul_add_matrix_scattered::<Gf8B>(&mut rows, 0, &[1, 4], &[(&coeffs[..2], &[])]);
+        assert_eq!(rows, [0xA5; 8]);
+
+        let matrix = Plan::<Gf8B>::matrix(1, 3, &coeffs);
+        mul_add_matrix_with::<Gf8B>(&mut rows, 0, &matrix, &[&[]]);
+        assert_eq!(rows, [0xA5; 8]);
+        dot_product_matrix_with::<Gf8B>(&mut rows, 0, &matrix, &[&[]]);
+        assert_eq!(rows, [0xA5; 8]);
+
+        // GF(2^16): the field whose odd-length buffers make the element
+        // check matter.
+        let wide = [gf16::Elem::from_raw(0x0103); 2];
+        let mut rows16 = [0x5Au8; 4];
+        mul_add_scatter::<Gf16>(&mut rows16, 0, &wide, &[]);
+        assert_eq!(rows16, [0x5A; 4]);
+    }
+
+    /// Zero-work shapes still validate structure: a non-empty source with a
+    /// zero row length is a geometry error, not a silent skip.
+    #[test]
+    #[should_panic(expected = "mul_add_scatter")]
+    fn zero_row_length_still_checks_pairing() {
+        let coeffs = [gf8b::Elem::from_raw(0x07); 3];
+        let mut rows = [0u8; 8];
+        mul_add_scatter::<Gf8B>(&mut rows, 0, &coeffs, &[1, 2, 3]);
+    }
+
+    /// Term coefficient counts are still validated at zero row length.
+    #[test]
+    #[should_panic(expected = "term supplies")]
+    fn zero_row_length_still_checks_term_counts() {
+        let coeffs = [gf8b::Elem::from_raw(0x07); 2];
+        let mut rows = [0u8; 8];
+        mul_add_matrix::<Gf8B>(&mut rows, 0, 3, &[(&coeffs, &[])]);
+    }
+
+    #[test]
+    fn plan_source_lookup_is_total() {
+        let plan = Plan::<Gf8B>::matrix(3, 2, &[gf8b::Elem::from_raw(1); 6]);
+        assert!(plan.source(0).is_some());
+        assert!(plan.source(2).is_some());
+        assert!(plan.source(3).is_none());
+        assert!(plan.source(usize::MAX).is_none());
+        assert_eq!(plan.source(1).map(core::iter::Iterator::count), Some(2));
+
+        // Zero-column plans: every source exists and is empty.
+        let empty = Plan::<Gf8B>::matrix(3, 0, &[]);
+        assert_eq!(empty.source_count(), 3);
+        assert_eq!(empty.output_count(), 0);
+        assert_eq!(empty.source(0).map(core::iter::Iterator::count), Some(0));
+        assert_eq!(empty.source(2).map(core::iter::Iterator::count), Some(0));
+        assert!(empty.source(3).is_none());
+        assert!(empty.source(usize::MAX).is_none());
+
+        // A zero-coefficient vector plan is one empty source.
+        let vector = Plan::<Gf8B>::new(&[]);
+        assert_eq!(vector.source(0).map(core::iter::Iterator::count), Some(0));
+        assert!(vector.source(1).is_none());
+
+        // Coordinate lookup stays total at the extremes.
+        assert!(plan.get_at(0, usize::MAX).is_none());
+        assert!(plan.get_at(usize::MAX, 0).is_none());
+        assert!(plan.get_at(usize::MAX, usize::MAX).is_none());
+    }
+
+    #[test]
+    fn plan_matrix_is_source_major() {
+        let values: Vec<gf8b::Elem> = (0u8..6).map(|i| gf8b::Elem::from_raw(i * 37)).collect();
+        let plan = Plan::<Gf8B>::matrix(2, 3, &values);
+        for source in 0..2 {
+            for output in 0..3 {
+                let at = plan
+                    .get_at(source, output)
+                    .map(CoeffRef::value)
+                    .expect("in-bounds coordinate");
+                assert_eq!(at, values[source * 3 + output]);
+            }
+        }
+        let row_one: Vec<gf8b::Elem> = plan.source(1).unwrap().map(CoeffRef::value).collect();
+        assert_eq!(row_one, values[3..6]);
+    }
+
+    #[test]
+    fn prepared_matrix_ops_match_one_shot() {
+        // source-major plan: source s contributes coeffs[s * outputs + o].
+        let values: Vec<gf16::Elem> = (0u16..3 * 4)
+            .map(|i| gf16::Elem::from_raw(i * 511 + 3))
+            .collect();
+        let plan = Plan::<Gf16>::matrix(3, 4, &values);
+        let srcs: Vec<Vec<u8>> = (0u8..3).map(|s| vec![s + 1; 8]).collect();
+        let src_refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
+
+        let terms: Vec<(&[gf16::Elem], &[u8])> = (0..3)
+            .map(|s| (&values[s * 4..s * 4 + 4], src_refs[s]))
+            .collect();
+
+        let mut one_shot = [0x11u8; 32];
+        mul_add_matrix::<Gf16>(&mut one_shot, 8, 4, &terms);
+        let mut prepared = [0x11u8; 32];
+        mul_add_matrix_with::<Gf16>(&mut prepared, 8, &plan, &src_refs);
+        assert_eq!(one_shot, prepared);
+
+        let mut one_shot = [0x22u8; 32];
+        dot_product_matrix::<Gf16>(&mut one_shot, 8, 4, &terms);
+        let mut prepared = [0x22u8; 32];
+        dot_product_matrix_with::<Gf16>(&mut prepared, 8, &plan, &src_refs);
+        assert_eq!(one_shot, prepared);
+    }
 }

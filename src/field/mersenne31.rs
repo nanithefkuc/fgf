@@ -7,14 +7,14 @@
 //!
 //! # Totality and canonicalization
 //!
-//! Every raw 32-bit lane is a legal input: [`Elem::from_raw`] and [`Field::read`]
-//! do not canonicalize or reject. Every arithmetic *output* is canonical — a
-//! value in `0..p` — with no branch and no panic on out-of-range operands, the
-//! prime-field analogue of the crate-wide `inv(0) == 0` convention. Because a
-//! lane may hold a non-canonical bit pattern, the derived [`PartialEq`],
-//! [`Ord`], and [`Hash`] compare the raw representation, not the field value;
-//! compare arithmetic results (always canonical) or [`Elem::canonical`] when
-//! field equality is meant.
+//! Every raw 32-bit lane is a legal input: [`Elem::from_raw`] and
+//! [`Field::read`] keep the bits exactly as passed in — they do not
+//! canonicalize or reject. Every arithmetic *output* is canonical — a value
+//! in `0..p` — with no branch and no panic on out-of-range operands, the
+//! prime-field analogue of the crate-wide `inv(0) == 0` convention.
+//! Equality, hashing, and ordering follow the field value: a lane holding
+//! `p` and a lane holding `0` compare equal, hash equally, and sort as the
+//! same element. Inspect the stored bits with [`Elem::to_raw`].
 //!
 //! Arithmetic is variable-time and not intended for secret data.
 //!
@@ -22,13 +22,13 @@
 //! use fgf::mersenne31::{self, Elem};
 //!
 //! // Known-answer product, pinned against the modular reduction.
-//! const X: Elem = Elem(0x5555_5555);
+//! const X: Elem = Elem::from_raw(0x5555_5555);
 //! const _: () = assert!(X.mul(X).to_raw() == 0x71C7_1C71);
 //!
 //! // `inv` is `const`, so a reciprocal table can be a `const` item.
-//! const HALF: Elem = Elem(2).inv();
+//! const HALF: Elem = Elem::from_raw(2).inv();
 //! const _: () = assert!(HALF.to_raw() == 0x4000_0000);
-//! const _: () = assert!(Elem(2).mul(HALF).to_raw() == 1);
+//! const _: () = assert!(Elem::from_raw(2).mul(HALF).to_raw() == 1);
 //!
 //! // Division is total: `x / 0` is zero, in `const` context too.
 //! const _: () = assert!(X.div(Elem::ZERO).to_raw() == 0);
@@ -55,11 +55,13 @@ pub struct Mersenne31;
 
 /// An element of GF(2^31 − 1), stored as a little-endian 32-bit lane.
 ///
-/// The derived [`Ord`]/[`Hash`] are raw-representation order, useful for map
-/// keys and deterministic iteration; they carry no field-theoretic meaning and
-/// distinguish non-canonical encodings of the same field value.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-pub struct Elem(pub u32);
+/// The lane is stored exactly as passed to [`Elem::from_raw`], so it may
+/// hold a non-canonical bit pattern (≥ p). Equality, hashing, and ordering
+/// follow the field value — the lane reduced modulo `p` — so equivalent
+/// representations of one field value compare equal, hash equally, and sort
+/// as a single element; [`Elem::to_raw`] exposes the stored bits.
+#[derive(Clone, Copy, Default)]
+pub struct Elem(pub(crate) u32);
 
 /// Reduce an arbitrary 32-bit lane to the canonical range `0..p`.
 ///
@@ -72,13 +74,43 @@ pub const fn reduce(x: u32) -> u32 {
     if s >= MODULUS { s - MODULUS } else { s }
 }
 
+impl PartialEq for Elem {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        reduce(self.0) == reduce(other.0)
+    }
+}
+
+impl Eq for Elem {}
+
+impl core::hash::Hash for Elem {
+    #[inline]
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        state.write_u32(reduce(self.0));
+    }
+}
+
+impl PartialOrd for Elem {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Elem {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        reduce(self.0).cmp(&reduce(other.0))
+    }
+}
+
 impl Elem {
     /// The additive identity.
     pub const ZERO: Self = Self(0);
     /// The multiplicative identity.
     pub const ONE: Self = Self(1);
 
-    /// Decode from the stable little-endian representation.
+    /// Decode a raw little-endian lane without canonicalizing it.
     #[inline]
     #[must_use]
     pub const fn from_bytes(bytes: [u8; 4]) -> Self {
@@ -255,6 +287,7 @@ impl Field for Mersenne31 {
     const BITS: u32 = 32;
     const BYTES: usize = 4;
     const ORDER: u128 = MODULUS as u128;
+    const CHARACTERISTIC: u64 = MODULUS as u64;
     const GENERATOR: Elem = GENERATOR;
 
     #[inline]

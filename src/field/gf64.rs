@@ -14,17 +14,17 @@
 //! use fgf::gf64::Elem;
 //! use fgf::gf32;
 //!
-//! let x = Elem::from_components(gf32::Elem(0xdead_beef), gf32::Elem(0x0123_4567));
+//! let x = Elem::from_components(gf32::Elem::from_raw(0xdead_beef), gf32::Elem::from_raw(0x0123_4567));
 //! assert_eq!(x.to_bytes(), 0x0123_4567_dead_beefu64.to_le_bytes());
 //! assert_eq!(Elem::from_bytes(x.to_bytes()), x);
 //! assert_eq!(Elem::from_raw(x.to_raw()), x);
 //!
 //! // Division is total: `x / 0` is zero, in `const` context too.
-//! const _: () = assert!(Elem(7).div(Elem::ZERO).to_raw() == 0);
+//! const _: () = assert!(Elem::from_raw(7).div(Elem::ZERO).to_raw() == 0);
 //!
 //! // Summing a row is XOR, the parity operation the vector kernels vectorize.
-//! let row = [Elem(1), Elem(2), Elem(3)];
-//! assert_eq!(row.iter().sum::<Elem>(), Elem(1 ^ 2 ^ 3));
+//! let row = [Elem::from_raw(1), Elem::from_raw(2), Elem::from_raw(3)];
+//! assert_eq!(row.iter().sum::<Elem>(), Elem::from_raw(1 ^ 2 ^ 3));
 //! ```
 
 use core::fmt;
@@ -46,10 +46,12 @@ pub struct Gf64;
 
 /// An element of `GF((2^32)^2)`, stored as `a + b*w` with `a` in the low half.
 ///
-/// The derived [`Ord`] is raw-representation order, useful for map keys and
-/// deterministic iteration; it carries no field-theoretic meaning.
+/// Every 64-bit pattern is a distinct field value, so the derived
+/// [`PartialEq`]/[`Hash`]/[`Ord`] — raw-bit order — compare field values.
+/// That order is a deterministic total order for map keys and sorting; no
+/// order compatible with addition exists in characteristic two.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-pub struct Elem(pub u64);
+pub struct Elem(pub(crate) u64);
 
 impl Elem {
     /// The additive identity.
@@ -221,6 +223,7 @@ impl Field for Gf64 {
     const BITS: u32 = 64;
     const BYTES: usize = 8;
     const ORDER: u128 = 1u128 << 64;
+    const CHARACTERISTIC: u64 = 2;
     const GENERATOR: Elem = GENERATOR;
 
     #[inline]

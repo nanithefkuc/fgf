@@ -23,13 +23,15 @@
 // They compile only for `internals` experiments, where they are reachable
 // (and differentially tested on a host that has AVX-512).
 #[cfg(feature = "internals")]
-pub mod avx512;
-pub mod fan_paar;
-pub mod gf16;
-pub mod gf32;
-pub mod gf64;
-pub mod gf8;
-pub mod prime;
+pub(crate) mod avx512;
+pub(crate) mod fan_paar;
+pub(crate) mod gf16;
+pub(crate) mod gf32;
+pub(crate) mod gf64;
+pub(crate) mod gf8;
+pub(crate) mod prime;
+#[cfg(feature = "internals")]
+pub mod proven;
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
@@ -145,7 +147,7 @@ pub(super) unsafe fn store128<const NT: bool>(ptr: *mut u8, value: __m128i) {
 ///
 /// # Panics
 /// Panics if the slices differ in length.
-pub fn xor_avx2(dst: &mut [u8], src: &[u8]) {
+pub(crate) fn xor_avx2(dst: &mut [u8], src: &[u8]) {
     assert_eq!(dst.len(), src.len());
     // SAFETY: the caller selected an AVX2-capable backend, and the slices are
     // equal-length and independently borrowed.
@@ -192,7 +194,7 @@ unsafe fn xor_avx2_impl(dst: &mut [u8], src: &[u8]) {
 ///
 /// # Panics
 /// Panics if any offset plus `dst.len()` exceeds the region length.
-pub fn xor_gather_avx2(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+pub(crate) fn xor_gather_avx2(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
     let whole = dst.len() & !31;
     let tail = dst.len() - whole;
     if whole == 0 || whole > 8 * 32 || tail != 0 {
@@ -253,7 +255,7 @@ fn whole_lanes(len: usize) -> usize {
 ///
 /// # Panics
 /// Panics if the slices differ in length.
-pub fn xor_sse2(dst: &mut [u8], src: &[u8]) {
+pub(crate) fn xor_sse2(dst: &mut [u8], src: &[u8]) {
     assert_eq!(dst.len(), src.len());
     // SAFETY: SSE2 is baseline on x86_64 and implied by the SSSE3 backend on
     // x86; the slices are equal-length and independently borrowed.
@@ -283,10 +285,12 @@ unsafe fn xor_sse2_impl(dst: &mut [u8], src: &[u8]) {
 
 /// Bytes of one row covered by a fully-unrolled AVX2 tile iteration: four
 /// 32-byte vectors per stream, the leopard `xor_mem4` unroll width.
+#[cfg(any(test, feature = "internals"))]
 const AVX2_ROW_TILE: usize = 4 * 32;
 
 /// Bytes of one row covered by a fully-unrolled SSE2 tile iteration: four
 /// 16-byte vectors per stream.
+#[cfg(any(test, feature = "internals"))]
 const SSE2_ROW_TILE: usize = 4 * 16;
 
 /// `dst ^= src` over contiguous `row_len`-byte rows with four interleaved
@@ -308,8 +312,9 @@ const SSE2_ROW_TILE: usize = 4 * 16;
 /// # Panics
 /// Panics if the slices differ in length or their length is not a whole
 /// number of rows.
+#[cfg(any(test, feature = "internals"))]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn xor_rows_avx2(dst: &mut [u8], src: &[u8], row_len: usize) {
+pub(crate) fn xor_rows_avx2(dst: &mut [u8], src: &[u8], row_len: usize) {
     assert_eq!(dst.len(), src.len());
     assert!(dst.len().is_multiple_of(row_len));
     debug_assert_ne!(row_len, 0);
@@ -330,6 +335,7 @@ pub fn xor_rows_avx2(dst: &mut [u8], src: &[u8], row_len: usize) {
 /// `dst` must be writable and `src` readable for `rows * row_len` bytes,
 /// both derived from live, independently borrowed slices; `row_len != 0`;
 /// `rows >= 1`.
+#[cfg(any(test, feature = "internals"))]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
 unsafe fn xor_rows_avx2_impl(dst: *mut u8, src: *const u8, rows: usize, row_len: usize) {
@@ -370,6 +376,7 @@ unsafe fn xor_rows_avx2_impl(dst: *mut u8, src: *const u8, rows: usize, row_len:
 /// # Safety
 /// Same contract as [`xor_rows_avx2_impl`], with `rows == groups * W >= W`
 /// so every full-width stream below stays in bounds.
+#[cfg(any(test, feature = "internals"))]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2")]
 unsafe fn xor_streams_avx2<const W: usize>(
@@ -435,8 +442,9 @@ unsafe fn xor_streams_avx2<const W: usize>(
 /// # Panics
 /// Panics if the slices differ in length or their length is not a whole
 /// number of rows.
+#[cfg(any(test, feature = "internals"))]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn xor_rows_sse2(dst: &mut [u8], src: &[u8], row_len: usize) {
+pub(crate) fn xor_rows_sse2(dst: &mut [u8], src: &[u8], row_len: usize) {
     assert_eq!(dst.len(), src.len());
     assert!(dst.len().is_multiple_of(row_len));
     debug_assert_ne!(row_len, 0);
@@ -450,6 +458,7 @@ pub fn xor_rows_sse2(dst: &mut [u8], src: &[u8], row_len: usize) {
 ///
 /// # Safety
 /// Same contract as [`xor_rows_avx2_impl`].
+#[cfg(any(test, feature = "internals"))]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "sse2")]
 unsafe fn xor_rows_sse2_impl(dst: *mut u8, src: *const u8, rows: usize, row_len: usize) {
@@ -481,6 +490,7 @@ unsafe fn xor_rows_sse2_impl(dst: *mut u8, src: *const u8, rows: usize, row_len:
 ///
 /// # Safety
 /// Same contract as [`xor_streams_avx2`].
+#[cfg(any(test, feature = "internals"))]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "sse2")]
 unsafe fn xor_streams_sse2<const W: usize>(

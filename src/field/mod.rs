@@ -1,10 +1,10 @@
 //! Field definitions and the scalar algebra contract.
 //!
 //! A [`Field`] is a zero-sized marker type carrying compile-time facts about a
-//! binary field: its element type, its width, and its stable byte
-//! representation. Kernels in [`crate::ops`] are generic over `Field`, so
-//! callers write one algorithm and get a monomorphized, SIMD-dispatched
-//! implementation per field.
+//! finite field: its element type, its storage width, its stable byte
+//! representation, and its order. Kernels in [`crate::ops`] are generic over
+//! `Field`, so callers write one algorithm and get a monomorphized,
+//! SIMD-dispatched implementation per field.
 //!
 //! # Byte representation
 //!
@@ -42,6 +42,16 @@ pub use quad_mersenne31::QuadMersenne31;
 /// negation is the identity. Prime fields reduce modulo their
 /// characteristic instead. Both `add` and `sub` are provided because
 /// algorithms read more clearly when they say what they mean.
+///
+/// Elements compare by *field value*, not by stored bits: implementations of
+/// `PartialEq`, `Eq`, and `Hash` agree with the element's canonical
+/// representative, so two elements carrying different raw encodings of the
+/// same field value are equal and hash equally. The binary full-width fields
+/// have exactly one representation per value, so theirs are the cheap
+/// raw-bit comparisons; GF(2) and the prime fields canonicalize first.
+/// Ordering — the concrete element types also implement `Ord` — agrees with
+/// that equality by the same rule. Raw storage is private to the crate; each
+/// concrete element exposes it through an inherent `to_raw` method.
 ///
 /// By library-wide convention `inv(0) == 0` and `x / 0 == 0`, in every build
 /// profile and under `const` evaluation alike. This is a total-function
@@ -125,6 +135,12 @@ pub trait Elem:
 }
 
 /// A finite field supported by this crate.
+///
+/// The marker carries only compile-time facts. [`Field::BITS`] is the
+/// *storage* width of one element lane — the extension degree for the binary
+/// towers, the lane width for the prime fields — and generally differs from
+/// `log2(ORDER)`: Goldilocks elements occupy 64-bit lanes while the field
+/// has `2^64 − 2^32 + 1` of them.
 pub trait Field: Copy + Clone + core::fmt::Debug + 'static {
     /// The scalar element type.
     type Elem: Elem;
@@ -140,6 +156,16 @@ pub trait Field: Copy + Clone + core::fmt::Debug + 'static {
     const BYTES: usize;
     /// Number of elements in the field.
     const ORDER: u128;
+    /// Characteristic of the field: the prime `p` with `p · x = 0` for every
+    /// element.
+    ///
+    /// This is a separate fact from [`Field::ORDER`] and cannot be derived
+    /// from it. Every binary tower field here has characteristic two while
+    /// its order is `2^m`; `QuadMersenne31` has characteristic `2^31 − 1`
+    /// while its order is `(2^31 − 1)²`. Generic code that needs a binomial
+    /// coefficient, a Hasse derivative, or an integer embedding reads this,
+    /// never `ORDER`.
+    const CHARACTERISTIC: u64;
     /// A generator of the multiplicative group.
     const GENERATOR: Self::Elem;
 

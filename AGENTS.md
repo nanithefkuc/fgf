@@ -2,8 +2,9 @@
 
 ## Project Overview
 
-`fgf` is a dependency-free Rust library for finite-field arithmetic — binary
-towers GF(2^m) and prime fields GF(p). It
+`fgf` is a Rust library for finite-field arithmetic — binary towers
+GF(2^m) and prime fields GF(p). Its only runtime dependency is
+`simdispatch` (backend detection/selection). It
 provides const-capable scalar elements and safe, runtime-dispatched kernels over
 packed byte buffers for erasure coders, proof systems, and similar consumers.
 It is deliberately not a codec: matrix recipes, shard ownership, inversion,
@@ -23,6 +24,34 @@ Fan–Paar fields, and the prime fields on non-x86 targets use the portable
 implementation. Bit-packed GF(2) row kernels are `fgf`'s — downstream
 bit-matrix code (`gfm`'s bit domain) composes them instead of hand-rolling
 word loops.
+
+## Tooling
+
+`just validate` is the pull-request gate; the shared recipes are documented
+once in the umbrella's root `AGENTS.md`. What follows is only what is specific
+to `fgf`.
+
+- **`TIERS = v3_gfni_crypto v3 v2 scalar`** — the backends the binary-tower and
+  prime-field kernels actually implement. Selection is cached once per process,
+  so `just test-tiers` and `just cover` re-run pinned to each of the four.
+- **`MIRI = --no-default-features`.** With `simd` off the intrinsic bodies are
+  out of the build, which is the only configuration miri can execute; the run
+  validates the safe kernel wrappers and portable tails under `src/kernel/` —
+  paired lengths, row geometry, element-aligned tails. The intrinsic paths stay
+  covered by the differential tests in `src/kernel/tests.rs`.
+- **`COV_IGNORE` excludes `src/kernel/x86/{gf8,gf16,gf32,gf64,avx512}.rs`** —
+  GFNI and AVX-512 bodies a CI host that cannot select those tiers will never
+  execute. The exclusion is justified rather than silent, per the coverage rule
+  below.
+- **Bench targets:** `kernels`, `compare`, `affine`, `dot_product`
+  (`just bench-save kernels`, then `just bench kernels` after the change). The
+  last two call kernels directly and need `internals`; the bench recipes pass
+  `--all-features`, so they build.
+- **Outside the shared surface:** the wasm32/aarch64 cross-builds and
+  `external-bench/run.sh` under "Development Commands" stay manual `cargo`
+  invocations. `justfile` is a byte-identical vendored copy — editing it here
+  fails the umbrella's `just drift` check; crate-specific values and recipes go
+  in `crate.just`.
 
 ## Architecture & Data Flow
 
@@ -178,16 +207,23 @@ and host-specific compiler flags.
 - Edition: Rust 2024. MSRV: Rust 1.89. No root toolchain pin exists, so select
   `+1.89.0`, stable, or nightly explicitly when the check requires it.
 - Default features are `std` + `simd`; `simd` implies `std`.
-  `--no-default-features` is the portable `no_std` configuration.
-- Normal builds have no third-party dependencies. The sole direct
-  dev-dependency is `reed-solomon-erasure` with `simd-accel` for comparison.
+  `--no-default-features` is the crate's portable configuration, but the
+  `simdispatch`/`archmage` dependency graph still enables `std`, so a
+  bare-metal `no_std` closure is not yet supported (pending a separate
+  dependency review).
+- Runtime dependencies are `simdispatch` and an optional
+  `archmage =0.9.29` enabled through the `internals` feature. Dev-dependencies are
+  `reed-solomon-erasure` with `simd-accel` for comparison and `criterion`
+  for benchmarks, both scoped to non-wasm targets.
 - No custom rustfmt/clippy config or Cargo aliases exist; use the commands above.
 - `SIMD_BACKEND` requests can be ignored when unavailable. A green forced run
   is not proof that an incapable host executed that ISA; inspect reported
   backend or direct-kernel skip output.
 - The committed `Cargo.lock` is Cargo-generated; do not edit it manually.
-- `/target` and `/external-bench` are ignored. Crate packaging also excludes
-  `/external-bench` and `/.github`.
+- `/target` and `/external-bench` are ignored, as is `/.lucid/`. Packaging
+  uses an explicit `include` allowlist (`src`, tests/benches/examples, and
+  the public doc/license set), so local-only working files and CI
+  configuration never enter `cargo package`.
 
 ## Testing & QA
 

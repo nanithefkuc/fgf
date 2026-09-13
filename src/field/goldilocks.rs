@@ -8,34 +8,32 @@
 //! # Totality and canonicalization
 //!
 //! Every raw 64-bit lane is a legal input: [`Elem::from_raw`] and
-//! [`Field::read`] do not canonicalize or reject. Every arithmetic *output* is
-//! canonical — a value in `0..p` — with no branch and no panic on out-of-range
-//! operands, the prime-field analogue of the crate-wide `inv(0) == 0`
-//! convention. Because a lane may hold a non-canonical bit pattern, the derived
-//! [`PartialEq`], [`Ord`], and [`Hash`] compare the raw representation, not the
-//! field value; compare arithmetic results (always canonical) or
-//! [`Elem::canonical`] when field equality is meant.
+//! [`Field::read`] keep the bits exactly as passed in — they do not
+//! canonicalize or reject. Every arithmetic *output* is canonical — a value
+//! in `0..p` — with no branch and no panic on out-of-range operands, the
+//! prime-field analogue of the crate-wide `inv(0) == 0` convention.
+//! Equality, hashing, and ordering follow the field value: a lane holding
+//! `p` and a lane holding `0` compare equal, hash equally, and sort as the
+//! same element. Inspect the stored bits with [`Elem::to_raw`].
 //!
 //! Arithmetic is variable-time and not intended for secret data.
 //!
 //! ```
 //! use fgf::goldilocks::{self, Elem};
 //!
-//! // Known-answer product, pinned against the split-fold reduction.
-//! const X: Elem = Elem(0xFFFF_FFFF_0000_0000);
+//! const X: Elem = Elem::from_raw(0xFFFF_FFFF_0000_0000);
 //! const _: () = assert!(X.mul(X).to_raw() == 0x0000_0000_0000_0001);
 //!
 //! // `inv` is `const`, so a reciprocal table can be a `const` item.
-//! const HALF: Elem = Elem(2).inv();
+//! const HALF: Elem = Elem::from_raw(2).inv();
 //! const _: () = assert!(HALF.to_raw() == 0x7FFF_FFFF_8000_0001);
-//! const _: () = assert!(Elem(2).mul(HALF).to_raw() == 1);
+//! const _: () = assert!(Elem::from_raw(2).mul(HALF).to_raw() == 1);
 //!
 //! // Division is total: `x / 0` is zero, in `const` context too.
 //! const _: () = assert!(X.div(Elem::ZERO).to_raw() == 0);
 //!
 //! // The generator has full multiplicative order p − 1 = 2^64 − 2^32.
 //! assert_eq!(goldilocks::GENERATOR.pow(0xFFFF_FFFF_0000_0000), Elem::ONE);
-//! ```
 
 use core::fmt;
 
@@ -58,11 +56,43 @@ pub struct Goldilocks;
 
 /// An element of GF(2^64 − 2^32 + 1), stored as a little-endian 64-bit lane.
 ///
-/// The derived [`Ord`]/[`Hash`] are raw-representation order, useful for map
-/// keys and deterministic iteration; they carry no field-theoretic meaning and
-/// distinguish non-canonical encodings of the same field value.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-pub struct Elem(pub u64);
+/// The lane is stored exactly as passed to [`Elem::from_raw`], so it may
+/// hold a non-canonical bit pattern (≥ p). Equality, hashing, and ordering
+/// follow the field value — the lane reduced modulo `p` — so equivalent
+/// representations of one field value compare equal, hash equally, and sort
+/// as a single element; [`Elem::to_raw`] exposes the stored bits.
+#[derive(Clone, Copy, Default)]
+pub struct Elem(pub(crate) u64);
+
+impl PartialEq for Elem {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        canonical(self.0) == canonical(other.0)
+    }
+}
+
+impl Eq for Elem {}
+
+impl core::hash::Hash for Elem {
+    #[inline]
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(canonical(self.0));
+    }
+}
+
+impl PartialOrd for Elem {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Elem {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        canonical(self.0).cmp(&canonical(other.0))
+    }
+}
 
 /// Reduce a value already in `0..2^64` to the canonical range `0..p`.
 ///
@@ -118,7 +148,8 @@ impl Elem {
         self.0.to_le_bytes()
     }
 
-    /// Wrap a raw lane. Does not canonicalize.
+    /// Wrap a raw lane. Does not canonicalize: the stored lane keeps the
+    /// exact bits passed in, and equality reduces it modulo `p`.
     #[inline]
     #[must_use]
     pub const fn from_raw(value: u64) -> Self {
@@ -279,6 +310,7 @@ impl Field for Goldilocks {
     const BITS: u32 = 64;
     const BYTES: usize = 8;
     const ORDER: u128 = MODULUS as u128;
+    const CHARACTERISTIC: u64 = MODULUS;
     const GENERATOR: Elem = GENERATOR;
 
     #[inline]

@@ -14,19 +14,19 @@ use fgf::{
 
 /// Every nonzero element, plus zero, in ascending order.
 fn all_gf8() -> impl Iterator<Item = gf8b::Elem> {
-    (0..=u8::MAX).map(gf8b::Elem)
+    (0..=u8::MAX).map(gf8b::Elem::from_raw)
 }
 
 /// A spread of GF(2^16) elements: boundaries, both component planes, and a
 /// deterministic pseudo-random spray. Exhaustive would be 4 billion pairs.
 fn sample_gf16() -> Vec<gf16::Elem> {
     let mut values = vec![
-        gf16::Elem(0),
-        gf16::Elem(1),
-        gf16::Elem(0x0100),
-        gf16::Elem(0x00ff),
-        gf16::Elem(0xff00),
-        gf16::Elem(0xffff),
+        gf16::Elem::from_raw(0),
+        gf16::Elem::from_raw(1),
+        gf16::Elem::from_raw(0x0100),
+        gf16::Elem::from_raw(0x00ff),
+        gf16::Elem::from_raw(0xff00),
+        gf16::Elem::from_raw(0xffff),
         gf16::GENERATOR,
     ];
     let mut state = 0x1234_5678_9abc_def0u64;
@@ -34,7 +34,7 @@ fn sample_gf16() -> Vec<gf16::Elem> {
         state = state
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1);
-        values.push(gf16::Elem((state >> 32) as u16));
+        values.push(gf16::Elem::from_raw((state >> 32) as u16));
     }
     values
 }
@@ -77,8 +77,11 @@ fn gf8_generator_has_full_order() {
     let mut seen = [false; 256];
     let mut value = gf8b::Elem::ONE;
     for step in 0..255u32 {
-        assert!(!seen[value.0 as usize], "generator repeats at step {step}");
-        seen[value.0 as usize] = true;
+        assert!(
+            !seen[value.to_raw() as usize],
+            "generator repeats at step {step}"
+        );
+        seen[value.to_raw() as usize] = true;
         value = value.mul(Gf8B::GENERATOR);
     }
     assert_eq!(value, gf8b::Elem::ONE, "generator order is not 255");
@@ -134,7 +137,7 @@ fn gf8_pow_matches_repeated_multiplication() {
 
 /// Every element of the 0x11D field, in ascending raw order.
 fn all_gf8d() -> impl Iterator<Item = gf8d::Elem> {
-    (0..=u8::MAX).map(gf8d::Elem)
+    (0..=u8::MAX).map(gf8d::Elem::from_raw)
 }
 
 #[test]
@@ -168,12 +171,19 @@ fn gf8d_inverse_matches_fermat_and_round_trips() {
 #[test]
 fn gf8d_generator_has_full_order() {
     // Under 0x11D the primitive element is x = 2, not 3.
-    assert_eq!(Gf8D::GENERATOR, gf8d::Elem(0x02), "0x11D generator is 2");
+    assert_eq!(
+        Gf8D::GENERATOR,
+        gf8d::Elem::from_raw(0x02),
+        "0x11D generator is 2"
+    );
     let mut seen = [false; 256];
     let mut value = gf8d::Elem::ONE;
-    for step in 0..255u32 {
-        assert!(!seen[value.0 as usize], "generator repeats at step {step}");
-        seen[value.0 as usize] = true;
+    for step in 0..255 {
+        assert!(
+            !seen[value.to_raw() as usize],
+            "generator repeats at step {step}"
+        );
+        seen[value.to_raw() as usize] = true;
         value = value.mul(Gf8D::GENERATOR);
     }
     assert_eq!(value, gf8d::Elem::ONE, "generator order is not 255");
@@ -227,9 +237,18 @@ fn gf8d_pow_matches_repeated_multiplication() {
 fn gf8d_known_answer_products() {
     // The 0x11D field used by ISA-L / klauspost-reedsolomon, independently
     // computed from the shift/XOR oracle.
-    assert_eq!(gf8d::Elem(0x53).mul(gf8d::Elem(0xca)), gf8d::Elem(0x8f));
-    assert_eq!(gf8d::Elem(0x57).mul(gf8d::Elem(0x83)), gf8d::Elem(0x31));
-    assert_eq!(gf8d::Elem(0xff).mul(gf8d::Elem(0xff)), gf8d::Elem(0xe2));
+    assert_eq!(
+        gf8d::Elem::from_raw(0x53).mul(gf8d::Elem::from_raw(0xca)),
+        gf8d::Elem::from_raw(0x8f)
+    );
+    assert_eq!(
+        gf8d::Elem::from_raw(0x57).mul(gf8d::Elem::from_raw(0x83)),
+        gf8d::Elem::from_raw(0x31)
+    );
+    assert_eq!(
+        gf8d::Elem::from_raw(0xff).mul(gf8d::Elem::from_raw(0xff)),
+        gf8d::Elem::from_raw(0xe2)
+    );
 }
 
 #[test]
@@ -244,12 +263,23 @@ fn field_polynomials_are_introspectable() {
 fn gf8d_is_distinct_from_gf8b() {
     // Same raw bytes, genuinely different products: the guard against filling
     // the 0x11D tables from the 0x11B arithmetic.
-    assert_eq!(gf8b::Elem(0x53).mul(gf8b::Elem(0xca)), gf8b::Elem(0x01));
-    assert_eq!(gf8b::Elem(0xff).mul(gf8b::Elem(0xff)), gf8b::Elem(0x13));
+    assert_eq!(
+        gf8b::Elem::from_raw(0x53).mul(gf8b::Elem::from_raw(0xca)),
+        gf8b::Elem::from_raw(0x01)
+    );
+    assert_eq!(
+        gf8b::Elem::from_raw(0xff).mul(gf8b::Elem::from_raw(0xff)),
+        gf8b::Elem::from_raw(0x13)
+    );
     let differ = (0u16..=255)
         .flat_map(|a| (0u16..=255).map(move |b| (a as u8, b as u8)))
         .filter(|&(a, b)| {
-            gf8b::Elem(a).mul(gf8b::Elem(b)).to_raw() != gf8d::Elem(a).mul(gf8d::Elem(b)).to_raw()
+            gf8b::Elem::from_raw(a)
+                .mul(gf8b::Elem::from_raw(b))
+                .to_raw()
+                != gf8d::Elem::from_raw(a)
+                    .mul(gf8d::Elem::from_raw(b))
+                    .to_raw()
         })
         .count();
     assert_eq!(
@@ -354,15 +384,17 @@ fn gf16_embeds_the_base_field() {
     // GF(2^8) does. If the tower reduction were wrong this would break.
     for a in all_gf8().step_by(5) {
         for b in all_gf8().step_by(7) {
-            let lifted = gf16::Elem::from_components(a, b)
-                .mul(gf16::Elem::from_components(gf8b::Elem(0), gf8b::Elem(0)));
+            let lifted = gf16::Elem::from_components(a, b).mul(gf16::Elem::from_components(
+                gf8b::Elem::from_raw(0),
+                gf8b::Elem::from_raw(0),
+            ));
             assert_eq!(lifted, gf16::Elem::ZERO);
 
-            let x = gf16::Elem::from_components(a, gf8b::Elem(0));
-            let y = gf16::Elem::from_components(b, gf8b::Elem(0));
+            let x = gf16::Elem::from_components(a, gf8b::Elem::from_raw(0));
+            let y = gf16::Elem::from_components(b, gf8b::Elem::from_raw(0));
             assert_eq!(
                 x.mul(y),
-                gf16::Elem::from_components(a.mul(b), gf8b::Elem(0)),
+                gf16::Elem::from_components(a.mul(b), gf8b::Elem::from_raw(0)),
                 "base-field embedding broken for {a:?} * {b:?}"
             );
         }
@@ -377,16 +409,16 @@ fn sample_gf32() -> Vec<gf32::Elem> {
     let mut values = vec![
         gf32::Elem::ZERO,
         gf32::Elem::ONE,
-        gf32::Elem(u32::MAX),
-        gf32::Elem(0x0000_ffff),
-        gf32::Elem(0xffff_0000),
+        gf32::Elem::from_raw(u32::MAX),
+        gf32::Elem::from_raw(0x0000_ffff),
+        gf32::Elem::from_raw(0xffff_0000),
         gf32::Elem::from_components(gf32::DELTA, gf16::Elem::ZERO),
         Gf32::GENERATOR,
     ];
     let mut state = 0x243f_6a88u32;
     for _ in 0..48 {
         state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        values.push(gf32::Elem(state));
+        values.push(gf32::Elem::from_raw(state));
     }
     values
 }
@@ -395,9 +427,9 @@ fn sample_gf64() -> Vec<gf64::Elem> {
     let mut values = vec![
         gf64::Elem::ZERO,
         gf64::Elem::ONE,
-        gf64::Elem(u64::MAX),
-        gf64::Elem(0x0000_0000_ffff_ffff),
-        gf64::Elem(0xffff_ffff_0000_0000),
+        gf64::Elem::from_raw(u64::MAX),
+        gf64::Elem::from_raw(0x0000_0000_ffff_ffff),
+        gf64::Elem::from_raw(0xffff_ffff_0000_0000),
         Gf64::GENERATOR,
     ];
     let mut state = 0x243f_6a88_85a3_08d3u64;
@@ -405,7 +437,7 @@ fn sample_gf64() -> Vec<gf64::Elem> {
         state = state
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
-        values.push(gf64::Elem(state));
+        values.push(gf64::Elem::from_raw(state));
     }
     values
 }
@@ -508,12 +540,12 @@ fn sample_m31() -> Vec<mersenne31::Elem> {
         7,
     ]
     .into_iter()
-    .map(mersenne31::Elem)
+    .map(mersenne31::Elem::from_raw)
     .collect();
     let mut state = 0x243f_6a88u32;
     for _ in 0..64 {
         state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        values.push(mersenne31::Elem(state));
+        values.push(mersenne31::Elem::from_raw(state));
     }
     values
 }
@@ -534,14 +566,14 @@ fn sample_gld() -> Vec<goldilocks::Elem> {
         7,
     ]
     .into_iter()
-    .map(goldilocks::Elem)
+    .map(goldilocks::Elem::from_raw)
     .collect();
     let mut state = 0x243f_6a88_85a3_08d3u64;
     for _ in 0..48 {
         state = state
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
-        values.push(goldilocks::Elem(state));
+        values.push(goldilocks::Elem::from_raw(state));
     }
     values
 }
@@ -549,44 +581,59 @@ fn sample_gld() -> Vec<goldilocks::Elem> {
 fn m31_mul_oracle(x: mersenne31::Elem, y: mersenne31::Elem) -> mersenne31::Elem {
     let a = x.to_raw() as u128 % M31_P;
     let b = y.to_raw() as u128 % M31_P;
-    mersenne31::Elem((a * b % M31_P) as u32)
+    mersenne31::Elem::from_raw((a * b % M31_P) as u32)
 }
 fn m31_add_oracle(x: mersenne31::Elem, y: mersenne31::Elem) -> mersenne31::Elem {
     let a = x.to_raw() as u128 % M31_P;
     let b = y.to_raw() as u128 % M31_P;
-    mersenne31::Elem(((a + b) % M31_P) as u32)
+    mersenne31::Elem::from_raw(((a + b) % M31_P) as u32)
 }
 fn m31_sub_oracle(x: mersenne31::Elem, y: mersenne31::Elem) -> mersenne31::Elem {
     let a = x.to_raw() as u128 % M31_P;
     let b = y.to_raw() as u128 % M31_P;
-    mersenne31::Elem(((a + M31_P - b) % M31_P) as u32)
+    mersenne31::Elem::from_raw(((a + M31_P - b) % M31_P) as u32)
 }
 fn gld_mul_oracle(x: goldilocks::Elem, y: goldilocks::Elem) -> goldilocks::Elem {
     let a = u128::from(x.to_raw()) % GLD_P;
     let b = u128::from(y.to_raw()) % GLD_P;
-    goldilocks::Elem((a * b % GLD_P) as u64)
+    goldilocks::Elem::from_raw((a * b % GLD_P) as u64)
 }
 fn gld_add_oracle(x: goldilocks::Elem, y: goldilocks::Elem) -> goldilocks::Elem {
     let a = u128::from(x.to_raw()) % GLD_P;
     let b = u128::from(y.to_raw()) % GLD_P;
-    goldilocks::Elem(((a + b) % GLD_P) as u64)
+    goldilocks::Elem::from_raw(((a + b) % GLD_P) as u64)
 }
 fn gld_sub_oracle(x: goldilocks::Elem, y: goldilocks::Elem) -> goldilocks::Elem {
     let a = u128::from(x.to_raw()) % GLD_P;
     let b = u128::from(y.to_raw()) % GLD_P;
-    goldilocks::Elem(((a + GLD_P - b) % GLD_P) as u64)
+    goldilocks::Elem::from_raw(((a + GLD_P - b) % GLD_P) as u64)
 }
 
 #[test]
 fn m31_known_answer_products() {
     use mersenne31::Elem;
-    assert_eq!(Elem(0x5555_5555).mul(Elem(0x5555_5555)), Elem(0x71C7_1C71));
-    assert_eq!(Elem(0x5555_5555).mul(Elem(0x7FFF_FFFE)), Elem(0x2AAA_AAAA));
-    assert_eq!(Elem(0x7FFF_FFFE).mul(Elem(0x7FFF_FFFE)), Elem(0x0000_0001));
-    assert_eq!(Elem(0x7FFF_FFFD).mul(Elem(0x7FFF_FFFE)), Elem(0x0000_0002));
-    assert_eq!(Elem(0x5555_5555).mul(Elem(0x5EAD_BEF0)), Elem(0x74E4_94FA));
-    assert_eq!(Elem(2).inv(), Elem(0x4000_0000));
-    assert_eq!(Elem(0x5555_5555).inv(), Elem(3));
+    assert_eq!(
+        Elem::from_raw(0x5555_5555).mul(Elem::from_raw(0x5555_5555)),
+        Elem::from_raw(0x71C7_1C71)
+    );
+    assert_eq!(
+        Elem::from_raw(0x5555_5555).mul(Elem::from_raw(0x7FFF_FFFE)),
+        Elem::from_raw(0x2AAA_AAAA)
+    );
+    assert_eq!(
+        Elem::from_raw(0x7FFF_FFFE).mul(Elem::from_raw(0x7FFF_FFFE)),
+        Elem::from_raw(0x0000_0001)
+    );
+    assert_eq!(
+        Elem::from_raw(0x7FFF_FFFD).mul(Elem::from_raw(0x7FFF_FFFE)),
+        Elem::from_raw(0x0000_0002)
+    );
+    assert_eq!(
+        Elem::from_raw(0x5555_5555).mul(Elem::from_raw(0x5EAD_BEF0)),
+        Elem::from_raw(0x74E4_94FA)
+    );
+    assert_eq!(Elem::from_raw(2).inv(), Elem::from_raw(0x4000_0000));
+    assert_eq!(Elem::from_raw(0x5555_5555).inv(), Elem::from_raw(3));
     // Fold known-answers: non-canonical lanes reduce branchlessly.
     assert_eq!(mersenne31::reduce(0x8000_0000), 1);
     assert_eq!(mersenne31::reduce(0xFFFF_FFFF), 1);
@@ -597,23 +644,29 @@ fn m31_known_answer_products() {
 fn gld_known_answer_products() {
     use goldilocks::Elem;
     assert_eq!(
-        Elem(0x5555_5555_5555_5555).mul(Elem(0xAAAA_AAAA_AAAA_AAAA)),
-        Elem(0xFFFF_FFFE_5555_5557)
+        Elem::from_raw(0x5555_5555_5555_5555).mul(Elem::from_raw(0xAAAA_AAAA_AAAA_AAAA)),
+        Elem::from_raw(0xFFFF_FFFE_5555_5557)
     );
     assert_eq!(
-        Elem(0xFFFF_FFFF_0000_0000).mul(Elem(0xFFFF_FFFF_0000_0000)),
-        Elem(0x0000_0000_0000_0001)
+        Elem::from_raw(0xFFFF_FFFF_0000_0000).mul(Elem::from_raw(0xFFFF_FFFF_0000_0000)),
+        Elem::from_raw(0x0000_0000_0000_0001)
     );
     assert_eq!(
-        Elem(0x7FFF_FFFF_FFFF_FFFF).mul(Elem(0x7FFF_FFFF_FFFF_FFFF)),
-        Elem(0xFFFF_FFFD_C000_0003)
+        Elem::from_raw(0x7FFF_FFFF_FFFF_FFFF).mul(Elem::from_raw(0x7FFF_FFFF_FFFF_FFFF)),
+        Elem::from_raw(0xFFFF_FFFD_C000_0003)
     );
     assert_eq!(
-        Elem(0x0000_0000_7FFF_FFFF).mul(Elem(0xFFFF_FFFF_0000_0000)),
-        Elem(0xFFFF_FFFE_8000_0002)
+        Elem::from_raw(0x0000_0000_7FFF_FFFF).mul(Elem::from_raw(0xFFFF_FFFF_0000_0000)),
+        Elem::from_raw(0xFFFF_FFFE_8000_0002)
     );
-    assert_eq!(Elem(2).inv(), Elem(0x7FFF_FFFF_8000_0001));
-    assert_eq!(Elem(7).inv(), Elem(0x2492_4924_6DB6_DB6E));
+    assert_eq!(
+        Elem::from_raw(2).inv(),
+        Elem::from_raw(0x7FFF_FFFF_8000_0001)
+    );
+    assert_eq!(
+        Elem::from_raw(7).inv(),
+        Elem::from_raw(0x2492_4924_6DB6_DB6E)
+    );
     // Fold known-answers pinning the split reduction chain.
     assert_eq!(goldilocks::canonical(goldilocks::MODULUS), 0);
     assert_eq!(goldilocks::canonical(u64::MAX), 0xFFFF_FFFE);
@@ -638,7 +691,7 @@ fn m31_field_axioms() {
         assert_eq!(a.sub(b), m31_sub_oracle(a, b), "{a:?} - {b:?}");
         // Negation laws and sub == add of neg.
         assert_eq!(a.add(a.neg()), mersenne31::Elem::ZERO);
-        assert_eq!(a.neg().neg(), a.canonical());
+        assert_eq!(a.neg().neg(), a);
         assert_eq!(a.sub(b), a.add(b.neg()));
         // Ring laws.
         assert_eq!(a.add(b), b.add(a));
@@ -648,7 +701,7 @@ fn m31_field_axioms() {
         assert_eq!(a.square(), a.mul(a));
         // Inverse/division totality and round trip.
         assert_eq!(a.div(mersenne31::Elem::ZERO), mersenne31::Elem::ZERO);
-        if a.canonical() != mersenne31::Elem::ZERO {
+        if a != mersenne31::Elem::ZERO {
             assert_eq!(a.mul(a.inv()), mersenne31::Elem::ONE, "inv({a:?})");
             assert_eq!(a.div(a), mersenne31::Elem::ONE);
         }
@@ -670,7 +723,7 @@ fn gld_field_axioms() {
         assert_eq!(a.add(b), gld_add_oracle(a, b), "{a:?} + {b:?}");
         assert_eq!(a.sub(b), gld_sub_oracle(a, b), "{a:?} - {b:?}");
         assert_eq!(a.add(a.neg()), goldilocks::Elem::ZERO);
-        assert_eq!(a.neg().neg(), a.canonical());
+        assert_eq!(a.neg().neg(), a);
         assert_eq!(a.sub(b), a.add(b.neg()));
         assert_eq!(a.add(b), b.add(a));
         assert_eq!(a.mul(b), b.mul(a));
@@ -678,7 +731,7 @@ fn gld_field_axioms() {
         assert_eq!(a.mul(b).mul(c), a.mul(b.mul(c)));
         assert_eq!(a.square(), a.mul(a));
         assert_eq!(a.div(goldilocks::Elem::ZERO), goldilocks::Elem::ZERO);
-        if a.canonical() != goldilocks::Elem::ZERO {
+        if a != goldilocks::Elem::ZERO {
             assert_eq!(a.mul(a.inv()), goldilocks::Elem::ONE, "inv({a:?})");
             assert_eq!(a.div(a), goldilocks::Elem::ONE);
         }
@@ -751,23 +804,29 @@ fn prime_arithmetic_is_total_over_raw_lanes() {
 // The independent oracle is schoolbook (a+bi)(c+di) over u128 % p base
 // arithmetic: no fold, no lane tricks.
 fn qm_mul_oracle(x: quad_mersenne31::Elem, y: quad_mersenne31::Elem) -> quad_mersenne31::Elem {
-    let ar = x.0 as u128 % M31_P;
-    let ai = x.1 as u128 % M31_P;
-    let br = y.0 as u128 % M31_P;
-    let bi = y.1 as u128 % M31_P;
+    let (xr, xi) = x.to_raw();
+    let (yr, yi) = y.to_raw();
+    let ar = xr as u128 % M31_P;
+    let ai = xi as u128 % M31_P;
+    let br = yr as u128 % M31_P;
+    let bi = yi as u128 % M31_P;
     let re = (ar * br + M31_P * M31_P - ai * bi) % M31_P;
     let im = (ar * bi + ai * br) % M31_P;
-    quad_mersenne31::Elem(re as u32, im as u32)
+    quad_mersenne31::Elem::from_raw(re as u32, im as u32)
 }
 fn qm_add_oracle(x: quad_mersenne31::Elem, y: quad_mersenne31::Elem) -> quad_mersenne31::Elem {
-    let re = (x.0 as u128 % M31_P + y.0 as u128 % M31_P) % M31_P;
-    let im = (x.1 as u128 % M31_P + y.1 as u128 % M31_P) % M31_P;
-    quad_mersenne31::Elem(re as u32, im as u32)
+    let (xr, xi) = x.to_raw();
+    let (yr, yi) = y.to_raw();
+    let re = (xr as u128 % M31_P + yr as u128 % M31_P) % M31_P;
+    let im = (xi as u128 % M31_P + yi as u128 % M31_P) % M31_P;
+    quad_mersenne31::Elem::from_raw(re as u32, im as u32)
 }
 fn qm_sub_oracle(x: quad_mersenne31::Elem, y: quad_mersenne31::Elem) -> quad_mersenne31::Elem {
-    let re = (x.0 as u128 % M31_P + M31_P - y.0 as u128 % M31_P) % M31_P;
-    let im = (x.1 as u128 % M31_P + M31_P - y.1 as u128 % M31_P) % M31_P;
-    quad_mersenne31::Elem(re as u32, im as u32)
+    let (xr, xi) = x.to_raw();
+    let (yr, yi) = y.to_raw();
+    let re = (xr as u128 % M31_P + M31_P - yr as u128 % M31_P) % M31_P;
+    let im = (xi as u128 % M31_P + M31_P - yi as u128 % M31_P) % M31_P;
+    quad_mersenne31::Elem::from_raw(re as u32, im as u32)
 }
 
 fn sample_qm() -> Vec<quad_mersenne31::Elem> {
@@ -783,12 +842,12 @@ fn sample_qm() -> Vec<quad_mersenne31::Elem> {
         (7, 12),
     ]
     .into_iter()
-    .map(|(re, im)| quad_mersenne31::Elem(re, im))
+    .map(|(re, im)| quad_mersenne31::Elem::from_raw(re, im))
     .collect();
     let mut state = 0x243f_6a88u32;
     for _ in 0..48 {
         state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        values.push(quad_mersenne31::Elem(state, state.rotate_left(7)));
+        values.push(quad_mersenne31::Elem::from_raw(state, state.rotate_left(7)));
     }
     values
 }
@@ -797,20 +856,24 @@ fn sample_qm() -> Vec<quad_mersenne31::Elem> {
 fn qm31_known_answer_products() {
     use quad_mersenne31::Elem;
     // i^2 = -1
-    assert_eq!(Elem(0, 1).square(), Elem(0x7FFF_FFFE, 0));
-    assert_eq!(Elem(0, 1).mul(Elem(0, 1)), Elem(0x7FFF_FFFE, 0));
-    // (a+ai)^2 = 0 + 2a^2 i with a^2 = 0x71C7_1C71 (the frozen M31 KAT).
     assert_eq!(
-        Elem(0x5555_5555, 0x5555_5555).square(),
-        Elem(
-            0,
-            mersenne31::Elem(0x71C7_1C71)
-                .add(mersenne31::Elem(0x71C7_1C71))
-                .0
-        )
+        Elem::from_raw(0, 1).square(),
+        Elem::from_raw(0x7FFF_FFFE, 0)
+    );
+    assert_eq!(
+        Elem::from_raw(0, 1).mul(Elem::from_raw(0, 1)),
+        Elem::from_raw(0x7FFF_FFFE, 0)
+    );
+    // (a+ai)^2 = 0 + 2a^2 i with a^2 = 0x71C7_1C71 (the frozen M31 KAT).
+    let two_a_sq = mersenne31::Elem::from_raw(0x71C7_1C71)
+        .add(mersenne31::Elem::from_raw(0x71C7_1C71))
+        .to_raw();
+    assert_eq!(
+        Elem::from_raw(0x5555_5555, 0x5555_5555).square(),
+        Elem::from_raw(0, two_a_sq)
     );
     // Conjugate/norm inverse: inv(a+bi) = (a-bi)/(a^2+b^2).
-    let x = Elem(0x1234_5678, 0x9abc_def0 % 0x7FFF_FFFF);
+    let x = Elem::from_raw(0x1234_5678, 0x9abc_def0 % 0x7FFF_FFFF);
     assert_eq!(x.mul(x.inv()), Elem::ONE);
     assert_eq!(Elem::ZERO.inv(), Elem::ZERO);
 }
@@ -822,20 +885,24 @@ fn qm31_field_axioms() {
         let b = sample[(i * 7 + 3) % sample.len()];
         let c = sample[(i * 13 + 5) % sample.len()];
         // Every output is canonical per limb on any input.
+        let m = a.mul(b);
         assert!(
-            a.mul(b).0 < 0x7FFF_FFFF && a.mul(b).1 < 0x7FFF_FFFF,
+            m.to_raw().0 < 0x7FFF_FFFF && m.to_raw().1 < 0x7FFF_FFFF,
             "mul canonical"
         );
+        let s = a.add(b);
         assert!(
-            a.add(b).0 < 0x7FFF_FFFF && a.add(b).1 < 0x7FFF_FFFF,
+            s.to_raw().0 < 0x7FFF_FFFF && s.to_raw().1 < 0x7FFF_FFFF,
             "add canonical"
         );
+        let d = a.sub(b);
         assert!(
-            a.sub(b).0 < 0x7FFF_FFFF && a.sub(b).1 < 0x7FFF_FFFF,
+            d.to_raw().0 < 0x7FFF_FFFF && d.to_raw().1 < 0x7FFF_FFFF,
             "sub canonical"
         );
+        let g = a.neg();
         assert!(
-            a.neg().0 < 0x7FFF_FFFF && a.neg().1 < 0x7FFF_FFFF,
+            g.to_raw().0 < 0x7FFF_FFFF && g.to_raw().1 < 0x7FFF_FFFF,
             "neg canonical"
         );
         // Differentials against the u128 oracle.
@@ -844,7 +911,7 @@ fn qm31_field_axioms() {
         assert_eq!(a.sub(b), qm_sub_oracle(a, b), "{a:?} - {b:?}");
         // Negation laws and sub == add of neg.
         assert_eq!(a.add(a.neg()), quad_mersenne31::Elem::ZERO);
-        assert_eq!(a.neg().neg(), a.canonical());
+        assert_eq!(a.neg().neg(), a);
         assert_eq!(a.sub(b), a.add(b.neg()));
         // Ring laws.
         assert_eq!(a.add(b), b.add(a));
@@ -857,18 +924,19 @@ fn qm31_field_axioms() {
             a.div(quad_mersenne31::Elem::ZERO),
             quad_mersenne31::Elem::ZERO
         );
-        if a.canonical() != quad_mersenne31::Elem::ZERO {
+        if a != quad_mersenne31::Elem::ZERO {
             assert_eq!(a.mul(a.inv()), quad_mersenne31::Elem::ONE, "inv({a:?})");
             assert_eq!(a.div(a), quad_mersenne31::Elem::ONE);
         }
         // Norm is the base-field element a^2 + b^2.
         let n = a.norm();
+        let (ar, ai) = a.to_raw();
         assert_eq!(
             n,
-            mersenne31::Elem(a.0)
-                .mul(mersenne31::Elem(a.0))
-                .add(mersenne31::Elem(a.1).mul(mersenne31::Elem(a.1)))
-                .0
+            mersenne31::Elem::from_raw(ar)
+                .mul(mersenne31::Elem::from_raw(ar))
+                .add(mersenne31::Elem::from_raw(ai).mul(mersenne31::Elem::from_raw(ai)))
+                .to_raw()
         );
     }
     assert_eq!(
@@ -901,10 +969,10 @@ fn qm31_arithmetic_is_total_over_raw_limbs() {
     ];
     for &(ra, rai) in &raws {
         for &(rb, rbi) in &raws {
-            let a = quad_mersenne31::Elem(ra, rai);
-            let b = quad_mersenne31::Elem(rb, rbi);
+            let a = quad_mersenne31::Elem::from_raw(ra, rai);
+            let b = quad_mersenne31::Elem::from_raw(rb, rbi);
             let m = a.mul(b);
-            assert!(m.0 < 0x7FFF_FFFF && m.1 < 0x7FFF_FFFF);
+            assert!(m.to_raw().0 < 0x7FFF_FFFF && m.to_raw().1 < 0x7FFF_FFFF);
             assert_eq!(m, qm_mul_oracle(a, b));
             assert_eq!(a.add(b), qm_add_oracle(a, b));
             assert_eq!(a.sub(b), qm_sub_oracle(a, b));
@@ -919,21 +987,21 @@ fn qm31_arithmetic_is_total_over_raw_limbs() {
 #[test]
 fn fan_paar_matches_canonical_vectors() {
     assert_eq!(
-        fan_paar::fp8::Elem(0x1b).mul(fan_paar::fp8::Elem(0xa8)),
-        fan_paar::fp8::Elem(0x09)
+        fan_paar::fp8::Elem::from_raw(0x1b).mul(fan_paar::fp8::Elem::from_raw(0xa8)),
+        fan_paar::fp8::Elem::from_raw(0x09)
     );
     assert_eq!(
-        fan_paar::fp16::Elem(0x48a8).mul(fan_paar::fp16::Elem(0xf8a4)),
-        fan_paar::fp16::Elem(0x3656)
+        fan_paar::fp16::Elem::from_raw(0x48a8).mul(fan_paar::fp16::Elem::from_raw(0xf8a4)),
+        fan_paar::fp16::Elem::from_raw(0x3656)
     );
     assert_eq!(
-        fan_paar::fp16::Elem(0xf8a4).square(),
-        fan_paar::fp16::Elem(0xe7e6)
+        fan_paar::fp16::Elem::from_raw(0xf8a4).square(),
+        fan_paar::fp16::Elem::from_raw(0xe7e6)
     );
     assert_eq!(
-        fan_paar::fp64::Elem(0xc84d_6191_1083_1cef)
-            .mul(fan_paar::fp64::Elem(0x0000_0000_0000_a14f)),
-        fan_paar::fp64::Elem(0x3565_086d_6b9e_f595)
+        fan_paar::fp64::Elem::from_raw(0xc84d_6191_1083_1cef)
+            .mul(fan_paar::fp64::Elem::from_raw(0x0000_0000_0000_a14f)),
+        fan_paar::fp64::Elem::from_raw(0x3565_086d_6b9e_f595)
     );
 }
 
@@ -942,7 +1010,7 @@ fn fan_paar_arithmetic_round_trips() {
     macro_rules! check {
         ($module:ident, $($value:expr),+ $(,)?) => {
             $(
-                let a = fan_paar::$module::Elem($value);
+                let a = fan_paar::$module::Elem::from_raw($value);
                 assert_eq!(a.square(), a.mul(a));
                 assert_eq!(a.add(a), fan_paar::$module::Elem::ZERO);
                 if a != fan_paar::$module::Elem::ZERO {
@@ -996,23 +1064,25 @@ fn fan_paar_generators_have_full_order() {
 #[test]
 fn fan_paar_subfield_encodings_are_nested() {
     for (a, b) in [(0x1bu8, 0xa8u8), (0x53, 0xca), (0xff, 0x42)] {
-        let product = fan_paar::fp8::Elem(a).mul(fan_paar::fp8::Elem(b)).0;
+        let product = fan_paar::fp8::Elem::from_raw(a)
+            .mul(fan_paar::fp8::Elem::from_raw(b))
+            .to_raw();
         assert_eq!(
-            fan_paar::fp16::Elem(a.into())
-                .mul(fan_paar::fp16::Elem(b.into()))
-                .0,
+            fan_paar::fp16::Elem::from_raw(a.into())
+                .mul(fan_paar::fp16::Elem::from_raw(b.into()))
+                .to_raw(),
             product.into()
         );
         assert_eq!(
-            fan_paar::fp32::Elem(a.into())
-                .mul(fan_paar::fp32::Elem(b.into()))
-                .0,
+            fan_paar::fp32::Elem::from_raw(a.into())
+                .mul(fan_paar::fp32::Elem::from_raw(b.into()))
+                .to_raw(),
             product.into()
         );
         assert_eq!(
-            fan_paar::fp64::Elem(a.into())
-                .mul(fan_paar::fp64::Elem(b.into()))
-                .0,
+            fan_paar::fp64::Elem::from_raw(a.into())
+                .mul(fan_paar::fp64::Elem::from_raw(b.into()))
+                .to_raw(),
             product.into()
         );
     }
@@ -1068,10 +1138,14 @@ fn byte_representation_round_trips() {
             assert_eq!(buffer, value.to_bytes());
         }};
     }
-    check_fan_paar_repr!(FanPaar8, fan_paar::fp8::Elem(0xa5), 1);
-    check_fan_paar_repr!(FanPaar16, fan_paar::fp16::Elem(0xa55a), 2);
-    check_fan_paar_repr!(FanPaar32, fan_paar::fp32::Elem(0xa55a_1234), 4);
-    check_fan_paar_repr!(FanPaar64, fan_paar::fp64::Elem(0xa55a_1234_dead_beef), 8);
+    check_fan_paar_repr!(FanPaar8, fan_paar::fp8::Elem::from_raw(0xa5), 1);
+    check_fan_paar_repr!(FanPaar16, fan_paar::fp16::Elem::from_raw(0xa55a), 2);
+    check_fan_paar_repr!(FanPaar32, fan_paar::fp32::Elem::from_raw(0xa55a_1234), 4);
+    check_fan_paar_repr!(
+        FanPaar64,
+        fan_paar::fp64::Elem::from_raw(0xa55a_1234_dead_beef),
+        8
+    );
 }
 
 #[test]
@@ -1107,6 +1181,80 @@ fn field_constants_are_consistent() {
     ] {
         assert_eq!(bytes * 8, bits as usize);
     }
+}
+
+/// Embed the integer `n` into the field by double-and-add over `ONE`.
+///
+/// The only portable integer embedding: a raw byte pattern is not an integer
+/// in a binary extension field, and a lane value is not one in QM31.
+fn embed<F: Field>(mut n: u64) -> F::Elem {
+    use fgf::field::Elem as _;
+    let mut term = F::Elem::ONE;
+    let mut total = F::Elem::ZERO;
+    while n != 0 {
+        if n & 1 != 0 {
+            total = total.add(term);
+        }
+        term = term.add(term);
+        n >>= 1;
+    }
+    total
+}
+
+#[test]
+fn field_characteristic_is_not_derived_from_order() {
+    use fgf::field::Elem as _;
+
+    // Binary towers: order is 2^m, characteristic is two.
+    for characteristic in [
+        Gf8B::CHARACTERISTIC,
+        Gf8D::CHARACTERISTIC,
+        Gf16::CHARACTERISTIC,
+        Gf32::CHARACTERISTIC,
+        Gf64::CHARACTERISTIC,
+        FanPaar8::CHARACTERISTIC,
+        FanPaar16::CHARACTERISTIC,
+        FanPaar32::CHARACTERISTIC,
+        FanPaar64::CHARACTERISTIC,
+    ] {
+        assert_eq!(characteristic, 2);
+    }
+
+    // Prime fields of prime order: the two facts coincide.
+    assert_eq!(u128::from(Mersenne31::CHARACTERISTIC), Mersenne31::ORDER);
+    assert_eq!(u128::from(Goldilocks::CHARACTERISTIC), Goldilocks::ORDER);
+
+    // The extension: characteristic is the base prime `p`, while the order
+    // is `p²`. Deriving one from the other is the defect this pins.
+    assert_eq!(QuadMersenne31::CHARACTERISTIC, Mersenne31::CHARACTERISTIC);
+    assert_ne!(
+        u128::from(QuadMersenne31::CHARACTERISTIC),
+        QuadMersenne31::ORDER
+    );
+    let base = u128::from(QuadMersenne31::CHARACTERISTIC);
+    assert_eq!(base * base, QuadMersenne31::ORDER);
+
+    // Behaviour, not just constants: `p · x = 0` and `(p − 1) · x ≠ 0`.
+    macro_rules! check_embedding {
+        ($($field:ty),+) => {$({
+            assert!(embed::<$field>(<$field>::CHARACTERISTIC).is_zero());
+            assert!(!embed::<$field>(<$field>::CHARACTERISTIC - 1).is_zero());
+        })+};
+    }
+    check_embedding!(
+        Gf8B,
+        Gf8D,
+        Gf16,
+        Gf32,
+        Gf64,
+        FanPaar8,
+        FanPaar16,
+        FanPaar32,
+        FanPaar64,
+        Mersenne31,
+        Goldilocks,
+        QuadMersenne31
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1319,24 +1467,27 @@ fn gf64_trait_operator_and_formatting_surface() {
 
 #[test]
 fn fan_paar_trait_operator_and_formatting_surface() {
-    let fp8: Vec<_> = (0..=u8::MAX).step_by(97).map(fan_paar::fp8::Elem).collect();
+    let fp8: Vec<_> = (0..=u8::MAX)
+        .step_by(97)
+        .map(fan_paar::fp8::Elem::from_raw)
+        .collect();
     exercise_surface::<FanPaar8>(&fp8);
     exercise_operators!(fp8);
     let fp16: Vec<_> = [0, 1, 0x0100, 0xffff, 0xa55a, 0x1234]
         .into_iter()
-        .map(fan_paar::fp16::Elem)
+        .map(fan_paar::fp16::Elem::from_raw)
         .collect();
     exercise_surface::<FanPaar16>(&fp16);
     exercise_operators!(fp16);
     let fp32: Vec<_> = [0, 1, 0x10000, 0xffff_ffff, 0xa55a_1234]
         .into_iter()
-        .map(fan_paar::fp32::Elem)
+        .map(fan_paar::fp32::Elem::from_raw)
         .collect();
     exercise_surface::<FanPaar32>(&fp32);
     exercise_operators!(fp32);
     let fp64: Vec<_> = [0, 1, 1 << 32, u64::MAX, 0xa55a_1234_dead_beef]
         .into_iter()
-        .map(fan_paar::fp64::Elem)
+        .map(fan_paar::fp64::Elem::from_raw)
         .collect();
     exercise_surface::<FanPaar64>(&fp64);
     exercise_operators!(fp64);
@@ -1346,35 +1497,24 @@ fn fan_paar_trait_operator_and_formatting_surface() {
 fn prime_trait_operator_and_formatting_surface() {
     // Only the odd-character fields implement unary negation.
     {
-        let a = mersenne31::Elem(7).canonical();
+        let a = mersenne31::Elem::from_raw(7);
         assert_eq!(-a, a.neg(), "M31 Neg");
-        let a = goldilocks::Elem(7).canonical();
+        let a = goldilocks::Elem::from_raw(7);
         assert_eq!(-a, a.neg(), "Goldilocks Neg");
-        let a = quad_mersenne31::Elem(7, 9).canonical();
+        let a = quad_mersenne31::Elem::from_raw(7, 9);
         assert_eq!(-a, a.neg(), "QM31 Neg");
     }
-    // The surface laws compare elements for equality, so they need canonical
-    // representatives: the raw samples deliberately include non-canonical
-    // lanes, and prime-field arithmetic canonicalizes its outputs.
-    let m31: Vec<_> = sample_m31()
-        .into_iter()
-        .step_by(7)
-        .map(|a| a.canonical())
-        .collect();
+    // Equality follows field values, so the raw samples — which deliberately
+    // include non-canonical lanes — can run through the surface laws
+    // uncanonicalized: a non-canonical lane and its canonical image compare
+    // equal everywhere below.
+    let m31: Vec<_> = sample_m31().into_iter().step_by(7).collect();
     exercise_surface::<Mersenne31>(&m31);
     exercise_operators!(m31);
-    let gld: Vec<_> = sample_gld()
-        .into_iter()
-        .step_by(7)
-        .map(|a| a.canonical())
-        .collect();
+    let gld: Vec<_> = sample_gld().into_iter().step_by(7).collect();
     exercise_surface::<Goldilocks>(&gld);
     exercise_operators!(gld);
-    let qm: Vec<_> = sample_qm()
-        .into_iter()
-        .step_by(7)
-        .map(|a| a.canonical())
-        .collect();
+    let qm: Vec<_> = sample_qm().into_iter().step_by(7).collect();
     exercise_surface::<QuadMersenne31>(&qm);
     exercise_operators!(qm);
 }
@@ -1466,15 +1606,18 @@ fn inherent_conversion_helpers_round_trip() {
             assert_eq!(<$elem>::from_components(lo, hi), a);
         }};
     }
-    fp_level!(fan_paar::fp16::Elem, fan_paar::fp16::Elem(0xa55a));
-    fp_level!(fan_paar::fp32::Elem, fan_paar::fp32::Elem(0xa55a_1234));
+    fp_level!(fan_paar::fp16::Elem, fan_paar::fp16::Elem::from_raw(0xa55a));
+    fp_level!(
+        fan_paar::fp32::Elem,
+        fan_paar::fp32::Elem::from_raw(0xa55a_1234)
+    );
     fp_level!(
         fan_paar::fp64::Elem,
-        fan_paar::fp64::Elem(0xa55a_1234_dead_beef)
+        fan_paar::fp64::Elem::from_raw(0xa55a_1234_dead_beef)
     );
     assert_eq!(
-        fan_paar::fp8::Elem(0xa5).mul_alpha(),
-        fan_paar::fp8::Elem(0xa5).mul(fan_paar::fp8::ALPHA)
+        fan_paar::fp8::Elem::from_raw(0xa5).mul_alpha(),
+        fan_paar::fp8::Elem::from_raw(0xa5).mul(fan_paar::fp8::ALPHA)
     );
 }
 
@@ -1484,9 +1627,9 @@ fn inherent_conversion_helpers_round_trip() {
 
 /// The whole field, exhaustively: the four ordered pairs.
 fn all_gf2_pairs() -> impl Iterator<Item = (gf2::Elem, gf2::Elem)> {
-    let elems = [gf2::Elem(0), gf2::Elem(1)];
+    let elems = [gf2::Elem::from_raw(0), gf2::Elem::from_raw(1)];
     elems.into_iter().flat_map(move |a| {
-        let elems = [gf2::Elem(0), gf2::Elem(1)];
+        let elems = [gf2::Elem::from_raw(0), gf2::Elem::from_raw(1)];
         elems.into_iter().map(move |b| (a, b))
     })
 }
@@ -1515,15 +1658,15 @@ fn gf2_inverse_division_and_power_conventions() {
         assert_eq!(quotient, expected, "x / 0 == 0 and x / 1 == x");
         assert_eq!(a / b, a.div(b));
     }
-    for a in [gf2::Elem(0), gf2::Elem(1)] {
+    for a in [gf2::Elem::from_raw(0), gf2::Elem::from_raw(1)] {
         assert_eq!(a.pow(0), gf2::Elem::ONE, "pow(_, 0) is one");
         for exponent in [1u64, 2, 3, 63, u64::MAX] {
             assert_eq!(a.pow(exponent), a, "x^n = x for n > 0");
         }
     }
     // Division stays total in const context.
-    const _: () = assert!(gf2::Elem(1).div(gf2::Elem(0)).to_raw() == 0);
-    const _: () = assert!(gf2::Elem(1).pow(0).to_raw() == 1);
+    const _: () = assert!(gf2::Elem::from_raw(1).div(gf2::Elem::ZERO).to_raw() == 0);
+    const _: () = assert!(gf2::Elem::from_raw(1).pow(0).to_raw() == 1);
 }
 
 #[test]
@@ -1536,8 +1679,8 @@ fn gf2_constants_and_predicates() {
     for exponent in [0u64, 1, 2, 100] {
         assert_eq!(gf2::GENERATOR.pow(exponent), gf2::Elem::ONE);
     }
-    assert!(gf2::Elem(0).is_zero());
-    assert!(gf2::Elem(1).is_one());
+    assert!(gf2::Elem::from_raw(0).is_zero());
+    assert!(gf2::Elem::from_raw(1).is_one());
     assert_eq!(gf2::Elem::ZERO.to_raw(), 0);
     assert_eq!(gf2::Elem::ONE.to_raw(), 1);
     assert_eq!(gf2::Elem::default(), gf2::Elem::ZERO);
@@ -1591,12 +1734,12 @@ fn gf2_raw_lanes_are_total_and_outputs_canonical() {
     // Any raw byte is a legal input; only bit 0 is meaningful, and every
     // arithmetic output is canonical — the crate's totality convention.
     for raw in [0u8, 1, 2, 3, 0x7f, 0x80, 0xfe, 0xff] {
-        let a = gf2::Elem(raw);
-        assert_eq!(a.add(gf2::Elem(1)).to_raw(), (raw & 1) ^ 1);
-        assert_eq!(a.mul(gf2::Elem(1)).to_raw(), raw & 1);
+        let a = gf2::Elem::from_raw(raw);
+        assert_eq!(a.add(gf2::Elem::from_raw(1)).to_raw(), (raw & 1) ^ 1);
+        assert_eq!(a.mul(gf2::Elem::from_raw(1)).to_raw(), raw & 1);
         assert_eq!(a.square().to_raw(), raw & 1);
         assert_eq!(a.inv().to_raw(), raw & 1);
-        assert_eq!(a.div(gf2::Elem(0)).to_raw(), 0);
+        assert_eq!(a.div(gf2::Elem::from_raw(0)).to_raw(), 0);
         assert_eq!(a.is_zero(), raw & 1 == 0);
         assert_eq!(a.is_one(), raw & 1 == 1);
     }
@@ -1606,37 +1749,44 @@ fn gf2_raw_lanes_are_total_and_outputs_canonical() {
         [0],
         "byte round trip masks"
     );
-    assert_eq!(gf2::Elem(1).canonical(), gf2::Elem::ONE);
+    assert_eq!(gf2::Elem::from_raw(1).canonical(), gf2::Elem::ONE);
 }
 
 #[test]
 fn gf2_operators_folds_and_display() {
     use std::fmt::Write as _;
 
-    let mut a = gf2::Elem(1);
-    a += gf2::Elem(1);
+    let mut a = gf2::Elem::from_raw(1);
+    a += gf2::Elem::from_raw(1);
     assert_eq!(a, gf2::Elem::ZERO);
-    a -= gf2::Elem(1);
+    a -= gf2::Elem::from_raw(1);
     assert_eq!(a, gf2::Elem::ONE);
-    a *= gf2::Elem(0);
+    a *= gf2::Elem::from_raw(0);
     assert_eq!(a, gf2::Elem::ZERO);
-    a += gf2::Elem(1);
-    a /= gf2::Elem(1);
+    a += gf2::Elem::from_raw(1);
+    a /= gf2::Elem::from_raw(1);
     assert_eq!(a, gf2::Elem::ONE);
     a /= gf2::Elem::ZERO;
     assert_eq!(a, gf2::Elem::ZERO);
 
-    let xor_sum: gf2::Elem = [gf2::Elem(1), gf2::Elem(1), gf2::Elem(1)].into_iter().sum();
+    let one = gf2::Elem::from_raw(1);
+    let xor_sum: gf2::Elem = [one, one, one].into_iter().sum();
     assert_eq!(xor_sum, gf2::Elem::ONE, "sum of three ones");
-    let and_product: gf2::Elem = [gf2::Elem(1), gf2::Elem(1)].into_iter().product();
+    let and_product: gf2::Elem = [one, one].into_iter().product();
     assert_eq!(and_product, gf2::Elem::ONE);
-    let borrowed_sum: gf2::Elem = [&gf2::Elem(1), &gf2::Elem(1)].into_iter().sum();
+    let borrowed_sum: gf2::Elem = [&one, &one].into_iter().sum();
     assert_eq!(borrowed_sum, gf2::Elem::ZERO);
-    let borrowed_product: gf2::Elem = [&gf2::Elem(1), &gf2::Elem(1)].into_iter().product();
+    let borrowed_product: gf2::Elem = [&one, &one].into_iter().product();
     assert_eq!(borrowed_product, gf2::Elem::ONE);
 
     let mut text = String::new();
-    write!(text, "{} {:?}", gf2::Elem(1), gf2::Elem(0)).unwrap();
+    write!(
+        text,
+        "{} {:?}",
+        gf2::Elem::from_raw(1),
+        gf2::Elem::from_raw(0)
+    )
+    .unwrap();
     assert_eq!(text, "1 Gf2(0)");
 }
 
@@ -1711,6 +1861,7 @@ mod toy {
         const BITS: u32 = 8;
         const BYTES: usize = 1;
         const ORDER: u128 = 8;
+        const CHARACTERISTIC: u64 = 2;
         const GENERATOR: Elem7 = Elem7(2);
 
         fn read(bytes: &[u8]) -> Elem7 {
@@ -1743,7 +1894,7 @@ fn elem_trait_defaults_are_correct_for_minimal_implementors() {
 
 #[test]
 fn qm31_pow_u128_matches_pow_and_repeated_squaring() {
-    let a = quad_mersenne31::Elem(0x1234_5678, 0x9abc_def0).canonical();
+    let a = quad_mersenne31::Elem::from_raw(0x1234_5678, 0x9abc_def0).canonical();
     // Inside u64 the two exponentiation paths must agree exactly.
     for exponent in [0u128, 1, 2, 3, 7, 255, 1 << 32, u64::MAX as u128] {
         assert_eq!(
@@ -1758,4 +1909,150 @@ fn qm31_pow_u128_matches_pow_and_repeated_squaring() {
         expected = expected.square();
     }
     assert_eq!(a.pow_u128(1u128 << 70), expected, "pow_u128(2^70)");
+}
+
+// ---------------------------------------------------------------------------
+// Value equality, hashing, and ordering
+// ---------------------------------------------------------------------------
+//
+// `Eq`/`Hash`/`Ord` are public contract: they follow the field value, not the
+// stored bits. GF(2) and the prime-family fields admit non-canonical raw
+// storage; these tests pin that equivalent representatives compare equal,
+// hash equally, sort as one element, and collapse in hash containers. The
+// binary full-width fields have one representation per value and are covered
+// by the derived-implementation coherence everywhere above.
+
+/// One non-canonical/canonical pair of one field value: equal, same hash,
+/// `Ordering::Equal`, and indistinguishable inside a `HashSet`.
+fn assert_same_value<E: fgf::field::Elem + Ord>(noncanonical: E, canonical: E) {
+    use std::cmp::Ordering;
+    use std::collections::HashSet;
+
+    assert_eq!(
+        noncanonical, canonical,
+        "equivalent representatives are one value"
+    );
+    assert!(
+        hashes_equal(&noncanonical, &canonical),
+        "equal field values must hash equally"
+    );
+    assert_eq!(
+        noncanonical.cmp(&canonical),
+        Ordering::Equal,
+        "ordering must agree with equality"
+    );
+    assert!(!(noncanonical < canonical) && !(canonical < noncanonical));
+    let set: HashSet<E> = HashSet::from([noncanonical, canonical]);
+    assert_eq!(
+        set.len(),
+        1,
+        "equivalent representatives collapse in a HashSet"
+    );
+}
+
+#[test]
+fn m31_equivalent_representatives_are_one_value() {
+    // p ≡ 0, p + 1 ≡ 1, 2^31 ≡ 1, 2^32 − 1 ≡ 1 (mod p).
+    let p = mersenne31::MODULUS;
+    assert_same_value(mersenne31::Elem::from_raw(p), mersenne31::Elem::ZERO);
+    assert_same_value(mersenne31::Elem::from_raw(p + 1), mersenne31::Elem::ONE);
+    assert_same_value(
+        mersenne31::Elem::from_raw(0x8000_0000),
+        mersenne31::Elem::ONE,
+    );
+    assert_same_value(
+        mersenne31::Elem::from_raw(0xFFFF_FFFF),
+        mersenne31::Elem::ONE,
+    );
+    // Ordering is canonical-value order: p (zero) sorts below one, and a
+    // raw-bit order would place it far above.
+    assert!(mersenne31::Elem::from_raw(p) < mersenne31::Elem::ONE);
+    let mut mixed = [
+        mersenne31::Elem::from_raw(p + 2), // ≡ 2
+        mersenne31::Elem::ZERO,
+        mersenne31::Elem::ONE,
+        mersenne31::Elem::from_raw(3),
+    ];
+    mixed.sort();
+    assert_eq!(
+        mixed,
+        [
+            mersenne31::Elem::ZERO,
+            mersenne31::Elem::ONE,
+            mersenne31::Elem::from_raw(2),
+            mersenne31::Elem::from_raw(3),
+        ]
+    );
+}
+
+#[test]
+fn goldilocks_equivalent_representatives_are_one_value() {
+    let p = goldilocks::MODULUS;
+    assert_same_value(goldilocks::Elem::from_raw(p), goldilocks::Elem::ZERO);
+    assert_same_value(goldilocks::Elem::from_raw(p + 1), goldilocks::Elem::ONE);
+    // u64::MAX = p + 2^32 − 2, pinned by the `canonical` known answer.
+    assert_same_value(
+        goldilocks::Elem::from_raw(u64::MAX),
+        goldilocks::Elem::from_raw(0xFFFF_FFFE),
+    );
+    assert!(goldilocks::Elem::from_raw(p) < goldilocks::Elem::ONE);
+    let mut mixed = [
+        goldilocks::Elem::from_raw(p + 2), // ≡ 2
+        goldilocks::Elem::ZERO,
+        goldilocks::Elem::ONE,
+        goldilocks::Elem::from_raw(3),
+    ];
+    mixed.sort();
+    assert_eq!(
+        mixed,
+        [
+            goldilocks::Elem::ZERO,
+            goldilocks::Elem::ONE,
+            goldilocks::Elem::from_raw(2),
+            goldilocks::Elem::from_raw(3),
+        ]
+    );
+}
+
+#[test]
+fn qm31_equivalent_representatives_are_one_value() {
+    let p = quad_mersenne31::MODULUS;
+    // Each limb canonicalizes independently: p ≡ 0, 2^31 ≡ 1.
+    assert_same_value(
+        quad_mersenne31::Elem::from_raw(p, 0),
+        quad_mersenne31::Elem::ZERO,
+    );
+    assert_same_value(
+        quad_mersenne31::Elem::from_raw(0x8000_0000, 0x8000_0000),
+        quad_mersenne31::Elem::from_raw(1, 1),
+    );
+    // Mixed limbs: one canonical, the other not.
+    assert_same_value(
+        quad_mersenne31::Elem::from_raw(1, p + 5),
+        quad_mersenne31::Elem::from_raw(1, 5),
+    );
+    assert_same_value(
+        quad_mersenne31::Elem::from_raw(0xFFFF_FFFF, 2),
+        quad_mersenne31::Elem::from_raw(1, 2),
+    );
+    // Lexicographic order over canonical limbs: raw-bit order would place
+    // from_raw(p, 1) above ONE.
+    let i = quad_mersenne31::Elem::I;
+    assert!(quad_mersenne31::Elem::ZERO < i);
+    assert!(i < quad_mersenne31::Elem::ONE);
+    assert!(quad_mersenne31::Elem::ONE < quad_mersenne31::Elem::ONE.add(i));
+    assert_eq!(quad_mersenne31::Elem::from_raw(p, 1), i);
+    assert!(quad_mersenne31::Elem::from_raw(p, 1) < quad_mersenne31::Elem::ONE);
+}
+
+#[test]
+fn gf2_masked_inputs_are_one_value() {
+    // `from_raw` masks to the low bit, and equality/hash/order follow that
+    // bit, so masked high bits never split one field value.
+    assert_same_value(gf2::Elem::from_raw(0x02), gf2::Elem::ZERO);
+    assert_same_value(gf2::Elem::from_raw(0xFD), gf2::Elem::ONE);
+    assert!(gf2::Elem::ZERO < gf2::Elem::ONE);
+    let mut bits = [gf2::Elem::from_raw(0x80), gf2::Elem::from_raw(3)];
+    bits.sort();
+    assert_eq!(bits, [gf2::Elem::ZERO, gf2::Elem::ONE]);
 }

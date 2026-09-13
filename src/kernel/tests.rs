@@ -30,13 +30,13 @@ use crate::field::{
     FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf32, Gf64, Goldilocks, fan_paar, gf8b, gf16, gf32,
     gf64, quad_mersenne31,
 };
-use crate::kernel::FieldKernels;
 use crate::kernel::scalar;
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::kernel::tables::FpTowerTables;
 use crate::kernel::tables::{ScaleTable, TowerCoeff, TowerTables, scale_table};
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::kernel::tables::{affine_8d, scale_table_8d};
+use crate::kernel::{KernelDispatch, RawDispatch};
 
 /// Lengths covering: empty, sub-lane, exact lanes, lane+1, several unroll
 /// tiles, and a large odd size. All even so GF(2^16) can use the same list.
@@ -1318,6 +1318,244 @@ mod x86 {
         }
     }
 
+    /// Differential for the crossed-panel entries: the resolved path at
+    /// several chunk widths, the original full-array scratch policy, the
+    /// external body chunked, and both multi-row forms. The chunk boundaries
+    /// (32, 33, 64, 65 sources) are the point — every chunk policy must fold
+    /// the same sum.
+    #[test]
+    fn gfni_gf8d_chunk_panel_entries_match_reference() {
+        if !(host_supports(&[Backend::V3GfniCrypto])) {
+            eprintln!("skipping: no AVX2+GFNI on this host");
+            return;
+        }
+        check_gf8d_one_row_chunk_entries();
+        check_gf8d_multi_row_chunk_entries();
+    }
+
+    fn check_gf8d_one_row_chunk_entries() {
+        const ONE_ROW_LENGTHS: &[usize] = &[32, 96, 128, 384, 416, 4096];
+        const SOURCES: &[usize] = &[1, 31, 32, 33, 64, 65];
+        for &row_len in ONE_ROW_LENGTHS {
+            for &sources in SOURCES {
+                let buffers: Vec<Vec<u8>> = (0..sources)
+                    .map(|t| noise(row_len, 0x7c1 + t as u64 * 19 + row_len as u64))
+                    .collect();
+                let srcs: Vec<&[u8]> = buffers.iter().map(Vec::as_slice).collect();
+                let coeffs: Vec<gf8d::Elem> = (0..sources).map(gf8d_coeff_at).collect();
+                let terms: Vec<(&[gf8d::Elem], &[u8])> = coeffs
+                    .iter()
+                    .zip(&srcs)
+                    .map(|(c, s)| (core::slice::from_ref(c), *s))
+                    .collect();
+
+                let mut want = vec![0u8; row_len];
+                for (&coeff, src) in coeffs.iter().zip(&srcs) {
+                    gf8d_reference(&mut want, coeff, src);
+                }
+
+                for &lanes in &[3usize, 4] {
+                    let mut got = noise(row_len, 0x7c2);
+                    x86::gf8::matrix_overwrite1_fullinit_8d(&mut got, row_len, &terms, lanes);
+                    assert_eq!(
+                        got, want,
+                        "fullinit: len {row_len} lanes {lanes} sources {sources}"
+                    );
+                    for &chunk in &[32usize, 64, 96] {
+                        let mut got = noise(row_len, 0x7c3);
+                        x86::gf8::matrix_overwrite1_chunk_8d(
+                            &mut got, row_len, &terms, lanes, chunk,
+                        );
+                        assert_eq!(
+                            got, want,
+                            "chunk {chunk}: len {row_len} lanes {lanes} sources {sources}"
+                        );
+                    }
+                }
+
+                if row_len % 32 == 0 {
+                    let maps: Vec<u64> = coeffs.iter().copied().map(affine_8d).collect();
+                    for &chunk in &[0usize, 32, 64, 96] {
+                        let mut got = noise(row_len, 0x7c4);
+                        x86::gf8::matrix_overwrite1_external_chunk_8d(
+                            &mut got, row_len, &maps, &srcs, 4, chunk,
+                        );
+                        assert_eq!(
+                            got, want,
+                            "external chunk {chunk}: len {row_len} sources {sources}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Differential for the prepared-coefficient plan path the `Gf8D` plan
+    /// entries dispatch to: every group split, both policies, against the
+    /// same oracle, including a one-source plan and zero coefficients.
+    #[test]
+    fn gfni_gf8d_prepared_plan_matrix_matches_reference() {
+        if !(host_supports(&[Backend::V3GfniCrypto])) {
+            eprintln!("skipping: no AVX2+GFNI on this host");
+            return;
+        }
+        // 50 adds a sub-32-byte tail, 96 keeps whole tiles, 416 adds the
+        // 32-byte cleanup — together exercising the prepared remainder
+        // ladder. Zero sources pin the empty-overwrite contract (zeros
+        // written, surplus intact).
+        for &row_len in &[50usize, 96, 416] {
+            for &nrows in &[1usize, 2, 3, 4, 6, 7, 16] {
+                for &sources in &[0usize, 1, 2, 33] {
+                    let buffers: Vec<Vec<u8>> = (0..sources)
+                        .map(|t| noise(row_len, 0x8e1 + t as u64 * 29 + nrows as u64))
+                        .collect();
+                    let srcs: Vec<&[u8]> = buffers.iter().map(Vec::as_slice).collect();
+                    let columns: Vec<Vec<gf8d::Elem>> = (0..sources)
+                        .map(|t| {
+                            (0..nrows)
+                                .map(|r| {
+                                    if t == 0 && sources > 1 {
+                                        // One zero and one one coefficient ride along.
+                                        gf8d::Elem((r % 2) as u8)
+                                    } else {
+                                        gf8d_coeff_at(t * 11 + r)
+                                    }
+                                })
+                                .collect()
+                        })
+                        .collect();
+                    let prepared: Vec<crate::kernel::gf8::Prepared8D> = columns
+                        .iter()
+                        .flatten()
+                        .map(|&c| crate::kernel::gf8::Prepared8D {
+                            table: scale_table_8d(c),
+                            affine: affine_8d(c),
+                        })
+                        .collect();
+
+                    let mut want = vec![0u8; nrows * row_len];
+                    for row in 0..nrows {
+                        for term in 0..sources {
+                            let mut piece = vec![0u8; row_len];
+                            gf8d_reference(&mut piece, columns[term][row], srcs[term]);
+                            let target = &mut want[row * row_len..(row + 1) * row_len];
+                            for (byte, &value) in target.iter_mut().zip(&piece) {
+                                *byte ^= value;
+                            }
+                        }
+                    }
+
+                    let mut got = noise(nrows * row_len + 32, 0x8e2);
+                    let (head, surplus) = got.split_at_mut(nrows * row_len);
+                    x86::gf8::matrix_overwrite_affine_prepared_with(
+                        head, row_len, nrows, &prepared, &srcs,
+                    );
+                    assert!(
+                        head == want.as_slice(),
+                        "prepared overwrite: len {row_len} nrows {nrows} sources {sources}"
+                    );
+                    assert!(
+                        surplus.iter().any(|&b| b != 0),
+                        "prepared overwrite touched surplus bytes"
+                    );
+
+                    let base = noise(nrows * row_len, 0x8e3);
+                    let mut got = base.clone();
+                    x86::gf8::matrix_affine_prepared_with(
+                        &mut got, row_len, nrows, &prepared, &srcs,
+                    );
+                    let mut expect = base.clone();
+                    for (byte, &w) in expect.iter_mut().zip(&want) {
+                        *byte ^= w;
+                    }
+                    assert_eq!(
+                        got, expect,
+                        "prepared accumulate: len {row_len} nrows {nrows} sources {sources}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Multi-row: every group split (4+2+1 at seven rows, 4 at four, 2+1 at
+    /// three) over the chunk boundaries, resolved and external.
+    fn check_gf8d_multi_row_chunk_entries() {
+        const ROW_LEN: usize = 384;
+        for &nrows in &[1usize, 2, 3, 4, 6, 7] {
+            for &sources in &[32usize, 33, 65] {
+                let buffers: Vec<Vec<u8>> = (0..sources)
+                    .map(|t| noise(ROW_LEN, 0x7d1 + t as u64 * 23 + nrows as u64))
+                    .collect();
+                let srcs: Vec<&[u8]> = buffers.iter().map(Vec::as_slice).collect();
+                let columns: Vec<Vec<gf8d::Elem>> = (0..sources)
+                    .map(|t| (0..nrows).map(|r| gf8d_coeff_at(t * 7 + r)).collect())
+                    .collect();
+                let terms: Vec<(&[gf8d::Elem], &[u8])> = columns
+                    .iter()
+                    .zip(&srcs)
+                    .map(|(c, s)| (c.as_slice(), *s))
+                    .collect();
+
+                let mut want = vec![0u8; nrows * ROW_LEN];
+                for row in 0..nrows {
+                    for term in 0..sources {
+                        let mut piece = vec![0u8; ROW_LEN];
+                        gf8d_reference(&mut piece, columns[term][row], srcs[term]);
+                        let target = &mut want[row * ROW_LEN..(row + 1) * ROW_LEN];
+                        for (byte, &value) in target.iter_mut().zip(&piece) {
+                            *byte ^= value;
+                        }
+                    }
+                }
+
+                for &chunk in &[32usize, 64, 96] {
+                    let mut got = noise(nrows * ROW_LEN, 0x7d2);
+                    x86::gf8::matrix_overwrite_chunk_8d(&mut got, ROW_LEN, nrows, &terms, chunk);
+                    assert_eq!(
+                        got, want,
+                        "multi chunk {chunk}: nrows {nrows} sources {sources}"
+                    );
+                }
+
+                // Group-major maps: every four-row group's words, then the
+                // pair's, then the single row's, each term-major.
+                let mut maps: Vec<u64> = Vec::with_capacity(nrows * sources);
+                let mut g = 0;
+                while g + 4 <= nrows {
+                    for column in &columns {
+                        for coeff in &column[g..g + 4] {
+                            maps.push(affine_8d(*coeff));
+                        }
+                    }
+                    g += 4;
+                }
+                if g + 2 <= nrows {
+                    for column in &columns {
+                        for coeff in &column[g..g + 2] {
+                            maps.push(affine_8d(*coeff));
+                        }
+                    }
+                    g += 2;
+                }
+                if g < nrows {
+                    for column in &columns {
+                        maps.push(affine_8d(column[g]));
+                    }
+                }
+                for &chunk in &[0usize, 32, 64] {
+                    let mut got = noise(nrows * ROW_LEN, 0x7d3);
+                    x86::gf8::matrix_overwrite_external_grouped_8d(
+                        &mut got, ROW_LEN, nrows, &maps, &srcs, chunk,
+                    );
+                    assert_eq!(
+                        got, want,
+                        "grouped external chunk {chunk}: nrows {nrows} sources {sources}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn gfni_kernels_match_reference() {
         if !(host_supports(&[Backend::V3GfniCrypto])) {
@@ -2374,13 +2612,13 @@ mod wasm32 {
 
 #[test]
 fn default_kernels_handle_empty_terms() {
-    // The defaulted `FieldKernels::dot_product` (used by the prime and
+    // The defaulted `KernelDispatch::dot_product` (used by the prime and
     // Fan-Paar fields) zeroes the destination when there are no terms.
     let mut dst = noise(16, 0x5a);
-    <Goldilocks as FieldKernels>::dot_product(&mut dst, &[], &[]);
+    <Goldilocks as KernelDispatch>::dot_product(RawDispatch, &mut dst, &[], &[]);
     assert!(dst.iter().all(|&b| b == 0), "empty terms must zero dst");
     let mut dst = noise(16, 0x5b);
-    <FanPaar32 as FieldKernels>::dot_product(&mut dst, &[], &[]);
+    <FanPaar32 as KernelDispatch>::dot_product(RawDispatch, &mut dst, &[], &[]);
     assert!(dst.iter().all(|&b| b == 0), "empty terms must zero dst");
 }
 
@@ -2490,11 +2728,16 @@ fn macro_kernels_matrix_with_matches_per_row_application() {
     let row_len = 8;
     let srcs: Vec<Vec<u8>> = vec![noise(row_len, 0x71), noise(row_len, 0x72)];
     let coeffs = [fan_paar::fp8::Elem(1), fan_paar::fp8::Elem(0x8d)];
-    let prepared: Vec<_> = coeffs.iter().copied().map(FanPaar8::prepare).collect();
+    let prepared: Vec<_> = coeffs
+        .iter()
+        .copied()
+        .map(|coeff| FanPaar8::prepare(RawDispatch, coeff))
+        .collect();
 
     let mut got = noise(2 * row_len, 0x73);
     let mut want = got.clone();
-    <FanPaar8 as FieldKernels>::mul_add_matrix_with(
+    <FanPaar8 as KernelDispatch>::mul_add_matrix_with(
+        RawDispatch,
         &mut got,
         row_len,
         2,
@@ -2510,7 +2753,7 @@ fn macro_kernels_matrix_with_matches_per_row_application() {
             [&prepared[1], &prepared[0]]
         };
         for (row, coeff) in want.chunks_exact_mut(row_len).zip(row_coeffs) {
-            <FanPaar8 as FieldKernels>::mul_add(row, coeff, src);
+            <FanPaar8 as KernelDispatch>::mul_add(RawDispatch, row, coeff, src);
         }
     }
     assert_eq!(got, want, "prepared matrix");
@@ -2518,10 +2761,10 @@ fn macro_kernels_matrix_with_matches_per_row_application() {
 
 #[test]
 fn default_prepared_kernels_handle_empty_inputs() {
-    // `FieldKernels::dot_product_with`'s defaulted empty arm (the scalar and
+    // `KernelDispatch::dot_product_with`'s defaulted empty arm (the scalar and
     // Fan-Paar fields): no terms zeroes the destination.
     let mut dst = noise(16, 0x66);
-    <FanPaar8 as FieldKernels>::dot_product_with(&mut dst, &[], &[]);
+    <FanPaar8 as KernelDispatch>::dot_product_with(RawDispatch, &mut dst, &[], &[]);
     assert!(dst.iter().all(|&b| b == 0), "empty terms must zero dst");
 }
 
@@ -2532,9 +2775,10 @@ fn quad_mersenne31_kernel_handles_zero_and_one_coefficients() {
     use crate::field::QuadMersenne31;
 
     let mut zeroed = noise(16, 0x67);
-    <QuadMersenne31 as FieldKernels>::mul_assign(
+    <QuadMersenne31 as KernelDispatch>::mul_assign(
+        RawDispatch,
         &mut zeroed,
-        &QuadMersenne31::prepare(quad_zero()),
+        &QuadMersenne31::prepare(RawDispatch, quad_zero()),
     );
     assert!(
         zeroed.iter().all(|&b| b == 0),
@@ -2543,7 +2787,11 @@ fn quad_mersenne31_kernel_handles_zero_and_one_coefficients() {
 
     let original = noise(16, 0x68);
     let mut scaled = original.clone();
-    <QuadMersenne31 as FieldKernels>::mul_assign(&mut scaled, &QuadMersenne31::prepare(quad_one()));
+    <QuadMersenne31 as KernelDispatch>::mul_assign(
+        RawDispatch,
+        &mut scaled,
+        &QuadMersenne31::prepare(RawDispatch, quad_one()),
+    );
     assert_eq!(scaled, original, "one coefficient is the identity");
 }
 

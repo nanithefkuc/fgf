@@ -32,9 +32,12 @@
 //! and multiply run over `u32`/`u64` lanes with a modular fold; on every other
 //! target they use the portable path. Their quadratic extension
 //! [`QuadMersenne31`] composes the [`Mersenne31`] lanes and reports `Scalar`
-//! (portable) today. All three are total over raw lanes (any bit pattern is a
-//! legal input; every arithmetic output is canonical) and variable-time — not
-//! for secret data. The binary-tower fields are unchanged.
+//! (portable) today. Scalar element arithmetic on all three is total over raw
+//! lanes — any bit pattern is a legal input and every output reduces
+//! canonically — while the packed [`ops`] kernels are defined on canonical
+//! input lanes and preserve canonicity on output (see the `ops` module docs);
+//! no normalization pass runs inside the kernels. All of it is variable-time
+//! — not for secret data. The binary-tower fields are unchanged.
 //!
 //! ## Two layers
 //!
@@ -68,12 +71,12 @@
 //! let src = [0x01u8, 0x02, 0x03, 0x04];
 //! let mut dst = [0u8; 4];
 //!
-//! // dst ^= 0x03 * src
-//! ops::mul_add::<Gf8B>(&mut dst, gf8b::Elem(0x03), &src);
+//! // dst += 0x03 * src
+//! ops::mul_add::<Gf8B>(&mut dst, gf8b::Elem::from_raw(0x03), &src);
 //! assert_eq!(dst, [0x03, 0x06, 0x05, 0x0c]);
 //!
 //! // Undo it: adding the same term back is subtracting it.
-//! ops::mul_add::<Gf8B>(&mut dst, gf8b::Elem(0x03), &src);
+//! ops::mul_add::<Gf8B>(&mut dst, gf8b::Elem::from_raw(0x03), &src);
 //! assert_eq!(dst, [0, 0, 0, 0]);
 //! ```
 //!
@@ -85,9 +88,9 @@
 //!
 //! let src = 0x1234u16.to_le_bytes();
 //! let mut dst = [0u8; 2];
-//! ops::mul_add::<Gf16>(&mut dst, gf16::Elem(0x0108), &src);
+//! ops::mul_add::<Gf16>(&mut dst, gf16::Elem::from_raw(0x0108), &src);
 //!
-//! let expected = gf16::Elem(0x1234).mul(gf16::Elem(0x0108));
+//! let expected = gf16::Elem::from_raw(0x1234).mul(gf16::Elem::from_raw(0x0108));
 //! assert_eq!(dst, expected.to_bytes());
 //! ```
 //!
@@ -97,7 +100,7 @@
 //! | --- | --- | --- | --- |
 //! | `dst += src` | [`ops::add_assign`] | — | parity / field add |
 //! | `dst_row += src_row` by rows | [`ops::add_assign_rows`] | — | row-shaped parity |
-//! | `dst ^= c * src` | [`ops::mul_add`] | [`ops::mul_add_with`] | AXPY |
+//! | `dst += c * src` | [`ops::mul_add`] | [`ops::mul_add_with`] | AXPY |
 //! | `dst = c * src` | [`ops::mul_into`] | [`ops::mul_into_with`] | row scaling |
 //! | `dst *= c` | [`ops::mul_assign`] | [`ops::mul_assign_with`] | in-place scaling |
 //! | one source, many rows | [`ops::mul_add_scatter`] | `ops::mul_add_scatter_with` | systematic encode |
@@ -124,6 +127,13 @@
 //!   banks).
 //! - `simd` (default, implies `std`) — the vector backends. Disabling leaves
 //!   the portable scalar kernels, which are correct but slow.
+//! - `internals` — explicitly unstable access to the crate's kernel modules
+//!   and preparation types, for benchmarking and downstream
+//!   experimentation. Nothing behind it is a compatibility promise. The
+//!   architecture kernels are reachable only through token-proven wrappers
+//!   (`kernel::x86::proven` and siblings) that take a genuine
+//!   [`archmage`](https://docs.rs/archmage) capability token and validate
+//!   geometry; raw dispatch stays crate-private.
 //!
 //! [`kernel::backend()`] reports the process-wide SIMD selection over the
 //! tiers this crate implements; [`backend_for`] reports the backend used by a
@@ -134,11 +144,19 @@
 //! `Selection` resolved over [`kernel::FGF_TIERS`], with the downgrade-only
 //! `SIMD_BACKEND` override.
 //!
-//! ## Safety and scope
+//! ## Safety, stability, and scope
 //!
-//! The public API is safe. Unsafe intrinsics are confined to private
-//! architecture modules and entered only after runtime feature detection.
-//! Every backend is differentially tested against the portable implementation.
+//! The stable API is safe: [`ops`] validates every buffer shape before
+//! dispatch and panics on misuse, and unsafe intrinsics are confined to
+//! private architecture modules entered only after runtime feature
+//! detection. Every backend is differentially tested against the portable
+//! implementation. The `internals` surface is not stable and trades that
+//! convenience for direct kernel access — its token-gated wrappers are safe
+//! but its contracts are not a compatibility promise.
+//!
+//! Nothing here is constant-time. Every kernel — scalar, portable, and SIMD —
+//! is variable-time by design (table lookups, data-dependent lane counts,
+//! shared caches); none of it is suitable for operating on secrets.
 //!
 //! This crate does not build coding matrices or own shards. Cauchy/Vandermonde
 //! recipes, matrix inversion, and streaming recovery belong in a codec layer.

@@ -23,18 +23,17 @@
 //! use fgf::gf8d::Elem;
 //!
 //! // The generator is 2, and it has full multiplicative order.
-//! assert_eq!(Elem::from_raw(fgf::gf8d::GENERATOR.to_raw()), Elem(0x02));
-//! assert_eq!(Elem(0x02).pow(255), Elem::ONE);
+//! assert_eq!(Elem::from_raw(fgf::gf8d::GENERATOR.to_raw()), Elem::from_raw(0x02));
+//! assert_eq!(Elem::from_raw(0x02).pow(255), Elem::ONE);
 //!
 //! // Known-answer products under 0x11D. The 0x11B (AES) field gives 0x01,
 //! // 0xc1, and 0x13 for the same inputs — the fields are genuinely distinct.
-//! assert_eq!(Elem(0x53).mul(Elem(0xca)), Elem(0x8f));
-//! assert_eq!(Elem(0x57).mul(Elem(0x83)), Elem(0x31));
-//! assert_eq!(Elem(0xff).mul(Elem(0xff)), Elem(0xe2));
+//! assert_eq!(Elem::from_raw(0x53).mul(Elem::from_raw(0xca)), Elem::from_raw(0x8f));
+//! assert_eq!(Elem::from_raw(0x57).mul(Elem::from_raw(0x83)), Elem::from_raw(0x31));
+//! assert_eq!(Elem::from_raw(0xff).mul(Elem::from_raw(0xff)), Elem::from_raw(0xe2));
 //!
 //! // Inverse and division round-trip; division is total in `const` context.
-//! assert_eq!(Elem(0x53).mul(Elem(0x53).inv()), Elem::ONE);
-//! const _: () = assert!(Elem(0x57).div(Elem::ZERO).to_raw() == 0);
-//! ```
+//! assert_eq!(Elem::from_raw(0x53).mul(Elem::from_raw(0x53).inv()), Elem::ONE);
+//! const _: () = assert!(Elem::from_raw(0x57).div(Elem::ZERO).to_raw() == 0);
 
 crate::field::flat8::flat_gf8!(Gf8D, 0x11D, 0x1D, 0x02, "GF(2^8)/0x11D");

@@ -134,52 +134,84 @@ pub fn mul_elementwise<F: Field>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     }
 }
 
-/// Implement [`crate::kernel::FieldKernels`] with the portable primitives for
-/// a supported field that has no hand-written SIMD backend.
+/// Implement [`crate::kernel::FieldKernels`] (default queries) and
+/// [`crate::kernel::KernelDispatch`] (portable raw kernels) for a supported
+/// field that has no hand-written SIMD backend.
 macro_rules! impl_field_kernels {
     ($field:ty) => {
-        impl crate::kernel::FieldKernels for $field {
+        impl crate::kernel::FieldKernels for $field {}
+
+        impl crate::kernel::KernelDispatch for $field {
             type Prepared = <Self as crate::field::Field>::Elem;
 
             #[inline]
-            fn prepare(coeff: Self::Elem) -> Self::Prepared {
+            fn prepare(_proof: crate::kernel::RawDispatch, coeff: Self::Elem) -> Self::Prepared {
                 coeff
             }
 
-            fn add_assign(dst: &mut [u8], src: &[u8]) {
+            fn add_assign(_proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
                 crate::kernel::xor(dst, src);
             }
 
-            fn add_gather_offsets(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+            fn add_gather_offsets(
+                _proof: crate::kernel::RawDispatch,
+                region: &[u8],
+                dst: &mut [u8],
+                offsets: &[u32],
+            ) {
                 crate::kernel::xor_gather(region, dst, offsets);
             }
 
-            fn sub_assign(dst: &mut [u8], src: &[u8]) {
+            fn sub_assign(_proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
                 crate::kernel::xor(dst, src);
             }
 
             #[inline]
-            fn prepared_coeff(prepared: &Self::Prepared) -> Self::Elem {
+            fn prepared_coeff(
+                _proof: crate::kernel::RawDispatch,
+                prepared: &Self::Prepared,
+            ) -> Self::Elem {
                 *prepared
             }
 
-            fn mul_add(dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
+            fn mul_add(
+                _proof: crate::kernel::RawDispatch,
+                dst: &mut [u8],
+                coeff: &Self::Prepared,
+                src: &[u8],
+            ) {
                 crate::kernel::scalar::mul_add::<Self>(dst, *coeff, src);
             }
 
-            fn mul_assign(dst: &mut [u8], coeff: &Self::Prepared) {
+            fn mul_assign(
+                _proof: crate::kernel::RawDispatch,
+                dst: &mut [u8],
+                coeff: &Self::Prepared,
+            ) {
                 crate::kernel::scalar::mul_assign::<Self>(dst, *coeff);
             }
 
-            fn mul_add_scatter(rows: &mut [u8], row_len: usize, coeffs: &[Self::Elem], src: &[u8]) {
+            fn mul_add_scatter(
+                _proof: crate::kernel::RawDispatch,
+                rows: &mut [u8],
+                row_len: usize,
+                coeffs: &[Self::Elem],
+                src: &[u8],
+            ) {
                 crate::kernel::scalar::mul_add_scatter::<Self>(rows, row_len, coeffs, src);
             }
 
-            fn mul_add_gather(dst: &mut [u8], coeffs: &[Self::Elem], srcs: &[&[u8]]) {
+            fn mul_add_gather(
+                _proof: crate::kernel::RawDispatch,
+                dst: &mut [u8],
+                coeffs: &[Self::Elem],
+                srcs: &[&[u8]],
+            ) {
                 crate::kernel::scalar::mul_add_gather::<Self>(dst, coeffs, srcs);
             }
 
             fn mul_add_matrix(
+                _proof: crate::kernel::RawDispatch,
                 rows: &mut [u8],
                 row_len: usize,
                 nrows: usize,
@@ -191,7 +223,9 @@ macro_rules! impl_field_kernels {
             // `Prepared` is `Elem` for these fields, so the prepared forms
             // are the same call: there is nothing a backend could have
             // resolved ahead of time.
+            #[cfg(feature = "std")]
             fn mul_add_scatter_with(
+                _proof: crate::kernel::RawDispatch,
                 rows: &mut [u8],
                 row_len: usize,
                 coeffs: &[Self::Prepared],
@@ -200,11 +234,19 @@ macro_rules! impl_field_kernels {
                 crate::kernel::scalar::mul_add_scatter::<Self>(rows, row_len, coeffs, src);
             }
 
-            fn mul_add_gather_with(dst: &mut [u8], coeffs: &[Self::Prepared], srcs: &[&[u8]]) {
+            #[cfg(feature = "std")]
+            fn mul_add_gather_with(
+                _proof: crate::kernel::RawDispatch,
+                dst: &mut [u8],
+                coeffs: &[Self::Prepared],
+                srcs: &[&[u8]],
+            ) {
                 crate::kernel::scalar::mul_add_gather::<Self>(dst, coeffs, srcs);
             }
 
+            #[cfg(test)]
             fn mul_add_matrix_with(
+                _proof: crate::kernel::RawDispatch,
                 rows: &mut [u8],
                 row_len: usize,
                 nrows: usize,
@@ -213,7 +255,12 @@ macro_rules! impl_field_kernels {
                 crate::kernel::scalar::mul_add_matrix::<Self>(rows, row_len, nrows, terms);
             }
 
-            fn mul_elementwise(dst: &mut [u8], a: &[u8], b: &[u8]) {
+            fn mul_elementwise(
+                _proof: crate::kernel::RawDispatch,
+                dst: &mut [u8],
+                a: &[u8],
+                b: &[u8],
+            ) {
                 crate::kernel::scalar::mul_elementwise::<Self>(dst, a, b);
             }
         }

@@ -79,8 +79,8 @@ fn bench_preparation_crossover() {
     for &len in CROSSOVER_LENGTHS {
         let src = noise(len, 0xa00 + len as u64);
         let mut dst = noise(len, 0xb00 + len as u64);
-        let coeff8 = gf8b::Elem(0x53);
-        let coeff16 = gf16::Elem(0x53a7);
+        let coeff8 = gf8b::Elem::from_raw(0x53);
+        let coeff16 = gf16::Elem::from_raw(0x53a7);
         let prepared8 = ops::Coeff::<Gf8B>::new(coeff8);
         let prepared16 = ops::Coeff::<Gf16>::new(coeff16);
 
@@ -125,15 +125,19 @@ fn bench_network_payloads() {
             ops::add_assign::<Gf8B>(black_box(&mut dst), black_box(&src));
         });
         bench("mul_add", len, || {
-            ops::mul_add::<Gf8B>(black_box(&mut dst), gf8b::Elem(0x53), black_box(&src));
+            ops::mul_add::<Gf8B>(
+                black_box(&mut dst),
+                gf8b::Elem::from_raw(0x53),
+                black_box(&src),
+            );
         });
         bench("mul_assign", len, || {
-            ops::mul_assign::<Gf8B>(black_box(&mut dst), gf8b::Elem(0x53));
+            ops::mul_assign::<Gf8B>(black_box(&mut dst), gf8b::Elem::from_raw(0x53));
         });
 
         for nrows in [4usize, 16] {
             let coeffs: Vec<_> = (0..nrows)
-                .map(|row| gf8b::Elem((row as u8).wrapping_mul(37).wrapping_add(2)))
+                .map(|row| gf8b::Elem::from_raw((row as u8).wrapping_mul(37).wrapping_add(2)))
                 .collect();
             let mut rows = noise(len * nrows, 0x900 + nrows as u64);
             let label = format!("scatter ({nrows} rows)");
@@ -156,21 +160,24 @@ fn bench_network_payloads() {
 /// Dispatch currently selects AXPY for GFNI gather, AVX2 gather, and AVX2
 /// matrix (`src/kernel/gf16.rs:119-149`). That choice is a measurement, not a
 /// theory, so it needs a harness that can run both sides in one process:
-/// hence the `internals` feature and the direct kernel calls.
+/// hence the `internals` feature and the token-proven kernel calls.
 #[cfg(all(
     feature = "internals",
+    feature = "simd",
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 fn bench_blocked_vs_axpy() {
     use fgf::kernel::tables::{TowerCoeff, TowerTables};
     use fgf::kernel::x86;
+    use fgf::kernel::{SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token};
 
-    let has_avx2 = std::arch::is_x86_feature_detected!("avx2");
-    let has_gfni = has_avx2 && std::arch::is_x86_feature_detected!("gfni");
-    let has_ssse3 = std::arch::is_x86_feature_detected!("ssse3");
-    if !has_ssse3 {
+    // Genuine capability tokens, summoned once: each tier that the host
+    // cannot prove is skipped rather than SIGILLed.
+    let Some(ssse3) = X64V2Token::summon() else {
         return;
-    }
+    };
+    let avx2 = X64V3Token::summon();
+    let gfni = X64V3GfniCryptoToken::summon();
 
     println!("blocked vs AXPY — direct GF(2^16) kernel calls (dispatch bypassed):");
     for &row_len in &[4 * 1024usize, 16 * 1024, 64 * 1024] {
@@ -180,18 +187,24 @@ fn bench_blocked_vs_axpy() {
                 .collect();
             let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
             let coeffs: Vec<gf16::Elem> = (0..nsrc)
-                .map(|t| gf16::Elem(((t * 7919) as u16).wrapping_add(3)))
+                .map(|t| gf16::Elem::from_raw(((t * 7919) as u16).wrapping_add(3)))
                 .collect();
             let mut dst = noise(row_len, 0xd00);
             let traffic = row_len * nsrc;
 
             println!("  gather {nsrc} sources x {} KiB:", row_len / 1024);
             let blocked = bench("  gather blocked           ssse3", traffic, || {
-                x86::gf16::gather_ssse3(black_box(&mut dst), &coeffs, black_box(&srcs));
+                x86::proven::gf16::gather_ssse3(
+                    ssse3,
+                    black_box(&mut dst),
+                    &coeffs,
+                    black_box(&srcs),
+                );
             });
             let axpy = bench("  gather AXPY              ssse3", traffic, || {
                 for (&coeff, &src) in coeffs.iter().zip(&srcs) {
-                    x86::gf16::mul_add_ssse3(
+                    x86::proven::gf16::mul_add_ssse3(
+                        ssse3,
                         black_box(&mut dst),
                         &TowerTables::new(coeff),
                         black_box(src),
@@ -203,13 +216,19 @@ fn bench_blocked_vs_axpy() {
                 axpy.as_secs_f64() / blocked.as_secs_f64()
             );
 
-            if has_avx2 {
+            if let Some(avx2) = avx2 {
                 let blocked = bench("  gather blocked            avx2", traffic, || {
-                    x86::gf16::gather_avx2(black_box(&mut dst), &coeffs, black_box(&srcs));
+                    x86::proven::gf16::gather_avx2(
+                        avx2,
+                        black_box(&mut dst),
+                        &coeffs,
+                        black_box(&srcs),
+                    );
                 });
                 let axpy = bench("  gather AXPY               avx2", traffic, || {
                     for (&coeff, &src) in coeffs.iter().zip(&srcs) {
-                        x86::gf16::mul_add_avx2(
+                        x86::proven::gf16::mul_add_avx2(
+                            avx2,
                             black_box(&mut dst),
                             &TowerTables::new(coeff),
                             black_box(src),
@@ -221,13 +240,19 @@ fn bench_blocked_vs_axpy() {
                     axpy.as_secs_f64() / blocked.as_secs_f64()
                 );
             }
-            if has_gfni {
+            if let Some(gfni) = gfni {
                 let blocked = bench("  gather blocked            gfni", traffic, || {
-                    x86::gf16::gather_gfni(black_box(&mut dst), &coeffs, black_box(&srcs));
+                    x86::proven::gf16::gather_gfni(
+                        gfni,
+                        black_box(&mut dst),
+                        &coeffs,
+                        black_box(&srcs),
+                    );
                 });
                 let axpy = bench("  gather AXPY               gfni", traffic, || {
                     for (&coeff, &src) in coeffs.iter().zip(&srcs) {
-                        x86::gf16::mul_add_gfni(
+                        x86::proven::gf16::mul_add_gfni(
+                            gfni,
                             black_box(&mut dst),
                             TowerCoeff::new(coeff),
                             black_box(src),
@@ -240,16 +265,17 @@ fn bench_blocked_vs_axpy() {
                 );
             }
 
-            if !has_avx2 {
+            let Some(avx2) = avx2 else {
                 continue;
-            }
+            };
+
             // Matrix: `nsrc` sources folded into 4 rows.
             let nrows = 4;
             let mut rows = noise(row_len * nrows, 0xe00);
             let coeff_sets: Vec<Vec<gf16::Elem>> = (0..nsrc)
                 .map(|t| {
                     (0..nrows)
-                        .map(|j| gf16::Elem(((t * 613 + j * 97) as u16).wrapping_add(1)))
+                        .map(|j| gf16::Elem::from_raw(((t * 613 + j * 97) as u16).wrapping_add(1)))
                         .collect()
                 })
                 .collect();
@@ -264,12 +290,13 @@ fn bench_blocked_vs_axpy() {
                 row_len / 1024
             );
             let blocked = bench("  matrix blocked            avx2", traffic, || {
-                x86::gf16::matrix_avx2(black_box(&mut rows), row_len, nrows, &terms);
+                x86::proven::gf16::matrix_avx2(avx2, black_box(&mut rows), row_len, nrows, &terms);
             });
             let axpy = bench("  matrix AXPY               avx2", traffic, || {
                 for &(coeffs, src) in &terms {
                     for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-                        x86::gf16::mul_add_avx2(
+                        x86::proven::gf16::mul_add_avx2(
+                            avx2,
                             black_box(row),
                             &TowerTables::new(coeff),
                             black_box(src),
@@ -306,13 +333,25 @@ fn bench_large_destination() {
         let mib = len / (1024 * 1024);
 
         bench(&format!("{mib:3} MiB mul_into          gf8"), len, || {
-            ops::mul_into::<Gf8B>(black_box(&mut dst), gf8b::Elem(0x53), black_box(&src));
+            ops::mul_into::<Gf8B>(
+                black_box(&mut dst),
+                gf8b::Elem::from_raw(0x53),
+                black_box(&src),
+            );
         });
         bench(&format!("{mib:3} MiB mul_into         gf16"), len, || {
-            ops::mul_into::<Gf16>(black_box(&mut dst), gf16::Elem(0x53a7), black_box(&src));
+            ops::mul_into::<Gf16>(
+                black_box(&mut dst),
+                gf16::Elem::from_raw(0x53a7),
+                black_box(&src),
+            );
         });
         bench(&format!("{mib:3} MiB mul_into+read     gf8"), len, || {
-            ops::mul_into::<Gf8B>(black_box(&mut dst), gf8b::Elem(0x53), black_box(&src));
+            ops::mul_into::<Gf8B>(
+                black_box(&mut dst),
+                gf8b::Elem::from_raw(0x53),
+                black_box(&src),
+            );
             let mut acc = 0u64;
             for word in dst.chunks_exact(8) {
                 acc ^= u64::from_le_bytes(word.try_into().unwrap());
@@ -320,7 +359,11 @@ fn bench_large_destination() {
             black_box(acc);
         });
         bench(&format!("{mib:3} MiB mul_add           gf8"), len, || {
-            ops::mul_add::<Gf8B>(black_box(&mut dst), gf8b::Elem(0x53), black_box(&src));
+            ops::mul_add::<Gf8B>(
+                black_box(&mut dst),
+                gf8b::Elem::from_raw(0x53),
+                black_box(&src),
+            );
         });
     }
     println!();
@@ -340,10 +383,10 @@ fn bench_destination_alignment() {
     for &row_len in &[64 * 1024usize, 256 * 1024] {
         let src = noise(row_len, 0xe00);
         let coeffs8: Vec<_> = (0..nrows)
-            .map(|j| gf8b::Elem((j as u8).wrapping_mul(37).wrapping_add(2)))
+            .map(|j| gf8b::Elem::from_raw((j as u8).wrapping_mul(37).wrapping_add(2)))
             .collect();
         let coeffs16: Vec<_> = (0..nrows)
-            .map(|j| gf16::Elem((j as u16).wrapping_mul(9871).wrapping_add(2)))
+            .map(|j| gf16::Elem::from_raw((j as u16).wrapping_mul(9871).wrapping_add(2)))
             .collect();
         let mut backing = noise(row_len * nrows + 32, 0xe01);
         let kib = row_len / 1024;
@@ -403,7 +446,7 @@ fn bench_small_row_shapes() {
         let coeff_at = |i: usize| match i % 5 {
             0 => gf16::Elem::ZERO,
             1 => gf16::Elem::ONE,
-            _ => gf16::Elem(((i * 7919) as u16) | 0x0100),
+            _ => gf16::Elem::from_raw(((i * 7919) as u16) | 0x0100),
         };
         let row_coeffs: Vec<gf16::Elem> = (0..nrows).map(coeff_at).collect();
         let coeff_sets: Vec<Vec<gf16::Elem>> = (0..nsrc)
@@ -439,7 +482,7 @@ fn bench_small_row_shapes() {
 
         // Fused `mul_into` against the copy-then-scale it replaces: the
         // fused kernel touches the destination once.
-        let coeff = gf16::Elem(0x53a7);
+        let coeff = gf16::Elem::from_raw(0x53a7);
         let fused = bench("  mul_into fused            gf16", row_len, || {
             ops::mul_into::<Gf16>(black_box(&mut dst), coeff, black_box(srcs[0]));
         });
@@ -621,7 +664,7 @@ fn main() {
 
         let src = noise(len, 1);
         let mut dst = noise(len, 2);
-        let prepared16 = ops::Coeff::<Gf16>::new(gf16::Elem(0x53a7));
+        let prepared16 = ops::Coeff::<Gf16>::new(gf16::Elem::from_raw(0x53a7));
         let rhs = noise(len, 0x602);
         let mut product = vec![0; len];
 
@@ -629,16 +672,24 @@ fn main() {
             ops::add_assign::<Gf8B>(black_box(&mut dst), black_box(&src));
         });
         bench("mul_add                   gf8", len, || {
-            ops::mul_add::<Gf8B>(black_box(&mut dst), gf8b::Elem(0x53), black_box(&src));
+            ops::mul_add::<Gf8B>(
+                black_box(&mut dst),
+                gf8b::Elem::from_raw(0x53),
+                black_box(&src),
+            );
         });
         bench("mul_add                  gf16", len, || {
-            ops::mul_add::<Gf16>(black_box(&mut dst), gf16::Elem(0x53a7), black_box(&src));
+            ops::mul_add::<Gf16>(
+                black_box(&mut dst),
+                gf16::Elem::from_raw(0x53a7),
+                black_box(&src),
+            );
         });
         bench("mul_add prepared         gf16", len, || {
             ops::mul_add_with::<Gf16>(black_box(&mut dst), &prepared16, black_box(&src));
         });
         bench("mul_assign                gf8", len, || {
-            ops::mul_assign::<Gf8B>(black_box(&mut dst), gf8b::Elem(0x53));
+            ops::mul_assign::<Gf8B>(black_box(&mut dst), gf8b::Elem::from_raw(0x53));
         });
         bench("elementwise                gf8", len, || {
             ops::mul_elementwise::<Gf8B>(black_box(&mut product), black_box(&src), black_box(&rhs));
@@ -647,7 +698,7 @@ fn main() {
             ops::mul_elementwise::<Gf16>(black_box(&mut product), black_box(&src), black_box(&rhs));
         });
         bench("mul_assign               gf16", len, || {
-            ops::mul_assign::<Gf16>(black_box(&mut dst), gf16::Elem(0x53a7));
+            ops::mul_assign::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));
         });
         println!();
     }
@@ -661,10 +712,10 @@ fn main() {
         let src = noise(row_len, 3);
         let mut rows = noise(row_len * nrows, 4);
         let coeffs8: Vec<_> = (0..nrows)
-            .map(|j| gf8b::Elem((j as u8).wrapping_mul(37).wrapping_add(2)))
+            .map(|j| gf8b::Elem::from_raw((j as u8).wrapping_mul(37).wrapping_add(2)))
             .collect();
         let coeffs16: Vec<_> = (0..nrows)
-            .map(|j| gf16::Elem((j as u16).wrapping_mul(9871).wrapping_add(2)))
+            .map(|j| gf16::Elem::from_raw((j as u16).wrapping_mul(9871).wrapping_add(2)))
             .collect();
         let scatter_plan8 = ops::Plan::<Gf8B>::new(&coeffs8);
         let scatter_plan16 = ops::Plan::<Gf16>::new(&coeffs16);
@@ -710,14 +761,14 @@ fn main() {
         let coeff_sets: Vec<Vec<gf8b::Elem>> = (0..8)
             .map(|t| {
                 (0..nrows)
-                    .map(|j| gf8b::Elem(((t * 31 + j * 17) as u8).wrapping_add(1)))
+                    .map(|j| gf8b::Elem::from_raw(((t * 31 + j * 17) as u8).wrapping_add(1)))
                     .collect()
             })
             .collect();
         let coeff_sets16: Vec<Vec<gf16::Elem>> = (0..8)
             .map(|t| {
                 (0..nrows)
-                    .map(|j| gf16::Elem(((t * 7919 + j * 613) as u16).wrapping_add(1)))
+                    .map(|j| gf16::Elem::from_raw(((t * 7919 + j * 613) as u16).wrapping_add(1)))
                     .collect()
             })
             .collect();
@@ -755,7 +806,6 @@ fn main() {
             ops::mul_add_matrix_with::<Gf8B>(
                 black_box(&mut rows),
                 row_len,
-                nrows,
                 &matrix_plan8,
                 black_box(&matrix_srcs),
             );
@@ -764,7 +814,6 @@ fn main() {
             ops::mul_add_matrix_with::<Gf16>(
                 black_box(&mut rows),
                 row_len,
-                nrows,
                 &matrix_plan16,
                 black_box(&matrix_srcs),
             );
@@ -834,42 +883,42 @@ fn main() {
     bench("mul_add polynomial tower     gf16", tier3_len, || {
         ops::mul_add::<Gf16>(
             black_box(&mut tier3_dst),
-            gf16::Elem(0x53a7),
+            gf16::Elem::from_raw(0x53a7),
             black_box(&tier3_src),
         );
     });
     bench("mul_add polynomial tower     gf32", tier3_len, || {
         ops::mul_add::<Gf32>(
             black_box(&mut tier3_dst),
-            gf32::Elem(0xdead_beef),
+            gf32::Elem::from_raw(0xdead_beef),
             black_box(&tier3_src),
         );
     });
     bench("mul_add polynomial tower     gf64", tier3_len, || {
         ops::mul_add::<Gf64>(
             black_box(&mut tier3_dst),
-            gf64::Elem(0x0123_4567_89ab_cdef),
+            gf64::Elem::from_raw(0x0123_4567_89ab_cdef),
             black_box(&tier3_src),
         );
     });
     bench("mul_add canonical Fan-Paar  fp16", tier3_len, || {
         ops::mul_add::<FanPaar16>(
             black_box(&mut tier3_dst),
-            fan_paar::fp16::Elem(0xe2de),
+            fan_paar::fp16::Elem::from_raw(0xe2de),
             black_box(&tier3_src),
         );
     });
     bench("mul_add canonical Fan-Paar  fp32", tier3_len, || {
         ops::mul_add::<FanPaar32>(
             black_box(&mut tier3_dst),
-            fan_paar::fp32::Elem(0x03e2_1cea),
+            fan_paar::fp32::Elem::from_raw(0x03e2_1cea),
             black_box(&tier3_src),
         );
     });
     bench("mul_add canonical Fan-Paar  fp64", tier3_len, || {
         ops::mul_add::<FanPaar64>(
             black_box(&mut tier3_dst),
-            fan_paar::fp64::Elem(0x070f_870d_cd9c_1d88),
+            fan_paar::fp64::Elem::from_raw(0x070f_870d_cd9c_1d88),
             black_box(&tier3_src),
         );
     });

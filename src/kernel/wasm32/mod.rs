@@ -6,8 +6,10 @@
 
 #![allow(unsafe_code)]
 
-pub mod gf16;
-pub mod gf8;
+pub(crate) mod gf16;
+pub(crate) mod gf8;
+#[cfg(feature = "internals")]
+pub mod proven;
 
 use core::arch::wasm32::*;
 
@@ -17,7 +19,7 @@ use crate::kernel::scalar;
 ///
 /// # Panics
 /// If `dst` and `src` have different lengths.
-pub fn xor_simd128(dst: &mut [u8], src: &[u8]) {
+pub(crate) fn xor_simd128(dst: &mut [u8], src: &[u8]) {
     assert_eq!(dst.len(), src.len());
     // SAFETY: this module is reachable only in a `+simd128` build, and the
     // slices are equal-length and independently borrowed.

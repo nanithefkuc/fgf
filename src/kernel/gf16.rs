@@ -15,7 +15,7 @@ use crate::kernel::tables::{ScaleTable, TowerCoeff, scale_table};
 #[allow(unused_imports)]
 use crate::kernel::tables::TowerTables;
 #[allow(unused_imports)]
-use crate::kernel::{Backend, FieldKernels, backend, scalar};
+use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, scalar};
 
 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
 use crate::kernel::aarch64;
@@ -210,9 +210,25 @@ fn matrix_avx2_axpy(rows: &mut [u8], row_len: usize, terms: &[(&[Elem], &[u8])])
 }
 
 impl FieldKernels for Gf16 {
+    #[inline]
+    fn active_backend() -> Backend {
+        backend()
+    }
+
+    #[inline]
+    fn has_vector_elementwise() -> bool {
+        matches!(backend(), |Backend::V3GfniCrypto| Backend::V3
+            | Backend::V2
+            | Backend::NeonAes
+            | Backend::Neon
+            | Backend::Wasm128)
+    }
+}
+
+impl KernelDispatch for Gf16 {
     type Prepared = Prepared;
 
-    fn prepare(coeff: Elem) -> Prepared {
+    fn prepare(_proof: RawDispatch, coeff: Elem) -> Prepared {
         match backend() {
             Backend::V3GfniCrypto => Prepared::Compact(TowerCoeff::new(coeff)),
             // PMULL is table-free, so the broadcast-word form looks like the
@@ -230,40 +246,26 @@ impl FieldKernels for Gf16 {
     }
 
     #[inline]
-    fn prepared_coeff(prepared: &Prepared) -> Elem {
+    fn prepared_coeff(_proof: RawDispatch, prepared: &Prepared) -> Elem {
         prepared.coeff()
     }
 
     #[inline]
-    fn add_assign(dst: &mut [u8], src: &[u8]) {
+    fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         crate::kernel::xor(dst, src);
     }
 
     #[inline]
-    fn add_gather_offsets(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+    fn add_gather_offsets(_proof: RawDispatch, region: &[u8], dst: &mut [u8], offsets: &[u32]) {
         crate::kernel::xor_gather(region, dst, offsets);
     }
 
     #[inline]
-    fn sub_assign(dst: &mut [u8], src: &[u8]) {
+    fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         crate::kernel::xor(dst, src);
     }
 
-    #[inline]
-    fn active_backend() -> Backend {
-        backend()
-    }
-
-    #[inline]
-    fn has_vector_elementwise() -> bool {
-        matches!(backend(), |Backend::V3GfniCrypto| Backend::V3
-            | Backend::V2
-            | Backend::NeonAes
-            | Backend::Neon
-            | Backend::Wasm128)
-    }
-
-    fn mul_add(dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
+    fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
         match coeff {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             // `Prepared::Compact` is only produced on a GFNI host, so the
@@ -283,7 +285,7 @@ impl FieldKernels for Gf16 {
         }
     }
 
-    fn mul_assign(dst: &mut [u8], coeff: &Prepared) {
+    fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared) {
         match coeff {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Prepared::Compact(compact) => x86::gf16::mul_assign_gfni(dst, *compact),
@@ -300,7 +302,7 @@ impl FieldKernels for Gf16 {
         }
     }
 
-    fn mul_into(dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
+    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
         match coeff {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Prepared::Compact(compact) => x86::gf16::mul_into_gfni(dst, *compact, src),
@@ -317,12 +319,18 @@ impl FieldKernels for Gf16 {
             // scaling in place is one pass either way.
             other => {
                 dst.copy_from_slice(src);
-                Self::mul_assign(dst, other);
+                Self::mul_assign(RawDispatch, dst, other);
             }
         }
     }
 
-    fn mul_add_scatter(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
+    fn mul_add_scatter(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        coeffs: &[Elem],
+        src: &[u8],
+    ) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => x86::gf16::scatter_gfni(rows, row_len, coeffs, src),
@@ -349,7 +357,9 @@ impl FieldKernels for Gf16 {
             }
         }
     }
+    #[cfg(feature = "std")]
     fn mul_add_scatter_plan(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         values: &[Elem],
@@ -358,17 +368,17 @@ impl FieldKernels for Gf16 {
     ) {
         match backend() {
             Backend::V3GfniCrypto => {
-                Self::mul_add_scatter(rows, row_len, values, src);
+                Self::mul_add_scatter(RawDispatch, rows, row_len, values, src);
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3 => x86::gf16::scatter_avx2(rows, row_len, coeffs, src),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V2 => x86::gf16::scatter_ssse3(rows, row_len, coeffs, src),
-            _ => Self::mul_add_scatter_with(rows, row_len, coeffs, src),
+            _ => Self::mul_add_scatter_with(RawDispatch, rows, row_len, coeffs, src),
         }
     }
 
-    fn mul_add_gather(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             // Blocked: the four-source group derives its broadcasts once and
@@ -397,16 +407,29 @@ impl FieldKernels for Gf16 {
         }
     }
 
-    fn mul_add_gather_plan(dst: &mut [u8], values: &[Elem], coeffs: &[Prepared], srcs: &[&[u8]]) {
+    #[cfg(feature = "std")]
+    fn mul_add_gather_plan(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        values: &[Elem],
+        coeffs: &[Prepared],
+        srcs: &[&[u8]],
+    ) {
         match backend() {
-            Backend::V3GfniCrypto => Self::mul_add_gather(dst, values, srcs),
+            Backend::V3GfniCrypto => Self::mul_add_gather(RawDispatch, dst, values, srcs),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V2 => x86::gf16::gather_ssse3(dst, coeffs, srcs),
-            _ => Self::mul_add_gather_with(dst, coeffs, srcs),
+            _ => Self::mul_add_gather_with(RawDispatch, dst, coeffs, srcs),
         }
     }
 
-    fn mul_add_matrix(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[Elem], &[u8])]) {
+    fn mul_add_matrix(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        terms: &[(&[Elem], &[u8])],
+    ) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => x86::gf16::matrix_gfni(rows, row_len, nrows, terms),
@@ -432,7 +455,9 @@ impl FieldKernels for Gf16 {
             }
         }
     }
+    #[cfg(feature = "std")]
     fn mul_add_matrix_plan(
+        _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -471,12 +496,12 @@ impl FieldKernels for Gf16 {
                 .take(nrows)
                 .zip(&coeffs[start..start + nrows])
             {
-                Self::mul_add(row, coeff, src);
+                Self::mul_add(RawDispatch, row, coeff, src);
             }
         }
     }
 
-    fn mul_elementwise(dst: &mut [u8], a: &[u8], b: &[u8]) {
+    fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => x86::gf16::elementwise_gfni(dst, a, b),

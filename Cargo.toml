@@ -9,12 +9,28 @@ repository = "https://github.com/nanithefkuc/fgf"
 readme = "README.md"
 homepage = "https://github.com/nanithefkuc/fgf"
 publish = false
+# Intentional package allowlist: source, the public doc/license set, and the
+# intentional tests/benches/examples. Planning notes, local tooling state,
+# markdownlint configuration, CI workflow definitions, and `external-bench`
+# never enter `cargo package`.
+include = [
+    "src/**",
+    "tests/**",
+    "benches/**",
+    "examples/**",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/CONTRIBUTING.md",
+    "/AGENTS.md",
+    "/BENCHMARKS.md",
+    "/LICENSE",
+]
 
 [features]
 default = ["std", "simd"]
 # Standard library. Required for the lazily-built shared table banks and the
 # `simdispatch` runtime detection selected by `simd`.
-std = []
+std = ["simdispatch/std"]
 # Runtime-dispatched SIMD kernels: v3_gfni_crypto / v3 / v2 on x86 (the
 # 64-byte AVX-512 tier is deferred), neon_aes / neon on AArch64, and
 # `wasm128` on Wasm. Enabling also resolves the backend via `simdispatch`.
@@ -22,10 +38,11 @@ simd = ["std"]
 # Expose the crate's internal kernel modules and preparation types for
 # downstream libraries that build directly on the kernels. This is not a
 # stable semver surface; it is for development of dependent libraries.
-internals = []
+internals = ["dep:archmage"]
 
 [dependencies]
-simdispatch = "=0.1.0"
+simdispatch = { version = "=0.1.0", default-features = false }
+archmage = { version = "=0.9.29", optional = true }
 
 # Comparison benchmarks only; the C `simd-accel` path has no wasm sysroot, and
 # scoping it here keeps `cargo test --target wasm32-*` buildable.
@@ -67,3 +84,11 @@ required-features = ["std", "internals"]
 name = "perf_p2"
 # Calls internal experimental two-row overwrite kernels directly.
 required-features = ["std", "internals"]
+
+# Release codegen a profiler can attribute: opt-level 3 with full debug info
+# and no symbol stripping. Frame pointers come from RUSTFLAGS in `just
+# profile-perf`, since they are not a Cargo profile key.
+[profile.profiling]
+inherits = "release"
+debug = "full"
+strip = "none"

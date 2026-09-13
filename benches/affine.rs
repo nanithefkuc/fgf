@@ -13,7 +13,11 @@
 //! cargo bench --features internals --bench affine
 //! ```
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(
+    feature = "internals",
+    feature = "simd",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
 mod imp {
     use std::hint::black_box;
     use std::time::Duration;
@@ -23,7 +27,8 @@ mod imp {
     use fgf::gf8d;
     use fgf::kernel::scalar;
     use fgf::kernel::tables::{affine_8d, scale_table_8d};
-    use fgf::kernel::x86::gf8 as x86_gf8;
+    use fgf::kernel::x86::proven;
+    use fgf::kernel::{SimdToken, X64V3GfniCryptoToken, X64V3Token};
 
     /// The crate-wide deterministic source (same LCG as the tests and the other
     /// benches), so benchmark bytes match what the differential tests exercise.
@@ -42,14 +47,17 @@ mod imp {
     /// Sub-lane tails, network payloads, L1/L2 residents, and one DRAM-size row.
     const SIZES: &[usize] = &[64, 256, 1_024, 4_096, 16_384, 65_536, 262_144, 1_048_576];
 
-    /// Stop early with a clear message rather than SIGILL on a GFNI-less host.
-    fn require_gfni() -> bool {
-        let capable =
-            std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("gfni");
-        if !capable {
-            eprintln!("skipping: no AVX2+GFNI on this host");
+    /// Stop early with a clear message rather than SIGILL on a host that
+    /// cannot prove the tiers: the affine and native candidates need
+    /// AVX2+GFNI, the shuffle baseline needs AVX2.
+    fn require_gfni() -> Option<(X64V3GfniCryptoToken, X64V3Token)> {
+        match (X64V3GfniCryptoToken::summon(), X64V3Token::summon()) {
+            (Some(gfni), Some(avx2)) => Some((gfni, avx2)),
+            _ => {
+                eprintln!("skipping: no AVX2+GFNI on this host");
+                None
+            }
         }
-        capable
     }
 
     fn group<'a>(
@@ -63,10 +71,10 @@ mod imp {
     }
 
     fn bench_mul_add(c: &mut Criterion) {
-        if !require_gfni() {
+        let Some((gfni, avx2)) = require_gfni() else {
             return;
-        }
-        let coeff = gf8d::Elem(0x53);
+        };
+        let coeff = gf8d::Elem::from_raw(0x53);
         let table = scale_table_8d(coeff);
         let map = affine_8d(coeff);
         let mut g = group(c, "gf8d mul_add");
@@ -76,12 +84,18 @@ mod imp {
             g.throughput(Throughput::Bytes(len as u64));
             g.bench_function(BenchmarkId::new("shuffle_avx2", len), |b| {
                 b.iter(|| {
-                    x86_gf8::mul_add_avx2(black_box(dst.as_mut_slice()), table, black_box(&src))
+                    proven::gf8::mul_add_avx2(
+                        avx2,
+                        black_box(dst.as_mut_slice()),
+                        table,
+                        black_box(&src),
+                    )
                 });
             });
             g.bench_function(BenchmarkId::new("affine_gfni", len), |b| {
                 b.iter(|| {
-                    x86_gf8::mul_add_affine(
+                    proven::gf8::mul_add_affine(
+                        gfni,
                         black_box(dst.as_mut_slice()),
                         map,
                         table,
@@ -91,9 +105,10 @@ mod imp {
             });
             g.bench_function(BenchmarkId::new("native_gfni_0x11b", len), |b| {
                 b.iter(|| {
-                    x86_gf8::mul_add_gfni(
+                    proven::gf8::mul_add_gfni(
+                        gfni,
                         black_box(dst.as_mut_slice()),
-                        gf8b::Elem(0x53),
+                        gf8b::Elem::from_raw(0x53),
                         black_box(&src),
                     );
                 });
@@ -103,10 +118,10 @@ mod imp {
     }
 
     fn bench_mul_assign(c: &mut Criterion) {
-        if !require_gfni() {
+        let Some((gfni, avx2)) = require_gfni() else {
             return;
-        }
-        let coeff = gf8d::Elem(0x53);
+        };
+        let coeff = gf8d::Elem::from_raw(0x53);
         let table = scale_table_8d(coeff);
         let map = affine_8d(coeff);
         let mut g = group(c, "gf8d mul_assign");
@@ -114,14 +129,20 @@ mod imp {
             let mut dst = noise(len, 0x900 + len as u64);
             g.throughput(Throughput::Bytes(len as u64));
             g.bench_function(BenchmarkId::new("shuffle_avx2", len), |b| {
-                b.iter(|| x86_gf8::mul_assign_avx2(black_box(dst.as_mut_slice()), table));
+                b.iter(|| proven::gf8::mul_assign_avx2(avx2, black_box(dst.as_mut_slice()), table));
             });
             g.bench_function(BenchmarkId::new("affine_gfni", len), |b| {
-                b.iter(|| x86_gf8::mul_assign_affine(black_box(dst.as_mut_slice()), map, table));
+                b.iter(|| {
+                    proven::gf8::mul_assign_affine(gfni, black_box(dst.as_mut_slice()), map, table)
+                });
             });
             g.bench_function(BenchmarkId::new("native_gfni_0x11b", len), |b| {
                 b.iter(|| {
-                    x86_gf8::mul_assign_gfni(black_box(dst.as_mut_slice()), gf8b::Elem(0x53))
+                    proven::gf8::mul_assign_gfni(
+                        gfni,
+                        black_box(dst.as_mut_slice()),
+                        gf8b::Elem::from_raw(0x53),
+                    )
                 });
             });
         }
@@ -129,10 +150,10 @@ mod imp {
     }
 
     fn bench_mul_into(c: &mut Criterion) {
-        if !require_gfni() {
+        let Some((gfni, avx2)) = require_gfni() else {
             return;
-        }
-        let coeff = gf8d::Elem(0x53);
+        };
+        let coeff = gf8d::Elem::from_raw(0x53);
         let table = scale_table_8d(coeff);
         let map = affine_8d(coeff);
         let mut g = group(c, "gf8d mul_into");
@@ -146,12 +167,18 @@ mod imp {
             }
             g.bench_function(BenchmarkId::new("shuffle_avx2", len), |b| {
                 b.iter(|| {
-                    x86_gf8::mul_into_avx2(black_box(dst.as_mut_slice()), table, black_box(&src))
+                    proven::gf8::mul_into_avx2(
+                        avx2,
+                        black_box(dst.as_mut_slice()),
+                        table,
+                        black_box(&src),
+                    )
                 });
             });
             g.bench_function(BenchmarkId::new("affine_gfni", len), |b| {
                 b.iter(|| {
-                    x86_gf8::mul_into_affine(
+                    proven::gf8::mul_into_affine(
+                        gfni,
                         black_box(dst.as_mut_slice()),
                         map,
                         table,
@@ -161,9 +188,10 @@ mod imp {
             });
             g.bench_function(BenchmarkId::new("native_gfni_0x11b", len), |b| {
                 b.iter(|| {
-                    x86_gf8::mul_into_gfni(
+                    proven::gf8::mul_into_gfni(
+                        gfni,
                         black_box(dst.as_mut_slice()),
-                        gf8b::Elem(0x53),
+                        gf8b::Elem::from_raw(0x53),
                         black_box(&src),
                     );
                 });
@@ -176,22 +204,24 @@ mod imp {
     /// their ratio must equal `mul_add`'s; two geometries confirm the
     /// composition itself adds nothing.
     fn bench_scatter(c: &mut Criterion) {
-        if !require_gfni() {
+        let Some((gfni, avx2)) = require_gfni() else {
             return;
-        }
+        };
         let mut g = group(c, "gf8d scatter");
         for &row_len in &[16_384usize, 65_536] {
             for &nrows in &[4usize, 16] {
                 let src = noise(row_len, 0xc00 + row_len as u64);
                 let mut rows = noise(row_len * nrows, 0xd00 + row_len as u64);
-                let coeffs: Vec<gf8d::Elem> =
-                    (0..nrows).map(|j| gf8d::Elem(0x53 ^ j as u8)).collect();
+                let coeffs: Vec<gf8d::Elem> = (0..nrows)
+                    .map(|j| gf8d::Elem::from_raw(0x53 ^ j as u8))
+                    .collect();
                 let label = format!("{nrows}x{row_len}");
                 g.throughput(Throughput::Bytes((row_len * nrows) as u64));
                 g.bench_function(BenchmarkId::new("shuffle_avx2", &label), |b| {
                     b.iter(|| {
                         for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(&coeffs) {
-                            x86_gf8::mul_add_avx2(
+                            proven::gf8::mul_add_avx2(
+                                avx2,
                                 black_box(row),
                                 scale_table_8d(coeff),
                                 black_box(&src),
@@ -202,7 +232,8 @@ mod imp {
                 g.bench_function(BenchmarkId::new("affine_gfni", &label), |b| {
                     b.iter(|| {
                         for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(&coeffs) {
-                            x86_gf8::mul_add_affine(
+                            proven::gf8::mul_add_affine(
+                                gfni,
                                 black_box(row),
                                 affine_8d(coeff),
                                 scale_table_8d(coeff),
@@ -213,7 +244,8 @@ mod imp {
                 });
                 g.bench_function(BenchmarkId::new("blocked_affine", &label), |b| {
                     b.iter(|| {
-                        x86_gf8::scatter_affine(
+                        proven::gf8::scatter_affine(
+                            gfni,
                             black_box(rows.as_mut_slice()),
                             row_len,
                             &coeffs,
@@ -230,24 +262,26 @@ mod imp {
     /// destination tile in registers across sources; per-row reloads it each
     /// time.
     fn bench_gather(c: &mut Criterion) {
-        if !require_gfni() {
+        let Some((gfni, _avx2)) = require_gfni() else {
             return;
-        }
+        };
         let mut g = group(c, "gf8d gather");
         for &len in &[4_096usize, 16_384, 65_536, 262_144] {
             for &nsrc in &[4usize, 16] {
                 let sources: Vec<Vec<u8>> =
                     (0..nsrc).map(|t| noise(len, 0x1000 + t as u64)).collect();
                 let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-                let coeffs: Vec<gf8d::Elem> =
-                    (0..nsrc).map(|j| gf8d::Elem(0x53 ^ j as u8)).collect();
+                let coeffs: Vec<gf8d::Elem> = (0..nsrc)
+                    .map(|j| gf8d::Elem::from_raw(0x53 ^ j as u8))
+                    .collect();
                 let mut dst = noise(len, 0x1100 + len as u64);
                 let label = format!("{nsrc}x{len}");
                 g.throughput(Throughput::Bytes((len * nsrc) as u64));
                 g.bench_function(BenchmarkId::new("perrow_affine", &label), |b| {
                     b.iter(|| {
                         for (&coeff, &src) in coeffs.iter().zip(&srcs) {
-                            x86_gf8::mul_add_affine(
+                            proven::gf8::mul_add_affine(
+                                gfni,
                                 black_box(dst.as_mut_slice()),
                                 affine_8d(coeff),
                                 scale_table_8d(coeff),
@@ -258,7 +292,8 @@ mod imp {
                 });
                 g.bench_function(BenchmarkId::new("blocked_affine", &label), |b| {
                     b.iter(|| {
-                        x86_gf8::gather_affine(
+                        proven::gf8::gather_affine(
+                            gfni,
                             black_box(dst.as_mut_slice()),
                             &coeffs,
                             black_box(&srcs),
@@ -274,9 +309,9 @@ mod imp {
     /// tile in registers across all terms; per-row rereads the destination
     /// once per term.
     fn bench_matrix(c: &mut Criterion) {
-        if !require_gfni() {
+        let Some((gfni, _avx2)) = require_gfni() else {
             return;
-        }
+        };
         let mut g = group(c, "gf8d matrix");
         for &row_len in &[4_096usize, 16_384, 65_536] {
             for &(nrows, nterms) in &[(4usize, 8usize), (16, 16)] {
@@ -286,7 +321,7 @@ mod imp {
                 let coeff_sets: Vec<Vec<gf8d::Elem>> = (0..nterms)
                     .map(|t| {
                         (0..nrows)
-                            .map(|j| gf8d::Elem(0x53 ^ (t + j) as u8))
+                            .map(|j| gf8d::Elem::from_raw(0x53 ^ (t + j) as u8))
                             .collect()
                     })
                     .collect();
@@ -304,7 +339,8 @@ mod imp {
                             for (row, &coeff) in
                                 rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs)
                             {
-                                x86_gf8::mul_add_affine(
+                                proven::gf8::mul_add_affine(
+                                    gfni,
                                     black_box(row),
                                     affine_8d(coeff),
                                     scale_table_8d(coeff),
@@ -316,7 +352,8 @@ mod imp {
                 });
                 g.bench_function(BenchmarkId::new("blocked_affine", &label), |b| {
                     b.iter(|| {
-                        x86_gf8::matrix_affine(
+                        proven::gf8::matrix_affine(
+                            gfni,
                             black_box(rows.as_mut_slice()),
                             row_len,
                             nrows,
@@ -333,9 +370,12 @@ mod imp {
     /// on a GFNI host: the choice is the branchless shift/reduce vector
     /// multiply against the scalar reference it replaces.
     fn bench_elementwise(c: &mut Criterion) {
-        if !require_gfni() {
+        // The scalar control is portable; only the vector candidate needs a
+        // proven AVX2 token.
+        let Some(avx2) = X64V3Token::summon() else {
+            eprintln!("skipping: no AVX2 on this host");
             return;
-        }
+        };
         let mut g = group(c, "gf8d elementwise");
         for &len in SIZES {
             let a = noise(len, 0xe00 + len as u64);
@@ -353,7 +393,8 @@ mod imp {
             });
             g.bench_function(BenchmarkId::new("shiftreduce_avx2", len), |bn| {
                 bn.iter(|| {
-                    x86_gf8::elementwise_avx2::<0x1d>(
+                    proven::gf8::elementwise_avx2::<0x1d>(
+                        avx2,
                         black_box(dst.as_mut_slice()),
                         black_box(&a),
                         black_box(&b),
@@ -376,10 +417,18 @@ mod imp {
     );
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(
+    feature = "internals",
+    feature = "simd",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
 criterion::criterion_main!(imp::benches);
 
-#[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+#[cfg(not(all(
+    feature = "internals",
+    feature = "simd",
+    any(target_arch = "x86", target_arch = "x86_64")
+)))]
 fn main() {
     eprintln!("the affine kernels are x86 GFNI only; nothing to measure on this target");
 }

@@ -18,6 +18,7 @@ mod x86 {
     use std::time::Instant;
 
     use fgf::kernel::tables::{ScaleTable, scale_table, scale_table_8d};
+    use fgf::kernel::{SimdToken, X64V3GfniCryptoToken, X64V3Token};
     use fgf::{Gf8B, Gf8D, backend, gf8b, gf8d, ops};
 
     const BYTES: usize = 64 * 1024;
@@ -82,6 +83,14 @@ mod x86 {
         let iters: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(20_000);
         let variant = args.get(4).map(String::as_str).unwrap_or("prod");
 
+        // Genuine capability tokens prove the ISAs once for the whole run:
+        // the overwrite-matrix candidates need AVX2+GFNI, the packed shuffle
+        // baseline needs AVX2.
+        let (Some(gfni), Some(avx2)) = (X64V3GfniCryptoToken::summon(), X64V3Token::summon())
+        else {
+            eprintln!("perf_p2: x86 AVX2+GFNI-only; not supported on this host");
+            return;
+        };
         let sources: Vec<AlignedBuf> = (0..SOURCES)
             .map(|t| AlignedBuf::noise(BYTES, 0xa00 + t as u64))
             .collect();
@@ -90,14 +99,14 @@ mod x86 {
         let cols_8b: Vec<Vec<gf8b::Elem>> = (0..SOURCES)
             .map(|t| {
                 (0..nrows)
-                    .map(|r| gf8b::Elem((1 + ((r * SOURCES + t) * 97 + 13) % 255) as u8))
+                    .map(|r| gf8b::Elem::from_raw((1 + ((r * SOURCES + t) * 97 + 13) % 255) as u8))
                     .collect()
             })
             .collect();
         let cols_8d: Vec<Vec<gf8d::Elem>> = (0..SOURCES)
             .map(|t| {
                 (0..nrows)
-                    .map(|r| gf8d::Elem((1 + ((r * SOURCES + t) * 97 + 13) % 255) as u8))
+                    .map(|r| gf8d::Elem::from_raw((1 + ((r * SOURCES + t) * 97 + 13) % 255) as u8))
                     .collect()
             })
             .collect();
@@ -130,24 +139,32 @@ mod x86 {
 
         let srcs = source_refs.as_slice();
         let run = |variant: &str, dst: &mut [u8]| {
-            use fgf::kernel::x86::gf8::{
+            use fgf::kernel::x86::proven::gf8::{
                 matrix_overwrite2_8b, matrix_overwrite2_8d, matrix_overwrite2_shuffle_packed,
             };
             match (variant, field) {
                 ("prod", "8b") => ops::dot_product_matrix::<Gf8B>(dst, BYTES, nrows, &terms_8b),
                 ("prod", "8d") => ops::dot_product_matrix::<Gf8D>(dst, BYTES, nrows, &terms_8d),
-                ("t4", "8b") => matrix_overwrite2_8b(dst, BYTES, &terms_8b, false, 4),
-                ("t4", "8d") => matrix_overwrite2_8d(dst, BYTES, &terms_8d, false, 4),
-                ("t2", "8b") => matrix_overwrite2_8b(dst, BYTES, &terms_8b, false, 2),
-                ("t2", "8d") => matrix_overwrite2_8d(dst, BYTES, &terms_8d, false, 2),
-                ("nt4", "8b") => matrix_overwrite2_8b(dst, BYTES, &terms_8b, true, 4),
-                ("nt4", "8d") => matrix_overwrite2_8d(dst, BYTES, &terms_8d, true, 4),
-                ("nt2", "8b") => matrix_overwrite2_8b(dst, BYTES, &terms_8b, true, 2),
-                ("nt2", "8d") => matrix_overwrite2_8d(dst, BYTES, &terms_8d, true, 2),
-                ("sh1", "8b") => matrix_overwrite2_shuffle_packed(dst, BYTES, &packed_8b, srcs, 1),
-                ("sh1", "8d") => matrix_overwrite2_shuffle_packed(dst, BYTES, &packed_8d, srcs, 1),
-                ("sh2", "8b") => matrix_overwrite2_shuffle_packed(dst, BYTES, &packed_8b, srcs, 2),
-                ("sh2", "8d") => matrix_overwrite2_shuffle_packed(dst, BYTES, &packed_8d, srcs, 2),
+                ("t4", "8b") => matrix_overwrite2_8b(gfni, dst, BYTES, &terms_8b, false, 4),
+                ("t4", "8d") => matrix_overwrite2_8d(gfni, dst, BYTES, &terms_8d, false, 4),
+                ("t2", "8b") => matrix_overwrite2_8b(gfni, dst, BYTES, &terms_8b, false, 2),
+                ("t2", "8d") => matrix_overwrite2_8d(gfni, dst, BYTES, &terms_8d, false, 2),
+                ("nt4", "8b") => matrix_overwrite2_8b(gfni, dst, BYTES, &terms_8b, true, 4),
+                ("nt4", "8d") => matrix_overwrite2_8d(gfni, dst, BYTES, &terms_8d, true, 4),
+                ("nt2", "8b") => matrix_overwrite2_8b(gfni, dst, BYTES, &terms_8b, true, 2),
+                ("nt2", "8d") => matrix_overwrite2_8d(gfni, dst, BYTES, &terms_8d, true, 2),
+                ("sh1", "8b") => {
+                    matrix_overwrite2_shuffle_packed(avx2, dst, BYTES, &packed_8b, srcs, 1)
+                }
+                ("sh1", "8d") => {
+                    matrix_overwrite2_shuffle_packed(avx2, dst, BYTES, &packed_8d, srcs, 1)
+                }
+                ("sh2", "8b") => {
+                    matrix_overwrite2_shuffle_packed(avx2, dst, BYTES, &packed_8b, srcs, 2)
+                }
+                ("sh2", "8d") => {
+                    matrix_overwrite2_shuffle_packed(avx2, dst, BYTES, &packed_8d, srcs, 2)
+                }
                 _ => panic!("unknown variant/field {variant}/{field}"),
             }
         };

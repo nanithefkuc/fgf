@@ -9,7 +9,7 @@
 
 use crate::field::mersenne31::{Elem, Mersenne31};
 #[allow(unused_imports)]
-use crate::kernel::{Backend, FieldKernels, backend, prime};
+use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, prime};
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::kernel::x86;
@@ -22,19 +22,6 @@ fn vectorized() -> bool {
 }
 
 impl FieldKernels for Mersenne31 {
-    /// The canonical lane word, broadcast by the kernels on entry.
-    type Prepared = Elem;
-
-    #[inline]
-    fn prepare(coeff: Elem) -> Elem {
-        coeff.canonical()
-    }
-
-    #[inline]
-    fn prepared_coeff(prepared: &Elem) -> Elem {
-        *prepared
-    }
-
     #[inline]
     fn active_backend() -> Backend {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -62,8 +49,23 @@ impl FieldKernels for Mersenne31 {
             false
         }
     }
+}
 
-    fn add_assign(dst: &mut [u8], src: &[u8]) {
+impl KernelDispatch for Mersenne31 {
+    /// The canonical lane word, broadcast by the kernels on entry.
+    type Prepared = Elem;
+
+    #[inline]
+    fn prepare(_proof: RawDispatch, coeff: Elem) -> Elem {
+        coeff.canonical()
+    }
+
+    #[inline]
+    fn prepared_coeff(_proof: RawDispatch, prepared: &Elem) -> Elem {
+        *prepared
+    }
+
+    fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto | Backend::V3 => x86::prime::add_assign_m31_avx2(dst, src),
@@ -73,7 +75,7 @@ impl FieldKernels for Mersenne31 {
         }
     }
 
-    fn sub_assign(dst: &mut [u8], src: &[u8]) {
+    fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto | Backend::V3 => x86::prime::sub_assign_m31_avx2(dst, src),
@@ -83,7 +85,7 @@ impl FieldKernels for Mersenne31 {
         }
     }
 
-    fn mul_add(dst: &mut [u8], coeff: &Elem, src: &[u8]) {
+    fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto | Backend::V3 => {
@@ -95,7 +97,7 @@ impl FieldKernels for Mersenne31 {
         }
     }
 
-    fn mul_assign(dst: &mut [u8], coeff: &Elem) {
+    fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto | Backend::V3 => {
@@ -107,7 +109,7 @@ impl FieldKernels for Mersenne31 {
         }
     }
 
-    fn mul_into(dst: &mut [u8], coeff: &Elem, src: &[u8]) {
+    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto | Backend::V3 => {
@@ -124,19 +126,31 @@ impl FieldKernels for Mersenne31 {
         }
     }
 
-    fn mul_add_scatter(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
+    fn mul_add_scatter(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        coeffs: &[Elem],
+        src: &[u8],
+    ) {
         prime::mul_add_scatter::<Mersenne31>(rows, row_len, coeffs, src);
     }
 
-    fn mul_add_gather(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
         prime::mul_add_gather::<Mersenne31>(dst, coeffs, srcs);
     }
 
-    fn mul_add_matrix(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[Elem], &[u8])]) {
+    fn mul_add_matrix(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        terms: &[(&[Elem], &[u8])],
+    ) {
         prime::mul_add_matrix::<Mersenne31>(rows, row_len, nrows, terms);
     }
 
-    fn mul_elementwise(dst: &mut [u8], a: &[u8], b: &[u8]) {
+    fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto | Backend::V3 => x86::prime::mul_elementwise_m31_avx2(dst, a, b),

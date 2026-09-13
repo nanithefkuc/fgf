@@ -5,7 +5,7 @@ your own agent before using.
 
 # fgf - Faster Galois Fields
 
-`fgf` provides safe APIs for scalar arithmetic and runtime-dispatched vector kernels for finite fields: binary towers GF(2^m) and prime fields GF(p).
+`fgf` provides safe APIs for scalar arithmetic and runtime-dispatched vector kernels for finite fields: binary towers GF(2^m) and prime fields GF(p). The crate is variable-time throughout and carries no constant-time guarantee: nothing in `fgf` is suitable for secret-dependent data.
 
 ## Usage
 
@@ -18,7 +18,9 @@ The MSRV is Rust 1.89.
 fgf = { git = "https://github.com/nanithefkuc/fgf" }
 ```
 
-Portable `no_std` builds are also available:
+`--no-default-features` compiles `fgf` and its whole dependency closure
+(`simdispatch`, and through it `archmage`) without `std`, giving a true
+bare-metal `no_std` dependency closure:
 
 ```toml
 [dependencies]
@@ -31,7 +33,8 @@ fgf = { git = "https://github.com/nanithefkuc/fgf", default-features = false }
 | --- | --- |
 | default (`std`, `simd`) | runtime CPU detection and vector kernels |
 | `std` without `simd` | portable kernels with allocation-backed plans |
-| `--no-default-features` | `no_std`, portable kernels, allocation-free API |
+| `--no-default-features` | portable kernels, allocation-free API; the dependency graph is `no_std` too (see above) |
+| `internals` | unstable kernel experimentation APIs; direct architecture calls require Archmage capability tokens |
 
 ### Platforms
 
@@ -57,6 +60,7 @@ fgf = { git = "https://github.com/nanithefkuc/fgf", default-features = false }
 | Fan–Paar GF(2^64) | `FanPaar64` | `fan_paar::fp64::Elem` | canonical recursive tower | x86 AVX2 |
 | GF(2^31 − 1) | `Mersenne31` | `mersenne31::Elem` | Mersenne prime, `u32` lanes | x86 AVX2/SSE4.2 integer SIMD |
 | GF(2^64 − 2^32 + 1) | `Goldilocks` | `goldilocks::Elem` | Goldilocks prime, `u64` lanes | x86 AVX2/SSE4.2 integer SIMD |
+| GF((2^31 − 1)²) | `QuadMersenne31` | `quad_mersenne31::Elem` | QM31 extension, `i² = −1` over `Mersenne31` | portable (composes `Mersenne31` lanes) |
 | GF(2) | `Gf2` | `gf2::Elem` | bit-packed, one element per bit | dispatched byte XOR; portable word kernels |
 
 GF(2) — the base field of every tower — has no byte-per-element vector form:
@@ -66,20 +70,29 @@ lanes like the prime fields.
 
 The prime fields are lane-packed integer arithmetic with a modular fold
 (`2^31 ≡ 1` for Mersenne31; the `2^64 ≡ 2^32 − 1` split-fold for Goldilocks).
-They and their quadratic extension `QuadMersenne31` (`i²=−1` over `Mersenne31`, 8-byte `re,im`) are total over raw lanes — any bit pattern is a legal input and every
-arithmetic output is canonical (`< p` per limb) — and variable-time, so they are not for
-secret data. The prime fields run integer SIMD on x86; the extension composes those lanes and reports `scalar` today, and on non-x86 targets all three run the portable path.
+Scalar arithmetic is total over raw lanes — any bit pattern is a legal
+input and every arithmetic output is canonical (`< p` per limb). The packed
+operations are a separate contract: they take and produce canonical lanes,
+so packed prime-field buffers stay canonically reduced. The prime fields
+and their quadratic extension `QuadMersenne31` (`i²=−1` over `Mersenne31`,
+8-byte `re,im`) are variable-time. The prime fields run integer SIMD on
+x86; the extension composes those lanes and reports `scalar` today, and on
+non-x86 targets all three run the portable path.
 
 ### Scalar arithmetic
 
 Concrete methods are `const fn` so coefficients and coding matrices can be built at compile time.
 Import `fgf::field::Elem` when generic code needs the trait methods in scope.
+Elements are constructed and read back through the named conversions —
+`Elem::from_raw` and `Elem::to_raw`, with `from_components`/`components` on
+the towers — not through tuple fields. The stable byte encodings are
+unchanged.
 
 ```rust
 use fgf::gf16;
 
-const A: gf16::Elem = gf16::Elem(0x1234);
-const B: gf16::Elem = gf16::Elem(0x0108);
+const A: gf16::Elem = gf16::Elem::from_raw(0x1234);
+const B: gf16::Elem = gf16::Elem::from_raw(0x0108);
 const PRODUCT: gf16::Elem = A.mul(B);
 
 assert_eq!(PRODUCT.div(B), A);
@@ -87,8 +100,15 @@ assert_eq!(A + B, A.sub(B));
 ```
 
 By library-wide convention `inv(0) == 0` and `x / 0 == 0`. All element families implement `Add`, `Sub`, `Mul`, `Div`, their assignment
-forms, `Sum`, `Product`, `Display`, and representation-order `Ord`. `Ord` is
-for map keys only and has no field-theoretic meaning.
+forms, `Sum`, `Product`, `Display`, and `Ord`. `Eq`, `Hash`, and `Ord`
+compare field values. For the binary towers each field value has exactly
+one raw encoding, so this is representation equality. For GF(2) and the
+prime-family elements equivalent raw lanes (a prime lane `p` and `0`)
+denote the same field value, so the comparison is value equality — even
+though `to_raw` preserves the raw prime bits as stored and is not a
+canonicalizing accessor. Callers who need raw representation equality must
+compare `to_raw()` values themselves. `Ord` is for map keys only and has
+no field-theoretic meaning.
 
 ### Packed vector operations
 
@@ -101,7 +121,7 @@ use fgf::{Gf8B, gf8b, ops};
 let src = [0x01u8, 0x02, 0x03, 0x04];
 let mut dst = [0u8; 4];
 
-ops::mul_add::<Gf8B>(&mut dst, gf8b::Elem(0x03), &src);
+ops::mul_add::<Gf8B>(&mut dst, gf8b::Elem::from_raw(0x03), &src);
 assert_eq!(dst, [0x03, 0x06, 0x05, 0x0c]);
 ```
 
@@ -145,7 +165,10 @@ The surface is standalone functions rather than `ops` methods because the
 element count is not recoverable from the byte length (bit-count-sensitive
 operations carry an explicit `bits` and bit ranges) and the GF(2) coefficient
 is a bit — multiply by one is XOR, by zero is skip — so there is no prepared
-form. Bits past the logical length are padding and stay zero on every output.
+form. Bits past the logical length are caller-maintained padding. Range
+operations leave it untouched; whole-buffer operations process it normally
+and preserve zero padding when inputs satisfy that invariant. Neither form
+promises to sanitize nonzero padding.
 `bits::xor` rides the same dispatched byte-XOR kernel as field addition; the
 remaining kernels are portable `u64` word loops that already saturate memory
 bandwidth — intrinsic acceleration is measured-only and most shapes are
@@ -153,16 +176,18 @@ expected to stay portable.
 
 ### Reusing coefficients
 
-`Coeff<F>` prepares one coefficient. With `std`, `Plan<F>` prepares a vector or
-row-major matrix once and drives every multi-row `_with` operation directly.
-A matrix plan has dimensions `(sources, destination_rows)`:
+`Coeff<F>` prepares one coefficient. With `std`, `Plan<F>` prepares a vector
+or a source-major matrix (`coeff[source][destination]`) once and drives
+every multi-row `_with` operation directly.
+A matrix plan has dimensions `(sources, destination_rows)`, exposed through
+`source_count()` / `output_count()` with row access via `source(i)`:
 
 ```rust
 use fgf::{Gf16, gf16, ops};
 
 let coeffs = [
-    gf16::Elem(1), gf16::Elem(2),
-    gf16::Elem(3), gf16::Elem(4),
+    gf16::Elem::from_raw(1), gf16::Elem::from_raw(2),
+    gf16::Elem::from_raw(3), gf16::Elem::from_raw(4),
 ];
 let plan = ops::Plan::<Gf16>::matrix(2, 2, &coeffs);
 let a = [1u8, 0, 2, 0];
@@ -170,11 +195,14 @@ let b = [3u8, 0, 4, 0];
 let sources = [&a[..], &b[..]];
 let mut rows = [0u8; 8];
 
-ops::dot_product_matrix_with(&mut rows, 4, 2, &plan, &sources);
+ops::dot_product_matrix_with(&mut rows, 4, &plan, &sources);
 ```
 
 Use `ops::pack`, `ops::unpack`, or `ops::pack_to_vec` at element/buffer
 boundaries instead of writing chunk loops by hand.
+These helpers preserve prime-field raw representations rather than reducing
+them. Canonicalize imported prime elements with their `canonical()` method
+before packing buffers for arithmetic.
 
 ## Building
 
@@ -183,7 +211,7 @@ target-feature flags — SIMD kernels are selected at runtime:
 
 ```sh
 cargo build                        # default: std + simd
-cargo build --no-default-features  # portable no_std
+cargo build --no-default-features  # portable path (see the no_std note)
 cargo test --all-features
 ```
 
@@ -212,10 +240,22 @@ backend at process startup. It is downgrade-only: an unsupported upgrade is
 ignored. Backends are a re-export of `simdispatch::Backend`; `name`,
 `from_name`, `Display`, and `FromStr` support diagnostics and CLI wiring.
 
-The 64-byte AVX-512 GFNI tier is written (`kernel::x86::avx512`, under the
-`internals` feature) but deferred: it is cross-compile-only and stays out of
+The 64-byte AVX-512 GFNI tier is available through
+`kernel::x86::proven::avx512` under `internals`, but remains deferred: it
+is cross-compile-only and stays out of
 the dispatch ladder until validated on executing hardware, so AVX-512 hosts
 resolve to the 32-byte GFNI tier.
+
+`internals` exposes preparation types and token-gated architecture functions
+under `kernel::{architecture}::proven`. Obtain the corresponding Archmage
+token with `SimdToken::summon()` before making direct calls; the token types
+are re-exported from `fgf::kernel`. Normal `ops` callers need no tokens:
+their existing process-wide dispatch already establishes capability.
+
+This feature is explicitly unstable: nothing behind it is a compatibility
+promise. Safe entrypoints validate geometry; generic raw-provider operations
+are `unsafe` and require their documented memory/provider invariants in
+addition to the CPU token. Kernel loops and dispatch policy are unchanged.
 
 ## Benchmarks
 

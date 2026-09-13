@@ -8,8 +8,11 @@
 //! - element `i` lives in **bit `i % 8` (LSB-first) of byte `i / 8`**;
 //! - a word is the little-endian `u64` assembly of eight bytes, so element
 //!   `i` is bit `i % 64` of word `i / 64`;
-//! - bits past the logical length are **padding and are always zero** — a
-//!   maintained invariant of every output, not a don't-care.
+//! - bits past the logical length are **padding**. The invariant is that
+//!   they are zero; it is *caller-maintained*. Range operations leave bits
+//!   outside their range untouched. Whole-buffer operations also process
+//!   padding and preserve zero padding when their inputs satisfy the
+//!   invariant. No operation promises to sanitize nonzero padding.
 //!
 //! Because a byte holds eight elements and the last byte may be partial, the
 //! element count is not recoverable from the byte length: operations whose
@@ -126,10 +129,17 @@ pub fn xor_range(dst: &mut [u8], src: &[u8], bits: usize, from: usize, to: usize
 /// column range into many rows pays the range checks and mask arithmetic
 /// once per range instead of once per row. An empty range is valid and
 /// [`xor_range_with`] applies it as a no-op.
-///
 /// The plan is independent of the buffers it is applied to: buffers may be
 /// longer than the planned window (the surplus is padding like any other),
 /// and bits outside the window are untouched.
+///
+/// That is the flexibility the prepared form buys over the one-shot
+/// [`xor_range`]: the one-shot validates `from <= to <= bits` against the
+/// logical bit count of every call, while a prepared range is validated
+/// once — against its own `[from, to)` at construction — and then applies
+/// to any buffer pair covering its window, whatever each buffer's logical
+/// length. A caller folding the same column range into many equal-length
+/// rows derives the window and masks exactly once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RangeXor {
     window: kernel::gf2::Window,
@@ -235,14 +245,31 @@ pub fn set_range(dst: &mut [u8], bits: usize, from: usize, to: usize) {
 /// Hamming weight of the live bits `[0, bits)`.
 ///
 /// Padding bits never count, even when the buffer holds more bytes than
-/// [`bytes_for`]`(bits)`.
+/// [`bytes_for`]`(bits)`. The count is `usize`, which no buffer can
+/// overflow; the underlying `u32` popcount kernel is exact only while a
+/// segment holds at most `2^32 − 1` set bits, so the count is summed over
+/// byte-aligned segments that each stay inside that range.
 ///
 /// # Panics
 /// Panics if `buf` is shorter than [`bytes_for`]`(bits)`.
 #[must_use]
-pub fn weight(buf: &[u8], bits: usize) -> u32 {
+pub fn weight(buf: &[u8], bits: usize) -> usize {
+    const SEGMENT_BITS: usize = (u32::MAX as usize / 8) * 8;
     check_holds("bits::weight", "buf", buf.len(), bits);
-    kernel::gf2::weight(buf, bits)
+    // The shared kernel folds into `u32` accumulators, exact for any
+    // segment whose set bits fit a `u32`. Split on byte-aligned segments
+    // (the kernel is byte-indexed from the slice start) and sum in `usize`.
+    let mut total = 0usize;
+    let mut done = 0;
+    while done < bits {
+        let segment = (bits - done).min(SEGMENT_BITS);
+        // Each segment carries at most SEGMENT_BITS ≤ u32::MAX set bits, so
+        // the `u32` count widens to `usize` without loss on every target
+        // this crate builds for (`u32 as usize` is total for the value).
+        total += kernel::gf2::weight(&buf[done / 8..], segment) as usize;
+        done += segment;
+    }
+    total
 }
 
 /// The GF(2) inner product of two packed vectors: the parity of

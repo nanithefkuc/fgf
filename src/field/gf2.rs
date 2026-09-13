@@ -16,8 +16,8 @@
 //! use fgf::gf2;
 //!
 //! // The whole field, exhaustively.
-//! for a in [gf2::Elem(0), gf2::Elem(1)] {
-//!     for b in [gf2::Elem(0), gf2::Elem(1)] {
+//! for a in [gf2::Elem::from_raw(0), gf2::Elem::from_raw(1)] {
+//!     for b in [gf2::Elem::from_raw(0), gf2::Elem::from_raw(1)] {
 //!         assert_eq!(a.add(b).to_raw(), a.to_raw() ^ b.to_raw());
 //!         assert_eq!(a.mul(b).to_raw(), a.to_raw() & b.to_raw());
 //!         assert_eq!(a.sub(b), a.add(b));
@@ -27,7 +27,7 @@
 //! }
 //!
 //! // Division is total: `x / 0` is zero, in `const` context too.
-//! const _: () = assert!(gf2::Elem(1).div(gf2::Elem::ZERO).to_raw() == 0);
+//! const _: () = assert!(gf2::Elem::from_raw(1).div(gf2::Elem::ZERO).to_raw() == 0);
 //! ```
 
 use core::fmt;
@@ -57,12 +57,43 @@ impl Gf2 {
 
 /// An element of GF(2), stored as a byte holding `0` or `1`.
 ///
-/// Only bit 0 of the raw byte is meaningful; [`Elem::from_raw`] masks it away
-/// and every arithmetic output is canonical, so a non-canonical [`Elem`] can
-/// only come from constructing the tuple directly. The derived [`Ord`] and
-/// [`Hash`] order the raw byte.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-pub struct Elem(pub u8);
+/// Only bit 0 of the raw byte is meaningful. Every public constructor masks
+/// it away — [`Elem::from_raw`] keeps only the low bit — and every arithmetic
+/// output is canonical, so one field value never has two publicly reachable
+/// storage forms. Equality, hashing, and ordering follow that bit, and
+/// [`Elem::to_raw`] exposes the stored byte.
+#[derive(Clone, Copy, Default)]
+pub struct Elem(pub(crate) u8);
+
+impl PartialEq for Elem {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.0 & 1 == other.0 & 1
+    }
+}
+
+impl Eq for Elem {}
+
+impl core::hash::Hash for Elem {
+    #[inline]
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        state.write_u8(self.0 & 1);
+    }
+}
+
+impl PartialOrd for Elem {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Elem {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        (self.0 & 1).cmp(&(other.0 & 1))
+    }
+}
 
 impl Elem {
     /// The additive identity, and the absorbing element for multiplication.

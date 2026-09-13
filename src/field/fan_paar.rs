@@ -35,12 +35,12 @@
 //! use fgf::fan_paar::{FanPaar16, fp8, fp16};
 //! use fgf::field::Field;
 //!
-//! let (a, b) = (fp8::Elem(0x1b), fp8::Elem(0xa8));
-//! assert_eq!(a.mul(b), fp8::Elem(0x09));
+//! let (a, b) = (fp8::Elem::from_raw(0x1b), fp8::Elem::from_raw(0xa8));
+//! assert_eq!(a.mul(b), fp8::Elem::from_raw(0x09));
 //! assert_eq!(
 //!     fp16::Elem::from_components(a, fp8::Elem::ZERO)
 //!         .mul(fp16::Elem::from_components(b, fp8::Elem::ZERO)),
-//!     fp16::Elem::from_components(fp8::Elem(0x09), fp8::Elem::ZERO),
+//!     fp16::Elem::from_components(fp8::Elem::from_raw(0x09), fp8::Elem::ZERO),
 //! );
 //!
 //! // The defining quadratic, checked at compile time: X^2 = alpha*X + 1,
@@ -50,7 +50,7 @@
 //! const _: () = assert!(X.square().to_raw() == X.mul(ALPHA).add(fp16::Elem::ONE).to_raw());
 //!
 //! // Multiplying by ALPHA is the XOR-only recurrence.
-//! assert_eq!(fp16::Elem(0x1234).mul_alpha(), fp16::Elem(0x1234).mul(fp16::ALPHA));
+//! assert_eq!(fp16::Elem::from_raw(0x1234).mul_alpha(), fp16::Elem::from_raw(0x1234).mul(fp16::ALPHA));
 //!
 //! assert_eq!(FanPaar16::NAME, "Fan-Paar GF(2^16)");
 //! ```
@@ -215,10 +215,12 @@ macro_rules! define_fan_paar_level {
 
             #[doc = $elem_doc]
             #[doc = ""]
-            #[doc = "The derived [`Ord`] is raw-representation order, useful for map keys"]
-            #[doc = "and deterministic iteration; it carries no field-theoretic meaning."]
+            #[doc = "Every bit pattern is a distinct field value, so the derived"]
+            #[doc = "`Ord` — raw-bit order — compares field values. It is a deterministic"]
+            #[doc = "total order for map keys and sorting; no order compatible with"]
+            #[doc = "addition exists in characteristic two."]
             #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-            pub struct Elem(pub $raw);
+            pub struct Elem(pub(crate) $raw);
 
             /// This level's tower generator `X`: the basis element of the high
             /// half, and the constant [`Elem::mul_alpha`] multiplies by.
@@ -404,6 +406,7 @@ macro_rules! define_fan_paar_level {
                 const BITS: u32 = $bits;
                 const BYTES: usize = $bytes;
                 const ORDER: u128 = 1u128 << $bits;
+                const CHARACTERISTIC: u64 = 2;
                 const GENERATOR: Self::Elem = GENERATOR;
 
                 #[inline]
