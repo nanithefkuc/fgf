@@ -21,9 +21,10 @@ MIRI := '''--no-default-features --test ops gf8_mul_add_matches_oracle -- --exac
 --no-default-features --test ops gf16_add_assign_rows_matches_oracle -- --exact
 --no-default-features --test ops gf16_add_gather_matches_oracle -- --exact'''
 
-# Coverage exclusions for code that cannot execute on a CI host. Empty means
-# every line of the crate counts.
-COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64|avx512)(/|\.rs$)"'
+# Coverage exclusions for code that cannot execute on a CI host. The x86
+# kernel subtrees need their own ISA; `kernel/gf8.rs` and `kernel/tower.rs`
+# carry the GFNI dispatch arms, which no GitHub-hosted runner can select.
+COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64|avx512)(/|\.rs$)|kernel/(gf8|tower)\.rs$"'
 
 # The shared `features` recipe walks `--no-default-features`, default, and
 # `--all-features`. `alloc` sits between the first two: it turns on the

@@ -78,8 +78,8 @@ jobs:
       - run: cargo llvm-cov --no-report --all-features
         env:
           SIMD_BACKEND: scalar
-      - run: cargo llvm-cov report --summary-only --ignore-filename-regex 'kernel/x86/(gf8|gf16|gf32|gf64|avx512)(/|\.rs$)'
-      - run: cargo llvm-cov report --fail-under-lines 95 --ignore-filename-regex 'kernel/x86/(gf8|gf16|gf32|gf64|avx512)(/|\.rs$)' --lcov --output-path coverage.lcov
+      - run: cargo llvm-cov report --summary-only --ignore-filename-regex 'kernel/x86/(gf8|gf16|gf32|gf64|avx512)(/|\.rs$)|kernel/(gf8|tower)\.rs$'
+      - run: cargo llvm-cov report --fail-under-lines 95 --ignore-filename-regex 'kernel/x86/(gf8|gf16|gf32|gf64|avx512)(/|\.rs$)|kernel/(gf8|tower)\.rs$' --lcov --output-path coverage.lcov
       - uses: actions/upload-artifact@v4
         if: always()
         with:

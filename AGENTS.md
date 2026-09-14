@@ -107,8 +107,10 @@ or exact panic prose.
 may resolve to another supported tier; inspect reported backends before treating
 a green run as ISA coverage.
 
-Coverage excludes the x86 field-kernel subtrees and deferred AVX-512 code that
-CI cannot execute. Keep `COV_IGNORE` narrow and document every exclusion here.
+Coverage excludes the x86 field-kernel subtrees, the deferred AVX-512 code,
+and the GFNI dispatch arms in `kernel/gf8.rs` and `kernel/tower.rs` — none of
+which a GitHub-hosted runner can execute, since those hosts have no GFNI.
+Keep `COV_IGNORE` narrow and document every exclusion here.
 
 ## Benchmarks
 
