@@ -87,7 +87,7 @@ impl AlignedBuf {
     }
 }
 
-fn bench_dot_product(len: usize) {
+fn bench_mul_into_gather(len: usize) {
     let sources: Vec<AlignedBuf> = (0..DOT_SOURCES)
         .map(|index| AlignedBuf::noise(len, 0x800 + index as u64))
         .collect();
@@ -105,13 +105,13 @@ fn bench_dot_product(len: usize) {
         .copied()
         .map(gf8d::Elem::from_raw)
         .collect();
-    let plan_8b = ops::Plan::<Gf8B>::new(&coeffs_8b);
-    let plan_8d = ops::Plan::<Gf8D>::new(&coeffs_8d);
+    let prepared_8b = ops::CoeffVec::<Gf8B>::new(&coeffs_8b);
+    let prepared_8d = ops::CoeffVec::<Gf8D>::new(&coeffs_8d);
     let mut dst_8b = AlignedBuf::noise(len, 0x900);
     let mut dst_8d = AlignedBuf::noise(len, 0x901);
     let mut rse_dst = AlignedBuf::noise(len, 0x902);
 
-    ops::dot_product_with::<Gf8D>(dst_8d.as_mut_slice(), &plan_8d, &srcs);
+    ops::mul_into_gather_with::<Gf8D>(dst_8d.as_mut_slice(), prepared_8d.as_ref(), &srcs);
     rse_dst.as_mut_slice().fill(0);
     for (&coefficient, &source) in coefficient_bytes.iter().zip(&srcs) {
         reed_solomon_erasure::galois_8::mul_slice_xor(coefficient, source, rse_dst.as_mut_slice());
@@ -124,11 +124,19 @@ fn bench_dot_product(len: usize) {
 
     println!("{len} B x {DOT_SOURCES} sources overwrite dot product");
     let logical_bytes = len * DOT_SOURCES;
-    bench_region("fgf Gf8B dot_product_with", logical_bytes, || {
-        ops::dot_product_with::<Gf8B>(black_box(dst_8b.as_mut_slice()), &plan_8b, black_box(&srcs));
+    bench_region("fgf Gf8B mul_into_gather_with", logical_bytes, || {
+        ops::mul_into_gather_with::<Gf8B>(
+            black_box(dst_8b.as_mut_slice()),
+            prepared_8b.as_ref(),
+            black_box(&srcs),
+        );
     });
-    bench_region("fgf Gf8D dot_product_with", logical_bytes, || {
-        ops::dot_product_with::<Gf8D>(black_box(dst_8d.as_mut_slice()), &plan_8d, black_box(&srcs));
+    bench_region("fgf Gf8D mul_into_gather_with", logical_bytes, || {
+        ops::mul_into_gather_with::<Gf8D>(
+            black_box(dst_8d.as_mut_slice()),
+            prepared_8d.as_ref(),
+            black_box(&srcs),
+        );
     });
     bench_region("RSE zero + 16 x mul_slice_xor", logical_bytes, || {
         rse_dst.as_mut_slice().fill(0);
@@ -185,7 +193,7 @@ fn bench_encode(nrows: usize) {
 
     old_8b.as_mut_slice().fill(0);
     ops::mul_add_matrix::<Gf8B>(old_8b.as_mut_slice(), BYTES, nrows, &terms_8b);
-    ops::dot_product_matrix::<Gf8B>(new_8b.as_mut_slice(), BYTES, nrows, &terms_8b);
+    ops::mul_into_matrix::<Gf8B>(new_8b.as_mut_slice(), BYTES, nrows, &terms_8b);
     assert_eq!(
         old_8b.as_slice(),
         new_8b.as_slice(),
@@ -194,7 +202,7 @@ fn bench_encode(nrows: usize) {
 
     old_8d.as_mut_slice().fill(0);
     ops::mul_add_matrix::<Gf8D>(old_8d.as_mut_slice(), BYTES, nrows, &terms_8d);
-    ops::dot_product_matrix::<Gf8D>(new_8d.as_mut_slice(), BYTES, nrows, &terms_8d);
+    ops::mul_into_matrix::<Gf8D>(new_8d.as_mut_slice(), BYTES, nrows, &terms_8d);
     assert_eq!(
         old_8d.as_slice(),
         new_8d.as_slice(),
@@ -212,8 +220,8 @@ fn bench_encode(nrows: usize) {
             black_box(&terms_8b),
         );
     });
-    bench_region("fgf Gf8B dot_product_matrix", logical_bytes, || {
-        ops::dot_product_matrix::<Gf8B>(
+    bench_region("fgf Gf8B mul_into_matrix", logical_bytes, || {
+        ops::mul_into_matrix::<Gf8B>(
             black_box(new_8b.as_mut_slice()),
             BYTES,
             nrows,
@@ -229,8 +237,8 @@ fn bench_encode(nrows: usize) {
             black_box(&terms_8d),
         );
     });
-    bench_region("fgf Gf8D dot_product_matrix", logical_bytes, || {
-        ops::dot_product_matrix::<Gf8D>(
+    bench_region("fgf Gf8D mul_into_matrix", logical_bytes, || {
+        ops::mul_into_matrix::<Gf8D>(
             black_box(new_8d.as_mut_slice()),
             BYTES,
             nrows,
@@ -272,26 +280,26 @@ fn bench_encode(nrows: usize) {
         let mut raw_8d = AlignedBuf::noise(BYTES * nrows, 0xb06);
         let mut packed_rows_8d = AlignedBuf::noise(BYTES * nrows, 0xb07);
 
-        fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_8b(
+        fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_8b(
             gfni,
             raw_8b.as_mut_slice(),
             BYTES,
             &terms_8b,
         );
-        fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_packed_8b(
+        fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8b(
             gfni,
             packed_rows_8b.as_mut_slice(),
             BYTES,
             &packed_8b,
             &source_refs,
         );
-        fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_8d(
+        fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_8d(
             gfni,
             raw_8d.as_mut_slice(),
             BYTES,
             &terms_8d,
         );
-        fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_packed_8d(
+        fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8d(
             gfni,
             packed_rows_8d.as_mut_slice(),
             BYTES,
@@ -320,7 +328,7 @@ fn bench_encode(nrows: usize) {
         );
 
         bench_region("fgf Gf8B six-row raw shuffle", logical_bytes, || {
-            fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_8b(
+            fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_8b(
                 gfni,
                 black_box(raw_8b.as_mut_slice()),
                 BYTES,
@@ -328,7 +336,7 @@ fn bench_encode(nrows: usize) {
             );
         });
         bench_region("fgf Gf8B six-row packed shuffle", logical_bytes, || {
-            fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_packed_8b(
+            fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8b(
                 gfni,
                 black_box(packed_rows_8b.as_mut_slice()),
                 BYTES,
@@ -337,7 +345,7 @@ fn bench_encode(nrows: usize) {
             );
         });
         bench_region("fgf Gf8D six-row raw shuffle", logical_bytes, || {
-            fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_8d(
+            fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_8d(
                 gfni,
                 black_box(raw_8d.as_mut_slice()),
                 BYTES,
@@ -345,7 +353,7 @@ fn bench_encode(nrows: usize) {
             );
         });
         bench_region("fgf Gf8D six-row packed shuffle", logical_bytes, || {
-            fgf::kernel::x86::proven::gf8::matrix_overwrite6_shuffle_packed_8d(
+            fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8d(
                 gfni,
                 black_box(packed_rows_8d.as_mut_slice()),
                 BYTES,
@@ -499,7 +507,7 @@ fn main() {
     }
 
     for &len in DOT_LENGTHS {
-        bench_dot_product(len);
+        bench_mul_into_gather(len);
     }
 
     for &nrows in ENCODE_ROWS {

@@ -23,7 +23,7 @@ mod imp {
     use std::hint::black_box;
     use std::time::{Duration, Instant};
 
-    use fgf::kernel::x86::proven;
+    use fgf::kernel::x86;
     use fgf::kernel::{SimdToken, X64V3GfniCryptoToken};
     use fgf::{Backend, Gf8B, backend_for, gf8b, ops};
 
@@ -273,11 +273,11 @@ mod imp {
         gfni: X64V3GfniCryptoToken,
     ) {
         let mut raw = initial.to_vec();
-        proven::gf8::gather_gfni(gfni, &mut raw, coeffs, srcs);
+        x86::gf8::mul_add_gather_gfni(gfni, &mut raw, coeffs, srcs);
         assert_eq!(raw, expected_accumulate, "raw accumulate fixture mismatch");
 
         let mut control = initial.to_vec();
-        proven::gf8::gather_gfni_axpy_tail(gfni, &mut control, coeffs, srcs);
+        x86::gf8::mul_add_gather_gfni_axpy_tail(gfni, &mut control, coeffs, srcs);
         assert_eq!(
             control, expected_accumulate,
             "AXPY-tail control fixture mismatch"
@@ -292,14 +292,14 @@ mod imp {
 
         let mut overwrite = initial.to_vec();
         overwrite.fill(0);
-        proven::gf8::gather_gfni(gfni, &mut overwrite, coeffs, srcs);
+        x86::gf8::mul_add_gather_gfni(gfni, &mut overwrite, coeffs, srcs);
         assert_eq!(
             overwrite, expected_overwrite,
             "zero-then-gather fixture mismatch"
         );
 
         let mut public_dot = initial.to_vec();
-        ops::dot_product::<Gf8B>(&mut public_dot, coeffs, srcs);
+        ops::mul_into_gather::<Gf8B>(&mut public_dot, coeffs, srcs);
         assert_eq!(
             public_dot, expected_overwrite,
             "public dot-product fixture mismatch"
@@ -346,10 +346,10 @@ mod imp {
         gfni: X64V3GfniCryptoToken,
     ) {
         match lanes {
-            1 => proven::gf8::gather_gfni_tile::<1>(gfni, dst, coeffs, srcs),
-            2 => proven::gf8::gather_gfni_tile::<2>(gfni, dst, coeffs, srcs),
-            3 => proven::gf8::gather_gfni_tile::<3>(gfni, dst, coeffs, srcs),
-            4 => proven::gf8::gather_gfni_tile::<4>(gfni, dst, coeffs, srcs),
+            1 => x86::gf8::mul_add_gather_gfni_tile::<1>(gfni, dst, coeffs, srcs),
+            2 => x86::gf8::mul_add_gather_gfni_tile::<2>(gfni, dst, coeffs, srcs),
+            3 => x86::gf8::mul_add_gather_gfni_tile::<3>(gfni, dst, coeffs, srcs),
+            4 => x86::gf8::mul_add_gather_gfni_tile::<4>(gfni, dst, coeffs, srcs),
             _ => panic!("tile lane count must be 1–4"),
         }
     }
@@ -363,7 +363,7 @@ mod imp {
     ) -> [f64; 2] {
         bench_pair(
             || {
-                proven::gf8::gather_gfni_tile::<4>(
+                x86::gf8::mul_add_gather_gfni_tile::<4>(
                     gfni,
                     black_box(control.as_mut_slice()),
                     black_box(coeffs),
@@ -371,7 +371,7 @@ mod imp {
                 );
             },
             || {
-                proven::gf8::gather_gfni_tile::<LANES>(
+                x86::gf8::mul_add_gather_gfni_tile::<LANES>(
                     gfni,
                     black_box(candidate.as_mut_slice()),
                     black_box(coeffs),
@@ -390,7 +390,7 @@ mod imp {
     ) -> [f64; 2] {
         bench_pair(
             || {
-                proven::gf8::gather_gfni(
+                x86::gf8::mul_add_gather_gfni(
                     gfni,
                     black_box(control.as_mut_slice()),
                     black_box(coeffs),
@@ -398,7 +398,7 @@ mod imp {
                 );
             },
             || {
-                proven::gf8::gather_gfni_split(
+                x86::gf8::mul_add_gather_gfni_split(
                     gfni,
                     black_box(candidate.as_mut_slice()),
                     black_box(coeffs),
@@ -416,7 +416,7 @@ mod imp {
         gfni: X64V3GfniCryptoToken,
     ) {
         for _ in 0..iterations {
-            proven::gf8::gather_gfni_tile::<LANES>(
+            x86::gf8::mul_add_gather_gfni_tile::<LANES>(
                 gfni,
                 black_box(dst.as_mut_slice()),
                 black_box(coeffs),
@@ -433,7 +433,7 @@ mod imp {
         gfni: X64V3GfniCryptoToken,
     ) {
         for _ in 0..iterations {
-            proven::gf8::gather_gfni_split(
+            x86::gf8::mul_add_gather_gfni_split(
                 gfni,
                 black_box(dst.as_mut_slice()),
                 black_box(coeffs),
@@ -473,7 +473,7 @@ mod imp {
             );
         }
         let mut split = initial.clone();
-        proven::gf8::gather_gfni_split(gfni, &mut split, &coeffs, &srcs);
+        x86::gf8::mul_add_gather_gfni_split(gfni, &mut split, &coeffs, &srcs);
         assert_eq!(
             split, expected,
             "split tile fixture mismatch: {len} B x {source_count}, {layout}"
@@ -636,20 +636,20 @@ mod imp {
                 let factors: Vec<_> = coeffs
                     .iter()
                     .copied()
-                    .map(proven::prepare_affine_8b)
+                    .map(x86::gf8::prepare_affine_8b)
                     .collect();
                 let initial = noise(len, 0x7200 + len as u64 + source_count as u64);
                 let expected_accumulate = reference(initial.clone(), &coeffs, &srcs);
                 let expected_overwrite = reference(vec![0; len], &coeffs, &srcs);
 
                 let mut affine_check = initial.clone();
-                proven::gf8::gather_affine_8b(gfni, &mut affine_check, &factors, &srcs);
+                x86::gf8::mul_add_gather_affine_8b(gfni, &mut affine_check, &factors, &srcs);
                 assert_eq!(
                     affine_check, expected_accumulate,
                     "prepared affine accumulate fixture mismatch"
                 );
                 affine_check.fill(0);
-                proven::gf8::gather_affine_8b(gfni, &mut affine_check, &factors, &srcs);
+                x86::gf8::mul_add_gather_affine_8b(gfni, &mut affine_check, &factors, &srcs);
                 assert_eq!(
                     affine_check, expected_overwrite,
                     "prepared affine overwrite fixture mismatch"
@@ -669,7 +669,7 @@ mod imp {
                 println!("  {len:>5} B x {source_count:>2} sources:");
                 let [native, affine] = bench_pair(
                     || {
-                        proven::gf8::gather_gfni(
+                        x86::gf8::mul_add_gather_gfni(
                             gfni,
                             black_box(native_dst.as_mut_slice()),
                             black_box(&coeffs),
@@ -677,7 +677,7 @@ mod imp {
                         );
                     },
                     || {
-                        proven::gf8::gather_affine_8b(
+                        x86::gf8::mul_add_gather_affine_8b(
                             gfni,
                             black_box(affine_dst.as_mut_slice()),
                             black_box(&factors),
@@ -692,7 +692,7 @@ mod imp {
                 let [native, affine] = bench_pair(
                     || {
                         native_overwrite.as_mut_slice().fill(0);
-                        proven::gf8::gather_gfni(
+                        x86::gf8::mul_add_gather_gfni(
                             gfni,
                             black_box(native_overwrite.as_mut_slice()),
                             black_box(&coeffs),
@@ -701,7 +701,7 @@ mod imp {
                     },
                     || {
                         affine_overwrite.as_mut_slice().fill(0);
-                        proven::gf8::gather_affine_8b(
+                        x86::gf8::mul_add_gather_affine_8b(
                             gfni,
                             black_box(affine_overwrite.as_mut_slice()),
                             black_box(&factors),
@@ -715,7 +715,7 @@ mod imp {
 
                 let [native, affine] = bench_pair(
                     || {
-                        proven::gf8::gather_gfni(
+                        x86::gf8::mul_add_gather_gfni(
                             gfni,
                             black_box(native_one_shot.as_mut_slice()),
                             black_box(&coeffs),
@@ -724,9 +724,9 @@ mod imp {
                     },
                     || {
                         for (factor, &coeff) in one_shot_factors.iter_mut().zip(&coeffs) {
-                            *factor = proven::prepare_affine_8b(black_box(coeff));
+                            *factor = x86::gf8::prepare_affine_8b(black_box(coeff));
                         }
-                        proven::gf8::gather_affine_8b(
+                        x86::gf8::mul_add_gather_affine_8b(
                             gfni,
                             black_box(affine_one_shot.as_mut_slice()),
                             black_box(&one_shot_factors),
@@ -820,7 +820,7 @@ mod imp {
                 println!("  {len:>5} B x {source_count:>2} sources:");
                 let [control, fused] = bench_pair(
                     || {
-                        proven::gf8::gather_gfni_axpy_tail(
+                        x86::gf8::mul_add_gather_gfni_axpy_tail(
                             gfni,
                             black_box(control_dst.as_mut_slice()),
                             black_box(&coeffs),
@@ -828,7 +828,7 @@ mod imp {
                         );
                     },
                     || {
-                        proven::gf8::gather_gfni(
+                        x86::gf8::mul_add_gather_gfni(
                             gfni,
                             black_box(raw_dst.as_mut_slice()),
                             black_box(&coeffs),
@@ -841,7 +841,7 @@ mod imp {
                 println!("      fused-tail speedup {:.2}x", control / fused);
                 let [raw, public, overwrite] = bench_case(
                     || {
-                        proven::gf8::gather_gfni(
+                        x86::gf8::mul_add_gather_gfni(
                             gfni,
                             black_box(raw_dst.as_mut_slice()),
                             black_box(&coeffs),
@@ -857,7 +857,7 @@ mod imp {
                     },
                     || {
                         overwrite_dst.as_mut_slice().fill(0);
-                        proven::gf8::gather_gfni(
+                        x86::gf8::mul_add_gather_gfni(
                             gfni,
                             black_box(overwrite_dst.as_mut_slice()),
                             black_box(&coeffs),
@@ -883,7 +883,7 @@ mod imp {
                         );
                     },
                     || {
-                        ops::dot_product::<Gf8B>(
+                        ops::mul_into_gather::<Gf8B>(
                             black_box(public_dot_dst.as_mut_slice()),
                             black_box(&coeffs),
                             black_box(&srcs),

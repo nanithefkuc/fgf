@@ -8,7 +8,7 @@
 //! # Totality and canonicalization
 //!
 //! Every raw 32-bit lane is a legal input: [`Elem::from_raw`] and
-//! [`Field::read`] keep the bits exactly as passed in — they do not
+//! [`Field::decode`] keep the bits exactly as passed in — they do not
 //! canonicalize or reject. Every arithmetic *output* is canonical — a value
 //! in `0..p` — with no branch and no panic on out-of-range operands, the
 //! prime-field analogue of the crate-wide `inv(0) == 0` convention.
@@ -67,6 +67,9 @@ pub struct Elem(pub(crate) u32);
 ///
 /// `2^31 ≡ 1 (mod p)`, so folding the top bit into the low 31 bits and one
 /// conditional subtract suffices for any `u32`.
+///
+/// `reduce` maps a machine integer into the residue range; the inherent
+/// [`Elem::canonical`] normalizes an element.
 #[inline]
 #[must_use]
 pub const fn reduce(x: u32) -> u32 {
@@ -291,7 +294,7 @@ impl Field for Mersenne31 {
     const GENERATOR: Elem = GENERATOR;
 
     #[inline]
-    fn read(bytes: &[u8]) -> Elem {
+    fn decode(bytes: &[u8]) -> Elem {
         let bytes: [u8; 4] = bytes
             .try_into()
             .expect("GF(2^31 - 1) element has the wrong byte width");
@@ -299,7 +302,7 @@ impl Field for Mersenne31 {
     }
 
     #[inline]
-    fn write(bytes: &mut [u8], value: Elem) {
+    fn encode(bytes: &mut [u8], value: Elem) {
         assert_eq!(
             bytes.len(),
             4,

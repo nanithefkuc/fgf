@@ -8,7 +8,7 @@
 //! # Totality and canonicalization
 //!
 //! Every raw 64-bit lane is a legal input: [`Elem::from_raw`] and
-//! [`Field::read`] keep the bits exactly as passed in — they do not
+//! [`Field::decode`] keep the bits exactly as passed in — they do not
 //! canonicalize or reject. Every arithmetic *output* is canonical — a value
 //! in `0..p` — with no branch and no panic on out-of-range operands, the
 //! prime-field analogue of the crate-wide `inv(0) == 0` convention.
@@ -67,7 +67,7 @@ pub struct Elem(pub(crate) u64);
 impl PartialEq for Elem {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        canonical(self.0) == canonical(other.0)
+        reduce(self.0) == reduce(other.0)
     }
 }
 
@@ -76,7 +76,7 @@ impl Eq for Elem {}
 impl core::hash::Hash for Elem {
     #[inline]
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        state.write_u64(canonical(self.0));
+        state.write_u64(reduce(self.0));
     }
 }
 
@@ -90,7 +90,7 @@ impl PartialOrd for Elem {
 impl Ord for Elem {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        canonical(self.0).cmp(&canonical(other.0))
+        reduce(self.0).cmp(&reduce(other.0))
     }
 }
 
@@ -98,9 +98,12 @@ impl Ord for Elem {
 ///
 /// A single conditional subtract suffices: any `u64` exceeds `p` by less than
 /// `2^32`.
+///
+/// The `reduce*` family maps a machine integer into the residue range;
+/// the inherent [`Elem::canonical`] normalizes an element.
 #[inline]
 #[must_use]
-pub const fn canonical(x: u64) -> u64 {
+pub const fn reduce(x: u64) -> u64 {
     if x >= MODULUS { x - MODULUS } else { x }
 }
 
@@ -112,7 +115,7 @@ pub const fn canonical(x: u64) -> u64 {
 #[inline]
 #[must_use]
 #[allow(clippy::cast_possible_truncation)]
-pub const fn reduce128(x: u128) -> u64 {
+pub const fn reduce_wide(x: u128) -> u64 {
     let x_lo = x as u64;
     let x_hi = (x >> 64) as u64;
     let x_hi_hi = x_hi >> 32;
@@ -125,7 +128,7 @@ pub const fn reduce128(x: u128) -> u64 {
     let t1 = x_hi_lo * EPSILON;
     let (res, carry) = t0.overflowing_add(t1);
     let t2 = res.wrapping_add(if carry { EPSILON } else { 0 });
-    canonical(t2)
+    reduce(t2)
 }
 
 impl Elem {
@@ -167,7 +170,7 @@ impl Elem {
     #[inline]
     #[must_use]
     pub const fn canonical(self) -> Self {
-        Self(canonical(self.0))
+        Self(reduce(self.0))
     }
 
     /// Field addition.
@@ -175,8 +178,8 @@ impl Elem {
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
     pub const fn add(self, rhs: Self) -> Self {
-        let a = canonical(self.0) as u128;
-        let b = canonical(rhs.0) as u128;
+        let a = reduce(self.0) as u128;
+        let b = reduce(rhs.0) as u128;
         let s = a + b;
         let m = MODULUS as u128;
         Self(if s >= m { (s - m) as u64 } else { s as u64 })
@@ -187,8 +190,8 @@ impl Elem {
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
     pub const fn sub(self, rhs: Self) -> Self {
-        let a = canonical(self.0) as u128;
-        let b = canonical(rhs.0) as u128;
+        let a = reduce(self.0) as u128;
+        let b = reduce(rhs.0) as u128;
         let m = MODULUS as u128;
         let s = a + m - b;
         Self(if s >= m { (s - m) as u64 } else { s as u64 })
@@ -198,7 +201,7 @@ impl Elem {
     #[inline]
     #[must_use]
     pub const fn neg(self) -> Self {
-        let a = canonical(self.0);
+        let a = reduce(self.0);
         Self(if a == 0 { 0 } else { MODULUS - a })
     }
 
@@ -206,7 +209,7 @@ impl Elem {
     #[inline]
     #[must_use]
     pub const fn mul(self, rhs: Self) -> Self {
-        Self(reduce128((self.0 as u128) * (rhs.0 as u128)))
+        Self(reduce_wide((self.0 as u128) * (rhs.0 as u128)))
     }
 
     /// Square.
@@ -233,7 +236,7 @@ impl Elem {
     #[inline]
     #[must_use]
     pub const fn div(self, rhs: Self) -> Self {
-        let b = canonical(rhs.0);
+        let b = reduce(rhs.0);
         if b == 0 {
             return Self::ZERO;
         }
@@ -295,11 +298,11 @@ impl ElemTrait for Elem {
     }
     #[inline]
     fn is_zero(self) -> bool {
-        canonical(self.0) == 0
+        reduce(self.0) == 0
     }
     #[inline]
     fn is_one(self) -> bool {
-        canonical(self.0) == 1
+        reduce(self.0) == 1
     }
 }
 
@@ -314,7 +317,7 @@ impl Field for Goldilocks {
     const GENERATOR: Elem = GENERATOR;
 
     #[inline]
-    fn read(bytes: &[u8]) -> Elem {
+    fn decode(bytes: &[u8]) -> Elem {
         let bytes: [u8; 8] = bytes
             .try_into()
             .expect("GF(2^64 - 2^32 + 1) element has the wrong byte width");
@@ -322,7 +325,7 @@ impl Field for Goldilocks {
     }
 
     #[inline]
-    fn write(bytes: &mut [u8], value: Elem) {
+    fn encode(bytes: &mut [u8], value: Elem) {
         assert_eq!(
             bytes.len(),
             8,
@@ -340,7 +343,7 @@ impl fmt::Debug for Elem {
 
 impl fmt::Display for Elem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", canonical(self.0))
+        write!(f, "{}", reduce(self.0))
     }
 }
 

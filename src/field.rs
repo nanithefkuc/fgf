@@ -15,19 +15,21 @@
 //! without a transmute.
 
 pub mod fan_paar;
-mod flat8;
-pub mod gf16;
 pub mod gf2;
-pub mod gf32;
-pub mod gf64;
-pub mod gf8b;
-pub mod gf8d;
+pub mod gf8;
 pub mod goldilocks;
 pub mod mersenne31;
 pub mod quad_mersenne31;
+pub mod tower;
+#[cfg(feature = "internals")]
+pub mod wiedemann;
+#[cfg(not(feature = "internals"))]
+#[allow(dead_code)]
+pub(crate) mod wiedemann;
 
 pub use fan_paar::{FanPaar8, FanPaar16, FanPaar32, FanPaar64};
 pub use gf2::Gf2;
+pub use gf8::{gf8b, gf8d};
 pub use gf8b::Gf8B;
 pub use gf8d::Gf8D;
 pub use gf16::Gf16;
@@ -36,6 +38,7 @@ pub use gf64::Gf64;
 pub use goldilocks::Goldilocks;
 pub use mersenne31::Mersenne31;
 pub use quad_mersenne31::QuadMersenne31;
+pub use tower::{gf16, gf32, gf64};
 /// Scalar arithmetic over a finite field.
 /// In characteristic two — every binary field in this crate, GF(2)
 /// included — addition and subtraction are the same operation (XOR) and
@@ -173,13 +176,13 @@ pub trait Field: Copy + Clone + core::fmt::Debug + 'static {
     ///
     /// # Panics
     /// Panics if `bytes.len() != Self::BYTES`.
-    fn read(bytes: &[u8]) -> Self::Elem;
+    fn decode(bytes: &[u8]) -> Self::Elem;
 
     /// Encode one element into its stable little-endian byte representation.
     ///
     /// # Panics
     /// Panics if `bytes.len() != Self::BYTES`.
-    fn write(bytes: &mut [u8], value: Self::Elem);
+    fn encode(bytes: &mut [u8], value: Self::Elem);
 
     /// Number of whole elements a byte buffer holds.
     #[inline]

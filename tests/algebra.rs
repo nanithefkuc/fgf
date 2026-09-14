@@ -42,6 +42,42 @@ fn sample_gf16() -> Vec<gf16::Elem> {
 // ---------------------------------------------------------------------------
 // GF(2^8)
 // ---------------------------------------------------------------------------
+/// Independent shift-and-XOR GF(2^8) multiply over a field's public
+/// reduction polynomial: the oracle for the table backends, local to this
+/// test crate so it stays independent of every crate-internal path.
+fn xtime_mul(a: u8, b: u8, poly: u16) -> u8 {
+    let mut a = a;
+    let mut acc = 0u8;
+    for i in 0..8 {
+        if (b >> i) & 1 == 1 {
+            acc ^= a;
+        }
+        let overflow = a & 0x80 != 0;
+        a <<= 1;
+        if overflow {
+            a ^= (poly & 0xFF) as u8;
+        }
+    }
+    acc
+}
+
+/// GF(2^8) inverse oracle: `a^254` by square-and-multiply, MSB first, with
+/// the crate's `inv(0) == 0` convention.
+fn xtime_inv(a: u8, poly: u16) -> u8 {
+    if a == 0 {
+        return 0;
+    }
+    let mut result = 1u8;
+    for i in 0..8 {
+        result = xtime_mul(result, result, poly);
+        // 254 = 0b1111_1110: multiply by `a` on every set exponent bit,
+        // scanning most-significant first.
+        if (254u32 >> (7 - i)) & 1 == 1 {
+            result = xtime_mul(result, a, poly);
+        }
+    }
+    result
+}
 
 #[test]
 fn gf8_table_multiply_matches_shift_and_xor() {
@@ -49,7 +85,7 @@ fn gf8_table_multiply_matches_shift_and_xor() {
         for b in all_gf8() {
             assert_eq!(
                 a.mul(b),
-                a.mul_xtime(b),
+                gf8b::Elem::from_raw(xtime_mul(a.to_raw(), b.to_raw(), gf8b::REDUCTION_POLY)),
                 "table and xtime disagree on {a:?} * {b:?}"
             );
         }
@@ -59,13 +95,17 @@ fn gf8_table_multiply_matches_shift_and_xor() {
 #[test]
 fn gf8_inverse_matches_fermat_and_round_trips() {
     assert_eq!(
-        gf8b::Elem::ZERO.inv_xtime(),
-        gf8b::Elem::ZERO,
+        xtime_inv(gf8b::Elem::ZERO.to_raw(), gf8b::REDUCTION_POLY),
+        0,
         "inv_xtime(0) must be 0"
     );
     assert_eq!(gf8b::Elem::ZERO.inv(), gf8b::Elem::ZERO, "inv(0) must be 0");
     for a in all_gf8().skip(1) {
-        assert_eq!(a.inv(), a.inv_xtime(), "inverse backends disagree on {a:?}");
+        assert_eq!(
+            a.inv().to_raw(),
+            xtime_inv(a.to_raw(), gf8b::REDUCTION_POLY),
+            "inverse backends disagree on {a:?}"
+        );
         assert_eq!(a.mul(a.inv()), gf8b::Elem::ONE, "{a:?} * inv({a:?}) != 1");
         assert_eq!(a.div(a), gf8b::Elem::ONE, "{a:?} / {a:?} != 1");
     }
@@ -146,7 +186,7 @@ fn gf8d_table_multiply_matches_shift_and_xor() {
         for b in all_gf8d() {
             assert_eq!(
                 a.mul(b),
-                a.mul_xtime(b),
+                gf8d::Elem::from_raw(xtime_mul(a.to_raw(), b.to_raw(), gf8d::REDUCTION_POLY)),
                 "table and xtime disagree on {a:?} * {b:?}"
             );
         }
@@ -156,13 +196,17 @@ fn gf8d_table_multiply_matches_shift_and_xor() {
 #[test]
 fn gf8d_inverse_matches_fermat_and_round_trips() {
     assert_eq!(
-        gf8d::Elem::ZERO.inv_xtime(),
-        gf8d::Elem::ZERO,
+        xtime_inv(gf8d::Elem::ZERO.to_raw(), gf8d::REDUCTION_POLY),
+        0,
         "inv_xtime(0) must be 0"
     );
     assert_eq!(gf8d::Elem::ZERO.inv(), gf8d::Elem::ZERO, "inv(0) must be 0");
     for a in all_gf8d().skip(1) {
-        assert_eq!(a.inv(), a.inv_xtime(), "inverse backends disagree on {a:?}");
+        assert_eq!(
+            a.inv().to_raw(),
+            xtime_inv(a.to_raw(), gf8d::REDUCTION_POLY),
+            "inverse backends disagree on {a:?}"
+        );
         assert_eq!(a.mul(a.inv()), gf8d::Elem::ONE, "{a:?} * inv({a:?}) != 1");
         assert_eq!(a.div(a), gf8d::Elem::ONE, "{a:?} / {a:?} != 1");
     }
@@ -252,9 +296,7 @@ fn gf8d_known_answer_products() {
 }
 
 #[test]
-fn field_polynomials_are_introspectable() {
-    assert_eq!(Gf8B::field_poly(), 0x11B);
-    assert_eq!(Gf8D::field_poly(), 0x11D);
+fn reduction_polynomials_are_introspectable() {
     assert_eq!(gf8b::REDUCTION_POLY, 0x11B);
     assert_eq!(gf8d::REDUCTION_POLY, 0x11D);
 }
@@ -296,14 +338,17 @@ fn gf8d_is_distinct_from_gf8b() {
 /// GF(2^8) shift-and-XOR multiply. Independent of the Karatsuba form under
 /// test and of the log tables.
 fn gf16_mul_oracle(x: gf16::Elem, y: gf16::Elem) -> gf16::Elem {
-    let (a, b) = x.components();
-    let (c, d) = y.components();
-    let ac = a.mul_xtime(c);
-    let ad = a.mul_xtime(d);
-    let bc = b.mul_xtime(c);
-    let bd = b.mul_xtime(d);
+    let (a, b) = x.to_components();
+    let (c, d) = y.to_components();
+    let xt = |p: gf8b::Elem, q: gf8b::Elem| {
+        gf8b::Elem::from_raw(xtime_mul(p.to_raw(), q.to_raw(), gf8b::REDUCTION_POLY))
+    };
+    let ac = xt(a, c);
+    let ad = xt(a, d);
+    let bc = xt(b, c);
+    let bd = xt(b, d);
     // ac + (ad + bc)u + bd*u^2, and u^2 = u + DELTA.
-    let constant = ac.add(gf16::DELTA.mul_xtime(bd));
+    let constant = ac.add(xt(gf16::DELTA, bd));
     let extension = ad.add(bc).add(bd);
     gf16::Elem::from_components(constant, extension)
 }
@@ -443,8 +488,8 @@ fn sample_gf64() -> Vec<gf64::Elem> {
 }
 
 fn gf32_mul_oracle(x: gf32::Elem, y: gf32::Elem) -> gf32::Elem {
-    let (a, b) = x.components();
-    let (c, d) = y.components();
+    let (a, b) = x.to_components();
+    let (c, d) = y.to_components();
     let ac = a.mul(c);
     let ad = a.mul(d);
     let bc = b.mul(c);
@@ -453,8 +498,8 @@ fn gf32_mul_oracle(x: gf32::Elem, y: gf32::Elem) -> gf32::Elem {
 }
 
 fn gf64_mul_oracle(x: gf64::Elem, y: gf64::Elem) -> gf64::Elem {
-    let (a, b) = x.components();
-    let (c, d) = y.components();
+    let (a, b) = x.to_components();
+    let (c, d) = y.to_components();
     let ac = a.mul(c);
     let ad = a.mul(d);
     let bc = b.mul(c);
@@ -668,10 +713,10 @@ fn gld_known_answer_products() {
         Elem::from_raw(0x2492_4924_6DB6_DB6E)
     );
     // Fold known-answers pinning the split reduction chain.
-    assert_eq!(goldilocks::canonical(goldilocks::MODULUS), 0);
-    assert_eq!(goldilocks::canonical(u64::MAX), 0xFFFF_FFFE);
-    assert_eq!(goldilocks::reduce128(1u128 << 64), 0xFFFF_FFFF); // 2^64 = 2^32 - 1
-    assert_eq!(goldilocks::reduce128(1u128 << 96), 0xFFFF_FFFF_0000_0000); // 2^96 = -1
+    assert_eq!(goldilocks::reduce(goldilocks::MODULUS), 0);
+    assert_eq!(goldilocks::reduce(u64::MAX), 0xFFFF_FFFE);
+    assert_eq!(goldilocks::reduce_wide(1u128 << 64), 0xFFFF_FFFF); // 2^64 = 2^32 - 1
+    assert_eq!(goldilocks::reduce_wide(1u128 << 96), 0xFFFF_FFFF_0000_0000); // 2^96 = -1
 }
 
 #[test]
@@ -936,7 +981,6 @@ fn qm31_field_axioms() {
             mersenne31::Elem::from_raw(ar)
                 .mul(mersenne31::Elem::from_raw(ar))
                 .add(mersenne31::Elem::from_raw(ai).mul(mersenne31::Elem::from_raw(ai)))
-                .to_raw()
         );
     }
     assert_eq!(
@@ -1096,45 +1140,45 @@ fn fan_paar_subfield_encodings_are_nested() {
 fn byte_representation_round_trips() {
     for a in all_gf8() {
         let mut buffer = [0u8; 1];
-        Gf8B::write(&mut buffer, a);
-        assert_eq!(Gf8B::read(&buffer), a);
+        Gf8B::encode(&mut buffer, a);
+        assert_eq!(Gf8B::decode(&buffer), a);
     }
     for a in sample_gf16() {
         let mut buffer = [0u8; 2];
-        Gf16::write(&mut buffer, a);
-        assert_eq!(Gf16::read(&buffer), a);
+        Gf16::encode(&mut buffer, a);
+        assert_eq!(Gf16::decode(&buffer), a);
         assert_eq!(buffer, a.to_raw().to_le_bytes(), "representation is not LE");
     }
     for a in sample_gf32() {
         let mut buffer = [0u8; 4];
-        Gf32::write(&mut buffer, a);
-        assert_eq!(Gf32::read(&buffer), a);
+        Gf32::encode(&mut buffer, a);
+        assert_eq!(Gf32::decode(&buffer), a);
         assert_eq!(buffer, a.to_raw().to_le_bytes(), "representation is not LE");
     }
     for a in sample_gf64() {
         let mut buffer = [0u8; 8];
-        Gf64::write(&mut buffer, a);
-        assert_eq!(Gf64::read(&buffer), a);
+        Gf64::encode(&mut buffer, a);
+        assert_eq!(Gf64::decode(&buffer), a);
         assert_eq!(buffer, a.to_raw().to_le_bytes(), "representation is not LE");
     }
     for a in sample_m31() {
         let mut buffer = [0u8; 4];
-        Mersenne31::write(&mut buffer, a);
-        assert_eq!(Mersenne31::read(&buffer), a);
+        Mersenne31::encode(&mut buffer, a);
+        assert_eq!(Mersenne31::decode(&buffer), a);
         assert_eq!(buffer, a.to_raw().to_le_bytes(), "representation is not LE");
     }
     for a in sample_gld() {
         let mut buffer = [0u8; 8];
-        Goldilocks::write(&mut buffer, a);
-        assert_eq!(Goldilocks::read(&buffer), a);
+        Goldilocks::encode(&mut buffer, a);
+        assert_eq!(Goldilocks::decode(&buffer), a);
         assert_eq!(buffer, a.to_raw().to_le_bytes(), "representation is not LE");
     }
     macro_rules! check_fan_paar_repr {
         ($field:ty, $elem:expr, $bytes:literal) => {{
             let value = $elem;
             let mut buffer = [0u8; $bytes];
-            <$field>::write(&mut buffer, value);
-            assert_eq!(<$field>::read(&buffer), value);
+            <$field>::encode(&mut buffer, value);
+            assert_eq!(<$field>::decode(&buffer), value);
             assert_eq!(buffer, value.to_bytes());
         }};
     }
@@ -1341,8 +1385,8 @@ fn exercise_surface<F: Field>(samples: &[F::Elem]) {
     for &a in samples {
         // Stable encoding round trip through the Field contract.
         let mut buffer = [0u8; 16];
-        F::write(&mut buffer[..F::BYTES], a);
-        assert_eq!(F::read(&buffer[..F::BYTES]), a, "write/read round trip");
+        F::encode(&mut buffer[..F::BYTES], a);
+        assert_eq!(F::decode(&buffer[..F::BYTES]), a, "write/read round trip");
 
         // Laws that hold in every field, through the trait methods.
         assert_eq!(a.add(zero), a, "a + 0");
@@ -1393,6 +1437,7 @@ macro_rules! exercise_operators {
         assert_eq!(assigned, a.mul(b), "MulAssign");
         assigned /= b;
         assert_eq!(assigned, if b.is_zero() { zero } else { a }, "DivAssign");
+        assert_eq!(-a, a.neg(), "Neg");
 
         let empty_sum = empty_sum_of(a);
         assert_eq!(empty_sum, zero, "empty Sum must be ZERO");
@@ -1495,15 +1540,6 @@ fn fan_paar_trait_operator_and_formatting_surface() {
 
 #[test]
 fn prime_trait_operator_and_formatting_surface() {
-    // Only the odd-character fields implement unary negation.
-    {
-        let a = mersenne31::Elem::from_raw(7);
-        assert_eq!(-a, a.neg(), "M31 Neg");
-        let a = goldilocks::Elem::from_raw(7);
-        assert_eq!(-a, a.neg(), "Goldilocks Neg");
-        let a = quad_mersenne31::Elem::from_raw(7, 9);
-        assert_eq!(-a, a.neg(), "QM31 Neg");
-    }
     // Equality follows field values, so the raw samples — which deliberately
     // include non-canonical lanes — can run through the surface laws
     // uncanonicalized: a non-canonical lane and its canonical image compare
@@ -1535,19 +1571,19 @@ fn inherent_conversion_helpers_round_trip() {
     }
     // Towers: component projection is a bijection with from_components.
     for a in sample_gf16().into_iter().step_by(61) {
-        let (lo, hi) = a.components();
+        let (lo, hi) = a.to_components();
         assert_eq!(gf16::Elem::from_components(lo, hi), a);
         assert_eq!(gf16::Elem::from_raw(a.to_raw()), a);
         assert_eq!(gf16::Elem::from_bytes(a.to_bytes()), a);
     }
     for a in sample_gf32().into_iter().step_by(11) {
-        let (lo, hi) = a.components();
+        let (lo, hi) = a.to_components();
         assert_eq!(gf32::Elem::from_components(lo, hi), a);
         assert_eq!(gf32::Elem::from_raw(a.to_raw()), a);
         assert_eq!(gf32::Elem::from_bytes(a.to_bytes()), a);
     }
     for a in sample_gf64().into_iter().step_by(11) {
-        let (lo, hi) = a.components();
+        let (lo, hi) = a.to_components();
         assert_eq!(gf64::Elem::from_components(lo, hi), a);
         assert_eq!(gf64::Elem::from_raw(a.to_raw()), a);
         assert_eq!(gf64::Elem::from_bytes(a.to_bytes()), a);
@@ -1583,7 +1619,7 @@ fn inherent_conversion_helpers_round_trip() {
             a
         );
         assert_eq!(quad_mersenne31::Elem::from_bytes(a.to_bytes()), a);
-        let (re, im) = a.components();
+        let (re, im) = a.to_components();
         assert_eq!(quad_mersenne31::Elem::from_components(re, im), a);
         assert_eq!(a.conjugate().conjugate(), a, "conjugation is an involution");
         assert_eq!(
@@ -1591,9 +1627,16 @@ fn inherent_conversion_helpers_round_trip() {
             a.norm(),
             "norm is fixed under conjugation"
         );
-        assert!(a.norm() < 0x7FFF_FFFF, "norm lands in the base field");
-        let (re, im) = a.mul(a.conjugate()).canonical().components();
-        assert_eq!(re.to_raw(), a.norm(), "a * conj(a) is the norm, really");
+        assert!(
+            a.norm().to_raw() < 0x7FFF_FFFF,
+            "norm lands in the base field"
+        );
+        let (re, im) = a.mul(a.conjugate()).canonical().to_components();
+        assert_eq!(
+            re.to_raw(),
+            a.norm().to_raw(),
+            "a * conj(a) is the norm, really"
+        );
         assert!(im.to_raw() == 0, "a * conj(a) is real");
     }
     // Fan–Paar levels expose the same raw/byte/component surface.
@@ -1602,7 +1645,7 @@ fn inherent_conversion_helpers_round_trip() {
             let a = $value;
             assert_eq!(<$elem>::from_raw(a.to_raw()), a);
             assert_eq!(<$elem>::from_bytes(a.to_bytes()), a);
-            let (lo, hi) = a.components();
+            let (lo, hi) = a.to_components();
             assert_eq!(<$elem>::from_components(lo, hi), a);
         }};
     }
@@ -1864,10 +1907,10 @@ mod toy {
         const CHARACTERISTIC: u64 = 2;
         const GENERATOR: Elem7 = Elem7(2);
 
-        fn read(bytes: &[u8]) -> Elem7 {
+        fn decode(bytes: &[u8]) -> Elem7 {
             Elem7(bytes[0] & 7)
         }
-        fn write(bytes: &mut [u8], value: Elem7) {
+        fn encode(bytes: &mut [u8], value: Elem7) {
             bytes[0] = value.0;
         }
     }

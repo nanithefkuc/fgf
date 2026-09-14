@@ -57,43 +57,13 @@ impl Gf2 {
 
 /// An element of GF(2), stored as a byte holding `0` or `1`.
 ///
-/// Only bit 0 of the raw byte is meaningful. Every public constructor masks
-/// it away — [`Elem::from_raw`] keeps only the low bit — and every arithmetic
-/// output is canonical, so one field value never has two publicly reachable
-/// storage forms. Equality, hashing, and ordering follow that bit, and
-/// [`Elem::to_raw`] exposes the stored byte.
-#[derive(Clone, Copy, Default)]
+/// The stored byte is canonical: it is always exactly `0` or `1`, never a
+/// wider pattern with a meaningful low bit. Every constructor masks on the
+/// way in and every operation preserves the invariant, so one field value
+/// has exactly one storage form and the derived
+/// [`PartialEq`]/[`Hash`]/[`Ord`] compare field values.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Elem(pub(crate) u8);
-
-impl PartialEq for Elem {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.0 & 1 == other.0 & 1
-    }
-}
-
-impl Eq for Elem {}
-
-impl core::hash::Hash for Elem {
-    #[inline]
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        state.write_u8(self.0 & 1);
-    }
-}
-
-impl PartialOrd for Elem {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Elem {
-    #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        (self.0 & 1).cmp(&(other.0 & 1))
-    }
-}
 
 impl Elem {
     /// The additive identity, and the absorbing element for multiplication.
@@ -108,7 +78,7 @@ impl Elem {
         Self(value & 1)
     }
 
-    /// Unwrap to the raw byte, as stored.
+    /// Unwrap to the raw byte: `0` or `1`.
     #[inline]
     #[must_use]
     pub const fn to_raw(self) -> u8 {
@@ -126,21 +96,25 @@ impl Elem {
     #[inline]
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 1] {
-        [self.0 & 1]
+        [self.0]
     }
 
     /// The canonical representative of this element.
+    ///
+    /// The stored byte is canonical by construction, so this is the
+    /// identity. It exists because every field in the crate answers the
+    /// question.
     #[inline]
     #[must_use]
     pub const fn canonical(self) -> Self {
-        Self(self.0 & 1)
+        self
     }
 
     /// Field addition. XOR of the low bits.
     #[inline]
     #[must_use]
     pub const fn add(self, rhs: Self) -> Self {
-        Self((self.0 ^ rhs.0) & 1)
+        Self(self.0 ^ rhs.0)
     }
 
     /// Field subtraction. Identical to [`Elem::add`]: characteristic two.
@@ -154,28 +128,28 @@ impl Elem {
     #[inline]
     #[must_use]
     pub const fn neg(self) -> Self {
-        self.canonical()
+        self
     }
 
     /// Field multiplication. AND of the low bits.
     #[inline]
     #[must_use]
     pub const fn mul(self, rhs: Self) -> Self {
-        Self(self.0 & rhs.0 & 1)
+        Self(self.0 & rhs.0)
     }
 
     /// Square. The identity: `x² = x` in GF(2).
     #[inline]
     #[must_use]
     pub const fn square(self) -> Self {
-        self.canonical()
+        self
     }
 
     /// Multiplicative inverse. `inv(1) = 1` and `inv(0) = 0` by convention.
     #[inline]
     #[must_use]
     pub const fn inv(self) -> Self {
-        self.canonical()
+        self
     }
 
     /// Field division. Returns zero when the divisor is zero.
@@ -186,11 +160,7 @@ impl Elem {
     #[inline]
     #[must_use]
     pub const fn div(self, rhs: Self) -> Self {
-        if rhs.0 & 1 == 0 {
-            Self::ZERO
-        } else {
-            self.canonical()
-        }
+        if rhs.0 == 0 { Self::ZERO } else { self }
     }
 
     /// Raise to an unsigned integer power. `pow(_, 0) == ONE`.
@@ -199,25 +169,21 @@ impl Elem {
     #[inline]
     #[must_use]
     pub const fn pow(self, exponent: u64) -> Self {
-        if exponent == 0 {
-            Self::ONE
-        } else {
-            self.canonical()
-        }
+        if exponent == 0 { Self::ONE } else { self }
     }
 
     /// Whether this element is the additive identity.
     #[inline]
     #[must_use]
     pub const fn is_zero(self) -> bool {
-        self.0 & 1 == 0
+        self.0 == 0
     }
 
     /// Whether this element is the multiplicative identity.
     #[inline]
     #[must_use]
     pub const fn is_one(self) -> bool {
-        self.0 & 1 == 1
+        self.0 == 1
     }
 }
 
@@ -269,13 +235,13 @@ impl ElemTrait for Elem {
 
 impl fmt::Debug for Elem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Gf2({})", self.0 & 1)
+        write!(f, "Gf2({})", self.0)
     }
 }
 
 impl fmt::Display for Elem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0 & 1)
+        write!(f, "{}", self.0)
     }
 }
 

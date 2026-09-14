@@ -1,6 +1,6 @@
 #![allow(clippy::cast_possible_truncation)]
 
-//! Canonical Fan–Paar binary tower fields.
+//! Optimized Fan–Paar arithmetic over canonical Wiedemann tower fields.
 //!
 //! Starting from GF(2), each level doubles the extension degree. If `alpha`
 //! is the previous level's tower generator, the next generator `X` satisfies
@@ -76,30 +76,13 @@ const fn mul_alpha(value: u64, bits: u32) -> u64 {
     a1 | ((a0 ^ mul_alpha(a1, half)) << half)
 }
 
-/// Recursive Fan–Paar multiplication used to construct the byte table.
-const fn multiply_recursive(lhs: u64, rhs: u64, bits: u32) -> u64 {
-    if bits == 1 {
-        return lhs & rhs & 1;
-    }
-    let half = bits / 2;
-    let mask = low_mask(half);
-    let a0 = lhs & mask;
-    let a1 = lhs >> half;
-    let b0 = rhs & mask;
-    let b1 = rhs >> half;
-    let z0 = multiply_recursive(a0, b0, half);
-    let z2 = multiply_recursive(a1, b1, half);
-    let z1 = multiply_recursive(a0 ^ a1, b0 ^ b1, half) ^ z0 ^ z2;
-    (z0 ^ z2) | ((z1 ^ mul_alpha(z2, half)) << half)
-}
-
 const fn build_exp8() -> [u8; 255] {
     let mut table = [0u8; 255];
     let mut value = 1u8;
     let mut i = 0;
     while i < table.len() {
         table[i] = value;
-        value = multiply_recursive(value as u64, 0x2d, 8) as u8;
+        value = super::wiedemann::multiply(value as u64, 0x2d, 8) as u8;
         i += 1;
     }
     table
@@ -281,14 +264,21 @@ macro_rules! define_fan_paar_level {
                     self.add(rhs)
                 }
 
-                /// Recursive Karatsuba multiplication in the Fan–Paar tower.
+                /// Additive inverse. The identity: `x + x = 0`.
+                #[inline]
+                #[must_use]
+                pub const fn neg(self) -> Self {
+                    self
+                }
+
+                /// Recursive Karatsuba multiplication in the Wiedemann tower.
                 #[inline]
                 #[must_use]
                 pub const fn mul(self, rhs: Self) -> Self {
                     Self(super::multiply(self.0 as u64, rhs.0 as u64, $bits) as $raw)
                 }
 
-                /// Square through the linear Fan–Paar recurrence.
+                /// Square through the linear Wiedemann recurrence.
                 #[inline]
                 #[must_use]
                 pub const fn square(self) -> Self {
@@ -356,7 +346,7 @@ macro_rules! define_fan_paar_level {
                     #[inline]
                     #[must_use]
                     #[allow(clippy::cast_possible_truncation)]
-                    pub const fn components(self) -> ($base, $base) {
+                    pub const fn to_components(self) -> ($base, $base) {
                         (
                             <$base>::from_raw(self.0 as $base_raw),
                             <$base>::from_raw((self.0 >> ($bits / 2)) as $base_raw),
@@ -410,7 +400,7 @@ macro_rules! define_fan_paar_level {
                 const GENERATOR: Self::Elem = GENERATOR;
 
                 #[inline]
-                fn read(bytes: &[u8]) -> Self::Elem {
+                fn decode(bytes: &[u8]) -> Self::Elem {
                     let bytes: [u8; $bytes] = bytes
                         .try_into()
                         .expect("Fan-Paar element has the wrong byte width");
@@ -418,7 +408,7 @@ macro_rules! define_fan_paar_level {
                 }
 
                 #[inline]
-                fn write(bytes: &mut [u8], value: Self::Elem) {
+                fn encode(bytes: &mut [u8], value: Self::Elem) {
                     assert_eq!(
                         bytes.len(),
                         $bytes,
@@ -459,6 +449,14 @@ macro_rules! define_fan_paar_level {
                 #[inline]
                 fn sub(self, rhs: Self) -> Self {
                     Elem::sub(self, rhs)
+                }
+            }
+
+            impl core::ops::Neg for Elem {
+                type Output = Self;
+                #[inline]
+                fn neg(self) -> Self {
+                    Elem::neg(self)
                 }
             }
 
@@ -600,30 +598,45 @@ pub use fp64::FanPaar64;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::field::wiedemann;
 
     #[test]
-    fn const_tables_match_their_runtime_builders() {
-        // The log/exp tables are `const`-evaluated; running the same builders
-        // at runtime must reproduce them exactly, and the recursive and
-        // table-based multipliers must agree everywhere they overlap.
+    fn optimized_scalar_matches_wiedemann_oracle() {
         assert_eq!(build_exp8(), EXP8);
         assert_eq!(build_log8(), LOG8);
         for (i, &g) in EXP8.iter().enumerate() {
             assert_eq!(LOG8[g as usize] as usize, i, "log/exp inverse at {i}");
         }
+
         let mut state = 0x0123_4567_89ab_cdefu64;
         for _ in 0..64 {
             state = state
                 .wrapping_mul(6_364_136_223_846_793_005)
                 .wrapping_add(1);
-            let a = state;
-            let b = state >> 32;
+            let rhs = state >> 32;
             for bits in [8u32, 16, 32, 64] {
                 let mask = low_mask(bits);
+                let lhs = state & mask;
+                let rhs = rhs & mask;
                 assert_eq!(
-                    multiply_recursive(a, b, bits),
-                    multiply(a & mask, b & mask, bits),
-                    "recursive vs table multiply at {bits} bits"
+                    multiply(lhs, rhs, bits),
+                    wiedemann::multiply(lhs, rhs, bits),
+                    "multiply at {bits} bits"
+                );
+                assert_eq!(
+                    square(lhs, bits),
+                    wiedemann::square(lhs, bits),
+                    "square at {bits} bits"
+                );
+                assert_eq!(
+                    mul_alpha(lhs, bits),
+                    wiedemann::mul_generator(lhs, bits),
+                    "generator multiply at {bits} bits"
+                );
+                assert_eq!(
+                    invert(lhs, bits),
+                    wiedemann::invert(lhs, bits),
+                    "inverse at {bits} bits"
                 );
             }
         }

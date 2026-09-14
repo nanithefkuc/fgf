@@ -191,7 +191,7 @@ fn xor_matches_per_bit_oracle() {
                     put(&mut oracle, i, flipped);
                 }
             }
-            bits::xor(&mut dst, &src);
+            bits::xor_assign(&mut dst, &src);
             assert_eq!(dst, oracle, "xor over {bits_len} bits");
             assert_padding_zero(&dst, bits_len);
         }
@@ -258,7 +258,7 @@ fn range_ops_match_per_bit_oracle() {
             assert_padding_zero(&dst, bits_len);
 
             let mut split = base.clone();
-            let plan = bits::RangeXor::new(bits_len, from, to);
+            let plan = bits::XorRange::new(bits_len, from, to);
             bits::xor_range_with(&mut split, &src, &plan);
             assert_eq!(split, dst, "xor_range_with {from}..{to} of {bits_len}");
             // The plan applies repeatedly and to buffers of different
@@ -320,9 +320,9 @@ fn weight_and_parity_match_per_bit_oracle() {
             }
             let expected = u8::from(!acc.is_multiple_of(2));
             assert_eq!(
-                bits::parity_dot(&a, &b, bits_len).to_raw(),
+                bits::dot_product(&a, &b, bits_len).to_raw(),
                 expected,
-                "parity_dot {bits_len}"
+                "dot_product {bits_len}"
             );
         }
     }
@@ -351,7 +351,7 @@ fn xor_gather_matches_per_bit_oracle() {
                     }
                 }
             }
-            bits::xor_gather(&mut dst, &refs, selector, bits_len);
+            bits::xor_gather(&mut dst, bits_len, selector, &refs);
             assert_eq!(dst, oracle, "xor_gather {selector:#b} over {bits_len} bits");
             assert_padding_zero(&dst, bits_len);
         }
@@ -373,7 +373,7 @@ fn surplus_bytes_are_padding_not_elements() {
         acc += u32::from(bit(&buf, i));
     }
     assert_eq!(
-        u32::from(bits::parity_dot(&buf, &buf, 100).to_raw()),
+        u32::from(bits::dot_product(&buf, &buf, 100).to_raw()),
         acc % 2
     );
 
@@ -393,11 +393,11 @@ fn xor_gather_accepts_a_full_u64_selector() {
     let refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
     let mut dst = vec![0u8; 1];
 
-    bits::xor_gather(&mut dst, &refs, 1 << 63, 8);
+    bits::xor_gather(&mut dst, 8, 1 << 63, &refs);
     assert_eq!(dst[0], srcs[63][0], "only source 63 contributes");
 
     let mut dst = vec![0u8; 1];
-    bits::xor_gather(&mut dst, &refs, u64::MAX, 8);
+    bits::xor_gather(&mut dst, 8, u64::MAX, &refs);
     let expected = srcs.iter().fold(0u8, |acc, src| acc ^ src[0]);
     assert_eq!(dst[0], expected, "every source contributes");
 }
@@ -407,9 +407,9 @@ fn xor_gather_accepts_a_full_u64_selector() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[should_panic(expected = "bits::xor: dst is 2 bytes but src is 3 bytes")]
+#[should_panic(expected = "bits::xor_assign: dst is 2 bytes but src is 3 bytes")]
 fn xor_rejects_length_mismatch() {
-    bits::xor(&mut [0u8; 2], &[0u8; 3]);
+    bits::xor_assign(&mut [0u8; 2], &[0u8; 3]);
 }
 
 #[test]
@@ -431,15 +431,15 @@ fn xor_range_rejects_range_past_live_bits() {
 }
 
 #[test]
-#[should_panic(expected = "RangeXor::new: range start 9 exceeds end 5")]
+#[should_panic(expected = "XorRange::new: range start 9 exceeds end 5")]
 fn range_xor_rejects_inverted_range() {
-    let _ = bits::RangeXor::new(16, 9, 5);
+    let _ = bits::XorRange::new(16, 9, 5);
 }
 
 #[test]
-#[should_panic(expected = "RangeXor::new: range end 13 exceeds the 8 live bits")]
+#[should_panic(expected = "XorRange::new: range end 13 exceeds the 8 live bits")]
 fn range_xor_rejects_range_past_live_bits() {
-    let _ = bits::RangeXor::new(8, 5, 13);
+    let _ = bits::XorRange::new(8, 5, 13);
 }
 
 #[test]
@@ -447,7 +447,7 @@ fn range_xor_rejects_range_past_live_bits() {
     expected = "bits::xor_range_with: the planned range needs 2 bytes but dst holds 1 and src holds 1"
 )]
 fn xor_range_with_rejects_short_buffers() {
-    let plan = bits::RangeXor::new(13, 5, 13);
+    let plan = bits::XorRange::new(13, 5, 13);
     bits::xor_range_with(&mut [0u8; 1], &[0u8; 1], &plan);
 }
 #[test]
@@ -523,34 +523,34 @@ fn weight_rejects_short_buffer() {
 }
 
 #[test]
-#[should_panic(expected = "bits::parity_dot: a is 2 bytes but b is 3 bytes")]
-fn parity_dot_rejects_length_mismatch() {
-    let _ = bits::parity_dot(&[0u8; 2], &[0u8; 3], 16);
+#[should_panic(expected = "bits::dot_product: a is 2 bytes but b is 3 bytes")]
+fn dot_product_rejects_length_mismatch() {
+    let _ = bits::dot_product(&[0u8; 2], &[0u8; 3], 16);
 }
 
 #[test]
-#[should_panic(expected = "bits::parity_dot: 12 bits need at least 2 bytes but a holds 1")]
-fn parity_dot_rejects_short_buffer() {
-    let _ = bits::parity_dot(&[0u8; 1], &[0u8; 1], 12);
+#[should_panic(expected = "bits::dot_product: 12 bits need at least 2 bytes but a holds 1")]
+fn dot_product_rejects_short_buffer() {
+    let _ = bits::dot_product(&[0u8; 1], &[0u8; 1], 12);
 }
 
 #[test]
 #[should_panic(expected = "bits::xor_gather: source 1 is 2 bytes but dst is 3 bytes")]
 fn xor_gather_rejects_source_length_mismatch() {
     let srcs: [&[u8]; 2] = [&[0u8; 3], &[0u8; 2]];
-    bits::xor_gather(&mut [0u8; 3], &srcs, 0b11, 24);
+    bits::xor_gather(&mut [0u8; 3], 24, 0b11, &srcs);
 }
 
 #[test]
 #[should_panic(expected = "bits::xor_gather: selector names source 3 but only 3 sources exist")]
 fn xor_gather_rejects_selector_past_sources() {
     let srcs: [&[u8]; 3] = [&[0u8; 1], &[0u8; 1], &[0u8; 1]];
-    bits::xor_gather(&mut [0u8; 1], &srcs, 0b1000, 8);
+    bits::xor_gather(&mut [0u8; 1], 8, 0b1000, &srcs);
 }
 
 #[test]
 #[should_panic(expected = "bits::xor_gather: 17 bits need at least 3 bytes but dst holds 2")]
 fn xor_gather_rejects_short_dst() {
     let srcs: [&[u8]; 1] = [&[0u8; 2]];
-    bits::xor_gather(&mut [0u8; 2], &srcs, 1, 17);
+    bits::xor_gather(&mut [0u8; 2], 17, 1, &srcs);
 }

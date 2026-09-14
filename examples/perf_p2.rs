@@ -139,31 +139,31 @@ mod x86 {
 
         let srcs = source_refs.as_slice();
         let run = |variant: &str, dst: &mut [u8]| {
-            use fgf::kernel::x86::proven::gf8::{
-                matrix_overwrite2_8b, matrix_overwrite2_8d, matrix_overwrite2_shuffle_packed,
+            use fgf::kernel::x86::gf8::{
+                mul_into_matrix2_8b, mul_into_matrix2_8d, mul_into_matrix2_shuffle_packed,
             };
             match (variant, field) {
-                ("prod", "8b") => ops::dot_product_matrix::<Gf8B>(dst, BYTES, nrows, &terms_8b),
-                ("prod", "8d") => ops::dot_product_matrix::<Gf8D>(dst, BYTES, nrows, &terms_8d),
-                ("t4", "8b") => matrix_overwrite2_8b(gfni, dst, BYTES, &terms_8b, false, 4),
-                ("t4", "8d") => matrix_overwrite2_8d(gfni, dst, BYTES, &terms_8d, false, 4),
-                ("t2", "8b") => matrix_overwrite2_8b(gfni, dst, BYTES, &terms_8b, false, 2),
-                ("t2", "8d") => matrix_overwrite2_8d(gfni, dst, BYTES, &terms_8d, false, 2),
-                ("nt4", "8b") => matrix_overwrite2_8b(gfni, dst, BYTES, &terms_8b, true, 4),
-                ("nt4", "8d") => matrix_overwrite2_8d(gfni, dst, BYTES, &terms_8d, true, 4),
-                ("nt2", "8b") => matrix_overwrite2_8b(gfni, dst, BYTES, &terms_8b, true, 2),
-                ("nt2", "8d") => matrix_overwrite2_8d(gfni, dst, BYTES, &terms_8d, true, 2),
+                ("prod", "8b") => ops::mul_into_matrix::<Gf8B>(dst, BYTES, nrows, &terms_8b),
+                ("prod", "8d") => ops::mul_into_matrix::<Gf8D>(dst, BYTES, nrows, &terms_8d),
+                ("t4", "8b") => mul_into_matrix2_8b(gfni, dst, BYTES, &terms_8b, false, 4),
+                ("t4", "8d") => mul_into_matrix2_8d(gfni, dst, BYTES, &terms_8d, false, 4),
+                ("t2", "8b") => mul_into_matrix2_8b(gfni, dst, BYTES, &terms_8b, false, 2),
+                ("t2", "8d") => mul_into_matrix2_8d(gfni, dst, BYTES, &terms_8d, false, 2),
+                ("nt4", "8b") => mul_into_matrix2_8b(gfni, dst, BYTES, &terms_8b, true, 4),
+                ("nt4", "8d") => mul_into_matrix2_8d(gfni, dst, BYTES, &terms_8d, true, 4),
+                ("nt2", "8b") => mul_into_matrix2_8b(gfni, dst, BYTES, &terms_8b, true, 2),
+                ("nt2", "8d") => mul_into_matrix2_8d(gfni, dst, BYTES, &terms_8d, true, 2),
                 ("sh1", "8b") => {
-                    matrix_overwrite2_shuffle_packed(avx2, dst, BYTES, &packed_8b, srcs, 1)
+                    mul_into_matrix2_shuffle_packed(avx2, dst, BYTES, &packed_8b, srcs, 1)
                 }
                 ("sh1", "8d") => {
-                    matrix_overwrite2_shuffle_packed(avx2, dst, BYTES, &packed_8d, srcs, 1)
+                    mul_into_matrix2_shuffle_packed(avx2, dst, BYTES, &packed_8d, srcs, 1)
                 }
                 ("sh2", "8b") => {
-                    matrix_overwrite2_shuffle_packed(avx2, dst, BYTES, &packed_8b, srcs, 2)
+                    mul_into_matrix2_shuffle_packed(avx2, dst, BYTES, &packed_8b, srcs, 2)
                 }
                 ("sh2", "8d") => {
-                    matrix_overwrite2_shuffle_packed(avx2, dst, BYTES, &packed_8d, srcs, 2)
+                    mul_into_matrix2_shuffle_packed(avx2, dst, BYTES, &packed_8d, srcs, 2)
                 }
                 _ => panic!("unknown variant/field {variant}/{field}"),
             }

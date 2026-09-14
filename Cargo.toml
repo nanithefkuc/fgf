@@ -1,6 +1,6 @@
 [package]
 name = "fgf"
-version = "0.7.1"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.89"
 description = "Faster Galois Fields: SIMD and portable finite-field arithmetic (binary towers and prime fields) and vector kernels"
@@ -8,33 +8,34 @@ license = "MIT"
 repository = "https://github.com/nanithefkuc/fgf"
 readme = "README.md"
 homepage = "https://github.com/nanithefkuc/fgf"
-publish = false
-# Intentional package allowlist: source, the public doc/license set, and the
-# intentional tests/benches/examples. Planning notes, local tooling state,
-# markdownlint configuration, CI workflow definitions, and `external-bench`
-# never enter `cargo package`.
+# Intentional package allowlist: the library source, the declared bench and
+# example targets, and the public doc set. Local tooling state, planning
+# notes, CI definitions, contributor guides, the test suite, and
+# `external-bench` never enter `cargo package`.
 include = [
     "src/**",
-    "tests/**",
     "benches/**",
     "examples/**",
     "/README.md",
     "/CHANGELOG.md",
-    "/CONTRIBUTING.md",
-    "/AGENTS.md",
     "/BENCHMARKS.md",
     "/LICENSE",
 ]
 
 [features]
 default = ["std", "simd"]
+# Allocation. Required for the prepared coefficient collections (`CoeffVec`,
+# `CoeffMatrix`) and `pack_to_vec`, which own dynamically sized storage. This
+# is deliberately separate from `std`: a heap without an operating system is
+# enough for every prepared form in the crate.
+alloc = []
 # Standard library. Required for the lazily-built shared table banks and the
 # `simdispatch` runtime detection selected by `simd`.
-std = ["simdispatch/std"]
+std = ["alloc", "simdispatch/std"]
 # Runtime-dispatched SIMD kernels: v3_gfni_crypto / v3 / v2 on x86 (the
 # 64-byte AVX-512 tier is deferred), neon_aes / neon on AArch64, and
 # `wasm128` on Wasm. Enabling also resolves the backend via `simdispatch`.
-simd = ["std"]
+simd = ["std", "dep:archmage"]
 # Expose the crate's internal kernel modules and preparation types for
 # downstream libraries that build directly on the kernels. This is not a
 # stable semver surface; it is for development of dependent libraries.
@@ -59,8 +60,9 @@ codegen-units = 1
 [[bench]]
 name = "kernels"
 harness = false
-# `ops::Plan` and the comparison harness are std-only; without this the bench
-# targets break `--no-default-features --all-targets`.
+# The benches time with `std` and measure the prepared-coefficient
+# collections; without this gate the bench targets break
+# `--no-default-features --all-targets`.
 required-features = ["std"]
 
 [[bench]]
@@ -79,6 +81,7 @@ name = "dot_product"
 harness = false
 # Direct GFNI kernel calls need the internal architecture modules.
 required-features = ["std", "internals"]
+
 
 [[example]]
 name = "perf_p2"

@@ -6,7 +6,39 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-14
+
+First stable release. The public API — fields, `ops`, `bits`, backend
+reporting, and every stable byte encoding — is now under semantic versioning.
+The `internals` feature stays explicitly unstable.
+
 ### Added
+
+- Inherent `neg` and `core::ops::Neg` on the binary-field elements — both
+  flat GF(2^8) fields, the three tower levels, and the four Fan-Paar levels.
+  In characteristic two negation is the identity, so `-x == x`; generic code
+  over `F::Elem` can now reach for `-x` in every field the crate exposes.
+
+- `field::gf8`: an umbrella module holding both flat GF(2^8) fields, since
+  they are one construction under two reduction polynomials. `gf8b` and
+  `gf8d` are now submodules of it, re-exported from `field` so every
+  existing path — `fgf::gf8b::Elem`, `fgf::field::gf8d::Gf8D` — resolves
+  unchanged.
+- `field::tower` and `kernel::tower`: umbrella modules for the
+  Rijndael-rooted quadratic tower. `gf16`, `gf32`, and `gf64` are now
+  submodules of them, re-exported from `field` and `kernel` so every
+  existing path resolves unchanged. The three levels share one macro-emitted
+  scalar implementation, and the two GFNI-only kernel levels share one
+  macro-emitted dispatch.
+
+- The `alloc` feature: the prepared coefficient collections (`CoeffVec`,
+  `CoeffMatrix`) and `pack_to_vec` own dynamically sized storage and now
+  need only a heap, not an operating system; `std` implies `alloc`, so
+  default-feature consumers are unaffected.
+- `ops::CoeffMatrix::source` composes with `mul_add_scatter_with`: the
+  borrowed `CoeffVecRef` view of one source's coefficients is exactly what
+  the vector-shaped prepared operations consume, so a matrix column drives
+  the scatter kernel with no copying or restaging.
 
 - `Field::CHARACTERISTIC`: the field's characteristic as a first-class
   constant — `2` for every binary tower, the base prime `2^31 − 1` for
@@ -27,7 +59,7 @@ All notable changes to this project are documented here. The format follows
   and the additive-FFT derivative gap they targeted turned out to be a
   first-touch page-fault effect of out-of-place output buffers, not
   memory-level parallelism. See `BENCHMARKS.md`, "Row-interleaved XOR".
-- `bits::RangeXor` and `bits::xor_range_with`: the prepared form of
+- `bits::XorRange` and `bits::xor_range_with`: the prepared form of
   `bits::xor_range`. The bit range's byte window and end masks are derived
   once and applied to many buffer pairs, the same prepare/apply split `ops`
   uses for coefficients; buffers of different lengths are accepted as long
@@ -63,6 +95,113 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `README.md` leads with the crate's capabilities, installation, and operation
+  tables; `BENCHMARKS.md` is a current two-host measurement record for the
+  public operation shapes, replacing the accumulated experiment log.
+
+- The Miri gate targets the scalar operation suite instead of interpreting
+  every exhaustive algebra test and rustdoc example. The focused run keeps
+  the checked geometry and portable-kernel coverage while removing work that
+  the native validation stages already perform.
+
+- **The `kernel::x86` subtree is restructured.** `x86/mod.rs` becomes
+  `x86.rs` beside its directory, the field-independent XOR kernels move to
+  `x86/bytes.rs`, and the three oversized kernel files are split along a
+  named axis — multiply strategy first (`gfni`, `nibble`), then fan shape
+  (`scatter`, `gather`, `matrix`) — leaving every implementation module at
+  or under roughly 500 lines. GF(2^8)'s internals-only benchmark variants
+  are gathered under `x86/gf8/experiments/`. No kernel body changed.
+
+- **Kernel names converge on the `ops` grammar.** The domain operation now
+  leads every x86 kernel name, and the shape qualifier follows it:
+  `matrix_overwrite*` is `mul_into_matrix*`, `matrix_scattered*` is
+  `mul_add_matrix_at*`, and `scatter_*`/`gather_*`/`matrix_*`/`elementwise_*`
+  gain their `mul_add_`/`mul_elementwise_` prefixes. The AVX-512 family
+  follows suit (`gf8_scatter` is `gf8_mul_add_scatter`). Renamed throughout
+  the direct `kernel::x86` modules, so an `internals` consumer updates its
+  paths; the benchmark identifiers in `BENCHMARKS.md` move with them.
+
+- **The SSE Mersenne31 and Goldilocks kernels are named for the feature they
+  require.** Every `*_sse41` entry point is `*_sse42`: the bodies enable
+  `sse4.2` and depend on `pcmpgtq`, so the old name named the wrong ISA.
+
+- **The x86 unsafe surface is countable.** The module-level
+  `#![allow(unsafe_code)]` at the root of the subtree, which silently
+  covered every child module, is replaced by a per-item
+  `#[allow(unsafe_code)]` on each unsafe block and each `unsafe fn`.
+
+- `kernel::x86::bytes::xor_avx2` and `xor_sse2` are direct kernel entries
+  rather than wrappers. Both are safe `#[arcane]` functions that take a
+  capability token and assert their own geometry. `xor_sse2` consequently
+  takes the `X64V1Token` its instructions need instead of an `X64V2Token` it
+  immediately narrowed.
+
+- `gf2::Elem` stores a canonical byte as a type invariant: `to_raw` is now
+  documented to return exactly `0` or `1` rather than "the byte as stored".
+  Equality, hashing, and ordering are derived rather than masking on every
+  comparison, and `canonical` is the identity. No reachable value changes;
+  no constructor ever produced a wider pattern.
+
+- The x86 byte-XOR kernels now use Archmage capability tokens and safe
+  reference-based SIMD memory operations. Backend resolution caches the
+  matching token with the selected tier, and differential coverage now spans
+  unaligned inputs plus every AVX2/SSE2 lane and unroll boundary.
+
+- All dispatched x86 kernel families now expose direct Archmage
+  capability-token entries with release-mode geometry validation. Backend
+  resolution caches the exact selected token once; steady-state calls pass
+  that proof directly. The deferred AVX-512 compatibility entries are nested
+  in `kernel::x86::avx512`, beside the implementation they validate.
+
+- **Breaking: `ops::Plan` is split into `CoeffVec` and `CoeffMatrix`.** The
+  one type served two incompatible interpretations — a flat coefficient
+  vector and a source-major matrix — and reported dimensions
+  `(1, coeffs.len())` for vector plans, so a gather plan's `source_count()`
+  was really its output count. `CoeffVec::new(&[F::Elem])` is the flat
+  vector, with no axes and no `source`/`get_at` accessors;
+  `CoeffMatrix::from_source_major(sources, outputs, &[F::Elem])` is the
+  source-major matrix. The prepared `mul_*_with` operations take
+  `CoeffVecRef` by value at the vector shapes and `&CoeffMatrix` at the
+  matrix shapes.
+- **Breaking: the overwrite ops follow the ecosystem naming grammar.**
+  `dot_product` → `mul_into_gather`, `dot_product_with` →
+  `mul_into_gather_with`, `dot_product_matrix` → `mul_into_matrix`, and
+  `dot_product_matrix_with` → `mul_into_matrix_with`: `mul_into_*` is the
+  overwrite counterpart of `mul_add_*`. `mul_add_matrix_scattered` →
+  `mul_add_matrix_at`, where `_at` marks the destination rows as addressed
+  by explicit offsets. The sealed kernel-trait methods rename the same way.
+- **Breaking: destination-first argument order for the row ops.**
+  `ops::add_gather` is `ops::add_gather_offsets` (the name it already
+  shared with the kernel-trait method) and now takes
+  `(dst, region, offsets)` — `_offsets` marks the *sources* as
+  offset-addressed into one backing region — and `ops::add_assign_rows`
+  now takes `(dst, row_len, src)`, geometry second.
+- **Breaking: `bits` surface renames and one reorder.** `bits::xor` is
+  `bits::xor_assign`, `bits::parity_dot` is `bits::dot_product`, and
+  `bits::RangeXor` is `bits::XorRange`; `bits::xor_gather` now takes
+  `(dst, bits, selector, srcs)` — geometry, then the GF(2) coefficient
+  vector, then sources.
+- **Breaking: `Field::read`/`Field::write` are now `decode`/`encode`**, and
+  the tower coordinate accessor `components()` is `to_components()`,
+  pairing with `from_components()`.
+- **Breaking: prime-field integer helpers share one verb.** The free
+  `goldilocks::canonical` is `goldilocks::reduce` and
+  `goldilocks::reduce128` is `goldilocks::reduce_wide`; `reduce*` maps a
+  machine integer into the residue range while the inherent
+  `Elem::canonical` normalizes an element (those inherent methods are
+  unchanged, as is `mersenne31::reduce`).
+- **Breaking: `QuadMersenne31::Elem::norm` returns the base-field
+  element** `mersenne31::Elem` instead of a raw `u32`; the computation is
+  unchanged.
+- **Breaking: `FieldKernels::active_backend()` is
+  `FieldKernels::backend()`.** The free functions `kernel::backend()` and
+  `kernel::backend_for::<F>()` keep their names, and `FGF_TIERS` is
+  re-exported at the crate root beside `Backend`.
+- The flat GF(2^8) reference internals (`Elem::mul_xtime`,
+  `Elem::inv_xtime`, `REDUCTION_LOW`) are `pub(crate)` rather than public,
+  and the `$field::field_poly()` accessor is removed — the module const
+  `REDUCTION_POLY` remains the one home for that fact.
+
 - The GFNI GF(2^8) matrix kernels resolve each destination row group's
   coefficients into one stack array before their tile loops run, instead
   of loading a coefficient inside the loop. The per-tile coefficient load,
@@ -88,7 +227,7 @@ All notable changes to this project are documented here. The format follows
   behaviour change; see `BENCHMARKS.md`, "Crossed resolution x chunk panel".
 - **Breaking: scalar element tuple fields are now private.** Construct and
   read elements through the named `const` conversions — `Elem::from_raw` /
-  `Elem::to_raw`, with `from_components` / `components` on the towers. Raw
+  `Elem::to_raw`, with `from_components` / `to_components` on the towers. Raw
   byte encodings and scalar arithmetic are unchanged; the migration is
   mechanical (`Elem(x)` → `Elem::from_raw(x)`, `e.0` → `e.to_raw()`).
 - **Breaking: `Gf2` and the prime-family elements (`Mersenne31`,
@@ -127,11 +266,8 @@ All notable changes to this project are documented here. The format follows
   intentional tests/benches/examples, and the public doc/license set);
   local-only working files, markdownlint configuration, CI workflow
   definitions, and `external-bench` are excluded.
-- `ops::Plan` accessors renamed: `dimensions()` is replaced by
-  `source_count()` / `output_count()`, and `row(i)` by `source(i)`.
-  `Plan::matrix(sources, outputs, coeffs)` is unchanged.
-- `mul_add_matrix_with` and `dot_product_matrix_with` no longer take the
-  row-count argument; it derives from the plan's `output_count()`.
+- `mul_add_matrix_with` and `mul_into_matrix_with` no longer take the
+  row-count argument; it derives from the matrix's `output_count()`.
 - Direct architecture entrypoints under `internals` now live in
   `kernel::{architecture}::proven` and require genuine Archmage capability
   tokens. Safe entrypoints validate geometry; generic raw-provider calls
@@ -146,8 +282,8 @@ All notable changes to this project are documented here. The format follows
 
 - Valid zero-byte scatter and matrix shapes are no-ops on every backend,
   while malformed coefficient/source geometry still panics.
-- Prepared-plan source lookup checks logical bounds before arithmetic,
-  including zero-output plans and `usize::MAX` indices.
+- Prepared-matrix source lookup checks logical bounds before arithmetic,
+  including zero-output matrices and `usize::MAX` indices.
 - Bit population counts no longer overflow at `2^32` set bits; the public
   operation sums bounded segments without changing the inner kernel.
 - Direct overwrite entrypoints replace addressed rows rather than accumulate
@@ -187,10 +323,10 @@ All notable changes to this project are documented here. The format follows
   total over raw bytes), and the `bits` module: a bit-packed vector surface
   over `&[u8]` buffers holding one element per bit LSB-first — `xor`,
   `xor_range`, `and_into`/`and_assign`/`andnot_assign`,
-  `clear_range`/`set_range`, `weight`, `parity_dot`, and `xor_gather`, with
+  `clear_range`/`set_range`, `weight`, `dot_product`, and `xor_gather`, with
   an explicit bit count where the byte length cannot recover it and padding
   bits kept zero on every output. The bit order is a frozen wire convention.
-  `bits::xor` reuses the dispatched byte-XOR kernel; the other kernels are
+  `bits::xor_assign` reuses the dispatched byte-XOR kernel; the other kernels are
   portable `u64` word loops (intrinsic acceleration is measured-only and
   the bandwidth-bound shapes are expected to stay portable).
 - CI now measures line coverage with `cargo-llvm-cov` and fails below 95%,
@@ -226,10 +362,10 @@ All notable changes to this project are documented here. The format follows
   source-fused short-row rule".
 
 - The bit-packed GF(2) folds run split accumulators: `bits::weight` uses
-  eight independent `popcount` lanes and `bits::parity_dot` four independent
+  eight independent `popcount` lanes and `bits::dot_product` four independent
   AND-XOR lanes, folded once at the end, so the loops saturate execution-port
   throughput instead of riding one register's dependency chain. Measured
-  1.2–1.5x (`weight`) and 1.2–2.0x (`parity_dot`) across L1/DRAM buffer
+  1.2–1.5x (`weight`) and 1.2–2.0x (`dot_product`) across L1/DRAM buffer
   sizes on the reference host. Results are unchanged.
 
 - `QuadMersenne31` kernels canonicalize each limb once per load instead of
@@ -303,14 +439,14 @@ fields are byte-identical to 0.4.0.
 
 This release adds `Gf8D`, a second GF(2^8) representation under the
 Reed–Solomon polynomial `0x11D` for byte-identical interop, and the overwrite
-operation shapes — `dot_product`, `dot_product_matrix`, and
-`mul_add_matrix_scattered` — for erasure encoding and in-place reconstruction.
+operation shapes — `mul_into_gather`, `mul_into_matrix`, and
+`mul_add_matrix_at` — for erasure encoding and in-place reconstruction.
 The two GF(2^8) fields are now named by polynomial (`Gf8B`/`Gf8D`), a breaking
 rename of the former `Gf8`.
 
 ### Added
 
-- `mul_add_matrix_scattered` reconstructs disjoint destination rows directly
+- `mul_add_matrix_at` reconstructs disjoint destination rows directly
   in their final positions. GF(2^8) uses the register-blocked x86 GFNI matrix
   kernel; other backends use the portable path.
 - `Gf8D`, a second GF(2^8) field under the polynomial `0x11D` (generator `2`),
@@ -323,11 +459,11 @@ rename of the former `Gf8`.
   field-agnostic split-nibble shuffle kernels. Elementwise multiplication is
   vectorized on every x86 backend through a branchless shift/reduce that
   threads the `0x11D` reduction byte (the AES `GF2P8MULB` cannot serve it).
-- `dot_product` and `dot_product_with` overwrite one destination with an
+- `mul_into_gather` and `mul_into_gather_with` overwrite one destination with an
   N-to-1 field dot product, distinct from accumulating `mul_add_gather`.
   Empty/all-zero inputs clear the destination, one source uses `mul_into`, and
   prepared plans remain allocation-free.
-- `dot_product_matrix` and `dot_product_matrix_with` overwrite multiple rows
+- `mul_into_matrix` and `mul_into_matrix_with` overwrite multiple rows
   with field dot products for erasure encoding. On x86 GFNI, `Gf8B` and
   `Gf8D` seed blocked accumulators from zero in registers, eliminating the
   separate zero-fill and destination read; other backends use the equivalent
@@ -497,7 +633,8 @@ are deliberately not repeated here.
 
 Initial public release.
 
-[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/nanithefkuc/fgf/compare/v0.7.1...v1.0.0
 [0.7.1]: https://github.com/nanithefkuc/fgf/compare/v0.7.0...v0.7.1
 [0.6.0]: https://github.com/nanithefkuc/fgf/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/nanithefkuc/fgf/compare/v0.4.0...v0.5.0

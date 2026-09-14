@@ -5,18 +5,16 @@
 //! - [`Backend`] — which instruction set the kernels will use, detected once
 //!   per process.
 //! - [`FieldKernels`] — the sealed public bound over a field's kernels;
-//!   the raw entry points it dispatches to live on a crate-private
-//!   `KernelDispatch` supertrait reachable only through [`crate::ops`] or,
-//!   under `internals`, the token-gated `proven` modules below.
-//! - `scalar` — the portable reference and fallback implementation. Every
-//!   SIMD backend is differentially tested against it, and vector loops use
-//!   it for sub-lane tails.
-//! - `x86` / `aarch64` / `wasm32` — architecture-local intrinsics. With the
-//!   `internals` feature each submodule also exposes a `proven` module:
-//!   public copies of the kernel entries that take a genuine
-//!   `archmage` capability token proving the ISA, plus full geometry
-//!   validation, so an `internals` consumer can never reach a
-//!   target-feature body unchecked.
+//!   process-selected entrypoints remain behind a crate-private
+//!   `KernelDispatch` supertrait. The `internals` feature exposes direct
+//!   token-bearing architecture entries for measurement and differential
+//!   testing.
+//! - `scalar` — the portable fallback and tail implementation. Vector kernels
+//!   use it for sub-lane tails; tests compare the Fan–Paar family against the
+//!   independent Wiedemann recurrence and other families against this module.
+//! - `x86` / `aarch64` / `wasm32` — architecture-local intrinsics. Direct x86
+//!   entries take exact [`archmage`] capability tokens and validate geometry.
+//!   `AArch64` and Wasm retain their token-proven compatibility facades.
 //!
 //! Callers should use the safe, validated wrappers in [`crate::ops`] rather
 //! than this module directly.
@@ -27,19 +25,17 @@ pub mod fan_paar;
 pub(crate) mod fan_paar;
 
 #[cfg(feature = "internals")]
-pub mod gf16;
+pub mod tower;
 #[cfg(not(feature = "internals"))]
-pub(crate) mod gf16;
+pub(crate) mod tower;
 
 #[cfg(feature = "internals")]
-pub mod gf32;
+pub use tower::{gf16, gf32, gf64};
+// The re-exported names are reached only from the architecture kernels,
+// which cfg away entirely on a scalar-only build.
 #[cfg(not(feature = "internals"))]
-pub(crate) mod gf32;
-
-#[cfg(feature = "internals")]
-pub mod gf64;
-#[cfg(not(feature = "internals"))]
-pub(crate) mod gf64;
+#[allow(unused_imports)]
+pub(crate) use tower::{gf16, gf32, gf64};
 
 #[cfg(feature = "internals")]
 pub mod gf8;
@@ -108,6 +104,12 @@ use crate::field::Field;
 
 // Only the SIMD-enabled resolve path consults the environment; under a
 // std-less build `backend()` reports `Scalar` without touching `Selection`.
+#[cfg(all(
+    feature = "simd",
+    not(feature = "internals"),
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+use archmage::SimdToken;
 #[cfg(feature = "simd")]
 use simdispatch::Selection;
 
@@ -191,7 +193,7 @@ impl KernelBackend for Backend {
 pub fn backend() -> Backend {
     #[cfg(feature = "simd")]
     {
-        *BACKEND
+        BACKEND.backend
     }
     #[cfg(not(feature = "simd"))]
     {
@@ -199,12 +201,93 @@ pub fn backend() -> Backend {
     }
 }
 
-/// Memoized [`Selection`] over [`FGF_TIERS`], so dispatch never touches the
-/// environment per call — a cache of the single-source resolve, not a second
-/// resolver.
+/// Memoized [`Selection`] over [`FGF_TIERS`] plus the x86 capability token
+/// for that selection. Dispatch therefore resolves policy and materializes
+/// its proof once.
 #[cfg(feature = "simd")]
-static BACKEND: std::sync::LazyLock<Backend> =
-    std::sync::LazyLock::new(|| Selection::new("SIMD_BACKEND").supports(FGF_TIERS).resolve());
+static BACKEND: std::sync::LazyLock<ResolvedBackend> =
+    std::sync::LazyLock::new(ResolvedBackend::new);
+
+#[cfg(feature = "simd")]
+struct ResolvedBackend {
+    backend: Backend,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    x86: X86Proof,
+}
+
+#[cfg(feature = "simd")]
+impl ResolvedBackend {
+    fn new() -> Self {
+        let backend = Selection::new("SIMD_BACKEND").supports(FGF_TIERS).resolve();
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        let x86 = match backend {
+            Backend::V3GfniCrypto => X86Proof::V3GfniCrypto(
+                archmage::X64V3GfniCryptoToken::summon()
+                    .expect("selected x86 GFNI backend must have its capability token"),
+            ),
+            Backend::V3 => X86Proof::V3(
+                archmage::X64V3Token::summon()
+                    .expect("selected x86 V3 backend must have its capability token"),
+            ),
+            Backend::V2 => X86Proof::V2(
+                archmage::X64V2Token::summon()
+                    .expect("selected x86 V2 backend must have its capability token"),
+            ),
+            _ => X86Proof::Scalar,
+        };
+        Self {
+            backend,
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            x86,
+        }
+    }
+}
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[derive(Clone, Copy)]
+pub(crate) enum X86Proof {
+    V3GfniCrypto(archmage::X64V3GfniCryptoToken),
+    V3(archmage::X64V3Token),
+    V2(archmage::X64V2Token),
+    Scalar,
+}
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline]
+pub(crate) fn x86_proof() -> X86Proof {
+    BACKEND.x86
+}
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline]
+pub(crate) fn x86_v3_gfni_token() -> archmage::X64V3GfniCryptoToken {
+    match x86_proof() {
+        X86Proof::V3GfniCrypto(token) => token,
+        _ => unreachable!("GFNI kernel reached without the selected GFNI proof"),
+    }
+}
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline]
+pub(crate) fn x86_v3_token() -> archmage::X64V3Token {
+    match x86_proof() {
+        X86Proof::V3GfniCrypto(token) => token.v3(),
+        X86Proof::V3(token) => token,
+        _ => unreachable!("V3 kernel reached without a selected V3 proof"),
+    }
+}
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline]
+pub(crate) fn x86_v2_token() -> archmage::X64V2Token {
+    match x86_proof() {
+        X86Proof::V3GfniCrypto(token) => token.v3().v2(),
+        X86Proof::V3(token) => token.v2(),
+        X86Proof::V2(token) => token,
+        X86Proof::Scalar => unreachable!("V2 kernel reached without a selected V2 proof"),
+    }
+}
+
 /// The backend used for a particular field.
 ///
 /// Wider polynomial towers and the Fan–Paar fields currently report
@@ -213,7 +296,7 @@ static BACKEND: std::sync::LazyLock<Backend> =
 #[inline]
 #[must_use]
 pub fn backend_for<F: FieldKernels>() -> Backend {
-    F::active_backend()
+    F::backend()
 }
 
 /// Whether elementwise multiplication is vectorized for `F` on this host.
@@ -317,7 +400,7 @@ pub trait FieldKernels: Field + private::Sealed + KernelDispatch {
     /// Backend used by this field's kernels.
     #[inline]
     #[must_use]
-    fn active_backend() -> Backend {
+    fn backend() -> Backend {
         Backend::Scalar
     }
 
@@ -382,7 +465,7 @@ pub(crate) trait KernelDispatch: Field {
     /// registers across the whole source list.
     ///
     /// Callers pass offsets that satisfy `offset + dst.len() <=
-    /// region.len()`; [`crate::ops::add_gather`] validates that.
+    /// region.len()`; [`crate::ops::add_gather_offsets`] validates that.
     fn add_gather_offsets(_proof: RawDispatch, region: &[u8], dst: &mut [u8], offsets: &[u32]) {
         let live = dst.len();
         for &start in offsets {
@@ -471,7 +554,7 @@ pub(crate) trait KernelDispatch: Field {
     /// ignored. The default starts with a fused single-source
     /// [`KernelDispatch::mul_into`], then accumulates the remaining prepared
     /// terms without allocation.
-    fn dot_product(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Self::Elem], srcs: &[&[u8]]) {
+    fn mul_into_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Self::Elem], srcs: &[&[u8]]) {
         let mut pairs = coeffs.iter().copied().zip(srcs.iter().copied());
         let Some((first, src)) = pairs.next() else {
             dst.fill(0);
@@ -505,7 +588,7 @@ pub(crate) trait KernelDispatch: Field {
     /// The default keeps preparation out of the row loop by applying the
     /// single-coefficient kernel to each row. Fields may override this when a
     /// backend can retain several prepared coefficients in registers.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn mul_add_scatter_with(
         _proof: RawDispatch,
         rows: &mut [u8],
@@ -523,7 +606,7 @@ pub(crate) trait KernelDispatch: Field {
     ///
     /// The default uses the prepared single-row path. Blocked backends may use
     /// `values` for representations whose preparation is already free.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn mul_add_scatter_plan(
         _proof: RawDispatch,
         rows: &mut [u8],
@@ -538,7 +621,7 @@ pub(crate) trait KernelDispatch: Field {
     /// [`KernelDispatch::mul_add_gather`] over already-prepared coefficients.
     ///
     /// The default applies the single-coefficient kernel once per source.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn mul_add_gather_with(
         _proof: RawDispatch,
         dst: &mut [u8],
@@ -554,7 +637,7 @@ pub(crate) trait KernelDispatch: Field {
     /// coefficients.
     ///
     /// The default applies prepared AXPY once per source.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn mul_add_gather_plan(
         _proof: RawDispatch,
         dst: &mut [u8],
@@ -565,9 +648,9 @@ pub(crate) trait KernelDispatch: Field {
         Self::mul_add_gather_with(RawDispatch, dst, coeffs, srcs);
     }
 
-    /// [`KernelDispatch::dot_product`] over already-prepared coefficients.
-    #[cfg(any(feature = "std", test))]
-    fn dot_product_with(
+    /// [`KernelDispatch::mul_into_gather`] over already-prepared coefficients.
+    #[cfg(any(feature = "alloc", test))]
+    fn mul_into_gather_with(
         _proof: RawDispatch,
         dst: &mut [u8],
         coeffs: &[Self::Prepared],
@@ -585,15 +668,15 @@ pub(crate) trait KernelDispatch: Field {
     }
 
     /// Prepared-plan dot product with original and resolved coefficients.
-    #[cfg(feature = "std")]
-    fn dot_product_plan(
+    #[cfg(feature = "alloc")]
+    fn mul_into_gather_plan(
         _proof: RawDispatch,
         dst: &mut [u8],
         _values: &[Self::Elem],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        Self::dot_product_with(RawDispatch, dst, coeffs, srcs);
+        Self::mul_into_gather_with(RawDispatch, dst, coeffs, srcs);
     }
 
     /// [`KernelDispatch::mul_add_matrix`] over already-prepared coefficients.
@@ -619,7 +702,7 @@ pub(crate) trait KernelDispatch: Field {
     ///
     /// The default is allocation-free repeated prepared AXPY. Register-blocked
     /// backends may override it and consume the same flat geometry directly.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn mul_add_matrix_plan(
         _proof: RawDispatch,
         rows: &mut [u8],
@@ -648,7 +731,7 @@ pub(crate) trait KernelDispatch: Field {
     /// zeroes the first `nrows` rows and accumulates; register-blocked backends
     /// override it to seed accumulators from zero in registers, writing each row
     /// once with no destination read and no separate fill.
-    fn dot_product_matrix(
+    fn mul_into_matrix(
         _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
@@ -662,8 +745,8 @@ pub(crate) trait KernelDispatch: Field {
     }
 
     /// [`KernelDispatch::mul_add_matrix_plan`].
-    #[cfg(feature = "std")]
-    fn dot_product_matrix_plan(
+    #[cfg(feature = "alloc")]
+    fn mul_into_matrix_plan(
         _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
@@ -684,7 +767,7 @@ pub(crate) trait KernelDispatch: Field {
     ///
     /// Like [`KernelDispatch::mul_add_matrix`], but the destination rows are not
     /// contiguous — row `j` occupies `dst[row_starts[j] .. row_starts[j] +
-    /// row_len]`. [`crate::ops::mul_add_matrix_scattered`] validates the
+    /// row_len]`. [`crate::ops::mul_add_matrix_at`] validates the
     /// offsets are in-bounds and pairwise disjoint before dispatch, so a
     /// blocked backend can write each recovered row to its final scattered
     /// slot and skip the staging copy a contiguous kernel forces on scattered
@@ -693,14 +776,14 @@ pub(crate) trait KernelDispatch: Field {
     /// The default applies each term row by row through the portable path.
     /// Register-blocked backends override it to retain destination tiles in
     /// registers across terms.
-    fn mul_add_matrix_scattered(
+    fn mul_add_matrix_at(
         _proof: RawDispatch,
         dst: &mut [u8],
         row_len: usize,
         row_starts: &[usize],
         terms: &[(&[Self::Elem], &[u8])],
     ) {
-        scalar::mul_add_matrix_scattered::<Self>(dst, row_len, row_starts, terms);
+        scalar::mul_add_matrix_at::<Self>(dst, row_len, row_starts, terms);
     }
 
     /// `dst[i] = a[i] * b[i]`, elementwise over two full vectors.
@@ -724,11 +807,10 @@ pub(crate) trait KernelDispatch: Field {
 /// zero-sized unit struct and the argument exists only in the type system.
 pub(crate) struct RawDispatch;
 
-// Capability-token re-exports for the `internals` `proven` surface. The
-// tokens are genuine archmage proofs (sealed, unforgeable); re-exporting
-// them keeps internals consumers and fgf's own benches free of a direct
-// archmage dependency. cfg'd per architecture so a wrong-arch token never
-// even appears.
+// Capability-token re-exports for the `internals` architecture surface. The
+// tokens are genuine archmage proofs (sealed, unforgeable); re-exporting them
+// keeps internals consumers and fgf's own benches free of a direct archmage
+// dependency. cfg'd per architecture so a wrong-arch token never appears.
 #[cfg(feature = "internals")]
 pub use archmage::SimdToken;
 #[cfg(all(
@@ -742,18 +824,16 @@ pub use archmage::{NeonAesToken, NeonToken};
     feature = "internals",
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
-pub use archmage::{X64V2Token, X64V3GfniCryptoToken, X64V3Token, X64V4Token, X64V4xToken};
+pub use archmage::{
+    X64V1Token, X64V2Token, X64V3GfniCryptoToken, X64V3Token, X64V4Token, X64V4xToken,
+};
 
-/// Shared runtime validation for the token-proven `internals` wrappers.
+/// Shared runtime validation for architecture compatibility facades.
 ///
-/// The selected entrypoints behind `proven` wrappers carry only
-/// `debug_assert`s — compiled out in release — because normal callers reach
-/// them through the [`crate::ops`] facade. A `proven` wrapper is public and
-/// safe, so it re-establishes the facade's checks here, before dispatch and
-/// outside the kernel loops.
-// Compiled only where a `proven` module exists (internals plus an
-// architecture module); without that combination there is no caller and the
-// items would be dead code.
+/// Direct x86 entries own their validation. The deferred AVX-512 experiments
+/// and the `AArch64` and Wasm compatibility facades use these helpers to apply
+/// the same public geometry contract before entering their selected kernels.
+// Compiled only where an internals architecture facade can use it.
 #[cfg(all(
     feature = "internals",
     feature = "simd",
@@ -799,41 +879,6 @@ pub(crate) mod proven_checks {
             buffer_len >= used,
             "{name}: rows is {buffer_len} bytes but {count} rows of {row_len} bytes need {used}"
         );
-    }
-
-    /// Scattered rows: in-bounds, element-aligned, pairwise disjoint — the
-    /// same rules [`crate::ops::mul_add_matrix_scattered`] enforces before
-    /// dispatch.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    pub(crate) fn check_scattered(
-        name: &str,
-        dst_len: usize,
-        row_len: usize,
-        row_starts: &[usize],
-        elem_bytes: usize,
-    ) {
-        for (j, &start) in row_starts.iter().enumerate() {
-            let end = start
-                .checked_add(row_len)
-                .unwrap_or_else(|| panic!("{name}: row offset + length overflows"));
-            assert!(
-                end <= dst_len,
-                "{name}: row {j} spans {start}..{end} but dst is {dst_len} bytes"
-            );
-            assert!(
-                start.is_multiple_of(elem_bytes),
-                "{name}: row {j} offset {start} is not element-aligned"
-            );
-        }
-        for (a, &sa) in row_starts.iter().enumerate() {
-            for &sb in &row_starts[a + 1..] {
-                let (lo, hi) = if sa <= sb { (sa, sb) } else { (sb, sa) };
-                assert!(
-                    hi - lo >= row_len,
-                    "{name}: rows at {sa} and {sb} overlap for {row_len}-byte rows"
-                );
-            }
-        }
     }
 }
 
@@ -889,15 +934,29 @@ pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
         }
         return;
     }
-    match backend() {
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-        Backend::V3GfniCrypto | Backend::V3 => x86::xor_gather_avx2(region, dst, offsets),
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-        Backend::V2 => {
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    match x86_proof() {
+        X86Proof::V3GfniCrypto(token) => {
+            x86::xor_gather_avx2(token.v3(), region, dst, offsets);
+        }
+        X86Proof::V3(token) => x86::xor_gather_avx2(token, region, dst, offsets),
+        X86Proof::V2(token) => {
             for &start in offsets {
-                x86::xor_sse2(dst, &region[start as usize..start as usize + live]);
+                x86::xor_sse2(
+                    token.v1(),
+                    dst,
+                    &region[start as usize..start as usize + live],
+                );
             }
         }
+        X86Proof::Scalar => {
+            for &start in offsets {
+                scalar::xor(dst, &region[start as usize..start as usize + live]);
+            }
+        }
+    }
+    #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+    match backend() {
         #[cfg(all(feature = "simd", target_arch = "aarch64"))]
         Backend::Neon | Backend::NeonAes => {
             for &start in offsets {
@@ -919,8 +978,8 @@ pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
 }
 
 /// Buffers at most this long skip the dispatched SIMD XOR for the inline
-/// portable one: below a single vector the `#[target_feature]` call
-/// boundary costs more than the body saves, and short GF(2) rows (eight
+/// portable one: below a single vector the out-of-line SIMD entry boundary
+/// costs more than the body saves, and short GF(2) rows (eight
 /// elements per byte) sit almost entirely under it. Measured on the
 /// reference host (BENCHMARKS.md, "Short-buffer inline XOR").
 const XOR_INLINE_MAX: usize = 31;
@@ -932,11 +991,15 @@ fn xor_impl(dst: &mut [u8], src: &[u8]) {
         scalar::xor(dst, src);
         return;
     }
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    match x86_proof() {
+        X86Proof::V3GfniCrypto(token) => x86::xor_avx2(token.v3(), dst, src),
+        X86Proof::V3(token) => x86::xor_avx2(token, dst, src),
+        X86Proof::V2(token) => x86::xor_sse2(token.v1(), dst, src),
+        X86Proof::Scalar => scalar::xor(dst, src),
+    }
+    #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
     match backend() {
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-        Backend::V3GfniCrypto | Backend::V3 => x86::xor_avx2(dst, src),
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-        Backend::V2 => x86::xor_sse2(dst, src),
         #[cfg(all(feature = "simd", target_arch = "aarch64"))]
         Backend::Neon | Backend::NeonAes => aarch64::xor_neon(dst, src),
         #[cfg(all(feature = "simd", target_arch = "wasm32"))]

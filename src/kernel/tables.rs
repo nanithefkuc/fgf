@@ -17,7 +17,7 @@
 //! instead resolved per call into its four base-field factors (two base
 //! multiplies, [`TowerCoeff::new`]) and, on shuffle backends, four table
 //! copies out of the shared bank ([`TowerTables::new`]) — amortized over the
-//! whole buffer, or hoisted out entirely with `Coeff`/`Plan`.
+//! whole buffer, or hoisted out entirely with `Coeff`/`CoeffVec`.
 
 use crate::field::fan_paar::{fp8, fp16};
 use crate::field::{gf8b, gf8d, gf16};
@@ -250,7 +250,7 @@ impl TowerCoeff {
     #[inline]
     #[must_use]
     pub const fn new(coeff: gf16::Elem) -> Self {
-        let (c0, c1) = coeff.components();
+        let (c0, c1) = coeff.to_components();
         let same = u16::from_le_bytes([c0.0, c0.add(c1).0]);
         let cross = u16::from_le_bytes([gf16::DELTA.mul(c1).0, c1.0]);
         Self { coeff, same, cross }
@@ -428,7 +428,7 @@ impl FpTowerTables {
     #[must_use]
     #[allow(dead_code)]
     pub fn new(coeff: fp16::Elem) -> Self {
-        let (c0, c1) = coeff.components();
+        let (c0, c1) = coeff.to_components();
         // `c1.mul_alpha()` is `alpha·c1` in the fp8 subfield.
         let b = c0.add(c1.mul_alpha());
         let [f0, f1, f2, f3] = [c0, b, c1, c1];

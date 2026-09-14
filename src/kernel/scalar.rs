@@ -1,15 +1,14 @@
-//! Portable reference kernels.
+//! Portable scalar kernels.
 //!
 //! These are field-generic and elementwise: correct everywhere, dependent on
-//! nothing but [`Field`]. They serve three roles.
+//! nothing but [`Field`]. They provide the fallback on targets without a
+//! supported vector unit and process sub-lane tails from vector loops. Backend
+//! tests use them as the scalar reference except for the Fan–Paar family, whose
+//! optimized element arithmetic is checked against the independent
+//! [`crate::field::wiedemann`] recurrence.
 //!
-//! 1. **Oracle.** Every SIMD backend is differentially tested against these.
-//! 2. **Fallback.** Targets with no supported vector unit run these.
-//! 3. **Tails.** Vector loops hand their sub-lane remainder here.
-//!
-//! Hot scalar paths that beat the generic form — the GF(2^8) nibble tail, for
-//! instance — live in the per-field dispatch modules, not here. Keeping this
-//! module obviously-correct is worth more than making it fast.
+//! Hot scalar paths that beat the generic form live in the per-field dispatch
+//! modules rather than here.
 
 use crate::field::{Elem, Field};
 
@@ -56,8 +55,8 @@ pub fn mul_add<F: Field>(dst: &mut [u8], coeff: F::Elem, src: &[u8]) {
         .chunks_exact_mut(F::BYTES)
         .zip(src.chunks_exact(F::BYTES))
     {
-        let value = F::read(d).add(F::read(s).mul(coeff));
-        F::write(d, value);
+        let value = F::decode(d).add(F::decode(s).mul(coeff));
+        F::encode(d, value);
     }
 }
 
@@ -71,8 +70,8 @@ pub fn mul_assign<F: Field>(dst: &mut [u8], coeff: F::Elem) {
         return;
     }
     for d in dst.chunks_exact_mut(F::BYTES) {
-        let value = F::read(d).mul(coeff);
-        F::write(d, value);
+        let value = F::decode(d).mul(coeff);
+        F::encode(d, value);
     }
 }
 
@@ -100,7 +99,7 @@ pub fn mul_add_matrix<F: Field>(
 /// Apply every `(coeffs, src)` term to disjoint `row_len`-byte rows scattered
 /// through `dst` at byte offsets `row_starts`: row `j` is
 /// `dst[row_starts[j] .. row_starts[j] + row_len]`.
-pub fn mul_add_matrix_scattered<F: Field>(
+pub fn mul_add_matrix_at<F: Field>(
     dst: &mut [u8],
     row_len: usize,
     row_starts: &[usize],
@@ -130,7 +129,7 @@ pub fn mul_elementwise<F: Field>(dst: &mut [u8], a: &[u8], b: &[u8]) {
         .zip(a.chunks_exact(F::BYTES))
         .zip(b.chunks_exact(F::BYTES))
     {
-        F::write(d, F::read(x).mul(F::read(y)));
+        F::encode(d, F::decode(x).mul(F::decode(y)));
     }
 }
 
@@ -223,7 +222,7 @@ macro_rules! impl_field_kernels {
             // `Prepared` is `Elem` for these fields, so the prepared forms
             // are the same call: there is nothing a backend could have
             // resolved ahead of time.
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn mul_add_scatter_with(
                 _proof: crate::kernel::RawDispatch,
                 rows: &mut [u8],
@@ -234,7 +233,7 @@ macro_rules! impl_field_kernels {
                 crate::kernel::scalar::mul_add_scatter::<Self>(rows, row_len, coeffs, src);
             }
 
-            #[cfg(feature = "std")]
+            #[cfg(feature = "alloc")]
             fn mul_add_gather_with(
                 _proof: crate::kernel::RawDispatch,
                 dst: &mut [u8],

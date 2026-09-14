@@ -27,7 +27,7 @@ mod imp {
     use fgf::gf8d;
     use fgf::kernel::scalar;
     use fgf::kernel::tables::{affine_8d, scale_table_8d};
-    use fgf::kernel::x86::proven;
+    use fgf::kernel::x86;
     use fgf::kernel::{SimdToken, X64V3GfniCryptoToken, X64V3Token};
 
     /// The crate-wide deterministic source (same LCG as the tests and the other
@@ -84,7 +84,7 @@ mod imp {
             g.throughput(Throughput::Bytes(len as u64));
             g.bench_function(BenchmarkId::new("shuffle_avx2", len), |b| {
                 b.iter(|| {
-                    proven::gf8::mul_add_avx2(
+                    x86::gf8::mul_add_avx2(
                         avx2,
                         black_box(dst.as_mut_slice()),
                         table,
@@ -94,7 +94,7 @@ mod imp {
             });
             g.bench_function(BenchmarkId::new("affine_gfni", len), |b| {
                 b.iter(|| {
-                    proven::gf8::mul_add_affine(
+                    x86::gf8::mul_add_affine(
                         gfni,
                         black_box(dst.as_mut_slice()),
                         map,
@@ -105,7 +105,7 @@ mod imp {
             });
             g.bench_function(BenchmarkId::new("native_gfni_0x11b", len), |b| {
                 b.iter(|| {
-                    proven::gf8::mul_add_gfni(
+                    x86::gf8::mul_add_gfni(
                         gfni,
                         black_box(dst.as_mut_slice()),
                         gf8b::Elem::from_raw(0x53),
@@ -129,16 +129,16 @@ mod imp {
             let mut dst = noise(len, 0x900 + len as u64);
             g.throughput(Throughput::Bytes(len as u64));
             g.bench_function(BenchmarkId::new("shuffle_avx2", len), |b| {
-                b.iter(|| proven::gf8::mul_assign_avx2(avx2, black_box(dst.as_mut_slice()), table));
+                b.iter(|| x86::gf8::mul_assign_avx2(avx2, black_box(dst.as_mut_slice()), table));
             });
             g.bench_function(BenchmarkId::new("affine_gfni", len), |b| {
                 b.iter(|| {
-                    proven::gf8::mul_assign_affine(gfni, black_box(dst.as_mut_slice()), map, table)
+                    x86::gf8::mul_assign_affine(gfni, black_box(dst.as_mut_slice()), map, table)
                 });
             });
             g.bench_function(BenchmarkId::new("native_gfni_0x11b", len), |b| {
                 b.iter(|| {
-                    proven::gf8::mul_assign_gfni(
+                    x86::gf8::mul_assign_gfni(
                         gfni,
                         black_box(dst.as_mut_slice()),
                         gf8b::Elem::from_raw(0x53),
@@ -167,7 +167,7 @@ mod imp {
             }
             g.bench_function(BenchmarkId::new("shuffle_avx2", len), |b| {
                 b.iter(|| {
-                    proven::gf8::mul_into_avx2(
+                    x86::gf8::mul_into_avx2(
                         avx2,
                         black_box(dst.as_mut_slice()),
                         table,
@@ -177,7 +177,7 @@ mod imp {
             });
             g.bench_function(BenchmarkId::new("affine_gfni", len), |b| {
                 b.iter(|| {
-                    proven::gf8::mul_into_affine(
+                    x86::gf8::mul_into_affine(
                         gfni,
                         black_box(dst.as_mut_slice()),
                         map,
@@ -188,7 +188,7 @@ mod imp {
             });
             g.bench_function(BenchmarkId::new("native_gfni_0x11b", len), |b| {
                 b.iter(|| {
-                    proven::gf8::mul_into_gfni(
+                    x86::gf8::mul_into_gfni(
                         gfni,
                         black_box(dst.as_mut_slice()),
                         gf8b::Elem::from_raw(0x53),
@@ -220,7 +220,7 @@ mod imp {
                 g.bench_function(BenchmarkId::new("shuffle_avx2", &label), |b| {
                     b.iter(|| {
                         for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(&coeffs) {
-                            proven::gf8::mul_add_avx2(
+                            x86::gf8::mul_add_avx2(
                                 avx2,
                                 black_box(row),
                                 scale_table_8d(coeff),
@@ -232,7 +232,7 @@ mod imp {
                 g.bench_function(BenchmarkId::new("affine_gfni", &label), |b| {
                     b.iter(|| {
                         for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(&coeffs) {
-                            proven::gf8::mul_add_affine(
+                            x86::gf8::mul_add_affine(
                                 gfni,
                                 black_box(row),
                                 affine_8d(coeff),
@@ -244,7 +244,7 @@ mod imp {
                 });
                 g.bench_function(BenchmarkId::new("blocked_affine", &label), |b| {
                     b.iter(|| {
-                        proven::gf8::scatter_affine(
+                        x86::gf8::mul_add_scatter_affine(
                             gfni,
                             black_box(rows.as_mut_slice()),
                             row_len,
@@ -280,7 +280,7 @@ mod imp {
                 g.bench_function(BenchmarkId::new("perrow_affine", &label), |b| {
                     b.iter(|| {
                         for (&coeff, &src) in coeffs.iter().zip(&srcs) {
-                            proven::gf8::mul_add_affine(
+                            x86::gf8::mul_add_affine(
                                 gfni,
                                 black_box(dst.as_mut_slice()),
                                 affine_8d(coeff),
@@ -292,7 +292,7 @@ mod imp {
                 });
                 g.bench_function(BenchmarkId::new("blocked_affine", &label), |b| {
                     b.iter(|| {
-                        proven::gf8::gather_affine(
+                        x86::gf8::mul_add_gather_affine(
                             gfni,
                             black_box(dst.as_mut_slice()),
                             &coeffs,
@@ -339,7 +339,7 @@ mod imp {
                             for (row, &coeff) in
                                 rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs)
                             {
-                                proven::gf8::mul_add_affine(
+                                x86::gf8::mul_add_affine(
                                     gfni,
                                     black_box(row),
                                     affine_8d(coeff),
@@ -352,7 +352,7 @@ mod imp {
                 });
                 g.bench_function(BenchmarkId::new("blocked_affine", &label), |b| {
                     b.iter(|| {
-                        proven::gf8::matrix_affine(
+                        x86::gf8::mul_add_matrix_affine(
                             gfni,
                             black_box(rows.as_mut_slice()),
                             row_len,
@@ -393,7 +393,7 @@ mod imp {
             });
             g.bench_function(BenchmarkId::new("shiftreduce_avx2", len), |bn| {
                 bn.iter(|| {
-                    proven::gf8::elementwise_avx2::<0x1d>(
+                    x86::gf8::mul_elementwise_avx2::<0x1d>(
                         avx2,
                         black_box(dst.as_mut_slice()),
                         black_box(&a),

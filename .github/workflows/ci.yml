@@ -22,6 +22,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --all-features
       - run: cargo test --no-default-features
+      # `alloc` sits between the two ends above: the prepared coefficient
+      # collections without `std`. Neither end builds it.
+      - run: cargo test --no-default-features --features alloc
 
   # The dispatch layer picks one backend per process, so a single test run only
   # ever exercises the host's best. Re-run the suite pinned to each weaker
@@ -127,6 +130,7 @@ jobs:
       # test jobs exercise.
       - run: cargo doc --no-deps
       - run: cargo doc --no-default-features --no-deps
+      - run: cargo doc --no-default-features --features alloc --no-deps
       - run: cargo doc --no-default-features --features std --no-deps
       - run: cargo doc --all-features --no-deps
 
