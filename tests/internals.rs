@@ -1022,155 +1022,136 @@ fn proven_gf16_degenerate_boundaries() {
 }
 
 // ---------------------------------------------------------------------------
-// Geometry rejection — real panics from the wrapper validation.
+// Geometry rejection — real panics from the entry validation.
 // ---------------------------------------------------------------------------
 
+/// Asserts that `body` panics, skipping when the host cannot summon the
+/// capability token the kernel demands.
+///
+/// `#[should_panic]` cannot express the skip: a token-less early return is
+/// reported as "did not panic as expected" on every host without the feature.
+fn rejects_geometry<T: SimdToken>(what: &str, body: impl FnOnce(T)) {
+    let Some(token) = T::summon() else {
+        eprintln!("skipping {what}: host cannot summon the required token");
+        return;
+    };
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body(token)));
+    assert!(outcome.is_err(), "{what}: expected a geometry panic");
+}
+
 #[test]
-#[should_panic]
 fn proven_gf8_mul_add_rejects_length_mismatch() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-    let mut dst = vec![0u8; 16];
-    let src = vec![0u8; 17];
-    x86::gf8::mul_add_gfni(token, &mut dst, gf8b::Elem::from_raw(3), &src);
+    rejects_geometry("gf8 mul_add", |token| {
+        let mut dst = vec![0u8; 16];
+        let src = vec![0u8; 17];
+        x86::gf8::mul_add_gfni(token, &mut dst, gf8b::Elem::from_raw(3), &src);
+    });
 }
 
 #[test]
-#[should_panic]
 fn proven_gf16_rejects_partial_element() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-    let mut dst = vec![0u8; 3];
-    let src = vec![0u8; 3];
-    x86::gf16::mul_add_gfni(
-        token,
-        &mut dst,
-        TowerCoeff::new(gf16::Elem::from_raw(7)),
-        &src,
-    );
+    rejects_geometry("gf16 mul_add", |token| {
+        let mut dst = vec![0u8; 3];
+        let src = vec![0u8; 3];
+        x86::gf16::mul_add_gfni(
+            token,
+            &mut dst,
+            TowerCoeff::new(gf16::Elem::from_raw(7)),
+            &src,
+        );
+    });
 }
 
 #[test]
-#[should_panic]
 fn proven_scatter_rejects_short_rows_buffer() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-    let mut rows = vec![0u8; 16];
-    let src = vec![0u8; 16];
-    let coeffs = [gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)];
-    x86::gf8::mul_add_scatter_gfni(token, &mut rows, 16, &coeffs, &src);
+    rejects_geometry("gf8 scatter", |token| {
+        let mut rows = vec![0u8; 16];
+        let src = vec![0u8; 16];
+        let coeffs = [gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)];
+        x86::gf8::mul_add_scatter_gfni(token, &mut rows, 16, &coeffs, &src);
+    });
 }
 
 #[test]
-#[should_panic]
 fn proven_matrix_rejects_term_coefficient_mismatch() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-    let mut rows = vec![0u8; 64];
-    let src = vec![0u8; 32];
-    let short = [gf8b::Elem::from_raw(1)];
-    let terms: Vec<(&[gf8b::Elem], &[u8])> = vec![(short.as_slice(), src.as_slice())];
-    x86::gf8::mul_add_matrix_gfni(token, &mut rows, 32, 2, &terms);
+    rejects_geometry("gf8 matrix", |token| {
+        let mut rows = vec![0u8; 64];
+        let src = vec![0u8; 32];
+        let short = [gf8b::Elem::from_raw(1)];
+        let terms: Vec<(&[gf8b::Elem], &[u8])> = vec![(short.as_slice(), src.as_slice())];
+        x86::gf8::mul_add_matrix_gfni(token, &mut rows, 32, 2, &terms);
+    });
 }
 
 #[test]
-#[should_panic]
 fn proven_matrix_scattered_rejects_overlapping_rows() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-    let mut dst = vec![0u8; 128];
-    let src = vec![0u8; 64];
-    let coeffs = [gf8b::Elem::from_raw(1); 2];
-    let terms: Vec<(&[gf8b::Elem], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
-    let starts = [0usize, 32];
-    x86::gf8::mul_add_matrix_at_gfni(token, &mut dst, 64, &starts, &terms);
+    rejects_geometry("gf8 matrix_at overlap", |token| {
+        let mut dst = vec![0u8; 128];
+        let src = vec![0u8; 64];
+        let coeffs = [gf8b::Elem::from_raw(1); 2];
+        let terms: Vec<(&[gf8b::Elem], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
+        let starts = [0usize, 32];
+        x86::gf8::mul_add_matrix_at_gfni(token, &mut dst, 64, &starts, &terms);
+    });
 }
 
 #[test]
-#[should_panic]
 fn proven_matrix_scattered_rejects_out_of_bounds_row() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-    let mut dst = vec![0u8; 64];
-    let src = vec![0u8; 64];
-    let coeffs = [gf8b::Elem::from_raw(1)];
-    let terms: Vec<(&[gf8b::Elem], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
-    let starts = [16usize];
-    x86::gf8::mul_add_matrix_at_gfni(token, &mut dst, 64, &starts, &terms);
+    rejects_geometry("gf8 matrix_at bounds", |token| {
+        let mut dst = vec![0u8; 64];
+        let src = vec![0u8; 64];
+        let coeffs = [gf8b::Elem::from_raw(1)];
+        let terms: Vec<(&[gf8b::Elem], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
+        let starts = [16usize];
+        x86::gf8::mul_add_matrix_at_gfni(token, &mut dst, 64, &starts, &terms);
+    });
 }
 
 #[test]
-#[should_panic]
 fn proven_gather_rejects_count_mismatch() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-    let mut dst = vec![0u8; 32];
-    let src = vec![0u8; 32];
-    let coeffs = [gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)];
-    let srcs: Vec<&[u8]> = vec![src.as_slice()];
-    x86::gf8::mul_add_gather_gfni(token, &mut dst, &coeffs, &srcs);
+    rejects_geometry("gf8 gather", |token| {
+        let mut dst = vec![0u8; 32];
+        let src = vec![0u8; 32];
+        let coeffs = [gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)];
+        let srcs: Vec<&[u8]> = vec![src.as_slice()];
+        x86::gf8::mul_add_gather_gfni(token, &mut dst, &coeffs, &srcs);
+    });
 }
 
 #[test]
-#[should_panic]
 fn proven_xor_rows_rejects_partial_row() {
-    let Some(v3) = X64V3Token::summon() else {
-        eprintln!("skipping: no AVX2 on this host");
-        return;
-    };
-    let mut dst = vec![0u8; 33];
-    let src = vec![0u8; 33];
-    x86::bytes::xor_rows_avx2(v3, &mut dst, &src, 16);
+    rejects_geometry("xor_rows avx2", |v3: X64V3Token| {
+        let mut dst = vec![0u8; 33];
+        let src = vec![0u8; 33];
+        x86::bytes::xor_rows_avx2(v3, &mut dst, &src, 16);
+    });
 }
 
 #[test]
-#[should_panic]
 fn proven_xor_rows_rejects_zero_row_len() {
-    let Some(v2) = X64V2Token::summon() else {
-        eprintln!("skipping: no SSE2 on this host");
-        return;
-    };
-    let mut dst = vec![0u8; 16];
-    let src = vec![0u8; 16];
-    x86::bytes::xor_rows_sse2(v2.v1(), &mut dst, &src, 0);
+    rejects_geometry("xor_rows sse2", |v2: X64V2Token| {
+        let mut dst = vec![0u8; 16];
+        let src = vec![0u8; 16];
+        x86::bytes::xor_rows_sse2(v2.v1(), &mut dst, &src, 0);
+    });
 }
 
 #[test]
-#[should_panic]
 fn proven_xor_gather_rejects_out_of_bounds_offset() {
-    let Some(v3) = X64V3Token::summon() else {
-        eprintln!("skipping: no AVX2 on this host");
-        return;
-    };
-    let region = vec![0u8; 64];
-    let mut dst = vec![0u8; 32];
-    x86::bytes::xor_gather_avx2(v3, &region, &mut dst, &[40]);
+    rejects_geometry("xor_gather avx2", |v3: X64V3Token| {
+        let region = vec![0u8; 64];
+        let mut dst = vec![0u8; 32];
+        x86::bytes::xor_gather_avx2(v3, &region, &mut dst, &[40]);
+    });
 }
 
 #[test]
-#[should_panic]
 fn proven_prime_rejects_partial_lane() {
-    let Some(v3) = X64V3Token::summon() else {
-        eprintln!("skipping: no AVX2 on this host");
-        return;
-    };
-    let mut dst = vec![0u8; 7];
-    let src = vec![0u8; 7];
-    x86::prime::add_assign_m31_avx2(v3, &mut dst, &src);
+    rejects_geometry("m31 add_assign avx2", |v3: X64V3Token| {
+        let mut dst = vec![0u8; 7];
+        let src = vec![0u8; 7];
+        x86::prime::add_assign_m31_avx2(v3, &mut dst, &src);
+    });
 }
 
 // ---------------------------------------------------------------------------

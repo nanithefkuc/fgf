@@ -114,7 +114,7 @@ mod private {
 /// A borrowed or owned backend-prepared coefficient.
 ///
 /// This trait is sealed: values come from [`Coeff`] or, with `alloc`, a
-/// [`CoeffVec`] or [`CoeffMatrix`].
+/// `CoeffVec` or `CoeffMatrix`.
 /// It exists so the `_with` operations can consume either without cloning the
 /// prepared tables. It exposes the coefficient's field value only — the
 /// backend representation stays crate-private, so no consumer can extract or

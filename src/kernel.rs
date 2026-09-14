@@ -13,7 +13,7 @@
 //!   use it for sub-lane tails; tests compare the Fan–Paar family against the
 //!   independent Wiedemann recurrence and other families against this module.
 //! - `x86` / `aarch64` / `wasm32` — architecture-local intrinsics. Direct x86
-//!   entries take exact [`archmage`] capability tokens and validate geometry.
+//!   entries take exact `archmage` capability tokens and validate geometry.
 //!   `AArch64` and Wasm retain their token-proven compatibility facades.
 //!
 //! Callers should use the safe, validated wrappers in [`crate::ops`] rather
