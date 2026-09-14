@@ -201,7 +201,7 @@ impl Elem {
     /// Real and imaginary components.
     #[inline]
     #[must_use]
-    pub const fn components(self) -> (mersenne31::Elem, mersenne31::Elem) {
+    pub const fn to_components(self) -> (mersenne31::Elem, mersenne31::Elem) {
         (mersenne31::Elem(self.0), mersenne31::Elem(self.1))
     }
 
@@ -219,13 +219,16 @@ impl Elem {
         Self(self.0, m31_neg(self.1))
     }
 
-    /// Norm `a² + b²` in the base field (canonical `u32`).
+    /// Norm `a² + b²` as an element of the base field.
+    ///
+    /// The norm lives in `GF(2^31 − 1)`, not in a raw lane; the returned
+    /// value is canonical.
     #[inline]
     #[must_use]
-    pub const fn norm(self) -> u32 {
+    pub const fn norm(self) -> crate::field::mersenne31::Elem {
         let re2 = m31_mul(self.0, self.0);
         let im2 = m31_mul(self.1, self.1);
-        m31_add(re2, im2)
+        mersenne31::Elem::from_raw(m31_add(re2, im2))
     }
 
     /// Field addition.
@@ -282,10 +285,10 @@ impl Elem {
     #[must_use]
     pub const fn inv(self) -> Self {
         let n = self.norm();
-        if n == 0 {
+        if n.to_raw() == 0 {
             return Self::ZERO;
         }
-        let n_inv = mersenne31::Elem(n).inv().0;
+        let n_inv = n.inv().0;
         // n_inv already canonical (<p)
         let re = m31_mul(self.0, n_inv);
         let im_neg = m31_neg(self.1);
@@ -298,7 +301,7 @@ impl Elem {
     #[must_use]
     pub const fn div(self, rhs: Self) -> Self {
         let n = rhs.norm();
-        if n == 0 {
+        if n.to_raw() == 0 {
             return Self::ZERO;
         }
         self.mul(rhs.inv())
@@ -399,13 +402,13 @@ impl Field for QuadMersenne31 {
     const GENERATOR: Elem = GENERATOR;
 
     #[inline]
-    fn read(bytes: &[u8]) -> Elem {
+    fn decode(bytes: &[u8]) -> Elem {
         let arr: [u8; 8] = bytes.try_into().expect("QM31 element has wrong byte width");
         Elem::from_bytes(arr)
     }
 
     #[inline]
-    fn write(bytes: &mut [u8], value: Elem) {
+    fn encode(bytes: &mut [u8], value: Elem) {
         assert_eq!(bytes.len(), 8, "QM31 element has wrong byte width");
         bytes.copy_from_slice(&value.to_bytes());
     }

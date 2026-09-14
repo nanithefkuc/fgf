@@ -22,6 +22,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --all-features
       - run: cargo test --no-default-features
+      # `alloc` sits between the two ends above: the prepared coefficient
+      # collections without `std`. Neither end builds it.
+      - run: cargo test --no-default-features --features alloc
 
   # The dispatch layer picks one backend per process, so a single test run only
   # ever exercises the host's best. Re-run the suite pinned to each weaker
@@ -75,8 +78,8 @@ jobs:
       - run: cargo llvm-cov --no-report --all-features
         env:
           SIMD_BACKEND: scalar
-      - run: cargo llvm-cov report --summary-only --ignore-filename-regex 'kernel/x86/(gf8|gf16|gf32|gf64|avx512)\.rs$'
-      - run: cargo llvm-cov report --fail-under-lines 95 --ignore-filename-regex 'kernel/x86/(gf8|gf16|gf32|gf64|avx512)\.rs$' --lcov --output-path coverage.lcov
+      - run: cargo llvm-cov report --summary-only --ignore-filename-regex 'kernel/x86/(gf8|gf16|gf32|gf64|avx512)(/|\.rs$)|kernel/(gf8|tower)\.rs$'
+      - run: cargo llvm-cov report --fail-under-lines 95 --ignore-filename-regex 'kernel/x86/(gf8|gf16|gf32|gf64|avx512)(/|\.rs$)|kernel/(gf8|tower)\.rs$' --lcov --output-path coverage.lcov
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -104,11 +107,11 @@ jobs:
           RUSTFLAGS: -D warnings -C target-feature=+simd128
 
   msrv:
-    name: msrv 1.89
+    name: msrv 1.93
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.89.0
+      - uses: dtolnay/rust-toolchain@1.93.0
       - run: cargo check --locked --all-features --all-targets
 
   lint:
@@ -127,6 +130,7 @@ jobs:
       # test jobs exercise.
       - run: cargo doc --no-deps
       - run: cargo doc --no-default-features --no-deps
+      - run: cargo doc --no-default-features --features alloc --no-deps
       - run: cargo doc --no-default-features --features std --no-deps
       - run: cargo doc --all-features --no-deps
 

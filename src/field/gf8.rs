@@ -1,12 +1,19 @@
-//! Shared implementation of the flat (non-tower) GF(2^8) fields.
+//! The flat (non-tower) GF(2^8) fields.
 //!
-//! Both public byte fields — [`gf8b`](crate::field::gf8b) under the AES
-//! polynomial `0x11B` and `gf8d` under `0x11D` — are the
-//! same construction `GF(2)[x] / p(x)` for an irreducible degree-8 `p`. They
-//! differ only in the reduction polynomial and the multiplicative generator;
-//! every algorithm, table shape, and byte encoding is identical. This macro is
-//! that single implementation, instantiated once per field so each stays a
-//! distinct type with its own compile-time tables and no runtime polynomial.
+//! Both public byte fields are the same construction `GF(2)[x] / p(x)` for an
+//! irreducible degree-8 `p`, differing only in the reduction polynomial and
+//! the multiplicative generator; every algorithm, table shape, and byte
+//! encoding is identical. One macro is that single implementation,
+//! instantiated once per field so each stays a distinct type with its own
+//! compile-time tables and no runtime polynomial.
+//!
+//! | Module | Marker | Element | Polynomial |
+//! | --- | --- | --- | --- |
+//! | [`gf8b`] | [`gf8b::Gf8B`] | [`gf8b::Elem`] | AES/Rijndael `0x11B` |
+//! | [`gf8d`] | [`gf8d::Gf8D`] | [`gf8d::Elem`] | `0x11D`, Reed-Solomon interop |
+//!
+//! The two are unrelated as fields: a byte has different products under each,
+//! so a buffer carries one convention and never both.
 
 /// Emit the scalar algebra of one flat GF(2^8) field into the calling module.
 ///
@@ -21,7 +28,7 @@ macro_rules! flat_gf8 {
 
         /// Low byte of [`REDUCTION_POLY`], `XORed` in when a shift overflows the
         /// field.
-        pub const REDUCTION_LOW: u8 = $reduction_low;
+        pub(crate) const REDUCTION_LOW: u8 = $reduction_low;
 
         /// A generator of the multiplicative group under this polynomial.
         pub const GENERATOR: Elem = Elem($generator);
@@ -40,17 +47,6 @@ macro_rules! flat_gf8 {
         /// characteristic two.
         #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
         pub struct Elem(pub(crate) u8);
-
-        impl $field {
-            /// This field's irreducible reduction polynomial, e.g. `0x11B` for
-            /// the AES field. Lets generic code introspect the representation
-            /// at compile time without carrying a runtime polynomial.
-            #[inline]
-            #[must_use]
-            pub const fn field_poly() -> u16 {
-                REDUCTION_POLY
-            }
-        }
 
         impl Elem {
             /// The additive identity.
@@ -100,12 +96,19 @@ macro_rules! flat_gf8 {
                 self.add(rhs)
             }
 
+            /// Additive inverse. The identity: `x + x = 0`.
+            #[inline]
+            #[must_use]
+            pub const fn neg(self) -> Self {
+                self
+            }
+
             /// Reference multiplication: shift-and-XOR ("Russian peasant").
             ///
             /// `const`, allocation-free, and independent of the tables. This is
             /// the oracle the table and SIMD backends are validated against.
             #[must_use]
-            pub const fn mul_xtime(self, rhs: Self) -> Self {
+            pub(crate) const fn mul_xtime(self, rhs: Self) -> Self {
                 let mut a = self.0;
                 let b = rhs.0;
                 let mut acc: u8 = 0;
@@ -125,8 +128,12 @@ macro_rules! flat_gf8 {
             }
 
             /// Reference inverse via Fermat's little theorem: `a^254 == a^-1`.
+            ///
+            /// Kept as the differential-testing reference; its only callers
+            /// are this macro's `#[cfg(test)]` checks.
             #[must_use]
-            pub const fn inv_xtime(self) -> Self {
+            #[cfg_attr(not(test), allow(dead_code))]
+            pub(crate) const fn inv_xtime(self) -> Self {
                 if self.0 == 0 {
                     return Self::ZERO;
                 }
@@ -256,7 +263,7 @@ macro_rules! flat_gf8 {
             const GENERATOR: Elem = GENERATOR;
 
             #[inline]
-            fn read(bytes: &[u8]) -> Elem {
+            fn decode(bytes: &[u8]) -> Elem {
                 let bytes: [u8; 1] = bytes
                     .try_into()
                     .expect(concat!($name, " element has the wrong byte width"));
@@ -264,7 +271,7 @@ macro_rules! flat_gf8 {
             }
 
             #[inline]
-            fn write(bytes: &mut [u8], value: Elem) {
+            fn encode(bytes: &mut [u8], value: Elem) {
                 assert_eq!(
                     bytes.len(),
                     1,
@@ -299,6 +306,14 @@ macro_rules! flat_gf8 {
             #[inline]
             fn sub(self, rhs: Self) -> Self {
                 Elem::sub(self, rhs)
+            }
+        }
+
+        impl core::ops::Neg for Elem {
+            type Output = Self;
+            #[inline]
+            fn neg(self) -> Self {
+                Elem::neg(self)
             }
         }
 
@@ -426,9 +441,136 @@ macro_rules! flat_gf8 {
                     GENERATOR,
                     "the generator generates"
                 );
+
+                // The Fermat-inverse reference must agree with the table
+                // inverse on every nonzero element.
+                for raw in 1..=255u8 {
+                    assert_eq!(
+                        Elem(raw).inv_xtime(),
+                        Elem(raw).inv(),
+                        "inv_xtime disagrees with the table inverse at {raw:#04x}"
+                    );
+                }
             }
         }
     };
 }
 
-pub(crate) use flat_gf8;
+pub mod gf8b {
+    //! GF(2^8) under the AES/Rijndael polynomial `0x11B`.
+    //!
+    //! The field is `GF(2)[x] / (x^8 + x^4 + x^3 + x + 1)`. Addition and
+    //! subtraction are bitwise XOR. Multiplication uses compile-time discrete-log
+    //! tables built from generator `0x03`.
+    //!
+    //! This polynomial is not an arbitrary choice: it is the one implemented in
+    //! hardware by the x86 `GF2P8MULB` instruction (GFNI). Picking it lets the
+    //! SIMD backend issue a single instruction per 64 field multiplications
+    //! instead of a nibble-shuffle emulation. The sibling `gf8d`
+    //! field is the same construction under `0x11D` for Reed–Solomon interop.
+    //!
+    //! # Backends
+    //!
+    //! - The crate-internal reference multiply `mul_xtime` is shift-and-XOR,
+    //!   `const`, no static storage; every other backend is differentially
+    //!   tested against it.
+    //! - [`Elem::mul`] uses the `LOG`/`EXP` tables (511 bytes, in L1).
+    //!
+    //! # Compile-time coding matrices
+    //!
+    //! Every scalar operation here is `const`, so a Reed-Solomon generator matrix
+    //! is a `const` item rather than a lazily-built table. This builds the
+    //! 3-by-4 Vandermonde matrix `V[i][j] = x_j^i` at compile time:
+    //!
+    //! ```
+    //! use fgf::gf8b::Elem;
+    //!
+    //! const POINTS: [Elem; 4] = [
+    //!     Elem::from_raw(1),
+    //!     Elem::from_raw(2),
+    //!     Elem::from_raw(3),
+    //!     Elem::from_raw(4),
+    //! ];
+    //! const V: [[Elem; 4]; 3] = {
+    //!     let mut rows = [[Elem::ZERO; 4]; 3];
+    //!     let mut i = 0;
+    //!     while i < 3 {
+    //!         let mut j = 0;
+    //!         while j < 4 {
+    //!             rows[i][j] = POINTS[j].pow(i as u64);
+    //!             j += 1;
+    //!         }
+    //!         i += 1;
+    //!     }
+    //!     rows
+    //! };
+    //!
+    //! assert_eq!(V[0], [Elem::ONE; 4]);
+    //! assert_eq!(V[1], POINTS);
+    //! assert_eq!(V[2][3], Elem::from_raw(4).square());
+    //!
+    //! // A parity symbol is one Vandermonde row dotted with the data symbols.
+    //! let data = [
+    //!     Elem::from_raw(0x11),
+    //!     Elem::from_raw(0x22),
+    //!     Elem::from_raw(0x33),
+    //!     Elem::from_raw(0x44),
+    //! ];
+    //! let parity: Elem = V[1].iter().zip(data).map(|(&v, d)| v.mul(d)).sum();
+    //! assert_eq!(
+    //!     parity,
+    //!     Elem::from_raw(0x11).mul(Elem::from_raw(1))
+    //!         .add(Elem::from_raw(0x22).mul(Elem::from_raw(2)))
+    //!         .add(Elem::from_raw(0x33).mul(Elem::from_raw(3)))
+    //!         .add(Elem::from_raw(0x44).mul(Elem::from_raw(4)))
+    //! );
+    //!
+    //! // Division is total: `x / 0` is zero, in `const` context too.
+    //! const _: () = assert!(Elem::from_raw(0x57).div(Elem::ZERO).to_raw() == 0);
+    //! ```
+
+    flat_gf8!(Gf8B, 0x11B, 0x1B, 0x03, "GF(2^8)");
+}
+
+pub mod gf8d {
+    //! GF(2^8) under the polynomial `0x11D`.
+    //!
+    //! The field is `GF(2)[x] / (x^8 + x^4 + x^3 + x^2 + 1)`. It is the same
+    //! construction as [`gf8b`](crate::field::gf8b), differing only in the
+    //! reduction polynomial (`0x11D` rather than the AES `0x11B`) and its
+    //! multiplicative generator (`0x02` rather than `0x03`; under `0x11D` the
+    //! element `x` is primitive and `3` is not — the mirror of the AES field).
+    //!
+    //! This is the field used by Intel ISA-L, `klauspost/reedsolomon`, and the
+    //! classical Reed–Solomon tables. It exists so codecs above `fgf` can produce
+    //! and consume shards that are byte-identical to those ecosystems. The bytes
+    //! are a wire convention: the polynomial, the generator `0x02`, and the
+    //! encoding are frozen.
+    //!
+    //! `0x11D` has no native hardware multiply — `GF2P8MULB` (GFNI) implements
+    //! only the AES field — so on x86 GFNI hosts this field multiplies through
+    //! `VGF2P8AFFINEQB` affine maps const-derived from the scalar oracle below,
+    //! and elsewhere uses the polynomial-agnostic nibble-shuffle kernels.
+    //! Scalar arithmetic here is `const`, exactly as in [`gf8b`](crate::field::gf8b),
+    //! so `0x11D` coding matrices are equally `const` items.
+    //!
+    //! ```
+    //! use fgf::gf8d::Elem;
+    //!
+    //! // The generator is 2, and it has full multiplicative order.
+    //! assert_eq!(Elem::from_raw(fgf::gf8d::GENERATOR.to_raw()), Elem::from_raw(0x02));
+    //! assert_eq!(Elem::from_raw(0x02).pow(255), Elem::ONE);
+    //!
+    //! // Known-answer products under 0x11D. The 0x11B (AES) field gives 0x01,
+    //! // 0xc1, and 0x13 for the same inputs — the fields are genuinely distinct.
+    //! assert_eq!(Elem::from_raw(0x53).mul(Elem::from_raw(0xca)), Elem::from_raw(0x8f));
+    //! assert_eq!(Elem::from_raw(0x57).mul(Elem::from_raw(0x83)), Elem::from_raw(0x31));
+    //! assert_eq!(Elem::from_raw(0xff).mul(Elem::from_raw(0xff)), Elem::from_raw(0xe2));
+    //!
+    //! // Inverse and division round-trip; division is total in `const` context.
+    //! assert_eq!(Elem::from_raw(0x53).mul(Elem::from_raw(0x53).inv()), Elem::ONE);
+    //! const _: () = assert!(Elem::from_raw(0x57).div(Elem::ZERO).to_raw() == 0);
+    //! ```
+
+    flat_gf8!(Gf8D, 0x11D, 0x1D, 0x02, "GF(2^8)/0x11D");
+}

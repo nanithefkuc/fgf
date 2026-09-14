@@ -113,7 +113,8 @@ mod private {
 
 /// A borrowed or owned backend-prepared coefficient.
 ///
-/// This trait is sealed: values come from [`Coeff`] or, with `std`, a `Plan`.
+/// This trait is sealed: values come from [`Coeff`] or, with `alloc`, a
+/// `CoeffVec` or `CoeffMatrix`.
 /// It exists so the `_with` operations can consume either without cloning the
 /// prepared tables. It exposes the coefficient's field value only — the
 /// backend representation stays crate-private, so no consumer can extract or
@@ -153,18 +154,18 @@ impl<F: FieldKernels> PreparedRepr<F> for Coeff<F> {
     }
 }
 
-/// A borrowed coefficient inside a [`Plan`].
+/// A borrowed prepared coefficient inside a [`CoeffVec`] or [`CoeffMatrix`].
 ///
 /// Unlike cloning a [`Coeff`], this copies only a pointer even when the
 /// backend representation is a full GF(2^16) nibble-table set.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[derive(Clone, Copy)]
 pub struct CoeffRef<'a, F: FieldKernels> {
     prepared: &'a <F as KernelDispatch>::Prepared,
     field: core::marker::PhantomData<F>,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<F: FieldKernels> CoeffRef<'_, F> {
     /// The field element this prepared representation multiplies by.
     #[inline]
@@ -174,10 +175,10 @@ impl<F: FieldKernels> CoeffRef<'_, F> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<F: FieldKernels> private::Sealed for CoeffRef<'_, F> {}
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<F: FieldKernels> PreparedCoefficient<F> for CoeffRef<'_, F> {
     #[inline]
     fn value(&self) -> F::Elem {
@@ -185,7 +186,7 @@ impl<F: FieldKernels> PreparedCoefficient<F> for CoeffRef<'_, F> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<F: FieldKernels> PreparedRepr<F> for CoeffRef<'_, F> {
     #[inline]
     fn repr(&self, _proof: RawDispatch) -> &<F as KernelDispatch>::Prepared {
@@ -193,71 +194,54 @@ impl<F: FieldKernels> PreparedRepr<F> for CoeffRef<'_, F> {
     }
 }
 
-/// A reusable vector or source-major matrix of prepared coefficients.
-///
-/// Plans are available with `std` because they own a dynamically sized
-/// coefficient collection. Preparation happens once in the constructor;
-/// [`Plan::get`] then borrows an entry without rebuilding or copying its
-/// backend tables. Store a plan beside the coding matrix it represents.
-///
-/// A matrix plan is **source-major**: the coefficient pairing source `s`
-/// with output row `o` is `coeffs[s * outputs + o]` — `coeff[source][output]`
-/// in two-dimensional notation. A plan built by [`Plan::new`] is a flat
-/// coefficient vector whose interpretation follows the consuming operation
-/// (one coefficient per output row for the scatter ops, per source for the
-/// gather and dot-product ops).
-#[cfg(feature = "std")]
-pub struct Plan<F: FieldKernels> {
-    prepared: std::boxed::Box<[<F as KernelDispatch>::Prepared]>,
-    values: std::boxed::Box<[F::Elem]>,
-    sources: usize,
-    outputs: usize,
+#[cfg(feature = "alloc")]
+impl<F: FieldKernels> core::fmt::Debug for CoeffRef<'_, F> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("CoeffRef").field(&self.value()).finish()
+    }
 }
 
-#[cfg(feature = "std")]
-impl<F: FieldKernels> Plan<F> {
-    /// Prepare a one-dimensional coefficient vector.
+/// A reusable vector of prepared coefficients: one coefficient per position,
+/// with the position's meaning supplied by the consuming operation.
+///
+/// Positions are output rows for [`mul_add_scatter_with`] and sources for the
+/// gather operations. A vector has a length and nothing else — it carries no
+/// source or output axis, which is exactly why it is a separate type from
+/// [`CoeffMatrix`].
+///
+/// Preparation happens once in [`CoeffVec::new`]; [`CoeffVec::get`] then
+/// borrows an entry without rebuilding or copying its backend tables. Store
+/// one beside the coding column it represents.
+///
+/// Requires `alloc`: the collection owns dynamically sized storage. The
+/// operations take the borrowed [`CoeffVecRef`] view, which
+/// [`CoeffVec::as_ref`] produces for free.
+#[cfg(feature = "alloc")]
+pub struct CoeffVec<F: FieldKernels> {
+    prepared: alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>,
+    values: alloc::boxed::Box<[F::Elem]>,
+}
+
+#[cfg(feature = "alloc")]
+impl<F: FieldKernels> CoeffVec<F> {
+    /// Resolve every coefficient for this host.
     #[must_use]
     pub fn new(coeffs: &[F::Elem]) -> Self {
-        let values: std::boxed::Box<[F::Elem]> = std::boxed::Box::from(coeffs);
-        let prepared = values
-            .iter()
-            .copied()
-            .map(|coeff| F::prepare(RawDispatch, coeff))
-            .collect::<std::vec::Vec<_>>()
-            .into_boxed_slice();
         Self {
-            prepared,
-            values,
-            sources: 1,
-            outputs: coeffs.len(),
+            prepared: prepare_all::<F>(coeffs),
+            values: alloc::boxed::Box::from(coeffs),
         }
     }
 
-    /// Prepare a source-major `sources × outputs` coefficient matrix.
-    ///
-    /// The coefficient pairing source `s` with output row `o` is
-    /// `coeffs[s * outputs + o]`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `coeffs.len() != sources * outputs` or the product
-    /// overflows.
+    /// Borrow the whole vector as the view the operations consume.
+    #[inline]
     #[must_use]
-    pub fn matrix(sources: usize, outputs: usize, coeffs: &[F::Elem]) -> Self {
-        let len = sources
-            .checked_mul(outputs)
-            .expect("Plan::matrix: dimensions overflow");
-        assert_eq!(
-            coeffs.len(),
-            len,
-            "Plan::matrix: {} coefficients for {sources}x{outputs} source-major matrix",
-            coeffs.len()
-        );
-        let mut plan = Self::new(coeffs);
-        plan.sources = sources;
-        plan.outputs = outputs;
-        plan
+    pub fn as_ref(&self) -> CoeffVecRef<'_, F> {
+        CoeffVecRef {
+            prepared: &self.prepared,
+            values: &self.values,
+            field: core::marker::PhantomData,
+        }
     }
 
     /// Number of prepared coefficients.
@@ -267,17 +251,164 @@ impl<F: FieldKernels> Plan<F> {
         self.prepared.len()
     }
 
-    /// Whether the plan contains no coefficients.
+    /// Whether the vector contains no coefficients.
     #[inline]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.prepared.is_empty()
     }
 
-    /// Number of source terms the plan's coefficients are grouped by.
+    /// Borrow coefficient `index`, or return `None` when out of bounds.
+    #[inline]
+    #[must_use]
+    pub fn get(&self, index: usize) -> Option<CoeffRef<'_, F>> {
+        self.as_ref().get(index)
+    }
+
+    /// Iterate over prepared coefficients without copying their backend form.
+    #[must_use]
+    pub fn coeffs(&self) -> impl ExactSizeIterator<Item = CoeffRef<'_, F>> {
+        self.as_ref().into_coeffs()
+    }
+
+    /// Iterate over the original field elements.
+    #[must_use]
+    pub fn values(&self) -> impl ExactSizeIterator<Item = F::Elem> + '_ {
+        self.values.iter().copied()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<F: FieldKernels> Clone for CoeffVec<F> {
+    fn clone(&self) -> Self {
+        Self {
+            prepared: self.prepared.clone(),
+            values: self.values.clone(),
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<F: FieldKernels> core::fmt::Debug for CoeffVec<F> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CoeffVec")
+            .field("len", &self.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// A borrowed prepared coefficient vector.
+///
+/// Every vector-shaped prepared operation takes this, so one type serves both
+/// a standalone [`CoeffVec`] and a single source's coefficients inside a
+/// [`CoeffMatrix`] — [`CoeffMatrix::source`] hands a matrix row straight to
+/// [`mul_add_scatter_with`] without copying or restaging anything.
+///
+/// `Copy`: it is two slice references.
+#[cfg(feature = "alloc")]
+#[derive(Clone, Copy)]
+pub struct CoeffVecRef<'a, F: FieldKernels> {
+    prepared: &'a [<F as KernelDispatch>::Prepared],
+    values: &'a [F::Elem],
+    field: core::marker::PhantomData<F>,
+}
+
+#[cfg(feature = "alloc")]
+impl<'a, F: FieldKernels> CoeffVecRef<'a, F> {
+    /// Number of prepared coefficients.
+    #[inline]
+    #[must_use]
+    pub fn len(self) -> usize {
+        self.prepared.len()
+    }
+
+    /// Whether the view covers no coefficients.
+    #[inline]
+    #[must_use]
+    pub fn is_empty(self) -> bool {
+        self.prepared.is_empty()
+    }
+
+    /// Borrow coefficient `index`, or return `None` when out of bounds.
+    #[inline]
+    #[must_use]
+    pub fn get(self, index: usize) -> Option<CoeffRef<'a, F>> {
+        self.prepared.get(index).map(|prepared| CoeffRef {
+            prepared,
+            field: core::marker::PhantomData,
+        })
+    }
+
+    /// Iterate over prepared coefficients without copying their backend form.
+    #[must_use]
+    pub fn into_coeffs(self) -> impl ExactSizeIterator<Item = CoeffRef<'a, F>> {
+        self.prepared.iter().map(|prepared| CoeffRef {
+            prepared,
+            field: core::marker::PhantomData,
+        })
+    }
+
+    /// Iterate over the original field elements.
+    #[must_use]
+    pub fn values(self) -> impl ExactSizeIterator<Item = F::Elem> + 'a {
+        self.values.iter().copied()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<F: FieldKernels> core::fmt::Debug for CoeffVecRef<'_, F> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CoeffVecRef")
+            .field("len", &self.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// A reusable source-major matrix of prepared coefficients.
+///
+/// The matrix is **source-major**: the coefficient pairing source `s` with
+/// output row `o` is `coeffs[s * outputs + o]` — `coeff[source][output]` in
+/// two-dimensional notation. The constructor is named
+/// [`CoeffMatrix::from_source_major`] rather than `matrix` because a square
+/// output-major array passed to a source-major constructor is a silent
+/// transpose, and the axis has to be stated where the caller writes it.
+///
+/// Requires `alloc`. Store one beside the coding matrix it represents.
+#[cfg(feature = "alloc")]
+pub struct CoeffMatrix<F: FieldKernels> {
+    prepared: alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>,
+    values: alloc::boxed::Box<[F::Elem]>,
+    sources: usize,
+    outputs: usize,
+}
+
+#[cfg(feature = "alloc")]
+impl<F: FieldKernels> CoeffMatrix<F> {
+    /// Resolve a `sources × outputs` matrix held in source-major order.
     ///
-    /// A vector plan ([`Plan::new`]) reports `1`; a zero-coefficient vector
-    /// plan has `1` source and `0` outputs.
+    /// # Panics
+    ///
+    /// Panics if `coeffs.len() != sources * outputs` or the product overflows.
+    #[must_use]
+    pub fn from_source_major(sources: usize, outputs: usize, coeffs: &[F::Elem]) -> Self {
+        let len = sources
+            .checked_mul(outputs)
+            .expect("CoeffMatrix::from_source_major: dimensions overflow");
+        assert_eq!(
+            coeffs.len(),
+            len,
+            "CoeffMatrix::from_source_major: {} coefficients for {sources}x{outputs} source-major matrix",
+            coeffs.len()
+        );
+        Self {
+            prepared: prepare_all::<F>(coeffs),
+            values: alloc::boxed::Box::from(coeffs),
+            sources,
+            outputs,
+        }
+    }
+
+    /// Number of source terms the coefficients are grouped by.
     #[inline]
     #[must_use]
     pub const fn source_count(&self) -> usize {
@@ -291,14 +422,18 @@ impl<F: FieldKernels> Plan<F> {
         self.outputs
     }
 
-    /// Borrow coefficient `index`, or return `None` when out of bounds.
+    /// Total number of prepared coefficients, `source_count * output_count`.
     #[inline]
     #[must_use]
-    pub fn get(&self, index: usize) -> Option<CoeffRef<'_, F>> {
-        self.prepared.get(index).map(|prepared| CoeffRef {
-            prepared,
-            field: core::marker::PhantomData,
-        })
+    pub fn len(&self) -> usize {
+        self.prepared.len()
+    }
+
+    /// Whether the matrix holds no coefficients.
+    #[inline]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.prepared.is_empty()
     }
 
     /// Borrow the coefficient pairing `source` with `output`, or return
@@ -306,32 +441,19 @@ impl<F: FieldKernels> Plan<F> {
     #[inline]
     #[must_use]
     pub fn get_at(&self, source: usize, output: usize) -> Option<CoeffRef<'_, F>> {
-        (source < self.sources && output < self.outputs)
-            .then(|| source * self.outputs + output)
-            .and_then(|index| self.get(index))
+        self.source(source)?.get(output)
     }
 
-    /// Iterate over prepared coefficients without copying their backend form.
-    #[must_use]
-    pub fn coeffs(&self) -> impl ExactSizeIterator<Item = CoeffRef<'_, F>> {
-        self.prepared.iter().map(|prepared| CoeffRef {
-            prepared,
-            field: core::marker::PhantomData,
-        })
-    }
-
-    /// Iterate the `output_count()` coefficients pairing source `source`
-    /// with every output row, or return `None` when `source` is out of
-    /// bounds.
+    /// Borrow the `output_count()` coefficients pairing `source` with every
+    /// output row, or return `None` when `source` is out of bounds.
+    ///
+    /// The result is the same view the vector-shaped operations take, so a
+    /// matrix column drives [`mul_add_scatter_with`] directly.
     ///
     /// Total: every `usize` answers without overflow, `usize::MAX` included,
-    /// and a zero-output plan yields an empty iterator for each of its
-    /// sources.
+    /// and a zero-output matrix yields an empty view for each of its sources.
     #[must_use]
-    pub fn source(
-        &self,
-        source: usize,
-    ) -> Option<impl ExactSizeIterator<Item = CoeffRef<'_, F>> + '_> {
+    pub fn source(&self, source: usize) -> Option<CoeffVecRef<'_, F>> {
         if source >= self.sources {
             return None;
         }
@@ -339,11 +461,11 @@ impl<F: FieldKernels> Plan<F> {
         // are within `len` and cannot overflow.
         let start = source * self.outputs;
         let end = start + self.outputs;
-        let prepared = self.prepared.get(start..end)?;
-        Some(prepared.iter().map(|prepared| CoeffRef {
-            prepared,
+        Some(CoeffVecRef {
+            prepared: self.prepared.get(start..end)?,
+            values: self.values.get(start..end)?,
             field: core::marker::PhantomData,
-        }))
+        })
     }
 
     /// Iterate over the original field elements in source-major order.
@@ -353,8 +475,8 @@ impl<F: FieldKernels> Plan<F> {
     }
 }
 
-#[cfg(feature = "std")]
-impl<F: FieldKernels> Clone for Plan<F> {
+#[cfg(feature = "alloc")]
+impl<F: FieldKernels> Clone for CoeffMatrix<F> {
     fn clone(&self) -> Self {
         Self {
             prepared: self.prepared.clone(),
@@ -365,15 +487,27 @@ impl<F: FieldKernels> Clone for Plan<F> {
     }
 }
 
-#[cfg(feature = "std")]
-impl<F: FieldKernels> core::fmt::Debug for Plan<F> {
+#[cfg(feature = "alloc")]
+impl<F: FieldKernels> core::fmt::Debug for CoeffMatrix<F> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Plan")
-            .field("sources", &self.source_count())
-            .field("outputs", &self.output_count())
+        f.debug_struct("CoeffMatrix")
+            .field("sources", &self.sources)
+            .field("outputs", &self.outputs)
             .field("len", &self.len())
             .finish_non_exhaustive()
     }
+}
+
+#[cfg(feature = "alloc")]
+fn prepare_all<F: FieldKernels>(
+    coeffs: &[F::Elem],
+) -> alloc::boxed::Box<[<F as KernelDispatch>::Prepared]> {
+    coeffs
+        .iter()
+        .copied()
+        .map(|coeff| F::prepare(RawDispatch, coeff))
+        .collect::<alloc::vec::Vec<_>>()
+        .into_boxed_slice()
 }
 
 #[inline]
@@ -426,7 +560,7 @@ pub fn add_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 /// let mut dst = [0x10u8, 0x20, 0x30, 0x40];
 ///
 /// // Two rows of two bytes each, added pairwise.
-/// ops::add_assign_rows::<Gf8B>(&mut dst, &src, 2);
+/// ops::add_assign_rows::<Gf8B>(&mut dst, 2, &src);
 /// assert_eq!(dst, [0x11, 0x22, 0x33, 0x44]);
 /// ```
 ///
@@ -435,7 +569,7 @@ pub fn add_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 /// elements, if the buffers differ in length, or if their length is not a
 /// whole number of rows.
 #[inline]
-pub fn add_assign_rows<F: FieldKernels>(dst: &mut [u8], src: &[u8], row_len: usize) {
+pub fn add_assign_rows<F: FieldKernels>(dst: &mut [u8], row_len: usize, src: &[u8]) {
     assert_ne!(row_len, 0, "add_assign_rows: row length must be nonzero");
     check_width::<F>("add_assign_rows", row_len);
     assert_eq!(
@@ -463,6 +597,8 @@ pub fn add_assign_rows<F: FieldKernels>(dst: &mut [u8], src: &[u8], row_len: usi
 /// source. Fields whose addition is XOR hold the destination in registers
 /// across the whole source list; the rest fold one [`add_assign`] per
 /// source.
+/// The `_offsets` in the name: the *sources* are the offset-addressed rows
+/// of one backing region; the destination is the single row that comes first.
 ///
 /// ```
 /// use fgf::{Gf8B, ops};
@@ -470,7 +606,7 @@ pub fn add_assign_rows<F: FieldKernels>(dst: &mut [u8], src: &[u8], row_len: usi
 /// // Two 2-byte rows in one backing region, folded into `dst`.
 /// let region = [0x01u8, 0x02, 0x10, 0x20];
 /// let mut dst = [0x40u8, 0x80];
-/// ops::add_gather::<Gf8B>(&region, &mut dst, &[0, 2]);
+/// ops::add_gather_offsets::<Gf8B>(&mut dst, &region, &[0, 2]);
 /// assert_eq!(dst, [0x51, 0xa2]);
 /// ```
 ///
@@ -480,14 +616,14 @@ pub fn add_assign_rows<F: FieldKernels>(dst: &mut [u8], src: &[u8], row_len: usi
 /// borrow disjoint memory by construction, as with every two-slice
 /// operation in this crate.
 #[inline]
-pub fn add_gather<F: FieldKernels>(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
-    check_width::<F>("add_gather", dst.len());
+pub fn add_gather_offsets<F: FieldKernels>(dst: &mut [u8], region: &[u8], offsets: &[u32]) {
+    check_width::<F>("add_gather_offsets", dst.len());
     let live = dst.len();
     for (index, &start) in offsets.iter().enumerate() {
         let start = start as usize;
         assert!(
             start + live <= region.len(),
-            "add_gather: offset {index} ({start}) + {live} exceeds region of {} bytes",
+            "add_gather_offsets: offset {index} ({start}) + {live} exceeds region of {} bytes",
             region.len(),
         );
     }
@@ -654,23 +790,24 @@ pub fn mul_add_scatter<F: FieldKernels>(
     F::mul_add_scatter(RawDispatch, &mut rows[..used], row_len, coeffs, src);
 }
 
-/// Fan one source out to many rows using a prepared coefficient plan.
+/// Fan one source out to many rows using prepared coefficients.
 ///
 /// Unlike [`mul_add_scatter`], repeated calls do not rebuild backend-specific
-/// coefficient tables.
+/// coefficient tables. The view comes from [`CoeffVec::as_ref`] or, for one
+/// column of a coding matrix, [`CoeffMatrix::source`].
 ///
 /// # Panics
-/// Panics unless `rows` holds at least `plan.len()` rows of `row_len` bytes
+/// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len` bytes
 /// and `row_len == src.len()`, or on a partial trailing element.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub fn mul_add_scatter_with<F: FieldKernels>(
     rows: &mut [u8],
     row_len: usize,
-    plan: &Plan<F>,
+    coeffs: CoeffVecRef<'_, F>,
     src: &[u8],
 ) {
     check_pair::<F>("mul_add_scatter_with", "row_len", row_len, "src", src.len());
-    let used = plan
+    let used = coeffs
         .len()
         .checked_mul(row_len)
         .expect("mul_add_scatter_with: row geometry overflows");
@@ -678,17 +815,17 @@ pub fn mul_add_scatter_with<F: FieldKernels>(
         rows.len() >= used,
         "mul_add_scatter_with: rows is {} bytes but {} rows of {row_len} bytes need {used}",
         rows.len(),
-        plan.len(),
+        coeffs.len(),
     );
-    if row_len == 0 || plan.values().all(Elem::is_zero) {
+    if row_len == 0 || coeffs.values().all(Elem::is_zero) {
         return;
     }
     F::mul_add_scatter_plan(
         RawDispatch,
         &mut rows[..used],
         row_len,
-        &plan.values,
-        &plan.prepared,
+        coeffs.values,
+        coeffs.prepared,
         src,
     );
 }
@@ -728,19 +865,25 @@ pub fn mul_add_gather<F: FieldKernels>(dst: &mut [u8], coeffs: &[F::Elem], srcs:
     F::mul_add_gather(RawDispatch, dst, coeffs, srcs);
 }
 
-/// Fold many sources into one row using a prepared coefficient plan.
+/// Fold many sources into one row using prepared coefficients.
+///
+/// One coefficient per source. The view comes from [`CoeffVec::as_ref`].
 ///
 /// # Panics
-/// Panics unless `plan.len() == srcs.len()` and every source matches `dst` in
-/// length, or on a partial trailing element.
-#[cfg(feature = "std")]
-pub fn mul_add_gather_with<F: FieldKernels>(dst: &mut [u8], plan: &Plan<F>, srcs: &[&[u8]]) {
+/// Panics unless `coeffs.len() == srcs.len()` and every source matches `dst`
+/// in length, or on a partial trailing element.
+#[cfg(feature = "alloc")]
+pub fn mul_add_gather_with<F: FieldKernels>(
+    dst: &mut [u8],
+    coeffs: CoeffVecRef<'_, F>,
+    srcs: &[&[u8]],
+) {
     check_width::<F>("mul_add_gather_with", dst.len());
     assert_eq!(
-        plan.len(),
+        coeffs.len(),
         srcs.len(),
-        "mul_add_gather_with: plan has {} coefficients but there are {} sources",
-        plan.len(),
+        "mul_add_gather_with: {} coefficients for {} sources",
+        coeffs.len(),
         srcs.len(),
     );
     for (index, &src) in srcs.iter().enumerate() {
@@ -752,28 +895,28 @@ pub fn mul_add_gather_with<F: FieldKernels>(dst: &mut [u8], plan: &Plan<F>, srcs
             dst.len(),
         );
     }
-    if dst.is_empty() || srcs.is_empty() || plan.values().all(Elem::is_zero) {
+    if dst.is_empty() || srcs.is_empty() || coeffs.values().all(Elem::is_zero) {
         return;
     }
-    F::mul_add_gather_plan(RawDispatch, dst, &plan.values, &plan.prepared, srcs);
+    F::mul_add_gather_plan(RawDispatch, dst, coeffs.values, coeffs.prepared, srcs);
 }
 
 /// Overwrite one row with a field dot product:
 /// `dst = sum(coeffs[i] * srcs[i])`.
 ///
-/// Unlike [`mul_add_gather`], the previous destination is ignored. Zero
-/// sources or all-zero coefficients fill `dst` with zero; one source is the
-/// same operation as [`mul_into`].
+/// The overwrite counterpart of [`mul_add_gather`]: the previous destination
+/// is ignored. Zero sources or all-zero coefficients fill `dst` with zero;
+/// one source is the same operation as [`mul_into`].
 ///
 /// # Panics
 /// Panics unless `coeffs.len() == srcs.len()` and every source matches
 /// `dst` in length, or on a partial trailing element.
-pub fn dot_product<F: FieldKernels>(dst: &mut [u8], coeffs: &[F::Elem], srcs: &[&[u8]]) {
-    check_width::<F>("dot_product", dst.len());
+pub fn mul_into_gather<F: FieldKernels>(dst: &mut [u8], coeffs: &[F::Elem], srcs: &[&[u8]]) {
+    check_width::<F>("mul_into_gather", dst.len());
     assert_eq!(
         coeffs.len(),
         srcs.len(),
-        "dot_product: {} coefficients for {} sources",
+        "mul_into_gather: {} coefficients for {} sources",
         coeffs.len(),
         srcs.len()
     );
@@ -781,7 +924,7 @@ pub fn dot_product<F: FieldKernels>(dst: &mut [u8], coeffs: &[F::Elem], srcs: &[
         assert_eq!(
             dst.len(),
             src.len(),
-            "dot_product: source {index} is {} bytes, expected {}",
+            "mul_into_gather: source {index} is {} bytes, expected {}",
             src.len(),
             dst.len()
         );
@@ -794,43 +937,51 @@ pub fn dot_product<F: FieldKernels>(dst: &mut [u8], coeffs: &[F::Elem], srcs: &[
         mul_into::<F>(dst, *coeff, srcs[0]);
         return;
     }
-    F::dot_product(RawDispatch, dst, coeffs, srcs);
+    F::mul_into_gather(RawDispatch, dst, coeffs, srcs);
 }
 
-/// Overwrite one row with a field dot product using a prepared plan.
+/// Overwrite one row with a field dot product using prepared coefficients.
+///
+/// One coefficient per source. The view comes from [`CoeffVec::as_ref`].
 ///
 /// # Panics
-/// Panics unless `plan.len() == srcs.len()` and every source matches `dst` in
-/// length, or on a partial trailing element.
-#[cfg(feature = "std")]
-pub fn dot_product_with<F: FieldKernels>(dst: &mut [u8], plan: &Plan<F>, srcs: &[&[u8]]) {
-    check_width::<F>("dot_product_with", dst.len());
+/// Panics unless `coeffs.len() == srcs.len()` and every source matches `dst`
+/// in length, or on a partial trailing element.
+#[cfg(feature = "alloc")]
+pub fn mul_into_gather_with<F: FieldKernels>(
+    dst: &mut [u8],
+    coeffs: CoeffVecRef<'_, F>,
+    srcs: &[&[u8]],
+) {
+    check_width::<F>("mul_into_gather_with", dst.len());
     assert_eq!(
-        plan.len(),
+        coeffs.len(),
         srcs.len(),
-        "dot_product_with: plan has {} coefficients but there are {} sources",
-        plan.len(),
+        "mul_into_gather_with: {} coefficients for {} sources",
+        coeffs.len(),
         srcs.len(),
     );
     for (index, &src) in srcs.iter().enumerate() {
         assert_eq!(
             dst.len(),
             src.len(),
-            "dot_product_with: source {index} is {} bytes, expected {}",
+            "mul_into_gather_with: source {index} is {} bytes, expected {}",
             src.len(),
             dst.len(),
         );
     }
-    if dst.is_empty() || srcs.is_empty() || plan.values().all(Elem::is_zero) {
+    if dst.is_empty() || srcs.is_empty() || coeffs.values().all(Elem::is_zero) {
         dst.fill(0);
         return;
     }
-    if plan.len() == 1 {
-        let coeff = plan.get(0).expect("single-entry plan has one coefficient");
+    if coeffs.len() == 1 {
+        let coeff = coeffs
+            .get(0)
+            .expect("single-entry view has one coefficient");
         mul_into_with::<F>(dst, &coeff, srcs[0]);
         return;
     }
-    F::dot_product_plan(RawDispatch, dst, &plan.values, &plan.prepared, srcs);
+    F::mul_into_gather_plan(RawDispatch, dst, coeffs.values, coeffs.prepared, srcs);
 }
 
 /// Apply many sources to many rows: for each `(coeffs, src)` term,
@@ -885,26 +1036,27 @@ pub fn mul_add_matrix<F: FieldKernels>(
 }
 
 /// Apply many sources to many rows using a prepared source-major coefficient
-/// plan.
+/// matrix.
 ///
-/// The plan must have dimensions `(srcs.len(), n)` in `(sources, outputs)`:
-/// plan row `s` holds the coefficients pairing source `s` with every output
-/// row. The output-row count is the plan's [`output_count`](Plan::output_count)
-/// — it is not a parameter.
+/// The matrix must have dimensions `(srcs.len(), n)` in `(sources, outputs)`:
+/// matrix row `s` holds the coefficients pairing source `s` with every output
+/// row. The output-row count is
+/// [`coeffs.output_count()`](CoeffMatrix::output_count) — it is not a
+/// parameter.
 ///
 /// # Panics
-/// Panics unless `rows` holds at least `plan.output_count()` rows of
-/// `row_len` bytes, `plan.source_count() == srcs.len()`, and every source is
-/// `row_len` bytes.
-#[cfg(feature = "std")]
+/// Panics unless `rows` holds at least `coeffs.output_count()` rows of
+/// `row_len` bytes, `coeffs.source_count() == srcs.len()`, and every source
+/// is `row_len` bytes.
+#[cfg(feature = "alloc")]
 pub fn mul_add_matrix_with<F: FieldKernels>(
     rows: &mut [u8],
     row_len: usize,
-    plan: &Plan<F>,
+    coeffs: &CoeffMatrix<F>,
     srcs: &[&[u8]],
 ) {
     check_width::<F>("mul_add_matrix_with", row_len);
-    let nrows = plan.output_count();
+    let nrows = coeffs.output_count();
     let used = nrows
         .checked_mul(row_len)
         .expect("mul_add_matrix_with: row geometry overflows");
@@ -914,10 +1066,10 @@ pub fn mul_add_matrix_with<F: FieldKernels>(
         rows.len(),
     );
     assert_eq!(
-        plan.source_count(),
+        coeffs.source_count(),
         srcs.len(),
-        "mul_add_matrix_with: plan holds coefficients for {} sources but there are {}",
-        plan.source_count(),
+        "mul_add_matrix_with: matrix holds coefficients for {} sources but there are {}",
+        coeffs.source_count(),
         srcs.len(),
     );
     for (index, &src) in srcs.iter().enumerate() {
@@ -936,8 +1088,8 @@ pub fn mul_add_matrix_with<F: FieldKernels>(
         &mut rows[..used],
         row_len,
         nrows,
-        &plan.values,
-        &plan.prepared,
+        coeffs.values.as_ref(),
+        coeffs.prepared.as_ref(),
         srcs,
     );
 }
@@ -953,32 +1105,32 @@ pub fn mul_add_matrix_with<F: FieldKernels>(
 /// # Panics
 /// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes, every
 /// term supplies `nrows` coefficients, and every source is `row_len` bytes.
-pub fn dot_product_matrix<F: FieldKernels>(
+pub fn mul_into_matrix<F: FieldKernels>(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
     terms: &[(&[F::Elem], &[u8])],
 ) {
-    check_width::<F>("dot_product_matrix", row_len);
+    check_width::<F>("mul_into_matrix", row_len);
     let used = nrows
         .checked_mul(row_len)
-        .expect("dot_product_matrix: row geometry overflows");
+        .expect("mul_into_matrix: row geometry overflows");
     assert!(
         rows.len() >= used,
-        "dot_product_matrix: rows is {} bytes but {nrows} rows of {row_len} bytes need {used}",
+        "mul_into_matrix: rows is {} bytes but {nrows} rows of {row_len} bytes need {used}",
         rows.len(),
     );
     for &(coeffs, src) in terms {
         assert_eq!(
             coeffs.len(),
             nrows,
-            "dot_product_matrix: term supplies {} coefficients for {nrows} rows",
+            "mul_into_matrix: term supplies {} coefficients for {nrows} rows",
             coeffs.len()
         );
         assert_eq!(
             src.len(),
             row_len,
-            "dot_product_matrix: source is {} bytes, expected {row_len}",
+            "mul_into_matrix: source is {} bytes, expected {row_len}",
             src.len()
         );
     }
@@ -989,49 +1141,49 @@ pub fn dot_product_matrix<F: FieldKernels>(
         rows[..used].fill(0);
         return;
     }
-    F::dot_product_matrix(RawDispatch, &mut rows[..used], row_len, nrows, terms);
+    F::mul_into_matrix(RawDispatch, &mut rows[..used], row_len, nrows, terms);
 }
 
-/// Overwrite many rows with field dot products using a prepared
-/// source-major coefficient plan: `rows[j] = sum_t coeffs[t][j] * src[t]`.
+/// Overwrite many rows with field dot products using a prepared source-major
+/// coefficient matrix: `rows[j] = sum_t coeffs[t][j] * src[t]`.
 ///
-/// The overwrite counterpart of [`mul_add_matrix_with`]. The plan must have
-/// `srcs.len()` sources; the output-row count is the plan's
-/// [`output_count`](Plan::output_count).
+/// The overwrite counterpart of [`mul_add_matrix_with`]. The matrix must have
+/// `srcs.len()` sources; the output-row count is
+/// [`coeffs.output_count()`](CoeffMatrix::output_count).
 ///
 /// # Panics
-/// Panics unless `rows` holds at least `plan.output_count()` rows of
-/// `row_len` bytes, `plan.source_count() == srcs.len()`, and every source is
-/// `row_len` bytes.
-#[cfg(feature = "std")]
-pub fn dot_product_matrix_with<F: FieldKernels>(
+/// Panics unless `rows` holds at least `coeffs.output_count()` rows of
+/// `row_len` bytes, `coeffs.source_count() == srcs.len()`, and every source
+/// is `row_len` bytes.
+#[cfg(feature = "alloc")]
+pub fn mul_into_matrix_with<F: FieldKernels>(
     rows: &mut [u8],
     row_len: usize,
-    plan: &Plan<F>,
+    coeffs: &CoeffMatrix<F>,
     srcs: &[&[u8]],
 ) {
-    check_width::<F>("dot_product_matrix_with", row_len);
-    let nrows = plan.output_count();
+    check_width::<F>("mul_into_matrix_with", row_len);
+    let nrows = coeffs.output_count();
     let used = nrows
         .checked_mul(row_len)
-        .expect("dot_product_matrix_with: row geometry overflows");
+        .expect("mul_into_matrix_with: row geometry overflows");
     assert!(
         rows.len() >= used,
-        "dot_product_matrix_with: rows is {} bytes but {nrows} rows of {row_len} bytes need {used}",
+        "mul_into_matrix_with: rows is {} bytes but {nrows} rows of {row_len} bytes need {used}",
         rows.len(),
     );
     assert_eq!(
-        plan.source_count(),
+        coeffs.source_count(),
         srcs.len(),
-        "dot_product_matrix_with: plan holds coefficients for {} sources but there are {}",
-        plan.source_count(),
+        "mul_into_matrix_with: matrix holds coefficients for {} sources but there are {}",
+        coeffs.source_count(),
         srcs.len(),
     );
     for (index, &src) in srcs.iter().enumerate() {
         assert_eq!(
             src.len(),
             row_len,
-            "dot_product_matrix_with: source {index} is {} bytes, expected {row_len}",
+            "mul_into_matrix_with: source {index} is {} bytes, expected {row_len}",
             src.len(),
         );
     }
@@ -1042,13 +1194,13 @@ pub fn dot_product_matrix_with<F: FieldKernels>(
         rows[..used].fill(0);
         return;
     }
-    F::dot_product_matrix_plan(
+    F::mul_into_matrix_plan(
         RawDispatch,
         &mut rows[..used],
         row_len,
         nrows,
-        &plan.values,
-        &plan.prepared,
+        coeffs.values.as_ref(),
+        coeffs.prepared.as_ref(),
         srcs,
     );
 }
@@ -1068,31 +1220,33 @@ pub fn dot_product_matrix_with<F: FieldKernels>(
 ///
 /// A zero-length row is a valid zero-work shape and a no-op; the structural
 /// checks above (including disjointness of the named rows) still apply.
+/// The `_at` in the name: the destination rows are addressed by explicit
+/// offsets into `dst`, not held contiguously from its start.
 ///
 /// # Panics
 /// Panics unless every `row_starts[j] + row_len <= dst.len()`, every row start
 /// is a whole number of elements, the rows are pairwise disjoint, every term
 /// supplies `row_starts.len()` coefficients, and every source is `row_len`
 /// bytes; or on a partial trailing element.
-pub fn mul_add_matrix_scattered<F: FieldKernels>(
+pub fn mul_add_matrix_at<F: FieldKernels>(
     dst: &mut [u8],
     row_len: usize,
     row_starts: &[usize],
     terms: &[(&[F::Elem], &[u8])],
 ) {
-    check_width::<F>("mul_add_matrix_scattered", row_len);
+    check_width::<F>("mul_add_matrix_at", row_len);
     for (j, &start) in row_starts.iter().enumerate() {
         let end = start
             .checked_add(row_len)
-            .expect("mul_add_matrix_scattered: row offset + length overflows");
+            .expect("mul_add_matrix_at: row offset + length overflows");
         assert!(
             end <= dst.len(),
-            "mul_add_matrix_scattered: row {j} spans {start}..{end} but dst is {} bytes",
+            "mul_add_matrix_at: row {j} spans {start}..{end} but dst is {} bytes",
             dst.len(),
         );
         assert!(
             start.is_multiple_of(F::BYTES),
-            "mul_add_matrix_scattered: row {j} offset {start} is not a whole number of {} elements",
+            "mul_add_matrix_at: row {j} offset {start} is not a whole number of {} elements",
             F::NAME,
         );
     }
@@ -1105,7 +1259,7 @@ pub fn mul_add_matrix_scattered<F: FieldKernels>(
             let (lo, hi) = if sa <= sb { (sa, sb) } else { (sb, sa) };
             assert!(
                 hi - lo >= row_len,
-                "mul_add_matrix_scattered: rows at {sa} and {sb} overlap for {row_len}-byte rows",
+                "mul_add_matrix_at: rows at {sa} and {sb} overlap for {row_len}-byte rows",
             );
         }
     }
@@ -1114,20 +1268,20 @@ pub fn mul_add_matrix_scattered<F: FieldKernels>(
         assert_eq!(
             coeffs.len(),
             nrows,
-            "mul_add_matrix_scattered: term supplies {} coefficients for {nrows} rows",
+            "mul_add_matrix_at: term supplies {} coefficients for {nrows} rows",
             coeffs.len(),
         );
         assert_eq!(
             src.len(),
             row_len,
-            "mul_add_matrix_scattered: source is {} bytes, expected {row_len}",
+            "mul_add_matrix_at: source is {} bytes, expected {row_len}",
             src.len()
         );
     }
     if nrows == 0 || row_len == 0 || terms.is_empty() {
         return;
     }
-    F::mul_add_matrix_scattered(RawDispatch, dst, row_len, row_starts, terms);
+    F::mul_add_matrix_at(RawDispatch, dst, row_len, row_starts, terms);
 }
 
 /// Elementwise product: `dst[i] = a[i] * b[i]`.
@@ -1167,7 +1321,7 @@ pub fn pack<F: Field>(dst: &mut [u8], elems: &[F::Elem]) {
         F::NAME,
     );
     for (bytes, &elem) in dst.chunks_exact_mut(F::BYTES).zip(elems) {
-        F::write(bytes, elem);
+        F::encode(bytes, elem);
     }
 }
 
@@ -1192,7 +1346,7 @@ pub fn unpack<F: Field>(dst: &mut [F::Elem], src: &[u8]) {
         F::NAME,
     );
     for (elem, bytes) in dst.iter_mut().zip(src.chunks_exact(F::BYTES)) {
-        *elem = F::read(bytes);
+        *elem = F::decode(bytes);
     }
 }
 
@@ -1202,22 +1356,23 @@ pub fn unpack<F: Field>(dst: &mut [F::Elem], src: &[u8]) {
 ///
 /// # Panics
 /// Panics if the required byte length overflows `usize`.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[must_use]
-pub fn pack_to_vec<F: Field>(elems: &[F::Elem]) -> std::vec::Vec<u8> {
+pub fn pack_to_vec<F: Field>(elems: &[F::Elem]) -> alloc::vec::Vec<u8> {
     let len = elems
         .len()
         .checked_mul(F::BYTES)
         .expect("pack_to_vec: buffer geometry overflows");
-    let mut bytes = std::vec![0; len];
+    let mut bytes = alloc::vec![0; len];
     pack::<F>(&mut bytes, elems);
     bytes
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
     use crate::{Gf8B, Gf16, gf8b, gf16};
+    use alloc::vec::Vec;
 
     /// `row_len == 0` with otherwise valid geometry is a no-op everywhere —
     /// including the scalar backend, whose `chunks_exact_mut(0)` used to
@@ -1229,22 +1384,22 @@ mod tests {
         mul_add_scatter::<Gf8B>(&mut rows, 0, &coeffs, &[]);
         assert_eq!(rows, [0xA5; 8]);
 
-        let plan = Plan::<Gf8B>::new(&coeffs);
-        mul_add_scatter_with::<Gf8B>(&mut rows, 0, &plan, &[]);
+        let coeffs_vec = CoeffVec::<Gf8B>::new(&coeffs);
+        mul_add_scatter_with::<Gf8B>(&mut rows, 0, coeffs_vec.as_ref(), &[]);
         assert_eq!(rows, [0xA5; 8]);
 
         let terms: &[(&[gf8b::Elem], &[u8])] = &[(&coeffs, &[])];
         mul_add_matrix::<Gf8B>(&mut rows, 0, 3, terms);
         assert_eq!(rows, [0xA5; 8]);
-        dot_product_matrix::<Gf8B>(&mut rows, 0, 3, terms);
+        mul_into_matrix::<Gf8B>(&mut rows, 0, 3, terms);
         assert_eq!(rows, [0xA5; 8]);
-        mul_add_matrix_scattered::<Gf8B>(&mut rows, 0, &[1, 4], &[(&coeffs[..2], &[])]);
+        mul_add_matrix_at::<Gf8B>(&mut rows, 0, &[1, 4], &[(&coeffs[..2], &[])]);
         assert_eq!(rows, [0xA5; 8]);
 
-        let matrix = Plan::<Gf8B>::matrix(1, 3, &coeffs);
+        let matrix = CoeffMatrix::<Gf8B>::from_source_major(1, 3, &coeffs);
         mul_add_matrix_with::<Gf8B>(&mut rows, 0, &matrix, &[&[]]);
         assert_eq!(rows, [0xA5; 8]);
-        dot_product_matrix_with::<Gf8B>(&mut rows, 0, &matrix, &[&[]]);
+        mul_into_matrix_with::<Gf8B>(&mut rows, 0, &matrix, &[&[]]);
         assert_eq!(rows, [0xA5; 8]);
 
         // GF(2^16): the field whose odd-length buffers make the element
@@ -1275,59 +1430,59 @@ mod tests {
     }
 
     #[test]
-    fn plan_source_lookup_is_total() {
-        let plan = Plan::<Gf8B>::matrix(3, 2, &[gf8b::Elem::from_raw(1); 6]);
-        assert!(plan.source(0).is_some());
-        assert!(plan.source(2).is_some());
-        assert!(plan.source(3).is_none());
-        assert!(plan.source(usize::MAX).is_none());
-        assert_eq!(plan.source(1).map(core::iter::Iterator::count), Some(2));
+    fn matrix_source_lookup_is_total() {
+        let matrix = CoeffMatrix::<Gf8B>::from_source_major(3, 2, &[gf8b::Elem::from_raw(1); 6]);
+        assert!(matrix.source(0).is_some());
+        assert!(matrix.source(2).is_some());
+        assert!(matrix.source(3).is_none());
+        assert!(matrix.source(usize::MAX).is_none());
+        assert_eq!(matrix.source(1).map(CoeffVecRef::len), Some(2));
 
-        // Zero-column plans: every source exists and is empty.
-        let empty = Plan::<Gf8B>::matrix(3, 0, &[]);
+        // Zero-output matrices: every source exists and is empty.
+        let empty = CoeffMatrix::<Gf8B>::from_source_major(3, 0, &[]);
         assert_eq!(empty.source_count(), 3);
         assert_eq!(empty.output_count(), 0);
-        assert_eq!(empty.source(0).map(core::iter::Iterator::count), Some(0));
-        assert_eq!(empty.source(2).map(core::iter::Iterator::count), Some(0));
+        assert_eq!(empty.source(0).map(CoeffVecRef::len), Some(0));
+        assert_eq!(empty.source(2).map(CoeffVecRef::len), Some(0));
         assert!(empty.source(3).is_none());
         assert!(empty.source(usize::MAX).is_none());
 
-        // A zero-coefficient vector plan is one empty source.
-        let vector = Plan::<Gf8B>::new(&[]);
-        assert_eq!(vector.source(0).map(core::iter::Iterator::count), Some(0));
-        assert!(vector.source(1).is_none());
-
         // Coordinate lookup stays total at the extremes.
-        assert!(plan.get_at(0, usize::MAX).is_none());
-        assert!(plan.get_at(usize::MAX, 0).is_none());
-        assert!(plan.get_at(usize::MAX, usize::MAX).is_none());
+        assert!(matrix.get_at(0, usize::MAX).is_none());
+        assert!(matrix.get_at(usize::MAX, 0).is_none());
+        assert!(matrix.get_at(usize::MAX, usize::MAX).is_none());
     }
 
     #[test]
-    fn plan_matrix_is_source_major() {
+    fn coeff_matrix_is_source_major() {
         let values: Vec<gf8b::Elem> = (0u8..6).map(|i| gf8b::Elem::from_raw(i * 37)).collect();
-        let plan = Plan::<Gf8B>::matrix(2, 3, &values);
+        let matrix = CoeffMatrix::<Gf8B>::from_source_major(2, 3, &values);
         for source in 0..2 {
             for output in 0..3 {
-                let at = plan
+                let at = matrix
                     .get_at(source, output)
                     .map(CoeffRef::value)
                     .expect("in-bounds coordinate");
                 assert_eq!(at, values[source * 3 + output]);
             }
         }
-        let row_one: Vec<gf8b::Elem> = plan.source(1).unwrap().map(CoeffRef::value).collect();
+        let row_one: Vec<gf8b::Elem> = matrix
+            .source(1)
+            .unwrap()
+            .into_coeffs()
+            .map(CoeffRef::value)
+            .collect();
         assert_eq!(row_one, values[3..6]);
     }
 
     #[test]
     fn prepared_matrix_ops_match_one_shot() {
-        // source-major plan: source s contributes coeffs[s * outputs + o].
+        // source-major matrix: source s contributes coeffs[s * outputs + o].
         let values: Vec<gf16::Elem> = (0u16..3 * 4)
             .map(|i| gf16::Elem::from_raw(i * 511 + 3))
             .collect();
-        let plan = Plan::<Gf16>::matrix(3, 4, &values);
-        let srcs: Vec<Vec<u8>> = (0u8..3).map(|s| vec![s + 1; 8]).collect();
+        let matrix = CoeffMatrix::<Gf16>::from_source_major(3, 4, &values);
+        let srcs: Vec<Vec<u8>> = (0u8..3).map(|s| alloc::vec![s + 1; 8]).collect();
         let src_refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
 
         let terms: Vec<(&[gf16::Elem], &[u8])> = (0..3)
@@ -1337,13 +1492,13 @@ mod tests {
         let mut one_shot = [0x11u8; 32];
         mul_add_matrix::<Gf16>(&mut one_shot, 8, 4, &terms);
         let mut prepared = [0x11u8; 32];
-        mul_add_matrix_with::<Gf16>(&mut prepared, 8, &plan, &src_refs);
+        mul_add_matrix_with::<Gf16>(&mut prepared, 8, &matrix, &src_refs);
         assert_eq!(one_shot, prepared);
 
         let mut one_shot = [0x22u8; 32];
-        dot_product_matrix::<Gf16>(&mut one_shot, 8, 4, &terms);
+        mul_into_matrix::<Gf16>(&mut one_shot, 8, 4, &terms);
         let mut prepared = [0x22u8; 32];
-        dot_product_matrix_with::<Gf16>(&mut prepared, 8, &plan, &src_refs);
+        mul_into_matrix_with::<Gf16>(&mut prepared, 8, &matrix, &src_refs);
         assert_eq!(one_shot, prepared);
     }
 }

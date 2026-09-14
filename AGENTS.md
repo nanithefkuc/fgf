@@ -1,273 +1,155 @@
 # Repository Guidelines
 
-## Project Overview
+This file is the operational manual for changing `fgf`. Public behavior belongs
+in rustdoc and `README.md`; measurements belong in `BENCHMARKS.md`; user-visible
+changes belong in `CHANGELOG.md`.
 
-`fgf` is a Rust library for finite-field arithmetic — binary towers
-GF(2^m) and prime fields GF(p). Its only runtime dependency is
-`simdispatch` (backend detection/selection). It
-provides const-capable scalar elements and safe, runtime-dispatched kernels over
-packed byte buffers for erasure coders, proof systems, and similar consumers.
-It is deliberately not a codec: matrix recipes, shard ownership, inversion,
-and streaming recovery belong above this crate.
+## Required workflow
 
-The public fields are the binary towers `Gf8B`/`Gf8D`/`Gf16`/`Gf32`/`Gf64`,
-canonical Fan–Paar `FanPaar8/16/32/64`, the prime fields `Mersenne31`
-(GF(2^31 − 1)) and `Goldilocks` (GF(2^64 − 2^32 + 1)), their quadratic
-extension `QuadMersenne31` (GF((2^31−1)²), `i²=−1`), and GF(2) itself
-(`Gf2`, `gf2::Elem`) — the one sub-byte field, carried by the separate
-bit-packed `bits` surface rather than `ops`. `Gf8B`/`Gf16` have
-hand-written binary SIMD kernels; the prime fields have x86 integer-SIMD
-kernels (AVX2/SSE4.2) and `QuadMersenne31` composes the `Mersenne31` lanes
-(portable `scalar` today); `bits::xor` reuses the dispatched byte-XOR kernel
-and the other bit-packed kernels are portable word loops; wider towers,
-Fan–Paar fields, and the prime fields on non-x86 targets use the portable
-implementation. Bit-packed GF(2) row kernels are `fgf`'s — downstream
-bit-matrix code (`gfm`'s bit domain) composes them instead of hand-rolling
-word loops.
-
-## Tooling
-
-`just validate` is the pull-request gate; the shared recipes are documented
-once in the umbrella's root `AGENTS.md`. What follows is only what is specific
-to `fgf`.
-
-- **`TIERS = v3_gfni_crypto v3 v2 scalar`** — the backends the binary-tower and
-  prime-field kernels actually implement. Selection is cached once per process,
-  so `just test-tiers` and `just cover` re-run pinned to each of the four.
-- **`MIRI = --no-default-features`.** With `simd` off the intrinsic bodies are
-  out of the build, which is the only configuration miri can execute; the run
-  validates the safe kernel wrappers and portable tails under `src/kernel/` —
-  paired lengths, row geometry, element-aligned tails. The intrinsic paths stay
-  covered by the differential tests in `src/kernel/tests.rs`.
-- **`COV_IGNORE` excludes `src/kernel/x86/{gf8,gf16,gf32,gf64,avx512}.rs`** —
-  GFNI and AVX-512 bodies a CI host that cannot select those tiers will never
-  execute. The exclusion is justified rather than silent, per the coverage rule
-  below.
-- **Bench targets:** `kernels`, `compare`, `affine`, `dot_product`
-  (`just bench-save kernels`, then `just bench kernels` after the change). The
-  last two call kernels directly and need `internals`; the bench recipes pass
-  `--all-features`, so they build.
-- **Outside the shared surface:** the wasm32/aarch64 cross-builds and
-  `external-bench/run.sh` under "Development Commands" stay manual `cargo`
-  invocations. `justfile` is a byte-identical vendored copy — editing it here
-  fails the umbrella's `just drift` check; crate-specific values and recipes go
-  in `crate.just`.
-
-## Architecture & Data Flow
-
-1. `src/field/` defines scalar algebra and stable representations through
-   `Elem` and zero-sized `Field` markers. Concrete inherent arithmetic remains
-   `const` where possible.
-2. Callers pass packed, little-endian `&[u8]`/`&mut [u8]` buffers to
-   `src/ops.rs`. This safe façade validates element widths, paired lengths,
-   coefficient counts, and row geometry.
-3. `Coeff<F>` or std-only `Plan<F>` may prepare backend-specific coefficients
-   before repeated work. `_with` operations consume prepared forms.
-4. The sealed `FieldKernels` contract selects field-specific dispatch.
-   `backend()` is process-wide; use `backend_for::<F>()` when field support
-   matters because wider fields remain scalar.
-5. Safe crate-private wrappers under `src/kernel/{x86,aarch64,wasm32}/` enter
-   target-feature-specific unsafe intrinsics, process full lanes/blocked tiles,
-   then use portable element-aligned tails.
-
-Preserve these invariants:
-
-- Encodings are stable, fixed-width, little-endian, and alignment-free.
-- In characteristic two, addition and subtraction are XOR; the prime fields
-  reduce canonically and are total over raw lanes (any bit pattern is a legal
-  input, every arithmetic output is `< p`). By convention `inv(0) == 0` and
-  `x / 0 == 0`; do not turn these total operations into errors.
-- Backend selection is cached once and `SIMD_BACKEND` (owned by `simdispatch`)
-  is downgrade-only. Detection and ordering are single-source: `Backend` is a
-  re-export of `simdispatch::Backend`.
-- Coefficients `0` and `1` are handled before expensive preparation.
-- Unsafe code stays inside architecture modules. Root code denies unsafe.
-- Raw multi-row kernels may be register-blocked, but not every
-  `(field, backend, shape)` is; preserve documented measured crossovers.
-
-There is no async runtime, dependency injection, service container, or mutable
-application-state framework. Field selection is static generic dispatch; the
-only process-global state is immutable-after-initialization backend selection
-and immutable lookup data.
-
-## Key Directories
-
-- `src/bits.rs` — the checked bit-packed GF(2) surface over `&[u8]`.
-- `src/field/` — `Elem`/`Field` contracts, concrete fields, constants,
-  conversions, and scalar algebra.
-- `src/kernel/` — sealed dispatch contract, portable oracle/fallback,
-  coefficient tables, per-field routing, and backend reporting.
-- `src/kernel/{x86,aarch64,wasm32}/` — crate-private intrinsic implementations
-  and the only allowed unsafe boundary.
-- `tests/` — public integration tests: `algebra.rs` for field laws,
-  `ops.rs` for checked/dispatched buffer operations, `bits.rs` for the
-  bit-packed GF(2) surface, `zero_alloc.rs` for steady-state allocation.
-- `benches/` — custom throughput binaries, not Criterion harnesses.
-- `external-bench/` — ignored, Linux/x86-oriented comparisons against external
-  libraries; dependencies must be installed or built separately.
-- `.github/workflows/` — CI policy and platform/toolchain matrix.
-
-## Development Commands
+Work from the crate root and use `just` for routine commands.
 
 ```sh
-# Main feature matrix
-cargo test --all-features
-cargo test --no-default-features
-
-# Focused suites
-cargo test --test algebra
-cargo test --test ops
-cargo test --lib kernel::tests -- --nocapture
-cargo test --doc
-
-# Required backend processes on capable x86 hardware
-SIMD_BACKEND=v3     cargo test --all-features
-SIMD_BACKEND=v2     cargo test --all-features
-SIMD_BACKEND=scalar cargo test --all-features
-
-# Formatting, linting, and docs
-cargo fmt --all -- --check
-cargo clippy --all-features --all-targets -- -D warnings
-cargo clippy --no-default-features --all-targets -- -D warnings
-RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
-
-# Coverage (CI enforces >= 95% line coverage; merge one run per forced tier,
-# exactly like the CI coverage job). cargo-llvm-cov is installed with
-# `cargo install cargo-llvm-cov`, never a dev-dependency.
-cargo llvm-cov clean --workspace
-cargo llvm-cov --no-report --all-features
-SIMD_BACKEND=v3     cargo llvm-cov --no-report --all-features
-SIMD_BACKEND=v2     cargo llvm-cov --no-report --all-features
-SIMD_BACKEND=scalar cargo llvm-cov --no-report --all-features
-cargo llvm-cov report --fail-under-lines 95
-
-# Cross-builds and MSRV
-cargo build --target aarch64-unknown-linux-gnu
-cargo build --target wasm32-unknown-unknown
-cargo +1.89.0 build --all-features
-
-# Benchmarks
-cargo bench --bench kernels
-cargo bench --bench compare
+just test [ARGS]       # host's selected backend
+just test-tiers        # every supported backend tier
+just features          # no-default, default, all-features
+just features-alloc    # alloc without std
+just lint              # rustfmt and clippy at both feature ends
+just doc               # rustdoc with warnings denied
+just unsafe-check      # scalar-path Miri cases
+just cover             # merged per-tier coverage, 95% minimum
+just validate          # complete pull-request gate
 ```
 
-Nightly scalar-path Miri: `cargo miri test --no-default-features`.
-External comparisons use `sh external-bench/run.sh [cpu]`; read the script
-first because it assumes system libraries, local prefixes, GNU/Linux tools,
-and host-specific compiler flags.
+Run `just validate` before submitting a change. Do not replace a recipe with a
+bare Cargo command; fix the recipe when its supported behavior is insufficient.
+The MSRV is Rust 1.93.
 
-## Code Conventions & Common Patterns
+`justfile` is a shared, byte-identical command surface. Do not edit it here.
+Crate-specific values and recipes belong in `crate.just`.
 
-- Use rustfmt defaults. The crate denies missing docs and unsafe code, warns on
-  Clippy pedantic, and has only narrow lint allowances in `src/lib.rs`.
-- Naming: lowercase field module, CamelCase zero-sized marker, module-local
-  `Elem`; conversions are `from_raw`/`to_raw`, `from_bytes`/`to_bytes`, and
-  tower `from_components`/`components`. Algebraic constants are uppercase.
-- Extend `define_fan_paar_level!` and `impl_field_kernels!` instead of creating
-  parallel repetition for sibling fields.
-- Keep inherent scalar APIs `const`, `#[must_use]`, and small/hot wrappers
-  `#[inline]` where the surrounding code does. Const algorithms use fixed
-  arrays and explicit loops rather than allocation.
-- Public buffer misuse is a programmer error: validate in `ops`, then panic
-  with operation-specific, operand-naming messages. Use `checked_mul` for row
-  geometry. Query APIs such as `Plan::get`, `get_at`, and `row` return `Option`.
-- Internal kernels rely on `ops` validation and normally use `debug_assert!`.
-  A new unsafe function needs a `# Safety` contract; each call needs an
-  adjacent `// SAFETY:` explanation naming the dispatch/geometry proof.
-- Avoid allocations and copies in hot paths. Prepare outside repeated short
-  operations, borrow `CoeffRef`/`Plan` instead of cloning large GF16 tables,
-  use fused/wide operation shapes when they preserve destination traffic, and
-  leave measured crossover comments intact.
-- Do not serialize prepared coefficients; they are tied to the process backend.
-  Serialize the scalar element and rebuild preparation.
-- `Backend` declaration order encodes capability and downgrade comparison;
-  reordering variants is a behavioral and safety change.
+## Change discipline
 
-## Important Files
+- Preserve stable, fixed-width, little-endian field encodings.
+- Preserve total scalar arithmetic: `inv(0) == 0` and `x / 0 == 0`.
+- Keep inherent scalar operations `const` where the surrounding family is
+  `const`.
+- Validate public buffer geometry before dispatch. Use checked arithmetic for
+  row spans and name the failing operand in panic messages.
+- Keep hot steady-state operations allocation-free. Prepare coefficients and
+  lookup data outside repeated calls.
+- Gate owned prepared collections on `alloc`, not `std`.
+- Do not serialize prepared coefficients; serialize scalar elements and rebuild
+  preparation for the current process backend.
+- Extend existing macros and family patterns instead of creating parallel
+  implementations.
+- Do not add a second spelling for an existing operation. Follow the public
+  naming and argument-order grammar already used by `ops`.
 
-- `Cargo.toml` — package metadata, Rust 2024/MSRV 1.89, `std`/`simd` feature
-  graph, bench profile and targets. Publishing is disabled (`publish =
-  false`); the crate is git-only.
-- `src/lib.rs` — crate scope, lint/safety policy, public modules and re-exports.
-- `src/field/mod.rs` — canonical scalar/marker contracts and byte invariant.
-- `src/ops.rs` — validated public operations, `Coeff`, `Plan`, packing helpers.
-- `src/kernel/mod.rs` — `Backend`, cached downgrade override, sealed kernels.
-- `src/kernel/scalar.rs` — correctness oracle, universal fallback, SIMD tails.
-- `src/kernel/tables.rs` — static GF8 table bank and GF16 prepared layouts.
-- `tests/algebra.rs`, `tests/ops.rs`, `src/kernel/tests.rs` — three QA layers.
-- `README.md` — user-facing supported fields, operations, platforms, and scope.
-- `CONTRIBUTING.md` — unsafe and differential-testing policies.
-- `BENCHMARKS.md` — benchmark interpretation and reproducibility requirements.
-- `CHANGELOG.md` — notable user-facing changes; keep unreleased entries current.
-- `.github/workflows/ci.yml` — authoritative automated command matrix.
+Backend detection and ordering belong to `simdispatch`. `SIMD_BACKEND` is a
+process-startup, downgrade-only request. Do not add local CPU detection, another
+override, or per-call backend resolution. Use `backend_for::<F>()` when behavior
+depends on a field's implemented backend.
 
-## Runtime/Tooling Preferences
+## SIMD and unsafe code
 
-- Use Cargo and Rust; there is no Node/Bun/package-manager workflow.
-- Edition: Rust 2024. MSRV: Rust 1.89. No root toolchain pin exists, so select
-  `+1.89.0`, stable, or nightly explicitly when the check requires it.
-- Default features are `std` + `simd`; `simd` implies `std`.
-  `--no-default-features` is the crate's portable configuration, but the
-  `simdispatch`/`archmage` dependency graph still enables `std`, so a
-  bare-metal `no_std` closure is not yet supported (pending a separate
-  dependency review).
-- Runtime dependencies are `simdispatch` and an optional
-  `archmage =0.9.29` enabled through the `internals` feature. Dev-dependencies are
-  `reed-solomon-erasure` with `simd-accel` for comparison and `criterion`
-  for benchmarks, both scoped to non-wasm targets.
-- No custom rustfmt/clippy config or Cargo aliases exist; use the commands above.
-- `SIMD_BACKEND` requests can be ignored when unavailable. A green forced run
-  is not proof that an incapable host executed that ISA; inspect reported
-  backend or direct-kernel skip output.
-- The committed `Cargo.lock` is Cargo-generated; do not edit it manually.
-- `/target` and `/external-bench` are ignored, as is `/.lucid/`. Packaging
-  uses an explicit `include` allowlist (`src`, tests/benches/examples, and
-  the public doc/license set), so local-only working files and CI
-  configuration never enter `cargo package`.
+Safe scalar behavior is the differential oracle. Add or change the scalar path
+before an optimized path when no independent oracle exists.
 
-## Testing & QA
+Architecture kernels stay under `src/kernel/{x86,aarch64,wasm32}/`. A kernel
+must take the exact Archmage capability token required by its instructions.
+Dispatch resolves and caches that token once. Helpers use `#[archmage::rite]`
+only within a token-proven entry.
 
-Tests use the built-in Rust harness—no property, snapshot, async, or fixture
-framework. Reuse existing deterministic helpers and independent oracles:
+Do not introduce module-level `#![allow(unsafe_code)]`. Every remaining unsafe
+item needs a narrow `#[allow(unsafe_code)]`, and every unsafe operation needs an
+adjacent SINCE–THUS proof with one labelled pair per obligation:
 
-- `tests/algebra.rs` exhaustively checks GF8 and deterministically samples wider
-  fields against independent shift/XOR or schoolbook formulations.
-- `tests/ops.rs` compares public operations with elementwise/repeated-operation
-  oracles, including prepared plans, packing, geometry panics, surplus rows,
-  zero/one shortcuts, empty buffers, and erasure recovery.
-- `src/kernel/tests.rs` bypasses dispatch and differentially compares runnable
-  architecture kernels with `kernel::scalar` across lane tails, row blocks,
-  source counts, and coefficients. Unsupported hardware prints a skip and
-  returns; tests are not marked ignored.
+```text
+// SAFETY:
+// MEMORY VALIDITY
+// SINCE: <local fact or named invariant>.
+// THUS: <the exact requirement established by that fact>.
+```
 
-Use the existing fixed-seed `noise(len, seed)` LCG and shared boundary arrays;
-do not add nondeterministic randomness or a second fixture convention. Include
-coefficients `0`, `1`, mixed/component-specific values, and maxima. GF16 byte
-lengths must remain even. Panic tests use `#[should_panic(expected = "stable
-message fragment")]`.
+Prefer safe Archmage reference intrinsics. Unsafe is limited to cases their API
+cannot express: offset-addressed disjoint rows, uninitialized scratch,
+aligned or non-temporal stores, and provider callbacks with caller-owned
+invariants. Update this list when a new residue class is unavoidable.
 
-When changing behavior:
+The x86 AVX-512 implementation is deferred and exposed only under `internals`.
+Do not add it to production dispatch without executable differential coverage
+and pinned measurements on AVX-512 hardware.
 
-- New field: implement `Elem` + `Field`, wire `FieldKernels`, add an independent
-  algebra oracle/laws/encoding/generator coverage, extend public ops coverage,
-  and update the field documentation table.
-- New operation: add a public compositional oracle, empty/zero/one cases,
-  invalid geometry, lane/unroll/tail boundaries, and scalar differentials for
-  every optimized backend.
-- New backend: add cfg + runtime feature guards, invoke all shared `check_*`
-  drivers and XOR checks, then run a separate forced public-dispatch process on
-  hardware that can genuinely select it.
-- Prepared-path change: compare `_with` byte-for-byte with one-shot operations;
-  preserve plan dimensions, iteration/index access, and scatter/gather/matrix
-  equivalence.
+## Tests
 
-Coverage is a CI gate, not an aspiration: at least 95% of lines, measured
-over the merged forced-backend runs. Code that cannot execute in CI needs a
-justified exclusion in the workflow, not a silent gap; `kernel/x86/avx512.rs`
-counts on the default run of the coverage job because the AVX-512 runner is
-the only host where those kernels execute.
+Tests must defend observable contracts, not implementation wiring.
 
-Benchmarks are not CI correctness checks. When quoting results, record CPU, OS,
-Rust version, actual process/per-field backend, row size/count, and source
-count. Do not reuse historical numbers from `external-bench/PLAN.md` without
-rerunning; that file is an experiment log with stale and superseded sections.
+- `tests/algebra.rs`: field laws, representations, generators, independent
+  arithmetic oracles.
+- `tests/ops.rs`: checked public operations, geometry failures, prepared forms,
+  empty inputs, and zero/one coefficients.
+- `tests/bits.rs`: bit-packed GF(2) behavior and frozen layout conventions.
+- `src/kernel/tests.rs`: direct scalar-versus-architecture differentials across
+  lane, tail, row, and source-count boundaries.
+- `tests/zero_alloc.rs`: allocation-free steady-state contracts.
+- `tests/internals.rs`: explicitly unstable direct-kernel surfaces.
+
+Reuse the deterministic test helpers and fixed-seed noise generator. Do not add
+nondeterministic randomness or duplicate oracle conventions. GF(2^16) byte
+lengths must be even. Unsupported direct-kernel tests report a skip and return;
+they are not marked ignored.
+
+A behavior fix should retain a regression test when a plausible future bug
+would fail it. Do not add tests that assert source text, field copies, forwarding,
+or exact panic prose.
+
+`TIERS` is `v3_gfni_crypto v3 v2 scalar`. A forced tier on incapable hardware
+may resolve to another supported tier; inspect reported backends before treating
+a green run as ISA coverage.
+
+Coverage excludes the x86 field-kernel subtrees, the deferred AVX-512 code,
+and the GFNI dispatch arms in `kernel/gf8.rs` and `kernel/tower.rs` — none of
+which a GitHub-hosted runner can execute, since those hosts have no GFNI.
+Keep `COV_IGNORE` narrow and document every exclusion here.
+
+## Benchmarks
+
+Use only the benchmark recipes, pinned to an identified core:
+
+```sh
+FEC_GOLDEN_CORE=<cpu> just bench kernels
+FEC_GOLDEN_CORE=<cpu> just bench compare
+```
+
+`kernels` reports the public operation shapes. `compare` includes the in-process
+`reed-solomon-erasure` comparison. `affine` and `dot_product` are internal
+investigation harnesses, not headline public benchmarks.
+
+Benchmark setup, allocation, coefficient construction, and input generation
+must stay outside the timed region. Record the CPU, OS, Rust version, selected
+backend, geometry, command, and aggregation rule in `BENCHMARKS.md`. Never
+reuse an old number or claim a performance change from an unpinned run.
+
+A performance change requires an unchanged callable control, differential
+correctness, and interleaved before/after measurements in one session. Do not
+change dispatch or a crossover from reasoning alone.
+
+## Documentation and review
+
+- Rustdoc owns item contracts, invariants, panics, safety, layout, and ownership.
+- `README.md` owns user-facing scope, installation, features, and examples.
+- `BENCHMARKS.md` owns reproducible current measurements.
+- `CHANGELOG.md` owns user-visible changes and migration notes.
+- Public files and source comments must not reference planning artifacts.
+- Use third person and present tense. Avoid history, temporal status, marketing,
+  and benchmark numbers outside `BENCHMARKS.md`.
+- Every public item and module needs a one-line summary; `just doc` treats
+  warnings as errors.
+
+Review every exported-symbol change across all callers. Use a clean cutover:
+migrate every caller and remove obsolete aliases, wrappers, comments, and
+re-exports.
+
+Commit subjects use `fgf: short verb phrase` and stay near ten words. Put what
+changed and why in the pull request and `CHANGELOG.md`, not in a commit-message
+essay.

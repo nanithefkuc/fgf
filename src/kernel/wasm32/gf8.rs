@@ -226,11 +226,11 @@ pub fn scatter_simd128(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[
     }
     // SAFETY: the binary requires `simd128`, and the kernel clamps its row
     // count and byte span to what the buffers actually hold.
-    unsafe { scatter_impl(rows, row_len, coeffs, src) }
+    unsafe { mul_add_scatter_impl(rows, row_len, coeffs, src) }
 }
 
 #[target_feature(enable = "simd128")]
-unsafe fn scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
+unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
     let span = row_len.min(src.len());
     let count = coeffs.len().min(rows.len() / row_len);
     let src = &src[..span];
@@ -322,11 +322,11 @@ pub fn gather_simd128(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     }
     // SAFETY: the binary requires `simd128`, and the kernel clamps its byte
     // span to the shortest buffer involved.
-    unsafe { gather_impl(dst, coeffs, srcs) }
+    unsafe { mul_add_gather_impl(dst, coeffs, srcs) }
 }
 
 #[target_feature(enable = "simd128")]
-unsafe fn gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+unsafe fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     let count = coeffs.len().min(srcs.len());
     let mut span = dst.len();
     for &src in &srcs[..count] {
@@ -402,11 +402,16 @@ pub fn matrix_simd128(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&
     }
     // SAFETY: the binary requires `simd128`, and the kernel clamps both its
     // row count and its byte span to what the buffers actually hold.
-    unsafe { matrix_impl(rows, row_len, nrows, terms) }
+    unsafe { mul_add_matrix_impl(rows, row_len, nrows, terms) }
 }
 
 #[target_feature(enable = "simd128")]
-unsafe fn matrix_impl(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[Elem], &[u8])]) {
+unsafe fn mul_add_matrix_impl(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &[(&[Elem], &[u8])],
+) {
     // One pass over `terms` — outside every hot loop — establishes the bounds
     // the vector loops rely on, so a caller that violates the documented
     // geometry gets a short update rather than out-of-bounds reads.

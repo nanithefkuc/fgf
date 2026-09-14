@@ -24,7 +24,7 @@
 //! Multiplying by a coefficient is masked out of the API on purpose: the
 //! coefficient of GF(2) is a bit — multiply by zero is "skip", by one is
 //! "XOR" — so there is no prepared-coefficient form and no [`crate::ops`]
-//! counterpart. What *is* prepared is geometry: a [`RangeXor`] derives a
+//! counterpart. What *is* prepared is geometry: a [`XorRange`] derives a
 //! bit range's window and masks once for [`xor_range_with`] to apply to
 //! many buffer pairs. The scalar oracle for this surface is
 //! [`crate::gf2::Elem`](crate::field::gf2::Elem).
@@ -40,12 +40,12 @@
 //! assert_eq!(bits::weight(&a, 7), 5);
 //!
 //! // The GF(2) inner product of a vector with itself is its weight mod 2.
-//! let parity = bits::parity_dot(&a, &a, 7);
+//! let parity = bits::dot_product(&a, &a, 7);
 //! assert!(parity.is_one());
 //!
 //! // Whole-buffer addition is XOR of equal-length buffers.
 //! let b = [0xff];
-//! bits::xor(&mut a, &b);
+//! bits::xor_assign(&mut a, &b);
 //! assert_eq!(bits::weight(&a, 7), 2);
 //! ```
 
@@ -96,8 +96,8 @@ fn check_holds(name: &str, operand: &str, len: usize, bits: usize) {
 ///
 /// # Panics
 /// Panics if the slices differ in length.
-pub fn xor(dst: &mut [u8], src: &[u8]) {
-    check_pair("bits::xor", "dst", dst.len(), "src", src.len());
+pub fn xor_assign(dst: &mut [u8], src: &[u8]) {
+    check_pair("bits::xor_assign", "dst", dst.len(), "src", src.len());
     kernel::gf2::xor(dst, src);
 }
 
@@ -108,7 +108,7 @@ pub fn xor(dst: &mut [u8], src: &[u8]) {
 ///
 /// The checked one-shot form of [`xor_range_with`]: an operation applied
 /// once pays one construction; an operation applied to many buffer pairs
-/// over the same range should prepare a [`RangeXor`] instead.
+/// over the same range should prepare a [`XorRange`] instead.
 ///
 /// # Panics
 /// Panics if the slices differ in length, if `from > to`, if `to > bits`,
@@ -118,7 +118,7 @@ pub fn xor_range(dst: &mut [u8], src: &[u8], bits: usize, from: usize, to: usize
     check_pair("bits::xor_range", "dst", dst.len(), "src", src.len());
     check_range("bits::xor_range", bits, from, to);
     check_holds("bits::xor_range", "dst", dst.len(), bits);
-    xor_range_with(dst, src, &RangeXor::new(bits, from, to));
+    xor_range_with(dst, src, &XorRange::new(bits, from, to));
 }
 
 /// A prepared bit range for repeated `dst ^= src`: the window and end
@@ -141,11 +141,11 @@ pub fn xor_range(dst: &mut [u8], src: &[u8], bits: usize, from: usize, to: usize
 /// length. A caller folding the same column range into many equal-length
 /// rows derives the window and masks exactly once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RangeXor {
+pub struct XorRange {
     window: kernel::gf2::Window,
 }
 
-impl RangeXor {
+impl XorRange {
     /// Prepares the bit range `[from, to)` of a vector `bits` long.
     ///
     /// # Panics
@@ -153,14 +153,14 @@ impl RangeXor {
     /// Panics if `from > to` or `to > bits`.
     #[must_use]
     pub fn new(bits: usize, from: usize, to: usize) -> Self {
-        check_range("RangeXor::new", bits, from, to);
+        check_range("XorRange::new", bits, from, to);
         Self {
             window: kernel::gf2::window(from, to),
         }
     }
 }
 
-/// `dst ^= src` over a prepared [`RangeXor`]: the per-row apply of the
+/// `dst ^= src` over a prepared [`XorRange`]: the per-row apply of the
 /// split form of [`xor_range`].
 ///
 /// Bits outside the planned window — including padding — are untouched.
@@ -171,7 +171,7 @@ impl RangeXor {
 ///
 /// Panics if either buffer is shorter than the planned window.
 #[inline]
-pub fn xor_range_with(dst: &mut [u8], src: &[u8], range: &RangeXor) {
+pub fn xor_range_with(dst: &mut [u8], src: &[u8], range: &XorRange) {
     let end = range.window.end;
     if end == 0 {
         return;
@@ -283,9 +283,9 @@ pub fn weight(buf: &[u8], bits: usize) -> usize {
 /// Panics if the slices differ in length or are shorter than
 /// [`bytes_for`]`(bits)`.
 #[must_use]
-pub fn parity_dot(a: &[u8], b: &[u8], bits: usize) -> gf2::Elem {
-    check_pair("bits::parity_dot", "a", a.len(), "b", b.len());
-    check_holds("bits::parity_dot", "a", a.len(), bits);
+pub fn dot_product(a: &[u8], b: &[u8], bits: usize) -> gf2::Elem {
+    check_pair("bits::dot_product", "a", a.len(), "b", b.len());
+    check_holds("bits::dot_product", "a", a.len(), bits);
     #[allow(clippy::cast_possible_truncation)] // parity is exactly 0 or 1
     gf2::Elem::from_raw(kernel::gf2::parity(a, b, bits) as u8)
 }
@@ -299,7 +299,7 @@ pub fn parity_dot(a: &[u8], b: &[u8], bits: usize) -> gf2::Elem {
 /// Panics if any source differs in length from `dst`, if `selector` names a
 /// source at or beyond `srcs.len()`, or if `dst` is shorter than
 /// [`bytes_for`]`(bits)`.
-pub fn xor_gather(dst: &mut [u8], srcs: &[&[u8]], selector: u64, bits: usize) {
+pub fn xor_gather(dst: &mut [u8], bits: usize, selector: u64, srcs: &[&[u8]]) {
     check_holds("bits::xor_gather", "dst", dst.len(), bits);
     for (index, &src) in srcs.iter().enumerate() {
         assert_eq!(

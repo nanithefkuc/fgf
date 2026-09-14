@@ -3,7 +3,7 @@
 //! Prime-field arithmetic over 32-bit lanes. On x86 with AVX2 (`V3`) or SSE4.1
 //! (`V2`) the add/sub/multiply loops run over packed integer lanes with a
 //! Mersenne fold (`2^31 ≡ 1`); every other target runs the portable
-//! [`crate::kernel::prime`] path, so [`FieldKernels::active_backend`] reports
+//! [`crate::kernel::prime`] path, so [`FieldKernels::backend`] reports
 //! `Scalar` there. The coefficient's prepared form is simply its canonical
 //! lane word, which the kernels broadcast on entry.
 
@@ -23,7 +23,7 @@ fn vectorized() -> bool {
 
 impl FieldKernels for Mersenne31 {
     #[inline]
-    fn active_backend() -> Backend {
+    fn backend() -> Backend {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         {
             match backend() {
@@ -68,9 +68,13 @@ impl KernelDispatch for Mersenne31 {
     fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => x86::prime::add_assign_m31_avx2(dst, src),
+            Backend::V3GfniCrypto | Backend::V3 => {
+                x86::prime::add_assign_m31_avx2(crate::kernel::x86_v3_token(), dst, src);
+            }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V2 => x86::prime::add_assign_m31_sse41(dst, src),
+            Backend::V2 => {
+                x86::prime::add_assign_m31_sse42(crate::kernel::x86_v2_token(), dst, src);
+            }
             _ => prime::add_assign::<Mersenne31>(dst, src),
         }
     }
@@ -78,9 +82,13 @@ impl KernelDispatch for Mersenne31 {
     fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => x86::prime::sub_assign_m31_avx2(dst, src),
+            Backend::V3GfniCrypto | Backend::V3 => {
+                x86::prime::sub_assign_m31_avx2(crate::kernel::x86_v3_token(), dst, src);
+            }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V2 => x86::prime::sub_assign_m31_sse41(dst, src),
+            Backend::V2 => {
+                x86::prime::sub_assign_m31_sse42(crate::kernel::x86_v2_token(), dst, src);
+            }
             _ => prime::sub_assign::<Mersenne31>(dst, src),
         }
     }
@@ -89,10 +97,20 @@ impl KernelDispatch for Mersenne31 {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto | Backend::V3 => {
-                x86::prime::mul_add_m31_avx2(dst, coeff.to_raw(), src);
+                x86::prime::mul_add_m31_avx2(
+                    crate::kernel::x86_v3_token(),
+                    dst,
+                    coeff.to_raw(),
+                    src,
+                );
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V2 => x86::prime::mul_add_m31_sse41(dst, coeff.to_raw(), src),
+            Backend::V2 => x86::prime::mul_add_m31_sse42(
+                crate::kernel::x86_v2_token(),
+                dst,
+                coeff.to_raw(),
+                src,
+            ),
             _ => prime::mul_add::<Mersenne31>(dst, *coeff, src),
         }
     }
@@ -101,10 +119,16 @@ impl KernelDispatch for Mersenne31 {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto | Backend::V3 => {
-                x86::prime::mul_assign_m31_avx2(dst, coeff.to_raw());
+                x86::prime::mul_assign_m31_avx2(crate::kernel::x86_v3_token(), dst, coeff.to_raw());
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V2 => x86::prime::mul_assign_m31_sse41(dst, coeff.to_raw()),
+            Backend::V2 => {
+                x86::prime::mul_assign_m31_sse42(
+                    crate::kernel::x86_v2_token(),
+                    dst,
+                    coeff.to_raw(),
+                );
+            }
             _ => prime::mul_assign::<Mersenne31>(dst, *coeff),
         }
     }
@@ -113,10 +137,20 @@ impl KernelDispatch for Mersenne31 {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto | Backend::V3 => {
-                x86::prime::mul_into_m31_avx2(dst, coeff.to_raw(), src);
+                x86::prime::mul_into_m31_avx2(
+                    crate::kernel::x86_v3_token(),
+                    dst,
+                    coeff.to_raw(),
+                    src,
+                );
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V2 => x86::prime::mul_into_m31_sse41(dst, coeff.to_raw(), src),
+            Backend::V2 => x86::prime::mul_into_m31_sse42(
+                crate::kernel::x86_v2_token(),
+                dst,
+                coeff.to_raw(),
+                src,
+            ),
             _ => {
                 for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
                     let v = *coeff * Elem(u32::from_le_bytes(s.try_into().unwrap()));
@@ -153,9 +187,13 @@ impl KernelDispatch for Mersenne31 {
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => x86::prime::mul_elementwise_m31_avx2(dst, a, b),
+            Backend::V3GfniCrypto | Backend::V3 => {
+                x86::prime::mul_elementwise_m31_avx2(crate::kernel::x86_v3_token(), dst, a, b);
+            }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V2 => x86::prime::mul_elementwise_m31_sse41(dst, a, b),
+            Backend::V2 => {
+                x86::prime::mul_elementwise_m31_sse42(crate::kernel::x86_v2_token(), dst, a, b);
+            }
             _ => prime::mul_elementwise::<Mersenne31>(dst, a, b),
         }
     }

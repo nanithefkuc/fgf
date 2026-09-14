@@ -73,7 +73,7 @@ const CROSSOVER_LENGTHS: &[usize] = &[
 /// One-shot `mul_add` derives the backend's coefficient form on every call —
 /// two broadcast words on GFNI, four nibble tables on a shuffle backend. The
 /// `_with` form derives it once. The ratio printed here is the whole reason
-/// `Coeff`/`Plan` exist, and it is the number `BENCHMARKS.md` refers to.
+/// `Coeff`/`CoeffVec` exist, and it is the number `BENCHMARKS.md` refers to.
 fn bench_preparation_crossover() {
     println!("preparation crossover — one-shot vs prepared, by row length:");
     for &len in CROSSOVER_LENGTHS {
@@ -194,7 +194,7 @@ fn bench_blocked_vs_axpy() {
 
             println!("  gather {nsrc} sources x {} KiB:", row_len / 1024);
             let blocked = bench("  gather blocked           ssse3", traffic, || {
-                x86::proven::gf16::gather_ssse3(
+                x86::gf16::mul_add_gather_ssse3(
                     ssse3,
                     black_box(&mut dst),
                     &coeffs,
@@ -203,7 +203,7 @@ fn bench_blocked_vs_axpy() {
             });
             let axpy = bench("  gather AXPY              ssse3", traffic, || {
                 for (&coeff, &src) in coeffs.iter().zip(&srcs) {
-                    x86::proven::gf16::mul_add_ssse3(
+                    x86::gf16::mul_add_ssse3(
                         ssse3,
                         black_box(&mut dst),
                         &TowerTables::new(coeff),
@@ -218,7 +218,7 @@ fn bench_blocked_vs_axpy() {
 
             if let Some(avx2) = avx2 {
                 let blocked = bench("  gather blocked            avx2", traffic, || {
-                    x86::proven::gf16::gather_avx2(
+                    x86::gf16::mul_add_gather_avx2(
                         avx2,
                         black_box(&mut dst),
                         &coeffs,
@@ -227,7 +227,7 @@ fn bench_blocked_vs_axpy() {
                 });
                 let axpy = bench("  gather AXPY               avx2", traffic, || {
                     for (&coeff, &src) in coeffs.iter().zip(&srcs) {
-                        x86::proven::gf16::mul_add_avx2(
+                        x86::gf16::mul_add_avx2(
                             avx2,
                             black_box(&mut dst),
                             &TowerTables::new(coeff),
@@ -242,7 +242,7 @@ fn bench_blocked_vs_axpy() {
             }
             if let Some(gfni) = gfni {
                 let blocked = bench("  gather blocked            gfni", traffic, || {
-                    x86::proven::gf16::gather_gfni(
+                    x86::gf16::mul_add_gather_gfni(
                         gfni,
                         black_box(&mut dst),
                         &coeffs,
@@ -251,7 +251,7 @@ fn bench_blocked_vs_axpy() {
                 });
                 let axpy = bench("  gather AXPY               gfni", traffic, || {
                     for (&coeff, &src) in coeffs.iter().zip(&srcs) {
-                        x86::proven::gf16::mul_add_gfni(
+                        x86::gf16::mul_add_gfni(
                             gfni,
                             black_box(&mut dst),
                             TowerCoeff::new(coeff),
@@ -290,12 +290,12 @@ fn bench_blocked_vs_axpy() {
                 row_len / 1024
             );
             let blocked = bench("  matrix blocked            avx2", traffic, || {
-                x86::proven::gf16::matrix_avx2(avx2, black_box(&mut rows), row_len, nrows, &terms);
+                x86::gf16::mul_add_matrix_avx2(avx2, black_box(&mut rows), row_len, nrows, &terms);
             });
             let axpy = bench("  matrix AXPY               avx2", traffic, || {
                 for &(coeffs, src) in &terms {
                     for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-                        x86::proven::gf16::mul_add_avx2(
+                        x86::gf16::mul_add_avx2(
                             avx2,
                             black_box(row),
                             &TowerTables::new(coeff),
@@ -519,8 +519,8 @@ fn bench_gf2_bits() {
         let b = noise(bytes, 0x2200 + bytes as u64);
         let mut dst = noise(bytes, 0x2300 + bytes as u64);
         println!("  {human} buffers ({bits} elements):");
-        bench("  bits::xor              packed", bytes, || {
-            fgf::bits::xor(black_box(&mut dst), black_box(&a));
+        bench("  bits::xor_assign              packed", bytes, || {
+            fgf::bits::xor_assign(black_box(&mut dst), black_box(&a));
         });
         bench("  bits::and_into         packed", bytes, || {
             fgf::bits::and_into(black_box(&mut dst), black_box(&a), black_box(&b));
@@ -528,16 +528,16 @@ fn bench_gf2_bits() {
         bench("  bits::weight           packed", bytes, || {
             black_box(fgf::bits::weight(black_box(&a), bits));
         });
-        bench("  bits::parity_dot       packed", bytes, || {
-            black_box(fgf::bits::parity_dot(black_box(&a), black_box(&b), bits));
+        bench("  bits::dot_product       packed", bytes, || {
+            black_box(fgf::bits::dot_product(black_box(&a), black_box(&b), bits));
         });
         let from = bits / 4;
         let to = bits - bits / 8;
         bench("  bits::xor_range  5/8    packed", bytes, || {
             fgf::bits::xor_range(black_box(&mut dst), black_box(&a), bits, from, to);
         });
-        let plan = fgf::bits::RangeXor::new(bits, from, to);
-        bench("  bits::RangeXor   5/8    packed", bytes, || {
+        let plan = fgf::bits::XorRange::new(bits, from, to);
+        bench("  bits::XorRange   5/8    packed", bytes, || {
             fgf::bits::xor_range_with(black_box(&mut dst), black_box(&a), black_box(&plan));
         });
         bench("  ops::add_assign  gf8 control", bytes, || {
@@ -552,7 +552,7 @@ fn bench_gf2_bits() {
 /// An elimination XORs an eight-bit range of one row into another, once
 /// per row per pivot. Bandwidth is irrelevant at this size — the cost is
 /// the per-call surface — so this section compares the checked one-shot
-/// `xor_range` against the prepared `RangeXor` + `xor_range_with` split
+/// `xor_range` against the prepared `XorRange` + `xor_range_with` split
 /// over the same buffer pairs. The range `[61, 69)` straddles a byte
 /// boundary, the worst two-byte window.
 fn bench_gf2_short_rows() {
@@ -575,8 +575,8 @@ fn bench_gf2_short_rows() {
             );
         }
     });
-    let plan = fgf::bits::RangeXor::new(bits, 61, 69);
-    let prepared = bench("  bits::RangeXor   8-bit row", ROW_BYTES * pairs, || {
+    let plan = fgf::bits::XorRange::new(bits, 61, 69);
+    let prepared = bench("  bits::XorRange   8-bit row", ROW_BYTES * pairs, || {
         for i in 0..pairs {
             let off = i * 2 * ROW_BYTES;
             fgf::bits::xor_range_with(
@@ -613,7 +613,7 @@ fn bench_add_assign_rows<F: fgf::FieldKernels>(name: &str) {
                 ops::add_assign::<F>(black_box(&mut dst), black_box(&src));
             });
             let interleaved = bench("  add_assign_rows", len, || {
-                ops::add_assign_rows::<F>(black_box(&mut dst), black_box(&src), row_len);
+                ops::add_assign_rows::<F>(black_box(&mut dst), row_len, black_box(&src));
             });
             let looped = bench("  add_assign per row", len, || {
                 let dst = black_box(&mut dst);
@@ -717,8 +717,8 @@ fn main() {
         let coeffs16: Vec<_> = (0..nrows)
             .map(|j| gf16::Elem::from_raw((j as u16).wrapping_mul(9871).wrapping_add(2)))
             .collect();
-        let scatter_plan8 = ops::Plan::<Gf8B>::new(&coeffs8);
-        let scatter_plan16 = ops::Plan::<Gf16>::new(&coeffs16);
+        let scatter_coeffs8 = ops::CoeffVec::<Gf8B>::new(&coeffs8);
+        let scatter_coeffs16 = ops::CoeffVec::<Gf16>::new(&coeffs16);
 
         let traffic = row_len * nrows;
         bench("scatter                   gf8", traffic, || {
@@ -731,7 +731,7 @@ fn main() {
             ops::mul_add_scatter_with::<Gf8B>(
                 black_box(&mut rows),
                 row_len,
-                &scatter_plan8,
+                scatter_coeffs8.as_ref(),
                 black_box(&src),
             );
         });
@@ -739,7 +739,7 @@ fn main() {
             ops::mul_add_scatter_with::<Gf16>(
                 black_box(&mut rows),
                 row_len,
-                &scatter_plan16,
+                scatter_coeffs16.as_ref(),
                 black_box(&src),
             );
         });
@@ -784,8 +784,8 @@ fn main() {
             .collect();
         let matrix_coeffs8: Vec<_> = coeff_sets.iter().flatten().copied().collect();
         let matrix_coeffs16: Vec<_> = coeff_sets16.iter().flatten().copied().collect();
-        let matrix_plan8 = ops::Plan::<Gf8B>::matrix(8, nrows, &matrix_coeffs8);
-        let matrix_plan16 = ops::Plan::<Gf16>::matrix(8, nrows, &matrix_coeffs16);
+        let matrix8 = ops::CoeffMatrix::<Gf8B>::from_source_major(8, nrows, &matrix_coeffs8);
+        let matrix16 = ops::CoeffMatrix::<Gf16>::from_source_major(8, nrows, &matrix_coeffs16);
         let matrix_srcs: Vec<&[u8]> = sources.iter().take(8).map(Vec::as_slice).collect();
 
         let traffic = row_len * nrows * 8;
@@ -806,7 +806,7 @@ fn main() {
             ops::mul_add_matrix_with::<Gf8B>(
                 black_box(&mut rows),
                 row_len,
-                &matrix_plan8,
+                &matrix8,
                 black_box(&matrix_srcs),
             );
         });
@@ -814,7 +814,7 @@ fn main() {
             ops::mul_add_matrix_with::<Gf16>(
                 black_box(&mut rows),
                 row_len,
-                &matrix_plan16,
+                &matrix16,
                 black_box(&matrix_srcs),
             );
         });
@@ -828,8 +828,8 @@ fn main() {
 
         let gather_srcs: Vec<&[u8]> = sources.iter().take(nrows).map(Vec::as_slice).collect();
         let mut gathered = noise(row_len, 5);
-        let gather_plan8 = ops::Plan::<Gf8B>::new(&coeffs8);
-        let gather_plan16 = ops::Plan::<Gf16>::new(&coeffs16);
+        let gather_coeffs8 = ops::CoeffVec::<Gf8B>::new(&coeffs8);
+        let gather_coeffs16 = ops::CoeffVec::<Gf16>::new(&coeffs16);
         let gather_traffic = row_len * nrows;
         bench("gather (selected)          gf8", gather_traffic, || {
             ops::mul_add_gather::<Gf8B>(
@@ -853,14 +853,14 @@ fn main() {
         bench("gather prepared           gf8", gather_traffic, || {
             ops::mul_add_gather_with::<Gf8B>(
                 black_box(&mut gathered),
-                &gather_plan8,
+                gather_coeffs8.as_ref(),
                 black_box(&gather_srcs),
             );
         });
         bench("gather prepared          gf16", gather_traffic, || {
             ops::mul_add_gather_with::<Gf16>(
                 black_box(&mut gathered),
-                &gather_plan16,
+                gather_coeffs16.as_ref(),
                 black_box(&gather_srcs),
             );
         });

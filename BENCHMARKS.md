@@ -1,1359 +1,158 @@
 # Benchmarks
 
-`fgf` uses small custom benchmark binaries rather than a statistical harness.
-They print throughput directly so operation shape, row size, and backend remain
-visible beside each result. The one Criterion harness is `benches/affine.rs`,
-which decided the `0x11D` GFNI affine adoption; its command and numbers are
-under "Crossover and dispatch decisions" below.
+These measurements cover the public operation shapes on two x86 hosts. Both
+hosts ran the same source tree with the `v3_gfni_crypto` backend selected.
 
-## Reproduce
+## Environment
 
-```sh
-cargo bench --bench kernels
-cargo bench --bench compare
-cargo bench --features internals --bench dot_product
-cargo bench --features internals --bench dot_product -- --smoke
-cargo bench --features internals --bench dot_product -- --tails
-```
+| Host | CPU | Operating system | Rust | Pinned CPU |
+| --- | --- | --- | --- | ---: |
+| Lunar Lake | Intel Core Ultra 7 258V | Linux 7.2.4, Arch Linux | 1.98.0 | 1 |
+| Golden Cove | Intel Core i7-12700K | Linux 7.2.3, CachyOS | 1.98.1 | 8, isolated |
 
-Pin a weaker backend to measure a dispatch crossover (commands recorded with
-the historical `FFF_BACKEND`; the override is now `SIMD_BACKEND`, owned by
-[`simdispatch`](https://github.com/nanithefkuc/simdispatch), with the tiers
-renamed: `avx2`→`v3`, `ssse3`→`v2`):
+The custom harness warms each operation, then reports the median per-iteration
+time from up to 64 batches of 32 iterations. Inputs are deterministic and
+coefficient preparation is outside the timed region unless the label says
+one-shot. Throughput is logical bytes processed, not total cache traffic.
+
+Run from the crate root:
 
 ```sh
-SIMD_BACKEND=v3  cargo bench --bench kernels
-SIMD_BACKEND=v2 cargo bench --bench kernels
-SIMD_BACKEND=scalar cargo bench --bench kernels
+FEC_GOLDEN_CORE=<cpu> just bench kernels
+FEC_GOLDEN_CORE=<cpu> just bench compare
 ```
 
-Non-x86 targets need a runner. The `aarch64` and `wasm32` kernels were
-measured with these:
+Results below are one complete pinned run on each host. Small nanosecond-scale
+cases are timer-resolution-sensitive; the larger row and matrix cases are the
+headline measurements.
 
-```sh
-# aarch64, on an adb-connected arm64 device (cargo-ndk):
-cargo ndk -t arm64-v8a build --release --bench kernels
-adb push target/aarch64-linux-android/release/deps/kernels-<hash> /data/local/tmp/
-adb shell 'cd /data/local/tmp && taskset 80 ./kernels-<hash>'
+## Scalar multiplication
 
-# wasm32, under Node's WASI shim:
-RUSTFLAGS="-C target-feature=+simd128" \
-  cargo build --release --target wasm32-wasip1 --bench kernels
-node wasi-run.mjs target/wasm32-wasip1/release/deps/kernels-<hash>.wasm
-```
+The scalar harness executes a fixed batch of element multiplications. Results
+are nanoseconds per operation.
 
-`wasi-run.mjs` is the whole shim (the same one works as
-`CARGO_TARGET_WASM32_WASIP1_RUNNER` for `cargo test --target wasm32-wasip1`):
-
-```js
-import { WASI } from "node:wasi";
-import { argv, env, exit } from "node:process";
-import { readFile } from "node:fs/promises";
-
-const [wasmPath, ...rest] = argv.slice(2);
-const wasi = new WASI({ version: "preview1", args: [wasmPath, ...rest], env,
-                        preopens: { "/": "/" }, returnOnExit: true });
-const module = await WebAssembly.compile(await readFile(wasmPath));
-exit(wasi.start(await WebAssembly.instantiate(module, wasi.getImportObject())));
-```
-
-Both runners are far noisier than a pinned desktop CPU, so a single pair of
-runs proves nothing:
-
-- On a phone, `taskset` to **one** big core, not the cluster: migration
-  between cores produces a bimodal distribution (two clean clusters ~1.5x
-  apart), and a whole run can land in either mode.
-- Under Node, tiering and GC shift results by up to 40% run to run.
-- Interleave the two binaries (`base, new, base, new, …`), take the **maximum**
-  of at least three runs per key, and always include an unchanged operation as
-  a control. Every number below was accepted only with its control at 1.00x.
-
-Record the CPU, operating system, Rust version, selected backend, row size, row
-count, and source count with any quoted result. `backend_for::<F>()` matters
-for the wider towers and Fan–Paar family: GF(2^32)/GF(2^64) use GFNI on
-x86 GFNI hosts, the canonical Fan–Paar GF(2^16)/32/64 use AVX2/SSSE3 on x86,
-but FanPaar8, SSSE3 for the wider Fan–Paar fields, and every shuffle-only
-backend still report the portable kernels even when the process-wide backend
-is `avx512` or `gfni`.
-
-## Interpreting the shapes
-
-- `mul_add` is the single-row AXPY baseline.
-- `mul_add_scatter` tests source-load sharing across destination rows.
-- `mul_add_gather` and `mul_add_matrix` test whether destination tiles stay in
-  registers across sources.
-- `_with` operations separate coefficient preparation from byte-loop cost.
-- `mul_elementwise` has no broadcast coefficient. It vectorizes on
-  AVX-512/GFNI (native `GF2P8MULB`) and, via a branchless shift/reduce vector
-  multiply, on AVX2/SSSE3, NEON, and Wasm `simd128`. Measured on a Core Ultra
-  7 258V (Linux, rustc 1.93), 256 KiB buffers: gf8 0.78 → 7.97 GiB/s (AVX2)
-  and 2.62 GiB/s (SSSE3); gf16 0.43 → 4.39 GiB/s (AVX2) and 1.48 GiB/s
-  (SSSE3). The wider fields still use the scalar reference.
-
-`dot_product` freezes the direct GF(2^8) N-to-1 baseline and the public
-overwrite composition. It interleaves the raw AXPY-tail control, raw
-fused-tail candidate, public accumulating operation, timed zero-then-gather,
-and public `dot_product`. Every body is validated and allocation-free in the
-timed region. The full run covers dense nontrivial coefficients,
-1/2/3/4/8/12/16/24/32 sources, SIMD boundaries through 513 B, and 1–64 KiB
-rows; `--smoke` keeps the same identifiers on a focused boundary grid,
-`--tails` isolates 16/32/64/96/128-byte rows across source counts
-1/2/3/4/8/16/32, and `--affine` interleaves native GFNI with the prepared
-`Gf8B` affine-map prototype. Fixtures are 32-byte-aligned and hot-cache.
-Controlled misalignment, displaced-cache, and coefficient-distribution
-variants remain separate additions.
-
-### Native GFNI source-fused short rows (2026-08-22)
-
-The pre-change N-to-1 gather sent every row below 128 bytes through repeated
-single-source AXPY. `gather_gfni` now selects a source-fused body only for
-rows of exactly 32, 64, or 96 bytes with at least three sources. The
-`gather_gfni_axpy_tail` preserves the old body for an interleaved control in
-the same binary. Core Ultra 7 258V, Linux, rustc 1.93, backend
-`v3_gfni_crypto`, 32-byte-aligned hot fixtures, dense nontrivial coefficients:
-
-| Row | 4 sources | 16 sources |
-| ---: | ---: | ---: |
-| 32 B | 1.50x | 1.49x |
-| 64 B | 1.41x | 1.11x |
-| 96 B | 1.49x | 1.48x |
-
-Ratios are fused divided by the interleaved AXPY-tail control. A fused 16-byte
-prototype lost at low source counts and did not produce a stable 16-source win.
-Fusing a remainder after the 128-byte main body was neutral-to-slower.
-Production therefore keeps AXPY for one source, 16-byte/sub-lane and compound
-scalar remainders, and every row at or above 128 bytes. Interleaved controls at
-16/31/95/97/127/128/129 B, 4 KiB, and 4 KiB + 64 B remain at parity.
-
-### `Gf8D` inherits the source-fused short-row rule (2026-08-27)
-
-`gather_affine` was wired to `gather_impl::<Affine8D, false, 4>` when the
-`Blocked` seam landed, and the `Gf8D` panel above only exercised rows at
-4 KiB and larger. Below the 128-byte main tile that specialization falls
-through to the per-source remainder — exactly the repeated single-source
-AXPY body the `Gf8B` measurement replaced. `gather_affine` now applies
-`gather_gfni`'s selection rule verbatim; the `Blocked` seam monomorphizes
-one body, so the affine form crosses at the shapes the `GF2P8MULB` form was
-measured at, and `Gf8B` is untouched.
-
-Consumer measurement, since this is a shape the panel does not cover:
-`gfm`'s `Hybrid` back-substitution folds 64-byte symbol rows in groups of
-sixty-four sources through `ops::mul_add_gather`. Core Ultra 7 258V,
-rustc 1.98.0, `v3_gfni_crypto`, `taskset -c 2`, `raptor-q` at
-`K = 56403`, `T = 64`, interleaved minimum-of-four (prepare) and
-minimum-of-three (decode) per binary:
-
-| Case | unfused | fused | change |
-| --- | ---: | ---: | ---: |
-| prepare | 252.6 / 248.6 / 251.2 ms | 243.7 / 247.9 / 243.9 ms | −1.5…−3.5% |
-| decode | 237.7 / 234.6 / 233.7 ms | 232.8 / 232.5 / 229.4 ms | −1.8…−2.1% |
-
-The whole gather kernel is 9.0% of that consumer's profile, so the ratio on
-the kernel itself is consistent with the 1.11–1.41x the `Gf8B` panel
-recorded at 64 bytes. The differential and cross-backend suites are
-unchanged.
-
-### Blocked XOR gather (2026-08-27)
-
-`ops::add_gather` / `kernel::xor_gather` fold byte-offset rows of one region
-into a destination held in AVX2 registers across the whole source list — the
-unit-coefficient gather back-substitution wants. The destination is read once
-per 32-byte lane and written once per lane; a source costs one unaligned load
-and one XOR per lane. Destinations beyond eight lanes or with a sub-lane tail
-fall back to per-source `xor_avx2`.
-
-Interleaved against the previous consumer path — per-call staging of `&[u8]`
-fat pointers into a group array, folded through `mul_add_gather` with all-ones
-coefficients — 64-byte rows, one `Gf8D` call, minimum of twenty iterations
-per side, `taskset -c 2`, host `v3_gfni_crypto`:
-
-| Region rows | Sources | old | new | change |
-| ---: | ---: | ---: | ---: | ---: |
-| 64 (L1) | 8 | 0.02 µs | 0.01 µs | 1.9–2.4x |
-| 64 (L1) | 64 | 0.14 µs | 0.09 µs | 1.4–1.5x |
-| 64 (L1) | 187 | 0.41–0.45 µs | 0.23–0.28 µs | 1.5–1.9x |
-| 4096 (L2) | 64 | 0.14–0.16 µs | 0.09 µs | 1.5–1.7x |
-| 4096 (L2) | 187 | 0.42–0.45 µs | 0.24 µs | 1.7–1.9x |
-
-The old side includes its staging cost, as the production call site paid it.
-End to end in `gfm`'s max-`K` decode this is −5.4% and in encoder preparation
-−5.5% (worst-of-three, paired and interleaved; `gfm` BENCHMARKS.md, seventh
-round).
-
-NEON and Wasm SIMD have no blocked gather; they fold one source at a time
-through the flat XOR, correct everywhere and unmeasured on this host. The
-differential suite covers the default and every override, and the scalar
-backend tier reruns the same assertions.
-
-### Overwrite accumulator policy (2026-08-22)
-
-The overwrite candidate shared the GFNI gather loop but seeded each destination
-accumulator from the first source, removing the destination load and its first
-XOR. The control timed `fill(0)` plus the production gather in the same process.
-On the pinned short-row panel the native candidate was usually 0.84–1.04x the
-control, with no coherent winning source/size region; at 128 B x 16 it was
-substantially slower. The prototype was deleted.
-
-The public `dot_product` contract remains useful independently of that rejected
-kernel. It ignores the initial destination, zeros empty/all-zero input, maps one
-source to `mul_into`, and otherwise composes zeroing with the field's measured
-gather. `dot_product_with` consumes a prepared plan. Against public
-zero-then-`mul_add_gather`, it is generally within 0–5% from eight sources
-upward on the pinned 16–128 B panel; smaller multi-source calls pay up to about
-10% for validation and the all-zero shortcut. Both forms are proven
-allocation-free in `tests/zero_alloc.rs`. Consumer-level measurement, not this
-microbenchmark, decides whether callers migrate.
-
-### Prepared `Gf8B` affine gather prototype (2026-08-22)
-
-The `--affine` panel substitutes prepared `VGF2P8AFFINEQB` maps for native
-`GF2P8MULB` inside the same generic 128-byte gather body and the same measured
-short-row fusion rule. Map lookup happens before the prepared sample; a
-separate one-shot sample rewrites a preallocated factor slice before gathering.
-Overwrite times `fill(0)` on both sides. The scalar map model and the hardware
-gather each cover all 65,536 coefficient/input products. Generated assembly
-broadcasts each map directly from the prepared slice into
-`VGF2P8AFFINEQB`; the main loop does not spill maps.
-
-Core Ultra 7 258V, Linux, rustc 1.93, backend `v3_gfni_crypto`,
-32-byte-aligned hot fixtures, dense nontrivial coefficients. Ratios are native
-time divided by prepared-affine time, so values above 1 favor affine:
-
-| Row | 4 sources | 8 sources | 16 sources |
-| ---: | ---: | ---: | ---: |
-| 32 B | 0.72x | 0.77x | 1.02x |
-| 64 B | 0.74x | 0.69x | 1.01x |
-| 96 B | 0.78x | 0.72x | 1.05x |
-| 128 B | 0.62x | 0.58x | 0.57x |
-| 256 B | 0.74x | 0.65x | 0.72x |
-| 1 KiB | 0.92x | 0.90x | 0.92x |
-| 4 KiB | 1.04x | 0.94x | 1.03x |
-| 16 KiB | 0.97x | 1.05x | 1.06x |
-
-A repeated pinned run preserved the pattern. Prepared affine is substantially
-slower through 1 KiB in the source-count region the prototype targeted. At
-4 KiB the sign changes with source count; at 16 KiB it wins 3–6% from eight
-sources upward, but the neighboring three/four-source shapes remain
-neutral-to-slower. Overwrite follows the same topology: 128 B x 8–16 is
-0.55–0.56x, while 16 KiB x 8–32 is 1.03–1.04x. Preparation does not erase the
-long-row wins, but deepens the short-row losses.
-
-Production therefore remains entirely on native `GF2P8MULB`: there is no
-single multiply policy for the next tile sweep, and the modest long-row region
-does not justify a new source-count/length dispatch without alignment,
-cache-displacement, counter, and second-host evidence. The affine body and map
-bank remain available only through `internals` so that exact cross-host rerun
-stays reproducible; no public operation dispatches to them.
-
-### GFNI gather tile and page-topology sweep (2026-08-22)
-
-The `--tiles` panel instantiates the native gather body with one through four
-32-byte accumulator lanes. Four lanes/128 bytes is the exact production
-control, including its short-row policy; narrower candidates retain the same
-single-source AXPY remainder. Fixtures cover 128 B through 16 KiB and
-4/8/16/32 sources. The focused topology panel independently controls source
-and destination misalignment, equal page offsets at 0 and 4032 bytes, and
-64-byte-staggered source page offsets. All comparisons are interleaved and
-differentially validated before timing.
-
-Ratios are production time divided by candidate time:
-
-| Shape/layout | 32 B tile | 64 B tile | 96 B tile | split 128 B |
-| --- | ---: | ---: | ---: | ---: |
-| 128 B x 16, aligned | 0.45x | 0.52x | 0.52x | — |
-| 1 KiB x 16, aligned | 0.53x | 0.73x | 0.75x | — |
-| 4 KiB x 16, aligned | 0.69x | 0.88x | 0.94–0.97x | 0.92x |
-| 4 KiB x 16, page offset 0 | 0.78x | 1.07x | 1.09x | 1.02x |
-| 16 KiB x 4, aligned | 0.72x | 0.90x | 0.95x | 0.95x |
-| 16 KiB x 8, aligned | 0.76x | 0.94x | 1.02x | 1.01x |
-| 16 KiB x 16, aligned | 0.86x | 1.01x | 1.02x | 1.04x |
-| 16 KiB x 32, aligned | 0.80x | 0.95x | 0.96x | 1.01x |
-
-The 4 KiB x 16 result is page topology, not a 32-byte-tile advantage. The
-96-byte tile loses 3–6% with allocator-aligned fixtures but wins 4–9% when all
-streams start at fixed 32-byte-aligned page offsets. Source misalignment moves
-it back to parity; destination misalignment makes it lose up to 10%. The
-32-byte candidate loses every controlled 4 KiB x 16 layout, by 16–31%.
-Consequently the earlier external 1.73x result cannot be attributed to tile
-width and is removed as an optimization target until both implementations run
-inside one page-controlled harness.
-
-`perf stat -d` over 1,048,576 iterations of page-zero 4 KiB x 16 explains why
-96 bytes can win that one layout:
-
-| Variant | Core cycles | Instructions | IPC | Backend bound |
-| --- | ---: | ---: | ---: | ---: |
-| production 128 B | 2.64B | 8.44B | 3.2 | 49.8% |
-| 96 B | 2.45B | 10.26B | 4.2 | 32.7% |
-| split 128 B | 2.61B | 10.17B | 3.9 | 42.7% |
-
-L1D misses were only 1.5–2.6 thousand and the detailed 96/128-byte runs each
-reported about 220 dTLB misses, so cache/TLB misses do not explain the cycle
-gap. A counter-triggered even/odd source-chain split reduced backend pressure
-but paid enough extra instructions and branches to lose on ordinary 4 KiB
-layouts; its wins remained page-offset-dependent. Generated main loops for all
-tile widths keep vector state in registers.
-
-Production therefore keeps the single static 128-byte tile. A 96-byte or split
-long-row dispatch is rejected: gains are small, source-count-dependent, and
-reverse under neighboring alignment/page layouts. No second-host gate is
-needed because no production policy changes. The tile and split bodies remain
-available only through `internals` so the controlled sweep and counter workload
-stay reproducible.
-
-### Overwrite matrix / erasure encode (2026-08-22)
-
-`dot_product_matrix` computes multiple fresh output rows in one blocked pass.
-Unlike `fill(0)` plus accumulating `mul_add_matrix`, the GFNI kernels seed
-accumulators from zero in registers: no destination read and no separate
-zero-fill. Other backends use that equivalent portable composition.
-
-The comparison used 10 sources and 2/4/6 output rows. ISA-L ran
-`ec_encode_data`, which overwrites and dispatches internally to its
-`gf_Nvect_dot_prod` kernels. Throughput counts source bytes (`row_len * 10`),
-matching the existing dot-product convention. Core Ultra 7 258V, Linux, rustc
-1.93, P-core pinned, backend `v3_gfni_crypto`, three process runs:
-
-| Shape | `Gf8B` fill+matrix | `Gf8B` overwrite | `Gf8D` fill+matrix | `Gf8D` overwrite | ISA-L |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 64 KiB, 2 rows | 63.3–64.5 | 74.8–74.9 | 53.8–55.1 | 67.7–68.9 | 80.6–80.7 |
-| 64 KiB, 4 rows | 33.7–34.1 | 42.2–42.9 | 30.2–30.6 | 38.8–39.3 | 37.1–37.5 |
-| 64 KiB, 6 rows | 20.6–21.0 | 26.7–27.1 | 18.8 | 24.5–24.9 | 31.8–32.1 |
-
-At four outputs bit-compatible `Gf8D` is 3–6% faster than ISA-L and native
-`Gf8B` is 12–15% faster. The old path's gap was destination traffic:
-`fill` + matrix destination read + matrix destination write versus overwrite's
-one write.
-
-### Rejected: ISA-L-shaped six-output shuffle (2026-08-22)
-
-The residual six-output gap is not principally memory bandwidth. `perf stat`
-over the 64 KiB x 10-source x 6-output overwrite reported only 3.5–3.9% memory
-bound, versus 32% (`Gf8B`) / 39% (`Gf8D`) core backend-bound. Production's
-4+2 GFNI loops use 15 YMM registers without vector spills.
-
-ISA-L 2.32 on this AVX2/GFNI-but-no-AVX512 host dispatches
-`gf_6vect_dot_prod_avx2`: six 32-byte accumulators, one shared source load,
-and prepacked contiguous 32-byte nibble-table records. fgf reproduced that
-topology in two `internals` candidates. Three pinned interleaved runs:
-
-| 64 KiB x 10 -> 6 | `Gf8B` | `Gf8D` |
+| Field | Lunar Lake | Golden Cove |
 | --- | ---: | ---: |
-| production 4+2 GFNI | 24.9–26.1 | 22.9–23.5 |
-| raw static-table shuffle | 11.0–11.2 | 11.1–12.0 |
-| prepacked contiguous shuffle | 17.7–17.8 | 17.7–17.8 |
-| ISA-L `ec_encode_data` | 31.8–32.1 | 31.8–32.1 |
+| `Gf8B` | 0.37 ns | 0.34 ns |
+| `Gf8D` | 0.36 ns | 0.34 ns |
+| `Gf16` | 1.11 ns | 1.33 ns |
 
-Packing removes hot-loop bounds/index work and improves the shuffle candidate
-by 1.5–1.7x, but it remains 22–32% behind production GFNI and about 45% behind
-ISA-L. Its arithmetic requires 12 table broadcasts, 12 `PSHUFB`s, and 12 XORs
-per source tile versus production's six GFNI/affine multiplies and six XORs;
-the saved source reads cannot repay that core work. Production remains 4+2
-GFNI. The raw/packed bodies and differential coverage remain behind
-`internals`; reproduce with `cargo bench --features internals --bench compare`.
+## Single-row packed operations
 
-### Rejected: p2 store, tile, and shuffle candidates (2026-08-22)
+These rows use 64 KiB, 32-byte-aligned buffers. Throughput is GiB/s.
 
-The two-output-row encode (`p2`) trails ISA-L by 1.17–1.19x at 64 KiB. Three
-candidates were measured against production `dot_product_matrix` through the
-isolated `examples/perf_p2` harness (64 KiB x 10 sources -> 2 rows, Core Ultra
-7 258V, P-core pinned, backend `v3_gfni_crypto`), each validated against
-production before timing. Reproduce with, e.g.:
+| Field | Operation | Lunar Lake | Golden Cove |
+| --- | --- | ---: | ---: |
+| `Gf8B` | `mul_add` | 74.80 | 64.59 |
+| `Gf8B` | `mul_into` | 63.51 | 60.25 |
+| `Gf8D` | `mul_add` | 75.45 | 64.79 |
+| `Gf8D` | `mul_into` | 63.58 | 60.43 |
+| `Gf16` | `mul_add` | 71.05 | 30.92 |
+| `Gf16` | `mul_into` | 61.16 | 31.48 |
 
-```sh
-taskset -c <p-core> cargo run --release --features internals --example perf_p2 \
-  -- 8b 2 20000 <prod|nt4|t2|sh1|sh2>
-```
+The broader 256 KiB operation panel uses ordinary `Vec<u8>` buffers.
 
-`perf stat` first shows why p2 is not memory-bound. TopdownL2 over production
-is core-bound 47.8% (`Gf8B`) / 43.9% (`Gf8D`) and memory-bound only 2.7% /
-2.0%, at IPC 4.33. Cycles (2.44B) equal the `GF2P8MULB` count (2.46B):
-~1.0 multiply/cycle, the single-port GFNI-multiply throughput ceiling, already
-reached. GiB/s over source bytes, production ratio in the last column:
+| Field | Operation | Lunar Lake | Golden Cove |
+| --- | --- | ---: | ---: |
+| `Gf8B` | `add_assign` / XOR | 43.50 | 51.08 |
+| `Gf8B` | `mul_add` | 44.38 | 49.60 |
+| `Gf8B` | `mul_assign` | 61.45 | 67.63 |
+| `Gf8B` | `mul_elementwise` | 29.53 | 42.98 |
+| `Gf16` | `mul_add` | 41.70 | 41.77 |
+| `Gf16` | `mul_assign` | 56.01 | 54.58 |
+| `Gf16` | `mul_elementwise` | 25.51 | 29.77 |
 
-| Candidate | `Gf8B` | `Gf8D` | vs production |
+At 64 KiB, prepared and one-shot `mul_add` converge because coefficient
+preparation is small relative to the row loop.
+
+| Field | Form | Lunar Lake | Golden Cove |
+| --- | --- | ---: | ---: |
+| `Gf8B` | one-shot | 49.91 | 49.38 |
+| `Gf8B` | prepared | 48.91 | 48.79 |
+| `Gf16` | one-shot | 45.35 | 41.07 |
+| `Gf16` | prepared | 45.38 | 41.10 |
+
+## Scatter, gather, and matrix
+
+Each row is 64 KiB. Scatter writes eight rows from one source, gather combines
+eight sources into one row, and matrix combines eight sources into eight rows.
+Throughput is GiB/s over the harness's logical operation volume.
+
+| Field | Operation | Geometry | Lunar Lake | Golden Cove |
+| --- | --- | --- | ---: | ---: |
+| `Gf8B` | `mul_add_scatter` | 1 source × 8 rows | 68.53 | 61.07 |
+| `Gf16` | `mul_add_scatter` | 1 source × 8 rows | 48.95 | 47.97 |
+| `Gf8B` | `mul_add_gather` | 8 sources × 1 row | 64.83 | 69.34 |
+| `Gf16` | `mul_add_gather` | 8 sources × 1 row | 68.46 | 77.62 |
+| `Gf8B` | `mul_add_matrix` | 8 sources × 8 rows | 124.79 | 114.13 |
+| `Gf16` | `mul_add_matrix` | 8 sources × 8 rows | 65.90 | 55.57 |
+
+Overwrite matrix results use 64 KiB rows and ten sources. Throughput counts
+source bytes once per call, matching the reconstruction comparison below.
+
+| Field | Output rows | Lunar Lake | Golden Cove |
 | --- | ---: | ---: | ---: |
-| production 4-way temporal | 68.7–70.3 | 65.6–67.4 | 1.00x |
-| non-temporal stores (`nt4`) | 69.1 | 68.6 | ~1.00x |
-| 2-way tile / 64 B (`t2`) | 55.97 | 51.61 | 0.80–0.82x |
-| shuffle, 32 B/iter (`sh1`) | 39.67 | 39.91 | 0.58–0.61x |
-| shuffle, 64 B/iter (`sh2`) | 42.12 | 41.81 | 0.61x |
+| `Gf8B` | 2 | 70.08 | 61.88 |
+| `Gf8B` | 4 | 39.62 | 36.12 |
+| `Gf8B` | 6 | 25.02 | 22.73 |
+| `Gf8D` | 2 | 71.65 | 64.94 |
+| `Gf8D` | 4 | 43.07 | 39.82 |
+| `Gf8D` | 6 | 26.72 | 24.76 |
 
-- **Non-temporal stores are neutral.** Removing the overwrite RFO recovers only
-  the ~2% memory-bound slots; at 64 KiB the 128 KiB destination is L2-resident
-  and the RFO hits L2. Cycles move +1.5%, memory-bound 2.7% -> 3.9%.
-- **The 2-way tile regresses.** Cutting the tile from 128 to 64 bytes/row (eight
-  accumulators to four) lifts cycles 2.44B -> 3.02B (+24%, 1.23 cyc/mul:
-  latency-exposed) and instructions 10.6B -> 14.5B — the halved tile doubles the
-  loop count, hence factor rebroadcasts and loop overhead, and four accumulators
-  no longer cover the multiply latency. Eight is the ILP sweet spot; wider
-  spills the register file.
-- **The two shuffle ports lose outright.** A packed p2 nibble-shuffle body
-  (tables hoisted per term, raw source pointers) executes ~2x the instructions
-  (20.6B vs 10.6B) at +62% cycles. Two `PSHUFB` per multiply on ports 1/5 only
-  match one `GF2P8MULB` on port 0; the extra nibble split, table broadcast, and
-  combine-XOR then sink it. ISA-L's 1.17x is hand-scheduled asm that does not
-  transfer to this field's Rust codegen, matching the six-output rejection.
+## Wider binary fields
 
-Production keeps the 4-way temporal `matrix_rows2`. The p2 residual is the GFNI
-multiply-port ceiling, which production already saturates; store policy, tile
-width, and the shuffle ports all fail to move it. `matrix_overwrite2_{8b,8d}`
-and `matrix_overwrite2_shuffle_packed` stay behind `internals` with
-temporal/non-temporal, both-width differentials for exact reruns.
+These are 256 KiB `mul_add` operations. Throughput is GiB/s.
 
-### ISA-L scheduling comparison: schedule rejected, records pending (2026-09-09)
-
-A same-process interleaved harness (`external-bench/isal-fgf`, links system
-ISA-L 2.32) compared `Gf8D` overwrite dot products against ISA-L's
-runtime-selected AVX2-GFNI kernels, isolating ISA-L's schedules (96-byte
-one/two-output bodies, 3+1, 3+3), fgf's dense prepared affine-map records, and
-their combination over 4/16/64 KiB rows, 6/10/16 sources, 1/2/4/6 outputs.
-Every arm was differentially validated against the scalar oracle first (792
-arm-checks, byte-identical), preparation stayed outside timing, and arm order
-rotated per sample. Core Ultra 7 258V, Linux 7.2.4, rustc 1.98.0, P-core
-pinned, backend `v3_gfni_crypto`, three runs per table.
-
-Sampled dispatch (perf record): the runtime encode path composes
-`gf_3vect_dot_prod_avx2_gfni` twice at six outputs (3+3) and 3+1 at four —
-correcting the 2026-08-22 note that this host selected the PSHUFB
-`gf_6vect_dot_prod_avx2`; the PSHUFB symbols remain reachable only through
-the explicit `*_avx2` entries, which ran as the negative control at
-0.48-0.82x of production.
-
-- **Scheduling rejected.** ISA-L's schedules transplanted into fgf (byte
-  coefficients, schedule otherwise identical) never beat production:
-  0.86-1.08x at one output, 0.90-1.01x at two, 0.68-0.91x at four (3+1),
-  0.91-1.00x at six (3+3). The residual one/two/six-output gaps to ISA-L are
-  not ISA-L's schedules.
-- **Prepared records are the live candidate.** Records remove 11-29% of
-  retired loads and win elapsed time with intervals excluding parity in 13 of
-  27 grid cells (+11-33% at one output on 4-16 KiB; +5-11% at 2/4/6 outputs on
-  64 KiB), worst neighboring regression 2.2%. At one output on 64 KiB the
-  loads drop but cycles do not (IPC 3.02 -> 2.73): latency-bound there, so the
-  win is cache-residency-dependent.
-- **The remaining 21-28% at one/two outputs is loop shape, not work.** With
-  instructions equal to ISA-L at one output (174/kB) fgf still needs IPC 2.73
-  vs ISA-L's 3.50: per (tile, source) every fgf body carries a coefficient
-  slice-length check and branch, term-tuple double indirection, and a
-  `vpbroadcastq` between the record load and the multiplies, where ISA-L's
-  record load feeds `vgf2p8affineqb` directly. The next entry closes that
-  gap without unchecked access, so the earlier reading of it — "checked
-  slices versus raw-pointer loops" — was wrong: what cost the cycles was
-  resolving a coefficient *inside* the tile loop, not the check itself.
-- **3+3 over records wins at six outputs** (1.12-1.17 vs 1.05-1.10 for the
-  production grouping over records) while 3+3 over bytes is parity; a
-  six-output candidate should evaluate both on a second host.
-
-No production change landed from this entry: the record layout and the
-3+3-over-records arm waited on a second GFNI microarchitecture, which later
-rejected both, so their bodies are gone too — only this record and the raw
-artifacts remain. The losing byte-coefficient ISA-L-shaped bodies were removed
-when they were measured.
-
-Two caveats on the ratios above, both found while following the entry up.
-The harness built its `fgf` terms from copies of the source buffers, so the
-production and prepared-record arms read 16-byte-aligned heap allocations
-while the ISA-L arms read the page-aligned fixtures and took no split
-32-byte loads; Topdown reported the difference as memory-bound slots (9.8%
-vs 5.1% at 64 KiB x 10, one output) at equal instruction counts. And the
-`cyc/kB` figures divided whole-process counters by the timed loop's work,
-which at 20 000 iterations inflates them 10-30%. Both are fixed in the
-harness; the direction of every conclusion above survives, but re-measure
-before quoting a magnitude.
-
-### Pre-resolved coefficients in the matrix row groups (2026-09-09)
-
-The row groups now resolve each group's coefficients into one stack array
-before their tile loops run, instead of loading a coefficient per (tile,
-term): `matrix_rows{4,2,1}` delegate to a shared body over
-`maps[term][row]`, a fixed-size row array the loop walks in lockstep with
-the sources and indexes nowhere. That removes the slice-length check, the
-term-tuple pointer walk, and the dependent affine-bank lookup from the loop
-the multiplier runs in, keeping grouping and tile widths (4x64 B, 2x128 B,
-1x128 B, 4+2 at six outputs) unchanged. Term counts above the 32-term chunk
-fold in further passes, the first carrying the caller's overwrite policy.
-Every GFNI matrix entry inherits it: overwrite and accumulate, plan forms,
-scattered rows, and both GF(2^8) fields.
-
-Core Ultra 7 258V, Linux 7.2.4, rustc 1.98.0, P-core pinned, backend
-`v3_gfni_crypto`, three pinned runs per build, 32 interleaved rounds per arm
-per run, paired per-round ratios with bootstrap intervals. Two builds of one
-harness, with ISA-L and the pre-resolved reference bodies as byte-identical
-anchors (anchor drift median 1.023):
-
-| Shape | Outputs | Before | After | Change |
-| --- | ---: | ---: | ---: | ---: |
-| 4 KiB x 10 | 1 | 118.7 | 154.0 | 1.30x |
-| 16 KiB x 6 | 4 | 37.6 | 50.2 | 1.34x |
-| 16 KiB x 16 | 4 | 37.3 | 46.8 | 1.25x |
-| 64 KiB x 10 | 4 | 36.7 | 46.5 | 1.27x |
-| 64 KiB x 16 | 6 | 22.8 | 28.1 | 1.23x |
-
-GiB/s over source bytes. Median over the whole 36-cell grid is 1.219, range
-1.073-1.336, with no cell regressing. Against ISA-L 2.32's explicit
-AVX2-GFNI symbols the path moves from 0.932 of ISA-L (ahead in 9 of 36
-cells) to 1.094 (ahead in 27), and the same against its runtime dispatcher.
-What ISA-L still holds is one output — median 0.946, its 96-byte tile
-against this 128-byte one — while two, four and six outputs lead by median
-1.140. Accumulate improves too: `fill + mul_add_matrix` in
-`benches/compare` reports `Gf8D` 50.09 -> 58.64, 23.80 -> 34.21 and
-15.73 -> 20.38 GiB/s across its three sizes, `Gf8B` 5-8%.
-
-Per 1024 source bytes at 64 KiB x 10, one output (200 000 timed iterations,
-so the counter bias noted above is ~2%): 50.07 cycles / 154.0 instructions /
-49.8 retired loads, against 55.07 / 174.7 / 64.9 for prepared records and
-51.68 / 175.5 / 54.1 for ISA-L. The emitted one-row loop is 17 instructions
-per four multiplies with one broadcast, one source-pointer load, no compare
-and no branch — the same shape as the reference body, which stays 3.4% ahead
-only because it prepares coefficients outside the timed region.
-
-Two codegen notes worth keeping. Seeding the accumulators through a loop
-stops LLVM promoting the array out of memory and the overwrite path spills a
-tile per source (0.875 of the reference body instead of 0.966), so seeding
-stays a plain array initializer with the destination load under
-`if !OVERWRITE`. And this is one microarchitecture: the grouping and
-tile-width candidates the entry above parked — a 96-byte one-output tile,
-3+3 at six outputs, 32-byte replicated map records at 16 sources — are each
-worth 3-16% on some shapes and negative on others, so they still need a
-second GFNI host before any dispatch policy moves.
-
-### Second GFNI host: Golden Cove confirms, three candidates die (2026-09-09)
-
-The same grid on a second microarchitecture: i7-12700K, measured on CPU 8, a
-Golden Cove P-core (`core_id` 16, siblings 8-9, 5.0 GHz) isolated with
-`isolcpus=domain,managed_irq,8-11 nohz_full=8-11 rcu_nocbs=8-11
-irqaffinity=0-7,12-19 nowatchdog`, CachyOS 7.2.3, `nmi_watchdog=0`, governor
-`powersave`, rustc 1.98.1, ISA-L 2.32.0, backend `v3_gfni_crypto`. Three
-release builds of one harness source so the compared arm sets match — the
-pre-change tree, the same tree's four-arm build, and the ten-arm build for
-the candidate comparisons — with the ISA-L arms as byte-identical anchors
-(drift median 1.001 against 1.023 on the non-isolated reference core). Arm
-sets have to match: `prod` at 64 KiB x 10, one output reads 93.3 GiB/s in the
-four-arm build and 82.5 GiB/s with nine other arms interleaved around it.
-
-| Measure | Lunar Lake | Golden Cove |
+| Field | Lunar Lake | Golden Cove |
 | --- | ---: | ---: |
-| New / old production, median | 1.219 | 1.122 |
-| New / old production, range | 1.073-1.336 | 1.047-1.286 |
-| Cells improved | 36/36 | 36/36 |
-| Versus ISA-L GFNI, before | 0.932 | 0.992 |
-| Versus ISA-L GFNI, after | 1.094 | 1.1215 |
+| `Gf16` polynomial tower | 42.28 | 36.40 |
+| `Gf32` polynomial tower | 31.44 | 30.69 |
+| `Gf64` polynomial tower | 19.32 | 16.88 |
+| `FanPaar16` | 19.09 | 17.03 |
+| `FanPaar32` | 7.54 | 6.31 |
+| `FanPaar64` | 2.54 | 1.91 |
 
-Same mechanism: per 1024 source bytes at 64 KiB x 10, instructions fall
-191.5 -> 153.8 and loads 74.0 -> 49.8 at one output, 997.7 -> 692.6 and
-309.4 -> 176.7 at six, with cycles 50.77 -> 47.53 and 217.99 -> 185.46. The
-smaller headline (+12% against +22%) follows from the old path already
-sitting closer to ISA-L here. What ISA-L keeps is one output: median 1.024,
-winning three cells by 3-4%, while two, four and six outputs lead by 1.133.
+## Bit-packed GF(2)
 
-`ld_blocks.address_alias`, which Lunar Lake does not expose, is at most 0.07
-per kB for every arm and shape. The load-side stall that separated
-production from the pre-resolved reference body on the reference host was the
-harness's unaligned source copies, not 4K aliasing.
+The input size is 256 KiB, representing 2,097,152 field elements. Throughput is
+GiB/s over packed bytes.
 
-Three candidates parked above are rejected on cross-host evidence: 32-byte
-replicated map records (0.997 there with wins at 64 KiB x 16, 0.958 here with
-35 of 36 cells losing), ISA-L's grouping over the same coefficient store
-(0.961-0.971 with 8-12 winning cells there, 0.946 with none here), and
-3+3-over-records at six outputs (1.12-1.17 there, 0.901 here losing all 27
-cells, worst 0.827). Production's 4x64 B + 2x128 B grouping over compact map
-qwords is the choice on both microarchitectures, which is what already ships,
-so no dispatch change follows from this run either. Prepared records are done
-as a candidate too: 0.992 against production here, and the two share the
-resolved body above one output.
+| Operation | Lunar Lake | Golden Cove |
+| --- | ---: | ---: |
+| `bits::xor_assign` | 57.42 | 66.06 |
+| `bits::and_into` | 31.80 | 48.90 |
+| `bits::weight` | 21.24 | 15.66 |
+| `bits::dot_product` | 36.73 | 41.45 |
+| `bits::xor_range` | 62.84 | 73.91 |
+| `bits::xor_range_with` | 64.23 | 73.98 |
 
-Placement still moves single cells (-9.4% to +11.6% at 64-byte stagger,
-median +0.9 to +2.2% per arm) without flipping a verdict. Production stays
-4.9% behind the pre-resolved reference body (0.951 median, worst 0.867),
-per-call coefficient resolution as on the reference host; a wider resolve
-chunk or resolution hoisted into `Plan` would attack that, unmeasured. The
-one open shape is one output, where a 96-byte tile is the next candidate
-worth measuring on both hosts.
+For 256 calls over 16-byte rows and the bit range `61..69`, preparing
+`bits::XorRange` reduces the per-call cost from 7.08 ns to 2.13 ns on Lunar
+Lake and from 5.34 ns to 2.07 ns on Golden Cove.
 
-### One output: the gap is resolution, and 96 bytes loses (2026-09-09)
+## Reconstruction comparison
 
-Seven arms over one fixture set on both GFNI hosts, each pair differing in one
-factor: the public entry, the production resolved path at 128 and 96 bytes,
-the same body fed coefficients resolved outside the timed region at both
-widths, resolution alone, and ISA-L's `gf_vect_dot_prod_avx2_gfni`. Lengths
-are multiples of 384 (both widths run whole tiles, neither cleans up) plus
-`+32`/`+64` residues that force cleanup in one width only, plus the shipped
-grid's 4/16/64 KiB; sources 6/10/16/33. The inference unit is the run: one
-paired-ratio median per run, a 95% interval over three runs, Holm-adjusted
-across the 28-cell family.
+`benches/compare.rs` compares compatible GF(2^8) overwrite gathers with
+`reed-solomon-erasure` 6 using its `simd-accel` feature. Every case uses 16
+dense nonzero coefficients. Throughput is GiB/s over source bytes.
 
-Per-call coefficient resolution costs 12.5 cycles per source at ten sources
-and 10.9 at thirty-three (Golden Cove, elapsed x 4.95 GHz) — about 2.0-2.3 ns
-per source per call, one bank load plus one scratch store plus a pointer copy.
-Two independent measurements agree, the paired difference and a standalone
-resolve probe, and the model predicts held-out shapes: resolution added to the
-resolution-free body reproduces the production path within a median +1.2%
-(Lunar Lake) and +0.8% (Golden Cove), worst cell +5.9%. Public-entry
-validation is within 2% either way, and the vector remainder moves a width by
-under 2% relative to its whole-tile neighbour.
+| Row length | Implementation | Lunar Lake | Golden Cove |
+| ---: | --- | ---: | ---: |
+| 4 KiB | `fgf` `Gf8B` `mul_into_gather_with` | 98.29 | 84.42 |
+| 4 KiB | `fgf` `Gf8D` `mul_into_gather_with` | 100.88 | 83.61 |
+| 4 KiB | `reed-solomon-erasure` zero + `mul_slice_xor` | 52.71 | 50.32 |
+| 16 KiB | `fgf` `Gf8B` `mul_into_gather_with` | 80.92 | 88.26 |
+| 16 KiB | `fgf` `Gf8D` `mul_into_gather_with` | 86.15 | 85.69 |
+| 16 KiB | `reed-solomon-erasure` zero + `mul_slice_xor` | 56.41 | 53.68 |
 
-ISA-L wins two cells and they have different causes. At 4 KiB x 10 on Lunar
-Lake it is 204.5 ns against production's 223.0 ns, a gap of 18.4 ns against a
-resolution cost of 23.4 ns: resolution is the whole story, and with resolution
-outside the timed region fgf leads (1.011). At 64 KiB x 33 on Golden Cove
-ISA-L is 29.0 against 31.1 microseconds and beats even the resolution-free
-body (0.951); per call that arm spends +10% instructions and +11% loads for
--9.5% L2 line fills (34.2k against 37.7k) and wins 6% of cycles. Thirty-three
-streams times a 128-byte tile is four lines per stream in flight where 96
-bytes is three, so the wider tile spills L1 and refetches from L2. At 4 KiB x
-10, where both fit L1 and `l2_lines_in` is ~0, the 128-byte tile is ahead.
+## Named competitors
 
-The 96-byte tile is rejected. Over the same coefficient store it is slower on
-both hosts (median 0.951 and 0.940, worst 0.855), its only cross-host win is
-~3.8 KiB rows at 16 sources (+8.4% on Lunar Lake but +2.3% on Golden Cove),
-and the enumerated neighbours regress to 0.865 at 33 sources on both hosts —
-far past a 3% noninferiority bound. Production keeps the 128-byte tile. What
-the panel does justify measuring next is hoisting resolution into `Plan`
-(bounded by the resolve probe: 6-10% at 4 KiB, under 1% at 64 KiB), the
-32-term resolve chunk that makes 33 sources take a second destination pass,
-and tile width keyed on source count rather than row length, since L1
-footprint is the only real width effect. The bodies this entry kept are the
-ones those follow-ups need: `matrix_overwrite1_tile_8d` (tile width on the
-production path), `matrix_overwrite1_external_8d` (the same body with
-resolution hoisted out) and `resolve_probe_8d` (resolution alone). The
-rejected replicated-map, ISA-L-grouping, 3+3 and prepared-record bodies were
-removed.
-
-### Crossed resolution x chunk panel: pass cost is small, no chunk change (2026-09-10)
-
-The 33-source claims above needed a panel that separates three effects the old
-arms bundled: per-call coefficient resolution, the chunk-boundary scratch
-initialization, and the second destination pass. The crossed panel holds two of
-the three fixed in every arm — production resolved path (`prod32`), the same
-path with the original full-array scratch init (`full32`), the same path at
-chunk 64 and 96 (`prodK`), the production body over externally resolved maps
-chunked at 32 (`ext32`) and single-pass (`ext1`), the resolve probe, ISA-L, and
-the public entry. Grid 4/16/64 KiB x 32/33/65 sources x 1/2/4/6 outputs, 32
-interleaved rounds, three runs per chunk setting, run-blocked 95% t-intervals,
-both GFNI hosts (`.lucid/artifacts/fgf-chunk-cross-raw.txt`, per-round samples
-included). Every timed arm is byte-identical to the scalar oracle first.
-
-Correction first: the "12.5 and 10.9 cycles per source" resolution figure above
-is mostly the resolve probe's own scratch initialization, not kernel cost. The
-probe's old form declares `[[u64; ROWS]; 32]` and `[&[u8]; 32]` fully
-initialized on every chunk, so its cost jumped 34.0 -> 72.8 ns from 16 to 33
-sources on Golden Cove — the second chunk's fixed init, not per-source work.
-Production never showed that jump: `full32` (original policy) against
-`prod32` (scratch now written only for the occupied terms) is median 1.001 on
-both hosts, no cell beyond noise. The kernel hides the init; the probe did
-not. In-kernel per-call resolution, priced by the chunk-matched pair
-`prod32/ext32`, is median 1.010/1.012 (Lunar Lake) and 1.003/1.019 (Golden
-Cove) at one/multiple outputs — roughly 0.5-1.5 ns per source, not 2-2.3.
-
-`prod32` (scratch now written only for the occupied terms) is median 1.001 on
-both hosts; the two Golden Cove cells whose intervals exclude 1 sit at most
-+0.3% away. Against a 1% equivalence margin — declared at analysis time, not
-beforehand, a deviation this record owns — that is a point-estimate
-equivalence, not an established one; the honest reading is "no measurable
-kernel effect of the scratch policy".
-
-The second destination pass above 32 terms is real but small, and consistent
-with destination traffic: `ext32/ext1` is median 1.005/1.013 (Lunar Lake) and
-1.005/1.002 (Golden Cove) overall, worst 1.071 at 64 KiB x 33 x 6 outputs on
-Golden Cove — material against the same margin at the high-output shapes.
-Counters there (isolated core, 20 000 calls): chunked 194 293 LLC
-misses against single-pass 64 687 at four outputs, matching the direction the
-extra destination read-write per pass predicts; the counters corroborate, they
-do not identify accesses.
-
-Chunk widening is rejected by the pre-declared gate. Chunk 64 and 96 recover
-the 33-source multi-output pass cost (Golden Cove 64 KiB x 2/4/6 outputs:
-1.057/1.064/1.076) but lose at 65 sources on the same host — 0.908-0.984,
-significantly — and mix wins and losses on Lunar Lake, so neither clears the
-both-host noninferiority bound over the enumerated neighbours. The 40- and
-64-source runs completed after the first pass of this entry agree: chunk 64 at
-those counts is median 1.015/1.004 (Lunar Lake/Golden Cove) with significant
-losses on Golden Cove (to 0.898), chunk 96 the same picture. A second,
-independent reason chunk 96 cannot ship: its four-row stack frame. The
-declared arrays alone are 96 x (4 x 8 + 16) = 4 608 bytes, and the disassembly
-agrees — the four-row chunk-32 frame's high-water mark including spills is
-0xc68 (3 176) bytes, inside the 4 KiB budget, while chunk 96 opens with
-`sub $0x1000, %rsp` and climbs past it. `RESOLVE_CHUNK` stays 32: at high
-source counts the chunked traversal's cache behaviour is a benefit at some
-shapes, not only a cost.
-
-Resolution in a hot back-to-back loop is larger than the interleaved panel's
-1-2% — 5% at 64 KiB x 33 with the affine-bank reads showing as 724 673 LLC
-misses per 20 000 calls against 295 923 for the external body — the regime
-the plan-hoisting experiment below targets.
-
-### Plan-hoisted resolution measured and rejected (2026-09-10)
-
-The follow-up the crossed panel pointed at — feeding the plan entries their
-already-resolved affine words so the call skips the bank lookup — was routed
-into `dot_product_matrix_with` / `mul_add_matrix_with` (`Prepared8D` as the
-blocked coefficient, `PreparedMatrix` in the term-major order a plan stores)
-and measured on both hosts with `plan` (prepared overwrite), `planadd`
-(prepared accumulate), `api` (term-list overwrite) and `apiadd` (term-list
-accumulate) arms over 48 cells (4/16/64 KiB x 6/10/16/33 sources x 1/2/4/6
-outputs), three runs per host, per-round samples in
-`.lucid/artifacts/fgf-plan-hoisting-raw.txt`. The first version of this entry
-was measured with a harness that allocated its source views inside the timed
-region; every number below is from the corrected allocation-free harness.
-
-It is rejected and the routing reverted. Against its matched term-list
-baseline the prepared plan is median 1.0018/0.9971 (Lunar Lake/Golden Cove)
-with Golden Cove significantly slower in 3 cells (worst 1.027 at 4 KiB x 10 x
-1) and significantly faster in 3 — parity with noise, slightly the wrong way.
-The pre-declared estimand `(B - P) - 1/2 (B - E)` is significantly negative on
-both hosts at one output for both policies (overwrite -19.4/-14.9 ns,
-accumulate -35.2/-17.1 ns): the prepared path closes none of the gap to the
-resolution-free body. Whatever the microarchitectural reason — the wider
-coefficient fetch and the unchanged scratch build and pointer copy are the
-candidates this panel separates but does not isolate — a representation that
-keeps per-call resolution cannot pay for itself, and with the clean-pair
-ceiling at 1.7-1.9% median the packed plan-side seam (a public `FieldKernels`
-change) is not justified either. Production keeps resolving from scalar
-values; the reverted build re-measures at parity (median 1.0012 both hosts).
-
-The prepared bodies stay behind `internals`
-(`matrix_affine_prepared_with`, `matrix_overwrite_affine_prepared_with`),
-differentially tested at every group split through 16 rows with zero and one
-coefficients, zero sources (the empty overwrite writes zeros and leaves
-surplus bytes alone), sub-32-byte tails and surplus destinations, for the day
-a representation change wants them.
-
-### Placement grid at 64 KiB x 33: the width effect is placement-bound, no rule (2026-09-10)
-
-The one cell where the 96-byte tile beat the 128-byte one — 64 KiB rows, 33
-sources, Golden Cove — had never been measured at any stagger: every earlier
-panel and counter run sat at stagger 0. The grid covers staggers 0, 64, 192,
-320 and 4160 (4096+64: the same L1 set-index sequence as 64 but one page
-further in), at 65536 paired with 61440 where both widths run whole tiles,
-three runs per point per host, per-round samples in
-`.lucid/artifacts/fgf-placement-raw.txt`. Ratios below are `ext-96/ext-128`
-nanoseconds; below 1 means the narrow tile is faster.
-
-Golden Cove, 65536: the narrow tile wins at every placement — 0.956 at
-stagger 0, 0.923-0.939 at 64/192/320, 0.981 at 4160 — and ISA-L leads the
-production path (0.887-0.962) and even the resolution-free body (0.913-0.989)
-at every placement. Lunar Lake, 65536: the verdict flips with placement alone,
-0.873-0.895 for the narrow tile at 64/192/320, parity at 0, and 1.043 against
-it at 4160. At the geometry-clean 61440 the narrow tile loses at stagger 0/64
-on both hosts (to 1.167) and wins at 320 on Golden Cove (0.953).
-
-Neither candidate mechanism survives this grid. L1 capacity was already
-refuted by the counters (replacements run higher for the narrow tile); the L2
-set-period story predicted that rotating the set indices would relieve the
-wide tile, and the opposite happens — set rotation makes the narrow tile win
-by more. A source-count sweep at the same length (24/28/40, three runs per
-host) shows the narrow tile significantly ahead at 28 and 40 on Golden Cove
-(0.945/0.982) and at parity on Lunar Lake: the effect is not 33-specific
-there, and it still tracks placement. Counters at the placements confirm the
-swing is memory-system traffic, not scheduling: at 65536 x 33 the
-resolution-free wide body's LLC misses per 20 000 calls move 148 108 (stagger
-0) -> 265 629 (64) -> 20 817 339 (4160) while its time improves 30.7 -> 28.8
--> 26.4 µs — the page count of the offset changes both arms far more than the
-width does.
-
-On this evidence the width effect moves with the buffer placement and the
-page count of the offset far more than with anything the kernel knows: no rule
-keyed on values available at dispatch (source count, row length) could be
-confirmed over a placement-varying confirmation domain, so none ships. Two
-planned interventions remain unrun and are recorded as such: software-prefetch
-and huge-page arms (each needs new kernel or harness bodies), and the MSR
-prefetch disable, which this host does not allow (`sudo` requires a password
-and no `/dev/cpu/*/msr` exists). The static 128-byte tile stands, and the
-earlier "spills L1" and sector-count arithmetic in the one-output entry above
-is superseded — the measured cells and counters stand, the causal sentence
-does not. The mechanism beyond "placement-modulated memory behaviour" remains
-unestablished.
-
-Small GF(2^16) rows are sensitive to coefficient preparation because a shuffle
-backend builds four nibble tables per coefficient. Use `Coeff` or `Plan` when a
-coding matrix is reused. Large rows amortize the same setup in the byte loop.
-GF(2^8) preparation is free at every size — its 256-entry table bank is static
-— and GFNI preparation is two broadcast words, so the effect is a shuffle-
-backend GF(2^16) concern only.
-
-`bench_preparation_crossover` in `benches/kernels.rs` measures exactly where
-that stops mattering, one-shot against prepared over 16 B … 64 KiB rows. Run
-it rather than quoting a remembered threshold; on a hybrid CPU pin the process
-(`taskset -c <p-core>`) or the two core types will produce two answers.
-
-`bench_blocked_vs_axpy` measures the blocked multi-row GF(2^16) kernels
-against repeated single-row AXPY by calling both directly, bypassing dispatch.
-It needs the `internals` feature (`cargo bench --bench kernels --features
-internals`) and is the harness to rerun before changing which shape a backend
-dispatches to.
-
-`bench_small_row_shapes` measures the GF(2^16) multi-row shapes at row lengths
-where a coefficient's four nibble tables are still a visible share of the work,
-with a coefficient set that is one-fifth zeros and one-fifth ones so the
-zero/one specializations are exercised. It also times fused `mul_into` against
-the copy-then-scale it replaces.
-
-`bench_large_destination` measures `mul_into` at 1, 8 and 32 MiB. Past 2 MiB
-the x86 kernels store the destination non-temporally, which skips the
-read-for-ownership fetch of lines they overwrite whole; the cost is that the
-destination is not left cached, so the section also times an
-encode-then-read-back loop, and `mul_add` as a control the change cannot touch.
-Rerun it before moving that threshold, and pin the process: the effect is
-entirely memory-side, so an unpinned run on a hybrid CPU reports the wrong
-size at which it starts paying.
-
-`bench_destination_alignment` measures multi-row scatter with the destination
-at 32-byte residues 0 and 16. The GFNI and AVX2 kernels peel a row group's
-lead-in so the rest of the pass is aligned; a single allocator-fresh buffer
-cannot show that effect, because its residue never varies. Read the two skews
-against each other, and keep an unchanged field (GF(2^8) here, when only the
-GF(2^16) kernels changed) as a drift control.
-
-## aarch64 and wasm32 kernel numbers (2026-07-31)
-
-Snapdragon 8 Gen 3 (`arm64-v8a`, Android, rustc 1.93, backend `neon`), one big
-core, maximum of four interleaved runs, GF(2^8) buffers as control (1.00x):
-
-| Shape | Before | After |
+| Library | License | Current comparison status |
 | --- | --- | --- |
-| gf16 `mul_add`, 4 KiB … 8 MiB | 2.09–2.17 GiB/s | 2.30–2.41 GiB/s (+11%) |
-| gf16 `mul_assign`, ≤ 256 KiB | 2.30–2.35 GiB/s | 2.39–2.45 GiB/s (+4%) |
-| gf16 `mul_into`, 16 KiB rows | copy-then-scale | fused, +6% over copy+scale |
-
-The gf16 two-lane unroll is what moves `mul_add`; it wins at every size from
-4 KiB to 8 MiB on a pinned core. Measured on the *cluster* instead, the same
-binary reports anything from 0.65x to 1.11x — that spread is core migration,
-not the kernel.
-
-### PMULL against the nibble shuffle
-
-`Backend::NeonAes` (was `Pmull`) and `Backend::Neon` differ by dispatch alone,
-so `SIMD_BACKEND=neon_aes` against `SIMD_BACKEND=neon` in **one binary** is
-the cleanest A/B this crate has (recorded with the historical
-`FFF_BACKEND=pmull`/`neon`). Same device, one pinned big core, max of three
-runs each:
-
-| Shape | `neon` | `pmull` | |
-| --- | --- | --- | --- |
-| gf8 `mul_elementwise`, 4 KiB … 8 MiB | 0.83 GiB/s | 1.28–1.30 GiB/s | **1.55x** |
-| gf16 `mul_elementwise`, 4 KiB … 8 MiB | 0.39–0.41 GiB/s | 0.36 GiB/s | 0.88–0.92x |
-| gf8 `mul_add` fixed coefficient | 9.0–9.2 GiB/s | 1.17–1.23 GiB/s | 0.13x |
-| gf16 `mul_add` fixed coefficient | 2.4 GiB/s | 0.62 GiB/s | 0.26x |
-
-Only the first line survived into dispatch. `PMULL` pays when it replaces
-eight bit-serial rounds; against `vqtbl1q_u8`'s five instructions it cannot
-carry its twenty-instruction reduction network, and against the tower's
-three-multiply identity it merely ties. The losing kernels were deleted, with
-the numbers kept in `src/kernel/aarch64/`.
-
-Everything else in the run matches within 3% — except rows of 16–128 B, where
-dispatch-identical code varied by up to 1.36x between the two runs. Treat
-anything measured on rows that small as noise unless it survives many runs.
-
-Node 26 WASI (`wasm32-wasip1`, `simd128`, rustc 1.93), maximum of four
-interleaved runs, GF(2^8) `xor`/`elementwise` as control (1.00x):
-
-| Shape | Before | After |
-| --- | --- | --- |
-| gf16 `mul_add`, 4 KiB … 8 MiB | 4.5–5.4 GiB/s | 5.6–6.1 GiB/s (+13–24%) |
-| gf16 `mul_assign`, 4 KiB … 8 MiB | 5.0–5.2 GiB/s | 6.0–6.2 GiB/s (+14–25%) |
-| gf16 `scatter`, 16 rows, ≥ 256 B | 4.4–5.1 GiB/s | 9.8–11.1 GiB/s (~2.1x) |
-| gf16 `gather`, 8 sources, ≥ 256 B | 4.5–5.4 GiB/s | 7.5–9.1 GiB/s (~1.7x) |
-| gf16 `matrix`, 16x8, ≥ 256 B | 4.8–5.0 GiB/s | 6.2–7.9 GiB/s (1.3–1.6x) |
-
-The multi-row factors come from hoisting the four-table derivation out of the
-per-`(term, row)` loop and skipping zero/one coefficients; at 64 B rows the
-result is inside Node's noise band. A two-lane unroll of the *GF(2^8)* wasm
-kernels measured 1.00x and was therefore not kept: two swizzles per lane leave
-no latency to hide, unlike GF(2^16)'s eight.
-
-## Crossover and dispatch decisions
-
-Several kernels are wired one way rather than another because of a
-measurement. The code at each site states the decision and the reason; the
-numbers behind it are here, so that re-deriving them is a matter of rerunning
-a benchmark rather than trusting a comment.
-
-Unless noted otherwise: Core Ultra 7 258V, Linux, rustc 1.93, one core,
-maximum of interleaved runs with an unaffected operation as a 1.00x control.
-
-### Non-temporal stores in `mul_into` (`kernel::x86::NT_STORE_MIN`)
-
-`mul_into` never reads its destination, so an ordinary store pays a
-read-for-ownership fetch of every line it fully overwrites. `vmovntdq` skips
-it, at the price of evicting the destination. GF(2^8) `mul_into`, ordinary
-stores → non-temporal:
-
-| Destination | Write-only | Encode then read back |
-| --- | --- | --- |
-| 1 MiB | 32.3 → 61.2 GiB/s | 21.6 → 17.9 GiB/s |
-| 2 MiB | 21.3 → 66.0 | 16.5 → 16.9 |
-| 4 MiB | 21.5 → 37.8 | 14.5 → 16.1 |
-| 16 MiB | 16.1 → 34.4 | 10.7 → 12.9 |
-| 64 MiB | 14.2 → 23.0 | — |
-
-2 MiB (this host's L3 is 12 MiB) is where the read-back workload stops losing
-while the write-only one is already ~3x, which is why the threshold sits
-there. The forced `avx2` and `ssse3` arms hit the same ~14 GiB/s ceiling at
-16 MiB, so every backend is store-bound at that size, not multiply-bound.
-`mul_assign` reads its destination anyway and measures 22.0 GiB/s either way
-at 64 MiB, 0.5x at 256 KiB — it keeps ordinary stores.
-
-### Bit-packed GF(2) kernels: portable word loops are the final kernels
-
-The `bits` surface ships `xor` on the already-dispatched field-independent
-byte XOR and everything else on portable `u64` word loops. No GF(2)-specific
-intrinsic was written; the measurements that justify that (Core Ultra 7
-258V, Linux, rustc 1.93.0, backend `v3_gfni_crypto`, unpinned, median of
-the `bench_gf2_bits` section of `cargo bench --bench kernels`):
-
-| Shape | 4 KiB (L1) | 256 KiB (L2) | 8 MiB | 64 MiB |
-| --- | --- | --- | --- | --- |
-| `bits::xor` (dispatched) | 68.1 GiB/s | 61.0 GiB/s | 9.0 GiB/s | 16.7 GiB/s |
-| `ops::add_assign` GF(2^8) control | 56.9 GiB/s | 62.1 GiB/s | 9.0 GiB/s | 16.5 GiB/s |
-| `bits::and_into` (portable, 3 streams) | 82.9 GiB/s | 32.8 GiB/s | 6.6 GiB/s | 10.7 GiB/s |
-| `bits::weight` (portable, read-only) | 25.3 GiB/s | 26.0 GiB/s | 25.5 GiB/s | 19.7 GiB/s |
-| `bits::parity_dot` (portable, read-only) | 52.3 GiB/s | 44.4 GiB/s | 23.0 GiB/s | 14.6 GiB/s |
-
-Readings:
-
-- `bits::xor` sits on the same dispatched kernel and the same ceiling as the
-  GF(2^8) control at every tier — with 8x the elements per byte, which is
-  the whole point of the packing. There is nothing left for a private
-  GF(2)-specific XOR body to win.
-- `and_into` moves three streams (`a`, `b`, and the write) where `xor` moves
-  two; per raw traffic byte it matches the same memory ceiling (at 64 MiB:
-  `xor` 2 × 16.7 ≈ 33 GiB/s raw, `and_into` 3 × 10.7 ≈ 32 GiB/s raw). The
-  autovectorized word loop saturates bandwidth.
-- `weight`/`parity_dot` are read-only folds. Their portable bodies run
-  independent accumulators — eight `popcount` lanes in `weight`, four AND-XOR
-  lanes in `parity_dot` — because a single-accumulator fold pins the loop to
-  the `popcnt`/XOR dependency latency instead of port throughput: the split
-  forms measured 1.2–1.5x (`weight`) and 1.2–2.0x (`parity_dot`) across these
-  tiers on this host (Core Ultra 7 258V, Linux, rustc 1.93.0, unpinned,
-  medians of the same bench section; single-accumulator numbers were
-  weight 18.6/18.8/18.5/12.8 and parity_dot 30.5/22.7/17.4/12.1 GiB/s). They
-  remain compute-bound in-cache — weight sits ~2.7x under the copy ceiling at
-  4 KiB — so a `VPOPCNTQ` body is still the next step for that residual, and
-  it stays gated on an AVX-512 tier `FGF_TIERS` does not expose (untestable
-  on this host).
-- Open follow-up, not a rejection: a non-temporal-store overwrite variant of
-  `and_into`/`xor` for far-out-of-cache destinations would follow the same
-  measured path as `mul_into`'s `NT_STORE_MIN` (the section above); it is
-  deferred until a consumer's grid shows repeated out-of-cache overwrites
-  through the `bits` surface, rather than landing a gated body on
-  speculation.
-
-**Not taken:** GF(2^16) on SSSE3. Eight `PSHUFB` per 16 bytes hold that loop
-to ~5.9 GiB/s, well under the host's write bandwidth, and 16-byte
-non-temporal stores from a slow loop flush write-combining buffers before a
-line fills: 5.41/5.44 GiB/s ordinary against 4.84/4.79 non-temporal at
-32 MiB. The GF(2^8) SSSE3 kernel does reach the ceiling (19.7 GiB/s) and does
-use them.
-
-### Masked range kernels and the short-buffer floor (2026-08-24)
-
-`xor_range`/`clear_range`/`set_range` first shipped walking *every* word of
-the range through the masked byte-assembly helpers
-(`xor_masked_word`/`read_modify_word`), even fully-live interior words, and
-every `bits::xor` paid the dispatched `#[target_feature]` call boundary.
-Three changes, each measured:
-
-1. **Bulk interior.** The two end words stay masked scalars and the
-   interior is sliced out and run through the dispatched whole-buffer byte
-   XOR (`xor_range`) or one bulk fill (`clear_range`/`set_range`). Same
-   host and method as the ceiling table above; `bits::xor_range 5/8
-   packed`, masked walk vs bulk interior:
-
-   | Shape | masked walk | bulk interior | speedup |
-   | --- | --- | --- | --- |
-   | 4 KiB (L1) | 317 ns / 12.0 GiB/s | 43 ns / 88.7 GiB/s | 7.4x |
-   | 256 KiB (L2) | 19.15 µs / 12.8 GiB/s | 3.38 µs / 72.3 GiB/s | 5.7x |
-   | 8 MiB | 737 µs / 10.6 GiB/s | 735 µs / 10.6 GiB/s | 1.00x |
-   | 64 MiB | 5.38 ms / 11.6 GiB/s | 2.35 ms / 26.5 GiB/s | 2.3x |
-
-   The interior now moves at or above the whole-buffer `bits::xor` rate
-   (it touches 5/8 of the bytes with the same kernel). The 8 MiB tier is
-   memory-bound for both forms at ~1.00x. The masked walk remains only
-   where masking is real: the two end words of a range, and words that
-   run past the end of a short buffer.
-
-2. **Short-buffer inline path.** `kernel::xor_impl` routes buffers of at
-   most `XOR_INLINE_MAX` (31) bytes to `scalar::xor`, now `#[inline]`:
-   below one vector the dispatched call boundary cost more than the body
-   saved. On the consumer's panel pattern (16-byte GF(2) rows, one XOR
-   per row per pivot) this alone took whole-buffer `bits::xor` from
-   ~5.0 ns to ~3.3 ns per call.
-
-3. **Sub-word byte path.** Ranges spanning at most two bytes — the
-   panel-elimination shape, at most eight pivots wide — are one or two
-   masked byte operations with no word round trip. Together with `#[inline]`
-   on the checked `bits` entry points, the same panel pattern runs at
-   ~3.7 ns per call against ~1.1 ns for a bare inlined `u64` masked XOR;
-   the residual is the contract checks plus mask arithmetic, not call
-   frames or word assembly. The end-to-end cost at the consumer is
-   recorded in gfm's `BENCHMARKS.md` (and shrinks again with the prepared
-   ranges below).
-
-### Prepared ranges: `RangeXor` + `xor_range_with` (2026-08-24)
-
-The checked one-shot `xor_range` pays its length/range/coverage contract
-and its window derivation on every call. An elimination XORs the same
-column range into many rows, so the surface gained the prepare/apply split
-`ops` already uses for coefficients: `RangeXor::new(bits, from, to)`
-derives the byte window and end masks once, `xor_range_with` applies them
-with a single coverage check. The apply core is shared — `xor_range` routes
-through it too, and the window is byte-granular, so sub-word ranges are one
-or two masked byte operations and no path assembles words anymore.
-
-`bench_gf2_short_rows` (same host and method as above): 256 pairs of
-16-byte rows, the eight-bit range `bits 61..69` (a byte-boundary-straddling
-window), median ns per call:
-
-| Form | per call |
-| --- | ---: |
-| `bits::xor_range` one-shot | 5.46 ns |
-| `bits::RangeXor` + `xor_range_with` | 1.52 ns (3.59x) |
-
-Long ranges are unaffected — the derivation amortizes to nothing there
-(`bits::xor_range 5/8 packed`: 48 vs 44 ns at 4 KiB, 2.32 vs 2.31 ms at
-64 MiB, within run noise). The consumer-level effect (gfm's GF(2)
-elimination) is recorded in gfm's `BENCHMARKS.md`.
-
-### Destination alignment peel (`kernel::x86::peel_to_align`)
-
-A 32-byte `vmovdqu` at an odd multiple of 32 straddles two cache lines, and a
-multi-row body issues one load and one store per row per vector. On GF(2^8)
-64 KiB rows the aligned form runs ~1.4x the misaligned one. Peeling at most
-31 bytes per row group buys the aligned body for the rest of the pass. The
-2 KiB floor comes from the original all-scalar GF(2^8) peel, which won from
-about 2 KiB up and lost badly below 1 KiB.
-
-Generalized to the GF(2^16) scatter kernels, normalized against untouched
-GF(2^8) rows as a control, 8 rows, misaligned destination:
-
-| Kernel | 64 KiB rows | 256 KiB rows |
-| --- | --- | --- |
-| gf16 scatter, GFNI | 1.30–1.36x | 1.23–1.30x |
-| gf16 scatter, AVX2 | 1.03–1.11x | 1.03–1.11x |
-
-An already-aligned destination is unchanged.
-
-**Not taken:** the GF(2^16) matrix kernel (0.96–1.03x at 64 KiB, 0.93–1.01x
-at 256 KiB — its row tile is stored once per term block, not per source
-window) and the SSSE3 scatter (1–3% slower; 16-byte accesses never straddle a
-line at the alignment allocators already give).
-
-### Blocking against repeated AXPY
-
-Register-blocked multi-row kernels are not universally better than dispatching
-to repeated single-row AXPY, so dispatch picks per `(field, backend, shape)`.
-Across 2–16 sources and 4–64 KiB rows, blocked against AXPY:
-
-| Shape | Result | Wired to |
-| --- | --- | --- |
-| gf16 gather, GFNI | 1.03–1.59x | blocked |
-| gf16 gather, SSSE3 | 1.5–1.8x | blocked |
-| gf16 gather, AVX2 | 0.84–1.01x | AXPY |
-| gf16 matrix, AVX2 | 0.95–1.20x | AXPY |
-| gf8 matrix, AVX2 | +20% | blocked |
-
-AVX2 loses on GF(2^16) because it has enough width but not enough registers to
-retain several four-table coefficient sets, and because a gather's
-coefficients are one-to-one with its sources — a source's nibble split feeds
-exactly one coefficient, so there is nothing to share. SSSE3's smaller table
-vectors fit. The AVX2 matrix wins only at or below ~8 KiB rows, which is not
-enough to justify a row-length branch in dispatch. Before its broadcasts were
-hoisted out of the byte loop, the GFNI gather ran at 0.29–0.47x, which is why
-dispatch previously avoided it.
-
-### Zero-coefficient skipping in the blocked GF(2^8) matrix kernel
-
-Not done: coefficients have to reach a general-purpose register to be tested,
-which stops each factor broadcast from folding into a memory-operand
-`vpbroadcastb`. Over eight terms and 64 KiB rows the check cost ~9%. Sparsity
-is handled in the scatter shape instead, which drops zero rows before grouping
-and outside any loop.
-
-### GFNI affine multiply for `Gf8D` (`kernel::x86::gf8::mul_*_affine`)
-
-`GF2P8MULB` multiplies only in the AES field, so `Gf8D` (`0x11D`) uses
-`VGF2P8AFFINEQB`, which applies an arbitrary 8×8 GF(2) linear map per byte
-lane: fixed-coefficient multiplication in any GF(2^8), one instruction per 32
-lanes. The maps are const-derived from `gf8d::Elem::mul` (see
-`kernel::tables::affine_8d`), never copied from another library, and the
-kernels are the `GF2P8MULB` loops with only the multiply instruction
-substituted. The candidate ran against the AVX2 nibble shuffle a GFNI host
-would otherwise dispatch to, with the native `Gf8B` `GF2P8MULB` loop as the
-single-instruction control:
-
-```sh
-cargo bench --features internals --bench affine
-```
-
-Criterion 0.8, 100 samples per point (20 at 4 MiB), candidates interleaved
-per size. GiB/s, mean of the estimate interval; ratio is affine ÷ shuffle.
-
-`mul_add` (`dst ^= c * src`):
-
-| Size | Shuffle AVX2 | Affine GFNI | Native `0x11B` | Ratio |
-| --- | --- | --- | --- | --- |
-| 64 B | 23.40 | 21.61 | 20.29 | 0.92 |
-| 256 B | 43.31 | 53.02 | 57.24 | 1.22 |
-| 1 KiB | 55.04 | 75.95 | 78.33 | 1.38 |
-| 4 KiB | 56.99 | 118.00 | 120.17 | 2.07 |
-| 16 KiB | 64.42 | 129.94 | 120.54 | 2.02 |
-| 64 KiB | 54.08 | 59.36 | 61.45 | 1.10 |
-| 256 KiB | 43.50 | 48.33 | 50.33 | 1.11 |
-| 1 MiB | 34.35 | 36.20 | 36.11 | 1.05 |
-
-`mul_assign` (`dst *= c`, single stream, in place):
-
-| Size | Shuffle AVX2 | Affine GFNI | Native `0x11B` | Ratio |
-| --- | --- | --- | --- | --- |
-| 64 B | 21.51 | 21.75 | 22.03 | 1.01 |
-| 256 B | 50.04 | 56.03 | 51.78 | 1.12 |
-| 1 KiB | 69.08 | 84.73 | 86.06 | 1.23 |
-| 4 KiB | 64.54 | 185.91 | 191.38 | 2.88 |
-| 16 KiB | 72.32 | 81.08 | 80.96 | 1.12 |
-| 64 KiB | 62.64 | 61.17 | 62.23 | 0.98 |
-| 256 KiB | 59.55 | 50.23 | 51.11 | 0.84 |
-| 1 MiB | 54.57 | 46.87 | 47.52 | 0.86 |
-
-`mul_into` (`dst = c * src`, fused out-of-place):
-
-| Size | Shuffle AVX2 | Affine GFNI | Native `0x11B` | Ratio |
-| --- | --- | --- | --- | --- |
-| 64 B | 24.82 | 23.63 | 25.95 | 0.95 |
-| 256 B | 46.31 | 64.00 | 74.38 | 1.38 |
-| 1 KiB | 63.86 | 81.16 | 77.14 | 1.27 |
-| 4 KiB | 66.01 | 79.51 | 77.83 | 1.20 |
-| 16 KiB | 75.87 | 79.69 | 79.97 | 1.05 |
-| 64 KiB | 55.71 | 58.23 | 58.71 | 1.05 |
-| 256 KiB | 42.99 | 55.99 | 55.78 | 1.30 |
-| 1 MiB | 38.34 | 46.23 | 48.01 | 1.21 |
-| 4 MiB | 36.60 | 35.72 | 34.49 | 0.98 |
-
-Composed scatter (per-row `mul_add`), ratio only: 4×16 KiB 1.29, 16×16 KiB
-1.02, 4×64 KiB 1.14, 16×64 KiB 1.20.
-
-Decision: affine for `mul_add` and `mul_into` at every size, and for
-`mul_assign` below 64 KiB; the register-blocked multi-row shapes build on the
-affine `mul_add` (see the next section). The affine/native column holds
-0.96–1.08 throughout — the map
-reaches native-multiply speed, and the 64 B loss is a sub-nanosecond
-small-buffer effect the native loop shares. `mul_assign` at and past 64 KiB
-is the one measured exception: in-place scaling is single-stream, both
-single-instruction forms fall ~15% behind the shuffle there (affine/native
-0.98–0.99, so the cause is the host's store path, not the map), and dispatch
-keeps the shuffle for it. At 4 MiB `mul_into` both candidates are
-non-temporal-store-bound and even.
-
-### Register-blocked multi-row for `Gf8D` (`scatter_affine`/`gather_affine`/`matrix_affine`)
-
-The multi-row shapes were first composed as a per-row affine `mul_add`. Holding
-a destination tile in registers across sources (gather) or terms (matrix), and
-one source load across a row group (scatter), removes the redundant destination
-traffic — the same blocking `Gf8B`'s GFNI kernels use. Both run
-`VGF2P8AFFINEQB`; the strategy seam (`kernel::x86::gf8::Blocked`) monomorphizes
-the `GF2P8MULB` and affine forms from one body, so `Gf8B` is byte-identical and
-unchanged. `cargo bench --features internals --bench affine`, blocked ÷ per-row
-affine:
-
-| Shape | Small (4 KiB rows) | Mid (16 KiB) | Large (64 KiB) | 256 KiB |
-| --- | --- | --- | --- | --- |
-| gather, 4 sources | 1.74 | 0.99 | 1.25 | 1.36 |
-| gather, 16 sources | 1.57 | 0.97 | 1.58 | 1.18 |
-| scatter, 4 rows | — | 1.09 | 1.61 | — |
-| scatter, 16 rows | — | 1.01 | 1.46 | — |
-| matrix, 4 rows × 8 terms | 1.86 | 1.99 | 2.07 | — |
-| matrix, 16 rows × 16 terms | 1.38 | 2.12 | 2.44 | — |
-
-Decision: dispatch `Gf8D` scatter/gather/matrix (and the scattered matrix) to
-the blocked affine kernels on a GFNI host. Matrix wins everywhere (1.38–2.44×,
-largest where the term count is high and the destination reread dominates);
-gather and scatter win at every size but the two 16 KiB gather points, which
-are a wash (0.97–0.99) — a single L2-resident tile leaves nothing for blocking
-to save there. Non-GFNI backends keep the per-row shuffle composition.
-
-### `Gf8D` elementwise (`elementwise_avx2::<0x1d>`)
-
-Two varying operands have no fixed coefficient, so `GF2P8MULB` is out even on a
-GFNI host; the branchless eight-round shift/reduce vector multiply, with the
-`0x11D` reduction byte threaded as a const generic, replaces the scalar
-reference. 7.1–7.9 GiB/s against the reference's ~1.1 GiB/s — 6.2–7.1× from
-64 B up, the win flat across sizes because the loop is compute-bound.
-
-### Rejected: Karatsuba for `QuadMersenne31` (2026-08-23)
-
-`QuadMersenne31` `(a+bi)(c+di) = (ac−bd)+(ad+bc)i` can be done as 3 base
-multiplies (Karatsuba) instead of 4 (schoolbook): `ac`, `bd`, `t=(a+b)(c+d)`,
-`ad+bc = t−ac−bd`. The scalar textbook and the vector `ops::mul_add` both
-compose `mersenne31::Elem` (`reduce` + fold), so the trade is one `m31_mul`
-saved against two `m31_add` and two `m31_sub` added, plus the extra
-canonicalizations they imply. `Elem::square` via `mul` already covers the
-square case; a dedicated 3-mul square (`a²`, `b²`, `ab`, `2ab`) was measured
-alongside the general multiply.
-
-Core Ultra 7 258V (Lunar Lake), Linux 7.1.8-arch1-3, rustc 1.93.0, `release`,
-`fgf` 0.6.0, P-core 3 isolated (`isolcpus=managed_irq,domain,3 nohz_full=3`),
-`taskset -c 3`, `performance` governor at 3.70 GHz, backend `scalar` for
-`QuadMersenne31` (portable composition; `backend_for::<QuadMersenne31>() ==
-Scalar` even though `backend()==V3`). Five interleaved pinned runs, median
-of process medians; scalar timing is `Instant` over 20 M iterations with
-`black_box`, vector timing is logical GiB/s over 64 KiB `dst ^= coeff*src`
-(`ops::mul_add`) over 2000 iterations, validated byte-for-byte against the
-schoolbook oracle before timing.
-
-| Shape | schoolbook (4-mul) | Karatsuba (3-mul) | Kara / schoolbook |
-| --- | ---: | ---: | ---: |
-| `Elem::mul` scalar | 4.68 ns/op [4.65–4.73] | 13.28 ns/op [13.20–13.35] | 2.83× slower |
-| `ops::mul_add` 64 KiB, 1 source | 1.45 GiB/s [1.43–1.46] | 1.36 GiB/s [1.34–1.37] | 0.94× (6% slower) |
-| `Elem::square` via `mul` vs 3-mul | 4.68 ns/op (same as mul) | 4.95 ns/op (kara square) | 1.06× slower |
-
-Karatsuba loses in both domains on this host: the extra modular adds/subs and
-their min-chain reductions cost more than the one `m31_mul` they save,
-because the Mersenne fold is already only a mask/shift/add plus one
-conditional subtract. The vector loss is smaller because the 64 KiB loop is
-partly memory-bound, but still a loss in every run with intervals excluding
-parity. Production keeps the 4-mul schoolbook general multiply; `square`
-gains a dedicated 3-mul form in the follow-up below, which measured faster
-than both karatsuba candidates.
-The karatsuba bodies were deleted, not left behind disabled; reproduce the
-comparison by timing `Elem::mul` against a 3-mul variant and `ops::mul_add`
-with `taskset -c 3 cargo bench --bench kernels` restricted to
-`QuadMersenne31` `mul_add`.
-
-### `QuadMersenne31` kernels: canonicalize-once limbs (2026-08-23)
-
-The first `QuadMersenne31` kernel composition called the scalar helpers
-(`m31_add`/`m31_sub`/`m31_mul`), which re-canonicalize every operand on every
-call. `perf annotate` on 64 KiB `mul_add` showed the loop dominated by
-`and $0x7fffffff` / `shr $0x1f` / `cmp`/`cmov` reduction chains — four per
-multiply where one suffices. The production loops now canonicalize each limb
-once on load and run raw modular add/sub/mul over limbs known to be `< p`
-(one conditional subtract per op). Raw-lane totality is unchanged: every
-entry point canonicalizes what it reads, including destination bytes.
-
-A dedicated `Elem::square` (`a²−b²`, `2ab`) also replaces `square via mul`:
-3 base multiplies instead of 4.
-
-Core Ultra 7 258V (Lunar Lake), Linux 7.1.8-arch1-3, rustc 1.93.0,
-`release` (lto thin, codegen-units 1), `fgf` 0.6.0, P-core 3 isolated,
-`taskset -c 3`, `performance` governor at 3.70 GHz, backend `scalar` for
-`QuadMersenne31`. 64 KiB buffers, median of five interleaved pinned runs,
-differentially validated against the public-op oracle before timing:
-
-| Operation (64 KiB) | Before | After | Speedup |
-| --- | ---: | ---: | ---: |
-| `add_assign` | 4.35 GiB/s [4.28–4.41] | 4.43 GiB/s [4.37–4.47] | ~1.02x |
-| `sub_assign` | 4.55 GiB/s [4.50–4.62] | 3.89 GiB/s [3.82–3.93] | 0.86x |
-| `mul_add` | 1.45 GiB/s [1.44–1.47] | 2.04 GiB/s [2.03–2.05] | ~1.40x |
-| `mul_assign` | 2.00 GiB/s [1.98–2.04] | 2.74 GiB/s [2.74–2.75] | ~1.37x |
-| `mul_into` | 2.01 GiB/s [1.99–2.04] | 2.75 GiB/s [2.74–2.76] | ~1.37x |
-| `mul_elementwise` | 1.81 GiB/s [1.79–1.83] | 2.18 GiB/s [2.17–2.19] | ~1.20x |
-
-`sub_assign` regressed ~14%: the old path folded `a + (p - b)` with two
-canonicalizes; the new path computes the canonical negation of `src` with a
-zero-guard branch per limb before the fold. The branch costs more than it
-saves here. The multiply shapes — the ones this field exists for — gain
-20–40%, so the composition is accepted as a whole; the sub regression is
-recorded rather than dispatched around, pending a measured min-chain form
-that does not reintroduce the double canonicalization.
-
-### Prime-field follow-up candidates: disposition (2026-08-23)
-
-The quadratic-extension round closed with one candidate measured and rejected
-(Karatsuba, above); the remaining prime-field candidates stay gated on the
-concrete-demand and validation triggers recorded here:
-
-| Candidate | Disposition | Trigger / blocker |
-| --- | --- | --- |
-| AVX-512 `vpmullq` for Goldilocks (`V4x`) | Deferred, not measured | `FGF_TIERS` excludes `V4x` process-wide; admitting it per-family needs a `simdispatch` policy change; Lunar Lake host has no AVX-512 to validate on (charter: no AVX-512 tuning without executing hardware). External-bench `plonky2_field` adapter provides the AVX-512 datapoint until then. |
-| Mersenne61 `GF(2⁶¹−1)` for `gfm` fingerprints | Deferred | One-field-per-concrete-demand rule: `gfm` has not yet pinned a fingerprint modulus. Precedent is `libfqfft` `fp61` (`p=2⁶¹−1`, generator 37). When `gfm` names it, the field is a 64-bit-lane Mersenne fold like `Mersenne31`, no new reduction core. |
-| Shoup/Barrett prepared forms for non-Mersenne u32 primes (BabyBear etc.) | Deferred | Only pays for non-Mersenne reduction; no NTT/STARK consumer has requested BabyBear/KoalaBear. Baseline stays broadcast word; Shoup pair `c, ⌊c·2^k/p⌋` is the measured candidate when such a prime is requested. |
-| Small-prime set `p < 2¹⁶`, 2-byte lanes for `latticode` | Deferred | `latticode` Construction A/D has no pinned small-prime alphabet yet. When it does, a 2-byte `u16` lane field set is the primitive, not a generic `Fp<P>`. |
-| Lazy-reduction internal pipelines (keep `0..2p` internally, canonical only at public bytes) | Deferred, not separately measured | Would compose with the scalar/AVX2 `m31_mul` body; no independent win was measured after Karatsuba showed the `m31_mul` itself is already only a fold + conditional subtract. Revisit only as part of a vectorized `QuadMersenne31` that stays canonical at every `ops` boundary regardless. |
-
-### Row-interleaved XOR: candidate measured, not wired (2026-08-26)
-
-The row-aware addition primitive `ops::add_assign_rows` exists so backends
-*could* interleave independent row streams, the shape of leopard's
-`xor_mem4`. The hypothesis under test came from additive-FFT derivative
-sweeps: leopard's FF16 derivative groups four row pairs into one unrolled
-XOR body and measured 1.6–7x ahead of this crate's consumers on wide-row
-cases. A four-stream AVX2 kernel (`x86::xor_rows_avx2`, 128-byte tiles per
-stream), its SSE2 twin, and an unwired NEON sketch were built and run
-against the flat dispatched XOR. **Result: parity or behind at every
-geometry; no backend override is wired.** The kernels stay under
-`internals`, differentially tested against `scalar::xor` per row, pending a
-host where single-stream throughput falls short of the memory ceiling.
-
-Method: `cargo bench --bench kernels` (median of ≥24 samples of a warm
-loop, thin LTO, one codegen unit) and standalone sweep probes in one
-process. Host as above, rustc 1.98, backend `v3_gfni_crypto`.
-
-Single-call matrix, GF(2^16), `add_assign_rows` / flat `add_assign` ratio
-(below 1.00 = interleaved slower):
-
-| Rows | 64 B rows | 1 KiB rows | 64 KiB rows |
-| ---: | ---: | ---: | ---: |
-| 1 | 0.83x | 0.83x | 1.00x |
-| 2 | 0.83x | 0.80x | 1.00x |
-| 4 | 0.71x | 0.79x | 0.92x |
-| 8 | 0.90x | 0.88x | 0.94x |
-| 16 | 0.87x | 0.96x | 0.95x |
-| 32 | 1.05x | 1.03x | 1.00x |
-
-GF(2^8) and Mersenne31 (defaulted path) agree in shape. At DRAM scale the
-gap closes to noise in favor of neither: 32 MiB single calls measure
-1.03–1.05x for the interleaved form across two row geometries — inside
-run-to-run variation.
-
-**Why leopard looked 7x faster, and why that is not this.** Reproducing
-the consumer comparison (`butterfly-fft` derivative sweep vs the pinned
-catid/leopard adapter, Criterion, same host) gave p32_r65536:
-butterfly-fft 825 µs vs leopard 117 µs — but the same sweep in a hot
-process runs in ~250 µs, and the difference is the destination buffer,
-not the kernel:
-
-| Destination state before the timed region | p32_r65536 sweep |
-| --- | ---: |
-| fresh `vec![0; 2 MiB]` (calloc pages, first touch inside timing) | 1.39 ms |
-| same buffer pre-touched (one byte per page) | 220 µs |
-| fresh + `add_assign_rows` instead of flat | 1.37 ms |
-
-The out-of-place API pays ~512 first-touch soft faults plus TLB cold
-starts *inside* the measurement; leopard's in-place adapter operates on
-pages its setup clone just touched. Kernel choice moves nothing (0.99–
-1.01x across both allocation regimes). The honest consumer-side follow-ups
-are therefore API-level — reusing or pre-touching derivative output
-buffers, or an in-place variant owned by the transform crate — not
-byte-kernel scheduling. Re-wiring the interleaved kernels into dispatch
-requires a host where they beat flat by more than run noise.
-
-## Comparative benchmark
-
-`benches/compare.rs` compares aligned, compatible GF(2^8)/`0x11D` operations
-against `reed-solomon-erasure` 6 with `simd-accel`. The single-source region is
-64 KiB; overwrite dot products use 16 dense nontrivial coefficients over 4 KiB
-and 16 KiB rows. `Gf8D` and RSE outputs are checked byte-for-byte before timing.
-`Gf8B` is included as the native-GFNI throughput control, not as a
-bit-compatible result.
-
-Five independent pinned process runs on a Core Ultra 7 258V with rustc 1.93 and
-backend `v3_gfni_crypto`. Every buffer is 64-byte aligned. Each cell is the
-median of the five process medians, followed by the full run range in brackets,
-GiB/s:
-
-| Implementation | 64 KiB `dst ^= c*src` | 64 KiB `dst = c*src` | 4 KiB x 16 overwrite dot | 16 KiB x 16 overwrite dot |
-| --- | ---: | ---: | ---: | ---: |
-| `fgf` `Gf8B` | 75.1 [59.8–79.9] | 66.4 [51.6–66.6] | 105.6 [98.1–112.6] | 90.3 [84.2–97.9] |
-| `fgf` `Gf8D` | 69.9 [65.5–79.7] | 58.5 [58.2–66.3] | 112.6 [99.1–113.2] | 98.1 [89.4–103.9] |
-| RSE `0x11D` | 62.9 [59.7–63.7] | 59.7 [52.4–64.7] | 59.0 [58.9–62.4] | 64.6 [62.2–67.5] |
-
-The machine is visibly noisy, but the useful bands separate. Bit-compatible
-`Gf8D` is about 1.11x RSE on single-source accumulate and at parity on
-single-source overwrite. Its prepared overwrite dot is 1.91x RSE at 4 KiB x
-16 and 1.52x at 16 KiB x 16. No production policy is selected from this
-development comparison.
-
-Run `taskset -c <p-core> cargo bench --bench compare` on the same machine and
-toolchain before quoting a ratio. ISA-L and gf-complete use local system-library
-adapters that remain outside the published crate; their snapshots stay in the
-ignored experiment record rather than becoming unreproducible public numbers.
+| `reed-solomon-erasure` 6 | MIT / Apache-2.0 | Measured in-process above for compatible GF(2^8) operations. |
+| Intel ISA-L | BSD-3-Clause | No portable adapter is part of the committed benchmark harness. |
+| `catid/leopard` | BSD-2-Clause | Its codec-level transforms do not expose the same operation-level contract. |
+
+Only the in-process `reed-solomon-erasure` comparison is reported numerically.
+The other libraries require different APIs or external native setup and are not
+presented as matched baselines.

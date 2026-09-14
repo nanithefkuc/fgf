@@ -81,7 +81,7 @@ fn count_allocations(body: impl FnOnce()) -> usize {
 }
 
 #[test]
-fn dot_product_steady_state_allocates_nothing() {
+fn mul_into_gather_steady_state_allocates_nothing() {
     let _guard = TEST_LOCK
         .lock()
         .expect("zero-allocation test lock poisoned");
@@ -91,22 +91,23 @@ fn dot_product_steady_state_allocates_nothing() {
     let coeffs: Vec<_> = (0..8)
         .map(|index| gf8b::Elem::from_raw((index as u8).wrapping_mul(37).wrapping_add(2)))
         .collect();
-    let plan = ops::Plan::<Gf8B>::new(&coeffs);
+    let vector = ops::CoeffVec::<Gf8B>::new(&coeffs);
     let mut dst = noise(len, 0x800);
 
     // Resolve backend selection and warm every code path before counting.
-    ops::dot_product::<Gf8B>(&mut dst, &coeffs, &refs);
-    ops::dot_product_with::<Gf8B>(&mut dst, &plan, &refs);
+    ops::mul_into_gather::<Gf8B>(&mut dst, &coeffs, &refs);
+    ops::mul_into_gather_with::<Gf8B>(&mut dst, vector.as_ref(), &refs);
 
-    let one_shot = count_allocations(|| ops::dot_product::<Gf8B>(&mut dst, &coeffs, &refs));
+    let one_shot = count_allocations(|| ops::mul_into_gather::<Gf8B>(&mut dst, &coeffs, &refs));
     assert_eq!(one_shot, 0, "one-shot dot product allocated");
 
-    let prepared = count_allocations(|| ops::dot_product_with::<Gf8B>(&mut dst, &plan, &refs));
+    let prepared =
+        count_allocations(|| ops::mul_into_gather_with::<Gf8B>(&mut dst, vector.as_ref(), &refs));
     assert_eq!(prepared, 0, "prepared dot product allocated");
 }
 
 #[test]
-fn dot_product_matrix_steady_state_allocates_nothing() {
+fn mul_into_matrix_steady_state_allocates_nothing() {
     let _guard = TEST_LOCK
         .lock()
         .expect("zero-allocation test lock poisoned");
@@ -131,26 +132,26 @@ fn dot_product_matrix_steady_state_allocates_nothing() {
         .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
         .collect();
     let flat: Vec<gf8b::Elem> = coeff_sets.iter().flatten().copied().collect();
-    let plan = ops::Plan::<Gf8B>::matrix(NTERMS, NROWS, &flat);
+    let matrix = ops::CoeffMatrix::<Gf8B>::from_source_major(NTERMS, NROWS, &flat);
     let mut rows = noise(ROW_LEN * NROWS, 0xa00);
 
     // Resolve backend selection and warm both paths before counting.
-    ops::dot_product_matrix::<Gf8B>(&mut rows, ROW_LEN, NROWS, &terms);
-    ops::dot_product_matrix_with::<Gf8B>(&mut rows, ROW_LEN, &plan, &refs);
+    ops::mul_into_matrix::<Gf8B>(&mut rows, ROW_LEN, NROWS, &terms);
+    ops::mul_into_matrix_with::<Gf8B>(&mut rows, ROW_LEN, &matrix, &refs);
 
     let one_shot = count_allocations(|| {
-        ops::dot_product_matrix::<Gf8B>(&mut rows, ROW_LEN, NROWS, &terms);
+        ops::mul_into_matrix::<Gf8B>(&mut rows, ROW_LEN, NROWS, &terms);
     });
     assert_eq!(one_shot, 0, "one-shot overwrite matrix allocated");
 
     let prepared = count_allocations(|| {
-        ops::dot_product_matrix_with::<Gf8B>(&mut rows, ROW_LEN, &plan, &refs);
+        ops::mul_into_matrix_with::<Gf8B>(&mut rows, ROW_LEN, &matrix, &refs);
     });
     assert_eq!(prepared, 0, "prepared overwrite matrix allocated");
 }
 
 #[test]
-fn dot_product_matrix_gf8d_chunk_boundary_allocates_nothing() {
+fn mul_into_matrix_gf8d_chunk_boundary_allocates_nothing() {
     let _guard = TEST_LOCK
         .lock()
         .expect("zero-allocation test lock poisoned");
@@ -177,15 +178,15 @@ fn dot_product_matrix_gf8d_chunk_boundary_allocates_nothing() {
         .collect();
     let mut rows = noise(ROW_LEN * NROWS, 0xc00);
 
-    ops::dot_product_matrix::<Gf8D>(&mut rows, ROW_LEN, NROWS, &terms);
+    ops::mul_into_matrix::<Gf8D>(&mut rows, ROW_LEN, NROWS, &terms);
     let steady = count_allocations(|| {
-        ops::dot_product_matrix::<Gf8D>(&mut rows, ROW_LEN, NROWS, &terms);
+        ops::mul_into_matrix::<Gf8D>(&mut rows, ROW_LEN, NROWS, &terms);
     });
     assert_eq!(steady, 0, "gf8d chunk-boundary matrix allocated");
 }
 
 #[test]
-fn plan_matrix_gf8d_steady_state_allocates_nothing() {
+fn coeff_matrix_gf8d_steady_state_allocates_nothing() {
     let _guard = TEST_LOCK
         .lock()
         .expect("zero-allocation test lock poisoned");
@@ -203,19 +204,19 @@ fn plan_matrix_gf8d_steady_state_allocates_nothing() {
                 .map(move |row| gf8d::Elem::from_raw(((term * 43 + row * 7 + 5) & 0xff) as u8))
         })
         .collect();
-    let plan = ops::Plan::<Gf8D>::matrix(NTERMS, NROWS, &flat);
+    let matrix = ops::CoeffMatrix::<Gf8D>::from_source_major(NTERMS, NROWS, &flat);
     let mut rows = noise(ROW_LEN * NROWS, 0xe00);
 
-    ops::dot_product_matrix_with::<Gf8D>(&mut rows, ROW_LEN, &plan, &refs);
-    ops::mul_add_matrix_with::<Gf8D>(&mut rows, ROW_LEN, &plan, &refs);
+    ops::mul_into_matrix_with::<Gf8D>(&mut rows, ROW_LEN, &matrix, &refs);
+    ops::mul_add_matrix_with::<Gf8D>(&mut rows, ROW_LEN, &matrix, &refs);
 
     let overwrite = count_allocations(|| {
-        ops::dot_product_matrix_with::<Gf8D>(&mut rows, ROW_LEN, &plan, &refs);
+        ops::mul_into_matrix_with::<Gf8D>(&mut rows, ROW_LEN, &matrix, &refs);
     });
     assert_eq!(overwrite, 0, "gf8d prepared overwrite matrix allocated");
 
     let accumulate = count_allocations(|| {
-        ops::mul_add_matrix_with::<Gf8D>(&mut rows, ROW_LEN, &plan, &refs);
+        ops::mul_add_matrix_with::<Gf8D>(&mut rows, ROW_LEN, &matrix, &refs);
     });
     assert_eq!(accumulate, 0, "gf8d prepared accumulate matrix allocated");
 }
@@ -280,7 +281,7 @@ fn bits_steady_state_allocates_nothing() {
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
 
     // Warm dispatch before counting.
-    fgf::bits::xor(&mut dst, &a);
+    fgf::bits::xor_assign(&mut dst, &a);
     fgf::bits::xor_range(&mut dst, &a, bits, 100, 4000);
     fgf::bits::and_into(&mut dst, &a, &b);
     fgf::bits::and_assign(&mut dst, &a);
@@ -288,11 +289,11 @@ fn bits_steady_state_allocates_nothing() {
     fgf::bits::clear_range(&mut dst, bits, 0, 64);
     fgf::bits::set_range(&mut dst, bits, 0, 64);
     let _ = fgf::bits::weight(&dst, bits);
-    let _ = fgf::bits::parity_dot(&dst, &a, bits);
-    fgf::bits::xor_gather(&mut dst, &refs, 0b0101, bits);
+    let _ = fgf::bits::dot_product(&dst, &a, bits);
+    fgf::bits::xor_gather(&mut dst, bits, 0b0101, &refs);
 
     let allocations = count_allocations(|| {
-        fgf::bits::xor(&mut dst, &a);
+        fgf::bits::xor_assign(&mut dst, &a);
         fgf::bits::xor_range(&mut dst, &a, bits, 100, 4000);
         fgf::bits::and_into(&mut dst, &a, &b);
         fgf::bits::and_assign(&mut dst, &a);
@@ -300,8 +301,8 @@ fn bits_steady_state_allocates_nothing() {
         fgf::bits::clear_range(&mut dst, bits, 0, 64);
         fgf::bits::set_range(&mut dst, bits, 0, 64);
         let _ = fgf::bits::weight(&dst, bits);
-        let _ = fgf::bits::parity_dot(&dst, &a, bits);
-        fgf::bits::xor_gather(&mut dst, &refs, 0b0101, bits);
+        let _ = fgf::bits::dot_product(&dst, &a, bits);
+        fgf::bits::xor_gather(&mut dst, bits, 0b0101, &refs);
     });
     assert_eq!(allocations, 0, "bits steady-state op allocated");
 }
@@ -322,16 +323,16 @@ fn add_assign_rows_steady_state_allocates_nothing() {
     let mut dst_p = noise(len, 0xa03);
 
     // Resolve backend selection and warm every code path before counting.
-    ops::add_assign_rows::<Gf8B>(&mut dst, &src, row_len);
-    ops::add_assign_rows::<Mersenne31>(&mut dst_p, &src_p, row_len);
+    ops::add_assign_rows::<Gf8B>(&mut dst, row_len, &src);
+    ops::add_assign_rows::<Mersenne31>(&mut dst_p, row_len, &src_p);
 
     let binary = count_allocations(|| {
-        ops::add_assign_rows::<Gf8B>(&mut dst, &src, row_len);
+        ops::add_assign_rows::<Gf8B>(&mut dst, row_len, &src);
     });
     assert_eq!(binary, 0, "row-interleaved binary add allocated");
 
     let prime = count_allocations(|| {
-        ops::add_assign_rows::<Mersenne31>(&mut dst_p, &src_p, row_len);
+        ops::add_assign_rows::<Mersenne31>(&mut dst_p, row_len, &src_p);
     });
     assert_eq!(prime, 0, "prime-field row add allocated");
 }
@@ -390,17 +391,17 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
 
     // Warm dispatch and validation paths before counting, then reset so the
     // counted call folds into the original seed exactly once.
-    x86::proven::gf8::gather_gfni(token, &mut gather_dst, &coeffs, &srcs);
-    x86::proven::gf8::matrix_overwrite_gfni(token, &mut matrix_rows, LEN, NROWS, &terms);
+    x86::gf8::mul_add_gather_gfni(token, &mut gather_dst, &coeffs, &srcs);
+    x86::gf8::mul_into_matrix_gfni(token, &mut matrix_rows, LEN, NROWS, &terms);
     gather_dst = noise(LEN, 0xa40);
 
     let gather_count = count_allocations(|| {
-        x86::proven::gf8::gather_gfni(token, &mut gather_dst, &coeffs, &srcs);
+        x86::gf8::mul_add_gather_gfni(token, &mut gather_dst, &coeffs, &srcs);
     });
     assert_eq!(gather_count, 0, "proven gather allocated");
 
     let matrix_count = count_allocations(|| {
-        x86::proven::gf8::matrix_overwrite_gfni(token, &mut matrix_rows, LEN, NROWS, &terms);
+        x86::gf8::mul_into_matrix_gfni(token, &mut matrix_rows, LEN, NROWS, &terms);
     });
     assert_eq!(matrix_count, 0, "proven overwrite matrix allocated");
 
@@ -419,7 +420,7 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
             .collect();
         let target = &mut matrix_want[row * LEN..(row + 1) * LEN];
         target.fill(0);
-        ops::dot_product::<Gf8B>(target, &row_coeffs, &srcs[..TERMS]);
+        ops::mul_into_gather::<Gf8B>(target, &row_coeffs, &srcs[..TERMS]);
     }
     assert_eq!(matrix_rows, matrix_want, "proven overwrite matrix output");
 
@@ -430,15 +431,15 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
     let coeff = gf16::Elem::from_raw(0xbeef);
     let tower_coeff = TowerCoeff::new(coeff);
     let tower_tables = TowerTables::new(coeff);
-    x86::proven::gf16::mul_add_gfni(token, &mut tower_dst, tower_coeff, &tower_src);
+    x86::gf16::mul_add_gfni(token, &mut tower_dst, tower_coeff, &tower_src);
     let tower_count = count_allocations(|| {
-        x86::proven::gf16::mul_add_gfni(token, &mut tower_dst, tower_coeff, &tower_src);
+        x86::gf16::mul_add_gfni(token, &mut tower_dst, tower_coeff, &tower_src);
     });
     assert_eq!(tower_count, 0, "proven gf16 mul_add allocated");
     let v3 = token.v3();
-    x86::proven::gf16::mul_add_avx2(v3, &mut tower_dst, &tower_tables, &tower_src);
+    x86::gf16::mul_add_avx2(v3, &mut tower_dst, &tower_tables, &tower_src);
     let tower_table_count = count_allocations(|| {
-        x86::proven::gf16::mul_add_avx2(v3, &mut tower_dst, &tower_tables, &tower_src);
+        x86::gf16::mul_add_avx2(v3, &mut tower_dst, &tower_tables, &tower_src);
     });
     assert_eq!(tower_table_count, 0, "proven gf16 table mul_add allocated");
 }

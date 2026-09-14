@@ -33,8 +33,8 @@ fn oracle_mul_add<F: Field>(dst: &mut [u8], coeff: F::Elem, src: &[u8]) {
         .chunks_exact_mut(F::BYTES)
         .zip(src.chunks_exact(F::BYTES))
     {
-        let value = F::read(d).add(F::read(s).mul(coeff));
-        F::write(d, value);
+        let value = F::decode(d).add(F::decode(s).mul(coeff));
+        F::encode(d, value);
     }
 }
 
@@ -331,8 +331,8 @@ fn gf16_matrix_matches_repeated_scatter() {
 
 /// The overwrite matrix ignores prior destination bytes, matches the zeroed
 /// accumulate over the same terms, leaves surplus rows untouched, and agrees
-/// with its prepared plan form.
-fn check_dot_product_matrix<F: fgf::FieldKernels>(tag: &str, seed: u64) {
+/// with its prepared matrix form.
+fn check_mul_into_matrix<F: fgf::FieldKernels>(tag: &str, seed: u64) {
     let b = F::BYTES;
     for &rl_elems in &RL_ELEMS {
         let row_len = rl_elems * b;
@@ -341,13 +341,13 @@ fn check_dot_product_matrix<F: fgf::FieldKernels>(tag: &str, seed: u64) {
                 let sources: Vec<Vec<u8>> = (0..nterms)
                     .map(|t| noise(row_len, seed + 0x100 + t as u64))
                     .collect();
-                #[cfg(feature = "std")]
+                #[cfg(feature = "alloc")]
                 let src_refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
                 let coeff_sets: Vec<Vec<F::Elem>> = (0..nterms)
                     .map(|t| {
                         noise(nrows * b, seed + 0x200 + t as u64)
                             .chunks_exact(b)
-                            .map(F::read)
+                            .map(F::decode)
                             .collect()
                     })
                     .collect();
@@ -369,7 +369,7 @@ fn check_dot_product_matrix<F: fgf::FieldKernels>(tag: &str, seed: u64) {
                 // prior destination and never touches surplus rows.
                 let mut got = noise(row_len * (nrows + 1), seed + 0x300);
                 let surplus = got[row_len * nrows..].to_vec();
-                ops::dot_product_matrix::<F>(&mut got, row_len, nrows, &terms);
+                ops::mul_into_matrix::<F>(&mut got, row_len, nrows, &terms);
                 assert_eq!(
                     &got[..row_len * nrows],
                     want.as_slice(),
@@ -381,14 +381,14 @@ fn check_dot_product_matrix<F: fgf::FieldKernels>(tag: &str, seed: u64) {
                     "{tag}: overwrite touched surplus rl={row_len} nrows={nrows} nterms={nterms}"
                 );
 
-                // The prepared plan form must match the one-shot overwrite.
-                #[cfg(feature = "std")]
+                // The prepared matrix form must match the one-shot overwrite.
+                #[cfg(feature = "alloc")]
                 if nterms > 0 {
                     let flat: Vec<F::Elem> =
                         coeff_sets.iter().flat_map(|c| c.iter().copied()).collect();
-                    let plan = ops::Plan::<F>::matrix(nterms, nrows, &flat);
+                    let matrix = ops::CoeffMatrix::<F>::from_source_major(nterms, nrows, &flat);
                     let mut prepared = noise(row_len * nrows, seed + 0x500);
-                    ops::dot_product_matrix_with::<F>(&mut prepared, row_len, &plan, &src_refs);
+                    ops::mul_into_matrix_with::<F>(&mut prepared, row_len, &matrix, &src_refs);
                     assert_eq!(
                         prepared, want,
                         "{tag}: prepared rl={row_len} nrows={nrows} nterms={nterms}"
@@ -400,18 +400,18 @@ fn check_dot_product_matrix<F: fgf::FieldKernels>(tag: &str, seed: u64) {
 }
 
 #[test]
-fn gf8_dot_product_matrix_overwrites() {
-    check_dot_product_matrix::<Gf8B>("gf8b", 0x7a1);
+fn gf8_mul_into_matrix_overwrites() {
+    check_mul_into_matrix::<Gf8B>("gf8b", 0x7a1);
 }
 
 #[test]
-fn gf8d_dot_product_matrix_overwrites() {
-    check_dot_product_matrix::<Gf8D>("gf8d", 0x7a2);
+fn gf8d_mul_into_matrix_overwrites() {
+    check_mul_into_matrix::<Gf8D>("gf8d", 0x7a2);
 }
 
 #[test]
-fn gf16_dot_product_matrix_overwrites() {
-    check_dot_product_matrix::<Gf16>("gf16", 0x7a3);
+fn gf16_mul_into_matrix_overwrites() {
+    check_mul_into_matrix::<Gf16>("gf16", 0x7a3);
 }
 
 /// Term counts above the kernel's per-group resolve chunk fold in several
@@ -434,7 +434,7 @@ fn check_matrix_wide_term_counts<F: fgf::FieldKernels>(tag: &str, seed: u64) {
                     .collect();
                 let coeff_sets: Vec<Vec<F::Elem>> = coefficients
                     .chunks_exact(nrows * b)
-                    .map(|row| row.chunks_exact(b).map(F::read).collect())
+                    .map(|row| row.chunks_exact(b).map(F::decode).collect())
                     .collect();
                 let terms: Vec<(&[F::Elem], &[u8])> = coeff_sets
                     .iter()
@@ -450,7 +450,7 @@ fn check_matrix_wide_term_counts<F: fgf::FieldKernels>(tag: &str, seed: u64) {
                 }
 
                 let mut got = noise(row_len * nrows, seed + 0x300);
-                ops::dot_product_matrix::<F>(&mut got, row_len, nrows, &terms);
+                ops::mul_into_matrix::<F>(&mut got, row_len, nrows, &terms);
                 assert_eq!(
                     got,
                     sum.as_slice(),
@@ -487,7 +487,7 @@ fn gf8d_matrix_handles_term_counts_past_the_resolve_chunk() {
 }
 
 // ---------------------------------------------------------------------------
-// mul_add_matrix_scattered
+// mul_add_matrix_at
 // ---------------------------------------------------------------------------
 
 /// Scattered reconstruction must equal the contiguous matrix kernel gathered
@@ -507,7 +507,7 @@ fn check_matrix_scattered<F: fgf::FieldKernels>(tag: &str, seed: u64) {
                     .map(|t| {
                         noise(nrows * b, seed + 0x200 + t as u64)
                             .chunks_exact(b)
-                            .map(F::read)
+                            .map(F::decode)
                             .collect()
                     })
                     .collect();
@@ -534,7 +534,7 @@ fn check_matrix_scattered<F: fgf::FieldKernels>(tag: &str, seed: u64) {
                 }
                 let before = dst.clone();
 
-                ops::mul_add_matrix_scattered::<F>(&mut dst, row_len, &row_starts, &terms);
+                ops::mul_add_matrix_at::<F>(&mut dst, row_len, &row_starts, &terms);
 
                 for j in 0..nrows {
                     assert_eq!(
@@ -579,7 +579,7 @@ fn matrix_scattered_pairs_coefficients_to_out_of_order_rows() {
     // order.
     let row_starts = [2 * row_len, row_len, 0usize];
     let mut dst = vec![0u8; 3 * row_len];
-    ops::mul_add_matrix_scattered::<Gf8B>(&mut dst, row_len, &row_starts, &[(&coeffs, &src)]);
+    ops::mul_add_matrix_at::<Gf8B>(&mut dst, row_len, &row_starts, &[(&coeffs, &src)]);
 
     for (j, &start) in row_starts.iter().enumerate() {
         let mut want = vec![0u8; row_len];
@@ -594,7 +594,7 @@ fn matrix_scattered_rejects_overlapping_rows() {
     let mut dst = [0u8; 64];
     let coeffs = [gf8b::Elem::from_raw(1); 2];
     // Second row starts 8 bytes into the first 16-byte row.
-    ops::mul_add_matrix_scattered::<Gf8B>(&mut dst, 16, &[0, 8], &[(&coeffs, &[0u8; 16])]);
+    ops::mul_add_matrix_at::<Gf8B>(&mut dst, 16, &[0, 8], &[(&coeffs, &[0u8; 16])]);
 }
 
 #[test]
@@ -602,7 +602,7 @@ fn matrix_scattered_rejects_overlapping_rows() {
 fn matrix_scattered_rejects_out_of_bounds_row() {
     let mut dst = [0u8; 32];
     let coeffs = [gf8b::Elem::from_raw(1); 2];
-    ops::mul_add_matrix_scattered::<Gf8B>(&mut dst, 16, &[0, 24], &[(&coeffs, &[0u8; 16])]);
+    ops::mul_add_matrix_at::<Gf8B>(&mut dst, 16, &[0, 24], &[(&coeffs, &[0u8; 16])]);
 }
 
 #[test]
@@ -610,7 +610,7 @@ fn matrix_scattered_rejects_out_of_bounds_row() {
 fn matrix_scattered_rejects_wrong_coefficient_count() {
     let mut dst = [0u8; 64];
     let coeffs = [gf8b::Elem::from_raw(1); 2];
-    ops::mul_add_matrix_scattered::<Gf8B>(&mut dst, 16, &[0, 16, 32], &[(&coeffs, &[0u8; 16])]);
+    ops::mul_add_matrix_at::<Gf8B>(&mut dst, 16, &[0, 16, 32], &[(&coeffs, &[0u8; 16])]);
 }
 
 #[test]
@@ -667,7 +667,7 @@ fn gf16_gather_matches_summed_mul_add() {
 }
 
 #[test]
-fn dot_product_overwrites_and_matches_gather_from_zero() {
+fn mul_into_gather_overwrites_and_matches_gather_from_zero() {
     let len = 96;
     let sources: Vec<Vec<u8>> = (0..6).map(|i| noise(len, 0x348 + i)).collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
@@ -680,7 +680,7 @@ fn dot_product_overwrites_and_matches_gather_from_zero() {
 
     let initial = noise(len, 0x34f);
     let mut got = initial.clone();
-    ops::dot_product::<Gf8B>(&mut got, &coeffs, &refs);
+    ops::mul_into_gather::<Gf8B>(&mut got, &coeffs, &refs);
     assert_eq!(got, want);
 
     let mut accumulated = initial.clone();
@@ -692,8 +692,8 @@ fn dot_product_overwrites_and_matches_gather_from_zero() {
 }
 
 #[test]
-#[cfg(feature = "std")]
-fn prepared_dot_product_matches_one_shot_over_gf16() {
+#[cfg(feature = "alloc")]
+fn prepared_mul_into_gather_matches_one_shot_over_gf16() {
     let len = 66;
     let sources = [noise(len, 0x371), noise(len, 0x372), noise(len, 0x373)];
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
@@ -702,31 +702,31 @@ fn prepared_dot_product_matches_one_shot_over_gf16() {
         gf16::Elem::from_raw(0),
         gf16::Elem::from_raw(0xabcd),
     ];
-    let plan = ops::Plan::<Gf16>::new(&coeffs);
+    let vector = ops::CoeffVec::<Gf16>::new(&coeffs);
 
     let mut one_shot = noise(len, 0x374);
     let mut prepared = noise(len, 0x375);
-    ops::dot_product::<Gf16>(&mut one_shot, &coeffs, &refs);
-    ops::dot_product_with::<Gf16>(&mut prepared, &plan, &refs);
+    ops::mul_into_gather::<Gf16>(&mut one_shot, &coeffs, &refs);
+    ops::mul_into_gather_with::<Gf16>(&mut prepared, vector.as_ref(), &refs);
     assert_eq!(prepared, one_shot);
 
     let mut single = noise(len, 0x376);
     let mut scaled = vec![0; len];
-    ops::dot_product::<Gf16>(&mut single, &coeffs[..1], &refs[..1]);
+    ops::mul_into_gather::<Gf16>(&mut single, &coeffs[..1], &refs[..1]);
     ops::mul_into::<Gf16>(&mut scaled, coeffs[0], refs[0]);
     assert_eq!(single, scaled);
 }
 
 #[test]
-fn empty_and_zero_dot_products_zero_the_destination() {
+fn empty_and_zero_mul_into_gathers_zero_the_destination() {
     let mut empty_terms = noise(32, 0x377);
-    ops::dot_product::<Gf8B>(&mut empty_terms, &[], &[]);
+    ops::mul_into_gather::<Gf8B>(&mut empty_terms, &[], &[]);
     assert!(empty_terms.iter().all(|&value| value == 0));
 
     let sources = [noise(32, 0x378), noise(32, 0x379)];
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
     let mut zero_coefficients = noise(32, 0x37a);
-    ops::dot_product::<Gf8B>(&mut zero_coefficients, &[gf8b::Elem::ZERO; 2], &refs);
+    ops::mul_into_gather::<Gf8B>(&mut zero_coefficients, &[gf8b::Elem::ZERO; 2], &refs);
     assert!(zero_coefficients.iter().all(|&value| value == 0));
 }
 
@@ -770,8 +770,8 @@ fn prepared_coefficients_match_one_shot_operations() {
 }
 
 #[test]
-#[cfg(feature = "std")]
-fn coefficient_plan_preserves_matrix_shape_and_reuses_entries() {
+#[cfg(feature = "alloc")]
+fn coeff_matrix_preserves_shape_and_reuses_entries() {
     let values = [
         gf16::Elem::from_raw(0),
         gf16::Elem::from_raw(1),
@@ -780,14 +780,14 @@ fn coefficient_plan_preserves_matrix_shape_and_reuses_entries() {
         gf16::Elem::from_raw(0x2000),
         gf16::Elem::from_raw(0xabcd),
     ];
-    let plan = ops::Plan::<Gf16>::matrix(2, 3, &values);
-    assert_eq!((plan.source_count(), plan.output_count()), (2, 3));
-    assert_eq!(plan.len(), values.len());
-    assert!(!plan.is_empty());
-    assert_eq!(plan.values().collect::<Vec<_>>(), values);
-    assert!(plan.get(values.len()).is_none());
+    let matrix = ops::CoeffMatrix::<Gf16>::from_source_major(2, 3, &values);
+    assert_eq!((matrix.source_count(), matrix.output_count()), (2, 3));
+    assert_eq!(matrix.len(), values.len());
+    assert!(!matrix.is_empty());
+    assert_eq!(matrix.values().collect::<Vec<_>>(), values);
+    assert!(matrix.get_at(2, 0).is_none());
 
-    let coeff = plan.get(2).expect("coefficient exists");
+    let coeff = matrix.get_at(0, 2).expect("coefficient exists");
     let src = noise(258, 0x358);
     let mut got = noise(src.len(), 0x359);
     let mut want = got.clone();
@@ -797,20 +797,20 @@ fn coefficient_plan_preserves_matrix_shape_and_reuses_entries() {
 }
 
 #[test]
-#[cfg(feature = "std")]
-fn coefficient_plans_drive_all_multi_row_shapes() {
+#[cfg(feature = "alloc")]
+fn prepared_collections_drive_all_multi_row_shapes() {
     let row_len = 66;
     let coeffs = [
         gf16::Elem::from_raw(0x0108),
         gf16::Elem::from_raw(0),
         gf16::Elem::from_raw(0xabcd),
     ];
-    let vector_plan = ops::Plan::<Gf16>::new(&coeffs);
+    let vector = ops::CoeffVec::<Gf16>::new(&coeffs);
     let src = noise(row_len, 0x360);
 
     let mut scatter = noise(row_len * coeffs.len(), 0x361);
     let mut scatter_want = scatter.clone();
-    ops::mul_add_scatter_with(&mut scatter, row_len, &vector_plan, &src);
+    ops::mul_add_scatter_with(&mut scatter, row_len, vector.as_ref(), &src);
     ops::mul_add_scatter::<Gf16>(&mut scatter_want, row_len, &coeffs, &src);
     assert_eq!(scatter, scatter_want);
 
@@ -822,7 +822,7 @@ fn coefficient_plans_drive_all_multi_row_shapes() {
     let source_refs = sources.iter().map(Vec::as_slice).collect::<Vec<_>>();
     let mut gather = noise(row_len, 0x365);
     let mut gather_want = gather.clone();
-    ops::mul_add_gather_with(&mut gather, &vector_plan, &source_refs);
+    ops::mul_add_gather_with(&mut gather, vector.as_ref(), &source_refs);
     ops::mul_add_gather::<Gf16>(&mut gather_want, &coeffs, &source_refs);
     assert_eq!(gather, gather_want);
 
@@ -834,7 +834,7 @@ fn coefficient_plans_drive_all_multi_row_shapes() {
         gf16::Elem::from_raw(0),
         gf16::Elem::from_raw(0xffff),
     ];
-    let matrix_plan = ops::Plan::<Gf16>::matrix(2, 3, &matrix_values);
+    let coding = ops::CoeffMatrix::<Gf16>::from_source_major(2, 3, &matrix_values);
     let matrix_sources = [&sources[0][..], &sources[1][..]];
     let raw_terms = [
         (&matrix_values[..3], matrix_sources[0]),
@@ -842,18 +842,19 @@ fn coefficient_plans_drive_all_multi_row_shapes() {
     ];
     let mut matrix = noise(row_len * 3, 0x366);
     let mut matrix_want = matrix.clone();
-    ops::mul_add_matrix_with(&mut matrix, row_len, &matrix_plan, &matrix_sources);
+    ops::mul_add_matrix_with(&mut matrix, row_len, &coding, &matrix_sources);
     ops::mul_add_matrix::<Gf16>(&mut matrix_want, row_len, 3, &raw_terms);
     assert_eq!(matrix, matrix_want);
 
     assert_eq!(
-        matrix_plan.get_at(1, 2).map(|coeff| coeff.value()),
+        coding.get_at(1, 2).map(|coeff| coeff.value()),
         Some(matrix_values[5])
     );
     assert_eq!(
-        matrix_plan
+        coding
             .source(1)
             .expect("source exists")
+            .into_coeffs()
             .map(|coeff| coeff.value())
             .collect::<Vec<_>>(),
         matrix_values[3..],
@@ -861,25 +862,19 @@ fn coefficient_plans_drive_all_multi_row_shapes() {
 }
 
 #[test]
-#[cfg(feature = "std")]
-fn vector_plan_drives_one_source_matrix() {
-    // `Plan::new` has dimensions (1, coeffs.len()): as a matrix it is one
-    // source term against `coeffs.len()` output rows — the 4+2+1 group walk
-    // at seven rows.
+#[cfg(feature = "alloc")]
+fn single_source_matrix_overwrites_rows() {
+    // One source against seven output rows — the 4+2+1 group walk at work.
     let row_len = 96;
     let coeffs: Vec<gf8d::Elem> = (0..7)
         .map(|r| gf8d::Elem::from_raw(2 + ((r * 37 + 11) % 254) as u8))
         .collect();
-    let plan = ops::Plan::<Gf8D>::new(&coeffs);
-    assert_eq!(
-        (plan.source_count(), plan.output_count()),
-        (1, coeffs.len())
-    );
+    let matrix = ops::CoeffMatrix::<Gf8D>::from_source_major(1, coeffs.len(), &coeffs);
     let src = noise(row_len, 0x8f1);
     let srcs = [src.as_slice()];
 
     let mut got = noise(row_len * coeffs.len(), 0x8f2);
-    ops::dot_product_matrix_with::<Gf8D>(&mut got, row_len, &plan, &srcs);
+    ops::mul_into_matrix_with::<Gf8D>(&mut got, row_len, &matrix, &srcs);
     for (row, &coeff) in coeffs.iter().enumerate() {
         let mut want = vec![0u8; row_len];
         for (byte, &value) in want.iter_mut().zip(&src) {
@@ -893,24 +888,24 @@ fn vector_plan_drives_one_source_matrix() {
     }
 }
 
-#[cfg(feature = "std")]
-fn assert_blocked_plan_shapes<F: fgf::FieldKernels>(row_len: usize, seed: u64) {
+#[cfg(feature = "alloc")]
+fn assert_blocked_prepared_shapes<F: fgf::FieldKernels>(row_len: usize, seed: u64) {
     const NROWS: usize = 5;
     const NTERMS: usize = 9;
 
     let coefficient_bytes = noise(NROWS * NTERMS * F::BYTES, seed);
     let mut values = coefficient_bytes
         .chunks_exact(F::BYTES)
-        .map(F::read)
+        .map(F::decode)
         .collect::<Vec<_>>();
     values[0] = F::Elem::ZERO;
     values[1] = F::Elem::ONE;
 
-    let vector_plan = ops::Plan::<F>::new(&values[..NROWS]);
+    let vector = ops::CoeffVec::<F>::new(&values[..NROWS]);
     let src = noise(row_len, seed + 1);
     let mut scatter = noise(row_len * NROWS, seed + 2);
     let mut scatter_want = scatter.clone();
-    ops::mul_add_scatter_with(&mut scatter, row_len, &vector_plan, &src);
+    ops::mul_add_scatter_with(&mut scatter, row_len, vector.as_ref(), &src);
     ops::mul_add_scatter::<F>(&mut scatter_want, row_len, &values[..NROWS], &src);
     assert_eq!(scatter, scatter_want);
 
@@ -920,11 +915,11 @@ fn assert_blocked_plan_shapes<F: fgf::FieldKernels>(row_len: usize, seed: u64) {
     let gather_refs = gather_sources.iter().map(Vec::as_slice).collect::<Vec<_>>();
     let mut gather = noise(row_len, seed + 20);
     let mut gather_want = gather.clone();
-    ops::mul_add_gather_with(&mut gather, &vector_plan, &gather_refs);
+    ops::mul_add_gather_with(&mut gather, vector.as_ref(), &gather_refs);
     ops::mul_add_gather::<F>(&mut gather_want, &values[..NROWS], &gather_refs);
     assert_eq!(gather, gather_want);
 
-    let matrix_plan = ops::Plan::<F>::matrix(NTERMS, NROWS, &values);
+    let coding = ops::CoeffMatrix::<F>::from_source_major(NTERMS, NROWS, &values);
     let matrix_sources = (0..NTERMS)
         .map(|index| noise(row_len, seed + 30 + index as u64))
         .collect::<Vec<_>>();
@@ -935,20 +930,20 @@ fn assert_blocked_plan_shapes<F: fgf::FieldKernels>(row_len: usize, seed: u64) {
         .collect::<Vec<_>>();
     let mut matrix = noise(row_len * NROWS, seed + 40);
     let mut matrix_want = matrix.clone();
-    ops::mul_add_matrix_with(&mut matrix, row_len, &matrix_plan, &matrix_refs);
+    ops::mul_add_matrix_with(&mut matrix, row_len, &coding, &matrix_refs);
     ops::mul_add_matrix::<F>(&mut matrix_want, row_len, NROWS, &raw_terms);
     assert_eq!(matrix, matrix_want);
 }
 
 #[test]
-#[cfg(feature = "std")]
-fn blocked_plans_match_raw_operations_across_group_boundaries() {
-    assert_blocked_plan_shapes::<Gf8B>(79, 0x370);
-    assert_blocked_plan_shapes::<Gf16>(78, 0x380);
+#[cfg(feature = "alloc")]
+fn blocked_prepared_shapes_match_raw_operations_across_group_boundaries() {
+    assert_blocked_prepared_shapes::<Gf8B>(79, 0x370);
+    assert_blocked_prepared_shapes::<Gf16>(78, 0x380);
 }
 
 #[test]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 fn packed_element_helpers_round_trip() {
     let elems = [
         gf16::Elem::ZERO,
@@ -1088,10 +1083,10 @@ fn erasure_round_trip_gf8() {
 }
 
 #[test]
-#[should_panic(expected = "dot_product: 2 coefficients for 1 sources")]
-fn dot_product_rejects_mismatched_source_count() {
+#[should_panic(expected = "mul_into_gather: 2 coefficients for 1 sources")]
+fn mul_into_gather_rejects_mismatched_source_count() {
     let mut dst = [0u8; 8];
-    ops::dot_product::<Gf8B>(
+    ops::mul_into_gather::<Gf8B>(
         &mut dst,
         &[gf8b::Elem::from_raw(2), gf8b::Elem::from_raw(3)],
         &[&[0u8; 8]],
@@ -1099,10 +1094,10 @@ fn dot_product_rejects_mismatched_source_count() {
 }
 
 #[test]
-#[should_panic(expected = "dot_product: source 0 is 7 bytes, expected 8")]
-fn dot_product_rejects_wrong_source_length() {
+#[should_panic(expected = "mul_into_gather: source 0 is 7 bytes, expected 8")]
+fn mul_into_gather_rejects_wrong_source_length() {
     let mut dst = [0u8; 8];
-    ops::dot_product::<Gf8B>(&mut dst, &[gf8b::Elem::from_raw(2)], &[&[0u8; 7]]);
+    ops::mul_into_gather::<Gf8B>(&mut dst, &[gf8b::Elem::from_raw(2)], &[&[0u8; 7]]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1140,21 +1135,21 @@ fn matrix_rejects_wrong_coefficient_count() {
 }
 
 #[test]
-#[should_panic(expected = "dot_product_matrix: term supplies 2 coefficients for 4 rows")]
-fn dot_product_matrix_rejects_wrong_coefficient_count() {
+#[should_panic(expected = "mul_into_matrix: term supplies 2 coefficients for 4 rows")]
+fn mul_into_matrix_rejects_wrong_coefficient_count() {
     let mut rows = [0u8; 32];
     let coeffs = [gf8b::Elem::from_raw(1); 2];
-    ops::dot_product_matrix::<Gf8B>(&mut rows, 8, 4, &[(&coeffs, &[0u8; 8])]);
+    ops::mul_into_matrix::<Gf8B>(&mut rows, 8, 4, &[(&coeffs, &[0u8; 8])]);
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[test]
 #[should_panic]
-fn dot_product_matrix_with_rejects_wrong_plan_dimensions() {
+fn mul_into_matrix_with_rejects_wrong_matrix_dimensions() {
     let mut rows = [0u8; 32];
-    let plan = ops::Plan::<Gf8B>::matrix(1, 2, &[gf8b::Elem::from_raw(1); 2]);
+    let matrix = ops::CoeffMatrix::<Gf8B>::from_source_major(1, 2, &[gf8b::Elem::from_raw(1); 2]);
     let sources = [&[0u8; 8][..], &[0u8; 8][..]];
-    ops::dot_product_matrix_with::<Gf8B>(&mut rows, 8, &plan, &sources);
+    ops::mul_into_matrix_with::<Gf8B>(&mut rows, 8, &matrix, &sources);
 }
 
 #[test]
@@ -1164,7 +1159,7 @@ fn empty_buffers_are_no_ops() {
     ops::mul_assign::<Gf16>(&mut empty, gf16::Elem::from_raw(7));
     ops::mul_add_scatter::<Gf8B>(&mut empty, 0, &[], &[]);
     ops::mul_add_matrix::<Gf8B>(&mut empty, 8, 0, &[]);
-    ops::dot_product_matrix::<Gf8B>(&mut empty, 8, 0, &[]);
+    ops::mul_into_matrix::<Gf8B>(&mut empty, 8, 0, &[]);
     ops::mul_add_gather::<Gf8B>(&mut empty, &[], &[]);
 }
 
@@ -1192,7 +1187,7 @@ fn check_wide_field_ops<F: fgf::FieldKernels>(coeffs: &[F::Elem]) {
         .zip(src0.chunks_exact(F::BYTES))
         .zip(src1.chunks_exact(F::BYTES))
     {
-        assert_eq!(F::read(got), F::read(a).mul(F::read(b)));
+        assert_eq!(F::decode(got), F::decode(a).mul(F::decode(b)));
     }
 
     let mut scatter = noise(row_len * coeffs.len(), 0x2020);
@@ -1355,8 +1350,8 @@ fn oracle_add_assign<F: Field>(dst: &mut [u8], src: &[u8]) {
         .chunks_exact_mut(F::BYTES)
         .zip(src.chunks_exact(F::BYTES))
     {
-        let v = F::read(d).add(F::read(s));
-        F::write(d, v);
+        let v = F::decode(d).add(F::decode(s));
+        F::encode(d, v);
     }
 }
 
@@ -1365,15 +1360,15 @@ fn oracle_sub_assign<F: Field>(dst: &mut [u8], src: &[u8]) {
         .chunks_exact_mut(F::BYTES)
         .zip(src.chunks_exact(F::BYTES))
     {
-        let v = F::read(d).sub(F::read(s));
-        F::write(d, v);
+        let v = F::decode(d).sub(F::decode(s));
+        F::encode(d, v);
     }
 }
 
 fn oracle_mul_assign<F: Field>(dst: &mut [u8], coeff: F::Elem) {
     for d in dst.chunks_exact_mut(F::BYTES) {
-        let v = F::read(d).mul(coeff);
-        F::write(d, v);
+        let v = F::decode(d).mul(coeff);
+        F::encode(d, v);
     }
 }
 
@@ -1383,7 +1378,7 @@ fn oracle_mul_elementwise<F: Field>(dst: &mut [u8], a: &[u8], b: &[u8]) {
         .zip(a.chunks_exact(F::BYTES))
         .zip(b.chunks_exact(F::BYTES))
     {
-        F::write(d, F::read(x).mul(F::read(y)));
+        F::encode(d, F::decode(x).mul(F::decode(y)));
     }
 }
 
@@ -1484,15 +1479,15 @@ fn check_prime_shapes<F: FieldKernels>(row_len: usize, coeffs: &[F::Elem]) {
         assert_eq!(got, want, "gather");
     }
 
-    // dot_product: overwrite dst = sum(coeffs[i] * srcs[i]).
+    // mul_into_gather: overwrite dst = sum(coeffs[i] * srcs[i]).
     {
         let mut got = noise(row_len, 0x55);
         let mut want = vec![0u8; row_len];
-        ops::dot_product::<F>(&mut got, coeffs, &src_refs);
+        ops::mul_into_gather::<F>(&mut got, coeffs, &src_refs);
         for (&c, s) in coeffs.iter().zip(&src_refs) {
             oracle_mul_add::<F>(&mut want, c, s);
         }
-        assert_eq!(got, want, "dot_product");
+        assert_eq!(got, want, "mul_into_gather");
     }
 
     // scatter: one source into many rows.
@@ -1672,7 +1667,7 @@ fn add_and_sub_assign_match_oracle_for_every_field() {
     fn check<F: FieldKernels>(len: usize, coeff: F::Elem) {
         let a = noise(len, 0x11);
         let mut b = noise(len, 0x22);
-        // Plant zero element lanes: the prime-field subtraction fold has
+        // Insert zero element lanes: the prime-field subtraction fold has
         // per-limb zero shortcuts that random bytes never trigger.
         for lane in b.chunks_exact_mut(F::BYTES).step_by(3) {
             lane.fill(0);
@@ -1684,8 +1679,8 @@ fn add_and_sub_assign_match_oracle_for_every_field() {
             .chunks_exact_mut(F::BYTES)
             .zip(b.chunks_exact(F::BYTES))
         {
-            let value = F::read(d).add(F::read(s));
-            F::write(d, value);
+            let value = F::decode(d).add(F::decode(s));
+            F::encode(d, value);
         }
         assert_eq!(got, want, "add_assign over {} bytes", len);
 
@@ -1696,8 +1691,8 @@ fn add_and_sub_assign_match_oracle_for_every_field() {
             .chunks_exact_mut(F::BYTES)
             .zip(b.chunks_exact(F::BYTES))
         {
-            let value = F::read(d).sub(F::read(s));
-            F::write(d, value);
+            let value = F::decode(d).sub(F::decode(s));
+            F::encode(d, value);
         }
         assert_eq!(got, want, "sub_assign over {} bytes", len);
         let _ = coeff;
@@ -1717,8 +1712,8 @@ fn add_and_sub_assign_match_oracle_for_every_field() {
 }
 
 #[test]
-#[cfg(feature = "std")]
-fn coeff_and_plan_accessors_report_their_contents() {
+#[cfg(feature = "alloc")]
+fn prepared_collections_report_their_contents() {
     let coeffs = [
         gf16::Elem::from_raw(0x0102),
         gf16::Elem::from_raw(0),
@@ -1728,24 +1723,23 @@ fn coeff_and_plan_accessors_report_their_contents() {
     let coeff = ops::Coeff::<Gf16>::new(coeffs[0]);
     assert_eq!(coeff.value(), coeffs[0]);
 
-    let plan = ops::Plan::<Gf16>::new(&coeffs);
-    assert_eq!(plan.len(), 3);
-    assert!(!plan.is_empty());
-    assert_eq!((plan.source_count(), plan.output_count()), (1, 3));
-    assert_eq!(plan.values().collect::<Vec<_>>(), coeffs);
-    assert_eq!(plan.coeffs().map(|c| c.value()).collect::<Vec<_>>(), coeffs);
-    assert_eq!(plan.get(1).map(|c| c.value()), Some(coeffs[1]));
-    assert!(plan.get(3).is_none());
+    let vector = ops::CoeffVec::<Gf16>::new(&coeffs);
+    assert_eq!(vector.len(), 3);
+    assert!(!vector.is_empty());
+    assert_eq!(vector.values().collect::<Vec<_>>(), coeffs);
+    assert_eq!(
+        vector.coeffs().map(|c| c.value()).collect::<Vec<_>>(),
+        coeffs
+    );
+    assert_eq!(vector.get(1).map(|c| c.value()), Some(coeffs[1]));
+    assert!(vector.get(3).is_none());
 
-    let empty = ops::Plan::<Gf16>::new(&[]);
+    let empty = ops::CoeffVec::<Gf16>::new(&[]);
     assert!(empty.is_empty());
     assert_eq!(empty.len(), 0);
     assert!(empty.get(0).is_none());
-    // A 1x0 plan has one (empty) source; every source index reads the same
-    // zero-length range, so out-of-bounds detection needs outputs > 0.
-    assert_eq!(empty.source(0).map(|source| source.count()), Some(0));
 
-    let matrix = ops::Plan::<Gf16>::matrix(
+    let matrix = ops::CoeffMatrix::<Gf16>::from_source_major(
         2,
         3,
         &[
@@ -1759,32 +1753,24 @@ fn coeff_and_plan_accessors_report_their_contents() {
     assert_eq!(
         matrix
             .source(1)
-            .map(|source| source.map(|c| c.value()).collect::<Vec<_>>()),
+            .map(|source| source.into_coeffs().map(|c| c.value()).collect::<Vec<_>>()),
         Some(vec![coeffs[2], coeffs[1], coeffs[0]])
     );
     assert!(matrix.source(2).is_none(), "source out of bounds");
-    // A single-source plan still reads through `source`.
-    let vector = ops::Plan::<Gf16>::new(&coeffs);
-    assert_eq!(
-        vector
-            .source(0)
-            .map(|source| source.map(|c| c.value()).collect::<Vec<_>>()),
-        Some(coeffs.to_vec())
-    );
 }
 
 #[test]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[should_panic]
-fn plan_matrix_rejects_wrong_coefficient_count() {
-    let _ = ops::Plan::<Gf8B>::matrix(2, 2, &[gf8b::Elem::from_raw(1); 3]);
+fn coeff_matrix_rejects_wrong_coefficient_count() {
+    let _ = ops::CoeffMatrix::<Gf8B>::from_source_major(2, 2, &[gf8b::Elem::from_raw(1); 3]);
 }
 
 #[test]
-#[cfg(feature = "std")]
-#[should_panic(expected = "Plan::matrix: dimensions overflow")]
-fn plan_matrix_rejects_overflowing_dimensions() {
-    let _ = ops::Plan::<Gf8B>::matrix(usize::MAX, 2, &[]);
+#[cfg(feature = "alloc")]
+#[should_panic(expected = "CoeffMatrix::from_source_major: dimensions overflow")]
+fn coeff_matrix_rejects_overflowing_dimensions() {
+    let _ = ops::CoeffMatrix::<Gf8B>::from_source_major(usize::MAX, 2, &[]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1792,18 +1778,18 @@ fn plan_matrix_rejects_overflowing_dimensions() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 fn zero_and_empty_inputs_are_well_defined() {
-    // All-zero coefficient plans skip the kernel entirely and leave the
+    // All-zero coefficient vectors skip the kernel entirely and leave the
     // destination untouched (or zeroed, for the overwrite shapes).
     let srcs: Vec<Vec<u8>> = [noise(8, 0x31), noise(8, 0x32)].to_vec();
     let refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
-    let zero_plan = ops::Plan::<Gf8B>::new(&[gf8b::Elem::from_raw(0); 2]);
+    let zero_vector = ops::CoeffVec::<Gf8B>::new(&[gf8b::Elem::from_raw(0); 2]);
 
     let mut rows = noise(16, 0x33);
     let before = rows.clone();
-    ops::mul_add_scatter_with(&mut rows, 8, &zero_plan, &srcs[0]);
-    assert_eq!(rows, before, "all-zero scatter plan is a no-op");
+    ops::mul_add_scatter_with(&mut rows, 8, zero_vector.as_ref(), &srcs[0]);
+    assert_eq!(rows, before, "all-zero scatter vector is a no-op");
 
     let mut dst = noise(8, 0x34);
     let before = dst.clone();
@@ -1813,26 +1799,27 @@ fn zero_and_empty_inputs_are_well_defined() {
         &refs,
     );
     assert_eq!(dst, before, "all-zero gather is a no-op");
-    ops::mul_add_gather_with(&mut dst, &zero_plan, &refs);
-    assert_eq!(dst, before, "all-zero gather plan is a no-op");
+    ops::mul_add_gather_with(&mut dst, zero_vector.as_ref(), &refs);
+    assert_eq!(dst, before, "all-zero gather vector is a no-op");
 
     // Overwrite shapes zero the destination instead.
     let mut dst = noise(8, 0x35);
-    ops::dot_product::<Gf8B>(
+    ops::mul_into_gather::<Gf8B>(
         &mut dst,
         &[gf8b::Elem::from_raw(0), gf8b::Elem::from_raw(0)],
         &refs,
     );
     assert_eq!(dst, vec![0; 8], "all-zero dot product fills zero");
-    ops::dot_product_with(&mut dst, &zero_plan, &refs);
-    assert_eq!(dst, vec![0; 8], "all-zero dot product plan fills zero");
+    ops::mul_into_gather_with(&mut dst, zero_vector.as_ref(), &refs);
+    assert_eq!(dst, vec![0; 8], "all-zero dot product vector fills zero");
 
     // Empty inputs.
     let mut dst = noise(8, 0x36);
-    ops::dot_product::<Gf8B>(&mut dst, &[], &[]);
+    ops::mul_into_gather::<Gf8B>(&mut dst, &[], &[]);
     assert_eq!(dst, vec![0; 8], "no sources fills zero");
-    ops::dot_product_with(&mut dst, &ops::Plan::<Gf8B>::new(&[]), &[]);
-    assert_eq!(dst, vec![0; 8], "empty plan fills zero");
+    let empty_vector = ops::CoeffVec::<Gf8B>::new(&[]);
+    ops::mul_into_gather_with(&mut dst, empty_vector.as_ref(), &[]);
+    assert_eq!(dst, vec![0; 8], "empty vector fills zero");
 
     let mut rows = noise(16, 0x37);
     let before = rows.clone();
@@ -1843,60 +1830,67 @@ fn zero_and_empty_inputs_are_well_defined() {
     ops::mul_add_matrix_with(
         &mut rows,
         8,
-        &ops::Plan::<Gf8B>::matrix(1, 0, &[]),
+        &ops::CoeffMatrix::<Gf8B>::from_source_major(1, 0, &[]),
         &[&srcs[0]],
     );
-    assert_eq!(rows, before, "zero-output matrix plan is a no-op");
-    ops::mul_add_matrix_with(&mut rows, 8, &ops::Plan::<Gf8B>::matrix(0, 2, &[]), &[]);
-    assert_eq!(rows, before, "empty-source matrix plan is a no-op");
-
-    let mut overwritten = vec![1u8; 16];
-    ops::dot_product_matrix::<Gf8B>(&mut overwritten, 8, 0, &[(&[], &srcs[0])]);
-    ops::dot_product_matrix::<Gf8B>(&mut overwritten, 8, 2, &[]);
-    assert_eq!(overwritten, vec![0; 16], "empty terms zero the rows");
-    ops::dot_product_matrix_with(
-        &mut overwritten,
+    assert_eq!(rows, before, "zero-output matrix is a no-op");
+    ops::mul_add_matrix_with(
+        &mut rows,
         8,
-        &ops::Plan::<Gf8B>::matrix(0, 0, &[]),
+        &ops::CoeffMatrix::<Gf8B>::from_source_major(0, 2, &[]),
         &[],
     );
-    assert_eq!(overwritten, vec![0; 16], "zero-row matrix plan keeps bytes");
-    let mut seeded = vec![1u8; 16];
-    ops::dot_product_matrix_with(&mut seeded, 8, &ops::Plan::<Gf8B>::matrix(0, 2, &[]), &[]);
-    assert_eq!(
-        seeded,
-        vec![0; 16],
-        "empty-source matrix plan zeros the rows"
+    assert_eq!(rows, before, "empty-source matrix is a no-op");
+
+    let mut overwritten = vec![1u8; 16];
+    ops::mul_into_matrix::<Gf8B>(&mut overwritten, 8, 0, &[(&[], &srcs[0])]);
+    ops::mul_into_matrix::<Gf8B>(&mut overwritten, 8, 2, &[]);
+    assert_eq!(overwritten, vec![0; 16], "empty terms zero the rows");
+    ops::mul_into_matrix_with(
+        &mut overwritten,
+        8,
+        &ops::CoeffMatrix::<Gf8B>::from_source_major(0, 0, &[]),
+        &[],
     );
+    assert_eq!(overwritten, vec![0; 16], "zero-row matrix keeps bytes");
+    let mut seeded = vec![1u8; 16];
+    ops::mul_into_matrix_with(
+        &mut seeded,
+        8,
+        &ops::CoeffMatrix::<Gf8B>::from_source_major(0, 2, &[]),
+        &[],
+    );
+    assert_eq!(seeded, vec![0; 16], "empty-source matrix zeros the rows");
 
     // Scattered reconstruction with nothing to do.
-    ops::mul_add_matrix_scattered::<Gf8B>(&mut rows, 8, &[0, 8], &[]);
-    ops::mul_add_matrix_scattered::<Gf8B>(&mut rows, 8, &[], &[(&[], &srcs[0])]);
+    ops::mul_add_matrix_at::<Gf8B>(&mut rows, 8, &[0, 8], &[]);
+    ops::mul_add_matrix_at::<Gf8B>(&mut rows, 8, &[], &[(&[], &srcs[0])]);
 }
 
 #[test]
-#[cfg(feature = "std")]
-fn single_term_dot_products_match_mul_into() {
+#[cfg(feature = "alloc")]
+fn single_term_mul_into_gathers_match_mul_into() {
     let src = noise(12, 0x41);
     let coeff = gf16::Elem::from_raw(0x0a5a);
     let mut dotted = noise(12, 0x42);
-    ops::dot_product::<Gf16>(&mut dotted, &[coeff], &[&src]);
+    ops::mul_into_gather::<Gf16>(&mut dotted, &[coeff], &[&src]);
     let mut scaled = [0u8; 12];
     ops::mul_into::<Gf16>(&mut scaled, coeff, &src);
     assert_eq!(dotted, scaled);
 
     let mut planned = noise(12, 0x43);
-    ops::dot_product_with::<Gf16>(&mut planned, &ops::Plan::new(&[coeff]), &[&src]);
+    let single = ops::CoeffVec::<Gf16>::new(&[coeff]);
+    ops::mul_into_gather_with::<Gf16>(&mut planned, single.as_ref(), &[&src]);
     assert_eq!(planned, scaled);
 }
 
 #[test]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[should_panic(expected = "mul_add_scatter_with: rows is 8 bytes")]
 fn scatter_with_rejects_short_rows_buffer() {
-    let plan = ops::Plan::<Gf8B>::new(&[gf8b::Elem::from_raw(1); 2]);
+    let coeffs = ops::CoeffVec::<Gf8B>::new(&[gf8b::Elem::from_raw(1); 2]);
     let mut rows = vec![0u8; 8];
-    ops::mul_add_scatter_with(&mut rows, 8, &plan, &[0u8; 8]);
+    ops::mul_add_scatter_with(&mut rows, 8, coeffs.as_ref(), &[0u8; 8]);
 }
 
 #[test]
@@ -1920,43 +1914,47 @@ fn gather_rejects_source_length_mismatch() {
 }
 
 #[test]
-#[cfg(feature = "std")]
-#[should_panic(expected = "mul_add_gather_with: plan has 2 coefficients")]
-fn gather_with_rejects_plan_source_mismatch() {
+#[cfg(feature = "alloc")]
+#[should_panic(expected = "mul_add_gather_with: 2 coefficients for 1 sources")]
+fn gather_with_rejects_vector_source_mismatch() {
     let src = [0u8; 8];
     let mut dst = vec![0u8; 8];
-    let plan = ops::Plan::<Gf8B>::new(&[gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)]);
-    ops::mul_add_gather_with(&mut dst, &plan, &[&src]);
+    let coeffs = ops::CoeffVec::<Gf8B>::new(&[gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)]);
+    ops::mul_add_gather_with(&mut dst, coeffs.as_ref(), &[&src]);
 }
 
 #[test]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[should_panic(expected = "mul_add_gather_with: source 0 is 7 bytes")]
 fn gather_with_rejects_source_length_mismatch() {
     let src = [0u8; 7];
     let mut dst = vec![0u8; 8];
-    let plan = ops::Plan::<Gf8B>::new(&[gf8b::Elem::from_raw(1)]);
-    ops::mul_add_gather_with(&mut dst, &plan, &[&src]);
+    let coeffs = ops::CoeffVec::<Gf8B>::new(&[gf8b::Elem::from_raw(1)]);
+    ops::mul_add_gather_with(&mut dst, coeffs.as_ref(), &[&src]);
 }
 
 #[test]
-#[cfg(feature = "std")]
-#[should_panic(expected = "dot_product_with: plan has 2 coefficients")]
-fn dot_product_with_rejects_plan_source_mismatch() {
+#[cfg(feature = "alloc")]
+#[should_panic(expected = "mul_into_gather_with: 2 coefficients for 1 sources")]
+fn mul_into_gather_with_rejects_vector_source_mismatch() {
     let src = [0u8; 8];
     let mut dst = vec![0u8; 8];
-    let plan = ops::Plan::<Gf8B>::new(&[gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)]);
-    ops::dot_product_with(&mut dst, &plan, &[&src]);
+    let coeffs = ops::CoeffVec::<Gf8B>::new(&[gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)]);
+    ops::mul_into_gather_with(&mut dst, coeffs.as_ref(), &[&src]);
 }
 
 #[test]
-#[cfg(feature = "std")]
-#[should_panic(expected = "dot_product_with: source 1 is 9 bytes")]
-fn dot_product_with_rejects_source_length_mismatch() {
+#[cfg(feature = "alloc")]
+#[should_panic(expected = "mul_into_gather_with: source 1 is 9 bytes")]
+fn mul_into_gather_with_rejects_source_length_mismatch() {
     let srcs = [vec![0u8; 8], vec![0u8; 9]];
     let mut dst = vec![0u8; 8];
-    let plan = ops::Plan::<Gf8B>::new(&[gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)]);
-    ops::dot_product_with(&mut dst, &plan, &[srcs[0].as_slice(), srcs[1].as_slice()]);
+    let coeffs = ops::CoeffVec::<Gf8B>::new(&[gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)]);
+    ops::mul_into_gather_with(
+        &mut dst,
+        coeffs.as_ref(),
+        &[srcs[0].as_slice(), srcs[1].as_slice()],
+    );
 }
 
 #[test]
@@ -1991,37 +1989,45 @@ fn matrix_rejects_source_length_mismatch() {
 }
 
 #[test]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[should_panic(expected = "mul_add_matrix_with: rows is 8 bytes")]
 fn matrix_with_rejects_short_rows_buffer() {
     let mut rows = vec![0u8; 8];
-    let plan = ops::Plan::<Gf8B>::matrix(1, 2, &[gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)]);
-    ops::mul_add_matrix_with(&mut rows, 8, &plan, &[&[0u8; 8]]);
+    let matrix = ops::CoeffMatrix::<Gf8B>::from_source_major(
+        1,
+        2,
+        &[gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)],
+    );
+    ops::mul_add_matrix_with(&mut rows, 8, &matrix, &[&[0u8; 8]]);
 }
 
 #[test]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[should_panic]
 fn matrix_with_rejects_dimension_mismatch() {
     let mut rows = vec![0u8; 16];
-    let plan = ops::Plan::<Gf8B>::matrix(2, 2, &[gf8b::Elem::from_raw(1); 4]);
-    ops::mul_add_matrix_with(&mut rows, 8, &plan, &[&[0u8; 8]]);
+    let matrix = ops::CoeffMatrix::<Gf8B>::from_source_major(2, 2, &[gf8b::Elem::from_raw(1); 4]);
+    ops::mul_add_matrix_with(&mut rows, 8, &matrix, &[&[0u8; 8]]);
 }
 
 #[test]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[should_panic(expected = "mul_add_matrix_with: source 0 is 7 bytes")]
 fn matrix_with_rejects_source_length_mismatch() {
     let mut rows = vec![0u8; 16];
-    let plan = ops::Plan::<Gf8B>::matrix(1, 2, &[gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)]);
-    ops::mul_add_matrix_with(&mut rows, 8, &plan, &[&[0u8; 7]]);
+    let matrix = ops::CoeffMatrix::<Gf8B>::from_source_major(
+        1,
+        2,
+        &[gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)],
+    );
+    ops::mul_add_matrix_with(&mut rows, 8, &matrix, &[&[0u8; 7]]);
 }
 
 #[test]
-#[should_panic(expected = "dot_product_matrix: rows is 8 bytes")]
-fn dot_product_matrix_rejects_short_rows_buffer() {
+#[should_panic(expected = "mul_into_matrix: rows is 8 bytes")]
+fn mul_into_matrix_rejects_short_rows_buffer() {
     let mut rows = vec![0u8; 8];
-    ops::dot_product_matrix::<Gf8B>(
+    ops::mul_into_matrix::<Gf8B>(
         &mut rows,
         8,
         2,
@@ -2030,17 +2036,17 @@ fn dot_product_matrix_rejects_short_rows_buffer() {
 }
 
 #[test]
-#[should_panic(expected = "dot_product_matrix: term supplies 1 coefficients")]
-fn dot_product_matrix_rejects_term_coefficient_count() {
+#[should_panic(expected = "mul_into_matrix: term supplies 1 coefficients")]
+fn mul_into_matrix_rejects_term_coefficient_count() {
     let mut rows = vec![0u8; 16];
-    ops::dot_product_matrix::<Gf8B>(&mut rows, 8, 2, &[(&[gf8b::Elem::from_raw(1)], &[0u8; 8])]);
+    ops::mul_into_matrix::<Gf8B>(&mut rows, 8, 2, &[(&[gf8b::Elem::from_raw(1)], &[0u8; 8])]);
 }
 
 #[test]
-#[should_panic(expected = "dot_product_matrix: source is 7 bytes")]
-fn dot_product_matrix_rejects_source_length_mismatch() {
+#[should_panic(expected = "mul_into_matrix: source is 7 bytes")]
+fn mul_into_matrix_rejects_source_length_mismatch() {
     let mut rows = vec![0u8; 16];
-    ops::dot_product_matrix::<Gf8B>(
+    ops::mul_into_matrix::<Gf8B>(
         &mut rows,
         8,
         2,
@@ -2049,37 +2055,45 @@ fn dot_product_matrix_rejects_source_length_mismatch() {
 }
 
 #[test]
-#[cfg(feature = "std")]
-#[should_panic(expected = "dot_product_matrix_with: rows is 8 bytes")]
-fn dot_product_matrix_with_rejects_short_rows_buffer() {
+#[cfg(feature = "alloc")]
+#[should_panic(expected = "mul_into_matrix_with: rows is 8 bytes")]
+fn mul_into_matrix_with_rejects_short_rows_buffer() {
     let mut rows = vec![0u8; 8];
-    let plan = ops::Plan::<Gf8B>::matrix(1, 2, &[gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)]);
-    ops::dot_product_matrix_with(&mut rows, 8, &plan, &[&[0u8; 8]]);
+    let matrix = ops::CoeffMatrix::<Gf8B>::from_source_major(
+        1,
+        2,
+        &[gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)],
+    );
+    ops::mul_into_matrix_with(&mut rows, 8, &matrix, &[&[0u8; 8]]);
 }
 
 #[test]
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[should_panic]
-fn dot_product_matrix_with_rejects_dimension_mismatch() {
+fn mul_into_matrix_with_rejects_dimension_mismatch() {
     let mut rows = vec![0u8; 16];
-    let plan = ops::Plan::<Gf8B>::matrix(3, 2, &[gf8b::Elem::from_raw(1); 6]);
-    ops::dot_product_matrix_with(&mut rows, 8, &plan, &[&[0u8; 8]]);
+    let matrix = ops::CoeffMatrix::<Gf8B>::from_source_major(3, 2, &[gf8b::Elem::from_raw(1); 6]);
+    ops::mul_into_matrix_with(&mut rows, 8, &matrix, &[&[0u8; 8]]);
 }
 
 #[test]
-#[cfg(feature = "std")]
-#[should_panic(expected = "dot_product_matrix_with: source 0 is 7 bytes")]
-fn dot_product_matrix_with_rejects_source_length_mismatch() {
+#[cfg(feature = "alloc")]
+#[should_panic(expected = "mul_into_matrix_with: source 0 is 7 bytes")]
+fn mul_into_matrix_with_rejects_source_length_mismatch() {
     let mut rows = vec![0u8; 16];
-    let plan = ops::Plan::<Gf8B>::matrix(1, 2, &[gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)]);
-    ops::dot_product_matrix_with(&mut rows, 8, &plan, &[&[0u8; 7]]);
+    let matrix = ops::CoeffMatrix::<Gf8B>::from_source_major(
+        1,
+        2,
+        &[gf8b::Elem::from_raw(1), gf8b::Elem::from_raw(2)],
+    );
+    ops::mul_into_matrix_with(&mut rows, 8, &matrix, &[&[0u8; 7]]);
 }
 
 #[test]
 #[should_panic(expected = "spans 8..16 but dst is 12 bytes")]
 fn scattered_rejects_out_of_bounds_row() {
     let mut dst = vec![0u8; 12];
-    ops::mul_add_matrix_scattered::<Gf8B>(
+    ops::mul_add_matrix_at::<Gf8B>(
         &mut dst,
         8,
         &[0, 8],
@@ -2091,7 +2105,7 @@ fn scattered_rejects_out_of_bounds_row() {
 #[should_panic(expected = "not a whole number of")]
 fn scattered_rejects_misaligned_row_start() {
     let mut dst = vec![0u8; 32];
-    ops::mul_add_matrix_scattered::<Gf16>(
+    ops::mul_add_matrix_at::<Gf16>(
         &mut dst,
         8,
         &[0, 13],
@@ -2100,10 +2114,10 @@ fn scattered_rejects_misaligned_row_start() {
 }
 
 #[test]
-#[should_panic(expected = "mul_add_matrix_scattered: term supplies 1 coefficients")]
+#[should_panic(expected = "mul_add_matrix_at: term supplies 1 coefficients")]
 fn scattered_rejects_term_coefficient_count() {
     let mut dst = vec![0u8; 16];
-    ops::mul_add_matrix_scattered::<Gf8B>(
+    ops::mul_add_matrix_at::<Gf8B>(
         &mut dst,
         8,
         &[0, 8],
@@ -2112,10 +2126,10 @@ fn scattered_rejects_term_coefficient_count() {
 }
 
 #[test]
-#[should_panic(expected = "mul_add_matrix_scattered: source is 7 bytes")]
+#[should_panic(expected = "mul_add_matrix_at: source is 7 bytes")]
 fn scattered_rejects_source_length_mismatch() {
     let mut dst = vec![0u8; 16];
-    ops::mul_add_matrix_scattered::<Gf8B>(
+    ops::mul_add_matrix_at::<Gf8B>(
         &mut dst,
         8,
         &[0, 8],
@@ -2158,6 +2172,7 @@ fn unpack_rejects_source_mismatch() {
     ops::unpack::<Gf8B>(&mut dst, &[0u8; 2]);
 }
 
+#[cfg(not(miri))]
 #[test]
 fn gf8d_large_buffer_mul_assign_matches_oracle() {
     // Past 64 KiB the GFNI in-place scale takes its shuffle variant
@@ -2172,7 +2187,7 @@ fn gf8d_large_buffer_mul_assign_matches_oracle() {
 }
 
 // ---------------------------------------------------------------------------
-// Prepared-plan operations match their one-shot forms
+// Prepared-coefficient operations match their one-shot forms
 // ---------------------------------------------------------------------------
 
 /// Every `_with` shape must produce byte-identical results to the one-shot
@@ -2180,8 +2195,8 @@ fn gf8d_large_buffer_mul_assign_matches_oracle() {
 /// family: GFNI-blocked (`Gf8B`), affine-blocked (`Gf8D`), tower (`Gf16`),
 /// scalar-defaulted wider towers (`Gf32`), Fan–Paar, and the prime fields.
 #[test]
-#[cfg(feature = "std")]
-fn plan_variants_match_one_shot_operations() {
+#[cfg(feature = "alloc")]
+fn prepared_variants_match_one_shot_operations() {
     fn run<F: FieldKernels>(srcs: Vec<Vec<u8>>, coeffs: Vec<F::Elem>) {
         const ELEMS: usize = 8;
         let row_len = ELEMS * F::BYTES;
@@ -2203,30 +2218,27 @@ fn plan_variants_match_one_shot_operations() {
             unreachable!("three coefficients")
         };
 
-        // Scatter: one source into as many rows as the plan has coefficients.
+        // Scatter: one source into as many rows as the vector has coefficients.
         let mut one_shot = seed();
         let mut planned = one_shot.clone();
         ops::mul_add_scatter::<F>(&mut one_shot, row_len, &coeffs[..2], &srcs[0]);
-        ops::mul_add_scatter_with::<F>(
-            &mut planned,
-            row_len,
-            &ops::Plan::new(&coeffs[..2]),
-            &srcs[0],
-        );
+        let scatter_coeffs = ops::CoeffVec::<F>::new(&coeffs[..2]);
+        ops::mul_add_scatter_with::<F>(&mut planned, row_len, scatter_coeffs.as_ref(), &srcs[0]);
         assert_eq!(one_shot, planned, "scatter");
 
         // Gather: many sources into one row.
+        let vector = ops::CoeffVec::<F>::new(&coeffs);
         let mut one_shot = fresh(0xa1);
         let mut planned = one_shot.clone();
         ops::mul_add_gather::<F>(&mut one_shot, &coeffs, &refs);
-        ops::mul_add_gather_with::<F>(&mut planned, &ops::Plan::new(&coeffs), &refs);
+        ops::mul_add_gather_with::<F>(&mut planned, vector.as_ref(), &refs);
         assert_eq!(one_shot, planned, "gather");
 
         // Dot product: overwrite one row.
         let mut one_shot = fresh(0xa2);
         let mut planned = one_shot.clone();
-        ops::dot_product::<F>(&mut one_shot, &coeffs, &refs);
-        ops::dot_product_with::<F>(&mut planned, &ops::Plan::new(&coeffs), &refs);
+        ops::mul_into_gather::<F>(&mut one_shot, &coeffs, &refs);
+        ops::mul_into_gather_with::<F>(&mut planned, vector.as_ref(), &refs);
         assert_eq!(one_shot, planned, "dot product");
 
         // Matrix: two terms into two rows, accumulating.
@@ -2238,7 +2250,7 @@ fn plan_variants_match_one_shot_operations() {
         let mut planned = one_shot.clone();
         ops::mul_add_matrix::<F>(&mut one_shot, row_len, 2, terms);
         let flat = [coeffs[0], coeffs[1], coeffs[1], coeffs[2]];
-        let matrix = ops::Plan::<F>::matrix(2, 2, &flat);
+        let matrix = ops::CoeffMatrix::<F>::from_source_major(2, 2, &flat);
         ops::mul_add_matrix_with::<F>(
             &mut planned,
             row_len,
@@ -2250,8 +2262,8 @@ fn plan_variants_match_one_shot_operations() {
         // Overwrite matrix: fresh rows from zero.
         let mut one_shot = vec![0u8; 2 * row_len];
         let mut planned = one_shot.clone();
-        ops::dot_product_matrix::<F>(&mut one_shot, row_len, 2, terms);
-        ops::dot_product_matrix_with::<F>(
+        ops::mul_into_matrix::<F>(&mut one_shot, row_len, 2, terms);
+        ops::mul_into_matrix_with::<F>(
             &mut planned,
             row_len,
             &matrix,
@@ -2260,14 +2272,13 @@ fn plan_variants_match_one_shot_operations() {
         assert_eq!(one_shot, planned, "dot product matrix");
 
         // Single-coefficient prepared forms, through both `Coeff` and a
-        // borrowed `CoeffRef` from a plan.
+        // borrowed `CoeffRef` from a vector.
         let mut one_shot = fresh(0xa4);
         let mut from_coeff = one_shot.clone();
         let mut from_coeff_ref = one_shot.clone();
         ops::mul_add::<F>(&mut one_shot, c2, &srcs[1]);
         ops::mul_add_with::<F>(&mut from_coeff, &ops::Coeff::new(c2), &srcs[1]);
-        let plan = ops::Plan::<F>::new(&coeffs);
-        let borrowed = plan.get(2).expect("three coefficients");
+        let borrowed = vector.get(2).expect("three coefficients");
         ops::mul_add_with::<F>(&mut from_coeff_ref, &borrowed, &srcs[1]);
         assert_eq!(one_shot, from_coeff, "mul_add_with through Coeff");
         assert_eq!(one_shot, from_coeff_ref, "mul_add_with through CoeffRef");
@@ -2367,6 +2378,34 @@ fn plan_variants_match_one_shot_operations() {
     );
 }
 
+/// A `CoeffMatrix::source` view drives `mul_add_scatter_with` directly: one
+/// source's coefficients leave the matrix as the exact borrowed view the
+/// scatter kernel consumes, no restaging into a standalone vector required.
+#[test]
+#[cfg(feature = "alloc")]
+fn matrix_source_drives_scatter_directly() {
+    const SOURCES: usize = 3;
+    const OUTPUTS: usize = 5;
+    const ROW_LEN: usize = 96;
+    let flat: Vec<gf16::Elem> = (0..SOURCES * OUTPUTS)
+        .map(|i| gf16::Elem::from_raw((i as u16).wrapping_mul(511).wrapping_add(3)))
+        .collect();
+    let matrix = ops::CoeffMatrix::<Gf16>::from_source_major(SOURCES, OUTPUTS, &flat);
+    let src = noise(ROW_LEN, 0x8d0);
+
+    for source in 0..SOURCES {
+        let view = matrix.source(source).expect("source in bounds");
+        let mut from_matrix = noise(ROW_LEN * OUTPUTS, 0x8d1 + source as u64);
+        ops::mul_add_scatter_with::<Gf16>(&mut from_matrix, ROW_LEN, view, &src);
+
+        let standalone =
+            ops::CoeffVec::<Gf16>::new(&flat[source * OUTPUTS..(source + 1) * OUTPUTS]);
+        let mut from_vector = noise(ROW_LEN * OUTPUTS, 0x8d1 + source as u64);
+        ops::mul_add_scatter_with::<Gf16>(&mut from_vector, ROW_LEN, standalone.as_ref(), &src);
+        assert_eq!(from_matrix, from_vector, "source {source}");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // add_assign_rows
 // ---------------------------------------------------------------------------
@@ -2374,11 +2413,11 @@ fn plan_variants_match_one_shot_operations() {
 /// Independent row-wise oracle: decode every element, add through the
 /// field-value API, and encode again. Deliberately never touches
 /// `add_assign`, `add_assign_rows`, or any XOR kernel.
-fn oracle_add_assign_rows<F: Field>(dst: &mut [u8], src: &[u8], row_len: usize) {
+fn oracle_add_assign_rows<F: Field>(dst: &mut [u8], row_len: usize, src: &[u8]) {
     for (d, s) in dst.chunks_exact_mut(row_len).zip(src.chunks_exact(row_len)) {
         for (de, se) in d.chunks_exact_mut(F::BYTES).zip(s.chunks_exact(F::BYTES)) {
-            let value = F::read(de).add(F::read(se));
-            F::write(de, value);
+            let value = F::decode(de).add(F::decode(se));
+            F::encode(de, value);
         }
     }
 }
@@ -2403,8 +2442,8 @@ fn check_add_assign_rows<F: FieldKernels>(seed: u64) {
             let src = noise(len, seed ^ row_len as u64);
             let mut got = noise(len, seed.wrapping_add(0x515) ^ rows as u64);
             let mut want = got.clone();
-            ops::add_assign_rows::<F>(&mut got, &src, row_len);
-            oracle_add_assign_rows::<F>(&mut want, &src, row_len);
+            ops::add_assign_rows::<F>(&mut got, row_len, &src);
+            oracle_add_assign_rows::<F>(&mut want, row_len, &src);
             assert_eq!(
                 got,
                 want,
@@ -2456,8 +2495,8 @@ fn add_assign_rows_extreme_patterns_match_oracle() {
         let src = vec![fill; len];
         let mut got = vec![fill; len];
         let mut want = vec![fill; len];
-        ops::add_assign_rows::<F>(&mut got, &src, row_len);
-        oracle_add_assign_rows::<F>(&mut want, &src, row_len);
+        ops::add_assign_rows::<F>(&mut got, row_len, &src);
+        oracle_add_assign_rows::<F>(&mut want, row_len, &src);
         assert_eq!(got, want, "{}: fill {fill:#04x}", F::NAME);
     }
     patterns::<Gf8B>(0x00);
@@ -2479,8 +2518,8 @@ fn gf16_add_assign_rows_wide_rows_match_oracle() {
             let src = noise(len, 0x6006 ^ row_len as u64);
             let mut got = noise(len, 0x6007 ^ rows as u64);
             let mut want = got.clone();
-            ops::add_assign_rows::<Gf16>(&mut got, &src, row_len);
-            oracle_add_assign_rows::<Gf16>(&mut want, &src, row_len);
+            ops::add_assign_rows::<Gf16>(&mut got, row_len, &src);
+            oracle_add_assign_rows::<Gf16>(&mut want, row_len, &src);
             assert_eq!(got, want, "wide row_len {row_len}, rows {rows}");
         }
     }
@@ -2491,7 +2530,7 @@ fn gf16_add_assign_rows_wide_rows_match_oracle() {
 fn add_assign_rows_rejects_zero_row_length() {
     let mut dst = [0u8; 8];
     let src = [0u8; 8];
-    ops::add_assign_rows::<Gf8B>(&mut dst, &src, 0);
+    ops::add_assign_rows::<Gf8B>(&mut dst, 0, &src);
 }
 
 #[test]
@@ -2500,7 +2539,7 @@ fn add_assign_rows_rejects_row_length_with_partial_element() {
     // Three bytes is not a whole number of two-byte GF(2^16) elements.
     let mut dst = [0u8; 6];
     let src = [0u8; 6];
-    ops::add_assign_rows::<Gf16>(&mut dst, &src, 3);
+    ops::add_assign_rows::<Gf16>(&mut dst, 3, &src);
 }
 
 #[test]
@@ -2508,7 +2547,7 @@ fn add_assign_rows_rejects_row_length_with_partial_element() {
 fn add_assign_rows_rejects_mismatched_buffers() {
     let mut dst = [0u8; 6];
     let src = [0u8; 4];
-    ops::add_assign_rows::<Gf8B>(&mut dst, &src, 2);
+    ops::add_assign_rows::<Gf8B>(&mut dst, 2, &src);
 }
 
 #[test]
@@ -2517,7 +2556,7 @@ fn add_assign_rows_rejects_partial_trailing_row() {
     // Ten bytes into four-byte rows leaves a two-byte remainder.
     let mut dst = [0u8; 10];
     let src = [0u8; 10];
-    ops::add_assign_rows::<Gf8B>(&mut dst, &src, 4);
+    ops::add_assign_rows::<Gf8B>(&mut dst, 4, &src);
 }
 
 /// Empty buffers with a valid nonzero `row_len` are a no-op, not an error.
@@ -2525,19 +2564,19 @@ fn add_assign_rows_rejects_partial_trailing_row() {
 fn add_assign_rows_accepts_empty_buffers() {
     let mut dst: [u8; 0] = [];
     let src: [u8; 0] = [];
-    ops::add_assign_rows::<Gf8B>(&mut dst, &src, 16);
-    ops::add_assign_rows::<Gf16>(&mut dst, &src, 2);
+    ops::add_assign_rows::<Gf8B>(&mut dst, 16, &src);
+    ops::add_assign_rows::<Gf16>(&mut dst, 2, &src);
 }
 
 // ---------------------------------------------------------------------------
-// add_gather
+// add_gather_offsets
 // ---------------------------------------------------------------------------
 
 /// Independent gather oracle: fold each source in turn through the
-/// field-value API. Deliberately never touches `add_gather` or any XOR
+/// field-value API. Deliberately never touches `add_gather_offsets` or any XOR
 /// kernel, so it stays a valid reference for both the blocked and
 /// per-source paths.
-fn oracle_add_gather<F: Field>(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+fn oracle_add_gather_offsets<F: Field>(dst: &mut [u8], region: &[u8], offsets: &[u32]) {
     let live = dst.len();
     for &start in offsets {
         let start = start as usize;
@@ -2545,8 +2584,8 @@ fn oracle_add_gather<F: Field>(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
             .chunks_exact_mut(F::BYTES)
             .zip(region[start..start + live].chunks_exact(F::BYTES))
         {
-            let value = F::read(de).add(F::read(se));
-            F::write(de, value);
+            let value = F::decode(de).add(F::decode(se));
+            F::encode(de, value);
         }
     }
 }
@@ -2581,8 +2620,8 @@ fn check_add_gather<F: FieldKernels>(seed: u64) {
         for (set, &offsets) in offset_sets.iter().enumerate() {
             let mut got = noise(live, seed.wrapping_add(0xa9a) ^ set as u64);
             let mut want = got.clone();
-            ops::add_gather::<F>(&region, &mut got, offsets);
-            oracle_add_gather::<F>(&region, &mut want, offsets);
+            ops::add_gather_offsets::<F>(&mut got, &region, offsets);
+            oracle_add_gather_offsets::<F>(&mut want, &region, offsets);
             assert_eq!(got, want, "{}: len {live}, set {set}", F::NAME);
         }
     }
@@ -2629,17 +2668,17 @@ fn add_gather_extreme_patterns_match_oracle() {
     let offsets = [0u32, 0, live as u32, live as u32, 0];
     let mut got = vec![0xffu8; live];
     let mut want = got.clone();
-    ops::add_gather::<Gf8B>(&region, &mut got, &offsets);
-    oracle_add_gather::<Gf8B>(&region, &mut want, &offsets);
+    ops::add_gather_offsets::<Gf8B>(&mut got, &region, &offsets);
+    oracle_add_gather_offsets::<Gf8B>(&mut want, &region, &offsets);
     assert_eq!(got, want);
 }
 
 #[test]
-#[should_panic(expected = "add_gather: offset 1 (48) + 40 exceeds region of 80 bytes")]
+#[should_panic(expected = "add_gather_offsets: offset 1 (48) + 40 exceeds region of 80 bytes")]
 fn add_gather_rejects_offset_out_of_region() {
     let region = [0u8; 80];
     let mut dst = [0u8; 40];
-    ops::add_gather::<Gf8B>(&region, &mut dst, &[0, 48]);
+    ops::add_gather_offsets::<Gf8B>(&mut dst, &region, &[0, 48]);
 }
 
 /// Empty destination with valid offsets is a no-op, not an error.
@@ -2647,5 +2686,5 @@ fn add_gather_rejects_offset_out_of_region() {
 fn add_gather_accepts_empty_destination() {
     let region = [0x11u8; 16];
     let mut dst: [u8; 0] = [];
-    ops::add_gather::<Gf8B>(&region, &mut dst, &[0, 8]);
+    ops::add_gather_offsets::<Gf8B>(&mut dst, &region, &[0, 8]);
 }

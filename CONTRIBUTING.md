@@ -6,40 +6,36 @@ and why belong in the PR and in `CHANGELOG.md`.
 ## Running the tests
 
 ```sh
-cargo test --all-features
-cargo test --no-default-features   # portable path only
+just test        # host's selected backend
+just test-tiers  # every supported backend tier
+just features    # no-default, default, all-features
 ```
 
-Backend dispatch resolves once per process, so one run only covers the host's
-best backend. Sweep the weaker ones explicitly with the `SIMD_BACKEND`
-override (owned by `simdispatch`); it is downgrade-only, so a request for a
-backend the host cannot execute is ignored rather than faked:
-
-```sh
-SIMD_BACKEND=v3     cargo test
-SIMD_BACKEND=v2     cargo test
-SIMD_BACKEND=scalar cargo test
-```
+Backend dispatch resolves once per process, so a single run only covers the
+host's best backend. `just test-tiers` walks the weaker ones through the
+downgrade-only `SIMD_BACKEND` override.
 
 ## Benchmarks
 
 ```sh
-cargo bench --bench kernels
-cargo bench --bench compare
+FEC_GOLDEN_CORE=<cpu> just bench kernels
+FEC_GOLDEN_CORE=<cpu> just bench compare
 ```
 
-Record the CPU when quoting a number; see `BENCHMARKS.md` for the existing
-measurements and the methodology behind them.
+Pin the run to one core and record the CPU, operating system, Rust version,
+selected backend, and geometry with any quoted number. `BENCHMARKS.md` holds
+the current measurements.
 
 ## Before opening a PR
 
 ```sh
-cargo fmt
-cargo clippy --all-features --all-targets
-cargo doc --all-features --no-deps
+just validate
 ```
 
-New public items need doc comments. MSRV is 1.89 and is checked in CI; do not
+This runs formatting, clippy at both feature ends, the dependency allowlist,
+rustdoc, the feature matrix, the backend-tier tests, Miri, and coverage.
+
+New public items need doc comments. MSRV is 1.93 and is checked in CI; do not
 reach for newer standard-library APIs without raising it deliberately.
 
 ## Commit messages

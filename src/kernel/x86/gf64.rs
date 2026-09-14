@@ -9,7 +9,13 @@
 //! for the scalar Karatsuba.
 //!
 //! As with GF(2^32), only the GFNI path is written here; everything else
-//! falls back to the portable scalar kernel.
+//! falls back to the portable scalar kernel. The multiply entries are safe
+//! [`archmage`] capability-token functions: each takes the GFNI proof
+//! token, asserts its own buffer geometry before the lane loop, and walks
+//! the buffer with reference-based loads and stores over 32-byte chunks,
+//! handing the sub-lane tail to the scalar reference.
+//!
+//! [`archmage`]: https://docs.rs/archmage
 
 use crate::field::gf64;
 use crate::kernel::scalar;
@@ -42,7 +48,7 @@ const fn pack64(lo: u32, hi: u32) -> u64 {
 #[inline]
 #[must_use]
 pub fn gf64_tiles(coeff: gf64::Elem) -> [u64; 8] {
-    let (c0, c1) = coeff.components();
+    let (c0, c1) = coeff.to_components();
     let tower = Tower2Coeff::derive(c0, c1, gf64::DELTA);
     let [s0, s1] = tower.same;
     let [x0, x1] = tower.cross;
@@ -88,8 +94,7 @@ const REV8: [u8; 32] = [
 ];
 
 /// Broadcast one 8-byte tile across a 32-byte lane.
-#[inline]
-#[target_feature(enable = "avx2")]
+#[archmage::rite(v3)]
 fn set1_tile(tile: u64) -> __m256i {
     _mm256_set1_epi64x(i64::from_ne_bytes(tile.to_ne_bytes()))
 }
@@ -101,8 +106,7 @@ fn set1_tile(tile: u64) -> __m256i {
 /// under the swap group `{SWAP1, SWAP2, REV4, SWAP4}`. The first four terms
 /// are one GF(2^32) lane multiply; the last four, over the half-swapped
 /// source, are the other.
-#[inline]
-#[target_feature(enable = "avx2,gfni")]
+#[archmage::rite(v3_gfni_crypto)]
 fn scale64(x: __m256i, lane: &Lane64) -> __m256i {
     _mm256_xor_si256(
         _mm256_xor_si256(
@@ -147,8 +151,7 @@ struct Lane64 {
     rev8: __m256i,
 }
 
-#[inline]
-#[target_feature(enable = "avx2,gfni")]
+#[archmage::rite(v3_gfni_crypto)]
 fn lane64(tiles: [u64; 8]) -> Lane64 {
     Lane64 {
         same_a: set1_tile(tiles[0]),
@@ -170,99 +173,109 @@ fn lane64(tiles: [u64; 8]) -> Lane64 {
 }
 
 /// `dst ^= coeff * src` with `GF2P8MULB` over 32-byte lanes.
-pub fn mul_add_gfni(dst: &mut [u8], coeff: gf64::Elem, tiles: [u64; 8], src: &[u8]) {
-    debug_assert_eq!(dst.len(), src.len());
-    // SAFETY: dispatch selected a GFNI backend, so AVX2 and GFNI are present;
-    // `dst` and `src` are independently borrowed slices.
-    unsafe { mul_add_gfni_impl(dst, coeff, tiles, src) }
-}
-
-/// # Safety
-/// AVX2 and GFNI must be available on the host.
-#[target_feature(enable = "avx2,gfni")]
-unsafe fn mul_add_gfni_impl(dst: &mut [u8], coeff: gf64::Elem, tiles: [u64; 8], src: &[u8]) {
-    let len = dst.len().min(src.len());
+///
+/// # Panics
+/// Panics if the slices differ in length or hold a partial element.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_add_gfni(
+    _token: archmage::X64V3GfniCryptoToken,
+    dst: &mut [u8],
+    coeff: gf64::Elem,
+    tiles: [u64; 8],
+    src: &[u8],
+) {
+    assert_eq!(
+        dst.len(),
+        src.len(),
+        "gf64::mul_add_gfni: dst is {} bytes but src is {} bytes",
+        dst.len(),
+        src.len(),
+    );
+    assert!(
+        dst.len().is_multiple_of(8),
+        "gf64::mul_add_gfni: buffer of {} bytes is not a whole number of 8-byte elements",
+        dst.len(),
+    );
     let l = lane64(tiles);
-    let (dst_ptr, src_ptr) = (dst.as_mut_ptr(), src.as_ptr());
-
-    let mut offset = 0;
-    while offset + 32 <= len {
-        // SAFETY: `offset + 32 <= len <= dst.len().min(src.len())`, so both
-        // loads and the store stay inside their slices.
-        unsafe {
-            let sp = src_ptr.add(offset);
-            let dp = dst_ptr.add(offset);
-            let x = _mm256_loadu_si256(sp.cast());
-            let r = scale64(x, &l);
-            let d = _mm256_loadu_si256(dp.cast());
-            _mm256_storeu_si256(dp.cast(), _mm256_xor_si256(d, r));
-        }
-        offset += 32;
+    let (lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    let (src_lanes, src_tail) = src.as_chunks::<32>();
+    for (dst_lane, src_lane) in lanes.iter_mut().zip(src_lanes) {
+        let x = _mm256_loadu_si256(src_lane);
+        let r = scale64(x, &l);
+        let d = _mm256_loadu_si256(&*dst_lane);
+        _mm256_storeu_si256(dst_lane, _mm256_xor_si256(d, r));
     }
-    // Every 32-byte step is a whole number of 8-byte elements, so the tail
+    // Every 32-byte lane is a whole number of 8-byte elements, so the tail
     // starts on an element boundary.
-    scalar::mul_add::<gf64::Gf64>(&mut dst[offset..len], coeff, &src[offset..len]);
+    scalar::mul_add::<gf64::Gf64>(dst_tail, coeff, src_tail);
 }
 
 /// `dst = coeff * dst` with `GF2P8MULB` over 32-byte lanes.
-pub fn mul_assign_gfni(dst: &mut [u8], coeff: gf64::Elem, tiles: [u64; 8]) {
-    // SAFETY: dispatch selected a GFNI backend, so AVX2 and GFNI are present.
-    unsafe { mul_assign_gfni_impl(dst, coeff, tiles) }
-}
-
-/// # Safety
-/// AVX2 and GFNI must be available on the host.
-#[target_feature(enable = "avx2,gfni")]
-unsafe fn mul_assign_gfni_impl(dst: &mut [u8], coeff: gf64::Elem, tiles: [u64; 8]) {
-    let len = dst.len();
+///
+/// # Panics
+/// Panics on a partial trailing element.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_assign_gfni(
+    _token: archmage::X64V3GfniCryptoToken,
+    dst: &mut [u8],
+    coeff: gf64::Elem,
+    tiles: [u64; 8],
+) {
+    assert!(
+        dst.len().is_multiple_of(8),
+        "gf64::mul_assign_gfni: buffer of {} bytes is not a whole number of 8-byte elements",
+        dst.len(),
+    );
     let l = lane64(tiles);
-    let dst_ptr = dst.as_mut_ptr();
-
-    let mut offset = 0;
-    while offset + 32 <= len {
-        // SAFETY: `offset + 32 <= len == dst.len()` bounds the load and store.
-        unsafe {
-            let p = dst_ptr.add(offset);
-            let x = _mm256_loadu_si256(p.cast());
-            let r = scale64(x, &l);
-            _mm256_storeu_si256(p.cast(), r);
-        }
-        offset += 32;
+    let (lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    for dst_lane in lanes.iter_mut() {
+        let x = _mm256_loadu_si256(&*dst_lane);
+        let r = scale64(x, &l);
+        _mm256_storeu_si256(dst_lane, r);
     }
-    scalar::mul_assign::<gf64::Gf64>(&mut dst[offset..len], coeff);
+    scalar::mul_assign::<gf64::Gf64>(dst_tail, coeff);
 }
 
 /// `dst = coeff * src` with `GF2P8MULB` over 32-byte lanes, out of place.
 ///
 /// Fused form of copy-then-scale: the `mul_add` body without the destination
 /// read, one pass.
-pub fn mul_into_gfni(dst: &mut [u8], coeff: gf64::Elem, tiles: [u64; 8], src: &[u8]) {
-    debug_assert_eq!(dst.len(), src.len());
-    // SAFETY: dispatch selected a GFNI backend, so AVX2 and GFNI are present;
-    // `dst` and `src` are independently borrowed slices.
-    unsafe { mul_into_gfni_impl(dst, coeff, tiles, src) }
-}
-
-/// # Safety
-/// AVX2 and GFNI must be available on the host.
-#[target_feature(enable = "avx2,gfni")]
-unsafe fn mul_into_gfni_impl(dst: &mut [u8], coeff: gf64::Elem, tiles: [u64; 8], src: &[u8]) {
-    let len = dst.len().min(src.len());
+///
+/// # Panics
+/// Panics if the slices differ in length or hold a partial element.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_into_gfni(
+    _token: archmage::X64V3GfniCryptoToken,
+    dst: &mut [u8],
+    coeff: gf64::Elem,
+    tiles: [u64; 8],
+    src: &[u8],
+) {
+    assert_eq!(
+        dst.len(),
+        src.len(),
+        "gf64::mul_into_gfni: dst is {} bytes but src is {} bytes",
+        dst.len(),
+        src.len(),
+    );
+    assert!(
+        dst.len().is_multiple_of(8),
+        "gf64::mul_into_gfni: buffer of {} bytes is not a whole number of 8-byte elements",
+        dst.len(),
+    );
     let l = lane64(tiles);
-    let (dst_ptr, src_ptr) = (dst.as_mut_ptr(), src.as_ptr());
-
-    let mut offset = 0;
-    while offset + 32 <= len {
-        // SAFETY: `offset + 32 <= len <= dst.len().min(src.len())`.
-        unsafe {
-            let x = _mm256_loadu_si256(src_ptr.add(offset).cast());
-            let r = scale64(x, &l);
-            _mm256_storeu_si256(dst_ptr.add(offset).cast(), r);
-        }
-        offset += 32;
+    let (lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    let (src_lanes, src_tail) = src.as_chunks::<32>();
+    for (dst_lane, src_lane) in lanes.iter_mut().zip(src_lanes) {
+        let x = _mm256_loadu_si256(src_lane);
+        let r = scale64(x, &l);
+        _mm256_storeu_si256(dst_lane, r);
     }
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its
     // own source, so seeding it with `src` first matches the fused body.
-    dst[offset..len].copy_from_slice(&src[offset..len]);
-    scalar::mul_assign::<gf64::Gf64>(&mut dst[offset..len], coeff);
+    dst_tail.copy_from_slice(src_tail);
+    scalar::mul_assign::<gf64::Gf64>(dst_tail, coeff);
 }

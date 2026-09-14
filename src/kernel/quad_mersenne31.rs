@@ -103,12 +103,12 @@ impl KernelDispatch for QuadMersenne31 {
     fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         debug_assert_eq!(dst.len(), src.len());
         for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
-            let a = QuadMersenne31::read(d);
-            let b = QuadMersenne31::read(s);
+            let a = QuadMersenne31::decode(d);
+            let b = QuadMersenne31::decode(s);
             // Both buffers are caller-owned bytes and may hold non-canonical
             // raw lanes; canonicalize each limb once, then one conditional
             // subtract folds the sum.
-            QuadMersenne31::write(
+            QuadMersenne31::encode(
                 d,
                 Elem(
                     raw_add(canon(a.0), canon(b.0)),
@@ -121,14 +121,14 @@ impl KernelDispatch for QuadMersenne31 {
     fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         debug_assert_eq!(dst.len(), src.len());
         for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
-            let a = QuadMersenne31::read(d);
-            let b = QuadMersenne31::read(s);
+            let a = QuadMersenne31::decode(d);
+            let b = QuadMersenne31::decode(s);
             // dst + (-src); negation of a canonical limb is p - limb (0 stays 0).
             let br = canon(b.0);
             let bi = canon(b.1);
             let ar = canon(a.0);
             let ai = canon(a.1);
-            QuadMersenne31::write(
+            QuadMersenne31::encode(
                 d,
                 Elem(
                     raw_add(
@@ -163,10 +163,10 @@ impl KernelDispatch for QuadMersenne31 {
             return;
         }
         for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
-            let a = QuadMersenne31::read(d);
-            let b = QuadMersenne31::read(s);
+            let a = QuadMersenne31::decode(d);
+            let b = QuadMersenne31::decode(s);
             let prod = qmul(canon(b.0), canon(b.1), cr, ci);
-            QuadMersenne31::write(
+            QuadMersenne31::encode(
                 d,
                 Elem(raw_add(canon(a.0), prod.0), raw_add(canon(a.1), prod.1)),
             );
@@ -184,8 +184,8 @@ impl KernelDispatch for QuadMersenne31 {
             return;
         }
         for d in dst.chunks_exact_mut(8) {
-            let a = QuadMersenne31::read(d);
-            QuadMersenne31::write(d, qmul(canon(a.0), canon(a.1), cr, ci));
+            let a = QuadMersenne31::decode(d);
+            QuadMersenne31::encode(d, qmul(canon(a.0), canon(a.1), cr, ci));
         }
     }
 
@@ -197,8 +197,8 @@ impl KernelDispatch for QuadMersenne31 {
             return;
         }
         for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
-            let b = QuadMersenne31::read(s);
-            QuadMersenne31::write(d, qmul(canon(b.0), canon(b.1), cr, ci));
+            let b = QuadMersenne31::decode(s);
+            QuadMersenne31::encode(d, qmul(canon(b.0), canon(b.1), cr, ci));
         }
     }
 
@@ -242,9 +242,9 @@ impl KernelDispatch for QuadMersenne31 {
             .zip(a.chunks_exact(8))
             .zip(b.chunks_exact(8))
         {
-            let xa = QuadMersenne31::read(x);
-            let xb = QuadMersenne31::read(y);
-            QuadMersenne31::write(d, qmul(canon(xa.0), canon(xa.1), canon(xb.0), canon(xb.1)));
+            let xa = QuadMersenne31::decode(x);
+            let xb = QuadMersenne31::decode(y);
+            QuadMersenne31::encode(d, qmul(canon(xa.0), canon(xa.1), canon(xb.0), canon(xb.1)));
         }
     }
 }

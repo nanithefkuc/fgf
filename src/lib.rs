@@ -1,166 +1,4 @@
-//! # Faster Galois Fields
-//!
-//! SIMD-optimized finite fields — binary towers and prime fields — and the
-//! vector kernels erasure codes and proof systems are built out of.
-//!
-//! Supported field families:
-//!
-//! | Field | Type | Element | Construction |
-//! | --- | --- | --- | --- |
-//! | GF(2^8) | [`Gf8B`] | [`gf8b::Elem`] | AES polynomial `0x11B` |
-//! | GF(2^8) | [`Gf8D`] | [`gf8d::Elem`] | polynomial `0x11D` (RS interop) |
-//! | GF(2^16) | [`Gf16`] | [`gf16::Elem`] | quadratic tower over [`Gf8B`] |
-//! | GF(2^32) | [`Gf32`] | [`gf32::Elem`] | quadratic tower over [`Gf16`] |
-//! | GF(2^64) | [`Gf64`] | [`gf64::Elem`] | quadratic tower over [`Gf32`] |
-//! | GF(2^8)..GF(2^64) | [`FanPaar8`]..[`FanPaar64`] | [`fan_paar::fp8::Elem`]..[`fan_paar::fp64::Elem`] | canonical Fan–Paar tower |
-//! | GF(2^31 − 1) | [`Mersenne31`] | [`mersenne31::Elem`] | Mersenne prime, `u32` lanes |
-//! | GF(2^64 − 2^32 + 1) | [`Goldilocks`] | [`goldilocks::Elem`] | Goldilocks prime, `u64` lanes |
-//! | GF((2^31 − 1)²) | [`QuadMersenne31`] | [`quad_mersenne31::Elem`] | QM31 extension, `i² = −1` over [`Mersenne31`] |
-//! | GF(2) | [`Gf2`] | [`gf2::Elem`] | bit-packed, one element per bit |
-//!
-//! `Gf8B` and `Gf16` have hand-written SIMD backends, and `Gf8D` multiplies
-//! through `VGF2P8AFFINEQB` affine maps on x86 GFNI hosts and `Gf8B`'s
-//! split-nibble shuffle kernels elsewhere. The wider polynomial
-//! towers `Gf32`/`Gf64` run the same tower identity on x86 GFNI, and the
-//! canonical Fan–Paar `FanPaar16`/`FanPaar32`/`FanPaar64` run their nibble-
-//! shuffle tower on x86 AVX2 (and `FanPaar16` on SSSE3); on every other target
-//! those and `FanPaar8` use the portable kernels. All types share the same
-//! checked [`ops`] surface and stable little-endian encoding.
-
-//! The prime fields [`Mersenne31`] and [`Goldilocks`] are lane-packed integer
-//! arithmetic: on x86 with AVX2 (`V3`) or SSE4.2 (`V2`) their add, subtract,
-//! and multiply run over `u32`/`u64` lanes with a modular fold; on every other
-//! target they use the portable path. Their quadratic extension
-//! [`QuadMersenne31`] composes the [`Mersenne31`] lanes and reports `Scalar`
-//! (portable) today. Scalar element arithmetic on all three is total over raw
-//! lanes — any bit pattern is a legal input and every output reduces
-//! canonically — while the packed [`ops`] kernels are defined on canonical
-//! input lanes and preserve canonicity on output (see the `ops` module docs);
-//! no normalization pass runs inside the kernels. All of it is variable-time
-//! — not for secret data. The binary-tower fields are unchanged.
-//!
-//! ## Two layers
-//!
-//! **Scalar algebra** — [`field::Elem`] gives
-//! `add`/`sub`/`mul`/`square`/`inv`/`div`/`pow` over single elements. The
-//! concrete element types carry the same methods inherently and `const`, so
-//! coding matrices can be built at compile time; `use fgf::field::Elem;` to
-//! get them in scope when writing code generic over the field.
-//!
-//! **Vector kernels** — [`ops`] operates on `&[u8]` buffers of packed
-//! elements, dispatching once per process to the best backend the host
-//! supports ([`Backend`]).
-//!
-//! ## Bit-packed GF(2)
-//!
-//! The base field itself is sub-byte, so it sits beside those two layers
-//! rather than inside them. [`Gf2`]/[`gf2::Elem`] is the scalar object (a
-//! one-bit element: add is XOR, multiply is AND, everything is `const`), and
-//! [`bits`] is its vector surface — XOR/AND/range kernels over `&[u8]`
-//! buffers holding **one element per bit**, LSB-first, eight per byte. That
-//! packing is the win: 8x the density of a byte-per-element layout for the
-//! bandwidth-bound shapes GF(2) work lives in. The surface is standalone
-//! functions, not [`ops`] methods, because a byte count cannot recover an
-//! element count (operations carry an explicit bit count and bit ranges)
-//! and the GF(2) coefficient is a bit — multiply by one is XOR, by zero is
-//! skip — so there is no prepared-coefficient form to hoist.
-//!
-//! ```
-//! use fgf::{Gf8B, gf8b, ops};
-//!
-//! let src = [0x01u8, 0x02, 0x03, 0x04];
-//! let mut dst = [0u8; 4];
-//!
-//! // dst += 0x03 * src
-//! ops::mul_add::<Gf8B>(&mut dst, gf8b::Elem::from_raw(0x03), &src);
-//! assert_eq!(dst, [0x03, 0x06, 0x05, 0x0c]);
-//!
-//! // Undo it: adding the same term back is subtracting it.
-//! ops::mul_add::<Gf8B>(&mut dst, gf8b::Elem::from_raw(0x03), &src);
-//! assert_eq!(dst, [0, 0, 0, 0]);
-//! ```
-//!
-//! The same code over GF(2^16), where buffers hold little-endian element
-//! pairs:
-//!
-//! ```
-//! use fgf::{Gf16, gf16, ops};
-//!
-//! let src = 0x1234u16.to_le_bytes();
-//! let mut dst = [0u8; 2];
-//! ops::mul_add::<Gf16>(&mut dst, gf16::Elem::from_raw(0x0108), &src);
-//!
-//! let expected = gf16::Elem::from_raw(0x1234).mul(gf16::Elem::from_raw(0x0108));
-//! assert_eq!(dst, expected.to_bytes());
-//! ```
-//!
-//! ## Choosing an operation
-//!
-//! | Shape | One-shot | Prepared | Where it appears |
-//! | --- | --- | --- | --- |
-//! | `dst += src` | [`ops::add_assign`] | — | parity / field add |
-//! | `dst_row += src_row` by rows | [`ops::add_assign_rows`] | — | row-shaped parity |
-//! | `dst += c * src` | [`ops::mul_add`] | [`ops::mul_add_with`] | AXPY |
-//! | `dst = c * src` | [`ops::mul_into`] | [`ops::mul_into_with`] | row scaling |
-//! | `dst *= c` | [`ops::mul_assign`] | [`ops::mul_assign_with`] | in-place scaling |
-//! | one source, many rows | [`ops::mul_add_scatter`] | `ops::mul_add_scatter_with` | systematic encode |
-//! | many sources, one row | [`ops::mul_add_gather`] | `ops::mul_add_gather_with` | recovered symbol |
-//! | many sources overwrite one row | [`ops::dot_product`] | `ops::dot_product_with` | fresh recovered symbol |
-//! | many sources, many rows | [`ops::mul_add_matrix`] | `ops::mul_add_matrix_with` | reconstruction |
-//! | many sources overwrite many rows | [`ops::dot_product_matrix`] | `ops::dot_product_matrix_with` | erasure encode |
-//! | many sources, scattered rows | [`ops::mul_add_matrix_scattered`] | — | in-place reconstruction |
-//! | varying pair per lane | [`ops::mul_elementwise`] | — | pointwise products |
-//!
-//! Prefer the widest shape that fits. [`ops::mul_add_matrix`] holds destination
-//! tiles in registers across all sources; [`ops::dot_product_matrix`] also
-//! starts those accumulators at zero, avoiding a destination read and separate
-//! zero-fill when producing fresh rows.
-//!
-//! [`ops::Coeff`] prepares one coefficient. With `std`, `ops::Plan` stores a
-//! prepared vector or row-major matrix for the multi-row `_with` operations.
-//! [`ops::pack`], [`ops::unpack`], and `ops::pack_to_vec` bridge typed elements
-//! and packed byte buffers.
-//!
-//! ## Features
-//!
-//! - `std` (default) — the standards library (and its lazily-built table
-//!   banks).
-//! - `simd` (default, implies `std`) — the vector backends. Disabling leaves
-//!   the portable scalar kernels, which are correct but slow.
-//! - `internals` — explicitly unstable access to the crate's kernel modules
-//!   and preparation types, for benchmarking and downstream
-//!   experimentation. Nothing behind it is a compatibility promise. The
-//!   architecture kernels are reachable only through token-proven wrappers
-//!   (`kernel::x86::proven` and siblings) that take a genuine
-//!   [`archmage`](https://docs.rs/archmage) capability token and validate
-//!   geometry; raw dispatch stays crate-private.
-//!
-//! [`kernel::backend()`] reports the process-wide SIMD selection over the
-//! tiers this crate implements; [`backend_for`] reports the backend used by a
-//! specific field, so portable-only wider fields do not appear accelerated on
-//! a SIMD host. Detection and ordering are single-source: [`Backend`] is a
-//! re-export of [`simdispatch::Backend`](https://docs.rs/simdispatch), and
-//! selection is [`simdispatch`](https://github.com/nanithefkuc/simdispatch)'s
-//! `Selection` resolved over [`kernel::FGF_TIERS`], with the downgrade-only
-//! `SIMD_BACKEND` override.
-//!
-//! ## Safety, stability, and scope
-//!
-//! The stable API is safe: [`ops`] validates every buffer shape before
-//! dispatch and panics on misuse, and unsafe intrinsics are confined to
-//! private architecture modules entered only after runtime feature
-//! detection. Every backend is differentially tested against the portable
-//! implementation. The `internals` surface is not stable and trades that
-//! convenience for direct kernel access — its token-gated wrappers are safe
-//! but its contracts are not a compatibility promise.
-//!
-//! Nothing here is constant-time. Every kernel — scalar, portable, and SIMD —
-//! is variable-time by design (table lookups, data-dependent lane counts,
-//! shared caches); none of it is suitable for operating on secrets.
-//!
-//! This crate does not build coding matrices or own shards. Cauchy/Vandermonde
-//! recipes, matrix inversion, and streaming recovery belong in a codec layer.
-
+#![doc = include_str!("../README.md")]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
@@ -180,6 +18,9 @@
     clippy::chunks_exact_to_as_chunks,
 )]
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 pub mod bits;
 pub mod field;
 pub mod kernel;
@@ -191,6 +32,6 @@ pub use field::{
     goldilocks, mersenne31, quad_mersenne31,
 };
 pub use kernel::{
-    Backend, FieldKernels, KernelBackend, ParseBackendError, backend, backend_for,
+    Backend, FGF_TIERS, FieldKernels, KernelBackend, ParseBackendError, backend, backend_for,
     has_vector_elementwise,
 };

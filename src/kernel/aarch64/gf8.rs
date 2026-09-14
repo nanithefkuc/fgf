@@ -116,7 +116,7 @@ impl Scaling {
 
 /// One destination row of a [`scatter_neon`] group, resolved once per group.
 #[derive(Clone, Copy)]
-struct RowPlan {
+struct PreparedRow {
     /// First byte of the row.
     ptr: *mut u8,
     /// Nibble tables for this row's coefficient, used by the scalar tail.
@@ -129,7 +129,7 @@ struct RowPlan {
     scaling: Scaling,
 }
 
-impl RowPlan {
+impl PreparedRow {
     /// Resolve the row starting at `ptr` for coefficient `coeff`.
     ///
     /// `ptr` is only recorded here; the loops that dereference it carry the
@@ -268,11 +268,11 @@ pub fn scatter_neon(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]
     // SAFETY: NEON is baseline on AArch64. `rows` is uniquely borrowed, and
     // the kernel clamps its row count to the number of whole rows the buffer
     // actually holds.
-    unsafe { scatter_impl(rows, row_len, coeffs, src) }
+    unsafe { mul_add_scatter_impl(rows, row_len, coeffs, src) }
 }
 
 #[target_feature(enable = "neon")]
-unsafe fn scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
+unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
     let span = row_len.min(src.len());
     let nrows = coeffs.len().min(rows.len() / row_len);
     let base = rows.as_mut_ptr();
@@ -285,10 +285,10 @@ unsafe fn scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[
         // row's load.
         let quad = unsafe {
             [
-                RowPlan::new(base.add(j * row_len), coeffs[j]),
-                RowPlan::new(base.add((j + 1) * row_len), coeffs[j + 1]),
-                RowPlan::new(base.add((j + 2) * row_len), coeffs[j + 2]),
-                RowPlan::new(base.add((j + 3) * row_len), coeffs[j + 3]),
+                PreparedRow::new(base.add(j * row_len), coeffs[j]),
+                PreparedRow::new(base.add((j + 1) * row_len), coeffs[j + 1]),
+                PreparedRow::new(base.add((j + 2) * row_len), coeffs[j + 2]),
+                PreparedRow::new(base.add((j + 3) * row_len), coeffs[j + 3]),
             ]
         };
         // SAFETY: as above, plus `span <= src.len()` bounds the source reads.
@@ -316,7 +316,7 @@ unsafe fn scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[
 /// the four spans must be pairwise disjoint and disjoint from `src`, and
 /// `src` must hold at least `span` bytes.
 #[target_feature(enable = "neon")]
-unsafe fn scatter_quad(plans: &[RowPlan; 4], src: &[u8], span: usize) {
+unsafe fn scatter_quad(plans: &[PreparedRow; 4], src: &[u8], span: usize) {
     let src_ptr = src.as_ptr();
 
     let mut offset = 0;
@@ -366,11 +366,16 @@ pub fn matrix_neon(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[El
     // SAFETY: NEON is baseline on AArch64. `rows` is uniquely borrowed, and
     // the kernel clamps both its row count and its byte span to what the
     // buffers actually hold.
-    unsafe { matrix_impl(rows, row_len, nrows, terms) }
+    unsafe { mul_add_matrix_impl(rows, row_len, nrows, terms) }
 }
 
 #[target_feature(enable = "neon")]
-unsafe fn matrix_impl(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[Elem], &[u8])]) {
+unsafe fn mul_add_matrix_impl(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &[(&[Elem], &[u8])],
+) {
     // One pass over `terms` — outside every hot loop — establishes the bounds
     // the raw-pointer loops rely on, so a caller that violates the documented
     // geometry gets a short update rather than out-of-bounds reads.
@@ -587,11 +592,11 @@ unsafe fn matrix_single(ptr: *mut u8, span: usize, index: usize, terms: &[(&[Ele
 pub fn gather_neon(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     debug_assert_eq!(coeffs.len(), srcs.len());
     // SAFETY: NEON is baseline on AArch64 and callers checked source lengths.
-    unsafe { gather_impl(dst, coeffs, srcs) }
+    unsafe { mul_add_gather_impl(dst, coeffs, srcs) }
 }
 
 #[target_feature(enable = "neon")]
-unsafe fn gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+unsafe fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     let len = dst.len() & !31;
     let dst_ptr = dst.as_mut_ptr();
     let mut offset = 0;

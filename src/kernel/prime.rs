@@ -18,8 +18,8 @@ pub fn add_assign<F: Field>(dst: &mut [u8], src: &[u8]) {
         .chunks_exact_mut(F::BYTES)
         .zip(src.chunks_exact(F::BYTES))
     {
-        let value = F::read(d).add(F::read(s));
-        F::write(d, value);
+        let value = F::decode(d).add(F::decode(s));
+        F::encode(d, value);
     }
 }
 
@@ -30,8 +30,8 @@ pub fn sub_assign<F: Field>(dst: &mut [u8], src: &[u8]) {
         .chunks_exact_mut(F::BYTES)
         .zip(src.chunks_exact(F::BYTES))
     {
-        let value = F::read(d).sub(F::read(s));
-        F::write(d, value);
+        let value = F::decode(d).sub(F::decode(s));
+        F::encode(d, value);
     }
 }
 
@@ -49,8 +49,8 @@ pub fn mul_add<F: Field>(dst: &mut [u8], coeff: F::Elem, src: &[u8]) {
         .chunks_exact_mut(F::BYTES)
         .zip(src.chunks_exact(F::BYTES))
     {
-        let value = F::read(d).add(F::read(s).mul(coeff));
-        F::write(d, value);
+        let value = F::decode(d).add(F::decode(s).mul(coeff));
+        F::encode(d, value);
     }
 }
 
@@ -64,8 +64,8 @@ pub fn mul_assign<F: Field>(dst: &mut [u8], coeff: F::Elem) {
         return;
     }
     for d in dst.chunks_exact_mut(F::BYTES) {
-        let value = F::read(d).mul(coeff);
-        F::write(d, value);
+        let value = F::decode(d).mul(coeff);
+        F::encode(d, value);
     }
 }
 
@@ -106,6 +106,6 @@ pub fn mul_elementwise<F: Field>(dst: &mut [u8], a: &[u8], b: &[u8]) {
         .zip(a.chunks_exact(F::BYTES))
         .zip(b.chunks_exact(F::BYTES))
     {
-        F::write(d, F::read(x).mul(F::read(y)));
+        F::encode(d, F::decode(x).mul(F::decode(y)));
     }
 }

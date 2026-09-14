@@ -356,14 +356,14 @@ pub fn scatter_neon(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]
     if row_len == 0 || coeffs.is_empty() || src.is_empty() {
         return;
     }
-    // SAFETY: NEON is baseline on AArch64. `scatter_impl` clamps the row
+    // SAFETY: NEON is baseline on AArch64. `mul_add_scatter_impl` clamps the row
     // count to what `rows` holds and the span to what `src` provides, so
     // every pointer it forms addresses a distinct in-bounds row.
-    unsafe { scatter_impl(rows, row_len, coeffs, src) }
+    unsafe { mul_add_scatter_impl(rows, row_len, coeffs, src) }
 }
 
 #[target_feature(enable = "neon")]
-unsafe fn scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
+unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
     let nrows = coeffs.len().min(rows.len() / row_len);
     let span = row_len.min(src.len());
     let base = rows.as_mut_ptr();
@@ -531,15 +531,20 @@ pub fn matrix_neon(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[El
     if row_len == 0 || nrows == 0 || terms.is_empty() {
         return;
     }
-    // SAFETY: NEON is baseline on AArch64. `matrix_impl` clamps the row
+    // SAFETY: NEON is baseline on AArch64. `mul_add_matrix_impl` clamps the row
     // count to what `rows` and every coefficient array can supply, and the
     // span to the shortest source, so every pointer it forms addresses a
     // distinct in-bounds row.
-    unsafe { matrix_impl(rows, row_len, nrows, terms) }
+    unsafe { mul_add_matrix_impl(rows, row_len, nrows, terms) }
 }
 
 #[target_feature(enable = "neon")]
-unsafe fn matrix_impl(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[Elem], &[u8])]) {
+unsafe fn mul_add_matrix_impl(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &[(&[Elem], &[u8])],
+) {
     let mut count = nrows.min(rows.len() / row_len);
     let mut span = row_len;
     for &(coeffs, src) in terms {
@@ -600,11 +605,11 @@ unsafe fn matrix_impl(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&
 pub fn gather_neon(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     debug_assert_eq!(coeffs.len(), srcs.len());
     // SAFETY: NEON is baseline on AArch64 and callers checked source lengths.
-    unsafe { gather_impl(dst, coeffs, srcs) }
+    unsafe { mul_add_gather_impl(dst, coeffs, srcs) }
 }
 
 #[target_feature(enable = "neon")]
-unsafe fn gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+unsafe fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     let vector_len = dst.len() & !15;
     for block in (0..coeffs.len()).step_by(TERM_BLOCK) {
         let count = (coeffs.len() - block).min(TERM_BLOCK);
