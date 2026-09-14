@@ -126,6 +126,10 @@ jobs:
           components: rustfmt, clippy
       - run: cargo fmt --check
       - run: cargo clippy --all-features --all-targets
+      # The default set is neither end of the feature walk: without
+      # `internals` the x86 re-exports have no consumer outside dispatch.
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy --no-default-features --all-targets -- -D warnings
       # Doc warnings fail the build in every feature configuration the
       # test jobs exercise.
       - run: cargo doc --no-deps
