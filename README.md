@@ -28,7 +28,7 @@ matrices, own shards, invert matrices, or implement a recovery protocol.
 
 ## Installation
 
-The minimum supported Rust version is 1.89.
+The minimum supported Rust version is 1.93.
 
 ```toml
 [dependencies]

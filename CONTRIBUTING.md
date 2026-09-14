@@ -35,7 +35,7 @@ just validate
 This runs formatting, clippy at both feature ends, the dependency allowlist,
 rustdoc, the feature matrix, the backend-tier tests, Miri, and coverage.
 
-New public items need doc comments. MSRV is 1.89 and is checked in CI; do not
+New public items need doc comments. MSRV is 1.93 and is checked in CI; do not
 reach for newer standard-library APIs without raising it deliberately.
 
 ## Commit messages

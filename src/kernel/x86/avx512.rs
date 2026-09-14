@@ -746,7 +746,6 @@ unsafe fn gf16_mul_add_matrix_group<const N: usize>(
 }
 /// Token-proven compatibility entries for the deferred AVX-512 kernels.
 pub mod proven {
-    use super as selected;
     use crate::gf8b;
     use crate::gf16;
     use crate::kernel::proven_checks::{check_elem_multiple, check_equal, check_row_span};
@@ -778,7 +777,7 @@ pub mod proven {
     /// Panics if the slices differ in length.
     pub fn xor(_proof: crate::kernel::X64V4Token, dst: &mut [u8], src: &[u8]) {
         check_equal("avx512::xor", "dst", dst.len(), "src", src.len());
-        selected::xor(dst, src);
+        super::xor(dst, src);
     }
 
     /// `dst += coeff * src` over 64-byte GFNI lanes.
@@ -792,12 +791,12 @@ pub mod proven {
         src: &[u8],
     ) {
         check_equal("avx512::gf8_mul_add", "dst", dst.len(), "src", src.len());
-        selected::gf8_mul_add(dst, coeff, src);
+        super::gf8_mul_add(dst, coeff, src);
     }
 
     /// `dst *= coeff` over 64-byte GFNI lanes.
     pub fn gf8_mul_assign(_proof: crate::kernel::X64V4xToken, dst: &mut [u8], coeff: gf8b::Elem) {
-        selected::gf8_mul_assign(dst, coeff);
+        super::gf8_mul_assign(dst, coeff);
     }
 
     /// `dst = coeff * src` over 64-byte GFNI lanes.
@@ -811,7 +810,7 @@ pub mod proven {
         src: &[u8],
     ) {
         check_equal("avx512::gf8_mul_into", "dst", dst.len(), "src", src.len());
-        selected::gf8_mul_into(dst, coeff, src);
+        super::gf8_mul_into(dst, coeff, src);
     }
 
     /// `dst[i] = a[i] * b[i]` over 64-byte GFNI lanes.
@@ -838,7 +837,7 @@ pub mod proven {
             "b",
             b.len(),
         );
-        selected::gf8_mul_elementwise(dst, a, b);
+        super::gf8_mul_elementwise(dst, a, b);
     }
 
     /// `dst += coeff * src` over 64-byte tower-field lanes.
@@ -853,7 +852,7 @@ pub mod proven {
     ) {
         check_equal("avx512::gf16_mul_add", "dst", dst.len(), "src", src.len());
         check_elem_multiple("avx512::gf16_mul_add", dst.len(), 2);
-        selected::gf16_mul_add(dst, coeff, src);
+        super::gf16_mul_add(dst, coeff, src);
     }
 
     /// `dst *= coeff` over 64-byte tower-field lanes.
@@ -862,7 +861,7 @@ pub mod proven {
     /// Panics on a partial trailing element.
     pub fn gf16_mul_assign(_proof: crate::kernel::X64V4xToken, dst: &mut [u8], coeff: TowerCoeff) {
         check_elem_multiple("avx512::gf16_mul_assign", dst.len(), 2);
-        selected::gf16_mul_assign(dst, coeff);
+        super::gf16_mul_assign(dst, coeff);
     }
 
     /// `dst = coeff * src` over 64-byte tower-field lanes.
@@ -877,7 +876,7 @@ pub mod proven {
     ) {
         check_equal("avx512::gf16_mul_into", "dst", dst.len(), "src", src.len());
         check_elem_multiple("avx512::gf16_mul_into", dst.len(), 2);
-        selected::gf16_mul_into(dst, coeff, src);
+        super::gf16_mul_into(dst, coeff, src);
     }
 
     /// `dst[i] = a[i] * b[i]` over interleaved tower elements.
@@ -905,7 +904,7 @@ pub mod proven {
             b.len(),
         );
         check_elem_multiple("avx512::gf16_mul_elementwise", dst.len(), 2);
-        selected::gf16_mul_elementwise(dst, a, b);
+        super::gf16_mul_elementwise(dst, a, b);
     }
 
     /// One GF(2^8) source into many rows, eight rows per source load.
@@ -938,7 +937,7 @@ pub mod proven {
         if row_len == 0 || coeffs.is_empty() {
             return;
         }
-        selected::gf8_mul_add_scatter(rows, row_len, coeffs, src);
+        super::gf8_mul_add_scatter(rows, row_len, coeffs, src);
     }
 
     /// Many GF(2^8) sources into one destination.
@@ -971,7 +970,7 @@ pub mod proven {
         if dst.is_empty() || srcs.is_empty() {
             return;
         }
-        selected::gf8_mul_add_gather(dst, coeffs, srcs);
+        super::gf8_mul_add_gather(dst, coeffs, srcs);
     }
 
     /// Many sources into many GF(2^8) rows.
@@ -994,7 +993,7 @@ pub mod proven {
         if row_len == 0 || nrows == 0 || terms.is_empty() {
             return;
         }
-        selected::gf8_mul_add_matrix(rows, row_len, nrows, terms);
+        super::gf8_mul_add_matrix(rows, row_len, nrows, terms);
     }
 
     /// One tower-field source into many rows, eight rows per source load.
@@ -1027,7 +1026,7 @@ pub mod proven {
         if row_len == 0 || coeffs.is_empty() {
             return;
         }
-        selected::gf16_mul_add_scatter(rows, row_len, coeffs, src);
+        super::gf16_mul_add_scatter(rows, row_len, coeffs, src);
     }
 
     /// Many tower-field sources into one destination.
@@ -1060,7 +1059,7 @@ pub mod proven {
         if dst.is_empty() || srcs.is_empty() {
             return;
         }
-        selected::gf16_mul_add_gather(dst, coeffs, srcs);
+        super::gf16_mul_add_gather(dst, coeffs, srcs);
     }
 
     /// Many sources into many tower-field rows.
@@ -1082,6 +1081,6 @@ pub mod proven {
         if row_len == 0 || nrows == 0 || terms.is_empty() {
             return;
         }
-        selected::gf16_mul_add_matrix(rows, row_len, nrows, terms);
+        super::gf16_mul_add_matrix(rows, row_len, nrows, terms);
     }
 }

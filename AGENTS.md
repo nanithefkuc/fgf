@@ -22,7 +22,7 @@ just validate          # complete pull-request gate
 
 Run `just validate` before submitting a change. Do not replace a recipe with a
 bare Cargo command; fix the recipe when its supported behavior is insufficient.
-The MSRV is Rust 1.89.
+The MSRV is Rust 1.93.
 
 `justfile` is a shared, byte-identical command surface. Do not edit it here.
 Crate-specific values and recipes belong in `crate.just`.

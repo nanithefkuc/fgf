@@ -12,6 +12,10 @@ First stable release. The public API — fields, `ops`, `bits`, backend
 reporting, and every stable byte encoding — is now under semantic versioning.
 The `internals` feature stays explicitly unstable.
 
+**Breaking: the MSRV is Rust 1.93.** The x86 kernels call safe intrinsics
+inside their capability-token entries, which earlier compilers still require
+an `unsafe` block for; 1.92 and below cannot build the crate.
+
 ### Added
 
 - Inherent `neg` and `core::ops::Neg` on the binary-field elements — both
