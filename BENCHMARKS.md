@@ -164,37 +164,104 @@ alone, whichever destination the allocator placed at the source's page offset
 paid a 4 KiB store-to-load aliasing penalty, which moved single-source
 throughput by a factor of four and the control off 1.00x.
 
-Lunar Lake, ISA-L 2.32.0, `fgf` backend `v3_gfni_crypto`, three pinned runs.
-The `fgf` column is the lowest of the three medians and the ISA-L column the
-highest, so each ratio is the worst case for `fgf`; above 1.00 means `fgf` is
-faster. Throughput is GiB/s over source bytes.
+Each row also carries the tenth and ninetieth percentile of its per-round
+paired ratios, and the first row is a control: one `fgf` body timed against
+itself over two destinations. The control is what says how much of a ratio
+is real. It does not read a flat 1.00 — over five runs it spans 0.91 to
+1.04, so a ratio inside that band is parity, not a result.
+
+Lunar Lake, ISA-L 2.32.0, `fgf` backend `v3_gfni_crypto`, rustc 1.98.0, five
+pinned runs. Columns are the range of the five per-run medians, in GiB/s
+over source bytes, and the ratio column is the range of the five per-run
+ratios; above 1.00 means `fgf` is faster.
 
 | Shape | `fgf` | ISA-L | Ratio |
 | --- | ---: | ---: | ---: |
-| control: `mul_into` against itself | 66.71 | 66.71 | 1.00 |
-| 64 KiB `dst = c * src` | 66.85 | 92.06 | 0.73 |
-| 64 KiB `dst ^= c * src` | 80.42 | 79.47 | 1.01 |
-| 4 KiB, 16 sources, one row | 111.99 | 128.50 | 0.89 |
-| 16 KiB, 16 sources, one row | 96.42 | 88.71 | 1.10 |
-| 4 KiB, 10 sources, 2 rows | 103.66 | 100.12 | 1.07 |
-| 16 KiB, 10 sources, 2 rows | 90.93 | 83.79 | 1.09 |
-| 64 KiB, 10 sources, 2 rows | 80.48 | 77.01 | 1.05 |
-| 4 KiB, 10 sources, 4 rows | 52.18 | 48.41 | 1.09 |
-| 16 KiB, 10 sources, 4 rows | 49.22 | 38.82 | 1.27 |
-| 64 KiB, 10 sources, 4 rows | 48.31 | 34.07 | 1.42 |
-| 4 KiB, 10 sources, 6 rows | 34.84 | 34.49 | 1.01 |
-| 16 KiB, 10 sources, 6 rows | 31.22 | 30.28 | 1.04 |
-| 64 KiB, 10 sources, 6 rows | 30.21 | 28.11 | 1.07 |
+| control: `mul_into` against itself | 60.37-66.78 | 64.11-66.78 | 0.91-1.04 |
+| 64 KiB `dst = c * src` | 60.73-67.00 | 86.45-92.34 | 0.66-0.73 |
+| 64 KiB `dst ^= c * src` | 76.49-80.63 | 78.35-79.47 | 0.96-1.03 |
+| 4 KiB, 16 sources, one row | 111.18-114.30 | 134.14-138.40 | 0.83 |
+| 16 KiB, 16 sources, one row | 96.16-98.76 | 91.61-94.04 | 1.04-1.07 |
+| 4 KiB, 10 sources, 2 rows | 107.15-109.93 | 102.27-105.96 | 1.04-1.05 |
+| 16 KiB, 10 sources, 2 rows | 91.15-94.95 | 86.06-88.92 | 1.06-1.10 |
+| 64 KiB, 10 sources, 2 rows | 81.95-84.44 | 81.94-84.26 | 1.00 |
+| 4 KiB, 10 sources, 4 rows | 52.47-55.45 | 43.75-45.96 | 1.20-1.21 |
+| 16 KiB, 10 sources, 4 rows | 50.16-51.48 | 35.03-36.00 | 1.40-1.47 |
+| 64 KiB, 10 sources, 4 rows | 48.08-49.23 | 36.36-37.49 | 1.31-1.32 |
+| 4 KiB, 10 sources, 6 rows | 34.74-36.16 | 31.40-32.66 | 1.10-1.13 |
+| 16 KiB, 10 sources, 6 rows | 31.39-32.54 | 26.12-27.26 | 1.17-1.23 |
+| 64 KiB, 10 sources, 6 rows | 30.04-30.62 | 30.49-31.23 | 0.98-0.99 |
 
-The libraries are at parity on the erasure-encode shapes, with `fgf` ahead
-everywhere and widest at four output rows, where ISA-L's blocked dot-product
-family has no four-row specialization. ISA-L leads the single-source
-overwrite and the smallest gather. The `0x11B` field is not comparable here:
-ISA-L implements `0x11D` only.
+The libraries are at parity on the erasure-encode shapes: `fgf` leads at two
+and four and six output rows below 64 KiB rows, widest at four, where
+ISA-L's blocked dot-product family has no four-row specialization, and the
+two are inside the control band at 64 KiB rows. ISA-L leads the 4 KiB
+gather and the single-source overwrite; the overwrite gap is a store-policy
+difference, not a kernel one, and the measurement that settles it is under
+"Crossover and dispatch decisions" below. The `0x11B` field is not
+comparable here: ISA-L implements `0x11D` only.
 
 This record covers the Lunar Lake host. The Golden Cove column of the tables
 above was measured in an earlier session and this section was not part of
 that run.
+
+## Crossover and dispatch decisions
+
+### Non-temporal store threshold
+
+A fused overwrite writes a destination it never reads, so an ordinary store
+pays a read-for-ownership fetch of every line it is about to replace whole.
+`vmovntdq` skips that fetch; the price is that the destination leaves cache.
+`kernel::x86::NT_STORE_MIN` is the size at which that trade turns, and this
+is the measurement that sets it, re-taken with page-aligned fixtures after
+the aliasing artifact described above was found.
+
+Lunar Lake, `v3_gfni_crypto`, `Gf8D` `ops::mul_into`, two interleaved rounds
+of a 2 MiB build against a 16 KiB build, best of the two per arm, GiB/s.
+"Read back" sums the destination after writing it, which is what an encoder
+feeding a checksum or a network write does.
+
+| Buffer | Write only, 2 MiB | Write only, 16 KiB | Read back, 2 MiB | Read back, 16 KiB |
+| ---: | ---: | ---: | ---: | ---: |
+| 16 KiB | 214.91 | 63.05 | 80.73 | 7.21 |
+| 64 KiB | 66.92 | 78.05 | 41.44 | 9.51 |
+| 256 KiB | 49.46 | 79.27 | 30.95 | 20.04 |
+| 1 MiB | 46.37 | 77.11 | 28.58 | 19.67 |
+| 2 MiB | 79.14 | 78.90 | 21.11 | 20.70 |
+| 8 MiB | 35.50 | 35.93 | 18.48 | 18.48 |
+
+The 2 MiB and 8 MiB rows are the control: both builds take the streaming
+path there and agree to within a percent. Streaming early wins the
+write-only column from 64 KiB up and loses the read-back column by four
+times at 64 KiB and eleven times at 16 KiB. The threshold stays at 2 MiB,
+which is where the read-back case breaks even.
+
+This is also the whole of the single-source gap against ISA-L: `gf_vect_mul`
+streams unconditionally, which is why it requires a 32-byte-aligned
+destination and why it reaches 92 GiB/s where `fgf` reaches 67. Building
+`fgf` with the threshold at 16 KiB moves that arm to 83 GiB/s, a 0.91 ratio
+— and costs every consumer that reads its output back.
+
+### Destination write prefetch: rejected
+
+If the read-for-ownership fetch were a latency problem rather than a
+bandwidth one, a write prefetch would hide it without evicting anything.
+It is a bandwidth problem, and the prefetch buys nothing.
+
+A `_MM_HINT_ET0` prefetch of the destination was added to both fused
+overwrite bodies and swept over distances of 128, 256, 512 and 1024 bytes
+by one, two and four lines per 128-byte tile. Against an unchanged 66.6 to
+66.9 baseline at 64 KiB, every variant landed between 61.7 and 66.3: the
+best matched the baseline and none beat it. Built without `prfchw` in the
+target features, where the hint lowers to `prefetcht0` and fetches the line
+for reading, the same code ran at 52 to 53 — the read prefetch adds traffic
+and still leaves the ownership upgrade at the store.
+
+The arithmetic agrees with the result. An ordinary-store overwrite moves
+three streams per byte — source read, ownership read, destination write —
+and a streaming one moves two; 92 over 67 is within a percent of that
+three-to-two. A prefetch reorders the ownership read, it does not remove
+it. The change was reverted; no prefetch is present in the kernels.
 
 ## Named competitors
 

@@ -383,6 +383,17 @@ fn median(mut samples: Vec<Duration>) -> Duration {
     samples[samples.len() / 2]
 }
 
+/// The tenth and ninetieth percentile of the per-round paired ratios.
+///
+/// Each round times both arms back to back, so a paired ratio cancels the
+/// drift the two samples share. The band is what says whether a ratio near
+/// 1.00 is parity or noise.
+fn spread(mut ratios: Vec<f64>) -> (f64, f64) {
+    ratios.sort_unstable_by(f64::total_cmp);
+    let last = ratios.len() - 1;
+    (ratios[last / 10], ratios[last - last / 10])
+}
+
 fn throughput(bytes: usize, elapsed: Duration) -> f64 {
     bytes as f64 / elapsed.as_secs_f64() / (1024.0 * 1024.0 * 1024.0)
 }
@@ -413,11 +424,18 @@ fn compare(label: &str, bytes: usize, mut ours: impl FnMut(), mut theirs: impl F
         round += 1;
     }
 
+    let paired: Vec<f64> = our_samples
+        .iter()
+        .zip(&their_samples)
+        .map(|(ours, theirs)| theirs.as_secs_f64() / ours.as_secs_f64())
+        .collect();
     let our_median = median(our_samples);
     let their_median = median(their_samples);
     let ratio = their_median.as_secs_f64() / our_median.as_secs_f64();
+    let (low, high) = spread(paired);
     println!(
-        "  {label:<34} {:>9.2?} {:>7.2} GiB/s | {:>9.2?} {:>7.2} GiB/s | {ratio:>5.2}x",
+        "  {label:<34} {:>9.2?} {:>7.2} GiB/s | {:>9.2?} {:>7.2} GiB/s | \
+         {ratio:>5.2}x [{low:.2}-{high:.2}]",
         our_median,
         throughput(bytes, our_median),
         their_median,
@@ -436,9 +454,10 @@ fn header() {
         isal::VERSION
     );
     println!("ratio = ISA-L median / fgf median; above 1.00x means fgf is faster");
+    println!("[low-high] = 10th and 90th percentile of the per-round paired ratios");
     println!(
         "  {:<34} {:>23} | {:>23} | {:>6}",
-        "shape", "fgf", "ISA-L", "ratio"
+        "shape", "fgf", "ISA-L", "ratio [band]"
     );
 }
 
