@@ -148,10 +148,19 @@ fn mul_into_gfni_impl<const NT: bool>(dst: &mut [u8], coeff: Elem, src: &[u8]) {
 
     // Four independent multiply chains, as in the AXPY: `GF2P8MULB` is
     // pipelined, and with no destination read there is even less other work
-    // to hide its latency behind.
-    let (dst_tiles, dst_mid) = dst.as_chunks_mut::<128>();
-    let (src_tiles, src_mid) = src.as_chunks::<128>();
-    for (dtile, stile) in dst_tiles.iter_mut().zip(src_tiles) {
+    // to hide its latency behind. The cursor walks whole tiles over the
+    // remaining destination, which is what lets the prefetch name a line
+    // ahead of it without leaving the slice it came from.
+    let prefetch = super::super::prefetch_dst(dst, NT);
+    let tiles = dst.len() / 128 * 128;
+    let (mut drest, dst_mid) = dst.split_at_mut(tiles);
+    let (mut srest, src_mid) = src.split_at(tiles);
+    while !drest.is_empty() {
+        if prefetch && drest.len() >= super::super::PREFETCH_AHEAD + 128 {
+            super::super::prefetch_tile(&drest[super::super::PREFETCH_AHEAD..]);
+        }
+        let (dtile, dnext) = drest.split_at_mut(128);
+        let (stile, snext) = srest.split_at(128);
         let (s, _) = stile.as_chunks::<32>();
         let r0 = _mm256_gf2p8mul_epi8(_mm256_loadu_si256(&s[0]), factor);
         let r1 = _mm256_gf2p8mul_epi8(_mm256_loadu_si256(&s[1]), factor);
@@ -159,8 +168,8 @@ fn mul_into_gfni_impl<const NT: bool>(dst: &mut [u8], coeff: Elem, src: &[u8]) {
         let r3 = _mm256_gf2p8mul_epi8(_mm256_loadu_si256(&s[3]), factor);
         // SAFETY:
         // MEMORY VALIDITY
-        // SINCE: `dst` and `src` hold equal lengths, so the 128-byte tile
-        //        lies wholly inside `dst`, and each store advances within it.
+        // SINCE: `dtile` is a 128-byte split of the destination, and the
+        //        four stores advance 0, 32, 64 and 96 bytes into it.
         // THUS: every 32-byte store writes inside the destination slice.
         //
         // NON-TEMPORAL STORE ALIGNMENT
@@ -175,6 +184,8 @@ fn mul_into_gfni_impl<const NT: bool>(dst: &mut [u8], coeff: Elem, src: &[u8]) {
             super::super::store256::<NT>(dp.add(64), r2);
             super::super::store256::<NT>(dp.add(96), r3);
         }
+        drest = dnext;
+        srest = snext;
     }
     let (dst_lanes, dst_mid2) = dst_mid.as_chunks_mut::<32>();
     let (src_lanes, src_mid2) = src_mid.as_chunks::<32>();
@@ -345,10 +356,18 @@ fn mul_into_affine_impl<const NT: bool>(dst: &mut [u8], map: u64, table: &ScaleT
 
     // Four independent multiply chains, as in the AXPY: `VGF2P8AFFINEQB` is
     // pipelined, and with no destination read there is even less other work
-    // to hide its latency behind.
-    let (dst_tiles, dst_mid) = dst.as_chunks_mut::<128>();
-    let (src_tiles, src_mid) = src.as_chunks::<128>();
-    for (dtile, stile) in dst_tiles.iter_mut().zip(src_tiles) {
+    // to hide its latency behind. As in [`mul_into_gfni_impl`], the cursor
+    // walks whole tiles so the prefetch can name a line ahead of it.
+    let prefetch = super::super::prefetch_dst(dst, NT);
+    let tiles = dst.len() / 128 * 128;
+    let (mut drest, dst_mid) = dst.split_at_mut(tiles);
+    let (mut srest, src_mid) = src.split_at(tiles);
+    while !drest.is_empty() {
+        if prefetch && drest.len() >= super::super::PREFETCH_AHEAD + 128 {
+            super::super::prefetch_tile(&drest[super::super::PREFETCH_AHEAD..]);
+        }
+        let (dtile, dnext) = drest.split_at_mut(128);
+        let (stile, snext) = srest.split_at(128);
         let (s, _) = stile.as_chunks::<32>();
         let r0 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(&s[0]), factor);
         let r1 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(&s[1]), factor);
@@ -356,8 +375,8 @@ fn mul_into_affine_impl<const NT: bool>(dst: &mut [u8], map: u64, table: &ScaleT
         let r3 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(&s[3]), factor);
         // SAFETY:
         // MEMORY VALIDITY
-        // SINCE: `dst` and `src` hold equal lengths, so the 128-byte tile
-        //        lies wholly inside `dst`, and each store advances within it.
+        // SINCE: `dtile` is a 128-byte split of the destination, and the
+        //        four stores advance 0, 32, 64 and 96 bytes into it.
         // THUS: every 32-byte store writes inside the destination slice.
         //
         // NON-TEMPORAL STORE ALIGNMENT
@@ -372,6 +391,8 @@ fn mul_into_affine_impl<const NT: bool>(dst: &mut [u8], map: u64, table: &ScaleT
             super::super::store256::<NT>(dp.add(64), r2);
             super::super::store256::<NT>(dp.add(96), r3);
         }
+        drest = dnext;
+        srest = snext;
     }
     let (dst_lanes, dst_mid2) = dst_mid.as_chunks_mut::<32>();
     let (src_lanes, src_mid2) = src_mid.as_chunks::<32>();

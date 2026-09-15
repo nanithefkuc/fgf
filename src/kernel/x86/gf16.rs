@@ -58,7 +58,7 @@ use crate::kernel::tables::{ScaleTable, TowerCoeff, TowerTables};
 // The `x86` root helpers the submodules below reach through `super::`:
 // non-temporal store selection, the destination alignment peel, and the
 // GF(2^8) vector multiply the elementwise kernels borrow.
-use super::{gf8, nt_split, peel_to_align, store256};
+use super::{PREFETCH_AHEAD, gf8, nt_split, peel_to_align, prefetch_dst, prefetch_tile, store256};
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;

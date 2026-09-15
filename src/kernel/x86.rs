@@ -58,6 +58,50 @@ use core::arch::x86_64::*;
 /// BENCHMARKS.md.
 pub(super) const NT_STORE_MIN: usize = 2 << 20;
 
+/// Smallest destination a fused overwrite prefetches for.
+///
+/// Below this the destination and its source both sit in L1 and the
+/// prefetches are pure overhead; above it the ordinary stores are waiting on
+/// the read-for-ownership fetch of a line the loop is about to replace
+/// whole. The crossover is sharp, and sits where the two buffers stop
+/// fitting in L1 together. The sweep is under "Crossover and dispatch
+/// decisions" in BENCHMARKS.md.
+pub(super) const PREFETCH_MIN: usize = 24 << 10;
+
+/// Bytes ahead of the cursor at which a fused overwrite pulls its
+/// destination in.
+pub(super) const PREFETCH_AHEAD: usize = 512;
+
+/// Whether a fused overwrite of `dst` should prefetch its destination.
+///
+/// Non-temporal stores fetch nothing, so a body storing them has nothing to
+/// hide and prefetching only competes for bandwidth.
+#[inline]
+pub(super) fn prefetch_dst(dst: &[u8], non_temporal: bool) -> bool {
+    !non_temporal && dst.len() >= PREFETCH_MIN
+}
+
+/// Pull one 64-byte line into cache.
+///
+/// The hint is `T0` rather than the write-intent form, which measured no
+/// better than the unprefetched loop even where the instruction is
+/// available. A body must name every line it is about to store:
+/// prefetching every second one measures worse than prefetching none.
+///
+/// No unsafe block: a prefetch names a cache line rather than accessing
+/// memory, so the intrinsic is safe inside a feature-enabled context.
+#[archmage::rite(v1)]
+pub(super) fn prefetch_line(target: &u8) {
+    _mm_prefetch::<{ _MM_HINT_T0 }>(core::ptr::from_ref(target).cast());
+}
+
+/// Pull both lines of the 128-byte tile starting at `target`.
+#[archmage::rite(v1)]
+pub(super) fn prefetch_tile(target: &[u8]) {
+    prefetch_line(&target[0]);
+    prefetch_line(&target[64]);
+}
+
 /// Head bytes to store normally so that a non-temporal body starts on a
 /// 32-byte boundary, or `None` when this destination should stay temporal.
 ///

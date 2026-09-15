@@ -190,9 +190,19 @@ fn mul_into_gfni_lane<const NT: bool>(dst: &mut [u8], coeff: TowerCoeff, src: &[
     let cross = _mm256_set1_epi16(cross_word);
     let swap = swap_mask256();
 
-    let (dst_tiles, dst_rest) = dst.as_chunks_mut::<128>();
-    let (src_tiles, src_rest) = src.as_chunks::<128>();
-    for (dst_tile, src_tile) in dst_tiles.iter_mut().zip(src_tiles) {
+    // The cursor walks whole tiles over the remaining destination so the
+    // prefetch can name a line ahead of it without leaving the slice it
+    // came from; see [`super::prefetch_dst`].
+    let prefetch = super::prefetch_dst(dst, NT);
+    let tiles = dst.len() / 128 * 128;
+    let (mut dst_rest_tiles, dst_rest) = dst.split_at_mut(tiles);
+    let (mut src_rest_tiles, src_rest) = src.split_at(tiles);
+    while !dst_rest_tiles.is_empty() {
+        if prefetch && dst_rest_tiles.len() >= super::PREFETCH_AHEAD + 128 {
+            super::prefetch_tile(&dst_rest_tiles[super::PREFETCH_AHEAD..]);
+        }
+        let (dst_tile, dst_next) = dst_rest_tiles.split_at_mut(128);
+        let (src_tile, src_next) = src_rest_tiles.split_at(128);
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
         let (src_lanes, _) = src_tile.as_chunks::<32>();
         for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
@@ -213,6 +223,8 @@ fn mul_into_gfni_lane<const NT: bool>(dst: &mut [u8], coeff: TowerCoeff, src: &[
             //        requirement when `NT`.
             unsafe { super::store256::<NT>(dst_lane.as_mut_ptr(), p) };
         }
+        dst_rest_tiles = dst_next;
+        src_rest_tiles = src_next;
     }
     let (dst_lanes, dst_rest) = dst_rest.as_chunks_mut::<32>();
     let (src_lanes, src_rest) = src_rest.as_chunks::<32>();
