@@ -103,8 +103,46 @@ fn mul_into_avx2_impl<const NT: bool>(dst: &mut [u8], table: &ScaleTable, src: &
     let lo_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(&table.lo));
     let hi_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(&table.hi));
     let mask = _mm256_set1_epi8(0x0f);
-    let (dst_lanes, dst_rest) = dst.as_chunks_mut::<32>();
-    let (src_lanes, src_rest) = src.as_chunks::<32>();
+    // The cursor walks 64-byte pairs of lanes so the prefetch names every
+    // line the body is about to store; see [`super::super::prefetch_dst`].
+    let prefetch = super::super::prefetch_dst(dst, NT);
+    let pairs = dst.len() / 64 * 64;
+    let (mut drest, dst_rest) = dst.split_at_mut(pairs);
+    let (mut srest, src_rest) = src.split_at(pairs);
+    while !drest.is_empty() {
+        if prefetch && drest.len() >= super::super::PREFETCH_AHEAD + 64 {
+            super::super::prefetch_line(&drest[super::super::PREFETCH_AHEAD]);
+        }
+        let (dpair, dnext) = drest.split_at_mut(64);
+        let (spair, snext) = srest.split_at(64);
+        let (dst_lanes, _) = dpair.as_chunks_mut::<32>();
+        let (src_lanes, _) = spair.as_chunks::<32>();
+        for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
+            let x = _mm256_loadu_si256(slane);
+            let lo = _mm256_shuffle_epi8(lo_tbl, _mm256_and_si256(x, mask));
+            let hi = _mm256_shuffle_epi8(hi_tbl, _mm256_and_si256(_mm256_srli_epi16::<4>(x), mask));
+            let product = _mm256_xor_si256(lo, hi);
+            if NT {
+                // SAFETY:
+                // NON-TEMPORAL STORE
+                // SINCE: the entry selected `NT` only after `nt_split`
+                //        peeled the destination to a 32-byte boundary, and
+                //        every lane of the peeled body starts on that
+                //        boundary's 32-byte grid.
+                // THUS: the streaming store writes a 32-byte-aligned
+                //       destination window that lies wholly inside `dst`.
+                unsafe {
+                    super::super::store256::<true>(dlane.as_mut_ptr(), product);
+                }
+            } else {
+                _mm256_storeu_si256(dlane, product);
+            }
+        }
+        drest = dnext;
+        srest = snext;
+    }
+    let (dst_lanes, dst_rest) = dst_rest.as_chunks_mut::<32>();
+    let (src_lanes, src_rest) = src_rest.as_chunks::<32>();
     for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
         let x = _mm256_loadu_si256(slane);
         let lo = _mm256_shuffle_epi8(lo_tbl, _mm256_and_si256(x, mask));
@@ -113,11 +151,10 @@ fn mul_into_avx2_impl<const NT: bool>(dst: &mut [u8], table: &ScaleTable, src: &
         if NT {
             // SAFETY:
             // NON-TEMPORAL STORE
-            // SINCE: the entry selected `NT` only after `nt_split` peeled the
-            //        destination to a 32-byte boundary, and every lane of the
-            //        peeled body starts on that boundary's 32-byte grid.
-            // THUS: the streaming store writes a 32-byte-aligned destination
-            //       window that lies wholly inside `dst`.
+            // SINCE: as above - the `nt_split` peel established the 32-byte
+            //        boundary and every lane advances on its grid.
+            // THUS: the streaming store writes a 32-byte-aligned window
+            //       inside `dst`.
             unsafe {
                 super::super::store256::<true>(dlane.as_mut_ptr(), product);
             }

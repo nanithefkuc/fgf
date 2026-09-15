@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The x86 fused overwrite kernels prefetch their destination. `mul_into`
+  writes lines it never reads, so each ordinary store waited on the
+  read-for-ownership fetch of the line it was about to replace whole.
+  Naming those lines ahead of the cursor lifts single-source GF(2^8) and
+  GF(2^16) overwrite throughput by about a third from 24 KiB up, and brings
+  GF(2^8) to parity with Intel ISA-L's streaming `gf_vect_mul` without
+  evicting the destination. Results are unchanged; buffers below 24 KiB and
+  the non-temporal bodies above `NT_STORE_MIN` are untouched. The sweep
+  that set the hint, the distance and the threshold is in `BENCHMARKS.md`.
+
 ## [1.0.0] - 2026-09-14
 
 First stable release. The public API — fields, `ops`, `bits`, backend
