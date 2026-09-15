@@ -3,3 +3,5 @@
 /.lucid/
 /bench-isal/target
 /bench-isal/Cargo.lock
+/bench-klauspost/target
+/bench-klauspost/Cargo.lock
