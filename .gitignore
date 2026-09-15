@@ -1,3 +1,5 @@
 /target
 /external-bench
 /.lucid/
+/bench-isal/target
+/bench-isal/Cargo.lock

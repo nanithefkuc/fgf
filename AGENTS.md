@@ -119,11 +119,20 @@ Use only the benchmark recipes, pinned to an identified core:
 ```sh
 FEC_GOLDEN_CORE=<cpu> just bench kernels
 FEC_GOLDEN_CORE=<cpu> just bench compare
+FEC_GOLDEN_CORE=<cpu> just bench-isal
 ```
 
 `kernels` reports the public operation shapes. `compare` includes the in-process
 `reed-solomon-erasure` comparison. `affine` and `dot_product` are internal
 investigation harnesses, not headline public benchmarks.
+
+`bench-isal` builds and runs `bench-isal/`, a separate unpublished package
+that links the system Intel ISA-L and interleaves it against `fgf` over
+GF(2^8)/`0x11D`. It lives outside `src/` and `benches/` because linking the
+C library needs a build script and `fgf` itself must never carry one; the
+package allowlist keeps it out of `cargo package`. Every arm validates
+against ISA-L's own output before timing, and the first table row is a
+control that must read 1.00x.
 
 Benchmark setup, allocation, coefficient construction, and input generation
 must stay outside the timed region. Record the CPU, OS, Rust version, selected

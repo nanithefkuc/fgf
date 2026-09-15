@@ -20,11 +20,16 @@ downgrade-only `SIMD_BACKEND` override.
 ```sh
 FEC_GOLDEN_CORE=<cpu> just bench kernels
 FEC_GOLDEN_CORE=<cpu> just bench compare
+FEC_GOLDEN_CORE=<cpu> just bench-isal
 ```
 
 Pin the run to one core and record the CPU, operating system, Rust version,
 selected backend, and geometry with any quoted number. `BENCHMARKS.md` holds
 the current measurements.
+
+`bench-isal` needs Intel ISA-L installed and discoverable through
+pkg-config; it links the system library from the unpublished `bench-isal/`
+package in this repository.
 
 ## Before opening a PR
 

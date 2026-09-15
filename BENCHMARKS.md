@@ -145,14 +145,65 @@ dense nonzero coefficients. Throughput is GiB/s over source bytes.
 | 16 KiB | `fgf` `Gf8D` `mul_into_gather_with` | 86.15 | 85.69 |
 | 16 KiB | `reed-solomon-erasure` zero + `mul_slice_xor` | 56.41 | 53.68 |
 
+## ISA-L comparison
+
+`bench-isal/` is a separate, unpublished package in this repository that
+links the system Intel ISA-L and times it against `fgf` inside one process.
+Both libraries implement GF(2^8) under the same `0x11D` polynomial, so every
+arm is validated byte-for-byte against the other library's output before any
+timing is taken; a disagreement aborts the run.
+
+```sh
+FEC_GOLDEN_CORE=<cpu> just bench-isal
+```
+
+The two arms of a shape are interleaved sample by sample within one process,
+with the order alternating every round, so neither implementation owns the
+warm side of a drift. Fixtures are page-aligned: with cache-line alignment
+alone, whichever destination the allocator placed at the source's page offset
+paid a 4 KiB store-to-load aliasing penalty, which moved single-source
+throughput by a factor of four and the control off 1.00x.
+
+Lunar Lake, ISA-L 2.32.0, `fgf` backend `v3_gfni_crypto`, three pinned runs.
+The `fgf` column is the lowest of the three medians and the ISA-L column the
+highest, so each ratio is the worst case for `fgf`; above 1.00 means `fgf` is
+faster. Throughput is GiB/s over source bytes.
+
+| Shape | `fgf` | ISA-L | Ratio |
+| --- | ---: | ---: | ---: |
+| control: `mul_into` against itself | 66.71 | 66.71 | 1.00 |
+| 64 KiB `dst = c * src` | 66.85 | 92.06 | 0.73 |
+| 64 KiB `dst ^= c * src` | 80.42 | 79.47 | 1.01 |
+| 4 KiB, 16 sources, one row | 111.99 | 128.50 | 0.89 |
+| 16 KiB, 16 sources, one row | 96.42 | 88.71 | 1.10 |
+| 4 KiB, 10 sources, 2 rows | 103.66 | 100.12 | 1.07 |
+| 16 KiB, 10 sources, 2 rows | 90.93 | 83.79 | 1.09 |
+| 64 KiB, 10 sources, 2 rows | 80.48 | 77.01 | 1.05 |
+| 4 KiB, 10 sources, 4 rows | 52.18 | 48.41 | 1.09 |
+| 16 KiB, 10 sources, 4 rows | 49.22 | 38.82 | 1.27 |
+| 64 KiB, 10 sources, 4 rows | 48.31 | 34.07 | 1.42 |
+| 4 KiB, 10 sources, 6 rows | 34.84 | 34.49 | 1.01 |
+| 16 KiB, 10 sources, 6 rows | 31.22 | 30.28 | 1.04 |
+| 64 KiB, 10 sources, 6 rows | 30.21 | 28.11 | 1.07 |
+
+The libraries are at parity on the erasure-encode shapes, with `fgf` ahead
+everywhere and widest at four output rows, where ISA-L's blocked dot-product
+family has no four-row specialization. ISA-L leads the single-source
+overwrite and the smallest gather. The `0x11B` field is not comparable here:
+ISA-L implements `0x11D` only.
+
+This record covers the Lunar Lake host. The Golden Cove column of the tables
+above was measured in an earlier session and this section was not part of
+that run.
+
 ## Named competitors
 
 | Library | License | Current comparison status |
 | --- | --- | --- |
 | `reed-solomon-erasure` 6 | MIT / Apache-2.0 | Measured in-process above for compatible GF(2^8) operations. |
-| Intel ISA-L | BSD-3-Clause | No portable adapter is part of the committed benchmark harness. |
+| Intel ISA-L | BSD-3-Clause | Measured in-process above through `bench-isal/`, which links the system library. |
 | `catid/leopard` | BSD-2-Clause | Its codec-level transforms do not expose the same operation-level contract. |
 
-Only the in-process `reed-solomon-erasure` comparison is reported numerically.
-The other libraries require different APIs or external native setup and are not
-presented as matched baselines.
+The `reed-solomon-erasure` and ISA-L comparisons are reported numerically.
+`catid/leopard` requires a different API and is not presented as a matched
+baseline.

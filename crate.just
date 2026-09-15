@@ -35,3 +35,25 @@ COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64|avx512)(/|\.rs$)|kernel/(gf8|towe
 features-alloc:
     cargo test --no-default-features --features alloc
     cargo clippy --no-default-features --features alloc --all-targets -- -D warnings
+
+# The ISA-L competitor comparison. `bench-isal/` is a separate, unpublished
+# package: linking the system ISA-L needs a build script, and `fgf` itself
+# carries none. Requires `libisal` discoverable through pkg-config; the
+# build fails loudly when it is absent rather than dropping the arm.
+[group('bench')]
+bench-isal:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    pkg-config --modversion libisal >/dev/null || {
+        echo "libisal not found through pkg-config; install Intel ISA-L" >&2
+        exit 1
+    }
+    cargo build --release --manifest-path bench-isal/Cargo.toml
+    pin=()
+    if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
+        pin=(taskset -c "${FEC_GOLDEN_CORE}")
+        echo "pinned to core ${FEC_GOLDEN_CORE}"
+    else
+        echo "warning: FEC_GOLDEN_CORE unset; the run is not core-pinned" >&2
+    fi
+    "${pin[@]}" bench-isal/target/release/fgf-bench-isal
