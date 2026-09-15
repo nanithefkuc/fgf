@@ -57,3 +57,26 @@ bench-isal:
         echo "warning: FEC_GOLDEN_CORE unset; the run is not core-pinned" >&2
     fi
     "${pin[@]}" bench-isal/target/release/fgf-bench-isal
+
+# The klauspost/reedsolomon competitor comparison. `bench-klauspost/` is a
+# separate, unpublished package in the shape of `bench-isal/`: linking the Go
+# c-archive needs a build script, and `fgf` itself carries none. Requires the
+# Go toolchain in PATH; the build fails loudly when it is absent rather than
+# dropping the arm.
+[group('bench')]
+bench-klauspost:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v go >/dev/null || {
+        echo "go not found in PATH; install the Go toolchain" >&2
+        exit 1
+    }
+    cargo build --release --manifest-path bench-klauspost/Cargo.toml
+    pin=()
+    if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
+        pin=(taskset -c "${FEC_GOLDEN_CORE}")
+        echo "pinned to core ${FEC_GOLDEN_CORE}"
+    else
+        echo "warning: FEC_GOLDEN_CORE unset; the run is not core-pinned" >&2
+    fi
+    "${pin[@]}" bench-klauspost/target/release/fgf-bench-klauspost

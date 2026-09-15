@@ -120,6 +120,7 @@ Use only the benchmark recipes, pinned to an identified core:
 FEC_GOLDEN_CORE=<cpu> just bench kernels
 FEC_GOLDEN_CORE=<cpu> just bench compare
 FEC_GOLDEN_CORE=<cpu> just bench-isal
+FEC_GOLDEN_CORE=<cpu> just bench-klauspost
 ```
 
 `kernels` reports the public operation shapes. `compare` includes the in-process
@@ -133,6 +134,16 @@ C library needs a build script and `fgf` itself must never carry one; the
 package allowlist keeps it out of `cargo package`. Every arm validates
 against ISA-L's own output before timing, and the first table row is a
 control that must read 1.00x.
+
+`bench-klauspost` builds and runs `bench-klauspost/`, a separate unpublished
+package that links klauspost/reedsolomon as a Go C archive and interleaves it
+against `fgf` over GF(2^8)/`0x11D`. It lives outside `src/` and `benches/`
+for the same reason as `bench-isal`: the Go link needs a build script and
+`fgf` itself must never carry one. Requires the Go toolchain in PATH; the
+build fails loudly when it is absent rather than dropping the arm. Every arm
+supplies the coding matrix through `WithCustomMatrix` and validates against
+the library's own output before timing, and the first table row is a control
+that must read 1.00x.
 
 Benchmark setup, allocation, coefficient construction, and input generation
 must stay outside the timed region. Record the CPU, OS, Rust version, selected

@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `bench-klauspost/`, an in-process competitor comparison against
+  `klauspost/reedsolomon` v1.14.2 over GF(2^8)/`0x11D`, run with
+  `FEC_GOLDEN_CORE=<cpu> just bench-klauspost`. The package links the Go
+  library as a C archive, interleaves it with the matched `fgf` operations
+  over one fixture set, and validates every arm byte-for-byte before any
+  timing. It replaces `catid/leopard` as the named codec-level competitor;
+  the measured sweep is in `BENCHMARKS.md`, consolidated with the other
+  competitor medians in its cross-library matrix.
+
 ### Changed
 
 - The x86 fused overwrite kernels prefetch their destination. `mul_into`

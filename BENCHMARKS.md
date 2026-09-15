@@ -88,10 +88,10 @@ Throughput is GiB/s over the harness's logical operation volume.
 | `Gf16` | `mul_add_matrix` | 8 sources × 8 rows | 65.90 | 55.57 |
 
 Overwrite matrix results use 64 KiB rows and ten sources. Throughput counts
-source bytes once per call, matching the reconstruction comparison below.
+source bytes once per call.
 
 | Field | Output rows | Lunar Lake | Golden Cove |
-| --- | ---: | ---: | ---: |
+| --- | --- | ---: | ---: |
 | `Gf8B` | 2 | 70.08 | 61.88 |
 | `Gf8B` | 4 | 39.62 | 36.12 |
 | `Gf8B` | 6 | 25.02 | 22.73 |
@@ -130,182 +130,41 @@ For 256 calls over 16-byte rows and the bit range `61..69`, preparing
 `bits::XorRange` reduces the per-call cost from 7.08 ns to 2.13 ns on Lunar
 Lake and from 5.34 ns to 2.07 ns on Golden Cove.
 
-## Reconstruction comparison
+## Competitor matrix
 
-`benches/compare.rs` compares compatible GF(2^8) overwrite gathers with
-`reed-solomon-erasure` 6 using its `simd-accel` feature. Every case uses 16
-dense nonzero coefficients. Throughput is GiB/s over source bytes.
+| Shape | `fgf` `Gf8D` | `reed-solomon-erasure` 6 | Intel ISA-L | `klauspost/reedsolomon` |
+| --- | ---: | ---: | ---: | ---: |
+| 64 KiB `dst = c * src` | 85.97/60.43 | 69.04/- | 90.42/- | 60.91/- |
+| 64 KiB `dst ^= c * src` | 79.27/64.79 | 64.25/- | 79.16/- | 59.09/- |
+| 4 KiB, 16 sources, one row | 106.33/83.61 | 61.53/50.32 | 135.03/- | 63.45/- |
+| 16 KiB, 16 sources, one row | 95.00/85.69 | 65.21/53.68 | 91.23/- | 69.81/- |
+| 4 KiB, 10 sources, 2 rows | 103.94/- | - | 103.94/- | 86.90/- |
+| 16 KiB, 10 sources, 2 rows | 90.99/- | - | 83.02/- | 92.59/- |
+| 64 KiB, 10 sources, 2 rows | 80.37/64.94 | - | 82.06/- | 88.09/- |
+| 4 KiB, 10 sources, 4 rows | 51.97/- | - | 45.25/- | 49.41/- |
+| 16 KiB, 10 sources, 4 rows | 48.80/- | - | 34.48/- | 52.84/- |
+| 64 KiB, 10 sources, 4 rows | 47.20/39.82 | - | 36.76/- | 53.39/- |
+| 4 KiB, 10 sources, 6 rows | 34.34/- | - | 31.29/- | 34.06/- |
+| 16 KiB, 10 sources, 6 rows | 30.74/- | - | 25.58/- | 37.41/- |
+| 64 KiB, 10 sources, 6 rows | 29.50/24.76 | - | 30.60/- | 37.45/- |
 
-| Row length | Implementation | Lunar Lake | Golden Cove |
-| ---: | --- | ---: | ---: |
-| 4 KiB | `fgf` `Gf8B` `mul_into_gather_with` | 98.29 | 84.42 |
-| 4 KiB | `fgf` `Gf8D` `mul_into_gather_with` | 100.88 | 83.61 |
-| 4 KiB | `reed-solomon-erasure` zero + `mul_slice_xor` | 52.71 | 50.32 |
-| 16 KiB | `fgf` `Gf8B` `mul_into_gather_with` | 80.92 | 88.26 |
-| 16 KiB | `fgf` `Gf8D` `mul_into_gather_with` | 86.15 | 85.69 |
-| 16 KiB | `reed-solomon-erasure` zero + `mul_slice_xor` | 56.41 | 53.68 |
+Cells: **Lunar Lake / Golden Cove**, median GiB/s over source bytes.
+`-` means unmeasured. Different runs and fixtures back the cells; their
+quotients are not paired benchmark ratios.
 
-## ISA-L comparison
+**Lunar Lake setup:** CPU 1, `v3_gfni_crypto`, rustc 1.98.0.
+Run commands below from the crate root with `FEC_GOLDEN_CORE=1`.
 
-`bench-isal/` is a separate, unpublished package in this repository that
-links the system Intel ISA-L and times it against `fgf` inside one process.
-Both libraries implement GF(2^8) under the same `0x11D` polynomial, so every
-arm is validated byte-for-byte against the other library's output before any
-timing is taken; a disagreement aborts the run.
+| Library | Command | Aggregation | Library-specific setup |
+| --- | --- | --- | --- |
+| `fgf` `Gf8D` | `just bench-klauspost` | Median of five per-run medians | Competitor-harness fixtures, distinct from the fgf-only tables above. |
+| `reed-solomon-erasure` 6 | `just bench compare` | One run's medians | `simd-accel`; gathers include zero-fill followed by `mul_slice_xor`. |
+| Intel ISA-L 2.32.0 | `just bench-isal` | Median of five per-run medians | System library, runtime dispatch. |
+| `klauspost/reedsolomon` v1.14.2 | `just bench-klauspost` | Median of five per-run medians | Go 1.27.1 C archive, `GOMAXPROCS=1`; `WithCustomMatrix`, `Encode` for overwrite and `EncodeIdx` for single-source accumulation. |
 
-```sh
-FEC_GOLDEN_CORE=<cpu> just bench-isal
-```
+**Golden Cove sources:**
 
-The two arms of a shape are interleaved sample by sample within one process,
-with the order alternating every round, so neither implementation owns the
-warm side of a drift. Fixtures are page-aligned: with cache-line alignment
-alone, whichever destination the allocator placed at the source's page offset
-paid a 4 KiB store-to-load aliasing penalty, which moved single-source
-throughput by a factor of four and the control off 1.00x.
-
-Each row also carries the tenth and ninetieth percentile of its per-round
-paired ratios, and the first row is a control: one `fgf` body timed against
-itself over two destinations. The control is what says how much of a ratio
-is real, and it does not read a flat 1.00 — on the kernels this table
-measures it spans 0.99 to 1.00 over five runs, and the same control spanned
-0.91 to 1.04 against the pre-prefetch overwrite body.
-
-Lunar Lake, ISA-L 2.32.0, `fgf` backend `v3_gfni_crypto`, rustc 1.98.0, five
-pinned runs. Columns are the range of the five per-run medians, in GiB/s
-over source bytes, and the ratio column is the range of the five per-run
-ratios; above 1.00 means `fgf` is faster.
-
-| Shape | `fgf` | ISA-L | Ratio |
-| --- | ---: | ---: | ---: |
-| control: `mul_into` against itself | 85.72-87.95 | 86.33-87.82 | 0.99-1.00 |
-| 64 KiB `dst = c * src` | 85.24-86.33 | 88.97-90.42 | 0.95-0.96 |
-| 64 KiB `dst ^= c * src` | 76.39-78.86 | 77.26-77.65 | 0.99-1.02 |
-| 4 KiB, 16 sources, one row | 104.33-111.79 | 126.11-134.44 | 0.82-0.84 |
-| 16 KiB, 16 sources, one row | 93.54-94.85 | 87.44-88.59 | 1.06-1.07 |
-| 4 KiB, 10 sources, 2 rows | 100.12-105.09 | 95.37-101.19 | 1.03-1.05 |
-| 16 KiB, 10 sources, 2 rows | 83.89-91.10 | 77.57-85.29 | 1.03-1.08 |
-| 64 KiB, 10 sources, 2 rows | 77.30-79.09 | 77.57-78.98 | 0.99-1.00 |
-| 4 KiB, 10 sources, 4 rows | 49.22-51.48 | 40.97-42.62 | 1.20-1.21 |
-| 16 KiB, 10 sources, 4 rows | 47.48-48.67 | 32.15-35.09 | 1.39-1.48 |
-| 64 KiB, 10 sources, 4 rows | 45.08-45.90 | 34.33-35.10 | 1.31 |
-| 4 KiB, 10 sources, 6 rows | 33.55-33.76 | 30.06-30.44 | 1.10-1.12 |
-| 16 KiB, 10 sources, 6 rows | 29.77-30.62 | 24.40-25.35 | 1.21-1.22 |
-| 64 KiB, 10 sources, 6 rows | 28.16-28.45 | 28.75-29.13 | 0.97-0.98 |
-
-The libraries are at parity. `fgf` leads the encode shapes, widest at four
-output rows, where ISA-L's blocked dot-product family has no four-row
-specialization, and the two sit inside the control band at 64 KiB rows and
-on the single-source overwrite. ISA-L leads the 4 KiB gather by about a
-fifth. The `0x11B` field is not comparable here: ISA-L implements `0x11D`
-only.
-
-The single-source overwrite row is what the destination prefetch below
-bought: it read 0.66 to 0.73 before that change, against an ISA-L kernel
-that streams its stores unconditionally.
-
-This record covers the Lunar Lake host. The Golden Cove column of the tables
-above was measured in an earlier session and this section was not part of
-that run.
-
-## Crossover and dispatch decisions
-
-### Non-temporal store threshold
-
-A fused overwrite writes a destination it never reads, so an ordinary store
-pays a read-for-ownership fetch of every line it is about to replace whole.
-`vmovntdq` skips that fetch; the price is that the destination leaves cache.
-`kernel::x86::NT_STORE_MIN` is the size at which that trade turns, and this
-is the measurement that sets it, re-taken with page-aligned fixtures after
-the aliasing artifact described above was found.
-
-Lunar Lake, `v3_gfni_crypto`, `Gf8D` `ops::mul_into`, two interleaved rounds
-of a 2 MiB build against a 16 KiB build, best of the two per arm, GiB/s.
-"Read back" sums the destination after writing it, which is what an encoder
-feeding a checksum or a network write does.
-
-| Buffer | Write only, 2 MiB | Write only, 16 KiB | Read back, 2 MiB | Read back, 16 KiB |
-| ---: | ---: | ---: | ---: | ---: |
-| 16 KiB | 214.91 | 63.05 | 80.73 | 7.21 |
-| 64 KiB | 66.92 | 78.05 | 41.44 | 9.51 |
-| 256 KiB | 49.46 | 79.27 | 30.95 | 20.04 |
-| 1 MiB | 46.37 | 77.11 | 28.58 | 19.67 |
-| 2 MiB | 79.14 | 78.90 | 21.11 | 20.70 |
-| 8 MiB | 35.50 | 35.93 | 18.48 | 18.48 |
-
-The 2 MiB and 8 MiB rows are the control: both builds take the streaming
-path there and agree to within a percent. Streaming early wins the
-write-only column from 64 KiB up and loses the read-back column by four
-times at 64 KiB and eleven times at 16 KiB. The threshold stays at 2 MiB,
-which is where the read-back case breaks even.
-
-ISA-L's `gf_vect_mul` streams unconditionally, which is why it requires a
-32-byte-aligned destination. Building `fgf` with the threshold at 16 KiB
-moves the 64 KiB overwrite from 67 to 83 GiB/s and costs every consumer
-that reads its output back, so the threshold stays where it is; the
-destination prefetch below reaches the same throughput without the
-eviction.
-
-### Destination prefetch
-
-Below `NT_STORE_MIN` the ordinary stores of a fused overwrite wait on the
-read-for-ownership fetch of a line the loop is about to replace whole. A
-prefetch cannot remove that traffic, but it can take it off the critical
-path, and on this host that is most of the difference.
-
-Lunar Lake, `v3_gfni_crypto`, `Gf8D` overwrite at 64 KiB, hint and geometry
-swept in a standalone probe against the same unprefetched loop, medians of
-five samples in GiB/s. Every variant is byte-checked against the stock
-kernel before timing.
-
-| Variant | 64 KiB |
-| --- | ---: |
-| no prefetch | 63.1-67.1 |
-| `prefetcht0`, 512 B ahead, one line per 128-byte tile | 51.0-52.2 |
-| `prefetcht0`, 256 B ahead, both lines | 83.5-88.7 |
-| `prefetcht0`, 512 B ahead, both lines | 83.2-88.5 |
-| `prefetcht0`, 1024 B ahead, both lines | 87.8-88.1 |
-| `prefetchw`, 512 B ahead, both lines | 63.7-67.5 |
-
-Two results decide the shape. Naming only every second line is worse than
-naming none, and the write-intent `prefetchw` — which is what the
-read-for-ownership argument predicts should win — is indistinguishable
-from no prefetch, while the plain `T0` read hint is worth a third. An
-earlier sweep that reported no effect at all had both confounds at once:
-one line per tile, and `+prfchw` in the target features, which silently
-turns every `_MM_HINT_ET0` into `prefetchw`.
-
-The crossover is sharp, and the threshold `PREFETCH_MIN` follows it:
-
-| Buffer | No prefetch | Prefetch | Ratio |
-| ---: | ---: | ---: | ---: |
-| 12 KiB | 204.36 | 173.40 | 0.85 |
-| 16 KiB | 227.74 | 193.15 | 0.85 |
-| 20 KiB | 247.71 | 209.60 | 0.85 |
-| 24 KiB | 146.72 | 192.34 | 1.31 |
-| 28 KiB | 67.95 | 108.11 | 1.59 |
-| 32 KiB | 67.82 | 87.44 | 1.29 |
-| 64 KiB | 67.29 | 83.50 | 1.24 |
-| 96 KiB | 51.20 | 86.94 | 1.70 |
-| 1 MiB | 42.84 | 50.02 | 1.17 |
-
-Below 24 KiB the destination and its source both sit in L1 and the
-prefetches are pure overhead; at 24 KiB the pair stops fitting and the sign
-flips. Non-temporal bodies fetch nothing and are excluded.
-
-Adopted in the `GF2P8MULB`, `VGF2P8AFFINEQB` and GF(2^16) GFNI fused
-overwrite bodies, and in the GF(2^8) AVX2 shuffle body, which gains about a
-quarter at 256 KiB (51 to 64 GiB/s). Rejected for the GF(2^16) shuffle
-body, which is compute-bound: 22.6 GiB/s at 64 KiB either way.
-
-## Named competitors
-
-| Library | License | Current comparison status |
-| --- | --- | --- |
-| `reed-solomon-erasure` 6 | MIT / Apache-2.0 | Measured in-process above for compatible GF(2^8) operations. |
-| Intel ISA-L | BSD-3-Clause | Measured in-process above through `bench-isal/`, which links the system library. |
-| `catid/leopard` | BSD-2-Clause | Its codec-level transforms do not expose the same operation-level contract. |
-
-The `reed-solomon-erasure` and ISA-L comparisons are reported numerically.
-`catid/leopard` requires a different API and is not presented as a matched
-baseline.
+- **`fgf`:** single-row packed table for single-source operations; overwrite
+  matrix table for encodes; the two-host `just bench compare` run for gathers.
+- **`reed-solomon-erasure`:** the two-host `just bench compare` run for gathers.
+- **ISA-L and klauspost:** unmeasured.
