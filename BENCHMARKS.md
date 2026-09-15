@@ -7,7 +7,7 @@ hosts ran the same source tree with the `v3_gfni_crypto` backend selected.
 
 | Host | CPU | Operating system | Rust | Pinned CPU |
 | --- | --- | --- | --- | ---: |
-| Lunar Lake | Intel Core Ultra 7 258V | Linux 7.2.4, Arch Linux | 1.98.0 | 1 |
+| Lunar Lake | Intel Core Ultra 7 258V | Linux 7.2.4, Arch Linux | 1.98.0 | 3 |
 | Golden Cove | Intel Core i7-12700K | Linux 7.2.3, CachyOS | 1.98.1 | 8, isolated |
 
 The custom harness warms each operation, then reports the median per-iteration
@@ -130,30 +130,31 @@ For 256 calls over 16-byte rows and the bit range `61..69`, preparing
 `bits::XorRange` reduces the per-call cost from 7.08 ns to 2.13 ns on Lunar
 Lake and from 5.34 ns to 2.07 ns on Golden Cove.
 
-## Competitor matrix
-
 | Shape | `fgf` `Gf8D` | `reed-solomon-erasure` 6 | Intel ISA-L | `klauspost/reedsolomon` |
 | --- | ---: | ---: | ---: | ---: |
-| 64 KiB `dst = c * src` | 85.97/60.43 | 69.04/- | 90.42/- | 60.91/- |
-| 64 KiB `dst ^= c * src` | 79.27/64.79 | 64.25/- | 79.16/- | 59.09/- |
-| 4 KiB, 16 sources, one row | 106.33/83.61 | 61.53/50.32 | 135.03/- | 63.45/- |
-| 16 KiB, 16 sources, one row | 95.00/85.69 | 65.21/53.68 | 91.23/- | 69.81/- |
-| 4 KiB, 10 sources, 2 rows | 103.94/- | - | 103.94/- | 86.90/- |
-| 16 KiB, 10 sources, 2 rows | 90.99/- | - | 83.02/- | 92.59/- |
-| 64 KiB, 10 sources, 2 rows | 80.37/64.94 | - | 82.06/- | 88.09/- |
-| 4 KiB, 10 sources, 4 rows | 51.97/- | - | 45.25/- | 49.41/- |
-| 16 KiB, 10 sources, 4 rows | 48.80/- | - | 34.48/- | 52.84/- |
-| 64 KiB, 10 sources, 4 rows | 47.20/39.82 | - | 36.76/- | 53.39/- |
-| 4 KiB, 10 sources, 6 rows | 34.34/- | - | 31.29/- | 34.06/- |
-| 16 KiB, 10 sources, 6 rows | 30.74/- | - | 25.58/- | 37.41/- |
-| 64 KiB, 10 sources, 6 rows | 29.50/24.76 | - | 30.60/- | 37.45/- |
+| 64 KiB `dst = c * src` | 82.82/64.72 | 70.07/60.37 | 91.10/42.18 | 59.96/56.78 |
+| 64 KiB `dst ^= c * src` | 80.42/65.07 | 64.86/50.15 | 79.37/65.35 | 60.85/49.91 |
+| 4 KiB, 16 sources, one row | 108.80/82.48 | 61.47/50.28 | 135.33/105.05 | 64.32/50.78 |
+| 16 KiB, 16 sources, one row | 94.23/86.54 | 63.30/53.85 | 87.82/95.33 | 69.24/57.81 |
+| 4 KiB, 10 sources, 2 rows | 103.10/75.54 | - | 103.10/74.51 | 87.09/75.69 |
+| 16 KiB, 10 sources, 2 rows | 85.68/72.04 | - | 84.21/68.55 | 91.81/85.15 |
+| 64 KiB, 10 sources, 2 rows | 79.56/73.18 | - | 79.47/67.85 | 86.94/89.44 |
+| 4 KiB, 10 sources, 4 rows | 50.73/40.71 | - | 42.48/32.97 | 47.80/40.63 |
+| 16 KiB, 10 sources, 4 rows | 47.89/40.81 | - | 33.88/29.82 | 51.69/45.08 |
+| 64 KiB, 10 sources, 4 rows | 46.28/39.82 | - | 35.10/31.82 | 52.07/45.49 |
+| 4 KiB, 10 sources, 6 rows | 32.72/26.79 | - | 30.76/22.97 | 33.35/28.19 |
+| 16 KiB, 10 sources, 6 rows | 29.94/26.08 | - | 25.26/22.05 | 36.49/30.23 |
+| 64 KiB, 10 sources, 6 rows | 28.79/26.00 | - | 29.28/23.74 | 36.84/30.45 |
 
 Cells: **Lunar Lake / Golden Cove**, median GiB/s over source bytes.
-`-` means unmeasured. Different runs and fixtures back the cells; their
-quotients are not paired benchmark ratios.
+`-` means unmeasured. Each cell is a median per host over five pinned runs of
+the harness in the setup tables below (one run for `just bench compare`). The
+harnesses interleave the two arms inside one process, but the aggregation
+differs per column, so quotients across columns are not paired benchmark
+ratios.
 
-**Lunar Lake setup:** CPU 1, `v3_gfni_crypto`, rustc 1.98.0.
-Run commands below from the crate root with `FEC_GOLDEN_CORE=1`.
+**Lunar Lake setup:** CPU 3, `v3_gfni_crypto`, rustc 1.98.0.
+Run commands below from the crate root with `FEC_GOLDEN_CORE=3`.
 
 | Library | Command | Aggregation | Library-specific setup |
 | --- | --- | --- | --- |
@@ -162,9 +163,13 @@ Run commands below from the crate root with `FEC_GOLDEN_CORE=1`.
 | Intel ISA-L 2.32.0 | `just bench-isal` | Median of five per-run medians | System library, runtime dispatch. |
 | `klauspost/reedsolomon` v1.14.2 | `just bench-klauspost` | Median of five per-run medians | Go 1.27.1 C archive, `GOMAXPROCS=1`; `WithCustomMatrix`, `Encode` for overwrite and `EncodeIdx` for single-source accumulation. |
 
-**Golden Cove sources:**
+**Golden Cove setup:** CPU 8, isolated, `v3_gfni_crypto`, rustc 1.98.1.
+Run commands below from the crate root with `FEC_GOLDEN_CORE=8`.
 
-- **`fgf`:** single-row packed table for single-source operations; overwrite
-  matrix table for encodes; the two-host `just bench compare` run for gathers.
-- **`reed-solomon-erasure`:** the two-host `just bench compare` run for gathers.
-- **ISA-L and klauspost:** unmeasured.
+| Library | Command | Aggregation | Library-specific setup |
+| --- | --- | --- | --- |
+| `fgf` `Gf8D` | `just bench-klauspost` | Median of five per-run medians | Competitor-harness fixtures, distinct from the fgf-only tables above. |
+| `reed-solomon-erasure` 6 | `just bench compare` | One run's medians | `simd-accel`; gathers include zero-fill followed by `mul_slice_xor`. |
+| Intel ISA-L 2.32.0 | `just bench-isal` | Median of five per-run medians | System library, runtime dispatch. |
+| `klauspost/reedsolomon` v1.14.2 | `just bench-klauspost` | Median of five per-run medians | Go 1.27.1 C archive, `GOMAXPROCS=1`; `WithCustomMatrix`, `Encode` for overwrite and `EncodeIdx` for single-source accumulation. |
+
