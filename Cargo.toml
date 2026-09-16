@@ -82,6 +82,11 @@ harness = false
 # Direct GFNI kernel calls need the internal architecture modules.
 required-features = ["std", "internals"]
 
+[[bench]]
+name = "prime_ntt"
+harness = false
+# Direct AVX2 kernel calls need the internal architecture modules.
+required-features = ["std", "internals"]
 
 [[example]]
 name = "perf_p2"

@@ -21,6 +21,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- AVX2 kernels for `QuadMersenne31` on `V3`/`V3GfniCrypto` hosts, four
+  complex elements per vector over the Mersenne31 lane discipline, with a
+  complex-by-coefficient multiply costing two limb multiplies. Production
+  dispatch takes over at one full vector for the multiplies and at two
+  vectors for add and sub; the campaign that set the thresholds is in
+  `BENCHMARKS.md`.
+- `vector_elementwise_min_bytes::<F>()`: the row length at which `F`'s
+  elementwise multiplication dispatches to a vector kernel on this host
+  (zero when no threshold applies), so schedule-selecting consumers route
+  sub-vector rows to a scalar schedule instead of paying vector entry
+  overhead over the scalar body.
+
 - `bench-klauspost/`, an in-process competitor comparison against
   `klauspost/reedsolomon` v1.14.2 over GF(2^8)/`0x11D`, run with
   `FEC_GOLDEN_CORE=<cpu> just bench-klauspost`. The package links the Go

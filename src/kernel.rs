@@ -306,6 +306,17 @@ pub fn has_vector_elementwise<F: FieldKernels>() -> bool {
     F::has_vector_elementwise()
 }
 
+/// Minimum row length in bytes at which `F` dispatches elementwise
+/// multiplication to a vector kernel on this host; zero when every length
+/// dispatches or no vector kernel serves `F`. Consumers choosing between
+/// schedules use this beside [`has_vector_elementwise`] rather than
+/// assuming the vector path serves sub-vector rows.
+#[inline]
+#[must_use]
+pub fn vector_elementwise_min_bytes<F: FieldKernels>() -> usize {
+    F::vector_elementwise_min_bytes()
+}
+
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 #[cfg(feature = "internals")]
 /// Matrix-like coefficient/source provider for the register-blocked x86 kernels.
@@ -410,6 +421,14 @@ pub trait FieldKernels: Field + private::Sealed + KernelDispatch {
     #[must_use]
     fn has_vector_elementwise() -> bool {
         false
+    }
+
+    /// Minimum row length in bytes at which the vector elementwise kernels
+    /// take over on this host; zero when no such threshold applies.
+    #[inline]
+    #[must_use]
+    fn vector_elementwise_min_bytes() -> usize {
+        0
     }
 }
 

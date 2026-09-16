@@ -80,3 +80,26 @@ bench-klauspost:
         echo "warning: FEC_GOLDEN_CORE unset; the run is not core-pinned" >&2
     fi
     "${pin[@]}" bench-klauspost/target/release/fgf-bench-klauspost
+
+# The prime-field NTT consumer harness. `external-bench/prime-ntt/` is a
+# separate, unpublished package that path-depends on the local `fgf` and the
+# local `butterfly-fft` (with its `internals` feature) and patches the
+# registry's `fgf` and `simdispatch` onto those same local copies, so the
+# published pins of either crate stay untouched. The bench validates every
+# geometry — forced fused against forced packed against production forward,
+# inverse roundtrip, and a direct DFT up to size 1024 — before any arm is
+# timed, and panics on mismatch. ARGS pass through to Criterion as filters;
+# `--test` runs each arm once without timing.
+[group('bench')]
+bench-prime-ntt *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo bench --manifest-path external-bench/prime-ntt/Cargo.toml --bench ntt_consumer --no-run
+    pin=()
+    if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
+        pin=(taskset -c "${FEC_GOLDEN_CORE}")
+        echo "pinned to core ${FEC_GOLDEN_CORE}"
+    else
+        echo "warning: FEC_GOLDEN_CORE unset; the run is not core-pinned" >&2
+    fi
+    "${pin[@]}" cargo bench --manifest-path external-bench/prime-ntt/Cargo.toml --bench ntt_consumer -- {{ARGS}}

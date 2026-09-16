@@ -1,19 +1,33 @@
 //! GF((2³¹ − 1)²) kernel dispatch.
 //!
-//! Extension arithmetic over Mersenne31 pairs with `i² = −1`. Kernels are
-//! composed from the base Mersenne31 lane kernels — no hand-written SIMD
-//! for the extension yet — so every backend currently reports `Scalar`.
+//! Extension arithmetic over Mersenne31 pairs with `i² = −1`. On x86 hosts
+//! resolving `V3`/`V3GfniCrypto`, rows at or above the measured thresholds
+//! dispatch to the AVX2 extension kernels (four complex elements per
+//! vector); shorter rows stay here. The thresholds and the interleaved
+//! campaign that set them are recorded in `BENCHMARKS.md`.
 //!
-//! The loops canonicalize each loaded limb once and then run raw modular
-//! add/sub/mul on limbs known to be `< p`: one conditional subtract per op,
-//! no re-reduction of already-canonical operands. Raw non-canonical lanes in
-//! a destination are still legal input — every entry point canonicalizes what
-//! it reads before computing. Measured against the canonicalize-per-helper
-//! form in BENCHMARKS.md.
+//! The scalar loops canonicalize each loaded limb once and then run raw
+//! modular add/sub/mul on limbs known to be `< p`: one conditional subtract
+//! per op, no re-reduction of already-canonical operands. Raw non-canonical
+//! lanes in a destination are still legal input for add and sub — the fold
+//! is total — while the vector multiplies serve the packed canonical-lane
+//! contract the prime fields document.
 
 use crate::field::Field;
 use crate::field::quad_mersenne31::{Elem, QuadMersenne31};
-use crate::kernel::{FieldKernels, KernelDispatch, RawDispatch};
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+use crate::kernel::backend;
+use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch};
+
+/// Row length in bytes at or above which the AVX2 multiplies take over;
+/// one full vector of four complex elements.
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+const VECTOR_MUL_MIN_BYTES: usize = 32;
+
+/// Row length in bytes at or above which the AVX2 add and sub take over;
+/// the mixed vector-plus-tail rows below this stay scalar.
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+const VECTOR_ADD_MIN_BYTES: usize = 64;
 
 /// Reduce an arbitrary 32-bit lane to the canonical range `0..p`
 /// (the Mersenne fold, `2^31 ≡ 1`).
@@ -81,8 +95,46 @@ const fn qmul(ar: u32, ai: u32, br: u32, bi: u32) -> Elem {
 
 impl FieldKernels for QuadMersenne31 {
     #[inline]
+    fn backend() -> Backend {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        {
+            match backend() {
+                Backend::V3GfniCrypto | Backend::V3 => Backend::V3,
+                _ => Backend::Scalar,
+            }
+        }
+        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        {
+            Backend::Scalar
+        }
+    }
+
+    #[inline]
     fn has_vector_elementwise() -> bool {
-        false
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        {
+            matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
+        }
+        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        {
+            false
+        }
+    }
+
+    #[inline]
+    fn vector_elementwise_min_bytes() -> usize {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        {
+            if matches!(backend(), Backend::V3GfniCrypto | Backend::V3) {
+                VECTOR_MUL_MIN_BYTES
+            } else {
+                0
+            }
+        }
+        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        {
+            0
+        }
     }
 }
 
@@ -101,7 +153,17 @@ impl KernelDispatch for QuadMersenne31 {
     }
 
     fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
-        debug_assert_eq!(dst.len(), src.len());
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
+            && dst.len() >= VECTOR_ADD_MIN_BYTES
+        {
+            crate::kernel::x86::prime::add_assign_qm31_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                src,
+            );
+            return;
+        }
         for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
             let a = QuadMersenne31::decode(d);
             let b = QuadMersenne31::decode(s);
@@ -117,8 +179,18 @@ impl KernelDispatch for QuadMersenne31 {
             );
         }
     }
-
     fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
+            && dst.len() >= VECTOR_ADD_MIN_BYTES
+        {
+            crate::kernel::x86::prime::sub_assign_qm31_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                src,
+            );
+            return;
+        }
         debug_assert_eq!(dst.len(), src.len());
         for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
             let a = QuadMersenne31::decode(d);
@@ -153,6 +225,18 @@ impl KernelDispatch for QuadMersenne31 {
     }
 
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
+            && dst.len() >= VECTOR_MUL_MIN_BYTES
+        {
+            crate::kernel::x86::prime::mul_add_qm31_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                *coeff,
+                src,
+            );
+            return;
+        }
         let cr = canon(coeff.0);
         let ci = canon(coeff.1);
         if cr == 0 && ci == 0 {
@@ -174,6 +258,17 @@ impl KernelDispatch for QuadMersenne31 {
     }
 
     fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem) {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
+            && dst.len() >= VECTOR_MUL_MIN_BYTES
+        {
+            crate::kernel::x86::prime::mul_assign_qm31_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                *coeff,
+            );
+            return;
+        }
         let cr = canon(coeff.0);
         let ci = canon(coeff.1);
         if cr == 0 && ci == 0 {
@@ -190,6 +285,18 @@ impl KernelDispatch for QuadMersenne31 {
     }
 
     fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
+            && dst.len() >= VECTOR_MUL_MIN_BYTES
+        {
+            crate::kernel::x86::prime::mul_into_qm31_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                *coeff,
+                src,
+            );
+            return;
+        }
         let cr = canon(coeff.0);
         let ci = canon(coeff.1);
         if cr == 0 && ci == 0 {
@@ -237,10 +344,23 @@ impl KernelDispatch for QuadMersenne31 {
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
         debug_assert_eq!(dst.len(), a.len());
         debug_assert_eq!(dst.len(), b.len());
-        for ((d, x), y) in dst
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
+            && dst.len() >= VECTOR_MUL_MIN_BYTES
+        {
+            crate::kernel::x86::prime::mul_elementwise_qm31_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                a,
+                b,
+            );
+            return;
+        }
+        for (d, x, y) in dst
             .chunks_exact_mut(8)
             .zip(a.chunks_exact(8))
             .zip(b.chunks_exact(8))
+            .map(|((d, x), y)| (d, x, y))
         {
             let xa = QuadMersenne31::decode(x);
             let xb = QuadMersenne31::decode(y);
