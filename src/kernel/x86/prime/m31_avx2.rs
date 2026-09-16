@@ -5,6 +5,9 @@
 //! products come from `vpmuludq` on the even and odd 32-bit lanes. Serves
 //! the `V3`/`V3GfniCrypto` backends: each entry is a safe capability-token
 //! function taking an `X64V3Token` and validating its own geometry.
+//!
+//! The lane helpers are `pub(super)`: the `QuadMersenne31` extension is
+//! pairs of these lanes, and `qm31_avx2` builds on the same arithmetic.
 
 use super::{M31_P, check_elem_multiple, check_equal};
 use crate::field::mersenne31::{self, Mersenne31};
@@ -19,7 +22,7 @@ use core::arch::x86_64::*;
 /// subtract). The result is `p` only for the raw lane `p` itself; every
 /// consumer below tolerates `= p` inputs and canonicalizes with min chains.
 #[archmage::rite(v3)]
-fn m31_fold256(x: __m256i, p: __m256i) -> __m256i {
+pub(super) fn m31_fold256(x: __m256i, p: __m256i) -> __m256i {
     let lo = _mm256_and_si256(x, p);
     let hi = _mm256_srli_epi32(x, 31);
     _mm256_add_epi32(lo, hi)
@@ -29,7 +32,7 @@ fn m31_fold256(x: __m256i, p: __m256i) -> __m256i {
 /// `min(x, x-p)` then `min(u, u-p)` handles both the `p` and the `2p` edge
 /// cases a single conditional subtract misses (raw lane `p` ≡ 0).
 #[archmage::rite(v3)]
-fn m31_min_chain256(x: __m256i, p: __m256i) -> __m256i {
+pub(super) fn m31_min_chain256(x: __m256i, p: __m256i) -> __m256i {
     let u = _mm256_min_epu32(x, _mm256_sub_epi32(x, p));
     _mm256_min_epu32(u, _mm256_sub_epi32(u, p))
 }
@@ -42,7 +45,7 @@ fn m31_min_chain256(x: __m256i, p: __m256i) -> __m256i {
 /// odd-lane gather is a port-5 `movehdup`, not a shift.
 #[archmage::rite(v3)]
 #[must_use]
-fn m31_mulmod256(a: __m256i, b: __m256i, p: __m256i) -> __m256i {
+pub(super) fn m31_mulmod256(a: __m256i, b: __m256i, p: __m256i) -> __m256i {
     let a_odd = _mm256_srli_epi64::<31>(a); // odd lanes, doubled
     let b_odd = _mm256_castps_si256(_mm256_movehdup_ps(_mm256_castsi256_ps(b)));
     let prod_odd_dbl = _mm256_mul_epu32(a_odd, b_odd);

@@ -84,7 +84,7 @@ assert_eq!(dst, [0x03, 0x06, 0x05, 0x0c]);
 | Fan–Paar GF(2^64) | `FanPaar64`, `fan_paar::fp64::Elem` | canonical recursive tower | x86 AVX2 |
 | GF(2^31 − 1) | `Mersenne31`, `mersenne31::Elem` | Mersenne prime in `u32` lanes | x86 AVX2 and SSE4.2 |
 | GF(2^64 − 2^32 + 1) | `Goldilocks`, `goldilocks::Elem` | Goldilocks prime in `u64` lanes | x86 AVX2 and SSE4.2 |
-| GF((2^31 − 1)²) | `QuadMersenne31`, `quad_mersenne31::Elem` | `i² = −1` over Mersenne31 | portable |
+| GF((2^31 − 1)²) | `QuadMersenne31`, `quad_mersenne31::Elem` | `i² = −1` over Mersenne31 | x86 AVX2 |
 | GF(2) | `Gf2`, `gf2::Elem` | one element per bit | dispatched XOR; portable word kernels |
 
 All element families support arithmetic operators including unary negation,

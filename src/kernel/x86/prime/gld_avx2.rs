@@ -33,9 +33,11 @@ fn gld_canon256(x: __m256i, pcst: __m256i, pm1: __m256i) -> __m256i {
 
 // Shifted-domain helpers. Values XORed with 2^63 let signed `vpcmpgtq`
 // emulate unsigned compares; the bias cancels when two shifted values add,
-// so intermediate results stay shifted through whole loop bodies. The wrap
-// correction adds `0xFFFFFFFF` (= `-p mod 2^64`) via `srli_epi64::<32>` of
-// the all-ones compare mask, replacing a separate AND with the epsilon.
+// so intermediate results stay shifted through whole loop bodies. A wrap
+// moves a lane by `2^64 == eps (mod p)`: a wrapped subtraction has gained
+// it and a wrapped addition has lost it, so the fold corrections subtract
+// and add `eps` respectively, via `srli_epi64::<32>` of the all-ones
+// compare mask instead of a separate AND with the epsilon.
 const GLD_SIGN: i64 = i64::MIN;
 #[allow(clippy::cast_possible_wrap)]
 const GLD_SHIFTED_P: i64 = 0x7FFF_FFFF_0000_0001_u64 as i64;
@@ -80,10 +82,11 @@ fn gld_mul_wide(x: __m256i, y: __m256i) -> (__m256i, __m256i) {
 fn gld_reduce_wide_s(hi: __m256i, lo: __m256i, eps: __m256i) -> __m256i {
     let lo_s = _mm256_xor_si256(lo, _mm256_set1_epi64x(GLD_SIGN));
     let hi_hi = _mm256_srli_epi64::<32>(hi);
-    // lo - hi_hi with borrow correction (hi_hi <= 0xffffffff).
+    // lo - hi_hi; a lane where this wraps (lo < hi_hi) has gained
+    // 2^64 == eps (mod p), so the correction subtracts it back.
     let sub_wrapped = _mm256_sub_epi64(lo_s, hi_hi);
     let sub_mask = _mm256_cmpgt_epi32(sub_wrapped, lo_s);
-    let folded_s = _mm256_add_epi64(sub_wrapped, _mm256_srli_epi64::<32>(sub_mask));
+    let folded_s = _mm256_sub_epi64(sub_wrapped, _mm256_srli_epi64::<32>(sub_mask));
     // + hi_lo * epsilon; `vpmuludq` reads only the low dwords.
     let t1 = _mm256_mul_epu32(hi, eps);
     // lo1 + t1 with carry correction (t1 <= 0xffffffff00000000).

@@ -6,7 +6,32 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The AVX2 Goldilocks kernels computed wrong values whenever a product's low
+  64 bits fell below its high 32: the split-fold reduction corrected a
+  wrapped subtraction by adding where it must subtract, so every such lane
+  shipped a canonical-looking result off by exactly `2^32 − 1`. Random
+  operands hit the branch with probability ≈ 2⁻³³ per lane, but operands
+  concentrated on powers of two — twiddle tables in transform consumers —
+  hit it at ≈ 2⁻⁷, which is how the defect reached NTT workloads while
+  every random-value differential passed. The SSE4.2 kernels were correct.
+  A wrap-boundary regression against an independent `u128 % p` oracle now
+  pins both widths; the operand family is `tests/goldilocks_wrap.rs`.
+
 ### Added
+
+- AVX2 kernels for `QuadMersenne31` on `V3`/`V3GfniCrypto` hosts, four
+  complex elements per vector over the Mersenne31 lane discipline, with a
+  complex-by-coefficient multiply costing two limb multiplies. Production
+  dispatch takes over at one full vector for the multiplies and at two
+  vectors for add and sub; the campaign that set the thresholds is in
+  `BENCHMARKS.md`.
+- `vector_elementwise_min_bytes::<F>()`: the row length at which `F`'s
+  elementwise multiplication dispatches to a vector kernel on this host
+  (zero when no threshold applies), so schedule-selecting consumers route
+  sub-vector rows to a scalar schedule instead of paying vector entry
+  overhead over the scalar body.
 
 - `bench-klauspost/`, an in-process competitor comparison against
   `klauspost/reedsolomon` v1.14.2 over GF(2^8)/`0x11D`, run with

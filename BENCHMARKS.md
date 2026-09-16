@@ -72,6 +72,33 @@ preparation is small relative to the row loop.
 | `Gf16` | one-shot | 45.35 | 41.07 |
 | `Gf16` | prepared | 45.38 | 41.10 |
 
+`QuadMersenne31` dispatches to AVX2 above measured row thresholds — one
+full vector (32 bytes) for the multiplies, two vectors (64 bytes) for add
+and sub, because the mixed vector-plus-tail rows between them lose to the
+scalar loop. The interleaved campaign that set both thresholds compares the
+public scalar dispatch against the direct AVX2 entries per row length;
+ratios below are scalar divided by vector, so above 1.00 the vector kernel
+wins. Lunar Lake, one criterion median of two complete pinned runs with a
+duplicated control at parity; reproduce with
+`FEC_GOLDEN_CORE=<cpu> just bench-save qm31 prime_ntt` then
+`FEC_GOLDEN_CORE=<cpu> just bench qm31 prime_ntt`.
+
+| Bytes | `add_assign` | `sub_assign` | `mul_add` | `mul_into` | `mul_assign` | `mul_elementwise` |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 8 | 0.34 | 0.35 | 0.40 | 0.57 | 1.19 | 0.47 |
+| 16 | 0.35 | 0.37 | 0.62 | 0.82 | 1.03 | 0.68 |
+| 24 | 0.40 | 0.40 | 0.86 | 0.93 | 0.82 | 0.93 |
+| 32 | 1.50 | 1.42 | 3.55 | 3.72 | 1.66 | 2.63 |
+| 40 | 0.50 | 0.57 | 1.07 | 1.14 | 1.68 | 0.98 |
+| 64 | 2.63 | 2.40 | 4.10 | 4.56 | 2.66 | 2.69 |
+| 128 | 4.37 | 4.35 | 3.94 | 4.51 | 4.00 | 2.73 |
+| 256 | 5.07 | 5.59 | 3.91 | 4.56 | 4.32 | 2.46 |
+| 2048 | 5.61 | 5.62 | 3.86 | 4.50 | 4.34 | 2.58 |
+
+`vector_elementwise_min_bytes::<QuadMersenne31>()` reports the multiply
+threshold so consumers choose schedules by row length instead of paying the
+vector entry over the scalar body on sub-vector rows.
+
 ## Scatter, gather, and matrix
 
 Each row is 64 KiB. Scatter writes eight rows from one source, gather combines
@@ -172,4 +199,3 @@ Run commands below from the crate root with `FEC_GOLDEN_CORE=8`.
 | `reed-solomon-erasure` 6 | `just bench compare` | One run's medians | `simd-accel`; gathers include zero-fill followed by `mul_slice_xor`. |
 | Intel ISA-L 2.32.0 | `just bench-isal` | Median of five per-run medians | System library, runtime dispatch. |
 | `klauspost/reedsolomon` v1.14.2 | `just bench-klauspost` | Median of five per-run medians | Go 1.27.1 C archive, `GOMAXPROCS=1`; `WithCustomMatrix`, `Encode` for overwrite and `EncodeIdx` for single-source accumulation. |
-

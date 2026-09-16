@@ -121,11 +121,15 @@ FEC_GOLDEN_CORE=<cpu> just bench kernels
 FEC_GOLDEN_CORE=<cpu> just bench compare
 FEC_GOLDEN_CORE=<cpu> just bench-isal
 FEC_GOLDEN_CORE=<cpu> just bench-klauspost
+FEC_GOLDEN_CORE=<cpu> just bench-prime-ntt
 ```
 
 `kernels` reports the public operation shapes. `compare` includes the in-process
 `reed-solomon-erasure` comparison. `affine` and `dot_product` are internal
-investigation harnesses, not headline public benchmarks.
+investigation harnesses, not headline public benchmarks. `prime_ntt`
+interleaves the QuadMersenne31 scalar control against the AVX2 kernels per
+row length; its campaign set the dispatch thresholds in
+`src/kernel/quad_mersenne31.rs`.
 
 `bench-isal` builds and runs `bench-isal/`, a separate unpublished package
 that links the system Intel ISA-L and interleaves it against `fgf` over
@@ -144,6 +148,28 @@ build fails loudly when it is absent rather than dropping the arm. Every arm
 supplies the coding matrix through `WithCustomMatrix` and validates against
 the library's own output before timing, and the first table row is a control
 that must read 1.00x.
+
+`bench-prime-ntt` builds and runs `external-bench/prime-ntt/`, a separate
+unpublished package that drives the real `butterfly-fft` NTT plans and its
+`internals` schedule controls against the `fgf` working tree, so a kernel
+change is measured through the consumer that depends on it without touching
+any published pin. The package needs its `[patch.crates-io]` table for the
+same reason a downstream consumer cannot mix sources: `butterfly-fft`
+arrives from crates.io and declares its own registry dependency on `fgf`
+and `simdispatch`, while the harness names the local `fgf` by path. Without
+the patch, cargo would build two `fgf` copies — the working tree for the
+harness's direct calls and the registry release inside `butterfly-fft` —
+with incompatible types and no shared backend selection. The patch
+redirects the registry's `fgf` and `simdispatch` onto the same local paths,
+so the whole graph resolves one copy of each. `Goldilocks` and
+`QuadMersenne31` are validated at every geometry — forced fused against
+forced packed against production forward, inverse roundtrip, and a direct
+DFT up to size 1024 — before any arm is timed; a mismatch panics instead of
+producing numbers, and the harness prints the process and per-field
+backends. Criterion filters apply (`just bench-prime-ntt goldilocks/n1024`),
+and `--test` runs each arm once without timing. The package sits behind a
+`.gitignore` path exception that keeps `prime-ntt/` tracked while its build
+products stay ignored.
 
 Benchmark setup, allocation, coefficient construction, and input generation
 must stay outside the timed region. Record the CPU, OS, Rust version, selected

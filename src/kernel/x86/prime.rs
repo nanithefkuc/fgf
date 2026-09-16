@@ -1,6 +1,7 @@
 //! Prime-field integer-SIMD kernels for x86 / `x86_64`.
 //!
-//! Two lane widths, one reduction discipline each:
+//! Two lane widths, one reduction discipline each — plus the quadratic
+//! extension field built over pairs of the Mersenne31 lanes:
 //!
 //! - **Mersenne31 (`u32` lanes).** `2^31 ≡ 1 (mod p)`, so a multiply folds the
 //!   62-bit product with a mask/shift/add and one conditional subtract; the
@@ -9,6 +10,13 @@
 //!   `vpmuludq` 32-bit half-products, then the split-fold reduction
 //!   (`2^64 ≡ 2^32 − 1`, `2^96 ≡ −1`). Unsigned 64-bit compares are synthesized
 //!   from `vpcmpgtq` with a sign-bit flip, since AVX2 has no native one.
+//! - **`QuadMersenne31` (`(re, im)` Mersenne31 limb pairs).** Four complex
+//!   elements per vector over the Mersenne31 lane discipline; a complex
+//!   product is two limb multiplies against a sign-mixed coefficient vector.
+//!
+//! The `QuadMersenne31` AVX2 file sits outside process dispatch, which
+//! serves the field from the portable path; its kernels are reached only
+//! through the direct entries.
 //!
 //! Every kernel processes whole vector lanes and hands the sub-lane remainder
 //! to the portable [`crate::kernel::prime`] path, which is also the differential
@@ -39,11 +47,13 @@
 //! | `m31_sse` | Mersenne31 | 128-bit | `V2` |
 //! | `gld_avx2` | Goldilocks | 256-bit | `V3`/`V3GfniCrypto` |
 //! | `gld_sse` | Goldilocks | 128-bit | `V2` |
+//! | `qm31_avx2` | QuadMersenne31 | 256-bit | `V3`/`V3GfniCrypto` |
 
 mod gld_avx2;
 mod gld_sse;
 mod m31_avx2;
 mod m31_sse;
+mod qm31_avx2;
 
 pub use gld_avx2::{
     add_assign_gld_avx2, mul_add_gld_avx2, mul_assign_gld_avx2, mul_elementwise_gld_avx2,
@@ -60,6 +70,10 @@ pub use m31_avx2::{
 pub use m31_sse::{
     add_assign_m31_sse42, mul_add_m31_sse42, mul_assign_m31_sse42, mul_elementwise_m31_sse42,
     mul_into_m31_sse42, sub_assign_m31_sse42,
+};
+pub use qm31_avx2::{
+    add_assign_qm31_avx2, mul_add_qm31_avx2, mul_assign_qm31_avx2, mul_elementwise_qm31_avx2,
+    mul_into_qm31_avx2, sub_assign_qm31_avx2,
 };
 
 use crate::field::{goldilocks, mersenne31};
