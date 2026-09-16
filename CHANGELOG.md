@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-16
+
 ### Fixed
 
 - The AVX2 Goldilocks kernels computed wrong values whenever a product's low
@@ -695,3 +697,5 @@ Initial public release.
 [0.2.0]: https://github.com/nanithefkuc/fgf/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/nanithefkuc/fgf/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/nanithefkuc/fgf/releases/tag/v0.1.0
+
+[1.1.0]: https://github.com/nanithefkuc/fgf/compare/v1.0.1...v1.1.0
