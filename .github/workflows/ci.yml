@@ -35,6 +35,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      # Strongest declared tier first, matching crate.just TIERS. The
+      # request is downgrade-only: a runner without the crypto extensions
+      # resolves to the strongest tier it can prove instead, so a green run
+      # here is not by itself GFNI coverage.
+      - run: cargo test --all-features
+        env:
+          SIMD_BACKEND: v3_gfni_crypto
       - run: cargo test --all-features
         env:
           SIMD_BACKEND: v3
@@ -69,6 +76,9 @@ jobs:
         with:
           tool: cargo-llvm-cov@0.9.0
       - run: cargo llvm-cov --no-report --all-features
+      - run: cargo llvm-cov --no-report --all-features
+        env:
+          SIMD_BACKEND: v3_gfni_crypto
       - run: cargo llvm-cov --no-report --all-features
         env:
           SIMD_BACKEND: v3

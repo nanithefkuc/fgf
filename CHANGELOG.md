@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The AVX2 Goldilocks kernels computed wrong values whenever a product's low
+  64 bits fell below its high 32: the split-fold reduction corrected a
+  wrapped subtraction by adding where it must subtract, so every such lane
+  shipped a canonical-looking result off by exactly `2^32 − 1`. Random
+  operands hit the branch with probability ≈ 2⁻³³ per lane, but operands
+  concentrated on powers of two — twiddle tables in transform consumers —
+  hit it at ≈ 2⁻⁷, which is how the defect reached NTT workloads while
+  every random-value differential passed. The SSE4.2 kernels were correct.
+  A wrap-boundary regression against an independent `u128 % p` oracle now
+  pins both widths; the operand family is `tests/goldilocks_wrap.rs`.
+
 ### Added
 
 - `bench-klauspost/`, an in-process competitor comparison against
