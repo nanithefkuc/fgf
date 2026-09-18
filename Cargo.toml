@@ -1,6 +1,6 @@
 [package]
 name = "fgf"
-version = "1.1.0"
+version = "1.1.1"
 edition = "2024"
 rust-version = "1.93"
 description = "Faster Galois Fields: SIMD and portable finite-field arithmetic (binary towers and prime fields) and vector kernels"
