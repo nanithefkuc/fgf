@@ -710,6 +710,7 @@ pub(crate) struct RawDispatch;
         target_arch = "wasm32"
     )
 ))]
+#[allow(dead_code)]
 pub(crate) mod proven_checks {
     /// Paired length equality.
     #[inline]

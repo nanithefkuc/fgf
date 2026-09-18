@@ -26,6 +26,7 @@
 // today; not in the shared ladder until validated on executing hardware).
 // They remain outside production dispatch and are exposed through the
 // internals facade for experiments and differential tests on AVX-512 hosts.
+#[allow(dead_code)]
 pub mod avx512;
 pub mod bytes;
 pub mod fan_paar;

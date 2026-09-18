@@ -17,10 +17,15 @@ mod resolve;
 mod shuffle;
 mod tile;
 
+#[allow(unused_imports)]
 pub use gather::*;
+#[allow(unused_imports)]
 pub use grouped::*;
+#[allow(unused_imports)]
 pub use resolve::*;
+#[allow(unused_imports)]
 pub use shuffle::*;
+#[allow(unused_imports)]
 pub use tile::*;
 
 use super::Affine8D;

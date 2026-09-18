@@ -135,10 +135,12 @@ pub fn xor_sse2(_token: archmage::X64V1Token, dst: &mut [u8], src: &[u8]) {
 
 /// Bytes of one row covered by a fully-unrolled AVX2 tile iteration: four
 /// 32-byte vectors per stream, the leopard `xor_mem4` unroll width.
+#[allow(dead_code)]
 const AVX2_ROW_TILE: usize = 4 * 32;
 
 /// Bytes of one row covered by a fully-unrolled SSE2 tile iteration: four
 /// 16-byte vectors per stream.
+#[allow(dead_code)]
 const SSE2_ROW_TILE: usize = 4 * 16;
 
 /// `dst ^= src` over contiguous `row_len`-byte rows with four interleaved

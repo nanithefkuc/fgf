@@ -43,6 +43,7 @@
 //! over this seam and monomorphize back to the code each field had alone.
 
 mod elementwise;
+#[allow(dead_code)]
 mod experiments;
 mod gather;
 mod gfni;
@@ -52,7 +53,9 @@ mod nibble_rows;
 mod rows;
 mod scatter;
 
+#[allow(unused_imports)]
 pub use elementwise::*;
+#[allow(unused_imports)]
 pub use experiments::*;
 pub use gather::*;
 pub use gfni::*;
@@ -116,6 +119,7 @@ impl Blocked for Gfni {
 /// Map lookup stays outside the timed gather body. The nibble table remains
 /// attached only for sub-XMM remainders.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct Affine8BFactor {
     map: u64,
     table: &'static ScaleTable,
@@ -124,6 +128,7 @@ pub struct Affine8BFactor {
 /// Prepare one `Gf8B` coefficient for [`mul_add_gather_affine_8b`].
 #[inline]
 #[must_use]
+#[allow(dead_code)]
 pub fn prepare_affine_8b(coeff: Elem) -> Affine8BFactor {
     Affine8BFactor {
         map: affine_8b(coeff),
@@ -132,6 +137,7 @@ pub fn prepare_affine_8b(coeff: Elem) -> Affine8BFactor {
 }
 
 /// Experimental affine-map multiply in the AES field `0x11B` (`Gf8B`).
+#[allow(dead_code)]
 enum Affine8B {}
 impl Blocked for Affine8B {
     type Coeff = Affine8BFactor;
@@ -184,6 +190,7 @@ impl Blocked for Affine8D {
 /// operations use this to consume a [`crate::ops::CoeffVec`]'s coefficients
 /// without rebuilding them per call; the sub-lane remainder still reads the
 /// attached nibble table.
+#[allow(dead_code)]
 pub(super) enum Affine8DPrepared {}
 impl Blocked for Affine8DPrepared {
     type Coeff = crate::kernel::gf8::Prepared8D;
@@ -212,6 +219,7 @@ impl Blocked for Affine8DPrepared {
 /// A row-major coefficient matrix over already-prepared coefficients, in the
 /// same term-major order a [`crate::ops::CoeffMatrix`] stores: index
 /// `term * nrows + row`.
+#[allow(dead_code)]
 pub(super) struct PreparedMatrix<'a> {
     /// Prepared coefficients, `terms * nrows` entries.
     pub(super) prepared: &'a [crate::kernel::gf8::Prepared8D],
