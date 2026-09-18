@@ -28,7 +28,7 @@
 /// Reuses the field-independent dispatched byte XOR — bit-packed GF(2)
 /// addition over equal-length buffers is byte XOR regardless of packing.
 pub(crate) fn xor(dst: &mut [u8], src: &[u8]) {
-    super::xor_impl(dst, src);
+    super::xor(dst, src);
 }
 
 /// `dst = a & b`, elementwise GF(2) multiplication.
@@ -159,7 +159,7 @@ pub(crate) fn xor_window(dst: &mut [u8], src: &[u8], w: &Window) {
         dst[last] ^= src[last] & w.trail;
         let mid = w.start + 1..last;
         if !mid.is_empty() {
-            super::xor_impl(&mut dst[mid.clone()], &src[mid]);
+            super::xor(&mut dst[mid.clone()], &src[mid]);
         }
     }
 }

@@ -125,14 +125,14 @@ pub fn scale_table_8d(coeff: gf8d::Elem) -> &'static ScaleTable {
 /// `VGF2P8AFFINEQB` matrix qword per coefficient.
 ///
 /// This uses the same instruction convention as [`affine_8d`], but derives
-/// each column from [`gf8b::Elem::mul`]. It exists only for tests and the
-/// `internals` benchmark prototype; production `Gf8B` kernels continue to use
-/// native `GF2P8MULB`.
-#[cfg(any(test, feature = "internals"))]
+/// each column from [`gf8b::Elem::mul`]. The bank supports experimental
+/// affine kernels; dispatched `Gf8B` kernels continue to use native
+/// `GF2P8MULB`.
+#[allow(dead_code)]
 static AFFINE_BANK_8B: [u64; 256] = build_affine_bank_8b();
 
-#[cfg(any(test, feature = "internals"))]
 #[allow(clippy::cast_possible_truncation)]
+#[allow(dead_code)]
 const fn build_affine_bank_8b() -> [u64; 256] {
     let mut bank = [0u64; 256];
     let mut i = 0;
@@ -159,9 +159,9 @@ const fn build_affine_bank_8b() -> [u64; 256] {
 
 /// Return the experimental `VGF2P8AFFINEQB` matrix qword that multiplies by
 /// `coeff` under `0x11B`.
-#[cfg(any(test, feature = "internals"))]
 #[inline]
 #[must_use]
+#[allow(dead_code)]
 pub fn affine_8b(coeff: gf8b::Elem) -> u64 {
     AFFINE_BANK_8B[coeff.0 as usize]
 }

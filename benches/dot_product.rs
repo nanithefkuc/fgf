@@ -14,17 +14,13 @@
 //! cargo bench --features internals --bench dot_product -- --tiles --counter --tile-split
 //! ```
 
-#[cfg(all(
-    feature = "internals",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 mod imp {
     use std::hint::black_box;
     use std::time::{Duration, Instant};
 
-    use fgf::kernel::x86;
-    use fgf::kernel::{SimdToken, X64V3GfniCryptoToken};
+    use fgf::internals::kernel::x86;
+    use fgf::internals::kernel::{SimdToken, X64V3GfniCryptoToken};
     use fgf::{Backend, Gf8B, backend_for, gf8b, ops};
 
     const FULL_LENGTHS: &[usize] = &[
@@ -905,20 +901,12 @@ mod imp {
     }
 }
 
-#[cfg(all(
-    feature = "internals",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn main() {
     imp::main();
 }
 
-#[cfg(not(all(
-    feature = "internals",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-)))]
+#[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
 fn main() {
     eprintln!("skipping: direct dot-product baseline is x86 SIMD-only");
 }

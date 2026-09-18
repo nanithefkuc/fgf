@@ -47,7 +47,6 @@ pub fn mul_add_gather_affine_8b(
 ///
 /// # Panics
 /// As [`mul_add_gather_gfni`].
-#[cfg(feature = "internals")]
 #[archmage::arcane(import_intrinsics)]
 pub fn mul_add_gather_gfni_axpy_tail(
     token: archmage::X64V3GfniCryptoToken,

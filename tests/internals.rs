@@ -11,19 +11,18 @@
 //! overwrite oracle.
 
 #![cfg(all(
-    feature = "internals",
     feature = "simd",
     feature = "std",
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 #![allow(clippy::cast_possible_truncation)]
 
-use fgf::field::wiedemann;
-use fgf::kernel::scalar;
-use fgf::kernel::tables::{
+use fgf::internals::field::wiedemann;
+use fgf::internals::kernel::scalar;
+use fgf::internals::kernel::tables::{
     FpTowerTables, ScaleTable, TowerCoeff, TowerTables, affine_8d, scale_table, scale_table_8d,
 };
-use fgf::kernel::{
+use fgf::internals::kernel::{
     FlatMatrix, SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token, X64V4Token, X64V4xToken,
     x86,
 };

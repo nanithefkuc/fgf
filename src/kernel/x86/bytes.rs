@@ -135,12 +135,10 @@ pub fn xor_sse2(_token: archmage::X64V1Token, dst: &mut [u8], src: &[u8]) {
 
 /// Bytes of one row covered by a fully-unrolled AVX2 tile iteration: four
 /// 32-byte vectors per stream, the leopard `xor_mem4` unroll width.
-#[cfg(any(test, feature = "internals"))]
 const AVX2_ROW_TILE: usize = 4 * 32;
 
 /// Bytes of one row covered by a fully-unrolled SSE2 tile iteration: four
 /// 16-byte vectors per stream.
-#[cfg(any(test, feature = "internals"))]
 const SSE2_ROW_TILE: usize = 4 * 16;
 
 /// `dst ^= src` over contiguous `row_len`-byte rows with four interleaved
@@ -163,7 +161,6 @@ const SSE2_ROW_TILE: usize = 4 * 16;
 /// # Panics
 /// Panics if the slices differ in length or their length is not a whole
 /// number of rows.
-#[cfg(any(test, feature = "internals"))]
 #[archmage::arcane]
 pub fn xor_rows_avx2(token: archmage::X64V3Token, dst: &mut [u8], src: &[u8], row_len: usize) {
     assert_eq!(dst.len(), src.len());
@@ -193,7 +190,6 @@ pub fn xor_rows_avx2(token: archmage::X64V3Token, dst: &mut [u8], src: &[u8], ro
 /// the end. The inner loops run to the const bound `W`, so LLVM unrolls them
 /// away and the body issues one independent load/xor/store chain per stream
 /// per tile without index arithmetic.
-#[cfg(any(test, feature = "internals"))]
 #[archmage::rite(v3, import_intrinsics)]
 fn xor_streams_avx2<const W: usize>(dst: &mut [u8], src: &[u8], row_len: usize) {
     debug_assert_eq!(dst.len(), src.len());
@@ -246,7 +242,6 @@ fn xor_streams_avx2<const W: usize>(dst: &mut [u8], src: &[u8], row_len: usize) 
 /// # Panics
 /// Panics if the slices differ in length or their length is not a whole
 /// number of rows.
-#[cfg(any(test, feature = "internals"))]
 #[archmage::arcane]
 pub fn xor_rows_sse2(token: archmage::X64V1Token, dst: &mut [u8], src: &[u8], row_len: usize) {
     assert_eq!(dst.len(), src.len());
@@ -268,7 +263,6 @@ pub fn xor_rows_sse2(token: archmage::X64V1Token, dst: &mut [u8], src: &[u8], ro
 }
 
 /// SSE2 twin of [`xor_streams_avx2`]; see that function for the layout.
-#[cfg(any(test, feature = "internals"))]
 #[archmage::rite(v1, import_intrinsics)]
 fn xor_streams_sse2<const W: usize>(dst: &mut [u8], src: &[u8], row_len: usize) {
     debug_assert_eq!(dst.len(), src.len());

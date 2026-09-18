@@ -27,8 +27,7 @@ mod imp {
     use std::time::Duration;
 
     use criterion::{BenchmarkId, Criterion, Throughput, criterion_group};
-    use fgf::kernel::x86;
-    use fgf::kernel::{SimdToken, X64V3Token};
+    use fgf::internals::kernel::{SimdToken, X64V3Token, x86};
     use fgf::quad_mersenne31::Elem;
     use fgf::{QuadMersenne31, backend, backend_for, has_vector_elementwise, ops};
 

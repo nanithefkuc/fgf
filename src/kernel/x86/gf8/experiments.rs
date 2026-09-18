@@ -1,7 +1,7 @@
-//! Internals-only measurement scaffolding for the GF(2^8) x86 kernels.
+//! Measurement variants for the GF(2^8) x86 kernels.
 //!
-//! Nothing here is reachable from production dispatch: the module is gated
-//! behind `internals` (or `test`) and exists only to price one decision
+//! Nothing here is reachable from production dispatch: these variants are
+//! exposed through the internals facade to price one decision
 //! against the production body it is paired with. Variants are grouped by
 //! what they measure — `tile` for tile width and store policy, `shuffle` for
 //! the nibble alternative to the GFNI multiply, `resolve` for per-call

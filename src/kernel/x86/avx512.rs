@@ -775,7 +775,7 @@ pub mod proven {
     ///
     /// # Panics
     /// Panics if the slices differ in length.
-    pub fn xor(_proof: crate::kernel::X64V4Token, dst: &mut [u8], src: &[u8]) {
+    pub fn xor(_proof: archmage::X64V4Token, dst: &mut [u8], src: &[u8]) {
         check_equal("avx512::xor", "dst", dst.len(), "src", src.len());
         super::xor(dst, src);
     }
@@ -785,7 +785,7 @@ pub mod proven {
     /// # Panics
     /// Panics if the slices differ in length.
     pub fn gf8_mul_add(
-        _proof: crate::kernel::X64V4xToken,
+        _proof: archmage::X64V4xToken,
         dst: &mut [u8],
         coeff: gf8b::Elem,
         src: &[u8],
@@ -795,7 +795,7 @@ pub mod proven {
     }
 
     /// `dst *= coeff` over 64-byte GFNI lanes.
-    pub fn gf8_mul_assign(_proof: crate::kernel::X64V4xToken, dst: &mut [u8], coeff: gf8b::Elem) {
+    pub fn gf8_mul_assign(_proof: archmage::X64V4xToken, dst: &mut [u8], coeff: gf8b::Elem) {
         super::gf8_mul_assign(dst, coeff);
     }
 
@@ -804,7 +804,7 @@ pub mod proven {
     /// # Panics
     /// Panics if the slices differ in length.
     pub fn gf8_mul_into(
-        _proof: crate::kernel::X64V4xToken,
+        _proof: archmage::X64V4xToken,
         dst: &mut [u8],
         coeff: gf8b::Elem,
         src: &[u8],
@@ -817,12 +817,7 @@ pub mod proven {
     ///
     /// # Panics
     /// Panics unless all three buffers match in length.
-    pub fn gf8_mul_elementwise(
-        _proof: crate::kernel::X64V4xToken,
-        dst: &mut [u8],
-        a: &[u8],
-        b: &[u8],
-    ) {
+    pub fn gf8_mul_elementwise(_proof: archmage::X64V4xToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
         check_equal(
             "avx512::gf8_mul_elementwise",
             "dst",
@@ -845,7 +840,7 @@ pub mod proven {
     /// # Panics
     /// Panics if the slices differ in length or hold a partial element.
     pub fn gf16_mul_add(
-        _proof: crate::kernel::X64V4xToken,
+        _proof: archmage::X64V4xToken,
         dst: &mut [u8],
         coeff: TowerCoeff,
         src: &[u8],
@@ -859,7 +854,7 @@ pub mod proven {
     ///
     /// # Panics
     /// Panics on a partial trailing element.
-    pub fn gf16_mul_assign(_proof: crate::kernel::X64V4xToken, dst: &mut [u8], coeff: TowerCoeff) {
+    pub fn gf16_mul_assign(_proof: archmage::X64V4xToken, dst: &mut [u8], coeff: TowerCoeff) {
         check_elem_multiple("avx512::gf16_mul_assign", dst.len(), 2);
         super::gf16_mul_assign(dst, coeff);
     }
@@ -869,7 +864,7 @@ pub mod proven {
     /// # Panics
     /// Panics if the slices differ in length or hold a partial element.
     pub fn gf16_mul_into(
-        _proof: crate::kernel::X64V4xToken,
+        _proof: archmage::X64V4xToken,
         dst: &mut [u8],
         coeff: TowerCoeff,
         src: &[u8],
@@ -883,12 +878,7 @@ pub mod proven {
     ///
     /// # Panics
     /// Panics unless all three buffers match in length (whole elements).
-    pub fn gf16_mul_elementwise(
-        _proof: crate::kernel::X64V4xToken,
-        dst: &mut [u8],
-        a: &[u8],
-        b: &[u8],
-    ) {
+    pub fn gf16_mul_elementwise(_proof: archmage::X64V4xToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
         check_equal(
             "avx512::gf16_mul_elementwise",
             "dst",
@@ -915,7 +905,7 @@ pub mod proven {
     /// Panics unless `rows` holds exactly `coeffs.len()` rows of `row_len`
     /// bytes and `row_len == src.len()` (the kernel's own assert).
     pub fn gf8_mul_add_scatter(
-        _proof: crate::kernel::X64V4xToken,
+        _proof: archmage::X64V4xToken,
         rows: &mut [u8],
         row_len: usize,
         coeffs: &[gf8b::Elem],
@@ -946,7 +936,7 @@ pub mod proven {
     /// Panics unless `coeffs.len() == srcs.len()` and every source matches
     /// `dst` in length.
     pub fn gf8_mul_add_gather(
-        _proof: crate::kernel::X64V4xToken,
+        _proof: archmage::X64V4xToken,
         dst: &mut [u8],
         coeffs: &[gf8b::Elem],
         srcs: &[&[u8]],
@@ -982,7 +972,7 @@ pub mod proven {
     /// and every term supplies `nrows` coefficients and a `row_len`-byte
     /// source.
     pub fn gf8_mul_add_matrix(
-        _proof: crate::kernel::X64V4xToken,
+        _proof: archmage::X64V4xToken,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -1003,7 +993,7 @@ pub mod proven {
     /// # Panics
     /// As [`gf8_mul_add_scatter`], with whole 2-byte elements.
     pub fn gf16_mul_add_scatter(
-        _proof: crate::kernel::X64V4xToken,
+        _proof: archmage::X64V4xToken,
         rows: &mut [u8],
         row_len: usize,
         coeffs: &[gf16::Elem],
@@ -1034,7 +1024,7 @@ pub mod proven {
     /// # Panics
     /// As [`gf8_mul_add_gather`], with whole 2-byte elements.
     pub fn gf16_mul_add_gather(
-        _proof: crate::kernel::X64V4xToken,
+        _proof: archmage::X64V4xToken,
         dst: &mut [u8],
         coeffs: &[gf16::Elem],
         srcs: &[&[u8]],
@@ -1069,7 +1059,7 @@ pub mod proven {
     /// # Panics
     /// As [`gf8_mul_add_matrix`], with whole 2-byte elements.
     pub fn gf16_mul_add_matrix(
-        _proof: crate::kernel::X64V4xToken,
+        _proof: archmage::X64V4xToken,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,

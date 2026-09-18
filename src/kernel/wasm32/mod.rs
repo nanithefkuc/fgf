@@ -8,7 +8,6 @@
 
 pub(crate) mod gf16;
 pub(crate) mod gf8;
-#[cfg(feature = "internals")]
 pub mod proven;
 
 use core::arch::wasm32::*;

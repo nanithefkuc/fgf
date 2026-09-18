@@ -1095,10 +1095,9 @@ mod x86 {
     // The 64-byte AVX-512 kernels are the deferred V4x tier (not in the
     // ladder) and have no `Backend` to resolve, so this hardware gate stays a
     // direct `is_x86_feature_detected!` — the one sanctioned exception. The
-    // kernels are experimental (`internals`) until a validated 512-bit GFNI
-    // kernel exists and V4x ships.
+    // kernels are experimental until a validated 512-bit GFNI kernel exists
+    // and V4x ships.
     #[test]
-    #[cfg(feature = "internals")]
     fn avx512_kernels_match_reference() {
         if !(std::is_x86_feature_detected!("avx512f")
             && std::is_x86_feature_detected!("avx512bw")
@@ -2805,9 +2804,8 @@ fn default_kernels_handle_empty_terms() {
 }
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-#[cfg(feature = "internals")]
 #[test]
-fn internals_only_gfni_controls_match_reference() {
+fn experimental_gfni_controls_match_reference() {
     use crate::kernel::x86;
     use archmage::{SimdToken as _, X64V3GfniCryptoToken, X64V3Token};
 
@@ -2856,7 +2854,6 @@ fn internals_only_gfni_controls_match_reference() {
 }
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-#[cfg(feature = "internals")]
 #[test]
 fn x86_geometry_guards_accept_zero_length_rows() {
     use crate::kernel::x86;
@@ -3005,7 +3002,6 @@ fn quad_one() -> quad_mersenne31::Elem {
 }
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-#[cfg(feature = "internals")]
 #[test]
 fn gfni_matrix_wrappers_accept_empty_terms() {
     use crate::kernel::FlatMatrix;
@@ -3043,7 +3039,6 @@ fn gfni_matrix_wrappers_accept_empty_terms() {
 }
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-#[cfg(feature = "internals")]
 #[test]
 fn scatter_affine_rejects_short_rows_buffer() {
     use crate::kernel::x86;
@@ -3070,7 +3065,6 @@ fn scatter_affine_rejects_short_rows_buffer() {
 }
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-#[cfg(feature = "internals")]
 #[test]
 fn gf16_gfni_wrappers_tolerate_degenerate_geometry() {
     use crate::kernel::x86;

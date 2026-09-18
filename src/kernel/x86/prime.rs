@@ -19,7 +19,7 @@
 //! through the direct entries.
 //!
 //! Every kernel processes whole vector lanes and hands the sub-lane remainder
-//! to the portable [`crate::kernel::prime`] path, which is also the differential
+//! to the portable `crate::kernel::prime` path, which is also the differential
 //! oracle. All lane operations are validated against a `u128 % p` model. The
 //! AVX2 kernels serve `V3`/`V3GfniCrypto`; the SSE4.2 kernels serve `V2`
 //! (x86-64-v2 guarantees SSE4.1 `pminud` and SSE4.2 `pcmpgtq`).

@@ -17,8 +17,8 @@ mod x86 {
     use std::hint::black_box;
     use std::time::Instant;
 
-    use fgf::kernel::tables::{ScaleTable, scale_table, scale_table_8d};
-    use fgf::kernel::{SimdToken, X64V3GfniCryptoToken, X64V3Token};
+    use fgf::internals::kernel::tables::{ScaleTable, scale_table, scale_table_8d};
+    use fgf::internals::kernel::{SimdToken, X64V3GfniCryptoToken, X64V3Token};
     use fgf::{Gf8B, Gf8D, backend, gf8b, gf8d, ops};
 
     const BYTES: usize = 64 * 1024;
@@ -139,7 +139,7 @@ mod x86 {
 
         let srcs = source_refs.as_slice();
         let run = |variant: &str, dst: &mut [u8]| {
-            use fgf::kernel::x86::gf8::{
+            use fgf::internals::kernel::x86::gf8::{
                 mul_into_matrix2_8b, mul_into_matrix2_8d, mul_into_matrix2_shuffle_packed,
             };
             match (variant, field) {

@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking (unstable surface only):** the `internals` feature is now a
+  re-export-only facade at `fgf::internals`; implementation modules live in
+  their private homes and are grouped under
+  `fgf::internals::kernel::{gf8, gf16, gf32, gf64, tower, fan_paar, prime,
+  scalar, tables}` (plus architecture modules under `simd` on their targets),
+  with `fgf::internals::kernel::{xor, Matrix, FlatMatrix}`, the capability
+  tokens, and `fgf::internals::field::wiedemann`. The old unstable
+  `fgf::kernel::{…}` and `fgf::field::wiedemann` paths no longer resolve
+  without the feature, and the feature no longer activates `archmage` (it is
+  visibility-only: `internals = []`). Migration: `fgf::kernel::x86::gf8::…`
+  becomes `fgf::internals::kernel::x86::gf8::…` (same shape for every other
+  kernel module), and `fgf::field::wiedemann` becomes
+  `fgf::internals::field::wiedemann`. Bench, example, and test targets that
+  reach the facade now declare it in `required-features`; `tests/zero_alloc.rs`
+  and `tests/goldilocks_wrap.rs` keep their public tests ungated, with the
+  direct-kernel cases moved to `zero_alloc_internals` and
+  `goldilocks_wrap_internals` targets. Supported public API paths are
+  unchanged.
+
+## [1.0.1] - 2026-09-16
 ## [1.1.0] - 2026-09-16
 
 ### Fixed

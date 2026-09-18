@@ -167,10 +167,12 @@ the complete supplied slices.
 | `alloc` | prepared coefficient collections and `pack_to_vec` |
 | `std` | runtime support and lazily initialized shared tables; implies `alloc` |
 | `simd` | runtime-dispatched architecture kernels; implies `std` |
-| `internals` | unstable direct kernel and experimentation surface |
+| `internals` | re-export-only facade of direct kernel and table surfaces |
 
-Nothing behind `internals` is a compatibility promise. Normal users should use
-`ops`, which handles backend selection and capability proofs internally.
+Nothing behind `internals` is a compatibility promise; the facade groups the
+implementation modules under `fgf::internals` and may change shape in any
+release. Normal users should use `ops`, which handles backend selection and
+capability proofs internally.
 
 ## Platforms and backends
 
@@ -219,8 +221,8 @@ arithmetic results canonically.
 multiple x86 hosts. The benchmark targets are:
 
 ```sh
-cargo bench --bench kernels
-cargo bench --bench compare
+cargo bench --features internals --bench kernels
+cargo bench --features internals --bench compare
 ```
 
 ## Building

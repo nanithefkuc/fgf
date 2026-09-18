@@ -6,9 +6,9 @@
 //! the blocked multi-row shapes actually beat repeated single-row AXPY.
 //!
 //! ```sh
-//! cargo bench --bench kernels
-//! SIMD_BACKEND=v3      cargo bench --bench kernels   # compare backends
-//! SIMD_BACKEND=scalar cargo bench --bench kernels
+//! cargo bench --features internals --bench kernels
+//! SIMD_BACKEND=v3     cargo bench --features internals --bench kernels # compare backends
+//! SIMD_BACKEND=scalar cargo bench --features internals --bench kernels
 //! ```
 
 // Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
@@ -161,15 +161,11 @@ fn bench_network_payloads() {
 /// matrix (`src/kernel/gf16.rs:119-149`). That choice is a measurement, not a
 /// theory, so it needs a harness that can run both sides in one process:
 /// hence the `internals` feature and the token-proven kernel calls.
-#[cfg(all(
-    feature = "internals",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn bench_blocked_vs_axpy() {
-    use fgf::kernel::tables::{TowerCoeff, TowerTables};
-    use fgf::kernel::x86;
-    use fgf::kernel::{SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token};
+    use fgf::internals::kernel::tables::{TowerCoeff, TowerTables};
+    use fgf::internals::kernel::x86;
+    use fgf::internals::kernel::{SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token};
 
     // Genuine capability tokens, summoned once: each tier that the host
     // cannot prove is skipped rather than SIGILLed.
@@ -643,10 +639,7 @@ fn main() {
     bench_add_assign_rows::<Mersenne31>("m31 (prime control, flat default)");
     bench_large_destination();
     bench_destination_alignment();
-    #[cfg(all(
-        feature = "internals",
-        any(target_arch = "x86", target_arch = "x86_64")
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     bench_blocked_vs_axpy();
 
     bench_network_payloads();

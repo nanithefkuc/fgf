@@ -6,24 +6,16 @@
 //! the ISA-L harness.
 //!
 //! ```sh
-//! cargo bench --bench compare
+//! cargo bench --features internals --bench compare
 //! ```
 
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-#[cfg(all(
-    feature = "internals",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
-use fgf::kernel::tables::{ScaleTable, scale_table, scale_table_8d};
-#[cfg(all(
-    feature = "internals",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
-use fgf::kernel::{SimdToken, X64V3GfniCryptoToken};
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+use fgf::internals::kernel::tables::{ScaleTable, scale_table, scale_table_8d};
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+use fgf::internals::kernel::{SimdToken, X64V3GfniCryptoToken};
 use fgf::{Gf8B, Gf8D, Gf16, backend, gf8b, gf8d, gf16, ops};
 
 const BYTES: usize = 64 * 1024;
@@ -45,11 +37,7 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
         .collect()
 }
 
-#[cfg(all(
-    feature = "internals",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn pack_table(table: &ScaleTable) -> [u8; 32] {
     let mut packed = [0u8; 32];
     packed[..16].copy_from_slice(&table.lo);
@@ -246,11 +234,7 @@ fn bench_encode(nrows: usize) {
         );
     });
 
-    #[cfg(all(
-        feature = "internals",
-        feature = "simd",
-        any(target_arch = "x86", target_arch = "x86_64")
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     if nrows == 6 {
         // A genuine capability token proves AVX2+GFNI for the shuffle
         // kernels; skip the comparison on hosts that cannot run them.
@@ -280,26 +264,26 @@ fn bench_encode(nrows: usize) {
         let mut raw_8d = AlignedBuf::noise(BYTES * nrows, 0xb06);
         let mut packed_rows_8d = AlignedBuf::noise(BYTES * nrows, 0xb07);
 
-        fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_8b(
+        fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_8b(
             gfni,
             raw_8b.as_mut_slice(),
             BYTES,
             &terms_8b,
         );
-        fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8b(
+        fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8b(
             gfni,
             packed_rows_8b.as_mut_slice(),
             BYTES,
             &packed_8b,
             &source_refs,
         );
-        fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_8d(
+        fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_8d(
             gfni,
             raw_8d.as_mut_slice(),
             BYTES,
             &terms_8d,
         );
-        fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8d(
+        fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8d(
             gfni,
             packed_rows_8d.as_mut_slice(),
             BYTES,
@@ -328,7 +312,7 @@ fn bench_encode(nrows: usize) {
         );
 
         bench_region("fgf Gf8B six-row raw shuffle", logical_bytes, || {
-            fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_8b(
+            fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_8b(
                 gfni,
                 black_box(raw_8b.as_mut_slice()),
                 BYTES,
@@ -336,7 +320,7 @@ fn bench_encode(nrows: usize) {
             );
         });
         bench_region("fgf Gf8B six-row packed shuffle", logical_bytes, || {
-            fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8b(
+            fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8b(
                 gfni,
                 black_box(packed_rows_8b.as_mut_slice()),
                 BYTES,
@@ -345,7 +329,7 @@ fn bench_encode(nrows: usize) {
             );
         });
         bench_region("fgf Gf8D six-row raw shuffle", logical_bytes, || {
-            fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_8d(
+            fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_8d(
                 gfni,
                 black_box(raw_8d.as_mut_slice()),
                 BYTES,
@@ -353,7 +337,7 @@ fn bench_encode(nrows: usize) {
             );
         });
         bench_region("fgf Gf8D six-row packed shuffle", logical_bytes, || {
-            fgf::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8d(
+            fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8d(
                 gfni,
                 black_box(packed_rows_8d.as_mut_slice()),
                 BYTES,

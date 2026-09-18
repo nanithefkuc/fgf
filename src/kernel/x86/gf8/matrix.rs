@@ -14,7 +14,6 @@
 
 use super::rows::{matrix_rows1, matrix_rows2, matrix_rows4};
 use super::{Affine8D, Blocked, Gfni};
-#[cfg(any(test, feature = "internals"))]
 use super::{Affine8DPrepared, PreparedMatrix};
 use crate::field::gf8b::Elem;
 use crate::field::gf8d;
@@ -253,7 +252,6 @@ pub fn mul_into_matrix_affine_with<M: Matrix<gf8d::Elem> + ?Sized>(
 /// # Panics
 /// As [`mul_add_matrix_gfni_with`], plus unless `prepared` holds `nrows` coefficients per
 /// source.
-#[cfg(any(test, feature = "internals"))]
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
 pub fn mul_add_matrix_affine_prepared_with(
@@ -294,7 +292,6 @@ pub fn mul_add_matrix_affine_prepared_with(
 ///
 /// # Panics
 /// As [`mul_add_matrix_affine_prepared_with`].
-#[cfg(any(test, feature = "internals"))]
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
 pub fn mul_into_matrix_affine_prepared_with(

@@ -34,10 +34,7 @@ macro_rules! gfni_tower_dispatch {
         #[derive(Clone, Debug)]
         pub enum Prepared {
             #[doc = concat!("GFNI: ", $tiles_doc, ", plus the element for the scalar tail.")]
-            #[cfg(any(
-                all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")),
-                feature = "internals"
-            ))]
+            #[allow(dead_code)]
             Compact {
                 #[doc = concat!("The ", $name, " coefficient, for the portable tail.")]
                 coeff: Elem,
@@ -56,10 +53,6 @@ macro_rules! gfni_tower_dispatch {
             pub const fn coeff(&self) -> Elem {
                 match self {
                     Self::Plain(coeff) => *coeff,
-                    #[cfg(any(
-                        all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")),
-                        feature = "internals"
-                    ))]
                     Self::Compact { coeff, .. } => *coeff,
                 }
             }
@@ -295,23 +288,7 @@ pub mod gf16 {
     /// `dst ^= coeff * src` over interleaved elements, one element at a time.
     ///
     /// The tail handler for the vector kernels.
-    #[cfg(feature = "internals")]
     pub fn mul_add_scalar(dst: &mut [u8], coeff: Elem, src: &[u8]) {
-        mul_add_scalar_impl(dst, coeff, src);
-    }
-
-    #[cfg(not(feature = "internals"))]
-    pub(crate) fn mul_add_scalar(dst: &mut [u8], coeff: Elem, src: &[u8]) {
-        mul_add_scalar_impl(dst, coeff, src);
-    }
-
-    /// Per element this is 8 nibble lookups and 7 XORs against the 3 base-field
-    /// multiplies a Karatsuba [`Elem::mul`] performs — each of those a
-    /// carry-less product plus reduction, and none of them shared between
-    /// elements. Since `coeff` is fixed for the whole buffer its four base
-    /// factors collapse into split-nibble tables once, so the loop body becomes
-    /// pure loads.
-    fn mul_add_scalar_impl(dst: &mut [u8], coeff: Elem, src: &[u8]) {
         debug_assert_eq!(dst.len(), src.len());
         if coeff == Elem::ZERO {
             return;
@@ -330,19 +307,7 @@ pub mod gf16 {
     }
 
     /// `dst *= coeff` over interleaved elements, one element at a time.
-    #[cfg(feature = "internals")]
     pub fn mul_assign_scalar(dst: &mut [u8], coeff: Elem) {
-        mul_assign_scalar_impl(dst, coeff);
-    }
-
-    #[cfg(not(feature = "internals"))]
-    pub(crate) fn mul_assign_scalar(dst: &mut [u8], coeff: Elem) {
-        mul_assign_scalar_impl(dst, coeff);
-    }
-
-    /// Table-driven for the same reason as [`mul_add_scalar_impl`], reading the
-    /// destination as its own source.
-    fn mul_assign_scalar_impl(dst: &mut [u8], coeff: Elem) {
         if coeff == Elem::ONE {
             return;
         }
@@ -363,20 +328,8 @@ pub mod gf16 {
     ///
     /// Tail handler for the fused out-of-place vector kernels, mirroring
     /// [`mul_add_scalar`] without the destination read.
-    #[cfg(feature = "internals")]
-    pub fn mul_into_scalar(dst: &mut [u8], coeff: Elem, src: &[u8]) {
-        mul_into_scalar_impl(dst, coeff, src);
-    }
-
-    #[cfg(not(feature = "internals"))]
     #[allow(dead_code)]
-    pub(crate) fn mul_into_scalar(dst: &mut [u8], coeff: Elem, src: &[u8]) {
-        mul_into_scalar_impl(dst, coeff, src);
-    }
-
-    /// Table-driven for the same reason as [`mul_add_scalar_impl`], storing the
-    /// product instead of accumulating it.
-    fn mul_into_scalar_impl(dst: &mut [u8], coeff: Elem, src: &[u8]) {
+    pub fn mul_into_scalar(dst: &mut [u8], coeff: Elem, src: &[u8]) {
         debug_assert_eq!(dst.len(), src.len());
         if coeff == Elem::ZERO {
             dst.fill(0);

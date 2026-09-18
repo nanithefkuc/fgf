@@ -2,7 +2,7 @@
 //! (`internals`).
 //!
 //! On wasm32, `+simd128` is a compile-time capability choice. The genuine
-//! [`Wasm128Token`](crate::kernel::Wasm128Token) names that capability;
+//! [`Wasm128Token`](archmage::Wasm128Token) names that capability;
 //! each public wrapper also validates geometry before entering its kernel.
 //!
 //! [`archmage`]: https://docs.rs/archmage
@@ -16,7 +16,7 @@ pub mod bytes {
     ///
     /// # Panics
     /// Panics if the slices differ in length.
-    pub fn xor_simd128(_proof: crate::kernel::Wasm128Token, dst: &mut [u8], src: &[u8]) {
+    pub fn xor_simd128(_proof: archmage::Wasm128Token, dst: &mut [u8], src: &[u8]) {
         check_equal("xor_simd128", "dst", dst.len(), "src", src.len());
         super::super::xor_simd128(dst, src);
     }
@@ -34,7 +34,7 @@ pub mod gf8 {
     /// # Panics
     /// Panics if the slices differ in length.
     pub fn mul_add_simd128(
-        _proof: crate::kernel::Wasm128Token,
+        _proof: archmage::Wasm128Token,
         dst: &mut [u8],
         table: &ScaleTable,
         src: &[u8],
@@ -44,11 +44,7 @@ pub mod gf8 {
     }
 
     /// `dst *= coeff` over 16-byte SIMD lanes.
-    pub fn mul_assign_simd128(
-        _proof: crate::kernel::Wasm128Token,
-        dst: &mut [u8],
-        table: &ScaleTable,
-    ) {
+    pub fn mul_assign_simd128(_proof: archmage::Wasm128Token, dst: &mut [u8], table: &ScaleTable) {
         selected::mul_assign_simd128(dst, table);
     }
 
@@ -57,7 +53,7 @@ pub mod gf8 {
     /// # Panics
     /// Panics if the slices differ in length.
     pub fn mul_into_simd128(
-        _proof: crate::kernel::Wasm128Token,
+        _proof: archmage::Wasm128Token,
         dst: &mut [u8],
         table: &ScaleTable,
         src: &[u8],
@@ -70,12 +66,7 @@ pub mod gf8 {
     ///
     /// # Panics
     /// Panics unless all three buffers match in length.
-    pub fn elementwise_simd128(
-        _proof: crate::kernel::Wasm128Token,
-        dst: &mut [u8],
-        a: &[u8],
-        b: &[u8],
-    ) {
+    pub fn elementwise_simd128(_proof: archmage::Wasm128Token, dst: &mut [u8], a: &[u8], b: &[u8]) {
         check_equal("gf8::elementwise_simd128", "dst", dst.len(), "a", a.len());
         check_equal("gf8::elementwise_simd128", "dst", dst.len(), "b", b.len());
         selected::elementwise_simd128(dst, a, b);
@@ -89,7 +80,7 @@ pub mod gf8 {
     /// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len`
     /// bytes and `row_len == src.len()`.
     pub fn scatter_simd128(
-        _proof: crate::kernel::Wasm128Token,
+        _proof: archmage::Wasm128Token,
         rows: &mut [u8],
         row_len: usize,
         coeffs: &[Elem],
@@ -109,7 +100,7 @@ pub mod gf8 {
     /// Panics unless `coeffs.len() == srcs.len()` and every source matches
     /// `dst` in length.
     pub fn gather_simd128(
-        _proof: crate::kernel::Wasm128Token,
+        _proof: archmage::Wasm128Token,
         dst: &mut [u8],
         coeffs: &[Elem],
         srcs: &[&[u8]],
@@ -145,7 +136,7 @@ pub mod gf8 {
     /// every term supplies `nrows` coefficients, and every source is
     /// `row_len` bytes.
     pub fn matrix_simd128(
-        _proof: crate::kernel::Wasm128Token,
+        _proof: archmage::Wasm128Token,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -172,7 +163,7 @@ pub mod gf16 {
     /// # Panics
     /// Panics if the slices differ in length or hold a partial element.
     pub fn mul_add_simd128(
-        _proof: crate::kernel::Wasm128Token,
+        _proof: archmage::Wasm128Token,
         dst: &mut [u8],
         tables: &TowerTables,
         src: &[u8],
@@ -187,7 +178,7 @@ pub mod gf16 {
     /// # Panics
     /// Panics on a partial trailing element.
     pub fn mul_assign_simd128(
-        _proof: crate::kernel::Wasm128Token,
+        _proof: archmage::Wasm128Token,
         dst: &mut [u8],
         tables: &TowerTables,
     ) {
@@ -200,7 +191,7 @@ pub mod gf16 {
     /// # Panics
     /// Panics if the slices differ in length or hold a partial element.
     pub fn mul_into_simd128(
-        _proof: crate::kernel::Wasm128Token,
+        _proof: archmage::Wasm128Token,
         dst: &mut [u8],
         tables: &TowerTables,
         src: &[u8],
@@ -214,12 +205,7 @@ pub mod gf16 {
     ///
     /// # Panics
     /// Panics unless all three buffers match in length (whole elements).
-    pub fn elementwise_simd128(
-        _proof: crate::kernel::Wasm128Token,
-        dst: &mut [u8],
-        a: &[u8],
-        b: &[u8],
-    ) {
+    pub fn elementwise_simd128(_proof: archmage::Wasm128Token, dst: &mut [u8], a: &[u8], b: &[u8]) {
         check_equal("gf16::elementwise_simd128", "dst", dst.len(), "a", a.len());
         check_equal("gf16::elementwise_simd128", "dst", dst.len(), "b", b.len());
         check_elem_multiple("gf16::elementwise_simd128", dst.len(), 2);
@@ -234,7 +220,7 @@ pub mod gf16 {
     /// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len`
     /// bytes (whole elements) and `row_len == src.len()`.
     pub fn scatter_simd128(
-        _proof: crate::kernel::Wasm128Token,
+        _proof: archmage::Wasm128Token,
         rows: &mut [u8],
         row_len: usize,
         coeffs: &[Elem],
@@ -261,7 +247,7 @@ pub mod gf16 {
     /// Panics unless `coeffs.len() == srcs.len()` and every source matches
     /// `dst` in length (whole elements).
     pub fn gather_simd128(
-        _proof: crate::kernel::Wasm128Token,
+        _proof: archmage::Wasm128Token,
         dst: &mut [u8],
         coeffs: &[Elem],
         srcs: &[&[u8]],
@@ -298,7 +284,7 @@ pub mod gf16 {
     /// (whole elements), every term supplies `nrows` coefficients, and every
     /// source is `row_len` bytes.
     pub fn matrix_simd128(
-        _proof: crate::kernel::Wasm128Token,
+        _proof: archmage::Wasm128Token,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,

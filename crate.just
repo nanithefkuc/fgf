@@ -36,6 +36,16 @@ features-alloc:
     cargo test --no-default-features --features alloc
     cargo clippy --no-default-features --features alloc --all-targets -- -D warnings
 
+# Exposure must compile without activating SIMD or its capability-token dependency.
+[group('test')]
+features-internals:
+    cargo check --all-targets --no-default-features
+    cargo check --all-targets --no-default-features --features internals
+    cargo check --all-targets --no-default-features --features alloc,internals
+    cargo check --all-targets --no-default-features --features std,internals
+    cargo check --all-targets
+    cargo check --all-targets --all-features
+
 # The ISA-L competitor comparison. `bench-isal/` is a separate, unpublished
 # package: linking the system ISA-L needs a build script, and `fgf` itself
 # carries none. Requires `libisal` discoverable through pkg-config; the

@@ -21,9 +21,6 @@ pub mod goldilocks;
 pub mod mersenne31;
 pub mod quad_mersenne31;
 pub mod tower;
-#[cfg(feature = "internals")]
-pub mod wiedemann;
-#[cfg(not(feature = "internals"))]
 #[allow(dead_code)]
 pub(crate) mod wiedemann;
 

@@ -13,11 +13,7 @@
 //! cargo bench --features internals --bench affine
 //! ```
 
-#[cfg(all(
-    feature = "internals",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 mod imp {
     use std::hint::black_box;
     use std::time::Duration;
@@ -25,10 +21,10 @@ mod imp {
     use criterion::{BenchmarkId, Criterion, Throughput, criterion_group};
     use fgf::gf8b;
     use fgf::gf8d;
-    use fgf::kernel::scalar;
-    use fgf::kernel::tables::{affine_8d, scale_table_8d};
-    use fgf::kernel::x86;
-    use fgf::kernel::{SimdToken, X64V3GfniCryptoToken, X64V3Token};
+    use fgf::internals::kernel::scalar;
+    use fgf::internals::kernel::tables::{affine_8d, scale_table_8d};
+    use fgf::internals::kernel::x86;
+    use fgf::internals::kernel::{SimdToken, X64V3GfniCryptoToken, X64V3Token};
 
     /// The crate-wide deterministic source (same LCG as the tests and the other
     /// benches), so benchmark bytes match what the differential tests exercise.
@@ -417,18 +413,10 @@ mod imp {
     );
 }
 
-#[cfg(all(
-    feature = "internals",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 criterion::criterion_main!(imp::benches);
 
-#[cfg(not(all(
-    feature = "internals",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-)))]
+#[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
 fn main() {
     eprintln!("the affine kernels are x86 GFNI only; nothing to measure on this target");
 }

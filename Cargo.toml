@@ -36,10 +36,9 @@ std = ["alloc", "simdispatch/std"]
 # 64-byte AVX-512 tier is deferred), neon_aes / neon on AArch64, and
 # `wasm128` on Wasm. Enabling also resolves the backend via `simdispatch`.
 simd = ["std", "dep:archmage"]
-# Expose the crate's internal kernel modules and preparation types for
-# downstream libraries that build directly on the kernels. This is not a
-# stable semver surface; it is for development of dependent libraries.
-internals = ["dep:archmage"]
+# Visibility-only access to implementation details for benchmarks and
+# experiments; no compatibility guarantees and no dependency activation.
+internals = []
 
 [dependencies]
 simdispatch = { version = "=0.1.0", default-features = false }
@@ -63,24 +62,24 @@ harness = false
 # The benches time with `std` and measure the prepared-coefficient
 # collections; without this gate the bench targets break
 # `--no-default-features --all-targets`.
-required-features = ["std"]
+required-features = ["std", "simd", "internals"]
 
 [[bench]]
 name = "compare"
 harness = false
-required-features = ["std"]
+required-features = ["std", "simd", "internals"]
 
 [[bench]]
 name = "affine"
 harness = false
-# Direct kernel calls need the kernel modules public.
-required-features = ["std", "internals"]
+# Direct kernel calls use the unstable facade and SIMD capability tokens.
+required-features = ["std", "simd", "internals"]
 
 [[bench]]
 name = "dot_product"
 harness = false
 # Direct GFNI kernel calls need the internal architecture modules.
-required-features = ["std", "internals"]
+required-features = ["std", "simd", "internals"]
 
 [[bench]]
 name = "prime_ntt"
@@ -91,7 +90,19 @@ required-features = ["std", "internals"]
 [[example]]
 name = "perf_p2"
 # Calls internal experimental two-row overwrite kernels directly.
-required-features = ["std", "internals"]
+required-features = ["std", "simd", "internals"]
+
+[[test]]
+name = "internals"
+required-features = ["std", "simd", "internals"]
+
+[[test]]
+name = "goldilocks_wrap_internals"
+required-features = ["std", "simd", "internals"]
+
+[[test]]
+name = "zero_alloc_internals"
+required-features = ["std", "simd", "internals"]
 
 # Release codegen a profiler can attribute: opt-level 3 with full debug info
 # and no symbol stripping. Frame pointers come from RUSTFLAGS in `just

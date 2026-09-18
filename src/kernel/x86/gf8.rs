@@ -6,7 +6,7 @@
 //! `matrix` many sources into many rows over the register-blocked row-group
 //! bodies in `rows`, and `nibble_rows` holds the multi-row shapes of the
 //! shuffle strategy. `elementwise` multiplies two varying buffers lane-wise.
-//! `experiments` holds the internals-only measurement variants, which reach
+//! `experiments` holds measurement variants, which reach
 //! into the production bodies above without duplicating them.
 //!
 //! Two multiply strategies, selected by the
@@ -25,7 +25,7 @@
 //!
 //! Buffer lengths are arbitrary, so x86 kernels descend through 32-byte and
 //! 16-byte SIMD lanes before handing only the sub-XMM remainder to the scalar
-//! nibble kernels in [`crate::kernel::gf8`].
+//! nibble kernels in `crate::kernel::gf8`.
 //!
 //! Every public entry is a safe [`archmage`] capability-token function:
 //! `X64V3GfniCryptoToken` for the GFNI multiplies, `X64V3Token` for the
@@ -43,7 +43,6 @@
 //! over this seam and monomorphize back to the code each field had alone.
 
 mod elementwise;
-#[cfg(any(test, feature = "internals"))]
 mod experiments;
 mod gather;
 mod gfni;
@@ -54,7 +53,6 @@ mod rows;
 mod scatter;
 
 pub use elementwise::*;
-#[cfg(any(test, feature = "internals"))]
 pub use experiments::*;
 pub use gather::*;
 pub use gfni::*;
@@ -70,9 +68,7 @@ use core::arch::x86_64::*;
 
 use crate::field::gf8b::Elem;
 use crate::field::gf8d;
-#[cfg(any(test, feature = "internals"))]
 use crate::kernel::Matrix;
-#[cfg(any(test, feature = "internals"))]
 use crate::kernel::tables::affine_8b;
 use crate::kernel::tables::{ScaleTable, affine_8d, scale_table, scale_table_8d};
 
@@ -119,7 +115,6 @@ impl Blocked for Gfni {
 ///
 /// Map lookup stays outside the timed gather body. The nibble table remains
 /// attached only for sub-XMM remainders.
-#[cfg(any(test, feature = "internals"))]
 #[derive(Clone, Copy)]
 pub struct Affine8BFactor {
     map: u64,
@@ -127,7 +122,6 @@ pub struct Affine8BFactor {
 }
 
 /// Prepare one `Gf8B` coefficient for [`mul_add_gather_affine_8b`].
-#[cfg(any(test, feature = "internals"))]
 #[inline]
 #[must_use]
 pub fn prepare_affine_8b(coeff: Elem) -> Affine8BFactor {
@@ -138,9 +132,7 @@ pub fn prepare_affine_8b(coeff: Elem) -> Affine8BFactor {
 }
 
 /// Experimental affine-map multiply in the AES field `0x11B` (`Gf8B`).
-#[cfg(any(test, feature = "internals"))]
 enum Affine8B {}
-#[cfg(any(test, feature = "internals"))]
 impl Blocked for Affine8B {
     type Coeff = Affine8BFactor;
     const AFFINE: bool = true;
@@ -192,9 +184,7 @@ impl Blocked for Affine8D {
 /// operations use this to consume a [`crate::ops::CoeffVec`]'s coefficients
 /// without rebuilding them per call; the sub-lane remainder still reads the
 /// attached nibble table.
-#[cfg(any(test, feature = "internals"))]
 pub(super) enum Affine8DPrepared {}
-#[cfg(any(test, feature = "internals"))]
 impl Blocked for Affine8DPrepared {
     type Coeff = crate::kernel::gf8::Prepared8D;
     const AFFINE: bool = true;
@@ -222,7 +212,6 @@ impl Blocked for Affine8DPrepared {
 /// A row-major coefficient matrix over already-prepared coefficients, in the
 /// same term-major order a [`crate::ops::CoeffMatrix`] stores: index
 /// `term * nrows + row`.
-#[cfg(any(test, feature = "internals"))]
 pub(super) struct PreparedMatrix<'a> {
     /// Prepared coefficients, `terms * nrows` entries.
     pub(super) prepared: &'a [crate::kernel::gf8::Prepared8D],
@@ -232,7 +221,6 @@ pub(super) struct PreparedMatrix<'a> {
     pub(super) sources: &'a [&'a [u8]],
 }
 
-#[cfg(any(test, feature = "internals"))]
 impl Matrix<crate::kernel::gf8::Prepared8D> for PreparedMatrix<'_> {
     #[inline]
     fn len(&self) -> usize {

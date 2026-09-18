@@ -19,83 +19,34 @@
 //! Callers should use the safe, validated wrappers in [`crate::ops`] rather
 //! than this module directly.
 
-#[cfg(feature = "internals")]
-pub mod fan_paar;
-#[cfg(not(feature = "internals"))]
 pub(crate) mod fan_paar;
-
-#[cfg(feature = "internals")]
-pub mod tower;
-#[cfg(not(feature = "internals"))]
 pub(crate) mod tower;
-
-#[cfg(feature = "internals")]
-pub use tower::{gf16, gf32, gf64};
 // The re-exported names are reached only from the architecture kernels,
 // which cfg away entirely on a scalar-only build.
-#[cfg(not(feature = "internals"))]
 #[allow(unused_imports)]
 pub(crate) use tower::{gf16, gf32, gf64};
 
-#[cfg(feature = "internals")]
-pub mod gf8;
-#[cfg(not(feature = "internals"))]
-pub(crate) mod gf8;
-
-#[cfg(feature = "internals")]
-pub mod gf2;
-#[cfg(not(feature = "internals"))]
 pub(crate) mod gf2;
-
-#[cfg(feature = "internals")]
-pub mod goldilocks;
-#[cfg(not(feature = "internals"))]
+pub(crate) mod gf8;
 pub(crate) mod goldilocks;
-
-#[cfg(feature = "internals")]
-pub mod mersenne31;
-#[cfg(not(feature = "internals"))]
 pub(crate) mod mersenne31;
-
-#[cfg(feature = "internals")]
-pub mod quad_mersenne31;
-#[cfg(not(feature = "internals"))]
-pub(crate) mod quad_mersenne31;
-
-#[cfg(feature = "internals")]
-pub mod prime;
-#[cfg(not(feature = "internals"))]
 pub(crate) mod prime;
-#[cfg(feature = "internals")]
-pub mod scalar;
-#[cfg(not(feature = "internals"))]
+pub(crate) mod quad_mersenne31;
 pub(crate) mod scalar;
-
-#[cfg(feature = "internals")]
-pub mod tables;
-#[cfg(not(feature = "internals"))]
 pub(crate) mod tables;
 
 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-#[cfg(feature = "internals")]
-pub mod aarch64;
-#[cfg(all(feature = "simd", target_arch = "aarch64"))]
-#[cfg(not(feature = "internals"))]
 pub(crate) mod aarch64;
-
 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-#[cfg(feature = "internals")]
-pub mod wasm32;
-#[cfg(all(feature = "simd", target_arch = "wasm32"))]
-#[cfg(not(feature = "internals"))]
 pub(crate) mod wasm32;
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+pub(crate) mod x86;
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-#[cfg(feature = "internals")]
-pub mod x86;
+pub(crate) mod matrix_provider;
+pub(crate) use byte_ops::xor;
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-#[cfg(not(feature = "internals"))]
-pub(crate) mod x86;
+pub(crate) use matrix_provider::{FlatMatrix, Matrix};
 
 #[cfg(test)]
 mod tests;
@@ -104,11 +55,7 @@ use crate::field::Field;
 
 // Only the SIMD-enabled resolve path consults the environment; under a
 // std-less build `backend()` reports `Scalar` without touching `Selection`.
-#[cfg(all(
-    feature = "simd",
-    not(feature = "internals"),
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use archmage::SimdToken;
 #[cfg(feature = "simd")]
 use simdispatch::Selection;
@@ -316,84 +263,6 @@ pub fn has_vector_elementwise<F: FieldKernels>() -> bool {
 pub fn vector_elementwise_min_bytes<F: FieldKernels>() -> usize {
     F::vector_elementwise_min_bytes()
 }
-
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-#[cfg(feature = "internals")]
-/// Matrix-like coefficient/source provider for the register-blocked x86 kernels.
-#[allow(clippy::len_without_is_empty)]
-pub trait Matrix<C> {
-    /// Number of terms.
-    fn len(&self) -> usize;
-    /// The coefficient of `term` for destination row `row`.
-    fn coefficient(&self, term: usize, row: usize) -> &C;
-    /// The source buffer of `term`.
-    fn source(&self, term: usize) -> &[u8];
-}
-
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-#[cfg(not(feature = "internals"))]
-pub(crate) trait Matrix<C> {
-    fn len(&self) -> usize;
-    fn coefficient(&self, term: usize, row: usize) -> &C;
-    fn source(&self, term: usize) -> &[u8];
-}
-
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-impl<C> Matrix<C> for [(&[C], &[u8])] {
-    #[inline]
-    fn len(&self) -> usize {
-        <[(&[C], &[u8])]>::len(self)
-    }
-
-    #[inline]
-    fn coefficient(&self, term: usize, row: usize) -> &C {
-        &self[term].0[row]
-    }
-
-    #[inline]
-    fn source(&self, term: usize) -> &[u8] {
-        self[term].1
-    }
-}
-
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-#[cfg(feature = "internals")]
-/// Flat row-major coefficient matrix over borrowed sources.
-pub struct FlatMatrix<'a, C> {
-    /// Flat row-major coefficients, `terms * nrows` entries.
-    pub coefficients: &'a [C],
-    /// Destination row count.
-    pub nrows: usize,
-    /// Source buffers, one per term.
-    pub sources: &'a [&'a [u8]],
-}
-
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-#[cfg(not(feature = "internals"))]
-pub(crate) struct FlatMatrix<'a, C> {
-    pub(crate) coefficients: &'a [C],
-    pub(crate) nrows: usize,
-    pub(crate) sources: &'a [&'a [u8]],
-}
-
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-impl<C> Matrix<C> for FlatMatrix<'_, C> {
-    #[inline]
-    fn len(&self) -> usize {
-        self.sources.len()
-    }
-
-    #[inline]
-    fn coefficient(&self, term: usize, row: usize) -> &C {
-        &self.coefficients[term * self.nrows + row]
-    }
-
-    #[inline]
-    fn source(&self, term: usize) -> &[u8] {
-        self.sources[term]
-    }
-}
-
 /// The per-field vector kernel contract, as a public bound.
 ///
 /// This trait is the *nameable* half of the kernel surface: generic code
@@ -826,35 +695,13 @@ pub(crate) trait KernelDispatch: Field {
 /// zero-sized unit struct and the argument exists only in the type system.
 pub(crate) struct RawDispatch;
 
-// Capability-token re-exports for the `internals` architecture surface. The
-// tokens are genuine archmage proofs (sealed, unforgeable); re-exporting them
-// keeps internals consumers and fgf's own benches free of a direct archmage
-// dependency. cfg'd per architecture so a wrong-arch token never appears.
-#[cfg(feature = "internals")]
-pub use archmage::SimdToken;
-#[cfg(all(
-    feature = "internals",
-    all(target_arch = "wasm32", target_feature = "simd128")
-))]
-pub use archmage::Wasm128Token;
-#[cfg(all(feature = "internals", target_arch = "aarch64"))]
-pub use archmage::{NeonAesToken, NeonToken};
-#[cfg(all(
-    feature = "internals",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
-pub use archmage::{
-    X64V1Token, X64V2Token, X64V3GfniCryptoToken, X64V3Token, X64V4Token, X64V4xToken,
-};
-
 /// Shared runtime validation for architecture compatibility facades.
 ///
 /// Direct x86 entries own their validation. The deferred AVX-512 experiments
 /// and the `AArch64` and Wasm compatibility facades use these helpers to apply
 /// the same public geometry contract before entering their selected kernels.
-// Compiled only where an internals architecture facade can use it.
+// Compiled wherever an architecture compatibility facade can use it.
 #[cfg(all(
-    feature = "internals",
     feature = "simd",
     any(
         target_arch = "x86",
@@ -899,25 +746,6 @@ pub(crate) mod proven_checks {
             "{name}: rows is {buffer_len} bytes but {count} rows of {row_len} bytes need {used}"
         );
     }
-}
-
-/// `dst ^= src` over raw bytes.
-///
-/// Field-independent: addition in every binary field is XOR, and XOR of a
-/// packed element array is XOR of its bytes regardless of element width.
-///
-/// # Panics
-/// Panics if the slices differ in length.
-#[cfg(feature = "internals")]
-pub fn xor(dst: &mut [u8], src: &[u8]) {
-    assert_eq!(dst.len(), src.len(), "fgf::xor: length mismatch");
-    xor_impl(dst, src);
-}
-
-#[cfg(not(feature = "internals"))]
-pub(crate) fn xor(dst: &mut [u8], src: &[u8]) {
-    assert_eq!(dst.len(), src.len(), "fgf::xor: length mismatch");
-    xor_impl(dst, src);
 }
 
 /// `dst ^= sum(srcs[i])` — a blocked XOR gather over byte offsets into one
@@ -1003,26 +831,37 @@ pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
 /// reference host (BENCHMARKS.md, "Short-buffer inline XOR").
 const XOR_INLINE_MAX: usize = 31;
 
-fn xor_impl(dst: &mut [u8], src: &[u8]) {
-    assert_eq!(dst.len(), src.len(), "fgf::xor: length mismatch");
+pub(crate) mod byte_ops {
+    use super::*;
 
-    if dst.len() <= XOR_INLINE_MAX {
-        scalar::xor(dst, src);
-        return;
-    }
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    match x86_proof() {
-        X86Proof::V3GfniCrypto(token) => x86::xor_avx2(token.v3(), dst, src),
-        X86Proof::V3(token) => x86::xor_avx2(token, dst, src),
-        X86Proof::V2(token) => x86::xor_sse2(token.v1(), dst, src),
-        X86Proof::Scalar => scalar::xor(dst, src),
-    }
-    #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
-    match backend() {
-        #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-        Backend::Neon | Backend::NeonAes => aarch64::xor_neon(dst, src),
-        #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-        Backend::Wasm128 => wasm32::xor_simd128(dst, src),
-        _ => scalar::xor(dst, src),
+    /// `dst ^= src` over raw bytes.
+    ///
+    /// Field-independent: addition in every binary field is XOR, and XOR of a
+    /// packed element array is XOR of its bytes regardless of element width.
+    ///
+    /// # Panics
+    /// Panics before mutation if the slices differ in length.
+    pub fn xor(dst: &mut [u8], src: &[u8]) {
+        assert_eq!(dst.len(), src.len(), "fgf::xor: length mismatch");
+
+        if dst.len() <= XOR_INLINE_MAX {
+            scalar::xor(dst, src);
+            return;
+        }
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        match x86_proof() {
+            X86Proof::V3GfniCrypto(token) => x86::xor_avx2(token.v3(), dst, src),
+            X86Proof::V3(token) => x86::xor_avx2(token, dst, src),
+            X86Proof::V2(token) => x86::xor_sse2(token.v1(), dst, src),
+            X86Proof::Scalar => scalar::xor(dst, src),
+        }
+        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        match backend() {
+            #[cfg(all(feature = "simd", target_arch = "aarch64"))]
+            Backend::Neon | Backend::NeonAes => aarch64::xor_neon(dst, src),
+            #[cfg(all(feature = "simd", target_arch = "wasm32"))]
+            Backend::Wasm128 => wasm32::xor_simd128(dst, src),
+            _ => scalar::xor(dst, src),
+        }
     }
 }

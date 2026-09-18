@@ -269,10 +269,7 @@ impl KernelDispatch for FanPaar64 {
 pub enum Fp16Prepared {
     /// AVX2 or SSSE3: the four `fp8` nibble tables, plus the element for the
     /// scalar tail.
-    #[cfg(any(
-        all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")),
-        feature = "internals"
-    ))]
+    #[allow(dead_code)]
     Tables {
         /// The Fan–Paar GF(2^16) coefficient.
         coeff: fp16::Elem,
@@ -289,12 +286,7 @@ impl Fp16Prepared {
     #[must_use]
     pub const fn coeff(&self) -> fp16::Elem {
         match self {
-            Self::Plain(coeff) => *coeff,
-            #[cfg(any(
-                all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")),
-                feature = "internals"
-            ))]
-            Self::Tables { coeff, .. } => *coeff,
+            Self::Plain(coeff) | Self::Tables { coeff, .. } => *coeff,
         }
     }
 }

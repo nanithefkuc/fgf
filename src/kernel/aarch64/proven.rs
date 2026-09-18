@@ -8,12 +8,12 @@
 //! explicitly — while `elementwise_pmull` needs the crypto extension
 //! ([`NeonAesToken`]).
 //!
-//! Tokens are re-exported from [`crate::kernel`]; summon with
-//! [`SimdToken::summon`](crate::kernel::SimdToken).
+//! Tokens come from [`archmage`]; summon with
+//! [`SimdToken::summon`](archmage::SimdToken::summon).
 //!
 //! [`archmage`]: https://docs.rs/archmage
-//! [`NeonToken`]: crate::kernel::NeonToken
-//! [`NeonAesToken`]: crate::kernel::NeonAesToken
+//! [`NeonToken`]: archmage::NeonToken
+//! [`NeonAesToken`]: archmage::NeonAesToken
 
 use crate::kernel::proven_checks::{check_elem_multiple, check_equal, check_row_span};
 
@@ -25,7 +25,7 @@ pub mod bytes {
     ///
     /// # Panics
     /// Panics if the slices differ in length.
-    pub fn xor_neon(_proof: crate::kernel::NeonToken, dst: &mut [u8], src: &[u8]) {
+    pub fn xor_neon(_proof: archmage::NeonToken, dst: &mut [u8], src: &[u8]) {
         check_equal("xor_neon", "dst", dst.len(), "src", src.len());
         super::super::xor_neon(dst, src);
     }
@@ -35,12 +35,7 @@ pub mod bytes {
     /// # Panics
     /// Panics if the slices differ in length or their length is not a whole
     /// number of `row_len`-byte rows.
-    pub fn xor_rows_neon(
-        _proof: crate::kernel::NeonToken,
-        dst: &mut [u8],
-        src: &[u8],
-        row_len: usize,
-    ) {
+    pub fn xor_rows_neon(_proof: archmage::NeonToken, dst: &mut [u8], src: &[u8], row_len: usize) {
         check_equal("xor_rows_neon", "dst", dst.len(), "src", src.len());
         assert_ne!(row_len, 0, "xor_rows_neon: row length must be nonzero");
         assert_eq!(
@@ -64,7 +59,7 @@ pub mod gf8 {
     /// # Panics
     /// Panics if the slices differ in length.
     pub fn mul_add_neon(
-        _proof: crate::kernel::NeonToken,
+        _proof: archmage::NeonToken,
         dst: &mut [u8],
         table: &ScaleTable,
         src: &[u8],
@@ -76,7 +71,7 @@ pub mod gf8 {
     /// `dst *= coeff`, nibble tables over NEON lanes.
     ///
     /// Accepts buffers of any byte length.
-    pub fn mul_assign_neon(_proof: crate::kernel::NeonToken, dst: &mut [u8], table: &ScaleTable) {
+    pub fn mul_assign_neon(_proof: archmage::NeonToken, dst: &mut [u8], table: &ScaleTable) {
         selected::mul_assign_neon(dst, table);
     }
 
@@ -85,7 +80,7 @@ pub mod gf8 {
     /// # Panics
     /// Panics if the slices differ in length.
     pub fn mul_into_neon(
-        _proof: crate::kernel::NeonToken,
+        _proof: archmage::NeonToken,
         dst: &mut [u8],
         table: &ScaleTable,
         src: &[u8],
@@ -102,7 +97,7 @@ pub mod gf8 {
     /// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len`
     /// bytes and `row_len == src.len()`.
     pub fn scatter_neon(
-        _proof: crate::kernel::NeonToken,
+        _proof: archmage::NeonToken,
         rows: &mut [u8],
         row_len: usize,
         coeffs: &[Elem],
@@ -122,7 +117,7 @@ pub mod gf8 {
     /// Panics unless `coeffs.len() == srcs.len()` and every source matches
     /// `dst` in length.
     pub fn gather_neon(
-        _proof: crate::kernel::NeonToken,
+        _proof: archmage::NeonToken,
         dst: &mut [u8],
         coeffs: &[Elem],
         srcs: &[&[u8]],
@@ -158,7 +153,7 @@ pub mod gf8 {
     /// every term supplies `nrows` coefficients, and every source is
     /// `row_len` bytes.
     pub fn matrix_neon(
-        _proof: crate::kernel::NeonToken,
+        _proof: archmage::NeonToken,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -176,12 +171,7 @@ pub mod gf8 {
     ///
     /// # Panics
     /// Panics unless all three buffers match in length.
-    pub fn elementwise_pmull(
-        _proof: crate::kernel::NeonAesToken,
-        dst: &mut [u8],
-        a: &[u8],
-        b: &[u8],
-    ) {
+    pub fn elementwise_pmull(_proof: archmage::NeonAesToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
         check_equal("gf8::elementwise_pmull", "dst", dst.len(), "a", a.len());
         check_equal("gf8::elementwise_pmull", "dst", dst.len(), "b", b.len());
         selected::elementwise_pmull(dst, a, b);
@@ -191,7 +181,7 @@ pub mod gf8 {
     ///
     /// # Panics
     /// Panics unless all three buffers match in length.
-    pub fn elementwise_neon(_proof: crate::kernel::NeonToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
+    pub fn elementwise_neon(_proof: archmage::NeonToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
         check_equal("gf8::elementwise_neon", "dst", dst.len(), "a", a.len());
         check_equal("gf8::elementwise_neon", "dst", dst.len(), "b", b.len());
         selected::elementwise_neon(dst, a, b);
@@ -210,7 +200,7 @@ pub mod gf16 {
     /// # Panics
     /// Panics if the slices differ in length or hold a partial element.
     pub fn mul_add_neon(
-        _proof: crate::kernel::NeonToken,
+        _proof: archmage::NeonToken,
         dst: &mut [u8],
         tables: &TowerTables,
         src: &[u8],
@@ -224,7 +214,7 @@ pub mod gf16 {
     ///
     /// # Panics
     /// Panics on a partial trailing element.
-    pub fn mul_assign_neon(_proof: crate::kernel::NeonToken, dst: &mut [u8], tables: &TowerTables) {
+    pub fn mul_assign_neon(_proof: archmage::NeonToken, dst: &mut [u8], tables: &TowerTables) {
         check_elem_multiple("gf16::mul_assign_neon", dst.len(), 2);
         selected::mul_assign_neon(dst, tables);
     }
@@ -234,7 +224,7 @@ pub mod gf16 {
     /// # Panics
     /// Panics if the slices differ in length or hold a partial element.
     pub fn mul_into_neon(
-        _proof: crate::kernel::NeonToken,
+        _proof: archmage::NeonToken,
         dst: &mut [u8],
         tables: &TowerTables,
         src: &[u8],
@@ -252,7 +242,7 @@ pub mod gf16 {
     /// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len`
     /// bytes (whole elements) and `row_len == src.len()`.
     pub fn scatter_neon(
-        _proof: crate::kernel::NeonToken,
+        _proof: archmage::NeonToken,
         rows: &mut [u8],
         row_len: usize,
         coeffs: &[Elem],
@@ -273,7 +263,7 @@ pub mod gf16 {
     /// Panics unless `coeffs.len() == srcs.len()` and every source matches
     /// `dst` in length (whole elements).
     pub fn gather_neon(
-        _proof: crate::kernel::NeonToken,
+        _proof: archmage::NeonToken,
         dst: &mut [u8],
         coeffs: &[Elem],
         srcs: &[&[u8]],
@@ -310,7 +300,7 @@ pub mod gf16 {
     /// (whole elements), every term supplies `nrows` coefficients, and every
     /// source is `row_len` bytes.
     pub fn matrix_neon(
-        _proof: crate::kernel::NeonToken,
+        _proof: archmage::NeonToken,
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
@@ -329,7 +319,7 @@ pub mod gf16 {
     ///
     /// # Panics
     /// Panics unless all three buffers match in length (whole elements).
-    pub fn elementwise_neon(_proof: crate::kernel::NeonToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
+    pub fn elementwise_neon(_proof: archmage::NeonToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
         check_equal("gf16::elementwise_neon", "dst", dst.len(), "a", a.len());
         check_equal("gf16::elementwise_neon", "dst", dst.len(), "b", b.len());
         check_elem_multiple("gf16::elementwise_neon", dst.len(), 2);
