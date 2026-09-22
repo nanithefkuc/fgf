@@ -107,27 +107,29 @@ in-place and broadcast forms. Throughput is GiB/s.
 
 | Field | Operation | Lunar Lake | Golden Cove |
 | --- | --- | ---: | ---: |
-| `Mersenne31` | `add_assign` | 32.01 | - |
-| `Mersenne31` | `add_assign_scalar` | 51.98 | - |
-| `Mersenne31` | `sub_assign_scalar` | 44.06 | - |
-| `Mersenne31` | `mul_elementwise` | 21.12 | - |
-| `Mersenne31` | `mul_elementwise_assign` | 21.83 | - |
-| `Goldilocks` | `add_assign` | 17.77 | - |
-| `Goldilocks` | `add_assign_scalar` | 24.87 | - |
-| `Goldilocks` | `sub_assign_scalar` | 26.75 | - |
-| `Goldilocks` | `mul_elementwise` | 11.63 | - |
-| `Goldilocks` | `mul_elementwise_assign` | 11.64 | - |
-| `QuadMersenne31` | `add_assign` | 28.72 | - |
-| `QuadMersenne31` | `add_assign_scalar` | 50.15 | - |
-| `QuadMersenne31` | `sub_assign_scalar` | 43.04 | - |
-| `QuadMersenne31` | `mul_elementwise` | 6.72 | - |
-| `QuadMersenne31` | `mul_elementwise_assign` | 6.76 | - |
+| `Mersenne31` | `add_assign` | 32.01 | 35.91 |
+| `Mersenne31` | `add_assign_scalar` | 51.98 | 52.92 |
+| `Mersenne31` | `sub_assign_scalar` | 44.06 | 43.51 |
+| `Mersenne31` | `mul_elementwise` | 21.12 | 22.86 |
+| `Mersenne31` | `mul_elementwise_assign` | 21.83 | 23.53 |
+| `Goldilocks` | `add_assign` | 17.77 | 18.39 |
+| `Goldilocks` | `add_assign_scalar` | 24.87 | 23.90 |
+| `Goldilocks` | `sub_assign_scalar` | 26.75 | 25.48 |
+| `Goldilocks` | `mul_elementwise` | 11.63 | 10.97 |
+| `Goldilocks` | `mul_elementwise_assign` | 11.64 | 10.99 |
+| `QuadMersenne31` | `add_assign` | 28.72 | 33.00 |
+| `QuadMersenne31` | `add_assign_scalar` | 50.15 | 50.81 |
+| `QuadMersenne31` | `sub_assign_scalar` | 43.04 | 43.14 |
+| `QuadMersenne31` | `mul_elementwise` | 6.72 | 5.84 |
+| `QuadMersenne31` | `mul_elementwise_assign` | 6.76 | 5.90 |
 
-- Golden Cove is unmeasured; the column stays open until that host runs the
-  same panel.
 - Lunar Lake pairing host: Intel Core Ultra 7 258V, CPU 3 pinned
   (`FEC_GOLDEN_CORE=3`), `v3_gfni_crypto` backend, Linux 7.2.6, rustc 1.98.0,
   one complete `FEC_GOLDEN_CORE=3 just bench kernels` run, median
+  per-iteration throughput.
+- Golden Cove pairing host: Intel Core i7-12700K, CPU 8 pinned and isolated
+  (`FEC_GOLDEN_CORE=8`), `v3_gfni_crypto` backend, Linux CachyOS, rustc
+  1.98.1, one complete `FEC_GOLDEN_CORE=8 just bench kernels` run, median
   per-iteration throughput.
 
 ## Scatter, gather, and matrix
