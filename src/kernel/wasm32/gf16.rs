@@ -29,7 +29,7 @@ use core::arch::wasm32::*;
 
 use crate::field::gf16::{Elem, Gf16};
 use crate::kernel::gf16::{mul_add_scalar, mul_assign_scalar, mul_into_scalar};
-use crate::kernel::proven_checks::{check_elem_multiple, check_equal, check_row_span, check_terms};
+use crate::kernel::proven_checks::{check_equal, check_row_span, check_terms};
 use crate::kernel::tables::TowerTables;
 use crate::kernel::wasm32::gf8::multiply_vectors;
 
@@ -113,7 +113,6 @@ pub fn mul_add_simd128(
     src: &[u8],
 ) {
     check_equal("gf16::mul_add_simd128", "dst", dst.len(), "src", src.len());
-    check_elem_multiple("gf16::mul_add_simd128", dst.len(), 2);
     mul_add_impl(dst, tables, src)
 }
 
@@ -163,7 +162,6 @@ fn mul_add_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
 pub fn mul_assign_simd128(_token: archmage::Wasm128Token, dst: &mut [u8], tables: &TowerTables) {
-    check_elem_multiple("gf16::mul_assign_simd128", dst.len(), 2);
     mul_assign_impl(dst, tables)
 }
 
@@ -206,7 +204,6 @@ pub fn mul_into_simd128(
     src: &[u8],
 ) {
     check_equal("gf16::mul_into_simd128", "dst", dst.len(), "src", src.len());
-    check_elem_multiple("gf16::mul_into_simd128", dst.len(), 2);
     mul_into_impl(dst, tables, src)
 }
 
@@ -247,13 +244,12 @@ fn mul_into_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
 /// `dst[i] = a[i] * b[i]` over interleaved tower elements.
 ///
 /// # Panics
-/// Panics unless all three buffers match in length (whole elements).
+/// Panics unless all three buffers match in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
 pub fn elementwise_simd128(_token: archmage::Wasm128Token, dst: &mut [u8], a: &[u8], b: &[u8]) {
     check_equal("gf16::elementwise_simd128", "dst", dst.len(), "a", a.len());
     check_equal("gf16::elementwise_simd128", "dst", dst.len(), "b", b.len());
-    check_elem_multiple("gf16::elementwise_simd128", dst.len(), 2);
     elementwise_impl(dst, a, b)
 }
 
@@ -359,7 +355,7 @@ impl Scaling {
 ///
 /// # Panics
 /// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len`
-/// bytes (whole elements) and `row_len == src.len()`.
+/// bytes and `row_len == src.len()`.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
 pub fn scatter_simd128(
@@ -376,7 +372,6 @@ pub fn scatter_simd128(
         "src",
         src.len(),
     );
-    check_elem_multiple("gf16::scatter_simd128", row_len, 2);
     check_row_span("gf16::scatter_simd128", rows.len(), row_len, coeffs.len());
     if row_len == 0 || coeffs.is_empty() {
         return;
@@ -491,7 +486,7 @@ fn scatter_quad(rows: [&mut [u8]; 4], plans: &[Scaling; 4], src: &[u8]) {
 ///
 /// # Panics
 /// Panics unless `coeffs.len() == srcs.len()` and every source matches
-/// `dst` in length (whole elements).
+/// `dst` in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
 pub fn gather_simd128(
@@ -507,7 +502,6 @@ pub fn gather_simd128(
         "sources",
         srcs.len(),
     );
-    check_elem_multiple("gf16::gather_simd128", dst.len(), 2);
     for (index, &src) in srcs.iter().enumerate() {
         check_equal(
             "gf16::gather_simd128",
@@ -591,8 +585,8 @@ fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
 /// A zero-length row with zero-length sources is a no-op.
 ///
 /// # Panics
-/// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes
-/// (whole elements), every term supplies `nrows` coefficients, and every
+/// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes,
+/// every term supplies `nrows` coefficients, and every
 /// source is `row_len` bytes.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
@@ -603,7 +597,6 @@ pub fn matrix_simd128(
     nrows: usize,
     terms: &[(&[Elem], &[u8])],
 ) {
-    check_elem_multiple("gf16::matrix_simd128", row_len, 2);
     check_row_span("gf16::matrix_simd128", rows.len(), row_len, nrows);
     check_terms("gf16::matrix_simd128", row_len, nrows, terms);
     if row_len == 0 || nrows == 0 || terms.is_empty() {

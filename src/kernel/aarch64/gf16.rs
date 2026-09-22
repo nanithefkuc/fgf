@@ -34,7 +34,7 @@ use core::arch::aarch64::*;
 
 use crate::field::gf16::Elem;
 use crate::kernel::gf16::{mul_add_scalar, mul_assign_scalar, mul_into_scalar};
-use crate::kernel::proven_checks::{check_elem_multiple, check_equal, check_row_span, check_terms};
+use crate::kernel::proven_checks::{check_equal, check_row_span, check_terms};
 use crate::kernel::tables::TowerTables;
 
 /// Terms folded into a single register-resident destination pass.
@@ -177,7 +177,6 @@ fn scaled_vector(source: uint8x16_t, factors: &Factors) -> uint8x16_t {
 #[archmage::arcane]
 pub fn mul_add_neon(_token: archmage::NeonToken, dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
     check_equal("gf16::mul_add_neon", "dst", dst.len(), "src", src.len());
-    check_elem_multiple("gf16::mul_add_neon", dst.len(), 2);
     mul_add_impl(dst, tables, src);
 }
 
@@ -230,7 +229,6 @@ fn mul_add_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
 pub fn mul_assign_neon(_token: archmage::NeonToken, dst: &mut [u8], tables: &TowerTables) {
-    check_elem_multiple("gf16::mul_assign_neon", dst.len(), 2);
     mul_assign_impl(dst, tables);
 }
 
@@ -274,7 +272,6 @@ pub fn mul_into_neon(
     src: &[u8],
 ) {
     check_equal("gf16::mul_into_neon", "dst", dst.len(), "src", src.len());
-    check_elem_multiple("gf16::mul_into_neon", dst.len(), 2);
     mul_into_impl(dst, tables, src);
 }
 
@@ -424,7 +421,7 @@ unsafe fn scatter_group<const N: usize>(
 ///
 /// # Panics
 /// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len`
-/// bytes (whole elements) and `row_len == src.len()`.
+/// bytes and `row_len == src.len()`.
 #[allow(unsafe_code)]
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
@@ -436,7 +433,6 @@ pub fn scatter_neon(
     src: &[u8],
 ) {
     check_equal("gf16::scatter_neon", "row_len", row_len, "src", src.len());
-    check_elem_multiple("gf16::scatter_neon", row_len, 2);
     check_row_span("gf16::scatter_neon", rows.len(), row_len, coeffs.len());
     if row_len == 0 || coeffs.is_empty() || src.is_empty() {
         return;
@@ -672,8 +668,8 @@ unsafe fn matrix_group<const N: usize>(
 /// A zero-length row with zero-length sources is a no-op.
 ///
 /// # Panics
-/// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes
-/// (whole elements), every term supplies `nrows` coefficients, and every
+/// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes,
+/// every term supplies `nrows` coefficients, and every
 /// source is `row_len` bytes.
 #[allow(unsafe_code)]
 #[allow(clippy::used_underscore_binding)]
@@ -685,7 +681,6 @@ pub fn matrix_neon(
     nrows: usize,
     terms: &[(&[Elem], &[u8])],
 ) {
-    check_elem_multiple("gf16::matrix_neon", row_len, 2);
     check_row_span("gf16::matrix_neon", rows.len(), row_len, nrows);
     check_terms("gf16::matrix_neon", row_len, nrows, terms);
     if row_len == 0 || nrows == 0 || terms.is_empty() {
@@ -783,7 +778,7 @@ unsafe fn mul_add_matrix_impl(
 ///
 /// # Panics
 /// Panics unless `coeffs.len() == srcs.len()` and every source matches `dst`
-/// in length (whole elements).
+/// in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
 pub fn gather_neon(_token: archmage::NeonToken, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
@@ -794,7 +789,6 @@ pub fn gather_neon(_token: archmage::NeonToken, dst: &mut [u8], coeffs: &[Elem],
         "sources",
         srcs.len(),
     );
-    check_elem_multiple("gf16::gather_neon", dst.len(), 2);
     for (index, &src) in srcs.iter().enumerate() {
         check_equal(
             "gf16::gather_neon",
@@ -813,7 +807,7 @@ pub fn gather_neon(_token: archmage::NeonToken, dst: &mut [u8], coeffs: &[Elem],
 #[archmage::rite(neon, import_intrinsics)]
 fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     let vector_len = dst.len() & !15;
-    let (dst_lanes, dst_tail) = dst[..vector_len].as_chunks_mut::<16>();
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
     for block in (0..coeffs.len()).step_by(TERM_BLOCK) {
         let count = (coeffs.len() - block).min(TERM_BLOCK);
         let mut factors = [empty_factors(); TERM_BLOCK];
@@ -869,27 +863,25 @@ fn multiply_base_vectors(mut a: uint8x16_t, mut b: uint8x16_t) -> uint8x16_t {
 /// `dst[i] = a[i] * b[i]` over interleaved tower elements.
 ///
 /// # Panics
-/// Panics unless all three buffers match in length (whole elements).
+/// Panics unless all three buffers match in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
 pub fn elementwise_neon(_token: archmage::NeonToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
     check_equal("gf16::elementwise_neon", "dst", dst.len(), "a", a.len());
     check_equal("gf16::elementwise_neon", "dst", dst.len(), "b", b.len());
-    check_elem_multiple("gf16::elementwise_neon", dst.len(), 2);
     elementwise_impl(dst, a, b);
 }
 
 #[archmage::rite(neon, import_intrinsics)]
 fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
-    let len = dst.len().min(a.len()).min(b.len()) & !15;
     let even = vreinterpretq_u8_u16(vdupq_n_u16(0x00ff));
     let delta_even = vreinterpretq_u8_u16(vdupq_n_u16(u16::from_le_bytes([
         crate::field::gf16::DELTA.0,
         0,
     ])));
-    let (dst_lanes, dst_tail) = dst[..len].as_chunks_mut::<16>();
-    let (a_lanes, a_tail) = a[..len].as_chunks::<16>();
-    let (b_lanes, b_tail) = b[..len].as_chunks::<16>();
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
+    let (a_lanes, a_tail) = a.as_chunks::<16>();
+    let (b_lanes, b_tail) = b.as_chunks::<16>();
     for ((d, x), y) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
         // For x=[a,b], y=[c,d]:
         // constant = ac ^ DELTA*bd

@@ -963,10 +963,9 @@ pub fn elementwise_pmull(_token: archmage::NeonAesToken, dst: &mut [u8], a: &[u8
 
 #[archmage::rite(neon_aes, import_intrinsics)]
 fn elementwise_pmull_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
-    let len = dst.len().min(a.len()).min(b.len()) & !15;
-    let (dst_lanes, dst_tail) = dst[..len].as_chunks_mut::<16>();
-    let (a_lanes, a_tail) = a[..len].as_chunks::<16>();
-    let (b_lanes, b_tail) = b[..len].as_chunks::<16>();
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
+    let (a_lanes, a_tail) = a.as_chunks::<16>();
+    let (b_lanes, b_tail) = b.as_chunks::<16>();
     for ((d, x), y) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
         vst1q_u8(d, multiply_vectors_pmull(vld1q_u8(x), vld1q_u8(y)));
     }
@@ -989,10 +988,9 @@ pub fn elementwise_neon(_token: archmage::NeonToken, dst: &mut [u8], a: &[u8], b
 
 #[archmage::rite(neon, import_intrinsics)]
 fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
-    let len = dst.len().min(a.len()).min(b.len()) & !15;
-    let (dst_lanes, dst_tail) = dst[..len].as_chunks_mut::<16>();
-    let (a_lanes, a_tail) = a[..len].as_chunks::<16>();
-    let (b_lanes, b_tail) = b[..len].as_chunks::<16>();
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
+    let (a_lanes, a_tail) = a.as_chunks::<16>();
+    let (b_lanes, b_tail) = b.as_chunks::<16>();
     for ((d, x), y) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
         vst1q_u8(d, multiply_vectors(vld1q_u8(x), vld1q_u8(y)));
     }
