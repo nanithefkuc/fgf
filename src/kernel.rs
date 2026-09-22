@@ -12,9 +12,9 @@
 //! - `scalar` — the portable fallback and tail implementation. Vector kernels
 //!   use it for sub-lane tails; tests compare the Fan–Paar family against the
 //!   independent Wiedemann recurrence and other families against this module.
-//! - `x86` / `aarch64` / `wasm32` — architecture-local intrinsics. Direct x86
-//!   entries take exact `archmage` capability tokens and validate geometry.
-//!   Wasm retains its token-proven compatibility facade.
+//! - `x86` / `aarch64` / `wasm32` — architecture-local intrinsics. Direct
+//!   entries take exact `archmage` capability tokens and validate geometry;
+//!   inner loops are `#[rite]` helpers inside the token-proven region.
 //!
 //! Callers should use the safe, validated wrappers in [`crate::ops`] rather
 //! than this module directly.
@@ -947,7 +947,11 @@ pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
         #[cfg(all(feature = "simd", target_arch = "wasm32"))]
         Backend::Wasm128 => {
             for &start in offsets {
-                wasm32::xor_simd128(dst, &region[start as usize..start as usize + live]);
+                wasm32::xor_simd128(
+                    wasm128_token(),
+                    dst,
+                    &region[start as usize..start as usize + live],
+                );
             }
         }
         _ => {
@@ -994,7 +998,7 @@ pub(crate) mod byte_ops {
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
             Backend::Neon | Backend::NeonAes => aarch64::xor_neon(neon_token(), dst, src),
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::xor_simd128(dst, src),
+            Backend::Wasm128 => wasm32::xor_simd128(wasm128_token(), dst, src),
             _ => scalar::xor(dst, src),
         }
     }

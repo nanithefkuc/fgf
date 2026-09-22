@@ -61,7 +61,12 @@ fn scaled(value: v128, factors: Factors) -> v128 {
 /// Panics if the slices differ in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_simd128(_token: archmage::Wasm128Token, dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
+pub fn mul_add_simd128(
+    _token: archmage::Wasm128Token,
+    dst: &mut [u8],
+    table: &ScaleTable,
+    src: &[u8],
+) {
     check_equal("gf8::mul_add_simd128", "dst", dst.len(), "src", src.len());
     mul_add_impl(dst, table, src)
 }
@@ -110,7 +115,12 @@ fn mul_assign_impl(dst: &mut [u8], table: &ScaleTable) {
 /// Panics if the slices differ in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_into_simd128(_token: archmage::Wasm128Token, dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
+pub fn mul_into_simd128(
+    _token: archmage::Wasm128Token,
+    dst: &mut [u8],
+    table: &ScaleTable,
+    src: &[u8],
+) {
     check_equal("gf8::mul_into_simd128", "dst", dst.len(), "src", src.len());
     mul_into_impl(dst, table, src)
 }
@@ -153,12 +163,7 @@ pub(super) fn multiply_vectors(mut a: v128, mut b: v128) -> v128 {
 /// Panics unless all three buffers match in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn elementwise_simd128(
-    _token: archmage::Wasm128Token,
-    dst: &mut [u8],
-    a: &[u8],
-    b: &[u8],
-) {
+pub fn elementwise_simd128(_token: archmage::Wasm128Token, dst: &mut [u8], a: &[u8], b: &[u8]) {
     check_equal("gf8::elementwise_simd128", "dst", dst.len(), "a", a.len());
     check_equal("gf8::elementwise_simd128", "dst", dst.len(), "b", b.len());
     elementwise_impl(dst, a, b)
@@ -476,12 +481,7 @@ pub fn matrix_simd128(
 }
 
 #[archmage::rite(wasm128, import_intrinsics)]
-fn mul_add_matrix_impl(
-    rows: &mut [u8],
-    row_len: usize,
-    nrows: usize,
-    terms: &[(&[Elem], &[u8])],
-) {
+fn mul_add_matrix_impl(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[Elem], &[u8])]) {
     // One pass over `terms` — outside every hot loop — establishes the bounds
     // the vector loops rely on, so a caller that violates the documented
     // geometry gets a short update rather than out-of-bounds reads.

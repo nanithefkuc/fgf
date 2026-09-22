@@ -2858,6 +2858,7 @@ mod aarch64 {
 #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
 mod wasm32 {
     use super::*;
+    use crate::kernel::wasm32;
     use archmage::SimdToken as _;
 
     #[test]
@@ -2936,12 +2937,14 @@ mod wasm32 {
 
     #[test]
     fn vector_xor_matches_scalar_xor() {
+        let token =
+            archmage::Wasm128Token::summon().expect("host_supports guard: simd128 summons here");
         for &len in LENGTHS {
             let src = noise(len, 0x1c);
             let mut want = noise(len, 0x2d);
             let mut simd = want.clone();
             scalar::xor(&mut want, &src);
-            wasm32::xor_simd128(&mut simd, &src);
+            wasm32::xor_simd128(token, &mut simd, &src);
             assert_eq!(simd, want, "simd128 xor: len {len}");
         }
     }

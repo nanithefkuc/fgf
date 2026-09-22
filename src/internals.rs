@@ -67,7 +67,7 @@ pub mod kernel {
         pub use crate::kernel::aarch64::*;
     }
 
-    /// WebAssembly kernels and token-proven compatibility entries.
+    /// Token-bearing WebAssembly kernels.
     #[cfg(all(feature = "simd", target_arch = "wasm32"))]
     pub mod wasm32 {
         pub use crate::kernel::wasm32::*;

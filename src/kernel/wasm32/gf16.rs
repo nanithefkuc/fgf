@@ -237,7 +237,11 @@ fn mul_into_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
         v128_store(d, scaled(v128_load(s), factors));
     }
 
-    mul_into_scalar(&mut dst[vector_len..span], tables.coeff, &src[vector_len..span]);
+    mul_into_scalar(
+        &mut dst[vector_len..span],
+        tables.coeff,
+        &src[vector_len..span],
+    );
 }
 
 /// `dst[i] = a[i] * b[i]` over interleaved tower elements.
@@ -246,12 +250,7 @@ fn mul_into_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
 /// Panics unless all three buffers match in length (whole elements).
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn elementwise_simd128(
-    _token: archmage::Wasm128Token,
-    dst: &mut [u8],
-    a: &[u8],
-    b: &[u8],
-) {
+pub fn elementwise_simd128(_token: archmage::Wasm128Token, dst: &mut [u8], a: &[u8], b: &[u8]) {
     check_equal("gf16::elementwise_simd128", "dst", dst.len(), "a", a.len());
     check_equal("gf16::elementwise_simd128", "dst", dst.len(), "b", b.len());
     check_elem_multiple("gf16::elementwise_simd128", dst.len(), 2);
@@ -614,12 +613,7 @@ pub fn matrix_simd128(
 }
 
 #[archmage::rite(wasm128, import_intrinsics)]
-fn mul_add_matrix_impl(
-    rows: &mut [u8],
-    row_len: usize,
-    nrows: usize,
-    terms: &[(&[Elem], &[u8])],
-) {
+fn mul_add_matrix_impl(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[Elem], &[u8])]) {
     // One pass over `terms` — outside every hot loop — establishes the bounds
     // the vector loops rely on, so a caller that violates the documented
     // geometry gets a short update rather than out-of-bounds reads.

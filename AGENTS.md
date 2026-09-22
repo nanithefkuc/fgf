@@ -96,6 +96,10 @@ All ten record row pointers as offsets into one uniquely borrowed flat row
 buffer, a shape the borrow checker cannot express. Memory validity and
 disjointness arguments are stated per obligation in each item's proof.
 
+The `wasm32` kernel subtree retains nothing: its reference-based
+`v128_load`/`v128_store` over 16-byte chunk arrays and `split_at_mut` row
+groups express the whole surface safely.
+
 ## Tests
 
 Tests must defend observable contracts, not implementation wiring.
