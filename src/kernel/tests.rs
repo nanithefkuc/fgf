@@ -2757,12 +2757,18 @@ mod aarch64 {
         check_gf8_mul_assign("gf8 neon", |dst, table| {
             aarch64::gf8::mul_assign_neon(token, dst, table)
         });
-        check_gf16_mul_add_tables("gf16 neon", aarch64::gf16::mul_add_neon);
-        check_gf16_mul_assign_tables("gf16 neon", aarch64::gf16::mul_assign_neon);
+        check_gf16_mul_add_tables("gf16 neon", |dst, tables, src| {
+            aarch64::gf16::mul_add_neon(token, dst, tables, src)
+        });
+        check_gf16_mul_assign_tables("gf16 neon", |dst, tables| {
+            aarch64::gf16::mul_assign_neon(token, dst, tables)
+        });
         check_gf8_mul_into("gf8 neon mul_into", |dst, table, src| {
             aarch64::gf8::mul_into_neon(token, dst, table, src)
         });
-        check_gf16_mul_into_tables("gf16 neon mul_into", aarch64::gf16::mul_into_neon);
+        check_gf16_mul_into_tables("gf16 neon mul_into", |dst, tables, src| {
+            aarch64::gf16::mul_into_neon(token, dst, tables, src)
+        });
 
         check_scatter(
             "gf8 neon scatter",
@@ -2776,7 +2782,9 @@ mod aarch64 {
             "gf16 neon scatter",
             gf16_coeff_at,
             gf16_reference,
-            aarch64::gf16::scatter_neon,
+            |rows, row_len, coeffs, src| {
+                aarch64::gf16::scatter_neon(token, rows, row_len, coeffs, src)
+            },
         );
         check_matrix(
             "gf8 neon matrix",
@@ -2790,7 +2798,9 @@ mod aarch64 {
             "gf16 neon matrix",
             gf16_coeff_at2,
             gf16_reference,
-            aarch64::gf16::matrix_neon,
+            |rows, row_len, nrows, terms| {
+                aarch64::gf16::matrix_neon(token, rows, row_len, nrows, terms)
+            },
         );
         check_gather(
             "gf8 neon gather",
@@ -2802,12 +2812,14 @@ mod aarch64 {
             "gf16 neon gather",
             gf16_coeff_at,
             gf16_reference,
-            aarch64::gf16::gather_neon,
+            |dst, coeffs, srcs| aarch64::gf16::gather_neon(token, dst, coeffs, srcs),
         );
         check_gf8_elementwise("gf8 neon elementwise", |dst, a, b| {
             aarch64::gf8::elementwise_neon(token, dst, a, b)
         });
-        check_gf16_elementwise("gf16 neon elementwise", aarch64::gf16::elementwise_neon);
+        check_gf16_elementwise("gf16 neon elementwise", |dst, a, b| {
+            aarch64::gf16::elementwise_neon(token, dst, a, b)
+        });
     }
 
     #[test]

@@ -464,7 +464,9 @@ pub mod gf16 {
                     _ => x86::gf16::mul_add_avx2(crate::kernel::x86_v3_token(), dst, tables, src),
                 },
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Prepared::Tables(tables) => aarch64::gf16::mul_add_neon(dst, tables, src),
+                Prepared::Tables(tables) => {
+                    aarch64::gf16::mul_add_neon(crate::kernel::neon_token(), dst, tables, src)
+                }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
                 Prepared::Tables(tables) => wasm32::gf16::mul_add_simd128(dst, tables, src),
                 other => mul_add_scalar(dst, other.coeff(), src),
@@ -485,7 +487,9 @@ pub mod gf16 {
                     _ => x86::gf16::mul_assign_avx2(crate::kernel::x86_v3_token(), dst, tables),
                 },
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Prepared::Tables(tables) => aarch64::gf16::mul_assign_neon(dst, tables),
+                Prepared::Tables(tables) => {
+                    aarch64::gf16::mul_assign_neon(crate::kernel::neon_token(), dst, tables)
+                }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
                 Prepared::Tables(tables) => wasm32::gf16::mul_assign_simd128(dst, tables),
                 other => mul_assign_scalar(dst, other.coeff()),
@@ -511,7 +515,9 @@ pub mod gf16 {
                     _ => x86::gf16::mul_into_avx2(crate::kernel::x86_v3_token(), dst, tables, src),
                 },
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Prepared::Tables(tables) => aarch64::gf16::mul_into_neon(dst, tables, src),
+                Prepared::Tables(tables) => {
+                    aarch64::gf16::mul_into_neon(crate::kernel::neon_token(), dst, tables, src)
+                }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
                 Prepared::Tables(tables) => wasm32::gf16::mul_into_simd128(dst, tables, src),
                 // Every other prepared form is a scalar coefficient: copying and
@@ -562,7 +568,7 @@ pub mod gf16 {
                 // every row of the group, which is the trade PMULL loses.
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
                 Backend::Neon | Backend::NeonAes => {
-                    aarch64::gf16::scatter_neon(rows, row_len, coeffs, src);
+                    aarch64::gf16::scatter_neon(crate::kernel::neon_token(), rows, row_len, coeffs, src);
                 }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
                 Backend::Wasm128 => wasm32::gf16::scatter_simd128(rows, row_len, coeffs, src),
@@ -635,7 +641,9 @@ pub mod gf16 {
                     srcs,
                 ),
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Backend::Neon | Backend::NeonAes => aarch64::gf16::gather_neon(dst, coeffs, srcs),
+                Backend::Neon | Backend::NeonAes => {
+                    aarch64::gf16::gather_neon(crate::kernel::neon_token(), dst, coeffs, srcs)
+                }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
                 Backend::Wasm128 => wasm32::gf16::gather_simd128(dst, coeffs, srcs),
                 // See `mul_add_scatter`: one table resolve per term beats the
@@ -699,7 +707,7 @@ pub mod gf16 {
                 ),
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
                 Backend::Neon | Backend::NeonAes => {
-                    aarch64::gf16::matrix_neon(rows, row_len, nrows, terms);
+                    aarch64::gf16::matrix_neon(crate::kernel::neon_token(), rows, row_len, nrows, terms);
                 }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
                 Backend::Wasm128 => wasm32::gf16::matrix_simd128(rows, row_len, nrows, terms),
@@ -786,7 +794,9 @@ pub mod gf16 {
                 // replaces eight bit-serial rounds with two multiplies, does win
                 // — see `Gf8B::mul_elementwise` and BENCHMARKS.md.
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Backend::Neon | Backend::NeonAes => aarch64::gf16::elementwise_neon(dst, a, b),
+                Backend::Neon | Backend::NeonAes => {
+                    aarch64::gf16::elementwise_neon(crate::kernel::neon_token(), dst, a, b)
+                }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
                 Backend::Wasm128 => wasm32::gf16::elementwise_simd128(dst, a, b),
                 // See `Gf8B::mul_elementwise`: no fixed coefficient, so the
