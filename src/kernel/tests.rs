@@ -2742,6 +2742,7 @@ mod x86 {
 mod aarch64 {
     use super::*;
     use crate::kernel::{Backend, aarch64};
+    use archmage::SimdToken as _;
 
     #[test]
     fn neon_kernels_match_reference() {
@@ -2749,18 +2750,27 @@ mod aarch64 {
             eprintln!("skipping: no NEON on this host");
             return;
         }
-        check_gf8_mul_add("gf8 neon", aarch64::gf8::mul_add_neon);
-        check_gf8_mul_assign("gf8 neon", aarch64::gf8::mul_assign_neon);
+        let token = archmage::NeonToken::summon().expect("host_supports guard: NEON summons here");
+        check_gf8_mul_add("gf8 neon", |dst, table, src| {
+            aarch64::gf8::mul_add_neon(token, dst, table, src)
+        });
+        check_gf8_mul_assign("gf8 neon", |dst, table| {
+            aarch64::gf8::mul_assign_neon(token, dst, table)
+        });
         check_gf16_mul_add_tables("gf16 neon", aarch64::gf16::mul_add_neon);
         check_gf16_mul_assign_tables("gf16 neon", aarch64::gf16::mul_assign_neon);
-        check_gf8_mul_into("gf8 neon mul_into", aarch64::gf8::mul_into_neon);
+        check_gf8_mul_into("gf8 neon mul_into", |dst, table, src| {
+            aarch64::gf8::mul_into_neon(token, dst, table, src)
+        });
         check_gf16_mul_into_tables("gf16 neon mul_into", aarch64::gf16::mul_into_neon);
 
         check_scatter(
             "gf8 neon scatter",
             gf8_coeff_at,
             gf8_reference,
-            aarch64::gf8::scatter_neon,
+            |rows, row_len, coeffs, src| {
+                aarch64::gf8::scatter_neon(token, rows, row_len, coeffs, src)
+            },
         );
         check_scatter(
             "gf16 neon scatter",
@@ -2772,7 +2782,9 @@ mod aarch64 {
             "gf8 neon matrix",
             gf8_coeff_at2,
             gf8_reference,
-            aarch64::gf8::matrix_neon,
+            |rows, row_len, nrows, terms| {
+                aarch64::gf8::matrix_neon(token, rows, row_len, nrows, terms)
+            },
         );
         check_matrix(
             "gf16 neon matrix",
@@ -2784,7 +2796,7 @@ mod aarch64 {
             "gf8 neon gather",
             gf8_coeff_at,
             gf8_reference,
-            aarch64::gf8::gather_neon,
+            |dst, coeffs, srcs| aarch64::gf8::gather_neon(token, dst, coeffs, srcs),
         );
         check_gather(
             "gf16 neon gather",
@@ -2792,7 +2804,9 @@ mod aarch64 {
             gf16_reference,
             aarch64::gf16::gather_neon,
         );
-        check_gf8_elementwise("gf8 neon elementwise", aarch64::gf8::elementwise_neon);
+        check_gf8_elementwise("gf8 neon elementwise", |dst, a, b| {
+            aarch64::gf8::elementwise_neon(token, dst, a, b)
+        });
         check_gf16_elementwise("gf16 neon elementwise", aarch64::gf16::elementwise_neon);
     }
 
@@ -2802,7 +2816,11 @@ mod aarch64 {
             eprintln!("skipping: no AArch64 PMULL extension on this host");
             return;
         }
-        check_gf8_elementwise("gf8 pmull elementwise", aarch64::gf8::elementwise_pmull);
+        let token =
+            archmage::NeonAesToken::summon().expect("host_supports guard: NEON-AES summons here");
+        check_gf8_elementwise("gf8 pmull elementwise", |dst, a, b| {
+            aarch64::gf8::elementwise_pmull(token, dst, a, b)
+        });
         // The tower elementwise and every fixed-coefficient PMULL kernel were
         // measured against the nibble/bit-serial paths and lost; GF(2^8)
         // elementwise is the shape that won and the only one dispatch selects.

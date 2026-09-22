@@ -132,7 +132,9 @@ impl KernelDispatch for Gf8B {
             // PMULL is table-free but far slower than the nibble shuffle for
             // a fixed coefficient; see `aarch64::gf8` and BENCHMARKS.md.
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-            Backend::Neon | Backend::NeonAes => aarch64::gf8::mul_add_neon(dst, coeff, src),
+            Backend::Neon | Backend::NeonAes => {
+                aarch64::gf8::mul_add_neon(crate::kernel::neon_token(), dst, coeff, src);
+            }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
             Backend::Wasm128 => wasm32::gf8::mul_add_simd128(dst, coeff, src),
             _ => mul_add_nibble(dst, coeff, src),
@@ -150,7 +152,9 @@ impl KernelDispatch for Gf8B {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V2 => x86::gf8::mul_assign_ssse3(crate::kernel::x86_v2_token(), dst, coeff),
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-            Backend::Neon | Backend::NeonAes => aarch64::gf8::mul_assign_neon(dst, coeff),
+            Backend::Neon | Backend::NeonAes => {
+                aarch64::gf8::mul_assign_neon(crate::kernel::neon_token(), dst, coeff);
+            }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
             Backend::Wasm128 => wasm32::gf8::mul_assign_simd128(dst, coeff),
             _ => mul_assign_nibble(dst, coeff),
@@ -168,7 +172,9 @@ impl KernelDispatch for Gf8B {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V2 => x86::gf8::mul_into_ssse3(crate::kernel::x86_v2_token(), dst, coeff, src),
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-            Backend::Neon | Backend::NeonAes => aarch64::gf8::mul_into_neon(dst, coeff, src),
+            Backend::Neon | Backend::NeonAes => {
+                aarch64::gf8::mul_into_neon(crate::kernel::neon_token(), dst, coeff, src);
+            }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
             Backend::Wasm128 => wasm32::gf8::mul_into_simd128(dst, coeff, src),
             _ => mul_into_nibble(dst, coeff, src),
@@ -209,7 +215,7 @@ impl KernelDispatch for Gf8B {
             ),
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
             Backend::Neon | Backend::NeonAes => {
-                aarch64::gf8::scatter_neon(rows, row_len, coeffs, src);
+                aarch64::gf8::scatter_neon(crate::kernel::neon_token(), rows, row_len, coeffs, src);
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
             Backend::Wasm128 => wasm32::gf8::scatter_simd128(rows, row_len, coeffs, src),
@@ -248,7 +254,9 @@ impl KernelDispatch for Gf8B {
                 x86::gf8::mul_add_gather_ssse3(crate::kernel::x86_v2_token(), dst, coeffs, srcs);
             }
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-            Backend::Neon | Backend::NeonAes => aarch64::gf8::gather_neon(dst, coeffs, srcs),
+            Backend::Neon | Backend::NeonAes => {
+                aarch64::gf8::gather_neon(crate::kernel::neon_token(), dst, coeffs, srcs);
+            }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
             Backend::Wasm128 => wasm32::gf8::gather_simd128(dst, coeffs, srcs),
             _ => scalar::mul_add_gather::<Self>(dst, coeffs, srcs),
@@ -315,7 +323,7 @@ impl KernelDispatch for Gf8B {
             ),
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
             Backend::Neon | Backend::NeonAes => {
-                aarch64::gf8::matrix_neon(rows, row_len, nrows, terms);
+                aarch64::gf8::matrix_neon(crate::kernel::neon_token(), rows, row_len, nrows, terms);
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
             Backend::Wasm128 => wasm32::gf8::matrix_simd128(rows, row_len, nrows, terms),
@@ -476,9 +484,13 @@ impl KernelDispatch for Gf8B {
             // rounds. The capability is cached in the backend, not probed per
             // call.
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-            Backend::NeonAes => aarch64::gf8::elementwise_pmull(dst, a, b),
+            Backend::NeonAes => {
+                aarch64::gf8::elementwise_pmull(crate::kernel::neon_aes_token(), dst, a, b);
+            }
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-            Backend::Neon => aarch64::gf8::elementwise_neon(dst, a, b),
+            Backend::Neon => {
+                aarch64::gf8::elementwise_neon(crate::kernel::neon_token(), dst, a, b);
+            }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
             Backend::Wasm128 => wasm32::gf8::elementwise_simd128(dst, a, b),
             // No fixed coefficient means no nibble table, so the shuffle
@@ -609,7 +621,9 @@ impl KernelDispatch for Gf8D {
                 x86::gf8::mul_add_ssse3(crate::kernel::x86_v2_token(), dst, coeff.table, src);
             }
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-            Backend::Neon | Backend::NeonAes => aarch64::gf8::mul_add_neon(dst, coeff.table, src),
+            Backend::Neon | Backend::NeonAes => {
+                aarch64::gf8::mul_add_neon(crate::kernel::neon_token(), dst, coeff.table, src);
+            }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
             Backend::Wasm128 => wasm32::gf8::mul_add_simd128(dst, coeff.table, src),
             _ => mul_add_nibble(dst, coeff.table, src),
@@ -644,7 +658,9 @@ impl KernelDispatch for Gf8D {
                 x86::gf8::mul_assign_ssse3(crate::kernel::x86_v2_token(), dst, coeff.table);
             }
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-            Backend::Neon | Backend::NeonAes => aarch64::gf8::mul_assign_neon(dst, coeff.table),
+            Backend::Neon | Backend::NeonAes => {
+                aarch64::gf8::mul_assign_neon(crate::kernel::neon_token(), dst, coeff.table);
+            }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
             Backend::Wasm128 => wasm32::gf8::mul_assign_simd128(dst, coeff.table),
             _ => mul_assign_nibble(dst, coeff.table),
@@ -670,7 +686,9 @@ impl KernelDispatch for Gf8D {
                 x86::gf8::mul_into_ssse3(crate::kernel::x86_v2_token(), dst, coeff.table, src);
             }
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-            Backend::Neon | Backend::NeonAes => aarch64::gf8::mul_into_neon(dst, coeff.table, src),
+            Backend::Neon | Backend::NeonAes => {
+                aarch64::gf8::mul_into_neon(crate::kernel::neon_token(), dst, coeff.table, src);
+            }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
             Backend::Wasm128 => wasm32::gf8::mul_into_simd128(dst, coeff.table, src),
             _ => mul_into_nibble(dst, coeff.table, src),
