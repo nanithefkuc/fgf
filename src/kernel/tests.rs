@@ -2870,12 +2870,18 @@ mod wasm32 {
         check_gf8_mul_assign("gf8 simd128", |dst, table| {
             wasm32::gf8::mul_assign_simd128(token, dst, table)
         });
-        check_gf16_mul_add_tables("gf16 simd128", wasm32::gf16::mul_add_simd128);
-        check_gf16_mul_assign_tables("gf16 simd128", wasm32::gf16::mul_assign_simd128);
+        check_gf16_mul_add_tables("gf16 simd128", |dst, tables, src| {
+            wasm32::gf16::mul_add_simd128(token, dst, tables, src)
+        });
+        check_gf16_mul_assign_tables("gf16 simd128", |dst, tables| {
+            wasm32::gf16::mul_assign_simd128(token, dst, tables)
+        });
         check_gf8_mul_into("gf8 simd128 mul_into", |dst, table, src| {
             wasm32::gf8::mul_into_simd128(token, dst, table, src)
         });
-        check_gf16_mul_into_tables("gf16 simd128 mul_into", wasm32::gf16::mul_into_simd128);
+        check_gf16_mul_into_tables("gf16 simd128 mul_into", |dst, tables, src| {
+            wasm32::gf16::mul_into_simd128(token, dst, tables, src)
+        });
         check_scatter(
             "gf8 simd128 scatter",
             gf8_coeff_at,
@@ -2888,7 +2894,9 @@ mod wasm32 {
             "gf16 simd128 scatter",
             gf16_coeff_at,
             gf16_reference,
-            wasm32::gf16::scatter_simd128,
+            |rows, row_len, coeffs, src| {
+                wasm32::gf16::scatter_simd128(token, rows, row_len, coeffs, src)
+            },
         );
         check_gather(
             "gf8 simd128 gather",
@@ -2900,7 +2908,7 @@ mod wasm32 {
             "gf16 simd128 gather",
             gf16_coeff_at,
             gf16_reference,
-            wasm32::gf16::gather_simd128,
+            |dst, coeffs, srcs| wasm32::gf16::gather_simd128(token, dst, coeffs, srcs),
         );
         check_matrix(
             "gf8 simd128 matrix",
@@ -2914,15 +2922,16 @@ mod wasm32 {
             "gf16 simd128 matrix",
             gf16_coeff_at2,
             gf16_reference,
-            wasm32::gf16::matrix_simd128,
+            |rows, row_len, nrows, terms| {
+                wasm32::gf16::matrix_simd128(token, rows, row_len, nrows, terms)
+            },
         );
         check_gf8_elementwise("gf8 simd128 elementwise", |dst, a, b| {
             wasm32::gf8::elementwise_simd128(token, dst, a, b)
         });
-        check_gf16_elementwise(
-            "gf16 simd128 elementwise",
-            wasm32::gf16::elementwise_simd128,
-        );
+        check_gf16_elementwise("gf16 simd128 elementwise", |dst, a, b| {
+            wasm32::gf16::elementwise_simd128(token, dst, a, b)
+        });
     }
 
     #[test]
