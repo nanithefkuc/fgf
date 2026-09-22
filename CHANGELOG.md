@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `ops::mul_elementwise_assign`: `dst[i] *= src[i]`, the in-place two-slice
+  form of `mul_elementwise`. Existing three-slice callers that wrote the
+  product over their first operand had to stage a second buffer; this
+  spelling updates the accumulator in place.
+- `ops::add_assign_scalar` and `ops::sub_assign_scalar`: add or subtract one
+  field element broadcast across every lane. Consumers composing
+  lane-parallel Horner steps no longer fill a broadcast buffer and re-read it
+  through `add_assign`.
+
 ## [1.1.1] - 2026-09-18
 
 ### Changed

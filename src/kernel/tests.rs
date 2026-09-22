@@ -712,7 +712,6 @@ fn check_gf8d_affine_mul_into(name: &str, kernel: impl Fn(&mut [u8], u64, &Scale
         assert_eq!(got, want, "{name}: len {}, coeff {coeff:?}", src.len());
     });
 }
-
 fn check_gf8_elementwise(name: &str, kernel: impl Fn(&mut [u8], &[u8], &[u8])) {
     for &len in LENGTHS {
         let a = noise(len, 0xf2);
@@ -721,6 +720,20 @@ fn check_gf8_elementwise(name: &str, kernel: impl Fn(&mut [u8], &[u8], &[u8])) {
         let mut want = vec![0; len];
         kernel(&mut got, &a, &b);
         scalar::mul_elementwise::<gf8b::Gf8B>(&mut want, &a, &b);
+        assert_eq!(got, want, "{name}: len {len}");
+    }
+}
+
+/// Differential check for an in-place elementwise kernel: the destination
+/// starts as one operand, the kernel multiplies it by the other in place.
+fn check_elementwise_assign<F: crate::field::Field>(name: &str, kernel: impl Fn(&mut [u8], &[u8])) {
+    for &len in LENGTHS {
+        let a = noise(len, 0xf2);
+        let b = noise(len, 0x103);
+        let mut got = a.clone();
+        kernel(&mut got, &b);
+        let mut want = a.clone();
+        scalar::mul_elementwise_assign::<F>(&mut want, &b);
         assert_eq!(got, want, "{name}: len {len}");
     }
 }
@@ -1710,6 +1723,18 @@ mod x86 {
         check_gf16_elementwise("gf16 gfni elementwise", |dst, a, b| {
             x86::gf16::mul_elementwise_gfni(token, dst, a, b);
         });
+        let v3 = X64V3Token::summon().expect("GFNI implies AVX2");
+        check_elementwise_assign::<gf8b::Gf8B>("gf8 gfni elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_gfni(token, dst, src);
+        });
+        check_elementwise_assign::<gf8d::Gf8D>("gf8d gfni elementwise assign", |dst, src| {
+            // `GF2P8MULB` is the AES field; the assign twin runs the same
+            // `0x1d` shift/reduce form the three-slice kernel does.
+            x86::gf8::mul_elementwise_assign_avx2::<0x1d>(v3, dst, src);
+        });
+        check_elementwise_assign::<gf16::Gf16>("gf16 gfni elementwise assign", |dst, src| {
+            x86::gf16::mul_elementwise_assign_gfni(token, dst, src);
+        });
         // Level-2/3 tower kernels: the period-2 lane multiply one and two
         // levels up from the GF(2^16) kernel.
         check_tower_gfni_kernels(token);
@@ -2026,6 +2051,15 @@ mod x86 {
         });
         // Fan–Paar tower (GF(2^16)/32/64): the fp8 nibble tower and its
         // period-2 lane-mul extensions.
+        check_elementwise_assign::<gf8b::Gf8B>("gf8 avx2 elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_avx2::<0x1b>(token, dst, src);
+        });
+        check_elementwise_assign::<gf8d::Gf8D>("gf8d avx2 elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_avx2::<0x1d>(token, dst, src);
+        });
+        check_elementwise_assign::<gf16::Gf16>("gf16 avx2 elementwise assign", |dst, src| {
+            x86::gf16::mul_elementwise_assign_avx2(token, dst, src);
+        });
         check_fan_paar_avx2_kernels(token);
     }
 
@@ -2195,6 +2229,15 @@ mod x86 {
         });
         check_gf16_elementwise("gf16 ssse3 elementwise", |dst, a, b| {
             x86::gf16::mul_elementwise_ssse3(token, dst, a, b);
+        });
+        check_elementwise_assign::<gf8b::Gf8B>("gf8 ssse3 elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_ssse3::<0x1b>(token, dst, src);
+        });
+        check_elementwise_assign::<gf8d::Gf8D>("gf8d ssse3 elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_ssse3::<0x1d>(token, dst, src);
+        });
+        check_elementwise_assign::<gf16::Gf16>("gf16 ssse3 elementwise assign", |dst, src| {
+            x86::gf16::mul_elementwise_assign_ssse3(token, dst, src);
         });
         check_tower_mul_add(
             "fp16 ssse3 mul_add",
@@ -2497,6 +2540,9 @@ mod x86 {
         mulinto: impl Fn(&mut [u8], C, &[u8]),
         mulassign: impl Fn(&mut [u8], C),
         elemwise: impl Fn(&mut [u8], &[u8], &[u8]),
+        elemwise_assign: impl Fn(&mut [u8], &[u8]),
+        addscalar: impl Fn(&mut [u8], C),
+        subscalar: impl Fn(&mut [u8], C),
         label: &str,
     ) {
         // Canonicalize a buffer through the portable field so both sides start
@@ -2531,6 +2577,12 @@ mod x86 {
             prime::mul_elementwise::<F>(&mut want, &src, &b2);
             assert_eq!(got, want, "{label} mul_elementwise len {len}");
 
+            let mut got = base.clone();
+            elemwise_assign(&mut got, &src);
+            let mut want = base.clone();
+            prime::mul_elementwise::<F>(&mut want, &base, &src);
+            assert_eq!(got, want, "{label} mul_elementwise_assign len {len}");
+
             for &c in coeffs {
                 let mut got = base.clone();
                 let mut want = base.clone();
@@ -2549,6 +2601,18 @@ mod x86 {
                 mulassign(&mut got, c);
                 prime::mul_assign::<F>(&mut want, to_elem(c));
                 assert_eq!(got, want, "{label} mul_assign len {len} coeff {c:?}");
+
+                let mut got = base.clone();
+                addscalar(&mut got, c);
+                let mut want = base.clone();
+                prime::add_assign_scalar::<F>(&mut want, to_elem(c));
+                assert_eq!(got, want, "{label} add_assign_scalar len {len} coeff {c:?}");
+
+                let mut got = base.clone();
+                subscalar(&mut got, c);
+                let mut want = base.clone();
+                prime::sub_assign_scalar::<F>(&mut want, to_elem(c));
+                assert_eq!(got, want, "{label} sub_assign_scalar len {len} coeff {c:?}");
             }
         }
     }
@@ -2570,6 +2634,9 @@ mod x86 {
             |dst, coeff, src| x86::prime::mul_into_m31_avx2(token, dst, coeff, src),
             |dst, coeff| x86::prime::mul_assign_m31_avx2(token, dst, coeff),
             |dst, a, b| x86::prime::mul_elementwise_m31_avx2(token, dst, a, b),
+            |dst, s| x86::prime::mul_elementwise_assign_m31_avx2(token, dst, s),
+            |dst, c| x86::prime::add_assign_scalar_m31_avx2(token, dst, c),
+            |dst, c| x86::prime::sub_assign_scalar_m31_avx2(token, dst, c),
             "m31 avx2",
         );
         drive_prime::<Goldilocks, u64>(
@@ -2582,6 +2649,9 @@ mod x86 {
             |dst, coeff, src| x86::prime::mul_into_gld_avx2(token, dst, coeff, src),
             |dst, coeff| x86::prime::mul_assign_gld_avx2(token, dst, coeff),
             |dst, a, b| x86::prime::mul_elementwise_gld_avx2(token, dst, a, b),
+            |dst, s| x86::prime::mul_elementwise_assign_gld_avx2(token, dst, s),
+            |dst, c| x86::prime::add_assign_scalar_gld_avx2(token, dst, c),
+            |dst, c| x86::prime::sub_assign_scalar_gld_avx2(token, dst, c),
             "gld avx2",
         );
     }
@@ -2603,6 +2673,9 @@ mod x86 {
             |dst, coeff, src| x86::prime::mul_into_m31_sse42(token, dst, coeff, src),
             |dst, coeff| x86::prime::mul_assign_m31_sse42(token, dst, coeff),
             |dst, a, b| x86::prime::mul_elementwise_m31_sse42(token, dst, a, b),
+            |dst, s| x86::prime::mul_elementwise_assign_m31_sse42(token, dst, s),
+            |dst, c| x86::prime::add_assign_scalar_m31_sse42(token, dst, c),
+            |dst, c| x86::prime::sub_assign_scalar_m31_sse42(token, dst, c),
             "m31 sse4.2",
         );
         drive_prime::<Goldilocks, u64>(
@@ -2615,7 +2688,48 @@ mod x86 {
             |dst, coeff, src| x86::prime::mul_into_gld_sse42(token, dst, coeff, src),
             |dst, coeff| x86::prime::mul_assign_gld_sse42(token, dst, coeff),
             |dst, a, b| x86::prime::mul_elementwise_gld_sse42(token, dst, a, b),
+            |dst, s| x86::prime::mul_elementwise_assign_gld_sse42(token, dst, s),
+            |dst, c| x86::prime::add_assign_scalar_gld_sse42(token, dst, c),
+            |dst, c| x86::prime::sub_assign_scalar_gld_sse42(token, dst, c),
             "gld sse4.2",
+        );
+    }
+    #[test]
+    fn qm31_avx2_kernels_match_reference() {
+        // Multiples of 8 (one complex element) straddling the 32-byte AVX2
+        // lane, with odd element tails.
+        const QM31_LENS: &[usize] = &[0, 8, 16, 24, 32, 40, 64, 72, 128, 264, 1024];
+        const P: u32 = crate::field::mersenne31::MODULUS;
+        const QM31_VALUES: [crate::field::quad_mersenne31::Elem; 6] = [
+            crate::field::quad_mersenne31::Elem(0, 0),
+            crate::field::quad_mersenne31::Elem(1, 0),
+            crate::field::quad_mersenne31::Elem(0, 1),
+            crate::field::quad_mersenne31::Elem(7, 2),
+            crate::field::quad_mersenne31::Elem(P - 1, 3),
+            crate::field::quad_mersenne31::Elem(P - 1, P - 1),
+        ];
+        if !host_supports(&[Backend::V3]) {
+            eprintln!("skipping: no AVX2 on this host");
+            return;
+        }
+        let token = X64V3Token::summon().expect("guard passed: AVX2 summons here");
+        drive_prime::<
+            crate::field::quad_mersenne31::QuadMersenne31,
+            crate::field::quad_mersenne31::Elem,
+        >(
+            QM31_LENS,
+            &QM31_VALUES,
+            |e| e,
+            |dst, src| x86::prime::add_assign_qm31_avx2(token, dst, src),
+            |dst, src| x86::prime::sub_assign_qm31_avx2(token, dst, src),
+            |dst, coeff, src| x86::prime::mul_add_qm31_avx2(token, dst, coeff, src),
+            |dst, coeff, src| x86::prime::mul_into_qm31_avx2(token, dst, coeff, src),
+            |dst, coeff| x86::prime::mul_assign_qm31_avx2(token, dst, coeff),
+            |dst, a, b| x86::prime::mul_elementwise_qm31_avx2(token, dst, a, b),
+            |dst, s| x86::prime::mul_elementwise_assign_qm31_avx2(token, dst, s),
+            |dst, c| x86::prime::add_assign_scalar_qm31_avx2(token, dst, c),
+            |dst, c| x86::prime::sub_assign_scalar_qm31_avx2(token, dst, c),
+            "qm31 avx2",
         );
     }
 }

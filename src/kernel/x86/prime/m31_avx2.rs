@@ -11,7 +11,7 @@
 
 use super::{M31_P, check_elem_multiple, check_equal};
 use crate::field::mersenne31::{self, Mersenne31};
-use crate::kernel::prime;
+use crate::kernel::{prime, scalar};
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
@@ -264,4 +264,108 @@ pub fn mul_elementwise_m31_avx2(_token: archmage::X64V3Token, dst: &mut [u8], a:
         _mm256_storeu_si256(dst_lane, m31_mulmod256(va, vb, p));
     }
     prime::mul_elementwise::<Mersenne31>(dst_tail, a_tail, b_tail);
+}
+
+/// `dst[i] = dst[i] * src[i] (mod p)`, Mersenne31, AVX2.
+///
+/// # Panics
+/// Panics if the slices differ in length or hold a partial lane.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_elementwise_assign_m31_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8]) {
+    check_equal(
+        "m31::mul_elementwise_assign_avx2",
+        "dst",
+        dst.len(),
+        "src",
+        src.len(),
+    );
+    check_elem_multiple("m31::mul_elementwise_assign_avx2", dst.len(), 4);
+    let p = _mm256_set1_epi32(M31_P);
+    let (dst_tiles, dst_rest) = dst.as_chunks_mut::<128>();
+    let (src_tiles, src_rest) = src.as_chunks::<128>();
+    for (dst_tile, src_tile) in dst_tiles.iter_mut().zip(src_tiles) {
+        let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
+        let (src_lanes, _) = src_tile.as_chunks::<32>();
+        for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
+            let vd = m31_fold256(_mm256_loadu_si256(&*dst_lane), p);
+            let vs = m31_fold256(_mm256_loadu_si256(src_lane), p);
+            _mm256_storeu_si256(dst_lane, m31_mulmod256(vd, vs, p));
+        }
+    }
+    let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
+    let (src_lanes, src_tail) = src_rest.as_chunks::<32>();
+    for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
+        let vd = m31_fold256(_mm256_loadu_si256(&*dst_lane), p);
+        let vs = m31_fold256(_mm256_loadu_si256(src_lane), p);
+        _mm256_storeu_si256(dst_lane, m31_mulmod256(vd, vs, p));
+    }
+    scalar::mul_elementwise_assign::<Mersenne31>(dst_tail, src_tail);
+}
+
+/// `dst[i] += value (mod p)`, Mersenne31, AVX2. The raw `value` word is
+/// canonicalized once on entry.
+///
+/// The destination lanes are canonicalized on load; the broadcast value is
+/// used as given.
+///
+/// # Panics
+/// Panics on a partial trailing lane.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn add_assign_scalar_m31_avx2(_token: archmage::X64V3Token, dst: &mut [u8], value: u32) {
+    check_elem_multiple("m31::add_assign_scalar_avx2", dst.len(), 4);
+    let p = _mm256_set1_epi32(M31_P);
+    // The broadcast value is loop-invariant: canonicalize the raw word once.
+    let svec = _mm256_set1_epi32(mersenne31::Elem(value).canonical().to_raw().cast_signed());
+    let (dst_tiles, dst_rest) = dst.as_chunks_mut::<128>();
+    for dst_tile in dst_tiles {
+        let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
+        for dst_lane in dst_lanes {
+            let d = m31_fold256(_mm256_loadu_si256(&*dst_lane), p);
+            let sum = _mm256_add_epi32(d, svec);
+            _mm256_storeu_si256(dst_lane, m31_min_chain256(sum, p));
+        }
+    }
+    let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
+    for dst_lane in dst_lanes {
+        let d = m31_fold256(_mm256_loadu_si256(&*dst_lane), p);
+        let sum = _mm256_add_epi32(d, svec);
+        _mm256_storeu_si256(dst_lane, m31_min_chain256(sum, p));
+    }
+    prime::add_assign_scalar::<Mersenne31>(dst_tail, mersenne31::Elem(value));
+}
+
+/// `dst[i] -= value (mod p)`, Mersenne31, AVX2. The raw `value` word is
+/// canonicalized once on entry.
+///
+/// The destination lanes are canonicalized on load; the broadcast value is
+/// used as given.
+///
+/// # Panics
+/// Panics on a partial trailing lane.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn sub_assign_scalar_m31_avx2(_token: archmage::X64V3Token, dst: &mut [u8], value: u32) {
+    check_elem_multiple("m31::sub_assign_scalar_avx2", dst.len(), 4);
+    let p = _mm256_set1_epi32(M31_P);
+    let svec = _mm256_set1_epi32(mersenne31::Elem(value).canonical().to_raw().cast_signed());
+    let (dst_tiles, dst_rest) = dst.as_chunks_mut::<128>();
+    for dst_tile in dst_tiles {
+        let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
+        for dst_lane in dst_lanes {
+            let d = m31_fold256(_mm256_loadu_si256(&*dst_lane), p);
+            let diff = _mm256_sub_epi32(d, svec);
+            let fixed = _mm256_min_epu32(diff, _mm256_add_epi32(diff, p));
+            _mm256_storeu_si256(dst_lane, m31_min_chain256(fixed, p));
+        }
+    }
+    let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
+    for dst_lane in dst_lanes {
+        let d = m31_fold256(_mm256_loadu_si256(&*dst_lane), p);
+        let diff = _mm256_sub_epi32(d, svec);
+        let fixed = _mm256_min_epu32(diff, _mm256_add_epi32(diff, p));
+        _mm256_storeu_si256(dst_lane, m31_min_chain256(fixed, p));
+    }
+    prime::sub_assign_scalar::<Mersenne31>(dst_tail, mersenne31::Elem(value));
 }

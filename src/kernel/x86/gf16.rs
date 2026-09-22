@@ -80,7 +80,10 @@ fn check_elements(name: &str, bytes: usize) {
     );
 }
 
-pub use elementwise::{mul_elementwise_avx2, mul_elementwise_gfni, mul_elementwise_ssse3};
+pub use elementwise::{
+    mul_elementwise_assign_avx2, mul_elementwise_assign_gfni, mul_elementwise_assign_ssse3,
+    mul_elementwise_avx2, mul_elementwise_gfni, mul_elementwise_ssse3,
+};
 // The AVX2 gather and matrix bodies are reachable through `internals` and
 // from the kernel tests; dispatch selects the SSSE3 and GFNI forms, so the
 // re-export is unused in a plain default build.

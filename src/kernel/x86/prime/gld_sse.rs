@@ -7,7 +7,7 @@
 
 use super::{EPS, GLD_P, GLD_PM1, check_elem_multiple, check_equal};
 use crate::field::goldilocks::{self, Goldilocks};
-use crate::kernel::prime;
+use crate::kernel::{prime, scalar};
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
@@ -234,4 +234,82 @@ pub fn mul_into_gld_sse42(_token: archmage::X64V2Token, dst: &mut [u8], coeff: u
             goldilocks::Elem(coeff) * goldilocks::Elem(u64::from_le_bytes(s.try_into().unwrap()));
         d.copy_from_slice(&v.to_raw().to_le_bytes());
     }
+}
+
+/// `dst[i] = dst[i] * src[i] (mod p)`, Goldilocks, SSE4.2.
+///
+/// # Panics
+/// Panics if the slices differ in length or hold a partial lane.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_elementwise_assign_gld_sse42(_token: archmage::X64V2Token, dst: &mut [u8], src: &[u8]) {
+    check_equal(
+        "gld::mul_elementwise_assign_sse42",
+        "dst",
+        dst.len(),
+        "src",
+        src.len(),
+    );
+    check_elem_multiple("gld::mul_elementwise_assign_sse42", dst.len(), 8);
+    let pcst = _mm_set1_epi64x(GLD_P);
+    let pm1 = _mm_set1_epi64x(GLD_PM1);
+    let eps = _mm_set1_epi64x(EPS);
+    let m32 = _mm_set1_epi64x(M32);
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
+    let (src_lanes, src_tail) = src.as_chunks::<16>();
+    for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
+        let d = _mm_loadu_si128(&*dst_lane);
+        let s = _mm_loadu_si128(src_lane);
+        _mm_storeu_si128(dst_lane, gld_mul128(d, s, m32, eps, pcst, pm1));
+    }
+    scalar::mul_elementwise_assign::<Goldilocks>(dst_tail, src_tail);
+}
+
+/// `dst[i] += value (mod p)`, Goldilocks, SSE4.2. The raw `value` word is
+/// canonicalized once on entry.
+///
+/// The destination lanes are canonicalized on load; the broadcast value is
+/// used as given.
+///
+/// # Panics
+/// Panics on a partial trailing lane.
+#[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn add_assign_scalar_gld_sse42(_token: archmage::X64V2Token, dst: &mut [u8], value: u64) {
+    check_elem_multiple("gld::add_assign_scalar_sse42", dst.len(), 8);
+    let pcst = _mm_set1_epi64x(GLD_P);
+    let pm1 = _mm_set1_epi64x(GLD_PM1);
+    let eps = _mm_set1_epi64x(EPS);
+    // The broadcast value is loop-invariant: canonicalize the raw word once.
+    let svec = _mm_set1_epi64x(goldilocks::Elem(value).canonical().to_raw().cast_signed());
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
+    for dst_lane in dst_lanes {
+        let d = gld_canon128(_mm_loadu_si128(&*dst_lane), pcst, pm1);
+        _mm_storeu_si128(dst_lane, gld_addmod128(d, svec, pcst, pm1, eps));
+    }
+    prime::add_assign_scalar::<Goldilocks>(dst_tail, goldilocks::Elem(value));
+}
+
+/// `dst[i] -= value (mod p)`, Goldilocks, SSE4.2. The raw `value` word is
+/// canonicalized once on entry.
+///
+/// The destination lanes are canonicalized on load; the broadcast value is
+/// used as given.
+///
+/// # Panics
+/// Panics on a partial trailing lane.
+#[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn sub_assign_scalar_gld_sse42(_token: archmage::X64V2Token, dst: &mut [u8], value: u64) {
+    check_elem_multiple("gld::sub_assign_scalar_sse42", dst.len(), 8);
+    let pcst = _mm_set1_epi64x(GLD_P);
+    let pm1 = _mm_set1_epi64x(GLD_PM1);
+    let eps = _mm_set1_epi64x(EPS);
+    let svec = _mm_set1_epi64x(goldilocks::Elem(value).canonical().to_raw().cast_signed());
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
+    for dst_lane in dst_lanes {
+        let d = gld_canon128(_mm_loadu_si128(&*dst_lane), pcst, pm1);
+        _mm_storeu_si128(dst_lane, gld_submod128(d, svec, pcst, eps));
+    }
+    prime::sub_assign_scalar::<Goldilocks>(dst_tail, goldilocks::Elem(value));
 }

@@ -10,7 +10,7 @@
 
 use super::{EPS, GLD_P, GLD_PM1, check_elem_multiple, check_equal};
 use crate::field::goldilocks::{self, Goldilocks};
-use crate::kernel::prime;
+use crate::kernel::{prime, scalar};
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
@@ -287,4 +287,86 @@ pub fn mul_into_gld_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u6
             goldilocks::Elem(coeff) * goldilocks::Elem(u64::from_le_bytes(s.try_into().unwrap()));
         d.copy_from_slice(&v.to_raw().to_le_bytes());
     }
+}
+
+/// `dst[i] = dst[i] * src[i] (mod p)`, Goldilocks, AVX2.
+///
+/// # Panics
+/// Panics if the slices differ in length or hold a partial lane.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_elementwise_assign_gld_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8]) {
+    check_equal(
+        "gld::mul_elementwise_assign_avx2",
+        "dst",
+        dst.len(),
+        "src",
+        src.len(),
+    );
+    check_elem_multiple("gld::mul_elementwise_assign_avx2", dst.len(), 8);
+    let eps = _mm256_set1_epi64x(EPS);
+    let sign = _mm256_set1_epi64x(GLD_SIGN);
+    let sp_c = _mm256_set1_epi64x(GLD_SHIFTED_P);
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    let (src_lanes, src_tail) = src.as_chunks::<32>();
+    for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
+        let (hi, lo) = gld_mul_wide(_mm256_loadu_si256(&*dst_lane), _mm256_loadu_si256(src_lane));
+        let res_s = gld_reduce_wide_s(hi, lo, eps);
+        let mask = _mm256_cmpgt_epi64(sp_c, res_s);
+        let res = _mm256_xor_si256(
+            _mm256_add_epi64(res_s, _mm256_andnot_si256(mask, eps)),
+            sign,
+        );
+        _mm256_storeu_si256(dst_lane, res);
+    }
+    scalar::mul_elementwise_assign::<Goldilocks>(dst_tail, src_tail);
+}
+
+/// `dst[i] += value (mod p)`, Goldilocks, AVX2. The raw `value` word is
+/// canonicalized once on entry.
+///
+/// The destination lanes are canonicalized on load; the broadcast value is
+/// used as given.
+///
+/// # Panics
+/// Panics on a partial trailing lane.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn add_assign_scalar_gld_avx2(_token: archmage::X64V3Token, dst: &mut [u8], value: u64) {
+    check_elem_multiple("gld::add_assign_scalar_avx2", dst.len(), 8);
+    let pcst = _mm256_set1_epi64x(GLD_P);
+    let pm1 = _mm256_set1_epi64x(GLD_PM1);
+    let eps = _mm256_set1_epi64x(EPS);
+    // The broadcast value is loop-invariant: canonicalize the raw word once.
+    let svec = _mm256_set1_epi64x(goldilocks::Elem(value).canonical().to_raw().cast_signed());
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    for dst_lane in dst_lanes {
+        let d = gld_canon256(_mm256_loadu_si256(&*dst_lane), pcst, pm1);
+        _mm256_storeu_si256(dst_lane, gld_addmod256(d, svec, pcst, pm1, eps));
+    }
+    prime::add_assign_scalar::<Goldilocks>(dst_tail, goldilocks::Elem(value));
+}
+
+/// `dst[i] -= value (mod p)`, Goldilocks, AVX2. The raw `value` word is
+/// canonicalized once on entry.
+///
+/// The destination lanes are canonicalized on load; the broadcast value is
+/// used as given.
+///
+/// # Panics
+/// Panics on a partial trailing lane.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn sub_assign_scalar_gld_avx2(_token: archmage::X64V3Token, dst: &mut [u8], value: u64) {
+    check_elem_multiple("gld::sub_assign_scalar_avx2", dst.len(), 8);
+    let pcst = _mm256_set1_epi64x(GLD_P);
+    let pm1 = _mm256_set1_epi64x(GLD_PM1);
+    let eps = _mm256_set1_epi64x(EPS);
+    let svec = _mm256_set1_epi64x(goldilocks::Elem(value).canonical().to_raw().cast_signed());
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    for dst_lane in dst_lanes {
+        let d = gld_canon256(_mm256_loadu_si256(&*dst_lane), pcst, pm1);
+        _mm256_storeu_si256(dst_lane, gld_submod256(d, svec, pcst, eps));
+    }
+    prime::sub_assign_scalar::<Goldilocks>(dst_tail, goldilocks::Elem(value));
 }

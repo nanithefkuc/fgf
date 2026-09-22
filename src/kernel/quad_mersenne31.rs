@@ -17,7 +17,7 @@ use crate::field::Field;
 use crate::field::quad_mersenne31::{Elem, QuadMersenne31};
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::kernel::backend;
-use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch};
+use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, prime, scalar};
 
 /// Row length in bytes at or above which the AVX2 multiplies take over;
 /// one full vector of four complex elements.
@@ -366,5 +366,50 @@ impl KernelDispatch for QuadMersenne31 {
             let xb = QuadMersenne31::decode(y);
             QuadMersenne31::encode(d, qmul(canon(xa.0), canon(xa.1), canon(xb.0), canon(xb.1)));
         }
+    }
+
+    fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
+            && dst.len() >= VECTOR_MUL_MIN_BYTES
+        {
+            crate::kernel::x86::prime::mul_elementwise_assign_qm31_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                src,
+            );
+            return;
+        }
+        scalar::mul_elementwise_assign::<QuadMersenne31>(dst, src);
+    }
+
+    fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
+            && dst.len() >= VECTOR_ADD_MIN_BYTES
+        {
+            crate::kernel::x86::prime::add_assign_scalar_qm31_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                *value,
+            );
+            return;
+        }
+        prime::add_assign_scalar::<QuadMersenne31>(dst, *value);
+    }
+
+    fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
+            && dst.len() >= VECTOR_ADD_MIN_BYTES
+        {
+            crate::kernel::x86::prime::sub_assign_scalar_qm31_avx2(
+                crate::kernel::x86_v3_token(),
+                dst,
+                *value,
+            );
+            return;
+        }
+        prime::sub_assign_scalar::<QuadMersenne31>(dst, *value);
     }
 }

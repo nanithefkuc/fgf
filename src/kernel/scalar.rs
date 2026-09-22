@@ -133,6 +133,33 @@ pub fn mul_elementwise<F: Field>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     }
 }
 
+/// `dst[i] *= src[i]`, elementwise, in place.
+pub fn mul_elementwise_assign<F: Field>(dst: &mut [u8], src: &[u8]) {
+    debug_assert_eq!(dst.len(), src.len());
+    for (d, s) in dst
+        .chunks_exact_mut(F::BYTES)
+        .zip(src.chunks_exact(F::BYTES))
+    {
+        F::encode(d, F::decode(d).mul(F::decode(s)));
+    }
+}
+
+/// `dst ^= value`, one element broadcast across every lane.
+///
+/// Characteristic-two fields only: the broadcast bytes are exclusive-ORed into
+/// every lane, which is the field's addition there. The prime fields use the
+/// modular fold of the portable prime-field reference instead.
+pub fn xor_broadcast<F: Field>(dst: &mut [u8], value: F::Elem) {
+    let mut encoded = [0u8; 8];
+    F::encode(&mut encoded[..F::BYTES], value);
+    let pattern = &encoded[..F::BYTES];
+    for lane in dst.chunks_exact_mut(F::BYTES) {
+        for (d, &p) in lane.iter_mut().zip(pattern) {
+            *d ^= p;
+        }
+    }
+}
+
 /// Implement [`crate::kernel::FieldKernels`] (default queries) and
 /// [`crate::kernel::KernelDispatch`] (portable raw kernels) for a supported
 /// field that has no hand-written SIMD backend.

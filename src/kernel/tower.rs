@@ -803,6 +803,32 @@ pub mod gf16 {
                 _ => scalar::mul_elementwise::<Gf16>(dst, a, b),
             }
         }
+
+        fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+            match backend() {
+                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                Backend::V3GfniCrypto => {
+                    x86::gf16::mul_elementwise_assign_gfni(
+                        crate::kernel::x86_v3_gfni_token(),
+                        dst,
+                        src,
+                    );
+                }
+                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                Backend::V3 => {
+                    x86::gf16::mul_elementwise_assign_avx2(crate::kernel::x86_v3_token(), dst, src);
+                }
+                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                Backend::V2 => {
+                    x86::gf16::mul_elementwise_assign_ssse3(
+                        crate::kernel::x86_v2_token(),
+                        dst,
+                        src,
+                    );
+                }
+                _ => scalar::mul_elementwise_assign::<Gf16>(dst, src),
+            }
+        }
     }
 }
 

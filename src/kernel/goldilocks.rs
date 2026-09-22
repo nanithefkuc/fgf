@@ -9,7 +9,7 @@
 
 use crate::field::goldilocks::{Elem, Goldilocks};
 #[allow(unused_imports)]
-use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, prime};
+use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, prime, scalar};
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::kernel::x86;
@@ -188,6 +188,72 @@ impl KernelDispatch for Goldilocks {
                 x86::prime::mul_elementwise_gld_sse42(crate::kernel::x86_v2_token(), dst, a, b);
             }
             _ => prime::mul_elementwise::<Goldilocks>(dst, a, b),
+        }
+    }
+
+    fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        match backend() {
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V3GfniCrypto | Backend::V3 => {
+                x86::prime::mul_elementwise_assign_gld_avx2(
+                    crate::kernel::x86_v3_token(),
+                    dst,
+                    src,
+                );
+            }
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V2 => {
+                x86::prime::mul_elementwise_assign_gld_sse42(
+                    crate::kernel::x86_v2_token(),
+                    dst,
+                    src,
+                );
+            }
+            _ => scalar::mul_elementwise_assign::<Goldilocks>(dst, src),
+        }
+    }
+
+    fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
+        match backend() {
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V3GfniCrypto | Backend::V3 => {
+                x86::prime::add_assign_scalar_gld_avx2(
+                    crate::kernel::x86_v3_token(),
+                    dst,
+                    value.to_raw(),
+                );
+            }
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V2 => {
+                x86::prime::add_assign_scalar_gld_sse42(
+                    crate::kernel::x86_v2_token(),
+                    dst,
+                    value.to_raw(),
+                );
+            }
+            _ => prime::add_assign_scalar::<Goldilocks>(dst, *value),
+        }
+    }
+
+    fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
+        match backend() {
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V3GfniCrypto | Backend::V3 => {
+                x86::prime::sub_assign_scalar_gld_avx2(
+                    crate::kernel::x86_v3_token(),
+                    dst,
+                    value.to_raw(),
+                );
+            }
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V2 => {
+                x86::prime::sub_assign_scalar_gld_sse42(
+                    crate::kernel::x86_v2_token(),
+                    dst,
+                    value.to_raw(),
+                );
+            }
+            _ => prime::sub_assign_scalar::<Goldilocks>(dst, *value),
         }
     }
 }

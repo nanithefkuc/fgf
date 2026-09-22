@@ -17,8 +17,9 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use fgf::{
-    FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf16, Gf32, Gf64, Mersenne31, backend, fan_paar, gf8b,
-    gf16, gf32, gf64, ops,
+    FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf16, Gf32, Gf64, Goldilocks, Mersenne31,
+    QuadMersenne31, backend, fan_paar, gf8b, gf16, gf32, gf64, goldilocks, mersenne31, ops,
+    quad_mersenne31,
 };
 
 fn noise(len: usize, seed: u64) -> Vec<u8> {
@@ -692,6 +693,84 @@ fn main() {
         });
         bench("mul_assign               gf16", len, || {
             ops::mul_assign::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));
+        });
+
+        // Prime-field elementwise and broadcast scalar ops. `add_assign` and
+        // `elementwise` are the unchanged controls for the new assign forms.
+        bench("add_assign                   m31", len, || {
+            ops::add_assign::<Mersenne31>(black_box(&mut dst), black_box(&src));
+        });
+        bench("add_assign_scalar            m31", len, || {
+            ops::add_assign_scalar::<Mersenne31>(
+                black_box(&mut dst),
+                mersenne31::Elem::from_raw(0x1234_5678),
+            );
+        });
+        bench("sub_assign_scalar            m31", len, || {
+            ops::sub_assign_scalar::<Mersenne31>(
+                black_box(&mut dst),
+                mersenne31::Elem::from_raw(0x1234_5678),
+            );
+        });
+        bench("elementwise                  m31", len, || {
+            ops::mul_elementwise::<Mersenne31>(
+                black_box(&mut product),
+                black_box(&src),
+                black_box(&rhs),
+            );
+        });
+        bench("elementwise_assign           m31", len, || {
+            ops::mul_elementwise_assign::<Mersenne31>(black_box(&mut product), black_box(&src));
+        });
+        bench("add_assign                   gld", len, || {
+            ops::add_assign::<Goldilocks>(black_box(&mut dst), black_box(&src));
+        });
+        bench("add_assign_scalar            gld", len, || {
+            ops::add_assign_scalar::<Goldilocks>(
+                black_box(&mut dst),
+                goldilocks::Elem::from_raw(0x1234_5678_9abc_def0),
+            );
+        });
+        bench("sub_assign_scalar            gld", len, || {
+            ops::sub_assign_scalar::<Goldilocks>(
+                black_box(&mut dst),
+                goldilocks::Elem::from_raw(0x1234_5678_9abc_def0),
+            );
+        });
+        bench("elementwise                  gld", len, || {
+            ops::mul_elementwise::<Goldilocks>(
+                black_box(&mut product),
+                black_box(&src),
+                black_box(&rhs),
+            );
+        });
+        bench("elementwise_assign           gld", len, || {
+            ops::mul_elementwise_assign::<Goldilocks>(black_box(&mut product), black_box(&src));
+        });
+        bench("add_assign                  qm31", len, || {
+            ops::add_assign::<QuadMersenne31>(black_box(&mut dst), black_box(&src));
+        });
+        bench("add_assign_scalar           qm31", len, || {
+            ops::add_assign_scalar::<QuadMersenne31>(
+                black_box(&mut dst),
+                quad_mersenne31::Elem::from_raw(0x1234_5678, 0x0987_6543),
+            );
+        });
+        bench("sub_assign_scalar           qm31", len, || {
+            ops::sub_assign_scalar::<QuadMersenne31>(
+                black_box(&mut dst),
+                quad_mersenne31::Elem::from_raw(0x1234_5678, 0x0987_6543),
+            );
+        });
+        bench("elementwise                 qm31", len, || {
+            ops::mul_elementwise::<QuadMersenne31>(
+                black_box(&mut product),
+                black_box(&src),
+                black_box(&rhs),
+            );
+        });
+        bench("elementwise_assign          qm31", len, || {
+            ops::mul_elementwise_assign::<QuadMersenne31>(black_box(&mut product), black_box(&src));
         });
         println!();
     }

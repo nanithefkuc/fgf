@@ -681,6 +681,31 @@ pub(crate) trait KernelDispatch: Field {
     /// Wasm, and the shuffle-only x86 backends use a branchless
     /// shift/reduce vector multiply. The wider fields run the reference path.
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]);
+
+    /// `dst[i] *= src[i]`, elementwise, in place.
+    fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        scalar::mul_elementwise_assign::<Self>(dst, src);
+    }
+
+    /// `dst[i] += value`, one field element broadcast across every lane.
+    fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
+        let elem = Self::prepared_coeff(RawDispatch, value);
+        if Self::CHARACTERISTIC == 2 {
+            scalar::xor_broadcast::<Self>(dst, elem);
+        } else {
+            prime::add_assign_scalar::<Self>(dst, elem);
+        }
+    }
+
+    /// `dst[i] -= value`, one field element broadcast across every lane.
+    fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
+        let elem = Self::prepared_coeff(RawDispatch, value);
+        if Self::CHARACTERISTIC == 2 {
+            scalar::xor_broadcast::<Self>(dst, elem);
+        } else {
+            prime::sub_assign_scalar::<Self>(dst, elem);
+        }
+    }
 }
 
 /// Zero-sized proof of the right to call [`KernelDispatch`] entry points.

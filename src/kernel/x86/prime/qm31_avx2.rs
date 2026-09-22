@@ -36,7 +36,7 @@ use super::m31_avx2::{m31_fold256, m31_min_chain256, m31_mulmod256};
 use super::{M31_P, check_elem_multiple, check_equal};
 use crate::field::quad_mersenne31::{Elem, QuadMersenne31};
 use crate::field::{Field, mersenne31};
-use crate::kernel::prime;
+use crate::kernel::{prime, scalar};
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
@@ -299,6 +299,89 @@ pub fn mul_elementwise_qm31_avx2(_token: archmage::X64V3Token, dst: &mut [u8], a
         _mm256_storeu_si256(dst_lane, qm31_cmul_vec256(va, vb, p));
     }
     prime::mul_elementwise::<QuadMersenne31>(dst_tail, a_tail, b_tail);
+}
+
+/// `dst[i] = dst[i] * src[i]` in GF((2^31 - 1)^2), AVX2.
+///
+/// All buffers hold canonical lanes — every 32-bit limb below the modulus —
+/// and every stored lane is canonical.
+///
+/// # Panics
+/// Panics if the slices differ in length or hold a partial element.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_elementwise_assign_qm31_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8]) {
+    check_equal(
+        "qm31::mul_elementwise_assign_avx2",
+        "dst",
+        dst.len(),
+        "src",
+        src.len(),
+    );
+    check_elem_multiple("qm31::mul_elementwise_assign_avx2", dst.len(), 8);
+    let p = _mm256_set1_epi32(M31_P);
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    let (src_lanes, src_tail) = src.as_chunks::<32>();
+    for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
+        let vd = m31_fold256(_mm256_loadu_si256(&*dst_lane), p);
+        let vs = m31_fold256(_mm256_loadu_si256(src_lane), p);
+        _mm256_storeu_si256(dst_lane, qm31_cmul_vec256(vd, vs, p));
+    }
+    scalar::mul_elementwise_assign::<QuadMersenne31>(dst_tail, src_tail);
+}
+
+/// `dst[i] += value` in GF((2^31 - 1)^2), AVX2. The raw `value` limbs are
+/// canonicalized once on entry.
+///
+/// The destination lanes are canonicalized on load; the broadcast value is
+/// used as given.
+///
+/// # Panics
+/// Panics on a partial trailing element.
+#[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn add_assign_scalar_qm31_avx2(_token: archmage::X64V3Token, dst: &mut [u8], value: Elem) {
+    check_elem_multiple("qm31::add_assign_scalar_avx2", dst.len(), 8);
+    // The broadcast value is loop-invariant: canonicalize the raw limbs once.
+    let (vr, vi) = value.canonical().to_raw();
+    // Broadcast the (re, im) pair onto the alternating limb lanes.
+    let svec = _mm256_blend_epi32::<0b1010_1010>(
+        _mm256_set1_epi32(vr as i32),
+        _mm256_set1_epi32(vi as i32),
+    );
+    let p = _mm256_set1_epi32(M31_P);
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    for dst_lane in dst_lanes {
+        let d = m31_fold256(_mm256_loadu_si256(&*dst_lane), p);
+        _mm256_storeu_si256(dst_lane, qm31_addmod256(d, svec, p));
+    }
+    prime::add_assign_scalar::<QuadMersenne31>(dst_tail, value);
+}
+
+/// `dst[i] -= value` in GF((2^31 - 1)^2), AVX2. The raw `value` limbs are
+/// canonicalized once on entry.
+///
+/// The destination lanes are canonicalized on load; the broadcast value is
+/// used as given.
+///
+/// # Panics
+/// Panics on a partial trailing element.
+#[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn sub_assign_scalar_qm31_avx2(_token: archmage::X64V3Token, dst: &mut [u8], value: Elem) {
+    check_elem_multiple("qm31::sub_assign_scalar_avx2", dst.len(), 8);
+    let (vr, vi) = value.canonical().to_raw();
+    let svec = _mm256_blend_epi32::<0b1010_1010>(
+        _mm256_set1_epi32(vr as i32),
+        _mm256_set1_epi32(vi as i32),
+    );
+    let p = _mm256_set1_epi32(M31_P);
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    for dst_lane in dst_lanes {
+        let d = m31_fold256(_mm256_loadu_si256(&*dst_lane), p);
+        _mm256_storeu_si256(dst_lane, qm31_submod256(d, svec, p));
+    }
+    prime::sub_assign_scalar::<QuadMersenne31>(dst_tail, value);
 }
 
 #[cfg(test)]

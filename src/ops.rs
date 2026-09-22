@@ -1300,6 +1300,49 @@ pub fn mul_elementwise<F: FieldKernels>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     F::mul_elementwise(RawDispatch, dst, a, b);
 }
 
+/// In-place elementwise product: `dst[i] *= src[i]`.
+///
+/// The two-slice spelling of [`mul_elementwise`]: the destination is also the
+/// first operand, so consumers composing lane-parallel Horner steps update
+/// their accumulator without a second output buffer.
+///
+/// # Panics
+/// Panics on a length mismatch or a partial trailing element.
+#[inline]
+pub fn mul_elementwise_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
+    check_pair::<F>("mul_elementwise_assign", "dst", dst.len(), "src", src.len());
+    F::mul_elementwise_assign(RawDispatch, dst, src);
+}
+
+/// `dst[i] += value`, one field element broadcast across every lane.
+///
+/// The value is canonicalized once before dispatch, matching
+/// [`mul_add`]'s treatment of its coefficient. Destination lanes holding
+/// non-canonical prime-field words are canonicalized on load, exactly as in
+/// [`add_assign`].
+///
+/// # Panics
+/// Panics if `dst` holds a partial trailing element.
+#[inline]
+pub fn add_assign_scalar<F: FieldKernels>(dst: &mut [u8], value: F::Elem) {
+    check_width::<F>("add_assign_scalar", dst.len());
+    F::add_assign_scalar(RawDispatch, dst, &F::prepare(RawDispatch, value));
+}
+
+/// `dst[i] -= value`, one field element broadcast across every lane.
+///
+/// The value is canonicalized once before dispatch. Destination lanes
+/// holding non-canonical prime-field words are canonicalized on load,
+/// exactly as in [`sub_assign`].
+///
+/// # Panics
+/// Panics if `dst` holds a partial trailing element.
+#[inline]
+pub fn sub_assign_scalar<F: FieldKernels>(dst: &mut [u8], value: F::Elem) {
+    check_width::<F>("sub_assign_scalar", dst.len());
+    F::sub_assign_scalar(RawDispatch, dst, &F::prepare(RawDispatch, value));
+}
+
 /// Pack field elements into their stable little-endian byte representation.
 ///
 /// Prime-field representations are preserved, not normalized. Canonicalize

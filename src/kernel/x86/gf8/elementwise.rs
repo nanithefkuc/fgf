@@ -195,3 +195,94 @@ pub fn mul_elementwise_ssse3<const RED: u8>(
         *d = gf_mul_ref::<RED>(x, y);
     }
 }
+
+/// `dst[i] = dst[i] * src[i]` using vector-by-vector `GF2P8MULB`.
+///
+/// # Panics
+/// Panics if the slices differ in length.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_elementwise_assign_gfni(
+    _token: archmage::X64V3GfniCryptoToken,
+    dst: &mut [u8],
+    src: &[u8],
+) {
+    assert_eq!(
+        dst.len(),
+        src.len(),
+        "mul_elementwise_assign_gfni: dst and src differ in length"
+    );
+    let (dst_lanes, dst_rest) = dst.as_chunks_mut::<32>();
+    let (src_lanes, src_rest) = src.as_chunks::<32>();
+    for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
+        let x = _mm256_loadu_si256(&*dlane);
+        let y = _mm256_loadu_si256(slane);
+        _mm256_storeu_si256(dlane, _mm256_gf2p8mul_epi8(x, y));
+    }
+    let (dst16, dst_tail) = dst_rest.as_chunks_mut::<16>();
+    let (src16, src_tail) = src_rest.as_chunks::<16>();
+    for (d16, s16) in dst16.iter_mut().zip(src16) {
+        let x = _mm_loadu_si128(&*d16);
+        let y = _mm_loadu_si128(s16);
+        _mm_storeu_si128(d16, _mm_gf2p8mul_epi8(x, y));
+    }
+    for (d, s) in dst_tail.iter_mut().zip(src_tail) {
+        *d = Elem(*d).mul(Elem(*s)).0;
+    }
+}
+
+/// `dst[i] = dst[i] * src[i]` by branchless shift/reduce over 32-byte lanes.
+///
+/// # Panics
+/// Panics if the slices differ in length.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_elementwise_assign_avx2<const RED: u8>(
+    _token: archmage::X64V3Token,
+    dst: &mut [u8],
+    src: &[u8],
+) {
+    assert_eq!(
+        dst.len(),
+        src.len(),
+        "mul_elementwise_assign_avx2: dst and src differ in length"
+    );
+    let (dst_lanes, dst_rest) = dst.as_chunks_mut::<32>();
+    let (src_lanes, src_rest) = src.as_chunks::<32>();
+    for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
+        let x = _mm256_loadu_si256(&*dlane);
+        let y = _mm256_loadu_si256(slane);
+        _mm256_storeu_si256(dlane, multiply_vectors_avx2::<RED>(x, y));
+    }
+
+    // AVX2 implies SSSE3; the remainders keep equal lengths.
+    mul_elementwise_assign_ssse3::<RED>(_token.v2(), dst_rest, src_rest);
+}
+
+/// `dst[i] = dst[i] * src[i]` by branchless shift/reduce over 16-byte lanes.
+///
+/// # Panics
+/// Panics if the slices differ in length.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_elementwise_assign_ssse3<const RED: u8>(
+    _token: archmage::X64V2Token,
+    dst: &mut [u8],
+    src: &[u8],
+) {
+    assert_eq!(
+        dst.len(),
+        src.len(),
+        "mul_elementwise_assign_ssse3: dst and src differ in length"
+    );
+    let (dst_lanes, dst_rest) = dst.as_chunks_mut::<16>();
+    let (src_lanes, src_rest) = src.as_chunks::<16>();
+    for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
+        let x = _mm_loadu_si128(&*dlane);
+        let y = _mm_loadu_si128(slane);
+        _mm_storeu_si128(dlane, multiply_vectors_sse::<RED>(x, y));
+    }
+    for (d, &s) in dst_rest.iter_mut().zip(src_rest) {
+        *d = gf_mul_ref::<RED>(*d, s);
+    }
+}

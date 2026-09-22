@@ -495,6 +495,32 @@ impl KernelDispatch for Gf8B {
             _ => scalar::mul_elementwise::<Gf8B>(dst, a, b),
         }
     }
+
+    fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        match backend() {
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V3GfniCrypto => {
+                x86::gf8::mul_elementwise_assign_gfni(crate::kernel::x86_v3_gfni_token(), dst, src);
+            }
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V3 => {
+                x86::gf8::mul_elementwise_assign_avx2::<0x1b>(
+                    crate::kernel::x86_v3_token(),
+                    dst,
+                    src,
+                );
+            }
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V2 => {
+                x86::gf8::mul_elementwise_assign_ssse3::<0x1b>(
+                    crate::kernel::x86_v2_token(),
+                    dst,
+                    src,
+                );
+            }
+            _ => scalar::mul_elementwise_assign::<Gf8B>(dst, src),
+        }
+    }
 }
 
 // --------------------------------------------------------------------------
@@ -864,6 +890,31 @@ impl KernelDispatch for Gf8D {
                 x86::gf8::mul_elementwise_ssse3::<0x1d>(crate::kernel::x86_v2_token(), dst, a, b);
             }
             _ => scalar::mul_elementwise::<Gf8D>(dst, a, b),
+        }
+    }
+
+    fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        match backend() {
+            // `GF2P8MULB` is the AES field and cannot multiply under `0x11D`,
+            // so even a GFNI host runs the branchless shift/reduce vector
+            // multiply, threading the `0x11D` reduction byte (`0x1d`).
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V3GfniCrypto | Backend::V3 => {
+                x86::gf8::mul_elementwise_assign_avx2::<0x1d>(
+                    crate::kernel::x86_v3_token(),
+                    dst,
+                    src,
+                );
+            }
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V2 => {
+                x86::gf8::mul_elementwise_assign_ssse3::<0x1d>(
+                    crate::kernel::x86_v2_token(),
+                    dst,
+                    src,
+                );
+            }
+            _ => scalar::mul_elementwise_assign::<Gf8D>(dst, src),
         }
     }
 }

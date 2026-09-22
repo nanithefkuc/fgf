@@ -99,6 +99,37 @@ duplicated control at parity; reproduce with
 threshold so consumers choose schedules by row length instead of paying the
 vector entry over the scalar body on sub-vector rows.
 
+## In-place elementwise multiply and broadcast scalar add/sub (prime fields)
+
+256 KiB panel buffers, ordinary `Vec<u8>` geometry. `add_assign` and
+`mul_elementwise` are the unchanged three-slice controls beside the new
+in-place and broadcast forms. Throughput is GiB/s.
+
+| Field | Operation | Lunar Lake | Golden Cove |
+| --- | --- | ---: | ---: |
+| `Mersenne31` | `add_assign` | 32.01 | - |
+| `Mersenne31` | `add_assign_scalar` | 51.98 | - |
+| `Mersenne31` | `sub_assign_scalar` | 44.06 | - |
+| `Mersenne31` | `mul_elementwise` | 21.12 | - |
+| `Mersenne31` | `mul_elementwise_assign` | 21.83 | - |
+| `Goldilocks` | `add_assign` | 17.77 | - |
+| `Goldilocks` | `add_assign_scalar` | 24.87 | - |
+| `Goldilocks` | `sub_assign_scalar` | 26.75 | - |
+| `Goldilocks` | `mul_elementwise` | 11.63 | - |
+| `Goldilocks` | `mul_elementwise_assign` | 11.64 | - |
+| `QuadMersenne31` | `add_assign` | 28.72 | - |
+| `QuadMersenne31` | `add_assign_scalar` | 50.15 | - |
+| `QuadMersenne31` | `sub_assign_scalar` | 43.04 | - |
+| `QuadMersenne31` | `mul_elementwise` | 6.72 | - |
+| `QuadMersenne31` | `mul_elementwise_assign` | 6.76 | - |
+
+- Golden Cove is unmeasured; the column stays open until that host runs the
+  same panel.
+- Lunar Lake pairing host: Intel Core Ultra 7 258V, CPU 3 pinned
+  (`FEC_GOLDEN_CORE=3`), `v3_gfni_crypto` backend, Linux 7.2.6, rustc 1.98.0,
+  one complete `FEC_GOLDEN_CORE=3 just bench kernels` run, median
+  per-iteration throughput.
+
 ## Scatter, gather, and matrix
 
 Each row is 64 KiB. Scatter writes eight rows from one source, gather combines
