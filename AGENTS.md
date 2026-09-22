@@ -80,6 +80,26 @@ The x86 AVX-512 implementation is deferred and exposed only under `internals`.
 Do not add it to production dispatch without executable differential coverage
 and pinned measurements on AVX-512 hardware.
 
+## Residue ledger
+
+Unsafe that survives the safe conversion ladder (K5), one entry per item.
+Each carries a per-item `#[allow(unsafe_code)]` and a SINCE–THUS proof at the
+site. The `aarch64` kernel subtree retains only the offset-addressed-row
+class:
+
+- `kernel/aarch64/gf8.rs`: `mul_add_scatter_impl`, `scatter_quad`,
+  `mul_add_matrix_impl`, `matrix_quad`, `matrix_single`.
+- `kernel/aarch64/gf16.rs`: `xor_row`, `scatter_group`,
+  `mul_add_scatter_impl`, `matrix_group`, `mul_add_matrix_impl`.
+
+All ten record row pointers as offsets into one uniquely borrowed flat row
+buffer, a shape the borrow checker cannot express. Memory validity and
+disjointness arguments are stated per obligation in each item's proof.
+
+The `wasm32` kernel subtree retains nothing: its reference-based
+`v128_load`/`v128_store` over 16-byte chunk arrays and `split_at_mut` row
+groups express the whole surface safely.
+
 ## Tests
 
 Tests must defend observable contracts, not implementation wiring.

@@ -20,11 +20,21 @@
 //! its swap into nibble indices, eight lookups, and seven to recombine. The
 //! bit-serial alternative a table-free port would need is eight rounds of
 //! shift-and-reduce per base multiply, an order of magnitude worse.
+//!
+//! Every entry is a safe [`archmage`] capability-token function taking the
+//! exact token its instructions require and validating its own geometry;
+//! inner loops are `#[rite]` helpers inside the token-proven region. Unsafe
+//! remains only where no safe primitive expresses the structure — the
+//! offset-addressed rows of the scatter and matrix bodies — each carrying a
+//! per-item `#[allow(unsafe_code)]` and local SINCE–THUS proofs.
+//!
+//! [`archmage`]: https://docs.rs/archmage
 
 use core::arch::aarch64::*;
 
 use crate::field::gf16::Elem;
 use crate::kernel::gf16::{mul_add_scalar, mul_assign_scalar, mul_into_scalar};
+use crate::kernel::proven_checks::{check_equal, check_row_span, check_terms};
 use crate::kernel::tables::TowerTables;
 
 /// Terms folded into a single register-resident destination pass.
@@ -52,7 +62,7 @@ struct Factors {
 /// A `Factors` whose every product is zero, used to fill unwritten cache
 /// slots.
 #[inline]
-#[target_feature(enable = "neon")]
+#[archmage::rite(neon)]
 fn empty_factors() -> Factors {
     let zero = vdupq_n_u8(0);
     Factors {
@@ -63,26 +73,22 @@ fn empty_factors() -> Factors {
 
 /// Hoist a coefficient's four nibble table pairs into registers.
 #[inline]
-#[target_feature(enable = "neon")]
+#[archmage::rite(neon, import_intrinsics)]
 fn load_factors(tables: &TowerTables) -> Factors {
     let f = &tables.factors;
-    // SAFETY: each `ScaleTable` half is a `[u8; 16]`, exactly the 16 bytes
-    // `vld1q_u8` reads, and `tables` is a live borrow for the whole call.
-    unsafe {
-        Factors {
-            lo: [
-                vld1q_u8(f[0].lo.as_ptr()),
-                vld1q_u8(f[1].lo.as_ptr()),
-                vld1q_u8(f[2].lo.as_ptr()),
-                vld1q_u8(f[3].lo.as_ptr()),
-            ],
-            hi: [
-                vld1q_u8(f[0].hi.as_ptr()),
-                vld1q_u8(f[1].hi.as_ptr()),
-                vld1q_u8(f[2].hi.as_ptr()),
-                vld1q_u8(f[3].hi.as_ptr()),
-            ],
-        }
+    Factors {
+        lo: [
+            vld1q_u8(&f[0].lo),
+            vld1q_u8(&f[1].lo),
+            vld1q_u8(&f[2].lo),
+            vld1q_u8(&f[3].lo),
+        ],
+        hi: [
+            vld1q_u8(&f[0].hi),
+            vld1q_u8(&f[1].hi),
+            vld1q_u8(&f[2].hi),
+            vld1q_u8(&f[3].hi),
+        ],
     }
 }
 
@@ -104,7 +110,7 @@ struct Nibbles {
 
 /// Split a source block and its adjacent-byte swap into nibble indices.
 #[inline]
-#[target_feature(enable = "neon")]
+#[archmage::rite(neon)]
 fn split(source: uint8x16_t) -> Nibbles {
     let mask = vdupq_n_u8(0x0f);
     // `vrev16q_u8` exchanges the two bytes of every element, pairing each
@@ -120,7 +126,7 @@ fn split(source: uint8x16_t) -> Nibbles {
 
 /// `coeff * source` for one block, from pre-split nibbles.
 #[inline]
-#[target_feature(enable = "neon")]
+#[archmage::rite(neon)]
 fn scaled(nibbles: Nibbles, factors: &Factors) -> uint8x16_t {
     let Nibbles {
         source_lo,
@@ -157,142 +163,175 @@ fn scaled(nibbles: Nibbles, factors: &Factors) -> uint8x16_t {
 
 /// `coeff * source` for a block that no other row shares.
 #[inline]
-#[target_feature(enable = "neon")]
+#[archmage::rite(neon)]
 fn scaled_vector(source: uint8x16_t, factors: &Factors) -> uint8x16_t {
     scaled(split(source), factors)
 }
 
 /// `dst ^= coeff * src` over interleaved GF(2^16) elements, two 16-byte lanes
 /// at a time.
-pub fn mul_add_neon(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
-    debug_assert_eq!(dst.len(), src.len());
-    // SAFETY: NEON is baseline on AArch64, the two slices are independently
-    // borrowed, and the loop is bounded by the shorter of the two.
-    unsafe { mul_add_impl(dst, tables, src) }
+///
+/// # Panics
+/// Panics if the slices differ in length or hold a partial element.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane]
+pub fn mul_add_neon(_token: archmage::NeonToken, dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
+    check_equal("gf16::mul_add_neon", "dst", dst.len(), "src", src.len());
+    mul_add_impl(dst, tables, src);
 }
 
-#[target_feature(enable = "neon")]
-unsafe fn mul_add_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
+#[archmage::rite(neon, import_intrinsics)]
+fn mul_add_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
     let span = dst.len().min(src.len());
+    let vector_len = span & !15;
+    let pair_len = vector_len & !31;
     let factors = load_factors(tables);
-    let (dst_ptr, src_ptr) = (dst.as_mut_ptr(), src.as_ptr());
-    let mut offset = 0;
+
     // Two independent lanes per iteration: eight table lookups per lane have
     // enough latency to hide the other lane's loads and nibble splits behind
     // (BENCHMARKS.md).
-    while offset + 32 <= span {
-        // SAFETY: `offset + 32 <= span <= min(dst.len(), src.len())`.
-        unsafe {
-            let x0 = vld1q_u8(src_ptr.add(offset));
-            let x1 = vld1q_u8(src_ptr.add(offset + 16));
-            let d0 = vld1q_u8(dst_ptr.add(offset));
-            let d1 = vld1q_u8(dst_ptr.add(offset + 16));
-            let p0 = scaled_vector(x0, &factors);
-            let p1 = scaled_vector(x1, &factors);
-            vst1q_u8(dst_ptr.add(offset), veorq_u8(d0, p0));
-            vst1q_u8(dst_ptr.add(offset + 16), veorq_u8(d1, p1));
-        }
-        offset += 32;
+    let (dst_tiles, _) = dst[..pair_len].as_chunks_mut::<32>();
+    let (src_tiles, _) = src[..pair_len].as_chunks::<32>();
+    for (d_tile, s_tile) in dst_tiles.iter_mut().zip(src_tiles) {
+        let (d0, d1) = d_tile.split_at_mut(16);
+        let (d0, d1): (&mut [u8; 16], &mut [u8; 16]) =
+            (d0.try_into().unwrap(), d1.try_into().unwrap());
+        let (s0, s1): (&[u8; 16], &[u8; 16]) = {
+            let (s0, s1) = s_tile.split_at(16);
+            (s0.try_into().unwrap(), s1.try_into().unwrap())
+        };
+        let p0 = scaled_vector(vld1q_u8(s0), &factors);
+        let p1 = scaled_vector(vld1q_u8(s1), &factors);
+        let d0v = vld1q_u8(&*d0);
+        let d1v = vld1q_u8(&*d1);
+        vst1q_u8(d0, veorq_u8(d0v, p0));
+        vst1q_u8(d1, veorq_u8(d1v, p1));
     }
-    while offset + 16 <= span {
-        // SAFETY: `offset + 16 <= span <= min(dst.len(), src.len())`.
-        unsafe {
-            let source = vld1q_u8(src_ptr.add(offset));
-            let current = vld1q_u8(dst_ptr.add(offset));
-            let product = scaled_vector(source, &factors);
-            vst1q_u8(dst_ptr.add(offset), veorq_u8(current, product));
-        }
-        offset += 16;
+    let (dst_lanes, _) = dst[pair_len..vector_len].as_chunks_mut::<16>();
+    let (src_lanes, _) = src[pair_len..vector_len].as_chunks::<16>();
+    for (d, s) in dst_lanes.iter_mut().zip(src_lanes) {
+        let p = scaled_vector(vld1q_u8(s), &factors);
+        let cur = vld1q_u8(&*d);
+        vst1q_u8(d, veorq_u8(cur, p));
     }
-    mul_add_scalar(&mut dst[offset..span], tables.coeff, &src[offset..span]);
+
+    mul_add_scalar(
+        &mut dst[vector_len..span],
+        tables.coeff,
+        &src[vector_len..span],
+    );
 }
 
 /// `dst = coeff * dst` over interleaved GF(2^16) elements.
-pub fn mul_assign_neon(dst: &mut [u8], tables: &TowerTables) {
-    // SAFETY: NEON is baseline on AArch64 and every access below stays
-    // inside the single borrowed slice.
-    unsafe { mul_assign_impl(dst, tables) }
+///
+/// # Panics
+/// Panics on a partial trailing element.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane]
+pub fn mul_assign_neon(_token: archmage::NeonToken, dst: &mut [u8], tables: &TowerTables) {
+    mul_assign_impl(dst, tables);
 }
 
-#[target_feature(enable = "neon")]
-unsafe fn mul_assign_impl(dst: &mut [u8], tables: &TowerTables) {
-    let len = dst.len();
+#[archmage::rite(neon, import_intrinsics)]
+fn mul_assign_impl(dst: &mut [u8], tables: &TowerTables) {
+    let vector_len = dst.len() & !15;
+    let pair_len = vector_len & !31;
     let factors = load_factors(tables);
-    let dst_ptr = dst.as_mut_ptr();
-    let mut offset = 0;
-    while offset + 32 <= len {
-        // SAFETY: `offset + 32 <= len == dst.len()`.
-        unsafe {
-            let d0 = vld1q_u8(dst_ptr.add(offset));
-            let d1 = vld1q_u8(dst_ptr.add(offset + 16));
-            let p0 = scaled_vector(d0, &factors);
-            let p1 = scaled_vector(d1, &factors);
-            vst1q_u8(dst_ptr.add(offset), p0);
-            vst1q_u8(dst_ptr.add(offset + 16), p1);
-        }
-        offset += 32;
+
+    let (dst_tiles, _) = dst[..pair_len].as_chunks_mut::<32>();
+    for d_tile in dst_tiles {
+        let (d0, d1) = d_tile.split_at_mut(16);
+        let (d0, d1): (&mut [u8; 16], &mut [u8; 16]) =
+            (d0.try_into().unwrap(), d1.try_into().unwrap());
+        let p0 = scaled_vector(vld1q_u8(&*d0), &factors);
+        let p1 = scaled_vector(vld1q_u8(&*d1), &factors);
+        vst1q_u8(d0, p0);
+        vst1q_u8(d1, p1);
     }
-    while offset + 16 <= len {
-        // SAFETY: `offset + 16 <= len == dst.len()`.
-        unsafe {
-            let current = vld1q_u8(dst_ptr.add(offset));
-            vst1q_u8(dst_ptr.add(offset), scaled_vector(current, &factors));
-        }
-        offset += 16;
+    let (dst_lanes, _) = dst[pair_len..vector_len].as_chunks_mut::<16>();
+    for d in dst_lanes {
+        vst1q_u8(d, scaled_vector(vld1q_u8(&*d), &factors));
     }
-    mul_assign_scalar(&mut dst[offset..], tables.coeff);
+
+    mul_assign_scalar(&mut dst[vector_len..], tables.coeff);
 }
 
 /// `dst = coeff * src` out of place, two 16-byte lanes at a time.
 ///
 /// Fuses what would otherwise be a copy followed by an in-place scale: one
 /// pass over the destination, which is never read.
-pub fn mul_into_neon(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
-    debug_assert_eq!(dst.len(), src.len());
-    // SAFETY: NEON is baseline on AArch64, the two slices are independently
-    // borrowed, and the loop is bounded by the shorter of the two.
-    unsafe { mul_into_impl(dst, tables, src) }
+///
+/// # Panics
+/// Panics if the slices differ in length or hold a partial element.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane]
+pub fn mul_into_neon(
+    _token: archmage::NeonToken,
+    dst: &mut [u8],
+    tables: &TowerTables,
+    src: &[u8],
+) {
+    check_equal("gf16::mul_into_neon", "dst", dst.len(), "src", src.len());
+    mul_into_impl(dst, tables, src);
 }
 
-#[target_feature(enable = "neon")]
-unsafe fn mul_into_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
+#[archmage::rite(neon, import_intrinsics)]
+fn mul_into_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
     let span = dst.len().min(src.len());
+    let vector_len = span & !15;
+    let pair_len = vector_len & !31;
     let factors = load_factors(tables);
-    let (dst_ptr, src_ptr) = (dst.as_mut_ptr(), src.as_ptr());
-    let mut offset = 0;
-    while offset + 32 <= span {
-        // SAFETY: `offset + 32 <= span <= min(dst.len(), src.len())`.
-        unsafe {
-            let x0 = vld1q_u8(src_ptr.add(offset));
-            let x1 = vld1q_u8(src_ptr.add(offset + 16));
-            vst1q_u8(dst_ptr.add(offset), scaled_vector(x0, &factors));
-            vst1q_u8(dst_ptr.add(offset + 16), scaled_vector(x1, &factors));
-        }
-        offset += 32;
+
+    let (dst_tiles, _) = dst[..pair_len].as_chunks_mut::<32>();
+    let (src_tiles, _) = src[..pair_len].as_chunks::<32>();
+    for (d_tile, s_tile) in dst_tiles.iter_mut().zip(src_tiles) {
+        let (d0, d1) = d_tile.split_at_mut(16);
+        let (d0, d1): (&mut [u8; 16], &mut [u8; 16]) =
+            (d0.try_into().unwrap(), d1.try_into().unwrap());
+        let (s0, s1): (&[u8; 16], &[u8; 16]) = {
+            let (s0, s1) = s_tile.split_at(16);
+            (s0.try_into().unwrap(), s1.try_into().unwrap())
+        };
+        vst1q_u8(d0, scaled_vector(vld1q_u8(s0), &factors));
+        vst1q_u8(d1, scaled_vector(vld1q_u8(s1), &factors));
     }
-    while offset + 16 <= span {
-        // SAFETY: `offset + 16 <= span <= min(dst.len(), src.len())`.
-        unsafe {
-            let source = vld1q_u8(src_ptr.add(offset));
-            vst1q_u8(dst_ptr.add(offset), scaled_vector(source, &factors));
-        }
-        offset += 16;
+    let (dst_lanes, _) = dst[pair_len..vector_len].as_chunks_mut::<16>();
+    let (src_lanes, _) = src[pair_len..vector_len].as_chunks::<16>();
+    for (d, s) in dst_lanes.iter_mut().zip(src_lanes) {
+        vst1q_u8(d, scaled_vector(vld1q_u8(s), &factors));
     }
-    mul_into_scalar(&mut dst[offset..span], tables.coeff, &src[offset..span]);
+
+    mul_into_scalar(
+        &mut dst[vector_len..span],
+        tables.coeff,
+        &src[vector_len..span],
+    );
 }
 
 /// `row ^= src`, the whole job when a scattered coefficient is one.
 ///
 /// # Safety
-/// `row..row + span` must be a valid, uniquely borrowed range, and `span`
-/// must not exceed `src.len()`.
-#[target_feature(enable = "neon")]
+///
+/// MEMORY VALIDITY
+/// SINCE: the caller proves `row..row + span` is a valid, uniquely borrowed
+///        range and `span` does not exceed `src.len()`.
+/// THUS: every load and store below, including the tail window, stays inside
+///        that range and inside `src`.
+///
+/// ALIASING
+/// SINCE: the row range is uniquely borrowed.
+/// THUS: the tail `&mut` window is unique.
+#[allow(unsafe_code)]
+#[archmage::rite(neon)]
 unsafe fn xor_row(row: *mut u8, span: usize, src: &[u8]) {
     let len = span & !15;
     let src_ptr = src.as_ptr();
     let mut offset = 0;
     while offset < len {
-        // SAFETY: `offset + 16 <= len <= span <= src.len()`.
+        // SAFETY:
+        // MEMORY VALIDITY
+        // SINCE: `offset + 16 <= len <= span <= src.len()`.
+        // THUS: both loads and the store stay inside the row and the source.
         unsafe {
             let dst_ptr = row.add(offset);
             let current = vld1q_u8(dst_ptr);
@@ -301,8 +340,13 @@ unsafe fn xor_row(row: *mut u8, span: usize, src: &[u8]) {
         }
         offset += 16;
     }
-    // SAFETY: `len..span` is the in-bounds tail of this row and no other
-    // borrow of it is live.
+    // SAFETY:
+    // MEMORY VALIDITY
+    // SINCE: `len..span` is the in-bounds tail of the proven row range.
+    // THUS: the tail window is valid for writes and reads.
+    // ALIASING
+    // SINCE: the row is uniquely borrowed.
+    // THUS: the tail `&mut` is unique.
     let tail = unsafe { core::slice::from_raw_parts_mut(row.add(len), span - len) };
     for (d, &s) in tail.iter_mut().zip(&src[len..span]) {
         *d ^= s;
@@ -316,10 +360,17 @@ unsafe fn xor_row(row: *mut u8, span: usize, src: &[u8]) {
 /// is read once instead of `N` times.
 ///
 /// # Safety
-/// For every `k`, `base + starts[k]..+ span` must be a valid range inside
-/// one allocation, the `N` ranges must be pairwise disjoint and uniquely
-/// borrowed, and `span` must not exceed `src.len()`.
-#[target_feature(enable = "neon")]
+///
+/// MEMORY VALIDITY
+/// SINCE: for every `k`, `base + starts[k]..+ span` is a valid range inside
+///        one allocation and `span` does not exceed `src.len()`.
+/// THUS: every row window below and every source load stays in bounds.
+///
+/// ALIASING
+/// SINCE: the `N` ranges are pairwise disjoint and uniquely borrowed.
+/// THUS: no store below aliases another row's load.
+#[allow(unsafe_code)]
+#[archmage::rite(neon)]
 unsafe fn scatter_group<const N: usize>(
     base: *mut u8,
     span: usize,
@@ -332,8 +383,14 @@ unsafe fn scatter_group<const N: usize>(
     let src_ptr = src.as_ptr();
     let mut offset = 0;
     while offset < len {
-        // SAFETY: `offset + 16 <= len <= span`, so the source window and
-        // every row window are in bounds; the rows are disjoint by contract.
+        // SAFETY:
+        // MEMORY VALIDITY
+        // SINCE: `offset + 16 <= len <= span`, so the source window and every
+        //        row window are in bounds.
+        // THUS: all loads and stores below stay inside their ranges.
+        // ALIASING
+        // SINCE: the rows are disjoint by contract.
+        // THUS: the stores cannot alias each other or the source.
         unsafe {
             let nibbles = split(vld1q_u8(src_ptr.add(offset)));
             for (&start, factor) in starts.iter().zip(&factors) {
@@ -344,25 +401,66 @@ unsafe fn scatter_group<const N: usize>(
         offset += 16;
     }
     for (&start, &coeff) in starts.iter().zip(&coeffs) {
-        // SAFETY: `start + len..start + span` is the in-bounds tail of one
-        // disjoint row, and the borrow ends before the next iteration.
+        // SAFETY:
+        // MEMORY VALIDITY
+        // SINCE: `start + len..start + span` is the in-bounds tail of one
+        //        disjoint row.
+        // THUS: the tail window is valid.
+        // ALIASING
+        // SINCE: the rows are disjoint and the borrow ends before the next
+        //        iteration.
+        // THUS: the tail `&mut` is unique.
         let tail = unsafe { core::slice::from_raw_parts_mut(base.add(start + len), span - len) };
         mul_add_scalar(tail, coeff, &src[len..span]);
     }
 }
 
 /// `rows[j] ^= coeffs[j] * src` for every row, four rows per source load.
-pub fn scatter_neon(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
+///
+/// A zero-length row with a zero-length source is a no-op.
+///
+/// # Panics
+/// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len`
+/// bytes and `row_len == src.len()`.
+#[allow(unsafe_code)]
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane]
+pub fn scatter_neon(
+    _token: archmage::NeonToken,
+    rows: &mut [u8],
+    row_len: usize,
+    coeffs: &[Elem],
+    src: &[u8],
+) {
+    check_equal("gf16::scatter_neon", "row_len", row_len, "src", src.len());
+    check_row_span("gf16::scatter_neon", rows.len(), row_len, coeffs.len());
     if row_len == 0 || coeffs.is_empty() || src.is_empty() {
         return;
     }
-    // SAFETY: NEON is baseline on AArch64. `mul_add_scatter_impl` clamps the row
-    // count to what `rows` holds and the span to what `src` provides, so
-    // every pointer it forms addresses a distinct in-bounds row.
-    unsafe { mul_add_scatter_impl(rows, row_len, coeffs, src) }
+    // SAFETY:
+    // MEMORY VALIDITY
+    // SINCE: the checks above bound `coeffs.len() * row_len <= rows.len()`
+    //        and the body clamps the row count to the whole rows `rows`
+    //        holds.
+    // THUS: every `base.add(j * row_len)` below addresses an in-bounds row.
+    unsafe { mul_add_scatter_impl(rows, row_len, coeffs, src) };
 }
 
-#[target_feature(enable = "neon")]
+/// # Safety
+///
+/// MEMORY VALIDITY
+/// SINCE: the entry proved `coeffs.len() * row_len <= rows.len()` and the
+///        body clamps the row count to what `rows` holds and the span to
+///        what `src` provides.
+/// THUS: every `base.add(j * row_len)` below addresses a distinct in-bounds
+///        row and every source read stays inside `src`.
+///
+/// ALIASING
+/// SINCE: distinct row indices name disjoint spans of the uniquely borrowed
+///        `rows`.
+/// THUS: the row groups below never alias each other.
+#[allow(unsafe_code)]
+#[archmage::rite(neon, import_intrinsics)]
 unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
     let nrows = coeffs.len().min(rows.len() / row_len);
     let span = row_len.min(src.len());
@@ -382,8 +480,12 @@ unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem],
         }
         let start = j * row_len;
         if coeff == Elem::ONE {
-            // SAFETY: `j < nrows <= rows.len() / row_len`, so this row spans
-            // `start..start + row_len` inside `rows`, and `span <= row_len`.
+            // SAFETY:
+            // MEMORY VALIDITY
+            // SINCE: `j < nrows <= rows.len() / row_len`, so this row spans
+            //        `start..start + row_len` inside `rows`, and
+            //        `span <= row_len`.
+            // THUS: `xor_row` touches only this in-bounds row and the source.
             unsafe { xor_row(base.add(start), span, src) };
             continue;
         }
@@ -392,9 +494,14 @@ unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem],
         group[count] = coeff;
         count += 1;
         if count == 4 {
-            // SAFETY: the four starts are distinct multiples of `row_len`
-            // below `nrows * row_len <= rows.len()`, hence in bounds and
-            // pairwise disjoint; `span <= src.len()`.
+            // SAFETY:
+            // MEMORY VALIDITY
+            // SINCE: the four starts are distinct multiples of `row_len`
+            //        below `nrows * row_len <= rows.len()`.
+            // THUS: every row window is in bounds.
+            // ALIASING
+            // SINCE: distinct multiples of `row_len` name disjoint spans.
+            // THUS: the groups never alias.
             unsafe { scatter_group::<4>(base, span, starts, factors, group, src) };
             count = 0;
         }
@@ -450,11 +557,19 @@ enum Mode {
 /// into a stack cache and never rebuilt inside the byte loop.
 ///
 /// # Safety
-/// For every `k`, `base + starts[k]..+ span` must be a valid range inside
-/// one allocation, the `N` ranges must be pairwise disjoint and uniquely
-/// borrowed, and every term must supply at least `span` source bytes and at
-/// least `g + N` coefficients.
-#[target_feature(enable = "neon")]
+///
+/// MEMORY VALIDITY
+/// SINCE: for every `k`, `base + starts[k]..+ span` is a valid range inside
+///        one allocation, and every term supplies at least `span` source
+///        bytes and at least `g + N` coefficients.
+/// THUS: every row window, source load, and coefficient index below stays in
+///        bounds.
+///
+/// ALIASING
+/// SINCE: the `N` ranges are pairwise disjoint and uniquely borrowed.
+/// THUS: no store below aliases another row's load.
+#[allow(unsafe_code)]
+#[archmage::rite(neon)]
 unsafe fn matrix_group<const N: usize>(
     base: *mut u8,
     span: usize,
@@ -484,15 +599,24 @@ unsafe fn matrix_group<const N: usize>(
         let mut offset = 0;
         while offset < len {
             let mut tile = [vdupq_n_u8(0); N];
-            // SAFETY: `offset + 16 <= len <= span`, so every row window is
-            // in bounds; the rows are disjoint by contract.
+            // SAFETY:
+            // MEMORY VALIDITY
+            // SINCE: `offset + 16 <= len <= span`, so every row window is in
+            //        bounds.
+            // THUS: the tile loads stay inside their rows.
+            // ALIASING
+            // SINCE: the rows are disjoint by contract.
+            // THUS: the loads never overlap.
             unsafe {
                 for (acc, &start) in tile.iter_mut().zip(&starts) {
                     *acc = vld1q_u8(base.add(start + offset));
                 }
             }
             for ((&(_, src), slots), kinds) in block.iter().zip(&cache).zip(&modes) {
-                // SAFETY: `offset + 16 <= len <= span <= src.len()`.
+                // SAFETY:
+                // MEMORY VALIDITY
+                // SINCE: `offset + 16 <= len <= span <= src.len()`.
+                // THUS: the source load stays inside the term's source.
                 let source = unsafe { vld1q_u8(src.as_ptr().add(offset)) };
                 let nibbles = split(source);
                 for ((acc, factor), kind) in tile.iter_mut().zip(slots).zip(kinds) {
@@ -503,7 +627,13 @@ unsafe fn matrix_group<const N: usize>(
                     }
                 }
             }
-            // SAFETY: the same windows that were just read.
+            // SAFETY:
+            // MEMORY VALIDITY
+            // SINCE: the same windows that were just read.
+            // THUS: the tile stores stay inside their rows.
+            // ALIASING
+            // SINCE: the rows are disjoint.
+            // THUS: the stores cannot alias a live read.
             unsafe {
                 for (acc, &start) in tile.iter().zip(&starts) {
                     vst1q_u8(base.add(start + offset), *acc);
@@ -514,8 +644,15 @@ unsafe fn matrix_group<const N: usize>(
 
         if len < span {
             for (k, &start) in starts.iter().enumerate() {
-                // SAFETY: `start + len..start + span` is the in-bounds tail
-                // of one disjoint row; the borrow ends with this iteration.
+                // SAFETY:
+                // MEMORY VALIDITY
+                // SINCE: `start + len..start + span` is the in-bounds tail of
+                //        one disjoint row.
+                // THUS: the tail window is valid.
+                // ALIASING
+                // SINCE: the rows are disjoint and the borrow ends with this
+                //        iteration.
+                // THUS: the tail `&mut` is unique.
                 let tail =
                     unsafe { core::slice::from_raw_parts_mut(base.add(start + len), span - len) };
                 for &(coeffs, src) in block {
@@ -527,18 +664,50 @@ unsafe fn matrix_group<const N: usize>(
 }
 
 /// Apply every `(coeffs, src)` term to the leading `nrows` rows.
-pub fn matrix_neon(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[Elem], &[u8])]) {
+///
+/// A zero-length row with zero-length sources is a no-op.
+///
+/// # Panics
+/// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes,
+/// every term supplies `nrows` coefficients, and every
+/// source is `row_len` bytes.
+#[allow(unsafe_code)]
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane]
+pub fn matrix_neon(
+    _token: archmage::NeonToken,
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &[(&[Elem], &[u8])],
+) {
+    check_row_span("gf16::matrix_neon", rows.len(), row_len, nrows);
+    check_terms("gf16::matrix_neon", row_len, nrows, terms);
     if row_len == 0 || nrows == 0 || terms.is_empty() {
         return;
     }
-    // SAFETY: NEON is baseline on AArch64. `mul_add_matrix_impl` clamps the row
-    // count to what `rows` and every coefficient array can supply, and the
-    // span to the shortest source, so every pointer it forms addresses a
-    // distinct in-bounds row.
-    unsafe { mul_add_matrix_impl(rows, row_len, nrows, terms) }
+    // SAFETY:
+    // MEMORY VALIDITY
+    // SINCE: the checks above bound `nrows * row_len <= rows.len()` and pin
+    //        every term's coefficient count and source length.
+    // THUS: the unsafe body below only touches in-bounds, disjoint rows.
+    unsafe { mul_add_matrix_impl(rows, row_len, nrows, terms) };
 }
 
-#[target_feature(enable = "neon")]
+/// # Safety
+///
+/// MEMORY VALIDITY
+/// SINCE: the entry proved `nrows * row_len <= rows.len()` and the body
+///        clamps the row count and span to what the buffers hold.
+/// THUS: every `base.add(k * row_len)` below addresses a distinct in-bounds
+///        row and every source read stays inside its slice.
+///
+/// ALIASING
+/// SINCE: distinct row indices name disjoint spans and the sources are
+///        independent read-only borrows.
+/// THUS: the accumulator stores never alias a source or another row.
+#[allow(unsafe_code)]
+#[archmage::rite(neon, import_intrinsics)]
 unsafe fn mul_add_matrix_impl(
     rows: &mut [u8],
     row_len: usize,
@@ -564,10 +733,14 @@ unsafe fn mul_add_matrix_impl(
             (g + 2) * row_len,
             (g + 3) * row_len,
         ];
-        // SAFETY: the four starts are distinct multiples of `row_len` below
-        // `count * row_len <= rows.len()`, hence in bounds and pairwise
-        // disjoint; `count` bounds every coefficient array and `span` every
-        // source.
+        // SAFETY:
+        // MEMORY VALIDITY
+        // SINCE: the four starts are distinct multiples of `row_len` below
+        //        `count * row_len <= rows.len()`.
+        // THUS: every row window is in bounds.
+        // ALIASING
+        // SINCE: distinct multiples of `row_len` name disjoint spans.
+        // THUS: the groups never alias.
         unsafe { matrix_group::<4>(base, span, starts, g, terms) };
         g += 4;
     }
@@ -602,40 +775,57 @@ unsafe fn mul_add_matrix_impl(
 /// Each block then sweeps the destination once; the bounded block avoids an
 /// allocation while keeping the expensive four-table preparation out of the
 /// byte loop.
-pub fn gather_neon(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
-    debug_assert_eq!(coeffs.len(), srcs.len());
-    // SAFETY: NEON is baseline on AArch64 and callers checked source lengths.
-    unsafe { mul_add_gather_impl(dst, coeffs, srcs) }
+///
+/// # Panics
+/// Panics unless `coeffs.len() == srcs.len()` and every source matches `dst`
+/// in length.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane]
+pub fn gather_neon(_token: archmage::NeonToken, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+    check_equal(
+        "gf16::gather_neon",
+        "coefficients",
+        coeffs.len(),
+        "sources",
+        srcs.len(),
+    );
+    for (index, &src) in srcs.iter().enumerate() {
+        check_equal(
+            "gf16::gather_neon",
+            "dst",
+            dst.len(),
+            format_args!("source {index}"),
+            src.len(),
+        );
+    }
+    if dst.is_empty() || srcs.is_empty() {
+        return;
+    }
+    mul_add_gather_impl(dst, coeffs, srcs);
 }
 
-#[target_feature(enable = "neon")]
-unsafe fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+#[archmage::rite(neon, import_intrinsics)]
+fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     let vector_len = dst.len() & !15;
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
     for block in (0..coeffs.len()).step_by(TERM_BLOCK) {
         let count = (coeffs.len() - block).min(TERM_BLOCK);
         let mut factors = [empty_factors(); TERM_BLOCK];
         for i in 0..count {
             factors[i] = load_factors(&TowerTables::new(coeffs[block + i]));
         }
-        let mut offset = 0;
-        while offset < vector_len {
-            // SAFETY: this 16-byte window lies inside `dst`.
-            let mut acc = unsafe { vld1q_u8(dst.as_ptr().add(offset)) };
+        for (t, d) in dst_lanes.iter_mut().enumerate() {
+            let mut acc = vld1q_u8(&*d);
             for i in 0..count {
-                // SAFETY: every source has exactly `dst.len()` bytes.
-                let source = unsafe { vld1q_u8(srcs[block + i].as_ptr().add(offset)) };
-                acc = veorq_u8(acc, scaled_vector(source, &factors[i]));
+                // Every source has exactly `dst.len()` bytes, so this
+                // 16-byte source window is in bounds.
+                let source: &[u8; 16] = srcs[block + i][t * 16..t * 16 + 16].try_into().unwrap();
+                acc = veorq_u8(acc, scaled_vector(vld1q_u8(source), &factors[i]));
             }
-            // SAFETY: the same destination window loaded above.
-            unsafe { vst1q_u8(dst.as_mut_ptr().add(offset), acc) };
-            offset += 16;
+            vst1q_u8(d, acc);
         }
         for i in 0..count {
-            mul_add_scalar(
-                &mut dst[vector_len..],
-                coeffs[block + i],
-                &srcs[block + i][vector_len..],
-            );
+            mul_add_scalar(dst_tail, coeffs[block + i], &srcs[block + i][vector_len..]);
         }
     }
 }
@@ -646,7 +836,7 @@ unsafe fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
 /// `PMULL`; eight branchless shift/reduce rounds therefore form the portable
 /// vector primitive used by both supported fields.
 #[inline]
-#[target_feature(enable = "neon")]
+#[archmage::rite(neon)]
 fn multiply_base_vectors(mut a: uint8x16_t, mut b: uint8x16_t) -> uint8x16_t {
     let one = vdupq_n_u8(1);
     let high_bit = vdupq_n_u8(0x80);
@@ -671,46 +861,44 @@ fn multiply_base_vectors(mut a: uint8x16_t, mut b: uint8x16_t) -> uint8x16_t {
 // instruction-count reason, and BENCHMARKS.md for the numbers.
 
 /// `dst[i] = a[i] * b[i]` over interleaved tower elements.
-pub fn elementwise_neon(dst: &mut [u8], a: &[u8], b: &[u8]) {
-    debug_assert_eq!(dst.len(), a.len());
-    debug_assert_eq!(dst.len(), b.len());
-    // SAFETY: NEON is baseline on AArch64 and all three lengths match.
-    unsafe { elementwise_impl(dst, a, b) }
+///
+/// # Panics
+/// Panics unless all three buffers match in length.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane]
+pub fn elementwise_neon(_token: archmage::NeonToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
+    check_equal("gf16::elementwise_neon", "dst", dst.len(), "a", a.len());
+    check_equal("gf16::elementwise_neon", "dst", dst.len(), "b", b.len());
+    elementwise_impl(dst, a, b);
 }
 
-#[target_feature(enable = "neon")]
-unsafe fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
-    let len = dst.len().min(a.len()).min(b.len()) & !15;
+#[archmage::rite(neon, import_intrinsics)]
+fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
     let even = vreinterpretq_u8_u16(vdupq_n_u16(0x00ff));
     let delta_even = vreinterpretq_u8_u16(vdupq_n_u16(u16::from_le_bytes([
         crate::field::gf16::DELTA.0,
         0,
     ])));
-    let mut offset = 0;
-    while offset < len {
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
+    let (a_lanes, a_tail) = a.as_chunks::<16>();
+    let (b_lanes, b_tail) = b.as_chunks::<16>();
+    for ((d, x), y) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
         // For x=[a,b], y=[c,d]:
         // constant = ac ^ DELTA*bd
         // extension = ad ^ bc ^ bd.
-        // SAFETY: `offset + 16 <= len`, which bounds all three slices.
-        unsafe {
-            let x = vld1q_u8(a.as_ptr().add(offset));
-            let y = vld1q_u8(b.as_ptr().add(offset));
-            let direct = multiply_base_vectors(x, y);
-            let crossed = multiply_base_vectors(x, vrev16q_u8(y));
-            let delta_bd = multiply_base_vectors(vrev16q_u8(direct), delta_even);
-            let constant = veorq_u8(direct, delta_bd);
-            let extension = veorq_u8(veorq_u8(crossed, vrev16q_u8(crossed)), direct);
-            vst1q_u8(
-                dst.as_mut_ptr().add(offset),
-                vbslq_u8(even, constant, extension),
-            );
-        }
-        offset += 16;
+        let xv = vld1q_u8(x);
+        let yv = vld1q_u8(y);
+        let direct = multiply_base_vectors(xv, yv);
+        let crossed = multiply_base_vectors(xv, vrev16q_u8(yv));
+        let delta_bd = multiply_base_vectors(vrev16q_u8(direct), delta_even);
+        let constant = veorq_u8(direct, delta_bd);
+        let extension = veorq_u8(veorq_u8(crossed, vrev16q_u8(crossed)), direct);
+        vst1q_u8(d, vbslq_u8(even, constant, extension));
     }
-    for ((d, x), y) in dst[len..]
+    for ((d, x), y) in dst_tail
         .chunks_exact_mut(2)
-        .zip(a[len..].chunks_exact(2))
-        .zip(b[len..].chunks_exact(2))
+        .zip(a_tail.chunks_exact(2))
+        .zip(b_tail.chunks_exact(2))
     {
         d.copy_from_slice(
             &Elem::from_bytes([x[0], x[1]])

@@ -1382,6 +1382,18 @@ fn oracle_mul_elementwise<F: Field>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     }
 }
 
+fn oracle_add_scalar<F: Field>(dst: &mut [u8], value: F::Elem) {
+    for d in dst.chunks_exact_mut(F::BYTES) {
+        F::encode(d, F::decode(d).add(value));
+    }
+}
+
+fn oracle_sub_scalar<F: Field>(dst: &mut [u8], value: F::Elem) {
+    for d in dst.chunks_exact_mut(F::BYTES) {
+        F::encode(d, F::decode(d).sub(value));
+    }
+}
+
 /// Canonicalize every lane of `buf` in place through the scalar field, giving
 /// the canonical bytes the vector kernels must produce.
 fn canon<F: Field>(buf: &mut [u8]) {
@@ -1434,6 +1446,15 @@ fn check_prime_ops<F: FieldKernels>(lens: &[usize], coeffs: &[F::Elem]) {
             assert_eq!(got, want, "mul_elementwise len {len}");
         }
 
+        // mul_elementwise_assign: the destination is also the first operand.
+        {
+            let mut got = dst0.clone();
+            ops::mul_elementwise_assign::<F>(&mut got, &src);
+            let mut want = vec![0u8; len];
+            oracle_mul_elementwise::<F>(&mut want, &dst0, &src);
+            assert_eq!(got, want, "mul_elementwise_assign len {len}");
+        }
+
         for &coeff in coeffs {
             let mut got = dst0.clone();
             let mut want = dst0.clone();
@@ -1452,6 +1473,17 @@ fn check_prime_ops<F: FieldKernels>(lens: &[usize], coeffs: &[F::Elem]) {
             ops::mul_into::<F>(&mut got, coeff, &src);
             oracle_mul_assign::<F>(&mut want, coeff);
             assert_eq!(got, want, "mul_into len {len} coeff {coeff:?}");
+            let mut got = dst0.clone();
+            ops::add_assign_scalar::<F>(&mut got, coeff);
+            let mut want = dst0.clone();
+            oracle_add_scalar::<F>(&mut want, coeff);
+            assert_eq!(got, want, "add_assign_scalar len {len} coeff {coeff:?}");
+
+            let mut got = dst0.clone();
+            ops::sub_assign_scalar::<F>(&mut got, coeff);
+            let mut want = dst0.clone();
+            oracle_sub_scalar::<F>(&mut want, coeff);
+            assert_eq!(got, want, "sub_assign_scalar len {len} coeff {coeff:?}");
         }
     }
 }
@@ -1591,6 +1623,140 @@ fn quad_mersenne31_public_ops_match_oracle() {
     // Recovery needs two independent coefficients with a nonzero determinant;
     // (3+i) and (5+2i) qualify.
     check_prime_recovery::<QuadMersenne31>(64, qm(3, 1), qm(5, 2));
+}
+
+/// In-place elementwise multiply and broadcast scalar add/sub for a binary
+/// or wide field, at whole-vector, mixed-tail, and tail-only element counts.
+fn check_assign_and_broadcast_scalar<F: FieldKernels>(lens: &[usize], values: &[F::Elem]) {
+    for &n in lens {
+        let len = n * F::BYTES;
+        let a = noise(len, 0x7100 + u64::from(F::BITS));
+        let b = noise(len, 0x7200 + u64::from(F::BITS));
+
+        let mut got = a.clone();
+        ops::mul_elementwise_assign::<F>(&mut got, &b);
+        let mut want = vec![0u8; len];
+        oracle_mul_elementwise::<F>(&mut want, &a, &b);
+        assert_eq!(got, want, "{} mul_elementwise_assign {n} elements", F::NAME);
+
+        for &v in values {
+            let mut got = a.clone();
+            ops::add_assign_scalar::<F>(&mut got, v);
+            let mut want = a.clone();
+            oracle_add_scalar::<F>(&mut want, v);
+            assert_eq!(got, want, "{} add_assign_scalar {n} elements", F::NAME);
+
+            let mut got = a.clone();
+            ops::sub_assign_scalar::<F>(&mut got, v);
+            let mut want = a.clone();
+            oracle_sub_scalar::<F>(&mut want, v);
+            assert_eq!(got, want, "{} sub_assign_scalar {n} elements", F::NAME);
+        }
+    }
+}
+
+/// Every field without a hand-written prime dispatch: whole-vector (3),
+/// mixed-tail (257), and tail-only (1024) element counts, plus zero and one
+/// broadcast values.
+#[test]
+fn binary_and_wide_field_assign_scalar_ops_match_oracle() {
+    const ELEMS: [usize; 3] = [3, 257, 1024];
+    check_assign_and_broadcast_scalar::<Gf8B>(
+        &ELEMS,
+        &[
+            gf8b::Elem::from_raw(0),
+            gf8b::Elem::from_raw(1),
+            gf8b::Elem::from_raw(0x53),
+        ],
+    );
+    check_assign_and_broadcast_scalar::<Gf8D>(
+        &ELEMS,
+        &[
+            gf8d::Elem::from_raw(0),
+            gf8d::Elem::from_raw(1),
+            gf8d::Elem::from_raw(0x53),
+        ],
+    );
+    check_assign_and_broadcast_scalar::<Gf16>(
+        &ELEMS,
+        &[
+            gf16::Elem::from_raw(0),
+            gf16::Elem::from_raw(1),
+            gf16::Elem::from_raw(0x53a7),
+        ],
+    );
+    check_assign_and_broadcast_scalar::<Gf32>(
+        &ELEMS,
+        &[
+            gf32::Elem::from_raw(0),
+            gf32::Elem::from_raw(1),
+            gf32::Elem::from_raw(0xdead_beef),
+        ],
+    );
+    check_assign_and_broadcast_scalar::<Gf64>(
+        &ELEMS,
+        &[
+            gf64::Elem::from_raw(0),
+            gf64::Elem::from_raw(1),
+            gf64::Elem::from_raw(0x0123_4567_89ab_cdef),
+        ],
+    );
+    check_assign_and_broadcast_scalar::<FanPaar8>(
+        &ELEMS,
+        &[
+            fan_paar::fp8::Elem::from_raw(0),
+            fan_paar::fp8::Elem::from_raw(1),
+            fan_paar::fp8::Elem::from_raw(0xa5),
+        ],
+    );
+    check_assign_and_broadcast_scalar::<FanPaar16>(
+        &ELEMS,
+        &[
+            fan_paar::fp16::Elem::from_raw(0),
+            fan_paar::fp16::Elem::from_raw(1),
+            fan_paar::fp16::Elem::from_raw(0xa55a),
+        ],
+    );
+    check_assign_and_broadcast_scalar::<FanPaar32>(
+        &ELEMS,
+        &[
+            fan_paar::fp32::Elem::from_raw(0),
+            fan_paar::fp32::Elem::from_raw(1),
+            fan_paar::fp32::Elem::from_raw(0xa55a_1234),
+        ],
+    );
+    check_assign_and_broadcast_scalar::<FanPaar64>(
+        &ELEMS,
+        &[
+            fan_paar::fp64::Elem::from_raw(0),
+            fan_paar::fp64::Elem::from_raw(1),
+            fan_paar::fp64::Elem::from_raw(0xa55a_1234_dead_beef),
+        ],
+    );
+}
+
+#[test]
+fn assign_scalar_empty_buffers_are_no_ops() {
+    let mut empty: [u8; 0] = [];
+    ops::mul_elementwise_assign::<Gf8B>(&mut empty, &[]);
+    ops::add_assign_scalar::<Gf8B>(&mut empty, gf8b::Elem::from_raw(7));
+    ops::sub_assign_scalar::<Gf16>(&mut empty, gf16::Elem::from_raw(7));
+    ops::mul_elementwise_assign::<Goldilocks>(&mut empty, &[]);
+    ops::add_assign_scalar::<Mersenne31>(&mut empty, m31(0));
+}
+
+#[test]
+#[should_panic(expected = "mul_elementwise_assign: dst is 8 bytes but src is 7 bytes")]
+fn mul_elementwise_assign_rejects_length_mismatch() {
+    ops::mul_elementwise_assign::<Gf8B>(&mut [0u8; 8], &[0u8; 7]);
+}
+
+#[test]
+#[should_panic(
+    expected = "add_assign_scalar: buffer of 6 bytes is not a whole number of GF(2^64 - 2^32 + 1) elements"
+)]
+fn add_assign_scalar_rejects_partial_trailing_element() {
+    ops::add_assign_scalar::<Goldilocks>(&mut [0u8; 6], gld(1));
 }
 
 #[test]

@@ -712,7 +712,6 @@ fn check_gf8d_affine_mul_into(name: &str, kernel: impl Fn(&mut [u8], u64, &Scale
         assert_eq!(got, want, "{name}: len {}, coeff {coeff:?}", src.len());
     });
 }
-
 fn check_gf8_elementwise(name: &str, kernel: impl Fn(&mut [u8], &[u8], &[u8])) {
     for &len in LENGTHS {
         let a = noise(len, 0xf2);
@@ -721,6 +720,20 @@ fn check_gf8_elementwise(name: &str, kernel: impl Fn(&mut [u8], &[u8], &[u8])) {
         let mut want = vec![0; len];
         kernel(&mut got, &a, &b);
         scalar::mul_elementwise::<gf8b::Gf8B>(&mut want, &a, &b);
+        assert_eq!(got, want, "{name}: len {len}");
+    }
+}
+
+/// Differential check for an in-place elementwise kernel: the destination
+/// starts as one operand, the kernel multiplies it by the other in place.
+fn check_elementwise_assign<F: crate::field::Field>(name: &str, kernel: impl Fn(&mut [u8], &[u8])) {
+    for &len in LENGTHS {
+        let a = noise(len, 0xf2);
+        let b = noise(len, 0x103);
+        let mut got = a.clone();
+        kernel(&mut got, &b);
+        let mut want = a.clone();
+        scalar::mul_elementwise_assign::<F>(&mut want, &b);
         assert_eq!(got, want, "{name}: len {len}");
     }
 }
@@ -1710,6 +1723,18 @@ mod x86 {
         check_gf16_elementwise("gf16 gfni elementwise", |dst, a, b| {
             x86::gf16::mul_elementwise_gfni(token, dst, a, b);
         });
+        let v3 = X64V3Token::summon().expect("GFNI implies AVX2");
+        check_elementwise_assign::<gf8b::Gf8B>("gf8 gfni elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_gfni(token, dst, src);
+        });
+        check_elementwise_assign::<gf8d::Gf8D>("gf8d gfni elementwise assign", |dst, src| {
+            // `GF2P8MULB` is the AES field; the assign twin runs the same
+            // `0x1d` shift/reduce form the three-slice kernel does.
+            x86::gf8::mul_elementwise_assign_avx2::<0x1d>(v3, dst, src);
+        });
+        check_elementwise_assign::<gf16::Gf16>("gf16 gfni elementwise assign", |dst, src| {
+            x86::gf16::mul_elementwise_assign_gfni(token, dst, src);
+        });
         // Level-2/3 tower kernels: the period-2 lane multiply one and two
         // levels up from the GF(2^16) kernel.
         check_tower_gfni_kernels(token);
@@ -2026,6 +2051,15 @@ mod x86 {
         });
         // Fan–Paar tower (GF(2^16)/32/64): the fp8 nibble tower and its
         // period-2 lane-mul extensions.
+        check_elementwise_assign::<gf8b::Gf8B>("gf8 avx2 elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_avx2::<0x1b>(token, dst, src);
+        });
+        check_elementwise_assign::<gf8d::Gf8D>("gf8d avx2 elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_avx2::<0x1d>(token, dst, src);
+        });
+        check_elementwise_assign::<gf16::Gf16>("gf16 avx2 elementwise assign", |dst, src| {
+            x86::gf16::mul_elementwise_assign_avx2(token, dst, src);
+        });
         check_fan_paar_avx2_kernels(token);
     }
 
@@ -2195,6 +2229,15 @@ mod x86 {
         });
         check_gf16_elementwise("gf16 ssse3 elementwise", |dst, a, b| {
             x86::gf16::mul_elementwise_ssse3(token, dst, a, b);
+        });
+        check_elementwise_assign::<gf8b::Gf8B>("gf8 ssse3 elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_ssse3::<0x1b>(token, dst, src);
+        });
+        check_elementwise_assign::<gf8d::Gf8D>("gf8d ssse3 elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_ssse3::<0x1d>(token, dst, src);
+        });
+        check_elementwise_assign::<gf16::Gf16>("gf16 ssse3 elementwise assign", |dst, src| {
+            x86::gf16::mul_elementwise_assign_ssse3(token, dst, src);
         });
         check_tower_mul_add(
             "fp16 ssse3 mul_add",
@@ -2497,6 +2540,9 @@ mod x86 {
         mulinto: impl Fn(&mut [u8], C, &[u8]),
         mulassign: impl Fn(&mut [u8], C),
         elemwise: impl Fn(&mut [u8], &[u8], &[u8]),
+        elemwise_assign: impl Fn(&mut [u8], &[u8]),
+        addscalar: impl Fn(&mut [u8], C),
+        subscalar: impl Fn(&mut [u8], C),
         label: &str,
     ) {
         // Canonicalize a buffer through the portable field so both sides start
@@ -2531,6 +2577,12 @@ mod x86 {
             prime::mul_elementwise::<F>(&mut want, &src, &b2);
             assert_eq!(got, want, "{label} mul_elementwise len {len}");
 
+            let mut got = base.clone();
+            elemwise_assign(&mut got, &src);
+            let mut want = base.clone();
+            prime::mul_elementwise::<F>(&mut want, &base, &src);
+            assert_eq!(got, want, "{label} mul_elementwise_assign len {len}");
+
             for &c in coeffs {
                 let mut got = base.clone();
                 let mut want = base.clone();
@@ -2549,6 +2601,18 @@ mod x86 {
                 mulassign(&mut got, c);
                 prime::mul_assign::<F>(&mut want, to_elem(c));
                 assert_eq!(got, want, "{label} mul_assign len {len} coeff {c:?}");
+
+                let mut got = base.clone();
+                addscalar(&mut got, c);
+                let mut want = base.clone();
+                prime::add_assign_scalar::<F>(&mut want, to_elem(c));
+                assert_eq!(got, want, "{label} add_assign_scalar len {len} coeff {c:?}");
+
+                let mut got = base.clone();
+                subscalar(&mut got, c);
+                let mut want = base.clone();
+                prime::sub_assign_scalar::<F>(&mut want, to_elem(c));
+                assert_eq!(got, want, "{label} sub_assign_scalar len {len} coeff {c:?}");
             }
         }
     }
@@ -2570,6 +2634,9 @@ mod x86 {
             |dst, coeff, src| x86::prime::mul_into_m31_avx2(token, dst, coeff, src),
             |dst, coeff| x86::prime::mul_assign_m31_avx2(token, dst, coeff),
             |dst, a, b| x86::prime::mul_elementwise_m31_avx2(token, dst, a, b),
+            |dst, s| x86::prime::mul_elementwise_assign_m31_avx2(token, dst, s),
+            |dst, c| x86::prime::add_assign_scalar_m31_avx2(token, dst, c),
+            |dst, c| x86::prime::sub_assign_scalar_m31_avx2(token, dst, c),
             "m31 avx2",
         );
         drive_prime::<Goldilocks, u64>(
@@ -2582,6 +2649,9 @@ mod x86 {
             |dst, coeff, src| x86::prime::mul_into_gld_avx2(token, dst, coeff, src),
             |dst, coeff| x86::prime::mul_assign_gld_avx2(token, dst, coeff),
             |dst, a, b| x86::prime::mul_elementwise_gld_avx2(token, dst, a, b),
+            |dst, s| x86::prime::mul_elementwise_assign_gld_avx2(token, dst, s),
+            |dst, c| x86::prime::add_assign_scalar_gld_avx2(token, dst, c),
+            |dst, c| x86::prime::sub_assign_scalar_gld_avx2(token, dst, c),
             "gld avx2",
         );
     }
@@ -2603,6 +2673,9 @@ mod x86 {
             |dst, coeff, src| x86::prime::mul_into_m31_sse42(token, dst, coeff, src),
             |dst, coeff| x86::prime::mul_assign_m31_sse42(token, dst, coeff),
             |dst, a, b| x86::prime::mul_elementwise_m31_sse42(token, dst, a, b),
+            |dst, s| x86::prime::mul_elementwise_assign_m31_sse42(token, dst, s),
+            |dst, c| x86::prime::add_assign_scalar_m31_sse42(token, dst, c),
+            |dst, c| x86::prime::sub_assign_scalar_m31_sse42(token, dst, c),
             "m31 sse4.2",
         );
         drive_prime::<Goldilocks, u64>(
@@ -2615,7 +2688,48 @@ mod x86 {
             |dst, coeff, src| x86::prime::mul_into_gld_sse42(token, dst, coeff, src),
             |dst, coeff| x86::prime::mul_assign_gld_sse42(token, dst, coeff),
             |dst, a, b| x86::prime::mul_elementwise_gld_sse42(token, dst, a, b),
+            |dst, s| x86::prime::mul_elementwise_assign_gld_sse42(token, dst, s),
+            |dst, c| x86::prime::add_assign_scalar_gld_sse42(token, dst, c),
+            |dst, c| x86::prime::sub_assign_scalar_gld_sse42(token, dst, c),
             "gld sse4.2",
+        );
+    }
+    #[test]
+    fn qm31_avx2_kernels_match_reference() {
+        // Multiples of 8 (one complex element) straddling the 32-byte AVX2
+        // lane, with odd element tails.
+        const QM31_LENS: &[usize] = &[0, 8, 16, 24, 32, 40, 64, 72, 128, 264, 1024];
+        const P: u32 = crate::field::mersenne31::MODULUS;
+        const QM31_VALUES: [crate::field::quad_mersenne31::Elem; 6] = [
+            crate::field::quad_mersenne31::Elem(0, 0),
+            crate::field::quad_mersenne31::Elem(1, 0),
+            crate::field::quad_mersenne31::Elem(0, 1),
+            crate::field::quad_mersenne31::Elem(7, 2),
+            crate::field::quad_mersenne31::Elem(P - 1, 3),
+            crate::field::quad_mersenne31::Elem(P - 1, P - 1),
+        ];
+        if !host_supports(&[Backend::V3]) {
+            eprintln!("skipping: no AVX2 on this host");
+            return;
+        }
+        let token = X64V3Token::summon().expect("guard passed: AVX2 summons here");
+        drive_prime::<
+            crate::field::quad_mersenne31::QuadMersenne31,
+            crate::field::quad_mersenne31::Elem,
+        >(
+            QM31_LENS,
+            &QM31_VALUES,
+            |e| e,
+            |dst, src| x86::prime::add_assign_qm31_avx2(token, dst, src),
+            |dst, src| x86::prime::sub_assign_qm31_avx2(token, dst, src),
+            |dst, coeff, src| x86::prime::mul_add_qm31_avx2(token, dst, coeff, src),
+            |dst, coeff, src| x86::prime::mul_into_qm31_avx2(token, dst, coeff, src),
+            |dst, coeff| x86::prime::mul_assign_qm31_avx2(token, dst, coeff),
+            |dst, a, b| x86::prime::mul_elementwise_qm31_avx2(token, dst, a, b),
+            |dst, s| x86::prime::mul_elementwise_assign_qm31_avx2(token, dst, s),
+            |dst, c| x86::prime::add_assign_scalar_qm31_avx2(token, dst, c),
+            |dst, c| x86::prime::sub_assign_scalar_qm31_avx2(token, dst, c),
+            "qm31 avx2",
         );
     }
 }
@@ -2628,6 +2742,7 @@ mod x86 {
 mod aarch64 {
     use super::*;
     use crate::kernel::{Backend, aarch64};
+    use archmage::SimdToken as _;
 
     #[test]
     fn neon_kernels_match_reference() {
@@ -2635,51 +2750,76 @@ mod aarch64 {
             eprintln!("skipping: no NEON on this host");
             return;
         }
-        check_gf8_mul_add("gf8 neon", aarch64::gf8::mul_add_neon);
-        check_gf8_mul_assign("gf8 neon", aarch64::gf8::mul_assign_neon);
-        check_gf16_mul_add_tables("gf16 neon", aarch64::gf16::mul_add_neon);
-        check_gf16_mul_assign_tables("gf16 neon", aarch64::gf16::mul_assign_neon);
-        check_gf8_mul_into("gf8 neon mul_into", aarch64::gf8::mul_into_neon);
-        check_gf16_mul_into_tables("gf16 neon mul_into", aarch64::gf16::mul_into_neon);
+        let token = archmage::NeonToken::summon().expect("host_supports guard: NEON summons here");
+        check_gf8_mul_add("gf8 neon", |dst, table, src| {
+            aarch64::gf8::mul_add_neon(token, dst, table, src)
+        });
+        check_gf8_mul_assign("gf8 neon", |dst, table| {
+            aarch64::gf8::mul_assign_neon(token, dst, table)
+        });
+        check_gf16_mul_add_tables("gf16 neon", |dst, tables, src| {
+            aarch64::gf16::mul_add_neon(token, dst, tables, src)
+        });
+        check_gf16_mul_assign_tables("gf16 neon", |dst, tables| {
+            aarch64::gf16::mul_assign_neon(token, dst, tables)
+        });
+        check_gf8_mul_into("gf8 neon mul_into", |dst, table, src| {
+            aarch64::gf8::mul_into_neon(token, dst, table, src)
+        });
+        check_gf16_mul_into_tables("gf16 neon mul_into", |dst, tables, src| {
+            aarch64::gf16::mul_into_neon(token, dst, tables, src)
+        });
 
         check_scatter(
             "gf8 neon scatter",
             gf8_coeff_at,
             gf8_reference,
-            aarch64::gf8::scatter_neon,
+            |rows, row_len, coeffs, src| {
+                aarch64::gf8::scatter_neon(token, rows, row_len, coeffs, src)
+            },
         );
         check_scatter(
             "gf16 neon scatter",
             gf16_coeff_at,
             gf16_reference,
-            aarch64::gf16::scatter_neon,
+            |rows, row_len, coeffs, src| {
+                aarch64::gf16::scatter_neon(token, rows, row_len, coeffs, src)
+            },
         );
         check_matrix(
             "gf8 neon matrix",
             gf8_coeff_at2,
             gf8_reference,
-            aarch64::gf8::matrix_neon,
+            |rows, row_len, nrows, terms| {
+                aarch64::gf8::matrix_neon(token, rows, row_len, nrows, terms)
+            },
         );
         check_matrix(
             "gf16 neon matrix",
             gf16_coeff_at2,
             gf16_reference,
-            aarch64::gf16::matrix_neon,
+            |rows, row_len, nrows, terms| {
+                aarch64::gf16::matrix_neon(token, rows, row_len, nrows, terms)
+            },
         );
         check_gather(
             "gf8 neon gather",
             gf8_coeff_at,
             gf8_reference,
-            aarch64::gf8::gather_neon,
+            |dst, coeffs, srcs| aarch64::gf8::gather_neon(token, dst, coeffs, srcs),
         );
         check_gather(
             "gf16 neon gather",
             gf16_coeff_at,
             gf16_reference,
-            aarch64::gf16::gather_neon,
+            |dst, coeffs, srcs| aarch64::gf16::gather_neon(token, dst, coeffs, srcs),
         );
-        check_gf8_elementwise("gf8 neon elementwise", aarch64::gf8::elementwise_neon);
-        check_gf16_elementwise("gf16 neon elementwise", aarch64::gf16::elementwise_neon);
+        check_gf8_elementwise("gf8 neon elementwise", |dst, a, b| {
+            aarch64::gf8::elementwise_neon(token, dst, a, b)
+        });
+        check_gf16_elementwise("gf16 neon elementwise", |dst, a, b| {
+            aarch64::gf16::elementwise_neon(token, dst, a, b)
+        });
     }
 
     #[test]
@@ -2688,29 +2828,26 @@ mod aarch64 {
             eprintln!("skipping: no AArch64 PMULL extension on this host");
             return;
         }
-        check_gf8_elementwise("gf8 pmull elementwise", aarch64::gf8::elementwise_pmull);
+        let token =
+            archmage::NeonAesToken::summon().expect("host_supports guard: NEON-AES summons here");
+        check_gf8_elementwise("gf8 pmull elementwise", |dst, a, b| {
+            aarch64::gf8::elementwise_pmull(token, dst, a, b)
+        });
         // The tower elementwise and every fixed-coefficient PMULL kernel were
         // measured against the nibble/bit-serial paths and lost; GF(2^8)
         // elementwise is the shape that won and the only one dispatch selects.
     }
-
     #[test]
     fn vector_xor_matches_scalar_xor() {
+        let token = archmage::NeonToken::summon().expect("NEON is baseline on AArch64");
         for &len in LENGTHS {
             let src = noise(len, 0x1c);
             let mut want = noise(len, 0x2d);
             let mut neon = want.clone();
             scalar::xor(&mut want, &src);
-            aarch64::xor_neon(&mut neon, &src);
+            aarch64::xor_neon(token, &mut neon, &src);
             assert_eq!(neon, want, "neon xor: len {len}");
         }
-    }
-
-    #[test]
-    fn row_interleaved_xor_matches_scalar_xor() {
-        check_xor_rows("neon rows", |dst, src, row_len| {
-            aarch64::xor_rows_neon(dst, src, row_len);
-        });
     }
 }
 
@@ -2722,66 +2859,92 @@ mod aarch64 {
 mod wasm32 {
     use super::*;
     use crate::kernel::wasm32;
+    use archmage::SimdToken as _;
 
     #[test]
     fn simd128_kernels_match_reference() {
-        check_gf8_mul_add("gf8 simd128", wasm32::gf8::mul_add_simd128);
-        check_gf8_mul_assign("gf8 simd128", wasm32::gf8::mul_assign_simd128);
-        check_gf16_mul_add_tables("gf16 simd128", wasm32::gf16::mul_add_simd128);
-        check_gf16_mul_assign_tables("gf16 simd128", wasm32::gf16::mul_assign_simd128);
-        check_gf8_mul_into("gf8 simd128 mul_into", wasm32::gf8::mul_into_simd128);
-        check_gf16_mul_into_tables("gf16 simd128 mul_into", wasm32::gf16::mul_into_simd128);
+        let token =
+            archmage::Wasm128Token::summon().expect("host_supports guard: simd128 summons here");
+        check_gf8_mul_add("gf8 simd128", |dst, table, src| {
+            wasm32::gf8::mul_add_simd128(token, dst, table, src)
+        });
+        check_gf8_mul_assign("gf8 simd128", |dst, table| {
+            wasm32::gf8::mul_assign_simd128(token, dst, table)
+        });
+        check_gf16_mul_add_tables("gf16 simd128", |dst, tables, src| {
+            wasm32::gf16::mul_add_simd128(token, dst, tables, src)
+        });
+        check_gf16_mul_assign_tables("gf16 simd128", |dst, tables| {
+            wasm32::gf16::mul_assign_simd128(token, dst, tables)
+        });
+        check_gf8_mul_into("gf8 simd128 mul_into", |dst, table, src| {
+            wasm32::gf8::mul_into_simd128(token, dst, table, src)
+        });
+        check_gf16_mul_into_tables("gf16 simd128 mul_into", |dst, tables, src| {
+            wasm32::gf16::mul_into_simd128(token, dst, tables, src)
+        });
         check_scatter(
             "gf8 simd128 scatter",
             gf8_coeff_at,
             gf8_reference,
-            wasm32::gf8::scatter_simd128,
+            |rows, row_len, coeffs, src| {
+                wasm32::gf8::scatter_simd128(token, rows, row_len, coeffs, src)
+            },
         );
         check_scatter(
             "gf16 simd128 scatter",
             gf16_coeff_at,
             gf16_reference,
-            wasm32::gf16::scatter_simd128,
+            |rows, row_len, coeffs, src| {
+                wasm32::gf16::scatter_simd128(token, rows, row_len, coeffs, src)
+            },
         );
         check_gather(
             "gf8 simd128 gather",
             gf8_coeff_at,
             gf8_reference,
-            wasm32::gf8::gather_simd128,
+            |dst, coeffs, srcs| wasm32::gf8::gather_simd128(token, dst, coeffs, srcs),
         );
         check_gather(
             "gf16 simd128 gather",
             gf16_coeff_at,
             gf16_reference,
-            wasm32::gf16::gather_simd128,
+            |dst, coeffs, srcs| wasm32::gf16::gather_simd128(token, dst, coeffs, srcs),
         );
         check_matrix(
             "gf8 simd128 matrix",
             gf8_coeff_at2,
             gf8_reference,
-            wasm32::gf8::matrix_simd128,
+            |rows, row_len, nrows, terms| {
+                wasm32::gf8::matrix_simd128(token, rows, row_len, nrows, terms)
+            },
         );
         check_matrix(
             "gf16 simd128 matrix",
             gf16_coeff_at2,
             gf16_reference,
-            wasm32::gf16::matrix_simd128,
+            |rows, row_len, nrows, terms| {
+                wasm32::gf16::matrix_simd128(token, rows, row_len, nrows, terms)
+            },
         );
-        check_gf8_elementwise("gf8 simd128 elementwise", wasm32::gf8::elementwise_simd128);
-        check_gf16_elementwise(
-            "gf16 simd128 elementwise",
-            wasm32::gf16::elementwise_simd128,
-        );
+        check_gf8_elementwise("gf8 simd128 elementwise", |dst, a, b| {
+            wasm32::gf8::elementwise_simd128(token, dst, a, b)
+        });
+        check_gf16_elementwise("gf16 simd128 elementwise", |dst, a, b| {
+            wasm32::gf16::elementwise_simd128(token, dst, a, b)
+        });
     }
 
     #[test]
     fn vector_xor_matches_scalar_xor() {
+        let token =
+            archmage::Wasm128Token::summon().expect("host_supports guard: simd128 summons here");
         for &len in LENGTHS {
             let src = noise(len, 0x1c);
             let mut want = noise(len, 0x2d);
             let mut simd = want.clone();
             scalar::xor(&mut want, &src);
-            wasm32::xor_simd128(&mut simd, &src);
+            wasm32::xor_simd128(token, &mut simd, &src);
             assert_eq!(simd, want, "simd128 xor: len {len}");
         }
     }

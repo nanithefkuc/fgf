@@ -109,3 +109,17 @@ pub fn mul_elementwise<F: Field>(dst: &mut [u8], a: &[u8], b: &[u8]) {
         F::encode(d, F::decode(x).mul(F::decode(y)));
     }
 }
+
+/// `dst[i] += value`, modular field addition of one broadcast element.
+pub fn add_assign_scalar<F: Field>(dst: &mut [u8], value: F::Elem) {
+    for d in dst.chunks_exact_mut(F::BYTES) {
+        F::encode(d, F::decode(d).add(value));
+    }
+}
+
+/// `dst[i] -= value`, modular field subtraction of one broadcast element.
+pub fn sub_assign_scalar<F: Field>(dst: &mut [u8], value: F::Elem) {
+    for d in dst.chunks_exact_mut(F::BYTES) {
+        F::encode(d, F::decode(d).sub(value));
+    }
+}

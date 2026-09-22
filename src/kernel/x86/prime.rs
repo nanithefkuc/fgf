@@ -56,24 +56,29 @@ mod m31_sse;
 mod qm31_avx2;
 
 pub use gld_avx2::{
-    add_assign_gld_avx2, mul_add_gld_avx2, mul_assign_gld_avx2, mul_elementwise_gld_avx2,
-    mul_into_gld_avx2, sub_assign_gld_avx2,
+    add_assign_gld_avx2, add_assign_scalar_gld_avx2, mul_add_gld_avx2, mul_assign_gld_avx2,
+    mul_elementwise_assign_gld_avx2, mul_elementwise_gld_avx2, mul_into_gld_avx2,
+    sub_assign_gld_avx2, sub_assign_scalar_gld_avx2,
 };
 pub use gld_sse::{
-    add_assign_gld_sse42, mul_add_gld_sse42, mul_assign_gld_sse42, mul_elementwise_gld_sse42,
-    mul_into_gld_sse42, sub_assign_gld_sse42,
+    add_assign_gld_sse42, add_assign_scalar_gld_sse42, mul_add_gld_sse42, mul_assign_gld_sse42,
+    mul_elementwise_assign_gld_sse42, mul_elementwise_gld_sse42, mul_into_gld_sse42,
+    sub_assign_gld_sse42, sub_assign_scalar_gld_sse42,
 };
 pub use m31_avx2::{
-    add_assign_m31_avx2, mul_add_m31_avx2, mul_assign_m31_avx2, mul_elementwise_m31_avx2,
-    mul_into_m31_avx2, sub_assign_m31_avx2,
+    add_assign_m31_avx2, add_assign_scalar_m31_avx2, mul_add_m31_avx2, mul_assign_m31_avx2,
+    mul_elementwise_assign_m31_avx2, mul_elementwise_m31_avx2, mul_into_m31_avx2,
+    sub_assign_m31_avx2, sub_assign_scalar_m31_avx2,
 };
 pub use m31_sse::{
-    add_assign_m31_sse42, mul_add_m31_sse42, mul_assign_m31_sse42, mul_elementwise_m31_sse42,
-    mul_into_m31_sse42, sub_assign_m31_sse42,
+    add_assign_m31_sse42, add_assign_scalar_m31_sse42, mul_add_m31_sse42, mul_assign_m31_sse42,
+    mul_elementwise_assign_m31_sse42, mul_elementwise_m31_sse42, mul_into_m31_sse42,
+    sub_assign_m31_sse42, sub_assign_scalar_m31_sse42,
 };
 pub use qm31_avx2::{
-    add_assign_qm31_avx2, mul_add_qm31_avx2, mul_assign_qm31_avx2, mul_elementwise_qm31_avx2,
-    mul_into_qm31_avx2, sub_assign_qm31_avx2,
+    add_assign_qm31_avx2, add_assign_scalar_qm31_avx2, mul_add_qm31_avx2, mul_assign_qm31_avx2,
+    mul_elementwise_assign_qm31_avx2, mul_elementwise_qm31_avx2, mul_into_qm31_avx2,
+    sub_assign_qm31_avx2, sub_assign_scalar_qm31_avx2,
 };
 
 use crate::field::{goldilocks, mersenne31};

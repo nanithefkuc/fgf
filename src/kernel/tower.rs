@@ -464,9 +464,13 @@ pub mod gf16 {
                     _ => x86::gf16::mul_add_avx2(crate::kernel::x86_v3_token(), dst, tables, src),
                 },
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Prepared::Tables(tables) => aarch64::gf16::mul_add_neon(dst, tables, src),
+                Prepared::Tables(tables) => {
+                    aarch64::gf16::mul_add_neon(crate::kernel::neon_token(), dst, tables, src)
+                }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Prepared::Tables(tables) => wasm32::gf16::mul_add_simd128(dst, tables, src),
+                Prepared::Tables(tables) => {
+                    wasm32::gf16::mul_add_simd128(crate::kernel::wasm128_token(), dst, tables, src)
+                }
                 other => mul_add_scalar(dst, other.coeff(), src),
             }
         }
@@ -485,9 +489,13 @@ pub mod gf16 {
                     _ => x86::gf16::mul_assign_avx2(crate::kernel::x86_v3_token(), dst, tables),
                 },
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Prepared::Tables(tables) => aarch64::gf16::mul_assign_neon(dst, tables),
+                Prepared::Tables(tables) => {
+                    aarch64::gf16::mul_assign_neon(crate::kernel::neon_token(), dst, tables)
+                }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Prepared::Tables(tables) => wasm32::gf16::mul_assign_simd128(dst, tables),
+                Prepared::Tables(tables) => {
+                    wasm32::gf16::mul_assign_simd128(crate::kernel::wasm128_token(), dst, tables)
+                }
                 other => mul_assign_scalar(dst, other.coeff()),
             }
         }
@@ -511,9 +519,13 @@ pub mod gf16 {
                     _ => x86::gf16::mul_into_avx2(crate::kernel::x86_v3_token(), dst, tables, src),
                 },
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Prepared::Tables(tables) => aarch64::gf16::mul_into_neon(dst, tables, src),
+                Prepared::Tables(tables) => {
+                    aarch64::gf16::mul_into_neon(crate::kernel::neon_token(), dst, tables, src)
+                }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Prepared::Tables(tables) => wasm32::gf16::mul_into_simd128(dst, tables, src),
+                Prepared::Tables(tables) => {
+                    wasm32::gf16::mul_into_simd128(crate::kernel::wasm128_token(), dst, tables, src)
+                }
                 // Every other prepared form is a scalar coefficient: copying and
                 // scaling in place is one pass either way.
                 other => {
@@ -562,10 +574,22 @@ pub mod gf16 {
                 // every row of the group, which is the trade PMULL loses.
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
                 Backend::Neon | Backend::NeonAes => {
-                    aarch64::gf16::scatter_neon(rows, row_len, coeffs, src);
+                    aarch64::gf16::scatter_neon(
+                        crate::kernel::neon_token(),
+                        rows,
+                        row_len,
+                        coeffs,
+                        src,
+                    );
                 }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Backend::Wasm128 => wasm32::gf16::scatter_simd128(rows, row_len, coeffs, src),
+                Backend::Wasm128 => wasm32::gf16::scatter_simd128(
+                    crate::kernel::wasm128_token(),
+                    rows,
+                    row_len,
+                    coeffs,
+                    src,
+                ),
                 // Not `scalar::mul_add_scatter`: that would re-derive a full
                 // Karatsuba multiply per element. `mul_add_scalar` amortizes one
                 // table resolve over each row.
@@ -635,9 +659,13 @@ pub mod gf16 {
                     srcs,
                 ),
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Backend::Neon | Backend::NeonAes => aarch64::gf16::gather_neon(dst, coeffs, srcs),
+                Backend::Neon | Backend::NeonAes => {
+                    aarch64::gf16::gather_neon(crate::kernel::neon_token(), dst, coeffs, srcs)
+                }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Backend::Wasm128 => wasm32::gf16::gather_simd128(dst, coeffs, srcs),
+                Backend::Wasm128 => {
+                    wasm32::gf16::gather_simd128(crate::kernel::wasm128_token(), dst, coeffs, srcs)
+                }
                 // See `mul_add_scatter`: one table resolve per term beats the
                 // generic oracle's per-element multiply.
                 _ => {
@@ -699,10 +727,22 @@ pub mod gf16 {
                 ),
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
                 Backend::Neon | Backend::NeonAes => {
-                    aarch64::gf16::matrix_neon(rows, row_len, nrows, terms);
+                    aarch64::gf16::matrix_neon(
+                        crate::kernel::neon_token(),
+                        rows,
+                        row_len,
+                        nrows,
+                        terms,
+                    );
                 }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Backend::Wasm128 => wasm32::gf16::matrix_simd128(rows, row_len, nrows, terms),
+                Backend::Wasm128 => wasm32::gf16::matrix_simd128(
+                    crate::kernel::wasm128_token(),
+                    rows,
+                    row_len,
+                    nrows,
+                    terms,
+                ),
                 // See `mul_add_scatter`: one table resolve per (term, row) beats
                 // the generic oracle's per-element multiply.
                 _ => {
@@ -786,9 +826,13 @@ pub mod gf16 {
                 // replaces eight bit-serial rounds with two multiplies, does win
                 // — see `Gf8B::mul_elementwise` and BENCHMARKS.md.
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Backend::Neon | Backend::NeonAes => aarch64::gf16::elementwise_neon(dst, a, b),
+                Backend::Neon | Backend::NeonAes => {
+                    aarch64::gf16::elementwise_neon(crate::kernel::neon_token(), dst, a, b)
+                }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Backend::Wasm128 => wasm32::gf16::elementwise_simd128(dst, a, b),
+                Backend::Wasm128 => {
+                    wasm32::gf16::elementwise_simd128(crate::kernel::wasm128_token(), dst, a, b)
+                }
                 // See `Gf8B::mul_elementwise`: no fixed coefficient, so the
                 // shuffle backends multiply the two varying base-field operands
                 // bit-serially and keep a nibble table only for constant `DELTA`.
@@ -801,6 +845,32 @@ pub mod gf16 {
                     x86::gf16::mul_elementwise_ssse3(crate::kernel::x86_v2_token(), dst, a, b);
                 }
                 _ => scalar::mul_elementwise::<Gf16>(dst, a, b),
+            }
+        }
+
+        fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+            match backend() {
+                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                Backend::V3GfniCrypto => {
+                    x86::gf16::mul_elementwise_assign_gfni(
+                        crate::kernel::x86_v3_gfni_token(),
+                        dst,
+                        src,
+                    );
+                }
+                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                Backend::V3 => {
+                    x86::gf16::mul_elementwise_assign_avx2(crate::kernel::x86_v3_token(), dst, src);
+                }
+                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                Backend::V2 => {
+                    x86::gf16::mul_elementwise_assign_ssse3(
+                        crate::kernel::x86_v2_token(),
+                        dst,
+                        src,
+                    );
+                }
+                _ => scalar::mul_elementwise_assign::<Gf16>(dst, src),
             }
         }
     }

@@ -12,9 +12,9 @@
 //! - `scalar` — the portable fallback and tail implementation. Vector kernels
 //!   use it for sub-lane tails; tests compare the Fan–Paar family against the
 //!   independent Wiedemann recurrence and other families against this module.
-//! - `x86` / `aarch64` / `wasm32` — architecture-local intrinsics. Direct x86
-//!   entries take exact `archmage` capability tokens and validate geometry.
-//!   `AArch64` and Wasm retain their token-proven compatibility facades.
+//! - `x86` / `aarch64` / `wasm32` — architecture-local intrinsics. Direct
+//!   entries take exact `archmage` capability tokens and validate geometry;
+//!   inner loops are `#[rite]` helpers inside the token-proven region.
 //!
 //! Callers should use the safe, validated wrappers in [`crate::ops`] rather
 //! than this module directly.
@@ -55,7 +55,15 @@ use crate::field::Field;
 
 // Only the SIMD-enabled resolve path consults the environment; under a
 // std-less build `backend()` reports `Scalar` without touching `Selection`.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "x86",
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "wasm32"
+    )
+))]
 use archmage::SimdToken;
 #[cfg(feature = "simd")]
 use simdispatch::Selection;
@@ -148,9 +156,9 @@ pub fn backend() -> Backend {
     }
 }
 
-/// Memoized [`Selection`] over [`FGF_TIERS`] plus the x86 capability token
-/// for that selection. Dispatch therefore resolves policy and materializes
-/// its proof once.
+/// Memoized [`Selection`] over [`FGF_TIERS`] plus the capability token for
+/// that selection. Dispatch therefore resolves policy and materializes its
+/// proof once.
 #[cfg(feature = "simd")]
 static BACKEND: std::sync::LazyLock<ResolvedBackend> =
     std::sync::LazyLock::new(ResolvedBackend::new);
@@ -160,6 +168,10 @@ struct ResolvedBackend {
     backend: Backend,
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     x86: X86Proof,
+    #[cfg(target_arch = "aarch64")]
+    neon: NeonProof,
+    #[cfg(target_arch = "wasm32")]
+    wasm128: Option<archmage::Wasm128Token>,
 }
 
 #[cfg(feature = "simd")]
@@ -182,10 +194,34 @@ impl ResolvedBackend {
             ),
             _ => X86Proof::Scalar,
         };
+        #[cfg(target_arch = "aarch64")]
+        let neon = match backend {
+            Backend::NeonAes => NeonProof::NeonAes(
+                archmage::NeonAesToken::summon()
+                    .expect("selected NEON-AES backend must have its capability token"),
+            ),
+            Backend::Neon => NeonProof::Neon(
+                archmage::NeonToken::summon()
+                    .expect("selected NEON backend must have its capability token"),
+            ),
+            _ => NeonProof::Scalar,
+        };
+        #[cfg(target_arch = "wasm32")]
+        let wasm128 = match backend {
+            Backend::Wasm128 => Some(
+                archmage::Wasm128Token::summon()
+                    .expect("selected wasm128 backend must have its capability token"),
+            ),
+            _ => None,
+        };
         Self {
             backend,
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             x86,
+            #[cfg(target_arch = "aarch64")]
+            neon,
+            #[cfg(target_arch = "wasm32")]
+            wasm128,
         }
     }
 }
@@ -233,6 +269,47 @@ pub(crate) fn x86_v2_token() -> archmage::X64V2Token {
         X86Proof::V2(token) => token,
         X86Proof::Scalar => unreachable!("V2 kernel reached without a selected V2 proof"),
     }
+}
+
+#[cfg(all(feature = "simd", target_arch = "aarch64"))]
+#[derive(Clone, Copy)]
+pub(crate) enum NeonProof {
+    Neon(archmage::NeonToken),
+    NeonAes(archmage::NeonAesToken),
+    Scalar,
+}
+
+#[cfg(all(feature = "simd", target_arch = "aarch64"))]
+#[inline]
+pub(crate) fn neon_proof() -> NeonProof {
+    BACKEND.neon
+}
+
+#[cfg(all(feature = "simd", target_arch = "aarch64"))]
+#[inline]
+pub(crate) fn neon_token() -> archmage::NeonToken {
+    match neon_proof() {
+        NeonProof::NeonAes(token) => token.neon(),
+        NeonProof::Neon(token) => token,
+        NeonProof::Scalar => unreachable!("NEON kernel reached without a selected NEON proof"),
+    }
+}
+
+#[cfg(all(feature = "simd", target_arch = "aarch64"))]
+#[inline]
+pub(crate) fn neon_aes_token() -> archmage::NeonAesToken {
+    match neon_proof() {
+        NeonProof::NeonAes(token) => token,
+        _ => unreachable!("PMULL kernel reached without a selected NEON-AES proof"),
+    }
+}
+
+#[cfg(all(feature = "simd", target_arch = "wasm32"))]
+#[inline]
+pub(crate) fn wasm128_token() -> archmage::Wasm128Token {
+    BACKEND
+        .wasm128
+        .expect("Wasm kernel reached without a selected simd128 proof")
 }
 
 /// The backend used for a particular field.
@@ -681,6 +758,31 @@ pub(crate) trait KernelDispatch: Field {
     /// Wasm, and the shuffle-only x86 backends use a branchless
     /// shift/reduce vector multiply. The wider fields run the reference path.
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]);
+
+    /// `dst[i] *= src[i]`, elementwise, in place.
+    fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        scalar::mul_elementwise_assign::<Self>(dst, src);
+    }
+
+    /// `dst[i] += value`, one field element broadcast across every lane.
+    fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
+        let elem = Self::prepared_coeff(RawDispatch, value);
+        if Self::CHARACTERISTIC == 2 {
+            scalar::xor_broadcast::<Self>(dst, elem);
+        } else {
+            prime::add_assign_scalar::<Self>(dst, elem);
+        }
+    }
+
+    /// `dst[i] -= value`, one field element broadcast across every lane.
+    fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
+        let elem = Self::prepared_coeff(RawDispatch, value);
+        if Self::CHARACTERISTIC == 2 {
+            scalar::xor_broadcast::<Self>(dst, elem);
+        } else {
+            prime::sub_assign_scalar::<Self>(dst, elem);
+        }
+    }
 }
 
 /// Zero-sized proof of the right to call [`KernelDispatch`] entry points.
@@ -695,12 +797,12 @@ pub(crate) trait KernelDispatch: Field {
 /// zero-sized unit struct and the argument exists only in the type system.
 pub(crate) struct RawDispatch;
 
-/// Shared runtime validation for architecture compatibility facades.
+/// Shared runtime geometry validation for direct architecture kernel entries.
 ///
-/// Direct x86 entries own their validation. The deferred AVX-512 experiments
-/// and the `AArch64` and Wasm compatibility facades use these helpers to apply
-/// the same public geometry contract before entering their selected kernels.
-// Compiled wherever an architecture compatibility facade can use it.
+/// Direct x86 entries own their validation; the `AArch64` and Wasm entries use
+/// these same helpers to apply the public geometry contract before entering
+/// their kernels, as do the deferred AVX-512 experiments.
+// Compiled wherever an architecture kernel entry can use it.
 #[cfg(all(
     feature = "simd",
     any(
@@ -746,6 +848,33 @@ pub(crate) mod proven_checks {
             buffer_len >= used,
             "{name}: rows is {buffer_len} bytes but {count} rows of {row_len} bytes need {used}"
         );
+    }
+
+    /// Flat term geometry shared by the matrix entries: every term supplies
+    /// `nrows` coefficients and a `row_len`-byte source.
+    #[inline]
+    pub(crate) fn check_terms<E>(
+        name: &str,
+        row_len: usize,
+        nrows: usize,
+        terms: &[(&[E], &[u8])],
+    ) {
+        for (t, &(coeffs, src)) in terms.iter().enumerate() {
+            check_equal(
+                name,
+                format_args!("term {t} coefficients"),
+                coeffs.len(),
+                "rows",
+                nrows,
+            );
+            check_equal(
+                name,
+                format_args!("term {t} source"),
+                src.len(),
+                "row_len",
+                row_len,
+            );
+        }
     }
 }
 
@@ -808,13 +937,21 @@ pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
         #[cfg(all(feature = "simd", target_arch = "aarch64"))]
         Backend::Neon | Backend::NeonAes => {
             for &start in offsets {
-                aarch64::xor_neon(dst, &region[start as usize..start as usize + live]);
+                aarch64::xor_neon(
+                    neon_token(),
+                    dst,
+                    &region[start as usize..start as usize + live],
+                );
             }
         }
         #[cfg(all(feature = "simd", target_arch = "wasm32"))]
         Backend::Wasm128 => {
             for &start in offsets {
-                wasm32::xor_simd128(dst, &region[start as usize..start as usize + live]);
+                wasm32::xor_simd128(
+                    wasm128_token(),
+                    dst,
+                    &region[start as usize..start as usize + live],
+                );
             }
         }
         _ => {
@@ -859,9 +996,9 @@ pub(crate) mod byte_ops {
         #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
         match backend() {
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-            Backend::Neon | Backend::NeonAes => aarch64::xor_neon(dst, src),
+            Backend::Neon | Backend::NeonAes => aarch64::xor_neon(neon_token(), dst, src),
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::xor_simd128(dst, src),
+            Backend::Wasm128 => wasm32::xor_simd128(wasm128_token(), dst, src),
             _ => scalar::xor(dst, src),
         }
     }
