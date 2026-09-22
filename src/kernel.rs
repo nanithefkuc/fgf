@@ -14,7 +14,7 @@
 //!   independent Wiedemann recurrence and other families against this module.
 //! - `x86` / `aarch64` / `wasm32` — architecture-local intrinsics. Direct x86
 //!   entries take exact `archmage` capability tokens and validate geometry.
-//!   `AArch64` and Wasm retain their token-proven compatibility facades.
+//!   Wasm retains its token-proven compatibility facade.
 //!
 //! Callers should use the safe, validated wrappers in [`crate::ops`] rather
 //! than this module directly.
@@ -937,7 +937,11 @@ pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
         #[cfg(all(feature = "simd", target_arch = "aarch64"))]
         Backend::Neon | Backend::NeonAes => {
             for &start in offsets {
-                aarch64::xor_neon(dst, &region[start as usize..start as usize + live]);
+                aarch64::xor_neon(
+                    neon_token(),
+                    dst,
+                    &region[start as usize..start as usize + live],
+                );
             }
         }
         #[cfg(all(feature = "simd", target_arch = "wasm32"))]
@@ -988,7 +992,7 @@ pub(crate) mod byte_ops {
         #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
         match backend() {
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-            Backend::Neon | Backend::NeonAes => aarch64::xor_neon(dst, src),
+            Backend::Neon | Backend::NeonAes => aarch64::xor_neon(neon_token(), dst, src),
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
             Backend::Wasm128 => wasm32::xor_simd128(dst, src),
             _ => scalar::xor(dst, src),

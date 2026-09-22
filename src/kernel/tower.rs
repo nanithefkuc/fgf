@@ -568,7 +568,13 @@ pub mod gf16 {
                 // every row of the group, which is the trade PMULL loses.
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
                 Backend::Neon | Backend::NeonAes => {
-                    aarch64::gf16::scatter_neon(crate::kernel::neon_token(), rows, row_len, coeffs, src);
+                    aarch64::gf16::scatter_neon(
+                        crate::kernel::neon_token(),
+                        rows,
+                        row_len,
+                        coeffs,
+                        src,
+                    );
                 }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
                 Backend::Wasm128 => wasm32::gf16::scatter_simd128(rows, row_len, coeffs, src),
@@ -707,7 +713,13 @@ pub mod gf16 {
                 ),
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
                 Backend::Neon | Backend::NeonAes => {
-                    aarch64::gf16::matrix_neon(crate::kernel::neon_token(), rows, row_len, nrows, terms);
+                    aarch64::gf16::matrix_neon(
+                        crate::kernel::neon_token(),
+                        rows,
+                        row_len,
+                        nrows,
+                        terms,
+                    );
                 }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
                 Backend::Wasm128 => wasm32::gf16::matrix_simd128(rows, row_len, nrows, terms),

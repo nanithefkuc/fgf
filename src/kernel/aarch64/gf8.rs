@@ -158,12 +158,7 @@ impl PreparedRow {
 /// Panics if the slices differ in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_neon(
-    _token: archmage::NeonToken,
-    dst: &mut [u8],
-    table: &ScaleTable,
-    src: &[u8],
-) {
+pub fn mul_add_neon(_token: archmage::NeonToken, dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
     check_equal("gf8::mul_add_neon", "dst", dst.len(), "src", src.len());
     mul_add_impl(dst, table, src);
 }
@@ -238,12 +233,7 @@ fn mul_assign_impl(dst: &mut [u8], table: &ScaleTable) {
 /// Panics if the slices differ in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_into_neon(
-    _token: archmage::NeonToken,
-    dst: &mut [u8],
-    table: &ScaleTable,
-    src: &[u8],
-) {
+pub fn mul_into_neon(_token: archmage::NeonToken, dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
     check_equal("gf8::mul_into_neon", "dst", dst.len(), "src", src.len());
     mul_into_impl(dst, table, src);
 }
@@ -810,12 +800,7 @@ unsafe fn matrix_single(ptr: *mut u8, span: usize, index: usize, terms: &[(&[Ele
 /// in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn gather_neon(
-    _token: archmage::NeonToken,
-    dst: &mut [u8],
-    coeffs: &[Elem],
-    srcs: &[&[u8]],
-) {
+pub fn gather_neon(_token: archmage::NeonToken, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     check_equal(
         "gf8::gather_neon",
         "coefficients",
@@ -861,9 +846,7 @@ fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
             }
             // `pair_len <= span <= srcs[k].len()` bounds this 32-byte source
             // tile.
-            let s_tile: &[u8; 32] = srcs[k][t * 32..t * 32 + 32]
-                .try_into()
-                .unwrap();
+            let s_tile: &[u8; 32] = srcs[k][t * 32..t * 32 + 32].try_into().unwrap();
             let (s0, s1): (&[u8; 16], &[u8; 16]) = {
                 let (s0, s1) = s_tile.split_at(16);
                 (s0.try_into().unwrap(), s1.try_into().unwrap())
@@ -881,7 +864,10 @@ fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
             if plan.kind == Kind::Skip {
                 continue;
             }
-            acc = plan.fold(acc, vld1q_u8(srcs[k][pair_len..vector_len].first_chunk().unwrap()));
+            acc = plan.fold(
+                acc,
+                vld1q_u8(srcs[k][pair_len..vector_len].first_chunk().unwrap()),
+            );
         }
         vst1q_u8(dst[pair_len..vector_len].first_chunk_mut().unwrap(), acc);
     }

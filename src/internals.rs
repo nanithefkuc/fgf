@@ -61,7 +61,7 @@ pub mod kernel {
         pub use crate::kernel::x86::*;
     }
 
-    /// AArch64 kernels and token-proven compatibility entries.
+    /// Token-bearing AArch64 kernels.
     #[cfg(all(feature = "simd", target_arch = "aarch64"))]
     pub mod aarch64 {
         pub use crate::kernel::aarch64::*;

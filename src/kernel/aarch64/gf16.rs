@@ -175,12 +175,7 @@ fn scaled_vector(source: uint8x16_t, factors: &Factors) -> uint8x16_t {
 /// Panics if the slices differ in length or hold a partial element.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_neon(
-    _token: archmage::NeonToken,
-    dst: &mut [u8],
-    tables: &TowerTables,
-    src: &[u8],
-) {
+pub fn mul_add_neon(_token: archmage::NeonToken, dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
     check_equal("gf16::mul_add_neon", "dst", dst.len(), "src", src.len());
     check_elem_multiple("gf16::mul_add_neon", dst.len(), 2);
     mul_add_impl(dst, tables, src);
@@ -221,7 +216,11 @@ fn mul_add_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
         vst1q_u8(d, veorq_u8(cur, p));
     }
 
-    mul_add_scalar(&mut dst[vector_len..span], tables.coeff, &src[vector_len..span]);
+    mul_add_scalar(
+        &mut dst[vector_len..span],
+        tables.coeff,
+        &src[vector_len..span],
+    );
 }
 
 /// `dst = coeff * dst` over interleaved GF(2^16) elements.
@@ -305,7 +304,11 @@ fn mul_into_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
         vst1q_u8(d, scaled_vector(vld1q_u8(s), &factors));
     }
 
-    mul_into_scalar(&mut dst[vector_len..span], tables.coeff, &src[vector_len..span]);
+    mul_into_scalar(
+        &mut dst[vector_len..span],
+        tables.coeff,
+        &src[vector_len..span],
+    );
 }
 
 /// `row ^= src`, the whole job when a scattered coefficient is one.
@@ -322,7 +325,7 @@ fn mul_into_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
 /// SINCE: the row range is uniquely borrowed.
 /// THUS: the tail `&mut` window is unique.
 #[allow(unsafe_code)]
-#[archmage::rite(neon, import_intrinsics)]
+#[archmage::rite(neon)]
 unsafe fn xor_row(row: *mut u8, span: usize, src: &[u8]) {
     let len = span & !15;
     let src_ptr = src.as_ptr();
@@ -370,7 +373,7 @@ unsafe fn xor_row(row: *mut u8, span: usize, src: &[u8]) {
 /// SINCE: the `N` ranges are pairwise disjoint and uniquely borrowed.
 /// THUS: no store below aliases another row's load.
 #[allow(unsafe_code)]
-#[archmage::rite(neon, import_intrinsics)]
+#[archmage::rite(neon)]
 unsafe fn scatter_group<const N: usize>(
     base: *mut u8,
     span: usize,
@@ -570,7 +573,7 @@ enum Mode {
 /// SINCE: the `N` ranges are pairwise disjoint and uniquely borrowed.
 /// THUS: no store below aliases another row's load.
 #[allow(unsafe_code)]
-#[archmage::rite(neon, import_intrinsics)]
+#[archmage::rite(neon)]
 unsafe fn matrix_group<const N: usize>(
     base: *mut u8,
     span: usize,
@@ -783,12 +786,7 @@ unsafe fn mul_add_matrix_impl(
 /// in length (whole elements).
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn gather_neon(
-    _token: archmage::NeonToken,
-    dst: &mut [u8],
-    coeffs: &[Elem],
-    srcs: &[&[u8]],
-) {
+pub fn gather_neon(_token: archmage::NeonToken, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     check_equal(
         "gf16::gather_neon",
         "coefficients",
@@ -827,19 +825,13 @@ fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
             for i in 0..count {
                 // Every source has exactly `dst.len()` bytes, so this
                 // 16-byte source window is in bounds.
-                let source: &[u8; 16] = srcs[block + i][t * 16..t * 16 + 16]
-                    .try_into()
-                    .unwrap();
+                let source: &[u8; 16] = srcs[block + i][t * 16..t * 16 + 16].try_into().unwrap();
                 acc = veorq_u8(acc, scaled_vector(vld1q_u8(source), &factors[i]));
             }
             vst1q_u8(d, acc);
         }
         for i in 0..count {
-            mul_add_scalar(
-                dst_tail,
-                coeffs[block + i],
-                &srcs[block + i][vector_len..],
-            );
+            mul_add_scalar(dst_tail, coeffs[block + i], &srcs[block + i][vector_len..]);
         }
     }
 }
@@ -916,6 +908,10 @@ fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         .zip(a_tail.chunks_exact(2))
         .zip(b_tail.chunks_exact(2))
     {
-        d.copy_from_slice(&Elem::from_bytes([x[0], x[1]]).mul(Elem::from_bytes([y[0], y[1]])).to_bytes());
+        d.copy_from_slice(
+            &Elem::from_bytes([x[0], x[1]])
+                .mul(Elem::from_bytes([y[0], y[1]]))
+                .to_bytes(),
+        );
     }
 }

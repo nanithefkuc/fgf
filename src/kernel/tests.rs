@@ -2837,24 +2837,17 @@ mod aarch64 {
         // measured against the nibble/bit-serial paths and lost; GF(2^8)
         // elementwise is the shape that won and the only one dispatch selects.
     }
-
     #[test]
     fn vector_xor_matches_scalar_xor() {
+        let token = archmage::NeonToken::summon().expect("NEON is baseline on AArch64");
         for &len in LENGTHS {
             let src = noise(len, 0x1c);
             let mut want = noise(len, 0x2d);
             let mut neon = want.clone();
             scalar::xor(&mut want, &src);
-            aarch64::xor_neon(&mut neon, &src);
+            aarch64::xor_neon(token, &mut neon, &src);
             assert_eq!(neon, want, "neon xor: len {len}");
         }
-    }
-
-    #[test]
-    fn row_interleaved_xor_matches_scalar_xor() {
-        check_xor_rows("neon rows", |dst, src, row_len| {
-            aarch64::xor_rows_neon(dst, src, row_len);
-        });
     }
 }
 
