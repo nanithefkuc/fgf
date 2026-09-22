@@ -1,9 +1,27 @@
-//! GF(2^8) kernels using WebAssembly `simd128` swizzles.
+//! GF(2^8) WebAssembly `simd128` kernels.
+//!
+//! Wasm's lane-local `i8x16.swizzle` has the same 16-entry lookup shape as
+//! SSSE3 `PSHUFB` and NEON `TBL`, so every product here is the split-nibble
+//! form: `u8x16_swizzle` performs a 16-entry lookup on all 16 lanes at once,
+//! and `c * x` becomes `lo[x & 0xf] ^ hi[x >> 4]` against the coefficient's
+//! precomputed [`ScaleTable`].
+//!
+//! Every entry is a safe [`archmage`] capability-token function taking
+//! [`archmage::Wasm128Token`], validating its own geometry, and handing its
+//! sub-lane remainder to the scalar nibble kernels in [`crate::kernel::gf8`];
+//! buffer lengths are arbitrary and are never assumed to be lane-aligned.
+//! Inner loops are `#[rite]` helpers inside the token-proven region. The
+//! whole subtree is safe: reference-based `v128_load`/`v128_store` over
+//! 16-byte chunk arrays and `split_at_mut` row groups express every shape
+//! here, so no unsafe remains.
+//!
+//! [`archmage`]: https://docs.rs/archmage
 
 use core::arch::wasm32::*;
 
 use crate::field::gf8b::{Elem, Gf8B};
 use crate::kernel::gf8::mul_add_nibble;
+use crate::kernel::proven_checks::{check_equal, check_row_span, check_terms};
 use crate::kernel::tables::{ScaleTable, scale_table};
 
 #[derive(Clone, Copy)]
@@ -13,19 +31,16 @@ struct Factors {
 }
 
 #[inline]
-#[target_feature(enable = "simd128")]
+#[archmage::rite(wasm128, import_intrinsics)]
 fn load_factors(table: &ScaleTable) -> Factors {
-    // SAFETY: both arrays contain exactly 16 readable bytes.
-    unsafe {
-        Factors {
-            lo: v128_load(table.lo.as_ptr().cast()),
-            hi: v128_load(table.hi.as_ptr().cast()),
-        }
+    Factors {
+        lo: v128_load(&table.lo),
+        hi: v128_load(&table.hi),
     }
 }
 
 #[inline]
-#[target_feature(enable = "simd128")]
+#[archmage::rite(wasm128, import_intrinsics)]
 fn scaled(value: v128, factors: Factors) -> v128 {
     let low = v128_and(value, u8x16_splat(0x0f));
     let high = u8x16_shr(value, 4);
@@ -41,82 +56,83 @@ fn scaled(value: v128, factors: Factors) -> v128 {
 /// GF(2^16) kernels gain from on the same runtime — measured as no change
 /// here (BENCHMARKS.md): two swizzles per lane is too little work to have any
 /// latency left to hide.
-pub fn mul_add_simd128(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
-    debug_assert_eq!(dst.len(), src.len());
-    // SAFETY: the binary requires `simd128`, and slices are independently borrowed.
-    unsafe { mul_add_impl(dst, table, src) }
+///
+/// # Panics
+/// Panics if the slices differ in length.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane]
+pub fn mul_add_simd128(_token: archmage::Wasm128Token, dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
+    check_equal("gf8::mul_add_simd128", "dst", dst.len(), "src", src.len());
+    mul_add_impl(dst, table, src)
 }
 
-#[target_feature(enable = "simd128")]
-unsafe fn mul_add_impl(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
-    let len = dst.len().min(src.len()) & !15;
+#[archmage::rite(wasm128, import_intrinsics)]
+fn mul_add_impl(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
+    let span = dst.len().min(src.len());
+    let vector_len = span & !15;
     let factors = load_factors(table);
-    let (dst_ptr, src_ptr) = (dst.as_mut_ptr(), src.as_ptr());
-    let mut offset = 0;
-    while offset < len {
-        // SAFETY: one complete vector remains in both slices.
-        unsafe {
-            let d = v128_load(dst_ptr.add(offset).cast());
-            let s = v128_load(src_ptr.add(offset).cast());
-            v128_store(dst_ptr.add(offset).cast(), v128_xor(d, scaled(s, factors)));
-        }
-        offset += 16;
+
+    let (dst_lanes, _) = dst[..vector_len].as_chunks_mut::<16>();
+    let (src_lanes, _) = src[..vector_len].as_chunks::<16>();
+    for (d, s) in dst_lanes.iter_mut().zip(src_lanes) {
+        let x = v128_load(s);
+        let d0v = v128_load(&*d);
+        v128_store(d, v128_xor(d0v, scaled(x, factors)));
     }
-    crate::kernel::gf8::mul_add_nibble(&mut dst[len..], table, &src[len..]);
+
+    mul_add_nibble(&mut dst[vector_len..span], table, &src[vector_len..span]);
 }
 
 /// `dst = coeff * dst` over 16-byte SIMD lanes.
-pub fn mul_assign_simd128(dst: &mut [u8], table: &ScaleTable) {
-    // SAFETY: the binary requires `simd128`.
-    unsafe { mul_assign_impl(dst, table) }
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane]
+pub fn mul_assign_simd128(_token: archmage::Wasm128Token, dst: &mut [u8], table: &ScaleTable) {
+    mul_assign_impl(dst, table)
 }
 
-#[target_feature(enable = "simd128")]
-unsafe fn mul_assign_impl(dst: &mut [u8], table: &ScaleTable) {
-    let len = dst.len() & !15;
+#[archmage::rite(wasm128, import_intrinsics)]
+fn mul_assign_impl(dst: &mut [u8], table: &ScaleTable) {
+    let (lanes, tail) = dst.as_chunks_mut::<16>();
     let factors = load_factors(table);
-    let ptr = dst.as_mut_ptr();
-    let mut offset = 0;
-    while offset < len {
-        // SAFETY: one complete vector remains in `dst`.
-        unsafe {
-            let d = v128_load(ptr.add(offset).cast());
-            v128_store(ptr.add(offset).cast(), scaled(d, factors));
-        }
-        offset += 16;
+
+    for lane in lanes {
+        v128_store(lane, scaled(v128_load(&*lane), factors));
     }
-    crate::kernel::gf8::mul_assign_nibble(&mut dst[len..], table);
+
+    crate::kernel::gf8::mul_assign_nibble(tail, table);
 }
 
 /// `dst = coeff * src`, out of place, over 16-byte SIMD lanes.
 ///
 /// Fuses what would otherwise be a copy then an in-place scale: one pass, no `dst` read.
-pub fn mul_into_simd128(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
-    debug_assert_eq!(dst.len(), src.len());
-    // SAFETY: the binary requires `simd128`, and slices are independently borrowed.
-    unsafe { mul_into_impl(dst, table, src) }
+///
+/// # Panics
+/// Panics if the slices differ in length.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane]
+pub fn mul_into_simd128(_token: archmage::Wasm128Token, dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
+    check_equal("gf8::mul_into_simd128", "dst", dst.len(), "src", src.len());
+    mul_into_impl(dst, table, src)
 }
 
-#[target_feature(enable = "simd128")]
-unsafe fn mul_into_impl(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
-    let len = dst.len().min(src.len()) & !15;
+#[archmage::rite(wasm128, import_intrinsics)]
+fn mul_into_impl(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
+    let span = dst.len().min(src.len());
+    let vector_len = span & !15;
     let factors = load_factors(table);
-    let (dst_ptr, src_ptr) = (dst.as_mut_ptr(), src.as_ptr());
-    let mut offset = 0;
-    while offset < len {
-        // SAFETY: one complete vector remains in both slices.
-        unsafe {
-            let s = v128_load(src_ptr.add(offset).cast());
-            v128_store(dst_ptr.add(offset).cast(), scaled(s, factors));
-        }
-        offset += 16;
+
+    let (dst_lanes, _) = dst[..vector_len].as_chunks_mut::<16>();
+    let (src_lanes, _) = src[..vector_len].as_chunks::<16>();
+    for (d, s) in dst_lanes.iter_mut().zip(src_lanes) {
+        v128_store(d, scaled(v128_load(s), factors));
     }
-    crate::kernel::gf8::mul_into_nibble(&mut dst[len..], table, &src[len..]);
+
+    crate::kernel::gf8::mul_into_nibble(&mut dst[vector_len..span], table, &src[vector_len..span]);
 }
 
 /// Lane-parallel multiply for two varying base-field vectors.
 #[inline]
-#[target_feature(enable = "simd128")]
+#[archmage::rite(wasm128, import_intrinsics)]
 pub(super) fn multiply_vectors(mut a: v128, mut b: v128) -> v128 {
     let one = u8x16_splat(1);
     let reduction = u8x16_splat(0x1b);
@@ -132,28 +148,39 @@ pub(super) fn multiply_vectors(mut a: v128, mut b: v128) -> v128 {
 }
 
 /// `dst[i] = a[i] * b[i]` over 16-byte SIMD lanes.
-pub fn elementwise_simd128(dst: &mut [u8], a: &[u8], b: &[u8]) {
-    debug_assert_eq!(dst.len(), a.len());
-    debug_assert_eq!(dst.len(), b.len());
-    // SAFETY: the binary requires `simd128`, and all geometry was validated.
-    unsafe { elementwise_impl(dst, a, b) }
+///
+/// # Panics
+/// Panics unless all three buffers match in length.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane]
+pub fn elementwise_simd128(
+    _token: archmage::Wasm128Token,
+    dst: &mut [u8],
+    a: &[u8],
+    b: &[u8],
+) {
+    check_equal("gf8::elementwise_simd128", "dst", dst.len(), "a", a.len());
+    check_equal("gf8::elementwise_simd128", "dst", dst.len(), "b", b.len());
+    elementwise_impl(dst, a, b)
 }
 
-#[target_feature(enable = "simd128")]
-unsafe fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
-    let len = dst.len().min(a.len()).min(b.len()) & !15;
-    let (dst_ptr, a_ptr, b_ptr) = (dst.as_mut_ptr(), a.as_ptr(), b.as_ptr());
-    let mut offset = 0;
-    while offset < len {
-        // SAFETY: one complete vector remains in all three slices.
-        unsafe {
-            let x = v128_load(a_ptr.add(offset).cast());
-            let y = v128_load(b_ptr.add(offset).cast());
-            v128_store(dst_ptr.add(offset).cast(), multiply_vectors(x, y));
-        }
-        offset += 16;
+#[archmage::rite(wasm128, import_intrinsics)]
+fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
+    let span = dst.len().min(a.len()).min(b.len());
+    let vector_len = span & !15;
+
+    let (dst_lanes, _) = dst[..vector_len].as_chunks_mut::<16>();
+    let (a_lanes, _) = a[..vector_len].as_chunks::<16>();
+    let (b_lanes, _) = b[..vector_len].as_chunks::<16>();
+    for ((d, x), y) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
+        v128_store(d, multiply_vectors(v128_load(x), v128_load(y)));
     }
-    crate::kernel::scalar::mul_elementwise::<Gf8B>(&mut dst[len..], &a[len..], &b[len..]);
+
+    crate::kernel::scalar::mul_elementwise::<Gf8B>(
+        &mut dst[vector_len..span],
+        &a[vector_len..span],
+        &b[vector_len..span],
+    );
 }
 
 /// Which of the three cases a row's coefficient falls into.
@@ -170,8 +197,9 @@ enum Kind {
 /// One coefficient resolved into the form the multi-row loops consume.
 ///
 /// Branching on [`Kind::Skip`] and [`Kind::Identity`] pays for itself: the
-/// coefficient arrays handed to [`scatter_simd128`] and [`matrix_simd128`] are
-/// full of zeros and ones, and each case removes two `i8x16.swizzle`s per lane.
+/// coefficient arrays handed to [`scatter_simd128`] and [`matrix_simd128`]
+/// are full of zeros and ones, and each case removes two `i8x16.swizzle`s
+/// per lane.
 #[derive(Clone, Copy)]
 struct Scaling {
     /// Nibble tables in registers. Meaningless unless `kind` is [`Kind::Table`].
@@ -185,7 +213,7 @@ struct Scaling {
 impl Scaling {
     /// Resolve `coeff` against the shared table bank.
     #[inline]
-    #[target_feature(enable = "simd128")]
+    #[archmage::rite(wasm128, import_intrinsics)]
     fn new(coeff: Elem) -> Self {
         let table = scale_table(coeff);
         let kind = if coeff == Elem::ZERO {
@@ -204,7 +232,7 @@ impl Scaling {
 
     /// `acc ^= coeff * x` for one 16-byte lane.
     #[inline]
-    #[target_feature(enable = "simd128")]
+    #[archmage::rite(wasm128, import_intrinsics)]
     fn fold(self, acc: v128, x: v128) -> v128 {
         match self.kind {
             Kind::Skip => acc,
@@ -218,19 +246,31 @@ impl Scaling {
 ///
 /// `rows` is `coeffs.len()` contiguous rows of `row_len` bytes, and
 /// `row_len == src.len()`.
-pub fn scatter_simd128(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
-    debug_assert_eq!(row_len, src.len());
-    debug_assert!(rows.len() >= coeffs.len().saturating_mul(row_len));
+///
+/// A zero-length row with a zero-length source is a no-op.
+///
+/// # Panics
+/// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len`
+/// bytes and `row_len == src.len()`.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane]
+pub fn scatter_simd128(
+    _token: archmage::Wasm128Token,
+    rows: &mut [u8],
+    row_len: usize,
+    coeffs: &[Elem],
+    src: &[u8],
+) {
+    check_equal("gf8::scatter_simd128", "row_len", row_len, "src", src.len());
+    check_row_span("gf8::scatter_simd128", rows.len(), row_len, coeffs.len());
     if row_len == 0 || coeffs.is_empty() {
         return;
     }
-    // SAFETY: the binary requires `simd128`, and the kernel clamps its row
-    // count and byte span to what the buffers actually hold.
-    unsafe { mul_add_scatter_impl(rows, row_len, coeffs, src) }
+    mul_add_scatter_impl(rows, row_len, coeffs, src)
 }
 
-#[target_feature(enable = "simd128")]
-unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
+#[archmage::rite(wasm128, import_intrinsics)]
+fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
     let span = row_len.min(src.len());
     let count = coeffs.len().min(rows.len() / row_len);
     let src = &src[..span];
@@ -249,20 +289,18 @@ unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem],
             Scaling::new(coeffs[j + 2]),
             Scaling::new(coeffs[j + 3]),
         ];
-        // SAFETY: `split_at_mut` gives four disjoint rows, each truncated to
-        // the `span` bytes the source also holds.
-        unsafe {
-            scatter_quad(
-                [
-                    &mut r0[..span],
-                    &mut r1[..span],
-                    &mut r2[..span],
-                    &mut r3[..span],
-                ],
-                &plans,
-                src,
-            );
-        }
+        // `split_at_mut` gives four disjoint rows, each truncated to the
+        // `span` bytes the source also holds.
+        scatter_quad(
+            [
+                &mut r0[..span],
+                &mut r1[..span],
+                &mut r2[..span],
+                &mut r3[..span],
+            ],
+            &plans,
+            src,
+        );
         j += 4;
     }
     while j < count {
@@ -270,111 +308,129 @@ unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem],
         rest = tail;
         let coeff = coeffs[j];
         if coeff != Elem::ZERO {
-            // SAFETY: `simd128` is enabled for this whole function, and row
-            // and source windows are both exactly `span` bytes.
-            unsafe { mul_add_impl(&mut row[..span], scale_table(coeff), src) };
+            mul_add_impl(&mut row[..span], scale_table(coeff), src);
         }
         j += 1;
     }
 }
 
 /// Fold one source into four rows: one source load, four destination updates.
-///
-/// # Safety
-/// Every row and `src` must hold exactly the same number of bytes.
-#[target_feature(enable = "simd128")]
-unsafe fn scatter_quad(mut rows: [&mut [u8]; 4], plans: &[Scaling; 4], src: &[u8]) {
+#[archmage::rite(wasm128, import_intrinsics)]
+fn scatter_quad(rows: [&mut [u8]; 4], plans: &[Scaling; 4], src: &[u8]) {
     let span = src.len();
-    let src_ptr = src.as_ptr();
+    let vector_len = span & !15;
+    let (src_lanes, _) = src[..vector_len].as_chunks::<16>();
 
-    let mut offset = 0;
-    while offset + 16 <= span {
-        // SAFETY: `offset + 16 <= span == src.len()`.
-        let x = unsafe { v128_load(src_ptr.add(offset).cast()) };
-        for (row, plan) in rows.iter_mut().zip(plans) {
+    // Split each row once into 16-byte lanes plus the scalar tail; the four
+    // rows come from `split_at_mut`, so the lane slices are pairwise
+    // disjoint and disjoint from the source.
+    let [r0, r1, r2, r3] = rows;
+    let (l0, t0) = r0.as_chunks_mut::<16>();
+    let (l1, t1) = r1.as_chunks_mut::<16>();
+    let (l2, t2) = r2.as_chunks_mut::<16>();
+    let (l3, t3) = r3.as_chunks_mut::<16>();
+    let mut lanes: [&mut [[u8; 16]]; 4] = [l0, l1, l2, l3];
+    let tails: [&mut [u8]; 4] = [t0, t1, t2, t3];
+
+    for (i, s) in src_lanes.iter().enumerate() {
+        let x = v128_load(s);
+        for (lane, plan) in lanes.iter_mut().zip(plans) {
             if plan.kind == Kind::Skip {
                 continue;
             }
-            // SAFETY: every row holds `span` bytes and the four rows are
-            // disjoint, so this store cannot alias another row or the source.
-            unsafe {
-                let dp = row.as_mut_ptr().add(offset).cast();
-                v128_store(dp, plan.fold(v128_load(dp), x));
-            }
+            let d = &mut lane[i];
+            v128_store(d, plan.fold(v128_load(&*d), x));
         }
-        offset += 16;
     }
 
-    for (row, plan) in rows.iter_mut().zip(plans) {
+    for (tail, plan) in tails.into_iter().zip(plans) {
         if plan.kind == Kind::Skip {
             continue;
         }
-        mul_add_nibble(&mut row[offset..], plan.table, &src[offset..]);
+        mul_add_nibble(tail, plan.table, &src[vector_len..]);
     }
 }
 
 /// `dst ^= sum(coeffs[k] * srcs[k])`, holding a 32-byte destination tile in
 /// registers across every source so `dst` is read and written once.
-pub fn gather_simd128(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
-    debug_assert_eq!(coeffs.len(), srcs.len());
-    if dst.is_empty() || coeffs.is_empty() {
+///
+/// # Panics
+/// Panics unless `coeffs.len() == srcs.len()` and every source matches
+/// `dst` in length.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane]
+pub fn gather_simd128(
+    _token: archmage::Wasm128Token,
+    dst: &mut [u8],
+    coeffs: &[Elem],
+    srcs: &[&[u8]],
+) {
+    check_equal(
+        "gf8::gather_simd128",
+        "coefficients",
+        coeffs.len(),
+        "sources",
+        srcs.len(),
+    );
+    for (index, &src) in srcs.iter().enumerate() {
+        check_equal(
+            "gf8::gather_simd128",
+            "dst",
+            dst.len(),
+            format_args!("source {index}"),
+            src.len(),
+        );
+    }
+    if dst.is_empty() || srcs.is_empty() {
         return;
     }
-    // SAFETY: the binary requires `simd128`, and the kernel clamps its byte
-    // span to the shortest buffer involved.
-    unsafe { mul_add_gather_impl(dst, coeffs, srcs) }
+    mul_add_gather_impl(dst, coeffs, srcs)
 }
 
-#[target_feature(enable = "simd128")]
-unsafe fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+#[archmage::rite(wasm128, import_intrinsics)]
+fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
     let count = coeffs.len().min(srcs.len());
     let mut span = dst.len();
     for &src in &srcs[..count] {
         span = span.min(src.len());
     }
-    let dst_ptr = dst.as_mut_ptr();
 
     let mut offset = 0;
     while offset + 32 <= span {
-        // SAFETY: `offset + 32 <= span <= dst.len()`.
-        let (mut a0, mut a1) = unsafe {
-            let dp = dst_ptr.add(offset);
-            (v128_load(dp.cast()), v128_load(dp.add(16).cast()))
+        let d = &mut dst[offset..offset + 32];
+        let (d0, d1): (&mut [u8; 16], &mut [u8; 16]) = {
+            let (d0, d1) = d.split_at_mut(16);
+            (d0.try_into().unwrap(), d1.try_into().unwrap())
         };
+        let (mut a0, mut a1) = (v128_load(d0), v128_load(d1));
         for k in 0..count {
             let plan = Scaling::new(coeffs[k]);
             if plan.kind == Kind::Skip {
                 continue;
             }
-            // SAFETY: `offset + 32 <= span <= srcs[k].len()`.
-            unsafe {
-                let sp = srcs[k].as_ptr().add(offset);
-                a0 = plan.fold(a0, v128_load(sp.cast()));
-                a1 = plan.fold(a1, v128_load(sp.add(16).cast()));
-            }
+            let (s0, s1): (&[u8; 16], &[u8; 16]) = {
+                let (s0, s1) = srcs[k][offset..offset + 32].split_at(16);
+                (s0.try_into().unwrap(), s1.try_into().unwrap())
+            };
+            a0 = plan.fold(a0, v128_load(s0));
+            a1 = plan.fold(a1, v128_load(s1));
         }
-        // SAFETY: same bounds as the load above; `dst` is uniquely borrowed
-        // and the sources are read-only, so no store aliases a live read.
-        unsafe {
-            let dp = dst_ptr.add(offset);
-            v128_store(dp.cast(), a0);
-            v128_store(dp.add(16).cast(), a1);
-        }
+        v128_store(d0, a0);
+        v128_store(d1, a1);
         offset += 32;
     }
     if offset + 16 <= span {
-        // SAFETY: `offset + 16 <= span <= dst.len()`.
-        let mut a = unsafe { v128_load(dst_ptr.add(offset).cast()) };
+        let d: &mut [u8; 16] = (&mut dst[offset..offset + 16]).try_into().unwrap();
+        let mut a = v128_load(d);
         for k in 0..count {
             let plan = Scaling::new(coeffs[k]);
             if plan.kind == Kind::Skip {
                 continue;
             }
-            // SAFETY: `offset + 16 <= span <= srcs[k].len()`.
-            unsafe { a = plan.fold(a, v128_load(srcs[k].as_ptr().add(offset).cast())) };
+            let s: &[u8; 16] = srcs[k][offset..offset + 16].try_into().unwrap();
+            a = plan.fold(a, v128_load(s));
         }
-        // SAFETY: as above.
-        unsafe { v128_store(dst_ptr.add(offset).cast(), a) };
+        v128_store(d, a);
         offset += 16;
     }
 
@@ -395,18 +451,32 @@ unsafe fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
 /// Register-blocked: each group of four rows loads a 16-byte-per-row
 /// destination tile into four accumulators once, folds in every term, and
 /// stores once, so destination traffic is independent of `terms.len()`.
-pub fn matrix_simd128(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[Elem], &[u8])]) {
-    debug_assert!(rows.len() >= nrows.saturating_mul(row_len));
+///
+/// A zero-length row with zero-length sources is a no-op.
+///
+/// # Panics
+/// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes,
+/// every term supplies `nrows` coefficients, and every source is `row_len`
+/// bytes.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane]
+pub fn matrix_simd128(
+    _token: archmage::Wasm128Token,
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &[(&[Elem], &[u8])],
+) {
+    check_row_span("gf8::matrix_simd128", rows.len(), row_len, nrows);
+    check_terms("gf8::matrix_simd128", row_len, nrows, terms);
     if row_len == 0 || nrows == 0 || terms.is_empty() {
         return;
     }
-    // SAFETY: the binary requires `simd128`, and the kernel clamps both its
-    // row count and its byte span to what the buffers actually hold.
-    unsafe { mul_add_matrix_impl(rows, row_len, nrows, terms) }
+    mul_add_matrix_impl(rows, row_len, nrows, terms)
 }
 
-#[target_feature(enable = "simd128")]
-unsafe fn mul_add_matrix_impl(
+#[archmage::rite(wasm128, import_intrinsics)]
+fn mul_add_matrix_impl(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
@@ -432,21 +502,19 @@ unsafe fn mul_add_matrix_impl(
         let (r0, block) = block.split_at_mut(row_len);
         let (r1, block) = block.split_at_mut(row_len);
         let (r2, r3) = block.split_at_mut(row_len);
-        // SAFETY: `split_at_mut` gives four disjoint rows, each truncated to
-        // the `span` bytes every source also holds, and `j + 3 < count`
-        // indexes every term's coefficients.
-        unsafe {
-            matrix_quad(
-                [
-                    &mut r0[..span],
-                    &mut r1[..span],
-                    &mut r2[..span],
-                    &mut r3[..span],
-                ],
-                j,
-                terms,
-            );
-        }
+        // `split_at_mut` gives four disjoint rows, each truncated to the
+        // `span` bytes every source also holds, and `j + 3 < count` indexes
+        // every term's coefficients.
+        matrix_quad(
+            [
+                &mut r0[..span],
+                &mut r1[..span],
+                &mut r2[..span],
+                &mut r3[..span],
+            ],
+            j,
+            terms,
+        );
         j += 4;
     }
     while j < count {
@@ -455,9 +523,7 @@ unsafe fn mul_add_matrix_impl(
         for &(coeffs, src) in terms {
             let coeff = coeffs[j];
             if coeff != Elem::ZERO {
-                // SAFETY: `simd128` is enabled for this whole function, and
-                // both windows are exactly `span` bytes.
-                unsafe { mul_add_impl(&mut row[..span], scale_table(coeff), &src[..span]) };
+                mul_add_impl(&mut row[..span], scale_table(coeff), &src[..span]);
             }
         }
         j += 1;
@@ -465,47 +531,49 @@ unsafe fn mul_add_matrix_impl(
 }
 
 /// Register-blocked four-row tile: load once, fold every term, store once.
-///
-/// # Safety
-/// Every row must hold the same number of bytes, no more than the length of
-/// any term's source, and every term's coefficient slice must have more than
-/// `first + 3` entries.
-#[target_feature(enable = "simd128")]
-unsafe fn matrix_quad(mut rows: [&mut [u8]; 4], first: usize, terms: &[(&[Elem], &[u8])]) {
+#[archmage::rite(wasm128, import_intrinsics)]
+fn matrix_quad(rows: [&mut [u8]; 4], first: usize, terms: &[(&[Elem], &[u8])]) {
     let span = rows[0].len();
+    let vector_len = span & !15;
+
+    // Split each row once into 16-byte lanes plus the scalar tail; the four
+    // rows come from `split_at_mut`, so the lane slices are pairwise
+    // disjoint and disjoint from every source.
+    let [r0, r1, r2, r3] = rows;
+    let (l0, t0) = r0.as_chunks_mut::<16>();
+    let (l1, t1) = r1.as_chunks_mut::<16>();
+    let (l2, t2) = r2.as_chunks_mut::<16>();
+    let (l3, t3) = r3.as_chunks_mut::<16>();
+    let mut lanes: [&mut [[u8; 16]]; 4] = [l0, l1, l2, l3];
+    let tails: [&mut [u8]; 4] = [t0, t1, t2, t3];
 
     let mut offset = 0;
-    while offset + 16 <= span {
-        // SAFETY: `offset + 16 <= span`, the common length of all four rows,
-        // which are disjoint.
-        let mut acc = unsafe {
-            [
-                v128_load(rows[0].as_ptr().add(offset).cast()),
-                v128_load(rows[1].as_ptr().add(offset).cast()),
-                v128_load(rows[2].as_ptr().add(offset).cast()),
-                v128_load(rows[3].as_ptr().add(offset).cast()),
-            ]
-        };
+    while offset + 16 <= vector_len {
+        let i = offset / 16;
+        let mut acc = [
+            v128_load(&lanes[0][i]),
+            v128_load(&lanes[1][i]),
+            v128_load(&lanes[2][i]),
+            v128_load(&lanes[3][i]),
+        ];
         for &(coeffs, src) in terms {
-            // SAFETY: `offset + 16 <= span <= src.len()`.
-            let x = unsafe { v128_load(src.as_ptr().add(offset).cast()) };
+            let x: &[u8; 16] = src[offset..offset + 16].try_into().unwrap();
+            let x = v128_load(x);
             for (a, &coeff) in acc.iter_mut().zip(&coeffs[first..first + 4]) {
                 *a = Scaling::new(coeff).fold(*a, x);
             }
         }
-        for (row, &a) in rows.iter_mut().zip(&acc) {
-            // SAFETY: same bounds as the loads; the rows are disjoint and the
-            // sources are read-only.
-            unsafe { v128_store(row.as_mut_ptr().add(offset).cast(), a) };
+        for (lane, &a) in lanes.iter_mut().zip(&acc) {
+            v128_store(&mut lane[i], a);
         }
         offset += 16;
     }
 
-    for (i, row) in rows.iter_mut().enumerate() {
+    for (i, tail) in tails.into_iter().enumerate() {
         for &(coeffs, src) in terms {
             let coeff = coeffs[first + i];
             if coeff != Elem::ZERO {
-                mul_add_nibble(&mut row[offset..], scale_table(coeff), &src[offset..span]);
+                mul_add_nibble(tail, scale_table(coeff), &src[offset..span]);
             }
         }
     }

@@ -136,7 +136,7 @@ impl KernelDispatch for Gf8B {
                 aarch64::gf8::mul_add_neon(crate::kernel::neon_token(), dst, coeff, src);
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::gf8::mul_add_simd128(dst, coeff, src),
+            Backend::Wasm128 => wasm32::gf8::mul_add_simd128(crate::kernel::wasm128_token(), dst, coeff, src),
             _ => mul_add_nibble(dst, coeff, src),
         }
     }
@@ -156,7 +156,7 @@ impl KernelDispatch for Gf8B {
                 aarch64::gf8::mul_assign_neon(crate::kernel::neon_token(), dst, coeff);
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::gf8::mul_assign_simd128(dst, coeff),
+            Backend::Wasm128 => wasm32::gf8::mul_assign_simd128(crate::kernel::wasm128_token(), dst, coeff),
             _ => mul_assign_nibble(dst, coeff),
         }
     }
@@ -176,7 +176,7 @@ impl KernelDispatch for Gf8B {
                 aarch64::gf8::mul_into_neon(crate::kernel::neon_token(), dst, coeff, src);
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::gf8::mul_into_simd128(dst, coeff, src),
+            Backend::Wasm128 => wasm32::gf8::mul_into_simd128(crate::kernel::wasm128_token(), dst, coeff, src),
             _ => mul_into_nibble(dst, coeff, src),
         }
     }
@@ -218,7 +218,7 @@ impl KernelDispatch for Gf8B {
                 aarch64::gf8::scatter_neon(crate::kernel::neon_token(), rows, row_len, coeffs, src);
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::gf8::scatter_simd128(rows, row_len, coeffs, src),
+            Backend::Wasm128 => wasm32::gf8::scatter_simd128(crate::kernel::wasm128_token(), rows, row_len, coeffs, src),
             _ => scalar::mul_add_scatter::<Self>(rows, row_len, coeffs, src),
         }
     }
@@ -258,7 +258,7 @@ impl KernelDispatch for Gf8B {
                 aarch64::gf8::gather_neon(crate::kernel::neon_token(), dst, coeffs, srcs);
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::gf8::gather_simd128(dst, coeffs, srcs),
+            Backend::Wasm128 => wasm32::gf8::gather_simd128(crate::kernel::wasm128_token(), dst, coeffs, srcs),
             _ => scalar::mul_add_gather::<Self>(dst, coeffs, srcs),
         }
     }
@@ -326,7 +326,7 @@ impl KernelDispatch for Gf8B {
                 aarch64::gf8::matrix_neon(crate::kernel::neon_token(), rows, row_len, nrows, terms);
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::gf8::matrix_simd128(rows, row_len, nrows, terms),
+            Backend::Wasm128 => wasm32::gf8::matrix_simd128(crate::kernel::wasm128_token(), rows, row_len, nrows, terms),
             _ => scalar::mul_add_matrix::<Self>(rows, row_len, nrows, terms),
         }
     }
@@ -492,7 +492,7 @@ impl KernelDispatch for Gf8B {
                 aarch64::gf8::elementwise_neon(crate::kernel::neon_token(), dst, a, b);
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::gf8::elementwise_simd128(dst, a, b),
+            Backend::Wasm128 => wasm32::gf8::elementwise_simd128(crate::kernel::wasm128_token(), dst, a, b),
             // No fixed coefficient means no nibble table, so the shuffle
             // backends use the same eight branchless shift/reduce rounds as
             // baseline NEON and wasm.
@@ -625,7 +625,7 @@ impl KernelDispatch for Gf8D {
                 aarch64::gf8::mul_add_neon(crate::kernel::neon_token(), dst, coeff.table, src);
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::gf8::mul_add_simd128(dst, coeff.table, src),
+            Backend::Wasm128 => wasm32::gf8::mul_add_simd128(crate::kernel::wasm128_token(), dst, coeff.table, src),
             _ => mul_add_nibble(dst, coeff.table, src),
         }
     }
@@ -662,7 +662,7 @@ impl KernelDispatch for Gf8D {
                 aarch64::gf8::mul_assign_neon(crate::kernel::neon_token(), dst, coeff.table);
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::gf8::mul_assign_simd128(dst, coeff.table),
+            Backend::Wasm128 => wasm32::gf8::mul_assign_simd128(crate::kernel::wasm128_token(), dst, coeff.table),
             _ => mul_assign_nibble(dst, coeff.table),
         }
     }
@@ -690,7 +690,7 @@ impl KernelDispatch for Gf8D {
                 aarch64::gf8::mul_into_neon(crate::kernel::neon_token(), dst, coeff.table, src);
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::gf8::mul_into_simd128(dst, coeff.table, src),
+            Backend::Wasm128 => wasm32::gf8::mul_into_simd128(crate::kernel::wasm128_token(), dst, coeff.table, src),
             _ => mul_into_nibble(dst, coeff.table, src),
         }
     }

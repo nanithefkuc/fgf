@@ -2858,21 +2858,31 @@ mod aarch64 {
 #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
 mod wasm32 {
     use super::*;
-    use crate::kernel::wasm32;
+    use archmage::SimdToken as _;
 
     #[test]
     fn simd128_kernels_match_reference() {
-        check_gf8_mul_add("gf8 simd128", wasm32::gf8::mul_add_simd128);
-        check_gf8_mul_assign("gf8 simd128", wasm32::gf8::mul_assign_simd128);
+        let token =
+            archmage::Wasm128Token::summon().expect("host_supports guard: simd128 summons here");
+        check_gf8_mul_add("gf8 simd128", |dst, table, src| {
+            wasm32::gf8::mul_add_simd128(token, dst, table, src)
+        });
+        check_gf8_mul_assign("gf8 simd128", |dst, table| {
+            wasm32::gf8::mul_assign_simd128(token, dst, table)
+        });
         check_gf16_mul_add_tables("gf16 simd128", wasm32::gf16::mul_add_simd128);
         check_gf16_mul_assign_tables("gf16 simd128", wasm32::gf16::mul_assign_simd128);
-        check_gf8_mul_into("gf8 simd128 mul_into", wasm32::gf8::mul_into_simd128);
+        check_gf8_mul_into("gf8 simd128 mul_into", |dst, table, src| {
+            wasm32::gf8::mul_into_simd128(token, dst, table, src)
+        });
         check_gf16_mul_into_tables("gf16 simd128 mul_into", wasm32::gf16::mul_into_simd128);
         check_scatter(
             "gf8 simd128 scatter",
             gf8_coeff_at,
             gf8_reference,
-            wasm32::gf8::scatter_simd128,
+            |rows, row_len, coeffs, src| {
+                wasm32::gf8::scatter_simd128(token, rows, row_len, coeffs, src)
+            },
         );
         check_scatter(
             "gf16 simd128 scatter",
@@ -2884,7 +2894,7 @@ mod wasm32 {
             "gf8 simd128 gather",
             gf8_coeff_at,
             gf8_reference,
-            wasm32::gf8::gather_simd128,
+            |dst, coeffs, srcs| wasm32::gf8::gather_simd128(token, dst, coeffs, srcs),
         );
         check_gather(
             "gf16 simd128 gather",
@@ -2896,7 +2906,9 @@ mod wasm32 {
             "gf8 simd128 matrix",
             gf8_coeff_at2,
             gf8_reference,
-            wasm32::gf8::matrix_simd128,
+            |rows, row_len, nrows, terms| {
+                wasm32::gf8::matrix_simd128(token, rows, row_len, nrows, terms)
+            },
         );
         check_matrix(
             "gf16 simd128 matrix",
@@ -2904,7 +2916,9 @@ mod wasm32 {
             gf16_reference,
             wasm32::gf16::matrix_simd128,
         );
-        check_gf8_elementwise("gf8 simd128 elementwise", wasm32::gf8::elementwise_simd128);
+        check_gf8_elementwise("gf8 simd128 elementwise", |dst, a, b| {
+            wasm32::gf8::elementwise_simd128(token, dst, a, b)
+        });
         check_gf16_elementwise(
             "gf16 simd128 elementwise",
             wasm32::gf16::elementwise_simd128,
