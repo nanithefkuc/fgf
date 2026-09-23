@@ -384,30 +384,38 @@ element multiply.
 
 | Field | Shape | `fgf` (GiB/s) | Plonky3 (GiB/s) |
 | --- | --- | ---: | ---: |
-| `Mersenne31` | `dst = c * src` | 68.20/- | 80.91/- |
-| `Mersenne31` | `dst += c * src` | 47.40/- | 63.84/- |
-| `Mersenne31` | `dst = a * b` | 52.74/- | 75.28/- |
-| `Mersenne31` | `dst += v` | 114.66/- | 219.71/- |
-| `Mersenne31` | `dst -= v` | 91.88/- | 214.97/- |
-| `Goldilocks` | `dst = c * src` | 27.05/- | 30.24/- |
-| `Goldilocks` | `dst += c * src` | 18.97/- | 22.97/- |
-| `Goldilocks` | `dst = a * b` | 26.54/- | 30.56/- |
-| `Goldilocks` | `dst += v` | 54.24/- | 172.70/- |
-| `Goldilocks` | `dst -= v` | 56.30/- | 167.99/- |
-| `QuadMersenne31` | `dst = c * src` | 29.80/- | 41.14/- |
-| `QuadMersenne31` | `dst += c * src` | 24.07/- | 36.08/- |
-| `QuadMersenne31` | `dst = a * b` | 14.40/- | 29.62/- |
-| `QuadMersenne31` | `dst += v` | 115.09/- | 216.21/- |
-| `QuadMersenne31` | `dst -= v` | 94.17/- | 215.41/- |
+| `Mersenne31` | `dst = c * src` | 68.20/58.45 | 80.91/72.89 |
+| `Mersenne31` | `dst += c * src` | 47.40/42.45 | 63.84/57.05 |
+| `Mersenne31` | `dst = a * b` | 52.74/47.19 | 75.28/69.39 |
+| `Mersenne31` | `dst += v` | 114.66/107.83 | 219.71/152.83 |
+| `Mersenne31` | `dst -= v` | 91.88/86.45 | 214.97/152.75 |
+| `Goldilocks` | `dst = c * src` | 27.05/23.78 | 30.24/27.13 |
+| `Goldilocks` | `dst += c * src` | 18.97/16.98 | 22.97/20.44 |
+| `Goldilocks` | `dst = a * b` | 26.54/23.22 | 30.56/26.41 |
+| `Goldilocks` | `dst += v` | 54.24/49.53 | 172.70/147.61 |
+| `Goldilocks` | `dst -= v` | 56.30/52.71 | 167.99/147.81 |
+| `QuadMersenne31` | `dst = c * src` | 29.80/25.88 | 41.14/36.12 |
+| `QuadMersenne31` | `dst += c * src` | 24.07/20.81 | 36.08/31.73 |
+| `QuadMersenne31` | `dst = a * b` | 14.40/12.26 | 29.62/26.21 |
+| `QuadMersenne31` | `dst += v` | 115.09/107.84 | 216.21/152.75 |
+| `QuadMersenne31` | `dst -= v` | 94.17/86.43 | 215.41/152.83 |
 
 Scalar multiplication over the same fixture stream, nanoseconds per
 operation.
 
 | Field | `fgf` (ns/op) | Plonky3 (ns/op) |
 | --- | ---: | ---: |
-| `Mersenne31` | 1.50/- | 0.85/- |
-| `Goldilocks` | 1.63/- | 1.14/- |
-| `QuadMersenne31` | 3.31/- | 2.87/- |
+| `Mersenne31` | 1.50/1.55 | 0.85/0.80 |
+| `Goldilocks` | 1.63/1.64 | 1.14/1.11 |
+| `QuadMersenne31` | 3.31/4.37 | 2.87/2.91 |
+
+Across both hosts the ordering is identical: Plonky3 leads every recorded
+shape. The lead is widest on the broadcast add/sub and elementwise product
+shapes and narrowest on the Goldilocks scale shapes and the quadratic
+scalar multiply. The fgf-to-Plonky3 ratios agree closely between the two
+hosts, so the comparison's conclusions do not depend on which host runs
+them. Golden Cove's isolated core yields tighter paired bands and smaller
+run-to-run spread than Lunar Lake.
 
 - Each library runs on its own native layout and layout conversion is
   excluded from every timed region, so the cells compare kernels rather
