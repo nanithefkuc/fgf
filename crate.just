@@ -46,42 +46,40 @@ features-internals:
     cargo check --all-targets
     cargo check --all-targets --all-features
 
-# The ISA-L competitor comparison. `bench-isal/` is a separate, unpublished
-# package: linking the system ISA-L needs a build script, and `fgf` itself
-# carries none. Requires `libisal` discoverable through pkg-config; the
-# build fails loudly when it is absent rather than dropping the arm.
+# Field-family benchmark suites. `bench-<field>` runs that family's self
+# benchmarks in one pass. `bench-<field>-comp` runs five complete rounds
+# interleaving the family's self suite with every wired competitor harness,
+# shuffling the unit order within each round and printing the realized
+# order; the benchmark record aggregates across rounds. `gf` is the binary
+# tower fields, `gdl` Goldilocks, `m31` Mersenne31 and QuadMersenne31,
+# `gf2` bit-packed GF(2). The competitor harnesses live in `external/` as
+# separate, unpublished packages — the link to the system ISA-L and the Go
+# c-archive needs a build script, and `fgf` itself carries none.
 [group('bench')]
-bench-isal:
+bench-gf:
+    just bench kernels --gf
+    just bench compare
+
+# The binary-field competitor pair. `external/bench-isal/` links the system
+# Intel ISA-L (pkg-config `libisal`); `external/bench-klauspost/` links
+# klauspost/reedsolomon as a Go C archive (Go toolchain in PATH). Both fail
+# loudly when their toolchain is absent rather than dropping the arm. Each
+# round shuffles its units — the self suite, then one invocation of each
+# harness — so no unit systematically owns the warm or cold position.
+[group('bench')]
+bench-gf-comp:
     #!/usr/bin/env bash
     set -euo pipefail
     pkg-config --modversion libisal >/dev/null || {
         echo "libisal not found through pkg-config; install Intel ISA-L" >&2
         exit 1
     }
-    cargo build --release --manifest-path bench-isal/Cargo.toml
-    pin=()
-    if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
-        pin=(taskset -c "${FEC_GOLDEN_CORE}")
-        echo "pinned to core ${FEC_GOLDEN_CORE}"
-    else
-        echo "warning: FEC_GOLDEN_CORE unset; the run is not core-pinned" >&2
-    fi
-    "${pin[@]}" bench-isal/target/release/fgf-bench-isal
-
-# The klauspost/reedsolomon competitor comparison. `bench-klauspost/` is a
-# separate, unpublished package in the shape of `bench-isal/`: linking the Go
-# c-archive needs a build script, and `fgf` itself carries none. Requires the
-# Go toolchain in PATH; the build fails loudly when it is absent rather than
-# dropping the arm.
-[group('bench')]
-bench-klauspost:
-    #!/usr/bin/env bash
-    set -euo pipefail
     command -v go >/dev/null || {
         echo "go not found in PATH; install the Go toolchain" >&2
         exit 1
     }
-    cargo build --release --manifest-path bench-klauspost/Cargo.toml
+    cargo build --release --manifest-path external/bench-isal/Cargo.toml
+    cargo build --release --manifest-path external/bench-klauspost/Cargo.toml
     pin=()
     if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
         pin=(taskset -c "${FEC_GOLDEN_CORE}")
@@ -89,22 +87,40 @@ bench-klauspost:
     else
         echo "warning: FEC_GOLDEN_CORE unset; the run is not core-pinned" >&2
     fi
-    "${pin[@]}" bench-klauspost/target/release/fgf-bench-klauspost
+    for run in 1 2 3 4 5; do
+        echo "== round ${run}"
+        printf '%s\n' self isal klauspost | shuf | while read -r unit; do
+            echo "-- round ${run} unit ${unit}"
+            case "${unit}" in
+                self)
+                    just bench kernels --gf
+                    just bench compare
+                    ;;
+                isal)
+                    "${pin[@]}" external/bench-isal/target/release/fgf-bench-isal
+                    ;;
+                klauspost)
+                    "${pin[@]}" external/bench-klauspost/target/release/fgf-bench-klauspost
+                    ;;
+            esac
+        done
+    done
 
-# The prime-field NTT consumer harness. `external-bench/prime-ntt/` is a
-# separate, unpublished package that path-depends on the local `fgf` and the
-# local `butterfly-fft` (with its `internals` feature) and patches the
-# registry's `fgf` and `simdispatch` onto those same local copies, so the
-# published pins of either crate stay untouched. The bench validates every
-# geometry — forced fused against forced packed against production forward,
-# inverse roundtrip, and a direct DFT up to size 1024 — before any arm is
-# timed, and panics on mismatch. ARGS pass through to Criterion as filters;
-# `--test` runs each arm once without timing.
 [group('bench')]
-bench-prime-ntt *ARGS:
+bench-gdl:
+    just bench kernels --gdl
+
+# The prime-field competitor: `external/prime-bench/` compares `fgf`
+# against Plonky3 on each library's native layout, built with
+# `-C target-cpu=native` because Plonky3 selects its packed kernels at
+# compile time. Each round shuffles its units — the self suite and the
+# harness — so no unit systematically owns the warm or cold position.
+[group('bench')]
+bench-gdl-comp:
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo bench --manifest-path external-bench/prime-ntt/Cargo.toml --bench ntt_consumer --no-run
+    RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml
+    echo "bench-gdl-comp: five rounds, units self p3"
     pin=()
     if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
         pin=(taskset -c "${FEC_GOLDEN_CORE}")
@@ -112,4 +128,71 @@ bench-prime-ntt *ARGS:
     else
         echo "warning: FEC_GOLDEN_CORE unset; the run is not core-pinned" >&2
     fi
-    "${pin[@]}" cargo bench --manifest-path external-bench/prime-ntt/Cargo.toml --bench ntt_consumer -- {{ARGS}}
+    for run in 1 2 3 4 5; do
+        echo "== round ${run}"
+        printf '%s\n' self p3 | shuf | while read -r unit; do
+            echo "-- round ${run} unit ${unit}"
+            case "${unit}" in
+                self)
+                    just bench kernels --gdl
+                    ;;
+                p3)
+                    "${pin[@]}" external/prime-bench/target/release/fgf-bench-prime gdl
+                    ;;
+            esac
+        done
+    done
+
+[group('bench')]
+bench-m31:
+    just bench kernels --m31
+    just bench-save prime_ntt
+    just bench prime_ntt
+
+# The QuadMersenne31 threshold evidence in `prime_ntt` keeps its paired
+# two-execution protocol outside the rounds: its estimator pools the scalar
+# and duplicated scalar arms over both executions, and re-rounding it would
+# redefine that recorded estimator.
+[group('bench')]
+bench-m31-comp:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml
+    echo "bench-m31-comp: five rounds, units self p3"
+    pin=()
+    if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
+        pin=(taskset -c "${FEC_GOLDEN_CORE}")
+        echo "pinned to core ${FEC_GOLDEN_CORE}"
+    else
+        echo "warning: FEC_GOLDEN_CORE unset; the run is not core-pinned" >&2
+    fi
+    for run in 1 2 3 4 5; do
+        echo "== round ${run}"
+        printf '%s\n' self p3 | shuf | while read -r unit; do
+            echo "-- round ${run} unit ${unit}"
+            case "${unit}" in
+                self)
+                    just bench kernels --m31
+                    ;;
+                p3)
+                    "${pin[@]}" external/prime-bench/target/release/fgf-bench-prime m31
+                    ;;
+            esac
+        done
+    done
+    just bench-save prime_ntt
+    just bench prime_ntt
+
+[group('bench')]
+bench-gf2:
+    just bench kernels --gf2
+
+[group('bench')]
+bench-gf2-comp:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "bench-gf2-comp: no competitor harness is wired for bit-packed GF(2) yet"
+    for run in 1 2 3 4 5; do
+        echo "== round ${run} order self"
+        just bench kernels --gf2
+    done

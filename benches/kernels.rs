@@ -34,12 +34,26 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
         .collect()
 }
 
+/// Format a nanosecond count the way `Duration`'s debug output scales its
+/// unit, but from an `f64`: `Duration` cannot hold sub-nanosecond values, so
+/// dividing one by a repetition count quantizes every estimate to whole
+/// nanoseconds.
+fn fmt_ns(ns: f64) -> String {
+    if ns < 1_000.0 {
+        format!("{ns:.2}ns")
+    } else if ns < 1_000_000.0 {
+        format!("{:.2}µs", ns / 1_000.0)
+    } else {
+        format!("{:.2}ms", ns / 1_000_000.0)
+    }
+}
+
 /// Run `body` until it has been timed enough times to trust the median, and
 /// report bytes per second over `bytes` of logical traffic per iteration.
 ///
-/// Returns the median iteration time so callers can print a ratio between two
-/// shapes measured back to back in the same process.
-fn bench(label: &str, bytes: usize, mut body: impl FnMut()) -> Duration {
+/// Returns the median per-iteration time in nanoseconds so callers can print
+/// a ratio between two shapes measured back to back in the same process.
+fn bench(label: &str, bytes: usize, mut body: impl FnMut()) -> f64 {
     // Warm caches, branch predictors, and the lazy backend detection.
     for _ in 0..16 {
         body();
@@ -53,13 +67,16 @@ fn bench(label: &str, bytes: usize, mut body: impl FnMut()) -> Duration {
         for _ in 0..reps {
             body();
         }
-        samples.push(start.elapsed() / reps);
+        samples.push(start.elapsed().as_secs_f64() * 1e9 / reps as f64);
     }
-    samples.sort_unstable();
+    samples.sort_unstable_by(f64::total_cmp);
     let median = samples[samples.len() / 2];
 
-    let gib_per_sec = bytes as f64 / median.as_secs_f64() / (1024.0 * 1024.0 * 1024.0);
-    println!("  {label:<44} {:>9.2?}  {gib_per_sec:>7.2} GiB/s", median);
+    let gib_per_sec = bytes as f64 / (median / 1e9) / (1024.0 * 1024.0 * 1024.0);
+    println!(
+        "  {label:<44} {:>9}  {gib_per_sec:>7.2} GiB/s",
+        fmt_ns(median)
+    );
     median
 }
 
@@ -100,8 +117,8 @@ fn bench_preparation_crossover() {
         });
         println!(
             "    one-shot/prepared: gf8 {:.2}x  gf16 {:.2}x",
-            one8.as_secs_f64() / with8.as_secs_f64(),
-            one16.as_secs_f64() / with16.as_secs_f64()
+            one8 / with8,
+            one16 / with16
         );
     }
     println!();
@@ -208,10 +225,7 @@ fn bench_blocked_vs_axpy() {
                     );
                 }
             });
-            println!(
-                "    ssse3 blocked/AXPY: {:.2}x",
-                axpy.as_secs_f64() / blocked.as_secs_f64()
-            );
+            println!("    ssse3 blocked/AXPY: {:.2}x", axpy / blocked);
 
             if let Some(avx2) = avx2 {
                 let blocked = bench("  gather blocked            avx2", traffic, || {
@@ -232,10 +246,7 @@ fn bench_blocked_vs_axpy() {
                         );
                     }
                 });
-                println!(
-                    "    avx2  blocked/AXPY: {:.2}x",
-                    axpy.as_secs_f64() / blocked.as_secs_f64()
-                );
+                println!("    avx2  blocked/AXPY: {:.2}x", axpy / blocked);
             }
             if let Some(gfni) = gfni {
                 let blocked = bench("  gather blocked            gfni", traffic, || {
@@ -256,10 +267,7 @@ fn bench_blocked_vs_axpy() {
                         );
                     }
                 });
-                println!(
-                    "    gfni  blocked/AXPY: {:.2}x",
-                    axpy.as_secs_f64() / blocked.as_secs_f64()
-                );
+                println!("    gfni  blocked/AXPY: {:.2}x", axpy / blocked);
             }
 
             let Some(avx2) = avx2 else {
@@ -301,10 +309,7 @@ fn bench_blocked_vs_axpy() {
                     }
                 }
             });
-            println!(
-                "    avx2  blocked/AXPY: {:.2}x",
-                axpy.as_secs_f64() / blocked.as_secs_f64()
-            );
+            println!("    avx2  blocked/AXPY: {:.2}x", axpy / blocked);
         }
     }
     println!();
@@ -488,10 +493,7 @@ fn bench_small_row_shapes() {
             dst.copy_from_slice(black_box(srcs[0]));
             ops::mul_assign::<Gf16>(dst, coeff);
         });
-        println!(
-            "    copy+scale/fused: {:.2}x",
-            copied.as_secs_f64() / fused.as_secs_f64()
-        );
+        println!("    copy+scale/fused: {:.2}x", copied / fused);
     }
     println!();
 }
@@ -583,12 +585,12 @@ fn bench_gf2_short_rows() {
             );
         }
     });
-    let per_call = |d: Duration| d.as_nanos() as f64 / pairs as f64;
+    let per_call = |d: f64| d / pairs as f64;
     println!(
         "  per call: one-shot {:.2} ns, prepared {:.2} ns ({:.2}x)\n",
         per_call(one_shot),
         per_call(prepared),
-        one_shot.as_secs_f64() / prepared.as_secs_f64()
+        one_shot / prepared
     );
 }
 
@@ -621,8 +623,8 @@ fn bench_add_assign_rows<F: fgf::FieldKernels>(name: &str) {
             });
             println!(
                 "    rows/flat: {:.2}x, rows/loop: {:.2}x  ({rows} rows x {row_len} B)",
-                flat.as_secs_f64() / interleaved.as_secs_f64(),
-                looped.as_secs_f64() / interleaved.as_secs_f64(),
+                flat / interleaved,
+                looped / interleaved,
             );
         }
     }
@@ -630,25 +632,45 @@ fn bench_add_assign_rows<F: fgf::FieldKernels>(name: &str) {
 }
 
 fn main() {
+    // Family flags `--gf`, `--gdl`, `--m31`, and `--gf2` run only that
+    // family's panels. Unknown flags are ignored so wrapper arguments pass
+    // through unchanged, and no family flag runs every panel.
+    let args: Vec<String> = std::env::args().collect();
+    let has = |flag: &str| args.iter().any(|arg| arg.as_str() == flag);
+    let named = has("--gf") || has("--gdl") || has("--m31") || has("--gf2");
+    let gf = !named || has("--gf");
+    let gdl = !named || has("--gdl");
+    let m31 = !named || has("--m31");
+    let gf2 = !named || has("--gf2");
+
     println!("fgf kernel benchmark — backend: {}", backend().name());
     println!("  (override with SIMD_BACKEND=v3_gfni_crypto|v3|v2|neon|scalar)\n");
 
-    bench_preparation_crossover();
-    bench_small_row_shapes();
-    bench_add_assign_rows::<Gf8B>("gf8");
-    bench_add_assign_rows::<Gf16>("gf16");
-    bench_add_assign_rows::<Mersenne31>("m31 (prime control, flat default)");
-    bench_large_destination();
-    bench_destination_alignment();
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    bench_blocked_vs_axpy();
+    if gf {
+        bench_preparation_crossover();
+        bench_small_row_shapes();
+        bench_add_assign_rows::<Gf8B>("gf8");
+        bench_add_assign_rows::<Gf16>("gf16");
+        bench_large_destination();
+        bench_destination_alignment();
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        bench_blocked_vs_axpy();
+        bench_network_payloads();
+    }
+    if m31 {
+        bench_add_assign_rows::<Mersenne31>("m31 (prime control, flat default)");
+    }
+    if gf2 {
+        bench_gf2_bits();
+        bench_gf2_short_rows();
+    }
 
-    bench_network_payloads();
-    bench_gf2_bits();
-    bench_gf2_short_rows();
-
-    // L1-resident, L2-resident, and DRAM-resident.
+    // L1-resident, L2-resident, and DRAM-resident. The panel's rows all
+    // belong to the gf and prime families, so a gf2-only run skips it.
     for &len in &[4 * 1024usize, 256 * 1024, 8 * 1024 * 1024] {
+        if !(gf || m31 || gdl) {
+            continue;
+        }
         let human = if len >= 1024 * 1024 {
             format!("{} MiB", len / (1024 * 1024))
         } else {
@@ -662,117 +684,141 @@ fn main() {
         let rhs = noise(len, 0x602);
         let mut product = vec![0; len];
 
-        bench("xor                       gf8", len, || {
-            ops::add_assign::<Gf8B>(black_box(&mut dst), black_box(&src));
-        });
-        bench("mul_add                   gf8", len, || {
-            ops::mul_add::<Gf8B>(
-                black_box(&mut dst),
-                gf8b::Elem::from_raw(0x53),
-                black_box(&src),
-            );
-        });
-        bench("mul_add                  gf16", len, || {
-            ops::mul_add::<Gf16>(
-                black_box(&mut dst),
-                gf16::Elem::from_raw(0x53a7),
-                black_box(&src),
-            );
-        });
-        bench("mul_add prepared         gf16", len, || {
-            ops::mul_add_with::<Gf16>(black_box(&mut dst), &prepared16, black_box(&src));
-        });
-        bench("mul_assign                gf8", len, || {
-            ops::mul_assign::<Gf8B>(black_box(&mut dst), gf8b::Elem::from_raw(0x53));
-        });
-        bench("elementwise                gf8", len, || {
-            ops::mul_elementwise::<Gf8B>(black_box(&mut product), black_box(&src), black_box(&rhs));
-        });
-        bench("elementwise               gf16", len, || {
-            ops::mul_elementwise::<Gf16>(black_box(&mut product), black_box(&src), black_box(&rhs));
-        });
-        bench("mul_assign               gf16", len, || {
-            ops::mul_assign::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));
-        });
+        if gf {
+            bench("xor                       gf8", len, || {
+                ops::add_assign::<Gf8B>(black_box(&mut dst), black_box(&src));
+            });
+            bench("mul_add                   gf8", len, || {
+                ops::mul_add::<Gf8B>(
+                    black_box(&mut dst),
+                    gf8b::Elem::from_raw(0x53),
+                    black_box(&src),
+                );
+            });
+            bench("mul_add                  gf16", len, || {
+                ops::mul_add::<Gf16>(
+                    black_box(&mut dst),
+                    gf16::Elem::from_raw(0x53a7),
+                    black_box(&src),
+                );
+            });
+            bench("mul_add prepared         gf16", len, || {
+                ops::mul_add_with::<Gf16>(black_box(&mut dst), &prepared16, black_box(&src));
+            });
+            bench("mul_assign                gf8", len, || {
+                ops::mul_assign::<Gf8B>(black_box(&mut dst), gf8b::Elem::from_raw(0x53));
+            });
+            bench("elementwise                gf8", len, || {
+                ops::mul_elementwise::<Gf8B>(
+                    black_box(&mut product),
+                    black_box(&src),
+                    black_box(&rhs),
+                );
+            });
+            bench("elementwise               gf16", len, || {
+                ops::mul_elementwise::<Gf16>(
+                    black_box(&mut product),
+                    black_box(&src),
+                    black_box(&rhs),
+                );
+            });
+            bench("mul_assign               gf16", len, || {
+                ops::mul_assign::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));
+            });
+        }
 
         // Prime-field elementwise and broadcast scalar ops. `add_assign` and
         // `elementwise` are the unchanged controls for the new assign forms.
-        bench("add_assign                   m31", len, || {
-            ops::add_assign::<Mersenne31>(black_box(&mut dst), black_box(&src));
-        });
-        bench("add_assign_scalar            m31", len, || {
-            ops::add_assign_scalar::<Mersenne31>(
-                black_box(&mut dst),
-                mersenne31::Elem::from_raw(0x1234_5678),
-            );
-        });
-        bench("sub_assign_scalar            m31", len, || {
-            ops::sub_assign_scalar::<Mersenne31>(
-                black_box(&mut dst),
-                mersenne31::Elem::from_raw(0x1234_5678),
-            );
-        });
-        bench("elementwise                  m31", len, || {
-            ops::mul_elementwise::<Mersenne31>(
-                black_box(&mut product),
-                black_box(&src),
-                black_box(&rhs),
-            );
-        });
-        bench("elementwise_assign           m31", len, || {
-            ops::mul_elementwise_assign::<Mersenne31>(black_box(&mut product), black_box(&src));
-        });
-        bench("add_assign                   gld", len, || {
-            ops::add_assign::<Goldilocks>(black_box(&mut dst), black_box(&src));
-        });
-        bench("add_assign_scalar            gld", len, || {
-            ops::add_assign_scalar::<Goldilocks>(
-                black_box(&mut dst),
-                goldilocks::Elem::from_raw(0x1234_5678_9abc_def0),
-            );
-        });
-        bench("sub_assign_scalar            gld", len, || {
-            ops::sub_assign_scalar::<Goldilocks>(
-                black_box(&mut dst),
-                goldilocks::Elem::from_raw(0x1234_5678_9abc_def0),
-            );
-        });
-        bench("elementwise                  gld", len, || {
-            ops::mul_elementwise::<Goldilocks>(
-                black_box(&mut product),
-                black_box(&src),
-                black_box(&rhs),
-            );
-        });
-        bench("elementwise_assign           gld", len, || {
-            ops::mul_elementwise_assign::<Goldilocks>(black_box(&mut product), black_box(&src));
-        });
-        bench("add_assign                  qm31", len, || {
-            ops::add_assign::<QuadMersenne31>(black_box(&mut dst), black_box(&src));
-        });
-        bench("add_assign_scalar           qm31", len, || {
-            ops::add_assign_scalar::<QuadMersenne31>(
-                black_box(&mut dst),
-                quad_mersenne31::Elem::from_raw(0x1234_5678, 0x0987_6543),
-            );
-        });
-        bench("sub_assign_scalar           qm31", len, || {
-            ops::sub_assign_scalar::<QuadMersenne31>(
-                black_box(&mut dst),
-                quad_mersenne31::Elem::from_raw(0x1234_5678, 0x0987_6543),
-            );
-        });
-        bench("elementwise                 qm31", len, || {
-            ops::mul_elementwise::<QuadMersenne31>(
-                black_box(&mut product),
-                black_box(&src),
-                black_box(&rhs),
-            );
-        });
-        bench("elementwise_assign          qm31", len, || {
-            ops::mul_elementwise_assign::<QuadMersenne31>(black_box(&mut product), black_box(&src));
-        });
+        if m31 {
+            bench("add_assign                   m31", len, || {
+                ops::add_assign::<Mersenne31>(black_box(&mut dst), black_box(&src));
+            });
+            bench("add_assign_scalar            m31", len, || {
+                ops::add_assign_scalar::<Mersenne31>(
+                    black_box(&mut dst),
+                    mersenne31::Elem::from_raw(0x1234_5678),
+                );
+            });
+            bench("sub_assign_scalar            m31", len, || {
+                ops::sub_assign_scalar::<Mersenne31>(
+                    black_box(&mut dst),
+                    mersenne31::Elem::from_raw(0x1234_5678),
+                );
+            });
+            bench("elementwise                  m31", len, || {
+                ops::mul_elementwise::<Mersenne31>(
+                    black_box(&mut product),
+                    black_box(&src),
+                    black_box(&rhs),
+                );
+            });
+            bench("elementwise_assign           m31", len, || {
+                ops::mul_elementwise_assign::<Mersenne31>(black_box(&mut product), black_box(&src));
+            });
+        }
+        if gdl {
+            bench("add_assign                   gld", len, || {
+                ops::add_assign::<Goldilocks>(black_box(&mut dst), black_box(&src));
+            });
+            bench("add_assign_scalar            gld", len, || {
+                ops::add_assign_scalar::<Goldilocks>(
+                    black_box(&mut dst),
+                    goldilocks::Elem::from_raw(0x1234_5678_9abc_def0),
+                );
+            });
+            bench("sub_assign_scalar            gld", len, || {
+                ops::sub_assign_scalar::<Goldilocks>(
+                    black_box(&mut dst),
+                    goldilocks::Elem::from_raw(0x1234_5678_9abc_def0),
+                );
+            });
+            bench("elementwise                  gld", len, || {
+                ops::mul_elementwise::<Goldilocks>(
+                    black_box(&mut product),
+                    black_box(&src),
+                    black_box(&rhs),
+                );
+            });
+            bench("elementwise_assign           gld", len, || {
+                ops::mul_elementwise_assign::<Goldilocks>(black_box(&mut product), black_box(&src));
+            });
+        }
+        if m31 {
+            bench("add_assign                  qm31", len, || {
+                ops::add_assign::<QuadMersenne31>(black_box(&mut dst), black_box(&src));
+            });
+            bench("add_assign_scalar           qm31", len, || {
+                ops::add_assign_scalar::<QuadMersenne31>(
+                    black_box(&mut dst),
+                    quad_mersenne31::Elem::from_raw(0x1234_5678, 0x0987_6543),
+                );
+            });
+            bench("sub_assign_scalar           qm31", len, || {
+                ops::sub_assign_scalar::<QuadMersenne31>(
+                    black_box(&mut dst),
+                    quad_mersenne31::Elem::from_raw(0x1234_5678, 0x0987_6543),
+                );
+            });
+            bench("elementwise                 qm31", len, || {
+                ops::mul_elementwise::<QuadMersenne31>(
+                    black_box(&mut product),
+                    black_box(&src),
+                    black_box(&rhs),
+                );
+            });
+            bench("elementwise_assign          qm31", len, || {
+                ops::mul_elementwise_assign::<QuadMersenne31>(
+                    black_box(&mut product),
+                    black_box(&src),
+                );
+            });
+        }
         println!();
+    }
+
+    // The remaining panels cover the binary tower fields only.
+    if !gf {
+        return;
     }
 
     // Multi-row shapes. Geometry is a realistic erasure code: k data rows

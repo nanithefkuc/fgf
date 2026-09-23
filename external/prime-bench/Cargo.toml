@@ -1,0 +1,30 @@
+[package]
+name = "prime-bench"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+license = "MIT"
+description = "In-process prime-field comparison between fgf and Plonky3"
+
+# A separate package, not a bench target of `fgf`: the competitor crates and
+# the `-C target-cpu=native` build the Plonky3 arms need would bind `fgf`
+# itself. The package allowlist in `../../Cargo.toml` keeps this directory out
+# of `cargo package`, so the comparison lives in the repository only.
+#
+# Plonky3 selects its packed kernels with `cfg(target_feature)`, so the whole
+# package builds with `-C target-cpu=native`; the record states that flag.
+
+[dependencies]
+fgf = { path = "../.." }
+p3-field = "=0.7.0"
+p3-goldilocks = "=0.7.0"
+p3-mersenne-31 = "=0.7.0"
+
+[[bin]]
+name = "fgf-bench-prime"
+path = "src/main.rs"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

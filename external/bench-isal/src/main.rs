@@ -28,7 +28,7 @@
 //! # Running
 //!
 //! ```sh
-//! FEC_GOLDEN_CORE=<p-core> just bench-isal   # from the fgf crate directory
+//! FEC_GOLDEN_CORE=<p-core> just bench-gf-comp   # from the fgf crate directory
 //! ```
 //!
 //! Record the output in `BENCHMARKS.md` with the host, the resolved `fgf`
@@ -370,16 +370,30 @@ mod isal {
 // Harness
 // ---------------------------------------------------------------------------
 
-fn sample(body: &mut impl FnMut()) -> Duration {
+/// Format a nanosecond count the way `Duration`'s debug output scales its
+/// unit, but from an `f64`: `Duration` cannot hold sub-nanosecond values, so
+/// dividing one by a repetition count quantizes every estimate to whole
+/// nanoseconds.
+fn fmt_ns(ns: f64) -> String {
+    if ns < 1_000.0 {
+        format!("{ns:.2}ns")
+    } else if ns < 1_000_000.0 {
+        format!("{:.2}µs", ns / 1_000.0)
+    } else {
+        format!("{:.2}ms", ns / 1_000_000.0)
+    }
+}
+
+fn sample(body: &mut impl FnMut()) -> f64 {
     let start = Instant::now();
     for _ in 0..REPS {
         body();
     }
-    start.elapsed() / REPS
+    start.elapsed().as_secs_f64() * 1e9 / REPS as f64
 }
 
-fn median(mut samples: Vec<Duration>) -> Duration {
-    samples.sort_unstable();
+fn median(mut samples: Vec<f64>) -> f64 {
+    samples.sort_unstable_by(f64::total_cmp);
     samples[samples.len() / 2]
 }
 
@@ -394,8 +408,8 @@ fn spread(mut ratios: Vec<f64>) -> (f64, f64) {
     (ratios[last / 10], ratios[last - last / 10])
 }
 
-fn throughput(bytes: usize, elapsed: Duration) -> f64 {
-    bytes as f64 / elapsed.as_secs_f64() / (1024.0 * 1024.0 * 1024.0)
+fn throughput(bytes: usize, ns_per_call: f64) -> f64 {
+    bytes as f64 / (ns_per_call / 1e9) / (1024.0 * 1024.0 * 1024.0)
 }
 
 /// Time two implementations of one shape, interleaved, and print the pair.
@@ -427,18 +441,18 @@ fn compare(label: &str, bytes: usize, mut ours: impl FnMut(), mut theirs: impl F
     let paired: Vec<f64> = our_samples
         .iter()
         .zip(&their_samples)
-        .map(|(ours, theirs)| theirs.as_secs_f64() / ours.as_secs_f64())
+        .map(|(ours, theirs)| theirs / ours)
         .collect();
     let our_median = median(our_samples);
     let their_median = median(their_samples);
-    let ratio = their_median.as_secs_f64() / our_median.as_secs_f64();
+    let ratio = their_median / our_median;
     let (low, high) = spread(paired);
     println!(
-        "  {label:<34} {:>9.2?} {:>7.2} GiB/s | {:>9.2?} {:>7.2} GiB/s | \
+        "  {label:<34} {:>9} {:>7.2} GiB/s | {:>9} {:>7.2} GiB/s | \
          {ratio:>5.2}x [{low:.2}-{high:.2}]",
-        our_median,
+        fmt_ns(our_median),
         throughput(bytes, our_median),
-        their_median,
+        fmt_ns(their_median),
         throughput(bytes, their_median),
     );
 }

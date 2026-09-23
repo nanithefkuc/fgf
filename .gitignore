@@ -1,10 +1,5 @@
 /target
-/external-bench/*
-!/external-bench/prime-ntt/
-/external-bench/prime-ntt/target
-/external-bench/prime-ntt/Cargo.lock
 /.lucid/
-/bench-isal/target
-/bench-isal/Cargo.lock
-/bench-klauspost/target
-/bench-klauspost/Cargo.lock
+/bench-records/
+/external/*/target
+/external/*/Cargo.lock

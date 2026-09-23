@@ -9,11 +9,11 @@ description = "In-process GF(2^8)/0x11D comparison between fgf and klauspost/ree
 
 # A separate package, not a bench target of `fgf`: linking the Go c-archive
 # needs a build script, and `fgf` itself must never carry one. The package
-# allowlist in `../Cargo.toml` keeps this directory out of `cargo package`,
-# so the comparison lives in the repository only.
+# allowlist in `../../Cargo.toml` keeps this directory out of
+# `cargo package`, so the comparison lives in the repository only.
 
 [dependencies]
-fgf = { path = ".." }
+fgf = { path = "../.." }
 
 [[bin]]
 name = "fgf-bench-klauspost"
