@@ -11,14 +11,13 @@ homepage = "https://github.com/nanithefkuc/fgf"
 # Intentional package allowlist: the library source, the declared bench and
 # example targets, and the public doc set. Local tooling state, planning
 # notes, CI definitions, contributor guides, the test suite, and
-# `external-bench` never enter `cargo package`.
+# `external` never enter `cargo package`.
 include = [
     "src/**",
     "benches/**",
     "examples/**",
     "/README.md",
     "/CHANGELOG.md",
-    "/BENCHMARKS.md",
     "/LICENSE",
 ]
 
@@ -44,10 +43,9 @@ internals = []
 simdispatch = { version = "=0.1.0", default-features = false }
 archmage = { version = "=0.9.29", optional = true }
 
-# Comparison benchmarks only; the C `simd-accel` path has no wasm sysroot, and
-# scoping it here keeps `cargo test --target wasm32-*` buildable.
+# Benchmarks only; scoping them off wasm keeps `cargo test --target wasm32-*`
+# buildable.
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
-reed-solomon-erasure = { version = "6", features = ["simd-accel"] }
 # The affine/shuffle crossover harness (`benches/affine.rs`) is the one
 # statistical measurement in the crate; x86-only, gated on `internals`.
 criterion = "0.8"

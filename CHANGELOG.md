@@ -16,6 +16,18 @@ All notable changes to this project are documented here. The format follows
   field element broadcast across every lane. Consumers composing
   lane-parallel Horner steps no longer fill a broadcast buffer and re-read it
   through `add_assign`.
+- Field-family benchmark recipes `bench-gf`, `bench-gdl`, `bench-m31`, and
+  `bench-gf2`, each with a `-comp` variant adding every competitor harness
+  wired for the family, and `--gf`, `--gdl`, `--m31`, and `--gf2` panel
+  selection flags on the `kernels` bench target. A recorded campaign for one
+  field family no longer re-runs every panel.
+- Prime-field competitor benchmarking against Plonky3:
+  `external/prime-bench/` compares `fgf` against `p3-goldilocks`,
+  `p3-mersenne-31`, and its packed quadratic extension over the recorded
+  Mersenne31, Goldilocks, and QuadMersenne31 shapes on each library's
+  native layout, and `bench-gdl-comp` / `bench-m31-comp` interleave it with
+  the self suite. `BENCHMARKS.md` carries the prime-field competitor
+  matrix.
 
 ### Changed
 
@@ -29,6 +41,42 @@ All notable changes to this project are documented here. The format follows
   module-level `#![allow(unsafe_code)]` over it is removed. `internals`
   carries no compatibility promise; entries may change or disappear in any
   release.
+- The competitor harnesses now live in `external/`, one unpublished package
+  per harness with its own build script (`bench-isal`, `bench-klauspost`,
+  `prime-bench`). The `bench-isal` and `bench-klauspost` recipes
+  are gone: `just bench-gf-comp` builds and runs both wired harnesses at the
+  record's repetition.
+- The `bench-<field>-comp` recipes run five complete rounds interleaving the
+  family's self suite with every wired competitor harness, with the unit
+  order shuffled within each round and printed into the run log, instead of
+  one self pass followed by sequential harness runs.
+- Benchmark timing carries `f64` nanosecond samples end to end instead of
+  `Duration` values divided by the repetition count, which quantized every
+  per-iteration estimate to whole nanoseconds; small-shape estimates and
+  their displayed times keep sub-nanosecond precision.
+- Campaigns now keep full-statistics records — run-level observations and
+  spread statistics for every category — in the git-ignored
+  `bench-records/` directory alongside the published `BENCHMARKS.md`
+  medians.
+
+### Removed
+
+- The Plonky2 arm of the prime-field comparison: `plonky2_field` carries no
+  packed field kernels worth timing, so `external/prime-bench/` compares
+  against Plonky3 alone.
+- The `reed-solomon-erasure` comparison from the benchmark suite: its
+  development dependency, its arms in `benches/compare.rs`, and its column in
+  `BENCHMARKS.md`. The ISA-L and `klauspost/reedsolomon` harnesses cover the
+  same shapes with stronger aggregation; `compare` now reports `fgf`
+  self-numbers over the competitor fixture family only.
+- The `external-bench` microbenchmark lab: the gf-complete, FLINT, NTL, and
+  Leopard comparators, their build artifacts, and the `bench-prime-ntt`
+  recipe with its `external-bench/prime-ntt/` NTT consumer package. The
+  retired comparators do not reach the tier of the surviving harnesses, and
+  the NTT consumer measured `butterfly-fft` rather than `fgf`.
+- The `isal-fgf` ISA-L attribution harness. The wired `bench-isal` harness
+  covers the comparison role with its paired protocol and validation gate,
+  and the internal attribution questions its panels priced are concluded.
 
 ## [1.1.1] - 2026-09-18
 

@@ -137,59 +137,63 @@ Keep `COV_IGNORE` narrow and document every exclusion here.
 Use only the benchmark recipes, pinned to an identified core:
 
 ```sh
-FEC_GOLDEN_CORE=<cpu> just bench kernels
-FEC_GOLDEN_CORE=<cpu> just bench compare
-FEC_GOLDEN_CORE=<cpu> just bench-isal
-FEC_GOLDEN_CORE=<cpu> just bench-klauspost
-FEC_GOLDEN_CORE=<cpu> just bench-prime-ntt
+FEC_GOLDEN_CORE=<cpu> just bench-gf-comp
+FEC_GOLDEN_CORE=<cpu> just bench-gdl-comp
+FEC_GOLDEN_CORE=<cpu> just bench-m31-comp
+FEC_GOLDEN_CORE=<cpu> just bench-gf2-comp
 ```
 
-`kernels` reports the public operation shapes. `compare` includes the in-process
-`reed-solomon-erasure` comparison. `affine` and `dot_product` are internal
-investigation harnesses, not headline public benchmarks. `prime_ntt`
-interleaves the QuadMersenne31 scalar control against the AVX2 kernels per
-row length; its campaign set the dispatch thresholds in
+The `bench-<field>` recipes run that family's self benchmarks in one pass;
+`bench-<field>-comp` runs five complete rounds interleaving the self suite
+with every wired competitor harness, shuffling the unit order within each
+round and printing the realized order. `gf` is the binary tower fields,
+`gdl` Goldilocks, `m31` Mersenne31 and QuadMersenne31, `gf2` bit-packed
+GF(2). The granular self entry points stay available:
+
+```sh
+FEC_GOLDEN_CORE=<cpu> just bench kernels [--gf|--gdl|--m31|--gf2]
+FEC_GOLDEN_CORE=<cpu> just bench compare
+FEC_GOLDEN_CORE=<cpu> just bench prime_ntt
+```
+
+`kernels` reports the public operation shapes and the self-comparison
+panels; the family flags select panels, and no flag runs every panel.
+`compare` reports `fgf` self-numbers over the competitor-harness fixture
+family plus the six-row shuffle comparison. `affine` and `dot_product` are
+internal investigation harnesses, not headline public benchmarks.
+`prime_ntt` interleaves the QuadMersenne31 scalar control against the AVX2
+kernels per row length; its campaign set the dispatch thresholds in
 `src/kernel/quad_mersenne31.rs`.
 
-`bench-isal` builds and runs `bench-isal/`, a separate unpublished package
-that links the system Intel ISA-L and interleaves it against `fgf` over
-GF(2^8)/`0x11D`. It lives outside `src/` and `benches/` because linking the
-C library needs a build script and `fgf` itself must never carry one; the
-package allowlist keeps it out of `cargo package`. Every arm validates
-against ISA-L's own output before timing, and the first table row is a
-control that must read 1.00x.
+Every external competitor harness lives in `external/`, one separate
+unpublished package per harness with its own `build.rs`, outside `src/` and
+`benches/` because linking the competitor needs a build script and `fgf`
+itself must never carry one; the package allowlist keeps `external/` out of
+`cargo package`. `external/bench-isal/` links the system Intel ISA-L and
+interleaves it against `fgf` over GF(2^8)/`0x11D`;
+`external/bench-klauspost/` links klauspost/reedsolomon as a Go C archive
+and interleaves it against `fgf` over the same field, supplying the coding
+matrix through `WithCustomMatrix`. Both run through `bench-gf-comp` inside
+its shuffled rounds, validate every arm against the competitor's own output
+before timing, and open with a control row that must read 1.00x. ISA-L needs
+`libisal` discoverable through pkg-config and the klauspost harness needs
+the Go toolchain in PATH; each build fails loudly when its toolchain is
+absent rather than dropping the arm.
 
-`bench-klauspost` builds and runs `bench-klauspost/`, a separate unpublished
-package that links klauspost/reedsolomon as a Go C archive and interleaves it
-against `fgf` over GF(2^8)/`0x11D`. It lives outside `src/` and `benches/`
-for the same reason as `bench-isal`: the Go link needs a build script and
-`fgf` itself must never carry one. Requires the Go toolchain in PATH; the
-build fails loudly when it is absent rather than dropping the arm. Every arm
-supplies the coding matrix through `WithCustomMatrix` and validates against
-the library's own output before timing, and the first table row is a control
-that must read 1.00x.
-
-`bench-prime-ntt` builds and runs `external-bench/prime-ntt/`, a separate
-unpublished package that drives the real `butterfly-fft` NTT plans and its
-`internals` schedule controls against the `fgf` working tree, so a kernel
-change is measured through the consumer that depends on it without touching
-any published pin. The package needs its `[patch.crates-io]` table for the
-same reason a downstream consumer cannot mix sources: `butterfly-fft`
-arrives from crates.io and declares its own registry dependency on `fgf`
-and `simdispatch`, while the harness names the local `fgf` by path. Without
-the patch, cargo would build two `fgf` copies — the working tree for the
-harness's direct calls and the registry release inside `butterfly-fft` —
-with incompatible types and no shared backend selection. The patch
-redirects the registry's `fgf` and `simdispatch` onto the same local paths,
-so the whole graph resolves one copy of each. `Goldilocks` and
-`QuadMersenne31` are validated at every geometry — forced fused against
-forced packed against production forward, inverse roundtrip, and a direct
-DFT up to size 1024 — before any arm is timed; a mismatch panics instead of
-producing numbers, and the harness prints the process and per-field
-backends. Criterion filters apply (`just bench-prime-ntt goldilocks/n1024`),
-and `--test` runs each arm once without timing. The package sits behind a
-`.gitignore` path exception that keeps `prime-ntt/` tracked while its build
-products stay ignored.
+`external/prime-bench/` is the prime-field competitor harness: it compares
+`fgf` against Plonky3 (`p3-goldilocks`, `p3-mersenne-31`, and the packed
+quadratic extension of `p3-mersenne-31`) over Mersenne31, Goldilocks, and
+QuadMersenne31 on each library's native layout. Every arm is validated
+against the other library's output before timing, and the table opens with
+a control row that must read 1.00x. Layout conversion is excluded from
+every timed region, so the comparison is between kernels rather than
+encodings, and throughput counts one operand pair per element. It runs
+through `bench-gdl-comp` and `bench-m31-comp` inside their shuffled rounds;
+a single rerun is `RUSTFLAGS="-C target-cpu=native" cargo run --release`
+from its directory with a `gdl` or `m31` family argument. The package
+builds with `-C target-cpu=native` because Plonky3 selects its packed
+kernels at compile time, so its arms measure the AVX2 tier only; the record
+states the flag alongside the numbers.
 
 Benchmark setup, allocation, coefficient construction, and input generation
 must stay outside the timed region. Record the CPU, OS, Rust version, selected

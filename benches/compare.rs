@@ -1,4 +1,5 @@
-//! `fgf` side of the external-library comparison (see external-bench/PLAN.md).
+//! `fgf` self-numbers over the competitor-harness fixture family, plus the
+//! six-row shuffle comparison.
 //!
 //! Measures scalar and 64 KiB single-source region operations, prepared
 //! 16-source overwrite dot products at 4 and 16 KiB, and 64 KiB ten-source
@@ -97,18 +98,6 @@ fn bench_mul_into_gather(len: usize) {
     let prepared_8d = ops::CoeffVec::<Gf8D>::new(&coeffs_8d);
     let mut dst_8b = AlignedBuf::noise(len, 0x900);
     let mut dst_8d = AlignedBuf::noise(len, 0x901);
-    let mut rse_dst = AlignedBuf::noise(len, 0x902);
-
-    ops::mul_into_gather_with::<Gf8D>(dst_8d.as_mut_slice(), prepared_8d.as_ref(), &srcs);
-    rse_dst.as_mut_slice().fill(0);
-    for (&coefficient, &source) in coefficient_bytes.iter().zip(&srcs) {
-        reed_solomon_erasure::galois_8::mul_slice_xor(coefficient, source, rse_dst.as_mut_slice());
-    }
-    assert_eq!(
-        dst_8d.as_slice(),
-        rse_dst.as_slice(),
-        "Gf8D and reed-solomon-erasure dot products differ"
-    );
 
     println!("{len} B x {DOT_SOURCES} sources overwrite dot product");
     let logical_bytes = len * DOT_SOURCES;
@@ -125,16 +114,6 @@ fn bench_mul_into_gather(len: usize) {
             prepared_8d.as_ref(),
             black_box(&srcs),
         );
-    });
-    bench_region("RSE zero + 16 x mul_slice_xor", logical_bytes, || {
-        rse_dst.as_mut_slice().fill(0);
-        for (&coefficient, &source) in coefficient_bytes.iter().zip(&srcs) {
-            reed_solomon_erasure::galois_8::mul_slice_xor(
-                coefficient,
-                black_box(source),
-                black_box(rse_dst.as_mut_slice()),
-            );
-        }
     });
 }
 
@@ -348,6 +327,20 @@ fn bench_encode(nrows: usize) {
     }
 }
 
+/// Format a nanosecond count the way `Duration`'s debug output scales its
+/// unit, but from an `f64`: `Duration` cannot hold sub-nanosecond values, so
+/// dividing one by a repetition count quantizes every estimate to whole
+/// nanoseconds.
+fn fmt_ns(ns: f64) -> String {
+    if ns < 1_000.0 {
+        format!("{ns:.2}ns")
+    } else if ns < 1_000_000.0 {
+        format!("{:.2}µs", ns / 1_000.0)
+    } else {
+        format!("{:.2}ms", ns / 1_000_000.0)
+    }
+}
+
 fn bench_region(label: &str, bytes: usize, mut body: impl FnMut()) {
     for _ in 0..16 {
         body();
@@ -359,12 +352,12 @@ fn bench_region(label: &str, bytes: usize, mut body: impl FnMut()) {
         for _ in 0..32 {
             body();
         }
-        samples.push(start.elapsed() / 32);
+        samples.push(start.elapsed().as_secs_f64() * 1e9 / 32.0);
     }
-    samples.sort_unstable();
+    samples.sort_unstable_by(f64::total_cmp);
     let median = samples[samples.len() / 2];
-    let gib = bytes as f64 / median.as_secs_f64() / (1024.0 * 1024.0 * 1024.0);
-    println!("  {label:<44} {:>9.2?}  {gib:>7.2} GiB/s", median);
+    let gib = bytes as f64 / (median / 1e9) / (1024.0 * 1024.0 * 1024.0);
+    println!("  {label:<44} {:>9}  {gib:>7.2} GiB/s", fmt_ns(median));
 }
 
 fn bench_scalar(label: &str, mut body: impl FnMut()) {
@@ -417,7 +410,7 @@ fn main() {
         );
     });
 
-    // Bit-compatible GF(2^8)/0x11D used by ISA-L and RSE.
+    // Bit-compatible GF(2^8)/0x11D used by ISA-L and klauspost/reedsolomon.
     let c8d = gf8d::Elem::from_raw(0x53);
     bench_scalar("w8d scalar mul", || {
         let mut x = gf8d::Elem::from_raw(0xA5);
@@ -464,31 +457,6 @@ fn main() {
             black_box(src16.as_slice()),
         );
     });
-
-    // reed-solomon-erasure (simd-accel: SSSE3/AVX2). GF(2^8), poly 0x11D.
-    // mul_slice_xor(c, input, out) == dst ^= c * src, the exact mul_add analog.
-    // The C `simd-accel` path has no wasm sysroot, so the dependency — and
-    // this section — exist on native targets only.
-    #[cfg(not(target_family = "wasm"))]
-    {
-        println!("reed-solomon-erasure 6 (simd-accel)");
-        let mut rse_dst = AlignedBuf::noise(BYTES, 0x701);
-        let rse_src = AlignedBuf::noise(BYTES, 0x702);
-        bench_region("w8 mul_slice_xor (dst ^= c*src)", BYTES, || {
-            reed_solomon_erasure::galois_8::mul_slice_xor(
-                0x53,
-                black_box(rse_src.as_slice()),
-                black_box(rse_dst.as_mut_slice()),
-            );
-        });
-        bench_region("w8 mul_slice (dst = c*src)", BYTES, || {
-            reed_solomon_erasure::galois_8::mul_slice(
-                0x53,
-                black_box(rse_src.as_slice()),
-                black_box(rse_dst.as_mut_slice()),
-            );
-        });
-    }
 
     for &len in DOT_LENGTHS {
         bench_mul_into_gather(len);
