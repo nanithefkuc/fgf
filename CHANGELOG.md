@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-24
+
 ### Added
 
 - `ops::mul_elementwise_assign`: `dst[i] *= src[i]`, the in-place two-slice
@@ -805,3 +807,4 @@ Initial public release.
 
 [1.1.0]: https://github.com/nanithefkuc/fgf/compare/v1.0.1...v1.1.0
 [1.1.1]: https://github.com/nanithefkuc/fgf/compare/v1.1.0...v1.1.1
+[1.2.0]: https://github.com/nanithefkuc/fgf/compare/v1.1.1...v1.2.0
