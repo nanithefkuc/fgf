@@ -32,14 +32,14 @@ The minimum supported Rust version is 1.93.
 
 ```toml
 [dependencies]
-fgf = "1.0.0"
+fgf = "1.2.0"
 ```
 
 For the portable `no_std` surface without allocation:
 
 ```toml
 [dependencies]
-fgf = { version = "1.0.0", default-features = false }
+fgf = { version = "1.2.0", default-features = false }
 ```
 
 ## Quick start
@@ -217,8 +217,9 @@ arithmetic results canonically.
 
 ## Performance
 
-`BENCHMARKS.md` records pinned measurements for the public operation shapes on
-multiple x86 hosts. The benchmark targets are:
+[BENCHMARKS.md](https://github.com/nanithefkuc/fgf/blob/main/BENCHMARKS.md)
+records pinned measurements for the public operation shapes on multiple x86
+hosts. The benchmark targets are:
 
 ```sh
 cargo bench --features internals --bench kernels
