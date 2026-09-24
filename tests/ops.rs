@@ -48,7 +48,7 @@ fn oracle_mul_add<F: Field>(dst: &mut [u8], coeff: F::Elem, src: &[u8]) {
 #[cfg(not(miri))]
 const LENGTHS: [usize; 12] = [0, 2, 8, 16, 18, 32, 34, 64, 66, 128, 254, 1024];
 #[cfg(miri)]
-const LENGTHS: [usize; 7] = [0, 2, 8, 16, 18, 32, 34];
+const LENGTHS: [usize; 4] = [0, 2, 8, 18];
 
 /// Row lengths in elements for the dot-product/matrix sweeps: one element,
 /// whole lanes, an unaligned tile, and a long row. Truncated under Miri to
@@ -56,17 +56,48 @@ const LENGTHS: [usize; 7] = [0, 2, 8, 16, 18, 32, 34];
 #[cfg(not(miri))]
 const RL_ELEMS: [usize; 6] = [1, 16, 33, 64, 100, 512];
 #[cfg(miri)]
-const RL_ELEMS: [usize; 3] = [1, 16, 33];
+const RL_ELEMS: [usize; 2] = [1, 33];
+
+/// Contiguous-matrix row and term counts. The scalar loops have no row-group
+/// logic, so under Miri one multi-row shape past the four-row walk with the
+/// empty, single, and multi term cases covers every control path.
+#[cfg(not(miri))]
+const MATRIX_NROWS: [usize; 7] = [1, 2, 3, 4, 5, 6, 8];
+#[cfg(miri)]
+const MATRIX_NROWS: [usize; 3] = [1, 2, 5];
+#[cfg(not(miri))]
+const MATRIX_NTERMS: [usize; 4] = [0, 1, 2, 5];
+#[cfg(miri)]
+const MATRIX_NTERMS: [usize; 3] = [0, 1, 2];
+
+/// Scattered-matrix row and term counts, truncated under Miri on the same terms.
+#[cfg(not(miri))]
+const SCATTER_NROWS: [usize; 6] = [1, 2, 3, 4, 6, 8];
+#[cfg(miri)]
+const SCATTER_NROWS: [usize; 3] = [1, 2, 6];
+#[cfg(not(miri))]
+const SCATTER_NTERMS: [usize; 3] = [1, 2, 5];
+#[cfg(miri)]
+const SCATTER_NTERMS: [usize; 2] = [1, 2];
 
 // ---------------------------------------------------------------------------
 // mul_add
 // ---------------------------------------------------------------------------
 
+/// Coefficient representatives for the Miri sweep: the zero/one
+/// short-circuits, one ordinary value, and the extreme value. The full
+/// 256-value sweep keeps running in ordinary tests.
+const GF8_MIRI_COEFFS: [u8; 4] = [0x00, 0x01, 0x53, 0xFF];
+
 #[test]
 fn gf8_mul_add_matches_oracle() {
     for len in LENGTHS {
         let src = noise(len, 0xa1);
-        for coeff in (0..=u8::MAX).map(gf8b::Elem::from_raw) {
+        for raw in 0..=u8::MAX {
+            if cfg!(miri) && !GF8_MIRI_COEFFS.contains(&raw) {
+                continue;
+            }
+            let coeff = gf8b::Elem::from_raw(raw);
             let mut got = noise(len, 0xb2);
             let mut want = got.clone();
             ops::mul_add::<Gf8B>(&mut got, coeff, &src);
@@ -336,8 +367,8 @@ fn check_mul_into_matrix<F: fgf::FieldKernels>(tag: &str, seed: u64) {
     let b = F::BYTES;
     for &rl_elems in &RL_ELEMS {
         let row_len = rl_elems * b;
-        for &nrows in &[1usize, 2, 3, 4, 5, 6, 8] {
-            for &nterms in &[0usize, 1, 2, 5] {
+        for &nrows in &MATRIX_NROWS {
+            for &nterms in &MATRIX_NTERMS {
                 let sources: Vec<Vec<u8>> = (0..nterms)
                     .map(|t| noise(row_len, seed + 0x100 + t as u64))
                     .collect();
@@ -498,8 +529,8 @@ fn check_matrix_scattered<F: fgf::FieldKernels>(tag: &str, seed: u64) {
     let b = F::BYTES;
     for &rl_elems in &RL_ELEMS {
         let row_len = rl_elems * b;
-        for &nrows in &[1usize, 2, 3, 4, 6, 8] {
-            for &nterms in &[1usize, 2, 5] {
+        for &nrows in &SCATTER_NROWS {
+            for &nterms in &SCATTER_NTERMS {
                 let sources: Vec<Vec<u8>> = (0..nterms)
                     .map(|t| noise(row_len, seed + 0x100 + t as u64))
                     .collect();
@@ -979,24 +1010,28 @@ fn elementwise_products_match_field_arithmetic() {
         assert_eq!(got, want, "GF8 elementwise len {len}");
     }
 
-    for len in LENGTHS.into_iter().filter(|len| len % 2 == 0) {
-        let a = noise(len, 0x356);
-        let b = noise(len, 0x357);
-        let mut got = vec![0; len];
-        let mut want = vec![0; len];
-        ops::mul_elementwise::<Gf16>(&mut got, &a, &b);
-        for ((d, x), y) in want
-            .chunks_exact_mut(2)
-            .zip(a.chunks_exact(2))
-            .zip(b.chunks_exact(2))
-        {
-            d.copy_from_slice(
-                &gf16::Elem::from_bytes([x[0], x[1]])
-                    .mul(gf16::Elem::from_bytes([y[0], y[1]]))
-                    .to_bytes(),
-            );
+    // The two-byte leg duplicates the chunking shape above with different lane
+    // arithmetic; it runs in ordinary tests but stays out of Miri.
+    if !cfg!(miri) {
+        for len in LENGTHS.into_iter().filter(|len| len % 2 == 0) {
+            let a = noise(len, 0x356);
+            let b = noise(len, 0x357);
+            let mut got = vec![0; len];
+            let mut want = vec![0; len];
+            ops::mul_elementwise::<Gf16>(&mut got, &a, &b);
+            for ((d, x), y) in want
+                .chunks_exact_mut(2)
+                .zip(a.chunks_exact(2))
+                .zip(b.chunks_exact(2))
+            {
+                d.copy_from_slice(
+                    &gf16::Elem::from_bytes([x[0], x[1]])
+                        .mul(gf16::Elem::from_bytes([y[0], y[1]]))
+                        .to_bytes(),
+                );
+            }
+            assert_eq!(got, want, "GF16 elementwise len {len}");
         }
-        assert_eq!(got, want, "GF16 elementwise len {len}");
     }
 }
 
@@ -1339,7 +1374,7 @@ fn gf8d_matrix_scattered_matches_contiguous() {
 #[cfg(not(miri))]
 const M31_LENS: [usize; 12] = [0, 4, 8, 16, 20, 32, 36, 64, 68, 128, 256, 1020];
 #[cfg(miri)]
-const M31_LENS: [usize; 6] = [0, 4, 8, 16, 20, 36];
+const M31_LENS: [usize; 4] = [0, 4, 20, 36];
 #[cfg(not(miri))]
 const GLD_LENS: [usize; 11] = [0, 8, 16, 24, 32, 40, 64, 72, 128, 256, 1024];
 #[cfg(miri)]
@@ -1578,6 +1613,10 @@ fn gld(v: u64) -> goldilocks::Elem {
 
 #[test]
 fn mersenne31_public_ops_match_oracle() {
+    // Under Miri only the contract-sensitive representatives run: the zero/one
+    // short-circuits, one ordinary value, and the non-canonical
+    // representatives that exercise the reduction path.
+    #[cfg(not(miri))]
     let coeffs = [
         m31(0),
         m31(1),
@@ -1588,9 +1627,20 @@ fn mersenne31_public_ops_match_oracle() {
         m31(0x7FFF_FFFF), // non-canonical zero
         m31(0xFFFF_FFFF), // non-canonical one
     ];
+    #[cfg(miri)]
+    let coeffs = [
+        m31(0),
+        m31(1),
+        m31(0x5555_5555),
+        m31(0xFFFF_FFFF), // non-canonical one
+    ];
     check_prime_ops::<Mersenne31>(&M31_LENS, &coeffs);
-    check_prime_shapes::<Mersenne31>(64, &coeffs[1..6]);
-    check_prime_shapes::<Mersenne31>(20, &coeffs[1..6]);
+    #[cfg(not(miri))]
+    let shape_coeffs = &coeffs[1..6];
+    #[cfg(miri)]
+    let shape_coeffs = &coeffs[1..3];
+    check_prime_shapes::<Mersenne31>(64, shape_coeffs);
+    check_prime_shapes::<Mersenne31>(20, shape_coeffs);
     check_prime_recovery::<Mersenne31>(64, m31(3), m31(0x1234_5678));
 }
 
@@ -1759,6 +1809,9 @@ fn add_assign_scalar_rejects_partial_trailing_element() {
     ops::add_assign_scalar::<Goldilocks>(&mut [0u8; 6], gld(1));
 }
 
+/// Ignored under Miri: the modular-fold path duplicates Mersenne31's with a
+/// wider lane, so ordinary tests carry the arithmetic coverage.
+#[cfg_attr(miri, ignore)]
 #[test]
 fn goldilocks_public_ops_match_oracle() {
     let coeffs = [
@@ -2594,11 +2647,16 @@ fn oracle_add_assign_rows<F: Field>(dst: &mut [u8], row_len: usize, src: &[u8]) 
 #[cfg(not(miri))]
 const ROW_LEN_ELEMS: [usize; 12] = [3, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 1024];
 #[cfg(miri)]
-const ROW_LEN_ELEMS: [usize; 6] = [3, 7, 8, 9, 15, 16];
+const ROW_LEN_ELEMS: [usize; 4] = [3, 8, 9, 16];
 
 /// Row counts straddling the four-row group of the interleaved backends and
 /// its two-/one-row remainders, including zero rows (empty buffers).
+#[cfg(not(miri))]
 const ROW_COUNTS: [usize; 9] = [0, 1, 2, 3, 4, 5, 7, 8, 9];
+/// Truncated under Miri to empty, single, full group, and group-plus-one: the
+/// scalar loop has no group logic, so interior counts add no new shape.
+#[cfg(miri)]
+const ROW_COUNTS: [usize; 4] = [0, 1, 4, 5];
 
 fn check_add_assign_rows<F: FieldKernels>(seed: u64) {
     for &elems in &ROW_LEN_ELEMS {
@@ -2758,7 +2816,13 @@ fn oracle_add_gather_offsets<F: Field>(dst: &mut [u8], region: &[u8], offsets: &
 
 /// Destination sizes in bytes straddling the blocked kernel's 32-byte lane
 /// boundary, its eight-lane register budget, and the sub-lane inline path.
+#[cfg(not(miri))]
 const GATHER_DST_BYTES: [usize; 9] = [0, 8, 16, 31, 32, 64, 96, 256, 320];
+/// Truncated under Miri to empty, sub-lane, lane, and one length with a
+/// scalar-xor remainder inside gather; every value stays a whole number of
+/// GF(2^16) elements.
+#[cfg(miri)]
+const GATHER_DST_BYTES: [usize; 4] = [0, 8, 10, 32];
 
 fn check_add_gather<F: FieldKernels>(seed: u64) {
     for &live in &GATHER_DST_BYTES {
@@ -2789,6 +2853,18 @@ fn check_add_gather<F: FieldKernels>(seed: u64) {
             ops::add_gather_offsets::<F>(&mut got, &region, offsets);
             oracle_add_gather_offsets::<F>(&mut want, &region, offsets);
             assert_eq!(got, want, "{}: len {live}, set {set}", F::NAME);
+        }
+        // A small byte stride creates genuinely overlapping source windows.
+        // Keep it to byte and two-byte fields: prime-field lanes are specified
+        // as canonical packed elements, and an arbitrary byte shift can split
+        // one lane across source elements.
+        if F::BYTES <= 2 && live >= 4 {
+            let offsets = [0, 2, 0];
+            let mut got = noise(live, seed.wrapping_add(0x123));
+            let mut want = got.clone();
+            ops::add_gather_offsets::<F>(&mut got, &region, &offsets);
+            oracle_add_gather_offsets::<F>(&mut want, &region, &offsets);
+            assert_eq!(got, want, "{}: len {live}, partial overlap", F::NAME);
         }
     }
 }

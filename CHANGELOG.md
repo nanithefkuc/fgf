@@ -58,6 +58,16 @@ All notable changes to this project are documented here. The format follows
   spread statistics for every category — in the git-ignored
   `bench-records/` directory alongside the published `BENCHMARKS.md`
   medians.
+- The Miri suite is split by what it can execute. The scalar run keeps one
+  representative per memory-access shape — contract-sensitive coefficients,
+  boundary lengths, and the empty, single, and group-plus-one row counts —
+  with the full sweeps continuing in ordinary tests; the Goldilocks leg runs
+  in ordinary tests only. A new `unsafe-check-gfni` recipe interprets the
+  dispatched GFNI kernels under Miri with the tier promoted at compile time,
+  covering the offset-addressed-row residue the scalar run cannot reach.
+  Non-temporal stores stay proof-review-only. The residue ledger in
+  `AGENTS.md` now enumerates the `x86` unsafe items alongside the `aarch64`
+  ones.
 
 ### Removed
 
