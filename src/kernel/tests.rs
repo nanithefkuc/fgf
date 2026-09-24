@@ -2299,27 +2299,35 @@ mod x86 {
     }
 
     /// The broadcast XOR kernels directly — every value width the dispatch
-    /// can produce (1-byte GF(2^8), 2-byte GF(2^16), plus the zero value)
-    /// against the portable byte-cyclic reference.
+    /// can produce (1-byte GF(2^8), 2-byte GF(2^16), 4-byte GF(2^32),
+    /// 8-byte GF(2^64), and a 16-byte width), plus the zero value and a
+    /// width that divides neither lane, against the portable byte-cyclic
+    /// reference.
     #[test]
     fn xor_broadcast_matches_scalar_reference() {
-        const VALUES: [&[u8]; 5] = [
+        const VALUES: [&[u8]; 8] = [
             &[0x00],
             &[0x53],
             &[0xa7, 0x53],
             &[0x01, 0x00],
+            &[0x1a, 0x2b, 0x3c, 0x4d],
+            &[0x0f, 0x1e, 0x2d, 0x3c, 0x4b, 0x5a, 0x69, 0x78],
+            &[
+                0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab,
+                0xcd, 0xef,
+            ],
             // A width that divides neither lane, exercising the portable
             // fallback in both kernels.
             &[0x11, 0x22, 0x33],
         ];
-        let v1 = X64V2Token::summon().expect("SSE4.2 is baseline on this x86 host");
+        let v1 = X64V1Token::summon().expect("SSE2 is baseline on this x86 host");
         let v3 = X64V3Token::summon();
         for &len in XOR_LENGTHS {
             for value in VALUES {
                 let dst = &mut noise(len, 0x2e);
                 let mut want = dst.clone();
                 let mut avx2 = want.clone();
-                let mut sse42 = want.clone();
+                let mut sse2 = want.clone();
                 for (w, &b) in want.iter_mut().zip(value.iter().cycle()) {
                     *w ^= b;
                 }
@@ -2327,12 +2335,40 @@ mod x86 {
                     x86::bytes::xor_broadcast_avx2(token, &mut avx2, value);
                     assert_eq!(avx2, want, "avx2 xor_broadcast: len {len}, value {value:?}");
                 }
-                x86::bytes::xor_broadcast_sse42(v1, &mut sse42, value);
-                assert_eq!(
-                    sse42, want,
-                    "sse42 xor_broadcast: len {len}, value {value:?}"
+                x86::bytes::xor_broadcast_sse2(v1, &mut sse2, value);
+                assert_eq!(sse2, want, "sse2 xor_broadcast: len {len}, value {value:?}");
+            }
+        }
+    }
+
+    /// The documented value-width contract of the direct broadcast entries:
+    /// an empty value and a 17-byte value both panic, and the panic message
+    /// names the operation.
+    #[test]
+    fn xor_broadcast_entries_reject_invalid_value_widths() {
+        let mut dst = [0u8; 32];
+        let sse = X64V1Token::summon().expect("SSE2 is baseline on this x86 host");
+        for bad in [&[][..], &[0u8; 17][..]] {
+            if let Some(token) = X64V3Token::summon() {
+                let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    x86::bytes::xor_broadcast_avx2(token, &mut dst, bad);
+                }))
+                .expect_err("xor_broadcast_avx2 must reject an invalid value width");
+                let msg = err.downcast_ref::<String>().expect("string panic payload");
+                assert!(
+                    msg.starts_with("xor_broadcast_avx2: value is"),
+                    "panic must name the operation: {msg}"
                 );
             }
+            let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                x86::bytes::xor_broadcast_sse2(sse, &mut dst, bad);
+            }))
+            .expect_err("xor_broadcast_sse2 must reject an invalid value width");
+            let msg = err.downcast_ref::<String>().expect("string panic payload");
+            assert!(
+                msg.starts_with("xor_broadcast_sse2: value is"),
+                "panic must name the operation: {msg}"
+            );
         }
     }
 
@@ -2889,15 +2925,23 @@ mod aarch64 {
     }
 
     /// The broadcast XOR kernel directly — every value width the dispatch
-    /// can produce (1-byte GF(2^8), 2-byte GF(2^16), plus the zero value)
-    /// against the portable byte-cyclic reference.
+    /// can produce (1-byte GF(2^8), 2-byte GF(2^16), 4-byte GF(2^32),
+    /// 8-byte GF(2^64), and a 16-byte width), plus the zero value and a
+    /// width that divides neither lane, against the portable byte-cyclic
+    /// reference.
     #[test]
     fn xor_broadcast_matches_scalar_reference() {
-        const VALUES: [&[u8]; 5] = [
+        const VALUES: [&[u8]; 8] = [
             &[0x00],
             &[0x53],
             &[0xa7, 0x53],
             &[0x01, 0x00],
+            &[0x1a, 0x2b, 0x3c, 0x4d],
+            &[0x0f, 0x1e, 0x2d, 0x3c, 0x4b, 0x5a, 0x69, 0x78],
+            &[
+                0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab,
+                0xcd, 0xef,
+            ],
             // A width that divides neither lane, exercising the portable
             // fallback in the kernel.
             &[0x11, 0x22, 0x33],
@@ -2914,6 +2958,26 @@ mod aarch64 {
                 aarch64::bytes::xor_broadcast_neon(token, &mut neon, value);
                 assert_eq!(neon, want, "neon xor_broadcast: len {len}, value {value:?}");
             }
+        }
+    }
+
+    /// The documented value-width contract of the direct broadcast entry:
+    /// an empty value and a 17-byte value both panic, and the panic message
+    /// names the operation.
+    #[test]
+    fn xor_broadcast_neon_rejects_invalid_value_widths() {
+        let token = archmage::NeonToken::summon().expect("NEON is baseline on AArch64");
+        let mut dst = [0u8; 32];
+        for bad in [&[][..], &[0u8; 17][..]] {
+            let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                aarch64::bytes::xor_broadcast_neon(token, &mut dst, bad);
+            }))
+            .expect_err("xor_broadcast_neon must reject an invalid value width");
+            let msg = err.downcast_ref::<String>().expect("string panic payload");
+            assert!(
+                msg.starts_with("xor_broadcast_neon: value is"),
+                "panic must name the operation: {msg}"
+            );
         }
     }
 }
@@ -3017,14 +3081,23 @@ mod wasm32 {
     }
 
     /// The broadcast XOR kernel directly — every value width the dispatch
-    /// can produce (1-byte GF(2^8), 2-byte GF(2^16), plus the zero value)
-    /// against the portable byte-cyclic reference.
+    /// can produce (1-byte GF(2^8), 2-byte GF(2^16), 4-byte GF(2^32),
+    /// 8-byte GF(2^64), and a 16-byte width), plus the zero value and a
+    /// width that divides neither lane, against the portable byte-cyclic
+    /// reference.
+    #[test]
     fn xor_broadcast_matches_scalar_reference() {
-        const VALUES: [&[u8]; 5] = [
+        const VALUES: [&[u8]; 8] = [
             &[0x00],
             &[0x53],
             &[0xa7, 0x53],
             &[0x01, 0x00],
+            &[0x1a, 0x2b, 0x3c, 0x4d],
+            &[0x0f, 0x1e, 0x2d, 0x3c, 0x4b, 0x5a, 0x69, 0x78],
+            &[
+                0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab,
+                0xcd, 0xef,
+            ],
             // A width that divides neither lane, exercising the portable
             // fallback in the kernel.
             &[0x11, 0x22, 0x33],
@@ -3047,6 +3120,27 @@ mod wasm32 {
             }
         }
     }
+
+    /// The documented value-width contract of the direct broadcast entry:
+    /// an empty value and a 17-byte value both panic, and the panic message
+    /// names the operation.
+    #[test]
+    fn xor_broadcast_simd128_rejects_invalid_value_widths() {
+        let token =
+            archmage::Wasm128Token::summon().expect("host_supports guard: simd128 summons here");
+        let mut dst = [0u8; 32];
+        for bad in [&[][..], &[0u8; 17][..]] {
+            let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                wasm32::bytes::xor_broadcast_simd128(token, &mut dst, bad);
+            }))
+            .expect_err("xor_broadcast_simd128 must reject an invalid value width");
+            let msg = err.downcast_ref::<String>().expect("string panic payload");
+            assert!(
+                msg.starts_with("xor_broadcast_simd128: value is"),
+                "panic must name the operation: {msg}"
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3063,6 +3157,92 @@ fn default_kernels_handle_empty_terms() {
     let mut dst = noise(16, 0x5b);
     <FanPaar32 as KernelDispatch>::mul_into_gather(RawDispatch, &mut dst, &[], &[]);
     assert!(dst.iter().all(|&b| b == 0), "empty terms must zero dst");
+}
+
+/// The dispatch-level binary broadcast for every characteristic-two field —
+/// including the wider fields that have no hand-written broadcast overrides
+/// and reach the field-independent primitive through the trait default —
+/// against the portable byte-cyclic reference, at element counts that
+/// straddle the 16- and 32-byte lane boundaries.
+fn check_binary_broadcast_dispatch<F: KernelDispatch>(values: &[F::Elem]) {
+    const ELEMS: [usize; 4] = [0, 17, 33, 49];
+    for &n in &ELEMS {
+        let len = n * F::BYTES;
+        let base = noise(len, 0x2f00 + u64::from(F::BITS));
+        for &v in values {
+            let mut encoded = [0u8; 8];
+            F::encode(&mut encoded[..F::BYTES], v);
+            let mut want = base.clone();
+            for (w, &b) in want.iter_mut().zip(encoded[..F::BYTES].iter().cycle()) {
+                *w ^= b;
+            }
+            let prepared = F::prepare(RawDispatch, v);
+            let mut got = base.clone();
+            <F as KernelDispatch>::add_assign_scalar(RawDispatch, &mut got, &prepared);
+            assert_eq!(got, want, "{} add_assign_scalar broadcast", F::NAME);
+            let mut got = base.clone();
+            <F as KernelDispatch>::sub_assign_scalar(RawDispatch, &mut got, &prepared);
+            assert_eq!(got, want, "{} sub_assign_scalar broadcast", F::NAME);
+        }
+    }
+}
+
+/// The scalar fallback and the vector broadcast arms produce byte-identical
+/// output, so no differential can catch a dropped dispatch arm; the run
+/// reports the resolved backend instead, which is the observability
+/// `just test-tiers` relies on (inspect the reported backend, never a green
+/// exit alone).
+#[test]
+fn binary_broadcast_dispatch_matches_reference_and_reports_backend() {
+    std::eprintln!(
+        "binary broadcast dispatch backend: {:?}",
+        crate::kernel::backend()
+    );
+    check_binary_broadcast_dispatch::<gf8b::Gf8B>(&[
+        gf8b::Elem(0),
+        gf8b::Elem(1),
+        gf8b::Elem(0x53),
+    ]);
+    check_binary_broadcast_dispatch::<crate::field::gf8d::Gf8D>(&[
+        crate::field::gf8d::Elem(0),
+        crate::field::gf8d::Elem(1),
+        crate::field::gf8d::Elem(0x53),
+    ]);
+    check_binary_broadcast_dispatch::<gf16::Gf16>(&[
+        gf16::Elem(0),
+        gf16::Elem(1),
+        gf16::Elem(0x53a7),
+    ]);
+    check_binary_broadcast_dispatch::<gf32::Gf32>(&[
+        gf32::Elem(0),
+        gf32::Elem(1),
+        gf32::Elem(0xdead_beef),
+    ]);
+    check_binary_broadcast_dispatch::<gf64::Gf64>(&[
+        gf64::Elem(0),
+        gf64::Elem(1),
+        gf64::Elem(0x0123_4567_89ab_cdef),
+    ]);
+    check_binary_broadcast_dispatch::<FanPaar8>(&[
+        fan_paar::fp8::Elem(0),
+        fan_paar::fp8::Elem(1),
+        fan_paar::fp8::Elem(0xa5),
+    ]);
+    check_binary_broadcast_dispatch::<fan_paar::FanPaar16>(&[
+        fan_paar::fp16::Elem(0),
+        fan_paar::fp16::Elem(1),
+        fan_paar::fp16::Elem(0xa55a),
+    ]);
+    check_binary_broadcast_dispatch::<FanPaar32>(&[
+        fan_paar::fp32::Elem(0),
+        fan_paar::fp32::Elem(1),
+        fan_paar::fp32::Elem(0xa55a_1234),
+    ]);
+    check_binary_broadcast_dispatch::<fan_paar::FanPaar64>(&[
+        fan_paar::fp64::Elem(0),
+        fan_paar::fp64::Elem(1),
+        fan_paar::fp64::Elem(0xa55a_1234_dead_beef),
+    ]);
 }
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]

@@ -179,16 +179,16 @@ pub fn xor_broadcast_avx2(_token: archmage::X64V3Token, dst: &mut [u8], value_by
     scalar::xor_broadcast_bytes(dst_tail, value_bytes);
 }
 
-/// [`xor_broadcast_avx2`] over 16-byte SSE4.2 lanes, for the `V2` tier.
+/// [`xor_broadcast_avx2`] over 16-byte SSE2 lanes, for the `V2` tier.
 ///
 /// # Panics
 /// Panics if `value_bytes` is empty or longer than 16 bytes.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn xor_broadcast_sse42(_token: archmage::X64V2Token, dst: &mut [u8], value_bytes: &[u8]) {
+pub fn xor_broadcast_sse2(_token: archmage::X64V1Token, dst: &mut [u8], value_bytes: &[u8]) {
     assert!(
         !value_bytes.is_empty() && value_bytes.len() <= 16,
-        "xor_broadcast_sse42: value is {} bytes, expected 1..=16",
+        "xor_broadcast_sse2: value is {} bytes, expected 1..=16",
         value_bytes.len(),
     );
     // A lane-wide pattern repeats only if the value divides it; other widths

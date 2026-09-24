@@ -144,41 +144,16 @@ pub fn mul_elementwise_assign<F: Field>(dst: &mut [u8], src: &[u8]) {
     }
 }
 
-/// `dst ^= value`, one element broadcast across every lane.
+/// [`byte_ops::xor_broadcast`]'s portable body: XOR the cyclic `value_bytes`
+/// pattern over the whole buffer, regardless of element boundaries.
 ///
-/// Characteristic-two fields only: the broadcast bytes are exclusive-ORed into
-/// every lane, which is the field's addition there. The prime fields use the
-/// modular fold of the portable prime-field reference instead.
-pub fn xor_broadcast<F: Field>(dst: &mut [u8], value: F::Elem) {
-    let mut encoded = [0u8; 8];
-    F::encode(&mut encoded[..F::BYTES], value);
-    let pattern = &encoded[..F::BYTES];
-    for lane in dst.chunks_exact_mut(F::BYTES) {
-        for (d, &p) in lane.iter_mut().zip(pattern) {
-            *d ^= p;
-        }
-    }
-}
-
-/// [`xor_broadcast`]'s tail: XOR the cyclic `value_bytes` pattern over the
-/// remaining bytes, regardless of element boundaries.
-///
-/// Vector broadcast kernels peel whole lanes and hand every remaining byte
-/// here; lane boundaries sit on element boundaries, so the phase of
+/// The vector broadcast kernels peel whole lanes and hand every remaining
+/// byte here, and the scalar arm of the dispatch runs it over the whole
+/// destination; lane boundaries sit on element boundaries, so the phase of
 /// `value_bytes` matches the destination's element phase throughout.
 ///
 /// # Panics
 /// Panics if `value_bytes` is empty.
-#[cfg(all(
-    feature = "simd",
-    any(
-        target_arch = "x86",
-        target_arch = "x86_64",
-        target_arch = "aarch64",
-        target_arch = "wasm32"
-    )
-))]
-#[allow(dead_code)]
 #[inline]
 pub(crate) fn xor_broadcast_bytes(dst: &mut [u8], value_bytes: &[u8]) {
     assert!(!value_bytes.is_empty(), "xor_broadcast_bytes: empty value");
