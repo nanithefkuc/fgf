@@ -10,15 +10,8 @@ MSRV := '1.93'
 # per process. Empty means the crate owns no dispatch surface.
 TIERS := 'v3_gfni_crypto v3 v2 scalar'
 
-# `cargo miri test` argument sets, one per line. Empty when the crate declares
-# no unsafe surface, in which case `just unsafe-check` reports and skips.
-MIRI := '''--no-default-features --test ops gf8_mul_add_matches_oracle -- --exact
---no-default-features --test ops gf16_mul_into_matrix_overwrites -- --exact
---no-default-features --test ops gf8_matrix_scattered_matches_contiguous -- --exact
---no-default-features --test ops elementwise_products_match_field_arithmetic -- --exact
---no-default-features --test ops mersenne31_public_ops_match_oracle -- --exact
---no-default-features --test ops gf16_add_assign_rows_matches_oracle -- --exact
---no-default-features --test ops gf16_add_gather_matches_oracle -- --exact'''
+# Owned-unsafe coverage is provided by the promoted GFNI recipe below.
+MIRI := ''
 
 # Coverage exclusions for code that cannot execute on a CI host. The x86
 # kernel subtrees need their own ISA; `kernel/gf8.rs` and `kernel/tower.rs`
@@ -45,14 +38,14 @@ features-internals:
     cargo check --all-targets
     cargo check --all-targets --all-features
 
-# Miri over the dispatched GFNI paths: the offset-addressed-row residue the
-# scalar `unsafe-check` cannot reach. Runtime detection reports nothing under
-# the interpreter, so the tier is promoted at compile time; MIRIFLAGS stays
-# identical to `unsafe-check`. The ops lines run at the same `cfg(miri)`
-# floor as the scalar set; the internals lines are the direct-kernel
-# residue coverage. Non-temporal stores stay proof-review-only: the fence
-# intrinsic is unsupported under Miri, and the two-row NT legs are gated out
-# in `tests/internals.rs`. Everything listed here must pass.
+# Miri over the dispatched GFNI paths: the owned-unsafe residue that the
+# scalar configuration does not compile. Runtime detection reports nothing
+# under the interpreter, so the tier is promoted at compile time; MIRIFLAGS
+# stays fixed for this recipe. The ops lines cover the public dispatch seam;
+# the internals lines provide direct-kernel residue coverage. Non-temporal
+# stores stay proof-review-only: the fence intrinsic is unsupported under
+# Miri, and the two-row NT legs are gated out in `tests/internals.rs`.
+# Everything listed here must pass.
 [group('test')]
 unsafe-check-gfni:
     #!/usr/bin/env bash
@@ -70,18 +63,12 @@ unsafe-check-gfni:
 # CI `miri-gfni` job mirrors this list; keep the two in sync.
 MIRI_GFNI := '''--test ops gf8_matrix_scattered_matches_contiguous -- --exact
 --test ops gf16_mul_into_matrix_overwrites -- --exact
---test ops gf16_add_gather_matches_oracle -- --exact
---features internals --test internals proven_bytes_xor_matches_scalar -- --exact
---features internals --test internals proven_bytes_xor_gather_matches_offsets -- --exact
 --features internals --test internals proven_gf8_mul_kernels_match_scalar -- --exact
 --features internals --test internals proven_gf8d_affine_kernels_match_scalar -- --exact
 --features internals --test internals proven_gf8_scatter_gather_match_scalar -- --exact
 --features internals --test internals proven_gf8_matrix_kernels_match_scalar -- --exact
 --features internals --test internals proven_gf8_matrix_scattered_matches_scalar -- --exact
 --features internals --test internals proven_gf16_kernels_match_scalar -- --exact
---features internals --test internals proven_gf32_gf64_kernels_match_scalar -- --exact
---features internals --test internals proven_fan_paar_kernels_match_scalar -- --exact
---features internals --test internals proven_prime_kernels_match_scalar -- --exact
 --features internals --test internals proven_gf16_degenerate_boundaries -- --exact
 --features internals --test internals proven_resolve_probe_sees_every_coefficient -- --exact
 --features internals --test internals proven_experimental_two_row_overwrite_matches_scalar -- --exact

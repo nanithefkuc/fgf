@@ -15,10 +15,13 @@ just features          # no-default, default, all-features
 just features-alloc    # alloc without std
 just lint              # rustfmt and clippy at both feature ends
 just doc               # rustdoc with warnings denied
-just unsafe-check      # scalar-path Miri cases
+just unsafe-check-gfni # owned-unsafe GFNI Miri cases
 just cover             # merged per-tier coverage, 95% minimum
 just validate          # complete pull-request gate
 ```
+
+`just validate` does not run the GFNI Miri recipe; the dedicated `miri-gfni`
+CI job runs `just unsafe-check-gfni`.
 
 Run `just validate` before submitting a change. Do not replace a recipe with a
 bare Cargo command; fix the recipe when its supported behavior is insufficient.

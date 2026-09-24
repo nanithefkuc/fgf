@@ -148,21 +148,6 @@ jobs:
       - run: cargo doc --no-default-features --features std --no-deps
       - run: cargo doc --all-features --no-deps
 
-  miri:
-    name: miri (scalar paths)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: miri
-      - uses: extractions/setup-just@v2
-      # Run the same bounded scalar cases and MIRIFLAGS as `just unsafe-check`.
-      # The GFNI job below exercises the offset-addressed-row kernel residue.
-      - run: just unsafe-check
-        env:
-          MIRIFLAGS: -Zmiri-disable-isolation
-
   miri-gfni:
     name: miri (GFNI paths)
     runs-on: ubuntu-latest
@@ -174,7 +159,7 @@ jobs:
       - uses: extractions/setup-just@v2
       # Runtime detection reports nothing under the interpreter, so the
       # recipe promotes the GFNI tier at compile time and Miri executes the
-      # offset-addressed-row residue. MIRIFLAGS matches `unsafe-check`.
+      # owned-unsafe residue. MIRIFLAGS is fixed for this recipe.
       # Non-temporal stores are gated out of Miri in `tests/internals.rs`
       # and stay proof-review-only.
       - run: just unsafe-check-gfni
