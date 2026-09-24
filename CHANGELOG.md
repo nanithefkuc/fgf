@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-24
+
 ### Fixed
 
 - `ops::add_assign_scalar` and `ops::sub_assign_scalar` for the binary fields
@@ -819,3 +821,4 @@ Initial public release.
 [1.1.0]: https://github.com/nanithefkuc/fgf/compare/v1.0.1...v1.1.0
 [1.1.1]: https://github.com/nanithefkuc/fgf/compare/v1.1.0...v1.1.1
 [1.2.0]: https://github.com/nanithefkuc/fgf/compare/v1.1.1...v1.2.0
+[1.2.1]: https://github.com/nanithefkuc/fgf/compare/v1.2.0...v1.2.1
