@@ -725,6 +725,9 @@ fn main() {
             bench("mul_assign               gf16", len, || {
                 ops::mul_assign::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));
             });
+            bench("add_assign                gf16", len, || {
+                ops::add_assign::<Gf16>(black_box(&mut dst), black_box(&src));
+            });
             bench("add_assign_scalar          gf8", len, || {
                 ops::add_assign_scalar::<Gf8B>(black_box(&mut dst), gf8b::Elem::from_raw(0x53));
             });

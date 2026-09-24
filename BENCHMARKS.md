@@ -115,30 +115,29 @@ in-place and broadcast forms. Throughput is GiB/s.
 
 | Field | Operation | Lunar Lake | Golden Cove |
 | --- | --- | ---: | ---: |
-| `Mersenne31` | `add_assign` | 28.90 | 30.36 |
-| `Mersenne31` | `add_assign_scalar` | 44.46 | 52.98 |
-| `Mersenne31` | `sub_assign_scalar` | 39.19 | 43.53 |
-| `Mersenne31` | `mul_elementwise` | 19.22 | 22.81 |
-| `Mersenne31` | `mul_elementwise_assign` | 20.03 | 23.57 |
-| `Goldilocks` | `add_assign` | 21.45 | 18.46 |
-| `Goldilocks` | `add_assign_scalar` | 26.53 | 23.90 |
-| `Goldilocks` | `sub_assign_scalar` | 28.78 | 25.27 |
-| `Goldilocks` | `mul_elementwise` | 13.24 | 11.28 |
-| `Goldilocks` | `mul_elementwise_assign` | 13.32 | 11.27 |
-| `QuadMersenne31` | `add_assign` | 25.29 | 28.03 |
-| `QuadMersenne31` | `add_assign_scalar` | 40.77 | 50.85 |
-| `QuadMersenne31` | `sub_assign_scalar` | 36.29 | 43.14 |
-| `QuadMersenne31` | `mul_elementwise` | 6.24 | 5.82 |
-| `QuadMersenne31` | `mul_elementwise_assign` | 6.17 | 5.90 |
+| `Mersenne31` | `add_assign` | 39.47 | 34.27 |
+| `Mersenne31` | `add_assign_scalar` | 57.31 | 51.76 |
+| `Mersenne31` | `sub_assign_scalar` | 47.29 | 43.50 |
+| `Mersenne31` | `mul_elementwise` | 24.83 | 21.30 |
+| `Mersenne31` | `mul_elementwise_assign` | 25.46 | 21.73 |
+| `Goldilocks` | `add_assign` | 20.08 | 18.39 |
+| `Goldilocks` | `add_assign_scalar` | 26.54 | 23.91 |
+| `Goldilocks` | `sub_assign_scalar` | 28.79 | 25.48 |
+| `Goldilocks` | `mul_elementwise` | 13.05 | 10.52 |
+| `Goldilocks` | `mul_elementwise_assign` | 13.06 | 10.51 |
+| `QuadMersenne31` | `add_assign` | 34.16 | 33.01 |
+| `QuadMersenne31` | `add_assign_scalar` | 53.73 | 50.82 |
+| `QuadMersenne31` | `sub_assign_scalar` | 47.13 | 43.15 |
+| `QuadMersenne31` | `mul_elementwise` | 7.20 | 5.73 |
+| `QuadMersenne31` | `mul_elementwise_assign` | 7.27 | 5.80 |
 
 - Lunar Lake pairing host: Intel Core Ultra 7 258V, CPU 3 pinned
   (`FEC_GOLDEN_CORE=3`), `v3_gfni_crypto` backend, Linux 7.2.6, rustc 1.98.0,
-  one complete `just bench-gdl-comp` and `just bench-m31-comp` run, median
-  per-iteration throughput.
+  one complete `just bench kernels` run, median per-iteration throughput.
 - Golden Cove pairing host: Intel Core i7-12700K, CPU 8 pinned and isolated
-  (`FEC_GOLDEN_CORE=8`), `v3_gfni_crypto` backend, Linux 7.2.6 CachyOS, rustc
-  1.98.1, one complete `just bench-gdl-comp` and `just bench-m31-comp` run,
-  median per-iteration throughput.
+  (`FEC_GOLDEN_CORE=8`), `v3_gfni_crypto` backend, Linux CachyOS, rustc
+  1.98.1, one complete `just bench kernels` run, median per-iteration
+  throughput.
 
 ## Broadcast scalar add/sub (binary fields)
 
@@ -147,18 +146,20 @@ unchanged control beside the broadcast forms. Throughput is GiB/s.
 
 | Field | Operation | Lunar Lake | Golden Cove |
 | --- | --- | ---: | ---: |
-| `Gf8B` | `add_assign` | 45.49 | - |
-| `Gf8B` | `add_assign_scalar` | 80.52 | - |
-| `Gf8B` | `sub_assign_scalar` | 81.45 | - |
-| `Gf16` | `add_assign` | 42.49 | - |
-| `Gf16` | `add_assign_scalar` | 81.55 | - |
-| `Gf16` | `sub_assign_scalar` | 82.11 | - |
+| `Gf8B` | `add_assign` | 45.32 | 51.20 |
+| `Gf8B` | `add_assign_scalar` | 63.07 | 67.46 |
+| `Gf8B` | `sub_assign_scalar` | 63.14 | 67.54 |
+| `Gf16` | `add_assign` | 44.85 | 51.16 |
+| `Gf16` | `add_assign_scalar` | 62.98 | 67.46 |
+| `Gf16` | `sub_assign_scalar` | 63.02 | 67.46 |
 
 - Lunar Lake pairing host: Intel Core Ultra 7 258V, CPU 3 pinned
   (`FEC_GOLDEN_CORE=3`), `v3_gfni_crypto` backend, Linux 7.2.6, rustc 1.98.0,
-  one complete `just bench kernels --gf` run, median per-iteration throughput.
-- Golden Cove column `-`: the pairing host was not available for this
-  campaign.
+  one complete `just bench kernels` run, median per-iteration throughput.
+- Golden Cove pairing host: Intel Core i7-12700K, CPU 8 pinned and isolated
+  (`FEC_GOLDEN_CORE=8`), `v3_gfni_crypto` backend, Linux CachyOS, rustc
+  1.98.1, one complete `just bench kernels` run, median per-iteration
+  throughput.
 
 ## Scatter, gather, and matrix
 
