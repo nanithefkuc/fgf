@@ -129,6 +129,88 @@ pub fn xor_sse2(_token: archmage::X64V1Token, dst: &mut [u8], src: &[u8]) {
     scalar::xor(dst_tail, src_tail);
 }
 
+/// `dst[i] ^= value_bytes[i % value_bytes.len()]` for every byte — one
+/// element broadcast across every lane, the binary fields'
+/// `add_assign_scalar`.
+///
+/// `value_bytes` holds one element's little-endian encoding, 1 to 16 bytes.
+/// One 32-byte pattern cycled from it is built on the stack, loaded once,
+/// and exclusive-ORed into the destination through the lane walk of
+/// [`xor_avx2`].
+/// Every lane boundary is a multiple of the element width, so the pattern's
+/// phase matches the destination's element phase throughout. Value widths
+/// that do not divide the lane fall back to the portable byte-cyclic form.
+///
+/// # Panics
+/// Panics if `value_bytes` is empty or longer than 16 bytes.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn xor_broadcast_avx2(_token: archmage::X64V3Token, dst: &mut [u8], value_bytes: &[u8]) {
+    assert!(
+        !value_bytes.is_empty() && value_bytes.len() <= 16,
+        "xor_broadcast_avx2: value is {} bytes, expected 1..=16",
+        value_bytes.len(),
+    );
+    // A lane-wide pattern repeats only if the value divides it; other widths
+    // fall to the portable byte-cyclic form rather than misalign the phase.
+    if 32 % value_bytes.len() != 0 {
+        scalar::xor_broadcast_bytes(dst, value_bytes);
+        return;
+    }
+    let mut pattern = [0u8; 32];
+    for (byte, slot) in pattern.iter_mut().zip(value_bytes.iter().cycle()) {
+        *byte = *slot;
+    }
+    let broadcast = _mm256_loadu_si256(&pattern);
+    // The low half is the same cyclic pattern at phase zero, which is what
+    // every 16-byte lane below needs: lanes start on 32-byte boundaries.
+    let broadcast16 = _mm256_castsi256_si128(broadcast);
+
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    for lane in dst_lanes {
+        let d = _mm256_loadu_si256(&*lane);
+        _mm256_storeu_si256(lane, _mm256_xor_si256(d, broadcast));
+    }
+    let (dst_lanes, dst_tail) = dst_tail.as_chunks_mut::<16>();
+    for lane in dst_lanes {
+        let d = _mm_loadu_si128(&*lane);
+        _mm_storeu_si128(lane, _mm_xor_si128(d, broadcast16));
+    }
+    scalar::xor_broadcast_bytes(dst_tail, value_bytes);
+}
+
+/// [`xor_broadcast_avx2`] over 16-byte SSE4.2 lanes, for the `V2` tier.
+///
+/// # Panics
+/// Panics if `value_bytes` is empty or longer than 16 bytes.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn xor_broadcast_sse42(_token: archmage::X64V2Token, dst: &mut [u8], value_bytes: &[u8]) {
+    assert!(
+        !value_bytes.is_empty() && value_bytes.len() <= 16,
+        "xor_broadcast_sse42: value is {} bytes, expected 1..=16",
+        value_bytes.len(),
+    );
+    // A lane-wide pattern repeats only if the value divides it; other widths
+    // fall to the portable byte-cyclic form rather than misalign the phase.
+    if 16 % value_bytes.len() != 0 {
+        scalar::xor_broadcast_bytes(dst, value_bytes);
+        return;
+    }
+    let mut pattern = [0u8; 16];
+    for (byte, slot) in pattern.iter_mut().zip(value_bytes.iter().cycle()) {
+        *byte = *slot;
+    }
+    let broadcast = _mm_loadu_si128(&pattern);
+
+    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
+    for lane in dst_lanes {
+        let d = _mm_loadu_si128(&*lane);
+        _mm_storeu_si128(lane, _mm_xor_si128(d, broadcast));
+    }
+    scalar::xor_broadcast_bytes(dst_tail, value_bytes);
+}
+
 // ---------------------------------------------------------------------------
 // Row-interleaved XOR
 // ---------------------------------------------------------------------------

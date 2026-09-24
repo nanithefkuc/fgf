@@ -1785,6 +1785,69 @@ fn binary_and_wide_field_assign_scalar_ops_match_oracle() {
     );
 }
 
+/// Broadcast add/sub must equal filling a broadcast buffer with the value
+/// and folding it through `add_assign`/`sub_assign` — the definitional
+/// identity — at byte lengths straddling the 16- and 32-byte lane
+/// boundaries of the vector broadcast kernels.
+fn check_broadcast_scalar_matches_filled_add<F: FieldKernels>(lens: &[usize], values: &[F::Elem]) {
+    for &len in lens {
+        let base = noise(len, 0x7400 + u64::from(F::BITS));
+        let mut broadcast = vec![0u8; len];
+        for &v in values {
+            let mut encoded = [0u8; 8];
+            F::encode(&mut encoded[..F::BYTES], v);
+            for lane in broadcast.chunks_exact_mut(F::BYTES) {
+                lane.copy_from_slice(&encoded[..F::BYTES]);
+            }
+
+            let mut got = base.clone();
+            ops::add_assign_scalar::<F>(&mut got, v);
+            let mut want = base.clone();
+            ops::add_assign::<F>(&mut want, &broadcast);
+            assert_eq!(got, want, "{} add_assign_scalar at {len} bytes", F::NAME);
+
+            let mut got = base.clone();
+            ops::sub_assign_scalar::<F>(&mut got, v);
+            let mut want = base.clone();
+            ops::sub_assign::<F>(&mut want, &broadcast);
+            assert_eq!(got, want, "{} sub_assign_scalar at {len} bytes", F::NAME);
+        }
+    }
+}
+
+/// Byte lengths straddling the 16- and 32-byte lane boundaries of the
+/// broadcast kernels: below one lane, exactly one, one plus a byte, one
+/// below, and the body-plus-tail compound. The GF(2^16) lengths stay even
+/// and land on the same boundaries.
+#[test]
+fn binary_broadcast_scalar_matches_filled_add_assign() {
+    // GF(2^16) lengths stay even and land on the same boundaries.
+    check_broadcast_scalar_matches_filled_add::<Gf8B>(
+        &[1, 15, 16, 17, 31, 32, 33, 257],
+        &[
+            gf8b::Elem::from_raw(0),
+            gf8b::Elem::from_raw(1),
+            gf8b::Elem::from_raw(0x53),
+        ],
+    );
+    check_broadcast_scalar_matches_filled_add::<Gf8D>(
+        &[1, 15, 16, 17, 31, 32, 33, 257],
+        &[
+            gf8d::Elem::from_raw(0),
+            gf8d::Elem::from_raw(1),
+            gf8d::Elem::from_raw(0x53),
+        ],
+    );
+    check_broadcast_scalar_matches_filled_add::<Gf16>(
+        &[2, 14, 16, 18, 30, 32, 34, 258],
+        &[
+            gf16::Elem::from_raw(0),
+            gf16::Elem::from_raw(1),
+            gf16::Elem::from_raw(0x53a7),
+        ],
+    );
+}
+
 #[test]
 fn assign_scalar_empty_buffers_are_no_ops() {
     let mut empty: [u8; 0] = [];

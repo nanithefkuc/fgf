@@ -725,6 +725,18 @@ fn main() {
             bench("mul_assign               gf16", len, || {
                 ops::mul_assign::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));
             });
+            bench("add_assign_scalar          gf8", len, || {
+                ops::add_assign_scalar::<Gf8B>(black_box(&mut dst), gf8b::Elem::from_raw(0x53));
+            });
+            bench("sub_assign_scalar          gf8", len, || {
+                ops::sub_assign_scalar::<Gf8B>(black_box(&mut dst), gf8b::Elem::from_raw(0x53));
+            });
+            bench("add_assign_scalar         gf16", len, || {
+                ops::add_assign_scalar::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));
+            });
+            bench("sub_assign_scalar         gf16", len, || {
+                ops::sub_assign_scalar::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));
+            });
         }
 
         // Prime-field elementwise and broadcast scalar ops. `add_assign` and
