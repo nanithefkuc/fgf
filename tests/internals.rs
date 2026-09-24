@@ -45,62 +45,108 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
 }
 
 /// Byte lengths straddling the 16/32-byte lane boundaries and tails.
+#[cfg(not(miri))]
 const LENGTHS8: &[usize] = &[0, 1, 15, 16, 17, 31, 32, 33, 64, 96, 130, 300];
+/// Truncated under Miri to empty, tiny, lane-minus-one, lane, lane-plus-one,
+/// and two lanes with a tail; the long rows only multiply interpreted bytes.
+#[cfg(miri)]
+const LENGTHS8: &[usize] = &[0, 1, 15, 16, 17, 32, 33];
 /// Even lengths for GF(2^16)-shaped kernels.
+#[cfg(not(miri))]
 const LENGTHS16: &[usize] = &[0, 2, 16, 30, 32, 34, 64, 66, 128, 130, 300];
+/// Truncated under Miri on the same terms as `LENGTHS8`.
+#[cfg(miri)]
+const LENGTHS16: &[usize] = &[0, 2, 30, 32, 34];
 /// Multiples of four for GF(2^32) kernels.
+#[cfg(not(miri))]
 const LENGTHS32: &[usize] = &[0, 4, 16, 28, 32, 36, 64, 68, 128, 132, 300];
+/// Truncated under Miri on the same terms as `LENGTHS8`.
+#[cfg(miri)]
+const LENGTHS32: &[usize] = &[0, 4, 28, 32, 36];
 /// Multiples of eight for GF(2^64) kernels.
+#[cfg(not(miri))]
 const LENGTHS64: &[usize] = &[0, 8, 24, 32, 40, 64, 72, 128, 136, 296];
+/// Truncated under Miri on the same terms as `LENGTHS8`.
+#[cfg(miri)]
+const LENGTHS64: &[usize] = &[0, 8, 24, 32, 40];
 
 /// Row counts straddling the blocked kernels' four/two/one row groups.
+#[cfg(not(miri))]
 const ROW_COUNTS: &[usize] = &[1, 2, 3, 4, 5, 8, 9];
+/// Truncated under Miri to single, pair, full group, and group-plus-one: the
+/// walk-transition counters are safe control flow, while every row window
+/// keeps the offset-row residue.
+#[cfg(miri)]
+const ROW_COUNTS: &[usize] = &[1, 2, 4, 5];
+#[cfg(not(miri))]
 const ROW_LENS: &[usize] = &[2, 32, 34, 300];
+/// Truncated under Miri: the long row only multiplies interpreted bytes.
+#[cfg(miri)]
+const ROW_LENS: &[usize] = &[2, 32, 34];
+#[cfg(not(miri))]
 const EVEN_ROW_LENS: &[usize] = &[2, 30, 32, 34];
+/// Truncated under Miri on the same terms as `ROW_LENS`.
+#[cfg(miri)]
+const EVEN_ROW_LENS: &[usize] = &[2, 32, 34];
+#[cfg(not(miri))]
 const NTERMS: &[usize] = &[1, 2, 3, 9, 17];
+/// Truncated under Miri to single, pair, and one count past the resolve
+/// chunk, which keeps the scratch-staging seam.
+#[cfg(miri)]
+const NTERMS: &[usize] = &[1, 2, 9];
 
 /// GF(2^8) coefficients: both short-circuits, the extremes, a spread.
 fn gf8_coeffs() -> Vec<gf8b::Elem> {
-    [0u8, 1, 2, 3, 7, 0x53, 0xd3, 0xff]
-        .iter()
-        .map(|&c| gf8b::Elem::from_raw(c))
-        .collect()
+    #[cfg(not(miri))]
+    let raw = [0u8, 1, 2, 3, 7, 0x53, 0xd3, 0xff];
+    // Short-circuits, one ordinary value, and the extreme under Miri.
+    #[cfg(miri)]
+    let raw = [0u8, 1, 0x53, 0xff];
+    raw.iter().map(|&c| gf8b::Elem::from_raw(c)).collect()
 }
 
 fn gf8d_coeffs() -> Vec<gf8d::Elem> {
-    [0u8, 1, 2, 3, 7, 0x53, 0xd3, 0xff]
-        .iter()
-        .map(|&c| gf8d::Elem::from_raw(c))
-        .collect()
+    #[cfg(not(miri))]
+    let raw = [0u8, 1, 2, 3, 7, 0x53, 0xd3, 0xff];
+    // Short-circuits, one ordinary value, and the extreme under Miri.
+    #[cfg(miri)]
+    let raw = [0u8, 1, 0x53, 0xff];
+    raw.iter().map(|&c| gf8d::Elem::from_raw(c)).collect()
 }
 
 /// GF(2^16) coefficients: short-circuits, pure components, mixed, extremes.
 fn gf16_coeffs() -> Vec<gf16::Elem> {
-    [0u16, 1, 0x0100, 0x00ff, 0x1234, 0xbeef, 0x7411, 0xffff]
-        .iter()
-        .map(|&c| gf16::Elem::from_raw(c))
-        .collect()
+    #[cfg(not(miri))]
+    let raw = [0u16, 1, 0x0100, 0x00ff, 0x1234, 0xbeef, 0x7411, 0xffff];
+    // Short-circuits, one mixed value, and the extreme under Miri.
+    #[cfg(miri)]
+    let raw = [0u16, 1, 0x1234, 0xffff];
+    raw.iter().map(|&c| gf16::Elem::from_raw(c)).collect()
 }
 
 fn gf32_coeffs() -> Vec<gf32::Elem> {
-    [0u32, 1, 0x0001_0000, 0x0000_ffff, 0x1234_5678, u32::MAX]
-        .iter()
-        .map(|&c| gf32::Elem::from_raw(c))
-        .collect()
+    #[cfg(not(miri))]
+    let raw = [0u32, 1, 0x0001_0000, 0x0000_ffff, 0x1234_5678, u32::MAX];
+    // Short-circuits, one mixed value, and the extreme under Miri.
+    #[cfg(miri)]
+    let raw = [0u32, 1, 0x1234_5678, u32::MAX];
+    raw.iter().map(|&c| gf32::Elem::from_raw(c)).collect()
 }
 
 fn gf64_coeffs() -> Vec<gf64::Elem> {
-    [
+    #[cfg(not(miri))]
+    let raw = [
         0u64,
         1,
         0x0000_0001_0000_0000,
         0x0000_0000_ffff_ffff,
         0x0123_4567_89ab_cdef,
         u64::MAX,
-    ]
-    .iter()
-    .map(|&c| gf64::Elem::from_raw(c))
-    .collect()
+    ];
+    // Short-circuits, one mixed value, and the extreme under Miri.
+    #[cfg(miri)]
+    let raw = [0u64, 1, 0x0123_4567_89ab_cdef, u64::MAX];
+    raw.iter().map(|&c| gf64::Elem::from_raw(c)).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -620,7 +666,12 @@ fn proven_gf8_scatter_gather_match_scalar() {
         },
     );
 
-    for &row_len in &[32usize, 130, 300] {
+    #[cfg(not(miri))]
+    let row_lens: &[usize] = &[32usize, 130, 300];
+    // The long row only multiplies interpreted bytes under Miri.
+    #[cfg(miri)]
+    let row_lens: &[usize] = &[32usize, 130];
+    for &row_len in row_lens {
         check_gather(
             "gf8::mul_add_gather_gfni",
             row_len,
@@ -1209,8 +1260,17 @@ fn proven_experimental_two_row_overwrite_matches_scalar() {
         eprintln!("skipping: no AVX2+GFNI on this host");
         return;
     };
-    for &row_len in &[32usize, 34, 96, 300] {
-        for &nterms in &[1usize, 3, 17] {
+    #[cfg(not(miri))]
+    let row_lens: &[usize] = &[32usize, 34, 96, 300];
+    #[cfg(miri)]
+    let row_lens: &[usize] = &[32usize, 34];
+    #[cfg(not(miri))]
+    let nterm_counts: &[usize] = &[1usize, 3, 17];
+    // Single and wide term folds under Miri; every tile width keeps running.
+    #[cfg(miri)]
+    let nterm_counts: &[usize] = &[1usize, 17];
+    for &row_len in row_lens {
+        for &nterms in nterm_counts {
             // Temporal stores across every tile width.
             for &lanes in &[2usize, 3, 4] {
                 two_row_case(row_len, nterms, gf8b_coeff_at2, gf8b_ref, |want, terms| {
@@ -1231,8 +1291,10 @@ fn proven_experimental_two_row_overwrite_matches_scalar() {
                 });
             }
             // Non-temporal stores: 32-byte-aligned buffer and 32-multiple
-            // row length, the kernel's documented precondition.
-            if row_len % 32 == 0 {
+            // row length, the kernel's documented precondition. Skipped under
+            // Miri, which cannot execute the fence intrinsic; the temporal
+            // legs above already cover the offset-row residue.
+            if row_len % 32 == 0 && !cfg!(miri) {
                 two_row_case(row_len, nterms, gf8b_coeff_at2, gf8b_ref, |want, terms| {
                     let (mut backing, off) = aligned_noise(row_len * 2, 0xd6);
                     let rows = &mut backing[off..off + row_len * 2];
@@ -1256,8 +1318,17 @@ fn proven_experimental_two_row_overwrite_packed_matches_scalar() {
         eprintln!("skipping: no AVX2 on this host");
         return;
     };
-    for &row_len in &[32usize, 34, 128, 300] {
-        for &nterms in &[1usize, 3, 17] {
+    #[cfg(not(miri))]
+    let row_lens: &[usize] = &[32usize, 34, 128, 300];
+    #[cfg(miri)]
+    let row_lens: &[usize] = &[32usize, 34];
+    #[cfg(not(miri))]
+    let nterm_counts: &[usize] = &[1usize, 3, 17];
+    // Single and wide term folds under Miri; both packed widths keep running.
+    #[cfg(miri)]
+    let nterm_counts: &[usize] = &[1usize, 17];
+    for &row_len in row_lens {
+        for &nterms in nterm_counts {
             for &lanes in &[1usize, 2] {
                 two_row_case(row_len, nterms, gf8b_coeff_at2, gf8b_ref, |want, terms| {
                     let packed: Vec<[u8; 32]> = terms
@@ -1313,8 +1384,17 @@ fn proven_experimental_six_row_overwrite_matches_scalar() {
         return;
     };
     const NROWS: usize = 6;
-    for &row_len in &[32usize, 34, 128, 300] {
-        for &nterms in &[1usize, 2, 9, 17] {
+    #[cfg(not(miri))]
+    let row_lens: &[usize] = &[32usize, 34, 128, 300];
+    #[cfg(miri)]
+    let row_lens: &[usize] = &[32usize, 34];
+    #[cfg(not(miri))]
+    let nterm_counts: &[usize] = &[1usize, 2, 9, 17];
+    // Single, pair, and one count past the resolve chunk under Miri.
+    #[cfg(miri)]
+    let nterm_counts: &[usize] = &[1usize, 9];
+    for &row_len in row_lens {
+        for &nterms in nterm_counts {
             six_row_case(row_len, nterms, gf8b_coeff_at2, gf8b_ref, |want, terms| {
                 let mut got = noise(row_len * NROWS, 0xe6);
                 x86::gf8::mul_into_matrix6_shuffle_8b(token, &mut got, row_len, &terms);
@@ -1361,8 +1441,17 @@ fn proven_experimental_one_row_overwrite_matches_scalar() {
     };
     // 384 is the first common multiple of both tile widths; the residues
     // exercise each body's cleanup loop.
-    for &row_len in &[32usize, 96, 128, 384, 416] {
-        for &sources in &[1usize, 2, 5, 33] {
+    #[cfg(not(miri))]
+    let row_lens: &[usize] = &[32usize, 96, 128, 384, 416];
+    #[cfg(miri)]
+    let row_lens: &[usize] = &[32usize, 128];
+    #[cfg(not(miri))]
+    let source_counts: &[usize] = &[1usize, 2, 5, 33];
+    // Single and multi-source folds under Miri.
+    #[cfg(miri)]
+    let source_counts: &[usize] = &[1usize, 5];
+    for &row_len in row_lens {
+        for &sources in source_counts {
             one_row_case(row_len, sources, |want, _coeffs, srcs, maps, terms| {
                 for &lanes in &[3usize, 4] {
                     let mut got = noise(row_len, 0x6b2);
@@ -1438,8 +1527,17 @@ fn proven_experimental_multi_row_chunk_and_grouped_match_scalar() {
         eprintln!("skipping: no AVX2+GFNI on this host");
         return;
     };
+    #[cfg(not(miri))]
     const ROW_LEN: usize = 384;
-    for &nrows in &[1usize, 2, 3, 4, 6, 7] {
+    // Shorter rows under Miri: the residue is identical per tile.
+    #[cfg(miri)]
+    const ROW_LEN: usize = 128;
+    #[cfg(not(miri))]
+    let nrow_counts: &[usize] = &[1usize, 2, 3, 4, 6, 7];
+    // Single, full group, and group-plus-pair under Miri.
+    #[cfg(miri)]
+    let nrow_counts: &[usize] = &[1usize, 4, 6];
+    for &nrows in nrow_counts {
         for &sources in &[2usize, 33] {
             let buffers: Vec<Vec<u8>> = (0..sources)
                 .map(|t| noise(ROW_LEN, 0x7d1 + t as u64 * 23 + nrows as u64))
@@ -1766,11 +1864,18 @@ fn proven_fan_paar_kernels_match_scalar() {
         return;
     };
 
+    #[cfg(not(miri))]
     let fp16_coeffs: Vec<fan_paar::fp16::Elem> =
         [0u16, 1, 0x0100, 0x00ff, 0xbeef, 0x7411, u16::MAX]
             .iter()
             .map(|&c| fan_paar::fp16::Elem::from_raw(c))
             .collect();
+    // Short-circuits, one mixed value, and the extreme under Miri.
+    #[cfg(miri)]
+    let fp16_coeffs: Vec<fan_paar::fp16::Elem> = [0u16, 1, 0xbeef, u16::MAX]
+        .iter()
+        .map(|&c| fan_paar::fp16::Elem::from_raw(c))
+        .collect();
     check_mul_add(
         "fan_paar::mul_add_avx2",
         LENGTHS16,
@@ -1814,11 +1919,18 @@ fn proven_fan_paar_kernels_match_scalar() {
         |dst, c, src| x86::fan_paar::mul_into_ssse3(v2, dst, &FpTowerTables::new(c), src),
     );
 
+    #[cfg(not(miri))]
     let fp32_coeffs: Vec<fan_paar::fp32::Elem> =
         [0u32, 1, 0x0001_0000, 0x0000_ffff, 0x1234_5678, u32::MAX]
             .iter()
             .map(|&c| fan_paar::fp32::Elem::from_raw(c))
             .collect();
+    // Short-circuits, one mixed value, and the extreme under Miri.
+    #[cfg(miri)]
+    let fp32_coeffs: Vec<fan_paar::fp32::Elem> = [0u32, 1, 0x1234_5678, u32::MAX]
+        .iter()
+        .map(|&c| fan_paar::fp32::Elem::from_raw(c))
+        .collect();
     check_mul_add(
         "fan_paar::mul_add_fp32_avx2",
         LENGTHS32,
@@ -1841,6 +1953,7 @@ fn proven_fan_paar_kernels_match_scalar() {
         |dst, c, src| x86::fan_paar::mul_into_fp32_avx2(v3, dst, c, src),
     );
 
+    #[cfg(not(miri))]
     let fp64_coeffs: Vec<fan_paar::fp64::Elem> = [
         0u64,
         1,
@@ -1851,6 +1964,12 @@ fn proven_fan_paar_kernels_match_scalar() {
     .iter()
     .map(|&c| fan_paar::fp64::Elem::from_raw(c))
     .collect();
+    // Short-circuits, one mixed value, and the extreme under Miri.
+    #[cfg(miri)]
+    let fp64_coeffs: Vec<fan_paar::fp64::Elem> = [0u64, 1, 0x0123_4567_89ab_cdef, u64::MAX]
+        .iter()
+        .map(|&c| fan_paar::fp64::Elem::from_raw(c))
+        .collect();
     check_mul_add(
         "fan_paar::mul_add_fp64_avx2",
         LENGTHS64,

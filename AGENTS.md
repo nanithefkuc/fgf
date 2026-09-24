@@ -82,23 +82,35 @@ and pinned measurements on AVX-512 hardware.
 
 ## Residue ledger
 
-Unsafe that survives the safe conversion ladder (K5), one entry per item.
-Each carries a per-item `#[allow(unsafe_code)]` and a SINCE–THUS proof at the
-site. The `aarch64` kernel subtree retains only the offset-addressed-row
-class:
+Unsafe that survives the safe conversion ladder is limited to the cases below.
+The CPU token proves instruction availability; it does not prove bounds,
+initialization, alignment, or aliasing. Each listed item has a per-item
+`#[allow(unsafe_code)]` and a SINCE–THUS proof at its site.
 
-- `kernel/aarch64/gf8.rs`: `mul_add_scatter_impl`, `scatter_quad`,
-  `mul_add_matrix_impl`, `matrix_quad`, `matrix_single`.
-- `kernel/aarch64/gf16.rs`: `xor_row`, `scatter_group`,
-  `mul_add_scatter_impl`, `matrix_group`, `mul_add_matrix_impl`.
+| Where | Why unsafe remains |
+|---|---|
+| `kernel/aarch64/gf8.rs`: `mul_add_scatter_impl`, `scatter_quad`, `mul_add_matrix_impl`, `matrix_quad`, `matrix_single` | The kernels update multiple rows selected by runtime offsets into one uniquely borrowed flat buffer. The checked entry proves each span and the rows' disjointness; safe Rust cannot express those offset-addressed mutable windows together. |
+| `kernel/aarch64/gf16.rs`: `xor_row`, `scatter_group`, `mul_add_scatter_impl`, `matrix_group`, `mul_add_matrix_impl` | The scatter and matrix bodies operate on grouped, disjoint row windows addressed within one live allocation. The entry establishes row bounds and disjointness, but the borrow checker cannot split rows selected by runtime offsets. |
+| `kernel/x86.rs`: `store256`, `store128` | The store helpers expose raw-pointer vector stores. Their callers prove each writable window; streaming stores additionally require 32-byte or 16-byte alignment and a fence before another thread observes the writes. |
+| `kernel/x86/avx512.rs`: `xor`, `xor_impl`, `gf8_mul_add`, `gf8_mul_add_impl`, `gf8_mul_assign`, `gf8_mul_assign_impl`, `gf8_mul_into`, `gf8_mul_into_impl`, `gf8_mul_elementwise`, `gf8_mul_elementwise_impl`, `gf16_mul_add`, `gf16_mul_add_impl`, `gf16_mul_assign`, `gf16_mul_assign_impl`, `gf16_mul_into`, `gf16_mul_into_impl`, `gf16_mul_elementwise`, `gf16_mul_elementwise_impl`, `swap_mask` | AVX-512 intrinsics require feature-enabled call boundaries and raw vector loads/stores over complete lanes. The wrappers' slice geometry bounds those windows; `swap_mask` also loads a statically aligned vector. This file is deferred and remains outside production dispatch. |
+| `kernel/x86/gf16/gfni.rs`: `mul_into_gfni_lane` | The GFNI overwrite lane supports streaming stores through a raw-pointer helper. The caller peels the destination to the required boundary, keeps each lane in-bounds, and fences before observation. |
+| `kernel/x86/gf16/matrix.rs`: `mul_add_matrix_gfni_with`, `matrix_group_gfni`, `mul_add_matrix_avx2_with`, `matrix_group_avx2`, `mul_add_matrix_ssse3_with`, `matrix_rows_ssse3` | Each matrix group writes multiple row windows selected by offsets into one destination allocation. Checked geometry establishes complete rows, source bounds, and disjointness; safe mutable slices cannot represent the grouped offset windows. |
+| `kernel/x86/gf16/nibble.rs`: `mul_into_avx2_lane` | The nibble-shuffle overwrite lane uses the same aligned streaming-store primitive: checked slices bound every lane, the peel proves alignment, and the caller fences the stores. |
+| `kernel/x86/gf16/scatter.rs`: `mul_add_scatter_gfni`, `scatter_group_gfni`, `mul_add_scatter_avx2`, `scatter_rows_avx2`, `mul_add_scatter_ssse3`, `scatter_rows_ssse3` | Scatter updates rows addressed by offsets within one borrowed flat buffer. The entry validates the row span and the body relies on pairwise-disjoint row windows that safe Rust cannot represent as simultaneous slices. |
+| `kernel/x86/gf8/gfni.rs`: `mul_into_gfni_impl`, `mul_into_affine_impl` | These overwrite lanes write vector tiles through raw pointers; the tile split bounds every store, while the non-temporal branch additionally relies on the alignment peel and a final fence. |
+| `kernel/x86/gf8/matrix.rs`: `mul_add_matrix_impl`, `mul_add_matrix_at_impl` | Matrix rows are addressed by checked offsets into one destination region. The entry proves each row is in-bounds and pairwise disjoint; the borrow checker cannot encode those runtime-selected windows. |
+| `kernel/x86/gf8/nibble.rs`: `mul_into_avx2_impl`, `mul_into_ssse3_impl` | The overwrite loops use raw vector stores, including aligned-only streaming variants. Slice tiles prove memory validity; the aligned peel and fence prove the streaming-store obligations. |
+| `kernel/x86/gf8/nibble_rows.rs`: `mul_add_scatter_avx2`, `mul_add_scatter_ssse3`, `mul_add_matrix_avx2_with`, `matrix_tiles_avx2`, `matrix_vector_avx2`, `mul_add_matrix_ssse3_with` | Scatter and matrix kernels batch writes to row windows selected by offsets in one allocation. The checked entry proves the spans and row geometry; the unsafe body preserves disjointness across vector stores and tails. |
+| `kernel/x86/gf8/rows.rs`: `rows_body`, `rows_resolved_chunked`, `matrix_tail` | `rows_body` and `matrix_tail` operate on offset-addressed row pointers. `rows_resolved_chunked` additionally stages only the occupied prefix of `MaybeUninit` coefficient/source arrays; it reinterprets exactly the prefix written before reading it. |
+| `kernel/x86/gf8/scatter.rs`: `mul_add_scatter_impl`, `scatter_rows4`, `scatter_rows2`, `scatter_span` | Scatter groups update disjoint rows by offsets into one destination allocation. The checked caller establishes each row's bounds and the grouped body maintains non-aliasing across stores. |
+| `kernel/x86/gf8/experiments/grouped.rs`: `mul_into_matrix_chunk_8d`, `mul_into_matrix_external_grouped_8d` | Experimental grouped matrix kernels pass offset-addressed rows to pointer-based inner loops. Their checked entry proves row bounds and disjointness, plus the external coefficient/source ordering required by the walk. |
+| `kernel/x86/gf8/experiments/resolve.rs`: `resolve_probe_8d` | The probe stages resolved coefficients and source references in `MaybeUninit` arrays to avoid initializing unused slots. It writes and reinterprets only the occupied prefix. |
+| `kernel/x86/gf8/experiments/shuffle.rs`: `mul_into_matrix6_shuffle_impl`, `packed_nibble_product`, `mul_into_matrix6_shuffle_packed_impl`, `mul_into_matrix2_shuffle_body` | Matrix bodies use offset-addressed disjoint row windows and cache source/table pointers to avoid repeated bounds checks. The checked layer bounds every row, source, and packed table record; the pointer walk relies on those caller-established invariants. |
+| `kernel/x86/gf8/experiments/tile.rs`: `mul_into_matrix2_checked`, `matrix2_body` | The two-row body keeps two checked, disjoint offset windows as raw pointers. Its streaming-store specialization additionally relies on the entry's aligned-buffer and row-length checks, then fences before observation. |
 
-All ten record row pointers as offsets into one uniquely borrowed flat row
-buffer, a shape the borrow checker cannot express. Memory validity and
-disjointness arguments are stated per obligation in each item's proof.
-
-The `wasm32` kernel subtree retains nothing: its reference-based
+The `wasm32` kernel subtree retains no unsafe code: reference-based
 `v128_load`/`v128_store` over 16-byte chunk arrays and `split_at_mut` row
-groups express the whole surface safely.
+groups express its memory access safely.
 
 ## Tests
 

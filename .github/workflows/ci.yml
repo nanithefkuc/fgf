@@ -156,10 +156,27 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri
-      # Miri cannot execute the SIMD intrinsics; pin to the portable backend so
-      # it validates the slice and pointer arithmetic in the wrappers instead.
-      - run: cargo miri test --no-default-features
+      - uses: extractions/setup-just@v2
+      # Run the same bounded scalar cases and MIRIFLAGS as `just unsafe-check`.
+      # The GFNI job below exercises the offset-addressed-row kernel residue.
+      - run: just unsafe-check
         env:
-          # Optimize the interpreted MIR; the arithmetic-heavy scalar suites
-          # dominate the job otherwise.
-          MIRIFLAGS: -Zmir-opt-level=3
+          MIRIFLAGS: -Zmiri-disable-isolation
+
+  miri-gfni:
+    name: miri (GFNI paths)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - uses: extractions/setup-just@v2
+      # Runtime detection reports nothing under the interpreter, so the
+      # recipe promotes the GFNI tier at compile time and Miri executes the
+      # offset-addressed-row residue. MIRIFLAGS matches `unsafe-check`.
+      # Non-temporal stores are gated out of Miri in `tests/internals.rs`
+      # and stay proof-review-only.
+      - run: just unsafe-check-gfni
+        env:
+          MIRIFLAGS: -Zmiri-disable-isolation
