@@ -131,14 +131,26 @@ in-place and broadcast forms. Throughput is GiB/s.
 | `QuadMersenne31` | `mul_elementwise` | 6.24 | 5.82 |
 | `QuadMersenne31` | `mul_elementwise_assign` | 6.17 | 5.90 |
 
+## Broadcast scalar add/sub (binary fields)
+
+256 KiB panel buffers, ordinary `Vec<u8>` geometry. `add_assign` / XOR is the
+unchanged byte-wise control beside the broadcast forms, which dispatch to the
+field-independent vector broadcast kernels. Throughput is GiB/s.
+
+| Field | Operation | Lunar Lake | Golden Cove |
+| --- | --- | ---: | ---: |
+| `Gf8B` | `add_assign` / XOR | 45.49 | - |
+| `Gf8B` | `add_assign_scalar` | 80.52 | - |
+| `Gf8B` | `sub_assign_scalar` | 81.45 | - |
+| `Gf16` | `add_assign` / XOR | 42.49 | - |
+| `Gf16` | `add_assign_scalar` | 81.55 | - |
+| `Gf16` | `sub_assign_scalar` | 82.11 | - |
+
 - Lunar Lake pairing host: Intel Core Ultra 7 258V, CPU 3 pinned
   (`FEC_GOLDEN_CORE=3`), `v3_gfni_crypto` backend, Linux 7.2.6, rustc 1.98.0,
-  one complete `just bench-gdl-comp` and `just bench-m31-comp` run, median
-  per-iteration throughput.
-- Golden Cove pairing host: Intel Core i7-12700K, CPU 8 pinned and isolated
-  (`FEC_GOLDEN_CORE=8`), `v3_gfni_crypto` backend, Linux 7.2.6 CachyOS, rustc
-  1.98.1, one complete `just bench-gdl-comp` and `just bench-m31-comp` run,
-  median per-iteration throughput.
+  one complete `just bench kernels --gf` run, median per-iteration throughput.
+- Golden Cove column `-`: the pairing host was not available for this
+  campaign.
 
 ## Scatter, gather, and matrix
 

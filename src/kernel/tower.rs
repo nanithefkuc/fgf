@@ -219,11 +219,20 @@ pub mod gf16 {
     //! needs no table; hardware that cannot emulates each of the four base-field
     //! factors with a nibble shuffle.
 
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
+    use crate::field::Field;
     use crate::field::gf16::{Elem, Gf16};
     use crate::kernel::tables::{ScaleTable, TowerCoeff, scale_table};
     // `Backend` and `TowerTables` are referenced only from the SIMD dispatch
     // arms, which cfg away entirely on a scalar-only build or on an architecture
-    // without the corresponding backend.
     #[allow(unused_imports)]
     use crate::kernel::tables::TowerTables;
     #[allow(unused_imports)]
@@ -445,6 +454,84 @@ pub mod gf16 {
         #[inline]
         fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
             crate::kernel::xor(dst, src);
+        }
+
+        /// `dst[i] += value`, one element broadcast across every lane.
+        ///
+        /// Identical to [`KernelDispatch::sub_assign_scalar`] in
+        /// characteristic two; both route to the field-independent broadcast
+        /// XOR at the tier the byte kernels run.
+        #[inline]
+        fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Prepared) {
+            Self::sub_assign_scalar(RawDispatch, dst, value);
+        }
+
+        /// `dst[i] -= value`, one element broadcast across every lane.
+        ///
+        /// The broadcast bytes are exclusive-ORed into every lane, which is
+        /// the field's addition in characteristic two.
+        #[inline]
+        fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Prepared) {
+            let elem = value.coeff();
+            #[cfg(all(
+                feature = "simd",
+                any(
+                    target_arch = "x86",
+                    target_arch = "x86_64",
+                    target_arch = "aarch64",
+                    target_arch = "wasm32"
+                )
+            ))]
+            {
+                let mut encoded = [0u8; 8];
+                Self::encode(&mut encoded[..Self::BYTES], elem);
+                let value_bytes = &encoded[..Self::BYTES];
+                match backend() {
+                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    Backend::V3GfniCrypto | Backend::V3 => {
+                        x86::bytes::xor_broadcast_avx2(
+                            crate::kernel::x86_v3_token(),
+                            dst,
+                            value_bytes,
+                        );
+                    }
+                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    Backend::V2 => {
+                        x86::bytes::xor_broadcast_sse42(
+                            crate::kernel::x86_v2_token(),
+                            dst,
+                            value_bytes,
+                        );
+                    }
+                    #[cfg(all(feature = "simd", target_arch = "aarch64"))]
+                    Backend::Neon | Backend::NeonAes => {
+                        aarch64::bytes::xor_broadcast_neon(
+                            crate::kernel::neon_token(),
+                            dst,
+                            value_bytes,
+                        );
+                    }
+                    #[cfg(all(feature = "simd", target_arch = "wasm32"))]
+                    Backend::Wasm128 => {
+                        wasm32::bytes::xor_broadcast_simd128(
+                            crate::kernel::wasm128_token(),
+                            dst,
+                            value_bytes,
+                        );
+                    }
+                    _ => scalar::xor_broadcast::<Gf16>(dst, elem),
+                }
+            }
+            #[cfg(not(all(
+                feature = "simd",
+                any(
+                    target_arch = "x86",
+                    target_arch = "x86_64",
+                    target_arch = "aarch64",
+                    target_arch = "wasm32"
+                )
+            )))]
+            scalar::xor_broadcast::<Gf16>(dst, elem);
         }
 
         fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared, src: &[u8]) {

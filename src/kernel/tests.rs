@@ -2298,6 +2298,44 @@ mod x86 {
         }
     }
 
+    /// The broadcast XOR kernels directly — every value width the dispatch
+    /// can produce (1-byte GF(2^8), 2-byte GF(2^16), plus the zero value)
+    /// against the portable byte-cyclic reference.
+    #[test]
+    fn xor_broadcast_matches_scalar_reference() {
+        const VALUES: [&[u8]; 5] = [
+            &[0x00],
+            &[0x53],
+            &[0xa7, 0x53],
+            &[0x01, 0x00],
+            // A width that divides neither lane, exercising the portable
+            // fallback in both kernels.
+            &[0x11, 0x22, 0x33],
+        ];
+        let v1 = X64V2Token::summon().expect("SSE4.2 is baseline on this x86 host");
+        let v3 = X64V3Token::summon();
+        for &len in XOR_LENGTHS {
+            for value in VALUES {
+                let dst = &mut noise(len, 0x2e);
+                let mut want = dst.clone();
+                let mut avx2 = want.clone();
+                let mut sse42 = want.clone();
+                for (w, &b) in want.iter_mut().zip(value.iter().cycle()) {
+                    *w ^= b;
+                }
+                if let Some(token) = v3 {
+                    x86::bytes::xor_broadcast_avx2(token, &mut avx2, value);
+                    assert_eq!(avx2, want, "avx2 xor_broadcast: len {len}, value {value:?}");
+                }
+                x86::bytes::xor_broadcast_sse42(v1, &mut sse42, value);
+                assert_eq!(
+                    sse42, want,
+                    "sse42 xor_broadcast: len {len}, value {value:?}"
+                );
+            }
+        }
+    }
+
     /// The interleaved row candidate kernels directly — every remainder
     /// shape (four-, two-, one-row groups), every tile/vector/scalar tail.
     /// They are unwired (the flat path measured at parity or better), so only
@@ -2849,6 +2887,35 @@ mod aarch64 {
             assert_eq!(neon, want, "neon xor: len {len}");
         }
     }
+
+    /// The broadcast XOR kernel directly — every value width the dispatch
+    /// can produce (1-byte GF(2^8), 2-byte GF(2^16), plus the zero value)
+    /// against the portable byte-cyclic reference.
+    #[test]
+    fn xor_broadcast_matches_scalar_reference() {
+        const VALUES: [&[u8]; 5] = [
+            &[0x00],
+            &[0x53],
+            &[0xa7, 0x53],
+            &[0x01, 0x00],
+            // A width that divides neither lane, exercising the portable
+            // fallback in the kernel.
+            &[0x11, 0x22, 0x33],
+        ];
+        let token = archmage::NeonToken::summon().expect("NEON is baseline on AArch64");
+        for &len in XOR_LENGTHS {
+            for value in VALUES {
+                let dst = &mut noise(len, 0x2e);
+                let mut want = dst.clone();
+                let mut neon = want.clone();
+                for (w, &b) in want.iter_mut().zip(value.iter().cycle()) {
+                    *w ^= b;
+                }
+                aarch64::bytes::xor_broadcast_neon(token, &mut neon, value);
+                assert_eq!(neon, want, "neon xor_broadcast: len {len}, value {value:?}");
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2946,6 +3013,38 @@ mod wasm32 {
             scalar::xor(&mut want, &src);
             wasm32::xor_simd128(token, &mut simd, &src);
             assert_eq!(simd, want, "simd128 xor: len {len}");
+        }
+    }
+
+    /// The broadcast XOR kernel directly — every value width the dispatch
+    /// can produce (1-byte GF(2^8), 2-byte GF(2^16), plus the zero value)
+    /// against the portable byte-cyclic reference.
+    fn xor_broadcast_matches_scalar_reference() {
+        const VALUES: [&[u8]; 5] = [
+            &[0x00],
+            &[0x53],
+            &[0xa7, 0x53],
+            &[0x01, 0x00],
+            // A width that divides neither lane, exercising the portable
+            // fallback in the kernel.
+            &[0x11, 0x22, 0x33],
+        ];
+        let token =
+            archmage::Wasm128Token::summon().expect("host_supports guard: simd128 summons here");
+        for &len in XOR_LENGTHS {
+            for value in VALUES {
+                let dst = &mut noise(len, 0x2e);
+                let mut want = dst.clone();
+                let mut simd = want.clone();
+                for (w, &b) in want.iter_mut().zip(value.iter().cycle()) {
+                    *w ^= b;
+                }
+                wasm32::bytes::xor_broadcast_simd128(token, &mut simd, value);
+                assert_eq!(
+                    simd, want,
+                    "simd128 xor_broadcast: len {len}, value {value:?}"
+                );
+            }
         }
     }
 }

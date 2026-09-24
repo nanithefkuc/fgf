@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `ops::add_assign_scalar` and `ops::sub_assign_scalar` for the binary fields
+  (`Gf8B`, `Gf8D`, `Gf16`) fell to the byte-at-a-time portable broadcast loop
+  on every backend, while the prime fields dispatched to vector kernels.
+  They now dispatch to field-independent vector broadcast-XOR kernels —
+  AVX2/SSE4.2 on x86, NEON on AArch64, `simd128` on wasm32 — at the same
+  tiers the fields' other byte kernels run; scalar fallbacks are unchanged.
+  Measured throughput for the new coverage is in `BENCHMARKS.md`, "Broadcast
+  scalar add/sub (binary fields)".
+
 ## [1.2.0] - 2026-09-24
 
 ### Added

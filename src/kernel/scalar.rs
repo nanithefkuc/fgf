@@ -160,6 +160,33 @@ pub fn xor_broadcast<F: Field>(dst: &mut [u8], value: F::Elem) {
     }
 }
 
+/// [`xor_broadcast`]'s tail: XOR the cyclic `value_bytes` pattern over the
+/// remaining bytes, regardless of element boundaries.
+///
+/// Vector broadcast kernels peel whole lanes and hand every remaining byte
+/// here; lane boundaries sit on element boundaries, so the phase of
+/// `value_bytes` matches the destination's element phase throughout.
+///
+/// # Panics
+/// Panics if `value_bytes` is empty.
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "x86",
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "wasm32"
+    )
+))]
+#[allow(dead_code)]
+#[inline]
+pub(crate) fn xor_broadcast_bytes(dst: &mut [u8], value_bytes: &[u8]) {
+    assert!(!value_bytes.is_empty(), "xor_broadcast_bytes: empty value");
+    for (d, &p) in dst.iter_mut().zip(value_bytes.iter().cycle()) {
+        *d ^= p;
+    }
+}
+
 /// Implement [`crate::kernel::FieldKernels`] (default queries) and
 /// [`crate::kernel::KernelDispatch`] (portable raw kernels) for a supported
 /// field that has no hand-written SIMD backend.
