@@ -6,7 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Changed
+### Added
+
+- 64-byte AVX-512 kernels for both byte fields (`Gf8B`, `Gf8D`) behind the
+  `simd512` feature: single-buffer `mul_add`/`mul_assign`/`mul_into`,
+  blocked scatter/gather, blocked matrix (`mul_add`, `mul_into`, prepared
+  `CoeffMatrix` forms, and `_at` scattered rows), and elementwise products
+  (`mul_elementwise`, `mul_elementwise_assign`). `Gf8D` elementwise products
+  conjugate `GF2P8MULB` by the field isomorphism onto `0x11B`; results are
+  unchanged. With `simd512` on an AVX-512+GFNI host the new `V4x` tier
+  resolves, both byte fields dispatch every operation there, and
+  `has_vector_elementwise` reports `true` for both. All other fields run
+  their `V3GfniCrypto` bodies on `V4x`. Without `simd512` the tier never
+  resolves and dispatch is unchanged.
+- On `V4x`, misaligned scatter, gather, and matrix rows peel their heads to
+  a 64-byte boundary above per-shape length floors set by measurement; see
+  `BENCHMARKS.md`, "AVX-512 alignment peel floors".
 
 **Breaking:** `simdispatch` moves `=0.1.0` to `=0.2.0`. `fgf::Backend` is the
 upstream type re-exported, so crates pinning both must move together; pin

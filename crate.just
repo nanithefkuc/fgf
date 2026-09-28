@@ -8,7 +8,7 @@ MSRV := '1.93'
 # Backend tiers this crate dispatches over, strongest first. `just test-tiers`
 # and `just cover` re-run once per tier, because dispatch resolves one backend
 # per process. Empty means the crate owns no dispatch surface.
-TIERS := 'v3_gfni_crypto v3 v2 scalar'
+TIERS := 'v4x v3_gfni_crypto v3 v2 scalar'
 
 # Owned-unsafe coverage is provided by the promoted GFNI recipe below.
 MIRI := ''
