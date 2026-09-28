@@ -178,8 +178,10 @@ FEC_GOLDEN_CORE=<cpu> just bench compare
 FEC_GOLDEN_CORE=<cpu> just bench prime_ntt
 ```
 
-`kernels` reports the public operation shapes and the self-comparison
-panels; the family flags select panels, and no flag runs every panel.
+`kernels` reports the public operation shapes and the self-comparison panels;
+the family flags select panels, and no flag runs every panel. The
+`--network-diagnostic` flag isolates matched base offsets and network row
+pitches for the byte-field payload operations.
 `compare` reports `fgf` self-numbers over the competitor-harness fixture
 family plus the six-row shuffle comparison. `affine` and `dot_product` are
 internal investigation harnesses, not headline public benchmarks.

@@ -358,6 +358,28 @@ Ordinary 64-byte-aligned buffers from 4 KiB to 4 MiB.
 | 1248 B | 48.3 / 85.7 | 50.8 / 74.4 | 84.2 / 138 | 61.3 / 93.9 | 63.3 / 104 |
 | 1400 B | 47.1 / 77.7 | 40.2 / 59.5 | 68.7 / 86.6 | 41 / 60.1 | 44 / 63 |
 
+The payload table above is the allocator-backed baseline snapshot; row pitch
+and buffer-base alignment both change across its lengths. A matched-offset
+comparison fixes each source and destination base at the listed residue
+modulo the cache-line width. Ratios are baseline time ÷ candidate time
+(above 1.00 favors the candidate).
+
+| Operation | Row bytes | Base offset mod 64 | Tiger Lake | Golden Cove |
+| --- | ---: | ---: | ---: | ---: |
+| `Gf8B` `mul_assign` | 1152 | 16 | 0.975 | 1.689 |
+| `Gf8B` `mul_assign` | 1168 | 0 | 1.000 | 1.019 |
+| `Gf8B` `mul_assign` | 1168 | 16 | 0.987 | 1.611 |
+| `Gf8B` scatter, 4 rows | 1152 | 16 | 0.996 | 1.648 |
+| `Gf8B` scatter, 16 rows | 1152 | 16 | 1.026 | 1.716 |
+| `Gf8B` scatter, 16 rows | 1168 | 0 | 1.051 | 1.115 |
+| `Gf8B` scatter, 16 rows | 1168 | 16 | 1.061 | 1.148 |
+| `Gf8B` scatter, 16 rows | 1184 | 16 | 1.009 | 1.709 |
+| `Gf8B` scatter, 16 rows | 1200 | 16 | 1.003 | 1.141 |
+
+- Baseline: `7dbbb85`; candidate: source fingerprint `5bac3c4f14d071507aa473dad527a05d0ed22f4baf27732481b1d3ec0bba5104` over the ordered `sha256sum` output of `src/kernel/x86/gf8/{gfni,scatter,gf8d512_sg}.rs` and `benches/kernels.rs`. The diagnostic harness is identical in both builds.
+- Run `FEC_GOLDEN_CORE=<cpu> just bench kernels --network-diagnostic` to build each checkout, then run its pinned benchmark binary in baseline–candidate–baseline order for five rounds. Compute each round's average bracketing baseline time divided by candidate time; the cells are medians of those paired ratios. The baseline checkout needs the candidate's `benches/kernels.rs` diagnostic harness copied in before building. Each binary reports its resolved backend.
+- Both builds use `--all-features`, Rust 1.98.1, `taskset` on the environment table's core, and the same warm inputs at fixed offsets. Each cell is a median of fixed-count repeated batches after warm-up. The unchanged bracketing baseline is the drift control; rows with unstable controls are excluded from this table. `V4x` executes on Tiger Lake and `v3_gfni_crypto` on Golden Cove.
+
 ### Blocked multi-row ÷ unblocked AXPY (dispatched forms)
 
 A ratio above 1.00 means the blocked form is faster.

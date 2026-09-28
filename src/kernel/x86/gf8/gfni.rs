@@ -90,6 +90,20 @@ pub(super) fn mul_add_gfni_impl(dst: &mut [u8], coeff: Elem, src: &[u8]) {
 pub fn mul_assign_gfni(_token: archmage::X64V3GfniCryptoToken, dst: &mut [u8], coeff: Elem) {
     let factor = _mm256_set1_epi8(coeff.0.cast_signed());
     let factor128 = _mm256_castsi256_si128(factor);
+    // The network-payload half-lane case pays for one narrow head: its
+    // remaining AVX2 stores then avoid split cache lines. The crossover is
+    // recorded under "Network-size payloads" in BENCHMARKS.md.
+    let head = if dst.len() >= 512 && dst.as_ptr().align_offset(32) == 16 {
+        16
+    } else {
+        0
+    };
+    if head != 0 {
+        let (d, _) = dst[..head].as_chunks_mut::<16>();
+        let value = _mm_gf2p8mul_epi8(_mm_loadu_si128(&d[0]), factor128);
+        _mm_storeu_si128(&mut d[0], value);
+    }
+    let dst = &mut dst[head..];
     // In-place scaling is store-bound and rare next to the AXPY shapes, so
     // one accumulator is enough; the loads have no dependency to cover.
     let (lanes, rest) = dst.as_chunks_mut::<32>();

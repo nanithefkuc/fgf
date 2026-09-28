@@ -1475,29 +1475,36 @@ mod x86 {
                 }
             }
         }
-        // Scatter and gather peels at their floors, rows and sources off a
-        // 64-byte boundary: the head runs through the narrow span per row
-        // (scatter) or the single-source seam per term (gather).
+        // Scatter rows straddle the floor and have both whole-line and
+        // sub-line pitches; gather sources exercise the peeled head as well.
         for &offset in &[1usize, 16, 48] {
-            let len = x86::gf8::SCATTER_PEEL_MIN + 64;
-            for &nrows in &[1usize, 2, 3, 4, 6] {
-                let src_backing = noise(len + 128, 0xb40);
-                let s0 = src_backing.as_ptr().align_offset(64) + offset;
-                let src = &src_backing[s0..s0 + len];
-                let coeffs: Vec<gf8d::Elem> = (0..nrows).map(gf8d_coeff_at).collect();
-                let mut backing = noise(len * nrows + 128, 0xb41);
-                let start = backing.as_ptr().align_offset(64) + offset;
-                let mut want = backing[start..start + len * nrows].to_vec();
-                for (row, &coeff) in want.chunks_exact_mut(len).zip(&coeffs) {
-                    gf8d_reference(row, coeff, src);
+            for len in [
+                x86::gf8::SCATTER_PEEL_MIN,
+                x86::gf8::SCATTER_PEEL_MIN + 16,
+                1152,
+                1168,
+                1184,
+                1200,
+            ] {
+                for &nrows in &[1usize, 2, 3, 4, 6] {
+                    let src_backing = noise(len + 128, 0xb40);
+                    let s0 = src_backing.as_ptr().align_offset(64) + offset;
+                    let src = &src_backing[s0..s0 + len];
+                    let coeffs: Vec<gf8d::Elem> = (0..nrows).map(gf8d_coeff_at).collect();
+                    let mut backing = noise(len * nrows + 128, 0xb41);
+                    let start = backing.as_ptr().align_offset(64) + offset;
+                    let mut want = backing[start..start + len * nrows].to_vec();
+                    for (row, &coeff) in want.chunks_exact_mut(len).zip(&coeffs) {
+                        gf8d_reference(row, coeff, src);
+                    }
+                    let rows = &mut backing[start..start + len * nrows];
+                    x86::gf8::mul_add_scatter_affine512(token, rows, len, &coeffs, src);
+                    assert_eq!(
+                        rows,
+                        want.as_slice(),
+                        "gf8d affine512 peeled scatter: +{offset} {len}B x {nrows}"
+                    );
                 }
-                let rows = &mut backing[start..start + len * nrows];
-                x86::gf8::mul_add_scatter_affine512(token, rows, len, &coeffs, src);
-                assert_eq!(
-                    rows,
-                    want.as_slice(),
-                    "gf8d affine512 peeled scatter: +{offset} {len}B x {nrows}"
-                );
             }
             let len = x86::gf8::GATHER_PEEL_MIN + 64;
             for &nsrcs in &[1usize, 3, 16] {
@@ -2988,16 +2995,48 @@ mod x86 {
         }
     }
 
-    /// Multi-row scatter over rows long enough to take the alignment peel.
+    #[test]
+    fn half_lane_payloads_match_reference() {
+        if !host_supports(&[Backend::V3GfniCrypto]) {
+            eprintln!("skipping: no AVX2+GFNI on this host");
+            return;
+        }
+        let gfni = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
+        let avx2 = X64V3Token::summon().expect("GFNI implies AVX2");
+        let coeff = gf8b::Elem::from_raw(0x53);
+        for len in [511usize, 512, 1152, 1168, 1200, 2048] {
+            for off in [0usize, 1, 16, 32, 48] {
+                let src_backing = noise(len + 128, 0x522);
+                let src_start = src_backing.as_ptr().align_offset(64) + (off + 16) % 64;
+                let src = &src_backing[src_start..src_start + len];
+                let mut backing = noise(len + 128, 0x533);
+                let start = backing.as_ptr().align_offset(64) + off;
+                let dst = &mut backing[start..start + len];
+                let mut want = dst.to_vec();
+
+                x86::bytes::xor_avx2(avx2, dst, src);
+                scalar::xor(&mut want, src);
+                assert_eq!(dst, want, "xor {len} +{off}");
+
+                x86::gf8::mul_add_gfni(gfni, dst, coeff, src);
+                scalar::mul_add::<gf8b::Gf8B>(&mut want, coeff, src);
+                assert_eq!(dst, want, "mul_add {len} +{off}");
+
+                x86::gf8::mul_assign_gfni(gfni, dst, coeff);
+                scalar::mul_assign::<gf8b::Gf8B>(&mut want, coeff);
+                assert_eq!(dst, want, "mul_assign {len} +{off}");
+            }
+        }
+    }
+
+    /// Multi-row scatter across short and long rows, including pitches that
+    /// alternate the destination alignment within a row group.
     ///
-    /// `ROW_LENS` tops out at 300 bytes, below the peel's row-length floor, so
-    /// no other test reaches the peeled path. The destination is offset by
-    /// every residue that matters: 0 and 16 pick different peel lengths, and 1
-    /// makes a 32-byte boundary unreachable in whole GF(2^16) elements, which
-    /// must skip the peel rather than split an element.
+    /// The source and destination start at independent offsets; reference
+    /// multiplication checks the peeled head and the vector/tail seam.
     #[test]
     fn aligned_scatter_matches_reference() {
-        const ROW_LEN: usize = 4096;
+        const ROW_LENS: &[usize] = &[512, 1152, 1168, 1184, 1200, 2048, 4096];
         type ScatterKernel<'a> = dyn Fn(&mut [u8], usize, &[gf16::Elem], &[u8]) + 'a;
 
         if !(host_supports(&[Backend::V3GfniCrypto])) {
@@ -3007,53 +3046,75 @@ mod x86 {
         let token = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
         let v3 = X64V3Token::summon().expect("GFNI implies AVX2");
         let v2 = X64V2Token::summon().expect("GFNI implies SSSE3");
-        for nrows in [1usize, 4, 6, 9] {
-            for skew in [0usize, 1, 16] {
-                let src = noise(ROW_LEN, 0x1b8);
-                let mut backing = noise(ROW_LEN * nrows + skew, 0x1c9);
-                let rows = &mut backing[skew..];
+        for &row_len in ROW_LENS {
+            for nrows in [1usize, 4, 6, 9] {
+                for skew in [0usize, 1, 16] {
+                    let src = noise(row_len, 0x1b8);
+                    let mut backing = noise(row_len * nrows + skew, 0x1c9);
+                    let rows = &mut backing[skew..];
 
-                let coeffs8: Vec<_> = (0..nrows).map(gf8_coeff_at).collect();
-                let mut want = rows.to_vec();
-                x86::gf8::mul_add_scatter_gfni(token, rows, ROW_LEN, &coeffs8, &src);
-                for (row, &coeff) in want.chunks_exact_mut(ROW_LEN).zip(&coeffs8) {
-                    gf8_reference(row, coeff, &src);
-                }
-                assert_eq!(rows, want.as_slice(), "gf8 peeled scatter: {nrows}/{skew}");
-
-                let coeffs16: Vec<_> = (0..nrows).map(gf16_coeff_at).collect();
-                let mut want = rows.to_vec();
-                x86::gf16::mul_add_scatter_gfni(token, rows, ROW_LEN, &coeffs16, &src);
-                for (row, &coeff) in want.chunks_exact_mut(ROW_LEN).zip(&coeffs16) {
-                    gf16_reference(row, coeff, &src);
-                }
-                assert_eq!(rows, want.as_slice(), "gf16 peeled scatter: {nrows}/{skew}");
-
-                let kernels: [(&str, &ScatterKernel<'_>); 2] = [
-                    ("avx2", &|rows: &mut [u8],
-                               row_len: usize,
-                               coeffs: &[gf16::Elem],
-                               src: &[u8]| {
-                        x86::gf16::mul_add_scatter_avx2(v3, rows, row_len, coeffs, src);
-                    }),
-                    ("ssse3", &|rows: &mut [u8],
-                                row_len: usize,
-                                coeffs: &[gf16::Elem],
-                                src: &[u8]| {
-                        x86::gf16::mul_add_scatter_ssse3(v2, rows, row_len, coeffs, src);
-                    }),
-                ];
-                for (name, kernel) in kernels {
+                    let coeffs8: Vec<_> = (0..nrows).map(gf8_coeff_at).collect();
                     let mut want = rows.to_vec();
-                    kernel(rows, ROW_LEN, &coeffs16, &src);
-                    for (row, &coeff) in want.chunks_exact_mut(ROW_LEN).zip(&coeffs16) {
+                    x86::gf8::mul_add_scatter_gfni(token, rows, row_len, &coeffs8, &src);
+                    for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs8) {
+                        gf8_reference(row, coeff, &src);
+                    }
+                    assert_eq!(
+                        rows,
+                        want.as_slice(),
+                        "gf8 scatter: {row_len}/{nrows}/{skew}"
+                    );
+
+                    let affine_coeffs: Vec<_> = (0..nrows).map(gf8d_coeff_at).collect();
+                    let mut want = rows.to_vec();
+                    x86::gf8::mul_add_scatter_affine(token, rows, row_len, &affine_coeffs, &src);
+                    for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&affine_coeffs) {
+                        gf8d_reference(row, coeff, &src);
+                    }
+                    assert_eq!(
+                        rows,
+                        want.as_slice(),
+                        "gf8d scatter: {row_len}/{nrows}/{skew}"
+                    );
+
+                    let coeffs16: Vec<_> = (0..nrows).map(gf16_coeff_at).collect();
+                    let mut want = rows.to_vec();
+                    x86::gf16::mul_add_scatter_gfni(token, rows, row_len, &coeffs16, &src);
+                    for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs16) {
                         gf16_reference(row, coeff, &src);
                     }
                     assert_eq!(
                         rows,
                         want.as_slice(),
-                        "gf16 {name} peeled scatter: {nrows}/{skew}"
+                        "gf16 scatter: {row_len}/{nrows}/{skew}"
                     );
+
+                    let kernels: [(&str, &ScatterKernel<'_>); 2] = [
+                        ("avx2", &|rows: &mut [u8],
+                                   row_len: usize,
+                                   coeffs: &[gf16::Elem],
+                                   src: &[u8]| {
+                            x86::gf16::mul_add_scatter_avx2(v3, rows, row_len, coeffs, src);
+                        }),
+                        ("ssse3", &|rows: &mut [u8],
+                                    row_len: usize,
+                                    coeffs: &[gf16::Elem],
+                                    src: &[u8]| {
+                            x86::gf16::mul_add_scatter_ssse3(v2, rows, row_len, coeffs, src);
+                        }),
+                    ];
+                    for (name, kernel) in kernels {
+                        let mut want = rows.to_vec();
+                        kernel(rows, row_len, &coeffs16, &src);
+                        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs16) {
+                            gf16_reference(row, coeff, &src);
+                        }
+                        assert_eq!(
+                            rows,
+                            want.as_slice(),
+                            "gf16 {name} scatter: {row_len}/{nrows}/{skew}"
+                        );
+                    }
                 }
             }
         }

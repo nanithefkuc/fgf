@@ -36,6 +36,13 @@ upstream type re-exported, so crates pinning both must move together; pin
 `simdispatch = "=0.2.0"` alongside this `fgf` (no API names change; the
 ladder gains `V4x`/`V4`).
 
+### Fixed
+
+- Half-lane-skewed GFNI in-place scaling and short blocked scatter avoid
+  repeated split-line destination accesses. The AVX-512 scatter path avoids
+  peeling when a quarter-line row pitch cannot align its row group.
+  The measured payload comparison is in `BENCHMARKS.md`.
+
 ## [1.2.2] - 2026-09-30
 
 ### Changed

@@ -143,13 +143,12 @@ fn scatter_rows4_512<C: MapCoeff>(ptrs: [*mut u8; 4], coeffs: [C; 4], src: &[u8]
     ];
     let len = src.len();
 
-    // Head bytes run through the narrow span until the first row is 64-byte
-    // aligned. Rows sit `len` apart, so a row pitch that is a multiple of 64
-    // aligns every row with the first; other pitches align the first row
-    // only. The span also covers the source head, which shares the rows'
-    // alignment in every dispatched shape.
+    // The head aligns the first row. A quarter-line row pitch cycles through
+    // different line offsets within each group; the peel merely moves the
+    // split-line accesses to other rows, so that pitch runs without it.
+    // The source shares the rows' alignment in dispatched shapes.
     let head = (ptrs[0] as usize).wrapping_neg() & 63;
-    let head = if len >= SCATTER_PEEL_MIN && head < len {
+    let head = if len >= SCATTER_PEEL_MIN && len % 64 != 16 && head < len {
         head
     } else {
         0
@@ -227,7 +226,7 @@ fn scatter_rows2_512<C: MapCoeff>(ptrs: [*mut u8; 2], coeffs: [C; 2], src: &[u8]
 
     // As in `scatter_rows4_512`: peel to 64-byte alignment first.
     let head = (ptrs[0] as usize).wrapping_neg() & 63;
-    let head = if len >= SCATTER_PEEL_MIN && head < len {
+    let head = if len >= SCATTER_PEEL_MIN && len % 64 != 16 && head < len {
         head
     } else {
         0
