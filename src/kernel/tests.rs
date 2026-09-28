@@ -35,7 +35,7 @@ use crate::kernel::scalar;
 use crate::kernel::tables::FpTowerTables;
 use crate::kernel::tables::{ScaleTable, TowerCoeff, TowerTables, scale_table};
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-use crate::kernel::tables::{affine_8d, scale_table_8d};
+use crate::kernel::tables::{affine_8b, affine_8d, scale_table_8d};
 use crate::kernel::{KernelDispatch, RawDispatch};
 
 /// Lengths covering: empty, sub-lane, exact lanes, lane+1, several unroll
@@ -676,6 +676,60 @@ fn for_each_gf8d_affine_case(case: impl FnMut(gf8d::Elem, &[u8])) {
     }
 }
 
+/// Compare a `0x11B` affine `mul_add` kernel against the reference at every
+/// length and coefficient: the 512-bit bodies are field-agnostic, so `Gf8B`
+/// runs the same entry with its own bank.
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+fn check_gf8_affine_mul_add(name: &str, kernel: impl Fn(&mut [u8], u64, &ScaleTable, &[u8])) {
+    for_each_gf8_affine_case(|coeff, src| {
+        let mut got = noise(src.len(), 0x62);
+        let mut want = got.clone();
+        kernel(&mut got, affine_8b(coeff), scale_table(coeff), src);
+        scalar::mul_add::<gf8b::Gf8B>(&mut want, coeff, src);
+        assert_eq!(got, want, "{name}: len {}, coeff {coeff:?}", src.len());
+    });
+}
+
+/// Compare a `0x11B` affine `mul_assign` kernel against the reference.
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+fn check_gf8_affine_mul_assign(name: &str, kernel: impl Fn(&mut [u8], u64, &ScaleTable)) {
+    for_each_gf8_affine_case(|coeff, src| {
+        let mut got = src.to_vec();
+        let mut want = src.to_vec();
+        kernel(&mut got, affine_8b(coeff), scale_table(coeff));
+        scalar::mul_assign::<gf8b::Gf8B>(&mut want, coeff);
+        assert_eq!(got, want, "{name}: len {}, coeff {coeff:?}", src.len());
+    });
+}
+
+/// Compare a `0x11B` affine `mul_into` kernel against the reference.
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+fn check_gf8_affine_mul_into(name: &str, kernel: impl Fn(&mut [u8], u64, &ScaleTable, &[u8])) {
+    for_each_gf8_affine_case(|coeff, src| {
+        // Pre-fill the destination with noise: a fused kernel must overwrite
+        // it, never accumulate into it.
+        let mut got = noise(src.len(), 0x147);
+        let mut want = src.to_vec();
+        kernel(&mut got, affine_8b(coeff), scale_table(coeff), src);
+        scalar::mul_assign::<gf8b::Gf8B>(&mut want, coeff);
+        assert_eq!(got, want, "{name}: len {}, coeff {coeff:?}", src.len());
+    });
+}
+
+fn for_each_gf8_affine_case(case: impl FnMut(gf8b::Elem, &[u8])) {
+    let mut case = case;
+    for &len in LENGTHS {
+        let src = noise(len, 0x51);
+        for c in 0..=u8::MAX {
+            case(gf8b::Elem(c), &src);
+        }
+    }
+    let every_byte: Vec<u8> = (0..=u8::MAX).collect();
+    for c in 0..=u8::MAX {
+        case(gf8b::Elem(c), &every_byte);
+    }
+}
+
 /// Compare a `0x11D` affine `mul_add` kernel against the reference at every
 /// length and coefficient.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -1103,6 +1157,8 @@ mod x86 {
     // gate, which an SIMD_BACKEND downgrade can leave selecting a different
     // tier than the process backend — so each test summons the token its gate
     // proved, rather than reading the process-wide proof.
+    #[cfg(feature = "simd512")]
+    use archmage::X64V4xToken;
     use archmage::{SimdToken, X64V1Token, X64V2Token, X64V3GfniCryptoToken, X64V3Token};
 
     // The 64-byte AVX-512 kernels are the deferred V4x tier (not in the
@@ -1195,6 +1251,421 @@ mod x86 {
             scalar::xor(&mut want, &src);
             x86::avx512::xor(&mut simd, &src);
             assert_eq!(simd, want, "avx512 xor: len {len}");
+        }
+    }
+
+    /// The deferred `Gf8D` 64-byte affine kernels against the scalar oracle.
+    ///
+    /// Gate is the `X64V4xToken` summon itself: no `Backend` covers V4x, so
+    /// there is no tier to resolve. The sweep is exhaustive over
+    /// coefficients through the affine helpers above, whose all-byte-values
+    /// source makes it exhaustive over products.
+    #[cfg(feature = "simd512")]
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn gf8d_affine512_kernels_match_reference() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no AVX-512F+AVX-512BW+GFNI on this host");
+            return;
+        };
+
+        check_gf8d_affine_mul_add("gf8d affine512", |dst, map, table, src| {
+            x86::gf8::mul_add_affine512(token, dst, map, table, src);
+        });
+        check_gf8d_affine_mul_assign("gf8d affine512", |dst, map, table| {
+            x86::gf8::mul_assign_affine512(token, dst, map, table);
+        });
+        check_gf8d_affine_mul_into("gf8d affine512", |dst, map, table, src| {
+            x86::gf8::mul_into_affine512(token, dst, map, table, src);
+        });
+        // `Gf8B` through the same field-agnostic 512-bit bodies: the affine
+        // bank differs (`0x11B`), the instruction does not.
+        check_gf8_affine_mul_add("gf8b affine512", |dst, map, table, src| {
+            x86::gf8::mul_add_affine512(token, dst, map, table, src);
+        });
+        check_gf8_affine_mul_assign("gf8b affine512", |dst, map, table| {
+            x86::gf8::mul_assign_affine512(token, dst, map, table);
+        });
+        check_gf8_affine_mul_into("gf8b affine512", |dst, map, table, src| {
+            x86::gf8::mul_into_affine512(token, dst, map, table, src);
+        });
+        // Prefetch coverage: at and above `PREFETCH_MIN` the into body names
+        // lines 512 and 640 bytes ahead, so the length must clear the guard
+        // plus tiles, lanes, and a sub-lane tail.
+        for len in [24 * 1024, 24 * 1024 + 359, 32 * 1024 + 71] {
+            let src = noise(len, 0xb20 + len as u64);
+            for &coeff in &[
+                gf8d::Elem(0),
+                gf8d::Elem(1),
+                gf8d::Elem(0x53),
+                gf8d::Elem(0xff),
+            ] {
+                let mut got = noise(len, 0xb21);
+                let mut want = src.clone();
+                x86::gf8::mul_into_affine512(
+                    token,
+                    &mut got,
+                    affine_8d(coeff),
+                    scale_table_8d(coeff),
+                    &src,
+                );
+                scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
+                assert_eq!(
+                    got, want,
+                    "gf8d affine512 into prefetch: len {len}, coeff {coeff:?}"
+                );
+            }
+        }
+        check_scatter(
+            "gf8d affine512 scatter",
+            gf8d_coeff_at,
+            gf8d_reference,
+            |rows, row_len, coeffs, src| {
+                x86::gf8::mul_add_scatter_affine512(token, rows, row_len, coeffs, src);
+            },
+        );
+        check_gather(
+            "gf8d affine512 gather",
+            gf8d_coeff_at,
+            gf8d_reference,
+            |dst, coeffs, srcs| x86::gf8::mul_add_gather_affine512(token, dst, coeffs, srcs),
+        );
+        check_matrix(
+            "gf8d affine512 matrix",
+            gf8d_coeff_at2,
+            gf8d_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_add_matrix_affine512(token, rows, row_len, nrows, terms);
+            },
+        );
+        check_matrix_overwrite(
+            "gf8d affine512 matrix overwrite",
+            gf8d_coeff_at2,
+            gf8d_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_into_matrix_affine512(token, rows, row_len, nrows, terms);
+            },
+        );
+        // `Gf8B` through the generic 512-bit multi-row bodies.
+        check_scatter(
+            "gf8b affine512 scatter",
+            gf8_coeff_at,
+            gf8_reference,
+            |rows, row_len, coeffs, src| {
+                x86::gf8::mul_add_scatter_affine512(token, rows, row_len, coeffs, src);
+            },
+        );
+        check_gather(
+            "gf8b affine512 gather",
+            gf8_coeff_at,
+            gf8_reference,
+            |dst, coeffs, srcs| x86::gf8::mul_add_gather_affine512(token, dst, coeffs, srcs),
+        );
+        check_matrix(
+            "gf8b affine512 matrix",
+            gf8_coeff_at2,
+            gf8_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_add_matrix_affine512(token, rows, row_len, nrows, terms);
+            },
+        );
+        check_matrix_overwrite(
+            "gf8b affine512 matrix overwrite",
+            gf8_coeff_at2,
+            gf8_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_into_matrix_affine512(token, rows, row_len, nrows, terms);
+            },
+        );
+        // 512-bit tile transitions: sub-tile, exact tiles, tile-plus-lanes,
+        // and lane-plus-AVX2-ladder remainders, with few and many terms.
+        for &row_len in &[64usize, 192, 255, 256, 257, 320, 448, 511, 512, 513, 640] {
+            for &nrows in &[1usize, 3, 4, 5, 8, 9] {
+                for nterms in [1usize, 3, 9] {
+                    let sources: Vec<Vec<u8>> = (0..nterms)
+                        .map(|t| noise(row_len, 0xb00 + t as u64))
+                        .collect();
+                    let coeff_sets: Vec<Vec<gf8d::Elem>> = (0..nterms)
+                        .map(|t| (0..nrows).map(|j| gf8d_coeff_at2(t, j)).collect())
+                        .collect();
+                    let terms: Vec<(&[gf8d::Elem], &[u8])> = coeff_sets
+                        .iter()
+                        .zip(&sources)
+                        .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                        .collect();
+                    let mut got = noise(row_len * nrows, 0xb10);
+                    let mut want = got.clone();
+                    x86::gf8::mul_add_matrix_affine512(token, &mut got, row_len, nrows, &terms);
+                    for &(coeffs, src) in &terms {
+                        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                            gf8d_reference(row, coeff, src);
+                        }
+                    }
+                    assert_eq!(
+                        got, want,
+                        "gf8d affine512 tiles: {row_len}B x {nrows} x {nterms}t"
+                    );
+                    // Empty terms: accumulate leaves rows unchanged, overwrite zeroes them.
+                    let mut got = noise(row_len * nrows, 0xb11);
+                    let want = got.clone();
+                    let empty: &[(&[gf8d::Elem], &[u8])] = &[];
+                    x86::gf8::mul_add_matrix_affine512(token, &mut got, row_len, nrows, empty);
+                    assert_eq!(
+                        got, want,
+                        "gf8d affine512 empty accumulate: {row_len}B x {nrows}"
+                    );
+                    let mut got = noise(row_len * nrows, 0xb12);
+                    x86::gf8::mul_into_matrix_affine512(token, &mut got, row_len, nrows, empty);
+                    assert_eq!(
+                        got,
+                        vec![0u8; row_len * nrows],
+                        "gf8d affine512 empty overwrite: {row_len}B x {nrows}"
+                    );
+                }
+            }
+        }
+        // Alignment peel: rows long enough to peel, placed off a 64-byte
+        // boundary, so the head runs through the tail helper with a source
+        // window shorter than the row. One-, two-, and four-row groups each
+        // peel; accumulate and overwrite share the tail. Lengths track the
+        // floor so the peel stays exercised if the floor moves.
+        let floor = x86::gf8::MATRIX_PEEL_MIN;
+        for &offset in &[1usize, 16, 48] {
+            for &row_len in &[floor, floor + 64] {
+                for &nrows in &[1usize, 2, 4, 7] {
+                    let sources: Vec<Vec<u8>> = (0..3usize)
+                        .map(|t| noise(row_len, 0xb30 + t as u64))
+                        .collect();
+                    let coeff_sets: Vec<Vec<gf8d::Elem>> = (0..3usize)
+                        .map(|t| (0..nrows).map(|j| gf8d_coeff_at2(t, j)).collect())
+                        .collect();
+                    let terms: Vec<(&[gf8d::Elem], &[u8])> = coeff_sets
+                        .iter()
+                        .zip(&sources)
+                        .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                        .collect();
+                    let span = row_len * nrows;
+                    let mut backing = noise(span + 128, 0xb31);
+                    let start = backing.as_ptr().align_offset(64) + offset;
+                    let mut want = backing[start..start + span].to_vec();
+                    for &(coeffs, src) in &terms {
+                        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                            gf8d_reference(row, coeff, src);
+                        }
+                    }
+                    let rows = &mut backing[start..start + span];
+                    x86::gf8::mul_add_matrix_affine512(token, rows, row_len, nrows, &terms);
+                    assert_eq!(
+                        rows,
+                        want.as_slice(),
+                        "gf8d affine512 peeled accumulate: +{offset} {row_len}B x {nrows}"
+                    );
+                    let mut want = vec![0u8; span];
+                    for &(coeffs, src) in &terms {
+                        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                            gf8d_reference(row, coeff, src);
+                        }
+                    }
+                    x86::gf8::mul_into_matrix_affine512(token, rows, row_len, nrows, &terms);
+                    assert_eq!(
+                        rows,
+                        want.as_slice(),
+                        "gf8d affine512 peeled overwrite: +{offset} {row_len}B x {nrows}"
+                    );
+                }
+            }
+        }
+        // Scatter and gather peels at their floors, rows and sources off a
+        // 64-byte boundary: the head runs through the narrow span per row
+        // (scatter) or the single-source seam per term (gather).
+        for &offset in &[1usize, 16, 48] {
+            let len = x86::gf8::SCATTER_PEEL_MIN + 64;
+            for &nrows in &[1usize, 2, 3, 4, 6] {
+                let src_backing = noise(len + 128, 0xb40);
+                let s0 = src_backing.as_ptr().align_offset(64) + offset;
+                let src = &src_backing[s0..s0 + len];
+                let coeffs: Vec<gf8d::Elem> = (0..nrows).map(gf8d_coeff_at).collect();
+                let mut backing = noise(len * nrows + 128, 0xb41);
+                let start = backing.as_ptr().align_offset(64) + offset;
+                let mut want = backing[start..start + len * nrows].to_vec();
+                for (row, &coeff) in want.chunks_exact_mut(len).zip(&coeffs) {
+                    gf8d_reference(row, coeff, src);
+                }
+                let rows = &mut backing[start..start + len * nrows];
+                x86::gf8::mul_add_scatter_affine512(token, rows, len, &coeffs, src);
+                assert_eq!(
+                    rows,
+                    want.as_slice(),
+                    "gf8d affine512 peeled scatter: +{offset} {len}B x {nrows}"
+                );
+            }
+            let len = x86::gf8::GATHER_PEEL_MIN + 64;
+            for &nsrcs in &[1usize, 3, 16] {
+                let backings: Vec<Vec<u8>> = (0..nsrcs)
+                    .map(|t| noise(len + 128, 0xb50 + t as u64))
+                    .collect();
+                let srcs: Vec<&[u8]> = backings
+                    .iter()
+                    .map(|b| {
+                        let s = b.as_ptr().align_offset(64) + offset;
+                        &b[s..s + len]
+                    })
+                    .collect();
+                let coeffs: Vec<gf8d::Elem> = (0..nsrcs).map(gf8d_coeff_at).collect();
+                let mut backing = noise(len + 128, 0xb51);
+                let start = backing.as_ptr().align_offset(64) + offset;
+                let mut want = backing[start..start + len].to_vec();
+                for (&coeff, &src) in coeffs.iter().zip(&srcs) {
+                    gf8d_reference(&mut want, coeff, src);
+                }
+                let dst = &mut backing[start..start + len];
+                x86::gf8::mul_add_gather_affine512(token, dst, &coeffs, &srcs);
+                assert_eq!(
+                    dst,
+                    want.as_slice(),
+                    "gf8d affine512 peeled gather: +{offset} {len}B x {nsrcs}"
+                );
+            }
+        }
+        // Scattered rows: disjoint offsets, blocked affine against per-term AXPY.
+        // Even iterations use ascending starts, odd iterations a reversed
+        // (non-monotonic) order over the same windows.
+        for &row_len in ROW_LENS {
+            for (ri, &nrows) in ROW_COUNTS.iter().enumerate() {
+                let mut starts: Vec<usize> = (0..nrows).map(|j| j * (row_len + 7)).collect();
+                if ri % 2 == 1 {
+                    starts.reverse();
+                }
+                let span = starts.iter().map(|&x| x + row_len).max().unwrap_or(0);
+                let sources: Vec<Vec<u8>> = (0..3usize)
+                    .map(|t| noise(row_len, 0x900 + t as u64))
+                    .collect();
+                let coeff_sets: Vec<Vec<gf8d::Elem>> = (0..3usize)
+                    .map(|t| (0..nrows).map(|j| gf8d_coeff_at2(t, j)).collect())
+                    .collect();
+                let terms: Vec<(&[gf8d::Elem], &[u8])> = coeff_sets
+                    .iter()
+                    .zip(&sources)
+                    .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                    .collect();
+                let mut got = noise(span, 0xda);
+                let mut want = got.clone();
+                x86::gf8::mul_add_matrix_at_affine512(token, &mut got, row_len, &starts, &terms);
+                for &(coeffs, src) in &terms {
+                    for (j, &coeff) in coeffs.iter().enumerate() {
+                        scalar::mul_add::<gf8d::Gf8D>(
+                            &mut want[starts[j]..starts[j] + row_len],
+                            coeff,
+                            src,
+                        );
+                    }
+                }
+                assert_eq!(got, want, "gf8d affine512 scattered: {row_len}B x {nrows}");
+                // Empty terms leave scattered rows unchanged; zero rows are a no-op.
+                let mut got = noise(span, 0xdb);
+                let want = got.clone();
+                let empty: &[(&[gf8d::Elem], &[u8])] = &[];
+                x86::gf8::mul_add_matrix_at_affine512(token, &mut got, row_len, &starts, empty);
+                assert_eq!(
+                    got, want,
+                    "gf8d affine512 scattered empty: {row_len}B x {nrows}"
+                );
+            }
+        }
+        {
+            let mut rows = noise(64, 0xdc);
+            let want = rows.clone();
+            let empty: &[(&[gf8d::Elem], &[u8])] = &[];
+            x86::gf8::mul_add_matrix_at_affine512(token, &mut rows, 16, &[], empty);
+            assert_eq!(rows, want, "gf8d affine512 scattered zero rows");
+        }
+        // `Gf8B` through the generic scattered body: same windows, AES field.
+        for &row_len in ROW_LENS {
+            for &nrows in ROW_COUNTS {
+                let starts: Vec<usize> = (0..nrows).rev().map(|j| j * (row_len + 7)).collect();
+                let span = starts.iter().map(|&x| x + row_len).max().unwrap_or(0);
+                let sources: Vec<Vec<u8>> = (0..3usize)
+                    .map(|t| noise(row_len, 0x940 + t as u64))
+                    .collect();
+                let coeff_sets: Vec<Vec<gf8b::Elem>> = (0..3usize)
+                    .map(|t| (0..nrows).map(|j| gf8_coeff_at2(t, j)).collect())
+                    .collect();
+                let terms: Vec<(&[gf8b::Elem], &[u8])> = coeff_sets
+                    .iter()
+                    .zip(&sources)
+                    .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                    .collect();
+                let mut got = noise(span, 0xdd);
+                let mut want = got.clone();
+                x86::gf8::mul_add_matrix_at_affine512(token, &mut got, row_len, &starts, &terms);
+                for &(coeffs, src) in &terms {
+                    for (j, &coeff) in coeffs.iter().enumerate() {
+                        gf8_reference(&mut want[starts[j]..starts[j] + row_len], coeff, src);
+                    }
+                }
+                assert_eq!(got, want, "gf8b affine512 scattered: {row_len}B x {nrows}");
+            }
+        }
+        // 64-byte elementwise products for both byte fields: full lanes, the
+        // 32/16-byte ladder, and the scalar tail.
+        check_gf8_elementwise("gf8 gfni512 elementwise", |dst, a, b| {
+            x86::gf8::mul_elementwise_gfni512(token, dst, a, b);
+        });
+        check_elementwise_assign::<gf8b::Gf8B>("gf8 gfni512 elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_gfni512(token, dst, src);
+        });
+        check_gf8d_elementwise("gf8d iso512 elementwise", |dst, a, b| {
+            x86::gf8::mul_elementwise_iso512_8d(token, dst, a, b);
+        });
+        check_elementwise_assign::<gf8d::Gf8D>("gf8d iso512 elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_iso512_8d(token, dst, src);
+        });
+        // The `_with` provider path over the flat test-slice terms.
+        for &row_len in ROW_LENS {
+            for &nrows in ROW_COUNTS {
+                let sources: Vec<Vec<u8>> = (0..3usize)
+                    .map(|t| noise(row_len, 0xa00 + t as u64))
+                    .collect();
+                let coeff_sets: Vec<Vec<gf8d::Elem>> = (0..3usize)
+                    .map(|t| (0..nrows).map(|j| gf8d_coeff_at2(t, j)).collect())
+                    .collect();
+                let terms: Vec<(&[gf8d::Elem], &[u8])> = coeff_sets
+                    .iter()
+                    .zip(&sources)
+                    .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                    .collect();
+                let flat: Vec<gf8d::Elem> = terms
+                    .iter()
+                    .flat_map(|&(coeffs, _)| coeffs.iter().copied())
+                    .collect();
+                let flat_srcs: Vec<&[u8]> = terms.iter().map(|&(_, s)| s).collect();
+                let matrix = crate::kernel::FlatMatrix {
+                    coefficients: &flat,
+                    nrows,
+                    sources: &flat_srcs,
+                };
+                let mut got = noise(row_len * nrows, 0xdb);
+                let mut want = got.clone();
+                x86::gf8::mul_add_matrix_affine512_with(token, &mut got, row_len, nrows, &matrix);
+                for &(coeffs, src) in &terms {
+                    for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                        scalar::mul_add::<gf8d::Gf8D>(row, coeff, src);
+                    }
+                }
+                assert_eq!(got, want, "gf8d affine512 with: {row_len}B x {nrows}");
+                let mut got = noise(row_len * nrows, 0xdc);
+                x86::gf8::mul_into_matrix_affine512_with(token, &mut got, row_len, nrows, &matrix);
+                let mut want = vec![0u8; row_len * nrows];
+                for &(coeffs, src) in &terms {
+                    for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                        scalar::mul_add::<gf8d::Gf8D>(row, coeff, src);
+                    }
+                }
+                assert_eq!(
+                    got, want,
+                    "gf8d affine512 overwrite with: {row_len}B x {nrows}"
+                );
+            }
         }
     }
 
@@ -1732,6 +2203,9 @@ mod x86 {
             // `0x1d` shift/reduce form the three-slice kernel does.
             x86::gf8::mul_elementwise_assign_avx2::<0x1d>(v3, dst, src);
         });
+        check_elementwise_assign::<gf8d::Gf8D>("gf8d iso elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_iso_8d(token, dst, src);
+        });
         check_elementwise_assign::<gf16::Gf16>("gf16 gfni elementwise assign", |dst, src| {
             x86::gf16::mul_elementwise_assign_gfni(token, dst, src);
         });
@@ -1858,10 +2332,15 @@ mod x86 {
     /// Scattered-rows differential for the blocked affine matrix.
     fn check_gf8d_scattered_affine_rows(token: X64V3GfniCryptoToken) {
         // Scattered rows: disjoint offsets, blocked affine against per-term AXPY.
+        // Even iterations use ascending starts, odd iterations a reversed
+        // (non-monotonic) order over the same windows.
         for &row_len in ROW_LENS {
-            for &nrows in ROW_COUNTS {
-                let starts: Vec<usize> = (0..nrows).map(|j| j * (row_len + 7)).collect();
-                let span = starts.last().map_or(0, |&s| s + row_len);
+            for (ri, &nrows) in ROW_COUNTS.iter().enumerate() {
+                let mut starts: Vec<usize> = (0..nrows).map(|j| j * (row_len + 7)).collect();
+                if ri % 2 == 1 {
+                    starts.reverse();
+                }
+                let span = starts.iter().map(|&x| x + row_len).max().unwrap_or(0);
                 let sources: Vec<Vec<u8>> = (0..3usize)
                     .map(|t| noise(row_len, 0x900 + t as u64))
                     .collect();
@@ -2046,6 +2525,13 @@ mod x86 {
         check_gf8d_elementwise("gf8d avx2 elementwise", |dst, a, b| {
             x86::gf8::mul_elementwise_avx2::<0x1d>(token, dst, a, b);
         });
+        if let Some(gfni) = X64V3GfniCryptoToken::summon() {
+            check_gf8d_elementwise("gf8d iso elementwise", |dst, a, b| {
+                x86::gf8::mul_elementwise_iso_8d(gfni, dst, a, b);
+            });
+        } else {
+            eprintln!("skipping: gf8d iso elementwise needs GFNI");
+        }
         check_gf16_elementwise("gf16 avx2 elementwise", |dst, a, b| {
             x86::gf16::mul_elementwise_avx2(token, dst, a, b);
         });

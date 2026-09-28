@@ -287,6 +287,56 @@ pub fn mul_add_matrix_affine_prepared_with(
     mul_add_matrix_impl::<Affine8DPrepared, PreparedMatrix, false>(rows, row_len, nrows, &terms);
 }
 
+/// [`mul_add_matrix_affine_with`](super::mul_add_matrix_affine_with) over prepared
+/// coefficients: the tile loop reads each term's stored affine map instead of
+/// re-deriving it per tile.
+///
+/// # Panics
+/// As [`mul_add_matrix_affine_with`](super::mul_add_matrix_affine_with).
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_add_matrix_affine512_prepared_with(
+    _token: archmage::X64V4xToken,
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    prepared: &[crate::kernel::gf8::Prepared8D],
+    srcs: &[&[u8]],
+) {
+    use super::gf8d512_matrix::mul_add_matrix_affine512_with;
+    let terms = PreparedMatrix {
+        prepared,
+        nrows,
+        sources: srcs,
+    };
+    mul_add_matrix_affine512_with(_token, rows, row_len, nrows, &terms);
+}
+
+/// [`mul_add_matrix_affine512_prepared_with`] with overwrite semantics.
+///
+/// # Panics
+/// As [`mul_add_matrix_affine512_prepared_with`].
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_into_matrix_affine512_prepared_with(
+    _token: archmage::X64V4xToken,
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    prepared: &[crate::kernel::gf8::Prepared8D],
+    srcs: &[&[u8]],
+) {
+    use super::gf8d512_matrix::mul_into_matrix_affine512_with;
+    let terms = PreparedMatrix {
+        prepared,
+        nrows,
+        sources: srcs,
+    };
+    mul_into_matrix_affine512_with(_token, rows, row_len, nrows, &terms);
+}
+
 /// [`mul_add_matrix_affine_prepared_with`] with overwrite semantics: the erasure-
 /// encode shape over prepared coefficients.
 ///
@@ -490,7 +540,7 @@ pub fn mul_add_matrix_at_affine_with<M: Matrix<gf8d::Elem> + ?Sized>(
 
 /// Scattered-row geometry shared by the `_at` entries: every row in bounds and
 /// pairwise disjoint.
-fn check_scattered(name: &str, dst_len: usize, row_len: usize, row_starts: &[usize]) {
+pub(super) fn check_scattered(name: &str, dst_len: usize, row_len: usize, row_starts: &[usize]) {
     for (j, &start) in row_starts.iter().enumerate() {
         let end = start
             .checked_add(row_len)

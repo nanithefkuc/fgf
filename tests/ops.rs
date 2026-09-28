@@ -1030,6 +1030,13 @@ fn assert_blocked_prepared_shapes<F: fgf::FieldKernels>(row_len: usize, seed: u6
     ops::mul_add_matrix_with(&mut matrix, row_len, &coding, &matrix_refs);
     ops::mul_add_matrix::<F>(&mut matrix_want, row_len, NROWS, &raw_terms);
     assert_eq!(matrix, matrix_want);
+
+    // Overwrite: a noise-seeded destination must be replaced, not folded in.
+    let mut overwritten = noise(row_len * NROWS, seed + 50);
+    let mut overwritten_want = noise(row_len * NROWS, seed + 51);
+    ops::mul_into_matrix_with(&mut overwritten, row_len, &coding, &matrix_refs);
+    ops::mul_into_matrix::<F>(&mut overwritten_want, row_len, NROWS, &raw_terms);
+    assert_eq!(overwritten, overwritten_want);
 }
 
 #[test]
@@ -1037,6 +1044,9 @@ fn assert_blocked_prepared_shapes<F: fgf::FieldKernels>(row_len: usize, seed: u6
 fn blocked_prepared_shapes_match_raw_operations_across_group_boundaries() {
     assert_blocked_prepared_shapes::<Gf8B>(79, 0x370);
     assert_blocked_prepared_shapes::<Gf16>(78, 0x380);
+    // Past two 256-byte tiles, one 64-byte lane, and a sub-lane ladder.
+    assert_blocked_prepared_shapes::<Gf8B>(591, 0x390);
+    assert_blocked_prepared_shapes::<Gf8D>(591, 0x3a0);
 }
 
 #[test]
@@ -1097,6 +1107,28 @@ fn elementwise_products_match_field_arithmetic() {
                 );
             }
             assert_eq!(got, want, "GF16 elementwise len {len}");
+        }
+    }
+}
+
+#[test]
+fn elementwise_assign_products_match_field_arithmetic() {
+    for len in LENGTHS {
+        let a = noise(len, 0x358);
+        let b = noise(len, 0x359);
+
+        let mut got = a.clone();
+        ops::mul_elementwise_assign::<Gf8B>(&mut got, &b);
+        for ((d, &x), &y) in got.iter().zip(&a).zip(&b) {
+            let want = gf8b::Elem::from_raw(x).mul(gf8b::Elem::from_raw(y));
+            assert_eq!(*d, want.to_raw(), "Gf8B elementwise assign len {len}");
+        }
+
+        let mut got = a.clone();
+        ops::mul_elementwise_assign::<Gf8D>(&mut got, &b);
+        for ((d, &x), &y) in got.iter().zip(&a).zip(&b) {
+            let want = gf8d::Elem::from_raw(x).mul(gf8d::Elem::from_raw(y));
+            assert_eq!(*d, want.to_raw(), "Gf8D elementwise assign len {len}");
         }
     }
 }
@@ -2006,6 +2038,41 @@ fn backend_queries_are_consistent_per_field() {
         Goldilocks,
         QuadMersenne31,
     );
+
+    // V4x execution assertion: on an AVX-512+GFNI host with `simd512`, the
+    // process backend must actually be `V4x` — a green run alone never proves
+    // the tier executed (P10). A `SIMD_BACKEND` request below `v4x` lowers the
+    // tier on purpose, and hosts without the token cannot select it; both are
+    // documented skips.
+    #[cfg(feature = "simd512")]
+    {
+        use fgf::internals::kernel::{SimdToken, X64V4xToken};
+        let downgrade = std::env::var("SIMD_BACKEND")
+            .ok()
+            .filter(|tier| tier != "v4x");
+        if let Some(tier) = &downgrade {
+            eprintln!("skipping V4x assertion: SIMD_BACKEND={tier} requests a lower tier");
+        } else if X64V4xToken::summon().is_some() {
+            assert_eq!(
+                process,
+                Backend::V4x,
+                "AVX-512+GFNI summons but dispatch did not select V4x"
+            );
+            assert_eq!(
+                backend_for::<Gf8D>(),
+                Backend::V4x,
+                "Gf8D does not report V4x on a V4x host"
+            );
+            // Both byte fields carry 64-byte elementwise kernels on V4x, so
+            // the capability query must not steer consumers to scalar.
+            assert!(
+                has_vector_elementwise::<Gf8B>() && has_vector_elementwise::<Gf8D>(),
+                "byte fields do not report vector elementwise on a V4x host"
+            );
+        } else {
+            eprintln!("skipping V4x assertion: host cannot summon X64V4xToken");
+        }
+    }
 }
 
 /// Every field's `add_assign`/`sub_assign` against the elementwise oracle,

@@ -296,6 +296,13 @@ pub fn mul_assign_affine(
     map: u64,
     table: &ScaleTable,
 ) {
+    mul_assign_affine_impl(dst, map, table);
+}
+
+/// The affine `mul_assign` body over one slice, shared with the 512-bit
+/// entry's alignment peel.
+#[archmage::rite(v3_gfni_crypto, import_intrinsics)]
+pub(super) fn mul_assign_affine_impl(dst: &mut [u8], map: u64, table: &ScaleTable) {
     let factor = _mm256_set1_epi64x(map.cast_signed());
     let factor128 = _mm256_castsi256_si128(factor);
     // In-place scaling is store-bound and rare next to the AXPY shapes, so
@@ -350,7 +357,12 @@ pub fn mul_into_affine(
 /// the streaming-store primitive carrying the tile stores.
 #[archmage::rite(v3_gfni_crypto, import_intrinsics)]
 #[allow(unsafe_code)]
-fn mul_into_affine_impl<const NT: bool>(dst: &mut [u8], map: u64, table: &ScaleTable, src: &[u8]) {
+pub(super) fn mul_into_affine_impl<const NT: bool>(
+    dst: &mut [u8],
+    map: u64,
+    table: &ScaleTable,
+    src: &[u8],
+) {
     let factor = _mm256_set1_epi64x(map.cast_signed());
     let factor128 = _mm256_castsi256_si128(factor);
 

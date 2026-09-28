@@ -6,6 +6,8 @@
 //! `matrix` many sources into many rows over the register-blocked row-group
 //! bodies in `rows`, and `nibble_rows` holds the multi-row shapes of the
 //! shuffle strategy. `elementwise` multiplies two varying buffers lane-wise.
+//! The `gf8d512_*` submodules hold the 64-byte `V4x` forms of the single,
+//! scatter/gather, matrix, and elementwise shapes under `simd512`.
 //! `experiments` holds measurement variants, which reach
 //! into the production bodies above without duplicating them.
 //!
@@ -46,6 +48,14 @@ mod elementwise;
 #[allow(dead_code)]
 mod experiments;
 mod gather;
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+mod gf8d512_elementwise;
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+mod gf8d512_matrix;
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+mod gf8d512_sg;
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+mod gf8d512_single;
 mod gfni;
 mod matrix;
 mod nibble;
@@ -58,6 +68,33 @@ pub use elementwise::*;
 #[allow(unused_imports)]
 pub use experiments::*;
 pub use gather::*;
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+pub use gf8d512_elementwise::{
+    mul_elementwise_assign_gfni512, mul_elementwise_assign_iso512_8d, mul_elementwise_gfni512,
+    mul_elementwise_iso512_8d,
+};
+// The peel floors reach the kernel tests, which size rows from them.
+#[cfg(all(
+    test,
+    feature = "simd512",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+pub(crate) use gf8d512_matrix::MATRIX_PEEL_MIN;
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+pub use gf8d512_matrix::{
+    mul_add_matrix_affine512, mul_add_matrix_affine512_with, mul_add_matrix_at_affine512,
+    mul_into_matrix_affine512, mul_into_matrix_affine512_with,
+};
+#[cfg(all(
+    test,
+    feature = "simd512",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+pub(crate) use gf8d512_sg::{GATHER_PEEL_MIN, SCATTER_PEEL_MIN};
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+pub use gf8d512_sg::{mul_add_gather_affine512, mul_add_scatter_affine512};
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+pub use gf8d512_single::{mul_add_affine512, mul_assign_affine512, mul_into_affine512};
 pub use gfni::*;
 pub use matrix::*;
 pub use nibble::*;
@@ -121,8 +158,8 @@ impl Blocked for Gfni {
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
 pub struct Affine8BFactor {
-    map: u64,
-    table: &'static ScaleTable,
+    pub(super) map: u64,
+    pub(super) table: &'static ScaleTable,
 }
 
 /// Prepare one `Gf8B` coefficient for [`mul_add_gather_affine_8b`].

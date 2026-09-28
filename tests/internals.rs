@@ -1168,6 +1168,36 @@ fn proven_gather_rejects_count_mismatch() {
     });
 }
 
+#[cfg(feature = "simd512")]
+#[test]
+fn proven_gf8d512_rejects_bad_geometry() {
+    rejects_geometry("gf8d512 mul_add", |token: X64V4xToken| {
+        let mut dst = vec![0u8; 16];
+        let src = vec![0u8; 17];
+        let coeff = gf8d::Elem::from_raw(3);
+        x86::gf8::mul_add_affine512(
+            token,
+            &mut dst,
+            affine_8d(coeff),
+            scale_table_8d(coeff),
+            &src,
+        );
+    });
+    rejects_geometry("gf8d512 scatter", |token: X64V4xToken| {
+        let mut rows = vec![0u8; 16];
+        let src = vec![0u8; 16];
+        let coeffs = [gf8d::Elem::from_raw(1), gf8d::Elem::from_raw(2)];
+        x86::gf8::mul_add_scatter_affine512(token, &mut rows, 16, &coeffs, &src);
+    });
+    rejects_geometry("gf8d512 matrix_at overlap", |token: X64V4xToken| {
+        let mut dst = vec![0u8; 128];
+        let src = vec![0u8; 64];
+        let coeffs = [gf8d::Elem::from_raw(1), gf8d::Elem::from_raw(2)];
+        let terms: Vec<(&[gf8d::Elem], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
+        x86::gf8::mul_add_matrix_at_affine512(token, &mut dst, 64, &[0, 32], &terms);
+    });
+}
+
 #[test]
 fn proven_xor_rows_rejects_partial_row() {
     rejects_geometry("xor_rows avx2", |v3: X64V3Token| {
