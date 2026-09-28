@@ -79,9 +79,14 @@ cannot express: offset-addressed disjoint rows, uninitialized scratch,
 aligned or non-temporal stores, and provider callbacks with caller-owned
 invariants. Update this list when a new residue class is unavoidable.
 
-The x86 AVX-512 implementation is deferred and exposed only under `internals`.
-Do not add it to production dispatch without executable differential coverage
-and pinned measurements on AVX-512 hardware.
+The legacy `kernel/x86/avx512.rs` implementation (XOR, `Gf8B`, tower) stays
+deferred and exposed only under `internals`. The 64-byte affine and
+elementwise kernels (`kernel/x86/gf8/gf8d512_*.rs`) serve both byte fields and
+dispatch on the `V4x` tier under `simd512`; that promotion met the coverage
+rule: the `internals` differential executes on AVX-512 hardware and kernel
+timings are recorded per shape. Their alignment peel floors are measured
+thresholds with a `BENCHMARKS.md` record; the kernel tests size misaligned
+rows from the floor constants so the peel stays exercised.
 
 ## Residue ledger
 
@@ -106,6 +111,8 @@ initialization, alignment, or aliasing. Each listed item has a per-item
 | `kernel/x86/gf8/nibble_rows.rs`: `mul_add_scatter_avx2`, `mul_add_scatter_ssse3`, `mul_add_matrix_avx2_with`, `matrix_tiles_avx2`, `matrix_vector_avx2`, `mul_add_matrix_ssse3_with` | Scatter and matrix kernels batch writes to row windows selected by offsets in one allocation. The checked entry proves the spans and row geometry; the unsafe body preserves disjointness across vector stores and tails. |
 | `kernel/x86/gf8/rows.rs`: `rows_body`, `rows_resolved_chunked`, `matrix_tail` | `rows_body` and `matrix_tail` operate on offset-addressed row pointers. `rows_resolved_chunked` additionally stages only the occupied prefix of `MaybeUninit` coefficient/source arrays; it reinterprets exactly the prefix written before reading it. |
 | `kernel/x86/gf8/scatter.rs`: `mul_add_scatter_impl`, `scatter_rows4`, `scatter_rows2`, `scatter_span` | Scatter groups update disjoint rows by offsets into one destination allocation. The checked caller establishes each row's bounds and the grouped body maintains non-aliasing across stores. |
+| `kernel/x86/gf8/gf8d512_sg.rs`: `mul_add_scatter512_impl`, `scatter_rows4_512`, `scatter_rows2_512`, `scatter_span512` | 64-byte `Gf8D` scatter groups update disjoint rows by offsets into one destination allocation. The checked entry proves each row's bounds and disjointness; the grouped bodies keep those windows across 64-byte reference loads/stores. Dispatched on `V4x` under `simd512`. |
+| `kernel/x86/gf8/gf8d512_matrix.rs`: `mul_add_matrix512_impl_with`, `matrix_rows1_512_with`, `rows_tile4_512_with`, `rows_lane4_512_with`, `rows_tile2_512_with`, `rows_lane2_512_with`, `rows_tile1_512_with`, `rows_lane1_512_with`, `matrix_tail_512_with`, `mul_add_matrix_at512_impl` | 64-byte `Gf8D` matrix groups address rows by checked offsets into one region (contiguous or scattered). The entries prove each row in-bounds and pairwise disjoint; the tile bodies and tails preserve disjointness across 64-byte reference loads/stores. Dispatched on `V4x` under `simd512`. |
 | `kernel/x86/gf8/experiments/grouped.rs`: `mul_into_matrix_chunk_8d`, `mul_into_matrix_external_grouped_8d` | Experimental grouped matrix kernels pass offset-addressed rows to pointer-based inner loops. Their checked entry proves row bounds and disjointness, plus the external coefficient/source ordering required by the walk. |
 | `kernel/x86/gf8/experiments/resolve.rs`: `resolve_probe_8d` | The probe stages resolved coefficients and source references in `MaybeUninit` arrays to avoid initializing unused slots. It writes and reinterprets only the occupied prefix. |
 | `kernel/x86/gf8/experiments/shuffle.rs`: `mul_into_matrix6_shuffle_impl`, `packed_nibble_product`, `mul_into_matrix6_shuffle_packed_impl`, `mul_into_matrix2_shuffle_body` | Matrix bodies use offset-addressed disjoint row windows and cache source/table pointers to avoid repeated bounds checks. The checked layer bounds every row, source, and packed table record; the pointer walk relies on those caller-established invariants. |
@@ -138,7 +145,7 @@ A behavior fix should retain a regression test when a plausible future bug
 would fail it. Do not add tests that assert source text, field copies, forwarding,
 or exact panic prose.
 
-`TIERS` is `v3_gfni_crypto v3 v2 scalar`. A forced tier on incapable hardware
+`TIERS` is `v4x v3_gfni_crypto v3 v2 scalar` (`v4x` resolves only with `simd512`). A forced tier on incapable hardware
 may resolve to another supported tier; inspect reported backends before treating
 a green run as ISA coverage.
 
