@@ -62,7 +62,7 @@ macro_rules! gfni_tower_dispatch {
             #[inline]
             fn backend() -> Backend {
                 match backend() {
-                    Backend::V3GfniCrypto => backend(),
+                    Backend::V4x | Backend::V3GfniCrypto => backend(),
                     _ => Backend::Scalar,
                 }
             }
@@ -79,7 +79,7 @@ macro_rules! gfni_tower_dispatch {
             fn prepare(_proof: RawDispatch, coeff: Elem) -> Prepared {
                 match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                    Backend::V3GfniCrypto => Prepared::Compact {
+                    Backend::V4x | Backend::V3GfniCrypto => Prepared::Compact {
                         coeff,
                         tiles: x86::$module::$tiles_fn(coeff),
                     },
@@ -399,7 +399,8 @@ pub mod gf16 {
 
         #[inline]
         fn has_vector_elementwise() -> bool {
-            matches!(backend(), |Backend::V3GfniCrypto| Backend::V3
+            matches!(backend(), |Backend::V4x| Backend::V3GfniCrypto
+                | Backend::V3
                 | Backend::V2
                 | Backend::NeonAes
                 | Backend::Neon
@@ -412,7 +413,7 @@ pub mod gf16 {
 
         fn prepare(_proof: RawDispatch, coeff: Elem) -> Prepared {
             match backend() {
-                Backend::V3GfniCrypto => Prepared::Compact(TowerCoeff::new(coeff)),
+                Backend::V4x | Backend::V3GfniCrypto => Prepared::Compact(TowerCoeff::new(coeff)),
                 // PMULL is table-free, so the broadcast-word form looks like the
                 // natural fit here. It is not: it measured far behind these four
                 // nibble tables (see `aarch64::gf16`), so PMULL hosts prepare and
@@ -544,7 +545,7 @@ pub mod gf16 {
         ) {
             match backend() {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Backend::V3GfniCrypto => {
+                Backend::V4x | Backend::V3GfniCrypto => {
                     x86::gf16::mul_add_scatter_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         rows,
@@ -610,7 +611,7 @@ pub mod gf16 {
             src: &[u8],
         ) {
             match backend() {
-                Backend::V3GfniCrypto => {
+                Backend::V4x | Backend::V3GfniCrypto => {
                     Self::mul_add_scatter(RawDispatch, rows, row_len, values, src);
                 }
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -643,7 +644,7 @@ pub mod gf16 {
                 // loop the same kernel lost badly, which is why dispatch used to
                 // avoid it. Numbers in BENCHMARKS.md.
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Backend::V3GfniCrypto => x86::gf16::mul_add_gather_gfni(
+                Backend::V4x | Backend::V3GfniCrypto => x86::gf16::mul_add_gather_gfni(
                     crate::kernel::x86_v3_gfni_token(),
                     dst,
                     coeffs,
@@ -685,7 +686,9 @@ pub mod gf16 {
             srcs: &[&[u8]],
         ) {
             match backend() {
-                Backend::V3GfniCrypto => Self::mul_add_gather(RawDispatch, dst, values, srcs),
+                Backend::V4x | Backend::V3GfniCrypto => {
+                    Self::mul_add_gather(RawDispatch, dst, values, srcs);
+                }
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Backend::V2 => x86::gf16::mul_add_gather_ssse3(
                     crate::kernel::x86_v2_token(),
@@ -706,7 +709,7 @@ pub mod gf16 {
         ) {
             match backend() {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Backend::V3GfniCrypto => {
+                Backend::V4x | Backend::V3GfniCrypto => {
                     x86::gf16::mul_add_matrix_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         rows,
@@ -769,7 +772,7 @@ pub mod gf16 {
             let _ = values;
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             match backend() {
-                Backend::V3GfniCrypto => {
+                Backend::V4x | Backend::V3GfniCrypto => {
                     let terms = crate::kernel::FlatMatrix {
                         coefficients: values,
                         nrows,
@@ -816,7 +819,7 @@ pub mod gf16 {
         fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
             match backend() {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Backend::V3GfniCrypto => {
+                Backend::V4x | Backend::V3GfniCrypto => {
                     x86::gf16::mul_elementwise_gfni(crate::kernel::x86_v3_gfni_token(), dst, a, b);
                 }
                 // Unlike GF(2^8), the tower elementwise product does *not* prefer
@@ -851,7 +854,7 @@ pub mod gf16 {
         fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
             match backend() {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Backend::V3GfniCrypto => {
+                Backend::V4x | Backend::V3GfniCrypto => {
                     x86::gf16::mul_elementwise_assign_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,

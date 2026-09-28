@@ -18,7 +18,10 @@ use crate::kernel::x86;
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 #[inline]
 fn vectorized() -> bool {
-    matches!(backend(), Backend::V3GfniCrypto | Backend::V3 | Backend::V2)
+    matches!(
+        backend(),
+        Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2
+    )
 }
 
 impl FieldKernels for Mersenne31 {
@@ -27,7 +30,7 @@ impl FieldKernels for Mersenne31 {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         {
             match backend() {
-                Backend::V3GfniCrypto | Backend::V3 => Backend::V3,
+                Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => Backend::V3,
                 Backend::V2 => Backend::V2,
                 _ => Backend::Scalar,
             }
@@ -68,7 +71,7 @@ impl KernelDispatch for Mersenne31 {
     fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::add_assign_m31_avx2(crate::kernel::x86_v3_token(), dst, src);
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -82,7 +85,7 @@ impl KernelDispatch for Mersenne31 {
     fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::sub_assign_m31_avx2(crate::kernel::x86_v3_token(), dst, src);
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -96,7 +99,7 @@ impl KernelDispatch for Mersenne31 {
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::mul_add_m31_avx2(
                     crate::kernel::x86_v3_token(),
                     dst,
@@ -118,7 +121,7 @@ impl KernelDispatch for Mersenne31 {
     fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::mul_assign_m31_avx2(crate::kernel::x86_v3_token(), dst, coeff.to_raw());
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -136,7 +139,7 @@ impl KernelDispatch for Mersenne31 {
     fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::mul_into_m31_avx2(
                     crate::kernel::x86_v3_token(),
                     dst,
@@ -187,7 +190,7 @@ impl KernelDispatch for Mersenne31 {
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::mul_elementwise_m31_avx2(crate::kernel::x86_v3_token(), dst, a, b);
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -201,7 +204,7 @@ impl KernelDispatch for Mersenne31 {
     fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::mul_elementwise_assign_m31_avx2(
                     crate::kernel::x86_v3_token(),
                     dst,
@@ -223,7 +226,7 @@ impl KernelDispatch for Mersenne31 {
     fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::add_assign_scalar_m31_avx2(
                     crate::kernel::x86_v3_token(),
                     dst,
@@ -245,7 +248,7 @@ impl KernelDispatch for Mersenne31 {
     fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::sub_assign_scalar_m31_avx2(
                     crate::kernel::x86_v3_token(),
                     dst,

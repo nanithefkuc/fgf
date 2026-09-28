@@ -99,7 +99,7 @@ impl FieldKernels for QuadMersenne31 {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         {
             match backend() {
-                Backend::V3GfniCrypto | Backend::V3 => Backend::V3,
+                Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => Backend::V3,
                 _ => Backend::Scalar,
             }
         }
@@ -113,7 +113,10 @@ impl FieldKernels for QuadMersenne31 {
     fn has_vector_elementwise() -> bool {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         {
-            matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
+            matches!(
+                backend(),
+                Backend::V4x | Backend::V3GfniCrypto | Backend::V3
+            )
         }
         #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
         {
@@ -125,7 +128,10 @@ impl FieldKernels for QuadMersenne31 {
     fn vector_elementwise_min_bytes() -> usize {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         {
-            if matches!(backend(), Backend::V3GfniCrypto | Backend::V3) {
+            if matches!(
+                backend(),
+                Backend::V4x | Backend::V3GfniCrypto | Backend::V3
+            ) {
                 VECTOR_MUL_MIN_BYTES
             } else {
                 0
@@ -154,8 +160,10 @@ impl KernelDispatch for QuadMersenne31 {
 
     fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
-            && dst.len() >= VECTOR_ADD_MIN_BYTES
+        if matches!(
+            backend(),
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3
+        ) && dst.len() >= VECTOR_ADD_MIN_BYTES
         {
             crate::kernel::x86::prime::add_assign_qm31_avx2(
                 crate::kernel::x86_v3_token(),
@@ -181,8 +189,10 @@ impl KernelDispatch for QuadMersenne31 {
     }
     fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
-            && dst.len() >= VECTOR_ADD_MIN_BYTES
+        if matches!(
+            backend(),
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3
+        ) && dst.len() >= VECTOR_ADD_MIN_BYTES
         {
             crate::kernel::x86::prime::sub_assign_qm31_avx2(
                 crate::kernel::x86_v3_token(),
@@ -226,8 +236,10 @@ impl KernelDispatch for QuadMersenne31 {
 
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
-            && dst.len() >= VECTOR_MUL_MIN_BYTES
+        if matches!(
+            backend(),
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3
+        ) && dst.len() >= VECTOR_MUL_MIN_BYTES
         {
             crate::kernel::x86::prime::mul_add_qm31_avx2(
                 crate::kernel::x86_v3_token(),
@@ -259,8 +271,10 @@ impl KernelDispatch for QuadMersenne31 {
 
     fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem) {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
-            && dst.len() >= VECTOR_MUL_MIN_BYTES
+        if matches!(
+            backend(),
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3
+        ) && dst.len() >= VECTOR_MUL_MIN_BYTES
         {
             crate::kernel::x86::prime::mul_assign_qm31_avx2(
                 crate::kernel::x86_v3_token(),
@@ -286,8 +300,10 @@ impl KernelDispatch for QuadMersenne31 {
 
     fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
-            && dst.len() >= VECTOR_MUL_MIN_BYTES
+        if matches!(
+            backend(),
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3
+        ) && dst.len() >= VECTOR_MUL_MIN_BYTES
         {
             crate::kernel::x86::prime::mul_into_qm31_avx2(
                 crate::kernel::x86_v3_token(),
@@ -345,8 +361,10 @@ impl KernelDispatch for QuadMersenne31 {
         debug_assert_eq!(dst.len(), a.len());
         debug_assert_eq!(dst.len(), b.len());
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
-            && dst.len() >= VECTOR_MUL_MIN_BYTES
+        if matches!(
+            backend(),
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3
+        ) && dst.len() >= VECTOR_MUL_MIN_BYTES
         {
             crate::kernel::x86::prime::mul_elementwise_qm31_avx2(
                 crate::kernel::x86_v3_token(),
@@ -370,8 +388,10 @@ impl KernelDispatch for QuadMersenne31 {
 
     fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
-            && dst.len() >= VECTOR_MUL_MIN_BYTES
+        if matches!(
+            backend(),
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3
+        ) && dst.len() >= VECTOR_MUL_MIN_BYTES
         {
             crate::kernel::x86::prime::mul_elementwise_assign_qm31_avx2(
                 crate::kernel::x86_v3_token(),
@@ -385,8 +405,10 @@ impl KernelDispatch for QuadMersenne31 {
 
     fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
-            && dst.len() >= VECTOR_ADD_MIN_BYTES
+        if matches!(
+            backend(),
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3
+        ) && dst.len() >= VECTOR_ADD_MIN_BYTES
         {
             crate::kernel::x86::prime::add_assign_scalar_qm31_avx2(
                 crate::kernel::x86_v3_token(),
@@ -400,8 +422,10 @@ impl KernelDispatch for QuadMersenne31 {
 
     fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-        if matches!(backend(), Backend::V3GfniCrypto | Backend::V3)
-            && dst.len() >= VECTOR_ADD_MIN_BYTES
+        if matches!(
+            backend(),
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3
+        ) && dst.len() >= VECTOR_ADD_MIN_BYTES
         {
             crate::kernel::x86::prime::sub_assign_scalar_qm31_avx2(
                 crate::kernel::x86_v3_token(),
