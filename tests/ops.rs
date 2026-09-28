@@ -1817,13 +1817,13 @@ fn check_broadcast_scalar_matches_filled_add<F: FieldKernels>(lens: &[usize], va
 
 /// Byte lengths straddling the 16- and 32-byte lane boundaries of the
 /// broadcast kernels: below one lane, exactly one, one plus a byte, one
-/// below, and the body-plus-tail compound. The GF(2^16) lengths stay even
-/// and land on the same boundaries.
+/// below, a 32-byte block plus a 16-byte block plus a tail, and the
+/// body-plus-tail compound. The GF(2^16) lengths stay even and land on the
+/// same boundaries.
 #[test]
 fn binary_broadcast_scalar_matches_filled_add_assign() {
-    // GF(2^16) lengths stay even and land on the same boundaries.
     check_broadcast_scalar_matches_filled_add::<Gf8B>(
-        &[1, 15, 16, 17, 31, 32, 33, 257],
+        &[1, 15, 16, 17, 31, 32, 33, 49, 257],
         &[
             gf8b::Elem::from_raw(0),
             gf8b::Elem::from_raw(1),
@@ -1831,7 +1831,7 @@ fn binary_broadcast_scalar_matches_filled_add_assign() {
         ],
     );
     check_broadcast_scalar_matches_filled_add::<Gf8D>(
-        &[1, 15, 16, 17, 31, 32, 33, 257],
+        &[1, 15, 16, 17, 31, 32, 33, 49, 257],
         &[
             gf8d::Elem::from_raw(0),
             gf8d::Elem::from_raw(1),
@@ -1839,7 +1839,7 @@ fn binary_broadcast_scalar_matches_filled_add_assign() {
         ],
     );
     check_broadcast_scalar_matches_filled_add::<Gf16>(
-        &[2, 14, 16, 18, 30, 32, 34, 258],
+        &[2, 14, 16, 18, 30, 32, 34, 50, 258],
         &[
             gf16::Elem::from_raw(0),
             gf16::Elem::from_raw(1),

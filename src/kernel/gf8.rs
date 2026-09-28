@@ -10,16 +10,6 @@
 //! bank. [`Prepared8D`] pairs the corresponding `Gf8D` table with its
 //! `VGF2P8AFFINEQB` matrix because `GF2P8MULB` only implements the AES field.
 
-#[cfg(all(
-    feature = "simd",
-    any(
-        target_arch = "x86",
-        target_arch = "x86_64",
-        target_arch = "aarch64",
-        target_arch = "wasm32"
-    )
-))]
-use crate::field::Field;
 use crate::field::gf8b::{Elem, Gf8B};
 use crate::field::gf8d::{self, Gf8D};
 use crate::kernel::tables::{ScaleTable, affine_8d, scale_table, scale_table_8d};
@@ -103,80 +93,6 @@ impl FieldKernels for Gf8B {
 
 impl KernelDispatch for Gf8B {
     type Prepared = &'static ScaleTable;
-
-    /// `dst[i] += value`, one element broadcast across every lane.
-    ///
-    /// Identical to [`KernelDispatch::sub_assign_scalar`] in characteristic
-    /// two; both route to the field-independent broadcast XOR at the tier
-    /// the byte kernels run.
-    #[inline]
-    fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
-        Self::sub_assign_scalar(RawDispatch, dst, value);
-    }
-
-    /// `dst[i] -= value`, one element broadcast across every lane.
-    ///
-    /// The broadcast bytes are exclusive-ORed into every lane, which is the
-    /// field's addition in characteristic two.
-    #[inline]
-    fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
-        let elem = Self::prepared_coeff(RawDispatch, value);
-        #[cfg(all(
-            feature = "simd",
-            any(
-                target_arch = "x86",
-                target_arch = "x86_64",
-                target_arch = "aarch64",
-                target_arch = "wasm32"
-            )
-        ))]
-        {
-            let mut encoded = [0u8; 8];
-            Self::encode(&mut encoded[..Self::BYTES], elem);
-            let value_bytes = &encoded[..Self::BYTES];
-            match backend() {
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Backend::V3GfniCrypto | Backend::V3 => {
-                    x86::bytes::xor_broadcast_avx2(crate::kernel::x86_v3_token(), dst, value_bytes);
-                }
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Backend::V2 => {
-                    x86::bytes::xor_broadcast_sse42(
-                        crate::kernel::x86_v2_token(),
-                        dst,
-                        value_bytes,
-                    );
-                }
-                #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Backend::Neon | Backend::NeonAes => {
-                    aarch64::bytes::xor_broadcast_neon(
-                        crate::kernel::neon_token(),
-                        dst,
-                        value_bytes,
-                    );
-                }
-                #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Backend::Wasm128 => {
-                    wasm32::bytes::xor_broadcast_simd128(
-                        crate::kernel::wasm128_token(),
-                        dst,
-                        value_bytes,
-                    );
-                }
-                _ => scalar::xor_broadcast::<Self>(dst, elem),
-            }
-        }
-        #[cfg(not(all(
-            feature = "simd",
-            any(
-                target_arch = "x86",
-                target_arch = "x86_64",
-                target_arch = "aarch64",
-                target_arch = "wasm32"
-            )
-        )))]
-        scalar::xor_broadcast::<Self>(dst, elem);
-    }
 
     #[inline]
     fn prepare(_proof: RawDispatch, coeff: Elem) -> Self::Prepared {
@@ -706,80 +622,6 @@ impl KernelDispatch for Gf8D {
     #[inline]
     fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         crate::kernel::xor(dst, src);
-    }
-
-    /// `dst[i] += value`, one element broadcast across every lane.
-    ///
-    /// Identical to [`KernelDispatch::sub_assign_scalar`] in characteristic
-    /// two; both route to the field-independent broadcast XOR at the tier
-    /// the byte kernels run.
-    #[inline]
-    fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
-        Self::sub_assign_scalar(RawDispatch, dst, value);
-    }
-
-    /// `dst[i] -= value`, one element broadcast across every lane.
-    ///
-    /// The broadcast bytes are exclusive-ORed into every lane, which is the
-    /// field's addition in characteristic two.
-    #[inline]
-    fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
-        let elem = Self::prepared_coeff(RawDispatch, value);
-        #[cfg(all(
-            feature = "simd",
-            any(
-                target_arch = "x86",
-                target_arch = "x86_64",
-                target_arch = "aarch64",
-                target_arch = "wasm32"
-            )
-        ))]
-        {
-            let mut encoded = [0u8; 8];
-            Self::encode(&mut encoded[..Self::BYTES], elem);
-            let value_bytes = &encoded[..Self::BYTES];
-            match backend() {
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Backend::V3GfniCrypto | Backend::V3 => {
-                    x86::bytes::xor_broadcast_avx2(crate::kernel::x86_v3_token(), dst, value_bytes);
-                }
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Backend::V2 => {
-                    x86::bytes::xor_broadcast_sse42(
-                        crate::kernel::x86_v2_token(),
-                        dst,
-                        value_bytes,
-                    );
-                }
-                #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Backend::Neon | Backend::NeonAes => {
-                    aarch64::bytes::xor_broadcast_neon(
-                        crate::kernel::neon_token(),
-                        dst,
-                        value_bytes,
-                    );
-                }
-                #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Backend::Wasm128 => {
-                    wasm32::bytes::xor_broadcast_simd128(
-                        crate::kernel::wasm128_token(),
-                        dst,
-                        value_bytes,
-                    );
-                }
-                _ => scalar::xor_broadcast::<Self>(dst, elem),
-            }
-        }
-        #[cfg(not(all(
-            feature = "simd",
-            any(
-                target_arch = "x86",
-                target_arch = "x86_64",
-                target_arch = "aarch64",
-                target_arch = "wasm32"
-            )
-        )))]
-        scalar::xor_broadcast::<Self>(dst, elem);
     }
 
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {

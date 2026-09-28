@@ -768,7 +768,9 @@ pub(crate) trait KernelDispatch: Field {
     fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
         let elem = Self::prepared_coeff(RawDispatch, value);
         if Self::CHARACTERISTIC == 2 {
-            scalar::xor_broadcast::<Self>(dst, elem);
+            let mut encoded = [0u8; 8];
+            Self::encode(&mut encoded[..Self::BYTES], elem);
+            byte_ops::xor_broadcast(dst, &encoded[..Self::BYTES]);
         } else {
             prime::add_assign_scalar::<Self>(dst, elem);
         }
@@ -778,7 +780,9 @@ pub(crate) trait KernelDispatch: Field {
     fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
         let elem = Self::prepared_coeff(RawDispatch, value);
         if Self::CHARACTERISTIC == 2 {
-            scalar::xor_broadcast::<Self>(dst, elem);
+            let mut encoded = [0u8; 8];
+            Self::encode(&mut encoded[..Self::BYTES], elem);
+            byte_ops::xor_broadcast(dst, &encoded[..Self::BYTES]);
         } else {
             prime::sub_assign_scalar::<Self>(dst, elem);
         }
@@ -1000,6 +1004,48 @@ pub(crate) mod byte_ops {
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
             Backend::Wasm128 => wasm32::xor_simd128(wasm128_token(), dst, src),
             _ => scalar::xor(dst, src),
+        }
+    }
+
+    /// `dst[i] ^= value_bytes[i % value_bytes.len()]` for every byte — one
+    /// field element broadcast across every lane, the binary fields'
+    /// `add_assign_scalar`.
+    ///
+    /// Field-independent: addition in every binary field is XOR, and
+    /// broadcast addition over a packed element array is the cyclic XOR of
+    /// the element's little-endian encoding regardless of element width.
+    /// `value_bytes` holds one element's encoding, 1 to 16 bytes; every lane
+    /// boundary the vector kernels peel is a multiple of the element width,
+    /// so the pattern's phase matches the destination's element phase
+    /// throughout.
+    ///
+    /// Tier mapping mirrors [`xor`]: the tier each architecture byte
+    /// kernel runs at is the tier this dispatches to.
+    ///
+    /// # Panics
+    /// Panics before mutation if `value_bytes` is empty or longer than 16
+    /// bytes.
+    pub fn xor_broadcast(dst: &mut [u8], value_bytes: &[u8]) {
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        match x86_proof() {
+            X86Proof::V3GfniCrypto(token) => {
+                x86::bytes::xor_broadcast_avx2(token.v3(), dst, value_bytes);
+            }
+            X86Proof::V3(token) => x86::bytes::xor_broadcast_avx2(token, dst, value_bytes),
+            X86Proof::V2(token) => x86::bytes::xor_broadcast_sse2(token.v1(), dst, value_bytes),
+            X86Proof::Scalar => scalar::xor_broadcast_bytes(dst, value_bytes),
+        }
+        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        match backend() {
+            #[cfg(all(feature = "simd", target_arch = "aarch64"))]
+            Backend::Neon | Backend::NeonAes => {
+                aarch64::bytes::xor_broadcast_neon(neon_token(), dst, value_bytes);
+            }
+            #[cfg(all(feature = "simd", target_arch = "wasm32"))]
+            Backend::Wasm128 => {
+                wasm32::bytes::xor_broadcast_simd128(wasm128_token(), dst, value_bytes);
+            }
+            _ => scalar::xor_broadcast_bytes(dst, value_bytes),
         }
     }
 }
