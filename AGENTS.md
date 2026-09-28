@@ -191,16 +191,16 @@ Every external competitor harness lives in `external/`, one separate
 unpublished package per harness with its own `build.rs`, outside `src/` and
 `benches/` because linking the competitor needs a build script and `fgf`
 itself must never carry one; the package allowlist keeps `external/` out of
-`cargo package`. `external/bench-isal/` links the system Intel ISA-L and
-interleaves it against `fgf` over GF(2^8)/`0x11D`;
-`external/bench-klauspost/` links klauspost/reedsolomon as a Go C archive
-and interleaves it against `fgf` over the same field, supplying the coding
-matrix through `WithCustomMatrix`. Both run through `bench-gf-comp` inside
-its shuffled rounds, validate every arm against the competitor's own output
-before timing, and open with a control row that must read 1.00x. ISA-L needs
-`libisal` discoverable through pkg-config and the klauspost harness needs
-the Go toolchain in PATH; each build fails loudly when its toolchain is
-absent rather than dropping the arm.
+`cargo package`. `external/bench-trio/` links the system Intel ISA-L and
+klauspost/reedsolomon as a Go C archive and interleaves all three arms —
+`fgf`, ISA-L, klauspost — over one GF(2^8)/`0x11D` fixture set, rotating
+through all six arm orders; the klauspost coding matrix arrives through
+`WithCustomMatrix`. It runs through `bench-gf-comp` inside its shuffled
+rounds, validates every arm against the competitor's own output before
+timing, and opens with a control row that must read 1.00x. ISA-L needs
+`libisal` discoverable through pkg-config and the klauspost arm needs the
+Go toolchain in PATH; the build fails loudly when its toolchain is absent
+rather than dropping the arm.
 
 `external/prime-bench/` is the prime-field competitor harness: it compares
 `fgf` against Plonky3 (`p3-goldilocks`, `p3-mersenne-31`, and the packed

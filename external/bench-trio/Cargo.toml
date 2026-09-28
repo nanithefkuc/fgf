@@ -1,0 +1,28 @@
+[package]
+name = "fgf-bench-trio"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+license = "MIT"
+description = "In-process GF(2^8)/0x11D comparison between fgf, Intel ISA-L, and klauspost/reedsolomon"
+
+# A separate package, not a bench target of `fgf`: the links to the system
+# ISA-L and the Go c-archive need a build script, and `fgf` itself must
+# never carry one. The package allowlist in `../../Cargo.toml` keeps this
+# directory out of `cargo package`, so the comparison lives in the
+# repository only.
+
+[dependencies]
+fgf = { path = "../..", features = ["simd512"] }
+
+[build-dependencies]
+pkg-config = "0.3"
+
+[[bin]]
+name = "fgf-bench-trio"
+path = "src/main.rs"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

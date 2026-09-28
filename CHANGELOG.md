@@ -23,6 +23,14 @@ All notable changes to this project are documented here. The format follows
   a 64-byte boundary above per-shape length floors set by measurement; see
   `BENCHMARKS.md`, "AVX-512 alignment peel floors".
 
+### Changed
+
+- The binary-field competitor harnesses are one three-arm binary,
+  `external/bench-trio/`, replacing `bench-isal` and `bench-klauspost`: it
+  interleaves `fgf`, Intel ISA-L, and klauspost/reedsolomon over one fixture
+  set, rotating through all six arm orders, and `just bench-gf-comp` runs it
+  beside the self suite. `BENCHMARKS.md` carries the single-matrix record.
+
 **Breaking:** `simdispatch` moves `=0.1.0` to `=0.2.0`. `fgf::Backend` is the
 upstream type re-exported, so crates pinning both must move together; pin
 `simdispatch = "=0.2.0"` alongside this `fgf` (no API names change; the
