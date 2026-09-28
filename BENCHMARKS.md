@@ -1,22 +1,453 @@
 # Benchmarks
 
-These measurements cover the public operation shapes on two x86 hosts. Both
-hosts ran the same source tree with the `v3_gfni_crypto` backend selected.
+Public API timings. Every cell is **Tiger Lake / Golden Cove**, each the median of five per-run medians; paired ratio cells take the median of per-round ratios. Measurements that are unavailable are denoted with `-`.
 
 ## Environment
 
 | Host | CPU | Operating system | Rust | Pinned CPU |
 | --- | --- | --- | --- | ---: |
-| Lunar Lake | Intel Core Ultra 7 258V | Linux 7.2.6, Arch Linux | 1.98.0 | 3 |
-| Golden Cove | Intel Core i7-12700K | Linux 7.2.6, CachyOS | 1.98.1 | 8, isolated |
+| Tiger Lake | Intel Core i5-1135G7 | Arch Linux, Linux 7.2.7 | 1.98.1 | 3, isolated |
+| Golden Cove | Intel Core i7-12700K | CachyOS, Linux 7.2.6 | 1.98.1 | 8, isolated |
 
-The custom harness warms each operation, then reports the median per-iteration
-time from up to 64 batches of 32 iterations. Inputs are deterministic and
-coefficient preparation is outside the timed region unless the label says
-one-shot. Throughput is logical bytes processed, not total cache traffic.
+| Setting | Value |
+| --- | --- |
+| Crate | `fgf` 1.2.1 working tree, source fingerprint `72b26d7a4d26401ae4e162cd137bceddf3ee2d77bc3ca5e4d640bb95339e8b36` |
+| Dependencies | `simdispatch` 0.2.0, `archmage` 0.9.29, Criterion 0.8.2; ISA-L 2.32.0, klauspost/reedsolomon v1.14.2 (Go 1.27.1), Plonky3 0.7.0 |
+| Build | `--all-features`; the competitor harness packages build `fgf` with `simd512` added, so both hosts measure their requested tier |
+| Threads | `RAYON_NUM_THREADS=1`, `GOMAXPROCS=1`; affinity verified per process with `taskset -pc` |
+| Resolved backend | `V4x` on Tiger Lake, `v3_gfni_crypto` on Golden Cove, reported by every harness banner |
+| Aggregation | Median of five per-run medians, three significant figures; one shuffled `-comp` campaign per field family per host |
 
-Run from the crate root:
+The measured tree is a working snapshot rather than a release commit, and `just test` passed on both hosts before timing. Tiger Lake runs under `bench-run` (real-time priority, frequency-pinned 3.0 GHz core, turbostat logging); Golden Cove runs pinned to the isolated core 8 under the session's `SCHED_IDLE` policy.
 
+## Scalar multiplication
+
+The scalar harness executes a fixed batch of element multiplications.
+
+| Operation | Tiger Lake (ns/op) | Golden Cove (ns/op) |
+| --- | ---: | ---: |
+| `Gf8B` | 0.70 / 0.34 |
+| `Gf8D` | 0.70 / 0.34 |
+| `Gf16` | 2.43 / 1.34 |
+
+## Single-row packed operations
+
+64 KiB, 64-byte-aligned buffers.
+
+| Operation | Tiger Lake (GiB/s) | Golden Cove (GiB/s) |
+| --- | ---: | ---: |
+| `Gf8B` | `mul_add` | 40.6 / 64.7 |
+| `Gf8B` | `mul_into` | 39.6 / 64.7 |
+| `Gf8D` | `mul_add` | 40.6 / 64.8 |
+| `Gf8D` | `mul_into` | 39.7 / 64.7 |
+| `Gf16` | `mul_add` | 28 / 55.6 |
+| `Gf16` | `mul_into` | 37.2 / 63.7 |
+
+### One-shot versus prepared `mul_add` at 64 KiB
+
+| Operation | Tiger Lake (GiB/s) | Golden Cove (GiB/s) |
+| --- | ---: | ---: |
+| `Gf8B` | one-shot | 37.4 / 48.9 |
+| `Gf8B` | prepared | 37.4 / 48.9 |
+| `Gf16` | one-shot | 24.1 / 41.5 |
+| `Gf16` | prepared | 24.1 / 41.5 |
+
+## In-place elementwise multiply (binary fields, 256 KiB)
+
+Ordinary `Vec<u8>` buffers.
+
+| Operation | Tiger Lake (GiB/s) | Golden Cove (GiB/s) |
+| --- | ---: | ---: |
+| `Gf8B` | `add_assign` / XOR | 25 / 51.1 |
+| `Gf8B` | `mul_add` | 37.9 / 48.9 |
+| `Gf8B` | `mul_assign` | 51.5 / 67.7 |
+| `Gf8B` | `mul_elementwise` | 25.2 / 42.3 |
+| `Gf16` | `mul_add` | 23.9 / 41.7 |
+| `Gf16` | `mul_assign` | 41 / 54.6 |
+| `Gf16` | `mul_elementwise` | 15 / 31 |
+
+## Broadcast scalar add/sub and in-place elementwise multiply (prime fields, 256 KiB)
+
+`add_assign` and `mul_elementwise` are the unchanged controls beside the broadcast and in-place forms.
+
+| Operation | Tiger Lake (GiB/s) | Golden Cove (GiB/s) |
+| --- | ---: | ---: |
+| `Mersenne31` | `add_assign` | 20 / 35.8 |
+| `Mersenne31` | `add_assign_scalar` | 29.5 / 53 |
+| `Mersenne31` | `sub_assign_scalar` | 24.5 / 43.5 |
+| `Mersenne31` | `mul_elementwise` | 10.6 / 22.6 |
+| `Mersenne31` | `mul_elementwise_assign` | 11.2 / 23.6 |
+| `Goldilocks` | `add_assign` | 10.3 / 18.6 |
+| `Goldilocks` | `add_assign_scalar` | 13 / 23.9 |
+| `Goldilocks` | `sub_assign_scalar` | 13.7 / 25.4 |
+| `Goldilocks` | `mul_elementwise` | 6.3 / 11 |
+| `Goldilocks` | `mul_elementwise_assign` | 6.31 / 11.3 |
+| `QuadMersenne31` | `add_assign` | 18.5 / 32.6 |
+| `QuadMersenne31` | `add_assign_scalar` | 27.3 / 53.5 |
+| `QuadMersenne31` | `sub_assign_scalar` | 22.6 / 43.3 |
+| `QuadMersenne31` | `mul_elementwise` | 3.14 / 5.8 |
+| `QuadMersenne31` | `mul_elementwise_assign` | 3.29 / 5.9 |
+
+## Broadcast scalar add/sub (binary fields, 256 KiB)
+
+`add_assign` is the unchanged control beside the broadcast forms.
+
+| Operation | Tiger Lake (GiB/s) | Golden Cove (GiB/s) |
+| --- | ---: | ---: |
+| `Gf8B` | `add_assign` | 25 / 51.1 |
+| `Gf8B` | `add_assign_scalar` | 41.5 / 67.6 |
+| `Gf8B` | `sub_assign_scalar` | 41.5 / 67.5 |
+| `Gf16` | `add_assign` | 25 / 51.1 |
+| `Gf16` | `add_assign_scalar` | 41.5 / 67.5 |
+| `Gf16` | `sub_assign_scalar` | 41.5 / 67.5 |
+
+## Scatter, gather, and matrix
+
+Each row is 64 KiB. Scatter writes n rows from one source, gather combines n sources into one row, and matrix combines n sources into n rows. Throughput counts the harness's logical operation volume.
+
+| Operation | Tiger Lake (GiB/s) | Golden Cove (GiB/s) |
+| --- | ---: | ---: |
+| `Gf8B` | `mul_add_scatter` | 1 × 2 rows | 45.5 / 70 |
+| `Gf16` | `mul_add_scatter` | 1 × 2 rows | 30.6 / 56.2 |
+| `Gf8B` | `mul_add_gather` | 2 × 1 row | 44.5 / 72.4 |
+| `Gf16` | `mul_add_gather` | 2 × 1 row | 33.8 / 67.1 |
+| `Gf8B` | `mul_add_matrix` | 2 × 2 rows | 78.5 / 103 |
+| `Gf16` | `mul_add_matrix` | 2 × 2 rows | 23.7 / 47.8 |
+| `Gf8B` | `mul_add_scatter` | 1 × 4 rows | 48.3 / 72.3 |
+| `Gf16` | `mul_add_scatter` | 1 × 4 rows | 26.1 / 65.5 |
+| `Gf8B` | `mul_add_gather` | 4 × 1 row | 43 / 79.7 |
+| `Gf16` | `mul_add_gather` | 4 × 1 row | 39.6 / 77.7 |
+| `Gf8B` | `mul_add_matrix` | 4 × 4 rows | 110 / 115 |
+| `Gf16` | `mul_add_matrix` | 4 × 4 rows | 25.3 / 55.3 |
+| `Gf8B` | `mul_add_scatter` | 1 × 8 rows | 48.3 / 72.3 |
+| `Gf16` | `mul_add_scatter` | 1 × 8 rows | 27.1 / 65.7 |
+| `Gf8B` | `mul_add_gather` | 8 × 1 row | 43.6 / 69.3 |
+| `Gf16` | `mul_add_gather` | 8 × 1 row | 38.6 / 77.8 |
+| `Gf8B` | `mul_add_matrix` | 8 × 8 rows | 109 / 115 |
+| `Gf16` | `mul_add_matrix` | 8 × 8 rows | 25.3 / 54.9 |
+| `Gf8B` | `mul_add_scatter` | 1 × 16 rows | 45.1 / 46.5 |
+| `Gf16` | `mul_add_scatter` | 1 × 16 rows | 27 / 36.9 |
+| `Gf8B` | `mul_add_gather` | 16 × 1 row | 43.6 / 65 |
+| `Gf16` | `mul_add_gather` | 16 × 1 row | 40 / 73.3 |
+| `Gf8B` | `mul_add_matrix` | 16 × 16 rows | 105 / 114 |
+| `Gf16` | `mul_add_matrix` | 16 × 16 rows | 25.2 / 55.5 |
+
+## Overwrite matrix
+
+64 KiB rows and ten sources; `_with` and `_at` run `Gf8B` prepared-coefficient and scattered-row forms. Throughput counts source bytes once per call.
+
+| Operation | Tiger Lake (GiB/s) | Golden Cove (GiB/s) |
+| --- | ---: | ---: |
+| `Gf8B` | 2 rows | `mul_add_matrix` | 47.3 / 50.3 |
+| `Gf8B` | 2 rows | `mul_into_matrix` | 57.2 / 59.7 |
+| `Gf8D` | 2 rows | `mul_add_matrix` | 47 / 51.8 |
+| `Gf8D` | 2 rows | `mul_into_matrix` | 56.4 / 63.7 |
+| `Gf8B` | 2 rows | `mul_add_matrix_with` | 53.7 / 56.2 |
+| `Gf8B` | 2 rows | `mul_into_matrix_with` | 56.7 / 60.1 |
+| `Gf8B` | 2 rows | `mul_add_matrix_at` | 57.4 / 56.9 |
+| `Gf8B` | 4 rows | `mul_add_matrix` | 26.2 / 27.2 |
+| `Gf8B` | 4 rows | `mul_into_matrix` | 32.9 / 33.9 |
+| `Gf8D` | 4 rows | `mul_add_matrix` | 26.6 / 29.8 |
+| `Gf8D` | 4 rows | `mul_into_matrix` | 32.4 / 37.5 |
+| `Gf8B` | 4 rows | `mul_add_matrix_with` | 30.4 / 32 |
+| `Gf8B` | 4 rows | `mul_into_matrix_with` | 32.1 / 34.4 |
+| `Gf8B` | 4 rows | `mul_add_matrix_at` | 32.2 / 32.1 |
+| `Gf8B` | 6 rows | `mul_add_matrix` | 16.8 / 17.5 |
+| `Gf8B` | 6 rows | `mul_into_matrix` | 20.7 / 22 |
+| `Gf8D` | 6 rows | `mul_add_matrix` | 16.6 / 18.7 |
+| `Gf8D` | 6 rows | `mul_into_matrix` | 20.6 / 24.2 |
+| `Gf8B` | 6 rows | `mul_add_matrix_with` | 19.3 / 20.5 |
+| `Gf8B` | 6 rows | `mul_into_matrix_with` | 20.2 / 22.2 |
+| `Gf8B` | 6 rows | `mul_add_matrix_at` | 20.7 / 20.4 |
+
+## Gather dot products
+
+Sixteen sources into one destination row; the raw row uses raw coefficients, the prepared rows the `CoeffVec` `_with` form.
+
+| Operation | Tiger Lake (GiB/s) | Golden Cove (GiB/s) |
+| --- | ---: | ---: |
+| `Gf8B` | 4 KiB × 16 sources | overwrite prepared | 71.7 / 83.8 |
+| `Gf8D` | 4 KiB × 16 sources | overwrite prepared | 83.6 / 82 |
+| `Gf8D` | 4 KiB × 16 sources | overwrite raw terms | 80.5 / 105 |
+| `Gf8B` | 16 KiB × 16 sources | overwrite prepared | 81.4 / 88.1 |
+| `Gf8D` | 16 KiB × 16 sources | overwrite prepared | 96.1 / 85.4 |
+| `Gf8D` | 16 KiB × 16 sources | overwrite raw terms | 92 / 112 |
+
+## Wider binary fields
+
+These are 256 KiB `mul_add` operations.
+
+| Operation | Tiger Lake (GiB/s) | Golden Cove (GiB/s) |
+| --- | ---: | ---: |
+| `Gf16` polynomial tower | 23.9 / 41.7 |
+| `Gf32` polynomial tower | 17.1 / 30.6 |
+| `Gf64` polynomial tower | 9.07 / 17 |
+| `FanPaar16` | 9.97 / 17.1 |
+| `FanPaar32` | 3.71 / 6.33 |
+| `FanPaar64` | 1.36 / 2.2 |
+
+## Bit-packed GF(2)
+
+The input size is 256 KiB, representing 2,097,152 field elements. Throughput counts packed bytes.
+
+| Operation | Tiger Lake (GiB/s) | Golden Cove (GiB/s) |
+| --- | ---: | ---: |
+| `bits::xor_assign` | 23.6 / 51.7 |
+| `bits::and_into` | 19.3 / 46.7 |
+| `bits::weight` | 7.28 / 15.7 |
+| `bits::dot_product` | 18.3 / 43.5 |
+| `bits::xor_range` | 37.6 / 74.3 |
+| `bits::xor_range_with` | 37.6 / 75 |
+
+## Store policy over large destinations
+
+`mul_into` over destinations that straddle the non-temporal store threshold, with the read-back control and `mul_add` beside it.
+
+| Operation | Tiger Lake (GiB/s) | Golden Cove (GiB/s) |
+| --- | ---: | ---: |
+| 1 MiB | `Gf8B` `mul_into` | 18.9 / 26.8 |
+| 1 MiB | `Gf8B` `mul_into` + read | 13.8 / 20.8 |
+| 1 MiB | `Gf8B` `mul_add` | 18.9 / 24.8 |
+| 1 MiB | `Gf16` `mul_into` | 18.4 / 23.1 |
+| 8 MiB | `Gf8B` `mul_into` | 18 / 41.8 |
+| 8 MiB | `Gf8B` `mul_into` + read | 7.63 / 16.5 |
+| 8 MiB | `Gf8B` `mul_add` | 8.36 / 23.9 |
+| 8 MiB | `Gf16` `mul_into` | 18.1 / 41.8 |
+| 32 MiB | `Gf8B` `mul_into` | 9.37 / 27.5 |
+| 32 MiB | `Gf8B` `mul_into` + read | 5.91 / 14.2 |
+| 32 MiB | `Gf8B` `mul_add` | 6.27 / 16.4 |
+| 32 MiB | `Gf16` `mul_into` | 9.29 / 27.9 |
+
+## In-place scale over increasing destinations
+
+Ordinary 64-byte-aligned buffers from 4 KiB to 4 MiB.
+
+| Operation | Tiger Lake (GiB/s) | Golden Cove (GiB/s) |
+| --- | ---: | ---: |
+| 4 KiB | `Gf8B` `mul_assign` | 129 / 175 |
+| 4 KiB | `Gf8D` `mul_assign` | 128 / 172 |
+| 16 KiB | `Gf8B` `mul_assign` | 137 / 187 |
+| 16 KiB | `Gf8D` `mul_assign` | 138 / 186 |
+| 64 KiB | `Gf8B` `mul_assign` | 51.3 / 76.3 |
+| 64 KiB | `Gf8D` `mul_assign` | 51.3 / 68.9 |
+| 256 KiB | `Gf8B` `mul_assign` | 51.5 / 76.6 |
+| 256 KiB | `Gf8D` `mul_assign` | 51.5 / 69.1 |
+| 1 MiB | `Gf8B` `mul_assign` | 48.1 / 52.8 |
+| 1 MiB | `Gf8D` `mul_assign` | 49.1 / 50.6 |
+| 4 MiB | `Gf8D` `mul_into` | 18.1 / 41.7 |
+
+## Scatter destination skew (16-byte skew ÷ aligned)
+
+| Operation | Tiger Lake | Golden Cove |
+| --- | ---: | ---: |
+| 64 KiB rows | `Gf8B` | 1 / 1 |
+| 256 KiB rows | `Gf8B` | 1 / 0.99 |
+| 64 KiB rows | `Gf16` | 1.09 / 1.05 |
+| 256 KiB rows | `Gf16` | 1.05 / 1.01 |
+
+### Preparation crossover (`mul_add` one-shot ÷ prepared)
+
+| Row bytes | `Gf8B` | `Gf16` |
+| --- | ---: | ---: |
+| `16` | 0.981 / 0.957 | 0.903 / 0.869 |
+| `32` | 0.979 / 0.963 | 0.913 / 0.89 |
+| `64` | 0.977 / 1.02 | 0.916 / 0.933 |
+| `128` | 0.991 / 1 | 0.915 / 0.904 |
+| `256` | 0.987 / 1.01 | 0.924 / 0.925 |
+| `512` | 0.989 / 1 | 0.954 / 0.954 |
+| `1024` | 0.989 / 0.989 | 0.968 / 0.969 |
+| `2048` | 1.01 / 0.99 | 0.981 / 0.954 |
+| `4096` | 1 / 1 | 0.992 / 0.994 |
+| `16384` | 0.999 / 0.986 | 1 / 0.999 |
+| `65536` | 0.999 / 0.998 | 0.999 / 1 |
+
+### Small-row fusion (`mul_into` fused ÷ copy+scale)
+
+| Operation | Tiger Lake | Golden Cove |
+| --- | ---: | ---: |
+| 64 B × 16 rows × 8 | 0.794 / 0.851 |
+| 256 B × 16 rows × 8 | 0.872 / 0.963 |
+| 1024 B × 16 rows × 8 | 1.25 / 1.57 |
+| 16384 B × 16 rows × 8 | 1.45 / 1.41 |
+
+### Row-interleaved addition (`add_assign_rows` ÷ flat `add_assign`)
+
+| Row bytes | Rows | `Gf8B` | `Gf16` | `Mersenne31` |
+| --- | ---: | ---: | ---: | ---: |
+| 64 | 1 | 0.85 / 0.985 | 0.64 / 0.864 | 0.75 / 0.926 |
+| 64 | 2 | 0.896 / 0.95 | 0.705 / 0.941 | 0.816 / 0.908 |
+| 64 | 4 | 0.874 / 0.952 | 0.705 / 0.862 | 0.844 / 0.934 |
+| 64 | 8 | 0.864 / 0.959 | 0.793 / 0.871 | 0.894 / 0.972 |
+| 64 | 16 | 0.829 / 0.957 | 0.824 / 0.931 | 0.966 / 0.986 |
+| 64 | 32 | 0.992 / 1.02 | 0.963 / 1.02 | 1.03 / 0.99 |
+| 1024 | 1 | 0.831 / 0.955 | 0.824 / 0.939 | 0.969 / 0.981 |
+| 1024 | 2 | 0.992 / 1.02 | 0.963 / 1.02 | 0.973 / 0.991 |
+| 1024 | 4 | 0.969 / 0.978 | 0.962 / 0.983 | 0.99 / 0.993 |
+| 1024 | 8 | 0.974 / 0.968 | 0.959 / 1.03 | 0.995 / 0.993 |
+| 1024 | 16 | 0.986 / 0.98 | 0.977 / 0.966 | 0.998 / 0.999 |
+| 1024 | 32 | 0.991 / 1 | 0.994 / 1 | 0.995 / 0.998 |
+| 65536 | 1 | 0.999 / 1 | 0.997 / 1 | 0.998 / 1 |
+| 65536 | 2 | 1 / 1 | 0.999 / 1 | 1 / 1 |
+| 65536 | 4 | 1 / 1 | 0.999 / 1 | 0.998 / 1 |
+| 65536 | 8 | 1 / 1 | 1 / 1 | 1 / 1.02 |
+| 65536 | 16 | 1 / 1 | 1 / 1 | 1 / 1 |
+| 65536 | 32 | 1 / 1 | 1 / 1 | 1 / 0.998 |
+
+### Network-size payloads
+
+| Payload bytes | `xor` (GiB/s) | `mul_add` (GiB/s) | `mul_assign` (GiB/s) | scatter 4 rows (GiB/s) | scatter 16 rows (GiB/s) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 64 B | 7.95 / 14.2 | 3.66 / 13.5 | 6.51 / 16.3 | 7.34 / 14.7 | 9.37 / 19.2 |
+| 256 B | 23.7 / 47.7 | 14 / 34.7 | 21.9 / 57.4 | 23.8 / 37.2 | 26.6 / 60.9 |
+| 512 B | 36.8 / 71.3 | 27.1 / 59.4 | 52.4 / 105 | 35.4 / 48.2 | 43.5 / 82.3 |
+| 1152 B | 48.5 / 84.2 | 46.6 / 73 | 81.4 / 137 | 57 / 97.7 | 85.5 / 105 |
+| 1168 B | 46.2 / 77 | 46.7 / 70.6 | 80.8 / 90.7 | 52.6 / 77.5 | 56.5 / 80.6 |
+| 1184 B | 47.8 / 85 | 49.1 / 74 | 86.1 / 137 | 61.4 / 95.7 | 64 / 104 |
+| 1200 B | 46 / 78.1 | 48.2 / 67.1 | 79 / 91.5 | 54.6 / 77.5 | 55.1 / 79.5 |
+| 1216 B | 47.8 / 85.1 | 48.8 / 73.8 | 81.8 / 137 | 63.9 / 94.8 | 84.2 / 104 |
+| 1232 B | 45.9 / 77.8 | 48.4 / 69.7 | 82.7 / 90.7 | 54.6 / 77.7 | 56.8 / 81.3 |
+| 1248 B | 48.3 / 85.7 | 50.8 / 74.4 | 84.2 / 138 | 61.3 / 93.9 | 63.3 / 104 |
+| 1400 B | 47.1 / 77.7 | 40.2 / 59.5 | 68.7 / 86.6 | 41 / 60.1 | 44 / 63 |
+
+### Blocked multi-row ÷ unblocked AXPY (dispatched forms)
+
+A ratio above 1.00 means the blocked form is faster.
+
+| Operation | Tiger Lake | Golden Cove |
+| --- | ---: | ---: |
+| 2 rows | `Gf8B` scatter | 1.22 / 1.44 |
+| 2 rows | `Gf8B` matrix | 2.11 / 2.12 |
+| 2 rows | `Gf8B` gather | 1.24 / 1.19 |
+| 2 rows | `Gf16` scatter | 1.3 / 1.37 |
+| 2 rows | `Gf16` matrix | 0.981 / 1.11 |
+| 2 rows | `Gf16` gather | 1.4 / 1.27 |
+| 4 rows | `Gf8B` scatter | 1.3 / 1.49 |
+| 4 rows | `Gf8B` matrix | 2.89 / 2.4 |
+| 4 rows | `Gf8B` gather | 1.26 / 1.34 |
+| 4 rows | `Gf16` scatter | 1.21 / 1.59 |
+| 4 rows | `Gf16` matrix | 1.05 / 1.3 |
+| 4 rows | `Gf16` gather | 1.67 / 1.48 |
+| 8 rows | `Gf8B` scatter | 1.3 / 1.49 |
+| 8 rows | `Gf8B` matrix | 2.86 / 2.4 |
+| 8 rows | `Gf8B` gather | 1.25 / 1.14 |
+| 8 rows | `Gf16` scatter | 1.21 / 1.59 |
+| 8 rows | `Gf16` matrix | 1.05 / 1.3 |
+| 8 rows | `Gf16` gather | 1.68 / 1.48 |
+| 16 rows | `Gf8B` scatter | 1.28 / 1.26 |
+| 16 rows | `Gf8B` matrix | 2.98 / 3.28 |
+| 16 rows | `Gf8B` gather | 1.23 / 1.36 |
+| 16 rows | `Gf16` scatter | 1.21 / 1.13 |
+| 16 rows | `Gf16` matrix | 1.06 / 1.76 |
+| 16 rows | `Gf16` gather | 1.67 / 1.75 |
+
+## AVX-512 alignment peel floors (peel ÷ no peel, rows at 16 mod 64)
+
+Scatter is four rows, gather sixteen sources, matrix ten sources into four rows. Below 1.00 the peel wins. The adopted floors are `SCATTER_PEEL_MIN` 512, `GATHER_PEEL_MIN` 3072, and `MATRIX_PEEL_MIN` 8192 in `src/kernel/x86/gf8/`.
+
+| Operation | Tiger Lake | Golden Cove |
+| --- | ---: | ---: |
+| 256 | 0.86 / 0.81 | 0.94 / 0.92 | 0.91 / 0.91 |
+| 512 | 0.74 / 0.61 | 0.90 / 0.89 | 0.92 / 0.90 |
+| 1024 | 0.78 / 0.59 | 0.88 / 0.86 | 0.88 / 0.88 |
+| 2048 | 0.89 / 0.96 | 0.86 / 0.86 | 0.90 / 0.88 |
+| 3072 | 0.90 / 0.99 | 0.76 / 0.82 | 0.87 / 0.93 |
+| 4096 | 0.91 / 0.97 | 0.83 / 0.82 | 0.86 / 0.93 |
+| 8192 | 0.97 / 0.97 | 0.91 / 0.82 | 0.88 / 0.94 |
+| 16384 | 1.00 / 1.00 | 0.95 / 0.82 | 0.94 / 0.94 |
+
+## Competitor comparison
+
+The matrix compares `fgf` `Gf8D` against Intel ISA-L and klauspost/reedsolomon over the harness shapes. Throughput counts source bytes. The trio harness interleaves all three arms inside one process, rotating through all six arm orders, so quotients across columns share the same timed session.
+
+| Shape | `fgf` (GiB/s) | Intel ISA-L (GiB/s) | `klauspost/reedsolomon` (GiB/s) |
+| --- | ---: | ---: | ---: |
+| 64 KiB `dst = c * src` | 40.1 / 63.7 | 18.1 / 42.1 | 33.7 / 56.2 |
+| 64 KiB `dst ^= c * src` | 40.9 / 63.5 | 41.2 / 63.8 | 29 / 48.2 |
+| 4 KiB, 16 sources, one row | 82.8 / 102 | 83 / 95.8 | 30.7 / 49.9 |
+| 16 KiB, 16 sources, one row | 89.8 / 105 | 74.9 / 89.9 | 35.7 / 57.2 |
+| 4 KiB, 10 sources, 2 rows | 65.1 / 73.8 | 64.9 / 69.7 | 53.2 / 74.9 |
+| 16 KiB, 10 sources, 2 rows | 63.2 / 71.6 | 52.8 / 65.2 | 67.1 / 85.1 |
+| 64 KiB, 10 sources, 2 rows | 58.4 / 72.1 | 54 / 63.8 | 73.4 / 86.6 |
+| 4 KiB, 10 sources, 4 rows | 34.5 / 40.4 | 35.6 / 35 | 31.7 / 40.6 |
+| 16 KiB, 10 sources, 4 rows | 35.5 / 40.9 | 36.6 / 29.8 | 38.4 / 44.8 |
+| 64 KiB, 10 sources, 4 rows | 33.2 / 39.9 | 35.5 / 31.7 | 40.8 / 45.4 |
+| 4 KiB, 10 sources, 6 rows | 22.3 / 26.6 | 24.2 / 24.5 | 22.3 / 28 |
+| 16 KiB, 10 sources, 6 rows | 22.6 / 26.1 | 25 / 22 | 25.8 / 30.3 |
+| 64 KiB, 10 sources, 6 rows | 20.8 / 25.7 | 23.6 / 23.6 | 26.7 / 30.5 |
+
+### Mersenne31 (scalar multiply)
+
+| Shape | `fgf` (ns/op) | Plonky3 (ns/op) |
+| --- | ---: | ---: |
+| `dst = a * b` | 4.20 / 1.55 | 2.09 / 0.80 |
+
+### Mersenne31 (region operations)
+
+| Shape | `fgf` (GiB/s) | Plonky3 (GiB/s) |
+| --- | ---: | ---: |
+| `dst = c * src` | 33.3 / 58.5 | 65.4 / 72.7 |
+| `dst += c * src` | 24.7 / 42.6 | 49.8 / 57 |
+| `dst = a * b` | 27.4 / 47.2 | 59.8 / 69.4 |
+| `dst += v` | 62.5 / 108 | 103 / 153 |
+| `dst -= v` | 49.9 / 86.3 | 103 / 153 |
+
+### Goldilocks (scalar multiply)
+
+| Shape | `fgf` (ns/op) | Plonky3 (ns/op) |
+| --- | ---: | ---: |
+| `dst = a * b` | 3.75 / 1.64 | 2.60 / 1.10 |
+
+### Goldilocks (region operations)
+
+| Shape | `fgf` (GiB/s) | Plonky3 (GiB/s) |
+| --- | ---: | ---: |
+| `dst = c * src` | 14.4 / 23.8 | 27.4 / 27.1 |
+| `dst += c * src` | 10.8 / 17 | 22.3 / 20.6 |
+| `dst = a * b` | 13.9 / 23.3 | 26.9 / 26.4 |
+| `dst += v` | 58.6 / 49.4 | 103 / 148 |
+| `dst -= v` | 58.7 / 52.7 | 103 / 147 |
+
+### QuadMersenne31 (scalar multiply)
+
+| Shape | `fgf` (ns/op) | Plonky3 (ns/op) |
+| --- | ---: | ---: |
+| `dst = a * b` | 8.97 / 4.42 | 6.98 / 2.91 |
+
+### QuadMersenne31 (region operations)
+
+| Shape | `fgf` (GiB/s) | Plonky3 (GiB/s) |
+| --- | ---: | ---: |
+| `dst = c * src` | 14.8 / 25.9 | 30.6 / 36.1 |
+| `dst += c * src` | 12 / 20.8 | 27 / 31.8 |
+| `dst = a * b` | 7.23 / 12.3 | 23.8 / 26.4 |
+| `dst += v` | 62.5 / 108 | 103 / 153 |
+| `dst -= v` | 49.9 / 86.4 | 103 / 153 |
+
+Region throughput counts one operand pair over 64 KiB regions. The harnesses interleave the two arms inside one process, so quotients across columns are not paired benchmark ratios.
+
+- The Tiger Lake prime-field cells aggregate five dedicated rounds of the recipe's own units (`just bench kernels --m31|--gdl`, then the pinned Plonky3 harness) run under `bench-run`, because the family campaign aborted before its rounds completed.
+
+- The Plonky3 fixture builds with a snapshot-only alignment patch on Tiger Lake: its AVX-512 packed extension element is 128 bytes wide with 64-byte natural alignment, which the harness's self-alignment guard rejects. Golden Cove's narrower packing needed no patch; the patch allocates outside every timed region.
+
+## QuadMersenne31 dispatch thresholds
+
+Ratios are the pooled duplicated scalar control divided by the direct AVX2 candidate, midpoint estimates over two complete pinned criterion executions per host; above 1.00 the vector kernel wins. `vector_elementwise_min_bytes::<QuadMersenne31>()` reports the multiply threshold so consumers choose schedules by row length.
+
+| Bytes | add_assign | sub_assign | mul_add | mul_into | mul_assign | mul_elementwise |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 8 | 0.39 / 0.34 | 0.40 / 0.36 | 0.62 / 0.46 | 0.66 / 0.55 | 1.09 / 1.14 | 0.54 / 0.49 |
+| 16 | 0.50 / 0.33 | 0.53 / 0.46 | 0.99 / 0.65 | 0.82 / 0.81 | 0.82 / 0.93 | 0.85 / 0.71 |
+| 24 | 0.62 / 0.53 | 0.65 / 0.57 | 1.33 / 0.88 | 1.28 / 0.94 | 0.75 / 0.83 | 1.21 / 0.91 |
+| 32 | 2.72 / 2.22 | 2.59 / 2.01 | 2.39 / 1.85 | 2.18 / 1.93 | 1.10 / 1.01 | 1.61 / 1.32 |
+| 40 | 0.91 / 0.75 | 1.02 / 0.82 | 0.88 / 0.67 | 1.24 / 1.09 | 1.13 / 1.27 | 0.81 / 0.67 |
+| 64 | 1.81 / 1.62 | 1.61 / 1.28 | 1.89 / 1.27 | 1.62 / 1.36 | 1.20 / 0.97 | 1.19 / 1.06 |
+| 128 | 0.83 / 1.28 | 1.41 / 0.87 | 1.40 / 1.13 | 1.28 / 1.11 | 1.25 / 1.09 | 1.10 / 1.03 |
+| 256 | 1.16 / 1.13 | 1.21 / 1.12 | 1.15 / 1.03 | 1.12 / 1.01 | 1.12 / 1.03 | 1.09 / 1.01 |
+| 2048 | 1.06 / 1.08 | 1.03 / 1.00 | 0.98 / 0.95 | 0.97 / 0.95 | 0.98 / 0.97 | 1.02 / 1.00 |
+
+## Reproduction
+
+Set `FEC_GOLDEN_CORE` to the host's pinned core and run from the crate root:
 ```sh
 FEC_GOLDEN_CORE=<cpu> just bench-gf-comp
 FEC_GOLDEN_CORE=<cpu> just bench-gdl-comp
@@ -24,451 +455,15 @@ FEC_GOLDEN_CORE=<cpu> just bench-m31-comp
 FEC_GOLDEN_CORE=<cpu> just bench-gf2-comp
 ```
 
-Each `bench-<field>-comp` recipe runs five complete rounds interleaving that
-field family's self suite with every competitor harness wired for the family,
-shuffling the unit order within each round and printing the realized order.
-The granular entry points (`just bench kernels`, `just bench compare`, `just
-bench prime_ntt`) serve self-benchmark reruns; the competitor harnesses run
-only through the `-comp` recipes.
-Results below are one campaign's medians per field family on each host. Small
-nanosecond-scale cases are timer-resolution-sensitive; the larger row and matrix
-cases are the headline measurements.
+Each `bench-<field>-comp` recipe runs five complete rounds interleaving that field family's self suite with every competitor harness wired for the family, shuffling the unit order within each round and printing the realized order. `prime_ntt` runs through `just bench-save prime_ntt` then `just bench prime_ntt` inside `bench-m31-comp`.
 
-## Scalar multiplication
+| Detail | Value |
+| --- | --- |
+| Source of each number | Median of the per-round medians printed by the custom harnesses; `median.point_estimate` over criterion runs for `prime_ntt` |
+| Samples | Up to 64 batches of 32 iterations per printed median; Criterion 10 samples per case |
+| Warm-up / measurement | Custom harnesses warm 16 iterations then spend 250 ms per row; Criterion 300 ms warm-up, 1 s measurement |
+| Competitor versions | ISA-L 2.32.0 (system, runtime dispatch), klauspost/reedsolomon v1.14.2 (Go 1.27.1 C archive, `GOMAXPROCS=1`), Plonky3 0.7.0 (pinned `=0.7.0`, `-C target-cpu=native` builds) |
 
-The scalar harness executes a fixed batch of element multiplications. Results
-are nanoseconds per operation.
+## Coverage
 
-| Field | Lunar Lake | Golden Cove |
-| --- | ---: | ---: |
-| `Gf8B` | 0.38 ns | 0.34 ns |
-| `Gf8D` | 0.38 ns | 0.34 ns |
-| `Gf16` | 1.18 ns | 1.31 ns |
-
-## Single-row packed operations
-
-These rows use 64 KiB, 32-byte-aligned buffers. Throughput is GiB/s.
-
-| Field | Operation | Lunar Lake | Golden Cove |
-| --- | --- | ---: | ---: |
-| `Gf8B` | `mul_add` | 69.70 | 64.58 |
-| `Gf8B` | `mul_into` | 75.76 | 64.60 |
-| `Gf8D` | `mul_add` | 70.51 | 64.75 |
-| `Gf8D` | `mul_into` | 75.50 | 64.65 |
-| `Gf16` | `mul_add` | 63.81 | 56.56 |
-| `Gf16` | `mul_into` | 72.39 | 63.87 |
-
-The broader 256 KiB operation panel uses ordinary `Vec<u8>` buffers.
-
-| Field | Operation | Lunar Lake | Golden Cove |
-| --- | --- | ---: | ---: |
-| `Gf8B` | `add_assign` / XOR | 43.51 | 51.11 |
-| `Gf8B` | `mul_add` | 44.25 | 48.98 |
-| `Gf8B` | `mul_assign` | 59.97 | 67.72 |
-| `Gf8B` | `mul_elementwise` | 31.43 | 39.27 |
-| `Gf16` | `mul_add` | 41.09 | 41.33 |
-| `Gf16` | `mul_assign` | 53.58 | 55.15 |
-| `Gf16` | `mul_elementwise` | 27.42 | 27.97 |
-
-At 64 KiB, prepared and one-shot `mul_add` converge because coefficient
-preparation is small relative to the row loop.
-
-| Field | Form | Lunar Lake | Golden Cove |
-| --- | --- | ---: | ---: |
-| `Gf8B` | one-shot | 51.19 | 47.95 |
-| `Gf8B` | prepared | 48.40 | 48.42 |
-| `Gf16` | one-shot | 44.49 | 40.79 |
-| `Gf16` | prepared | 45.27 | 40.79 |
-
-`QuadMersenne31` dispatches to AVX2 above measured row thresholds — one
-full vector (32 bytes) for the multiplies, two vectors (64 bytes) for add
-and sub, because the mixed vector-plus-tail rows between them lose to the
-scalar loop. The interleaved campaign that set both thresholds compares the
-public scalar dispatch against the direct AVX2 entries per row length;
-ratios below are scalar divided by vector, so above 1.00 the vector kernel
-wins. Two complete pinned criterion runs per host, with the duplicated
-scalar control pooled into the scalar estimate; reproduce with
-`FEC_GOLDEN_CORE=<cpu> just bench-save prime_ntt` then
-`FEC_GOLDEN_CORE=<cpu> just bench prime_ntt`.
-
-| Bytes | `add_assign` | `sub_assign` | `mul_add` | `mul_into` | `mul_assign` | `mul_elementwise` |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 8 | 0.37/0.35 | 0.38/0.35 | 0.45/0.46 | 0.64/0.56 | 1.23/1.15 | 0.54/0.50 |
-| 16 | 0.38/0.42 | 0.60/0.45 | 0.66/0.65 | 0.87/0.81 | 1.04/0.93 | 0.77/0.72 |
-| 24 | 0.44/0.54 | 0.44/0.58 | 0.88/0.88 | 0.99/0.94 | 0.84/0.81 | 0.98/0.91 |
-| 32 | 1.65/2.23 | 1.53/1.99 | 1.86/1.85 | 2.10/1.94 | 1.10/1.01 | 1.92/1.36 |
-| 40 | 0.54/0.75 | 0.64/0.83 | 0.68/0.67 | 1.15/1.09 | 1.49/1.28 | 0.75/0.68 |
-| 64 | 1.50/1.66 | 1.30/1.30 | 1.43/1.28 | 1.49/1.38 | 1.10/0.96 | 1.21/1.08 |
-| 128 | 1.38/1.25 | 1.34/0.63 | 0.98/1.14 | 1.19/1.10 | 1.09/1.09 | 1.05/1.04 |
-| 256 | 1.18/1.09 | 1.21/1.11 | 0.98/1.04 | 1.03/1.00 | 1.01/1.02 | 1.03/1.02 |
-| 2048 | 1.02/1.00 | 1.00/1.03 | 0.97/0.96 | 0.95/0.96 | 0.96/0.97 | 1.00/1.00 |
-
-`vector_elementwise_min_bytes::<QuadMersenne31>()` reports the multiply
-threshold so consumers choose schedules by row length instead of paying the
-vector entry over the scalar body on sub-vector rows.
-
-## In-place elementwise multiply and broadcast scalar add/sub (prime fields)
-
-256 KiB panel buffers, ordinary `Vec<u8>` geometry. `add_assign` and
-`mul_elementwise` are the unchanged three-slice controls beside the new
-in-place and broadcast forms. Throughput is GiB/s.
-
-| Field | Operation | Lunar Lake | Golden Cove |
-| --- | --- | ---: | ---: |
-| `Mersenne31` | `add_assign` | 39.47 | 34.27 |
-| `Mersenne31` | `add_assign_scalar` | 57.31 | 51.76 |
-| `Mersenne31` | `sub_assign_scalar` | 47.29 | 43.50 |
-| `Mersenne31` | `mul_elementwise` | 24.83 | 21.30 |
-| `Mersenne31` | `mul_elementwise_assign` | 25.46 | 21.73 |
-| `Goldilocks` | `add_assign` | 20.08 | 18.39 |
-| `Goldilocks` | `add_assign_scalar` | 26.54 | 23.91 |
-| `Goldilocks` | `sub_assign_scalar` | 28.79 | 25.48 |
-| `Goldilocks` | `mul_elementwise` | 13.05 | 10.52 |
-| `Goldilocks` | `mul_elementwise_assign` | 13.06 | 10.51 |
-| `QuadMersenne31` | `add_assign` | 34.16 | 33.01 |
-| `QuadMersenne31` | `add_assign_scalar` | 53.73 | 50.82 |
-| `QuadMersenne31` | `sub_assign_scalar` | 47.13 | 43.15 |
-| `QuadMersenne31` | `mul_elementwise` | 7.20 | 5.73 |
-| `QuadMersenne31` | `mul_elementwise_assign` | 7.27 | 5.80 |
-
-- Lunar Lake pairing host: Intel Core Ultra 7 258V, CPU 3 pinned
-  (`FEC_GOLDEN_CORE=3`), `v3_gfni_crypto` backend, Linux 7.2.6, rustc 1.98.0,
-  one complete `just bench kernels` run, median per-iteration throughput.
-- Golden Cove pairing host: Intel Core i7-12700K, CPU 8 pinned and isolated
-  (`FEC_GOLDEN_CORE=8`), `v3_gfni_crypto` backend, Linux CachyOS, rustc
-  1.98.1, one complete `just bench kernels` run, median per-iteration
-  throughput.
-
-## Broadcast scalar add/sub (binary fields)
-
-256 KiB panel buffers, ordinary `Vec<u8>` geometry. `add_assign` is the
-unchanged control beside the broadcast forms. Throughput is GiB/s.
-
-| Field | Operation | Lunar Lake | Golden Cove |
-| --- | --- | ---: | ---: |
-| `Gf8B` | `add_assign` | 45.32 | 51.20 |
-| `Gf8B` | `add_assign_scalar` | 63.07 | 67.46 |
-| `Gf8B` | `sub_assign_scalar` | 63.14 | 67.54 |
-| `Gf16` | `add_assign` | 44.85 | 51.16 |
-| `Gf16` | `add_assign_scalar` | 62.98 | 67.46 |
-| `Gf16` | `sub_assign_scalar` | 63.02 | 67.46 |
-
-- Lunar Lake pairing host: Intel Core Ultra 7 258V, CPU 3 pinned
-  (`FEC_GOLDEN_CORE=3`), `v3_gfni_crypto` backend, Linux 7.2.6, rustc 1.98.0,
-  one complete `just bench kernels` run, median per-iteration throughput.
-- Golden Cove pairing host: Intel Core i7-12700K, CPU 8 pinned and isolated
-  (`FEC_GOLDEN_CORE=8`), `v3_gfni_crypto` backend, Linux CachyOS, rustc
-  1.98.1, one complete `just bench kernels` run, median per-iteration
-  throughput.
-
-## Scatter, gather, and matrix
-
-Each row is 64 KiB. Scatter writes eight rows from one source, gather combines
-eight sources into one row, and matrix combines eight sources into eight rows.
-Throughput is GiB/s over the harness's logical operation volume.
-
-| Field | Operation | Geometry | Lunar Lake | Golden Cove |
-| --- | --- | --- | ---: | ---: |
-| `Gf8B` | `mul_add_scatter` | 1 source × 8 rows | 67.24 | 71.43 |
-| `Gf16` | `mul_add_scatter` | 1 source × 8 rows | 56.50 | 52.66 |
-| `Gf8B` | `mul_add_gather` | 8 sources × 1 row | 61.88 | 69.26 |
-| `Gf16` | `mul_add_gather` | 8 sources × 1 row | 65.45 | 77.86 |
-| `Gf8B` | `mul_add_matrix` | 8 sources × 8 rows | 119.14 | 114.29 |
-| `Gf16` | `mul_add_matrix` | 8 sources × 8 rows | 63.44 | 55.60 |
-
-Overwrite matrix results use 64 KiB rows and ten sources. Throughput counts
-source bytes once per call.
-
-| Field | Output rows | Lunar Lake | Golden Cove |
-| --- | --- | ---: | ---: |
-| `Gf8B` | 2 | 66.74 | 62.24 |
-| `Gf8B` | 4 | 35.82 | 34.75 |
-| `Gf8B` | 6 | 22.75 | 22.36 |
-| `Gf8D` | 2 | 68.16 | 65.16 |
-| `Gf8D` | 4 | 37.82 | 38.26 |
-| `Gf8D` | 6 | 24.24 | 24.20 |
-
-## Wider binary fields
-
-These are 256 KiB `mul_add` operations. Throughput is GiB/s.
-
-| Field | Lunar Lake | Golden Cove |
-| --- | ---: | ---: |
-| `Gf16` polynomial tower | 40.68 | 41.73 |
-| `Gf32` polynomial tower | 30.25 | 31.39 |
-| `Gf64` polynomial tower | 18.53 | 17.01 |
-| `FanPaar16` | 18.40 | 17.22 |
-| `FanPaar32` | 7.22 | 6.35 |
-| `FanPaar64` | 2.46 | 1.91 |
-
-## Bit-packed GF(2)
-
-The input size is 256 KiB, representing 2,097,152 field elements. Throughput is
-GiB/s over packed bytes.
-
-| Operation | Lunar Lake | Golden Cove |
-| --- | ---: | ---: |
-| `bits::xor_assign` | 39.81 | 49.42 |
-| `bits::and_into` | 32.62 | 47.52 |
-| `bits::weight` | 21.26 | 15.67 |
-| `bits::dot_product` | 37.17 | 41.49 |
-| `bits::xor_range` | 61.79 | 74.52 |
-| `bits::xor_range_with` | 64.28 | 74.57 |
-
-For 256 calls over 16-byte rows and the bit range `61..69`, the per-call cost
-of the one-shot and prepared forms:
-
-| Form | Lunar Lake | Golden Cove |
-| --- | ---: | ---: |
-| `xor_range` one-shot | 7.15 ns | 5.36 ns |
-| `XorRange` prepared | 2.09 ns | 2.07 ns |
-
-## Self comparisons
-
-`fgf` against `fgf`: prepared forms against one-shot, blocked multi-row kernels
-against per-row loops, and the direct-kernel entries behind dispatch
-thresholds. Cells are **Lunar Lake / Golden Cove**; a ratio is the first form's
-throughput divided by the second, so above 1.00 the first form is faster.
-Every figure comes from the `kernels` and `compare` panels of the field-family
-runs.
-
-### Preparation crossover (`mul_add` one-shot ÷ prepared)
-
-| Row bytes | `Gf8B` | `Gf16` |
-| ---: | ---: | ---: |
-| 16 | 1.01/1.01 | 1.10/1.15 |
-| 32 | 1.04/1.00 | 1.08/1.11 |
-| 64 | 1.04/0.97 | 1.09/1.02 |
-| 128 | 1.03/1.00 | 1.08/1.10 |
-| 256 | 1.03/1.01 | 1.06/1.08 |
-| 512 | 0.99/1.01 | 1.05/1.08 |
-| 1024 | 1.01/1.01 | 1.02/1.04 |
-| 2048 | 1.01/1.01 | 1.01/1.04 |
-| 4096 | 1.00/1.00 | 1.01/1.00 |
-| 16384 | 1.00/1.01 | 1.07/1.00 |
-| 65536 | 1.00/1.00 | 1.00/1.00 |
-
-### Small-row fusion (`mul_into` fused ÷ copy+scale)
-
-| Row bytes | `Gf16` |
-| ---: | ---: |
-| 64 | 0.85/0.87 |
-| 256 | 1.11/0.95 |
-| 1024 | 1.47/1.57 |
-| 16384 | 1.38/1.43 |
-
-### Row-interleaved addition (`add_assign_rows` ÷ flat `add_assign`)
-
-| Row bytes | Rows | `Gf8B` | `Gf16` | `Mersenne31` |
-| ---: | ---: | ---: | ---: | ---: |
-| 64 | 1 | 1.09/0.98 | 0.96/0.96 | 0.75/1.00 |
-| 64 | 2 | 1.12/0.95 | 0.96/0.99 | 1.14/1.00 |
-| 64 | 4 | 0.88/0.96 | 0.91/0.87 | 0.80/1.00 |
-| 64 | 8 | 0.80/0.94 | 0.77/0.91 | 0.93/1.00 |
-| 64 | 16 | 0.85/0.95 | 0.81/0.93 | 1.00/1.00 |
-| 64 | 32 | 1.02/1.01 | 1.04/1.03 | 0.98/1.00 |
-| 1024 | 1 | 0.85/0.95 | 1.02/0.94 | 1.00/1.00 |
-| 1024 | 2 | 1.03/1.01 | 1.04/1.03 | 0.98/1.02 |
-| 1024 | 4 | 1.01/0.98 | 0.99/0.99 | 0.99/0.99 |
-| 1024 | 8 | 0.96/1.00 | 0.94/0.98 | 1.02/1.01 |
-| 1024 | 16 | 0.98/0.99 | 0.96/0.97 | 1.00/1.00 |
-| 1024 | 32 | 1.03/1.01 | 1.05/1.02 | 1.00/0.96 |
-| 65536 | 1 | 0.99/1.01 | 1.01/1.01 | 0.97/1.05 |
-| 65536 | 2 | 1.03/1.00 | 1.01/1.00 | 0.99/0.99 |
-| 65536 | 4 | 0.97/1.00 | 0.98/1.00 | 0.98/1.04 |
-| 65536 | 8 | 0.98/1.00 | 0.99/1.00 | 0.99/1.01 |
-| 65536 | 16 | 0.97/1.00 | 0.98/1.00 | 1.01/1.00 |
-| 65536 | 32 | 1.00/1.00 | 0.98/1.00 | 1.00/1.00 |
-
-### Blocked multi-row ÷ unblocked AXPY
-
-| Rows | `Gf8B` scatter | `Gf8B` matrix | `Gf8B` gather | `Gf16` scatter | `Gf16` matrix | `Gf16` gather |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 2 | 1.78/1.44 | 2.43/2.13 | 0.99/1.19 | 1.25/1.36 | 1.27/1.11 | 1.12/1.27 |
-| 4 | 1.57/1.49 | 2.81/2.37 | 1.13/1.32 | 1.39/1.59 | 1.55/1.29 | 1.26/1.48 |
-| 8 | 1.49/1.49 | 2.79/2.41 | 1.14/1.13 | 1.32/1.40 | 1.53/1.33 | 1.26/1.48 |
-| 16 | 1.48/1.21 | 2.74/3.29 | 1.28/1.36 | 1.37/1.12 | 1.53/1.74 | 1.50/1.74 |
-
-### Blocked ÷ AXPY, GF(2^16) direct kernels
-
-Direct kernel calls per backend tier with dispatch bypassed: the blocked
-multi-row entry against repeated single-row `mul_add`. Matrix shapes exist for
-the `avx2` tier only.
-
-| Shape | `ssse3` | `avx2` | `gfni` |
-| --- | ---: | ---: | ---: |
-| gather 2 sources × 4 KiB | 0.85/0.84 | 0.85/0.79 | 0.99/1.07 |
-| gather 4 sources × 4 KiB | 0.89/0.89 | 0.84/0.82 | 1.34/1.32 |
-| gather 8 sources × 4 KiB | 0.81/0.92 | 0.89/0.84 | 1.47/1.38 |
-| gather 16 sources × 4 KiB | 0.79/0.91 | 0.80/0.79 | 1.78/1.39 |
-| gather 2 sources × 16 KiB | 0.74/0.83 | 0.81/0.78 | 1.03/1.08 |
-| gather 4 sources × 16 KiB | 0.75/0.87 | 0.73/0.78 | 1.21/1.34 |
-| gather 8 sources × 16 KiB | 0.75/0.89 | 0.72/0.78 | 1.17/1.32 |
-| gather 16 sources × 16 KiB | 0.75/0.89 | 0.70/0.77 | 1.09/1.28 |
-| gather 2 sources × 64 KiB | 0.75/0.83 | 0.74/0.77 | 1.10/1.20 |
-| gather 4 sources × 64 KiB | 0.74/0.89 | 0.70/0.78 | 1.23/1.44 |
-| gather 8 sources × 64 KiB | 0.75/0.87 | 0.70/0.76 | 1.25/1.43 |
-| gather 16 sources × 64 KiB | 0.76/0.87 | 0.69/0.74 | 1.26/1.51 |
-| matrix 2 sources × 4 rows × 4 KiB | - | 1.08/1.01 | - |
-| matrix 4 sources × 4 rows × 4 KiB | - | 1.05/1.07 | - |
-| matrix 8 sources × 4 rows × 4 KiB | - | 1.02/1.05 | - |
-| matrix 16 sources × 4 rows × 4 KiB | - | 1.01/1.06 | - |
-| matrix 2 sources × 4 rows × 16 KiB | - | 0.89/0.97 | - |
-| matrix 4 sources × 4 rows × 16 KiB | - | 0.87/0.99 | - |
-| matrix 8 sources × 4 rows × 16 KiB | - | 0.93/1.00 | - |
-| matrix 16 sources × 4 rows × 16 KiB | - | 0.93/1.02 | - |
-| matrix 2 sources × 4 rows × 64 KiB | - | 0.88/0.95 | - |
-| matrix 4 sources × 4 rows × 64 KiB | - | 0.88/0.97 | - |
-| matrix 8 sources × 4 rows × 64 KiB | - | 0.89/0.94 | - |
-| matrix 16 sources × 4 rows × 64 KiB | - | 0.90/0.96 | - |
-
-### Store policy over large destinations
-
-`mul_into` over destinations that straddle the non-temporal store threshold,
-with the read-back control and `mul_add` beside it. Throughput is GiB/s.
-
-| Size | `Gf8B` `mul_into` | `Gf8B` `mul_into` + read | `Gf8B` `mul_add` | `Gf16` `mul_into` |
-| --- | ---: | ---: | ---: | ---: |
-| 1 MiB | 35.51/26.90 | 23.26/21.07 | 40.53/24.83 | 37.91/23.25 |
-| 8 MiB | 35.06/41.76 | 17.32/16.59 | 17.58/23.85 | 34.05/41.69 |
-| 32 MiB | 28.11/28.46 | 14.83/14.39 | 16.42/16.23 | 25.89/27.98 |
-
-### Scatter destination skew (16-byte skew ÷ aligned)
-
-| Row bytes | `Gf8B` | `Gf16` |
-| ---: | ---: | ---: |
-| 65536 | 0.99/1.00 | 1.06/1.05 |
-| 262144 | 0.99/0.99 | 1.03/1.01 |
-
-### Network-size payloads
-
-Throughput is GiB/s at consumer payload lengths.
-
-| Payload bytes | `xor` | `mul_add` | `mul_assign` | scatter 4 rows | scatter 16 rows |
-| ---: | ---: | ---: | ---: | ---: | ---: |
-| 64 | 14.23/16.59 | 12.47/14.45 | 16.44/19.07 | 11.65/14.45 | 14.42/18.87 |
-| 256 | 47.39/42.15 | 39.94/35.32 | 49.22/57.80 | 33.35/33.68 | 50.09/53.28 |
-| 512 | 51.03/69.99 | 52.08/60.55 | 77.85/109.78 | 38.08/48.21 | 66.40/82.09 |
-| 1152 | 94.84/83.53 | 80.97/73.20 | 109.69/137.88 | 91.98/96.64 | 105.74/104.65 |
-| 1168 | 65.55/76.84 | 62.83/71.33 | 74.06/89.25 | 70.68/77.18 | 74.44/80.46 |
-| 1184 | 93.10/84.82 | 78.41/74.29 | 113.46/138.38 | 93.23/95.69 | 103.53/103.48 |
-| 1200 | 64.21/77.91 | 63.19/67.48 | 76.42/90.31 | 72.58/77.41 | 73.87/79.75 |
-| 1216 | 96.38/85.07 | 80.89/73.96 | 113.25/138.32 | 93.64/94.68 | 103.03/104.12 |
-| 1232 | 62.98/77.46 | 60.59/69.94 | 72.56/89.55 | 70.92/77.62 | 75.68/81.00 |
-| 1248 | 95.37/86.10 | 80.68/74.84 | 113.39/138.78 | 97.49/93.51 | 107.85/104.31 |
-| 1400 | 66.12/78.28 | 63.41/59.86 | 73.20/86.03 | 56.71/59.29 | 61.95/62.69 |
-
-### Six-row shuffle table forms
-
-The six-row overwrite kernel with raw coefficient terms against prepacked
-scale tables, 64 KiB rows and ten sources. Throughput is GiB/s.
-
-| Form | `Gf8B` | `Gf8D` |
-| --- | ---: | ---: |
-| raw terms | 8.94/9.30 | 8.97/9.38 |
-| packed tables | 14.26/14.60 | 14.38/14.64 |
-
-## Competitor comparison
-
-The matrix compares `fgf` `Gf8D` against Intel ISA-L and
-`klauspost/reedsolomon` over the harness shapes. Cells are **Lunar Lake /
-Golden Cove**, median GiB/s over source bytes; each cell is a median per host
-over five pinned runs of the harness in the setup tables below. The harnesses
-interleave the two arms inside one process, so quotients across columns are
-not paired benchmark ratios.
-
-| Shape | `fgf` `Gf8D` | Intel ISA-L | `klauspost/reedsolomon` |
-| --- | ---: | ---: | ---: |
-| 64 KiB `dst = c * src` | 74.82/64.68 | 79.91/45.27 | 52.70/56.71 |
-| 64 KiB `dst ^= c * src` | 67.43/65.00 | 67.70/65.27 | 49.05/49.63 |
-| 4 KiB, 16 sources, one row | 87.23/82.42 | 97.66/98.61 | 44.82/50.60 |
-| 16 KiB, 16 sources, one row | 79.15/85.50 | 74.19/90.09 | 52.11/57.01 |
-| 4 KiB, 10 sources, 2 rows | 85.58/75.60 | 79.38/70.27 | 72.04/75.90 |
-| 16 KiB, 10 sources, 2 rows | 75.36/72.39 | 69.46/65.67 | 73.72/85.19 |
-| 64 KiB, 10 sources, 2 rows | 67.12/70.92 | 62.59/64.47 | 65.70/87.54 |
-| 4 KiB, 10 sources, 4 rows | 42.43/40.65 | 37.80/35.27 | 39.57/40.60 |
-| 16 KiB, 10 sources, 4 rows | 40.39/41.07 | 32.03/32.13 | 40.04/45.12 |
-| 64 KiB, 10 sources, 4 rows | 38.82/39.97 | 27.93/29.90 | 43.38/45.88 |
-| 4 KiB, 10 sources, 6 rows | 27.59/26.81 | 28.10/24.66 | 28.14/28.16 |
-| 16 KiB, 10 sources, 6 rows | 24.65/26.25 | 25.93/24.02 | 29.90/29.90 |
-| 64 KiB, 10 sources, 6 rows | 24.13/25.59 | 22.90/21.93 | 30.62/30.46 |
-
-### Prime fields against Plonky3
-
-The matrix compares `fgf` `Mersenne31`, `Goldilocks`, and `QuadMersenne31`
-against Plonky3 — `p3-mersenne-31`, `p3-goldilocks`, and the packed
-quadratic extension `Complex<Mersenne31>` (`X² + 1`) — over the harness
-shapes. Cells are **Lunar Lake / Golden Cove**, median over five pinned
-runs of the harness in the setup tables below. Region throughput is GiB/s
-over one operand pair at 64 KiB regions; scalar rows are nanoseconds per
-element multiply.
-
-| Field | Shape | `fgf` (GiB/s) | Plonky3 (GiB/s) |
-| --- | --- | ---: | ---: |
-| `Mersenne31` | `dst = c * src` | 68.20/58.45 | 80.91/72.89 |
-| `Mersenne31` | `dst += c * src` | 47.40/42.45 | 63.84/57.05 |
-| `Mersenne31` | `dst = a * b` | 52.74/47.19 | 75.28/69.39 |
-| `Mersenne31` | `dst += v` | 114.66/107.83 | 219.71/152.83 |
-| `Mersenne31` | `dst -= v` | 91.88/86.45 | 214.97/152.75 |
-| `Goldilocks` | `dst = c * src` | 27.05/23.78 | 30.24/27.13 |
-| `Goldilocks` | `dst += c * src` | 18.97/16.98 | 22.97/20.44 |
-| `Goldilocks` | `dst = a * b` | 26.54/23.22 | 30.56/26.41 |
-| `Goldilocks` | `dst += v` | 54.24/49.53 | 172.70/147.61 |
-| `Goldilocks` | `dst -= v` | 56.30/52.71 | 167.99/147.81 |
-| `QuadMersenne31` | `dst = c * src` | 29.80/25.88 | 41.14/36.12 |
-| `QuadMersenne31` | `dst += c * src` | 24.07/20.81 | 36.08/31.73 |
-| `QuadMersenne31` | `dst = a * b` | 14.40/12.26 | 29.62/26.21 |
-| `QuadMersenne31` | `dst += v` | 115.09/107.84 | 216.21/152.75 |
-| `QuadMersenne31` | `dst -= v` | 94.17/86.43 | 215.41/152.83 |
-
-Scalar multiplication over the same fixture stream, nanoseconds per
-operation.
-
-| Field | `fgf` (ns/op) | Plonky3 (ns/op) |
-| --- | ---: | ---: |
-| `Mersenne31` | 1.50/1.55 | 0.85/0.80 |
-| `Goldilocks` | 1.63/1.64 | 1.14/1.11 |
-| `QuadMersenne31` | 3.31/4.37 | 2.87/2.91 |
-
-Across both hosts the ordering is identical: Plonky3 leads every recorded
-shape. The lead is widest on the broadcast add/sub and elementwise product
-shapes and narrowest on the Goldilocks scale shapes and the quadratic
-scalar multiply. The fgf-to-Plonky3 ratios agree closely between the two
-hosts, so the comparison's conclusions do not depend on which host runs
-them. Golden Cove's isolated core yields tighter paired bands and smaller
-run-to-run spread than Lunar Lake.
-
-- Each library runs on its own native layout and layout conversion is
-  excluded from every timed region, so the cells compare kernels rather
-  than encodings.
-- Only the AVX2 tier is measured: Plonky3 selects its packed kernels with
-  `cfg(target_feature)`, and the target hosts carry no AVX-512.
-- The harnesses interleave the two arms inside one process, so quotients
-  across columns are not paired benchmark ratios.
-
-### Competitor setup
-
-Commands, aggregation, and library-specific setup for the competitor
-matrices.
-
-**Lunar Lake setup:** CPU 3, `v3_gfni_crypto`, rustc 1.98.0.
-Run commands below from the crate root with `FEC_GOLDEN_CORE=3`.
-
-| Library | Command | Aggregation | Library-specific setup |
-| --- | --- | --- | --- |
-| `fgf` `Gf8D` | `just bench-gf-comp` | Median of five per-run medians | Competitor-harness fixtures, distinct from the fgf-only tables above. |
-| Intel ISA-L 2.32.0 | `just bench-gf-comp` | Median of five per-run medians | System library, runtime dispatch. |
-| `klauspost/reedsolomon` v1.14.2 | `just bench-gf-comp` | Median of five per-run medians | Go 1.27.1 C archive, `GOMAXPROCS=1`; `WithCustomMatrix`, `Encode` for overwrite and `EncodeIdx` for single-source accumulation. |
-| `fgf` prime fields | `just bench-gdl-comp`, `just bench-m31-comp` | Median of five per-run medians | Runtime dispatch; competitor-harness fixtures, distinct from the fgf-only tables above. |
-| Plonky3 `p3-mersenne-31`, `p3-goldilocks` 0.7.0 | `just bench-gdl-comp`, `just bench-m31-comp` | Median of five per-run medians | Pinned `=0.7.0`; compile-time AVX2 kernels, so the harness package builds with `-C target-cpu=native` and the numbers are host-build-specific. |
-
-**Golden Cove setup:** CPU 8, isolated, `v3_gfni_crypto`, rustc 1.98.1.
-Run commands below from the crate root with `FEC_GOLDEN_CORE=8`.
-
-| Library | Command | Aggregation | Library-specific setup |
-| --- | --- | --- | --- |
-| `fgf` `Gf8D` | `just bench-gf-comp` | Median of five per-run medians | Competitor-harness fixtures, distinct from the fgf-only tables above. |
-| Intel ISA-L 2.32.0 | `just bench-gf-comp` | Median of five per-run medians | System library, runtime dispatch. |
-| `klauspost/reedsolomon` v1.14.2 | `just bench-gf-comp` | Median of five per-run medians | Go 1.27.1 C archive, `GOMAXPROCS=1`; `WithCustomMatrix`, `Encode` for overwrite and `EncodeIdx` for single-source accumulation. |
-| `fgf` prime fields | `just bench-gdl-comp`, `just bench-m31-comp` | Median of five per-run medians | Runtime dispatch; competitor-harness fixtures, distinct from the fgf-only tables above. |
-| Plonky3 `p3-mersenne-31`, `p3-goldilocks` 0.7.0 | `just bench-gdl-comp`, `just bench-m31-comp` | Median of five per-run medians | Pinned `=0.7.0`; compile-time AVX2 kernels, so the harness package builds with `-C target-cpu=native` and the numbers are host-build-specific. |
+Every public panel completed five rounds on both hosts; no cell is `-`. The legend above still applies to reruns that drop a host or a family.

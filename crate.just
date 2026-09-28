@@ -91,12 +91,14 @@ bench-gf:
     just bench kernels --gf
     just bench compare
 
-# The binary-field competitor pair. `external/bench-isal/` links the system
-# Intel ISA-L (pkg-config `libisal`); `external/bench-klauspost/` links
-# klauspost/reedsolomon as a Go C archive (Go toolchain in PATH). Both fail
-# loudly when their toolchain is absent rather than dropping the arm. Each
-# round shuffles its units — the self suite, then one invocation of each
-# harness — so no unit systematically owns the warm or cold position.
+# The binary-field competitor trio. `external/bench-trio/` links the system
+# Intel ISA-L (pkg-config `libisal`) and klauspost/reedsolomon as a Go C
+# archive (Go toolchain in PATH) into one binary that interleaves `fgf`,
+# ISA-L, and klauspost over one fixture set, rotating through all six arm
+# orders. The build fails loudly when a toolchain is absent rather than
+# dropping the arm. Each round shuffles its units — the self suite, then
+# one trio invocation — so no unit systematically owns the warm or cold
+# position.
 [group('bench')]
 bench-gf-comp:
     #!/usr/bin/env bash
@@ -109,8 +111,7 @@ bench-gf-comp:
         echo "go not found in PATH; install the Go toolchain" >&2
         exit 1
     }
-    cargo build --release --manifest-path external/bench-isal/Cargo.toml
-    cargo build --release --manifest-path external/bench-klauspost/Cargo.toml
+    cargo build --release --manifest-path external/bench-trio/Cargo.toml
     pin=()
     if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
         pin=(taskset -c "${FEC_GOLDEN_CORE}")
@@ -120,18 +121,15 @@ bench-gf-comp:
     fi
     for run in 1 2 3 4 5; do
         echo "== round ${run}"
-        printf '%s\n' self isal klauspost | shuf | while read -r unit; do
+        printf '%s\n' self trio | shuf | while read -r unit; do
             echo "-- round ${run} unit ${unit}"
             case "${unit}" in
                 self)
                     just bench kernels --gf
                     just bench compare
                     ;;
-                isal)
-                    "${pin[@]}" external/bench-isal/target/release/fgf-bench-isal
-                    ;;
-                klauspost)
-                    "${pin[@]}" external/bench-klauspost/target/release/fgf-bench-klauspost
+                trio)
+                    "${pin[@]}" external/bench-trio/target/release/fgf-bench-trio
                     ;;
             esac
         done
