@@ -21,6 +21,8 @@ mod imp {
     use criterion::{BenchmarkId, Criterion, Throughput, criterion_group};
     use fgf::gf8b;
     use fgf::gf8d;
+    #[cfg(feature = "simd512")]
+    use fgf::internals::kernel::X64V4xToken;
     use fgf::internals::kernel::scalar;
     use fgf::internals::kernel::tables::{affine_8d, scale_table_8d};
     use fgf::internals::kernel::x86;
@@ -46,6 +48,17 @@ mod imp {
     /// Stop early with a clear message rather than SIGILL on a host that
     /// cannot prove the tiers: the affine and native candidates need
     /// AVX2+GFNI, the shuffle baseline needs AVX2.
+    #[cfg(feature = "simd512")]
+    fn require_v4x() -> Option<X64V4xToken> {
+        match X64V4xToken::summon() {
+            Some(v4x) => Some(v4x),
+            None => {
+                eprintln!("skipping: no AVX-512F+AVX-512BW+GFNI on this host");
+                None
+            }
+        }
+    }
+
     fn require_gfni() -> Option<(X64V3GfniCryptoToken, X64V3Token)> {
         match (X64V3GfniCryptoToken::summon(), X64V3Token::summon()) {
             (Some(gfni), Some(avx2)) => Some((gfni, avx2)),
@@ -99,6 +112,20 @@ mod imp {
                     );
                 });
             });
+            #[cfg(feature = "simd512")]
+            if let Some(v4x) = require_v4x() {
+                g.bench_function(BenchmarkId::new("affine512", len), |b| {
+                    b.iter(|| {
+                        x86::gf8::mul_add_affine512(
+                            v4x,
+                            black_box(dst.as_mut_slice()),
+                            map,
+                            table,
+                            black_box(&src),
+                        );
+                    });
+                });
+            }
             g.bench_function(BenchmarkId::new("native_gfni_0x11b", len), |b| {
                 b.iter(|| {
                     x86::gf8::mul_add_gfni(
@@ -132,6 +159,19 @@ mod imp {
                     x86::gf8::mul_assign_affine(gfni, black_box(dst.as_mut_slice()), map, table)
                 });
             });
+            #[cfg(feature = "simd512")]
+            if let Some(v4x) = require_v4x() {
+                g.bench_function(BenchmarkId::new("affine512", len), |b| {
+                    b.iter(|| {
+                        x86::gf8::mul_assign_affine512(
+                            v4x,
+                            black_box(dst.as_mut_slice()),
+                            map,
+                            table,
+                        )
+                    });
+                });
+            }
             g.bench_function(BenchmarkId::new("native_gfni_0x11b", len), |b| {
                 b.iter(|| {
                     x86::gf8::mul_assign_gfni(
@@ -182,6 +222,20 @@ mod imp {
                     );
                 });
             });
+            #[cfg(feature = "simd512")]
+            if let Some(v4x) = require_v4x() {
+                g.bench_function(BenchmarkId::new("affine512", len), |b| {
+                    b.iter(|| {
+                        x86::gf8::mul_into_affine512(
+                            v4x,
+                            black_box(dst.as_mut_slice()),
+                            map,
+                            table,
+                            black_box(&src),
+                        );
+                    });
+                });
+            }
             g.bench_function(BenchmarkId::new("native_gfni_0x11b", len), |b| {
                 b.iter(|| {
                     x86::gf8::mul_into_gfni(
@@ -204,8 +258,10 @@ mod imp {
             return;
         };
         let mut g = group(c, "gf8d scatter");
-        for &row_len in &[16_384usize, 65_536] {
-            for &nrows in &[4usize, 16] {
+        // 1-row isolates blocking overhead (no shared source load); 2 KiB
+        // rows are L1-resident, 16/64 KiB are not.
+        for &row_len in &[2_048usize, 16_384, 65_536] {
+            for &nrows in &[1usize, 4, 16] {
                 let src = noise(row_len, 0xc00 + row_len as u64);
                 let mut rows = noise(row_len * nrows, 0xd00 + row_len as u64);
                 let coeffs: Vec<gf8d::Elem> = (0..nrows)
@@ -249,6 +305,20 @@ mod imp {
                         );
                     });
                 });
+                #[cfg(feature = "simd512")]
+                if let Some(v4x) = require_v4x() {
+                    g.bench_function(BenchmarkId::new("blocked_affine512", &label), |b| {
+                        b.iter(|| {
+                            x86::gf8::mul_add_scatter_affine512(
+                                v4x,
+                                black_box(rows.as_mut_slice()),
+                                row_len,
+                                &coeffs,
+                                black_box(&src),
+                            );
+                        });
+                    });
+                }
             }
         }
         g.finish();
@@ -296,6 +366,19 @@ mod imp {
                         );
                     });
                 });
+                #[cfg(feature = "simd512")]
+                if let Some(v4x) = require_v4x() {
+                    g.bench_function(BenchmarkId::new("blocked_affine512", &label), |b| {
+                        b.iter(|| {
+                            x86::gf8::mul_add_gather_affine512(
+                                v4x,
+                                black_box(dst.as_mut_slice()),
+                                &coeffs,
+                                black_box(&srcs),
+                            );
+                        });
+                    });
+                }
             }
         }
         g.finish();
@@ -357,6 +440,20 @@ mod imp {
                         );
                     });
                 });
+                #[cfg(feature = "simd512")]
+                if let Some(v4x) = require_v4x() {
+                    g.bench_function(BenchmarkId::new("blocked_affine512", &label), |b| {
+                        b.iter(|| {
+                            x86::gf8::mul_add_matrix_affine512(
+                                v4x,
+                                black_box(rows.as_mut_slice()),
+                                row_len,
+                                nrows,
+                                black_box(&terms),
+                            );
+                        });
+                    });
+                }
             }
         }
         g.finish();
