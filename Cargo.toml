@@ -40,7 +40,7 @@ simd = ["std", "dep:archmage"]
 internals = []
 
 [dependencies]
-simdispatch = { version = "=0.1.0", default-features = false }
+simdispatch = { version = "=0.2.0", default-features = false }
 archmage = { version = "=0.9.29", optional = true }
 
 # Benchmarks only; scoping them off wasm keeps `cargo test --target wasm32-*`

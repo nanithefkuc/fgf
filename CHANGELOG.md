@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+**Breaking:** `simdispatch` moves `=0.1.0` to `=0.2.0`. `fgf::Backend` is the
+upstream type re-exported, so crates pinning both must move together; pin
+`simdispatch = "=0.2.0"` alongside this `fgf` (no API names change; the
+ladder gains `V4x`/`V4`).
+
 ## [1.2.1] - 2026-09-24
 
 ### Fixed
