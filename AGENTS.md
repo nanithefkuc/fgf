@@ -183,8 +183,10 @@ the family flags select panels, and no flag runs every panel. The
 `--network-diagnostic` flag isolates matched base offsets and network row
 pitches for the byte-field payload operations.
 `compare` reports `fgf` self-numbers over the competitor-harness fixture
-family plus the six-row shuffle comparison. `affine` and `dot_product` are
-internal investigation harnesses, not headline public benchmarks.
+family plus the six-row shuffle comparison. Its `--peel-diagnostic` flag
+isolates matched source and destination offsets around the AVX-512 peel
+floors. `affine` and `dot_product` are internal investigation harnesses, not
+headline public benchmarks.
 `prime_ntt` interleaves the QuadMersenne31 scalar control against the AVX2
 kernels per row length; its campaign set the dispatch thresholds in
 `src/kernel/quad_mersenne31.rs`.

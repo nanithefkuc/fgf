@@ -1431,7 +1431,7 @@ mod x86 {
         // floor so the peel stays exercised if the floor moves.
         let floor = x86::gf8::MATRIX_PEEL_MIN;
         for &offset in &[1usize, 16, 48] {
-            for &row_len in &[floor, floor + 64] {
+            for &row_len in &[floor - 64, floor, floor + 64] {
                 for &nrows in &[1usize, 2, 4, 7] {
                     let sources: Vec<Vec<u8>> = (0..3usize)
                         .map(|t| noise(row_len, 0xb30 + t as u64))
@@ -1506,32 +1506,37 @@ mod x86 {
                     );
                 }
             }
-            let len = x86::gf8::GATHER_PEEL_MIN + 64;
-            for &nsrcs in &[1usize, 3, 16] {
-                let backings: Vec<Vec<u8>> = (0..nsrcs)
-                    .map(|t| noise(len + 128, 0xb50 + t as u64))
-                    .collect();
-                let srcs: Vec<&[u8]> = backings
-                    .iter()
-                    .map(|b| {
-                        let s = b.as_ptr().align_offset(64) + offset;
-                        &b[s..s + len]
-                    })
-                    .collect();
-                let coeffs: Vec<gf8d::Elem> = (0..nsrcs).map(gf8d_coeff_at).collect();
-                let mut backing = noise(len + 128, 0xb51);
-                let start = backing.as_ptr().align_offset(64) + offset;
-                let mut want = backing[start..start + len].to_vec();
-                for (&coeff, &src) in coeffs.iter().zip(&srcs) {
-                    gf8d_reference(&mut want, coeff, src);
+            for len in [
+                x86::gf8::GATHER_PEEL_MIN - 1,
+                x86::gf8::GATHER_PEEL_MIN,
+                x86::gf8::GATHER_PEEL_MIN + 64,
+            ] {
+                for &nsrcs in &[1usize, 3, 16] {
+                    let backings: Vec<Vec<u8>> = (0..nsrcs)
+                        .map(|t| noise(len + 128, 0xb50 + t as u64))
+                        .collect();
+                    let srcs: Vec<&[u8]> = backings
+                        .iter()
+                        .map(|b| {
+                            let s = b.as_ptr().align_offset(64) + offset;
+                            &b[s..s + len]
+                        })
+                        .collect();
+                    let coeffs: Vec<gf8d::Elem> = (0..nsrcs).map(gf8d_coeff_at).collect();
+                    let mut backing = noise(len + 128, 0xb51);
+                    let start = backing.as_ptr().align_offset(64) + offset;
+                    let mut want = backing[start..start + len].to_vec();
+                    for (&coeff, &src) in coeffs.iter().zip(&srcs) {
+                        gf8d_reference(&mut want, coeff, src);
+                    }
+                    let dst = &mut backing[start..start + len];
+                    x86::gf8::mul_add_gather_affine512(token, dst, &coeffs, &srcs);
+                    assert_eq!(
+                        dst,
+                        want.as_slice(),
+                        "gf8d affine512 peeled gather: +{offset} {len}B x {nsrcs}"
+                    );
                 }
-                let dst = &mut backing[start..start + len];
-                x86::gf8::mul_add_gather_affine512(token, dst, &coeffs, &srcs);
-                assert_eq!(
-                    dst,
-                    want.as_slice(),
-                    "gf8d affine512 peeled gather: +{offset} {len}B x {nsrcs}"
-                );
             }
         }
         // Scattered rows: disjoint offsets, blocked affine against per-term AXPY.

@@ -9,7 +9,7 @@
 //! each peel floor. Buffers are 64-byte aligned to match the ISA-L harness.
 //!
 //! ```sh
-//! cargo bench --features internals --bench compare
+//! just bench compare [--peel-diagnostic]
 //! ```
 
 use std::hint::black_box;
@@ -431,6 +431,25 @@ fn bench_region(label: &str, bytes: usize, mut body: impl FnMut()) {
     println!("  {label:<44} {:>9}  {gib:>7.2} GiB/s", fmt_ns(median));
 }
 
+/// Fixed batches amortize the clock call when comparing peel variants.
+fn bench_peel_region(label: &str, bytes: usize, mut body: impl FnMut()) {
+    for _ in 0..64 {
+        body();
+    }
+    let mut samples = [0.0; 64];
+    for sample in &mut samples {
+        let start = Instant::now();
+        for _ in 0..512 {
+            body();
+        }
+        *sample = start.elapsed().as_secs_f64() * 1e9 / 512.0;
+    }
+    samples.sort_unstable_by(f64::total_cmp);
+    let median = samples[samples.len() / 2];
+    let gib = bytes as f64 / (median / 1e9) / (1024.0 * 1024.0 * 1024.0);
+    println!("  {label:<44} {:>9}  {gib:>7.2} GiB/s", fmt_ns(median));
+}
+
 fn bench_scalar(label: &str, mut body: impl FnMut()) {
     for _ in 0..4 {
         body();
@@ -514,7 +533,7 @@ fn bench_peel_floors() {
             let mut rows = AlignedBuf::noise(len * SCATTER_ROWS + 64, 0x711);
             let rows = &mut rows.as_mut_slice()[off..off + len * SCATTER_ROWS];
             let scatter: Vec<_> = (0..SCATTER_ROWS).map(coeff).collect();
-            bench_region(
+            bench_peel_region(
                 &format!("scatter {SCATTER_ROWS}x{len} off={off}"),
                 len * SCATTER_ROWS,
                 || {
@@ -537,7 +556,7 @@ fn bench_peel_floors() {
             let gather: Vec<_> = (0..GATHER_SOURCES).map(coeff).collect();
             let mut dst = AlignedBuf::noise(len + 64, 0x730);
             let dst = &mut dst.as_mut_slice()[off..off + len];
-            bench_region(
+            bench_peel_region(
                 &format!("gather {GATHER_SOURCES}x{len} off={off}"),
                 len * GATHER_SOURCES,
                 || {
@@ -559,7 +578,7 @@ fn bench_peel_floors() {
                 .collect();
             let mut matrix = AlignedBuf::noise(len * MATRIX_ROWS + 64, 0x750);
             let matrix = &mut matrix.as_mut_slice()[off..off + len * MATRIX_ROWS];
-            bench_region(
+            bench_peel_region(
                 &format!("matrix {MATRIX_TERMS}->{MATRIX_ROWS}x{len} off={off}"),
                 len * MATRIX_TERMS,
                 || {
@@ -577,6 +596,10 @@ fn bench_peel_floors() {
 
 fn main() {
     println!("fgf — backend: {}", backend().name());
+    if std::env::args().any(|arg| arg == "--peel-diagnostic") {
+        bench_peel_floors();
+        return;
+    }
     bench_offset_sweep();
 
     let src8 = AlignedBuf::noise(BYTES, 0x600);

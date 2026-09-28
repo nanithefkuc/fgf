@@ -42,6 +42,9 @@ ladder gains `V4x`/`V4`).
   repeated split-line destination accesses. The AVX-512 scatter path avoids
   peeling when a quarter-line row pitch cannot align its row group.
   The measured payload comparison is in `BENCHMARKS.md`.
+- The AVX-512 peel-floor benchmark now compares the same offsets with and
+  without peeling. The matched comparison supports the existing gather and
+  matrix floors; `BENCHMARKS.md` records the corrected decision.
 
 ## [1.2.2] - 2026-09-30
 

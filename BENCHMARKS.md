@@ -1,6 +1,6 @@
 # Benchmarks
 
-Public API timings. Every cell is **Tiger Lake / Golden Cove**, each the median of five per-run medians; paired ratio cells take the median of per-round ratios. Measurements that are unavailable are denoted with `-`.
+Public API timings. Paired-host cells list **Tiger Lake / Golden Cove**; ratio tables define their operands locally. Each timing is the median of five per-run medians, and paired ratios take the median of per-round ratios. Unavailable measurements are `-`.
 
 ## Environment
 
@@ -411,20 +411,50 @@ A ratio above 1.00 means the blocked form is faster.
 | 16 rows | `Gf16` matrix | 1.06 / 1.76 |
 | 16 rows | `Gf16` gather | 1.67 / 1.75 |
 
-## AVX-512 alignment peel floors (peel ÷ no peel, rows at 16 mod 64)
+## AVX-512 alignment peel floors
 
-Scatter is four rows, gather sixteen sources, matrix ten sources into four rows. Below 1.00 the peel wins. The adopted floors are `SCATTER_PEEL_MIN` 512, `GATHER_PEEL_MIN` 3072, and `MATRIX_PEEL_MIN` 8192 in `src/kernel/x86/gf8/`.
+An offset-skew ratio does not isolate peeling: both operands can follow the
+same path. This comparison holds the `Gf8D` source and destination bases at
+16 mod 64 in both binaries. Gather has sixteen sources; matrix has ten
+sources and four destination rows. The Tiger Lake ratio is no-peel time ÷
+peel time, so values above 1.00 favor peeling. Golden Cove does not execute
+these V4x kernels; its column checks baseline ÷ lower-floor candidate on
+the unchanged v3 backend.
 
-| Operation | Tiger Lake | Golden Cove |
-| --- | ---: | ---: |
-| 256 | 0.86 / 0.81 | 0.94 / 0.92 | 0.91 / 0.91 |
-| 512 | 0.74 / 0.61 | 0.90 / 0.89 | 0.92 / 0.90 |
-| 1024 | 0.78 / 0.59 | 0.88 / 0.86 | 0.88 / 0.88 |
-| 2048 | 0.89 / 0.96 | 0.86 / 0.86 | 0.90 / 0.88 |
-| 3072 | 0.90 / 0.99 | 0.76 / 0.82 | 0.87 / 0.93 |
-| 4096 | 0.91 / 0.97 | 0.83 / 0.82 | 0.86 / 0.93 |
-| 8192 | 0.97 / 0.97 | 0.91 / 0.82 | 0.88 / 0.94 |
-| 16384 | 1.00 / 1.00 | 0.95 / 0.82 | 0.94 / 0.94 |
+| Operation | Row bytes | Tiger Lake: no peel ÷ peel | Golden Cove: unchanged-backend control |
+| --- | ---: | ---: | ---: |
+| gather | 256 | 0.599 | 0.977 |
+| gather | 512 | 0.640 | - |
+| gather | 1024 | 0.737 | - |
+| gather | 2048 | 0.864 | 0.998 |
+| gather | 3072 | 1.352 | - |
+| gather | 4096 | 1.552 | 1.004 |
+| gather | 8192 | 1.781 | - |
+| gather | 16384 | 1.893 | - |
+| matrix | 256 | 0.298 | 0.993 |
+| matrix | 512 | 0.418 | - |
+| matrix | 1024 | 0.592 | - |
+| matrix | 2048 | 0.758 | - |
+| matrix | 3072 | 0.832 | - |
+| matrix | 4096 | 0.926 | 0.990 |
+| matrix | 8192 | 1.087 | 0.995 |
+| matrix | 16384 | 1.162 | - |
+
+- Baseline source: `2ed0840`; copy the revised `benches/compare.rs` into the
+  baseline checkout. For the Tiger Lake variants, set `GATHER_PEEL_MIN` and
+  `MATRIX_PEEL_MIN` together to `usize::MAX` (no peel) or 256 (peel) in
+  `src/kernel/x86/gf8/`. Only these constants differ between variants. The
+  production floors remain 3072 for gather and 8192 for matrix. This sweep
+  does not set the scatter floor.
+- Run `FEC_GOLDEN_CORE=<cpu> just bench compare --peel-diagnostic` for each
+  build; then run the pinned binaries no-peel–peel–no-peel for five rounds.
+  Each round divides the mean of its bracketing control medians by the
+  candidate median; the table takes the median ratio across rounds. The
+  fixed-offset control at 0 mod 64 stays on the same path in both builds.
+  The Golden Cove control interleaves production and lower-floor builds.
+- Builds use `--all-features`, Rust 1.98.1 and the environment table's
+  isolated cores. The benchmark warms each fixture and takes the median of
+  repeated fixed-size batches; each binary prints its resolved backend.
 
 ## Competitor comparison
 
@@ -537,4 +567,4 @@ Each `bench-<field>-comp` recipe runs five complete rounds interleaving that fie
 
 ## Coverage
 
-Every public panel completed five rounds on both hosts; no cell is `-`. The legend above still applies to reruns that drop a host or a family.
+The primary public panels completed five rounds on both hosts. The peel diagnostic marks V4x measurements unavailable on Golden Cove; its v3 control cells are labelled separately.
