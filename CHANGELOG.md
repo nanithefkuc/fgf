@@ -46,6 +46,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The prime-field competitor harness builds `fgf` with `simd512`, so a
+  Tiger Lake run measures the `V4x` tier it resolves; the family recipes
+  pass the feature. Tiger Lake prime columns recorded before this change
+  measured `fgf` at `v3_gfni_crypto`.
+- The `Gf16` AVX-512 matrix kernels broadcast each coefficient pair once
+  per term block instead of once per destination lane; the Tiger Lake
+  comparison is in `BENCHMARKS.md`.
+
 - The binary-field competitor harnesses are one three-arm binary,
   `external/bench-trio/`, replacing `bench-isal` and `bench-klauspost`: it
   interleaves `fgf`, Intel ISA-L, and klauspost/reedsolomon over one fixture
@@ -65,6 +73,10 @@ ladder gains `V4x`/`V4`).
 
 ### Fixed
 
+- On `V4x`, `Gf16` `mul_into` peels its destination above the same measured
+  floor as `mul_add`, and `Gf8B` overwrite gather uses the register-blocked
+  one-row matrix rather than filling then accumulating. Results are in
+  `BENCHMARKS.md`, "AVX-512 overwrite and matrix fixes".
 - Half-lane-skewed GFNI in-place scaling and short blocked scatter avoid
   repeated split-line destination accesses. The AVX-512 scatter path avoids
   peeling when a quarter-line row pitch cannot align its row group.

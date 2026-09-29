@@ -349,11 +349,28 @@ impl KernelDispatch for Gf8B {
     }
 
     fn mul_into_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+        // One destination pass instead of the fill-then-accumulate pair: the
+        // one-row overwrite matrix holds the tile in registers from zero,
+        // exactly as the `Gf8D` overwrite gather below.
+        #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+        if backend() == Backend::V4x {
+            let terms = crate::kernel::FlatMatrix {
+                coefficients: coeffs,
+                nrows: 1,
+                sources: srcs,
+            };
+            return x86::gf8::mul_into_matrix_affine512_with(
+                crate::kernel::x86_v4x_token(),
+                dst,
+                dst.len(),
+                1,
+                &terms,
+            );
+        }
         dst.fill(0);
         Self::mul_add_gather(RawDispatch, dst, coeffs, srcs);
     }
 
-    #[cfg(feature = "alloc")]
     #[cfg(feature = "alloc")]
     fn mul_into_gather_plan(
         _proof: RawDispatch,
@@ -940,6 +957,7 @@ impl KernelDispatch for Gf8D {
         coeffs: &[Self::Prepared],
         src: &[u8],
     ) {
+        let _ = coeffs;
         // Prepared scatter: the grouped rows read stored maps instead of
         // re-deriving them per row.
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -988,6 +1006,7 @@ impl KernelDispatch for Gf8D {
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
+        let _ = coeffs;
         // Prepared accumulate gather: the blocked tile reads stored maps
         // instead of re-deriving them per tile.
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]

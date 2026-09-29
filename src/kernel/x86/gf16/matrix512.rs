@@ -126,12 +126,17 @@ fn matrix_group<const N: usize, M: Matrix<Elem> + ?Sized>(
     let full = span / 64 * 64;
     for block in (0..terms.len()).step_by(TERM_BLOCK) {
         let count = (terms.len() - block).min(TERM_BLOCK);
-        let mut words = [[(0i16, 0i16); N]; TERM_BLOCK];
-        for (term, group) in words.iter_mut().take(count).enumerate() {
+        let mut factors: [[(__m512i, __m512i); N]; TERM_BLOCK] =
+            core::array::from_fn(|_| [(_mm512_setzero_si512(), _mm512_setzero_si512()); N]);
+        for (term, group) in factors.iter_mut().enumerate().take(count) {
             for (k, pair) in group.iter_mut().enumerate() {
-                *pair = super::broadcast_words(TowerCoeff::new(
+                let (same, cross) = super::broadcast_words(TowerCoeff::new(
                     *terms.coefficient(block + term, first + k),
                 ));
+                // One broadcast per term and row for the whole block: the
+                // offset loop reuses these instead of re-issuing them for
+                // every 64-byte lane.
+                *pair = (_mm512_set1_epi16(same), _mm512_set1_epi16(cross));
             }
         }
         for offset in (0..full).step_by(64) {
@@ -141,22 +146,14 @@ fn matrix_group<const N: usize, M: Matrix<Elem> + ?Sized>(
                     .expect("complete destination lane");
                 _mm512_loadu_si512(lane)
             });
-            for (term, pairs) in words.iter().take(count).enumerate() {
+            for (term, group) in factors.iter().enumerate().take(count) {
                 let source: &[u8; 64] = terms.source(block + term)[offset..offset + 64]
                     .try_into()
                     .expect("complete source lane");
                 let x = _mm512_loadu_si512(source);
                 let swapped = _mm512_shuffle_epi8(x, swap);
-                for (value, &(same, cross)) in acc.iter_mut().zip(pairs) {
-                    *value = _mm512_xor_si512(
-                        *value,
-                        scale512(
-                            x,
-                            swapped,
-                            _mm512_set1_epi16(same),
-                            _mm512_set1_epi16(cross),
-                        ),
-                    );
+                for (value, &(same, cross)) in acc.iter_mut().zip(group) {
+                    *value = _mm512_xor_si512(*value, scale512(x, swapped, same, cross));
                 }
             }
             for (row, value) in rows.iter_mut().zip(acc) {

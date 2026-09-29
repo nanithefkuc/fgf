@@ -391,6 +391,30 @@ modulo the cache-line width. Ratios are baseline time ÷ candidate time
 - Run `FEC_GOLDEN_CORE=<cpu> just bench kernels --network-diagnostic` to build each checkout, then run its pinned benchmark binary in baseline–candidate–baseline order for five rounds. Compute each round's average bracketing baseline time divided by candidate time; the cells are medians of those paired ratios. The baseline checkout needs the candidate's `benches/kernels.rs` diagnostic harness copied in before building. Each binary reports its resolved backend.
 - Both builds use `--all-features`, Rust 1.98.1, `taskset` on the environment table's core, and the same warm inputs at fixed offsets. Each cell is a median of fixed-count repeated batches after warm-up. The unchanged bracketing baseline is the drift control; rows with unstable controls are excluded from this table. `V4x` executes on Tiger Lake and `v3_gfni_crypto` on Golden Cove.
 
+### AVX-512 overwrite and matrix fixes
+
+Baseline `c976532b87cd0866`; candidates `0bcadaaeb3d49196` (five-round
+campaign, three rounds for matrix and gather) and `c5072e891ee05aaf`
+(confirmation). Fingerprints are sha256 over sorted `src/` and `benches/`.
+The candidate builds also contain v3 changes; the Tiger Lake rows below
+execute `V4x`. Cells are baseline time ÷
+candidate time, medians of per-round ratios; above 1.00 favours the candidate.
+
+| Surface | Shape | Tiger Lake | Golden Cove |
+| --- | --- | ---: | ---: |
+| `Gf16 mul_into` (V4x peel) | 3.5–16 KiB, base 16 mod 64 | 1.05–1.10 | - |
+| `Gf8B` overwrite gather, raw and prepared | 4–16 KiB × 16 sources | 1.05–1.14 | 1.00 |
+| `Gf16` AVX-512 matrix, selected and prepared | 8 sources × 2–16 rows | 1.14–1.18 | - |
+
+- Controls: `Gf8D` gather on `V4x` 0.98–1.00 and `Gf8B` matrix
+  0.98–1.03. The `Gf8B` gather control on Golden Cove reads 1.00.
+- The `Gf16` two-row gather on `V4x` reads 0.94 across measured builds;
+  the matrix rows above use a separate dispatched path.
+- Unchanged-path cells moved between builds: `Gf16` two-row scatter read
+  1.01 in one build and 0.84 in the next, with identical kernels.
+- Rows come from `peel_probe` (peel and gather) and `kernels --gf`
+  (matrix), pinned to the environment table's core with rotated round order.
+
 ### Blocked multi-row ÷ unblocked AXPY (dispatched forms)
 
 A ratio above 1.00 means the blocked form is faster.
@@ -707,6 +731,26 @@ The matrix compares `fgf` `Gf8D` against Intel ISA-L and klauspost/reedsolomon o
 | `dst = a * b` | 27.4 / 47.2 | 59.8 / 69.4 |
 | `dst += v` | 62.5 / 108 | 103 / 153 |
 | `dst -= v` | 49.9 / 86.3 | 103 / 153 |
+
+### Mersenne31 with `simd512` on Tiger Lake
+
+One pinned invocation of the prime harness built with
+`--features fgf/simd512`, the feature set the family recipes now build;
+the Plonky3 arm is the unchanged AVX2 body.
+
+| Shape | `fgf` (GiB/s) | Plonky3 (GiB/s) |
+| --- | ---: | ---: |
+| `dst = c * src` | 48.0 | 65.4 |
+| `dst += c * src` | 33.5 | 49.8 |
+| `dst = a * b` | 37.2 | 59.9 |
+| `dst += v` | 87.6 | 102.9 |
+| `dst -= v` | 70.3 | 102.9 |
+
+- The Mersenne31 panel above was recorded with `fgf` resolving
+  `v3_gfni_crypto`: the pre-change harness builds no `simd512`, and a
+  forced-`V3` rerun of the `simd512` build reproduces those cells, which
+  attributes the difference to the build's feature set. The Goldilocks
+  and QuadMersenne31 panels carry the same qualifier.
 
 ### Goldilocks (scalar multiply)
 

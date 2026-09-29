@@ -42,7 +42,8 @@ pub(super) fn scale512(x: __m512i, swapped: __m512i, same: __m512i, cross: __m51
     )
 }
 
-/// Shortest `mul_add` destination that peels its head to a 64-byte boundary.
+/// Shortest single-row destination that peels its head to a 64-byte
+/// boundary. `mul_add` and `mul_into` share the floor.
 ///
 /// The peel runs up to 62 bytes through the 32-byte GFNI kernel, which
 /// repays only once the 64-byte body is long enough. Set by the threshold
@@ -151,6 +152,14 @@ pub fn mul_into512(token: archmage::X64V4xToken, dst: &mut [u8], coeff: TowerCoe
     );
     if dst.len() < 64 {
         return gfni::mul_into_gfni(token.v3_gfni_crypto(), dst, coeff, src);
+    }
+    // The peel fires only from `MUL_ADD_PEEL_MIN` bytes, far above one
+    // lane, so the body below always has a whole 64-byte lane left.
+    let head = peel64(dst);
+    let (dst_head, dst) = dst.split_at_mut(head);
+    let (src_head, src) = src.split_at(head);
+    if head > 0 {
+        gfni::mul_into_gfni(token.v3_gfni_crypto(), dst_head, coeff, src_head);
     }
     let (same, cross) = factors512(coeff);
     let swap = swap512();

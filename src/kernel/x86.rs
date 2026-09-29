@@ -105,21 +105,22 @@ pub(super) fn prefetch_tile(target: &[u8]) {
     prefetch_line(&target[64]);
 }
 
+/// Whether a fused overwrite of `len` bytes should take the streaming
+/// path: the same threshold [`nt_split`] applies, without committing to a
+/// peel. Lets a wider entry defer to the AVX2 streaming body past the point
+/// where eviction pays.
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline]
+pub(crate) fn wants_nt_store(len: usize) -> bool {
+    len >= NT_STORE_MIN
+}
+
 /// Head bytes to store normally so that a non-temporal body starts on a
 /// 32-byte boundary, or `None` when this destination should stay temporal.
 ///
 /// `None` covers a destination too small to repay the eviction, and the case
 /// where the alignment peel would not be a whole number of `elem_bytes`
 /// elements — a kernel may only split a buffer on an element boundary.
-/// Whether a fused overwrite of `len` bytes should take the streaming
-/// path: the same threshold [`nt_split`] applies, without committing to a
-/// peel. Lets a wider entry defer to the AVX2 streaming body past the point
-/// where eviction pays.
-#[inline]
-pub(crate) fn wants_nt_store(len: usize) -> bool {
-    len >= NT_STORE_MIN
-}
-
 #[inline]
 pub(super) fn nt_split(dst: &[u8], elem_bytes: usize) -> Option<usize> {
     if dst.len() < NT_STORE_MIN {

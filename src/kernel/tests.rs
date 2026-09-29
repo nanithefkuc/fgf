@@ -33,9 +33,11 @@ use crate::field::{
 use crate::kernel::scalar;
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::kernel::tables::FpTowerTables;
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+use crate::kernel::tables::affine_8b;
 use crate::kernel::tables::{ScaleTable, TowerCoeff, TowerTables, scale_table};
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-use crate::kernel::tables::{affine_8b, affine_8d, scale_table_8d};
+use crate::kernel::tables::{affine_8d, scale_table_8d};
 use crate::kernel::{KernelDispatch, RawDispatch};
 
 /// Lengths covering: empty, sub-lane, exact lanes, lane+1, several unroll
@@ -716,6 +718,7 @@ fn check_gf8_affine_mul_into(name: &str, kernel: impl Fn(&mut [u8], u64, &ScaleT
     });
 }
 
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
 fn for_each_gf8_affine_case(case: impl FnMut(gf8b::Elem, &[u8])) {
     let mut case = case;
     for &len in LENGTHS {
@@ -1305,6 +1308,33 @@ mod x86 {
                     x86::gf16::mul_add512(token, dst, TowerCoeff::new(coeff), src);
                     assert_eq!(&*dst, want, "gf16 mul_add512: len {len}, offset {offset}");
                     dst.copy_from_slice(&before);
+                }
+            }
+        }
+    }
+
+    /// Misaligned destinations across the shared 64-byte peel floor for the
+    /// wide overwrite body, beside the `mul_add` coverage above.
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn gf16_wide_mul_into_peels_misaligned_rows() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        let floor = x86::gf16::MUL_ADD_PEEL_MIN;
+        for len in [floor - 2, floor, floor + 2, floor + 130, 4096 + 66] {
+            for offset in [0usize, 1, 2, 16, 34, 62] {
+                let src_storage = noise(len + 64, 0xb65);
+                let mut dst_storage = noise(len + 128, 0xb66);
+                let base = dst_storage.as_ptr().align_offset(64);
+                let dst = &mut dst_storage[base + offset..base + offset + len];
+                let src = &src_storage[offset..offset + len];
+                for coeff in gf16_coeffs() {
+                    let mut want = src.to_vec();
+                    scalar::mul_assign::<gf16::Gf16>(&mut want, coeff);
+                    x86::gf16::mul_into512(token, dst, TowerCoeff::new(coeff), src);
+                    assert_eq!(&*dst, want, "gf16 mul_into512: len {len}, offset {offset}");
                 }
             }
         }

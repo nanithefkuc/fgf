@@ -96,6 +96,11 @@ name = "perf_p2"
 # Calls internal experimental two-row overwrite kernels directly.
 required-features = ["std", "simd", "internals"]
 
+[[example]]
+name = "peel_probe"
+# The prepared CoeffVec gather form needs the allocation feature.
+required-features = ["std", "alloc"]
+
 [[test]]
 name = "internals"
 required-features = ["std", "simd", "internals"]

@@ -148,7 +148,7 @@ bench-gdl:
 bench-gdl-comp:
     #!/usr/bin/env bash
     set -euo pipefail
-    RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml
+    RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml --features fgf/simd512
     echo "bench-gdl-comp: five rounds, units self p3"
     pin=()
     if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
@@ -186,7 +186,7 @@ bench-m31:
 bench-m31-comp:
     #!/usr/bin/env bash
     set -euo pipefail
-    RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml
+    RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml --features fgf/simd512
     echo "bench-m31-comp: five rounds, units self p3"
     pin=()
     if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
