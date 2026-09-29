@@ -2575,12 +2575,15 @@ mod x86 {
         let source = noise(NT_LEN + 2, 0x2b8);
         for offset in [0, 1] {
             let src = &source[offset..offset + NT_LEN];
-            let mut buffer = vec![0u8; NT_LEN + 1];
+            // Noise, not zeros: a streaming body that accumulated into the
+            // destination instead of overwriting it must fail this check.
+            let mut buffer = noise(NT_LEN + 1, 0x2b9);
             for coeff in [0u8, 1, 0x53, 0xff].map(gf8d::Elem) {
                 let mut want = src.to_vec();
                 scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
                 let got = &mut buffer[offset..offset + NT_LEN];
                 x86::gf8::mul_into_affine(token, got, affine_8d(coeff), scale_table_8d(coeff), src);
+                assert_eq!(&*got, want, "gf8d affine NT mul_into: offset {offset}");
             }
         }
 
@@ -2621,6 +2624,153 @@ mod x86 {
             |dst, coeffs, srcs| x86::gf8::mul_add_gather_affine(token, dst, coeffs, srcs),
         );
         check_gf8d_scattered_affine_rows(token);
+    }
+
+    /// Field-independent XOR across the half-lane peel floor: the 16-mod-32
+    /// residues that peel, their odd neighbours that decline, and every
+    /// destination offset against the byte-wise reference.
+    #[test]
+    fn bytes_avx2_peels_half_lane() {
+        if !host_supports(&[Backend::V3]) {
+            eprintln!("skipping: no AVX2 on this host");
+            return;
+        }
+        let token = X64V3Token::summon().expect("guard passed: AVX2 summons here");
+        let floor = x86::HALF_LANE_PEEL_MIN;
+        for len in [floor - 2, floor - 1, floor, floor + 1, floor + 130, 1152] {
+            for offset in [0usize, 1, 2, 15, 16, 17, 31, 32, 47] {
+                let src_storage = noise(len + 64, 0x2c1);
+                let mut dst_storage = noise(len + 128, 0x2c2);
+                let base = dst_storage.as_ptr().align_offset(64);
+                let dst = &mut dst_storage[base + offset..base + offset + len];
+                let src = &src_storage[offset..offset + len];
+                let mut want = dst.to_vec();
+                scalar::xor(&mut want, src);
+                x86::bytes::xor_avx2(token, dst, src);
+                assert_eq!(&*dst, want, "xor_avx2: len {len}, offset {offset}");
+            }
+        }
+    }
+
+    /// The `GF2P8MULB` byte kernels across the half-lane peel floor, against
+    /// the scalar reference for all three single-row forms.
+    #[test]
+    fn gf8_gfni_peels_half_lane() {
+        if !host_supports(&[Backend::V3GfniCrypto]) {
+            eprintln!("skipping: no AVX2+GFNI on this host");
+            return;
+        }
+        let token = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
+        let floor = x86::HALF_LANE_PEEL_MIN;
+        for len in [floor - 2, floor - 1, floor, floor + 1, floor + 130, 1152] {
+            for offset in [0usize, 1, 2, 15, 16, 17, 31, 32, 47] {
+                let src_storage = noise(len + 64, 0x2c3);
+                let mut dst_storage = noise(len + 128, 0x2c4);
+                let base = dst_storage.as_ptr().align_offset(64);
+                let dst = &mut dst_storage[base + offset..base + offset + len];
+                let src = &src_storage[offset..offset + len];
+                for coeff in [0u8, 1, 0x53, 0xff].map(gf8b::Elem) {
+                    let before = dst.to_vec();
+                    let mut want = before.clone();
+                    scalar::mul_add::<gf8b::Gf8B>(&mut want, coeff, src);
+                    x86::gf8::mul_add_gfni(token, dst, coeff, src);
+                    assert_eq!(&*dst, want, "mul_add_gfni: len {len}, offset {offset}");
+                    dst.copy_from_slice(&before);
+                    let mut want = before.clone();
+                    scalar::mul_assign::<gf8b::Gf8B>(&mut want, coeff);
+                    x86::gf8::mul_assign_gfni(token, dst, coeff);
+                    assert_eq!(&*dst, want, "mul_assign_gfni: len {len}, offset {offset}");
+                    let mut want = src.to_vec();
+                    scalar::mul_assign::<gf8b::Gf8B>(&mut want, coeff);
+                    x86::gf8::mul_into_gfni(token, dst, coeff, src);
+                    assert_eq!(&*dst, want, "mul_into_gfni: len {len}, offset {offset}");
+                }
+            }
+        }
+    }
+
+    /// The `VGF2P8AFFINEQB` byte kernels across the half-lane peel floor,
+    /// against the scalar reference for all three single-row forms.
+    #[test]
+    fn gf8d_affine_peels_half_lane() {
+        if !host_supports(&[Backend::V3GfniCrypto]) {
+            eprintln!("skipping: no AVX2+GFNI on this host");
+            return;
+        }
+        let token = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
+        let floor = x86::HALF_LANE_PEEL_MIN;
+        for len in [floor - 2, floor - 1, floor, floor + 1, floor + 130, 1152] {
+            for offset in [0usize, 1, 2, 15, 16, 17, 31, 32, 47] {
+                let src_storage = noise(len + 64, 0x2c5);
+                let mut dst_storage = noise(len + 128, 0x2c6);
+                let base = dst_storage.as_ptr().align_offset(64);
+                let dst = &mut dst_storage[base + offset..base + offset + len];
+                let src = &src_storage[offset..offset + len];
+                for coeff in [0u8, 1, 0x53, 0xff].map(gf8d::Elem) {
+                    let map = affine_8d(coeff);
+                    let table = scale_table_8d(coeff);
+                    let before = dst.to_vec();
+                    let mut want = before.clone();
+                    scalar::mul_add::<gf8d::Gf8D>(&mut want, coeff, src);
+                    x86::gf8::mul_add_affine(token, dst, map, table, src);
+                    assert_eq!(&*dst, want, "mul_add_affine: len {len}, offset {offset}");
+                    dst.copy_from_slice(&before);
+                    let mut want = before.clone();
+                    scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
+                    x86::gf8::mul_assign_affine(token, dst, map, table);
+                    assert_eq!(&*dst, want, "mul_assign_affine: len {len}, offset {offset}");
+                    let mut want = src.to_vec();
+                    scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
+                    x86::gf8::mul_into_affine(token, dst, map, table, src);
+                    assert_eq!(&*dst, want, "mul_into_affine: len {len}, offset {offset}");
+                }
+            }
+        }
+    }
+
+    /// The GF(2^16) GFNI kernels across the half-lane peel floor: even
+    /// lengths over every destination residue, so declined odd heads stay
+    /// covered beside the peeled 16-mod-32 ones.
+    #[test]
+    fn gf16_gfni_peels_half_lane() {
+        if !host_supports(&[Backend::V3GfniCrypto]) {
+            eprintln!("skipping: no AVX2+GFNI on this host");
+            return;
+        }
+        let token = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
+        let floor = x86::HALF_LANE_PEEL_MIN;
+        for len in [floor - 2, floor, floor + 2, floor + 130, 1152, 4096 + 66] {
+            for offset in [0usize, 1, 2, 15, 16, 17, 31, 32, 47] {
+                let src_storage = noise(len + 64, 0x2c7);
+                let mut dst_storage = noise(len + 128, 0x2c8);
+                let base = dst_storage.as_ptr().align_offset(64);
+                let dst = &mut dst_storage[base + offset..base + offset + len];
+                let src = &src_storage[offset..offset + len];
+                for coeff in gf16_coeffs() {
+                    let prepared = TowerCoeff::new(coeff);
+                    let before = dst.to_vec();
+                    let mut want = before.clone();
+                    scalar::mul_add::<gf16::Gf16>(&mut want, coeff, src);
+                    x86::gf16::mul_add_gfni(token, dst, prepared, src);
+                    assert_eq!(&*dst, want, "gf16 mul_add_gfni: len {len}, offset {offset}");
+                    dst.copy_from_slice(&before);
+                    let mut want = before.clone();
+                    scalar::mul_assign::<gf16::Gf16>(&mut want, coeff);
+                    x86::gf16::mul_assign_gfni(token, dst, prepared);
+                    assert_eq!(
+                        &*dst, want,
+                        "gf16 mul_assign_gfni: len {len}, offset {offset}"
+                    );
+                    let mut want = src.to_vec();
+                    scalar::mul_assign::<gf16::Gf16>(&mut want, coeff);
+                    x86::gf16::mul_into_gfni(token, dst, prepared, src);
+                    assert_eq!(
+                        &*dst, want,
+                        "gf16 mul_into_gfni: len {len}, offset {offset}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

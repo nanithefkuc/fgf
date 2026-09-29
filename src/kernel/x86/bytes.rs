@@ -6,6 +6,7 @@
 //! the row-interleaved candidates walk their groups through `#[rite]` tier
 //! helpers.
 
+use super::HALF_LANE_PEEL_MIN;
 use crate::kernel::scalar;
 
 /// `dst ^= src` using 32-byte AVX2 lanes.
@@ -16,6 +17,27 @@ use crate::kernel::scalar;
 #[archmage::arcane(import_intrinsics)]
 pub fn xor_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8]) {
     assert_eq!(dst.len(), src.len());
+    // A destination 16 bytes into a 32-byte lane splits every store across
+    // cache lines; one 16-byte head aligns the whole remaining body. The
+    // floor is [`HALF_LANE_PEEL_MIN`] ("v3 half-lane peels and
+    // overwrite-gather dispatch", `BENCHMARKS.md`). The aligned path passes
+    // its slices through untouched so the peel check is its only cost.
+    if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
+        let (dst16, _) = dst[..16].as_chunks_mut::<16>();
+        let (src16, _) = src[..16].as_chunks::<16>();
+        let d = _mm_loadu_si128(&dst16[0]);
+        let s = _mm_loadu_si128(&src16[0]);
+        _mm_storeu_si128(&mut dst16[0], _mm_xor_si128(d, s));
+        xor_avx2_body(&mut dst[16..], &src[16..]);
+    } else {
+        xor_avx2_body(dst, src);
+    }
+}
+
+/// The `xor_avx2` lanes over the slices the entry hands them: 128-byte
+/// tiles, single 32-byte lanes, a 16-byte step, then the scalar tail.
+#[archmage::rite(v3, import_intrinsics)]
+fn xor_avx2_body(dst: &mut [u8], src: &[u8]) {
     let (dst_tiles, dst_tail) = dst.as_chunks_mut::<128>();
     let (src_tiles, src_tail) = src.as_chunks::<128>();
     for (dst_tile, src_tile) in dst_tiles.iter_mut().zip(src_tiles) {
@@ -31,7 +53,7 @@ pub fn xor_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8]) {
     let (dst_lanes, dst_tail) = dst_tail.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src_tail.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let d = _mm256_loadu_si256(&*dst_lane);
+        let d = _mm256_loadu_si256(dst_lane);
         let s = _mm256_loadu_si256(src_lane);
         _mm256_storeu_si256(dst_lane, _mm256_xor_si256(d, s));
     }
@@ -39,7 +61,7 @@ pub fn xor_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8]) {
     let (dst_lanes, dst_tail) = dst_tail.as_chunks_mut::<16>();
     let (src_lanes, src_tail) = src_tail.as_chunks::<16>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let d = _mm_loadu_si128(&*dst_lane);
+        let d = _mm_loadu_si128(dst_lane);
         let s = _mm_loadu_si128(src_lane);
         _mm_storeu_si128(dst_lane, _mm_xor_si128(d, s));
     }

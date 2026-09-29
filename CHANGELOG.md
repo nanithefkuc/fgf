@@ -73,10 +73,20 @@ ladder gains `V4x`/`V4`).
 
 ### Fixed
 
-- On `V4x`, `Gf16` `mul_into` peels its destination above the same measured
-  floor as `mul_add`, and `Gf8B` overwrite gather uses the register-blocked
-  one-row matrix rather than filling then accumulating. Results are in
-  `BENCHMARKS.md`, "AVX-512 overwrite and matrix fixes".
+- The 32-byte GFNI and AVX2 kernels peel half-lane destinations: byte XOR,
+  both byte fields' `mul_add`/`mul_assign`/`mul_into`, and the `Gf16`
+  single-row kernels pay one 16-byte head when the destination sits 16
+  bytes into a 32-byte lane, so their stores stop splitting cache lines
+  above the shared measured floor. The AVX-512 `Gf16` `mul_into` gains the
+  destination peel its `mul_add` already had. The interleaved comparison
+  is in `BENCHMARKS.md`, "v3 half-lane peels and overwrite-gather
+  dispatch".
+- Prepared overwrite gathers route through the register-blocked one-row
+  overwrite matrix where the change covers them: `Gf8D`'s prepared form
+  fell back to the per-source AXPY loop on `V3GfniCrypto`, and `Gf8B`'s
+  overwrite gather filled the destination and accumulated on `V4x` instead
+  of overwriting in one pass. The measured throughput is in
+  `BENCHMARKS.md`, "v3 half-lane peels and overwrite-gather dispatch".
 - Half-lane-skewed GFNI in-place scaling and short blocked scatter avoid
   repeated split-line destination accesses. The AVX-512 scatter path avoids
   peeling when a quarter-line row pitch cannot align its row group.

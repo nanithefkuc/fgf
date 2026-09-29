@@ -1024,10 +1024,11 @@ impl KernelDispatch for Gf8D {
     fn mul_into_gather_plan(
         _proof: RawDispatch,
         dst: &mut [u8],
-        _values: &[gf8d::Elem],
+        values: &[gf8d::Elem],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
+        let _ = values;
         // Prepared overwrite gather: one destination pass through the
         // one-row overwrite matrix instead of the trait default's
         // into-then-AXPY shape.
@@ -1040,6 +1041,21 @@ impl KernelDispatch for Gf8D {
                 1,
                 coeffs,
                 srcs,
+            );
+        }
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if backend() == Backend::V3GfniCrypto {
+            let terms = crate::kernel::FlatMatrix {
+                coefficients: values,
+                nrows: 1,
+                sources: srcs,
+            };
+            return x86::gf8::mul_into_matrix_affine_with(
+                crate::kernel::x86_v3_gfni_token(),
+                dst,
+                dst.len(),
+                1,
+                &terms,
             );
         }
         Self::mul_into_gather_with(RawDispatch, dst, coeffs, srcs);

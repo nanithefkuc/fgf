@@ -115,6 +115,14 @@ pub(crate) fn wants_nt_store(len: usize) -> bool {
     len >= NT_STORE_MIN
 }
 
+/// Shortest 32-byte-lane destination that peels a 16-byte half-lane head.
+///
+/// A 256-bit store starting 16 bytes into a cache line splits it, and a
+/// body of split stores halves store-bound throughput; one narrow head
+/// puts every remaining lane on a boundary. The crossover is recorded
+/// under "Network-size payloads" in `BENCHMARKS.md`.
+pub(super) const HALF_LANE_PEEL_MIN: usize = 512;
+
 /// Head bytes to store normally so that a non-temporal body starts on a
 /// 32-byte boundary, or `None` when this destination should stay temporal.
 ///

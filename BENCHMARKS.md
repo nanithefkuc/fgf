@@ -391,29 +391,51 @@ modulo the cache-line width. Ratios are baseline time ÷ candidate time
 - Run `FEC_GOLDEN_CORE=<cpu> just bench kernels --network-diagnostic` to build each checkout, then run its pinned benchmark binary in baseline–candidate–baseline order for five rounds. Compute each round's average bracketing baseline time divided by candidate time; the cells are medians of those paired ratios. The baseline checkout needs the candidate's `benches/kernels.rs` diagnostic harness copied in before building. Each binary reports its resolved backend.
 - Both builds use `--all-features`, Rust 1.98.1, `taskset` on the environment table's core, and the same warm inputs at fixed offsets. Each cell is a median of fixed-count repeated batches after warm-up. The unchanged bracketing baseline is the drift control; rows with unstable controls are excluded from this table. `V4x` executes on Tiger Lake and `v3_gfni_crypto` on Golden Cove.
 
-### AVX-512 overwrite and matrix fixes
+### v3 half-lane peels and overwrite-gather dispatch
 
-Baseline `c976532b87cd0866`; candidates `0bcadaaeb3d49196` (five-round
-campaign, three rounds for matrix and gather) and `c5072e891ee05aaf`
-(confirmation). Fingerprints are sha256 over sorted `src/` and `benches/`.
-The candidate builds also contain v3 changes; the Tiger Lake rows below
-execute `V4x`. Cells are baseline time ÷
-candidate time, medians of per-round ratios; above 1.00 favours the candidate.
+Baseline `c976532b87cd0866` (the shipped tree of the AVX-512 section);
+candidates `0bcadaaeb3d49196` (the five-round campaign below, three rounds
+for the Tiger Lake matrix and gather rows), `c5072e891ee05aaf` (the
+confirmation round below), and `125d18b87e83d73a` (the final sources,
+identical to the confirmed build in every benchmarked file — the deltas
+are record-pointer comments and a test fixture). Fingerprints are sha256
+over sorted `src/` and `benches/`. Cells are baseline time ÷ candidate
+time, medians of per-round ratios; above 1.00 favours the candidate.
 
 | Surface | Shape | Tiger Lake | Golden Cove |
 | --- | --- | ---: | ---: |
+| `xor` | 1152–1248 B, base 16 mod 32 | - | 1.28–1.31 |
+| `xor` | 1152–1248 B, base 0 mod 32 | - | 0.98 |
+| `Gf8B mul_add` | 1152–1248 B, base 16 mod 32 | - | 1.08–1.17 |
+| `Gf8B mul_add` | 1152–1248 B, base 0 mod 32 | - | 0.90 / 0.98–1.00 |
+| `Gf8B mul_add` | 4 KiB, page-aligned | - | 1.03 |
+| `Gf16 mul_add` (v3) | 1.5–64 KiB, base 16 mod 64 | - | 1.06–1.36 |
+| `Gf16 mul_into` (v3) | 1.5–64 KiB, base 16 mod 64 | - | 1.16–1.32 |
+| `Gf16 mul_assign` (v3) | 1.5–64 KiB, base 16 mod 64 | - | 1.09–1.40 |
 | `Gf16 mul_into` (V4x peel) | 3.5–16 KiB, base 16 mod 64 | 1.05–1.10 | - |
+| `Gf8D` prepared overwrite gather | 4 KiB × 16 sources | 0.98 | 1.63 |
+| `Gf8D` prepared overwrite gather | 16 KiB × 16 sources | 0.99 | 1.15 |
 | `Gf8B` overwrite gather, raw and prepared | 4–16 KiB × 16 sources | 1.05–1.14 | 1.00 |
 | `Gf16` AVX-512 matrix, selected and prepared | 8 sources × 2–16 rows | 1.14–1.18 | - |
 
-- Controls: `Gf8D` gather on `V4x` 0.98–1.00 and `Gf8B` matrix
-  0.98–1.03. The `Gf8B` gather control on Golden Cove reads 1.00.
-- The `Gf16` two-row gather on `V4x` reads 0.94 across measured builds;
-  the matrix rows above use a separate dispatched path.
-- Unchanged-path cells moved between builds: `Gf16` two-row scatter read
-  1.01 in one build and 0.84 in the next, with identical kernels.
-- Rows come from `peel_probe` (peel and gather) and `kernels --gf`
-  (matrix), pinned to the environment table's core with rotated round order.
+- The aligned `Gf8B mul_add` reading splits by build: the campaign build
+  read 0.90 at 1152–1248 B and 1.03 at 4 KiB; the confirmation build read
+  0.98–1.00 at both — an entry-layout effect in the class the byte-XOR
+  length table records, not a stable cost of the peel.
+- Controls: `mul_assign` 0.98–1.02, scatter 1.00, `Gf8D` gather on `V4x`
+  0.98–1.00, `Gf8B` gather on Golden Cove 1.00, `Gf8B` matrix 0.98–1.03.
+- The `Gf16` two-row gather on `V4x` reads 0.94 across every measured
+  build — the shortest dispatched gather shape — while the same surface's
+  matrix rows gain the 1.14–1.18 above.
+- Unchanged-path cells moved between builds — the `Gf16` two-row scatter
+  read 1.01 in one build and 0.84 in the next although its kernels are
+  identical — the code-layout class the recipe-suite table already
+  records. Every cell above reproduces across both measured builds except
+  the Tiger Lake sweep shapes below the V4x peel floor, which read
+  0.93–0.97 in one build and at parity in the other.
+- Rows come from `kernels --network-diagnostic` (network shapes),
+  `peel_probe` (sweep and gather), and `kernels --gf` (matrix), each
+  pinned to the environment table's core with the round order rotated.
 
 ### Blocked multi-row ÷ unblocked AXPY (dispatched forms)
 
