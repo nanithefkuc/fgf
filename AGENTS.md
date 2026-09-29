@@ -79,14 +79,17 @@ cannot express: offset-addressed disjoint rows, uninitialized scratch,
 aligned or non-temporal stores, and provider callbacks with caller-owned
 invariants. Update this list when a new residue class is unavoidable.
 
-The legacy `kernel/x86/avx512.rs` implementation (XOR, `Gf8B`, tower) stays
-deferred and exposed only under `internals`. The 64-byte affine and
-elementwise kernels (`kernel/x86/gf8/gf8d512_*.rs`) serve both byte fields and
-dispatch on the `V4x` tier under `simd512`; that promotion met the coverage
-rule: the `internals` differential executes on AVX-512 hardware and kernel
-timings are recorded per shape. Their alignment peel floors are measured
-thresholds with a `BENCHMARKS.md` record; the kernel tests size misaligned
-rows from the floor constants so the peel stays exercised.
+The legacy `kernel/x86/avx512.rs` implementation (`Gf8B`, tower) stays
+deferred and exposed only under `internals`. The safe AVX-512 byte-field
+(`kernel/x86/gf8/gf8d512_*.rs`), `Gf16` single-buffer and matrix
+(`kernel/x86/gf16/{wide,matrix512}.rs`), byte XOR and popcount
+(`kernel/x86/bytes512.rs`), and Mersenne31 and Goldilocks
+(`kernel/x86/prime/{m31,gld}_avx512.rs`) kernels dispatch on `V4x` under
+`simd512`; `Gf16` scatter and gather retain the narrower GFNI path. Direct
+differentials execute on AVX-512 hardware, and the per-shape decisions are
+recorded in `BENCHMARKS.md`. The byte-field and `Gf16` `mul_add` alignment
+peel floors remain measured thresholds with a `BENCHMARKS.md` record and
+misaligned-row coverage in kernel tests.
 
 ## Residue ledger
 
@@ -100,7 +103,7 @@ initialization, alignment, or aliasing. Each listed item has a per-item
 | `kernel/aarch64/gf8.rs`: `mul_add_scatter_impl`, `scatter_quad`, `mul_add_matrix_impl`, `matrix_quad`, `matrix_single` | The kernels update multiple rows selected by runtime offsets into one uniquely borrowed flat buffer. The checked entry proves each span and the rows' disjointness; safe Rust cannot express those offset-addressed mutable windows together. |
 | `kernel/aarch64/gf16.rs`: `xor_row`, `scatter_group`, `mul_add_scatter_impl`, `matrix_group`, `mul_add_matrix_impl` | The scatter and matrix bodies operate on grouped, disjoint row windows addressed within one live allocation. The entry establishes row bounds and disjointness, but the borrow checker cannot split rows selected by runtime offsets. |
 | `kernel/x86.rs`: `store256`, `store128` | The store helpers expose raw-pointer vector stores. Their callers prove each writable window; streaming stores additionally require 32-byte or 16-byte alignment and a fence before another thread observes the writes. |
-| `kernel/x86/avx512.rs`: `xor`, `xor_impl`, `gf8_mul_add`, `gf8_mul_add_impl`, `gf8_mul_assign`, `gf8_mul_assign_impl`, `gf8_mul_into`, `gf8_mul_into_impl`, `gf8_mul_elementwise`, `gf8_mul_elementwise_impl`, `gf16_mul_add`, `gf16_mul_add_impl`, `gf16_mul_assign`, `gf16_mul_assign_impl`, `gf16_mul_into`, `gf16_mul_into_impl`, `gf16_mul_elementwise`, `gf16_mul_elementwise_impl`, `swap_mask` | AVX-512 intrinsics require feature-enabled call boundaries and raw vector loads/stores over complete lanes. The wrappers' slice geometry bounds those windows; `swap_mask` also loads a statically aligned vector. This file is deferred and remains outside production dispatch. |
+| `kernel/x86/avx512.rs`: `gf8_mul_add`, `gf8_mul_add_impl`, `gf8_mul_assign`, `gf8_mul_assign_impl`, `gf8_mul_into`, `gf8_mul_into_impl`, `gf8_mul_elementwise`, `gf8_mul_elementwise_impl`, `gf16_mul_add`, `gf16_mul_add_impl`, `gf16_mul_assign`, `gf16_mul_assign_impl`, `gf16_mul_into`, `gf16_mul_into_impl`, `gf16_mul_elementwise`, `gf16_mul_elementwise_impl`, `swap_mask` | AVX-512 intrinsics require feature-enabled call boundaries and raw vector loads/stores over complete lanes. The wrappers' slice geometry bounds those windows; `swap_mask` also loads a statically aligned vector. This file is deferred and remains outside production dispatch. |
 | `kernel/x86/gf16/gfni.rs`: `mul_into_gfni_lane` | The GFNI overwrite lane supports streaming stores through a raw-pointer helper. The caller peels the destination to the required boundary, keeps each lane in-bounds, and fences before observation. |
 | `kernel/x86/gf16/matrix.rs`: `mul_add_matrix_gfni_with`, `matrix_group_gfni`, `mul_add_matrix_avx2_with`, `matrix_group_avx2`, `mul_add_matrix_ssse3_with`, `matrix_rows_ssse3` | Each matrix group writes multiple row windows selected by offsets into one destination allocation. Checked geometry establishes complete rows, source bounds, and disjointness; safe mutable slices cannot represent the grouped offset windows. |
 | `kernel/x86/gf16/nibble.rs`: `mul_into_avx2_lane` | The nibble-shuffle overwrite lane uses the same aligned streaming-store primitive: checked slices bound every lane, the peel proves alignment, and the caller fences the stores. |

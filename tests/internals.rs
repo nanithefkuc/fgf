@@ -23,8 +23,7 @@ use fgf::internals::kernel::tables::{
     FpTowerTables, ScaleTable, TowerCoeff, TowerTables, affine_8d, scale_table, scale_table_8d,
 };
 use fgf::internals::kernel::{
-    FlatMatrix, SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token, X64V4Token, X64V4xToken,
-    x86,
+    FlatMatrix, SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token, X64V4xToken, x86,
 };
 use fgf::{
     Gf8B, Gf8D, Gf16, Gf32, Gf64, Goldilocks, Mersenne31, fan_paar, gf8b, gf8d, gf16, gf32, gf64,
@@ -2260,10 +2259,6 @@ fn proven_prime_kernels_match_scalar() {
 
 #[test]
 fn proven_avx512_kernels_match_scalar_where_summonable() {
-    let Some(v4) = X64V4Token::summon() else {
-        eprintln!("skipping: AVX-512 not summonable on this host");
-        return;
-    };
     let Some(v4x) = X64V4xToken::summon() else {
         eprintln!("skipping: AVX-512+GFNI not summonable on this host");
         return;
@@ -2271,12 +2266,6 @@ fn proven_avx512_kernels_match_scalar_where_summonable() {
 
     for &len in LENGTHS8 {
         let src = noise(len, 0xb1);
-        let mut got = noise(len, 0xb2);
-        let mut want = got.clone();
-        x86::avx512::proven::xor(v4, &mut got, &src);
-        scalar::xor(&mut want, &src);
-        assert_eq!(got, want, "avx512::xor: len {len}");
-
         let mut got = noise(len, 0xb3);
         let mut want = got.clone();
         x86::avx512::proven::gf8_mul_add(v4x, &mut got, gf8b::Elem::from_raw(0x53), &src);

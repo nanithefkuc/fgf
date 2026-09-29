@@ -1,11 +1,12 @@
 //! GF(2^64 − 2^32 + 1) kernel dispatch.
 //!
-//! Prime-field arithmetic over 64-bit lanes. On x86 with AVX2 (`V3`) the
-//! multiply uses 32-bit-half `vpmuludq` splitting and the Goldilocks split-fold
-//! (`2^64 ≡ 2^32 − 1`); SSE4.1 (`V2`) runs the same construction at half width.
-//! Every other target runs the portable [`crate::kernel::prime`] path, so
-//! [`FieldKernels::backend`] reports `Scalar` there. The prepared form
-//! is the canonical lane word, broadcast by the kernels on entry.
+//! Prime-field arithmetic over 64-bit lanes. On x86 with AVX-512 (`V4x`,
+//! under `simd512`) or AVX2 (`V3`) the multiply uses 32-bit-half `vpmuludq`
+//! splitting and the Goldilocks split-fold (`2^64 ≡ 2^32 − 1`); SSE4.1
+//! (`V2`) runs the same construction at half width. Every other target runs
+//! the portable [`crate::kernel::prime`] path, so [`FieldKernels::backend`]
+//! reports `Scalar` there. The prepared form is the canonical lane word,
+//! broadcast by the kernels on entry.
 
 use crate::field::goldilocks::{Elem, Goldilocks};
 #[allow(unused_imports)]
@@ -13,6 +14,8 @@ use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend,
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::kernel::x86;
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+use crate::kernel::x86_v4_token as v4;
 
 impl FieldKernels for Goldilocks {
     #[inline]
@@ -20,7 +23,9 @@ impl FieldKernels for Goldilocks {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         {
             match backend() {
-                Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => Backend::V3,
+                #[cfg(feature = "simd512")]
+                Backend::V4x => Backend::V4x,
+                Backend::V3GfniCrypto | Backend::V3 => Backend::V3,
                 Backend::V2 => Backend::V2,
                 _ => Backend::Scalar,
             }
@@ -63,8 +68,10 @@ impl KernelDispatch for Goldilocks {
 
     fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         match backend() {
+            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V4x => x86::prime::add_assign_gld_avx512(v4(), dst, src),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::add_assign_gld_avx2(crate::kernel::x86_v3_token(), dst, src);
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -77,8 +84,10 @@ impl KernelDispatch for Goldilocks {
 
     fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         match backend() {
+            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V4x => x86::prime::sub_assign_gld_avx512(v4(), dst, src),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::sub_assign_gld_avx2(crate::kernel::x86_v3_token(), dst, src);
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -91,8 +100,10 @@ impl KernelDispatch for Goldilocks {
 
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
         match backend() {
+            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V4x => x86::prime::mul_add_gld_avx512(v4(), dst, coeff.to_raw(), src),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::mul_add_gld_avx2(
                     crate::kernel::x86_v3_token(),
                     dst,
@@ -113,8 +124,10 @@ impl KernelDispatch for Goldilocks {
 
     fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem) {
         match backend() {
+            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V4x => x86::prime::mul_assign_gld_avx512(v4(), dst, coeff.to_raw()),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::mul_assign_gld_avx2(crate::kernel::x86_v3_token(), dst, coeff.to_raw());
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -131,8 +144,10 @@ impl KernelDispatch for Goldilocks {
 
     fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
         match backend() {
+            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V4x => x86::prime::mul_into_gld_avx512(v4(), dst, coeff.to_raw(), src),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::mul_into_gld_avx2(
                     crate::kernel::x86_v3_token(),
                     dst,
@@ -182,8 +197,10 @@ impl KernelDispatch for Goldilocks {
 
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
         match backend() {
+            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V4x => x86::prime::mul_elementwise_gld_avx512(v4(), dst, a, b),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::mul_elementwise_gld_avx2(crate::kernel::x86_v3_token(), dst, a, b);
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -196,8 +213,10 @@ impl KernelDispatch for Goldilocks {
 
     fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         match backend() {
+            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V4x => x86::prime::mul_elementwise_assign_gld_avx512(v4(), dst, src),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::mul_elementwise_assign_gld_avx2(
                     crate::kernel::x86_v3_token(),
                     dst,
@@ -218,8 +237,10 @@ impl KernelDispatch for Goldilocks {
 
     fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
         match backend() {
+            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V4x => x86::prime::add_assign_scalar_gld_avx512(v4(), dst, value.to_raw()),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::add_assign_scalar_gld_avx2(
                     crate::kernel::x86_v3_token(),
                     dst,
@@ -240,8 +261,10 @@ impl KernelDispatch for Goldilocks {
 
     fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
         match backend() {
+            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            Backend::V4x => x86::prime::sub_assign_scalar_gld_avx512(v4(), dst, value.to_raw()),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V3GfniCrypto | Backend::V3 => {
                 x86::prime::sub_assign_scalar_gld_avx2(
                     crate::kernel::x86_v3_token(),
                     dst,

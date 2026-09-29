@@ -16,33 +16,6 @@ use core::arch::x86_64::*;
 const LANE: usize = 64;
 const TILE_VECTORS: usize = 8;
 
-/// `dst ^= src` over 64-byte AVX-512 lanes.
-#[allow(unsafe_code)]
-pub fn xor(dst: &mut [u8], src: &[u8]) {
-    debug_assert_eq!(dst.len(), src.len());
-    // SAFETY: dispatch established AVX-512F and the slices are independently
-    // borrowed.
-    unsafe { xor_impl(dst, src) }
-}
-
-#[allow(unsafe_code)]
-#[target_feature(enable = "avx512f")]
-unsafe fn xor_impl(dst: &mut [u8], src: &[u8]) {
-    let len = dst.len().min(src.len()) & !(LANE - 1);
-    let (dst_ptr, src_ptr) = (dst.as_mut_ptr(), src.as_ptr());
-    let mut offset = 0;
-    while offset < len {
-        // SAFETY: one complete vector remains in both slices.
-        unsafe {
-            let d = _mm512_loadu_si512(dst_ptr.add(offset).cast());
-            let s = _mm512_loadu_si512(src_ptr.add(offset).cast());
-            _mm512_storeu_si512(dst_ptr.add(offset).cast(), _mm512_xor_si512(d, s));
-        }
-        offset += LANE;
-    }
-    crate::kernel::scalar::xor(&mut dst[len..], &src[len..]);
-}
-
 #[inline]
 #[allow(unsafe_code)]
 #[target_feature(enable = "avx512f,avx512bw,gfni")]
@@ -769,15 +742,6 @@ pub mod proven {
                 row_len,
             );
         }
-    }
-
-    /// `dst ^= src` over 64-byte AVX-512 lanes (AVX-512F only).
-    ///
-    /// # Panics
-    /// Panics if the slices differ in length.
-    pub fn xor(_proof: archmage::X64V4Token, dst: &mut [u8], src: &[u8]) {
-        check_equal("avx512::xor", "dst", dst.len(), "src", src.len());
-        super::xor(dst, src);
     }
 
     /// `dst += coeff * src` over 64-byte GFNI lanes.

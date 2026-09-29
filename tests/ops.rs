@@ -2063,6 +2063,12 @@ fn backend_queries_are_consistent_per_field() {
                 Backend::V4x,
                 "Gf8D does not report V4x on a V4x host"
             );
+            // Both prime fields carry 64-byte kernels on V4x.
+            assert_eq!(
+                (backend_for::<Mersenne31>(), backend_for::<Goldilocks>()),
+                (Backend::V4x, Backend::V4x),
+                "prime fields do not report V4x on a V4x host"
+            );
             // Both byte fields carry 64-byte elementwise kernels on V4x, so
             // the capability query must not steer consumers to scalar.
             assert!(

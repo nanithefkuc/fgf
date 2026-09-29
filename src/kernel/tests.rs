@@ -1244,22 +1244,154 @@ mod x86 {
         }
         check_gf8_elementwise("gf8 avx512 elementwise", x86::avx512::gf8_mul_elementwise);
         check_gf16_elementwise("gf16 avx512 elementwise", x86::avx512::gf16_mul_elementwise);
+    }
+
+    /// Checks the token-proven tower lanes directly against scalar arithmetic.
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn gf16_wide_kernels_match_reference() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        check_gf16_mul_add_tables("gf16 wide", |dst, tables, src| {
+            x86::gf16::mul_add512(token, dst, TowerCoeff::new(tables.coeff), src);
+        });
+        check_gf16_mul_assign_tables("gf16 wide", |dst, tables| {
+            x86::gf16::mul_assign512(token, dst, TowerCoeff::new(tables.coeff));
+        });
         for &len in LENGTHS {
-            let src = noise(len, 0x1c);
-            let mut want = noise(len, 0x2d);
-            let mut simd = want.clone();
-            scalar::xor(&mut want, &src);
-            x86::avx512::xor(&mut simd, &src);
-            assert_eq!(simd, want, "avx512 xor: len {len}");
+            let src = noise(len, 0xb51);
+            for coeff in gf16_coeffs() {
+                let mut expected = vec![0u8; len];
+                scalar::mul_add::<gf16::Gf16>(&mut expected, coeff, &src);
+                let mut got = noise(len, 0xb52);
+                x86::gf16::mul_into512(token, &mut got, TowerCoeff::new(coeff), &src);
+                assert_eq!(
+                    got, expected,
+                    "gf16 wide mul_into len {len} coeff {coeff:?}"
+                );
+            }
+        }
+        check_gf16_elementwise("gf16 wide elementwise", |dst, a, b| {
+            x86::gf16::mul_elementwise512(token, dst, a, b);
+        });
+        check_elementwise_assign::<gf16::Gf16>("gf16 wide elementwise assign", |dst, src| {
+            x86::gf16::mul_elementwise_assign512(token, dst, src);
+        });
+    }
+
+    /// Misaligned destinations on both sides of the `mul_add` peel floor,
+    /// with even (peelable) and odd (unpeelable) heads.
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn gf16_wide_mul_add_peels_misaligned_rows() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        let floor = x86::gf16::MUL_ADD_PEEL_MIN;
+        for len in [floor - 2, floor, floor + 2, floor + 130, 4096 + 66] {
+            for offset in [0usize, 1, 2, 16, 34, 62] {
+                let src_storage = noise(len + 64, 0xb61);
+                let mut dst_storage = noise(len + 128, 0xb62);
+                let base = dst_storage.as_ptr().align_offset(64);
+                let dst = &mut dst_storage[base + offset..base + offset + len];
+                let src = &src_storage[offset..offset + len];
+                for coeff in gf16_coeffs() {
+                    let before = dst.to_vec();
+                    let mut want = before.clone();
+                    scalar::mul_add::<gf16::Gf16>(&mut want, coeff, src);
+                    x86::gf16::mul_add512(token, dst, TowerCoeff::new(coeff), src);
+                    assert_eq!(&*dst, want, "gf16 mul_add512: len {len}, offset {offset}");
+                    dst.copy_from_slice(&before);
+                }
+            }
         }
     }
 
-    /// The deferred `Gf8D` 64-byte affine kernels against the scalar oracle.
+    /// The 64-byte byte kernels: XOR over every lane boundary and mismatched
+    /// source/destination offsets, and `VPOPCNTQ` counts against `count_ones`.
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn bytes512_kernels_match_scalar() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        let peel = x86::bytes512::XOR_PEEL_MIN;
+        let edges = [peel - 1, peel, peel + 1, peel + 63, 1024 + 255, 4096 + 63];
+        for &len in XOR_LENGTHS.iter().chain(&edges) {
+            for &(dst_prefix, src_prefix) in &[(0usize, 0usize), (1, 3), (16, 16), (31, 7), (63, 0)]
+            {
+                let mut dst_storage = noise(dst_prefix + len, 0x2e);
+                let src_storage = noise(src_prefix + len, 0x1d);
+                let dst = &mut dst_storage[dst_prefix..];
+                let src = &src_storage[src_prefix..];
+                let mut want = dst.to_vec();
+                scalar::xor(&mut want, src);
+                x86::bytes512::xor512(token.v4(), dst, src);
+                assert_eq!(
+                    &*dst, want,
+                    "xor512: len {len}, dst prefix {dst_prefix}, src prefix {src_prefix}",
+                );
+            }
+            // The dispatched entry routes on the short-buffer threshold.
+            for prefix in [0usize, 16] {
+                let mut dst_storage = noise(prefix + len, 0x4e);
+                let src_storage = noise(prefix + len, 0x4d);
+                let dst = &mut dst_storage[prefix..];
+                let src = &src_storage[prefix..];
+                let mut want = dst.to_vec();
+                scalar::xor(&mut want, src);
+                crate::kernel::xor(dst, src);
+                assert_eq!(&*dst, want, "dispatched xor: len {len}, prefix {prefix}");
+            }
+            for prefix in [0usize, 5, 17] {
+                let storage = noise(prefix + len, 0x3f);
+                let buf = &storage[prefix..];
+                let want: u64 = buf.iter().map(|b| u64::from(b.count_ones())).sum();
+                assert_eq!(
+                    x86::bytes512::count_ones512(token, buf),
+                    want,
+                    "count_ones512: len {len}, prefix {prefix}",
+                );
+            }
+        }
+        assert_eq!(x86::bytes512::count_ones512(token, &[0xff; 1000]), 8000);
+    }
+
+    /// Compares wide matrix tiles and their remainders with independent row sums.
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn gf16_wide_matrix_matches_reference() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        check_matrix(
+            "gf16 wide matrix",
+            gf16_coeff_at2,
+            gf16_reference,
+            |rows, len, nrows, terms| {
+                x86::gf16::mul_add_matrix512(token, rows, len, nrows, terms);
+            },
+        );
+        check_matrix(
+            "gf16 wide matrix provider",
+            gf16_coeff_at2,
+            gf16_reference,
+            |rows, len, nrows, terms| {
+                x86::gf16::mul_add_matrix512_with(token, rows, len, nrows, terms);
+            },
+        );
+    }
+
+    /// Checks the deferred affine kernels against the scalar oracle.
     ///
-    /// Gate is the `X64V4xToken` summon itself: no `Backend` covers V4x, so
-    /// there is no tier to resolve. The sweep is exhaustive over
-    /// coefficients through the affine helpers above, whose all-byte-values
-    /// source makes it exhaustive over products.
+    /// The token summon permits direct kernel testing independently of
+    /// dispatch. The sweep covers coefficients through the affine helpers,
+    /// whose all-byte-values source covers the products.
     #[cfg(feature = "simd512")]
     #[test]
     #[allow(clippy::too_many_lines)]
@@ -3280,6 +3412,112 @@ mod x86 {
             |dst, c| x86::prime::sub_assign_scalar_gld_avx2(token, dst, c),
             "gld avx2",
         );
+    }
+
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn prime_avx512_kernels_match_reference() {
+        // Lane-straddling lengths past the 64-byte vector, each ending in an
+        // AVX2 and a scalar remainder.
+        const M31_WIDE: &[usize] = &[0, 4, 60, 64, 68, 96, 128, 196, 260, 1020, 1028];
+        const GLD_WIDE: &[usize] = &[0, 8, 56, 64, 72, 96, 128, 200, 264, 1024, 1032];
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        let token = token.v4();
+        drive_prime::<Mersenne31, u32>(
+            M31_WIDE,
+            &M31_COEFFS,
+            mersenne31::Elem,
+            |dst, src| x86::prime::add_assign_m31_avx512(token, dst, src),
+            |dst, src| x86::prime::sub_assign_m31_avx512(token, dst, src),
+            |dst, coeff, src| x86::prime::mul_add_m31_avx512(token, dst, coeff, src),
+            |dst, coeff, src| x86::prime::mul_into_m31_avx512(token, dst, coeff, src),
+            |dst, coeff| x86::prime::mul_assign_m31_avx512(token, dst, coeff),
+            |dst, a, b| x86::prime::mul_elementwise_m31_avx512(token, dst, a, b),
+            |dst, s| x86::prime::mul_elementwise_assign_m31_avx512(token, dst, s),
+            |dst, c| x86::prime::add_assign_scalar_m31_avx512(token, dst, c),
+            |dst, c| x86::prime::sub_assign_scalar_m31_avx512(token, dst, c),
+            "m31 avx512",
+        );
+        drive_prime::<Goldilocks, u64>(
+            GLD_WIDE,
+            &GLD_COEFFS,
+            goldilocks::Elem,
+            |dst, src| x86::prime::add_assign_gld_avx512(token, dst, src),
+            |dst, src| x86::prime::sub_assign_gld_avx512(token, dst, src),
+            |dst, coeff, src| x86::prime::mul_add_gld_avx512(token, dst, coeff, src),
+            |dst, coeff, src| x86::prime::mul_into_gld_avx512(token, dst, coeff, src),
+            |dst, coeff| x86::prime::mul_assign_gld_avx512(token, dst, coeff),
+            |dst, a, b| x86::prime::mul_elementwise_gld_avx512(token, dst, a, b),
+            |dst, s| x86::prime::mul_elementwise_assign_gld_avx512(token, dst, s),
+            |dst, c| x86::prime::add_assign_scalar_gld_avx512(token, dst, c),
+            |dst, c| x86::prime::sub_assign_scalar_gld_avx512(token, dst, c),
+            "gld avx512",
+        );
+    }
+
+    /// Goldilocks lane edges noise buffers rarely hit — non-canonical
+    /// inputs, operands at `p − 1`, and products whose fold both borrows and
+    /// wraps — against the `u128 % p` model.
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn gld_avx512_lane_edges_match_u128_model() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        let modulus = goldilocks::MODULUS;
+        let edges: [u64; 12] = [
+            0,
+            1,
+            2,
+            0xFFFF_FFFF,
+            0x1_0000_0000,
+            modulus - 2,
+            modulus - 1,
+            modulus,
+            modulus + 1,
+            u64::MAX - 1,
+            u64::MAX,
+            0xFFFF_FFFE_FFFF_FFFF,
+        ];
+        let (lhs, rhs): (Vec<u64>, Vec<u64>) = edges
+            .iter()
+            .flat_map(|&x| edges.iter().map(move |&y| (x, y)))
+            .unzip();
+        let bytes = |v: &[u64]| v.iter().flat_map(|w| w.to_le_bytes()).collect::<Vec<u8>>();
+        let (lhs_bytes, rhs_bytes) = (bytes(&lhs), bytes(&rhs));
+        let word = |buf: &[u8], lane: usize| {
+            u64::from_le_bytes(buf[8 * lane..8 * lane + 8].try_into().unwrap())
+        };
+        let wide = u128::from(modulus);
+
+        let mut product = vec![0u8; lhs_bytes.len()];
+        x86::prime::mul_elementwise_gld_avx512(token.v4(), &mut product, &lhs_bytes, &rhs_bytes);
+        let mut sum = lhs_bytes.clone();
+        x86::prime::add_assign_gld_avx512(token.v4(), &mut sum, &rhs_bytes);
+        let mut diff = lhs_bytes.clone();
+        x86::prime::sub_assign_gld_avx512(token.v4(), &mut diff, &rhs_bytes);
+        for (lane, (&left, &right)) in lhs.iter().zip(&rhs).enumerate() {
+            let (x, y) = (u128::from(left) % wide, u128::from(right) % wide);
+            assert_eq!(
+                u128::from(word(&product, lane)),
+                x * y % wide,
+                "gld mul {left:#x} * {right:#x}"
+            );
+            assert_eq!(
+                u128::from(word(&sum, lane)),
+                (x + y) % wide,
+                "gld add {left:#x} {right:#x}"
+            );
+            assert_eq!(
+                u128::from(word(&diff, lane)),
+                (x + wide - y) % wide,
+                "gld sub {left:#x} {right:#x}"
+            );
+        }
     }
 
     #[test]

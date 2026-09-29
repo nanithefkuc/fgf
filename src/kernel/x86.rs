@@ -1,7 +1,8 @@
 //! x86 / `x86_64` SIMD kernels.
 //!
-//! One submodule per field family, plus `bytes` for the field-independent
-//! byte kernels. This module-named file keeps only what the families share:
+//! One submodule per field family, plus `bytes` (and its 64-byte `V4x` twin
+//! `bytes512`) for the field-independent byte kernels. This module-named file
+//! keeps only what the families share:
 //! the non-temporal store threshold and its alignment helpers, and the two
 //! width-parameterized store primitives every `mul_into` kernel calls.
 //!
@@ -29,6 +30,8 @@
 #[allow(dead_code)]
 pub mod avx512;
 pub mod bytes;
+#[cfg(feature = "simd512")]
+pub mod bytes512;
 pub mod fan_paar;
 pub mod gf16;
 pub mod gf32;

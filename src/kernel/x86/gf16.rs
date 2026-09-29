@@ -21,33 +21,30 @@
 //!   [`TowerTables`]; the even and odd
 //!   byte lanes are then selected with a `0x00ff` halfword mask.
 //!
-//! Multi-row wiring differs by backend, and deliberately so. SSSE3 blocks
-//! both gather and matrix; GFNI blocks the matrix but gathers with repeated
-//! AXPY; AVX2 uses repeated AXPY for both. A GF(2^16) coefficient costs four
-//! nibble tables or two broadcast words, so how many of them can stay
-//! resident is what decides whether blocking beats re-reading the
-//! destination — see the crossover notes on the `kernel::gf16` dispatch arms,
-//! and BENCHMARKS.md, before rewiring any of these.
+//! Multi-row wiring differs by backend. SSSE3 blocks gather and matrix;
+//! GFNI also blocks both, while AVX2 uses repeated AXPY for those shapes.
+//! On `V4x`, matrix tiles widen; scatter and gather retain their GFNI lanes.
+//! A coefficient occupies two broadcast words or four nibble tables, so the
+//! amount of live coefficient state determines which row shapes benefit from
+//! blocking. See BENCHMARKS.md for the dispatch measurements.
 //!
 //! ## Layout
 //!
-//! The single-buffer kernels split by multiply strategy — `gfni` for
-//! `GF2P8MULB`, `nibble` for the AVX2 and SSSE3 `PSHUFB` pairs — and the
-//! multi-row kernels split by fan shape: `gather`, `scatter`, `matrix`, with
-//! `elementwise` for the one shape whose operands both
-//! vary. What stays here is what more than one of them needs: the
-//! coefficient trait, the adjacent-exchange control and its two loads, the
-//! 32-byte GFNI core, and the blocked AVX2 lane and split state the gather
-//! and matrix tiles share.
+//! The single-buffer kernels split by multiply strategy — `gfni` for narrow
+//! `GF2P8MULB`, `wide` for AVX-512 GFNI, and `nibble` for AVX2 and SSSE3
+//! shuffles. Multi-row kernels split by fan shape: `gather`, `scatter`, and
+//! `matrix`, with `matrix512` for the wide register-blocked tile; `elementwise`
+//! handles varying operands. Shared coefficient words, shuffle controls, and
+//! narrow blocked state live in this parent module.
 //!
 //! Every public kernel is a safe [`archmage`] entrypoint taking the exact
-//! capability token its instructions require (`X64V3GfniCryptoToken` for
-//! GFNI, `X64V3Token` for AVX2, `X64V2Token` for SSSE3) and asserting its
-//! own geometry; inner helpers are `#[rite]`. The unsafe that remains is the
-//! sanctioned residue: the non-temporal stores in the `mul_into` lanes and
-//! the offset-addressed destination rows of the scatter and matrix group
-//! bodies, each with a per-item `#[allow(unsafe_code)]` and a SINCE–THUS
-//! proof.
+//! capability token its instructions require (`X64V4xToken` for AVX-512,
+//! `X64V3GfniCryptoToken` for GFNI, `X64V3Token` for AVX2, and `X64V2Token`
+//! for SSSE3) and validating its geometry. Inner helpers are `#[rite]`.
+//!
+//! Owned unsafe is confined to the narrow non-temporal stores and the
+//! offset-addressed scatter and matrix groups. Wide matrix groups borrow
+//! disjoint row slices without raw pointers.
 //!
 //! [`archmage`]: https://docs.rs/archmage
 
@@ -69,8 +66,13 @@ mod elementwise;
 mod gather;
 mod gfni;
 mod matrix;
+#[cfg(feature = "simd512")]
+mod matrix512;
 mod nibble;
 mod scatter;
+#[cfg(feature = "simd512")]
+mod wide;
+
 /// Rejects byte lengths that end inside a GF(2^16) element.
 #[inline]
 fn check_elements(name: &str, bytes: usize) {
@@ -95,10 +97,18 @@ pub use matrix::{
     mul_add_matrix_avx2, mul_add_matrix_gfni, mul_add_matrix_gfni_with, mul_add_matrix_ssse3,
     mul_add_matrix_ssse3_with,
 };
+#[cfg(feature = "simd512")]
+pub use matrix512::{mul_add_matrix512, mul_add_matrix512_with};
 pub use nibble::{
     mul_add_avx2, mul_add_ssse3, mul_assign_avx2, mul_assign_ssse3, mul_into_avx2, mul_into_ssse3,
 };
 pub use scatter::{mul_add_scatter_avx2, mul_add_scatter_gfni, mul_add_scatter_ssse3};
+#[cfg(all(test, feature = "simd512"))]
+pub(crate) use wide::MUL_ADD_PEEL_MIN;
+#[cfg(feature = "simd512")]
+pub use wide::{
+    mul_add512, mul_assign512, mul_elementwise_assign512, mul_elementwise512, mul_into512,
+};
 
 // Cores shared with the Fan–Paar tower kernels and the blocked fan shapes.
 pub(crate) use nibble::{

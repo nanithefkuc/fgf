@@ -16,12 +16,33 @@ All notable changes to this project are documented here. The format follows
   conjugate `GF2P8MULB` by the field isomorphism onto `0x11B`; results are
   unchanged. With `simd512` on an AVX-512+GFNI host the new `V4x` tier
   resolves, both byte fields dispatch every operation there, and
-  `has_vector_elementwise` reports `true` for both. All other fields run
-  their `V3GfniCrypto` bodies on `V4x`. Without `simd512` the tier never
-  resolves and dispatch is unchanged.
+  `has_vector_elementwise` reports `true` for both. Without `simd512` the
+  tier never resolves and dispatch is unchanged.
+- `Gf16` dispatches AVX-512 GFNI single-row multiplication, elementwise
+  products, and register-blocked matrix accumulation (including prepared
+  matrices) on `V4x`. Scatter and gather retain their existing GFNI kernels;
+  non-`V4x` backends are unchanged. The new kernels use safe Archmage
+  reference-based loads and stores. The Tiger Lake public-path comparison
+  is in `BENCHMARKS.md`.
 - On `V4x`, misaligned scatter, gather, and matrix rows peel their heads to
   a 64-byte boundary above per-shape length floors set by measurement; see
-  `BENCHMARKS.md`, "AVX-512 alignment peel floors".
+  `BENCHMARKS.md`, "AVX-512 alignment peel floors". `Gf16` `mul_add`
+  destinations peel the same way above their own measured floor, and rows
+  shorter than one 64-byte lane dispatch straight to the 32-byte GFNI
+  kernel.
+- On `V4x`, byte XOR — `add_assign` and `sub_assign` for every binary field,
+  `bits::xor_assign`, and the other bit-packed XOR paths — runs 64-byte
+  AVX-512 lanes from a measured length floor, with a 64-byte destination
+  alignment peel on longer buffers. Shorter buffers keep the AVX2 kernel but
+  pass one extra length test; `BENCHMARKS.md`, "AVX-512 byte, popcount, and
+  prime-field kernels", records the short-buffer and per-row cost.
+- On `V4x`, `bits::weight` counts whole words with `VPOPCNTQ`.
+- `Mersenne31` and `Goldilocks` gain 64-byte AVX-512 kernels for every
+  operation that had an AVX2 kernel, dispatched on `V4x`. Results are
+  unchanged; `backend_for` reports `V4x` for both fields on that tier.
+  The Tiger Lake before/after record for these and the XOR, weight, and
+  `Gf16` peel changes is in `BENCHMARKS.md`, "AVX-512 byte, popcount, and
+  prime-field kernels".
 
 ### Changed
 
@@ -35,6 +56,12 @@ All notable changes to this project are documented here. The format follows
 upstream type re-exported, so crates pinning both must move together; pin
 `simdispatch = "=0.2.0"` alongside this `fgf` (no API names change; the
 ladder gains `V4x`/`V4`).
+
+### Removed
+
+- The deferred `internals` entry `x86::avx512::proven::xor` and its
+  unexported body. The dispatched `x86::bytes512::xor512` replaces it and
+  carries no unsafe code.
 
 ### Fixed
 

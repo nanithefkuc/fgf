@@ -167,7 +167,7 @@ the complete supplied slices.
 | `alloc` | prepared coefficient collections and `pack_to_vec` |
 | `std` | runtime support and lazily initialized shared tables; implies `alloc` |
 | `simd` | runtime-dispatched architecture kernels; implies `std` |
-| `simd512` | 64-byte AVX-512 kernels for `Gf8B` and `Gf8D` and the `V4x` dispatch tier; implies `simd` |
+| `simd512` | 64-byte AVX-512 kernels for `Gf8B`, `Gf8D`, and `Gf16` single-row, elementwise, and matrix operations, `Mersenne31` and `Goldilocks` arithmetic, binary-field XOR, and `bits::weight`; enables `V4x` dispatch and implies `simd` |
 | `internals` | re-export-only facade of direct kernel and table surfaces |
 
 Nothing behind `internals` is a compatibility promise; the facade groups the

@@ -451,12 +451,20 @@ pub mod gf16 {
         fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
             match coeff {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                // `Prepared::Compact` is only produced on a GFNI host, so the
-                // backend dispatch collapses to the GFNI kernel directly (the
-                // deferred 64-byte Avx512 tier is not in the ladder).
-                Prepared::Compact(compact) => {
-                    x86::gf16::mul_add_gfni(crate::kernel::x86_v3_gfni_token(), dst, *compact, src);
-                }
+                Prepared::Compact(compact) => match backend() {
+                    // Rows shorter than one 64-byte lane go straight to the
+                    // 32-byte kernel `mul_add512` would hand them to.
+                    #[cfg(feature = "simd512")]
+                    Backend::V4x if dst.len() >= 64 => {
+                        x86::gf16::mul_add512(crate::kernel::x86_v4x_token(), dst, *compact, src);
+                    }
+                    _ => x86::gf16::mul_add_gfni(
+                        crate::kernel::x86_v3_gfni_token(),
+                        dst,
+                        *compact,
+                        src,
+                    ),
+                },
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Prepared::Tables(tables) => match backend() {
                     Backend::V2 => {
@@ -479,9 +487,17 @@ pub mod gf16 {
         fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared) {
             match coeff {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Prepared::Compact(compact) => {
-                    x86::gf16::mul_assign_gfni(crate::kernel::x86_v3_gfni_token(), dst, *compact);
-                }
+                Prepared::Compact(compact) => match backend() {
+                    #[cfg(feature = "simd512")]
+                    Backend::V4x => {
+                        x86::gf16::mul_assign512(crate::kernel::x86_v4x_token(), dst, *compact);
+                    }
+                    _ => x86::gf16::mul_assign_gfni(
+                        crate::kernel::x86_v3_gfni_token(),
+                        dst,
+                        *compact,
+                    ),
+                },
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Prepared::Tables(tables) => match backend() {
                     Backend::V2 => {
@@ -504,14 +520,18 @@ pub mod gf16 {
         fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
             match coeff {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Prepared::Compact(compact) => {
-                    x86::gf16::mul_into_gfni(
+                Prepared::Compact(compact) => match backend() {
+                    #[cfg(feature = "simd512")]
+                    Backend::V4x => {
+                        x86::gf16::mul_into512(crate::kernel::x86_v4x_token(), dst, *compact, src);
+                    }
+                    _ => x86::gf16::mul_into_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
                         *compact,
                         src,
-                    );
-                }
+                    ),
+                },
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Prepared::Tables(tables) => match backend() {
                     Backend::V2 => {
@@ -708,8 +728,16 @@ pub mod gf16 {
             terms: &[(&[Elem], &[u8])],
         ) {
             match backend() {
+                #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+                Backend::V4x => x86::gf16::mul_add_matrix512(
+                    crate::kernel::x86_v4x_token(),
+                    rows,
+                    row_len,
+                    nrows,
+                    terms,
+                ),
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Backend::V4x | Backend::V3GfniCrypto => {
+                Backend::V3GfniCrypto => {
                     x86::gf16::mul_add_matrix_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         rows,
@@ -772,7 +800,23 @@ pub mod gf16 {
             let _ = values;
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             match backend() {
-                Backend::V4x | Backend::V3GfniCrypto => {
+                #[cfg(feature = "simd512")]
+                Backend::V4x => {
+                    let terms = crate::kernel::FlatMatrix {
+                        coefficients: values,
+                        nrows,
+                        sources: srcs,
+                    };
+                    x86::gf16::mul_add_matrix512_with(
+                        crate::kernel::x86_v4x_token(),
+                        rows,
+                        row_len,
+                        nrows,
+                        &terms,
+                    );
+                    return;
+                }
+                Backend::V3GfniCrypto => {
                     let terms = crate::kernel::FlatMatrix {
                         coefficients: values,
                         nrows,
@@ -818,8 +862,12 @@ pub mod gf16 {
 
         fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
             match backend() {
+                #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+                Backend::V4x => {
+                    x86::gf16::mul_elementwise512(crate::kernel::x86_v4x_token(), dst, a, b);
+                }
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Backend::V4x | Backend::V3GfniCrypto => {
+                Backend::V3GfniCrypto => {
                     x86::gf16::mul_elementwise_gfni(crate::kernel::x86_v3_gfni_token(), dst, a, b);
                 }
                 // Unlike GF(2^8), the tower elementwise product does *not* prefer
@@ -853,8 +901,12 @@ pub mod gf16 {
 
         fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
             match backend() {
+                #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+                Backend::V4x => {
+                    x86::gf16::mul_elementwise_assign512(crate::kernel::x86_v4x_token(), dst, src);
+                }
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Backend::V4x | Backend::V3GfniCrypto => {
+                Backend::V3GfniCrypto => {
                     x86::gf16::mul_elementwise_assign_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,

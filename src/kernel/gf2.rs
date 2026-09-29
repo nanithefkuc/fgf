@@ -10,15 +10,12 @@
 //! XOR of whole buffers is byte-local and layout-identical to the
 //! field-independent dispatched byte XOR, so `xor` here reuses that
 //! dispatched kernel — no second arithmetic core for one shape. Everything
-//! else is the
-//! portable `u64` word loop, and that is the *final* kernel for these shapes
-//! today, not a placeholder: AND/XOR are memory-bandwidth-bound and the word
-//! loop already saturates them under autovectorization, so a hand-written
-//! vector body has to beat memory before it earns a line here. The
-//! compute-bound shapes (`weight`, `parity`) gain `VPOPCNTQ`/NEON `CNT`
-//! bodies only under an AVX-512-tier story that `FGF_TIERS` does not expose
-//! yet. The dispatch seam for both is this module: backend-specific arms
-//! attach beside the portable bodies, never in [`crate::bits`].
+//! else is the portable `u64` word loop: AND/XOR are memory-bandwidth-bound
+//! and the word loop saturates them under autovectorization, so a
+//! hand-written vector body has to beat memory before it earns a line here.
+//! `weight` is compute-bound and counts whole words with `VPOPCNTQ` on
+//! `V4x` under `simd512`. The dispatch seam is this module: backend-specific
+//! arms attach beside the portable bodies, never in [`crate::bits`].
 //!
 //! Preconditions (length pairing, `from <= to <= bits`, buffer coverage) are
 //! checked by [`crate::bits`]; only `debug_assert`s remain here.
@@ -212,26 +209,43 @@ pub(crate) fn set_range(dst: &mut [u8], from: usize, to: usize) {
 
 /// Hamming weight of the live bits `[0, bits)`.
 ///
-/// The fold runs eight independent popcount accumulators: a single
+/// On `V4x` the whole words are counted by the 64-byte `VPOPCNTQ` kernel.
+/// The portable fold runs eight independent popcount accumulators: a single
 /// `total += word.count_ones()` chain pins the loop to `popcnt` latency,
-/// while split accumulators saturate its throughput (measured 1.1–1.9x
-/// across cache tiers on the reference host; see BENCHMARKS.md).
+/// while split accumulators saturate its throughput (see BENCHMARKS.md).
+/// Either way the partial last word is masked to its live bits.
+///
+/// The caller keeps `bits` within `u32::MAX`, so the count fits the return
+/// type.
 pub(crate) fn weight(buf: &[u8], bits: usize) -> u32 {
     let words = bits / 64;
-    let mut w = buf.chunks_exact(8);
+    let mut total = whole_word_weight(&buf[..words * 8]);
+    let rem = bits % 64;
+    if rem != 0 {
+        total += partial_word(buf, words, low_mask(rem)).count_ones();
+    }
+    total
+}
+
+/// Set bits in `words`, a whole number of 8-byte words.
+fn whole_word_weight(words: &[u8]) -> u32 {
+    #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+    if let super::X86Proof::V4x(token) = super::x86_proof() {
+        // At most `u32::MAX` live bits reach this kernel, so the count fits.
+        #[allow(clippy::cast_possible_truncation)]
+        return super::x86::bytes512::count_ones512(token, words) as u32;
+    }
+    let mut w = words.chunks_exact(8);
+    let count = words.len() / 8;
     let mut acc = [0u32; 8];
-    for _ in 0..words / 8 {
+    for _ in 0..count / 8 {
         for lane in &mut acc {
             *lane += next_word(&mut w).count_ones();
         }
     }
     let mut total = acc.iter().sum::<u32>();
-    for _ in words / 8 * 8..words {
+    for _ in count / 8 * 8..count {
         total += next_word(&mut w).count_ones();
-    }
-    let rem = bits % 64;
-    if rem != 0 {
-        total += partial_word(buf, bits / 64, low_mask(rem)).count_ones();
     }
     total
 }

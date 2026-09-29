@@ -108,8 +108,9 @@ pub const FGF_TIERS: &[Backend] = &[
     Backend::Wasm128,
     Backend::Scalar,
 ];
-/// The tiers FGF implements kernels for, with the 64-byte AVX-512 `Gf8D`
-/// tier first. See the non-`simd512` form for the rest of the ladder.
+/// The tiers FGF implements kernels for, with the 64-byte AVX-512 byte-field,
+/// GF(2^16) tower, prime-field, and byte-XOR kernels first. See the
+/// non-`simd512` form for the rest.
 #[cfg(feature = "simd512")]
 pub const FGF_TIERS: &[Backend] = &[
     Backend::V4x,
@@ -287,6 +288,14 @@ pub(crate) fn x86_v4x_token() -> archmage::X64V4xToken {
         X86Proof::V4x(token) => token,
         _ => unreachable!("AVX-512 kernel reached without the selected V4x proof"),
     }
+}
+
+/// The selected V4x proof narrowed to AVX-512F, the tier the prime-field
+/// and byte-XOR 64-byte kernels require.
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline]
+pub(crate) fn x86_v4_token() -> archmage::X64V4Token {
+    x86_v4x_token().v4()
 }
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -1062,6 +1071,12 @@ pub(crate) mod byte_ops {
         }
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         match x86_proof() {
+            // The length guard sits on the `V4x` arm alone, so every narrower
+            // tier reaches its body without testing it.
+            #[cfg(feature = "simd512")]
+            X86Proof::V4x(token) if dst.len() >= x86::bytes512::XOR512_MIN => {
+                x86::bytes512::xor512(token.v4(), dst, src);
+            }
             #[cfg(feature = "simd512")]
             X86Proof::V4x(token) => x86::xor_avx2(token.v3(), dst, src),
             X86Proof::V3GfniCrypto(token) => x86::xor_avx2(token.v3(), dst, src),

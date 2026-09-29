@@ -250,10 +250,9 @@ fn bench_network_alignment() {
 /// Blocked multi-row GF(2^16) kernels measured against repeated single-row
 /// AXPY, bypassing dispatch.
 ///
-/// Dispatch currently selects AXPY for GFNI gather, AVX2 gather, and AVX2
-/// matrix (`src/kernel/gf16.rs:119-149`). That choice is a measurement, not a
-/// theory, so it needs a harness that can run both sides in one process:
-/// hence the `internals` feature and the token-proven kernel calls.
+/// GFNI dispatch blocks gather and matrix; AVX2 dispatch uses AXPY for both.
+/// This harness times each alternative in one process through `internals`
+/// token-proven entries.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn bench_blocked_vs_axpy() {
     use fgf::internals::kernel::tables::{TowerCoeff, TowerTables};
@@ -784,6 +783,20 @@ fn main() {
             bench("mul_add prepared         gf16", len, || {
                 ops::mul_add_with::<Gf16>(black_box(&mut dst), &prepared16, black_box(&src));
             });
+            bench("mul_into                  gf8", len, || {
+                ops::mul_into::<Gf8B>(
+                    black_box(&mut product),
+                    gf8b::Elem::from_raw(0x53),
+                    black_box(&src),
+                );
+            });
+            bench("mul_into                 gf16", len, || {
+                ops::mul_into::<Gf16>(
+                    black_box(&mut product),
+                    gf16::Elem::from_raw(0x53a7),
+                    black_box(&src),
+                );
+            });
             bench("mul_assign                gf8", len, || {
                 ops::mul_assign::<Gf8B>(black_box(&mut dst), gf8b::Elem::from_raw(0x53));
             });
@@ -800,6 +813,12 @@ fn main() {
                     black_box(&src),
                     black_box(&rhs),
                 );
+            });
+            bench("elementwise_assign        gf8", len, || {
+                ops::mul_elementwise_assign::<Gf8B>(black_box(&mut product), black_box(&src));
+            });
+            bench("elementwise_assign       gf16", len, || {
+                ops::mul_elementwise_assign::<Gf16>(black_box(&mut product), black_box(&src));
             });
             bench("mul_assign               gf16", len, || {
                 ops::mul_assign::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));
