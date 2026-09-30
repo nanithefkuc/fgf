@@ -66,7 +66,7 @@ impl KernelDispatch for FanPaar32 {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
-                x86::fan_paar::mul_add_fp32_avx2(crate::kernel::x86_v3_token(), dst, *coeff, src);
+                x86::fan_paar::mul_add_avx2_fp32(crate::kernel::x86_v3_token(), dst, *coeff, src);
             }
             _ => scalar::mul_add::<FanPaar32>(dst, *coeff, src),
         }
@@ -77,7 +77,7 @@ impl KernelDispatch for FanPaar32 {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
-                x86::fan_paar::mul_assign_fp32_avx2(crate::kernel::x86_v3_token(), dst, *coeff);
+                x86::fan_paar::mul_assign_avx2_fp32(crate::kernel::x86_v3_token(), dst, *coeff);
             }
             _ => scalar::mul_assign::<FanPaar32>(dst, *coeff),
         }
@@ -88,7 +88,7 @@ impl KernelDispatch for FanPaar32 {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
-                x86::fan_paar::mul_into_fp32_avx2(crate::kernel::x86_v3_token(), dst, *coeff, src);
+                x86::fan_paar::mul_into_avx2_fp32(crate::kernel::x86_v3_token(), dst, *coeff, src);
             }
             _ => {
                 dst.copy_from_slice(src);
@@ -187,7 +187,7 @@ impl KernelDispatch for FanPaar64 {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
-                x86::fan_paar::mul_add_fp64_avx2(crate::kernel::x86_v3_token(), dst, *coeff, src);
+                x86::fan_paar::mul_add_avx2_fp64(crate::kernel::x86_v3_token(), dst, *coeff, src);
             }
             _ => scalar::mul_add::<FanPaar64>(dst, *coeff, src),
         }
@@ -198,7 +198,7 @@ impl KernelDispatch for FanPaar64 {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
-                x86::fan_paar::mul_assign_fp64_avx2(crate::kernel::x86_v3_token(), dst, *coeff);
+                x86::fan_paar::mul_assign_avx2_fp64(crate::kernel::x86_v3_token(), dst, *coeff);
             }
             _ => scalar::mul_assign::<FanPaar64>(dst, *coeff),
         }
@@ -209,7 +209,7 @@ impl KernelDispatch for FanPaar64 {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
-                x86::fan_paar::mul_into_fp64_avx2(crate::kernel::x86_v3_token(), dst, *coeff, src);
+                x86::fan_paar::mul_into_avx2_fp64(crate::kernel::x86_v3_token(), dst, *coeff, src);
             }
             _ => {
                 dst.copy_from_slice(src);
@@ -348,9 +348,19 @@ impl KernelDispatch for FanPaar16 {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Fp16Prepared::Tables { tables, .. } => match backend() {
                 Backend::V2 => {
-                    x86::fan_paar::mul_add_ssse3(crate::kernel::x86_v2_token(), dst, tables, src);
+                    x86::fan_paar::mul_add_ssse3_fp16(
+                        crate::kernel::x86_v2_token(),
+                        dst,
+                        tables,
+                        src,
+                    );
                 }
-                _ => x86::fan_paar::mul_add_avx2(crate::kernel::x86_v3_token(), dst, tables, src),
+                _ => x86::fan_paar::mul_add_avx2_fp16(
+                    crate::kernel::x86_v3_token(),
+                    dst,
+                    tables,
+                    src,
+                ),
             },
             other => scalar::mul_add::<FanPaar16>(dst, other.coeff(), src),
         }
@@ -361,9 +371,15 @@ impl KernelDispatch for FanPaar16 {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Fp16Prepared::Tables { tables, .. } => match backend() {
                 Backend::V2 => {
-                    x86::fan_paar::mul_assign_ssse3(crate::kernel::x86_v2_token(), dst, tables);
+                    x86::fan_paar::mul_assign_ssse3_fp16(
+                        crate::kernel::x86_v2_token(),
+                        dst,
+                        tables,
+                    );
                 }
-                _ => x86::fan_paar::mul_assign_avx2(crate::kernel::x86_v3_token(), dst, tables),
+                _ => {
+                    x86::fan_paar::mul_assign_avx2_fp16(crate::kernel::x86_v3_token(), dst, tables);
+                }
             },
             other => scalar::mul_assign::<FanPaar16>(dst, other.coeff()),
         }
@@ -374,9 +390,19 @@ impl KernelDispatch for FanPaar16 {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Fp16Prepared::Tables { tables, .. } => match backend() {
                 Backend::V2 => {
-                    x86::fan_paar::mul_into_ssse3(crate::kernel::x86_v2_token(), dst, tables, src);
+                    x86::fan_paar::mul_into_ssse3_fp16(
+                        crate::kernel::x86_v2_token(),
+                        dst,
+                        tables,
+                        src,
+                    );
                 }
-                _ => x86::fan_paar::mul_into_avx2(crate::kernel::x86_v3_token(), dst, tables, src),
+                _ => x86::fan_paar::mul_into_avx2_fp16(
+                    crate::kernel::x86_v3_token(),
+                    dst,
+                    tables,
+                    src,
+                ),
             },
             other => {
                 dst.copy_from_slice(src);

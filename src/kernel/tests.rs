@@ -877,10 +877,10 @@ mod x86 {
             return;
         };
         check_gf16_mul_add_tables("gf16 wide", |dst, tables, src| {
-            x86::gf16::mul_add512(token, dst, TowerCoeff::new(tables.coeff), src);
+            x86::gf16::mul_add_avx512(token, dst, TowerCoeff::new(tables.coeff), src);
         });
         check_gf16_mul_assign_tables("gf16 wide", |dst, tables| {
-            x86::gf16::mul_assign512(token, dst, TowerCoeff::new(tables.coeff));
+            x86::gf16::mul_assign_avx512(token, dst, TowerCoeff::new(tables.coeff));
         });
         for &len in LENGTHS {
             let src = noise(len, 0xb51);
@@ -888,7 +888,7 @@ mod x86 {
                 let mut expected = vec![0u8; len];
                 scalar::mul_add::<gf16::Gf16>(&mut expected, coeff, &src);
                 let mut got = noise(len, 0xb52);
-                x86::gf16::mul_into512(token, &mut got, TowerCoeff::new(coeff), &src);
+                x86::gf16::mul_into_avx512(token, &mut got, TowerCoeff::new(coeff), &src);
                 assert_eq!(
                     got, expected,
                     "gf16 wide mul_into len {len} coeff {coeff:?}"
@@ -896,10 +896,10 @@ mod x86 {
             }
         }
         check_gf16_elementwise("gf16 wide elementwise", |dst, a, b| {
-            x86::gf16::mul_elementwise512(token, dst, a, b);
+            x86::gf16::mul_elementwise_avx512(token, dst, a, b);
         });
         check_elementwise_assign::<gf16::Gf16>("gf16 wide elementwise assign", |dst, src| {
-            x86::gf16::mul_elementwise_assign512(token, dst, src);
+            x86::gf16::mul_elementwise_assign_avx512(token, dst, src);
         });
     }
 
@@ -924,8 +924,11 @@ mod x86 {
                     let before = dst.to_vec();
                     let mut want = before.clone();
                     scalar::mul_add::<gf16::Gf16>(&mut want, coeff, src);
-                    x86::gf16::mul_add512(token, dst, TowerCoeff::new(coeff), src);
-                    assert_eq!(&*dst, want, "gf16 mul_add512: len {len}, offset {offset}");
+                    x86::gf16::mul_add_avx512(token, dst, TowerCoeff::new(coeff), src);
+                    assert_eq!(
+                        &*dst, want,
+                        "gf16 mul_add_avx512: len {len}, offset {offset}"
+                    );
                     dst.copy_from_slice(&before);
                 }
             }
@@ -952,8 +955,11 @@ mod x86 {
                 for coeff in gf16_coeffs() {
                     let mut want = src.to_vec();
                     scalar::mul_assign::<gf16::Gf16>(&mut want, coeff);
-                    x86::gf16::mul_into512(token, dst, TowerCoeff::new(coeff), src);
-                    assert_eq!(&*dst, want, "gf16 mul_into512: len {len}, offset {offset}");
+                    x86::gf16::mul_into_avx512(token, dst, TowerCoeff::new(coeff), src);
+                    assert_eq!(
+                        &*dst, want,
+                        "gf16 mul_into_avx512: len {len}, offset {offset}"
+                    );
                 }
             }
         }
@@ -968,7 +974,7 @@ mod x86 {
             eprintln!("skipping: no V4x token on this host");
             return;
         };
-        let peel = x86::bytes512::XOR_PEEL_MIN;
+        let peel = x86::bytes::XOR_PEEL_MIN;
         let edges = [peel - 1, peel, peel + 1, peel + 63, 1024 + 255, 4096 + 63];
         for &len in XOR_LENGTHS.iter().chain(&edges) {
             for &(dst_prefix, src_prefix) in &[(0usize, 0usize), (1, 3), (16, 16), (31, 7), (63, 0)]
@@ -979,10 +985,10 @@ mod x86 {
                 let src = &src_storage[src_prefix..];
                 let mut want = dst.to_vec();
                 scalar::xor(&mut want, src);
-                x86::bytes512::xor512(token.v4(), dst, src);
+                x86::bytes::xor_avx512(token.v4(), dst, src);
                 assert_eq!(
                     &*dst, want,
-                    "xor512: len {len}, dst prefix {dst_prefix}, src prefix {src_prefix}",
+                    "xor_avx512: len {len}, dst prefix {dst_prefix}, src prefix {src_prefix}",
                 );
             }
             // The dispatched entry routes on the short-buffer threshold.
@@ -1001,13 +1007,13 @@ mod x86 {
                 let buf = &storage[prefix..];
                 let want: u64 = buf.iter().map(|b| u64::from(b.count_ones())).sum();
                 assert_eq!(
-                    x86::bytes512::count_ones512(token, buf),
+                    x86::bytes::count_ones_avx512(token, buf),
                     want,
-                    "count_ones512: len {len}, prefix {prefix}",
+                    "count_ones_avx512: len {len}, prefix {prefix}",
                 );
             }
         }
-        assert_eq!(x86::bytes512::count_ones512(token, &[0xff; 1000]), 8000);
+        assert_eq!(x86::bytes::count_ones_avx512(token, &[0xff; 1000]), 8000);
     }
 
     /// Compares wide matrix tiles and their remainders with independent row sums.
@@ -1023,7 +1029,7 @@ mod x86 {
             gf16_coeff_at2,
             gf16_reference,
             |rows, len, nrows, terms| {
-                x86::gf16::mul_add_matrix512(token, rows, len, nrows, terms);
+                x86::gf16::mul_add_matrix_avx512(token, rows, len, nrows, terms);
             },
         );
         check_matrix(
@@ -1031,7 +1037,7 @@ mod x86 {
             gf16_coeff_at2,
             gf16_reference,
             |rows, len, nrows, terms| {
-                x86::gf16::mul_add_matrix512_with(token, rows, len, nrows, terms);
+                x86::gf16::mul_add_matrix_avx512_with(token, rows, len, nrows, terms);
             },
         );
     }
@@ -1044,31 +1050,31 @@ mod x86 {
     #[cfg(feature = "simd512")]
     #[test]
     #[allow(clippy::too_many_lines)]
-    fn gf8d_affine512_kernels_match_reference() {
+    fn gf8_avx512_kernels_match_reference() {
         let Some(token) = X64V4xToken::summon() else {
             eprintln!("skipping: no AVX-512F+AVX-512BW+GFNI on this host");
             return;
         };
 
-        check_gf8d_affine_mul_add("gf8d affine512", |dst, map, table, src| {
-            x86::gf8::mul_add_affine512(token, dst, map, table, src);
+        check_gf8d_affine_mul_add("gf8d avx512", |dst, map, table, src| {
+            x86::gf8::mul_add_avx512(token, dst, map, table, src);
         });
-        check_gf8d_affine_mul_assign("gf8d affine512", |dst, map, table| {
-            x86::gf8::mul_assign_affine512(token, dst, map, table);
+        check_gf8d_affine_mul_assign("gf8d avx512", |dst, map, table| {
+            x86::gf8::mul_assign_avx512(token, dst, map, table);
         });
-        check_gf8d_affine_mul_into("gf8d affine512", |dst, map, table, src| {
-            x86::gf8::mul_into_affine512(token, dst, map, table, src);
+        check_gf8d_affine_mul_into("gf8d avx512", |dst, map, table, src| {
+            x86::gf8::mul_into_avx512(token, dst, map, table, src);
         });
         // `Gf8B` through the same field-agnostic 512-bit bodies: the affine
         // bank differs (`0x11B`), the instruction does not.
-        check_gf8_affine_mul_add("gf8b affine512", |dst, map, table, src| {
-            x86::gf8::mul_add_affine512(token, dst, map, table, src);
+        check_gf8_affine_mul_add("gf8b avx512", |dst, map, table, src| {
+            x86::gf8::mul_add_avx512(token, dst, map, table, src);
         });
-        check_gf8_affine_mul_assign("gf8b affine512", |dst, map, table| {
-            x86::gf8::mul_assign_affine512(token, dst, map, table);
+        check_gf8_affine_mul_assign("gf8b avx512", |dst, map, table| {
+            x86::gf8::mul_assign_avx512(token, dst, map, table);
         });
-        check_gf8_affine_mul_into("gf8b affine512", |dst, map, table, src| {
-            x86::gf8::mul_into_affine512(token, dst, map, table, src);
+        check_gf8_affine_mul_into("gf8b avx512", |dst, map, table, src| {
+            x86::gf8::mul_into_avx512(token, dst, map, table, src);
         });
         // Prefetch coverage: at and above `PREFETCH_MIN` the into body names
         // lines 512 and 640 bytes ahead, so the length must clear the guard
@@ -1083,7 +1089,7 @@ mod x86 {
             ] {
                 let mut got = noise(len, 0xb21);
                 let mut want = src.clone();
-                x86::gf8::mul_into_affine512(
+                x86::gf8::mul_into_avx512(
                     token,
                     &mut got,
                     affine_8d(coeff),
@@ -1093,69 +1099,69 @@ mod x86 {
                 scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
                 assert_eq!(
                     got, want,
-                    "gf8d affine512 into prefetch: len {len}, coeff {coeff:?}"
+                    "gf8d avx512 into prefetch: len {len}, coeff {coeff:?}"
                 );
             }
         }
         check_scatter(
-            "gf8d affine512 scatter",
+            "gf8d avx512 scatter",
             gf8d_coeff_at,
             gf8d_reference,
             |rows, row_len, coeffs, src| {
-                x86::gf8::mul_add_scatter_affine512(token, rows, row_len, coeffs, src);
+                x86::gf8::mul_add_scatter_avx512(token, rows, row_len, coeffs, src);
             },
         );
         check_gather(
-            "gf8d affine512 gather",
+            "gf8d avx512 gather",
             gf8d_coeff_at,
             gf8d_reference,
-            |dst, coeffs, srcs| x86::gf8::mul_add_gather_affine512(token, dst, coeffs, srcs),
+            |dst, coeffs, srcs| x86::gf8::mul_add_gather_avx512(token, dst, coeffs, srcs),
         );
         check_matrix(
-            "gf8d affine512 matrix",
+            "gf8d avx512 matrix",
             gf8d_coeff_at2,
             gf8d_reference,
             |rows, row_len, nrows, terms| {
-                x86::gf8::mul_add_matrix_affine512(token, rows, row_len, nrows, terms);
+                x86::gf8::mul_add_matrix_avx512(token, rows, row_len, nrows, terms);
             },
         );
         check_matrix_overwrite(
-            "gf8d affine512 matrix overwrite",
+            "gf8d avx512 matrix overwrite",
             gf8d_coeff_at2,
             gf8d_reference,
             |rows, row_len, nrows, terms| {
-                x86::gf8::mul_into_matrix_affine512(token, rows, row_len, nrows, terms);
+                x86::gf8::mul_into_matrix_avx512(token, rows, row_len, nrows, terms);
             },
         );
         // `Gf8B` through the generic 512-bit multi-row bodies.
         check_scatter(
-            "gf8b affine512 scatter",
+            "gf8b avx512 scatter",
             gf8_coeff_at,
             gf8_reference,
             |rows, row_len, coeffs, src| {
-                x86::gf8::mul_add_scatter_affine512(token, rows, row_len, coeffs, src);
+                x86::gf8::mul_add_scatter_avx512(token, rows, row_len, coeffs, src);
             },
         );
         check_gather(
-            "gf8b affine512 gather",
+            "gf8b avx512 gather",
             gf8_coeff_at,
             gf8_reference,
-            |dst, coeffs, srcs| x86::gf8::mul_add_gather_affine512(token, dst, coeffs, srcs),
+            |dst, coeffs, srcs| x86::gf8::mul_add_gather_avx512(token, dst, coeffs, srcs),
         );
         check_matrix(
-            "gf8b affine512 matrix",
+            "gf8b avx512 matrix",
             gf8_coeff_at2,
             gf8_reference,
             |rows, row_len, nrows, terms| {
-                x86::gf8::mul_add_matrix_affine512(token, rows, row_len, nrows, terms);
+                x86::gf8::mul_add_matrix_avx512(token, rows, row_len, nrows, terms);
             },
         );
         check_matrix_overwrite(
-            "gf8b affine512 matrix overwrite",
+            "gf8b avx512 matrix overwrite",
             gf8_coeff_at2,
             gf8_reference,
             |rows, row_len, nrows, terms| {
-                x86::gf8::mul_into_matrix_affine512(token, rows, row_len, nrows, terms);
+                x86::gf8::mul_into_matrix_avx512(token, rows, row_len, nrows, terms);
             },
         );
         // 512-bit tile transitions: sub-tile, exact tiles, tile-plus-lanes,
@@ -1176,7 +1182,7 @@ mod x86 {
                         .collect();
                     let mut got = noise(row_len * nrows, 0xb10);
                     let mut want = got.clone();
-                    x86::gf8::mul_add_matrix_affine512(token, &mut got, row_len, nrows, &terms);
+                    x86::gf8::mul_add_matrix_avx512(token, &mut got, row_len, nrows, &terms);
                     for &(coeffs, src) in &terms {
                         for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
                             gf8d_reference(row, coeff, src);
@@ -1184,23 +1190,23 @@ mod x86 {
                     }
                     assert_eq!(
                         got, want,
-                        "gf8d affine512 tiles: {row_len}B x {nrows} x {nterms}t"
+                        "gf8d avx512 tiles: {row_len}B x {nrows} x {nterms}t"
                     );
                     // Empty terms: accumulate leaves rows unchanged, overwrite zeroes them.
                     let mut got = noise(row_len * nrows, 0xb11);
                     let want = got.clone();
                     let empty: &[(&[gf8d::Elem], &[u8])] = &[];
-                    x86::gf8::mul_add_matrix_affine512(token, &mut got, row_len, nrows, empty);
+                    x86::gf8::mul_add_matrix_avx512(token, &mut got, row_len, nrows, empty);
                     assert_eq!(
                         got, want,
-                        "gf8d affine512 empty accumulate: {row_len}B x {nrows}"
+                        "gf8d avx512 empty accumulate: {row_len}B x {nrows}"
                     );
                     let mut got = noise(row_len * nrows, 0xb12);
-                    x86::gf8::mul_into_matrix_affine512(token, &mut got, row_len, nrows, empty);
+                    x86::gf8::mul_into_matrix_avx512(token, &mut got, row_len, nrows, empty);
                     assert_eq!(
                         got,
                         vec![0u8; row_len * nrows],
-                        "gf8d affine512 empty overwrite: {row_len}B x {nrows}"
+                        "gf8d avx512 empty overwrite: {row_len}B x {nrows}"
                     );
                 }
             }
@@ -1235,11 +1241,11 @@ mod x86 {
                         }
                     }
                     let rows = &mut backing[start..start + span];
-                    x86::gf8::mul_add_matrix_affine512(token, rows, row_len, nrows, &terms);
+                    x86::gf8::mul_add_matrix_avx512(token, rows, row_len, nrows, &terms);
                     assert_eq!(
                         rows,
                         want.as_slice(),
-                        "gf8d affine512 peeled accumulate: +{offset} {row_len}B x {nrows}"
+                        "gf8d avx512 peeled accumulate: +{offset} {row_len}B x {nrows}"
                     );
                     let mut want = vec![0u8; span];
                     for &(coeffs, src) in &terms {
@@ -1247,11 +1253,11 @@ mod x86 {
                             gf8d_reference(row, coeff, src);
                         }
                     }
-                    x86::gf8::mul_into_matrix_affine512(token, rows, row_len, nrows, &terms);
+                    x86::gf8::mul_into_matrix_avx512(token, rows, row_len, nrows, &terms);
                     assert_eq!(
                         rows,
                         want.as_slice(),
-                        "gf8d affine512 peeled overwrite: +{offset} {row_len}B x {nrows}"
+                        "gf8d avx512 peeled overwrite: +{offset} {row_len}B x {nrows}"
                     );
                 }
             }
@@ -1279,11 +1285,11 @@ mod x86 {
                         gf8d_reference(row, coeff, src);
                     }
                     let rows = &mut backing[start..start + len * nrows];
-                    x86::gf8::mul_add_scatter_affine512(token, rows, len, &coeffs, src);
+                    x86::gf8::mul_add_scatter_avx512(token, rows, len, &coeffs, src);
                     assert_eq!(
                         rows,
                         want.as_slice(),
-                        "gf8d affine512 peeled scatter: +{offset} {len}B x {nrows}"
+                        "gf8d avx512 peeled scatter: +{offset} {len}B x {nrows}"
                     );
                 }
             }
@@ -1311,11 +1317,11 @@ mod x86 {
                         gf8d_reference(&mut want, coeff, src);
                     }
                     let dst = &mut backing[start..start + len];
-                    x86::gf8::mul_add_gather_affine512(token, dst, &coeffs, &srcs);
+                    x86::gf8::mul_add_gather_avx512(token, dst, &coeffs, &srcs);
                     assert_eq!(
                         dst,
                         want.as_slice(),
-                        "gf8d affine512 peeled gather: +{offset} {len}B x {nsrcs}"
+                        "gf8d avx512 peeled gather: +{offset} {len}B x {nsrcs}"
                     );
                 }
             }
@@ -1343,7 +1349,7 @@ mod x86 {
                     .collect();
                 let mut got = noise(span, 0xda);
                 let mut want = got.clone();
-                x86::gf8::mul_add_matrix_at_affine512(token, &mut got, row_len, &starts, &terms);
+                x86::gf8::mul_add_matrix_at_avx512(token, &mut got, row_len, &starts, &terms);
                 for &(coeffs, src) in &terms {
                     for (j, &coeff) in coeffs.iter().enumerate() {
                         scalar::mul_add::<gf8d::Gf8D>(
@@ -1353,15 +1359,15 @@ mod x86 {
                         );
                     }
                 }
-                assert_eq!(got, want, "gf8d affine512 scattered: {row_len}B x {nrows}");
+                assert_eq!(got, want, "gf8d avx512 scattered: {row_len}B x {nrows}");
                 // Empty terms leave scattered rows unchanged; zero rows are a no-op.
                 let mut got = noise(span, 0xdb);
                 let want = got.clone();
                 let empty: &[(&[gf8d::Elem], &[u8])] = &[];
-                x86::gf8::mul_add_matrix_at_affine512(token, &mut got, row_len, &starts, empty);
+                x86::gf8::mul_add_matrix_at_avx512(token, &mut got, row_len, &starts, empty);
                 assert_eq!(
                     got, want,
-                    "gf8d affine512 scattered empty: {row_len}B x {nrows}"
+                    "gf8d avx512 scattered empty: {row_len}B x {nrows}"
                 );
             }
         }
@@ -1369,8 +1375,8 @@ mod x86 {
             let mut rows = noise(64, 0xdc);
             let want = rows.clone();
             let empty: &[(&[gf8d::Elem], &[u8])] = &[];
-            x86::gf8::mul_add_matrix_at_affine512(token, &mut rows, 16, &[], empty);
-            assert_eq!(rows, want, "gf8d affine512 scattered zero rows");
+            x86::gf8::mul_add_matrix_at_avx512(token, &mut rows, 16, &[], empty);
+            assert_eq!(rows, want, "gf8d avx512 scattered zero rows");
         }
         // `Gf8B` through the generic scattered body: same windows, AES field.
         for &row_len in ROW_LENS {
@@ -1390,28 +1396,28 @@ mod x86 {
                     .collect();
                 let mut got = noise(span, 0xdd);
                 let mut want = got.clone();
-                x86::gf8::mul_add_matrix_at_affine512(token, &mut got, row_len, &starts, &terms);
+                x86::gf8::mul_add_matrix_at_avx512(token, &mut got, row_len, &starts, &terms);
                 for &(coeffs, src) in &terms {
                     for (j, &coeff) in coeffs.iter().enumerate() {
                         gf8_reference(&mut want[starts[j]..starts[j] + row_len], coeff, src);
                     }
                 }
-                assert_eq!(got, want, "gf8b affine512 scattered: {row_len}B x {nrows}");
+                assert_eq!(got, want, "gf8b avx512 scattered: {row_len}B x {nrows}");
             }
         }
         // 64-byte elementwise products for both byte fields: full lanes, the
         // 32/16-byte ladder, and the scalar tail.
-        check_gf8_elementwise("gf8 gfni512 elementwise", |dst, a, b| {
-            x86::gf8::mul_elementwise_gfni512(token, dst, a, b);
+        check_gf8_elementwise("gf8 avx512 elementwise", |dst, a, b| {
+            x86::gf8::mul_elementwise_avx512(token, dst, a, b);
         });
-        check_elementwise_assign::<gf8b::Gf8B>("gf8 gfni512 elementwise assign", |dst, src| {
-            x86::gf8::mul_elementwise_assign_gfni512(token, dst, src);
+        check_elementwise_assign::<gf8b::Gf8B>("gf8 avx512 elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_avx512(token, dst, src);
         });
-        check_gf8d_elementwise("gf8d iso512 elementwise", |dst, a, b| {
-            x86::gf8::mul_elementwise_iso512_8d(token, dst, a, b);
+        check_gf8d_elementwise("gf8d avx512_8d elementwise", |dst, a, b| {
+            x86::gf8::mul_elementwise_avx512_8d(token, dst, a, b);
         });
-        check_elementwise_assign::<gf8d::Gf8D>("gf8d iso512 elementwise assign", |dst, src| {
-            x86::gf8::mul_elementwise_assign_iso512_8d(token, dst, src);
+        check_elementwise_assign::<gf8d::Gf8D>("gf8d avx512_8d elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_avx512_8d(token, dst, src);
         });
         // The `_with` provider path over the flat test-slice terms.
         for &row_len in ROW_LENS {
@@ -1439,15 +1445,15 @@ mod x86 {
                 };
                 let mut got = noise(row_len * nrows, 0xdb);
                 let mut want = got.clone();
-                x86::gf8::mul_add_matrix_affine512_with(token, &mut got, row_len, nrows, &matrix);
+                x86::gf8::mul_add_matrix_avx512_with(token, &mut got, row_len, nrows, &matrix);
                 for &(coeffs, src) in &terms {
                     for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
                         scalar::mul_add::<gf8d::Gf8D>(row, coeff, src);
                     }
                 }
-                assert_eq!(got, want, "gf8d affine512 with: {row_len}B x {nrows}");
+                assert_eq!(got, want, "gf8d avx512 with: {row_len}B x {nrows}");
                 let mut got = noise(row_len * nrows, 0xdc);
-                x86::gf8::mul_into_matrix_affine512_with(token, &mut got, row_len, nrows, &matrix);
+                x86::gf8::mul_into_matrix_avx512_with(token, &mut got, row_len, nrows, &matrix);
                 let mut want = vec![0u8; row_len * nrows];
                 for &(coeffs, src) in &terms {
                     for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
@@ -1456,7 +1462,7 @@ mod x86 {
                 }
                 assert_eq!(
                     got, want,
-                    "gf8d affine512 overwrite with: {row_len}B x {nrows}"
+                    "gf8d avx512 overwrite with: {row_len}B x {nrows}"
                 );
             }
         }
@@ -1552,8 +1558,8 @@ mod x86 {
             // `0x1d` shift/reduce form the three-slice kernel does.
             x86::gf8::mul_elementwise_assign_avx2::<0x1d>(v3, dst, src);
         });
-        check_elementwise_assign::<gf8d::Gf8D>("gf8d iso elementwise assign", |dst, src| {
-            x86::gf8::mul_elementwise_assign_iso_8d(token, dst, src);
+        check_elementwise_assign::<gf8d::Gf8D>("gf8d gfni_8d elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_gfni_8d(token, dst, src);
         });
         check_elementwise_assign::<gf16::Gf16>("gf16 gfni elementwise assign", |dst, src| {
             x86::gf16::mul_elementwise_assign_gfni(token, dst, src);
@@ -1624,7 +1630,7 @@ mod x86 {
     }
 
     /// Scattered-rows differential for the blocked affine matrix.
-    fn check_gf8d_scattered_affine_rows(token: X64V3GfniCryptoToken) {
+    fn check_gf8d_scattered_gfni_rows(token: X64V3GfniCryptoToken) {
         // Scattered rows: disjoint offsets, blocked affine against per-term AXPY.
         // Even iterations use ascending starts, odd iterations a reversed
         // (non-monotonic) order over the same windows.
@@ -1648,7 +1654,7 @@ mod x86 {
                     .collect();
                 let mut got = noise(span, 0xda);
                 let mut want = got.clone();
-                x86::gf8::mul_add_matrix_at_affine(token, &mut got, row_len, &starts, &terms);
+                x86::gf8::mul_add_matrix_at_gfni_8d(token, &mut got, row_len, &starts, &terms);
                 for &(coeffs, src) in &terms {
                     for (j, &coeff) in coeffs.iter().enumerate() {
                         scalar::mul_add::<gf8d::Gf8D>(
@@ -1660,7 +1666,7 @@ mod x86 {
                 }
                 assert_eq!(
                     got, want,
-                    "gf8d affine matrix_scattered: row_len {row_len}, nrows {nrows}"
+                    "gf8d gfni_8d matrix_scattered: row_len {row_len}, nrows {nrows}"
                 );
             }
         }
@@ -1672,7 +1678,7 @@ mod x86 {
     /// silicon-level proof of the affine map's bit-order convention, and the
     /// loud failure if `GF2P8MULB` (the AES field) were ever substituted.
     #[test]
-    fn gf8d_affine_kernels_match_reference() {
+    fn gf8d_gfni_kernels_match_reference() {
         // The non-temporal `mul_into` body sits far above the shared lengths;
         // destination offsets 0 and 1 cover both sides of the alignment peel.
         const NT_LEN: usize = (2 << 20) + 130;
@@ -1683,14 +1689,14 @@ mod x86 {
         }
         let token = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
 
-        check_gf8d_affine_mul_add("gf8d affine", |dst, map, table, src| {
-            x86::gf8::mul_add_affine(token, dst, map, table, src);
+        check_gf8d_affine_mul_add("gf8d gfni_8d", |dst, map, table, src| {
+            x86::gf8::mul_add_gfni_8d(token, dst, map, table, src);
         });
-        check_gf8d_affine_mul_assign("gf8d affine", |dst, map, table| {
-            x86::gf8::mul_assign_affine(token, dst, map, table);
+        check_gf8d_affine_mul_assign("gf8d gfni_8d", |dst, map, table| {
+            x86::gf8::mul_assign_gfni_8d(token, dst, map, table);
         });
-        check_gf8d_affine_mul_into("gf8d affine", |dst, map, table, src| {
-            x86::gf8::mul_into_affine(token, dst, map, table, src);
+        check_gf8d_affine_mul_into("gf8d gfni_8d", |dst, map, table, src| {
+            x86::gf8::mul_into_gfni_8d(token, dst, map, table, src);
         });
         let source = noise(NT_LEN + 2, 0x2b8);
         for offset in [0, 1] {
@@ -1702,44 +1708,50 @@ mod x86 {
                 let mut want = src.to_vec();
                 scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
                 let got = &mut buffer[offset..offset + NT_LEN];
-                x86::gf8::mul_into_affine(token, got, affine_8d(coeff), scale_table_8d(coeff), src);
-                assert_eq!(&*got, want, "gf8d affine NT mul_into: offset {offset}");
+                x86::gf8::mul_into_gfni_8d(
+                    token,
+                    got,
+                    affine_8d(coeff),
+                    scale_table_8d(coeff),
+                    src,
+                );
+                assert_eq!(&*got, want, "gf8d gfni_8d NT mul_into: offset {offset}");
             }
         }
 
         // The register-blocked affine multi-row shapes against per-row AXPY,
         // over the same row-group and tile boundaries as the `Gf8B` kernels.
         check_scatter(
-            "gf8d affine scatter",
+            "gf8d gfni_8d scatter",
             gf8d_coeff_at,
             gf8d_reference,
             |rows, row_len, coeffs, src| {
-                x86::gf8::mul_add_scatter_affine(token, rows, row_len, coeffs, src);
+                x86::gf8::mul_add_scatter_gfni_8d(token, rows, row_len, coeffs, src);
             },
         );
         check_matrix(
-            "gf8d affine matrix",
+            "gf8d gfni_8d matrix",
             gf8d_coeff_at2,
             gf8d_reference,
             |rows, row_len, nrows, terms| {
-                x86::gf8::mul_add_matrix_affine(token, rows, row_len, nrows, terms);
+                x86::gf8::mul_add_matrix_gfni_8d(token, rows, row_len, nrows, terms);
             },
         );
         check_matrix_overwrite(
-            "gf8d affine matrix overwrite",
+            "gf8d gfni_8d matrix overwrite",
             gf8d_coeff_at2,
             gf8d_reference,
             |rows, row_len, nrows, terms| {
-                x86::gf8::mul_into_matrix_affine(token, rows, row_len, nrows, terms);
+                x86::gf8::mul_into_matrix_gfni_8d(token, rows, row_len, nrows, terms);
             },
         );
         check_gather(
-            "gf8d affine gather",
+            "gf8d gfni_8d gather",
             gf8d_coeff_at,
             gf8d_reference,
-            |dst, coeffs, srcs| x86::gf8::mul_add_gather_affine(token, dst, coeffs, srcs),
+            |dst, coeffs, srcs| x86::gf8::mul_add_gather_gfni_8d(token, dst, coeffs, srcs),
         );
-        check_gf8d_scattered_affine_rows(token);
+        check_gf8d_scattered_gfni_rows(token);
     }
 
     /// Field-independent XOR across the half-lane peel floor: the 16-mod-32
@@ -1808,7 +1820,7 @@ mod x86 {
     /// The `VGF2P8AFFINEQB` byte kernels across the half-lane peel floor,
     /// against the scalar reference for all three single-row forms.
     #[test]
-    fn gf8d_affine_peels_half_lane() {
+    fn gf8d_gfni_peels_half_lane() {
         if !host_supports(&[Backend::V3GfniCrypto]) {
             eprintln!("skipping: no AVX2+GFNI on this host");
             return;
@@ -1828,17 +1840,20 @@ mod x86 {
                     let before = dst.to_vec();
                     let mut want = before.clone();
                     scalar::mul_add::<gf8d::Gf8D>(&mut want, coeff, src);
-                    x86::gf8::mul_add_affine(token, dst, map, table, src);
-                    assert_eq!(&*dst, want, "mul_add_affine: len {len}, offset {offset}");
+                    x86::gf8::mul_add_gfni_8d(token, dst, map, table, src);
+                    assert_eq!(&*dst, want, "mul_add_gfni_8d: len {len}, offset {offset}");
                     dst.copy_from_slice(&before);
                     let mut want = before.clone();
                     scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
-                    x86::gf8::mul_assign_affine(token, dst, map, table);
-                    assert_eq!(&*dst, want, "mul_assign_affine: len {len}, offset {offset}");
+                    x86::gf8::mul_assign_gfni_8d(token, dst, map, table);
+                    assert_eq!(
+                        &*dst, want,
+                        "mul_assign_gfni_8d: len {len}, offset {offset}"
+                    );
                     let mut want = src.to_vec();
                     scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
-                    x86::gf8::mul_into_affine(token, dst, map, table, src);
-                    assert_eq!(&*dst, want, "mul_into_affine: len {len}, offset {offset}");
+                    x86::gf8::mul_into_gfni_8d(token, dst, map, table, src);
+                    assert_eq!(&*dst, want, "mul_into_gfni_8d: len {len}, offset {offset}");
                 }
             }
         }
@@ -1951,8 +1966,8 @@ mod x86 {
             x86::gf8::mul_elementwise_avx2::<0x1d>(token, dst, a, b);
         });
         if let Some(gfni) = X64V3GfniCryptoToken::summon() {
-            check_gf8d_elementwise("gf8d iso elementwise", |dst, a, b| {
-                x86::gf8::mul_elementwise_iso_8d(gfni, dst, a, b);
+            check_gf8d_elementwise("gf8d gfni_8d elementwise", |dst, a, b| {
+                x86::gf8::mul_elementwise_gfni_8d(gfni, dst, a, b);
             });
         } else {
             eprintln!("skipping: gf8d iso elementwise needs GFNI");
@@ -1984,7 +1999,7 @@ mod x86 {
             &fp16_coeffs(),
             fp16_reference,
             |dst, coeff, src| {
-                x86::fan_paar::mul_add_avx2(token, dst, &FpTowerTables::new(coeff), src);
+                x86::fan_paar::mul_add_avx2_fp16(token, dst, &FpTowerTables::new(coeff), src);
             },
         );
         check_tower_mul_assign(
@@ -1993,7 +2008,7 @@ mod x86 {
             &fp16_coeffs(),
             fp16_assign_reference,
             |dst, coeff| {
-                x86::fan_paar::mul_assign_avx2(token, dst, &FpTowerTables::new(coeff));
+                x86::fan_paar::mul_assign_avx2_fp16(token, dst, &FpTowerTables::new(coeff));
             },
         );
         check_tower_mul_into(
@@ -2002,7 +2017,7 @@ mod x86 {
             &fp16_coeffs(),
             fp16_into_reference,
             |dst, coeff, src| {
-                x86::fan_paar::mul_into_avx2(token, dst, &FpTowerTables::new(coeff), src);
+                x86::fan_paar::mul_into_avx2_fp16(token, dst, &FpTowerTables::new(coeff), src);
             },
         );
         check_tower_mul_add(
@@ -2011,7 +2026,7 @@ mod x86 {
             &fp32_coeffs(),
             fp32_reference,
             |dst, coeff, src| {
-                x86::fan_paar::mul_add_fp32_avx2(token, dst, coeff, src);
+                x86::fan_paar::mul_add_avx2_fp32(token, dst, coeff, src);
             },
         );
         check_tower_mul_assign(
@@ -2020,7 +2035,7 @@ mod x86 {
             &fp32_coeffs(),
             fp32_assign_reference,
             |dst, coeff| {
-                x86::fan_paar::mul_assign_fp32_avx2(token, dst, coeff);
+                x86::fan_paar::mul_assign_avx2_fp32(token, dst, coeff);
             },
         );
         check_tower_mul_into(
@@ -2029,7 +2044,7 @@ mod x86 {
             &fp32_coeffs(),
             fp32_into_reference,
             |dst, coeff, src| {
-                x86::fan_paar::mul_into_fp32_avx2(token, dst, coeff, src);
+                x86::fan_paar::mul_into_avx2_fp32(token, dst, coeff, src);
             },
         );
         check_tower_mul_add(
@@ -2038,7 +2053,7 @@ mod x86 {
             &fp64_coeffs(),
             fp64_reference,
             |dst, coeff, src| {
-                x86::fan_paar::mul_add_fp64_avx2(token, dst, coeff, src);
+                x86::fan_paar::mul_add_avx2_fp64(token, dst, coeff, src);
             },
         );
         check_tower_mul_assign(
@@ -2047,7 +2062,7 @@ mod x86 {
             &fp64_coeffs(),
             fp64_assign_reference,
             |dst, coeff| {
-                x86::fan_paar::mul_assign_fp64_avx2(token, dst, coeff);
+                x86::fan_paar::mul_assign_avx2_fp64(token, dst, coeff);
             },
         );
         check_tower_mul_into(
@@ -2056,7 +2071,7 @@ mod x86 {
             &fp64_coeffs(),
             fp64_into_reference,
             |dst, coeff, src| {
-                x86::fan_paar::mul_into_fp64_avx2(token, dst, coeff, src);
+                x86::fan_paar::mul_into_avx2_fp64(token, dst, coeff, src);
             },
         );
     }
@@ -2156,7 +2171,7 @@ mod x86 {
             &fp16_coeffs(),
             fp16_reference,
             |dst, coeff, src| {
-                x86::fan_paar::mul_add_ssse3(token, dst, &FpTowerTables::new(coeff), src);
+                x86::fan_paar::mul_add_ssse3_fp16(token, dst, &FpTowerTables::new(coeff), src);
             },
         );
         check_tower_mul_assign(
@@ -2165,7 +2180,7 @@ mod x86 {
             &fp16_coeffs(),
             fp16_assign_reference,
             |dst, coeff| {
-                x86::fan_paar::mul_assign_ssse3(token, dst, &FpTowerTables::new(coeff));
+                x86::fan_paar::mul_assign_ssse3_fp16(token, dst, &FpTowerTables::new(coeff));
             },
         );
         check_tower_mul_into(
@@ -2174,7 +2189,7 @@ mod x86 {
             &fp16_coeffs(),
             fp16_into_reference,
             |dst, coeff, src| {
-                x86::fan_paar::mul_into_ssse3(token, dst, &FpTowerTables::new(coeff), src);
+                x86::fan_paar::mul_into_ssse3_fp16(token, dst, &FpTowerTables::new(coeff), src);
             },
         );
     }
@@ -2463,7 +2478,7 @@ mod x86 {
 
                     let affine_coeffs: Vec<_> = (0..nrows).map(gf8d_coeff_at).collect();
                     let mut want = rows.to_vec();
-                    x86::gf8::mul_add_scatter_affine(token, rows, row_len, &affine_coeffs, &src);
+                    x86::gf8::mul_add_scatter_gfni_8d(token, rows, row_len, &affine_coeffs, &src);
                     for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&affine_coeffs) {
                         gf8d_reference(row, coeff, &src);
                     }
@@ -2645,30 +2660,30 @@ mod x86 {
             M31_LENS,
             &M31_COEFFS,
             mersenne31::Elem,
-            |dst, src| x86::prime::add_assign_m31_avx2(token, dst, src),
-            |dst, src| x86::prime::sub_assign_m31_avx2(token, dst, src),
-            |dst, coeff, src| x86::prime::mul_add_m31_avx2(token, dst, coeff, src),
-            |dst, coeff, src| x86::prime::mul_into_m31_avx2(token, dst, coeff, src),
-            |dst, coeff| x86::prime::mul_assign_m31_avx2(token, dst, coeff),
-            |dst, a, b| x86::prime::mul_elementwise_m31_avx2(token, dst, a, b),
-            |dst, s| x86::prime::mul_elementwise_assign_m31_avx2(token, dst, s),
-            |dst, c| x86::prime::add_assign_scalar_m31_avx2(token, dst, c),
-            |dst, c| x86::prime::sub_assign_scalar_m31_avx2(token, dst, c),
+            |dst, src| x86::mersenne31::add_assign_avx2(token, dst, src),
+            |dst, src| x86::mersenne31::sub_assign_avx2(token, dst, src),
+            |dst, coeff, src| x86::mersenne31::mul_add_avx2(token, dst, coeff, src),
+            |dst, coeff, src| x86::mersenne31::mul_into_avx2(token, dst, coeff, src),
+            |dst, coeff| x86::mersenne31::mul_assign_avx2(token, dst, coeff),
+            |dst, a, b| x86::mersenne31::mul_elementwise_avx2(token, dst, a, b),
+            |dst, s| x86::mersenne31::mul_elementwise_assign_avx2(token, dst, s),
+            |dst, c| x86::mersenne31::add_assign_scalar_avx2(token, dst, c),
+            |dst, c| x86::mersenne31::sub_assign_scalar_avx2(token, dst, c),
             "m31 avx2",
         );
         drive_prime::<Goldilocks, u64>(
             GLD_LENS,
             &GLD_COEFFS,
             goldilocks::Elem,
-            |dst, src| x86::prime::add_assign_gld_avx2(token, dst, src),
-            |dst, src| x86::prime::sub_assign_gld_avx2(token, dst, src),
-            |dst, coeff, src| x86::prime::mul_add_gld_avx2(token, dst, coeff, src),
-            |dst, coeff, src| x86::prime::mul_into_gld_avx2(token, dst, coeff, src),
-            |dst, coeff| x86::prime::mul_assign_gld_avx2(token, dst, coeff),
-            |dst, a, b| x86::prime::mul_elementwise_gld_avx2(token, dst, a, b),
-            |dst, s| x86::prime::mul_elementwise_assign_gld_avx2(token, dst, s),
-            |dst, c| x86::prime::add_assign_scalar_gld_avx2(token, dst, c),
-            |dst, c| x86::prime::sub_assign_scalar_gld_avx2(token, dst, c),
+            |dst, src| x86::goldilocks::add_assign_avx2(token, dst, src),
+            |dst, src| x86::goldilocks::sub_assign_avx2(token, dst, src),
+            |dst, coeff, src| x86::goldilocks::mul_add_avx2(token, dst, coeff, src),
+            |dst, coeff, src| x86::goldilocks::mul_into_avx2(token, dst, coeff, src),
+            |dst, coeff| x86::goldilocks::mul_assign_avx2(token, dst, coeff),
+            |dst, a, b| x86::goldilocks::mul_elementwise_avx2(token, dst, a, b),
+            |dst, s| x86::goldilocks::mul_elementwise_assign_avx2(token, dst, s),
+            |dst, c| x86::goldilocks::add_assign_scalar_avx2(token, dst, c),
+            |dst, c| x86::goldilocks::sub_assign_scalar_avx2(token, dst, c),
             "gld avx2",
         );
     }
@@ -2689,30 +2704,30 @@ mod x86 {
             M31_WIDE,
             &M31_COEFFS,
             mersenne31::Elem,
-            |dst, src| x86::prime::add_assign_m31_avx512(token, dst, src),
-            |dst, src| x86::prime::sub_assign_m31_avx512(token, dst, src),
-            |dst, coeff, src| x86::prime::mul_add_m31_avx512(token, dst, coeff, src),
-            |dst, coeff, src| x86::prime::mul_into_m31_avx512(token, dst, coeff, src),
-            |dst, coeff| x86::prime::mul_assign_m31_avx512(token, dst, coeff),
-            |dst, a, b| x86::prime::mul_elementwise_m31_avx512(token, dst, a, b),
-            |dst, s| x86::prime::mul_elementwise_assign_m31_avx512(token, dst, s),
-            |dst, c| x86::prime::add_assign_scalar_m31_avx512(token, dst, c),
-            |dst, c| x86::prime::sub_assign_scalar_m31_avx512(token, dst, c),
+            |dst, src| x86::mersenne31::add_assign_avx512(token, dst, src),
+            |dst, src| x86::mersenne31::sub_assign_avx512(token, dst, src),
+            |dst, coeff, src| x86::mersenne31::mul_add_avx512(token, dst, coeff, src),
+            |dst, coeff, src| x86::mersenne31::mul_into_avx512(token, dst, coeff, src),
+            |dst, coeff| x86::mersenne31::mul_assign_avx512(token, dst, coeff),
+            |dst, a, b| x86::mersenne31::mul_elementwise_avx512(token, dst, a, b),
+            |dst, s| x86::mersenne31::mul_elementwise_assign_avx512(token, dst, s),
+            |dst, c| x86::mersenne31::add_assign_scalar_avx512(token, dst, c),
+            |dst, c| x86::mersenne31::sub_assign_scalar_avx512(token, dst, c),
             "m31 avx512",
         );
         drive_prime::<Goldilocks, u64>(
             GLD_WIDE,
             &GLD_COEFFS,
             goldilocks::Elem,
-            |dst, src| x86::prime::add_assign_gld_avx512(token, dst, src),
-            |dst, src| x86::prime::sub_assign_gld_avx512(token, dst, src),
-            |dst, coeff, src| x86::prime::mul_add_gld_avx512(token, dst, coeff, src),
-            |dst, coeff, src| x86::prime::mul_into_gld_avx512(token, dst, coeff, src),
-            |dst, coeff| x86::prime::mul_assign_gld_avx512(token, dst, coeff),
-            |dst, a, b| x86::prime::mul_elementwise_gld_avx512(token, dst, a, b),
-            |dst, s| x86::prime::mul_elementwise_assign_gld_avx512(token, dst, s),
-            |dst, c| x86::prime::add_assign_scalar_gld_avx512(token, dst, c),
-            |dst, c| x86::prime::sub_assign_scalar_gld_avx512(token, dst, c),
+            |dst, src| x86::goldilocks::add_assign_avx512(token, dst, src),
+            |dst, src| x86::goldilocks::sub_assign_avx512(token, dst, src),
+            |dst, coeff, src| x86::goldilocks::mul_add_avx512(token, dst, coeff, src),
+            |dst, coeff, src| x86::goldilocks::mul_into_avx512(token, dst, coeff, src),
+            |dst, coeff| x86::goldilocks::mul_assign_avx512(token, dst, coeff),
+            |dst, a, b| x86::goldilocks::mul_elementwise_avx512(token, dst, a, b),
+            |dst, s| x86::goldilocks::mul_elementwise_assign_avx512(token, dst, s),
+            |dst, c| x86::goldilocks::add_assign_scalar_avx512(token, dst, c),
+            |dst, c| x86::goldilocks::sub_assign_scalar_avx512(token, dst, c),
             "gld avx512",
         );
     }
@@ -2754,11 +2769,11 @@ mod x86 {
         let wide = u128::from(modulus);
 
         let mut product = vec![0u8; lhs_bytes.len()];
-        x86::prime::mul_elementwise_gld_avx512(token.v4(), &mut product, &lhs_bytes, &rhs_bytes);
+        x86::goldilocks::mul_elementwise_avx512(token.v4(), &mut product, &lhs_bytes, &rhs_bytes);
         let mut sum = lhs_bytes.clone();
-        x86::prime::add_assign_gld_avx512(token.v4(), &mut sum, &rhs_bytes);
+        x86::goldilocks::add_assign_avx512(token.v4(), &mut sum, &rhs_bytes);
         let mut diff = lhs_bytes.clone();
-        x86::prime::sub_assign_gld_avx512(token.v4(), &mut diff, &rhs_bytes);
+        x86::goldilocks::sub_assign_avx512(token.v4(), &mut diff, &rhs_bytes);
         for (lane, (&left, &right)) in lhs.iter().zip(&rhs).enumerate() {
             let (x, y) = (u128::from(left) % wide, u128::from(right) % wide);
             assert_eq!(
@@ -2790,30 +2805,30 @@ mod x86 {
             M31_LENS,
             &M31_COEFFS,
             mersenne31::Elem,
-            |dst, src| x86::prime::add_assign_m31_sse42(token, dst, src),
-            |dst, src| x86::prime::sub_assign_m31_sse42(token, dst, src),
-            |dst, coeff, src| x86::prime::mul_add_m31_sse42(token, dst, coeff, src),
-            |dst, coeff, src| x86::prime::mul_into_m31_sse42(token, dst, coeff, src),
-            |dst, coeff| x86::prime::mul_assign_m31_sse42(token, dst, coeff),
-            |dst, a, b| x86::prime::mul_elementwise_m31_sse42(token, dst, a, b),
-            |dst, s| x86::prime::mul_elementwise_assign_m31_sse42(token, dst, s),
-            |dst, c| x86::prime::add_assign_scalar_m31_sse42(token, dst, c),
-            |dst, c| x86::prime::sub_assign_scalar_m31_sse42(token, dst, c),
+            |dst, src| x86::mersenne31::add_assign_sse42(token, dst, src),
+            |dst, src| x86::mersenne31::sub_assign_sse42(token, dst, src),
+            |dst, coeff, src| x86::mersenne31::mul_add_sse42(token, dst, coeff, src),
+            |dst, coeff, src| x86::mersenne31::mul_into_sse42(token, dst, coeff, src),
+            |dst, coeff| x86::mersenne31::mul_assign_sse42(token, dst, coeff),
+            |dst, a, b| x86::mersenne31::mul_elementwise_sse42(token, dst, a, b),
+            |dst, s| x86::mersenne31::mul_elementwise_assign_sse42(token, dst, s),
+            |dst, c| x86::mersenne31::add_assign_scalar_sse42(token, dst, c),
+            |dst, c| x86::mersenne31::sub_assign_scalar_sse42(token, dst, c),
             "m31 sse4.2",
         );
         drive_prime::<Goldilocks, u64>(
             GLD_LENS,
             &GLD_COEFFS,
             goldilocks::Elem,
-            |dst, src| x86::prime::add_assign_gld_sse42(token, dst, src),
-            |dst, src| x86::prime::sub_assign_gld_sse42(token, dst, src),
-            |dst, coeff, src| x86::prime::mul_add_gld_sse42(token, dst, coeff, src),
-            |dst, coeff, src| x86::prime::mul_into_gld_sse42(token, dst, coeff, src),
-            |dst, coeff| x86::prime::mul_assign_gld_sse42(token, dst, coeff),
-            |dst, a, b| x86::prime::mul_elementwise_gld_sse42(token, dst, a, b),
-            |dst, s| x86::prime::mul_elementwise_assign_gld_sse42(token, dst, s),
-            |dst, c| x86::prime::add_assign_scalar_gld_sse42(token, dst, c),
-            |dst, c| x86::prime::sub_assign_scalar_gld_sse42(token, dst, c),
+            |dst, src| x86::goldilocks::add_assign_sse42(token, dst, src),
+            |dst, src| x86::goldilocks::sub_assign_sse42(token, dst, src),
+            |dst, coeff, src| x86::goldilocks::mul_add_sse42(token, dst, coeff, src),
+            |dst, coeff, src| x86::goldilocks::mul_into_sse42(token, dst, coeff, src),
+            |dst, coeff| x86::goldilocks::mul_assign_sse42(token, dst, coeff),
+            |dst, a, b| x86::goldilocks::mul_elementwise_sse42(token, dst, a, b),
+            |dst, s| x86::goldilocks::mul_elementwise_assign_sse42(token, dst, s),
+            |dst, c| x86::goldilocks::add_assign_scalar_sse42(token, dst, c),
+            |dst, c| x86::goldilocks::sub_assign_scalar_sse42(token, dst, c),
             "gld sse4.2",
         );
     }
@@ -2843,15 +2858,15 @@ mod x86 {
             QM31_LENS,
             &QM31_VALUES,
             |e| e,
-            |dst, src| x86::prime::add_assign_qm31_avx2(token, dst, src),
-            |dst, src| x86::prime::sub_assign_qm31_avx2(token, dst, src),
-            |dst, coeff, src| x86::prime::mul_add_qm31_avx2(token, dst, coeff, src),
-            |dst, coeff, src| x86::prime::mul_into_qm31_avx2(token, dst, coeff, src),
-            |dst, coeff| x86::prime::mul_assign_qm31_avx2(token, dst, coeff),
-            |dst, a, b| x86::prime::mul_elementwise_qm31_avx2(token, dst, a, b),
-            |dst, s| x86::prime::mul_elementwise_assign_qm31_avx2(token, dst, s),
-            |dst, c| x86::prime::add_assign_scalar_qm31_avx2(token, dst, c),
-            |dst, c| x86::prime::sub_assign_scalar_qm31_avx2(token, dst, c),
+            |dst, src| x86::quad_mersenne31::add_assign_avx2(token, dst, src),
+            |dst, src| x86::quad_mersenne31::sub_assign_avx2(token, dst, src),
+            |dst, coeff, src| x86::quad_mersenne31::mul_add_avx2(token, dst, coeff, src),
+            |dst, coeff, src| x86::quad_mersenne31::mul_into_avx2(token, dst, coeff, src),
+            |dst, coeff| x86::quad_mersenne31::mul_assign_avx2(token, dst, coeff),
+            |dst, a, b| x86::quad_mersenne31::mul_elementwise_avx2(token, dst, a, b),
+            |dst, s| x86::quad_mersenne31::mul_elementwise_assign_avx2(token, dst, s),
+            |dst, c| x86::quad_mersenne31::add_assign_scalar_avx2(token, dst, c),
+            |dst, c| x86::quad_mersenne31::sub_assign_scalar_avx2(token, dst, c),
             "qm31 avx2",
         );
     }
@@ -2898,7 +2913,7 @@ mod aarch64 {
             gf8_coeff_at,
             gf8_reference,
             |rows, row_len, coeffs, src| {
-                aarch64::gf8::scatter_neon(token, rows, row_len, coeffs, src)
+                aarch64::gf8::mul_add_scatter_neon(token, rows, row_len, coeffs, src)
             },
         );
         check_scatter(
@@ -2906,7 +2921,7 @@ mod aarch64 {
             gf16_coeff_at,
             gf16_reference,
             |rows, row_len, coeffs, src| {
-                aarch64::gf16::scatter_neon(token, rows, row_len, coeffs, src)
+                aarch64::gf16::mul_add_scatter_neon(token, rows, row_len, coeffs, src)
             },
         );
         check_matrix(
@@ -2914,7 +2929,7 @@ mod aarch64 {
             gf8_coeff_at2,
             gf8_reference,
             |rows, row_len, nrows, terms| {
-                aarch64::gf8::matrix_neon(token, rows, row_len, nrows, terms)
+                aarch64::gf8::mul_add_matrix_neon(token, rows, row_len, nrows, terms)
             },
         );
         check_matrix(
@@ -2922,26 +2937,26 @@ mod aarch64 {
             gf16_coeff_at2,
             gf16_reference,
             |rows, row_len, nrows, terms| {
-                aarch64::gf16::matrix_neon(token, rows, row_len, nrows, terms)
+                aarch64::gf16::mul_add_matrix_neon(token, rows, row_len, nrows, terms)
             },
         );
         check_gather(
             "gf8 neon gather",
             gf8_coeff_at,
             gf8_reference,
-            |dst, coeffs, srcs| aarch64::gf8::gather_neon(token, dst, coeffs, srcs),
+            |dst, coeffs, srcs| aarch64::gf8::mul_add_gather_neon(token, dst, coeffs, srcs),
         );
         check_gather(
             "gf16 neon gather",
             gf16_coeff_at,
             gf16_reference,
-            |dst, coeffs, srcs| aarch64::gf16::gather_neon(token, dst, coeffs, srcs),
+            |dst, coeffs, srcs| aarch64::gf16::mul_add_gather_neon(token, dst, coeffs, srcs),
         );
         check_gf8_elementwise("gf8 neon elementwise", |dst, a, b| {
-            aarch64::gf8::elementwise_neon(token, dst, a, b)
+            aarch64::gf8::mul_elementwise_neon(token, dst, a, b)
         });
         check_gf16_elementwise("gf16 neon elementwise", |dst, a, b| {
-            aarch64::gf16::elementwise_neon(token, dst, a, b)
+            aarch64::gf16::mul_elementwise_neon(token, dst, a, b)
         });
     }
 
@@ -2954,7 +2969,7 @@ mod aarch64 {
         let token =
             archmage::NeonAesToken::summon().expect("host_supports guard: NEON-AES summons here");
         check_gf8_elementwise("gf8 pmull elementwise", |dst, a, b| {
-            aarch64::gf8::elementwise_pmull(token, dst, a, b)
+            aarch64::gf8::mul_elementwise_neon_aes(token, dst, a, b)
         });
         // The tower elementwise and every fixed-coefficient PMULL kernel were
         // measured against the nibble/bit-serial paths and lost; GF(2^8)
@@ -3068,7 +3083,7 @@ mod wasm32 {
             gf8_coeff_at,
             gf8_reference,
             |rows, row_len, coeffs, src| {
-                wasm32::gf8::scatter_simd128(token, rows, row_len, coeffs, src)
+                wasm32::gf8::mul_add_scatter_simd128(token, rows, row_len, coeffs, src)
             },
         );
         check_scatter(
@@ -3076,27 +3091,27 @@ mod wasm32 {
             gf16_coeff_at,
             gf16_reference,
             |rows, row_len, coeffs, src| {
-                wasm32::gf16::scatter_simd128(token, rows, row_len, coeffs, src)
+                wasm32::gf16::mul_add_scatter_simd128(token, rows, row_len, coeffs, src)
             },
         );
         check_gather(
             "gf8 simd128 gather",
             gf8_coeff_at,
             gf8_reference,
-            |dst, coeffs, srcs| wasm32::gf8::gather_simd128(token, dst, coeffs, srcs),
+            |dst, coeffs, srcs| wasm32::gf8::mul_add_gather_simd128(token, dst, coeffs, srcs),
         );
         check_gather(
             "gf16 simd128 gather",
             gf16_coeff_at,
             gf16_reference,
-            |dst, coeffs, srcs| wasm32::gf16::gather_simd128(token, dst, coeffs, srcs),
+            |dst, coeffs, srcs| wasm32::gf16::mul_add_gather_simd128(token, dst, coeffs, srcs),
         );
         check_matrix(
             "gf8 simd128 matrix",
             gf8_coeff_at2,
             gf8_reference,
             |rows, row_len, nrows, terms| {
-                wasm32::gf8::matrix_simd128(token, rows, row_len, nrows, terms)
+                wasm32::gf8::mul_add_matrix_simd128(token, rows, row_len, nrows, terms)
             },
         );
         check_matrix(
@@ -3104,14 +3119,14 @@ mod wasm32 {
             gf16_coeff_at2,
             gf16_reference,
             |rows, row_len, nrows, terms| {
-                wasm32::gf16::matrix_simd128(token, rows, row_len, nrows, terms)
+                wasm32::gf16::mul_add_matrix_simd128(token, rows, row_len, nrows, terms)
             },
         );
         check_gf8_elementwise("gf8 simd128 elementwise", |dst, a, b| {
-            wasm32::gf8::elementwise_simd128(token, dst, a, b)
+            wasm32::gf8::mul_elementwise_simd128(token, dst, a, b)
         });
         check_gf16_elementwise("gf16 simd128 elementwise", |dst, a, b| {
-            wasm32::gf16::elementwise_simd128(token, dst, a, b)
+            wasm32::gf16::mul_elementwise_simd128(token, dst, a, b)
         });
     }
 
@@ -3496,7 +3511,7 @@ fn gfni_matrix_wrappers_accept_empty_terms() {
         nrows: 0,
         sources: &[],
     };
-    x86::gf8::mul_add_matrix_affine_with(token, &mut rows, 8, 0, &empty_8d);
+    x86::gf8::mul_add_matrix_gfni_8d_with(token, &mut rows, 8, 0, &empty_8d);
     let gf16_empty: FlatMatrix<'_, gf16::Elem> = FlatMatrix {
         coefficients: &[],
         nrows: 0,
@@ -3508,7 +3523,7 @@ fn gfni_matrix_wrappers_accept_empty_terms() {
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 #[test]
-fn scatter_affine_rejects_short_rows_buffer() {
+fn scatter_gfni_8d_rejects_short_rows_buffer() {
     use crate::kernel::x86;
     use archmage::{SimdToken as _, X64V3GfniCryptoToken};
 
@@ -3517,7 +3532,7 @@ fn scatter_affine_rejects_short_rows_buffer() {
         return;
     }
     let panicked = std::panic::catch_unwind(|| {
-        x86::gf8::mul_add_scatter_affine(
+        x86::gf8::mul_add_scatter_gfni_8d(
             X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here"),
             &mut [0u8; 4],
             4,
@@ -3528,7 +3543,7 @@ fn scatter_affine_rejects_short_rows_buffer() {
     .is_err();
     assert!(
         panicked,
-        "mul_add_scatter_affine must reject a short rows buffer"
+        "mul_add_scatter_gfni_8d must reject a short rows buffer"
     );
 }
 

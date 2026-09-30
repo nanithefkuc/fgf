@@ -88,10 +88,10 @@ fn avx2_wrap_boundary_matches_u128_oracle() {
     };
     drive(
         "gld avx2 mul",
-        |dst, coeff, src| x86::prime::mul_into_gld_avx2(token, dst, coeff, src),
-        |dst, coeff| x86::prime::mul_assign_gld_avx2(token, dst, coeff),
-        |dst, coeff, src| x86::prime::mul_add_gld_avx2(token, dst, coeff, src),
-        |dst, a, b| x86::prime::mul_elementwise_gld_avx2(token, dst, a, b),
+        |dst, coeff, src| x86::goldilocks::mul_into_avx2(token, dst, coeff, src),
+        |dst, coeff| x86::goldilocks::mul_assign_avx2(token, dst, coeff),
+        |dst, coeff, src| x86::goldilocks::mul_add_avx2(token, dst, coeff, src),
+        |dst, a, b| x86::goldilocks::mul_elementwise_avx2(token, dst, a, b),
     );
 }
 
@@ -103,9 +103,9 @@ fn sse42_wrap_boundary_matches_u128_oracle() {
     };
     drive(
         "gld sse4.2 mul",
-        |dst, coeff, src| x86::prime::mul_into_gld_sse42(token, dst, coeff, src),
-        |dst, coeff| x86::prime::mul_assign_gld_sse42(token, dst, coeff),
-        |dst, coeff, src| x86::prime::mul_add_gld_sse42(token, dst, coeff, src),
-        |dst, a, b| x86::prime::mul_elementwise_gld_sse42(token, dst, a, b),
+        |dst, coeff, src| x86::goldilocks::mul_into_sse42(token, dst, coeff, src),
+        |dst, coeff| x86::goldilocks::mul_assign_sse42(token, dst, coeff),
+        |dst, coeff, src| x86::goldilocks::mul_add_sse42(token, dst, coeff, src),
+        |dst, a, b| x86::goldilocks::mul_elementwise_sse42(token, dst, a, b),
     );
 }

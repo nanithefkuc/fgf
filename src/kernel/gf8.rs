@@ -126,7 +126,7 @@ impl KernelDispatch for Gf8B {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => {
-                x86::gf8::mul_add_affine512(
+                x86::gf8::mul_add_avx512(
                     crate::kernel::x86_v4x_token(),
                     dst,
                     affine_8b(coeff.coeff),
@@ -160,7 +160,7 @@ impl KernelDispatch for Gf8B {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => {
-                x86::gf8::mul_assign_affine512(
+                x86::gf8::mul_assign_avx512(
                     crate::kernel::x86_v4x_token(),
                     dst,
                     affine_8b(coeff.coeff),
@@ -202,7 +202,7 @@ impl KernelDispatch for Gf8B {
                         src,
                     );
                 } else {
-                    x86::gf8::mul_into_affine512(
+                    x86::gf8::mul_into_avx512(
                         crate::kernel::x86_v4x_token(),
                         dst,
                         affine_8b(coeff.coeff),
@@ -240,7 +240,7 @@ impl KernelDispatch for Gf8B {
     ) {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V4x => x86::gf8::mul_add_scatter_affine512::<Elem>(
+            Backend::V4x => x86::gf8::mul_add_scatter_avx512::<Elem>(
                 crate::kernel::x86_v4x_token(),
                 rows,
                 row_len,
@@ -273,10 +273,16 @@ impl KernelDispatch for Gf8B {
             ),
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
             Backend::Neon | Backend::NeonAes => {
-                aarch64::gf8::scatter_neon(crate::kernel::neon_token(), rows, row_len, coeffs, src);
+                aarch64::gf8::mul_add_scatter_neon(
+                    crate::kernel::neon_token(),
+                    rows,
+                    row_len,
+                    coeffs,
+                    src,
+                );
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::gf8::scatter_simd128(
+            Backend::Wasm128 => wasm32::gf8::mul_add_scatter_simd128(
                 crate::kernel::wasm128_token(),
                 rows,
                 row_len,
@@ -302,7 +308,7 @@ impl KernelDispatch for Gf8B {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => {
-                x86::gf8::mul_add_gather_affine512::<Elem>(
+                x86::gf8::mul_add_gather_avx512::<Elem>(
                     crate::kernel::x86_v4x_token(),
                     dst,
                     coeffs,
@@ -328,12 +334,15 @@ impl KernelDispatch for Gf8B {
             }
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
             Backend::Neon | Backend::NeonAes => {
-                aarch64::gf8::gather_neon(crate::kernel::neon_token(), dst, coeffs, srcs);
+                aarch64::gf8::mul_add_gather_neon(crate::kernel::neon_token(), dst, coeffs, srcs);
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => {
-                wasm32::gf8::gather_simd128(crate::kernel::wasm128_token(), dst, coeffs, srcs)
-            }
+            Backend::Wasm128 => wasm32::gf8::mul_add_gather_simd128(
+                crate::kernel::wasm128_token(),
+                dst,
+                coeffs,
+                srcs,
+            ),
             _ => scalar::mul_add_gather::<Self>(dst, coeffs, srcs),
         }
     }
@@ -359,7 +368,7 @@ impl KernelDispatch for Gf8B {
                 nrows: 1,
                 sources: srcs,
             };
-            return x86::gf8::mul_into_matrix_affine512_with(
+            return x86::gf8::mul_into_matrix_avx512_with(
                 crate::kernel::x86_v4x_token(),
                 dst,
                 dst.len(),
@@ -391,7 +400,7 @@ impl KernelDispatch for Gf8B {
     ) {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V4x => x86::gf8::mul_add_matrix_affine512::<Elem>(
+            Backend::V4x => x86::gf8::mul_add_matrix_avx512::<Elem>(
                 crate::kernel::x86_v4x_token(),
                 rows,
                 row_len,
@@ -424,10 +433,16 @@ impl KernelDispatch for Gf8B {
             ),
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
             Backend::Neon | Backend::NeonAes => {
-                aarch64::gf8::matrix_neon(crate::kernel::neon_token(), rows, row_len, nrows, terms);
+                aarch64::gf8::mul_add_matrix_neon(
+                    crate::kernel::neon_token(),
+                    rows,
+                    row_len,
+                    nrows,
+                    terms,
+                );
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-            Backend::Wasm128 => wasm32::gf8::matrix_simd128(
+            Backend::Wasm128 => wasm32::gf8::mul_add_matrix_simd128(
                 crate::kernel::wasm128_token(),
                 rows,
                 row_len,
@@ -466,7 +481,7 @@ impl KernelDispatch for Gf8B {
                         nrows,
                         sources: srcs,
                     };
-                    return x86::gf8::mul_add_matrix_affine512_with(
+                    return x86::gf8::mul_add_matrix_avx512_with(
                         crate::kernel::x86_v4x_token(),
                         rows,
                         row_len,
@@ -526,7 +541,7 @@ impl KernelDispatch for Gf8B {
         // no destination read, no separate fill.
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V4x {
-            return x86::gf8::mul_into_matrix_affine512::<Elem>(
+            return x86::gf8::mul_into_matrix_avx512::<Elem>(
                 crate::kernel::x86_v4x_token(),
                 rows,
                 row_len,
@@ -566,7 +581,7 @@ impl KernelDispatch for Gf8B {
                 nrows,
                 sources: srcs,
             };
-            return x86::gf8::mul_into_matrix_affine512_with(
+            return x86::gf8::mul_into_matrix_avx512_with(
                 crate::kernel::x86_v4x_token(),
                 rows,
                 row_len,
@@ -605,7 +620,7 @@ impl KernelDispatch for Gf8B {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => {
-                x86::gf8::mul_add_matrix_at_affine512::<Elem>(
+                x86::gf8::mul_add_matrix_at_avx512::<Elem>(
                     crate::kernel::x86_v4x_token(),
                     dst,
                     row_len,
@@ -632,7 +647,7 @@ impl KernelDispatch for Gf8B {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => {
-                x86::gf8::mul_elementwise_gfni512(crate::kernel::x86_v4x_token(), dst, a, b);
+                x86::gf8::mul_elementwise_avx512(crate::kernel::x86_v4x_token(), dst, a, b);
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             // `GF2P8MULB` multiplies two vectors directly: no broadcast, no
@@ -647,15 +662,15 @@ impl KernelDispatch for Gf8B {
             // call.
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
             Backend::NeonAes => {
-                aarch64::gf8::elementwise_pmull(crate::kernel::neon_aes_token(), dst, a, b);
+                aarch64::gf8::mul_elementwise_neon_aes(crate::kernel::neon_aes_token(), dst, a, b);
             }
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
             Backend::Neon => {
-                aarch64::gf8::elementwise_neon(crate::kernel::neon_token(), dst, a, b);
+                aarch64::gf8::mul_elementwise_neon(crate::kernel::neon_token(), dst, a, b);
             }
             #[cfg(all(feature = "simd", target_arch = "wasm32"))]
             Backend::Wasm128 => {
-                wasm32::gf8::elementwise_simd128(crate::kernel::wasm128_token(), dst, a, b)
+                wasm32::gf8::mul_elementwise_simd128(crate::kernel::wasm128_token(), dst, a, b)
             }
             // No fixed coefficient means no nibble table, so the shuffle
             // backends use the same eight branchless shift/reduce rounds as
@@ -676,7 +691,7 @@ impl KernelDispatch for Gf8B {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => {
-                x86::gf8::mul_elementwise_assign_gfni512(crate::kernel::x86_v4x_token(), dst, src);
+                x86::gf8::mul_elementwise_assign_avx512(crate::kernel::x86_v4x_token(), dst, src);
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => {
@@ -776,7 +791,7 @@ impl KernelDispatch for Gf8D {
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V4x => x86::gf8::mul_add_affine512(
+            Backend::V4x => x86::gf8::mul_add_avx512(
                 crate::kernel::x86_v4x_token(),
                 dst,
                 coeff.affine,
@@ -784,7 +799,7 @@ impl KernelDispatch for Gf8D {
                 src,
             ),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto => x86::gf8::mul_add_affine(
+            Backend::V3GfniCrypto => x86::gf8::mul_add_gfni_8d(
                 crate::kernel::x86_v3_gfni_token(),
                 dst,
                 coeff.affine,
@@ -817,7 +832,7 @@ impl KernelDispatch for Gf8D {
             Backend::V4x => {
                 // Unlike `V3GfniCrypto`, the 64-byte form leads at every
                 // measured size, so no shuffle crossover applies.
-                x86::gf8::mul_assign_affine512(
+                x86::gf8::mul_assign_avx512(
                     crate::kernel::x86_v4x_token(),
                     dst,
                     coeff.affine,
@@ -831,7 +846,7 @@ impl KernelDispatch for Gf8D {
                 // outruns both single-instruction forms by ~15% on the
                 // Core Ultra 7 258V (BENCHMARKS.md).
                 if dst.len() < 65_536 {
-                    x86::gf8::mul_assign_affine(
+                    x86::gf8::mul_assign_gfni_8d(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
                         coeff.affine,
@@ -870,7 +885,7 @@ impl KernelDispatch for Gf8D {
                 // that shape, and a 512-bit streaming store has yet to beat
                 // it. Below it the 64-byte temporal form leads.
                 if crate::kernel::x86::wants_nt_store(dst.len()) {
-                    x86::gf8::mul_into_affine(
+                    x86::gf8::mul_into_gfni_8d(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
                         coeff.affine,
@@ -878,7 +893,7 @@ impl KernelDispatch for Gf8D {
                         src,
                     );
                 } else {
-                    x86::gf8::mul_into_affine512(
+                    x86::gf8::mul_into_avx512(
                         crate::kernel::x86_v4x_token(),
                         dst,
                         coeff.affine,
@@ -888,7 +903,7 @@ impl KernelDispatch for Gf8D {
                 }
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto => x86::gf8::mul_into_affine(
+            Backend::V3GfniCrypto => x86::gf8::mul_into_gfni_8d(
                 crate::kernel::x86_v3_gfni_token(),
                 dst,
                 coeff.affine,
@@ -926,7 +941,7 @@ impl KernelDispatch for Gf8D {
         // group; other backends compose the single-coefficient kernel per row.
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V4x {
-            return x86::gf8::mul_add_scatter_affine512(
+            return x86::gf8::mul_add_scatter_avx512(
                 crate::kernel::x86_v4x_token(),
                 rows,
                 row_len,
@@ -936,7 +951,7 @@ impl KernelDispatch for Gf8D {
         }
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V3GfniCrypto {
-            return x86::gf8::mul_add_scatter_affine(
+            return x86::gf8::mul_add_scatter_gfni_8d(
                 crate::kernel::x86_v3_gfni_token(),
                 rows,
                 row_len,
@@ -962,7 +977,7 @@ impl KernelDispatch for Gf8D {
         // re-deriving them per row.
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V4x {
-            return x86::gf8::mul_add_scatter_affine512(
+            return x86::gf8::mul_add_scatter_avx512(
                 crate::kernel::x86_v4x_token(),
                 rows,
                 row_len,
@@ -978,7 +993,7 @@ impl KernelDispatch for Gf8D {
         // source, so it is read and written once per tile, not once per source.
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V4x {
-            return x86::gf8::mul_add_gather_affine512(
+            return x86::gf8::mul_add_gather_avx512(
                 crate::kernel::x86_v4x_token(),
                 dst,
                 coeffs,
@@ -987,7 +1002,7 @@ impl KernelDispatch for Gf8D {
         }
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V3GfniCrypto {
-            return x86::gf8::mul_add_gather_affine(
+            return x86::gf8::mul_add_gather_gfni_8d(
                 crate::kernel::x86_v3_gfni_token(),
                 dst,
                 coeffs,
@@ -1011,7 +1026,7 @@ impl KernelDispatch for Gf8D {
         // instead of re-deriving them per tile.
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V4x {
-            return x86::gf8::mul_add_gather_affine512(
+            return x86::gf8::mul_add_gather_avx512(
                 crate::kernel::x86_v4x_token(),
                 dst,
                 coeffs,
@@ -1034,7 +1049,7 @@ impl KernelDispatch for Gf8D {
         // into-then-AXPY shape.
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V4x {
-            return x86::gf8::mul_into_matrix_affine512_prepared_with(
+            return x86::gf8::mul_into_matrix_avx512_8d_with(
                 crate::kernel::x86_v4x_token(),
                 dst,
                 dst.len(),
@@ -1050,7 +1065,7 @@ impl KernelDispatch for Gf8D {
                 nrows: 1,
                 sources: srcs,
             };
-            return x86::gf8::mul_into_matrix_affine_with(
+            return x86::gf8::mul_into_matrix_gfni_8d_with(
                 crate::kernel::x86_v3_gfni_token(),
                 dst,
                 dst.len(),
@@ -1070,7 +1085,7 @@ impl KernelDispatch for Gf8D {
                 nrows: 1,
                 sources: srcs,
             };
-            return x86::gf8::mul_into_matrix_affine512_with(
+            return x86::gf8::mul_into_matrix_avx512_with(
                 crate::kernel::x86_v4x_token(),
                 dst,
                 dst.len(),
@@ -1085,7 +1100,7 @@ impl KernelDispatch for Gf8D {
                 nrows: 1,
                 sources: srcs,
             };
-            return x86::gf8::mul_into_matrix_affine_with(
+            return x86::gf8::mul_into_matrix_gfni_8d_with(
                 crate::kernel::x86_v3_gfni_token(),
                 dst,
                 dst.len(),
@@ -1114,7 +1129,7 @@ impl KernelDispatch for Gf8D {
         // making destination traffic independent of the term count.
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V4x {
-            return x86::gf8::mul_add_matrix_affine512(
+            return x86::gf8::mul_add_matrix_avx512(
                 crate::kernel::x86_v4x_token(),
                 rows,
                 row_len,
@@ -1124,7 +1139,7 @@ impl KernelDispatch for Gf8D {
         }
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V3GfniCrypto {
-            return x86::gf8::mul_add_matrix_affine(
+            return x86::gf8::mul_add_matrix_gfni_8d(
                 crate::kernel::x86_v3_gfni_token(),
                 rows,
                 row_len,
@@ -1152,7 +1167,7 @@ impl KernelDispatch for Gf8D {
         let _ = values;
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V4x {
-            return x86::gf8::mul_add_matrix_affine512_prepared_with(
+            return x86::gf8::mul_add_matrix_avx512_8d_with(
                 crate::kernel::x86_v4x_token(),
                 rows,
                 row_len,
@@ -1168,7 +1183,7 @@ impl KernelDispatch for Gf8D {
                 nrows,
                 sources: srcs,
             };
-            return x86::gf8::mul_add_matrix_affine_with(
+            return x86::gf8::mul_add_matrix_gfni_8d_with(
                 crate::kernel::x86_v3_gfni_token(),
                 rows,
                 row_len,
@@ -1196,7 +1211,7 @@ impl KernelDispatch for Gf8D {
     ) {
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V4x {
-            return x86::gf8::mul_into_matrix_affine512(
+            return x86::gf8::mul_into_matrix_avx512(
                 crate::kernel::x86_v4x_token(),
                 rows,
                 row_len,
@@ -1206,7 +1221,7 @@ impl KernelDispatch for Gf8D {
         }
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V3GfniCrypto {
-            return x86::gf8::mul_into_matrix_affine(
+            return x86::gf8::mul_into_matrix_gfni_8d(
                 crate::kernel::x86_v3_gfni_token(),
                 rows,
                 row_len,
@@ -1231,7 +1246,7 @@ impl KernelDispatch for Gf8D {
     ) {
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V4x {
-            return x86::gf8::mul_into_matrix_affine512_prepared_with(
+            return x86::gf8::mul_into_matrix_avx512_8d_with(
                 crate::kernel::x86_v4x_token(),
                 rows,
                 row_len,
@@ -1247,7 +1262,7 @@ impl KernelDispatch for Gf8D {
                 nrows,
                 sources: srcs,
             };
-            return x86::gf8::mul_into_matrix_affine_with(
+            return x86::gf8::mul_into_matrix_gfni_8d_with(
                 crate::kernel::x86_v3_gfni_token(),
                 rows,
                 row_len,
@@ -1270,7 +1285,7 @@ impl KernelDispatch for Gf8D {
     ) {
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V4x {
-            return x86::gf8::mul_add_matrix_at_affine512(
+            return x86::gf8::mul_add_matrix_at_avx512(
                 crate::kernel::x86_v4x_token(),
                 dst,
                 row_len,
@@ -1280,7 +1295,7 @@ impl KernelDispatch for Gf8D {
         }
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         if backend() == Backend::V3GfniCrypto {
-            return x86::gf8::mul_add_matrix_at_affine(
+            return x86::gf8::mul_add_matrix_at_gfni_8d(
                 crate::kernel::x86_v3_gfni_token(),
                 dst,
                 row_len,
@@ -1299,11 +1314,11 @@ impl KernelDispatch for Gf8D {
             // isomorphism (two affine maps around one native multiply).
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => {
-                x86::gf8::mul_elementwise_iso512_8d(crate::kernel::x86_v4x_token(), dst, a, b);
+                x86::gf8::mul_elementwise_avx512_8d(crate::kernel::x86_v4x_token(), dst, a, b);
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => {
-                x86::gf8::mul_elementwise_iso_8d(crate::kernel::x86_v3_gfni_token(), dst, a, b);
+                x86::gf8::mul_elementwise_gfni_8d(crate::kernel::x86_v3_gfni_token(), dst, a, b);
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3 => {
@@ -1324,7 +1339,7 @@ impl KernelDispatch for Gf8D {
             // `mul_elementwise`.
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => {
-                x86::gf8::mul_elementwise_assign_iso512_8d(
+                x86::gf8::mul_elementwise_assign_avx512_8d(
                     crate::kernel::x86_v4x_token(),
                     dst,
                     src,
@@ -1332,7 +1347,7 @@ impl KernelDispatch for Gf8D {
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => {
-                x86::gf8::mul_elementwise_assign_iso_8d(
+                x86::gf8::mul_elementwise_assign_gfni_8d(
                     crate::kernel::x86_v3_gfni_token(),
                     dst,
                     src,

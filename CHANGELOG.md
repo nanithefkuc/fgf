@@ -59,6 +59,50 @@ All notable changes to this project are documented here. The format follows
   interleaves `fgf`, Intel ISA-L, and klauspost/reedsolomon over one fixture
   set, rotating through all six arm orders, and `just bench-gf-comp` runs it
   beside the self suite. `BENCHMARKS.md` carries the single-matrix record.
+- **Breaking (unstable surface only):** the direct kernels under
+  `fgf::internals::kernel::{x86,aarch64,wasm32}` are laid out by field
+  family, then instruction set. Every entry is named operation, instruction
+  set, field marker, then `_with`, and its instruction-set suffix matches
+  its file. Supported public API paths are unchanged. Migration:
+  - `x86::prime::*_gld_{sse42,avx2,avx512}` → `x86::goldilocks::*_{sse42,avx2,avx512}`,
+    `*_m31_*` → `x86::mersenne31::*`, and `*_qm31_avx2` →
+    `x86::quad_mersenne31::*_avx2` (for example `mul_add_gld_avx2` →
+    `goldilocks::mul_add_avx2`).
+  - `x86::bytes512::{xor512, count_ones512}` → `x86::bytes::{xor_avx512,
+    count_ones_avx512}`.
+  - `x86::fan_paar::{mul_add,mul_assign,mul_into}_{avx2,ssse3}` (GF(2^16)) →
+    `{mul_add,mul_assign,mul_into}_{avx2,ssse3}_fp16`, and
+    `*_{fp32,fp64}_avx2` → `*_avx2_{fp32,fp64}`.
+  - `x86::gf16::{mul_add512, mul_assign512, mul_into512, mul_elementwise512,
+    mul_elementwise_assign512, mul_add_matrix512, mul_add_matrix512_with}` →
+    `mul_add_avx512`, `mul_assign_avx512`, `mul_into_avx512`,
+    `mul_elementwise_avx512`, `mul_elementwise_assign_avx512`,
+    `mul_add_matrix_avx512`, and `mul_add_matrix_avx512_with`.
+  - `x86::gf8` 64-byte entries replace `affine512`/`gfni512` with `avx512`:
+    `mul_{add,assign,into}_affine512`, `mul_add_{scatter,gather}_affine512`,
+    `mul_{add,into}_matrix_affine512{,_with}`, `mul_add_matrix_at_affine512`,
+    and `mul_elementwise{,_assign}_gfni512` become
+    `mul_{add,assign,into}_avx512`, `mul_add_{scatter,gather}_avx512`,
+    `mul_{add,into}_matrix_avx512{,_with}`, `mul_add_matrix_at_avx512`, and
+    `mul_elementwise{,_assign}_avx512`.
+  - `x86::gf8` `Gf8D` entries mark the field with `_8d` instead of naming the
+    multiply strategy: `affine` becomes `gfni_8d` (`mul_add_affine` →
+    `mul_add_gfni_8d`, `mul_add_matrix_at_affine` →
+    `mul_add_matrix_at_gfni_8d`, `mul_add_matrix_affine_with` →
+    `mul_add_matrix_gfni_8d_with`, and likewise for the `mul_assign`,
+    `mul_into`, scatter, gather, and matrix entries);
+    `mul_elementwise{,_assign}_iso_8d` → `mul_elementwise{,_assign}_gfni_8d`;
+    `mul_elementwise{,_assign}_iso512_8d` →
+    `mul_elementwise{,_assign}_avx512_8d`; and
+    `mul_{add,into}_matrix_affine512_prepared_with` →
+    `mul_{add,into}_matrix_avx512_8d_with`.
+  - `x86::gf8::multiply_vectors_sse` → `x86::gf8::multiply_vectors_ssse3`.
+  - `aarch64::{gf8,gf16}` and `wasm32::{gf8,gf16}` name the operation in
+    full: `{scatter,gather,matrix,elementwise}_{neon,simd128}` →
+    `mul_add_scatter_*`, `mul_add_gather_*`, `mul_add_matrix_*`, and
+    `mul_elementwise_*`; `aarch64::gf8::elementwise_pmull` →
+    `mul_elementwise_neon_aes`, named for the tier its token proves.
+  - Every other entry keeps its path.
 
 **Breaking:** `simdispatch` moves `=0.1.0` to `=0.2.0`. `fgf::Backend` is the
 upstream type re-exported, so crates pinning both must move together; pin
@@ -68,7 +112,7 @@ ladder gains `V4x`/`V4`).
 ### Removed
 
 - The deferred `internals` entry `x86::avx512::proven::xor` and its
-  unexported body. The dispatched `x86::bytes512::xor512` replaces it and
+  unexported body. The dispatched `x86::bytes::xor_avx512` replaces it and
   carries no unsafe code.
 - **Breaking (unstable surface only):** the rest of the deferred
   `internals` module `x86::avx512` (`gf8_*` and `gf16_*` single-buffer,

@@ -9,9 +9,9 @@
 //!
 //! - [`mul_add_neon`] and [`mul_assign_neon`] — one buffer, two 16-byte lanes
 //!   per iteration.
-//! - [`scatter_neon`] — one source load feeds four contiguous rows, so the
+//! - [`mul_add_scatter_neon`] — one source load feeds four contiguous rows, so the
 //!   source is read once per group of four instead of once per row.
-//! - [`matrix_neon`] — a four-row destination tile is loaded into
+//! - [`mul_add_matrix_neon`] — a four-row destination tile is loaded into
 //!   accumulators once, every `(coeffs, src)` term is folded in, and the tile
 //!   is stored once. Destination traffic is therefore independent of
 //!   `terms.len()`, which is the entire reason the shape exists.
@@ -68,7 +68,7 @@ enum Kind {
 /// One coefficient resolved into the form the vector loops consume.
 ///
 /// Branching on [`Kind::Skip`] and [`Kind::Identity`] pays for itself: the
-/// coefficient arrays handed to [`scatter_neon`] and [`matrix_neon`] are full
+/// coefficient arrays handed to [`mul_add_scatter_neon`] and [`mul_add_matrix_neon`] are full
 /// of zeros and ones, and each case removes two `TBL`s per lane — a skip also
 /// removes the destination load and store entirely.
 #[derive(Clone, Copy)]
@@ -121,7 +121,7 @@ impl Scaling {
     }
 }
 
-/// One destination row of a [`scatter_neon`] group, resolved once per group.
+/// One destination row of a [`mul_add_scatter_neon`] group, resolved once per group.
 #[derive(Clone, Copy)]
 struct PreparedRow {
     /// First byte of the row.
@@ -280,15 +280,26 @@ fn mul_into_impl(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
 #[allow(unsafe_code)]
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn scatter_neon(
+pub fn mul_add_scatter_neon(
     _token: archmage::NeonToken,
     rows: &mut [u8],
     row_len: usize,
     coeffs: &[Elem],
     src: &[u8],
 ) {
-    check_equal("gf8::scatter_neon", "row_len", row_len, "src", src.len());
-    check_row_span("gf8::scatter_neon", rows.len(), row_len, coeffs.len());
+    check_equal(
+        "gf8::mul_add_scatter_neon",
+        "row_len",
+        row_len,
+        "src",
+        src.len(),
+    );
+    check_row_span(
+        "gf8::mul_add_scatter_neon",
+        rows.len(),
+        row_len,
+        coeffs.len(),
+    );
     if row_len == 0 || coeffs.is_empty() {
         return;
     }
@@ -434,7 +445,7 @@ unsafe fn scatter_quad(plans: &[PreparedRow; 4], src: &[u8], span: usize) {
 /// Register-blocked: each group of four rows loads a 32-byte-per-row
 /// destination tile into eight accumulators once, folds in every term, and
 /// stores once. Destination memory traffic is therefore independent of
-/// `terms.len()`, which is what separates this from a `scatter_neon` per term.
+/// `terms.len()`, which is what separates this from a `mul_add_scatter_neon` per term.
 ///
 /// A zero-length row with zero-length sources is a no-op.
 ///
@@ -445,15 +456,15 @@ unsafe fn scatter_quad(plans: &[PreparedRow; 4], src: &[u8], span: usize) {
 #[allow(unsafe_code)]
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn matrix_neon(
+pub fn mul_add_matrix_neon(
     _token: archmage::NeonToken,
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
     terms: &[(&[Elem], &[u8])],
 ) {
-    check_row_span("gf8::matrix_neon", rows.len(), row_len, nrows);
-    check_terms("gf8::matrix_neon", row_len, nrows, terms);
+    check_row_span("gf8::mul_add_matrix_neon", rows.len(), row_len, nrows);
+    check_terms("gf8::mul_add_matrix_neon", row_len, nrows, terms);
     if row_len == 0 || nrows == 0 || terms.is_empty() {
         return;
     }
@@ -800,9 +811,14 @@ unsafe fn matrix_single(ptr: *mut u8, span: usize, index: usize, terms: &[(&[Ele
 /// in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn gather_neon(_token: archmage::NeonToken, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+pub fn mul_add_gather_neon(
+    _token: archmage::NeonToken,
+    dst: &mut [u8],
+    coeffs: &[Elem],
+    srcs: &[&[u8]],
+) {
     check_equal(
-        "gf8::gather_neon",
+        "gf8::mul_add_gather_neon",
         "coefficients",
         coeffs.len(),
         "sources",
@@ -810,7 +826,7 @@ pub fn gather_neon(_token: archmage::NeonToken, dst: &mut [u8], coeffs: &[Elem],
     );
     for (index, &src) in srcs.iter().enumerate() {
         check_equal(
-            "gf8::gather_neon",
+            "gf8::mul_add_gather_neon",
             "dst",
             dst.len(),
             format_args!("source {index}"),
@@ -911,7 +927,7 @@ fn multiply_vectors(mut a: uint8x16_t, mut b: uint8x16_t) -> uint8x16_t {
 /// the high half suffice because an 8-by-8 polynomial product has degree 14.
 #[inline]
 #[archmage::rite(neon_aes, import_intrinsics)]
-fn multiply8_pmull(a: uint8x8_t, b: uint8x8_t) -> uint8x8_t {
+fn multiply8_neon_aes(a: uint8x8_t, b: uint8x8_t) -> uint8x8_t {
     let product = vreinterpretq_u16_p16(vmull_p8(vreinterpret_p8_u8(a), vreinterpret_p8_u8(b)));
     let mask = vdupq_n_u16(0x00ff);
     let high = vshrq_n_u16(product, 8);
@@ -930,10 +946,10 @@ fn multiply8_pmull(a: uint8x8_t, b: uint8x8_t) -> uint8x8_t {
 /// Sixteen lane-independent base-field products using two `PMULL`s.
 #[inline]
 #[archmage::rite(neon_aes, import_intrinsics)]
-pub(super) fn multiply_vectors_pmull(a: uint8x16_t, b: uint8x16_t) -> uint8x16_t {
+pub(super) fn multiply_vectors_neon_aes(a: uint8x16_t, b: uint8x16_t) -> uint8x16_t {
     vcombine_u8(
-        multiply8_pmull(vget_low_u8(a), vget_low_u8(b)),
-        multiply8_pmull(vget_high_u8(a), vget_high_u8(b)),
+        multiply8_neon_aes(vget_low_u8(a), vget_low_u8(b)),
+        multiply8_neon_aes(vget_high_u8(a), vget_high_u8(b)),
     )
 }
 
@@ -947,7 +963,7 @@ pub(super) fn multiply_vectors_pmull(a: uint8x16_t, b: uint8x16_t) -> uint8x16_t
 // makes PMULL fast enough to close a gap that large.
 // The only shape where that reduction is cheaper than the alternative is a
 // *varying* operand pair, where the alternative is eight bit-serial rounds:
-// hence `elementwise_pmull` below, and nothing else.
+// hence `mul_elementwise_neon_aes` below, and nothing else.
 
 /// `dst[i] = a[i] * b[i]` using the optional `AArch64` crypto extension.
 ///
@@ -955,19 +971,36 @@ pub(super) fn multiply_vectors_pmull(a: uint8x16_t, b: uint8x16_t) -> uint8x16_t
 /// Panics unless all three buffers match in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn elementwise_pmull(_token: archmage::NeonAesToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
-    check_equal("gf8::elementwise_pmull", "dst", dst.len(), "a", a.len());
-    check_equal("gf8::elementwise_pmull", "dst", dst.len(), "b", b.len());
-    elementwise_pmull_impl(dst, a, b);
+pub fn mul_elementwise_neon_aes(
+    _token: archmage::NeonAesToken,
+    dst: &mut [u8],
+    a: &[u8],
+    b: &[u8],
+) {
+    check_equal(
+        "gf8::mul_elementwise_neon_aes",
+        "dst",
+        dst.len(),
+        "a",
+        a.len(),
+    );
+    check_equal(
+        "gf8::mul_elementwise_neon_aes",
+        "dst",
+        dst.len(),
+        "b",
+        b.len(),
+    );
+    mul_elementwise_neon_aes_impl(dst, a, b);
 }
 
 #[archmage::rite(neon_aes, import_intrinsics)]
-fn elementwise_pmull_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
+fn mul_elementwise_neon_aes_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
     let (a_lanes, a_tail) = a.as_chunks::<16>();
     let (b_lanes, b_tail) = b.as_chunks::<16>();
     for ((d, x), y) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
-        vst1q_u8(d, multiply_vectors_pmull(vld1q_u8(x), vld1q_u8(y)));
+        vst1q_u8(d, multiply_vectors_neon_aes(vld1q_u8(x), vld1q_u8(y)));
     }
     for ((d, &x), &y) in dst_tail.iter_mut().zip(a_tail).zip(b_tail) {
         *d = Elem(x).mul(Elem(y)).0;
@@ -980,9 +1013,9 @@ fn elementwise_pmull_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
 /// Panics unless all three buffers match in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn elementwise_neon(_token: archmage::NeonToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
-    check_equal("gf8::elementwise_neon", "dst", dst.len(), "a", a.len());
-    check_equal("gf8::elementwise_neon", "dst", dst.len(), "b", b.len());
+pub fn mul_elementwise_neon(_token: archmage::NeonToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
+    check_equal("gf8::mul_elementwise_neon", "dst", dst.len(), "a", a.len());
+    check_equal("gf8::mul_elementwise_neon", "dst", dst.len(), "b", b.len());
     elementwise_impl(dst, a, b);
 }
 

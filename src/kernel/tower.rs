@@ -272,8 +272,7 @@ pub mod gf16 {
     /// Deliberately not a [`TowerTables`]: that copies 136 bytes of table onto the
     /// stack, and the tail handlers below run on as little as a single two-byte
     /// element. Borrowing costs the two base multiplies of [`TowerCoeff::new`]
-    /// plus four rodata indexes, so the blocked backend kernels resolve their
-    /// coefficients through here too rather than duplicating the derivation.
+    /// plus four rodata indexes.
     #[inline]
     pub(crate) fn factor_tables(coeff: Elem) -> [&'static ScaleTable; 4] {
         let f = TowerCoeff::new(coeff).factors();
@@ -348,17 +347,14 @@ pub mod gf16 {
         }
     }
 
-    /// Repeated AXPY, used where blocking a GF(2^16) gather does not pay.
+    /// The AVX2 GF(2^16) gather: one AXPY per source.
     ///
     /// AVX2 has enough width but not enough registers to retain several
-    /// four-table coefficient sets, and a gather has nothing to share in any
-    /// case: coefficients are one-to-one with sources, so a source's nibble split
-    /// feeds exactly one coefficient. It measured at parity or behind repeated
-    /// AXPY, so AXPY stays wired. SSSE3's smaller table vectors do block
-    /// profitably and are wired to the blocked kernel. See "Crossover and
-    /// dispatch decisions" in BENCHMARKS.md.
+    /// four-table coefficient sets, and a gather's coefficients are
+    /// one-to-one with sources, so a source's nibble split feeds exactly one
+    /// coefficient and blocking has nothing to share.
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    fn gather_avx2_axpy(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+    fn gather_axpy_avx2(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
         for (&coeff, &src) in coeffs.iter().zip(srcs) {
             x86::gf16::mul_add_avx2(
                 crate::kernel::x86_v3_token(),
@@ -369,16 +365,12 @@ pub mod gf16 {
         }
     }
 
-    /// Repeated AXPY, used where blocking a GF(2^16) matrix does not pay.
+    /// The AVX2 GF(2^16) matrix: one AXPY per term and row.
     ///
-    /// The blocked AVX2 matrix folds every term into a register-resident
-    /// destination tile, which should beat re-reading the destination per term.
-    /// It does not, quite: it wins on short rows and sits at parity or slightly
-    /// behind on long ones, which is not enough to justify a row-length branch in
-    /// dispatch (BENCHMARKS.md). Revisit if the tile ever widens past two
-    /// accumulators.
+    /// With four nibble tables per coefficient, AVX2's register file holds
+    /// too few destination accumulators for a blocked tile to repay itself.
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    fn matrix_avx2_axpy(rows: &mut [u8], row_len: usize, terms: &[(&[Elem], &[u8])]) {
+    fn matrix_axpy_avx2(rows: &mut [u8], row_len: usize, terms: &[(&[Elem], &[u8])]) {
         for &(coeffs, src) in terms {
             for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
                 x86::gf16::mul_add_avx2(
@@ -453,10 +445,15 @@ pub mod gf16 {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Prepared::Compact(compact) => match backend() {
                     // Rows shorter than one 64-byte lane go straight to the
-                    // 32-byte kernel `mul_add512` would hand them to.
+                    // 32-byte kernel `mul_add_avx512` would hand them to.
                     #[cfg(feature = "simd512")]
                     Backend::V4x if dst.len() >= 64 => {
-                        x86::gf16::mul_add512(crate::kernel::x86_v4x_token(), dst, *compact, src);
+                        x86::gf16::mul_add_avx512(
+                            crate::kernel::x86_v4x_token(),
+                            dst,
+                            *compact,
+                            src,
+                        );
                     }
                     _ => x86::gf16::mul_add_gfni(
                         crate::kernel::x86_v3_gfni_token(),
@@ -490,7 +487,7 @@ pub mod gf16 {
                 Prepared::Compact(compact) => match backend() {
                     #[cfg(feature = "simd512")]
                     Backend::V4x => {
-                        x86::gf16::mul_assign512(crate::kernel::x86_v4x_token(), dst, *compact);
+                        x86::gf16::mul_assign_avx512(crate::kernel::x86_v4x_token(), dst, *compact);
                     }
                     _ => x86::gf16::mul_assign_gfni(
                         crate::kernel::x86_v3_gfni_token(),
@@ -523,7 +520,12 @@ pub mod gf16 {
                 Prepared::Compact(compact) => match backend() {
                     #[cfg(feature = "simd512")]
                     Backend::V4x => {
-                        x86::gf16::mul_into512(crate::kernel::x86_v4x_token(), dst, *compact, src);
+                        x86::gf16::mul_into_avx512(
+                            crate::kernel::x86_v4x_token(),
+                            dst,
+                            *compact,
+                            src,
+                        );
                     }
                     _ => x86::gf16::mul_into_gfni(
                         crate::kernel::x86_v3_gfni_token(),
@@ -595,7 +597,7 @@ pub mod gf16 {
                 // every row of the group, which is the trade PMULL loses.
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
                 Backend::Neon | Backend::NeonAes => {
-                    aarch64::gf16::scatter_neon(
+                    aarch64::gf16::mul_add_scatter_neon(
                         crate::kernel::neon_token(),
                         rows,
                         row_len,
@@ -604,7 +606,7 @@ pub mod gf16 {
                     );
                 }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Backend::Wasm128 => wasm32::gf16::scatter_simd128(
+                Backend::Wasm128 => wasm32::gf16::mul_add_scatter_simd128(
                     crate::kernel::wasm128_token(),
                     rows,
                     row_len,
@@ -671,7 +673,7 @@ pub mod gf16 {
                     srcs,
                 ),
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Backend::V3 => gather_avx2_axpy(dst, coeffs, srcs),
+                Backend::V3 => gather_axpy_avx2(dst, coeffs, srcs),
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Backend::V2 => x86::gf16::mul_add_gather_ssse3(
                     crate::kernel::x86_v2_token(),
@@ -680,13 +682,19 @@ pub mod gf16 {
                     srcs,
                 ),
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Backend::Neon | Backend::NeonAes => {
-                    aarch64::gf16::gather_neon(crate::kernel::neon_token(), dst, coeffs, srcs)
-                }
+                Backend::Neon | Backend::NeonAes => aarch64::gf16::mul_add_gather_neon(
+                    crate::kernel::neon_token(),
+                    dst,
+                    coeffs,
+                    srcs,
+                ),
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Backend::Wasm128 => {
-                    wasm32::gf16::gather_simd128(crate::kernel::wasm128_token(), dst, coeffs, srcs)
-                }
+                Backend::Wasm128 => wasm32::gf16::mul_add_gather_simd128(
+                    crate::kernel::wasm128_token(),
+                    dst,
+                    coeffs,
+                    srcs,
+                ),
                 // See `mul_add_scatter`: one table resolve per term beats the
                 // generic oracle's per-element multiply.
                 _ => {
@@ -729,7 +737,7 @@ pub mod gf16 {
         ) {
             match backend() {
                 #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
-                Backend::V4x => x86::gf16::mul_add_matrix512(
+                Backend::V4x => x86::gf16::mul_add_matrix_avx512(
                     crate::kernel::x86_v4x_token(),
                     rows,
                     row_len,
@@ -747,7 +755,7 @@ pub mod gf16 {
                     );
                 }
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-                Backend::V3 => matrix_avx2_axpy(rows, row_len, terms),
+                Backend::V3 => matrix_axpy_avx2(rows, row_len, terms),
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Backend::V2 => x86::gf16::mul_add_matrix_ssse3(
                     crate::kernel::x86_v2_token(),
@@ -758,7 +766,7 @@ pub mod gf16 {
                 ),
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
                 Backend::Neon | Backend::NeonAes => {
-                    aarch64::gf16::matrix_neon(
+                    aarch64::gf16::mul_add_matrix_neon(
                         crate::kernel::neon_token(),
                         rows,
                         row_len,
@@ -767,7 +775,7 @@ pub mod gf16 {
                     );
                 }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Backend::Wasm128 => wasm32::gf16::matrix_simd128(
+                Backend::Wasm128 => wasm32::gf16::mul_add_matrix_simd128(
                     crate::kernel::wasm128_token(),
                     rows,
                     row_len,
@@ -807,7 +815,7 @@ pub mod gf16 {
                         nrows,
                         sources: srcs,
                     };
-                    x86::gf16::mul_add_matrix512_with(
+                    x86::gf16::mul_add_matrix_avx512_with(
                         crate::kernel::x86_v4x_token(),
                         rows,
                         row_len,
@@ -864,7 +872,7 @@ pub mod gf16 {
             match backend() {
                 #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
                 Backend::V4x => {
-                    x86::gf16::mul_elementwise512(crate::kernel::x86_v4x_token(), dst, a, b);
+                    x86::gf16::mul_elementwise_avx512(crate::kernel::x86_v4x_token(), dst, a, b);
                 }
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Backend::V3GfniCrypto => {
@@ -878,11 +886,11 @@ pub mod gf16 {
                 // — see `Gf8B::mul_elementwise` and BENCHMARKS.md.
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
                 Backend::Neon | Backend::NeonAes => {
-                    aarch64::gf16::elementwise_neon(crate::kernel::neon_token(), dst, a, b)
+                    aarch64::gf16::mul_elementwise_neon(crate::kernel::neon_token(), dst, a, b)
                 }
                 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
                 Backend::Wasm128 => {
-                    wasm32::gf16::elementwise_simd128(crate::kernel::wasm128_token(), dst, a, b)
+                    wasm32::gf16::mul_elementwise_simd128(crate::kernel::wasm128_token(), dst, a, b)
                 }
                 // See `Gf8B::mul_elementwise`: no fixed coefficient, so the
                 // shuffle backends multiply the two varying base-field operands
@@ -903,7 +911,11 @@ pub mod gf16 {
             match backend() {
                 #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
                 Backend::V4x => {
-                    x86::gf16::mul_elementwise_assign512(crate::kernel::x86_v4x_token(), dst, src);
+                    x86::gf16::mul_elementwise_assign_avx512(
+                        crate::kernel::x86_v4x_token(),
+                        dst,
+                        src,
+                    );
                 }
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Backend::V3GfniCrypto => {
@@ -955,7 +967,7 @@ pub mod gf64 {
     //!
     //! On GFNI x86 a GF(2^64) multiply is the level-3 tower identity — two
     //! GF(2^32) lane multiplies under a period-2 coefficient, each itself
-    //! the four-`GF2P8MULB` [`crate::kernel::gf32`] scale, so eight
+    //! the four-`GF2P8MULB` [`crate::kernel::tower::gf32`] scale, so eight
     //! `GF2P8MULB` per 32-byte lane. Everywhere else the portable scalar
     //! kernel applies.
 

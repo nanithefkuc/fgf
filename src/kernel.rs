@@ -21,10 +21,10 @@
 
 pub(crate) mod fan_paar;
 pub(crate) mod tower;
-// The re-exported names are reached only from the architecture kernels,
-// which cfg away entirely on a scalar-only build.
+// Reached only from the architecture kernels, which cfg away entirely on a
+// scalar-only build.
 #[allow(unused_imports)]
-pub(crate) use tower::{gf16, gf32, gf64};
+pub(crate) use tower::gf16;
 
 pub(crate) mod gf2;
 pub(crate) mod gf8;
@@ -885,7 +885,6 @@ pub(crate) struct RawDispatch;
         target_arch = "wasm32"
     )
 ))]
-#[allow(dead_code)]
 pub(crate) mod proven_checks {
     /// Paired length equality.
     #[inline]
@@ -902,7 +901,8 @@ pub(crate) mod proven_checks {
         );
     }
 
-    /// Whole-element lengths.
+    /// Whole-element lengths; only the x86 prime-field kernels check them.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[inline]
     pub(crate) fn check_elem_multiple(name: &str, len: usize, elem_bytes: usize) {
         assert!(
@@ -912,6 +912,7 @@ pub(crate) mod proven_checks {
     }
 
     /// A flat row buffer must hold at least `count` rows of `row_len` bytes.
+    #[allow(dead_code)]
     #[inline]
     pub(crate) fn check_row_span(name: &str, buffer_len: usize, row_len: usize, count: usize) {
         let used = count
@@ -925,6 +926,7 @@ pub(crate) mod proven_checks {
 
     /// Flat term geometry shared by the matrix entries: every term supplies
     /// `nrows` coefficients and a `row_len`-byte source.
+    #[allow(dead_code)]
     #[inline]
     pub(crate) fn check_terms<E>(
         name: &str,
@@ -1068,8 +1070,8 @@ pub(crate) mod byte_ops {
             // The length guard sits on the `V4x` arm alone, so every narrower
             // tier reaches its body without testing it.
             #[cfg(feature = "simd512")]
-            X86Proof::V4x(token) if dst.len() >= x86::bytes512::XOR512_MIN => {
-                x86::bytes512::xor512(token.v4(), dst, src);
+            X86Proof::V4x(token) if dst.len() >= x86::bytes::XOR_AVX512_MIN => {
+                x86::bytes::xor_avx512(token.v4(), dst, src);
             }
             #[cfg(feature = "simd512")]
             X86Proof::V4x(token) => x86::xor_avx2(token.v3(), dst, src),

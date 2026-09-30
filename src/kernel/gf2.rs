@@ -233,7 +233,7 @@ fn whole_word_weight(words: &[u8]) -> u32 {
     if let super::X86Proof::V4x(token) = super::x86_proof() {
         // At most `u32::MAX` live bits reach this kernel, so the count fits.
         #[allow(clippy::cast_possible_truncation)]
-        return super::x86::bytes512::count_ones512(token, words) as u32;
+        return super::x86::bytes::count_ones_avx512(token, words) as u32;
     }
     let mut w = words.chunks_exact(8);
     let count = words.len() / 8;

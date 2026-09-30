@@ -584,32 +584,32 @@ fn proven_gf8_mul_kernels_match_scalar() {
 }
 
 #[test]
-fn proven_gf8d_affine_kernels_match_scalar() {
+fn proven_gf8d_gfni_kernels_match_scalar() {
     let Some(token) = X64V3GfniCryptoToken::summon() else {
         eprintln!("skipping: no AVX2+GFNI on this host");
         return;
     };
     let coeffs = gf8d_coeffs();
     check_mul_add(
-        "gf8::mul_add_affine",
+        "gf8::mul_add_gfni_8d",
         LENGTHS8,
         &coeffs,
         gf8d_ref,
-        |dst, c, src| x86::gf8::mul_add_affine(token, dst, affine_8d(c), scale_table_8d(c), src),
+        |dst, c, src| x86::gf8::mul_add_gfni_8d(token, dst, affine_8d(c), scale_table_8d(c), src),
     );
     check_mul_assign(
-        "gf8::mul_assign_affine",
+        "gf8::mul_assign_gfni_8d",
         LENGTHS8,
         &coeffs,
         scalar::mul_assign::<Gf8D>,
-        |dst, c| x86::gf8::mul_assign_affine(token, dst, affine_8d(c), scale_table_8d(c)),
+        |dst, c| x86::gf8::mul_assign_gfni_8d(token, dst, affine_8d(c), scale_table_8d(c)),
     );
     check_mul_into(
-        "gf8::mul_into_affine",
+        "gf8::mul_into_gfni_8d",
         LENGTHS8,
         &coeffs,
         gf8d_ref,
-        |dst, c, src| x86::gf8::mul_into_affine(token, dst, affine_8d(c), scale_table_8d(c), src),
+        |dst, c, src| x86::gf8::mul_into_gfni_8d(token, dst, affine_8d(c), scale_table_8d(c), src),
     );
 }
 
@@ -634,12 +634,12 @@ fn proven_gf8_scatter_gather_match_scalar() {
         },
     );
     check_scatter(
-        "gf8::mul_add_scatter_affine",
+        "gf8::mul_add_scatter_gfni_8d",
         ROW_LENS,
         gf8d_ref,
         |j| gf8d::Elem::from_raw((j as u8).wrapping_mul(29)),
         |rows, row_len, coeffs, src| {
-            x86::gf8::mul_add_scatter_affine(token, rows, row_len, coeffs, src)
+            x86::gf8::mul_add_scatter_gfni_8d(token, rows, row_len, coeffs, src)
         },
     );
 
@@ -657,11 +657,11 @@ fn proven_gf8_scatter_gather_match_scalar() {
             |dst, coeffs, srcs| x86::gf8::mul_add_gather_gfni(token, dst, coeffs, srcs),
         );
         check_gather(
-            "gf8::mul_add_gather_affine",
+            "gf8::mul_add_gather_gfni_8d",
             row_len,
             gf8d_ref,
             |i| gf8d::Elem::from_raw((i as u8).wrapping_mul(53).wrapping_add(13)),
-            |dst, coeffs, srcs| x86::gf8::mul_add_gather_affine(token, dst, coeffs, srcs),
+            |dst, coeffs, srcs| x86::gf8::mul_add_gather_gfni_8d(token, dst, coeffs, srcs),
         );
     }
 }
@@ -683,12 +683,12 @@ fn proven_gf8_matrix_kernels_match_scalar() {
         },
     );
     check_matrix_accumulate(
-        "gf8::mul_add_matrix_affine",
+        "gf8::mul_add_matrix_gfni_8d",
         ROW_LENS,
         gf8d_coeff_at2,
         gf8d_ref,
         |rows, row_len, nrows, terms| {
-            x86::gf8::mul_add_matrix_affine(token, rows, row_len, nrows, terms)
+            x86::gf8::mul_add_matrix_gfni_8d(token, rows, row_len, nrows, terms)
         },
     );
     check_matrix_overwrite(
@@ -701,12 +701,12 @@ fn proven_gf8_matrix_kernels_match_scalar() {
         },
     );
     check_matrix_overwrite(
-        "gf8::mul_into_matrix_affine",
+        "gf8::mul_into_matrix_gfni_8d",
         ROW_LENS,
         gf8d_coeff_at2,
         gf8d_ref,
         |rows, row_len, nrows, terms| {
-            x86::gf8::mul_into_matrix_affine(token, rows, row_len, nrows, terms)
+            x86::gf8::mul_into_matrix_gfni_8d(token, rows, row_len, nrows, terms)
         },
     );
 
@@ -735,24 +735,24 @@ fn proven_gf8_matrix_kernels_match_scalar() {
         },
     );
     check_matrix_accumulate(
-        "gf8::mul_add_matrix_affine_with",
+        "gf8::mul_add_matrix_gfni_8d_with",
         ROW_LENS,
         gf8d_coeff_at2,
         gf8d_ref,
         |rows, row_len, nrows, terms| {
             flat_gf8d(terms, nrows, |matrix| {
-                x86::gf8::mul_add_matrix_affine_with(token, rows, row_len, nrows, matrix)
+                x86::gf8::mul_add_matrix_gfni_8d_with(token, rows, row_len, nrows, matrix)
             });
         },
     );
     check_matrix_overwrite(
-        "gf8::mul_into_matrix_affine_with",
+        "gf8::mul_into_matrix_gfni_8d_with",
         ROW_LENS,
         gf8d_coeff_at2,
         gf8d_ref,
         |rows, row_len, nrows, terms| {
             flat_gf8d(terms, nrows, |matrix| {
-                x86::gf8::mul_into_matrix_affine_with(token, rows, row_len, nrows, matrix)
+                x86::gf8::mul_into_matrix_gfni_8d_with(token, rows, row_len, nrows, matrix)
             });
         },
     );
@@ -851,19 +851,18 @@ fn scattered_case_gf8d(token: X64V3GfniCryptoToken, row_len: usize, starts: &[us
         .collect();
     let mut got = noise(TOTAL, 0xe2);
     let mut want = got.clone();
-    x86::gf8::mul_add_matrix_at_affine(token, &mut got, row_len, starts, &terms);
+    x86::gf8::mul_add_matrix_at_gfni_8d(token, &mut got, row_len, starts, &terms);
     for &(coeffs, src) in &terms {
         for (&start, &coeff) in starts.iter().zip(coeffs) {
             gf8d_ref(&mut want[start..start + row_len], coeff, src);
         }
     }
-    assert_eq!(got, want, "mul_add_matrix_at_affine: row_len {row_len}");
+    assert_eq!(got, want, "mul_add_matrix_at_gfni_8d: row_len {row_len}");
 }
 
 // ---------------------------------------------------------------------------
 // Degenerate boundaries: empty terms/sources and zero rows.
 // ---------------------------------------------------------------------------
-
 #[test]
 fn proven_overwrite_wrappers_zero_addressed_rows_on_empty_terms() {
     let Some(token) = X64V3GfniCryptoToken::summon() else {
@@ -882,9 +881,9 @@ fn proven_overwrite_wrappers_zero_addressed_rows_on_empty_terms() {
 
     let mut got = noise(nrows * row_len + surplus, 0xf2);
     let mut want = got.clone();
-    x86::gf8::mul_into_matrix_affine(token, &mut got, row_len, nrows, &[]);
+    x86::gf8::mul_into_matrix_gfni_8d(token, &mut got, row_len, nrows, &[]);
     want[..nrows * row_len].fill(0);
-    assert_eq!(got, want, "mul_into_matrix_affine: empty terms");
+    assert_eq!(got, want, "mul_into_matrix_gfni_8d: empty terms");
 
     // The FlatMatrix twins must agree with their slice twins.
     let srcs: Vec<&[u8]> = Vec::new();
@@ -908,9 +907,9 @@ fn proven_overwrite_wrappers_zero_addressed_rows_on_empty_terms() {
     };
     let mut got = noise(nrows * row_len + surplus, 0xf4);
     let mut want = got.clone();
-    x86::gf8::mul_into_matrix_affine_with(token, &mut got, row_len, nrows, &matrix);
+    x86::gf8::mul_into_matrix_gfni_8d_with(token, &mut got, row_len, nrows, &matrix);
     want[..nrows * row_len].fill(0);
-    assert_eq!(got, want, "mul_into_matrix_affine_with: empty terms");
+    assert_eq!(got, want, "mul_into_matrix_gfni_8d_with: empty terms");
 
     // Accumulation with no terms is a no-op: nothing changes.
     let mut got = noise(nrows * row_len + surplus, 0xf5);
@@ -1069,7 +1068,7 @@ fn proven_gf8d512_rejects_bad_geometry() {
         let mut dst = vec![0u8; 16];
         let src = vec![0u8; 17];
         let coeff = gf8d::Elem::from_raw(3);
-        x86::gf8::mul_add_affine512(
+        x86::gf8::mul_add_avx512(
             token,
             &mut dst,
             affine_8d(coeff),
@@ -1081,14 +1080,14 @@ fn proven_gf8d512_rejects_bad_geometry() {
         let mut rows = vec![0u8; 16];
         let src = vec![0u8; 16];
         let coeffs = [gf8d::Elem::from_raw(1), gf8d::Elem::from_raw(2)];
-        x86::gf8::mul_add_scatter_affine512(token, &mut rows, 16, &coeffs, &src);
+        x86::gf8::mul_add_scatter_avx512(token, &mut rows, 16, &coeffs, &src);
     });
     rejects_geometry("gf8d512 matrix_at overlap", |token: X64V4xToken| {
         let mut dst = vec![0u8; 128];
         let src = vec![0u8; 64];
         let coeffs = [gf8d::Elem::from_raw(1), gf8d::Elem::from_raw(2)];
         let terms: Vec<(&[gf8d::Elem], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
-        x86::gf8::mul_add_matrix_at_affine512(token, &mut dst, 64, &[0, 32], &terms);
+        x86::gf8::mul_add_matrix_at_avx512(token, &mut dst, 64, &[0, 32], &terms);
     });
 }
 
@@ -1106,13 +1105,9 @@ fn proven_prime_rejects_partial_lane() {
     rejects_geometry("m31 add_assign avx2", |v3: X64V3Token| {
         let mut dst = vec![0u8; 7];
         let src = vec![0u8; 7];
-        x86::prime::add_assign_m31_avx2(v3, &mut dst, &src);
+        x86::mersenne31::add_assign_avx2(v3, &mut dst, &src);
     });
 }
-
-// ---------------------------------------------------------------------------
-// Experimental overwrite shapes (perf candidates, `internals`-published).
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // GF(2^16) / GF(2^32) / GF(2^64) tower kernels.
@@ -1353,46 +1348,46 @@ fn proven_fan_paar_kernels_match_scalar() {
         .map(|&c| fan_paar::fp16::Elem::from_raw(c))
         .collect();
     check_mul_add(
-        "fan_paar::mul_add_avx2",
+        "fan_paar::mul_add_avx2_fp16",
         LENGTHS16,
         &fp16_coeffs,
         fp16_ref,
-        |dst, c, src| x86::fan_paar::mul_add_avx2(v3, dst, &FpTowerTables::new(c), src),
+        |dst, c, src| x86::fan_paar::mul_add_avx2_fp16(v3, dst, &FpTowerTables::new(c), src),
     );
     check_mul_assign(
-        "fan_paar::mul_assign_avx2",
+        "fan_paar::mul_assign_avx2_fp16",
         LENGTHS16,
         &fp16_coeffs,
         |dst, c| wiedemann::mul_assign(dst, u64::from(c.to_raw()), 16),
-        |dst, c| x86::fan_paar::mul_assign_avx2(v3, dst, &FpTowerTables::new(c)),
+        |dst, c| x86::fan_paar::mul_assign_avx2_fp16(v3, dst, &FpTowerTables::new(c)),
     );
     check_mul_into(
-        "fan_paar::mul_into_avx2",
+        "fan_paar::mul_into_avx2_fp16",
         LENGTHS16,
         &fp16_coeffs,
         fp16_ref,
-        |dst, c, src| x86::fan_paar::mul_into_avx2(v3, dst, &FpTowerTables::new(c), src),
+        |dst, c, src| x86::fan_paar::mul_into_avx2_fp16(v3, dst, &FpTowerTables::new(c), src),
     );
     check_mul_add(
-        "fan_paar::mul_add_ssse3",
+        "fan_paar::mul_add_ssse3_fp16",
         LENGTHS16,
         &fp16_coeffs,
         fp16_ref,
-        |dst, c, src| x86::fan_paar::mul_add_ssse3(v2, dst, &FpTowerTables::new(c), src),
+        |dst, c, src| x86::fan_paar::mul_add_ssse3_fp16(v2, dst, &FpTowerTables::new(c), src),
     );
     check_mul_assign(
-        "fan_paar::mul_assign_ssse3",
+        "fan_paar::mul_assign_ssse3_fp16",
         LENGTHS16,
         &fp16_coeffs,
         |dst, c| wiedemann::mul_assign(dst, u64::from(c.to_raw()), 16),
-        |dst, c| x86::fan_paar::mul_assign_ssse3(v2, dst, &FpTowerTables::new(c)),
+        |dst, c| x86::fan_paar::mul_assign_ssse3_fp16(v2, dst, &FpTowerTables::new(c)),
     );
     check_mul_into(
-        "fan_paar::mul_into_ssse3",
+        "fan_paar::mul_into_ssse3_fp16",
         LENGTHS16,
         &fp16_coeffs,
         fp16_ref,
-        |dst, c, src| x86::fan_paar::mul_into_ssse3(v2, dst, &FpTowerTables::new(c), src),
+        |dst, c, src| x86::fan_paar::mul_into_ssse3_fp16(v2, dst, &FpTowerTables::new(c), src),
     );
 
     #[cfg(not(miri))]
@@ -1408,25 +1403,25 @@ fn proven_fan_paar_kernels_match_scalar() {
         .map(|&c| fan_paar::fp32::Elem::from_raw(c))
         .collect();
     check_mul_add(
-        "fan_paar::mul_add_fp32_avx2",
+        "fan_paar::mul_add_avx2_fp32",
         LENGTHS32,
         &fp32_coeffs,
         fp32_ref,
-        |dst, c, src| x86::fan_paar::mul_add_fp32_avx2(v3, dst, c, src),
+        |dst, c, src| x86::fan_paar::mul_add_avx2_fp32(v3, dst, c, src),
     );
     check_mul_assign(
-        "fan_paar::mul_assign_fp32_avx2",
+        "fan_paar::mul_assign_avx2_fp32",
         LENGTHS32,
         &fp32_coeffs,
         |dst, c| wiedemann::mul_assign(dst, u64::from(c.to_raw()), 32),
-        |dst, c| x86::fan_paar::mul_assign_fp32_avx2(v3, dst, c),
+        |dst, c| x86::fan_paar::mul_assign_avx2_fp32(v3, dst, c),
     );
     check_mul_into(
-        "fan_paar::mul_into_fp32_avx2",
+        "fan_paar::mul_into_avx2_fp32",
         LENGTHS32,
         &fp32_coeffs,
         fp32_ref,
-        |dst, c, src| x86::fan_paar::mul_into_fp32_avx2(v3, dst, c, src),
+        |dst, c, src| x86::fan_paar::mul_into_avx2_fp32(v3, dst, c, src),
     );
 
     #[cfg(not(miri))]
@@ -1447,25 +1442,25 @@ fn proven_fan_paar_kernels_match_scalar() {
         .map(|&c| fan_paar::fp64::Elem::from_raw(c))
         .collect();
     check_mul_add(
-        "fan_paar::mul_add_fp64_avx2",
+        "fan_paar::mul_add_avx2_fp64",
         LENGTHS64,
         &fp64_coeffs,
         fp64_ref,
-        |dst, c, src| x86::fan_paar::mul_add_fp64_avx2(v3, dst, c, src),
+        |dst, c, src| x86::fan_paar::mul_add_avx2_fp64(v3, dst, c, src),
     );
     check_mul_assign(
-        "fan_paar::mul_assign_fp64_avx2",
+        "fan_paar::mul_assign_avx2_fp64",
         LENGTHS64,
         &fp64_coeffs,
         |dst, c| wiedemann::mul_assign(dst, c.to_raw(), 64),
-        |dst, c| x86::fan_paar::mul_assign_fp64_avx2(v3, dst, c),
+        |dst, c| x86::fan_paar::mul_assign_avx2_fp64(v3, dst, c),
     );
     check_mul_into(
-        "fan_paar::mul_into_fp64_avx2",
+        "fan_paar::mul_into_avx2_fp64",
         LENGTHS64,
         &fp64_coeffs,
         fp64_ref,
-        |dst, c, src| x86::fan_paar::mul_into_fp64_avx2(v3, dst, c, src),
+        |dst, c, src| x86::fan_paar::mul_into_avx2_fp64(v3, dst, c, src),
     );
 }
 
@@ -1515,29 +1510,30 @@ fn proven_prime_kernels_match_scalar() {
         // add / sub against per-lane field arithmetic.
         for (name, kernel, sub) in [
             (
-                "add_assign_m31_avx2",
-                Box::new(|dst: &mut [u8], src: &[u8]| x86::prime::add_assign_m31_avx2(v3, dst, src))
-                    as BinOp,
+                "mersenne31::add_assign_avx2",
+                Box::new(|dst: &mut [u8], src: &[u8]| {
+                    x86::mersenne31::add_assign_avx2(v3, dst, src)
+                }) as BinOp,
                 false,
             ),
             (
-                "sub_assign_m31_avx2",
+                "mersenne31::sub_assign_avx2",
                 Box::new(|dst: &mut [u8], src: &[u8]| {
-                    x86::prime::sub_assign_m31_avx2(v3, dst, src)
+                    x86::mersenne31::sub_assign_avx2(v3, dst, src)
                 }),
                 true,
             ),
             (
-                "add_assign_m31_sse42",
+                "mersenne31::add_assign_sse42",
                 Box::new(|dst: &mut [u8], src: &[u8]| {
-                    x86::prime::add_assign_m31_sse42(v2, dst, src)
+                    x86::mersenne31::add_assign_sse42(v2, dst, src)
                 }),
                 false,
             ),
             (
-                "sub_assign_m31_sse42",
+                "mersenne31::sub_assign_sse42",
                 Box::new(|dst: &mut [u8], src: &[u8]| {
-                    x86::prime::sub_assign_m31_sse42(v2, dst, src)
+                    x86::mersenne31::sub_assign_sse42(v2, dst, src)
                 }),
                 true,
             ),
@@ -1562,48 +1558,48 @@ fn proven_prime_kernels_match_scalar() {
         // mul_add / mul_assign / mul_into against the scalar oracle.
         let mut got = m31_lanes(n, 0x93);
         let mut want = got.clone();
-        x86::prime::mul_add_m31_avx2(v3, &mut got, coeff_raw, &src);
+        x86::mersenne31::mul_add_avx2(v3, &mut got, coeff_raw, &src);
         m31_ref(&mut want, coeff, &src);
-        assert_eq!(got, want, "mul_add_m31_avx2: lanes {n}");
+        assert_eq!(got, want, "mersenne31::mul_add_avx2: lanes {n}");
 
         let mut got = m31_lanes(n, 0x94);
         let mut want = got.clone();
-        x86::prime::mul_add_m31_sse42(v2, &mut got, coeff_raw, &src);
+        x86::mersenne31::mul_add_sse42(v2, &mut got, coeff_raw, &src);
         m31_ref(&mut want, coeff, &src);
-        assert_eq!(got, want, "mul_add_m31_sse42: lanes {n}");
+        assert_eq!(got, want, "mersenne31::mul_add_sse42: lanes {n}");
 
         let mut got = m31_lanes(n, 0x95);
         let mut want = got.clone();
-        x86::prime::mul_assign_m31_avx2(v3, &mut got, coeff_raw);
+        x86::mersenne31::mul_assign_avx2(v3, &mut got, coeff_raw);
         scalar::mul_assign::<Mersenne31>(&mut want, coeff);
-        assert_eq!(got, want, "mul_assign_m31_avx2: lanes {n}");
+        assert_eq!(got, want, "mersenne31::mul_assign_avx2: lanes {n}");
 
         let mut got = m31_lanes(n, 0x96);
         let mut want = vec![0u8; n * 4];
-        x86::prime::mul_into_m31_avx2(v3, &mut got, coeff_raw, &src);
+        x86::mersenne31::mul_into_avx2(v3, &mut got, coeff_raw, &src);
         m31_ref(&mut want, coeff, &src);
-        assert_eq!(got, want, "mul_into_m31_avx2: lanes {n}");
+        assert_eq!(got, want, "mersenne31::mul_into_avx2: lanes {n}");
 
         let mut got = m31_lanes(n, 0x97);
         let mut want = vec![0u8; n * 4];
-        x86::prime::mul_into_m31_sse42(v2, &mut got, coeff_raw, &src);
+        x86::mersenne31::mul_into_sse42(v2, &mut got, coeff_raw, &src);
         m31_ref(&mut want, coeff, &src);
-        assert_eq!(got, want, "mul_into_m31_sse42: lanes {n}");
+        assert_eq!(got, want, "mersenne31::mul_into_sse42: lanes {n}");
 
         // Elementwise product of two canonical buffers.
         let a = m31_lanes(n, 0x98);
         let b = m31_lanes(n, 0x99);
         let mut got = m31_lanes(n, 0x9a);
         let mut want = got.clone();
-        x86::prime::mul_elementwise_m31_avx2(v3, &mut got, &a, &b);
+        x86::mersenne31::mul_elementwise_avx2(v3, &mut got, &a, &b);
         scalar::mul_elementwise::<Mersenne31>(&mut want, &a, &b);
-        assert_eq!(got, want, "mul_elementwise_m31_avx2: lanes {n}");
+        assert_eq!(got, want, "mersenne31::mul_elementwise_avx2: lanes {n}");
 
         let mut got = m31_lanes(n, 0x9b);
         let mut want = got.clone();
-        x86::prime::mul_elementwise_m31_sse42(v2, &mut got, &a, &b);
+        x86::mersenne31::mul_elementwise_sse42(v2, &mut got, &a, &b);
         scalar::mul_elementwise::<Mersenne31>(&mut want, &a, &b);
-        assert_eq!(got, want, "mul_elementwise_m31_sse42: lanes {n}");
+        assert_eq!(got, want, "mersenne31::mul_elementwise_sse42: lanes {n}");
     }
 
     // Goldilocks: the same sweep with 8-byte lanes.
@@ -1614,29 +1610,30 @@ fn proven_prime_kernels_match_scalar() {
 
         for (name, kernel, sub) in [
             (
-                "add_assign_gld_avx2",
-                Box::new(|dst: &mut [u8], src: &[u8]| x86::prime::add_assign_gld_avx2(v3, dst, src))
-                    as BinOp,
+                "goldilocks::add_assign_avx2",
+                Box::new(|dst: &mut [u8], src: &[u8]| {
+                    x86::goldilocks::add_assign_avx2(v3, dst, src)
+                }) as BinOp,
                 false,
             ),
             (
-                "sub_assign_gld_avx2",
+                "goldilocks::sub_assign_avx2",
                 Box::new(|dst: &mut [u8], src: &[u8]| {
-                    x86::prime::sub_assign_gld_avx2(v3, dst, src)
+                    x86::goldilocks::sub_assign_avx2(v3, dst, src)
                 }),
                 true,
             ),
             (
-                "add_assign_gld_sse42",
+                "goldilocks::add_assign_sse42",
                 Box::new(|dst: &mut [u8], src: &[u8]| {
-                    x86::prime::add_assign_gld_sse42(v2, dst, src)
+                    x86::goldilocks::add_assign_sse42(v2, dst, src)
                 }),
                 false,
             ),
             (
-                "sub_assign_gld_sse42",
+                "goldilocks::sub_assign_sse42",
                 Box::new(|dst: &mut [u8], src: &[u8]| {
-                    x86::prime::sub_assign_gld_sse42(v2, dst, src)
+                    x86::goldilocks::sub_assign_sse42(v2, dst, src)
                 }),
                 true,
             ),
@@ -1660,46 +1657,40 @@ fn proven_prime_kernels_match_scalar() {
 
         let mut got = gld_lanes(n, 0xa3);
         let mut want = got.clone();
-        x86::prime::mul_add_gld_avx2(v3, &mut got, coeff_raw, &src);
+        x86::goldilocks::mul_add_avx2(v3, &mut got, coeff_raw, &src);
         gld_ref(&mut want, gld_coeff, &src);
-        assert_eq!(got, want, "mul_add_gld_avx2: lanes {n}");
+        assert_eq!(got, want, "goldilocks::mul_add_avx2: lanes {n}");
 
         let mut got = gld_lanes(n, 0xa4);
         let mut want = got.clone();
-        x86::prime::mul_add_gld_sse42(v2, &mut got, coeff_raw, &src);
+        x86::goldilocks::mul_add_sse42(v2, &mut got, coeff_raw, &src);
         gld_ref(&mut want, gld_coeff, &src);
-        assert_eq!(got, want, "mul_add_gld_sse42: lanes {n}");
+        assert_eq!(got, want, "goldilocks::mul_add_sse42: lanes {n}");
 
         let mut got = gld_lanes(n, 0xa5);
         let mut want = got.clone();
-        x86::prime::mul_assign_gld_sse42(v2, &mut got, coeff_raw);
+        x86::goldilocks::mul_assign_sse42(v2, &mut got, coeff_raw);
         scalar::mul_assign::<Goldilocks>(&mut want, gld_coeff);
-        assert_eq!(got, want, "mul_assign_gld_sse42: lanes {n}");
+        assert_eq!(got, want, "goldilocks::mul_assign_sse42: lanes {n}");
 
         let mut got = gld_lanes(n, 0xa6);
         let mut want = vec![0u8; n * 8];
-        x86::prime::mul_into_gld_avx2(v3, &mut got, coeff_raw, &src);
+        x86::goldilocks::mul_into_avx2(v3, &mut got, coeff_raw, &src);
         gld_ref(&mut want, gld_coeff, &src);
-        assert_eq!(got, want, "mul_into_gld_avx2: lanes {n}");
+        assert_eq!(got, want, "goldilocks::mul_into_avx2: lanes {n}");
 
         let a = gld_lanes(n, 0xa7);
         let b = gld_lanes(n, 0xa8);
         let mut got = gld_lanes(n, 0xa9);
         let mut want = got.clone();
-        x86::prime::mul_elementwise_gld_avx2(v3, &mut got, &a, &b);
+        x86::goldilocks::mul_elementwise_avx2(v3, &mut got, &a, &b);
         scalar::mul_elementwise::<Goldilocks>(&mut want, &a, &b);
-        assert_eq!(got, want, "mul_elementwise_gld_avx2: lanes {n}");
+        assert_eq!(got, want, "goldilocks::mul_elementwise_avx2: lanes {n}");
 
         let mut got = gld_lanes(n, 0xaa);
         let mut want = got.clone();
-        x86::prime::mul_elementwise_gld_sse42(v2, &mut got, &a, &b);
+        x86::goldilocks::mul_elementwise_sse42(v2, &mut got, &a, &b);
         scalar::mul_elementwise::<Goldilocks>(&mut want, &a, &b);
-        assert_eq!(got, want, "mul_elementwise_gld_sse42: lanes {n}");
+        assert_eq!(got, want, "goldilocks::mul_elementwise_sse42: lanes {n}");
     }
 }
-
-// ---------------------------------------------------------------------------
-// AVX-512 tier: type-checks everywhere, executes only where the token
-// summons. The deferred tier is not on the dispatch ladder; on hosts
-// without it these tests print a skip and return.
-// ---------------------------------------------------------------------------

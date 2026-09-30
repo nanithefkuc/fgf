@@ -1,515 +1,203 @@
-//! Single-buffer GF(2^8) AXPY kernels on the GFNI multiply.
+//! GFNI GF(2^8) kernels over 32-byte lanes.
 //!
-//! `GF2P8MULB` is a native `GF(2)[x] / 0x11B` multiply across 32 byte lanes,
-//! so a `Gf8B` coefficient is nothing but a broadcast byte. It is pipelined
-//! but not single-cycle, which shapes every loop here: four independent
-//! multiply chains stay in flight to cover the latency. `VGF2P8AFFINEQB`
-//! applies an arbitrary 8x8 GF(2) map per lane and so serves `Gf8D`, with the
-//! same unroll and the same lane descent.
+//! `GF2P8MULB` is a native `GF(2)[x] / 0x11B` multiply, so a `Gf8B`
+//! coefficient is a broadcast byte; `VGF2P8AFFINEQB` applies an arbitrary 8x8
+//! GF(2) map per lane and so multiplies `Gf8D` under `0x11D`. Both are
+//! pipelined but not single-cycle, which shapes every loop: the single-buffer
+//! AXPY keeps four multiply chains in flight, and the blocked kernels hold a
+//! destination tile in registers so the multiplier, not memory, is the limit.
 //!
-//! Every entry is a safe [`archmage`] capability-token function over
-//! reference-based intrinsics. The fused `mul_into` bodies keep the
-//! non-temporal store residue in [`archmage::rite`] helpers, the one unsafe
-//! dependency this family retains.
+//! Submodules split on fan shape: `single`, `scatter`, `gather`, `matrix` over
+//! the register-blocked row-group bodies in `rows`, and `elementwise`. Every
+//! entry takes an `X64V3GfniCryptoToken`.
+//!
+//! This file holds the seam the blocked shapes share. The two byte fields
+//! differ in exactly three places: how a coefficient becomes a factor vector,
+//! which one-instruction multiply folds it in, and which nibble bank the
+//! sub-lane tail reads. Everything else — the tiling, the register budget, the
+//! remainder ladder — is identical, so the kernels are generic over
+//! [`Blocked`] and monomorphize back to the code each field had alone.
+
+mod elementwise;
+mod gather;
+mod matrix;
+mod rows;
+mod scatter;
+mod single;
+
+#[cfg(feature = "simd512")]
+pub(super) use elementwise::ISO_11D_TO_11B;
+pub use elementwise::{
+    mul_elementwise_assign_gfni, mul_elementwise_assign_gfni_8d, mul_elementwise_gfni,
+    mul_elementwise_gfni_8d,
+};
+pub use gather::{mul_add_gather_gfni, mul_add_gather_gfni_8d};
+pub use matrix::{
+    mul_add_matrix_at_gfni, mul_add_matrix_at_gfni_8d, mul_add_matrix_gfni, mul_add_matrix_gfni_8d,
+    mul_add_matrix_gfni_8d_with, mul_add_matrix_gfni_with, mul_into_matrix_gfni,
+    mul_into_matrix_gfni_8d, mul_into_matrix_gfni_8d_with, mul_into_matrix_gfni_with,
+};
+pub use scatter::{mul_add_scatter_gfni, mul_add_scatter_gfni_8d};
+pub use single::{
+    mul_add_gfni, mul_add_gfni_8d, mul_assign_gfni, mul_assign_gfni_8d, mul_into_gfni,
+    mul_into_gfni_8d,
+};
+#[cfg(feature = "simd512")]
+pub(super) use single::{mul_add_gfni_8d_impl, mul_assign_gfni_8d_impl, mul_into_gfni_8d_impl};
 
 use crate::field::gf8b::Elem;
-use crate::kernel::gf8::{mul_add_nibble, mul_assign_nibble, mul_into_nibble};
-use crate::kernel::tables::{ScaleTable, scale_table};
+use crate::field::gf8d;
+use crate::kernel::tables::{ScaleTable, affine_8d, scale_table, scale_table_8d};
 
-use super::super::HALF_LANE_PEEL_MIN;
+#[cfg(target_arch = "x86")]
+use core::arch::x86::*;
+#[cfg(target_arch = "x86_64")]
+use core::arch::x86_64::*;
 
-/// `dst ^= coeff * src` using `GF2P8MULB` over 32-byte lanes.
-///
-/// # Panics
-/// Panics if the slices differ in length.
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_add_gfni(
-    _token: archmage::X64V3GfniCryptoToken,
-    dst: &mut [u8],
-    coeff: Elem,
-    src: &[u8],
-) {
-    assert_eq!(dst.len(), src.len());
-    // The network-payload half-lane case pays for one narrow head: its
-    // remaining AVX2 stores then avoid split cache lines. The crossover is
-    // recorded under "v3 half-lane peels and overwrite-gather dispatch" in
-    // BENCHMARKS.md. The aligned path hands its slices to the body untouched.
-    if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
-        let factor128 = _mm256_castsi256_si128(_mm256_set1_epi8(coeff.0.cast_signed()));
-        let (d, _) = dst[..16].as_chunks_mut::<16>();
-        let (s, _) = src[..16].as_chunks::<16>();
-        let x = _mm_loadu_si128(&s[0]);
-        let d0 = _mm_loadu_si128(&d[0]);
-        _mm_storeu_si128(
-            &mut d[0],
-            _mm_xor_si128(d0, _mm_gf2p8mul_epi8(x, factor128)),
-        );
-        mul_add_gfni_impl(&mut dst[16..], coeff, &src[16..]);
-    } else {
-        mul_add_gfni_impl(dst, coeff, src);
-    }
+/// The per-field multiply seam for the blocked GF(2^8) kernels.
+pub(super) trait Blocked {
+    /// Coefficient form selected by the strategy.
+    type Coeff: Copy;
+    /// The additive identity, for staging arrays.
+    fn zero() -> Self::Coeff;
+    /// `true` when the multiply is `VGF2P8AFFINEQB`, `false` for `GF2P8MULB`.
+    const AFFINE: bool;
+    /// Raw coefficient byte.
+    fn byte(coeff: Self::Coeff) -> u8;
+    /// The `VGF2P8AFFINEQB` matrix qword (unused when `AFFINE` is false).
+    fn map(coeff: Self::Coeff) -> u64;
+    /// The coefficient's sub-lane nibble tables, from this field's bank.
+    fn table(coeff: Self::Coeff) -> &'static ScaleTable;
 }
 
-/// The `mul_add` body over equal-length slices, shared with the blocked
-/// kernels' remainder seam `brem`.
-#[archmage::rite(v3_gfni_crypto, import_intrinsics)]
-pub(super) fn mul_add_gfni_impl(dst: &mut [u8], coeff: Elem, src: &[u8]) {
-    let factor = _mm256_set1_epi8(coeff.0.cast_signed());
-    let factor128 = _mm256_castsi256_si128(factor);
+/// Native GFNI multiply in the AES field `0x11B` (`Gf8B`).
+pub(super) enum Gfni {}
 
-    // Four independent multiply chains per iteration. A single destination
-    // AXPY is latency-bound on `GF2P8MULB`, and the unroll is what covers it.
-    let (dst_tiles, dst_mid) = dst.as_chunks_mut::<128>();
-    let (src_tiles, src_mid) = src.as_chunks::<128>();
-    for (dtile, stile) in dst_tiles.iter_mut().zip(src_tiles) {
-        let (d, _) = dtile.as_chunks_mut::<32>();
-        let (s, _) = stile.as_chunks::<32>();
-        let x0 = _mm256_loadu_si256(&s[0]);
-        let x1 = _mm256_loadu_si256(&s[1]);
-        let x2 = _mm256_loadu_si256(&s[2]);
-        let x3 = _mm256_loadu_si256(&s[3]);
-        let d0 = _mm256_loadu_si256(&d[0]);
-        let d1 = _mm256_loadu_si256(&d[1]);
-        let d2 = _mm256_loadu_si256(&d[2]);
-        let d3 = _mm256_loadu_si256(&d[3]);
-        let r0 = _mm256_xor_si256(d0, _mm256_gf2p8mul_epi8(x0, factor));
-        let r1 = _mm256_xor_si256(d1, _mm256_gf2p8mul_epi8(x1, factor));
-        let r2 = _mm256_xor_si256(d2, _mm256_gf2p8mul_epi8(x2, factor));
-        let r3 = _mm256_xor_si256(d3, _mm256_gf2p8mul_epi8(x3, factor));
-        _mm256_storeu_si256(&mut d[0], r0);
-        _mm256_storeu_si256(&mut d[1], r1);
-        _mm256_storeu_si256(&mut d[2], r2);
-        _mm256_storeu_si256(&mut d[3], r3);
+impl Blocked for Gfni {
+    type Coeff = Elem;
+    const AFFINE: bool = false;
+    #[inline]
+    fn zero() -> Elem {
+        Elem(0)
     }
-
-    let (dst_lanes, dst_rest) = dst_mid.as_chunks_mut::<32>();
-    let (src_lanes, src_rest) = src_mid.as_chunks::<32>();
-    for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let x = _mm256_loadu_si256(slane);
-        let d = _mm256_loadu_si256(dlane);
-        let r = _mm256_xor_si256(d, _mm256_gf2p8mul_epi8(x, factor));
-        _mm256_storeu_si256(dlane, r);
+    #[inline]
+    fn byte(coeff: Elem) -> u8 {
+        coeff.0
     }
-    let (dst16, dst_tail) = dst_rest.as_chunks_mut::<16>();
-    let (src16, src_tail) = src_rest.as_chunks::<16>();
-    for (d16, s16) in dst16.iter_mut().zip(src16) {
-        let x = _mm_loadu_si128(s16);
-        let d = _mm_loadu_si128(d16);
-        let r = _mm_xor_si128(d, _mm_gf2p8mul_epi8(x, factor128));
-        _mm_storeu_si128(d16, r);
-    }
-
-    mul_add_nibble(dst_tail, scale_table(coeff), src_tail);
-}
-
-/// `dst = coeff * dst` using `GF2P8MULB` over 32-byte lanes.
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_gfni(_token: archmage::X64V3GfniCryptoToken, dst: &mut [u8], coeff: Elem) {
-    let factor = _mm256_set1_epi8(coeff.0.cast_signed());
-    let factor128 = _mm256_castsi256_si128(factor);
-    // The network-payload half-lane case pays for one narrow head: its
-    // remaining AVX2 stores then avoid split cache lines. The crossover is
-    // recorded under "Network-size payloads" in BENCHMARKS.md.
-    let head = if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
-        16
-    } else {
+    #[inline]
+    fn map(_coeff: Elem) -> u64 {
         0
-    };
-    if head != 0 {
-        let (d, _) = dst[..head].as_chunks_mut::<16>();
-        let value = _mm_gf2p8mul_epi8(_mm_loadu_si128(&d[0]), factor128);
-        _mm_storeu_si128(&mut d[0], value);
     }
-    let dst = &mut dst[head..];
-    // In-place scaling is store-bound and rare next to the AXPY shapes, so
-    // one accumulator is enough; the loads have no dependency to cover.
-    let (lanes, rest) = dst.as_chunks_mut::<32>();
-    for lane in lanes {
-        let d = _mm256_loadu_si256(&*lane);
-        _mm256_storeu_si256(lane, _mm256_gf2p8mul_epi8(d, factor));
+    #[inline]
+    fn table(coeff: Elem) -> &'static ScaleTable {
+        scale_table(coeff)
     }
-    let (sixteens, tail) = rest.as_chunks_mut::<16>();
-    for s16 in sixteens {
-        let d = _mm_loadu_si128(&*s16);
-        _mm_storeu_si128(s16, _mm_gf2p8mul_epi8(d, factor128));
-    }
-
-    mul_assign_nibble(tail, scale_table(coeff));
 }
 
-/// `dst = coeff * src` using `GF2P8MULB` over 32-byte lanes.
-///
-/// Fused out-of-place multiply: one pass, one read of `src` and one write of
-/// `dst`, versus the copy-then-scale pair the trait default runs. On large
-/// buffers that halves destination traffic and is worth roughly 2x.
-///
-/// # Panics
-/// Panics if the slices differ in length.
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_into_gfni(
-    _token: archmage::X64V3GfniCryptoToken,
-    dst: &mut [u8],
-    coeff: Elem,
-    src: &[u8],
-) {
-    assert_eq!(dst.len(), src.len());
-    if let Some(peel) = super::super::nt_split(dst, 1) {
-        let (head, body) = dst.split_at_mut(peel);
-        let (src_head, src_body) = src.split_at(peel);
-        mul_into_gfni_impl::<false>(head, coeff, src_head);
-        mul_into_gfni_impl::<true>(body, coeff, src_body);
-        _mm_sfence();
+/// Affine-map multiply in the Reed–Solomon field `0x11D` (`Gf8D`).
+pub(super) enum Affine8D {}
+
+impl Blocked for Affine8D {
+    type Coeff = gf8d::Elem;
+    const AFFINE: bool = true;
+    #[inline]
+    fn zero() -> gf8d::Elem {
+        gf8d::Elem(0)
+    }
+    #[inline]
+    fn byte(coeff: gf8d::Elem) -> u8 {
+        coeff.0
+    }
+    #[inline]
+    fn map(coeff: gf8d::Elem) -> u64 {
+        affine_8d(coeff)
+    }
+    #[inline]
+    fn table(coeff: gf8d::Elem) -> &'static ScaleTable {
+        scale_table_8d(coeff)
+    }
+}
+
+/// Broadcast a coefficient into a 256-bit multiply factor.
+#[inline]
+#[archmage::rite(v3_gfni_crypto)]
+pub(super) fn bfactor_gfni<S: Blocked>(coeff: S::Coeff) -> __m256i {
+    if S::AFFINE {
+        _mm256_set1_epi64x(S::map(coeff).cast_signed())
     } else {
-        // Below the streaming threshold a half-lane destination still
-        // pays split lines; one narrow head aligns the temporal body.
-        let head = if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
-            16
-        } else {
-            0
-        };
-        if head != 0 {
-            let (dst_head, dst) = dst.split_at_mut(head);
-            let (src_head, src) = src.split_at(head);
-            mul_into_gfni_impl::<false>(dst_head, coeff, src_head);
-            mul_into_gfni_impl::<false>(dst, coeff, src);
-        } else {
-            mul_into_gfni_impl::<false>(dst, coeff, src);
-        }
+        _mm256_set1_epi8(S::byte(coeff).cast_signed())
     }
 }
 
-/// Fused `GF2P8MULB` body over equal-length slices, `NT`-selected tile stores.
-///
-/// Loads and the sub-tile stores are reference-based; only the tile stores
-/// run through the crate's streaming-store primitive, which is the residue
-/// this body keeps.
-#[archmage::rite(v3_gfni_crypto, import_intrinsics)]
-#[allow(unsafe_code)]
-fn mul_into_gfni_impl<const NT: bool>(dst: &mut [u8], coeff: Elem, src: &[u8]) {
-    let factor = _mm256_set1_epi8(coeff.0.cast_signed());
-    let factor128 = _mm256_castsi256_si128(factor);
-
-    // Four independent multiply chains, as in the AXPY: `GF2P8MULB` is
-    // pipelined, and with no destination read there is even less other work
-    // to hide its latency behind. The cursor walks whole tiles over the
-    // remaining destination, which is what lets the prefetch name a line
-    // ahead of it without leaving the slice it came from.
-    let prefetch = super::super::prefetch_dst(dst, NT);
-    let tiles = dst.len() / 128 * 128;
-    let (mut drest, dst_mid) = dst.split_at_mut(tiles);
-    let (mut srest, src_mid) = src.split_at(tiles);
-    while !drest.is_empty() {
-        if prefetch && drest.len() >= super::super::PREFETCH_AHEAD + 128 {
-            super::super::prefetch_tile(&drest[super::super::PREFETCH_AHEAD..]);
-        }
-        let (dtile, dnext) = drest.split_at_mut(128);
-        let (stile, snext) = srest.split_at(128);
-        let (s, _) = stile.as_chunks::<32>();
-        let r0 = _mm256_gf2p8mul_epi8(_mm256_loadu_si256(&s[0]), factor);
-        let r1 = _mm256_gf2p8mul_epi8(_mm256_loadu_si256(&s[1]), factor);
-        let r2 = _mm256_gf2p8mul_epi8(_mm256_loadu_si256(&s[2]), factor);
-        let r3 = _mm256_gf2p8mul_epi8(_mm256_loadu_si256(&s[3]), factor);
-        // SAFETY:
-        // MEMORY VALIDITY
-        // SINCE: `dtile` is a 128-byte split of the destination, and the
-        //        four stores advance 0, 32, 64 and 96 bytes into it.
-        // THUS: every 32-byte store writes inside the destination slice.
-        //
-        // NON-TEMPORAL STORE ALIGNMENT
-        // SINCE: the entry selected `NT` only after `nt_split` peeled the
-        //        destination to a 32-byte boundary, and tile stores advance
-        //        in 32-byte steps from that boundary.
-        // THUS: each streaming store address is 32-byte aligned.
-        unsafe {
-            let dp = dtile.as_mut_ptr();
-            super::super::store256::<NT>(dp, r0);
-            super::super::store256::<NT>(dp.add(32), r1);
-            super::super::store256::<NT>(dp.add(64), r2);
-            super::super::store256::<NT>(dp.add(96), r3);
-        }
-        drest = dnext;
-        srest = snext;
-    }
-    let (dst_lanes, dst_mid2) = dst_mid.as_chunks_mut::<32>();
-    let (src_lanes, src_mid2) = src_mid.as_chunks::<32>();
-    for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let x = _mm256_loadu_si256(slane);
-        _mm256_storeu_si256(dlane, _mm256_gf2p8mul_epi8(x, factor));
-    }
-    let (dst16, dst_tail) = dst_mid2.as_chunks_mut::<16>();
-    let (src16, src_tail) = src_mid2.as_chunks::<16>();
-    for (d16, s16) in dst16.iter_mut().zip(src16) {
-        let x = _mm_loadu_si128(s16);
-        _mm_storeu_si128(d16, _mm_gf2p8mul_epi8(x, factor128));
-    }
-
-    mul_into_nibble(dst_tail, scale_table(coeff), src_tail);
-}
-
-// ---------------------------------------------------------------------------
-// Single buffer: GFNI affine.
-//
-// `VGF2P8AFFINEQB` applies an arbitrary 8×8 GF(2) linear map per byte lane,
-// so it multiplies in *any* GF(2^8): the polynomial lives in the prepared
-// matrix qword, not in the instruction. `Gf8D` (`0x11D`) uses these kernels;
-// `Gf8B` has the native `GF2P8MULB` and never needs them. Each loop mirrors
-// its `GF2P8MULB` counterpart exactly — same unroll, same lane descent — and
-// only the multiply instruction differs. The coefficient enters as its
-// affine matrix qword (see `tables::affine_8d`); its nibble table covers the
-// sub-XMM tail, so both prepared forms arrive as arguments and no kernel
-// below reaches for a bank.
-// ---------------------------------------------------------------------------
-
-/// `dst ^= coeff * src` using `VGF2P8AFFINEQB` over 32-byte lanes.
-///
-/// # Panics
-/// Panics if the slices differ in length.
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_add_affine(
-    _token: archmage::X64V3GfniCryptoToken,
-    dst: &mut [u8],
-    map: u64,
-    table: &ScaleTable,
-    src: &[u8],
-) {
-    assert_eq!(dst.len(), src.len());
-    // The network-payload half-lane case pays for one narrow head: its
-    // remaining AVX2 stores then avoid split cache lines. The crossover is
-    // recorded under "v3 half-lane peels and overwrite-gather dispatch" in
-    // BENCHMARKS.md. The aligned
-    // path hands its slices to the body untouched.
-    if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
-        let factor128 = _mm256_castsi256_si128(_mm256_set1_epi64x(map.cast_signed()));
-        let (d, _) = dst[..16].as_chunks_mut::<16>();
-        let (s, _) = src[..16].as_chunks::<16>();
-        let x = _mm_loadu_si128(&s[0]);
-        let d0 = _mm_loadu_si128(&d[0]);
-        _mm_storeu_si128(
-            &mut d[0],
-            _mm_xor_si128(d0, _mm_gf2p8affine_epi64_epi8::<0>(x, factor128)),
-        );
-        mul_add_affine_impl(&mut dst[16..], map, table, &src[16..]);
+/// Broadcast a coefficient into a 128-bit multiply factor.
+#[inline]
+#[archmage::rite(v3_gfni_crypto)]
+pub(super) fn bfactor_half_gfni<S: Blocked>(coeff: S::Coeff) -> __m128i {
+    if S::AFFINE {
+        _mm_set1_epi64x(S::map(coeff).cast_signed())
     } else {
-        mul_add_affine_impl(dst, map, table, src);
+        _mm_set1_epi8(S::byte(coeff).cast_signed())
     }
 }
 
-/// The affine `mul_add` body over equal-length slices, shared with the
-/// blocked kernels' remainder seam `brem`.
-#[archmage::rite(v3_gfni_crypto, import_intrinsics)]
-pub(super) fn mul_add_affine_impl(dst: &mut [u8], map: u64, table: &ScaleTable, src: &[u8]) {
-    let factor = _mm256_set1_epi64x(map.cast_signed());
-    let factor128 = _mm256_castsi256_si128(factor);
-
-    // Four independent multiply chains per iteration. A single destination
-    // AXPY is latency-bound on `VGF2P8AFFINEQB`, and the unroll is what
-    // covers it.
-    let (dst_tiles, dst_mid) = dst.as_chunks_mut::<128>();
-    let (src_tiles, src_mid) = src.as_chunks::<128>();
-    for (dtile, stile) in dst_tiles.iter_mut().zip(src_tiles) {
-        let (d, _) = dtile.as_chunks_mut::<32>();
-        let (s, _) = stile.as_chunks::<32>();
-        let x0 = _mm256_loadu_si256(&s[0]);
-        let x1 = _mm256_loadu_si256(&s[1]);
-        let x2 = _mm256_loadu_si256(&s[2]);
-        let x3 = _mm256_loadu_si256(&s[3]);
-        let d0 = _mm256_loadu_si256(&d[0]);
-        let d1 = _mm256_loadu_si256(&d[1]);
-        let d2 = _mm256_loadu_si256(&d[2]);
-        let d3 = _mm256_loadu_si256(&d[3]);
-        let r0 = _mm256_xor_si256(d0, _mm256_gf2p8affine_epi64_epi8::<0>(x0, factor));
-        let r1 = _mm256_xor_si256(d1, _mm256_gf2p8affine_epi64_epi8::<0>(x1, factor));
-        let r2 = _mm256_xor_si256(d2, _mm256_gf2p8affine_epi64_epi8::<0>(x2, factor));
-        let r3 = _mm256_xor_si256(d3, _mm256_gf2p8affine_epi64_epi8::<0>(x3, factor));
-        _mm256_storeu_si256(&mut d[0], r0);
-        _mm256_storeu_si256(&mut d[1], r1);
-        _mm256_storeu_si256(&mut d[2], r2);
-        _mm256_storeu_si256(&mut d[3], r3);
-    }
-
-    let (dst_lanes, dst_rest) = dst_mid.as_chunks_mut::<32>();
-    let (src_lanes, src_rest) = src_mid.as_chunks::<32>();
-    for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let x = _mm256_loadu_si256(slane);
-        let d = _mm256_loadu_si256(dlane);
-        let r = _mm256_xor_si256(d, _mm256_gf2p8affine_epi64_epi8::<0>(x, factor));
-        _mm256_storeu_si256(dlane, r);
-    }
-    let (dst16, dst_tail) = dst_rest.as_chunks_mut::<16>();
-    let (src16, src_tail) = src_rest.as_chunks::<16>();
-    for (d16, s16) in dst16.iter_mut().zip(src16) {
-        let x = _mm_loadu_si128(s16);
-        let d = _mm_loadu_si128(d16);
-        let r = _mm_xor_si128(d, _mm_gf2p8affine_epi64_epi8::<0>(x, factor128));
-        _mm_storeu_si128(d16, r);
-    }
-
-    mul_add_nibble(dst_tail, table, src_tail);
-}
-
-/// `dst = coeff * dst` using `VGF2P8AFFINEQB` over 32-byte lanes.
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_affine(
-    _token: archmage::X64V3GfniCryptoToken,
-    dst: &mut [u8],
-    map: u64,
-    table: &ScaleTable,
-) {
-    mul_assign_affine_impl(dst, map, table);
-}
-
-/// The affine `mul_assign` body over one slice, shared with the 512-bit
-/// entry's alignment peel.
-#[archmage::rite(v3_gfni_crypto, import_intrinsics)]
-pub(super) fn mul_assign_affine_impl(dst: &mut [u8], map: u64, table: &ScaleTable) {
-    let factor = _mm256_set1_epi64x(map.cast_signed());
-    let factor128 = _mm256_castsi256_si128(factor);
-    // The network-payload half-lane case pays for one narrow head: its
-    // remaining AVX2 stores then avoid split cache lines. The crossover is
-    // recorded under "v3 half-lane peels and overwrite-gather dispatch" in
-    // BENCHMARKS.md.
-    let head = if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
-        16
+/// `coeff * x` over a 256-bit lane, one instruction.
+#[inline]
+#[archmage::rite(v3_gfni_crypto)]
+pub(super) fn bmul_gfni<S: Blocked>(x: __m256i, factor: __m256i) -> __m256i {
+    if S::AFFINE {
+        _mm256_gf2p8affine_epi64_epi8::<0>(x, factor)
     } else {
-        0
-    };
-    if head != 0 {
-        let (d, _) = dst[..head].as_chunks_mut::<16>();
-        let value = _mm_gf2p8affine_epi64_epi8::<0>(_mm_loadu_si128(&d[0]), factor128);
-        _mm_storeu_si128(&mut d[0], value);
+        _mm256_gf2p8mul_epi8(x, factor)
     }
-    let dst = &mut dst[head..];
-    // In-place scaling is store-bound and rare next to the AXPY shapes, so
-    // one accumulator is enough; the loads have no dependency to cover.
-    let (lanes, rest) = dst.as_chunks_mut::<32>();
-    for lane in lanes {
-        let d = _mm256_loadu_si256(&*lane);
-        _mm256_storeu_si256(lane, _mm256_gf2p8affine_epi64_epi8::<0>(d, factor));
-    }
-    let (sixteens, tail) = rest.as_chunks_mut::<16>();
-    for s16 in sixteens {
-        let d = _mm_loadu_si128(&*s16);
-        _mm_storeu_si128(s16, _mm_gf2p8affine_epi64_epi8::<0>(d, factor128));
-    }
-
-    mul_assign_nibble(tail, table);
 }
 
-/// `dst = coeff * src` using `VGF2P8AFFINEQB` over 32-byte lanes.
-///
-/// Fused out-of-place multiply: one pass, one read of `src` and one write of
-/// `dst`, versus the copy-then-scale pair the trait default runs.
-///
-/// # Panics
-/// Panics if the slices differ in length.
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_into_affine(
-    _token: archmage::X64V3GfniCryptoToken,
-    dst: &mut [u8],
-    map: u64,
-    table: &ScaleTable,
-    src: &[u8],
-) {
-    assert_eq!(dst.len(), src.len());
-    if let Some(peel) = super::super::nt_split(dst, 1) {
-        let (head, body) = dst.split_at_mut(peel);
-        let (src_head, src_body) = src.split_at(peel);
-        mul_into_affine_impl::<false>(head, map, table, src_head);
-        mul_into_affine_impl::<true>(body, map, table, src_body);
-        _mm_sfence();
+/// `coeff * x` over a 128-bit lane, one instruction.
+#[inline]
+#[archmage::rite(v3_gfni_crypto)]
+pub(super) fn bmul_half_gfni<S: Blocked>(x: __m128i, factor: __m128i) -> __m128i {
+    if S::AFFINE {
+        _mm_gf2p8affine_epi64_epi8::<0>(x, factor)
     } else {
-        // Below the streaming threshold a half-lane destination still
-        // pays split lines; one narrow head aligns the temporal body.
-        let head = if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
-            16
-        } else {
-            0
-        };
-        if head != 0 {
-            let (dst_head, dst) = dst.split_at_mut(head);
-            let (src_head, src) = src.split_at(head);
-            mul_into_affine_impl::<false>(dst_head, map, table, src_head);
-            mul_into_affine_impl::<false>(dst, map, table, src);
-        } else {
-            mul_into_affine_impl::<false>(dst, map, table, src);
-        }
+        _mm_gf2p8mul_epi8(x, factor)
     }
 }
 
-/// Fused `VGF2P8AFFINEQB` body over equal-length slices, `NT`-selected tile
-/// stores.
+/// Single-row remainder AXPY (`dst ^= coeff * src`) for this field: whole
+/// 32/16-byte lanes on the one-instruction multiply, sub-XMM tail on the
+/// nibble bank.
 ///
-/// As [`mul_into_gfni_impl`]: reference-based loads and sub-tile stores, with
-/// the streaming-store primitive carrying the tile stores.
-#[archmage::rite(v3_gfni_crypto, import_intrinsics)]
-#[allow(unsafe_code)]
-pub(super) fn mul_into_affine_impl<const NT: bool>(
-    dst: &mut [u8],
-    map: u64,
-    table: &ScaleTable,
-    src: &[u8],
-) {
-    let factor = _mm256_set1_epi64x(map.cast_signed());
-    let factor128 = _mm256_castsi256_si128(factor);
+/// Runs in the row-group bodies' matching feature context, so it calls the
+/// shared `#[rite]` multiply bodies directly rather than the token-bearing
+/// entries.
+#[archmage::rite(v3_gfni_crypto)]
+pub(super) fn brem_gfni<S: Blocked>(dst: &mut [u8], coeff: S::Coeff, src: &[u8]) {
+    if S::AFFINE {
+        single::mul_add_gfni_8d_impl(dst, S::map(coeff), S::table(coeff), src);
+    } else {
+        single::mul_add_gfni_impl(dst, Elem(S::byte(coeff)), src);
+    }
+}
 
-    // Four independent multiply chains, as in the AXPY: `VGF2P8AFFINEQB` is
-    // pipelined, and with no destination read there is even less other work
-    // to hide its latency behind. As in [`mul_into_gfni_impl`], the cursor
-    // walks whole tiles so the prefetch can name a line ahead of it.
-    let prefetch = super::super::prefetch_dst(dst, NT);
-    let tiles = dst.len() / 128 * 128;
-    let (mut drest, dst_mid) = dst.split_at_mut(tiles);
-    let (mut srest, src_mid) = src.split_at(tiles);
-    while !drest.is_empty() {
-        if prefetch && drest.len() >= super::super::PREFETCH_AHEAD + 128 {
-            super::super::prefetch_tile(&drest[super::super::PREFETCH_AHEAD..]);
-        }
-        let (dtile, dnext) = drest.split_at_mut(128);
-        let (stile, snext) = srest.split_at(128);
-        let (s, _) = stile.as_chunks::<32>();
-        let r0 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(&s[0]), factor);
-        let r1 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(&s[1]), factor);
-        let r2 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(&s[2]), factor);
-        let r3 = _mm256_gf2p8affine_epi64_epi8::<0>(_mm256_loadu_si256(&s[3]), factor);
-        // SAFETY:
-        // MEMORY VALIDITY
-        // SINCE: `dtile` is a 128-byte split of the destination, and the
-        //        four stores advance 0, 32, 64 and 96 bytes into it.
-        // THUS: every 32-byte store writes inside the destination slice.
-        //
-        // NON-TEMPORAL STORE ALIGNMENT
-        // SINCE: the entry selected `NT` only after `nt_split` peeled the
-        //        destination to a 32-byte boundary, and tile stores advance
-        //        in 32-byte steps from that boundary.
-        // THUS: each streaming store address is 32-byte aligned.
-        unsafe {
-            let dp = dtile.as_mut_ptr();
-            super::super::store256::<NT>(dp, r0);
-            super::super::store256::<NT>(dp.add(32), r1);
-            super::super::store256::<NT>(dp.add(64), r2);
-            super::super::store256::<NT>(dp.add(96), r3);
-        }
-        drest = dnext;
-        srest = snext;
+/// The multiply factor of one coefficient, as a word the tile loop can
+/// broadcast without touching a table: the `VGF2P8AFFINEQB` map on the affine
+/// fields, the raw coefficient byte on the native `GF2P8MULB` one.
+#[inline]
+fn factor_word_gfni<S: Blocked>(coeff: S::Coeff) -> u64 {
+    if S::AFFINE {
+        S::map(coeff)
+    } else {
+        u64::from(S::byte(coeff))
     }
-    let (dst_lanes, dst_mid2) = dst_mid.as_chunks_mut::<32>();
-    let (src_lanes, src_mid2) = src_mid.as_chunks::<32>();
-    for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let x = _mm256_loadu_si256(slane);
-        _mm256_storeu_si256(dlane, _mm256_gf2p8affine_epi64_epi8::<0>(x, factor));
-    }
-    let (dst16, dst_tail) = dst_mid2.as_chunks_mut::<16>();
-    let (src16, src_tail) = src_mid2.as_chunks::<16>();
-    for (d16, s16) in dst16.iter_mut().zip(src16) {
-        let x = _mm_loadu_si128(s16);
-        _mm_storeu_si128(d16, _mm_gf2p8affine_epi64_epi8::<0>(x, factor128));
-    }
+}
 
-    mul_into_nibble(dst_tail, table, src_tail);
+/// Broadcast a resolved factor word into a 256-bit multiply factor.
+#[inline]
+#[archmage::rite(v3_gfni_crypto)]
+pub(super) fn wfactor_gfni<S: Blocked>(word: u64) -> __m256i {
+    if S::AFFINE {
+        _mm256_set1_epi64x(word.cast_signed())
+    } else {
+        // The byte fields park the coefficient in the word's low byte.
+        _mm256_set1_epi8(word.to_le_bytes()[0].cast_signed())
+    }
 }
