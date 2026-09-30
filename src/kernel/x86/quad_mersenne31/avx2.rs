@@ -3,20 +3,23 @@
 //! Four complex elements per 256-bit vector: eight 32-bit lanes holding
 //! `[re0, im0, re1, im1, re2, im2, re3, im3]`, little-endian, so the even
 //! 32-bit lanes are the real limbs and the odd lanes the imaginary limbs.
-//! The limb arithmetic — fold, canonicalizing min chain, and the
-//! doubled-odd-limb multiply — is the Mersenne31 discipline shared with
-//! [`crate::kernel::x86::mersenne31`]; this module adds the complex layer on top of it.
+//! The limb arithmetic — the fold and the canonicalizing min chain — is
+//! the Mersenne31 discipline shared with
+//! [`crate::kernel::x86::mersenne31`]; this module adds the complex layer
+//! on top of it.
 //!
-//! A complex product costs two limb multiplies when one factor is a
-//! loop-invariant coefficient: the coefficient is prepared once as `cr`
-//! broadcast to all lanes plus a sign-mixed `ci` vector (`p - ci` on the
-//! real lanes, `ci` on the imaginary lanes), and the two multiplies take
-//! the operand itself and its per-pair real/imaginary swap (`pshufd`
-//! `0xB1`), so `cr * x + ci_mixed * swap(x)` yields
-//! `(cr*re - ci*im, cr*im + ci*re)` per pair in one multiply-add. The
-//! elementwise product, where both factors vary, uses the direct four-limb
-//! form `(ar*br - ai*bi, ar*bi + ai*br)` recombined with one odd-lane
-//! blend. The tests validate every lane construction against an
+//! A complex product defers its reduction to 64-bit accumulators. The
+//! coefficient multiply prepares `cr` broadcast to all lanes plus a
+//! sign-mixed `ci` vector (`p - ci` on the real lanes, `ci` on the
+//! imaginary lanes), and accumulates `re*cr + im*(p-ci)` and
+//! `im*cr + re*ci` per element over the element's duplicated imaginary
+//! limb. The elementwise product, where both factors vary, duplicates the
+//! imaginary limbs of both factors, negates one copy of `b`'s imaginary
+//! limbs with `p`, and accumulates `ar*br + ai*(p-bi)` and
+//! `ar*bi + ai*br` the same way. Both forms reduce through [`reduce_pair`],
+//! which splits each 64-bit accumulator against `2^31 ≡ 1 (mod p)` and
+//! canonicalizes with the min chain, so every stored limb is below the
+//! modulus. The tests validate every lane construction against an
 //! independent `u128 % p` limb model.
 //!
 //! Buffers meet the packed canonical-lane contract: every input limb is
@@ -24,18 +27,17 @@
 //! as [`crate::ops`]. Coefficients are total — any raw `Elem` limbs
 //! canonicalize once per call.
 //!
-//! These entries sit outside process dispatch, which serves
-//! `QuadMersenne31` from the portable path. Reaching them directly is an
-//! `internals` surface, like the other direct x86 kernels: each is a safe
-//! capability-token function taking an `X64V3Token`, validating its own
-//! geometry, and handing whole-element tails to the portable
-//! [`crate::kernel::prime`] path. The zero and one coefficient shortcuts
-//! mirror the scalar control exactly, byte for byte.
+//! Reaching these entries directly is an `internals` surface, like the
+//! other direct x86 kernels: each is a safe capability-token function
+//! taking an `X64V3Token`, validating its own geometry, and handing
+//! whole-element tails to the portable [`crate::kernel::prime`] path. The
+//! zero and one coefficient shortcuts mirror the scalar control exactly,
+//! byte for byte.
 
 use crate::field::quad_mersenne31::{Elem, QuadMersenne31};
 use crate::field::{Field, mersenne31};
 use crate::kernel::proven_checks::{check_elem_multiple, check_equal};
-use crate::kernel::x86::mersenne31::{P, fold_avx2, min_chain_avx2, mulmod_avx2};
+use crate::kernel::x86::mersenne31::{P, fold_avx2, min_chain_avx2};
 use crate::kernel::{prime, scalar};
 
 #[cfg(target_arch = "x86")]
@@ -43,27 +45,11 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-/// Duplicate each element's real limb into both lanes of its pair
-/// (`moveldup` operates per 128-bit half, and no element straddles one).
-#[archmage::rite(v3)]
-#[must_use]
-fn dup_re(x: __m256i) -> __m256i {
-    _mm256_castps_si256(_mm256_moveldup_ps(_mm256_castsi256_ps(x)))
-}
-
 /// Duplicate each element's imaginary limb into both lanes of its pair.
 #[archmage::rite(v3)]
 #[must_use]
 fn dup_im(x: __m256i) -> __m256i {
     _mm256_castps_si256(_mm256_movehdup_ps(_mm256_castsi256_ps(x)))
-}
-
-/// Swap each pair's real and imaginary limbs (`pshufd` with the dword
-/// selectors `1, 0, 3, 2`).
-#[archmage::rite(v3)]
-#[must_use]
-fn swap_re_im(x: __m256i) -> __m256i {
-    _mm256_shuffle_epi32::<0b1011_0001>(x)
 }
 
 /// `a + b (mod p)` over eight folded lanes (`0..=p` in, canonical out).
@@ -84,31 +70,49 @@ fn submod(a: __m256i, b: __m256i, p: __m256i) -> __m256i {
 
 /// Multiply four folded complex elements by a prepared coefficient:
 /// `cr` broadcast to all lanes, `ci_mixed` holding `p - ci` on the real
-/// lanes and `ci` on the imaginary lanes. The real lane computes
-/// `cr*re + (p-ci)*im = cr*re - ci*im`; the imaginary lane computes
-/// `cr*im + ci*re` off the swapped pair.
+/// lanes and `ci` on the imaginary lanes. The real lanes accumulate
+/// `cr*re + (p-ci)*im = cr*re - ci*im` and the imaginary lanes
+/// `cr*im + ci*re`, both deferred at 64 bits for [`reduce_pair`].
 #[archmage::rite(v3)]
 #[must_use]
 fn cmul(x: __m256i, cr: __m256i, ci_mixed: __m256i, p: __m256i) -> __m256i {
-    addmod(
-        mulmod_avx2(cr, x, p),
-        mulmod_avx2(ci_mixed, swap_re_im(x), p),
-        p,
-    )
+    let xi = dup_im(x);
+    let ci = dup_im(ci_mixed);
+    let re = _mm256_add_epi64(_mm256_mul_epu32(x, cr), _mm256_mul_epu32(xi, ci_mixed));
+    let im = _mm256_add_epi64(_mm256_mul_epu32(xi, cr), _mm256_mul_epu32(x, ci));
+    reduce_pair(re, im, p)
 }
 
 /// Complex multiply of two folded vectors, `(ar*br - ai*bi, ar*bi + ai*br)`
-/// per element, recombined with one odd-lane blend.
+/// per element, negating the duplicated imaginary limbs of `b` with `p`
+/// and reducing the deferred 64-bit accumulators.
 #[archmage::rite(v3)]
 #[must_use]
 fn cmul_vec(a: __m256i, b: __m256i, p: __m256i) -> __m256i {
-    let ar = dup_re(a);
     let ai = dup_im(a);
-    let br = dup_re(b);
     let bi = dup_im(b);
-    let re = submod(mulmod_avx2(ar, br, p), mulmod_avx2(ai, bi, p), p);
-    let im = addmod(mulmod_avx2(ar, bi, p), mulmod_avx2(ai, br, p), p);
-    _mm256_blend_epi32::<0b1010_1010>(re, im)
+    let neg_bi = _mm256_xor_si256(bi, p);
+    let re = _mm256_add_epi64(_mm256_mul_epu32(a, b), _mm256_mul_epu32(ai, neg_bi));
+    let im = _mm256_add_epi64(_mm256_mul_epu32(a, bi), _mm256_mul_epu32(ai, b));
+    reduce_pair(re, im, p)
+}
+
+/// Reduce deferred 64-bit product accumulators into packed canonical limb
+/// pairs: the even dwords carry the real part and the odd dwords the
+/// imaginary part, each split against `2^31 ≡ 1 (mod p)` and canonicalized
+/// with the min chain.
+#[archmage::rite(v3)]
+#[must_use]
+fn reduce_pair(re: __m256i, im: __m256i, p: __m256i) -> __m256i {
+    let hi =
+        _mm256_blend_epi32::<0b1010_1010>(_mm256_srli_epi64::<31>(re), _mm256_slli_epi64::<1>(im));
+    let hi = _mm256_min_epu32(hi, _mm256_sub_epi32(hi, p));
+    let lo = _mm256_and_si256(
+        _mm256_blend_epi32::<0b1010_1010>(re, _mm256_slli_epi64::<32>(im)),
+        p,
+    );
+    let t = _mm256_add_epi32(lo, hi);
+    _mm256_min_epu32(t, _mm256_sub_epi32(t, p))
 }
 
 /// The coefficient vectors every coefficient multiply entry builds: `cr`

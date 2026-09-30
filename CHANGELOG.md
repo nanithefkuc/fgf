@@ -14,12 +14,22 @@ All notable changes to this project are documented here. The format follows
   canonical prime-field evaluation-vector arithmetic.
 - `just example NAME [ARGS]` and `just examples [ARGS]` run one tutorial or the
   complete educational set, including portable builds with `alloc`.
+- `QuadMersenne31` dispatches `V4x` under `simd512`: `mul_into`, `mul_add`,
+  and `mul_elementwise` run AVX-512 kernels, and `backend_for::<QuadMersenne31>()`
+  reports `v4x` on those hosts. The remaining operations run the AVX2 kernels.
 
 ### Changed
 
 - `BENCHMARKS.md` presents a complete Tiger Lake / Golden Cove snapshot of
   public API and interleaved competitor timings. Measurement history and
   dispatch-threshold experiments are excluded from the public tables.
+- Prime-field vector multiplication is faster. `Mersenne31` AVX2 and AVX-512
+  multiplies skip re-folding canonical operands, and the AVX-512 product uses a
+  masked recombination; `QuadMersenne31` AVX2 complex products defer reduction
+  until four partial products are summed. `Goldilocks` AVX2 addition and
+  subtraction use fewer compare steps. Outputs remain canonical, and the
+  raw-destination guarantees of `add_assign_scalar` and `sub_assign_scalar`
+  are unchanged. See `BENCHMARKS.md`.
 - `bench-m31-comp` runs only the five-round public snapshot campaign;
   the `prime_ntt` threshold investigation remains a separate benchmark.
 
