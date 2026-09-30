@@ -14,9 +14,7 @@ use crate::field::{Elem, Field};
 
 /// `dst ^= src`, eight bytes at a time.
 ///
-/// `#[inline]`: the short-buffer callers reach it as their whole kernel,
-/// and the call boundary alone cost more than the body below one vector
-/// (see `kernel::xor_impl`'s short path and BENCHMARKS.md).
+/// Inlining lets short-buffer callers avoid an out-of-line kernel boundary.
 ///
 /// # Panics
 /// Panics if the slices differ in length.

@@ -212,7 +212,7 @@ pub(crate) fn set_range(dst: &mut [u8], from: usize, to: usize) {
 /// On `V4x` the whole words are counted by the 64-byte `VPOPCNTQ` kernel.
 /// The portable fold runs eight independent popcount accumulators: a single
 /// `total += word.count_ones()` chain pins the loop to `popcnt` latency,
-/// while split accumulators saturate its throughput (see BENCHMARKS.md).
+/// while split accumulators keep independent dependency chains.
 /// Either way the partial last word is masked to its live bits.
 ///
 /// The caller keeps `bits` within `u32::MAX`, so the count fits the return
@@ -253,9 +253,7 @@ fn whole_word_weight(words: &[u8]) -> u32 {
 /// Parity of the GF(2) inner product over the live bits: 0 or 1.
 ///
 /// Four independent XOR accumulators, folded once at the end: a single
-/// accumulator serializes every AND-XOR on one register and the loop runs
-/// at dependency latency instead of port throughput (measured 1.2–1.4x
-/// across cache tiers on the reference host; see BENCHMARKS.md).
+/// accumulator serializes every AND-XOR on one register.
 pub(crate) fn parity(a: &[u8], b: &[u8], bits: usize) -> u32 {
     debug_assert_eq!(a.len(), b.len());
     let words = bits / 64;

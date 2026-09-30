@@ -33,7 +33,7 @@ use crate::kernel::Matrix;
 /// so testing it where it would have to live — innermost, once per tile — is
 /// pure overhead on a dense matrix, and it costs more than the branch: the
 /// coefficients have to reach a GPR to be tested, which stops each factor
-/// broadcast folding into a memory-operand `vpbroadcastb` (BENCHMARKS.md).
+/// broadcast folding into a memory-operand `vpbroadcastb`.
 /// Sparsity belongs in the scatter shape, which drops zero rows before
 /// grouping and outside any loop.
 ///

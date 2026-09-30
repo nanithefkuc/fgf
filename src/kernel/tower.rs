@@ -661,10 +661,7 @@ pub mod gf16 {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 // Blocked: the four-source group derives its broadcasts once and
                 // keeps them live, so it reads the destination once per group
-                // instead of once per source. That hoist is what makes it beat
-                // repeated GFNI AXPY; with the broadcasts still inside the byte
-                // loop the same kernel lost badly, which is why dispatch used to
-                // avoid it. Numbers in BENCHMARKS.md.
+                // instead of once per source.
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Backend::V4x | Backend::V3GfniCrypto => x86::gf16::mul_add_gather_gfni(
                     crate::kernel::x86_v3_gfni_token(),
@@ -878,12 +875,7 @@ pub mod gf16 {
                 Backend::V3GfniCrypto => {
                     x86::gf16::mul_elementwise_gfni(crate::kernel::x86_v3_gfni_token(), dst, a, b);
                 }
-                // Unlike GF(2^8), the tower elementwise product does *not* prefer
-                // PMULL: the same three-multiply identity over `vmull_p8`
-                // measured behind these bit-serial rounds, so that kernel was
-                // removed rather than wired. GF(2^8) elementwise, where PMULL
-                // replaces eight bit-serial rounds with two multiplies, does win
-                // — see `Gf8B::mul_elementwise` and BENCHMARKS.md.
+                // The tower elementwise product uses the bit-serial kernel.
                 #[cfg(all(feature = "simd", target_arch = "aarch64"))]
                 Backend::Neon | Backend::NeonAes => {
                     aarch64::gf16::mul_elementwise_neon(crate::kernel::neon_token(), dst, a, b)

@@ -13,9 +13,8 @@ pub fn xor_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8]) {
     assert_eq!(dst.len(), src.len());
     // A destination 16 bytes into a 32-byte lane splits every store across
     // cache lines; one 16-byte head aligns the whole remaining body. The
-    // floor is [`HALF_LANE_PEEL_MIN`] ("v3 half-lane peels and
-    // overwrite-gather dispatch", `BENCHMARKS.md`). The aligned path passes
-    // its slices through untouched so the peel check is its only cost.
+    // floor is HALF_LANE_PEEL_MIN. The aligned path passes its slices
+    // through untouched so the peel check is its only cost.
     if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
         let (dst16, _) = dst[..16].as_chunks_mut::<16>();
         let (src16, _) = src[..16].as_chunks::<16>();

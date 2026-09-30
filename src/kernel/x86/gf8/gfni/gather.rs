@@ -16,10 +16,6 @@ use crate::field::gf8d;
 /// Many sources into one destination, register-blocked over 128-byte tiles
 /// with source-fused 64/32-byte tails where at least three sources participate.
 ///
-/// The main tile stays statically 128 bytes: narrower and split-chain
-/// candidates reversed across neighboring page layouts. See the GFNI gather
-/// tile record in `BENCHMARKS.md`.
-///
 /// # Panics
 /// Panics unless `srcs.len() == coeffs.len()` and every source matches `dst`
 /// in length.

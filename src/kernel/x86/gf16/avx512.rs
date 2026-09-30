@@ -53,9 +53,7 @@ pub(super) fn scale(x: __m512i, swapped: __m512i, same: __m512i, cross: __m512i)
 /// boundary. `mul_add` and `mul_into` share the floor.
 ///
 /// The peel runs up to 62 bytes through the 32-byte GFNI kernel, which
-/// repays only once the 64-byte body is long enough. Set by the threshold
-/// variants in `BENCHMARKS.md` ("AVX-512 byte, popcount, and prime-field
-/// kernels").
+/// repays only once the 64-byte body is long enough.
 pub(crate) const MUL_ADD_PEEL_MIN: usize = 3584;
 
 /// Head bytes that put `dst`'s 64-byte accesses on a cache-line boundary,

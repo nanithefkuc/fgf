@@ -150,7 +150,7 @@ pub fn mul_assign_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], tables: &T
 /// not: eight `PSHUFB` per 16 bytes hold it well under the host's write
 /// bandwidth, and 16-byte non-temporal stores from a slow loop flush
 /// write-combining buffers before a line fills. The GF(2^8) SSSE3 kernel does
-/// reach the ceiling and does use them. See BENCHMARKS.md.
+/// reach the ceiling and does use them.
 ///
 /// # Panics
 /// Panics if the slices differ in length.
@@ -182,11 +182,8 @@ pub fn mul_into_ssse3(
 
 /// One source into many rows using four SSSE3 table sets at a time.
 ///
-/// No destination alignment peel, unlike [`mul_add_scatter_avx2`](super::mul_add_scatter_avx2). A 16-byte
-/// access only straddles a cache line when it is not 16-byte aligned, and
-/// every allocator this runs behind already returns 16-byte-aligned memory,
-/// so the peel has nothing to fix and measured as a small loss
-/// (BENCHMARKS.md).
+/// No destination alignment peel, unlike
+/// [`mul_add_scatter_avx2`](super::mul_add_scatter_avx2).
 ///
 /// A zero-length row with a zero-length source is a no-op.
 ///

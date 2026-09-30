@@ -26,7 +26,7 @@
 //! On `V4x`, matrix tiles widen; scatter and gather retain their GFNI lanes.
 //! A coefficient occupies two broadcast words or four nibble tables, so the
 //! amount of live coefficient state determines which row shapes benefit from
-//! blocking. See BENCHMARKS.md for the dispatch measurements.
+//! blocking.
 //!
 //! Submodules split on instruction set: `ssse3`, `avx2`, `gfni` (itself split
 //! on fan shape), and `avx512` under `simd512`. The coefficient words, shuffle

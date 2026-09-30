@@ -266,9 +266,7 @@ impl Elem {
     /// Square: `(a+bi)² = (a²−b²) + 2ab·i`.
     ///
     /// Three base multiplies instead of the four a general multiply costs;
-    /// `2ab` is one modular add of `ab` with itself, cheaper than another
-    /// multiply. Measured faster than `square via mul` on the reference host
-    /// (BENCHMARKS.md).
+    /// `2ab` is one modular add of `ab` with itself.
     #[inline]
     #[must_use]
     pub const fn square(self) -> Self {

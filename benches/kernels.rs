@@ -90,8 +90,7 @@ const CROSSOVER_LENGTHS: &[usize] = &[
 ///
 /// One-shot `mul_add` derives the backend's coefficient form on every call —
 /// two broadcast words on GFNI, four nibble tables on a shuffle backend. The
-/// `_with` form derives it once. The ratio printed here is the whole reason
-/// `Coeff`/`CoeffVec` exist, and it is the number `BENCHMARKS.md` refers to.
+/// `_with` form derives it once.
 fn bench_preparation_crossover() {
     println!("preparation crossover — one-shot vs prepared, by row length:");
     for &len in CROSSOVER_LENGTHS {

@@ -142,8 +142,7 @@ impl KernelDispatch for Gf8B {
             Backend::V3 => x86::gf8::mul_add_avx2(crate::kernel::x86_v3_token(), dst, coeff, src),
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V2 => x86::gf8::mul_add_ssse3(crate::kernel::x86_v2_token(), dst, coeff, src),
-            // PMULL is table-free but far slower than the nibble shuffle for
-            // a fixed coefficient; see `aarch64::gf8` and BENCHMARKS.md.
+            // A fixed coefficient uses the nibble-shuffle kernel.
             #[cfg(all(feature = "simd", target_arch = "aarch64"))]
             Backend::Neon | Backend::NeonAes => {
                 aarch64::gf8::mul_add_neon(crate::kernel::neon_token(), dst, coeff, src);
@@ -841,10 +840,8 @@ impl KernelDispatch for Gf8D {
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V3GfniCrypto => {
-                // The one measured exception to "affine on GFNI": in-place
-                // scaling is single-stream, and past 64 KiB the shuffle
-                // outruns both single-instruction forms by ~15% on the
-                // Core Ultra 7 258V (BENCHMARKS.md).
+                // In-place scaling selects the affine form for short buffers
+                // and the nibble-shuffle form for longer buffers.
                 if dst.len() < 65_536 {
                     x86::gf8::mul_assign_gfni_8d(
                         crate::kernel::x86_v3_gfni_token(),

@@ -3,8 +3,7 @@
 //! Extension arithmetic over Mersenne31 pairs with `i² = −1`. On x86 hosts
 //! resolving `V3`/`V3GfniCrypto`, rows at or above the measured thresholds
 //! dispatch to the AVX2 extension kernels (four complex elements per
-//! vector); shorter rows stay here. The thresholds and the interleaved
-//! campaign that set them are recorded in `BENCHMARKS.md`.
+//! vector); shorter rows stay here.
 //!
 //! The scalar loops canonicalize each loaded limb once and then run raw
 //! modular add/sub/mul on limbs known to be `< p`: one conditional subtract

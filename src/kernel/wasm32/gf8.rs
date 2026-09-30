@@ -52,10 +52,7 @@ fn scaled(value: v128, factors: Factors) -> v128 {
 
 /// `dst ^= coeff * src` over 16-byte SIMD lanes.
 ///
-/// Deliberately one lane per iteration. A two-lane unroll — the shape the
-/// GF(2^16) kernels gain from on the same runtime — measured as no change
-/// here (BENCHMARKS.md): two swizzles per lane is too little work to have any
-/// latency left to hide.
+/// Each iteration processes one lane with two swizzles.
 ///
 /// # Panics
 /// Panics if the slices differ in length.
