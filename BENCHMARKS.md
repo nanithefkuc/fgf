@@ -204,6 +204,55 @@ Candidate: a prepared `mul_add_matrix_at_with` over `CoeffMatrix`, dispatching t
 - `Gf16` has no blocked scattered kernel on any tier: the raw form runs the portable per-row scalar path, the prepared form runs prepared dispatched AXPY per row.
 - A development-host smoke run on `v3_gfni_crypto` (not the Golden Cove environment host, not pinned to an isolated core) read `Gf8D` 0.93–1.02 and `Gf8B` 0.99–1.02.
 
+### Scattered-row fallback through dispatched `mul_add`
+
+Baseline: `mul_add_matrix_at` falling back to the element-wise scalar loop on every field and tier without a blocked scattered kernel. Candidate: the same fallback as one dispatched `mul_add` per row and term. Ten canonical sources rebuild the erased slots 1, 4, 7, 9, 11, 13 in order inside a codeword buffer. Cells are baseline time ÷ candidate time, medians of five paired rounds, and span the 2-, 4-, and 6-row shapes; above 1.00 favours the candidate. `Gf8B` and `Gf8D` keep their blocked `V4x` kernel in both builds and are the unchanged-path control.
+
+| Field | Row bytes | Tiger Lake |
+| --- | ---: | ---: |
+| `Gf8B` | 1024 | 0.992–1.00 |
+| `Gf8B` | 16384 | 1.00–1.01 |
+| `Gf8B` | 65536 | 0.996–1.01 |
+| `Gf8D` | 1024 | 0.989–1.02 |
+| `Gf8D` | 16384 | 0.996–1.00 |
+| `Gf8D` | 65536 | 0.990–0.999 |
+| `Gf16` | 1024 | 93 |
+| `Gf16` | 16384 | 100–104 |
+| `Gf16` | 65536 | 95 |
+| `Gf32` | 1024 | 85–88 |
+| `Gf32` | 16384 | 113–114 |
+| `Gf32` | 65536 | 109–110 |
+| `Gf64` | 1024 | 65–67 |
+| `Gf64` | 16384 | 105–107 |
+| `Gf64` | 65536 | 106 |
+| `FanPaar8` | 1024 | 2.97–2.99 |
+| `FanPaar8` | 16384 | 2.77–2.83 |
+| `FanPaar8` | 65536 | 2.78–2.82 |
+| `FanPaar16` | 1024 | - |
+| `FanPaar16` | 16384 | 117–119 |
+| `FanPaar16` | 65536 | 116 |
+| `FanPaar32` | 1024 | 72–73 |
+| `FanPaar32` | 16384 | 83 |
+| `FanPaar32` | 65536 | 80 |
+| `FanPaar64` | 1024 | 41 |
+| `FanPaar64` | 16384 | 49 |
+| `FanPaar64` | 65536 | 48–49 |
+| `Mersenne31` | 1024 | 7.14–7.24 |
+| `Mersenne31` | 16384 | 6.90–7.11 |
+| `Mersenne31` | 65536 | 6.80–6.85 |
+| `Goldilocks` | 1024 | - |
+| `Goldilocks` | 16384 | 9.09–9.20 |
+| `Goldilocks` | 65536 | 9.00–9.09 |
+| `QuadMersenne31` | 1024 | 6.10–6.12 |
+| `QuadMersenne31` | 16384 | 6.21–6.23 |
+| `QuadMersenne31` | 65536 | 6.21–6.23 |
+
+- One pinned `bench-run` session on the environment table's core at the validated 3.0 GHz pin: every loaded `Bzy_MHz` sample 3000, `CoreThr` 0, live thermal bit 0. Both binaries reported `V4x` in every run. Rust 1.98.1, `fgf` built with `simd512`, `codegen-units = 1`.
+- Five rounds alternate baseline–candidate–baseline and candidate–baseline–candidate; each round's ratio divides the mean of its baseline arms by the mean of its candidate arms. Each arm is the median of 31 batches of 8 calls after warm-up.
+- The control is the contiguous `mul_add_matrix` of the same terms, unchanged between the builds, timed beside every cell. Its median ratio read 0.988–1.02 per row and its per-round ratios stayed within 0.967–1.05, except `FanPaar16` and `Goldilocks` at 1024 bytes, whose rounds reached 0.552–1.16; those rows are `-`.
+- The baseline returns wrong prime-field results for unit coefficients; the fixture's coefficients are pseudorandom and include no unit coefficient, so both builds perform the same arithmetic volume.
+- Baseline source fingerprint `86f8354c5a1a90e8292ca1e8180c6073bf9f5c4145b725802fa990cd5ef87166`, candidate `6b1bd32436ecd2ab9233848dba7ffac01f04249a2ff015a90f81e10f4a0fd431`: sha256 over the ordered `sha256sum` output of `src/` and `benches/`. The two differ only in the fallback body.
+
 ### Scattered-row fallback through dispatched `mul_add`, 1.2 line
 
 Baseline: `mul_add_matrix_at` falling back to the element-wise scalar loop on every field and tier without a blocked scattered kernel. Candidate: the same fallback as one dispatched `mul_add` per row and term. Ten canonical sources rebuild the erased slots 1, 4, 7, 9, 11, 13 in order inside a codeword buffer. Cells are baseline time ÷ candidate time, medians of five paired rounds, and span the 2-, 4-, and 6-row shapes; above 1.00 favours the candidate. `Gf8B` and `Gf8D` keep their blocked GFNI kernel in both builds and are the unchanged-path control.
