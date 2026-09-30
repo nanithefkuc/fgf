@@ -188,10 +188,6 @@ bench-m31:
     just bench-save prime_ntt
     just bench prime_ntt
 
-# The QuadMersenne31 threshold evidence in `prime_ntt` keeps its paired
-# two-execution protocol outside the rounds: its estimator pools the scalar
-# and duplicated scalar arms over both executions, and re-rounding it would
-# redefine that recorded estimator.
 [group('bench')]
 bench-m31-comp:
     #!/usr/bin/env bash
@@ -219,8 +215,6 @@ bench-m31-comp:
             esac
         done
     done
-    just bench-save prime_ntt
-    just bench prime_ntt
 
 [group('bench')]
 bench-gf2:

@@ -268,12 +268,15 @@ arithmetic results canonically.
 ## Performance
 
 [BENCHMARKS.md](https://github.com/nanithefkuc/fgf/blob/main/BENCHMARKS.md)
-records pinned measurements for the public operation shapes on multiple x86
-hosts. The benchmark targets are:
+reports current public API timings and interleaved competitor comparisons
+on Tiger Lake and Golden Cove, with paired values in each result cell.
+The complete snapshot campaign runs on each host's isolated CPU:
 
 ```sh
-cargo bench --features internals --bench kernels
-cargo bench --features internals --bench compare
+FEC_GOLDEN_CORE=<cpu> just bench-gf-comp
+FEC_GOLDEN_CORE=<cpu> just bench-gdl-comp
+FEC_GOLDEN_CORE=<cpu> just bench-m31-comp
+FEC_GOLDEN_CORE=<cpu> just bench-gf2-comp
 ```
 
 ## Building
