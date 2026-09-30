@@ -171,6 +171,39 @@ Each row is 64 KiB. Scatter writes n rows from one source, gather combines n sou
 | `Gf8B` | 6 rows | `mul_into_matrix_with` | 20.2 / 22.2 |
 | `Gf8B` | 6 rows | `mul_add_matrix_at` | 20.7 / 20.4 |
 
+### Scattered-row reconstruction, raw terms ÷ prepared matrix
+
+Candidate: a prepared `mul_add_matrix_at_with` over `CoeffMatrix`, dispatching the register-blocked scattered walk with stored coefficients (the `V4x` tile loop reading each prepared affine map), against the shipped raw-term `mul_add_matrix_at`. Ten sources rebuild the erased slots 1, 4, 7, 9, 11, 13 in order inside a codeword buffer. Cells are raw time ÷ prepared time, medians of seven rounds; above 1.00 favours the prepared form.
+
+| Field | Geometry | Tiger Lake |
+| --- | --- | ---: |
+| `Gf8D` | 1 KiB × 10 → 2 rows | 0.949 |
+| `Gf8D` | 1 KiB × 10 → 4 rows | 0.996 |
+| `Gf8D` | 1 KiB × 10 → 6 rows | 1.01 |
+| `Gf8D` | 16 KiB × 10 → 2 rows | 1.04 |
+| `Gf8D` | 16 KiB × 10 → 4 rows | 1.01 |
+| `Gf8D` | 16 KiB × 10 → 6 rows | 1.02 |
+| `Gf8D` | 64 KiB × 10 → 2 rows | 1.02 |
+| `Gf8D` | 64 KiB × 10 → 4 rows | 0.975 |
+| `Gf8D` | 64 KiB × 10 → 6 rows | 0.980 |
+| `Gf8B` | 1 KiB × 10 → 2 rows | 0.926 |
+| `Gf8B` | 1 KiB × 10 → 4 rows | 0.983 |
+| `Gf8B` | 1 KiB × 10 → 6 rows | 0.982 |
+| `Gf8B` | 16 KiB × 10 → 2 rows | 0.934 |
+| `Gf8B` | 16 KiB × 10 → 4 rows | 1.00 |
+| `Gf8B` | 16 KiB × 10 → 6 rows | 0.991 |
+| `Gf8B` | 64 KiB × 10 → 2 rows | 0.945 |
+| `Gf8B` | 64 KiB × 10 → 4 rows | 0.958 |
+| `Gf8B` | 64 KiB × 10 → 6 rows | 0.947 |
+| `Gf16` | 1–64 KiB × 10 → 2–6 rows | 125–173 |
+
+- One pinned `bench-run` session on the environment table's core at the validated 3.0 GHz pin: every loaded `Bzy_MHz` sample 3000, `CoreThr` 0, live thermal bit 0. Resolved backend `V4x`, reported by the harness banner. Rust 1.98.1, `--all-features`.
+- Each round times raw, prepared, and raw again in an order rotated per round; each arm is the median of 31 batches of 16 calls after warm-up. The ratio divides the mean of the two raw arms by the prepared arm; the raw ÷ raw control read 0.998–1.001 in every row. Per-row min–max spreads were within ±0.01 of the medians, except `Gf8B` 1 KiB rows (±0.02).
+- The harness asserted both forms byte-identical on `V4x` before timing; the public-path differential test of the prepared form ran on `v3_gfni_crypto`, `v3`, `v2`, and `scalar` on the development host.
+- Candidate source fingerprint `5377e17012347e5ce0e2d71d011ce56da018df5b56ba1b913d1634adf733d5d4`: sha256 over the ordered `sha256sum` output of `src/` and `benches/`.
+- `Gf16` has no blocked scattered kernel on any tier: the raw form runs the portable per-row scalar path, the prepared form runs prepared dispatched AXPY per row.
+- A development-host smoke run on `v3_gfni_crypto` (not the Golden Cove environment host, not pinned to an isolated core) read `Gf8D` 0.93–1.02 and `Gf8B` 0.99–1.02.
+
 ### Scattered-row fallback through dispatched `mul_add`, 1.2 line
 
 Baseline: `mul_add_matrix_at` falling back to the element-wise scalar loop on every field and tier without a blocked scattered kernel. Candidate: the same fallback as one dispatched `mul_add` per row and term. Ten canonical sources rebuild the erased slots 1, 4, 7, 9, 11, 13 in order inside a codeword buffer. Cells are baseline time ÷ candidate time, medians of five paired rounds, and span the 2-, 4-, and 6-row shapes; above 1.00 favours the candidate. `Gf8B` and `Gf8D` keep their blocked GFNI kernel in both builds and are the unchanged-path control.

@@ -455,39 +455,20 @@ pub fn mul_add_matrix_at_gfni(
     row_starts: &[usize],
     terms: &[(&[Elem], &[u8])],
 ) {
-    for (t, (coeffs, _)) in terms.iter().enumerate() {
+    check_scattered("mul_add_matrix_at_gfni", dst.len(), row_len, row_starts);
+    for (t, (coeffs, src)) in terms.iter().enumerate() {
         assert_eq!(
             coeffs.len(),
             row_starts.len(),
             "mul_add_matrix_at_gfni: term {t} needs {} coefficients",
             row_starts.len()
         );
+        assert_eq!(src.len(), row_len);
     }
-    mul_add_matrix_at_gfni_with(_token, dst, row_len, row_starts, terms);
-}
-
-/// [`mul_add_matrix_at_gfni`] over a generic matrix source.
-///
-/// # Panics
-/// As [`mul_add_matrix_at_gfni`], with the coefficient count per term left to
-/// the provider contract.
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_at_gfni_with<M: Matrix<Elem> + ?Sized>(
-    _token: archmage::X64V3GfniCryptoToken,
-    dst: &mut [u8],
-    row_len: usize,
-    row_starts: &[usize],
-    terms: &M,
-) {
-    check_scattered("mul_add_matrix_at_gfni", dst.len(), row_len, row_starts);
-    for term in 0..terms.len() {
-        assert_eq!(terms.source(term).len(), row_len);
-    }
-    if terms.len() == 0 || row_starts.is_empty() {
+    if terms.is_empty() || row_starts.is_empty() {
         return;
     }
-    mul_add_matrix_at_impl::<Gfni, M>(dst, row_len, row_starts, terms);
+    mul_add_matrix_at_impl::<Gfni, _>(dst, row_len, row_starts, terms);
 }
 
 /// [`mul_add_matrix_at_gfni`] under `0x11D`, folding terms in with the affine
@@ -504,38 +485,20 @@ pub fn mul_add_matrix_at_affine(
     row_starts: &[usize],
     terms: &[(&[gf8d::Elem], &[u8])],
 ) {
-    for (t, (coeffs, _)) in terms.iter().enumerate() {
+    check_scattered("mul_add_matrix_at_affine", dst.len(), row_len, row_starts);
+    for (t, (coeffs, src)) in terms.iter().enumerate() {
         assert_eq!(
             coeffs.len(),
             row_starts.len(),
             "mul_add_matrix_at_affine: term {t} needs {} coefficients",
             row_starts.len()
         );
+        assert_eq!(src.len(), row_len);
     }
-    mul_add_matrix_at_affine_with(_token, dst, row_len, row_starts, terms);
-}
-
-/// [`mul_add_matrix_at_affine`] over a generic matrix source.
-///
-/// # Panics
-/// As [`mul_add_matrix_at_gfni_with`].
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_at_affine_with<M: Matrix<gf8d::Elem> + ?Sized>(
-    _token: archmage::X64V3GfniCryptoToken,
-    dst: &mut [u8],
-    row_len: usize,
-    row_starts: &[usize],
-    terms: &M,
-) {
-    check_scattered("mul_add_matrix_at_affine", dst.len(), row_len, row_starts);
-    for term in 0..terms.len() {
-        assert_eq!(terms.source(term).len(), row_len);
-    }
-    if terms.len() == 0 || row_starts.is_empty() {
+    if terms.is_empty() || row_starts.is_empty() {
         return;
     }
-    mul_add_matrix_at_impl::<Affine8D, M>(dst, row_len, row_starts, terms);
+    mul_add_matrix_at_impl::<Affine8D, _>(dst, row_len, row_starts, terms);
 }
 
 /// Scattered-row geometry shared by the `_at` entries: every row in bounds and
