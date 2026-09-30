@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-30
+
 ### Added
 
 - 64-byte AVX-512 kernels for both byte fields (`Gf8B`, `Gf8D`) behind the
@@ -1020,3 +1022,4 @@ Initial public release.
 [1.2.0]: https://github.com/nanithefkuc/fgf/compare/v1.1.1...v1.2.0
 [1.2.1]: https://github.com/nanithefkuc/fgf/compare/v1.2.0...v1.2.1
 [1.2.2]: https://github.com/nanithefkuc/fgf/compare/v1.2.1...v1.2.2
+[2.0.0]: https://github.com/nanithefkuc/fgf/compare/v1.2.2...v2.0.0
