@@ -15,6 +15,11 @@ All notable changes to this project are documented here. The format follows
 - `just example NAME [ARGS]` and `just examples [ARGS]` run one tutorial or the
   complete educational set, including portable builds with `alloc`.
 
+### Fixed
+
+- The Plonky3 competitor harness aligns packed quadratic-extension fixtures
+  for native AVX-512 builds and reports the actual packing widths.
+
 ## [2.0.0] - 2026-09-30
 
 ### Added
