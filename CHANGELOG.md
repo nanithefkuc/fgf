@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Self-contained, runnable examples cover scalar arithmetic across every field,
+  parity-shard encoding and erasure recovery, streaming GF(2^16) parity updates,
+  bit-packed Hamming syndromes, extension-field embeddings and trace/norm, and
+  canonical prime-field evaluation-vector arithmetic.
+- `just example NAME [ARGS]` and `just examples [ARGS]` run one tutorial or the
+  complete educational set, including portable builds with `alloc`.
+
 ## [2.0.0] - 2026-09-30
 
 ### Added

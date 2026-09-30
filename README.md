@@ -69,6 +69,54 @@ ops::mul_add::<Gf8B>(&mut dst, gf8b::Elem::from_raw(0x03), &src);
 assert_eq!(dst, [0x03, 0x06, 0x05, 0x0c]);
 ```
 
+## Runnable examples
+
+The [`examples/`](https://github.com/nanithefkuc/fgf/tree/main/examples)
+programs use the stable API, print their results, and assert the demonstrated
+identities or recovered data. Each file is self-contained.
+
+| Example | Field coverage | Workflow |
+| --- | --- | --- |
+| `field_arithmetic` | Every field | Const coefficients, generic `Field`/`Elem` arithmetic, scalar encoding, and the difference between `0x11B` and `0x11D`. |
+| `shard_recovery` | `Gf8D` | Apply a fixed parity matrix, recover one erased shard with a gather, and recover both data shards with a prepared matrix. |
+| `streaming_encode` | `Gf16` | Pack tower elements, scatter arriving sources, update parity from a source delta, and write disjoint output slots without overwriting frame metadata. |
+| `binary_syndrome` | Bit-packed GF(2) | Encode a Hamming codeword by subset XOR, locate a single error with parity-check dot products, and handle logical lengths and padding. |
+| `extension_fields` | AES-rooted and Fan–Paar towers, `QuadMersenne31` | Subfield embeddings, Frobenius conjugation, relative trace and norm, and quadratic-extension arithmetic. |
+| `prime_vectors` | `Mersenne31`, `Goldilocks`, `QuadMersenne31` | Canonicalize raw lanes, pack evaluation vectors, compute pointwise products, and apply a prepared linear combination. |
+
+Run one example with Cargo:
+
+```sh
+cargo run --example shard_recovery
+```
+
+From a repository checkout, the recipes run one example or the complete
+educational set:
+
+```sh
+just example shard_recovery
+just examples
+just examples --all-features
+just examples --no-default-features --features alloc
+just example field_arithmetic --no-default-features
+SIMD_BACKEND=scalar just examples
+```
+
+`shard_recovery`, `streaming_encode`, and `prime_vectors` require `alloc`;
+the other examples also work with the library's features disabled. The
+executables themselves use the host's standard library. The scalar override
+exercises the portable backend; packed examples report the backend for their
+field.
+
+The coding examples supply fixed coefficients and cover only their stated
+error or erasure patterns. They illustrate field operations, not production
+codecs or general matrix solvers. Prime-field packing preserves raw lanes,
+so canonicalization happens explicitly before packed arithmetic. These
+examples do not make the library suitable for secret inputs.
+
+`peel_probe` is a timing diagnostic, not a usage tutorial, and is excluded
+from `just examples`.
+
 ## Supported fields
 
 | Field | Marker and element | Construction | Accelerated backends |

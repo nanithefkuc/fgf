@@ -18,6 +18,8 @@ just doc               # rustdoc with warnings denied
 just unsafe-check-gfni # owned-unsafe GFNI Miri cases
 just cover             # merged per-tier coverage, 95% minimum
 just validate          # complete pull-request gate
+just example NAME [ARGS] # one educational example, with Cargo options
+just examples [ARGS]     # all educational examples, excluding timing probes
 ```
 
 `just validate` does not run the GFNI Miri recipe; the dedicated `miri-gfni`
@@ -29,6 +31,11 @@ The MSRV is Rust 1.93.
 
 `justfile` is a shared, byte-identical command surface. Do not edit it here.
 Crate-specific values and recipes belong in `crate.just`.
+
+The example recipes default to the normal library features. Run
+`just examples --no-default-features --features alloc` for the portable
+prepared-operation surface; scalar arithmetic, extension arithmetic, and
+binary-syndrome examples also run without `alloc`.
 
 ## Change discipline
 

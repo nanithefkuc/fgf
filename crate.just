@@ -18,6 +18,20 @@ MIRI := ''
 # carry the GFNI dispatch arms, which no GitHub-hosted runner can select.
 COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/(gf8|tower)\.rs$"'
 
+# Run one educational example, passing additional Cargo options through.
+[group('examples')]
+example NAME *ARGS:
+    cargo run --example {{NAME}} {{ARGS}}
+
+# Run all educational examples; the timing probe is a separate diagnostic.
+[group('examples')]
+examples *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for name in field_arithmetic shard_recovery streaming_encode binary_syndrome extension_fields prime_vectors; do
+        cargo run --example "${name}" {{ARGS}}
+    done
+
 # The shared `features` recipe walks `--no-default-features`, default, and
 # `--all-features`. `alloc` sits between the first two: it turns on the
 # prepared coefficient collections (`CoeffVec`, `CoeffMatrix`) and
