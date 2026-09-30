@@ -484,9 +484,8 @@ impl KernelDispatch for Gf8B {
                     terms,
                 );
             }
-            // The shuffle and non-x86 backends have no scattered kernel yet;
-            // the portable path is correct and skips the same staging copy.
-            _ => scalar::mul_add_matrix_at::<Self>(dst, row_len, row_starts, terms),
+            // The shuffle and non-x86 backends have no blocked scattered kernel.
+            _ => Self::mul_add_matrix_at_rows(RawDispatch, dst, row_len, row_starts, terms),
         }
     }
 
@@ -917,9 +916,8 @@ impl KernelDispatch for Gf8D {
                 terms,
             );
         }
-        // Shuffle and non-x86 backends have no scattered kernel; the portable
-        // path is correct and skips the same staging copy.
-        scalar::mul_add_matrix_at::<Self>(dst, row_len, row_starts, terms);
+        // Shuffle and non-x86 backends have no blocked scattered kernel.
+        Self::mul_add_matrix_at_rows(RawDispatch, dst, row_len, row_starts, terms);
     }
 
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {

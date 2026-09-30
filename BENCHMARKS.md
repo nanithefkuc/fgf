@@ -9,6 +9,7 @@ hosts ran the same source tree with the `v3_gfni_crypto` backend selected.
 | --- | --- | --- | --- | ---: |
 | Lunar Lake | Intel Core Ultra 7 258V | Linux 7.2.6, Arch Linux | 1.98.0 | 3 |
 | Golden Cove | Intel Core i7-12700K | Linux 7.2.6, CachyOS | 1.98.1 | 8, isolated |
+| Tiger Lake | Intel Core i5-1135G7 | Linux 7.2.7, Arch Linux | 1.98.1 | 3, isolated |
 
 The custom harness warms each operation, then reports the median per-iteration
 time from up to 64 batches of 32 iterations. Inputs are deterministic and
@@ -187,6 +188,55 @@ source bytes once per call.
 | `Gf8D` | 2 | 68.16 | 65.16 |
 | `Gf8D` | 4 | 37.82 | 38.26 |
 | `Gf8D` | 6 | 24.24 | 24.20 |
+
+### Scattered-row fallback through dispatched `mul_add`
+
+Baseline: `mul_add_matrix_at` falling back to the element-wise scalar loop on every field and tier without a blocked scattered kernel. Candidate: the same fallback as one dispatched `mul_add` per row and term. Ten canonical sources rebuild the erased slots 1, 4, 7, 9, 11, 13 in order inside a codeword buffer. Cells are baseline time ÷ candidate time, medians of five paired rounds, and span the 2-, 4-, and 6-row shapes; above 1.00 favours the candidate. `Gf8B` and `Gf8D` keep their blocked GFNI kernel in both builds and are the unchanged-path control.
+
+| Field | Row bytes | Tiger Lake |
+| --- | ---: | ---: |
+| `Gf8B` | 1024 | 0.991–1.01 |
+| `Gf8B` | 16384 | 0.978–0.996 |
+| `Gf8B` | 65536 | 1.00 |
+| `Gf8D` | 1024 | 1.00–1.01 |
+| `Gf8D` | 16384 | 0.998–1.01 |
+| `Gf8D` | 65536 | 0.997–1.00 |
+| `Gf16` | 1024 | - |
+| `Gf16` | 16384 | 77–80 |
+| `Gf16` | 65536 | 72 |
+| `Gf32` | 1024 | 83–90 |
+| `Gf32` | 16384 | - |
+| `Gf32` | 65536 | 108–109 |
+| `Gf64` | 1024 | 67 |
+| `Gf64` | 16384 | 106 |
+| `Gf64` | 65536 | 106 |
+| `FanPaar8` | 1024 | 2.76 |
+| `FanPaar8` | 16384 | 2.76–2.77 |
+| `FanPaar8` | 65536 | 2.75 |
+| `FanPaar16` | 1024 | - |
+| `FanPaar16` | 16384 | 116–117 |
+| `FanPaar16` | 65536 | 113–114 |
+| `FanPaar32` | 1024 | - |
+| `FanPaar32` | 16384 | 83 |
+| `FanPaar32` | 65536 | 80 |
+| `FanPaar64` | 1024 | 40–41 |
+| `FanPaar64` | 16384 | 48–49 |
+| `FanPaar64` | 65536 | 48 |
+| `Mersenne31` | 1024 | 4.86–4.93 |
+| `Mersenne31` | 16384 | 4.74–4.75 |
+| `Mersenne31` | 65536 | 4.69–4.71 |
+| `Goldilocks` | 1024 | - |
+| `Goldilocks` | 16384 | 4.52–4.61 |
+| `Goldilocks` | 65536 | 4.53–4.56 |
+| `QuadMersenne31` | 1024 | 6.10–6.14 |
+| `QuadMersenne31` | 16384 | 6.21–6.23 |
+| `QuadMersenne31` | 65536 | 6.21–6.22 |
+
+- One pinned `bench-run` session on CPU 3 of the Tiger Lake host at a validated 3.0 GHz pin: every loaded `Bzy_MHz` sample 3000, `CoreThr` 0, live thermal bit 0. Both binaries reported `v3_gfni_crypto` in every run, the highest tier this release line dispatches. Rust 1.98.1, `fgf` default features, `codegen-units = 1`.
+- Five rounds alternate baseline–candidate–baseline and candidate–baseline–candidate; each round's ratio divides the mean of its baseline arms by the mean of its candidate arms. Each arm is the median of 31 batches of 8 calls after warm-up.
+- The control is the contiguous `mul_add_matrix` of the same terms, unchanged between the builds, timed beside every cell. Per-round control ratios stayed within 0.975–1.05, except `Gf16`, `FanPaar16`, `FanPaar32`, and `Goldilocks` at 1024 bytes and `Gf32` at 16384 bytes, whose rounds reached 0.993–1.344; those rows are `-`.
+- The baseline returns wrong prime-field results for unit coefficients; the fixture's coefficients are pseudorandom and include no unit coefficient, so both builds perform the same arithmetic volume.
+- Baseline source fingerprint `12f7148f2b4cf691853da5172fd8554395d89195c23e5ee938d2484ea22504a2`, candidate `b810adc3f0637569617d9412b5f419ba759d497d8feafd07dcabd98c64f022fb`: sha256 over the ordered `sha256sum` output of `src/` and `benches/`. The two differ only in the fallback body.
 
 ## Wider binary fields
 

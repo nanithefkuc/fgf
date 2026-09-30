@@ -595,6 +595,72 @@ fn gf16_matrix_scattered_matches_contiguous() {
     check_matrix_scattered::<Gf16>("gf16", 0x5ca8);
 }
 
+/// Scattered reconstruction on every field against the elementwise oracle,
+/// with canonical inputs and coefficients that include zero and one: the
+/// field's own addition, not XOR, must combine each term into its row.
+fn check_matrix_scattered_oracle<F: FieldKernels>(tag: &str, seed: u64) {
+    let b = F::BYTES;
+    let special = [
+        <F::Elem as fgf::field::Elem>::ZERO,
+        <F::Elem as fgf::field::Elem>::ONE,
+    ];
+    for &rl_elems in &[1usize, 16, 33] {
+        let row_len = rl_elems * b;
+        for &nrows in &[1usize, 3] {
+            let nterms = 3;
+            let sources: Vec<Vec<u8>> = (0..nterms)
+                .map(|t| {
+                    let mut src = noise(row_len, seed + 0x100 + t as u64);
+                    canon::<F>(&mut src);
+                    src
+                })
+                .collect();
+            let mut coefficient_bytes = noise(nterms * nrows * b, seed + 0x200);
+            canon::<F>(&mut coefficient_bytes);
+            let mut coefficients: Vec<F::Elem> =
+                coefficient_bytes.chunks_exact(b).map(F::decode).collect();
+            coefficients[0] = special[1];
+            if coefficients.len() > 1 {
+                coefficients[1] = special[0];
+            }
+            let terms: Vec<(&[F::Elem], &[u8])> = coefficients
+                .chunks_exact(nrows)
+                .zip(&sources)
+                .map(|(c, s)| (c, s.as_slice()))
+                .collect();
+
+            let stride = row_len + 3 * b;
+            let mut dst = noise(stride * nrows, seed + 0x300);
+            canon::<F>(&mut dst);
+            let row_starts: Vec<usize> = (0..nrows).rev().map(|j| j * stride).collect();
+            let mut want = dst.clone();
+            for &(coeffs, src) in &terms {
+                for (&start, &coeff) in row_starts.iter().zip(coeffs) {
+                    oracle_mul_add::<F>(&mut want[start..start + row_len], coeff, src);
+                }
+            }
+            ops::mul_add_matrix_at::<F>(&mut dst, row_len, &row_starts, &terms);
+            assert_eq!(dst, want, "{tag}: rl={row_len} nrows={nrows}");
+        }
+    }
+}
+
+#[test]
+fn matrix_scattered_matches_oracle_on_every_field() {
+    check_matrix_scattered_oracle::<Gf8B>("gf8b", 0x5d01);
+    check_matrix_scattered_oracle::<Gf8D>("gf8d", 0x5d02);
+    check_matrix_scattered_oracle::<Gf16>("gf16", 0x5d03);
+    check_matrix_scattered_oracle::<Gf32>("gf32", 0x5d04);
+    check_matrix_scattered_oracle::<Gf64>("gf64", 0x5d05);
+    check_matrix_scattered_oracle::<FanPaar8>("fan_paar8", 0x5d06);
+    check_matrix_scattered_oracle::<FanPaar16>("fan_paar16", 0x5d07);
+    check_matrix_scattered_oracle::<FanPaar32>("fan_paar32", 0x5d08);
+    check_matrix_scattered_oracle::<FanPaar64>("fan_paar64", 0x5d09);
+    check_matrix_scattered_oracle::<Mersenne31>("mersenne31", 0x5d0a);
+    check_matrix_scattered_oracle::<Goldilocks>("goldilocks", 0x5d0b);
+    check_matrix_scattered_oracle::<QuadMersenne31>("quad_mersenne31", 0x5d0c);
+}
+
 #[test]
 fn matrix_scattered_pairs_coefficients_to_out_of_order_rows() {
     // Row offsets need not be monotonic: coefficient `j` binds to

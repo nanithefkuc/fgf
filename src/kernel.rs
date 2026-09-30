@@ -738,7 +738,7 @@ pub(crate) trait KernelDispatch: Field {
     /// slot and skip the staging copy a contiguous kernel forces on scattered
     /// decode outputs.
     ///
-    /// The default applies each term row by row through the portable path.
+    /// The default is [`KernelDispatch::mul_add_matrix_at_rows`].
     /// Register-blocked backends override it to retain destination tiles in
     /// registers across terms.
     fn mul_add_matrix_at(
@@ -748,7 +748,30 @@ pub(crate) trait KernelDispatch: Field {
         row_starts: &[usize],
         terms: &[(&[Self::Elem], &[u8])],
     ) {
-        scalar::mul_add_matrix_at::<Self>(dst, row_len, row_starts, terms);
+        Self::mul_add_matrix_at_rows(RawDispatch, dst, row_len, row_starts, terms);
+    }
+
+    /// [`KernelDispatch::mul_add_matrix_at`] as one dispatched
+    /// [`KernelDispatch::mul_add`] per row and term, so it inherits the
+    /// field's own arithmetic and single-row vector kernel. The fallback for
+    /// every backend without a blocked scattered kernel.
+    fn mul_add_matrix_at_rows(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        terms: &[(&[Self::Elem], &[u8])],
+    ) {
+        for &(coeffs, src) in terms {
+            for (&start, &coeff) in row_starts.iter().zip(coeffs) {
+                Self::mul_add(
+                    RawDispatch,
+                    &mut dst[start..start + row_len],
+                    &Self::prepare(RawDispatch, coeff),
+                    src,
+                );
+            }
+        }
     }
 
     /// `dst[i] = a[i] * b[i]`, elementwise over two full vectors.
