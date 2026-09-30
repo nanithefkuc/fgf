@@ -102,6 +102,16 @@ ladder gains `V4x`/`V4`).
 
 ### Fixed
 
+- `ops::mul_add_matrix_at` returned wrong results for `Mersenne31`,
+  `Goldilocks`, and `QuadMersenne31` whenever a coefficient was one: the
+  per-row fallback took the binary fields' XOR shortcut instead of modular
+  addition. Every field without a blocked scattered kernel (`Gf16`, `Gf32`,
+  `Gf64`, the Fan–Paar fields, the prime fields, and both byte fields on
+  shuffle, `AArch64`, and Wasm backends) now runs one dispatched `mul_add`
+  per row, which fixes the prime-field results and replaces the element-wise
+  scalar loop with the field's vector kernel. The before/after comparison
+  is in `BENCHMARKS.md`, "Scattered-row fallback through dispatched
+  `mul_add`".
 - The 32-byte GFNI and AVX2 kernels peel half-lane destinations: byte XOR,
   both byte fields' `mul_add`/`mul_assign`/`mul_into`, and the `Gf16`
   single-row kernels pay one 16-byte head when the destination sits 16
