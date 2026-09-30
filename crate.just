@@ -28,7 +28,8 @@ features-alloc:
     cargo test --no-default-features --features alloc
     cargo clippy --no-default-features --features alloc --all-targets -- -D warnings
 
-# Exposure must compile without activating SIMD or its capability-token dependency.
+# Exposure must compile without activating SIMD or its capability-token
+# dependency, and every SIMD feature must compile without exposure.
 [group('test')]
 features-internals:
     cargo check --all-targets --no-default-features
@@ -36,6 +37,7 @@ features-internals:
     cargo check --all-targets --no-default-features --features alloc,internals
     cargo check --all-targets --no-default-features --features std,internals
     cargo check --all-targets
+    cargo check --all-targets --features simd512
     cargo check --all-targets --all-features
 
 # Miri over the dispatched GFNI paths: the owned-unsafe residue that the
