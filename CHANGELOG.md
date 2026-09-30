@@ -70,6 +70,12 @@ ladder gains `V4x`/`V4`).
 - The deferred `internals` entry `x86::avx512::proven::xor` and its
   unexported body. The dispatched `x86::bytes512::xor512` replaces it and
   carries no unsafe code.
+- **Breaking (unstable surface only):** `x86::gf8::{mul_add_matrix_at_gfni_with,
+  mul_add_matrix_at_affine_with}`. No operation hands a prepared provider to
+  scattered rows; a prepared scattered-row operation over `CoeffMatrix` was
+  measured against the raw-term `mul_add_matrix_at` and not adopted
+  (`BENCHMARKS.md`, "Scattered-row reconstruction, raw terms ÷ prepared
+  matrix"). The raw-coefficient `_at` entries remain.
 
 ### Fixed
 
