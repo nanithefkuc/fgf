@@ -23,12 +23,6 @@
 
 #![allow(clippy::incompatible_msrv)]
 
-// The 64-byte AVX-512 kernels are the deferred V4x tier (cross-compile-only
-// today; not in the shared ladder until validated on executing hardware).
-// They remain outside production dispatch and are exposed through the
-// internals facade for experiments and differential tests on AVX-512 hosts.
-#[allow(dead_code)]
-pub mod avx512;
 pub mod bytes;
 #[cfg(feature = "simd512")]
 pub mod bytes512;

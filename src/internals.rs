@@ -55,7 +55,7 @@ pub mod kernel {
         pub use crate::kernel::tables::*;
     }
 
-    /// Token-bearing x86 kernels and experiments.
+    /// Token-bearing x86 kernels.
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     pub mod x86 {
         pub use crate::kernel::x86::*;

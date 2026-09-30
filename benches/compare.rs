@@ -1,5 +1,4 @@
-//! `fgf` self-numbers over the competitor-harness fixture family, plus the
-//! six-row shuffle comparison.
+//! `fgf` self-numbers over the competitor-harness fixture family.
 //!
 //! Measures scalar and 64 KiB single-source region operations, 64 KiB
 //! elementwise products, prepared 16-source overwrite dot products at 4 and
@@ -15,10 +14,6 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-use fgf::internals::kernel::tables::{ScaleTable, scale_table, scale_table_8d};
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-use fgf::internals::kernel::{SimdToken, X64V3GfniCryptoToken};
 use fgf::{Gf8B, Gf8D, Gf16, backend, gf8b, gf8d, gf16, ops};
 
 const BYTES: usize = 64 * 1024;
@@ -38,14 +33,6 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
             (state >> 33) as u8
         })
         .collect()
-}
-
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-fn pack_table(table: &ScaleTable) -> [u8; 32] {
-    let mut packed = [0u8; 32];
-    packed[..16].copy_from_slice(&table.lo);
-    packed[16..].copy_from_slice(&table.hi);
-    packed
 }
 
 struct AlignedBuf {
@@ -283,119 +270,6 @@ fn bench_encode(nrows: usize) {
             black_box(&terms_8b),
         );
     });
-
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    if nrows == 6 {
-        // A genuine capability token proves AVX2+GFNI for the shuffle
-        // kernels; skip the comparison on hosts that cannot run them.
-        let Some(gfni) = X64V3GfniCryptoToken::summon() else {
-            eprintln!("skipping: six-row shuffle comparison needs AVX2+GFNI");
-            return;
-        };
-        let source_refs: Vec<&[u8]> = sources.iter().map(AlignedBuf::as_slice).collect();
-        let packed_8b: Vec<[u8; 32]> = columns_8b
-            .iter()
-            .flat_map(|coeffs| {
-                coeffs
-                    .iter()
-                    .map(|&coefficient| pack_table(scale_table(coefficient)))
-            })
-            .collect();
-        let packed_8d: Vec<[u8; 32]> = columns_8d
-            .iter()
-            .flat_map(|coeffs| {
-                coeffs
-                    .iter()
-                    .map(|&coefficient| pack_table(scale_table_8d(coefficient)))
-            })
-            .collect();
-        let mut raw_8b = AlignedBuf::noise(BYTES * nrows, 0xb04);
-        let mut packed_rows_8b = AlignedBuf::noise(BYTES * nrows, 0xb05);
-        let mut raw_8d = AlignedBuf::noise(BYTES * nrows, 0xb06);
-        let mut packed_rows_8d = AlignedBuf::noise(BYTES * nrows, 0xb07);
-
-        fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_8b(
-            gfni,
-            raw_8b.as_mut_slice(),
-            BYTES,
-            &terms_8b,
-        );
-        fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8b(
-            gfni,
-            packed_rows_8b.as_mut_slice(),
-            BYTES,
-            &packed_8b,
-            &source_refs,
-        );
-        fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_8d(
-            gfni,
-            raw_8d.as_mut_slice(),
-            BYTES,
-            &terms_8d,
-        );
-        fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8d(
-            gfni,
-            packed_rows_8d.as_mut_slice(),
-            BYTES,
-            &packed_8d,
-            &source_refs,
-        );
-        assert_eq!(
-            new_8b.as_slice(),
-            raw_8b.as_slice(),
-            "Gf8B raw shuffle differs"
-        );
-        assert_eq!(
-            new_8b.as_slice(),
-            packed_rows_8b.as_slice(),
-            "Gf8B packed shuffle differs"
-        );
-        assert_eq!(
-            new_8d.as_slice(),
-            raw_8d.as_slice(),
-            "Gf8D raw shuffle differs"
-        );
-        assert_eq!(
-            new_8d.as_slice(),
-            packed_rows_8d.as_slice(),
-            "Gf8D packed shuffle differs"
-        );
-
-        bench_region("fgf Gf8B six-row raw shuffle", logical_bytes, || {
-            fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_8b(
-                gfni,
-                black_box(raw_8b.as_mut_slice()),
-                BYTES,
-                black_box(&terms_8b),
-            );
-        });
-        bench_region("fgf Gf8B six-row packed shuffle", logical_bytes, || {
-            fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8b(
-                gfni,
-                black_box(packed_rows_8b.as_mut_slice()),
-                BYTES,
-                black_box(&packed_8b),
-                black_box(&source_refs),
-            );
-        });
-        bench_region("fgf Gf8D six-row raw shuffle", logical_bytes, || {
-            fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_8d(
-                gfni,
-                black_box(raw_8d.as_mut_slice()),
-                BYTES,
-                black_box(&terms_8d),
-            );
-        });
-        bench_region("fgf Gf8D six-row packed shuffle", logical_bytes, || {
-            fgf::internals::kernel::x86::gf8::mul_into_matrix6_shuffle_packed_8d(
-                gfni,
-                black_box(packed_rows_8d.as_mut_slice()),
-                BYTES,
-                black_box(&packed_8d),
-                black_box(&source_refs),
-            );
-        });
-    }
 }
 
 /// Format a nanosecond count the way `Duration`'s debug output scales its

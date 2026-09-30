@@ -16,7 +16,7 @@ MIRI := ''
 # Coverage exclusions for code that cannot execute on a CI host. The x86
 # kernel subtrees need their own ISA; `kernel/gf8.rs` and `kernel/tower.rs`
 # carry the GFNI dispatch arms, which no GitHub-hosted runner can select.
-COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64|avx512)(/|\.rs$)|kernel/(gf8|tower)\.rs$"'
+COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/(gf8|tower)\.rs$"'
 
 # The shared `features` recipe walks `--no-default-features`, default, and
 # `--all-features`. `alloc` sits between the first two: it turns on the
@@ -46,7 +46,7 @@ features-internals:
 # stays fixed for this recipe. The ops lines cover the public dispatch seam;
 # the internals lines provide direct-kernel residue coverage. Non-temporal
 # stores stay proof-review-only: the fence intrinsic is unsupported under
-# Miri, and the two-row NT legs are gated out in `tests/internals.rs`.
+# Miri.
 # Everything listed here must pass.
 [group('test')]
 unsafe-check-gfni:
@@ -71,13 +71,7 @@ MIRI_GFNI := '''--test ops gf8_matrix_scattered_matches_contiguous -- --exact
 --features internals --test internals proven_gf8_matrix_kernels_match_scalar -- --exact
 --features internals --test internals proven_gf8_matrix_scattered_matches_scalar -- --exact
 --features internals --test internals proven_gf16_kernels_match_scalar -- --exact
---features internals --test internals proven_gf16_degenerate_boundaries -- --exact
---features internals --test internals proven_resolve_probe_sees_every_coefficient -- --exact
---features internals --test internals proven_experimental_two_row_overwrite_matches_scalar -- --exact
---features internals --test internals proven_experimental_two_row_overwrite_packed_matches_scalar -- --exact
---features internals --test internals proven_experimental_six_row_overwrite_matches_scalar -- --exact
---features internals --test internals proven_experimental_one_row_overwrite_matches_scalar -- --exact
---features internals --test internals proven_experimental_multi_row_chunk_and_grouped_match_scalar -- --exact'''
+--features internals --test internals proven_gf16_degenerate_boundaries -- --exact'''
 
 # Field-family benchmark suites. `bench-<field>` runs that family's self
 # benchmarks in one pass. `bench-<field>-comp` runs five complete rounds

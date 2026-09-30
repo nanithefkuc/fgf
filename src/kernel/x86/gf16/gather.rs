@@ -6,13 +6,13 @@
 //! for the nibble strategies, four broadcast pairs for GFNI.
 
 use crate::field::gf16::Elem;
-use crate::kernel::gf16::{factor_tables, mul_add_scalar};
-use crate::kernel::tables::{ScaleTable, TowerCoeff};
+use crate::kernel::gf16::mul_add_scalar;
+use crate::kernel::tables::TowerCoeff;
 
 use super::gfni::mul_add_gfni;
 use super::{
-    NibbleSsse3, TERM_TILE, TableCoefficient, broadcast_words, lane_avx2, nibble_ssse3, scale_gfni,
-    scale_split_avx2, scale_ssse3, split_source_avx2, swap_mask256,
+    NibbleSsse3, TERM_TILE, TableCoefficient, broadcast_words, nibble_ssse3, scale_gfni,
+    scale_ssse3, swap_mask256,
 };
 
 #[cfg(target_arch = "x86")]
@@ -25,70 +25,6 @@ use core::arch::x86_64::*;
 /// # Panics
 /// Panics unless `coeffs.len() == srcs.len()` and every source matches `dst`
 /// in length.
-#[allow(clippy::used_underscore_binding)]
-#[cfg_attr(not(test), allow(dead_code))]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_add_gather_avx2<C: TableCoefficient>(
-    _token: archmage::X64V3Token,
-    dst: &mut [u8],
-    coeffs: &[C],
-    srcs: &[&[u8]],
-) {
-    super::check_elements("gf16::mul_add_gather_avx2", dst.len());
-    assert_eq!(
-        coeffs.len(),
-        srcs.len(),
-        "gf16::mul_add_gather_avx2: coefficients is {} but sources is {}",
-        coeffs.len(),
-        srcs.len(),
-    );
-    for (index, &src) in srcs.iter().enumerate() {
-        assert_eq!(
-            dst.len(),
-            src.len(),
-            "gf16::mul_add_gather_avx2: dst is {} bytes but source {index} is {} bytes",
-            dst.len(),
-            src.len(),
-        );
-    }
-    if dst.is_empty() || srcs.is_empty() {
-        return;
-    }
-    let lanes = lane_avx2();
-    let tail_start = dst.len() & !31;
-    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
-    for block in (0..coeffs.len()).step_by(TERM_TILE) {
-        let count = (coeffs.len() - block).min(TERM_TILE);
-        // Four bank borrows per coefficient, resolved once per block. The
-        // earlier shape widened each into a full `NibbleAvx2` here — eighty-
-        // eight vectors against a sixteen-register file, so every tile read
-        // the whole block back off the stack.
-        let factors: [[&'static ScaleTable; 4]; TERM_TILE] =
-            core::array::from_fn(|i| factor_tables(coeffs[block + i.min(count - 1)].coefficient()));
-        for (w, dst_lane) in dst_lanes.iter_mut().enumerate() {
-            let mut acc = _mm256_loadu_si256(&*dst_lane);
-            for (i, factor) in factors.iter().take(count).enumerate() {
-                let (src_lanes, _) = srcs[block + i].as_chunks::<32>();
-                let source = _mm256_loadu_si256(&src_lanes[w]);
-                let split = split_source_avx2(source, &lanes);
-                acc = _mm256_xor_si256(acc, scale_split_avx2(&split, factor, lanes.even));
-            }
-            _mm256_storeu_si256(dst_lane, acc);
-        }
-        for i in 0..count {
-            mul_add_scalar(
-                dst_tail,
-                coeffs[block + i].coefficient(),
-                &srcs[block + i][tail_start..],
-            );
-        }
-    }
-}
-
-/// Many sources into one destination, eight coefficients prepared per pass.
-///
-/// # Panics
-/// As [`mul_add_gather_avx2`].
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
 pub fn mul_add_gather_ssse3<C: TableCoefficient>(

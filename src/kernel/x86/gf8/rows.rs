@@ -3,8 +3,7 @@
 //! A group of one, two or four rows resolves its coefficients into one stack
 //! array, runs the tile loops over that chunk, and finishes the sub-lane
 //! remainder from the terms themselves. The scattered and contiguous matrix
-//! walks share these bodies, and the measurement variants in `experiments`
-//! instrument them without copying them.
+//! walks share these bodies.
 //!
 //! The bodies are safe [`archmage::rite`] helpers. What unsafe remains is
 //! residue, per item: the rows arrive as runtime offsets into one region —

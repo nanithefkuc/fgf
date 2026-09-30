@@ -18,12 +18,14 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use fgf::internals::field::wiedemann;
+#[cfg(feature = "simd512")]
+use fgf::internals::kernel::X64V4xToken;
 use fgf::internals::kernel::scalar;
 use fgf::internals::kernel::tables::{
-    FpTowerTables, ScaleTable, TowerCoeff, TowerTables, affine_8d, scale_table, scale_table_8d,
+    FpTowerTables, TowerCoeff, TowerTables, affine_8d, scale_table, scale_table_8d,
 };
 use fgf::internals::kernel::{
-    FlatMatrix, SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token, X64V4xToken, x86,
+    FlatMatrix, SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token, x86,
 };
 use fgf::{
     Gf8B, Gf8D, Gf16, Gf32, Gf64, Goldilocks, Mersenne31, fan_paar, gf8b, gf8d, gf16, gf32, gf64,
@@ -459,30 +461,6 @@ fn proven_bytes_xor_matches_scalar() {
         scalar::xor(&mut want, &src);
         assert_eq!(got, want, "xor_sse2: len {len}");
     }
-
-    // Interleaved row XOR against per-row scalar XOR, across row grouping
-    // boundaries, including zero rows.
-    for &row_len in ROW_LENS {
-        for &nrows in &[0usize, 1, 2, 3, 4, 5, 8, 9, 13] {
-            let len = row_len * nrows;
-            let src = noise(len, 0x44);
-            let mut got = noise(len, 0x55);
-            let mut want = got.clone();
-            x86::bytes::xor_rows_avx2(v3, &mut got, &src, row_len);
-            for (d, s) in want.chunks_exact_mut(row_len).zip(src.chunks(row_len)) {
-                scalar::xor(d, s);
-            }
-            assert_eq!(got, want, "xor_rows_avx2: row_len {row_len}, nrows {nrows}");
-
-            let mut got = noise(len, 0x66);
-            let mut want = got.clone();
-            x86::bytes::xor_rows_sse2(v2.v1(), &mut got, &src, row_len);
-            for (d, s) in want.chunks_exact_mut(row_len).zip(src.chunks(row_len)) {
-                scalar::xor(d, s);
-            }
-            assert_eq!(got, want, "xor_rows_sse2: row_len {row_len}, nrows {nrows}");
-        }
-    }
 }
 
 #[test]
@@ -679,79 +657,12 @@ fn proven_gf8_scatter_gather_match_scalar() {
             |dst, coeffs, srcs| x86::gf8::mul_add_gather_gfni(token, dst, coeffs, srcs),
         );
         check_gather(
-            "gf8::mul_add_gather_gfni_axpy_tail",
-            row_len,
-            gf8b_ref,
-            |i| gf8b::Elem::from_raw((i as u8).wrapping_mul(41).wrapping_add(5)),
-            |dst, coeffs, srcs| x86::gf8::mul_add_gather_gfni_axpy_tail(token, dst, coeffs, srcs),
-        );
-        check_gather(
-            "gf8::mul_add_gather_gfni_split",
-            row_len,
-            gf8b_ref,
-            |i| gf8b::Elem::from_raw((i as u8).wrapping_mul(43).wrapping_add(7)),
-            |dst, coeffs, srcs| x86::gf8::mul_add_gather_gfni_split(token, dst, coeffs, srcs),
-        );
-        // The tiled gather is const-generic over its accumulator count; each
-        // width is a distinct monomorphization with its own blocking.
-        check_gather(
-            "gf8::gather_gfni_tile1",
-            row_len,
-            gf8b_ref,
-            |i| gf8b::Elem::from_raw((i as u8).wrapping_mul(47).wrapping_add(11)),
-            |dst, coeffs, srcs| x86::gf8::mul_add_gather_gfni_tile::<1>(token, dst, coeffs, srcs),
-        );
-        check_gather(
-            "gf8::gather_gfni_tile2",
-            row_len,
-            gf8b_ref,
-            |i| gf8b::Elem::from_raw((i as u8).wrapping_mul(47).wrapping_add(11)),
-            |dst, coeffs, srcs| x86::gf8::mul_add_gather_gfni_tile::<2>(token, dst, coeffs, srcs),
-        );
-        check_gather(
-            "gf8::gather_gfni_tile3",
-            row_len,
-            gf8b_ref,
-            |i| gf8b::Elem::from_raw((i as u8).wrapping_mul(47).wrapping_add(11)),
-            |dst, coeffs, srcs| x86::gf8::mul_add_gather_gfni_tile::<3>(token, dst, coeffs, srcs),
-        );
-        check_gather(
-            "gf8::gather_gfni_tile4",
-            row_len,
-            gf8b_ref,
-            |i| gf8b::Elem::from_raw((i as u8).wrapping_mul(47).wrapping_add(11)),
-            |dst, coeffs, srcs| x86::gf8::mul_add_gather_gfni_tile::<4>(token, dst, coeffs, srcs),
-        );
-        check_gather(
             "gf8::mul_add_gather_affine",
             row_len,
             gf8d_ref,
             |i| gf8d::Elem::from_raw((i as u8).wrapping_mul(53).wrapping_add(13)),
             |dst, coeffs, srcs| x86::gf8::mul_add_gather_affine(token, dst, coeffs, srcs),
         );
-
-        // Prepared affine factors: `0x11B` coefficients through the
-        // experimental affine map, verified against the AES-field oracle.
-        for &nterms in NTERMS {
-            let sources: Vec<Vec<u8>> = (0..nterms)
-                .map(|t| noise(row_len, 0x480 + t as u64))
-                .collect();
-            let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-            let coeffs: Vec<gf8b::Elem> = (0..nterms)
-                .map(|i| gf8b::Elem::from_raw((i as u8).wrapping_mul(53).wrapping_add(13)))
-                .collect();
-            let factors: Vec<_> = coeffs
-                .iter()
-                .map(|&c| x86::gf8::prepare_affine_8b(c))
-                .collect();
-            let mut got = noise(row_len, 0xd1);
-            let mut want = got.clone();
-            x86::gf8::mul_add_gather_affine_8b(token, &mut got, &factors, &srcs);
-            for (&coeff, &src) in coeffs.iter().zip(&srcs) {
-                gf8b_ref(&mut want, coeff, src);
-            }
-            assert_eq!(got, want, "gf8::mul_add_gather_affine_8b: terms {nterms}");
-        }
     }
 }
 
@@ -952,22 +863,6 @@ fn scattered_case_gf8d(token: X64V3GfniCryptoToken, row_len: usize, starts: &[us
 // ---------------------------------------------------------------------------
 // Degenerate boundaries: empty terms/sources and zero rows.
 // ---------------------------------------------------------------------------
-
-#[test]
-fn proven_gf8_prepared_matrix_wrappers_accept_empty_geometry() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-    let mut rows = noise(32, 0xee);
-    let want = rows.clone();
-    let row_len = rows.len();
-
-    x86::gf8::mul_add_matrix_affine_prepared_with(token, &mut rows, 0, 3, &[], &[]);
-    x86::gf8::mul_into_matrix_affine_prepared_with(token, &mut rows, row_len, 0, &[], &[]);
-
-    assert_eq!(rows, want);
-}
 
 #[test]
 fn proven_overwrite_wrappers_zero_addressed_rows_on_empty_terms() {
@@ -1198,24 +1093,6 @@ fn proven_gf8d512_rejects_bad_geometry() {
 }
 
 #[test]
-fn proven_xor_rows_rejects_partial_row() {
-    rejects_geometry("xor_rows avx2", |v3: X64V3Token| {
-        let mut dst = vec![0u8; 33];
-        let src = vec![0u8; 33];
-        x86::bytes::xor_rows_avx2(v3, &mut dst, &src, 16);
-    });
-}
-
-#[test]
-fn proven_xor_rows_rejects_zero_row_len() {
-    rejects_geometry("xor_rows sse2", |v2: X64V2Token| {
-        let mut dst = vec![0u8; 16];
-        let src = vec![0u8; 16];
-        x86::bytes::xor_rows_sse2(v2.v1(), &mut dst, &src, 0);
-    });
-}
-
-#[test]
 fn proven_xor_gather_rejects_out_of_bounds_offset() {
     rejects_geometry("xor_gather avx2", |v3: X64V3Token| {
         let region = vec![0u8; 64];
@@ -1236,420 +1113,6 @@ fn proven_prime_rejects_partial_lane() {
 // ---------------------------------------------------------------------------
 // Experimental overwrite shapes (perf candidates, `internals`-published).
 // ---------------------------------------------------------------------------
-
-/// A 32-byte-aligned window of deterministic noise; returns the backing and
-/// the offset of the aligned window.
-fn aligned_noise(len: usize, seed: u64) -> (Vec<u8>, usize) {
-    let data = noise(len, seed);
-    let mut backing = vec![0u8; len + 32];
-    let off = (-(backing.as_ptr() as isize) & 31) as usize;
-    backing[off..off + len].copy_from_slice(&data);
-    (backing, off)
-}
-
-fn pack_table(table: &ScaleTable) -> [u8; 32] {
-    let mut packed = [0u8; 32];
-    packed[..16].copy_from_slice(&table.lo);
-    packed[16..].copy_from_slice(&table.hi);
-    packed
-}
-
-/// Build (oracle rows accumulated from zero, term list) for a fixed
-/// two-row-shape experiment.
-fn two_row_case<E: Copy>(
-    row_len: usize,
-    nterms: usize,
-    coeff_at: impl Fn(usize, usize) -> E,
-    reference: impl Fn(&mut [u8], E, &[u8]),
-    body: impl FnOnce(Vec<u8>, Vec<(&[E], &[u8])>),
-) {
-    let sources: Vec<Vec<u8>> = (0..nterms)
-        .map(|t| noise(row_len, 0x440 + t as u64))
-        .collect();
-    let coeff_sets: Vec<Vec<E>> = (0..nterms)
-        .map(|t| (0..2).map(|j| coeff_at(t, j)).collect())
-        .collect();
-    let terms: Vec<(&[E], &[u8])> = coeff_sets
-        .iter()
-        .zip(&sources)
-        .map(|(c, s)| (c.as_slice(), s.as_slice()))
-        .collect();
-    let mut want = vec![0u8; row_len * 2];
-    for &(coeffs, src) in &terms {
-        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
-            reference(row, coeff, src);
-        }
-    }
-    body(want, terms);
-}
-
-#[test]
-fn proven_experimental_two_row_overwrite_matches_scalar() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-    #[cfg(not(miri))]
-    let row_lens: &[usize] = &[32usize, 34, 96, 300];
-    #[cfg(miri)]
-    let row_lens: &[usize] = &[32usize, 34];
-    #[cfg(not(miri))]
-    let nterm_counts: &[usize] = &[1usize, 3, 17];
-    // Single and wide term folds under Miri; every tile width keeps running.
-    #[cfg(miri)]
-    let nterm_counts: &[usize] = &[1usize, 17];
-    for &row_len in row_lens {
-        for &nterms in nterm_counts {
-            // Temporal stores across every tile width.
-            for &lanes in &[2usize, 3, 4] {
-                two_row_case(row_len, nterms, gf8b_coeff_at2, gf8b_ref, |want, terms| {
-                    let mut got = noise(row_len * 2, 0xd5);
-                    x86::gf8::mul_into_matrix2_8b(token, &mut got, row_len, &terms, false, lanes);
-                    assert_eq!(
-                        got, want,
-                        "two-row 8b: len {row_len} lanes {lanes} terms {nterms}"
-                    );
-                });
-                two_row_case(row_len, nterms, gf8d_coeff_at2, gf8d_ref, |want, terms| {
-                    let mut got = noise(row_len * 2, 0xd4);
-                    x86::gf8::mul_into_matrix2_8d(token, &mut got, row_len, &terms, false, lanes);
-                    assert_eq!(
-                        got, want,
-                        "two-row 8d: len {row_len} lanes {lanes} terms {nterms}"
-                    );
-                });
-            }
-            // Non-temporal stores: 32-byte-aligned buffer and 32-multiple
-            // row length, the kernel's documented precondition. Skipped under
-            // Miri, which cannot execute the fence intrinsic; the temporal
-            // legs above already cover the offset-row residue.
-            if row_len % 32 == 0 && !cfg!(miri) {
-                two_row_case(row_len, nterms, gf8b_coeff_at2, gf8b_ref, |want, terms| {
-                    let (mut backing, off) = aligned_noise(row_len * 2, 0xd6);
-                    let rows = &mut backing[off..off + row_len * 2];
-                    x86::gf8::mul_into_matrix2_8b(token, rows, row_len, &terms, true, 4);
-                    assert_eq!(&*rows, &want[..], "two-row nt 8b: len {row_len}");
-                });
-                two_row_case(row_len, nterms, gf8d_coeff_at2, gf8d_ref, |want, terms| {
-                    let (mut backing, off) = aligned_noise(row_len * 2, 0xd7);
-                    let rows = &mut backing[off..off + row_len * 2];
-                    x86::gf8::mul_into_matrix2_8d(token, rows, row_len, &terms, true, 4);
-                    assert_eq!(&*rows, &want[..], "two-row nt 8d: len {row_len}");
-                });
-            }
-        }
-    }
-}
-
-#[test]
-fn proven_experimental_two_row_overwrite_packed_matches_scalar() {
-    let Some(v3) = X64V3Token::summon() else {
-        eprintln!("skipping: no AVX2 on this host");
-        return;
-    };
-    #[cfg(not(miri))]
-    let row_lens: &[usize] = &[32usize, 34, 128, 300];
-    #[cfg(miri)]
-    let row_lens: &[usize] = &[32usize, 34];
-    #[cfg(not(miri))]
-    let nterm_counts: &[usize] = &[1usize, 3, 17];
-    // Single and wide term folds under Miri; both packed widths keep running.
-    #[cfg(miri)]
-    let nterm_counts: &[usize] = &[1usize, 17];
-    for &row_len in row_lens {
-        for &nterms in nterm_counts {
-            for &lanes in &[1usize, 2] {
-                two_row_case(row_len, nterms, gf8b_coeff_at2, gf8b_ref, |want, terms| {
-                    let packed: Vec<[u8; 32]> = terms
-                        .iter()
-                        .flat_map(|&(coeffs, _)| coeffs.iter().map(|&c| pack_table(scale_table(c))))
-                        .collect();
-                    let srcs: Vec<&[u8]> = terms.iter().map(|&(_, s)| s).collect();
-                    let mut got = noise(row_len * 2, 0xd6);
-                    x86::gf8::mul_into_matrix2_shuffle_packed(
-                        v3, &mut got, row_len, &packed, &srcs, lanes,
-                    );
-                    assert_eq!(
-                        got, want,
-                        "two-row packed 8b: len {row_len} lanes {lanes} terms {nterms}"
-                    );
-                });
-            }
-        }
-    }
-}
-
-fn six_row_case<E: Copy>(
-    row_len: usize,
-    nterms: usize,
-    coeff_at: impl Fn(usize, usize) -> E,
-    reference: impl Fn(&mut [u8], E, &[u8]),
-    body: impl FnOnce(Vec<u8>, Vec<(&[E], &[u8])>),
-) {
-    let sources: Vec<Vec<u8>> = (0..nterms)
-        .map(|t| noise(row_len, 0x460 + t as u64))
-        .collect();
-    let coeff_sets: Vec<Vec<E>> = (0..nterms)
-        .map(|t| (0..6).map(|j| coeff_at(t, j)).collect())
-        .collect();
-    let terms: Vec<(&[E], &[u8])> = coeff_sets
-        .iter()
-        .zip(&sources)
-        .map(|(c, s)| (c.as_slice(), s.as_slice()))
-        .collect();
-    let mut want = vec![0u8; row_len * 6];
-    for &(coeffs, src) in &terms {
-        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
-            reference(row, coeff, src);
-        }
-    }
-    body(want, terms);
-}
-
-#[test]
-fn proven_experimental_six_row_overwrite_matches_scalar() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-    const NROWS: usize = 6;
-    #[cfg(not(miri))]
-    let row_lens: &[usize] = &[32usize, 34, 128, 300];
-    #[cfg(miri)]
-    let row_lens: &[usize] = &[32usize, 34];
-    #[cfg(not(miri))]
-    let nterm_counts: &[usize] = &[1usize, 2, 9, 17];
-    // Single, pair, and one count past the resolve chunk under Miri.
-    #[cfg(miri)]
-    let nterm_counts: &[usize] = &[1usize, 9];
-    for &row_len in row_lens {
-        for &nterms in nterm_counts {
-            six_row_case(row_len, nterms, gf8b_coeff_at2, gf8b_ref, |want, terms| {
-                let mut got = noise(row_len * NROWS, 0xe6);
-                x86::gf8::mul_into_matrix6_shuffle_8b(token, &mut got, row_len, &terms);
-                assert_eq!(got, want, "six-row 8b: len {row_len} terms {nterms}");
-            });
-            six_row_case(row_len, nterms, gf8d_coeff_at2, gf8d_ref, |want, terms| {
-                let mut got = noise(row_len * NROWS, 0xe7);
-                x86::gf8::mul_into_matrix6_shuffle_8d(token, &mut got, row_len, &terms);
-                assert_eq!(got, want, "six-row 8d: len {row_len} terms {nterms}");
-            });
-            six_row_case(row_len, nterms, gf8b_coeff_at2, gf8b_ref, |want, terms| {
-                let packed: Vec<[u8; 32]> = terms
-                    .iter()
-                    .flat_map(|&(coeffs, _)| coeffs.iter().map(|&c| pack_table(scale_table(c))))
-                    .collect();
-                let srcs: Vec<&[u8]> = terms.iter().map(|&(_, s)| s).collect();
-                let mut got = noise(row_len * NROWS, 0xe8);
-                x86::gf8::mul_into_matrix6_shuffle_packed_8b(
-                    token, &mut got, row_len, &packed, &srcs,
-                );
-                assert_eq!(got, want, "six-row packed 8b: len {row_len} terms {nterms}");
-            });
-            six_row_case(row_len, nterms, gf8d_coeff_at2, gf8d_ref, |want, terms| {
-                let packed: Vec<[u8; 32]> = terms
-                    .iter()
-                    .flat_map(|&(coeffs, _)| coeffs.iter().map(|&c| pack_table(scale_table_8d(c))))
-                    .collect();
-                let srcs: Vec<&[u8]> = terms.iter().map(|&(_, s)| s).collect();
-                let mut got = noise(row_len * NROWS, 0xe9);
-                x86::gf8::mul_into_matrix6_shuffle_packed_8d(
-                    token, &mut got, row_len, &packed, &srcs,
-                );
-                assert_eq!(got, want, "six-row packed 8d: len {row_len} terms {nterms}");
-            });
-        }
-    }
-}
-
-#[test]
-fn proven_experimental_one_row_overwrite_matches_scalar() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-    // 384 is the first common multiple of both tile widths; the residues
-    // exercise each body's cleanup loop.
-    #[cfg(not(miri))]
-    let row_lens: &[usize] = &[32usize, 96, 128, 384, 416];
-    #[cfg(miri)]
-    let row_lens: &[usize] = &[32usize, 128];
-    #[cfg(not(miri))]
-    let source_counts: &[usize] = &[1usize, 2, 5, 33];
-    // Single and multi-source folds under Miri.
-    #[cfg(miri)]
-    let source_counts: &[usize] = &[1usize, 5];
-    for &row_len in row_lens {
-        for &sources in source_counts {
-            one_row_case(row_len, sources, |want, _coeffs, srcs, maps, terms| {
-                for &lanes in &[3usize, 4] {
-                    let mut got = noise(row_len, 0x6b2);
-                    x86::gf8::mul_into_matrix1_tile_8d(token, &mut got, row_len, &terms, lanes);
-                    assert_eq!(got, want, "one-row tile: len {row_len} lanes {lanes}");
-
-                    let mut got = noise(row_len, 0x7c2);
-                    x86::gf8::mul_into_matrix1_fullinit_8d(token, &mut got, row_len, &terms, lanes);
-                    assert_eq!(got, want, "one-row fullinit: len {row_len} lanes {lanes}");
-
-                    for &chunk in &[32usize, 96] {
-                        let mut got = noise(row_len, 0x7c3);
-                        x86::gf8::mul_into_matrix1_chunk_8d(
-                            token, &mut got, row_len, &terms, lanes, chunk,
-                        );
-                        assert_eq!(
-                            got, want,
-                            "one-row chunk {chunk}: len {row_len} lanes {lanes}"
-                        );
-                    }
-                }
-                if row_len % 32 == 0 {
-                    for &lanes in &[3usize, 4] {
-                        let mut got = noise(row_len, 0x6b3);
-                        x86::gf8::mul_into_matrix1_external_8d(
-                            token, &mut got, row_len, maps, srcs, lanes,
-                        );
-                        assert_eq!(got, want, "one-row external: len {row_len} lanes {lanes}");
-                    }
-                    for &chunk in &[0usize, 64] {
-                        let mut got = noise(row_len, 0x7c4);
-                        x86::gf8::mul_into_matrix1_external_chunk_8d(
-                            token, &mut got, row_len, maps, srcs, 4, chunk,
-                        );
-                        assert_eq!(got, want, "one-row external chunk {chunk}: len {row_len}");
-                    }
-                }
-            });
-        }
-    }
-}
-
-/// One-row experiment inputs: coefficients (one per term), sources, affine
-/// maps, single-coefficient terms, and the zero-seeded oracle row.
-fn one_row_case(
-    row_len: usize,
-    sources: usize,
-    body: impl FnOnce(Vec<u8>, &[gf8d::Elem], &[&[u8]], &[u64], Vec<(&[gf8d::Elem], &[u8])>),
-) {
-    let buffers: Vec<Vec<u8>> = (0..sources)
-        .map(|t| noise(row_len, 0x6a1 + t as u64 * 17 + row_len as u64))
-        .collect();
-    let srcs: Vec<&[u8]> = buffers.iter().map(Vec::as_slice).collect();
-    let coeffs: Vec<gf8d::Elem> = (0..sources)
-        .map(|i| gf8d::Elem::from_raw((i as u8).wrapping_mul(29)))
-        .collect();
-    let maps: Vec<u64> = coeffs.iter().copied().map(affine_8d).collect();
-    let terms: Vec<(&[gf8d::Elem], &[u8])> = coeffs
-        .iter()
-        .zip(&srcs)
-        .map(|(c, s)| (core::slice::from_ref(c), *s))
-        .collect();
-    let mut want = vec![0u8; row_len];
-    for (&coeff, &src) in coeffs.iter().zip(&srcs) {
-        gf8d_ref(&mut want, coeff, src);
-    }
-    body(want, &coeffs, &srcs, &maps, terms);
-}
-
-#[test]
-fn proven_experimental_multi_row_chunk_and_grouped_match_scalar() {
-    let Some(token) = X64V3GfniCryptoToken::summon() else {
-        eprintln!("skipping: no AVX2+GFNI on this host");
-        return;
-    };
-    #[cfg(not(miri))]
-    const ROW_LEN: usize = 384;
-    // Shorter rows under Miri: the residue is identical per tile.
-    #[cfg(miri)]
-    const ROW_LEN: usize = 128;
-    #[cfg(not(miri))]
-    let nrow_counts: &[usize] = &[1usize, 2, 3, 4, 6, 7];
-    // Single, full group, and group-plus-pair under Miri.
-    #[cfg(miri)]
-    let nrow_counts: &[usize] = &[1usize, 4, 6];
-    for &nrows in nrow_counts {
-        for &sources in &[2usize, 33] {
-            let buffers: Vec<Vec<u8>> = (0..sources)
-                .map(|t| noise(ROW_LEN, 0x7d1 + t as u64 * 23 + nrows as u64))
-                .collect();
-            let srcs: Vec<&[u8]> = buffers.iter().map(Vec::as_slice).collect();
-            let columns: Vec<Vec<gf8d::Elem>> = (0..sources)
-                .map(|t| {
-                    (0..nrows)
-                        .map(|r| gf8d::Elem::from_raw(((t * 7 + r) as u8).wrapping_mul(29)))
-                        .collect()
-                })
-                .collect();
-            let terms: Vec<(&[gf8d::Elem], &[u8])> = columns
-                .iter()
-                .zip(&srcs)
-                .map(|(c, s)| (c.as_slice(), *s))
-                .collect();
-
-            let mut want = vec![0u8; nrows * ROW_LEN];
-            for row in 0..nrows {
-                for term in 0..sources {
-                    let mut piece = vec![0u8; ROW_LEN];
-                    gf8d_ref(&mut piece, columns[term][row], srcs[term]);
-                    let target = &mut want[row * ROW_LEN..(row + 1) * ROW_LEN];
-                    for (byte, &value) in target.iter_mut().zip(piece.iter()) {
-                        *byte ^= value;
-                    }
-                }
-            }
-
-            for &chunk in &[32usize, 96] {
-                let mut got = noise(nrows * ROW_LEN, 0x7d2);
-                x86::gf8::mul_into_matrix_chunk_8d(token, &mut got, ROW_LEN, nrows, &terms, chunk);
-                assert_eq!(got, want, "multi chunk {chunk}: nrows {nrows}");
-            }
-
-            // Group-major maps: every four-row group's words, then the
-            // pair's, then the single row's, each term-major.
-            let mut maps: Vec<u64> = Vec::with_capacity(nrows * sources);
-            let mut g = 0;
-            while g + 4 <= nrows {
-                for column in &columns {
-                    for coeff in &column[g..g + 4] {
-                        maps.push(affine_8d(*coeff));
-                    }
-                }
-                g += 4;
-            }
-            if g + 2 <= nrows {
-                for column in &columns {
-                    for coeff in &column[g..g + 2] {
-                        maps.push(affine_8d(*coeff));
-                    }
-                }
-                g += 2;
-            }
-            if g < nrows {
-                for column in &columns {
-                    maps.push(affine_8d(column[g]));
-                }
-            }
-            for &chunk in &[0usize, 64] {
-                let mut got = noise(nrows * ROW_LEN, 0x7d3);
-                x86::gf8::mul_into_matrix_external_grouped_8d(
-                    token, &mut got, ROW_LEN, nrows, &maps, &srcs, chunk,
-                );
-                assert_eq!(got, want, "grouped chunk {chunk}: nrows {nrows}");
-            }
-        }
-    }
-}
-
-#[test]
-fn proven_resolve_probe_sees_every_coefficient() {
-    let coeffs = [gf8d::Elem::from_raw(7)];
-    let src = vec![1u8; 8];
-    let terms: Vec<(&[gf8d::Elem], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
-    let base = x86::gf8::resolve_probe_8d(&terms);
-    let bumped = [gf8d::Elem::from_raw(7 ^ 0x5a)];
-    let bumped_terms: Vec<(&[gf8d::Elem], &[u8])> = vec![(bumped.as_slice(), src.as_slice())];
-    let other = x86::gf8::resolve_probe_8d(&bumped_terms);
-    assert_ne!(base, other, "the probe must depend on each coefficient");
-}
 
 // ---------------------------------------------------------------------------
 // GF(2^16) / GF(2^32) / GF(2^64) tower kernels.
@@ -1782,13 +1245,6 @@ fn proven_gf16_kernels_match_scalar() {
             |dst, coeffs, srcs| x86::gf16::mul_add_gather_gfni(v3gfni, dst, coeffs, srcs),
         );
         check_gather(
-            "gf16::mul_add_gather_avx2",
-            row_len,
-            gf16_ref,
-            |i| gf16::Elem::from_raw((i as u16).wrapping_mul(613)),
-            |dst, coeffs, srcs| x86::gf16::mul_add_gather_avx2(v3, dst, coeffs, srcs),
-        );
-        check_gather(
             "gf16::mul_add_gather_ssse3",
             row_len,
             gf16_ref,
@@ -1803,15 +1259,6 @@ fn proven_gf16_kernels_match_scalar() {
         gf16_ref,
         |rows, row_len, nrows, terms| {
             x86::gf16::mul_add_matrix_gfni(v3gfni, rows, row_len, nrows, terms)
-        },
-    );
-    check_matrix_accumulate(
-        "gf16::mul_add_matrix_avx2",
-        EVEN_ROW_LENS,
-        gf16_coeff_at2,
-        gf16_ref,
-        |rows, row_len, nrows, terms| {
-            x86::gf16::mul_add_matrix_avx2(v3, rows, row_len, nrows, terms)
         },
     );
     check_matrix_accumulate(
@@ -2256,76 +1703,3 @@ fn proven_prime_kernels_match_scalar() {
 // summons. The deferred tier is not on the dispatch ladder; on hosts
 // without it these tests print a skip and return.
 // ---------------------------------------------------------------------------
-
-#[test]
-fn proven_avx512_kernels_match_scalar_where_summonable() {
-    let Some(v4x) = X64V4xToken::summon() else {
-        eprintln!("skipping: AVX-512+GFNI not summonable on this host");
-        return;
-    };
-
-    for &len in LENGTHS8 {
-        let src = noise(len, 0xb1);
-        let mut got = noise(len, 0xb3);
-        let mut want = got.clone();
-        x86::avx512::proven::gf8_mul_add(v4x, &mut got, gf8b::Elem::from_raw(0x53), &src);
-        gf8b_ref(&mut want, gf8b::Elem::from_raw(0x53), &src);
-        assert_eq!(got, want, "avx512::gf8_mul_add: len {len}");
-
-        let mut got = noise(len, 0xb4);
-        let mut want = vec![0u8; len];
-        x86::avx512::proven::gf8_mul_into(v4x, &mut got, gf8b::Elem::from_raw(0xd3), &src);
-        gf8b_ref(&mut want, gf8b::Elem::from_raw(0xd3), &src);
-        assert_eq!(got, want, "avx512::gf8_mul_into: len {len}");
-    }
-
-    // Scatter, gather, and a small matrix over the 64-byte tier.
-    let (row_len, nrows) = (96usize, 6);
-    let src = noise(row_len, 0xb5);
-    let coeffs: Vec<gf8b::Elem> = (0..nrows)
-        .map(|j| gf8b::Elem::from_raw((j as u8).wrapping_mul(29)))
-        .collect();
-    let mut got = noise(row_len * nrows, 0xb6);
-    let mut want = got.clone();
-    x86::avx512::proven::gf8_mul_add_scatter(v4x, &mut got, row_len, &coeffs, &src);
-    for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs) {
-        gf8b_ref(row, coeff, &src);
-    }
-    assert_eq!(got, want, "avx512::gf8_mul_add_scatter");
-
-    let sources: Vec<Vec<u8>> = (0..3).map(|t| noise(row_len, 0xb7 + t)).collect();
-    let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-    let gcoeffs: Vec<gf8b::Elem> = (0..3)
-        .map(|i| gf8b::Elem::from_raw((i as u8).wrapping_mul(37).wrapping_add(3)))
-        .collect();
-    let mut got = noise(row_len, 0xb8);
-    let mut want = got.clone();
-    x86::avx512::proven::gf8_mul_add_gather(v4x, &mut got, &gcoeffs, &srcs);
-    for (&coeff, &src) in gcoeffs.iter().zip(&srcs) {
-        gf8b_ref(&mut want, coeff, src);
-    }
-    assert_eq!(got, want, "avx512::gf8_mul_add_gather");
-
-    let coeff_sets: Vec<Vec<gf8b::Elem>> = (0..3)
-        .map(|t| (0..nrows).map(|j| gf8b_coeff_at2(t, j)).collect())
-        .collect();
-    let terms: Vec<(&[gf8b::Elem], &[u8])> = coeff_sets
-        .iter()
-        .zip(&sources)
-        .map(|(c, s)| (c.as_slice(), s.as_slice()))
-        .collect();
-    let mut got = noise(row_len * nrows, 0xb9);
-    let mut want = got.clone();
-    x86::avx512::proven::gf8_mul_add_matrix(v4x, &mut got, row_len, nrows, &terms);
-    fold_terms(&mut want, row_len, &terms, &gf8b_ref);
-    assert_eq!(got, want, "avx512::gf8_mul_add_matrix");
-
-    // GF(2^16) tier entries.
-    let src = noise(128, 0xba);
-    let mut got = noise(128, 0xbb);
-    let mut want = got.clone();
-    let coeff = gf16::Elem::from_raw(0xbeef);
-    x86::avx512::proven::gf16_mul_add(v4x, &mut got, TowerCoeff::new(coeff), &src);
-    gf16_ref(&mut want, coeff, &src);
-    assert_eq!(got, want, "avx512::gf16_mul_add");
-}

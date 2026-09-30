@@ -250,21 +250,20 @@ fn bench_network_alignment() {
 /// Blocked multi-row GF(2^16) kernels measured against repeated single-row
 /// AXPY, bypassing dispatch.
 ///
-/// GFNI dispatch blocks gather and matrix; AVX2 dispatch uses AXPY for both.
-/// This harness times each alternative in one process through `internals`
+/// The SSSE3 and GFNI tiers dispatch the blocked gather. This harness times
+/// each against repeated AXPY in one process through `internals`
 /// token-proven entries.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn bench_blocked_vs_axpy() {
     use fgf::internals::kernel::tables::{TowerCoeff, TowerTables};
     use fgf::internals::kernel::x86;
-    use fgf::internals::kernel::{SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token};
+    use fgf::internals::kernel::{SimdToken, X64V2Token, X64V3GfniCryptoToken};
 
     // Genuine capability tokens, summoned once: each tier that the host
     // cannot prove is skipped rather than SIGILLed.
     let Some(ssse3) = X64V2Token::summon() else {
         return;
     };
-    let avx2 = X64V3Token::summon();
     let gfni = X64V3GfniCryptoToken::summon();
 
     println!("blocked vs AXPY — direct GF(2^16) kernel calls (dispatch bypassed):");
@@ -301,27 +300,6 @@ fn bench_blocked_vs_axpy() {
             });
             println!("    ssse3 blocked/AXPY: {:.2}x", axpy / blocked);
 
-            if let Some(avx2) = avx2 {
-                let blocked = bench("  gather blocked            avx2", traffic, || {
-                    x86::gf16::mul_add_gather_avx2(
-                        avx2,
-                        black_box(&mut dst),
-                        &coeffs,
-                        black_box(&srcs),
-                    );
-                });
-                let axpy = bench("  gather AXPY               avx2", traffic, || {
-                    for (&coeff, &src) in coeffs.iter().zip(&srcs) {
-                        x86::gf16::mul_add_avx2(
-                            avx2,
-                            black_box(&mut dst),
-                            &TowerTables::new(coeff),
-                            black_box(src),
-                        );
-                    }
-                });
-                println!("    avx2  blocked/AXPY: {:.2}x", axpy / blocked);
-            }
             if let Some(gfni) = gfni {
                 let blocked = bench("  gather blocked            gfni", traffic, || {
                     x86::gf16::mul_add_gather_gfni(
@@ -343,47 +321,6 @@ fn bench_blocked_vs_axpy() {
                 });
                 println!("    gfni  blocked/AXPY: {:.2}x", axpy / blocked);
             }
-
-            let Some(avx2) = avx2 else {
-                continue;
-            };
-
-            // Matrix: `nsrc` sources folded into 4 rows.
-            let nrows = 4;
-            let mut rows = noise(row_len * nrows, 0xe00);
-            let coeff_sets: Vec<Vec<gf16::Elem>> = (0..nsrc)
-                .map(|t| {
-                    (0..nrows)
-                        .map(|j| gf16::Elem::from_raw(((t * 613 + j * 97) as u16).wrapping_add(1)))
-                        .collect()
-                })
-                .collect();
-            let terms: Vec<(&[gf16::Elem], &[u8])> = coeff_sets
-                .iter()
-                .zip(&sources)
-                .map(|(c, s)| (c.as_slice(), s.as_slice()))
-                .collect();
-            let traffic = row_len * nrows * nsrc;
-            println!(
-                "  matrix {nsrc} sources x {nrows} rows x {} KiB:",
-                row_len / 1024
-            );
-            let blocked = bench("  matrix blocked            avx2", traffic, || {
-                x86::gf16::mul_add_matrix_avx2(avx2, black_box(&mut rows), row_len, nrows, &terms);
-            });
-            let axpy = bench("  matrix AXPY               avx2", traffic, || {
-                for &(coeffs, src) in &terms {
-                    for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-                        x86::gf16::mul_add_avx2(
-                            avx2,
-                            black_box(row),
-                            &TowerTables::new(coeff),
-                            black_box(src),
-                        );
-                    }
-                }
-            });
-            println!("    avx2  blocked/AXPY: {:.2}x", axpy / blocked);
         }
     }
     println!();

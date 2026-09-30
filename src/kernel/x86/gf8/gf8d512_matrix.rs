@@ -92,25 +92,6 @@ impl MapCoeff for &'static ScaleTable {
     }
 }
 
-impl MapCoeff for super::Affine8BFactor {
-    #[inline]
-    fn map(coeff: Self) -> u64 {
-        coeff.map
-    }
-    #[inline]
-    fn table(coeff: Self) -> &'static ScaleTable {
-        coeff.table
-    }
-    #[inline]
-    fn is_zero(coeff: Self) -> bool {
-        coeff.table.coeff.0 == 0
-    }
-    #[inline]
-    fn zero() -> Self {
-        super::prepare_affine_8b(crate::field::gf8b::Elem(0))
-    }
-}
-
 impl MapCoeff for crate::kernel::gf8::Prepared8D {
     #[inline]
     fn map(coeff: Self) -> u64 {

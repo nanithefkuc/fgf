@@ -54,8 +54,8 @@ jobs:
 
   # Ground rule: line coverage of the crate's own source must stay at or
   # above 95%. One run per forced backend tier, merged, so every
-  # dispatchable backend counts. The GFNI kernels (kernel/x86/gf8.rs,
-  # gf16.rs, gf32.rs, gf64.rs, avx512.rs) are excluded from the gate: they
+  # dispatchable backend counts. The GFNI kernels (kernel/x86/gf8,
+  # gf16, gf32, gf64) are excluded from the gate: they
   # only execute on GFNI/AVX-512 hosts, the ubuntu-latest fleet mixes
   # Xeon generations, and counting them made the gate depend on which
   # runner the job landed on (2026-08-24: identical commits measured 70.8%
@@ -88,8 +88,8 @@ jobs:
       - run: cargo llvm-cov --no-report --all-features
         env:
           SIMD_BACKEND: scalar
-      - run: cargo llvm-cov report --summary-only --ignore-filename-regex 'kernel/x86/(gf8|gf16|gf32|gf64|avx512)(/|\.rs$)|kernel/(gf8|tower)\.rs$'
-      - run: cargo llvm-cov report --fail-under-lines 95 --ignore-filename-regex 'kernel/x86/(gf8|gf16|gf32|gf64|avx512)(/|\.rs$)|kernel/(gf8|tower)\.rs$' --lcov --output-path coverage.lcov
+      - run: cargo llvm-cov report --summary-only --ignore-filename-regex 'kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/(gf8|tower)\.rs$'
+      - run: cargo llvm-cov report --fail-under-lines 95 --ignore-filename-regex 'kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/(gf8|tower)\.rs$' --lcov --output-path coverage.lcov
       - uses: actions/upload-artifact@v4
         if: always()
         with:

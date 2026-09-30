@@ -50,7 +50,7 @@
 
 use crate::field::gf16::Elem;
 use crate::kernel::gf16::Prepared;
-use crate::kernel::tables::{ScaleTable, TowerCoeff, TowerTables};
+use crate::kernel::tables::{TowerCoeff, TowerTables};
 
 // The `x86` root helpers the submodules below reach through `super::`:
 // non-temporal store selection, the destination alignment peel, and the
@@ -86,16 +86,10 @@ pub use elementwise::{
     mul_elementwise_assign_avx2, mul_elementwise_assign_gfni, mul_elementwise_assign_ssse3,
     mul_elementwise_avx2, mul_elementwise_gfni, mul_elementwise_ssse3,
 };
-// The AVX2 gather and matrix bodies are reachable through `internals` and
-// from the kernel tests; dispatch selects the SSSE3 and GFNI forms, so the
-// re-export is unused in a plain default build.
-#[allow(unused_imports)]
-pub use gather::{mul_add_gather_avx2, mul_add_gather_gfni, mul_add_gather_ssse3};
+pub use gather::{mul_add_gather_gfni, mul_add_gather_ssse3};
 pub use gfni::{mul_add_gfni, mul_assign_gfni, mul_into_gfni};
-#[allow(unused_imports)]
 pub use matrix::{
-    mul_add_matrix_avx2, mul_add_matrix_gfni, mul_add_matrix_gfni_with, mul_add_matrix_ssse3,
-    mul_add_matrix_ssse3_with,
+    mul_add_matrix_gfni, mul_add_matrix_gfni_with, mul_add_matrix_ssse3, mul_add_matrix_ssse3_with,
 };
 #[cfg(feature = "simd512")]
 pub use matrix512::{mul_add_matrix512, mul_add_matrix512_with};
@@ -112,8 +106,7 @@ pub use wide::{
 
 // Cores shared with the Fan–Paar tower kernels and the blocked fan shapes.
 pub(crate) use nibble::{
-    NibbleAvx2, NibbleSsse3, lookup_avx2, nibble_avx2, nibble_ssse3, scale_avx2, scale_ssse3,
-    split_avx2,
+    NibbleAvx2, NibbleSsse3, nibble_avx2, nibble_ssse3, scale_avx2, scale_ssse3,
 };
 
 /// A GF(2^16) coefficient in a form the shuffle kernels can consume.
@@ -212,92 +205,3 @@ fn scale_gfni(src: __m256i, swapped: __m256i, same: __m256i, cross: __m256i) -> 
 // ---------------------------------------------------------------------------
 
 const TERM_TILE: usize = 8;
-
-/// Lane constants every AVX2 nibble multiply needs, materialized once per
-/// kernel call.
-///
-/// [`NibbleAvx2`] carries its own copy, which suits the single-coefficient
-/// kernels: there is exactly one table set, so the constants ride along for
-/// free. The blocked kernels hold state per *live coefficient*, and three of
-/// every eleven vectors would then be the same constant over again. Split
-/// out, only the eight vectors that genuinely differ scale with the block.
-struct LaneAvx2 {
-    /// `0x0f` in every byte: the nibble-extraction mask.
-    nibble: __m256i,
-    /// `0x00ff` in every halfword: selects each element's even (low) byte.
-    even: __m256i,
-    /// Adjacent-byte exchange control.
-    swap: __m256i,
-}
-
-/// Materialize the shared lane constants.
-#[archmage::rite(v3)]
-fn lane_avx2() -> LaneAvx2 {
-    LaneAvx2 {
-        nibble: _mm256_set1_epi8(0x0f),
-        even: _mm256_set1_epi16(0x00ff),
-        swap: swap_mask256(),
-    }
-}
-
-/// One source vector reduced to everything that does not depend on the
-/// coefficient applied to it.
-///
-/// This is what pays for a blocked tile. [`scale_avx2`] redoes the adjacent
-/// exchange and both nibble splits for every coefficient; a tile that folds
-/// one source into several rows derives them once here and hands the same
-/// four index vectors to every row.
-struct SplitAvx2 {
-    /// Low and high nibbles of the source.
-    direct: (__m256i, __m256i),
-    /// Low and high nibbles of the adjacent-exchanged source.
-    crossed: (__m256i, __m256i),
-}
-
-/// Exchange and split `src` once for a whole tile.
-#[archmage::rite(v3)]
-fn split_source_avx2(src: __m256i, lanes: &LaneAvx2) -> SplitAvx2 {
-    SplitAvx2 {
-        direct: split_avx2(src, lanes.nibble),
-        crossed: split_avx2(_mm256_shuffle_epi8(src, lanes.swap), lanes.nibble),
-    }
-}
-
-/// One base-field byte multiply, broadcasting a shared bank entry at the
-/// point of use.
-///
-/// The blocked kernels keep four such borrows per live coefficient rather
-/// than [`NibbleAvx2`]'s eleven vectors: the bank is rodata that is already
-/// resident and shared by every coefficient with a factor in common, so the
-/// state that scales with the block stays at four pointers.
-#[archmage::rite(v3, import_intrinsics)]
-fn lookup_bank_avx2(factor: &ScaleTable, split: (__m256i, __m256i)) -> __m256i {
-    let lo = _mm256_broadcastsi128_si256(_mm_loadu_si128(&factor.lo));
-    let hi = _mm256_broadcastsi128_si256(_mm_loadu_si128(&factor.hi));
-    lookup_avx2(lo, hi, split)
-}
-
-/// `coeff * src` for one 32-byte lane, over a source already exchanged and
-/// split by [`split_source_avx2`].
-///
-/// The same four nibble multiplies and the same parity-before-mask grouping
-/// as [`scale_avx2`]; only the coefficient-independent prologue is gone.
-#[archmage::rite(v3)]
-fn scale_split_avx2(
-    split: &SplitAvx2,
-    factors: &[&'static ScaleTable; 4],
-    even_mask: __m256i,
-) -> __m256i {
-    let even = _mm256_xor_si256(
-        lookup_bank_avx2(factors[0], split.direct),
-        lookup_bank_avx2(factors[2], split.crossed),
-    );
-    let odd = _mm256_xor_si256(
-        lookup_bank_avx2(factors[1], split.direct),
-        lookup_bank_avx2(factors[3], split.crossed),
-    );
-    _mm256_xor_si256(
-        _mm256_and_si256(even, even_mask),
-        _mm256_andnot_si256(even_mask, odd),
-    )
-}

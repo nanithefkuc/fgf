@@ -55,7 +55,7 @@ pub(crate) fn nibble_avx2<T: NibbleFactors>(tables: &T) -> NibbleAvx2 {
 }
 /// Split `value` into its low and high nibbles, both as byte indices.
 #[archmage::rite(v3)]
-pub(crate) fn split_avx2(value: __m256i, nibble: __m256i) -> (__m256i, __m256i) {
+fn split_avx2(value: __m256i, nibble: __m256i) -> (__m256i, __m256i) {
     (
         _mm256_and_si256(value, nibble),
         _mm256_and_si256(_mm256_srli_epi16(value, 4), nibble),
@@ -64,7 +64,7 @@ pub(crate) fn split_avx2(value: __m256i, nibble: __m256i) -> (__m256i, __m256i) 
 
 /// One base-field byte multiply: two table lookups over pre-split nibbles.
 #[archmage::rite(v3)]
-pub(crate) fn lookup_avx2(lo: __m256i, hi: __m256i, split: (__m256i, __m256i)) -> __m256i {
+fn lookup_avx2(lo: __m256i, hi: __m256i, split: (__m256i, __m256i)) -> __m256i {
     _mm256_xor_si256(
         _mm256_shuffle_epi8(lo, split.0),
         _mm256_shuffle_epi8(hi, split.1),

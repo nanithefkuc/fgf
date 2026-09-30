@@ -8,8 +8,6 @@
 //! shuffle strategy. `elementwise` multiplies two varying buffers lane-wise.
 //! The `gf8d512_*` submodules hold the 64-byte `V4x` forms of the single,
 //! scatter/gather, matrix, and elementwise shapes under `simd512`.
-//! `experiments` holds measurement variants, which reach
-//! into the production bodies above without duplicating them.
 //!
 //! Two multiply strategies, selected by the
 //! [`Backend`](crate::kernel::Backend) the caller already resolved:
@@ -45,8 +43,6 @@
 //! over this seam and monomorphize back to the code each field had alone.
 
 mod elementwise;
-#[allow(dead_code)]
-mod experiments;
 mod gather;
 #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
 mod gf8d512_elementwise;
@@ -65,8 +61,6 @@ mod scatter;
 
 #[allow(unused_imports)]
 pub use elementwise::*;
-#[allow(unused_imports)]
-pub use experiments::*;
 pub use gather::*;
 #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
 pub use gf8d512_elementwise::{
@@ -109,7 +103,6 @@ use core::arch::x86_64::*;
 use crate::field::gf8b::Elem;
 use crate::field::gf8d;
 use crate::kernel::Matrix;
-use crate::kernel::tables::affine_8b;
 use crate::kernel::tables::{ScaleTable, affine_8d, scale_table, scale_table_8d};
 
 /// The per-field multiply seam for the blocked GF(2^8) kernels.
@@ -151,52 +144,6 @@ impl Blocked for Gfni {
     }
 }
 
-/// Prepared fixed multiply for the experimental `Gf8B` affine gather.
-///
-/// Map lookup stays outside the timed gather body. The nibble table remains
-/// attached only for sub-XMM remainders.
-#[derive(Clone, Copy)]
-#[allow(dead_code)]
-pub struct Affine8BFactor {
-    pub(super) map: u64,
-    pub(super) table: &'static ScaleTable,
-}
-
-/// Prepare one `Gf8B` coefficient for [`mul_add_gather_affine_8b`].
-#[inline]
-#[must_use]
-#[allow(dead_code)]
-pub fn prepare_affine_8b(coeff: Elem) -> Affine8BFactor {
-    Affine8BFactor {
-        map: affine_8b(coeff),
-        table: scale_table(coeff),
-    }
-}
-
-/// Experimental affine-map multiply in the AES field `0x11B` (`Gf8B`).
-#[allow(dead_code)]
-enum Affine8B {}
-impl Blocked for Affine8B {
-    type Coeff = Affine8BFactor;
-    const AFFINE: bool = true;
-    #[inline]
-    fn zero() -> Affine8BFactor {
-        prepare_affine_8b(Elem(0))
-    }
-    #[inline]
-    fn byte(coeff: Affine8BFactor) -> u8 {
-        coeff.table.coeff.0
-    }
-    #[inline]
-    fn map(coeff: Affine8BFactor) -> u64 {
-        coeff.map
-    }
-    #[inline]
-    fn table(coeff: Affine8BFactor) -> &'static ScaleTable {
-        coeff.table
-    }
-}
-
 /// Affine-map multiply in the Reed–Solomon field `0x11D` (`Gf8D`).
 pub(super) enum Affine8D {}
 impl Blocked for Affine8D {
@@ -217,39 +164,6 @@ impl Blocked for Affine8D {
     #[inline]
     fn table(coeff: gf8d::Elem) -> &'static ScaleTable {
         scale_table_8d(coeff)
-    }
-}
-
-/// [`Affine8D`] over coefficients already prepared by the caller.
-///
-/// The multiply word is the stored affine map, so the resolve loop reads a
-/// struct field instead of recomputing the bank lookup. The prepared
-/// operations use this to consume a [`crate::ops::CoeffVec`]'s coefficients
-/// without rebuilding them per call; the sub-lane remainder still reads the
-/// attached nibble table.
-#[allow(dead_code)]
-pub(super) enum Affine8DPrepared {}
-impl Blocked for Affine8DPrepared {
-    type Coeff = crate::kernel::gf8::Prepared8D;
-    const AFFINE: bool = true;
-    #[inline]
-    fn zero() -> Self::Coeff {
-        crate::kernel::gf8::Prepared8D {
-            table: scale_table_8d(gf8d::Elem(0)),
-            affine: affine_8d(gf8d::Elem(0)),
-        }
-    }
-    #[inline]
-    fn byte(coeff: Self::Coeff) -> u8 {
-        coeff.table.coeff.0
-    }
-    #[inline]
-    fn map(coeff: Self::Coeff) -> u64 {
-        coeff.affine
-    }
-    #[inline]
-    fn table(coeff: Self::Coeff) -> &'static ScaleTable {
-        coeff.table
     }
 }
 

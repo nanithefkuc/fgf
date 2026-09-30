@@ -89,15 +89,15 @@ pub fn mul_add_gather_affine(
     }
 }
 
-/// The register-blocked gather walk the entries and the measurement variants
-/// share: an `#[inline(never)]` driver over token-bearing tile bodies.
+/// The register-blocked gather walk the entries share: an `#[inline(never)]`
+/// driver over token-bearing tile bodies.
 ///
 /// The driver owns the geometry split and the remainder selection. The tile
 /// bodies are [`archmage::arcane`] entries, so their feature context is a
 /// boundary the driver cannot inline across — the measured contract that
 /// keeps the dispatch decision and the remainder walk out of the timed tile
 /// body, while the driver itself stays a separate symbol. Reachable only
-/// from the feature-matching entries above and the `experiments` controls.
+/// from the feature-matching entries above.
 #[cfg(target_arch = "x86_64")]
 #[inline(never)]
 pub(super) fn mul_add_gather_impl<
@@ -213,9 +213,6 @@ fn gather_native_tail<S: Blocked>(
 
 /// The single-source AXPY remainder over what no tile or fused block
 /// covered.
-///
-/// Shared with the `experiments` controls, which pair it with their own tile
-/// bodies.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
 pub(super) fn gather_remainder<S: Blocked>(
