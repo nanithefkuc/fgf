@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `ops::add_assign_scalar` and `ops::sub_assign_scalar` dispatch the
+  field-independent vector broadcast-XOR kernels for every binary field;
+  `Gf32`, `Gf64`, and the Fan–Paar fields previously ran the portable
+  byte-at-a-time loop. Results are unchanged.
+- **Breaking (unstable surface only):** `internals`
+  `x86::bytes::xor_broadcast_sse42` → `x86::bytes::xor_broadcast_sse2`,
+  which takes an `X64V1Token`: the kernel uses only SSE2.
+
 ### Fixed
 
 - `ops::mul_add_matrix_at` returned wrong results for `Mersenne31`,
