@@ -504,9 +504,9 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "simdispatch"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51597eac7e0605fec8b81324c97c325a7fb59ecdd9f6f452eaadd06f625c725f"
+checksum = "7f4ae72e66899b86165d84f6a978634dae6ab63aa365d945deb6c6d959962b4a"
 dependencies = [
  "archmage",
 ]

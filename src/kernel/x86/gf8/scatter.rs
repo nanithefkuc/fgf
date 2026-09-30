@@ -151,18 +151,30 @@ fn mul_add_scatter_impl<S: Blocked>(
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
 fn scatter_rows4<S: Blocked>(ptrs: [*mut u8; 4], coeffs: [S::Coeff; 4], src: &[u8]) {
+    let len = src.len();
+    // A half-lane row pitch alternates two destination alignments. Group
+    // rows of the same phase so each pair can peel without misaligning its
+    // neighbour; the source is still shared within each pair.
+    if (512..2048).contains(&len) && len % 32 == 16 && (ptrs[0] as usize).is_multiple_of(16) {
+        scatter_rows2::<S>([ptrs[0], ptrs[2]], [coeffs[0], coeffs[2]], src);
+        scatter_rows2::<S>([ptrs[1], ptrs[3]], [coeffs[1], coeffs[3]], src);
+        return;
+    }
     let factors = [
         bfactor::<S>(coeffs[0]),
         bfactor::<S>(coeffs[1]),
         bfactor::<S>(coeffs[2]),
         bfactor::<S>(coeffs[3]),
     ];
-    let len = src.len();
     let src_ptr = src.as_ptr();
 
-    // Bring the destinations to a 32-byte boundary before the vector body
-    // starts; see `peel_to_align`.
-    let head = super::super::peel_to_align(ptrs[0], len, 1);
+    // The short half-lane head reaches an aligned vector body; other
+    // alignments retain the shared large-row peel policy.
+    let head = if (512..2048).contains(&len) && (ptrs[0] as usize) % 32 == 16 {
+        (ptrs[0] as usize).wrapping_neg() & 31
+    } else {
+        super::super::peel_to_align(ptrs[0], len, 1)
+    };
     // `head <= len`, the length shared by `src` and every row, so `0..head`
     // is a sub-range of each; the four rows are distinct and in-bounds, and
     // no slice into them is live here.
@@ -243,7 +255,11 @@ fn scatter_rows2<S: Blocked>(ptrs: [*mut u8; 2], coeffs: [S::Coeff; 2], src: &[u
 
     // As in `scatter_rows4`, with four of every five accesses on the
     // destination side.
-    let head = super::super::peel_to_align(ptrs[0], len, 1);
+    let head = if (512..2048).contains(&len) && (ptrs[0] as usize) % 32 == 16 {
+        (ptrs[0] as usize).wrapping_neg() & 31
+    } else {
+        super::super::peel_to_align(ptrs[0], len, 1)
+    };
     // `head <= len`, the length shared by `src` and both rows, so `0..head`
     // is a sub-range of each; the rows are distinct, in-bounds, and no slice
     // into them is live here.

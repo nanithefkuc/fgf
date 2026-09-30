@@ -1,13 +1,15 @@
 //! `fgf` self-numbers over the competitor-harness fixture family, plus the
 //! six-row shuffle comparison.
 //!
-//! Measures scalar and 64 KiB single-source region operations, prepared
-//! 16-source overwrite dot products at 4 and 16 KiB, and 64 KiB ten-source
-//! erasure encodes over 2/4/6 output rows. Buffers are 64-byte aligned to match
-//! the ISA-L harness.
+//! Measures scalar and 64 KiB single-source region operations, 64 KiB
+//! elementwise products, prepared 16-source overwrite dot products at 4 and
+//! 16 KiB, and 64 KiB ten-source erasure encodes over 2/4/6 output rows in
+//! raw, prepared, and scattered-row forms. The alignment sweep times
+//! misaligned and aligned scatter, gather, and matrix rows on both sides of
+//! each peel floor. Buffers are 64-byte aligned to match the ISA-L harness.
 //!
 //! ```sh
-//! cargo bench --features internals --bench compare
+//! just bench compare [--peel-diagnostic]
 //! ```
 
 use std::hint::black_box;
@@ -99,6 +101,29 @@ fn bench_mul_into_gather(len: usize) {
     let mut dst_8b = AlignedBuf::noise(len, 0x900);
     let mut dst_8d = AlignedBuf::noise(len, 0x901);
 
+    // Raw-coefficient overwrite gather (not the prepared `_with` form):
+    // the candidate one-row-matrix route fires here.
+    let coeff_bytes: Vec<_> = coefficient_bytes
+        .iter()
+        .copied()
+        .map(gf8d::Elem::from_raw)
+        .collect();
+    println!("{len} B x {DOT_SOURCES} sources overwrite dot product (raw)");
+    bench_region("fgf Gf8D mul_into_gather", len * DOT_SOURCES, || {
+        ops::mul_into_gather::<Gf8D>(
+            black_box(dst_8d.as_mut_slice()),
+            &coeff_bytes,
+            black_box(&srcs),
+        );
+    });
+    // Accumulate-form prepared gather: hits the `_with` default path.
+    bench_region("fgf Gf8D mul_add_gather_with", len * DOT_SOURCES, || {
+        ops::mul_add_gather_with::<Gf8D>(
+            black_box(dst_8d.as_mut_slice()),
+            prepared_8d.as_ref(),
+            black_box(&srcs),
+        );
+    });
     println!("{len} B x {DOT_SOURCES} sources overwrite dot product");
     let logical_bytes = len * DOT_SOURCES;
     bench_region("fgf Gf8B mul_into_gather_with", logical_bytes, || {
@@ -210,6 +235,52 @@ fn bench_encode(nrows: usize) {
             BYTES,
             nrows,
             black_box(&terms_8d),
+        );
+    });
+
+    // Prepared and scattered-row forms of the same encode, validated against
+    // the raw overwrite result before timing.
+    let source_refs: Vec<&[u8]> = sources.iter().map(AlignedBuf::as_slice).collect();
+    let flat_8b: Vec<gf8b::Elem> = columns_8b.iter().flatten().copied().collect();
+    let prepared_8b = ops::CoeffMatrix::<Gf8B>::from_source_major(ENCODE_SOURCES, nrows, &flat_8b);
+    let row_starts: Vec<usize> = (0..nrows).map(|row| row * BYTES).collect();
+    let mut with_8b = AlignedBuf::noise(BYTES * nrows, 0xb08);
+    let mut at_8b = AlignedBuf::noise(BYTES * nrows, 0xb09);
+    ops::mul_into_matrix_with::<Gf8B>(with_8b.as_mut_slice(), BYTES, &prepared_8b, &source_refs);
+    assert_eq!(
+        new_8b.as_slice(),
+        with_8b.as_slice(),
+        "Gf8B prepared overwrite differs"
+    );
+    at_8b.as_mut_slice().fill(0);
+    ops::mul_add_matrix_at::<Gf8B>(at_8b.as_mut_slice(), BYTES, &row_starts, &terms_8b);
+    assert_eq!(
+        new_8b.as_slice(),
+        at_8b.as_slice(),
+        "Gf8B scattered rows differ"
+    );
+    bench_region("fgf Gf8B mul_into_matrix_with", logical_bytes, || {
+        ops::mul_into_matrix_with::<Gf8B>(
+            black_box(with_8b.as_mut_slice()),
+            BYTES,
+            black_box(&prepared_8b),
+            black_box(&source_refs),
+        );
+    });
+    bench_region("fgf Gf8B mul_add_matrix_with", logical_bytes, || {
+        ops::mul_add_matrix_with::<Gf8B>(
+            black_box(with_8b.as_mut_slice()),
+            BYTES,
+            black_box(&prepared_8b),
+            black_box(&source_refs),
+        );
+    });
+    bench_region("fgf Gf8B mul_add_matrix_at", logical_bytes, || {
+        ops::mul_add_matrix_at::<Gf8B>(
+            black_box(at_8b.as_mut_slice()),
+            BYTES,
+            black_box(&row_starts),
+            black_box(&terms_8b),
         );
     });
 
@@ -360,6 +431,25 @@ fn bench_region(label: &str, bytes: usize, mut body: impl FnMut()) {
     println!("  {label:<44} {:>9}  {gib:>7.2} GiB/s", fmt_ns(median));
 }
 
+/// Fixed batches amortize the clock call when comparing peel variants.
+fn bench_peel_region(label: &str, bytes: usize, mut body: impl FnMut()) {
+    for _ in 0..64 {
+        body();
+    }
+    let mut samples = [0.0; 64];
+    for sample in &mut samples {
+        let start = Instant::now();
+        for _ in 0..512 {
+            body();
+        }
+        *sample = start.elapsed().as_secs_f64() * 1e9 / 512.0;
+    }
+    samples.sort_unstable_by(f64::total_cmp);
+    let median = samples[samples.len() / 2];
+    let gib = bytes as f64 / (median / 1e9) / (1024.0 * 1024.0 * 1024.0);
+    println!("  {label:<44} {:>9}  {gib:>7.2} GiB/s", fmt_ns(median));
+}
+
 fn bench_scalar(label: &str, mut body: impl FnMut()) {
     for _ in 0..4 {
         body();
@@ -378,8 +468,139 @@ fn bench_scalar(label: &str, mut body: impl FnMut()) {
     println!("  {label:<44} {ns:>9.2} ns/op  {mops:>7.2} Mops/s");
 }
 
+/// Offset-sweep probe for the 512-bit alignment question: the same Gf8D
+/// `mul_add` region with destination/source buffer bases shifted by
+/// `OFF mod 64`. Buffer bases are 64-byte aligned (`AlignedBuf`), so the
+/// offset is exact. Glibc-sized allocations land 16 mod 64 in practice; the
+/// sweep names the realistic line-split cost before any alignment-step work.
+fn bench_offset_sweep() {
+    const LEN: usize = 16 * 1024;
+    let c = gf8d::Elem::from_raw(0x53);
+    let backing_src = AlignedBuf::noise(LEN + 64, 0x700);
+    let mut backing_dst = AlignedBuf::noise(LEN + 64, 0x701);
+    println!("Gf8D mul_add 16 KiB destination offset sweep (dst/src shift mod 64)");
+    for &off in &[0usize, 16, 32, 48] {
+        let src = &backing_src.as_slice()[off..off + LEN];
+        let dst = &mut backing_dst.as_mut_slice()[off..off + LEN];
+        bench_region(&format!("w8d mul_add off={off}"), LEN, || {
+            ops::mul_add::<Gf8D>(black_box(dst), c, black_box(src));
+        });
+    }
+
+    // Prepared scatter: raw values vs stored maps through the plan.
+    {
+        let nrows = 4usize;
+        let row_len = 16384usize;
+        let src = AlignedBuf::noise(row_len, 0x720);
+        let mut rows = AlignedBuf::noise(row_len * nrows, 0x721);
+        let values: Vec<_> = (0..nrows)
+            .map(|j| gf8d::Elem::from_raw((j as u8).wrapping_mul(37).wrapping_add(2)))
+            .collect();
+        let prepared = ops::CoeffVec::<Gf8D>::new(&values);
+        bench_region("scatter 4x16K raw", row_len * nrows, || {
+            ops::mul_add_scatter::<Gf8D>(
+                black_box(rows.as_mut_slice()),
+                row_len,
+                &values,
+                black_box(src.as_slice()),
+            );
+        });
+        bench_region("scatter 4x16K prepared", row_len * nrows, || {
+            ops::mul_add_scatter_with::<Gf8D>(
+                black_box(rows.as_mut_slice()),
+                row_len,
+                prepared.as_ref(),
+                black_box(src.as_slice()),
+            );
+        });
+    }
+}
+
+/// Misaligned (16 mod 64) and aligned rows on both sides of each 64-byte
+/// peel floor: four-row scatter, sixteen-source gather, and a ten-source
+/// four-row matrix. Rows, sources, and destinations share the offset.
+fn bench_peel_floors() {
+    const SCATTER_ROWS: usize = 4;
+    const GATHER_SOURCES: usize = 16;
+    const MATRIX_TERMS: usize = 10;
+    const MATRIX_ROWS: usize = 4;
+    let coeff = |i: usize| gf8d::Elem::from_raw((1 + (i * 97 + 13) % 255) as u8);
+    println!("Gf8D peel floor sweep (row bytes, base offset mod 64)");
+    for &off in &[16usize, 0] {
+        for &len in &[256usize, 512, 1024, 2048, 3072, 4096, 8192, 16384] {
+            let src = AlignedBuf::noise(len + 64, 0x710);
+            let src = &src.as_slice()[off..off + len];
+            let mut rows = AlignedBuf::noise(len * SCATTER_ROWS + 64, 0x711);
+            let rows = &mut rows.as_mut_slice()[off..off + len * SCATTER_ROWS];
+            let scatter: Vec<_> = (0..SCATTER_ROWS).map(coeff).collect();
+            bench_peel_region(
+                &format!("scatter {SCATTER_ROWS}x{len} off={off}"),
+                len * SCATTER_ROWS,
+                || {
+                    ops::mul_add_scatter::<Gf8D>(
+                        black_box(&mut *rows),
+                        len,
+                        &scatter,
+                        black_box(src),
+                    );
+                },
+            );
+
+            let gather_bufs: Vec<AlignedBuf> = (0..GATHER_SOURCES)
+                .map(|t| AlignedBuf::noise(len + 64, 0x720 + t as u64))
+                .collect();
+            let gather_srcs: Vec<&[u8]> = gather_bufs
+                .iter()
+                .map(|b| &b.as_slice()[off..off + len])
+                .collect();
+            let gather: Vec<_> = (0..GATHER_SOURCES).map(coeff).collect();
+            let mut dst = AlignedBuf::noise(len + 64, 0x730);
+            let dst = &mut dst.as_mut_slice()[off..off + len];
+            bench_peel_region(
+                &format!("gather {GATHER_SOURCES}x{len} off={off}"),
+                len * GATHER_SOURCES,
+                || {
+                    ops::mul_add_gather::<Gf8D>(
+                        black_box(&mut *dst),
+                        &gather,
+                        black_box(&gather_srcs),
+                    );
+                },
+            );
+
+            let matrix_bufs: Vec<AlignedBuf> = (0..MATRIX_TERMS)
+                .map(|t| AlignedBuf::noise(len + 64, 0x740 + t as u64))
+                .collect();
+            let matrix_coeffs: Vec<_> = (0..MATRIX_TERMS * MATRIX_ROWS).map(coeff).collect();
+            let terms: Vec<(&[gf8d::Elem], &[u8])> = matrix_coeffs
+                .chunks(MATRIX_ROWS)
+                .zip(matrix_bufs.iter().map(|b| &b.as_slice()[off..off + len]))
+                .collect();
+            let mut matrix = AlignedBuf::noise(len * MATRIX_ROWS + 64, 0x750);
+            let matrix = &mut matrix.as_mut_slice()[off..off + len * MATRIX_ROWS];
+            bench_peel_region(
+                &format!("matrix {MATRIX_TERMS}->{MATRIX_ROWS}x{len} off={off}"),
+                len * MATRIX_TERMS,
+                || {
+                    ops::mul_add_matrix::<Gf8D>(
+                        black_box(&mut *matrix),
+                        len,
+                        MATRIX_ROWS,
+                        black_box(&terms),
+                    );
+                },
+            );
+        }
+    }
+}
+
 fn main() {
     println!("fgf — backend: {}", backend().name());
+    if std::env::args().any(|arg| arg == "--peel-diagnostic") {
+        bench_peel_floors();
+        return;
+    }
+    bench_offset_sweep();
 
     let src8 = AlignedBuf::noise(BYTES, 0x600);
     let mut dst8 = AlignedBuf::noise(BYTES, 0x601);
@@ -434,6 +655,64 @@ fn main() {
         );
     });
 
+    // In-place scale sweep: the V4x-unconditional question for Gf8B.
+    for &len in &[4096usize, 16384, 65536, 262144, 1048576] {
+        let mut dst = AlignedBuf::noise(len, 0x610 + len as u64);
+        bench_region(&format!("w8 assign {len}B"), len, || {
+            ops::mul_assign::<Gf8B>(black_box(dst.as_mut_slice()), c8);
+        });
+        let mut dst = AlignedBuf::noise(len, 0x620 + len as u64);
+        bench_region(&format!("w8d assign {len}B"), len, || {
+            ops::mul_assign::<Gf8D>(black_box(dst.as_mut_slice()), c8d);
+        });
+    }
+    // 4 MiB overwrite: the streaming-store threshold shape.
+    {
+        let src4 = AlignedBuf::noise(4 * 1024 * 1024, 0x604);
+        let mut dst4 = AlignedBuf::noise(4 * 1024 * 1024, 0x605);
+        bench_region("w8d mul_into 4MiB (dst = c*src)", 4 * 1024 * 1024, || {
+            ops::mul_into::<Gf8D>(
+                black_box(dst4.as_mut_slice()),
+                c8d,
+                black_box(src4.as_slice()),
+            );
+        });
+    }
+
+    // Elementwise products, both byte fields and both forms. `Gf8D`
+    // conjugates `GF2P8MULB` by the field isomorphism on GFNI tiers.
+    {
+        let a = AlignedBuf::noise(BYTES, 0x606);
+        let b = AlignedBuf::noise(BYTES, 0x607);
+        let mut dst = AlignedBuf::noise(BYTES, 0x608);
+        bench_region("w8d elementwise (dst = a*b)", BYTES, || {
+            ops::mul_elementwise::<Gf8D>(
+                black_box(dst.as_mut_slice()),
+                black_box(a.as_slice()),
+                black_box(b.as_slice()),
+            );
+        });
+        bench_region("w8d elementwise assign (dst *= src)", BYTES, || {
+            ops::mul_elementwise_assign::<Gf8D>(
+                black_box(dst.as_mut_slice()),
+                black_box(b.as_slice()),
+            );
+        });
+        bench_region("w8 elementwise (dst = a*b)", BYTES, || {
+            ops::mul_elementwise::<Gf8B>(
+                black_box(dst.as_mut_slice()),
+                black_box(a.as_slice()),
+                black_box(b.as_slice()),
+            );
+        });
+        bench_region("w8 elementwise assign (dst *= src)", BYTES, || {
+            ops::mul_elementwise_assign::<Gf8B>(
+                black_box(dst.as_mut_slice()),
+                black_box(b.as_slice()),
+            );
+        });
+    }
+
     // w16
     let c16 = gf16::Elem::from_raw(0x53A7);
     bench_scalar("w16 scalar mul", || {
@@ -465,4 +744,8 @@ fn main() {
     for &nrows in ENCODE_ROWS {
         bench_encode(nrows);
     }
+
+    // Last: the sweep allocates many buffers, and running it earlier shifts
+    // the heap and cache state the rows above are recorded under.
+    bench_peel_floors();
 }

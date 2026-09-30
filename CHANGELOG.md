@@ -6,6 +6,95 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- 64-byte AVX-512 kernels for both byte fields (`Gf8B`, `Gf8D`) behind the
+  `simd512` feature: single-buffer `mul_add`/`mul_assign`/`mul_into`,
+  blocked scatter/gather, blocked matrix (`mul_add`, `mul_into`, prepared
+  `CoeffMatrix` forms, and `_at` scattered rows), and elementwise products
+  (`mul_elementwise`, `mul_elementwise_assign`). `Gf8D` elementwise products
+  conjugate `GF2P8MULB` by the field isomorphism onto `0x11B`; results are
+  unchanged. With `simd512` on an AVX-512+GFNI host the new `V4x` tier
+  resolves, both byte fields dispatch every operation there, and
+  `has_vector_elementwise` reports `true` for both. Without `simd512` the
+  tier never resolves and dispatch is unchanged.
+- `Gf16` dispatches AVX-512 GFNI single-row multiplication, elementwise
+  products, and register-blocked matrix accumulation (including prepared
+  matrices) on `V4x`. Scatter and gather retain their existing GFNI kernels;
+  non-`V4x` backends are unchanged. The new kernels use safe Archmage
+  reference-based loads and stores. The Tiger Lake public-path comparison
+  is in `BENCHMARKS.md`.
+- On `V4x`, misaligned scatter, gather, and matrix rows peel their heads to
+  a 64-byte boundary above per-shape length floors set by measurement; see
+  `BENCHMARKS.md`, "AVX-512 alignment peel floors". `Gf16` `mul_add`
+  destinations peel the same way above their own measured floor, and rows
+  shorter than one 64-byte lane dispatch straight to the 32-byte GFNI
+  kernel.
+- On `V4x`, byte XOR — `add_assign` and `sub_assign` for every binary field,
+  `bits::xor_assign`, and the other bit-packed XOR paths — runs 64-byte
+  AVX-512 lanes from a measured length floor, with a 64-byte destination
+  alignment peel on longer buffers. Shorter buffers keep the AVX2 kernel but
+  pass one extra length test; `BENCHMARKS.md`, "AVX-512 byte, popcount, and
+  prime-field kernels", records the short-buffer and per-row cost.
+- On `V4x`, `bits::weight` counts whole words with `VPOPCNTQ`.
+- `Mersenne31` and `Goldilocks` gain 64-byte AVX-512 kernels for every
+  operation that had an AVX2 kernel, dispatched on `V4x`. Results are
+  unchanged; `backend_for` reports `V4x` for both fields on that tier.
+  The Tiger Lake before/after record for these and the XOR, weight, and
+  `Gf16` peel changes is in `BENCHMARKS.md`, "AVX-512 byte, popcount, and
+  prime-field kernels".
+
+### Changed
+
+- The prime-field competitor harness builds `fgf` with `simd512`, so a
+  Tiger Lake run measures the `V4x` tier it resolves; the family recipes
+  pass the feature. Tiger Lake prime columns recorded before this change
+  measured `fgf` at `v3_gfni_crypto`.
+- The `Gf16` AVX-512 matrix kernels broadcast each coefficient pair once
+  per term block instead of once per destination lane; the Tiger Lake
+  comparison is in `BENCHMARKS.md`.
+
+- The binary-field competitor harnesses are one three-arm binary,
+  `external/bench-trio/`, replacing `bench-isal` and `bench-klauspost`: it
+  interleaves `fgf`, Intel ISA-L, and klauspost/reedsolomon over one fixture
+  set, rotating through all six arm orders, and `just bench-gf-comp` runs it
+  beside the self suite. `BENCHMARKS.md` carries the single-matrix record.
+
+**Breaking:** `simdispatch` moves `=0.1.0` to `=0.2.0`. `fgf::Backend` is the
+upstream type re-exported, so crates pinning both must move together; pin
+`simdispatch = "=0.2.0"` alongside this `fgf` (no API names change; the
+ladder gains `V4x`/`V4`).
+
+### Removed
+
+- The deferred `internals` entry `x86::avx512::proven::xor` and its
+  unexported body. The dispatched `x86::bytes512::xor512` replaces it and
+  carries no unsafe code.
+
+### Fixed
+
+- The 32-byte GFNI and AVX2 kernels peel half-lane destinations: byte XOR,
+  both byte fields' `mul_add`/`mul_assign`/`mul_into`, and the `Gf16`
+  single-row kernels pay one 16-byte head when the destination sits 16
+  bytes into a 32-byte lane, so their stores stop splitting cache lines
+  above the shared measured floor. The AVX-512 `Gf16` `mul_into` gains the
+  destination peel its `mul_add` already had. The interleaved comparison
+  is in `BENCHMARKS.md`, "v3 half-lane peels and overwrite-gather
+  dispatch".
+- Prepared overwrite gathers route through the register-blocked one-row
+  overwrite matrix where the change covers them: `Gf8D`'s prepared form
+  fell back to the per-source AXPY loop on `V3GfniCrypto`, and `Gf8B`'s
+  overwrite gather filled the destination and accumulated on `V4x` instead
+  of overwriting in one pass. The measured throughput is in
+  `BENCHMARKS.md`, "v3 half-lane peels and overwrite-gather dispatch".
+- Half-lane-skewed GFNI in-place scaling and short blocked scatter avoid
+  repeated split-line destination accesses. The AVX-512 scatter path avoids
+  peeling when a quarter-line row pitch cannot align its row group.
+  The measured payload comparison is in `BENCHMARKS.md`.
+- The AVX-512 peel-floor benchmark now compares the same offsets with and
+  without peeling. The matched comparison supports the existing gather and
+  matrix floors; `BENCHMARKS.md` records the corrected decision.
+
 ## [1.2.2] - 2026-09-30
 
 ### Changed

@@ -19,15 +19,18 @@
 //! through the direct entries.
 //!
 //! Every kernel processes whole vector lanes and hands the sub-lane remainder
-//! to the portable `crate::kernel::prime` path, which is also the differential
-//! oracle. All lane operations are validated against a `u128 % p` model. The
-//! AVX2 kernels serve `V3`/`V3GfniCrypto`; the SSE4.2 kernels serve `V2`
-//! (x86-64-v2 guarantees SSE4.1 `pminud` and SSE4.2 `pcmpgtq`).
+//! to the next narrower entry, ending at the portable `crate::kernel::prime`
+//! path, which is also the differential oracle. All lane operations are
+//! validated against a `u128 % p` model. The AVX-512 kernels serve `V4x`
+//! under `simd512`; the AVX2 kernels serve `V3`/`V3GfniCrypto`; the SSE4.2
+//! kernels serve `V2` (x86-64-v2 guarantees SSE4.1 `pminud` and SSE4.2
+//! `pcmpgtq`).
 //!
 //! Every entry is a safe capability-token function —
 //! `#[arcane(import_intrinsics)]` over reference-based loads and stores —
-//! taking the exact token its instructions require: `X64V3Token` for the AVX2
-//! files, `X64V2Token` for the SSE4.2 files. Each entry validates its own
+//! taking the exact token its instructions require: `X64V4Token` for the
+//! AVX-512 files, `X64V3Token` for the AVX2 files, `X64V2Token` for the
+//! SSE4.2 files. Each entry validates its own
 //! geometry (paired lengths, whole elements) before the first lane; lane
 //! helpers are `#[rite]` functions. No kernel detects or summons; the one
 //! unsafe residue is the SSE blend whose intrinsic feature table overstates
@@ -43,15 +46,21 @@
 //!
 //! | Module | Field | Width | Backend |
 //! | --- | --- | --- | --- |
+//! | `m31_avx512` | Mersenne31 | 512-bit | `V4x` |
 //! | `m31_avx2` | Mersenne31 | 256-bit | `V3`/`V3GfniCrypto` |
 //! | `m31_sse` | Mersenne31 | 128-bit | `V2` |
+//! | `gld_avx512` | Goldilocks | 512-bit | `V4x` |
 //! | `gld_avx2` | Goldilocks | 256-bit | `V3`/`V3GfniCrypto` |
 //! | `gld_sse` | Goldilocks | 128-bit | `V2` |
 //! | `qm31_avx2` | QuadMersenne31 | 256-bit | `V3`/`V3GfniCrypto` |
 
 mod gld_avx2;
+#[cfg(feature = "simd512")]
+mod gld_avx512;
 mod gld_sse;
 mod m31_avx2;
+#[cfg(feature = "simd512")]
+mod m31_avx512;
 mod m31_sse;
 mod qm31_avx2;
 
@@ -59,6 +68,12 @@ pub use gld_avx2::{
     add_assign_gld_avx2, add_assign_scalar_gld_avx2, mul_add_gld_avx2, mul_assign_gld_avx2,
     mul_elementwise_assign_gld_avx2, mul_elementwise_gld_avx2, mul_into_gld_avx2,
     sub_assign_gld_avx2, sub_assign_scalar_gld_avx2,
+};
+#[cfg(feature = "simd512")]
+pub use gld_avx512::{
+    add_assign_gld_avx512, add_assign_scalar_gld_avx512, mul_add_gld_avx512, mul_assign_gld_avx512,
+    mul_elementwise_assign_gld_avx512, mul_elementwise_gld_avx512, mul_into_gld_avx512,
+    sub_assign_gld_avx512, sub_assign_scalar_gld_avx512,
 };
 pub use gld_sse::{
     add_assign_gld_sse42, add_assign_scalar_gld_sse42, mul_add_gld_sse42, mul_assign_gld_sse42,
@@ -69,6 +84,12 @@ pub use m31_avx2::{
     add_assign_m31_avx2, add_assign_scalar_m31_avx2, mul_add_m31_avx2, mul_assign_m31_avx2,
     mul_elementwise_assign_m31_avx2, mul_elementwise_m31_avx2, mul_into_m31_avx2,
     sub_assign_m31_avx2, sub_assign_scalar_m31_avx2,
+};
+#[cfg(feature = "simd512")]
+pub use m31_avx512::{
+    add_assign_m31_avx512, add_assign_scalar_m31_avx512, mul_add_m31_avx512, mul_assign_m31_avx512,
+    mul_elementwise_assign_m31_avx512, mul_elementwise_m31_avx512, mul_into_m31_avx512,
+    sub_assign_m31_avx512, sub_assign_scalar_m31_avx512,
 };
 pub use m31_sse::{
     add_assign_m31_sse42, add_assign_scalar_m31_sse42, mul_add_m31_sse42, mul_assign_m31_sse42,

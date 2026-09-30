@@ -33,6 +33,8 @@ use crate::field::{
 use crate::kernel::scalar;
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::kernel::tables::FpTowerTables;
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+use crate::kernel::tables::affine_8b;
 use crate::kernel::tables::{ScaleTable, TowerCoeff, TowerTables, scale_table};
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::kernel::tables::{affine_8d, scale_table_8d};
@@ -676,6 +678,61 @@ fn for_each_gf8d_affine_case(case: impl FnMut(gf8d::Elem, &[u8])) {
     }
 }
 
+/// Compare a `0x11B` affine `mul_add` kernel against the reference at every
+/// length and coefficient: the 512-bit bodies are field-agnostic, so `Gf8B`
+/// runs the same entry with its own bank.
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+fn check_gf8_affine_mul_add(name: &str, kernel: impl Fn(&mut [u8], u64, &ScaleTable, &[u8])) {
+    for_each_gf8_affine_case(|coeff, src| {
+        let mut got = noise(src.len(), 0x62);
+        let mut want = got.clone();
+        kernel(&mut got, affine_8b(coeff), scale_table(coeff), src);
+        scalar::mul_add::<gf8b::Gf8B>(&mut want, coeff, src);
+        assert_eq!(got, want, "{name}: len {}, coeff {coeff:?}", src.len());
+    });
+}
+
+/// Compare a `0x11B` affine `mul_assign` kernel against the reference.
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+fn check_gf8_affine_mul_assign(name: &str, kernel: impl Fn(&mut [u8], u64, &ScaleTable)) {
+    for_each_gf8_affine_case(|coeff, src| {
+        let mut got = src.to_vec();
+        let mut want = src.to_vec();
+        kernel(&mut got, affine_8b(coeff), scale_table(coeff));
+        scalar::mul_assign::<gf8b::Gf8B>(&mut want, coeff);
+        assert_eq!(got, want, "{name}: len {}, coeff {coeff:?}", src.len());
+    });
+}
+
+/// Compare a `0x11B` affine `mul_into` kernel against the reference.
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+fn check_gf8_affine_mul_into(name: &str, kernel: impl Fn(&mut [u8], u64, &ScaleTable, &[u8])) {
+    for_each_gf8_affine_case(|coeff, src| {
+        // Pre-fill the destination with noise: a fused kernel must overwrite
+        // it, never accumulate into it.
+        let mut got = noise(src.len(), 0x147);
+        let mut want = src.to_vec();
+        kernel(&mut got, affine_8b(coeff), scale_table(coeff), src);
+        scalar::mul_assign::<gf8b::Gf8B>(&mut want, coeff);
+        assert_eq!(got, want, "{name}: len {}, coeff {coeff:?}", src.len());
+    });
+}
+
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+fn for_each_gf8_affine_case(case: impl FnMut(gf8b::Elem, &[u8])) {
+    let mut case = case;
+    for &len in LENGTHS {
+        let src = noise(len, 0x51);
+        for c in 0..=u8::MAX {
+            case(gf8b::Elem(c), &src);
+        }
+    }
+    let every_byte: Vec<u8> = (0..=u8::MAX).collect();
+    for c in 0..=u8::MAX {
+        case(gf8b::Elem(c), &every_byte);
+    }
+}
+
 /// Compare a `0x11D` affine `mul_add` kernel against the reference at every
 /// length and coefficient.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -1103,6 +1160,8 @@ mod x86 {
     // gate, which an SIMD_BACKEND downgrade can leave selecting a different
     // tier than the process backend — so each test summons the token its gate
     // proved, rather than reading the process-wide proof.
+    #[cfg(feature = "simd512")]
+    use archmage::X64V4xToken;
     use archmage::{SimdToken, X64V1Token, X64V2Token, X64V3GfniCryptoToken, X64V3Token};
 
     // The 64-byte AVX-512 kernels are the deferred V4x tier (not in the
@@ -1188,13 +1247,599 @@ mod x86 {
         }
         check_gf8_elementwise("gf8 avx512 elementwise", x86::avx512::gf8_mul_elementwise);
         check_gf16_elementwise("gf16 avx512 elementwise", x86::avx512::gf16_mul_elementwise);
+    }
+
+    /// Checks the token-proven tower lanes directly against scalar arithmetic.
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn gf16_wide_kernels_match_reference() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        check_gf16_mul_add_tables("gf16 wide", |dst, tables, src| {
+            x86::gf16::mul_add512(token, dst, TowerCoeff::new(tables.coeff), src);
+        });
+        check_gf16_mul_assign_tables("gf16 wide", |dst, tables| {
+            x86::gf16::mul_assign512(token, dst, TowerCoeff::new(tables.coeff));
+        });
         for &len in LENGTHS {
-            let src = noise(len, 0x1c);
-            let mut want = noise(len, 0x2d);
-            let mut simd = want.clone();
-            scalar::xor(&mut want, &src);
-            x86::avx512::xor(&mut simd, &src);
-            assert_eq!(simd, want, "avx512 xor: len {len}");
+            let src = noise(len, 0xb51);
+            for coeff in gf16_coeffs() {
+                let mut expected = vec![0u8; len];
+                scalar::mul_add::<gf16::Gf16>(&mut expected, coeff, &src);
+                let mut got = noise(len, 0xb52);
+                x86::gf16::mul_into512(token, &mut got, TowerCoeff::new(coeff), &src);
+                assert_eq!(
+                    got, expected,
+                    "gf16 wide mul_into len {len} coeff {coeff:?}"
+                );
+            }
+        }
+        check_gf16_elementwise("gf16 wide elementwise", |dst, a, b| {
+            x86::gf16::mul_elementwise512(token, dst, a, b);
+        });
+        check_elementwise_assign::<gf16::Gf16>("gf16 wide elementwise assign", |dst, src| {
+            x86::gf16::mul_elementwise_assign512(token, dst, src);
+        });
+    }
+
+    /// Misaligned destinations on both sides of the `mul_add` peel floor,
+    /// with even (peelable) and odd (unpeelable) heads.
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn gf16_wide_mul_add_peels_misaligned_rows() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        let floor = x86::gf16::MUL_ADD_PEEL_MIN;
+        for len in [floor - 2, floor, floor + 2, floor + 130, 4096 + 66] {
+            for offset in [0usize, 1, 2, 16, 34, 62] {
+                let src_storage = noise(len + 64, 0xb61);
+                let mut dst_storage = noise(len + 128, 0xb62);
+                let base = dst_storage.as_ptr().align_offset(64);
+                let dst = &mut dst_storage[base + offset..base + offset + len];
+                let src = &src_storage[offset..offset + len];
+                for coeff in gf16_coeffs() {
+                    let before = dst.to_vec();
+                    let mut want = before.clone();
+                    scalar::mul_add::<gf16::Gf16>(&mut want, coeff, src);
+                    x86::gf16::mul_add512(token, dst, TowerCoeff::new(coeff), src);
+                    assert_eq!(&*dst, want, "gf16 mul_add512: len {len}, offset {offset}");
+                    dst.copy_from_slice(&before);
+                }
+            }
+        }
+    }
+
+    /// Misaligned destinations across the shared 64-byte peel floor for the
+    /// wide overwrite body, beside the `mul_add` coverage above.
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn gf16_wide_mul_into_peels_misaligned_rows() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        let floor = x86::gf16::MUL_ADD_PEEL_MIN;
+        for len in [floor - 2, floor, floor + 2, floor + 130, 4096 + 66] {
+            for offset in [0usize, 1, 2, 16, 34, 62] {
+                let src_storage = noise(len + 64, 0xb65);
+                let mut dst_storage = noise(len + 128, 0xb66);
+                let base = dst_storage.as_ptr().align_offset(64);
+                let dst = &mut dst_storage[base + offset..base + offset + len];
+                let src = &src_storage[offset..offset + len];
+                for coeff in gf16_coeffs() {
+                    let mut want = src.to_vec();
+                    scalar::mul_assign::<gf16::Gf16>(&mut want, coeff);
+                    x86::gf16::mul_into512(token, dst, TowerCoeff::new(coeff), src);
+                    assert_eq!(&*dst, want, "gf16 mul_into512: len {len}, offset {offset}");
+                }
+            }
+        }
+    }
+
+    /// The 64-byte byte kernels: XOR over every lane boundary and mismatched
+    /// source/destination offsets, and `VPOPCNTQ` counts against `count_ones`.
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn bytes512_kernels_match_scalar() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        let peel = x86::bytes512::XOR_PEEL_MIN;
+        let edges = [peel - 1, peel, peel + 1, peel + 63, 1024 + 255, 4096 + 63];
+        for &len in XOR_LENGTHS.iter().chain(&edges) {
+            for &(dst_prefix, src_prefix) in &[(0usize, 0usize), (1, 3), (16, 16), (31, 7), (63, 0)]
+            {
+                let mut dst_storage = noise(dst_prefix + len, 0x2e);
+                let src_storage = noise(src_prefix + len, 0x1d);
+                let dst = &mut dst_storage[dst_prefix..];
+                let src = &src_storage[src_prefix..];
+                let mut want = dst.to_vec();
+                scalar::xor(&mut want, src);
+                x86::bytes512::xor512(token.v4(), dst, src);
+                assert_eq!(
+                    &*dst, want,
+                    "xor512: len {len}, dst prefix {dst_prefix}, src prefix {src_prefix}",
+                );
+            }
+            // The dispatched entry routes on the short-buffer threshold.
+            for prefix in [0usize, 16] {
+                let mut dst_storage = noise(prefix + len, 0x4e);
+                let src_storage = noise(prefix + len, 0x4d);
+                let dst = &mut dst_storage[prefix..];
+                let src = &src_storage[prefix..];
+                let mut want = dst.to_vec();
+                scalar::xor(&mut want, src);
+                crate::kernel::xor(dst, src);
+                assert_eq!(&*dst, want, "dispatched xor: len {len}, prefix {prefix}");
+            }
+            for prefix in [0usize, 5, 17] {
+                let storage = noise(prefix + len, 0x3f);
+                let buf = &storage[prefix..];
+                let want: u64 = buf.iter().map(|b| u64::from(b.count_ones())).sum();
+                assert_eq!(
+                    x86::bytes512::count_ones512(token, buf),
+                    want,
+                    "count_ones512: len {len}, prefix {prefix}",
+                );
+            }
+        }
+        assert_eq!(x86::bytes512::count_ones512(token, &[0xff; 1000]), 8000);
+    }
+
+    /// Compares wide matrix tiles and their remainders with independent row sums.
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn gf16_wide_matrix_matches_reference() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        check_matrix(
+            "gf16 wide matrix",
+            gf16_coeff_at2,
+            gf16_reference,
+            |rows, len, nrows, terms| {
+                x86::gf16::mul_add_matrix512(token, rows, len, nrows, terms);
+            },
+        );
+        check_matrix(
+            "gf16 wide matrix provider",
+            gf16_coeff_at2,
+            gf16_reference,
+            |rows, len, nrows, terms| {
+                x86::gf16::mul_add_matrix512_with(token, rows, len, nrows, terms);
+            },
+        );
+    }
+
+    /// Checks the deferred affine kernels against the scalar oracle.
+    ///
+    /// The token summon permits direct kernel testing independently of
+    /// dispatch. The sweep covers coefficients through the affine helpers,
+    /// whose all-byte-values source covers the products.
+    #[cfg(feature = "simd512")]
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn gf8d_affine512_kernels_match_reference() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no AVX-512F+AVX-512BW+GFNI on this host");
+            return;
+        };
+
+        check_gf8d_affine_mul_add("gf8d affine512", |dst, map, table, src| {
+            x86::gf8::mul_add_affine512(token, dst, map, table, src);
+        });
+        check_gf8d_affine_mul_assign("gf8d affine512", |dst, map, table| {
+            x86::gf8::mul_assign_affine512(token, dst, map, table);
+        });
+        check_gf8d_affine_mul_into("gf8d affine512", |dst, map, table, src| {
+            x86::gf8::mul_into_affine512(token, dst, map, table, src);
+        });
+        // `Gf8B` through the same field-agnostic 512-bit bodies: the affine
+        // bank differs (`0x11B`), the instruction does not.
+        check_gf8_affine_mul_add("gf8b affine512", |dst, map, table, src| {
+            x86::gf8::mul_add_affine512(token, dst, map, table, src);
+        });
+        check_gf8_affine_mul_assign("gf8b affine512", |dst, map, table| {
+            x86::gf8::mul_assign_affine512(token, dst, map, table);
+        });
+        check_gf8_affine_mul_into("gf8b affine512", |dst, map, table, src| {
+            x86::gf8::mul_into_affine512(token, dst, map, table, src);
+        });
+        // Prefetch coverage: at and above `PREFETCH_MIN` the into body names
+        // lines 512 and 640 bytes ahead, so the length must clear the guard
+        // plus tiles, lanes, and a sub-lane tail.
+        for len in [24 * 1024, 24 * 1024 + 359, 32 * 1024 + 71] {
+            let src = noise(len, 0xb20 + len as u64);
+            for &coeff in &[
+                gf8d::Elem(0),
+                gf8d::Elem(1),
+                gf8d::Elem(0x53),
+                gf8d::Elem(0xff),
+            ] {
+                let mut got = noise(len, 0xb21);
+                let mut want = src.clone();
+                x86::gf8::mul_into_affine512(
+                    token,
+                    &mut got,
+                    affine_8d(coeff),
+                    scale_table_8d(coeff),
+                    &src,
+                );
+                scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
+                assert_eq!(
+                    got, want,
+                    "gf8d affine512 into prefetch: len {len}, coeff {coeff:?}"
+                );
+            }
+        }
+        check_scatter(
+            "gf8d affine512 scatter",
+            gf8d_coeff_at,
+            gf8d_reference,
+            |rows, row_len, coeffs, src| {
+                x86::gf8::mul_add_scatter_affine512(token, rows, row_len, coeffs, src);
+            },
+        );
+        check_gather(
+            "gf8d affine512 gather",
+            gf8d_coeff_at,
+            gf8d_reference,
+            |dst, coeffs, srcs| x86::gf8::mul_add_gather_affine512(token, dst, coeffs, srcs),
+        );
+        check_matrix(
+            "gf8d affine512 matrix",
+            gf8d_coeff_at2,
+            gf8d_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_add_matrix_affine512(token, rows, row_len, nrows, terms);
+            },
+        );
+        check_matrix_overwrite(
+            "gf8d affine512 matrix overwrite",
+            gf8d_coeff_at2,
+            gf8d_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_into_matrix_affine512(token, rows, row_len, nrows, terms);
+            },
+        );
+        // `Gf8B` through the generic 512-bit multi-row bodies.
+        check_scatter(
+            "gf8b affine512 scatter",
+            gf8_coeff_at,
+            gf8_reference,
+            |rows, row_len, coeffs, src| {
+                x86::gf8::mul_add_scatter_affine512(token, rows, row_len, coeffs, src);
+            },
+        );
+        check_gather(
+            "gf8b affine512 gather",
+            gf8_coeff_at,
+            gf8_reference,
+            |dst, coeffs, srcs| x86::gf8::mul_add_gather_affine512(token, dst, coeffs, srcs),
+        );
+        check_matrix(
+            "gf8b affine512 matrix",
+            gf8_coeff_at2,
+            gf8_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_add_matrix_affine512(token, rows, row_len, nrows, terms);
+            },
+        );
+        check_matrix_overwrite(
+            "gf8b affine512 matrix overwrite",
+            gf8_coeff_at2,
+            gf8_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_into_matrix_affine512(token, rows, row_len, nrows, terms);
+            },
+        );
+        // 512-bit tile transitions: sub-tile, exact tiles, tile-plus-lanes,
+        // and lane-plus-AVX2-ladder remainders, with few and many terms.
+        for &row_len in &[64usize, 192, 255, 256, 257, 320, 448, 511, 512, 513, 640] {
+            for &nrows in &[1usize, 3, 4, 5, 8, 9] {
+                for nterms in [1usize, 3, 9] {
+                    let sources: Vec<Vec<u8>> = (0..nterms)
+                        .map(|t| noise(row_len, 0xb00 + t as u64))
+                        .collect();
+                    let coeff_sets: Vec<Vec<gf8d::Elem>> = (0..nterms)
+                        .map(|t| (0..nrows).map(|j| gf8d_coeff_at2(t, j)).collect())
+                        .collect();
+                    let terms: Vec<(&[gf8d::Elem], &[u8])> = coeff_sets
+                        .iter()
+                        .zip(&sources)
+                        .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                        .collect();
+                    let mut got = noise(row_len * nrows, 0xb10);
+                    let mut want = got.clone();
+                    x86::gf8::mul_add_matrix_affine512(token, &mut got, row_len, nrows, &terms);
+                    for &(coeffs, src) in &terms {
+                        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                            gf8d_reference(row, coeff, src);
+                        }
+                    }
+                    assert_eq!(
+                        got, want,
+                        "gf8d affine512 tiles: {row_len}B x {nrows} x {nterms}t"
+                    );
+                    // Empty terms: accumulate leaves rows unchanged, overwrite zeroes them.
+                    let mut got = noise(row_len * nrows, 0xb11);
+                    let want = got.clone();
+                    let empty: &[(&[gf8d::Elem], &[u8])] = &[];
+                    x86::gf8::mul_add_matrix_affine512(token, &mut got, row_len, nrows, empty);
+                    assert_eq!(
+                        got, want,
+                        "gf8d affine512 empty accumulate: {row_len}B x {nrows}"
+                    );
+                    let mut got = noise(row_len * nrows, 0xb12);
+                    x86::gf8::mul_into_matrix_affine512(token, &mut got, row_len, nrows, empty);
+                    assert_eq!(
+                        got,
+                        vec![0u8; row_len * nrows],
+                        "gf8d affine512 empty overwrite: {row_len}B x {nrows}"
+                    );
+                }
+            }
+        }
+        // Alignment peel: rows long enough to peel, placed off a 64-byte
+        // boundary, so the head runs through the tail helper with a source
+        // window shorter than the row. One-, two-, and four-row groups each
+        // peel; accumulate and overwrite share the tail. Lengths track the
+        // floor so the peel stays exercised if the floor moves.
+        let floor = x86::gf8::MATRIX_PEEL_MIN;
+        for &offset in &[1usize, 16, 48] {
+            for &row_len in &[floor - 64, floor, floor + 64] {
+                for &nrows in &[1usize, 2, 4, 7] {
+                    let sources: Vec<Vec<u8>> = (0..3usize)
+                        .map(|t| noise(row_len, 0xb30 + t as u64))
+                        .collect();
+                    let coeff_sets: Vec<Vec<gf8d::Elem>> = (0..3usize)
+                        .map(|t| (0..nrows).map(|j| gf8d_coeff_at2(t, j)).collect())
+                        .collect();
+                    let terms: Vec<(&[gf8d::Elem], &[u8])> = coeff_sets
+                        .iter()
+                        .zip(&sources)
+                        .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                        .collect();
+                    let span = row_len * nrows;
+                    let mut backing = noise(span + 128, 0xb31);
+                    let start = backing.as_ptr().align_offset(64) + offset;
+                    let mut want = backing[start..start + span].to_vec();
+                    for &(coeffs, src) in &terms {
+                        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                            gf8d_reference(row, coeff, src);
+                        }
+                    }
+                    let rows = &mut backing[start..start + span];
+                    x86::gf8::mul_add_matrix_affine512(token, rows, row_len, nrows, &terms);
+                    assert_eq!(
+                        rows,
+                        want.as_slice(),
+                        "gf8d affine512 peeled accumulate: +{offset} {row_len}B x {nrows}"
+                    );
+                    let mut want = vec![0u8; span];
+                    for &(coeffs, src) in &terms {
+                        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                            gf8d_reference(row, coeff, src);
+                        }
+                    }
+                    x86::gf8::mul_into_matrix_affine512(token, rows, row_len, nrows, &terms);
+                    assert_eq!(
+                        rows,
+                        want.as_slice(),
+                        "gf8d affine512 peeled overwrite: +{offset} {row_len}B x {nrows}"
+                    );
+                }
+            }
+        }
+        // Scatter rows straddle the floor and have both whole-line and
+        // sub-line pitches; gather sources exercise the peeled head as well.
+        for &offset in &[1usize, 16, 48] {
+            for len in [
+                x86::gf8::SCATTER_PEEL_MIN,
+                x86::gf8::SCATTER_PEEL_MIN + 16,
+                1152,
+                1168,
+                1184,
+                1200,
+            ] {
+                for &nrows in &[1usize, 2, 3, 4, 6] {
+                    let src_backing = noise(len + 128, 0xb40);
+                    let s0 = src_backing.as_ptr().align_offset(64) + offset;
+                    let src = &src_backing[s0..s0 + len];
+                    let coeffs: Vec<gf8d::Elem> = (0..nrows).map(gf8d_coeff_at).collect();
+                    let mut backing = noise(len * nrows + 128, 0xb41);
+                    let start = backing.as_ptr().align_offset(64) + offset;
+                    let mut want = backing[start..start + len * nrows].to_vec();
+                    for (row, &coeff) in want.chunks_exact_mut(len).zip(&coeffs) {
+                        gf8d_reference(row, coeff, src);
+                    }
+                    let rows = &mut backing[start..start + len * nrows];
+                    x86::gf8::mul_add_scatter_affine512(token, rows, len, &coeffs, src);
+                    assert_eq!(
+                        rows,
+                        want.as_slice(),
+                        "gf8d affine512 peeled scatter: +{offset} {len}B x {nrows}"
+                    );
+                }
+            }
+            for len in [
+                x86::gf8::GATHER_PEEL_MIN - 1,
+                x86::gf8::GATHER_PEEL_MIN,
+                x86::gf8::GATHER_PEEL_MIN + 64,
+            ] {
+                for &nsrcs in &[1usize, 3, 16] {
+                    let backings: Vec<Vec<u8>> = (0..nsrcs)
+                        .map(|t| noise(len + 128, 0xb50 + t as u64))
+                        .collect();
+                    let srcs: Vec<&[u8]> = backings
+                        .iter()
+                        .map(|b| {
+                            let s = b.as_ptr().align_offset(64) + offset;
+                            &b[s..s + len]
+                        })
+                        .collect();
+                    let coeffs: Vec<gf8d::Elem> = (0..nsrcs).map(gf8d_coeff_at).collect();
+                    let mut backing = noise(len + 128, 0xb51);
+                    let start = backing.as_ptr().align_offset(64) + offset;
+                    let mut want = backing[start..start + len].to_vec();
+                    for (&coeff, &src) in coeffs.iter().zip(&srcs) {
+                        gf8d_reference(&mut want, coeff, src);
+                    }
+                    let dst = &mut backing[start..start + len];
+                    x86::gf8::mul_add_gather_affine512(token, dst, &coeffs, &srcs);
+                    assert_eq!(
+                        dst,
+                        want.as_slice(),
+                        "gf8d affine512 peeled gather: +{offset} {len}B x {nsrcs}"
+                    );
+                }
+            }
+        }
+        // Scattered rows: disjoint offsets, blocked affine against per-term AXPY.
+        // Even iterations use ascending starts, odd iterations a reversed
+        // (non-monotonic) order over the same windows.
+        for &row_len in ROW_LENS {
+            for (ri, &nrows) in ROW_COUNTS.iter().enumerate() {
+                let mut starts: Vec<usize> = (0..nrows).map(|j| j * (row_len + 7)).collect();
+                if ri % 2 == 1 {
+                    starts.reverse();
+                }
+                let span = starts.iter().map(|&x| x + row_len).max().unwrap_or(0);
+                let sources: Vec<Vec<u8>> = (0..3usize)
+                    .map(|t| noise(row_len, 0x900 + t as u64))
+                    .collect();
+                let coeff_sets: Vec<Vec<gf8d::Elem>> = (0..3usize)
+                    .map(|t| (0..nrows).map(|j| gf8d_coeff_at2(t, j)).collect())
+                    .collect();
+                let terms: Vec<(&[gf8d::Elem], &[u8])> = coeff_sets
+                    .iter()
+                    .zip(&sources)
+                    .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                    .collect();
+                let mut got = noise(span, 0xda);
+                let mut want = got.clone();
+                x86::gf8::mul_add_matrix_at_affine512(token, &mut got, row_len, &starts, &terms);
+                for &(coeffs, src) in &terms {
+                    for (j, &coeff) in coeffs.iter().enumerate() {
+                        scalar::mul_add::<gf8d::Gf8D>(
+                            &mut want[starts[j]..starts[j] + row_len],
+                            coeff,
+                            src,
+                        );
+                    }
+                }
+                assert_eq!(got, want, "gf8d affine512 scattered: {row_len}B x {nrows}");
+                // Empty terms leave scattered rows unchanged; zero rows are a no-op.
+                let mut got = noise(span, 0xdb);
+                let want = got.clone();
+                let empty: &[(&[gf8d::Elem], &[u8])] = &[];
+                x86::gf8::mul_add_matrix_at_affine512(token, &mut got, row_len, &starts, empty);
+                assert_eq!(
+                    got, want,
+                    "gf8d affine512 scattered empty: {row_len}B x {nrows}"
+                );
+            }
+        }
+        {
+            let mut rows = noise(64, 0xdc);
+            let want = rows.clone();
+            let empty: &[(&[gf8d::Elem], &[u8])] = &[];
+            x86::gf8::mul_add_matrix_at_affine512(token, &mut rows, 16, &[], empty);
+            assert_eq!(rows, want, "gf8d affine512 scattered zero rows");
+        }
+        // `Gf8B` through the generic scattered body: same windows, AES field.
+        for &row_len in ROW_LENS {
+            for &nrows in ROW_COUNTS {
+                let starts: Vec<usize> = (0..nrows).rev().map(|j| j * (row_len + 7)).collect();
+                let span = starts.iter().map(|&x| x + row_len).max().unwrap_or(0);
+                let sources: Vec<Vec<u8>> = (0..3usize)
+                    .map(|t| noise(row_len, 0x940 + t as u64))
+                    .collect();
+                let coeff_sets: Vec<Vec<gf8b::Elem>> = (0..3usize)
+                    .map(|t| (0..nrows).map(|j| gf8_coeff_at2(t, j)).collect())
+                    .collect();
+                let terms: Vec<(&[gf8b::Elem], &[u8])> = coeff_sets
+                    .iter()
+                    .zip(&sources)
+                    .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                    .collect();
+                let mut got = noise(span, 0xdd);
+                let mut want = got.clone();
+                x86::gf8::mul_add_matrix_at_affine512(token, &mut got, row_len, &starts, &terms);
+                for &(coeffs, src) in &terms {
+                    for (j, &coeff) in coeffs.iter().enumerate() {
+                        gf8_reference(&mut want[starts[j]..starts[j] + row_len], coeff, src);
+                    }
+                }
+                assert_eq!(got, want, "gf8b affine512 scattered: {row_len}B x {nrows}");
+            }
+        }
+        // 64-byte elementwise products for both byte fields: full lanes, the
+        // 32/16-byte ladder, and the scalar tail.
+        check_gf8_elementwise("gf8 gfni512 elementwise", |dst, a, b| {
+            x86::gf8::mul_elementwise_gfni512(token, dst, a, b);
+        });
+        check_elementwise_assign::<gf8b::Gf8B>("gf8 gfni512 elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_gfni512(token, dst, src);
+        });
+        check_gf8d_elementwise("gf8d iso512 elementwise", |dst, a, b| {
+            x86::gf8::mul_elementwise_iso512_8d(token, dst, a, b);
+        });
+        check_elementwise_assign::<gf8d::Gf8D>("gf8d iso512 elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_iso512_8d(token, dst, src);
+        });
+        // The `_with` provider path over the flat test-slice terms.
+        for &row_len in ROW_LENS {
+            for &nrows in ROW_COUNTS {
+                let sources: Vec<Vec<u8>> = (0..3usize)
+                    .map(|t| noise(row_len, 0xa00 + t as u64))
+                    .collect();
+                let coeff_sets: Vec<Vec<gf8d::Elem>> = (0..3usize)
+                    .map(|t| (0..nrows).map(|j| gf8d_coeff_at2(t, j)).collect())
+                    .collect();
+                let terms: Vec<(&[gf8d::Elem], &[u8])> = coeff_sets
+                    .iter()
+                    .zip(&sources)
+                    .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                    .collect();
+                let flat: Vec<gf8d::Elem> = terms
+                    .iter()
+                    .flat_map(|&(coeffs, _)| coeffs.iter().copied())
+                    .collect();
+                let flat_srcs: Vec<&[u8]> = terms.iter().map(|&(_, s)| s).collect();
+                let matrix = crate::kernel::FlatMatrix {
+                    coefficients: &flat,
+                    nrows,
+                    sources: &flat_srcs,
+                };
+                let mut got = noise(row_len * nrows, 0xdb);
+                let mut want = got.clone();
+                x86::gf8::mul_add_matrix_affine512_with(token, &mut got, row_len, nrows, &matrix);
+                for &(coeffs, src) in &terms {
+                    for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                        scalar::mul_add::<gf8d::Gf8D>(row, coeff, src);
+                    }
+                }
+                assert_eq!(got, want, "gf8d affine512 with: {row_len}B x {nrows}");
+                let mut got = noise(row_len * nrows, 0xdc);
+                x86::gf8::mul_into_matrix_affine512_with(token, &mut got, row_len, nrows, &matrix);
+                let mut want = vec![0u8; row_len * nrows];
+                for &(coeffs, src) in &terms {
+                    for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                        scalar::mul_add::<gf8d::Gf8D>(row, coeff, src);
+                    }
+                }
+                assert_eq!(
+                    got, want,
+                    "gf8d affine512 overwrite with: {row_len}B x {nrows}"
+                );
+            }
         }
     }
 
@@ -1732,6 +2377,9 @@ mod x86 {
             // `0x1d` shift/reduce form the three-slice kernel does.
             x86::gf8::mul_elementwise_assign_avx2::<0x1d>(v3, dst, src);
         });
+        check_elementwise_assign::<gf8d::Gf8D>("gf8d iso elementwise assign", |dst, src| {
+            x86::gf8::mul_elementwise_assign_iso_8d(token, dst, src);
+        });
         check_elementwise_assign::<gf16::Gf16>("gf16 gfni elementwise assign", |dst, src| {
             x86::gf16::mul_elementwise_assign_gfni(token, dst, src);
         });
@@ -1858,10 +2506,15 @@ mod x86 {
     /// Scattered-rows differential for the blocked affine matrix.
     fn check_gf8d_scattered_affine_rows(token: X64V3GfniCryptoToken) {
         // Scattered rows: disjoint offsets, blocked affine against per-term AXPY.
+        // Even iterations use ascending starts, odd iterations a reversed
+        // (non-monotonic) order over the same windows.
         for &row_len in ROW_LENS {
-            for &nrows in ROW_COUNTS {
-                let starts: Vec<usize> = (0..nrows).map(|j| j * (row_len + 7)).collect();
-                let span = starts.last().map_or(0, |&s| s + row_len);
+            for (ri, &nrows) in ROW_COUNTS.iter().enumerate() {
+                let mut starts: Vec<usize> = (0..nrows).map(|j| j * (row_len + 7)).collect();
+                if ri % 2 == 1 {
+                    starts.reverse();
+                }
+                let span = starts.iter().map(|&x| x + row_len).max().unwrap_or(0);
                 let sources: Vec<Vec<u8>> = (0..3usize)
                     .map(|t| noise(row_len, 0x900 + t as u64))
                     .collect();
@@ -1922,12 +2575,15 @@ mod x86 {
         let source = noise(NT_LEN + 2, 0x2b8);
         for offset in [0, 1] {
             let src = &source[offset..offset + NT_LEN];
-            let mut buffer = vec![0u8; NT_LEN + 1];
+            // Noise, not zeros: a streaming body that accumulated into the
+            // destination instead of overwriting it must fail this check.
+            let mut buffer = noise(NT_LEN + 1, 0x2b9);
             for coeff in [0u8, 1, 0x53, 0xff].map(gf8d::Elem) {
                 let mut want = src.to_vec();
                 scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
                 let got = &mut buffer[offset..offset + NT_LEN];
                 x86::gf8::mul_into_affine(token, got, affine_8d(coeff), scale_table_8d(coeff), src);
+                assert_eq!(&*got, want, "gf8d affine NT mul_into: offset {offset}");
             }
         }
 
@@ -1968,6 +2624,153 @@ mod x86 {
             |dst, coeffs, srcs| x86::gf8::mul_add_gather_affine(token, dst, coeffs, srcs),
         );
         check_gf8d_scattered_affine_rows(token);
+    }
+
+    /// Field-independent XOR across the half-lane peel floor: the 16-mod-32
+    /// residues that peel, their odd neighbours that decline, and every
+    /// destination offset against the byte-wise reference.
+    #[test]
+    fn bytes_avx2_peels_half_lane() {
+        if !host_supports(&[Backend::V3]) {
+            eprintln!("skipping: no AVX2 on this host");
+            return;
+        }
+        let token = X64V3Token::summon().expect("guard passed: AVX2 summons here");
+        let floor = x86::HALF_LANE_PEEL_MIN;
+        for len in [floor - 2, floor - 1, floor, floor + 1, floor + 130, 1152] {
+            for offset in [0usize, 1, 2, 15, 16, 17, 31, 32, 47] {
+                let src_storage = noise(len + 64, 0x2c1);
+                let mut dst_storage = noise(len + 128, 0x2c2);
+                let base = dst_storage.as_ptr().align_offset(64);
+                let dst = &mut dst_storage[base + offset..base + offset + len];
+                let src = &src_storage[offset..offset + len];
+                let mut want = dst.to_vec();
+                scalar::xor(&mut want, src);
+                x86::bytes::xor_avx2(token, dst, src);
+                assert_eq!(&*dst, want, "xor_avx2: len {len}, offset {offset}");
+            }
+        }
+    }
+
+    /// The `GF2P8MULB` byte kernels across the half-lane peel floor, against
+    /// the scalar reference for all three single-row forms.
+    #[test]
+    fn gf8_gfni_peels_half_lane() {
+        if !host_supports(&[Backend::V3GfniCrypto]) {
+            eprintln!("skipping: no AVX2+GFNI on this host");
+            return;
+        }
+        let token = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
+        let floor = x86::HALF_LANE_PEEL_MIN;
+        for len in [floor - 2, floor - 1, floor, floor + 1, floor + 130, 1152] {
+            for offset in [0usize, 1, 2, 15, 16, 17, 31, 32, 47] {
+                let src_storage = noise(len + 64, 0x2c3);
+                let mut dst_storage = noise(len + 128, 0x2c4);
+                let base = dst_storage.as_ptr().align_offset(64);
+                let dst = &mut dst_storage[base + offset..base + offset + len];
+                let src = &src_storage[offset..offset + len];
+                for coeff in [0u8, 1, 0x53, 0xff].map(gf8b::Elem) {
+                    let before = dst.to_vec();
+                    let mut want = before.clone();
+                    scalar::mul_add::<gf8b::Gf8B>(&mut want, coeff, src);
+                    x86::gf8::mul_add_gfni(token, dst, coeff, src);
+                    assert_eq!(&*dst, want, "mul_add_gfni: len {len}, offset {offset}");
+                    dst.copy_from_slice(&before);
+                    let mut want = before.clone();
+                    scalar::mul_assign::<gf8b::Gf8B>(&mut want, coeff);
+                    x86::gf8::mul_assign_gfni(token, dst, coeff);
+                    assert_eq!(&*dst, want, "mul_assign_gfni: len {len}, offset {offset}");
+                    let mut want = src.to_vec();
+                    scalar::mul_assign::<gf8b::Gf8B>(&mut want, coeff);
+                    x86::gf8::mul_into_gfni(token, dst, coeff, src);
+                    assert_eq!(&*dst, want, "mul_into_gfni: len {len}, offset {offset}");
+                }
+            }
+        }
+    }
+
+    /// The `VGF2P8AFFINEQB` byte kernels across the half-lane peel floor,
+    /// against the scalar reference for all three single-row forms.
+    #[test]
+    fn gf8d_affine_peels_half_lane() {
+        if !host_supports(&[Backend::V3GfniCrypto]) {
+            eprintln!("skipping: no AVX2+GFNI on this host");
+            return;
+        }
+        let token = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
+        let floor = x86::HALF_LANE_PEEL_MIN;
+        for len in [floor - 2, floor - 1, floor, floor + 1, floor + 130, 1152] {
+            for offset in [0usize, 1, 2, 15, 16, 17, 31, 32, 47] {
+                let src_storage = noise(len + 64, 0x2c5);
+                let mut dst_storage = noise(len + 128, 0x2c6);
+                let base = dst_storage.as_ptr().align_offset(64);
+                let dst = &mut dst_storage[base + offset..base + offset + len];
+                let src = &src_storage[offset..offset + len];
+                for coeff in [0u8, 1, 0x53, 0xff].map(gf8d::Elem) {
+                    let map = affine_8d(coeff);
+                    let table = scale_table_8d(coeff);
+                    let before = dst.to_vec();
+                    let mut want = before.clone();
+                    scalar::mul_add::<gf8d::Gf8D>(&mut want, coeff, src);
+                    x86::gf8::mul_add_affine(token, dst, map, table, src);
+                    assert_eq!(&*dst, want, "mul_add_affine: len {len}, offset {offset}");
+                    dst.copy_from_slice(&before);
+                    let mut want = before.clone();
+                    scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
+                    x86::gf8::mul_assign_affine(token, dst, map, table);
+                    assert_eq!(&*dst, want, "mul_assign_affine: len {len}, offset {offset}");
+                    let mut want = src.to_vec();
+                    scalar::mul_assign::<gf8d::Gf8D>(&mut want, coeff);
+                    x86::gf8::mul_into_affine(token, dst, map, table, src);
+                    assert_eq!(&*dst, want, "mul_into_affine: len {len}, offset {offset}");
+                }
+            }
+        }
+    }
+
+    /// The GF(2^16) GFNI kernels across the half-lane peel floor: even
+    /// lengths over every destination residue, so declined odd heads stay
+    /// covered beside the peeled 16-mod-32 ones.
+    #[test]
+    fn gf16_gfni_peels_half_lane() {
+        if !host_supports(&[Backend::V3GfniCrypto]) {
+            eprintln!("skipping: no AVX2+GFNI on this host");
+            return;
+        }
+        let token = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
+        let floor = x86::HALF_LANE_PEEL_MIN;
+        for len in [floor - 2, floor, floor + 2, floor + 130, 1152, 4096 + 66] {
+            for offset in [0usize, 1, 2, 15, 16, 17, 31, 32, 47] {
+                let src_storage = noise(len + 64, 0x2c7);
+                let mut dst_storage = noise(len + 128, 0x2c8);
+                let base = dst_storage.as_ptr().align_offset(64);
+                let dst = &mut dst_storage[base + offset..base + offset + len];
+                let src = &src_storage[offset..offset + len];
+                for coeff in gf16_coeffs() {
+                    let prepared = TowerCoeff::new(coeff);
+                    let before = dst.to_vec();
+                    let mut want = before.clone();
+                    scalar::mul_add::<gf16::Gf16>(&mut want, coeff, src);
+                    x86::gf16::mul_add_gfni(token, dst, prepared, src);
+                    assert_eq!(&*dst, want, "gf16 mul_add_gfni: len {len}, offset {offset}");
+                    dst.copy_from_slice(&before);
+                    let mut want = before.clone();
+                    scalar::mul_assign::<gf16::Gf16>(&mut want, coeff);
+                    x86::gf16::mul_assign_gfni(token, dst, prepared);
+                    assert_eq!(
+                        &*dst, want,
+                        "gf16 mul_assign_gfni: len {len}, offset {offset}"
+                    );
+                    let mut want = src.to_vec();
+                    scalar::mul_assign::<gf16::Gf16>(&mut want, coeff);
+                    x86::gf16::mul_into_gfni(token, dst, prepared, src);
+                    assert_eq!(
+                        &*dst, want,
+                        "gf16 mul_into_gfni: len {len}, offset {offset}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -2046,6 +2849,13 @@ mod x86 {
         check_gf8d_elementwise("gf8d avx2 elementwise", |dst, a, b| {
             x86::gf8::mul_elementwise_avx2::<0x1d>(token, dst, a, b);
         });
+        if let Some(gfni) = X64V3GfniCryptoToken::summon() {
+            check_gf8d_elementwise("gf8d iso elementwise", |dst, a, b| {
+                x86::gf8::mul_elementwise_iso_8d(gfni, dst, a, b);
+            });
+        } else {
+            eprintln!("skipping: gf8d iso elementwise needs GFNI");
+        }
         check_gf16_elementwise("gf16 avx2 elementwise", |dst, a, b| {
             x86::gf16::mul_elementwise_avx2(token, dst, a, b);
         });
@@ -2502,16 +3312,48 @@ mod x86 {
         }
     }
 
-    /// Multi-row scatter over rows long enough to take the alignment peel.
+    #[test]
+    fn half_lane_payloads_match_reference() {
+        if !host_supports(&[Backend::V3GfniCrypto]) {
+            eprintln!("skipping: no AVX2+GFNI on this host");
+            return;
+        }
+        let gfni = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
+        let avx2 = X64V3Token::summon().expect("GFNI implies AVX2");
+        let coeff = gf8b::Elem::from_raw(0x53);
+        for len in [511usize, 512, 1152, 1168, 1200, 2048] {
+            for off in [0usize, 1, 16, 32, 48] {
+                let src_backing = noise(len + 128, 0x522);
+                let src_start = src_backing.as_ptr().align_offset(64) + (off + 16) % 64;
+                let src = &src_backing[src_start..src_start + len];
+                let mut backing = noise(len + 128, 0x533);
+                let start = backing.as_ptr().align_offset(64) + off;
+                let dst = &mut backing[start..start + len];
+                let mut want = dst.to_vec();
+
+                x86::bytes::xor_avx2(avx2, dst, src);
+                scalar::xor(&mut want, src);
+                assert_eq!(dst, want, "xor {len} +{off}");
+
+                x86::gf8::mul_add_gfni(gfni, dst, coeff, src);
+                scalar::mul_add::<gf8b::Gf8B>(&mut want, coeff, src);
+                assert_eq!(dst, want, "mul_add {len} +{off}");
+
+                x86::gf8::mul_assign_gfni(gfni, dst, coeff);
+                scalar::mul_assign::<gf8b::Gf8B>(&mut want, coeff);
+                assert_eq!(dst, want, "mul_assign {len} +{off}");
+            }
+        }
+    }
+
+    /// Multi-row scatter across short and long rows, including pitches that
+    /// alternate the destination alignment within a row group.
     ///
-    /// `ROW_LENS` tops out at 300 bytes, below the peel's row-length floor, so
-    /// no other test reaches the peeled path. The destination is offset by
-    /// every residue that matters: 0 and 16 pick different peel lengths, and 1
-    /// makes a 32-byte boundary unreachable in whole GF(2^16) elements, which
-    /// must skip the peel rather than split an element.
+    /// The source and destination start at independent offsets; reference
+    /// multiplication checks the peeled head and the vector/tail seam.
     #[test]
     fn aligned_scatter_matches_reference() {
-        const ROW_LEN: usize = 4096;
+        const ROW_LENS: &[usize] = &[512, 1152, 1168, 1184, 1200, 2048, 4096];
         type ScatterKernel<'a> = dyn Fn(&mut [u8], usize, &[gf16::Elem], &[u8]) + 'a;
 
         if !(host_supports(&[Backend::V3GfniCrypto])) {
@@ -2521,53 +3363,75 @@ mod x86 {
         let token = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
         let v3 = X64V3Token::summon().expect("GFNI implies AVX2");
         let v2 = X64V2Token::summon().expect("GFNI implies SSSE3");
-        for nrows in [1usize, 4, 6, 9] {
-            for skew in [0usize, 1, 16] {
-                let src = noise(ROW_LEN, 0x1b8);
-                let mut backing = noise(ROW_LEN * nrows + skew, 0x1c9);
-                let rows = &mut backing[skew..];
+        for &row_len in ROW_LENS {
+            for nrows in [1usize, 4, 6, 9] {
+                for skew in [0usize, 1, 16] {
+                    let src = noise(row_len, 0x1b8);
+                    let mut backing = noise(row_len * nrows + skew, 0x1c9);
+                    let rows = &mut backing[skew..];
 
-                let coeffs8: Vec<_> = (0..nrows).map(gf8_coeff_at).collect();
-                let mut want = rows.to_vec();
-                x86::gf8::mul_add_scatter_gfni(token, rows, ROW_LEN, &coeffs8, &src);
-                for (row, &coeff) in want.chunks_exact_mut(ROW_LEN).zip(&coeffs8) {
-                    gf8_reference(row, coeff, &src);
-                }
-                assert_eq!(rows, want.as_slice(), "gf8 peeled scatter: {nrows}/{skew}");
-
-                let coeffs16: Vec<_> = (0..nrows).map(gf16_coeff_at).collect();
-                let mut want = rows.to_vec();
-                x86::gf16::mul_add_scatter_gfni(token, rows, ROW_LEN, &coeffs16, &src);
-                for (row, &coeff) in want.chunks_exact_mut(ROW_LEN).zip(&coeffs16) {
-                    gf16_reference(row, coeff, &src);
-                }
-                assert_eq!(rows, want.as_slice(), "gf16 peeled scatter: {nrows}/{skew}");
-
-                let kernels: [(&str, &ScatterKernel<'_>); 2] = [
-                    ("avx2", &|rows: &mut [u8],
-                               row_len: usize,
-                               coeffs: &[gf16::Elem],
-                               src: &[u8]| {
-                        x86::gf16::mul_add_scatter_avx2(v3, rows, row_len, coeffs, src);
-                    }),
-                    ("ssse3", &|rows: &mut [u8],
-                                row_len: usize,
-                                coeffs: &[gf16::Elem],
-                                src: &[u8]| {
-                        x86::gf16::mul_add_scatter_ssse3(v2, rows, row_len, coeffs, src);
-                    }),
-                ];
-                for (name, kernel) in kernels {
+                    let coeffs8: Vec<_> = (0..nrows).map(gf8_coeff_at).collect();
                     let mut want = rows.to_vec();
-                    kernel(rows, ROW_LEN, &coeffs16, &src);
-                    for (row, &coeff) in want.chunks_exact_mut(ROW_LEN).zip(&coeffs16) {
+                    x86::gf8::mul_add_scatter_gfni(token, rows, row_len, &coeffs8, &src);
+                    for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs8) {
+                        gf8_reference(row, coeff, &src);
+                    }
+                    assert_eq!(
+                        rows,
+                        want.as_slice(),
+                        "gf8 scatter: {row_len}/{nrows}/{skew}"
+                    );
+
+                    let affine_coeffs: Vec<_> = (0..nrows).map(gf8d_coeff_at).collect();
+                    let mut want = rows.to_vec();
+                    x86::gf8::mul_add_scatter_affine(token, rows, row_len, &affine_coeffs, &src);
+                    for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&affine_coeffs) {
+                        gf8d_reference(row, coeff, &src);
+                    }
+                    assert_eq!(
+                        rows,
+                        want.as_slice(),
+                        "gf8d scatter: {row_len}/{nrows}/{skew}"
+                    );
+
+                    let coeffs16: Vec<_> = (0..nrows).map(gf16_coeff_at).collect();
+                    let mut want = rows.to_vec();
+                    x86::gf16::mul_add_scatter_gfni(token, rows, row_len, &coeffs16, &src);
+                    for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs16) {
                         gf16_reference(row, coeff, &src);
                     }
                     assert_eq!(
                         rows,
                         want.as_slice(),
-                        "gf16 {name} peeled scatter: {nrows}/{skew}"
+                        "gf16 scatter: {row_len}/{nrows}/{skew}"
                     );
+
+                    let kernels: [(&str, &ScatterKernel<'_>); 2] = [
+                        ("avx2", &|rows: &mut [u8],
+                                   row_len: usize,
+                                   coeffs: &[gf16::Elem],
+                                   src: &[u8]| {
+                            x86::gf16::mul_add_scatter_avx2(v3, rows, row_len, coeffs, src);
+                        }),
+                        ("ssse3", &|rows: &mut [u8],
+                                    row_len: usize,
+                                    coeffs: &[gf16::Elem],
+                                    src: &[u8]| {
+                            x86::gf16::mul_add_scatter_ssse3(v2, rows, row_len, coeffs, src);
+                        }),
+                    ];
+                    for (name, kernel) in kernels {
+                        let mut want = rows.to_vec();
+                        kernel(rows, row_len, &coeffs16, &src);
+                        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs16) {
+                            gf16_reference(row, coeff, &src);
+                        }
+                        assert_eq!(
+                            rows,
+                            want.as_slice(),
+                            "gf16 {name} scatter: {row_len}/{nrows}/{skew}"
+                        );
+                    }
                 }
             }
         }
@@ -2728,6 +3592,112 @@ mod x86 {
             |dst, c| x86::prime::sub_assign_scalar_gld_avx2(token, dst, c),
             "gld avx2",
         );
+    }
+
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn prime_avx512_kernels_match_reference() {
+        // Lane-straddling lengths past the 64-byte vector, each ending in an
+        // AVX2 and a scalar remainder.
+        const M31_WIDE: &[usize] = &[0, 4, 60, 64, 68, 96, 128, 196, 260, 1020, 1028];
+        const GLD_WIDE: &[usize] = &[0, 8, 56, 64, 72, 96, 128, 200, 264, 1024, 1032];
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        let token = token.v4();
+        drive_prime::<Mersenne31, u32>(
+            M31_WIDE,
+            &M31_COEFFS,
+            mersenne31::Elem,
+            |dst, src| x86::prime::add_assign_m31_avx512(token, dst, src),
+            |dst, src| x86::prime::sub_assign_m31_avx512(token, dst, src),
+            |dst, coeff, src| x86::prime::mul_add_m31_avx512(token, dst, coeff, src),
+            |dst, coeff, src| x86::prime::mul_into_m31_avx512(token, dst, coeff, src),
+            |dst, coeff| x86::prime::mul_assign_m31_avx512(token, dst, coeff),
+            |dst, a, b| x86::prime::mul_elementwise_m31_avx512(token, dst, a, b),
+            |dst, s| x86::prime::mul_elementwise_assign_m31_avx512(token, dst, s),
+            |dst, c| x86::prime::add_assign_scalar_m31_avx512(token, dst, c),
+            |dst, c| x86::prime::sub_assign_scalar_m31_avx512(token, dst, c),
+            "m31 avx512",
+        );
+        drive_prime::<Goldilocks, u64>(
+            GLD_WIDE,
+            &GLD_COEFFS,
+            goldilocks::Elem,
+            |dst, src| x86::prime::add_assign_gld_avx512(token, dst, src),
+            |dst, src| x86::prime::sub_assign_gld_avx512(token, dst, src),
+            |dst, coeff, src| x86::prime::mul_add_gld_avx512(token, dst, coeff, src),
+            |dst, coeff, src| x86::prime::mul_into_gld_avx512(token, dst, coeff, src),
+            |dst, coeff| x86::prime::mul_assign_gld_avx512(token, dst, coeff),
+            |dst, a, b| x86::prime::mul_elementwise_gld_avx512(token, dst, a, b),
+            |dst, s| x86::prime::mul_elementwise_assign_gld_avx512(token, dst, s),
+            |dst, c| x86::prime::add_assign_scalar_gld_avx512(token, dst, c),
+            |dst, c| x86::prime::sub_assign_scalar_gld_avx512(token, dst, c),
+            "gld avx512",
+        );
+    }
+
+    /// Goldilocks lane edges noise buffers rarely hit — non-canonical
+    /// inputs, operands at `p − 1`, and products whose fold both borrows and
+    /// wraps — against the `u128 % p` model.
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn gld_avx512_lane_edges_match_u128_model() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        let modulus = goldilocks::MODULUS;
+        let edges: [u64; 12] = [
+            0,
+            1,
+            2,
+            0xFFFF_FFFF,
+            0x1_0000_0000,
+            modulus - 2,
+            modulus - 1,
+            modulus,
+            modulus + 1,
+            u64::MAX - 1,
+            u64::MAX,
+            0xFFFF_FFFE_FFFF_FFFF,
+        ];
+        let (lhs, rhs): (Vec<u64>, Vec<u64>) = edges
+            .iter()
+            .flat_map(|&x| edges.iter().map(move |&y| (x, y)))
+            .unzip();
+        let bytes = |v: &[u64]| v.iter().flat_map(|w| w.to_le_bytes()).collect::<Vec<u8>>();
+        let (lhs_bytes, rhs_bytes) = (bytes(&lhs), bytes(&rhs));
+        let word = |buf: &[u8], lane: usize| {
+            u64::from_le_bytes(buf[8 * lane..8 * lane + 8].try_into().unwrap())
+        };
+        let wide = u128::from(modulus);
+
+        let mut product = vec![0u8; lhs_bytes.len()];
+        x86::prime::mul_elementwise_gld_avx512(token.v4(), &mut product, &lhs_bytes, &rhs_bytes);
+        let mut sum = lhs_bytes.clone();
+        x86::prime::add_assign_gld_avx512(token.v4(), &mut sum, &rhs_bytes);
+        let mut diff = lhs_bytes.clone();
+        x86::prime::sub_assign_gld_avx512(token.v4(), &mut diff, &rhs_bytes);
+        for (lane, (&left, &right)) in lhs.iter().zip(&rhs).enumerate() {
+            let (x, y) = (u128::from(left) % wide, u128::from(right) % wide);
+            assert_eq!(
+                u128::from(word(&product, lane)),
+                x * y % wide,
+                "gld mul {left:#x} * {right:#x}"
+            );
+            assert_eq!(
+                u128::from(word(&sum, lane)),
+                (x + y) % wide,
+                "gld add {left:#x} {right:#x}"
+            );
+            assert_eq!(
+                u128::from(word(&diff, lane)),
+                (x + wide - y) % wide,
+                "gld sub {left:#x} {right:#x}"
+            );
+        }
     }
 
     #[test]

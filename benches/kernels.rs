@@ -172,13 +172,87 @@ fn bench_network_payloads() {
     println!();
 }
 
+/// Long batches isolate the payload loop from the clock and scheduler.
+fn bench_network(label: &str, bytes: usize, mut body: impl FnMut()) -> f64 {
+    for _ in 0..64 {
+        body();
+    }
+    let mut samples = [0.0; 64];
+    for sample in &mut samples {
+        let start = Instant::now();
+        for _ in 0..512 {
+            body();
+        }
+        *sample = start.elapsed().as_secs_f64() * 1e9 / 512.0;
+    }
+    samples.sort_unstable_by(f64::total_cmp);
+    let median = samples[samples.len() / 2];
+    println!(
+        "  {label:<44} {:>9}  {:>7.2} GiB/s",
+        fmt_ns(median),
+        bytes as f64 / (median / 1e9) / (1024.0 * 1024.0 * 1024.0)
+    );
+    median
+}
+
+/// Pinned diagnostic: fixed allocation alignment separates row pitch from
+/// the allocator's base address.
+fn bench_network_alignment() {
+    for &len in &[1152usize, 1168, 1184, 1200] {
+        let src_storage = noise(len + 128, 0x700 + len as u64);
+        let mut dst_storage = noise(len + 128, 0x800 + len as u64);
+        for &off in &[0usize, 16, 32, 48] {
+            let s = src_storage.as_ptr().align_offset(64) + off;
+            let d = dst_storage.as_ptr().align_offset(64) + off;
+            let src = &src_storage[s..s + len];
+            let dst = &mut dst_storage[d..d + len];
+            println!(
+                "network diagnostic {len} B off={off} dst={}",
+                (dst.as_ptr() as usize) & 63
+            );
+            bench_network("xor", len, || {
+                ops::add_assign::<Gf8B>(black_box(&mut *dst), black_box(src))
+            });
+            bench_network("mul_add", len, || {
+                ops::mul_add::<Gf8B>(
+                    black_box(&mut *dst),
+                    gf8b::Elem::from_raw(0x53),
+                    black_box(src),
+                )
+            });
+            bench_network("mul_assign", len, || {
+                ops::mul_assign::<Gf8B>(black_box(&mut *dst), gf8b::Elem::from_raw(0x53))
+            });
+            for nrows in [4usize, 16] {
+                let coeffs: Vec<_> = (0..nrows)
+                    .map(|row| gf8b::Elem::from_raw((row as u8).wrapping_mul(37).wrapping_add(2)))
+                    .collect();
+                let mut storage = noise(len * nrows + 128, 0x900 + nrows as u64);
+                let r = storage.as_ptr().align_offset(64) + off;
+                println!(
+                    "rows={nrows} base={}",
+                    (storage[r..].as_ptr() as usize) & 63
+                );
+                let rows = &mut storage[r..r + len * nrows];
+                bench_network(&format!("scatter {nrows}"), len * nrows, || {
+                    ops::mul_add_scatter::<Gf8B>(
+                        black_box(&mut *rows),
+                        len,
+                        black_box(&coeffs),
+                        black_box(src),
+                    )
+                });
+            }
+        }
+    }
+}
+
 /// Blocked multi-row GF(2^16) kernels measured against repeated single-row
 /// AXPY, bypassing dispatch.
 ///
-/// Dispatch currently selects AXPY for GFNI gather, AVX2 gather, and AVX2
-/// matrix (`src/kernel/gf16.rs:119-149`). That choice is a measurement, not a
-/// theory, so it needs a harness that can run both sides in one process:
-/// hence the `internals` feature and the token-proven kernel calls.
+/// GFNI dispatch blocks gather and matrix; AVX2 dispatch uses AXPY for both.
+/// This harness times each alternative in one process through `internals`
+/// token-proven entries.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn bench_blocked_vs_axpy() {
     use fgf::internals::kernel::tables::{TowerCoeff, TowerTables};
@@ -644,6 +718,10 @@ fn main() {
     let gf2 = !named || has("--gf2");
 
     println!("fgf kernel benchmark — backend: {}", backend().name());
+    if has("--network-diagnostic") {
+        bench_network_alignment();
+        return;
+    }
     println!("  (override with SIMD_BACKEND=v3_gfni_crypto|v3|v2|neon|scalar)\n");
 
     if gf {
@@ -705,6 +783,20 @@ fn main() {
             bench("mul_add prepared         gf16", len, || {
                 ops::mul_add_with::<Gf16>(black_box(&mut dst), &prepared16, black_box(&src));
             });
+            bench("mul_into                  gf8", len, || {
+                ops::mul_into::<Gf8B>(
+                    black_box(&mut product),
+                    gf8b::Elem::from_raw(0x53),
+                    black_box(&src),
+                );
+            });
+            bench("mul_into                 gf16", len, || {
+                ops::mul_into::<Gf16>(
+                    black_box(&mut product),
+                    gf16::Elem::from_raw(0x53a7),
+                    black_box(&src),
+                );
+            });
             bench("mul_assign                gf8", len, || {
                 ops::mul_assign::<Gf8B>(black_box(&mut dst), gf8b::Elem::from_raw(0x53));
             });
@@ -721,6 +813,12 @@ fn main() {
                     black_box(&src),
                     black_box(&rhs),
                 );
+            });
+            bench("elementwise_assign        gf8", len, || {
+                ops::mul_elementwise_assign::<Gf8B>(black_box(&mut product), black_box(&src));
+            });
+            bench("elementwise_assign       gf16", len, || {
+                ops::mul_elementwise_assign::<Gf16>(black_box(&mut product), black_box(&src));
             });
             bench("mul_assign               gf16", len, || {
                 ops::mul_assign::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));

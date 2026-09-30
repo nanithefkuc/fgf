@@ -10,6 +10,7 @@
 use crate::kernel::gf16::{mul_add_scalar, mul_assign_scalar, mul_into_scalar};
 use crate::kernel::tables::TowerCoeff;
 
+use super::super::HALF_LANE_PEEL_MIN;
 use super::{broadcast_words, scale_gfni, swap_mask256};
 
 #[cfg(target_arch = "x86")]
@@ -51,10 +52,42 @@ pub fn mul_add_gfni(
         dst.len(),
         src.len(),
     );
+    // The half-lane case pays one 128-bit head so the 32-byte lanes stop
+    // splitting cache lines; the floor is [`HALF_LANE_PEEL_MIN`]
+    // ("v3 half-lane peels and overwrite-gather dispatch",
+    // `BENCHMARKS.md`). The aligned path hands
+    // its slices to the body untouched.
+    if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
+        let (same_word, cross_word) = broadcast_words(coeff);
+        let (same128, cross128, swap128) = (
+            _mm256_castsi256_si128(_mm256_set1_epi16(same_word)),
+            _mm256_castsi256_si128(_mm256_set1_epi16(cross_word)),
+            _mm256_castsi256_si128(swap_mask256()),
+        );
+        let x = _mm_loadu_si128(&src[..16].as_chunks::<16>().0[0]);
+        let p = scale_gfni128(x, _mm_shuffle_epi8(x, swap128), same128, cross128);
+        let d16 = &mut dst[..16].as_chunks_mut::<16>().0[0];
+        let d = _mm_loadu_si128(d16);
+        _mm_storeu_si128(d16, _mm_xor_si128(d, p));
+        mul_add_gfni_body(&mut dst[16..], coeff, &src[16..]);
+    } else {
+        mul_add_gfni_body(dst, coeff, src);
+    }
+}
+
+/// The `mul_add` lanes over the slices the entry hands them.
+#[archmage::rite(v3_gfni_crypto, import_intrinsics)]
+fn mul_add_gfni_body(dst: &mut [u8], coeff: TowerCoeff, src: &[u8]) {
     let (same_word, cross_word) = broadcast_words(coeff);
     let same = _mm256_set1_epi16(same_word);
     let cross = _mm256_set1_epi16(cross_word);
     let swap = swap_mask256();
+    let (same128, cross128, swap128) = (
+        _mm256_castsi256_si128(same),
+        _mm256_castsi256_si128(cross),
+        _mm256_castsi256_si128(swap),
+    );
+
     // Four independent multiply chains per 128-byte tile: `GF2P8MULB` has
     // far more throughput than latency, and a single-destination update has
     // no other work to hide it behind.
@@ -83,11 +116,6 @@ pub fn mul_add_gfni(
     // broadcast.
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<16>();
     let (src_lanes, src_tail) = src_rest.as_chunks::<16>();
-    let (same128, cross128, swap128) = (
-        _mm256_castsi256_si128(same),
-        _mm256_castsi256_si128(cross),
-        _mm256_castsi256_si128(swap),
-    );
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
         let x = _mm_loadu_si128(src_lane);
         let p = scale_gfni128(x, _mm_shuffle_epi8(x, swap128), same128, cross128);
@@ -105,10 +133,40 @@ pub fn mul_add_gfni(
 #[archmage::arcane(import_intrinsics)]
 pub fn mul_assign_gfni(_token: archmage::X64V3GfniCryptoToken, dst: &mut [u8], coeff: TowerCoeff) {
     super::check_elements("gf16::mul_assign_gfni", dst.len());
+    // The half-lane case pays one 128-bit head so the 32-byte lanes stop
+    // splitting cache lines; the floor is [`HALF_LANE_PEEL_MIN`]
+    // ("v3 half-lane peels and overwrite-gather dispatch",
+    // `BENCHMARKS.md`). The aligned path hands
+    // its slices to the body untouched.
+    if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
+        let (same_word, cross_word) = broadcast_words(coeff);
+        let (same128, cross128, swap128) = (
+            _mm256_castsi256_si128(_mm256_set1_epi16(same_word)),
+            _mm256_castsi256_si128(_mm256_set1_epi16(cross_word)),
+            _mm256_castsi256_si128(swap_mask256()),
+        );
+        let d16 = &mut dst[..16].as_chunks_mut::<16>().0[0];
+        let x = _mm_loadu_si128(d16);
+        let p = scale_gfni128(x, _mm_shuffle_epi8(x, swap128), same128, cross128);
+        _mm_storeu_si128(d16, p);
+        mul_assign_gfni_body(&mut dst[16..], coeff);
+    } else {
+        mul_assign_gfni_body(dst, coeff);
+    }
+}
+
+/// The `mul_assign` lanes over the slices the entry hands them.
+#[archmage::rite(v3_gfni_crypto, import_intrinsics)]
+fn mul_assign_gfni_body(dst: &mut [u8], coeff: TowerCoeff) {
     let (same_word, cross_word) = broadcast_words(coeff);
     let same = _mm256_set1_epi16(same_word);
     let cross = _mm256_set1_epi16(cross_word);
     let swap = swap_mask256();
+    let (same128, cross128, swap128) = (
+        _mm256_castsi256_si128(same),
+        _mm256_castsi256_si128(cross),
+        _mm256_castsi256_si128(swap),
+    );
     let (dst_lanes, dst_rest) = dst.as_chunks_mut::<32>();
     for dst_lane in dst_lanes {
         let x = _mm256_loadu_si256(&*dst_lane);
@@ -120,11 +178,6 @@ pub fn mul_assign_gfni(_token: archmage::X64V3GfniCryptoToken, dst: &mut [u8], c
     // One 128-bit step down before the scalar tail; the casts are register
     // aliases, not instructions.
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<16>();
-    let (same128, cross128, swap128) = (
-        _mm256_castsi256_si128(same),
-        _mm256_castsi256_si128(cross),
-        _mm256_castsi256_si128(swap),
-    );
     for dst_lane in dst_lanes {
         let x = _mm_loadu_si128(&*dst_lane);
         _mm_storeu_si128(
@@ -160,15 +213,28 @@ pub fn mul_into_gfni(
         dst.len(),
         src.len(),
     );
-    match super::nt_split(dst, 2) {
-        Some(peel) => {
-            let (head, body) = dst.split_at_mut(peel);
-            let (src_head, src_body) = src.split_at(peel);
-            mul_into_gfni_lane::<false>(head, coeff, src_head);
-            mul_into_gfni_lane::<true>(body, coeff, src_body);
-            _mm_sfence();
+    if let Some(peel) = super::nt_split(dst, 2) {
+        let (head, body) = dst.split_at_mut(peel);
+        let (src_head, src_body) = src.split_at(peel);
+        mul_into_gfni_lane::<false>(head, coeff, src_head);
+        mul_into_gfni_lane::<true>(body, coeff, src_body);
+        _mm_sfence();
+    } else {
+        // Below the streaming threshold a half-lane destination still
+        // pays split lines; one narrow head aligns the temporal body.
+        let head = if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
+            16
+        } else {
+            0
+        };
+        if head != 0 {
+            let (dst_head, dst) = dst.split_at_mut(head);
+            let (src_head, src) = src.split_at(head);
+            mul_into_gfni_lane::<false>(dst_head, coeff, src_head);
+            mul_into_gfni_lane::<false>(dst, coeff, src);
+        } else {
+            mul_into_gfni_lane::<false>(dst, coeff, src);
         }
-        None => mul_into_gfni_lane::<false>(dst, coeff, src),
     }
 }
 

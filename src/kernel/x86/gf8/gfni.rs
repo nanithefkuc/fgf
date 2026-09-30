@@ -16,6 +16,8 @@ use crate::field::gf8b::Elem;
 use crate::kernel::gf8::{mul_add_nibble, mul_assign_nibble, mul_into_nibble};
 use crate::kernel::tables::{ScaleTable, scale_table};
 
+use super::super::HALF_LANE_PEEL_MIN;
+
 /// `dst ^= coeff * src` using `GF2P8MULB` over 32-byte lanes.
 ///
 /// # Panics
@@ -29,7 +31,24 @@ pub fn mul_add_gfni(
     src: &[u8],
 ) {
     assert_eq!(dst.len(), src.len());
-    mul_add_gfni_impl(dst, coeff, src);
+    // The network-payload half-lane case pays for one narrow head: its
+    // remaining AVX2 stores then avoid split cache lines. The crossover is
+    // recorded under "v3 half-lane peels and overwrite-gather dispatch" in
+    // BENCHMARKS.md. The aligned path hands its slices to the body untouched.
+    if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
+        let factor128 = _mm256_castsi256_si128(_mm256_set1_epi8(coeff.0.cast_signed()));
+        let (d, _) = dst[..16].as_chunks_mut::<16>();
+        let (s, _) = src[..16].as_chunks::<16>();
+        let x = _mm_loadu_si128(&s[0]);
+        let d0 = _mm_loadu_si128(&d[0]);
+        _mm_storeu_si128(
+            &mut d[0],
+            _mm_xor_si128(d0, _mm_gf2p8mul_epi8(x, factor128)),
+        );
+        mul_add_gfni_impl(&mut dst[16..], coeff, &src[16..]);
+    } else {
+        mul_add_gfni_impl(dst, coeff, src);
+    }
 }
 
 /// The `mul_add` body over equal-length slices, shared with the blocked
@@ -90,6 +109,20 @@ pub(super) fn mul_add_gfni_impl(dst: &mut [u8], coeff: Elem, src: &[u8]) {
 pub fn mul_assign_gfni(_token: archmage::X64V3GfniCryptoToken, dst: &mut [u8], coeff: Elem) {
     let factor = _mm256_set1_epi8(coeff.0.cast_signed());
     let factor128 = _mm256_castsi256_si128(factor);
+    // The network-payload half-lane case pays for one narrow head: its
+    // remaining AVX2 stores then avoid split cache lines. The crossover is
+    // recorded under "Network-size payloads" in BENCHMARKS.md.
+    let head = if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
+        16
+    } else {
+        0
+    };
+    if head != 0 {
+        let (d, _) = dst[..head].as_chunks_mut::<16>();
+        let value = _mm_gf2p8mul_epi8(_mm_loadu_si128(&d[0]), factor128);
+        _mm_storeu_si128(&mut d[0], value);
+    }
+    let dst = &mut dst[head..];
     // In-place scaling is store-bound and rare next to the AXPY shapes, so
     // one accumulator is enough; the loads have no dependency to cover.
     let (lanes, rest) = dst.as_chunks_mut::<32>();
@@ -123,15 +156,28 @@ pub fn mul_into_gfni(
     src: &[u8],
 ) {
     assert_eq!(dst.len(), src.len());
-    match super::super::nt_split(dst, 1) {
-        Some(peel) => {
-            let (head, body) = dst.split_at_mut(peel);
-            let (src_head, src_body) = src.split_at(peel);
-            mul_into_gfni_impl::<false>(head, coeff, src_head);
-            mul_into_gfni_impl::<true>(body, coeff, src_body);
-            _mm_sfence();
+    if let Some(peel) = super::super::nt_split(dst, 1) {
+        let (head, body) = dst.split_at_mut(peel);
+        let (src_head, src_body) = src.split_at(peel);
+        mul_into_gfni_impl::<false>(head, coeff, src_head);
+        mul_into_gfni_impl::<true>(body, coeff, src_body);
+        _mm_sfence();
+    } else {
+        // Below the streaming threshold a half-lane destination still
+        // pays split lines; one narrow head aligns the temporal body.
+        let head = if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
+            16
+        } else {
+            0
+        };
+        if head != 0 {
+            let (dst_head, dst) = dst.split_at_mut(head);
+            let (src_head, src) = src.split_at(head);
+            mul_into_gfni_impl::<false>(dst_head, coeff, src_head);
+            mul_into_gfni_impl::<false>(dst, coeff, src);
+        } else {
+            mul_into_gfni_impl::<false>(dst, coeff, src);
         }
-        None => mul_into_gfni_impl::<false>(dst, coeff, src),
     }
 }
 
@@ -231,7 +277,25 @@ pub fn mul_add_affine(
     src: &[u8],
 ) {
     assert_eq!(dst.len(), src.len());
-    mul_add_affine_impl(dst, map, table, src);
+    // The network-payload half-lane case pays for one narrow head: its
+    // remaining AVX2 stores then avoid split cache lines. The crossover is
+    // recorded under "v3 half-lane peels and overwrite-gather dispatch" in
+    // BENCHMARKS.md. The aligned
+    // path hands its slices to the body untouched.
+    if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
+        let factor128 = _mm256_castsi256_si128(_mm256_set1_epi64x(map.cast_signed()));
+        let (d, _) = dst[..16].as_chunks_mut::<16>();
+        let (s, _) = src[..16].as_chunks::<16>();
+        let x = _mm_loadu_si128(&s[0]);
+        let d0 = _mm_loadu_si128(&d[0]);
+        _mm_storeu_si128(
+            &mut d[0],
+            _mm_xor_si128(d0, _mm_gf2p8affine_epi64_epi8::<0>(x, factor128)),
+        );
+        mul_add_affine_impl(&mut dst[16..], map, table, &src[16..]);
+    } else {
+        mul_add_affine_impl(dst, map, table, src);
+    }
 }
 
 /// The affine `mul_add` body over equal-length slices, shared with the
@@ -296,8 +360,30 @@ pub fn mul_assign_affine(
     map: u64,
     table: &ScaleTable,
 ) {
+    mul_assign_affine_impl(dst, map, table);
+}
+
+/// The affine `mul_assign` body over one slice, shared with the 512-bit
+/// entry's alignment peel.
+#[archmage::rite(v3_gfni_crypto, import_intrinsics)]
+pub(super) fn mul_assign_affine_impl(dst: &mut [u8], map: u64, table: &ScaleTable) {
     let factor = _mm256_set1_epi64x(map.cast_signed());
     let factor128 = _mm256_castsi256_si128(factor);
+    // The network-payload half-lane case pays for one narrow head: its
+    // remaining AVX2 stores then avoid split cache lines. The crossover is
+    // recorded under "v3 half-lane peels and overwrite-gather dispatch" in
+    // BENCHMARKS.md.
+    let head = if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
+        16
+    } else {
+        0
+    };
+    if head != 0 {
+        let (d, _) = dst[..head].as_chunks_mut::<16>();
+        let value = _mm_gf2p8affine_epi64_epi8::<0>(_mm_loadu_si128(&d[0]), factor128);
+        _mm_storeu_si128(&mut d[0], value);
+    }
+    let dst = &mut dst[head..];
     // In-place scaling is store-bound and rare next to the AXPY shapes, so
     // one accumulator is enough; the loads have no dependency to cover.
     let (lanes, rest) = dst.as_chunks_mut::<32>();
@@ -331,15 +417,28 @@ pub fn mul_into_affine(
     src: &[u8],
 ) {
     assert_eq!(dst.len(), src.len());
-    match super::super::nt_split(dst, 1) {
-        Some(peel) => {
-            let (head, body) = dst.split_at_mut(peel);
-            let (src_head, src_body) = src.split_at(peel);
-            mul_into_affine_impl::<false>(head, map, table, src_head);
-            mul_into_affine_impl::<true>(body, map, table, src_body);
-            _mm_sfence();
+    if let Some(peel) = super::super::nt_split(dst, 1) {
+        let (head, body) = dst.split_at_mut(peel);
+        let (src_head, src_body) = src.split_at(peel);
+        mul_into_affine_impl::<false>(head, map, table, src_head);
+        mul_into_affine_impl::<true>(body, map, table, src_body);
+        _mm_sfence();
+    } else {
+        // Below the streaming threshold a half-lane destination still
+        // pays split lines; one narrow head aligns the temporal body.
+        let head = if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
+            16
+        } else {
+            0
+        };
+        if head != 0 {
+            let (dst_head, dst) = dst.split_at_mut(head);
+            let (src_head, src) = src.split_at(head);
+            mul_into_affine_impl::<false>(dst_head, map, table, src_head);
+            mul_into_affine_impl::<false>(dst, map, table, src);
+        } else {
+            mul_into_affine_impl::<false>(dst, map, table, src);
         }
-        None => mul_into_affine_impl::<false>(dst, map, table, src),
     }
 }
 
@@ -350,7 +449,12 @@ pub fn mul_into_affine(
 /// the streaming-store primitive carrying the tile stores.
 #[archmage::rite(v3_gfni_crypto, import_intrinsics)]
 #[allow(unsafe_code)]
-fn mul_into_affine_impl<const NT: bool>(dst: &mut [u8], map: u64, table: &ScaleTable, src: &[u8]) {
+pub(super) fn mul_into_affine_impl<const NT: bool>(
+    dst: &mut [u8],
+    map: u64,
+    table: &ScaleTable,
+    src: &[u8],
+) {
     let factor = _mm256_set1_epi64x(map.cast_signed());
     let factor128 = _mm256_castsi256_si128(factor);
 

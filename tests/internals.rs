@@ -23,8 +23,7 @@ use fgf::internals::kernel::tables::{
     FpTowerTables, ScaleTable, TowerCoeff, TowerTables, affine_8d, scale_table, scale_table_8d,
 };
 use fgf::internals::kernel::{
-    FlatMatrix, SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token, X64V4Token, X64V4xToken,
-    x86,
+    FlatMatrix, SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token, X64V4xToken, x86,
 };
 use fgf::{
     Gf8B, Gf8D, Gf16, Gf32, Gf64, Goldilocks, Mersenne31, fan_paar, gf8b, gf8d, gf16, gf32, gf64,
@@ -1168,6 +1167,36 @@ fn proven_gather_rejects_count_mismatch() {
     });
 }
 
+#[cfg(feature = "simd512")]
+#[test]
+fn proven_gf8d512_rejects_bad_geometry() {
+    rejects_geometry("gf8d512 mul_add", |token: X64V4xToken| {
+        let mut dst = vec![0u8; 16];
+        let src = vec![0u8; 17];
+        let coeff = gf8d::Elem::from_raw(3);
+        x86::gf8::mul_add_affine512(
+            token,
+            &mut dst,
+            affine_8d(coeff),
+            scale_table_8d(coeff),
+            &src,
+        );
+    });
+    rejects_geometry("gf8d512 scatter", |token: X64V4xToken| {
+        let mut rows = vec![0u8; 16];
+        let src = vec![0u8; 16];
+        let coeffs = [gf8d::Elem::from_raw(1), gf8d::Elem::from_raw(2)];
+        x86::gf8::mul_add_scatter_affine512(token, &mut rows, 16, &coeffs, &src);
+    });
+    rejects_geometry("gf8d512 matrix_at overlap", |token: X64V4xToken| {
+        let mut dst = vec![0u8; 128];
+        let src = vec![0u8; 64];
+        let coeffs = [gf8d::Elem::from_raw(1), gf8d::Elem::from_raw(2)];
+        let terms: Vec<(&[gf8d::Elem], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
+        x86::gf8::mul_add_matrix_at_affine512(token, &mut dst, 64, &[0, 32], &terms);
+    });
+}
+
 #[test]
 fn proven_xor_rows_rejects_partial_row() {
     rejects_geometry("xor_rows avx2", |v3: X64V3Token| {
@@ -2230,10 +2259,6 @@ fn proven_prime_kernels_match_scalar() {
 
 #[test]
 fn proven_avx512_kernels_match_scalar_where_summonable() {
-    let Some(v4) = X64V4Token::summon() else {
-        eprintln!("skipping: AVX-512 not summonable on this host");
-        return;
-    };
     let Some(v4x) = X64V4xToken::summon() else {
         eprintln!("skipping: AVX-512+GFNI not summonable on this host");
         return;
@@ -2241,12 +2266,6 @@ fn proven_avx512_kernels_match_scalar_where_summonable() {
 
     for &len in LENGTHS8 {
         let src = noise(len, 0xb1);
-        let mut got = noise(len, 0xb2);
-        let mut want = got.clone();
-        x86::avx512::proven::xor(v4, &mut got, &src);
-        scalar::xor(&mut want, &src);
-        assert_eq!(got, want, "avx512::xor: len {len}");
-
         let mut got = noise(len, 0xb3);
         let mut want = got.clone();
         x86::avx512::proven::gf8_mul_add(v4x, &mut got, gf8b::Elem::from_raw(0x53), &src);

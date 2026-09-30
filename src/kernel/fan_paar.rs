@@ -22,7 +22,7 @@ impl FieldKernels for FanPaar32 {
     fn backend() -> Backend {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => backend(),
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => backend(),
             _ => Backend::Scalar,
         }
     }
@@ -65,7 +65,7 @@ impl KernelDispatch for FanPaar32 {
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
                 x86::fan_paar::mul_add_fp32_avx2(crate::kernel::x86_v3_token(), dst, *coeff, src);
             }
             _ => scalar::mul_add::<FanPaar32>(dst, *coeff, src),
@@ -76,7 +76,7 @@ impl KernelDispatch for FanPaar32 {
     fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
                 x86::fan_paar::mul_assign_fp32_avx2(crate::kernel::x86_v3_token(), dst, *coeff);
             }
             _ => scalar::mul_assign::<FanPaar32>(dst, *coeff),
@@ -87,7 +87,7 @@ impl KernelDispatch for FanPaar32 {
     fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
                 x86::fan_paar::mul_into_fp32_avx2(crate::kernel::x86_v3_token(), dst, *coeff, src);
             }
             _ => {
@@ -143,7 +143,7 @@ impl FieldKernels for FanPaar64 {
     fn backend() -> Backend {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => backend(),
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => backend(),
             _ => Backend::Scalar,
         }
     }
@@ -186,7 +186,7 @@ impl KernelDispatch for FanPaar64 {
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
                 x86::fan_paar::mul_add_fp64_avx2(crate::kernel::x86_v3_token(), dst, *coeff, src);
             }
             _ => scalar::mul_add::<FanPaar64>(dst, *coeff, src),
@@ -197,7 +197,7 @@ impl KernelDispatch for FanPaar64 {
     fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
                 x86::fan_paar::mul_assign_fp64_avx2(crate::kernel::x86_v3_token(), dst, *coeff);
             }
             _ => scalar::mul_assign::<FanPaar64>(dst, *coeff),
@@ -208,7 +208,7 @@ impl KernelDispatch for FanPaar64 {
     fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 => {
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
                 x86::fan_paar::mul_into_fp64_avx2(crate::kernel::x86_v3_token(), dst, *coeff, src);
             }
             _ => {
@@ -296,7 +296,7 @@ impl FieldKernels for FanPaar16 {
     fn backend() -> Backend {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 | Backend::V2 => backend(),
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2 => backend(),
             _ => Backend::Scalar,
         }
     }
@@ -313,10 +313,12 @@ impl KernelDispatch for FanPaar16 {
     fn prepare(_proof: RawDispatch, coeff: fp16::Elem) -> Fp16Prepared {
         match backend() {
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            Backend::V3GfniCrypto | Backend::V3 | Backend::V2 => Fp16Prepared::Tables {
-                coeff,
-                tables: crate::kernel::tables::FpTowerTables::new(coeff),
-            },
+            Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2 => {
+                Fp16Prepared::Tables {
+                    coeff,
+                    tables: crate::kernel::tables::FpTowerTables::new(coeff),
+                }
+            }
             _ => Fp16Prepared::Plain(coeff),
         }
     }

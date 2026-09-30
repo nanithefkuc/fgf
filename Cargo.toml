@@ -32,15 +32,21 @@ alloc = []
 # `simdispatch` runtime detection selected by `simd`.
 std = ["alloc", "simdispatch/std"]
 # Runtime-dispatched SIMD kernels: v3_gfni_crypto / v3 / v2 on x86 (the
-# 64-byte AVX-512 tier is deferred), neon_aes / neon on AArch64, and
+# 64-byte AVX-512 tier needs `simd512`), neon_aes / neon on AArch64, and
 # `wasm128` on Wasm. Enabling also resolves the backend via `simdispatch`.
 simd = ["std", "dep:archmage"]
+# AVX-512 kernels for both byte fields, Gf16, Mersenne31, Goldilocks, byte XOR,
+# and GF(2) popcount use safe 512-bit reference intrinsics behind
+# `archmage/avx512`. Gf16 scatter/gather retain GFNI lanes.
+# V4x dispatch needs `simdispatch/avx512`; without `simd512` detection never
+# reports V4x, so other feature sets retain their existing paths.
+simd512 = ["simd", "archmage/avx512", "simdispatch/avx512"]
 # Visibility-only access to implementation details for benchmarks and
 # experiments; no compatibility guarantees and no dependency activation.
 internals = []
 
 [dependencies]
-simdispatch = { version = "=0.1.0", default-features = false }
+simdispatch = { version = "=0.2.0", default-features = false }
 archmage = { version = "=0.9.29", optional = true }
 
 # Benchmarks only; scoping them off wasm keeps `cargo test --target wasm32-*`
@@ -89,6 +95,11 @@ required-features = ["std", "internals"]
 name = "perf_p2"
 # Calls internal experimental two-row overwrite kernels directly.
 required-features = ["std", "simd", "internals"]
+
+[[example]]
+name = "peel_probe"
+# The prepared CoeffVec gather form needs the allocation feature.
+required-features = ["std", "alloc"]
 
 [[test]]
 name = "internals"

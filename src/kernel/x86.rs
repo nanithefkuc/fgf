@@ -1,7 +1,8 @@
 //! x86 / `x86_64` SIMD kernels.
 //!
-//! One submodule per field family, plus `bytes` for the field-independent
-//! byte kernels. This module-named file keeps only what the families share:
+//! One submodule per field family, plus `bytes` (and its 64-byte `V4x` twin
+//! `bytes512`) for the field-independent byte kernels. This module-named file
+//! keeps only what the families share:
 //! the non-temporal store threshold and its alignment helpers, and the two
 //! width-parameterized store primitives every `mul_into` kernel calls.
 //!
@@ -29,6 +30,8 @@
 #[allow(dead_code)]
 pub mod avx512;
 pub mod bytes;
+#[cfg(feature = "simd512")]
+pub mod bytes512;
 pub mod fan_paar;
 pub mod gf16;
 pub mod gf32;
@@ -101,6 +104,24 @@ pub(super) fn prefetch_tile(target: &[u8]) {
     prefetch_line(&target[0]);
     prefetch_line(&target[64]);
 }
+
+/// Whether a fused overwrite of `len` bytes should take the streaming
+/// path: the same threshold [`nt_split`] applies, without committing to a
+/// peel. Lets a wider entry defer to the AVX2 streaming body past the point
+/// where eviction pays.
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline]
+pub(crate) fn wants_nt_store(len: usize) -> bool {
+    len >= NT_STORE_MIN
+}
+
+/// Shortest 32-byte-lane destination that peels a 16-byte half-lane head.
+///
+/// A 256-bit store starting 16 bytes into a cache line splits it, and a
+/// body of split stores halves store-bound throughput; one narrow head
+/// puts every remaining lane on a boundary. The crossover is recorded
+/// under "Network-size payloads" in `BENCHMARKS.md`.
+pub(super) const HALF_LANE_PEEL_MIN: usize = 512;
 
 /// Head bytes to store normally so that a non-temporal body starts on a
 /// 32-byte boundary, or `None` when this destination should stay temporal.

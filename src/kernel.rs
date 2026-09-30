@@ -92,9 +92,28 @@ pub use simdispatch::{Backend, ParseBackendError};
 /// The tiers FGF implements kernels for, in detection-preference order: the
 /// common ladder minus the x86 `V1` floor (FGF's 16-byte multiply kernels
 /// require SSSE3, not plain SSE2, so a V1-only host resolves to
-/// [`Backend::Scalar`]) and minus the deferred 64-byte AVX-512 tier (V4x,
-/// fgf's `avx512.rs` kernels are cross-compile-only and not validated).
+/// [`Backend::Scalar`]).
+///
+/// `V4x` resolves only when the `simd512` feature enables the 512-bit kernel
+/// modules and `simdispatch/avx512` detection. Without `simd512` the variant
+/// exists in the ladder but no `FGF_TIERS` entry can select it, so detection
+/// falls through to `V3GfniCrypto` on AVX-512 hosts.
+#[cfg(not(feature = "simd512"))]
 pub const FGF_TIERS: &[Backend] = &[
+    Backend::V3GfniCrypto,
+    Backend::V3,
+    Backend::V2,
+    Backend::NeonAes,
+    Backend::Neon,
+    Backend::Wasm128,
+    Backend::Scalar,
+];
+/// The tiers FGF implements kernels for, with the 64-byte AVX-512 byte-field,
+/// GF(2^16) tower, prime-field, and byte-XOR kernels first. See the
+/// non-`simd512` form for the rest.
+#[cfg(feature = "simd512")]
+pub const FGF_TIERS: &[Backend] = &[
+    Backend::V4x,
     Backend::V3GfniCrypto,
     Backend::V3,
     Backend::V2,
@@ -122,14 +141,14 @@ pub trait KernelBackend {
 impl KernelBackend for Backend {
     #[inline]
     fn has_native_mul(self) -> bool {
-        matches!(self, Backend::V3GfniCrypto)
+        matches!(self, Backend::V4x | Backend::V3GfniCrypto)
     }
 
     #[inline]
     fn has_blocked_rows(self) -> bool {
         matches!(
             self,
-            Backend::V3GfniCrypto | Backend::Neon | Backend::NeonAes
+            Backend::V4x | Backend::V3GfniCrypto | Backend::Neon | Backend::NeonAes
         )
     }
 }
@@ -139,10 +158,12 @@ impl KernelBackend for Backend {
 /// Runs [`simdispatch::Selection`] over [`FGF_TIERS`] — every tier this crate implements
 /// kernels for, or [`Backend::Scalar`] when SIMD is compiled out — then
 /// adjusted by the downgrade-only `SIMD_BACKEND` override. May be downgraded
-/// at startup via `SIMD_BACKEND` (`v3_gfni_crypto`, `v3`, `v2`, `neon_aes`,
-/// `neon`, `wasm128`, `scalar`); requests for a backend the host cannot run
-/// are ignored. Detection itself is `simdispatch`'s `archmage` `summon()`
-/// probe — the one probe in the stack.
+/// at startup via `SIMD_BACKEND` (`v4x`, `v3_gfni_crypto`, `v3`, `v2`,
+/// `neon_aes`, `neon`, `wasm128`, `scalar`); requests for a backend the host
+/// cannot run are ignored. `v4x` resolves only with the `simd512` feature on
+/// an AVX-512+GFNI host; `SIMD_BACKEND=v4` is not a selected tier and behaves
+/// like any unsupported request. Detection itself is `simdispatch`'s
+/// `archmage` `summon()` probe — the one probe in the stack.
 #[inline]
 #[must_use]
 pub fn backend() -> Backend {
@@ -180,6 +201,11 @@ impl ResolvedBackend {
         let backend = Selection::new("SIMD_BACKEND").supports(FGF_TIERS).resolve();
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         let x86 = match backend {
+            #[cfg(feature = "simd512")]
+            Backend::V4x => X86Proof::V4x(
+                archmage::X64V4xToken::summon()
+                    .expect("selected x86 V4x backend must have its capability token"),
+            ),
             Backend::V3GfniCrypto => X86Proof::V3GfniCrypto(
                 archmage::X64V3GfniCryptoToken::summon()
                     .expect("selected x86 GFNI backend must have its capability token"),
@@ -229,6 +255,8 @@ impl ResolvedBackend {
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 #[derive(Clone, Copy)]
 pub(crate) enum X86Proof {
+    #[cfg(feature = "simd512")]
+    V4x(archmage::X64V4xToken),
     V3GfniCrypto(archmage::X64V3GfniCryptoToken),
     V3(archmage::X64V3Token),
     V2(archmage::X64V2Token),
@@ -245,15 +273,37 @@ pub(crate) fn x86_proof() -> X86Proof {
 #[inline]
 pub(crate) fn x86_v3_gfni_token() -> archmage::X64V3GfniCryptoToken {
     match x86_proof() {
+        #[cfg(feature = "simd512")]
+        X86Proof::V4x(token) => token.v3_gfni_crypto(),
         X86Proof::V3GfniCrypto(token) => token,
         _ => unreachable!("GFNI kernel reached without the selected GFNI proof"),
     }
+}
+
+/// The selected V4x proof: `Gf8D`'s 512-bit kernels take it directly.
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline]
+pub(crate) fn x86_v4x_token() -> archmage::X64V4xToken {
+    match x86_proof() {
+        X86Proof::V4x(token) => token,
+        _ => unreachable!("AVX-512 kernel reached without the selected V4x proof"),
+    }
+}
+
+/// The selected V4x proof narrowed to AVX-512F, the tier the prime-field
+/// and byte-XOR 64-byte kernels require.
+#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline]
+pub(crate) fn x86_v4_token() -> archmage::X64V4Token {
+    x86_v4x_token().v4()
 }
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 #[inline]
 pub(crate) fn x86_v3_token() -> archmage::X64V3Token {
     match x86_proof() {
+        #[cfg(feature = "simd512")]
+        X86Proof::V4x(token) => token.v3(),
         X86Proof::V3GfniCrypto(token) => token.v3(),
         X86Proof::V3(token) => token,
         _ => unreachable!("V3 kernel reached without a selected V3 proof"),
@@ -264,6 +314,8 @@ pub(crate) fn x86_v3_token() -> archmage::X64V3Token {
 #[inline]
 pub(crate) fn x86_v2_token() -> archmage::X64V2Token {
     match x86_proof() {
+        #[cfg(feature = "simd512")]
+        X86Proof::V4x(token) => token.v3().v2(),
         X86Proof::V3GfniCrypto(token) => token.v3().v2(),
         X86Proof::V3(token) => token.v2(),
         X86Proof::V2(token) => token,
@@ -940,6 +992,10 @@ pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
     }
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     match x86_proof() {
+        #[cfg(feature = "simd512")]
+        X86Proof::V4x(token) => {
+            x86::xor_gather_avx2(token.v3(), region, dst, offsets);
+        }
         X86Proof::V3GfniCrypto(token) => {
             x86::xor_gather_avx2(token.v3(), region, dst, offsets);
         }
@@ -1015,6 +1071,14 @@ pub(crate) mod byte_ops {
         }
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         match x86_proof() {
+            // The length guard sits on the `V4x` arm alone, so every narrower
+            // tier reaches its body without testing it.
+            #[cfg(feature = "simd512")]
+            X86Proof::V4x(token) if dst.len() >= x86::bytes512::XOR512_MIN => {
+                x86::bytes512::xor512(token.v4(), dst, src);
+            }
+            #[cfg(feature = "simd512")]
+            X86Proof::V4x(token) => x86::xor_avx2(token.v3(), dst, src),
             X86Proof::V3GfniCrypto(token) => x86::xor_avx2(token.v3(), dst, src),
             X86Proof::V3(token) => x86::xor_avx2(token, dst, src),
             X86Proof::V2(token) => x86::xor_sse2(token.v1(), dst, src),
@@ -1051,6 +1115,10 @@ pub(crate) mod byte_ops {
     pub fn xor_broadcast(dst: &mut [u8], value_bytes: &[u8]) {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         match x86_proof() {
+            #[cfg(feature = "simd512")]
+            X86Proof::V4x(token) => {
+                x86::bytes::xor_broadcast_avx2(token.v3(), dst, value_bytes);
+            }
             X86Proof::V3GfniCrypto(token) => {
                 x86::bytes::xor_broadcast_avx2(token.v3(), dst, value_bytes);
             }
