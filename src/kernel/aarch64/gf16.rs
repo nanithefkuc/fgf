@@ -39,7 +39,7 @@ use crate::kernel::tables::TowerTables;
 
 /// Terms folded into a single register-resident destination pass.
 ///
-/// [`matrix_neon`] holds its destination tile in registers while it folds in
+/// [`mul_add_matrix_neon`] holds its destination tile in registers while it folds in
 /// every term of a block, so destination traffic is one load/store pass per
 /// block rather than one per term. The block is bounded only because each
 /// `(term, row)` pair needs its own eight lookup vectors and the kernel
@@ -425,15 +425,26 @@ unsafe fn scatter_group<const N: usize>(
 #[allow(unsafe_code)]
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn scatter_neon(
+pub fn mul_add_scatter_neon(
     _token: archmage::NeonToken,
     rows: &mut [u8],
     row_len: usize,
     coeffs: &[Elem],
     src: &[u8],
 ) {
-    check_equal("gf16::scatter_neon", "row_len", row_len, "src", src.len());
-    check_row_span("gf16::scatter_neon", rows.len(), row_len, coeffs.len());
+    check_equal(
+        "gf16::mul_add_scatter_neon",
+        "row_len",
+        row_len,
+        "src",
+        src.len(),
+    );
+    check_row_span(
+        "gf16::mul_add_scatter_neon",
+        rows.len(),
+        row_len,
+        coeffs.len(),
+    );
     if row_len == 0 || coeffs.is_empty() || src.is_empty() {
         return;
     }
@@ -674,15 +685,15 @@ unsafe fn matrix_group<const N: usize>(
 #[allow(unsafe_code)]
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn matrix_neon(
+pub fn mul_add_matrix_neon(
     _token: archmage::NeonToken,
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
     terms: &[(&[Elem], &[u8])],
 ) {
-    check_row_span("gf16::matrix_neon", rows.len(), row_len, nrows);
-    check_terms("gf16::matrix_neon", row_len, nrows, terms);
+    check_row_span("gf16::mul_add_matrix_neon", rows.len(), row_len, nrows);
+    check_terms("gf16::mul_add_matrix_neon", row_len, nrows, terms);
     if row_len == 0 || nrows == 0 || terms.is_empty() {
         return;
     }
@@ -771,7 +782,7 @@ unsafe fn mul_add_matrix_impl(
 
 /// Fold many tower-field sources into one destination.
 ///
-/// Coefficients are prepared in blocks of eight, matching [`matrix_neon`].
+/// Coefficients are prepared in blocks of eight, matching [`mul_add_matrix_neon`].
 /// Each block then sweeps the destination once; the bounded block avoids an
 /// allocation while keeping the expensive four-table preparation out of the
 /// byte loop.
@@ -781,9 +792,14 @@ unsafe fn mul_add_matrix_impl(
 /// in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn gather_neon(_token: archmage::NeonToken, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+pub fn mul_add_gather_neon(
+    _token: archmage::NeonToken,
+    dst: &mut [u8],
+    coeffs: &[Elem],
+    srcs: &[&[u8]],
+) {
     check_equal(
-        "gf16::gather_neon",
+        "gf16::mul_add_gather_neon",
         "coefficients",
         coeffs.len(),
         "sources",
@@ -791,7 +807,7 @@ pub fn gather_neon(_token: archmage::NeonToken, dst: &mut [u8], coeffs: &[Elem],
     );
     for (index, &src) in srcs.iter().enumerate() {
         check_equal(
-            "gf16::gather_neon",
+            "gf16::mul_add_gather_neon",
             "dst",
             dst.len(),
             format_args!("source {index}"),
@@ -866,9 +882,9 @@ fn multiply_base_vectors(mut a: uint8x16_t, mut b: uint8x16_t) -> uint8x16_t {
 /// Panics unless all three buffers match in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn elementwise_neon(_token: archmage::NeonToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
-    check_equal("gf16::elementwise_neon", "dst", dst.len(), "a", a.len());
-    check_equal("gf16::elementwise_neon", "dst", dst.len(), "b", b.len());
+pub fn mul_elementwise_neon(_token: archmage::NeonToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
+    check_equal("gf16::mul_elementwise_neon", "dst", dst.len(), "a", a.len());
+    check_equal("gf16::mul_elementwise_neon", "dst", dst.len(), "b", b.len());
     elementwise_impl(dst, a, b);
 }
 

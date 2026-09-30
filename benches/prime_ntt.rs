@@ -142,7 +142,7 @@ mod imp {
                 "add_assign",
                 &base,
                 |dst| ops::add_assign::<QuadMersenne31>(dst, &src),
-                |dst| x86::prime::add_assign_qm31_avx2(token, dst, &src),
+                |dst| x86::quad_mersenne31::add_assign_avx2(token, dst, &src),
             );
         }
         g.finish();
@@ -163,7 +163,7 @@ mod imp {
                 "sub_assign",
                 &base,
                 |dst| ops::sub_assign::<QuadMersenne31>(dst, &src),
-                |dst| x86::prime::sub_assign_qm31_avx2(token, dst, &src),
+                |dst| x86::quad_mersenne31::sub_assign_avx2(token, dst, &src),
             );
         }
         g.finish();
@@ -184,7 +184,7 @@ mod imp {
                 "mul_add",
                 &base,
                 |dst| ops::mul_add::<QuadMersenne31>(dst, COEFF, &src),
-                |dst| x86::prime::mul_add_qm31_avx2(token, dst, COEFF, &src),
+                |dst| x86::quad_mersenne31::mul_add_avx2(token, dst, COEFF, &src),
             );
         }
         g.finish();
@@ -204,7 +204,7 @@ mod imp {
                 "mul_assign",
                 &base,
                 |dst| ops::mul_assign::<QuadMersenne31>(dst, COEFF),
-                |dst| x86::prime::mul_assign_qm31_avx2(token, dst, COEFF),
+                |dst| x86::quad_mersenne31::mul_assign_avx2(token, dst, COEFF),
             );
         }
         g.finish();
@@ -227,7 +227,7 @@ mod imp {
                 "mul_into",
                 &base,
                 |dst| ops::mul_into::<QuadMersenne31>(dst, COEFF, &src),
-                |dst| x86::prime::mul_into_qm31_avx2(token, dst, COEFF, &src),
+                |dst| x86::quad_mersenne31::mul_into_avx2(token, dst, COEFF, &src),
             );
         }
         g.finish();
@@ -249,7 +249,7 @@ mod imp {
                 "mul_elementwise",
                 &base,
                 |dst| ops::mul_elementwise::<QuadMersenne31>(dst, &a, &b),
-                |dst| x86::prime::mul_elementwise_qm31_avx2(token, dst, &a, &b),
+                |dst| x86::quad_mersenne31::mul_elementwise_avx2(token, dst, &a, &b),
             );
         }
         g.finish();

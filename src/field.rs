@@ -21,7 +21,6 @@ pub mod goldilocks;
 pub mod mersenne31;
 pub mod quad_mersenne31;
 pub mod tower;
-#[allow(dead_code)]
 pub(crate) mod wiedemann;
 
 pub use fan_paar::{FanPaar8, FanPaar16, FanPaar32, FanPaar64};

@@ -165,7 +165,7 @@ impl KernelDispatch for QuadMersenne31 {
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3
         ) && dst.len() >= VECTOR_ADD_MIN_BYTES
         {
-            crate::kernel::x86::prime::add_assign_qm31_avx2(
+            crate::kernel::x86::quad_mersenne31::add_assign_avx2(
                 crate::kernel::x86_v3_token(),
                 dst,
                 src,
@@ -194,7 +194,7 @@ impl KernelDispatch for QuadMersenne31 {
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3
         ) && dst.len() >= VECTOR_ADD_MIN_BYTES
         {
-            crate::kernel::x86::prime::sub_assign_qm31_avx2(
+            crate::kernel::x86::quad_mersenne31::sub_assign_avx2(
                 crate::kernel::x86_v3_token(),
                 dst,
                 src,
@@ -241,7 +241,7 @@ impl KernelDispatch for QuadMersenne31 {
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3
         ) && dst.len() >= VECTOR_MUL_MIN_BYTES
         {
-            crate::kernel::x86::prime::mul_add_qm31_avx2(
+            crate::kernel::x86::quad_mersenne31::mul_add_avx2(
                 crate::kernel::x86_v3_token(),
                 dst,
                 *coeff,
@@ -276,7 +276,7 @@ impl KernelDispatch for QuadMersenne31 {
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3
         ) && dst.len() >= VECTOR_MUL_MIN_BYTES
         {
-            crate::kernel::x86::prime::mul_assign_qm31_avx2(
+            crate::kernel::x86::quad_mersenne31::mul_assign_avx2(
                 crate::kernel::x86_v3_token(),
                 dst,
                 *coeff,
@@ -305,7 +305,7 @@ impl KernelDispatch for QuadMersenne31 {
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3
         ) && dst.len() >= VECTOR_MUL_MIN_BYTES
         {
-            crate::kernel::x86::prime::mul_into_qm31_avx2(
+            crate::kernel::x86::quad_mersenne31::mul_into_avx2(
                 crate::kernel::x86_v3_token(),
                 dst,
                 *coeff,
@@ -366,7 +366,7 @@ impl KernelDispatch for QuadMersenne31 {
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3
         ) && dst.len() >= VECTOR_MUL_MIN_BYTES
         {
-            crate::kernel::x86::prime::mul_elementwise_qm31_avx2(
+            crate::kernel::x86::quad_mersenne31::mul_elementwise_avx2(
                 crate::kernel::x86_v3_token(),
                 dst,
                 a,
@@ -393,7 +393,7 @@ impl KernelDispatch for QuadMersenne31 {
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3
         ) && dst.len() >= VECTOR_MUL_MIN_BYTES
         {
-            crate::kernel::x86::prime::mul_elementwise_assign_qm31_avx2(
+            crate::kernel::x86::quad_mersenne31::mul_elementwise_assign_avx2(
                 crate::kernel::x86_v3_token(),
                 dst,
                 src,
@@ -410,7 +410,7 @@ impl KernelDispatch for QuadMersenne31 {
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3
         ) && dst.len() >= VECTOR_ADD_MIN_BYTES
         {
-            crate::kernel::x86::prime::add_assign_scalar_qm31_avx2(
+            crate::kernel::x86::quad_mersenne31::add_assign_scalar_avx2(
                 crate::kernel::x86_v3_token(),
                 dst,
                 *value,
@@ -427,7 +427,7 @@ impl KernelDispatch for QuadMersenne31 {
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3
         ) && dst.len() >= VECTOR_ADD_MIN_BYTES
         {
-            crate::kernel::x86::prime::sub_assign_scalar_qm31_avx2(
+            crate::kernel::x86::quad_mersenne31::sub_assign_scalar_avx2(
                 crate::kernel::x86_v3_token(),
                 dst,
                 *value,

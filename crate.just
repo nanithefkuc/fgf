@@ -66,7 +66,7 @@ unsafe-check-gfni:
 MIRI_GFNI := '''--test ops gf8_matrix_scattered_matches_contiguous -- --exact
 --test ops gf16_mul_into_matrix_overwrites -- --exact
 --features internals --test internals proven_gf8_mul_kernels_match_scalar -- --exact
---features internals --test internals proven_gf8d_affine_kernels_match_scalar -- --exact
+--features internals --test internals proven_gf8d_gfni_kernels_match_scalar -- --exact
 --features internals --test internals proven_gf8_scatter_gather_match_scalar -- --exact
 --features internals --test internals proven_gf8_matrix_kernels_match_scalar -- --exact
 --features internals --test internals proven_gf8_matrix_scattered_matches_scalar -- --exact

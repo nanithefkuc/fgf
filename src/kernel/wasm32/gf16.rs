@@ -247,9 +247,21 @@ fn mul_into_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
 /// Panics unless all three buffers match in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn elementwise_simd128(_token: archmage::Wasm128Token, dst: &mut [u8], a: &[u8], b: &[u8]) {
-    check_equal("gf16::elementwise_simd128", "dst", dst.len(), "a", a.len());
-    check_equal("gf16::elementwise_simd128", "dst", dst.len(), "b", b.len());
+pub fn mul_elementwise_simd128(_token: archmage::Wasm128Token, dst: &mut [u8], a: &[u8], b: &[u8]) {
+    check_equal(
+        "gf16::mul_elementwise_simd128",
+        "dst",
+        dst.len(),
+        "a",
+        a.len(),
+    );
+    check_equal(
+        "gf16::mul_elementwise_simd128",
+        "dst",
+        dst.len(),
+        "b",
+        b.len(),
+    );
     elementwise_impl(dst, a, b)
 }
 
@@ -358,7 +370,7 @@ impl Scaling {
 /// bytes and `row_len == src.len()`.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn scatter_simd128(
+pub fn mul_add_scatter_simd128(
     _token: archmage::Wasm128Token,
     rows: &mut [u8],
     row_len: usize,
@@ -366,13 +378,18 @@ pub fn scatter_simd128(
     src: &[u8],
 ) {
     check_equal(
-        "gf16::scatter_simd128",
+        "gf16::mul_add_scatter_simd128",
         "row_len",
         row_len,
         "src",
         src.len(),
     );
-    check_row_span("gf16::scatter_simd128", rows.len(), row_len, coeffs.len());
+    check_row_span(
+        "gf16::mul_add_scatter_simd128",
+        rows.len(),
+        row_len,
+        coeffs.len(),
+    );
     if row_len == 0 || coeffs.is_empty() {
         return;
     }
@@ -489,14 +506,14 @@ fn scatter_quad(rows: [&mut [u8]; 4], plans: &[Scaling; 4], src: &[u8]) {
 /// `dst` in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn gather_simd128(
+pub fn mul_add_gather_simd128(
     _token: archmage::Wasm128Token,
     dst: &mut [u8],
     coeffs: &[Elem],
     srcs: &[&[u8]],
 ) {
     check_equal(
-        "gf16::gather_simd128",
+        "gf16::mul_add_gather_simd128",
         "coefficients",
         coeffs.len(),
         "sources",
@@ -504,7 +521,7 @@ pub fn gather_simd128(
     );
     for (index, &src) in srcs.iter().enumerate() {
         check_equal(
-            "gf16::gather_simd128",
+            "gf16::mul_add_gather_simd128",
             "dst",
             dst.len(),
             format_args!("source {index}"),
@@ -590,15 +607,15 @@ fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
 /// source is `row_len` bytes.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn matrix_simd128(
+pub fn mul_add_matrix_simd128(
     _token: archmage::Wasm128Token,
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
     terms: &[(&[Elem], &[u8])],
 ) {
-    check_row_span("gf16::matrix_simd128", rows.len(), row_len, nrows);
-    check_terms("gf16::matrix_simd128", row_len, nrows, terms);
+    check_row_span("gf16::mul_add_matrix_simd128", rows.len(), row_len, nrows);
+    check_terms("gf16::mul_add_matrix_simd128", row_len, nrows, terms);
     if row_len == 0 || nrows == 0 || terms.is_empty() {
         return;
     }

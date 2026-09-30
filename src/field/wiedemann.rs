@@ -89,6 +89,7 @@ pub const fn multiply(lhs: u64, rhs: u64, bits: u32) -> u64 {
 /// # Panics
 ///
 /// Panics unless `bits` is a power of two no greater than the width of `u64`.
+#[allow(dead_code)]
 #[must_use]
 pub const fn square(value: u64, bits: u32) -> u64 {
     multiply(value, value, bits)
@@ -102,6 +103,7 @@ pub const fn square(value: u64, bits: u32) -> u64 {
 /// # Panics
 ///
 /// Panics unless `bits` is a power of two no greater than the width of `u64`.
+#[allow(dead_code)]
 #[must_use]
 pub const fn invert(value: u64, bits: u32) -> u64 {
     assert_tower_width(bits);
@@ -129,16 +131,19 @@ pub const fn invert(value: u64, bits: u32) -> u64 {
     result
 }
 
+#[allow(dead_code)]
 fn decode(bytes: &[u8]) -> u64 {
     let mut encoded = [0u8; 8];
     encoded[..bytes.len()].copy_from_slice(bytes);
     u64::from_le_bytes(encoded)
 }
 
+#[allow(dead_code)]
 fn encode(bytes: &mut [u8], value: u64) {
     bytes.copy_from_slice(&value.to_le_bytes()[..bytes.len()]);
 }
 
+#[allow(dead_code)]
 fn element_bytes(bits: u32) -> usize {
     assert!(matches!(bits, 8 | 16 | 32 | 64));
     usize::try_from(bits / 8).expect("tower width fits usize")
@@ -153,6 +158,7 @@ fn element_bytes(bits: u32) -> usize {
 ///
 /// Panics unless `bits` is a whole-byte tower width, the slices have equal
 /// lengths, and their lengths are a multiple of one element.
+#[allow(dead_code)]
 pub fn mul_add(dst: &mut [u8], coefficient: u64, src: &[u8], bits: u32) {
     let bytes = element_bytes(bits);
     assert_eq!(dst.len(), src.len());
@@ -173,6 +179,7 @@ pub fn mul_add(dst: &mut [u8], coefficient: u64, src: &[u8], bits: u32) {
 ///
 /// Panics unless `bits` is a whole-byte tower width and the slice length is a
 /// multiple of one element.
+#[allow(dead_code)]
 pub fn mul_assign(dst: &mut [u8], coefficient: u64, bits: u32) {
     let bytes = element_bytes(bits);
     assert_eq!(dst.len() % bytes, 0);

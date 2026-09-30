@@ -1,7 +1,7 @@
 //! x86 / `x86_64` SIMD kernels.
 //!
-//! One submodule per field family, plus `bytes` (and its 64-byte `V4x` twin
-//! `bytes512`) for the field-independent byte kernels. This module-named file
+//! One submodule per field family, plus `bytes` for the field-independent
+//! byte kernels. This module-named file
 //! keeps only what the families share:
 //! the non-temporal store threshold and its alignment helpers, and the two
 //! width-parameterized store primitives every `mul_into` kernel calls.
@@ -23,15 +23,20 @@
 
 #![allow(clippy::incompatible_msrv)]
 
+// The 64-byte AVX-512 kernels are the deferred V4x tier (cross-compile-only
+// today; not in the shared ladder until validated on executing hardware).
+// They remain outside production dispatch and are exposed through the
+// internals facade for experiments and differential tests on AVX-512 hosts.
+
 pub mod bytes;
-#[cfg(feature = "simd512")]
-pub mod bytes512;
 pub mod fan_paar;
 pub mod gf16;
 pub mod gf32;
 pub mod gf64;
 pub mod gf8;
-pub mod prime;
+pub mod goldilocks;
+pub mod mersenne31;
+pub mod quad_mersenne31;
 
 pub(crate) use bytes::{xor_avx2, xor_gather_avx2, xor_sse2};
 
@@ -176,7 +181,7 @@ pub(super) fn peel_to_align(ptr: *const u8, len: usize, elem_bytes: usize) -> us
 /// observes the stores.
 #[allow(unsafe_code)]
 #[archmage::rite(v3)]
-pub(super) unsafe fn store256<const NT: bool>(ptr: *mut u8, value: __m256i) {
+pub(super) unsafe fn store_avx2<const NT: bool>(ptr: *mut u8, value: __m256i) {
     // SAFETY:
     // CPU FEATURES
     // SINCE: the `#[archmage::rite(v3)]` context enables AVX2 for this body.
@@ -204,10 +209,10 @@ pub(super) unsafe fn store256<const NT: bool>(ptr: *mut u8, value: __m256i) {
 /// Store 16 bytes, non-temporally when `NT`.
 ///
 /// # Safety
-/// As [`store256`], for 16 bytes and 16-byte alignment.
+/// As [`store_avx2`], for 16 bytes and 16-byte alignment.
 #[allow(unsafe_code)]
 #[archmage::rite(v1)]
-pub(super) unsafe fn store128<const NT: bool>(ptr: *mut u8, value: __m128i) {
+pub(super) unsafe fn store_sse2<const NT: bool>(ptr: *mut u8, value: __m128i) {
     // SAFETY:
     // CPU FEATURES
     // SINCE: the `#[archmage::rite(v1)]` context enables SSE2 for this body.
