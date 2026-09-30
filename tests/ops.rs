@@ -2043,8 +2043,8 @@ fn backend_queries_are_consistent_per_field() {
     // process backend must actually be `V4x` — a green run alone never proves
     // the tier executed (P10). A `SIMD_BACKEND` request below `v4x` lowers the
     // tier on purpose, and hosts without the token cannot select it; both are
-    // documented skips.
-    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
+    // documented skips. The host probe is the `internals` token re-export.
+    #[cfg(all(feature = "simd512", feature = "internals", target_arch = "x86_64"))]
     {
         use fgf::internals::kernel::{SimdToken, X64V4xToken};
         let downgrade = std::env::var("SIMD_BACKEND")

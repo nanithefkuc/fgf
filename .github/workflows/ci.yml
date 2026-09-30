@@ -140,6 +140,9 @@ jobs:
       # `internals` the x86 re-exports have no consumer outside dispatch.
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo clippy --no-default-features --all-targets -- -D warnings
+      # `simd512` without `internals`: tests must not reach the facade
+      # unless they gate on it.
+      - run: cargo clippy --features simd512 --all-targets -- -D warnings
       # Doc warnings fail the build in every feature configuration the
       # test jobs exercise.
       - run: cargo doc --no-deps
