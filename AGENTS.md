@@ -79,8 +79,7 @@ cannot express: offset-addressed disjoint rows, uninitialized scratch,
 aligned or non-temporal stores, and provider callbacks with caller-owned
 invariants. Update this list when a new residue class is unavoidable.
 
-The legacy `kernel/x86/avx512.rs` implementation (`Gf8B`, tower) stays
-deferred and exposed only under `internals`. The safe AVX-512 byte-field
+The AVX-512 byte-field
 (`kernel/x86/gf8/gf8d512_*.rs`), `Gf16` single-buffer and matrix
 (`kernel/x86/gf16/{wide,matrix512}.rs`), byte XOR and popcount
 (`kernel/x86/bytes512.rs`), and Mersenne31 and Goldilocks
@@ -103,9 +102,8 @@ initialization, alignment, or aliasing. Each listed item has a per-item
 | `kernel/aarch64/gf8.rs`: `mul_add_scatter_impl`, `scatter_quad`, `mul_add_matrix_impl`, `matrix_quad`, `matrix_single` | The kernels update multiple rows selected by runtime offsets into one uniquely borrowed flat buffer. The checked entry proves each span and the rows' disjointness; safe Rust cannot express those offset-addressed mutable windows together. |
 | `kernel/aarch64/gf16.rs`: `xor_row`, `scatter_group`, `mul_add_scatter_impl`, `matrix_group`, `mul_add_matrix_impl` | The scatter and matrix bodies operate on grouped, disjoint row windows addressed within one live allocation. The entry establishes row bounds and disjointness, but the borrow checker cannot split rows selected by runtime offsets. |
 | `kernel/x86.rs`: `store256`, `store128` | The store helpers expose raw-pointer vector stores. Their callers prove each writable window; streaming stores additionally require 32-byte or 16-byte alignment and a fence before another thread observes the writes. |
-| `kernel/x86/avx512.rs`: `gf8_mul_add`, `gf8_mul_add_impl`, `gf8_mul_assign`, `gf8_mul_assign_impl`, `gf8_mul_into`, `gf8_mul_into_impl`, `gf8_mul_elementwise`, `gf8_mul_elementwise_impl`, `gf16_mul_add`, `gf16_mul_add_impl`, `gf16_mul_assign`, `gf16_mul_assign_impl`, `gf16_mul_into`, `gf16_mul_into_impl`, `gf16_mul_elementwise`, `gf16_mul_elementwise_impl`, `swap_mask` | AVX-512 intrinsics require feature-enabled call boundaries and raw vector loads/stores over complete lanes. The wrappers' slice geometry bounds those windows; `swap_mask` also loads a statically aligned vector. This file is deferred and remains outside production dispatch. |
 | `kernel/x86/gf16/gfni.rs`: `mul_into_gfni_lane` | The GFNI overwrite lane supports streaming stores through a raw-pointer helper. The caller peels the destination to the required boundary, keeps each lane in-bounds, and fences before observation. |
-| `kernel/x86/gf16/matrix.rs`: `mul_add_matrix_gfni_with`, `matrix_group_gfni`, `mul_add_matrix_avx2_with`, `matrix_group_avx2`, `mul_add_matrix_ssse3_with`, `matrix_rows_ssse3` | Each matrix group writes multiple row windows selected by offsets into one destination allocation. Checked geometry establishes complete rows, source bounds, and disjointness; safe mutable slices cannot represent the grouped offset windows. |
+| `kernel/x86/gf16/matrix.rs`: `mul_add_matrix_gfni_with`, `matrix_group_gfni`, `mul_add_matrix_ssse3_with`, `matrix_rows_ssse3` | Each matrix group writes multiple row windows selected by offsets into one destination allocation. Checked geometry establishes complete rows, source bounds, and disjointness; safe mutable slices cannot represent the grouped offset windows. |
 | `kernel/x86/gf16/nibble.rs`: `mul_into_avx2_lane` | The nibble-shuffle overwrite lane uses the same aligned streaming-store primitive: checked slices bound every lane, the peel proves alignment, and the caller fences the stores. |
 | `kernel/x86/gf16/scatter.rs`: `mul_add_scatter_gfni`, `scatter_group_gfni`, `mul_add_scatter_avx2`, `scatter_rows_avx2`, `mul_add_scatter_ssse3`, `scatter_rows_ssse3` | Scatter updates rows addressed by offsets within one borrowed flat buffer. The entry validates the row span and the body relies on pairwise-disjoint row windows that safe Rust cannot represent as simultaneous slices. |
 | `kernel/x86/gf8/gfni.rs`: `mul_into_gfni_impl`, `mul_into_affine_impl` | These overwrite lanes write vector tiles through raw pointers; the tile split bounds every store, while the non-temporal branch additionally relies on the alignment peel and a final fence. |
@@ -116,10 +114,6 @@ initialization, alignment, or aliasing. Each listed item has a per-item
 | `kernel/x86/gf8/scatter.rs`: `mul_add_scatter_impl`, `scatter_rows4`, `scatter_rows2`, `scatter_span` | Scatter groups update disjoint rows by offsets into one destination allocation. The checked caller establishes each row's bounds and the grouped body maintains non-aliasing across stores. |
 | `kernel/x86/gf8/gf8d512_sg.rs`: `mul_add_scatter512_impl`, `scatter_rows4_512`, `scatter_rows2_512`, `scatter_span512` | 64-byte `Gf8D` scatter groups update disjoint rows by offsets into one destination allocation. The checked entry proves each row's bounds and disjointness; the grouped bodies keep those windows across 64-byte reference loads/stores. Dispatched on `V4x` under `simd512`. |
 | `kernel/x86/gf8/gf8d512_matrix.rs`: `mul_add_matrix512_impl_with`, `matrix_rows1_512_with`, `rows_tile4_512_with`, `rows_lane4_512_with`, `rows_tile2_512_with`, `rows_lane2_512_with`, `rows_tile1_512_with`, `rows_lane1_512_with`, `matrix_tail_512_with`, `mul_add_matrix_at512_impl` | 64-byte `Gf8D` matrix groups address rows by checked offsets into one region (contiguous or scattered). The entries prove each row in-bounds and pairwise disjoint; the tile bodies and tails preserve disjointness across 64-byte reference loads/stores. Dispatched on `V4x` under `simd512`. |
-| `kernel/x86/gf8/experiments/grouped.rs`: `mul_into_matrix_chunk_8d`, `mul_into_matrix_external_grouped_8d` | Experimental grouped matrix kernels pass offset-addressed rows to pointer-based inner loops. Their checked entry proves row bounds and disjointness, plus the external coefficient/source ordering required by the walk. |
-| `kernel/x86/gf8/experiments/resolve.rs`: `resolve_probe_8d` | The probe stages resolved coefficients and source references in `MaybeUninit` arrays to avoid initializing unused slots. It writes and reinterprets only the occupied prefix. |
-| `kernel/x86/gf8/experiments/shuffle.rs`: `mul_into_matrix6_shuffle_impl`, `packed_nibble_product`, `mul_into_matrix6_shuffle_packed_impl`, `mul_into_matrix2_shuffle_body` | Matrix bodies use offset-addressed disjoint row windows and cache source/table pointers to avoid repeated bounds checks. The checked layer bounds every row, source, and packed table record; the pointer walk relies on those caller-established invariants. |
-| `kernel/x86/gf8/experiments/tile.rs`: `mul_into_matrix2_checked`, `matrix2_body` | The two-row body keeps two checked, disjoint offset windows as raw pointers. Its streaming-store specialization additionally relies on the entry's aligned-buffer and row-length checks, then fences before observation. |
 
 The `wasm32` kernel subtree retains no unsafe code: reference-based
 `v128_load`/`v128_store` over 16-byte chunk arrays and `split_at_mut` row
@@ -152,9 +146,9 @@ or exact panic prose.
 may resolve to another supported tier; inspect reported backends before treating
 a green run as ISA coverage.
 
-Coverage excludes the x86 field-kernel subtrees, the deferred AVX-512 code,
-and the GFNI dispatch arms in `kernel/gf8.rs` and `kernel/tower.rs` — none of
-which a GitHub-hosted runner can execute, since those hosts have no GFNI.
+Coverage excludes the x86 field-kernel subtrees and the GFNI dispatch arms in
+`kernel/gf8.rs` and `kernel/tower.rs` — none of which a GitHub-hosted runner
+can execute, since those hosts have no GFNI.
 Keep `COV_IGNORE` narrow and document every exclusion here.
 
 ## Benchmarks
@@ -186,10 +180,8 @@ the family flags select panels, and no flag runs every panel. The
 `--network-diagnostic` flag isolates matched base offsets and network row
 pitches for the byte-field payload operations.
 `compare` reports `fgf` self-numbers over the competitor-harness fixture
-family plus the six-row shuffle comparison. Its `--peel-diagnostic` flag
-isolates matched source and destination offsets around the AVX-512 peel
-floors. `affine` and `dot_product` are internal investigation harnesses, not
-headline public benchmarks.
+family. Its `--peel-diagnostic` flag isolates matched source and destination
+offsets around the AVX-512 peel floors.
 `prime_ntt` interleaves the QuadMersenne31 scalar control against the AVX2
 kernels per row length; its campaign set the dispatch thresholds in
 `src/kernel/quad_mersenne31.rs`.

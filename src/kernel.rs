@@ -507,14 +507,8 @@ pub(crate) trait KernelDispatch: Field {
     /// rows, and every row pair adds fieldwise: `dst_row[j] += src_row[j]`.
     /// Row boundaries do not change elementwise addition, so running
     /// [`KernelDispatch::add_assign`] over the whole buffers is exact for every
-    /// field — that is the default, and on the reference host it is also the
-    /// fastest known implementation at every measured geometry: a four-stream
-    /// row-interleaved XOR candidate matched or trailed it from L1 to DRAM
-    /// (BENCHMARKS.md, "Row-interleaved XOR"). The experimental interleaved
-    /// kernels live behind `internals` for future evaluation; no backend
-    /// override is wired until one measures a repeatable win. The prime
-    /// fields additionally fold lanes rather than bytes, so their default is
-    /// semantic, not just an optimization choice.
+    /// field; that is the default. A backend overrides it only with a kernel
+    /// that exploits the row geometry.
     fn add_assign_rows(_proof: RawDispatch, dst: &mut [u8], src: &[u8], _row_len: usize) {
         Self::add_assign(RawDispatch, dst, src);
     }
@@ -880,7 +874,7 @@ pub(crate) struct RawDispatch;
 ///
 /// Direct x86 entries own their validation; the `AArch64` and Wasm entries use
 /// these same helpers to apply the public geometry contract before entering
-/// their kernels, as do the deferred AVX-512 experiments.
+/// their kernels.
 // Compiled wherever an architecture kernel entry can use it.
 #[cfg(all(
     feature = "simd",

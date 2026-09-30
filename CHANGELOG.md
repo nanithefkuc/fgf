@@ -70,6 +70,29 @@ ladder gains `V4x`/`V4`).
 - The deferred `internals` entry `x86::avx512::proven::xor` and its
   unexported body. The dispatched `x86::bytes512::xor512` replaces it and
   carries no unsafe code.
+- **Breaking (unstable surface only):** the rest of the deferred
+  `internals` module `x86::avx512` (`gf8_*` and `gf16_*` single-buffer,
+  scatter, gather, matrix, and elementwise entries, and `proven::*`). The
+  dispatched `x86::gf8` and `x86::gf16` AVX-512 entries cover every shape
+  it held.
+- **Breaking (unstable surface only):** the `internals` measurement variants
+  whose decisions are recorded: `x86::gf8::{mul_add_gather_affine_8b,
+  prepare_affine_8b, Affine8BFactor, mul_add_gather_gfni_axpy_tail,
+  mul_add_gather_gfni_tile, mul_add_gather_gfni_split,
+  mul_into_matrix_chunk_8d, mul_into_matrix_external_grouped_8d,
+  mul_into_matrix1_external_8d, mul_into_matrix1_fullinit_8d,
+  mul_into_matrix1_chunk_8d, mul_into_matrix1_external_chunk_8d,
+  mul_into_matrix1_tile_8d, mul_into_matrix2_8b, mul_into_matrix2_8d,
+  mul_into_matrix2_shuffle_packed, mul_into_matrix6_shuffle_8b,
+  mul_into_matrix6_shuffle_8d, mul_into_matrix6_shuffle_packed_8b,
+  mul_into_matrix6_shuffle_packed_8d, resolve_probe_8d}`, the AVX2
+  prepared-affine matrix `x86::gf8::{mul_add,mul_into}_matrix_affine_prepared_with`,
+  the AVX2 blocked `Gf16` gather and matrix
+  `x86::gf16::{mul_add_gather_avx2, mul_add_matrix_avx2,
+  mul_add_matrix_avx2_with}` (dispatch serves both shapes with repeated
+  AXPY), and the row-interleaved XOR `x86::bytes::{xor_rows_avx2,
+  xor_rows_sse2}`. The `affine` and `dot_product` benchmarks and the
+  `perf_p2` example that drove them are removed with them.
 - **Breaking (unstable surface only):** `x86::gf8::{mul_add_matrix_at_gfni_with,
   mul_add_matrix_at_affine_with}`. No operation hands a prepared provider to
   scattered rows; a prepared scattered-row operation over `CoeffMatrix` was

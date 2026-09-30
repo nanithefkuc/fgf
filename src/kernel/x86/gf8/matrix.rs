@@ -12,9 +12,10 @@
 //! [`Matrix`](crate::kernel::Matrix) provider for per-term coefficient counts
 //! — the one provider-callback residue in this family.
 
+#[cfg(feature = "simd512")]
+use super::PreparedMatrix;
 use super::rows::{matrix_rows1, matrix_rows2, matrix_rows4};
 use super::{Affine8D, Blocked, Gfni};
-use super::{Affine8DPrepared, PreparedMatrix};
 use crate::field::gf8b::Elem;
 use crate::field::gf8d;
 use crate::kernel::Matrix;
@@ -243,50 +244,6 @@ pub fn mul_into_matrix_affine_with<M: Matrix<gf8d::Elem> + ?Sized>(
     mul_add_matrix_impl::<Affine8D, M, true>(rows, row_len, nrows, terms);
 }
 
-/// [`mul_add_matrix_affine_with`] over already-prepared coefficients: accumulate
-/// `rows[j] ^= sum_t coeffs[t][j] * src[t]` with the affine map read from each
-/// prepared coefficient instead of recomputed.
-///
-/// `prepared` is term-major, `term * nrows + row`, the order a plan stores.
-///
-/// # Panics
-/// As [`mul_add_matrix_gfni_with`], plus unless `prepared` holds `nrows` coefficients per
-/// source.
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_affine_prepared_with(
-    _token: archmage::X64V3GfniCryptoToken,
-    rows: &mut [u8],
-    row_len: usize,
-    nrows: usize,
-    prepared: &[crate::kernel::gf8::Prepared8D],
-    srcs: &[&[u8]],
-) {
-    assert!(
-        nrows
-            .checked_mul(row_len)
-            .is_some_and(|needed| needed <= rows.len()),
-        "matrix_affine_prepared: rows buffer does not hold {nrows} rows of {row_len} bytes"
-    );
-    assert_eq!(
-        prepared.len(),
-        nrows * srcs.len(),
-        "matrix_affine_prepared: one prepared coefficient per (term, row)"
-    );
-    for src in srcs {
-        assert_eq!(src.len(), row_len);
-    }
-    if srcs.is_empty() {
-        return;
-    }
-    let terms = PreparedMatrix {
-        prepared,
-        nrows,
-        sources: srcs,
-    };
-    mul_add_matrix_impl::<Affine8DPrepared, PreparedMatrix, false>(rows, row_len, nrows, &terms);
-}
-
 /// [`mul_add_matrix_affine_with`](super::mul_add_matrix_affine_with) over prepared
 /// coefficients: the tile loop reads each term's stored affine map instead of
 /// re-deriving it per tile.
@@ -335,49 +292,6 @@ pub fn mul_into_matrix_affine512_prepared_with(
         sources: srcs,
     };
     mul_into_matrix_affine512_with(_token, rows, row_len, nrows, &terms);
-}
-
-/// [`mul_add_matrix_affine_prepared_with`] with overwrite semantics: the erasure-
-/// encode shape over prepared coefficients.
-///
-/// # Panics
-/// As [`mul_add_matrix_affine_prepared_with`].
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_into_matrix_affine_prepared_with(
-    _token: archmage::X64V3GfniCryptoToken,
-    rows: &mut [u8],
-    row_len: usize,
-    nrows: usize,
-    prepared: &[crate::kernel::gf8::Prepared8D],
-    srcs: &[&[u8]],
-) {
-    assert!(
-        nrows
-            .checked_mul(row_len)
-            .is_some_and(|needed| needed <= rows.len()),
-        "matrix_overwrite_affine_prepared: rows buffer does not hold {nrows} rows of {row_len} bytes"
-    );
-    assert_eq!(
-        prepared.len(),
-        nrows * srcs.len(),
-        "matrix_overwrite_affine_prepared: one prepared coefficient per (term, row)"
-    );
-    for src in srcs {
-        assert_eq!(src.len(), row_len);
-    }
-    if srcs.is_empty() {
-        // The empty overwrite sum is zero: match the resolved path, whose
-        // tile loop stores zeroed accumulators even with no terms.
-        rows[..nrows * row_len].fill(0);
-        return;
-    }
-    let terms = PreparedMatrix {
-        prepared,
-        nrows,
-        sources: srcs,
-    };
-    mul_add_matrix_impl::<Affine8DPrepared, PreparedMatrix, true>(rows, row_len, nrows, &terms);
 }
 
 /// Contiguous row-group walk shared by every matrix entry above.

@@ -544,14 +544,9 @@ pub fn add_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 ///
 /// Both buffers are interpreted as the same number of contiguous
 /// `row_len`-byte rows. Semantically identical to [`add_assign`] — row
-/// boundaries cannot change elementwise addition — and currently implemented
-/// exactly that way on every backend: a four-stream row-interleaved XOR
-/// candidate built for this shape measured at parity with the flat kernel
-/// from L1 to DRAM on the reference host, so no override is wired
-/// (BENCHMARKS.md, "Row-interleaved XOR"). Call it anyway when the row
-/// geometry is known: backends may interleave independent row streams once
-/// any platform measures a repeatable win, at which point existing callers
-/// pick it up without code changes.
+/// boundaries cannot change elementwise addition. Stating the row geometry
+/// lets a backend schedule independent row streams; callers that know it
+/// should use this form.
 ///
 /// ```
 /// use fgf::{Gf8B, ops};

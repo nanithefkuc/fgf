@@ -52,8 +52,8 @@ archmage = { version = "=0.9.29", optional = true }
 # Benchmarks only; scoping them off wasm keeps `cargo test --target wasm32-*`
 # buildable.
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
-# The affine/shuffle crossover harness (`benches/affine.rs`) is the one
-# statistical measurement in the crate; x86-only, gated on `internals`.
+# The QuadMersenne31 harness (`benches/prime_ntt.rs`) is the one statistical
+# measurement in the crate; x86-only, gated on `internals`.
 criterion = "0.8"
 
 [profile.bench]
@@ -74,27 +74,10 @@ harness = false
 required-features = ["std", "simd", "internals"]
 
 [[bench]]
-name = "affine"
-harness = false
-# Direct kernel calls use the unstable facade and SIMD capability tokens.
-required-features = ["std", "simd", "internals"]
-
-[[bench]]
-name = "dot_product"
-harness = false
-# Direct GFNI kernel calls need the internal architecture modules.
-required-features = ["std", "simd", "internals"]
-
-[[bench]]
 name = "prime_ntt"
 harness = false
 # Direct AVX2 kernel calls need the internal architecture modules.
 required-features = ["std", "internals"]
-
-[[example]]
-name = "perf_p2"
-# Calls internal experimental two-row overwrite kernels directly.
-required-features = ["std", "simd", "internals"]
 
 [[example]]
 name = "peel_probe"
