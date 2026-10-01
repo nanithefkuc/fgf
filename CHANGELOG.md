@@ -36,6 +36,11 @@ All notable changes to this project are documented here. The format follows
   scattered-row, provider, and prepared forms) resolve each row group's
   coefficients into map words once per chunk of terms instead of once per
   tile, and fold terms in pairs. Results are unchanged.
+- The GFNI and AVX-512 byte-field matrix kernels, contiguous and
+  scattered-row, process long rows in column blocks when the destination
+  spans more than one row group, so each source block is reused from cache
+  across every row group instead of being re-read from memory per group.
+  Results are unchanged.
 
 ### Fixed
 

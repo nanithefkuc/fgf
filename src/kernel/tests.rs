@@ -1660,6 +1660,73 @@ mod x86 {
         check_matrix_resolve_chunks("gf8b", gf8_coeff_at2, gf8_reference, &entries);
     }
 
+    /// The AVX-512 matrix walks over rows long enough to split into column
+    /// blocks. A destination off a 64-byte boundary gives the walk a
+    /// non-empty leading block before the aligned ones; an aligned
+    /// destination gives it none.
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn gf8_avx512_matrix_column_blocks_match_reference() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no AVX-512F+AVX-512BW+GFNI on this host");
+            return;
+        };
+
+        for offset in [16usize, 0] {
+            check_matrix_column_blocks(
+                "gf8d avx512 matrix blocks",
+                false,
+                offset,
+                gf8d_coeff_at2,
+                gf8d_reference,
+                |rows, row_len, nrows, terms| {
+                    x86::gf8::mul_add_matrix_avx512(token, rows, row_len, nrows, terms);
+                },
+            );
+        }
+        check_matrix_column_blocks(
+            "gf8d avx512 matrix overwrite blocks",
+            true,
+            16,
+            gf8d_coeff_at2,
+            gf8d_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_into_matrix_avx512(token, rows, row_len, nrows, terms);
+            },
+        );
+        check_matrix_column_blocks(
+            "gf8b avx512 matrix blocks",
+            false,
+            16,
+            gf8_coeff_at2,
+            gf8_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_add_matrix_avx512(token, rows, row_len, nrows, terms);
+            },
+        );
+        check_matrix_column_blocks(
+            "gf8d avx512 matrix with blocks",
+            false,
+            16,
+            gf8d_coeff_at2,
+            gf8d_reference,
+            |rows, row_len, nrows, terms| {
+                with_flat(terms, nrows, |matrix| {
+                    x86::gf8::mul_add_matrix_avx512_with(token, rows, row_len, nrows, matrix);
+                });
+            },
+        );
+        check_matrix_at_column_blocks(
+            "gf8d avx512 matrix_at blocks",
+            16,
+            gf8d_coeff_at2,
+            gf8d_reference,
+            |dst, row_len, starts, terms| {
+                x86::gf8::mul_add_matrix_at_avx512(token, dst, row_len, starts, terms);
+            },
+        );
+    }
+
     #[test]
     #[allow(clippy::too_many_lines)]
     fn gfni_kernels_match_reference() {
@@ -1862,6 +1929,257 @@ mod x86 {
                 );
             }
         }
+    }
+
+    /// Column-blocked matrix geometry as `(row_len, nrows, nterms)`.
+    ///
+    /// Row lengths sit one byte and one lane past two blocks, on a ragged span
+    /// with a sub-lane remainder, and on an exact multiple of the block; row
+    /// counts run several row groups. One single-group case at a long row
+    /// pins the unblocked walk.
+    fn column_block_cases() -> Vec<(usize, usize, usize)> {
+        let block = x86::gf8::MATRIX_COLUMN_BLOCK;
+        let mut cases = Vec::new();
+        for row_len in [2 * block + 1, 2 * block + 64, 3 * block + 31, 5 * block] {
+            for nrows in [5, 6, 8, 9] {
+                for nterms in [1, 3, 10] {
+                    cases.push((row_len, nrows, nterms));
+                }
+            }
+        }
+        cases.push((3 * block + 31, 4, 3));
+        // Term counts past one resolve chunk over a lane-multiple blocked
+        // row, so later chunks accumulate inside every block, including the
+        // leading unaligned one.
+        let chunk = x86::gf8::RESOLVE_CHUNK;
+        for nterms in [chunk + 1, 2 * chunk + 1] {
+            for nrows in [5, 7] {
+                cases.push((3 * block + 64, nrows, nterms));
+            }
+        }
+        cases
+    }
+
+    /// Deterministic matrix terms: per-term noise sources of `row_len` bytes
+    /// and `coeff_at(term, row)` coefficients.
+    fn column_block_terms<E: Copy>(
+        row_len: usize,
+        nrows: usize,
+        nterms: usize,
+        coeff_at: impl Fn(usize, usize) -> E,
+    ) -> (Vec<Vec<u8>>, Vec<Vec<E>>) {
+        let sources = (0..nterms)
+            .map(|t| noise(row_len, 0xc00 + t as u64))
+            .collect();
+        let coeff_sets = (0..nterms)
+            .map(|t| (0..nrows).map(|j| coeff_at(t, j)).collect())
+            .collect();
+        (sources, coeff_sets)
+    }
+
+    /// Contiguous matrix differential over column-blocked geometry, with the
+    /// destination `offset` bytes past a 64-byte boundary. Accumulate starts
+    /// from noise; overwrite starts from noise the kernel must ignore.
+    fn check_matrix_column_blocks<E: Copy>(
+        name: &str,
+        overwrite: bool,
+        offset: usize,
+        coeff_at: impl Fn(usize, usize) -> E,
+        reference: impl Fn(&mut [u8], E, &[u8]),
+        kernel: impl Fn(&mut [u8], usize, usize, &[(&[E], &[u8])]),
+    ) {
+        for (row_len, nrows, nterms) in column_block_cases() {
+            let (sources, coeff_sets) = column_block_terms(row_len, nrows, nterms, &coeff_at);
+            let terms: Vec<(&[E], &[u8])> = coeff_sets
+                .iter()
+                .zip(&sources)
+                .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                .collect();
+            let span = row_len * nrows;
+            let mut backing = noise(span + 128, 0xc10);
+            let start = backing.as_ptr().align_offset(64) + offset;
+            let mut want = if overwrite {
+                vec![0u8; span]
+            } else {
+                backing[start..start + span].to_vec()
+            };
+            for &(coeffs, src) in &terms {
+                for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                    reference(row, coeff, src);
+                }
+            }
+            let rows = &mut backing[start..start + span];
+            kernel(rows, row_len, nrows, &terms);
+            assert!(
+                *rows == *want,
+                "{name}: +{offset} {row_len}B x {nrows} x {nterms}t"
+            );
+        }
+    }
+
+    /// Scattered-row matrix differential over column-blocked geometry: rows
+    /// separated by gaps, in reversed order for odd row counts, with the
+    /// destination `offset` bytes past a 64-byte boundary.
+    fn check_matrix_at_column_blocks<E: Copy>(
+        name: &str,
+        offset: usize,
+        coeff_at: impl Fn(usize, usize) -> E,
+        reference: impl Fn(&mut [u8], E, &[u8]),
+        kernel: impl Fn(&mut [u8], usize, &[usize], &[(&[E], &[u8])]),
+    ) {
+        for (row_len, nrows, nterms) in column_block_cases() {
+            let (sources, coeff_sets) = column_block_terms(row_len, nrows, nterms, &coeff_at);
+            let terms: Vec<(&[E], &[u8])> = coeff_sets
+                .iter()
+                .zip(&sources)
+                .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                .collect();
+            let mut starts: Vec<usize> = (0..nrows).map(|j| j * (row_len + 7)).collect();
+            if nrows % 2 == 1 {
+                starts.reverse();
+            }
+            let span = (nrows - 1) * (row_len + 7) + row_len;
+            let mut backing = noise(span + 128, 0xc20);
+            let start = backing.as_ptr().align_offset(64) + offset;
+            let mut want = backing[start..start + span].to_vec();
+            for &(coeffs, src) in &terms {
+                for (&row_start, &coeff) in starts.iter().zip(coeffs) {
+                    reference(&mut want[row_start..row_start + row_len], coeff, src);
+                }
+            }
+            let dst = &mut backing[start..start + span];
+            kernel(dst, row_len, &starts, &terms);
+            assert!(
+                *dst == *want,
+                "{name}: +{offset} {row_len}B x {nrows} x {nterms}t"
+            );
+        }
+    }
+
+    /// Run `f` over a [`FlatMatrix`](crate::kernel::FlatMatrix) holding the
+    /// same terms as `terms`, so the `_with` forms see a provider other than
+    /// the term slice.
+    fn with_flat<E: Copy>(
+        terms: &[(&[E], &[u8])],
+        nrows: usize,
+        f: impl FnOnce(&crate::kernel::FlatMatrix<'_, E>),
+    ) {
+        let coefficients: Vec<E> = terms
+            .iter()
+            .flat_map(|&(coeffs, _)| coeffs.iter().copied())
+            .collect();
+        let sources: Vec<&[u8]> = terms.iter().map(|&(_, src)| src).collect();
+        f(&crate::kernel::FlatMatrix {
+            coefficients: &coefficients,
+            nrows,
+            sources: &sources,
+        });
+    }
+
+    /// The `Gf8B` GFNI matrix walks over rows long enough to split into
+    /// column blocks, through the slice, `_with`, and scattered-row entries.
+    #[test]
+    fn gfni_matrix_column_blocks_match_reference() {
+        if !(host_supports(&[Backend::V3GfniCrypto])) {
+            eprintln!("skipping: no AVX2+GFNI on this host");
+            return;
+        }
+        let token = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
+
+        check_matrix_column_blocks(
+            "gf8 gfni matrix blocks",
+            false,
+            0,
+            gf8_coeff_at2,
+            gf8_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_add_matrix_gfni(token, rows, row_len, nrows, terms);
+            },
+        );
+        check_matrix_column_blocks(
+            "gf8 gfni matrix overwrite blocks",
+            true,
+            0,
+            gf8_coeff_at2,
+            gf8_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_into_matrix_gfni(token, rows, row_len, nrows, terms);
+            },
+        );
+        check_matrix_column_blocks(
+            "gf8 gfni matrix with blocks",
+            false,
+            0,
+            gf8_coeff_at2,
+            gf8_reference,
+            |rows, row_len, nrows, terms| {
+                with_flat(terms, nrows, |matrix| {
+                    x86::gf8::mul_add_matrix_gfni_with(token, rows, row_len, nrows, matrix);
+                });
+            },
+        );
+        check_matrix_at_column_blocks(
+            "gf8 gfni matrix_at blocks",
+            0,
+            gf8_coeff_at2,
+            gf8_reference,
+            |dst, row_len, starts, terms| {
+                x86::gf8::mul_add_matrix_at_gfni(token, dst, row_len, starts, terms);
+            },
+        );
+    }
+
+    /// The `Gf8D` GFNI matrix walks over rows long enough to split into
+    /// column blocks, through the slice, `_with`, and scattered-row entries.
+    #[test]
+    fn gfni_8d_matrix_column_blocks_match_reference() {
+        if !(host_supports(&[Backend::V3GfniCrypto])) {
+            eprintln!("skipping: no AVX2+GFNI on this host");
+            return;
+        }
+        let token = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
+
+        check_matrix_column_blocks(
+            "gf8d gfni_8d matrix blocks",
+            false,
+            16,
+            gf8d_coeff_at2,
+            gf8d_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_add_matrix_gfni_8d(token, rows, row_len, nrows, terms);
+            },
+        );
+        check_matrix_column_blocks(
+            "gf8d gfni_8d matrix overwrite blocks",
+            true,
+            16,
+            gf8d_coeff_at2,
+            gf8d_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_into_matrix_gfni_8d(token, rows, row_len, nrows, terms);
+            },
+        );
+        check_matrix_column_blocks(
+            "gf8d gfni_8d matrix overwrite with blocks",
+            true,
+            0,
+            gf8d_coeff_at2,
+            gf8d_reference,
+            |rows, row_len, nrows, terms| {
+                with_flat(terms, nrows, |matrix| {
+                    x86::gf8::mul_into_matrix_gfni_8d_with(token, rows, row_len, nrows, matrix);
+                });
+            },
+        );
+        check_matrix_at_column_blocks(
+            "gf8d gfni_8d matrix_at blocks",
+            16,
+            gf8d_coeff_at2,
+            gf8d_reference,
+            |dst, row_len, starts, terms| {
+                x86::gf8::mul_add_matrix_at_gfni_8d(token, dst, row_len, starts, terms);
+            },
+        );
     }
 
     /// The `0x11D` field's GFNI path: `VGF2P8AFFINEQB` with the const-derived

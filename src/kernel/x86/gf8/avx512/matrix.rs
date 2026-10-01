@@ -14,7 +14,7 @@
 //! measurement on AVX-512 hardware.
 
 use super::super::gfni::mul_add_gfni_8d_impl;
-use super::super::{RESOLVE_CHUNK, check_scattered};
+use super::super::{ColumnWindow, RESOLVE_CHUNK, check_scattered, column_blocked, column_blocks};
 use super::{MapCoeff, bfactor_avx512, bmul_avx512};
 use crate::kernel::Matrix;
 
@@ -183,8 +183,14 @@ pub fn mul_into_matrix_avx512_with<C: MapCoeff, M: Matrix<C> + ?Sized>(
     mul_add_matrix_impl::<C, M, true>(rows, row_len, nrows, terms);
 }
 
-/// Provider-generic row-group walk shared by the 512-bit matrix entries.
-#[allow(unsafe_code)]
+/// Provider-generic matrix walk shared by the 512-bit matrix entries.
+///
+/// With more than one row group over long rows, the walk splits the rows into
+/// column blocks and runs every row group over one block before the next, so
+/// each source block is reused across the groups while it is cache-resident.
+/// The first block ends where row 0 reaches a 64-byte boundary, so later
+/// blocks start aligned in every row whose pitch is a multiple of 64.
+/// Otherwise the row groups run over whole rows.
 #[archmage::rite(v4x, import_intrinsics)]
 fn mul_add_matrix_impl<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
     rows: &mut [u8],
@@ -192,53 +198,99 @@ fn mul_add_matrix_impl<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool
     nrows: usize,
     terms: &M,
 ) {
+    if !column_blocked(nrows, row_len) {
+        matrix_block::<C, M, OVERWRITE>(rows, row_len, 0, row_len, nrows, terms);
+        return;
+    }
+    let head = aligned_head(rows.as_ptr(), row_len);
+    for (start, len) in column_blocks(row_len, head) {
+        let window = ColumnWindow::new(terms, start, len);
+        matrix_block::<C, _, OVERWRITE>(rows, row_len, start, len, nrows, &window);
+    }
+}
+
+/// Bytes from `first` to its next 64-byte boundary when rows `pitch` bytes
+/// apart share that alignment, zero otherwise: the same condition under which
+/// the row groups peel a head.
+fn aligned_head(first: *const u8, pitch: usize) -> usize {
+    if pitch.is_multiple_of(64) {
+        (first as usize).wrapping_neg() & 63
+    } else {
+        0
+    }
+}
+
+/// Provider-generic row-group walk over one column block: the
+/// `block_start..block_start + block_len` span of each of `nrows` rows that
+/// sit `pitch` bytes apart, against sources that span the block.
+#[allow(unsafe_code)]
+#[archmage::rite(v4x, import_intrinsics)]
+fn matrix_block<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+    rows: &mut [u8],
+    pitch: usize,
+    block_start: usize,
+    block_len: usize,
+    nrows: usize,
+    terms: &M,
+) {
+    debug_assert!(block_start + block_len <= pitch);
     let base = rows.as_mut_ptr();
     let mut g = 0;
     while g + 4 <= nrows {
         // SAFETY:
         // MEMORY VALIDITY
-        // SINCE: row `j` starts at `base + j * row_len` and spans `row_len`
-        //        bytes, and the entry asserted `nrows * row_len <=
+        // SINCE: row `j`'s block starts at `base + j * pitch + block_start`
+        //        and spans `block_len` bytes, `block_start + block_len <=
+        //        pitch`, and the entry asserted `nrows * pitch <=
         //        rows.len()`.
-        // THUS: each staged pointer addresses an in-bounds, whole row.
+        // THUS: each staged pointer addresses an in-bounds, whole block of
+        //       its row.
         //
         // ALIASING
-        // SINCE: distinct rows sit `row_len` apart in one region, so the four
-        //        windows are pairwise disjoint.
+        // SINCE: distinct rows sit `pitch` apart in one region and each block
+        //        lies inside its own row, so the four windows are pairwise
+        //        disjoint.
         // THUS: no row's store conflicts with another row's window.
         let ptrs = unsafe {
             [
-                base.add(g * row_len),
-                base.add((g + 1) * row_len),
-                base.add((g + 2) * row_len),
-                base.add((g + 3) * row_len),
+                base.add(g * pitch + block_start),
+                base.add((g + 1) * pitch + block_start),
+                base.add((g + 2) * pitch + block_start),
+                base.add((g + 3) * pitch + block_start),
             ]
         };
-        matrix_rows4::<C, M, OVERWRITE>(ptrs, row_len, g, terms);
+        matrix_rows4::<C, M, OVERWRITE>(ptrs, block_len, g, terms);
         g += 4;
     }
     if g + 2 <= nrows {
         // SAFETY:
         // MEMORY VALIDITY
-        // SINCE: as for the four-row group above, rows `g` and `g + 1` lie
-        //        wholly inside `rows`.
-        // THUS: each staged pointer addresses an in-bounds, whole row.
+        // SINCE: as for the four-row group above, the blocks of rows `g` and
+        //        `g + 1` lie wholly inside `rows`.
+        // THUS: each staged pointer addresses an in-bounds, whole block of
+        //       its row.
         //
         // ALIASING
-        // SINCE: distinct rows sit `row_len` apart, so the two windows are
-        //        disjoint.
+        // SINCE: distinct rows sit `pitch` apart and each block lies inside
+        //        its own row, so the two windows are disjoint.
         // THUS: no row's store conflicts with the other row's window.
-        let ptrs = unsafe { [base.add(g * row_len), base.add((g + 1) * row_len)] };
-        matrix_rows2::<C, M, OVERWRITE>(ptrs, row_len, g, terms);
+        let ptrs = unsafe {
+            [
+                base.add(g * pitch + block_start),
+                base.add((g + 1) * pitch + block_start),
+            ]
+        };
+        matrix_rows2::<C, M, OVERWRITE>(ptrs, block_len, g, terms);
         g += 2;
     }
     if g < nrows {
         // SAFETY:
         // MEMORY VALIDITY
-        // SINCE: as above, row `g` lies wholly inside `rows`.
-        // THUS: the staged pointer addresses an in-bounds, whole row.
-        let ptr = unsafe { base.add(g * row_len) };
-        matrix_rows1::<C, M, OVERWRITE>(ptr, row_len, g, terms);
+        // SINCE: as above, the block of row `g` lies wholly inside `rows`.
+        // THUS: the staged pointer addresses an in-bounds, whole block of its
+        //       row.
+        let ptr = unsafe { base.add(g * pitch + block_start) };
+        matrix_rows1::<C, M, OVERWRITE>(ptr, block_len, g, terms);
     }
 }
 
@@ -251,8 +303,8 @@ fn matrix_rows4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
     terms: &M,
 ) {
     // Head bytes run through the hierarchical tail until the first row is
-    // 64-byte aligned; rows sit `row_len` apart, so aligning one aligns
-    // every row whose pitch is a multiple of 64.
+    // 64-byte aligned; aligning one aligns every row when the row pitch and
+    // this span's length are multiples of 64.
     let head = (ptrs[0] as usize).wrapping_neg() & 63;
     let head = if row_len >= MATRIX_PEEL_MIN && head < row_len && row_len.is_multiple_of(64) {
         head
@@ -641,8 +693,9 @@ fn matrix_tail<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
         // THUS: the tail slice lies wholly within its originating row.
         //
         // ALIASING
-        // SINCE: the rows are `row_len` apart and disjoint, and the borrow is
-        //        released before the next row's tail is formed.
+        // SINCE: the staged row windows are pairwise disjoint, each lying
+        //        inside its own checked row, and the borrow is released
+        //        before the next row's tail is formed.
         // THUS: the mutable borrow aliases no other live row window.
         let tail = unsafe { core::slice::from_raw_parts_mut(row.add(tile), row_len - tile) };
         if OVERWRITE {
@@ -701,12 +754,9 @@ pub fn mul_add_matrix_at_avx512<C: MapCoeff>(
     mul_add_matrix_at_impl(dst, row_len, row_starts, terms);
 }
 
-/// Scattered row-group walk: the same blocking as [`mul_add_matrix_impl`],
-/// with each row starting at an arbitrary disjoint offset.
-///
-/// Residue: the rows are addressed at runtime offsets the caller proved
-/// in-bounds and pairwise disjoint, which no safe primitive expresses.
-#[allow(unsafe_code)]
+/// Scattered matrix walk: the same column blocking as
+/// [`mul_add_matrix_impl`], with each row starting at an arbitrary disjoint
+/// offset and the first block aligning the first row.
 #[archmage::rite(v4x, import_intrinsics)]
 fn mul_add_matrix_at_impl<C: MapCoeff>(
     dst: &mut [u8],
@@ -714,6 +764,34 @@ fn mul_add_matrix_at_impl<C: MapCoeff>(
     row_starts: &[usize],
     terms: &[(&[C], &[u8])],
 ) {
+    if !column_blocked(row_starts.len(), row_len) {
+        matrix_at_block::<C, [(&[C], &[u8])]>(dst, row_len, 0, row_len, row_starts, terms);
+        return;
+    }
+    let head = aligned_head(dst.as_ptr().wrapping_add(row_starts[0]), row_len);
+    for (start, len) in column_blocks(row_len, head) {
+        let window = ColumnWindow::new(terms, start, len);
+        matrix_at_block::<C, _>(dst, row_len, start, len, row_starts, &window);
+    }
+}
+
+/// Scattered row-group walk over one column block: the
+/// `block_start..block_start + block_len` span of each `row_len`-byte row
+/// starting at `row_starts[j]`, against sources that span the block.
+///
+/// Residue: the rows are addressed at runtime offsets the caller proved
+/// in-bounds and pairwise disjoint, which no safe primitive expresses.
+#[allow(unsafe_code)]
+#[archmage::rite(v4x, import_intrinsics)]
+fn matrix_at_block<C: MapCoeff, M: Matrix<C> + ?Sized>(
+    dst: &mut [u8],
+    row_len: usize,
+    block_start: usize,
+    block_len: usize,
+    row_starts: &[usize],
+    terms: &M,
+) {
+    debug_assert!(block_start + block_len <= row_len);
     let base = dst.as_mut_ptr();
     let nrows = row_starts.len();
     let mut g = 0;
@@ -721,44 +799,54 @@ fn mul_add_matrix_at_impl<C: MapCoeff>(
         // SAFETY:
         // MEMORY VALIDITY
         // SINCE: each `row_starts[j] + row_len <= dst.len()` was asserted by
-        //        the entry.
-        // THUS: each staged pointer addresses an in-bounds, whole row.
+        //        the entry, and `block_start + block_len <= row_len`.
+        // THUS: each staged pointer addresses an in-bounds, whole block of
+        //       its row.
         //
         // ALIASING
-        // SINCE: the entry asserted every pair of rows disjoint.
+        // SINCE: the entry asserted every pair of rows disjoint, and each
+        //        block lies inside its own row.
         // THUS: no row's store conflicts with another row's window.
         let ptrs = unsafe {
             [
-                base.add(row_starts[g]),
-                base.add(row_starts[g + 1]),
-                base.add(row_starts[g + 2]),
-                base.add(row_starts[g + 3]),
+                base.add(row_starts[g] + block_start),
+                base.add(row_starts[g + 1] + block_start),
+                base.add(row_starts[g + 2] + block_start),
+                base.add(row_starts[g + 3] + block_start),
             ]
         };
-        matrix_rows4::<C, [(&[C], &[u8])], false>(ptrs, row_len, g, terms);
+        matrix_rows4::<C, M, false>(ptrs, block_len, g, terms);
         g += 4;
     }
     if g + 2 <= nrows {
         // SAFETY:
         // MEMORY VALIDITY
-        // SINCE: as for the four-row group above, rows `g` and `g + 1` lie
-        //        wholly inside `dst`.
-        // THUS: each staged pointer addresses an in-bounds, whole row.
+        // SINCE: as for the four-row group above, the blocks of rows `g` and
+        //        `g + 1` lie wholly inside `dst`.
+        // THUS: each staged pointer addresses an in-bounds, whole block of
+        //       its row.
         //
         // ALIASING
-        // SINCE: the entry asserted every pair of rows disjoint.
+        // SINCE: the entry asserted every pair of rows disjoint, and each
+        //        block lies inside its own row.
         // THUS: no row's store conflicts with another row's window.
-        let ptrs = unsafe { [base.add(row_starts[g]), base.add(row_starts[g + 1])] };
-        matrix_rows2::<C, [(&[C], &[u8])], false>(ptrs, row_len, g, terms);
+        let ptrs = unsafe {
+            [
+                base.add(row_starts[g] + block_start),
+                base.add(row_starts[g + 1] + block_start),
+            ]
+        };
+        matrix_rows2::<C, M, false>(ptrs, block_len, g, terms);
         g += 2;
     }
     if g < nrows {
         // SAFETY:
         // MEMORY VALIDITY
-        // SINCE: as above, row `g` lies wholly inside `dst`.
-        // THUS: the staged pointer addresses an in-bounds, whole row.
-        let ptr = unsafe { base.add(row_starts[g]) };
-        matrix_rows1::<C, [(&[C], &[u8])], false>(ptr, row_len, g, terms);
+        // SINCE: as above, the block of row `g` lies wholly inside `dst`.
+        // THUS: the staged pointer addresses an in-bounds, whole block of its
+        //       row.
+        let ptr = unsafe { base.add(row_starts[g] + block_start) };
+        matrix_rows1::<C, M, false>(ptr, block_len, g, terms);
     }
 }
 

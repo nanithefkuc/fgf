@@ -54,9 +54,9 @@ fn rows_body<S: Blocked, const ROWS: usize, const LANES: usize, const OVERWRITE:
             // THUS: each 32-byte load stays within its originating row.
             //
             // ALIASING
-            // SINCE: the caller staged `ROWS` rows that are `row_len` apart
-            //        in one region, and only one row window is addressed at
-            //        a time against accumulators this body owns.
+            // SINCE: the caller staged `ROWS` pairwise-disjoint row windows,
+            //        each inside its own checked row, and only one window is
+            //        addressed at a time against accumulators this body owns.
             // THUS: the loads do not race any store this body issues.
             unsafe {
                 for (&ptr, slots) in ptrs.iter().zip(acc.iter_mut()) {
@@ -96,7 +96,7 @@ fn rows_body<S: Blocked, const ROWS: usize, const LANES: usize, const OVERWRITE:
         // THUS: each 32-byte store stays within its originating row.
         //
         // ALIASING
-        // SINCE: the row windows are `row_len` apart and disjoint, as above.
+        // SINCE: the staged row windows are pairwise disjoint, as above.
         // THUS: no store conflicts with another row's window.
         unsafe {
             for (&ptr, slots) in ptrs.iter().zip(&acc) {
@@ -295,8 +295,9 @@ fn matrix_tail<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
         // THUS: the tail slice lies wholly within its originating row.
         //
         // ALIASING
-        // SINCE: the rows are `row_len` apart and disjoint, and the borrow is
-        //        released before the next row's tail is formed.
+        // SINCE: the staged row windows are pairwise disjoint, each lying
+        //        inside its own checked row, and the borrow is released
+        //        before the next row's tail is formed.
         // THUS: the mutable borrow aliases no other live row window.
         let tail = unsafe { core::slice::from_raw_parts_mut(row.add(tile), remaining) };
         // Overwrite: start the tail at zero so the accumulating brem_gfni below
