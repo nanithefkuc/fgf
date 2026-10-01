@@ -1781,6 +1781,17 @@ mod x86 {
                 x86::gf8::mul_into_matrix_gfni(token, rows, row_len, nrows, terms);
             },
         );
+        check_gfni_matrix_prefetch(
+            "gf8 gfni matrix prefetch",
+            gf8_coeff_at2,
+            gf8_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_add_matrix_gfni(token, rows, row_len, nrows, terms);
+            },
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_into_matrix_gfni(token, rows, row_len, nrows, terms);
+            },
+        );
         check_matrix(
             "gf16 gfni matrix",
             gf16_coeff_at2,
@@ -2182,6 +2193,67 @@ mod x86 {
         );
     }
 
+    /// Prefetch-boundary differential for the GFNI matrix row-group bodies.
+    ///
+    /// Row lengths sit just below, at, and just above
+    /// [`MATRIX_PREFETCH_MIN`](crate::kernel::x86::gf8::MATRIX_PREFETCH_MIN),
+    /// so every case runs both the prefetching and the non-prefetching body
+    /// across each row-group shape and term count. The accumulate and
+    /// overwrite forms share each case against per-term scalar AXPY.
+    fn check_gfni_matrix_prefetch<E: Copy, F>(
+        name: &str,
+        coeff_at: impl Fn(usize, usize) -> E,
+        reference: F,
+        kernel_add: impl Fn(&mut [u8], usize, usize, &[(&[E], &[u8])]),
+        kernel_overwrite: impl Fn(&mut [u8], usize, usize, &[(&[E], &[u8])]),
+    ) where
+        F: Fn(&mut [u8], E, &[u8]),
+    {
+        let floor = x86::gf8::MATRIX_PREFETCH_MIN;
+        for &row_len in &[floor - 32, floor, floor + 33] {
+            for &nrows in &[1usize, 2, 3, 4, 6] {
+                for nterms in [1usize, 4, 10] {
+                    let sources: Vec<Vec<u8>> = (0..nterms)
+                        .map(|t| noise(row_len, 0xc10 + t as u64))
+                        .collect();
+                    let coeff_sets: Vec<Vec<E>> = (0..nterms)
+                        .map(|t| (0..nrows).map(|j| coeff_at(t, j)).collect())
+                        .collect();
+                    let terms: Vec<(&[E], &[u8])> = coeff_sets
+                        .iter()
+                        .zip(&sources)
+                        .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                        .collect();
+
+                    let mut got = noise(row_len * nrows, 0xc11);
+                    let mut want = got.clone();
+                    kernel_add(&mut got, row_len, nrows, &terms);
+                    for &(coeffs, src) in &terms {
+                        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                            reference(row, coeff, src);
+                        }
+                    }
+                    assert_eq!(
+                        got, want,
+                        "{name}: accumulate row_len {row_len}, nrows {nrows}, terms {nterms}"
+                    );
+
+                    let mut got = noise(row_len * nrows, 0xc12);
+                    kernel_overwrite(&mut got, row_len, nrows, &terms);
+                    let mut want = vec![0u8; row_len * nrows];
+                    for &(coeffs, src) in &terms {
+                        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                            reference(row, coeff, src);
+                        }
+                    }
+                    assert_eq!(
+                        got, want,
+                        "{name}: overwrite row_len {row_len}, nrows {nrows}, terms {nterms}"
+                    );
+                }
+            }
+        }
+    }
     /// The `0x11D` field's GFNI path: `VGF2P8AFFINEQB` with the const-derived
     /// affine bank. The sweep is exhaustive over coefficients, and the
     /// all-byte-values source makes it exhaustive over products — this is the
@@ -2251,6 +2323,17 @@ mod x86 {
             "gf8d gfni_8d matrix overwrite",
             gf8d_coeff_at2,
             gf8d_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_into_matrix_gfni_8d(token, rows, row_len, nrows, terms);
+            },
+        );
+        check_gfni_matrix_prefetch(
+            "gf8d gfni_8d matrix prefetch",
+            gf8d_coeff_at2,
+            gf8d_reference,
+            |rows, row_len, nrows, terms| {
+                x86::gf8::mul_add_matrix_gfni_8d(token, rows, row_len, nrows, terms);
+            },
             |rows, row_len, nrows, terms| {
                 x86::gf8::mul_into_matrix_gfni_8d(token, rows, row_len, nrows, terms);
             },

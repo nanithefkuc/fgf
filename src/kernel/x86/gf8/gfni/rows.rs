@@ -20,11 +20,28 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
+/// How far ahead of the tile being multiplied the matrix tile loop prefetches
+/// each source, in bytes.
+///
+/// The value bounds the gap between the prefetch window and the loads the
+/// tile loop is about to issue. It is a measured parameter recorded in
+/// `BENCHMARKS.md`.
+const MATRIX_PREFETCH_DISTANCE: usize = 1024;
+
+/// Shortest vector body for which the matrix tile loop prefetches its
+/// sources.
+///
+/// Below this length the loop issues too few loads for a software prefetch
+/// one distance ahead to pay for itself, so the body runs without prefetch.
+/// It is a measured parameter recorded in `BENCHMARKS.md`.
+pub(crate) const MATRIX_PREFETCH_MIN: usize = 16384;
 /// Fold one chunk of resolved terms into `ROWS` rows, `LANES` 32-byte lanes
 /// per row per iteration, then whole 32-byte lanes.
 ///
 /// `maps[term][row]` is the resolved factor word, so the loop walks the
-/// factor array and the source array in lockstep and indexes neither.
+/// factor array and the source array in lockstep and indexes neither. When
+/// `PREFETCH` is set, the tile loop issues a software prefetch for every
+/// source one [`MATRIX_PREFETCH_DISTANCE`] ahead of the tile.
 ///
 /// The rows are addressed as runtime offsets into one region; the entry that
 /// staged them asserted `coeffs.len() * row_len` (or the scattered-row
@@ -32,7 +49,13 @@ use core::arch::x86_64::*;
 /// staged source spans the `vector_len` the caller passes.
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
-fn rows_body<S: Blocked, const ROWS: usize, const LANES: usize, const OVERWRITE: bool>(
+fn rows_body<
+    S: Blocked,
+    const ROWS: usize,
+    const LANES: usize,
+    const OVERWRITE: bool,
+    const PREFETCH: bool,
+>(
     ptrs: [*mut u8; ROWS],
     vector_len: usize,
     maps: &[[u64; ROWS]],
@@ -70,6 +93,15 @@ fn rows_body<S: Blocked, const ROWS: usize, const LANES: usize, const OVERWRITE:
             let mut factor = [_mm256_setzero_si256(); ROWS];
             for (slot, &word) in factor.iter_mut().zip(map) {
                 *slot = wfactor_gfni::<S>(word);
+            }
+            if PREFETCH {
+                // A prefetch never faults, so the window may point past the
+                // source without a bounds proof.
+                let ahead = src.as_ptr().wrapping_add(tile + MATRIX_PREFETCH_DISTANCE);
+                // One prefetch per 64-byte cache line of the tile window.
+                for line in (0..step).step_by(64) {
+                    _mm_prefetch::<{ _MM_HINT_T0 }>(ahead.wrapping_add(line).cast());
+                }
             }
             // SAFETY:
             // MEMORY VALIDITY
@@ -153,7 +185,8 @@ fn rows_body<S: Blocked, const ROWS: usize, const LANES: usize, const OVERWRITE:
 /// each chunk, then finish the sub-lane remainder from the terms themselves.
 ///
 /// The first chunk carries the caller's overwrite policy; every later chunk
-/// accumulates into what the earlier ones wrote.
+/// accumulates into what the earlier ones wrote. A vector body at or above
+/// [`MATRIX_PREFETCH_MIN`] runs those loops with source prefetch.
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
 fn rows_resolved<
@@ -218,9 +251,15 @@ fn rows_resolved<
             )
         };
         if OVERWRITE && first {
-            rows_body::<S, ROWS, LANES, true>(ptrs, vector_len, maps, srcs);
+            if vector_len >= MATRIX_PREFETCH_MIN {
+                rows_body::<S, ROWS, LANES, true, true>(ptrs, vector_len, maps, srcs);
+            } else {
+                rows_body::<S, ROWS, LANES, true, false>(ptrs, vector_len, maps, srcs);
+            }
+        } else if vector_len >= MATRIX_PREFETCH_MIN {
+            rows_body::<S, ROWS, LANES, false, true>(ptrs, vector_len, maps, srcs);
         } else {
-            rows_body::<S, ROWS, LANES, false>(ptrs, vector_len, maps, srcs);
+            rows_body::<S, ROWS, LANES, false, false>(ptrs, vector_len, maps, srcs);
         }
         first = false;
         start += taken;

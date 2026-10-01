@@ -20,6 +20,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The GFNI matrix kernels prefetch each source ahead of the tile loop once a
+  row body is long enough, keeping the blocked multi-row shapes fed from
+  memory.
 - `BENCHMARKS.md` presents a complete Tiger Lake / Golden Cove snapshot of
   public API and interleaved competitor timings. Measurement history and
   dispatch-threshold experiments are excluded from the public tables.

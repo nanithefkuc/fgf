@@ -46,6 +46,8 @@ pub use avx512::{
     mul_elementwise_avx512, mul_elementwise_avx512_8d, mul_into_avx512, mul_into_matrix_avx512,
     mul_into_matrix_avx512_8d_with, mul_into_matrix_avx512_with,
 };
+#[cfg(test)]
+pub(crate) use gfni::MATRIX_PREFETCH_MIN;
 pub use gfni::{
     mul_add_gather_gfni, mul_add_gather_gfni_8d, mul_add_gfni, mul_add_gfni_8d,
     mul_add_matrix_at_gfni, mul_add_matrix_at_gfni_8d, mul_add_matrix_gfni, mul_add_matrix_gfni_8d,
