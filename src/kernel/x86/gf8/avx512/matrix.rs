@@ -66,7 +66,8 @@ pub fn mul_add_matrix_avx512<C: MapCoeff>(
 /// coeffs[t][j] * src[t]`.
 ///
 /// Accumulators are seeded from zero in registers instead of the
-/// destination, so the destination is written once with no read.
+/// destination, so prior destination contents are ignored; term counts above
+/// one resolve chunk accumulate later chunks into what the first wrote.
 ///
 /// # Panics
 /// As [`mul_add_matrix_avx512`].
@@ -379,7 +380,15 @@ fn rows_resolved<C: MapCoeff, M: Matrix<C> + ?Sized, const ROWS: usize, const OV
                 *word = C::map(*terms.coefficient(term, g + row));
             }
             maps[offset].write(words);
-            srcs[offset].write(terms.source(term));
+            // The body reads the staged slice without bounds checks, so the
+            // captured slice itself must cover the span; the provider may
+            // return a different slice than the one the entry validated.
+            let src = terms.source(term);
+            assert!(
+                src.len() >= end,
+                "matrix kernel: term {term} source is shorter than the row span"
+            );
+            srcs[offset].write(src);
         }
         // SAFETY:
         // INITIALIZATION
@@ -415,8 +424,8 @@ fn rows_resolved<C: MapCoeff, M: Matrix<C> + ?Sized, const ROWS: usize, const OV
 /// final term folds alone. `end - head` is a multiple of 64.
 ///
 /// The rows are addressed as runtime offsets into one region; the entry that
-/// staged them asserted each row in-bounds and pairwise disjoint, and every
-/// source spans the row length, which is at least `end`.
+/// staged them asserted each row in-bounds and pairwise disjoint, and
+/// `rows_resolved` asserted every staged source spans at least `end` bytes.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
 fn rows_body<const ROWS: usize, const OVERWRITE: bool>(

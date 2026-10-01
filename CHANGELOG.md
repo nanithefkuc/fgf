@@ -47,6 +47,10 @@ All notable changes to this project are documented here. The format follows
   runners; the AVX2 kernel and mixed-ISA dispatch remain included.
 - NEON and Wasm row-geometry checks compile only on their consumer targets,
   rather than appearing as unreachable x86 coverage obligations.
+- The GFNI and AVX-512 GF(2^8) matrix kernels over a generic `Matrix`
+  provider check the length of each source slice they stage, so a provider
+  that returns a shorter slice than the one the entry validated panics
+  instead of reading out of bounds.
 
 ## [2.0.0] - 2026-09-30
 

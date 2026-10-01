@@ -143,8 +143,9 @@ pub fn mul_add_matrix_gfni_8d_with<M: Matrix<gf8d::Elem> + ?Sized>(
 /// [`mul_add_matrix_gfni`] with overwrite semantics: `rows[j] = sum_t coeffs[t][j] * src[t]`.
 ///
 /// Accumulators are seeded from zero in registers instead of the destination,
-/// so the destination is written once with no read and no separate `fill(0)` —
-/// the erasure-encode shape.
+/// so prior destination contents are ignored and no separate `fill(0)` runs —
+/// the erasure-encode shape. Term counts above one resolve chunk accumulate
+/// later chunks into what the first wrote.
 ///
 /// # Panics
 /// As [`mul_add_matrix_gfni`].

@@ -28,8 +28,8 @@ use core::arch::x86_64::*;
 ///
 /// The rows are addressed as runtime offsets into one region; the entry that
 /// staged them asserted `coeffs.len() * row_len` (or the scattered-row
-/// equivalent) against the region length, and every source spans the
-/// `vector_len` the caller passes.
+/// equivalent) against the region length, and `rows_resolved` asserted every
+/// staged source spans the `vector_len` the caller passes.
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
 fn rows_body<S: Blocked, const ROWS: usize, const LANES: usize, const OVERWRITE: bool>(
@@ -196,7 +196,15 @@ fn rows_resolved<
                 *word = factor_word_gfni::<S>(*terms.coefficient(term, g + row));
             }
             maps[offset].write(words);
-            srcs[offset].write(terms.source(term));
+            // The body reads the staged slice without bounds checks, so the
+            // captured slice itself must cover the span; the provider may
+            // return a different slice than the one the entry validated.
+            let src = terms.source(term);
+            assert!(
+                src.len() >= vector_len,
+                "matrix kernel: term {term} source is shorter than the row span"
+            );
+            srcs[offset].write(src);
         }
         // SAFETY:
         // INITIALIZATION
