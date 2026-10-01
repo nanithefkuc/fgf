@@ -52,18 +52,9 @@ jobs:
         env:
           SIMD_BACKEND: scalar
 
-  # Ground rule: line coverage of the crate's own source must stay at or
-  # above 95%. One run per forced backend tier, merged, so every
-  # dispatchable backend counts. The GFNI kernels (kernel/x86/gf8,
-  # gf16, gf32, gf64) are excluded from the gate: they
-  # only execute on GFNI/AVX-512 hosts, the ubuntu-latest fleet mixes
-  # Xeon generations, and counting them made the gate depend on which
-  # runner the job landed on (2026-08-24: identical commits measured 70.8%
-  # and 98.8% over the full crate). Those files are still validated by the
-  # direct-kernel differential tests on capable hosts; the 95% gate — and
-  # the summary it prints — are measured over the code every CI runner
-  # executes. Excluded-set coverage for reference: 97.8% (no-GFNI host) /
-  # 99.4% (GFNI host).
+  # The coverage recipe merges the declared backend tiers and the portable
+  # feature run. Its exclusions cover only ISA-specific code unavailable on
+  # the coverage runner; direct differentials exercise it on capable hosts.
   coverage:
     name: coverage >=95% (llvm-cov)
     runs-on: ubuntu-latest
@@ -75,21 +66,10 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov@0.9.0
-      - run: cargo llvm-cov --no-report --all-features
-      - run: cargo llvm-cov --no-report --all-features
-        env:
-          SIMD_BACKEND: v3_gfni_crypto
-      - run: cargo llvm-cov --no-report --all-features
-        env:
-          SIMD_BACKEND: v3
-      - run: cargo llvm-cov --no-report --all-features
-        env:
-          SIMD_BACKEND: v2
-      - run: cargo llvm-cov --no-report --all-features
-        env:
-          SIMD_BACKEND: scalar
-      - run: cargo llvm-cov report --summary-only --ignore-filename-regex 'kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/(gf8|tower)\.rs$'
-      - run: cargo llvm-cov report --fail-under-lines 95 --ignore-filename-regex 'kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/(gf8|tower)\.rs$' --lcov --output-path coverage.lcov
+      - uses: extractions/setup-just@v2
+      - run: just cover
+      - run: just cover-lcov
+        if: always()
       - uses: actions/upload-artifact@v4
         if: always()
         with:

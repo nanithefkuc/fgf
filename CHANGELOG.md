@@ -37,6 +37,10 @@ All notable changes to this project are documented here. The format follows
 
 - The Plonky3 competitor harness aligns packed quadratic-extension fixtures
   for native AVX-512 builds and reports the actual packing widths.
+- CI coverage uses `just cover`, including the portable feature run, and
+  exports LCOV through `just cover-lcov` with the same exclusion set. The
+  AVX-512-only `QuadMersenne31` kernel is excluded on incapable coverage
+  runners; the AVX2 kernel and mixed-ISA dispatch remain included.
 
 ## [2.0.0] - 2026-09-30
 

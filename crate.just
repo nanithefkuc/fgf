@@ -13,10 +13,17 @@ TIERS := 'v4x v3_gfni_crypto v3 v2 scalar'
 # Owned-unsafe coverage is provided by the promoted GFNI recipe below.
 MIRI := ''
 
-# Coverage exclusions for code that cannot execute on a CI host. The x86
-# kernel subtrees need their own ISA; `kernel/gf8.rs` and `kernel/tower.rs`
-# carry the GFNI dispatch arms, which no GitHub-hosted runner can select.
-COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/(gf8|tower)\.rs$"'
+# Coverage exclusions for code that cannot execute on a CI host. The binary
+# field kernels require GFNI, and QuadMersenne31's AVX-512 kernel requires V4x.
+# The GitHub-hosted coverage runner cannot select those tiers; mixed-ISA prime
+# dispatch modules remain included.
+COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/(gf8|tower)\.rs$"'
+
+# Export the existing merged profiles, including after a failed coverage gate.
+[group('cover')]
+cover-lcov:
+    cargo llvm-cov report --lcov --output-path coverage.lcov --ignore-filename-regex {{COV_IGNORE}}
+
 
 # Run one educational example, passing additional Cargo options through.
 [group('examples')]

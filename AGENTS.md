@@ -17,6 +17,7 @@ just lint              # rustfmt and clippy at both feature ends
 just doc               # rustdoc with warnings denied
 just unsafe-check-gfni # owned-unsafe GFNI Miri cases
 just cover             # merged per-tier coverage, 95% minimum
+just cover-lcov        # export merged coverage profiles to coverage.lcov
 just validate          # complete pull-request gate
 just example NAME [ARGS] # one educational example, with Cargo options
 just examples [ARGS]     # all educational examples, excluding timing probes
@@ -161,9 +162,12 @@ or exact panic prose.
 may resolve to another supported tier; inspect reported backends before treating
 a green run as ISA coverage.
 
-Coverage excludes the x86 field-kernel subtrees and the GFNI dispatch arms in
-`kernel/gf8.rs` and `kernel/tower.rs` — none of which a GitHub-hosted runner
-can execute, since those hosts have no GFNI.
+Coverage excludes the x86 binary-field kernel subtrees and the GFNI dispatch
+arms in `kernel/gf8.rs` and `kernel/tower.rs`, which require GFNI unavailable
+on the GitHub-hosted coverage runner. It also excludes only
+`kernel/x86/quad_mersenne31/avx512.rs`: its V4x instructions cannot execute on
+that runner. The AVX2 kernel and mixed-ISA prime dispatch modules remain
+included. Direct AVX-512 differentials run on capable hosts.
 Keep `COV_IGNORE` narrow and document every exclusion here.
 
 ## Benchmarks
