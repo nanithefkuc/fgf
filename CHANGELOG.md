@@ -41,6 +41,8 @@ All notable changes to this project are documented here. The format follows
   exports LCOV through `just cover-lcov` with the same exclusion set. The
   AVX-512-only `QuadMersenne31` kernel is excluded on incapable coverage
   runners; the AVX2 kernel and mixed-ISA dispatch remain included.
+- NEON and Wasm row-geometry checks compile only on their consumer targets,
+  rather than appearing as unreachable x86 coverage obligations.
 
 ## [2.0.0] - 2026-09-30
 

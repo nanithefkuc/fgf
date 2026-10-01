@@ -909,7 +909,7 @@ pub(crate) mod proven_checks {
     }
 
     /// A flat row buffer must hold at least `count` rows of `row_len` bytes.
-    #[allow(dead_code)]
+    #[cfg(any(target_arch = "aarch64", target_arch = "wasm32"))]
     #[inline]
     pub(crate) fn check_row_span(name: &str, buffer_len: usize, row_len: usize, count: usize) {
         let used = count
@@ -923,7 +923,7 @@ pub(crate) mod proven_checks {
 
     /// Flat term geometry shared by the matrix entries: every term supplies
     /// `nrows` coefficients and a `row_len`-byte source.
-    #[allow(dead_code)]
+    #[cfg(any(target_arch = "aarch64", target_arch = "wasm32"))]
     #[inline]
     pub(crate) fn check_terms<E>(
         name: &str,
