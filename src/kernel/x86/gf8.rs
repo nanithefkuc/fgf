@@ -123,10 +123,11 @@ fn check_scattered(name: &str, dst_len: usize, row_len: usize, row_starts: &[usi
 pub(crate) const MATRIX_COLUMN_BLOCK: usize = 4096;
 
 /// Whether a matrix walk over `nrows` rows of `row_len` bytes runs in column
-/// blocks: only when it runs more than one row group and the rows span more
-/// than two blocks.
+/// blocks: only when it runs more than one row group (any count but one, two,
+/// or four rows under the four-two-one grouping) and the rows span more than
+/// two blocks.
 fn column_blocked(nrows: usize, row_len: usize) -> bool {
-    nrows > 4 && row_len > 2 * MATRIX_COLUMN_BLOCK
+    (nrows == 3 || nrows > 4) && row_len > 2 * MATRIX_COLUMN_BLOCK
 }
 
 /// The column blocks `(start, len)` that tile `0..row_len` in order: a

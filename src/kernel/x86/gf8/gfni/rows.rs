@@ -24,8 +24,7 @@ use core::arch::x86_64::*;
 /// each source, in bytes.
 ///
 /// The value bounds the gap between the prefetch window and the loads the
-/// tile loop is about to issue. It is a measured parameter recorded in
-/// `BENCHMARKS.md`.
+/// tile loop is about to issue. It is a measured parameter.
 const MATRIX_PREFETCH_DISTANCE: usize = 1024;
 
 /// Shortest vector body for which the matrix tile loop prefetches its
@@ -33,8 +32,9 @@ const MATRIX_PREFETCH_DISTANCE: usize = 1024;
 ///
 /// Below this length the loop issues too few loads for a software prefetch
 /// one distance ahead to pay for itself, so the body runs without prefetch.
-/// It is a measured parameter recorded in `BENCHMARKS.md`.
-pub(crate) const MATRIX_PREFETCH_MIN: usize = 16384;
+/// It is a measured parameter.
+pub(crate) const MATRIX_PREFETCH_MIN: usize = 8192;
+
 /// Fold one chunk of resolved terms into `ROWS` rows, `LANES` 32-byte lanes
 /// per row per iteration, then whole 32-byte lanes.
 ///

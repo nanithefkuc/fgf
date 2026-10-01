@@ -1952,7 +1952,7 @@ mod x86 {
         let block = x86::gf8::MATRIX_COLUMN_BLOCK;
         let mut cases = Vec::new();
         for row_len in [2 * block + 1, 2 * block + 64, 3 * block + 31, 5 * block] {
-            for nrows in [5, 6, 8, 9] {
+            for nrows in [3, 5, 6, 8, 9] {
                 for nterms in [1, 3, 10] {
                     cases.push((row_len, nrows, nterms));
                 }
@@ -1964,7 +1964,7 @@ mod x86 {
         // leading unaligned one.
         let chunk = x86::gf8::RESOLVE_CHUNK;
         for nterms in [chunk + 1, 2 * chunk + 1] {
-            for nrows in [5, 7] {
+            for nrows in [3, 5, 7] {
                 cases.push((3 * block + 64, nrows, nterms));
             }
         }
