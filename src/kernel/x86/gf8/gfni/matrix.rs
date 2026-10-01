@@ -13,7 +13,7 @@
 //! [`Matrix`](crate::kernel::Matrix) provider for per-term coefficient counts
 //! — the one provider-callback residue in this family.
 
-use super::super::{ColumnWindow, check_scattered, column_blocked, column_blocks};
+use super::super::{ColumnWindow, RESOLVE_CHUNK, check_scattered, column_blocked, column_blocks};
 use super::rows::{matrix_rows1, matrix_rows2, matrix_rows4};
 use super::{Affine8D, Blocked, Gfni};
 use crate::field::gf8b::Elem;
@@ -247,10 +247,11 @@ pub fn mul_into_matrix_gfni_8d_with<M: Matrix<gf8d::Elem> + ?Sized>(
 
 /// Contiguous matrix walk shared by every matrix entry above.
 ///
-/// With more than one row group over long rows, the walk splits the rows into
-/// column blocks and runs every row group over one block before the next, so
-/// each source block is reused across the groups while it is cache-resident.
-/// Otherwise the row groups run over whole rows.
+/// With more than one row group over long rows and more terms than one resolve
+/// chunk, the walk splits the rows into column blocks and runs every row group
+/// over one block before the next, so later groups re-read sources the first
+/// group just loaded. Up to one chunk the row groups run over whole rows,
+/// where the source prefetch in `rows` keeps the streams fed.
 #[archmage::rite(v3_gfni_crypto)]
 fn mul_add_matrix_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
     rows: &mut [u8],
@@ -258,7 +259,7 @@ fn mul_add_matrix_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE
     nrows: usize,
     terms: &M,
 ) {
-    if !column_blocked(nrows, row_len) {
+    if !gfni_column_blocked(nrows, row_len, terms.len()) {
         matrix_block::<S, M, OVERWRITE>(rows, row_len, 0, row_len, nrows, terms);
         return;
     }
@@ -426,7 +427,7 @@ fn mul_add_matrix_at_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
     row_starts: &[usize],
     terms: &M,
 ) {
-    if !column_blocked(row_starts.len(), row_len) {
+    if !gfni_column_blocked(row_starts.len(), row_len, terms.len()) {
         matrix_at_block::<S, M>(dst, row_len, 0, row_len, row_starts, terms);
         return;
     }
@@ -434,6 +435,14 @@ fn mul_add_matrix_at_impl<S: Blocked, M: Matrix<S::Coeff> + ?Sized>(
         let window = ColumnWindow::new(terms, start, len);
         matrix_at_block::<S, _>(dst, row_len, start, len, row_starts, &window);
     }
+}
+
+/// Whether the GFNI matrix walk runs in column blocks: the shared geometry
+/// trigger, restricted to term counts above one resolve chunk. Whole-row
+/// bodies prefetch their sources only while every term fits in one chunk;
+/// the selector and its threshold are measured parameters.
+fn gfni_column_blocked(nrows: usize, row_len: usize, nterms: usize) -> bool {
+    nterms > RESOLVE_CHUNK && column_blocked(nrows, row_len)
 }
 
 /// Scattered row-group walk over one column block: the

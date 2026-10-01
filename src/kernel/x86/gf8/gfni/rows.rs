@@ -186,7 +186,9 @@ fn rows_body<
 ///
 /// The first chunk carries the caller's overwrite policy; every later chunk
 /// accumulates into what the earlier ones wrote. A vector body at or above
-/// [`MATRIX_PREFETCH_MIN`] runs those loops with source prefetch.
+/// [`MATRIX_PREFETCH_MIN`] whose terms fit in one chunk runs those loops with
+/// source prefetch; more terms than that already re-stream the destination
+/// per chunk, and the column-blocked walk serves them instead.
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
 fn rows_resolved<
@@ -203,6 +205,7 @@ fn rows_resolved<
 ) {
     let vector_len = row_len & !31;
     let count = terms.len();
+    let prefetch = vector_len >= MATRIX_PREFETCH_MIN && count <= RESOLVE_CHUNK;
     let mut start = 0;
     let mut first = true;
     loop {
@@ -251,12 +254,12 @@ fn rows_resolved<
             )
         };
         if OVERWRITE && first {
-            if vector_len >= MATRIX_PREFETCH_MIN {
+            if prefetch {
                 rows_body::<S, ROWS, LANES, true, true>(ptrs, vector_len, maps, srcs);
             } else {
                 rows_body::<S, ROWS, LANES, true, false>(ptrs, vector_len, maps, srcs);
             }
-        } else if vector_len >= MATRIX_PREFETCH_MIN {
+        } else if prefetch {
             rows_body::<S, ROWS, LANES, false, true>(ptrs, vector_len, maps, srcs);
         } else {
             rows_body::<S, ROWS, LANES, false, false>(ptrs, vector_len, maps, srcs);
