@@ -37,6 +37,8 @@ pub use matrix::{
     mul_add_matrix_gfni_8d_with, mul_add_matrix_gfni_with, mul_into_matrix_gfni,
     mul_into_matrix_gfni_8d, mul_into_matrix_gfni_8d_with, mul_into_matrix_gfni_with,
 };
+#[cfg(test)]
+pub(crate) use rows::MATRIX_PREFETCH_MIN;
 pub use scatter::{mul_add_scatter_gfni, mul_add_scatter_gfni_8d};
 pub use single::{
     mul_add_gfni, mul_add_gfni_8d, mul_assign_gfni, mul_assign_gfni_8d, mul_into_gfni,

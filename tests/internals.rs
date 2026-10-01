@@ -1050,6 +1050,61 @@ fn proven_matrix_scattered_rejects_out_of_bounds_row() {
     });
 }
 
+/// A safe matrix provider whose first `source` call returns a full row and
+/// every later call an empty slice: a provider the entry's geometry check
+/// cannot pin, since it answers differently each time it is asked.
+struct ShrinkingSource<'a, C> {
+    coefficients: &'a [C],
+    full: &'a [u8],
+    calls: std::cell::Cell<usize>,
+}
+
+impl<C> fgf::internals::kernel::Matrix<C> for ShrinkingSource<'_, C> {
+    fn len(&self) -> usize {
+        1
+    }
+    fn coefficient(&self, _term: usize, row: usize) -> &C {
+        &self.coefficients[row]
+    }
+    fn source(&self, _term: usize) -> &[u8] {
+        let calls = self.calls.get();
+        self.calls.set(calls + 1);
+        if calls == 0 { self.full } else { &[] }
+    }
+}
+
+#[test]
+fn proven_matrix_with_rejects_source_that_shrinks_after_validation() {
+    rejects_geometry("gf8d matrix_with shrinking source", |token| {
+        let coeffs = [gf8d::Elem::from_raw(3)];
+        let src = vec![1u8; 256];
+        let terms = ShrinkingSource {
+            coefficients: &coeffs,
+            full: &src,
+            calls: std::cell::Cell::new(0),
+        };
+        let mut rows = vec![0u8; 256];
+        x86::gf8::mul_add_matrix_gfni_8d_with(token, &mut rows, 256, 1, &terms);
+    });
+    #[cfg(feature = "simd512")]
+    for row_len in [256, 512, 576] {
+        rejects_geometry(
+            "gf8d avx512 matrix_with shrinking source",
+            |token: X64V4xToken| {
+                let coeffs = [gf8d::Elem::from_raw(3)];
+                let src = vec![1u8; row_len];
+                let terms = ShrinkingSource {
+                    coefficients: &coeffs,
+                    full: &src,
+                    calls: std::cell::Cell::new(0),
+                };
+                let mut rows = vec![0u8; row_len];
+                x86::gf8::mul_add_matrix_avx512_with(token, &mut rows, row_len, 1, &terms);
+            },
+        );
+    }
+}
+
 #[test]
 fn proven_gather_rejects_count_mismatch() {
     rejects_geometry("gf8 gather", |token| {

@@ -32,6 +32,19 @@ All notable changes to this project are documented here. The format follows
   are unchanged. See `BENCHMARKS.md`.
 - `bench-m31-comp` runs only the five-round public snapshot campaign;
   the `prime_ntt` threshold investigation remains a separate benchmark.
+- The AVX-512 GF(2^8) matrix kernels (`Gf8D` and `Gf8B`, contiguous,
+  scattered-row, provider, and prepared forms) use direct coefficient reads
+  for short rows and resolve each row group's coefficients into map words
+  once per chunk of terms for longer rows, folding terms in pairs. Results
+  are unchanged.
+- The GFNI and AVX-512 byte-field matrix kernels, contiguous and
+  scattered-row, process long rows in column blocks when the destination
+  spans more than one row group, so each source block is reused from cache
+  across every row group instead of being re-read from memory per group.
+  Results are unchanged.
+- The GFNI byte-field matrix kernels prefetch each source ahead of the tile
+  loop on long rows whose terms fit in one resolve chunk, and run the column
+  blocks above only for larger term counts. Results are unchanged.
 
 ### Fixed
 
@@ -43,6 +56,10 @@ All notable changes to this project are documented here. The format follows
   runners; the AVX2 kernel and mixed-ISA dispatch remain included.
 - NEON and Wasm row-geometry checks compile only on their consumer targets,
   rather than appearing as unreachable x86 coverage obligations.
+- The GFNI and AVX-512 GF(2^8) matrix kernels over a generic `Matrix`
+  provider check the length of each source slice they stage, so a provider
+  that returns a shorter slice than the one the entry validated panics
+  instead of reading out of bounds.
 
 ## [2.0.0] - 2026-09-30
 

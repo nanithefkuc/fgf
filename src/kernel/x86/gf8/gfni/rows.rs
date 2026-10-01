@@ -11,6 +11,7 @@
 //! scratch is a `MaybeUninit` staging array whose occupied prefix is written
 //! before it is read.
 
+use super::super::RESOLVE_CHUNK;
 use super::{Blocked, bmul_gfni, brem_gfni, factor_word_gfni, wfactor_gfni};
 use crate::kernel::Matrix;
 
@@ -19,32 +20,42 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-/// How many terms a row group resolves into one stack array before its tile
-/// loops run.
+/// How far ahead of the tile being multiplied the matrix tile loop prefetches
+/// each source, in bytes.
 ///
-/// Resolving a coefficient costs one map (or byte) read per term per row, so
-/// doing it per group instead of per tile removes the per-(tile, term)
-/// coefficient load, its slice bounds check, and the term pointer walk from
-/// the loop the multiplier runs in. The chunk bounds the scratch array
-/// (`32 * 4 * 8` bytes at the widest group); term counts above it split into
-/// further passes, each of which re-reads the destination it accumulates
-/// into, so the chunk is sized to keep the erasure widths that matter
-/// (`k <= 32`) in a single pass.
-const RESOLVE_CHUNK: usize = 32;
+/// The value bounds the gap between the prefetch window and the loads the
+/// tile loop is about to issue. It is a measured parameter.
+const MATRIX_PREFETCH_DISTANCE: usize = 1024;
+
+/// Shortest vector body for which the matrix tile loop prefetches its
+/// sources.
+///
+/// Below this length the loop issues too few loads for a software prefetch
+/// one distance ahead to pay for itself, so the body runs without prefetch.
+/// It is a measured parameter.
+pub(crate) const MATRIX_PREFETCH_MIN: usize = 8192;
 
 /// Fold one chunk of resolved terms into `ROWS` rows, `LANES` 32-byte lanes
 /// per row per iteration, then whole 32-byte lanes.
 ///
 /// `maps[term][row]` is the resolved factor word, so the loop walks the
-/// factor array and the source array in lockstep and indexes neither.
+/// factor array and the source array in lockstep and indexes neither. When
+/// `PREFETCH` is set, the tile loop issues a software prefetch for every
+/// source one [`MATRIX_PREFETCH_DISTANCE`] ahead of the tile.
 ///
 /// The rows are addressed as runtime offsets into one region; the entry that
 /// staged them asserted `coeffs.len() * row_len` (or the scattered-row
-/// equivalent) against the region length, and every source spans the
-/// `vector_len` the caller passes.
+/// equivalent) against the region length, and `rows_resolved` asserted every
+/// staged source spans the `vector_len` the caller passes.
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
-fn rows_body<S: Blocked, const ROWS: usize, const LANES: usize, const OVERWRITE: bool>(
+fn rows_body<
+    S: Blocked,
+    const ROWS: usize,
+    const LANES: usize,
+    const OVERWRITE: bool,
+    const PREFETCH: bool,
+>(
     ptrs: [*mut u8; ROWS],
     vector_len: usize,
     maps: &[[u64; ROWS]],
@@ -66,9 +77,9 @@ fn rows_body<S: Blocked, const ROWS: usize, const LANES: usize, const OVERWRITE:
             // THUS: each 32-byte load stays within its originating row.
             //
             // ALIASING
-            // SINCE: the caller staged `ROWS` rows that are `row_len` apart
-            //        in one region, and only one row window is addressed at
-            //        a time against accumulators this body owns.
+            // SINCE: the caller staged `ROWS` pairwise-disjoint row windows,
+            //        each inside its own checked row, and only one window is
+            //        addressed at a time against accumulators this body owns.
             // THUS: the loads do not race any store this body issues.
             unsafe {
                 for (&ptr, slots) in ptrs.iter().zip(acc.iter_mut()) {
@@ -82,6 +93,15 @@ fn rows_body<S: Blocked, const ROWS: usize, const LANES: usize, const OVERWRITE:
             let mut factor = [_mm256_setzero_si256(); ROWS];
             for (slot, &word) in factor.iter_mut().zip(map) {
                 *slot = wfactor_gfni::<S>(word);
+            }
+            if PREFETCH {
+                // A prefetch never faults, so the window may point past the
+                // source without a bounds proof.
+                let ahead = src.as_ptr().wrapping_add(tile + MATRIX_PREFETCH_DISTANCE);
+                // One prefetch per 64-byte cache line of the tile window.
+                for line in (0..step).step_by(64) {
+                    _mm_prefetch::<{ _MM_HINT_T0 }>(ahead.wrapping_add(line).cast());
+                }
             }
             // SAFETY:
             // MEMORY VALIDITY
@@ -108,7 +128,7 @@ fn rows_body<S: Blocked, const ROWS: usize, const LANES: usize, const OVERWRITE:
         // THUS: each 32-byte store stays within its originating row.
         //
         // ALIASING
-        // SINCE: the row windows are `row_len` apart and disjoint, as above.
+        // SINCE: the staged row windows are pairwise disjoint, as above.
         // THUS: no store conflicts with another row's window.
         unsafe {
             for (&ptr, slots) in ptrs.iter().zip(&acc) {
@@ -165,7 +185,10 @@ fn rows_body<S: Blocked, const ROWS: usize, const LANES: usize, const OVERWRITE:
 /// each chunk, then finish the sub-lane remainder from the terms themselves.
 ///
 /// The first chunk carries the caller's overwrite policy; every later chunk
-/// accumulates into what the earlier ones wrote.
+/// accumulates into what the earlier ones wrote. A vector body at or above
+/// [`MATRIX_PREFETCH_MIN`] whose terms fit in one chunk runs those loops with
+/// source prefetch; more terms than that already re-stream the destination
+/// per chunk, and the column-blocked walk serves them instead.
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
 fn rows_resolved<
@@ -182,6 +205,7 @@ fn rows_resolved<
 ) {
     let vector_len = row_len & !31;
     let count = terms.len();
+    let prefetch = vector_len >= MATRIX_PREFETCH_MIN && count <= RESOLVE_CHUNK;
     let mut start = 0;
     let mut first = true;
     loop {
@@ -208,7 +232,15 @@ fn rows_resolved<
                 *word = factor_word_gfni::<S>(*terms.coefficient(term, g + row));
             }
             maps[offset].write(words);
-            srcs[offset].write(terms.source(term));
+            // The body reads the staged slice without bounds checks, so the
+            // captured slice itself must cover the span; the provider may
+            // return a different slice than the one the entry validated.
+            let src = terms.source(term);
+            assert!(
+                src.len() >= vector_len,
+                "matrix kernel: term {term} source is shorter than the row span"
+            );
+            srcs[offset].write(src);
         }
         // SAFETY:
         // INITIALIZATION
@@ -222,9 +254,15 @@ fn rows_resolved<
             )
         };
         if OVERWRITE && first {
-            rows_body::<S, ROWS, LANES, true>(ptrs, vector_len, maps, srcs);
+            if prefetch {
+                rows_body::<S, ROWS, LANES, true, true>(ptrs, vector_len, maps, srcs);
+            } else {
+                rows_body::<S, ROWS, LANES, true, false>(ptrs, vector_len, maps, srcs);
+            }
+        } else if prefetch {
+            rows_body::<S, ROWS, LANES, false, true>(ptrs, vector_len, maps, srcs);
         } else {
-            rows_body::<S, ROWS, LANES, false>(ptrs, vector_len, maps, srcs);
+            rows_body::<S, ROWS, LANES, false, false>(ptrs, vector_len, maps, srcs);
         }
         first = false;
         start += taken;
@@ -299,8 +337,9 @@ fn matrix_tail<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
         // THUS: the tail slice lies wholly within its originating row.
         //
         // ALIASING
-        // SINCE: the rows are `row_len` apart and disjoint, and the borrow is
-        //        released before the next row's tail is formed.
+        // SINCE: the staged row windows are pairwise disjoint, each lying
+        //        inside its own checked row, and the borrow is released
+        //        before the next row's tail is formed.
         // THUS: the mutable borrow aliases no other live row window.
         let tail = unsafe { core::slice::from_raw_parts_mut(row.add(tile), remaining) };
         // Overwrite: start the tail at zero so the accumulating brem_gfni below
