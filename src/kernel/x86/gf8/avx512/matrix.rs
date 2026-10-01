@@ -24,6 +24,12 @@ use crate::kernel::Matrix;
 /// the tile body is long enough.
 pub(crate) const MATRIX_PEEL_MIN: usize = 8192;
 
+/// Shortest row using chunk-resolved matrix coefficients.
+///
+/// Shorter rows read coefficients directly in each tile or lane. The crossover
+/// is a measured parameter; public matrix shapes appear in `BENCHMARKS.md`.
+const MATRIX_RESOLVE_MIN: usize = 512;
+
 /// Many sources into many rows, four rows per group over 256-byte tiles.
 ///
 /// # Panics
@@ -198,14 +204,30 @@ fn mul_add_matrix_impl<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool
     nrows: usize,
     terms: &M,
 ) {
+    if row_len < MATRIX_RESOLVE_MIN {
+        matrix_block::<C, M, OVERWRITE, true>(rows, row_len, 0, row_len, nrows, terms);
+        return;
+    }
+    matrix_long::<C, M, OVERWRITE>(rows, row_len, nrows, terms);
+}
+
+/// Column-blocked or whole-row resolved matrix walk.
+#[archmage::rite(v4x, import_intrinsics)]
+#[inline(never)]
+fn matrix_long<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &M,
+) {
     if !column_blocked(nrows, row_len) {
-        matrix_block::<C, M, OVERWRITE>(rows, row_len, 0, row_len, nrows, terms);
+        matrix_block::<C, M, OVERWRITE, false>(rows, row_len, 0, row_len, nrows, terms);
         return;
     }
     let head = aligned_head(rows.as_ptr(), row_len);
     for (start, len) in column_blocks(row_len, head) {
         let window = ColumnWindow::new(terms, start, len);
-        matrix_block::<C, _, OVERWRITE>(rows, row_len, start, len, nrows, &window);
+        matrix_block::<C, _, OVERWRITE, false>(rows, row_len, start, len, nrows, &window);
     }
 }
 
@@ -225,7 +247,7 @@ fn aligned_head(first: *const u8, pitch: usize) -> usize {
 /// sit `pitch` bytes apart, against sources that span the block.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn matrix_block<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+fn matrix_block<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const DIRECT: bool>(
     rows: &mut [u8],
     pitch: usize,
     block_start: usize,
@@ -259,7 +281,7 @@ fn matrix_block<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
                 base.add((g + 3) * pitch + block_start),
             ]
         };
-        matrix_rows4::<C, M, OVERWRITE>(ptrs, block_len, g, terms);
+        matrix_rows4::<C, M, OVERWRITE, DIRECT>(ptrs, block_len, g, terms);
         g += 4;
     }
     if g + 2 <= nrows {
@@ -280,7 +302,7 @@ fn matrix_block<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
                 base.add((g + 1) * pitch + block_start),
             ]
         };
-        matrix_rows2::<C, M, OVERWRITE>(ptrs, block_len, g, terms);
+        matrix_rows2::<C, M, OVERWRITE, DIRECT>(ptrs, block_len, g, terms);
         g += 2;
     }
     if g < nrows {
@@ -290,13 +312,13 @@ fn matrix_block<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
         // THUS: the staged pointer addresses an in-bounds, whole block of its
         //       row.
         let ptr = unsafe { base.add(g * pitch + block_start) };
-        matrix_rows1::<C, M, OVERWRITE>(ptr, block_len, g, terms);
+        matrix_rows1::<C, M, OVERWRITE, DIRECT>(ptr, block_len, g, terms);
     }
 }
 
 /// Provider-generic four-row fold.
 #[archmage::rite(v4x, import_intrinsics)]
-fn matrix_rows4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+fn matrix_rows4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const DIRECT: bool>(
     ptrs: [*mut u8; 4],
     row_len: usize,
     g: usize,
@@ -314,13 +336,27 @@ fn matrix_rows4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
     if head > 0 {
         matrix_tail::<C, M, OVERWRITE>(&ptrs, head, 0, g, terms);
     }
-    let tile = rows_resolved::<C, M, 4, OVERWRITE>(ptrs, head, row_len & !63, g, terms);
+    let vector_len = row_len & !63;
+    let tile = if DIRECT {
+        let mut tile = head;
+        while tile + 256 <= vector_len {
+            rows_tile4::<C, M, OVERWRITE>(ptrs, tile, g, terms);
+            tile += 256;
+        }
+        while tile + 64 <= vector_len {
+            rows_lane4::<C, M, OVERWRITE>(ptrs, tile, g, terms);
+            tile += 64;
+        }
+        tile
+    } else {
+        rows_resolved::<C, M, 4, OVERWRITE>(ptrs, head, vector_len, g, terms)
+    };
     matrix_tail::<C, M, OVERWRITE>(&ptrs, row_len, tile, g, terms);
 }
 
 /// Provider-generic two-row fold.
 #[archmage::rite(v4x, import_intrinsics)]
-fn matrix_rows2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+fn matrix_rows2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const DIRECT: bool>(
     ptrs: [*mut u8; 2],
     row_len: usize,
     g: usize,
@@ -338,14 +374,28 @@ fn matrix_rows2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
     if head > 0 {
         matrix_tail::<C, M, OVERWRITE>(&ptrs, head, 0, g, terms);
     }
-    let tile = rows_resolved::<C, M, 2, OVERWRITE>(ptrs, head, row_len & !63, g, terms);
+    let vector_len = row_len & !63;
+    let tile = if DIRECT {
+        let mut tile = head;
+        while tile + 256 <= vector_len {
+            rows_tile2::<C, M, OVERWRITE>(ptrs, tile, g, terms);
+            tile += 256;
+        }
+        while tile + 64 <= vector_len {
+            rows_lane2::<C, M, OVERWRITE>(ptrs, tile, g, terms);
+            tile += 64;
+        }
+        tile
+    } else {
+        rows_resolved::<C, M, 2, OVERWRITE>(ptrs, head, vector_len, g, terms)
+    };
     matrix_tail::<C, M, OVERWRITE>(&ptrs, row_len, tile, g, terms);
 }
 
 /// Provider-generic one-row fold.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn matrix_rows1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+fn matrix_rows1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const DIRECT: bool>(
     ptr: *mut u8,
     row_len: usize,
     g: usize,
@@ -360,7 +410,21 @@ fn matrix_rows1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
     if head > 0 {
         matrix_tail::<C, M, OVERWRITE>(&[ptr], head, 0, g, terms);
     }
-    let tile = rows_resolved::<C, M, 1, OVERWRITE>([ptr], head, row_len & !63, g, terms);
+    let vector_len = row_len & !63;
+    let tile = if DIRECT {
+        let mut tile = head;
+        while tile + 256 <= vector_len {
+            rows_tile1::<C, M, OVERWRITE>(ptr, tile, g, terms);
+            tile += 256;
+        }
+        while tile + 64 <= vector_len {
+            rows_lane1::<C, M, OVERWRITE>(ptr, tile, g, terms);
+            tile += 64;
+        }
+        tile
+    } else {
+        rows_resolved::<C, M, 1, OVERWRITE>([ptr], head, vector_len, g, terms)
+    };
     // SAFETY:
     // MEMORY VALIDITY
     // SINCE: the entry staged this row in-bounds at `row_len` bytes, and
@@ -380,6 +444,326 @@ fn matrix_rows1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
                 C::table(coeff),
                 &terms.source(term)[tile..],
             );
+        }
+    }
+}
+
+/// Provider-generic four-row tile.
+#[allow(unsafe_code)]
+#[archmage::rite(v4x, import_intrinsics)]
+fn rows_tile4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+    ptrs: [*mut u8; 4],
+    tile: usize,
+    g: usize,
+    terms: &M,
+) {
+    // SAFETY:
+    // MEMORY VALIDITY
+    // SINCE: `tile + 256 <= vector_len <= row_len` bounds every row window,
+    //        so each destination window lies inside its row. Source windows
+    //        use checked slice indexing on the captured provider slice.
+    // THUS: every 64-byte load and store below stays inside its slice.
+    //
+    // ALIASING
+    // SINCE: the rows are pairwise disjoint, as staged by the caller.
+    // THUS: no row's store conflicts with another row's window.
+    unsafe {
+        let mut acc = [[_mm512_setzero_si512(); 4]; 4];
+        if !OVERWRITE {
+            for (&ptr, slots) in ptrs.iter().zip(acc.iter_mut()) {
+                for (lane, slot) in slots.iter_mut().enumerate() {
+                    {
+                        let (rc, _) = core::slice::from_raw_parts(ptr.add(tile + 64 * lane), 64)
+                            .as_chunks::<64>();
+                        *slot = _mm512_loadu_si512(&rc[0]);
+                    }
+                }
+            }
+        }
+        for term in 0..terms.len() {
+            let maps = [
+                C::map(*terms.coefficient(term, g)),
+                C::map(*terms.coefficient(term, g + 1)),
+                C::map(*terms.coefficient(term, g + 2)),
+                C::map(*terms.coefficient(term, g + 3)),
+            ];
+            let f = [
+                bfactor_avx512(maps[0]),
+                bfactor_avx512(maps[1]),
+                bfactor_avx512(maps[2]),
+                bfactor_avx512(maps[3]),
+            ];
+            let src = terms.source(term);
+            let (s, _) = src[tile..tile + 256].as_chunks::<64>();
+            let x = [
+                _mm512_loadu_si512(&s[0]),
+                _mm512_loadu_si512(&s[1]),
+                _mm512_loadu_si512(&s[2]),
+                _mm512_loadu_si512(&s[3]),
+            ];
+            for (slots, &factor) in acc.iter_mut().zip(&f) {
+                for (slot, &value) in slots.iter_mut().zip(&x) {
+                    *slot = _mm512_xor_si512(*slot, bmul_avx512(value, factor));
+                }
+            }
+        }
+        for (&ptr, slots) in ptrs.iter().zip(&acc) {
+            for (lane, &value) in slots.iter().enumerate() {
+                {
+                    let (rc, _) = core::slice::from_raw_parts_mut(ptr.add(tile + 64 * lane), 64)
+                        .as_chunks_mut::<64>();
+                    _mm512_storeu_si512(&mut rc[0], value);
+                }
+            }
+        }
+    }
+}
+
+/// Provider-generic four-row lane.
+#[allow(unsafe_code)]
+#[archmage::rite(v4x, import_intrinsics)]
+fn rows_lane4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+    ptrs: [*mut u8; 4],
+    tile: usize,
+    g: usize,
+    terms: &M,
+) {
+    // SAFETY:
+    // MEMORY VALIDITY
+    // SINCE: `tile + 64 <= vector_len <= row_len` bounds every row window,
+    //        so each destination window lies inside its row. Source windows
+    //        use checked slice indexing on the captured provider slice.
+    // THUS: the 64-byte load and each store stay inside their slices.
+    //
+    // ALIASING
+    // SINCE: the rows are pairwise disjoint, as staged by the caller.
+    // THUS: no row's store conflicts with another row's window.
+    unsafe {
+        let mut acc = [_mm512_setzero_si512(); 4];
+        if !OVERWRITE {
+            for (&ptr, slot) in ptrs.iter().zip(acc.iter_mut()) {
+                {
+                    let (rc, _) = core::slice::from_raw_parts(ptr.add(tile), 64).as_chunks::<64>();
+                    *slot = _mm512_loadu_si512(&rc[0]);
+                }
+            }
+        }
+        for term in 0..terms.len() {
+            let src = terms.source(term);
+            let (s, _) = src[tile..tile + 64].as_chunks::<64>();
+            let x = _mm512_loadu_si512(&s[0]);
+            for (row, slot) in acc.iter_mut().enumerate() {
+                let map = C::map(*terms.coefficient(term, g + row));
+                *slot = _mm512_xor_si512(*slot, bmul_avx512(x, bfactor_avx512(map)));
+            }
+        }
+        for (&ptr, &value) in ptrs.iter().zip(&acc) {
+            {
+                let (rc, _) =
+                    core::slice::from_raw_parts_mut(ptr.add(tile), 64).as_chunks_mut::<64>();
+                _mm512_storeu_si512(&mut rc[0], value);
+            }
+        }
+    }
+}
+
+/// Provider-generic two-row tile.
+#[allow(unsafe_code)]
+#[archmage::rite(v4x, import_intrinsics)]
+fn rows_tile2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+    ptrs: [*mut u8; 2],
+    tile: usize,
+    g: usize,
+    terms: &M,
+) {
+    // SAFETY:
+    // MEMORY VALIDITY
+    // SINCE: `tile + 256 <= vector_len <= row_len` bounds every row window,
+    //        so each destination window lies inside its row. Source windows
+    //        use checked slice indexing on the captured provider slice.
+    // THUS: every 64-byte load and store below stays inside its slice.
+    //
+    // ALIASING
+    // SINCE: the rows are pairwise disjoint, as staged by the caller.
+    // THUS: no row's store conflicts with another row's window.
+    unsafe {
+        let mut acc = [[_mm512_setzero_si512(); 4]; 2];
+        if !OVERWRITE {
+            for (&ptr, slots) in ptrs.iter().zip(acc.iter_mut()) {
+                for (lane, slot) in slots.iter_mut().enumerate() {
+                    {
+                        let (rc, _) = core::slice::from_raw_parts(ptr.add(tile + 64 * lane), 64)
+                            .as_chunks::<64>();
+                        *slot = _mm512_loadu_si512(&rc[0]);
+                    }
+                }
+            }
+        }
+        for term in 0..terms.len() {
+            let maps = [
+                C::map(*terms.coefficient(term, g)),
+                C::map(*terms.coefficient(term, g + 1)),
+            ];
+            let f = [bfactor_avx512(maps[0]), bfactor_avx512(maps[1])];
+            let src = terms.source(term);
+            let (s, _) = src[tile..tile + 256].as_chunks::<64>();
+            let x = [
+                _mm512_loadu_si512(&s[0]),
+                _mm512_loadu_si512(&s[1]),
+                _mm512_loadu_si512(&s[2]),
+                _mm512_loadu_si512(&s[3]),
+            ];
+            for (slots, &factor) in acc.iter_mut().zip(&f) {
+                for (slot, &value) in slots.iter_mut().zip(&x) {
+                    *slot = _mm512_xor_si512(*slot, bmul_avx512(value, factor));
+                }
+            }
+        }
+        for (&ptr, slots) in ptrs.iter().zip(&acc) {
+            for (lane, &value) in slots.iter().enumerate() {
+                {
+                    let (rc, _) = core::slice::from_raw_parts_mut(ptr.add(tile + 64 * lane), 64)
+                        .as_chunks_mut::<64>();
+                    _mm512_storeu_si512(&mut rc[0], value);
+                }
+            }
+        }
+    }
+}
+
+/// Provider-generic two-row lane.
+#[allow(unsafe_code)]
+#[archmage::rite(v4x, import_intrinsics)]
+fn rows_lane2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+    ptrs: [*mut u8; 2],
+    tile: usize,
+    g: usize,
+    terms: &M,
+) {
+    // SAFETY:
+    // MEMORY VALIDITY
+    // SINCE: `tile + 64 <= vector_len <= row_len` bounds every row window,
+    //        so each destination window lies inside its row. Source windows
+    //        use checked slice indexing on the captured provider slice.
+    // THUS: the 64-byte load and each store stay inside their slices.
+    //
+    // ALIASING
+    // SINCE: the rows are pairwise disjoint, as staged by the caller.
+    // THUS: no row's store conflicts with another row's window.
+    unsafe {
+        let mut acc = [_mm512_setzero_si512(); 2];
+        if !OVERWRITE {
+            for (&ptr, slot) in ptrs.iter().zip(acc.iter_mut()) {
+                {
+                    let (rc, _) = core::slice::from_raw_parts(ptr.add(tile), 64).as_chunks::<64>();
+                    *slot = _mm512_loadu_si512(&rc[0]);
+                }
+            }
+        }
+        for term in 0..terms.len() {
+            let src = terms.source(term);
+            let (s, _) = src[tile..tile + 64].as_chunks::<64>();
+            let x = _mm512_loadu_si512(&s[0]);
+            for (row, slot) in acc.iter_mut().enumerate() {
+                let map = C::map(*terms.coefficient(term, g + row));
+                *slot = _mm512_xor_si512(*slot, bmul_avx512(x, bfactor_avx512(map)));
+            }
+        }
+        for (&ptr, &value) in ptrs.iter().zip(&acc) {
+            {
+                let (rc, _) =
+                    core::slice::from_raw_parts_mut(ptr.add(tile), 64).as_chunks_mut::<64>();
+                _mm512_storeu_si512(&mut rc[0], value);
+            }
+        }
+    }
+}
+
+/// One row by one 256-byte tile.
+#[allow(unsafe_code)]
+#[archmage::rite(v4x, import_intrinsics)]
+fn rows_tile1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+    ptr: *mut u8,
+    tile: usize,
+    g: usize,
+    terms: &M,
+) {
+    // SAFETY:
+    // MEMORY VALIDITY
+    // SINCE: `tile + 256 <= vector_len <= row_len` bounds every row window,
+    //        so each destination window lies inside its row. Source windows
+    //        use checked slice indexing on the captured provider slice.
+    // THUS: every 64-byte load and store below stays inside its slice.
+    //
+    // ALIASING
+    // SINCE: the rows are pairwise disjoint, as staged by the caller.
+    // THUS: no row's store conflicts with another row's window.
+    unsafe {
+        let mut acc = [_mm512_setzero_si512(); 4];
+        if !OVERWRITE {
+            for (lane, slot) in acc.iter_mut().enumerate() {
+                {
+                    let (rc, _) = core::slice::from_raw_parts(ptr.add(tile + 64 * lane), 64)
+                        .as_chunks::<64>();
+                    *slot = _mm512_loadu_si512(&rc[0]);
+                }
+            }
+        }
+        for term in 0..terms.len() {
+            let factor = bfactor_avx512(C::map(*terms.coefficient(term, g)));
+            let src = terms.source(term);
+            let (s, _) = src[tile..tile + 256].as_chunks::<64>();
+            acc[0] = _mm512_xor_si512(acc[0], bmul_avx512(_mm512_loadu_si512(&s[0]), factor));
+            acc[1] = _mm512_xor_si512(acc[1], bmul_avx512(_mm512_loadu_si512(&s[1]), factor));
+            acc[2] = _mm512_xor_si512(acc[2], bmul_avx512(_mm512_loadu_si512(&s[2]), factor));
+            acc[3] = _mm512_xor_si512(acc[3], bmul_avx512(_mm512_loadu_si512(&s[3]), factor));
+        }
+        for (lane, &value) in acc.iter().enumerate() {
+            {
+                let (rc, _) = core::slice::from_raw_parts_mut(ptr.add(tile + 64 * lane), 64)
+                    .as_chunks_mut::<64>();
+                _mm512_storeu_si512(&mut rc[0], value);
+            }
+        }
+    }
+}
+
+/// One row by one 64-byte lane.
+#[allow(unsafe_code)]
+#[archmage::rite(v4x, import_intrinsics)]
+fn rows_lane1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+    ptr: *mut u8,
+    tile: usize,
+    g: usize,
+    terms: &M,
+) {
+    // SAFETY:
+    // MEMORY VALIDITY
+    // SINCE: `tile + 64 <= vector_len <= row_len` bounds every row window,
+    //        so each destination window lies inside its row. Source windows
+    //        use checked slice indexing on the captured provider slice.
+    // THUS: the 64-byte load and each store stay inside their slices.
+    //
+    // ALIASING
+    // SINCE: the rows are pairwise disjoint, as staged by the caller.
+    // THUS: no row's store conflicts with another row's window.
+    unsafe {
+        let mut acc = _mm512_setzero_si512();
+        if !OVERWRITE {
+            {
+                let (rc, _) = core::slice::from_raw_parts(ptr.add(tile), 64).as_chunks::<64>();
+                acc = _mm512_loadu_si512(&rc[0]);
+            }
+        }
+        for term in 0..terms.len() {
+            let factor = bfactor_avx512(C::map(*terms.coefficient(term, g)));
+            let src = terms.source(term);
+            let (s, _) = src[tile..tile + 64].as_chunks::<64>();
+            acc = _mm512_xor_si512(acc, bmul_avx512(_mm512_loadu_si512(&s[0]), factor));
+        }
+        {
+            let (rc, _) = core::slice::from_raw_parts_mut(ptr.add(tile), 64).as_chunks_mut::<64>();
+            _mm512_storeu_si512(&mut rc[0], acc);
         }
     }
 }
@@ -764,14 +1148,18 @@ fn mul_add_matrix_at_impl<C: MapCoeff>(
     row_starts: &[usize],
     terms: &[(&[C], &[u8])],
 ) {
+    if row_len < MATRIX_RESOLVE_MIN {
+        matrix_at_block::<C, [(&[C], &[u8])], true>(dst, row_len, 0, row_len, row_starts, terms);
+        return;
+    }
     if !column_blocked(row_starts.len(), row_len) {
-        matrix_at_block::<C, [(&[C], &[u8])]>(dst, row_len, 0, row_len, row_starts, terms);
+        matrix_at_block::<C, [(&[C], &[u8])], false>(dst, row_len, 0, row_len, row_starts, terms);
         return;
     }
     let head = aligned_head(dst.as_ptr().wrapping_add(row_starts[0]), row_len);
     for (start, len) in column_blocks(row_len, head) {
         let window = ColumnWindow::new(terms, start, len);
-        matrix_at_block::<C, _>(dst, row_len, start, len, row_starts, &window);
+        matrix_at_block::<C, _, false>(dst, row_len, start, len, row_starts, &window);
     }
 }
 
@@ -783,7 +1171,7 @@ fn mul_add_matrix_at_impl<C: MapCoeff>(
 /// in-bounds and pairwise disjoint, which no safe primitive expresses.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn matrix_at_block<C: MapCoeff, M: Matrix<C> + ?Sized>(
+fn matrix_at_block<C: MapCoeff, M: Matrix<C> + ?Sized, const DIRECT: bool>(
     dst: &mut [u8],
     row_len: usize,
     block_start: usize,
@@ -815,7 +1203,7 @@ fn matrix_at_block<C: MapCoeff, M: Matrix<C> + ?Sized>(
                 base.add(row_starts[g + 3] + block_start),
             ]
         };
-        matrix_rows4::<C, M, false>(ptrs, block_len, g, terms);
+        matrix_rows4::<C, M, false, DIRECT>(ptrs, block_len, g, terms);
         g += 4;
     }
     if g + 2 <= nrows {
@@ -836,7 +1224,7 @@ fn matrix_at_block<C: MapCoeff, M: Matrix<C> + ?Sized>(
                 base.add(row_starts[g + 1] + block_start),
             ]
         };
-        matrix_rows2::<C, M, false>(ptrs, block_len, g, terms);
+        matrix_rows2::<C, M, false, DIRECT>(ptrs, block_len, g, terms);
         g += 2;
     }
     if g < nrows {
@@ -846,7 +1234,7 @@ fn matrix_at_block<C: MapCoeff, M: Matrix<C> + ?Sized>(
         // THUS: the staged pointer addresses an in-bounds, whole block of its
         //       row.
         let ptr = unsafe { base.add(row_starts[g] + block_start) };
-        matrix_rows1::<C, M, false>(ptr, block_len, g, terms);
+        matrix_rows1::<C, M, false, DIRECT>(ptr, block_len, g, terms);
     }
 }
 

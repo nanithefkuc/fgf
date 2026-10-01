@@ -1087,20 +1087,22 @@ fn proven_matrix_with_rejects_source_that_shrinks_after_validation() {
         x86::gf8::mul_add_matrix_gfni_8d_with(token, &mut rows, 256, 1, &terms);
     });
     #[cfg(feature = "simd512")]
-    rejects_geometry(
-        "gf8d avx512 matrix_with shrinking source",
-        |token: X64V4xToken| {
-            let coeffs = [gf8d::Elem::from_raw(3)];
-            let src = vec![1u8; 256];
-            let terms = ShrinkingSource {
-                coefficients: &coeffs,
-                full: &src,
-                calls: std::cell::Cell::new(0),
-            };
-            let mut rows = vec![0u8; 256];
-            x86::gf8::mul_add_matrix_avx512_with(token, &mut rows, 256, 1, &terms);
-        },
-    );
+    for row_len in [256, 512, 576] {
+        rejects_geometry(
+            "gf8d avx512 matrix_with shrinking source",
+            |token: X64V4xToken| {
+                let coeffs = [gf8d::Elem::from_raw(3)];
+                let src = vec![1u8; row_len];
+                let terms = ShrinkingSource {
+                    coefficients: &coeffs,
+                    full: &src,
+                    calls: std::cell::Cell::new(0),
+                };
+                let mut rows = vec![0u8; row_len];
+                x86::gf8::mul_add_matrix_avx512_with(token, &mut rows, row_len, 1, &terms);
+            },
+        );
+    }
 }
 
 #[test]

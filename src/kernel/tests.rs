@@ -1510,10 +1510,13 @@ mod x86 {
         let few: &[usize] = &[2, 7];
         // Sub-lane, one lane, tile plus lanes plus sub-lane tail, and the
         // peel floor on both sides of a whole lane.
-        let shapes: [(usize, &[usize]); 5] = [
+        let shapes: [(usize, &[usize]); 8] = [
             (40, &every),
             (64, &every),
             (256 + 2 * 64 + 17, &every),
+            (512 - 64, &every),
+            (512, &every),
+            (512 + 64 + 17, &every),
             (floor, few),
             (floor + 1, few),
         ];
