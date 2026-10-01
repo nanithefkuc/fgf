@@ -1470,6 +1470,196 @@ mod x86 {
         }
     }
 
+    /// One AVX-512 matrix entry under test: label, whether it overwrites, and
+    /// the call over contiguous rows.
+    #[cfg(feature = "simd512")]
+    type MatrixEntry<'a, E> = (
+        &'a str,
+        bool,
+        &'a dyn Fn(&mut [u8], usize, usize, &[(&[E], &[u8])]),
+    );
+
+    /// Flat row-major coefficients and per-term sources, the layout the
+    /// provider entries read.
+    #[cfg(feature = "simd512")]
+    fn flatten<'a, E: Copy>(terms: &[(&[E], &'a [u8])]) -> (Vec<E>, Vec<&'a [u8]>) {
+        let coeffs = terms
+            .iter()
+            .flat_map(|&(coeffs, _)| coeffs.iter().copied())
+            .collect();
+        (coeffs, terms.iter().map(|&(_, src)| src).collect())
+    }
+
+    /// Compare AVX-512 matrix entries against a per-term reference sum at term
+    /// counts straddling the coefficient resolve chunk.
+    ///
+    /// Row counts cover every mix of four-, two-, and one-row groups. Rows sit
+    /// 16 bytes past a 64-byte boundary, so the whole-lane floor length runs
+    /// the head peel; the long lengths keep to few row counts to bound
+    /// debug-build runtime.
+    #[cfg(feature = "simd512")]
+    fn check_matrix_resolve_chunks<E: Copy>(
+        field: &str,
+        coeff_at: impl Fn(usize, usize) -> E,
+        reference: impl Fn(&mut [u8], E, &[u8]),
+        entries: &[MatrixEntry<'_, E>],
+    ) {
+        let chunk = x86::gf8::RESOLVE_CHUNK;
+        let floor = x86::gf8::MATRIX_PEEL_MIN;
+        let every: Vec<usize> = (1..=9).collect();
+        let few: &[usize] = &[2, 7];
+        // Sub-lane, one lane, tile plus lanes plus sub-lane tail, and the
+        // peel floor on both sides of a whole lane.
+        let shapes: [(usize, &[usize]); 5] = [
+            (40, &every),
+            (64, &every),
+            (256 + 2 * 64 + 17, &every),
+            (floor, few),
+            (floor + 1, few),
+        ];
+        for nterms in [chunk - 1, chunk, chunk + 1, 2 * chunk + 1] {
+            for &(row_len, row_counts) in &shapes {
+                for &nrows in row_counts {
+                    let sources: Vec<Vec<u8>> = (0..nterms)
+                        .map(|t| noise(row_len, 0xc00 + t as u64))
+                        .collect();
+                    let coeff_sets: Vec<Vec<E>> = (0..nterms)
+                        .map(|t| (0..nrows).map(|j| coeff_at(t, j)).collect())
+                        .collect();
+                    let terms: Vec<(&[E], &[u8])> = coeff_sets
+                        .iter()
+                        .zip(&sources)
+                        .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                        .collect();
+                    let span = row_len * nrows;
+                    let mut sum = vec![0u8; span];
+                    for &(coeffs, src) in &terms {
+                        for (row, &coeff) in sum.chunks_exact_mut(row_len).zip(coeffs) {
+                            reference(row, coeff, src);
+                        }
+                    }
+                    let mut backing = noise(span + 128, 0xc01);
+                    let start = backing.as_ptr().align_offset(64) + 16;
+                    let initial = backing[start..start + span].to_vec();
+                    // Field addition is XOR, so accumulating the reference
+                    // sum into the initial rows gives the accumulate result.
+                    let accumulated: Vec<u8> =
+                        initial.iter().zip(&sum).map(|(a, b)| a ^ b).collect();
+                    for &(label, overwrites, kernel) in entries {
+                        let rows = &mut backing[start..start + span];
+                        rows.copy_from_slice(&initial);
+                        kernel(rows, row_len, nrows, &terms);
+                        let want = if overwrites { &sum } else { &accumulated };
+                        assert_eq!(
+                            rows,
+                            want.as_slice(),
+                            "{field} {label}: {row_len}B x {nrows} x {nterms}t"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Every AVX-512 matrix entry for both byte fields, at term counts that
+    /// split the row groups' coefficients across several resolve passes.
+    #[cfg(feature = "simd512")]
+    #[test]
+    fn gf8_avx512_matrix_straddles_resolve_chunk() {
+        let Some(token) = X64V4xToken::summon() else {
+            eprintln!("skipping: no AVX-512F+AVX-512BW+GFNI on this host");
+            return;
+        };
+        let entries: [MatrixEntry<'_, gf8d::Elem>; 7] = [
+            ("mul_add", false, &|rows, row_len, nrows, terms| {
+                x86::gf8::mul_add_matrix_avx512(token, rows, row_len, nrows, terms);
+            }),
+            ("mul_into", true, &|rows, row_len, nrows, terms| {
+                x86::gf8::mul_into_matrix_avx512(token, rows, row_len, nrows, terms);
+            }),
+            ("mul_add with", false, &|rows, row_len, nrows, terms| {
+                let (coefficients, sources) = flatten(terms);
+                let matrix = crate::kernel::FlatMatrix {
+                    coefficients: &coefficients,
+                    nrows,
+                    sources: &sources,
+                };
+                x86::gf8::mul_add_matrix_avx512_with(token, rows, row_len, nrows, &matrix);
+            }),
+            ("mul_into with", true, &|rows, row_len, nrows, terms| {
+                let (coefficients, sources) = flatten(terms);
+                let matrix = crate::kernel::FlatMatrix {
+                    coefficients: &coefficients,
+                    nrows,
+                    sources: &sources,
+                };
+                x86::gf8::mul_into_matrix_avx512_with(token, rows, row_len, nrows, &matrix);
+            }),
+            ("mul_add prepared", false, &|rows, row_len, nrows, terms| {
+                let (coefficients, sources) = flatten(terms);
+                let prepared: Vec<_> = coefficients
+                    .iter()
+                    .map(|&c| crate::kernel::gf8::Prepared8D {
+                        table: scale_table_8d(c),
+                        affine: affine_8d(c),
+                    })
+                    .collect();
+                x86::gf8::mul_add_matrix_avx512_8d_with(
+                    token, rows, row_len, nrows, &prepared, &sources,
+                );
+            }),
+            ("mul_into prepared", true, &|rows, row_len, nrows, terms| {
+                let (coefficients, sources) = flatten(terms);
+                let prepared: Vec<_> = coefficients
+                    .iter()
+                    .map(|&c| crate::kernel::gf8::Prepared8D {
+                        table: scale_table_8d(c),
+                        affine: affine_8d(c),
+                    })
+                    .collect();
+                x86::gf8::mul_into_matrix_avx512_8d_with(
+                    token, rows, row_len, nrows, &prepared, &sources,
+                );
+            }),
+            ("mul_add at", false, &|rows, row_len, nrows, terms| {
+                let starts: Vec<usize> = (0..nrows).map(|j| j * row_len).collect();
+                x86::gf8::mul_add_matrix_at_avx512(token, rows, row_len, &starts, terms);
+            }),
+        ];
+        check_matrix_resolve_chunks("gf8d", gf8d_coeff_at2, gf8d_reference, &entries);
+        let entries: [MatrixEntry<'_, gf8b::Elem>; 5] = [
+            ("mul_add", false, &|rows, row_len, nrows, terms| {
+                x86::gf8::mul_add_matrix_avx512(token, rows, row_len, nrows, terms);
+            }),
+            ("mul_into", true, &|rows, row_len, nrows, terms| {
+                x86::gf8::mul_into_matrix_avx512(token, rows, row_len, nrows, terms);
+            }),
+            ("mul_add with", false, &|rows, row_len, nrows, terms| {
+                let (coefficients, sources) = flatten(terms);
+                let matrix = crate::kernel::FlatMatrix {
+                    coefficients: &coefficients,
+                    nrows,
+                    sources: &sources,
+                };
+                x86::gf8::mul_add_matrix_avx512_with(token, rows, row_len, nrows, &matrix);
+            }),
+            ("mul_into with", true, &|rows, row_len, nrows, terms| {
+                let (coefficients, sources) = flatten(terms);
+                let matrix = crate::kernel::FlatMatrix {
+                    coefficients: &coefficients,
+                    nrows,
+                    sources: &sources,
+                };
+                x86::gf8::mul_into_matrix_avx512_with(token, rows, row_len, nrows, &matrix);
+            }),
+            ("mul_add at", false, &|rows, row_len, nrows, terms| {
+                let starts: Vec<usize> = (0..nrows).map(|j| j * row_len).collect();
+                x86::gf8::mul_add_matrix_at_avx512(token, rows, row_len, &starts, terms);
+            }),
+        ];
+        check_matrix_resolve_chunks("gf8b", gf8_coeff_at2, gf8_reference, &entries);
+    }
+
     #[test]
     #[allow(clippy::too_many_lines)]
     fn gfni_kernels_match_reference() {

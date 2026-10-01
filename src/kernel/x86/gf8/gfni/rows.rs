@@ -11,6 +11,7 @@
 //! scratch is a `MaybeUninit` staging array whose occupied prefix is written
 //! before it is read.
 
+use super::super::RESOLVE_CHUNK;
 use super::{Blocked, bmul_gfni, brem_gfni, factor_word_gfni, wfactor_gfni};
 use crate::kernel::Matrix;
 
@@ -18,19 +19,6 @@ use crate::kernel::Matrix;
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
-
-/// How many terms a row group resolves into one stack array before its tile
-/// loops run.
-///
-/// Resolving a coefficient costs one map (or byte) read per term per row, so
-/// doing it per group instead of per tile removes the per-(tile, term)
-/// coefficient load, its slice bounds check, and the term pointer walk from
-/// the loop the multiplier runs in. The chunk bounds the scratch array
-/// (`32 * 4 * 8` bytes at the widest group); term counts above it split into
-/// further passes, each of which re-reads the destination it accumulates
-/// into, so the chunk is sized to keep the erasure widths that matter
-/// (`k <= 32`) in a single pass.
-const RESOLVE_CHUNK: usize = 32;
 
 /// Fold one chunk of resolved terms into `ROWS` rows, `LANES` 32-byte lanes
 /// per row per iteration, then whole 32-byte lanes.

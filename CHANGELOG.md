@@ -32,6 +32,10 @@ All notable changes to this project are documented here. The format follows
   are unchanged. See `BENCHMARKS.md`.
 - `bench-m31-comp` runs only the five-round public snapshot campaign;
   the `prime_ntt` threshold investigation remains a separate benchmark.
+- The AVX-512 GF(2^8) matrix kernels (`Gf8D` and `Gf8B`, contiguous,
+  scattered-row, provider, and prepared forms) resolve each row group's
+  coefficients into map words once per chunk of terms instead of once per
+  tile, and fold terms in pairs. Results are unchanged.
 
 ### Fixed
 

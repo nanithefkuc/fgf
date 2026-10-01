@@ -2,16 +2,19 @@
 //!
 //! Many sources into many rows for the Reed–Solomon field GF(2^8)/`0x11D`,
 //! mirroring the AVX2 affine blocked shapes at 64-byte lanes: four-row
-//! groups over 256-byte tiles, accumulators in registers across all terms.
-//! The immediate is the XOR constant, so `<0>` selects the pure linear map;
-//! each factor replicates one 64-bit map qword to all eight 64-bit lanes.
+//! groups over 256-byte tiles. A row group resolves its coefficients into a
+//! stack array of map words chunk by chunk, keeps its accumulators in
+//! registers across each chunk, and finishes the sub-lane remainder from the
+//! terms themselves. The immediate is the XOR constant, so `<0>` selects the
+//! pure linear map; each factor replicates one 64-bit map qword to all eight
+//! 64-bit lanes.
 //!
 //! The kernels dispatch on the `V4x` tier under the `simd512` feature and stay
 //! reachable through the `internals` facade for differential tests and
 //! measurement on AVX-512 hardware.
 
-use super::super::check_scattered;
 use super::super::gfni::mul_add_gfni_8d_impl;
+use super::super::{RESOLVE_CHUNK, check_scattered};
 use super::{MapCoeff, bfactor_avx512, bmul_avx512};
 use crate::kernel::Matrix;
 
@@ -258,16 +261,7 @@ fn matrix_rows4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
     if head > 0 {
         matrix_tail::<C, M, OVERWRITE>(&ptrs, head, 0, g, terms);
     }
-    let vector_len = row_len & !63;
-    let mut tile = head;
-    while tile + 256 <= vector_len {
-        rows_tile4::<C, M, OVERWRITE>(ptrs, tile, g, terms);
-        tile += 256;
-    }
-    while tile + 64 <= vector_len {
-        rows_lane4::<C, M, OVERWRITE>(ptrs, tile, g, terms);
-        tile += 64;
-    }
+    let tile = rows_resolved::<C, M, 4, OVERWRITE>(ptrs, head, row_len & !63, g, terms);
     matrix_tail::<C, M, OVERWRITE>(&ptrs, row_len, tile, g, terms);
 }
 
@@ -291,16 +285,7 @@ fn matrix_rows2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
     if head > 0 {
         matrix_tail::<C, M, OVERWRITE>(&ptrs, head, 0, g, terms);
     }
-    let vector_len = row_len & !63;
-    let mut tile = head;
-    while tile + 256 <= vector_len {
-        rows_tile2::<C, M, OVERWRITE>(ptrs, tile, g, terms);
-        tile += 256;
-    }
-    while tile + 64 <= vector_len {
-        rows_lane2::<C, M, OVERWRITE>(ptrs, tile, g, terms);
-        tile += 64;
-    }
+    let tile = rows_resolved::<C, M, 2, OVERWRITE>(ptrs, head, row_len & !63, g, terms);
     matrix_tail::<C, M, OVERWRITE>(&ptrs, row_len, tile, g, terms);
 }
 
@@ -322,17 +307,7 @@ fn matrix_rows1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
     if head > 0 {
         matrix_tail::<C, M, OVERWRITE>(&[ptr], head, 0, g, terms);
     }
-    let vector_len = row_len & !63;
-    let mut tile = head;
-
-    while tile + 256 <= vector_len {
-        rows_tile1::<C, M, OVERWRITE>(ptr, tile, g, terms);
-        tile += 256;
-    }
-    while tile + 64 <= vector_len {
-        rows_lane1::<C, M, OVERWRITE>(ptr, tile, g, terms);
-        tile += 64;
-    }
+    let tile = rows_resolved::<C, M, 1, OVERWRITE>([ptr], head, row_len & !63, g, terms);
     // SAFETY:
     // MEMORY VALIDITY
     // SINCE: the entry staged this row in-bounds at `row_len` bytes, and
@@ -356,323 +331,273 @@ fn matrix_rows1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
     }
 }
 
-/// Provider-generic four-row tile.
+/// Resolve a row group's coefficients chunk by chunk and run the 256-byte
+/// tile and 64-byte lane loops over each chunk, from `head` up to the last
+/// whole lane below `vector_len`.
+///
+/// Returns the end of the vector-covered span; the caller finishes the rest
+/// from the terms themselves. The first chunk carries the caller's overwrite
+/// policy; every later chunk accumulates into what the earlier ones wrote.
+/// `head <= vector_len`.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn rows_tile4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
-    ptrs: [*mut u8; 4],
-    tile: usize,
+fn rows_resolved<C: MapCoeff, M: Matrix<C> + ?Sized, const ROWS: usize, const OVERWRITE: bool>(
+    ptrs: [*mut u8; ROWS],
+    head: usize,
+    vector_len: usize,
     g: usize,
     terms: &M,
+) -> usize {
+    let end = head + ((vector_len - head) & !63);
+    if end == head {
+        return head;
+    }
+    let count = terms.len();
+    let mut start = 0;
+    let mut first = true;
+    loop {
+        let taken = (count - start).min(RESOLVE_CHUNK);
+        // Declaring the scratch as `MaybeUninit` keeps the unused tail
+        // unwritten: a plain declaration initializes every slot, which costs a
+        // fixed per-chunk store burst even when `taken` is small.
+        //
+        // SAFETY:
+        // INITIALIZATION
+        // SINCE: `MaybeUninit` has no validity invariant, so an array of it
+        //        may be assumed initialized, and exactly `taken` slots are
+        //        written below before any slot is read.
+        // THUS: forming the uninitialized staging arrays reads no invalid
+        //       value.
+        let mut maps: [core::mem::MaybeUninit<[u64; ROWS]>; RESOLVE_CHUNK] =
+            unsafe { core::mem::MaybeUninit::uninit().assume_init() };
+        let mut srcs: [core::mem::MaybeUninit<&[u8]>; RESOLVE_CHUNK] =
+            unsafe { core::mem::MaybeUninit::uninit().assume_init() };
+        for offset in 0..taken {
+            let term = start + offset;
+            let mut words = [0u64; ROWS];
+            for (row, word) in words.iter_mut().enumerate() {
+                *word = C::map(*terms.coefficient(term, g + row));
+            }
+            maps[offset].write(words);
+            srcs[offset].write(terms.source(term));
+        }
+        // SAFETY:
+        // INITIALIZATION
+        // SINCE: exactly `taken` leading slots were written above, and the
+        //        reinterpretation covers only those slots.
+        // THUS: the slices expose no unwritten slot.
+        let (maps, srcs): (&[[u64; ROWS]], &[&[u8]]) = unsafe {
+            (
+                core::slice::from_raw_parts(maps.as_ptr().cast::<[u64; ROWS]>(), taken),
+                core::slice::from_raw_parts(srcs.as_ptr().cast::<&[u8]>(), taken),
+            )
+        };
+        if OVERWRITE && first {
+            rows_body::<ROWS, true>(ptrs, head, end, maps, srcs);
+        } else {
+            rows_body::<ROWS, false>(ptrs, head, end, maps, srcs);
+        }
+        first = false;
+        start += taken;
+        if start >= count {
+            break;
+        }
+    }
+    end
+}
+
+/// Fold one chunk of resolved terms into `ROWS` rows over `head..end`: four
+/// 64-byte lanes per row per tile, then whole 64-byte lanes.
+///
+/// `maps[term][row]` is the resolved map word, so the loops walk the map
+/// array and the source array in lockstep and index neither. Terms fold two
+/// at a time, so each accumulator takes one three-input XOR per pair; an odd
+/// final term folds alone. `end - head` is a multiple of 64.
+///
+/// The rows are addressed as runtime offsets into one region; the entry that
+/// staged them asserted each row in-bounds and pairwise disjoint, and every
+/// source spans the row length, which is at least `end`.
+#[allow(unsafe_code)]
+#[archmage::rite(v4x, import_intrinsics)]
+fn rows_body<const ROWS: usize, const OVERWRITE: bool>(
+    ptrs: [*mut u8; ROWS],
+    head: usize,
+    end: usize,
+    maps: &[[u64; ROWS]],
+    srcs: &[&[u8]],
 ) {
-    // SAFETY:
-    // MEMORY VALIDITY
-    // SINCE: `tile + 256 <= vector_len <= row_len` bounds every row window,
-    //        and every source spans `row_len` bytes, so `tile..tile + 256`
-    //        lies inside each row and each source.
-    // THUS: every 64-byte load and store below stays inside its slice.
-    //
-    // ALIASING
-    // SINCE: the rows are pairwise disjoint, as staged by the caller.
-    // THUS: no row's store conflicts with another row's window.
-    unsafe {
-        let mut acc = [[_mm512_setzero_si512(); 4]; 4];
+    let (map_pairs, map_odd) = maps.as_chunks::<2>();
+    let (src_pairs, src_odd) = srcs.as_chunks::<2>();
+    let mut tile = head;
+    while tile + 256 <= end {
+        // Seeding from zero must stay a plain array initializer: a seeding
+        // loop over the accumulator array keeps LLVM from promoting it out of
+        // memory, and the overwrite path then spills a tile per source.
+        let mut acc = [[_mm512_setzero_si512(); 4]; ROWS];
         if !OVERWRITE {
             for (&ptr, slots) in ptrs.iter().zip(acc.iter_mut()) {
-                for (lane, slot) in slots.iter_mut().enumerate() {
-                    {
-                        let (rc, _) = core::slice::from_raw_parts(ptr.add(tile + 64 * lane), 64)
-                            .as_chunks::<64>();
-                        *slot = _mm512_loadu_si512(&rc[0]);
-                    }
+                // SAFETY:
+                // MEMORY VALIDITY
+                // SINCE: `tile + 256 <= end` and every row spans at least
+                //        `end` bytes.
+                // THUS: the 256-byte window lies inside its originating row.
+                //
+                // ALIASING
+                // SINCE: the rows are pairwise disjoint, as staged by the
+                //        caller, and the shared window is released before
+                //        any store below.
+                // THUS: the window aliases no live mutable borrow.
+                let (rc, _) =
+                    unsafe { core::slice::from_raw_parts(ptr.add(tile), 256) }.as_chunks::<64>();
+                for (slot, chunk) in slots.iter_mut().zip(rc) {
+                    *slot = _mm512_loadu_si512(chunk);
                 }
             }
         }
-        for term in 0..terms.len() {
-            let maps = [
-                C::map(*terms.coefficient(term, g)),
-                C::map(*terms.coefficient(term, g + 1)),
-                C::map(*terms.coefficient(term, g + 2)),
-                C::map(*terms.coefficient(term, g + 3)),
+        for ([map0, map1], [src0, src1]) in map_pairs.iter().zip(src_pairs) {
+            // SAFETY:
+            // MEMORY VALIDITY
+            // SINCE: `tile + 256 <= end` and every source spans at least
+            //        `end` bytes.
+            // THUS: each 256-byte window lies inside its originating source.
+            let (s0, s1) = unsafe {
+                (
+                    core::slice::from_raw_parts(src0.as_ptr().add(tile), 256),
+                    core::slice::from_raw_parts(src1.as_ptr().add(tile), 256),
+                )
+            };
+            let (s0, _) = s0.as_chunks::<64>();
+            let (s1, _) = s1.as_chunks::<64>();
+            let x0 = [
+                _mm512_loadu_si512(&s0[0]),
+                _mm512_loadu_si512(&s0[1]),
+                _mm512_loadu_si512(&s0[2]),
+                _mm512_loadu_si512(&s0[3]),
             ];
-            let f = [
-                bfactor_avx512(maps[0]),
-                bfactor_avx512(maps[1]),
-                bfactor_avx512(maps[2]),
-                bfactor_avx512(maps[3]),
+            let x1 = [
+                _mm512_loadu_si512(&s1[0]),
+                _mm512_loadu_si512(&s1[1]),
+                _mm512_loadu_si512(&s1[2]),
+                _mm512_loadu_si512(&s1[3]),
             ];
-            let src = terms.source(term);
-            let (s, _) = src[tile..tile + 256].as_chunks::<64>();
+            for ((slots, &word0), &word1) in acc.iter_mut().zip(map0).zip(map1) {
+                let (f0, f1) = (bfactor_avx512(word0), bfactor_avx512(word1));
+                for ((slot, &a), &b) in slots.iter_mut().zip(&x0).zip(&x1) {
+                    let pair = _mm512_xor_si512(bmul_avx512(a, f0), bmul_avx512(b, f1));
+                    *slot = _mm512_xor_si512(*slot, pair);
+                }
+            }
+        }
+        for (map, src) in map_odd.iter().zip(src_odd) {
+            // SAFETY:
+            // MEMORY VALIDITY
+            // SINCE: `tile + 256 <= end` and every source spans at least
+            //        `end` bytes.
+            // THUS: the 256-byte window lies inside its originating source.
+            let (s, _) = unsafe { core::slice::from_raw_parts(src.as_ptr().add(tile), 256) }
+                .as_chunks::<64>();
             let x = [
                 _mm512_loadu_si512(&s[0]),
                 _mm512_loadu_si512(&s[1]),
                 _mm512_loadu_si512(&s[2]),
                 _mm512_loadu_si512(&s[3]),
             ];
-            for (slots, &factor) in acc.iter_mut().zip(&f) {
+            for (slots, &word) in acc.iter_mut().zip(map) {
+                let f = bfactor_avx512(word);
                 for (slot, &value) in slots.iter_mut().zip(&x) {
-                    *slot = _mm512_xor_si512(*slot, bmul_avx512(value, factor));
+                    *slot = _mm512_xor_si512(*slot, bmul_avx512(value, f));
                 }
             }
         }
         for (&ptr, slots) in ptrs.iter().zip(&acc) {
-            for (lane, &value) in slots.iter().enumerate() {
-                {
-                    let (rc, _) = core::slice::from_raw_parts_mut(ptr.add(tile + 64 * lane), 64)
-                        .as_chunks_mut::<64>();
-                    _mm512_storeu_si512(&mut rc[0], value);
-                }
+            // SAFETY:
+            // MEMORY VALIDITY
+            // SINCE: the same `tile + 256 <= end` relation that bounded the
+            //        loads bounds this window.
+            // THUS: the 256-byte window lies inside its originating row.
+            //
+            // ALIASING
+            // SINCE: the rows are pairwise disjoint, and the borrow is
+            //        released before the next row's window is formed.
+            // THUS: the mutable window aliases no other live row window.
+            let (rc, _) = unsafe { core::slice::from_raw_parts_mut(ptr.add(tile), 256) }
+                .as_chunks_mut::<64>();
+            for (chunk, &value) in rc.iter_mut().zip(slots) {
+                _mm512_storeu_si512(chunk, value);
             }
         }
+        tile += 256;
     }
-}
-
-/// Provider-generic four-row lane.
-#[allow(unsafe_code)]
-#[archmage::rite(v4x, import_intrinsics)]
-fn rows_lane4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
-    ptrs: [*mut u8; 4],
-    tile: usize,
-    g: usize,
-    terms: &M,
-) {
-    // SAFETY:
-    // MEMORY VALIDITY
-    // SINCE: `tile + 64 <= vector_len <= row_len` bounds every row window,
-    //        and every source spans `row_len` bytes, so `tile..tile + 64`
-    //        lies inside each row and each source.
-    // THUS: the 64-byte load and each store stay inside their slices.
-    //
-    // ALIASING
-    // SINCE: the rows are pairwise disjoint, as staged by the caller.
-    // THUS: no row's store conflicts with another row's window.
-    unsafe {
-        let mut acc = [_mm512_setzero_si512(); 4];
+    while tile + 64 <= end {
+        let mut acc = [_mm512_setzero_si512(); ROWS];
         if !OVERWRITE {
             for (&ptr, slot) in ptrs.iter().zip(acc.iter_mut()) {
-                {
-                    let (rc, _) = core::slice::from_raw_parts(ptr.add(tile), 64).as_chunks::<64>();
-                    *slot = _mm512_loadu_si512(&rc[0]);
-                }
+                // SAFETY:
+                // MEMORY VALIDITY
+                // SINCE: `tile + 64 <= end` and every row spans at least
+                //        `end` bytes.
+                // THUS: the 64-byte window lies inside its originating row.
+                //
+                // ALIASING
+                // SINCE: the rows are pairwise disjoint, and the shared
+                //        window is released before any store below.
+                // THUS: the window aliases no live mutable borrow.
+                let (rc, _) =
+                    unsafe { core::slice::from_raw_parts(ptr.add(tile), 64) }.as_chunks::<64>();
+                *slot = _mm512_loadu_si512(&rc[0]);
             }
         }
-        for term in 0..terms.len() {
-            let src = terms.source(term);
-            let (s, _) = src[tile..tile + 64].as_chunks::<64>();
+        for ([map0, map1], [src0, src1]) in map_pairs.iter().zip(src_pairs) {
+            // SAFETY:
+            // MEMORY VALIDITY
+            // SINCE: `tile + 64 <= end` and every source spans at least
+            //        `end` bytes.
+            // THUS: each 64-byte window lies inside its originating source.
+            let (s0, s1) = unsafe {
+                (
+                    core::slice::from_raw_parts(src0.as_ptr().add(tile), 64),
+                    core::slice::from_raw_parts(src1.as_ptr().add(tile), 64),
+                )
+            };
+            let x0 = _mm512_loadu_si512(&s0.as_chunks::<64>().0[0]);
+            let x1 = _mm512_loadu_si512(&s1.as_chunks::<64>().0[0]);
+            for ((slot, &word0), &word1) in acc.iter_mut().zip(map0).zip(map1) {
+                let pair = _mm512_xor_si512(
+                    bmul_avx512(x0, bfactor_avx512(word0)),
+                    bmul_avx512(x1, bfactor_avx512(word1)),
+                );
+                *slot = _mm512_xor_si512(*slot, pair);
+            }
+        }
+        for (map, src) in map_odd.iter().zip(src_odd) {
+            // SAFETY:
+            // MEMORY VALIDITY
+            // SINCE: `tile + 64 <= end` and every source spans at least
+            //        `end` bytes.
+            // THUS: the 64-byte window lies inside its originating source.
+            let (s, _) = unsafe { core::slice::from_raw_parts(src.as_ptr().add(tile), 64) }
+                .as_chunks::<64>();
             let x = _mm512_loadu_si512(&s[0]);
-            for (row, slot) in acc.iter_mut().enumerate() {
-                let map = C::map(*terms.coefficient(term, g + row));
-                *slot = _mm512_xor_si512(*slot, bmul_avx512(x, bfactor_avx512(map)));
+            for (slot, &word) in acc.iter_mut().zip(map) {
+                *slot = _mm512_xor_si512(*slot, bmul_avx512(x, bfactor_avx512(word)));
             }
         }
         for (&ptr, &value) in ptrs.iter().zip(&acc) {
-            {
-                let (rc, _) =
-                    core::slice::from_raw_parts_mut(ptr.add(tile), 64).as_chunks_mut::<64>();
-                _mm512_storeu_si512(&mut rc[0], value);
-            }
+            // SAFETY:
+            // MEMORY VALIDITY
+            // SINCE: `tile + 64 <= end`, the same relation that bounded the
+            //        loads.
+            // THUS: the 64-byte window lies inside its originating row.
+            //
+            // ALIASING
+            // SINCE: the rows are pairwise disjoint, and the borrow is
+            //        released before the next row's window is formed.
+            // THUS: the mutable window aliases no other live row window.
+            let (rc, _) =
+                unsafe { core::slice::from_raw_parts_mut(ptr.add(tile), 64) }.as_chunks_mut::<64>();
+            _mm512_storeu_si512(&mut rc[0], value);
         }
-    }
-}
-
-/// Provider-generic two-row tile.
-#[allow(unsafe_code)]
-#[archmage::rite(v4x, import_intrinsics)]
-fn rows_tile2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
-    ptrs: [*mut u8; 2],
-    tile: usize,
-    g: usize,
-    terms: &M,
-) {
-    // SAFETY:
-    // MEMORY VALIDITY
-    // SINCE: `tile + 256 <= vector_len <= row_len` bounds every row window,
-    //        and every source spans `row_len` bytes, so `tile..tile + 256`
-    //        lies inside each row and each source.
-    // THUS: every 64-byte load and store below stays inside its slice.
-    //
-    // ALIASING
-    // SINCE: the rows are pairwise disjoint, as staged by the caller.
-    // THUS: no row's store conflicts with another row's window.
-    unsafe {
-        let mut acc = [[_mm512_setzero_si512(); 4]; 2];
-        if !OVERWRITE {
-            for (&ptr, slots) in ptrs.iter().zip(acc.iter_mut()) {
-                for (lane, slot) in slots.iter_mut().enumerate() {
-                    {
-                        let (rc, _) = core::slice::from_raw_parts(ptr.add(tile + 64 * lane), 64)
-                            .as_chunks::<64>();
-                        *slot = _mm512_loadu_si512(&rc[0]);
-                    }
-                }
-            }
-        }
-        for term in 0..terms.len() {
-            let maps = [
-                C::map(*terms.coefficient(term, g)),
-                C::map(*terms.coefficient(term, g + 1)),
-            ];
-            let f = [bfactor_avx512(maps[0]), bfactor_avx512(maps[1])];
-            let src = terms.source(term);
-            let (s, _) = src[tile..tile + 256].as_chunks::<64>();
-            let x = [
-                _mm512_loadu_si512(&s[0]),
-                _mm512_loadu_si512(&s[1]),
-                _mm512_loadu_si512(&s[2]),
-                _mm512_loadu_si512(&s[3]),
-            ];
-            for (slots, &factor) in acc.iter_mut().zip(&f) {
-                for (slot, &value) in slots.iter_mut().zip(&x) {
-                    *slot = _mm512_xor_si512(*slot, bmul_avx512(value, factor));
-                }
-            }
-        }
-        for (&ptr, slots) in ptrs.iter().zip(&acc) {
-            for (lane, &value) in slots.iter().enumerate() {
-                {
-                    let (rc, _) = core::slice::from_raw_parts_mut(ptr.add(tile + 64 * lane), 64)
-                        .as_chunks_mut::<64>();
-                    _mm512_storeu_si512(&mut rc[0], value);
-                }
-            }
-        }
-    }
-}
-
-/// Provider-generic two-row lane.
-#[allow(unsafe_code)]
-#[archmage::rite(v4x, import_intrinsics)]
-fn rows_lane2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
-    ptrs: [*mut u8; 2],
-    tile: usize,
-    g: usize,
-    terms: &M,
-) {
-    // SAFETY:
-    // MEMORY VALIDITY
-    // SINCE: `tile + 64 <= vector_len <= row_len` bounds every row window,
-    //        and every source spans `row_len` bytes, so `tile..tile + 64`
-    //        lies inside each row and each source.
-    // THUS: the 64-byte load and each store stay inside their slices.
-    //
-    // ALIASING
-    // SINCE: the rows are pairwise disjoint, as staged by the caller.
-    // THUS: no row's store conflicts with another row's window.
-    unsafe {
-        let mut acc = [_mm512_setzero_si512(); 2];
-        if !OVERWRITE {
-            for (&ptr, slot) in ptrs.iter().zip(acc.iter_mut()) {
-                {
-                    let (rc, _) = core::slice::from_raw_parts(ptr.add(tile), 64).as_chunks::<64>();
-                    *slot = _mm512_loadu_si512(&rc[0]);
-                }
-            }
-        }
-        for term in 0..terms.len() {
-            let src = terms.source(term);
-            let (s, _) = src[tile..tile + 64].as_chunks::<64>();
-            let x = _mm512_loadu_si512(&s[0]);
-            for (row, slot) in acc.iter_mut().enumerate() {
-                let map = C::map(*terms.coefficient(term, g + row));
-                *slot = _mm512_xor_si512(*slot, bmul_avx512(x, bfactor_avx512(map)));
-            }
-        }
-        for (&ptr, &value) in ptrs.iter().zip(&acc) {
-            {
-                let (rc, _) =
-                    core::slice::from_raw_parts_mut(ptr.add(tile), 64).as_chunks_mut::<64>();
-                _mm512_storeu_si512(&mut rc[0], value);
-            }
-        }
-    }
-}
-
-/// One row by one 256-byte tile.
-#[allow(unsafe_code)]
-#[archmage::rite(v4x, import_intrinsics)]
-fn rows_tile1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
-    ptr: *mut u8,
-    tile: usize,
-    g: usize,
-    terms: &M,
-) {
-    // SAFETY:
-    // MEMORY VALIDITY
-    // SINCE: `tile + 256 <= vector_len <= row_len` bounds every row window,
-    //        and every source spans `row_len` bytes, so `tile..tile + 256`
-    //        lies inside each row and each source.
-    // THUS: every 64-byte load and store below stays inside its slice.
-    //
-    // ALIASING
-    // SINCE: the rows are pairwise disjoint, as staged by the caller.
-    // THUS: no row's store conflicts with another row's window.
-    unsafe {
-        let mut acc = [_mm512_setzero_si512(); 4];
-        if !OVERWRITE {
-            for (lane, slot) in acc.iter_mut().enumerate() {
-                {
-                    let (rc, _) = core::slice::from_raw_parts(ptr.add(tile + 64 * lane), 64)
-                        .as_chunks::<64>();
-                    *slot = _mm512_loadu_si512(&rc[0]);
-                }
-            }
-        }
-        for term in 0..terms.len() {
-            let factor = bfactor_avx512(C::map(*terms.coefficient(term, g)));
-            let src = terms.source(term);
-            let (s, _) = src[tile..tile + 256].as_chunks::<64>();
-            acc[0] = _mm512_xor_si512(acc[0], bmul_avx512(_mm512_loadu_si512(&s[0]), factor));
-            acc[1] = _mm512_xor_si512(acc[1], bmul_avx512(_mm512_loadu_si512(&s[1]), factor));
-            acc[2] = _mm512_xor_si512(acc[2], bmul_avx512(_mm512_loadu_si512(&s[2]), factor));
-            acc[3] = _mm512_xor_si512(acc[3], bmul_avx512(_mm512_loadu_si512(&s[3]), factor));
-        }
-        for (lane, &value) in acc.iter().enumerate() {
-            {
-                let (rc, _) = core::slice::from_raw_parts_mut(ptr.add(tile + 64 * lane), 64)
-                    .as_chunks_mut::<64>();
-                _mm512_storeu_si512(&mut rc[0], value);
-            }
-        }
-    }
-}
-
-/// One row by one 64-byte lane.
-#[allow(unsafe_code)]
-#[archmage::rite(v4x, import_intrinsics)]
-fn rows_lane1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
-    ptr: *mut u8,
-    tile: usize,
-    g: usize,
-    terms: &M,
-) {
-    // SAFETY:
-    // MEMORY VALIDITY
-    // SINCE: `tile + 64 <= vector_len <= row_len` bounds every row window,
-    //        and every source spans `row_len` bytes, so `tile..tile + 64`
-    //        lies inside each row and each source.
-    // THUS: the 64-byte load and each store stay inside their slices.
-    //
-    // ALIASING
-    // SINCE: the rows are pairwise disjoint, as staged by the caller.
-    // THUS: no row's store conflicts with another row's window.
-    unsafe {
-        let mut acc = _mm512_setzero_si512();
-        if !OVERWRITE {
-            {
-                let (rc, _) = core::slice::from_raw_parts(ptr.add(tile), 64).as_chunks::<64>();
-                acc = _mm512_loadu_si512(&rc[0]);
-            }
-        }
-        for term in 0..terms.len() {
-            let factor = bfactor_avx512(C::map(*terms.coefficient(term, g)));
-            let src = terms.source(term);
-            let (s, _) = src[tile..tile + 64].as_chunks::<64>();
-            acc = _mm512_xor_si512(acc, bmul_avx512(_mm512_loadu_si512(&s[0]), factor));
-        }
-        {
-            let (rc, _) = core::slice::from_raw_parts_mut(ptr.add(tile), 64).as_chunks_mut::<64>();
-            _mm512_storeu_si512(&mut rc[0], acc);
-        }
+        tile += 64;
     }
 }
 

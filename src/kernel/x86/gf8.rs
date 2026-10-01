@@ -58,6 +58,19 @@ pub use ssse3::{
     mul_into_ssse3, multiply_vectors_ssse3,
 };
 
+/// How many terms a matrix row group resolves into one stack array before
+/// its tile loops run.
+///
+/// Resolving a coefficient costs one map (or byte) read per term per row, so
+/// doing it per group instead of per tile removes the per-(tile, term)
+/// coefficient load, its slice bounds check, and the term pointer walk from
+/// the loop the multiplier runs in. The chunk bounds the scratch array
+/// (`32 * 4 * 8` bytes at the widest group); term counts above it split into
+/// further passes, each of which re-reads the destination it accumulates
+/// into, so the chunk is sized to keep the erasure widths that matter
+/// (`k <= 32`) in a single pass.
+pub(crate) const RESOLVE_CHUNK: usize = 32;
+
 /// Geometry contract shared by the gather entries: one coefficient per
 /// source, and every source exactly as long as the destination.
 fn check_gather(name: &str, dst: &[u8], coeffs: usize, srcs: &[&[u8]]) {
