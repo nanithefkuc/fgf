@@ -1215,7 +1215,9 @@ mod x86 {
         // boundary, so the head runs through the tail helper with a source
         // window shorter than the row. One-, two-, and four-row groups each
         // peel; accumulate and overwrite share the tail. Lengths track the
-        // floor so the peel stays exercised if the floor moves.
+        // floor so the peel stays exercised if the floor moves. The exact
+        // floor length with a single row leaves a one-byte final remainder,
+        // pinning the covered-prefix boundary a restructure must honor.
         let floor = x86::gf8::MATRIX_PEEL_MIN;
         for &offset in &[1usize, 16, 48] {
             for &row_len in &[floor - 64, floor, floor + 64] {
