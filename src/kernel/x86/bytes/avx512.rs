@@ -7,9 +7,6 @@ use super::avx2::xor_avx2;
 
 /// Shortest XOR buffer the 64-byte kernel takes; shorter buffers stay on
 /// [`xor_avx2`], which covers them in one out-of-line call.
-///
-/// Set by the length sweep in `BENCHMARKS.md` ("AVX-512 byte, popcount, and
-/// prime-field kernels").
 pub(crate) const XOR_AVX512_MIN: usize = 256;
 
 /// Shortest XOR destination that peels its head to a 64-byte boundary.

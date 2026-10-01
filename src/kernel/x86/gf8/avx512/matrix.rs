@@ -18,8 +18,7 @@ use crate::kernel::Matrix;
 /// Shortest matrix row that peels its head to a 64-byte boundary.
 ///
 /// The peel runs one sub-lane AXPY per row per term, so it repays only once
-/// the tile body is long enough. Set by the misaligned-matrix floor sweep in
-/// `BENCHMARKS.md` ("AVX-512 alignment peel floors").
+/// the tile body is long enough.
 pub(crate) const MATRIX_PEEL_MIN: usize = 8192;
 
 /// Many sources into many rows, four rows per group over 256-byte tiles.

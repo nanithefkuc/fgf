@@ -97,24 +97,34 @@ fn reduce_wide_s(hi: __m256i, lo: __m256i, eps: __m256i) -> __m256i {
 }
 
 /// `a + b (mod p)` over four canonicalized `u64` lanes.
+///
+/// Every input lane must be canonical (below `p`), and every result lane is.
+/// With `q = p - b`, the integer `a - q + p` equals `a + b`. The borrow
+/// marks `q > a`, which is `a + b < p`: there `a - q` wraps and the final
+/// add of `p` wraps back, leaving exactly `a + b` below `p`. Without the
+/// borrow, `q <= a` holds and the direct difference `a - q = a + b - p` is
+/// already canonical.
 #[archmage::rite(v3)]
-fn addmod(a: __m256i, b: __m256i, pcst: __m256i, pm1: __m256i, eps: __m256i) -> __m256i {
-    let s = _mm256_add_epi64(a, b);
-    let carry = gt_epu64(a, s); // s < a ⇒ overflow
-    let s = _mm256_add_epi64(s, _mm256_and_si256(carry, eps));
-    let ge = gt_epu64(s, pm1);
-    _mm256_sub_epi64(s, _mm256_and_si256(ge, pcst))
+fn addmod(a: __m256i, b: __m256i, pcst: __m256i, _pm1: __m256i, _eps: __m256i) -> __m256i {
+    let q = _mm256_sub_epi64(pcst, b);
+    let borrow = gt_epu64(q, a);
+    let d = _mm256_sub_epi64(a, q);
+    _mm256_add_epi64(d, _mm256_and_si256(borrow, pcst))
 }
 
 /// `a - b (mod p)` over four canonicalized `u64` lanes.
+///
+/// Every input lane must be canonical (below `p`), and every result lane is.
+/// The borrow marks `b > a`; the wrapped `a - b` then carries a spurious
+/// `2^64`, which equals `p + eps` over this field, so subtracting `eps`
+/// leaves `a - b + p`, below `p` exactly because `b > a`. Without the
+/// borrow, `a - b` is a plain difference of lanes below `p` and needs no
+/// trailing reduction.
 #[archmage::rite(v3)]
-fn submod(a: __m256i, b: __m256i, pcst: __m256i, eps: __m256i) -> __m256i {
+fn submod(a: __m256i, b: __m256i, _pcst: __m256i, eps: __m256i) -> __m256i {
     let d = _mm256_sub_epi64(a, b);
-    let borrow = gt_epu64(b, a); // b > a ⇒ borrow
-    let d = _mm256_sub_epi64(d, _mm256_and_si256(borrow, eps));
-    // After correction d is already < p; guard against the borrow case.
-    let ge = gt_epu64(d, _mm256_sub_epi64(pcst, _mm256_set1_epi64x(1)));
-    _mm256_sub_epi64(d, _mm256_and_si256(ge, pcst))
+    let borrow = gt_epu64(b, a);
+    _mm256_sub_epi64(d, _mm256_and_si256(borrow, eps))
 }
 
 /// `dst += src (mod p)`, Goldilocks, AVX2.

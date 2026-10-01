@@ -6,6 +6,44 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Self-contained, runnable examples cover scalar arithmetic across every field,
+  parity-shard encoding and erasure recovery, streaming GF(2^16) parity updates,
+  bit-packed Hamming syndromes, extension-field embeddings and trace/norm, and
+  canonical prime-field evaluation-vector arithmetic.
+- `just example NAME [ARGS]` and `just examples [ARGS]` run one tutorial or the
+  complete educational set, including portable builds with `alloc`.
+- `QuadMersenne31` dispatches `V4x` under `simd512`: `mul_into`, `mul_add`,
+  and `mul_elementwise` run AVX-512 kernels, and `backend_for::<QuadMersenne31>()`
+  reports `v4x` on those hosts. The remaining operations run the AVX2 kernels.
+
+### Changed
+
+- `BENCHMARKS.md` presents a complete Tiger Lake / Golden Cove snapshot of
+  public API and interleaved competitor timings. Measurement history and
+  dispatch-threshold experiments are excluded from the public tables.
+- Prime-field vector multiplication is faster. `Mersenne31` AVX2 and AVX-512
+  multiplies skip re-folding canonical operands, and the AVX-512 product uses a
+  masked recombination; `QuadMersenne31` AVX2 complex products defer reduction
+  until four partial products are summed. `Goldilocks` AVX2 addition and
+  subtraction use fewer compare steps. Outputs remain canonical, and the
+  raw-destination guarantees of `add_assign_scalar` and `sub_assign_scalar`
+  are unchanged. See `BENCHMARKS.md`.
+- `bench-m31-comp` runs only the five-round public snapshot campaign;
+  the `prime_ntt` threshold investigation remains a separate benchmark.
+
+### Fixed
+
+- The Plonky3 competitor harness aligns packed quadratic-extension fixtures
+  for native AVX-512 builds and reports the actual packing widths.
+- CI coverage uses `just cover`, including the portable feature run, and
+  exports LCOV through `just cover-lcov` with the same exclusion set. The
+  AVX-512-only `QuadMersenne31` kernel is excluded on incapable coverage
+  runners; the AVX2 kernel and mixed-ISA dispatch remain included.
+- NEON and Wasm row-geometry checks compile only on their consumer targets,
+  rather than appearing as unreachable x86 coverage obligations.
+
 ## [2.0.0] - 2026-09-30
 
 ### Added
@@ -24,11 +62,10 @@ All notable changes to this project are documented here. The format follows
   products, and register-blocked matrix accumulation (including prepared
   matrices) on `V4x`. Scatter and gather retain their existing GFNI kernels;
   non-`V4x` backends are unchanged. The new kernels use safe Archmage
-  reference-based loads and stores. The Tiger Lake public-path comparison
-  is in `BENCHMARKS.md`.
+  reference-based loads and stores.
 - On `V4x`, misaligned scatter, gather, and matrix rows peel their heads to
-  a 64-byte boundary above per-shape length floors set by measurement; see
-  `BENCHMARKS.md`, "AVX-512 alignment peel floors". `Gf16` `mul_add`
+  a 64-byte boundary above per-shape length floors set by measurement.
+  `Gf16` `mul_add`
   destinations peel the same way above their own measured floor, and rows
   shorter than one 64-byte lane dispatch straight to the 32-byte GFNI
   kernel.
@@ -36,15 +73,11 @@ All notable changes to this project are documented here. The format follows
   `bits::xor_assign`, and the other bit-packed XOR paths — runs 64-byte
   AVX-512 lanes from a measured length floor, with a 64-byte destination
   alignment peel on longer buffers. Shorter buffers keep the AVX2 kernel but
-  pass one extra length test; `BENCHMARKS.md`, "AVX-512 byte, popcount, and
-  prime-field kernels", records the short-buffer and per-row cost.
+  pass one extra length test.
 - On `V4x`, `bits::weight` counts whole words with `VPOPCNTQ`.
 - `Mersenne31` and `Goldilocks` gain 64-byte AVX-512 kernels for every
   operation that had an AVX2 kernel, dispatched on `V4x`. Results are
   unchanged; `backend_for` reports `V4x` for both fields on that tier.
-  The Tiger Lake before/after record for these and the XOR, weight, and
-  `Gf16` peel changes is in `BENCHMARKS.md`, "AVX-512 byte, popcount, and
-  prime-field kernels".
 
 ### Changed
 
@@ -53,8 +86,7 @@ All notable changes to this project are documented here. The format follows
   pass the feature. Tiger Lake prime columns recorded before this change
   measured `fgf` at `v3_gfni_crypto`.
 - The `Gf16` AVX-512 matrix kernels broadcast each coefficient pair once
-  per term block instead of once per destination lane; the Tiger Lake
-  comparison is in `BENCHMARKS.md`.
+  per term block instead of once per destination lane.
 
 - The binary-field competitor harnesses are one three-arm binary,
   `external/bench-trio/`, replacing `bench-isal` and `bench-klauspost`: it
@@ -142,9 +174,8 @@ ladder gains `V4x`/`V4`).
 - **Breaking (unstable surface only):** `x86::gf8::{mul_add_matrix_at_gfni_with,
   mul_add_matrix_at_affine_with}`. No operation hands a prepared provider to
   scattered rows; a prepared scattered-row operation over `CoeffMatrix` was
-  measured against the raw-term `mul_add_matrix_at` and not adopted
-  (`BENCHMARKS.md`, "Scattered-row reconstruction, raw terms ÷ prepared
-  matrix"). The raw-coefficient `_at` entries remain.
+  measured against the raw-term `mul_add_matrix_at` and not adopted.
+  The raw-coefficient `_at` entries remain.
 
 ### Fixed
 
@@ -155,30 +186,24 @@ ladder gains `V4x`/`V4`).
   `Gf64`, the Fan–Paar fields, the prime fields, and both byte fields on
   shuffle, `AArch64`, and Wasm backends) now runs one dispatched `mul_add`
   per row, which fixes the prime-field results and replaces the element-wise
-  scalar loop with the field's vector kernel. The before/after comparison
-  is in `BENCHMARKS.md`, "Scattered-row fallback through dispatched
-  `mul_add`".
+  scalar loop with the field's vector kernel.
 - The 32-byte GFNI and AVX2 kernels peel half-lane destinations: byte XOR,
   both byte fields' `mul_add`/`mul_assign`/`mul_into`, and the `Gf16`
   single-row kernels pay one 16-byte head when the destination sits 16
   bytes into a 32-byte lane, so their stores stop splitting cache lines
   above the shared measured floor. The AVX-512 `Gf16` `mul_into` gains the
-  destination peel its `mul_add` already had. The interleaved comparison
-  is in `BENCHMARKS.md`, "v3 half-lane peels and overwrite-gather
-  dispatch".
+  destination peel its `mul_add` already had.
 - Prepared overwrite gathers route through the register-blocked one-row
   overwrite matrix where the change covers them: `Gf8D`'s prepared form
   fell back to the per-source AXPY loop on `V3GfniCrypto`, and `Gf8B`'s
   overwrite gather filled the destination and accumulated on `V4x` instead
-  of overwriting in one pass. The measured throughput is in
-  `BENCHMARKS.md`, "v3 half-lane peels and overwrite-gather dispatch".
+  of overwriting in one pass.
 - Half-lane-skewed GFNI in-place scaling and short blocked scatter avoid
   repeated split-line destination accesses. The AVX-512 scatter path avoids
   peeling when a quarter-line row pitch cannot align its row group.
-  The measured payload comparison is in `BENCHMARKS.md`.
 - The AVX-512 peel-floor benchmark now compares the same offsets with and
   without peeling. The matched comparison supports the existing gather and
-  matrix floors; `BENCHMARKS.md` records the corrected decision.
+  matrix floors.
 
 ## [1.2.2] - 2026-09-30
 
@@ -201,9 +226,7 @@ ladder gains `V4x`/`V4`).
   `Gf64`, the Fan–Paar fields, the prime fields, and both byte fields on
   shuffle, `AArch64`, and Wasm backends) now runs one dispatched `mul_add`
   per row, which fixes the prime-field results and replaces the element-wise
-  scalar loop with the field's vector kernel. The before/after comparison
-  is in `BENCHMARKS.md`, "Scattered-row fallback through dispatched
-  `mul_add`".
+  scalar loop with the field's vector kernel.
 
 ## [1.2.1] - 2026-09-24
 
@@ -215,8 +238,7 @@ ladder gains `V4x`/`V4`).
   They now dispatch to field-independent vector broadcast-XOR kernels —
   AVX2/SSE4.2 on x86, NEON on AArch64, `simd128` on wasm32 — at the same
   tiers the fields' other byte kernels run; scalar fallbacks are unchanged.
-  Measured throughput for the new coverage is in `BENCHMARKS.md`, "Broadcast
-  scalar add/sub (binary fields)".
+  Measured throughput appears in `BENCHMARKS.md`, "Packed operations".
 
 ## [1.2.0] - 2026-09-24
 
@@ -346,8 +368,7 @@ ladder gains `V4x`/`V4`).
   complex elements per vector over the Mersenne31 lane discipline, with a
   complex-by-coefficient multiply costing two limb multiplies. Production
   dispatch takes over at one full vector for the multiplies and at two
-  vectors for add and sub; the campaign that set the thresholds is in
-  `BENCHMARKS.md`.
+  vectors for add and sub.
 - `vector_elementwise_min_bytes::<F>()`: the row length at which `F`'s
   elementwise multiplication dispatches to a vector kernel on this host
   (zero when no threshold applies), so schedule-selecting consumers route
@@ -359,9 +380,7 @@ ladder gains `V4x`/`V4`).
   `FEC_GOLDEN_CORE=<cpu> just bench-klauspost`. The package links the Go
   library as a C archive, interleaves it with the matched `fgf` operations
   over one fixture set, and validates every arm byte-for-byte before any
-  timing. It replaces `catid/leopard` as the named codec-level competitor;
-  the measured sweep is in `BENCHMARKS.md`, consolidated with the other
-  competitor medians in its cross-library matrix.
+  timing. It replaces `catid/leopard` as the named codec-level competitor.
 
 ### Changed
 
@@ -372,8 +391,7 @@ ladder gains `V4x`/`V4`).
   GF(2^16) overwrite throughput by about a third from 24 KiB up, and brings
   GF(2^8) to parity with Intel ISA-L's streaming `gf_vect_mul` without
   evicting the destination. Results are unchanged; buffers below 24 KiB and
-  the non-temporal bodies above `NT_STORE_MIN` are untouched. The sweep
-  that set the hint, the distance and the threshold is in `BENCHMARKS.md`.
+  the non-temporal bodies above `NT_STORE_MIN` are untouched.
 
 ## [1.0.0] - 2026-09-14
 
@@ -431,7 +449,7 @@ an `unsafe` block for; 1.92 and below cannot build the crate.
   parity or behind the flat XOR from L1 to DRAM on the reference host,
   and the additive-FFT derivative gap they targeted turned out to be a
   first-touch page-fault effect of out-of-place output buffers, not
-  memory-level parallelism. See `BENCHMARKS.md`, "Row-interleaved XOR".
+  memory-level parallelism.
 - `bits::XorRange` and `bits::xor_range_with`: the prepared form of
   `bits::xor_range`. The bit range's byte window and end masks are derived
   once and applied to many buffer pairs, the same prepare/apply split `ops`
@@ -439,8 +457,7 @@ an `unsafe` block for; 1.92 and below cannot build the crate.
   as each covers the planned window. `xor_range` itself now routes through
   the shared byte-window core, which replaces the word-assembly path for
   sub-word ranges (one or two masked byte operations) and the masked end
-  words of longer ranges. On the eight-bit-range short-row shape the split
-  measures 3.6x the one-shot form per call; see `BENCHMARKS.md`.
+  words of longer ranges.
 - `internals` entries for the crossed resolution x chunk panel:
   `matrix_overwrite1_fullinit_8d` (the production one-row path with the
   original full-array scratch policy), `matrix_overwrite1_chunk_8d` and
@@ -448,17 +465,14 @@ an `unsafe` block for; 1.92 and below cannot build the crate.
   grouped), `matrix_overwrite1_external_chunk_8d` and
   `matrix_overwrite_external_grouped_8d` (the production body over externally
   resolved maps, chunked or single-pass). Benchmark evidence only; production
-  dispatch is unchanged. See `BENCHMARKS.md`, "Crossed resolution x chunk
-  panel".
+  dispatch is unchanged.
 - `internals` entries for the plan-hoisting experiment:
   `matrix_affine_prepared_with` and `matrix_overwrite_affine_prepared_with`
   run the production row-group bodies over `Prepared8D` coefficients (the
   affine word read from the prepared form). Measured and rejected for the
   plan entries — parity-to-worse against the term-list baseline on both
   hosts, closing none of the gap to the resolution-free body — so production
-  still
-  resolves from scalar values; see `BENCHMARKS.md`, "Plan-hoisted
-  resolution measured and rejected".
+  still resolves from scalar values.
 - CI now builds the docs with `-D warnings` in every feature configuration
   the test jobs exercise (default, `--no-default-features`,
   `--no-default-features --features std`, `--all-features`), compiles the
@@ -492,7 +506,7 @@ an `unsafe` block for; 1.92 and below cannot build the crate.
   gain their `mul_add_`/`mul_elementwise_` prefixes. The AVX-512 family
   follows suit (`gf8_scatter` is `gf8_mul_add_scatter`). Renamed throughout
   the direct `kernel::x86` modules, so an `internals` consumer updates its
-  paths; the benchmark identifiers in `BENCHMARKS.md` move with them.
+  paths.
 
 - **The SSE Mersenne31 and Goldilocks kernels are named for the feature they
   require.** Every `*_sse41` entry point is `*_sse42`: the bodies enable
@@ -585,9 +599,7 @@ an `unsafe` block for; 1.92 and below cannot build the crate.
   rows inherit it. Measured on two GFNI microarchitectures — Core Ultra 7
   258V (Lunar Lake) at 1.07-1.34x and i7-12700K (Golden Cove) at 1.05-1.29x
   the previous throughput across 4-64 KiB rows, 6-16 sources and one to six
-  output rows, with no shape regressing on either host; see `BENCHMARKS.md`,
-  "Pre-resolved coefficients in the matrix row groups" and "Second GFNI
-  host".
+  output rows, with no shape regressing on either host.
   Coefficient counts above 32 terms per call fold in several passes over
   the destination, so a caller that folds hundreds of sources into one call
   sees the destination read once per 32-term pass.
@@ -597,7 +609,7 @@ an `unsafe` block for; 1.92 and below cannot build the crate.
   cost the old resolve probe showed was the probe's own artifact — but the
   probe now mirrors production, and `RESOLVE_CHUNK` stays 32: chunk 64/96
   fail the both-host noninferiority gate at 65 sources. No observable
-  behaviour change; see `BENCHMARKS.md`, "Crossed resolution x chunk panel".
+  behaviour change.
 - **Breaking: scalar element tuple fields are now private.** Construct and
   read elements through the named `const` conversions — `Elem::from_raw` /
   `Elem::to_raw`, with `from_components` / `to_components` on the towers. Raw
@@ -675,8 +687,7 @@ an `unsafe` block for; 1.92 and below cannot build the crate.
   replicated affine-map store (`Map32`, `prepare_map32_8d`,
   `dot_overwrite_replicated_8d`), and the pre-resolved reference body that
   the production path superseded (`dot_overwrite_compact_8d`). Nothing behind
-  `internals` is a compatibility promise; the measurements that killed them
-  are recorded in `BENCHMARKS.md`. The bodies the recorded follow-ups need —
+  `internals` is a compatibility promise. The remaining measurement bodies —
   `matrix_overwrite1_tile_8d`, `matrix_overwrite1_external_8d` and
   `resolve_probe_8d` — stay.
 
@@ -721,18 +732,14 @@ an `unsafe` block for; 1.92 and below cannot build the crate.
   kernel that holds the destination in AVX2 registers across the whole
   source list; prime fields fold per source through their canonical
   addition. Offsets are `u32` byte offsets, so callers fold an index table
-  without staging a slice per source. Measured 1.4–2.4x over the staged
-  all-ones `mul_add_gather` call it replaces — see `BENCHMARKS.md`,
-  "Blocked XOR gather".
+  without staging a slice per source.
 
 - `Gf8D`'s N-to-1 gather takes the source-fused body on short rows, the
   same selection rule `Gf8B`'s `GF2P8MULB` gather has used since the
   short-row measurement. It was wired to the unfused specialization when
   the blocked-affine seam landed, so rows below the 128-byte main tile fell
   through to one single-source AXPY per source. Results are unchanged;
-  `Gf8B` is untouched. Measured on a 64-byte, sixty-four-source consumer
-  shape at 1.5–3.5% end to end — see `BENCHMARKS.md`, "`Gf8D` inherits the
-  source-fused short-row rule".
+  `Gf8B` is untouched.
 
 - The bit-packed GF(2) folds run split accumulators: `bits::weight` uses
   eight independent `popcount` lanes and `bits::dot_product` four independent
@@ -903,9 +910,7 @@ field arithmetic, kernels, and operation surface are unchanged.
 
 This release adds vector kernels for the fields that had none, widens the
 shapes the existing kernels cover, and tunes x86 store and alignment
-behaviour. Every performance claim, the hardware it was measured on, and the
-experiments that were rejected are in [BENCHMARKS.md](BENCHMARKS.md); numbers
-are deliberately not repeated here.
+behaviour.
 
 ### Added
 
@@ -936,7 +941,6 @@ are deliberately not repeated here.
 - Benchmark sections for the shapes the new tuning policies are set from:
   large destinations, destination alignment, small multi-row shapes,
   preparation crossover, and blocked kernels against repeated AXPY.
-  `BENCHMARKS.md` documents the AArch64 and WebAssembly runner recipes.
 
 ### Changed
 

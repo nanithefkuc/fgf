@@ -13,10 +13,31 @@ TIERS := 'v4x v3_gfni_crypto v3 v2 scalar'
 # Owned-unsafe coverage is provided by the promoted GFNI recipe below.
 MIRI := ''
 
-# Coverage exclusions for code that cannot execute on a CI host. The x86
-# kernel subtrees need their own ISA; `kernel/gf8.rs` and `kernel/tower.rs`
-# carry the GFNI dispatch arms, which no GitHub-hosted runner can select.
-COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/(gf8|tower)\.rs$"'
+# Coverage exclusions for code that cannot execute on a CI host. The binary
+# field kernels require GFNI, and QuadMersenne31's AVX-512 kernel requires V4x.
+# The GitHub-hosted coverage runner cannot select those tiers; mixed-ISA prime
+# dispatch modules remain included.
+COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/(gf8|tower)\.rs$"'
+
+# Export the existing merged profiles, including after a failed coverage gate.
+[group('cover')]
+cover-lcov:
+    cargo llvm-cov report --lcov --output-path coverage.lcov --ignore-filename-regex {{COV_IGNORE}}
+
+
+# Run one educational example, passing additional Cargo options through.
+[group('examples')]
+example NAME *ARGS:
+    cargo run --example {{NAME}} {{ARGS}}
+
+# Run all educational examples; the timing probe is a separate diagnostic.
+[group('examples')]
+examples *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for name in field_arithmetic shard_recovery streaming_encode binary_syndrome extension_fields prime_vectors; do
+        cargo run --example "${name}" {{ARGS}}
+    done
 
 # The shared `features` recipe walks `--no-default-features`, default, and
 # `--all-features`. `alloc` sits between the first two: it turns on the
@@ -174,10 +195,6 @@ bench-m31:
     just bench-save prime_ntt
     just bench prime_ntt
 
-# The QuadMersenne31 threshold evidence in `prime_ntt` keeps its paired
-# two-execution protocol outside the rounds: its estimator pools the scalar
-# and duplicated scalar arms over both executions, and re-rounding it would
-# redefine that recorded estimator.
 [group('bench')]
 bench-m31-comp:
     #!/usr/bin/env bash
@@ -205,8 +222,6 @@ bench-m31-comp:
             esac
         done
     done
-    just bench-save prime_ntt
-    just bench prime_ntt
 
 [group('bench')]
 bench-gf2:

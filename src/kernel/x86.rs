@@ -51,13 +51,9 @@ use core::arch::x86_64::*;
 /// completely. `vmovntdq` skips that fetch and the allocation, at the price
 /// of evicting the destination from cache.
 ///
-/// The threshold is set by the workload this pessimizes — encode, then read
-/// the destination back — because that is the case where the eviction costs
-/// something. Below it the read-back loop loses; at 2 MiB it breaks even while
-/// the write-only case is already several times ahead. `mul_add` and
-/// `mul_assign` read their destination anyway and keep ordinary stores. The
-/// measurements are under "Crossover and dispatch decisions" in
-/// BENCHMARKS.md.
+/// Non-temporal stores evict the written destination from cache, so a
+/// subsequent read pays to fetch it again. `mul_add` and `mul_assign` read
+/// their destination and keep ordinary stores.
 pub(super) const NT_STORE_MIN: usize = 2 << 20;
 
 /// Smallest destination a fused overwrite prefetches for.
@@ -65,9 +61,7 @@ pub(super) const NT_STORE_MIN: usize = 2 << 20;
 /// Below this the destination and its source both sit in L1 and the
 /// prefetches are pure overhead; above it the ordinary stores are waiting on
 /// the read-for-ownership fetch of a line the loop is about to replace
-/// whole. The crossover is sharp, and sits where the two buffers stop
-/// fitting in L1 together. The sweep is under "Crossover and dispatch
-/// decisions" in BENCHMARKS.md.
+/// whole.
 pub(super) const PREFETCH_MIN: usize = 24 << 10;
 
 /// Bytes ahead of the cursor at which a fused overwrite pulls its
@@ -117,9 +111,8 @@ pub(crate) fn wants_nt_store(len: usize) -> bool {
 /// Shortest 32-byte-lane destination that peels a 16-byte half-lane head.
 ///
 /// A 256-bit store starting 16 bytes into a cache line splits it, and a
-/// body of split stores halves store-bound throughput; one narrow head
-/// puts every remaining lane on a boundary. The crossover is recorded
-/// under "Network-size payloads" in `BENCHMARKS.md`.
+/// body of split stores increases line traffic; one narrow head puts every
+/// remaining lane on a boundary.
 pub(super) const HALF_LANE_PEEL_MIN: usize = 512;
 
 /// Head bytes to store normally so that a non-temporal body starts on a
@@ -144,8 +137,7 @@ pub(super) fn nt_split(dst: &[u8], elem_bytes: usize) -> Option<usize> {
 /// and a multi-row body issues one load and one store per row per vector: a
 /// misaligned destination therefore doubles the line traffic of every access
 /// but the shared source load. Peeling at most 31 bytes per row group buys
-/// the aligned body for the rest of the pass; the measurements, and the
-/// shapes where the same peel was tried and rejected, are in BENCHMARKS.md.
+/// the aligned body for the rest of the pass.
 /// Rows of a group sit `row_len` apart, so aligning one aligns them all
 /// whenever `row_len` is a multiple of 32 — the usual case. The source is
 /// left where it falls: it is one access against many, and only the

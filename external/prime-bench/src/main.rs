@@ -42,9 +42,9 @@
 //!
 //! Plonky3 selects its packed kernels with `cfg(target_feature)`, so the
 //! package builds with `-C target-cpu=native`; the record states that
-//! flag. Only the AVX2 tier is measured. The `gdl` selection runs the
-//! Goldilocks rows, `m31` the Mersenne31 and QuadMersenne31 rows, and no
-//! argument runs all three.
+//! flag and the packing widths printed by the harness. The `gdl` selection
+//! runs the Goldilocks rows, `m31` the Mersenne31 and QuadMersenne31 rows,
+//! and no argument runs all three.
 
 use std::hint::black_box;
 use std::time::{Duration, Instant};
@@ -199,7 +199,7 @@ fn p3_sub_scalar<F: P3Field>(dst: &mut [F], cb: F::Packing) {
 // Plonky3 packed-extension shapes (GF(p²))
 // ---------------------------------------------------------------------------
 
-/// The packed representation of `GF(p²)` over `PackedMersenne31AVX2`:
+/// The packed representation of `GF(p²)` over the host's Mersenne31 packing:
 /// `WIDTH` extension elements per value, coefficients transposed.
 type Ext = Complex<P3M31>;
 type PackedExt = <Ext as ExtensionField<P3M31>>::ExtensionPacking;
@@ -210,7 +210,8 @@ type PackedExt = <Ext as ExtensionField<P3M31>>::ExtensionPacking;
 /// its own size, so a `Vec` of it cannot be windowed to a page offset.
 /// The wrapper raises alignment to the element size without changing
 /// layout: field at offset zero, one packed value wide.
-#[repr(align(64))]
+#[cfg_attr(target_feature = "avx512f", repr(align(128)))]
+#[cfg_attr(not(target_feature = "avx512f"), repr(align(64)))]
 #[derive(Clone, Copy, Default)]
 struct PeSlot(PackedExt);
 
@@ -372,7 +373,10 @@ fn header() {
         backend_for::<QuadMersenne31>().name(),
     );
     println!(
-        "Plonky3 {P3_VERSION} compile-time target features, built -C target-cpu=native, AVX2 tier only",
+        "Plonky3 {P3_VERSION}, built -C target-cpu=native; packing widths: m31 {}, gld {}, extension {}",
+        <P3M31 as P3Field>::Packing::WIDTH,
+        <P3Gld as P3Field>::Packing::WIDTH,
+        size_of::<PackedExt>() / size_of::<Ext>(),
     );
     println!("ratio = Plonky3 median / fgf median; above 1.00x means fgf is faster");
     println!("[low-high] = 10th and 90th percentile of the per-round paired ratios");

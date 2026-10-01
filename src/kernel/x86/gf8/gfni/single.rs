@@ -31,9 +31,8 @@ pub fn mul_add_gfni(
 ) {
     assert_eq!(dst.len(), src.len());
     // The network-payload half-lane case pays for one narrow head: its
-    // remaining AVX2 stores then avoid split cache lines. The crossover is
-    // recorded under "v3 half-lane peels and overwrite-gather dispatch" in
-    // BENCHMARKS.md. The aligned path hands its slices to the body untouched.
+    // remaining AVX2 stores then avoid split cache lines. The aligned path
+    // hands its slices to the body untouched.
     if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
         let factor_half = _mm256_castsi256_si128(_mm256_set1_epi8(coeff.0.cast_signed()));
         let (d, _) = dst[..16].as_chunks_mut::<16>();
@@ -109,8 +108,7 @@ pub fn mul_assign_gfni(_token: archmage::X64V3GfniCryptoToken, dst: &mut [u8], c
     let factor = _mm256_set1_epi8(coeff.0.cast_signed());
     let factor_half = _mm256_castsi256_si128(factor);
     // The network-payload half-lane case pays for one narrow head: its
-    // remaining AVX2 stores then avoid split cache lines. The crossover is
-    // recorded under "Network-size payloads" in BENCHMARKS.md.
+    // remaining AVX2 stores then avoid split cache lines.
     let head = if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
         16
     } else {
@@ -277,10 +275,8 @@ pub fn mul_add_gfni_8d(
 ) {
     assert_eq!(dst.len(), src.len());
     // The network-payload half-lane case pays for one narrow head: its
-    // remaining AVX2 stores then avoid split cache lines. The crossover is
-    // recorded under "v3 half-lane peels and overwrite-gather dispatch" in
-    // BENCHMARKS.md. The aligned
-    // path hands its slices to the body untouched.
+    // remaining AVX2 stores then avoid split cache lines. The aligned path
+    // hands its slices to the body untouched.
     if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
         let factor_half = _mm256_castsi256_si128(_mm256_set1_epi64x(map.cast_signed()));
         let (d, _) = dst[..16].as_chunks_mut::<16>();
@@ -378,9 +374,7 @@ pub(in crate::kernel::x86::gf8) fn mul_assign_gfni_8d_impl(
     let factor = _mm256_set1_epi64x(map.cast_signed());
     let factor_half = _mm256_castsi256_si128(factor);
     // The network-payload half-lane case pays for one narrow head: its
-    // remaining AVX2 stores then avoid split cache lines. The crossover is
-    // recorded under "v3 half-lane peels and overwrite-gather dispatch" in
-    // BENCHMARKS.md.
+    // remaining AVX2 stores then avoid split cache lines.
     let head = if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
         16
     } else {

@@ -187,9 +187,7 @@ fn mul_add_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
     let pair_len = vector_len & !31;
     let factors = load_factors(tables);
 
-    // Two independent lanes per iteration: eight table lookups per lane have
-    // enough latency to hide the other lane's loads and nibble splits behind
-    // (BENCHMARKS.md).
+    // Independent lanes separate the lookup and load dependency chains.
     let (dst_tiles, _) = dst[..pair_len].as_chunks_mut::<32>();
     let (src_tiles, _) = src[..pair_len].as_chunks::<32>();
     for (d_tile, s_tile) in dst_tiles.iter_mut().zip(src_tiles) {
@@ -867,14 +865,6 @@ fn multiply_base_vectors(mut a: uint8x16_t, mut b: uint8x16_t) -> uint8x16_t {
     }
     product
 }
-
-// The tower form of the same identity over `PMULL` — two period-2 broadcasts
-// (`[c0, c0+c1]` on the block, `[DELTA*c1, c1]` on its adjacent-byte swap),
-// no nibble tables at all — was written and measured far behind the
-// four-shuffle kernels above at every row length. Cheap preparation only paid
-// on rows below one vector, and only for one-shot calls, which is not worth
-// carrying a second prepared form for. See the note in `super::gf8` for the
-// instruction-count reason, and BENCHMARKS.md for the numbers.
 
 /// `dst[i] = a[i] * b[i]` over interleaved tower elements.
 ///

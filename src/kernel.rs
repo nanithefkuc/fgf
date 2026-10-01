@@ -520,10 +520,7 @@ pub(crate) trait KernelDispatch: Field {
     ///
     /// The default copies `src` into `dst` and scales in place — two passes
     /// over the destination. Backends with a fused single-pass kernel
-    /// override this. The override is worth roughly 2x on large buffers where
-    /// the kernel is bandwidth-bound (x86 GF(2^8)/GF(2^16)); where it is
-    /// compute-bound instead, as GF(2^16) is on NEON and wasm, halving
-    /// destination traffic buys only a few percent (BENCHMARKS.md).
+    /// override this to write the destination in one pass.
     fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         dst.copy_from_slice(src);
         Self::mul_assign(RawDispatch, dst, coeff);
@@ -912,7 +909,7 @@ pub(crate) mod proven_checks {
     }
 
     /// A flat row buffer must hold at least `count` rows of `row_len` bytes.
-    #[allow(dead_code)]
+    #[cfg(any(target_arch = "aarch64", target_arch = "wasm32"))]
     #[inline]
     pub(crate) fn check_row_span(name: &str, buffer_len: usize, row_len: usize, count: usize) {
         let used = count
@@ -926,7 +923,7 @@ pub(crate) mod proven_checks {
 
     /// Flat term geometry shared by the matrix entries: every term supplies
     /// `nrows` coefficients and a `row_len`-byte source.
-    #[allow(dead_code)]
+    #[cfg(any(target_arch = "aarch64", target_arch = "wasm32"))]
     #[inline]
     pub(crate) fn check_terms<E>(
         name: &str,
@@ -1044,8 +1041,7 @@ pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
 /// Buffers at most this long skip the dispatched SIMD XOR for the inline
 /// portable one: below a single vector the out-of-line SIMD entry boundary
 /// costs more than the body saves, and short GF(2) rows (eight
-/// elements per byte) sit almost entirely under it. Measured on the
-/// reference host (BENCHMARKS.md, "Short-buffer inline XOR").
+/// elements per byte) sit almost entirely under it.
 const XOR_INLINE_MAX: usize = 31;
 
 pub(crate) mod byte_ops {

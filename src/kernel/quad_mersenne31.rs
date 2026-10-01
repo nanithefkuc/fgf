@@ -3,8 +3,10 @@
 //! Extension arithmetic over Mersenne31 pairs with `i² = −1`. On x86 hosts
 //! resolving `V3`/`V3GfniCrypto`, rows at or above the measured thresholds
 //! dispatch to the AVX2 extension kernels (four complex elements per
-//! vector); shorter rows stay here. The thresholds and the interleaved
-//! campaign that set them are recorded in `BENCHMARKS.md`.
+//! vector); shorter rows stay here. On `V4x` hosts under `simd512`, the
+//! coefficient multiply, multiply-accumulate, and elementwise product run
+//! the AVX-512 kernels (eight complex elements per vector) and the remaining
+//! operations run the AVX2 kernels.
 //!
 //! The scalar loops canonicalize each loaded limb once and then run raw
 //! modular add/sub/mul on limbs known to be `< p`: one conditional subtract
@@ -99,7 +101,11 @@ impl FieldKernels for QuadMersenne31 {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         {
             match backend() {
-                Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => Backend::V3,
+                #[cfg(feature = "simd512")]
+                Backend::V4x => Backend::V4x,
+                #[cfg(not(feature = "simd512"))]
+                Backend::V4x => Backend::V3,
+                Backend::V3GfniCrypto | Backend::V3 => Backend::V3,
                 _ => Backend::Scalar,
             }
         }
@@ -235,6 +241,16 @@ impl KernelDispatch for QuadMersenne31 {
     }
 
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
+        #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+        if matches!(backend(), Backend::V4x) && dst.len() >= VECTOR_MUL_MIN_BYTES {
+            crate::kernel::x86::quad_mersenne31::mul_add_avx512(
+                crate::kernel::x86_v4_token(),
+                dst,
+                *coeff,
+                src,
+            );
+            return;
+        }
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         if matches!(
             backend(),
@@ -299,6 +315,16 @@ impl KernelDispatch for QuadMersenne31 {
     }
 
     fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
+        #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+        if matches!(backend(), Backend::V4x) && dst.len() >= VECTOR_MUL_MIN_BYTES {
+            crate::kernel::x86::quad_mersenne31::mul_into_avx512(
+                crate::kernel::x86_v4_token(),
+                dst,
+                *coeff,
+                src,
+            );
+            return;
+        }
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         if matches!(
             backend(),
@@ -360,6 +386,16 @@ impl KernelDispatch for QuadMersenne31 {
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
         debug_assert_eq!(dst.len(), a.len());
         debug_assert_eq!(dst.len(), b.len());
+        #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+        if matches!(backend(), Backend::V4x) && dst.len() >= VECTOR_MUL_MIN_BYTES {
+            crate::kernel::x86::quad_mersenne31::mul_elementwise_avx512(
+                crate::kernel::x86_v4_token(),
+                dst,
+                a,
+                b,
+            );
+            return;
+        }
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         if matches!(
             backend(),

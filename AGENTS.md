@@ -17,7 +17,10 @@ just lint              # rustfmt and clippy at both feature ends
 just doc               # rustdoc with warnings denied
 just unsafe-check-gfni # owned-unsafe GFNI Miri cases
 just cover             # merged per-tier coverage, 95% minimum
+just cover-lcov        # export merged coverage profiles to coverage.lcov
 just validate          # complete pull-request gate
+just example NAME [ARGS] # one educational example, with Cargo options
+just examples [ARGS]     # all educational examples, excluding timing probes
 ```
 
 `just validate` does not run the GFNI Miri recipe; the dedicated `miri-gfni`
@@ -29,6 +32,11 @@ The MSRV is Rust 1.93.
 
 `justfile` is a shared, byte-identical command surface. Do not edit it here.
 Crate-specific values and recipes belong in `crate.just`.
+
+The example recipes default to the normal library features. Run
+`just examples --no-default-features --features alloc` for the portable
+prepared-operation surface; scalar arithmetic, extension arithmetic, and
+binary-syndrome examples also run without `alloc`.
 
 ## Change discipline
 
@@ -154,9 +162,12 @@ or exact panic prose.
 may resolve to another supported tier; inspect reported backends before treating
 a green run as ISA coverage.
 
-Coverage excludes the x86 field-kernel subtrees and the GFNI dispatch arms in
-`kernel/gf8.rs` and `kernel/tower.rs` — none of which a GitHub-hosted runner
-can execute, since those hosts have no GFNI.
+Coverage excludes the x86 binary-field kernel subtrees and the GFNI dispatch
+arms in `kernel/gf8.rs` and `kernel/tower.rs`, which require GFNI unavailable
+on the GitHub-hosted coverage runner. It also excludes only
+`kernel/x86/quad_mersenne31/avx512.rs`: its V4x instructions cannot execute on
+that runner. The AVX2 kernel and mixed-ISA prime dispatch modules remain
+included. Direct AVX-512 differentials run on capable hosts.
 Keep `COV_IGNORE` narrow and document every exclusion here.
 
 ## Benchmarks
@@ -194,6 +205,9 @@ offsets around the AVX-512 peel floors.
 kernels per row length; its campaign set the dispatch thresholds in
 `src/kernel/quad_mersenne31.rs`.
 
+`prime_ntt` is a dispatch-threshold investigation, not part of the public
+snapshot campaign. Its raw evidence stays in git-ignored `bench-records/`.
+
 Every external competitor harness lives in `external/`, one separate
 unpublished package per harness with its own `build.rs`, outside `src/` and
 `benches/` because linking the competitor needs a build script and `fgf`
@@ -221,13 +235,24 @@ through `bench-gdl-comp` and `bench-m31-comp` inside their shuffled rounds;
 a single rerun is `RUSTFLAGS="-C target-cpu=native" cargo run --release`
 from its directory with a `gdl` or `m31` family argument. The package
 builds with `-C target-cpu=native` because Plonky3 selects its packed
-kernels at compile time, so its arms measure the AVX2 tier only; the record
-states the flag alongside the numbers.
+kernels at compile time. The banner reports packing widths; the record
+states the flag and widths alongside the resolved `fgf` backends.
 
 Benchmark setup, allocation, coefficient construction, and input generation
 must stay outside the timed region. Record the CPU, OS, Rust version, selected
 backend, geometry, command, and aggregation rule in `BENCHMARKS.md`. Never
 reuse an old number or claim a performance change from an unpinned run.
+
+`BENCHMARKS.md` is a current snapshot, not a measurement ledger. It has two
+performance sections: public API self-timings and competitor timings.
+Every result cell uses Tiger Lake / Golden Cove order. A refresh runs all
+four family campaigns on both hosts' isolated CPUs in one session, with
+the median of five per-run medians for every published case. Competitor
+arms interleave inside each harness process. Shared provenance appears
+once at the start; case-specific geometry belongs in the tables. Dates,
+before/after comparisons, threshold variants, direct-kernel timings, and
+historical source fingerprints stay out of the public snapshot. Raw
+outputs and historical measurement evidence stay in `bench-records/`.
 
 A performance change requires an unchanged callable control, differential
 correctness, and interleaved before/after measurements in one session. Do not

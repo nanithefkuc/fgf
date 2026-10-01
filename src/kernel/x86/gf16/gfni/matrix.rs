@@ -184,8 +184,7 @@ pub fn mul_add_matrix_gfni_with<M: Matrix<Elem> + ?Sized>(
 /// there because a scatter loads and stores every row once per 32-byte source
 /// window; here the row tile is loaded and stored once per *term block*, so a
 /// straddling access is amortized over eight multiplies and the loop is
-/// compute-bound rather than traffic-bound. Adding the peel here measured as
-/// noise at best (BENCHMARKS.md).
+/// compute-bound rather than traffic-bound.
 ///
 /// # Safety
 /// The executing CPU must provide AVX2 and GFNI, the `N` rows at

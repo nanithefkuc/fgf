@@ -953,17 +953,8 @@ pub(super) fn multiply_vectors_neon_aes(a: uint8x16_t, b: uint8x16_t) -> uint8x1
     )
 }
 
-// Why there is no fixed-coefficient `PMULL` kernel here.
-//
-// A broadcast coefficient makes PMULL table-free, which looks attractive next
-// to a `ScaleTable`. It was written, measured, and lost by a wide margin at
-// every size, for both GF(2^8) and the GF(2^16) tower form (BENCHMARKS.md).
-// The arithmetic explains it — two `vmull_p8`s plus a twenty-instruction
-// reduction network per 16 bytes against `vqtbl1q_u8`'s five — and no core
-// makes PMULL fast enough to close a gap that large.
-// The only shape where that reduction is cheaper than the alternative is a
-// *varying* operand pair, where the alternative is eight bit-serial rounds:
-// hence `mul_elementwise_neon_aes` below, and nothing else.
+// A fixed coefficient uses nibble lookup tables. A varying operand pair
+// uses the polynomial multiply and reduction in mul_elementwise_neon_aes.
 
 /// `dst[i] = a[i] * b[i]` using the optional `AArch64` crypto extension.
 ///

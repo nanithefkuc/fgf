@@ -9,8 +9,7 @@ use super::{MapCoeff, bfactor_avx512, bmul_avx512, brem_avx512};
 /// Shortest scatter row that peels its head to a 64-byte boundary.
 ///
 /// Below this the scalar/AVX2 head costs more than the split-line loads it
-/// removes. Set by the misaligned-scatter floor sweep in `BENCHMARKS.md`
-/// ("AVX-512 alignment peel floors").
+/// removes.
 pub(crate) const SCATTER_PEEL_MIN: usize = 512;
 
 // ---------------------------------------------------------------------------

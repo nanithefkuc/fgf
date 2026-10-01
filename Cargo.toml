@@ -80,6 +80,18 @@ harness = false
 required-features = ["std", "internals"]
 
 [[example]]
+name = "shard_recovery"
+required-features = ["alloc"]
+
+[[example]]
+name = "streaming_encode"
+required-features = ["alloc"]
+
+[[example]]
+name = "prime_vectors"
+required-features = ["alloc"]
+
+[[example]]
 name = "peel_probe"
 # The prepared CoeffVec gather form needs the allocation feature.
 required-features = ["std", "alloc"]

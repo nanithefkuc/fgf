@@ -55,10 +55,8 @@ pub fn mul_add_gfni(
         src.len(),
     );
     // The half-lane case pays one 128-bit head so the 32-byte lanes stop
-    // splitting cache lines; the floor is [`HALF_LANE_PEEL_MIN`]
-    // ("v3 half-lane peels and overwrite-gather dispatch",
-    // `BENCHMARKS.md`). The aligned path hands
-    // its slices to the body untouched.
+    // splitting cache lines; the floor is HALF_LANE_PEEL_MIN. The aligned
+    // path hands its slices to the body untouched.
     if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
         let (same_word, cross_word) = broadcast_words(coeff);
         let (same_half, cross_half, swap_half) = (
@@ -136,10 +134,8 @@ fn mul_add_impl(dst: &mut [u8], coeff: TowerCoeff, src: &[u8]) {
 pub fn mul_assign_gfni(_token: archmage::X64V3GfniCryptoToken, dst: &mut [u8], coeff: TowerCoeff) {
     check_elements("gf16::mul_assign_gfni", dst.len());
     // The half-lane case pays one 128-bit head so the 32-byte lanes stop
-    // splitting cache lines; the floor is [`HALF_LANE_PEEL_MIN`]
-    // ("v3 half-lane peels and overwrite-gather dispatch",
-    // `BENCHMARKS.md`). The aligned path hands
-    // its slices to the body untouched.
+    // splitting cache lines; the floor is HALF_LANE_PEEL_MIN. The aligned
+    // path hands its slices to the body untouched.
     if dst.len() >= HALF_LANE_PEEL_MIN && dst.as_ptr().align_offset(32) == 16 {
         let (same_word, cross_word) = broadcast_words(coeff);
         let (same_half, cross_half, swap_half) = (
