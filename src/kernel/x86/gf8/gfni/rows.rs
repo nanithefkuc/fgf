@@ -1,9 +1,9 @@
 //! Register-blocked row-group bodies behind the matrix kernels.
 //!
-//! A group of one, two or four rows resolves its coefficients into one stack
-//! array, runs the tile loops over that chunk, and finishes the sub-lane
-//! remainder from the terms themselves. The scattered and contiguous matrix
-//! walks share these bodies.
+//! A group of one to [`MAX_GROUP_ROWS`] rows resolves its coefficients into
+//! one stack array, runs the tile loops over that chunk, and finishes the
+//! sub-lane remainder from the terms themselves. The scattered and contiguous
+//! matrix walks share these bodies and the [`group_rows`] split.
 //!
 //! The bodies are safe [`archmage::rite`] helpers. What unsafe remains is
 //! residue, per item: the rows arrive as runtime offsets into one region —
@@ -34,6 +34,29 @@ const MATRIX_PREFETCH_DISTANCE: usize = 1024;
 /// one distance ahead to pay for itself, so the body runs without prefetch.
 /// It is a measured parameter.
 pub(crate) const MATRIX_PREFETCH_MIN: usize = 8192;
+
+/// Fold one term's source lanes `x` into a `ROWS` x `LANES` accumulator tile:
+/// `acc[row][lane] ^= map[row] * x[lane]`, or `=` when `first` is set.
+#[inline]
+#[archmage::rite(v3_gfni_crypto)]
+fn fold_term<S: Blocked, const ROWS: usize, const LANES: usize>(
+    acc: &mut [[__m256i; LANES]; ROWS],
+    map: &[u64; ROWS],
+    x: &[__m256i; LANES],
+    first: bool,
+) {
+    for (slots, &word) in acc.iter_mut().zip(map) {
+        let factor = wfactor_gfni::<S>(word);
+        for (slot, &value) in slots.iter_mut().zip(x) {
+            let product = bmul_gfni::<S>(value, factor);
+            *slot = if first {
+                product
+            } else {
+                _mm256_xor_si256(*slot, product)
+            };
+        }
+    }
+}
 
 /// Fold one chunk of resolved terms into `ROWS` rows, `LANES` 32-byte lanes
 /// per row per iteration, then whole 32-byte lanes.
@@ -89,11 +112,9 @@ fn rows_body<
                 }
             }
         }
-        for (map, src) in maps.iter().zip(srcs) {
-            let mut factor = [_mm256_setzero_si256(); ROWS];
-            for (slot, &word) in factor.iter_mut().zip(map) {
-                *slot = wfactor_gfni::<S>(word);
-            }
+        // One term's source lanes at this tile, with the window one
+        // prefetch distance ahead requested when `PREFETCH` is set.
+        let load = |src: &[u8]| -> [__m256i; LANES] {
             if PREFETCH {
                 // A prefetch never faults, so the window may point past the
                 // source without a bounds proof.
@@ -105,21 +126,22 @@ fn rows_body<
             }
             // SAFETY:
             // MEMORY VALIDITY
-            // SINCE: every source spans at least `vector_len` bytes, so
-            //        `tile + 32 * lane` lies inside `src` for every lane.
+            // SINCE: every source spans at least `vector_len` bytes and
+            //        `tile + step <= vector_len`, so `tile + 32 * lane` lies
+            //        inside `src` for every lane.
             // THUS: each 32-byte load stays within its originating source.
             unsafe {
                 let sp = src.as_ptr().add(tile);
-                let mut x = [_mm256_setzero_si256(); LANES];
-                for (lane, slot) in x.iter_mut().enumerate() {
-                    *slot = _mm256_loadu_si256(sp.add(32 * lane).cast());
-                }
-                for (slots, &f) in acc.iter_mut().zip(&factor) {
-                    for (slot, &value) in slots.iter_mut().zip(&x) {
-                        *slot = _mm256_xor_si256(*slot, bmul_gfni::<S>(value, f));
-                    }
-                }
+                core::array::from_fn(|lane| _mm256_loadu_si256(sp.add(32 * lane).cast()))
             }
+        };
+        // Overwrite seeds a multi-row group's accumulators from the first
+        // product instead of folding it into zero; the one-row group keeps the
+        // zero seed. The choice is a measured parameter.
+        let mut first = OVERWRITE && ROWS > 1;
+        for (map, src) in maps.iter().zip(srcs) {
+            fold_term::<S, ROWS, LANES>(&mut acc, map, &load(src), first);
+            first = false;
         }
         // SAFETY:
         // MEMORY VALIDITY
@@ -273,37 +295,64 @@ fn rows_resolved<
     matrix_tail::<S, M, OVERWRITE>(&ptrs, row_len, g, vector_len, terms);
 }
 
-/// Fold every term into four rows, 64 bytes of each row at a time.
-#[archmage::rite(v3_gfni_crypto)]
-pub(super) fn matrix_rows4<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
-    ptrs: [*mut u8; 4],
-    row_len: usize,
-    g: usize,
-    terms: &M,
-) {
-    rows_resolved::<S, M, 4, 2, OVERWRITE>(ptrs, row_len, g, terms);
+/// The widest row group a matrix walk runs in one pass over its sources.
+///
+/// Six rows of two 32-byte lanes hold twelve accumulators, leaving the two
+/// source lanes and one factor inside the sixteen `ymm` registers. The group
+/// widths are measured parameters.
+pub(super) const MAX_GROUP_ROWS: usize = 6;
+
+/// Term counts at or below this bound cap row groups at four rows.
+///
+/// With one or two sources the destination streams outnumber the source
+/// streams, so a wider group saves little source traffic and costs the store
+/// pressure of more rows per tile. The bound is a measured parameter.
+const FEW_TERMS: usize = 2;
+
+/// The row count of the group that starts `done` rows into an `nrows`-row
+/// walk over `nterms` terms.
+///
+/// Every group streams every source once, so the walk runs the fewest groups
+/// that fit in [`MAX_GROUP_ROWS`] (four rows up to [`FEW_TERMS`] terms),
+/// balanced so that no group is more than one row wider than another.
+///
+/// # Panics
+/// Panics if `done >= nrows`.
+pub(super) fn group_rows(nrows: usize, done: usize, nterms: usize) -> usize {
+    let left = nrows - done;
+    let widest = if nterms <= FEW_TERMS {
+        4
+    } else {
+        MAX_GROUP_ROWS
+    };
+    left.div_ceil(left.div_ceil(widest))
 }
 
-/// Fold every term into two rows, 128 bytes of each row at a time.
+/// Fold every term into the staged rows of one group: one or two rows with
+/// four 32-byte lanes per row, three to six rows with two.
+///
+/// The caller stages one to [`MAX_GROUP_ROWS`] pairwise-disjoint row windows of
+/// `row_len` bytes each, the first being row `g` of the matrix.
 #[archmage::rite(v3_gfni_crypto)]
-pub(super) fn matrix_rows2<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
-    ptrs: [*mut u8; 2],
+pub(super) fn matrix_group<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
+    rows: &[*mut u8],
     row_len: usize,
     g: usize,
     terms: &M,
 ) {
-    rows_resolved::<S, M, 2, 4, OVERWRITE>(ptrs, row_len, g, terms);
-}
-
-/// Fold every term into one row, 128 bytes at a time.
-#[archmage::rite(v3_gfni_crypto)]
-pub(super) fn matrix_rows1<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
-    ptr: *mut u8,
-    row_len: usize,
-    g: usize,
-    terms: &M,
-) {
-    rows_resolved::<S, M, 1, 4, OVERWRITE>([ptr], row_len, g, terms);
+    match *rows {
+        [a] => rows_resolved::<S, M, 1, 4, OVERWRITE>([a], row_len, g, terms),
+        [a, b] => rows_resolved::<S, M, 2, 4, OVERWRITE>([a, b], row_len, g, terms),
+        [a, b, c] => rows_resolved::<S, M, 3, 2, OVERWRITE>([a, b, c], row_len, g, terms),
+        [a, b, c, d] => rows_resolved::<S, M, 4, 2, OVERWRITE>([a, b, c, d], row_len, g, terms),
+        [a, b, c, d, e] => {
+            rows_resolved::<S, M, 5, 2, OVERWRITE>([a, b, c, d, e], row_len, g, terms);
+        }
+        [a, b, c, d, e, f] => {
+            rows_resolved::<S, M, 6, 2, OVERWRITE>([a, b, c, d, e, f], row_len, g, terms);
+        }
+        _ => unreachable!("matrix row group holds one to {MAX_GROUP_ROWS} rows"),
+    }
 }
 
 /// Hierarchical remainder shared by the matrix row groups.
