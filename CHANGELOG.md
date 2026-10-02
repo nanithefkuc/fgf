@@ -45,6 +45,19 @@ All notable changes to this project are documented here. The format follows
 - The GFNI byte-field matrix kernels prefetch each source ahead of the tile
   loop on long rows whose terms fit in one resolve chunk, and run the column
   blocks above only for larger term counts. Results are unchanged.
+- The GFNI byte-field matrix kernels (`Gf8D` and `Gf8B`, contiguous,
+  scattered-row, provider, and prepared forms) split the destination rows
+  into the fewest width-balanced row groups of up to six rows, or four with
+  one or two terms, instead of fixed groups of four, two, and one, so the
+  sources are streamed once per group and fewer groups run. Overwrite seeds
+  multi-row groups from the first product rather than from zero. Results are
+  unchanged. `BENCHMARKS.md` is refreshed on both hosts for this change.
+- The GFNI byte-field matrix kernels run a three-row group with three
+  32-byte lanes per row, folding terms two at a time, when its terms number
+  from six through one resolve chunk and its rows are cache-resident; other
+  three-row groups keep two lanes. This covers three-destination calls and
+  the trailing group of seven-destination calls, contiguous and
+  scattered-row. Results are unchanged.
 
 ### Fixed
 

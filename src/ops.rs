@@ -266,13 +266,13 @@ impl<F: FieldKernels> CoeffVec<F> {
     }
 
     /// Iterate over prepared coefficients without copying their backend form.
-    #[must_use]
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn coeffs(&self) -> impl ExactSizeIterator<Item = CoeffRef<'_, F>> {
         self.as_ref().into_coeffs()
     }
 
     /// Iterate over the original field elements.
-    #[must_use]
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn values(&self) -> impl ExactSizeIterator<Item = F::Elem> + '_ {
         self.values.iter().copied()
     }
@@ -340,7 +340,7 @@ impl<'a, F: FieldKernels> CoeffVecRef<'a, F> {
     }
 
     /// Iterate over prepared coefficients without copying their backend form.
-    #[must_use]
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn into_coeffs(self) -> impl ExactSizeIterator<Item = CoeffRef<'a, F>> {
         self.prepared.iter().map(|prepared| CoeffRef {
             prepared,
@@ -349,7 +349,7 @@ impl<'a, F: FieldKernels> CoeffVecRef<'a, F> {
     }
 
     /// Iterate over the original field elements.
-    #[must_use]
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn values(self) -> impl ExactSizeIterator<Item = F::Elem> + 'a {
         self.values.iter().copied()
     }
@@ -469,7 +469,7 @@ impl<F: FieldKernels> CoeffMatrix<F> {
     }
 
     /// Iterate over the original field elements in source-major order.
-    #[must_use]
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn values(&self) -> impl ExactSizeIterator<Item = F::Elem> + '_ {
         self.values.iter().copied()
     }
