@@ -137,11 +137,25 @@ fn rows_body<
         };
         // Overwrite seeds a multi-row group's accumulators from the first
         // product instead of folding it into zero; the one-row group keeps the
-        // zero seed. The choice is a measured parameter.
+        // zero seed. The three-lane tile folds its terms two at a time. Both
+        // choices are measured parameters.
         let mut first = OVERWRITE && ROWS > 1;
-        for (map, src) in maps.iter().zip(srcs) {
-            fold_term::<S, ROWS, LANES>(&mut acc, map, &load(src), first);
-            first = false;
+        if LANES == 3 {
+            let (map_pairs, map_rest) = maps.as_chunks::<2>();
+            let (src_pairs, src_rest) = srcs.as_chunks::<2>();
+            for ([map0, map1], [src0, src1]) in map_pairs.iter().zip(src_pairs) {
+                fold_term::<S, ROWS, LANES>(&mut acc, map0, &load(src0), first);
+                fold_term::<S, ROWS, LANES>(&mut acc, map1, &load(src1), false);
+                first = false;
+            }
+            if let ([map], [src]) = (map_rest, src_rest) {
+                fold_term::<S, ROWS, LANES>(&mut acc, map, &load(src), first);
+            }
+        } else {
+            for (map, src) in maps.iter().zip(srcs) {
+                fold_term::<S, ROWS, LANES>(&mut acc, map, &load(src), first);
+                first = false;
+            }
         }
         // SAFETY:
         // MEMORY VALIDITY
@@ -309,6 +323,39 @@ pub(super) const MAX_GROUP_ROWS: usize = 6;
 /// pressure of more rows per tile. The bound is a measured parameter.
 const FEW_TERMS: usize = 2;
 
+/// Fewest terms for which a three-row group runs three 32-byte lanes per row.
+///
+/// Below it the group keeps two lanes, which leave more of the loop to the
+/// term-independent loads and stores. The bound is a measured parameter.
+const THREE_LANE_MIN_TERMS: usize = 6;
+
+/// Shortest row, in bytes, for which a three-row group runs three 32-byte
+/// lanes per row.
+///
+/// Shorter rows leave a larger share of whole lanes to the one-lane remainder
+/// loop, which the two-lane tile covers instead. The bound is a measured
+/// parameter.
+const THREE_LANE_MIN_ROW: usize = 512;
+
+/// Longest row, in bytes, for which a three-row group runs three 32-byte lanes
+/// per row.
+///
+/// Longer rows stream from beyond the core's caches, where the two-lane group
+/// keeps fewer streams in flight. The bound is a measured parameter.
+const THREE_LANE_MAX_ROW: usize = 128 * 1024;
+
+/// Whether a three-row group over `nterms` terms and `row_len`-byte rows runs
+/// three 32-byte lanes per row.
+///
+/// Term counts past one resolve chunk keep two lanes: the column-blocked walk
+/// serves them with short blocks, where three lanes lose on long rows.
+const fn three_lanes(nterms: usize, row_len: usize) -> bool {
+    nterms >= THREE_LANE_MIN_TERMS
+        && nterms <= RESOLVE_CHUNK
+        && row_len >= THREE_LANE_MIN_ROW
+        && row_len <= THREE_LANE_MAX_ROW
+}
+
 /// The row count of the group that starts `done` rows into an `nrows`-row
 /// walk over `nterms` terms.
 ///
@@ -329,7 +376,8 @@ pub(super) fn group_rows(nrows: usize, done: usize, nterms: usize) -> usize {
 }
 
 /// Fold every term into the staged rows of one group: one or two rows with
-/// four 32-byte lanes per row, three to six rows with two.
+/// four 32-byte lanes per row, four to six rows with two, and three rows with
+/// three lanes where [`three_lanes`] selects them, two otherwise.
 ///
 /// The caller stages one to [`MAX_GROUP_ROWS`] pairwise-disjoint row windows of
 /// `row_len` bytes each, the first being row `g` of the matrix.
@@ -343,6 +391,9 @@ pub(super) fn matrix_group<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERW
     match *rows {
         [a] => rows_resolved::<S, M, 1, 4, OVERWRITE>([a], row_len, g, terms),
         [a, b] => rows_resolved::<S, M, 2, 4, OVERWRITE>([a, b], row_len, g, terms),
+        [a, b, c] if three_lanes(terms.len(), row_len) => {
+            rows_resolved::<S, M, 3, 3, OVERWRITE>([a, b, c], row_len, g, terms);
+        }
         [a, b, c] => rows_resolved::<S, M, 3, 2, OVERWRITE>([a, b, c], row_len, g, terms),
         [a, b, c, d] => rows_resolved::<S, M, 4, 2, OVERWRITE>([a, b, c, d], row_len, g, terms),
         [a, b, c, d, e] => {

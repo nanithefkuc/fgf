@@ -80,7 +80,9 @@ const ROW_COUNTS: &[usize] = &[1, 2, 3, 4, 5, 8, 9];
 #[cfg(miri)]
 const ROW_COUNTS: &[usize] = &[1, 2, 4, 5];
 #[cfg(not(miri))]
-const ROW_LENS: &[usize] = &[2, 32, 34, 300];
+/// 617 bytes: six 96-byte three-lane tiles, one whole 32-byte lane, and a
+/// sub-lane tail.
+const ROW_LENS: &[usize] = &[2, 32, 34, 300, 617];
 /// Truncated under Miri: the long row only multiplies interpreted bytes.
 #[cfg(miri)]
 const ROW_LENS: &[usize] = &[2, 32, 34];
@@ -90,7 +92,7 @@ const EVEN_ROW_LENS: &[usize] = &[2, 30, 32, 34];
 #[cfg(miri)]
 const EVEN_ROW_LENS: &[usize] = &[2, 32, 34];
 #[cfg(not(miri))]
-const NTERMS: &[usize] = &[1, 2, 3, 9, 17];
+const NTERMS: &[usize] = &[1, 2, 3, 8, 9, 17];
 /// Truncated under Miri to single, pair, and one count past the resolve
 /// chunk, which keeps the scratch-staging seam.
 #[cfg(miri)]
