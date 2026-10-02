@@ -51,7 +51,7 @@ All notable changes to this project are documented here. The format follows
   one or two terms, instead of fixed groups of four, two, and one, so the
   sources are streamed once per group and fewer groups run. Overwrite seeds
   multi-row groups from the first product rather than from zero. Results are
-  unchanged.
+  unchanged. `BENCHMARKS.md` is refreshed on both hosts for this change.
 
 ### Fixed
 
