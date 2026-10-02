@@ -27,7 +27,7 @@ pub(crate) const MATRIX_PEEL_MIN: usize = 8192;
 /// Shortest row using chunk-resolved matrix coefficients.
 ///
 /// Shorter rows read coefficients directly in each tile or lane. The crossover
-/// is a measured parameter; public matrix shapes appear in `BENCHMARKS.md`.
+/// is a measured parameter; public matrix shapes appear in `benchmarks/gf8.md`.
 const MATRIX_RESOLVE_MIN: usize = 512;
 
 /// Many sources into many rows, four rows per group over 256-byte tiles.

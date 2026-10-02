@@ -1,8 +1,8 @@
 # Repository Guidelines
 
 This file is the operational manual for changing `fgf`. Public behavior belongs
-in rustdoc and `README.md`; measurements belong in `BENCHMARKS.md`; user-visible
-changes belong in `CHANGELOG.md`.
+in rustdoc and `README.md`; measurements belong in `BENCHMARKS.md` and
+`benchmarks/`; user-visible changes belong in `CHANGELOG.md`.
 
 ## Required workflow
 
@@ -100,10 +100,10 @@ suffix (`bmul_gfni`, `store_avx2`, `fold_avx2`), and a half-width variant
 inside a wider tier is `_half`. The
 AVX-512 kernels dispatch on `V4x` under `simd512`; `Gf16` scatter and gather
 retain the narrower GFNI path. Direct differentials execute on AVX-512
-hardware, and the per-shape decisions are recorded in `BENCHMARKS.md`. The
-byte-field and `Gf16` `mul_add` alignment peel floors remain measured
-thresholds with a `BENCHMARKS.md` record and misaligned-row coverage in
-kernel tests.
+hardware, and the per-shape decisions are recorded in `benchmarks/gf8.md` and
+`benchmarks/gf16.md`. The byte-field and `Gf16` `mul_add` alignment peel floors
+remain measured thresholds with a benchmark record and misaligned-row coverage
+in kernel tests.
 
 ## Residue ledger
 
@@ -130,6 +130,7 @@ initialization, alignment, or aliasing. Each listed item has a per-item
 | `kernel/x86/gf8/gfni/rows.rs`: `rows_body`, `rows_resolved`, `matrix_tail` | `rows_body` and `matrix_tail` operate on offset-addressed row pointers. `rows_resolved` additionally stages only the occupied prefix of `MaybeUninit` coefficient/source arrays; it reinterprets exactly the prefix written before reading it. |
 | `kernel/x86/gf8/avx512/scatter.rs`: `mul_add_scatter_impl`, `scatter_rows4`, `scatter_rows2`, `scatter_span` | 64-byte `Gf8D` scatter groups update disjoint rows by offsets into one destination allocation. The checked entry proves each row's bounds and disjointness; the grouped bodies keep those windows across 64-byte reference loads/stores. Dispatched on `V4x` under `simd512`. |
 | `kernel/x86/gf8/avx512/matrix.rs`: `matrix_block`, `matrix_rows1`, `rows_tile4`, `rows_lane4`, `rows_tile2`, `rows_lane2`, `rows_tile1`, `rows_lane1`, `rows_resolved`, `rows_body`, `matrix_tail`, `matrix_at_block` | 64-byte `Gf8D` matrix groups address rows by checked offsets into one region (contiguous or scattered), advanced to the start of a column block that lies inside each row. The entries prove each row in-bounds and pairwise disjoint; the tile bodies and tails preserve disjointness across 64-byte reference loads/stores. Direct tile and lane bodies use checked indexing on each captured provider source. `rows_resolved` additionally stages only the occupied prefix of `MaybeUninit` map-word/source arrays; it reinterprets exactly the prefix written before reading it. Dispatched on `V4x` under `simd512`. |
+| `external/gf16-bench/src/native.rs`: foreign declarations, `Native::new`, `complete_mul`, `leopard_mul`, `complete_region`, `complete_assign`, `leopard_region`, `Drop` | Benchmark-only C ABI calls require a live uniquely owned GF-Complete context, initialized Leopard tables, a retained CPU capability token, and checked buffer geometry. Native contexts cannot cross threads. The declaration proof matches the bridge ABI; each wrapper proves its memory, aliasing and feature obligations. |
 
 The `wasm32` kernel subtree retains no unsafe code: reference-based
 `v128_load`/`v128_store` over 16-byte chunk arrays and `split_at_mut` row
@@ -179,6 +180,7 @@ FEC_GOLDEN_CORE=<cpu> just bench-gf-comp
 FEC_GOLDEN_CORE=<cpu> just bench-gdl-comp
 FEC_GOLDEN_CORE=<cpu> just bench-m31-comp
 FEC_GOLDEN_CORE=<cpu> just bench-gf2-comp
+FEC_GOLDEN_CORE=<cpu> just bench-gf16-comp
 ```
 
 The `bench-<field>` recipes run that family's self benchmarks in one pass;
@@ -238,21 +240,62 @@ builds with `-C target-cpu=native` because Plonky3 selects its packed
 kernels at compile time. The banner reports packing widths; the record
 states the flag and widths alongside the resolved `fgf` backends.
 
+`external/gf16-bench/` compares native GF16 field operations against pinned
+GF-Complete, reed-solomon-erasure, reed-solomon-simd and Leopard-RS 1.x
+(pre-Leopard2). Leopard2 exposes no public field-region primitive, only codec
+operations, so the harness pins the 1.x field kernels.
+Its representation maps are bijective and preserve every basis product;
+independent scalar arithmetic validates every native scalar and timed region.
+Single-row cases cover fixed and cycling coefficients. Multi-row competitors
+compose native region operations; unsupported primitives remain absent.
+The duplicate fgf arm in every case measures bias. Each sampling cycle covers
+every arm permutation, and each arm warms immediately before its timed batch.
+Sampling stops only after a complete permutation cycle.
+`bench-gf16-comp` runs the targeted five-round campaign; `bench-gf-comp`
+includes the same harness in its shuffled binary-field rounds. `gf16-check`
+validates all geometries without timing, `gf16-smoke` exercises a short panel,
+and `gf16-lint` checks the external package. The native build requires Git,
+C/C++ compilers and an x86-64 AVX2/GFNI/crypto host; missing inputs fail rather
+than remove an arm. `gf16-fmt` formats only that package.
+
 Benchmark setup, allocation, coefficient construction, and input generation
 must stay outside the timed region. Record the CPU, OS, Rust version, selected
-backend, geometry, command, and aggregation rule in `BENCHMARKS.md`. Never
+backend, geometry, command, and aggregation rule in the benchmark record. Never
 reuse an old number or claim a performance change from an unpinned run.
 
-`BENCHMARKS.md` is a current snapshot, not a measurement ledger. It has two
-performance sections: public API self-timings and competitor timings.
-Every result cell uses Tiger Lake / Golden Cove order. A refresh runs all
-four family campaigns on both hosts' isolated CPUs in one session, with
-the median of five per-run medians for every published case. Competitor
-arms interleave inside each harness process. Shared provenance appears
-once at the start; case-specific geometry belongs in the tables. Dates,
-before/after comparisons, threshold variants, direct-kernel timings, and
-historical source fingerprints stay out of the public snapshot. Raw
-outputs and historical measurement evidence stay in `bench-records/`.
+The benchmark record is a current snapshot, not a measurement ledger. A
+refresh runs all four family campaigns on both hosts' isolated CPUs in one
+session and rewrites every published value, with the median of five per-run
+medians for every published case. Competitor arms interleave inside each
+harness process. Dates, before/after comparisons, threshold variants,
+direct-kernel timings, and historical source fingerprints stay out of the
+public snapshot. Raw outputs and historical measurement evidence stay in
+`bench-records/`.
+
+The record is split by field family. `BENCHMARKS.md` is the index: one row
+per family page naming its fields, campaign recipe, and competitors, then the
+host table, the method shared by every page, the number format, and the
+reproduction commands. Each family page lives at `benchmarks/<family>.md`,
+named for the field it measures, and holds a `Setup` table with only that
+page's campaign, resolved backend, competitor versions and pins, build,
+protocol, and throughput numerator; then `Self-timings`; then `Competitors`;
+then a plain caveat list. A family with no competitor states that no matched
+competitor measurement is available. A new field adds a page and one index
+row; it never extends the shared method with page-specific provenance. A
+table covers one family, so a self-timing table never compares fields from
+different pages, and a competitor table includes only the arms that
+implement every row. Arms differing in supported primitives get separate
+tables, never `-` columns.
+
+Every result cell is `Tiger Lake / Golden Cove`, in that order. Within one
+table every value has the same digit count, counting leading zeros, so
+paired cells line up down each column. The count is the fewest digits that
+give the table's smallest value three significant figures, capped by the
+resolution the harness prints for that table's values. Trailing zeros are
+printed (`32.0`, `0.70`), integer parts are never rounded or written in
+scientific notation, and ratios keep five digits. Different tables may use
+different counts. Cells are generated from raw per-run values with
+round-half-up at that count, never padded from previously published cells.
 
 A performance change requires an unchanged callable control, differential
 correctness, and interleaved before/after measurements in one session. Do not
@@ -262,11 +305,11 @@ change dispatch or a crossover from reasoning alone.
 
 - Rustdoc owns item contracts, invariants, panics, safety, layout, and ownership.
 - `README.md` owns user-facing scope, installation, features, and examples.
-- `BENCHMARKS.md` owns reproducible current measurements.
+- `BENCHMARKS.md` and `benchmarks/` own reproducible current measurements.
 - `CHANGELOG.md` owns user-visible changes and migration notes.
 - Public files and source comments must not reference planning artifacts.
 - Use third person and present tense. Avoid history, temporal status, marketing,
-  and benchmark numbers outside `BENCHMARKS.md`.
+  and benchmark numbers outside `benchmarks/`.
 - Every public item and module needs a one-line summary; `just doc` treats
   warnings as errors.
 

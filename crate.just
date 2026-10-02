@@ -113,9 +113,8 @@ bench-gf:
 # archive (Go toolchain in PATH) into one binary that interleaves `fgf`,
 # ISA-L, and klauspost over one fixture set, rotating through all six arm
 # orders. The build fails loudly when a toolchain is absent rather than
-# dropping the arm. Each round shuffles its units — the self suite, then
-# one trio invocation — so no unit systematically owns the warm or cold
-# position.
+# dropping the arm. Each round shuffles the self suite, the byte-field trio,
+# and the native GF16 harness so no unit owns the warm or cold position.
 [group('bench')]
 bench-gf-comp:
     #!/usr/bin/env bash
@@ -129,6 +128,7 @@ bench-gf-comp:
         exit 1
     }
     cargo build --release --manifest-path external/bench-trio/Cargo.toml
+    just gf16-build
     pin=()
     if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
         pin=(taskset -c "${FEC_GOLDEN_CORE}")
@@ -138,7 +138,7 @@ bench-gf-comp:
     fi
     for run in 1 2 3 4 5; do
         echo "== round ${run}"
-        printf '%s\n' self trio | shuf | while read -r unit; do
+        printf '%s\n' self trio gf16 | shuf | while read -r unit; do
             echo "-- round ${run} unit ${unit}"
             case "${unit}" in
                 self)
@@ -147,6 +147,9 @@ bench-gf-comp:
                     ;;
                 trio)
                     "${pin[@]}" external/bench-trio/target/release/fgf-bench-trio
+                    ;;
+                gf16)
+                    "${pin[@]}" external/gf16-bench/target/release/fgf-gf16-bench
                     ;;
             esac
         done
@@ -235,4 +238,36 @@ bench-gf2-comp:
     for run in 1 2 3 4 5; do
         echo "== round ${run} order self"
         just bench kernels --gf2
+    done
+
+# Native GF16 field comparison; every arm is required and validated before timing.
+[group('bench')]
+gf16-build:
+    cargo build --release --manifest-path external/gf16-bench/Cargo.toml
+
+[group('bench')]
+gf16-check: gf16-build
+    external/gf16-bench/target/release/fgf-gf16-bench --check
+
+[group('bench')]
+gf16-smoke: gf16-build
+    external/gf16-bench/target/release/fgf-gf16-bench --smoke
+
+[group('bench')]
+gf16-fmt:
+    cargo fmt --manifest-path external/gf16-bench/Cargo.toml
+
+[group('bench')]
+gf16-lint:
+    cargo fmt --manifest-path external/gf16-bench/Cargo.toml --check
+    cargo clippy --release --manifest-path external/gf16-bench/Cargo.toml --all-targets -- -D warnings
+
+[group('bench')]
+bench-gf16-comp *ARGS: gf16-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${FEC_GOLDEN_CORE:?set FEC_GOLDEN_CORE to an isolated core}"
+    for run in 1 2 3 4 5; do
+        echo "== GF16 round ${run}"
+        chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" external/gf16-bench/target/release/fgf-gf16-bench {{ARGS}}
     done

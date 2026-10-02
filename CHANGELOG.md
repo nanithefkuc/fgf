@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `just bench-gf16-comp` runs an interleaved native-field comparison against
+  GF-Complete, `reed-solomon-erasure`, `reed-solomon-simd`, and Leopard-RS 1.x.
+  The harness validates basis maps and region outputs against independent
+  arithmetic, includes duplicate-operation controls, and reports unavailable
+  primitives separately. `bench-gf-comp` includes the same harness.
+
+### Changed
+
+- The benchmark record is split by field family. `BENCHMARKS.md` indexes the
+  pages under `benchmarks/` and holds the hosts, shared method, number format,
+  and reproduction commands; each page carries its own setup, self-timings, and
+  competitor tables. Every value in a table has the same digit count, so paired
+  Tiger Lake / Golden Cove cells line up down each column. The record measures
+  2.1.0 and adds the `Gf16` native-field competitor panel.
+
 ## [2.1.0] - 2026-10-02
 
 ### Added

@@ -268,8 +268,10 @@ arithmetic results canonically.
 ## Performance
 
 [BENCHMARKS.md](https://github.com/nanithefkuc/fgf/blob/main/BENCHMARKS.md)
-reports current public API timings and interleaved competitor comparisons
-on Tiger Lake and Golden Cove, with paired values in each result cell.
+indexes current public API timings and interleaved competitor comparisons,
+one page per field family under
+[`benchmarks/`](https://github.com/nanithefkuc/fgf/tree/main/benchmarks).
+Every result cell reports Tiger Lake / Golden Cove.
 The complete snapshot campaign runs on each host's isolated CPU:
 
 ```sh
@@ -278,6 +280,18 @@ FEC_GOLDEN_CORE=<cpu> just bench-gdl-comp
 FEC_GOLDEN_CORE=<cpu> just bench-m31-comp
 FEC_GOLDEN_CORE=<cpu> just bench-gf2-comp
 ```
+
+The GF(2^16) field-kernel comparison also runs independently:
+
+```sh
+FEC_GOLDEN_CORE=<cpu> just bench-gf16-comp
+```
+
+The harness validates equivalent field elements across each library's native
+basis and byte layout before timing. It excludes representation conversion and
+does not substitute codec encoding or decoding for field operations.
+The native competitor build requires Git, C/C++ compilers and an x86-64 host
+with AVX2, GFNI and crypto instruction support.
 
 ## Building
 

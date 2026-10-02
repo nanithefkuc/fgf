@@ -24,8 +24,8 @@ FEC_GOLDEN_CORE=<cpu> just bench-gf-comp
 ```
 
 Pin the run to one core and record the CPU, operating system, Rust version,
-selected backend, and geometry with any quoted number. `BENCHMARKS.md` holds
-the current measurements.
+selected backend, and geometry with any quoted number. `BENCHMARKS.md` indexes
+the current measurements in `benchmarks/`.
 
 The competitor harnesses in `external/` need their toolchains: Intel ISA-L
 discoverable through pkg-config, and the Go toolchain in PATH.
