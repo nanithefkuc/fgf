@@ -32,14 +32,14 @@ The minimum supported Rust version is 1.93.
 
 ```toml
 [dependencies]
-fgf = "2.0.0"
+fgf = "2.1.0"
 ```
 
 For the portable `no_std` surface without allocation:
 
 ```toml
 [dependencies]
-fgf = { version = "2.0.0", default-features = false }
+fgf = { version = "2.1.0", default-features = false }
 ```
 
 ## Quick start

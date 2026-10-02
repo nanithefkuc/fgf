@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-02
+
 ### Added
 
 - Self-contained, runnable examples cover scalar arithmetic across every field,
@@ -1057,3 +1059,4 @@ Initial public release.
 [1.2.1]: https://github.com/nanithefkuc/fgf/compare/v1.2.0...v1.2.1
 [1.2.2]: https://github.com/nanithefkuc/fgf/compare/v1.2.1...v1.2.2
 [2.0.0]: https://github.com/nanithefkuc/fgf/compare/v1.2.2...v2.0.0
+[2.1.0]: https://github.com/nanithefkuc/fgf/compare/v2.0.0...v2.1.0
