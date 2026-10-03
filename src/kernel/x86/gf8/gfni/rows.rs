@@ -229,7 +229,7 @@ fn rows_body<
 #[archmage::rite(v3_gfni_crypto)]
 fn rows_resolved<
     S: Blocked,
-    M: Matrix<S::Coeff> + ?Sized,
+    M: Matrix<S> + ?Sized,
     const ROWS: usize,
     const LANES: usize,
     const OVERWRITE: bool,
@@ -382,7 +382,7 @@ pub(super) fn group_rows(nrows: usize, done: usize, nterms: usize) -> usize {
 /// The caller stages one to [`MAX_GROUP_ROWS`] pairwise-disjoint row windows of
 /// `row_len` bytes each, the first being row `g` of the matrix.
 #[archmage::rite(v3_gfni_crypto)]
-pub(super) fn matrix_group<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
+pub(super) fn matrix_group<S: Blocked, M: Matrix<S> + ?Sized, const OVERWRITE: bool>(
     rows: &[*mut u8],
     row_len: usize,
     g: usize,
@@ -417,7 +417,7 @@ pub(super) fn matrix_group<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERW
 /// prefix, and only one tail borrow is live at a time.
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
-fn matrix_tail<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
+fn matrix_tail<S: Blocked, M: Matrix<S> + ?Sized, const OVERWRITE: bool>(
     ptrs: &[*mut u8],
     row_len: usize,
     g: usize,
@@ -450,7 +450,7 @@ fn matrix_tail<S: Blocked, M: Matrix<S::Coeff> + ?Sized, const OVERWRITE: bool>(
         for term in 0..terms.len() {
             let src = terms.source(term);
             let coeff = *terms.coefficient(term, g + slot);
-            if S::byte(coeff) != 0 {
+            if !coeff.is_zero() {
                 brem_gfni::<S>(tail, coeff, &src[tile..]);
             }
         }

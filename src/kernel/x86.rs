@@ -14,19 +14,14 @@
 //!
 //! Two multiply strategies:
 //!
-//! - **GFNI.** `GF2P8MULB` multiplies bytes in `GF(2)[x] / 0x11B` — exactly
-//!   this crate's GF(2^8) — 32 lanes per instruction, no table, no shuffle
-//!   port pressure. This is why the field uses the AES polynomial.
+//! - **GFNI.** `GF2P8MULB` multiplies bytes in `GF(2)[x] / 0x11B` across
+//!   32 lanes; other byte polynomials use affine coefficient maps or conjugate
+//!   elementwise multiplication through their isomorphism onto that field.
 //! - **Nibble shuffle.** Without GFNI, `PSHUFB` performs a 16-entry lookup
 //!   per lane, so `c * x` becomes two shuffles and an XOR against the
 //!   precomputed [`ScaleTable`](crate::kernel::tables::ScaleTable).
 
 #![allow(clippy::incompatible_msrv)]
-
-// The 64-byte AVX-512 kernels are the deferred V4x tier (cross-compile-only
-// today; not in the shared ladder until validated on executing hardware).
-// They remain outside production dispatch and are exposed through the
-// internals facade for experiments and differential tests on AVX-512 hosts.
 
 pub mod bytes;
 pub mod fan_paar;

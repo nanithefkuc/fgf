@@ -61,6 +61,18 @@ features-internals:
     cargo check --all-targets --features simd512
     cargo check --all-targets --all-features
 
+# Compile the non-x86 library paths, including Wasm's explicit SIMD feature.
+[group('test')]
+cross-check:
+    cargo check --target aarch64-unknown-linux-gnu --all-features --lib
+    cargo check --target wasm32-unknown-unknown --all-features --lib
+    RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+simd128" cargo check --target wasm32-unknown-unknown --all-features --lib
+
+# Build a portable benchmark artifact for interleaved remote comparisons.
+[group('bench')]
+bench-build NAME:
+    cargo bench --all-features --bench {{NAME}} --no-run
+
 # Miri over the dispatched GFNI paths: the owned-unsafe residue that the
 # scalar configuration does not compile. Runtime detection reports nothing
 # under the interpreter, so the tier is promoted at compile time; MIRIFLAGS
@@ -87,7 +99,7 @@ unsafe-check-gfni:
 MIRI_GFNI := '''--test ops gf8_matrix_scattered_matches_contiguous -- --exact
 --test ops gf16_mul_into_matrix_overwrites -- --exact
 --features internals --test internals proven_gf8_mul_kernels_match_scalar -- --exact
---features internals --test internals proven_gf8d_gfni_kernels_match_scalar -- --exact
+--features internals --test internals proven_gf8_rs_gfni_kernels_match_scalar -- --exact
 --features internals --test internals proven_gf8_scatter_gather_match_scalar -- --exact
 --features internals --test internals proven_gf8_matrix_kernels_match_scalar -- --exact
 --features internals --test internals proven_gf8_matrix_scattered_matches_scalar -- --exact
@@ -108,6 +120,11 @@ bench-gf:
     just bench kernels --gf
     just bench compare
 
+# Build the byte-field competitor harness without running a timing campaign.
+[private]
+_trio-build:
+    cargo build --release --manifest-path external/bench-trio/Cargo.toml
+
 # The binary-field competitor trio. `external/bench-trio/` links the system
 # Intel ISA-L (pkg-config `libisal`) and klauspost/reedsolomon as a Go C
 # archive (Go toolchain in PATH) into one binary that interleaves `fgf`,
@@ -127,7 +144,7 @@ bench-gf-comp:
         echo "go not found in PATH; install the Go toolchain" >&2
         exit 1
     }
-    cargo build --release --manifest-path external/bench-trio/Cargo.toml
+    just _trio-build
     just gf16-build
     pin=()
     if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then

@@ -15,7 +15,7 @@ use super::ssse3::{
     mul_add_ssse3, mul_assign_ssse3, mul_elementwise_assign_ssse3, mul_elementwise_ssse3,
     mul_into_ssse3_impl,
 };
-use crate::field::gf8b::Elem;
+use crate::field::gf8::Elem;
 use crate::kernel::Matrix;
 use crate::kernel::tables::{ScaleTable, scale_table};
 
@@ -176,11 +176,11 @@ fn mul_into_impl<const NT: bool>(dst: &mut [u8], table: &ScaleTable, src: &[u8])
 #[allow(clippy::used_underscore_binding)]
 #[allow(unsafe_code)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_scatter_avx2(
+pub fn mul_add_scatter_avx2<const POLY: u16>(
     _token: archmage::X64V3Token,
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[Elem],
+    coeffs: &[Elem<POLY>],
     src: &[u8],
 ) {
     assert_eq!(row_len, src.len());
@@ -280,12 +280,12 @@ pub fn mul_add_scatter_avx2(
 /// supplies `nrows` coefficients for a source of `row_len` bytes.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_avx2(
+pub fn mul_add_matrix_avx2<const POLY: u16>(
     _token: archmage::X64V3Token,
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[Elem], &[u8])],
+    terms: &[(&[Elem<POLY>], &[u8])],
 ) {
     for (t, (coeffs, _)) in terms.iter().enumerate() {
         assert_eq!(
@@ -306,7 +306,7 @@ pub fn mul_add_matrix_avx2(
 #[allow(clippy::used_underscore_binding)]
 #[allow(unsafe_code)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_avx2_with<M: Matrix<Elem> + ?Sized>(
+pub fn mul_add_matrix_avx2_with<const POLY: u16, M: Matrix<Elem<POLY>> + ?Sized>(
     _token: archmage::X64V3Token,
     rows: &mut [u8],
     row_len: usize,
@@ -393,7 +393,7 @@ pub fn mul_add_matrix_avx2_with<M: Matrix<Elem> + ?Sized>(
 /// source is exactly `row_len` bytes, asserted by the entry.
 #[allow(unsafe_code)]
 #[archmage::rite(v3, import_intrinsics)]
-fn matrix_tiles<M: Matrix<Elem> + ?Sized>(
+fn matrix_tiles<const POLY: u16, M: Matrix<Elem<POLY>> + ?Sized>(
     base: *mut u8,
     row_len: usize,
     group: usize,
@@ -492,7 +492,7 @@ fn matrix_tiles<M: Matrix<Elem> + ?Sized>(
 /// Residue: as [`matrix_tiles`], with `offset + 32 <= row_len`.
 #[allow(unsafe_code)]
 #[archmage::rite(v3, import_intrinsics)]
-fn matrix_vector<M: Matrix<Elem> + ?Sized>(
+fn matrix_vector<const POLY: u16, M: Matrix<Elem<POLY>> + ?Sized>(
     base: *mut u8,
     row_len: usize,
     group: usize,
@@ -566,10 +566,10 @@ fn matrix_vector<M: Matrix<Elem> + ?Sized>(
 /// As [`mul_add_gather_gfni`](super::mul_add_gather_gfni).
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_gather_avx2(
+pub fn mul_add_gather_avx2<const POLY: u16>(
     token: archmage::X64V3Token,
     dst: &mut [u8],
-    coeffs: &[Elem],
+    coeffs: &[Elem<POLY>],
     srcs: &[&[u8]],
 ) {
     check_gather("mul_add_gather_avx2", dst, coeffs.len(), srcs);
@@ -635,10 +635,10 @@ pub fn mul_add_gather_avx2(
 /// doubles each lane (a left shift that drops the carry) and the signed
 /// `PCMPGTB` against zero recovers the bit it dropped.
 #[archmage::rite(v3)]
-pub fn multiply_vectors_avx2<const RED: u8>(mut a: __m256i, mut b: __m256i) -> __m256i {
+pub fn multiply_vectors_avx2<const POLY: u16>(mut a: __m256i, mut b: __m256i) -> __m256i {
     let zero = _mm256_setzero_si256();
     let one = _mm256_set1_epi8(1);
-    let reduction = _mm256_set1_epi8(RED.cast_signed());
+    let reduction = _mm256_set1_epi8(Elem::<POLY>::REDUCTION_LOW.cast_signed());
     let low7 = _mm256_set1_epi8(0x7f);
     let mut product = zero;
     for round in 0..8 {
@@ -660,7 +660,7 @@ pub fn multiply_vectors_avx2<const RED: u8>(mut a: __m256i, mut b: __m256i) -> _
 /// Panics unless all three buffers match in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_avx2<const RED: u8>(
+pub fn mul_elementwise_avx2<const POLY: u16>(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
     a: &[u8],
@@ -682,11 +682,11 @@ pub fn mul_elementwise_avx2<const RED: u8>(
     for ((dlane, alane), blane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
         let x = _mm256_loadu_si256(alane);
         let y = _mm256_loadu_si256(blane);
-        _mm256_storeu_si256(dlane, multiply_vectors_avx2::<RED>(x, y));
+        _mm256_storeu_si256(dlane, multiply_vectors_avx2::<POLY>(x, y));
     }
 
     // AVX2 implies SSSE3; the remainders keep equal lengths.
-    mul_elementwise_ssse3::<RED>(_token.v2(), dst_rest, a_rest, b_rest);
+    mul_elementwise_ssse3::<POLY>(_token.v2(), dst_rest, a_rest, b_rest);
 }
 
 /// `dst[i] = dst[i] * src[i]` by branchless shift/reduce over 32-byte lanes.
@@ -695,7 +695,7 @@ pub fn mul_elementwise_avx2<const RED: u8>(
 /// Panics if the slices differ in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_assign_avx2<const RED: u8>(
+pub fn mul_elementwise_assign_avx2<const POLY: u16>(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
     src: &[u8],
@@ -710,9 +710,9 @@ pub fn mul_elementwise_assign_avx2<const RED: u8>(
     for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
         let x = _mm256_loadu_si256(&*dlane);
         let y = _mm256_loadu_si256(slane);
-        _mm256_storeu_si256(dlane, multiply_vectors_avx2::<RED>(x, y));
+        _mm256_storeu_si256(dlane, multiply_vectors_avx2::<POLY>(x, y));
     }
 
     // AVX2 implies SSSE3; the remainders keep equal lengths.
-    mul_elementwise_assign_ssse3::<RED>(_token.v2(), dst_rest, src_rest);
+    mul_elementwise_assign_ssse3::<POLY>(_token.v2(), dst_rest, src_rest);
 }

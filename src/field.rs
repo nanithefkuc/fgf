@@ -25,9 +25,7 @@ pub(crate) mod wiedemann;
 
 pub use fan_paar::{FanPaar8, FanPaar16, FanPaar32, FanPaar64};
 pub use gf2::Gf2;
-pub use gf8::{gf8b, gf8d};
-pub use gf8b::Gf8B;
-pub use gf8d::Gf8D;
+pub use gf8::Gf8;
 pub use gf16::Gf16;
 pub use gf32::Gf32;
 pub use gf64::Gf64;

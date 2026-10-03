@@ -1,8 +1,9 @@
-# GF(2^8): `Gf8B` and `Gf8D`
+# GF(2^8): polynomial byte fields
 
-Public API timings for the byte fields and the matched `0x11D` competitor
-panel. Every result cell reports Tiger Lake / Golden Cove; shared hosts,
-toolchain, sampling, and number format: [BENCHMARKS.md](../BENCHMARKS.md).
+Public API timings for flat byte fields and the matched `0x11D` competitor
+panel. Snapshot rows measure `fgf` 2.1.0; paired rows compare its baseline
+with the `Gf8<POLY>` cutover. Every result cell reports Tiger Lake / Golden
+Cove; shared snapshot method: [BENCHMARKS.md](../BENCHMARKS.md).
 
 ## Setup
 
@@ -14,6 +15,16 @@ toolchain, sampling, and number format: [BENCHMARKS.md](../BENCHMARKS.md).
 | Competitor build | `external/bench-trio` with `fgf/simd512` |
 | Competitor protocol | Arms interleave in one process across all six orders; outputs are validated before timing |
 | Throughput | Single-row cases count buffer bytes. Accumulating scatter, gather, and matrix cases count row bytes × sources × destinations. Overwrite-matrix and competitor cases count source bytes. |
+| Paired baseline | Revision `46afc76`, portable x86-64, all features |
+| Paired generic | `Gf8<POLY>` API, portable x86-64, all features |
+| Paired compiler | rustc 1.98.1, LLVM 22.1.8, thin LTO, one codegen unit |
+| Paired protocol | Five paired runs of each binary, shuffled order, isolated cores 3 / 8, no backend override |
+| Paired aggregation | Per-case median; XOR and GF(2^16) operations are unchanged controls |
+| Paired run A artifacts | `kernels`: `9202948b735f`; `compare`: `1bfdec0864cc` |
+| Paired run B artifacts | `kernels`: `d7e44ca60c1e`; `compare`: `b7f7cdf2e324` |
+| Paired run B scope | Lint-adjusted build; baseline and candidate remeasured together |
+| Paired run C artifacts | `kernels`: `bfc8de17861a`; `compare`: `8561d4c45cca` |
+| Paired run C scope | Validated build; baseline and candidate remeasured together |
 
 ## Self-timings
 
@@ -43,16 +54,64 @@ toolchain, sampling, and number format: [BENCHMARKS.md](../BENCHMARKS.md).
 
 64 KiB buffers, 64-byte-aligned.
 
-| Field | Operation | Throughput (GiB/s) |
-| --- | --- | --- |
-| `Gf8B` | `mul_add` | 40.7 / 64.8 |
-| `Gf8B` | `mul_into` | 39.8 / 64.7 |
-| `Gf8D` | `mul_add` | 40.7 / 64.8 |
-| `Gf8D` | `mul_into` | 39.8 / 64.7 |
-| `Gf8B` | `mul_elementwise` | 29.1 / 54.1 |
-| `Gf8B` | `mul_elementwise_assign` | 40.7 / 65.6 |
-| `Gf8D` | `mul_elementwise` | 28.7 / 49.6 |
-| `Gf8D` | `mul_elementwise_assign` | 40.6 / 56.6 |
+| Field | Run | Build | Operation | Throughput (GiB/s) |
+| --- | --- | --- | --- | --- |
+| `Gf8B` | 2.1.0 | snapshot | `mul_add` | 40.7 / 64.8 |
+| `Gf8B` | 2.1.0 | snapshot | `mul_into` | 39.8 / 64.7 |
+| `Gf8D` | 2.1.0 | snapshot | `mul_add` | 40.7 / 64.8 |
+| `Gf8D` | 2.1.0 | snapshot | `mul_into` | 39.8 / 64.7 |
+| `Gf8B` | 2.1.0 | snapshot | `mul_elementwise` | 29.1 / 54.1 |
+| `Gf8B` | 2.1.0 | snapshot | `mul_elementwise_assign` | 40.7 / 65.6 |
+| `Gf8D` | 2.1.0 | snapshot | `mul_elementwise` | 28.7 / 49.6 |
+| `Gf8D` | 2.1.0 | snapshot | `mul_elementwise_assign` | 40.6 / 56.6 |
+| `Gf8<AES>` | 2026-10-03 A | paired baseline | `mul_add` | 40.6 / 64.7 |
+| `Gf8<AES>` | 2026-10-03 A | paired generic | `mul_add` | 40.6 / 64.6 |
+| `Gf8<AES>` | 2026-10-03 A | paired baseline | `mul_into` | 39.6 / 64.7 |
+| `Gf8<AES>` | 2026-10-03 A | paired generic | `mul_into` | 39.6 / 64.6 |
+| `Gf8<AES>` | 2026-10-03 A | paired baseline | `mul_elementwise` | 29.5 / 54.2 |
+| `Gf8<AES>` | 2026-10-03 A | paired generic | `mul_elementwise` | 29.4 / 54.0 |
+| `Gf8<AES>` | 2026-10-03 A | paired baseline | `mul_elementwise_assign` | 40.7 / 65.6 |
+| `Gf8<AES>` | 2026-10-03 A | paired generic | `mul_elementwise_assign` | 40.7 / 65.8 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 A | paired baseline | `mul_add` | 40.6 / 64.7 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 A | paired generic | `mul_add` | 40.6 / 64.7 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 A | paired baseline | `mul_into` | 39.6 / 64.7 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 A | paired generic | `mul_into` | 39.7 / 64.7 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 A | paired baseline | `mul_elementwise` | 29.0 / 49.4 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 A | paired generic | `mul_elementwise` | 29.0 / 50.2 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 A | paired baseline | `mul_elementwise_assign` | 40.6 / 56.6 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 A | paired generic | `mul_elementwise_assign` | 40.8 / 56.5 |
+| `Gf8<AES>` | 2026-10-03 B | paired baseline | `mul_add` | 40.6 / 64.7 |
+| `Gf8<AES>` | 2026-10-03 B | paired generic | `mul_add` | 40.6 / 64.6 |
+| `Gf8<AES>` | 2026-10-03 B | paired baseline | `mul_into` | 39.6 / 64.7 |
+| `Gf8<AES>` | 2026-10-03 B | paired generic | `mul_into` | 39.6 / 64.6 |
+| `Gf8<AES>` | 2026-10-03 B | paired baseline | `mul_elementwise` | 29.4 / 54.1 |
+| `Gf8<AES>` | 2026-10-03 B | paired generic | `mul_elementwise` | 29.4 / 54.2 |
+| `Gf8<AES>` | 2026-10-03 B | paired baseline | `mul_elementwise_assign` | 40.7 / 65.6 |
+| `Gf8<AES>` | 2026-10-03 B | paired generic | `mul_elementwise_assign` | 40.7 / 65.8 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 B | paired baseline | `mul_add` | 40.6 / 64.7 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 B | paired generic | `mul_add` | 40.6 / 64.7 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 B | paired baseline | `mul_into` | 39.6 / 64.7 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 B | paired generic | `mul_into` | 39.6 / 64.7 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 B | paired baseline | `mul_elementwise` | 29.0 / 49.5 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 B | paired generic | `mul_elementwise` | 29.1 / 49.5 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 B | paired baseline | `mul_elementwise_assign` | 40.6 / 56.7 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 B | paired generic | `mul_elementwise_assign` | 40.8 / 56.8 |
+| `Gf8<AES>` | 2026-10-03 C | paired baseline | `mul_add` | 40.6 / 64.7 |
+| `Gf8<AES>` | 2026-10-03 C | paired generic | `mul_add` | 40.6 / 64.7 |
+| `Gf8<AES>` | 2026-10-03 C | paired baseline | `mul_into` | 39.6 / 64.7 |
+| `Gf8<AES>` | 2026-10-03 C | paired generic | `mul_into` | 39.6 / 64.6 |
+| `Gf8<AES>` | 2026-10-03 C | paired baseline | `mul_elementwise` | 29.4 / 54.1 |
+| `Gf8<AES>` | 2026-10-03 C | paired generic | `mul_elementwise` | 29.6 / 54.2 |
+| `Gf8<AES>` | 2026-10-03 C | paired baseline | `mul_elementwise_assign` | 40.6 / 65.6 |
+| `Gf8<AES>` | 2026-10-03 C | paired generic | `mul_elementwise_assign` | 40.7 / 65.8 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 C | paired baseline | `mul_add` | 40.6 / 64.7 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 C | paired generic | `mul_add` | 40.6 / 64.7 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 C | paired baseline | `mul_into` | 39.6 / 64.7 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 C | paired generic | `mul_into` | 39.7 / 64.7 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 C | paired baseline | `mul_elementwise` | 29.1 / 49.4 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 C | paired generic | `mul_elementwise` | 29.2 / 49.5 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 C | paired baseline | `mul_elementwise_assign` | 40.6 / 56.6 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 C | paired generic | `mul_elementwise_assign` | 40.7 / 56.6 |
 
 ### One-shot and prepared multiplication
 
@@ -103,15 +162,57 @@ destinations for scatter and matrix, sources for gather.
 Ten sources, 64 KiB rows, 64-byte-aligned buffers. `_at` uses contiguous row
 offsets. The `fill(0)` cases include clearing the destination.
 
-| Field | Operation | 2 destinations (GiB/s) | 4 destinations (GiB/s) | 6 destinations (GiB/s) |
-| --- | --- | --- | --- | --- |
-| `Gf8B` | `fill(0)` + `mul_add_matrix` | 56.4 / 49.8 | 31.1 / 32.4 | 19.4 / 21.9 |
-| `Gf8B` | `mul_into_matrix` | 72.9 / 68.3 | 42.3 / 41.6 | 25.7 / 28.8 |
-| `Gf8B` | `mul_add_matrix_with` | 72.8 / 57.4 | 40.0 / 37.8 | 24.2 / 26.1 |
-| `Gf8B` | `mul_into_matrix_with` | 75.5 / 67.0 | 42.4 / 41.5 | 25.2 / 28.8 |
-| `Gf8B` | `mul_add_matrix_at` | 72.9 / 56.6 | 40.0 / 31.2 | 24.7 / 22.8 |
-| `Gf8D` | `fill(0)` + `mul_add_matrix` | 56.8 / 52.5 | 31.2 / 33.7 | 19.4 / 23.4 |
-| `Gf8D` | `mul_into_matrix` | 75.0 / 70.3 | 42.4 / 45.0 | 25.9 / 32.2 |
+| Field | Run | Build | Operation | 2 destinations (GiB/s) | 4 destinations (GiB/s) | 6 destinations (GiB/s) |
+| --- | --- | --- | --- | --- | --- | --- |
+| `Gf8B` | 2.1.0 | snapshot | `fill(0)` + `mul_add_matrix` | 56.4 / 49.8 | 31.1 / 32.4 | 19.4 / 21.9 |
+| `Gf8B` | 2.1.0 | snapshot | `mul_into_matrix` | 72.9 / 68.3 | 42.3 / 41.6 | 25.7 / 28.8 |
+| `Gf8B` | 2.1.0 | snapshot | `mul_add_matrix_with` | 72.8 / 57.4 | 40.0 / 37.8 | 24.2 / 26.1 |
+| `Gf8B` | 2.1.0 | snapshot | `mul_into_matrix_with` | 75.5 / 67.0 | 42.4 / 41.5 | 25.2 / 28.8 |
+| `Gf8B` | 2.1.0 | snapshot | `mul_add_matrix_at` | 72.9 / 56.6 | 40.0 / 31.2 | 24.7 / 22.8 |
+| `Gf8D` | 2.1.0 | snapshot | `fill(0)` + `mul_add_matrix` | 56.8 / 52.5 | 31.2 / 33.7 | 19.4 / 23.4 |
+| `Gf8D` | 2.1.0 | snapshot | `mul_into_matrix` | 75.0 / 70.3 | 42.4 / 45.0 | 25.9 / 32.2 |
+| `Gf8<AES>` | 2026-10-03 A | paired baseline | `fill(0)` + `mul_add_matrix` | 56.6 / 49.9 | 31.0 / 32.3 | 19.3 / 21.4 |
+| `Gf8<AES>` | 2026-10-03 A | paired generic | `fill(0)` + `mul_add_matrix` | 56.5 / 51.0 | 31.0 / 27.0 | 19.4 / 19.2 |
+| `Gf8<AES>` | 2026-10-03 A | paired baseline | `mul_into_matrix` | 73.0 / 68.4 | 42.0 / 41.6 | 25.5 / 28.6 |
+| `Gf8<AES>` | 2026-10-03 A | paired generic | `mul_into_matrix` | 72.6 / 68.9 | 41.9 / 35.5 | 25.5 / 25.8 |
+| `Gf8<AES>` | 2026-10-03 A | paired baseline | `mul_add_matrix_with` | 73.0 / 56.8 | 40.2 / 37.9 | 24.2 / 25.6 |
+| `Gf8<AES>` | 2026-10-03 A | paired generic | `mul_add_matrix_with` | 73.0 / 56.9 | 40.2 / 30.9 | 25.2 / 22.4 |
+| `Gf8<AES>` | 2026-10-03 A | paired baseline | `mul_into_matrix_with` | 75.6 / 66.5 | 42.5 / 41.8 | 25.1 / 28.8 |
+| `Gf8<AES>` | 2026-10-03 A | paired generic | `mul_into_matrix_with` | 75.8 / 66.7 | 42.7 / 35.2 | 26.4 / 25.9 |
+| `Gf8<AES>` | 2026-10-03 A | paired baseline | `mul_add_matrix_at` | 72.6 / 56.4 | 40.0 / 30.9 | 24.7 / 22.5 |
+| `Gf8<AES>` | 2026-10-03 A | paired generic | `mul_add_matrix_at` | 73.0 / 57.3 | 39.6 / 31.0 | 24.7 / 22.4 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 A | paired baseline | `fill(0)` + `mul_add_matrix` | 56.9 / 52.5 | 31.1 / 33.8 | 19.5 / 22.9 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 A | paired generic | `fill(0)` + `mul_add_matrix` | 56.6 / 52.8 | 31.1 / 33.8 | 19.6 / 22.9 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 A | paired baseline | `mul_into_matrix` | 75.5 / 70.3 | 42.3 / 45.6 | 26.0 / 31.9 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 A | paired generic | `mul_into_matrix` | 75.0 / 72.2 | 42.3 / 38.2 | 26.0 / 28.7 |
+| `Gf8<AES>` | 2026-10-03 B | paired baseline | `fill(0)` + `mul_add_matrix` | 56.6 / 50.0 | 30.9 / 32.3 | 19.2 / 21.4 |
+| `Gf8<AES>` | 2026-10-03 B | paired generic | `fill(0)` + `mul_add_matrix` | 56.4 / 51.1 | 31.0 / 27.1 | 19.4 / 19.1 |
+| `Gf8<AES>` | 2026-10-03 B | paired baseline | `mul_into_matrix` | 73.0 / 68.4 | 41.9 / 41.6 | 25.6 / 28.4 |
+| `Gf8<AES>` | 2026-10-03 B | paired generic | `mul_into_matrix` | 72.8 / 68.8 | 42.1 / 35.4 | 25.7 / 25.8 |
+| `Gf8<AES>` | 2026-10-03 B | paired baseline | `mul_add_matrix_with` | 73.0 / 56.7 | 39.9 / 37.7 | 24.2 / 25.6 |
+| `Gf8<AES>` | 2026-10-03 B | paired generic | `mul_add_matrix_with` | 73.2 / 57.0 | 40.0 / 31.1 | 25.4 / 22.3 |
+| `Gf8<AES>` | 2026-10-03 B | paired baseline | `mul_into_matrix_with` | 75.7 / 66.7 | 42.4 / 41.8 | 25.2 / 28.8 |
+| `Gf8<AES>` | 2026-10-03 B | paired generic | `mul_into_matrix_with` | 76.0 / 66.6 | 42.5 / 35.2 | 26.2 / 25.9 |
+| `Gf8<AES>` | 2026-10-03 B | paired baseline | `mul_add_matrix_at` | 72.7 / 56.3 | 39.9 / 31.0 | 24.7 / 22.4 |
+| `Gf8<AES>` | 2026-10-03 B | paired generic | `mul_add_matrix_at` | 73.0 / 57.4 | 40.2 / 31.2 | 24.7 / 22.4 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 B | paired baseline | `fill(0)` + `mul_add_matrix` | 56.9 / 52.6 | 31.0 / 33.7 | 19.4 / 22.9 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 B | paired generic | `fill(0)` + `mul_add_matrix` | 56.8 / 52.6 | 31.3 / 33.8 | 19.6 / 22.8 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 B | paired baseline | `mul_into_matrix` | 75.3 / 70.2 | 42.2 / 45.0 | 26.0 / 31.6 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 B | paired generic | `mul_into_matrix` | 75.0 / 72.4 | 42.6 / 38.1 | 25.8 / 28.5 |
+| `Gf8<AES>` | 2026-10-03 C | paired baseline | `fill(0)` + `mul_add_matrix` | 56.5 / 49.8 | 30.9 / 32.3 | 19.3 / 21.4 |
+| `Gf8<AES>` | 2026-10-03 C | paired generic | `fill(0)` + `mul_add_matrix` | 56.5 / 50.9 | 31.1 / 27.0 | 19.4 / 19.2 |
+| `Gf8<AES>` | 2026-10-03 C | paired baseline | `mul_into_matrix` | 72.9 / 68.3 | 41.9 / 41.5 | 25.6 / 28.7 |
+| `Gf8<AES>` | 2026-10-03 C | paired generic | `mul_into_matrix` | 72.7 / 69.0 | 42.2 / 35.4 | 25.7 / 25.8 |
+| `Gf8<AES>` | 2026-10-03 C | paired baseline | `mul_add_matrix_with` | 73.0 / 56.9 | 39.8 / 37.7 | 24.1 / 25.6 |
+| `Gf8<AES>` | 2026-10-03 C | paired generic | `mul_add_matrix_with` | 72.9 / 57.0 | 40.0 / 31.0 | 25.3 / 22.4 |
+| `Gf8<AES>` | 2026-10-03 C | paired baseline | `mul_into_matrix_with` | 75.7 / 66.6 | 42.3 / 41.7 | 25.1 / 28.9 |
+| `Gf8<AES>` | 2026-10-03 C | paired generic | `mul_into_matrix_with` | 75.6 / 66.8 | 42.5 / 35.3 | 26.3 / 25.9 |
+| `Gf8<AES>` | 2026-10-03 C | paired baseline | `mul_add_matrix_at` | 72.8 / 56.4 | 40.1 / 31.2 | 24.5 / 22.4 |
+| `Gf8<AES>` | 2026-10-03 C | paired generic | `mul_add_matrix_at` | 73.2 / 57.2 | 40.1 / 31.1 | 24.6 / 22.5 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 C | paired baseline | `fill(0)` + `mul_add_matrix` | 56.8 / 52.5 | 31.1 / 33.7 | 19.5 / 22.8 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 C | paired generic | `fill(0)` + `mul_add_matrix` | 56.8 / 52.8 | 31.3 / 34.0 | 19.6 / 22.9 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 C | paired baseline | `mul_into_matrix` | 75.5 / 70.0 | 42.4 / 45.0 | 25.9 / 31.8 |
+| `Gf8<REED_SOLOMON>` | 2026-10-03 C | paired generic | `mul_into_matrix` | 75.3 / 72.3 | 42.5 / 38.2 | 26.0 / 28.7 |
 
 ### Row-wise addition
 

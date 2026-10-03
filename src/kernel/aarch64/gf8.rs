@@ -30,10 +30,13 @@
 
 use core::arch::aarch64::*;
 
-use crate::field::gf8b::Elem;
+use crate::field::gf8::{AES, Elem as Gf8Elem};
 use crate::kernel::gf8::{mul_add_nibble, mul_assign_nibble, mul_into_nibble};
 use crate::kernel::proven_checks::{check_equal, check_row_span, check_terms};
 use crate::kernel::tables::{ScaleTable, scale_table};
+
+/// The AES byte element used by the elementwise scalar tails.
+type Elem = Gf8Elem<AES>;
 
 /// Load a coefficient's nibble tables into two vector registers.
 #[inline]
@@ -85,16 +88,16 @@ impl Scaling {
     /// Resolve `coeff` against the shared table bank.
     #[inline]
     #[archmage::rite(neon, import_intrinsics)]
-    fn new(coeff: Elem) -> Self {
+    fn new<const POLY: u16>(coeff: Gf8Elem<POLY>) -> Self {
         let zero = vdupq_n_u8(0);
-        if coeff == Elem::ZERO {
+        if coeff == Gf8Elem::ZERO {
             return Self {
                 lo: zero,
                 hi: zero,
                 kind: Kind::Skip,
             };
         }
-        if coeff == Elem::ONE {
+        if coeff == Gf8Elem::ONE {
             return Self {
                 lo: zero,
                 hi: zero,
@@ -143,7 +146,7 @@ impl PreparedRow {
     /// in-bounds and disjointness argument.
     #[inline]
     #[archmage::rite(neon, import_intrinsics)]
-    fn new(ptr: *mut u8, coeff: Elem) -> Self {
+    fn new<const POLY: u16>(ptr: *mut u8, coeff: Gf8Elem<POLY>) -> Self {
         Self {
             ptr,
             table: scale_table(coeff),
@@ -280,11 +283,11 @@ fn mul_into_impl(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
 #[allow(unsafe_code)]
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_scatter_neon(
+pub fn mul_add_scatter_neon<const POLY: u16>(
     _token: archmage::NeonToken,
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[Elem],
+    coeffs: &[Gf8Elem<POLY>],
     src: &[u8],
 ) {
     check_equal(
@@ -328,7 +331,12 @@ pub fn mul_add_scatter_neon(
 /// THUS: no store below aliases another row's load or the source.
 #[allow(unsafe_code)]
 #[archmage::rite(neon)]
-unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
+unsafe fn mul_add_scatter_impl<const POLY: u16>(
+    rows: &mut [u8],
+    row_len: usize,
+    coeffs: &[Gf8Elem<POLY>],
+    src: &[u8],
+) {
     let span = row_len.min(src.len());
     let nrows = coeffs.len().min(rows.len() / row_len);
     let base = rows.as_mut_ptr();
@@ -362,7 +370,7 @@ unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem],
     }
     while j < nrows {
         let coeff = coeffs[j];
-        if coeff != Elem::ZERO {
+        if coeff != Gf8Elem::ZERO {
             // SAFETY:
             // MEMORY VALIDITY
             // SINCE: `(j + 1) * row_len <= rows.len()` and `span <= row_len`.
@@ -456,12 +464,12 @@ unsafe fn scatter_quad(plans: &[PreparedRow; 4], src: &[u8], span: usize) {
 #[allow(unsafe_code)]
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_matrix_neon(
+pub fn mul_add_matrix_neon<const POLY: u16>(
     _token: archmage::NeonToken,
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[Elem], &[u8])],
+    terms: &[(&[Gf8Elem<POLY>], &[u8])],
 ) {
     check_row_span("gf8::mul_add_matrix_neon", rows.len(), row_len, nrows);
     check_terms("gf8::mul_add_matrix_neon", row_len, nrows, terms);
@@ -493,11 +501,11 @@ pub fn mul_add_matrix_neon(
 /// THUS: the accumulator stores never alias a source or another row.
 #[allow(unsafe_code)]
 #[archmage::rite(neon)]
-unsafe fn mul_add_matrix_impl(
+unsafe fn mul_add_matrix_impl<const POLY: u16>(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[Elem], &[u8])],
+    terms: &[(&[Gf8Elem<POLY>], &[u8])],
 ) {
     // One pass over `terms` — outside every hot loop — establishes the bounds
     // the raw-pointer loops rely on, so a caller that violates the documented
@@ -571,7 +579,12 @@ unsafe fn mul_add_matrix_impl(
 /// THUS: the accumulator stores cannot alias a live read.
 #[allow(unsafe_code)]
 #[archmage::rite(neon)]
-unsafe fn matrix_quad(rows: &[*mut u8; 4], span: usize, first: usize, terms: &[(&[Elem], &[u8])]) {
+unsafe fn matrix_quad<const POLY: u16>(
+    rows: &[*mut u8; 4],
+    span: usize,
+    first: usize,
+    terms: &[(&[Gf8Elem<POLY>], &[u8])],
+) {
     let mut tile = 0;
     while tile + 32 <= span {
         // SAFETY:
@@ -699,7 +712,7 @@ unsafe fn matrix_quad(rows: &[*mut u8; 4], span: usize, first: usize, terms: &[(
             let row = unsafe { core::slice::from_raw_parts_mut(ptr.add(tile), tail) };
             for &(coeffs, src) in terms {
                 let coeff = coeffs[first + slot];
-                if coeff != Elem::ZERO {
+                if coeff != Gf8Elem::ZERO {
                     mul_add_nibble(row, scale_table(coeff), &src[tile..span]);
                 }
             }
@@ -726,7 +739,12 @@ unsafe fn matrix_quad(rows: &[*mut u8; 4], span: usize, first: usize, terms: &[(
 /// THUS: no store aliases a live read.
 #[allow(unsafe_code)]
 #[archmage::rite(neon)]
-unsafe fn matrix_single(ptr: *mut u8, span: usize, index: usize, terms: &[(&[Elem], &[u8])]) {
+unsafe fn matrix_single<const POLY: u16>(
+    ptr: *mut u8,
+    span: usize,
+    index: usize,
+    terms: &[(&[Gf8Elem<POLY>], &[u8])],
+) {
     let mut tile = 0;
     while tile + 32 <= span {
         // SAFETY:
@@ -792,7 +810,7 @@ unsafe fn matrix_single(ptr: *mut u8, span: usize, index: usize, terms: &[(&[Ele
         let row = unsafe { core::slice::from_raw_parts_mut(ptr.add(tile), tail) };
         for &(coeffs, src) in terms {
             let coeff = coeffs[index];
-            if coeff != Elem::ZERO {
+            if coeff != Gf8Elem::ZERO {
                 mul_add_nibble(row, scale_table(coeff), &src[tile..span]);
             }
         }
@@ -811,10 +829,10 @@ unsafe fn matrix_single(ptr: *mut u8, span: usize, index: usize, terms: &[(&[Ele
 /// in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_gather_neon(
+pub fn mul_add_gather_neon<const POLY: u16>(
     _token: archmage::NeonToken,
     dst: &mut [u8],
-    coeffs: &[Elem],
+    coeffs: &[Gf8Elem<POLY>],
     srcs: &[&[u8]],
 ) {
     check_equal(
@@ -840,7 +858,7 @@ pub fn mul_add_gather_neon(
 }
 
 #[archmage::rite(neon, import_intrinsics)]
-fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+fn mul_add_gather_impl<const POLY: u16>(dst: &mut [u8], coeffs: &[Gf8Elem<POLY>], srcs: &[&[u8]]) {
     let count = coeffs.len().min(srcs.len());
     let mut span = dst.len();
     for &src in &srcs[..count] {
@@ -890,7 +908,7 @@ fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
 
     for k in 0..count {
         let coeff = coeffs[k];
-        if coeff != Elem::ZERO {
+        if coeff != Gf8Elem::ZERO {
             mul_add_nibble(
                 &mut dst[vector_len..span],
                 scale_table(coeff),
@@ -994,7 +1012,7 @@ fn mul_elementwise_neon_aes_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         vst1q_u8(d, multiply_vectors_neon_aes(vld1q_u8(x), vld1q_u8(y)));
     }
     for ((d, &x), &y) in dst_tail.iter_mut().zip(a_tail).zip(b_tail) {
-        *d = Elem(x).mul(Elem(y)).0;
+        *d = Elem::from_raw(x).mul(Elem::from_raw(y)).0;
     }
 }
 
@@ -1019,6 +1037,6 @@ fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         vst1q_u8(d, multiply_vectors(vld1q_u8(x), vld1q_u8(y)));
     }
     for ((d, &x), &y) in dst_tail.iter_mut().zip(a_tail).zip(b_tail) {
-        *d = Elem(x).mul(Elem(y)).0;
+        *d = Elem::from_raw(x).mul(Elem::from_raw(y)).0;
     }
 }

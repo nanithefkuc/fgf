@@ -60,12 +60,12 @@ Packed operations use the field marker as their generic parameter. Buffers
 contain consecutive little-endian elements and may be unaligned.
 
 ```rust
-use fgf::{Gf8B, gf8b, ops};
+use fgf::{Gf8, gf8::{AES, Elem}, ops};
 
 let src = [0x01u8, 0x02, 0x03, 0x04];
 let mut dst = [0u8; 4];
 
-ops::mul_add::<Gf8B>(&mut dst, gf8b::Elem::from_raw(0x03), &src);
+ops::mul_add::<Gf8<AES>>(&mut dst, Elem::from_raw(0x03), &src);
 assert_eq!(dst, [0x03, 0x06, 0x05, 0x0c]);
 ```
 
@@ -78,7 +78,7 @@ identities or recovered data. Each file is self-contained.
 | Example | Field coverage | Workflow |
 | --- | --- | --- |
 | `field_arithmetic` | Every field | Const coefficients, generic `Field`/`Elem` arithmetic, scalar encoding, and the difference between `0x11B` and `0x11D`. |
-| `shard_recovery` | `Gf8D` | Apply a fixed parity matrix, recover one erased shard with a gather, and recover both data shards with a prepared matrix. |
+| `shard_recovery` | `Gf8<REED_SOLOMON>` | Apply a fixed parity matrix, recover one erased shard with a gather, and recover both data shards with a prepared matrix. |
 | `streaming_encode` | `Gf16` | Pack tower elements, scatter arriving sources, update parity from a source delta, and write disjoint output slots without overwriting frame metadata. |
 | `binary_syndrome` | Bit-packed GF(2) | Encode a Hamming codeword by subset XOR, locate a single error with parity-check dot products, and handle logical lengths and padding. |
 | `extension_fields` | AES-rooted and Fan–Paar towers, `QuadMersenne31` | Subfield embeddings, Frobenius conjugation, relative trace and norm, and quadratic-extension arithmetic. |
@@ -121,9 +121,10 @@ from `just examples`.
 
 | Field | Marker and element | Construction | Accelerated backends |
 | --- | --- | --- | --- |
-| GF(2^8) | `Gf8B`, `gf8b::Elem` | AES polynomial `0x11B` | x86 GFNI |
-| GF(2^8) | `Gf8D`, `gf8d::Elem` | polynomial `0x11D` | x86 GFNI affine; x86, `AArch64`, and Wasm shuffle |
-| GF(2^16) | `Gf16`, `gf16::Elem` | quadratic tower over `Gf8B` | x86 GFNI and shuffle |
+| GF(2^8) | `Gf8<AES>`, `gf8::Elem<AES>` | AES polynomial `0x11B` | x86 GFNI and shuffle; `AArch64` NEON/PMULL; Wasm SIMD |
+| GF(2^8) | `Gf8<REED_SOLOMON>`, `gf8::Elem<REED_SOLOMON>` | polynomial `0x11D` | x86 GFNI affine and shuffle; `AArch64` and Wasm single-row shuffle |
+| GF(2^8) | `Gf8<POLY>`, `gf8::Elem<POLY>` | any irreducible degree-eight polynomial | x86 GFNI affine and shuffle; `AArch64` and Wasm single-row shuffle |
+| GF(2^16) | `Gf16`, `gf16::Elem` | quadratic tower over `Gf8<AES>` | x86 GFNI and shuffle |
 | GF(2^32) | `Gf32`, `gf32::Elem` | quadratic tower over `Gf16` | x86 GFNI |
 | GF(2^64) | `Gf64`, `gf64::Elem` | quadratic tower over `Gf32` | x86 GFNI |
 | Fan–Paar GF(2^8) | `FanPaar8`, `fan_paar::fp8::Elem` | canonical recursive tower | portable |
@@ -134,6 +135,14 @@ from `just examples`.
 | GF(2^64 − 2^32 + 1) | `Goldilocks`, `goldilocks::Elem` | Goldilocks prime in `u64` lanes | x86 AVX2 and SSE4.2 |
 | GF((2^31 − 1)²) | `QuadMersenne31`, `quad_mersenne31::Elem` | `i² = −1` over Mersenne31 | x86 AVX2 |
 | GF(2) | `Gf2`, `gf2::Elem` | one element per bit | dispatched XOR; portable word kernels |
+
+`gf8::AES` and `gf8::REED_SOLOMON` name the two standard polynomial
+constants. Other conventions use the complete polynomial directly:
+`Gf8<0x12D>` for Data Matrix and `Gf8<0x187>` for the CCSDS polynomial
+basis. `POLY` includes the leading `x^8` bit and is checked for irreducibility
+at compile time. Elements and prepared coefficients retain the polynomial in
+their type; copying identical raw bytes between polynomial bases is not a
+field conversion. CCSDS dual-basis wire conversion is outside this library.
 
 All element families support arithmetic operators including unary negation,
 assignment operators, `Sum`, `Product`, ordering, formatting, and named raw
@@ -215,7 +224,7 @@ the complete supplied slices.
 | `alloc` | prepared coefficient collections and `pack_to_vec` |
 | `std` | runtime support and lazily initialized shared tables; implies `alloc` |
 | `simd` | runtime-dispatched architecture kernels; implies `std` |
-| `simd512` | 64-byte AVX-512 kernels for `Gf8B`, `Gf8D`, and `Gf16` single-row, elementwise, and matrix operations, `Mersenne31` and `Goldilocks` arithmetic, `QuadMersenne31` multiplication, binary-field XOR, and `bits::weight`; enables `V4x` dispatch and implies `simd` |
+| `simd512` | 64-byte AVX-512 kernels for `Gf8<POLY>` and `Gf16` single-row, elementwise, and matrix operations, `Mersenne31` and `Goldilocks` arithmetic, `QuadMersenne31` multiplication, binary-field XOR, and `bits::weight`; enables `V4x` dispatch and implies `simd` |
 | `internals` | re-export-only facade of direct kernel and table surfaces |
 
 Nothing behind `internals` is a compatibility promise; the facade groups the
@@ -248,9 +257,9 @@ stated in full by the module that owns it.
 | Surface | Convention |
 | --- | --- |
 | every field | fixed-width little-endian element encoding of `Field::BYTES`, packed without alignment or padding |
-| `gf8b` | reduction polynomial `0x11B`, generator `0x03` |
-| `gf8d` | reduction polynomial `0x11D`, generator `0x02`, the Reed-Solomon interop field |
-| `field::tower` | component order `[a, b]`, constant component first, over `Gf8B` |
+| `Gf8<AES>` | reduction polynomial `0x11B`, generator `0x03` |
+| `Gf8<REED_SOLOMON>` | reduction polynomial `0x11D`, generator `0x02`, the Reed–Solomon interop field |
+| `field::tower` | component order `[a, b]`, constant component first, over `Gf8<AES>` |
 | `fan_paar` | canonical Wiedemann tower basis, a different basis from `field::tower` and not interoperable with it |
 | `bits` | one GF(2) element per bit, LSB-first within each byte, padding bits caller-owned |
 | prime fields | canonical lanes on packed buffer boundaries |

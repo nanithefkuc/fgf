@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Generic flat byte fields support any irreducible degree-eight polynomial,
+  including Data Matrix `0x12D` and the CCSDS polynomial basis `0x187`.
+  Scalar arithmetic remains `const`; x86 GFNI elementwise multiplication
+  derives an isomorphism onto the AES field for each polynomial.
 - `just bench-gf16-comp` runs an interleaved native-field comparison against
   GF-Complete, `reed-solomon-erasure`, `reed-solomon-simd`, and Leopard-RS 1.x.
   The harness validates basis maps and region outputs against independent
@@ -16,6 +20,26 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking:** `Gf8B` and `Gf8D` become `Gf8<AES>` and
+  `Gf8<REED_SOLOMON>`. Import the constants and `Elem` from `fgf::gf8`;
+  replace `gf8b::Elem` and `gf8d::Elem` with `gf8::Elem<AES>` and
+  `gf8::Elem<REED_SOLOMON>`. The polynomial and generator are
+  `gf8::Elem::<POLY>::POLY` and `gf8::Elem::<POLY>::GENERATOR`.
+  Existing AES and Reed–Solomon encodings and generators are unchanged.
+  Paired public-operation measurements are recorded in
+  [`benchmarks/gf8.md`](benchmarks/gf8.md).
+- **Breaking:** the unstable byte-kernel surface uses one generic entry per
+  operation and ISA instead of separate `_8d` entries. Pass a typed
+  `gf8::Elem<POLY>` or `internals::kernel::gf8::Prepared<POLY>` coefficient
+  to GFNI and AVX-512 fixed-coefficient entries; construct the latter with
+  `Prepared::new`. Replace `scale_table_8d` and `affine_8b`/`affine_8d` with
+  `scale_table` and `affine_map`. Elementwise ISA entries take the complete
+  polynomial const parameter, such as `::<AES>`, rather than a reduction byte.
+  Prepared matrix providers use `FlatMatrix<Prepared<POLY>>` with the generic
+  `_with` entries instead of `PreparedMatrix` and `_8d_with` entries.
+- `just cross-check` compiles AArch64 and Wasm library paths, including the
+  explicit Wasm SIMD configuration. `just bench-build NAME` builds a portable
+  benchmark artifact without running it.
 - The benchmark record is split by field family. `BENCHMARKS.md` indexes the
   pages under `benchmarks/` and holds the hosts, shared method, number format,
   and reproduction commands; each page carries its own setup, self-timings, and

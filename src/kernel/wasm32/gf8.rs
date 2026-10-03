@@ -19,7 +19,7 @@
 
 use core::arch::wasm32::*;
 
-use crate::field::gf8b::{Elem, Gf8B};
+use crate::field::gf8::{AES, Elem as Gf8Elem, Gf8};
 use crate::kernel::gf8::mul_add_nibble;
 use crate::kernel::proven_checks::{check_equal, check_row_span, check_terms};
 use crate::kernel::tables::{ScaleTable, scale_table};
@@ -190,7 +190,7 @@ fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         v128_store(d, multiply_vectors(v128_load(x), v128_load(y)));
     }
 
-    crate::kernel::scalar::mul_elementwise::<Gf8B>(
+    crate::kernel::scalar::mul_elementwise::<Gf8<AES>>(
         &mut dst[vector_len..span],
         &a[vector_len..span],
         &b[vector_len..span],
@@ -228,11 +228,11 @@ impl Scaling {
     /// Resolve `coeff` against the shared table bank.
     #[inline]
     #[archmage::rite(wasm128, import_intrinsics)]
-    fn new(coeff: Elem) -> Self {
+    fn new<const POLY: u16>(coeff: Gf8Elem<POLY>) -> Self {
         let table = scale_table(coeff);
-        let kind = if coeff == Elem::ZERO {
+        let kind = if coeff == Gf8Elem::ZERO {
             Kind::Skip
-        } else if coeff == Elem::ONE {
+        } else if coeff == Gf8Elem::ONE {
             Kind::Identity
         } else {
             Kind::Table
@@ -268,11 +268,11 @@ impl Scaling {
 /// bytes and `row_len == src.len()`.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_scatter_simd128(
+pub fn mul_add_scatter_simd128<const POLY: u16>(
     _token: archmage::Wasm128Token,
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[Elem],
+    coeffs: &[Gf8Elem<POLY>],
     src: &[u8],
 ) {
     check_equal(
@@ -295,7 +295,12 @@ pub fn mul_add_scatter_simd128(
 }
 
 #[archmage::rite(wasm128, import_intrinsics)]
-fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
+fn mul_add_scatter_impl<const POLY: u16>(
+    rows: &mut [u8],
+    row_len: usize,
+    coeffs: &[Gf8Elem<POLY>],
+    src: &[u8],
+) {
     let span = row_len.min(src.len());
     let count = coeffs.len().min(rows.len() / row_len);
     let src = &src[..span];
@@ -332,7 +337,7 @@ fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &
         let (row, tail) = rest.split_at_mut(row_len);
         rest = tail;
         let coeff = coeffs[j];
-        if coeff != Elem::ZERO {
+        if coeff != Gf8Elem::ZERO {
             mul_add_impl(&mut row[..span], scale_table(coeff), src);
         }
         j += 1;
@@ -384,10 +389,10 @@ fn scatter_quad(rows: [&mut [u8]; 4], plans: &[Scaling; 4], src: &[u8]) {
 /// `dst` in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_gather_simd128(
+pub fn mul_add_gather_simd128<const POLY: u16>(
     _token: archmage::Wasm128Token,
     dst: &mut [u8],
-    coeffs: &[Elem],
+    coeffs: &[Gf8Elem<POLY>],
     srcs: &[&[u8]],
 ) {
     check_equal(
@@ -413,7 +418,7 @@ pub fn mul_add_gather_simd128(
 }
 
 #[archmage::rite(wasm128, import_intrinsics)]
-fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+fn mul_add_gather_impl<const POLY: u16>(dst: &mut [u8], coeffs: &[Gf8Elem<POLY>], srcs: &[&[u8]]) {
     let count = coeffs.len().min(srcs.len());
     let mut span = dst.len();
     for &src in &srcs[..count] {
@@ -461,7 +466,7 @@ fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
 
     for k in 0..count {
         let coeff = coeffs[k];
-        if coeff != Elem::ZERO {
+        if coeff != Gf8Elem::ZERO {
             mul_add_nibble(
                 &mut dst[offset..span],
                 scale_table(coeff),
@@ -485,12 +490,12 @@ fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
 /// bytes.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_matrix_simd128(
+pub fn mul_add_matrix_simd128<const POLY: u16>(
     _token: archmage::Wasm128Token,
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[Elem], &[u8])],
+    terms: &[(&[Gf8Elem<POLY>], &[u8])],
 ) {
     check_row_span("gf8::mul_add_matrix_simd128", rows.len(), row_len, nrows);
     check_terms("gf8::mul_add_matrix_simd128", row_len, nrows, terms);
@@ -501,7 +506,12 @@ pub fn mul_add_matrix_simd128(
 }
 
 #[archmage::rite(wasm128, import_intrinsics)]
-fn mul_add_matrix_impl(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[Elem], &[u8])]) {
+fn mul_add_matrix_impl<const POLY: u16>(
+    rows: &mut [u8],
+    row_len: usize,
+    nrows: usize,
+    terms: &[(&[Gf8Elem<POLY>], &[u8])],
+) {
     // One pass over `terms` — outside every hot loop — establishes the bounds
     // the vector loops rely on, so a caller that violates the documented
     // geometry gets a short update rather than out-of-bounds reads.
@@ -542,7 +552,7 @@ fn mul_add_matrix_impl(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(
         rest = tail;
         for &(coeffs, src) in terms {
             let coeff = coeffs[j];
-            if coeff != Elem::ZERO {
+            if coeff != Gf8Elem::ZERO {
                 mul_add_impl(&mut row[..span], scale_table(coeff), &src[..span]);
             }
         }
@@ -552,7 +562,11 @@ fn mul_add_matrix_impl(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(
 
 /// Register-blocked four-row tile: load once, fold every term, store once.
 #[archmage::rite(wasm128, import_intrinsics)]
-fn matrix_quad(rows: [&mut [u8]; 4], first: usize, terms: &[(&[Elem], &[u8])]) {
+fn matrix_quad<const POLY: u16>(
+    rows: [&mut [u8]; 4],
+    first: usize,
+    terms: &[(&[Gf8Elem<POLY>], &[u8])],
+) {
     let span = rows[0].len();
     let vector_len = span & !15;
 
@@ -592,7 +606,7 @@ fn matrix_quad(rows: [&mut [u8]; 4], first: usize, terms: &[(&[Elem], &[u8])]) {
     for (i, tail) in tails.into_iter().enumerate() {
         for &(coeffs, src) in terms {
             let coeff = coeffs[first + i];
-            if coeff != Elem::ZERO {
+            if coeff != Gf8Elem::ZERO {
                 mul_add_nibble(tail, scale_table(coeff), &src[offset..span]);
             }
         }

@@ -9,21 +9,22 @@
 //! the destination length.
 
 use super::super::check_gather;
-use super::{Affine8D, Blocked, Gfni, bfactor_gfni, bmul_gfni, brem_gfni};
-use crate::field::gf8b::Elem;
-use crate::field::gf8d;
+use super::{Blocked, bfactor_gfni, bmul_gfni, brem_gfni};
 
 /// Many sources into one destination, register-blocked over 128-byte tiles
 /// with source-fused 64/32-byte tails where at least three sources participate.
+///
+/// The coefficient type selects native AES or affine multiplication at
+/// compile time; every polynomial uses the same tile geometry.
 ///
 /// # Panics
 /// Panics unless `srcs.len() == coeffs.len()` and every source matches `dst`
 /// in length.
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_gather_gfni(
+pub fn mul_add_gather_gfni<S: Blocked>(
     token: archmage::X64V3GfniCryptoToken,
     dst: &mut [u8],
-    coeffs: &[Elem],
+    coeffs: &[S],
     srcs: &[&[u8]],
 ) {
     check_gather("mul_add_gather_gfni", dst, coeffs.len(), srcs);
@@ -34,39 +35,9 @@ pub fn mul_add_gather_gfni(
     // 16-byte/sub-lane tails, compound scalar remainders, and rows that
     // already execute the 128-byte main body.
     if fused {
-        mul_add_gather_impl::<Gfni, true, 4>(token, dst, coeffs, srcs);
+        mul_add_gather_impl::<S, true, 4>(token, dst, coeffs, srcs);
     } else {
-        mul_add_gather_impl::<Gfni, false, 4>(token, dst, coeffs, srcs);
-    }
-}
-
-/// [`mul_add_gather_gfni`] under `0x11D`: many sources into one destination, each
-/// folded in with its `VGF2P8AFFINEQB` map.
-///
-/// Short rows take the same source-fused body `mul_add_gather_gfni` selects: below
-/// the 128-byte main tile the per-row loop would otherwise degenerate into
-/// one single-source AXPY per source, reloading the destination every time.
-/// The rule is `mul_add_gather_gfni`'s verbatim — the `Blocked` seam monomorphizes
-/// one body, so the affine form crosses at the same shapes the `GF2P8MULB`
-/// form was measured at.
-///
-/// # Panics
-/// As [`mul_add_gather_gfni`].
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_add_gather_gfni_8d(
-    token: archmage::X64V3GfniCryptoToken,
-    dst: &mut [u8],
-    coeffs: &[gf8d::Elem],
-    srcs: &[&[u8]],
-) {
-    check_gather("mul_add_gather_gfni_8d", dst, coeffs.len(), srcs);
-    let remainder = dst.len() & 127;
-    let fused =
-        dst.len() < 128 && coeffs.len() > 2 && remainder != 0 && remainder.trailing_zeros() >= 5;
-    if fused {
-        mul_add_gather_impl::<Affine8D, true, 4>(token, dst, coeffs, srcs);
-    } else {
-        mul_add_gather_impl::<Affine8D, false, 4>(token, dst, coeffs, srcs);
+        mul_add_gather_impl::<S, false, 4>(token, dst, coeffs, srcs);
     }
 }
 
@@ -88,7 +59,7 @@ pub(super) fn mul_add_gather_impl<
 >(
     token: archmage::X64V3GfniCryptoToken,
     dst: &mut [u8],
-    coeffs: &[S::Coeff],
+    coeffs: &[S],
     srcs: &[&[u8]],
 ) {
     assert!((1..=4).contains(&TILE_LANES));
@@ -115,7 +86,7 @@ pub(super) fn mul_add_gather_impl<
 fn gather_tiles<S: Blocked, const TILE_LANES: usize>(
     _token: archmage::X64V3GfniCryptoToken,
     tiles: &mut [u8],
-    coeffs: &[S::Coeff],
+    coeffs: &[S],
     srcs: &[&[u8]],
 ) {
     let tile = 32 * TILE_LANES;
@@ -152,7 +123,7 @@ fn gather_tiles<S: Blocked, const TILE_LANES: usize>(
 fn gather_native_tail<S: Blocked>(
     _token: archmage::X64V3GfniCryptoToken,
     rest: &mut [u8],
-    coeffs: &[S::Coeff],
+    coeffs: &[S],
     srcs: &[&[u8]],
     tail: usize,
 ) -> usize {
@@ -199,7 +170,7 @@ fn gather_native_tail<S: Blocked>(
 fn gather_remainder<S: Blocked>(
     _token: archmage::X64V3GfniCryptoToken,
     dst: &mut [u8],
-    coeffs: &[S::Coeff],
+    coeffs: &[S],
     srcs: &[&[u8]],
     tail: usize,
 ) {

@@ -15,6 +15,7 @@
 //! offset-addressed-rows residue.
 
 use super::{TERM_TILE, TableCoefficient, check_elements, swap_mask_ssse3};
+use crate::field::gf8::AES;
 use crate::field::gf16::Elem;
 use crate::kernel::Matrix;
 use crate::kernel::gf16::{mul_add_scalar, mul_assign_scalar, mul_into_scalar};
@@ -601,8 +602,8 @@ pub fn mul_elementwise_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], a: &[
     for ((dst_lane, x_lane), y_lane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
         let x = _mm_loadu_si128(x_lane);
         let y = _mm_loadu_si128(y_lane);
-        let direct = gf8::multiply_vectors_ssse3::<0x1b>(x, y);
-        let crossed = gf8::multiply_vectors_ssse3::<0x1b>(x, _mm_shuffle_epi8(y, swap));
+        let direct = gf8::multiply_vectors_ssse3::<AES>(x, y);
+        let crossed = gf8::multiply_vectors_ssse3::<AES>(x, _mm_shuffle_epi8(y, swap));
         let delta_bd = scale_delta(_mm_shuffle_epi8(direct, swap), delta_lo, delta_hi, nibble);
         let constant = _mm_xor_si128(direct, delta_bd);
         let cross_sum = _mm_xor_si128(crossed, _mm_shuffle_epi8(crossed, swap));
@@ -651,8 +652,8 @@ pub fn mul_elementwise_assign_ssse3(_token: archmage::X64V2Token, dst: &mut [u8]
     for (dst_lane, y_lane) in dst_lanes.iter_mut().zip(src_lanes) {
         let x = _mm_loadu_si128(&*dst_lane);
         let y = _mm_loadu_si128(y_lane);
-        let direct = gf8::multiply_vectors_ssse3::<0x1b>(x, y);
-        let crossed = gf8::multiply_vectors_ssse3::<0x1b>(x, _mm_shuffle_epi8(y, swap));
+        let direct = gf8::multiply_vectors_ssse3::<AES>(x, y);
+        let crossed = gf8::multiply_vectors_ssse3::<AES>(x, _mm_shuffle_epi8(y, swap));
         let delta_bd = scale_delta(_mm_shuffle_epi8(direct, swap), delta_lo, delta_hi, nibble);
         let constant = _mm_xor_si128(direct, delta_bd);
         let cross_sum = _mm_xor_si128(crossed, _mm_shuffle_epi8(crossed, swap));

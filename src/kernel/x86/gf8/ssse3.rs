@@ -12,7 +12,7 @@
 //! [`archmage::rite`] helpers with per-block proofs.
 
 use super::check_gather;
-use crate::field::gf8b::Elem;
+use crate::field::gf8::Elem;
 use crate::kernel::Matrix;
 use crate::kernel::gf8::{mul_add_nibble, mul_assign_nibble, mul_into_nibble};
 use crate::kernel::tables::{ScaleTable, scale_table};
@@ -140,11 +140,11 @@ pub(super) fn mul_into_ssse3_impl<const NT: bool>(dst: &mut [u8], table: &ScaleT
 #[allow(clippy::used_underscore_binding)]
 #[allow(unsafe_code)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_scatter_ssse3(
+pub fn mul_add_scatter_ssse3<const POLY: u16>(
     _token: archmage::X64V2Token,
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[Elem],
+    coeffs: &[Elem<POLY>],
     src: &[u8],
 ) {
     assert_eq!(row_len, src.len());
@@ -234,12 +234,12 @@ pub fn mul_add_scatter_ssse3(
 /// As [`mul_add_matrix_avx2`](super::mul_add_matrix_avx2).
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_ssse3(
+pub fn mul_add_matrix_ssse3<const POLY: u16>(
     _token: archmage::X64V2Token,
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[Elem], &[u8])],
+    terms: &[(&[Elem<POLY>], &[u8])],
 ) {
     for (t, (coeffs, _)) in terms.iter().enumerate() {
         assert_eq!(
@@ -258,7 +258,7 @@ pub fn mul_add_matrix_ssse3(
 #[allow(clippy::used_underscore_binding)]
 #[allow(unsafe_code)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_ssse3_with<M: Matrix<Elem> + ?Sized>(
+pub fn mul_add_matrix_ssse3_with<const POLY: u16, M: Matrix<Elem<POLY>> + ?Sized>(
     _token: archmage::X64V2Token,
     rows: &mut [u8],
     row_len: usize,
@@ -378,10 +378,10 @@ pub fn mul_add_matrix_ssse3_with<M: Matrix<Elem> + ?Sized>(
 /// As [`mul_add_gather_gfni`](super::mul_add_gather_gfni).
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_gather_ssse3(
+pub fn mul_add_gather_ssse3<const POLY: u16>(
     token: archmage::X64V2Token,
     dst: &mut [u8],
-    coeffs: &[Elem],
+    coeffs: &[Elem<POLY>],
     srcs: &[&[u8]],
 ) {
     check_gather("mul_add_gather_ssse3", dst, coeffs.len(), srcs);
@@ -434,11 +434,11 @@ pub fn mul_add_gather_ssse3(
     }
 }
 
-/// Reference GF(2^8) product under reduction-polynomial low byte `RED`, for
-/// the sub-lane elementwise tail. Field-agnostic: `RED` is `0x1b` for the AES
-/// field and `0x1d` for the Reed–Solomon field.
+/// Reference GF(2^8) product under `POLY`, for the sub-lane elementwise
+/// tail.
 #[inline]
-pub(super) fn gf_mul_ref<const RED: u8>(mut a: u8, mut b: u8) -> u8 {
+pub(super) fn gf_mul_ref<const POLY: u16>(mut a: u8, mut b: u8) -> u8 {
+    let reduction = Elem::<POLY>::REDUCTION_LOW;
     let mut product = 0u8;
     for _ in 0..8 {
         if b & 1 != 0 {
@@ -447,7 +447,7 @@ pub(super) fn gf_mul_ref<const RED: u8>(mut a: u8, mut b: u8) -> u8 {
         let carry = a & 0x80 != 0;
         a <<= 1;
         if carry {
-            a ^= RED;
+            a ^= reduction;
         }
         b >>= 1;
     }
@@ -456,10 +456,10 @@ pub(super) fn gf_mul_ref<const RED: u8>(mut a: u8, mut b: u8) -> u8 {
 
 /// The 16-byte form of [`multiply_vectors_avx2`](super::multiply_vectors_avx2).
 #[archmage::rite(v2)]
-pub fn multiply_vectors_ssse3<const RED: u8>(mut a: __m128i, mut b: __m128i) -> __m128i {
+pub fn multiply_vectors_ssse3<const POLY: u16>(mut a: __m128i, mut b: __m128i) -> __m128i {
     let zero = _mm_setzero_si128();
     let one = _mm_set1_epi8(1);
-    let reduction = _mm_set1_epi8(RED.cast_signed());
+    let reduction = _mm_set1_epi8(Elem::<POLY>::REDUCTION_LOW.cast_signed());
     let low7 = _mm_set1_epi8(0x7f);
     let mut product = zero;
     for round in 0..8 {
@@ -481,7 +481,7 @@ pub fn multiply_vectors_ssse3<const RED: u8>(mut a: __m128i, mut b: __m128i) -> 
 /// Panics unless all three buffers match in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_ssse3<const RED: u8>(
+pub fn mul_elementwise_ssse3<const POLY: u16>(
     _token: archmage::X64V2Token,
     dst: &mut [u8],
     a: &[u8],
@@ -503,10 +503,10 @@ pub fn mul_elementwise_ssse3<const RED: u8>(
     for ((dlane, alane), blane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
         let x = _mm_loadu_si128(alane);
         let y = _mm_loadu_si128(blane);
-        _mm_storeu_si128(dlane, multiply_vectors_ssse3::<RED>(x, y));
+        _mm_storeu_si128(dlane, multiply_vectors_ssse3::<POLY>(x, y));
     }
     for ((d, &x), &y) in dst_rest.iter_mut().zip(a_rest).zip(b_rest) {
-        *d = gf_mul_ref::<RED>(x, y);
+        *d = gf_mul_ref::<POLY>(x, y);
     }
 }
 
@@ -516,7 +516,7 @@ pub fn mul_elementwise_ssse3<const RED: u8>(
 /// Panics if the slices differ in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_assign_ssse3<const RED: u8>(
+pub fn mul_elementwise_assign_ssse3<const POLY: u16>(
     _token: archmage::X64V2Token,
     dst: &mut [u8],
     src: &[u8],
@@ -531,9 +531,9 @@ pub fn mul_elementwise_assign_ssse3<const RED: u8>(
     for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
         let x = _mm_loadu_si128(&*dlane);
         let y = _mm_loadu_si128(slane);
-        _mm_storeu_si128(dlane, multiply_vectors_ssse3::<RED>(x, y));
+        _mm_storeu_si128(dlane, multiply_vectors_ssse3::<POLY>(x, y));
     }
     for (d, &s) in dst_rest.iter_mut().zip(src_rest) {
-        *d = gf_mul_ref::<RED>(*d, s);
+        *d = gf_mul_ref::<POLY>(*d, s);
     }
 }

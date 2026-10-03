@@ -30,9 +30,9 @@ pub mod ops;
 pub mod internals;
 
 pub use field::{
-    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Field, Gf2, Gf8B, Gf8D, Gf16, Gf32, Gf64,
-    Goldilocks, Mersenne31, QuadMersenne31, fan_paar, gf2, gf8b, gf8d, gf16, gf32, gf64,
-    goldilocks, mersenne31, quad_mersenne31,
+    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Field, Gf2, Gf8, Gf16, Gf32, Gf64, Goldilocks,
+    Mersenne31, QuadMersenne31, fan_paar, gf2, gf8, gf16, gf32, gf64, goldilocks, mersenne31,
+    quad_mersenne31,
 };
 pub use kernel::{
     Backend, FGF_TIERS, FieldKernels, KernelBackend, ParseBackendError, backend, backend_for,

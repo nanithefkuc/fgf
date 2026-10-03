@@ -8,24 +8,26 @@
 
 use fgf::Field;
 use fgf::fan_paar::{fp8, fp16};
-use fgf::{Gf8B, Gf16, Mersenne31, gf8b, gf16, mersenne31, quad_mersenne31};
+use fgf::{Gf8, Gf16, Mersenne31, gf16, mersenne31, quad_mersenne31};
+
+use fgf::gf8::{AES, Elem};
 
 fn main() {
     // In the AES-rooted tower, x = a + b*u and u^2 + u + DELTA = 0.
-    let a = gf8b::Elem::from_raw(0x53);
-    let b = gf8b::Elem::from_raw(0xca);
+    let a = Elem::<AES>::from_raw(0x53);
+    let b = Elem::<AES>::from_raw(0xca);
     let x = gf16::Elem::from_components(a, b);
-    let conjugate = x.pow(Gf8B::ORDER as u64);
+    let conjugate = x.pow(Gf8::<AES>::ORDER as u64);
     assert_eq!(conjugate, gf16::Elem::from_components(a + b, b));
-    assert_eq!(conjugate.pow(Gf8B::ORDER as u64), x);
+    assert_eq!(conjugate.pow(Gf8::<AES>::ORDER as u64), x);
     assert_eq!(x.pow(Gf16::ORDER as u64), x);
 
     // Relative trace and norm land in the embedded byte subfield.
     let trace = x + conjugate;
     let norm = x * conjugate;
-    assert_eq!(trace, gf16::Elem::from_components(b, gf8b::Elem::ZERO));
+    assert_eq!(trace, gf16::Elem::from_components(b, Elem::<AES>::ZERO));
     let (norm_base, norm_extension) = norm.to_components();
-    assert_eq!(norm_extension, gf8b::Elem::ZERO);
+    assert_eq!(norm_extension, Elem::<AES>::ZERO);
     assert_eq!(norm_base, a.square() + a * b + gf16::DELTA * b.square());
     assert_eq!(x * x.inv(), gf16::Elem::ONE);
     assert_eq!(x.to_bytes(), [a.to_raw(), b.to_raw()]);

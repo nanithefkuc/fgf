@@ -6,15 +6,15 @@
 //! than self-consistent.
 
 use fgf::field::Field;
+use fgf::gf8::{AES, REED_SOLOMON};
 use fgf::{
-    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf8D, Gf16, Gf32, Gf64, Goldilocks,
-    Mersenne31, QuadMersenne31, fan_paar, gf2, gf8b, gf8d, gf16, gf32, gf64, goldilocks,
-    mersenne31, quad_mersenne31,
+    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8, Gf16, Gf32, Gf64, Goldilocks, Mersenne31,
+    QuadMersenne31, fan_paar, gf2, gf8, gf16, gf32, gf64, goldilocks, mersenne31, quad_mersenne31,
 };
 
-/// Every nonzero element, plus zero, in ascending order.
-fn all_gf8() -> impl Iterator<Item = gf8b::Elem> {
-    (0..=u8::MAX).map(gf8b::Elem::from_raw)
+/// Every element of `Gf8<POLY>`, in ascending raw order.
+fn all_gf8_elems<const POLY: u16>() -> impl Iterator<Item = gf8::Elem<POLY>> {
+    (0..=u8::MAX).map(gf8::Elem::<POLY>::from_raw)
 }
 
 /// A spread of GF(2^16) elements: boundaries, both component planes, and a
@@ -40,7 +40,7 @@ fn sample_gf16() -> Vec<gf16::Elem> {
 }
 
 // ---------------------------------------------------------------------------
-// GF(2^8)
+// GF(2^8): the laws run on every flat field
 // ---------------------------------------------------------------------------
 /// Independent shift-and-XOR GF(2^8) multiply over a field's public
 /// reduction polynomial: the oracle for the table backends, local to this
@@ -79,255 +79,217 @@ fn xtime_inv(a: u8, poly: u16) -> u8 {
     result
 }
 
-#[test]
-fn gf8_table_multiply_matches_shift_and_xor() {
-    for a in all_gf8() {
-        for b in all_gf8() {
+fn table_multiply_matches_shift_and_xor<const POLY: u16>() {
+    for a in all_gf8_elems::<POLY>() {
+        for b in all_gf8_elems::<POLY>() {
             assert_eq!(
                 a.mul(b),
-                gf8b::Elem::from_raw(xtime_mul(a.to_raw(), b.to_raw(), gf8b::REDUCTION_POLY)),
+                gf8::Elem::<POLY>::from_raw(xtime_mul(
+                    a.to_raw(),
+                    b.to_raw(),
+                    gf8::Elem::<POLY>::POLY
+                )),
                 "table and xtime disagree on {a:?} * {b:?}"
             );
         }
     }
 }
 
-#[test]
-fn gf8_inverse_matches_fermat_and_round_trips() {
+fn inverse_matches_fermat_and_round_trips<const POLY: u16>() {
     assert_eq!(
-        xtime_inv(gf8b::Elem::ZERO.to_raw(), gf8b::REDUCTION_POLY),
+        xtime_inv(gf8::Elem::<POLY>::ZERO.to_raw(), gf8::Elem::<POLY>::POLY),
         0,
         "inv_xtime(0) must be 0"
     );
-    assert_eq!(gf8b::Elem::ZERO.inv(), gf8b::Elem::ZERO, "inv(0) must be 0");
-    for a in all_gf8().skip(1) {
+    assert_eq!(
+        gf8::Elem::<POLY>::ZERO.inv(),
+        gf8::Elem::<POLY>::ZERO,
+        "inv(0) must be 0"
+    );
+    for a in all_gf8_elems::<POLY>().skip(1) {
         assert_eq!(
             a.inv().to_raw(),
-            xtime_inv(a.to_raw(), gf8b::REDUCTION_POLY),
+            xtime_inv(a.to_raw(), gf8::Elem::<POLY>::POLY),
             "inverse backends disagree on {a:?}"
         );
-        assert_eq!(a.mul(a.inv()), gf8b::Elem::ONE, "{a:?} * inv({a:?}) != 1");
-        assert_eq!(a.div(a), gf8b::Elem::ONE, "{a:?} / {a:?} != 1");
+        assert_eq!(
+            a.mul(a.inv()),
+            gf8::Elem::<POLY>::ONE,
+            "{a:?} * inv({a:?}) != 1"
+        );
+        assert_eq!(a.div(a), gf8::Elem::<POLY>::ONE, "{a:?} / {a:?} != 1");
     }
 }
 
-#[test]
-fn gf8_generator_has_full_order() {
-    // 0x03 must generate all 255 nonzero elements and no fewer.
+fn generator_has_full_order<const POLY: u16>() {
     let mut seen = [false; 256];
-    let mut value = gf8b::Elem::ONE;
+    let mut value = gf8::Elem::<POLY>::ONE;
     for step in 0..255u32 {
         assert!(
             !seen[value.to_raw() as usize],
             "generator repeats at step {step}"
         );
         seen[value.to_raw() as usize] = true;
-        value = value.mul(Gf8B::GENERATOR);
+        value = value.mul(gf8::Elem::<POLY>::GENERATOR);
     }
-    assert_eq!(value, gf8b::Elem::ONE, "generator order is not 255");
+    assert_eq!(value, gf8::Elem::<POLY>::ONE, "generator order is not 255");
     assert!(
         seen.iter().skip(1).all(|&hit| hit),
         "orbit misses an element"
     );
+}
+
+fn field_axioms<const POLY: u16>() {
+    let sample: Vec<_> = all_gf8_elems::<POLY>().step_by(7).collect();
+    for &a in &sample {
+        assert_eq!(a.add(gf8::Elem::<POLY>::ZERO), a);
+        assert_eq!(a.mul(gf8::Elem::<POLY>::ONE), a);
+        assert_eq!(a.mul(gf8::Elem::<POLY>::ZERO), gf8::Elem::<POLY>::ZERO);
+        assert_eq!(a.add(a), gf8::Elem::<POLY>::ZERO, "characteristic two");
+        assert_eq!(a.sub(a), gf8::Elem::<POLY>::ZERO);
+        for &b in &sample {
+            assert_eq!(a.add(b), b.add(a), "addition commutes");
+            assert_eq!(a.mul(b), b.mul(a), "multiplication commutes");
+            for &c in &sample {
+                assert_eq!(a.add(b).add(c), a.add(b.add(c)), "addition associates");
+                assert_eq!(
+                    a.mul(b).mul(c),
+                    a.mul(b.mul(c)),
+                    "multiplication associates"
+                );
+                assert_eq!(
+                    a.mul(b.add(c)),
+                    a.mul(b).add(a.mul(c)),
+                    "multiplication distributes"
+                );
+            }
+        }
+    }
+}
+
+fn pow_matches_repeated_multiplication<const POLY: u16>() {
+    for a in all_gf8_elems::<POLY>().step_by(11) {
+        let mut expected = gf8::Elem::<POLY>::ONE;
+        for exponent in 0..20u64 {
+            assert_eq!(a.pow(exponent), expected, "{a:?}^{exponent}");
+            expected = expected.mul(a);
+        }
+    }
+}
+
+/// Run one scalar law on every flat field: the two named conventions and
+/// two further irreducible polynomials spelled directly.
+macro_rules! every_gf8_field {
+    ($law:ident) => {
+        $law::<AES>();
+        $law::<REED_SOLOMON>();
+        // Data Matrix and the CCSDS Reed–Solomon field: irreducible
+        // polynomials no named constant covers.
+        $law::<0x12D>();
+        $law::<0x187>();
+    };
+}
+
+#[test]
+fn gf8_table_multiply_matches_shift_and_xor() {
+    every_gf8_field!(table_multiply_matches_shift_and_xor);
+}
+
+#[test]
+fn gf8_inverse_matches_fermat_and_round_trips() {
+    every_gf8_field!(inverse_matches_fermat_and_round_trips);
+}
+
+#[test]
+fn gf8_generator_has_full_order() {
+    every_gf8_field!(generator_has_full_order);
 }
 
 #[test]
 fn gf8_field_axioms() {
-    let sample: Vec<_> = all_gf8().step_by(7).collect();
-    for &a in &sample {
-        assert_eq!(a.add(gf8b::Elem::ZERO), a);
-        assert_eq!(a.mul(gf8b::Elem::ONE), a);
-        assert_eq!(a.mul(gf8b::Elem::ZERO), gf8b::Elem::ZERO);
-        assert_eq!(a.add(a), gf8b::Elem::ZERO, "characteristic two");
-        assert_eq!(a.sub(a), gf8b::Elem::ZERO);
-        for &b in &sample {
-            assert_eq!(a.add(b), b.add(a), "addition commutes");
-            assert_eq!(a.mul(b), b.mul(a), "multiplication commutes");
-            for &c in &sample {
-                assert_eq!(a.add(b).add(c), a.add(b.add(c)), "addition associates");
-                assert_eq!(
-                    a.mul(b).mul(c),
-                    a.mul(b.mul(c)),
-                    "multiplication associates"
-                );
-                assert_eq!(
-                    a.mul(b.add(c)),
-                    a.mul(b).add(a.mul(c)),
-                    "multiplication distributes"
-                );
-            }
-        }
-    }
+    every_gf8_field!(field_axioms);
 }
 
 #[test]
 fn gf8_pow_matches_repeated_multiplication() {
-    for a in all_gf8().step_by(11) {
-        let mut expected = gf8b::Elem::ONE;
-        for exponent in 0..20u64 {
-            assert_eq!(a.pow(exponent), expected, "{a:?}^{exponent}");
-            expected = expected.mul(a);
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// GF(2^8) under 0x11D
-// ---------------------------------------------------------------------------
-
-/// Every element of the 0x11D field, in ascending raw order.
-fn all_gf8d() -> impl Iterator<Item = gf8d::Elem> {
-    (0..=u8::MAX).map(gf8d::Elem::from_raw)
+    every_gf8_field!(pow_matches_repeated_multiplication);
 }
 
 #[test]
-fn gf8d_table_multiply_matches_shift_and_xor() {
-    for a in all_gf8d() {
-        for b in all_gf8d() {
-            assert_eq!(
-                a.mul(b),
-                gf8d::Elem::from_raw(xtime_mul(a.to_raw(), b.to_raw(), gf8d::REDUCTION_POLY)),
-                "table and xtime disagree on {a:?} * {b:?}"
-            );
-        }
-    }
-}
-
-#[test]
-fn gf8d_inverse_matches_fermat_and_round_trips() {
+fn gf8_known_answer_products() {
+    // The derived generators are public facts: 0x03 under AES, 0x02 under
+    // REED_SOLOMON.
     assert_eq!(
-        xtime_inv(gf8d::Elem::ZERO.to_raw(), gf8d::REDUCTION_POLY),
-        0,
-        "inv_xtime(0) must be 0"
+        gf8::Elem::<AES>::GENERATOR,
+        gf8::Elem::<AES>::from_raw(0x03)
     );
-    assert_eq!(gf8d::Elem::ZERO.inv(), gf8d::Elem::ZERO, "inv(0) must be 0");
-    for a in all_gf8d().skip(1) {
-        assert_eq!(
-            a.inv().to_raw(),
-            xtime_inv(a.to_raw(), gf8d::REDUCTION_POLY),
-            "inverse backends disagree on {a:?}"
-        );
-        assert_eq!(a.mul(a.inv()), gf8d::Elem::ONE, "{a:?} * inv({a:?}) != 1");
-        assert_eq!(a.div(a), gf8d::Elem::ONE, "{a:?} / {a:?} != 1");
-    }
-}
-
-#[test]
-fn gf8d_generator_has_full_order() {
-    // Under 0x11D the primitive element is x = 2, not 3.
     assert_eq!(
-        Gf8D::GENERATOR,
-        gf8d::Elem::from_raw(0x02),
-        "0x11D generator is 2"
+        gf8::Elem::<REED_SOLOMON>::GENERATOR,
+        gf8::Elem::<REED_SOLOMON>::from_raw(0x02)
     );
-    let mut seen = [false; 256];
-    let mut value = gf8d::Elem::ONE;
-    for step in 0..255 {
-        assert!(
-            !seen[value.to_raw() as usize],
-            "generator repeats at step {step}"
-        );
-        seen[value.to_raw() as usize] = true;
-        value = value.mul(Gf8D::GENERATOR);
-    }
-    assert_eq!(value, gf8d::Elem::ONE, "generator order is not 255");
-    assert!(
-        seen.iter().skip(1).all(|&hit| hit),
-        "orbit misses an element"
+    // AES: the classic Rijndael example.
+    assert_eq!(
+        gf8::Elem::<AES>::from_raw(0x53).mul(gf8::Elem::<AES>::from_raw(0xca)),
+        gf8::Elem::<AES>::from_raw(0x01)
     );
-}
-
-#[test]
-fn gf8d_field_axioms() {
-    let sample: Vec<_> = all_gf8d().step_by(7).collect();
-    for &a in &sample {
-        assert_eq!(a.add(gf8d::Elem::ZERO), a);
-        assert_eq!(a.mul(gf8d::Elem::ONE), a);
-        assert_eq!(a.mul(gf8d::Elem::ZERO), gf8d::Elem::ZERO);
-        assert_eq!(a.add(a), gf8d::Elem::ZERO, "characteristic two");
-        assert_eq!(a.sub(a), gf8d::Elem::ZERO);
-        for &b in &sample {
-            assert_eq!(a.add(b), b.add(a), "addition commutes");
-            assert_eq!(a.mul(b), b.mul(a), "multiplication commutes");
-            for &c in &sample {
-                assert_eq!(a.add(b).add(c), a.add(b.add(c)), "addition associates");
-                assert_eq!(
-                    a.mul(b).mul(c),
-                    a.mul(b.mul(c)),
-                    "multiplication associates"
-                );
-                assert_eq!(
-                    a.mul(b.add(c)),
-                    a.mul(b).add(a.mul(c)),
-                    "multiplication distributes"
-                );
-            }
-        }
-    }
-}
-
-#[test]
-fn gf8d_pow_matches_repeated_multiplication() {
-    for a in all_gf8d().step_by(11) {
-        let mut expected = gf8d::Elem::ONE;
-        for exponent in 0..20u64 {
-            assert_eq!(a.pow(exponent), expected, "{a:?}^{exponent}");
-            expected = expected.mul(a);
-        }
-    }
-}
-
-#[test]
-fn gf8d_known_answer_products() {
-    // The 0x11D field used by ISA-L / klauspost-reedsolomon, independently
+    assert_eq!(
+        gf8::Elem::<AES>::from_raw(0xff).mul(gf8::Elem::<AES>::from_raw(0xff)),
+        gf8::Elem::<AES>::from_raw(0x13)
+    );
+    // REED_SOLOMON: the ISA-L / klauspost-reedsolomon field, independently
     // computed from the shift/XOR oracle.
     assert_eq!(
-        gf8d::Elem::from_raw(0x53).mul(gf8d::Elem::from_raw(0xca)),
-        gf8d::Elem::from_raw(0x8f)
+        gf8::Elem::<REED_SOLOMON>::from_raw(0x53).mul(gf8::Elem::<REED_SOLOMON>::from_raw(0xca)),
+        gf8::Elem::<REED_SOLOMON>::from_raw(0x8f)
     );
     assert_eq!(
-        gf8d::Elem::from_raw(0x57).mul(gf8d::Elem::from_raw(0x83)),
-        gf8d::Elem::from_raw(0x31)
+        gf8::Elem::<REED_SOLOMON>::from_raw(0x57).mul(gf8::Elem::<REED_SOLOMON>::from_raw(0x83)),
+        gf8::Elem::<REED_SOLOMON>::from_raw(0x31)
     );
     assert_eq!(
-        gf8d::Elem::from_raw(0xff).mul(gf8d::Elem::from_raw(0xff)),
-        gf8d::Elem::from_raw(0xe2)
+        gf8::Elem::<REED_SOLOMON>::from_raw(0xff).mul(gf8::Elem::<REED_SOLOMON>::from_raw(0xff)),
+        gf8::Elem::<REED_SOLOMON>::from_raw(0xe2)
     );
 }
 
 #[test]
 fn reduction_polynomials_are_introspectable() {
-    assert_eq!(gf8b::REDUCTION_POLY, 0x11B);
-    assert_eq!(gf8d::REDUCTION_POLY, 0x11D);
+    assert_eq!(gf8::Elem::<AES>::POLY, 0x11B);
+    assert_eq!(gf8::Elem::<REED_SOLOMON>::POLY, 0x11D);
+    assert_eq!(gf8::Elem::<0x12D>::POLY, 0x12D);
+    assert_eq!(gf8::Elem::<0x187>::POLY, 0x187);
 }
 
 #[test]
-fn gf8d_is_distinct_from_gf8b() {
-    // Same raw bytes, genuinely different products: the guard against filling
-    // the 0x11D tables from the 0x11B arithmetic.
-    assert_eq!(
-        gf8b::Elem::from_raw(0x53).mul(gf8b::Elem::from_raw(0xca)),
-        gf8b::Elem::from_raw(0x01)
-    );
-    assert_eq!(
-        gf8b::Elem::from_raw(0xff).mul(gf8b::Elem::from_raw(0xff)),
-        gf8b::Elem::from_raw(0x13)
-    );
-    let differ = (0u16..=255)
-        .flat_map(|a| (0u16..=255).map(move |b| (a as u8, b as u8)))
-        .filter(|&(a, b)| {
-            gf8b::Elem::from_raw(a)
-                .mul(gf8b::Elem::from_raw(b))
-                .to_raw()
-                != gf8d::Elem::from_raw(a)
-                    .mul(gf8d::Elem::from_raw(b))
+fn gf8_fields_are_pairwise_distinct() {
+    // Same raw bytes, genuinely different products: the guard against
+    // filling one polynomial's tables from another's arithmetic.
+    fn disagreement_count<const P: u16, const Q: u16>() -> usize {
+        (0u16..=255)
+            .flat_map(|a| (0u16..=255).map(move |b| (a as u8, b as u8)))
+            .filter(|&(a, b)| {
+                gf8::Elem::<P>::from_raw(a)
+                    .mul(gf8::Elem::<P>::from_raw(b))
                     .to_raw()
-        })
-        .count();
+                    != gf8::Elem::<Q>::from_raw(a)
+                        .mul(gf8::Elem::<Q>::from_raw(b))
+                        .to_raw()
+            })
+            .count()
+    }
     assert_eq!(
-        differ, 63_232,
+        disagreement_count::<AES, REED_SOLOMON>(),
+        63_232,
         "0x11B and 0x11D must differ on most products"
     );
+    // `x^4 * x^4` reduces to the low byte of the polynomial, so two distinct
+    // polynomials can never induce the same multiplication: every pair
+    // disagrees, and most pairs disagree almost everywhere.
+    assert_ne!(disagreement_count::<AES, 0x12D>(), 0);
+    assert_ne!(disagreement_count::<AES, 0x187>(), 0);
+    assert_ne!(disagreement_count::<REED_SOLOMON, 0x12D>(), 0);
+    assert_ne!(disagreement_count::<REED_SOLOMON, 0x187>(), 0);
+    assert_ne!(disagreement_count::<0x12D, 0x187>(), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -340,8 +302,8 @@ fn gf8d_is_distinct_from_gf8b() {
 fn gf16_mul_oracle(x: gf16::Elem, y: gf16::Elem) -> gf16::Elem {
     let (a, b) = x.to_components();
     let (c, d) = y.to_components();
-    let xt = |p: gf8b::Elem, q: gf8b::Elem| {
-        gf8b::Elem::from_raw(xtime_mul(p.to_raw(), q.to_raw(), gf8b::REDUCTION_POLY))
+    let xt = |p: gf8::Elem<AES>, q: gf8::Elem<AES>| {
+        gf8::Elem::<AES>::from_raw(xtime_mul(p.to_raw(), q.to_raw(), gf8::Elem::<AES>::POLY))
     };
     let ac = xt(a, c);
     let ad = xt(a, d);
@@ -427,19 +389,19 @@ fn gf16_field_axioms() {
 fn gf16_embeds_the_base_field() {
     // Elements with a zero extension component must multiply exactly as
     // GF(2^8) does. If the tower reduction were wrong this would break.
-    for a in all_gf8().step_by(5) {
-        for b in all_gf8().step_by(7) {
+    for a in all_gf8_elems::<AES>().step_by(5) {
+        for b in all_gf8_elems::<AES>().step_by(7) {
             let lifted = gf16::Elem::from_components(a, b).mul(gf16::Elem::from_components(
-                gf8b::Elem::from_raw(0),
-                gf8b::Elem::from_raw(0),
+                gf8::Elem::<AES>::from_raw(0),
+                gf8::Elem::<AES>::from_raw(0),
             ));
             assert_eq!(lifted, gf16::Elem::ZERO);
 
-            let x = gf16::Elem::from_components(a, gf8b::Elem::from_raw(0));
-            let y = gf16::Elem::from_components(b, gf8b::Elem::from_raw(0));
+            let x = gf16::Elem::from_components(a, gf8::Elem::<AES>::from_raw(0));
+            let y = gf16::Elem::from_components(b, gf8::Elem::<AES>::from_raw(0));
             assert_eq!(
                 x.mul(y),
-                gf16::Elem::from_components(a.mul(b), gf8b::Elem::from_raw(0)),
+                gf16::Elem::from_components(a.mul(b), gf8::Elem::<AES>::from_raw(0)),
                 "base-field embedding broken for {a:?} * {b:?}"
             );
         }
@@ -1138,10 +1100,10 @@ fn fan_paar_subfield_encodings_are_nested() {
 
 #[test]
 fn byte_representation_round_trips() {
-    for a in all_gf8() {
+    for a in all_gf8_elems::<AES>() {
         let mut buffer = [0u8; 1];
-        Gf8B::encode(&mut buffer, a);
-        assert_eq!(Gf8B::decode(&buffer), a);
+        Gf8::<AES>::encode(&mut buffer, a);
+        assert_eq!(Gf8::<AES>::decode(&buffer), a);
     }
     for a in sample_gf16() {
         let mut buffer = [0u8; 2];
@@ -1194,8 +1156,8 @@ fn byte_representation_round_trips() {
 
 #[test]
 fn field_constants_are_consistent() {
-    assert_eq!(Gf8B::BYTES, 1);
-    assert_eq!(Gf8B::ORDER, 1u128 << Gf8B::BITS);
+    assert_eq!(Gf8::<AES>::BYTES, 1);
+    assert_eq!(Gf8::<AES>::ORDER, 1u128 << Gf8::<AES>::BITS);
     assert_eq!(Gf16::BYTES, 2);
     assert_eq!(Gf16::ORDER, 1u128 << Gf16::BITS);
     assert_eq!(Gf32::BYTES, 4);
@@ -1211,7 +1173,7 @@ fn field_constants_are_consistent() {
     assert_eq!(Goldilocks::BYTES, 8);
     assert_eq!(Goldilocks::ORDER, 0xFFFF_FFFF_0000_0001);
     for (bytes, bits) in [
-        (Gf8B::BYTES, Gf8B::BITS),
+        (Gf8::<AES>::BYTES, Gf8::<AES>::BITS),
         (Gf16::BYTES, Gf16::BITS),
         (Gf32::BYTES, Gf32::BITS),
         (Gf64::BYTES, Gf64::BITS),
@@ -1251,8 +1213,8 @@ fn field_characteristic_is_not_derived_from_order() {
 
     // Binary towers: order is 2^m, characteristic is two.
     for characteristic in [
-        Gf8B::CHARACTERISTIC,
-        Gf8D::CHARACTERISTIC,
+        Gf8::<AES>::CHARACTERISTIC,
+        Gf8::<REED_SOLOMON>::CHARACTERISTIC,
         Gf16::CHARACTERISTIC,
         Gf32::CHARACTERISTIC,
         Gf64::CHARACTERISTIC,
@@ -1286,8 +1248,8 @@ fn field_characteristic_is_not_derived_from_order() {
         })+};
     }
     check_embedding!(
-        Gf8B,
-        Gf8D,
+        Gf8<AES>,
+        Gf8<REED_SOLOMON>,
         Gf16,
         Gf32,
         Gf64,
@@ -1405,11 +1367,55 @@ fn exercise_surface<F: Field>(samples: &[F::Elem]) {
         assert_eq!(a.div(zero), zero, "a / 0");
         assert_eq!(zero.div(a), zero, "0 / a");
 
-        // Formatting and hashing are supertraits of every element.
-        assert!(!format!("{a:?}").is_empty(), "Debug");
-        assert_eq!(format!("{a:?}"), format!("{:?}", a.clone()), "Clone/Debug");
         assert!(hashes_equal(&a, &a.clone()), "equal elements hash equally");
     }
+}
+
+#[test]
+fn element_formatting_reports_insufficient_writer_capacity() {
+    use std::fmt::{self, Write};
+
+    struct SliceWriter<'a> {
+        bytes: &'a mut [u8],
+        used: usize,
+    }
+
+    impl Write for SliceWriter<'_> {
+        fn write_str(&mut self, text: &str) -> fmt::Result {
+            let end = self.used.checked_add(text.len()).ok_or(fmt::Error)?;
+            let destination = self.bytes.get_mut(self.used..end).ok_or(fmt::Error)?;
+            destination.copy_from_slice(text.as_bytes());
+            self.used = end;
+            Ok(())
+        }
+    }
+
+    fn check<E: Default + fmt::Debug + fmt::Display>() {
+        let value = E::default();
+        let mut storage = [];
+        let mut writer = SliceWriter {
+            bytes: &mut storage,
+            used: 0,
+        };
+        assert!(matches!(write!(writer, "{value:?}"), Err(fmt::Error)));
+        assert!(matches!(write!(writer, "{value}"), Err(fmt::Error)));
+    }
+
+    check::<gf8::Elem<AES>>();
+    check::<gf8::Elem<REED_SOLOMON>>();
+    check::<gf8::Elem<0x12D>>();
+    check::<gf8::Elem<0x187>>();
+    check::<gf16::Elem>();
+    check::<gf32::Elem>();
+    check::<gf64::Elem>();
+    check::<fan_paar::fp8::Elem>();
+    check::<fan_paar::fp16::Elem>();
+    check::<fan_paar::fp32::Elem>();
+    check::<fan_paar::fp64::Elem>();
+    check::<mersenne31::Elem>();
+    check::<goldilocks::Elem>();
+    check::<quad_mersenne31::Elem>();
+    check::<gf2::Elem>();
 }
 
 /// The per-concrete-type surfaces generic code cannot reach: the
@@ -1470,23 +1476,17 @@ macro_rules! exercise_operators {
             samples.iter().fold(one, |acc, &x| acc.mul(x)),
             "Product (by reference) must fold by multiplication"
         );
-
-        assert!(!format!("{a}").is_empty(), "Display");
     }};
 }
 
 #[test]
-fn gf8b_trait_operator_and_formatting_surface() {
-    let samples: Vec<_> = all_gf8().step_by(97).collect();
-    exercise_surface::<Gf8B>(&samples);
-    exercise_operators!(samples);
-}
-
-#[test]
-fn gf8d_trait_operator_and_formatting_surface() {
-    let samples: Vec<_> = all_gf8d().step_by(97).collect();
-    exercise_surface::<Gf8D>(&samples);
-    exercise_operators!(samples);
+fn gf8_trait_operator_and_formatting_surface() {
+    fn surface<const POLY: u16>() {
+        let samples: Vec<_> = all_gf8_elems::<POLY>().step_by(97).collect();
+        exercise_surface::<Gf8<POLY>>(&samples);
+        exercise_operators!(samples);
+    }
+    every_gf8_field!(surface);
 }
 
 #[test]
@@ -1561,14 +1561,13 @@ fn prime_trait_operator_and_formatting_surface() {
 #[test]
 fn inherent_conversion_helpers_round_trip() {
     // GF(2^8) flat fields.
-    for a in all_gf8().step_by(53) {
-        assert_eq!(gf8b::Elem::from_raw(a.to_raw()), a);
-        assert_eq!(gf8b::Elem::from_bytes(a.to_bytes()), a);
+    fn gf8_conversions<const POLY: u16>() {
+        for a in all_gf8_elems::<POLY>().step_by(53) {
+            assert_eq!(gf8::Elem::<POLY>::from_raw(a.to_raw()), a);
+            assert_eq!(gf8::Elem::<POLY>::from_bytes(a.to_bytes()), a);
+        }
     }
-    for a in all_gf8d().step_by(53) {
-        assert_eq!(gf8d::Elem::from_raw(a.to_raw()), a);
-        assert_eq!(gf8d::Elem::from_bytes(a.to_bytes()), a);
-    }
+    every_gf8_field!(gf8_conversions);
     // Towers: component projection is a bijection with from_components.
     for a in sample_gf16().into_iter().step_by(61) {
         let (lo, hi) = a.to_components();

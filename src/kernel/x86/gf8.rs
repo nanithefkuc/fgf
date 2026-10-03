@@ -4,10 +4,12 @@
 //! shape. `ssse3` and `avx2` hold the nibble-shuffle kernels, `gfni` the
 //! `GF2P8MULB`/`VGF2P8AFFINEQB` kernels at 32-byte lanes, and `avx512` the
 //! same multiplies at 64-byte lanes under `simd512`. The caller's resolved
-//! [`Backend`](crate::kernel::Backend) selects among them.
+//! [`Backend`](crate::kernel::Backend) selects among them. Every kernel is
+//! generic over the field polynomial.
 //!
 //! - **GFNI.** `GF2P8MULB` is a native `GF(2)[x] / 0x11B` multiply across
-//!   byte lanes, so a coefficient is nothing but a broadcast byte.
+//!   byte lanes, so an AES coefficient is nothing but a broadcast byte; every
+//!   other polynomial folds its coefficient in through `VGF2P8AFFINEQB`.
 //! - **Nibble shuffle (AVX2, SSSE3).** With no byte-wide multiply, `c * x`
 //!   splits into `c * (x & 0xf) ^ c * (x & 0xf0)`, two `PSHUFB` lookups
 //!   against a [`ScaleTable`](crate::kernel::tables::ScaleTable).
@@ -41,21 +43,16 @@ pub(crate) use avx512::{GATHER_PEEL_MIN, MATRIX_PEEL_MIN, SCATTER_PEEL_MIN};
 #[cfg(feature = "simd512")]
 pub use avx512::{
     mul_add_avx512, mul_add_gather_avx512, mul_add_matrix_at_avx512, mul_add_matrix_avx512,
-    mul_add_matrix_avx512_8d_with, mul_add_matrix_avx512_with, mul_add_scatter_avx512,
-    mul_assign_avx512, mul_elementwise_assign_avx512, mul_elementwise_assign_avx512_8d,
-    mul_elementwise_avx512, mul_elementwise_avx512_8d, mul_into_avx512, mul_into_matrix_avx512,
-    mul_into_matrix_avx512_8d_with, mul_into_matrix_avx512_with,
+    mul_add_matrix_avx512_with, mul_add_scatter_avx512, mul_assign_avx512,
+    mul_elementwise_assign_avx512, mul_elementwise_avx512, mul_into_avx512, mul_into_matrix_avx512,
+    mul_into_matrix_avx512_with,
 };
 #[cfg(test)]
 pub(crate) use gfni::MATRIX_PREFETCH_MIN;
 pub use gfni::{
-    mul_add_gather_gfni, mul_add_gather_gfni_8d, mul_add_gfni, mul_add_gfni_8d,
-    mul_add_matrix_at_gfni, mul_add_matrix_at_gfni_8d, mul_add_matrix_gfni, mul_add_matrix_gfni_8d,
-    mul_add_matrix_gfni_8d_with, mul_add_matrix_gfni_with, mul_add_scatter_gfni,
-    mul_add_scatter_gfni_8d, mul_assign_gfni, mul_assign_gfni_8d, mul_elementwise_assign_gfni,
-    mul_elementwise_assign_gfni_8d, mul_elementwise_gfni, mul_elementwise_gfni_8d, mul_into_gfni,
-    mul_into_gfni_8d, mul_into_matrix_gfni, mul_into_matrix_gfni_8d, mul_into_matrix_gfni_8d_with,
-    mul_into_matrix_gfni_with,
+    mul_add_gather_gfni, mul_add_gfni, mul_add_matrix_at_gfni, mul_add_matrix_gfni,
+    mul_add_matrix_gfni_with, mul_add_scatter_gfni, mul_assign_gfni, mul_elementwise_assign_gfni,
+    mul_elementwise_gfni, mul_into_gfni, mul_into_matrix_gfni, mul_into_matrix_gfni_with,
 };
 pub use ssse3::{
     mul_add_gather_ssse3, mul_add_matrix_ssse3, mul_add_matrix_ssse3_with, mul_add_scatter_ssse3,

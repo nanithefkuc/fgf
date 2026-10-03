@@ -549,13 +549,13 @@ pub fn add_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 /// should use this form.
 ///
 /// ```
-/// use fgf::{Gf8B, ops};
+/// use fgf::{Gf8, gf8::AES, ops};
 ///
 /// let src = [0x01u8, 0x02, 0x03, 0x04];
 /// let mut dst = [0x10u8, 0x20, 0x30, 0x40];
 ///
 /// // Two rows of two bytes each, added pairwise.
-/// ops::add_assign_rows::<Gf8B>(&mut dst, 2, &src);
+/// ops::add_assign_rows::<Gf8<AES>>(&mut dst, 2, &src);
 /// assert_eq!(dst, [0x11, 0x22, 0x33, 0x44]);
 /// ```
 ///
@@ -596,12 +596,12 @@ pub fn add_assign_rows<F: FieldKernels>(dst: &mut [u8], row_len: usize, src: &[u
 /// of one backing region; the destination is the single row that comes first.
 ///
 /// ```
-/// use fgf::{Gf8B, ops};
+/// use fgf::{Gf8, gf8::AES, ops};
 ///
 /// // Two 2-byte rows in one backing region, folded into `dst`.
 /// let region = [0x01u8, 0x02, 0x10, 0x20];
 /// let mut dst = [0x40u8, 0x80];
-/// ops::add_gather_offsets::<Gf8B>(&mut dst, &region, &[0, 2]);
+/// ops::add_gather_offsets::<Gf8<AES>>(&mut dst, &region, &[0, 2]);
 /// assert_eq!(dst, [0x51, 0xa2]);
 /// ```
 ///
@@ -1409,7 +1409,8 @@ pub fn pack_to_vec<F: Field>(elems: &[F::Elem]) -> alloc::vec::Vec<u8> {
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
-    use crate::{Gf8B, Gf16, gf8b, gf16};
+    use crate::gf8::{AES, Elem as E8, Gf8};
+    use crate::{Gf16, gf16};
     use alloc::vec::Vec;
 
     /// `row_len == 0` with otherwise valid geometry is a no-op everywhere —
@@ -1417,27 +1418,27 @@ mod tests {
     /// panic where GFNI silently succeeded.
     #[test]
     fn zero_row_length_is_a_no_op() {
-        let coeffs = [gf8b::Elem::from_raw(0x07); 3];
+        let coeffs = [E8::<AES>::from_raw(0x07); 3];
         let mut rows = [0xA5u8; 8];
-        mul_add_scatter::<Gf8B>(&mut rows, 0, &coeffs, &[]);
+        mul_add_scatter::<Gf8<AES>>(&mut rows, 0, &coeffs, &[]);
         assert_eq!(rows, [0xA5; 8]);
 
-        let coeffs_vec = CoeffVec::<Gf8B>::new(&coeffs);
-        mul_add_scatter_with::<Gf8B>(&mut rows, 0, coeffs_vec.as_ref(), &[]);
+        let coeffs_vec = CoeffVec::<Gf8<AES>>::new(&coeffs);
+        mul_add_scatter_with::<Gf8<AES>>(&mut rows, 0, coeffs_vec.as_ref(), &[]);
         assert_eq!(rows, [0xA5; 8]);
 
-        let terms: &[(&[gf8b::Elem], &[u8])] = &[(&coeffs, &[])];
-        mul_add_matrix::<Gf8B>(&mut rows, 0, 3, terms);
+        let terms: &[(&[E8<AES>], &[u8])] = &[(&coeffs, &[])];
+        mul_add_matrix::<Gf8<AES>>(&mut rows, 0, 3, terms);
         assert_eq!(rows, [0xA5; 8]);
-        mul_into_matrix::<Gf8B>(&mut rows, 0, 3, terms);
+        mul_into_matrix::<Gf8<AES>>(&mut rows, 0, 3, terms);
         assert_eq!(rows, [0xA5; 8]);
-        mul_add_matrix_at::<Gf8B>(&mut rows, 0, &[1, 4], &[(&coeffs[..2], &[])]);
+        mul_add_matrix_at::<Gf8<AES>>(&mut rows, 0, &[1, 4], &[(&coeffs[..2], &[])]);
         assert_eq!(rows, [0xA5; 8]);
 
-        let matrix = CoeffMatrix::<Gf8B>::from_source_major(1, 3, &coeffs);
-        mul_add_matrix_with::<Gf8B>(&mut rows, 0, &matrix, &[&[]]);
+        let matrix = CoeffMatrix::<Gf8<AES>>::from_source_major(1, 3, &coeffs);
+        mul_add_matrix_with::<Gf8<AES>>(&mut rows, 0, &matrix, &[&[]]);
         assert_eq!(rows, [0xA5; 8]);
-        mul_into_matrix_with::<Gf8B>(&mut rows, 0, &matrix, &[&[]]);
+        mul_into_matrix_with::<Gf8<AES>>(&mut rows, 0, &matrix, &[&[]]);
         assert_eq!(rows, [0xA5; 8]);
 
         // GF(2^16): the field whose odd-length buffers make the element
@@ -1453,23 +1454,23 @@ mod tests {
     #[test]
     #[should_panic(expected = "mul_add_scatter")]
     fn zero_row_length_still_checks_pairing() {
-        let coeffs = [gf8b::Elem::from_raw(0x07); 3];
+        let coeffs = [E8::<AES>::from_raw(0x07); 3];
         let mut rows = [0u8; 8];
-        mul_add_scatter::<Gf8B>(&mut rows, 0, &coeffs, &[1, 2, 3]);
+        mul_add_scatter::<Gf8<AES>>(&mut rows, 0, &coeffs, &[1, 2, 3]);
     }
 
     /// Term coefficient counts are still validated at zero row length.
     #[test]
     #[should_panic(expected = "term supplies")]
     fn zero_row_length_still_checks_term_counts() {
-        let coeffs = [gf8b::Elem::from_raw(0x07); 2];
+        let coeffs = [E8::<AES>::from_raw(0x07); 2];
         let mut rows = [0u8; 8];
-        mul_add_matrix::<Gf8B>(&mut rows, 0, 3, &[(&coeffs, &[])]);
+        mul_add_matrix::<Gf8<AES>>(&mut rows, 0, 3, &[(&coeffs, &[])]);
     }
 
     #[test]
     fn matrix_source_lookup_is_total() {
-        let matrix = CoeffMatrix::<Gf8B>::from_source_major(3, 2, &[gf8b::Elem::from_raw(1); 6]);
+        let matrix = CoeffMatrix::<Gf8<AES>>::from_source_major(3, 2, &[E8::<AES>::from_raw(1); 6]);
         assert!(matrix.source(0).is_some());
         assert!(matrix.source(2).is_some());
         assert!(matrix.source(3).is_none());
@@ -1477,7 +1478,7 @@ mod tests {
         assert_eq!(matrix.source(1).map(CoeffVecRef::len), Some(2));
 
         // Zero-output matrices: every source exists and is empty.
-        let empty = CoeffMatrix::<Gf8B>::from_source_major(3, 0, &[]);
+        let empty = CoeffMatrix::<Gf8<AES>>::from_source_major(3, 0, &[]);
         assert_eq!(empty.source_count(), 3);
         assert_eq!(empty.output_count(), 0);
         assert_eq!(empty.source(0).map(CoeffVecRef::len), Some(0));
@@ -1493,8 +1494,8 @@ mod tests {
 
     #[test]
     fn coeff_matrix_is_source_major() {
-        let values: Vec<gf8b::Elem> = (0u8..6).map(|i| gf8b::Elem::from_raw(i * 37)).collect();
-        let matrix = CoeffMatrix::<Gf8B>::from_source_major(2, 3, &values);
+        let values: Vec<E8<AES>> = (0u8..6).map(|i| E8::<AES>::from_raw(i * 37)).collect();
+        let matrix = CoeffMatrix::<Gf8<AES>>::from_source_major(2, 3, &values);
         for source in 0..2 {
             for output in 0..3 {
                 let at = matrix
@@ -1504,7 +1505,7 @@ mod tests {
                 assert_eq!(at, values[source * 3 + output]);
             }
         }
-        let row_one: Vec<gf8b::Elem> = matrix
+        let row_one: Vec<E8<AES>> = matrix
             .source(1)
             .unwrap()
             .into_coeffs()

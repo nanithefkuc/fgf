@@ -884,7 +884,7 @@ pub mod gf16 {
                 Backend::Wasm128 => {
                     wasm32::gf16::mul_elementwise_simd128(crate::kernel::wasm128_token(), dst, a, b)
                 }
-                // See `Gf8B::mul_elementwise`: no fixed coefficient, so the
+                // See `Gf8::<AES>::mul_elementwise`: no fixed coefficient, so the
                 // shuffle backends multiply the two varying base-field operands
                 // bit-serially and keep a nibble table only for constant `DELTA`.
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]

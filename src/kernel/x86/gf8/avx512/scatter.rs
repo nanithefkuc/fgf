@@ -1,10 +1,10 @@
-//! One source into many rows for `Gf8D` over 64-byte lanes.
+//! One source into many rows over 64-byte lanes.
 //!
 //! Mirrors the GFNI scatter at 64-byte lanes with `VGF2P8AFFINEQB`: the
 //! immediate is the XOR constant, so `<0>` selects the pure linear map, and
 //! each factor replicates one 64-bit map qword to all eight 64-bit lanes.
 
-use super::{MapCoeff, bfactor_avx512, bmul_avx512, brem_avx512};
+use super::{Blocked, bfactor_avx512, bmul_avx512, brem_avx512, brem_half_avx512};
 
 /// Shortest scatter row that peels its head to a 64-byte boundary.
 ///
@@ -26,7 +26,7 @@ pub(crate) const SCATTER_PEEL_MIN: usize = 512;
 /// of `row_len` bytes.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_scatter_avx512<C: MapCoeff>(
+pub fn mul_add_scatter_avx512<C: Blocked>(
     _token: archmage::X64V4xToken,
     rows: &mut [u8],
     row_len: usize,
@@ -55,7 +55,7 @@ pub fn mul_add_scatter_avx512<C: MapCoeff>(
 /// residue this body keeps.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn mul_add_scatter_impl<C: MapCoeff>(rows: &mut [u8], coeffs: &[C], src: &[u8]) {
+fn mul_add_scatter_impl<C: Blocked>(rows: &mut [u8], coeffs: &[C], src: &[u8]) {
     let base = rows.as_mut_ptr();
     let row_len = src.len();
     let mut ptrs = [base; 4];
@@ -108,7 +108,7 @@ fn mul_add_scatter_impl<C: MapCoeff>(rows: &mut [u8], coeffs: &[C], src: &[u8]) 
         //        are disjoint.
         // THUS: the mutable borrow conflicts with no live row window.
         let row = unsafe { core::slice::from_raw_parts_mut(ptrs[last], src.len()) };
-        brem_avx512(row, C::map(group[last]), C::table(group[last]), src);
+        brem_avx512(row, group[last], src);
     }
 }
 
@@ -118,7 +118,7 @@ fn mul_add_scatter_impl<C: MapCoeff>(rows: &mut [u8], coeffs: &[C], src: &[u8]) 
 /// and bounded by [`mul_add_scatter_impl`].
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn scatter_rows4<C: MapCoeff>(ptrs: [*mut u8; 4], coeffs: [C; 4], src: &[u8]) {
+fn scatter_rows4<C: Blocked>(ptrs: [*mut u8; 4], coeffs: [C; 4], src: &[u8]) {
     let factors = [
         bfactor_avx512(C::map(coeffs[0])),
         bfactor_avx512(C::map(coeffs[1])),
@@ -204,7 +204,7 @@ fn scatter_rows4<C: MapCoeff>(ptrs: [*mut u8; 4], coeffs: [C; 4], src: &[u8]) {
 /// Residue: as [`scatter_rows4`].
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn scatter_rows2<C: MapCoeff>(ptrs: [*mut u8; 2], coeffs: [C; 2], src: &[u8]) {
+fn scatter_rows2<C: Blocked>(ptrs: [*mut u8; 2], coeffs: [C; 2], src: &[u8]) {
     let factors = [
         bfactor_avx512(C::map(coeffs[0])),
         bfactor_avx512(C::map(coeffs[1])),
@@ -288,7 +288,7 @@ fn scatter_rows2<C: MapCoeff>(ptrs: [*mut u8; 2], coeffs: [C; 2], src: &[u8]) {
 /// bounded by the caller; `start..end` lies within `0..=src.len()`.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn scatter_span<'a, C: MapCoeff + 'a>(
+fn scatter_span<'a, C: Blocked + 'a>(
     rows: impl Iterator<Item = (&'a *mut u8, &'a C)>,
     start: usize,
     end: usize,
@@ -312,11 +312,6 @@ fn scatter_span<'a, C: MapCoeff + 'a>(
         //        a time.
         // THUS: the borrow conflicts with no live row window.
         let dst = unsafe { core::slice::from_raw_parts_mut(row.add(start), end - start) };
-        super::super::gfni::mul_add_gfni_8d_impl(
-            dst,
-            C::map(coeff),
-            C::table(coeff),
-            &src[start..end],
-        );
+        brem_half_avx512(dst, coeff, &src[start..end]);
     }
 }

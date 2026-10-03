@@ -14,7 +14,9 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::{Gf8B, Gf8D, Gf16, backend, gf8b, gf8d, gf16, ops};
+use fgf::{Gf8, Gf16, backend, gf16, ops};
+
+use fgf::gf8::{AES, Elem, REED_SOLOMON};
 
 const BYTES: usize = 64 * 1024;
 const SCALAR_ITERS: usize = 1 << 20;
@@ -76,15 +78,15 @@ fn bench_mul_into_gather(len: usize) {
     let coeffs_8b: Vec<_> = coefficient_bytes
         .iter()
         .copied()
-        .map(gf8b::Elem::from_raw)
+        .map(Elem::<AES>::from_raw)
         .collect();
     let coeffs_8d: Vec<_> = coefficient_bytes
         .iter()
         .copied()
-        .map(gf8d::Elem::from_raw)
+        .map(Elem::<REED_SOLOMON>::from_raw)
         .collect();
-    let prepared_8b = ops::CoeffVec::<Gf8B>::new(&coeffs_8b);
-    let prepared_8d = ops::CoeffVec::<Gf8D>::new(&coeffs_8d);
+    let prepared_8b = ops::CoeffVec::<Gf8<AES>>::new(&coeffs_8b);
+    let prepared_8d = ops::CoeffVec::<Gf8<REED_SOLOMON>>::new(&coeffs_8d);
     let mut dst_8b = AlignedBuf::noise(len, 0x900);
     let mut dst_8d = AlignedBuf::noise(len, 0x901);
 
@@ -93,11 +95,11 @@ fn bench_mul_into_gather(len: usize) {
     let coeff_bytes: Vec<_> = coefficient_bytes
         .iter()
         .copied()
-        .map(gf8d::Elem::from_raw)
+        .map(Elem::<REED_SOLOMON>::from_raw)
         .collect();
     println!("{len} B x {DOT_SOURCES} sources overwrite dot product (raw)");
     bench_region("fgf Gf8D mul_into_gather", len * DOT_SOURCES, || {
-        ops::mul_into_gather::<Gf8D>(
+        ops::mul_into_gather::<Gf8<REED_SOLOMON>>(
             black_box(dst_8d.as_mut_slice()),
             &coeff_bytes,
             black_box(&srcs),
@@ -105,7 +107,7 @@ fn bench_mul_into_gather(len: usize) {
     });
     // Accumulate-form prepared gather: hits the `_with` default path.
     bench_region("fgf Gf8D mul_add_gather_with", len * DOT_SOURCES, || {
-        ops::mul_add_gather_with::<Gf8D>(
+        ops::mul_add_gather_with::<Gf8<REED_SOLOMON>>(
             black_box(dst_8d.as_mut_slice()),
             prepared_8d.as_ref(),
             black_box(&srcs),
@@ -114,14 +116,14 @@ fn bench_mul_into_gather(len: usize) {
     println!("{len} B x {DOT_SOURCES} sources overwrite dot product");
     let logical_bytes = len * DOT_SOURCES;
     bench_region("fgf Gf8B mul_into_gather_with", logical_bytes, || {
-        ops::mul_into_gather_with::<Gf8B>(
+        ops::mul_into_gather_with::<Gf8<AES>>(
             black_box(dst_8b.as_mut_slice()),
             prepared_8b.as_ref(),
             black_box(&srcs),
         );
     });
     bench_region("fgf Gf8D mul_into_gather_with", logical_bytes, || {
-        ops::mul_into_gather_with::<Gf8D>(
+        ops::mul_into_gather_with::<Gf8<REED_SOLOMON>>(
             black_box(dst_8d.as_mut_slice()),
             prepared_8d.as_ref(),
             black_box(&srcs),
@@ -133,34 +135,34 @@ fn bench_encode(nrows: usize) {
     let sources: Vec<AlignedBuf> = (0..ENCODE_SOURCES)
         .map(|term| AlignedBuf::noise(BYTES, 0xa00 + term as u64))
         .collect();
-    let columns_8b: Vec<Vec<gf8b::Elem>> = (0..ENCODE_SOURCES)
+    let columns_8b: Vec<Vec<Elem<AES>>> = (0..ENCODE_SOURCES)
         .map(|term| {
             (0..nrows)
                 .map(|row| {
-                    gf8b::Elem::from_raw(
+                    Elem::<AES>::from_raw(
                         (1 + ((row * ENCODE_SOURCES + term) * 97 + 13) % 255) as u8,
                     )
                 })
                 .collect()
         })
         .collect();
-    let columns_8d: Vec<Vec<gf8d::Elem>> = (0..ENCODE_SOURCES)
+    let columns_8d: Vec<Vec<Elem<REED_SOLOMON>>> = (0..ENCODE_SOURCES)
         .map(|term| {
             (0..nrows)
                 .map(|row| {
-                    gf8d::Elem::from_raw(
+                    Elem::<REED_SOLOMON>::from_raw(
                         (1 + ((row * ENCODE_SOURCES + term) * 97 + 13) % 255) as u8,
                     )
                 })
                 .collect()
         })
         .collect();
-    let terms_8b: Vec<(&[gf8b::Elem], &[u8])> = columns_8b
+    let terms_8b: Vec<(&[Elem<AES>], &[u8])> = columns_8b
         .iter()
         .zip(&sources)
         .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
         .collect();
-    let terms_8d: Vec<(&[gf8d::Elem], &[u8])> = columns_8d
+    let terms_8d: Vec<(&[Elem<REED_SOLOMON>], &[u8])> = columns_8d
         .iter()
         .zip(&sources)
         .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
@@ -171,28 +173,28 @@ fn bench_encode(nrows: usize) {
     let mut new_8d = AlignedBuf::noise(BYTES * nrows, 0xb03);
 
     old_8b.as_mut_slice().fill(0);
-    ops::mul_add_matrix::<Gf8B>(old_8b.as_mut_slice(), BYTES, nrows, &terms_8b);
-    ops::mul_into_matrix::<Gf8B>(new_8b.as_mut_slice(), BYTES, nrows, &terms_8b);
+    ops::mul_add_matrix::<Gf8<AES>>(old_8b.as_mut_slice(), BYTES, nrows, &terms_8b);
+    ops::mul_into_matrix::<Gf8<AES>>(new_8b.as_mut_slice(), BYTES, nrows, &terms_8b);
     assert_eq!(
         old_8b.as_slice(),
         new_8b.as_slice(),
-        "Gf8B matrix overwrite differs"
+        "Gf8<AES> matrix overwrite differs"
     );
 
     old_8d.as_mut_slice().fill(0);
-    ops::mul_add_matrix::<Gf8D>(old_8d.as_mut_slice(), BYTES, nrows, &terms_8d);
-    ops::mul_into_matrix::<Gf8D>(new_8d.as_mut_slice(), BYTES, nrows, &terms_8d);
+    ops::mul_add_matrix::<Gf8<REED_SOLOMON>>(old_8d.as_mut_slice(), BYTES, nrows, &terms_8d);
+    ops::mul_into_matrix::<Gf8<REED_SOLOMON>>(new_8d.as_mut_slice(), BYTES, nrows, &terms_8d);
     assert_eq!(
         old_8d.as_slice(),
         new_8d.as_slice(),
-        "Gf8D matrix overwrite differs"
+        "Gf8<REED_SOLOMON> matrix overwrite differs"
     );
 
     println!("{BYTES} B x {ENCODE_SOURCES} sources -> {nrows} rows encode");
     let logical_bytes = BYTES * ENCODE_SOURCES;
     bench_region("fgf Gf8B fill + mul_add_matrix", logical_bytes, || {
         old_8b.as_mut_slice().fill(0);
-        ops::mul_add_matrix::<Gf8B>(
+        ops::mul_add_matrix::<Gf8<AES>>(
             black_box(old_8b.as_mut_slice()),
             BYTES,
             nrows,
@@ -200,7 +202,7 @@ fn bench_encode(nrows: usize) {
         );
     });
     bench_region("fgf Gf8B mul_into_matrix", logical_bytes, || {
-        ops::mul_into_matrix::<Gf8B>(
+        ops::mul_into_matrix::<Gf8<AES>>(
             black_box(new_8b.as_mut_slice()),
             BYTES,
             nrows,
@@ -209,7 +211,7 @@ fn bench_encode(nrows: usize) {
     });
     bench_region("fgf Gf8D fill + mul_add_matrix", logical_bytes, || {
         old_8d.as_mut_slice().fill(0);
-        ops::mul_add_matrix::<Gf8D>(
+        ops::mul_add_matrix::<Gf8<REED_SOLOMON>>(
             black_box(old_8d.as_mut_slice()),
             BYTES,
             nrows,
@@ -217,7 +219,7 @@ fn bench_encode(nrows: usize) {
         );
     });
     bench_region("fgf Gf8D mul_into_matrix", logical_bytes, || {
-        ops::mul_into_matrix::<Gf8D>(
+        ops::mul_into_matrix::<Gf8<REED_SOLOMON>>(
             black_box(new_8d.as_mut_slice()),
             BYTES,
             nrows,
@@ -228,26 +230,32 @@ fn bench_encode(nrows: usize) {
     // Prepared and scattered-row forms of the same encode, validated against
     // the raw overwrite result before timing.
     let source_refs: Vec<&[u8]> = sources.iter().map(AlignedBuf::as_slice).collect();
-    let flat_8b: Vec<gf8b::Elem> = columns_8b.iter().flatten().copied().collect();
-    let prepared_8b = ops::CoeffMatrix::<Gf8B>::from_source_major(ENCODE_SOURCES, nrows, &flat_8b);
+    let flat_8b: Vec<Elem<AES>> = columns_8b.iter().flatten().copied().collect();
+    let prepared_8b =
+        ops::CoeffMatrix::<Gf8<AES>>::from_source_major(ENCODE_SOURCES, nrows, &flat_8b);
     let row_starts: Vec<usize> = (0..nrows).map(|row| row * BYTES).collect();
     let mut with_8b = AlignedBuf::noise(BYTES * nrows, 0xb08);
     let mut at_8b = AlignedBuf::noise(BYTES * nrows, 0xb09);
-    ops::mul_into_matrix_with::<Gf8B>(with_8b.as_mut_slice(), BYTES, &prepared_8b, &source_refs);
+    ops::mul_into_matrix_with::<Gf8<AES>>(
+        with_8b.as_mut_slice(),
+        BYTES,
+        &prepared_8b,
+        &source_refs,
+    );
     assert_eq!(
         new_8b.as_slice(),
         with_8b.as_slice(),
-        "Gf8B prepared overwrite differs"
+        "Gf8<AES> prepared overwrite differs"
     );
     at_8b.as_mut_slice().fill(0);
-    ops::mul_add_matrix_at::<Gf8B>(at_8b.as_mut_slice(), BYTES, &row_starts, &terms_8b);
+    ops::mul_add_matrix_at::<Gf8<AES>>(at_8b.as_mut_slice(), BYTES, &row_starts, &terms_8b);
     assert_eq!(
         new_8b.as_slice(),
         at_8b.as_slice(),
-        "Gf8B scattered rows differ"
+        "Gf8<AES> scattered rows differ"
     );
     bench_region("fgf Gf8B mul_into_matrix_with", logical_bytes, || {
-        ops::mul_into_matrix_with::<Gf8B>(
+        ops::mul_into_matrix_with::<Gf8<AES>>(
             black_box(with_8b.as_mut_slice()),
             BYTES,
             black_box(&prepared_8b),
@@ -255,7 +263,7 @@ fn bench_encode(nrows: usize) {
         );
     });
     bench_region("fgf Gf8B mul_add_matrix_with", logical_bytes, || {
-        ops::mul_add_matrix_with::<Gf8B>(
+        ops::mul_add_matrix_with::<Gf8<AES>>(
             black_box(with_8b.as_mut_slice()),
             BYTES,
             black_box(&prepared_8b),
@@ -263,7 +271,7 @@ fn bench_encode(nrows: usize) {
         );
     });
     bench_region("fgf Gf8B mul_add_matrix_at", logical_bytes, || {
-        ops::mul_add_matrix_at::<Gf8B>(
+        ops::mul_add_matrix_at::<Gf8<AES>>(
             black_box(at_8b.as_mut_slice()),
             BYTES,
             black_box(&row_starts),
@@ -342,14 +350,15 @@ fn bench_scalar(label: &str, mut body: impl FnMut()) {
     println!("  {label:<44} {ns:>9.2} ns/op  {mops:>7.2} Mops/s");
 }
 
-/// Offset-sweep probe for the 512-bit alignment question: the same Gf8D
-/// `mul_add` region with destination/source buffer bases shifted by
-/// `OFF mod 64`. Buffer bases are 64-byte aligned (`AlignedBuf`), so the
-/// offset is exact. Glibc-sized allocations land 16 mod 64 in practice; the
-/// sweep names the realistic line-split cost before any alignment-step work.
+/// Offset-sweep probe for the 512-bit alignment question: the same
+/// `Gf8<REED_SOLOMON>` `mul_add` region with destination/source buffer bases
+/// shifted by `OFF mod 64`. Buffer bases are 64-byte aligned (`AlignedBuf`),
+/// so the offset is exact. Glibc-sized allocations land 16 mod 64 in
+/// practice; the sweep names the realistic line-split cost before any
+/// alignment-step work.
 fn bench_offset_sweep() {
     const LEN: usize = 16 * 1024;
-    let c = gf8d::Elem::from_raw(0x53);
+    let c = Elem::<REED_SOLOMON>::from_raw(0x53);
     let backing_src = AlignedBuf::noise(LEN + 64, 0x700);
     let mut backing_dst = AlignedBuf::noise(LEN + 64, 0x701);
     println!("Gf8D mul_add 16 KiB destination offset sweep (dst/src shift mod 64)");
@@ -357,22 +366,22 @@ fn bench_offset_sweep() {
         let src = &backing_src.as_slice()[off..off + LEN];
         let dst = &mut backing_dst.as_mut_slice()[off..off + LEN];
         bench_region(&format!("w8d mul_add off={off}"), LEN, || {
-            ops::mul_add::<Gf8D>(black_box(dst), c, black_box(src));
+            ops::mul_add::<Gf8<REED_SOLOMON>>(black_box(dst), c, black_box(src));
         });
     }
 
-    // Prepared scatter: raw values vs stored maps through the plan.
+    // Prepared scatter: raw values vs prepared coefficients through the plan.
     {
         let nrows = 4usize;
         let row_len = 16384usize;
         let src = AlignedBuf::noise(row_len, 0x720);
         let mut rows = AlignedBuf::noise(row_len * nrows, 0x721);
         let values: Vec<_> = (0..nrows)
-            .map(|j| gf8d::Elem::from_raw((j as u8).wrapping_mul(37).wrapping_add(2)))
+            .map(|j| Elem::<REED_SOLOMON>::from_raw((j as u8).wrapping_mul(37).wrapping_add(2)))
             .collect();
-        let prepared = ops::CoeffVec::<Gf8D>::new(&values);
+        let prepared = ops::CoeffVec::<Gf8<REED_SOLOMON>>::new(&values);
         bench_region("scatter 4x16K raw", row_len * nrows, || {
-            ops::mul_add_scatter::<Gf8D>(
+            ops::mul_add_scatter::<Gf8<REED_SOLOMON>>(
                 black_box(rows.as_mut_slice()),
                 row_len,
                 &values,
@@ -380,7 +389,7 @@ fn bench_offset_sweep() {
             );
         });
         bench_region("scatter 4x16K prepared", row_len * nrows, || {
-            ops::mul_add_scatter_with::<Gf8D>(
+            ops::mul_add_scatter_with::<Gf8<REED_SOLOMON>>(
                 black_box(rows.as_mut_slice()),
                 row_len,
                 prepared.as_ref(),
@@ -398,7 +407,7 @@ fn bench_peel_floors() {
     const GATHER_SOURCES: usize = 16;
     const MATRIX_TERMS: usize = 10;
     const MATRIX_ROWS: usize = 4;
-    let coeff = |i: usize| gf8d::Elem::from_raw((1 + (i * 97 + 13) % 255) as u8);
+    let coeff = |i: usize| Elem::<REED_SOLOMON>::from_raw((1 + (i * 97 + 13) % 255) as u8);
     println!("Gf8D peel floor sweep (row bytes, base offset mod 64)");
     for &off in &[16usize, 0] {
         for &len in &[256usize, 512, 1024, 2048, 3072, 4096, 8192, 16384] {
@@ -411,7 +420,7 @@ fn bench_peel_floors() {
                 &format!("scatter {SCATTER_ROWS}x{len} off={off}"),
                 len * SCATTER_ROWS,
                 || {
-                    ops::mul_add_scatter::<Gf8D>(
+                    ops::mul_add_scatter::<Gf8<REED_SOLOMON>>(
                         black_box(&mut *rows),
                         len,
                         &scatter,
@@ -434,7 +443,7 @@ fn bench_peel_floors() {
                 &format!("gather {GATHER_SOURCES}x{len} off={off}"),
                 len * GATHER_SOURCES,
                 || {
-                    ops::mul_add_gather::<Gf8D>(
+                    ops::mul_add_gather::<Gf8<REED_SOLOMON>>(
                         black_box(&mut *dst),
                         &gather,
                         black_box(&gather_srcs),
@@ -446,7 +455,7 @@ fn bench_peel_floors() {
                 .map(|t| AlignedBuf::noise(len + 64, 0x740 + t as u64))
                 .collect();
             let matrix_coeffs: Vec<_> = (0..MATRIX_TERMS * MATRIX_ROWS).map(coeff).collect();
-            let terms: Vec<(&[gf8d::Elem], &[u8])> = matrix_coeffs
+            let terms: Vec<(&[Elem<REED_SOLOMON>], &[u8])> = matrix_coeffs
                 .chunks(MATRIX_ROWS)
                 .zip(matrix_bufs.iter().map(|b| &b.as_slice()[off..off + len]))
                 .collect();
@@ -456,7 +465,7 @@ fn bench_peel_floors() {
                 &format!("matrix {MATRIX_TERMS}->{MATRIX_ROWS}x{len} off={off}"),
                 len * MATRIX_TERMS,
                 || {
-                    ops::mul_add_matrix::<Gf8D>(
+                    ops::mul_add_matrix::<Gf8<REED_SOLOMON>>(
                         black_box(&mut *matrix),
                         len,
                         MATRIX_ROWS,
@@ -482,23 +491,23 @@ fn main() {
     let mut dst16 = AlignedBuf::noise(BYTES, 0x603);
 
     // w8
-    let c8 = gf8b::Elem::from_raw(0x53);
+    let c8 = Elem::<AES>::from_raw(0x53);
     bench_scalar("w8 scalar mul", || {
-        let mut x = gf8b::Elem::from_raw(0xA5);
+        let mut x = Elem::<AES>::from_raw(0xA5);
         for i in 0..SCALAR_ITERS {
-            x = black_box(x).mul(gf8b::Elem::from_raw((0x53u8).wrapping_add(i as u8)));
+            x = black_box(x).mul(Elem::<AES>::from_raw((0x53u8).wrapping_add(i as u8)));
         }
         black_box(x);
     });
     bench_region("w8 mul_add (dst ^= c*src)", BYTES, || {
-        ops::mul_add::<Gf8B>(
+        ops::mul_add::<Gf8<AES>>(
             black_box(dst8.as_mut_slice()),
             c8,
             black_box(src8.as_slice()),
         );
     });
     bench_region("w8 mul_into (dst = c*src)", BYTES, || {
-        ops::mul_into::<Gf8B>(
+        ops::mul_into::<Gf8<AES>>(
             black_box(dst8.as_mut_slice()),
             c8,
             black_box(src8.as_slice()),
@@ -506,38 +515,40 @@ fn main() {
     });
 
     // Bit-compatible GF(2^8)/0x11D used by ISA-L and klauspost/reedsolomon.
-    let c8d = gf8d::Elem::from_raw(0x53);
+    let c8d = Elem::<REED_SOLOMON>::from_raw(0x53);
     bench_scalar("w8d scalar mul", || {
-        let mut x = gf8d::Elem::from_raw(0xA5);
+        let mut x = Elem::<REED_SOLOMON>::from_raw(0xA5);
         for i in 0..SCALAR_ITERS {
-            x = black_box(x).mul(gf8d::Elem::from_raw((0x53u8).wrapping_add(i as u8)));
+            x = black_box(x).mul(Elem::<REED_SOLOMON>::from_raw(
+                (0x53u8).wrapping_add(i as u8),
+            ));
         }
         black_box(x);
     });
     bench_region("w8d mul_add (dst ^= c*src)", BYTES, || {
-        ops::mul_add::<Gf8D>(
+        ops::mul_add::<Gf8<REED_SOLOMON>>(
             black_box(dst8.as_mut_slice()),
             c8d,
             black_box(src8.as_slice()),
         );
     });
     bench_region("w8d mul_into (dst = c*src)", BYTES, || {
-        ops::mul_into::<Gf8D>(
+        ops::mul_into::<Gf8<REED_SOLOMON>>(
             black_box(dst8.as_mut_slice()),
             c8d,
             black_box(src8.as_slice()),
         );
     });
 
-    // In-place scale sweep: the V4x-unconditional question for Gf8B.
+    // In-place scale sweep: the V4x-unconditional question for `Gf8<AES>`.
     for &len in &[4096usize, 16384, 65536, 262144, 1048576] {
         let mut dst = AlignedBuf::noise(len, 0x610 + len as u64);
         bench_region(&format!("w8 assign {len}B"), len, || {
-            ops::mul_assign::<Gf8B>(black_box(dst.as_mut_slice()), c8);
+            ops::mul_assign::<Gf8<AES>>(black_box(dst.as_mut_slice()), c8);
         });
         let mut dst = AlignedBuf::noise(len, 0x620 + len as u64);
         bench_region(&format!("w8d assign {len}B"), len, || {
-            ops::mul_assign::<Gf8D>(black_box(dst.as_mut_slice()), c8d);
+            ops::mul_assign::<Gf8<REED_SOLOMON>>(black_box(dst.as_mut_slice()), c8d);
         });
     }
     // 4 MiB overwrite: the streaming-store threshold shape.
@@ -545,7 +556,7 @@ fn main() {
         let src4 = AlignedBuf::noise(4 * 1024 * 1024, 0x604);
         let mut dst4 = AlignedBuf::noise(4 * 1024 * 1024, 0x605);
         bench_region("w8d mul_into 4MiB (dst = c*src)", 4 * 1024 * 1024, || {
-            ops::mul_into::<Gf8D>(
+            ops::mul_into::<Gf8<REED_SOLOMON>>(
                 black_box(dst4.as_mut_slice()),
                 c8d,
                 black_box(src4.as_slice()),
@@ -553,34 +564,35 @@ fn main() {
         });
     }
 
-    // Elementwise products, both byte fields and both forms. `Gf8D`
-    // conjugates `GF2P8MULB` by the field isomorphism on GFNI tiers.
+    // Elementwise products, both byte fields and both forms.
+    // `Gf8<REED_SOLOMON>` conjugates `GF2P8MULB` by the field isomorphism on
+    // GFNI tiers.
     {
         let a = AlignedBuf::noise(BYTES, 0x606);
         let b = AlignedBuf::noise(BYTES, 0x607);
         let mut dst = AlignedBuf::noise(BYTES, 0x608);
         bench_region("w8d elementwise (dst = a*b)", BYTES, || {
-            ops::mul_elementwise::<Gf8D>(
+            ops::mul_elementwise::<Gf8<REED_SOLOMON>>(
                 black_box(dst.as_mut_slice()),
                 black_box(a.as_slice()),
                 black_box(b.as_slice()),
             );
         });
         bench_region("w8d elementwise assign (dst *= src)", BYTES, || {
-            ops::mul_elementwise_assign::<Gf8D>(
+            ops::mul_elementwise_assign::<Gf8<REED_SOLOMON>>(
                 black_box(dst.as_mut_slice()),
                 black_box(b.as_slice()),
             );
         });
         bench_region("w8 elementwise (dst = a*b)", BYTES, || {
-            ops::mul_elementwise::<Gf8B>(
+            ops::mul_elementwise::<Gf8<AES>>(
                 black_box(dst.as_mut_slice()),
                 black_box(a.as_slice()),
                 black_box(b.as_slice()),
             );
         });
         bench_region("w8 elementwise assign (dst *= src)", BYTES, || {
-            ops::mul_elementwise_assign::<Gf8B>(
+            ops::mul_elementwise_assign::<Gf8<AES>>(
                 black_box(dst.as_mut_slice()),
                 black_box(b.as_slice()),
             );

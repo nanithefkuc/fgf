@@ -6,9 +6,10 @@
 #![forbid(unsafe_code)]
 
 use fgf::field::Elem;
+use fgf::gf8::{AES, REED_SOLOMON};
 use fgf::{
-    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Field, Gf2, Gf8B, Gf8D, Gf16, Gf32, Gf64,
-    Goldilocks, Mersenne31, QuadMersenne31, gf2, gf8b, gf8d, gf16,
+    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Field, Gf2, Gf8, Gf16, Gf32, Gf64, Goldilocks,
+    Mersenne31, QuadMersenne31, gf2, gf8, gf16,
 };
 
 // Concrete arithmetic can also prepare constants at compile time.
@@ -19,8 +20,8 @@ fn main() {
     assert_eq!(PRODUCT.div(SCALE), gf16::Elem::from_raw(0x1234));
 
     // Identical raw bytes are not a conversion between different field bases.
-    let aes = gf8b::Elem::from_raw(0x80) * gf8b::Elem::from_raw(2);
-    let rs = gf8d::Elem::from_raw(0x80) * gf8d::Elem::from_raw(2);
+    let aes = gf8::Elem::<AES>::from_raw(0x80) * gf8::Elem::<AES>::from_raw(2);
+    let rs = gf8::Elem::<REED_SOLOMON>::from_raw(0x80) * gf8::Elem::<REED_SOLOMON>::from_raw(2);
     assert_eq!(aes.to_raw(), 0x1b);
     assert_eq!(rs.to_raw(), 0x1d);
     println!("0x80 * 2: AES basis = {aes}, Reed–Solomon basis = {rs}");
@@ -29,8 +30,8 @@ fn main() {
     assert_eq!(gf2::Elem::ONE + gf2::Elem::ONE, gf2::Elem::ZERO);
     assert_eq!(gf2::Elem::ONE * gf2::Elem::ONE, gf2::Elem::ONE);
     println!("{}: 1 + 1 = 0, 1 * 1 = 1; vectors use fgf::bits", Gf2::NAME);
-    describe::<Gf8B>();
-    describe::<Gf8D>();
+    describe::<Gf8<AES>>();
+    describe::<Gf8<REED_SOLOMON>>();
     describe::<Gf16>();
     describe::<Gf32>();
     describe::<Gf64>();

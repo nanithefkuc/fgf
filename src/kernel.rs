@@ -71,8 +71,7 @@ use simdispatch::Selection;
 mod private {
     pub trait Sealed {}
 }
-impl private::Sealed for crate::field::gf8b::Gf8B {}
-impl private::Sealed for crate::field::gf8d::Gf8D {}
+impl<const POLY: u16> private::Sealed for crate::field::gf8::Gf8<POLY> {}
 impl private::Sealed for crate::field::gf16::Gf16 {}
 impl private::Sealed for crate::field::gf32::Gf32 {}
 impl private::Sealed for crate::field::gf64::Gf64 {}
@@ -280,7 +279,7 @@ pub(crate) fn x86_v3_gfni_token() -> archmage::X64V3GfniCryptoToken {
     }
 }
 
-/// The selected V4x proof: `Gf8D`'s 512-bit kernels take it directly.
+/// The selected V4x proof: the byte-field 512-bit kernels take it directly.
 #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
 #[inline]
 pub(crate) fn x86_v4x_token() -> archmage::X64V4xToken {
@@ -368,7 +367,7 @@ pub(crate) fn wasm128_token() -> archmage::Wasm128Token {
 ///
 /// Wider polynomial towers and the Fan–Paar fields currently report
 /// [`Backend::Scalar`] even when [`backend()`] selected a vector backend for
-/// `Gf8B` and `Gf16`.
+/// the byte fields and `Gf16`.
 #[inline]
 #[must_use]
 pub fn backend_for<F: FieldKernels>() -> Backend {

@@ -11,6 +11,7 @@
 //! residue, and the scatter group body the offset-addressed-rows residue.
 
 use super::{TableCoefficient, check_elements, swap_mask_avx2};
+use crate::field::gf8::AES;
 use crate::kernel::gf16::{mul_add_scalar, mul_assign_scalar, mul_into_scalar};
 use crate::kernel::tables::{NibbleFactors, TowerTables, scale_table};
 use crate::kernel::x86::gf8;
@@ -457,8 +458,8 @@ pub fn mul_elementwise_avx2(token: archmage::X64V3Token, dst: &mut [u8], a: &[u8
     for ((dst_lane, x_lane), y_lane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
         let x = _mm256_loadu_si256(x_lane);
         let y = _mm256_loadu_si256(y_lane);
-        let direct = gf8::multiply_vectors_avx2::<0x1b>(x, y);
-        let crossed = gf8::multiply_vectors_avx2::<0x1b>(x, _mm256_shuffle_epi8(y, swap));
+        let direct = gf8::multiply_vectors_avx2::<AES>(x, y);
+        let crossed = gf8::multiply_vectors_avx2::<AES>(x, _mm256_shuffle_epi8(y, swap));
         let delta_bd = scale_delta(
             _mm256_shuffle_epi8(direct, swap),
             delta_lo,
@@ -505,8 +506,8 @@ pub fn mul_elementwise_assign_avx2(token: archmage::X64V3Token, dst: &mut [u8], 
     for (dst_lane, y_lane) in dst_lanes.iter_mut().zip(src_lanes) {
         let x = _mm256_loadu_si256(&*dst_lane);
         let y = _mm256_loadu_si256(y_lane);
-        let direct = gf8::multiply_vectors_avx2::<0x1b>(x, y);
-        let crossed = gf8::multiply_vectors_avx2::<0x1b>(x, _mm256_shuffle_epi8(y, swap));
+        let direct = gf8::multiply_vectors_avx2::<AES>(x, y);
+        let crossed = gf8::multiply_vectors_avx2::<AES>(x, _mm256_shuffle_epi8(y, swap));
         let delta_bd = scale_delta(
             _mm256_shuffle_epi8(direct, swap),
             delta_lo,

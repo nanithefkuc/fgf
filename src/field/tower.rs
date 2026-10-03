@@ -1,7 +1,7 @@
 //! The Rijndael-rooted quadratic tower: GF(2^16), GF(2^32), GF(2^64).
 //!
 //! Each level is a degree-two extension of the one below, rooted at the AES
-//! byte field [`crate::field::gf8b`]. An element of a level is `a + b*r` for
+//! byte field [`Gf8<AES>`](crate::field::gf8::Gf8). An element of a level is `a + b*r` for
 //! base-field components `a, b` and a root satisfying `r^2 + r + DELTA = 0`
 //! with `DELTA` chosen to have absolute trace one, so the quadratic is
 //! irreducible. Every level therefore shares one implementation — Karatsuba
@@ -389,7 +389,7 @@ macro_rules! quad_tower {
 }
 
 pub mod gf16 {
-    //! GF(2^16) as a quadratic tower over [`crate::field::gf8b`].
+    //! GF(2^16) as a quadratic tower over [`Gf8<AES>`](crate::field::gf8::Gf8).
     //!
     //! With `F = GF(2^8)` under the Rijndael polynomial, an element here is
     //! `a + b*u` with `a, b in F` and
@@ -419,15 +419,15 @@ pub mod gf16 {
     //!
     //! ```
     //! use fgf::gf16::{self, Elem, DELTA};
-    //! use fgf::gf8b;
+    //! use fgf::gf8::{self, AES};
     //!
-    //! let x = Elem::from_components(gf8b::Elem::from_raw(0x12), gf8b::Elem::from_raw(0x34));
+    //! let x = Elem::from_components(gf8::Elem::<AES>::from_raw(0x12), gf8::Elem::<AES>::from_raw(0x34));
     //! assert_eq!(x.to_raw(), 0x3412);
     //! assert_eq!(x.to_bytes(), [0x12, 0x34]);
     //!
     //! // The defining relation: u^2 == u + DELTA.
-    //! const U: Elem = Elem::from_components(gf8b::Elem::ZERO, gf8b::Elem::ONE);
-    //! const DELTA_LIFTED: Elem = Elem::from_components(DELTA, gf8b::Elem::ZERO);
+    //! const U: Elem = Elem::from_components(gf8::Elem::<AES>::ZERO, gf8::Elem::<AES>::ONE);
+    //! const DELTA_LIFTED: Elem = Elem::from_components(DELTA, gf8::Elem::<AES>::ZERO);
     //! const _: () = assert!(U.square().to_raw() == U.add(DELTA_LIFTED).to_raw());
     //!
     //! // The documented generator really does have order 65535.
@@ -440,7 +440,7 @@ pub mod gf16 {
     quad_tower!(
         Gf16,
         u16,
-        crate::field::gf8b::Elem,
+        crate::field::gf8::Elem<{ crate::field::gf8::AES }>,
         u8,
         8,
         0x20,
