@@ -15,8 +15,8 @@
 //! offset-addressed-rows residue.
 
 use super::{TERM_TILE, TableCoefficient, check_elements, swap_mask_ssse3};
-use crate::field::gf8::AES;
 use crate::field::gf16::Elem;
+use crate::field::poly::AES;
 use crate::kernel::Matrix;
 use crate::kernel::gf16::{mul_add_scalar, mul_assign_scalar, mul_into_scalar};
 use crate::kernel::tables::{NibbleFactors, TowerTables, scale_table};

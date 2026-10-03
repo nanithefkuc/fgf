@@ -15,9 +15,9 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use fgf::{FieldKernels, Gf8, Gf16, backend, gf16, ops};
+use fgf::{Elem, FieldKernels, Gf8, Gf16, Poly, backend, gf16, ops};
 
-use fgf::gf8::{AES, Elem, REED_SOLOMON};
+use fgf::poly::{AES, REED_SOLOMON};
 
 fn noise(len: usize, seed: u64) -> Vec<u8> {
     let mut state = seed | 1;
@@ -143,10 +143,10 @@ fn gather_probe<F: FieldKernels>(name: &str, coeff: impl Fn(usize) -> F::Elem) {
 fn main() {
     println!("peel/gather probe — backend: {}", backend().name());
     gf16_sweep();
-    gather_probe::<Gf8<REED_SOLOMON>>("Gf8D", |i| {
-        Elem::<REED_SOLOMON>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
+    gather_probe::<Gf8<Poly<REED_SOLOMON>>>("Gf8D", |i| {
+        Elem::<8, Poly<REED_SOLOMON>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
     });
-    gather_probe::<Gf8<AES>>("Gf8B", |i| {
-        Elem::<AES>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
+    gather_probe::<Gf8<Poly<AES>>>("Gf8B", |i| {
+        Elem::<8, Poly<AES>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
     });
 }

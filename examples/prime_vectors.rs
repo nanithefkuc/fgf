@@ -6,7 +6,7 @@
 
 #![forbid(unsafe_code)]
 
-use fgf::field::Elem;
+use fgf::field::FieldElem;
 use fgf::{
     FieldKernels, Goldilocks, Mersenne31, QuadMersenne31, backend_for, goldilocks, mersenne31, ops,
     quad_mersenne31,

@@ -27,11 +27,11 @@
 //! counterpart. What *is* prepared is geometry: a [`XorRange`] derives a
 //! bit range's window and masks once for [`xor_range_with`] to apply to
 //! many buffer pairs. The scalar oracle for this surface is
-//! [`crate::gf2::Elem`](crate::field::gf2::Elem).
+//! [`crate::gf1::Elem`].
 //!
 //! ```
 //! use fgf::bits;
-//! use fgf::field::Elem;
+//! use fgf::field::FieldElem;
 //! // Seven elements: 1,0,0,1,1,1,1 -> LSB-first byte 0b0111_1001.
 //! let mut a = [0u8; 1];
 //! bits::set_range(&mut a, 7, 0, 7);
@@ -49,7 +49,7 @@
 //! assert_eq!(bits::weight(&a, 7), 2);
 //! ```
 
-use crate::field::gf2;
+use crate::field::gf1;
 use crate::kernel;
 
 /// Number of bytes needed to hold `bits` packed elements.
@@ -98,7 +98,7 @@ fn check_holds(name: &str, operand: &str, len: usize, bits: usize) {
 /// Panics if the slices differ in length.
 pub fn xor_assign(dst: &mut [u8], src: &[u8]) {
     check_pair("bits::xor_assign", "dst", dst.len(), "src", src.len());
-    kernel::gf2::xor(dst, src);
+    kernel::gf1::xor(dst, src);
 }
 
 /// `dst ^= src` over the bit range `[from, to)`.
@@ -142,7 +142,7 @@ pub fn xor_range(dst: &mut [u8], src: &[u8], bits: usize, from: usize, to: usize
 /// rows derives the window and masks exactly once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct XorRange {
-    window: kernel::gf2::Window,
+    window: kernel::gf1::Window,
 }
 
 impl XorRange {
@@ -155,7 +155,7 @@ impl XorRange {
     pub fn new(bits: usize, from: usize, to: usize) -> Self {
         check_range("XorRange::new", bits, from, to);
         Self {
-            window: kernel::gf2::window(from, to),
+            window: kernel::gf1::window(from, to),
         }
     }
 }
@@ -182,7 +182,7 @@ pub fn xor_range_with(dst: &mut [u8], src: &[u8], range: &XorRange) {
         dst.len(),
         src.len()
     );
-    kernel::gf2::xor_window(dst, src, &range.window);
+    kernel::gf1::xor_window(dst, src, &range.window);
 }
 
 /// `dst = a & b`: elementwise GF(2) multiplication.
@@ -195,7 +195,7 @@ pub fn xor_range_with(dst: &mut [u8], src: &[u8], range: &XorRange) {
 pub fn and_into(dst: &mut [u8], a: &[u8], b: &[u8]) {
     check_pair("bits::and_into", "dst", dst.len(), "a", a.len());
     check_pair("bits::and_into", "a", a.len(), "b", b.len());
-    kernel::gf2::and_into(dst, a, b);
+    kernel::gf1::and_into(dst, a, b);
 }
 
 /// `dst &= src`: in-place elementwise GF(2) multiplication.
@@ -204,7 +204,7 @@ pub fn and_into(dst: &mut [u8], a: &[u8], b: &[u8]) {
 /// Panics if the slices differ in length.
 pub fn and_assign(dst: &mut [u8], src: &[u8]) {
     check_pair("bits::and_assign", "dst", dst.len(), "src", src.len());
-    kernel::gf2::and_assign(dst, src);
+    kernel::gf1::and_assign(dst, src);
 }
 
 /// `dst &= !mask`: clears every bit of `dst` where `mask` has a 1.
@@ -216,7 +216,7 @@ pub fn and_assign(dst: &mut [u8], src: &[u8]) {
 /// Panics if the slices differ in length.
 pub fn andnot_assign(dst: &mut [u8], mask: &[u8]) {
     check_pair("bits::andnot_assign", "dst", dst.len(), "mask", mask.len());
-    kernel::gf2::andnot_assign(dst, mask);
+    kernel::gf1::andnot_assign(dst, mask);
 }
 
 /// Zeros the bit range `[from, to)` of `dst`.
@@ -228,7 +228,7 @@ pub fn andnot_assign(dst: &mut [u8], mask: &[u8]) {
 pub fn clear_range(dst: &mut [u8], bits: usize, from: usize, to: usize) {
     check_range("bits::clear_range", bits, from, to);
     check_holds("bits::clear_range", "dst", dst.len(), bits);
-    kernel::gf2::clear_range(dst, from, to);
+    kernel::gf1::clear_range(dst, from, to);
 }
 
 /// Sets the bit range `[from, to)` of `dst` to one.
@@ -239,7 +239,7 @@ pub fn clear_range(dst: &mut [u8], bits: usize, from: usize, to: usize) {
 pub fn set_range(dst: &mut [u8], bits: usize, from: usize, to: usize) {
     check_range("bits::set_range", bits, from, to);
     check_holds("bits::set_range", "dst", dst.len(), bits);
-    kernel::gf2::set_range(dst, from, to);
+    kernel::gf1::set_range(dst, from, to);
 }
 
 /// Hamming weight of the live bits `[0, bits)`.
@@ -266,7 +266,7 @@ pub fn weight(buf: &[u8], bits: usize) -> usize {
         // Each segment carries at most SEGMENT_BITS ≤ u32::MAX set bits, so
         // the `u32` count widens to `usize` without loss on every target
         // this crate builds for (`u32 as usize` is total for the value).
-        total += kernel::gf2::weight(&buf[done / 8..], segment) as usize;
+        total += kernel::gf1::weight(&buf[done / 8..], segment) as usize;
         done += segment;
     }
     total
@@ -275,19 +275,19 @@ pub fn weight(buf: &[u8], bits: usize) -> usize {
 /// The GF(2) inner product of two packed vectors: the parity of
 /// `popcount(a & b)` over the live bits.
 ///
-/// Returned as a [`gf2::Elem`]; use
-/// [`is_one`](crate::field::Elem::is_one) to test it. Padding bits
+/// Returned as a [`gf1::Elem`]; use
+/// [`is_one`](crate::field::FieldElem::is_one) to test it. Padding bits
 /// contribute nothing.
 ///
 /// # Panics
 /// Panics if the slices differ in length or are shorter than
 /// [`bytes_for`]`(bits)`.
 #[must_use]
-pub fn dot_product(a: &[u8], b: &[u8], bits: usize) -> gf2::Elem {
+pub fn dot_product(a: &[u8], b: &[u8], bits: usize) -> gf1::Elem {
     check_pair("bits::dot_product", "a", a.len(), "b", b.len());
     check_holds("bits::dot_product", "a", a.len(), bits);
     #[allow(clippy::cast_possible_truncation)] // parity is exactly 0 or 1
-    gf2::Elem::from_raw(kernel::gf2::parity(a, b, bits) as u8)
+    gf1::Elem::from_raw(kernel::gf1::parity(a, b, bits) as u8)
 }
 
 /// `dst ^= srcs[i]` for every set bit `i` of `selector`: the combination
@@ -319,5 +319,5 @@ pub fn xor_gather(dst: &mut [u8], bits: usize, selector: u64, srcs: &[&[u8]]) {
             count + excess.trailing_zeros() as usize
         );
     }
-    kernel::gf2::xor_gather(dst, srcs, selector);
+    kernel::gf1::xor_gather(dst, srcs, selector);
 }

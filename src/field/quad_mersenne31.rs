@@ -42,7 +42,7 @@
 
 use core::fmt;
 
-use super::{Elem as ElemTrait, Field};
+use super::{Field, FieldElem as ElemTrait};
 use crate::field::mersenne31;
 
 /// The base modulus `p = 2³¹ − 1`.

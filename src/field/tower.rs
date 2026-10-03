@@ -1,7 +1,7 @@
 //! The Rijndael-rooted quadratic tower: GF(2^16), GF(2^32), GF(2^64).
 //!
 //! Each level is a degree-two extension of the one below, rooted at the AES
-//! byte field [`Gf8<AES>`](crate::field::gf8::Gf8). An element of a level is `a + b*r` for
+//! byte field [`Gf8<Poly<AES>>`](crate::field::Gf8). An element of a level is `a + b*r` for
 //! base-field components `a, b` and a root satisfying `r^2 + r + DELTA = 0`
 //! with `DELTA` chosen to have absolute trace one, so the quadratic is
 //! irreducible. Every level therefore shares one implementation — Karatsuba
@@ -38,7 +38,7 @@ macro_rules! quad_tower {
         use core::fmt;
 
         type Base = $base;
-        use crate::field::{Elem as ElemTrait, Field};
+        use crate::field::{Field, FieldElem as ElemTrait};
 
         #[doc = concat!("Constant term of the irreducible tower polynomial `", $root, "^2 + ", $root, " + DELTA`.")]
         pub const DELTA: Base = Base::from_raw($delta);
@@ -389,7 +389,8 @@ macro_rules! quad_tower {
 }
 
 pub mod gf16 {
-    //! GF(2^16) as a quadratic tower over [`Gf8<AES>`](crate::field::gf8::Gf8).
+    //! GF(2^16) as a quadratic tower over
+    //! [`Gf8<Poly<AES>>`](crate::field::Gf8).
     //!
     //! With `F = GF(2^8)` under the Rijndael polynomial, an element here is
     //! `a + b*u` with `a, b in F` and
@@ -419,15 +420,21 @@ pub mod gf16 {
     //!
     //! ```
     //! use fgf::gf16::{self, Elem, DELTA};
-    //! use fgf::gf8::{self, AES};
+    //! use fgf::poly::AES;
+    //! use fgf::{Elem as Byte, Poly};
     //!
-    //! let x = Elem::from_components(gf8::Elem::<AES>::from_raw(0x12), gf8::Elem::<AES>::from_raw(0x34));
+    //! let base = |raw: u8| Byte::<8, Poly<AES>>::from_raw(raw);
+    //! let x = Elem::from_components(base(0x12), base(0x34));
     //! assert_eq!(x.to_raw(), 0x3412);
     //! assert_eq!(x.to_bytes(), [0x12, 0x34]);
     //!
     //! // The defining relation: u^2 == u + DELTA.
-    //! const U: Elem = Elem::from_components(gf8::Elem::<AES>::ZERO, gf8::Elem::<AES>::ONE);
-    //! const DELTA_LIFTED: Elem = Elem::from_components(DELTA, gf8::Elem::<AES>::ZERO);
+    //! const U: Elem = Elem::from_components(
+    //!     Byte::<8, Poly<AES>>::ZERO,
+    //!     Byte::<8, Poly<AES>>::ONE,
+    //! );
+    //! const DELTA_LIFTED: Elem =
+    //!     Elem::from_components(DELTA, Byte::<8, Poly<AES>>::ZERO);
     //! const _: () = assert!(U.square().to_raw() == U.add(DELTA_LIFTED).to_raw());
     //!
     //! // The documented generator really does have order 65535.
@@ -440,7 +447,7 @@ pub mod gf16 {
     quad_tower!(
         Gf16,
         u16,
-        crate::field::gf8::Elem<{ crate::field::gf8::AES }>,
+        crate::field::Elem<8, crate::field::Poly<{ crate::field::AES }>>,
         u8,
         8,
         0x20,

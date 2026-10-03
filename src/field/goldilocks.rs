@@ -37,7 +37,7 @@
 
 use core::fmt;
 
-use super::{Elem as ElemTrait, Field};
+use super::{Field, FieldElem as ElemTrait};
 
 /// The field modulus, `2^64 − 2^32 + 1`.
 pub const MODULUS: u64 = 0xFFFF_FFFF_0000_0001;

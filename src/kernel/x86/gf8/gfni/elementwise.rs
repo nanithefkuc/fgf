@@ -10,7 +10,8 @@
 //! reference-based intrinsics.
 
 use super::super::ssse3::{mul_elementwise_assign_ssse3, mul_elementwise_ssse3};
-use crate::field::gf8::{AES, Elem};
+use crate::field::poly::AES;
+use crate::field::{Elem, Poly};
 use crate::kernel::tables::isomorphism_to_aes;
 
 #[cfg(target_arch = "x86")]
@@ -21,7 +22,7 @@ use core::arch::x86_64::*;
 /// `x * y` under `POLY` over a 256-bit lane.
 #[inline]
 #[archmage::rite(v3_gfni_crypto)]
-pub(in crate::kernel::x86::gf8) fn multiply_vectors_gfni<const POLY: u16>(
+pub(in crate::kernel::x86::gf8) fn multiply_vectors_gfni<const POLY: u32>(
     x: __m256i,
     y: __m256i,
 ) -> __m256i {
@@ -39,7 +40,7 @@ pub(in crate::kernel::x86::gf8) fn multiply_vectors_gfni<const POLY: u16>(
 /// `x * y` under `POLY` over a 128-bit lane.
 #[inline]
 #[archmage::rite(v3_gfni_crypto)]
-fn multiply_vectors_half_gfni<const POLY: u16>(x: __m128i, y: __m128i) -> __m128i {
+fn multiply_vectors_half_gfni<const POLY: u32>(x: __m128i, y: __m128i) -> __m128i {
     if POLY == AES {
         return _mm_gf2p8mul_epi8(x, y);
     }
@@ -57,7 +58,7 @@ fn multiply_vectors_half_gfni<const POLY: u16>(x: __m128i, y: __m128i) -> __m128
 /// Panics unless all three buffers match in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_gfni<const POLY: u16>(
+pub fn mul_elementwise_gfni<const POLY: u32>(
     _token: archmage::X64V3GfniCryptoToken,
     dst: &mut [u8],
     a: &[u8],
@@ -91,7 +92,9 @@ pub fn mul_elementwise_gfni<const POLY: u16>(
             _mm_storeu_si128(d16, multiply_vectors_half_gfni::<POLY>(x, y));
         }
         for ((d, &x), &y) in dst_tail.iter_mut().zip(a_tail).zip(b_tail) {
-            *d = Elem::<POLY>::from_raw(x).mul(Elem::from_raw(y)).0;
+            *d = Elem::<8, Poly<POLY>>::from_raw(x)
+                .mul(Elem::<8, Poly<POLY>>::from_raw(y))
+                .0;
         }
     } else {
         // GFNI implies AVX2 and SSSE3; the remainder keeps the shift/reduce
@@ -106,7 +109,7 @@ pub fn mul_elementwise_gfni<const POLY: u16>(
 /// Panics if the slices differ in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_assign_gfni<const POLY: u16>(
+pub fn mul_elementwise_assign_gfni<const POLY: u32>(
     _token: archmage::X64V3GfniCryptoToken,
     dst: &mut [u8],
     src: &[u8],
@@ -132,7 +135,9 @@ pub fn mul_elementwise_assign_gfni<const POLY: u16>(
             _mm_storeu_si128(d16, multiply_vectors_half_gfni::<POLY>(x, y));
         }
         for (d, &s) in dst_tail.iter_mut().zip(src_tail) {
-            *d = Elem::<POLY>::from_raw(*d).mul(Elem::from_raw(s)).0;
+            *d = Elem::<8, Poly<POLY>>::from_raw(*d)
+                .mul(Elem::<8, Poly<POLY>>::from_raw(s))
+                .0;
         }
     } else {
         // As in `mul_elementwise_gfni`: the shift/reduce seam finishes the

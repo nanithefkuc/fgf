@@ -22,8 +22,9 @@
 //! whole buffer, or hoisted out entirely with `Coeff`/`CoeffVec`.
 
 use crate::field::fan_paar::{fp8, fp16};
-use crate::field::gf8::{self, AES};
 use crate::field::gf16;
+use crate::field::poly::{self, AES};
+use crate::field::{Elem, Poly};
 
 /// Split-nibble multiplication tables for one GF(2^8) coefficient.
 ///
@@ -45,13 +46,13 @@ impl ScaleTable {
     // Loop counters are bounded by the array sizes (16, 256), so every cast
     // below is exact; `const fn` rules out `try_into`.
     #[allow(clippy::cast_possible_truncation)]
-    pub const fn new<const POLY: u16>(coeff: gf8::Elem<POLY>) -> Self {
+    pub const fn new<const POLY: u32>(coeff: Elem<8, Poly<POLY>>) -> Self {
         let mut lo = [0u8; 16];
         let mut hi = [0u8; 16];
         let mut i = 0;
         while i < 16 {
-            lo[i] = gf8::Elem::<POLY>(i as u8).mul_xtime(coeff).0;
-            hi[i] = gf8::Elem::<POLY>((i as u8) << 4).mul_xtime(coeff).0;
+            lo[i] = poly::Poly::<POLY>::mul_xtime(i as u8, coeff.0);
+            hi[i] = poly::Poly::<POLY>::mul_xtime((i as u8) << 4, coeff.0);
             i += 1;
         }
         Self {
@@ -74,11 +75,11 @@ impl ScaleTable {
 /// another library's tables — and is validated against a scalar model of
 /// the instruction in this module's tests.
 #[must_use]
-pub const fn build_affine_map<const POLY: u16>(coeff: gf8::Elem<POLY>) -> u64 {
+pub const fn build_affine_map<const POLY: u32>(coeff: Elem<8, Poly<POLY>>) -> u64 {
     let mut columns = [0u8; 8];
     let mut k = 0;
     while k < 8 {
-        columns[k] = coeff.mul_xtime(gf8::Elem::<POLY>(1 << k)).0;
+        columns[k] = poly::Poly::<POLY>::mul_xtime(coeff.0, 1 << k);
         k += 1;
     }
     linear_map(columns)
@@ -104,10 +105,10 @@ const fn linear_map(columns: [u8; 8]) -> u64 {
     map
 }
 
-/// The per-polynomial table banks, one entry per coefficient.
-struct Bank<const POLY: u16>;
+/// The per-representation table banks, one entry per coefficient.
+struct Bank<const POLY: u32>;
 
-impl<const POLY: u16> Bank<POLY> {
+impl<const POLY: u32> Bank<POLY> {
     /// The nibble tables of every coefficient, 8 KiB.
     ///
     /// Promoted `&'static` items rather than `const` arrays: a `const` array
@@ -118,28 +119,28 @@ impl<const POLY: u16> Bank<POLY> {
     /// The `VGF2P8AFFINEQB` matrix of every coefficient, 2 KiB.
     const AFFINE: &'static [u64; 256] = &build_affine_bank::<POLY>();
 
-    /// The field isomorphism onto `Gf8<AES>` and its inverse.
+    /// The field isomorphism onto `Gf8<Poly<AES>>` and its inverse.
     #[allow(dead_code)]
     const ISOMORPHISM: Isomorphism = isomorphism::<POLY>();
 }
 
 #[allow(clippy::cast_possible_truncation)]
-const fn build_bank<const POLY: u16>() -> [ScaleTable; 256] {
-    let mut bank = [ScaleTable::new(gf8::Elem::<POLY>::ZERO); 256];
+const fn build_bank<const POLY: u32>() -> [ScaleTable; 256] {
+    let mut bank = [ScaleTable::new::<POLY>(Elem::<8, Poly<POLY>>::ZERO); 256];
     let mut i = 0;
     while i < 256 {
-        bank[i] = ScaleTable::new(gf8::Elem::<POLY>::from_raw(i as u8));
+        bank[i] = ScaleTable::new::<POLY>(Elem::<8, Poly<POLY>>::from_raw(i as u8));
         i += 1;
     }
     bank
 }
 
 #[allow(clippy::cast_possible_truncation)]
-const fn build_affine_bank<const POLY: u16>() -> [u64; 256] {
+const fn build_affine_bank<const POLY: u32>() -> [u64; 256] {
     let mut bank = [0u64; 256];
     let mut i = 0;
     while i < 256 {
-        bank[i] = build_affine_map(gf8::Elem::<POLY>::from_raw(i as u8));
+        bank[i] = build_affine_map::<POLY>(Elem::<8, Poly<POLY>>::from_raw(i as u8));
         i += 1;
     }
     bank
@@ -149,7 +150,7 @@ const fn build_affine_bank<const POLY: u16>() -> [u64; 256] {
 /// polynomial's bank.
 #[inline]
 #[must_use]
-pub fn scale_table<const POLY: u16>(coeff: gf8::Elem<POLY>) -> &'static ScaleTable {
+pub fn scale_table<const POLY: u32>(coeff: Elem<8, Poly<POLY>>) -> &'static ScaleTable {
     &Bank::<POLY>::SCALE[coeff.0 as usize]
 }
 
@@ -157,12 +158,12 @@ pub fn scale_table<const POLY: u16>(coeff: gf8::Elem<POLY>) -> &'static ScaleTab
 /// its polynomial's bank.
 #[inline]
 #[must_use]
-pub fn affine_map<const POLY: u16>(coeff: gf8::Elem<POLY>) -> u64 {
+pub fn affine_map<const POLY: u32>(coeff: Elem<8, Poly<POLY>>) -> u64 {
     Bank::<POLY>::AFFINE[coeff.0 as usize]
 }
 
-/// A field isomorphism `φ: Gf8<POLY> → Gf8<AES>` and its inverse, as
-/// `VGF2P8AFFINEQB` matrix qwords.
+/// A field isomorphism `φ: Gf8<Poly<POLY>> → Gf8<Poly<AES>>` and its inverse,
+/// as `VGF2P8AFFINEQB` matrix qwords.
 ///
 /// Conjugating `GF2P8MULB` by it multiplies two varying vectors under any
 /// polynomial: `a · b = φ⁻¹(GF2P8MULB(φa, φb))`. Under [`AES`] both maps are
@@ -176,11 +177,11 @@ pub struct Isomorphism {
     pub inverse: u64,
 }
 
-/// Return the isomorphism between `Gf8<POLY>` and `Gf8<AES>`.
+/// Return the isomorphism between `Gf8<Poly<POLY>>` and `Gf8<Poly<AES>>`.
 #[allow(dead_code)]
 #[inline]
 #[must_use]
-pub const fn isomorphism_to_aes<const POLY: u16>() -> Isomorphism {
+pub const fn isomorphism_to_aes<const POLY: u32>() -> Isomorphism {
     Bank::<POLY>::ISOMORPHISM
 }
 
@@ -191,8 +192,8 @@ pub const fn isomorphism_to_aes<const POLY: u16>() -> Isomorphism {
 /// The inverse columns are the preimages of the AES polynomial basis under
 /// that selected map; a separately chosen root need not give its inverse.
 #[allow(dead_code)]
-const fn isomorphism<const POLY: u16>() -> Isomorphism {
-    let to_aes = root_powers::<AES>(gf8::Elem::<POLY>::POLY);
+const fn isomorphism<const POLY: u32>() -> Isomorphism {
+    let to_aes = root_powers::<AES>(poly::Poly::<POLY>::POLY);
     let from_aes = inverse_columns(to_aes);
     Isomorphism {
         forward: linear_map(to_aes),
@@ -229,33 +230,34 @@ const fn inverse_columns(columns: [u8; 8]) -> [u8; 8] {
     inverse
 }
 
-/// The powers `r^0..r^7` of the smallest root `r` of `poly` in `Gf8<FIELD>`.
+/// The powers `r^0..r^7` of the smallest root `r` of `poly` in
+/// `Gf8<Poly<FIELD>>`.
 #[allow(dead_code)]
 #[allow(clippy::cast_possible_truncation)]
-const fn root_powers<const FIELD: u16>(poly: u16) -> [u8; 8] {
-    let mut candidate = 2u16;
+const fn root_powers<const FIELD: u32>(poly: u32) -> [u8; 8] {
+    let mut candidate = 2u32;
     while candidate < 256 {
-        let r = gf8::Elem::<FIELD>::from_raw(candidate as u8);
+        let r = candidate.to_le_bytes()[0];
         // Horner evaluation of `poly` at `r`.
-        let mut value = gf8::Elem::<FIELD>::ZERO;
+        let mut value = 0u8;
         let mut bit = 8;
         loop {
-            value = value.mul_xtime(r);
+            value = poly::Poly::<FIELD>::mul_xtime(value, r);
             if (poly >> bit) & 1 == 1 {
-                value = value.add(gf8::Elem::ONE);
+                value ^= 1;
             }
             if bit == 0 {
                 break;
             }
             bit -= 1;
         }
-        if value.0 == 0 {
+        if value == 0 {
             let mut powers = [0u8; 8];
-            let mut power = gf8::Elem::<FIELD>::ONE;
+            let mut power = 1u8;
             let mut k = 0;
             while k < 8 {
-                powers[k] = power.0;
-                power = power.mul_xtime(r);
+                powers[k] = power;
+                power = poly::Poly::<FIELD>::mul_xtime(power, r);
                 k += 1;
             }
             return powers;
@@ -305,10 +307,15 @@ impl TowerCoeff {
     /// cross.1]` order, i.e. `[c0, c0+c1, DELTA*c1, c1]`.
     #[inline]
     #[must_use]
-    pub const fn factors(self) -> [gf8::Elem<AES>; 4] {
+    pub const fn factors(self) -> [Elem<8, Poly<AES>>; 4] {
         let [s0, s1] = self.same.to_le_bytes();
         let [x0, x1] = self.cross.to_le_bytes();
-        [gf8::Elem(s0), gf8::Elem(s1), gf8::Elem(x0), gf8::Elem(x1)]
+        [
+            Elem::<8, Poly<AES>>::from_raw(s0),
+            Elem::<8, Poly<AES>>::from_raw(s1),
+            Elem::<8, Poly<AES>>::from_raw(x0),
+            Elem::<8, Poly<AES>>::from_raw(x1),
+        ]
     }
 }
 
@@ -529,7 +536,7 @@ pub struct Tower2Coeff<E> {
     pub cross: [E; 2],
 }
 
-impl<E: crate::field::Elem> Tower2Coeff<E> {
+impl<E: crate::field::FieldElem> Tower2Coeff<E> {
     /// Derive the alternating subfield coefficient pair for `c0 + c1·u` over
     /// `u² + u + delta`.
     #[inline]
@@ -546,22 +553,22 @@ impl<E: crate::field::Elem> Tower2Coeff<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::field::gf8::{Elem, REED_SOLOMON};
+    use crate::field::poly::REED_SOLOMON;
 
-    type E8 = Elem<AES>;
+    type E8 = Elem<8, Poly<AES>>;
 
-    fn check_bank<const P: u16>() {
+    fn check_bank<const P: u32>() {
         let runtime_scale = build_bank::<P>();
         let runtime_affine = build_affine_bank::<P>();
         for raw in 0..=u8::MAX {
-            let coeff = Elem::<P>::from_raw(raw);
+            let coeff = Elem::<8, Poly<P>>::from_raw(raw);
             for x in 0..=u8::MAX {
-                let product = Elem::<P>::from_raw(x).mul(coeff).0;
-                for table in [scale_table(coeff), &runtime_scale[usize::from(raw)]] {
+                let product = Elem::<8, Poly<P>>::from_raw(x).mul(coeff).0;
+                for table in [scale_table::<P>(coeff), &runtime_scale[usize::from(raw)]] {
                     let split = table.lo[(x & 0x0f) as usize] ^ table.hi[(x >> 4) as usize];
                     assert_eq!(split, product, "{coeff:?} nibbles at {x:#04x}");
                 }
-                for map in [affine_map(coeff), runtime_affine[usize::from(raw)]] {
+                for map in [affine_map::<P>(coeff), runtime_affine[usize::from(raw)]] {
                     assert_eq!(apply(map, x), product, "{coeff:?} affine at {x:#04x}");
                 }
             }
@@ -574,7 +581,9 @@ mod tests {
                     "φ⁻¹φ at {a:#04x}"
                 );
                 for b in 0..=u8::MAX {
-                    let product = Elem::<P>::from_raw(a).mul(Elem::from_raw(b)).0;
+                    let product = Elem::<8, Poly<P>>::from_raw(a)
+                        .mul(Elem::<8, Poly<P>>::from_raw(b))
+                        .0;
                     let conjugated = apply(
                         iso.inverse,
                         E8::from_raw(apply(iso.forward, a))

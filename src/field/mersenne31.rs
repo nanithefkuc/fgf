@@ -39,7 +39,7 @@
 
 use core::fmt;
 
-use super::{Elem as ElemTrait, Field};
+use super::{Field, FieldElem as ElemTrait};
 
 /// The field modulus, the Mersenne prime `2^31 − 1`.
 pub const MODULUS: u32 = 0x7FFF_FFFF;

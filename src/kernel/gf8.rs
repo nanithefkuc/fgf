@@ -17,7 +17,8 @@
 //! `AArch64` and Wasm use polynomial-specific nibble tables for single-row
 //! scaling. Their blocked and elementwise routes serve only the AES field.
 
-use crate::field::gf8::{AES, Elem, Gf8};
+use crate::field::poly::AES;
+use crate::field::{Elem, Gf8, Poly};
 use crate::kernel::tables::{ScaleTable, affine_map, scale_table};
 use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, scalar};
 
@@ -69,16 +70,16 @@ pub fn mul_into_nibble(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
 /// AES kernels the coefficient byte, and the shuffle backends and sub-lane
 /// scalar tails the nibble tables from the polynomial's own bank.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Prepared<const POLY: u16> {
+pub struct Prepared<const POLY: u32> {
     pub(crate) table: &'static ScaleTable,
     pub(crate) affine: u64,
 }
 
-impl<const POLY: u16> Prepared<POLY> {
+impl<const POLY: u32> Prepared<POLY> {
     /// Resolve `coeff` against its polynomial's banks.
     #[inline]
     #[must_use]
-    pub fn new(coeff: Elem<POLY>) -> Self {
+    pub fn new(coeff: Elem<8, Poly<POLY>>) -> Self {
         Self {
             table: scale_table(coeff),
             affine: affine_map(coeff),
@@ -88,12 +89,12 @@ impl<const POLY: u16> Prepared<POLY> {
     /// The coefficient this was built from.
     #[inline]
     #[must_use]
-    pub fn coeff(&self) -> Elem<POLY> {
-        Elem::from_raw(self.table.coeff)
+    pub fn coeff(&self) -> Elem<8, Poly<POLY>> {
+        Elem::<8, Poly<POLY>>::from_raw(self.table.coeff)
     }
 }
 
-impl<const POLY: u16> FieldKernels for Gf8<POLY> {
+impl<const POLY: u32> FieldKernels for Gf8<Poly<POLY>> {
     #[inline]
     fn backend() -> Backend {
         backend()
@@ -114,16 +115,16 @@ impl<const POLY: u16> FieldKernels for Gf8<POLY> {
     }
 }
 
-impl<const POLY: u16> KernelDispatch for Gf8<POLY> {
+impl<const POLY: u32> KernelDispatch for Gf8<Poly<POLY>> {
     type Prepared = Prepared<POLY>;
 
     #[inline]
-    fn prepare(_proof: RawDispatch, coeff: Elem<POLY>) -> Self::Prepared {
+    fn prepare(_proof: RawDispatch, coeff: Elem<8, Poly<POLY>>) -> Self::Prepared {
         Prepared::new(coeff)
     }
 
     #[inline]
-    fn prepared_coeff(_proof: RawDispatch, prepared: &Self::Prepared) -> Elem<POLY> {
+    fn prepared_coeff(_proof: RawDispatch, prepared: &Self::Prepared) -> Elem<8, Poly<POLY>> {
         prepared.coeff()
     }
 
@@ -254,7 +255,7 @@ impl<const POLY: u16> KernelDispatch for Gf8<POLY> {
         _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
-        coeffs: &[Elem<POLY>],
+        coeffs: &[Elem<8, Poly<POLY>>],
         src: &[u8],
     ) {
         match Self::backend() {
@@ -322,7 +323,7 @@ impl<const POLY: u16> KernelDispatch for Gf8<POLY> {
         _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
-        values: &[Elem<POLY>],
+        values: &[Elem<8, Poly<POLY>>],
         coeffs: &[Self::Prepared],
         src: &[u8],
     ) {
@@ -342,7 +343,12 @@ impl<const POLY: u16> KernelDispatch for Gf8<POLY> {
         Self::mul_add_scatter(RawDispatch, rows, row_len, values, src);
     }
 
-    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem<POLY>], srcs: &[&[u8]]) {
+    fn mul_add_gather(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Elem<8, Poly<POLY>>],
+        srcs: &[&[u8]],
+    ) {
         match Self::backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => {
@@ -389,7 +395,7 @@ impl<const POLY: u16> KernelDispatch for Gf8<POLY> {
     fn mul_add_gather_plan(
         _proof: RawDispatch,
         dst: &mut [u8],
-        values: &[Elem<POLY>],
+        values: &[Elem<8, Poly<POLY>>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -408,7 +414,12 @@ impl<const POLY: u16> KernelDispatch for Gf8<POLY> {
         Self::mul_add_gather(RawDispatch, dst, values, srcs);
     }
 
-    fn mul_into_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem<POLY>], srcs: &[&[u8]]) {
+    fn mul_into_gather(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Elem<8, Poly<POLY>>],
+        srcs: &[&[u8]],
+    ) {
         // One destination pass instead of the fill-then-accumulate pair: the
         // one-row overwrite matrix holds the tile in registers from zero.
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -461,7 +472,7 @@ impl<const POLY: u16> KernelDispatch for Gf8<POLY> {
     fn mul_into_gather_plan(
         _proof: RawDispatch,
         dst: &mut [u8],
-        values: &[Elem<POLY>],
+        values: &[Elem<8, Poly<POLY>>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -512,7 +523,7 @@ impl<const POLY: u16> KernelDispatch for Gf8<POLY> {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        terms: &[(&[Elem<POLY>], &[u8])],
+        terms: &[(&[Elem<8, Poly<POLY>>], &[u8])],
     ) {
         match Self::backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -580,7 +591,7 @@ impl<const POLY: u16> KernelDispatch for Gf8<POLY> {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        values: &[Elem<POLY>],
+        values: &[Elem<8, Poly<POLY>>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -658,7 +669,7 @@ impl<const POLY: u16> KernelDispatch for Gf8<POLY> {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        terms: &[(&[Elem<POLY>], &[u8])],
+        terms: &[(&[Elem<8, Poly<POLY>>], &[u8])],
     ) {
         // Overwrite seeds accumulators from zero in registers: one write pass,
         // no destination read, no separate fill.
@@ -694,7 +705,7 @@ impl<const POLY: u16> KernelDispatch for Gf8<POLY> {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        values: &[Elem<POLY>],
+        values: &[Elem<8, Poly<POLY>>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -739,7 +750,7 @@ impl<const POLY: u16> KernelDispatch for Gf8<POLY> {
         dst: &mut [u8],
         row_len: usize,
         row_starts: &[usize],
-        terms: &[(&[Elem<POLY>], &[u8])],
+        terms: &[(&[Elem<8, Poly<POLY>>], &[u8])],
     ) {
         match Self::backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]

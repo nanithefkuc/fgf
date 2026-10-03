@@ -26,7 +26,7 @@ pub(crate) mod tower;
 #[allow(unused_imports)]
 pub(crate) use tower::gf16;
 
-pub(crate) mod gf2;
+pub(crate) mod gf1;
 pub(crate) mod gf8;
 pub(crate) mod goldilocks;
 pub(crate) mod mersenne31;
@@ -71,7 +71,7 @@ use simdispatch::Selection;
 mod private {
     pub trait Sealed {}
 }
-impl<const POLY: u16> private::Sealed for crate::field::gf8::Gf8<POLY> {}
+impl<const POLY: u32> private::Sealed for crate::field::Gf<8, crate::field::Poly<POLY>> {}
 impl private::Sealed for crate::field::gf16::Gf16 {}
 impl private::Sealed for crate::field::gf32::Gf32 {}
 impl private::Sealed for crate::field::gf64::Gf64 {}

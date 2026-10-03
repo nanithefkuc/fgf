@@ -20,23 +20,40 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- **Breaking:** `Gf8B` and `Gf8D` become `Gf8<AES>` and
-  `Gf8<REED_SOLOMON>`. Import the constants and `Elem` from `fgf::gf8`;
-  replace `gf8b::Elem` and `gf8d::Elem` with `gf8::Elem<AES>` and
-  `gf8::Elem<REED_SOLOMON>`. The polynomial and generator are
-  `gf8::Elem::<POLY>::POLY` and `gf8::Elem::<POLY>::GENERATOR`.
-  Existing AES and Reed–Solomon encodings and generators are unchanged.
-  Paired public-operation measurements are recorded in
-  [`benchmarks/gf8.md`](benchmarks/gf8.md).
+- **Breaking:** the GF(2) field is renamed: `Gf2`/`fgf::gf2` become
+  `Gf1`/`fgf::gf1`, and the element `gf2::Elem` becomes
+  `gf1::Elem` (`Elem<1, Poly<3>>`). GF(2) keeps no `Field` implementation;
+  its packed vector surface remains `fgf::bits`. Wire bits and the packed
+  layout are unchanged.
+- **Breaking:** the scalar-arithmetic trait `field::Elem` is renamed
+  `field::FieldElem` (re-exported as `fgf::FieldElem`), pairing with
+  `Field` and `FieldKernels`. A new element struct `field::Elem<const N,
+  R>` — re-exported as `fgf::Elem` — takes the old name: replace
+  `use fgf::field::Elem;` trait imports with `use fgf::field::FieldElem;`.
+- **Breaking:** the flat byte fields name their representation. `Gf8<POLY>`
+  becomes `Gf8<Poly<POLY>>` and `gf8::Elem<POLY>` becomes
+  `Elem<8, Poly<POLY>>`; the `field::gf8` module becomes `field::poly`,
+  and `AES`/`REED_SOLOMON` widen to `u32` constants re-exported at the
+  crate root. Migrating from the 2.1.0 names: `Gf8B`/`Gf8D` become
+  `Gf8<Poly<AES>>`/`Gf8<Poly<REED_SOLOMON>>`, `gf8b::Elem`/`gf8d::Elem`
+  become `Elem<8, Poly<AES>>`/`Elem<8, Poly<REED_SOLOMON>>`, and other
+  conventions spell `Poly<0x12D>` or `Poly<0x187>` directly. The
+  reduction polynomial reads `Poly::<POLY>::POLY`; the generator remains
+  `Elem::<8, Poly<POLY>>::GENERATOR`. `Poly<P>` implements the sealed
+  `Repr<8>`/`ByteRepr` traits; `Gf<8, R>` implements `Field` for every
+  byte representation. Existing AES and Reed–Solomon encodings, generators,
+  and tables are unchanged. Paired public-operation measurements are
+  recorded in [`benchmarks/gf8.md`](benchmarks/gf8.md).
 - **Breaking:** the unstable byte-kernel surface uses one generic entry per
   operation and ISA instead of separate `_8d` entries. Pass a typed
-  `gf8::Elem<POLY>` or `internals::kernel::gf8::Prepared<POLY>` coefficient
-  to GFNI and AVX-512 fixed-coefficient entries; construct the latter with
-  `Prepared::new`. Replace `scale_table_8d` and `affine_8b`/`affine_8d` with
-  `scale_table` and `affine_map`. Elementwise ISA entries take the complete
-  polynomial const parameter, such as `::<AES>`, rather than a reduction byte.
-  Prepared matrix providers use `FlatMatrix<Prepared<POLY>>` with the generic
-  `_with` entries instead of `PreparedMatrix` and `_8d_with` entries.
+  `Elem<8, Poly<POLY>>` or `internals::kernel::gf8::Prepared<POLY>`
+  coefficient to GFNI and AVX-512 fixed-coefficient entries; construct the
+  latter with `Prepared::new`. Replace `scale_table_8d` and
+  `affine_8b`/`affine_8d` with `scale_table` and `affine_map`. Elementwise
+  ISA entries take the complete polynomial const parameter (`u32`), such as
+  `::<AES>`, rather than a reduction byte. Prepared matrix providers use
+  `FlatMatrix<Prepared<POLY>>` with the generic `_with` entries instead of
+  `PreparedMatrix` and `_8d_with` entries.
 - `just cross-check` compiles AArch64 and Wasm library paths, including the
   explicit Wasm SIMD configuration. `just bench-build NAME` builds a portable
   benchmark artifact without running it.

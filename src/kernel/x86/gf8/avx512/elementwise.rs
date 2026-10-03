@@ -12,7 +12,7 @@
 //! `V4x` tier under the `simd512` feature.
 
 use super::super::gfni::{mul_elementwise_assign_gfni, mul_elementwise_gfni};
-use crate::field::gf8::AES;
+use crate::field::poly::AES;
 use crate::kernel::tables::isomorphism_to_aes;
 
 #[cfg(target_arch = "x86")]
@@ -25,7 +25,7 @@ use core::arch::x86_64::*;
 /// # Panics
 /// Panics unless all three buffers match in length.
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_avx512<const POLY: u16>(
+pub fn mul_elementwise_avx512<const POLY: u32>(
     token: archmage::X64V4xToken,
     dst: &mut [u8],
     a: &[u8],
@@ -57,7 +57,7 @@ pub fn mul_elementwise_avx512<const POLY: u16>(
 /// # Panics
 /// Panics if the slices differ in length.
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_assign_avx512<const POLY: u16>(
+pub fn mul_elementwise_assign_avx512<const POLY: u32>(
     token: archmage::X64V4xToken,
     dst: &mut [u8],
     src: &[u8],
@@ -81,7 +81,7 @@ pub fn mul_elementwise_assign_avx512<const POLY: u16>(
 /// the maps elided under the AES polynomial.
 #[inline]
 #[archmage::rite(v4x, import_intrinsics)]
-fn multiply_vectors<const POLY: u16>(x: __m512i, y: __m512i) -> __m512i {
+fn multiply_vectors<const POLY: u32>(x: __m512i, y: __m512i) -> __m512i {
     if POLY == AES {
         return _mm512_gf2p8mul_epi8(x, y);
     }

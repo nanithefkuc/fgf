@@ -1,7 +1,7 @@
 #![cfg(feature = "std")]
 
-use fgf::gf8::{AES, REED_SOLOMON};
-use fgf::{FieldKernels, Gf8, Goldilocks, Mersenne31, gf8, goldilocks, mersenne31, ops};
+use fgf::poly::{AES, REED_SOLOMON};
+use fgf::{Elem, FieldKernels, Gf8, Goldilocks, Mersenne31, Poly, goldilocks, mersenne31, ops};
 
 #[path = "common/zero_alloc.rs"]
 mod common;
@@ -16,20 +16,21 @@ fn mul_into_gather_steady_state_allocates_nothing() {
     let sources: Vec<Vec<u8>> = (0..8).map(|index| noise(len, 0x700 + index)).collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
     let coeffs: Vec<_> = (0..8)
-        .map(|index| gf8::Elem::<AES>::from_raw((index as u8).wrapping_mul(37).wrapping_add(2)))
+        .map(|index| Elem::<8, Poly<AES>>::from_raw((index as u8).wrapping_mul(37).wrapping_add(2)))
         .collect();
-    let vector = ops::CoeffVec::<Gf8<AES>>::new(&coeffs);
+    let vector = ops::CoeffVec::<Gf8<Poly<AES>>>::new(&coeffs);
     let mut dst = noise(len, 0x800);
 
     // Resolve backend selection and warm every code path before counting.
-    ops::mul_into_gather::<Gf8<AES>>(&mut dst, &coeffs, &refs);
-    ops::mul_into_gather_with::<Gf8<AES>>(&mut dst, vector.as_ref(), &refs);
+    ops::mul_into_gather::<Gf8<Poly<AES>>>(&mut dst, &coeffs, &refs);
+    ops::mul_into_gather_with::<Gf8<Poly<AES>>>(&mut dst, vector.as_ref(), &refs);
 
-    let one_shot = count_allocations(|| ops::mul_into_gather::<Gf8<AES>>(&mut dst, &coeffs, &refs));
+    let one_shot =
+        count_allocations(|| ops::mul_into_gather::<Gf8<Poly<AES>>>(&mut dst, &coeffs, &refs));
     assert_eq!(one_shot, 0, "one-shot dot product allocated");
 
     let prepared = count_allocations(|| {
-        ops::mul_into_gather_with::<Gf8<AES>>(&mut dst, vector.as_ref(), &refs)
+        ops::mul_into_gather_with::<Gf8<Poly<AES>>>(&mut dst, vector.as_ref(), &refs)
     });
     assert_eq!(prepared, 0, "prepared dot product allocated");
 }
@@ -47,33 +48,35 @@ fn mul_into_matrix_steady_state_allocates_nothing() {
         .map(|index| noise(ROW_LEN, 0x900 + index as u64))
         .collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-    let coeff_sets: Vec<Vec<gf8::Elem<AES>>> = (0..NTERMS)
+    let coeff_sets: Vec<Vec<Elem<8, Poly<AES>>>> = (0..NTERMS)
         .map(|term| {
             (0..NROWS)
-                .map(|row| gf8::Elem::<AES>::from_raw(((term * 37 + row * 19 + 2) & 0xff) as u8))
+                .map(|row| {
+                    Elem::<8, Poly<AES>>::from_raw(((term * 37 + row * 19 + 2) & 0xff) as u8)
+                })
                 .collect()
         })
         .collect();
-    let terms: Vec<(&[gf8::Elem<AES>], &[u8])> = coeff_sets
+    let terms: Vec<(&[Elem<8, Poly<AES>>], &[u8])> = coeff_sets
         .iter()
         .zip(&sources)
         .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
         .collect();
-    let flat: Vec<gf8::Elem<AES>> = coeff_sets.iter().flatten().copied().collect();
-    let matrix = ops::CoeffMatrix::<Gf8<AES>>::from_source_major(NTERMS, NROWS, &flat);
+    let flat: Vec<Elem<8, Poly<AES>>> = coeff_sets.iter().flatten().copied().collect();
+    let matrix = ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(NTERMS, NROWS, &flat);
     let mut rows = noise(ROW_LEN * NROWS, 0xa00);
 
     // Resolve backend selection and warm both paths before counting.
-    ops::mul_into_matrix::<Gf8<AES>>(&mut rows, ROW_LEN, NROWS, &terms);
-    ops::mul_into_matrix_with::<Gf8<AES>>(&mut rows, ROW_LEN, &matrix, &refs);
+    ops::mul_into_matrix::<Gf8<Poly<AES>>>(&mut rows, ROW_LEN, NROWS, &terms);
+    ops::mul_into_matrix_with::<Gf8<Poly<AES>>>(&mut rows, ROW_LEN, &matrix, &refs);
 
     let one_shot = count_allocations(|| {
-        ops::mul_into_matrix::<Gf8<AES>>(&mut rows, ROW_LEN, NROWS, &terms);
+        ops::mul_into_matrix::<Gf8<Poly<AES>>>(&mut rows, ROW_LEN, NROWS, &terms);
     });
     assert_eq!(one_shot, 0, "one-shot overwrite matrix allocated");
 
     let prepared = count_allocations(|| {
-        ops::mul_into_matrix_with::<Gf8<AES>>(&mut rows, ROW_LEN, &matrix, &refs);
+        ops::mul_into_matrix_with::<Gf8<Poly<AES>>>(&mut rows, ROW_LEN, &matrix, &refs);
     });
     assert_eq!(prepared, 0, "prepared overwrite matrix allocated");
 }
@@ -92,25 +95,27 @@ fn mul_into_matrix_reed_solomon_chunk_boundary_allocates_nothing() {
     let sources: Vec<Vec<u8>> = (0..NTERMS)
         .map(|index| noise(ROW_LEN, 0xb00 + index as u64))
         .collect();
-    let coeff_sets: Vec<Vec<gf8::Elem<REED_SOLOMON>>> = (0..NTERMS)
+    let coeff_sets: Vec<Vec<Elem<8, Poly<REED_SOLOMON>>>> = (0..NTERMS)
         .map(|term| {
             (0..NROWS)
                 .map(|row| {
-                    gf8::Elem::<REED_SOLOMON>::from_raw(((term * 41 + row * 23 + 3) & 0xff) as u8)
+                    Elem::<8, Poly<REED_SOLOMON>>::from_raw(
+                        ((term * 41 + row * 23 + 3) & 0xff) as u8,
+                    )
                 })
                 .collect()
         })
         .collect();
-    let terms: Vec<(&[gf8::Elem<REED_SOLOMON>], &[u8])> = coeff_sets
+    let terms: Vec<(&[Elem<8, Poly<REED_SOLOMON>>], &[u8])> = coeff_sets
         .iter()
         .zip(&sources)
         .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
         .collect();
     let mut rows = noise(ROW_LEN * NROWS, 0xc00);
 
-    ops::mul_into_matrix::<Gf8<REED_SOLOMON>>(&mut rows, ROW_LEN, NROWS, &terms);
+    ops::mul_into_matrix::<Gf8<Poly<REED_SOLOMON>>>(&mut rows, ROW_LEN, NROWS, &terms);
     let steady = count_allocations(|| {
-        ops::mul_into_matrix::<Gf8<REED_SOLOMON>>(&mut rows, ROW_LEN, NROWS, &terms);
+        ops::mul_into_matrix::<Gf8<Poly<REED_SOLOMON>>>(&mut rows, ROW_LEN, NROWS, &terms);
     });
     assert_eq!(steady, 0, "reed-solomon chunk-boundary matrix allocated");
 }
@@ -128,21 +133,22 @@ fn coeff_matrix_reed_solomon_steady_state_allocates_nothing() {
         .map(|index| noise(ROW_LEN, 0xd00 + index as u64))
         .collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-    let flat: Vec<gf8::Elem<REED_SOLOMON>> = (0..NTERMS)
+    let flat: Vec<Elem<8, Poly<REED_SOLOMON>>> = (0..NTERMS)
         .flat_map(|term| {
             (0..NROWS).map(move |row| {
-                gf8::Elem::<REED_SOLOMON>::from_raw(((term * 43 + row * 7 + 5) & 0xff) as u8)
+                Elem::<8, Poly<REED_SOLOMON>>::from_raw(((term * 43 + row * 7 + 5) & 0xff) as u8)
             })
         })
         .collect();
-    let matrix = ops::CoeffMatrix::<Gf8<REED_SOLOMON>>::from_source_major(NTERMS, NROWS, &flat);
+    let matrix =
+        ops::CoeffMatrix::<Gf8<Poly<REED_SOLOMON>>>::from_source_major(NTERMS, NROWS, &flat);
     let mut rows = noise(ROW_LEN * NROWS, 0xe00);
 
-    ops::mul_into_matrix_with::<Gf8<REED_SOLOMON>>(&mut rows, ROW_LEN, &matrix, &refs);
-    ops::mul_add_matrix_with::<Gf8<REED_SOLOMON>>(&mut rows, ROW_LEN, &matrix, &refs);
+    ops::mul_into_matrix_with::<Gf8<Poly<REED_SOLOMON>>>(&mut rows, ROW_LEN, &matrix, &refs);
+    ops::mul_add_matrix_with::<Gf8<Poly<REED_SOLOMON>>>(&mut rows, ROW_LEN, &matrix, &refs);
 
     let overwrite = count_allocations(|| {
-        ops::mul_into_matrix_with::<Gf8<REED_SOLOMON>>(&mut rows, ROW_LEN, &matrix, &refs);
+        ops::mul_into_matrix_with::<Gf8<Poly<REED_SOLOMON>>>(&mut rows, ROW_LEN, &matrix, &refs);
     });
     assert_eq!(
         overwrite, 0,
@@ -150,7 +156,7 @@ fn coeff_matrix_reed_solomon_steady_state_allocates_nothing() {
     );
 
     let accumulate = count_allocations(|| {
-        ops::mul_add_matrix_with::<Gf8<REED_SOLOMON>>(&mut rows, ROW_LEN, &matrix, &refs);
+        ops::mul_add_matrix_with::<Gf8<Poly<REED_SOLOMON>>>(&mut rows, ROW_LEN, &matrix, &refs);
     });
     assert_eq!(
         accumulate, 0,
@@ -260,11 +266,11 @@ fn add_assign_rows_steady_state_allocates_nothing() {
     let mut dst_p = noise(len, 0xa03);
 
     // Resolve backend selection and warm every code path before counting.
-    ops::add_assign_rows::<Gf8<AES>>(&mut dst, row_len, &src);
+    ops::add_assign_rows::<Gf8<Poly<AES>>>(&mut dst, row_len, &src);
     ops::add_assign_rows::<Mersenne31>(&mut dst_p, row_len, &src_p);
 
     let binary = count_allocations(|| {
-        ops::add_assign_rows::<Gf8<AES>>(&mut dst, row_len, &src);
+        ops::add_assign_rows::<Gf8<Poly<AES>>>(&mut dst, row_len, &src);
     });
     assert_eq!(binary, 0, "row-interleaved binary add allocated");
 

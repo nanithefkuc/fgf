@@ -1,7 +1,7 @@
 //! Single-buffer GF(2^8) AXPY kernels.
 //!
 //! `GF2P8MULB` is a native `GF(2)[x] / 0x11B` multiply across 32 byte lanes,
-//! so a `Gf8<AES>` coefficient is nothing but a broadcast byte;
+//! so a `Gf8<Poly<AES>>` coefficient is nothing but a broadcast byte;
 //! `VGF2P8AFFINEQB` applies an arbitrary 8x8 GF(2) map per lane and so serves
 //! every other polynomial. Both are pipelined but not single-cycle, which
 //! shapes every loop here: four independent multiply chains stay in flight to

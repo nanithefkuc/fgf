@@ -9,7 +9,7 @@
 //! prime fields. As with the scalar module, keeping this obviously correct is
 //! worth more than making it fast: the vector backends carry the speed.
 
-use crate::field::{Elem, Field};
+use crate::field::{Field, FieldElem};
 
 /// `dst[i] += src[i]`, modular field addition.
 pub fn add_assign<F: Field>(dst: &mut [u8], src: &[u8]) {

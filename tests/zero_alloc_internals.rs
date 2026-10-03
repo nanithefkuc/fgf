@@ -18,10 +18,10 @@ use fgf::{Gf8, ops};
 #[test]
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn proven_internals_gather_and_overwrite_allocate_nothing() {
-    use fgf::gf8::AES;
     use fgf::internals::kernel::tables::{TowerCoeff, TowerTables};
     use fgf::internals::kernel::{SimdToken, X64V3GfniCryptoToken, x86};
-    use fgf::{gf8, gf16};
+    use fgf::poly::AES;
+    use fgf::{Elem, Poly, gf16};
 
     let _guard = TEST_LOCK
         .lock()
@@ -40,18 +40,18 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
         .map(|index| noise(LEN, 0x900 + index as u64))
         .collect();
     let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-    let coeffs: Vec<gf8::Elem<AES>> = (0..SOURCES)
-        .map(|index| gf8::Elem::<AES>::from_raw((index as u8).wrapping_mul(37).wrapping_add(2)))
+    let coeffs: Vec<Elem<8, Poly<AES>>> = (0..SOURCES)
+        .map(|index| Elem::<8, Poly<AES>>::from_raw((index as u8).wrapping_mul(37).wrapping_add(2)))
         .collect();
 
-    let columns: Vec<Vec<gf8::Elem<AES>>> = (0..TERMS)
+    let columns: Vec<Vec<Elem<8, Poly<AES>>>> = (0..TERMS)
         .map(|term| {
             (0..NROWS)
-                .map(|row| gf8::Elem::<AES>::from_raw(((term * 31 + row * 29) % 256) as u8))
+                .map(|row| Elem::<8, Poly<AES>>::from_raw(((term * 31 + row * 29) % 256) as u8))
                 .collect()
         })
         .collect();
-    let terms: Vec<(&[gf8::Elem<AES>], &[u8])> = columns
+    let terms: Vec<(&[Elem<8, Poly<AES>>], &[u8])> = columns
         .iter()
         .zip(&srcs)
         .map(|(column, src)| (column.as_slice(), *src))
@@ -79,18 +79,18 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
     // into the seeded destination.
     let mut gather_want = noise(LEN, 0xa40);
     for (&coeff, &src) in coeffs.iter().zip(&srcs) {
-        ops::mul_add::<Gf8<AES>>(&mut gather_want, coeff, src);
+        ops::mul_add::<Gf8<Poly<AES>>>(&mut gather_want, coeff, src);
     }
     assert_eq!(gather_dst, gather_want, "proven gather output");
 
     let mut matrix_want = noise(NROWS * LEN, 0xa50);
     for row in 0..NROWS {
-        let row_coeffs: Vec<gf8::Elem<AES>> = (0..TERMS)
-            .map(|term| gf8::Elem::<AES>::from_raw(((term * 31 + row * 29) % 256) as u8))
+        let row_coeffs: Vec<Elem<8, Poly<AES>>> = (0..TERMS)
+            .map(|term| Elem::<8, Poly<AES>>::from_raw(((term * 31 + row * 29) % 256) as u8))
             .collect();
         let target = &mut matrix_want[row * LEN..(row + 1) * LEN];
         target.fill(0);
-        ops::mul_into_gather::<Gf8<AES>>(target, &row_coeffs, &srcs[..TERMS]);
+        ops::mul_into_gather::<Gf8<Poly<AES>>>(target, &row_coeffs, &srcs[..TERMS]);
     }
     assert_eq!(matrix_rows, matrix_want, "proven overwrite matrix output");
 

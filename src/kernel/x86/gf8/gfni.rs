@@ -1,6 +1,6 @@
 //! GFNI GF(2^8) kernels over 32-byte lanes.
 //!
-//! `GF2P8MULB` is a native `GF(2)[x] / 0x11B` multiply, so a `Gf8<AES>`
+//! `GF2P8MULB` is a native `GF(2)[x] / 0x11B` multiply, so a `Gf8<Poly<AES>>`
 //! coefficient is a broadcast byte; `VGF2P8AFFINEQB` applies an arbitrary 8x8
 //! GF(2) map per lane and so multiplies under every other polynomial. Both
 //! are pipelined but not single-cycle, which shapes every loop: the
@@ -39,7 +39,8 @@ pub use single::{mul_add_gfni, mul_assign_gfni, mul_into_gfni};
 #[cfg(feature = "simd512")]
 pub(super) use single::{mul_add_gfni_impl, mul_assign_gfni_impl, mul_into_gfni_impl};
 
-use crate::field::gf8::{AES, Elem};
+use crate::field::poly::AES;
+use crate::field::{Elem, Poly};
 use crate::kernel::tables::{affine_map, scale_table};
 
 #[cfg(target_arch = "x86")]
@@ -73,7 +74,7 @@ pub(crate) trait Blocked: Copy {
     }
 }
 
-impl<const POLY: u16> Blocked for Elem<POLY> {
+impl<const POLY: u32> Blocked for Elem<8, Poly<POLY>> {
     const AFFINE: bool = POLY != AES;
     #[inline]
     fn zero() -> Self {
@@ -93,11 +94,11 @@ impl<const POLY: u16> Blocked for Elem<POLY> {
     }
 }
 
-impl<const POLY: u16> Blocked for crate::kernel::gf8::Prepared<POLY> {
+impl<const POLY: u32> Blocked for crate::kernel::gf8::Prepared<POLY> {
     const AFFINE: bool = POLY != AES;
     #[inline]
     fn zero() -> Self {
-        Self::new(Elem::ZERO)
+        Self::new(Elem::<8, Poly<POLY>>::ZERO)
     }
     #[inline]
     fn byte(self) -> u8 {

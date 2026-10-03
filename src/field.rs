@@ -15,23 +15,25 @@
 //! without a transmute.
 
 pub mod fan_paar;
-pub mod gf2;
-pub mod gf8;
+pub mod gf1;
 pub mod goldilocks;
 pub mod mersenne31;
+pub mod poly;
 pub mod quad_mersenne31;
+pub mod repr;
 pub mod tower;
 pub(crate) mod wiedemann;
 
 pub use fan_paar::{FanPaar8, FanPaar16, FanPaar32, FanPaar64};
-pub use gf2::Gf2;
-pub use gf8::Gf8;
+pub use gf1::Gf1;
 pub use gf16::Gf16;
 pub use gf32::Gf32;
 pub use gf64::Gf64;
 pub use goldilocks::Goldilocks;
 pub use mersenne31::Mersenne31;
+pub use poly::{AES, Poly, REED_SOLOMON};
 pub use quad_mersenne31::QuadMersenne31;
+pub use repr::{ByteRepr, Elem, Gf, Gf8, Repr};
 pub use tower::{gf16, gf32, gf64};
 /// Scalar arithmetic over a finite field.
 /// In characteristic two — every binary field in this crate, GF(2)
@@ -54,7 +56,7 @@ pub use tower::{gf16, gf32, gf64};
 /// profile and under `const` evaluation alike. This is a total-function
 /// convention chosen so hot loops never branch on an impossible case; it is
 /// *not* a claim that zero is invertible.
-pub trait Elem:
+pub trait FieldElem:
     Copy + Clone + PartialEq + Eq + core::fmt::Debug + core::hash::Hash + Default + 'static
 {
     /// The additive identity, and the absorbing element for multiplication.
@@ -65,7 +67,8 @@ pub trait Elem:
     /// Field addition. XOR in characteristic two.
     #[must_use]
     fn add(self, rhs: Self) -> Self;
-    /// Field subtraction. Identical to [`Elem::add`] in characteristic two.
+    /// Field subtraction. Identical to [`FieldElem::add`] in characteristic
+    /// two.
     #[must_use]
     fn sub(self, rhs: Self) -> Self;
     /// Additive inverse: the unique `y` with `self.add(y) == ZERO`.
@@ -101,8 +104,8 @@ pub trait Elem:
     /// Raise to an unsigned integer power by square-and-multiply.
     ///
     /// Present on the trait so generic code can exponentiate without knowing
-    /// the field's group order. `pow(0)` is [`Elem::ONE`] for every element,
-    /// zero included.
+    /// the field's group order. `pow(0)` is [`FieldElem::ONE`] for every
+    /// element, zero included.
     #[must_use]
     fn pow(self, exponent: u64) -> Self {
         let mut base = self;
@@ -140,7 +143,7 @@ pub trait Elem:
 /// has `2^64 − 2^32 + 1` of them.
 pub trait Field: Copy + Clone + core::fmt::Debug + 'static {
     /// The scalar element type.
-    type Elem: Elem;
+    type Elem: FieldElem;
 
     /// Human-readable field name, e.g. `"GF(2^8)"`.
     const NAME: &'static str;

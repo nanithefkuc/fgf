@@ -190,7 +190,7 @@ macro_rules! define_fan_paar_level {
         pub mod $module {
             use core::fmt;
 
-            use crate::field::{Elem as ElemTrait, Field};
+            use crate::field::{Field, FieldElem as ElemTrait};
 
             #[doc = $field_doc]
             #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]

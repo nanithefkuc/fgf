@@ -19,7 +19,8 @@
 
 use core::arch::wasm32::*;
 
-use crate::field::gf8::{AES, Elem as Gf8Elem, Gf8};
+use crate::field::poly::AES;
+use crate::field::{Elem as Gf8Elem, Gf8, Poly};
 use crate::kernel::gf8::mul_add_nibble;
 use crate::kernel::proven_checks::{check_equal, check_row_span, check_terms};
 use crate::kernel::tables::{ScaleTable, scale_table};
@@ -190,7 +191,7 @@ fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         v128_store(d, multiply_vectors(v128_load(x), v128_load(y)));
     }
 
-    crate::kernel::scalar::mul_elementwise::<Gf8<AES>>(
+    crate::kernel::scalar::mul_elementwise::<Gf8<Poly<AES>>>(
         &mut dst[vector_len..span],
         &a[vector_len..span],
         &b[vector_len..span],
@@ -228,7 +229,7 @@ impl Scaling {
     /// Resolve `coeff` against the shared table bank.
     #[inline]
     #[archmage::rite(wasm128, import_intrinsics)]
-    fn new<const POLY: u16>(coeff: Gf8Elem<POLY>) -> Self {
+    fn new<const POLY: u32>(coeff: Gf8Elem<8, Poly<POLY>>) -> Self {
         let table = scale_table(coeff);
         let kind = if coeff == Gf8Elem::ZERO {
             Kind::Skip
@@ -268,11 +269,11 @@ impl Scaling {
 /// bytes and `row_len == src.len()`.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_scatter_simd128<const POLY: u16>(
+pub fn mul_add_scatter_simd128<const POLY: u32>(
     _token: archmage::Wasm128Token,
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[Gf8Elem<POLY>],
+    coeffs: &[Gf8Elem<8, Poly<POLY>>],
     src: &[u8],
 ) {
     check_equal(
@@ -295,10 +296,10 @@ pub fn mul_add_scatter_simd128<const POLY: u16>(
 }
 
 #[archmage::rite(wasm128, import_intrinsics)]
-fn mul_add_scatter_impl<const POLY: u16>(
+fn mul_add_scatter_impl<const POLY: u32>(
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[Gf8Elem<POLY>],
+    coeffs: &[Gf8Elem<8, Poly<POLY>>],
     src: &[u8],
 ) {
     let span = row_len.min(src.len());
@@ -389,10 +390,10 @@ fn scatter_quad(rows: [&mut [u8]; 4], plans: &[Scaling; 4], src: &[u8]) {
 /// `dst` in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_gather_simd128<const POLY: u16>(
+pub fn mul_add_gather_simd128<const POLY: u32>(
     _token: archmage::Wasm128Token,
     dst: &mut [u8],
-    coeffs: &[Gf8Elem<POLY>],
+    coeffs: &[Gf8Elem<8, Poly<POLY>>],
     srcs: &[&[u8]],
 ) {
     check_equal(
@@ -418,7 +419,11 @@ pub fn mul_add_gather_simd128<const POLY: u16>(
 }
 
 #[archmage::rite(wasm128, import_intrinsics)]
-fn mul_add_gather_impl<const POLY: u16>(dst: &mut [u8], coeffs: &[Gf8Elem<POLY>], srcs: &[&[u8]]) {
+fn mul_add_gather_impl<const POLY: u32>(
+    dst: &mut [u8],
+    coeffs: &[Gf8Elem<8, Poly<POLY>>],
+    srcs: &[&[u8]],
+) {
     let count = coeffs.len().min(srcs.len());
     let mut span = dst.len();
     for &src in &srcs[..count] {
@@ -490,12 +495,12 @@ fn mul_add_gather_impl<const POLY: u16>(dst: &mut [u8], coeffs: &[Gf8Elem<POLY>]
 /// bytes.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_matrix_simd128<const POLY: u16>(
+pub fn mul_add_matrix_simd128<const POLY: u32>(
     _token: archmage::Wasm128Token,
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[Gf8Elem<POLY>], &[u8])],
+    terms: &[(&[Gf8Elem<8, Poly<POLY>>], &[u8])],
 ) {
     check_row_span("gf8::mul_add_matrix_simd128", rows.len(), row_len, nrows);
     check_terms("gf8::mul_add_matrix_simd128", row_len, nrows, terms);
@@ -506,11 +511,11 @@ pub fn mul_add_matrix_simd128<const POLY: u16>(
 }
 
 #[archmage::rite(wasm128, import_intrinsics)]
-fn mul_add_matrix_impl<const POLY: u16>(
+fn mul_add_matrix_impl<const POLY: u32>(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[Gf8Elem<POLY>], &[u8])],
+    terms: &[(&[Gf8Elem<8, Poly<POLY>>], &[u8])],
 ) {
     // One pass over `terms` — outside every hot loop — establishes the bounds
     // the vector loops rely on, so a caller that violates the documented
@@ -562,10 +567,10 @@ fn mul_add_matrix_impl<const POLY: u16>(
 
 /// Register-blocked four-row tile: load once, fold every term, store once.
 #[archmage::rite(wasm128, import_intrinsics)]
-fn matrix_quad<const POLY: u16>(
+fn matrix_quad<const POLY: u32>(
     rows: [&mut [u8]; 4],
     first: usize,
-    terms: &[(&[Gf8Elem<POLY>], &[u8])],
+    terms: &[(&[Gf8Elem<8, Poly<POLY>>], &[u8])],
 ) {
     let span = rows[0].len();
     let vector_len = span & !15;

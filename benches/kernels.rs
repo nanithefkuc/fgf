@@ -16,10 +16,11 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::gf8::{AES, Elem};
+use fgf::poly::AES;
 use fgf::{
-    FanPaar16, FanPaar32, FanPaar64, Gf8, Gf16, Gf32, Gf64, Goldilocks, Mersenne31, QuadMersenne31,
-    backend, fan_paar, gf16, gf32, gf64, goldilocks, mersenne31, ops, quad_mersenne31,
+    Elem, FanPaar16, FanPaar32, FanPaar64, Gf8, Gf16, Gf32, Gf64, Goldilocks, Mersenne31, Poly,
+    QuadMersenne31, backend, fan_paar, gf16, gf32, gf64, goldilocks, mersenne31, ops,
+    quad_mersenne31,
 };
 
 fn noise(len: usize, seed: u64) -> Vec<u8> {
@@ -96,17 +97,17 @@ fn bench_preparation_crossover() {
     for &len in CROSSOVER_LENGTHS {
         let src = noise(len, 0xa00 + len as u64);
         let mut dst = noise(len, 0xb00 + len as u64);
-        let coeff8 = Elem::<AES>::from_raw(0x53);
+        let coeff8 = Elem::<8, Poly<AES>>::from_raw(0x53);
         let coeff16 = gf16::Elem::from_raw(0x53a7);
-        let prepared8 = ops::Coeff::<Gf8<AES>>::new(coeff8);
+        let prepared8 = ops::Coeff::<Gf8<Poly<AES>>>::new(coeff8);
         let prepared16 = ops::Coeff::<Gf16>::new(coeff16);
 
         println!("  row {len} B:");
         let one8 = bench("  mul_add one-shot           gf8", len, || {
-            ops::mul_add::<Gf8<AES>>(black_box(&mut dst), coeff8, black_box(&src));
+            ops::mul_add::<Gf8<Poly<AES>>>(black_box(&mut dst), coeff8, black_box(&src));
         });
         let with8 = bench("  mul_add prepared           gf8", len, || {
-            ops::mul_add_with::<Gf8<AES>>(black_box(&mut dst), &prepared8, black_box(&src));
+            ops::mul_add_with::<Gf8<Poly<AES>>>(black_box(&mut dst), &prepared8, black_box(&src));
         });
         let one16 = bench("  mul_add one-shot          gf16", len, || {
             ops::mul_add::<Gf16>(black_box(&mut dst), coeff16, black_box(&src));
@@ -139,27 +140,32 @@ fn bench_network_payloads() {
         let mut dst = noise(len, 0x800 + len as u64);
 
         bench("xor", len, || {
-            ops::add_assign::<Gf8<AES>>(black_box(&mut dst), black_box(&src));
+            ops::add_assign::<Gf8<Poly<AES>>>(black_box(&mut dst), black_box(&src));
         });
         bench("mul_add", len, || {
-            ops::mul_add::<Gf8<AES>>(
+            ops::mul_add::<Gf8<Poly<AES>>>(
                 black_box(&mut dst),
-                Elem::<AES>::from_raw(0x53),
+                Elem::<8, Poly<AES>>::from_raw(0x53),
                 black_box(&src),
             );
         });
         bench("mul_assign", len, || {
-            ops::mul_assign::<Gf8<AES>>(black_box(&mut dst), Elem::<AES>::from_raw(0x53));
+            ops::mul_assign::<Gf8<Poly<AES>>>(
+                black_box(&mut dst),
+                Elem::<8, Poly<AES>>::from_raw(0x53),
+            );
         });
 
         for nrows in [4usize, 16] {
             let coeffs: Vec<_> = (0..nrows)
-                .map(|row| Elem::<AES>::from_raw((row as u8).wrapping_mul(37).wrapping_add(2)))
+                .map(|row| {
+                    Elem::<8, Poly<AES>>::from_raw((row as u8).wrapping_mul(37).wrapping_add(2))
+                })
                 .collect();
             let mut rows = noise(len * nrows, 0x900 + nrows as u64);
             let label = format!("scatter ({nrows} rows)");
             bench(&label, len * nrows, || {
-                ops::mul_add_scatter::<Gf8<AES>>(
+                ops::mul_add_scatter::<Gf8<Poly<AES>>>(
                     black_box(&mut rows),
                     len,
                     black_box(&coeffs),
@@ -210,21 +216,26 @@ fn bench_network_alignment() {
                 (dst.as_ptr() as usize) & 63
             );
             bench_network("xor", len, || {
-                ops::add_assign::<Gf8<AES>>(black_box(&mut *dst), black_box(src))
+                ops::add_assign::<Gf8<Poly<AES>>>(black_box(&mut *dst), black_box(src))
             });
             bench_network("mul_add", len, || {
-                ops::mul_add::<Gf8<AES>>(
+                ops::mul_add::<Gf8<Poly<AES>>>(
                     black_box(&mut *dst),
-                    Elem::<AES>::from_raw(0x53),
+                    Elem::<8, Poly<AES>>::from_raw(0x53),
                     black_box(src),
                 )
             });
             bench_network("mul_assign", len, || {
-                ops::mul_assign::<Gf8<AES>>(black_box(&mut *dst), Elem::<AES>::from_raw(0x53))
+                ops::mul_assign::<Gf8<Poly<AES>>>(
+                    black_box(&mut *dst),
+                    Elem::<8, Poly<AES>>::from_raw(0x53),
+                )
             });
             for nrows in [4usize, 16] {
                 let coeffs: Vec<_> = (0..nrows)
-                    .map(|row| Elem::<AES>::from_raw((row as u8).wrapping_mul(37).wrapping_add(2)))
+                    .map(|row| {
+                        Elem::<8, Poly<AES>>::from_raw((row as u8).wrapping_mul(37).wrapping_add(2))
+                    })
                     .collect();
                 let mut storage = noise(len * nrows + 128, 0x900 + nrows as u64);
                 let r = storage.as_ptr().align_offset(64) + off;
@@ -234,7 +245,7 @@ fn bench_network_alignment() {
                 );
                 let rows = &mut storage[r..r + len * nrows];
                 bench_network(&format!("scatter {nrows}"), len * nrows, || {
-                    ops::mul_add_scatter::<Gf8<AES>>(
+                    ops::mul_add_scatter::<Gf8<Poly<AES>>>(
                         black_box(&mut *rows),
                         len,
                         black_box(&coeffs),
@@ -345,9 +356,9 @@ fn bench_large_destination() {
         let mib = len / (1024 * 1024);
 
         bench(&format!("{mib:3} MiB mul_into          gf8"), len, || {
-            ops::mul_into::<Gf8<AES>>(
+            ops::mul_into::<Gf8<Poly<AES>>>(
                 black_box(&mut dst),
-                Elem::<AES>::from_raw(0x53),
+                Elem::<8, Poly<AES>>::from_raw(0x53),
                 black_box(&src),
             );
         });
@@ -359,9 +370,9 @@ fn bench_large_destination() {
             );
         });
         bench(&format!("{mib:3} MiB mul_into+read     gf8"), len, || {
-            ops::mul_into::<Gf8<AES>>(
+            ops::mul_into::<Gf8<Poly<AES>>>(
                 black_box(&mut dst),
-                Elem::<AES>::from_raw(0x53),
+                Elem::<8, Poly<AES>>::from_raw(0x53),
                 black_box(&src),
             );
             let mut acc = 0u64;
@@ -371,9 +382,9 @@ fn bench_large_destination() {
             black_box(acc);
         });
         bench(&format!("{mib:3} MiB mul_add           gf8"), len, || {
-            ops::mul_add::<Gf8<AES>>(
+            ops::mul_add::<Gf8<Poly<AES>>>(
                 black_box(&mut dst),
-                Elem::<AES>::from_raw(0x53),
+                Elem::<8, Poly<AES>>::from_raw(0x53),
                 black_box(&src),
             );
         });
@@ -395,7 +406,7 @@ fn bench_destination_alignment() {
     for &row_len in &[64 * 1024usize, 256 * 1024] {
         let src = noise(row_len, 0xe00);
         let coeffs8: Vec<_> = (0..nrows)
-            .map(|j| Elem::<AES>::from_raw((j as u8).wrapping_mul(37).wrapping_add(2)))
+            .map(|j| Elem::<8, Poly<AES>>::from_raw((j as u8).wrapping_mul(37).wrapping_add(2)))
             .collect();
         let coeffs16: Vec<_> = (0..nrows)
             .map(|j| gf16::Elem::from_raw((j as u16).wrapping_mul(9871).wrapping_add(2)))
@@ -409,7 +420,7 @@ fn bench_destination_alignment() {
                 &format!("{kib:4} KiB rows, skew {skew:2}   gf8"),
                 traffic,
                 || {
-                    ops::mul_add_scatter::<Gf8<AES>>(
+                    ops::mul_add_scatter::<Gf8<Poly<AES>>>(
                         black_box(rows),
                         row_len,
                         &coeffs8,
@@ -550,7 +561,7 @@ fn bench_gf2_bits() {
             fgf::bits::xor_range_with(black_box(&mut dst), black_box(&a), black_box(&plan));
         });
         bench("  ops::add_assign  gf8 control", bytes, || {
-            ops::add_assign::<Gf8<AES>>(black_box(&mut dst), black_box(&a));
+            ops::add_assign::<Gf8<Poly<AES>>>(black_box(&mut dst), black_box(&a));
         });
     }
     println!();
@@ -663,7 +674,7 @@ fn main() {
     if gf {
         bench_preparation_crossover();
         bench_small_row_shapes();
-        bench_add_assign_rows::<Gf8<AES>>("gf8");
+        bench_add_assign_rows::<Gf8<Poly<AES>>>("gf8");
         bench_add_assign_rows::<Gf16>("gf16");
         bench_large_destination();
         bench_destination_alignment();
@@ -700,12 +711,12 @@ fn main() {
 
         if gf {
             bench("xor                       gf8", len, || {
-                ops::add_assign::<Gf8<AES>>(black_box(&mut dst), black_box(&src));
+                ops::add_assign::<Gf8<Poly<AES>>>(black_box(&mut dst), black_box(&src));
             });
             bench("mul_add                   gf8", len, || {
-                ops::mul_add::<Gf8<AES>>(
+                ops::mul_add::<Gf8<Poly<AES>>>(
                     black_box(&mut dst),
-                    Elem::<AES>::from_raw(0x53),
+                    Elem::<8, Poly<AES>>::from_raw(0x53),
                     black_box(&src),
                 );
             });
@@ -720,9 +731,9 @@ fn main() {
                 ops::mul_add_with::<Gf16>(black_box(&mut dst), &prepared16, black_box(&src));
             });
             bench("mul_into                  gf8", len, || {
-                ops::mul_into::<Gf8<AES>>(
+                ops::mul_into::<Gf8<Poly<AES>>>(
                     black_box(&mut product),
-                    Elem::<AES>::from_raw(0x53),
+                    Elem::<8, Poly<AES>>::from_raw(0x53),
                     black_box(&src),
                 );
             });
@@ -734,10 +745,13 @@ fn main() {
                 );
             });
             bench("mul_assign                gf8", len, || {
-                ops::mul_assign::<Gf8<AES>>(black_box(&mut dst), Elem::<AES>::from_raw(0x53));
+                ops::mul_assign::<Gf8<Poly<AES>>>(
+                    black_box(&mut dst),
+                    Elem::<8, Poly<AES>>::from_raw(0x53),
+                );
             });
             bench("elementwise                gf8", len, || {
-                ops::mul_elementwise::<Gf8<AES>>(
+                ops::mul_elementwise::<Gf8<Poly<AES>>>(
                     black_box(&mut product),
                     black_box(&src),
                     black_box(&rhs),
@@ -751,7 +765,10 @@ fn main() {
                 );
             });
             bench("elementwise_assign        gf8", len, || {
-                ops::mul_elementwise_assign::<Gf8<AES>>(black_box(&mut product), black_box(&src));
+                ops::mul_elementwise_assign::<Gf8<Poly<AES>>>(
+                    black_box(&mut product),
+                    black_box(&src),
+                );
             });
             bench("elementwise_assign       gf16", len, || {
                 ops::mul_elementwise_assign::<Gf16>(black_box(&mut product), black_box(&src));
@@ -763,15 +780,15 @@ fn main() {
                 ops::add_assign::<Gf16>(black_box(&mut dst), black_box(&src));
             });
             bench("add_assign_scalar          gf8", len, || {
-                ops::add_assign_scalar::<Gf8<AES>>(
+                ops::add_assign_scalar::<Gf8<Poly<AES>>>(
                     black_box(&mut dst),
-                    Elem::<AES>::from_raw(0x53),
+                    Elem::<8, Poly<AES>>::from_raw(0x53),
                 );
             });
             bench("sub_assign_scalar          gf8", len, || {
-                ops::sub_assign_scalar::<Gf8<AES>>(
+                ops::sub_assign_scalar::<Gf8<Poly<AES>>>(
                     black_box(&mut dst),
-                    Elem::<AES>::from_raw(0x53),
+                    Elem::<8, Poly<AES>>::from_raw(0x53),
                 );
             });
             bench("add_assign_scalar         gf16", len, || {
@@ -885,17 +902,17 @@ fn main() {
         let src = noise(row_len, 3);
         let mut rows = noise(row_len * nrows, 4);
         let coeffs8: Vec<_> = (0..nrows)
-            .map(|j| Elem::<AES>::from_raw((j as u8).wrapping_mul(37).wrapping_add(2)))
+            .map(|j| Elem::<8, Poly<AES>>::from_raw((j as u8).wrapping_mul(37).wrapping_add(2)))
             .collect();
         let coeffs16: Vec<_> = (0..nrows)
             .map(|j| gf16::Elem::from_raw((j as u16).wrapping_mul(9871).wrapping_add(2)))
             .collect();
-        let scatter_coeffs8 = ops::CoeffVec::<Gf8<AES>>::new(&coeffs8);
+        let scatter_coeffs8 = ops::CoeffVec::<Gf8<Poly<AES>>>::new(&coeffs8);
         let scatter_coeffs16 = ops::CoeffVec::<Gf16>::new(&coeffs16);
 
         let traffic = row_len * nrows;
         bench("scatter                   gf8", traffic, || {
-            ops::mul_add_scatter::<Gf8<AES>>(
+            ops::mul_add_scatter::<Gf8<Poly<AES>>>(
                 black_box(&mut rows),
                 row_len,
                 &coeffs8,
@@ -906,7 +923,7 @@ fn main() {
             ops::mul_add_scatter::<Gf16>(black_box(&mut rows), row_len, &coeffs16, black_box(&src));
         });
         bench("scatter prepared          gf8", traffic, || {
-            ops::mul_add_scatter_with::<Gf8<AES>>(
+            ops::mul_add_scatter_with::<Gf8<Poly<AES>>>(
                 black_box(&mut rows),
                 row_len,
                 scatter_coeffs8.as_ref(),
@@ -923,7 +940,7 @@ fn main() {
         });
         bench("scatter (unblocked)       gf8", traffic, || {
             for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(&coeffs8) {
-                ops::mul_add::<Gf8<AES>>(black_box(row), coeff, black_box(&src));
+                ops::mul_add::<Gf8<Poly<AES>>>(black_box(row), coeff, black_box(&src));
             }
         });
         bench("scatter (unblocked)      gf16", traffic, || {
@@ -936,10 +953,12 @@ fn main() {
         // as one matrix call versus eight scatter calls. Same arithmetic,
         // different destination memory traffic.
         let sources: Vec<Vec<u8>> = (0..16).map(|t| noise(row_len, 100 + t as u64)).collect();
-        let coeff_sets: Vec<Vec<Elem<AES>>> = (0..8)
+        let coeff_sets: Vec<Vec<Elem<8, Poly<AES>>>> = (0..8)
             .map(|t| {
                 (0..nrows)
-                    .map(|j| Elem::<AES>::from_raw(((t * 31 + j * 17) as u8).wrapping_add(1)))
+                    .map(|j| {
+                        Elem::<8, Poly<AES>>::from_raw(((t * 31 + j * 17) as u8).wrapping_add(1))
+                    })
                     .collect()
             })
             .collect();
@@ -950,7 +969,7 @@ fn main() {
                     .collect()
             })
             .collect();
-        let terms: Vec<(&[Elem<AES>], &[u8])> = coeff_sets
+        let terms: Vec<(&[Elem<8, Poly<AES>>], &[u8])> = coeff_sets
             .iter()
             .zip(&sources)
             .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -962,18 +981,19 @@ fn main() {
             .collect();
         let matrix_coeffs8: Vec<_> = coeff_sets.iter().flatten().copied().collect();
         let matrix_coeffs16: Vec<_> = coeff_sets16.iter().flatten().copied().collect();
-        let matrix8 = ops::CoeffMatrix::<Gf8<AES>>::from_source_major(8, nrows, &matrix_coeffs8);
+        let matrix8 =
+            ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(8, nrows, &matrix_coeffs8);
         let matrix16 = ops::CoeffMatrix::<Gf16>::from_source_major(8, nrows, &matrix_coeffs16);
         let matrix_srcs: Vec<&[u8]> = sources.iter().take(8).map(Vec::as_slice).collect();
 
         let traffic = row_len * nrows * 8;
         bench("matrix (selected)          gf8", traffic, || {
-            ops::mul_add_matrix::<Gf8<AES>>(black_box(&mut rows), row_len, nrows, &terms);
+            ops::mul_add_matrix::<Gf8<Poly<AES>>>(black_box(&mut rows), row_len, nrows, &terms);
         });
         bench("matrix (unblocked AXPY)   gf8", traffic, || {
             for &(coeffs, src) in &terms {
                 for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-                    ops::mul_add::<Gf8<AES>>(black_box(row), coeff, src);
+                    ops::mul_add::<Gf8<Poly<AES>>>(black_box(row), coeff, src);
                 }
             }
         });
@@ -981,7 +1001,7 @@ fn main() {
             ops::mul_add_matrix::<Gf16>(black_box(&mut rows), row_len, nrows, &terms16);
         });
         bench("matrix prepared           gf8", traffic, || {
-            ops::mul_add_matrix_with::<Gf8<AES>>(
+            ops::mul_add_matrix_with::<Gf8<Poly<AES>>>(
                 black_box(&mut rows),
                 row_len,
                 &matrix8,
@@ -1006,11 +1026,11 @@ fn main() {
 
         let gather_srcs: Vec<&[u8]> = sources.iter().take(nrows).map(Vec::as_slice).collect();
         let mut gathered = noise(row_len, 5);
-        let gather_coeffs8 = ops::CoeffVec::<Gf8<AES>>::new(&coeffs8);
+        let gather_coeffs8 = ops::CoeffVec::<Gf8<Poly<AES>>>::new(&coeffs8);
         let gather_coeffs16 = ops::CoeffVec::<Gf16>::new(&coeffs16);
         let gather_traffic = row_len * nrows;
         bench("gather (selected)          gf8", gather_traffic, || {
-            ops::mul_add_gather::<Gf8<AES>>(
+            ops::mul_add_gather::<Gf8<Poly<AES>>>(
                 black_box(&mut gathered),
                 &coeffs8,
                 black_box(&gather_srcs),
@@ -1018,7 +1038,7 @@ fn main() {
         });
         bench("gather (unblocked)        gf8", gather_traffic, || {
             for (&coeff, &source) in coeffs8.iter().zip(&gather_srcs) {
-                ops::mul_add::<Gf8<AES>>(black_box(&mut gathered), coeff, black_box(source));
+                ops::mul_add::<Gf8<Poly<AES>>>(black_box(&mut gathered), coeff, black_box(source));
             }
         });
         bench("gather (selected)         gf16", gather_traffic, || {
@@ -1029,7 +1049,7 @@ fn main() {
             );
         });
         bench("gather prepared           gf8", gather_traffic, || {
-            ops::mul_add_gather_with::<Gf8<AES>>(
+            ops::mul_add_gather_with::<Gf8<Poly<AES>>>(
                 black_box(&mut gathered),
                 gather_coeffs8.as_ref(),
                 black_box(&gather_srcs),

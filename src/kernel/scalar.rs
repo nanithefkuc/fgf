@@ -10,7 +10,7 @@
 //! Hot scalar paths that beat the generic form live in the per-field dispatch
 //! modules rather than here.
 
-use crate::field::{Elem, Field};
+use crate::field::{Field, FieldElem};
 
 /// `dst ^= src`, eight bytes at a time.
 ///

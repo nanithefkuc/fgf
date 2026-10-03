@@ -5,11 +5,11 @@
 
 #![forbid(unsafe_code)]
 
-use fgf::field::Elem;
-use fgf::gf8::{AES, REED_SOLOMON};
+use fgf::field::FieldElem;
+use fgf::poly::{AES, REED_SOLOMON};
 use fgf::{
-    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Field, Gf2, Gf8, Gf16, Gf32, Gf64, Goldilocks,
-    Mersenne31, QuadMersenne31, gf2, gf8, gf16,
+    Elem, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Field, Gf1, Gf8, Gf16, Gf32, Gf64, Goldilocks,
+    Mersenne31, Poly, QuadMersenne31, gf1, gf16,
 };
 
 // Concrete arithmetic can also prepare constants at compile time.
@@ -20,18 +20,19 @@ fn main() {
     assert_eq!(PRODUCT.div(SCALE), gf16::Elem::from_raw(0x1234));
 
     // Identical raw bytes are not a conversion between different field bases.
-    let aes = gf8::Elem::<AES>::from_raw(0x80) * gf8::Elem::<AES>::from_raw(2);
-    let rs = gf8::Elem::<REED_SOLOMON>::from_raw(0x80) * gf8::Elem::<REED_SOLOMON>::from_raw(2);
+    let aes = Elem::<8, Poly<AES>>::from_raw(0x80) * Elem::<8, Poly<AES>>::from_raw(2);
+    let rs =
+        Elem::<8, Poly<REED_SOLOMON>>::from_raw(0x80) * Elem::<8, Poly<REED_SOLOMON>>::from_raw(2);
     assert_eq!(aes.to_raw(), 0x1b);
     assert_eq!(rs.to_raw(), 0x1d);
     println!("0x80 * 2: AES basis = {aes}, Reed–Solomon basis = {rs}");
 
-    // Gf2 is not a Field: its vector surface packs bits rather than bytes.
-    assert_eq!(gf2::Elem::ONE + gf2::Elem::ONE, gf2::Elem::ZERO);
-    assert_eq!(gf2::Elem::ONE * gf2::Elem::ONE, gf2::Elem::ONE);
-    println!("{}: 1 + 1 = 0, 1 * 1 = 1; vectors use fgf::bits", Gf2::NAME);
-    describe::<Gf8<AES>>();
-    describe::<Gf8<REED_SOLOMON>>();
+    // Gf1 is not a Field: its vector surface packs bits rather than bytes.
+    assert_eq!(gf1::Elem::ONE + gf1::Elem::ONE, gf1::Elem::ZERO);
+    assert_eq!(gf1::Elem::ONE * gf1::Elem::ONE, gf1::Elem::ONE);
+    println!("{}: 1 + 1 = 0, 1 * 1 = 1; vectors use fgf::bits", Gf1::NAME);
+    describe::<Gf8<Poly<AES>>>();
+    describe::<Gf8<Poly<REED_SOLOMON>>>();
     describe::<Gf16>();
     describe::<Gf32>();
     describe::<Gf64>();

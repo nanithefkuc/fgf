@@ -11,7 +11,7 @@
 //! residue, and the scatter group body the offset-addressed-rows residue.
 
 use super::{TableCoefficient, check_elements, swap_mask_avx2};
-use crate::field::gf8::AES;
+use crate::field::poly::AES;
 use crate::kernel::gf16::{mul_add_scalar, mul_assign_scalar, mul_into_scalar};
 use crate::kernel::tables::{NibbleFactors, TowerTables, scale_table};
 use crate::kernel::x86::gf8;
