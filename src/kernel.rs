@@ -90,7 +90,12 @@ mod private {
     pub trait Sealed {}
 }
 impl<R: crate::kernel::tables::ByteBanks> private::Sealed for crate::field::Gf<8, R> {}
-impl private::Sealed for crate::field::gf16::Gf16 {}
+impl<S: crate::field::tower::TowerSpec> private::Sealed
+    for crate::field::Gf<16, crate::field::tower::Tower<S>>
+where
+    S::Base: crate::kernel::tables::ByteBanks,
+{
+}
 impl private::Sealed for crate::field::gf32::Gf32 {}
 impl private::Sealed for crate::field::gf64::Gf64 {}
 impl private::Sealed for crate::field::fan_paar::FanPaar8 {}
@@ -940,7 +945,15 @@ pub(crate) mod proven_checks {
 
     /// Flat term geometry shared by the matrix entries: every term supplies
     /// `nrows` coefficients and a `row_len`-byte source.
-    #[cfg(any(target_arch = "aarch64", target_arch = "wasm32"))]
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
     #[inline]
     pub(crate) fn check_terms<E>(
         name: &str,

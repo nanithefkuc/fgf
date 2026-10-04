@@ -1099,7 +1099,8 @@ fn proven_gf16_degenerate_boundaries() {
     // Accumulate with no terms: no-op.
     let mut got = noise(nrows * row_len + surplus, 0x171);
     let want = got.clone();
-    x86::gf16::mul_add_matrix_gfni(token, &mut got, row_len, nrows, &[]);
+    let no_terms: [(&[gf16::Elem], &[u8]); 0] = [];
+    x86::gf16::mul_add_matrix_gfni(token, &mut got, row_len, nrows, &no_terms);
     assert_eq!(
         got, want,
         "gf16::mul_add_matrix_gfni: empty terms is a no-op"
@@ -1109,7 +1110,8 @@ fn proven_gf16_degenerate_boundaries() {
     let mut got = noise(row_len + surplus, 0x172);
     let want = got.clone();
     let coeffs = [gf16::Elem::from_raw(0xbeef)];
-    x86::gf16::mul_add_gather_gfni(token, &mut got, &[], &[]);
+    let no_coeffs: [gf16::Elem; 0] = [];
+    x86::gf16::mul_add_gather_gfni(token, &mut got, &no_coeffs, &[]);
     x86::gf16::mul_add_scatter_gfni(token, &mut got, 0, &coeffs, &[]);
     assert_eq!(got, want, "gf16: degenerate geometry is a no-op");
 }
@@ -1409,14 +1411,17 @@ fn proven_gf16_kernels_match_scalar() {
         |dst, c, src| x86::gf16::mul_into_ssse3(v2, dst, &TowerTables::new(c), src),
     );
 
+    let delta_byte = <fgf::RijndaelTower as fgf::TowerSpec>::B;
+    let reduction = fgf::poly::Poly::<AES>::POLY.to_le_bytes()[0];
+    let delta_table = scale_table(fgf::gf16::DELTA);
     check_elementwise::<Gf16>("gf16::mul_elementwise_gfni", LENGTHS16, |dst, a, b| {
-        x86::gf16::mul_elementwise_gfni(v3gfni, dst, a, b)
+        x86::gf16::mul_elementwise_gfni(v3gfni, dst, a, b, delta_byte, reduction)
     });
     check_elementwise::<Gf16>("gf16::mul_elementwise_avx2", LENGTHS16, |dst, a, b| {
-        x86::gf16::mul_elementwise_avx2(v3, dst, a, b)
+        x86::gf16::mul_elementwise_avx2(v3, dst, a, b, delta_table, reduction)
     });
     check_elementwise::<Gf16>("gf16::mul_elementwise_ssse3", LENGTHS16, |dst, a, b| {
-        x86::gf16::mul_elementwise_ssse3(v2, dst, a, b)
+        x86::gf16::mul_elementwise_ssse3(v2, dst, a, b, delta_table, reduction)
     });
 
     // Scatter/gather/matrix across all three tiers.

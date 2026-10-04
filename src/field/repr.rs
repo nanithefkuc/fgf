@@ -28,7 +28,9 @@ use core::fmt;
 use super::poly::Poly;
 use super::{Field, FieldElem};
 
-mod private {
+// Shared by the representation families in sibling modules (`tower`), so
+// every sealed surface in `field` answers to one trait.
+pub(crate) mod private {
     pub trait Sealed {}
 }
 

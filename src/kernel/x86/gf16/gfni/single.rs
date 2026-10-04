@@ -5,10 +5,10 @@
 //! what is left here is the `mul_add`/`mul_assign`/`mul_into` wiring around
 //! [`scale_gfni`](super::scale_gfni) — the chain depth that hides the multiply latency, the
 //! non-temporal store split, and the 16-byte step each kernel takes before
-//! its scalar tail.
+//! its sub-lane tail.
 
 use super::super::{broadcast_words, check_elements, swap_mask_avx2};
-use crate::kernel::gf16::{mul_add_scalar, mul_assign_scalar, mul_into_scalar};
+
 use crate::kernel::tables::TowerCoeff;
 use crate::kernel::x86::{
     HALF_LANE_PEEL_MIN, PREFETCH_AHEAD, nt_split, prefetch_dst, prefetch_tile, store_avx2,
@@ -32,6 +32,82 @@ fn scale_half(src: __m128i, swapped: __m128i, same: __m128i, cross: __m128i) -> 
         _mm_gf2p8mul_epi8(src, same),
         _mm_gf2p8mul_epi8(swapped, cross),
     )
+}
+
+/// Scale at most one 128-bit lane of elements through one staged multiply.
+///
+/// A zero-padded staging array carries the bytes through the same
+/// `GF2P8MULB` pair the lanes use; the padding is never copied back.
+#[archmage::rite(v3_gfni_crypto, import_intrinsics)]
+fn scale_tail(
+    bytes: &[u8],
+    same_half: __m128i,
+    cross_half: __m128i,
+    swap_half: __m128i,
+) -> [u8; 16] {
+    let mut staged = [0u8; 16];
+    staged[..bytes.len()].copy_from_slice(bytes);
+    let x = _mm_loadu_si128(&staged);
+    let product = scale_half(x, _mm_shuffle_epi8(x, swap_half), same_half, cross_half);
+    let mut out = [0u8; 16];
+    _mm_storeu_si128(&mut out, product);
+    out
+}
+
+/// `dst ^= coeff * src` for the sub-lane remainder of [`mul_add_gfni`].
+///
+/// The remainder is element-aligned and shorter than one 16-byte lane; one
+/// staged [`scale_tail`] multiply covers it, and its padding is never copied
+/// back. Entries call this through a `core::hint::black_box`ed function
+/// pointer, so the staging arrays stay out of the entry bodies.
+#[archmage::rite(v3_gfni_crypto, import_intrinsics)]
+fn mul_add_tail(dst: &mut [u8], coeff: TowerCoeff, src: &[u8]) {
+    let (same_word, cross_word) = broadcast_words(coeff);
+    let (same_half, cross_half, swap_half) = (
+        _mm256_castsi256_si128(_mm256_set1_epi16(same_word)),
+        _mm256_castsi256_si128(_mm256_set1_epi16(cross_word)),
+        _mm256_castsi256_si128(swap_mask_avx2()),
+    );
+    let scaled = scale_tail(src, same_half, cross_half, swap_half);
+    for (d, &s) in dst.iter_mut().zip(&scaled[..src.len()]) {
+        *d ^= s;
+    }
+}
+
+/// `dst = coeff * dst` for the sub-lane remainder of [`mul_assign_gfni`].
+///
+/// The remainder is element-aligned and shorter than one 16-byte lane; one
+/// staged [`scale_tail`] multiply covers it and replaces the remainder.
+/// Entries call this through a `core::hint::black_box`ed function pointer,
+/// so the staging arrays stay out of the entry bodies.
+#[archmage::rite(v3_gfni_crypto, import_intrinsics)]
+fn mul_assign_tail(dst: &mut [u8], coeff: TowerCoeff) {
+    let (same_word, cross_word) = broadcast_words(coeff);
+    let (same_half, cross_half, swap_half) = (
+        _mm256_castsi256_si128(_mm256_set1_epi16(same_word)),
+        _mm256_castsi256_si128(_mm256_set1_epi16(cross_word)),
+        _mm256_castsi256_si128(swap_mask_avx2()),
+    );
+    let scaled = scale_tail(dst, same_half, cross_half, swap_half);
+    dst.copy_from_slice(&scaled[..dst.len()]);
+}
+
+/// `dst = coeff * src` for the sub-lane remainder of [`mul_into_gfni`].
+///
+/// The remainder is element-aligned and shorter than one 16-byte lane; one
+/// staged [`scale_tail`] multiply covers it and replaces the destination
+/// remainder. Entries call this through a `core::hint::black_box`ed function
+/// pointer, so the staging arrays stay out of the entry bodies.
+#[archmage::rite(v3_gfni_crypto, import_intrinsics)]
+fn mul_into_tail(dst: &mut [u8], coeff: TowerCoeff, src: &[u8]) {
+    let (same_word, cross_word) = broadcast_words(coeff);
+    let (same_half, cross_half, swap_half) = (
+        _mm256_castsi256_si128(_mm256_set1_epi16(same_word)),
+        _mm256_castsi256_si128(_mm256_set1_epi16(cross_word)),
+        _mm256_castsi256_si128(swap_mask_avx2()),
+    );
+    let scaled = scale_tail(src, same_half, cross_half, swap_half);
+    dst.copy_from_slice(&scaled[..dst.len()]);
 }
 
 /// `dst ^= coeff * src` with `GF2P8MULB` over 32-byte lanes.
@@ -123,8 +199,12 @@ fn mul_add_impl(dst: &mut [u8], coeff: TowerCoeff, src: &[u8]) {
         _mm_storeu_si128(dst_lane, _mm_xor_si128(d, p));
     }
     // Every step above is a whole number of elements, so the tail starts on
-    // an element boundary.
-    mul_add_scalar(dst_tail, coeff.coeff, src_tail);
+    // an element boundary. The `black_box`ed function pointer keeps the tail
+    // out of line, so this body carries no staging arrays.
+    if !src_tail.is_empty() {
+        let tail: fn(&mut [u8], TowerCoeff, &[u8]) = mul_add_tail;
+        core::hint::black_box(tail)(dst_tail, coeff, src_tail);
+    }
 }
 
 /// `dst = coeff * dst` with `GF2P8MULB` over 32-byte lanes.
@@ -184,8 +264,12 @@ fn mul_assign_impl(dst: &mut [u8], coeff: TowerCoeff) {
         );
     }
     // Both steps above are a whole number of elements, so the tail starts on
-    // an element boundary.
-    mul_assign_scalar(dst_tail, coeff.coeff);
+    // an element boundary. The `black_box`ed function pointer keeps the tail
+    // out of line, so this body carries no staging arrays.
+    if !dst_tail.is_empty() {
+        let tail: fn(&mut [u8], TowerCoeff) = mul_assign_tail;
+        core::hint::black_box(tail)(dst_tail, coeff);
+    }
 }
 
 /// `dst = coeff * src` with `GF2P8MULB` over 32-byte lanes, out of place.
@@ -312,6 +396,10 @@ fn mul_into_impl<const NT: bool>(dst: &mut [u8], coeff: TowerCoeff, src: &[u8]) 
         _mm_storeu_si128(dst_lane, p);
     }
     // Every step above is a whole number of elements, so the tail starts on
-    // an element boundary.
-    mul_into_scalar(dst_tail, coeff.coeff, src_tail);
+    // an element boundary. The `black_box`ed function pointer keeps the tail
+    // out of line, so this body carries no staging arrays.
+    if !src_tail.is_empty() {
+        let tail: fn(&mut [u8], TowerCoeff, &[u8]) = mul_into_tail;
+        core::hint::black_box(tail)(dst_tail, coeff, src_tail);
+    }
 }

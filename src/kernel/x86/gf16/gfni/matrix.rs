@@ -6,9 +6,8 @@
 //! terms. The group body is the sanctioned offset-addressed-rows residue.
 
 use super::super::{broadcast_words, check_elements, swap_mask_avx2};
-use crate::field::gf16::Elem;
 use crate::kernel::Matrix;
-use crate::kernel::gf16::mul_add_scalar;
+use crate::kernel::proven_checks::check_terms;
 use crate::kernel::tables::TowerCoeff;
 
 #[cfg(target_arch = "x86")]
@@ -17,6 +16,7 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 use super::scale_gfni;
+use super::single::mul_add_gfni;
 
 /// How many terms [`mul_add_matrix_gfni`] folds into a destination tile at once.
 ///
@@ -43,13 +43,15 @@ const TERM_BLOCK: usize = 16;
 /// every term supplies `nrows` coefficients, and every source is `row_len`
 /// bytes.
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_gfni(
+pub fn mul_add_matrix_gfni<E>(
     token: archmage::X64V3GfniCryptoToken,
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[Elem], &[u8])],
-) {
+    terms: &[(&[E], &[u8])],
+) where
+    for<'a> [(&'a [E], &'a [u8])]: Matrix<TowerCoeff>,
+{
     check_elements("gf16::mul_add_matrix_gfni", row_len);
     let used = nrows
         .checked_mul(row_len)
@@ -59,20 +61,7 @@ pub fn mul_add_matrix_gfni(
         "gf16::mul_add_matrix_gfni: rows is {} bytes but {nrows} rows of {row_len} bytes need {used}",
         rows.len(),
     );
-    for (t, &(coeffs, src)) in terms.iter().enumerate() {
-        assert_eq!(
-            coeffs.len(),
-            nrows,
-            "gf16::mul_add_matrix_gfni: term {t} coefficients is {} but rows is {nrows}",
-            coeffs.len(),
-        );
-        assert_eq!(
-            src.len(),
-            row_len,
-            "gf16::mul_add_matrix_gfni: term {t} source is {} bytes but row_len is {row_len} bytes",
-            src.len(),
-        );
-    }
+    check_terms("gf16::mul_add_matrix_gfni", row_len, nrows, terms);
     if row_len == 0 || nrows == 0 || terms.is_empty() {
         return;
     }
@@ -86,11 +75,10 @@ pub fn mul_add_matrix_gfni(
 /// # Panics
 /// Panics when row geometry overflows or the destination cannot hold the
 /// requested rows.
-#[allow(clippy::used_underscore_binding)]
 #[allow(unsafe_code)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_gfni_with<M: Matrix<Elem> + ?Sized>(
-    _token: archmage::X64V3GfniCryptoToken,
+pub fn mul_add_matrix_gfni_with<M: Matrix<TowerCoeff> + ?Sized>(
+    token: archmage::X64V3GfniCryptoToken,
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
@@ -123,7 +111,7 @@ pub fn mul_add_matrix_gfni_with<M: Matrix<Elem> + ?Sized>(
         // SAFETY:
         // CPU FEATURES
         // SINCE: this entrypoint holds an `X64V3GfniCryptoToken` (the
-        //        `_token` parameter), whose invariant guarantees AVX2 and
+        //        `token` parameter), whose invariant guarantees AVX2 and
         //        GFNI on the executing CPU.
         // THUS: the callee's CPU-feature precondition holds.
         //
@@ -139,13 +127,15 @@ pub fn mul_add_matrix_gfni_with<M: Matrix<Elem> + ?Sized>(
         // SINCE: the four rows are `row_len` bytes apart with `span <=
         //        row_len` windows, so they are pairwise disjoint.
         // THUS: no two row writes in the callee conflict.
-        unsafe { matrix_group::<4, M>(base.add(j * row_len), row_len, span, j, terms, swap) };
+        unsafe {
+            matrix_group::<4, M>(token, base.add(j * row_len), row_len, span, j, terms, swap);
+        };
         j += 4;
     }
     if j + 2 <= nrows {
         // SAFETY:
         // CPU FEATURES
-        // SINCE: as the four-row call above, the same `_token` is held.
+        // SINCE: as the four-row call above, the same `token` is held.
         // THUS: the callee's CPU-feature precondition holds.
         //
         // MEMORY VALIDITY
@@ -156,13 +146,15 @@ pub fn mul_add_matrix_gfni_with<M: Matrix<Elem> + ?Sized>(
         // ALIASING
         // SINCE: as the four-row call above, the two rows are disjoint.
         // THUS: the callee's row writes do not conflict.
-        unsafe { matrix_group::<2, M>(base.add(j * row_len), row_len, span, j, terms, swap) };
+        unsafe {
+            matrix_group::<2, M>(token, base.add(j * row_len), row_len, span, j, terms, swap);
+        };
         j += 2;
     }
     if j < nrows {
         // SAFETY:
         // CPU FEATURES
-        // SINCE: as the four-row call above, the same `_token` is held.
+        // SINCE: as the four-row call above, the same `token` is held.
         // THUS: the callee's CPU-feature precondition holds.
         //
         // MEMORY VALIDITY
@@ -173,7 +165,9 @@ pub fn mul_add_matrix_gfni_with<M: Matrix<Elem> + ?Sized>(
         // ALIASING
         // SINCE: a single row has no peer to conflict with.
         // THUS: the callee's row writes do not conflict.
-        unsafe { matrix_group::<1, M>(base.add(j * row_len), row_len, span, j, terms, swap) };
+        unsafe {
+            matrix_group::<1, M>(token, base.add(j * row_len), row_len, span, j, terms, swap);
+        };
     }
 }
 
@@ -193,7 +187,8 @@ pub fn mul_add_matrix_gfni_with<M: Matrix<Elem> + ?Sized>(
 /// coefficients, and `span` must not exceed any term's source length.
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
-unsafe fn matrix_group<const N: usize, M: Matrix<Elem> + ?Sized>(
+unsafe fn matrix_group<const N: usize, M: Matrix<TowerCoeff> + ?Sized>(
+    token: archmage::X64V3GfniCryptoToken,
     base: *mut u8,
     row_len: usize,
     span: usize,
@@ -219,8 +214,7 @@ unsafe fn matrix_group<const N: usize, M: Matrix<Elem> + ?Sized>(
         let mut words = [[(0i16, 0i16); N]; TERM_BLOCK];
         for (t, row_words) in words.iter_mut().take(block_len).enumerate() {
             for (k, slot) in row_words.iter_mut().enumerate() {
-                let coeff = terms.coefficient(block_start + t, first + k);
-                *slot = broadcast_words(TowerCoeff::new(coeff));
+                *slot = broadcast_words(terms.coefficient(block_start + t, first + k));
             }
         }
         let mut offset = 0;
@@ -278,7 +272,7 @@ unsafe fn matrix_group<const N: usize, M: Matrix<Elem> + ?Sized>(
                     unsafe { core::slice::from_raw_parts_mut(row.add(offset), span - offset) };
                 for term in block_start..block_start + block_len {
                     let coeff = terms.coefficient(term, first + k);
-                    mul_add_scalar(tail, coeff, &terms.source(term)[offset..span]);
+                    mul_add_gfni(token, tail, coeff, &terms.source(term)[offset..span]);
                 }
             }
         }

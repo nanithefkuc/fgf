@@ -25,8 +25,8 @@
 //! whole buffer, or hoisted out entirely with `Coeff`/`CoeffVec`.
 
 use crate::field::fan_paar::{fp8, fp16};
-use crate::field::gf16;
 use crate::field::poly::{self, AES};
+use crate::field::tower::{Tower, TowerSpec, spec_a_is_one};
 use crate::field::{Elem, Poly};
 
 /// Split-nibble multiplication tables for one GF(2^8) coefficient.
@@ -62,6 +62,18 @@ impl ScaleTable {
             coeff: coeff.0,
             lo,
             hi,
+        }
+    }
+
+    #[cfg(all(feature = "simd", any(target_arch = "aarch64", target_arch = "wasm32")))]
+    /// The zero coefficient's tables: every entry is zero.
+    #[inline]
+    #[must_use]
+    pub const fn zeroed() -> Self {
+        Self {
+            coeff: 0,
+            lo: [0; 16],
+            hi: [0; 16],
         }
     }
 }
@@ -146,7 +158,15 @@ pub(crate) trait ByteBanks: crate::field::ByteRepr {
     const ISOMORPHISM: Isomorphism;
     /// The reduction byte the shift-and-reduce elementwise kernels consume:
     /// the low byte of the reference polynomial.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
     const REDUCTION_LOW: u8;
 }
 
@@ -156,7 +176,15 @@ impl<const POLY: u32> ByteBanks for Poly<POLY> {
     const AFFINE: &'static [u64; 256] = Bank::<POLY>::AFFINE;
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     const ISOMORPHISM: Isomorphism = isomorphism::<POLY>();
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
     const REDUCTION_LOW: u8 = Poly::<POLY>::REDUCTION_LOW;
 }
 
@@ -196,6 +224,7 @@ pub(crate) static ZERO_TABLE: ScaleTable = ScaleTable {
 
 /// Return the shared nibble tables for a GF(2^8) coefficient, from its
 /// polynomial's bank.
+#[allow(dead_code)]
 #[inline]
 #[must_use]
 pub fn scale_table<const POLY: u32>(coeff: Elem<8, Poly<POLY>>) -> &'static ScaleTable {
@@ -319,11 +348,11 @@ const fn root_powers<const FIELD: u32>(poly: u32) -> [u8; 8] {
 /// Broadcast factors that express one GF(2^16) tower multiply as two
 /// byte-wide GF(2^8) multiplies.
 ///
-/// Interleaved source bytes are `[a, b]` meaning `a + b*u`. Multiplying by
-/// `c0 + c1*u` gives
+/// Interleaved source bytes are `[a, b]` meaning `a + b*t`. Multiplying by
+/// `c0 + c1*t` under the relation `t^2 + A*t + B = 0` gives
 ///
 /// ```text
-/// (c0*a + DELTA*c1*b) + (c1*a + (c0 + c1)*b) * u.
+/// (c0*a + B*c1*b) + (c1*a + (c0 + A*c1)*b) * t.
 /// ```
 ///
 /// The first term of each component multiplies the source in place; the
@@ -331,72 +360,157 @@ const fn root_powers<const FIELD: u32>(poly: u32) -> [u8; 8] {
 /// alternating-coefficient byte multiply of `src` by [`TowerCoeff::same`],
 /// `XORed` with the same of `swap16(src)` by [`TowerCoeff::cross`], produces
 /// both components with no planar de-interleave.
+///
+/// The broadcasts are raw data: no representation or spec type reaches the
+/// kernels that consume them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TowerCoeff {
-    /// The GF(2^16) coefficient.
-    pub coeff: gf16::Elem,
-    /// Little-endian `[c0, c0 + c1]`, applied to the source directly.
+    /// The raw coefficient word.
+    pub coeff: u16,
+    /// Little-endian `[c0, c0 + A*c1]`, applied to the source directly.
     pub same: u16,
-    /// Little-endian `[DELTA*c1, c1]`, applied to the byte-swapped source.
+    /// Little-endian `[B*c1, c1]`, applied to the byte-swapped source.
     pub cross: u16,
 }
 
 impl TowerCoeff {
-    /// Derive the broadcast factors for `coeff`. Two base multiplies.
+    /// Derive the broadcast factors for `coeff` under the spec `S`. Two base
+    /// multiplies.
     #[inline]
     #[must_use]
-    pub const fn new(coeff: gf16::Elem) -> Self {
+    pub const fn new<S: TowerSpec>(coeff: Elem<16, Tower<S>>) -> Self {
+        let con = Elem::<8, S::Base>::from_raw(S::B);
         let (c0, c1) = coeff.to_components();
-        let same = u16::from_le_bytes([c0.0, c0.add(c1).0]);
-        let cross = u16::from_le_bytes([gf16::DELTA.mul(c1).0, c1.0]);
-        Self { coeff, same, cross }
-    }
-
-    /// The four base-field coefficients in `[same.0, same.1, cross.0,
-    /// cross.1]` order, i.e. `[c0, c0+c1, DELTA*c1, c1]`.
-    #[inline]
-    #[must_use]
-    pub const fn factors(self) -> [Elem<8, Poly<AES>>; 4] {
-        let [s0, s1] = self.same.to_le_bytes();
-        let [x0, x1] = self.cross.to_le_bytes();
-        [
-            Elem::<8, Poly<AES>>::from_raw(s0),
-            Elem::<8, Poly<AES>>::from_raw(s1),
-            Elem::<8, Poly<AES>>::from_raw(x0),
-            Elem::<8, Poly<AES>>::from_raw(x1),
-        ]
+        // A unit linear coefficient folds into the XOR; any other `A`
+        // costs its multiply.
+        let same_high = if spec_a_is_one::<S>() {
+            c0.add(c1)
+        } else {
+            c0.add(Elem::<8, S::Base>::from_raw(S::A).mul(c1))
+        };
+        let same = u16::from_le_bytes([c0.to_raw(), same_high.to_raw()]);
+        let cross = u16::from_le_bytes([con.mul(c1).to_raw(), c1.to_raw()]);
+        Self {
+            coeff: coeff.to_raw(),
+            same,
+            cross,
+        }
     }
 }
 
 /// Nibble tables for the four base-field factors of a GF(2^16) coefficient.
 ///
-/// Used by the shuffle backends (AVX2, SSSE3, NEON), which have no byte-wide
-/// field multiply instruction and must emulate one per factor.
+/// Used by the shuffle backends (AVX2, SSSE3, NEON, Wasm), which have no
+/// byte-wide field multiply instruction and must emulate one per factor, and
+/// by every scalar tail. The tables come from the base representation's
+/// bank, so the payload is raw data: no representation or spec type reaches
+/// the kernels that consume it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TowerTables {
-    /// The GF(2^16) coefficient.
-    pub coeff: gf16::Elem,
-    /// Tables for `[c0, c0+c1, DELTA*c1, c1]`. Entries 0 and 1 apply to the
+    /// The raw coefficient word.
+    pub coeff: u16,
+    /// Tables for `[c0, c0 + A*c1, B*c1, c1]`. Entries 0 and 1 apply to the
     /// source's even and odd byte lanes; entries 2 and 3 apply to the
     /// adjacent-swapped source's even and odd lanes.
     pub factors: [ScaleTable; 4],
 }
 
 impl TowerTables {
-    /// Build the four nibble tables for `coeff`.
+    /// Build the four nibble tables for `coeff` from the base
+    /// representation's bank.
+    #[allow(private_bounds)]
     #[inline]
     #[must_use]
-    pub fn new(coeff: gf16::Elem) -> Self {
-        let f = TowerCoeff::new(coeff).factors();
+    pub fn new<S: TowerSpec>(coeff: Elem<16, Tower<S>>) -> Self
+    where
+        S::Base: ByteBanks,
+    {
+        let compact = TowerCoeff::new::<S>(coeff);
+        let [f0, f1, f2, f3] = compact.factor_bytes();
         Self {
-            coeff,
+            coeff: compact.coeff,
             factors: [
-                *scale_table(f[0]),
-                *scale_table(f[1]),
-                *scale_table(f[2]),
-                *scale_table(f[3]),
+                S::Base::SCALE[f0 as usize],
+                S::Base::SCALE[f1 as usize],
+                S::Base::SCALE[f2 as usize],
+                S::Base::SCALE[f3 as usize],
             ],
         }
+    }
+
+    #[cfg(all(feature = "simd", any(target_arch = "aarch64", target_arch = "wasm32")))]
+    /// The zero coefficient's resolved form: all-zero tables. Group arrays
+    /// start here; every slot is overwritten before it is read.
+    #[inline]
+    #[must_use]
+    pub const fn zero() -> Self {
+        Self {
+            coeff: 0,
+            factors: [ScaleTable::zeroed(); 4],
+        }
+    }
+
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    /// The broadcast-pair form of this coefficient, recovered from the four
+    /// factor tables: the materialized-table provider's compact accessor.
+    #[inline]
+    #[must_use]
+    pub const fn compact(&self) -> TowerCoeff {
+        let [s0, s1] = self.same_bytes();
+        let [x0, x1] = self.cross_bytes();
+        TowerCoeff {
+            coeff: self.coeff,
+            same: u16::from_le_bytes([s0, s1]),
+            cross: u16::from_le_bytes([x0, x1]),
+        }
+    }
+
+    /// Whether the coefficient is zero: both components' raw bytes are zero.
+    #[inline]
+    #[must_use]
+    pub const fn is_zero(&self) -> bool {
+        self.coeff == 0
+    }
+
+    /// Whether the coefficient is the multiplicative identity: the extension
+    /// component is zero and the constant component's table is the identity
+    /// map.
+    #[inline]
+    #[must_use]
+    pub fn is_one(&self) -> bool {
+        self.factors[3].coeff == 0
+            && self.factors[0].lo == IDENTITY_LO
+            && self.factors[0].hi == IDENTITY_HI
+    }
+
+    /// The `same` broadcast's two factor bytes.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const fn same_bytes(&self) -> [u8; 2] {
+        [self.factors[0].coeff, self.factors[1].coeff]
+    }
+
+    /// The `cross` broadcast's two factor bytes.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const fn cross_bytes(&self) -> [u8; 2] {
+        [self.factors[2].coeff, self.factors[3].coeff]
+    }
+}
+
+/// The identity nibble table: `lo[i] = i`, `hi[i] = i << 4`.
+const IDENTITY_LO: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+const IDENTITY_HI: [u8; 16] = [
+    0, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240,
+];
+
+impl TowerCoeff {
+    /// The four base-field coefficients' raw bytes in `[same.0, same.1,
+    /// cross.0, cross.1]` order, i.e. `[c0, c0 + A*c1, B*c1, c1]`.
+    #[inline]
+    #[must_use]
+    pub const fn factor_bytes(self) -> [u8; 4] {
+        let [s0, s1] = self.same.to_le_bytes();
+        let [x0, x1] = self.cross.to_le_bytes();
+        [s0, s1, x0, x1]
     }
 }
 
@@ -613,7 +727,10 @@ mod tests {
             let coeff = Elem::<8, Poly<P>>::from_raw(raw);
             for x in 0..=u8::MAX {
                 let product = Elem::<8, Poly<P>>::from_raw(x).mul(coeff).0;
-                for table in [scale_table::<P>(coeff), &runtime_scale[usize::from(raw)]] {
+                for table in [
+                    &Bank::<P>::SCALE[usize::from(raw)],
+                    &runtime_scale[usize::from(raw)],
+                ] {
                     let split = table.lo[(x & 0x0f) as usize] ^ table.hi[(x >> 4) as usize];
                     assert_eq!(split, product, "{coeff:?} nibbles at {x:#04x}");
                 }
@@ -701,20 +818,29 @@ mod tests {
 
     #[test]
     fn tower_factors_reconstruct_the_product() {
+        use crate::field::tower::RijndaelTower;
         // Exercise the identity the SIMD kernels rely on, scalar-side.
         for coeff in [0u16, 1, 0x0108, 0x2000, 0xffff, 0x1234] {
-            let coeff = gf16::Elem(coeff);
+            let coeff = Elem::<16, crate::field::tower::Tower<RijndaelTower>>::from_raw(coeff);
             let tc = TowerCoeff::new(coeff);
-            let [f0, f1, f2, f3] = tc.factors();
+            let [f0, f1, f2, f3] = tc.factor_bytes();
+            let (f0, f1, f2, f3) = (
+                E8::from_raw(f0),
+                E8::from_raw(f1),
+                E8::from_raw(f2),
+                E8::from_raw(f3),
+            );
             for value in [0u16, 1, 0x00ff, 0xff00, 0xbeef] {
-                let value = gf16::Elem(value);
+                let value = Elem::<16, crate::field::tower::Tower<RijndaelTower>>::from_raw(value);
                 let [a, b] = value.to_bytes();
                 let (a, b) = (E8::from_raw(a), E8::from_raw(b));
                 // even lane: same.0 * a  ^  cross.0 * b   (b is a's swap partner)
                 // odd  lane: same.1 * b  ^  cross.1 * a
                 let even = f0.mul(a).add(f2.mul(b));
                 let odd = f1.mul(b).add(f3.mul(a));
-                let got = gf16::Elem::from_bytes([even.0, odd.0]);
+                let got = Elem::<16, crate::field::tower::Tower<RijndaelTower>>::from_bytes([
+                    even.0, odd.0,
+                ]);
                 assert_eq!(got, value.mul(coeff), "{value:?} * {coeff:?}");
             }
         }

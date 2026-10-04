@@ -10,8 +10,8 @@
 //! `X64V4xToken`.
 
 use super::{broadcast_words, check_elements};
-use crate::field::gf16::Elem;
 use crate::kernel::Matrix;
+use crate::kernel::proven_checks::check_terms;
 use crate::kernel::tables::TowerCoeff;
 
 use super::gfni;
@@ -203,7 +203,14 @@ fn multiply(x: __m512i, y: __m512i, swap: __m512i, even: __m512i, delta: __m512i
 /// # Panics
 /// Panics unless all buffers have the same complete-element length.
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_avx512(token: archmage::X64V4xToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
+pub fn mul_elementwise_avx512(
+    token: archmage::X64V4xToken,
+    dst: &mut [u8],
+    a: &[u8],
+    b: &[u8],
+    b_raw: u8,
+    reduction: u8,
+) {
     check_elements("gf16::mul_elementwise_avx512", dst.len());
     assert_eq!(
         dst.len(),
@@ -216,11 +223,11 @@ pub fn mul_elementwise_avx512(token: archmage::X64V4xToken, dst: &mut [u8], a: &
         "gf16::mul_elementwise_avx512: dst and b lengths differ"
     );
     if dst.len() < 64 {
-        return gfni::mul_elementwise_gfni(token.v3_gfni_crypto(), dst, a, b);
+        return gfni::mul_elementwise_gfni(token.v3_gfni_crypto(), dst, a, b, b_raw, reduction);
     }
     let swap = swap_mask();
     let even = _mm512_set1_epi16(0x00ff);
-    let delta = _mm512_set1_epi16(i16::from_ne_bytes([crate::field::gf16::DELTA.0, 0]));
+    let delta = _mm512_set1_epi16(i16::from_ne_bytes([b_raw, 0]));
     let (dlanes, drest) = dst.as_chunks_mut::<64>();
     let (alanes, arest) = a.as_chunks::<64>();
     let (blanes, brest) = b.as_chunks::<64>();
@@ -236,7 +243,14 @@ pub fn mul_elementwise_avx512(token: archmage::X64V4xToken, dst: &mut [u8], a: &
             ),
         );
     }
-    gfni::mul_elementwise_gfni(token.v3_gfni_crypto(), drest, arest, brest);
+    gfni::mul_elementwise_gfni(
+        token.v3_gfni_crypto(),
+        drest,
+        arest,
+        brest,
+        b_raw,
+        reduction,
+    );
 }
 
 /// Multiplies the destination in place by the elementwise source.
@@ -244,7 +258,13 @@ pub fn mul_elementwise_avx512(token: archmage::X64V4xToken, dst: &mut [u8], a: &
 /// # Panics
 /// Panics if the slices differ in length or contain a partial element.
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_assign_avx512(token: archmage::X64V4xToken, dst: &mut [u8], src: &[u8]) {
+pub fn mul_elementwise_assign_avx512(
+    token: archmage::X64V4xToken,
+    dst: &mut [u8],
+    src: &[u8],
+    b_raw: u8,
+    reduction: u8,
+) {
     check_elements("gf16::mul_elementwise_assign_avx512", dst.len());
     assert_eq!(
         dst.len(),
@@ -252,18 +272,24 @@ pub fn mul_elementwise_assign_avx512(token: archmage::X64V4xToken, dst: &mut [u8
         "gf16::mul_elementwise_assign_avx512: dst and src lengths differ"
     );
     if dst.len() < 64 {
-        return gfni::mul_elementwise_assign_gfni(token.v3_gfni_crypto(), dst, src);
+        return gfni::mul_elementwise_assign_gfni(
+            token.v3_gfni_crypto(),
+            dst,
+            src,
+            b_raw,
+            reduction,
+        );
     }
     let swap = swap_mask();
     let even = _mm512_set1_epi16(0x00ff);
-    let delta = _mm512_set1_epi16(i16::from_ne_bytes([crate::field::gf16::DELTA.0, 0]));
+    let delta = _mm512_set1_epi16(i16::from_ne_bytes([b_raw, 0]));
     let (dlanes, drest) = dst.as_chunks_mut::<64>();
     let (slanes, srest) = src.as_chunks::<64>();
     for (d, s) in dlanes.iter_mut().zip(slanes) {
         let x = _mm512_loadu_si512(&*d);
         _mm512_storeu_si512(d, multiply(x, _mm512_loadu_si512(s), swap, even, delta));
     }
-    gfni::mul_elementwise_assign_gfni(token.v3_gfni_crypto(), drest, srest);
+    gfni::mul_elementwise_assign_gfni(token.v3_gfni_crypto(), drest, srest, b_raw, reduction);
 }
 
 /// Accumulates every `(coefficients, source)` term into destination rows.
@@ -272,13 +298,15 @@ pub fn mul_elementwise_assign_avx512(token: archmage::X64V4xToken, dst: &mut [u8
 /// Panics if row geometry overflows, a row span exceeds `rows`, or a term
 /// does not provide the requested coefficients and source bytes.
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_avx512(
+pub fn mul_add_matrix_avx512<E>(
     token: archmage::X64V4xToken,
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[Elem], &[u8])],
-) {
+    terms: &[(&[E], &[u8])],
+) where
+    for<'a> [(&'a [E], &'a [u8])]: Matrix<TowerCoeff>,
+{
     check_elements("gf16::mul_add_matrix_avx512", row_len);
     let used = nrows
         .checked_mul(row_len)
@@ -287,17 +315,9 @@ pub fn mul_add_matrix_avx512(
         rows.len() >= used,
         "gf16::mul_add_matrix_avx512: rows cannot hold requested rows"
     );
-    for &(coeffs, src) in terms {
-        assert_eq!(
-            coeffs.len(),
-            nrows,
-            "gf16::mul_add_matrix_avx512: coefficient count differs from rows"
-        );
-        assert_eq!(
-            src.len(),
-            row_len,
-            "gf16::mul_add_matrix_avx512: source length differs from row_len"
-        );
+    check_terms("gf16::mul_add_matrix_avx512", row_len, nrows, terms);
+    if row_len == 0 || nrows == 0 || terms.is_empty() {
+        return;
     }
     mul_add_matrix_avx512_with(token, rows, row_len, nrows, terms);
 }
@@ -308,7 +328,7 @@ pub fn mul_add_matrix_avx512(
 /// Panics if the row length contains a partial element or the requested row
 /// span overflows or exceeds `rows`.
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_avx512_with<M: Matrix<Elem> + ?Sized>(
+pub fn mul_add_matrix_avx512_with<M: Matrix<TowerCoeff> + ?Sized>(
     token: archmage::X64V4xToken,
     rows: &mut [u8],
     row_len: usize,
@@ -358,7 +378,7 @@ pub fn mul_add_matrix_avx512_with<M: Matrix<Elem> + ?Sized>(
 }
 
 #[archmage::rite(v4x, import_intrinsics)]
-fn matrix_group<const N: usize, M: Matrix<Elem> + ?Sized>(
+fn matrix_group<const N: usize, M: Matrix<TowerCoeff> + ?Sized>(
     token: archmage::X64V4xToken,
     mut rows: [&mut [u8]; N],
     first: usize,
@@ -374,8 +394,7 @@ fn matrix_group<const N: usize, M: Matrix<Elem> + ?Sized>(
             core::array::from_fn(|_| [(_mm512_setzero_si512(), _mm512_setzero_si512()); N]);
         for (term, group) in factors.iter_mut().enumerate().take(count) {
             for (k, pair) in group.iter_mut().enumerate() {
-                let (same, cross) =
-                    broadcast_words(TowerCoeff::new(terms.coefficient(block + term, first + k)));
+                let (same, cross) = broadcast_words(terms.coefficient(block + term, first + k));
                 // One broadcast per term and row for the whole block: the
                 // offset loop reuses these instead of re-issuing them for
                 // every 64-byte lane.
@@ -411,7 +430,7 @@ fn matrix_group<const N: usize, M: Matrix<Elem> + ?Sized>(
                 gfni::mul_add_gfni(
                     token.v3_gfni_crypto(),
                     &mut row[full..span],
-                    TowerCoeff::new(terms.coefficient(term, first + k)),
+                    terms.coefficient(term, first + k),
                     &terms.source(term)[full..span],
                 );
             }

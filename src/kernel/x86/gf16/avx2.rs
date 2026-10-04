@@ -10,14 +10,9 @@
 //! `X64V3Token`. The fused `mul_into` body keeps the non-temporal store
 //! residue, and the scatter group body the offset-addressed-rows residue.
 
-use super::{TableCoefficient, check_elements, swap_mask_avx2};
-use crate::field::poly::AES;
-
-/// The low byte of the AES reduction polynomial, the one field the byte-lane
-/// varying-operand multiply helpers serve.
-const AES_REDUCTION: u8 = crate::field::poly::Poly::<AES>::REDUCTION_LOW;
-use crate::kernel::gf16::{mul_add_scalar, mul_assign_scalar, mul_into_scalar};
-use crate::kernel::tables::{NibbleFactors, TowerTables, scale_table};
+use super::{check_elements, swap_mask_avx2};
+use crate::kernel::gf16::{Coeffs, mul_add_scalar, mul_assign_scalar, mul_into_scalar};
+use crate::kernel::tables::{NibbleFactors, ScaleTable, TowerTables};
 use crate::kernel::x86::gf8;
 use crate::kernel::x86::{nt_split, peel_to_align, store_avx2};
 
@@ -149,7 +144,7 @@ pub fn mul_add_avx2(
     }
     // Both steps above are a whole number of elements, so the tail starts on
     // an element boundary.
-    mul_add_scalar(dst_tail, tables.coeff, src_tail);
+    mul_add_scalar(dst_tail, tables, src_tail);
 }
 
 /// `dst = coeff * dst` with `PSHUFB` lookups over 32-byte lanes.
@@ -177,7 +172,7 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], tables: &To
     }
     // Both steps above are a whole number of elements, so the tail starts on
     // an element boundary.
-    mul_assign_scalar(dst_tail, tables.coeff);
+    mul_assign_scalar(dst_tail, tables);
 }
 
 /// `dst = coeff * src` with `PSHUFB` lookups over 32-byte lanes, out of place.
@@ -257,7 +252,7 @@ fn mul_into_impl<const NT: bool>(dst: &mut [u8], tables: &TowerTables, src: &[u8
     }
     // Both steps above are a whole number of elements, so the tail starts on
     // an element boundary.
-    mul_into_scalar(dst_tail, tables.coeff, src_tail);
+    mul_into_scalar(dst_tail, tables, src_tail);
 }
 
 /// One source into many rows using four AVX2 table sets at a time.
@@ -268,11 +263,11 @@ fn mul_into_impl<const NT: bool>(dst: &mut [u8], tables: &TowerTables, src: &[u8
 /// As [`mul_add_scatter_gfni`](super::mul_add_scatter_gfni).
 #[allow(unsafe_code)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_scatter_avx2<C: TableCoefficient>(
+pub fn mul_add_scatter_avx2(
     token: archmage::X64V3Token,
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[C],
+    coeffs: &(impl Coeffs + ?Sized),
     src: &[u8],
 ) {
     check_elements("gf16::mul_add_scatter_avx2", row_len);
@@ -283,16 +278,16 @@ pub fn mul_add_scatter_avx2<C: TableCoefficient>(
         src.len(),
     );
     let used = coeffs
-        .len()
+        .count()
         .checked_mul(row_len)
         .expect("gf16::mul_add_scatter_avx2: row geometry overflows");
     assert!(
         rows.len() >= used,
         "gf16::mul_add_scatter_avx2: rows is {} bytes but {} rows of {row_len} bytes need {used}",
         rows.len(),
-        coeffs.len(),
+        coeffs.count(),
     );
-    if row_len == 0 || coeffs.is_empty() {
+    if row_len == 0 || coeffs.count() == 0 {
         return;
     }
     // SAFETY:
@@ -323,20 +318,19 @@ pub fn mul_add_scatter_avx2<C: TableCoefficient>(
 /// `coeffs.len() * row_len`, and `src.len()` must equal `row_len`.
 #[allow(unsafe_code)]
 #[archmage::rite(v3)]
-unsafe fn scatter_rows<C: TableCoefficient>(
+unsafe fn scatter_rows(
     token: archmage::X64V3Token,
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[C],
+    coeffs: &(impl Coeffs + ?Sized),
     src: &[u8],
 ) {
     let base = rows.as_mut_ptr();
     let src_ptr = src.as_ptr();
-    for group in (0..coeffs.len()).step_by(4) {
-        let count = (coeffs.len() - group).min(4);
-        let vectors: [NibbleAvx2; 4] = core::array::from_fn(|i| {
-            coeffs[group + i.min(count - 1)].with_tables(|tables| nibble_avx2(tables))
-        });
+    for group in (0..coeffs.count()).step_by(4) {
+        let count = (coeffs.count() - group).min(4);
+        let vectors: [NibbleAvx2; 4] =
+            core::array::from_fn(|i| nibble_avx2(&coeffs.resolved(group + i.min(count - 1))));
         // Bring this group's rows to a 32-byte boundary; see
         // `peel_to_align`.
         // SAFETY:
@@ -355,8 +349,7 @@ unsafe fn scatter_rows<C: TableCoefficient>(
             unsafe {
                 let lead =
                     core::slice::from_raw_parts_mut(base.add((group + slot) * row_len), head);
-                coeffs[group + slot]
-                    .with_tables(|tables| mul_add_avx2(token, lead, tables, &src[..head]));
+                mul_add_avx2(token, lead, &coeffs.resolved(group + slot), &src[..head]);
             }
         }
         let mut offset = head;
@@ -403,7 +396,7 @@ unsafe fn scatter_rows<C: TableCoefficient>(
                     row_len - offset,
                 )
             };
-            mul_add_scalar(tail, coeffs[group + slot].coefficient(), &src[offset..]);
+            mul_add_scalar(tail, &coeffs.resolved(group + slot), &src[offset..]);
         }
     }
 }
@@ -432,7 +425,14 @@ fn scale_delta(v: __m256i, lo: __m256i, hi: __m256i, nibble: __m256i) -> __m256i
 /// # Panics
 /// Panics unless all three buffers match in length.
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_avx2(token: archmage::X64V3Token, dst: &mut [u8], a: &[u8], b: &[u8]) {
+pub fn mul_elementwise_avx2(
+    token: archmage::X64V3Token,
+    dst: &mut [u8],
+    a: &[u8],
+    b: &[u8],
+    delta: &'static ScaleTable,
+    reduction: u8,
+) {
     check_elements("gf16::mul_elementwise_avx2", dst.len());
     assert_eq!(
         dst.len(),
@@ -451,7 +451,7 @@ pub fn mul_elementwise_avx2(token: archmage::X64V3Token, dst: &mut [u8], a: &[u8
     let swap = swap_mask_avx2();
     let even = _mm256_set1_epi16(0x00ff);
     let nibble = _mm256_set1_epi8(0x0f);
-    let delta = scale_table(crate::field::gf16::DELTA);
+
     let (delta_lo, delta_hi) = (
         _mm256_broadcastsi128_si256(_mm_loadu_si128(&delta.lo)),
         _mm256_broadcastsi128_si256(_mm_loadu_si128(&delta.hi)),
@@ -462,8 +462,8 @@ pub fn mul_elementwise_avx2(token: archmage::X64V3Token, dst: &mut [u8], a: &[u8
     for ((dst_lane, x_lane), y_lane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
         let x = _mm256_loadu_si256(x_lane);
         let y = _mm256_loadu_si256(y_lane);
-        let direct = gf8::multiply_vectors_avx2(x, y, AES_REDUCTION);
-        let crossed = gf8::multiply_vectors_avx2(x, _mm256_shuffle_epi8(y, swap), AES_REDUCTION);
+        let direct = gf8::multiply_vectors_avx2(x, y, reduction);
+        let crossed = gf8::multiply_vectors_avx2(x, _mm256_shuffle_epi8(y, swap), reduction);
         let delta_bd = scale_delta(
             _mm256_shuffle_epi8(direct, swap),
             delta_lo,
@@ -480,7 +480,7 @@ pub fn mul_elementwise_avx2(token: archmage::X64V3Token, dst: &mut [u8], a: &[u8
         _mm256_storeu_si256(dst_lane, product);
     }
     // AVX2 implies SSSE3, and the remainders keep equal lengths.
-    mul_elementwise_ssse3(token.v2(), dst_rest, a_rest, b_rest);
+    mul_elementwise_ssse3(token.v2(), dst_rest, a_rest, b_rest, delta, reduction);
 }
 
 /// `dst[i] = dst[i] * src[i]` over interleaved tower elements, AVX2.
@@ -488,7 +488,13 @@ pub fn mul_elementwise_avx2(token: archmage::X64V3Token, dst: &mut [u8], a: &[u8
 /// # Panics
 /// Panics if the slices differ in length.
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_assign_avx2(token: archmage::X64V3Token, dst: &mut [u8], src: &[u8]) {
+pub fn mul_elementwise_assign_avx2(
+    token: archmage::X64V3Token,
+    dst: &mut [u8],
+    src: &[u8],
+    delta: &'static ScaleTable,
+    reduction: u8,
+) {
     check_elements("gf16::mul_elementwise_assign_avx2", dst.len());
     assert_eq!(
         dst.len(),
@@ -500,7 +506,7 @@ pub fn mul_elementwise_assign_avx2(token: archmage::X64V3Token, dst: &mut [u8], 
     let swap = swap_mask_avx2();
     let even = _mm256_set1_epi16(0x00ff);
     let nibble = _mm256_set1_epi8(0x0f);
-    let delta = scale_table(crate::field::gf16::DELTA);
+
     let (delta_lo, delta_hi) = (
         _mm256_broadcastsi128_si256(_mm_loadu_si128(&delta.lo)),
         _mm256_broadcastsi128_si256(_mm_loadu_si128(&delta.hi)),
@@ -510,8 +516,8 @@ pub fn mul_elementwise_assign_avx2(token: archmage::X64V3Token, dst: &mut [u8], 
     for (dst_lane, y_lane) in dst_lanes.iter_mut().zip(src_lanes) {
         let x = _mm256_loadu_si256(&*dst_lane);
         let y = _mm256_loadu_si256(y_lane);
-        let direct = gf8::multiply_vectors_avx2(x, y, AES_REDUCTION);
-        let crossed = gf8::multiply_vectors_avx2(x, _mm256_shuffle_epi8(y, swap), AES_REDUCTION);
+        let direct = gf8::multiply_vectors_avx2(x, y, reduction);
+        let crossed = gf8::multiply_vectors_avx2(x, _mm256_shuffle_epi8(y, swap), reduction);
         let delta_bd = scale_delta(
             _mm256_shuffle_epi8(direct, swap),
             delta_lo,
@@ -528,5 +534,5 @@ pub fn mul_elementwise_assign_avx2(token: archmage::X64V3Token, dst: &mut [u8], 
         _mm256_storeu_si256(dst_lane, product);
     }
     // AVX2 implies SSSE3, and the remainders keep equal lengths.
-    mul_elementwise_assign_ssse3(token.v2(), dst_rest, src_rest);
+    mul_elementwise_assign_ssse3(token.v2(), dst_rest, src_rest, delta, reduction);
 }

@@ -4,7 +4,7 @@
 //! field multiplies directly with `GF2P8MULB`.
 
 use super::super::{check_elements, swap_mask_avx2};
-use crate::field::gf16::Elem;
+use crate::kernel::gf16::tail_product;
 
 /// `dst[i] = a[i] * b[i]` over interleaved tower elements using GFNI.
 ///
@@ -17,6 +17,8 @@ pub fn mul_elementwise_gfni(
     dst: &mut [u8],
     a: &[u8],
     b: &[u8],
+    b_raw: u8,
+    reduction: u8,
 ) {
     check_elements("gf16::mul_elementwise_gfni", dst.len());
     assert_eq!(
@@ -35,7 +37,7 @@ pub fn mul_elementwise_gfni(
     );
     let swap = swap_mask_avx2();
     let even = _mm256_set1_epi16(0x00ff);
-    let delta_even = _mm256_set1_epi16(i16::from_ne_bytes([crate::field::gf16::DELTA.0, 0]));
+    let delta_even = _mm256_set1_epi16(i16::from_ne_bytes([b_raw, 0]));
     let (a_lanes, a_rest) = a.as_chunks::<32>();
     let (b_lanes, b_rest) = b.as_chunks::<32>();
     let (dst_lanes, dst_rest) = dst.as_chunks_mut::<32>();
@@ -57,16 +59,11 @@ pub fn mul_elementwise_gfni(
         );
         _mm256_storeu_si256(dst_lane, product);
     }
-    for ((d, x), y) in dst_rest
+    for (d, (x, y)) in dst_rest
         .chunks_exact_mut(2)
-        .zip(a_rest.chunks_exact(2))
-        .zip(b_rest.chunks_exact(2))
+        .zip(a_rest.chunks_exact(2).zip(b_rest.chunks_exact(2)))
     {
-        d.copy_from_slice(
-            &Elem::from_bytes([x[0], x[1]])
-                .mul(Elem::from_bytes([y[0], y[1]]))
-                .to_bytes(),
-        );
+        d.copy_from_slice(&tail_product([x[0], x[1]], [y[0], y[1]], b_raw, reduction));
     }
 }
 
@@ -80,6 +77,8 @@ pub fn mul_elementwise_assign_gfni(
     _token: archmage::X64V3GfniCryptoToken,
     dst: &mut [u8],
     src: &[u8],
+    b_raw: u8,
+    reduction: u8,
 ) {
     check_elements("gf16::mul_elementwise_assign_gfni", dst.len());
     assert_eq!(
@@ -91,7 +90,7 @@ pub fn mul_elementwise_assign_gfni(
     );
     let swap = swap_mask_avx2();
     let even = _mm256_set1_epi16(0x00ff);
-    let delta_even = _mm256_set1_epi16(i16::from_ne_bytes([crate::field::gf16::DELTA.0, 0]));
+    let delta_even = _mm256_set1_epi16(i16::from_ne_bytes([b_raw, 0]));
     let (src_lanes, src_rest) = src.as_chunks::<32>();
     let (dst_lanes, dst_rest) = dst.as_chunks_mut::<32>();
     for (dst_lane, y_lane) in dst_lanes.iter_mut().zip(src_lanes) {
@@ -110,11 +109,7 @@ pub fn mul_elementwise_assign_gfni(
         _mm256_storeu_si256(dst_lane, product);
     }
     for (d, y) in dst_rest.chunks_exact_mut(2).zip(src_rest.chunks_exact(2)) {
-        let x = [d[0], d[1]];
-        d.copy_from_slice(
-            &Elem::from_bytes(x)
-                .mul(Elem::from_bytes([y[0], y[1]]))
-                .to_bytes(),
-        );
+        let product = tail_product([d[0], d[1]], [y[0], y[1]], b_raw, reduction);
+        d.copy_from_slice(&product);
     }
 }

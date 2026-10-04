@@ -4,8 +4,7 @@
 //! [`SOURCE_GROUP`] sources, whose broadcast pairs stay resident.
 
 use super::super::{broadcast_words, check_elements, swap_mask_avx2};
-use crate::field::gf16::Elem;
-use crate::kernel::gf16::mul_add_scalar;
+use crate::kernel::gf16::Coeffs;
 use crate::kernel::tables::TowerCoeff;
 
 use super::scale_gfni;
@@ -40,15 +39,15 @@ const SOURCE_GROUP: usize = 4;
 pub fn mul_add_gather_gfni(
     token: archmage::X64V3GfniCryptoToken,
     dst: &mut [u8],
-    coeffs: &[Elem],
+    coeffs: &(impl Coeffs + ?Sized),
     srcs: &[&[u8]],
 ) {
     check_elements("gf16::mul_add_gather_gfni", dst.len());
     assert_eq!(
-        coeffs.len(),
+        coeffs.count(),
         srcs.len(),
         "gf16::mul_add_gather_gfni: coefficients is {} but sources is {}",
-        coeffs.len(),
+        coeffs.count(),
         srcs.len(),
     );
     for (index, &src) in srcs.iter().enumerate() {
@@ -65,26 +64,24 @@ pub fn mul_add_gather_gfni(
     }
     let swap = swap_mask_avx2();
     let mut i = 0;
-    while i + SOURCE_GROUP <= coeffs.len() {
-        let mut group = [Elem(0); SOURCE_GROUP];
-        group.copy_from_slice(&coeffs[i..i + SOURCE_GROUP]);
+    while i + SOURCE_GROUP <= coeffs.count() {
+        let group: [TowerCoeff; SOURCE_GROUP] = core::array::from_fn(|k| coeffs.compact(i + k));
         let mut sources: [&[u8]; SOURCE_GROUP] = [&[]; SOURCE_GROUP];
         sources.copy_from_slice(&srcs[i..i + SOURCE_GROUP]);
-        gather_group(dst, group, sources, swap);
+        gather_group(token, dst, group, sources, swap);
         i += SOURCE_GROUP;
     }
-    if i + 2 <= coeffs.len() {
-        let mut group = [Elem(0); 2];
-        group.copy_from_slice(&coeffs[i..i + 2]);
+    if i + 2 <= coeffs.count() {
+        let group: [TowerCoeff; 2] = core::array::from_fn(|k| coeffs.compact(i + k));
         let mut sources: [&[u8]; 2] = [&[]; 2];
         sources.copy_from_slice(&srcs[i..i + 2]);
-        gather_group(dst, group, sources, swap);
+        gather_group(token, dst, group, sources, swap);
         i += 2;
     }
-    if i < coeffs.len() {
+    if i < coeffs.count() {
         // The unrolled single-coefficient kernel is the better shape for the
         // last source.
-        mul_add_gfni(token, dst, TowerCoeff::new(coeffs[i]), srcs[i]);
+        mul_add_gfni(token, dst, coeffs.compact(i), srcs[i]);
     }
 }
 
@@ -95,16 +92,17 @@ pub fn mul_add_gather_gfni(
 /// loop.
 #[archmage::rite(v3_gfni_crypto, import_intrinsics)]
 fn gather_group<const N: usize>(
+    token: archmage::X64V3GfniCryptoToken,
     dst: &mut [u8],
-    coeffs: [Elem; N],
+    coeffs: [TowerCoeff; N],
     srcs: [&[u8]; N],
     swap: __m256i,
 ) {
     let tail_start = dst.len() & !31;
     let mut same = [_mm256_setzero_si256(); N];
     let mut cross = [_mm256_setzero_si256(); N];
-    for (k, &coeff) in coeffs.iter().enumerate() {
-        let (same_word, cross_word) = broadcast_words(TowerCoeff::new(coeff));
+    for (k, coeff) in coeffs.iter().enumerate() {
+        let (same_word, cross_word) = broadcast_words(*coeff);
         same[k] = _mm256_set1_epi16(same_word);
         cross[k] = _mm256_set1_epi16(cross_word);
     }
@@ -121,7 +119,9 @@ fn gather_group<const N: usize>(
         _mm256_storeu_si256(dst_lane, acc);
     }
 
-    for (k, &coeff) in coeffs.iter().enumerate() {
-        mul_add_scalar(dst_tail, coeff, &srcs[k][tail_start..]);
+    if !dst_tail.is_empty() {
+        for (k, coeff) in coeffs.iter().enumerate() {
+            mul_add_gfni(token, dst_tail, *coeff, &srcs[k][tail_start..]);
+        }
     }
 }

@@ -14,16 +14,13 @@
 //! `X64V2Token`. The scatter and matrix group bodies are the sanctioned
 //! offset-addressed-rows residue.
 
-use super::{TERM_TILE, TableCoefficient, check_elements, swap_mask_ssse3};
-use crate::field::gf16::Elem;
-use crate::field::poly::AES;
-
-/// The low byte of the AES reduction polynomial, the one field the byte-lane
-/// varying-operand multiply helpers serve.
-const AES_REDUCTION: u8 = crate::field::poly::Poly::<AES>::REDUCTION_LOW;
+use super::{TERM_TILE, check_elements, swap_mask_ssse3};
 use crate::kernel::Matrix;
-use crate::kernel::gf16::{mul_add_scalar, mul_assign_scalar, mul_into_scalar};
-use crate::kernel::tables::{NibbleFactors, TowerTables, scale_table};
+use crate::kernel::gf16::{
+    Coeffs, mul_add_scalar, mul_assign_scalar, mul_into_scalar, tail_product,
+};
+use crate::kernel::proven_checks::check_terms;
+use crate::kernel::tables::{NibbleFactors, ScaleTable, TowerTables};
 use crate::kernel::x86::gf8;
 
 #[cfg(target_arch = "x86")]
@@ -127,7 +124,7 @@ pub fn mul_add_ssse3(
         let d = _mm_loadu_si128(&*dst_lane);
         _mm_storeu_si128(dst_lane, _mm_xor_si128(d, scale_ssse3(x, &vectors)));
     }
-    mul_add_scalar(dst_tail, tables.coeff, src_tail);
+    mul_add_scalar(dst_tail, tables, src_tail);
 }
 
 /// `dst = coeff * dst` with `PSHUFB` lookups over 16-byte lanes.
@@ -142,7 +139,7 @@ pub fn mul_assign_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], tables: &T
         let x = _mm_loadu_si128(&*dst_lane);
         _mm_storeu_si128(dst_lane, scale_ssse3(x, &vectors));
     }
-    mul_assign_scalar(dst_tail, tables.coeff);
+    mul_assign_scalar(dst_tail, tables);
 }
 
 /// `dst = coeff * src` with `PSHUFB` lookups over 16-byte lanes, out of place.
@@ -182,7 +179,7 @@ pub fn mul_into_ssse3(
         let x = _mm_loadu_si128(src_lane);
         _mm_storeu_si128(dst_lane, scale_ssse3(x, &vectors));
     }
-    mul_into_scalar(dst_tail, tables.coeff, src_tail);
+    mul_into_scalar(dst_tail, tables, src_tail);
 }
 
 /// One source into many rows using four SSSE3 table sets at a time.
@@ -197,11 +194,11 @@ pub fn mul_into_ssse3(
 #[allow(clippy::used_underscore_binding)]
 #[allow(unsafe_code)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_scatter_ssse3<C: TableCoefficient>(
+pub fn mul_add_scatter_ssse3(
     _token: archmage::X64V2Token,
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[C],
+    coeffs: &(impl Coeffs + ?Sized),
     src: &[u8],
 ) {
     check_elements("gf16::mul_add_scatter_ssse3", row_len);
@@ -212,16 +209,16 @@ pub fn mul_add_scatter_ssse3<C: TableCoefficient>(
         src.len(),
     );
     let used = coeffs
-        .len()
+        .count()
         .checked_mul(row_len)
         .expect("gf16::mul_add_scatter_ssse3: row geometry overflows");
     assert!(
         rows.len() >= used,
         "gf16::mul_add_scatter_ssse3: rows is {} bytes but {} rows of {row_len} bytes need {used}",
         rows.len(),
-        coeffs.len(),
+        coeffs.count(),
     );
-    if row_len == 0 || coeffs.is_empty() {
+    if row_len == 0 || coeffs.count() == 0 {
         return;
     }
     // SAFETY:
@@ -252,19 +249,18 @@ pub fn mul_add_scatter_ssse3<C: TableCoefficient>(
 /// `coeffs.len() * row_len`, and `src.len()` must equal `row_len`.
 #[allow(unsafe_code)]
 #[archmage::rite(v2)]
-unsafe fn scatter_rows<C: TableCoefficient>(
+unsafe fn scatter_rows(
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[C],
+    coeffs: &(impl Coeffs + ?Sized),
     src: &[u8],
 ) {
     let base = rows.as_mut_ptr();
     let src_ptr = src.as_ptr();
-    for group in (0..coeffs.len()).step_by(4) {
-        let count = (coeffs.len() - group).min(4);
-        let vectors: [NibbleSsse3; 4] = core::array::from_fn(|i| {
-            coeffs[group + i.min(count - 1)].with_tables(|tables| nibble_ssse3(tables))
-        });
+    for group in (0..coeffs.count()).step_by(4) {
+        let count = (coeffs.count() - group).min(4);
+        let vectors: [NibbleSsse3; 4] =
+            core::array::from_fn(|i| nibble_ssse3(&coeffs.resolved(group + i.min(count - 1))));
         let mut offset = 0;
         while offset + 16 <= row_len {
             // SAFETY:
@@ -306,7 +302,7 @@ unsafe fn scatter_rows<C: TableCoefficient>(
                     row_len - offset,
                 )
             };
-            mul_add_scalar(tail, coeffs[group + slot].coefficient(), &src[offset..]);
+            mul_add_scalar(tail, &coeffs.resolved(group + slot), &src[offset..]);
         }
     }
 }
@@ -318,18 +314,18 @@ unsafe fn scatter_rows<C: TableCoefficient>(
 /// in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_gather_ssse3<C: TableCoefficient>(
+pub fn mul_add_gather_ssse3(
     _token: archmage::X64V2Token,
     dst: &mut [u8],
-    coeffs: &[C],
+    coeffs: &(impl Coeffs + ?Sized),
     srcs: &[&[u8]],
 ) {
     check_elements("gf16::mul_add_gather_ssse3", dst.len());
     assert_eq!(
-        coeffs.len(),
+        coeffs.count(),
         srcs.len(),
         "gf16::mul_add_gather_ssse3: coefficients is {} but sources is {}",
-        coeffs.len(),
+        coeffs.count(),
         srcs.len(),
     );
     for (index, &src) in srcs.iter().enumerate() {
@@ -346,11 +342,10 @@ pub fn mul_add_gather_ssse3<C: TableCoefficient>(
     }
     let tail_start = dst.len() & !15;
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
-    for block in (0..coeffs.len()).step_by(TERM_TILE) {
-        let count = (coeffs.len() - block).min(TERM_TILE);
-        let vectors: [NibbleSsse3; TERM_TILE] = core::array::from_fn(|i| {
-            coeffs[block + i.min(count - 1)].with_tables(|tables| nibble_ssse3(tables))
-        });
+    for block in (0..coeffs.count()).step_by(TERM_TILE) {
+        let count = (coeffs.count() - block).min(TERM_TILE);
+        let vectors: [NibbleSsse3; TERM_TILE] =
+            core::array::from_fn(|i| nibble_ssse3(&coeffs.resolved(block + i.min(count - 1))));
         for (w, dst_lane) in dst_lanes.iter_mut().enumerate() {
             let mut acc = _mm_loadu_si128(&*dst_lane);
             for i in 0..count {
@@ -363,7 +358,7 @@ pub fn mul_add_gather_ssse3<C: TableCoefficient>(
         for i in 0..count {
             mul_add_scalar(
                 dst_tail,
-                coeffs[block + i].coefficient(),
+                &coeffs.resolved(block + i),
                 &srcs[block + i][tail_start..],
             );
         }
@@ -377,13 +372,15 @@ pub fn mul_add_gather_ssse3<C: TableCoefficient>(
 /// # Panics
 /// As [`mul_add_matrix_gfni`](super::mul_add_matrix_gfni).
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_ssse3(
+pub fn mul_add_matrix_ssse3<E>(
     token: archmage::X64V2Token,
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[Elem], &[u8])],
-) {
+    terms: &[(&[E], &[u8])],
+) where
+    for<'a> [(&'a [E], &'a [u8])]: Matrix<TowerTables>,
+{
     check_elements("gf16::mul_add_matrix_ssse3", row_len);
     let used = nrows
         .checked_mul(row_len)
@@ -393,20 +390,7 @@ pub fn mul_add_matrix_ssse3(
         "gf16::mul_add_matrix_ssse3: rows is {} bytes but {nrows} rows of {row_len} bytes need {used}",
         rows.len(),
     );
-    for (t, &(coeffs, src)) in terms.iter().enumerate() {
-        assert_eq!(
-            coeffs.len(),
-            nrows,
-            "gf16::mul_add_matrix_ssse3: term {t} coefficients is {} but rows is {nrows}",
-            coeffs.len(),
-        );
-        assert_eq!(
-            src.len(),
-            row_len,
-            "gf16::mul_add_matrix_ssse3: term {t} source is {} bytes but row_len is {row_len} bytes",
-            src.len(),
-        );
-    }
+    check_terms("gf16::mul_add_matrix_ssse3", row_len, nrows, terms);
     if row_len == 0 || nrows == 0 || terms.is_empty() {
         return;
     }
@@ -423,7 +407,7 @@ pub fn mul_add_matrix_ssse3(
 #[allow(clippy::used_underscore_binding)]
 #[allow(unsafe_code)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_ssse3_with<C: TableCoefficient, M: Matrix<C> + ?Sized>(
+pub fn mul_add_matrix_ssse3_with<M: Matrix<TowerTables> + ?Sized>(
     _token: archmage::X64V2Token,
     rows: &mut [u8],
     row_len: usize,
@@ -481,7 +465,7 @@ pub fn mul_add_matrix_ssse3_with<C: TableCoefficient, M: Matrix<C> + ?Sized>(
 /// `span` must be at most `row_len` and at most every term's source length.
 #[allow(unsafe_code)]
 #[archmage::rite(v2)]
-unsafe fn matrix_rows<C: TableCoefficient, M: Matrix<C> + ?Sized>(
+unsafe fn matrix_rows<M: Matrix<TowerTables> + ?Sized>(
     rows: &mut [u8],
     row_len: usize,
     span: usize,
@@ -494,13 +478,15 @@ unsafe fn matrix_rows<C: TableCoefficient, M: Matrix<C> + ?Sized>(
         let row_count = (nrows - group).min(4);
         for block in (0..terms.len()).step_by(TERM_TILE) {
             let term_count = (terms.len() - block).min(TERM_TILE);
-            let vectors: [[NibbleSsse3; 4]; TERM_TILE] = core::array::from_fn(|t| {
-                core::array::from_fn(|r| {
-                    terms
-                        .coefficient(block + t.min(term_count - 1), group + r.min(row_count - 1))
-                        .with_tables(|tables| nibble_ssse3(tables))
-                })
-            });
+            let vectors: [[NibbleSsse3; 4]; TERM_TILE] =
+                core::array::from_fn(|t| {
+                    core::array::from_fn(|r| {
+                        nibble_ssse3(&terms.coefficient(
+                            block + t.min(term_count - 1),
+                            group + r.min(row_count - 1),
+                        ))
+                    })
+                });
             let mut offset = 0;
             while offset < vector_len {
                 // SAFETY:
@@ -555,7 +541,7 @@ unsafe fn matrix_rows<C: TableCoefficient, M: Matrix<C> + ?Sized>(
                 for term in block..block + term_count {
                     mul_add_scalar(
                         tail,
-                        terms.coefficient(term, group + r).coefficient(),
+                        &terms.coefficient(term, group + r),
                         &terms.source(term)[vector_len..],
                     );
                 }
@@ -579,7 +565,14 @@ fn scale_delta(v: __m128i, lo: __m128i, hi: __m128i, nibble: __m128i) -> __m128i
 /// Panics unless all three buffers match in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], a: &[u8], b: &[u8]) {
+pub fn mul_elementwise_ssse3(
+    _token: archmage::X64V2Token,
+    dst: &mut [u8],
+    a: &[u8],
+    b: &[u8],
+    delta: &'static ScaleTable,
+    reduction: u8,
+) {
     check_elements("gf16::mul_elementwise_ssse3", dst.len());
     assert_eq!(
         dst.len(),
@@ -598,7 +591,6 @@ pub fn mul_elementwise_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], a: &[
     let swap = swap_mask_ssse3();
     let even = _mm_set1_epi16(0x00ff);
     let nibble = _mm_set1_epi8(0x0f);
-    let delta = scale_table(crate::field::gf16::DELTA);
     let (delta_lo, delta_hi) = (_mm_loadu_si128(&delta.lo), _mm_loadu_si128(&delta.hi));
     let (a_lanes, a_rest) = a.as_chunks::<16>();
     let (b_lanes, b_rest) = b.as_chunks::<16>();
@@ -606,8 +598,8 @@ pub fn mul_elementwise_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], a: &[
     for ((dst_lane, x_lane), y_lane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
         let x = _mm_loadu_si128(x_lane);
         let y = _mm_loadu_si128(y_lane);
-        let direct = gf8::multiply_vectors_ssse3(x, y, AES_REDUCTION);
-        let crossed = gf8::multiply_vectors_ssse3(x, _mm_shuffle_epi8(y, swap), AES_REDUCTION);
+        let direct = gf8::multiply_vectors_ssse3(x, y, reduction);
+        let crossed = gf8::multiply_vectors_ssse3(x, _mm_shuffle_epi8(y, swap), reduction);
         let delta_bd = scale_delta(_mm_shuffle_epi8(direct, swap), delta_lo, delta_hi, nibble);
         let constant = _mm_xor_si128(direct, delta_bd);
         let cross_sum = _mm_xor_si128(crossed, _mm_shuffle_epi8(crossed, swap));
@@ -618,16 +610,16 @@ pub fn mul_elementwise_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], a: &[
         );
         _mm_storeu_si128(dst_lane, product);
     }
-    for ((d, x), y) in dst_rest
+    for (d, (x, y)) in dst_rest
         .chunks_exact_mut(2)
-        .zip(a_rest.chunks_exact(2))
-        .zip(b_rest.chunks_exact(2))
+        .zip(a_rest.chunks_exact(2).zip(b_rest.chunks_exact(2)))
     {
-        d.copy_from_slice(
-            &Elem::from_bytes([x[0], x[1]])
-                .mul(Elem::from_bytes([y[0], y[1]]))
-                .to_bytes(),
-        );
+        d.copy_from_slice(&tail_product(
+            [x[0], x[1]],
+            [y[0], y[1]],
+            delta.coeff,
+            reduction,
+        ));
     }
 }
 
@@ -637,7 +629,13 @@ pub fn mul_elementwise_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], a: &[
 /// Panics if the slices differ in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_assign_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], src: &[u8]) {
+pub fn mul_elementwise_assign_ssse3(
+    _token: archmage::X64V2Token,
+    dst: &mut [u8],
+    src: &[u8],
+    delta: &'static ScaleTable,
+    reduction: u8,
+) {
     check_elements("gf16::mul_elementwise_assign_ssse3", dst.len());
     assert_eq!(
         dst.len(),
@@ -649,15 +647,14 @@ pub fn mul_elementwise_assign_ssse3(_token: archmage::X64V2Token, dst: &mut [u8]
     let swap = swap_mask_ssse3();
     let even = _mm_set1_epi16(0x00ff);
     let nibble = _mm_set1_epi8(0x0f);
-    let delta = scale_table(crate::field::gf16::DELTA);
     let (delta_lo, delta_hi) = (_mm_loadu_si128(&delta.lo), _mm_loadu_si128(&delta.hi));
     let (src_lanes, src_rest) = src.as_chunks::<16>();
     let (dst_lanes, dst_rest) = dst.as_chunks_mut::<16>();
     for (dst_lane, y_lane) in dst_lanes.iter_mut().zip(src_lanes) {
         let x = _mm_loadu_si128(&*dst_lane);
         let y = _mm_loadu_si128(y_lane);
-        let direct = gf8::multiply_vectors_ssse3(x, y, AES_REDUCTION);
-        let crossed = gf8::multiply_vectors_ssse3(x, _mm_shuffle_epi8(y, swap), AES_REDUCTION);
+        let direct = gf8::multiply_vectors_ssse3(x, y, reduction);
+        let crossed = gf8::multiply_vectors_ssse3(x, _mm_shuffle_epi8(y, swap), reduction);
         let delta_bd = scale_delta(_mm_shuffle_epi8(direct, swap), delta_lo, delta_hi, nibble);
         let constant = _mm_xor_si128(direct, delta_bd);
         let cross_sum = _mm_xor_si128(crossed, _mm_shuffle_epi8(crossed, swap));
@@ -669,11 +666,7 @@ pub fn mul_elementwise_assign_ssse3(_token: archmage::X64V2Token, dst: &mut [u8]
         _mm_storeu_si128(dst_lane, product);
     }
     for (d, y) in dst_rest.chunks_exact_mut(2).zip(src_rest.chunks_exact(2)) {
-        let x = [d[0], d[1]];
-        d.copy_from_slice(
-            &Elem::from_bytes(x)
-                .mul(Elem::from_bytes([y[0], y[1]]))
-                .to_bytes(),
-        );
+        let product = tail_product([d[0], d[1]], [y[0], y[1]], delta.coeff, reduction);
+        d.copy_from_slice(&product);
     }
 }

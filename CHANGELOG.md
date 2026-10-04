@@ -44,6 +44,33 @@ All notable changes to this project are documented here. The format follows
   byte representation. Existing AES and Reed–Solomon encodings, generators,
   and tables are unchanged. Paired public-operation measurements are
   recorded in [`benchmarks/gf8.md`](benchmarks/gf8.md).
+- **Breaking:** the GF(2^16) tower names its representation. `gf16::Gf16`
+  and `gf16::Elem` become aliases of `Gf<16, Tower<RijndaelTower>>` and
+  `Elem<16, Tower<RijndaelTower>>`, where `Tower<S>` is the quadratic
+  tower representation pinned by a sealed `TowerSpec`. `RijndaelTower` is
+  the existing field: base `Poly<AES>`, relation `u^2 + u + 0x20`, pinned
+  generator `0x0108`. `Tower`, `TowerSpec`, and `RijndaelTower` are
+  re-exported at the crate root. Migrating: `Gf16` and `gf16::Elem`
+  spellings and their inherent API keep compiling unchanged; only the
+  `Debug` output of GF(2^16) elements changes, to the generic element
+  format (field name and raw word). Wire bytes, the generator, and the
+  relation are unchanged.
+- **Breaking:** the unstable GF(2^16) kernel surface is
+  representation-erased. `TowerCoeff` carries the raw coefficient word and
+  the two broadcast words, and `TowerTables` the raw word and four nibble
+  tables; both are built with `TowerCoeff::new` / `TowerTables::new`
+  (representation inferred from the element). `internals::kernel::gf16::Prepared`
+  carries those raw-erased payloads, with `Plain(u16)`. The scatter,
+  gather, and matrix entries take coefficients through provider forms: an
+  element slice (`&[Elem<16, Tower<S>>]`, resolved on access), a
+  materialized `&[TowerTables]`, or a matrix provider — `Matrix<TowerCoeff>`
+  for the GFNI and AVX-512 entries, `Matrix<TowerTables>` for the shuffle
+  entries — such as `FlatMatrix`, `gf16::FlatResolved`, or element-slice
+  pairs. The elementwise entries take the relation's constant byte and the
+  base reduction byte as explicit arguments. On GFNI tiers a non-AES base
+  routes to the AVX2 tables kernels and `backend_for` reports that tier; a
+  tower whose relation has a non-unit linear coefficient runs elementwise
+  on the scalar path.
 - **Breaking:** the unstable byte-kernel surface uses one entry per
   operation and ISA, representation-erased. The GFNI and AVX-512
   fixed-coefficient entries take `internals::kernel::gf8::Prepared` — now

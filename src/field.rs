@@ -34,7 +34,7 @@ pub use mersenne31::Mersenne31;
 pub use poly::{AES, Poly, REED_SOLOMON};
 pub use quad_mersenne31::QuadMersenne31;
 pub use repr::{ByteRepr, Elem, Gf, Gf8, Repr};
-pub use tower::{gf16, gf32, gf64};
+pub use tower::{RijndaelTower, Tower, TowerSpec, gf16, gf32, gf64};
 /// Scalar arithmetic over a finite field.
 /// In characteristic two — every binary field in this crate, GF(2)
 /// included — addition and subtraction are the same operation (XOR) and

@@ -32,8 +32,10 @@
 
 use core::arch::aarch64::*;
 
-use crate::field::gf16::Elem;
-use crate::kernel::gf16::{mul_add_scalar, mul_assign_scalar, mul_into_scalar};
+use crate::kernel::Matrix;
+use crate::kernel::gf16::{
+    CoeffKind, Coeffs, mul_add_scalar, mul_assign_scalar, mul_into_scalar, tail_product,
+};
 use crate::kernel::proven_checks::{check_equal, check_row_span, check_terms};
 use crate::kernel::tables::TowerTables;
 
@@ -213,11 +215,7 @@ fn mul_add_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
         vst1q_u8(d, veorq_u8(cur, p));
     }
 
-    mul_add_scalar(
-        &mut dst[vector_len..span],
-        tables.coeff,
-        &src[vector_len..span],
-    );
+    mul_add_scalar(&mut dst[vector_len..span], tables, &src[vector_len..span]);
 }
 
 /// `dst = coeff * dst` over interleaved GF(2^16) elements.
@@ -251,7 +249,7 @@ fn mul_assign_impl(dst: &mut [u8], tables: &TowerTables) {
         vst1q_u8(d, scaled_vector(vld1q_u8(&*d), &factors));
     }
 
-    mul_assign_scalar(&mut dst[vector_len..], tables.coeff);
+    mul_assign_scalar(&mut dst[vector_len..], tables);
 }
 
 /// `dst = coeff * src` out of place, two 16-byte lanes at a time.
@@ -299,11 +297,7 @@ fn mul_into_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
         vst1q_u8(d, scaled_vector(vld1q_u8(s), &factors));
     }
 
-    mul_into_scalar(
-        &mut dst[vector_len..span],
-        tables.coeff,
-        &src[vector_len..span],
-    );
+    mul_into_scalar(&mut dst[vector_len..span], tables, &src[vector_len..span]);
 }
 
 /// `row ^= src`, the whole job when a scattered coefficient is one.
@@ -373,11 +367,14 @@ unsafe fn scatter_group<const N: usize>(
     base: *mut u8,
     span: usize,
     starts: [usize; N],
-    factors: [Factors; N],
-    coeffs: [Elem; N],
+    group: [TowerTables; N],
     src: &[u8],
 ) {
     let len = span & !15;
+    let mut factors = [empty_factors(); N];
+    for (factor, tables) in factors.iter_mut().zip(&group) {
+        *factor = load_factors(tables);
+    }
     let src_ptr = src.as_ptr();
     let mut offset = 0;
     while offset < len {
@@ -398,7 +395,7 @@ unsafe fn scatter_group<const N: usize>(
         }
         offset += 16;
     }
-    for (&start, &coeff) in starts.iter().zip(&coeffs) {
+    for (&start, tables) in starts.iter().zip(&group) {
         // SAFETY:
         // MEMORY VALIDITY
         // SINCE: `start + len..start + span` is the in-bounds tail of one
@@ -409,7 +406,7 @@ unsafe fn scatter_group<const N: usize>(
         //        iteration.
         // THUS: the tail `&mut` is unique.
         let tail = unsafe { core::slice::from_raw_parts_mut(base.add(start + len), span - len) };
-        mul_add_scalar(tail, coeff, &src[len..span]);
+        mul_add_scalar(tail, tables, &src[len..span]);
     }
 }
 
@@ -427,7 +424,7 @@ pub fn mul_add_scatter_neon(
     _token: archmage::NeonToken,
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[Elem],
+    coeffs: &(impl Coeffs + ?Sized),
     src: &[u8],
 ) {
     check_equal(
@@ -441,9 +438,9 @@ pub fn mul_add_scatter_neon(
         "gf16::mul_add_scatter_neon",
         rows.len(),
         row_len,
-        coeffs.len(),
+        coeffs.count(),
     );
-    if row_len == 0 || coeffs.is_empty() || src.is_empty() {
+    if row_len == 0 || coeffs.count() == 0 || src.is_empty() {
         return;
     }
     // SAFETY:
@@ -470,8 +467,13 @@ pub fn mul_add_scatter_neon(
 /// THUS: the row groups below never alias each other.
 #[allow(unsafe_code)]
 #[archmage::rite(neon, import_intrinsics)]
-unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
-    let nrows = coeffs.len().min(rows.len() / row_len);
+unsafe fn mul_add_scatter_impl(
+    rows: &mut [u8],
+    row_len: usize,
+    coeffs: &(impl Coeffs + ?Sized),
+    src: &[u8],
+) {
+    let nrows = coeffs.count().min(rows.len() / row_len);
     let span = row_len.min(src.len());
     let base = rows.as_mut_ptr();
 
@@ -479,16 +481,15 @@ unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem],
     // rows drop out entirely and unit rows degenerate to a plain XOR, both
     // of which are common in coding matrices.
     let mut starts = [0usize; 4];
-    let mut factors = [empty_factors(); 4];
-    let mut group = [Elem::ZERO; 4];
+    let mut group = [TowerTables::zero(); 4];
     let mut count = 0usize;
 
-    for (j, &coeff) in coeffs.iter().take(nrows).enumerate() {
-        if coeff == Elem::ZERO {
+    for j in 0..nrows {
+        if coeffs.kind(j) == CoeffKind::Zero {
             continue;
         }
         let start = j * row_len;
-        if coeff == Elem::ONE {
+        if coeffs.kind(j) == CoeffKind::One {
             // SAFETY:
             // MEMORY VALIDITY
             // SINCE: `j < nrows <= rows.len() / row_len`, so this row spans
@@ -498,9 +499,9 @@ unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem],
             unsafe { xor_row(base.add(start), span, src) };
             continue;
         }
+        let tables = coeffs.resolved(j);
         starts[count] = start;
-        factors[count] = load_factors(&TowerTables::new(coeff));
-        group[count] = coeff;
+        group[count] = tables;
         count += 1;
         if count == 4 {
             // SAFETY:
@@ -511,7 +512,7 @@ unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem],
             // ALIASING
             // SINCE: distinct multiples of `row_len` name disjoint spans.
             // THUS: the groups never alias.
-            unsafe { scatter_group::<4>(base, span, starts, factors, group, src) };
+            unsafe { scatter_group::<4>(base, span, starts, group, src) };
             count = 0;
         }
     }
@@ -520,14 +521,13 @@ unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem],
         // SAFETY (every arm): same bounds and disjointness argument as the
         // full group above, over the leading `count` slots.
         1 => unsafe {
-            scatter_group::<1>(base, span, [starts[0]], [factors[0]], [group[0]], src);
+            scatter_group::<1>(base, span, [starts[0]], [group[0]], src);
         },
         2 => unsafe {
             scatter_group::<2>(
                 base,
                 span,
                 [starts[0], starts[1]],
-                [factors[0], factors[1]],
                 [group[0], group[1]],
                 src,
             );
@@ -537,7 +537,6 @@ unsafe fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem],
                 base,
                 span,
                 [starts[0], starts[1], starts[2]],
-                [factors[0], factors[1], factors[2]],
                 [group[0], group[1], group[2]],
                 src,
             );
@@ -579,28 +578,31 @@ enum Mode {
 /// THUS: no store below aliases another row's load.
 #[allow(unsafe_code)]
 #[archmage::rite(neon)]
-unsafe fn matrix_group<const N: usize>(
+unsafe fn matrix_group<const N: usize, E>(
     base: *mut u8,
     span: usize,
     starts: [usize; N],
     g: usize,
-    terms: &[(&[Elem], &[u8])],
-) {
+    terms: &[(&[E], &[u8])],
+) where
+    for<'a> [(&'a [E], &'a [u8])]: Matrix<TowerTables>,
+{
     let len = span & !15;
 
     for block in terms.chunks(TERM_BLOCK) {
+        let block_start = terms.len() - block.len();
         let mut cache = [[empty_factors(); N]; TERM_BLOCK];
         let mut modes = [[Mode::Skip; N]; TERM_BLOCK];
-        for ((&(coeffs, _), slots), kinds) in block.iter().zip(&mut cache).zip(&mut modes) {
-            let group = &coeffs[g..g + N];
-            for ((slot, kind), &coeff) in slots.iter_mut().zip(kinds.iter_mut()).zip(group) {
-                *kind = if coeff == Elem::ZERO {
-                    Mode::Skip
-                } else if coeff == Elem::ONE {
-                    Mode::Xor
-                } else {
-                    *slot = load_factors(&TowerTables::new(coeff));
-                    Mode::Mul
+        for t in 0..block.len() {
+            for k in 0..N {
+                let tables = terms.coefficient(block_start + t, g + k);
+                modes[t][k] = match CoeffKind::of(&tables) {
+                    CoeffKind::Zero => Mode::Skip,
+                    CoeffKind::One => Mode::Xor,
+                    CoeffKind::General => {
+                        cache[t][k] = load_factors(&tables);
+                        Mode::Mul
+                    }
                 };
             }
         }
@@ -664,8 +666,9 @@ unsafe fn matrix_group<const N: usize>(
                 // THUS: the tail `&mut` is unique.
                 let tail =
                     unsafe { core::slice::from_raw_parts_mut(base.add(start + len), span - len) };
-                for &(coeffs, src) in block {
-                    mul_add_scalar(tail, coeffs[g + k], &src[len..span]);
+                for t in 0..block.len() {
+                    let tables = terms.coefficient(block_start + t, g + k);
+                    mul_add_scalar(tail, &tables, &block[t].1[len..span]);
                 }
             }
         }
@@ -683,13 +686,15 @@ unsafe fn matrix_group<const N: usize>(
 #[allow(unsafe_code)]
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_matrix_neon(
+pub fn mul_add_matrix_neon<E>(
     _token: archmage::NeonToken,
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[Elem], &[u8])],
-) {
+    terms: &[(&[E], &[u8])],
+) where
+    for<'a> [(&'a [E], &'a [u8])]: Matrix<TowerTables>,
+{
     check_row_span("gf16::mul_add_matrix_neon", rows.len(), row_len, nrows);
     check_terms("gf16::mul_add_matrix_neon", row_len, nrows, terms);
     if row_len == 0 || nrows == 0 || terms.is_empty() {
@@ -717,16 +722,17 @@ pub fn mul_add_matrix_neon(
 /// THUS: the accumulator stores never alias a source or another row.
 #[allow(unsafe_code)]
 #[archmage::rite(neon, import_intrinsics)]
-unsafe fn mul_add_matrix_impl(
+unsafe fn mul_add_matrix_impl<E>(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[Elem], &[u8])],
-) {
-    let mut count = nrows.min(rows.len() / row_len);
+    terms: &[(&[E], &[u8])],
+) where
+    for<'a> [(&'a [E], &'a [u8])]: Matrix<TowerTables>,
+{
+    let count = nrows.min(rows.len() / row_len);
     let mut span = row_len;
-    for &(coeffs, src) in terms {
-        count = count.min(coeffs.len());
+    for &(_, src) in terms {
         span = span.min(src.len());
     }
     if count == 0 || span == 0 {
@@ -750,19 +756,19 @@ unsafe fn mul_add_matrix_impl(
         // ALIASING
         // SINCE: distinct multiples of `row_len` name disjoint spans.
         // THUS: the groups never alias.
-        unsafe { matrix_group::<4>(base, span, starts, g, terms) };
+        unsafe { matrix_group::<4, _>(base, span, starts, g, terms) };
         g += 4;
     }
 
     match count - g {
         // SAFETY (every arm): same bounds and disjointness argument as the
         // full group above, over the `count - g` rows that remain.
-        1 => unsafe { matrix_group::<1>(base, span, [g * row_len], g, terms) },
+        1 => unsafe { matrix_group::<1, _>(base, span, [g * row_len], g, terms) },
         2 => unsafe {
-            matrix_group::<2>(base, span, [g * row_len, (g + 1) * row_len], g, terms);
+            matrix_group::<2, _>(base, span, [g * row_len, (g + 1) * row_len], g, terms);
         },
         3 => unsafe {
-            matrix_group::<3>(
+            matrix_group::<3, _>(
                 base,
                 span,
                 [g * row_len, (g + 1) * row_len, (g + 2) * row_len],
@@ -793,13 +799,13 @@ unsafe fn mul_add_matrix_impl(
 pub fn mul_add_gather_neon(
     _token: archmage::NeonToken,
     dst: &mut [u8],
-    coeffs: &[Elem],
+    coeffs: &(impl Coeffs + ?Sized),
     srcs: &[&[u8]],
 ) {
     check_equal(
         "gf16::mul_add_gather_neon",
         "coefficients",
-        coeffs.len(),
+        coeffs.count(),
         "sources",
         srcs.len(),
     );
@@ -819,14 +825,14 @@ pub fn mul_add_gather_neon(
 }
 
 #[archmage::rite(neon, import_intrinsics)]
-fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+fn mul_add_gather_impl(dst: &mut [u8], coeffs: &(impl Coeffs + ?Sized), srcs: &[&[u8]]) {
     let vector_len = dst.len() & !15;
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
-    for block in (0..coeffs.len()).step_by(TERM_BLOCK) {
-        let count = (coeffs.len() - block).min(TERM_BLOCK);
+    for block in (0..coeffs.count()).step_by(TERM_BLOCK) {
+        let count = (coeffs.count() - block).min(TERM_BLOCK);
         let mut factors = [empty_factors(); TERM_BLOCK];
         for i in 0..count {
-            factors[i] = load_factors(&TowerTables::new(coeffs[block + i]));
+            factors[i] = load_factors(&coeffs.resolved(block + i));
         }
         for (t, d) in dst_lanes.iter_mut().enumerate() {
             let mut acc = vld1q_u8(&*d);
@@ -839,7 +845,11 @@ fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
             vst1q_u8(d, acc);
         }
         for i in 0..count {
-            mul_add_scalar(dst_tail, coeffs[block + i], &srcs[block + i][vector_len..]);
+            mul_add_scalar(
+                dst_tail,
+                &coeffs.resolved(block + i),
+                &srcs[block + i][vector_len..],
+            );
         }
     }
 }
@@ -851,10 +861,13 @@ fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
 /// vector primitive used by both supported fields.
 #[inline]
 #[archmage::rite(neon)]
-fn multiply_base_vectors(mut a: uint8x16_t, mut b: uint8x16_t) -> uint8x16_t {
+fn multiply_base_vectors(
+    mut a: uint8x16_t,
+    mut b: uint8x16_t,
+    reduction: uint8x16_t,
+) -> uint8x16_t {
     let one = vdupq_n_u8(1);
     let high_bit = vdupq_n_u8(0x80);
-    let reduction = vdupq_n_u8(0x1b);
     let mut product = vdupq_n_u8(0);
     for _ in 0..8 {
         let active = vceqq_u8(vandq_u8(b, one), one);
@@ -872,19 +885,25 @@ fn multiply_base_vectors(mut a: uint8x16_t, mut b: uint8x16_t) -> uint8x16_t {
 /// Panics unless all three buffers match in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_elementwise_neon(_token: archmage::NeonToken, dst: &mut [u8], a: &[u8], b: &[u8]) {
+pub fn mul_elementwise_neon(
+    _token: archmage::NeonToken,
+    dst: &mut [u8],
+    a: &[u8],
+    b: &[u8],
+    b_raw: u8,
+    reduction: u8,
+) {
     check_equal("gf16::mul_elementwise_neon", "dst", dst.len(), "a", a.len());
     check_equal("gf16::mul_elementwise_neon", "dst", dst.len(), "b", b.len());
-    elementwise_impl(dst, a, b);
+    elementwise_impl(dst, a, b, b_raw, reduction);
 }
 
 #[archmage::rite(neon, import_intrinsics)]
-fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
+fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8], b_raw: u8, reduction: u8) {
     let even = vreinterpretq_u8_u16(vdupq_n_u16(0x00ff));
-    let delta_even = vreinterpretq_u8_u16(vdupq_n_u16(u16::from_le_bytes([
-        crate::field::gf16::DELTA.0,
-        0,
-    ])));
+    let delta_even = vreinterpretq_u8_u16(vdupq_n_u16(u16::from_le_bytes([b_raw, 0])));
+    let reduction_byte = reduction;
+    let reduction = vdupq_n_u8(reduction);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
     let (a_lanes, a_tail) = a.as_chunks::<16>();
     let (b_lanes, b_tail) = b.as_chunks::<16>();
@@ -894,22 +913,18 @@ fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         // extension = ad ^ bc ^ bd.
         let xv = vld1q_u8(x);
         let yv = vld1q_u8(y);
-        let direct = multiply_base_vectors(xv, yv);
-        let crossed = multiply_base_vectors(xv, vrev16q_u8(yv));
-        let delta_bd = multiply_base_vectors(vrev16q_u8(direct), delta_even);
+        let direct = multiply_base_vectors(xv, yv, reduction);
+        let crossed = multiply_base_vectors(xv, vrev16q_u8(yv), reduction);
+        let delta_bd = multiply_base_vectors(vrev16q_u8(direct), delta_even, reduction);
         let constant = veorq_u8(direct, delta_bd);
         let extension = veorq_u8(veorq_u8(crossed, vrev16q_u8(crossed)), direct);
         vst1q_u8(d, vbslq_u8(even, constant, extension));
     }
-    for ((d, x), y) in dst_tail
+    for (d, (x, y)) in dst_tail
         .chunks_exact_mut(2)
-        .zip(a_tail.chunks_exact(2))
-        .zip(b_tail.chunks_exact(2))
+        .zip(a_tail.chunks_exact(2).zip(b_tail.chunks_exact(2)))
     {
-        d.copy_from_slice(
-            &Elem::from_bytes([x[0], x[1]])
-                .mul(Elem::from_bytes([y[0], y[1]]))
-                .to_bytes(),
-        );
+        let product = tail_product([x[0], x[1]], [y[0], y[1]], b_raw, reduction_byte);
+        d.copy_from_slice(&product);
     }
 }

@@ -27,8 +27,10 @@
 
 use core::arch::wasm32::*;
 
-use crate::field::gf16::{Elem, Gf16};
-use crate::kernel::gf16::{mul_add_scalar, mul_assign_scalar, mul_into_scalar};
+use crate::kernel::Matrix;
+use crate::kernel::gf16::{
+    CoeffKind, Coeffs, mul_add_scalar, mul_assign_scalar, mul_into_scalar, tail_product,
+};
 use crate::kernel::proven_checks::{check_equal, check_row_span, check_terms};
 use crate::kernel::tables::TowerTables;
 use crate::kernel::wasm32::gf8::multiply_vectors;
@@ -148,11 +150,7 @@ fn mul_add_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
         v128_store(d, v128_xor(cur, scaled(v128_load(s), factors)));
     }
 
-    mul_add_scalar(
-        &mut dst[vector_len..span],
-        tables.coeff,
-        &src[vector_len..span],
-    );
+    mul_add_scalar(&mut dst[vector_len..span], tables, &src[vector_len..span]);
 }
 
 /// `dst = coeff * dst` over interleaved tower elements.
@@ -185,7 +183,7 @@ fn mul_assign_impl(dst: &mut [u8], tables: &TowerTables) {
         v128_store(d, scaled(v128_load(&*d), factors));
     }
 
-    mul_assign_scalar(&mut dst[vector_len..], tables.coeff);
+    mul_assign_scalar(&mut dst[vector_len..], tables);
 }
 
 /// `dst = coeff * src` out of place over interleaved tower elements.
@@ -234,11 +232,7 @@ fn mul_into_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
         v128_store(d, scaled(v128_load(s), factors));
     }
 
-    mul_into_scalar(
-        &mut dst[vector_len..span],
-        tables.coeff,
-        &src[vector_len..span],
-    );
+    mul_into_scalar(&mut dst[vector_len..span], tables, &src[vector_len..span]);
 }
 
 /// `dst[i] = a[i] * b[i]` over interleaved tower elements.
@@ -247,7 +241,14 @@ fn mul_into_impl(dst: &mut [u8], tables: &TowerTables, src: &[u8]) {
 /// Panics unless all three buffers match in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_elementwise_simd128(_token: archmage::Wasm128Token, dst: &mut [u8], a: &[u8], b: &[u8]) {
+pub fn mul_elementwise_simd128(
+    _token: archmage::Wasm128Token,
+    dst: &mut [u8],
+    a: &[u8],
+    b: &[u8],
+    b_raw: u8,
+    reduction: u8,
+) {
     check_equal(
         "gf16::mul_elementwise_simd128",
         "dst",
@@ -262,15 +263,15 @@ pub fn mul_elementwise_simd128(_token: archmage::Wasm128Token, dst: &mut [u8], a
         "b",
         b.len(),
     );
-    elementwise_impl(dst, a, b)
+    elementwise_impl(dst, a, b, b_raw, reduction)
 }
 
 #[archmage::rite(wasm128, import_intrinsics)]
-fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
+fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8], b_raw: u8, reduction: u8) {
     let span = dst.len().min(a.len()).min(b.len());
     let vector_len = span & !15;
     let even = u16x8_splat(0x00ff);
-    let delta_even = u16x8_splat(u16::from_le_bytes([crate::field::gf16::DELTA.0, 0]));
+    let delta_even = u16x8_splat(u16::from_le_bytes([b_raw, 0]));
 
     let (dst_lanes, _) = dst[..vector_len].as_chunks_mut::<16>();
     let (a_lanes, _) = a[..vector_len].as_chunks::<16>();
@@ -286,63 +287,68 @@ fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         v128_store(d, v128_bitselect(constant, extension, even));
     }
 
-    crate::kernel::scalar::mul_elementwise::<Gf16>(
-        &mut dst[vector_len..span],
-        &a[vector_len..span],
-        &b[vector_len..span],
-    );
-}
-
-/// Which of the three cases a coefficient falls into.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    /// Coefficient zero: nothing to fold in.
-    Skip,
-    /// Coefficient one: a plain XOR, no swizzle and no tables.
-    Identity,
-    /// Anything else: the full eight-swizzle tower multiply.
-    Table,
+    for (d, (x, y)) in dst[vector_len..span].chunks_exact_mut(2).zip(
+        a[vector_len..span]
+            .chunks_exact(2)
+            .zip(b[vector_len..span].chunks_exact(2)),
+    ) {
+        d.copy_from_slice(&tail_product([x[0], x[1]], [y[0], y[1]], b_raw, reduction));
+    }
 }
 
 /// One coefficient resolved into the form the multi-row loops consume.
 ///
-/// Resolving is what the naive per-row loops kept redoing: `Kind::Skip` and
-/// `Kind::Identity` — both common in coding matrices — skip the four-table
-/// derivation entirely, and `Kind::Table` pays for it once per kernel call
-/// instead of once per `(term, row, block)`.
+/// Resolving is what the naive per-row loops kept redoing: the zero and one
+/// classes — both common in coding matrices — skip the four-table
+/// derivation entirely, and the general class pays for it once per kernel
+/// call instead of once per `(term, row, block)`.
 #[derive(Clone, Copy)]
 struct Scaling {
-    /// Lookup vectors. Meaningless unless `kind` is [`Kind::Table`].
+    /// Lookup vectors. Meaningless unless `kind` is [`CoeffKind::General`].
     factors: Factors,
-    /// The coefficient itself, for the element-aligned tail.
-    coeff: Elem,
-    /// The case this coefficient falls into.
-    kind: Kind,
+    /// The resolved tables, for the element-aligned tail.
+    tables: TowerTables,
+    /// The degenerate class this coefficient falls into.
+    kind: CoeffKind,
 }
 
 impl Scaling {
-    /// Resolve `coeff`, deriving nibble tables only when they will be used.
+    /// Resolve coefficient `index` of `coeffs`, deriving nibble vectors only
+    /// when they will be used.
     #[inline]
     #[archmage::rite(wasm128, import_intrinsics)]
-    fn new(coeff: Elem) -> Self {
-        if coeff == Elem::ZERO {
-            return Self {
+    fn resolve(coeffs: &(impl Coeffs + ?Sized), index: usize) -> Self {
+        match coeffs.kind(index) {
+            CoeffKind::Zero | CoeffKind::One => Self {
                 factors: empty_factors(),
-                coeff,
-                kind: Kind::Skip,
-            };
+                tables: TowerTables::zero(),
+                kind: coeffs.kind(index),
+            },
+            CoeffKind::General => {
+                let tables = coeffs.resolved(index);
+                Self {
+                    factors: load_factors(&tables),
+                    tables,
+                    kind: CoeffKind::General,
+                }
+            }
         }
-        if coeff == Elem::ONE {
-            return Self {
-                factors: empty_factors(),
-                coeff,
-                kind: Kind::Identity,
-            };
-        }
+    }
+
+    /// Classify and hold already-resolved tables, deriving nibble vectors
+    /// only for the general class.
+    #[inline]
+    #[archmage::rite(wasm128, import_intrinsics)]
+    fn of(tables: &TowerTables) -> Self {
+        let kind = CoeffKind::of(tables);
         Self {
-            factors: load_factors(&TowerTables::new(coeff)),
-            coeff,
-            kind: Kind::Table,
+            factors: if kind == CoeffKind::General {
+                load_factors(tables)
+            } else {
+                empty_factors()
+            },
+            tables: *tables,
+            kind,
         }
     }
 
@@ -351,9 +357,9 @@ impl Scaling {
     #[archmage::rite(wasm128, import_intrinsics)]
     fn fold(&self, acc: v128, x: v128) -> v128 {
         match self.kind {
-            Kind::Skip => acc,
-            Kind::Identity => v128_xor(acc, x),
-            Kind::Table => v128_xor(acc, scaled(x, self.factors)),
+            CoeffKind::Zero => acc,
+            CoeffKind::One => v128_xor(acc, x),
+            CoeffKind::General => v128_xor(acc, scaled(x, self.factors)),
         }
     }
 }
@@ -374,7 +380,7 @@ pub fn mul_add_scatter_simd128(
     _token: archmage::Wasm128Token,
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[Elem],
+    coeffs: &(impl Coeffs + ?Sized),
     src: &[u8],
 ) {
     check_equal(
@@ -388,18 +394,23 @@ pub fn mul_add_scatter_simd128(
         "gf16::mul_add_scatter_simd128",
         rows.len(),
         row_len,
-        coeffs.len(),
+        coeffs.count(),
     );
-    if row_len == 0 || coeffs.is_empty() {
+    if row_len == 0 || coeffs.count() == 0 {
         return;
     }
     mul_add_scatter_impl(rows, row_len, coeffs, src)
 }
 
 #[archmage::rite(wasm128, import_intrinsics)]
-fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &[u8]) {
+fn mul_add_scatter_impl(
+    rows: &mut [u8],
+    row_len: usize,
+    coeffs: &(impl Coeffs + ?Sized),
+    src: &[u8],
+) {
     let span = row_len.min(src.len());
-    let count = coeffs.len().min(rows.len() / row_len);
+    let count = coeffs.count().min(rows.len() / row_len);
     let src = &src[..span];
     let mut rest = &mut rows[..count * row_len];
 
@@ -411,10 +422,10 @@ fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &
         let (r1, block) = block.split_at_mut(row_len);
         let (r2, r3) = block.split_at_mut(row_len);
         let plans = [
-            Scaling::new(coeffs[j]),
-            Scaling::new(coeffs[j + 1]),
-            Scaling::new(coeffs[j + 2]),
-            Scaling::new(coeffs[j + 3]),
+            Scaling::resolve(coeffs, j),
+            Scaling::resolve(coeffs, j + 1),
+            Scaling::resolve(coeffs, j + 2),
+            Scaling::resolve(coeffs, j + 3),
         ];
         // `split_at_mut` gives four disjoint rows, each truncated to the
         // `span` bytes the source also holds.
@@ -433,11 +444,11 @@ fn mul_add_scatter_impl(rows: &mut [u8], row_len: usize, coeffs: &[Elem], src: &
     while j < count {
         let (row, tail) = rest.split_at_mut(row_len);
         rest = tail;
-        let plan = Scaling::new(coeffs[j]);
+        let plan = Scaling::resolve(coeffs, j);
         match plan.kind {
-            Kind::Skip => {}
-            Kind::Identity => xor_row(&mut row[..span], src),
-            Kind::Table => mul_add_impl(&mut row[..span], &TowerTables::new(plan.coeff), src),
+            CoeffKind::Zero => {}
+            CoeffKind::One => xor_row(&mut row[..span], src),
+            CoeffKind::General => mul_add_impl(&mut row[..span], &plan.tables, src),
         }
         j += 1;
     }
@@ -481,7 +492,7 @@ fn scatter_quad(rows: [&mut [u8]; 4], plans: &[Scaling; 4], src: &[u8]) {
     for (i, s) in src_lanes.iter().enumerate() {
         let x = v128_load(s);
         for (lane, plan) in lanes.iter_mut().zip(plans) {
-            if plan.kind == Kind::Skip {
+            if plan.kind == CoeffKind::Zero {
                 continue;
             }
             let d = &mut lane[i];
@@ -490,7 +501,7 @@ fn scatter_quad(rows: [&mut [u8]; 4], plans: &[Scaling; 4], src: &[u8]) {
     }
 
     for (tail, plan) in tails.into_iter().zip(plans) {
-        mul_add_scalar(tail, plan.coeff, &src[vector_len..]);
+        mul_add_scalar(tail, &plan.tables, &src[vector_len..]);
     }
 }
 
@@ -509,13 +520,13 @@ fn scatter_quad(rows: [&mut [u8]; 4], plans: &[Scaling; 4], src: &[u8]) {
 pub fn mul_add_gather_simd128(
     _token: archmage::Wasm128Token,
     dst: &mut [u8],
-    coeffs: &[Elem],
+    coeffs: &(impl Coeffs + ?Sized),
     srcs: &[&[u8]],
 ) {
     check_equal(
         "gf16::mul_add_gather_simd128",
         "coefficients",
-        coeffs.len(),
+        coeffs.count(),
         "sources",
         srcs.len(),
     );
@@ -535,8 +546,8 @@ pub fn mul_add_gather_simd128(
 }
 
 #[archmage::rite(wasm128, import_intrinsics)]
-fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
-    let count = coeffs.len().min(srcs.len());
+fn mul_add_gather_impl(dst: &mut [u8], coeffs: &(impl Coeffs + ?Sized), srcs: &[&[u8]]) {
+    let count = coeffs.count().min(srcs.len());
     let mut span = dst.len();
     for &src in &srcs[..count] {
         span = span.min(src.len());
@@ -544,9 +555,9 @@ fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
 
     for first in (0..count).step_by(TERM_BLOCK) {
         let block = (count - first).min(TERM_BLOCK);
-        let mut plans = [Scaling::new(Elem::ZERO); TERM_BLOCK];
-        for (plan, &coeff) in plans[..block].iter_mut().zip(&coeffs[first..first + block]) {
-            *plan = Scaling::new(coeff);
+        let mut plans = [Scaling::of(&TowerTables::zero()); TERM_BLOCK];
+        for (plan, index) in plans[..block].iter_mut().zip(first..first + block) {
+            *plan = Scaling::resolve(coeffs, index);
         }
 
         let mut offset = 0;
@@ -558,7 +569,7 @@ fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
             };
             let (mut a0, mut a1) = (v128_load(d0), v128_load(d1));
             for (plan, &src) in plans[..block].iter().zip(&srcs[first..first + block]) {
-                if plan.kind == Kind::Skip {
+                if plan.kind == CoeffKind::Zero {
                     continue;
                 }
                 let (s0, s1): (&[u8; 16], &[u8; 16]) = {
@@ -576,7 +587,7 @@ fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
             let d: &mut [u8; 16] = (&mut dst[offset..offset + 16]).try_into().unwrap();
             let mut acc = v128_load(d);
             for (plan, &src) in plans[..block].iter().zip(&srcs[first..first + block]) {
-                if plan.kind == Kind::Skip {
+                if plan.kind == CoeffKind::Zero {
                     continue;
                 }
                 let s: &[u8; 16] = src[offset..offset + 16].try_into().unwrap();
@@ -587,7 +598,13 @@ fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
         }
 
         for (plan, &src) in plans[..block].iter().zip(&srcs[first..first + block]) {
-            mul_add_scalar(&mut dst[offset..span], plan.coeff, &src[offset..span]);
+            match plan.kind {
+                CoeffKind::Zero => {}
+                CoeffKind::One => xor_row(&mut dst[offset..span], &src[offset..span]),
+                CoeffKind::General => {
+                    mul_add_scalar(&mut dst[offset..span], &plan.tables, &src[offset..span]);
+                }
+            }
         }
     }
 }
@@ -607,13 +624,15 @@ fn mul_add_gather_impl(dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
 /// source is `row_len` bytes.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_matrix_simd128(
+pub fn mul_add_matrix_simd128<E>(
     _token: archmage::Wasm128Token,
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[Elem], &[u8])],
-) {
+    terms: &[(&[E], &[u8])],
+) where
+    for<'a> [(&'a [E], &'a [u8])]: Matrix<TowerTables>,
+{
     check_row_span("gf16::mul_add_matrix_simd128", rows.len(), row_len, nrows);
     check_terms("gf16::mul_add_matrix_simd128", row_len, nrows, terms);
     if row_len == 0 || nrows == 0 || terms.is_empty() {
@@ -623,18 +642,18 @@ pub fn mul_add_matrix_simd128(
 }
 
 #[archmage::rite(wasm128, import_intrinsics)]
-fn mul_add_matrix_impl(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[Elem], &[u8])]) {
+fn mul_add_matrix_impl<E>(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(&[E], &[u8])])
+where
+    for<'a> [(&'a [E], &'a [u8])]: Matrix<TowerTables>,
+{
     // One pass over `terms` — outside every hot loop — establishes the bounds
     // the vector loops rely on, so a caller that violates the documented
     // geometry gets a short update rather than out-of-bounds reads.
     let mut span = row_len;
-    let mut count = nrows.min(rows.len() / row_len);
-    for &(coeffs, src) in terms {
-        debug_assert_eq!(coeffs.len(), nrows);
-        debug_assert_eq!(src.len(), row_len);
+    for &(_, src) in terms {
         span = span.min(src.len());
-        count = count.min(coeffs.len());
     }
+    let count = nrows.min(rows.len() / row_len);
     let mut rest = &mut rows[..count * row_len];
 
     let mut j = 0;
@@ -662,16 +681,13 @@ fn mul_add_matrix_impl(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(
     while j < count {
         let (row, tail) = rest.split_at_mut(row_len);
         rest = tail;
-        for &(coeffs, src) in terms {
-            let plan = Scaling::new(coeffs[j]);
+        for term in 0..terms.len() {
+            let plan = Scaling::of(&terms.coefficient(term, j));
+            let src = terms.source(term);
             match plan.kind {
-                Kind::Skip => {}
-                Kind::Identity => xor_row(&mut row[..span], &src[..span]),
-                Kind::Table => mul_add_impl(
-                    &mut row[..span],
-                    &TowerTables::new(plan.coeff),
-                    &src[..span],
-                ),
+                CoeffKind::Zero => {}
+                CoeffKind::One => xor_row(&mut row[..span], &src[..span]),
+                CoeffKind::General => mul_add_impl(&mut row[..span], &plan.tables, &src[..span]),
             }
         }
         j += 1;
@@ -681,7 +697,10 @@ fn mul_add_matrix_impl(rows: &mut [u8], row_len: usize, nrows: usize, terms: &[(
 /// Register-blocked four-row tile: load once, fold a block of terms, store
 /// once.
 #[archmage::rite(wasm128, import_intrinsics)]
-fn matrix_quad(rows: [&mut [u8]; 4], first: usize, terms: &[(&[Elem], &[u8])]) {
+fn matrix_quad<E>(rows: [&mut [u8]; 4], first: usize, terms: &[(&[E], &[u8])])
+where
+    for<'a> [(&'a [E], &'a [u8])]: Matrix<TowerTables>,
+{
     let span = rows[0].len();
     let vector_len = span & !15;
 
@@ -697,10 +716,11 @@ fn matrix_quad(rows: [&mut [u8]; 4], first: usize, terms: &[(&[Elem], &[u8])]) {
     let mut tails: [&mut [u8]; 4] = [t0, t1, t2, t3];
 
     for block in terms.chunks(TERM_BLOCK) {
-        let mut plans = [[Scaling::new(Elem::ZERO); 4]; TERM_BLOCK];
-        for (&(coeffs, _), slots) in block.iter().zip(&mut plans) {
-            for (slot, &coeff) in slots.iter_mut().zip(&coeffs[first..first + 4]) {
-                *slot = Scaling::new(coeff);
+        let block_start = terms.len() - block.len();
+        let mut plans = [[Scaling::of(&TowerTables::zero()); 4]; TERM_BLOCK];
+        for (t, slots) in plans.iter_mut().enumerate().take(block.len()) {
+            for (row, slot) in slots.iter_mut().enumerate() {
+                *slot = Scaling::of(&terms.coefficient(block_start + t, first + row));
             }
         }
 
@@ -726,9 +746,10 @@ fn matrix_quad(rows: [&mut [u8]; 4], first: usize, terms: &[(&[Elem], &[u8])]) {
             offset += 16;
         }
 
-        for i in 0..4 {
-            for &(coeffs, src) in block {
-                mul_add_scalar(&mut tails[i], coeffs[first + i], &src[offset..span]);
+        for (i, tail) in tails.iter_mut().enumerate() {
+            for t in 0..block.len() {
+                let tables = terms.coefficient(block_start + t, first + i);
+                mul_add_scalar(tail, &tables, &block[t].1[offset..span]);
             }
         }
     }
