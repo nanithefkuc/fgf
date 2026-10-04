@@ -9,7 +9,8 @@
 //! descends through the matching GFNI body under the same affine multiply.
 //!
 //! This file holds what the shapes share: the 64-byte factor, multiply, and
-//! remainder helpers over the [`Blocked`] coefficient seam.
+//! remainder helpers over the representation-erased
+//! [`Prepared`](crate::kernel::gf8::Prepared) coefficient.
 
 mod elementwise;
 mod gather;
@@ -24,15 +25,15 @@ pub use gather::mul_add_gather_avx512;
 #[cfg(test)]
 pub(crate) use matrix::MATRIX_PEEL_MIN;
 pub use matrix::{
-    mul_add_matrix_at_avx512, mul_add_matrix_avx512, mul_add_matrix_avx512_with,
-    mul_into_matrix_avx512, mul_into_matrix_avx512_with,
+    mul_add_matrix_at_avx512_with, mul_add_matrix_avx512_with, mul_into_matrix_avx512_with,
 };
 #[cfg(test)]
 pub(crate) use scatter::SCATTER_PEEL_MIN;
 pub use scatter::mul_add_scatter_avx512;
 pub use single::{mul_add_avx512, mul_assign_avx512, mul_into_avx512};
 
-use super::gfni::{Affine, Blocked};
+use super::PeelBody;
+use crate::kernel::gf8::Prepared;
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
@@ -65,16 +66,16 @@ pub(super) fn bmul_avx512(x: __m512i, factor: __m512i) -> __m512i {
 /// `#[rite]` multiply bodies are called directly rather than the
 /// token-bearing entry.
 #[archmage::rite(v4x, import_intrinsics)]
-pub(super) fn brem_avx512<C: Blocked>(dst: &mut [u8], coeff: C, src: &[u8]) {
-    single::mul_add_avx512_impl(dst, coeff, src);
+pub(super) fn brem_avx512(dst: &mut [u8], coeff: Prepared, src: &[u8]) {
+    single::mul_add_avx512_impl::<PeelBody>(dst, coeff, src);
 }
 
 /// The sub-lane remainder below one 64-byte lane: the 32/16-byte affine
 /// bodies and the nibble tail.
 #[inline]
 #[archmage::rite(v4x, import_intrinsics)]
-pub(super) fn brem_half_avx512<C: Blocked>(dst: &mut [u8], coeff: C, src: &[u8]) {
-    super::gfni::mul_add_gfni_impl(dst, Affine(coeff), src);
+pub(super) fn brem_half_avx512(dst: &mut [u8], coeff: Prepared, src: &[u8]) {
+    super::gfni::mul_add_gfni_impl::<false, PeelBody>(dst, coeff, src);
 }
 
 /// Bytes of lead-in that put 64-byte accesses on a cache-line boundary.

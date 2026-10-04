@@ -12,8 +12,9 @@
 //! before it is read.
 
 use super::super::RESOLVE_CHUNK;
-use super::{Blocked, bmul_gfni, brem_gfni, factor_word_gfni, wfactor_gfni};
+use super::{bmul_gfni, brem_gfni, factor_word_gfni, wfactor_gfni};
 use crate::kernel::Matrix;
+use crate::kernel::gf8::Prepared;
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
@@ -39,16 +40,16 @@ pub(crate) const MATRIX_PREFETCH_MIN: usize = 8192;
 /// `acc[row][lane] ^= map[row] * x[lane]`, or `=` when `first` is set.
 #[inline]
 #[archmage::rite(v3_gfni_crypto)]
-fn fold_term<S: Blocked, const ROWS: usize, const LANES: usize>(
+fn fold_term<const NATIVE: bool, const ROWS: usize, const LANES: usize>(
     acc: &mut [[__m256i; LANES]; ROWS],
     map: &[u64; ROWS],
     x: &[__m256i; LANES],
     first: bool,
 ) {
     for (slots, &word) in acc.iter_mut().zip(map) {
-        let factor = wfactor_gfni::<S>(word);
+        let factor = wfactor_gfni::<NATIVE>(word);
         for (slot, &value) in slots.iter_mut().zip(x) {
-            let product = bmul_gfni::<S>(value, factor);
+            let product = bmul_gfni::<NATIVE>(value, factor);
             *slot = if first {
                 product
             } else {
@@ -73,7 +74,7 @@ fn fold_term<S: Blocked, const ROWS: usize, const LANES: usize>(
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
 fn rows_body<
-    S: Blocked,
+    const NATIVE: bool,
     const ROWS: usize,
     const LANES: usize,
     const OVERWRITE: bool,
@@ -144,16 +145,16 @@ fn rows_body<
             let (map_pairs, map_rest) = maps.as_chunks::<2>();
             let (src_pairs, src_rest) = srcs.as_chunks::<2>();
             for ([map0, map1], [src0, src1]) in map_pairs.iter().zip(src_pairs) {
-                fold_term::<S, ROWS, LANES>(&mut acc, map0, &load(src0), first);
-                fold_term::<S, ROWS, LANES>(&mut acc, map1, &load(src1), false);
+                fold_term::<NATIVE, ROWS, LANES>(&mut acc, map0, &load(src0), first);
+                fold_term::<NATIVE, ROWS, LANES>(&mut acc, map1, &load(src1), false);
                 first = false;
             }
             if let ([map], [src]) = (map_rest, src_rest) {
-                fold_term::<S, ROWS, LANES>(&mut acc, map, &load(src), first);
+                fold_term::<NATIVE, ROWS, LANES>(&mut acc, map, &load(src), first);
             }
         } else {
             for (map, src) in maps.iter().zip(srcs) {
-                fold_term::<S, ROWS, LANES>(&mut acc, map, &load(src), first);
+                fold_term::<NATIVE, ROWS, LANES>(&mut acc, map, &load(src), first);
                 first = false;
             }
         }
@@ -198,7 +199,10 @@ fn rows_body<
             unsafe {
                 let x = _mm256_loadu_si256(src.as_ptr().add(tile).cast());
                 for (slot, &word) in acc.iter_mut().zip(map) {
-                    *slot = _mm256_xor_si256(*slot, bmul_gfni::<S>(x, wfactor_gfni::<S>(word)));
+                    *slot = _mm256_xor_si256(
+                        *slot,
+                        bmul_gfni::<NATIVE>(x, wfactor_gfni::<NATIVE>(word)),
+                    );
                 }
             }
         }
@@ -228,8 +232,8 @@ fn rows_body<
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
 fn rows_resolved<
-    S: Blocked,
-    M: Matrix<S> + ?Sized,
+    const NATIVE: bool,
+    M: Matrix<Prepared> + ?Sized,
     const ROWS: usize,
     const LANES: usize,
     const OVERWRITE: bool,
@@ -265,7 +269,7 @@ fn rows_resolved<
             let term = start + offset;
             let mut words = [0u64; ROWS];
             for (row, word) in words.iter_mut().enumerate() {
-                *word = factor_word_gfni::<S>(*terms.coefficient(term, g + row));
+                *word = factor_word_gfni::<NATIVE>(terms.coefficient(term, g + row));
             }
             maps[offset].write(words);
             // The body reads the staged slice without bounds checks, so the
@@ -291,14 +295,14 @@ fn rows_resolved<
         };
         if OVERWRITE && first {
             if prefetch {
-                rows_body::<S, ROWS, LANES, true, true>(ptrs, vector_len, maps, srcs);
+                rows_body::<NATIVE, ROWS, LANES, true, true>(ptrs, vector_len, maps, srcs);
             } else {
-                rows_body::<S, ROWS, LANES, true, false>(ptrs, vector_len, maps, srcs);
+                rows_body::<NATIVE, ROWS, LANES, true, false>(ptrs, vector_len, maps, srcs);
             }
         } else if prefetch {
-            rows_body::<S, ROWS, LANES, false, true>(ptrs, vector_len, maps, srcs);
+            rows_body::<NATIVE, ROWS, LANES, false, true>(ptrs, vector_len, maps, srcs);
         } else {
-            rows_body::<S, ROWS, LANES, false, false>(ptrs, vector_len, maps, srcs);
+            rows_body::<NATIVE, ROWS, LANES, false, false>(ptrs, vector_len, maps, srcs);
         }
         first = false;
         start += taken;
@@ -306,7 +310,7 @@ fn rows_resolved<
             break;
         }
     }
-    matrix_tail::<S, M, OVERWRITE>(&ptrs, row_len, g, vector_len, terms);
+    matrix_tail::<NATIVE, M, OVERWRITE>(&ptrs, row_len, g, vector_len, terms);
 }
 
 /// The widest row group a matrix walk runs in one pass over its sources.
@@ -382,25 +386,31 @@ pub(super) fn group_rows(nrows: usize, done: usize, nterms: usize) -> usize {
 /// The caller stages one to [`MAX_GROUP_ROWS`] pairwise-disjoint row windows of
 /// `row_len` bytes each, the first being row `g` of the matrix.
 #[archmage::rite(v3_gfni_crypto)]
-pub(super) fn matrix_group<S: Blocked, M: Matrix<S> + ?Sized, const OVERWRITE: bool>(
+pub(super) fn matrix_group<
+    const NATIVE: bool,
+    M: Matrix<Prepared> + ?Sized,
+    const OVERWRITE: bool,
+>(
     rows: &[*mut u8],
     row_len: usize,
     g: usize,
     terms: &M,
 ) {
     match *rows {
-        [a] => rows_resolved::<S, M, 1, 4, OVERWRITE>([a], row_len, g, terms),
-        [a, b] => rows_resolved::<S, M, 2, 4, OVERWRITE>([a, b], row_len, g, terms),
+        [a] => rows_resolved::<NATIVE, M, 1, 4, OVERWRITE>([a], row_len, g, terms),
+        [a, b] => rows_resolved::<NATIVE, M, 2, 4, OVERWRITE>([a, b], row_len, g, terms),
         [a, b, c] if three_lanes(terms.len(), row_len) => {
-            rows_resolved::<S, M, 3, 3, OVERWRITE>([a, b, c], row_len, g, terms);
+            rows_resolved::<NATIVE, M, 3, 3, OVERWRITE>([a, b, c], row_len, g, terms);
         }
-        [a, b, c] => rows_resolved::<S, M, 3, 2, OVERWRITE>([a, b, c], row_len, g, terms),
-        [a, b, c, d] => rows_resolved::<S, M, 4, 2, OVERWRITE>([a, b, c, d], row_len, g, terms),
+        [a, b, c] => rows_resolved::<NATIVE, M, 3, 2, OVERWRITE>([a, b, c], row_len, g, terms),
+        [a, b, c, d] => {
+            rows_resolved::<NATIVE, M, 4, 2, OVERWRITE>([a, b, c, d], row_len, g, terms);
+        }
         [a, b, c, d, e] => {
-            rows_resolved::<S, M, 5, 2, OVERWRITE>([a, b, c, d, e], row_len, g, terms);
+            rows_resolved::<NATIVE, M, 5, 2, OVERWRITE>([a, b, c, d, e], row_len, g, terms);
         }
         [a, b, c, d, e, f] => {
-            rows_resolved::<S, M, 6, 2, OVERWRITE>([a, b, c, d, e, f], row_len, g, terms);
+            rows_resolved::<NATIVE, M, 6, 2, OVERWRITE>([a, b, c, d, e, f], row_len, g, terms);
         }
         _ => unreachable!("matrix row group holds one to {MAX_GROUP_ROWS} rows"),
     }
@@ -417,7 +427,7 @@ pub(super) fn matrix_group<S: Blocked, M: Matrix<S> + ?Sized, const OVERWRITE: b
 /// prefix, and only one tail borrow is live at a time.
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
-fn matrix_tail<S: Blocked, M: Matrix<S> + ?Sized, const OVERWRITE: bool>(
+fn matrix_tail<const NATIVE: bool, M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
     ptrs: &[*mut u8],
     row_len: usize,
     g: usize,
@@ -449,9 +459,9 @@ fn matrix_tail<S: Blocked, M: Matrix<S> + ?Sized, const OVERWRITE: bool>(
         }
         for term in 0..terms.len() {
             let src = terms.source(term);
-            let coeff = *terms.coefficient(term, g + slot);
+            let coeff = terms.coefficient(term, g + slot);
             if !coeff.is_zero() {
-                brem_gfni::<S>(tail, coeff, &src[tile..]);
+                brem_gfni::<NATIVE>(tail, coeff, &src[tile..]);
             }
         }
     }

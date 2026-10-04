@@ -14,7 +14,10 @@
 //! Each GF(2^8) polynomial carries one nibble bank and one affine bank, built
 //! at compile time from that field's scalar multiply and promoted to rodata
 //! once per polynomial a program uses; all 256 coefficients cost 8 KiB plus
-//! 2 KiB and stay resident in L1/L2. GF(2^16) has 65536 coefficients, so a
+//! 2 KiB and stay resident in L1/L2. [`ByteBanks`] exposes a
+//! representation's banks, AES nativity, AES isomorphism, and reduction byte
+//! to the dispatch layer, which resolves coefficients once and hands the
+//! kernels plain values. GF(2^16) has 65536 coefficients, so a
 //! full bank would be ~9 MiB and thrash cache. A GF(2^16) coefficient is
 //! instead resolved per call into its four base-field factors (two base
 //! multiplies, [`TowerCoeff::new`]) and, on shuffle backends, four table
@@ -118,10 +121,43 @@ impl<const POLY: u32> Bank<POLY> {
 
     /// The `VGF2P8AFFINEQB` matrix of every coefficient, 2 KiB.
     const AFFINE: &'static [u64; 256] = &build_affine_bank::<POLY>();
+}
 
-    /// The field isomorphism onto `Gf8<Poly<AES>>` and its inverse.
-    #[allow(dead_code)]
+/// What the GF(2^8) kernels need from a byte representation, as constants
+/// and `&'static` data — never as per-call computation.
+///
+/// The dispatch layer reads this facet once per coefficient and hands the
+/// architecture kernels plain values (tables, map qwords, isomorphism
+/// qwords, reduction bytes), so no hot kernel body depends on the
+/// representation type. Implemented by every [`ByteRepr`] alongside that
+/// trait, so the pair cannot drift; in this crate only [`Poly`] carries it.
+pub(crate) trait ByteBanks: crate::field::ByteRepr {
+    /// Whether this representation's encoding is the GF(2)[x]/0x11B
+    /// polynomial basis, so `GF2P8MULB` multiplies in it natively.
+    const AES_NATIVE: bool;
+    /// The nibble tables of every coefficient, in this representation's
+    /// encoding.
+    const SCALE: &'static [ScaleTable; 256];
+    /// The `VGF2P8AFFINEQB` matrix of every coefficient.
+    const AFFINE: &'static [u64; 256];
+    /// The isomorphism onto the AES encoding: the identity when
+    /// [`AES_NATIVE`](ByteBanks::AES_NATIVE).
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const ISOMORPHISM: Isomorphism;
+    /// The reduction byte the shift-and-reduce elementwise kernels consume:
+    /// the low byte of the reference polynomial.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const REDUCTION_LOW: u8;
+}
+
+impl<const POLY: u32> ByteBanks for Poly<POLY> {
+    const AES_NATIVE: bool = POLY == AES;
+    const SCALE: &'static [ScaleTable; 256] = Bank::<POLY>::SCALE;
+    const AFFINE: &'static [u64; 256] = Bank::<POLY>::AFFINE;
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     const ISOMORPHISM: Isomorphism = isomorphism::<POLY>();
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const REDUCTION_LOW: u8 = Poly::<POLY>::REDUCTION_LOW;
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -146,6 +182,18 @@ const fn build_affine_bank<const POLY: u32>() -> [u64; 256] {
     bank
 }
 
+/// The zero coefficient's nibble tables: an all-zero bank entry.
+///
+/// The zero prepared form's placeholder table; zero coefficients are skipped
+/// before any table is read, so its contents matter only in that multiplying
+/// by it yields zero.
+#[allow(dead_code)]
+pub(crate) static ZERO_TABLE: ScaleTable = ScaleTable {
+    coeff: 0,
+    lo: [0; 16],
+    hi: [0; 16],
+};
+
 /// Return the shared nibble tables for a GF(2^8) coefficient, from its
 /// polynomial's bank.
 #[inline]
@@ -156,6 +204,7 @@ pub fn scale_table<const POLY: u32>(coeff: Elem<8, Poly<POLY>>) -> &'static Scal
 
 /// Return the `VGF2P8AFFINEQB` matrix qword that multiplies by `coeff`, from
 /// its polynomial's bank.
+#[allow(dead_code)]
 #[inline]
 #[must_use]
 pub fn affine_map<const POLY: u32>(coeff: Elem<8, Poly<POLY>>) -> u64 {
@@ -182,7 +231,7 @@ pub struct Isomorphism {
 #[inline]
 #[must_use]
 pub const fn isomorphism_to_aes<const POLY: u32>() -> Isomorphism {
-    Bank::<POLY>::ISOMORPHISM
+    isomorphism::<POLY>()
 }
 
 /// Derive the isomorphism onto the AES field.

@@ -44,16 +44,22 @@ All notable changes to this project are documented here. The format follows
   byte representation. Existing AES and Reed–Solomon encodings, generators,
   and tables are unchanged. Paired public-operation measurements are
   recorded in [`benchmarks/gf8.md`](benchmarks/gf8.md).
-- **Breaking:** the unstable byte-kernel surface uses one generic entry per
-  operation and ISA instead of separate `_8d` entries. Pass a typed
-  `Elem<8, Poly<POLY>>` or `internals::kernel::gf8::Prepared<POLY>`
-  coefficient to GFNI and AVX-512 fixed-coefficient entries; construct the
-  latter with `Prepared::new`. Replace `scale_table_8d` and
-  `affine_8b`/`affine_8d` with `scale_table` and `affine_map`. Elementwise
-  ISA entries take the complete polynomial const parameter (`u32`), such as
-  `::<AES>`, rather than a reduction byte. Prepared matrix providers use
-  `FlatMatrix<Prepared<POLY>>` with the generic `_with` entries instead of
-  `PreparedMatrix` and `_8d_with` entries.
+- **Breaking:** the unstable byte-kernel surface uses one entry per
+  operation and ISA, representation-erased. The GFNI and AVX-512
+  fixed-coefficient entries take `internals::kernel::gf8::Prepared` — now
+  unparameterized, built with `Prepared::new` — instead of a typed element
+  or `Prepared<POLY>`; the GFNI bodies select their multiply through a
+  `const NATIVE: bool` parameter (`true` for the AES encoding, `false` for
+  the affine map). Replace `scale_table_8d` and `affine_8b`/`affine_8d`
+  with `scale_table` and `affine_map`. Elementwise ISA entries take the
+  isomorphism onto the AES field and the reduction byte as explicit
+  arguments (`isomorphism_to_aes::<POLY>()` and the polynomial's low byte)
+  instead of a polynomial const parameter. The multi-row x86, AArch64, and
+  Wasm entries take prepared coefficients — a `Matrix<Prepared>` provider
+  such as `FlatMatrix<Prepared>` or a slice of `(&[Prepared], &[u8])`
+  pairs — instead of element slices; the element-taking matrix wrappers
+  (`mul_add_matrix_gfni`, `mul_into_matrix_avx512`, and kin) are removed in
+  favour of the `_with` provider entries, which every shape now spells.
 - `just cross-check` compiles AArch64 and Wasm library paths, including the
   explicit Wasm SIMD configuration. `just bench-build NAME` builds a portable
   benchmark artifact without running it.

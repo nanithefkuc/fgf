@@ -32,9 +32,10 @@ use core::arch::aarch64::*;
 
 use crate::field::poly::AES;
 use crate::field::{Elem as Gf8Elem, Poly};
-use crate::kernel::gf8::{mul_add_nibble, mul_assign_nibble, mul_into_nibble};
-use crate::kernel::proven_checks::{check_equal, check_row_span, check_terms};
-use crate::kernel::tables::{ScaleTable, scale_table};
+use crate::kernel::Matrix;
+use crate::kernel::gf8::{Coeffs, Prepared, mul_add_nibble, mul_assign_nibble, mul_into_nibble};
+use crate::kernel::proven_checks::{check_equal, check_row_span};
+use crate::kernel::tables::ScaleTable;
 
 /// The AES byte element used by the elementwise scalar tails.
 type Elem = Gf8Elem<8, Poly<AES>>;
@@ -86,30 +87,32 @@ struct Scaling {
 }
 
 impl Scaling {
-    /// Resolve `coeff` against the shared table bank.
+    /// Resolve `coeff` against its prepared tables.
     #[inline]
     #[archmage::rite(neon, import_intrinsics)]
-    fn new<const POLY: u32>(coeff: Gf8Elem<8, Poly<POLY>>) -> Self {
+    fn new(coeff: Prepared) -> Self {
         let zero = vdupq_n_u8(0);
-        if coeff == Gf8Elem::ZERO {
-            return Self {
+        // The raw byte is the coefficient: zero is the skip case, and the
+        // byte `1` carries the identity tables in every polynomial basis.
+        match coeff.table.coeff {
+            0 => Self {
                 lo: zero,
                 hi: zero,
                 kind: Kind::Skip,
-            };
-        }
-        if coeff == Gf8Elem::ONE {
-            return Self {
+            },
+            1 => Self {
                 lo: zero,
                 hi: zero,
                 kind: Kind::Identity,
-            };
-        }
-        let (lo, hi) = load_tables(scale_table(coeff));
-        Self {
-            lo,
-            hi,
-            kind: Kind::Table,
+            },
+            _ => {
+                let (lo, hi) = load_tables(coeff.table);
+                Self {
+                    lo,
+                    hi,
+                    kind: Kind::Table,
+                }
+            }
         }
     }
 
@@ -147,10 +150,10 @@ impl PreparedRow {
     /// in-bounds and disjointness argument.
     #[inline]
     #[archmage::rite(neon, import_intrinsics)]
-    fn new<const POLY: u32>(ptr: *mut u8, coeff: Gf8Elem<8, Poly<POLY>>) -> Self {
+    fn new(ptr: *mut u8, coeff: Prepared) -> Self {
         Self {
             ptr,
-            table: scale_table(coeff),
+            table: coeff.table,
             scaling: Scaling::new(coeff),
         }
     }
@@ -284,11 +287,11 @@ fn mul_into_impl(dst: &mut [u8], table: &ScaleTable, src: &[u8]) {
 #[allow(unsafe_code)]
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_scatter_neon<const POLY: u32>(
+pub fn mul_add_scatter_neon(
     _token: archmage::NeonToken,
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[Gf8Elem<8, Poly<POLY>>],
+    coeffs: &(impl Coeffs + ?Sized),
     src: &[u8],
 ) {
     check_equal(
@@ -302,9 +305,9 @@ pub fn mul_add_scatter_neon<const POLY: u32>(
         "gf8::mul_add_scatter_neon",
         rows.len(),
         row_len,
-        coeffs.len(),
+        coeffs.count(),
     );
-    if row_len == 0 || coeffs.is_empty() {
+    if row_len == 0 || coeffs.count() == 0 {
         return;
     }
     // SAFETY:
@@ -321,8 +324,8 @@ pub fn mul_add_scatter_neon<const POLY: u32>(
 /// clamped to the shorter of `row_len` and `src.len()`.
 ///
 /// MEMORY VALIDITY
-/// SINCE: the entry proved `coeffs.len() * row_len <= rows.len()` and the body
-///        clamps the row count to the whole rows `rows` actually holds.
+/// SINCE: the entry proved `coeffs.count() * row_len <= rows.len()` and the
+///        body clamps the row count to the whole rows `rows` actually holds.
 /// THUS: every `base.add(k * row_len)` below starts an in-bounds row span,
 ///        and every source read stays inside `src`.
 ///
@@ -332,14 +335,14 @@ pub fn mul_add_scatter_neon<const POLY: u32>(
 /// THUS: no store below aliases another row's load or the source.
 #[allow(unsafe_code)]
 #[archmage::rite(neon)]
-unsafe fn mul_add_scatter_impl<const POLY: u32>(
+unsafe fn mul_add_scatter_impl(
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[Gf8Elem<8, Poly<POLY>>],
+    coeffs: &(impl Coeffs + ?Sized),
     src: &[u8],
 ) {
     let span = row_len.min(src.len());
-    let nrows = coeffs.len().min(rows.len() / row_len);
+    let nrows = coeffs.count().min(rows.len() / row_len);
     let base = rows.as_mut_ptr();
 
     let mut j = 0;
@@ -353,10 +356,10 @@ unsafe fn mul_add_scatter_impl<const POLY: u32>(
         // THUS: no store below aliases another row's load.
         let quad = unsafe {
             [
-                PreparedRow::new(base.add(j * row_len), coeffs[j]),
-                PreparedRow::new(base.add((j + 1) * row_len), coeffs[j + 1]),
-                PreparedRow::new(base.add((j + 2) * row_len), coeffs[j + 2]),
-                PreparedRow::new(base.add((j + 3) * row_len), coeffs[j + 3]),
+                PreparedRow::new(base.add(j * row_len), coeffs.resolved(j)),
+                PreparedRow::new(base.add((j + 1) * row_len), coeffs.resolved(j + 1)),
+                PreparedRow::new(base.add((j + 2) * row_len), coeffs.resolved(j + 2)),
+                PreparedRow::new(base.add((j + 3) * row_len), coeffs.resolved(j + 3)),
             ]
         };
         // SAFETY:
@@ -370,8 +373,8 @@ unsafe fn mul_add_scatter_impl<const POLY: u32>(
         j += 4;
     }
     while j < nrows {
-        let coeff = coeffs[j];
-        if coeff != Gf8Elem::ZERO {
+        let coeff = coeffs.resolved(j);
+        if !coeff.is_zero() {
             // SAFETY:
             // MEMORY VALIDITY
             // SINCE: `(j + 1) * row_len <= rows.len()` and `span <= row_len`.
@@ -380,7 +383,7 @@ unsafe fn mul_add_scatter_impl<const POLY: u32>(
             // SINCE: rows are disjoint by construction.
             // THUS: the `&mut` is unique and does not alias `src`.
             let row = unsafe { core::slice::from_raw_parts_mut(base.add(j * row_len), span) };
-            mul_add_impl(row, scale_table(coeff), &src[..span]);
+            mul_add_impl(row, coeff.table, &src[..span]);
         }
         j += 1;
     }
@@ -465,22 +468,31 @@ unsafe fn scatter_quad(plans: &[PreparedRow; 4], src: &[u8], span: usize) {
 #[allow(unsafe_code)]
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_matrix_neon<const POLY: u32>(
+pub fn mul_add_matrix_neon<M: Matrix<Prepared> + ?Sized>(
     _token: archmage::NeonToken,
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[Gf8Elem<8, Poly<POLY>>], &[u8])],
+    terms: &M,
 ) {
     check_row_span("gf8::mul_add_matrix_neon", rows.len(), row_len, nrows);
-    check_terms("gf8::mul_add_matrix_neon", row_len, nrows, terms);
-    if row_len == 0 || nrows == 0 || terms.is_empty() {
+    for term in 0..terms.len() {
+        check_equal(
+            "gf8::mul_add_matrix_neon",
+            "term source",
+            terms.source(term).len(),
+            "row_len",
+            row_len,
+        );
+    }
+    if row_len == 0 || nrows == 0 || terms.len() == 0 {
         return;
     }
     // SAFETY:
     // MEMORY VALIDITY
     // SINCE: the checks above bound `nrows * row_len <= rows.len()` and pin
-    //        every term's coefficient count and source length.
+    //        every term's source length; per-term coefficient counts are the
+    //        provider's contract.
     // THUS: the unsafe body below only touches in-bounds, disjoint rows.
     unsafe { mul_add_matrix_impl(rows, row_len, nrows, terms) };
 }
@@ -502,22 +514,19 @@ pub fn mul_add_matrix_neon<const POLY: u32>(
 /// THUS: the accumulator stores never alias a source or another row.
 #[allow(unsafe_code)]
 #[archmage::rite(neon)]
-unsafe fn mul_add_matrix_impl<const POLY: u32>(
+unsafe fn mul_add_matrix_impl<M: Matrix<Prepared> + ?Sized>(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[Gf8Elem<8, Poly<POLY>>], &[u8])],
+    terms: &M,
 ) {
     // One pass over `terms` — outside every hot loop — establishes the bounds
     // the raw-pointer loops rely on, so a caller that violates the documented
     // geometry gets a short update rather than out-of-bounds reads.
     let mut span = row_len;
-    let mut count = nrows.min(rows.len() / row_len);
-    for &(coeffs, src) in terms {
-        debug_assert_eq!(coeffs.len(), nrows);
-        debug_assert_eq!(src.len(), row_len);
-        span = span.min(src.len());
-        count = count.min(coeffs.len());
+    let count = nrows.min(rows.len() / row_len);
+    for term in 0..terms.len() {
+        span = span.min(terms.source(term).len());
     }
     let base = rows.as_mut_ptr();
 
@@ -541,8 +550,9 @@ unsafe fn mul_add_matrix_impl<const POLY: u32>(
         };
         // SAFETY:
         // MEMORY VALIDITY
-        // SINCE: as above; `span` bounds every source and every row, and
-        //        `j + 3 < count <= coeffs.len()` for every term.
+        // SINCE: as above; `span` bounds every source and every row, and the
+        //        provider contract supplies a coefficient for rows `j..j+4`
+        //        of every term.
         // THUS: `matrix_quad` reads and writes only inside those spans.
         // ALIASING
         // SINCE: the four spans are pairwise disjoint from every source.
@@ -554,7 +564,8 @@ unsafe fn mul_add_matrix_impl<const POLY: u32>(
         // SAFETY:
         // MEMORY VALIDITY
         // SINCE: row `j` is an in-bounds `row_len`-byte span of `rows`, and
-        //        `j < count <= coeffs.len()` for every term.
+        //        the provider contract supplies a coefficient for row `j` of
+        //        every term.
         // THUS: `matrix_single` reads and writes only inside that span.
         // ALIASING
         // SINCE: rows are disjoint and the sources are read-only.
@@ -570,9 +581,10 @@ unsafe fn mul_add_matrix_impl<const POLY: u32>(
 ///
 /// MEMORY VALIDITY
 /// SINCE: each pointer in `rows` starts a writable span of at least `span`
-///        bytes, every term's source holds at least `span` bytes, and every
-///        term's coefficient slice has more than `first + 3` entries.
-/// THUS: every load, store, and coefficient index below stays in bounds.
+/// bytes, every term's source holds at least `span` bytes, and the provider
+/// contract supplies a coefficient for rows `first..first + 4` of every
+/// term.
+/// THUS: every load, store, and coefficient access below stays in bounds.
 ///
 /// ALIASING
 /// SINCE: the four spans are pairwise disjoint and disjoint from every
@@ -580,11 +592,11 @@ unsafe fn mul_add_matrix_impl<const POLY: u32>(
 /// THUS: the accumulator stores cannot alias a live read.
 #[allow(unsafe_code)]
 #[archmage::rite(neon)]
-unsafe fn matrix_quad<const POLY: u32>(
+unsafe fn matrix_quad<M: Matrix<Prepared> + ?Sized>(
     rows: &[*mut u8; 4],
     span: usize,
     first: usize,
-    terms: &[(&[Gf8Elem<8, Poly<POLY>>], &[u8])],
+    terms: &M,
 ) {
     let mut tile = 0;
     while tile + 32 <= span {
@@ -607,7 +619,8 @@ unsafe fn matrix_quad<const POLY: u32>(
                 vld1q_u8(rows[3].add(tile + 16)),
             )
         };
-        for &(coeffs, src) in terms {
+        for term in 0..terms.len() {
+            let src = terms.source(term);
             // Each row's tables are resolved once per term and reused for both
             // vectors of the tile; only one row's pair is live at a time,
             // which keeps the eight accumulators off the stack.
@@ -621,19 +634,19 @@ unsafe fn matrix_quad<const POLY: u32>(
                 (vld1q_u8(sp), vld1q_u8(sp.add(16)))
             };
 
-            let s = Scaling::new(coeffs[first]);
+            let s = Scaling::new(terms.coefficient(term, first));
             a00 = s.fold(a00, x0);
             a01 = s.fold(a01, x1);
 
-            let s = Scaling::new(coeffs[first + 1]);
+            let s = Scaling::new(terms.coefficient(term, first + 1));
             a10 = s.fold(a10, x0);
             a11 = s.fold(a11, x1);
 
-            let s = Scaling::new(coeffs[first + 2]);
+            let s = Scaling::new(terms.coefficient(term, first + 2));
             a20 = s.fold(a20, x0);
             a21 = s.fold(a21, x1);
 
-            let s = Scaling::new(coeffs[first + 3]);
+            let s = Scaling::new(terms.coefficient(term, first + 3));
             a30 = s.fold(a30, x0);
             a31 = s.fold(a31, x1);
         }
@@ -673,16 +686,17 @@ unsafe fn matrix_quad<const POLY: u32>(
                 vld1q_u8(rows[3].add(tile)),
             )
         };
-        for &(coeffs, src) in terms {
+        for term in 0..terms.len() {
+            let src = terms.source(term);
             // SAFETY:
             // MEMORY VALIDITY
             // SINCE: `tile + 16 <= span <= src.len()`.
             // THUS: the source load stays inside the term's source slice.
             let x = unsafe { vld1q_u8(src.as_ptr().add(tile)) };
-            a0 = Scaling::new(coeffs[first]).fold(a0, x);
-            a1 = Scaling::new(coeffs[first + 1]).fold(a1, x);
-            a2 = Scaling::new(coeffs[first + 2]).fold(a2, x);
-            a3 = Scaling::new(coeffs[first + 3]).fold(a3, x);
+            a0 = Scaling::new(terms.coefficient(term, first)).fold(a0, x);
+            a1 = Scaling::new(terms.coefficient(term, first + 1)).fold(a1, x);
+            a2 = Scaling::new(terms.coefficient(term, first + 2)).fold(a2, x);
+            a3 = Scaling::new(terms.coefficient(term, first + 3)).fold(a3, x);
         }
         // SAFETY:
         // MEMORY VALIDITY
@@ -711,10 +725,10 @@ unsafe fn matrix_quad<const POLY: u32>(
             // SINCE: the rows are disjoint.
             // THUS: this `&mut` window is unique.
             let row = unsafe { core::slice::from_raw_parts_mut(ptr.add(tile), tail) };
-            for &(coeffs, src) in terms {
-                let coeff = coeffs[first + slot];
-                if coeff != Gf8Elem::ZERO {
-                    mul_add_nibble(row, scale_table(coeff), &src[tile..span]);
+            for term in 0..terms.len() {
+                let coeff = terms.coefficient(term, first + slot);
+                if !coeff.is_zero() {
+                    mul_add_nibble(row, coeff.table, &terms.source(term)[tile..span]);
                 }
             }
         }
@@ -731,20 +745,20 @@ unsafe fn matrix_quad<const POLY: u32>(
 /// MEMORY VALIDITY
 /// SINCE: `ptr` starts a writable span of at least `span` bytes that no other
 ///        row and no source aliases, every term's source holds at least
-///        `span` bytes, and every term's coefficient slice has more than
-///        `index` entries.
-/// THUS: every load, store, and coefficient index below stays in bounds.
+///        `span` bytes, and the provider contract supplies a coefficient for
+///        row `index` of every term.
+/// THUS: every load, store, and coefficient access below stays in bounds.
 ///
 /// ALIASING
 /// SINCE: the row is uniquely borrowed and disjoint from every source.
 /// THUS: no store aliases a live read.
 #[allow(unsafe_code)]
 #[archmage::rite(neon)]
-unsafe fn matrix_single<const POLY: u32>(
+unsafe fn matrix_single<M: Matrix<Prepared> + ?Sized>(
     ptr: *mut u8,
     span: usize,
     index: usize,
-    terms: &[(&[Gf8Elem<8, Poly<POLY>>], &[u8])],
+    terms: &M,
 ) {
     let mut tile = 0;
     while tile + 32 <= span {
@@ -753,7 +767,8 @@ unsafe fn matrix_single<const POLY: u32>(
         // SINCE: `tile + 32 <= span` bounds the row.
         // THUS: both accumulator loads stay inside the span.
         let (mut a0, mut a1) = unsafe { (vld1q_u8(ptr.add(tile)), vld1q_u8(ptr.add(tile + 16))) };
-        for &(coeffs, src) in terms {
+        for term in 0..terms.len() {
+            let src = terms.source(term);
             // SAFETY:
             // MEMORY VALIDITY
             // SINCE: `tile + 32 <= span <= src.len()`.
@@ -762,7 +777,7 @@ unsafe fn matrix_single<const POLY: u32>(
                 let sp = src.as_ptr().add(tile);
                 (vld1q_u8(sp), vld1q_u8(sp.add(16)))
             };
-            let s = Scaling::new(coeffs[index]);
+            let s = Scaling::new(terms.coefficient(term, index));
             a0 = s.fold(a0, x0);
             a1 = s.fold(a1, x1);
         }
@@ -783,13 +798,14 @@ unsafe fn matrix_single<const POLY: u32>(
         // SINCE: `tile + 16 <= span` bounds the row.
         // THUS: the accumulator load stays inside the span.
         let mut a = unsafe { vld1q_u8(ptr.add(tile)) };
-        for &(coeffs, src) in terms {
+        for term in 0..terms.len() {
+            let src = terms.source(term);
             // SAFETY:
             // MEMORY VALIDITY
             // SINCE: `tile + 16 <= span <= src.len()`.
             // THUS: the source load stays inside the term's source slice.
             let x = unsafe { vld1q_u8(src.as_ptr().add(tile)) };
-            a = Scaling::new(coeffs[index]).fold(a, x);
+            a = Scaling::new(terms.coefficient(term, index)).fold(a, x);
         }
         // SAFETY:
         // MEMORY VALIDITY
@@ -809,10 +825,10 @@ unsafe fn matrix_single<const POLY: u32>(
         // SINCE: nothing else aliases this row.
         // THUS: the `&mut` window is unique.
         let row = unsafe { core::slice::from_raw_parts_mut(ptr.add(tile), tail) };
-        for &(coeffs, src) in terms {
-            let coeff = coeffs[index];
-            if coeff != Gf8Elem::ZERO {
-                mul_add_nibble(row, scale_table(coeff), &src[tile..span]);
+        for term in 0..terms.len() {
+            let coeff = terms.coefficient(term, index);
+            if !coeff.is_zero() {
+                mul_add_nibble(row, coeff.table, &terms.source(term)[tile..span]);
             }
         }
     }
@@ -830,16 +846,16 @@ unsafe fn matrix_single<const POLY: u32>(
 /// in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane]
-pub fn mul_add_gather_neon<const POLY: u32>(
+pub fn mul_add_gather_neon(
     _token: archmage::NeonToken,
     dst: &mut [u8],
-    coeffs: &[Gf8Elem<8, Poly<POLY>>],
+    coeffs: &(impl Coeffs + ?Sized),
     srcs: &[&[u8]],
 ) {
     check_equal(
         "gf8::mul_add_gather_neon",
         "coefficients",
-        coeffs.len(),
+        coeffs.count(),
         "sources",
         srcs.len(),
     );
@@ -859,12 +875,8 @@ pub fn mul_add_gather_neon<const POLY: u32>(
 }
 
 #[archmage::rite(neon, import_intrinsics)]
-fn mul_add_gather_impl<const POLY: u32>(
-    dst: &mut [u8],
-    coeffs: &[Gf8Elem<8, Poly<POLY>>],
-    srcs: &[&[u8]],
-) {
-    let count = coeffs.len().min(srcs.len());
+fn mul_add_gather_impl(dst: &mut [u8], coeffs: &(impl Coeffs + ?Sized), srcs: &[&[u8]]) {
+    let count = coeffs.count().min(srcs.len());
     let mut span = dst.len();
     for &src in &srcs[..count] {
         span = span.min(src.len());
@@ -879,7 +891,7 @@ fn mul_add_gather_impl<const POLY: u32>(
         let mut acc0 = vld1q_u8(&*d0);
         let mut acc1 = vld1q_u8(&*d1);
         for k in 0..count {
-            let plan = Scaling::new(coeffs[k]);
+            let plan = Scaling::new(coeffs.resolved(k));
             if plan.kind == Kind::Skip {
                 continue;
             }
@@ -899,7 +911,7 @@ fn mul_add_gather_impl<const POLY: u32>(
     if vector_len > pair_len {
         let mut acc = vld1q_u8(dst[pair_len..vector_len].first_chunk().unwrap());
         for k in 0..count {
-            let plan = Scaling::new(coeffs[k]);
+            let plan = Scaling::new(coeffs.resolved(k));
             if plan.kind == Kind::Skip {
                 continue;
             }
@@ -912,11 +924,11 @@ fn mul_add_gather_impl<const POLY: u32>(
     }
 
     for k in 0..count {
-        let coeff = coeffs[k];
-        if coeff != Gf8Elem::ZERO {
+        let coeff = coeffs.resolved(k);
+        if !coeff.is_zero() {
             mul_add_nibble(
                 &mut dst[vector_len..span],
-                scale_table(coeff),
+                coeff.table,
                 &srcs[k][vector_len..span],
             );
         }

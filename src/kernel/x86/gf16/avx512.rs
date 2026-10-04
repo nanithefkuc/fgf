@@ -375,7 +375,7 @@ fn matrix_group<const N: usize, M: Matrix<Elem> + ?Sized>(
         for (term, group) in factors.iter_mut().enumerate().take(count) {
             for (k, pair) in group.iter_mut().enumerate() {
                 let (same, cross) =
-                    broadcast_words(TowerCoeff::new(*terms.coefficient(block + term, first + k)));
+                    broadcast_words(TowerCoeff::new(terms.coefficient(block + term, first + k)));
                 // One broadcast per term and row for the whole block: the
                 // offset loop reuses these instead of re-issuing them for
                 // every 64-byte lane.
@@ -411,7 +411,7 @@ fn matrix_group<const N: usize, M: Matrix<Elem> + ?Sized>(
                 gfni::mul_add_gfni(
                     token.v3_gfni_crypto(),
                     &mut row[full..span],
-                    TowerCoeff::new(*terms.coefficient(term, first + k)),
+                    TowerCoeff::new(terms.coefficient(term, first + k)),
                     &terms.source(term)[full..span],
                 );
             }

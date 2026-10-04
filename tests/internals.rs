@@ -22,7 +22,9 @@ use fgf::internals::field::wiedemann;
 use fgf::internals::kernel::X64V4xToken;
 use fgf::internals::kernel::gf8::Prepared;
 use fgf::internals::kernel::scalar;
-use fgf::internals::kernel::tables::{FpTowerTables, TowerCoeff, TowerTables, scale_table};
+use fgf::internals::kernel::tables::{
+    FpTowerTables, TowerCoeff, TowerTables, isomorphism_to_aes, scale_table,
+};
 use fgf::internals::kernel::{
     FlatMatrix, SimdToken, X64V2Token, X64V3GfniCryptoToken, X64V3Token, x86,
 };
@@ -429,6 +431,31 @@ fn check_matrix_overwrite<E: Copy>(
 fn gf8_coeff_at2<const POLY: u32>(t: usize, j: usize) -> Elem<8, Poly<POLY>> {
     Elem::<8, Poly<POLY>>::from_raw(((t * 31 + j * 29) % 256) as u8)
 }
+
+/// The low byte of a polynomial, the reduction the shift/reduce elementwise
+/// entries thread, through the public polynomial constant.
+fn reduction_low<const POLY: u32>() -> u8 {
+    Poly::<POLY>::POLY.to_le_bytes()[0]
+}
+
+/// Resolve element coefficients to the prepared form the blocked entries take.
+fn prepared<const POLY: u32>(coeffs: &[Elem<8, Poly<POLY>>]) -> Vec<Prepared> {
+    coeffs.iter().map(|&c| Prepared::new(c)).collect()
+}
+
+/// Resolve raw GF(2^8) terms into the prepared coefficient pairs the blocked
+/// matrix entries take; the sets stay alive across `body`.
+macro_rules! prepared_pairs {
+    ($terms:expr, |$pairs:ident| $body:expr) => {{
+        let sets: Vec<Vec<Prepared>> = $terms.iter().map(|(coeffs, _)| prepared(coeffs)).collect();
+        let $pairs: Vec<(&[Prepared], &[u8])> = sets
+            .iter()
+            .zip($terms.iter().map(|&(_, src)| src))
+            .map(|(set, src)| (set.as_slice(), src))
+            .collect();
+        $body
+    }};
+}
 fn gf16_coeff_at2(t: usize, j: usize) -> gf16::Elem {
     gf16::Elem::from_raw(((t * 7919 + j * 613) % 65536) as u16)
 }
@@ -515,21 +542,21 @@ fn proven_gf8_mul_kernels_match_scalar() {
         LENGTHS8,
         &coeffs,
         gf8_ref::<AES>,
-        |dst, c, src| x86::gf8::mul_add_gfni(v3gfni, dst, c, src),
+        |dst, c, src| x86::gf8::mul_add_gfni::<true>(v3gfni, dst, Prepared::new(c), src),
     );
     check_mul_assign(
         "gf8<0x11b>::mul_assign_gfni",
         LENGTHS8,
         &coeffs,
         scalar::mul_assign::<Gf8<Poly<AES>>>,
-        |dst, c| x86::gf8::mul_assign_gfni(v3gfni, dst, c),
+        |dst, c| x86::gf8::mul_assign_gfni::<true>(v3gfni, dst, Prepared::new(c)),
     );
     check_mul_into(
         "gf8<0x11b>::mul_into_gfni",
         LENGTHS8,
         &coeffs,
         gf8_ref::<AES>,
-        |dst, c, src| x86::gf8::mul_into_gfni(v3gfni, dst, c, src),
+        |dst, c, src| x86::gf8::mul_into_gfni::<true>(v3gfni, dst, Prepared::new(c), src),
     );
     check_mul_add(
         "gf8<0x11b>::mul_add_avx2",
@@ -575,13 +602,20 @@ fn proven_gf8_mul_kernels_match_scalar() {
     );
 
     check_elementwise::<Gf8<Poly<AES>>>("gf8::mul_elementwise_gfni", LENGTHS8, |dst, a, b| {
-        x86::gf8::mul_elementwise_gfni::<AES>(v3gfni, dst, a, b)
+        x86::gf8::mul_elementwise_gfni::<true>(
+            v3gfni,
+            isomorphism_to_aes::<AES>(),
+            reduction_low::<AES>(),
+            dst,
+            a,
+            b,
+        )
     });
     check_elementwise::<Gf8<Poly<AES>>>("gf8::mul_elementwise_avx2", LENGTHS8, |dst, a, b| {
-        x86::gf8::mul_elementwise_avx2::<AES>(v3, dst, a, b)
+        x86::gf8::mul_elementwise_avx2(v3, reduction_low::<AES>(), dst, a, b)
     });
     check_elementwise::<Gf8<Poly<AES>>>("gf8::mul_elementwise_ssse3", LENGTHS8, |dst, a, b| {
-        x86::gf8::mul_elementwise_ssse3::<AES>(v2, dst, a, b)
+        x86::gf8::mul_elementwise_ssse3(v2, reduction_low::<AES>(), dst, a, b)
     });
 
     // The shuffle single-row kernels are polynomial-agnostic: the
@@ -631,12 +665,12 @@ fn proven_gf8_mul_kernels_match_scalar() {
     check_elementwise::<Gf8<Poly<REED_SOLOMON>>>(
         "gf8::mul_elementwise_avx2 rs",
         LENGTHS8,
-        |dst, a, b| x86::gf8::mul_elementwise_avx2::<REED_SOLOMON>(v3, dst, a, b),
+        |dst, a, b| x86::gf8::mul_elementwise_avx2(v3, reduction_low::<REED_SOLOMON>(), dst, a, b),
     );
     check_elementwise::<Gf8<Poly<REED_SOLOMON>>>(
         "gf8::mul_elementwise_ssse3 rs",
         LENGTHS8,
-        |dst, a, b| x86::gf8::mul_elementwise_ssse3::<REED_SOLOMON>(v2, dst, a, b),
+        |dst, a, b| x86::gf8::mul_elementwise_ssse3(v2, reduction_low::<REED_SOLOMON>(), dst, a, b),
     );
 }
 
@@ -652,52 +686,60 @@ fn proven_gf8_rs_gfni_kernels_match_scalar() {
         LENGTHS8,
         &coeffs,
         gf8_ref::<REED_SOLOMON>,
-        |dst, c, src| x86::gf8::mul_add_gfni(token, dst, c, src),
+        |dst, c, src| x86::gf8::mul_add_gfni::<false>(token, dst, Prepared::new(c), src),
     );
     check_mul_assign(
         "gf8<0x11d>::mul_assign_gfni",
         LENGTHS8,
         &coeffs,
         scalar::mul_assign::<Gf8<Poly<REED_SOLOMON>>>,
-        |dst, c| x86::gf8::mul_assign_gfni(token, dst, c),
+        |dst, c| x86::gf8::mul_assign_gfni::<false>(token, dst, Prepared::new(c)),
     );
     check_mul_into(
         "gf8<0x11d>::mul_into_gfni",
         LENGTHS8,
         &coeffs,
         gf8_ref::<REED_SOLOMON>,
-        |dst, c, src| x86::gf8::mul_into_gfni(token, dst, c, src),
+        |dst, c, src| x86::gf8::mul_into_gfni::<false>(token, dst, Prepared::new(c), src),
     );
 
-    // The `Prepared` form dispatch hands the blocked kernels, driven as an
-    // `internals` consumer would build it.
-    let prepared: Vec<_> = coeffs.iter().map(|&c| Prepared::new(c)).collect();
+    // The affine body on AES data: the selection every non-AES-native
+    // representation takes, exercised on the native field.
     check_mul_add(
-        "gf8<0x11d>::mul_add_gfni prepared",
+        "gf8<0x11b>::mul_add_gfni affine",
         LENGTHS8,
-        &prepared,
-        |dst, c, src| gf8_ref::<REED_SOLOMON>(dst, c.coeff(), src),
-        |dst, c, src| x86::gf8::mul_add_gfni(token, dst, c, src),
+        &gf8_coeffs(),
+        gf8_ref::<AES>,
+        |dst, c, src| x86::gf8::mul_add_gfni::<false>(token, dst, Prepared::new(c), src),
     );
     check_mul_assign(
-        "gf8<0x11d>::mul_assign_gfni prepared",
+        "gf8<0x11b>::mul_assign_gfni affine",
         LENGTHS8,
-        &prepared,
-        |dst, c| scalar::mul_assign::<Gf8<Poly<REED_SOLOMON>>>(dst, c.coeff()),
-        |dst, c| x86::gf8::mul_assign_gfni(token, dst, c),
+        &gf8_coeffs(),
+        scalar::mul_assign::<Gf8<Poly<AES>>>,
+        |dst, c| x86::gf8::mul_assign_gfni::<false>(token, dst, Prepared::new(c)),
     );
     check_mul_into(
-        "gf8<0x11d>::mul_into_gfni prepared",
+        "gf8<0x11b>::mul_into_gfni affine",
         LENGTHS8,
-        &prepared,
-        |dst, c, src| gf8_ref::<REED_SOLOMON>(dst, c.coeff(), src),
-        |dst, c, src| x86::gf8::mul_into_gfni(token, dst, c, src),
+        &gf8_coeffs(),
+        gf8_ref::<AES>,
+        |dst, c, src| x86::gf8::mul_into_gfni::<false>(token, dst, Prepared::new(c), src),
     );
 
     check_elementwise::<Gf8<Poly<REED_SOLOMON>>>(
         "gf8::mul_elementwise_gfni rs",
         LENGTHS8,
-        |dst, a, b| x86::gf8::mul_elementwise_gfni::<REED_SOLOMON>(token, dst, a, b),
+        |dst, a, b| {
+            x86::gf8::mul_elementwise_gfni::<false>(
+                token,
+                isomorphism_to_aes::<REED_SOLOMON>(),
+                reduction_low::<REED_SOLOMON>(),
+                dst,
+                a,
+                b,
+            )
+        },
     );
 }
 
@@ -718,7 +760,7 @@ fn proven_gf8_scatter_gather_match_scalar() {
         gf8_ref::<AES>,
         |j| Elem::<8, Poly<AES>>::from_raw((j as u8).wrapping_mul(29)),
         |rows, row_len, coeffs, src| {
-            x86::gf8::mul_add_scatter_gfni(token, rows, row_len, coeffs, src)
+            x86::gf8::mul_add_scatter_gfni::<true>(token, rows, row_len, &prepared(coeffs), src)
         },
     );
     check_scatter(
@@ -727,7 +769,7 @@ fn proven_gf8_scatter_gather_match_scalar() {
         gf8_ref::<REED_SOLOMON>,
         |j| Elem::<8, Poly<REED_SOLOMON>>::from_raw((j as u8).wrapping_mul(29)),
         |rows, row_len, coeffs, src| {
-            x86::gf8::mul_add_scatter_gfni(token, rows, row_len, coeffs, src)
+            x86::gf8::mul_add_scatter_gfni::<false>(token, rows, row_len, &prepared(coeffs), src)
         },
     );
 
@@ -742,7 +784,9 @@ fn proven_gf8_scatter_gather_match_scalar() {
             row_len,
             gf8_ref::<AES>,
             |i| Elem::<8, Poly<AES>>::from_raw((i as u8).wrapping_mul(37).wrapping_add(3)),
-            |dst, coeffs, srcs| x86::gf8::mul_add_gather_gfni(token, dst, coeffs, srcs),
+            |dst, coeffs, srcs| {
+                x86::gf8::mul_add_gather_gfni::<true>(token, dst, &prepared(coeffs), srcs)
+            },
         );
         check_gather(
             "gf8::mul_add_gather_gfni rs",
@@ -751,7 +795,9 @@ fn proven_gf8_scatter_gather_match_scalar() {
             |i| {
                 Elem::<8, Poly<REED_SOLOMON>>::from_raw((i as u8).wrapping_mul(53).wrapping_add(13))
             },
-            |dst, coeffs, srcs| x86::gf8::mul_add_gather_gfni(token, dst, coeffs, srcs),
+            |dst, coeffs, srcs| {
+                x86::gf8::mul_add_gather_gfni::<false>(token, dst, &prepared(coeffs), srcs)
+            },
         );
     }
 }
@@ -769,7 +815,15 @@ fn proven_gf8_matrix_kernels_match_scalar() {
         gf8_coeff_at2::<AES>,
         gf8_ref::<AES>,
         |rows, row_len, nrows, terms| {
-            x86::gf8::mul_add_matrix_gfni(token, rows, row_len, nrows, terms)
+            prepared_pairs!(terms, |pairs| {
+                x86::gf8::mul_add_matrix_gfni_with::<true, _>(
+                    token,
+                    rows,
+                    row_len,
+                    nrows,
+                    &pairs[..],
+                )
+            })
         },
     );
     check_matrix_accumulate(
@@ -778,7 +832,15 @@ fn proven_gf8_matrix_kernels_match_scalar() {
         gf8_coeff_at2::<REED_SOLOMON>,
         gf8_ref::<REED_SOLOMON>,
         |rows, row_len, nrows, terms| {
-            x86::gf8::mul_add_matrix_gfni(token, rows, row_len, nrows, terms)
+            prepared_pairs!(terms, |pairs| {
+                x86::gf8::mul_add_matrix_gfni_with::<false, _>(
+                    token,
+                    rows,
+                    row_len,
+                    nrows,
+                    &pairs[..],
+                )
+            })
         },
     );
     check_matrix_overwrite(
@@ -787,7 +849,15 @@ fn proven_gf8_matrix_kernels_match_scalar() {
         gf8_coeff_at2::<AES>,
         gf8_ref::<AES>,
         |rows, row_len, nrows, terms| {
-            x86::gf8::mul_into_matrix_gfni(token, rows, row_len, nrows, terms)
+            prepared_pairs!(terms, |pairs| {
+                x86::gf8::mul_into_matrix_gfni_with::<true, _>(
+                    token,
+                    rows,
+                    row_len,
+                    nrows,
+                    &pairs[..],
+                )
+            })
         },
     );
     check_matrix_overwrite(
@@ -796,7 +866,15 @@ fn proven_gf8_matrix_kernels_match_scalar() {
         gf8_coeff_at2::<REED_SOLOMON>,
         gf8_ref::<REED_SOLOMON>,
         |rows, row_len, nrows, terms| {
-            x86::gf8::mul_into_matrix_gfni(token, rows, row_len, nrows, terms)
+            prepared_pairs!(terms, |pairs| {
+                x86::gf8::mul_into_matrix_gfni_with::<false, _>(
+                    token,
+                    rows,
+                    row_len,
+                    nrows,
+                    &pairs[..],
+                )
+            })
         },
     );
 
@@ -809,7 +887,7 @@ fn proven_gf8_matrix_kernels_match_scalar() {
         gf8_ref::<AES>,
         |rows, row_len, nrows, terms| {
             flat_gf8(terms, nrows, |matrix| {
-                x86::gf8::mul_add_matrix_gfni_with(token, rows, row_len, nrows, matrix)
+                x86::gf8::mul_add_matrix_gfni_with::<true, _>(token, rows, row_len, nrows, matrix)
             });
         },
     );
@@ -820,7 +898,7 @@ fn proven_gf8_matrix_kernels_match_scalar() {
         gf8_ref::<AES>,
         |rows, row_len, nrows, terms| {
             flat_gf8(terms, nrows, |matrix| {
-                x86::gf8::mul_into_matrix_gfni_with(token, rows, row_len, nrows, matrix)
+                x86::gf8::mul_into_matrix_gfni_with::<true, _>(token, rows, row_len, nrows, matrix)
             });
         },
     );
@@ -831,7 +909,7 @@ fn proven_gf8_matrix_kernels_match_scalar() {
         gf8_ref::<REED_SOLOMON>,
         |rows, row_len, nrows, terms| {
             flat_gf8(terms, nrows, |matrix| {
-                x86::gf8::mul_add_matrix_gfni_with(token, rows, row_len, nrows, matrix)
+                x86::gf8::mul_add_matrix_gfni_with::<false, _>(token, rows, row_len, nrows, matrix)
             });
         },
     );
@@ -842,17 +920,22 @@ fn proven_gf8_matrix_kernels_match_scalar() {
         gf8_ref::<REED_SOLOMON>,
         |rows, row_len, nrows, terms| {
             flat_gf8(terms, nrows, |matrix| {
-                x86::gf8::mul_into_matrix_gfni_with(token, rows, row_len, nrows, matrix)
+                x86::gf8::mul_into_matrix_gfni_with::<false, _>(token, rows, row_len, nrows, matrix)
             });
         },
     );
 }
 
-/// Build a stable FlatMatrix over a term list and hand it to `body`.
-fn flat_gf8<E: Copy>(terms: &[(&[E], &[u8])], nrows: usize, body: impl FnOnce(&FlatMatrix<'_, E>)) {
+/// Build a stable FlatMatrix of prepared coefficients over a term list and
+/// hand it to `body`.
+fn flat_gf8<const POLY: u32>(
+    terms: &[(&[Elem<8, Poly<POLY>>], &[u8])],
+    nrows: usize,
+    body: impl FnOnce(&FlatMatrix<'_, Prepared>),
+) {
     let mut flat = Vec::with_capacity(terms.len() * nrows);
     for &(coeffs, _) in terms {
-        flat.extend_from_slice(coeffs);
+        flat.extend(prepared(coeffs));
     }
     let srcs: Vec<&[u8]> = terms.iter().map(|&(_, s)| s).collect();
     body(&FlatMatrix {
@@ -909,7 +992,25 @@ fn scattered_case_gf8<const POLY: u32>(
         .collect();
     let mut got = noise(TOTAL, 0xe1);
     let mut want = got.clone();
-    x86::gf8::mul_add_matrix_at_gfni(token, &mut got, row_len, starts, &terms);
+    prepared_pairs!(terms, |pairs| {
+        if POLY == AES {
+            x86::gf8::mul_add_matrix_at_gfni_with::<true, _>(
+                token,
+                &mut got,
+                row_len,
+                starts,
+                &pairs[..],
+            );
+        } else {
+            x86::gf8::mul_add_matrix_at_gfni_with::<false, _>(
+                token,
+                &mut got,
+                row_len,
+                starts,
+                &pairs[..],
+            );
+        }
+    });
     for &(coeffs, src) in &terms {
         for (&start, &coeff) in starts.iter().zip(coeffs) {
             gf8_ref::<POLY>(&mut want[start..start + row_len], coeff, src);
@@ -931,16 +1032,16 @@ fn proven_overwrite_wrappers_zero_addressed_rows_on_empty_terms() {
 
     // Empty term list: the overwrite sum is zero over the addressed rows;
     // the surplus stays untouched.
-    let empty: [(&[Elem<8, Poly<AES>>], &[u8]); 0] = [];
+    let empty: [(&[Prepared], &[u8]); 0] = [];
     let mut got = noise(nrows * row_len + surplus, 0xf1);
     let mut want = got.clone();
-    x86::gf8::mul_into_matrix_gfni(token, &mut got, row_len, nrows, &empty);
+    x86::gf8::mul_into_matrix_gfni_with::<true, _>(token, &mut got, row_len, nrows, &empty[..]);
     want[..nrows * row_len].fill(0);
     assert_eq!(got, want, "mul_into_matrix_gfni: empty terms");
 
     // The FlatMatrix twins must agree with their slice twins.
     let srcs: Vec<&[u8]> = Vec::new();
-    let flat: Vec<Elem<8, Poly<AES>>> = Vec::new();
+    let flat: Vec<Prepared> = Vec::new();
     let matrix = FlatMatrix {
         coefficients: &flat,
         nrows,
@@ -948,26 +1049,20 @@ fn proven_overwrite_wrappers_zero_addressed_rows_on_empty_terms() {
     };
     let mut got = noise(nrows * row_len + surplus, 0xf3);
     let mut want = got.clone();
-    x86::gf8::mul_into_matrix_gfni_with(token, &mut got, row_len, nrows, &matrix);
+    x86::gf8::mul_into_matrix_gfni_with::<true, _>(token, &mut got, row_len, nrows, &matrix);
     want[..nrows * row_len].fill(0);
     assert_eq!(got, want, "mul_into_matrix_gfni_with: empty terms");
 
-    let flat: Vec<Elem<8, Poly<REED_SOLOMON>>> = Vec::new();
-    let matrix = FlatMatrix {
-        coefficients: &flat,
-        nrows,
-        sources: &srcs,
-    };
     let mut got = noise(nrows * row_len + surplus, 0xf4);
     let mut want = got.clone();
-    x86::gf8::mul_into_matrix_gfni_with(token, &mut got, row_len, nrows, &matrix);
+    x86::gf8::mul_into_matrix_gfni_with::<false, _>(token, &mut got, row_len, nrows, &matrix);
     want[..nrows * row_len].fill(0);
     assert_eq!(got, want, "mul_into_matrix_gfni_with rs: empty terms");
 
     // Accumulation with no terms is a no-op: nothing changes.
     let mut got = noise(nrows * row_len + surplus, 0xf5);
     let want = got.clone();
-    x86::gf8::mul_add_matrix_gfni(token, &mut got, row_len, nrows, &empty);
+    x86::gf8::mul_add_matrix_gfni_with::<true, _>(token, &mut got, row_len, nrows, &empty[..]);
     assert_eq!(got, want, "mul_add_matrix_gfni: empty terms is a no-op");
 
     // Zero rows: nothing is addressed, nothing changes (every term supplies
@@ -975,21 +1070,21 @@ fn proven_overwrite_wrappers_zero_addressed_rows_on_empty_terms() {
     let mut got = noise(row_len + surplus, 0xf6);
     let want = got.clone();
     let src = noise(row_len, 0xf7);
-    let no_coeffs: [Elem<8, Poly<AES>>; 0] = [];
-    let terms: Vec<(&[Elem<8, Poly<AES>>], &[u8])> = vec![(no_coeffs.as_slice(), src.as_slice())];
-    x86::gf8::mul_add_matrix_gfni(token, &mut got, row_len, 0, &terms);
-    x86::gf8::mul_into_matrix_gfni(token, &mut got, row_len, 0, &terms);
+    let no_coeffs: [Prepared; 0] = [];
+    let terms: Vec<(&[Prepared], &[u8])> = vec![(no_coeffs.as_slice(), src.as_slice())];
+    x86::gf8::mul_add_matrix_gfni_with::<true, _>(token, &mut got, row_len, 0, &terms[..]);
+    x86::gf8::mul_into_matrix_gfni_with::<true, _>(token, &mut got, row_len, 0, &terms[..]);
     assert_eq!(got, want, "zero rows address nothing");
 
     // Zero-length rows with a zero-length source are a documented no-op;
     // an empty gather with no sources must also leave the destination be.
     let mut got = noise(surplus, 0xf8);
     let want = got.clone();
-    let coeffs = [Elem::<8, Poly<AES>>::from_raw(7)];
-    let no_coeffs: [Elem<8, Poly<AES>>; 0] = [];
+    let coeffs = [Prepared::new(Elem::<8, Poly<AES>>::from_raw(7))];
+    let no_coeffs: [Prepared; 0] = [];
     let no_srcs: [&[u8]; 0] = [];
-    x86::gf8::mul_add_scatter_gfni(token, &mut got, 0, &coeffs, &[]);
-    x86::gf8::mul_add_gather_gfni(token, &mut got, &no_coeffs, &no_srcs);
+    x86::gf8::mul_add_scatter_gfni::<true>(token, &mut got, 0, &coeffs, &[]);
+    x86::gf8::mul_add_gather_gfni::<true>(token, &mut got, &no_coeffs, &no_srcs);
     assert_eq!(got, want, "zero-length rows are a no-op");
 }
 
@@ -1042,7 +1137,12 @@ fn proven_gf8_mul_add_rejects_length_mismatch() {
     rejects_geometry("gf8 mul_add", |token| {
         let mut dst = vec![0u8; 16];
         let src = vec![0u8; 17];
-        x86::gf8::mul_add_gfni(token, &mut dst, Elem::<8, Poly<AES>>::from_raw(3), &src);
+        x86::gf8::mul_add_gfni::<true>(
+            token,
+            &mut dst,
+            Prepared::new(Elem::<8, Poly<AES>>::from_raw(3)),
+            &src,
+        );
     });
 }
 
@@ -1066,10 +1166,10 @@ fn proven_scatter_rejects_short_rows_buffer() {
         let mut rows = vec![0u8; 16];
         let src = vec![0u8; 16];
         let coeffs = [
-            Elem::<8, Poly<AES>>::from_raw(1),
-            Elem::<8, Poly<AES>>::from_raw(2),
+            Prepared::new(Elem::<8, Poly<AES>>::from_raw(1)),
+            Prepared::new(Elem::<8, Poly<AES>>::from_raw(2)),
         ];
-        x86::gf8::mul_add_scatter_gfni(token, &mut rows, 16, &coeffs, &src);
+        x86::gf8::mul_add_scatter_gfni::<true>(token, &mut rows, 16, &coeffs, &src);
     });
 }
 
@@ -1078,9 +1178,9 @@ fn proven_matrix_rejects_term_coefficient_mismatch() {
     rejects_geometry("gf8 matrix", |token| {
         let mut rows = vec![0u8; 64];
         let src = vec![0u8; 32];
-        let short = [Elem::<8, Poly<AES>>::from_raw(1)];
-        let terms: Vec<(&[Elem<8, Poly<AES>>], &[u8])> = vec![(short.as_slice(), src.as_slice())];
-        x86::gf8::mul_add_matrix_gfni(token, &mut rows, 32, 2, &terms);
+        let short = [Prepared::new(Elem::<8, Poly<AES>>::from_raw(1))];
+        let terms: Vec<(&[Prepared], &[u8])> = vec![(short.as_slice(), src.as_slice())];
+        x86::gf8::mul_add_matrix_gfni_with::<true, _>(token, &mut rows, 32, 2, &terms[..]);
     });
 }
 
@@ -1089,10 +1189,10 @@ fn proven_matrix_scattered_rejects_overlapping_rows() {
     rejects_geometry("gf8 matrix_at overlap", |token| {
         let mut dst = vec![0u8; 128];
         let src = vec![0u8; 64];
-        let coeffs = [Elem::<8, Poly<AES>>::from_raw(1); 2];
-        let terms: Vec<(&[Elem<8, Poly<AES>>], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
+        let coeffs = [Prepared::new(Elem::<8, Poly<AES>>::from_raw(1)); 2];
+        let terms: Vec<(&[Prepared], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
         let starts = [0usize, 32];
-        x86::gf8::mul_add_matrix_at_gfni(token, &mut dst, 64, &starts, &terms);
+        x86::gf8::mul_add_matrix_at_gfni_with::<true, _>(token, &mut dst, 64, &starts, &terms[..]);
     });
 }
 
@@ -1101,10 +1201,10 @@ fn proven_matrix_scattered_rejects_out_of_bounds_row() {
     rejects_geometry("gf8 matrix_at bounds", |token| {
         let mut dst = vec![0u8; 64];
         let src = vec![0u8; 64];
-        let coeffs = [Elem::<8, Poly<AES>>::from_raw(1)];
-        let terms: Vec<(&[Elem<8, Poly<AES>>], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
+        let coeffs = [Prepared::new(Elem::<8, Poly<AES>>::from_raw(1))];
+        let terms: Vec<(&[Prepared], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
         let starts = [16usize];
-        x86::gf8::mul_add_matrix_at_gfni(token, &mut dst, 64, &starts, &terms);
+        x86::gf8::mul_add_matrix_at_gfni_with::<true, _>(token, &mut dst, 64, &starts, &terms[..]);
     });
 }
 
@@ -1117,12 +1217,12 @@ struct ShrinkingSource<'a, C> {
     calls: std::cell::Cell<usize>,
 }
 
-impl<C> fgf::internals::kernel::Matrix<C> for ShrinkingSource<'_, C> {
+impl<C: Copy> fgf::internals::kernel::Matrix<C> for ShrinkingSource<'_, C> {
     fn len(&self) -> usize {
         1
     }
-    fn coefficient(&self, _term: usize, row: usize) -> &C {
-        &self.coefficients[row]
+    fn coefficient(&self, _term: usize, row: usize) -> C {
+        self.coefficients[row]
     }
     fn source(&self, _term: usize) -> &[u8] {
         let calls = self.calls.get();
@@ -1134,7 +1234,7 @@ impl<C> fgf::internals::kernel::Matrix<C> for ShrinkingSource<'_, C> {
 #[test]
 fn proven_matrix_with_rejects_source_that_shrinks_after_validation() {
     rejects_geometry("gf8 matrix_with shrinking source", |token| {
-        let coeffs = [Elem::<8, Poly<AES>>::from_raw(3)];
+        let coeffs = [Prepared::new(Elem::<8, Poly<AES>>::from_raw(3))];
         let src = vec![1u8; 256];
         let terms = ShrinkingSource {
             coefficients: &coeffs,
@@ -1142,14 +1242,14 @@ fn proven_matrix_with_rejects_source_that_shrinks_after_validation() {
             calls: std::cell::Cell::new(0),
         };
         let mut rows = vec![0u8; 256];
-        x86::gf8::mul_add_matrix_gfni_with(token, &mut rows, 256, 1, &terms);
+        x86::gf8::mul_add_matrix_gfni_with::<true, _>(token, &mut rows, 256, 1, &terms);
     });
     #[cfg(feature = "simd512")]
     for row_len in [256, 512, 576] {
         rejects_geometry(
             "gf8 avx512 matrix_with shrinking source",
             |token: X64V4xToken| {
-                let coeffs = [Elem::<8, Poly<REED_SOLOMON>>::from_raw(3)];
+                let coeffs = [Prepared::new(Elem::<8, Poly<REED_SOLOMON>>::from_raw(3))];
                 let src = vec![1u8; row_len];
                 let terms = ShrinkingSource {
                     coefficients: &coeffs,
@@ -1169,11 +1269,11 @@ fn proven_gather_rejects_count_mismatch() {
         let mut dst = vec![0u8; 32];
         let src = vec![0u8; 32];
         let coeffs = [
-            Elem::<8, Poly<AES>>::from_raw(1),
-            Elem::<8, Poly<AES>>::from_raw(2),
+            Prepared::new(Elem::<8, Poly<AES>>::from_raw(1)),
+            Prepared::new(Elem::<8, Poly<AES>>::from_raw(2)),
         ];
         let srcs: Vec<&[u8]> = vec![src.as_slice()];
-        x86::gf8::mul_add_gather_gfni(token, &mut dst, &coeffs, &srcs);
+        x86::gf8::mul_add_gather_gfni::<true>(token, &mut dst, &coeffs, &srcs);
     });
 }
 
@@ -1183,15 +1283,15 @@ fn proven_gf8_rs512_rejects_bad_geometry() {
     rejects_geometry("gf8<0x11d>512 mul_add", |token: X64V4xToken| {
         let mut dst = vec![0u8; 16];
         let src = vec![0u8; 17];
-        let coeff = Elem::<8, Poly<REED_SOLOMON>>::from_raw(3);
+        let coeff = Prepared::new(Elem::<8, Poly<REED_SOLOMON>>::from_raw(3));
         x86::gf8::mul_add_avx512(token, &mut dst, coeff, &src);
     });
     rejects_geometry("gf8<0x11d>512 scatter", |token: X64V4xToken| {
         let mut rows = vec![0u8; 16];
         let src = vec![0u8; 16];
         let coeffs = [
-            Elem::<8, Poly<REED_SOLOMON>>::from_raw(1),
-            Elem::<8, Poly<REED_SOLOMON>>::from_raw(2),
+            Prepared::new(Elem::<8, Poly<REED_SOLOMON>>::from_raw(1)),
+            Prepared::new(Elem::<8, Poly<REED_SOLOMON>>::from_raw(2)),
         ];
         x86::gf8::mul_add_scatter_avx512(token, &mut rows, 16, &coeffs, &src);
     });
@@ -1199,12 +1299,11 @@ fn proven_gf8_rs512_rejects_bad_geometry() {
         let mut dst = vec![0u8; 128];
         let src = vec![0u8; 64];
         let coeffs = [
-            Elem::<8, Poly<REED_SOLOMON>>::from_raw(1),
-            Elem::<8, Poly<REED_SOLOMON>>::from_raw(2),
+            Prepared::new(Elem::<8, Poly<REED_SOLOMON>>::from_raw(1)),
+            Prepared::new(Elem::<8, Poly<REED_SOLOMON>>::from_raw(2)),
         ];
-        let terms: Vec<(&[Elem<8, Poly<REED_SOLOMON>>], &[u8])> =
-            vec![(coeffs.as_slice(), src.as_slice())];
-        x86::gf8::mul_add_matrix_at_avx512(token, &mut dst, 64, &[0, 32], &terms);
+        let terms: Vec<(&[Prepared], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
+        x86::gf8::mul_add_matrix_at_avx512_with(token, &mut dst, 64, &[0, 32], &terms[..]);
     });
 }
 

@@ -14,9 +14,9 @@
 //! — the one provider-callback residue in this family.
 
 use super::super::{ColumnWindow, RESOLVE_CHUNK, check_scattered, column_blocked, column_blocks};
-use super::Blocked;
 use super::rows::{MAX_GROUP_ROWS, group_rows, matrix_group};
 use crate::kernel::Matrix;
+use crate::kernel::gf8::Prepared;
 
 /// For each `(coeffs, src)` term and each row `j < nrows`,
 /// `rows[j] ^= coeffs[j] * src`.
@@ -38,35 +38,11 @@ use crate::kernel::Matrix;
 ///
 /// # Panics
 /// Panics unless `rows` holds `nrows` rows of `row_len` bytes and every term
-/// supplies `nrows` coefficients for a source of `row_len` bytes.
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_gfni<S: Blocked>(
-    _token: archmage::X64V3GfniCryptoToken,
-    rows: &mut [u8],
-    row_len: usize,
-    nrows: usize,
-    terms: &[(&[S], &[u8])],
-) {
-    for (t, (coeffs, _)) in terms.iter().enumerate() {
-        assert_eq!(
-            coeffs.len(),
-            nrows,
-            "mul_add_matrix_gfni: term {t} needs {nrows} coefficients"
-        );
-    }
-    mul_add_matrix_gfni_with(_token, rows, row_len, nrows, terms);
-}
-
-/// Many sources into many rows, GFNI backend, over a generic matrix source.
-///
-/// # Panics
-/// Panics unless `rows` holds `nrows` rows of `row_len` bytes and every term
 /// supplies a source of `row_len` bytes. Coefficient counts per term are the
 /// provider's contract.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_gfni_with<S: Blocked, M: Matrix<S> + ?Sized>(
+pub fn mul_add_matrix_gfni_with<const NATIVE: bool, M: Matrix<Prepared> + ?Sized>(
     _token: archmage::X64V3GfniCryptoToken,
     rows: &mut [u8],
     row_len: usize,
@@ -85,10 +61,11 @@ pub fn mul_add_matrix_gfni_with<S: Blocked, M: Matrix<S> + ?Sized>(
     if terms.len() == 0 {
         return;
     }
-    mul_add_matrix_impl::<S, M, false>(rows, row_len, nrows, terms);
+    mul_add_matrix_impl::<NATIVE, M, false>(rows, row_len, nrows, terms);
 }
 
-/// [`mul_add_matrix_gfni`] with overwrite semantics: `rows[j] = sum_t coeffs[t][j] * src[t]`.
+/// [`mul_add_matrix_gfni_with`] with overwrite semantics:
+/// `rows[j] = sum_t coeffs[t][j] * src[t]`, over a generic matrix source.
 ///
 /// Accumulators are seeded in registers — from the first product in a
 /// multi-row group, from zero in a one-row group — instead of from the
@@ -97,33 +74,10 @@ pub fn mul_add_matrix_gfni_with<S: Blocked, M: Matrix<S> + ?Sized>(
 /// chunk accumulate later chunks into what the first wrote.
 ///
 /// # Panics
-/// As [`mul_add_matrix_gfni`].
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_into_matrix_gfni<S: Blocked>(
-    _token: archmage::X64V3GfniCryptoToken,
-    rows: &mut [u8],
-    row_len: usize,
-    nrows: usize,
-    terms: &[(&[S], &[u8])],
-) {
-    for (t, (coeffs, _)) in terms.iter().enumerate() {
-        assert_eq!(
-            coeffs.len(),
-            nrows,
-            "mul_into_matrix_gfni: term {t} needs {nrows} coefficients"
-        );
-    }
-    mul_into_matrix_gfni_with(_token, rows, row_len, nrows, terms);
-}
-
-/// [`mul_into_matrix_gfni`] over a generic matrix source.
-///
-/// # Panics
 /// As [`mul_add_matrix_gfni_with`].
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_into_matrix_gfni_with<S: Blocked, M: Matrix<S> + ?Sized>(
+pub fn mul_into_matrix_gfni_with<const NATIVE: bool, M: Matrix<Prepared> + ?Sized>(
     _token: archmage::X64V3GfniCryptoToken,
     rows: &mut [u8],
     row_len: usize,
@@ -141,7 +95,7 @@ pub fn mul_into_matrix_gfni_with<S: Blocked, M: Matrix<S> + ?Sized>(
     }
     // Overwrite seeds accumulators from zero, so no destination bytes are
     // read; an empty term list still writes the zeroed sum.
-    mul_add_matrix_impl::<S, M, true>(rows, row_len, nrows, terms);
+    mul_add_matrix_impl::<NATIVE, M, true>(rows, row_len, nrows, terms);
 }
 
 /// Contiguous matrix walk shared by every matrix entry above.
@@ -153,19 +107,19 @@ pub fn mul_into_matrix_gfni_with<S: Blocked, M: Matrix<S> + ?Sized>(
 /// cached. Up to one chunk the row groups run over whole rows, where the
 /// source prefetch in `rows` keeps the streams fed.
 #[archmage::rite(v3_gfni_crypto)]
-fn mul_add_matrix_impl<S: Blocked, M: Matrix<S> + ?Sized, const OVERWRITE: bool>(
+fn mul_add_matrix_impl<const NATIVE: bool, M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
     terms: &M,
 ) {
     if !gfni_column_blocked(nrows, row_len, terms.len()) {
-        matrix_block::<S, M, OVERWRITE>(rows, row_len, 0, row_len, nrows, terms);
+        matrix_block::<NATIVE, M, OVERWRITE>(rows, row_len, 0, row_len, nrows, terms);
         return;
     }
     for (start, len) in column_blocks(row_len, 0) {
         let window = ColumnWindow::new(terms, start, len);
-        matrix_block::<S, _, OVERWRITE>(rows, row_len, start, len, nrows, &window);
+        matrix_block::<NATIVE, _, OVERWRITE>(rows, row_len, start, len, nrows, &window);
     }
 }
 
@@ -179,7 +133,7 @@ fn mul_add_matrix_impl<S: Blocked, M: Matrix<S> + ?Sized, const OVERWRITE: bool>
 /// covers per-term coefficient counts.
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
-fn matrix_block<S: Blocked, M: Matrix<S> + ?Sized, const OVERWRITE: bool>(
+fn matrix_block<const NATIVE: bool, M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
     rows: &mut [u8],
     pitch: usize,
     block_start: usize,
@@ -212,62 +166,56 @@ fn matrix_block<S: Blocked, M: Matrix<S> + ?Sized, const OVERWRITE: bool>(
         }
         // The provider contract supplies a coefficient per term for rows `g`
         // through `g + width - 1`.
-        matrix_group::<S, M, OVERWRITE>(&ptrs[..width], block_len, g, terms);
+        matrix_group::<NATIVE, M, OVERWRITE>(&ptrs[..width], block_len, g, terms);
         g += width;
     }
 }
 
-/// [`mul_add_matrix_gfni`], but the destination rows are disjoint and scattered
-/// through `dst` at byte offsets `row_starts` rather than laid out
+/// [`mul_add_matrix_gfni_with`], but the destination rows are disjoint and
+/// scattered through `dst` at byte offsets `row_starts` rather than laid out
 /// contiguously. Reuses the same register-blocked row groups; only the base
 /// pointer of each row differs.
 ///
 /// # Panics
 /// Panics unless every `row_starts[j] + row_len <= dst.len()`, the rows are
-/// pairwise disjoint, and every term supplies `row_starts.len()` coefficients
-/// for a `row_len`-byte source.
+/// pairwise disjoint, and every term supplies a `row_len`-byte source.
+/// Coefficient counts per term are the provider's contract.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_at_gfni<S: Blocked>(
+pub fn mul_add_matrix_at_gfni_with<const NATIVE: bool, M: Matrix<Prepared> + ?Sized>(
     _token: archmage::X64V3GfniCryptoToken,
     dst: &mut [u8],
     row_len: usize,
     row_starts: &[usize],
-    terms: &[(&[S], &[u8])],
+    terms: &M,
 ) {
     check_scattered("mul_add_matrix_at_gfni", dst.len(), row_len, row_starts);
-    for (t, (coeffs, src)) in terms.iter().enumerate() {
-        assert_eq!(
-            coeffs.len(),
-            row_starts.len(),
-            "mul_add_matrix_at_gfni: term {t} needs {} coefficients",
-            row_starts.len()
-        );
-        assert_eq!(src.len(), row_len);
+    for term in 0..terms.len() {
+        assert_eq!(terms.source(term).len(), row_len);
     }
-    if terms.is_empty() || row_starts.is_empty() {
+    if terms.len() == 0 || row_starts.is_empty() {
         return;
     }
-    mul_add_matrix_at_impl::<S, _>(dst, row_len, row_starts, terms);
+    mul_add_matrix_at_impl::<NATIVE, M>(dst, row_len, row_starts, terms);
 }
 
 /// Scattered matrix walk: the same column blocking as
 /// [`mul_add_matrix_impl`], with each row starting at an arbitrary disjoint
 /// offset.
 #[archmage::rite(v3_gfni_crypto)]
-fn mul_add_matrix_at_impl<S: Blocked, M: Matrix<S> + ?Sized>(
+fn mul_add_matrix_at_impl<const NATIVE: bool, M: Matrix<Prepared> + ?Sized>(
     dst: &mut [u8],
     row_len: usize,
     row_starts: &[usize],
     terms: &M,
 ) {
     if !gfni_column_blocked(row_starts.len(), row_len, terms.len()) {
-        matrix_at_block::<S, M>(dst, row_len, 0, row_len, row_starts, terms);
+        matrix_at_block::<NATIVE, M>(dst, row_len, 0, row_len, row_starts, terms);
         return;
     }
     for (start, len) in column_blocks(row_len, 0) {
         let window = ColumnWindow::new(terms, start, len);
-        matrix_at_block::<S, _>(dst, row_len, start, len, row_starts, &window);
+        matrix_at_block::<NATIVE, _>(dst, row_len, start, len, row_starts, &window);
     }
 }
 
@@ -287,7 +235,7 @@ fn gfni_column_blocked(nrows: usize, row_len: usize, nterms: usize) -> bool {
 /// in-bounds and pairwise disjoint, which no safe primitive expresses.
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
-fn matrix_at_block<S: Blocked, M: Matrix<S> + ?Sized>(
+fn matrix_at_block<const NATIVE: bool, M: Matrix<Prepared> + ?Sized>(
     dst: &mut [u8],
     row_len: usize,
     block_start: usize,
@@ -316,7 +264,7 @@ fn matrix_at_block<S: Blocked, M: Matrix<S> + ?Sized>(
             // THUS: no row's store conflicts with another row's window.
             *slot = unsafe { base.add(row_starts[g + j] + block_start) };
         }
-        matrix_group::<S, M, false>(&ptrs[..width], block_len, g, terms);
+        matrix_group::<NATIVE, M, false>(&ptrs[..width], block_len, g, terms);
         g += width;
     }
 }

@@ -18,6 +18,7 @@ use fgf::{Gf8, ops};
 #[test]
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn proven_internals_gather_and_overwrite_allocate_nothing() {
+    use fgf::internals::kernel::gf8::Prepared;
     use fgf::internals::kernel::tables::{TowerCoeff, TowerTables};
     use fgf::internals::kernel::{SimdToken, X64V3GfniCryptoToken, x86};
     use fgf::poly::AES;
@@ -44,6 +45,7 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
         .map(|index| Elem::<8, Poly<AES>>::from_raw((index as u8).wrapping_mul(37).wrapping_add(2)))
         .collect();
 
+    let prepared: Vec<Prepared> = coeffs.iter().map(|&c| Prepared::new(c)).collect();
     let columns: Vec<Vec<Elem<8, Poly<AES>>>> = (0..TERMS)
         .map(|term| {
             (0..NROWS)
@@ -51,7 +53,11 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
                 .collect()
         })
         .collect();
-    let terms: Vec<(&[Elem<8, Poly<AES>>], &[u8])> = columns
+    let prepared_columns: Vec<Vec<Prepared>> = columns
+        .iter()
+        .map(|column| column.iter().map(|&c| Prepared::new(c)).collect())
+        .collect();
+    let terms: Vec<(&[Prepared], &[u8])> = prepared_columns
         .iter()
         .zip(&srcs)
         .map(|(column, src)| (column.as_slice(), *src))
@@ -61,17 +67,23 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
 
     // Warm dispatch and validation paths before counting, then reset so the
     // counted call folds into the original seed exactly once.
-    x86::gf8::mul_add_gather_gfni(token, &mut gather_dst, &coeffs, &srcs);
-    x86::gf8::mul_into_matrix_gfni(token, &mut matrix_rows, LEN, NROWS, &terms);
+    x86::gf8::mul_add_gather_gfni::<true>(token, &mut gather_dst, &prepared, &srcs);
+    x86::gf8::mul_into_matrix_gfni_with::<true, _>(token, &mut matrix_rows, LEN, NROWS, &terms[..]);
     gather_dst = noise(LEN, 0xa40);
 
     let gather_count = count_allocations(|| {
-        x86::gf8::mul_add_gather_gfni(token, &mut gather_dst, &coeffs, &srcs);
+        x86::gf8::mul_add_gather_gfni::<true>(token, &mut gather_dst, &prepared, &srcs);
     });
     assert_eq!(gather_count, 0, "proven gather allocated");
 
     let matrix_count = count_allocations(|| {
-        x86::gf8::mul_into_matrix_gfni(token, &mut matrix_rows, LEN, NROWS, &terms);
+        x86::gf8::mul_into_matrix_gfni_with::<true, _>(
+            token,
+            &mut matrix_rows,
+            LEN,
+            NROWS,
+            &terms[..],
+        );
     });
     assert_eq!(matrix_count, 0, "proven overwrite matrix allocated");
 

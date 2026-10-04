@@ -1,9 +1,11 @@
 //! GF(2^8) lane-wise products over 64-byte lanes: `dst[i] = a[i] * b[i]`.
 //!
-//! Both operands vary per lane. Under the AES polynomial the product is one
-//! vector-by-vector `GF2P8MULB`; every other polynomial conjugates that
-//! multiply by the field isomorphism onto `0x11B`: two affine maps in, one
-//! native multiply, one affine map out.
+//! Both operands vary per lane. In the AES encoding the product is one
+//! vector-by-vector `GF2P8MULB`; every other representation conjugates that
+//! multiply by the isomorphism onto `0x11B`: two affine maps in, one native
+//! multiply, one affine map out. The isomorphism qwords and the reduction
+//! byte arrive as explicit arguments, and `NATIVE` selects the native versus
+//! conjugated bodies.
 //!
 //! Every entry is a safe [`archmage`] capability-token function over
 //! reference-based intrinsics. Complete 64-byte lanes run here; the remainder
@@ -12,21 +14,22 @@
 //! `V4x` tier under the `simd512` feature.
 
 use super::super::gfni::{mul_elementwise_assign_gfni, mul_elementwise_gfni};
-use crate::field::poly::AES;
-use crate::kernel::tables::isomorphism_to_aes;
+use crate::kernel::tables::Isomorphism;
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-/// `dst[i] = a[i] * b[i]` under `POLY` over 64-byte lanes.
+/// `dst[i] = a[i] * b[i]` over 64-byte lanes.
 ///
 /// # Panics
 /// Panics unless all three buffers match in length.
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_avx512<const POLY: u32>(
+pub fn mul_elementwise_avx512<const NATIVE: bool>(
     token: archmage::X64V4xToken,
+    iso: Isomorphism,
+    reduction: u8,
     dst: &mut [u8],
     a: &[u8],
     b: &[u8],
@@ -47,18 +50,27 @@ pub fn mul_elementwise_avx512<const POLY: u32>(
     for ((dlane, alane), blane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
         let x = _mm512_loadu_si512(alane);
         let y = _mm512_loadu_si512(blane);
-        _mm512_storeu_si512(dlane, multiply_vectors::<POLY>(x, y));
+        _mm512_storeu_si512(dlane, multiply_vectors::<NATIVE>(x, y, iso));
     }
-    mul_elementwise_gfni::<POLY>(token.v3_gfni_crypto(), dst_rest, a_rest, b_rest);
+    mul_elementwise_gfni::<NATIVE>(
+        token.v3_gfni_crypto(),
+        iso,
+        reduction,
+        dst_rest,
+        a_rest,
+        b_rest,
+    );
 }
 
-/// `dst[i] = dst[i] * src[i]` under `POLY` over 64-byte lanes.
+/// `dst[i] = dst[i] * src[i]` over 64-byte lanes.
 ///
 /// # Panics
 /// Panics if the slices differ in length.
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_assign_avx512<const POLY: u32>(
+pub fn mul_elementwise_assign_avx512<const NATIVE: bool>(
     token: archmage::X64V4xToken,
+    iso: Isomorphism,
+    reduction: u8,
     dst: &mut [u8],
     src: &[u8],
 ) {
@@ -72,20 +84,25 @@ pub fn mul_elementwise_assign_avx512<const POLY: u32>(
     for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
         let x = _mm512_loadu_si512(&*dlane);
         let y = _mm512_loadu_si512(slane);
-        _mm512_storeu_si512(dlane, multiply_vectors::<POLY>(x, y));
+        _mm512_storeu_si512(dlane, multiply_vectors::<NATIVE>(x, y, iso));
     }
-    mul_elementwise_assign_gfni::<POLY>(token.v3_gfni_crypto(), dst_rest, src_rest);
+    mul_elementwise_assign_gfni::<NATIVE>(
+        token.v3_gfni_crypto(),
+        iso,
+        reduction,
+        dst_rest,
+        src_rest,
+    );
 }
 
-/// `x * y` under `POLY` over a 512-bit lane: `φ⁻¹(GF2P8MULB(φx, φy))`, with
-/// the maps elided under the AES polynomial.
+/// `x * y` over a 512-bit lane: the native multiply when `NATIVE`, else
+/// `φ⁻¹(GF2P8MULB(φx, φy))` with the maps elided in the native case.
 #[inline]
 #[archmage::rite(v4x, import_intrinsics)]
-fn multiply_vectors<const POLY: u32>(x: __m512i, y: __m512i) -> __m512i {
-    if POLY == AES {
+fn multiply_vectors<const NATIVE: bool>(x: __m512i, y: __m512i, iso: Isomorphism) -> __m512i {
+    if NATIVE {
         return _mm512_gf2p8mul_epi8(x, y);
     }
-    let iso = isomorphism_to_aes::<POLY>();
     let forward = _mm512_set1_epi64(iso.forward.cast_signed());
     let inverse = _mm512_set1_epi64(iso.inverse.cast_signed());
     let px = _mm512_gf2p8affine_epi64_epi8::<0>(x, forward);

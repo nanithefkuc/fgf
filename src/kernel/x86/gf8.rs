@@ -4,8 +4,10 @@
 //! shape. `ssse3` and `avx2` hold the nibble-shuffle kernels, `gfni` the
 //! `GF2P8MULB`/`VGF2P8AFFINEQB` kernels at 32-byte lanes, and `avx512` the
 //! same multiplies at 64-byte lanes under `simd512`. The caller's resolved
-//! [`Backend`](crate::kernel::Backend) selects among them. Every kernel is
-//! generic over the field polynomial.
+//! [`Backend`](crate::kernel::Backend) selects among them. Coefficients
+//! arrive representation-erased — nibble tables, affine map qwords, or the
+//! whole [`Prepared`](crate::kernel::gf8::Prepared) form — and no kernel is
+//! generic over a field representation.
 //!
 //! - **GFNI.** `GF2P8MULB` is a native `GF(2)[x] / 0x11B` multiply across
 //!   byte lanes, so an AES coefficient is nothing but a broadcast byte; every
@@ -33,32 +35,64 @@ mod gfni;
 mod ssse3;
 
 pub use avx2::{
-    mul_add_avx2, mul_add_gather_avx2, mul_add_matrix_avx2, mul_add_matrix_avx2_with,
-    mul_add_scatter_avx2, mul_assign_avx2, mul_elementwise_assign_avx2, mul_elementwise_avx2,
-    mul_into_avx2, multiply_vectors_avx2,
+    mul_add_avx2, mul_add_gather_avx2, mul_add_matrix_avx2_with, mul_add_scatter_avx2,
+    mul_assign_avx2, mul_elementwise_assign_avx2, mul_elementwise_avx2, mul_into_avx2,
+    multiply_vectors_avx2,
 };
 #[cfg(feature = "simd512")]
 #[cfg(test)]
 pub(crate) use avx512::{GATHER_PEEL_MIN, MATRIX_PEEL_MIN, SCATTER_PEEL_MIN};
 #[cfg(feature = "simd512")]
 pub use avx512::{
-    mul_add_avx512, mul_add_gather_avx512, mul_add_matrix_at_avx512, mul_add_matrix_avx512,
+    mul_add_avx512, mul_add_gather_avx512, mul_add_matrix_at_avx512_with,
     mul_add_matrix_avx512_with, mul_add_scatter_avx512, mul_assign_avx512,
-    mul_elementwise_assign_avx512, mul_elementwise_avx512, mul_into_avx512, mul_into_matrix_avx512,
+    mul_elementwise_assign_avx512, mul_elementwise_avx512, mul_into_avx512,
     mul_into_matrix_avx512_with,
 };
 #[cfg(test)]
 pub(crate) use gfni::MATRIX_PREFETCH_MIN;
 pub use gfni::{
-    mul_add_gather_gfni, mul_add_gfni, mul_add_matrix_at_gfni, mul_add_matrix_gfni,
-    mul_add_matrix_gfni_with, mul_add_scatter_gfni, mul_assign_gfni, mul_elementwise_assign_gfni,
-    mul_elementwise_gfni, mul_into_gfni, mul_into_matrix_gfni, mul_into_matrix_gfni_with,
+    mul_add_gather_gfni, mul_add_gfni, mul_add_matrix_at_gfni_with, mul_add_matrix_gfni_with,
+    mul_add_scatter_gfni, mul_assign_gfni, mul_elementwise_assign_gfni, mul_elementwise_gfni,
+    mul_into_gfni, mul_into_matrix_gfni_with,
 };
 pub use ssse3::{
-    mul_add_gather_ssse3, mul_add_matrix_ssse3, mul_add_matrix_ssse3_with, mul_add_scatter_ssse3,
-    mul_add_ssse3, mul_assign_ssse3, mul_elementwise_assign_ssse3, mul_elementwise_ssse3,
-    mul_into_ssse3, multiply_vectors_ssse3,
+    mul_add_gather_ssse3, mul_add_matrix_ssse3_with, mul_add_scatter_ssse3, mul_add_ssse3,
+    mul_assign_ssse3, mul_elementwise_assign_ssse3, mul_elementwise_ssse3, mul_into_ssse3,
+    multiply_vectors_ssse3,
 };
+
+/// The sealed instantiation selectors of the shared GF(2^8) single-row
+/// bodies.
+///
+/// A body generic over its selector instantiates once per selector. Every
+/// public single-row entry names [`EntryBody`], so its body instantiation has
+/// that entry as its only caller and folds into it — no call boundary, one
+/// `vzeroupper` — while the alignment peels, tail remainders, and
+/// blocked-kernel remainder seams name [`PeelBody`] and keep one shared
+/// out-of-line instantiation. The selectors are zero-sized markers: no
+/// representation, polynomial, or per-call value crosses into a body.
+pub(in crate::kernel::x86::gf8) trait BodySite:
+    body_site::Sealed
+{
+}
+
+/// The selector of a public entry's own body; see [`BodySite`].
+pub(in crate::kernel::x86::gf8) struct EntryBody;
+
+/// The selector of a peel, remainder, or blocked-kernel seam body; see
+/// [`BodySite`].
+pub(in crate::kernel::x86::gf8) struct PeelBody;
+
+impl BodySite for EntryBody {}
+impl BodySite for PeelBody {}
+
+/// Seal of [`BodySite`](super::BodySite) to this module's two markers.
+mod body_site {
+    pub trait Sealed {}
+    impl Sealed for super::EntryBody {}
+    impl Sealed for super::PeelBody {}
+}
 
 /// How many terms a matrix row group resolves into one stack array before
 /// its tile loops run.
@@ -170,7 +204,7 @@ impl<C, M: Matrix<C> + ?Sized> Matrix<C> for ColumnWindow<'_, M> {
     }
 
     #[inline]
-    fn coefficient(&self, term: usize, row: usize) -> &C {
+    fn coefficient(&self, term: usize, row: usize) -> C {
         self.inner.coefficient(term, row)
     }
 

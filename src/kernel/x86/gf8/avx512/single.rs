@@ -18,8 +18,10 @@
 //! streaming-store policy needs its own 64-byte alignment proof and
 //! measurement before it lands here.
 
-use super::super::gfni::{Affine, mul_add_gfni_impl, mul_assign_gfni_impl, mul_into_gfni_impl};
-use super::{Blocked, bfactor_avx512, bmul_avx512, peel_avx512};
+use super::super::gfni::{mul_add_gfni_impl, mul_assign_gfni_impl, mul_into_gfni_impl};
+use super::super::{BodySite, EntryBody, PeelBody};
+use super::{bfactor_avx512, bmul_avx512, peel_avx512};
+use crate::kernel::gf8::Prepared;
 
 /// `dst ^= coeff * src` using `VGF2P8AFFINEQB` over 64-byte lanes.
 ///
@@ -27,27 +29,24 @@ use super::{Blocked, bfactor_avx512, bmul_avx512, peel_avx512};
 /// Panics if the slices differ in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_avx512<C: Blocked>(
-    _token: archmage::X64V4xToken,
-    dst: &mut [u8],
-    coeff: C,
-    src: &[u8],
-) {
+pub fn mul_add_avx512(_token: archmage::X64V4xToken, dst: &mut [u8], coeff: Prepared, src: &[u8]) {
     assert_eq!(
         dst.len(),
         src.len(),
         "mul_add_avx512: dst and src differ in length"
     );
-    mul_add_avx512_impl(dst, coeff, src);
+    mul_add_avx512_impl::<EntryBody>(dst, coeff, src);
 }
 
-/// The affine `mul_add` body over equal-length slices.
+/// The affine `mul_add` body over equal-length slices, instantiated per
+/// [`BodySite`]: [`EntryBody`] for the entry, [`PeelBody`] for the blocked
+/// kernels' remainder seam `brem_avx512`.
 ///
 /// Four independent multiply chains per tile cover the multiplier latency,
 /// as in the AVX2 form.
 #[archmage::rite(v4x, import_intrinsics)]
-pub(super) fn mul_add_avx512_impl<C: Blocked>(dst: &mut [u8], coeff: C, src: &[u8]) {
-    let factor = bfactor_avx512(coeff.map());
+pub(super) fn mul_add_avx512_impl<S: BodySite>(dst: &mut [u8], coeff: Prepared, src: &[u8]) {
+    let factor = bfactor_avx512(coeff.affine);
 
     // Head bytes run on the 256-bit body until the destination is 64-byte
     // aligned: a 64-byte access at 16 mod 64 splits two cache lines, and the
@@ -56,7 +55,7 @@ pub(super) fn mul_add_avx512_impl<C: Blocked>(dst: &mut [u8], coeff: C, src: &[u
     // every dispatched shape.
     let head = peel_avx512(dst.as_ptr(), dst.len());
     if head > 0 {
-        mul_add_gfni_impl(&mut dst[..head], Affine(coeff), &src[..head]);
+        mul_add_gfni_impl::<false, PeelBody>(&mut dst[..head], coeff, &src[..head]);
     }
     let dst = &mut dst[head..];
     let src = &src[head..];
@@ -96,18 +95,18 @@ pub(super) fn mul_add_avx512_impl<C: Blocked>(dst: &mut [u8], coeff: C, src: &[u
         _mm512_storeu_si512(dlane, r);
     }
 
-    mul_add_gfni_impl(dst_rest, Affine(coeff), src_rest);
+    mul_add_gfni_impl::<false, PeelBody>(dst_rest, coeff, src_rest);
 }
 
 /// `dst = coeff * dst` using `VGF2P8AFFINEQB` over 64-byte lanes.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_avx512<C: Blocked>(_token: archmage::X64V4xToken, dst: &mut [u8], coeff: C) {
-    let factor = bfactor_avx512(coeff.map());
+pub fn mul_assign_avx512(_token: archmage::X64V4xToken, dst: &mut [u8], coeff: Prepared) {
+    let factor = bfactor_avx512(coeff.affine);
     // As in `mul_add_avx512_impl`: peel to 64-byte alignment first.
     let head = peel_avx512(dst.as_ptr(), dst.len());
     if head > 0 {
-        mul_assign_gfni_impl(&mut dst[..head], Affine(coeff));
+        mul_assign_gfni_impl::<false, PeelBody>(&mut dst[..head], coeff);
     }
     let dst = &mut dst[head..];
     // Four lanes per tile cut loop overhead against the single-accumulator
@@ -132,7 +131,7 @@ pub fn mul_assign_avx512<C: Blocked>(_token: archmage::X64V4xToken, dst: &mut [u
 
     // The 32/16-byte and sub-lane tail: the AVX2 ladder below 64 bytes. The
     // tail is shorter than one half-lane peel, so that body takes no head.
-    mul_assign_gfni_impl(tail, Affine(coeff));
+    mul_assign_gfni_impl::<false, PeelBody>(tail, coeff);
 }
 
 /// `dst = coeff * src` using `VGF2P8AFFINEQB` over 64-byte lanes.
@@ -144,12 +143,7 @@ pub fn mul_assign_avx512<C: Blocked>(_token: archmage::X64V4xToken, dst: &mut [u
 /// Panics if the slices differ in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_into_avx512<C: Blocked>(
-    _token: archmage::X64V4xToken,
-    dst: &mut [u8],
-    coeff: C,
-    src: &[u8],
-) {
+pub fn mul_into_avx512(_token: archmage::X64V4xToken, dst: &mut [u8], coeff: Prepared, src: &[u8]) {
     assert_eq!(
         dst.len(),
         src.len(),
@@ -158,10 +152,10 @@ pub fn mul_into_avx512<C: Blocked>(
     // As in `mul_add_avx512_impl`: peel to 64-byte alignment first.
     let head = peel_avx512(dst.as_ptr(), dst.len());
     if head > 0 {
-        mul_into_gfni_impl::<_, false>(&mut dst[..head], Affine(coeff), &src[..head]);
+        mul_into_gfni_impl::<false, PeelBody, false>(&mut dst[..head], coeff, &src[..head]);
     }
     let (dst, src) = (&mut dst[head..], &src[head..]);
-    let factor = bfactor_avx512(coeff.map());
+    let factor = bfactor_avx512(coeff.affine);
 
     // Four independent multiply chains, as in the AXPY: with no destination
     // read there is even less other work to hide the multiplier latency
@@ -201,5 +195,5 @@ pub fn mul_into_avx512<C: Blocked>(
 
     // The temporal AVX2 descent below 64 bytes: no prefetch and no streaming
     // stores, which route past the streaming threshold to the AVX2 body.
-    mul_into_gfni_impl::<_, false>(dst_rest, Affine(coeff), src_rest);
+    mul_into_gfni_impl::<false, PeelBody, false>(dst_rest, coeff, src_rest);
 }

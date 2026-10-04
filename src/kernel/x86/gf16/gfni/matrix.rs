@@ -219,7 +219,7 @@ unsafe fn matrix_group<const N: usize, M: Matrix<Elem> + ?Sized>(
         let mut words = [[(0i16, 0i16); N]; TERM_BLOCK];
         for (t, row_words) in words.iter_mut().take(block_len).enumerate() {
             for (k, slot) in row_words.iter_mut().enumerate() {
-                let coeff = *terms.coefficient(block_start + t, first + k);
+                let coeff = terms.coefficient(block_start + t, first + k);
                 *slot = broadcast_words(TowerCoeff::new(coeff));
             }
         }
@@ -277,7 +277,7 @@ unsafe fn matrix_group<const N: usize, M: Matrix<Elem> + ?Sized>(
                 let tail =
                     unsafe { core::slice::from_raw_parts_mut(row.add(offset), span - offset) };
                 for term in block_start..block_start + block_len {
-                    let coeff = *terms.coefficient(term, first + k);
+                    let coeff = terms.coefficient(term, first + k);
                     mul_add_scalar(tail, coeff, &terms.source(term)[offset..span]);
                 }
             }

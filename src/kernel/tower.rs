@@ -31,7 +31,7 @@ macro_rules! gfni_tower_dispatch {
         /// [`crate::ops::CoeffVec`] reuses them across the whole buffer.
         /// `Plain` hands the element to the portable scalar kernel — the path
         /// every non-GFNI backend and the sub-lane tail take.
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Copy, Debug)]
         pub enum Prepared {
             #[doc = concat!("GFNI: ", $tiles_doc, ", plus the element for the scalar tail.")]
             #[allow(dead_code)]
@@ -243,7 +243,7 @@ pub mod gf16 {
     /// ~140 bytes to copy. Choosing between them at *preparation* time is the
     /// point: a GFNI host never pays for tables it will not read, and a shuffle
     /// host builds them once instead of on every call.
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub enum Prepared {
         /// Native byte multiply (GFNI) or `PMULL`: a pair of broadcast words.
         Compact(TowerCoeff),

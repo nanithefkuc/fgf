@@ -42,11 +42,29 @@ pub(crate) mod wasm32;
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 pub(crate) mod x86;
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "x86",
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "wasm32"
+    )
+))]
 pub(crate) mod matrix_provider;
 pub(crate) use byte_ops::xor;
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-pub(crate) use matrix_provider::{FlatMatrix, Matrix};
+pub(crate) use matrix_provider::FlatMatrix;
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "x86",
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "wasm32"
+    )
+))]
+pub(crate) use matrix_provider::Matrix;
 
 #[cfg(test)]
 mod tests;
@@ -71,7 +89,7 @@ use simdispatch::Selection;
 mod private {
     pub trait Sealed {}
 }
-impl<const POLY: u32> private::Sealed for crate::field::Gf<8, crate::field::Poly<POLY>> {}
+impl<R: crate::kernel::tables::ByteBanks> private::Sealed for crate::field::Gf<8, R> {}
 impl private::Sealed for crate::field::gf16::Gf16 {}
 impl private::Sealed for crate::field::gf32::Gf32 {}
 impl private::Sealed for crate::field::gf64::Gf64 {}
