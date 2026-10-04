@@ -60,8 +60,9 @@ use crate::kernel::{FieldKernels, KernelDispatch, RawDispatch};
 /// A coefficient already resolved into the host backend's preferred form.
 ///
 /// Build once, use many times. Construction is not free on every field — see
-/// the module docs — but it is idempotent and the result is immutable, so a
-/// `Coeff` can be cached alongside a coding matrix for the life of a codec.
+/// the module docs — but it is idempotent, allocates nothing (the resolved
+/// form is a plain value), and the result is immutable, so a `Coeff` can be
+/// cached alongside a coding matrix for the life of a codec.
 ///
 /// The prepared representation is backend-defined and deliberately opaque:
 /// the element it multiplies by is the whole public surface ([`Coeff::value`]).
@@ -207,9 +208,11 @@ impl<F: FieldKernels> core::fmt::Debug for CoeffRef<'_, F> {
 /// source or output axis, which is exactly why it is a separate type from
 /// [`CoeffMatrix`].
 ///
-/// Preparation happens once in [`CoeffVec::new`]; [`CoeffVec::get`] then
-/// borrows an entry without rebuilding or copying its backend tables. Store
-/// one beside the coding column it represents.
+/// Preparation happens once in [`CoeffVec::new`], which allocates the
+/// coefficient storage; [`CoeffVec::get`] then borrows an entry without
+/// rebuilding or copying its backend tables, and applying the operations
+/// below allocates nothing. Store one beside the coding column it
+/// represents.
 ///
 /// Requires `alloc`: the collection owns dynamically sized storage. The
 /// operations take the borrowed [`CoeffVecRef`] view, which
@@ -371,7 +374,9 @@ impl<F: FieldKernels> core::fmt::Debug for CoeffVecRef<'_, F> {
 /// output-major array passed to a source-major constructor is a silent
 /// transpose, and the axis has to be stated where the caller writes it.
 ///
-/// Requires `alloc`. Store one beside the coding matrix it represents.
+/// Requires `alloc`: construction allocates the coefficient storage, while
+/// the operations that consume a [`CoeffMatrix`] borrow it and allocate
+/// nothing. Store one beside the coding matrix it represents.
 #[cfg(feature = "alloc")]
 pub struct CoeffMatrix<F: FieldKernels> {
     prepared: alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>,

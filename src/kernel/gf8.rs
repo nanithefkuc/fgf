@@ -1037,12 +1037,11 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         if !R::DESCRIPTION.is_polynomial_root() {
             for (term, &src) in srcs.iter().enumerate() {
                 let start = term * nrows;
-                for (row, coeff) in rows
+                for (row, &coeff) in rows
                     .chunks_exact_mut(row_len)
                     .take(nrows)
                     .zip(&values[start..start + nrows])
                 {
-                    let coeff = <Elem<Gf<8, R>>>::from_raw(Prepared::new(*coeff).table.coeff);
                     scalar::mul_add::<Gf<8, R>>(row, coeff, src);
                 }
             }
@@ -1190,16 +1189,17 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
             for row in rows.chunks_exact_mut(row_len).take(nrows) {
                 row.fill(0);
             }
-            return scalar::mul_add_matrix::<Gf<8, R>>(
-                rows,
-                row_len,
-                nrows,
-                &srcs
-                    .iter()
-                    .enumerate()
-                    .map(|(t, &src)| (&values[t * nrows..(t + 1) * nrows], src))
-                    .collect::<alloc::vec::Vec<_>>(),
-            );
+            for (term, &src) in srcs.iter().enumerate() {
+                let start = term * nrows;
+                for (row, &coeff) in rows
+                    .chunks_exact_mut(row_len)
+                    .take(nrows)
+                    .zip(&values[start..start + nrows])
+                {
+                    scalar::mul_add::<Gf<8, R>>(row, coeff, src);
+                }
+            }
+            return;
         }
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
         if Self::backend() == Backend::V4x {

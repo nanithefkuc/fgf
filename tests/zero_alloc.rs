@@ -1,11 +1,93 @@
 #![cfg(feature = "std")]
 
+use fgf::field::binary::tower::{Tower, TowerSpec};
 use fgf::poly::{AES, REED_SOLOMON};
-use fgf::{Elem, FieldKernels, Gf, Gf8, Goldilocks, Mersenne31, Poly, ops};
+use fgf::{Elem, FieldKernels, Gf, Gf8, Gf16, Gf64, Goldilocks, Mersenne31, Normal, Poly, ops};
 
 #[path = "common/zero_alloc.rs"]
 mod common;
 use common::{TEST_LOCK, count_allocations, noise};
+
+/// A custom degree-32 tower over GF(2^16): `t^2 + t + 0x2001`, distinct from
+/// every pinned presentation.
+#[derive(Clone, Copy)]
+struct Custom32Spec;
+impl TowerSpec for Custom32Spec {
+    type Base = Gf16;
+    const A: u64 = 1;
+    const B: u64 = 0x2001;
+    const NAME: &'static str = "custom GF(2^32) tower";
+}
+
+/// Steady-state prepared application over one fallback class: preparation
+/// allocates by contract, application must not.
+#[allow(clippy::too_many_lines)]
+fn assert_fallback_steady_state_zero_alloc<F: FieldKernels>(coeffs: &[Elem<F>]) {
+    const ROW_LEN: usize = 1024;
+    let src = noise(ROW_LEN, 0xF00);
+    let sources: Vec<Vec<u8>> = (0..coeffs.len())
+        .map(|index| noise(ROW_LEN, 0xF10 + index as u64))
+        .collect();
+    let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+    let vector = ops::CoeffVec::<F>::new(coeffs);
+    let flat: Vec<Elem<F>> = (0..2).flat_map(|_| coeffs.iter().copied()).collect();
+    let matrix = ops::CoeffMatrix::<F>::from_source_major(2, coeffs.len(), &flat);
+    let matrix_refs: Vec<&[u8]> = vec![src.as_slice(), src.as_slice()];
+    let nrows = coeffs.len();
+    let mut rows = noise(ROW_LEN * nrows, 0xF20);
+    let mut row = noise(ROW_LEN, 0xF30);
+
+    // Resolve backend selection and warm every path before counting.
+    ops::mul_add_scatter::<F>(&mut rows, ROW_LEN, coeffs, &src);
+    ops::mul_add_gather::<F>(&mut row, coeffs, &refs);
+    ops::mul_add_scatter_with::<F>(&mut rows, ROW_LEN, vector.as_ref(), &src);
+    ops::mul_add_gather_with::<F>(&mut row, vector.as_ref(), &refs);
+    ops::mul_into_gather_with::<F>(&mut row, vector.as_ref(), &refs);
+    ops::mul_add_matrix_with::<F>(&mut rows, ROW_LEN, &matrix, &matrix_refs);
+    ops::mul_into_matrix_with::<F>(&mut rows, ROW_LEN, &matrix, &matrix_refs);
+
+    let allocations = count_allocations(|| {
+        ops::mul_add_scatter_with::<F>(&mut rows, ROW_LEN, vector.as_ref(), &src);
+        ops::mul_add_gather_with::<F>(&mut row, vector.as_ref(), &refs);
+        ops::mul_into_gather_with::<F>(&mut row, vector.as_ref(), &refs);
+        ops::mul_add_matrix_with::<F>(&mut rows, ROW_LEN, &matrix, &matrix_refs);
+        ops::mul_into_matrix_with::<F>(&mut rows, ROW_LEN, &matrix, &matrix_refs);
+    });
+    assert_eq!(allocations, 0, "fallback prepared steady state allocated");
+}
+
+#[test]
+fn basis8_prepared_steady_state_allocates_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    let coeffs: Vec<Elem<Gf8<Normal<0x11B, 0x20>>>> = (0..4u8)
+        .map(|index| Elem::<Gf8<Normal<0x11B, 0x20>>>::from_raw(index.wrapping_mul(71)))
+        .collect();
+    assert_fallback_steady_state_zero_alloc(&coeffs);
+}
+
+#[test]
+fn custom_tower32_prepared_steady_state_allocates_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    let coeffs: Vec<Elem<Gf<32, Tower<Custom32Spec>>>> = (0..4u32)
+        .map(|index| Elem::<Gf<32, Tower<Custom32Spec>>>::from_raw(index.wrapping_mul(0x1F3B_5A79)))
+        .collect();
+    assert_fallback_steady_state_zero_alloc(&coeffs);
+}
+
+#[test]
+fn gf64_prepared_steady_state_allocates_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    let coeffs: Vec<Elem<Gf64>> = (0..4u64)
+        .map(|index| Elem::<Gf64>::from_raw(index.wrapping_mul(0x00C0_FFEE_00C0_FFEE)))
+        .collect();
+    assert_fallback_steady_state_zero_alloc(&coeffs);
+}
 
 #[test]
 fn mul_into_gather_steady_state_allocates_nothing() {

@@ -11,7 +11,7 @@ use fgf::field::{FieldBuffer, FieldElem as _};
 use fgf::poly::{AES, REED_SOLOMON};
 use fgf::{
     Cantor, Elem, FanPaar8, FanPaar16, FanPaar32, FanPaar64, FieldKernels, Gf, Gf8, Gf16, Gf32,
-    Gf64, Goldilocks, Mersenne31, Normal, Poly, QuadMersenne31, goldilocks, ops,
+    Gf64, Goldilocks, Mersenne31, Normal, Poly, QuadMersenne31, Tower, TowerSpec, goldilocks, ops,
 };
 
 /// Deterministic pseudo-random bytes. No dependency, reproducible failures.
@@ -3417,4 +3417,617 @@ fn cantor_bulk_matches_scalar_and_reports_scalar() {
     basis_scatter_gather_matrix_for::<Gf8<Cantor<0x11B, 0x20>>>();
     #[cfg(feature = "alloc")]
     basis_prepared_matches_one_shot_for::<Gf8<Cantor<0x11B, 0x20>>>();
+}
+
+// ---------------------------------------------------------------------------
+// Custom towers and the scalar-fallback classes
+// ---------------------------------------------------------------------------
+
+/// A custom degree-8 tower over the degree-four polynomial field
+/// `GF(2^4)/0x13`: `t^2 + t + 0x8`.
+#[derive(Clone, Copy)]
+struct Custom8Spec;
+impl TowerSpec for Custom8Spec {
+    type Base = Gf<4, Poly<0x13>>;
+    const A: u64 = 1;
+    const B: u64 = 0x8;
+    const NAME: &'static str = "custom GF(2^8) tower";
+}
+
+/// A custom degree-16 tower over the Reed–Solomon byte field:
+/// `t^2 + 2*t + 0x80`.
+#[derive(Clone, Copy)]
+struct Custom16Spec;
+impl TowerSpec for Custom16Spec {
+    type Base = Gf8<Poly<REED_SOLOMON>>;
+    const A: u64 = 2;
+    const B: u64 = 0x80;
+    const NAME: &'static str = "custom GF(2^16) tower";
+}
+
+/// A custom degree-32 tower over GF(2^16): `t^2 + t + 0x2001`. The relation
+/// constant differs from the pinned Rijndael32 word, so the description is
+/// not structurally any pinned tower.
+#[derive(Clone, Copy)]
+struct Custom32Spec;
+impl TowerSpec for Custom32Spec {
+    type Base = Gf16;
+    const A: u64 = 1;
+    const B: u64 = 0x2001;
+    const NAME: &'static str = "custom GF(2^32) tower";
+}
+
+/// A custom degree-64 tower over GF(2^32): `t^2 + t + 0x2ada7f36`.
+#[derive(Clone, Copy)]
+struct Custom64Spec;
+impl TowerSpec for Custom64Spec {
+    type Base = Gf32;
+    const A: u64 = 1;
+    const B: u64 = 0x2ada_7f36;
+    const NAME: &'static str = "custom GF(2^64) tower";
+}
+
+/// A custom degree-16 tower over a normal-basis byte field: the linear
+/// coefficient is the base's actual one (all bits set) and the constant term
+/// is a trace-one element in normal coordinates.
+#[derive(Clone, Copy)]
+struct NormalBase16Spec;
+impl TowerSpec for NormalBase16Spec {
+    type Base = Gf8<Normal<0x11B, 0x20>>;
+    const A: u64 = 0xFF;
+    const B: u64 = 0x1;
+    const NAME: &'static str = "custom normal-base GF(2^16) tower";
+}
+
+/// The per-family backend report: the tier serving each class's bulk
+/// operations — [`Backend::Scalar`] for the typed scalar fallback — with
+/// elementwise eligibility reported separately.
+#[test]
+fn backend_reports_match_family_routes() {
+    use fgf::{Backend, backend, backend_for, has_vector_elementwise};
+
+    let process = backend();
+    let x86_tier = matches!(
+        process,
+        Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2
+    );
+    let gfni = matches!(process, Backend::V4x | Backend::V3GfniCrypto);
+
+    macro_rules! scalar_fallback {
+        ($($field:ty),+ $(,)?) => {$(
+            assert_eq!(
+                backend_for::<$field>(),
+                Backend::Scalar,
+                concat!(stringify!($field), " must report the scalar fallback"),
+            );
+            assert!(
+                !has_vector_elementwise::<$field>(),
+                concat!(stringify!($field), " elementwise must be scalar"),
+            );
+        )+};
+    }
+    scalar_fallback!(
+        Gf8<Normal<0x11B, 0x20>>,
+        Gf8<Cantor<0x11B, 0x20>>,
+        FanPaar8,
+        Gf<8, Tower<Custom8Spec>>,
+        Gf<16, Tower<Custom16Spec>>,
+        Gf<32, Tower<Custom32Spec>>,
+        Gf<64, Tower<Custom64Spec>>,
+        Gf<16, Tower<NormalBase16Spec>>,
+    );
+
+    // Polynomial byte fields follow the process backend on every
+    // architecture their kernels serve.
+    assert_eq!(backend_for::<Gf8<Poly<AES>>>(), process);
+    assert_eq!(
+        has_vector_elementwise::<Gf8<Poly<AES>>>(),
+        x86_tier || matches!(process, Backend::NeonAes | Backend::Neon | Backend::Wasm128),
+    );
+    assert_eq!(backend_for::<Gf8<Poly<REED_SOLOMON>>>(), process);
+    assert_eq!(
+        has_vector_elementwise::<Gf8<Poly<REED_SOLOMON>>>(),
+        x86_tier,
+    );
+
+    // Rijndael towers: byte-multiply kernels on GFNI x86, nibble kernels on
+    // the shuffle tiers and NEON/Wasm. GF(2^16) alone carries vector
+    // elementwise (the vector formulas fold the relation's linear term,
+    // which the Rijndael relation pins to the base identity).
+    assert_eq!(backend_for::<Gf16>(), process);
+    assert_eq!(has_vector_elementwise::<Gf16>(), x86_tier);
+    assert_eq!(
+        backend_for::<Gf32>(),
+        if gfni { process } else { Backend::Scalar },
+    );
+    assert_eq!(
+        backend_for::<Gf64>(),
+        if gfni { process } else { Backend::Scalar },
+    );
+    assert!(!has_vector_elementwise::<Gf32>());
+    assert!(!has_vector_elementwise::<Gf64>());
+
+    // Fan–Paar towers: nibble and lane kernels on the x86 tiers only.
+    let tier_or_scalar = |served: bool| if served { process } else { Backend::Scalar };
+    assert_eq!(backend_for::<FanPaar16>(), tier_or_scalar(x86_tier));
+    assert_eq!(
+        backend_for::<FanPaar32>(),
+        tier_or_scalar(gfni || process == Backend::V3)
+    );
+    assert_eq!(
+        backend_for::<FanPaar64>(),
+        tier_or_scalar(gfni || process == Backend::V3)
+    );
+    assert!(!has_vector_elementwise::<FanPaar16>());
+    assert!(!has_vector_elementwise::<FanPaar32>());
+    assert!(!has_vector_elementwise::<FanPaar64>());
+
+    // Prime families: integer-lane kernels map the process tier.
+    let prime = match process {
+        Backend::V4x => Backend::V4x,
+        Backend::V3GfniCrypto | Backend::V3 => Backend::V3,
+        Backend::V2 => Backend::V2,
+        _ => Backend::Scalar,
+    };
+    assert_eq!(backend_for::<Mersenne31>(), prime);
+    assert_eq!(backend_for::<Goldilocks>(), prime);
+    assert_eq!(
+        backend_for::<QuadMersenne31>(),
+        match prime {
+            Backend::V2 => Backend::Scalar,
+            other => other,
+        },
+    );
+    assert_eq!(has_vector_elementwise::<Mersenne31>(), x86_tier);
+    assert_eq!(has_vector_elementwise::<Goldilocks>(), x86_tier);
+    assert_eq!(
+        has_vector_elementwise::<QuadMersenne31>(),
+        gfni || process == Backend::V3,
+    );
+}
+
+/// Lengths in elements straddling every lane and unroll boundary — below
+/// one lane, exactly one, one plus an element, and several unroll tiles —
+/// plus one row past 4 KiB with a tail. Truncated under Miri to the
+/// boundary cases (see `LENGTHS`).
+#[cfg(not(miri))]
+const FALLBACK_ELEMS: [usize; 14] = [1, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 128, 129, 4103];
+#[cfg(miri)]
+const FALLBACK_ELEMS: [usize; 4] = [1, 15, 17, 33];
+
+/// Row lengths in elements for the fallback multi-row sweeps, straddling
+/// the same boundaries.
+#[cfg(not(miri))]
+const FALLBACK_ROW_ELEMS: [usize; 7] = [1, 15, 16, 17, 63, 64, 65];
+#[cfg(miri)]
+const FALLBACK_ROW_ELEMS: [usize; 3] = [1, 15, 17];
+
+/// One element per repeated byte pattern: binary raw words accept every
+/// byte pattern, and the set deliberately includes the zero word.
+fn pattern_elem<F: FieldBuffer>(byte: u8) -> Elem<F> {
+    let mut bytes = [0u8; 8];
+    bytes.fill(byte);
+    F::decode(&bytes[..F::BYTES])
+}
+
+/// Elementwise `dst = coeff * src`, straight from the field definition.
+fn oracle_mul_into<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
+    for (d, s) in dst
+        .chunks_exact_mut(F::BYTES)
+        .zip(src.chunks_exact(F::BYTES))
+    {
+        F::encode(d, F::decode(s).mul(coeff));
+    }
+}
+
+/// Elementwise `dst[i] = a[i] * b[i]`, straight from the field definition.
+fn oracle_elementwise<F: FieldBuffer>(dst: &mut [u8], a: &[u8], b: &[u8]) {
+    for ((d, x), y) in dst
+        .chunks_exact_mut(F::BYTES)
+        .zip(a.chunks_exact(F::BYTES))
+        .zip(b.chunks_exact(F::BYTES))
+    {
+        F::encode(d, F::decode(x).mul(F::decode(y)));
+    }
+}
+
+/// Every single-row bulk entry over one fallback class against the
+/// element-by-element scalar reference, with zero and actual-one
+/// coefficients.
+fn fallback_single_row_matches_scalar_for<F: FieldKernels>() {
+    let coeffs = [
+        Elem::<F>::ZERO,
+        Elem::<F>::ONE,
+        pattern_elem::<F>(0x53),
+        pattern_elem::<F>(0xA7),
+    ];
+    for &elems in &FALLBACK_ELEMS {
+        let len = elems * F::BYTES;
+        let src = noise(len, 0x1717 ^ elems as u64);
+        let dst = noise(len, 0x2828 ^ elems as u64);
+        let b = noise(len, 0x3939 ^ elems as u64);
+        for &coeff in &coeffs {
+            let mut want = dst.clone();
+            oracle_mul_add::<F>(&mut want, coeff, &src);
+            let mut got = dst.clone();
+            ops::mul_add::<F>(&mut got, coeff, &src);
+            assert_eq!(got, want, "{}: mul_add at {elems} elements", F::NAME);
+            #[cfg(feature = "alloc")]
+            {
+                let prepared = ops::Coeff::<F>::new(coeff);
+                let mut got = dst.clone();
+                ops::mul_add_with::<F>(&mut got, &prepared, &src);
+                assert_eq!(got, want, "{}: mul_add_with at {elems}", F::NAME);
+            }
+
+            let mut want = vec![0u8; len];
+            oracle_mul_into::<F>(&mut want, coeff, &src);
+            let mut got = vec![0xFFu8; len];
+            ops::mul_into::<F>(&mut got, coeff, &src);
+            assert_eq!(got, want, "{}: mul_into at {elems}", F::NAME);
+            #[cfg(feature = "alloc")]
+            {
+                let prepared = ops::Coeff::<F>::new(coeff);
+                let mut got = vec![0xFFu8; len];
+                ops::mul_into_with::<F>(&mut got, &prepared, &src);
+                assert_eq!(got, want, "{}: mul_into_with at {elems}", F::NAME);
+            }
+
+            let mut want = dst.clone();
+            oracle_mul_assign::<F>(&mut want, coeff);
+            let mut got = dst.clone();
+            ops::mul_assign::<F>(&mut got, coeff);
+            assert_eq!(got, want, "{}: mul_assign at {elems}", F::NAME);
+            #[cfg(feature = "alloc")]
+            {
+                let prepared = ops::Coeff::<F>::new(coeff);
+                let mut got = dst.clone();
+                ops::mul_assign_with::<F>(&mut got, &prepared);
+                assert_eq!(got, want, "{}: mul_assign_with at {elems}", F::NAME);
+            }
+        }
+
+        let mut want = dst.clone();
+        oracle_add_assign::<F>(&mut want, &src);
+        let mut got = dst.clone();
+        ops::add_assign::<F>(&mut got, &src);
+        assert_eq!(got, want, "{}: add_assign at {elems}", F::NAME);
+
+        let mut want = dst.clone();
+        oracle_sub_assign::<F>(&mut want, &src);
+        let mut got = dst.clone();
+        ops::sub_assign::<F>(&mut got, &src);
+        assert_eq!(got, want, "{}: sub_assign at {elems}", F::NAME);
+
+        let mut want = vec![0u8; len];
+        oracle_elementwise::<F>(&mut want, &src, &b);
+        let mut got = vec![0u8; len];
+        ops::mul_elementwise::<F>(&mut got, &src, &b);
+        assert_eq!(got, want, "{}: mul_elementwise at {elems}", F::NAME);
+        let mut got = src.clone();
+        ops::mul_elementwise_assign::<F>(&mut got, &b);
+        assert_eq!(got, want, "{}: mul_elementwise_assign at {elems}", F::NAME);
+
+        for &value in &[Elem::<F>::ZERO, Elem::<F>::ONE, pattern_elem::<F>(0x5C)] {
+            // Broadcast oracle: add `value` to every lane elementwise.
+            let mut want = dst.clone();
+            for chunk in want.chunks_exact_mut(F::BYTES) {
+                let updated = F::decode(chunk).add(value);
+                F::encode(chunk, updated);
+            }
+            let mut got = dst.clone();
+            ops::add_assign_scalar::<F>(&mut got, value);
+            assert_eq!(got, want, "{}: add_assign_scalar at {elems}", F::NAME);
+
+            let mut want = dst.clone();
+            for chunk in want.chunks_exact_mut(F::BYTES) {
+                let updated = F::decode(chunk).sub(value);
+                F::encode(chunk, updated);
+            }
+            let mut got = dst.clone();
+            ops::sub_assign_scalar::<F>(&mut got, value);
+            assert_eq!(got, want, "{}: sub_assign_scalar at {elems}", F::NAME);
+        }
+
+        // Row-interleaved addition over whole rows, and the unit-gather
+        // over offset-addressed sources.
+        if len.is_multiple_of(3 * F::BYTES) {
+            let row_len = 3 * F::BYTES;
+            let mut want = dst.clone();
+            oracle_add_assign_rows::<F>(&mut want, row_len, &src);
+            let mut got = dst.clone();
+            ops::add_assign_rows::<F>(&mut got, row_len, &src);
+            assert_eq!(got, want, "{}: add_assign_rows at {elems}", F::NAME);
+        }
+        let region = noise(len * 3, 0x4a4a ^ elems as u64);
+        let offsets = [0u32, len as u32, 2 * len as u32, len as u32];
+        let mut want = dst.clone();
+        oracle_add_gather_offsets::<F>(&mut want, &region, &offsets);
+        let mut got = dst.clone();
+        ops::add_gather_offsets::<F>(&mut got, &region, &offsets);
+        assert_eq!(got, want, "{}: add_gather_offsets at {elems}", F::NAME);
+
+        // Pack/unpack round trip: canonical coordinates are fixed points.
+        let mut elems_out = vec![Elem::<F>::ZERO; elems];
+        ops::unpack::<F>(&mut elems_out, &src);
+        let mut repacked = vec![0u8; len];
+        ops::pack::<F>(&mut repacked, &elems_out);
+        assert_eq!(
+            repacked,
+            src,
+            "{}: pack/unpack round trip at {elems}",
+            F::NAME
+        );
+    }
+}
+
+/// Every multi-row bulk entry over one fallback class — raw, prepared, and
+/// scattered forms, aligned and misaligned rows — against repeated
+/// single-row oracles.
+#[allow(clippy::too_many_lines)]
+fn fallback_multi_row_matches_scalar_for<F: FieldKernels>() {
+    let raws = [
+        Elem::<F>::ZERO,
+        Elem::<F>::ONE,
+        pattern_elem::<F>(0x53),
+        pattern_elem::<F>(0xA7),
+        pattern_elem::<F>(0xFF),
+    ];
+    for &row_elems in &FALLBACK_ROW_ELEMS {
+        let row_len = row_elems * F::BYTES;
+        let src = noise(row_len, 0x5151 ^ row_elems as u64);
+        let coeffs: Vec<Elem<F>> = raws.to_vec();
+        let nrows = coeffs.len();
+
+        // Scatter: one source fans out to `nrows` contiguous rows.
+        let mut want = noise(nrows * row_len, 0x6161);
+        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs) {
+            oracle_mul_add::<F>(row, coeff, &src);
+        }
+        let mut got = noise(nrows * row_len, 0x6161);
+        ops::mul_add_scatter::<F>(&mut got, row_len, &coeffs, &src);
+        assert_eq!(got, want, "{}: scatter at {row_elems} elements", F::NAME);
+        #[cfg(feature = "alloc")]
+        {
+            let vector = ops::CoeffVec::<F>::new(&coeffs);
+            let mut got = noise(nrows * row_len, 0x6161);
+            ops::mul_add_scatter_with::<F>(&mut got, row_len, vector.as_ref(), &src);
+            assert_eq!(got, want, "{}: prepared scatter at {row_elems}", F::NAME);
+        }
+
+        // Gather: many sources fold into one row.
+        let sources: Vec<Vec<u8>> = (0..nrows)
+            .map(|index| noise(row_len, 0x7171 + index as u64))
+            .collect();
+        let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+        let mut want = noise(row_len, 0x7272);
+        for (&coeff, &source) in coeffs.iter().zip(&refs) {
+            oracle_mul_add::<F>(&mut want, coeff, source);
+        }
+        let mut got = noise(row_len, 0x7272);
+        ops::mul_add_gather::<F>(&mut got, &coeffs, &refs);
+        assert_eq!(got, want, "{}: gather at {row_elems}", F::NAME);
+        #[cfg(feature = "alloc")]
+        {
+            let vector = ops::CoeffVec::<F>::new(&coeffs);
+            let mut got = noise(row_len, 0x7272);
+            ops::mul_add_gather_with::<F>(&mut got, vector.as_ref(), &refs);
+            assert_eq!(got, want, "{}: prepared gather at {row_elems}", F::NAME);
+
+            // Overwrite gathers start from garbage and match the accumulate
+            // form from zero.
+            let mut want = vec![0u8; row_len];
+            for (&coeff, &source) in coeffs.iter().zip(&refs) {
+                oracle_mul_add::<F>(&mut want, coeff, source);
+            }
+            let mut got = vec![0xFFu8; row_len];
+            ops::mul_into_gather::<F>(&mut got, &coeffs, &refs);
+            assert_eq!(got, want, "{}: into_gather at {row_elems}", F::NAME);
+            let mut got = vec![0xFFu8; row_len];
+            ops::mul_into_gather_with::<F>(&mut got, vector.as_ref(), &refs);
+            assert_eq!(
+                got,
+                want,
+                "{}: prepared into_gather at {row_elems}",
+                F::NAME
+            );
+        }
+
+        // Matrix and overwrite matrix: two terms of `nrows` coefficients.
+        let terms: Vec<(Vec<Elem<F>>, Vec<u8>)> = (0..2)
+            .map(|term| {
+                (
+                    (0..nrows)
+                        .map(|row| raws[(term + row) % raws.len()])
+                        .collect(),
+                    noise(row_len, 0x8181 + term as u64),
+                )
+            })
+            .collect();
+        let term_refs: Vec<(&[Elem<F>], &[u8])> = terms
+            .iter()
+            .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
+            .collect();
+        let mut want = noise(nrows * row_len, 0x8282);
+        for &(cs, source) in &term_refs {
+            for (row, &coeff) in want.chunks_exact_mut(row_len).zip(cs) {
+                oracle_mul_add::<F>(row, coeff, source);
+            }
+        }
+        let mut got = noise(nrows * row_len, 0x8282);
+        ops::mul_add_matrix::<F>(&mut got, row_len, nrows, &term_refs);
+        assert_eq!(got, want, "{}: matrix at {row_elems}", F::NAME);
+
+        let mut want_zero = vec![0u8; nrows * row_len];
+        for &(cs, source) in &term_refs {
+            for (row, &coeff) in want_zero.chunks_exact_mut(row_len).zip(cs) {
+                oracle_mul_add::<F>(row, coeff, source);
+            }
+        }
+        let mut got = vec![0xFFu8; nrows * row_len];
+        ops::mul_into_matrix::<F>(&mut got, row_len, nrows, &term_refs);
+        assert_eq!(got, want_zero, "{}: into_matrix at {row_elems}", F::NAME);
+        #[cfg(feature = "alloc")]
+        {
+            let flat: Vec<Elem<F>> = terms
+                .iter()
+                .flat_map(|(cs, _)| cs.iter().copied())
+                .collect();
+            let matrix = ops::CoeffMatrix::<F>::from_source_major(2, nrows, &flat);
+            let matrix_refs: Vec<&[u8]> = terms.iter().map(|(_, src)| src.as_slice()).collect();
+            let mut got = noise(nrows * row_len, 0x8282);
+            ops::mul_add_matrix_with::<F>(&mut got, row_len, &matrix, &matrix_refs);
+            assert_eq!(got, want, "{}: prepared matrix at {row_elems}", F::NAME);
+            let mut got = vec![0xFFu8; nrows * row_len];
+            ops::mul_into_matrix_with::<F>(&mut got, row_len, &matrix, &matrix_refs);
+            assert_eq!(
+                got,
+                want_zero,
+                "{}: prepared into_matrix at {row_elems}",
+                F::NAME
+            );
+        }
+
+        // Scattered rows: contiguous (aligned) and one-element-gapped
+        // (misaligned) starts, plus one out-of-order row pairing.
+        for &(gap, shuffle) in &[(0usize, false), (F::BYTES, false), (F::BYTES, true)] {
+            let stride = row_len + gap;
+            let mut starts: Vec<usize> = (0..nrows).map(|row| row * stride).collect();
+            if shuffle {
+                starts.swap(0, nrows - 1);
+            }
+            let mut want = vec![0u8; nrows * stride];
+            for &(cs, source) in &term_refs {
+                for (&start, &coeff) in starts.iter().zip(cs) {
+                    oracle_mul_add::<F>(&mut want[start..start + row_len], coeff, source);
+                }
+            }
+            let mut got = vec![0u8; nrows * stride];
+            ops::mul_add_matrix_at::<F>(&mut got, row_len, &starts, &term_refs);
+            assert_eq!(
+                got,
+                want,
+                "{}: matrix_at (gap {gap}, shuffled {shuffle}) at {row_elems}",
+                F::NAME,
+            );
+        }
+    }
+}
+
+#[test]
+fn basis8_fallback_bulk_matches_scalar() {
+    fallback_single_row_matches_scalar_for::<Gf8<Normal<0x11B, 0x20>>>();
+    fallback_multi_row_matches_scalar_for::<Gf8<Normal<0x11B, 0x20>>>();
+    fallback_single_row_matches_scalar_for::<Gf8<Cantor<0x11B, 0x20>>>();
+    fallback_multi_row_matches_scalar_for::<Gf8<Cantor<0x11B, 0x20>>>();
+}
+
+#[test]
+fn custom_tower8_fallback_bulk_matches_scalar() {
+    fallback_single_row_matches_scalar_for::<Gf<8, Tower<Custom8Spec>>>();
+    fallback_multi_row_matches_scalar_for::<Gf<8, Tower<Custom8Spec>>>();
+}
+
+#[test]
+fn custom_tower16_fallback_bulk_matches_scalar() {
+    fallback_single_row_matches_scalar_for::<Gf<16, Tower<Custom16Spec>>>();
+    fallback_multi_row_matches_scalar_for::<Gf<16, Tower<Custom16Spec>>>();
+}
+
+#[test]
+fn custom_tower32_fallback_bulk_matches_scalar() {
+    fallback_single_row_matches_scalar_for::<Gf<32, Tower<Custom32Spec>>>();
+    fallback_multi_row_matches_scalar_for::<Gf<32, Tower<Custom32Spec>>>();
+}
+
+#[test]
+fn custom_tower64_fallback_bulk_matches_scalar() {
+    fallback_single_row_matches_scalar_for::<Gf<64, Tower<Custom64Spec>>>();
+    fallback_multi_row_matches_scalar_for::<Gf<64, Tower<Custom64Spec>>>();
+}
+
+#[test]
+fn normal_base_tower16_fallback_bulk_matches_scalar() {
+    fallback_single_row_matches_scalar_for::<Gf<16, Tower<NormalBase16Spec>>>();
+    fallback_multi_row_matches_scalar_for::<Gf<16, Tower<NormalBase16Spec>>>();
+}
+
+// ---------------------------------------------------------------------------
+// Checked geometry over the fallback classes
+// ---------------------------------------------------------------------------
+
+#[test]
+#[should_panic(expected = "mul_add: dst is 4 bytes but src is 8 bytes")]
+fn fallback_mul_add_rejects_length_mismatch() {
+    let mut dst = [0u8; 4];
+    let src = [0u8; 8];
+    ops::mul_add::<Gf8<Normal<0x11B, 0x20>>>(&mut dst, pattern_elem(0x53), &src);
+}
+
+#[test]
+#[should_panic(expected = "buffer of 3 bytes is not a whole number")]
+fn fallback_mul_assign_rejects_partial_element() {
+    let mut dst = [0u8; 3];
+    ops::mul_assign::<Gf<16, Tower<Custom16Spec>>>(&mut dst, pattern_elem(0x53));
+}
+
+#[test]
+#[should_panic(expected = "mul_add_scatter: rows is 6 bytes but 4 rows of 2 bytes need 8")]
+fn fallback_scatter_rejects_short_rows_buffer() {
+    let coeffs = [
+        Elem::<Gf<16, Tower<Custom16Spec>>>::ZERO,
+        Elem::<Gf<16, Tower<Custom16Spec>>>::ONE,
+        pattern_elem::<Gf<16, Tower<Custom16Spec>>>(0x53),
+        pattern_elem::<Gf<16, Tower<Custom16Spec>>>(0xA7),
+    ];
+    let mut rows = [0u8; 6];
+    let src = [0u8; 2];
+    ops::mul_add_scatter::<Gf<16, Tower<Custom16Spec>>>(&mut rows, 2, &coeffs, &src);
+}
+
+#[test]
+#[should_panic(expected = "term supplies 2 coefficients for 3 rows")]
+fn fallback_matrix_rejects_term_coefficient_count() {
+    let coeffs = [pattern_elem::<Gf8<Cantor<0x11B, 0x20>>>(0x53); 2];
+    let mut rows = [0u8; 3];
+    let src = [0u8; 1];
+    ops::mul_add_matrix::<Gf8<Cantor<0x11B, 0x20>>>(&mut rows, 1, 3, &[(&coeffs, &src)]);
+}
+
+#[test]
+#[cfg(feature = "alloc")]
+#[should_panic(
+    expected = "mul_into_matrix_with: matrix holds coefficients for 2 sources but there are 3"
+)]
+fn fallback_prepared_matrix_rejects_dimension_mismatch() {
+    let coeffs = [pattern_elem::<Gf8<Normal<0x11B, 0x20>>>(0x53); 4];
+    let matrix = ops::CoeffMatrix::<Gf8<Normal<0x11B, 0x20>>>::from_source_major(2, 2, &coeffs);
+    let srcs: [&[u8]; 3] = [&[0u8; 2], &[0u8; 2], &[0u8; 2]];
+    let mut rows = [0u8; 4];
+    ops::mul_into_matrix_with::<Gf8<Normal<0x11B, 0x20>>>(&mut rows, 2, &matrix, &srcs);
+}
+
+#[test]
+#[should_panic(expected = "overlap for 8-byte rows")]
+fn fallback_matrix_at_rejects_overlapping_rows() {
+    let coeffs = [pattern_elem::<Gf<32, Tower<Custom32Spec>>>(0x53); 2];
+    let mut dst = [0u8; 12];
+    let src = [0u8; 8];
+    ops::mul_add_matrix_at::<Gf<32, Tower<Custom32Spec>>>(&mut dst, 8, &[0, 4], &[(&coeffs, &src)]);
+}
+
+#[test]
+#[should_panic(expected = "unpack: src is 3 bytes but dst holds 4")]
+fn fallback_unpack_rejects_source_mismatch() {
+    let mut out = [Elem::<Gf<32, Tower<Custom32Spec>>>::ZERO; 4];
+    let src = [0u8; 3];
+    ops::unpack::<Gf<32, Tower<Custom32Spec>>>(&mut out, &src);
+}
+
+#[test]
+#[should_panic(expected = "add_assign_rows: partial trailing row")]
+fn fallback_add_assign_rows_rejects_partial_row() {
+    let mut dst = [0u8; 10];
+    let src = [0u8; 10];
+    ops::add_assign_rows::<Gf8<Normal<0x11B, 0x20>>>(&mut dst, 4, &src);
 }
