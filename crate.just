@@ -35,7 +35,7 @@ example NAME *ARGS:
 examples *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    for name in field_arithmetic shard_recovery streaming_encode binary_syndrome extension_fields prime_vectors; do
+    for name in field_arithmetic shard_recovery streaming_encode binary_syndrome extension_fields embeddings prime_vectors; do
         cargo run --example "${name}" {{ARGS}}
     done
 

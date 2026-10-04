@@ -5,7 +5,7 @@
 //! supported vector unit and process sub-lane tails from vector loops. Backend
 //! tests use them as the scalar reference except for the Fan–Paar family, whose
 //! optimized element arithmetic is checked against the independent
-//! [`crate::field::wiedemann`] recurrence.
+//! [`crate::field::binary::tower`] recurrence.
 //!
 //! Hot scalar paths that beat the generic form live in the per-field dispatch
 //! modules rather than here.

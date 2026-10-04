@@ -395,11 +395,12 @@ pub(crate) fn wasm128_token() -> archmage::Wasm128Token {
         .expect("Wasm kernel reached without a selected simd128 proof")
 }
 
-/// The backend used for a particular field.
+/// The backend used for a particular field's bulk operations.
 ///
-/// Wider polynomial towers and the Fan–Paar fields currently report
-/// [`Backend::Scalar`] even when [`backend()`] selected a vector backend for
-/// the byte fields and `Gf16`.
+/// Presentations without a kernel strategy on the selected tier report
+/// [`Backend::Scalar`] and run the typed scalar fallback: ordered-basis byte
+/// fields, degree-eight towers, custom tower specs, and pinned towers on a
+/// tier their kernels do not serve.
 #[inline]
 #[must_use]
 pub fn backend_for<F: FieldKernels>() -> Backend {

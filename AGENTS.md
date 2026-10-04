@@ -36,8 +36,8 @@ Crate-specific values and recipes belong in `crate.just`.
 
 The example recipes default to the normal library features. Run
 `just examples --no-default-features --features alloc` for the portable
-prepared-operation surface; scalar arithmetic, extension arithmetic, and
-binary-syndrome examples also run without `alloc`.
+prepared-operation surface; scalar arithmetic, extension arithmetic,
+embedding, and binary-syndrome examples also run without `alloc`.
 
 ## Change discipline
 
@@ -147,6 +147,10 @@ Tests must defend observable contracts, not implementation wiring.
 - `tests/ops.rs`: checked public operations, geometry failures, prepared forms,
   empty inputs, and zero/one coefficients.
 - `tests/bits.rs`: bit-packed GF(2) behavior and frozen layout conventions.
+- `tests/tower_forward.rs`: frozen raw-word fixtures pinning the unified
+  tower packing against the shipped tower identities.
+- `tests/embedding.rs`: reference-ladder forward fixtures, inverse and
+  commuting-triangle contracts, trace/norm, and failed restriction.
 - `src/kernel/tests.rs`: direct scalar-versus-architecture differentials across
   lane, tail, row, and source-count boundaries.
 - `tests/zero_alloc.rs`: allocation-free steady-state contracts.

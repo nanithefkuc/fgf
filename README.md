@@ -16,8 +16,10 @@ and other workloads that repeatedly scale, combine, or reconstruct rows.
 | Main property | What it provides |
 | --- | --- |
 | Checked public API | Safe operations validate element widths, slice lengths, coefficient counts, and row geometry before dispatch. |
+| One element wrapper | `Elem<F>` is the element of every family; `Field` is the scalar algebra contract, `FieldBuffer` the packed-byte eligibility, `HasGenerator` the selected generator. |
 | Runtime SIMD | One process-wide selection chooses GFNI, AVX2, SSSE3/SSE4.2, NEON, Wasm SIMD, or the portable fallback. |
-| Broad field set | Binary polynomial fields, binary towers, canonical Fan–Paar towers, Mersenne31, Goldilocks, QM31, and bit-packed GF(2). |
+| Broad field set | Binary polynomial fields and ordered bases at degrees 1–8, recursive quadratic towers through degree 64, Mersenne31, Goldilocks, QM31, and bit-packed GF(2). |
+| Binary embeddings | `Embedding<S, T>` prepares the canonical inclusion of one binary field into another, with relative Frobenius, trace, and norm. |
 | Packed operations | Single-row AXPY, scatter, gather, matrix, overwrite, elementwise, and bit-range kernels. |
 | Reusable preparation | Prepared coefficients remove repeated table construction while keeping the steady-state operation allocation-free. |
 | Const scalar arithmetic | Concrete element operations are `const`, allowing coefficients and coding matrices to be built at compile time. |
@@ -32,15 +34,49 @@ The minimum supported Rust version is 1.93.
 
 ```toml
 [dependencies]
-fgf = "2.1.0"
+fgf = "3.0.0"
 ```
 
 For the portable `no_std` surface without allocation:
 
 ```toml
 [dependencies]
-fgf = { version = "2.1.0", default-features = false }
+fgf = { version = "3.0.0", default-features = false }
 ```
+
+## Release lines
+
+fgf 3.0.0 is a breaking release; migrating from 2.x is covered by the
+`CHANGELOG.md` entry for 3.0.0. The 2.x release line remains separately
+supported with fixes through 31 October 2026, and its published revisions
+stay resolvable afterwards. Applications may link both major versions only
+across explicit canonical-byte or value conversions: element,
+prepared-coefficient, and backend types are distinct and never exchanged by
+`transmute` or reinterpretation.
+
+## Field model
+
+A field is a zero-sized marker type `F` implementing `Field` — scalar
+algebra plus metadata: the raw word, the characteristic identity, degree,
+and order. `Elem<F>` is the one element wrapper for every family, with
+operators, `Sum`/`Product`, ordering, and hashing over canonical
+coordinates. Constructions validate the declared metadata at use time,
+including the binary degree cap of 64.
+
+- `FieldBuffer` marks fields with a fixed-width little-endian byte encoding:
+  binary degrees 8, 16, 32, and 64, and the prime families. Degrees 1, 2,
+  and 4 are scalar-only; GF(2) packs bits in `bits`.
+- `FieldKernels` extends `FieldBuffer` with the checked bulk operations of
+  `ops`, including the typed scalar fallback every field carries.
+- `HasGenerator` selects a multiplicative generator whose full order the
+  crate-owned providers verify; `Elem::<F>::GENERATOR` reads it.
+
+Binary fields are `Gf<N, R>`: total degree `N` — every power of two from 1
+to 64, with 64 the hard cap — under a representation `R`. `Poly` is a
+polynomial basis, `Normal` and `Cantor` are ordered bases at degrees 2–8,
+and `Tower<S>` is a recursive quadratic tower built on any supported base
+through an open `TowerSpec`. The prime families are plain field markers
+under the same element wrapper.
 
 ## Quick start
 
@@ -81,7 +117,8 @@ identities or recovered data. Each file is self-contained.
 | `shard_recovery` | `Gf8<Poly<REED_SOLOMON>>` | Apply a fixed parity matrix, recover one erased shard with a gather, and recover both data shards with a prepared matrix. |
 | `streaming_encode` | `Gf16` | Pack tower elements, scatter arriving sources, update parity from a source delta, and write disjoint output slots without overwriting frame metadata. |
 | `binary_syndrome` | Bit-packed GF(2) | Encode a Hamming codeword by subset XOR, locate a single error with parity-check dot products, and handle logical lengths and padding. |
-| `extension_fields` | AES-rooted and Fan–Paar towers, `QuadMersenne31` | Subfield embeddings, Frobenius conjugation, relative trace and norm, and quadratic-extension arithmetic. |
+| `extension_fields` | AES-rooted and Fan–Paar towers, `QuadMersenne31` | Tower components, Frobenius conjugation, relative trace and norm, and quadratic-extension arithmetic. |
+| `embeddings` | Binary fields GF(2)–GF(2^64) | Canonical inclusions across presentations: embed and restrict, the frozen reference ladder, Frobenius, trace, norm, and rejected degree pairs. |
 | `prime_vectors` | `Mersenne31`, `Goldilocks`, `QuadMersenne31` | Canonicalize raw lanes, pack evaluation vectors, compute pointwise products, and apply a prepared linear combination. |
 
 Run one example with Cargo:
@@ -119,11 +156,18 @@ from `just examples`.
 
 ## Supported fields
 
+Binary fields exist at every degree 1, 2, 4, 8, 16, 32, and 64; 64 is the
+crate's hard cap, checked at every construction route. Degrees 1, 2, and 4
+are scalar-only — no packed byte buffers.
+
 | Field | Marker and element | Construction | Accelerated backends |
 | --- | --- | --- | --- |
+| GF(2) | `Gf1`, `Elem<Gf1>` | `Poly<3>`, the polynomial `x + 1` | dispatched XOR; portable word kernels |
+| GF(2^2), GF(2^4) | `Gf<2, Poly<0x7>>`, `Gf<4, Poly<0x13>>`, `Normal`, `Cantor`, `FanPaar2`, `FanPaar4` | polynomial, ordered basis, or tower, scalar-only | scalar |
 | GF(2^8) | `Gf8<Poly<AES>>`, `Elem<Gf<8, Poly<AES>>>` | AES polynomial `0x11B` | x86 GFNI and shuffle; `AArch64` NEON/PMULL; Wasm SIMD |
 | GF(2^8) | `Gf8<Poly<REED_SOLOMON>>`, `Elem<Gf<8, Poly<REED_SOLOMON>>>` | polynomial `0x11D` | x86 GFNI affine and shuffle; `AArch64` and Wasm single-row shuffle |
 | GF(2^8) | `Gf8<Poly<POLY>>`, `Elem<Gf<8, Poly<POLY>>>` | any irreducible degree-eight polynomial | x86 GFNI affine and shuffle; `AArch64` and Wasm single-row shuffle |
+| GF(2^8) | `Gf8<Normal<P, E>>`, `Gf8<Cantor<P, SEED>>` | ordered bases over a polynomial | XOR kernels; typed scalar fallback for products |
 | GF(2^16) | `Gf16`, `Elem<Gf16>` | quadratic tower over `Gf8<Poly<AES>>` | x86 GFNI and shuffle |
 | GF(2^32) | `Gf32`, `Elem<Gf32>` | quadratic tower over `Gf16` | x86 GFNI |
 | GF(2^64) | `Gf64`, `Elem<Gf64>` | quadratic tower over `Gf32` | x86 GFNI |
@@ -135,7 +179,6 @@ from `just examples`.
 | GF(2^31 − 1) | `Mersenne31`, `Elem<Mersenne31>` | Mersenne prime in `u32` lanes | x86 AVX2 and SSE4.2 |
 | GF(2^64 − 2^32 + 1) | `Goldilocks`, `Elem<Goldilocks>` | Goldilocks prime in `u64` lanes | x86 AVX2 and SSE4.2 |
 | GF((2^31 − 1)²) | `QuadMersenne31`, `Elem<QuadMersenne31>` | `i² = −1` over Mersenne31 | x86 AVX2 |
-| GF(2) | `Gf1`, `Elem<Gf1>` | one element per bit | dispatched XOR; portable word kernels |
 
 `AES` and `REED_SOLOMON` name the two standard polynomial constants in
 `fgf::poly`. Other conventions use the complete polynomial directly:
@@ -217,6 +260,37 @@ assert_eq!(bits::weight(&row, 7), 5);
 
 Range operations leave padding bits untouched. Whole-buffer operations process
 the complete supplied slices.
+
+## Binary embeddings
+
+`Embedding<S, T>` prepares the canonical inclusion of one binary field into
+another whose degree is a multiple of it, for every supported presentation —
+polynomial, ordered-basis, and tower alike, including custom `TowerSpec`
+instances. One frozen reference per degree fixes the map; equal descriptions
+embed identically, and inclusions commute.
+
+```rust
+use fgf::poly::AES;
+use fgf::{Elem, Embedding, Gf, Gf8, Gf16, Poly};
+
+let sub = Embedding::<Gf8<Poly<AES>>, Gf16>::new().unwrap();
+let a = Elem::<Gf<8, Poly<AES>>>::from_raw(0x53);
+
+// Inclusions above the AES field keep the base in the low component.
+assert!(sub.contains(sub.embed(a)));
+assert_eq!(sub.restrict(sub.embed(a)), Some(a));
+
+// The relative Frobenius, trace, and norm come with the embedding:
+// t^2 + t + 0x20 = 0 over the AES field, so the conjugate of t is t + 1.
+let t = Elem::<Gf16>::from_raw(0x0100);
+assert_eq!(sub.trace(t), Elem::<Gf8<Poly<AES>>>::ONE);
+assert_eq!(sub.norm(t), Elem::<Gf8<Poly<AES>>>::from_raw(0x20));
+```
+
+Construction and application allocate nothing, so an embedding is prepared
+once and applied freely. A source degree that does not divide the target
+degree returns `EmbeddingError::IncompatibleDegree` from `new`. The maps are
+field isomorphisms between presentations, not byte reinterpretations.
 
 ## Features
 

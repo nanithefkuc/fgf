@@ -3,7 +3,7 @@
 //! Every byte representation under [`Gf8`] shares one dispatch: the
 //! split-nibble scalar operations every architecture backend uses for
 //! sub-lane tails, and one routing table that diverges by representation
-//! only where the hardware does. [`ByteBanks`](crate::kernel::tables::Gf8Data)
+//! only where the hardware does. [`Gf8Data`](crate::kernel::tables::Gf8Data)
 //! carries what dispatch needs — AES nativity, the compile-time banks, the
 //! isomorphism onto the AES field, and the reduction byte — and
 //! [`Prepared`] is what survives below it: a nibble table and an affine map

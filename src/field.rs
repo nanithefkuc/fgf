@@ -14,8 +14,7 @@
 //! Every safely constructed element holds canonical raw coordinates, so
 //! [`PartialEq`], [`Eq`], [`Hash`], and [`Ord`] compare raw words directly.
 //! Ordering is deterministic coordinate order, not an order compatible with
-//! field algebra. [`FieldElem::from_raw`] canonicalizes its input; the
-//! previous release retained the unreduced integer.
+//! field algebra. [`FieldElem::from_raw`] canonicalizes its input.
 //!
 //! By library-wide convention `inv(0) == 0` and `x / 0 == 0`, in every build
 //! profile and under `const` evaluation alike. This is a total-function

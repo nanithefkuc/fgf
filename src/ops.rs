@@ -1424,8 +1424,8 @@ mod tests {
     use alloc::vec::Vec;
 
     /// `row_len == 0` with otherwise valid geometry is a no-op everywhere —
-    /// including the scalar backend, whose `chunks_exact_mut(0)` used to
-    /// panic where GFNI silently succeeded.
+    /// including the scalar backend, whose zero-length row chunking is an
+    /// empty loop rather than a panic.
     #[test]
     // Term geometry nests the unified element spelling; the slices stay slices.
     #[allow(clippy::type_complexity)]

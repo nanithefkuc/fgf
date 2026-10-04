@@ -10,9 +10,11 @@
 //! # Layout
 //!
 //! Raw storage is private to the crate. Degrees 1, 2, 4, and 8 store one
-//! element in a byte holding exactly the `N` low coordinate bits; degree 16
-//! stores one element in two bytes. The stable byte encoding of an element
-//! is the little-endian encoding of its raw word.
+//! element in a byte holding exactly the `N` low coordinate bits; degrees 16,
+//! 32, and 64 store one element in the little-endian `u16`, `u32`, or `u64`
+//! holding exactly `N` bits. The stable byte encoding of an element is the
+//! little-endian encoding of its raw word, and degree 64 is the crate's
+//! binary cap.
 //!
 //! # Totality and canonicalization
 //!
