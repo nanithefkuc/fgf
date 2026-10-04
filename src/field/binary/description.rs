@@ -139,7 +139,7 @@ pub(crate) const fn poly_irreducible(p: u128, n: u32) -> bool {
 }
 
 /// Apply a byte-linear map: bit `i` of `x` selects `columns[i]`.
-const fn apply(columns: [u8; 8], x: u64) -> u64 {
+pub(crate) const fn apply(columns: [u8; 8], x: u64) -> u64 {
     let mut result = 0u64;
     let mut i = 0;
     while i < 8 {
@@ -210,7 +210,65 @@ const fn serial_log_exp(full: u128, generator: u64) -> ByteLogExp {
     build(full, generator)
 }
 
+/// Crate-visible defining data of one description node.
+#[derive(Clone, Copy)]
+pub(crate) enum NodeData {
+    /// A flat polynomial root.
+    Polynomial {
+        /// Total degree of the node.
+        degree: u8,
+        /// The full reduction polynomial including the leading term.
+        full: u128,
+    },
+    /// An ordered basis over an earlier node.
+    Basis {
+        /// Basis vectors in base coordinates.
+        to_base: [u8; 8],
+        /// Inverse columns in base coordinates.
+        from_base: [u8; 8],
+    },
+    /// A quadratic extension of an earlier node.
+    Quadratic {
+        /// Linear coefficient as a base-coordinate word.
+        a: u64,
+        /// Constant coefficient as a base-coordinate word.
+        b: u64,
+    },
+}
+
 impl BinaryDescription {
+    /// Defining data of the root node.
+    #[must_use]
+    pub(crate) const fn root_data(&self) -> NodeData {
+        match self.nodes[self.root as usize] {
+            BinaryNode::Unused => panic!("unused node"),
+            BinaryNode::Polynomial { degree, full } => NodeData::Polynomial { degree, full },
+            BinaryNode::Basis {
+                to_base, from_base, ..
+            } => NodeData::Basis { to_base, from_base },
+            BinaryNode::Quadratic { a, b, .. } => NodeData::Quadratic { a, b },
+        }
+    }
+
+    /// The sub-description rooted at the root node's base.
+    #[must_use]
+    pub(crate) const fn base_description(&self) -> BinaryDescription {
+        let (BinaryNode::Basis { base, .. } | BinaryNode::Quadratic { base, .. }) =
+            self.nodes[self.root as usize]
+        else {
+            panic!("the root node has no base");
+        };
+        let mut sub = *self;
+        sub.root = base;
+        sub.len = base + 1;
+        let mut index = sub.len;
+        while index < 8 {
+            sub.nodes[index as usize] = BinaryNode::Unused;
+            index += 1;
+        }
+        sub
+    }
+
     /// A lone polynomial root of the stated degree.
     #[must_use]
     pub(crate) const fn polynomial(degree: u8, full: u128) -> Self {

@@ -8,6 +8,24 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Explicit binary embeddings, in `src/field/binary/embedding.rs`.
+  `Embedding<S, T>` prepares the canonical inclusion of one binary field
+  into another whose degree is a multiple of it, through one frozen
+  reference per degree (`Poly<3>`, `Poly<0x7>`, `Poly<0x13>`, the AES
+  field, and the Rijndael towers) with frozen consecutive inclusions: the
+  identity into degree two, smallest-raw-root inclusions below the AES
+  field, and low-component inclusions above it. `new` returns
+  `EmbeddingError::IncompatibleDegree` when the source degree does not
+  divide the target degree. `embed`, `contains`, `restrict`, `frobenius`,
+  `trace`, and `norm` apply the prepared column arrays without
+  allocating; equal presentation descriptions embed identically, and
+  `Embedding<Gf1, T>` supplies the absolute trace and norm. The canonical
+  map of each presentation sends a flat polynomial's indeterminate to the
+  smallest raw reference root, converts ordered bases through their
+  polynomial coordinates, and transports towers through their bases,
+  solving the transported quadratic by recursive Artin-Schreier reduction
+  above the byte field — no elimination and no enumeration beyond 256
+  elements.
 - Recursive quadratic towers through degree 64, in
   `src/field/binary/tower.rs`. One open `TowerSpec { Base; A; B; NAME }`
   presents every quadratic tower at degrees 2, 4, 8, 16, 32, and 64 over a
