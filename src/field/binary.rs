@@ -21,12 +21,14 @@
 
 pub mod cantor;
 pub mod description;
+pub mod embedding;
 pub mod normal;
 pub mod poly;
 pub mod tower;
 
 pub use cantor::Cantor;
 pub use description::{BinaryDescription, ByteLogExp};
+pub use embedding::{Embedding, EmbeddingError};
 pub use normal::Normal;
 pub use poly::{AES, Poly, REED_SOLOMON};
 

@@ -2,7 +2,10 @@
 
 use fgf::field::binary::tower::{Tower, TowerSpec};
 use fgf::poly::{AES, REED_SOLOMON};
-use fgf::{Elem, FieldKernels, Gf, Gf8, Gf16, Gf64, Goldilocks, Mersenne31, Normal, Poly, ops};
+use fgf::{
+    Elem, Embedding, FanPaar64, FieldKernels, Gf, Gf1, Gf8, Gf16, Gf64, Goldilocks, Mersenne31,
+    Normal, Poly, ops,
+};
 
 #[path = "common/zero_alloc.rs"]
 mod common;
@@ -368,4 +371,48 @@ fn add_assign_rows_steady_state_allocates_nothing() {
         ops::add_assign_rows::<Mersenne31>(&mut dst_p, row_len, &src_p);
     });
     assert_eq!(prime, 0, "prime-field row add allocated");
+}
+
+#[test]
+fn embedding_construction_and_application_allocate_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    let byte_tower = Embedding::<Gf8<Poly<AES>>, Gf64>::new().unwrap();
+    let fanpaar_pair = Embedding::<FanPaar64, Gf64>::new().unwrap();
+    let absolute = Embedding::<Gf1, Gf64>::new().unwrap();
+    let source = Elem::<Gf8<Poly<AES>>>::from_raw(0x53);
+    let target = Elem::<Gf64>::from_raw(u64::MAX);
+
+    // Warm every method before counting.
+    let lifted = byte_tower.embed(source);
+    let _ = byte_tower.contains(lifted);
+    let _ = byte_tower.restrict(lifted);
+    let _ = byte_tower.frobenius(target);
+    let _ = byte_tower.trace(target);
+    let _ = byte_tower.norm(target);
+    let _ = fanpaar_pair.trace(target);
+    let _ = absolute.norm(target);
+
+    let constructions = count_allocations(|| {
+        let _ = Embedding::<Gf8<Poly<AES>>, Gf64>::new().unwrap();
+        let _ = Embedding::<FanPaar64, Gf64>::new().unwrap();
+        let _ = Embedding::<Gf1, Gf64>::new().unwrap();
+        let _ = Embedding::<Gf64, Gf8<Poly<AES>>>::new();
+    });
+    assert_eq!(constructions, 0, "embedding construction allocated");
+
+    let applications = count_allocations(|| {
+        let lifted = byte_tower.embed(source);
+        let _ = byte_tower.contains(lifted);
+        let _ = byte_tower.restrict(lifted);
+        let _ = byte_tower.frobenius(target);
+        let _ = byte_tower.trace(target);
+        let _ = byte_tower.norm(target);
+        let _ = fanpaar_pair.trace(target);
+        let _ = fanpaar_pair.norm(target);
+        let _ = absolute.trace(target);
+        let _ = absolute.norm(target);
+    });
+    assert_eq!(applications, 0, "embedding application allocated");
 }

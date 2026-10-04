@@ -88,6 +88,7 @@ pub mod quad_mersenne31;
 
 pub use binary::cantor;
 pub use binary::description;
+pub use binary::embedding;
 pub use binary::normal;
 pub use binary::poly;
 pub use binary::tower;
@@ -97,8 +98,8 @@ pub use binary::tower::{
     Rijndael16, Rijndael32, Rijndael64, Tower, TowerGeneratorSpec, TowerSpec,
 };
 pub use binary::{
-    AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Gf, Gf1,
-    Gf8, Normal, Poly, REED_SOLOMON,
+    AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Embedding,
+    EmbeddingError, Gf, Gf1, Gf8, Normal, Poly, REED_SOLOMON,
 };
 pub use goldilocks::Goldilocks;
 pub use mersenne31::Mersenne31;
