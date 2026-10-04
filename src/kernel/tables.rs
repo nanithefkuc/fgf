@@ -27,7 +27,7 @@
 use crate::field::fan_paar::{fp8, fp16};
 use crate::field::poly::{self, AES};
 use crate::field::tower::{Tower, TowerSpec, spec_a_is_one};
-use crate::field::{Elem, Poly};
+use crate::field::{Elem, Gf, Poly};
 
 /// Split-nibble multiplication tables for one GF(2^8) coefficient.
 ///
@@ -49,17 +49,17 @@ impl ScaleTable {
     // Loop counters are bounded by the array sizes (16, 256), so every cast
     // below is exact; `const fn` rules out `try_into`.
     #[allow(clippy::cast_possible_truncation)]
-    pub const fn new<const POLY: u32>(coeff: Elem<8, Poly<POLY>>) -> Self {
+    pub const fn new<const POLY: u32>(coeff: Elem<Gf<8, Poly<POLY>>>) -> Self {
         let mut lo = [0u8; 16];
         let mut hi = [0u8; 16];
         let mut i = 0;
         while i < 16 {
-            lo[i] = poly::Poly::<POLY>::mul_xtime(i as u8, coeff.0);
-            hi[i] = poly::Poly::<POLY>::mul_xtime((i as u8) << 4, coeff.0);
+            lo[i] = poly::Poly::<POLY>::mul_xtime(i as u8, coeff.to_raw());
+            hi[i] = poly::Poly::<POLY>::mul_xtime((i as u8) << 4, coeff.to_raw());
             i += 1;
         }
         Self {
-            coeff: coeff.0,
+            coeff: coeff.to_raw(),
             lo,
             hi,
         }
@@ -90,11 +90,11 @@ impl ScaleTable {
 /// another library's tables — and is validated against a scalar model of
 /// the instruction in this module's tests.
 #[must_use]
-pub const fn build_affine_map<const POLY: u32>(coeff: Elem<8, Poly<POLY>>) -> u64 {
+pub const fn build_affine_map<const POLY: u32>(coeff: Elem<Gf<8, Poly<POLY>>>) -> u64 {
     let mut columns = [0u8; 8];
     let mut k = 0;
     while k < 8 {
-        columns[k] = poly::Poly::<POLY>::mul_xtime(coeff.0, 1 << k);
+        columns[k] = poly::Poly::<POLY>::mul_xtime(coeff.to_raw(), 1 << k);
         k += 1;
     }
     linear_map(columns)
@@ -190,10 +190,10 @@ impl<const POLY: u32> ByteBanks for Poly<POLY> {
 
 #[allow(clippy::cast_possible_truncation)]
 const fn build_bank<const POLY: u32>() -> [ScaleTable; 256] {
-    let mut bank = [ScaleTable::new::<POLY>(Elem::<8, Poly<POLY>>::ZERO); 256];
+    let mut bank = [ScaleTable::new::<POLY>(Elem::<Gf<8, Poly<POLY>>>::ZERO); 256];
     let mut i = 0;
     while i < 256 {
-        bank[i] = ScaleTable::new::<POLY>(Elem::<8, Poly<POLY>>::from_raw(i as u8));
+        bank[i] = ScaleTable::new::<POLY>(Elem::<Gf<8, Poly<POLY>>>::from_raw(i as u8));
         i += 1;
     }
     bank
@@ -204,7 +204,7 @@ const fn build_affine_bank<const POLY: u32>() -> [u64; 256] {
     let mut bank = [0u64; 256];
     let mut i = 0;
     while i < 256 {
-        bank[i] = build_affine_map::<POLY>(Elem::<8, Poly<POLY>>::from_raw(i as u8));
+        bank[i] = build_affine_map::<POLY>(Elem::<Gf<8, Poly<POLY>>>::from_raw(i as u8));
         i += 1;
     }
     bank
@@ -227,8 +227,8 @@ pub(crate) static ZERO_TABLE: ScaleTable = ScaleTable {
 #[allow(dead_code)]
 #[inline]
 #[must_use]
-pub fn scale_table<const POLY: u32>(coeff: Elem<8, Poly<POLY>>) -> &'static ScaleTable {
-    &Bank::<POLY>::SCALE[coeff.0 as usize]
+pub fn scale_table<const POLY: u32>(coeff: Elem<Gf<8, Poly<POLY>>>) -> &'static ScaleTable {
+    &Bank::<POLY>::SCALE[coeff.to_raw() as usize]
 }
 
 /// Return the `VGF2P8AFFINEQB` matrix qword that multiplies by `coeff`, from
@@ -236,8 +236,8 @@ pub fn scale_table<const POLY: u32>(coeff: Elem<8, Poly<POLY>>) -> &'static Scal
 #[allow(dead_code)]
 #[inline]
 #[must_use]
-pub fn affine_map<const POLY: u32>(coeff: Elem<8, Poly<POLY>>) -> u64 {
-    Bank::<POLY>::AFFINE[coeff.0 as usize]
+pub fn affine_map<const POLY: u32>(coeff: Elem<Gf<8, Poly<POLY>>>) -> u64 {
+    Bank::<POLY>::AFFINE[coeff.to_raw() as usize]
 }
 
 /// A field isomorphism `φ: Gf8<Poly<POLY>> → Gf8<Poly<AES>>` and its inverse,
@@ -378,15 +378,15 @@ impl TowerCoeff {
     /// multiplies.
     #[inline]
     #[must_use]
-    pub const fn new<S: TowerSpec>(coeff: Elem<16, Tower<S>>) -> Self {
-        let con = Elem::<8, S::Base>::from_raw(S::B);
+    pub const fn new<S: TowerSpec>(coeff: Elem<Gf<16, Tower<S>>>) -> Self {
+        let con = Elem::<Gf<8, S::Base>>::from_raw(S::B);
         let (c0, c1) = coeff.to_components();
         // A unit linear coefficient folds into the XOR; any other `A`
         // costs its multiply.
         let same_high = if spec_a_is_one::<S>() {
             c0.add(c1)
         } else {
-            c0.add(Elem::<8, S::Base>::from_raw(S::A).mul(c1))
+            c0.add(Elem::<Gf<8, S::Base>>::from_raw(S::A).mul(c1))
         };
         let same = u16::from_le_bytes([c0.to_raw(), same_high.to_raw()]);
         let cross = u16::from_le_bytes([con.mul(c1).to_raw(), c1.to_raw()]);
@@ -421,7 +421,7 @@ impl TowerTables {
     #[allow(private_bounds)]
     #[inline]
     #[must_use]
-    pub fn new<S: TowerSpec>(coeff: Elem<16, Tower<S>>) -> Self
+    pub fn new<S: TowerSpec>(coeff: Elem<Gf<16, Tower<S>>>) -> Self
     where
         S::Base: ByteBanks,
     {
@@ -540,8 +540,8 @@ impl FpScaleTable {
         let mut hi = [0u8; 16];
         let mut i = 0;
         while i < 16 {
-            lo[i] = fp8::Elem(i as u8).mul(coeff).0;
-            hi[i] = fp8::Elem((i as u8) << 4).mul(coeff).0;
+            lo[i] = fp8::Elem::from_raw(i as u8).mul(coeff).to_raw();
+            hi[i] = fp8::Elem::from_raw((i as u8) << 4).mul(coeff).to_raw();
             i += 1;
         }
         Self { lo, hi }
@@ -559,10 +559,10 @@ static FP_SCALE_TABLE_BANK: [FpScaleTable; 256] = build_fp_bank();
 #[allow(clippy::cast_possible_truncation)]
 #[allow(dead_code)]
 const fn build_fp_bank() -> [FpScaleTable; 256] {
-    let mut bank = [FpScaleTable::new(fp8::Elem(0)); 256];
+    let mut bank = [FpScaleTable::new(fp8::Elem::from_raw(0)); 256];
     let mut i = 0;
     while i < 256 {
-        bank[i] = FpScaleTable::new(fp8::Elem(i as u8));
+        bank[i] = FpScaleTable::new(fp8::Elem::from_raw(i as u8));
         i += 1;
     }
     bank
@@ -573,7 +573,7 @@ const fn build_fp_bank() -> [FpScaleTable; 256] {
 #[must_use]
 #[allow(dead_code)]
 pub fn fp_scale_table(coeff: fp8::Elem) -> &'static FpScaleTable {
-    &FP_SCALE_TABLE_BANK[coeff.0 as usize]
+    &FP_SCALE_TABLE_BANK[coeff.to_raw() as usize]
 }
 
 /// Four nibble-table factors a shuffle kernel consumes lane-by-lane.
@@ -718,15 +718,15 @@ mod tests {
     use super::*;
     use crate::field::poly::REED_SOLOMON;
 
-    type E8 = Elem<8, Poly<AES>>;
+    type E8 = Elem<Gf<8, Poly<AES>>>;
 
     fn check_bank<const P: u32>() {
         let runtime_scale = build_bank::<P>();
         let runtime_affine = build_affine_bank::<P>();
         for raw in 0..=u8::MAX {
-            let coeff = Elem::<8, Poly<P>>::from_raw(raw);
+            let coeff = Elem::<Gf<8, Poly<P>>>::from_raw(raw);
             for x in 0..=u8::MAX {
-                let product = Elem::<8, Poly<P>>::from_raw(x).mul(coeff).0;
+                let product = Elem::<Gf<8, Poly<P>>>::from_raw(x).mul(coeff).to_raw();
                 for table in [
                     &Bank::<P>::SCALE[usize::from(raw)],
                     &runtime_scale[usize::from(raw)],
@@ -747,14 +747,14 @@ mod tests {
                     "φ⁻¹φ at {a:#04x}"
                 );
                 for b in 0..=u8::MAX {
-                    let product = Elem::<8, Poly<P>>::from_raw(a)
-                        .mul(Elem::<8, Poly<P>>::from_raw(b))
-                        .0;
+                    let product = Elem::<Gf<8, Poly<P>>>::from_raw(a)
+                        .mul(Elem::<Gf<8, Poly<P>>>::from_raw(b))
+                        .to_raw();
                     let conjugated = apply(
                         iso.inverse,
                         E8::from_raw(apply(iso.forward, a))
                             .mul(E8::from_raw(apply(iso.forward, b)))
-                            .0,
+                            .to_raw(),
                     );
                     assert_eq!(conjugated, product, "φ-conjugated {a:#04x} * {b:#04x}");
                 }
@@ -821,7 +821,7 @@ mod tests {
         use crate::field::tower::RijndaelTower;
         // Exercise the identity the SIMD kernels rely on, scalar-side.
         for coeff in [0u16, 1, 0x0108, 0x2000, 0xffff, 0x1234] {
-            let coeff = Elem::<16, crate::field::tower::Tower<RijndaelTower>>::from_raw(coeff);
+            let coeff = Elem::<Gf<16, crate::field::tower::Tower<RijndaelTower>>>::from_raw(coeff);
             let tc = TowerCoeff::new(coeff);
             let [f0, f1, f2, f3] = tc.factor_bytes();
             let (f0, f1, f2, f3) = (
@@ -831,15 +831,17 @@ mod tests {
                 E8::from_raw(f3),
             );
             for value in [0u16, 1, 0x00ff, 0xff00, 0xbeef] {
-                let value = Elem::<16, crate::field::tower::Tower<RijndaelTower>>::from_raw(value);
+                let value =
+                    Elem::<Gf<16, crate::field::tower::Tower<RijndaelTower>>>::from_raw(value);
                 let [a, b] = value.to_bytes();
                 let (a, b) = (E8::from_raw(a), E8::from_raw(b));
                 // even lane: same.0 * a  ^  cross.0 * b   (b is a's swap partner)
                 // odd  lane: same.1 * b  ^  cross.1 * a
                 let even = f0.mul(a).add(f2.mul(b));
                 let odd = f1.mul(b).add(f3.mul(a));
-                let got = Elem::<16, crate::field::tower::Tower<RijndaelTower>>::from_bytes([
-                    even.0, odd.0,
+                let got = Elem::<Gf<16, crate::field::tower::Tower<RijndaelTower>>>::from_bytes([
+                    even.to_raw(),
+                    odd.to_raw(),
                 ]);
                 assert_eq!(got, value.mul(coeff), "{value:?} * {coeff:?}");
             }

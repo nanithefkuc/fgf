@@ -15,7 +15,7 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use fgf::{Elem, FieldKernels, Gf8, Gf16, Poly, backend, gf16, ops};
+use fgf::{Elem, FieldKernels, Gf, Gf8, Gf16, Poly, backend, gf16, ops};
 
 use fgf::poly::{AES, REED_SOLOMON};
 
@@ -104,7 +104,7 @@ fn gf16_sweep() {
     }
 }
 
-fn gather_probe<F: FieldKernels>(name: &str, coeff: impl Fn(usize) -> F::Elem) {
+fn gather_probe<F: FieldKernels>(name: &str, coeff: impl Fn(usize) -> Elem<F>) {
     println!("\n== {name} overwrite gather, 16 sources: raw coefficients vs prepared CoeffVec ==");
     for &len in &[4096usize, 16384] {
         let n = 16usize;
@@ -112,7 +112,7 @@ fn gather_probe<F: FieldKernels>(name: &str, coeff: impl Fn(usize) -> F::Elem) {
             .map(|i| noise(len, 0x1000 + i as u64 * 17 + len as u64))
             .collect();
         let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-        let coeffs: Vec<F::Elem> = (0..n).map(&coeff).collect();
+        let coeffs: Vec<Elem<F>> = (0..n).map(&coeff).collect();
         let prepared = ops::CoeffVec::<F>::new(&coeffs);
         let mut dst_raw = noise(len, 0x2000 + len as u64);
         let mut dst_prep = noise(len, 0x3000 + len as u64);
@@ -144,9 +144,9 @@ fn main() {
     println!("peel/gather probe — backend: {}", backend().name());
     gf16_sweep();
     gather_probe::<Gf8<Poly<REED_SOLOMON>>>("Gf8D", |i| {
-        Elem::<8, Poly<REED_SOLOMON>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
+        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
     });
     gather_probe::<Gf8<Poly<AES>>>("Gf8B", |i| {
-        Elem::<8, Poly<AES>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
+        Elem::<Gf<8, Poly<AES>>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
     });
 }

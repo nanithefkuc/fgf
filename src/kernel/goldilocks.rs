@@ -8,7 +8,8 @@
 //! reports `Scalar` there. The prepared form is the canonical lane word,
 //! broadcast by the kernels on entry.
 
-use crate::field::goldilocks::{Elem, Goldilocks};
+use crate::field::Elem;
+use crate::field::goldilocks::Goldilocks;
 #[allow(unused_imports)]
 use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, prime, scalar};
 
@@ -54,15 +55,15 @@ impl FieldKernels for Goldilocks {
 
 impl KernelDispatch for Goldilocks {
     /// The canonical lane word, broadcast by the kernels on entry.
-    type Prepared = Elem;
+    type Prepared = Elem<Goldilocks>;
 
     #[inline]
-    fn prepare(_proof: RawDispatch, coeff: Elem) -> Elem {
-        coeff.canonical()
+    fn prepare(_proof: RawDispatch, coeff: Elem<Goldilocks>) -> Elem<Goldilocks> {
+        coeff
     }
 
     #[inline]
-    fn prepared_coeff(_proof: RawDispatch, prepared: &Elem) -> Elem {
+    fn prepared_coeff(_proof: RawDispatch, prepared: &Elem<Goldilocks>) -> Elem<Goldilocks> {
         *prepared
     }
 
@@ -98,7 +99,7 @@ impl KernelDispatch for Goldilocks {
         }
     }
 
-    fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
+    fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem<Goldilocks>, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => x86::goldilocks::mul_add_avx512(v4(), dst, coeff.to_raw(), src),
@@ -122,7 +123,7 @@ impl KernelDispatch for Goldilocks {
         }
     }
 
-    fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem) {
+    fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem<Goldilocks>) {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => x86::goldilocks::mul_assign_avx512(v4(), dst, coeff.to_raw()),
@@ -146,7 +147,7 @@ impl KernelDispatch for Goldilocks {
         }
     }
 
-    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
+    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem<Goldilocks>, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => x86::goldilocks::mul_into_avx512(v4(), dst, coeff.to_raw(), src),
@@ -168,7 +169,8 @@ impl KernelDispatch for Goldilocks {
             ),
             _ => {
                 for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
-                    let v = *coeff * Elem(u64::from_le_bytes(s.try_into().unwrap()));
+                    let v = *coeff
+                        * Elem::<Goldilocks>::from_raw(u64::from_le_bytes(s.try_into().unwrap()));
                     d.copy_from_slice(&v.to_raw().to_le_bytes());
                 }
             }
@@ -179,13 +181,18 @@ impl KernelDispatch for Goldilocks {
         _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
-        coeffs: &[Elem],
+        coeffs: &[Elem<Goldilocks>],
         src: &[u8],
     ) {
         prime::mul_add_scatter::<Goldilocks>(rows, row_len, coeffs, src);
     }
 
-    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+    fn mul_add_gather(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Elem<Goldilocks>],
+        srcs: &[&[u8]],
+    ) {
         prime::mul_add_gather::<Goldilocks>(dst, coeffs, srcs);
     }
 
@@ -194,7 +201,7 @@ impl KernelDispatch for Goldilocks {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        terms: &[(&[Elem], &[u8])],
+        terms: &[(&[Elem<Goldilocks>], &[u8])],
     ) {
         prime::mul_add_matrix::<Goldilocks>(rows, row_len, nrows, terms);
     }
@@ -239,7 +246,7 @@ impl KernelDispatch for Goldilocks {
         }
     }
 
-    fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
+    fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem<Goldilocks>) {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => x86::goldilocks::add_assign_scalar_avx512(v4(), dst, value.to_raw()),
@@ -263,7 +270,7 @@ impl KernelDispatch for Goldilocks {
         }
     }
 
-    fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
+    fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem<Goldilocks>) {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => x86::goldilocks::sub_assign_scalar_avx512(v4(), dst, value.to_raw()),

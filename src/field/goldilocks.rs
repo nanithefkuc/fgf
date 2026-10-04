@@ -7,37 +7,38 @@
 //!
 //! # Totality and canonicalization
 //!
-//! Every raw 64-bit lane is a legal input: [`Elem::from_raw`] and
-//! [`Field::decode`] keep the bits exactly as passed in — they do not
-//! canonicalize or reject. Every arithmetic *output* is canonical — a value
-//! in `0..p` — with no branch and no panic on out-of-range operands, the
-//! prime-field analogue of the crate-wide `inv(0) == 0` convention.
-//! Equality, hashing, and ordering follow the field value: a lane holding
-//! `p` and a lane holding `0` compare equal, hash equally, and sort as the
-//! same element. Inspect the stored bits with [`Elem::to_raw`].
+//! Every raw 64-bit lane is a legal input: [`Elem::from_raw`](crate::field::Elem)
+//! and [`FieldBuffer::decode`](crate::field::FieldBuffer) reduce it into the
+//! canonical range `0..p` on the way in. Every arithmetic output is canonical
+//! with no branch and no panic on out-of-range operands, the prime-field
+//! analogue of the crate-wide `inv(0) == 0` convention. Storage is always
+//! canonical, so equality, hashing, and ordering compare raw words directly.
+//! Inspect the stored bits with [`Elem::to_raw`](crate::field::Elem::to_raw).
 //!
 //! Arithmetic is variable-time and not intended for secret data.
 //!
 //! ```
-//! use fgf::goldilocks::{self, Elem};
+//! use fgf::{Elem, Goldilocks};
 //!
-//! const X: Elem = Elem::from_raw(0xFFFF_FFFF_0000_0000);
+//! const X: Elem<Goldilocks> = Elem::<Goldilocks>::from_raw(0xFFFF_FFFF_0000_0000);
 //! const _: () = assert!(X.mul(X).to_raw() == 0x0000_0000_0000_0001);
 //!
 //! // `inv` is `const`, so a reciprocal table can be a `const` item.
-//! const HALF: Elem = Elem::from_raw(2).inv();
+//! const HALF: Elem<Goldilocks> = Elem::<Goldilocks>::from_raw(2).inv();
 //! const _: () = assert!(HALF.to_raw() == 0x7FFF_FFFF_8000_0001);
-//! const _: () = assert!(Elem::from_raw(2).mul(HALF).to_raw() == 1);
+//! const _: () = assert!(Elem::<Goldilocks>::from_raw(2).mul(HALF).to_raw() == 1);
 //!
 //! // Division is total: `x / 0` is zero, in `const` context too.
-//! const _: () = assert!(X.div(Elem::ZERO).to_raw() == 0);
+//! const _: () = assert!(X.div(Elem::<Goldilocks>::ZERO).to_raw() == 0);
 //!
 //! // The generator has full multiplicative order p − 1 = 2^64 − 2^32.
-//! assert_eq!(goldilocks::GENERATOR.pow(0xFFFF_FFFF_0000_0000), Elem::ONE);
+//! assert_eq!(
+//!     Elem::<Goldilocks>::GENERATOR.pow(0xFFFF_FFFF_0000_0000),
+//!     Elem::<Goldilocks>::ONE
+//! );
+//! ```
 
-use core::fmt;
-
-use super::{Field, FieldElem as ElemTrait};
+use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic};
 
 /// The field modulus, `2^64 − 2^32 + 1`.
 pub const MODULUS: u64 = 0xFFFF_FFFF_0000_0001;
@@ -45,62 +46,13 @@ pub const MODULUS: u64 = 0xFFFF_FFFF_0000_0001;
 /// `2^32 − 1`, the residue of `2^64` modulo `p` and the fold constant.
 const EPSILON: u64 = 0xFFFF_FFFF;
 
-/// A generator of the multiplicative group, of order `p − 1`.
-///
-/// `7` is the smallest primitive root modulo `2^64 − 2^32 + 1`.
-pub const GENERATOR: Elem = Elem(7);
-
-/// Marker type for GF(2^64 − 2^32 + 1).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-pub struct Goldilocks;
-
-/// An element of GF(2^64 − 2^32 + 1), stored as a little-endian 64-bit lane.
-///
-/// The lane is stored exactly as passed to [`Elem::from_raw`], so it may
-/// hold a non-canonical bit pattern (≥ p). Equality, hashing, and ordering
-/// follow the field value — the lane reduced modulo `p` — so equivalent
-/// representations of one field value compare equal, hash equally, and sort
-/// as a single element; [`Elem::to_raw`] exposes the stored bits.
-#[derive(Clone, Copy, Default)]
-pub struct Elem(pub(crate) u64);
-
-impl PartialEq for Elem {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        reduce(self.0) == reduce(other.0)
-    }
-}
-
-impl Eq for Elem {}
-
-impl core::hash::Hash for Elem {
-    #[inline]
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        state.write_u64(reduce(self.0));
-    }
-}
-
-impl PartialOrd for Elem {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Elem {
-    #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        reduce(self.0).cmp(&reduce(other.0))
-    }
-}
-
 /// Reduce a value already in `0..2^64` to the canonical range `0..p`.
 ///
 /// A single conditional subtract suffices: any `u64` exceeds `p` by less than
 /// `2^32`.
 ///
 /// The `reduce*` family maps a machine integer into the residue range;
-/// the inherent [`Elem::canonical`] normalizes an element.
+/// element storage is canonical by construction.
 #[inline]
 #[must_use]
 pub const fn reduce(x: u64) -> u64 {
@@ -114,7 +66,7 @@ pub const fn reduce(x: u64) -> u64 {
 /// constants are derived from the modulus, not copied from a comparable.
 #[inline]
 #[must_use]
-#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
 pub const fn reduce_wide(x: u128) -> u64 {
     let x_lo = x as u64;
     let x_hi = (x >> 64) as u64;
@@ -131,85 +83,195 @@ pub const fn reduce_wide(x: u128) -> u64 {
     reduce(t2)
 }
 
-impl Elem {
-    /// The additive identity.
-    pub const ZERO: Self = Self(0);
-    /// The multiplicative identity.
-    pub const ONE: Self = Self(1);
+/// Marker type for GF(2^64 − 2^32 + 1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
+pub struct Goldilocks;
 
+/// Prime factors of the group order `p − 1`, for the generator check.
+const GROUP_FACTORS: [u64; 6] = [2, 3, 5, 17, 257, 65537];
+
+/// Whether `candidate` has full multiplicative order `p − 1`.
+const fn is_primitive(candidate: u64) -> bool {
+    let order = MODULUS - 1;
+    if super::powmod(candidate, order, MODULUS) != 1 {
+        return false;
+    }
+    let mut i = 0;
+    while i < GROUP_FACTORS.len() {
+        if super::powmod(candidate, order / GROUP_FACTORS[i], MODULUS) == 1 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+impl Field for Goldilocks {
+    type Raw = u64;
+    type Characteristic = PrimeCharacteristic<MODULUS>;
+    const NAME: &'static str = "GF(2^64 - 2^32 + 1)";
+    const DEGREE: u32 = 1;
+    const ORDER: u128 = MODULUS as u128;
+    const ZERO_RAW: u64 = 0;
+    const ONE_RAW: u64 = 1;
+    const VALID: () = ();
+
+    #[inline]
+    fn canonical_raw(raw: u64) -> u64 {
+        reduce(raw)
+    }
+
+    #[inline]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+    fn add_raw(left: u64, right: u64) -> u64 {
+        let sum = reduce(left) as u128 + reduce(right) as u128;
+        let modulus = MODULUS as u128;
+        if sum >= modulus {
+            (sum - modulus) as u64
+        } else {
+            sum as u64
+        }
+    }
+
+    #[inline]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+    fn sub_raw(left: u64, right: u64) -> u64 {
+        let sum = reduce(left) as u128 + MODULUS as u128 - reduce(right) as u128;
+        let modulus = MODULUS as u128;
+        if sum >= modulus {
+            (sum - modulus) as u64
+        } else {
+            sum as u64
+        }
+    }
+
+    #[inline]
+    fn neg_raw(value: u64) -> u64 {
+        let reduced = reduce(value);
+        if reduced == 0 { 0 } else { MODULUS - reduced }
+    }
+
+    #[inline]
+    fn mul_raw(left: u64, right: u64) -> u64 {
+        reduce_wide(u128::from(reduce(left)) * u128::from(reduce(right)))
+    }
+
+    #[inline]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+    fn inv_raw(value: u64) -> u64 {
+        if reduce(value) == 0 {
+            return 0;
+        }
+        super::powmod(reduce(value), MODULUS - 2, MODULUS)
+    }
+}
+
+impl HasGenerator for Goldilocks {
+    const GENERATOR_RAW: u64 = {
+        assert!(
+            is_primitive(7),
+            "Goldilocks generator does not have full order"
+        );
+        7
+    };
+}
+
+impl FieldBuffer for Goldilocks {
+    const BYTES: usize = 8;
+    const STORAGE_BITS: u32 = 64;
+
+    #[inline]
+    fn decode(bytes: &[u8]) -> Elem<Self> {
+        let bytes: [u8; 8] = bytes
+            .try_into()
+            .expect("GF(2^64 - 2^32 + 1) element has the wrong byte width");
+        Elem::<Self>::from_raw(u64::from_le_bytes(bytes))
+    }
+
+    #[inline]
+    fn encode(bytes: &mut [u8], value: Elem<Self>) {
+        assert_eq!(
+            bytes.len(),
+            8,
+            "GF(2^64 - 2^32 + 1) element has the wrong byte width"
+        );
+        bytes.copy_from_slice(&value.to_raw().to_le_bytes());
+    }
+}
+
+impl Elem<Goldilocks> {
     /// Decode from the stable little-endian representation.
     #[inline]
     #[must_use]
     pub const fn from_bytes(bytes: [u8; 8]) -> Self {
-        Self(u64::from_le_bytes(bytes))
+        Self::from_raw(u64::from_le_bytes(bytes))
     }
 
     /// Encode to the stable little-endian representation.
     #[inline]
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 8] {
-        self.0.to_le_bytes()
+        self.raw.to_le_bytes()
     }
 
-    /// Wrap a raw lane. Does not canonicalize: the stored lane keeps the
-    /// exact bits passed in, and equality reduces it modulo `p`.
+    /// Wrap a raw lane, reducing it into canonical storage.
     #[inline]
     #[must_use]
     pub const fn from_raw(value: u64) -> Self {
-        Self(value)
-    }
-
-    /// Unwrap to the raw lane bits, as stored.
-    #[inline]
-    #[must_use]
-    pub const fn to_raw(self) -> u64 {
-        self.0
-    }
-
-    /// The canonical representative in `0..p` of this element.
-    #[inline]
-    #[must_use]
-    pub const fn canonical(self) -> Self {
-        Self(reduce(self.0))
+        let () = super::Validate::<Goldilocks>::OK;
+        Elem { raw: reduce(value) }
     }
 
     /// Field addition.
     #[inline]
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
     pub const fn add(self, rhs: Self) -> Self {
-        let a = reduce(self.0) as u128;
-        let b = reduce(rhs.0) as u128;
-        let s = a + b;
-        let m = MODULUS as u128;
-        Self(if s >= m { (s - m) as u64 } else { s as u64 })
+        let sum = reduce(self.raw) as u128 + reduce(rhs.raw) as u128;
+        let modulus = MODULUS as u128;
+        Elem {
+            raw: if sum >= modulus {
+                (sum - modulus) as u64
+            } else {
+                sum as u64
+            },
+        }
     }
 
     /// Field subtraction.
     #[inline]
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
     pub const fn sub(self, rhs: Self) -> Self {
-        let a = reduce(self.0) as u128;
-        let b = reduce(rhs.0) as u128;
-        let m = MODULUS as u128;
-        let s = a + m - b;
-        Self(if s >= m { (s - m) as u64 } else { s as u64 })
+        let sum = reduce(self.raw) as u128 + MODULUS as u128 - reduce(rhs.raw) as u128;
+        let modulus = MODULUS as u128;
+        Elem {
+            raw: if sum >= modulus {
+                (sum - modulus) as u64
+            } else {
+                sum as u64
+            },
+        }
     }
 
     /// Additive inverse. `neg(0) == 0`.
     #[inline]
     #[must_use]
     pub const fn neg(self) -> Self {
-        let a = reduce(self.0);
-        Self(if a == 0 { 0 } else { MODULUS - a })
+        let reduced = reduce(self.raw);
+        Elem {
+            raw: if reduced == 0 { 0 } else { MODULUS - reduced },
+        }
     }
 
     /// Field multiplication, folding the 128-bit product modulo `p`.
     #[inline]
     #[must_use]
+    #[allow(clippy::cast_lossless)]
     pub const fn mul(self, rhs: Self) -> Self {
-        Self(reduce_wide((self.0 as u128) * (rhs.0 as u128)))
+        Elem {
+            raw: reduce_wide(self.raw as u128 * rhs.raw as u128),
+        }
     }
 
     /// Square.
@@ -225,7 +287,7 @@ impl Elem {
     #[inline]
     #[must_use]
     pub const fn inv(self) -> Self {
-        self.pow(MODULUS - 2)
+        self.pow((MODULUS - 2) as u128)
     }
 
     /// Field division. Returns zero when the divisor is zero.
@@ -236,17 +298,16 @@ impl Elem {
     #[inline]
     #[must_use]
     pub const fn div(self, rhs: Self) -> Self {
-        let b = reduce(rhs.0);
-        if b == 0 {
+        if reduce(rhs.raw) == 0 {
             return Self::ZERO;
         }
-        self.mul(Self(b).inv())
+        self.mul(rhs.inv())
     }
 
     /// Raise to an unsigned integer power. `pow(_, 0) == ONE`.
     #[inline]
     #[must_use]
-    pub const fn pow(self, mut exponent: u64) -> Self {
+    pub const fn pow(self, mut exponent: u128) -> Self {
         let mut base = self;
         let mut result = Self::ONE;
         while exponent != 0 {
@@ -260,185 +321,8 @@ impl Elem {
     }
 }
 
-impl ElemTrait for Elem {
-    const ZERO: Self = Self::ZERO;
-    const ONE: Self = Self::ONE;
-
-    #[inline]
-    fn add(self, rhs: Self) -> Self {
-        Elem::add(self, rhs)
-    }
-    #[inline]
-    fn sub(self, rhs: Self) -> Self {
-        Elem::sub(self, rhs)
-    }
-    #[inline]
-    fn neg(self) -> Self {
-        Elem::neg(self)
-    }
-    #[inline]
-    fn mul(self, rhs: Self) -> Self {
-        Elem::mul(self, rhs)
-    }
-    #[inline]
-    fn square(self) -> Self {
-        Elem::square(self)
-    }
-    #[inline]
-    fn inv(self) -> Self {
-        Elem::inv(self)
-    }
-    #[inline]
-    fn div(self, rhs: Self) -> Self {
-        Elem::div(self, rhs)
-    }
-    #[inline]
-    fn pow(self, exponent: u64) -> Self {
-        Elem::pow(self, exponent)
-    }
-    #[inline]
-    fn is_zero(self) -> bool {
-        reduce(self.0) == 0
-    }
-    #[inline]
-    fn is_one(self) -> bool {
-        reduce(self.0) == 1
-    }
-}
-
-impl Field for Goldilocks {
-    type Elem = Elem;
-
-    const NAME: &'static str = "GF(2^64 - 2^32 + 1)";
-    const BITS: u32 = 64;
-    const BYTES: usize = 8;
-    const ORDER: u128 = MODULUS as u128;
-    const CHARACTERISTIC: u64 = MODULUS;
-    const GENERATOR: Elem = GENERATOR;
-
-    #[inline]
-    fn decode(bytes: &[u8]) -> Elem {
-        let bytes: [u8; 8] = bytes
-            .try_into()
-            .expect("GF(2^64 - 2^32 + 1) element has the wrong byte width");
-        Elem::from_bytes(bytes)
-    }
-
-    #[inline]
-    fn encode(bytes: &mut [u8], value: Elem) {
-        assert_eq!(
-            bytes.len(),
-            8,
-            "GF(2^64 - 2^32 + 1) element has the wrong byte width"
-        );
-        bytes.copy_from_slice(&value.to_bytes());
-    }
-}
-
-impl fmt::Debug for Elem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Goldilocks({:#018x})", self.0)
-    }
-}
-
-impl fmt::Display for Elem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", reduce(self.0))
-    }
-}
-
-impl core::ops::Add for Elem {
-    type Output = Self;
-    #[inline]
-    fn add(self, rhs: Self) -> Self {
-        Elem::add(self, rhs)
-    }
-}
-
-impl core::ops::Sub for Elem {
-    type Output = Self;
-    #[inline]
-    fn sub(self, rhs: Self) -> Self {
-        Elem::sub(self, rhs)
-    }
-}
-
-impl core::ops::Neg for Elem {
-    type Output = Self;
-    #[inline]
-    fn neg(self) -> Self {
-        Elem::neg(self)
-    }
-}
-
-impl core::ops::Mul for Elem {
-    type Output = Self;
-    #[inline]
-    fn mul(self, rhs: Self) -> Self {
-        Elem::mul(self, rhs)
-    }
-}
-
-impl core::ops::Div for Elem {
-    type Output = Self;
-    #[inline]
-    fn div(self, rhs: Self) -> Self {
-        Elem::div(self, rhs)
-    }
-}
-
-impl core::ops::AddAssign for Elem {
-    #[inline]
-    fn add_assign(&mut self, rhs: Self) {
-        *self = Elem::add(*self, rhs);
-    }
-}
-
-impl core::ops::SubAssign for Elem {
-    #[inline]
-    fn sub_assign(&mut self, rhs: Self) {
-        *self = Elem::sub(*self, rhs);
-    }
-}
-
-impl core::ops::MulAssign for Elem {
-    #[inline]
-    fn mul_assign(&mut self, rhs: Self) {
-        *self = Elem::mul(*self, rhs);
-    }
-}
-
-impl core::ops::DivAssign for Elem {
-    #[inline]
-    fn div_assign(&mut self, rhs: Self) {
-        *self = Elem::div(*self, rhs);
-    }
-}
-
-impl core::iter::Sum for Elem {
-    #[inline]
-    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.fold(Self::ZERO, Elem::add)
-    }
-}
-
-impl<'a> core::iter::Sum<&'a Elem> for Elem {
-    #[inline]
-    fn sum<I: Iterator<Item = &'a Elem>>(iter: I) -> Self {
-        iter.fold(Self::ZERO, |acc, &x| Elem::add(acc, x))
-    }
-}
-
-impl core::iter::Product for Elem {
-    #[inline]
-    fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.fold(Self::ONE, Elem::mul)
-    }
-}
-
-impl<'a> core::iter::Product<&'a Elem> for Elem {
-    #[inline]
-    fn product<I: Iterator<Item = &'a Elem>>(iter: I) -> Self {
-        iter.fold(Self::ONE, |acc, &x| Elem::mul(acc, x))
+impl core::fmt::Display for Elem<Goldilocks> {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(formatter, "{}", self.raw)
     }
 }

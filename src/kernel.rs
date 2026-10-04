@@ -53,6 +53,10 @@ pub(crate) mod x86;
 ))]
 pub(crate) mod matrix_provider;
 pub(crate) use byte_ops::xor;
+// Used by the simd512-gated blocked kernels and by tests (`just lint`
+// builds `--all-targets`, where tests use it); a lib-only build without
+// `simd512` has no other user.
+#[allow(unused_imports)]
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 pub(crate) use matrix_provider::FlatMatrix;
 #[cfg(all(
@@ -69,7 +73,7 @@ pub(crate) use matrix_provider::Matrix;
 #[cfg(test)]
 mod tests;
 
-use crate::field::Field;
+use crate::field::{FieldBuffer, PrimeIdentity};
 
 // Only the SIMD-enabled resolve path consults the environment; under a
 // std-less build `backend()` reports `Scalar` without touching `Selection`.
@@ -427,7 +431,7 @@ pub fn vector_elementwise_min_bytes<F: FieldKernels>() -> usize {
 /// modules — never as bare unchecked dispatch).
 // Raw dispatch is sealed behind a private proof argument.
 #[allow(private_bounds)]
-pub trait FieldKernels: Field + private::Sealed + KernelDispatch {
+pub trait FieldKernels: FieldBuffer + private::Sealed + KernelDispatch {
     /// Backend used by this field's kernels.
     #[inline]
     #[must_use]
@@ -467,7 +471,7 @@ pub trait FieldKernels: Field + private::Sealed + KernelDispatch {
 ///
 /// All slice lengths are in **bytes** and must be whole multiples of
 /// `Self::BYTES`. `dst` and `src` must have equal length.
-pub(crate) trait KernelDispatch: Field {
+pub(crate) trait KernelDispatch: FieldBuffer {
     /// The backend-ready form of one coefficient.
     ///
     /// Different backends want different things from a coefficient: GFNI
@@ -480,10 +484,10 @@ pub(crate) trait KernelDispatch: Field {
     type Prepared: Clone + Send + Sync + core::fmt::Debug;
 
     /// Resolve a coefficient into the form this host's backend wants.
-    fn prepare(_proof: RawDispatch, coeff: Self::Elem) -> Self::Prepared;
+    fn prepare(_proof: RawDispatch, coeff: crate::field::Elem<Self>) -> Self::Prepared;
 
     /// Recover the coefficient a [`KernelDispatch::Prepared`] was built from.
-    fn prepared_coeff(_proof: RawDispatch, prepared: &Self::Prepared) -> Self::Elem;
+    fn prepared_coeff(_proof: RawDispatch, prepared: &Self::Prepared) -> crate::field::Elem<Self>;
 
     /// `dst += src`, elementwise field addition.
     ///
@@ -564,7 +568,7 @@ pub(crate) trait KernelDispatch: Field {
         _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
-        coeffs: &[Self::Elem],
+        coeffs: &[crate::field::Elem<Self>],
         src: &[u8],
     );
 
@@ -576,7 +580,12 @@ pub(crate) trait KernelDispatch: Field {
     /// is read and written once per tile rather than once per source.
     ///
     /// See [`KernelDispatch::mul_add_gather_with`] for the prepared form.
-    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Self::Elem], srcs: &[&[u8]]);
+    fn mul_add_gather(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[crate::field::Elem<Self>],
+        srcs: &[&[u8]],
+    );
 
     /// Many sources overwrite one row: `dst = sum(coeffs[i] * srcs[i])`.
     ///
@@ -584,7 +593,12 @@ pub(crate) trait KernelDispatch: Field {
     /// ignored. The default starts with a fused single-source
     /// [`KernelDispatch::mul_into`], then accumulates the remaining prepared
     /// terms without allocation.
-    fn mul_into_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Self::Elem], srcs: &[&[u8]]) {
+    fn mul_into_gather(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[crate::field::Elem<Self>],
+        srcs: &[&[u8]],
+    ) {
         let mut pairs = coeffs.iter().copied().zip(srcs.iter().copied());
         let Some((first, src)) = pairs.next() else {
             dst.fill(0);
@@ -610,7 +624,7 @@ pub(crate) trait KernelDispatch: Field {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        terms: &[(&[Self::Elem], &[u8])],
+        terms: &[(&[crate::field::Elem<Self>], &[u8])],
     );
 
     /// [`KernelDispatch::mul_add_scatter`] over already-prepared coefficients.
@@ -641,7 +655,7 @@ pub(crate) trait KernelDispatch: Field {
         _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
-        _values: &[Self::Elem],
+        _values: &[crate::field::Elem<Self>],
         coeffs: &[Self::Prepared],
         src: &[u8],
     ) {
@@ -671,7 +685,7 @@ pub(crate) trait KernelDispatch: Field {
     fn mul_add_gather_plan(
         _proof: RawDispatch,
         dst: &mut [u8],
-        _values: &[Self::Elem],
+        _values: &[crate::field::Elem<Self>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -702,7 +716,7 @@ pub(crate) trait KernelDispatch: Field {
     fn mul_into_gather_plan(
         _proof: RawDispatch,
         dst: &mut [u8],
-        _values: &[Self::Elem],
+        _values: &[crate::field::Elem<Self>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -738,7 +752,7 @@ pub(crate) trait KernelDispatch: Field {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        _values: &[Self::Elem],
+        _values: &[crate::field::Elem<Self>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -766,7 +780,7 @@ pub(crate) trait KernelDispatch: Field {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        terms: &[(&[Self::Elem], &[u8])],
+        terms: &[(&[crate::field::Elem<Self>], &[u8])],
     ) {
         for row in rows.chunks_exact_mut(row_len).take(nrows) {
             row.fill(0);
@@ -781,7 +795,7 @@ pub(crate) trait KernelDispatch: Field {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        values: &[Self::Elem],
+        values: &[crate::field::Elem<Self>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -811,7 +825,7 @@ pub(crate) trait KernelDispatch: Field {
         dst: &mut [u8],
         row_len: usize,
         row_starts: &[usize],
-        terms: &[(&[Self::Elem], &[u8])],
+        terms: &[(&[crate::field::Elem<Self>], &[u8])],
     ) {
         Self::mul_add_matrix_at_rows(RawDispatch, dst, row_len, row_starts, terms);
     }
@@ -825,7 +839,7 @@ pub(crate) trait KernelDispatch: Field {
         dst: &mut [u8],
         row_len: usize,
         row_starts: &[usize],
-        terms: &[(&[Self::Elem], &[u8])],
+        terms: &[(&[crate::field::Elem<Self>], &[u8])],
     ) {
         for &(coeffs, src) in terms {
             for (&start, &coeff) in row_starts.iter().zip(coeffs) {
@@ -855,7 +869,7 @@ pub(crate) trait KernelDispatch: Field {
     /// `dst[i] += value`, one field element broadcast across every lane.
     fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
         let elem = Self::prepared_coeff(RawDispatch, value);
-        if Self::CHARACTERISTIC == 2 {
+        if <Self::Characteristic as PrimeIdentity>::CHARACTERISTIC == 2 {
             let mut encoded = [0u8; 8];
             Self::encode(&mut encoded[..Self::BYTES], elem);
             byte_ops::xor_broadcast(dst, &encoded[..Self::BYTES]);
@@ -867,7 +881,7 @@ pub(crate) trait KernelDispatch: Field {
     /// `dst[i] -= value`, one field element broadcast across every lane.
     fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
         let elem = Self::prepared_coeff(RawDispatch, value);
-        if Self::CHARACTERISTIC == 2 {
+        if <Self::Characteristic as PrimeIdentity>::CHARACTERISTIC == 2 {
             let mut encoded = [0u8; 8];
             Self::encode(&mut encoded[..Self::BYTES], elem);
             byte_ops::xor_broadcast(dst, &encoded[..Self::BYTES]);

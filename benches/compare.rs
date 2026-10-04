@@ -14,7 +14,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::{Elem, Gf8, Gf16, Poly, backend, gf16, ops};
+use fgf::{Elem, Gf, Gf8, Gf16, Poly, backend, gf16, ops};
 
 use fgf::poly::{AES, REED_SOLOMON};
 
@@ -78,12 +78,12 @@ fn bench_mul_into_gather(len: usize) {
     let coeffs_8b: Vec<_> = coefficient_bytes
         .iter()
         .copied()
-        .map(Elem::<8, Poly<AES>>::from_raw)
+        .map(Elem::<Gf<8, Poly<AES>>>::from_raw)
         .collect();
     let coeffs_8d: Vec<_> = coefficient_bytes
         .iter()
         .copied()
-        .map(Elem::<8, Poly<REED_SOLOMON>>::from_raw)
+        .map(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw)
         .collect();
     let prepared_8b = ops::CoeffVec::<Gf8<Poly<AES>>>::new(&coeffs_8b);
     let prepared_8d = ops::CoeffVec::<Gf8<Poly<REED_SOLOMON>>>::new(&coeffs_8d);
@@ -95,7 +95,7 @@ fn bench_mul_into_gather(len: usize) {
     let coeff_bytes: Vec<_> = coefficient_bytes
         .iter()
         .copied()
-        .map(Elem::<8, Poly<REED_SOLOMON>>::from_raw)
+        .map(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw)
         .collect();
     println!("{len} B x {DOT_SOURCES} sources overwrite dot product (raw)");
     bench_region("fgf Gf8D mul_into_gather", len * DOT_SOURCES, || {
@@ -131,38 +131,40 @@ fn bench_mul_into_gather(len: usize) {
     });
 }
 
+// Term geometry nests the unified element spelling; the slices stay slices.
+#[allow(clippy::type_complexity)]
 fn bench_encode(nrows: usize) {
     let sources: Vec<AlignedBuf> = (0..ENCODE_SOURCES)
         .map(|term| AlignedBuf::noise(BYTES, 0xa00 + term as u64))
         .collect();
-    let columns_8b: Vec<Vec<Elem<8, Poly<AES>>>> = (0..ENCODE_SOURCES)
+    let columns_8b: Vec<Vec<Elem<Gf<8, Poly<AES>>>>> = (0..ENCODE_SOURCES)
         .map(|term| {
             (0..nrows)
                 .map(|row| {
-                    Elem::<8, Poly<AES>>::from_raw(
+                    Elem::<Gf<8, Poly<AES>>>::from_raw(
                         (1 + ((row * ENCODE_SOURCES + term) * 97 + 13) % 255) as u8,
                     )
                 })
                 .collect()
         })
         .collect();
-    let columns_8d: Vec<Vec<Elem<8, Poly<REED_SOLOMON>>>> = (0..ENCODE_SOURCES)
+    let columns_8d: Vec<Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>>> = (0..ENCODE_SOURCES)
         .map(|term| {
             (0..nrows)
                 .map(|row| {
-                    Elem::<8, Poly<REED_SOLOMON>>::from_raw(
+                    Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(
                         (1 + ((row * ENCODE_SOURCES + term) * 97 + 13) % 255) as u8,
                     )
                 })
                 .collect()
         })
         .collect();
-    let terms_8b: Vec<(&[Elem<8, Poly<AES>>], &[u8])> = columns_8b
+    let terms_8b: Vec<(&[Elem<Gf<8, Poly<AES>>>], &[u8])> = columns_8b
         .iter()
         .zip(&sources)
         .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
         .collect();
-    let terms_8d: Vec<(&[Elem<8, Poly<REED_SOLOMON>>], &[u8])> = columns_8d
+    let terms_8d: Vec<(&[Elem<Gf<8, Poly<REED_SOLOMON>>>], &[u8])> = columns_8d
         .iter()
         .zip(&sources)
         .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
@@ -230,7 +232,7 @@ fn bench_encode(nrows: usize) {
     // Prepared and scattered-row forms of the same encode, validated against
     // the raw overwrite result before timing.
     let source_refs: Vec<&[u8]> = sources.iter().map(AlignedBuf::as_slice).collect();
-    let flat_8b: Vec<Elem<8, Poly<AES>>> = columns_8b.iter().flatten().copied().collect();
+    let flat_8b: Vec<Elem<Gf<8, Poly<AES>>>> = columns_8b.iter().flatten().copied().collect();
     let prepared_8b =
         ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(ENCODE_SOURCES, nrows, &flat_8b);
     let row_starts: Vec<usize> = (0..nrows).map(|row| row * BYTES).collect();
@@ -358,7 +360,7 @@ fn bench_scalar(label: &str, mut body: impl FnMut()) {
 /// alignment-step work.
 fn bench_offset_sweep() {
     const LEN: usize = 16 * 1024;
-    let c = Elem::<8, Poly<REED_SOLOMON>>::from_raw(0x53);
+    let c = Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x53);
     let backing_src = AlignedBuf::noise(LEN + 64, 0x700);
     let mut backing_dst = AlignedBuf::noise(LEN + 64, 0x701);
     println!("Gf8D mul_add 16 KiB destination offset sweep (dst/src shift mod 64)");
@@ -378,7 +380,9 @@ fn bench_offset_sweep() {
         let mut rows = AlignedBuf::noise(row_len * nrows, 0x721);
         let values: Vec<_> = (0..nrows)
             .map(|j| {
-                Elem::<8, Poly<REED_SOLOMON>>::from_raw((j as u8).wrapping_mul(37).wrapping_add(2))
+                Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(
+                    (j as u8).wrapping_mul(37).wrapping_add(2),
+                )
             })
             .collect();
         let prepared = ops::CoeffVec::<Gf8<Poly<REED_SOLOMON>>>::new(&values);
@@ -404,12 +408,15 @@ fn bench_offset_sweep() {
 /// Misaligned (16 mod 64) and aligned rows on both sides of each 64-byte
 /// peel floor: four-row scatter, sixteen-source gather, and a ten-source
 /// four-row matrix. Rows, sources, and destinations share the offset.
+// Term geometry nests the unified element spelling; the slices stay slices.
+#[allow(clippy::type_complexity)]
 fn bench_peel_floors() {
     const SCATTER_ROWS: usize = 4;
     const GATHER_SOURCES: usize = 16;
     const MATRIX_TERMS: usize = 10;
     const MATRIX_ROWS: usize = 4;
-    let coeff = |i: usize| Elem::<8, Poly<REED_SOLOMON>>::from_raw((1 + (i * 97 + 13) % 255) as u8);
+    let coeff =
+        |i: usize| Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw((1 + (i * 97 + 13) % 255) as u8);
     println!("Gf8D peel floor sweep (row bytes, base offset mod 64)");
     for &off in &[16usize, 0] {
         for &len in &[256usize, 512, 1024, 2048, 3072, 4096, 8192, 16384] {
@@ -457,7 +464,7 @@ fn bench_peel_floors() {
                 .map(|t| AlignedBuf::noise(len + 64, 0x740 + t as u64))
                 .collect();
             let matrix_coeffs: Vec<_> = (0..MATRIX_TERMS * MATRIX_ROWS).map(coeff).collect();
-            let terms: Vec<(&[Elem<8, Poly<REED_SOLOMON>>], &[u8])> = matrix_coeffs
+            let terms: Vec<(&[Elem<Gf<8, Poly<REED_SOLOMON>>>], &[u8])> = matrix_coeffs
                 .chunks(MATRIX_ROWS)
                 .zip(matrix_bufs.iter().map(|b| &b.as_slice()[off..off + len]))
                 .collect();
@@ -493,11 +500,11 @@ fn main() {
     let mut dst16 = AlignedBuf::noise(BYTES, 0x603);
 
     // w8
-    let c8 = Elem::<8, Poly<AES>>::from_raw(0x53);
+    let c8 = Elem::<Gf<8, Poly<AES>>>::from_raw(0x53);
     bench_scalar("w8 scalar mul", || {
-        let mut x = Elem::<8, Poly<AES>>::from_raw(0xA5);
+        let mut x = Elem::<Gf<8, Poly<AES>>>::from_raw(0xA5);
         for i in 0..SCALAR_ITERS {
-            x = black_box(x).mul(Elem::<8, Poly<AES>>::from_raw(
+            x = black_box(x).mul(Elem::<Gf<8, Poly<AES>>>::from_raw(
                 (0x53u8).wrapping_add(i as u8),
             ));
         }
@@ -519,11 +526,11 @@ fn main() {
     });
 
     // Bit-compatible GF(2^8)/0x11D used by ISA-L and klauspost/reedsolomon.
-    let c8d = Elem::<8, Poly<REED_SOLOMON>>::from_raw(0x53);
+    let c8d = Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x53);
     bench_scalar("w8d scalar mul", || {
-        let mut x = Elem::<8, Poly<REED_SOLOMON>>::from_raw(0xA5);
+        let mut x = Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0xA5);
         for i in 0..SCALAR_ITERS {
-            x = black_box(x).mul(Elem::<8, Poly<REED_SOLOMON>>::from_raw(
+            x = black_box(x).mul(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(
                 (0x53u8).wrapping_add(i as u8),
             ));
         }

@@ -8,7 +8,8 @@
 //! prepared form is simply its canonical lane word, which the kernels
 //! broadcast on entry.
 
-use crate::field::mersenne31::{Elem, Mersenne31};
+use crate::field::Elem;
+use crate::field::mersenne31::Mersenne31;
 #[allow(unused_imports)]
 use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, prime, scalar};
 
@@ -61,15 +62,15 @@ impl FieldKernels for Mersenne31 {
 
 impl KernelDispatch for Mersenne31 {
     /// The canonical lane word, broadcast by the kernels on entry.
-    type Prepared = Elem;
+    type Prepared = Elem<Mersenne31>;
 
     #[inline]
-    fn prepare(_proof: RawDispatch, coeff: Elem) -> Elem {
-        coeff.canonical()
+    fn prepare(_proof: RawDispatch, coeff: Elem<Mersenne31>) -> Elem<Mersenne31> {
+        coeff
     }
 
     #[inline]
-    fn prepared_coeff(_proof: RawDispatch, prepared: &Elem) -> Elem {
+    fn prepared_coeff(_proof: RawDispatch, prepared: &Elem<Mersenne31>) -> Elem<Mersenne31> {
         *prepared
     }
 
@@ -105,7 +106,7 @@ impl KernelDispatch for Mersenne31 {
         }
     }
 
-    fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
+    fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem<Mersenne31>, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => x86::mersenne31::mul_add_avx512(v4(), dst, coeff.to_raw(), src),
@@ -129,7 +130,7 @@ impl KernelDispatch for Mersenne31 {
         }
     }
 
-    fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem) {
+    fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem<Mersenne31>) {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => x86::mersenne31::mul_assign_avx512(v4(), dst, coeff.to_raw()),
@@ -153,7 +154,7 @@ impl KernelDispatch for Mersenne31 {
         }
     }
 
-    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
+    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem<Mersenne31>, src: &[u8]) {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => x86::mersenne31::mul_into_avx512(v4(), dst, coeff.to_raw(), src),
@@ -175,7 +176,8 @@ impl KernelDispatch for Mersenne31 {
             ),
             _ => {
                 for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
-                    let v = *coeff * Elem(u32::from_le_bytes(s.try_into().unwrap()));
+                    let v = *coeff
+                        * Elem::<Mersenne31>::from_raw(u32::from_le_bytes(s.try_into().unwrap()));
                     d.copy_from_slice(&v.to_raw().to_le_bytes());
                 }
             }
@@ -186,13 +188,18 @@ impl KernelDispatch for Mersenne31 {
         _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
-        coeffs: &[Elem],
+        coeffs: &[Elem<Mersenne31>],
         src: &[u8],
     ) {
         prime::mul_add_scatter::<Mersenne31>(rows, row_len, coeffs, src);
     }
 
-    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+    fn mul_add_gather(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Elem<Mersenne31>],
+        srcs: &[&[u8]],
+    ) {
         prime::mul_add_gather::<Mersenne31>(dst, coeffs, srcs);
     }
 
@@ -201,7 +208,7 @@ impl KernelDispatch for Mersenne31 {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        terms: &[(&[Elem], &[u8])],
+        terms: &[(&[Elem<Mersenne31>], &[u8])],
     ) {
         prime::mul_add_matrix::<Mersenne31>(rows, row_len, nrows, terms);
     }
@@ -246,7 +253,7 @@ impl KernelDispatch for Mersenne31 {
         }
     }
 
-    fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
+    fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem<Mersenne31>) {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => x86::mersenne31::add_assign_scalar_avx512(v4(), dst, value.to_raw()),
@@ -270,7 +277,7 @@ impl KernelDispatch for Mersenne31 {
         }
     }
 
-    fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
+    fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem<Mersenne31>) {
         match backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => x86::mersenne31::sub_assign_scalar_avx512(v4(), dst, value.to_raw()),

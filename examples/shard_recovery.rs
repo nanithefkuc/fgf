@@ -8,11 +8,11 @@
 #![forbid(unsafe_code)]
 
 use fgf::poly::REED_SOLOMON;
-use fgf::{Elem, Gf8, Poly, backend_for, ops};
+use fgf::{Elem, Gf, Gf8, Poly, backend_for, ops};
 
 const ROW_LEN: usize = 32;
-const TWO: Elem<8, Poly<REED_SOLOMON>> = Elem::<8, Poly<REED_SOLOMON>>::from_raw(2);
-const THREE: Elem<8, Poly<REED_SOLOMON>> = Elem::<8, Poly<REED_SOLOMON>>::ONE.add(TWO);
+const TWO: Elem<Gf<8, Poly<REED_SOLOMON>>> = Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(2);
+const THREE: Elem<Gf<8, Poly<REED_SOLOMON>>> = Elem::<Gf<8, Poly<REED_SOLOMON>>>::ONE.add(TWO);
 
 fn main() {
     let a = *b"The first data shard has bytes!!";
@@ -26,9 +26,9 @@ fn main() {
         2,
         2,
         &[
-            Elem::<8, Poly<REED_SOLOMON>>::ONE,
-            Elem::<8, Poly<REED_SOLOMON>>::ONE,
-            Elem::<8, Poly<REED_SOLOMON>>::ONE,
+            Elem::<Gf<8, Poly<REED_SOLOMON>>>::ONE,
+            Elem::<Gf<8, Poly<REED_SOLOMON>>>::ONE,
+            Elem::<Gf<8, Poly<REED_SOLOMON>>>::ONE,
             TWO,
         ],
     );
@@ -39,22 +39,22 @@ fn main() {
     for (i, (&ai, &bi)) in a.iter().zip(&b).enumerate() {
         assert_eq!(
             p[i],
-            (Elem::<8, Poly<REED_SOLOMON>>::from_raw(ai)
-                + Elem::<8, Poly<REED_SOLOMON>>::from_raw(bi))
+            (Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(ai)
+                + Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(bi))
             .to_raw()
         );
         assert_eq!(
             q[i],
-            (Elem::<8, Poly<REED_SOLOMON>>::from_raw(ai)
-                + TWO * Elem::<8, Poly<REED_SOLOMON>>::from_raw(bi))
+            (Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(ai)
+                + TWO * Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(bi))
             .to_raw()
         );
     }
 
     // If only b is lost, b = p + a in characteristic two.
     let single = ops::CoeffVec::<Gf8<Poly<REED_SOLOMON>>>::new(&[
-        Elem::<8, Poly<REED_SOLOMON>>::ONE,
-        Elem::<8, Poly<REED_SOLOMON>>::ONE,
+        Elem::<Gf<8, Poly<REED_SOLOMON>>>::ONE,
+        Elem::<Gf<8, Poly<REED_SOLOMON>>>::ONE,
     ]);
     let mut recovered_b = [0xa5; ROW_LEN];
     ops::mul_into_gather_with(&mut recovered_b, single.as_ref(), &[p, &a]);
@@ -63,7 +63,7 @@ fn main() {
     // If both data shards are lost, subtracting the equations gives
     // b = (p + q)/3, then a = (2*p + q)/3. Here '+' is field XOR, and
     // 3 is the field element 1 + 2, not integer addition modulo 256.
-    assert_ne!(THREE, Elem::<8, Poly<REED_SOLOMON>>::ZERO);
+    assert_ne!(THREE, Elem::<Gf<8, Poly<REED_SOLOMON>>>::ZERO);
     let inverse = THREE.inv();
     let recovery = ops::CoeffMatrix::<Gf8<Poly<REED_SOLOMON>>>::from_source_major(
         2,

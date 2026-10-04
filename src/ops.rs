@@ -1,10 +1,10 @@
 //! The public vector operation surface.
 //!
-//! Every function here is generic over [`Field`] and monomorphizes to that
-//! field's dispatched SIMD kernel. Buffers are plain `&[u8]` holding packed
-//! elements in the field's stable little-endian representation. Canonically
-//! encoded payloads need no repacking; prime-field inputs must meet the
-//! canonical-lane contract below.
+//! Every function here is generic over [`FieldKernels`] and monomorphizes to
+//! that field's dispatched SIMD kernel. Buffers are plain `&[u8]` holding
+//! packed elements in the field's stable little-endian representation.
+//! Canonically encoded payloads need no repacking; Section "Prime fields"
+//! below states the packed-lane contract.
 //!
 //! # Naming
 //!
@@ -40,23 +40,21 @@
 //! be equal in length, and `dst`/`src` must not alias. Length constraints are
 //! checked and violations panic; Rust's borrowing rules enforce disjointness.
 //!
-//! # Prime fields: canonical lanes in, canonical lanes out
+//! # Prime fields: any lanes in, canonical lanes out
 //!
 //! The packed operations over the prime fields ([`Mersenne31`], [`Goldilocks`],
-//! [`QuadMersenne31`]) are defined on **canonical lanes** — every input lane
-//! below the modulus — and produce canonical lanes on output. That is the
-//! invariant a codec maintains over its buffers, and it is what these kernels
-//! preserve; no normalization pass runs inside them. Feeding a packed buffer
-//! whose lanes hold arbitrary raw bit patterns computes unspecified field
-//! values without memory-unsafety. Scalar element arithmetic is different and
-//! stronger: the [`FieldElem`] operations are total over any
-//! raw lane value and always reduce canonically.
+//! [`QuadMersenne31`]) accept every lane bit pattern a decode accepts and
+//! produce canonical lanes on output — accumulation, in-place, and tails
+//! included. That is the invariant a codec maintains over its buffers, and
+//! it is what these kernels preserve. Scalar element arithmetic shares the
+//! same totality: the [`FieldElem`] operations accept any raw lane value
+//! and always reduce canonically.
 //!
 //! [`Mersenne31`]: crate::Mersenne31
 //! [`Goldilocks`]: crate::Goldilocks
 //! [`QuadMersenne31`]: crate::QuadMersenne31
 
-use crate::field::{Field, FieldElem};
+use crate::field::{Elem, FieldBuffer, FieldElem};
 use crate::kernel::{FieldKernels, KernelDispatch, RawDispatch};
 
 /// A coefficient already resolved into the host backend's preferred form.
@@ -79,7 +77,7 @@ impl<F: FieldKernels> Coeff<F> {
     /// Resolve `coeff` for this host.
     #[inline]
     #[must_use]
-    pub fn new(coeff: F::Elem) -> Self {
+    pub fn new(coeff: Elem<F>) -> Self {
         Self {
             prepared: F::prepare(RawDispatch, coeff),
         }
@@ -88,7 +86,7 @@ impl<F: FieldKernels> Coeff<F> {
     /// The field element this was built from.
     #[inline]
     #[must_use]
-    pub fn value(&self) -> F::Elem {
+    pub fn value(&self) -> Elem<F> {
         F::prepared_coeff(RawDispatch, &self.prepared)
     }
 }
@@ -123,7 +121,7 @@ mod private {
 #[allow(private_bounds)]
 pub trait PreparedCoefficient<F: FieldKernels>: private::Sealed + PreparedRepr<F> {
     /// The field element this prepared representation multiplies by.
-    fn value(&self) -> F::Elem;
+    fn value(&self) -> Elem<F>;
 }
 
 /// Crate-private access to the backend representation behind
@@ -142,7 +140,7 @@ impl<F: FieldKernels> private::Sealed for Coeff<F> {}
 
 impl<F: FieldKernels> PreparedCoefficient<F> for Coeff<F> {
     #[inline]
-    fn value(&self) -> F::Elem {
+    fn value(&self) -> Elem<F> {
         Coeff::value(self)
     }
 }
@@ -170,7 +168,7 @@ impl<F: FieldKernels> CoeffRef<'_, F> {
     /// The field element this prepared representation multiplies by.
     #[inline]
     #[must_use]
-    pub fn value(self) -> F::Elem {
+    pub fn value(self) -> Elem<F> {
         F::prepared_coeff(RawDispatch, self.prepared)
     }
 }
@@ -181,7 +179,7 @@ impl<F: FieldKernels> private::Sealed for CoeffRef<'_, F> {}
 #[cfg(feature = "alloc")]
 impl<F: FieldKernels> PreparedCoefficient<F> for CoeffRef<'_, F> {
     #[inline]
-    fn value(&self) -> F::Elem {
+    fn value(&self) -> Elem<F> {
         F::prepared_coeff(RawDispatch, self.prepared)
     }
 }
@@ -219,14 +217,14 @@ impl<F: FieldKernels> core::fmt::Debug for CoeffRef<'_, F> {
 #[cfg(feature = "alloc")]
 pub struct CoeffVec<F: FieldKernels> {
     prepared: alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>,
-    values: alloc::boxed::Box<[F::Elem]>,
+    values: alloc::boxed::Box<[Elem<F>]>,
 }
 
 #[cfg(feature = "alloc")]
 impl<F: FieldKernels> CoeffVec<F> {
     /// Resolve every coefficient for this host.
     #[must_use]
-    pub fn new(coeffs: &[F::Elem]) -> Self {
+    pub fn new(coeffs: &[Elem<F>]) -> Self {
         Self {
             prepared: prepare_all::<F>(coeffs),
             values: alloc::boxed::Box::from(coeffs),
@@ -273,7 +271,7 @@ impl<F: FieldKernels> CoeffVec<F> {
 
     /// Iterate over the original field elements.
     #[must_use = "iterators are lazy and do nothing unless consumed"]
-    pub fn values(&self) -> impl ExactSizeIterator<Item = F::Elem> + '_ {
+    pub fn values(&self) -> impl ExactSizeIterator<Item = Elem<F>> + '_ {
         self.values.iter().copied()
     }
 }
@@ -309,7 +307,7 @@ impl<F: FieldKernels> core::fmt::Debug for CoeffVec<F> {
 #[derive(Clone, Copy)]
 pub struct CoeffVecRef<'a, F: FieldKernels> {
     prepared: &'a [<F as KernelDispatch>::Prepared],
-    values: &'a [F::Elem],
+    values: &'a [Elem<F>],
     field: core::marker::PhantomData<F>,
 }
 
@@ -350,7 +348,7 @@ impl<'a, F: FieldKernels> CoeffVecRef<'a, F> {
 
     /// Iterate over the original field elements.
     #[must_use = "iterators are lazy and do nothing unless consumed"]
-    pub fn values(self) -> impl ExactSizeIterator<Item = F::Elem> + 'a {
+    pub fn values(self) -> impl ExactSizeIterator<Item = Elem<F>> + 'a {
         self.values.iter().copied()
     }
 }
@@ -377,7 +375,7 @@ impl<F: FieldKernels> core::fmt::Debug for CoeffVecRef<'_, F> {
 #[cfg(feature = "alloc")]
 pub struct CoeffMatrix<F: FieldKernels> {
     prepared: alloc::boxed::Box<[<F as KernelDispatch>::Prepared]>,
-    values: alloc::boxed::Box<[F::Elem]>,
+    values: alloc::boxed::Box<[Elem<F>]>,
     sources: usize,
     outputs: usize,
 }
@@ -390,7 +388,7 @@ impl<F: FieldKernels> CoeffMatrix<F> {
     ///
     /// Panics if `coeffs.len() != sources * outputs` or the product overflows.
     #[must_use]
-    pub fn from_source_major(sources: usize, outputs: usize, coeffs: &[F::Elem]) -> Self {
+    pub fn from_source_major(sources: usize, outputs: usize, coeffs: &[Elem<F>]) -> Self {
         let len = sources
             .checked_mul(outputs)
             .expect("CoeffMatrix::from_source_major: dimensions overflow");
@@ -470,7 +468,7 @@ impl<F: FieldKernels> CoeffMatrix<F> {
 
     /// Iterate over the original field elements in source-major order.
     #[must_use = "iterators are lazy and do nothing unless consumed"]
-    pub fn values(&self) -> impl ExactSizeIterator<Item = F::Elem> + '_ {
+    pub fn values(&self) -> impl ExactSizeIterator<Item = Elem<F>> + '_ {
         self.values.iter().copied()
     }
 }
@@ -500,7 +498,7 @@ impl<F: FieldKernels> core::fmt::Debug for CoeffMatrix<F> {
 
 #[cfg(feature = "alloc")]
 fn prepare_all<F: FieldKernels>(
-    coeffs: &[F::Elem],
+    coeffs: &[Elem<F>],
 ) -> alloc::boxed::Box<[<F as KernelDispatch>::Prepared]> {
     coeffs
         .iter()
@@ -511,7 +509,7 @@ fn prepare_all<F: FieldKernels>(
 }
 
 #[inline]
-fn check_width<F: Field>(name: &str, len: usize) {
+fn check_width<F: FieldBuffer>(name: &str, len: usize) {
     assert!(
         len.is_multiple_of(F::BYTES),
         "{name}: buffer of {len} bytes is not a whole number of {} elements",
@@ -520,7 +518,13 @@ fn check_width<F: Field>(name: &str, len: usize) {
 }
 
 #[inline]
-fn check_pair<F: Field>(name: &str, left_name: &str, left: usize, right_name: &str, right: usize) {
+fn check_pair<F: FieldBuffer>(
+    name: &str,
+    left_name: &str,
+    left: usize,
+    right_name: &str,
+    right: usize,
+) {
     assert_eq!(
         left, right,
         "{name}: {left_name} is {left} bytes but {right_name} is {right} bytes"
@@ -640,7 +644,7 @@ pub fn sub_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.
 #[inline]
-pub fn mul_add<F: FieldKernels>(dst: &mut [u8], coeff: F::Elem, src: &[u8]) {
+pub fn mul_add<F: FieldKernels>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
     check_pair::<F>("mul_add", "dst", dst.len(), "src", src.len());
     if coeff.is_zero() {
         return;
@@ -679,7 +683,7 @@ pub fn mul_add_with<F: FieldKernels>(
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.
 #[inline]
-pub fn mul_into<F: FieldKernels>(dst: &mut [u8], coeff: F::Elem, src: &[u8]) {
+pub fn mul_into<F: FieldKernels>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
     check_pair::<F>("mul_into", "dst", dst.len(), "src", src.len());
     if coeff.is_zero() {
         dst.fill(0);
@@ -720,7 +724,7 @@ pub fn mul_into_with<F: FieldKernels>(
 /// # Panics
 /// Panics on a partial trailing element.
 #[inline]
-pub fn mul_assign<F: FieldKernels>(dst: &mut [u8], coeff: F::Elem) {
+pub fn mul_assign<F: FieldKernels>(dst: &mut [u8], coeff: Elem<F>) {
     check_width::<F>("mul_assign", dst.len());
     if coeff.is_one() {
         return;
@@ -765,7 +769,7 @@ pub fn mul_assign_with<F: FieldKernels>(dst: &mut [u8], coeff: &impl PreparedCoe
 pub fn mul_add_scatter<F: FieldKernels>(
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[F::Elem],
+    coeffs: &[Elem<F>],
     src: &[u8],
 ) {
     check_pair::<F>("mul_add_scatter", "row_len", row_len, "src", src.len());
@@ -836,7 +840,7 @@ pub fn mul_add_scatter_with<F: FieldKernels>(
 /// # Panics
 /// Panics unless `coeffs.len() == srcs.len()` and every source matches
 /// `dst` in length, or on a partial trailing element.
-pub fn mul_add_gather<F: FieldKernels>(dst: &mut [u8], coeffs: &[F::Elem], srcs: &[&[u8]]) {
+pub fn mul_add_gather<F: FieldKernels>(dst: &mut [u8], coeffs: &[Elem<F>], srcs: &[&[u8]]) {
     check_width::<F>("mul_add_gather", dst.len());
     assert_eq!(
         coeffs.len(),
@@ -906,7 +910,7 @@ pub fn mul_add_gather_with<F: FieldKernels>(
 /// # Panics
 /// Panics unless `coeffs.len() == srcs.len()` and every source matches
 /// `dst` in length, or on a partial trailing element.
-pub fn mul_into_gather<F: FieldKernels>(dst: &mut [u8], coeffs: &[F::Elem], srcs: &[&[u8]]) {
+pub fn mul_into_gather<F: FieldKernels>(dst: &mut [u8], coeffs: &[Elem<F>], srcs: &[&[u8]]) {
     check_width::<F>("mul_into_gather", dst.len());
     assert_eq!(
         coeffs.len(),
@@ -999,7 +1003,7 @@ pub fn mul_add_matrix<F: FieldKernels>(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[F::Elem], &[u8])],
+    terms: &[(&[Elem<F>], &[u8])],
 ) {
     check_width::<F>("mul_add_matrix", row_len);
     let used = nrows
@@ -1104,7 +1108,7 @@ pub fn mul_into_matrix<F: FieldKernels>(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[F::Elem], &[u8])],
+    terms: &[(&[Elem<F>], &[u8])],
 ) {
     check_width::<F>("mul_into_matrix", row_len);
     let used = nrows
@@ -1227,7 +1231,7 @@ pub fn mul_add_matrix_at<F: FieldKernels>(
     dst: &mut [u8],
     row_len: usize,
     row_starts: &[usize],
-    terms: &[(&[F::Elem], &[u8])],
+    terms: &[(&[Elem<F>], &[u8])],
 ) {
     check_width::<F>("mul_add_matrix_at", row_len);
     for (j, &start) in row_starts.iter().enumerate() {
@@ -1319,7 +1323,7 @@ pub fn mul_elementwise_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 /// # Panics
 /// Panics if `dst` holds a partial trailing element.
 #[inline]
-pub fn add_assign_scalar<F: FieldKernels>(dst: &mut [u8], value: F::Elem) {
+pub fn add_assign_scalar<F: FieldKernels>(dst: &mut [u8], value: Elem<F>) {
     check_width::<F>("add_assign_scalar", dst.len());
     F::add_assign_scalar(RawDispatch, dst, &F::prepare(RawDispatch, value));
 }
@@ -1333,19 +1337,20 @@ pub fn add_assign_scalar<F: FieldKernels>(dst: &mut [u8], value: F::Elem) {
 /// # Panics
 /// Panics if `dst` holds a partial trailing element.
 #[inline]
-pub fn sub_assign_scalar<F: FieldKernels>(dst: &mut [u8], value: F::Elem) {
+pub fn sub_assign_scalar<F: FieldKernels>(dst: &mut [u8], value: Elem<F>) {
     check_width::<F>("sub_assign_scalar", dst.len());
     F::sub_assign_scalar(RawDispatch, dst, &F::prepare(RawDispatch, value));
 }
 
 /// Pack field elements into their stable little-endian byte representation.
 ///
-/// Prime-field representations are preserved, not normalized. Canonicalize
-/// raw prime elements before packing inputs for the arithmetic operations.
+/// Element storage is canonical, so packed bytes are canonical lanes.
+/// Buffers produced here satisfy the packed-operation input contract
+/// directly.
 ///
 /// # Panics
 /// Panics unless `dst.len() == elems.len() * F::BYTES`.
-pub fn pack<F: Field>(dst: &mut [u8], elems: &[F::Elem]) {
+pub fn pack<F: FieldBuffer>(dst: &mut [u8], elems: &[Elem<F>]) {
     let expected = elems
         .len()
         .checked_mul(F::BYTES)
@@ -1365,12 +1370,11 @@ pub fn pack<F: Field>(dst: &mut [u8], elems: &[F::Elem]) {
 
 /// Decode packed little-endian bytes into field elements.
 ///
-/// Prime-field lanes retain their raw representation, including
-/// noncanonical values; this conversion does not validate field canonicality.
+/// Decoding canonicalizes each lane into element storage.
 ///
 /// # Panics
 /// Panics unless `src.len() == dst.len() * F::BYTES`.
-pub fn unpack<F: Field>(dst: &mut [F::Elem], src: &[u8]) {
+pub fn unpack<F: FieldBuffer>(dst: &mut [Elem<F>], src: &[u8]) {
     let expected = dst
         .len()
         .checked_mul(F::BYTES)
@@ -1390,13 +1394,13 @@ pub fn unpack<F: Field>(dst: &mut [F::Elem], src: &[u8]) {
 
 /// Pack field elements into a newly allocated byte vector.
 ///
-/// Like [`pack`], this preserves prime-field raw representations.
+/// Like [`pack`], this emits canonical lanes.
 ///
 /// # Panics
 /// Panics if the required byte length overflows `usize`.
 #[cfg(feature = "alloc")]
 #[must_use]
-pub fn pack_to_vec<F: Field>(elems: &[F::Elem]) -> alloc::vec::Vec<u8> {
+pub fn pack_to_vec<F: FieldBuffer>(elems: &[Elem<F>]) -> alloc::vec::Vec<u8> {
     let len = elems
         .len()
         .checked_mul(F::BYTES)
@@ -1410,7 +1414,7 @@ pub fn pack_to_vec<F: Field>(elems: &[F::Elem]) -> alloc::vec::Vec<u8> {
 mod tests {
     use super::*;
     use crate::field::poly::AES;
-    use crate::field::{Elem as E8, Gf8, Poly};
+    use crate::field::{Elem as E8, Gf, Gf8, Poly};
     use crate::{Gf16, gf16};
     use alloc::vec::Vec;
 
@@ -1418,8 +1422,10 @@ mod tests {
     /// including the scalar backend, whose `chunks_exact_mut(0)` used to
     /// panic where GFNI silently succeeded.
     #[test]
+    // Term geometry nests the unified element spelling; the slices stay slices.
+    #[allow(clippy::type_complexity)]
     fn zero_row_length_is_a_no_op() {
-        let coeffs = [E8::<8, Poly<AES>>::from_raw(0x07); 3];
+        let coeffs = [E8::<Gf<8, Poly<AES>>>::from_raw(0x07); 3];
         let mut rows = [0xA5u8; 8];
         mul_add_scatter::<Gf8<Poly<AES>>>(&mut rows, 0, &coeffs, &[]);
         assert_eq!(rows, [0xA5; 8]);
@@ -1428,7 +1434,7 @@ mod tests {
         mul_add_scatter_with::<Gf8<Poly<AES>>>(&mut rows, 0, coeffs_vec.as_ref(), &[]);
         assert_eq!(rows, [0xA5; 8]);
 
-        let terms: &[(&[E8<8, Poly<AES>>], &[u8])] = &[(&coeffs, &[])];
+        let terms: &[(&[E8<Gf<8, Poly<AES>>>], &[u8])] = &[(&coeffs, &[])];
         mul_add_matrix::<Gf8<Poly<AES>>>(&mut rows, 0, 3, terms);
         assert_eq!(rows, [0xA5; 8]);
         mul_into_matrix::<Gf8<Poly<AES>>>(&mut rows, 0, 3, terms);
@@ -1455,7 +1461,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "mul_add_scatter")]
     fn zero_row_length_still_checks_pairing() {
-        let coeffs = [E8::<8, Poly<AES>>::from_raw(0x07); 3];
+        let coeffs = [E8::<Gf<8, Poly<AES>>>::from_raw(0x07); 3];
         let mut rows = [0u8; 8];
         mul_add_scatter::<Gf8<Poly<AES>>>(&mut rows, 0, &coeffs, &[1, 2, 3]);
     }
@@ -1464,7 +1470,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "term supplies")]
     fn zero_row_length_still_checks_term_counts() {
-        let coeffs = [E8::<8, Poly<AES>>::from_raw(0x07); 2];
+        let coeffs = [E8::<Gf<8, Poly<AES>>>::from_raw(0x07); 2];
         let mut rows = [0u8; 8];
         mul_add_matrix::<Gf8<Poly<AES>>>(&mut rows, 0, 3, &[(&coeffs, &[])]);
     }
@@ -1474,7 +1480,7 @@ mod tests {
         let matrix = CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(
             3,
             2,
-            &[E8::<8, Poly<AES>>::from_raw(1); 6],
+            &[E8::<Gf<8, Poly<AES>>>::from_raw(1); 6],
         );
         assert!(matrix.source(0).is_some());
         assert!(matrix.source(2).is_some());
@@ -1499,8 +1505,8 @@ mod tests {
 
     #[test]
     fn coeff_matrix_is_source_major() {
-        let values: Vec<E8<8, Poly<AES>>> = (0u8..6)
-            .map(|i| E8::<8, Poly<AES>>::from_raw(i * 37))
+        let values: Vec<E8<Gf<8, Poly<AES>>>> = (0u8..6)
+            .map(|i| E8::<Gf<8, Poly<AES>>>::from_raw(i * 37))
             .collect();
         let matrix = CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(2, 3, &values);
         for source in 0..2 {
@@ -1512,7 +1518,7 @@ mod tests {
                 assert_eq!(at, values[source * 3 + output]);
             }
         }
-        let row_one: Vec<E8<8, Poly<AES>>> = matrix
+        let row_one: Vec<E8<Gf<8, Poly<AES>>>> = matrix
             .source(1)
             .unwrap()
             .into_coeffs()

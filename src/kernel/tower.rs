@@ -438,7 +438,7 @@ pub mod gf16 {
             target_arch = "wasm32"
         )
     ))]
-    impl<S: TowerSpec> Coeffs for alloc::vec::Vec<Elem<16, Tower<S>>>
+    impl<S: TowerSpec> Coeffs for alloc::vec::Vec<Elem<Gf<16, Tower<S>>>>
     where
         S::Base: ByteBanks,
     {
@@ -451,9 +451,9 @@ pub mod gf16 {
         #[inline]
         fn kind(&self, index: usize) -> CoeffKind {
             let coeff = self[index];
-            if coeff == Elem::<16, Tower<S>>::ZERO {
+            if coeff == Elem::<Gf<16, Tower<S>>>::ZERO {
                 CoeffKind::Zero
-            } else if coeff == Elem::<16, Tower<S>>::ONE {
+            } else if coeff == Elem::<Gf<16, Tower<S>>>::ONE {
                 CoeffKind::One
             } else {
                 CoeffKind::General
@@ -480,7 +480,7 @@ pub mod gf16 {
             target_arch = "wasm32"
         )
     ))]
-    impl<S: TowerSpec, const N: usize> Coeffs for [Elem<16, Tower<S>>; N]
+    impl<S: TowerSpec, const N: usize> Coeffs for [Elem<Gf<16, Tower<S>>>; N]
     where
         S::Base: ByteBanks,
     {
@@ -493,9 +493,9 @@ pub mod gf16 {
         #[inline]
         fn kind(&self, index: usize) -> CoeffKind {
             let coeff = self[index];
-            if coeff == Elem::<16, Tower<S>>::ZERO {
+            if coeff == Elem::<Gf<16, Tower<S>>>::ZERO {
                 CoeffKind::Zero
-            } else if coeff == Elem::<16, Tower<S>>::ONE {
+            } else if coeff == Elem::<Gf<16, Tower<S>>>::ONE {
                 CoeffKind::One
             } else {
                 CoeffKind::General
@@ -523,7 +523,7 @@ pub mod gf16 {
             target_arch = "wasm32"
         )
     ))]
-    impl<S: TowerSpec> Coeffs for [Elem<16, Tower<S>>]
+    impl<S: TowerSpec> Coeffs for [Elem<Gf<16, Tower<S>>>]
     where
         S::Base: ByteBanks,
     {
@@ -536,9 +536,9 @@ pub mod gf16 {
         #[inline]
         fn kind(&self, index: usize) -> CoeffKind {
             let coeff = self[index];
-            if coeff == Elem::<16, Tower<S>>::ZERO {
+            if coeff == Elem::<Gf<16, Tower<S>>>::ZERO {
                 CoeffKind::Zero
-            } else if coeff == Elem::<16, Tower<S>>::ONE {
+            } else if coeff == Elem::<Gf<16, Tower<S>>>::ONE {
                 CoeffKind::One
             } else {
                 CoeffKind::General
@@ -565,13 +565,13 @@ pub mod gf16 {
             target_arch = "wasm32"
         )
     ))]
-    impl<S: TowerSpec> Matrix<TowerTables> for [(&[Elem<16, Tower<S>>], &[u8])]
+    impl<S: TowerSpec> Matrix<TowerTables> for [(&[Elem<Gf<16, Tower<S>>>], &[u8])]
     where
         S::Base: ByteBanks,
     {
         #[inline]
         fn len(&self) -> usize {
-            <[(&[Elem<16, Tower<S>>], &[u8])]>::len(self)
+            <[(&[Elem<Gf<16, Tower<S>>>], &[u8])]>::len(self)
         }
 
         #[inline]
@@ -588,13 +588,13 @@ pub mod gf16 {
     /// Raw per-term tower elements as a [`Matrix`] of broadcast pairs: the
     /// GFNI and AVX-512 matrix routes, which read no nibble table.
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    impl<S: TowerSpec> Matrix<TowerCoeff> for [(&[Elem<16, Tower<S>>], &[u8])]
+    impl<S: TowerSpec> Matrix<TowerCoeff> for [(&[Elem<Gf<16, Tower<S>>>], &[u8])]
     where
         S::Base: ByteBanks,
     {
         #[inline]
         fn len(&self) -> usize {
-            <[(&[Elem<16, Tower<S>>], &[u8])]>::len(self)
+            <[(&[Elem<Gf<16, Tower<S>>>], &[u8])]>::len(self)
         }
 
         #[inline]
@@ -616,7 +616,7 @@ pub mod gf16 {
     where
         S::Base: ByteBanks,
     {
-        values: &'a [Elem<16, Tower<S>>],
+        values: &'a [Elem<Gf<16, Tower<S>>>],
         nrows: usize,
         sources: &'a [&'a [u8]],
     }
@@ -632,7 +632,7 @@ pub mod gf16 {
         #[inline]
         #[must_use]
         pub fn new<'a>(
-            values: &'a [Elem<16, Tower<S>>],
+            values: &'a [Elem<Gf<16, Tower<S>>>],
             nrows: usize,
             sources: &'a [&'a [u8]],
         ) -> FlatResolved<'a, S> {
@@ -710,7 +710,7 @@ pub mod gf16 {
     {
         match prepared {
             Prepared::Tables(tables) => *tables,
-            other => TowerTables::new::<S>(Elem::<16, Tower<S>>::from_raw(other.coeff())),
+            other => TowerTables::new::<S>(Elem::<Gf<16, Tower<S>>>::from_raw(other.coeff())),
         }
     }
 
@@ -929,7 +929,7 @@ pub mod gf16 {
     {
         type Prepared = Prepared;
 
-        fn prepare(_proof: RawDispatch, coeff: Elem<16, Tower<S>>) -> Prepared {
+        fn prepare(_proof: RawDispatch, coeff: Elem<Gf<16, Tower<S>>>) -> Prepared {
             match backend() {
                 Backend::V4x | Backend::V3GfniCrypto if S::Base::AES_NATIVE => {
                     Prepared::Compact(TowerCoeff::new::<S>(coeff))
@@ -955,8 +955,8 @@ pub mod gf16 {
         }
 
         #[inline]
-        fn prepared_coeff(_proof: RawDispatch, prepared: &Prepared) -> Elem<16, Tower<S>> {
-            Elem::<16, Tower<S>>::from_raw(prepared.coeff())
+        fn prepared_coeff(_proof: RawDispatch, prepared: &Prepared) -> Elem<Gf<16, Tower<S>>> {
+            Elem::<Gf<16, Tower<S>>>::from_raw(prepared.coeff())
         }
 
         #[inline]
@@ -1096,7 +1096,7 @@ pub mod gf16 {
             _proof: RawDispatch,
             rows: &mut [u8],
             row_len: usize,
-            coeffs: &[Elem<16, Tower<S>>],
+            coeffs: &[Elem<Gf<16, Tower<S>>>],
             src: &[u8],
         ) {
             match backend() {
@@ -1174,7 +1174,7 @@ pub mod gf16 {
             _proof: RawDispatch,
             rows: &mut [u8],
             row_len: usize,
-            values: &[Elem<16, Tower<S>>],
+            values: &[Elem<Gf<16, Tower<S>>>],
             coeffs: &[Prepared],
             src: &[u8],
         ) {
@@ -1195,7 +1195,7 @@ pub mod gf16 {
         fn mul_add_gather(
             _proof: RawDispatch,
             dst: &mut [u8],
-            coeffs: &[Elem<16, Tower<S>>],
+            coeffs: &[Elem<Gf<16, Tower<S>>>],
             srcs: &[&[u8]],
         ) {
             match backend() {
@@ -1250,7 +1250,7 @@ pub mod gf16 {
         fn mul_add_gather_plan(
             _proof: RawDispatch,
             dst: &mut [u8],
-            values: &[Elem<16, Tower<S>>],
+            values: &[Elem<Gf<16, Tower<S>>>],
             coeffs: &[Prepared],
             srcs: &[&[u8]],
         ) {
@@ -1279,7 +1279,7 @@ pub mod gf16 {
             rows: &mut [u8],
             row_len: usize,
             nrows: usize,
-            terms: &[(&[Elem<16, Tower<S>>], &[u8])],
+            terms: &[(&[Elem<Gf<16, Tower<S>>>], &[u8])],
         ) {
             match backend() {
                 #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -1348,7 +1348,7 @@ pub mod gf16 {
             rows: &mut [u8],
             row_len: usize,
             nrows: usize,
-            values: &[Elem<16, Tower<S>>],
+            values: &[Elem<Gf<16, Tower<S>>>],
             coeffs: &[Prepared],
             srcs: &[&[u8]],
         ) {

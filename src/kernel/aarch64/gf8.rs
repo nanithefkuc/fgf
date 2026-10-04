@@ -31,14 +31,14 @@
 use core::arch::aarch64::*;
 
 use crate::field::poly::AES;
-use crate::field::{Elem as Gf8Elem, Poly};
+use crate::field::{Elem as Gf8Elem, Gf, Poly};
 use crate::kernel::Matrix;
 use crate::kernel::gf8::{Coeffs, Prepared, mul_add_nibble, mul_assign_nibble, mul_into_nibble};
 use crate::kernel::proven_checks::{check_equal, check_row_span};
 use crate::kernel::tables::ScaleTable;
 
 /// The AES byte element used by the elementwise scalar tails.
-type Elem = Gf8Elem<8, Poly<AES>>;
+type Elem = Gf8Elem<Gf<8, Poly<AES>>>;
 
 /// Load a coefficient's nibble tables into two vector registers.
 #[inline]
@@ -1029,7 +1029,7 @@ fn mul_elementwise_neon_aes_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         vst1q_u8(d, multiply_vectors_neon_aes(vld1q_u8(x), vld1q_u8(y)));
     }
     for ((d, &x), &y) in dst_tail.iter_mut().zip(a_tail).zip(b_tail) {
-        *d = Elem::from_raw(x).mul(Elem::from_raw(y)).0;
+        *d = Elem::from_raw(x).mul(Elem::from_raw(y)).to_raw();
     }
 }
 
@@ -1054,6 +1054,6 @@ fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         vst1q_u8(d, multiply_vectors(vld1q_u8(x), vld1q_u8(y)));
     }
     for ((d, &x), &y) in dst_tail.iter_mut().zip(a_tail).zip(b_tail) {
-        *d = Elem::from_raw(x).mul(Elem::from_raw(y)).0;
+        *d = Elem::from_raw(x).mul(Elem::from_raw(y)).to_raw();
     }
 }

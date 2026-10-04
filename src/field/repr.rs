@@ -1,9 +1,9 @@
 //! Binary fields parameterized by degree and representation.
 //!
 //! [`Gf<const N, R>`](Gf) names GF(2^N) under the representation `R` — a
-//! zero-sized marker carrying no runtime data — and [`Elem<const N, R>`] is
-//! its element, stored as one raw storage word of `R`'s choosing. The
-//! [`Repr`] trait is the sealed vocabulary of representations this crate
+//! zero-sized marker carrying no runtime data — and [`Elem`]
+//! over it is its element, stored as one raw storage word of `R`'s choosing.
+//! The [`Repr`] trait is the sealed vocabulary of representations this crate
 //! ships: a representation fixes the storage type, the field's name, and the
 //! raw encodings of one and of the canonical generator. [`ByteRepr`] narrows
 //! it to the degree-eight representations whose arithmetic is shared: every
@@ -26,7 +26,7 @@
 use core::fmt;
 
 use super::poly::Poly;
-use super::{Field, FieldElem};
+use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, Validate};
 
 // Shared by the representation families in sibling modules (`tower`), so
 // every sealed surface in `field` answers to one trait.
@@ -46,8 +46,8 @@ pub trait Repr<const N: u8>:
     /// Storage of one element in this representation.
     ///
     /// Every bit pattern is a distinct canonical field value. Raw storage is
-    /// private to the crate; each element exposes it through an inherent
-    /// `to_raw` method.
+    /// private to the crate; each element exposes it through
+    /// [`Elem::to_raw`](crate::field::Elem::to_raw).
     type Raw: Copy + PartialEq + Eq + core::hash::Hash + core::fmt::Debug + Default + Ord;
 
     /// Human-readable field name, e.g. `"GF(2^8)/0x11B"`.
@@ -63,8 +63,9 @@ pub trait Repr<const N: u8>:
 ///
 /// Every additive byte basis — polynomial, normal, Cantor — multiplies by
 /// discrete logarithms, so one table pair per representation drives the one
-/// `const` arithmetic implementation on [`Elem<8, R>`](Elem). The tables are
-/// built at compile time from each representation's reference construction.
+/// `const` arithmetic implementation on [`Elem`] over
+/// [`Gf8`]. The tables are built at compile time from each representation's
+/// reference construction.
 pub trait ByteRepr: Repr<8, Raw = u8> {
     /// `EXP[i] = GENERATOR^i` in this representation's encoding.
     const EXP: &'static [u8; 255];
@@ -81,46 +82,118 @@ pub trait ByteRepr: Repr<8, Raw = u8> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
 pub struct Gf<const N: u8, R: Repr<N>>(core::marker::PhantomData<R>);
 
-/// An element of [`Gf<N, R>`](Gf), stored in `R`'s raw form.
-///
-/// Every bit pattern of the raw word is a distinct field value, so the
-/// [`PartialEq`]/[`Hash`]/[`Ord`] implementations — raw-bit order — compare
-/// field values. That order is a deterministic total order for map keys and
-/// sorting; no order compatible with addition exists in characteristic two.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Elem<const N: u8, R: Repr<N>>(pub(crate) R::Raw);
-
-// Raw-bit order over the storage word: the derived shape would work, but a
-// derive places its `PartialOrd`/`Ord` bounds on `R` itself rather than on
-// `R::Raw`, which the representation contract does not require.
-impl<const N: u8, R: Repr<N>> PartialOrd for Elem<N, R> {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<const N: u8, R: Repr<N>> Ord for Elem<N, R> {
-    #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.0.cmp(&other.0)
-    }
-}
-
 /// The GF(2^8) field under any degree-eight representation `R`.
 pub type Gf8<R> = Gf<8, R>;
 
-impl<R: ByteRepr> Elem<8, R> {
-    /// The additive identity, and the absorbing element for multiplication.
-    pub const ZERO: Self = Self::from_raw(0);
-    /// The multiplicative identity.
-    pub const ONE: Self = Self::from_raw(R::ONE_RAW);
-    /// The canonical generator of the multiplicative group.
-    ///
-    /// The generator the discrete-log tables of every degree-eight
-    /// representation are built from.
-    pub const GENERATOR: Self = Self::from_raw(R::GENERATOR_RAW);
+/// Table multiplication over one representation's log/exp pair.
+const fn table_mul(exp: &[u8; 255], log: &[u8; 256], left: u8, right: u8) -> u8 {
+    if left == 0 || right == 0 {
+        return 0;
+    }
+    exp[(log[left as usize] as usize + log[right as usize] as usize) % 255]
+}
 
+/// Table square-and-multiply over one representation's log/exp pair.
+const fn table_pow(exp: &[u8; 255], log: &[u8; 256], mut base: u8, mut exponent: u64) -> u8 {
+    let mut result = 1u8;
+    while exponent != 0 {
+        if exponent & 1 != 0 {
+            result = table_mul(exp, log, result, base);
+        }
+        base = table_mul(exp, log, base, base);
+        exponent >>= 1;
+    }
+    result
+}
+
+/// Whether `candidate` generates the order-255 group under the tables.
+const fn is_byte_primitive(exp: &[u8; 255], log: &[u8; 256], candidate: u8) -> bool {
+    if candidate == 0 || table_pow(exp, log, candidate, 255) != 1 {
+        return false;
+    }
+    // Proper cofactor powers for 255 = 3 * 5 * 17: 85, 51, 15.
+    table_pow(exp, log, candidate, 85) != 1
+        && table_pow(exp, log, candidate, 51) != 1
+        && table_pow(exp, log, candidate, 15) != 1
+}
+
+impl<R: ByteRepr> Field for Gf<8, R> {
+    type Raw = u8;
+    type Characteristic = PrimeCharacteristic<2>;
+    const NAME: &'static str = R::NAME;
+    const DEGREE: u32 = 8;
+    const ORDER: u128 = 256;
+    const ZERO_RAW: u8 = 0;
+    const ONE_RAW: u8 = R::ONE_RAW;
+    const VALID: () = R::VALID;
+
+    #[inline]
+    fn canonical_raw(raw: u8) -> u8 {
+        raw
+    }
+
+    #[inline]
+    fn add_raw(left: u8, right: u8) -> u8 {
+        left ^ right
+    }
+
+    #[inline]
+    fn sub_raw(left: u8, right: u8) -> u8 {
+        left ^ right
+    }
+
+    #[inline]
+    fn neg_raw(value: u8) -> u8 {
+        value
+    }
+
+    #[inline]
+    fn mul_raw(left: u8, right: u8) -> u8 {
+        table_mul(R::EXP, R::LOG, left, right)
+    }
+
+    #[inline]
+    fn inv_raw(value: u8) -> u8 {
+        if value == 0 {
+            return 0;
+        }
+        // The `% 255` matters only for `value == 1`, where `LOG` is 0 and
+        // `255 - 0` would run off the end of the 255-entry table.
+        let l = R::LOG[value as usize] as usize;
+        R::EXP[(255 - l) % 255]
+    }
+}
+
+impl<R: ByteRepr> HasGenerator for Gf<8, R> {
+    const GENERATOR_RAW: u8 = {
+        assert!(
+            is_byte_primitive(R::EXP, R::LOG, R::GENERATOR_RAW),
+            "byte representation generator does not have full order"
+        );
+        R::GENERATOR_RAW
+    };
+}
+
+impl<R: ByteRepr> FieldBuffer for Gf<8, R> {
+    const BYTES: usize = 1;
+    const STORAGE_BITS: u32 = 8;
+
+    #[inline]
+    fn decode(bytes: &[u8]) -> Elem<Self> {
+        let bytes: [u8; 1] = bytes
+            .try_into()
+            .expect("GF(2^8) element has the wrong byte width");
+        Elem::<Self>::from_raw(bytes[0])
+    }
+
+    #[inline]
+    fn encode(bytes: &mut [u8], value: Elem<Self>) {
+        assert_eq!(bytes.len(), 1, "GF(2^8) element has the wrong byte width");
+        bytes.copy_from_slice(&value.to_bytes());
+    }
+}
+
+impl<R: ByteRepr> Elem<Gf<8, R>> {
     /// Wrap a raw storage word. Every raw word is a distinct field value.
     ///
     /// Referencing this constructor evaluates the representation's validity
@@ -132,15 +205,9 @@ impl<R: ByteRepr> Elem<8, R> {
     #[inline]
     #[must_use]
     pub const fn from_raw(value: u8) -> Self {
-        let _ = R::VALID;
-        Self(value)
-    }
-
-    /// Unwrap to the raw storage word.
-    #[inline]
-    #[must_use]
-    pub const fn to_raw(self) -> u8 {
-        self.0
+        let () = Validate::<Gf<8, R>>::OK;
+        let () = R::VALID;
+        Elem { raw: value }
     }
 
     /// Decode from the stable single-byte representation.
@@ -154,17 +221,19 @@ impl<R: ByteRepr> Elem<8, R> {
     #[inline]
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 1] {
-        [self.0]
+        [self.raw]
     }
 
     /// Field addition. Identical to subtraction and to bitwise XOR.
     #[inline]
     #[must_use]
     pub const fn add(self, rhs: Self) -> Self {
-        Self(self.0 ^ rhs.0)
+        Elem {
+            raw: self.raw ^ rhs.raw,
+        }
     }
 
-    /// Field subtraction. Identical to [`Elem::add`].
+    /// Field subtraction. Identical to [`Elem::add`](Self::add).
     #[inline]
     #[must_use]
     pub const fn sub(self, rhs: Self) -> Self {
@@ -184,12 +253,14 @@ impl<R: ByteRepr> Elem<8, R> {
     pub const fn mul(self, rhs: Self) -> Self {
         // LOG has no entry for zero, so the absorbing case must
         // short-circuit.
-        if self.0 == 0 || rhs.0 == 0 {
+        if self.raw == 0 || rhs.raw == 0 {
             return Self::ZERO;
         }
-        let la = R::LOG[self.0 as usize] as usize;
-        let lb = R::LOG[rhs.0 as usize] as usize;
-        Self(R::EXP[(la + lb) % 255])
+        let la = R::LOG[self.raw as usize] as usize;
+        let lb = R::LOG[rhs.raw as usize] as usize;
+        Elem {
+            raw: R::EXP[(la + lb) % 255],
+        }
     }
 
     /// Square.
@@ -206,13 +277,15 @@ impl<R: ByteRepr> Elem<8, R> {
     #[inline]
     #[must_use]
     pub const fn inv(self) -> Self {
-        if self.0 == 0 {
+        if self.raw == 0 {
             return Self::ZERO;
         }
         // The `% 255` matters only for `self == 1`, where `LOG` is 0 and
         // `255 - 0` would run off the end of the 255-entry table.
-        let l = R::LOG[self.0 as usize] as usize;
-        Self(R::EXP[(255 - l) % 255])
+        let l = R::LOG[self.raw as usize] as usize;
+        Elem {
+            raw: R::EXP[(255 - l) % 255],
+        }
     }
 
     /// Field division. Returns zero when either operand is zero.
@@ -223,7 +296,7 @@ impl<R: ByteRepr> Elem<8, R> {
     #[inline]
     #[must_use]
     pub const fn div(self, rhs: Self) -> Self {
-        if self.0 == 0 || rhs.0 == 0 {
+        if self.raw == 0 || rhs.raw == 0 {
             return Self::ZERO;
         }
         self.mul(rhs.inv())
@@ -231,7 +304,7 @@ impl<R: ByteRepr> Elem<8, R> {
 
     /// Raise to an unsigned integer power.
     #[must_use]
-    pub const fn pow(self, mut exponent: u64) -> Self {
+    pub const fn pow(self, mut exponent: u128) -> Self {
         let mut base = self;
         let mut result = Self::ONE;
         while exponent != 0 {
@@ -245,225 +318,9 @@ impl<R: ByteRepr> Elem<8, R> {
     }
 }
 
-impl<R: ByteRepr> FieldElem for Elem<8, R> {
-    const ZERO: Self = Self::ZERO;
-    const ONE: Self = Self::ONE;
-
-    #[inline]
-    fn add(self, rhs: Self) -> Self {
-        Self::add(self, rhs)
-    }
-    #[inline]
-    fn sub(self, rhs: Self) -> Self {
-        Self::sub(self, rhs)
-    }
-    #[inline]
-    fn mul(self, rhs: Self) -> Self {
-        Self::mul(self, rhs)
-    }
-    #[inline]
-    fn square(self) -> Self {
-        Self::square(self)
-    }
-    #[inline]
-    fn inv(self) -> Self {
-        Self::inv(self)
-    }
-    #[inline]
-    fn div(self, rhs: Self) -> Self {
-        Self::div(self, rhs)
-    }
-    #[inline]
-    fn pow(self, exponent: u64) -> Self {
-        Self::pow(self, exponent)
-    }
-}
-
-impl<R: ByteRepr> Field for Gf<8, R> {
-    type Elem = Elem<8, R>;
-
-    const NAME: &'static str = R::NAME;
-    const BITS: u32 = 8;
-    const BYTES: usize = 1;
-    const ORDER: u128 = 256;
-    const CHARACTERISTIC: u64 = 2;
-    const GENERATOR: Elem<8, R> = Elem::<8, R>::GENERATOR;
-
-    #[inline]
-    fn decode(bytes: &[u8]) -> Elem<8, R> {
-        let bytes: [u8; 1] = bytes
-            .try_into()
-            .expect("GF(2^8) element has the wrong byte width");
-        Self::Elem::from_bytes(bytes)
-    }
-
-    #[inline]
-    fn encode(bytes: &mut [u8], value: Elem<8, R>) {
-        assert_eq!(bytes.len(), 1, "GF(2^8) element has the wrong byte width");
-        bytes.copy_from_slice(&value.to_bytes());
-    }
-}
-
-impl<R: ByteRepr> fmt::Display for Elem<8, R> {
+impl<R: ByteRepr> fmt::Display for Elem<Gf<8, R>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:02x}", self.0)
-    }
-}
-
-// The remaining element surface is generic over `(N, R)` and routes through
-// `FieldElem`, so it covers exactly the degrees with arithmetic: the shared
-// byte-field impl above and the concrete degree-one impl in `poly`.
-impl<const N: u8, R: Repr<N>> fmt::Debug for Elem<N, R> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}({:?})", R::NAME, self.0)
-    }
-}
-
-impl<const N: u8, R: Repr<N>> Default for Elem<N, R>
-where
-    Elem<N, R>: FieldElem,
-{
-    fn default() -> Self {
-        <Self as FieldElem>::ZERO
-    }
-}
-
-impl<const N: u8, R: Repr<N>> core::ops::Add for Elem<N, R>
-where
-    Elem<N, R>: FieldElem,
-{
-    type Output = Self;
-    #[inline]
-    fn add(self, rhs: Self) -> Self {
-        <Self as FieldElem>::add(self, rhs)
-    }
-}
-
-impl<const N: u8, R: Repr<N>> core::ops::Sub for Elem<N, R>
-where
-    Elem<N, R>: FieldElem,
-{
-    type Output = Self;
-    #[inline]
-    fn sub(self, rhs: Self) -> Self {
-        <Self as FieldElem>::sub(self, rhs)
-    }
-}
-
-impl<const N: u8, R: Repr<N>> core::ops::Neg for Elem<N, R>
-where
-    Elem<N, R>: FieldElem,
-{
-    type Output = Self;
-    #[inline]
-    fn neg(self) -> Self {
-        <Self as FieldElem>::neg(self)
-    }
-}
-
-impl<const N: u8, R: Repr<N>> core::ops::Mul for Elem<N, R>
-where
-    Elem<N, R>: FieldElem,
-{
-    type Output = Self;
-    #[inline]
-    fn mul(self, rhs: Self) -> Self {
-        <Self as FieldElem>::mul(self, rhs)
-    }
-}
-
-impl<const N: u8, R: Repr<N>> core::ops::Div for Elem<N, R>
-where
-    Elem<N, R>: FieldElem,
-{
-    type Output = Self;
-    #[inline]
-    fn div(self, rhs: Self) -> Self {
-        <Self as FieldElem>::div(self, rhs)
-    }
-}
-
-impl<const N: u8, R: Repr<N>> core::ops::AddAssign for Elem<N, R>
-where
-    Elem<N, R>: FieldElem,
-{
-    #[inline]
-    fn add_assign(&mut self, rhs: Self) {
-        *self = <Self as FieldElem>::add(*self, rhs);
-    }
-}
-
-impl<const N: u8, R: Repr<N>> core::ops::SubAssign for Elem<N, R>
-where
-    Elem<N, R>: FieldElem,
-{
-    #[inline]
-    fn sub_assign(&mut self, rhs: Self) {
-        *self = <Self as FieldElem>::sub(*self, rhs);
-    }
-}
-
-impl<const N: u8, R: Repr<N>> core::ops::MulAssign for Elem<N, R>
-where
-    Elem<N, R>: FieldElem,
-{
-    #[inline]
-    fn mul_assign(&mut self, rhs: Self) {
-        *self = <Self as FieldElem>::mul(*self, rhs);
-    }
-}
-
-impl<const N: u8, R: Repr<N>> core::ops::DivAssign for Elem<N, R>
-where
-    Elem<N, R>: FieldElem,
-{
-    #[inline]
-    fn div_assign(&mut self, rhs: Self) {
-        *self = <Self as FieldElem>::div(*self, rhs);
-    }
-}
-
-impl<const N: u8, R: Repr<N>> core::iter::Sum for Elem<N, R>
-where
-    Elem<N, R>: FieldElem,
-{
-    #[inline]
-    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.fold(<Self as FieldElem>::ZERO, <Self as FieldElem>::add)
-    }
-}
-
-impl<'a, const N: u8, R: Repr<N>> core::iter::Sum<&'a Elem<N, R>> for Elem<N, R>
-where
-    Elem<N, R>: FieldElem,
-{
-    #[inline]
-    fn sum<I: Iterator<Item = &'a Elem<N, R>>>(iter: I) -> Self {
-        iter.fold(<Self as FieldElem>::ZERO, |acc, &x| {
-            <Self as FieldElem>::add(acc, x)
-        })
-    }
-}
-
-impl<const N: u8, R: Repr<N>> core::iter::Product for Elem<N, R>
-where
-    Elem<N, R>: FieldElem,
-{
-    #[inline]
-    fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.fold(<Self as FieldElem>::ONE, <Self as FieldElem>::mul)
-    }
-}
-
-impl<'a, const N: u8, R: Repr<N>> core::iter::Product<&'a Elem<N, R>> for Elem<N, R>
-where
-    Elem<N, R>: FieldElem,
-{
-    #[inline]
-    fn product<I: Iterator<Item = &'a Elem<N, R>>>(iter: I) -> Self {
-        iter.fold(<Self as FieldElem>::ONE, |acc, &x| {
-            <Self as FieldElem>::mul(acc, x)
-        })
+        write!(f, "{:02x}", self.raw)
     }
 }
 

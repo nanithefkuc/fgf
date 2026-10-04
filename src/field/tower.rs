@@ -28,8 +28,8 @@ use core::fmt;
 
 use super::poly::{AES, Poly};
 use super::repr::private;
-use super::repr::{ByteRepr, Elem, Gf, Repr};
-use super::{Field, FieldElem};
+use super::repr::{ByteRepr, Gf, Repr};
+use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, Validate};
 
 /// The defining data of one quadratic tower over a byte field.
 ///
@@ -91,8 +91,8 @@ pub(crate) const fn spec_a_is_one<S: TowerSpec>() -> bool {
 /// second conjunct of [`Tower::SPEC`], and the irreducibility criterion of
 /// the relation.
 pub(crate) const fn spec_trace_one<S: TowerSpec>() -> bool {
-    let a = Elem::<8, S::Base>::from_raw(S::A);
-    let b = Elem::<8, S::Base>::from_raw(S::B);
+    let a = Elem::<Gf<8, S::Base>>::from_raw(S::A);
+    let b = Elem::<Gf<8, S::Base>>::from_raw(S::B);
     // Absolute trace over the base: the sum of the conjugates.
     let mut acc = b.div(a.square());
     let mut power = acc;
@@ -127,13 +127,15 @@ impl<S: TowerSpec> Tower<S> {
     /// no proper cofactor power `65535 / q`, for the prime factors
     /// `q` of `65535`, returns it to one.
     pub const GENERATOR_VALID: () = {
-        let one = Elem::<16, Tower<S>>::ONE.0;
-        let g = Elem::<16, Tower<S>>(S::GENERATOR);
+        let one = <Gf<16, Tower<S>> as Field>::ONE_RAW;
+        // Direct storage construction: `from_raw` reads this check, so it
+        // cannot be used here.
+        let g = Elem::<Gf<16, Tower<S>>> { raw: S::GENERATOR };
         assert!(
-            g.pow(65535 / 3).0 != one
-                && g.pow(65535 / 5).0 != one
-                && g.pow(65535 / 17).0 != one
-                && g.pow(65535 / 257).0 != one,
+            g.pow(65535 / 3).to_raw() != one
+                && g.pow(65535 / 5).to_raw() != one
+                && g.pow(65535 / 17).to_raw() != one
+                && g.pow(65535 / 257).to_raw() != one,
             "TowerSpec GENERATOR must have order 65535"
         );
     };
@@ -153,29 +155,14 @@ impl TowerSpec for RijndaelTower {
     const NAME: &'static str = "GF(2^16)";
 }
 
-impl<S: TowerSpec> Elem<16, Tower<S>> {
-    /// The additive identity, and the absorbing element for multiplication.
-    pub const ZERO: Self = Self(0);
-    /// The multiplicative identity.
-    pub const ONE: Self = Self(u16::from_le_bytes([<S::Base as Repr<8>>::ONE_RAW, 0]));
-    /// The canonical generator of the multiplicative group.
-    ///
-    /// The pinned generator of the spec, validated by the spec's order
-    /// check.
-    pub const GENERATOR: Self = {
-        // Reading the check forces its evaluation; the unit value is the
-        // point.
-        #[allow(clippy::let_unit_value)]
-        #[allow(clippy::ignored_unit_patterns)]
-        let _ = Tower::<S>::GENERATOR_VALID;
-        Self(S::GENERATOR)
-    };
-
+impl<S: TowerSpec> Elem<Gf<16, Tower<S>>> {
     /// Construct `a + b*t` from its two base-field components.
     #[inline]
     #[must_use]
-    pub const fn from_components(a: Elem<8, S::Base>, b: Elem<8, S::Base>) -> Self {
-        Self(u16::from_le_bytes([a.to_raw(), b.to_raw()]))
+    pub const fn from_components(a: Elem<Gf<8, S::Base>>, b: Elem<Gf<8, S::Base>>) -> Self {
+        Elem {
+            raw: u16::from_le_bytes([a.to_raw(), b.to_raw()]),
+        }
     }
 
     /// Return the `(a, b)` components of `a + b*t`.
@@ -183,10 +170,12 @@ impl<S: TowerSpec> Elem<16, Tower<S>> {
     #[must_use]
     // Splitting the raw word into halves: the truncation IS the operation.
     #[allow(clippy::cast_possible_truncation)]
-    pub const fn to_components(self) -> (Elem<8, S::Base>, Elem<8, S::Base>) {
+    // The pair spells the unified element over the half-width base field.
+    #[allow(clippy::type_complexity)]
+    pub const fn to_components(self) -> (Elem<Gf<8, S::Base>>, Elem<Gf<8, S::Base>>) {
         (
-            Elem::<8, S::Base>::from_raw(self.0 as u8),
-            Elem::<8, S::Base>::from_raw((self.0 >> 8) as u8),
+            Elem::<Gf<8, S::Base>>::from_raw(self.raw as u8),
+            Elem::<Gf<8, S::Base>>::from_raw((self.raw >> 8) as u8),
         )
     }
 
@@ -194,14 +183,16 @@ impl<S: TowerSpec> Elem<16, Tower<S>> {
     #[inline]
     #[must_use]
     pub const fn from_bytes(bytes: [u8; 2]) -> Self {
-        Self(u16::from_le_bytes(bytes))
+        Elem {
+            raw: u16::from_le_bytes(bytes),
+        }
     }
 
     /// Encode to the stable little-endian component representation.
     #[inline]
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 2] {
-        self.0.to_le_bytes()
+        self.raw.to_le_bytes()
     }
 
     /// Wrap raw component bits.
@@ -215,26 +206,22 @@ impl<S: TowerSpec> Elem<16, Tower<S>> {
     #[inline]
     #[must_use]
     pub const fn from_raw(value: u16) -> Self {
+        let () = Validate::<Gf<16, Tower<S>>>::OK;
         let _ = Tower::<S>::SPEC;
         let _ = Tower::<S>::GENERATOR_VALID;
-        Self(value)
-    }
-
-    /// Unwrap to the raw component bits.
-    #[inline]
-    #[must_use]
-    pub const fn to_raw(self) -> u16 {
-        self.0
+        Elem { raw: value }
     }
 
     /// Field addition: component-wise XOR.
     #[inline]
     #[must_use]
     pub const fn add(self, rhs: Self) -> Self {
-        Self(self.0 ^ rhs.0)
+        Elem {
+            raw: self.raw ^ rhs.raw,
+        }
     }
 
-    /// Field subtraction. Identical to [`Elem::add`].
+    /// Field subtraction. Identical to [`Elem::add`](Self::add).
     #[inline]
     #[must_use]
     pub const fn sub(self, rhs: Self) -> Self {
@@ -252,7 +239,7 @@ impl<S: TowerSpec> Elem<16, Tower<S>> {
     #[inline]
     #[must_use]
     pub const fn mul(self, rhs: Self) -> Self {
-        let con = Elem::<8, S::Base>::from_raw(S::B);
+        let con = Elem::<Gf<8, S::Base>>::from_raw(S::B);
         let (x, y) = self.to_components();
         let (c, d) = rhs.to_components();
         let xc = x.mul(c);
@@ -266,7 +253,7 @@ impl<S: TowerSpec> Elem<16, Tower<S>> {
         let extension = if spec_a_is_one::<S>() {
             x.add(y).mul(c.add(d)).add(xc)
         } else {
-            let lin = Elem::<8, S::Base>::from_raw(S::A);
+            let lin = Elem::<Gf<8, S::Base>>::from_raw(S::A);
             x.add(y).mul(c.add(d)).add(xc).add(yd).add(lin.mul(yd))
         };
         Self::from_components(constant, extension)
@@ -277,13 +264,13 @@ impl<S: TowerSpec> Elem<16, Tower<S>> {
     #[inline]
     #[must_use]
     pub const fn square(self) -> Self {
-        let con = Elem::<8, S::Base>::from_raw(S::B);
+        let con = Elem::<Gf<8, S::Base>>::from_raw(S::B);
         let (x, y) = self.to_components();
         let y2 = y.square();
         let extension = if spec_a_is_one::<S>() {
             y2
         } else {
-            Elem::<8, S::Base>::from_raw(S::A).mul(y2)
+            Elem::<Gf<8, S::Base>>::from_raw(S::A).mul(y2)
         };
         Self::from_components(x.square().add(con.mul(y2)), extension)
     }
@@ -296,7 +283,7 @@ impl<S: TowerSpec> Elem<16, Tower<S>> {
         let constant = if spec_a_is_one::<S>() {
             x.add(y)
         } else {
-            x.add(Elem::<8, S::Base>::from_raw(S::A).mul(y))
+            x.add(Elem::<Gf<8, S::Base>>::from_raw(S::A).mul(y))
         };
         Self::from_components(constant, y)
     }
@@ -304,13 +291,13 @@ impl<S: TowerSpec> Elem<16, Tower<S>> {
     /// The norm to the base field: `a^2 + A*a*b + B*b^2`.
     #[inline]
     #[must_use]
-    pub(crate) const fn norm(self) -> Elem<8, S::Base> {
-        let con = Elem::<8, S::Base>::from_raw(S::B);
+    pub(crate) const fn norm(self) -> Elem<Gf<8, S::Base>> {
+        let con = Elem::<Gf<8, S::Base>>::from_raw(S::B);
         let (x, y) = self.to_components();
         let middle = if spec_a_is_one::<S>() {
             x.mul(y)
         } else {
-            Elem::<8, S::Base>::from_raw(S::A).mul(x.mul(y))
+            Elem::<Gf<8, S::Base>>::from_raw(S::A).mul(x.mul(y))
         };
         x.square().add(middle).add(con.mul(y.square()))
     }
@@ -321,7 +308,7 @@ impl<S: TowerSpec> Elem<16, Tower<S>> {
     #[inline]
     #[must_use]
     pub const fn inv(self) -> Self {
-        if self.0 == 0 {
+        if self.raw == 0 {
             return Self::ZERO;
         }
         let norm_inv = self.norm().inv();
@@ -337,7 +324,7 @@ impl<S: TowerSpec> Elem<16, Tower<S>> {
     /// `const` context.
     #[must_use]
     pub const fn div(self, rhs: Self) -> Self {
-        if self.0 == 0 || rhs.0 == 0 {
+        if self.raw == 0 || rhs.raw == 0 {
             return Self::ZERO;
         }
         self.mul(rhs.inv())
@@ -345,7 +332,7 @@ impl<S: TowerSpec> Elem<16, Tower<S>> {
 
     /// Raise to an unsigned integer power.
     #[must_use]
-    pub const fn pow(self, mut exponent: u64) -> Self {
+    pub const fn pow(self, mut exponent: u128) -> Self {
         let mut base = self;
         let mut result = Self::ONE;
         while exponent != 0 {
@@ -359,68 +346,78 @@ impl<S: TowerSpec> Elem<16, Tower<S>> {
     }
 }
 
-impl<S: TowerSpec> FieldElem for Elem<16, Tower<S>> {
-    const ZERO: Self = Self::ZERO;
-    const ONE: Self = Self::ONE;
+impl<S: TowerSpec> Field for Gf<16, Tower<S>> {
+    type Raw = u16;
+    type Characteristic = PrimeCharacteristic<2>;
+    const NAME: &'static str = S::NAME;
+    const DEGREE: u32 = 16;
+    const ORDER: u128 = 65_536;
+    const ZERO_RAW: u16 = 0;
+    const ONE_RAW: u16 = u16::from_le_bytes([<S::Base as Repr<8>>::ONE_RAW, 0]);
+    const VALID: () = Tower::<S>::SPEC;
 
     #[inline]
-    fn add(self, rhs: Self) -> Self {
-        Self::add(self, rhs)
+    fn canonical_raw(raw: u16) -> u16 {
+        raw
     }
+
     #[inline]
-    fn sub(self, rhs: Self) -> Self {
-        Self::sub(self, rhs)
+    fn add_raw(left: u16, right: u16) -> u16 {
+        left ^ right
     }
+
     #[inline]
-    fn mul(self, rhs: Self) -> Self {
-        Self::mul(self, rhs)
+    fn sub_raw(left: u16, right: u16) -> u16 {
+        left ^ right
     }
+
     #[inline]
-    fn square(self) -> Self {
-        Self::square(self)
+    fn neg_raw(value: u16) -> u16 {
+        value
     }
+
     #[inline]
-    fn inv(self) -> Self {
-        Self::inv(self)
+    fn mul_raw(left: u16, right: u16) -> u16 {
+        Elem::<Self>::from_raw(left)
+            .mul(Elem::<Self>::from_raw(right))
+            .to_raw()
     }
+
     #[inline]
-    fn div(self, rhs: Self) -> Self {
-        Self::div(self, rhs)
-    }
-    #[inline]
-    fn pow(self, exponent: u64) -> Self {
-        Self::pow(self, exponent)
+    fn inv_raw(value: u16) -> u16 {
+        Elem::<Self>::from_raw(value).inv().to_raw()
     }
 }
 
-impl<S: TowerSpec> Field for Gf<16, Tower<S>> {
-    type Elem = Elem<16, Tower<S>>;
+impl<S: TowerSpec> HasGenerator for Gf<16, Tower<S>> {
+    const GENERATOR_RAW: u16 = {
+        let () = Tower::<S>::GENERATOR_VALID;
+        S::GENERATOR
+    };
+}
 
-    const NAME: &'static str = S::NAME;
-    const BITS: u32 = 16;
+impl<S: TowerSpec> FieldBuffer for Gf<16, Tower<S>> {
     const BYTES: usize = 2;
-    const ORDER: u128 = 65_536;
-    const CHARACTERISTIC: u64 = 2;
-    const GENERATOR: Elem<16, Tower<S>> = Elem::<16, Tower<S>>::GENERATOR;
+    const STORAGE_BITS: u32 = 16;
 
     #[inline]
-    fn decode(bytes: &[u8]) -> Elem<16, Tower<S>> {
+    fn decode(bytes: &[u8]) -> Elem<Self> {
         let bytes: [u8; 2] = bytes
             .try_into()
             .expect("GF(2^16) element has the wrong byte width");
-        Self::Elem::from_bytes(bytes)
+        Elem::<Self>::from_bytes(bytes)
     }
 
     #[inline]
-    fn encode(bytes: &mut [u8], value: Elem<16, Tower<S>>) {
+    fn encode(bytes: &mut [u8], value: Elem<Self>) {
         assert_eq!(bytes.len(), 2, "GF(2^16) element has the wrong byte width");
         bytes.copy_from_slice(&value.to_bytes());
     }
 }
 
-impl<S: TowerSpec> fmt::Display for Elem<16, Tower<S>> {
+impl<S: TowerSpec> fmt::Display for Elem<Gf<16, Tower<S>>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:04x}", self.0)
+        write!(f, "{:04x}", self.raw)
     }
 }
 
@@ -455,29 +452,29 @@ pub mod gf16 {
     //! pair of base-field planes at stride two.
     //!
     //! ```
-    //! use fgf::gf16::{self, Elem, DELTA};
+    //! use fgf::gf16::{self, DELTA};
     //! use fgf::poly::AES;
-    //! use fgf::{Elem as Byte, Poly};
+    //! use fgf::{Elem, Gf, Poly};
     //!
-    //! let base = |raw: u8| Byte::<8, Poly<AES>>::from_raw(raw);
-    //! let x = Elem::from_components(base(0x12), base(0x34));
+    //! let base = |raw: u8| Elem::<Gf<8, Poly<AES>>>::from_raw(raw);
+    //! let x = Elem::<gf16::Gf16>::from_components(base(0x12), base(0x34));
     //! assert_eq!(x.to_raw(), 0x3412);
     //! assert_eq!(x.to_bytes(), [0x12, 0x34]);
     //!
     //! // The defining relation: u^2 == u + DELTA.
-    //! const U: Elem = Elem::from_components(
-    //!     Byte::<8, Poly<AES>>::ZERO,
-    //!     Byte::<8, Poly<AES>>::ONE,
+    //! const U: Elem<gf16::Gf16> = Elem::<gf16::Gf16>::from_components(
+    //!     Elem::<Gf<8, Poly<AES>>>::ZERO,
+    //!     Elem::<Gf<8, Poly<AES>>>::ONE,
     //! );
-    //! const DELTA_LIFTED: Elem =
-    //!     Elem::from_components(DELTA, Byte::<8, Poly<AES>>::ZERO);
+    //! const DELTA_LIFTED: Elem<gf16::Gf16> =
+    //!     Elem::<gf16::Gf16>::from_components(DELTA, Elem::<Gf<8, Poly<AES>>>::ZERO);
     //! const _: () = assert!(U.square().to_raw() == U.add(DELTA_LIFTED).to_raw());
     //!
     //! // The documented generator really does have order 65535.
-    //! assert_eq!(gf16::GENERATOR.pow(65_535), Elem::ONE);
+    //! assert_eq!(gf16::GENERATOR.pow(65_535), Elem::<gf16::Gf16>::ONE);
     //!
     //! // Division is total: `x / 0` is zero, in `const` context too.
-    //! const _: () = assert!(Elem::from_raw(0x0108).div(Elem::ZERO).to_raw() == 0);
+    //! const _: () = assert!(Elem::<gf16::Gf16>::from_raw(0x0108).div(Elem::<gf16::Gf16>::ZERO).to_raw() == 0);
     //! ```
 
     use super::RijndaelTower;
@@ -497,15 +494,15 @@ pub mod gf16 {
     /// values. That order is a deterministic total order for map keys and
     /// sorting; no order compatible with addition exists in characteristic
     /// two.
-    pub type Elem = crate::field::repr::Elem<16, Tower<RijndaelTower>>;
+    pub type Elem = crate::field::Elem<Gf16>;
 
     /// Constant term of the irreducible tower polynomial `u^2 + u + DELTA`.
-    pub const DELTA: crate::field::repr::Elem<8, Poly<AES>> =
-        <crate::field::repr::Elem<8, Poly<AES>>>::from_raw(RijndaelTower::B);
+    pub const DELTA: crate::field::Elem<Gf<8, Poly<AES>>> =
+        <crate::field::Elem<Gf<8, Poly<AES>>>>::from_raw(RijndaelTower::B);
 
     /// A primitive element of the extension field: its multiplicative
     /// order is the whole group.
-    pub const GENERATOR: Elem = Elem::GENERATOR;
+    pub const GENERATOR: Elem = crate::field::Elem::<Gf16>::GENERATOR;
 }
 
 /// Emit one quadratic tower level into the calling module.
@@ -525,40 +522,33 @@ macro_rules! quad_tower {
         use core::fmt;
 
         type Base = $base;
-        use crate::field::{Field, FieldElem as ElemTrait};
+        use crate::field::{Field, FieldBuffer, HasGenerator, PrimeCharacteristic};
 
         #[doc = concat!("Constant term of the irreducible tower polynomial `", $root, "^2 + ", $root, " + DELTA`.")]
         pub const DELTA: Base = Base::from_raw($delta);
-
-        /// A primitive element of the extension field: its multiplicative
-        /// order is the whole group.
-        pub const GENERATOR: Elem = Elem($generator);
 
         #[doc = concat!("Marker type for ", $name, ".")]
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
         pub struct $marker;
 
-        #[doc = concat!("An element of ", $name, ", stored as `a + b*", $root, "` with `a` in the low half.")]
-        ///
-        /// Every bit pattern is a distinct field value, so the derived
-        /// [`PartialEq`]/[`Hash`]/[`Ord`] — raw-bit order — compare field
-        /// values. That order is a deterministic total order for map keys and
-        /// sorting; no order compatible with addition exists in
-        /// characteristic two.
-        #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-        pub struct Elem(pub(crate) $raw);
+        /// An element of the tower field, stored as `a + b*root` with `a`
+        /// in the low half: the unified [`Elem`](crate::field::Elem) over
+        /// the level marker.
+        pub type Elem = crate::field::Elem<$marker>;
 
-        impl Elem {
-            /// The additive identity.
-            pub const ZERO: Self = Self(0);
-            /// The multiplicative identity.
-            pub const ONE: Self = Self(1);
+        /// A primitive element of the extension field: its multiplicative
+        /// order is the whole group.
+        pub const GENERATOR: Elem = Elem::GENERATOR;
+
+        impl crate::field::Elem<$marker> {
 
             #[doc = concat!("Construct `a + b*", $root, "` from its two base-field components.")]
             #[inline]
             #[must_use]
             pub const fn from_components(a: Base, b: Base) -> Self {
-                Self((a.to_raw() as $raw) | ((b.to_raw() as $raw) << $shift))
+                Self {
+                    raw: (a.to_raw() as $raw) | ((b.to_raw() as $raw) << $shift),
+                }
             }
 
             #[doc = concat!("Return the `(a, b)` components of `a + b*", $root, "`.")]
@@ -569,8 +559,8 @@ macro_rules! quad_tower {
             #[allow(clippy::cast_possible_truncation)]
             pub const fn to_components(self) -> (Base, Base) {
                 (
-                    Base::from_raw(self.0 as $base_raw),
-                    Base::from_raw((self.0 >> $shift) as $base_raw),
+                    Base::from_raw(self.raw as $base_raw),
+                    Base::from_raw((self.raw >> $shift) as $base_raw),
                 )
             }
 
@@ -578,35 +568,33 @@ macro_rules! quad_tower {
             #[inline]
             #[must_use]
             pub const fn from_bytes(bytes: [u8; $bytes]) -> Self {
-                Self(<$raw>::from_le_bytes(bytes))
+                Self {
+                    raw: <$raw>::from_le_bytes(bytes),
+                }
             }
 
             /// Encode to the stable little-endian component representation.
             #[inline]
             #[must_use]
             pub const fn to_bytes(self) -> [u8; $bytes] {
-                self.0.to_le_bytes()
+                self.raw.to_le_bytes()
             }
 
             /// Wrap raw component bits.
             #[inline]
             #[must_use]
             pub const fn from_raw(value: $raw) -> Self {
-                Self(value)
-            }
-
-            /// Unwrap to the raw component bits.
-            #[inline]
-            #[must_use]
-            pub const fn to_raw(self) -> $raw {
-                self.0
+                let () = crate::field::Validate::<$marker>::OK;
+                Self { raw: value }
             }
 
             /// Field addition: component-wise XOR.
             #[inline]
             #[must_use]
             pub const fn add(self, rhs: Self) -> Self {
-                Self(self.0 ^ rhs.0)
+                Self {
+                    raw: self.raw ^ rhs.raw,
+                }
             }
 
             /// Field subtraction. Identical to [`Elem::add`].
@@ -679,7 +667,7 @@ macro_rules! quad_tower {
             /// debug builds and silence in release ones.
             #[must_use]
             pub const fn div(self, rhs: Self) -> Self {
-                if self.0 == 0 || rhs.0 == 0 {
+                if self.raw == 0 || rhs.raw == 0 {
                     return Self::ZERO;
                 }
                 self.mul(rhs.inv())
@@ -687,7 +675,7 @@ macro_rules! quad_tower {
 
             /// Raise to an unsigned integer power.
             #[must_use]
-            pub const fn pow(self, mut exponent: u64) -> Self {
+            pub const fn pow(self, mut exponent: u128) -> Self {
                 let mut base = self;
                 let mut result = Self::ONE;
                 while exponent != 0 {
@@ -701,49 +689,57 @@ macro_rules! quad_tower {
             }
         }
 
-        impl ElemTrait for Elem {
-            const ZERO: Self = Self::ZERO;
-            const ONE: Self = Self::ONE;
+        impl Field for $marker {
+            type Raw = $raw;
+            type Characteristic = PrimeCharacteristic<2>;
+
+            const NAME: &'static str = $name;
+            const DEGREE: u32 = $bits;
+            const ORDER: u128 = $order;
+            const ZERO_RAW: $raw = 0;
+            const ONE_RAW: $raw = 1;
+            const VALID: () = ();
 
             #[inline]
-            fn add(self, rhs: Self) -> Self {
-                Elem::add(self, rhs)
+            fn canonical_raw(raw: $raw) -> $raw {
+                raw
             }
+
             #[inline]
-            fn sub(self, rhs: Self) -> Self {
-                Elem::sub(self, rhs)
+            fn add_raw(left: $raw, right: $raw) -> $raw {
+                left ^ right
             }
+
             #[inline]
-            fn mul(self, rhs: Self) -> Self {
-                Elem::mul(self, rhs)
+            fn sub_raw(left: $raw, right: $raw) -> $raw {
+                left ^ right
             }
+
             #[inline]
-            fn square(self) -> Self {
-                Elem::square(self)
+            fn neg_raw(value: $raw) -> $raw {
+                value
             }
+
             #[inline]
-            fn inv(self) -> Self {
-                Elem::inv(self)
+            fn mul_raw(left: $raw, right: $raw) -> $raw {
+                crate::field::Elem::<$marker>::from_raw(left)
+                    .mul(crate::field::Elem::<$marker>::from_raw(right))
+                    .to_raw()
             }
+
             #[inline]
-            fn div(self, rhs: Self) -> Self {
-                Elem::div(self, rhs)
-            }
-            #[inline]
-            fn pow(self, exponent: u64) -> Self {
-                Elem::pow(self, exponent)
+            fn inv_raw(value: $raw) -> $raw {
+                crate::field::Elem::<$marker>::from_raw(value).inv().to_raw()
             }
         }
 
-        impl Field for $marker {
-            type Elem = Elem;
+        impl HasGenerator for $marker {
+            const GENERATOR_RAW: $raw = $generator;
+        }
 
-            const NAME: &'static str = $name;
-            const BITS: u32 = $bits;
+        impl FieldBuffer for $marker {
             const BYTES: usize = $bytes;
-            const ORDER: u128 = $order;
-            const CHARACTERISTIC: u64 = 2;
-            const GENERATOR: Elem = GENERATOR;
+            const STORAGE_BITS: u32 = $bits;
 
             #[inline]
             fn decode(bytes: &[u8]) -> Elem {
@@ -764,112 +760,9 @@ macro_rules! quad_tower {
             }
         }
 
-        impl fmt::Debug for Elem {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let (a, b) = self.to_components();
-                write!(f, $debug_fmt, a.to_raw(), b.to_raw())
-            }
-        }
-
         impl fmt::Display for Elem {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(f, $display_fmt, self.0)
-            }
-        }
-
-        impl core::ops::Add for Elem {
-            type Output = Self;
-            #[inline]
-            fn add(self, rhs: Self) -> Self {
-                Elem::add(self, rhs)
-            }
-        }
-
-        impl core::ops::Sub for Elem {
-            type Output = Self;
-            #[inline]
-            fn sub(self, rhs: Self) -> Self {
-                Elem::sub(self, rhs)
-            }
-        }
-
-        impl core::ops::Neg for Elem {
-            type Output = Self;
-            #[inline]
-            fn neg(self) -> Self {
-                Elem::neg(self)
-            }
-        }
-
-        impl core::ops::Mul for Elem {
-            type Output = Self;
-            #[inline]
-            fn mul(self, rhs: Self) -> Self {
-                Elem::mul(self, rhs)
-            }
-        }
-
-        impl core::ops::Div for Elem {
-            type Output = Self;
-            #[inline]
-            fn div(self, rhs: Self) -> Self {
-                Elem::div(self, rhs)
-            }
-        }
-
-        impl core::ops::AddAssign for Elem {
-            #[inline]
-            fn add_assign(&mut self, rhs: Self) {
-                *self = Elem::add(*self, rhs);
-            }
-        }
-
-        impl core::ops::SubAssign for Elem {
-            #[inline]
-            fn sub_assign(&mut self, rhs: Self) {
-                *self = Elem::sub(*self, rhs);
-            }
-        }
-
-        impl core::ops::MulAssign for Elem {
-            #[inline]
-            fn mul_assign(&mut self, rhs: Self) {
-                *self = Elem::mul(*self, rhs);
-            }
-        }
-
-        impl core::ops::DivAssign for Elem {
-            #[inline]
-            fn div_assign(&mut self, rhs: Self) {
-                *self = Elem::div(*self, rhs);
-            }
-        }
-
-        impl core::iter::Sum for Elem {
-            #[inline]
-            fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-                iter.fold(Self::ZERO, Elem::add)
-            }
-        }
-
-        impl<'a> core::iter::Sum<&'a Elem> for Elem {
-            #[inline]
-            fn sum<I: Iterator<Item = &'a Elem>>(iter: I) -> Self {
-                iter.fold(Self::ZERO, |acc, &x| Elem::add(acc, x))
-            }
-        }
-
-        impl core::iter::Product for Elem {
-            #[inline]
-            fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
-                iter.fold(Self::ONE, Elem::mul)
-            }
-        }
-
-        impl<'a> core::iter::Product<&'a Elem> for Elem {
-            #[inline]
-            fn product<I: Iterator<Item = &'a Elem>>(iter: I) -> Self {
-                iter.fold(Self::ONE, |acc, &x| Elem::mul(acc, x))
+                write!(f, $display_fmt, self.raw)
             }
         }
     };
@@ -889,21 +782,22 @@ pub mod gf32 {
     //! `[a, b]`.
     //!
     //! ```
-    //! use fgf::gf32::{self, Elem};
-    //! use fgf::gf16;
+    //! use fgf::{Elem, gf16, gf32};
     //!
-    //! const X: Elem = Elem::from_components(gf16::Elem::from_raw(0x1234), gf16::Elem::from_raw(0x5678));
+    //! type X32 = Elem<gf32::Gf32>;
+    //! type X16 = Elem<gf16::Gf16>;
+    //! const X: X32 = X32::from_components(X16::from_raw(0x1234), X16::from_raw(0x5678));
     //! const _: () = assert!(X.to_raw() == 0x5678_1234);
     //!
     //! // `inv` is `const`, so a reciprocal table can be a `const` item.
-    //! const RECIP: Elem = X.inv();
-    //! const _: () = assert!(X.mul(RECIP).to_raw() == Elem::ONE.to_raw());
+    //! const RECIP: X32 = X.inv();
+    //! const _: () = assert!(X.mul(RECIP).to_raw() == X32::ONE.to_raw());
     //!
     //! // Division is total: `x / 0` is zero, in `const` context too.
-    //! const _: () = assert!(X.div(Elem::ZERO).to_raw() == 0);
+    //! const _: () = assert!(X.div(X32::ZERO).to_raw() == 0);
     //!
-    //! assert_eq!(X.to_components(), (gf16::Elem::from_raw(0x1234), gf16::Elem::from_raw(0x5678)));
-    //! assert_eq!(gf32::GENERATOR.pow(u64::from(u32::MAX)), Elem::ONE);
+    //! assert_eq!(X.to_components(), (X16::from_raw(0x1234), X16::from_raw(0x5678)));
+    //! assert_eq!(gf32::GENERATOR.pow(u128::from(u32::MAX)), X32::ONE);
     //! ```
 
     quad_tower!(
@@ -938,20 +832,21 @@ pub mod gf64 {
     //! `[a, b]`.
     //!
     //! ```
-    //! use fgf::gf64::Elem;
-    //! use fgf::gf32;
+    //! use fgf::{Elem, gf32, gf64};
     //!
-    //! let x = Elem::from_components(gf32::Elem::from_raw(0xdead_beef), gf32::Elem::from_raw(0x0123_4567));
+    //! type X64 = Elem<gf64::Gf64>;
+    //! type X32 = Elem<gf32::Gf32>;
+    //! let x = X64::from_components(X32::from_raw(0xdead_beef), X32::from_raw(0x0123_4567));
     //! assert_eq!(x.to_bytes(), 0x0123_4567_dead_beefu64.to_le_bytes());
-    //! assert_eq!(Elem::from_bytes(x.to_bytes()), x);
-    //! assert_eq!(Elem::from_raw(x.to_raw()), x);
+    //! assert_eq!(X64::from_bytes(x.to_bytes()), x);
+    //! assert_eq!(X64::from_raw(x.to_raw()), x);
     //!
     //! // Division is total: `x / 0` is zero, in `const` context too.
-    //! const _: () = assert!(Elem::from_raw(7).div(Elem::ZERO).to_raw() == 0);
+    //! const _: () = assert!(Elem::<gf64::Gf64>::from_raw(7).div(Elem::<gf64::Gf64>::ZERO).to_raw() == 0);
     //!
     //! // Summing a row is XOR, the parity operation the vector kernels vectorize.
-    //! let row = [Elem::from_raw(1), Elem::from_raw(2), Elem::from_raw(3)];
-    //! assert_eq!(row.iter().sum::<Elem>(), Elem::from_raw(1 ^ 2 ^ 3));
+    //! let row = [X64::from_raw(1), X64::from_raw(2), X64::from_raw(3)];
+    //! assert_eq!(row.iter().sum::<X64>(), X64::from_raw(1 ^ 2 ^ 3));
     //! ```
 
     quad_tower!(
@@ -982,8 +877,9 @@ pub mod gf64 {
 /// multiplicative group.
 #[cfg(test)]
 pub(crate) mod rs_tower {
+    use super::super::Elem;
     use super::super::poly::{Poly, REED_SOLOMON};
-    use super::super::repr::{Elem, Gf};
+    use super::super::repr::Gf;
     use super::{Tower, TowerSpec, private};
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -999,7 +895,7 @@ pub(crate) mod rs_tower {
         const NAME: &'static str = "GF(2^16)/0x11D";
     }
 
-    pub(crate) type RsElem = Elem<16, Tower<RsTower>>;
+    pub(crate) type RsElem = Elem<Gf<16, Tower<RsTower>>>;
     pub(crate) type RsField = Gf<16, Tower<RsTower>>;
 }
 
@@ -1011,8 +907,9 @@ pub(crate) mod rs_tower {
 /// smallest raw word whose cofactor powers avoid one.
 #[cfg(test)]
 pub(crate) mod aes_tower {
+    use super::super::Elem;
     use super::super::poly::{AES, Poly};
-    use super::super::repr::{Elem, Gf};
+    use super::super::repr::Gf;
     use super::{Tower, TowerSpec, private};
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1029,7 +926,7 @@ pub(crate) mod aes_tower {
     }
 
     #[allow(dead_code)]
-    pub(crate) type AesElem = Elem<16, Tower<AesTower>>;
+    pub(crate) type AesElem = Elem<Gf<16, Tower<AesTower>>>;
     #[allow(dead_code)]
     pub(crate) type AesField = Gf<16, Tower<AesTower>>;
 }
@@ -1043,13 +940,14 @@ mod tests {
     use std::vec::Vec;
 
     use super::super::poly::{AES, Poly, REED_SOLOMON};
-    use super::super::repr::Elem;
+    use super::super::repr::Gf;
+    use super::super::{Elem, FieldBuffer, FieldElem, PrimeIdentity};
     use super::aes_tower::AesTower;
     use super::rs_tower::RsTower;
-    use super::{Field, FieldElem, RijndaelTower, Tower, TowerSpec, private};
+    use super::{Field, RijndaelTower, Tower, TowerSpec, private};
     use super::{spec_a_nonzero, spec_trace_one};
 
-    type RijndaelElem = Elem<16, Tower<RijndaelTower>>;
+    type RijndaelElem = Elem<Gf<16, Tower<RijndaelTower>>>;
 
     /// A spec whose linear coefficient is zero: rejected by the first
     /// conjunct of the spec check.
@@ -1095,8 +993,8 @@ mod tests {
     #[allow(clippy::many_single_char_names)]
     fn tower_schoolbook<S: TowerSpec>(x: u16, y: u16) -> u16 {
         let mul = |p: u8, q: u8| {
-            Elem::<8, S::Base>::from_raw(p)
-                .mul(Elem::<8, S::Base>::from_raw(q))
+            Elem::<Gf<8, S::Base>>::from_raw(p)
+                .mul(Elem::<Gf<8, S::Base>>::from_raw(q))
                 .to_raw()
         };
         let (a, b) = (x as u8, (x >> 8) as u8);
@@ -1122,8 +1020,8 @@ mod tests {
     fn check_tower_matches_schoolbook<S: TowerSpec>() {
         for &x in &tower_sample(S::GENERATOR) {
             for &y in &tower_sample(S::GENERATOR) {
-                let got = Elem::<16, Tower<S>>::from_raw(x)
-                    .mul(Elem::<16, Tower<S>>::from_raw(y))
+                let got = Elem::<Gf<16, Tower<S>>>::from_raw(x)
+                    .mul(Elem::<Gf<16, Tower<S>>>::from_raw(y))
                     .to_raw();
                 assert_eq!(got, tower_schoolbook::<S>(x, y), "{x:04x} * {y:04x}");
             }
@@ -1131,11 +1029,11 @@ mod tests {
     }
 
     fn check_tower_field_laws<S: TowerSpec>() {
-        let one = Elem::<16, Tower<S>>::ONE;
+        let one = Elem::<Gf<16, Tower<S>>>::ONE;
         for &x in &tower_sample(S::GENERATOR) {
-            let a = Elem::<16, Tower<S>>::from_raw(x);
-            assert_eq!(a.add(a), Elem::<16, Tower<S>>::ZERO, "x + x");
-            assert_eq!(a.sub(a), Elem::<16, Tower<S>>::ZERO, "x - x");
+            let a = Elem::<Gf<16, Tower<S>>>::from_raw(x);
+            assert_eq!(a.add(a), Elem::<Gf<16, Tower<S>>>::ZERO, "x + x");
+            assert_eq!(a.sub(a), Elem::<Gf<16, Tower<S>>>::ZERO, "x - x");
             assert_eq!(a.mul(one), a, "x * 1");
             assert_eq!(a.square(), a.mul(a), "x^2");
             if !a.is_zero() {
@@ -1143,8 +1041,8 @@ mod tests {
                 assert_eq!(a.mul(a.inv()).mul(a), a, "round trip");
             }
             assert_eq!(
-                a.div(Elem::<16, Tower<S>>::ZERO),
-                Elem::<16, Tower<S>>::ZERO,
+                a.div(Elem::<Gf<16, Tower<S>>>::ZERO),
+                Elem::<Gf<16, Tower<S>>>::ZERO,
                 "x / 0"
             );
             assert_eq!(a.pow(0), one, "x^0");
@@ -1152,17 +1050,21 @@ mod tests {
             let norm = a.norm();
             assert_eq!(
                 a.mul(a.conjugate()),
-                Elem::<16, Tower<S>>::from_components(norm, Elem::<8, S::Base>::ZERO),
+                Elem::<Gf<16, Tower<S>>>::from_components(norm, Elem::<Gf<8, S::Base>>::ZERO),
                 "x * conj(x) = N(x)"
             );
         }
     }
 
     fn check_tower_generator_order<S: TowerSpec>() {
-        let g = Elem::<16, Tower<S>>::GENERATOR;
-        assert_eq!(g.pow(65_535), Elem::<16, Tower<S>>::ONE);
-        for q in [3u64, 5, 17, 257] {
-            assert_ne!(g.pow(65_535 / q), Elem::<16, Tower<S>>::ONE, "cofactor {q}");
+        let g = Elem::<Gf<16, Tower<S>>>::GENERATOR;
+        assert_eq!(g.pow(65_535), Elem::<Gf<16, Tower<S>>>::ONE);
+        for q in [3u128, 5, 17, 257] {
+            assert_ne!(
+                g.pow(65_535 / q),
+                Elem::<Gf<16, Tower<S>>>::ONE,
+                "cofactor {q}"
+            );
         }
     }
 
@@ -1206,13 +1108,16 @@ mod tests {
                 .to_raw()
                 == 0
         );
-        let base = |raw: u8| Elem::<8, Poly<AES>>::from_raw(raw);
+        let base = |raw: u8| Elem::<Gf<8, Poly<AES>>>::from_raw(raw);
         let x = RijndaelElem::from_components(base(0x12), base(0x34));
         assert_eq!(x.to_raw(), 0x3412);
         assert_eq!(x.to_bytes(), [0x12, 0x34]);
-        let u =
-            RijndaelElem::from_components(Elem::<8, Poly<AES>>::ZERO, Elem::<8, Poly<AES>>::ONE);
-        let delta = RijndaelElem::from_components(super::gf16::DELTA, Elem::<8, Poly<AES>>::ZERO);
+        let u = RijndaelElem::from_components(
+            Elem::<Gf<8, Poly<AES>>>::ZERO,
+            Elem::<Gf<8, Poly<AES>>>::ONE,
+        );
+        let delta =
+            RijndaelElem::from_components(super::gf16::DELTA, Elem::<Gf<8, Poly<AES>>>::ZERO);
         assert_eq!(u.square(), u.add(delta));
         assert_eq!(super::gf16::GENERATOR.pow(65_535), RijndaelElem::ONE);
     }
@@ -1221,15 +1126,19 @@ mod tests {
     fn tower_field_impl_facts() {
         use super::gf16::Gf16;
         assert_eq!(<Gf16 as Field>::NAME, "GF(2^16)");
-        assert_eq!(<Gf16 as Field>::BITS, 16);
-        assert_eq!(<Gf16 as Field>::BYTES, 2);
+        assert_eq!(<Gf16 as Field>::DEGREE, 16);
+        assert_eq!(<Gf16 as FieldBuffer>::BYTES, 2);
+        assert_eq!(<Gf16 as FieldBuffer>::STORAGE_BITS, 16);
         assert_eq!(<Gf16 as Field>::ORDER, 65_536);
-        assert_eq!(<Gf16 as Field>::CHARACTERISTIC, 2);
+        assert_eq!(
+            <<Gf16 as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC,
+            2
+        );
         let mut bytes = [0u8; 2];
-        <Gf16 as Field>::encode(&mut bytes, RijndaelElem::from_raw(0x0108));
+        <Gf16 as FieldBuffer>::encode(&mut bytes, RijndaelElem::from_raw(0x0108));
         assert_eq!(bytes, [0x08, 0x01]);
         assert_eq!(
-            <Gf16 as Field>::decode(&bytes).to_raw(),
+            <Gf16 as FieldBuffer>::decode(&bytes).to_raw(),
             0x0108,
             "decode/encode round trip"
         );

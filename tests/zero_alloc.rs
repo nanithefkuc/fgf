@@ -1,7 +1,7 @@
 #![cfg(feature = "std")]
 
 use fgf::poly::{AES, REED_SOLOMON};
-use fgf::{Elem, FieldKernels, Gf8, Goldilocks, Mersenne31, Poly, goldilocks, mersenne31, ops};
+use fgf::{Elem, FieldKernels, Gf, Gf8, Goldilocks, Mersenne31, Poly, ops};
 
 #[path = "common/zero_alloc.rs"]
 mod common;
@@ -16,7 +16,9 @@ fn mul_into_gather_steady_state_allocates_nothing() {
     let sources: Vec<Vec<u8>> = (0..8).map(|index| noise(len, 0x700 + index)).collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
     let coeffs: Vec<_> = (0..8)
-        .map(|index| Elem::<8, Poly<AES>>::from_raw((index as u8).wrapping_mul(37).wrapping_add(2)))
+        .map(|index| {
+            Elem::<Gf<8, Poly<AES>>>::from_raw((index as u8).wrapping_mul(37).wrapping_add(2))
+        })
         .collect();
     let vector = ops::CoeffVec::<Gf8<Poly<AES>>>::new(&coeffs);
     let mut dst = noise(len, 0x800);
@@ -36,6 +38,8 @@ fn mul_into_gather_steady_state_allocates_nothing() {
 }
 
 #[test]
+// Term geometry nests the unified element spelling; the slices stay slices.
+#[allow(clippy::type_complexity)]
 fn mul_into_matrix_steady_state_allocates_nothing() {
     let _guard = TEST_LOCK
         .lock()
@@ -48,21 +52,21 @@ fn mul_into_matrix_steady_state_allocates_nothing() {
         .map(|index| noise(ROW_LEN, 0x900 + index as u64))
         .collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-    let coeff_sets: Vec<Vec<Elem<8, Poly<AES>>>> = (0..NTERMS)
+    let coeff_sets: Vec<Vec<Elem<Gf<8, Poly<AES>>>>> = (0..NTERMS)
         .map(|term| {
             (0..NROWS)
                 .map(|row| {
-                    Elem::<8, Poly<AES>>::from_raw(((term * 37 + row * 19 + 2) & 0xff) as u8)
+                    Elem::<Gf<8, Poly<AES>>>::from_raw(((term * 37 + row * 19 + 2) & 0xff) as u8)
                 })
                 .collect()
         })
         .collect();
-    let terms: Vec<(&[Elem<8, Poly<AES>>], &[u8])> = coeff_sets
+    let terms: Vec<(&[Elem<Gf<8, Poly<AES>>>], &[u8])> = coeff_sets
         .iter()
         .zip(&sources)
         .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
         .collect();
-    let flat: Vec<Elem<8, Poly<AES>>> = coeff_sets.iter().flatten().copied().collect();
+    let flat: Vec<Elem<Gf<8, Poly<AES>>>> = coeff_sets.iter().flatten().copied().collect();
     let matrix = ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(NTERMS, NROWS, &flat);
     let mut rows = noise(ROW_LEN * NROWS, 0xa00);
 
@@ -82,6 +86,8 @@ fn mul_into_matrix_steady_state_allocates_nothing() {
 }
 
 #[test]
+// Term geometry nests the unified element spelling; the slices stay slices.
+#[allow(clippy::type_complexity)]
 fn mul_into_matrix_reed_solomon_chunk_boundary_allocates_nothing() {
     let _guard = TEST_LOCK
         .lock()
@@ -95,18 +101,18 @@ fn mul_into_matrix_reed_solomon_chunk_boundary_allocates_nothing() {
     let sources: Vec<Vec<u8>> = (0..NTERMS)
         .map(|index| noise(ROW_LEN, 0xb00 + index as u64))
         .collect();
-    let coeff_sets: Vec<Vec<Elem<8, Poly<REED_SOLOMON>>>> = (0..NTERMS)
+    let coeff_sets: Vec<Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>>> = (0..NTERMS)
         .map(|term| {
             (0..NROWS)
                 .map(|row| {
-                    Elem::<8, Poly<REED_SOLOMON>>::from_raw(
+                    Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(
                         ((term * 41 + row * 23 + 3) & 0xff) as u8,
                     )
                 })
                 .collect()
         })
         .collect();
-    let terms: Vec<(&[Elem<8, Poly<REED_SOLOMON>>], &[u8])> = coeff_sets
+    let terms: Vec<(&[Elem<Gf<8, Poly<REED_SOLOMON>>>], &[u8])> = coeff_sets
         .iter()
         .zip(&sources)
         .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
@@ -133,10 +139,12 @@ fn coeff_matrix_reed_solomon_steady_state_allocates_nothing() {
         .map(|index| noise(ROW_LEN, 0xd00 + index as u64))
         .collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-    let flat: Vec<Elem<8, Poly<REED_SOLOMON>>> = (0..NTERMS)
+    let flat: Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>> = (0..NTERMS)
         .flat_map(|term| {
             (0..NROWS).map(move |row| {
-                Elem::<8, Poly<REED_SOLOMON>>::from_raw(((term * 43 + row * 7 + 5) & 0xff) as u8)
+                Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(
+                    ((term * 43 + row * 7 + 5) & 0xff) as u8,
+                )
             })
         })
         .collect();
@@ -165,7 +173,7 @@ fn coeff_matrix_reed_solomon_steady_state_allocates_nothing() {
 }
 
 /// Steady-state prime-field ops must not allocate on the hot path.
-fn assert_prime_steady_state_zero_alloc<F: FieldKernels>(coeff: F::Elem) {
+fn assert_prime_steady_state_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
     let len = 4096;
     let src = noise(len, 0x111);
     let b = noise(len, 0x222);
@@ -199,7 +207,7 @@ fn mersenne31_steady_state_allocates_nothing() {
     let _guard = TEST_LOCK
         .lock()
         .expect("zero-allocation test lock poisoned");
-    assert_prime_steady_state_zero_alloc::<Mersenne31>(mersenne31::Elem::from_raw(7));
+    assert_prime_steady_state_zero_alloc::<Mersenne31>(Elem::<Mersenne31>::from_raw(7));
 }
 
 #[test]
@@ -207,7 +215,7 @@ fn goldilocks_steady_state_allocates_nothing() {
     let _guard = TEST_LOCK
         .lock()
         .expect("zero-allocation test lock poisoned");
-    assert_prime_steady_state_zero_alloc::<Goldilocks>(goldilocks::Elem::from_raw(7));
+    assert_prime_steady_state_zero_alloc::<Goldilocks>(Elem::<Goldilocks>::from_raw(7));
 }
 
 #[test]

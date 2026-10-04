@@ -2,8 +2,8 @@
 //!
 //! Every flat byte field here is the same construction `GF(2)[x] / p(x)` for
 //! an irreducible degree-8 `p`. [`Poly`] is that construction with `p` as a
-//! const parameter: the representation, its
-//! [`Elem<8, Poly<P>>`](crate::field::Elem), and every table derive from the
+//! const parameter: the representation, its element
+//! [`Elem<Gf<8, Poly<P>>>`](crate::field::Elem), and every table derive from the
 //! polynomial at compile time, so each polynomial is a distinct
 //! representation with no runtime polynomial and fully `const` scalar
 //! arithmetic.
@@ -27,35 +27,38 @@
 //! checking.
 //!
 //! ```
-//! use fgf::{AES, Elem, Poly, REED_SOLOMON};
+//! use fgf::{AES, Elem, Gf, Poly, REED_SOLOMON};
 //!
 //! // The same bytes multiply differently under the two conventions.
 //! let (a, b) = (0x53, 0xca);
 //! assert_eq!(
-//!     Elem::<8, Poly<AES>>::from_raw(a)
-//!         .mul(Elem::<8, Poly<AES>>::from_raw(b))
+//!     Elem::<Gf<8, Poly<AES>>>::from_raw(a)
+//!         .mul(Elem::<Gf<8, Poly<AES>>>::from_raw(b))
 //!         .to_raw(),
 //!     0x01
 //! );
 //! assert_eq!(
-//!     Elem::<8, Poly<REED_SOLOMON>>::from_raw(a)
-//!         .mul(Elem::<8, Poly<REED_SOLOMON>>::from_raw(b))
+//!     Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(a)
+//!         .mul(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(b))
 //!         .to_raw(),
 //!     0x8f
 //! );
 //!
 //! // Any irreducible polynomial is a field; its generator is derived.
-//! assert_eq!(Elem::<8, Poly<0x12D>>::GENERATOR.pow(255), Elem::<8, Poly<0x12D>>::ONE);
+//! assert_eq!(
+//!     Elem::<Gf<8, Poly<0x12D>>>::GENERATOR.pow(255),
+//!     Elem::<Gf<8, Poly<0x12D>>>::ONE
+//! );
 //! ```
 //!
 //! ```compile_fail
 //! // x^8 + 1 = (x + 1)^8 is reducible, so this field does not exist.
-//! let _ = fgf::Elem::<8, fgf::Poly<0x101>>::from_raw(1);
+//! let _ = fgf::Elem::<fgf::Gf<8, fgf::Poly<0x101>>>::from_raw(1);
 //! ```
 //!
 //! ```compile_fail
 //! // Default construction also rejects a reducible polynomial.
-//! let _ = fgf::Elem::<8, fgf::Poly<0x101>>::default();
+//! let _ = fgf::Elem::<fgf::Gf<8, fgf::Poly<0x101>>>::default();
 //! ```
 //!
 //! # Compile-time coding matrices
@@ -65,9 +68,9 @@
 //! Vandermonde matrix `V[i][j] = x_j^i` at compile time:
 //!
 //! ```
-//! use fgf::{AES, Elem, Poly};
+//! use fgf::{AES, Elem, Gf, Poly};
 //!
-//! type Byte = Elem<8, Poly<AES>>;
+//! type Byte = Elem<Gf<8, Poly<AES>>>;
 //!
 //! const POINTS: [Byte; 4] = [
 //!     Byte::from_raw(1),
@@ -81,7 +84,7 @@
 //!     while i < 3 {
 //!         let mut j = 0;
 //!         while j < 4 {
-//!             rows[i][j] = POINTS[j].pow(i as u64);
+//!             rows[i][j] = POINTS[j].pow(i as u128);
 //!             j += 1;
 //!         }
 //!         i += 1;
@@ -99,8 +102,8 @@
 
 use core::fmt;
 
-use super::FieldElem;
-use super::repr::{ByteRepr, Elem, Repr};
+use super::repr::{ByteRepr, Gf, Repr};
+use super::{Elem, Validate};
 
 /// The AES/Rijndael polynomial `x^8 + x^4 + x^3 + x + 1`.
 ///
@@ -296,38 +299,27 @@ const fn name_bytes(poly: u32) -> [u8; 13] {
     name
 }
 
-impl Elem<1, Poly<3>> {
-    /// The additive identity, and the absorbing element for multiplication.
-    pub const ZERO: Self = Self(0);
-    /// The multiplicative identity.
-    pub const ONE: Self = Self(1);
-
+impl Elem<Gf<1, Poly<3>>> {
     /// Wrap a raw byte, keeping only the low bit.
     #[inline]
     #[must_use]
     pub const fn from_raw(value: u8) -> Self {
-        Self(value & 1)
-    }
-
-    /// Unwrap to the raw byte: `0` or `1`.
-    #[inline]
-    #[must_use]
-    pub const fn to_raw(self) -> u8 {
-        self.0
+        let () = Validate::<Gf<1, Poly<3>>>::OK;
+        Elem { raw: value & 1 }
     }
 
     /// Decode from the stable one-byte representation.
     #[inline]
     #[must_use]
     pub const fn from_bytes(bytes: [u8; 1]) -> Self {
-        Self(bytes[0] & 1)
+        Self::from_raw(bytes[0])
     }
 
     /// Encode to the stable one-byte representation.
     #[inline]
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 1] {
-        [self.0]
+        [self.raw]
     }
 
     /// The canonical representative of this element.
@@ -345,10 +337,12 @@ impl Elem<1, Poly<3>> {
     #[inline]
     #[must_use]
     pub const fn add(self, rhs: Self) -> Self {
-        Self(self.0 ^ rhs.0)
+        Elem {
+            raw: self.raw ^ rhs.raw,
+        }
     }
 
-    /// Field subtraction. Identical to [`Elem::add`]: characteristic two.
+    /// Field subtraction. Identical to [`Elem::add`](Self::add): characteristic two.
     #[inline]
     #[must_use]
     pub const fn sub(self, rhs: Self) -> Self {
@@ -366,7 +360,9 @@ impl Elem<1, Poly<3>> {
     #[inline]
     #[must_use]
     pub const fn mul(self, rhs: Self) -> Self {
-        Self(self.0 & rhs.0)
+        Elem {
+            raw: self.raw & rhs.raw,
+        }
     }
 
     /// Square. The identity: `x² = x` in GF(2).
@@ -391,7 +387,7 @@ impl Elem<1, Poly<3>> {
     #[inline]
     #[must_use]
     pub const fn div(self, rhs: Self) -> Self {
-        if rhs.0 == 0 { Self::ZERO } else { self }
+        if rhs.raw == 0 { Self::ZERO } else { self }
     }
 
     /// Raise to an unsigned integer power. `pow(_, 0) == ONE`.
@@ -400,7 +396,7 @@ impl Elem<1, Poly<3>> {
     /// itself.
     #[inline]
     #[must_use]
-    pub const fn pow(self, exponent: u64) -> Self {
+    pub const fn pow(self, exponent: u128) -> Self {
         if exponent == 0 { Self::ONE } else { self }
     }
 
@@ -408,66 +404,20 @@ impl Elem<1, Poly<3>> {
     #[inline]
     #[must_use]
     pub const fn is_zero(self) -> bool {
-        self.0 == 0
+        self.raw == 0
     }
 
     /// Whether this element is the multiplicative identity.
     #[inline]
     #[must_use]
     pub const fn is_one(self) -> bool {
-        self.0 == 1
+        self.raw == 1
     }
 }
 
-impl FieldElem for Elem<1, Poly<3>> {
-    const ZERO: Self = Self::ZERO;
-    const ONE: Self = Self::ONE;
-
-    #[inline]
-    fn add(self, rhs: Self) -> Self {
-        Self::add(self, rhs)
-    }
-    #[inline]
-    fn sub(self, rhs: Self) -> Self {
-        Self::sub(self, rhs)
-    }
-    #[inline]
-    fn neg(self) -> Self {
-        Self::neg(self)
-    }
-    #[inline]
-    fn mul(self, rhs: Self) -> Self {
-        Self::mul(self, rhs)
-    }
-    #[inline]
-    fn square(self) -> Self {
-        Self::square(self)
-    }
-    #[inline]
-    fn inv(self) -> Self {
-        Self::inv(self)
-    }
-    #[inline]
-    fn div(self, rhs: Self) -> Self {
-        Self::div(self, rhs)
-    }
-    #[inline]
-    fn pow(self, exponent: u64) -> Self {
-        Self::pow(self, exponent)
-    }
-    #[inline]
-    fn is_zero(self) -> bool {
-        Self::is_zero(self)
-    }
-    #[inline]
-    fn is_one(self) -> bool {
-        Self::is_one(self)
-    }
-}
-
-impl fmt::Display for Elem<1, Poly<3>> {
+impl fmt::Display for Elem<Gf<1, Poly<3>>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.raw)
     }
 }
 
@@ -491,7 +441,7 @@ mod tests {
             assert_eq!(Poly::<P>::LOG[g as usize] as usize, i, "log/exp at {i}");
         }
         for a in 0..=255u8 {
-            let a = Elem::<8, Poly<P>>::from_raw(a);
+            let a = Elem::<Gf<8, Poly<P>>>::from_raw(a);
             // Fermat: a^254 is the inverse, through the table-free multiply.
             assert_eq!(
                 a.inv().to_raw(),
@@ -499,7 +449,7 @@ mod tests {
                 "{a:?} inverse"
             );
             for b in 0..=255u8 {
-                let b = Elem::<8, Poly<P>>::from_raw(b);
+                let b = Elem::<Gf<8, Poly<P>>>::from_raw(b);
                 assert_eq!(
                     a.mul(b).to_raw(),
                     Poly::<P>::mul_xtime(a.to_raw(), b.to_raw()),
@@ -520,7 +470,7 @@ mod tests {
     /// The frozen generators of the two named conventions.
     #[test]
     fn derived_generators_match_the_frozen_conventions() {
-        assert_eq!(Elem::<8, Poly<AES>>::GENERATOR.to_raw(), 0x03);
-        assert_eq!(Elem::<8, Poly<REED_SOLOMON>>::GENERATOR.to_raw(), 0x02);
+        assert_eq!(Elem::<Gf<8, Poly<AES>>>::GENERATOR.to_raw(), 0x03);
+        assert_eq!(Elem::<Gf<8, Poly<REED_SOLOMON>>>::GENERATOR.to_raw(), 0x02);
     }
 }

@@ -8,8 +8,9 @@
 //! `X64V4Token`. Complete 64-byte lanes run here; the remainder is handed
 //! to the matching AVX2 entry.
 
+use crate::field::Elem;
 use crate::field::mersenne31;
-use crate::field::quad_mersenne31::Elem;
+use crate::field::quad_mersenne31::QuadMersenne31;
 use crate::kernel::proven_checks::{check_elem_multiple, check_equal};
 use crate::kernel::x86::mersenne31::P;
 
@@ -33,6 +34,14 @@ fn dup_im(x: __m512i) -> __m512i {
 #[must_use]
 fn fold(x: __m512i, p: __m512i) -> __m512i {
     _mm512_add_epi32(_mm512_and_si512(x, p), _mm512_srli_epi32::<31>(x))
+}
+
+/// Canonicalize lanes in `0..=2p`: two unconditional subtract-and-min steps.
+#[archmage::rite(v4)]
+#[must_use]
+fn min_chain(x: __m512i, p: __m512i) -> __m512i {
+    let u = _mm512_min_epu32(x, _mm512_sub_epi32(x, p));
+    _mm512_min_epu32(u, _mm512_sub_epi32(u, p))
 }
 
 /// `a + b (mod p)` over sixteen folded lanes (`0..=p` in, canonical out).
@@ -108,14 +117,19 @@ fn coeff_vectors(cr: u32, ci: u32) -> (__m512i, __m512i, __m512i) {
 /// `dst = coeff * src` in GF((2^31 - 1)^2), AVX-512. The destination is
 /// write-only: its prior contents are ignored, never read.
 ///
-/// Both buffers hold canonical lanes; the coefficient may hold any raw
-/// limbs, canonicalized once before the loop. A zero coefficient zeroes
+/// Every input limb bit pattern is legal: limbs canonicalize on load, and
+/// every stored limb is canonical. A zero coefficient zeroes
 /// `dst`, mirroring the scalar control.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial element.
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_into_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: Elem, src: &[u8]) {
+pub fn mul_into_avx512(
+    token: archmage::X64V4Token,
+    dst: &mut [u8],
+    coeff: Elem<QuadMersenne31>,
+    src: &[u8],
+) {
     check_equal(
         "quad_mersenne31::mul_into_avx512",
         "dst",
@@ -124,13 +138,15 @@ pub fn mul_into_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: Elem,
         src.len(),
     );
     check_elem_multiple("quad_mersenne31::mul_into_avx512", dst.len(), 8);
-    let (cr, ci) = coeff.canonical().to_raw();
+    let (cr, ci) = coeff.to_raw();
     let p = _mm512_set1_epi32(P);
     let (cr_v, ci_v, nci) = coeff_vectors(cr, ci);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let s = fold(_mm512_loadu_si512(src_lane), p);
+        // Canonicalize on load: `cmul`'s deferred reduction assumes limbs
+        // below the modulus, and a bare fold can leave `p + 1`.
+        let s = min_chain(fold(_mm512_loadu_si512(src_lane), p), p);
         _mm512_storeu_si512(dst_lane, cmul(s, cr_v, ci_v, nci, p));
     }
     if !dst_tail.is_empty() {
@@ -140,15 +156,20 @@ pub fn mul_into_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: Elem,
 
 /// `dst += coeff * src` in GF((2^31 - 1)^2), AVX-512.
 ///
-/// Both buffers hold canonical lanes; the coefficient may hold any raw
-/// limbs, canonicalized once before the loop. A zero coefficient leaves
+/// Every input limb bit pattern is legal: limbs canonicalize on load, and
+/// every stored limb is canonical. A zero coefficient leaves
 /// `dst` untouched and the coefficient `1 + 0i` adds `src` elementwise,
 /// mirroring the scalar control.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial element.
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: Elem, src: &[u8]) {
+pub fn mul_add_avx512(
+    token: archmage::X64V4Token,
+    dst: &mut [u8],
+    coeff: Elem<QuadMersenne31>,
+    src: &[u8],
+) {
     check_equal(
         "quad_mersenne31::mul_add_avx512",
         "dst",
@@ -157,14 +178,28 @@ pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: Elem, 
         src.len(),
     );
     check_elem_multiple("quad_mersenne31::mul_add_avx512", dst.len(), 8);
-    let (cr, ci) = coeff.canonical().to_raw();
+    let (cr, ci) = coeff.to_raw();
+    if cr == 0 && ci == 0 {
+        return;
+    }
+    if cr == 1 && ci == 0 {
+        super::add_assign_avx2(token.v3(), dst, src);
+        return;
+    }
     let p = _mm512_set1_epi32(P);
     let (cr_v, ci_v, nci) = coeff_vectors(cr, ci);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let prod = cmul(fold(_mm512_loadu_si512(src_lane), p), cr_v, ci_v, nci, p);
-        let d = fold(_mm512_loadu_si512(&*dst_lane), p);
+        // Canonicalize on load, as above.
+        let prod = cmul(
+            min_chain(fold(_mm512_loadu_si512(src_lane), p), p),
+            cr_v,
+            ci_v,
+            nci,
+            p,
+        );
+        let d = min_chain(fold(_mm512_loadu_si512(&*dst_lane), p), p);
         _mm512_storeu_si512(dst_lane, addmod(d, prod, p));
     }
     if !dst_tail.is_empty() {
@@ -174,8 +209,8 @@ pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: Elem, 
 
 /// `dst[i] = a[i] * b[i]` in GF((2^31 - 1)^2), AVX-512.
 ///
-/// All three buffers hold canonical lanes — every 32-bit limb below the
-/// modulus — and every stored lane is canonical.
+/// Every input limb bit pattern is legal: limbs fold to canonical form on
+/// load, and every stored limb is canonical.
 ///
 /// # Panics
 /// Panics unless all three buffers match in length (whole elements).
@@ -201,8 +236,10 @@ pub fn mul_elementwise_avx512(token: archmage::X64V4Token, dst: &mut [u8], a: &[
     let (a_lanes, a_tail) = a.as_chunks::<64>();
     let (b_lanes, b_tail) = b.as_chunks::<64>();
     for ((dst_lane, a_lane), b_lane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
-        let va = fold(_mm512_loadu_si512(a_lane), p);
-        let vb = fold(_mm512_loadu_si512(b_lane), p);
+        // The duplicated-imaginary negation below XORs with `p`, which is
+        // exact only for canonical limbs: fold and canonicalize on load.
+        let va = min_chain(fold(_mm512_loadu_si512(a_lane), p), p);
+        let vb = min_chain(fold(_mm512_loadu_si512(b_lane), p), p);
         _mm512_storeu_si512(dst_lane, cmul_vec(va, vb, p));
     }
     if !dst_tail.is_empty() {
@@ -226,21 +263,22 @@ mod tests {
     /// extremes, mixed values, the field generator, and raw non-canonical
     /// limbs — the last two exercise the coefficient canonicalization the
     /// contract allows.
-    const COEFFS: [Elem; 9] = [
-        Elem::ZERO,
-        Elem::ONE,
-        Elem::I,
-        Elem::from_raw(mersenne31::MODULUS - 1, mersenne31::MODULUS - 1),
-        Elem::from_raw(1, mersenne31::MODULUS - 1),
-        Elem::from_raw(0x5555_5555, 0x1234_5678),
-        Elem::from_raw(mersenne31::MODULUS, 0), // non-canonical zero
-        Elem::from_raw(u32::MAX, 2),            // raw limb, value 1 + 2i
-        Elem::from_raw(1, 12),                  // the field generator
+    const COEFFS: [Elem<QuadMersenne31>; 9] = [
+        Elem::<QuadMersenne31>::ZERO,
+        Elem::<QuadMersenne31>::ONE,
+        Elem::<QuadMersenne31>::I,
+        Elem::<QuadMersenne31>::from_raw(mersenne31::MODULUS - 1, mersenne31::MODULUS - 1),
+        Elem::<QuadMersenne31>::from_raw(1, mersenne31::MODULUS - 1),
+        Elem::<QuadMersenne31>::from_raw(0x5555_5555, 0x1234_5678),
+        Elem::<QuadMersenne31>::from_raw(mersenne31::MODULUS, 0), // non-canonical zero
+        Elem::<QuadMersenne31>::from_raw(u32::MAX, 2),            // raw limb, value 1 + 2i
+        Elem::<QuadMersenne31>::from_raw(1, 12),                  // the field generator
     ];
 
     /// A full-work coefficient: canonical, neither zero nor one, both
     /// limbs nonzero.
-    const FULL_WORK: Elem = Elem::from_raw(0x1234_5678, 0x3FFF_FFF1);
+    const FULL_WORK: Elem<QuadMersenne31> =
+        Elem::<QuadMersenne31>::from_raw(0x1234_5678, 0x3FFF_FFF1);
 
     fn noise(len: usize, seed: u64) -> Vec<u8> {
         let mut state = seed | 1;
@@ -259,8 +297,8 @@ mod tests {
     fn canonical(len: usize, seed: u64) -> Vec<u8> {
         let mut out = noise(len, seed);
         for chunk in out.chunks_exact_mut(8) {
-            let e = Elem::from_bytes(chunk.try_into().unwrap());
-            chunk.copy_from_slice(&e.canonical().to_bytes());
+            let e = Elem::<QuadMersenne31>::from_bytes(chunk.try_into().unwrap());
+            chunk.copy_from_slice(&e.to_bytes());
         }
         out
     }
@@ -269,12 +307,12 @@ mod tests {
     /// single-limb `p - 1` (the largest canonical limb), one, and a mixed
     /// pair — the range edges in the source operands themselves.
     fn edges(len: usize) -> Vec<u8> {
-        const EDGES: [Elem; 5] = [
-            Elem::ZERO,
-            Elem::from_raw(mersenne31::MODULUS - 1, mersenne31::MODULUS - 1),
-            Elem::from_raw(mersenne31::MODULUS - 1, 0),
-            Elem::ONE,
-            Elem::from_raw(0x5555_5555, 0x1234_5678),
+        const EDGES: [Elem<QuadMersenne31>; 5] = [
+            Elem::<QuadMersenne31>::ZERO,
+            Elem::<QuadMersenne31>::from_raw(mersenne31::MODULUS - 1, mersenne31::MODULUS - 1),
+            Elem::<QuadMersenne31>::from_raw(mersenne31::MODULUS - 1, 0),
+            Elem::<QuadMersenne31>::ONE,
+            Elem::<QuadMersenne31>::from_raw(0x5555_5555, 0x1234_5678),
         ];
         let mut out = Vec::with_capacity(len);
         for i in 0..len / 8 {
@@ -305,25 +343,27 @@ mod tests {
         .unwrap()
     }
 
-    fn model_elem_add(a: Elem, b: Elem) -> Elem {
+    fn model_elem_add(a: Elem<QuadMersenne31>, b: Elem<QuadMersenne31>) -> Elem<QuadMersenne31> {
         let (ar, ai) = a.to_raw();
         let (br, bi) = b.to_raw();
-        Elem::from_raw(o_add(ar, br), o_add(ai, bi))
+        Elem::<QuadMersenne31>::from_raw(o_add(ar, br), o_add(ai, bi))
     }
-    fn model_elem_mul(a: Elem, b: Elem) -> Elem {
+    fn model_elem_mul(a: Elem<QuadMersenne31>, b: Elem<QuadMersenne31>) -> Elem<QuadMersenne31> {
         let (ar, ai) = a.to_raw();
         let (br, bi) = b.to_raw();
-        Elem::from_raw(
+        Elem::<QuadMersenne31>::from_raw(
             o_sub(o_mul(ar, br), o_mul(ai, bi)),
             o_add(o_mul(ar, bi), o_mul(ai, br)),
         )
     }
 
     /// Decode a whole-element buffer, apply `f` elementwise, re-encode.
-    fn model_map(buf: &[u8], f: impl Fn(Elem) -> Elem) -> Vec<u8> {
+    fn model_map(buf: &[u8], f: impl Fn(Elem<QuadMersenne31>) -> Elem<QuadMersenne31>) -> Vec<u8> {
         let mut out = buf.to_vec();
         for chunk in out.chunks_exact_mut(8) {
-            let e = f(Elem::from_bytes(chunk.try_into().unwrap()));
+            let e = f(Elem::<QuadMersenne31>::from_bytes(
+                chunk.try_into().unwrap(),
+            ));
             chunk.copy_from_slice(&e.to_bytes());
         }
         out
@@ -331,13 +371,17 @@ mod tests {
 
     /// Decode two whole-element buffers positionally, apply `f` pairwise,
     /// re-encode.
-    fn model_zip(a: &[u8], b: &[u8], f: impl Fn(Elem, Elem) -> Elem) -> Vec<u8> {
+    fn model_zip(
+        a: &[u8],
+        b: &[u8],
+        f: impl Fn(Elem<QuadMersenne31>, Elem<QuadMersenne31>) -> Elem<QuadMersenne31>,
+    ) -> Vec<u8> {
         assert_eq!(a.len(), b.len());
         let mut out = a.to_vec();
         for (ca, cb) in out.chunks_exact_mut(8).zip(b.chunks_exact(8)) {
             let e = f(
-                Elem::from_bytes(ca.try_into().unwrap()),
-                Elem::from_bytes(cb.try_into().unwrap()),
+                Elem::<QuadMersenne31>::from_bytes(ca.try_into().unwrap()),
+                Elem::<QuadMersenne31>::from_bytes(cb.try_into().unwrap()),
             );
             ca.copy_from_slice(&e.to_bytes());
         }
@@ -451,7 +495,7 @@ mod tests {
         let len = 136;
         let src_elems = edges(len);
         let dst_elems = canonical(len, 0x82);
-        let coeff = Elem::from_raw(3, 5);
+        let coeff = Elem::<QuadMersenne31>::from_raw(3, 5);
         for offset in [0usize, 1, 3, 5] {
             let mut src_storage = vec![0u8; len + 8];
             src_storage[offset..offset + len].copy_from_slice(&src_elems);
@@ -512,7 +556,7 @@ mod tests {
             return;
         }
         let token = archmage::X64V4Token::summon().expect("guard passed: AVX-512 summons here");
-        let coeff = Elem::from_raw(3, 5);
+        let coeff = Elem::<QuadMersenne31>::from_raw(3, 5);
 
         let mut partial = [1u8; 12];
         let partial_src = [1u8; 12];

@@ -60,12 +60,12 @@ Packed operations use the field marker as their generic parameter. Buffers
 contain consecutive little-endian elements and may be unaligned.
 
 ```rust
-use fgf::{Gf8, Elem, Poly, poly::AES, ops};
+use fgf::{Gf, Gf8, Elem, Poly, poly::AES, ops};
 
 let src = [0x01u8, 0x02, 0x03, 0x04];
 let mut dst = [0u8; 4];
 
-ops::mul_add::<Gf8<Poly<AES>>>(&mut dst, Elem::<8, Poly<AES>>::from_raw(0x03), &src);
+ops::mul_add::<Gf8<Poly<AES>>>(&mut dst, Elem::<Gf<8, Poly<AES>>>::from_raw(0x03), &src);
 assert_eq!(dst, [0x03, 0x06, 0x05, 0x0c]);
 ```
 
@@ -110,9 +110,9 @@ field.
 
 The coding examples supply fixed coefficients and cover only their stated
 error or erasure patterns. They illustrate field operations, not production
-codecs or general matrix solvers. Prime-field packing preserves raw lanes,
-so canonicalization happens explicitly before packed arithmetic. These
-examples do not make the library suitable for secret inputs.
+codecs or general matrix solvers. Element storage is canonical, so packed
+buffers produced by `pack` satisfy the packed-operation contract directly.
+These examples do not make the library suitable for secret inputs.
 
 `peel_probe` is a timing diagnostic, not a usage tutorial, and is excluded
 from `just examples`.
@@ -121,9 +121,9 @@ from `just examples`.
 
 | Field | Marker and element | Construction | Accelerated backends |
 | --- | --- | --- | --- |
-| GF(2^8) | `Gf8<Poly<AES>>`, `Elem<8, Poly<AES>>` | AES polynomial `0x11B` | x86 GFNI and shuffle; `AArch64` NEON/PMULL; Wasm SIMD |
-| GF(2^8) | `Gf8<Poly<REED_SOLOMON>>`, `Elem<8, Poly<REED_SOLOMON>>` | polynomial `0x11D` | x86 GFNI affine and shuffle; `AArch64` and Wasm single-row shuffle |
-| GF(2^8) | `Gf8<Poly<POLY>>`, `Elem<8, Poly<POLY>>` | any irreducible degree-eight polynomial | x86 GFNI affine and shuffle; `AArch64` and Wasm single-row shuffle |
+| GF(2^8) | `Gf8<Poly<AES>>`, `Elem<Gf<8, Poly<AES>>>` | AES polynomial `0x11B` | x86 GFNI and shuffle; `AArch64` NEON/PMULL; Wasm SIMD |
+| GF(2^8) | `Gf8<Poly<REED_SOLOMON>>`, `Elem<Gf<8, Poly<REED_SOLOMON>>>` | polynomial `0x11D` | x86 GFNI affine and shuffle; `AArch64` and Wasm single-row shuffle |
+| GF(2^8) | `Gf8<Poly<POLY>>`, `Elem<Gf<8, Poly<POLY>>>` | any irreducible degree-eight polynomial | x86 GFNI affine and shuffle; `AArch64` and Wasm single-row shuffle |
 | GF(2^16) | `Gf16`, `gf16::Elem` | quadratic tower over `Gf8<Poly<AES>>` | x86 GFNI and shuffle |
 | GF(2^32) | `Gf32`, `gf32::Elem` | quadratic tower over `Gf16` | x86 GFNI |
 | GF(2^64) | `Gf64`, `gf64::Elem` | quadratic tower over `Gf32` | x86 GFNI |
@@ -131,10 +131,10 @@ from `just examples`.
 | Fan–Paar GF(2^16) | `FanPaar16`, `fan_paar::fp16::Elem` | canonical recursive tower | x86 AVX2 and SSSE3 |
 | Fan–Paar GF(2^32) | `FanPaar32`, `fan_paar::fp32::Elem` | canonical recursive tower | x86 AVX2 |
 | Fan–Paar GF(2^64) | `FanPaar64`, `fan_paar::fp64::Elem` | canonical recursive tower | x86 AVX2 |
-| GF(2^31 − 1) | `Mersenne31`, `mersenne31::Elem` | Mersenne prime in `u32` lanes | x86 AVX2 and SSE4.2 |
-| GF(2^64 − 2^32 + 1) | `Goldilocks`, `goldilocks::Elem` | Goldilocks prime in `u64` lanes | x86 AVX2 and SSE4.2 |
-| GF((2^31 − 1)²) | `QuadMersenne31`, `quad_mersenne31::Elem` | `i² = −1` over Mersenne31 | x86 AVX2 |
-| GF(2) | `Gf1`, `gf1::Elem` | one element per bit | dispatched XOR; portable word kernels |
+| GF(2^31 − 1) | `Mersenne31`, `Elem<Mersenne31>` | Mersenne prime in `u32` lanes | x86 AVX2 and SSE4.2 |
+| GF(2^64 − 2^32 + 1) | `Goldilocks`, `Elem<Goldilocks>` | Goldilocks prime in `u64` lanes | x86 AVX2 and SSE4.2 |
+| GF((2^31 − 1)²) | `QuadMersenne31`, `Elem<QuadMersenne31>` | `i² = −1` over Mersenne31 | x86 AVX2 |
+| GF(2) | `Gf1`, `Elem<Gf1>` | one element per bit | dispatched XOR; portable word kernels |
 
 `AES` and `REED_SOLOMON` name the two standard polynomial constants in
 `fgf::poly`. Other conventions use the complete polynomial directly:
@@ -257,7 +257,7 @@ stated in full by the module that owns it.
 
 | Surface | Convention |
 | --- | --- |
-| every field | fixed-width little-endian element encoding of `Field::BYTES`, packed without alignment or padding |
+| every field | fixed-width little-endian element encoding of `FieldBuffer::BYTES`, packed without alignment or padding |
 | `Gf8<Poly<AES>>` | reduction polynomial `0x11B`, generator `0x03` |
 | `Gf8<Poly<REED_SOLOMON>>` | reduction polynomial `0x11D`, generator `0x02`, the Reed–Solomon interop field |
 | `field::tower` | component order `[a, b]`, constant component first, over `Gf8<Poly<AES>>` |
@@ -271,9 +271,9 @@ The stable API is safe, but the implementation is variable-time. Table lookups,
 cache behavior, and data-dependent work make `fgf` unsuitable for secret field
 elements or coefficients.
 
-Packed prime-field operations expect canonical input lanes and preserve
-canonical output. Scalar prime-field operations accept any raw lane and reduce
-arithmetic results canonically.
+Packed prime-field operations accept every lane bit pattern and produce
+canonical lanes on output. Scalar prime-field operations accept any raw lane
+and reduce arithmetic results canonically.
 
 ## Performance
 

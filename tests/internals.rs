@@ -30,8 +30,8 @@ use fgf::internals::kernel::{
 };
 use fgf::poly::{AES, REED_SOLOMON};
 use fgf::{
-    Elem, Gf8, Gf16, Gf32, Gf64, Goldilocks, Mersenne31, Poly, fan_paar, gf16, gf32, gf64,
-    goldilocks, mersenne31,
+    Elem, Gf, Gf8, Gf16, Gf32, Gf64, Goldilocks, Mersenne31, Poly, fan_paar, gf16, gf32, gf64,
+    goldilocks,
 };
 
 /// Deterministic LCG noise, the crate's shared convention.
@@ -101,26 +101,26 @@ const NTERMS: &[usize] = &[1, 2, 3, 8, 9, 17];
 const NTERMS: &[usize] = &[1, 2, 9];
 
 /// GF(2^8) coefficients: both short-circuits, the extremes, a spread.
-fn gf8_coeffs() -> Vec<Elem<8, Poly<AES>>> {
+fn gf8_coeffs() -> Vec<Elem<Gf<8, Poly<AES>>>> {
     #[cfg(not(miri))]
     let raw = [0u8, 1, 2, 3, 7, 0x53, 0xd3, 0xff];
     // Short-circuits, one ordinary value, and the extreme under Miri.
     #[cfg(miri)]
     let raw = [0u8, 1, 0x53, 0xff];
     raw.iter()
-        .map(|&c| Elem::<8, Poly<AES>>::from_raw(c))
+        .map(|&c| Elem::<Gf<8, Poly<AES>>>::from_raw(c))
         .collect()
 }
 
 /// The Reed–Solomon field's coefficients, same byte spread under `0x11D`.
-fn gf8_rs_coeffs() -> Vec<Elem<8, Poly<REED_SOLOMON>>> {
+fn gf8_rs_coeffs() -> Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>> {
     #[cfg(not(miri))]
     let raw = [0u8, 1, 2, 3, 7, 0x53, 0xd3, 0xff];
     // Short-circuits, one ordinary value, and the extreme under Miri.
     #[cfg(miri)]
     let raw = [0u8, 1, 0x53, 0xff];
     raw.iter()
-        .map(|&c| Elem::<8, Poly<REED_SOLOMON>>::from_raw(c))
+        .map(|&c| Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(c))
         .collect()
 }
 
@@ -163,7 +163,7 @@ fn gf64_coeffs() -> Vec<gf64::Elem> {
 // Scalar oracles.
 // ---------------------------------------------------------------------------
 
-fn gf8_ref<const POLY: u32>(dst: &mut [u8], coeff: Elem<8, Poly<POLY>>, src: &[u8]) {
+fn gf8_ref<const POLY: u32>(dst: &mut [u8], coeff: Elem<Gf<8, Poly<POLY>>>, src: &[u8]) {
     scalar::mul_add::<Gf8<Poly<POLY>>>(dst, coeff, src);
 }
 fn gf16_ref(dst: &mut [u8], coeff: gf16::Elem, src: &[u8]) {
@@ -184,10 +184,10 @@ fn fp32_ref(dst: &mut [u8], coeff: fan_paar::fp32::Elem, src: &[u8]) {
 fn fp64_ref(dst: &mut [u8], coeff: fan_paar::fp64::Elem, src: &[u8]) {
     wiedemann::mul_add(dst, coeff.to_raw(), src, 64);
 }
-fn m31_ref(dst: &mut [u8], coeff: mersenne31::Elem, src: &[u8]) {
+fn m31_ref(dst: &mut [u8], coeff: Elem<Mersenne31>, src: &[u8]) {
     scalar::mul_add::<Mersenne31>(dst, coeff, src);
 }
-fn gld_ref(dst: &mut [u8], coeff: goldilocks::Elem, src: &[u8]) {
+fn gld_ref(dst: &mut [u8], coeff: Elem<Goldilocks>, src: &[u8]) {
     scalar::mul_add::<Goldilocks>(dst, coeff, src);
 }
 
@@ -254,7 +254,7 @@ fn check_mul_into<E: Copy + core::fmt::Debug>(
     }
 }
 
-fn check_elementwise<F: fgf::Field>(
+fn check_elementwise<F: fgf::FieldBuffer>(
     name: &str,
     lengths: &[usize],
     kernel: impl Fn(&mut [u8], &[u8], &[u8]),
@@ -428,8 +428,8 @@ fn check_matrix_overwrite<E: Copy>(
     }
 }
 
-fn gf8_coeff_at2<const POLY: u32>(t: usize, j: usize) -> Elem<8, Poly<POLY>> {
-    Elem::<8, Poly<POLY>>::from_raw(((t * 31 + j * 29) % 256) as u8)
+fn gf8_coeff_at2<const POLY: u32>(t: usize, j: usize) -> Elem<Gf<8, Poly<POLY>>> {
+    Elem::<Gf<8, Poly<POLY>>>::from_raw(((t * 31 + j * 29) % 256) as u8)
 }
 
 /// The low byte of a polynomial, the reduction the shift/reduce elementwise
@@ -439,7 +439,7 @@ fn reduction_low<const POLY: u32>() -> u8 {
 }
 
 /// Resolve element coefficients to the prepared form the blocked entries take.
-fn prepared<const POLY: u32>(coeffs: &[Elem<8, Poly<POLY>>]) -> Vec<Prepared> {
+fn prepared<const POLY: u32>(coeffs: &[Elem<Gf<8, Poly<POLY>>>]) -> Vec<Prepared> {
     coeffs.iter().map(|&c| Prepared::new(c)).collect()
 }
 
@@ -758,7 +758,7 @@ fn proven_gf8_scatter_gather_match_scalar() {
         "gf8::mul_add_scatter_gfni",
         ROW_LENS,
         gf8_ref::<AES>,
-        |j| Elem::<8, Poly<AES>>::from_raw((j as u8).wrapping_mul(29)),
+        |j| Elem::<Gf<8, Poly<AES>>>::from_raw((j as u8).wrapping_mul(29)),
         |rows, row_len, coeffs, src| {
             x86::gf8::mul_add_scatter_gfni::<true>(token, rows, row_len, &prepared(coeffs), src)
         },
@@ -767,7 +767,7 @@ fn proven_gf8_scatter_gather_match_scalar() {
         "gf8::mul_add_scatter_gfni rs",
         ROW_LENS,
         gf8_ref::<REED_SOLOMON>,
-        |j| Elem::<8, Poly<REED_SOLOMON>>::from_raw((j as u8).wrapping_mul(29)),
+        |j| Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw((j as u8).wrapping_mul(29)),
         |rows, row_len, coeffs, src| {
             x86::gf8::mul_add_scatter_gfni::<false>(token, rows, row_len, &prepared(coeffs), src)
         },
@@ -783,7 +783,7 @@ fn proven_gf8_scatter_gather_match_scalar() {
             "gf8::mul_add_gather_gfni",
             row_len,
             gf8_ref::<AES>,
-            |i| Elem::<8, Poly<AES>>::from_raw((i as u8).wrapping_mul(37).wrapping_add(3)),
+            |i| Elem::<Gf<8, Poly<AES>>>::from_raw((i as u8).wrapping_mul(37).wrapping_add(3)),
             |dst, coeffs, srcs| {
                 x86::gf8::mul_add_gather_gfni::<true>(token, dst, &prepared(coeffs), srcs)
             },
@@ -793,7 +793,9 @@ fn proven_gf8_scatter_gather_match_scalar() {
             row_len,
             gf8_ref::<REED_SOLOMON>,
             |i| {
-                Elem::<8, Poly<REED_SOLOMON>>::from_raw((i as u8).wrapping_mul(53).wrapping_add(13))
+                Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(
+                    (i as u8).wrapping_mul(53).wrapping_add(13),
+                )
             },
             |dst, coeffs, srcs| {
                 x86::gf8::mul_add_gather_gfni::<false>(token, dst, &prepared(coeffs), srcs)
@@ -928,8 +930,10 @@ fn proven_gf8_matrix_kernels_match_scalar() {
 
 /// Build a stable FlatMatrix of prepared coefficients over a term list and
 /// hand it to `body`.
+// Term geometry nests the unified element spelling; the slices stay slices.
+#[allow(clippy::type_complexity)]
 fn flat_gf8<const POLY: u32>(
-    terms: &[(&[Elem<8, Poly<POLY>>], &[u8])],
+    terms: &[(&[Elem<Gf<8, Poly<POLY>>>], &[u8])],
     nrows: usize,
     body: impl FnOnce(&FlatMatrix<'_, Prepared>),
 ) {
@@ -967,6 +971,8 @@ fn proven_gf8_matrix_scattered_matches_scalar() {
     }
 }
 
+// Term geometry nests the unified element spelling; the slices stay slices.
+#[allow(clippy::type_complexity)]
 fn scattered_case_gf8<const POLY: u32>(
     token: X64V3GfniCryptoToken,
     name: &str,
@@ -978,14 +984,14 @@ fn scattered_case_gf8<const POLY: u32>(
     let sources: Vec<Vec<u8>> = (0..nterms)
         .map(|t| noise(row_len, 0x600 + t as u64))
         .collect();
-    let coeff_sets: Vec<Vec<Elem<8, Poly<POLY>>>> = (0..nterms)
+    let coeff_sets: Vec<Vec<Elem<Gf<8, Poly<POLY>>>>> = (0..nterms)
         .map(|t| {
             (0..starts.len())
                 .map(|j| gf8_coeff_at2::<POLY>(t, j))
                 .collect()
         })
         .collect();
-    let terms: Vec<(&[Elem<8, Poly<POLY>>], &[u8])> = coeff_sets
+    let terms: Vec<(&[Elem<Gf<8, Poly<POLY>>>], &[u8])> = coeff_sets
         .iter()
         .zip(&sources)
         .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -1080,7 +1086,7 @@ fn proven_overwrite_wrappers_zero_addressed_rows_on_empty_terms() {
     // an empty gather with no sources must also leave the destination be.
     let mut got = noise(surplus, 0xf8);
     let want = got.clone();
-    let coeffs = [Prepared::new(Elem::<8, Poly<AES>>::from_raw(7))];
+    let coeffs = [Prepared::new(Elem::<Gf<8, Poly<AES>>>::from_raw(7))];
     let no_coeffs: [Prepared; 0] = [];
     let no_srcs: [&[u8]; 0] = [];
     x86::gf8::mul_add_scatter_gfni::<true>(token, &mut got, 0, &coeffs, &[]);
@@ -1142,7 +1148,7 @@ fn proven_gf8_mul_add_rejects_length_mismatch() {
         x86::gf8::mul_add_gfni::<true>(
             token,
             &mut dst,
-            Prepared::new(Elem::<8, Poly<AES>>::from_raw(3)),
+            Prepared::new(Elem::<Gf<8, Poly<AES>>>::from_raw(3)),
             &src,
         );
     });
@@ -1168,8 +1174,8 @@ fn proven_scatter_rejects_short_rows_buffer() {
         let mut rows = vec![0u8; 16];
         let src = vec![0u8; 16];
         let coeffs = [
-            Prepared::new(Elem::<8, Poly<AES>>::from_raw(1)),
-            Prepared::new(Elem::<8, Poly<AES>>::from_raw(2)),
+            Prepared::new(Elem::<Gf<8, Poly<AES>>>::from_raw(1)),
+            Prepared::new(Elem::<Gf<8, Poly<AES>>>::from_raw(2)),
         ];
         x86::gf8::mul_add_scatter_gfni::<true>(token, &mut rows, 16, &coeffs, &src);
     });
@@ -1180,7 +1186,7 @@ fn proven_matrix_rejects_term_coefficient_mismatch() {
     rejects_geometry("gf8 matrix", |token| {
         let mut rows = vec![0u8; 64];
         let src = vec![0u8; 32];
-        let short = [Prepared::new(Elem::<8, Poly<AES>>::from_raw(1))];
+        let short = [Prepared::new(Elem::<Gf<8, Poly<AES>>>::from_raw(1))];
         let terms: Vec<(&[Prepared], &[u8])> = vec![(short.as_slice(), src.as_slice())];
         x86::gf8::mul_add_matrix_gfni_with::<true, _>(token, &mut rows, 32, 2, &terms[..]);
     });
@@ -1191,7 +1197,7 @@ fn proven_matrix_scattered_rejects_overlapping_rows() {
     rejects_geometry("gf8 matrix_at overlap", |token| {
         let mut dst = vec![0u8; 128];
         let src = vec![0u8; 64];
-        let coeffs = [Prepared::new(Elem::<8, Poly<AES>>::from_raw(1)); 2];
+        let coeffs = [Prepared::new(Elem::<Gf<8, Poly<AES>>>::from_raw(1)); 2];
         let terms: Vec<(&[Prepared], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
         let starts = [0usize, 32];
         x86::gf8::mul_add_matrix_at_gfni_with::<true, _>(token, &mut dst, 64, &starts, &terms[..]);
@@ -1203,7 +1209,7 @@ fn proven_matrix_scattered_rejects_out_of_bounds_row() {
     rejects_geometry("gf8 matrix_at bounds", |token| {
         let mut dst = vec![0u8; 64];
         let src = vec![0u8; 64];
-        let coeffs = [Prepared::new(Elem::<8, Poly<AES>>::from_raw(1))];
+        let coeffs = [Prepared::new(Elem::<Gf<8, Poly<AES>>>::from_raw(1))];
         let terms: Vec<(&[Prepared], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
         let starts = [16usize];
         x86::gf8::mul_add_matrix_at_gfni_with::<true, _>(token, &mut dst, 64, &starts, &terms[..]);
@@ -1236,7 +1242,7 @@ impl<C: Copy> fgf::internals::kernel::Matrix<C> for ShrinkingSource<'_, C> {
 #[test]
 fn proven_matrix_with_rejects_source_that_shrinks_after_validation() {
     rejects_geometry("gf8 matrix_with shrinking source", |token| {
-        let coeffs = [Prepared::new(Elem::<8, Poly<AES>>::from_raw(3))];
+        let coeffs = [Prepared::new(Elem::<Gf<8, Poly<AES>>>::from_raw(3))];
         let src = vec![1u8; 256];
         let terms = ShrinkingSource {
             coefficients: &coeffs,
@@ -1251,7 +1257,9 @@ fn proven_matrix_with_rejects_source_that_shrinks_after_validation() {
         rejects_geometry(
             "gf8 avx512 matrix_with shrinking source",
             |token: X64V4xToken| {
-                let coeffs = [Prepared::new(Elem::<8, Poly<REED_SOLOMON>>::from_raw(3))];
+                let coeffs = [Prepared::new(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(
+                    3,
+                ))];
                 let src = vec![1u8; row_len];
                 let terms = ShrinkingSource {
                     coefficients: &coeffs,
@@ -1271,8 +1279,8 @@ fn proven_gather_rejects_count_mismatch() {
         let mut dst = vec![0u8; 32];
         let src = vec![0u8; 32];
         let coeffs = [
-            Prepared::new(Elem::<8, Poly<AES>>::from_raw(1)),
-            Prepared::new(Elem::<8, Poly<AES>>::from_raw(2)),
+            Prepared::new(Elem::<Gf<8, Poly<AES>>>::from_raw(1)),
+            Prepared::new(Elem::<Gf<8, Poly<AES>>>::from_raw(2)),
         ];
         let srcs: Vec<&[u8]> = vec![src.as_slice()];
         x86::gf8::mul_add_gather_gfni::<true>(token, &mut dst, &coeffs, &srcs);
@@ -1285,15 +1293,15 @@ fn proven_gf8_rs512_rejects_bad_geometry() {
     rejects_geometry("gf8<0x11d>512 mul_add", |token: X64V4xToken| {
         let mut dst = vec![0u8; 16];
         let src = vec![0u8; 17];
-        let coeff = Prepared::new(Elem::<8, Poly<REED_SOLOMON>>::from_raw(3));
+        let coeff = Prepared::new(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(3));
         x86::gf8::mul_add_avx512(token, &mut dst, coeff, &src);
     });
     rejects_geometry("gf8<0x11d>512 scatter", |token: X64V4xToken| {
         let mut rows = vec![0u8; 16];
         let src = vec![0u8; 16];
         let coeffs = [
-            Prepared::new(Elem::<8, Poly<REED_SOLOMON>>::from_raw(1)),
-            Prepared::new(Elem::<8, Poly<REED_SOLOMON>>::from_raw(2)),
+            Prepared::new(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(1)),
+            Prepared::new(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(2)),
         ];
         x86::gf8::mul_add_scatter_avx512(token, &mut rows, 16, &coeffs, &src);
     });
@@ -1301,8 +1309,8 @@ fn proven_gf8_rs512_rejects_bad_geometry() {
         let mut dst = vec![0u8; 128];
         let src = vec![0u8; 64];
         let coeffs = [
-            Prepared::new(Elem::<8, Poly<REED_SOLOMON>>::from_raw(1)),
-            Prepared::new(Elem::<8, Poly<REED_SOLOMON>>::from_raw(2)),
+            Prepared::new(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(1)),
+            Prepared::new(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(2)),
         ];
         let terms: Vec<(&[Prepared], &[u8])> = vec![(coeffs.as_slice(), src.as_slice())];
         x86::gf8::mul_add_matrix_at_avx512_with(token, &mut dst, 64, &[0, 32], &terms[..]);
@@ -1694,7 +1702,7 @@ fn m31_lanes(n: usize, seed: u64) -> Vec<u8> {
     let mut bytes = noise(n * 4, seed);
     for chunk in bytes.as_chunks_mut::<4>().0 {
         let lane = u32::from_le_bytes(*chunk);
-        chunk.copy_from_slice(&mersenne31::Elem::from_raw(lane).canonical().to_bytes());
+        chunk.copy_from_slice(&Elem::<Mersenne31>::from_raw(lane).to_bytes());
     }
     bytes
 }
@@ -1704,7 +1712,7 @@ fn gld_lanes(n: usize, seed: u64) -> Vec<u8> {
     let mut bytes = noise(n * 8, seed);
     for chunk in bytes.as_chunks_mut::<8>().0 {
         let lane = u64::from_le_bytes(*chunk);
-        chunk.copy_from_slice(&goldilocks::Elem::from_raw(lane % goldilocks::MODULUS).to_bytes());
+        chunk.copy_from_slice(&Elem::<Goldilocks>::from_raw(lane % goldilocks::MODULUS).to_bytes());
     }
     bytes
 }
@@ -1721,7 +1729,7 @@ fn proven_prime_kernels_match_scalar() {
     };
 
     const LANES: &[usize] = &[0, 1, 3, 4, 7, 8, 9, 16, 75];
-    let coeff = mersenne31::Elem::from_raw(0x0532_1cde).canonical();
+    let coeff = Elem::<Mersenne31>::from_raw(0x0532_1cde);
     type BinOp<'a> = Box<dyn Fn(&mut [u8], &[u8]) + 'a>;
 
     for &n in LANES {
@@ -1768,8 +1776,8 @@ fn proven_prime_kernels_match_scalar() {
                 .iter_mut()
                 .zip(src.as_chunks::<4>().0)
             {
-                let a = mersenne31::Elem::from_bytes(*d);
-                let b = mersenne31::Elem::from_bytes(*s);
+                let a = Elem::<Mersenne31>::from_bytes(*d);
+                let b = Elem::<Mersenne31>::from_bytes(*s);
                 let r = if sub { a.sub(b) } else { a.add(b) };
                 d.copy_from_slice(&r.to_bytes());
             }
@@ -1824,7 +1832,7 @@ fn proven_prime_kernels_match_scalar() {
     }
 
     // Goldilocks: the same sweep with 8-byte lanes.
-    let gld_coeff = goldilocks::Elem::from_raw(0x0123_4567_89ab_cdef % goldilocks::MODULUS);
+    let gld_coeff = Elem::<Goldilocks>::from_raw(0x0123_4567_89ab_cdef % goldilocks::MODULUS);
     for &n in &[0usize, 1, 3, 8, 9, 32] {
         let src = gld_lanes(n, 0xa1);
         let coeff_raw = gld_coeff.to_raw();
@@ -1868,8 +1876,8 @@ fn proven_prime_kernels_match_scalar() {
                 .iter_mut()
                 .zip(src.as_chunks::<8>().0)
             {
-                let a = goldilocks::Elem::from_bytes(*d);
-                let b = goldilocks::Elem::from_bytes(*s);
+                let a = Elem::<Goldilocks>::from_bytes(*d);
+                let b = Elem::<Goldilocks>::from_bytes(*s);
                 let r = if sub { a.sub(b) } else { a.add(b) };
                 d.copy_from_slice(&r.to_bytes());
             }

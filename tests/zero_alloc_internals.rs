@@ -22,7 +22,7 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
     use fgf::internals::kernel::tables::{TowerCoeff, TowerTables};
     use fgf::internals::kernel::{SimdToken, X64V3GfniCryptoToken, x86};
     use fgf::poly::AES;
-    use fgf::{Elem, Poly, gf16};
+    use fgf::{Elem, Gf, Poly, gf16};
 
     let _guard = TEST_LOCK
         .lock()
@@ -41,15 +41,17 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
         .map(|index| noise(LEN, 0x900 + index as u64))
         .collect();
     let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-    let coeffs: Vec<Elem<8, Poly<AES>>> = (0..SOURCES)
-        .map(|index| Elem::<8, Poly<AES>>::from_raw((index as u8).wrapping_mul(37).wrapping_add(2)))
+    let coeffs: Vec<Elem<Gf<8, Poly<AES>>>> = (0..SOURCES)
+        .map(|index| {
+            Elem::<Gf<8, Poly<AES>>>::from_raw((index as u8).wrapping_mul(37).wrapping_add(2))
+        })
         .collect();
 
     let prepared: Vec<Prepared> = coeffs.iter().map(|&c| Prepared::new(c)).collect();
-    let columns: Vec<Vec<Elem<8, Poly<AES>>>> = (0..TERMS)
+    let columns: Vec<Vec<Elem<Gf<8, Poly<AES>>>>> = (0..TERMS)
         .map(|term| {
             (0..NROWS)
-                .map(|row| Elem::<8, Poly<AES>>::from_raw(((term * 31 + row * 29) % 256) as u8))
+                .map(|row| Elem::<Gf<8, Poly<AES>>>::from_raw(((term * 31 + row * 29) % 256) as u8))
                 .collect()
         })
         .collect();
@@ -97,8 +99,8 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
 
     let mut matrix_want = noise(NROWS * LEN, 0xa50);
     for row in 0..NROWS {
-        let row_coeffs: Vec<Elem<8, Poly<AES>>> = (0..TERMS)
-            .map(|term| Elem::<8, Poly<AES>>::from_raw(((term * 31 + row * 29) % 256) as u8))
+        let row_coeffs: Vec<Elem<Gf<8, Poly<AES>>>> = (0..TERMS)
+            .map(|term| Elem::<Gf<8, Poly<AES>>>::from_raw(((term * 31 + row * 29) % 256) as u8))
             .collect();
         let target = &mut matrix_want[row * LEN..(row + 1) * LEN];
         target.fill(0);

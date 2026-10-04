@@ -28,8 +28,7 @@ mod imp {
 
     use criterion::{BenchmarkId, Criterion, Throughput, criterion_group};
     use fgf::internals::kernel::{SimdToken, X64V3Token, x86};
-    use fgf::quad_mersenne31::Elem;
-    use fgf::{QuadMersenne31, backend, backend_for, has_vector_elementwise, ops};
+    use fgf::{Elem, QuadMersenne31, backend, backend_for, has_vector_elementwise, ops};
 
     /// Row lengths in bytes: sub-vector elements, exact and partial vectors,
     /// the NTT-relevant small rows, and one L2-resident row.
@@ -37,7 +36,7 @@ mod imp {
 
     /// The benchmark coefficient: canonical, neither zero nor one, both
     /// limbs nonzero so every multiply path does full work.
-    const COEFF: Elem = Elem::from_raw(0x1234_5678, 0x3FFF_FFF1);
+    const COEFF: Elem<QuadMersenne31> = Elem::<QuadMersenne31>::from_raw(0x1234_5678, 0x3FFF_FFF1);
 
     static REPORTED: Once = Once::new();
 
@@ -67,13 +66,13 @@ mod imp {
     }
 
     /// A fixture whose limbs are canonical, meeting the packed canonical
-    /// lane contract the multiply kernels are defined on.
+    /// lane contract the multiply kernels preserve on output.
     fn canonical(len: usize, seed: u64) -> Vec<u8> {
         let raw = noise(len, seed);
         let mut out = Vec::with_capacity(len);
         for chunk in raw.as_chunks::<8>().0 {
-            let e = Elem::from_bytes(*chunk);
-            out.extend_from_slice(&e.canonical().to_bytes());
+            let e = Elem::<QuadMersenne31>::from_bytes(*chunk);
+            out.extend_from_slice(&e.to_bytes());
         }
         out
     }

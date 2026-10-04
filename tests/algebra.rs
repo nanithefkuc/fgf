@@ -5,16 +5,17 @@
 //! uses the Karatsuba form under test, so reduction bugs remain visible rather
 //! than self-consistent.
 
-use fgf::field::Field;
+use fgf::field::{Field, FieldBuffer, PrimeIdentity};
 use fgf::poly::{AES, REED_SOLOMON};
 use fgf::{
-    Elem, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf8, Gf16, Gf32, Gf64, Goldilocks, Mersenne31,
-    Poly, QuadMersenne31, fan_paar, gf1, gf16, gf32, gf64, goldilocks, mersenne31, quad_mersenne31,
+    Elem, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf, Gf8, Gf16, Gf32, Gf64, Goldilocks,
+    HasGenerator, Mersenne31, Poly, QuadMersenne31, fan_paar, gf1, gf16, gf32, gf64, goldilocks,
+    mersenne31, quad_mersenne31,
 };
 
 /// Every element of `Gf8<Poly<POLY>>`, in ascending raw order.
-fn all_gf8_elems<const POLY: u32>() -> impl Iterator<Item = Elem<8, Poly<POLY>>> {
-    (0..=u8::MAX).map(Elem::<8, Poly<POLY>>::from_raw)
+fn all_gf8_elems<const POLY: u32>() -> impl Iterator<Item = Elem<Gf<8, Poly<POLY>>>> {
+    (0..=u8::MAX).map(Elem::<Gf<8, Poly<POLY>>>::from_raw)
 }
 
 /// A spread of GF(2^16) elements: boundaries, both component planes, and a
@@ -84,7 +85,7 @@ fn table_multiply_matches_shift_and_xor<const POLY: u32>() {
         for b in all_gf8_elems::<POLY>() {
             assert_eq!(
                 a.mul(b),
-                Elem::<8, Poly<POLY>>::from_raw(xtime_mul(
+                Elem::<Gf<8, Poly<POLY>>>::from_raw(xtime_mul(
                     a.to_raw(),
                     b.to_raw(),
                     Poly::<POLY>::POLY
@@ -97,13 +98,13 @@ fn table_multiply_matches_shift_and_xor<const POLY: u32>() {
 
 fn inverse_matches_fermat_and_round_trips<const POLY: u32>() {
     assert_eq!(
-        xtime_inv(Elem::<8, Poly<POLY>>::ZERO.to_raw(), Poly::<POLY>::POLY),
+        xtime_inv(Elem::<Gf<8, Poly<POLY>>>::ZERO.to_raw(), Poly::<POLY>::POLY),
         0,
         "inv_xtime(0) must be 0"
     );
     assert_eq!(
-        Elem::<8, Poly<POLY>>::ZERO.inv(),
-        Elem::<8, Poly<POLY>>::ZERO,
+        Elem::<Gf<8, Poly<POLY>>>::ZERO.inv(),
+        Elem::<Gf<8, Poly<POLY>>>::ZERO,
         "inv(0) must be 0"
     );
     for a in all_gf8_elems::<POLY>().skip(1) {
@@ -114,27 +115,31 @@ fn inverse_matches_fermat_and_round_trips<const POLY: u32>() {
         );
         assert_eq!(
             a.mul(a.inv()),
-            Elem::<8, Poly<POLY>>::ONE,
+            Elem::<Gf<8, Poly<POLY>>>::ONE,
             "{a:?} * inv({a:?}) != 1"
         );
-        assert_eq!(a.div(a), Elem::<8, Poly<POLY>>::ONE, "{a:?} / {a:?} != 1");
+        assert_eq!(
+            a.div(a),
+            Elem::<Gf<8, Poly<POLY>>>::ONE,
+            "{a:?} / {a:?} != 1"
+        );
     }
 }
 
 fn generator_has_full_order<const POLY: u32>() {
     let mut seen = [false; 256];
-    let mut value = Elem::<8, Poly<POLY>>::ONE;
+    let mut value = Elem::<Gf<8, Poly<POLY>>>::ONE;
     for step in 0..255u32 {
         assert!(
             !seen[value.to_raw() as usize],
             "generator repeats at step {step}"
         );
         seen[value.to_raw() as usize] = true;
-        value = value.mul(Elem::<8, Poly<POLY>>::GENERATOR);
+        value = value.mul(Elem::<Gf<8, Poly<POLY>>>::GENERATOR);
     }
     assert_eq!(
         value,
-        Elem::<8, Poly<POLY>>::ONE,
+        Elem::<Gf<8, Poly<POLY>>>::ONE,
         "generator order is not 255"
     );
     assert!(
@@ -146,14 +151,18 @@ fn generator_has_full_order<const POLY: u32>() {
 fn field_axioms<const POLY: u32>() {
     let sample: Vec<_> = all_gf8_elems::<POLY>().step_by(7).collect();
     for &a in &sample {
-        assert_eq!(a.add(Elem::<8, Poly<POLY>>::ZERO), a);
-        assert_eq!(a.mul(Elem::<8, Poly<POLY>>::ONE), a);
+        assert_eq!(a.add(Elem::<Gf<8, Poly<POLY>>>::ZERO), a);
+        assert_eq!(a.mul(Elem::<Gf<8, Poly<POLY>>>::ONE), a);
         assert_eq!(
-            a.mul(Elem::<8, Poly<POLY>>::ZERO),
-            Elem::<8, Poly<POLY>>::ZERO
+            a.mul(Elem::<Gf<8, Poly<POLY>>>::ZERO),
+            Elem::<Gf<8, Poly<POLY>>>::ZERO
         );
-        assert_eq!(a.add(a), Elem::<8, Poly<POLY>>::ZERO, "characteristic two");
-        assert_eq!(a.sub(a), Elem::<8, Poly<POLY>>::ZERO);
+        assert_eq!(
+            a.add(a),
+            Elem::<Gf<8, Poly<POLY>>>::ZERO,
+            "characteristic two"
+        );
+        assert_eq!(a.sub(a), Elem::<Gf<8, Poly<POLY>>>::ZERO);
         for &b in &sample {
             assert_eq!(a.add(b), b.add(a), "addition commutes");
             assert_eq!(a.mul(b), b.mul(a), "multiplication commutes");
@@ -176,8 +185,8 @@ fn field_axioms<const POLY: u32>() {
 
 fn pow_matches_repeated_multiplication<const POLY: u32>() {
     for a in all_gf8_elems::<POLY>().step_by(11) {
-        let mut expected = Elem::<8, Poly<POLY>>::ONE;
-        for exponent in 0..20u64 {
+        let mut expected = Elem::<Gf<8, Poly<POLY>>>::ONE;
+        for exponent in 0..20u128 {
             assert_eq!(a.pow(exponent), expected, "{a:?}^{exponent}");
             expected = expected.mul(a);
         }
@@ -227,38 +236,38 @@ fn gf8_known_answer_products() {
     // The derived generators are public facts: 0x03 under AES, 0x02 under
     // REED_SOLOMON.
     assert_eq!(
-        Elem::<8, Poly<AES>>::GENERATOR,
-        Elem::<8, Poly<AES>>::from_raw(0x03)
+        Elem::<Gf<8, Poly<AES>>>::GENERATOR,
+        Elem::<Gf<8, Poly<AES>>>::from_raw(0x03)
     );
     assert_eq!(
-        Elem::<8, Poly<REED_SOLOMON>>::GENERATOR,
-        Elem::<8, Poly<REED_SOLOMON>>::from_raw(0x02)
+        Elem::<Gf<8, Poly<REED_SOLOMON>>>::GENERATOR,
+        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x02)
     );
     // AES: the classic Rijndael example.
     assert_eq!(
-        Elem::<8, Poly<AES>>::from_raw(0x53).mul(Elem::<8, Poly<AES>>::from_raw(0xca)),
-        Elem::<8, Poly<AES>>::from_raw(0x01)
+        Elem::<Gf<8, Poly<AES>>>::from_raw(0x53).mul(Elem::<Gf<8, Poly<AES>>>::from_raw(0xca)),
+        Elem::<Gf<8, Poly<AES>>>::from_raw(0x01)
     );
     assert_eq!(
-        Elem::<8, Poly<AES>>::from_raw(0xff).mul(Elem::<8, Poly<AES>>::from_raw(0xff)),
-        Elem::<8, Poly<AES>>::from_raw(0x13)
+        Elem::<Gf<8, Poly<AES>>>::from_raw(0xff).mul(Elem::<Gf<8, Poly<AES>>>::from_raw(0xff)),
+        Elem::<Gf<8, Poly<AES>>>::from_raw(0x13)
     );
     // REED_SOLOMON: the ISA-L / klauspost-reedsolomon field, independently
     // computed from the shift/XOR oracle.
     assert_eq!(
-        Elem::<8, Poly<REED_SOLOMON>>::from_raw(0x53)
-            .mul(Elem::<8, Poly<REED_SOLOMON>>::from_raw(0xca)),
-        Elem::<8, Poly<REED_SOLOMON>>::from_raw(0x8f)
+        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x53)
+            .mul(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0xca)),
+        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x8f)
     );
     assert_eq!(
-        Elem::<8, Poly<REED_SOLOMON>>::from_raw(0x57)
-            .mul(Elem::<8, Poly<REED_SOLOMON>>::from_raw(0x83)),
-        Elem::<8, Poly<REED_SOLOMON>>::from_raw(0x31)
+        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x57)
+            .mul(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x83)),
+        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x31)
     );
     assert_eq!(
-        Elem::<8, Poly<REED_SOLOMON>>::from_raw(0xff)
-            .mul(Elem::<8, Poly<REED_SOLOMON>>::from_raw(0xff)),
-        Elem::<8, Poly<REED_SOLOMON>>::from_raw(0xe2)
+        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0xff)
+            .mul(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0xff)),
+        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0xe2)
     );
 }
 
@@ -278,11 +287,11 @@ fn gf8_fields_are_pairwise_distinct() {
         (0u16..=255)
             .flat_map(|a| (0u16..=255).map(move |b| (a as u8, b as u8)))
             .filter(|&(a, b)| {
-                Elem::<8, Poly<P>>::from_raw(a)
-                    .mul(Elem::<8, Poly<P>>::from_raw(b))
+                Elem::<Gf<8, Poly<P>>>::from_raw(a)
+                    .mul(Elem::<Gf<8, Poly<P>>>::from_raw(b))
                     .to_raw()
-                    != Elem::<8, Poly<Q>>::from_raw(a)
-                        .mul(Elem::<8, Poly<Q>>::from_raw(b))
+                    != Elem::<Gf<8, Poly<Q>>>::from_raw(a)
+                        .mul(Elem::<Gf<8, Poly<Q>>>::from_raw(b))
                         .to_raw()
             })
             .count()
@@ -312,8 +321,8 @@ fn gf8_fields_are_pairwise_distinct() {
 fn gf16_mul_oracle(x: gf16::Elem, y: gf16::Elem) -> gf16::Elem {
     let (a, b) = x.to_components();
     let (c, d) = y.to_components();
-    let xt = |p: Elem<8, Poly<AES>>, q: Elem<8, Poly<AES>>| {
-        Elem::<8, Poly<AES>>::from_raw(xtime_mul(p.to_raw(), q.to_raw(), Poly::<AES>::POLY))
+    let xt = |p: Elem<Gf<8, Poly<AES>>>, q: Elem<Gf<8, Poly<AES>>>| {
+        Elem::<Gf<8, Poly<AES>>>::from_raw(xtime_mul(p.to_raw(), q.to_raw(), Poly::<AES>::POLY))
     };
     let ac = xt(a, c);
     let ad = xt(a, d);
@@ -358,9 +367,9 @@ fn gf16_inverse_round_trips() {
 fn gf16_generator_has_full_order() {
     // Order must be exactly 65535: g^65535 == 1 and g^(65535/p) != 1 for each
     // prime factor p of 65535 = 3 * 5 * 17 * 257.
-    let g = Gf16::GENERATOR;
+    let g = Elem::<Gf16>::GENERATOR;
     assert_eq!(g.pow(65_535), gf16::Elem::ONE, "g^65535 != 1");
-    for factor in [3u64, 5, 17, 257] {
+    for factor in [3u128, 5, 17, 257] {
         assert_ne!(
             g.pow(65_535 / factor),
             gf16::Elem::ONE,
@@ -402,16 +411,16 @@ fn gf16_embeds_the_base_field() {
     for a in all_gf8_elems::<AES>().step_by(5) {
         for b in all_gf8_elems::<AES>().step_by(7) {
             let lifted = gf16::Elem::from_components(a, b).mul(gf16::Elem::from_components(
-                Elem::<8, Poly<AES>>::from_raw(0),
-                Elem::<8, Poly<AES>>::from_raw(0),
+                Elem::<Gf<8, Poly<AES>>>::from_raw(0),
+                Elem::<Gf<8, Poly<AES>>>::from_raw(0),
             ));
             assert_eq!(lifted, gf16::Elem::ZERO);
 
-            let x = gf16::Elem::from_components(a, Elem::<8, Poly<AES>>::from_raw(0));
-            let y = gf16::Elem::from_components(b, Elem::<8, Poly<AES>>::from_raw(0));
+            let x = gf16::Elem::from_components(a, Elem::<Gf<8, Poly<AES>>>::from_raw(0));
+            let y = gf16::Elem::from_components(b, Elem::<Gf<8, Poly<AES>>>::from_raw(0));
             assert_eq!(
                 x.mul(y),
-                gf16::Elem::from_components(a.mul(b), Elem::<8, Poly<AES>>::from_raw(0)),
+                gf16::Elem::from_components(a.mul(b), Elem::<Gf<8, Poly<AES>>>::from_raw(0)),
                 "base-field embedding broken for {a:?} * {b:?}"
             );
         }
@@ -430,7 +439,7 @@ fn sample_gf32() -> Vec<gf32::Elem> {
         gf32::Elem::from_raw(0x0000_ffff),
         gf32::Elem::from_raw(0xffff_0000),
         gf32::Elem::from_components(gf32::DELTA, gf16::Elem::ZERO),
-        Gf32::GENERATOR,
+        Elem::<Gf32>::GENERATOR,
     ];
     let mut state = 0x243f_6a88u32;
     for _ in 0..48 {
@@ -447,7 +456,7 @@ fn sample_gf64() -> Vec<gf64::Elem> {
         gf64::Elem::from_raw(u64::MAX),
         gf64::Elem::from_raw(0x0000_0000_ffff_ffff),
         gf64::Elem::from_raw(0xffff_ffff_0000_0000),
-        Gf64::GENERATOR,
+        Elem::<Gf64>::GENERATOR,
     ];
     let mut state = 0x243f_6a88_85a3_08d3u64;
     for _ in 0..32 {
@@ -515,17 +524,17 @@ fn gf64_tower_arithmetic() {
 
 #[test]
 fn larger_tower_generators_have_full_order() {
-    let g32 = Gf32::GENERATOR;
-    let order32 = u32::MAX as u64;
+    let g32 = Elem::<Gf32>::GENERATOR;
+    let order32 = u32::MAX as u128;
     assert_eq!(g32.pow(order32), gf32::Elem::ONE);
-    for factor in [3u64, 5, 17, 257, 65_537] {
+    for factor in [3u128, 5, 17, 257, 65_537] {
         assert_ne!(g32.pow(order32 / factor), gf32::Elem::ONE);
     }
 
-    let g64 = Gf64::GENERATOR;
-    let order64 = u64::MAX;
+    let g64 = Elem::<Gf64>::GENERATOR;
+    let order64 = u128::from(u64::MAX);
     assert_eq!(g64.pow(order64), gf64::Elem::ONE);
-    for factor in [3u64, 5, 17, 257, 641, 65_537, 6_700_417] {
+    for factor in [3u128, 5, 17, 257, 641, 65_537, 6_700_417] {
         assert_ne!(g64.pow(order64 / factor), gf64::Elem::ONE);
     }
 }
@@ -540,9 +549,9 @@ fn larger_tower_generators_have_full_order() {
 const M31_P: u128 = 0x7FFF_FFFF;
 const GLD_P: u128 = 0xFFFF_FFFF_0000_0001;
 
-fn sample_m31() -> Vec<mersenne31::Elem> {
+fn sample_m31() -> Vec<Elem<Mersenne31>> {
     // Canonical boundaries, non-canonical raw lanes (>= p), and a spray.
-    let mut values: Vec<mersenne31::Elem> = [
+    let mut values: Vec<Elem<Mersenne31>> = [
         0,
         1,
         2,
@@ -557,18 +566,18 @@ fn sample_m31() -> Vec<mersenne31::Elem> {
         7,
     ]
     .into_iter()
-    .map(mersenne31::Elem::from_raw)
+    .map(Elem::<Mersenne31>::from_raw)
     .collect();
     let mut state = 0x243f_6a88u32;
     for _ in 0..64 {
         state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        values.push(mersenne31::Elem::from_raw(state));
+        values.push(Elem::<Mersenne31>::from_raw(state));
     }
     values
 }
 
-fn sample_gld() -> Vec<goldilocks::Elem> {
-    let mut values: Vec<goldilocks::Elem> = [
+fn sample_gld() -> Vec<Elem<Goldilocks>> {
+    let mut values: Vec<Elem<Goldilocks>> = [
         0,
         1,
         2,
@@ -583,52 +592,53 @@ fn sample_gld() -> Vec<goldilocks::Elem> {
         7,
     ]
     .into_iter()
-    .map(goldilocks::Elem::from_raw)
+    .map(Elem::<Goldilocks>::from_raw)
     .collect();
     let mut state = 0x243f_6a88_85a3_08d3u64;
     for _ in 0..48 {
         state = state
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
-        values.push(goldilocks::Elem::from_raw(state));
+        values.push(Elem::<Goldilocks>::from_raw(state));
     }
     values
 }
 
-fn m31_mul_oracle(x: mersenne31::Elem, y: mersenne31::Elem) -> mersenne31::Elem {
+fn m31_mul_oracle(x: Elem<Mersenne31>, y: Elem<Mersenne31>) -> Elem<Mersenne31> {
     let a = x.to_raw() as u128 % M31_P;
     let b = y.to_raw() as u128 % M31_P;
-    mersenne31::Elem::from_raw((a * b % M31_P) as u32)
+    Elem::<Mersenne31>::from_raw((a * b % M31_P) as u32)
 }
-fn m31_add_oracle(x: mersenne31::Elem, y: mersenne31::Elem) -> mersenne31::Elem {
+fn m31_add_oracle(x: Elem<Mersenne31>, y: Elem<Mersenne31>) -> Elem<Mersenne31> {
     let a = x.to_raw() as u128 % M31_P;
     let b = y.to_raw() as u128 % M31_P;
-    mersenne31::Elem::from_raw(((a + b) % M31_P) as u32)
+    Elem::<Mersenne31>::from_raw(((a + b) % M31_P) as u32)
 }
-fn m31_sub_oracle(x: mersenne31::Elem, y: mersenne31::Elem) -> mersenne31::Elem {
+fn m31_sub_oracle(x: Elem<Mersenne31>, y: Elem<Mersenne31>) -> Elem<Mersenne31> {
     let a = x.to_raw() as u128 % M31_P;
     let b = y.to_raw() as u128 % M31_P;
-    mersenne31::Elem::from_raw(((a + M31_P - b) % M31_P) as u32)
+    Elem::<Mersenne31>::from_raw(((a + M31_P - b) % M31_P) as u32)
 }
-fn gld_mul_oracle(x: goldilocks::Elem, y: goldilocks::Elem) -> goldilocks::Elem {
+fn gld_mul_oracle(x: Elem<Goldilocks>, y: Elem<Goldilocks>) -> Elem<Goldilocks> {
     let a = u128::from(x.to_raw()) % GLD_P;
     let b = u128::from(y.to_raw()) % GLD_P;
-    goldilocks::Elem::from_raw((a * b % GLD_P) as u64)
+    Elem::<Goldilocks>::from_raw((a * b % GLD_P) as u64)
 }
-fn gld_add_oracle(x: goldilocks::Elem, y: goldilocks::Elem) -> goldilocks::Elem {
+fn gld_add_oracle(x: Elem<Goldilocks>, y: Elem<Goldilocks>) -> Elem<Goldilocks> {
     let a = u128::from(x.to_raw()) % GLD_P;
     let b = u128::from(y.to_raw()) % GLD_P;
-    goldilocks::Elem::from_raw(((a + b) % GLD_P) as u64)
+    Elem::<Goldilocks>::from_raw(((a + b) % GLD_P) as u64)
 }
-fn gld_sub_oracle(x: goldilocks::Elem, y: goldilocks::Elem) -> goldilocks::Elem {
+fn gld_sub_oracle(x: Elem<Goldilocks>, y: Elem<Goldilocks>) -> Elem<Goldilocks> {
     let a = u128::from(x.to_raw()) % GLD_P;
     let b = u128::from(y.to_raw()) % GLD_P;
-    goldilocks::Elem::from_raw(((a + GLD_P - b) % GLD_P) as u64)
+    Elem::<Goldilocks>::from_raw(((a + GLD_P - b) % GLD_P) as u64)
 }
 
 #[test]
 fn m31_known_answer_products() {
-    use mersenne31::Elem;
+    use fgf::Mersenne31 as _M31;
+    type Elem = fgf::Elem<_M31>;
     assert_eq!(
         Elem::from_raw(0x5555_5555).mul(Elem::from_raw(0x5555_5555)),
         Elem::from_raw(0x71C7_1C71)
@@ -659,7 +669,8 @@ fn m31_known_answer_products() {
 
 #[test]
 fn gld_known_answer_products() {
-    use goldilocks::Elem;
+    use fgf::Goldilocks as _Gld;
+    type Elem = fgf::Elem<_Gld>;
     assert_eq!(
         Elem::from_raw(0x5555_5555_5555_5555).mul(Elem::from_raw(0xAAAA_AAAA_AAAA_AAAA)),
         Elem::from_raw(0xFFFF_FFFE_5555_5557)
@@ -707,7 +718,7 @@ fn m31_field_axioms() {
         assert_eq!(a.add(b), m31_add_oracle(a, b), "{a:?} + {b:?}");
         assert_eq!(a.sub(b), m31_sub_oracle(a, b), "{a:?} - {b:?}");
         // Negation laws and sub == add of neg.
-        assert_eq!(a.add(a.neg()), mersenne31::Elem::ZERO);
+        assert_eq!(a.add(a.neg()), Elem::<Mersenne31>::ZERO);
         assert_eq!(a.neg().neg(), a);
         assert_eq!(a.sub(b), a.add(b.neg()));
         // Ring laws.
@@ -717,13 +728,13 @@ fn m31_field_axioms() {
         assert_eq!(a.mul(b).mul(c), a.mul(b.mul(c)));
         assert_eq!(a.square(), a.mul(a));
         // Inverse/division totality and round trip.
-        assert_eq!(a.div(mersenne31::Elem::ZERO), mersenne31::Elem::ZERO);
-        if a != mersenne31::Elem::ZERO {
-            assert_eq!(a.mul(a.inv()), mersenne31::Elem::ONE, "inv({a:?})");
-            assert_eq!(a.div(a), mersenne31::Elem::ONE);
+        assert_eq!(a.div(Elem::<Mersenne31>::ZERO), Elem::<Mersenne31>::ZERO);
+        if a != Elem::<Mersenne31>::ZERO {
+            assert_eq!(a.mul(a.inv()), Elem::<Mersenne31>::ONE, "inv({a:?})");
+            assert_eq!(a.div(a), Elem::<Mersenne31>::ONE);
         }
     }
-    assert_eq!(mersenne31::Elem::ZERO.inv(), mersenne31::Elem::ZERO);
+    assert_eq!(Elem::<Mersenne31>::ZERO.inv(), Elem::<Mersenne31>::ZERO);
 }
 
 #[test]
@@ -739,7 +750,7 @@ fn gld_field_axioms() {
         assert_eq!(a.mul(b), gld_mul_oracle(a, b), "{a:?} * {b:?}");
         assert_eq!(a.add(b), gld_add_oracle(a, b), "{a:?} + {b:?}");
         assert_eq!(a.sub(b), gld_sub_oracle(a, b), "{a:?} - {b:?}");
-        assert_eq!(a.add(a.neg()), goldilocks::Elem::ZERO);
+        assert_eq!(a.add(a.neg()), Elem::<Goldilocks>::ZERO);
         assert_eq!(a.neg().neg(), a);
         assert_eq!(a.sub(b), a.add(b.neg()));
         assert_eq!(a.add(b), b.add(a));
@@ -747,31 +758,31 @@ fn gld_field_axioms() {
         assert_eq!(a.mul(b.add(c)), a.mul(b).add(a.mul(c)));
         assert_eq!(a.mul(b).mul(c), a.mul(b.mul(c)));
         assert_eq!(a.square(), a.mul(a));
-        assert_eq!(a.div(goldilocks::Elem::ZERO), goldilocks::Elem::ZERO);
-        if a != goldilocks::Elem::ZERO {
-            assert_eq!(a.mul(a.inv()), goldilocks::Elem::ONE, "inv({a:?})");
-            assert_eq!(a.div(a), goldilocks::Elem::ONE);
+        assert_eq!(a.div(Elem::<Goldilocks>::ZERO), Elem::<Goldilocks>::ZERO);
+        if a != Elem::<Goldilocks>::ZERO {
+            assert_eq!(a.mul(a.inv()), Elem::<Goldilocks>::ONE, "inv({a:?})");
+            assert_eq!(a.div(a), Elem::<Goldilocks>::ONE);
         }
     }
-    assert_eq!(goldilocks::Elem::ZERO.inv(), goldilocks::Elem::ZERO);
+    assert_eq!(Elem::<Goldilocks>::ZERO.inv(), Elem::<Goldilocks>::ZERO);
 }
 
 #[test]
 fn prime_generators_have_full_order() {
     // Multiplicative order is exactly p - 1: full order, and not a proper
     // divisor for any prime factor q of p - 1.
-    let g = mersenne31::GENERATOR;
-    let order = 0x7FFF_FFFEu64; // p - 1 = 2 * 3^2 * 7 * 11 * 31 * 151 * 331
-    assert_eq!(g.pow(order), mersenne31::Elem::ONE);
-    for q in [2u64, 3, 7, 11, 31, 151, 331] {
-        assert_ne!(g.pow(order / q), mersenne31::Elem::ONE, "M31 factor {q}");
+    let g = Elem::<Mersenne31>::GENERATOR;
+    let order = 0x7FFF_FFFEu128; // p - 1 = 2 * 3^2 * 7 * 11 * 31 * 151 * 331
+    assert_eq!(g.pow(order), Elem::<Mersenne31>::ONE);
+    for q in [2u128, 3, 7, 11, 31, 151, 331] {
+        assert_ne!(g.pow(order / q), Elem::<Mersenne31>::ONE, "M31 factor {q}");
     }
 
-    let g = goldilocks::GENERATOR;
-    let order = 0xFFFF_FFFF_0000_0000u64; // p - 1 = 2^32 * 3 * 5 * 17 * 257 * 65537
-    assert_eq!(g.pow(order), goldilocks::Elem::ONE);
-    for q in [2u64, 3, 5, 17, 257, 65_537] {
-        assert_ne!(g.pow(order / q), goldilocks::Elem::ONE, "GLD factor {q}");
+    let g = Elem::<Goldilocks>::GENERATOR;
+    let order = 0xFFFF_FFFF_0000_0000u128; // p - 1 = 2^32 * 3 * 5 * 17 * 257 * 65537
+    assert_eq!(g.pow(order), Elem::<Goldilocks>::ONE);
+    for q in [2u128, 3, 5, 17, 257, 65_537] {
+        assert_ne!(g.pow(order / q), Elem::<Goldilocks>::ONE, "GLD factor {q}");
     }
 }
 
@@ -788,8 +799,8 @@ fn prime_arithmetic_is_total_over_raw_lanes() {
     ];
     for &ra in &raws31 {
         for &rb in &raws31 {
-            let a = mersenne31::Elem::from_raw(ra);
-            let b = mersenne31::Elem::from_raw(rb);
+            let a = Elem::<Mersenne31>::from_raw(ra);
+            let b = Elem::<Mersenne31>::from_raw(rb);
             assert!(a.mul(b).to_raw() < 0x7FFF_FFFF);
             assert_eq!(a.mul(b), m31_mul_oracle(a, b), "raw {ra:#x} * {rb:#x}");
             assert_eq!(a.add(b), m31_add_oracle(a, b));
@@ -804,8 +815,8 @@ fn prime_arithmetic_is_total_over_raw_lanes() {
     ];
     for &ra in &raws64 {
         for &rb in &raws64 {
-            let a = goldilocks::Elem::from_raw(ra);
-            let b = goldilocks::Elem::from_raw(rb);
+            let a = Elem::<Goldilocks>::from_raw(ra);
+            let b = Elem::<Goldilocks>::from_raw(rb);
             assert!(a.mul(b).to_raw() < goldilocks::MODULUS);
             assert_eq!(a.mul(b), gld_mul_oracle(a, b), "raw {ra:#x} * {rb:#x}");
             assert_eq!(a.add(b), gld_add_oracle(a, b));
@@ -820,7 +831,7 @@ fn prime_arithmetic_is_total_over_raw_lanes() {
 
 // The independent oracle is schoolbook (a+bi)(c+di) over u128 % p base
 // arithmetic: no fold, no lane tricks.
-fn qm_mul_oracle(x: quad_mersenne31::Elem, y: quad_mersenne31::Elem) -> quad_mersenne31::Elem {
+fn qm_mul_oracle(x: Elem<QuadMersenne31>, y: Elem<QuadMersenne31>) -> Elem<QuadMersenne31> {
     let (xr, xi) = x.to_raw();
     let (yr, yi) = y.to_raw();
     let ar = xr as u128 % M31_P;
@@ -829,26 +840,26 @@ fn qm_mul_oracle(x: quad_mersenne31::Elem, y: quad_mersenne31::Elem) -> quad_mer
     let bi = yi as u128 % M31_P;
     let re = (ar * br + M31_P * M31_P - ai * bi) % M31_P;
     let im = (ar * bi + ai * br) % M31_P;
-    quad_mersenne31::Elem::from_raw(re as u32, im as u32)
+    Elem::<QuadMersenne31>::from_raw(re as u32, im as u32)
 }
-fn qm_add_oracle(x: quad_mersenne31::Elem, y: quad_mersenne31::Elem) -> quad_mersenne31::Elem {
+fn qm_add_oracle(x: Elem<QuadMersenne31>, y: Elem<QuadMersenne31>) -> Elem<QuadMersenne31> {
     let (xr, xi) = x.to_raw();
     let (yr, yi) = y.to_raw();
     let re = (xr as u128 % M31_P + yr as u128 % M31_P) % M31_P;
     let im = (xi as u128 % M31_P + yi as u128 % M31_P) % M31_P;
-    quad_mersenne31::Elem::from_raw(re as u32, im as u32)
+    Elem::<QuadMersenne31>::from_raw(re as u32, im as u32)
 }
-fn qm_sub_oracle(x: quad_mersenne31::Elem, y: quad_mersenne31::Elem) -> quad_mersenne31::Elem {
+fn qm_sub_oracle(x: Elem<QuadMersenne31>, y: Elem<QuadMersenne31>) -> Elem<QuadMersenne31> {
     let (xr, xi) = x.to_raw();
     let (yr, yi) = y.to_raw();
     let re = (xr as u128 % M31_P + M31_P - yr as u128 % M31_P) % M31_P;
     let im = (xi as u128 % M31_P + M31_P - yi as u128 % M31_P) % M31_P;
-    quad_mersenne31::Elem::from_raw(re as u32, im as u32)
+    Elem::<QuadMersenne31>::from_raw(re as u32, im as u32)
 }
 
-fn sample_qm() -> Vec<quad_mersenne31::Elem> {
+fn sample_qm() -> Vec<Elem<QuadMersenne31>> {
     // Boundary pairs plus a deterministic spray of limb pairs.
-    let mut values: Vec<quad_mersenne31::Elem> = [
+    let mut values: Vec<Elem<QuadMersenne31>> = [
         (0, 0),
         (1, 0),
         (0, 1),
@@ -859,19 +870,23 @@ fn sample_qm() -> Vec<quad_mersenne31::Elem> {
         (7, 12),
     ]
     .into_iter()
-    .map(|(re, im)| quad_mersenne31::Elem::from_raw(re, im))
+    .map(|(re, im)| Elem::<QuadMersenne31>::from_raw(re, im))
     .collect();
     let mut state = 0x243f_6a88u32;
     for _ in 0..48 {
         state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        values.push(quad_mersenne31::Elem::from_raw(state, state.rotate_left(7)));
+        values.push(Elem::<QuadMersenne31>::from_raw(
+            state,
+            state.rotate_left(7),
+        ));
     }
     values
 }
 
 #[test]
 fn qm31_known_answer_products() {
-    use quad_mersenne31::Elem;
+    use fgf::QuadMersenne31 as _Qm;
+    type Elem = fgf::Elem<_Qm>;
     // i^2 = -1
     assert_eq!(
         Elem::from_raw(0, 1).square(),
@@ -882,8 +897,8 @@ fn qm31_known_answer_products() {
         Elem::from_raw(0x7FFF_FFFE, 0)
     );
     // (a+ai)^2 = 0 + 2a^2 i with a^2 = 0x71C7_1C71 (the frozen M31 KAT).
-    let two_a_sq = mersenne31::Elem::from_raw(0x71C7_1C71)
-        .add(mersenne31::Elem::from_raw(0x71C7_1C71))
+    let two_a_sq = fgf::Elem::<fgf::Mersenne31>::from_raw(0x71C7_1C71)
+        .add(fgf::Elem::<fgf::Mersenne31>::from_raw(0x71C7_1C71))
         .to_raw();
     assert_eq!(
         Elem::from_raw(0x5555_5555, 0x5555_5555).square(),
@@ -927,7 +942,7 @@ fn qm31_field_axioms() {
         assert_eq!(a.add(b), qm_add_oracle(a, b), "{a:?} + {b:?}");
         assert_eq!(a.sub(b), qm_sub_oracle(a, b), "{a:?} - {b:?}");
         // Negation laws and sub == add of neg.
-        assert_eq!(a.add(a.neg()), quad_mersenne31::Elem::ZERO);
+        assert_eq!(a.add(a.neg()), Elem::<QuadMersenne31>::ZERO);
         assert_eq!(a.neg().neg(), a);
         assert_eq!(a.sub(b), a.add(b.neg()));
         // Ring laws.
@@ -938,39 +953,39 @@ fn qm31_field_axioms() {
         assert_eq!(a.square(), a.mul(a));
         // Inverse/division totality and round trip.
         assert_eq!(
-            a.div(quad_mersenne31::Elem::ZERO),
-            quad_mersenne31::Elem::ZERO
+            a.div(Elem::<QuadMersenne31>::ZERO),
+            Elem::<QuadMersenne31>::ZERO
         );
-        if a != quad_mersenne31::Elem::ZERO {
-            assert_eq!(a.mul(a.inv()), quad_mersenne31::Elem::ONE, "inv({a:?})");
-            assert_eq!(a.div(a), quad_mersenne31::Elem::ONE);
+        if a != Elem::<QuadMersenne31>::ZERO {
+            assert_eq!(a.mul(a.inv()), Elem::<QuadMersenne31>::ONE, "inv({a:?})");
+            assert_eq!(a.div(a), Elem::<QuadMersenne31>::ONE);
         }
         // Norm is the base-field element a^2 + b^2.
         let n = a.norm();
         let (ar, ai) = a.to_raw();
         assert_eq!(
             n,
-            mersenne31::Elem::from_raw(ar)
-                .mul(mersenne31::Elem::from_raw(ar))
-                .add(mersenne31::Elem::from_raw(ai).mul(mersenne31::Elem::from_raw(ai)))
+            Elem::<Mersenne31>::from_raw(ar)
+                .mul(Elem::<Mersenne31>::from_raw(ar))
+                .add(Elem::<Mersenne31>::from_raw(ai).mul(Elem::<Mersenne31>::from_raw(ai)))
         );
     }
     assert_eq!(
-        quad_mersenne31::Elem::ZERO.inv(),
-        quad_mersenne31::Elem::ZERO
+        Elem::<QuadMersenne31>::ZERO.inv(),
+        Elem::<QuadMersenne31>::ZERO
     );
 }
 
 #[test]
 fn qm31_generator_has_full_order() {
     // p^2 - 1 = 2^32 * 3^2 * 7 * 11 * 31 * 151 * 331; order is exactly that.
-    let g = quad_mersenne31::GENERATOR;
-    let order = 0x3FFF_FFFF_0000_0000u64;
-    assert_eq!(g.pow(order), quad_mersenne31::Elem::ONE);
-    for q in [2u64, 3, 7, 11, 31, 151, 331] {
+    let g = Elem::<QuadMersenne31>::GENERATOR;
+    let order = 0x3FFF_FFFF_0000_0000u128;
+    assert_eq!(g.pow(order), Elem::<QuadMersenne31>::ONE);
+    for q in [2u128, 3, 7, 11, 31, 151, 331] {
         assert_ne!(
             g.pow(order / q),
-            quad_mersenne31::Elem::ONE,
+            Elem::<QuadMersenne31>::ONE,
             "QM factor {q}"
         );
     }
@@ -985,8 +1000,8 @@ fn qm31_arithmetic_is_total_over_raw_limbs() {
     ];
     for &(ra, rai) in &raws {
         for &(rb, rbi) in &raws {
-            let a = quad_mersenne31::Elem::from_raw(ra, rai);
-            let b = quad_mersenne31::Elem::from_raw(rb, rbi);
+            let a = Elem::<QuadMersenne31>::from_raw(ra, rai);
+            let b = Elem::<QuadMersenne31>::from_raw(rb, rbi);
             let m = a.mul(b);
             assert!(m.to_raw().0 < 0x7FFF_FFFF && m.to_raw().1 < 0x7FFF_FFFF);
             assert_eq!(m, qm_mul_oracle(a, b));
@@ -1051,30 +1066,33 @@ fn fan_paar_arithmetic_round_trips() {
 
 #[test]
 fn fan_paar_generators_have_full_order() {
-    let g8 = FanPaar8::GENERATOR;
-    for factor in [3u64, 5, 17] {
+    let g8 = Elem::<FanPaar8>::GENERATOR;
+    for factor in [3u128, 5, 17] {
         assert_ne!(g8.pow(255 / factor), fan_paar::fp8::Elem::ONE);
     }
     assert_eq!(g8.pow(255), fan_paar::fp8::Elem::ONE);
 
-    let g16 = FanPaar16::GENERATOR;
-    for factor in [3u64, 5, 17, 257] {
+    let g16 = Elem::<FanPaar16>::GENERATOR;
+    for factor in [3u128, 5, 17, 257] {
         assert_ne!(g16.pow(65_535 / factor), fan_paar::fp16::Elem::ONE);
     }
     assert_eq!(g16.pow(65_535), fan_paar::fp16::Elem::ONE);
 
-    let g32 = FanPaar32::GENERATOR;
-    let order32 = u32::MAX as u64;
-    for factor in [3u64, 5, 17, 257, 65_537] {
+    let g32 = Elem::<FanPaar32>::GENERATOR;
+    let order32 = u32::MAX as u128;
+    for factor in [3u128, 5, 17, 257, 65_537] {
         assert_ne!(g32.pow(order32 / factor), fan_paar::fp32::Elem::ONE);
     }
     assert_eq!(g32.pow(order32), fan_paar::fp32::Elem::ONE);
 
-    let g64 = FanPaar64::GENERATOR;
-    for factor in [3u64, 5, 17, 257, 641, 65_537, 6_700_417] {
-        assert_ne!(g64.pow(u64::MAX / factor), fan_paar::fp64::Elem::ONE);
+    let g64 = Elem::<FanPaar64>::GENERATOR;
+    for factor in [3u128, 5, 17, 257, 641, 65_537, 6_700_417] {
+        assert_ne!(
+            g64.pow(u128::from(u64::MAX) / factor),
+            fan_paar::fp64::Elem::ONE
+        );
     }
-    assert_eq!(g64.pow(u64::MAX), fan_paar::fp64::Elem::ONE);
+    assert_eq!(g64.pow(u128::from(u64::MAX)), fan_paar::fp64::Elem::ONE);
 }
 
 #[test]
@@ -1166,34 +1184,67 @@ fn byte_representation_round_trips() {
 
 #[test]
 fn field_constants_are_consistent() {
-    assert_eq!(Gf8::<Poly<AES>>::BYTES, 1);
-    assert_eq!(Gf8::<Poly<AES>>::ORDER, 1u128 << Gf8::<Poly<AES>>::BITS);
-    assert_eq!(Gf16::BYTES, 2);
-    assert_eq!(Gf16::ORDER, 1u128 << Gf16::BITS);
-    assert_eq!(Gf32::BYTES, 4);
-    assert_eq!(Gf32::ORDER, 1u128 << Gf32::BITS);
-    assert_eq!(Gf64::BYTES, 8);
-    assert_eq!(Gf64::ORDER, 1u128 << Gf64::BITS);
-    // Prime fields: ORDER is the modulus, not 2^BITS, and BITS is the lane
-    // width (8 * BYTES), not log2(ORDER).
-    assert_eq!(Mersenne31::BYTES, 4);
+    assert_eq!(<Gf8<Poly<AES>> as FieldBuffer>::BYTES, 1);
+    assert_eq!(Gf8::<Poly<AES>>::ORDER, 1u128 << Gf8::<Poly<AES>>::DEGREE);
+    assert_eq!(<Gf16 as FieldBuffer>::BYTES, 2);
+    assert_eq!(Gf16::ORDER, 1u128 << Gf16::DEGREE);
+    assert_eq!(<Gf32 as FieldBuffer>::BYTES, 4);
+    assert_eq!(Gf32::ORDER, 1u128 << Gf32::DEGREE);
+    assert_eq!(<Gf64 as FieldBuffer>::BYTES, 8);
+    assert_eq!(Gf64::ORDER, 1u128 << Gf64::DEGREE);
+    // Prime fields: ORDER is the modulus, not 2^STORAGE_BITS, and
+    // STORAGE_BITS is the lane width (8 * BYTES), not log2(ORDER).
+    assert_eq!(<Mersenne31 as FieldBuffer>::BYTES, 4);
     assert_eq!(Mersenne31::ORDER, 0x7FFF_FFFF);
-    assert_eq!(QuadMersenne31::BYTES, 8);
+    assert_eq!(<QuadMersenne31 as FieldBuffer>::BYTES, 8);
     assert_eq!(QuadMersenne31::ORDER, 0x3FFF_FFFF_0000_0001);
-    assert_eq!(Goldilocks::BYTES, 8);
+    assert_eq!(<Goldilocks as FieldBuffer>::BYTES, 8);
     assert_eq!(Goldilocks::ORDER, 0xFFFF_FFFF_0000_0001);
     for (bytes, bits) in [
-        (Gf8::<Poly<AES>>::BYTES, Gf8::<Poly<AES>>::BITS),
-        (Gf16::BYTES, Gf16::BITS),
-        (Gf32::BYTES, Gf32::BITS),
-        (Gf64::BYTES, Gf64::BITS),
-        (FanPaar8::BYTES, FanPaar8::BITS),
-        (FanPaar16::BYTES, FanPaar16::BITS),
-        (FanPaar32::BYTES, FanPaar32::BITS),
-        (FanPaar64::BYTES, FanPaar64::BITS),
-        (Mersenne31::BYTES, Mersenne31::BITS),
-        (Goldilocks::BYTES, Goldilocks::BITS),
-        (QuadMersenne31::BYTES, QuadMersenne31::BITS),
+        (
+            <Gf8<Poly<AES>> as FieldBuffer>::BYTES,
+            <Gf8<Poly<AES>> as FieldBuffer>::STORAGE_BITS,
+        ),
+        (
+            <Gf16 as FieldBuffer>::BYTES,
+            <Gf16 as FieldBuffer>::STORAGE_BITS,
+        ),
+        (
+            <Gf32 as FieldBuffer>::BYTES,
+            <Gf32 as FieldBuffer>::STORAGE_BITS,
+        ),
+        (
+            <Gf64 as FieldBuffer>::BYTES,
+            <Gf64 as FieldBuffer>::STORAGE_BITS,
+        ),
+        (
+            <FanPaar8 as FieldBuffer>::BYTES,
+            <FanPaar8 as FieldBuffer>::STORAGE_BITS,
+        ),
+        (
+            <FanPaar16 as FieldBuffer>::BYTES,
+            <FanPaar16 as FieldBuffer>::STORAGE_BITS,
+        ),
+        (
+            <FanPaar32 as FieldBuffer>::BYTES,
+            <FanPaar32 as FieldBuffer>::STORAGE_BITS,
+        ),
+        (
+            <FanPaar64 as FieldBuffer>::BYTES,
+            <FanPaar64 as FieldBuffer>::STORAGE_BITS,
+        ),
+        (
+            <Mersenne31 as FieldBuffer>::BYTES,
+            <Mersenne31 as FieldBuffer>::STORAGE_BITS,
+        ),
+        (
+            <Goldilocks as FieldBuffer>::BYTES,
+            <Goldilocks as FieldBuffer>::STORAGE_BITS,
+        ),
+        (
+            <QuadMersenne31 as FieldBuffer>::BYTES,
+            <QuadMersenne31 as FieldBuffer>::STORAGE_BITS,
+        ),
     ] {
         assert_eq!(bytes * 8, bits as usize);
     }
@@ -1203,10 +1254,10 @@ fn field_constants_are_consistent() {
 ///
 /// The only portable integer embedding: a raw byte pattern is not an integer
 /// in a binary extension field, and a lane value is not one in QM31.
-fn embed<F: Field>(mut n: u64) -> F::Elem {
+fn embed<F: Field>(mut n: u64) -> Elem<F> {
     use fgf::field::FieldElem as _;
-    let mut term = F::Elem::ONE;
-    let mut total = F::Elem::ZERO;
+    let mut term = Elem::<F>::ONE;
+    let mut total = Elem::<F>::ZERO;
     while n != 0 {
         if n & 1 != 0 {
             total = total.add(term);
@@ -1221,40 +1272,53 @@ fn embed<F: Field>(mut n: u64) -> F::Elem {
 fn field_characteristic_is_not_derived_from_order() {
     use fgf::field::FieldElem as _;
 
+    fn characteristic<F: Field>() -> u64 {
+        <<F as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC
+    }
+
     // Binary towers: order is 2^m, characteristic is two.
-    for characteristic in [
-        Gf8::<Poly<AES>>::CHARACTERISTIC,
-        Gf8::<Poly<REED_SOLOMON>>::CHARACTERISTIC,
-        Gf16::CHARACTERISTIC,
-        Gf32::CHARACTERISTIC,
-        Gf64::CHARACTERISTIC,
-        FanPaar8::CHARACTERISTIC,
-        FanPaar16::CHARACTERISTIC,
-        FanPaar32::CHARACTERISTIC,
-        FanPaar64::CHARACTERISTIC,
+    for c in [
+        characteristic::<Gf8<Poly<AES>>>(),
+        characteristic::<Gf8<Poly<REED_SOLOMON>>>(),
+        characteristic::<Gf16>(),
+        characteristic::<Gf32>(),
+        characteristic::<Gf64>(),
+        characteristic::<FanPaar8>(),
+        characteristic::<FanPaar16>(),
+        characteristic::<FanPaar32>(),
+        characteristic::<FanPaar64>(),
     ] {
-        assert_eq!(characteristic, 2);
+        assert_eq!(c, 2);
     }
 
     // Prime fields of prime order: the two facts coincide.
-    assert_eq!(u128::from(Mersenne31::CHARACTERISTIC), Mersenne31::ORDER);
-    assert_eq!(u128::from(Goldilocks::CHARACTERISTIC), Goldilocks::ORDER);
+    assert_eq!(
+        u128::from(characteristic::<Mersenne31>()),
+        Mersenne31::ORDER
+    );
+    assert_eq!(
+        u128::from(characteristic::<Goldilocks>()),
+        Goldilocks::ORDER
+    );
 
     // The extension: characteristic is the base prime `p`, while the order
     // is `p²`. Deriving one from the other is the defect this pins.
-    assert_eq!(QuadMersenne31::CHARACTERISTIC, Mersenne31::CHARACTERISTIC);
+    assert_eq!(
+        characteristic::<QuadMersenne31>(),
+        characteristic::<Mersenne31>()
+    );
     assert_ne!(
-        u128::from(QuadMersenne31::CHARACTERISTIC),
+        u128::from(characteristic::<QuadMersenne31>()),
         QuadMersenne31::ORDER
     );
-    let base = u128::from(QuadMersenne31::CHARACTERISTIC);
+    let base = u128::from(characteristic::<QuadMersenne31>());
     assert_eq!(base * base, QuadMersenne31::ORDER);
 
     // Behaviour, not just constants: `p · x = 0` and `(p − 1) · x ≠ 0`.
     macro_rules! check_embedding {
         ($($field:ty),+) => {$({
-            assert!(embed::<$field>(<$field>::CHARACTERISTIC).is_zero());
-            assert!(!embed::<$field>(<$field>::CHARACTERISTIC - 1).is_zero());
+            assert!(embed::<$field>(characteristic::<$field>()).is_zero());
+            assert!(!embed::<$field>(characteristic::<$field>() - 1).is_zero());
         })+};
     }
     check_embedding!(
@@ -1336,21 +1400,20 @@ use std::iter::{Product, Sum};
 /// Every `field::FieldElem`/`field::Field` surface reachable from generic code:
 /// the trait's arithmetic (including defaulted methods), the total
 /// zero conventions, `Debug`/`Hash`/`Default`, and the byte codec.
-fn exercise_surface<F: Field>(samples: &[F::Elem]) {
-    let zero = F::Elem::ZERO;
-    let one = F::Elem::ONE;
+fn exercise_surface<F: FieldBuffer + HasGenerator>(samples: &[Elem<F>]) {
+    let zero = Elem::<F>::ZERO;
+    let one = Elem::<F>::ONE;
     assert!(samples.len() >= 2, "surface sweep needs samples");
     assert_eq!(
-        F::Elem::default(),
+        Elem::<F>::default(),
         zero,
         "Default must be the additive identity"
     );
 
     // Field facts that hold for every field, checked through the trait.
     assert!(!F::NAME.is_empty());
-    assert_eq!(F::BITS as usize, 8 * F::BYTES);
-    assert_eq!(F::elem_count(3 * F::BYTES), 3);
-    assert!(!F::GENERATOR.is_zero());
+    assert_eq!(F::STORAGE_BITS as usize, 8 * F::BYTES);
+    assert!(!Elem::<F>::GENERATOR.is_zero());
     assert!(zero.is_zero());
     assert!(!one.is_zero());
     assert!(one.is_one());
@@ -1413,10 +1476,10 @@ fn element_formatting_reports_insufficient_writer_capacity() {
         assert!(matches!(write!(writer, "{value}"), Err(fmt::Error)));
     }
 
-    check::<Elem<8, Poly<AES>>>();
-    check::<Elem<8, Poly<REED_SOLOMON>>>();
-    check::<Elem<8, Poly<0x12D>>>();
-    check::<Elem<8, Poly<0x187>>>();
+    check::<Elem<Gf<8, Poly<AES>>>>();
+    check::<Elem<Gf<8, Poly<REED_SOLOMON>>>>();
+    check::<Elem<Gf<8, Poly<0x12D>>>>();
+    check::<Elem<Gf<8, Poly<0x187>>>>();
     check::<gf16::Elem>();
     check::<gf32::Elem>();
     check::<gf64::Elem>();
@@ -1424,10 +1487,10 @@ fn element_formatting_reports_insufficient_writer_capacity() {
     check::<fan_paar::fp16::Elem>();
     check::<fan_paar::fp32::Elem>();
     check::<fan_paar::fp64::Elem>();
-    check::<mersenne31::Elem>();
-    check::<goldilocks::Elem>();
-    check::<quad_mersenne31::Elem>();
-    check::<gf1::Elem>();
+    check::<Elem<Mersenne31>>();
+    check::<Elem<Goldilocks>>();
+    check::<Elem<QuadMersenne31>>();
+    check::<Elem<gf1::Gf1>>();
 }
 
 /// The per-concrete-type surfaces generic code cannot reach: the
@@ -1575,8 +1638,8 @@ fn inherent_conversion_helpers_round_trip() {
     // GF(2^8) flat fields.
     fn gf8_conversions<const POLY: u32>() {
         for a in all_gf8_elems::<POLY>().step_by(53) {
-            assert_eq!(Elem::<8, Poly<POLY>>::from_raw(a.to_raw()), a);
-            assert_eq!(Elem::<8, Poly<POLY>>::from_bytes(a.to_bytes()), a);
+            assert_eq!(Elem::<Gf<8, Poly<POLY>>>::from_raw(a.to_raw()), a);
+            assert_eq!(Elem::<Gf<8, Poly<POLY>>>::from_bytes(a.to_bytes()), a);
         }
     }
     every_gf8_field!(gf8_conversions);
@@ -1599,39 +1662,35 @@ fn inherent_conversion_helpers_round_trip() {
         assert_eq!(gf64::Elem::from_raw(a.to_raw()), a);
         assert_eq!(gf64::Elem::from_bytes(a.to_bytes()), a);
     }
-    // Prime fields: canonical representatives and raw lanes.
+    // Prime fields: storage is canonical, and lanes below the modulus
+    // survive construction unchanged.
     for a in sample_m31().into_iter().step_by(7) {
-        assert_eq!(
-            a.canonical().to_raw(),
-            a.to_raw() % 0x7FFF_FFFF,
-            "canonical"
-        );
-        assert_eq!(mersenne31::Elem::from_raw(a.to_raw()), a);
-        assert_eq!(mersenne31::Elem::from_bytes(a.to_bytes()), a);
+        assert_eq!(a.to_raw(), a.to_raw() % 0x7FFF_FFFF, "canonical storage");
+        assert_eq!(Elem::<Mersenne31>::from_raw(a.to_raw()), a);
+        assert_eq!(Elem::<Mersenne31>::from_bytes(a.to_bytes()), a);
         assert_eq!(
             mersenne31::reduce(a.to_raw()),
-            a.canonical().to_raw(),
-            "reduce"
+            a.to_raw(),
+            "reduce is the identity on storage"
         );
     }
     for a in sample_gld().into_iter().step_by(7) {
         assert!(
-            a.canonical().to_raw() < 0xFFFF_FFFF_0000_0001,
-            "canonical is below the modulus"
+            a.to_raw() < 0xFFFF_FFFF_0000_0001,
+            "storage is below the modulus"
         );
-        assert_eq!(goldilocks::Elem::from_raw(a.to_raw()), a);
-        assert_eq!(goldilocks::Elem::from_bytes(a.to_bytes()), a);
+        assert_eq!(Elem::<Goldilocks>::from_raw(a.to_raw()), a);
+        assert_eq!(Elem::<Goldilocks>::from_bytes(a.to_bytes()), a);
     }
     // Quadratic extension: conjugation and the norm land in the base field.
     for a in sample_qm().into_iter().step_by(7) {
-        let a = a.canonical();
         assert_eq!(
-            quad_mersenne31::Elem::from_raw(a.to_raw().0, a.to_raw().1),
+            Elem::<QuadMersenne31>::from_raw(a.to_raw().0, a.to_raw().1),
             a
         );
-        assert_eq!(quad_mersenne31::Elem::from_bytes(a.to_bytes()), a);
+        assert_eq!(Elem::<QuadMersenne31>::from_bytes(a.to_bytes()), a);
         let (re, im) = a.to_components();
-        assert_eq!(quad_mersenne31::Elem::from_components(re, im), a);
+        assert_eq!(Elem::<QuadMersenne31>::from_components(re, im), a);
         assert_eq!(a.conjugate().conjugate(), a, "conjugation is an involution");
         assert_eq!(
             a.conjugate().norm(),
@@ -1642,7 +1701,7 @@ fn inherent_conversion_helpers_round_trip() {
             a.norm().to_raw() < 0x7FFF_FFFF,
             "norm lands in the base field"
         );
-        let (re, im) = a.mul(a.conjugate()).canonical().to_components();
+        let (re, im) = a.mul(a.conjugate()).to_components();
         assert_eq!(
             re.to_raw(),
             a.norm().to_raw(),
@@ -1680,10 +1739,10 @@ fn inherent_conversion_helpers_round_trip() {
 // ---------------------------------------------------------------------------
 
 /// The whole field, exhaustively: the four ordered pairs.
-fn all_gf1_pairs() -> impl Iterator<Item = (gf1::Elem, gf1::Elem)> {
-    let elems = [gf1::Elem::from_raw(0), gf1::Elem::from_raw(1)];
+fn all_gf1_pairs() -> impl Iterator<Item = (Elem<gf1::Gf1>, Elem<gf1::Gf1>)> {
+    let elems = [Elem::<gf1::Gf1>::from_raw(0), Elem::<gf1::Gf1>::from_raw(1)];
     elems.into_iter().flat_map(move |a| {
-        let elems = [gf1::Elem::from_raw(0), gf1::Elem::from_raw(1)];
+        let elems = [Elem::<gf1::Gf1>::from_raw(0), Elem::<gf1::Gf1>::from_raw(1)];
         elems.into_iter().map(move |b| (a, b))
     })
 }
@@ -1712,32 +1771,40 @@ fn gf1_inverse_division_and_power_conventions() {
         assert_eq!(quotient, expected, "x / 0 == 0 and x / 1 == x");
         assert_eq!(a / b, a.div(b));
     }
-    for a in [gf1::Elem::from_raw(0), gf1::Elem::from_raw(1)] {
-        assert_eq!(a.pow(0), gf1::Elem::ONE, "pow(_, 0) is one");
-        for exponent in [1u64, 2, 3, 63, u64::MAX] {
+    for a in [Elem::<gf1::Gf1>::from_raw(0), Elem::<gf1::Gf1>::from_raw(1)] {
+        assert_eq!(a.pow(0), Elem::<gf1::Gf1>::ONE, "pow(_, 0) is one");
+        for exponent in [1u128, 2, 3, 63, u128::from(u64::MAX)] {
             assert_eq!(a.pow(exponent), a, "x^n = x for n > 0");
         }
     }
     // Division stays total in const context.
-    const _: () = assert!(gf1::Elem::from_raw(1).div(gf1::Elem::ZERO).to_raw() == 0);
-    const _: () = assert!(gf1::Elem::from_raw(1).pow(0).to_raw() == 1);
+    const _: () = assert!(
+        Elem::<gf1::Gf1>::from_raw(1)
+            .div(Elem::<gf1::Gf1>::ZERO)
+            .to_raw()
+            == 0
+    );
+    const _: () = assert!(Elem::<gf1::Gf1>::from_raw(1).pow(0).to_raw() == 1);
 }
 
 #[test]
 fn gf1_constants_and_predicates() {
     assert_eq!(gf1::ORDER, 2);
-    assert_eq!(gf1::Gf1::NAME, "GF(2)");
+    assert_eq!(<gf1::Gf1 as Field>::NAME, "GF(2)");
     // The multiplicative group is trivial: the generator is one and has
     // order 1.
-    assert_eq!(gf1::GENERATOR, gf1::Elem::ONE);
-    for exponent in [0u64, 1, 2, 100] {
-        assert_eq!(gf1::GENERATOR.pow(exponent), gf1::Elem::ONE);
+    assert_eq!(Elem::<gf1::Gf1>::GENERATOR, Elem::<gf1::Gf1>::ONE);
+    for exponent in [0u128, 1, 2, 100] {
+        assert_eq!(
+            Elem::<gf1::Gf1>::GENERATOR.pow(exponent),
+            Elem::<gf1::Gf1>::ONE
+        );
     }
-    assert!(gf1::Elem::from_raw(0).is_zero());
-    assert!(gf1::Elem::from_raw(1).is_one());
-    assert_eq!(gf1::Elem::ZERO.to_raw(), 0);
-    assert_eq!(gf1::Elem::ONE.to_raw(), 1);
-    assert_eq!(gf1::Elem::default(), gf1::Elem::ZERO);
+    assert!(Elem::<gf1::Gf1>::from_raw(0).is_zero());
+    assert!(Elem::<gf1::Gf1>::from_raw(1).is_one());
+    assert_eq!(Elem::<gf1::Gf1>::ZERO.to_raw(), 0);
+    assert_eq!(Elem::<gf1::Gf1>::ONE.to_raw(), 1);
+    assert_eq!(Elem::<gf1::Gf1>::default(), Elem::<gf1::Gf1>::ZERO);
 }
 
 #[test]
@@ -1769,44 +1836,44 @@ fn gf1_elem_trait_bodies_match_inherent() {
     for (a, b) in all_gf1_pairs() {
         through_trait(a, b);
         assert_eq!(
-            <gf1::Elem as fgf::field::FieldElem>::add(a, b),
-            gf1::Elem::add(a, b)
+            <Elem<gf1::Gf1> as fgf::field::FieldElem>::add(a, b),
+            Elem::<gf1::Gf1>::add(a, b)
         );
         assert_eq!(
-            <gf1::Elem as fgf::field::FieldElem>::sub(a, b),
-            gf1::Elem::sub(a, b)
+            <Elem<gf1::Gf1> as fgf::field::FieldElem>::sub(a, b),
+            Elem::<gf1::Gf1>::sub(a, b)
         );
         assert_eq!(
-            <gf1::Elem as fgf::field::FieldElem>::neg(a),
-            gf1::Elem::neg(a)
+            <Elem<gf1::Gf1> as fgf::field::FieldElem>::neg(a),
+            Elem::<gf1::Gf1>::neg(a)
         );
         assert_eq!(
-            <gf1::Elem as fgf::field::FieldElem>::mul(a, b),
-            gf1::Elem::mul(a, b)
+            <Elem<gf1::Gf1> as fgf::field::FieldElem>::mul(a, b),
+            Elem::<gf1::Gf1>::mul(a, b)
         );
         assert_eq!(
-            <gf1::Elem as fgf::field::FieldElem>::square(a),
-            gf1::Elem::square(a)
+            <Elem<gf1::Gf1> as fgf::field::FieldElem>::square(a),
+            Elem::<gf1::Gf1>::square(a)
         );
         assert_eq!(
-            <gf1::Elem as fgf::field::FieldElem>::inv(a),
-            gf1::Elem::inv(a)
+            <Elem<gf1::Gf1> as fgf::field::FieldElem>::inv(a),
+            Elem::<gf1::Gf1>::inv(a)
         );
         assert_eq!(
-            <gf1::Elem as fgf::field::FieldElem>::div(a, b),
-            gf1::Elem::div(a, b)
+            <Elem<gf1::Gf1> as fgf::field::FieldElem>::div(a, b),
+            Elem::<gf1::Gf1>::div(a, b)
         );
         assert_eq!(
-            <gf1::Elem as fgf::field::FieldElem>::pow(a, 7),
-            gf1::Elem::pow(a, 7)
+            <Elem<gf1::Gf1> as fgf::field::FieldElem>::pow(a, 7),
+            Elem::<gf1::Gf1>::pow(a, 7)
         );
         assert_eq!(
-            <gf1::Elem as fgf::field::FieldElem>::is_zero(a),
-            gf1::Elem::is_zero(a)
+            <Elem<gf1::Gf1> as fgf::field::FieldElem>::is_zero(a),
+            Elem::<gf1::Gf1>::is_zero(a)
         );
         assert_eq!(
-            <gf1::Elem as fgf::field::FieldElem>::is_one(a),
-            gf1::Elem::is_one(a)
+            <Elem<gf1::Gf1> as fgf::field::FieldElem>::is_one(a),
+            Elem::<gf1::Gf1>::is_one(a)
         );
     }
 }
@@ -1816,48 +1883,55 @@ fn gf1_raw_lanes_are_total_and_outputs_canonical() {
     // Any raw byte is a legal input; only bit 0 is meaningful, and every
     // arithmetic output is canonical — the crate's totality convention.
     for raw in [0u8, 1, 2, 3, 0x7f, 0x80, 0xfe, 0xff] {
-        let a = gf1::Elem::from_raw(raw);
-        assert_eq!(a.add(gf1::Elem::from_raw(1)).to_raw(), (raw & 1) ^ 1);
-        assert_eq!(a.mul(gf1::Elem::from_raw(1)).to_raw(), raw & 1);
+        let a = Elem::<gf1::Gf1>::from_raw(raw);
+        assert_eq!(a.add(Elem::<gf1::Gf1>::from_raw(1)).to_raw(), (raw & 1) ^ 1);
+        assert_eq!(a.mul(Elem::<gf1::Gf1>::from_raw(1)).to_raw(), raw & 1);
         assert_eq!(a.square().to_raw(), raw & 1);
         assert_eq!(a.inv().to_raw(), raw & 1);
-        assert_eq!(a.div(gf1::Elem::from_raw(0)).to_raw(), 0);
+        assert_eq!(a.div(Elem::<gf1::Gf1>::from_raw(0)).to_raw(), 0);
         assert_eq!(a.is_zero(), raw & 1 == 0);
         assert_eq!(a.is_one(), raw & 1 == 1);
     }
-    assert_eq!(gf1::Elem::from_raw(0xfe).to_raw(), 0, "from_raw masks");
     assert_eq!(
-        gf1::Elem::from_bytes([0xfe]).to_bytes(),
+        Elem::<gf1::Gf1>::from_raw(0xfe).to_raw(),
+        0,
+        "from_raw masks"
+    );
+    assert_eq!(
+        Elem::<gf1::Gf1>::from_bytes([0xfe]).to_bytes(),
         [0],
         "byte round trip masks"
     );
-    assert_eq!(gf1::Elem::from_raw(1).canonical(), gf1::Elem::ONE);
+    assert_eq!(
+        Elem::<gf1::Gf1>::from_raw(1).canonical(),
+        Elem::<gf1::Gf1>::ONE
+    );
 }
 
 #[test]
 fn gf1_operators_and_folds() {
-    let mut a = gf1::Elem::from_raw(1);
-    a += gf1::Elem::from_raw(1);
-    assert_eq!(a, gf1::Elem::ZERO);
-    a -= gf1::Elem::from_raw(1);
-    assert_eq!(a, gf1::Elem::ONE);
-    a *= gf1::Elem::from_raw(0);
-    assert_eq!(a, gf1::Elem::ZERO);
-    a += gf1::Elem::from_raw(1);
-    a /= gf1::Elem::from_raw(1);
-    assert_eq!(a, gf1::Elem::ONE);
-    a /= gf1::Elem::ZERO;
-    assert_eq!(a, gf1::Elem::ZERO);
+    let mut a = Elem::<gf1::Gf1>::from_raw(1);
+    a += Elem::<gf1::Gf1>::from_raw(1);
+    assert_eq!(a, Elem::<gf1::Gf1>::ZERO);
+    a -= Elem::<gf1::Gf1>::from_raw(1);
+    assert_eq!(a, Elem::<gf1::Gf1>::ONE);
+    a *= Elem::<gf1::Gf1>::from_raw(0);
+    assert_eq!(a, Elem::<gf1::Gf1>::ZERO);
+    a += Elem::<gf1::Gf1>::from_raw(1);
+    a /= Elem::<gf1::Gf1>::from_raw(1);
+    assert_eq!(a, Elem::<gf1::Gf1>::ONE);
+    a /= Elem::<gf1::Gf1>::ZERO;
+    assert_eq!(a, Elem::<gf1::Gf1>::ZERO);
 
-    let one = gf1::Elem::from_raw(1);
-    let xor_sum: gf1::Elem = [one, one, one].into_iter().sum();
-    assert_eq!(xor_sum, gf1::Elem::ONE, "sum of three ones");
-    let and_product: gf1::Elem = [one, one].into_iter().product();
-    assert_eq!(and_product, gf1::Elem::ONE);
-    let borrowed_sum: gf1::Elem = [&one, &one].into_iter().sum();
-    assert_eq!(borrowed_sum, gf1::Elem::ZERO);
-    let borrowed_product: gf1::Elem = [&one, &one].into_iter().product();
-    assert_eq!(borrowed_product, gf1::Elem::ONE);
+    let one = Elem::<gf1::Gf1>::from_raw(1);
+    let xor_sum: Elem<gf1::Gf1> = [one, one, one].into_iter().sum();
+    assert_eq!(xor_sum, Elem::<gf1::Gf1>::ONE, "sum of three ones");
+    let and_product: Elem<gf1::Gf1> = [one, one].into_iter().product();
+    assert_eq!(and_product, Elem::<gf1::Gf1>::ONE);
+    let borrowed_sum: Elem<gf1::Gf1> = [&one, &one].into_iter().sum();
+    assert_eq!(borrowed_sum, Elem::<gf1::Gf1>::ZERO);
+    let borrowed_product: Elem<gf1::Gf1> = [&one, &one].into_iter().product();
+    assert_eq!(borrowed_product, Elem::<gf1::Gf1>::ONE);
 }
 
 // ---------------------------------------------------------------------------
@@ -1866,133 +1940,205 @@ fn gf1_operators_and_folds() {
 
 mod toy {
     //! Minimal GF(2^3) over `x^3 + x + 1` implementing only the required
-    //! `Elem`/`Field` methods. The trait's defaulted `neg`, `square`, `pow`,
-    //! `is_zero`, `is_one`, and `elem_count` bodies run here — every real
-    //! field overrides the algebraic ones, so this is the only implementor
-    //! where those defaults execute.
-    use fgf::field::Field;
-
-    #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Default)]
-    pub struct Elem7(pub u8);
+    //! [`Field`](fgf::field::Field) raw methods. The blanket
+    //! [`FieldElem`](fgf::field::FieldElem) implementation supplies `neg`,
+    //! `square`, `pow`, `div`, `is_zero`, and `is_one` over them, so this is
+    //! the only field where those blanket bodies execute against custom
+    //! arithmetic.
+    use fgf::Elem;
+    use fgf::field::FieldElem as _;
+    use fgf::field::{Field, FieldBuffer, HasGenerator, PrimeCharacteristic};
 
     #[derive(Debug, Clone, Copy)]
     pub struct Gf8Toy;
 
-    impl fgf::field::FieldElem for Elem7 {
-        const ZERO: Self = Self(0);
-        const ONE: Self = Self(1);
+    /// Shift-and-XOR multiply under `x^3 + x + 1`, masked to three bits.
+    const fn raw_mul(a: u8, b: u8) -> u8 {
+        let mut acc = 0u8;
+        let mut x = a & 7;
+        let mut y = b & 7;
+        let mut i = 0;
+        while i < 3 {
+            if y & 1 == 1 {
+                acc ^= x;
+            }
+            let overflow = x & 0x04 != 0;
+            x <<= 1;
+            if overflow {
+                x ^= 0x0B; // x^3 = x + 1
+            }
+            y >>= 1;
+            i += 1;
+        }
+        acc & 7
+    }
 
-        fn add(self, rhs: Self) -> Self {
-            Self(self.0 ^ rhs.0)
+    /// Brute-force inverse over the seven nonzero lanes; zero maps to zero.
+    const fn raw_inv(a: u8) -> u8 {
+        let a = a & 7;
+        if a == 0 {
+            return 0;
         }
-        fn sub(self, rhs: Self) -> Self {
-            self.add(rhs)
-        }
-        fn mul(self, rhs: Self) -> Self {
-            let mut acc = 0u8;
-            let mut a = self.0;
-            let b = rhs.0;
-            for i in 0..8 {
-                if (b >> i) & 1 == 1 {
-                    acc ^= a;
-                }
-                let overflow = a & 0x04 != 0;
-                a <<= 1;
-                if overflow {
-                    a ^= 0x0B; // x^3 = x + 1
-                }
+        let mut candidate = 1u8;
+        while candidate < 8 {
+            if raw_mul(a, candidate) == 1 {
+                return candidate;
             }
-            Self(acc & 7)
+            candidate += 1;
         }
-        fn inv(self) -> Self {
-            if self.0 == 0 {
-                return Self::ZERO;
-            }
-            for candidate in 1..8u8 {
-                let product = Self(self.0).mul(Self(candidate));
-                if product == Self::ONE {
-                    return Self(candidate);
-                }
-            }
-            unreachable!("every nonzero element of GF(8) is invertible");
-        }
-        fn div(self, rhs: Self) -> Self {
-            if self.0 == 0 || rhs.0 == 0 {
-                return Self::ZERO;
-            }
-            self.mul(rhs.inv())
-        }
+        0
     }
 
     impl Field for Gf8Toy {
-        type Elem = Elem7;
+        type Raw = u8;
+        type Characteristic = PrimeCharacteristic<2>;
 
         const NAME: &'static str = "GF(2^3) toy";
-        const BITS: u32 = 8;
-        const BYTES: usize = 1;
+        const DEGREE: u32 = 3;
         const ORDER: u128 = 8;
-        const CHARACTERISTIC: u64 = 2;
-        const GENERATOR: Elem7 = Elem7(2);
+        const ZERO_RAW: u8 = 0;
+        const ONE_RAW: u8 = 1;
+        const VALID: () = ();
 
-        fn decode(bytes: &[u8]) -> Elem7 {
-            Elem7(bytes[0] & 7)
+        fn canonical_raw(raw: u8) -> u8 {
+            raw & 7
         }
-        fn encode(bytes: &mut [u8], value: Elem7) {
-            bytes[0] = value.0;
+        fn add_raw(a: u8, b: u8) -> u8 {
+            (a ^ b) & 7
         }
+        fn sub_raw(a: u8, b: u8) -> u8 {
+            (a ^ b) & 7
+        }
+        fn neg_raw(a: u8) -> u8 {
+            a & 7
+        }
+        fn mul_raw(a: u8, b: u8) -> u8 {
+            raw_mul(a, b)
+        }
+        fn inv_raw(a: u8) -> u8 {
+            raw_inv(a)
+        }
+    }
+
+    impl FieldBuffer for Gf8Toy {
+        const BYTES: usize = 1;
+        const STORAGE_BITS: u32 = 8;
+
+        fn decode(bytes: &[u8]) -> Elem<Self> {
+            let bytes: [u8; 1] = bytes.try_into().expect("toy element width");
+            Elem::<Self>::from_raw(bytes[0])
+        }
+        fn encode(bytes: &mut [u8], value: Elem<Self>) {
+            assert_eq!(bytes.len(), 1, "toy element width");
+            bytes[0] = value.to_raw();
+        }
+    }
+
+    impl HasGenerator for Gf8Toy {
+        const GENERATOR_RAW: u8 = 2;
     }
 }
 
 #[test]
 fn elem_trait_defaults_are_correct_for_minimal_implementors() {
-    let samples: Vec<toy::Elem7> = (0..8u8).map(toy::Elem7).collect();
+    use fgf::Elem;
+    let samples: Vec<Elem<toy::Gf8Toy>> = (0..8u8).map(Elem::<toy::Gf8Toy>::from_raw).collect();
     exercise_surface::<toy::Gf8Toy>(&samples);
 
-    // The defaulted bodies specifically: neg is the identity in
+    // The blanket bodies specifically: neg is the identity in
     // characteristic two, square is mul, pow is square-and-multiply.
     for a in samples {
-        assert_eq!(a.neg(), a, "default neg in characteristic two");
-        assert_eq!(a.square(), a.mul(a), "default square");
-        assert_eq!(a.pow(5), a.mul(a).mul(a).mul(a).mul(a), "default pow");
+        assert_eq!(a.neg(), a, "blanket neg in characteristic two");
+        assert_eq!(a.square(), a.mul(a), "blanket square");
+        assert_eq!(a.pow(5), a.mul(a).mul(a).mul(a).mul(a), "blanket pow");
     }
     // GF(8)* has order 7: the generator must have full order through the
-    // defaulted pow.
-    let g = toy::Gf8Toy::GENERATOR;
-    assert_eq!(g.pow(7), toy::Elem7::ONE);
-    assert_ne!(g.pow(1), toy::Elem7::ONE);
+    // blanket pow.
+    let g = Elem::<toy::Gf8Toy>::from_raw(2);
+    assert_eq!(g.pow(7), Elem::<toy::Gf8Toy>::ONE);
+    assert_ne!(g.pow(1), Elem::<toy::Gf8Toy>::ONE);
 }
 
 #[test]
-fn qm31_pow_u128_matches_pow_and_repeated_squaring() {
-    let a = quad_mersenne31::Elem::from_raw(0x1234_5678, 0x9abc_def0).canonical();
-    // Inside u64 the two exponentiation paths must agree exactly.
-    for exponent in [0u128, 1, 2, 3, 7, 255, 1 << 32, u64::MAX as u128] {
+fn generic_from_raw_agrees_with_inherent_constructors() {
+    // Concrete types only: on a concrete `Elem<F>` the inherent `const`
+    // constructor wins even with `FieldElem` in scope, while the
+    // fully-qualified trait spelling takes the blanket implementation.
+    // A generic `Elem<F>::from_raw` would resolve to the trait on both
+    // sides and prove nothing.
+    macro_rules! check_agreement {
+        ($($field:ty: [$($raw:expr),+]),+) => {$({
+            $(assert_eq!(
+                <Elem<$field> as fgf::field::FieldElem>::from_raw($raw),
+                Elem::<$field>::from_raw($raw),
+                "generic and inherent from_raw disagree",
+            );)+
+        })+};
+    }
+
+    check_agreement!(
+        Gf8<Poly<AES>>: [0, 1, 0x53, 0xFF],
+        Gf8<Poly<REED_SOLOMON>>: [0, 1, 0x53, 0xFF],
+        Gf16: [0, 1, 0x0108, 0xFFFF],
+        Gf32: [0, 1, 0x0001_0002, u32::MAX],
+        Gf64: [0, 1, 0x0000_0001_0000_0004, u64::MAX],
+        FanPaar8: [0, 1, 0x2D, 0xFF],
+        FanPaar16: [0, 1, 0xE2DE, 0xFFFF],
+        FanPaar32: [0, 1, 0x03E2_1CEA, u32::MAX],
+        FanPaar64: [0, 1, 0x070F_870D_CD9C_1D88, u64::MAX],
+        Mersenne31: [0, 1, 0x7FFF_FFFE, 0x7FFF_FFFF, u32::MAX],
+        Goldilocks: [0, 1, 0xFFFF_FFFF_FFFF_FFFE, u64::MAX],
+        gf1::Gf1: [0, 1, 2, 0xFF]
+    );
+    // QuadMersenne31 takes two limbs, so it does not fit the macro above.
+    for &(re, im) in &[(0, 0), (1, 0), (0x7FFF_FFFF, 0), (u32::MAX, u32::MAX)] {
         assert_eq!(
-            a.pow_u128(exponent),
-            a.pow(exponent as u64),
-            "pow_u128({exponent})"
+            <Elem<QuadMersenne31> as fgf::field::FieldElem>::from_raw((re, im)),
+            Elem::<QuadMersenne31>::from_raw(re, im),
+            "generic and inherent from_raw disagree",
         );
+    }
+}
+
+#[test]
+fn qm31_wide_pow_matches_repeated_squaring() {
+    let a = Elem::<QuadMersenne31>::from_raw(0x1234_5678, 0x9abc_def0);
+    // Across the u64 range the const inherent pow agrees with manual
+    // square-and-multiply.
+    for exponent in [0u128, 1, 2, 3, 7, 255, 1 << 32, u64::MAX as u128] {
+        let mut expected = Elem::<QuadMersenne31>::ONE;
+        let mut base = a;
+        let mut remaining = exponent;
+        while remaining != 0 {
+            if remaining & 1 != 0 {
+                expected = expected.mul(base);
+            }
+            base = base.square();
+            remaining >>= 1;
+        }
+        assert_eq!(a.pow(exponent), expected, "pow({exponent})");
     }
     // Past u64, check against manual square-and-multiply over mul.
     let mut expected = a;
     for _ in 0..70 {
         expected = expected.square();
     }
-    assert_eq!(a.pow_u128(1u128 << 70), expected, "pow_u128(2^70)");
+    assert_eq!(a.pow(1u128 << 70), expected, "pow(2^70)");
 }
 
 // ---------------------------------------------------------------------------
 // Value equality, hashing, and ordering
 // ---------------------------------------------------------------------------
 //
-// `Eq`/`Hash`/`Ord` are public contract: they follow the field value, not the
-// stored bits. GF(2) and the prime-family fields admit non-canonical raw
-// storage; these tests pin that equivalent representatives compare equal,
-// hash equally, sort as one element, and collapse in hash containers. The
-// binary full-width fields have one representation per value and are covered
-// by the derived-implementation coherence everywhere above.
+// `Eq`/`Hash`/`Ord` are public contract: they follow the field value.
+// `from_raw` accepts non-canonical raw inputs and canonicalizes them into
+// storage, so aliased inputs name one value; these tests pin that aliased
+// inputs compare equal, hash equally, sort as one element, and collapse in
+// hash containers. The binary full-width fields have one representation per
+// value and are covered by the derived-implementation coherence everywhere
+// above.
 
-/// One non-canonical/canonical pair of one field value: equal, same hash,
+/// One aliased pair naming one field value: equal, same hash,
 /// `Ordering::Equal`, and indistinguishable inside a `HashSet`.
 fn assert_same_value<E: fgf::field::FieldElem + Ord>(noncanonical: E, canonical: E) {
     use std::cmp::Ordering;
@@ -2024,33 +2170,33 @@ fn assert_same_value<E: fgf::field::FieldElem + Ord>(noncanonical: E, canonical:
 fn m31_equivalent_representatives_are_one_value() {
     // p ≡ 0, p + 1 ≡ 1, 2^31 ≡ 1, 2^32 − 1 ≡ 1 (mod p).
     let p = mersenne31::MODULUS;
-    assert_same_value(mersenne31::Elem::from_raw(p), mersenne31::Elem::ZERO);
-    assert_same_value(mersenne31::Elem::from_raw(p + 1), mersenne31::Elem::ONE);
+    assert_same_value(Elem::<Mersenne31>::from_raw(p), Elem::<Mersenne31>::ZERO);
+    assert_same_value(Elem::<Mersenne31>::from_raw(p + 1), Elem::<Mersenne31>::ONE);
     assert_same_value(
-        mersenne31::Elem::from_raw(0x8000_0000),
-        mersenne31::Elem::ONE,
+        Elem::<Mersenne31>::from_raw(0x8000_0000),
+        Elem::<Mersenne31>::ONE,
     );
     assert_same_value(
-        mersenne31::Elem::from_raw(0xFFFF_FFFF),
-        mersenne31::Elem::ONE,
+        Elem::<Mersenne31>::from_raw(0xFFFF_FFFF),
+        Elem::<Mersenne31>::ONE,
     );
     // Ordering is canonical-value order: p (zero) sorts below one, and a
     // raw-bit order would place it far above.
-    assert!(mersenne31::Elem::from_raw(p) < mersenne31::Elem::ONE);
+    assert!(Elem::<Mersenne31>::from_raw(p) < Elem::<Mersenne31>::ONE);
     let mut mixed = [
-        mersenne31::Elem::from_raw(p + 2), // ≡ 2
-        mersenne31::Elem::ZERO,
-        mersenne31::Elem::ONE,
-        mersenne31::Elem::from_raw(3),
+        Elem::<Mersenne31>::from_raw(p + 2), // ≡ 2
+        Elem::<Mersenne31>::ZERO,
+        Elem::<Mersenne31>::ONE,
+        Elem::<Mersenne31>::from_raw(3),
     ];
     mixed.sort();
     assert_eq!(
         mixed,
         [
-            mersenne31::Elem::ZERO,
-            mersenne31::Elem::ONE,
-            mersenne31::Elem::from_raw(2),
-            mersenne31::Elem::from_raw(3),
+            Elem::<Mersenne31>::ZERO,
+            Elem::<Mersenne31>::ONE,
+            Elem::<Mersenne31>::from_raw(2),
+            Elem::<Mersenne31>::from_raw(3),
         ]
     );
 }
@@ -2058,28 +2204,28 @@ fn m31_equivalent_representatives_are_one_value() {
 #[test]
 fn goldilocks_equivalent_representatives_are_one_value() {
     let p = goldilocks::MODULUS;
-    assert_same_value(goldilocks::Elem::from_raw(p), goldilocks::Elem::ZERO);
-    assert_same_value(goldilocks::Elem::from_raw(p + 1), goldilocks::Elem::ONE);
+    assert_same_value(Elem::<Goldilocks>::from_raw(p), Elem::<Goldilocks>::ZERO);
+    assert_same_value(Elem::<Goldilocks>::from_raw(p + 1), Elem::<Goldilocks>::ONE);
     // u64::MAX = p + 2^32 − 2, pinned by the `canonical` known answer.
     assert_same_value(
-        goldilocks::Elem::from_raw(u64::MAX),
-        goldilocks::Elem::from_raw(0xFFFF_FFFE),
+        Elem::<Goldilocks>::from_raw(u64::MAX),
+        Elem::<Goldilocks>::from_raw(0xFFFF_FFFE),
     );
-    assert!(goldilocks::Elem::from_raw(p) < goldilocks::Elem::ONE);
+    assert!(Elem::<Goldilocks>::from_raw(p) < Elem::<Goldilocks>::ONE);
     let mut mixed = [
-        goldilocks::Elem::from_raw(p + 2), // ≡ 2
-        goldilocks::Elem::ZERO,
-        goldilocks::Elem::ONE,
-        goldilocks::Elem::from_raw(3),
+        Elem::<Goldilocks>::from_raw(p + 2), // ≡ 2
+        Elem::<Goldilocks>::ZERO,
+        Elem::<Goldilocks>::ONE,
+        Elem::<Goldilocks>::from_raw(3),
     ];
     mixed.sort();
     assert_eq!(
         mixed,
         [
-            goldilocks::Elem::ZERO,
-            goldilocks::Elem::ONE,
-            goldilocks::Elem::from_raw(2),
-            goldilocks::Elem::from_raw(3),
+            Elem::<Goldilocks>::ZERO,
+            Elem::<Goldilocks>::ONE,
+            Elem::<Goldilocks>::from_raw(2),
+            Elem::<Goldilocks>::from_raw(3),
         ]
     );
 }
@@ -2089,40 +2235,43 @@ fn qm31_equivalent_representatives_are_one_value() {
     let p = quad_mersenne31::MODULUS;
     // Each limb canonicalizes independently: p ≡ 0, 2^31 ≡ 1.
     assert_same_value(
-        quad_mersenne31::Elem::from_raw(p, 0),
-        quad_mersenne31::Elem::ZERO,
+        Elem::<QuadMersenne31>::from_raw(p, 0),
+        Elem::<QuadMersenne31>::ZERO,
     );
     assert_same_value(
-        quad_mersenne31::Elem::from_raw(0x8000_0000, 0x8000_0000),
-        quad_mersenne31::Elem::from_raw(1, 1),
+        Elem::<QuadMersenne31>::from_raw(0x8000_0000, 0x8000_0000),
+        Elem::<QuadMersenne31>::from_raw(1, 1),
     );
     // Mixed limbs: one canonical, the other not.
     assert_same_value(
-        quad_mersenne31::Elem::from_raw(1, p + 5),
-        quad_mersenne31::Elem::from_raw(1, 5),
+        Elem::<QuadMersenne31>::from_raw(1, p + 5),
+        Elem::<QuadMersenne31>::from_raw(1, 5),
     );
     assert_same_value(
-        quad_mersenne31::Elem::from_raw(0xFFFF_FFFF, 2),
-        quad_mersenne31::Elem::from_raw(1, 2),
+        Elem::<QuadMersenne31>::from_raw(0xFFFF_FFFF, 2),
+        Elem::<QuadMersenne31>::from_raw(1, 2),
     );
     // Lexicographic order over canonical limbs: raw-bit order would place
     // from_raw(p, 1) above ONE.
-    let i = quad_mersenne31::Elem::I;
-    assert!(quad_mersenne31::Elem::ZERO < i);
-    assert!(i < quad_mersenne31::Elem::ONE);
-    assert!(quad_mersenne31::Elem::ONE < quad_mersenne31::Elem::ONE.add(i));
-    assert_eq!(quad_mersenne31::Elem::from_raw(p, 1), i);
-    assert!(quad_mersenne31::Elem::from_raw(p, 1) < quad_mersenne31::Elem::ONE);
+    let i = Elem::<QuadMersenne31>::I;
+    assert!(Elem::<QuadMersenne31>::ZERO < i);
+    assert!(i < Elem::<QuadMersenne31>::ONE);
+    assert!(Elem::<QuadMersenne31>::ONE < Elem::<QuadMersenne31>::ONE.add(i));
+    assert_eq!(Elem::<QuadMersenne31>::from_raw(p, 1), i);
+    assert!(Elem::<QuadMersenne31>::from_raw(p, 1) < Elem::<QuadMersenne31>::ONE);
 }
 
 #[test]
 fn gf1_masked_inputs_are_one_value() {
     // `from_raw` masks to the low bit, and equality/hash/order follow that
     // bit, so masked high bits never split one field value.
-    assert_same_value(gf1::Elem::from_raw(0x02), gf1::Elem::ZERO);
-    assert_same_value(gf1::Elem::from_raw(0xFD), gf1::Elem::ONE);
-    assert!(gf1::Elem::ZERO < gf1::Elem::ONE);
-    let mut bits = [gf1::Elem::from_raw(0x80), gf1::Elem::from_raw(3)];
+    assert_same_value(Elem::<gf1::Gf1>::from_raw(0x02), Elem::<gf1::Gf1>::ZERO);
+    assert_same_value(Elem::<gf1::Gf1>::from_raw(0xFD), Elem::<gf1::Gf1>::ONE);
+    assert!(Elem::<gf1::Gf1>::ZERO < Elem::<gf1::Gf1>::ONE);
+    let mut bits = [
+        Elem::<gf1::Gf1>::from_raw(0x80),
+        Elem::<gf1::Gf1>::from_raw(3),
+    ];
     bits.sort();
-    assert_eq!(bits, [gf1::Elem::ZERO, gf1::Elem::ONE]);
+    assert_eq!(bits, [Elem::<gf1::Gf1>::ZERO, Elem::<gf1::Gf1>::ONE]);
 }

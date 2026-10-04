@@ -23,7 +23,7 @@
 //! single-row scaling. Their blocked and elementwise routes serve only
 //! AES-native representations; the others compose the single-row kernels.
 
-use crate::field::{Elem, Gf8};
+use crate::field::{Elem, Gf, Gf8};
 use crate::kernel::tables::{ByteBanks, ScaleTable};
 use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, scalar};
 
@@ -91,7 +91,7 @@ impl Prepared {
     #[allow(private_bounds)]
     #[inline]
     #[must_use]
-    pub fn new<R: ByteBanks>(coeff: Elem<8, R>) -> Self {
+    pub fn new<R: ByteBanks>(coeff: Elem<Gf<8, R>>) -> Self {
         let raw = coeff.to_raw() as usize;
         Self {
             table: &R::SCALE[raw],
@@ -247,7 +247,7 @@ impl<const N: usize> Coeffs for [Prepared; N] {
         target_arch = "wasm32"
     )
 ))]
-struct Resolved<'a, R: ByteBanks>(&'a [Elem<8, R>]);
+struct Resolved<'a, R: ByteBanks>(&'a [Elem<Gf<8, R>>]);
 
 #[cfg(all(
     feature = "simd",
@@ -303,7 +303,11 @@ impl<R: ByteBanks> Coeffs for Resolved<'_, R> {
         target_arch = "wasm32"
     )
 ))]
-struct TermsResolved<'a, R: ByteBanks>(&'a [(&'a [Elem<8, R>], &'a [u8])]);
+// The unified element spelling nests over the term geometry here.
+// Term slices stay slices so the dispatch layer serves raw-coefficient
+// operations without allocating.
+#[allow(clippy::type_complexity)]
+struct TermsResolved<'a, R: ByteBanks>(&'a [(&'a [Elem<Gf<8, R>>], &'a [u8])]);
 
 #[cfg(all(
     feature = "simd",
@@ -335,7 +339,7 @@ impl<R: ByteBanks> crate::kernel::Matrix<Prepared> for TermsResolved<'_, R> {
 /// prepared coefficients, resolved on access.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 struct FlatResolved<'a, R: ByteBanks> {
-    values: &'a [Elem<8, R>],
+    values: &'a [Elem<Gf<8, R>>],
     nrows: usize,
     sources: &'a [&'a [u8]],
 }
@@ -383,13 +387,13 @@ impl<R: ByteBanks> KernelDispatch for Gf8<R> {
     type Prepared = Prepared;
 
     #[inline]
-    fn prepare(_proof: RawDispatch, coeff: Elem<8, R>) -> Self::Prepared {
+    fn prepare(_proof: RawDispatch, coeff: Elem<Gf<8, R>>) -> Self::Prepared {
         Prepared::new(coeff)
     }
 
     #[inline]
-    fn prepared_coeff(_proof: RawDispatch, prepared: &Self::Prepared) -> Elem<8, R> {
-        <Elem<8, R>>::from_raw(prepared.table.coeff)
+    fn prepared_coeff(_proof: RawDispatch, prepared: &Self::Prepared) -> Elem<Gf<8, R>> {
+        <Elem<Gf<8, R>>>::from_raw(prepared.table.coeff)
     }
 
     #[inline]
@@ -571,7 +575,7 @@ impl<R: ByteBanks> KernelDispatch for Gf8<R> {
         _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
-        coeffs: &[Elem<8, R>],
+        coeffs: &[Elem<Gf<8, R>>],
         src: &[u8],
     ) {
         match Self::backend() {
@@ -654,7 +658,7 @@ impl<R: ByteBanks> KernelDispatch for Gf8<R> {
         _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
-        values: &[Elem<8, R>],
+        values: &[Elem<Gf<8, R>>],
         coeffs: &[Self::Prepared],
         src: &[u8],
     ) {
@@ -674,7 +678,12 @@ impl<R: ByteBanks> KernelDispatch for Gf8<R> {
         Self::mul_add_scatter(RawDispatch, rows, row_len, values, src);
     }
 
-    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem<8, R>], srcs: &[&[u8]]) {
+    fn mul_add_gather(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Elem<Gf<8, R>>],
+        srcs: &[&[u8]],
+    ) {
         match Self::backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
             Backend::V4x => {
@@ -748,7 +757,7 @@ impl<R: ByteBanks> KernelDispatch for Gf8<R> {
     fn mul_add_gather_plan(
         _proof: RawDispatch,
         dst: &mut [u8],
-        values: &[Elem<8, R>],
+        values: &[Elem<Gf<8, R>>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -767,7 +776,12 @@ impl<R: ByteBanks> KernelDispatch for Gf8<R> {
         Self::mul_add_gather(RawDispatch, dst, values, srcs);
     }
 
-    fn mul_into_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem<8, R>], srcs: &[&[u8]]) {
+    fn mul_into_gather(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Elem<Gf<8, R>>],
+        srcs: &[&[u8]],
+    ) {
         // One destination pass instead of the fill-then-accumulate pair: the
         // one-row overwrite matrix holds the tile in registers from zero.
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -820,7 +834,7 @@ impl<R: ByteBanks> KernelDispatch for Gf8<R> {
     fn mul_into_gather_plan(
         _proof: RawDispatch,
         dst: &mut [u8],
-        values: &[Elem<8, R>],
+        values: &[Elem<Gf<8, R>>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -871,7 +885,7 @@ impl<R: ByteBanks> KernelDispatch for Gf8<R> {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        terms: &[(&[Elem<8, R>], &[u8])],
+        terms: &[(&[Elem<Gf<8, R>>], &[u8])],
     ) {
         match Self::backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -961,7 +975,7 @@ impl<R: ByteBanks> KernelDispatch for Gf8<R> {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        values: &[Elem<8, R>],
+        values: &[Elem<Gf<8, R>>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -1048,7 +1062,7 @@ impl<R: ByteBanks> KernelDispatch for Gf8<R> {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        terms: &[(&[Elem<8, R>], &[u8])],
+        terms: &[(&[Elem<Gf<8, R>>], &[u8])],
     ) {
         // Overwrite seeds accumulators from zero in registers: one write pass,
         // no destination read, no separate fill.
@@ -1093,7 +1107,7 @@ impl<R: ByteBanks> KernelDispatch for Gf8<R> {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        values: &[Elem<8, R>],
+        values: &[Elem<Gf<8, R>>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -1147,7 +1161,7 @@ impl<R: ByteBanks> KernelDispatch for Gf8<R> {
         dst: &mut [u8],
         row_len: usize,
         row_starts: &[usize],
-        terms: &[(&[Elem<8, R>], &[u8])],
+        terms: &[(&[Elem<Gf<8, R>>], &[u8])],
     ) {
         match Self::backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]

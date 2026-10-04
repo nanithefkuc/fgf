@@ -27,7 +27,7 @@
 //! counterpart. What *is* prepared is geometry: a [`XorRange`] derives a
 //! bit range's window and masks once for [`xor_range_with`] to apply to
 //! many buffer pairs. The scalar oracle for this surface is
-//! [`crate::gf1::Elem`].
+//! [`Elem`] over [`Gf1`].
 //!
 //! ```
 //! use fgf::bits;
@@ -49,7 +49,8 @@
 //! assert_eq!(bits::weight(&a, 7), 2);
 //! ```
 
-use crate::field::gf1;
+use crate::field::Elem;
+use crate::field::gf1::Gf1;
 use crate::kernel;
 
 /// Number of bytes needed to hold `bits` packed elements.
@@ -275,7 +276,7 @@ pub fn weight(buf: &[u8], bits: usize) -> usize {
 /// The GF(2) inner product of two packed vectors: the parity of
 /// `popcount(a & b)` over the live bits.
 ///
-/// Returned as a [`gf1::Elem`]; use
+/// Returned as an [`Elem`] over [`Gf1`]; use
 /// [`is_one`](crate::field::FieldElem::is_one) to test it. Padding bits
 /// contribute nothing.
 ///
@@ -283,11 +284,11 @@ pub fn weight(buf: &[u8], bits: usize) -> usize {
 /// Panics if the slices differ in length or are shorter than
 /// [`bytes_for`]`(bits)`.
 #[must_use]
-pub fn dot_product(a: &[u8], b: &[u8], bits: usize) -> gf1::Elem {
+pub fn dot_product(a: &[u8], b: &[u8], bits: usize) -> Elem<Gf1> {
     check_pair("bits::dot_product", "a", a.len(), "b", b.len());
     check_holds("bits::dot_product", "a", a.len(), bits);
     #[allow(clippy::cast_possible_truncation)] // parity is exactly 0 or 1
-    gf1::Elem::from_raw(kernel::gf1::parity(a, b, bits) as u8)
+    Elem::<Gf1>::from_raw(kernel::gf1::parity(a, b, bits) as u8)
 }
 
 /// `dst ^= srcs[i]` for every set bit `i` of `selector`: the combination

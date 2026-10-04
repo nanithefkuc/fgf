@@ -9,7 +9,8 @@
 //! geometry.
 
 use super::{EPS, P, PM1};
-use crate::field::goldilocks::{self, Goldilocks};
+use crate::field::Elem;
+use crate::field::goldilocks::Goldilocks;
 use crate::kernel::proven_checks::{check_elem_multiple, check_equal};
 use crate::kernel::{prime, scalar};
 
@@ -183,7 +184,11 @@ pub fn sub_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8])
     prime::sub_assign::<Goldilocks>(dst_tail, src_tail);
 }
 
-/// `dst += coeff * src (mod p)`, Goldilocks, AVX2. `coeff` must be canonical.
+/// `dst += coeff * src (mod p)`, Goldilocks, AVX2.
+///
+/// A zero coefficient leaves `dst` untouched, mirroring the portable
+/// reference. Every other lane is canonicalized on load, so every input
+/// lane bit pattern is legal and every stored lane is canonical.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial lane.
@@ -198,10 +203,23 @@ pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u64, sr
         src.len(),
     );
     check_elem_multiple("goldilocks::mul_add_avx2", dst.len(), 8);
+    // Reduce the raw word once; the zero check runs on the value, matching
+    // the portable reference.
+    let c = {
+        let modulus = crate::field::goldilocks::MODULUS;
+        if coeff >= modulus {
+            coeff - modulus
+        } else {
+            coeff
+        }
+    };
+    if c == 0 {
+        return;
+    }
     let eps = _mm256_set1_epi64x(EPS);
     let sign = _mm256_set1_epi64x(SIGN);
     let sp_c = _mm256_set1_epi64x(SHIFTED_P);
-    let cvec = _mm256_set1_epi64x(coeff as i64);
+    let cvec = _mm256_set1_epi64x(c as i64);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
@@ -228,7 +246,7 @@ pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u64, sr
         );
         _mm256_storeu_si256(dst_lane, res);
     }
-    prime::mul_add::<Goldilocks>(dst_tail, goldilocks::Elem(coeff), src_tail);
+    prime::mul_add::<Goldilocks>(dst_tail, Elem::<Goldilocks>::from_raw(coeff), src_tail);
 }
 
 /// `dst *= coeff (mod p)`, Goldilocks, AVX2. `coeff` must be canonical.
@@ -239,10 +257,23 @@ pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u64, sr
 #[archmage::arcane(import_intrinsics)]
 pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u64) {
     check_elem_multiple("goldilocks::mul_assign_avx2", dst.len(), 8);
+    // Reduce the raw word once; the unit check runs on the value, matching
+    // the portable reference.
+    let c = {
+        let modulus = crate::field::goldilocks::MODULUS;
+        if coeff >= modulus {
+            coeff - modulus
+        } else {
+            coeff
+        }
+    };
+    if c == 1 {
+        return;
+    }
     let eps = _mm256_set1_epi64x(EPS);
     let sign = _mm256_set1_epi64x(SIGN);
     let sp_c = _mm256_set1_epi64x(SHIFTED_P);
-    let cvec = _mm256_set1_epi64x(coeff as i64);
+    let cvec = _mm256_set1_epi64x(c as i64);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     for dst_lane in dst_lanes {
         let (hi, lo) = mul_wide(cvec, _mm256_loadu_si256(&*dst_lane));
@@ -254,7 +285,7 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u64)
         );
         _mm256_storeu_si256(dst_lane, res);
     }
-    prime::mul_assign::<Goldilocks>(dst_tail, goldilocks::Elem(coeff));
+    prime::mul_assign::<Goldilocks>(dst_tail, Elem::<Goldilocks>::from_raw(coeff));
 }
 
 /// `dst[i] = a[i] * b[i] (mod p)`, Goldilocks, AVX2.
@@ -330,8 +361,8 @@ pub fn mul_into_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u64, s
     }
     // Scalar tail.
     for (d, s) in dst_tail.chunks_exact_mut(8).zip(src_tail.chunks_exact(8)) {
-        let v =
-            goldilocks::Elem(coeff) * goldilocks::Elem(u64::from_le_bytes(s.try_into().unwrap()));
+        let v = Elem::<Goldilocks>::from_raw(coeff)
+            * Elem::<Goldilocks>::from_raw(u64::from_le_bytes(s.try_into().unwrap()));
         d.copy_from_slice(&v.to_raw().to_le_bytes());
     }
 }
@@ -385,13 +416,13 @@ pub fn add_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], valu
     let pm1 = _mm256_set1_epi64x(PM1);
     let eps = _mm256_set1_epi64x(EPS);
     // The broadcast value is loop-invariant: canonicalize the raw word once.
-    let svec = _mm256_set1_epi64x(goldilocks::Elem(value).canonical().to_raw().cast_signed());
+    let svec = _mm256_set1_epi64x(Elem::<Goldilocks>::from_raw(value).to_raw().cast_signed());
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     for dst_lane in dst_lanes {
         let d = canon(_mm256_loadu_si256(&*dst_lane), pcst, pm1);
         _mm256_storeu_si256(dst_lane, addmod(d, svec, pcst, pm1, eps));
     }
-    prime::add_assign_scalar::<Goldilocks>(dst_tail, goldilocks::Elem(value));
+    prime::add_assign_scalar::<Goldilocks>(dst_tail, Elem::<Goldilocks>::from_raw(value));
 }
 
 /// `dst[i] -= value (mod p)`, Goldilocks, AVX2. The raw `value` word is
@@ -409,11 +440,11 @@ pub fn sub_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], valu
     let pcst = _mm256_set1_epi64x(P);
     let pm1 = _mm256_set1_epi64x(PM1);
     let eps = _mm256_set1_epi64x(EPS);
-    let svec = _mm256_set1_epi64x(goldilocks::Elem(value).canonical().to_raw().cast_signed());
+    let svec = _mm256_set1_epi64x(Elem::<Goldilocks>::from_raw(value).to_raw().cast_signed());
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     for dst_lane in dst_lanes {
         let d = canon(_mm256_loadu_si256(&*dst_lane), pcst, pm1);
         _mm256_storeu_si256(dst_lane, submod(d, svec, pcst, eps));
     }
-    prime::sub_assign_scalar::<Goldilocks>(dst_tail, goldilocks::Elem(value));
+    prime::sub_assign_scalar::<Goldilocks>(dst_tail, Elem::<Goldilocks>::from_raw(value));
 }

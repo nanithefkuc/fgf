@@ -190,7 +190,7 @@ macro_rules! define_fan_paar_level {
         pub mod $module {
             use core::fmt;
 
-            use crate::field::{Field, FieldElem as ElemTrait};
+            use crate::field::{Field, FieldBuffer, HasGenerator, PrimeCharacteristic};
 
             #[doc = $field_doc]
             #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
@@ -198,12 +198,11 @@ macro_rules! define_fan_paar_level {
 
             #[doc = $elem_doc]
             #[doc = ""]
-            #[doc = "Every bit pattern is a distinct field value, so the derived"]
+            #[doc = "Every bit pattern is a distinct field value, so the"]
             #[doc = "`Ord` — raw-bit order — compares field values. It is a deterministic"]
             #[doc = "total order for map keys and sorting; no order compatible with"]
             #[doc = "addition exists in characteristic two."]
-            #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-            pub struct Elem(pub(crate) $raw);
+            pub type Elem = crate::field::Elem<$field>;
 
             /// This level's tower generator `X`: the basis element of the high
             /// half, and the constant [`Elem::mul_alpha`] multiplies by.
@@ -211,53 +210,46 @@ macro_rules! define_fan_paar_level {
             /// With `alpha` the tower generator of the half-width subfield,
             /// `X^2 + alpha*X + 1 = 0`. It is *not* a primitive element; see
             /// [`GENERATOR`] for that.
-            pub const ALPHA: Elem = Elem(1 << ($bits / 2));
+            pub const ALPHA: Elem = Elem { raw: 1 << ($bits / 2) };
 
             /// A generator of the multiplicative group of this level.
-            pub const GENERATOR: Elem = Elem($generator);
+            pub const GENERATOR: Elem = Elem::GENERATOR;
 
-            impl Elem {
-                /// The additive identity.
-                pub const ZERO: Self = Self(0);
-                /// The multiplicative identity.
-                pub const ONE: Self = Self(1);
-
+            impl crate::field::Elem<$field> {
                 /// Decode from the canonical little-endian tower representation.
                 #[inline]
                 #[must_use]
                 pub const fn from_bytes(bytes: [u8; $bytes]) -> Self {
-                    Self(<$raw>::from_le_bytes(bytes))
+                    Self {
+                        raw: <$raw>::from_le_bytes(bytes),
+                    }
                 }
 
                 /// Encode to the canonical little-endian tower representation.
                 #[inline]
                 #[must_use]
                 pub const fn to_bytes(self) -> [u8; $bytes] {
-                    self.0.to_le_bytes()
+                    self.raw.to_le_bytes()
                 }
 
                 /// Wrap raw canonical tower-basis bits.
                 #[inline]
                 #[must_use]
                 pub const fn from_raw(value: $raw) -> Self {
-                    Self(value)
-                }
-
-                /// Return the raw canonical tower-basis bits.
-                #[inline]
-                #[must_use]
-                pub const fn to_raw(self) -> $raw {
-                    self.0
+                    let () = crate::field::Validate::<$field>::OK;
+                    Self { raw: value }
                 }
 
                 /// Field addition: component-wise XOR.
                 #[inline]
                 #[must_use]
                 pub const fn add(self, rhs: Self) -> Self {
-                    Self(self.0 ^ rhs.0)
+                    Self {
+                        raw: self.raw ^ rhs.raw,
+                    }
                 }
 
-                /// Field subtraction. Identical to [`Self::add`].
+                /// Field subtraction. Identical to addition.
                 #[inline]
                 #[must_use]
                 pub const fn sub(self, rhs: Self) -> Self {
@@ -274,29 +266,43 @@ macro_rules! define_fan_paar_level {
                 /// Recursive Karatsuba multiplication in the Wiedemann tower.
                 #[inline]
                 #[must_use]
+                // Widening a raw lane to the tower word is exact; `const`
+                // rules out `u64::from`.
+                #[allow(clippy::cast_lossless)]
                 pub const fn mul(self, rhs: Self) -> Self {
-                    Self(super::multiply(self.0 as u64, rhs.0 as u64, $bits) as $raw)
+                    Self {
+                        raw: super::multiply(self.raw as u64, rhs.raw as u64, $bits) as $raw,
+                    }
                 }
 
                 /// Square through the linear Wiedemann recurrence.
                 #[inline]
                 #[must_use]
+                #[allow(clippy::cast_lossless)]
                 pub const fn square(self) -> Self {
-                    Self(super::square(self.0 as u64, $bits) as $raw)
+                    Self {
+                        raw: super::square(self.raw as u64, $bits) as $raw,
+                    }
                 }
 
                 /// Multiply by [`ALPHA`], this field's top-level tower generator.
                 #[inline]
                 #[must_use]
+                #[allow(clippy::cast_lossless)]
                 pub const fn mul_alpha(self) -> Self {
-                    Self(super::mul_alpha(self.0 as u64, $bits) as $raw)
+                    Self {
+                        raw: super::mul_alpha(self.raw as u64, $bits) as $raw,
+                    }
                 }
 
                 /// Multiplicative inverse. Maps zero to zero by convention.
                 #[inline]
                 #[must_use]
+                #[allow(clippy::cast_lossless)]
                 pub const fn inv(self) -> Self {
-                    Self(super::invert(self.0 as u64, $bits) as $raw)
+                    Self {
+                        raw: super::invert(self.raw as u64, $bits) as $raw,
+                    }
                 }
 
                 /// Field division. Returns zero when either operand is zero.
@@ -308,7 +314,7 @@ macro_rules! define_fan_paar_level {
                 /// debug builds and silence in release ones.
                 #[must_use]
                 pub const fn div(self, rhs: Self) -> Self {
-                    if self.0 == 0 || rhs.0 == 0 {
+                    if self.raw == 0 || rhs.raw == 0 {
                         return Self::ZERO;
                     }
                     self.mul(rhs.inv())
@@ -316,7 +322,7 @@ macro_rules! define_fan_paar_level {
 
                 /// Raise to an unsigned integer power.
                 #[must_use]
-                pub const fn pow(self, mut exponent: u64) -> Self {
+                pub const fn pow(self, mut exponent: u128) -> Self {
                     let mut base = self;
                     let mut result = Self::ONE;
                     while exponent != 0 {
@@ -331,12 +337,14 @@ macro_rules! define_fan_paar_level {
             }
 
             $(
-                impl Elem {
+                impl crate::field::Elem<$field> {
                     /// Construct `a + b*ALPHA` from its two subfield components.
                     #[inline]
                     #[must_use]
                     pub const fn from_components(a: $base, b: $base) -> Self {
-                        Self((a.0 as $raw) | ((b.0 as $raw) << ($bits / 2)))
+                        Self {
+                            raw: (a.to_raw() as $raw) | ((b.to_raw() as $raw) << ($bits / 2)),
+                        }
                     }
 
                     /// Return the `(a, b)` components of `a + b*ALPHA`.
@@ -348,59 +356,67 @@ macro_rules! define_fan_paar_level {
                     #[allow(clippy::cast_possible_truncation)]
                     pub const fn to_components(self) -> ($base, $base) {
                         (
-                            <$base>::from_raw(self.0 as $base_raw),
-                            <$base>::from_raw((self.0 >> ($bits / 2)) as $base_raw),
+                            <$base>::from_raw(self.raw as $base_raw),
+                            <$base>::from_raw((self.raw >> ($bits / 2)) as $base_raw),
                         )
                     }
                 }
             )?
 
-            impl ElemTrait for Elem {
-                const ZERO: Self = Self::ZERO;
-                const ONE: Self = Self::ONE;
+            impl Field for $field {
+                type Raw = $raw;
+                type Characteristic = PrimeCharacteristic<2>;
+
+                const NAME: &'static str = $field_name;
+                const DEGREE: u32 = $bits;
+                const ORDER: u128 = 1u128 << $bits;
+                const ZERO_RAW: $raw = 0;
+                const ONE_RAW: $raw = 1;
+                const VALID: () = ();
 
                 #[inline]
-                fn add(self, rhs: Self) -> Self {
-                    Elem::add(self, rhs)
+                fn canonical_raw(raw: $raw) -> $raw {
+                    raw
                 }
+
                 #[inline]
-                fn sub(self, rhs: Self) -> Self {
-                    Elem::sub(self, rhs)
+                fn add_raw(left: $raw, right: $raw) -> $raw {
+                    left ^ right
                 }
+
                 #[inline]
-                fn mul(self, rhs: Self) -> Self {
-                    Elem::mul(self, rhs)
+                fn sub_raw(left: $raw, right: $raw) -> $raw {
+                    left ^ right
                 }
+
                 #[inline]
-                fn square(self) -> Self {
-                    Elem::square(self)
+                fn neg_raw(value: $raw) -> $raw {
+                    value
                 }
+
                 #[inline]
-                fn inv(self) -> Self {
-                    Elem::inv(self)
+                #[allow(clippy::cast_lossless)]
+                fn mul_raw(left: $raw, right: $raw) -> $raw {
+                    super::multiply(left as u64, right as u64, $bits) as $raw
                 }
+
                 #[inline]
-                fn div(self, rhs: Self) -> Self {
-                    Elem::div(self, rhs)
-                }
-                #[inline]
-                fn pow(self, exponent: u64) -> Self {
-                    Elem::pow(self, exponent)
+                #[allow(clippy::cast_lossless)]
+                fn inv_raw(value: $raw) -> $raw {
+                    super::invert(value as u64, $bits) as $raw
                 }
             }
 
-            impl Field for $field {
-                type Elem = Elem;
+            impl HasGenerator for $field {
+                const GENERATOR_RAW: $raw = $generator;
+            }
 
-                const NAME: &'static str = $field_name;
-                const BITS: u32 = $bits;
+            impl FieldBuffer for $field {
                 const BYTES: usize = $bytes;
-                const ORDER: u128 = 1u128 << $bits;
-                const CHARACTERISTIC: u64 = 2;
-                const GENERATOR: Self::Elem = GENERATOR;
+                const STORAGE_BITS: u32 = $bits;
 
                 #[inline]
-                fn decode(bytes: &[u8]) -> Self::Elem {
+                fn decode(bytes: &[u8]) -> Elem {
                     let bytes: [u8; $bytes] = bytes
                         .try_into()
                         .expect("Fan-Paar element has the wrong byte width");
@@ -408,7 +424,7 @@ macro_rules! define_fan_paar_level {
                 }
 
                 #[inline]
-                fn encode(bytes: &mut [u8], value: Self::Elem) {
+                fn encode(bytes: &mut [u8], value: Elem) {
                     assert_eq!(
                         bytes.len(),
                         $bytes,
@@ -418,117 +434,9 @@ macro_rules! define_fan_paar_level {
                 }
             }
 
-            impl fmt::Debug for Elem {
-                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                    write!(
-                        f,
-                        concat!(stringify!($field), "({:#0width$x})"),
-                        self.0,
-                        // Two hex digits per byte, plus the `0x` the `#` emits.
-                        width = 2 * $bytes + 2
-                    )
-                }
-            }
-
             impl fmt::Display for Elem {
                 fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                    write!(f, "{:0width$x}", self.0, width = 2 * $bytes)
-                }
-            }
-
-            impl core::ops::Add for Elem {
-                type Output = Self;
-                #[inline]
-                fn add(self, rhs: Self) -> Self {
-                    Elem::add(self, rhs)
-                }
-            }
-
-            impl core::ops::Sub for Elem {
-                type Output = Self;
-                #[inline]
-                fn sub(self, rhs: Self) -> Self {
-                    Elem::sub(self, rhs)
-                }
-            }
-
-            impl core::ops::Neg for Elem {
-                type Output = Self;
-                #[inline]
-                fn neg(self) -> Self {
-                    Elem::neg(self)
-                }
-            }
-
-            impl core::ops::Mul for Elem {
-                type Output = Self;
-                #[inline]
-                fn mul(self, rhs: Self) -> Self {
-                    Elem::mul(self, rhs)
-                }
-            }
-
-            impl core::ops::Div for Elem {
-                type Output = Self;
-                #[inline]
-                fn div(self, rhs: Self) -> Self {
-                    Elem::div(self, rhs)
-                }
-            }
-
-            impl core::ops::AddAssign for Elem {
-                #[inline]
-                fn add_assign(&mut self, rhs: Self) {
-                    *self = Elem::add(*self, rhs);
-                }
-            }
-
-            impl core::ops::SubAssign for Elem {
-                #[inline]
-                fn sub_assign(&mut self, rhs: Self) {
-                    *self = Elem::sub(*self, rhs);
-                }
-            }
-
-            impl core::ops::MulAssign for Elem {
-                #[inline]
-                fn mul_assign(&mut self, rhs: Self) {
-                    *self = Elem::mul(*self, rhs);
-                }
-            }
-
-            impl core::ops::DivAssign for Elem {
-                #[inline]
-                fn div_assign(&mut self, rhs: Self) {
-                    *self = Elem::div(*self, rhs);
-                }
-            }
-
-            impl core::iter::Sum for Elem {
-                #[inline]
-                fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-                    iter.fold(Self::ZERO, Elem::add)
-                }
-            }
-
-            impl<'a> core::iter::Sum<&'a Elem> for Elem {
-                #[inline]
-                fn sum<I: Iterator<Item = &'a Elem>>(iter: I) -> Self {
-                    iter.fold(Self::ZERO, |acc, &x| Elem::add(acc, x))
-                }
-            }
-
-            impl core::iter::Product for Elem {
-                #[inline]
-                fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
-                    iter.fold(Self::ONE, Elem::mul)
-                }
-            }
-
-            impl<'a> core::iter::Product<&'a Elem> for Elem {
-                #[inline]
-                fn product<I: Iterator<Item = &'a Elem>>(iter: I) -> Self {
-                    iter.fold(Self::ONE, |acc, &x| Elem::mul(acc, x))
+                    write!(f, "{:0width$x}", self.raw, width = 2 * $bytes)
                 }
             }
         }

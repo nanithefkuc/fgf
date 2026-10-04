@@ -17,8 +17,68 @@ All notable changes to this project are documented here. The format follows
   The harness validates basis maps and region outputs against independent
   arithmetic, includes duplicate-operation controls, and reports unavailable
   primitives separately. `bench-gf-comp` includes the same harness.
+- Direct prime-kernel differentials feeding non-canonical lanes
+  (`prime_entries_canonicalize_noncanonical_lanes`,
+  `qm31_entries_canonicalize_noncanonical_lanes`): every result-writing
+  x86 entry, called directly at lane-straddling lengths, must match the
+  portable prime reference and emit canonical lanes.
 
 ### Changed
+
+- **Breaking:** one element wrapper, `Elem<F>`, replaces every concrete
+  element path. `mersenne31::Elem`, `goldilocks::Elem`,
+  `quad_mersenne31::Elem`, `Elem<N, R>`, the `gf16`/`gf32`/`gf64` and
+  Fan–Paar element structs, and the `gf1` `Elem` alias are removed. Spell
+  elements as `Elem<Mersenne31>`, `Elem<Goldilocks>`,
+  `Elem<QuadMersenne31>`, `Elem<Gf<8, Poly<AES>>>`, `Elem<Gf16>`, or
+  `Elem<FanPaar16>`; the `gf16::Elem`, `gf32::Elem`, `gf64::Elem`, and
+  `fp*::Elem` aliases remain as spellings of those types, as do the
+  `gf16::GENERATOR`, `gf32::GENERATOR`, `gf64::GENERATOR`, and
+  `fp*::GENERATOR` constants. The prime `GENERATOR` constants and
+  `gf1::GENERATOR` are removed in favour of `Elem::<F>::GENERATOR`.
+  Inherent `const` arithmetic moves onto the `Elem<Marker>` types; `ZERO`,
+  `ONE`, `GENERATOR`, and `to_raw` are the generic items and are not
+  redeclared per family. `Debug` for every element is the generic
+  `NAME(raw)` format; the family-specific hex formats are removed
+  (`Display` keeps its per-family form).
+- **Breaking:** `Field` is split. `Field` keeps scalar algebra and metadata
+  (`Raw`, `Characteristic`, `NAME`, `DEGREE`, `ORDER`, `ZERO_RAW`,
+  `ONE_RAW`, `VALID`, raw arithmetic); the byte encoding (`BYTES`,
+  `STORAGE_BITS`, `decode`, `encode`) moves to the new `FieldBuffer`, and
+  the selected generator (`GENERATOR_RAW`) to the new `HasGenerator`.
+  `Field::Elem`, `Field::BITS`, `Field::CHARACTERISTIC`,
+  `Field::GENERATOR`, and `Field::elem_count` are removed. Generic code
+  reads the characteristic as
+  `<F::Characteristic as PrimeIdentity>::CHARACTERISTIC`, the storage width
+  as `FieldBuffer::STORAGE_BITS`, and the generator as
+  `Elem::<F>::GENERATOR` with a `HasGenerator` bound. `FieldKernels`,
+  `ops::*`, `pack`, `unpack`, and `pack_to_vec` now bound on
+  `FieldBuffer` and take `Elem<F>`.
+- **Breaking:** `FieldElem` is sealed and implemented only by the blanket
+  `impl<F: Field> FieldElem for Elem<F>`. Downstream custom fields implement
+  the new `Field` contract and receive the trait; the old open
+  implementation surface is removed. The trait exponent is `u128`
+  (`pow(u128)`), and the inherent `const pow` on every family takes `u128`
+  as well; `QuadMersenne31`'s separate `pow_u128` is removed in its favour.
+- **Breaking:** prime `from_raw` canonicalizes and `to_raw` returns
+  canonical storage. Previously `from_raw` and `decode` retained the
+  unreduced lane and `to_raw` exposed stored bits; now every safely
+  constructed element holds canonical coordinates, so `to_raw` returns the
+  reduced lane, not the original integer. Published canonical byte fixtures
+  and mathematical values are unchanged. Migrate by deleting manual
+  canonicalization after construction; where the old stored bits are
+  needed, reduce explicitly with `mersenne31::reduce`,
+  `goldilocks::reduce`, or the per-limb equivalent. The inherent
+  `canonical()` methods are removed; `pack`/`unpack` round-trip canonical
+  lanes.
+- **Breaking:** every result-writing prime kernel emits canonical lanes for
+  any accepted input lanes, including accumulate, in-place, and tails; the
+  packed operations no longer require canonical input lanes. Zero-coefficient
+  accumulation and unit-coefficient in-place scaling stay defined no-ops
+  that preserve their inputs byte for byte. The x86 Mersenne31 multiply and
+  add/sub paths additionally fold input lanes to canonical form on load,
+  and the QuadMersenne31 elementwise path canonicalizes limbs before its
+  sign-mixing negation.
 
 - **Breaking:** the GF(2) field is renamed: `Gf2`/`fgf::gf2` become
   `Gf1`/`fgf::gf1`, and the element `gf2::Elem` becomes

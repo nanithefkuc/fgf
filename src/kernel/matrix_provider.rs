@@ -37,6 +37,9 @@ impl<C: Copy> Matrix<C> for [(&[C], &[u8])] {
 ///
 /// The x86 dispatch's prepared-plan form; raw-element plans resolve through
 /// an adapter at the dispatch layer instead.
+// A lib-only build without `simd512` constructs it nowhere else: the
+// simd512-gated blocked kernels, the test suite, and `internals` do.
+#[allow(dead_code)]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub struct FlatMatrix<'a, C> {
     /// Flat row-major coefficients, `terms * nrows` entries.

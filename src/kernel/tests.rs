@@ -17,7 +17,7 @@ use std::vec;
 use std::vec::Vec;
 
 use crate::field::poly::{AES, REED_SOLOMON};
-use crate::field::{Elem, Gf8, Poly};
+use crate::field::{Elem, Gf, Gf8, Poly};
 use crate::field::{
     FanPaar8, FanPaar32, Gf32, Gf64, Goldilocks, fan_paar, gf16, gf32, gf64, quad_mersenne31,
     wiedemann,
@@ -72,27 +72,27 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
 
 /// GF(2^8) coefficients worth testing: the two short-circuits, the extremes,
 /// and a spread through the field.
-fn gf8_aes_coeffs() -> Vec<Elem<8, Poly<AES>>> {
+fn gf8_aes_coeffs() -> Vec<Elem<Gf<8, Poly<AES>>>> {
     gf8_coeffs_of::<AES>()
 }
 
 /// The Reed–Solomon field coefficients, same byte spread under `0x11D`.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-fn gf8_rs_coeffs() -> Vec<Elem<8, Poly<REED_SOLOMON>>> {
+fn gf8_rs_coeffs() -> Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>> {
     gf8_coeffs_of::<REED_SOLOMON>()
 }
 
-fn gf8_coeffs_of<const POLY: u32>() -> Vec<Elem<8, Poly<POLY>>> {
+fn gf8_coeffs_of<const POLY: u32>() -> Vec<Elem<Gf<8, Poly<POLY>>>> {
     let mut coeffs = vec![
-        Elem::<8, Poly<POLY>>::ZERO,
-        Elem::<8, Poly<POLY>>::ONE,
-        Elem::<8, Poly<POLY>>::from_raw(2),
-        Elem::<8, Poly<POLY>>::from_raw(0xff),
+        Elem::<Gf<8, Poly<POLY>>>::ZERO,
+        Elem::<Gf<8, Poly<POLY>>>::ONE,
+        Elem::<Gf<8, Poly<POLY>>>::from_raw(2),
+        Elem::<Gf<8, Poly<POLY>>>::from_raw(0xff),
     ];
     coeffs.extend(
         (0..=u8::MAX)
             .step_by(23)
-            .map(Elem::<8, Poly<POLY>>::from_raw),
+            .map(Elem::<Gf<8, Poly<POLY>>>::from_raw),
     );
     coeffs
 }
@@ -169,7 +169,7 @@ fn host_supports(supported: &'static [crate::kernel::Backend]) -> bool {
 /// and coefficient.
 fn check_gf8_mul_add<const POLY: u32>(
     name: &str,
-    coeffs: &[Elem<8, Poly<POLY>>],
+    coeffs: &[Elem<Gf<8, Poly<POLY>>>],
     kernel: impl Fn(&mut [u8], &ScaleTable, &[u8]),
 ) {
     for &len in LENGTHS {
@@ -186,7 +186,7 @@ fn check_gf8_mul_add<const POLY: u32>(
 
 fn check_gf8_mul_assign<const POLY: u32>(
     name: &str,
-    coeffs: &[Elem<8, Poly<POLY>>],
+    coeffs: &[Elem<Gf<8, Poly<POLY>>>],
     kernel: impl Fn(&mut [u8], &ScaleTable),
 ) {
     for &len in LENGTHS {
@@ -230,7 +230,7 @@ fn check_gf16_mul_assign_tables(name: &str, kernel: impl Fn(&mut [u8], &TowerTab
 #[allow(dead_code)]
 fn check_gf8_mul_into<const POLY: u32>(
     name: &str,
-    coeffs: &[Elem<8, Poly<POLY>>],
+    coeffs: &[Elem<Gf<8, Poly<POLY>>>],
     kernel: impl Fn(&mut [u8], &ScaleTable, &[u8]),
 ) {
     for &len in LENGTHS {
@@ -425,17 +425,17 @@ fn check_gather_aligned<E: Copy, F>(
 /// between the two sweeps the blocked kernels below see all 65 536 products
 /// outright.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-fn for_each_gf8_coeff<const POLY: u32>(case: impl FnMut(Elem<8, Poly<POLY>>, &[u8])) {
+fn for_each_gf8_coeff<const POLY: u32>(case: impl FnMut(Elem<Gf<8, Poly<POLY>>>, &[u8])) {
     let mut case = case;
     for &len in LENGTHS {
         let src = noise(len, 0x51);
         for c in 0..=u8::MAX {
-            case(Elem::<8, Poly<POLY>>::from_raw(c), &src);
+            case(Elem::<Gf<8, Poly<POLY>>>::from_raw(c), &src);
         }
     }
     let every_byte: Vec<u8> = (0..=u8::MAX).collect();
     for c in 0..=u8::MAX {
-        case(Elem::<8, Poly<POLY>>::from_raw(c), &every_byte);
+        case(Elem::<Gf<8, Poly<POLY>>>::from_raw(c), &every_byte);
     }
 }
 
@@ -445,7 +445,7 @@ fn for_each_gf8_coeff<const POLY: u32>(case: impl FnMut(Elem<8, Poly<POLY>>, &[u
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn check_gf8_exhaustive_mul_add<C: Copy + core::fmt::Debug, const POLY: u32>(
     name: &str,
-    prepare: impl Fn(Elem<8, Poly<POLY>>) -> C,
+    prepare: impl Fn(Elem<Gf<8, Poly<POLY>>>) -> C,
     kernel: impl Fn(&mut [u8], C, &[u8]),
 ) {
     for_each_gf8_coeff(|coeff, src| {
@@ -461,7 +461,7 @@ fn check_gf8_exhaustive_mul_add<C: Copy + core::fmt::Debug, const POLY: u32>(
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn check_gf8_exhaustive_mul_assign<C: Copy + core::fmt::Debug, const POLY: u32>(
     name: &str,
-    prepare: impl Fn(Elem<8, Poly<POLY>>) -> C,
+    prepare: impl Fn(Elem<Gf<8, Poly<POLY>>>) -> C,
     kernel: impl Fn(&mut [u8], C),
 ) {
     for_each_gf8_coeff(|coeff, src| {
@@ -478,7 +478,7 @@ fn check_gf8_exhaustive_mul_assign<C: Copy + core::fmt::Debug, const POLY: u32>(
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn check_gf8_exhaustive_mul_into<C: Copy + core::fmt::Debug, const POLY: u32>(
     name: &str,
-    prepare: impl Fn(Elem<8, Poly<POLY>>) -> C,
+    prepare: impl Fn(Elem<Gf<8, Poly<POLY>>>) -> C,
     kernel: impl Fn(&mut [u8], C, &[u8]),
 ) {
     for_each_gf8_coeff(|coeff, src| {
@@ -505,7 +505,10 @@ fn check_gf8_elementwise<const POLY: u32>(name: &str, kernel: impl Fn(&mut [u8],
 /// Differential check for an in-place elementwise kernel: the destination
 /// starts as one operand, the kernel multiplies it by the other in place.
 #[allow(dead_code)]
-fn check_elementwise_assign<F: crate::field::Field>(name: &str, kernel: impl Fn(&mut [u8], &[u8])) {
+fn check_elementwise_assign<F: crate::field::FieldBuffer>(
+    name: &str,
+    kernel: impl Fn(&mut [u8], &[u8]),
+) {
     for &len in LENGTHS {
         let a = noise(len, 0xf2);
         let b = noise(len, 0x103);
@@ -594,15 +597,15 @@ fn check_tower_mul_into<E: Copy + core::fmt::Debug>(
 }
 
 #[allow(dead_code)]
-fn gf8_coeff_at<const POLY: u32>(j: usize) -> Elem<8, Poly<POLY>> {
+fn gf8_coeff_at<const POLY: u32>(j: usize) -> Elem<Gf<8, Poly<POLY>>> {
     // Includes 0 and 1 as j sweeps, which is what we want: the blocked
     // kernels must handle degenerate coefficients per row, not per call.
-    Elem::<8, Poly<POLY>>::from_raw((j as u8).wrapping_mul(29))
+    Elem::<Gf<8, Poly<POLY>>>::from_raw((j as u8).wrapping_mul(29))
 }
 
 #[allow(dead_code)]
-fn gf8_coeff_at2<const POLY: u32>(t: usize, j: usize) -> Elem<8, Poly<POLY>> {
-    Elem::<8, Poly<POLY>>::from_raw(((t * 31 + j * 29) % 256) as u8)
+fn gf8_coeff_at2<const POLY: u32>(t: usize, j: usize) -> Elem<Gf<8, Poly<POLY>>> {
+    Elem::<Gf<8, Poly<POLY>>>::from_raw(((t * 31 + j * 29) % 256) as u8)
 }
 
 #[allow(dead_code)]
@@ -616,7 +619,7 @@ fn gf16_coeff_at2(t: usize, j: usize) -> gf16::Elem {
 }
 
 #[allow(dead_code)]
-fn gf8_reference<const POLY: u32>(dst: &mut [u8], coeff: Elem<8, Poly<POLY>>, src: &[u8]) {
+fn gf8_reference<const POLY: u32>(dst: &mut [u8], coeff: Elem<Gf<8, Poly<POLY>>>, src: &[u8]) {
     scalar::mul_add::<Gf8<Poly<POLY>>>(dst, coeff, src);
 }
 
@@ -633,7 +636,7 @@ fn fp16_coeffs() -> Vec<fan_paar::fp16::Elem> {
     let mut v = vec![
         fp16::Elem::ZERO,
         fp16::Elem::ONE,
-        fp16::Elem(u16::MAX),
+        fp16::Elem::from_raw(u16::MAX),
         // Pure base-field and pure extension.
         fp16::Elem::from_components(fp8::Elem::ONE, fp8::Elem::ZERO),
         fp16::Elem::from_components(fp8::Elem::ZERO, fp8::Elem::ONE),
@@ -644,7 +647,7 @@ fn fp16_coeffs() -> Vec<fan_paar::fp16::Elem> {
     let mut s = 0xf491u16;
     for _ in 0..16 {
         s = s.wrapping_mul(2057).wrapping_add(13849);
-        v.push(fp16::Elem(s));
+        v.push(fp16::Elem::from_raw(s));
     }
     v
 }
@@ -676,7 +679,7 @@ fn fp32_coeffs() -> Vec<fan_paar::fp32::Elem> {
     let mut v = vec![
         fp32::Elem::ZERO,
         fp32::Elem::ONE,
-        fp32::Elem(u32::MAX),
+        fp32::Elem::from_raw(u32::MAX),
         fp32::Elem::from_components(fp16::Elem::ONE, fp16::Elem::ZERO),
         fp32::Elem::from_components(fp16::Elem::ZERO, fp16::Elem::ONE),
         fp32::ALPHA,
@@ -686,7 +689,7 @@ fn fp32_coeffs() -> Vec<fan_paar::fp32::Elem> {
     let mut s = 0x243f_6a88u32;
     for _ in 0..16 {
         s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        v.push(fp32::Elem(s));
+        v.push(fp32::Elem::from_raw(s));
     }
     v
 }
@@ -698,7 +701,7 @@ fn fp64_coeffs() -> Vec<fan_paar::fp64::Elem> {
     let mut v = vec![
         fp64::Elem::ZERO,
         fp64::Elem::ONE,
-        fp64::Elem(u64::MAX),
+        fp64::Elem::from_raw(u64::MAX),
         fp64::Elem::from_components(fp32::Elem::ONE, fp32::Elem::ZERO),
         fp64::ALPHA,
         fp64::Elem::from_components(fp32::Elem::ZERO, fp32::ALPHA),
@@ -709,7 +712,7 @@ fn fp64_coeffs() -> Vec<fan_paar::fp64::Elem> {
         s = s
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
-        v.push(fp64::Elem(s));
+        v.push(fp64::Elem::from_raw(s));
     }
     v
 }
@@ -759,9 +762,9 @@ fn gf32_coeffs() -> Vec<gf32::Elem> {
     let mut v = vec![
         gf32::Elem::ZERO,
         gf32::Elem::ONE,
-        gf32::Elem(u32::MAX),
-        gf32::Elem(0x0000_ffff),
-        gf32::Elem(0xffff_0000),
+        gf32::Elem::from_raw(u32::MAX),
+        gf32::Elem::from_raw(0x0000_ffff),
+        gf32::Elem::from_raw(0xffff_0000),
         // Pure base field and pure extension.
         gf32::Elem::from_components(gf16::Elem::ONE, gf16::Elem::ZERO),
         gf32::Elem::from_components(gf16::Elem::ZERO, gf16::Elem::ONE),
@@ -773,7 +776,7 @@ fn gf32_coeffs() -> Vec<gf32::Elem> {
     let mut s = 0x243f_6a88u32;
     for _ in 0..16 {
         s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        v.push(gf32::Elem(s));
+        v.push(gf32::Elem::from_raw(s));
     }
     v
 }
@@ -784,9 +787,9 @@ fn gf64_coeffs() -> Vec<gf64::Elem> {
     let mut v = vec![
         gf64::Elem::ZERO,
         gf64::Elem::ONE,
-        gf64::Elem(u64::MAX),
-        gf64::Elem(0x0000_0000_ffff_ffff),
-        gf64::Elem(0xffff_ffff_0000_0000),
+        gf64::Elem::from_raw(u64::MAX),
+        gf64::Elem::from_raw(0x0000_0000_ffff_ffff),
+        gf64::Elem::from_raw(0xffff_ffff_0000_0000),
         gf64::Elem::from_components(gf32::Elem::ONE, gf32::Elem::ZERO),
         gf64::Elem::from_components(gf32::Elem::ZERO, gf32::Elem::ONE),
         gf64::Elem::from_components(gf64::DELTA, gf32::Elem::ZERO),
@@ -798,7 +801,7 @@ fn gf64_coeffs() -> Vec<gf64::Elem> {
         s = s
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
-        v.push(gf64::Elem(s));
+        v.push(gf64::Elem::from_raw(s));
     }
     v
 }
@@ -935,7 +938,7 @@ fn scalar_nibble_paths_match_the_generic_reference() {
     )
 ))]
 #[allow(dead_code)]
-fn prepared_coeffs<const POLY: u32>(coeffs: &[Elem<8, Poly<POLY>>]) -> Vec<Prepared> {
+fn prepared_coeffs<const POLY: u32>(coeffs: &[Elem<Gf<8, Poly<POLY>>>]) -> Vec<Prepared> {
     coeffs.iter().map(|&c| Prepared::new(c)).collect()
 }
 
@@ -991,8 +994,10 @@ impl<const POLY: u32> crate::kernel::Matrix<Prepared> for PreparedMatrix<'_, POL
     )
 ))]
 #[allow(dead_code)]
+// Term geometry nests the unified element spelling; the slices stay slices.
+#[allow(clippy::type_complexity)]
 fn prepared_matrix<'a, const POLY: u32>(
-    terms: &[(&'a [Elem<8, Poly<POLY>>], &'a [u8])],
+    terms: &[(&'a [Elem<Gf<8, Poly<POLY>>>], &'a [u8])],
 ) -> PreparedMatrix<'a, POLY> {
     PreparedMatrix {
         sets: terms
@@ -1201,6 +1206,9 @@ mod x86 {
     /// coefficient forms, and the all-byte-values source covers the products.
     #[cfg(feature = "simd512")]
     #[test]
+    // Term geometry nests the unified element spelling; the slices stay slices.
+    #[allow(clippy::type_complexity)]
+    // Exhaustive coefficient forms with all-byte-values sources.
     #[allow(clippy::too_many_lines)]
     fn gf8_avx512_kernels_match_reference() {
         let Some(token) = X64V4xToken::summon() else {
@@ -1212,21 +1220,21 @@ mod x86 {
         // and the dispatch-shaped `Prepared` twin in the resolve test below.
         check_gf8_exhaustive_mul_add(
             "gf8 rs avx512",
-            |c: Elem<8, Poly<REED_SOLOMON>>| Prepared::new(c),
+            |c: Elem<Gf<8, Poly<REED_SOLOMON>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_add_avx512(token, dst, c, src);
             },
         );
         check_gf8_exhaustive_mul_assign(
             "gf8 rs avx512",
-            |c: Elem<8, Poly<REED_SOLOMON>>| Prepared::new(c),
+            |c: Elem<Gf<8, Poly<REED_SOLOMON>>>| Prepared::new(c),
             |dst, c| {
                 x86::gf8::mul_assign_avx512(token, dst, c);
             },
         );
         check_gf8_exhaustive_mul_into(
             "gf8 rs avx512",
-            |c: Elem<8, Poly<REED_SOLOMON>>| Prepared::new(c),
+            |c: Elem<Gf<8, Poly<REED_SOLOMON>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_into_avx512(token, dst, c, src);
             },
@@ -1235,21 +1243,21 @@ mod x86 {
         // folds in through its affine map, `GF2P8MULB` never enters.
         check_gf8_exhaustive_mul_add(
             "gf8 aes avx512",
-            |c: Elem<8, Poly<AES>>| Prepared::new(c),
+            |c: Elem<Gf<8, Poly<AES>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_add_avx512(token, dst, c, src);
             },
         );
         check_gf8_exhaustive_mul_assign(
             "gf8 aes avx512",
-            |c: Elem<8, Poly<AES>>| Prepared::new(c),
+            |c: Elem<Gf<8, Poly<AES>>>| Prepared::new(c),
             |dst, c| {
                 x86::gf8::mul_assign_avx512(token, dst, c);
             },
         );
         check_gf8_exhaustive_mul_into(
             "gf8 aes avx512",
-            |c: Elem<8, Poly<AES>>| Prepared::new(c),
+            |c: Elem<Gf<8, Poly<AES>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_into_avx512(token, dst, c, src);
             },
@@ -1260,10 +1268,10 @@ mod x86 {
         for len in [24 * 1024, 24 * 1024 + 359, 32 * 1024 + 71] {
             let src = noise(len, 0xb20 + len as u64);
             for &coeff in &[
-                Elem::<8, Poly<REED_SOLOMON>>::ZERO,
-                Elem::<8, Poly<REED_SOLOMON>>::ONE,
-                Elem::<8, Poly<REED_SOLOMON>>::from_raw(0x53),
-                Elem::<8, Poly<REED_SOLOMON>>::from_raw(0xff),
+                Elem::<Gf<8, Poly<REED_SOLOMON>>>::ZERO,
+                Elem::<Gf<8, Poly<REED_SOLOMON>>>::ONE,
+                Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x53),
+                Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0xff),
             ] {
                 let mut got = noise(len, 0xb21);
                 let mut want = src.clone();
@@ -1384,14 +1392,14 @@ mod x86 {
                     let sources: Vec<Vec<u8>> = (0..nterms)
                         .map(|t| noise(row_len, 0xb00 + t as u64))
                         .collect();
-                    let coeff_sets: Vec<Vec<Elem<8, Poly<REED_SOLOMON>>>> = (0..nterms)
+                    let coeff_sets: Vec<Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>>> = (0..nterms)
                         .map(|t| {
                             (0..nrows)
                                 .map(|j| gf8_coeff_at2::<REED_SOLOMON>(t, j))
                                 .collect()
                         })
                         .collect();
-                    let terms: Vec<(&[Elem<8, Poly<REED_SOLOMON>>], &[u8])> = coeff_sets
+                    let terms: Vec<(&[Elem<Gf<8, Poly<REED_SOLOMON>>>], &[u8])> = coeff_sets
                         .iter()
                         .zip(&sources)
                         .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -1447,14 +1455,14 @@ mod x86 {
                     let sources: Vec<Vec<u8>> = (0..3usize)
                         .map(|t| noise(row_len, 0xb30 + t as u64))
                         .collect();
-                    let coeff_sets: Vec<Vec<Elem<8, Poly<REED_SOLOMON>>>> = (0..3usize)
+                    let coeff_sets: Vec<Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>>> = (0..3usize)
                         .map(|t| {
                             (0..nrows)
                                 .map(|j| gf8_coeff_at2::<REED_SOLOMON>(t, j))
                                 .collect()
                         })
                         .collect();
-                    let terms: Vec<(&[Elem<8, Poly<REED_SOLOMON>>], &[u8])> = coeff_sets
+                    let terms: Vec<(&[Elem<Gf<8, Poly<REED_SOLOMON>>>], &[u8])> = coeff_sets
                         .iter()
                         .zip(&sources)
                         .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -1517,7 +1525,7 @@ mod x86 {
                     let src_backing = noise(len + 128, 0xb40);
                     let s0 = src_backing.as_ptr().align_offset(64) + offset;
                     let src = &src_backing[s0..s0 + len];
-                    let coeffs: Vec<Elem<8, Poly<REED_SOLOMON>>> =
+                    let coeffs: Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>> =
                         (0..nrows).map(gf8_coeff_at::<REED_SOLOMON>).collect();
                     let mut backing = noise(len * nrows + 128, 0xb41);
                     let start = backing.as_ptr().align_offset(64) + offset;
@@ -1556,7 +1564,7 @@ mod x86 {
                             &b[s..s + len]
                         })
                         .collect();
-                    let coeffs: Vec<Elem<8, Poly<REED_SOLOMON>>> =
+                    let coeffs: Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>> =
                         (0..nsrcs).map(gf8_coeff_at::<REED_SOLOMON>).collect();
                     let mut backing = noise(len + 128, 0xb51);
                     let start = backing.as_ptr().align_offset(64) + offset;
@@ -1587,14 +1595,14 @@ mod x86 {
                 let sources: Vec<Vec<u8>> = (0..3usize)
                     .map(|t| noise(row_len, 0x900 + t as u64))
                     .collect();
-                let coeff_sets: Vec<Vec<Elem<8, Poly<REED_SOLOMON>>>> = (0..3usize)
+                let coeff_sets: Vec<Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>>> = (0..3usize)
                     .map(|t| {
                         (0..nrows)
                             .map(|j| gf8_coeff_at2::<REED_SOLOMON>(t, j))
                             .collect()
                     })
                     .collect();
-                let terms: Vec<(&[Elem<8, Poly<REED_SOLOMON>>], &[u8])> = coeff_sets
+                let terms: Vec<(&[Elem<Gf<8, Poly<REED_SOLOMON>>>], &[u8])> = coeff_sets
                     .iter()
                     .zip(&sources)
                     .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -1644,10 +1652,10 @@ mod x86 {
                 let sources: Vec<Vec<u8>> = (0..3usize)
                     .map(|t| noise(row_len, 0x940 + t as u64))
                     .collect();
-                let coeff_sets: Vec<Vec<Elem<8, Poly<AES>>>> = (0..3usize)
+                let coeff_sets: Vec<Vec<Elem<Gf<8, Poly<AES>>>>> = (0..3usize)
                     .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<AES>(t, j)).collect())
                     .collect();
-                let terms: Vec<(&[Elem<8, Poly<AES>>], &[u8])> = coeff_sets
+                let terms: Vec<(&[Elem<Gf<8, Poly<AES>>>], &[u8])> = coeff_sets
                     .iter()
                     .zip(&sources)
                     .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -1721,14 +1729,14 @@ mod x86 {
                 let sources: Vec<Vec<u8>> = (0..3usize)
                     .map(|t| noise(row_len, 0xa00 + t as u64))
                     .collect();
-                let coeff_sets: Vec<Vec<Elem<8, Poly<REED_SOLOMON>>>> = (0..3usize)
+                let coeff_sets: Vec<Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>>> = (0..3usize)
                     .map(|t| {
                         (0..nrows)
                             .map(|j| gf8_coeff_at2::<REED_SOLOMON>(t, j))
                             .collect()
                     })
                     .collect();
-                let terms: Vec<(&[Elem<8, Poly<REED_SOLOMON>>], &[u8])> = coeff_sets
+                let terms: Vec<(&[Elem<Gf<8, Poly<REED_SOLOMON>>>], &[u8])> = coeff_sets
                     .iter()
                     .zip(&sources)
                     .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -1882,6 +1890,8 @@ mod x86 {
     /// Every AVX-512 matrix entry for both byte fields, at term counts that
     /// split the row groups' coefficients across several resolve passes.
     #[allow(clippy::too_many_lines)]
+    // Term geometry nests the unified element spelling; the slices stay slices.
+    #[allow(clippy::type_complexity)]
     #[cfg(feature = "simd512")]
     #[test]
     fn gf8_avx512_matrix_straddles_resolve_chunk() {
@@ -1889,7 +1899,7 @@ mod x86 {
             eprintln!("skipping: no AVX-512F+AVX-512BW+GFNI on this host");
             return;
         };
-        let entries: [MatrixEntry<'_, Elem<8, Poly<REED_SOLOMON>>>; 7] = [
+        let entries: [MatrixEntry<'_, Elem<Gf<8, Poly<REED_SOLOMON>>>>; 7] = [
             ("mul_add", false, &|rows, row_len, nrows, terms| {
                 prepared_pairs!(terms, |pairs| {
                     x86::gf8::mul_add_matrix_avx512_with(token, rows, row_len, nrows, &pairs[..]);
@@ -1924,7 +1934,7 @@ mod x86 {
                                           row_len,
                                           nrows,
                                           terms: &[(
-                &[Elem<8, Poly<REED_SOLOMON>>],
+                &[Elem<Gf<8, Poly<REED_SOLOMON>>>],
                 &[u8],
             )]| {
                 let (coefficients, sources) = flatten(terms);
@@ -1940,7 +1950,7 @@ mod x86 {
                                           row_len,
                                           nrows,
                                           terms: &[(
-                &[Elem<8, Poly<REED_SOLOMON>>],
+                &[Elem<Gf<8, Poly<REED_SOLOMON>>>],
                 &[u8],
             )]| {
                 let (coefficients, sources) = flatten(terms);
@@ -1971,7 +1981,7 @@ mod x86 {
             gf8_reference::<REED_SOLOMON>,
             &entries,
         );
-        let entries: [MatrixEntry<'_, Elem<8, Poly<AES>>>; 7] = [
+        let entries: [MatrixEntry<'_, Elem<Gf<8, Poly<AES>>>>; 7] = [
             ("mul_add", false, &|rows, row_len, nrows, terms| {
                 prepared_pairs!(terms, |pairs| {
                     x86::gf8::mul_add_matrix_avx512_with(token, rows, row_len, nrows, &pairs[..]);
@@ -2006,7 +2016,7 @@ mod x86 {
                                           row_len,
                                           nrows,
                                           terms: &[(
-                &[Elem<8, Poly<AES>>],
+                &[Elem<Gf<8, Poly<AES>>>],
                 &[u8],
             )]| {
                 let (coefficients, sources) = flatten(terms);
@@ -2022,7 +2032,7 @@ mod x86 {
                                           row_len,
                                           nrows,
                                           terms: &[(
-                &[Elem<8, Poly<AES>>],
+                &[Elem<Gf<8, Poly<AES>>>],
                 &[u8],
             )]| {
                 let (coefficients, sources) = flatten(terms);
@@ -2155,21 +2165,21 @@ mod x86 {
         // field runs the native multiply, the affine form follows.
         check_gf8_exhaustive_mul_add(
             "gf8 aes gfni",
-            |c: Elem<8, Poly<AES>>| Prepared::new(c),
+            |c: Elem<Gf<8, Poly<AES>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_add_gfni::<true>(token, dst, c, src);
             },
         );
         check_gf8_exhaustive_mul_assign(
             "gf8 aes gfni",
-            |c: Elem<8, Poly<AES>>| Prepared::new(c),
+            |c: Elem<Gf<8, Poly<AES>>>| Prepared::new(c),
             |dst, c| {
                 x86::gf8::mul_assign_gfni::<true>(token, dst, c);
             },
         );
         check_gf8_exhaustive_mul_into(
             "gf8 aes gfni",
-            |c: Elem<8, Poly<AES>>| Prepared::new(c),
+            |c: Elem<Gf<8, Poly<AES>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_into_gfni::<true>(token, dst, c, src);
             },
@@ -2178,21 +2188,21 @@ mod x86 {
         // non-AES representation takes, exercised on AES data.
         check_gf8_exhaustive_mul_add(
             "gf8 aes gfni affine",
-            |c: Elem<8, Poly<AES>>| Prepared::new(c),
+            |c: Elem<Gf<8, Poly<AES>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_add_gfni::<false>(token, dst, c, src);
             },
         );
         check_gf8_exhaustive_mul_assign(
             "gf8 aes gfni affine",
-            |c: Elem<8, Poly<AES>>| Prepared::new(c),
+            |c: Elem<Gf<8, Poly<AES>>>| Prepared::new(c),
             |dst, c| {
                 x86::gf8::mul_assign_gfni::<false>(token, dst, c);
             },
         );
         check_gf8_exhaustive_mul_into(
             "gf8 aes gfni affine",
-            |c: Elem<8, Poly<AES>>| Prepared::new(c),
+            |c: Elem<Gf<8, Poly<AES>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_into_gfni::<false>(token, dst, c, src);
             },
@@ -2423,6 +2433,8 @@ mod x86 {
     /// Scattered-rows differential for the blocked matrix: disjoint offsets,
     /// blocked against per-term AXPY. Even iterations use ascending starts,
     /// odd iterations a reversed (non-monotonic) order over the same windows.
+    // Term geometry nests the unified element spelling; the slices stay slices.
+    #[allow(clippy::type_complexity)]
     fn check_gf8_scattered_gfni_rows<const POLY: u32>(name: &str, token: X64V3GfniCryptoToken) {
         for &row_len in ROW_LENS {
             for (ri, &nrows) in ROW_COUNTS.iter().enumerate() {
@@ -2434,10 +2446,10 @@ mod x86 {
                 let sources: Vec<Vec<u8>> = (0..3usize)
                     .map(|t| noise(row_len, 0x900 + t as u64))
                     .collect();
-                let coeff_sets: Vec<Vec<Elem<8, Poly<POLY>>>> = (0..3usize)
+                let coeff_sets: Vec<Vec<Elem<Gf<8, Poly<POLY>>>>> = (0..3usize)
                     .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<POLY>(t, j)).collect())
                     .collect();
-                let terms: Vec<(&[Elem<8, Poly<POLY>>], &[u8])> = coeff_sets
+                let terms: Vec<(&[Elem<Gf<8, Poly<POLY>>>], &[u8])> = coeff_sets
                     .iter()
                     .zip(&sources)
                     .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -2606,8 +2618,10 @@ mod x86 {
     /// Run `f` over a [`FlatMatrix`](crate::kernel::FlatMatrix) holding the
     /// same terms as `terms`, so the `_with` forms see a provider other than
     /// the term slice.
+    // Term geometry nests the unified element spelling; the slices stay slices.
+    #[allow(clippy::type_complexity)]
     fn with_flat<const POLY: u32>(
-        terms: &[(&[Elem<8, Poly<POLY>>], &[u8])],
+        terms: &[(&[Elem<Gf<8, Poly<POLY>>>], &[u8])],
         nrows: usize,
         f: impl FnOnce(&crate::kernel::FlatMatrix<'_, Prepared>),
     ) {
@@ -2863,21 +2877,21 @@ mod x86 {
 
         check_gf8_exhaustive_mul_add(
             "gf8 rs gfni",
-            |c: Elem<8, Poly<REED_SOLOMON>>| Prepared::new(c),
+            |c: Elem<Gf<8, Poly<REED_SOLOMON>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_add_gfni::<false>(token, dst, c, src);
             },
         );
         check_gf8_exhaustive_mul_assign(
             "gf8 rs gfni",
-            |c: Elem<8, Poly<REED_SOLOMON>>| Prepared::new(c),
+            |c: Elem<Gf<8, Poly<REED_SOLOMON>>>| Prepared::new(c),
             |dst, c| {
                 x86::gf8::mul_assign_gfni::<false>(token, dst, c);
             },
         );
         check_gf8_exhaustive_mul_into(
             "gf8 rs gfni",
-            |c: Elem<8, Poly<REED_SOLOMON>>| Prepared::new(c),
+            |c: Elem<Gf<8, Poly<REED_SOLOMON>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_into_gfni::<false>(token, dst, c, src);
             },
@@ -2889,10 +2903,10 @@ mod x86 {
             // destination instead of overwriting it must fail this check.
             let mut buffer = noise(NT_LEN + 1, 0x2b9);
             for &coeff in &[
-                Elem::<8, Poly<REED_SOLOMON>>::ZERO,
-                Elem::<8, Poly<REED_SOLOMON>>::ONE,
-                Elem::<8, Poly<REED_SOLOMON>>::from_raw(0x53),
-                Elem::<8, Poly<REED_SOLOMON>>::from_raw(0xff),
+                Elem::<Gf<8, Poly<REED_SOLOMON>>>::ZERO,
+                Elem::<Gf<8, Poly<REED_SOLOMON>>>::ONE,
+                Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x53),
+                Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0xff),
             ] {
                 let mut want = src.to_vec();
                 scalar::mul_assign::<Gf8<Poly<REED_SOLOMON>>>(&mut want, coeff);
@@ -3031,7 +3045,7 @@ mod x86 {
                 let base = dst_storage.as_ptr().align_offset(64);
                 let dst = &mut dst_storage[base + offset..base + offset + len];
                 let src = &src_storage[offset..offset + len];
-                for coeff in [0u8, 1, 0x53, 0xff].map(Elem::<8, Poly<AES>>::from_raw) {
+                for coeff in [0u8, 1, 0x53, 0xff].map(Elem::<Gf<8, Poly<AES>>>::from_raw) {
                     let before = dst.to_vec();
                     let mut want = before.clone();
                     scalar::mul_add::<Gf8<Poly<AES>>>(&mut want, coeff, src);
@@ -3068,7 +3082,7 @@ mod x86 {
                 let base = dst_storage.as_ptr().align_offset(64);
                 let dst = &mut dst_storage[base + offset..base + offset + len];
                 let src = &src_storage[offset..offset + len];
-                for coeff in [0u8, 1, 0x53, 0xff].map(Elem::<8, Poly<REED_SOLOMON>>::from_raw) {
+                for coeff in [0u8, 1, 0x53, 0xff].map(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw) {
                     let before = dst.to_vec();
                     let mut want = before.clone();
                     scalar::mul_add::<Gf8<Poly<REED_SOLOMON>>>(&mut want, coeff, src);
@@ -3682,10 +3696,10 @@ mod x86 {
         const NT_LEN: usize = (2 << 20) + 130;
         // The non-temporal split is a store-side choice, independent of the
         // coefficient, so a zero, a one and a mixed value are enough.
-        const GF8_COEFFS: [Elem<8, Poly<AES>>; 3] = [
-            Elem::<8, Poly<AES>>::ZERO,
-            Elem::<8, Poly<AES>>::ONE,
-            Elem::<8, Poly<AES>>::from_raw(0x53),
+        const GF8_COEFFS: [Elem<Gf<8, Poly<AES>>>; 3] = [
+            Elem::<Gf<8, Poly<AES>>>::ZERO,
+            Elem::<Gf<8, Poly<AES>>>::ONE,
+            Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
         ];
         const GF16_COEFFS: [gf16::Elem; 3] = [
             gf16::Elem::from_raw(0),
@@ -3794,7 +3808,7 @@ mod x86 {
         }
         let gfni = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
         let avx2 = X64V3Token::summon().expect("GFNI implies AVX2");
-        let coeff = Elem::<8, Poly<AES>>::from_raw(0x53);
+        let coeff = Elem::<Gf<8, Poly<AES>>>::from_raw(0x53);
         for len in [511usize, 512, 1152, 1168, 1200, 2048] {
             for off in [0usize, 1, 16, 32, 48] {
                 let src_backing = noise(len + 128, 0x522);
@@ -4076,7 +4090,10 @@ mod x86 {
     /// The 512-bit tier of [`check_gf8_polynomial_kernels`], compiled only
     /// where the dispatch tier exists.
     #[cfg(feature = "simd512")]
-    fn check_gf8_polynomial_avx512<const POLY: u32>(name: &str, coeffs: &[Elem<8, Poly<POLY>>]) {
+    fn check_gf8_polynomial_avx512<const POLY: u32>(
+        name: &str,
+        coeffs: &[Elem<Gf<8, Poly<POLY>>>],
+    ) {
         let Some(token) = X64V4xToken::summon() else {
             eprintln!("skipping {name}: no V4x token on this host");
             return;
@@ -4149,7 +4166,7 @@ mod x86 {
 
     // Prime-field integer-SIMD kernels versus the portable prime reference.
     use crate::field::goldilocks::{self, Goldilocks};
-    use crate::field::mersenne31::{self, Mersenne31};
+    use crate::field::mersenne31::Mersenne31;
     use crate::kernel::prime;
 
     // Multiples of 4 (Mersenne31) / 8 (Goldilocks) straddling the 16-byte SSE
@@ -4178,10 +4195,10 @@ mod x86 {
     ];
 
     #[allow(clippy::too_many_arguments)]
-    fn drive_prime<F: crate::field::Field, C: Copy + core::fmt::Debug>(
+    fn drive_prime<F: crate::field::FieldBuffer, C: Copy + core::fmt::Debug>(
         lens: &[usize],
         coeffs: &[C],
-        to_elem: impl Fn(C) -> F::Elem,
+        to_elem: impl Fn(C) -> Elem<F>,
         add: impl Fn(&mut [u8], &[u8]),
         sub: impl Fn(&mut [u8], &[u8]),
         muladd: impl Fn(&mut [u8], C, &[u8]),
@@ -4275,7 +4292,7 @@ mod x86 {
         drive_prime::<Mersenne31, u32>(
             M31_LENS,
             &M31_COEFFS,
-            mersenne31::Elem,
+            Elem::<Mersenne31>::from_raw,
             |dst, src| x86::mersenne31::add_assign_avx2(token, dst, src),
             |dst, src| x86::mersenne31::sub_assign_avx2(token, dst, src),
             |dst, coeff, src| x86::mersenne31::mul_add_avx2(token, dst, coeff, src),
@@ -4290,7 +4307,7 @@ mod x86 {
         drive_prime::<Goldilocks, u64>(
             GLD_LENS,
             &GLD_COEFFS,
-            goldilocks::Elem,
+            Elem::<Goldilocks>::from_raw,
             |dst, src| x86::goldilocks::add_assign_avx2(token, dst, src),
             |dst, src| x86::goldilocks::sub_assign_avx2(token, dst, src),
             |dst, coeff, src| x86::goldilocks::mul_add_avx2(token, dst, coeff, src),
@@ -4319,7 +4336,7 @@ mod x86 {
         drive_prime::<Mersenne31, u32>(
             M31_WIDE,
             &M31_COEFFS,
-            mersenne31::Elem,
+            Elem::<Mersenne31>::from_raw,
             |dst, src| x86::mersenne31::add_assign_avx512(token, dst, src),
             |dst, src| x86::mersenne31::sub_assign_avx512(token, dst, src),
             |dst, coeff, src| x86::mersenne31::mul_add_avx512(token, dst, coeff, src),
@@ -4334,7 +4351,7 @@ mod x86 {
         drive_prime::<Goldilocks, u64>(
             GLD_WIDE,
             &GLD_COEFFS,
-            goldilocks::Elem,
+            Elem::<Goldilocks>::from_raw,
             |dst, src| x86::goldilocks::add_assign_avx512(token, dst, src),
             |dst, src| x86::goldilocks::sub_assign_avx512(token, dst, src),
             |dst, coeff, src| x86::goldilocks::mul_add_avx512(token, dst, coeff, src),
@@ -4420,7 +4437,7 @@ mod x86 {
         drive_prime::<Mersenne31, u32>(
             M31_LENS,
             &M31_COEFFS,
-            mersenne31::Elem,
+            Elem::<Mersenne31>::from_raw,
             |dst, src| x86::mersenne31::add_assign_sse42(token, dst, src),
             |dst, src| x86::mersenne31::sub_assign_sse42(token, dst, src),
             |dst, coeff, src| x86::mersenne31::mul_add_sse42(token, dst, coeff, src),
@@ -4435,7 +4452,7 @@ mod x86 {
         drive_prime::<Goldilocks, u64>(
             GLD_LENS,
             &GLD_COEFFS,
-            goldilocks::Elem,
+            Elem::<Goldilocks>::from_raw,
             |dst, src| x86::goldilocks::add_assign_sse42(token, dst, src),
             |dst, src| x86::goldilocks::sub_assign_sse42(token, dst, src),
             |dst, coeff, src| x86::goldilocks::mul_add_sse42(token, dst, coeff, src),
@@ -4448,19 +4465,604 @@ mod x86 {
             "gld sse4.2",
         );
     }
+    /// Non-canonical lanes through every prime entry: buffers whose lanes
+    /// hold `p`, wider aliases, and all-ones words must match the portable
+    /// prime reference lane for lane, and every stored lane must be
+    /// canonical — accumulate, in-place, overwrite, elementwise, broadcast,
+    /// and tails included, at lane-straddling lengths.
+    #[test]
+    // Nine entries times three tiers at a dozen lengths each: a table by nature.
+    #[allow(clippy::too_many_lines)]
+    fn prime_entries_canonicalize_noncanonical_lanes() {
+        // Cycle lane words across a buffer, little-endian lanes.
+        fn fill(len: usize, words: &[u64], lane_bytes: usize) -> Vec<u8> {
+            let mut out = Vec::with_capacity(len);
+            let mut i = 0;
+            while out.len() < len {
+                out.extend_from_slice(&words[i % words.len()].to_le_bytes()[..lane_bytes]);
+                i += 1;
+            }
+            out.truncate(len);
+            out
+        }
+        // Every lane-sized chunk holds a value below the modulus.
+        fn assert_canonical(label: &str, buf: &[u8], lane_bytes: usize, modulus: u64) {
+            for (i, lane) in buf.chunks_exact(lane_bytes).enumerate() {
+                let mut word = 0u64;
+                for (j, &b) in lane.iter().enumerate() {
+                    word |= u64::from(b) << (8 * j);
+                }
+                assert!(
+                    word < modulus,
+                    "{label}: lane {i} holds {word:#x}, want < {modulus:#x}"
+                );
+            }
+        }
+
+        const P31: u64 = crate::field::mersenne31::MODULUS as u64;
+        const PGLD: u64 = crate::field::goldilocks::MODULUS;
+        const L32: &[u64] = &[
+            0,
+            1,
+            P31 - 1,
+            P31,
+            P31 + 1,
+            0x8000_0000,
+            0xFFFF_FFFE,
+            0xFFFF_FFFF,
+        ];
+        const C32: &[u64] = &[0, 1, 2, 0x53, P31, 0xFFFF_FFFF];
+        const L64: &[u64] = &[
+            0,
+            1,
+            PGLD - 1,
+            PGLD,
+            PGLD + 1,
+            0x1_0000_0000,
+            u64::MAX - 1,
+            u64::MAX,
+        ];
+        const C64: &[u64] = &[0, 1, 2, 0x53, PGLD, u64::MAX];
+
+        #[allow(clippy::too_many_arguments)]
+        fn drive_m31(
+            label: &str,
+            add: impl Fn(&mut [u8], &[u8]),
+            sub: impl Fn(&mut [u8], &[u8]),
+            muladd: impl Fn(&mut [u8], u32, &[u8]),
+            mulinto: impl Fn(&mut [u8], u32, &[u8]),
+            mulassign: impl Fn(&mut [u8], u32),
+            elemwise: impl Fn(&mut [u8], &[u8], &[u8]),
+            elemwise_assign: impl Fn(&mut [u8], &[u8]),
+            addscalar: impl Fn(&mut [u8], u32),
+            subscalar: impl Fn(&mut [u8], u32),
+        ) {
+            use crate::field::FieldElem as _;
+            use crate::field::mersenne31::Mersenne31;
+            use crate::kernel::prime;
+            for &len in M31_LENS {
+                let src = fill(len, L32, 4);
+                let base = fill(len, &L32[3..], 4);
+                let other = fill(len, &L32[5..], 4);
+
+                let mut got = base.clone();
+                let mut want = base.clone();
+                add(&mut got, &src);
+                prime::add_assign::<Mersenne31>(&mut want, &src);
+                assert_eq!(got, want, "{label} add_assign len {len}");
+                assert_canonical(label, &got, 4, P31);
+
+                let mut got = base.clone();
+                let mut want = base.clone();
+                sub(&mut got, &src);
+                prime::sub_assign::<Mersenne31>(&mut want, &src);
+                assert_eq!(got, want, "{label} sub_assign len {len}");
+                assert_canonical(label, &got, 4, P31);
+
+                // A small-minuend, aliased-subtrahend pair the rotation
+                // above never aligns: `0 - 0xFFFF_FFFF` must be `p - 1`.
+                let sub_base = fill(len, &L32[1..], 4);
+                let mut got = sub_base.clone();
+                let mut want = sub_base.clone();
+                sub(&mut got, &src);
+                prime::sub_assign::<Mersenne31>(&mut want, &src);
+                assert_eq!(got, want, "{label} sub_assign shifted len {len}");
+                assert_canonical(label, &got, 4, P31);
+
+                let mut got = vec![0u8; len];
+                let mut want = vec![0u8; len];
+                elemwise(&mut got, &src, &other);
+                prime::mul_elementwise::<Mersenne31>(&mut want, &src, &other);
+                assert_eq!(got, want, "{label} mul_elementwise len {len}");
+                assert_canonical(label, &got, 4, P31);
+
+                let mut got = base.clone();
+                let mut want = base.clone();
+                elemwise_assign(&mut got, &src);
+                prime::mul_elementwise::<Mersenne31>(&mut want, &base, &src);
+                assert_eq!(got, want, "{label} mul_elementwise_assign len {len}");
+                assert_canonical(label, &got, 4, P31);
+
+                for &c in C32 {
+                    let c32 = c as u32;
+                    let e = Elem::<Mersenne31>::from_raw(c32);
+                    let mut got = base.clone();
+                    let mut want = base.clone();
+                    muladd(&mut got, c32, &src);
+                    prime::mul_add::<Mersenne31>(&mut want, e, &src);
+                    assert_eq!(got, want, "{label} mul_add len {len} coeff {c:#x}");
+                    // A zero coefficient is a defined no-op at every level
+                    // (ops fast path, scalar reference, kernel entry), so
+                    // untouched input lanes are preserved, not canonicalized.
+                    if !e.is_zero() {
+                        assert_canonical(label, &got, 4, P31);
+                    }
+
+                    let mut got = vec![0u8; len];
+                    let mut want = vec![0u8; len];
+                    mulinto(&mut got, c32, &src);
+                    prime::mul_add::<Mersenne31>(&mut want, e, &src);
+                    // Overwrite of a zero buffer is the product itself.
+                    assert_eq!(got, want, "{label} mul_into len {len} coeff {c:#x}");
+                    assert_canonical(label, &got, 4, P31);
+
+                    let mut got = base.clone();
+                    let mut want = base.clone();
+                    mulassign(&mut got, c32);
+                    prime::mul_assign::<Mersenne31>(&mut want, e);
+                    assert_eq!(got, want, "{label} mul_assign len {len} coeff {c:#x}");
+                    // A unit coefficient is a defined no-op, preserving
+                    // untouched input lanes.
+                    if !e.is_one() {
+                        assert_canonical(label, &got, 4, P31);
+                    }
+
+                    let mut got = base.clone();
+                    let mut want = base.clone();
+                    addscalar(&mut got, c32);
+                    prime::add_assign_scalar::<Mersenne31>(&mut want, e);
+                    assert_eq!(
+                        got, want,
+                        "{label} add_assign_scalar len {len} coeff {c:#x}"
+                    );
+                    assert_canonical(label, &got, 4, P31);
+
+                    let mut got = base.clone();
+                    let mut want = base.clone();
+                    subscalar(&mut got, c32);
+                    prime::sub_assign_scalar::<Mersenne31>(&mut want, e);
+                    assert_eq!(
+                        got, want,
+                        "{label} sub_assign_scalar len {len} coeff {c:#x}"
+                    );
+                    assert_canonical(label, &got, 4, P31);
+                }
+            }
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        fn drive_gld(
+            label: &str,
+            add: impl Fn(&mut [u8], &[u8]),
+            sub: impl Fn(&mut [u8], &[u8]),
+            muladd: impl Fn(&mut [u8], u64, &[u8]),
+            mulinto: impl Fn(&mut [u8], u64, &[u8]),
+            mulassign: impl Fn(&mut [u8], u64),
+            elemwise: impl Fn(&mut [u8], &[u8], &[u8]),
+            elemwise_assign: impl Fn(&mut [u8], &[u8]),
+            addscalar: impl Fn(&mut [u8], u64),
+            subscalar: impl Fn(&mut [u8], u64),
+        ) {
+            use crate::field::FieldElem as _;
+            use crate::field::goldilocks::Goldilocks;
+            use crate::kernel::prime;
+            for &len in GLD_LENS {
+                let src = fill(len, L64, 8);
+                let base = fill(len, &L64[3..], 8);
+                let other = fill(len, &L64[5..], 8);
+
+                let mut got = base.clone();
+                let mut want = base.clone();
+                add(&mut got, &src);
+                prime::add_assign::<Goldilocks>(&mut want, &src);
+                assert_eq!(got, want, "{label} add_assign len {len}");
+                assert_canonical(label, &got, 8, PGLD);
+
+                let mut got = base.clone();
+                let mut want = base.clone();
+                sub(&mut got, &src);
+                prime::sub_assign::<Goldilocks>(&mut want, &src);
+                assert_eq!(got, want, "{label} sub_assign len {len}");
+                assert_canonical(label, &got, 8, PGLD);
+
+                let mut got = vec![0u8; len];
+                let mut want = vec![0u8; len];
+                elemwise(&mut got, &src, &other);
+                prime::mul_elementwise::<Goldilocks>(&mut want, &src, &other);
+                assert_eq!(got, want, "{label} mul_elementwise len {len}");
+                assert_canonical(label, &got, 8, PGLD);
+
+                let mut got = base.clone();
+                let mut want = base.clone();
+                elemwise_assign(&mut got, &src);
+                prime::mul_elementwise::<Goldilocks>(&mut want, &base, &src);
+                assert_eq!(got, want, "{label} mul_elementwise_assign len {len}");
+                assert_canonical(label, &got, 8, PGLD);
+
+                for &c in C64 {
+                    let e = Elem::<Goldilocks>::from_raw(c);
+                    let mut got = base.clone();
+                    let mut want = base.clone();
+                    muladd(&mut got, c, &src);
+                    prime::mul_add::<Goldilocks>(&mut want, e, &src);
+                    assert_eq!(got, want, "{label} mul_add len {len} coeff {c:#x}");
+                    // A zero coefficient is a defined no-op at every level
+                    // (ops fast path, scalar reference, kernel entry), so
+                    // untouched input lanes are preserved, not canonicalized.
+                    if !e.is_zero() {
+                        assert_canonical(label, &got, 8, PGLD);
+                    }
+
+                    let mut got = vec![0u8; len];
+                    let mut want = vec![0u8; len];
+                    mulinto(&mut got, c, &src);
+                    prime::mul_add::<Goldilocks>(&mut want, e, &src);
+                    assert_eq!(got, want, "{label} mul_into len {len} coeff {c:#x}");
+                    assert_canonical(label, &got, 8, PGLD);
+
+                    let mut got = base.clone();
+                    let mut want = base.clone();
+                    mulassign(&mut got, c);
+                    prime::mul_assign::<Goldilocks>(&mut want, e);
+                    assert_eq!(got, want, "{label} mul_assign len {len} coeff {c:#x}");
+                    // A unit coefficient is a defined no-op, preserving
+                    // untouched input lanes.
+                    if !e.is_one() {
+                        assert_canonical(label, &got, 8, PGLD);
+                    }
+
+                    let mut got = base.clone();
+                    let mut want = base.clone();
+                    addscalar(&mut got, c);
+                    prime::add_assign_scalar::<Goldilocks>(&mut want, e);
+                    assert_eq!(
+                        got, want,
+                        "{label} add_assign_scalar len {len} coeff {c:#x}"
+                    );
+                    assert_canonical(label, &got, 8, PGLD);
+
+                    let mut got = base.clone();
+                    let mut want = base.clone();
+                    subscalar(&mut got, c);
+                    prime::sub_assign_scalar::<Goldilocks>(&mut want, e);
+                    assert_eq!(
+                        got, want,
+                        "{label} sub_assign_scalar len {len} coeff {c:#x}"
+                    );
+                    assert_canonical(label, &got, 8, PGLD);
+                }
+            }
+        }
+
+        if host_supports(&[Backend::V3]) {
+            let token = X64V3Token::summon().expect("guard passed: AVX2 summons here");
+            drive_m31(
+                "m31 avx2 noncanonical",
+                |dst, src| x86::mersenne31::add_assign_avx2(token, dst, src),
+                |dst, src| x86::mersenne31::sub_assign_avx2(token, dst, src),
+                |dst, coeff, src| x86::mersenne31::mul_add_avx2(token, dst, coeff, src),
+                |dst, coeff, src| x86::mersenne31::mul_into_avx2(token, dst, coeff, src),
+                |dst, coeff| x86::mersenne31::mul_assign_avx2(token, dst, coeff),
+                |dst, a, b| x86::mersenne31::mul_elementwise_avx2(token, dst, a, b),
+                |dst, s| x86::mersenne31::mul_elementwise_assign_avx2(token, dst, s),
+                |dst, c| x86::mersenne31::add_assign_scalar_avx2(token, dst, c),
+                |dst, c| x86::mersenne31::sub_assign_scalar_avx2(token, dst, c),
+            );
+            drive_gld(
+                "gld avx2 noncanonical",
+                |dst, src| x86::goldilocks::add_assign_avx2(token, dst, src),
+                |dst, src| x86::goldilocks::sub_assign_avx2(token, dst, src),
+                |dst, coeff, src| x86::goldilocks::mul_add_avx2(token, dst, coeff, src),
+                |dst, coeff, src| x86::goldilocks::mul_into_avx2(token, dst, coeff, src),
+                |dst, coeff| x86::goldilocks::mul_assign_avx2(token, dst, coeff),
+                |dst, a, b| x86::goldilocks::mul_elementwise_avx2(token, dst, a, b),
+                |dst, s| x86::goldilocks::mul_elementwise_assign_avx2(token, dst, s),
+                |dst, c| x86::goldilocks::add_assign_scalar_avx2(token, dst, c),
+                |dst, c| x86::goldilocks::sub_assign_scalar_avx2(token, dst, c),
+            );
+        } else {
+            eprintln!("skipping: no AVX2 on this host");
+        }
+
+        if host_supports(&[Backend::V2]) {
+            let token = X64V2Token::summon().expect("guard passed: SSE4.2 summons here");
+            drive_m31(
+                "m31 sse4.2 noncanonical",
+                |dst, src| x86::mersenne31::add_assign_sse42(token, dst, src),
+                |dst, src| x86::mersenne31::sub_assign_sse42(token, dst, src),
+                |dst, coeff, src| x86::mersenne31::mul_add_sse42(token, dst, coeff, src),
+                |dst, coeff, src| x86::mersenne31::mul_into_sse42(token, dst, coeff, src),
+                |dst, coeff| x86::mersenne31::mul_assign_sse42(token, dst, coeff),
+                |dst, a, b| x86::mersenne31::mul_elementwise_sse42(token, dst, a, b),
+                |dst, s| x86::mersenne31::mul_elementwise_assign_sse42(token, dst, s),
+                |dst, c| x86::mersenne31::add_assign_scalar_sse42(token, dst, c),
+                |dst, c| x86::mersenne31::sub_assign_scalar_sse42(token, dst, c),
+            );
+            drive_gld(
+                "gld sse4.2 noncanonical",
+                |dst, src| x86::goldilocks::add_assign_sse42(token, dst, src),
+                |dst, src| x86::goldilocks::sub_assign_sse42(token, dst, src),
+                |dst, coeff, src| x86::goldilocks::mul_add_sse42(token, dst, coeff, src),
+                |dst, coeff, src| x86::goldilocks::mul_into_sse42(token, dst, coeff, src),
+                |dst, coeff| x86::goldilocks::mul_assign_sse42(token, dst, coeff),
+                |dst, a, b| x86::goldilocks::mul_elementwise_sse42(token, dst, a, b),
+                |dst, s| x86::goldilocks::mul_elementwise_assign_sse42(token, dst, s),
+                |dst, c| x86::goldilocks::add_assign_scalar_sse42(token, dst, c),
+                |dst, c| x86::goldilocks::sub_assign_scalar_sse42(token, dst, c),
+            );
+        } else {
+            eprintln!("skipping: no SSE4.2 on this host");
+        }
+
+        #[cfg(feature = "simd512")]
+        {
+            let Some(v4x) = X64V4xToken::summon() else {
+                eprintln!("skipping: no V4x token on this host");
+                return;
+            };
+            let token = v4x.v4();
+            drive_m31(
+                "m31 avx512 noncanonical",
+                |dst, src| x86::mersenne31::add_assign_avx512(token, dst, src),
+                |dst, src| x86::mersenne31::sub_assign_avx512(token, dst, src),
+                |dst, coeff, src| x86::mersenne31::mul_add_avx512(token, dst, coeff, src),
+                |dst, coeff, src| x86::mersenne31::mul_into_avx512(token, dst, coeff, src),
+                |dst, coeff| x86::mersenne31::mul_assign_avx512(token, dst, coeff),
+                |dst, a, b| x86::mersenne31::mul_elementwise_avx512(token, dst, a, b),
+                |dst, s| x86::mersenne31::mul_elementwise_assign_avx512(token, dst, s),
+                |dst, c| x86::mersenne31::add_assign_scalar_avx512(token, dst, c),
+                |dst, c| x86::mersenne31::sub_assign_scalar_avx512(token, dst, c),
+            );
+            drive_gld(
+                "gld avx512 noncanonical",
+                |dst, src| x86::goldilocks::add_assign_avx512(token, dst, src),
+                |dst, src| x86::goldilocks::sub_assign_avx512(token, dst, src),
+                |dst, coeff, src| x86::goldilocks::mul_add_avx512(token, dst, coeff, src),
+                |dst, coeff, src| x86::goldilocks::mul_into_avx512(token, dst, coeff, src),
+                |dst, coeff| x86::goldilocks::mul_assign_avx512(token, dst, coeff),
+                |dst, a, b| x86::goldilocks::mul_elementwise_avx512(token, dst, a, b),
+                |dst, s| x86::goldilocks::mul_elementwise_assign_avx512(token, dst, s),
+                |dst, c| x86::goldilocks::add_assign_scalar_avx512(token, dst, c),
+                |dst, c| x86::goldilocks::sub_assign_scalar_avx512(token, dst, c),
+            );
+        }
+    }
+    #[test]
+    // Nine entries at a dozen lengths: a table by nature.
+    #[allow(clippy::too_many_lines)]
+    fn qm31_entries_canonicalize_noncanonical_lanes() {
+        use crate::field::quad_mersenne31::QuadMersenne31;
+        use crate::kernel::prime;
+
+        type Qm = Elem<QuadMersenne31>;
+        const P: u32 = crate::field::mersenne31::MODULUS;
+        // Limb pairs cycling both canonical and alias limbs through each
+        // element position.
+        const LIMBS: &[u32] = &[0, 1, P - 1, P, P + 1, 0x8000_0000, 0xFFFF_FFFE, u32::MAX];
+        const LENS: &[usize] = &[0, 8, 16, 24, 32, 40, 64, 72, 128, 264, 1024];
+        const COEFFS: &[(u32, u32)] = &[(0, 0), (1, 0), (0, 1), (3, 5), (P, 7), (u32::MAX, P)];
+
+        fn fill(len: usize) -> Vec<u8> {
+            let mut out = Vec::with_capacity(len);
+            let mut i = 0;
+            while out.len() < len {
+                let (re, im) = (LIMBS[i % LIMBS.len()], LIMBS[(i + 3) % LIMBS.len()]);
+                out.extend_from_slice(&re.to_le_bytes());
+                out.extend_from_slice(&im.to_le_bytes());
+                i += 1;
+            }
+            out.truncate(len);
+            out
+        }
+        fn assert_canonical(label: &str, buf: &[u8]) {
+            for (i, limb) in buf.chunks_exact(4).enumerate() {
+                let lane = u32::from_le_bytes(limb.try_into().unwrap());
+                assert!(lane < P, "{label}: limb {i} holds {lane:#x}, want < {P:#x}");
+            }
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        fn drive(
+            label: &str,
+            add: impl Fn(&mut [u8], &[u8]),
+            sub: impl Fn(&mut [u8], &[u8]),
+            muladd: impl Fn(&mut [u8], Qm, &[u8]),
+            mulinto: impl Fn(&mut [u8], Qm, &[u8]),
+            mulassign: impl Fn(&mut [u8], Qm),
+            elemwise: impl Fn(&mut [u8], &[u8], &[u8]),
+            elemwise_assign: impl Fn(&mut [u8], &[u8]),
+            addscalar: impl Fn(&mut [u8], Qm),
+            subscalar: impl Fn(&mut [u8], Qm),
+        ) {
+            for &len in LENS {
+                let src = fill(len);
+                let base = {
+                    let mut shifted = fill(len + 8);
+                    shifted.drain(..8);
+                    shifted.truncate(len);
+                    shifted
+                };
+                let other = {
+                    let mut shifted = fill(len + 16);
+                    shifted.drain(..16);
+                    shifted.truncate(len);
+                    shifted
+                };
+
+                let mut got = base.clone();
+                let mut want = base.clone();
+                add(&mut got, &src);
+                prime::add_assign::<QuadMersenne31>(&mut want, &src);
+                assert_eq!(got, want, "{label} add_assign len {len}");
+                assert_canonical(label, &got);
+
+                let mut got = base.clone();
+                let mut want = base.clone();
+                sub(&mut got, &src);
+                prime::sub_assign::<QuadMersenne31>(&mut want, &src);
+                assert_eq!(got, want, "{label} sub_assign len {len}");
+                assert_canonical(label, &got);
+
+                let mut got = vec![0u8; len];
+                let mut want = vec![0u8; len];
+                elemwise(&mut got, &src, &other);
+                prime::mul_elementwise::<QuadMersenne31>(&mut want, &src, &other);
+                assert_eq!(got, want, "{label} mul_elementwise len {len}");
+                assert_canonical(label, &got);
+
+                let mut got = base.clone();
+                let mut want = base.clone();
+                elemwise_assign(&mut got, &src);
+                prime::mul_elementwise::<QuadMersenne31>(&mut want, &base, &src);
+                assert_eq!(got, want, "{label} mul_elementwise_assign len {len}");
+                assert_canonical(label, &got);
+
+                for &(re, im) in COEFFS {
+                    let coeff = Qm::from_raw(re, im);
+                    let mut got = base.clone();
+                    let mut want = base.clone();
+                    muladd(&mut got, coeff, &src);
+                    prime::mul_add::<QuadMersenne31>(&mut want, coeff, &src);
+                    assert_eq!(got, want, "{label} mul_add len {len} coeff {re:#x},{im:#x}");
+                    // A zero coefficient is a defined no-op at every level,
+                    // so untouched input lanes are preserved.
+                    if coeff != Qm::ZERO {
+                        assert_canonical(label, &got);
+                    }
+
+                    let mut got = vec![0u8; len];
+                    let mut want = vec![0u8; len];
+                    mulinto(&mut got, coeff, &src);
+                    prime::mul_add::<QuadMersenne31>(&mut want, coeff, &src);
+                    assert_eq!(
+                        got, want,
+                        "{label} mul_into len {len} coeff {re:#x},{im:#x}"
+                    );
+                    assert_canonical(label, &got);
+
+                    let mut got = base.clone();
+                    let mut want = base.clone();
+                    mulassign(&mut got, coeff);
+                    prime::mul_assign::<QuadMersenne31>(&mut want, coeff);
+                    assert_eq!(
+                        got, want,
+                        "{label} mul_assign len {len} coeff {re:#x},{im:#x}"
+                    );
+                    // A unit coefficient is a defined no-op, preserving
+                    // untouched input lanes.
+                    if coeff != Qm::ONE {
+                        assert_canonical(label, &got);
+                    }
+
+                    let mut got = base.clone();
+                    let mut want = base.clone();
+                    addscalar(&mut got, coeff);
+                    prime::add_assign_scalar::<QuadMersenne31>(&mut want, coeff);
+                    assert_eq!(
+                        got, want,
+                        "{label} add_assign_scalar len {len} coeff {re:#x},{im:#x}"
+                    );
+                    assert_canonical(label, &got);
+
+                    let mut got = base.clone();
+                    let mut want = base.clone();
+                    subscalar(&mut got, coeff);
+                    prime::sub_assign_scalar::<QuadMersenne31>(&mut want, coeff);
+                    assert_eq!(
+                        got, want,
+                        "{label} sub_assign_scalar len {len} coeff {re:#x},{im:#x}"
+                    );
+                    assert_canonical(label, &got);
+                }
+            }
+        }
+
+        if host_supports(&[Backend::V3]) {
+            let token = X64V3Token::summon().expect("guard passed: AVX2 summons here");
+            drive(
+                "qm31 avx2 noncanonical",
+                |dst, src| x86::quad_mersenne31::add_assign_avx2(token, dst, src),
+                |dst, src| x86::quad_mersenne31::sub_assign_avx2(token, dst, src),
+                |dst, coeff, src| x86::quad_mersenne31::mul_add_avx2(token, dst, coeff, src),
+                |dst, coeff, src| x86::quad_mersenne31::mul_into_avx2(token, dst, coeff, src),
+                |dst, coeff| x86::quad_mersenne31::mul_assign_avx2(token, dst, coeff),
+                |dst, a, b| x86::quad_mersenne31::mul_elementwise_avx2(token, dst, a, b),
+                |dst, s| x86::quad_mersenne31::mul_elementwise_assign_avx2(token, dst, s),
+                |dst, c| x86::quad_mersenne31::add_assign_scalar_avx2(token, dst, c),
+                |dst, c| x86::quad_mersenne31::sub_assign_scalar_avx2(token, dst, c),
+            );
+        } else {
+            eprintln!("skipping: no AVX2 on this host");
+        }
+
+        #[cfg(feature = "simd512")]
+        {
+            let Some(v4x) = X64V4xToken::summon() else {
+                eprintln!("skipping: no V4x token on this host");
+                return;
+            };
+            let token = v4x.v4();
+            // The AVX-512 QM31 family covers the multiply shapes; the
+            // remaining operations run the AVX2 entries above.
+            for &len in LENS {
+                let src = fill(len);
+                let base = fill(len);
+                for &(re, im) in COEFFS {
+                    let coeff = Qm::from_raw(re, im);
+                    let mut got = base.clone();
+                    let mut want = base.clone();
+                    x86::quad_mersenne31::mul_add_avx512(token, &mut got, coeff, &src);
+                    prime::mul_add::<QuadMersenne31>(&mut want, coeff, &src);
+                    assert_eq!(got, want, "qm31 avx512 mul_add len {len}");
+                    // A zero coefficient is a defined no-op, preserving
+                    // untouched input lanes.
+                    if coeff != Qm::ZERO {
+                        assert_canonical("qm31 avx512 mul_add", &got);
+                    }
+
+                    let mut got = vec![0u8; len];
+                    let mut want = vec![0u8; len];
+                    x86::quad_mersenne31::mul_into_avx512(token, &mut got, coeff, &src);
+                    prime::mul_add::<QuadMersenne31>(&mut want, coeff, &src);
+                    assert_eq!(got, want, "qm31 avx512 mul_into len {len}");
+                    assert_canonical("qm31 avx512 mul_into", &got);
+                }
+                let other = fill(len);
+                let mut got = vec![0u8; len];
+                let mut want = vec![0u8; len];
+                x86::quad_mersenne31::mul_elementwise_avx512(token, &mut got, &src, &other);
+                prime::mul_elementwise::<QuadMersenne31>(&mut want, &src, &other);
+                assert_eq!(got, want, "qm31 avx512 mul_elementwise len {len}");
+                assert_canonical("qm31 avx512 mul_elementwise", &got);
+            }
+        }
+    }
     #[test]
     fn qm31_avx2_kernels_match_reference() {
         // Multiples of 8 (one complex element) straddling the 32-byte AVX2
         // lane, with odd element tails.
         const QM31_LENS: &[usize] = &[0, 8, 16, 24, 32, 40, 64, 72, 128, 264, 1024];
         const P: u32 = crate::field::mersenne31::MODULUS;
-        const QM31_VALUES: [crate::field::quad_mersenne31::Elem; 6] = [
-            crate::field::quad_mersenne31::Elem(0, 0),
-            crate::field::quad_mersenne31::Elem(1, 0),
-            crate::field::quad_mersenne31::Elem(0, 1),
-            crate::field::quad_mersenne31::Elem(7, 2),
-            crate::field::quad_mersenne31::Elem(P - 1, 3),
-            crate::field::quad_mersenne31::Elem(P - 1, P - 1),
+        const QM31_VALUES: [crate::field::Elem<crate::field::quad_mersenne31::QuadMersenne31>; 6] = [
+            crate::field::Elem::<crate::field::quad_mersenne31::QuadMersenne31>::from_raw(0, 0),
+            crate::field::Elem::<crate::field::quad_mersenne31::QuadMersenne31>::from_raw(1, 0),
+            crate::field::Elem::<crate::field::quad_mersenne31::QuadMersenne31>::from_raw(0, 1),
+            crate::field::Elem::<crate::field::quad_mersenne31::QuadMersenne31>::from_raw(7, 2),
+            crate::field::Elem::<crate::field::quad_mersenne31::QuadMersenne31>::from_raw(P - 1, 3),
+            crate::field::Elem::<crate::field::quad_mersenne31::QuadMersenne31>::from_raw(
+                P - 1,
+                P - 1,
+            ),
         ];
         if !host_supports(&[Backend::V3]) {
             eprintln!("skipping: no AVX2 on this host");
@@ -4469,7 +5071,7 @@ mod x86 {
         let token = X64V3Token::summon().expect("guard passed: AVX2 summons here");
         drive_prime::<
             crate::field::quad_mersenne31::QuadMersenne31,
-            crate::field::quad_mersenne31::Elem,
+            crate::field::Elem<crate::field::quad_mersenne31::QuadMersenne31>,
         >(
             QM31_LENS,
             &QM31_VALUES,
@@ -5326,11 +5928,11 @@ fn default_kernels_handle_empty_terms() {
 /// and reach the field-independent primitive through the trait default —
 /// against the portable byte-cyclic reference, at element counts that
 /// straddle the 16- and 32-byte lane boundaries.
-fn check_binary_broadcast_dispatch<F: KernelDispatch>(values: &[F::Elem]) {
+fn check_binary_broadcast_dispatch<F: KernelDispatch>(values: &[Elem<F>]) {
     const ELEMS: [usize; 4] = [0, 17, 33, 49];
     for &n in &ELEMS {
         let len = n * F::BYTES;
-        let base = noise(len, 0x2f00 + u64::from(F::BITS));
+        let base = noise(len, 0x2f00 + u64::from(F::STORAGE_BITS));
         for &v in values {
             let mut encoded = [0u8; 8];
             F::encode(&mut encoded[..F::BYTES], v);
@@ -5361,14 +5963,14 @@ fn binary_broadcast_dispatch_matches_reference_and_reports_backend() {
         crate::kernel::backend()
     );
     check_binary_broadcast_dispatch::<Gf8<Poly<AES>>>(&[
-        Elem::<8, Poly<AES>>::from_raw(0),
-        Elem::<8, Poly<AES>>::from_raw(1),
-        Elem::<8, Poly<AES>>::from_raw(0x53),
+        Elem::<Gf<8, Poly<AES>>>::from_raw(0),
+        Elem::<Gf<8, Poly<AES>>>::from_raw(1),
+        Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
     ]);
     check_binary_broadcast_dispatch::<Gf8<Poly<REED_SOLOMON>>>(&[
-        Elem::<8, Poly<REED_SOLOMON>>::from_raw(0),
-        Elem::<8, Poly<REED_SOLOMON>>::from_raw(1),
-        Elem::<8, Poly<REED_SOLOMON>>::from_raw(0x53),
+        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0),
+        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(1),
+        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x53),
     ]);
     check_binary_broadcast_dispatch::<gf16::Gf16>(&[
         gf16::Elem::from_raw(0),
@@ -5376,34 +5978,34 @@ fn binary_broadcast_dispatch_matches_reference_and_reports_backend() {
         gf16::Elem::from_raw(0x53a7),
     ]);
     check_binary_broadcast_dispatch::<gf32::Gf32>(&[
-        gf32::Elem(0),
-        gf32::Elem(1),
-        gf32::Elem(0xdead_beef),
+        gf32::Elem::from_raw(0),
+        gf32::Elem::from_raw(1),
+        gf32::Elem::from_raw(0xdead_beef),
     ]);
     check_binary_broadcast_dispatch::<gf64::Gf64>(&[
-        gf64::Elem(0),
-        gf64::Elem(1),
-        gf64::Elem(0x0123_4567_89ab_cdef),
+        gf64::Elem::from_raw(0),
+        gf64::Elem::from_raw(1),
+        gf64::Elem::from_raw(0x0123_4567_89ab_cdef),
     ]);
     check_binary_broadcast_dispatch::<FanPaar8>(&[
-        fan_paar::fp8::Elem(0),
-        fan_paar::fp8::Elem(1),
-        fan_paar::fp8::Elem(0xa5),
+        fan_paar::fp8::Elem::from_raw(0),
+        fan_paar::fp8::Elem::from_raw(1),
+        fan_paar::fp8::Elem::from_raw(0xa5),
     ]);
     check_binary_broadcast_dispatch::<fan_paar::FanPaar16>(&[
-        fan_paar::fp16::Elem(0),
-        fan_paar::fp16::Elem(1),
-        fan_paar::fp16::Elem(0xa55a),
+        fan_paar::fp16::Elem::from_raw(0),
+        fan_paar::fp16::Elem::from_raw(1),
+        fan_paar::fp16::Elem::from_raw(0xa55a),
     ]);
     check_binary_broadcast_dispatch::<FanPaar32>(&[
-        fan_paar::fp32::Elem(0),
-        fan_paar::fp32::Elem(1),
-        fan_paar::fp32::Elem(0xa55a_1234),
+        fan_paar::fp32::Elem::from_raw(0),
+        fan_paar::fp32::Elem::from_raw(1),
+        fan_paar::fp32::Elem::from_raw(0xa55a_1234),
     ]);
     check_binary_broadcast_dispatch::<fan_paar::FanPaar64>(&[
-        fan_paar::fp64::Elem(0),
-        fan_paar::fp64::Elem(1),
-        fan_paar::fp64::Elem(0xa55a_1234_dead_beef),
+        fan_paar::fp64::Elem::from_raw(0),
+        fan_paar::fp64::Elem::from_raw(1),
+        fan_paar::fp64::Elem::from_raw(0xa55a_1234_dead_beef),
     ]);
 }
 
@@ -5456,7 +6058,7 @@ fn x86_geometry_guards_accept_zero_length_rows() {
     }
 
     let v2 = X64V2Token::summon().expect("SSSE3 detected above");
-    let coeffs = [Prepared::new(Elem::<8, Poly<AES>>::from_raw(3))];
+    let coeffs = [Prepared::new(Elem::<Gf<8, Poly<AES>>>::from_raw(3))];
     let empty_aes: &[(&[Prepared], &[u8])] = &[];
     x86::gf8::mul_add_scatter_ssse3(v2, &mut [], 0, &coeffs, &[]);
     let gf16_coeffs = [gf16::Elem::from_raw(5)];
@@ -5501,8 +6103,8 @@ fn scatter_gfni_rejects_short_rows_buffer() {
             &mut [0u8; 4],
             4,
             &[
-                Prepared::new(Elem::<8, Poly<AES>>::from_raw(1)),
-                Prepared::new(Elem::<8, Poly<AES>>::from_raw(2)),
+                Prepared::new(Elem::<Gf<8, Poly<AES>>>::from_raw(1)),
+                Prepared::new(Elem::<Gf<8, Poly<AES>>>::from_raw(2)),
             ],
             &[0u8; 4],
         );
@@ -5520,7 +6122,10 @@ fn macro_kernels_matrix_with_matches_per_row_application() {
     // apply the same prepared coefficients row by row and compare.
     let row_len = 8;
     let srcs: Vec<Vec<u8>> = vec![noise(row_len, 0x71), noise(row_len, 0x72)];
-    let coeffs = [fan_paar::fp8::Elem(1), fan_paar::fp8::Elem(0x8d)];
+    let coeffs = [
+        fan_paar::fp8::Elem::from_raw(1),
+        fan_paar::fp8::Elem::from_raw(0x8d),
+    ];
     let prepared: Vec<_> = coeffs
         .iter()
         .copied()
@@ -5588,12 +6193,12 @@ fn quad_mersenne31_kernel_handles_zero_and_one_coefficients() {
     assert_eq!(scaled, original, "one coefficient is the identity");
 }
 
-fn quad_zero() -> quad_mersenne31::Elem {
-    quad_mersenne31::Elem(0, 0)
+fn quad_zero() -> Elem<quad_mersenne31::QuadMersenne31> {
+    Elem::<quad_mersenne31::QuadMersenne31>::from_raw(0, 0)
 }
 
-fn quad_one() -> quad_mersenne31::Elem {
-    quad_mersenne31::Elem(1, 0)
+fn quad_one() -> Elem<quad_mersenne31::QuadMersenne31> {
+    Elem::<quad_mersenne31::QuadMersenne31>::from_raw(1, 0)
 }
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -5644,8 +6249,8 @@ fn scatter_gfni_rs_rejects_short_rows_buffer() {
             &mut [0u8; 4],
             4,
             &[
-                Prepared::new(Elem::<8, Poly<REED_SOLOMON>>::from_raw(1)),
-                Prepared::new(Elem::<8, Poly<REED_SOLOMON>>::from_raw(2)),
+                Prepared::new(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(1)),
+                Prepared::new(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(2)),
             ],
             &[0u8; 4],
         );
@@ -5698,6 +6303,7 @@ fn gf16_gfni_wrappers_tolerate_degenerate_geometry() {
 /// wrapper bug cannot mask a kernel bug.
 mod gf1_bits {
     use super::Vec;
+    use crate::field::Elem;
     use crate::field::gf1;
     use crate::kernel::gf1 as k;
 
@@ -5845,12 +6451,14 @@ mod gf1_bits {
                 "weight {bits_len}"
             );
 
-            let mut acc = gf1::Elem::ZERO;
+            let mut acc = Elem::<gf1::Gf1>::ZERO;
             for i in 0..bits_len {
-                acc = acc.add(gf1::Elem::from_raw(u8::from(bit(&a, i) && bit(&b, i))));
+                acc = acc.add(Elem::<gf1::Gf1>::from_raw(u8::from(
+                    bit(&a, i) && bit(&b, i),
+                )));
             }
             assert_eq!(
-                gf1::Elem::from_raw(k::parity(&a, &b, bits_len) as u8),
+                Elem::<gf1::Gf1>::from_raw(k::parity(&a, &b, bits_len) as u8),
                 acc,
                 "parity {bits_len}"
             );

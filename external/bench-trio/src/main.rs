@@ -47,7 +47,7 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use fgf::poly::REED_SOLOMON;
-use fgf::{Elem, Gf8, Poly, backend, backend_for, ops};
+use fgf::{Elem, Gf, Gf8, Poly, backend, backend_for, ops};
 
 /// Every fixture is page-aligned. ISA-L only requires 32 bytes, but equal
 /// page offsets hold the 4 KiB store-to-load aliasing penalty identical for
@@ -718,7 +718,7 @@ fn control() {
     let mut first = AlignedBuf::new(REGION_BYTES, 0x101);
     let mut second = AlignedBuf::new(REGION_BYTES, 0x102);
     let mut third = AlignedBuf::new(REGION_BYTES, 0x103);
-    let coefficient = Elem::<8, Poly<REED_SOLOMON>>::from_raw(0x53);
+    let coefficient = Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x53);
 
     compare3(
         "control: mul_into vs itself",
@@ -752,7 +752,7 @@ fn control() {
 /// `gf_vect_mad` and `EncodeIdx`.
 fn single_source() {
     let raw = 0x53u8;
-    let coefficient = Elem::<8, Poly<REED_SOLOMON>>::from_raw(raw);
+    let coefficient = Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(raw);
     let src = AlignedBuf::new(REGION_BYTES, 0x200);
     let mut ours = AlignedBuf::new(REGION_BYTES, 0x201);
     let mut isal_dest = AlignedBuf::new(REGION_BYTES, 0x202);
@@ -851,10 +851,10 @@ fn single_source() {
 /// vector.
 fn gather(len: usize) {
     let raw = gather_coefficients(GATHER_SOURCES);
-    let coefficients: Vec<Elem<8, Poly<REED_SOLOMON>>> = raw
+    let coefficients: Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>> = raw
         .iter()
         .copied()
-        .map(Elem::<8, Poly<REED_SOLOMON>>::from_raw)
+        .map(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw)
         .collect();
     let buffers: Vec<AlignedBuf> = (0..GATHER_SOURCES)
         .map(|source| AlignedBuf::new(len, 0x300 + source as u64))
@@ -909,14 +909,14 @@ fn encode(len: usize, nrows: usize) {
         .map(|source| AlignedBuf::new(len, 0x400 + source as u64))
         .collect();
     let sources: Vec<&[u8]> = buffers.iter().map(AlignedBuf::as_slice).collect();
-    let columns: Vec<Vec<Elem<8, Poly<REED_SOLOMON>>>> = (0..ENCODE_SOURCES)
+    let columns: Vec<Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>>> = (0..ENCODE_SOURCES)
         .map(|source| {
             (0..nrows)
-                .map(|row| Elem::<8, Poly<REED_SOLOMON>>::from_raw(matrix[row * ENCODE_SOURCES + source]))
+                .map(|row| Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(matrix[row * ENCODE_SOURCES + source]))
                 .collect()
         })
         .collect();
-    let terms: Vec<(&[Elem<8, Poly<REED_SOLOMON>>], &[u8])> = columns
+    let terms: Vec<(&[Elem<Gf<8, Poly<REED_SOLOMON>>>], &[u8])> = columns
         .iter()
         .zip(&sources)
         .map(|(coeffs, &src)| (coeffs.as_slice(), src))

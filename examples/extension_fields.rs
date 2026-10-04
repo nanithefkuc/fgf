@@ -8,29 +8,29 @@
 
 use fgf::Field;
 use fgf::fan_paar::{fp8, fp16};
-use fgf::{Elem, Gf8, Gf16, Mersenne31, Poly, gf16, mersenne31, quad_mersenne31};
+use fgf::{Elem, Gf, Gf8, Gf16, Mersenne31, Poly, QuadMersenne31, gf16};
 
 use fgf::poly::AES;
 
 fn main() {
     // In the AES-rooted tower, x = a + b*u and u^2 + u + DELTA = 0.
-    let a = Elem::<8, Poly<AES>>::from_raw(0x53);
-    let b = Elem::<8, Poly<AES>>::from_raw(0xca);
+    let a = Elem::<Gf<8, Poly<AES>>>::from_raw(0x53);
+    let b = Elem::<Gf<8, Poly<AES>>>::from_raw(0xca);
     let x = gf16::Elem::from_components(a, b);
-    let conjugate = x.pow(Gf8::<Poly<AES>>::ORDER as u64);
+    let conjugate = x.pow(Gf8::<Poly<AES>>::ORDER);
     assert_eq!(conjugate, gf16::Elem::from_components(a + b, b));
-    assert_eq!(conjugate.pow(Gf8::<Poly<AES>>::ORDER as u64), x);
-    assert_eq!(x.pow(Gf16::ORDER as u64), x);
+    assert_eq!(conjugate.pow(Gf8::<Poly<AES>>::ORDER), x);
+    assert_eq!(x.pow(Gf16::ORDER), x);
 
     // Relative trace and norm land in the embedded byte subfield.
     let trace = x + conjugate;
     let norm = x * conjugate;
     assert_eq!(
         trace,
-        gf16::Elem::from_components(b, Elem::<8, Poly<AES>>::ZERO)
+        gf16::Elem::from_components(b, Elem::<Gf<8, Poly<AES>>>::ZERO)
     );
     let (norm_base, norm_extension) = norm.to_components();
-    assert_eq!(norm_extension, Elem::<8, Poly<AES>>::ZERO);
+    assert_eq!(norm_extension, Elem::<Gf<8, Poly<AES>>>::ZERO);
     assert_eq!(norm_base, a.square() + a * b + gf16::DELTA * b.square());
     assert_eq!(x * x.inv(), gf16::Elem::ONE);
     assert_eq!(x.to_bytes(), [a.to_raw(), b.to_raw()]);
@@ -57,20 +57,20 @@ fn main() {
     );
 
     // Odd-characteristic quadratic extension: z = re + im*i, i^2 = -1.
-    let re = mersenne31::Elem::from_raw(7);
-    let im = mersenne31::Elem::from_raw(11);
-    let z = quad_mersenne31::Elem::from_components(re, im);
+    let re = Elem::<Mersenne31>::from_raw(7);
+    let im = Elem::<Mersenne31>::from_raw(11);
+    let z = Elem::<QuadMersenne31>::from_components(re, im);
     assert_eq!(
-        quad_mersenne31::Elem::I.square(),
-        -quad_mersenne31::Elem::ONE
+        Elem::<QuadMersenne31>::I.square(),
+        -Elem::<QuadMersenne31>::ONE
     );
-    assert_eq!(z.pow(Mersenne31::CHARACTERISTIC), z.conjugate());
+    assert_eq!(z.pow(Mersenne31::ORDER), z.conjugate());
     assert_eq!(z.norm(), re.square() + im.square());
     assert_eq!(
         z * z.conjugate(),
-        quad_mersenne31::Elem::from_components(z.norm(), mersenne31::Elem::ZERO)
+        Elem::<QuadMersenne31>::from_components(z.norm(), Elem::<Mersenne31>::ZERO)
     );
-    assert_eq!(z * z.inv(), quad_mersenne31::Elem::ONE);
+    assert_eq!(z * z.inv(), Elem::<QuadMersenne31>::ONE);
     println!(
         "QuadMersenne31: z={z}, conjugate={}, norm={}",
         z.conjugate(),

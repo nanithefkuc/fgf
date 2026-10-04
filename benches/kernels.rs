@@ -18,9 +18,8 @@ use std::time::{Duration, Instant};
 
 use fgf::poly::AES;
 use fgf::{
-    Elem, FanPaar16, FanPaar32, FanPaar64, Gf8, Gf16, Gf32, Gf64, Goldilocks, Mersenne31, Poly,
-    QuadMersenne31, backend, fan_paar, gf16, gf32, gf64, goldilocks, mersenne31, ops,
-    quad_mersenne31,
+    Elem, FanPaar16, FanPaar32, FanPaar64, Gf, Gf8, Gf16, Gf32, Gf64, Goldilocks, Mersenne31, Poly,
+    QuadMersenne31, backend, fan_paar, gf16, gf32, gf64, ops,
 };
 
 fn noise(len: usize, seed: u64) -> Vec<u8> {
@@ -97,7 +96,7 @@ fn bench_preparation_crossover() {
     for &len in CROSSOVER_LENGTHS {
         let src = noise(len, 0xa00 + len as u64);
         let mut dst = noise(len, 0xb00 + len as u64);
-        let coeff8 = Elem::<8, Poly<AES>>::from_raw(0x53);
+        let coeff8 = Elem::<Gf<8, Poly<AES>>>::from_raw(0x53);
         let coeff16 = gf16::Elem::from_raw(0x53a7);
         let prepared8 = ops::Coeff::<Gf8<Poly<AES>>>::new(coeff8);
         let prepared16 = ops::Coeff::<Gf16>::new(coeff16);
@@ -145,21 +144,21 @@ fn bench_network_payloads() {
         bench("mul_add", len, || {
             ops::mul_add::<Gf8<Poly<AES>>>(
                 black_box(&mut dst),
-                Elem::<8, Poly<AES>>::from_raw(0x53),
+                Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
                 black_box(&src),
             );
         });
         bench("mul_assign", len, || {
             ops::mul_assign::<Gf8<Poly<AES>>>(
                 black_box(&mut dst),
-                Elem::<8, Poly<AES>>::from_raw(0x53),
+                Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
             );
         });
 
         for nrows in [4usize, 16] {
             let coeffs: Vec<_> = (0..nrows)
                 .map(|row| {
-                    Elem::<8, Poly<AES>>::from_raw((row as u8).wrapping_mul(37).wrapping_add(2))
+                    Elem::<Gf<8, Poly<AES>>>::from_raw((row as u8).wrapping_mul(37).wrapping_add(2))
                 })
                 .collect();
             let mut rows = noise(len * nrows, 0x900 + nrows as u64);
@@ -221,20 +220,22 @@ fn bench_network_alignment() {
             bench_network("mul_add", len, || {
                 ops::mul_add::<Gf8<Poly<AES>>>(
                     black_box(&mut *dst),
-                    Elem::<8, Poly<AES>>::from_raw(0x53),
+                    Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
                     black_box(src),
                 )
             });
             bench_network("mul_assign", len, || {
                 ops::mul_assign::<Gf8<Poly<AES>>>(
                     black_box(&mut *dst),
-                    Elem::<8, Poly<AES>>::from_raw(0x53),
+                    Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
                 )
             });
             for nrows in [4usize, 16] {
                 let coeffs: Vec<_> = (0..nrows)
                     .map(|row| {
-                        Elem::<8, Poly<AES>>::from_raw((row as u8).wrapping_mul(37).wrapping_add(2))
+                        Elem::<Gf<8, Poly<AES>>>::from_raw(
+                            (row as u8).wrapping_mul(37).wrapping_add(2),
+                        )
                     })
                     .collect();
                 let mut storage = noise(len * nrows + 128, 0x900 + nrows as u64);
@@ -358,7 +359,7 @@ fn bench_large_destination() {
         bench(&format!("{mib:3} MiB mul_into          gf8"), len, || {
             ops::mul_into::<Gf8<Poly<AES>>>(
                 black_box(&mut dst),
-                Elem::<8, Poly<AES>>::from_raw(0x53),
+                Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
                 black_box(&src),
             );
         });
@@ -372,7 +373,7 @@ fn bench_large_destination() {
         bench(&format!("{mib:3} MiB mul_into+read     gf8"), len, || {
             ops::mul_into::<Gf8<Poly<AES>>>(
                 black_box(&mut dst),
-                Elem::<8, Poly<AES>>::from_raw(0x53),
+                Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
                 black_box(&src),
             );
             let mut acc = 0u64;
@@ -384,7 +385,7 @@ fn bench_large_destination() {
         bench(&format!("{mib:3} MiB mul_add           gf8"), len, || {
             ops::mul_add::<Gf8<Poly<AES>>>(
                 black_box(&mut dst),
-                Elem::<8, Poly<AES>>::from_raw(0x53),
+                Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
                 black_box(&src),
             );
         });
@@ -406,7 +407,7 @@ fn bench_destination_alignment() {
     for &row_len in &[64 * 1024usize, 256 * 1024] {
         let src = noise(row_len, 0xe00);
         let coeffs8: Vec<_> = (0..nrows)
-            .map(|j| Elem::<8, Poly<AES>>::from_raw((j as u8).wrapping_mul(37).wrapping_add(2)))
+            .map(|j| Elem::<Gf<8, Poly<AES>>>::from_raw((j as u8).wrapping_mul(37).wrapping_add(2)))
             .collect();
         let coeffs16: Vec<_> = (0..nrows)
             .map(|j| gf16::Elem::from_raw((j as u16).wrapping_mul(9871).wrapping_add(2)))
@@ -716,7 +717,7 @@ fn main() {
             bench("mul_add                   gf8", len, || {
                 ops::mul_add::<Gf8<Poly<AES>>>(
                     black_box(&mut dst),
-                    Elem::<8, Poly<AES>>::from_raw(0x53),
+                    Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
                     black_box(&src),
                 );
             });
@@ -733,7 +734,7 @@ fn main() {
             bench("mul_into                  gf8", len, || {
                 ops::mul_into::<Gf8<Poly<AES>>>(
                     black_box(&mut product),
-                    Elem::<8, Poly<AES>>::from_raw(0x53),
+                    Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
                     black_box(&src),
                 );
             });
@@ -747,7 +748,7 @@ fn main() {
             bench("mul_assign                gf8", len, || {
                 ops::mul_assign::<Gf8<Poly<AES>>>(
                     black_box(&mut dst),
-                    Elem::<8, Poly<AES>>::from_raw(0x53),
+                    Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
                 );
             });
             bench("elementwise                gf8", len, || {
@@ -782,13 +783,13 @@ fn main() {
             bench("add_assign_scalar          gf8", len, || {
                 ops::add_assign_scalar::<Gf8<Poly<AES>>>(
                     black_box(&mut dst),
-                    Elem::<8, Poly<AES>>::from_raw(0x53),
+                    Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
                 );
             });
             bench("sub_assign_scalar          gf8", len, || {
                 ops::sub_assign_scalar::<Gf8<Poly<AES>>>(
                     black_box(&mut dst),
-                    Elem::<8, Poly<AES>>::from_raw(0x53),
+                    Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
                 );
             });
             bench("add_assign_scalar         gf16", len, || {
@@ -808,13 +809,13 @@ fn main() {
             bench("add_assign_scalar            m31", len, || {
                 ops::add_assign_scalar::<Mersenne31>(
                     black_box(&mut dst),
-                    mersenne31::Elem::from_raw(0x1234_5678),
+                    Elem::<Mersenne31>::from_raw(0x1234_5678),
                 );
             });
             bench("sub_assign_scalar            m31", len, || {
                 ops::sub_assign_scalar::<Mersenne31>(
                     black_box(&mut dst),
-                    mersenne31::Elem::from_raw(0x1234_5678),
+                    Elem::<Mersenne31>::from_raw(0x1234_5678),
                 );
             });
             bench("elementwise                  m31", len, || {
@@ -835,13 +836,13 @@ fn main() {
             bench("add_assign_scalar            gld", len, || {
                 ops::add_assign_scalar::<Goldilocks>(
                     black_box(&mut dst),
-                    goldilocks::Elem::from_raw(0x1234_5678_9abc_def0),
+                    Elem::<Goldilocks>::from_raw(0x1234_5678_9abc_def0),
                 );
             });
             bench("sub_assign_scalar            gld", len, || {
                 ops::sub_assign_scalar::<Goldilocks>(
                     black_box(&mut dst),
-                    goldilocks::Elem::from_raw(0x1234_5678_9abc_def0),
+                    Elem::<Goldilocks>::from_raw(0x1234_5678_9abc_def0),
                 );
             });
             bench("elementwise                  gld", len, || {
@@ -862,13 +863,13 @@ fn main() {
             bench("add_assign_scalar           qm31", len, || {
                 ops::add_assign_scalar::<QuadMersenne31>(
                     black_box(&mut dst),
-                    quad_mersenne31::Elem::from_raw(0x1234_5678, 0x0987_6543),
+                    Elem::<QuadMersenne31>::from_raw(0x1234_5678, 0x0987_6543),
                 );
             });
             bench("sub_assign_scalar           qm31", len, || {
                 ops::sub_assign_scalar::<QuadMersenne31>(
                     black_box(&mut dst),
-                    quad_mersenne31::Elem::from_raw(0x1234_5678, 0x0987_6543),
+                    Elem::<QuadMersenne31>::from_raw(0x1234_5678, 0x0987_6543),
                 );
             });
             bench("elementwise                 qm31", len, || {
@@ -902,7 +903,7 @@ fn main() {
         let src = noise(row_len, 3);
         let mut rows = noise(row_len * nrows, 4);
         let coeffs8: Vec<_> = (0..nrows)
-            .map(|j| Elem::<8, Poly<AES>>::from_raw((j as u8).wrapping_mul(37).wrapping_add(2)))
+            .map(|j| Elem::<Gf<8, Poly<AES>>>::from_raw((j as u8).wrapping_mul(37).wrapping_add(2)))
             .collect();
         let coeffs16: Vec<_> = (0..nrows)
             .map(|j| gf16::Elem::from_raw((j as u16).wrapping_mul(9871).wrapping_add(2)))
@@ -953,11 +954,13 @@ fn main() {
         // as one matrix call versus eight scatter calls. Same arithmetic,
         // different destination memory traffic.
         let sources: Vec<Vec<u8>> = (0..16).map(|t| noise(row_len, 100 + t as u64)).collect();
-        let coeff_sets: Vec<Vec<Elem<8, Poly<AES>>>> = (0..8)
+        let coeff_sets: Vec<Vec<Elem<Gf<8, Poly<AES>>>>> = (0..8)
             .map(|t| {
                 (0..nrows)
                     .map(|j| {
-                        Elem::<8, Poly<AES>>::from_raw(((t * 31 + j * 17) as u8).wrapping_add(1))
+                        Elem::<Gf<8, Poly<AES>>>::from_raw(
+                            ((t * 31 + j * 17) as u8).wrapping_add(1),
+                        )
                     })
                     .collect()
             })
@@ -969,7 +972,9 @@ fn main() {
                     .collect()
             })
             .collect();
-        let terms: Vec<(&[Elem<8, Poly<AES>>], &[u8])> = coeff_sets
+        // Term geometry nests the unified element spelling; the slices stay slices.
+        #[allow(clippy::type_complexity)]
+        let terms: Vec<(&[Elem<Gf<8, Poly<AES>>>], &[u8])> = coeff_sets
             .iter()
             .zip(&sources)
             .map(|(c, s)| (c.as_slice(), s.as_slice()))

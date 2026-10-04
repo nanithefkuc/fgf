@@ -9,10 +9,10 @@
 //! prime fields. As with the scalar module, keeping this obviously correct is
 //! worth more than making it fast: the vector backends carry the speed.
 
-use crate::field::{Field, FieldElem};
+use crate::field::{Elem, FieldBuffer, FieldElem};
 
 /// `dst[i] += src[i]`, modular field addition.
-pub fn add_assign<F: Field>(dst: &mut [u8], src: &[u8]) {
+pub fn add_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
     debug_assert_eq!(dst.len(), src.len());
     for (d, s) in dst
         .chunks_exact_mut(F::BYTES)
@@ -24,7 +24,7 @@ pub fn add_assign<F: Field>(dst: &mut [u8], src: &[u8]) {
 }
 
 /// `dst[i] -= src[i]`, modular field subtraction.
-pub fn sub_assign<F: Field>(dst: &mut [u8], src: &[u8]) {
+pub fn sub_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
     debug_assert_eq!(dst.len(), src.len());
     for (d, s) in dst
         .chunks_exact_mut(F::BYTES)
@@ -36,7 +36,7 @@ pub fn sub_assign<F: Field>(dst: &mut [u8], src: &[u8]) {
 }
 
 /// `dst[i] += coeff * src[i]`, elementwise.
-pub fn mul_add<F: Field>(dst: &mut [u8], coeff: F::Elem, src: &[u8]) {
+pub fn mul_add<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
     debug_assert_eq!(dst.len(), src.len());
     if coeff.is_zero() {
         return;
@@ -55,7 +55,7 @@ pub fn mul_add<F: Field>(dst: &mut [u8], coeff: F::Elem, src: &[u8]) {
 }
 
 /// `dst[i] = coeff * dst[i]`, in place.
-pub fn mul_assign<F: Field>(dst: &mut [u8], coeff: F::Elem) {
+pub fn mul_assign<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>) {
     if coeff.is_one() {
         return;
     }
@@ -70,25 +70,30 @@ pub fn mul_assign<F: Field>(dst: &mut [u8], coeff: F::Elem) {
 }
 
 /// `rows[j] += coeffs[j] * src` for every row `j`.
-pub fn mul_add_scatter<F: Field>(rows: &mut [u8], row_len: usize, coeffs: &[F::Elem], src: &[u8]) {
+pub fn mul_add_scatter<F: FieldBuffer>(
+    rows: &mut [u8],
+    row_len: usize,
+    coeffs: &[Elem<F>],
+    src: &[u8],
+) {
     for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
         mul_add::<F>(row, coeff, src);
     }
 }
 
 /// `dst += sum(coeffs[i] * srcs[i])`.
-pub fn mul_add_gather<F: Field>(dst: &mut [u8], coeffs: &[F::Elem], srcs: &[&[u8]]) {
+pub fn mul_add_gather<F: FieldBuffer>(dst: &mut [u8], coeffs: &[Elem<F>], srcs: &[&[u8]]) {
     for (&coeff, &src) in coeffs.iter().zip(srcs) {
         mul_add::<F>(dst, coeff, src);
     }
 }
 
 /// Apply every `(coeffs, src)` term to all `nrows` rows.
-pub fn mul_add_matrix<F: Field>(
+pub fn mul_add_matrix<F: FieldBuffer>(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
-    terms: &[(&[F::Elem], &[u8])],
+    terms: &[(&[Elem<F>], &[u8])],
 ) {
     for &(coeffs, src) in terms {
         for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
@@ -98,7 +103,7 @@ pub fn mul_add_matrix<F: Field>(
 }
 
 /// `dst[i] = a[i] * b[i]`, elementwise.
-pub fn mul_elementwise<F: Field>(dst: &mut [u8], a: &[u8], b: &[u8]) {
+pub fn mul_elementwise<F: FieldBuffer>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     debug_assert_eq!(dst.len(), a.len());
     debug_assert_eq!(dst.len(), b.len());
     for ((d, x), y) in dst
@@ -111,14 +116,14 @@ pub fn mul_elementwise<F: Field>(dst: &mut [u8], a: &[u8], b: &[u8]) {
 }
 
 /// `dst[i] += value`, modular field addition of one broadcast element.
-pub fn add_assign_scalar<F: Field>(dst: &mut [u8], value: F::Elem) {
+pub fn add_assign_scalar<F: FieldBuffer>(dst: &mut [u8], value: Elem<F>) {
     for d in dst.chunks_exact_mut(F::BYTES) {
         F::encode(d, F::decode(d).add(value));
     }
 }
 
 /// `dst[i] -= value`, modular field subtraction of one broadcast element.
-pub fn sub_assign_scalar<F: Field>(dst: &mut [u8], value: F::Elem) {
+pub fn sub_assign_scalar<F: FieldBuffer>(dst: &mut [u8], value: Elem<F>) {
     for d in dst.chunks_exact_mut(F::BYTES) {
         F::encode(d, F::decode(d).sub(value));
     }

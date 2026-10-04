@@ -16,7 +16,8 @@ use super::{
     mul_elementwise_assign_avx2, mul_elementwise_avx2, mul_into_avx2, sub_assign_avx2,
     sub_assign_scalar_avx2,
 };
-use crate::field::mersenne31;
+use crate::field::Elem;
+use crate::field::mersenne31::Mersenne31;
 use crate::kernel::proven_checks::{check_elem_multiple, check_equal};
 
 #[cfg(target_arch = "x86")]
@@ -86,8 +87,10 @@ pub fn add_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], src: &[u8]
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let d = fold(_mm512_loadu_si512(&*dst_lane), p);
-        let s = fold(_mm512_loadu_si512(src_lane), p);
+        // Canonicalize on load: a bare fold can leave `p + 1`, whose double
+        // overflows the 32-bit sum.
+        let d = min_chain(fold(_mm512_loadu_si512(&*dst_lane), p), p);
+        let s = min_chain(fold(_mm512_loadu_si512(src_lane), p), p);
         _mm512_storeu_si512(dst_lane, min_chain(_mm512_add_epi32(d, s), p));
     }
     if !dst_tail.is_empty() {
@@ -113,8 +116,10 @@ pub fn sub_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], src: &[u8]
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let d = fold(_mm512_loadu_si512(&*dst_lane), p);
-        let s = fold(_mm512_loadu_si512(src_lane), p);
+        // Canonicalize on load: `fixed` below assumes limbs below the
+        // modulus, and a bare fold can leave `p + 1`.
+        let d = min_chain(fold(_mm512_loadu_si512(&*dst_lane), p), p);
+        let s = min_chain(fold(_mm512_loadu_si512(src_lane), p), p);
         let diff = _mm512_sub_epi32(d, s); // wraps iff negative
         let fixed = _mm512_min_epu32(diff, _mm512_add_epi32(diff, p));
         _mm512_storeu_si512(dst_lane, min_chain(fixed, p));
@@ -124,11 +129,16 @@ pub fn sub_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], src: &[u8]
     }
 }
 
-/// `dst += coeff * src (mod p)`, Mersenne31, AVX-512. The `dst` and `src`
-/// lanes must be canonical (`0..p`); `coeff` is canonicalized on entry.
+/// `dst += coeff * src (mod p)`, Mersenne31, AVX-512.
+///
+/// A zero coefficient leaves `dst` untouched, mirroring the portable
+/// reference. Every other lane is folded to canonical form on load, so
+/// every input lane bit pattern is legal and every stored lane is
+/// canonical.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial lane.
+#[allow(clippy::cast_possible_wrap)]
 #[archmage::arcane(import_intrinsics)]
 pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, src: &[u8]) {
     check_equal(
@@ -139,14 +149,25 @@ pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, s
         src.len(),
     );
     check_elem_multiple("mersenne31::mul_add_avx512", dst.len(), 4);
+    // Reduce the raw word once; the zero check runs on the value, matching
+    // the portable reference.
+    let folded = (coeff & crate::field::mersenne31::MODULUS) + (coeff >> 31);
+    let c = if folded >= crate::field::mersenne31::MODULUS {
+        folded - crate::field::mersenne31::MODULUS
+    } else {
+        folded
+    };
+    if c == 0 {
+        return;
+    }
     let p = _mm512_set1_epi32(P);
-    let cred = broadcast(coeff, p);
+    let cred = _mm512_set1_epi32(c as i32);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let prod = mulmod(cred, _mm512_loadu_si512(src_lane), p);
-        let d = _mm512_loadu_si512(&*dst_lane);
-        let sum = _mm512_add_epi32(d, prod); // <= 2p - 1
+        let prod = mulmod(cred, min_chain(fold(_mm512_loadu_si512(src_lane), p), p), p);
+        let d = min_chain(fold(_mm512_loadu_si512(&*dst_lane), p), p);
+        let sum = _mm512_add_epi32(d, prod); // <= 2p - 2
         _mm512_storeu_si512(dst_lane, _mm512_min_epu32(sum, _mm512_sub_epi32(sum, p)));
     }
     if !dst_tail.is_empty() {
@@ -154,19 +175,33 @@ pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, s
     }
 }
 
-/// `dst *= coeff (mod p)`, Mersenne31, AVX-512. The `dst` lanes must be
-/// canonical (`0..p`); `coeff` is canonicalized on entry.
+/// `dst *= coeff (mod p)`, Mersenne31, AVX-512.
+///
+/// Every input lane bit pattern is legal: lanes fold to canonical form on
+/// load, and every stored lane is canonical.
 ///
 /// # Panics
 /// Panics on a partial trailing lane.
+#[allow(clippy::cast_possible_wrap)]
 #[archmage::arcane(import_intrinsics)]
 pub fn mul_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32) {
     check_elem_multiple("mersenne31::mul_assign_avx512", dst.len(), 4);
+    // Reduce the raw word once; the unit check runs on the value, matching
+    // the portable reference.
+    let folded = (coeff & crate::field::mersenne31::MODULUS) + (coeff >> 31);
+    let c = if folded >= crate::field::mersenne31::MODULUS {
+        folded - crate::field::mersenne31::MODULUS
+    } else {
+        folded
+    };
+    if c == 1 {
+        return;
+    }
     let p = _mm512_set1_epi32(P);
-    let cred = broadcast(coeff, p);
+    let cred = _mm512_set1_epi32(c as i32);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     for dst_lane in dst_lanes {
-        let d = _mm512_loadu_si512(&*dst_lane);
+        let d = min_chain(fold(_mm512_loadu_si512(&*dst_lane), p), p);
         _mm512_storeu_si512(dst_lane, mulmod(cred, d, p));
     }
     if !dst_tail.is_empty() {
@@ -174,8 +209,10 @@ pub fn mul_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32
     }
 }
 
-/// `dst = coeff * src (mod p)`, Mersenne31, AVX-512. The `src` lanes must be
-/// canonical (`0..p`); `coeff` is canonicalized on entry.
+/// `dst = coeff * src (mod p)`, Mersenne31, AVX-512.
+///
+/// Every input lane bit pattern is legal: lanes fold to canonical form on
+/// load, and every stored lane is canonical.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial lane.
@@ -194,7 +231,7 @@ pub fn mul_into_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, 
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let s = _mm512_loadu_si512(src_lane);
+        let s = min_chain(fold(_mm512_loadu_si512(src_lane), p), p);
         _mm512_storeu_si512(dst_lane, mulmod(cred, s, p));
     }
     if !dst_tail.is_empty() {
@@ -202,8 +239,10 @@ pub fn mul_into_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, 
     }
 }
 
-/// `dst[i] = a[i] * b[i] (mod p)`, Mersenne31, AVX-512. The `a` and `b`
-/// lanes must be canonical (`0..p`).
+/// `dst[i] = a[i] * b[i] (mod p)`, Mersenne31, AVX-512.
+///
+/// Every input lane bit pattern is legal: lanes fold to canonical form on
+/// load, and every stored lane is canonical.
 ///
 /// # Panics
 /// Panics unless all three buffers match in length (whole lanes).
@@ -229,8 +268,8 @@ pub fn mul_elementwise_avx512(token: archmage::X64V4Token, dst: &mut [u8], a: &[
     let (a_lanes, a_tail) = a.as_chunks::<64>();
     let (b_lanes, b_tail) = b.as_chunks::<64>();
     for ((dst_lane, a_lane), b_lane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
-        let va = _mm512_loadu_si512(a_lane);
-        let vb = _mm512_loadu_si512(b_lane);
+        let va = min_chain(fold(_mm512_loadu_si512(a_lane), p), p);
+        let vb = min_chain(fold(_mm512_loadu_si512(b_lane), p), p);
         _mm512_storeu_si512(dst_lane, mulmod(va, vb, p));
     }
     if !dst_tail.is_empty() {
@@ -238,8 +277,10 @@ pub fn mul_elementwise_avx512(token: archmage::X64V4Token, dst: &mut [u8], a: &[
     }
 }
 
-/// `dst[i] = dst[i] * src[i] (mod p)`, Mersenne31, AVX-512. The `dst` and
-/// `src` lanes must be canonical (`0..p`).
+/// `dst[i] = dst[i] * src[i] (mod p)`, Mersenne31, AVX-512.
+///
+/// Every input lane bit pattern is legal: lanes fold to canonical form on
+/// load, and every stored lane is canonical.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial lane.
@@ -257,8 +298,8 @@ pub fn mul_elementwise_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8]
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let vd = _mm512_loadu_si512(&*dst_lane);
-        let vs = _mm512_loadu_si512(src_lane);
+        let vd = min_chain(fold(_mm512_loadu_si512(&*dst_lane), p), p);
+        let vs = min_chain(fold(_mm512_loadu_si512(src_lane), p), p);
         _mm512_storeu_si512(dst_lane, mulmod(vd, vs, p));
     }
     if !dst_tail.is_empty() {
@@ -275,7 +316,7 @@ pub fn mul_elementwise_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8]
 pub fn add_assign_scalar_avx512(token: archmage::X64V4Token, dst: &mut [u8], value: u32) {
     check_elem_multiple("mersenne31::add_assign_scalar_avx512", dst.len(), 4);
     let p = _mm512_set1_epi32(P);
-    let svec = _mm512_set1_epi32(mersenne31::Elem(value).canonical().to_raw().cast_signed());
+    let svec = _mm512_set1_epi32(Elem::<Mersenne31>::from_raw(value).to_raw().cast_signed());
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     for dst_lane in dst_lanes {
         let d = fold(_mm512_loadu_si512(&*dst_lane), p);
@@ -295,7 +336,7 @@ pub fn add_assign_scalar_avx512(token: archmage::X64V4Token, dst: &mut [u8], val
 pub fn sub_assign_scalar_avx512(token: archmage::X64V4Token, dst: &mut [u8], value: u32) {
     check_elem_multiple("mersenne31::sub_assign_scalar_avx512", dst.len(), 4);
     let p = _mm512_set1_epi32(P);
-    let svec = _mm512_set1_epi32(mersenne31::Elem(value).canonical().to_raw().cast_signed());
+    let svec = _mm512_set1_epi32(Elem::<Mersenne31>::from_raw(value).to_raw().cast_signed());
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     for dst_lane in dst_lanes {
         let d = fold(_mm512_loadu_si512(&*dst_lane), p);
