@@ -697,17 +697,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 
 [[patch.unused]]
-name = "fgf"
-version = "2.1.0"
+name = "gfm"
+version = "1.0.1"
 
 [[patch.unused]]
 name = "butterfly-fft"
 version = "1.0.2"
 
 [[patch.unused]]
-name = "poly-ring"
-version = "1.0.0"
+name = "fgf"
+version = "2.1.0"
 
 [[patch.unused]]
-name = "gfm"
-version = "1.0.1"
+name = "poly-ring"
+version = "1.0.0"

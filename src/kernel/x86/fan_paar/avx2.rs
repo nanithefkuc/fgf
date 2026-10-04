@@ -1,6 +1,7 @@
 //! Fan–Paar AVX2 kernels over 32-byte lanes.
 
-use crate::field::fan_paar::{FanPaar16, FanPaar32, FanPaar64, fp32, fp64};
+use crate::field::Elem;
+use crate::field::binary::tower::{FanPaar16, FanPaar32, FanPaar64};
 use crate::kernel::scalar;
 use crate::kernel::tables::FpTowerTables;
 use crate::kernel::x86::gf16::{nibble_avx2, nibble_ssse3, scale_avx2, scale_ssse3};
@@ -156,7 +157,7 @@ struct Fp32Lanes {
 }
 
 #[archmage::rite(v3)]
-fn fp32_lanes(coeff: fp32::Elem) -> Fp32Lanes {
+fn fp32_lanes(coeff: Elem<FanPaar32>) -> Fp32Lanes {
     let (c0, c1) = coeff.to_components();
     let a_coeff = c0;
     let b_coeff = c0.add(c1.mul_alpha());
@@ -194,7 +195,7 @@ fn scale_fp32(x: __m256i, lanes: &Fp32Lanes) -> __m256i {
 pub fn mul_add_avx2_fp32(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
-    coeff: fp32::Elem,
+    coeff: Elem<FanPaar32>,
     src: &[u8],
 ) {
     assert_eq!(
@@ -229,7 +230,7 @@ pub fn mul_add_avx2_fp32(
 /// Panics on a partial trailing element.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_avx2_fp32(_token: archmage::X64V3Token, dst: &mut [u8], coeff: fp32::Elem) {
+pub fn mul_assign_avx2_fp32(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem<FanPaar32>) {
     assert!(
         dst.len().is_multiple_of(4),
         "fan_paar::mul_assign_avx2_fp32: buffer of {} bytes is not a whole number of 4-byte elements",
@@ -253,7 +254,7 @@ pub fn mul_assign_avx2_fp32(_token: archmage::X64V3Token, dst: &mut [u8], coeff:
 pub fn mul_into_avx2_fp32(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
-    coeff: fp32::Elem,
+    coeff: Elem<FanPaar32>,
     src: &[u8],
 ) {
     assert_eq!(
@@ -301,7 +302,7 @@ struct Fp64Lanes {
 }
 
 #[archmage::rite(v3)]
-fn fp64_lanes(coeff: fp64::Elem) -> Fp64Lanes {
+fn fp64_lanes(coeff: Elem<FanPaar64>) -> Fp64Lanes {
     let (c0, c1) = coeff.to_components();
     let a_coeff = c0;
     let b_coeff = c0.add(c1.mul_alpha());
@@ -339,7 +340,7 @@ fn scale_fp64(x: __m256i, lanes: &Fp64Lanes) -> __m256i {
 pub fn mul_add_avx2_fp64(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
-    coeff: fp64::Elem,
+    coeff: Elem<FanPaar64>,
     src: &[u8],
 ) {
     assert_eq!(
@@ -374,7 +375,7 @@ pub fn mul_add_avx2_fp64(
 /// Panics on a partial trailing element.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_avx2_fp64(_token: archmage::X64V3Token, dst: &mut [u8], coeff: fp64::Elem) {
+pub fn mul_assign_avx2_fp64(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem<FanPaar64>) {
     assert!(
         dst.len().is_multiple_of(8),
         "fan_paar::mul_assign_avx2_fp64: buffer of {} bytes is not a whole number of 8-byte elements",
@@ -398,7 +399,7 @@ pub fn mul_assign_avx2_fp64(_token: archmage::X64V3Token, dst: &mut [u8], coeff:
 pub fn mul_into_avx2_fp64(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
-    coeff: fp64::Elem,
+    coeff: Elem<FanPaar64>,
     src: &[u8],
 ) {
     assert_eq!(

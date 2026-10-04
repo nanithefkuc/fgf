@@ -19,7 +19,6 @@
 //! Callers should use the safe, validated wrappers in [`crate::ops`] rather
 //! than this module directly.
 
-pub(crate) mod fan_paar;
 pub(crate) mod tower;
 // Reached only from the architecture kernels, which cfg away entirely on a
 // scalar-only build.
@@ -94,18 +93,24 @@ mod private {
     pub trait Sealed {}
 }
 impl<R: crate::kernel::tables::Gf8Data> private::Sealed for crate::field::Gf<8, R> {}
-impl<S: crate::field::tower::TowerSpec> private::Sealed
-    for crate::field::Gf<16, crate::field::tower::Tower<S>>
+impl<S: crate::field::binary::tower::TowerSpec> private::Sealed
+    for crate::field::Gf<16, crate::field::binary::tower::Tower<S>>
 where
-    S::Base: crate::kernel::tables::ByteBanks,
+    S::Base: crate::field::binary::BinaryDegree<8>,
 {
 }
-impl private::Sealed for crate::field::gf32::Gf32 {}
-impl private::Sealed for crate::field::gf64::Gf64 {}
-impl private::Sealed for crate::field::fan_paar::FanPaar8 {}
-impl private::Sealed for crate::field::fan_paar::FanPaar16 {}
-impl private::Sealed for crate::field::fan_paar::FanPaar32 {}
-impl private::Sealed for crate::field::fan_paar::FanPaar64 {}
+impl<S: crate::field::binary::tower::TowerSpec> private::Sealed
+    for crate::field::Gf<32, crate::field::binary::tower::Tower<S>>
+where
+    S::Base: crate::field::binary::BinaryDegree<16>,
+{
+}
+impl<S: crate::field::binary::tower::TowerSpec> private::Sealed
+    for crate::field::Gf<64, crate::field::binary::tower::Tower<S>>
+where
+    S::Base: crate::field::binary::BinaryDegree<32>,
+{
+}
 impl private::Sealed for crate::field::mersenne31::Mersenne31 {}
 impl private::Sealed for crate::field::goldilocks::Goldilocks {}
 impl private::Sealed for crate::field::quad_mersenne31::QuadMersenne31 {}

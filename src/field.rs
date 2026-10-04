@@ -82,29 +82,27 @@
 //! ```
 
 pub mod binary;
-pub mod fan_paar;
 pub mod goldilocks;
 pub mod mersenne31;
 pub mod quad_mersenne31;
-pub mod tower;
-pub(crate) mod wiedemann;
 
 pub use binary::cantor;
 pub use binary::description;
 pub use binary::normal;
 pub use binary::poly;
+pub use binary::tower;
+pub use binary::tower::{
+    FanPaar2, FanPaar2Spec, FanPaar4, FanPaar4Spec, FanPaar8, FanPaar8Spec, FanPaar16,
+    FanPaar16Spec, FanPaar32, FanPaar32Spec, FanPaar64, FanPaar64Spec, Gf16, Gf32, Gf64,
+    Rijndael16, Rijndael32, Rijndael64, Tower, TowerGeneratorSpec, TowerSpec,
+};
 pub use binary::{
     AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Gf, Gf1,
     Gf8, Normal, Poly, REED_SOLOMON,
 };
-pub use fan_paar::{FanPaar8, FanPaar16, FanPaar32, FanPaar64};
-pub use gf16::Gf16;
-pub use gf32::Gf32;
-pub use gf64::Gf64;
 pub use goldilocks::Goldilocks;
 pub use mersenne31::Mersenne31;
 pub use quad_mersenne31::QuadMersenne31;
-pub use tower::{RijndaelTower, Tower, TowerSpec, gf16, gf32, gf64};
 
 mod private {
     pub trait Sealed {}

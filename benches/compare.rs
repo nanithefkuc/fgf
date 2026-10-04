@@ -14,7 +14,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::{Elem, Gf, Gf8, Gf16, Poly, backend, gf16, ops};
+use fgf::{Elem, Gf, Gf8, Gf16, Poly, backend, ops};
 
 use fgf::poly::{AES, REED_SOLOMON};
 
@@ -611,11 +611,11 @@ fn main() {
     }
 
     // w16
-    let c16 = gf16::Elem::from_raw(0x53A7);
+    let c16 = Elem::<Gf16>::from_raw(0x53A7);
     bench_scalar("w16 scalar mul", || {
-        let mut x = gf16::Elem::from_raw(0x1234);
+        let mut x = Elem::<Gf16>::from_raw(0x1234);
         for i in 0..SCALAR_ITERS {
-            x = black_box(x).mul(gf16::Elem::from_raw((0x53A7u16).wrapping_add(i as u16)));
+            x = black_box(x).mul(Elem::<Gf16>::from_raw((0x53A7u16).wrapping_add(i as u16)));
         }
         black_box(x);
     });

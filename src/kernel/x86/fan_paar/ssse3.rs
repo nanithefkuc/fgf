@@ -1,6 +1,6 @@
 //! Fan–Paar SSSE3 kernels over 16-byte lanes.
 
-use crate::field::fan_paar::FanPaar16;
+use crate::field::binary::tower::FanPaar16;
 use crate::kernel::scalar;
 use crate::kernel::tables::FpTowerTables;
 use crate::kernel::x86::gf16::{nibble_ssse3, scale_ssse3};

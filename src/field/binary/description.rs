@@ -151,6 +151,65 @@ const fn apply(columns: [u8; 8], x: u64) -> u64 {
     result
 }
 
+/// Bit-serial polynomial product, independent of every table.
+///
+/// The table builders below run through this path so that constructing the
+/// pinned log/exp leaves never reads the leaves themselves.
+const fn poly_mul_serial(full: u128, n: u32, x: u64, y: u64) -> u64 {
+    let mut acc: u128 = 0;
+    let mut k = 0;
+    while k < n {
+        if (y >> k) & 1 == 1 {
+            acc ^= (x as u128) << k;
+        }
+        k += 1;
+    }
+    let mut k = 2 * n;
+    while k > n {
+        k -= 1;
+        if (acc >> k) & 1 == 1 {
+            acc ^= full << (k - n);
+        }
+    }
+    // The reduction leaves fewer than `n <= 8` bits set.
+    #[allow(clippy::cast_possible_truncation)]
+    let reduced = acc as u64;
+    reduced
+}
+
+/// The pinned AES log/exp leaf, built serially under the derived generator.
+const PINNED_AES_LEAF: ByteLogExp = serial_log_exp(0x11B, 3);
+
+/// The pinned Reed-Solomon log/exp leaf, built serially.
+const PINNED_RS_LEAF: ByteLogExp = serial_log_exp(0x11D, 2);
+
+/// Build one pinned leaf's log/exp pair without consulting any leaf table.
+const fn serial_log_exp(full: u128, generator: u64) -> ByteLogExp {
+    // Loop counters stay below the table sizes; the byte tower closes over
+    // one byte.
+    #[allow(clippy::cast_possible_truncation)]
+    const fn build(full: u128, generator: u64) -> ByteLogExp {
+        let mut exp = [0u8; 255];
+        let mut value = 1u64;
+        let mut i = 0;
+        while i < 255 {
+            // The degree-eight leaf holds one byte by construction.
+            let byte: u8 = value as u8;
+            exp[i] = byte;
+            value = poly_mul_serial(full, 8, value, generator);
+            i += 1;
+        }
+        let mut log = [0u8; 256];
+        let mut j = 0;
+        while j < 255 {
+            log[exp[j] as usize] = j as u8;
+            j += 1;
+        }
+        ByteLogExp { exp, log }
+    }
+    build(full, generator)
+}
+
 impl BinaryDescription {
     /// A lone polynomial root of the stated degree.
     #[must_use]
@@ -248,25 +307,21 @@ impl BinaryDescription {
             BinaryNode::Unused => panic!("unused node"),
             BinaryNode::Polynomial { degree, full } => {
                 let n = degree as u32;
-                let mut acc: u128 = 0;
-                let mut k = 0;
-                while k < n {
-                    if (y >> k) & 1 == 1 {
-                        acc ^= (x as u128) << k;
-                    }
-                    k += 1;
-                }
-                let mut k = 2 * n;
-                while k > n {
-                    k -= 1;
-                    if (acc >> k) & 1 == 1 {
-                        acc ^= full << (k - n);
-                    }
-                }
-                // The reduction leaves fewer than `n <= 8` bits set.
+                // Pinned degree-eight leaves take their log/exp tables; the
+                // binding tables are built serially, so reading them here
+                // closes no cycle. Leaf coordinates hold one byte.
                 #[allow(clippy::cast_possible_truncation)]
-                let reduced = acc as u64;
-                reduced
+                let pinned = if n == 8 && full == 0x11B {
+                    Some(PINNED_AES_LEAF.mul(x as u8, y as u8) as u64)
+                } else if n == 8 && full == 0x11D {
+                    Some(PINNED_RS_LEAF.mul(x as u8, y as u8) as u64)
+                } else {
+                    None
+                };
+                match pinned {
+                    Some(product) => product,
+                    None => poly_mul_serial(full, n, x, y),
+                }
             }
             BinaryNode::Basis {
                 base,

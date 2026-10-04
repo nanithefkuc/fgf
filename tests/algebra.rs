@@ -9,8 +9,8 @@ use fgf::field::{Field, FieldBuffer, PrimeIdentity};
 use fgf::poly::{AES, REED_SOLOMON};
 use fgf::{
     BinaryField, Cantor, Elem, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf, Gf1, Gf8, Gf16, Gf32,
-    Gf64, Goldilocks, HasGenerator, Mersenne31, Normal, Poly, QuadMersenne31, fan_paar, gf16, gf32,
-    gf64, goldilocks, mersenne31, quad_mersenne31,
+    Gf64, Goldilocks, HasGenerator, Mersenne31, Normal, Poly, QuadMersenne31, goldilocks,
+    mersenne31, quad_mersenne31,
 };
 
 /// Every element of `Gf8<Poly<POLY>>`, in ascending raw order.
@@ -20,14 +20,14 @@ fn all_gf8_elems<const POLY: u128>() -> impl Iterator<Item = Elem<Gf<8, Poly<POL
 
 /// A spread of GF(2^16) elements: boundaries, both component planes, and a
 /// deterministic pseudo-random spray. Exhaustive would be 4 billion pairs.
-fn sample_gf16() -> Vec<gf16::Elem> {
+fn sample_gf16() -> Vec<Elem<Gf16>> {
     let mut values = vec![
-        gf16::Elem::from_raw(0),
-        gf16::Elem::from_raw(1),
-        gf16::Elem::from_raw(0x0100),
-        gf16::Elem::from_raw(0x00ff),
-        gf16::Elem::from_raw(0xff00),
-        gf16::Elem::from_raw(0xffff),
+        Elem::<Gf16>::from_raw(0),
+        Elem::<Gf16>::from_raw(1),
+        Elem::<Gf16>::from_raw(0x0100),
+        Elem::<Gf16>::from_raw(0x00ff),
+        Elem::<Gf16>::from_raw(0xff00),
+        Elem::<Gf16>::from_raw(0xffff),
         Elem::<Gf16>::GENERATOR,
     ];
     let mut state = 0x1234_5678_9abc_def0u64;
@@ -35,7 +35,7 @@ fn sample_gf16() -> Vec<gf16::Elem> {
         state = state
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1);
-        values.push(gf16::Elem::from_raw((state >> 32) as u16));
+        values.push(Elem::<Gf16>::from_raw((state >> 32) as u16));
     }
     values
 }
@@ -564,7 +564,7 @@ fn binary_coordinates_round_trip_and_reject_excess_bits() {
 /// Schoolbook `(a + b*u)(c + d*u)` reduced by `u^2 = u + DELTA`, using the
 /// GF(2^8) shift-and-XOR multiply. Independent of the Karatsuba form under
 /// test and of the log tables.
-fn gf16_mul_oracle(x: gf16::Elem, y: gf16::Elem) -> gf16::Elem {
+fn gf16_mul_oracle(x: Elem<Gf16>, y: Elem<Gf16>) -> Elem<Gf16> {
     let (a, b) = x.to_components();
     let (c, d) = y.to_components();
     let xt = |p: Elem<Gf<8, Poly<AES>>>, q: Elem<Gf<8, Poly<AES>>>| {
@@ -575,9 +575,9 @@ fn gf16_mul_oracle(x: gf16::Elem, y: gf16::Elem) -> gf16::Elem {
     let bc = xt(b, c);
     let bd = xt(b, d);
     // ac + (ad + bc)u + bd*u^2, and u^2 = u + DELTA.
-    let constant = ac.add(xt(gf16::DELTA, bd));
+    let constant = ac.add(xt(Elem::<Gf<8, Poly<AES>>>::from_raw(0x20), bd));
     let extension = ad.add(bc).add(bd);
-    gf16::Elem::from_components(constant, extension)
+    Elem::<Gf16>::from_components(constant, extension)
 }
 
 #[test]
@@ -599,13 +599,17 @@ fn gf16_square_matches_multiply() {
 
 #[test]
 fn gf16_inverse_round_trips() {
-    assert_eq!(gf16::Elem::ZERO.inv(), gf16::Elem::ZERO, "inv(0) must be 0");
+    assert_eq!(
+        Elem::<Gf16>::ZERO.inv(),
+        Elem::<Gf16>::ZERO,
+        "inv(0) must be 0"
+    );
     for a in sample_gf16() {
-        if a == gf16::Elem::ZERO {
+        if a == Elem::<Gf16>::ZERO {
             continue;
         }
-        assert_eq!(a.mul(a.inv()), gf16::Elem::ONE, "{a:?} * inv({a:?}) != 1");
-        assert_eq!(a.div(a), gf16::Elem::ONE, "{a:?} / {a:?} != 1");
+        assert_eq!(a.mul(a.inv()), Elem::<Gf16>::ONE, "{a:?} * inv({a:?}) != 1");
+        assert_eq!(a.div(a), Elem::<Gf16>::ONE, "{a:?} / {a:?} != 1");
     }
 }
 
@@ -614,11 +618,11 @@ fn gf16_generator_has_full_order() {
     // Order must be exactly 65535: g^65535 == 1 and g^(65535/p) != 1 for each
     // prime factor p of 65535 = 3 * 5 * 17 * 257.
     let g = Elem::<Gf16>::GENERATOR;
-    assert_eq!(g.pow(65_535), gf16::Elem::ONE, "g^65535 != 1");
+    assert_eq!(g.pow(65_535), Elem::<Gf16>::ONE, "g^65535 != 1");
     for factor in [3u128, 5, 17, 257] {
         assert_ne!(
             g.pow(65_535 / factor),
-            gf16::Elem::ONE,
+            Elem::<Gf16>::ONE,
             "generator order divides 65535/{factor}"
         );
     }
@@ -628,10 +632,10 @@ fn gf16_generator_has_full_order() {
 fn gf16_field_axioms() {
     let sample: Vec<_> = sample_gf16().into_iter().step_by(37).collect();
     for &a in &sample {
-        assert_eq!(a.add(gf16::Elem::ZERO), a);
-        assert_eq!(a.mul(gf16::Elem::ONE), a);
-        assert_eq!(a.mul(gf16::Elem::ZERO), gf16::Elem::ZERO);
-        assert_eq!(a.add(a), gf16::Elem::ZERO, "characteristic two");
+        assert_eq!(a.add(Elem::<Gf16>::ZERO), a);
+        assert_eq!(a.mul(Elem::<Gf16>::ONE), a);
+        assert_eq!(a.mul(Elem::<Gf16>::ZERO), Elem::<Gf16>::ZERO);
+        assert_eq!(a.add(a), Elem::<Gf16>::ZERO, "characteristic two");
         for &b in &sample {
             assert_eq!(a.mul(b), b.mul(a), "multiplication commutes");
             for &c in &sample {
@@ -656,17 +660,17 @@ fn gf16_embeds_the_base_field() {
     // GF(2^8) does. If the tower reduction were wrong this would break.
     for a in all_gf8_elems::<AES>().step_by(5) {
         for b in all_gf8_elems::<AES>().step_by(7) {
-            let lifted = gf16::Elem::from_components(a, b).mul(gf16::Elem::from_components(
+            let lifted = Elem::<Gf16>::from_components(a, b).mul(Elem::<Gf16>::from_components(
                 Elem::<Gf<8, Poly<AES>>>::from_raw(0),
                 Elem::<Gf<8, Poly<AES>>>::from_raw(0),
             ));
-            assert_eq!(lifted, gf16::Elem::ZERO);
+            assert_eq!(lifted, Elem::<Gf16>::ZERO);
 
-            let x = gf16::Elem::from_components(a, Elem::<Gf<8, Poly<AES>>>::from_raw(0));
-            let y = gf16::Elem::from_components(b, Elem::<Gf<8, Poly<AES>>>::from_raw(0));
+            let x = Elem::<Gf16>::from_components(a, Elem::<Gf<8, Poly<AES>>>::from_raw(0));
+            let y = Elem::<Gf16>::from_components(b, Elem::<Gf<8, Poly<AES>>>::from_raw(0));
             assert_eq!(
                 x.mul(y),
-                gf16::Elem::from_components(a.mul(b), Elem::<Gf<8, Poly<AES>>>::from_raw(0)),
+                Elem::<Gf16>::from_components(a.mul(b), Elem::<Gf<8, Poly<AES>>>::from_raw(0)),
                 "base-field embedding broken for {a:?} * {b:?}"
             );
         }
@@ -677,31 +681,31 @@ fn gf16_embeds_the_base_field() {
 // GF(2^32) and GF(2^64)
 // ---------------------------------------------------------------------------
 
-fn sample_gf32() -> Vec<gf32::Elem> {
+fn sample_gf32() -> Vec<Elem<Gf32>> {
     let mut values = vec![
-        gf32::Elem::ZERO,
-        gf32::Elem::ONE,
-        gf32::Elem::from_raw(u32::MAX),
-        gf32::Elem::from_raw(0x0000_ffff),
-        gf32::Elem::from_raw(0xffff_0000),
-        gf32::Elem::from_components(gf32::DELTA, gf16::Elem::ZERO),
+        Elem::<Gf32>::ZERO,
+        Elem::<Gf32>::ONE,
+        Elem::<Gf32>::from_raw(u32::MAX),
+        Elem::<Gf32>::from_raw(0x0000_ffff),
+        Elem::<Gf32>::from_raw(0xffff_0000),
+        Elem::<Gf32>::from_components(Elem::<Gf16>::from_raw(0x2000), Elem::<Gf16>::ZERO),
         Elem::<Gf32>::GENERATOR,
     ];
     let mut state = 0x243f_6a88u32;
     for _ in 0..48 {
         state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        values.push(gf32::Elem::from_raw(state));
+        values.push(Elem::<Gf32>::from_raw(state));
     }
     values
 }
 
-fn sample_gf64() -> Vec<gf64::Elem> {
+fn sample_gf64() -> Vec<Elem<Gf64>> {
     let mut values = vec![
-        gf64::Elem::ZERO,
-        gf64::Elem::ONE,
-        gf64::Elem::from_raw(u64::MAX),
-        gf64::Elem::from_raw(0x0000_0000_ffff_ffff),
-        gf64::Elem::from_raw(0xffff_ffff_0000_0000),
+        Elem::<Gf64>::ZERO,
+        Elem::<Gf64>::ONE,
+        Elem::<Gf64>::from_raw(u64::MAX),
+        Elem::<Gf64>::from_raw(0x0000_0000_ffff_ffff),
+        Elem::<Gf64>::from_raw(0xffff_ffff_0000_0000),
         Elem::<Gf64>::GENERATOR,
     ];
     let mut state = 0x243f_6a88_85a3_08d3u64;
@@ -709,29 +713,35 @@ fn sample_gf64() -> Vec<gf64::Elem> {
         state = state
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
-        values.push(gf64::Elem::from_raw(state));
+        values.push(Elem::<Gf64>::from_raw(state));
     }
     values
 }
 
-fn gf32_mul_oracle(x: gf32::Elem, y: gf32::Elem) -> gf32::Elem {
+fn gf32_mul_oracle(x: Elem<Gf32>, y: Elem<Gf32>) -> Elem<Gf32> {
     let (a, b) = x.to_components();
     let (c, d) = y.to_components();
     let ac = a.mul(c);
     let ad = a.mul(d);
     let bc = b.mul(c);
     let bd = b.mul(d);
-    gf32::Elem::from_components(ac.add(gf32::DELTA.mul(bd)), ad.add(bc).add(bd))
+    Elem::<Gf32>::from_components(
+        ac.add(Elem::<Gf16>::from_raw(0x2000).mul(bd)),
+        ad.add(bc).add(bd),
+    )
 }
 
-fn gf64_mul_oracle(x: gf64::Elem, y: gf64::Elem) -> gf64::Elem {
+fn gf64_mul_oracle(x: Elem<Gf64>, y: Elem<Gf64>) -> Elem<Gf64> {
     let (a, b) = x.to_components();
     let (c, d) = y.to_components();
     let ac = a.mul(c);
     let ad = a.mul(d);
     let bc = b.mul(c);
     let bd = b.mul(d);
-    gf64::Elem::from_components(ac.add(gf64::DELTA.mul(bd)), ad.add(bc).add(bd))
+    Elem::<Gf64>::from_components(
+        ac.add(Elem::<Gf32>::from_raw(0x2000_0000).mul(bd)),
+        ad.add(bc).add(bd),
+    )
 }
 
 #[test]
@@ -739,9 +749,9 @@ fn gf32_tower_arithmetic() {
     let sample = sample_gf32();
     for (i, &a) in sample.iter().enumerate() {
         assert_eq!(a.square(), a.mul(a), "square({a:?})");
-        assert_eq!(a.add(a), gf32::Elem::ZERO);
-        if a != gf32::Elem::ZERO {
-            assert_eq!(a.mul(a.inv()), gf32::Elem::ONE, "inverse({a:?})");
+        assert_eq!(a.add(a), Elem::<Gf32>::ZERO);
+        if a != Elem::<Gf32>::ZERO {
+            assert_eq!(a.mul(a.inv()), Elem::<Gf32>::ONE, "inverse({a:?})");
         }
         let b = sample[(i * 7 + 3) % sample.len()];
         let c = sample[(i * 13 + 5) % sample.len()];
@@ -756,9 +766,9 @@ fn gf64_tower_arithmetic() {
     let sample = sample_gf64();
     for (i, &a) in sample.iter().enumerate() {
         assert_eq!(a.square(), a.mul(a), "square({a:?})");
-        assert_eq!(a.add(a), gf64::Elem::ZERO);
-        if a != gf64::Elem::ZERO {
-            assert_eq!(a.mul(a.inv()), gf64::Elem::ONE, "inverse({a:?})");
+        assert_eq!(a.add(a), Elem::<Gf64>::ZERO);
+        if a != Elem::<Gf64>::ZERO {
+            assert_eq!(a.mul(a.inv()), Elem::<Gf64>::ONE, "inverse({a:?})");
         }
         let b = sample[(i * 7 + 3) % sample.len()];
         let c = sample[(i * 13 + 5) % sample.len()];
@@ -772,16 +782,16 @@ fn gf64_tower_arithmetic() {
 fn larger_tower_generators_have_full_order() {
     let g32 = Elem::<Gf32>::GENERATOR;
     let order32 = u32::MAX as u128;
-    assert_eq!(g32.pow(order32), gf32::Elem::ONE);
+    assert_eq!(g32.pow(order32), Elem::<Gf32>::ONE);
     for factor in [3u128, 5, 17, 257, 65_537] {
-        assert_ne!(g32.pow(order32 / factor), gf32::Elem::ONE);
+        assert_ne!(g32.pow(order32 / factor), Elem::<Gf32>::ONE);
     }
 
     let g64 = Elem::<Gf64>::GENERATOR;
     let order64 = u128::from(u64::MAX);
-    assert_eq!(g64.pow(order64), gf64::Elem::ONE);
+    assert_eq!(g64.pow(order64), Elem::<Gf64>::ONE);
     for factor in [3u128, 5, 17, 257, 641, 65_537, 6_700_417] {
-        assert_ne!(g64.pow(order64 / factor), gf64::Elem::ONE);
+        assert_ne!(g64.pow(order64 / factor), Elem::<Gf64>::ONE);
     }
 }
 
@@ -1264,44 +1274,44 @@ fn qm31_arithmetic_is_total_over_raw_limbs() {
 #[test]
 fn fan_paar_matches_canonical_vectors() {
     assert_eq!(
-        fan_paar::fp8::Elem::from_raw(0x1b).mul(fan_paar::fp8::Elem::from_raw(0xa8)),
-        fan_paar::fp8::Elem::from_raw(0x09)
+        Elem::<FanPaar8>::from_raw(0x1b).mul(Elem::<FanPaar8>::from_raw(0xa8)),
+        Elem::<FanPaar8>::from_raw(0x09)
     );
     assert_eq!(
-        fan_paar::fp16::Elem::from_raw(0x48a8).mul(fan_paar::fp16::Elem::from_raw(0xf8a4)),
-        fan_paar::fp16::Elem::from_raw(0x3656)
+        Elem::<FanPaar16>::from_raw(0x48a8).mul(Elem::<FanPaar16>::from_raw(0xf8a4)),
+        Elem::<FanPaar16>::from_raw(0x3656)
     );
     assert_eq!(
-        fan_paar::fp16::Elem::from_raw(0xf8a4).square(),
-        fan_paar::fp16::Elem::from_raw(0xe7e6)
+        Elem::<FanPaar16>::from_raw(0xf8a4).square(),
+        Elem::<FanPaar16>::from_raw(0xe7e6)
     );
     assert_eq!(
-        fan_paar::fp64::Elem::from_raw(0xc84d_6191_1083_1cef)
-            .mul(fan_paar::fp64::Elem::from_raw(0x0000_0000_0000_a14f)),
-        fan_paar::fp64::Elem::from_raw(0x3565_086d_6b9e_f595)
+        Elem::<FanPaar64>::from_raw(0xc84d_6191_1083_1cef)
+            .mul(Elem::<FanPaar64>::from_raw(0x0000_0000_0000_a14f)),
+        Elem::<FanPaar64>::from_raw(0x3565_086d_6b9e_f595)
     );
 }
 
 #[test]
 fn fan_paar_arithmetic_round_trips() {
     macro_rules! check {
-        ($module:ident, $($value:expr),+ $(,)?) => {
+        ($field:ty, $($value:expr),+ $(,)?) => {
             $(
-                let a = fan_paar::$module::Elem::from_raw($value);
+                let a = Elem::<$field>::from_raw($value);
                 assert_eq!(a.square(), a.mul(a));
-                assert_eq!(a.add(a), fan_paar::$module::Elem::ZERO);
-                if a != fan_paar::$module::Elem::ZERO {
-                    assert_eq!(a.mul(a.inv()), fan_paar::$module::Elem::ONE);
+                assert_eq!(a.add(a), Elem::<$field>::ZERO);
+                if a != Elem::<$field>::ZERO {
+                    assert_eq!(a.mul(a.inv()), Elem::<$field>::ONE);
                 }
             )+
         };
     }
 
-    check!(fp8, 0, 1, 0x2d, 0x53, 0xff);
-    check!(fp16, 0, 1, 0xe2de, 0x1234, 0xffff);
-    check!(fp32, 0, 1, 0x03e2_1cea, 0xdead_beef, u32::MAX);
+    check!(FanPaar8, 0, 1, 0x2d, 0x53, u8::MAX);
+    check!(FanPaar16, 0, 1, 0xe2de, 0x1234, u16::MAX);
+    check!(FanPaar32, 0, 1, 0x03e2_1cea, 0xdead_beef, u32::MAX);
     check!(
-        fp64,
+        FanPaar64,
         0,
         1,
         0x070f_870d_cd9c_1d88,
@@ -1314,54 +1324,54 @@ fn fan_paar_arithmetic_round_trips() {
 fn fan_paar_generators_have_full_order() {
     let g8 = Elem::<FanPaar8>::GENERATOR;
     for factor in [3u128, 5, 17] {
-        assert_ne!(g8.pow(255 / factor), fan_paar::fp8::Elem::ONE);
+        assert_ne!(g8.pow(255 / factor), Elem::<FanPaar8>::ONE);
     }
-    assert_eq!(g8.pow(255), fan_paar::fp8::Elem::ONE);
+    assert_eq!(g8.pow(255), Elem::<FanPaar8>::ONE);
 
     let g16 = Elem::<FanPaar16>::GENERATOR;
     for factor in [3u128, 5, 17, 257] {
-        assert_ne!(g16.pow(65_535 / factor), fan_paar::fp16::Elem::ONE);
+        assert_ne!(g16.pow(65_535 / factor), Elem::<FanPaar16>::ONE);
     }
-    assert_eq!(g16.pow(65_535), fan_paar::fp16::Elem::ONE);
+    assert_eq!(g16.pow(65_535), Elem::<FanPaar16>::ONE);
 
     let g32 = Elem::<FanPaar32>::GENERATOR;
     let order32 = u32::MAX as u128;
     for factor in [3u128, 5, 17, 257, 65_537] {
-        assert_ne!(g32.pow(order32 / factor), fan_paar::fp32::Elem::ONE);
+        assert_ne!(g32.pow(order32 / factor), Elem::<FanPaar32>::ONE);
     }
-    assert_eq!(g32.pow(order32), fan_paar::fp32::Elem::ONE);
+    assert_eq!(g32.pow(order32), Elem::<FanPaar32>::ONE);
 
     let g64 = Elem::<FanPaar64>::GENERATOR;
     for factor in [3u128, 5, 17, 257, 641, 65_537, 6_700_417] {
         assert_ne!(
             g64.pow(u128::from(u64::MAX) / factor),
-            fan_paar::fp64::Elem::ONE
+            Elem::<FanPaar64>::ONE
         );
     }
-    assert_eq!(g64.pow(u128::from(u64::MAX)), fan_paar::fp64::Elem::ONE);
+    assert_eq!(g64.pow(u128::from(u64::MAX)), Elem::<FanPaar64>::ONE);
 }
 
 #[test]
 fn fan_paar_subfield_encodings_are_nested() {
     for (a, b) in [(0x1bu8, 0xa8u8), (0x53, 0xca), (0xff, 0x42)] {
-        let product = fan_paar::fp8::Elem::from_raw(a)
-            .mul(fan_paar::fp8::Elem::from_raw(b))
+        let product = Elem::<FanPaar8>::from_raw(a)
+            .mul(Elem::<FanPaar8>::from_raw(b))
             .to_raw();
         assert_eq!(
-            fan_paar::fp16::Elem::from_raw(u16::from(a))
-                .mul(fan_paar::fp16::Elem::from_raw(u16::from(b)))
+            Elem::<FanPaar16>::from_raw(u16::from(a))
+                .mul(Elem::<FanPaar16>::from_raw(u16::from(b)))
                 .to_raw(),
             u16::from(product)
         );
         assert_eq!(
-            fan_paar::fp32::Elem::from_raw(u32::from(a))
-                .mul(fan_paar::fp32::Elem::from_raw(u32::from(b)))
+            Elem::<FanPaar32>::from_raw(u32::from(a))
+                .mul(Elem::<FanPaar32>::from_raw(u32::from(b)))
                 .to_raw(),
             u32::from(product)
         );
         assert_eq!(
-            fan_paar::fp64::Elem::from_raw(u64::from(a))
-                .mul(fan_paar::fp64::Elem::from_raw(u64::from(b)))
+            Elem::<FanPaar64>::from_raw(u64::from(a))
+                .mul(Elem::<FanPaar64>::from_raw(u64::from(b)))
                 .to_raw(),
             u64::from(product)
         );
@@ -1418,12 +1428,12 @@ fn byte_representation_round_trips() {
             assert_eq!(buffer, value.to_bytes());
         }};
     }
-    check_fan_paar_repr!(FanPaar8, fan_paar::fp8::Elem::from_raw(0xa5), 1);
-    check_fan_paar_repr!(FanPaar16, fan_paar::fp16::Elem::from_raw(0xa55a), 2);
-    check_fan_paar_repr!(FanPaar32, fan_paar::fp32::Elem::from_raw(0xa55a_1234), 4);
+    check_fan_paar_repr!(FanPaar8, Elem::<FanPaar8>::from_raw(0xa5), 1);
+    check_fan_paar_repr!(FanPaar16, Elem::<FanPaar16>::from_raw(0xa55a), 2);
+    check_fan_paar_repr!(FanPaar32, Elem::<FanPaar32>::from_raw(0xa55a_1234), 4);
     check_fan_paar_repr!(
         FanPaar64,
-        fan_paar::fp64::Elem::from_raw(0xa55a_1234_dead_beef),
+        Elem::<FanPaar64>::from_raw(0xa55a_1234_dead_beef),
         8
     );
 }
@@ -1726,13 +1736,13 @@ fn element_formatting_reports_insufficient_writer_capacity() {
     check::<Elem<Gf<8, Poly<REED_SOLOMON>>>>();
     check::<Elem<Gf<8, Poly<0x12D>>>>();
     check::<Elem<Gf<8, Poly<0x187>>>>();
-    check::<gf16::Elem>();
-    check::<gf32::Elem>();
-    check::<gf64::Elem>();
-    check::<fan_paar::fp8::Elem>();
-    check::<fan_paar::fp16::Elem>();
-    check::<fan_paar::fp32::Elem>();
-    check::<fan_paar::fp64::Elem>();
+    check::<Elem<Gf16>>();
+    check::<Elem<Gf32>>();
+    check::<Elem<Gf64>>();
+    check::<Elem<FanPaar8>>();
+    check::<Elem<FanPaar16>>();
+    check::<Elem<FanPaar32>>();
+    check::<Elem<FanPaar64>>();
     check::<Elem<Mersenne31>>();
     check::<Elem<Goldilocks>>();
     check::<Elem<QuadMersenne31>>();
@@ -1835,25 +1845,25 @@ fn gf64_trait_operator_and_formatting_surface() {
 fn fan_paar_trait_operator_and_formatting_surface() {
     let fp8: Vec<_> = (0..=u8::MAX)
         .step_by(97)
-        .map(fan_paar::fp8::Elem::from_raw)
+        .map(Elem::<FanPaar8>::from_raw)
         .collect();
     exercise_surface::<FanPaar8>(&fp8);
     exercise_operators!(fp8);
     let fp16: Vec<_> = [0, 1, 0x0100, 0xffff, 0xa55a, 0x1234]
         .into_iter()
-        .map(fan_paar::fp16::Elem::from_raw)
+        .map(Elem::<FanPaar16>::from_raw)
         .collect();
     exercise_surface::<FanPaar16>(&fp16);
     exercise_operators!(fp16);
     let fp32: Vec<_> = [0, 1, 0x10000, 0xffff_ffff, 0xa55a_1234]
         .into_iter()
-        .map(fan_paar::fp32::Elem::from_raw)
+        .map(Elem::<FanPaar32>::from_raw)
         .collect();
     exercise_surface::<FanPaar32>(&fp32);
     exercise_operators!(fp32);
     let fp64: Vec<_> = [0, 1, 1 << 32, u64::MAX, 0xa55a_1234_dead_beef]
         .into_iter()
-        .map(fan_paar::fp64::Elem::from_raw)
+        .map(Elem::<FanPaar64>::from_raw)
         .collect();
     exercise_surface::<FanPaar64>(&fp64);
     exercise_operators!(fp64);
@@ -1892,21 +1902,21 @@ fn inherent_conversion_helpers_round_trip() {
     // Towers: component projection is a bijection with from_components.
     for a in sample_gf16().into_iter().step_by(61) {
         let (lo, hi) = a.to_components();
-        assert_eq!(gf16::Elem::from_components(lo, hi), a);
-        assert_eq!(gf16::Elem::from_raw(a.to_raw()), a);
-        assert_eq!(gf16::Elem::from_bytes(a.to_bytes()), a);
+        assert_eq!(Elem::<Gf16>::from_components(lo, hi), a);
+        assert_eq!(Elem::<Gf16>::from_raw(a.to_raw()), a);
+        assert_eq!(Elem::<Gf16>::from_bytes(a.to_bytes()), a);
     }
     for a in sample_gf32().into_iter().step_by(11) {
         let (lo, hi) = a.to_components();
-        assert_eq!(gf32::Elem::from_components(lo, hi), a);
-        assert_eq!(gf32::Elem::from_raw(a.to_raw()), a);
-        assert_eq!(gf32::Elem::from_bytes(a.to_bytes()), a);
+        assert_eq!(Elem::<Gf32>::from_components(lo, hi), a);
+        assert_eq!(Elem::<Gf32>::from_raw(a.to_raw()), a);
+        assert_eq!(Elem::<Gf32>::from_bytes(a.to_bytes()), a);
     }
     for a in sample_gf64().into_iter().step_by(11) {
         let (lo, hi) = a.to_components();
-        assert_eq!(gf64::Elem::from_components(lo, hi), a);
-        assert_eq!(gf64::Elem::from_raw(a.to_raw()), a);
-        assert_eq!(gf64::Elem::from_bytes(a.to_bytes()), a);
+        assert_eq!(Elem::<Gf64>::from_components(lo, hi), a);
+        assert_eq!(Elem::<Gf64>::from_raw(a.to_raw()), a);
+        assert_eq!(Elem::<Gf64>::from_bytes(a.to_bytes()), a);
     }
     // Prime fields: storage is canonical, and lanes below the modulus
     // survive construction unchanged.
@@ -1965,18 +1975,15 @@ fn inherent_conversion_helpers_round_trip() {
             assert_eq!(<$elem>::from_components(lo, hi), a);
         }};
     }
-    fp_level!(fan_paar::fp16::Elem, fan_paar::fp16::Elem::from_raw(0xa55a));
+    fp_level!(Elem<FanPaar16>, Elem::<FanPaar16>::from_raw(0xa55a));
+    fp_level!(Elem<FanPaar32>, Elem::<FanPaar32>::from_raw(0xa55a_1234));
     fp_level!(
-        fan_paar::fp32::Elem,
-        fan_paar::fp32::Elem::from_raw(0xa55a_1234)
-    );
-    fp_level!(
-        fan_paar::fp64::Elem,
-        fan_paar::fp64::Elem::from_raw(0xa55a_1234_dead_beef)
+        Elem<FanPaar64>,
+        Elem::<FanPaar64>::from_raw(0xa55a_1234_dead_beef)
     );
     assert_eq!(
-        fan_paar::fp8::Elem::from_raw(0xa5).mul_alpha(),
-        fan_paar::fp8::Elem::from_raw(0xa5).mul(fan_paar::fp8::ALPHA)
+        Elem::<FanPaar8>::from_raw(0xa5).mul_alpha(),
+        Elem::<FanPaar8>::from_raw(0xa5).mul(Elem::<FanPaar8>::from_raw(0x10))
     );
 }
 
@@ -2295,7 +2302,7 @@ fn generic_from_raw_agrees_with_inherent_constructors() {
     // Concrete types only: on a concrete `Elem<F>` the inherent `const`
     // constructor wins even with `FieldElem` in scope, while the
     // fully-qualified trait spelling takes the blanket implementation.
-    // A generic `Elem<F>::from_raw` would resolve to the trait on both
+    // A generic `Elem::<F>::from_raw` would resolve to the trait on both
     // sides and prove nothing.
     macro_rules! check_agreement {
         ($($field:ty: [$($raw:expr),+]),+) => {$({

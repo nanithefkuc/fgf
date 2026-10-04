@@ -22,7 +22,7 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
     use fgf::internals::kernel::tables::{TowerCoeff, TowerTables};
     use fgf::internals::kernel::{SimdToken, X64V3GfniCryptoToken, x86};
     use fgf::poly::AES;
-    use fgf::{Elem, Gf, Poly, gf16};
+    use fgf::{Elem, Gf, Gf16, Poly};
 
     let _guard = TEST_LOCK
         .lock()
@@ -112,7 +112,7 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
     // built outside the window; the calls themselves must not allocate.
     let tower_src = noise(512, 0xa60);
     let mut tower_dst = noise(512, 0xa61);
-    let coeff = gf16::Elem::from_raw(0xbeef);
+    let coeff = Elem::<Gf16>::from_raw(0xbeef);
     let tower_coeff = TowerCoeff::new(coeff);
     let tower_tables = TowerTables::new(coeff);
     x86::gf16::mul_add_gfni(token, &mut tower_dst, tower_coeff, &tower_src);

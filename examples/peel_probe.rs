@@ -15,7 +15,7 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use fgf::{Elem, FieldKernels, Gf, Gf8, Gf16, Poly, backend, gf16, ops};
+use fgf::{Elem, FieldKernels, Gf, Gf8, Gf16, Poly, backend, ops};
 
 use fgf::poly::{AES, REED_SOLOMON};
 
@@ -81,7 +81,7 @@ impl OffBuf {
 
 fn gf16_sweep() {
     println!("\n== Gf16 single-row offset sweep (dst and src at the same base offset) ==");
-    let coeff = gf16::Elem::from_raw(0x53a7);
+    let coeff = Elem::<Gf16>::from_raw(0x53a7);
     for &len in &[1536usize, 2048, 3072, 3584, 4096, 8192, 16384, 65536] {
         let mut row = String::new();
         for &off in &[0usize, 16] {

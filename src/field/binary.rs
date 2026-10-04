@@ -23,6 +23,7 @@ pub mod cantor;
 pub mod description;
 pub mod normal;
 pub mod poly;
+pub mod tower;
 
 pub use cantor::Cantor;
 pub use description::{BinaryDescription, ByteLogExp};
@@ -149,7 +150,13 @@ pub trait BinaryField:
 /// Implemented by `Gf<N, R>` at its exact supported degree.
 pub trait BinaryDegree<const N: u8>: BinaryField {}
 
-/// Emit the shared surface of one small binary degree row.
+/// Whether a `u64` coordinate word fits in `bits` bits, without ever
+/// shifting a `u64` by 64.
+const fn coordinates_fit(value: u64, bits: u32) -> bool {
+    if bits >= 64 { true } else { value >> bits == 0 }
+}
+
+/// Emit the shared surface of one binary degree row.
 ///
 /// `Field`, `BinaryField`, and `BinaryDegree` over every representation,
 /// with the concrete raw word and coordinate mask of the row.
@@ -163,7 +170,7 @@ macro_rules! degree_row {
             const DEGREE: u32 = $n;
             const ORDER: u128 = 1u128 << $n;
             const ZERO_RAW: $raw = 0;
-            // The descriptor's identity holds at most `N <= 8` bits here.
+            // The descriptor's identity holds at most `N` bits here.
             #[allow(clippy::cast_possible_truncation)]
             const ONE_RAW: $raw = R::DESCRIPTION.one() as $raw;
             const VALID: () = R::VALID;
@@ -204,7 +211,7 @@ macro_rules! degree_row {
             const DESCRIPTION: &'static BinaryDescription = R::DESCRIPTION;
 
             #[inline]
-            // Widening a stored byte to the coordinate word is exact.
+            // Widening a stored word to the coordinate word is exact.
             #[allow(clippy::cast_lossless)]
             fn to_coordinates(value: Elem<Self>) -> u64 {
                 value.to_raw() as u64
@@ -212,8 +219,8 @@ macro_rules! degree_row {
 
             #[inline]
             fn from_coordinates(value: u64) -> Result<Elem<Self>, CoordinateError> {
-                if value >> $n == 0 {
-                    // The shift check proves the word fits the raw type.
+                if coordinates_fit(value, $n) {
+                    // The fit check proves the word fits the raw type.
                     #[allow(clippy::cast_possible_truncation)]
                     let raw = value as $raw;
                     Ok(Elem::<Self>::from_raw(raw))
@@ -387,11 +394,238 @@ degree_row!(1, u8, 0x1);
 degree_row!(2, u8, 0x3);
 degree_row!(4, u8, 0xF);
 degree_row!(8, u8, 0xFF);
+degree_row!(16, u16, u16::MAX);
+degree_row!(32, u32, u32::MAX);
+degree_row!(64, u64, u64::MAX);
 
 small_row!(1, 0x1);
 small_row!(2, 0x3);
 small_row!(4, 0xF);
 small_row!(8, 0xFF);
+
+/// Emit the inherent `const` scalar arithmetic of one wide degree row.
+///
+/// One body per operation branches on structural equality with the
+/// crate-pinned descriptions: the Rijndael and Fan-Paar presentations keep
+/// their specialized recurrences and every other description uses the
+/// general descriptor interpreter. Custom specs cannot claim a strategy.
+macro_rules! wide_row {
+    (
+        $n:literal, $raw:ty, $bytes:literal, $width:expr,
+        $rijndael:expr, $fanpaar:expr,
+        $rmul:path, $rsquare:path, $rinv:path
+    ) => {
+        impl<R: BinaryRepr<$n>> Elem<Gf<$n, R>> {
+            /// Wrap a raw storage word.
+            ///
+            /// Referencing this constructor evaluates the representation's
+            /// validity check, so an invalid relation fails to compile at
+            /// the use site.
+            #[allow(clippy::let_unit_value)]
+            #[allow(clippy::ignored_unit_patterns)]
+            #[inline]
+            #[must_use]
+            pub const fn from_raw(value: $raw) -> Self {
+                let () = Validate::<Gf<$n, R>>::OK;
+                let () = R::VALID;
+                Elem { raw: value }
+            }
+
+            /// Decode from the stable little-endian representation.
+            #[inline]
+            #[must_use]
+            pub const fn from_bytes(bytes: [u8; $bytes]) -> Self {
+                Elem {
+                    raw: <$raw>::from_le_bytes(bytes),
+                }
+            }
+
+            /// Encode to the stable little-endian representation.
+            #[inline]
+            #[must_use]
+            pub const fn to_bytes(self) -> [u8; $bytes] {
+                self.raw.to_le_bytes()
+            }
+
+            /// Field addition. Identical to subtraction and to bitwise XOR.
+            #[inline]
+            #[must_use]
+            pub const fn add(self, rhs: Self) -> Self {
+                Elem {
+                    raw: self.raw ^ rhs.raw,
+                }
+            }
+
+            /// Field subtraction. Identical to [`Elem::add`](Self::add).
+            #[inline]
+            #[must_use]
+            pub const fn sub(self, rhs: Self) -> Self {
+                self.add(rhs)
+            }
+
+            /// Additive inverse. The identity: `x + x = 0`.
+            #[inline]
+            #[must_use]
+            pub const fn neg(self) -> Self {
+                self
+            }
+
+            /// Field multiplication.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+            #[inline]
+            #[must_use]
+            pub const fn mul(self, rhs: Self) -> Self {
+                if R::DESCRIPTION.same_structure($rijndael) {
+                    Elem {
+                        raw: $rmul(self.raw, rhs.raw),
+                    }
+                } else if R::DESCRIPTION.same_structure($fanpaar) {
+                    Elem {
+                        raw: tower::fp_multiply(self.raw as u64, rhs.raw as u64, $n) as $raw,
+                    }
+                } else {
+                    Elem {
+                        raw: R::DESCRIPTION.mul(self.raw as u64, rhs.raw as u64) as $raw,
+                    }
+                }
+            }
+
+            /// Square.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+            #[inline]
+            #[must_use]
+            pub const fn square(self) -> Self {
+                if R::DESCRIPTION.same_structure($rijndael) {
+                    Elem {
+                        raw: $rsquare(self.raw),
+                    }
+                } else if R::DESCRIPTION.same_structure($fanpaar) {
+                    Elem {
+                        raw: tower::fp_square(self.raw as u64, $n) as $raw,
+                    }
+                } else {
+                    Elem {
+                        raw: R::DESCRIPTION.mul(self.raw as u64, self.raw as u64) as $raw,
+                    }
+                }
+            }
+
+            /// Multiplicative inverse. Maps zero to zero by crate convention.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+            #[inline]
+            #[must_use]
+            pub const fn inv(self) -> Self {
+                if R::DESCRIPTION.same_structure($rijndael) {
+                    Elem {
+                        raw: $rinv(self.raw),
+                    }
+                } else if R::DESCRIPTION.same_structure($fanpaar) {
+                    Elem {
+                        raw: tower::fp_invert(self.raw as u64, $n) as $raw,
+                    }
+                } else {
+                    Elem {
+                        raw: R::DESCRIPTION.inv(self.raw as u64) as $raw,
+                    }
+                }
+            }
+
+            /// Field division. Returns zero when either operand is zero.
+            ///
+            /// `x / 0 == 0` is a definition, not an oversight: keeping
+            /// division total leaves hot loops branch-free and keeps this
+            /// callable from `const` context.
+            #[inline]
+            #[must_use]
+            pub const fn div(self, rhs: Self) -> Self {
+                if self.raw == 0 || rhs.raw == 0 {
+                    return Self::ZERO;
+                }
+                self.mul(rhs.inv())
+            }
+
+            /// Raise to an unsigned integer power.
+            #[must_use]
+            pub const fn pow(self, mut exponent: u128) -> Self {
+                let mut base = self;
+                let mut result = Self::ONE;
+                while exponent != 0 {
+                    if exponent & 1 != 0 {
+                        result = result.mul(base);
+                    }
+                    base = base.square();
+                    exponent >>= 1;
+                }
+                result
+            }
+
+            /// The canonical representative of this element.
+            ///
+            /// Stored bytes are canonical by construction, so this is the
+            /// identity. It exists because every field in the crate answers
+            /// the question.
+            #[inline]
+            #[must_use]
+            pub const fn canonical(self) -> Self {
+                self
+            }
+
+            /// Whether this element is the additive identity.
+            #[inline]
+            #[must_use]
+            pub const fn is_zero(self) -> bool {
+                self.raw == 0
+            }
+
+            /// Whether this element is the multiplicative identity.
+            #[inline]
+            #[must_use]
+            pub const fn is_one(self) -> bool {
+                self.raw == Self::ONE.raw
+            }
+        }
+
+        impl<R: BinaryRepr<$n>> fmt::Display for Elem<Gf<$n, R>> {
+            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(formatter, "{:0width$x}", self.raw, width = $width)
+            }
+        }
+    };
+}
+
+wide_row!(
+    16,
+    u16,
+    2,
+    4,
+    tower::RIJNDAEL16_DESC,
+    tower::FANPAAR16_DESC,
+    tower::rijndael16_mul,
+    tower::rijndael16_square,
+    tower::rijndael16_inv
+);
+wide_row!(
+    32,
+    u32,
+    4,
+    8,
+    tower::RIJNDAEL32_DESC,
+    tower::FANPAAR32_DESC,
+    tower::rijndael32_mul,
+    tower::rijndael32_square,
+    tower::rijndael32_inv
+);
+wide_row!(
+    64,
+    u64,
+    8,
+    16,
+    tower::RIJNDAEL64_DESC,
+    tower::FANPAAR64_DESC,
+    tower::rijndael64_mul,
+    tower::rijndael64_square,
+    tower::rijndael64_inv
+);
 
 impl<R: BinaryRepr<8>> FieldBuffer for Gf<8, R> {
     const BYTES: usize = 1;

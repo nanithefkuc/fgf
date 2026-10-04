@@ -8,6 +8,51 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Recursive quadratic towers through degree 64, in
+  `src/field/binary/tower.rs`. One open `TowerSpec { Base; A; B; NAME }`
+  presents every quadratic tower at degrees 2, 4, 8, 16, 32, and 64 over a
+  base of half the degree; `TowerGeneratorSpec` optionally pins a
+  multiplicative generator whose full order is checked against the complete
+  prime factors of `2^N - 1` at each degree. Custom specs validate through
+  the field description (base first, excess coefficient bits, `A != 0`,
+  absolute `trace(B/A^2) == 1`).
+- Custom tower bulk operations: one dispatch implementation per degree
+  serves every representation, routing pinned Rijndael and Fan-Paar
+  descriptions to their vector kernels and every other tower to the typed
+  scalar fallback with `backend_for` reporting `Scalar`; degree-eight
+  towers join the single degree-eight dispatch. Towers at degrees 8, 16,
+  32, and 64 implement `FieldBuffer`.
+- Degree 2 and 4 Fan-Paar tower levels (`FanPaar2`, `FanPaar4`) as public
+  spec declarations nesting from GF(2).
+- Tower schoolbook differentials at every degree 2–64 against independent
+  recursive references, Fan-Paar recurrence fixtures, and degree-64
+  boundary tests (`ORDER == 1 << 64`, group order `u64::MAX`, coordinate
+  round trip of `u64::MAX`, excess-bit rejection at 32).
+
+### Changed
+
+- **Breaking:** the Rijndael and Fan-Paar hierarchies collapse into the
+  recursive tower. `RijndaelTower` is renamed `Rijndael16` and joined by
+  `Rijndael32` and `Rijndael64`; `Gf16`, `Gf32`, and `Gf64` are aliases of
+  `Gf<N, Tower<RijndaelN>>`. The `gf16`, `gf32`, and `gf64` modules,
+  `quad_tower!`, the concrete Fan-Paar element and marker types, the
+  `fan_paar` and `wiedemann` modules, and their `DELTA`/`ALPHA`/`GENERATOR`
+  module constants are removed. Migrate `gf16::Elem` to `Elem<Gf16>`,
+  `fan_paar::fp16::Elem` to `Elem<FanPaar16>` (with `FanPaar8/16/32/64`
+  keeping today's generators as `Gf<N, Tower<…>>` aliases), and the
+  relation constants to the spec `A`/`B` words; wire bytes, generators,
+  and relations are unchanged. The independent Fan-Paar recurrence stays
+  available as `field::binary::tower::{fp_multiply, fp_square, fp_invert,
+  fp_mul_alpha}` (re-exported under `internals` as
+  `internals::field::fan_paar`). `TowerSpec` is open: `A` and `B` widen to
+  `u64` base-coordinate words, the base bound becomes `BinaryField` at
+  half the degree, and the generator moves to the optional
+  `TowerGeneratorSpec`. The unstable `internals::kernel::fan_paar`
+  dispatch module merges into `internals::kernel::tower::{gf16, gf32,
+  gf64}`, whose `Prepared` enums carry raw words and tiles; `x86::fan_paar`
+  keeps its token-bearing entries unchanged. Path moves:
+  `field::tower` → `field::binary::tower`; `field::wiedemann` → the
+  recurrence functions in `field::binary::tower`.
 - Generic flat byte fields support any irreducible degree-eight polynomial,
   including Data Matrix `0x12D` and the CCSDS polynomial basis `0x187`.
   Scalar arithmetic remains `const`; x86 GFNI elementwise multiplication

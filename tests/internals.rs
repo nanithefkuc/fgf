@@ -17,7 +17,7 @@
 ))]
 #![allow(clippy::cast_possible_truncation)]
 
-use fgf::internals::field::wiedemann;
+use fgf::internals::field::fan_paar as wiedemann;
 #[cfg(feature = "simd512")]
 use fgf::internals::kernel::X64V4xToken;
 use fgf::internals::kernel::gf8::Prepared;
@@ -30,7 +30,7 @@ use fgf::internals::kernel::{
 };
 use fgf::poly::{AES, REED_SOLOMON};
 use fgf::{
-    Elem, Gf, Gf8, Gf16, Gf32, Gf64, Goldilocks, Mersenne31, Poly, fan_paar, gf16, gf32, gf64,
+    Elem, FanPaar16, FanPaar32, FanPaar64, Gf, Gf8, Gf16, Gf32, Gf64, Goldilocks, Mersenne31, Poly,
     goldilocks,
 };
 
@@ -125,25 +125,25 @@ fn gf8_rs_coeffs() -> Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>> {
 }
 
 /// GF(2^16) coefficients: short-circuits, pure components, mixed, extremes.
-fn gf16_coeffs() -> Vec<gf16::Elem> {
+fn gf16_coeffs() -> Vec<Elem<Gf16>> {
     #[cfg(not(miri))]
     let raw = [0u16, 1, 0x0100, 0x00ff, 0x1234, 0xbeef, 0x7411, 0xffff];
     // Short-circuits, one mixed value, and the extreme under Miri.
     #[cfg(miri)]
     let raw = [0u16, 1, 0x1234, 0xffff];
-    raw.iter().map(|&c| gf16::Elem::from_raw(c)).collect()
+    raw.iter().map(|&c| Elem::<Gf16>::from_raw(c)).collect()
 }
 
-fn gf32_coeffs() -> Vec<gf32::Elem> {
+fn gf32_coeffs() -> Vec<Elem<Gf32>> {
     #[cfg(not(miri))]
     let raw = [0u32, 1, 0x0001_0000, 0x0000_ffff, 0x1234_5678, u32::MAX];
     // Short-circuits, one mixed value, and the extreme under Miri.
     #[cfg(miri)]
     let raw = [0u32, 1, 0x1234_5678, u32::MAX];
-    raw.iter().map(|&c| gf32::Elem::from_raw(c)).collect()
+    raw.iter().map(|&c| Elem::<Gf32>::from_raw(c)).collect()
 }
 
-fn gf64_coeffs() -> Vec<gf64::Elem> {
+fn gf64_coeffs() -> Vec<Elem<Gf64>> {
     #[cfg(not(miri))]
     let raw = [
         0u64,
@@ -156,7 +156,7 @@ fn gf64_coeffs() -> Vec<gf64::Elem> {
     // Short-circuits, one mixed value, and the extreme under Miri.
     #[cfg(miri)]
     let raw = [0u64, 1, 0x0123_4567_89ab_cdef, u64::MAX];
-    raw.iter().map(|&c| gf64::Elem::from_raw(c)).collect()
+    raw.iter().map(|&c| Elem::<Gf64>::from_raw(c)).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -166,23 +166,48 @@ fn gf64_coeffs() -> Vec<gf64::Elem> {
 fn gf8_ref<const POLY: u128>(dst: &mut [u8], coeff: Elem<Gf<8, Poly<POLY>>>, src: &[u8]) {
     scalar::mul_add::<Gf8<Poly<POLY>>>(dst, coeff, src);
 }
-fn gf16_ref(dst: &mut [u8], coeff: gf16::Elem, src: &[u8]) {
+fn gf16_ref(dst: &mut [u8], coeff: Elem<Gf16>, src: &[u8]) {
     scalar::mul_add::<Gf16>(dst, coeff, src);
 }
-fn gf32_ref(dst: &mut [u8], coeff: gf32::Elem, src: &[u8]) {
+fn gf32_ref(dst: &mut [u8], coeff: Elem<Gf32>, src: &[u8]) {
     scalar::mul_add::<Gf32>(dst, coeff, src);
 }
-fn gf64_ref(dst: &mut [u8], coeff: gf64::Elem, src: &[u8]) {
+fn gf64_ref(dst: &mut [u8], coeff: Elem<Gf64>, src: &[u8]) {
     scalar::mul_add::<Gf64>(dst, coeff, src);
 }
-fn fp16_ref(dst: &mut [u8], coeff: fan_paar::fp16::Elem, src: &[u8]) {
-    wiedemann::mul_add(dst, u64::from(coeff.to_raw()), src, 16);
+/// `dst ^= coeff * src` through the independent Fan-Paar recurrence.
+fn fp_buffer_mul_add(dst: &mut [u8], coeff: u64, src: &[u8], bits: u32) {
+    let width = bits as usize / 8;
+    for (d, s) in dst.chunks_exact_mut(width).zip(src.chunks_exact(width)) {
+        let mut word = [0u8; 8];
+        word[..width].copy_from_slice(s);
+        let product = wiedemann::fp_multiply(u64::from_le_bytes(word), coeff, bits);
+        let mut acc = [0u8; 8];
+        acc[..width].copy_from_slice(d);
+        let summed = u64::from_le_bytes(acc) ^ product;
+        d.copy_from_slice(&summed.to_le_bytes()[..width]);
+    }
 }
-fn fp32_ref(dst: &mut [u8], coeff: fan_paar::fp32::Elem, src: &[u8]) {
-    wiedemann::mul_add(dst, u64::from(coeff.to_raw()), src, 32);
+
+/// `dst *= coeff` through the independent Fan-Paar recurrence.
+fn fp_buffer_mul_assign(dst: &mut [u8], coeff: u64, bits: u32) {
+    let width = bits as usize / 8;
+    for d in dst.chunks_exact_mut(width) {
+        let mut word = [0u8; 8];
+        word[..width].copy_from_slice(d);
+        let scaled = wiedemann::fp_multiply(u64::from_le_bytes(word), coeff, bits);
+        d.copy_from_slice(&scaled.to_le_bytes()[..width]);
+    }
 }
-fn fp64_ref(dst: &mut [u8], coeff: fan_paar::fp64::Elem, src: &[u8]) {
-    wiedemann::mul_add(dst, coeff.to_raw(), src, 64);
+
+fn fp16_ref(dst: &mut [u8], coeff: Elem<FanPaar16>, src: &[u8]) {
+    fp_buffer_mul_add(dst, u64::from(coeff.to_raw()), src, 16);
+}
+fn fp32_ref(dst: &mut [u8], coeff: Elem<FanPaar32>, src: &[u8]) {
+    fp_buffer_mul_add(dst, u64::from(coeff.to_raw()), src, 32);
+}
+fn fp64_ref(dst: &mut [u8], coeff: Elem<FanPaar64>, src: &[u8]) {
+    fp_buffer_mul_add(dst, coeff.to_raw(), src, 64);
 }
 fn m31_ref(dst: &mut [u8], coeff: Elem<Mersenne31>, src: &[u8]) {
     scalar::mul_add::<Mersenne31>(dst, coeff, src);
@@ -456,8 +481,8 @@ macro_rules! prepared_pairs {
         $body
     }};
 }
-fn gf16_coeff_at2(t: usize, j: usize) -> gf16::Elem {
-    gf16::Elem::from_raw(((t * 7919 + j * 613) % 65536) as u16)
+fn gf16_coeff_at2(t: usize, j: usize) -> Elem<Gf16> {
+    Elem::<Gf16>::from_raw(((t * 7919 + j * 613) % 65536) as u16)
 }
 
 // ---------------------------------------------------------------------------
@@ -1105,7 +1130,7 @@ fn proven_gf16_degenerate_boundaries() {
     // Accumulate with no terms: no-op.
     let mut got = noise(nrows * row_len + surplus, 0x171);
     let want = got.clone();
-    let no_terms: [(&[gf16::Elem], &[u8]); 0] = [];
+    let no_terms: [(&[Elem<Gf16>], &[u8]); 0] = [];
     x86::gf16::mul_add_matrix_gfni(token, &mut got, row_len, nrows, &no_terms);
     assert_eq!(
         got, want,
@@ -1115,8 +1140,8 @@ fn proven_gf16_degenerate_boundaries() {
     // Zero rows and empty gather sources.
     let mut got = noise(row_len + surplus, 0x172);
     let want = got.clone();
-    let coeffs = [gf16::Elem::from_raw(0xbeef)];
-    let no_coeffs: [gf16::Elem; 0] = [];
+    let coeffs = [Elem::<Gf16>::from_raw(0xbeef)];
+    let no_coeffs: [Elem<Gf16>; 0] = [];
     x86::gf16::mul_add_gather_gfni(token, &mut got, &no_coeffs, &[]);
     x86::gf16::mul_add_scatter_gfni(token, &mut got, 0, &coeffs, &[]);
     assert_eq!(got, want, "gf16: degenerate geometry is a no-op");
@@ -1162,7 +1187,7 @@ fn proven_gf16_rejects_partial_element() {
         x86::gf16::mul_add_gfni(
             token,
             &mut dst,
-            TowerCoeff::new(gf16::Elem::from_raw(7)),
+            TowerCoeff::new(Elem::<Gf16>::from_raw(7)),
             &src,
         );
     });
@@ -1419,9 +1444,9 @@ fn proven_gf16_kernels_match_scalar() {
         |dst, c, src| x86::gf16::mul_into_ssse3(v2, dst, &TowerTables::new(c), src),
     );
 
-    let delta_byte = <fgf::RijndaelTower as fgf::TowerSpec>::B;
+    let delta_byte: u8 = 0x20;
     let reduction = fgf::poly::Poly::<AES>::POLY.to_le_bytes()[0];
-    let delta_table = scale_table(fgf::gf16::DELTA);
+    let delta_table = scale_table(fgf::Elem::<Gf<8, Poly<AES>>>::from_raw(0x20));
     check_elementwise::<Gf16>("gf16::mul_elementwise_gfni", LENGTHS16, |dst, a, b| {
         x86::gf16::mul_elementwise_gfni(v3gfni, dst, a, b, delta_byte, reduction)
     });
@@ -1437,7 +1462,7 @@ fn proven_gf16_kernels_match_scalar() {
         "gf16::mul_add_scatter_gfni",
         EVEN_ROW_LENS,
         gf16_ref,
-        |j| gf16::Elem::from_raw((j as u16).wrapping_mul(7411)),
+        |j| Elem::<Gf16>::from_raw((j as u16).wrapping_mul(7411)),
         |rows, row_len, coeffs, src| {
             x86::gf16::mul_add_scatter_gfni(v3gfni, rows, row_len, coeffs, src)
         },
@@ -1446,7 +1471,7 @@ fn proven_gf16_kernels_match_scalar() {
         "gf16::mul_add_scatter_avx2",
         EVEN_ROW_LENS,
         gf16_ref,
-        |j| gf16::Elem::from_raw((j as u16).wrapping_mul(7411)),
+        |j| Elem::<Gf16>::from_raw((j as u16).wrapping_mul(7411)),
         |rows, row_len, coeffs, src| {
             x86::gf16::mul_add_scatter_avx2(v3, rows, row_len, coeffs, src)
         },
@@ -1455,7 +1480,7 @@ fn proven_gf16_kernels_match_scalar() {
         "gf16::mul_add_scatter_ssse3",
         EVEN_ROW_LENS,
         gf16_ref,
-        |j| gf16::Elem::from_raw((j as u16).wrapping_mul(7411)),
+        |j| Elem::<Gf16>::from_raw((j as u16).wrapping_mul(7411)),
         |rows, row_len, coeffs, src| {
             x86::gf16::mul_add_scatter_ssse3(v2, rows, row_len, coeffs, src)
         },
@@ -1465,14 +1490,14 @@ fn proven_gf16_kernels_match_scalar() {
             "gf16::mul_add_gather_gfni",
             row_len,
             gf16_ref,
-            |i| gf16::Elem::from_raw((i as u16).wrapping_mul(613)),
+            |i| Elem::<Gf16>::from_raw((i as u16).wrapping_mul(613)),
             |dst, coeffs, srcs| x86::gf16::mul_add_gather_gfni(v3gfni, dst, coeffs, srcs),
         );
         check_gather(
             "gf16::mul_add_gather_ssse3",
             row_len,
             gf16_ref,
-            |i| gf16::Elem::from_raw((i as u16).wrapping_mul(613)),
+            |i| Elem::<Gf16>::from_raw((i as u16).wrapping_mul(613)),
             |dst, coeffs, srcs| x86::gf16::mul_add_gather_ssse3(v2, dst, coeffs, srcs),
         );
     }
@@ -1565,16 +1590,15 @@ fn proven_fan_paar_kernels_match_scalar() {
     };
 
     #[cfg(not(miri))]
-    let fp16_coeffs: Vec<fan_paar::fp16::Elem> =
-        [0u16, 1, 0x0100, 0x00ff, 0xbeef, 0x7411, u16::MAX]
-            .iter()
-            .map(|&c| fan_paar::fp16::Elem::from_raw(c))
-            .collect();
+    let fp16_coeffs: Vec<Elem<FanPaar16>> = [0u16, 1, 0x0100, 0x00ff, 0xbeef, 0x7411, u16::MAX]
+        .iter()
+        .map(|&c| Elem::<FanPaar16>::from_raw(c))
+        .collect();
     // Short-circuits, one mixed value, and the extreme under Miri.
     #[cfg(miri)]
-    let fp16_coeffs: Vec<fan_paar::fp16::Elem> = [0u16, 1, 0xbeef, u16::MAX]
+    let fp16_coeffs: Vec<Elem<FanPaar16>> = [0u16, 1, 0xbeef, u16::MAX]
         .iter()
-        .map(|&c| fan_paar::fp16::Elem::from_raw(c))
+        .map(|&c| Elem::<FanPaar16>::from_raw(c))
         .collect();
     check_mul_add(
         "fan_paar::mul_add_avx2_fp16",
@@ -1587,7 +1611,7 @@ fn proven_fan_paar_kernels_match_scalar() {
         "fan_paar::mul_assign_avx2_fp16",
         LENGTHS16,
         &fp16_coeffs,
-        |dst, c| wiedemann::mul_assign(dst, u64::from(c.to_raw()), 16),
+        |dst, c| fp_buffer_mul_assign(dst, u64::from(c.to_raw()), 16),
         |dst, c| x86::fan_paar::mul_assign_avx2_fp16(v3, dst, &FpTowerTables::new(c)),
     );
     check_mul_into(
@@ -1608,7 +1632,7 @@ fn proven_fan_paar_kernels_match_scalar() {
         "fan_paar::mul_assign_ssse3_fp16",
         LENGTHS16,
         &fp16_coeffs,
-        |dst, c| wiedemann::mul_assign(dst, u64::from(c.to_raw()), 16),
+        |dst, c| fp_buffer_mul_assign(dst, u64::from(c.to_raw()), 16),
         |dst, c| x86::fan_paar::mul_assign_ssse3_fp16(v2, dst, &FpTowerTables::new(c)),
     );
     check_mul_into(
@@ -1620,16 +1644,16 @@ fn proven_fan_paar_kernels_match_scalar() {
     );
 
     #[cfg(not(miri))]
-    let fp32_coeffs: Vec<fan_paar::fp32::Elem> =
+    let fp32_coeffs: Vec<Elem<FanPaar32>> =
         [0u32, 1, 0x0001_0000, 0x0000_ffff, 0x1234_5678, u32::MAX]
             .iter()
-            .map(|&c| fan_paar::fp32::Elem::from_raw(c))
+            .map(|&c| Elem::<FanPaar32>::from_raw(c))
             .collect();
     // Short-circuits, one mixed value, and the extreme under Miri.
     #[cfg(miri)]
-    let fp32_coeffs: Vec<fan_paar::fp32::Elem> = [0u32, 1, 0x1234_5678, u32::MAX]
+    let fp32_coeffs: Vec<Elem<FanPaar32>> = [0u32, 1, 0x1234_5678, u32::MAX]
         .iter()
-        .map(|&c| fan_paar::fp32::Elem::from_raw(c))
+        .map(|&c| Elem::<FanPaar32>::from_raw(c))
         .collect();
     check_mul_add(
         "fan_paar::mul_add_avx2_fp32",
@@ -1642,7 +1666,7 @@ fn proven_fan_paar_kernels_match_scalar() {
         "fan_paar::mul_assign_avx2_fp32",
         LENGTHS32,
         &fp32_coeffs,
-        |dst, c| wiedemann::mul_assign(dst, u64::from(c.to_raw()), 32),
+        |dst, c| fp_buffer_mul_assign(dst, u64::from(c.to_raw()), 32),
         |dst, c| x86::fan_paar::mul_assign_avx2_fp32(v3, dst, c),
     );
     check_mul_into(
@@ -1654,7 +1678,7 @@ fn proven_fan_paar_kernels_match_scalar() {
     );
 
     #[cfg(not(miri))]
-    let fp64_coeffs: Vec<fan_paar::fp64::Elem> = [
+    let fp64_coeffs: Vec<Elem<FanPaar64>> = [
         0u64,
         1,
         0x0000_0001_0000_0000,
@@ -1662,13 +1686,13 @@ fn proven_fan_paar_kernels_match_scalar() {
         u64::MAX,
     ]
     .iter()
-    .map(|&c| fan_paar::fp64::Elem::from_raw(c))
+    .map(|&c| Elem::<FanPaar64>::from_raw(c))
     .collect();
     // Short-circuits, one mixed value, and the extreme under Miri.
     #[cfg(miri)]
-    let fp64_coeffs: Vec<fan_paar::fp64::Elem> = [0u64, 1, 0x0123_4567_89ab_cdef, u64::MAX]
+    let fp64_coeffs: Vec<Elem<FanPaar64>> = [0u64, 1, 0x0123_4567_89ab_cdef, u64::MAX]
         .iter()
-        .map(|&c| fan_paar::fp64::Elem::from_raw(c))
+        .map(|&c| Elem::<FanPaar64>::from_raw(c))
         .collect();
     check_mul_add(
         "fan_paar::mul_add_avx2_fp64",
@@ -1681,7 +1705,7 @@ fn proven_fan_paar_kernels_match_scalar() {
         "fan_paar::mul_assign_avx2_fp64",
         LENGTHS64,
         &fp64_coeffs,
-        |dst, c| wiedemann::mul_assign(dst, c.to_raw(), 64),
+        |dst, c| fp_buffer_mul_assign(dst, c.to_raw(), 64),
         |dst, c| x86::fan_paar::mul_assign_avx2_fp64(v3, dst, c),
     );
     check_mul_into(

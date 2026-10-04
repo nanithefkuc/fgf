@@ -9,15 +9,15 @@ use fgf::field::{FieldElem, PrimeIdentity};
 use fgf::poly::{AES, REED_SOLOMON};
 use fgf::{
     Elem, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Field, FieldBuffer, Gf, Gf1, Gf8, Gf16, Gf32,
-    Gf64, Goldilocks, HasGenerator, Mersenne31, Poly, QuadMersenne31, gf16,
+    Gf64, Goldilocks, HasGenerator, Mersenne31, Poly, QuadMersenne31,
 };
 
 // Concrete arithmetic can also prepare constants at compile time.
-const SCALE: gf16::Elem = gf16::Elem::from_raw(0x0108);
-const PRODUCT: gf16::Elem = gf16::Elem::from_raw(0x1234).mul(SCALE);
+const SCALE: Elem<Gf16> = Elem::<Gf16>::from_raw(0x0108);
+const PRODUCT: Elem<Gf16> = Elem::<Gf16>::from_raw(0x1234).mul(SCALE);
 
 fn main() {
-    assert_eq!(PRODUCT.div(SCALE), gf16::Elem::from_raw(0x1234));
+    assert_eq!(PRODUCT.div(SCALE), Elem::<Gf16>::from_raw(0x1234));
 
     // Identical raw bytes are not a conversion between different field bases.
     let aes = Elem::<Gf<8, Poly<AES>>>::from_raw(0x80) * Elem::<Gf<8, Poly<AES>>>::from_raw(2);

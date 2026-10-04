@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::{Gf16, gf16, ops};
+use fgf::{Elem, Gf16, ops};
 use reed_solomon_erasure::{Field, galois_16};
 use reed_solomon_simd::engine::{Avx2, Engine, tables};
 
@@ -97,7 +97,7 @@ impl Shape {
 }
 
 struct Bank {
-    canonical: Vec<gf16::Elem>,
+    canonical: Vec<Elem<Gf16>>,
     complete: Vec<u16>,
     erasure: Vec<u16>,
     logs: Vec<u16>,
@@ -120,7 +120,7 @@ impl Plan {
                         if value >> 8 == 0 {
                             value |= 0x100;
                         }
-                        gf16::Elem::from_raw(special.unwrap_or(value))
+                        Elem::<Gf16>::from_raw(special.unwrap_or(value))
                     })
                     .collect();
                 let map = |layout| {
@@ -195,7 +195,7 @@ impl Arm<'_> {
             match self.kind {
                 2 => native.complete_assign(dst, bank.complete[0]),
                 4 => {
-                    if bank.canonical[0] == gf16::Elem::ZERO {
+                    if bank.canonical[0] == Elem::<Gf16>::ZERO {
                         dst.fill(0);
                     } else {
                         simd.mul(dst.as_chunks_mut::<64>().0, black_box(bank.logs[0]));
@@ -228,7 +228,7 @@ impl Arm<'_> {
                         }
                     }
                     5 => {
-                        if bank.canonical[index] == gf16::Elem::ZERO {
+                        if bank.canonical[index] == Elem::<Gf16>::ZERO {
                             if !add {
                                 output.fill(0);
                             }

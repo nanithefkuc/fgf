@@ -11,8 +11,7 @@ use fgf::field::{FieldBuffer, FieldElem as _};
 use fgf::poly::{AES, REED_SOLOMON};
 use fgf::{
     Cantor, Elem, FanPaar8, FanPaar16, FanPaar32, FanPaar64, FieldKernels, Gf, Gf8, Gf16, Gf32,
-    Gf64, Goldilocks, Mersenne31, Normal, Poly, QuadMersenne31, fan_paar, gf16, gf32, gf64,
-    goldilocks, ops,
+    Gf64, Goldilocks, Mersenne31, Normal, Poly, QuadMersenne31, goldilocks, ops,
 };
 
 /// Deterministic pseudo-random bytes. No dependency, reproducible failures.
@@ -129,9 +128,9 @@ fn gf8_mul_add_matches_oracle() {
 fn gf16_mul_add_matches_oracle() {
     // Sweep both component planes independently plus a spray of mixed values.
     let coeffs: Vec<_> = (0..256u16)
-        .map(gf16::Elem::from_raw)
-        .chain((0..256u16).map(|i| gf16::Elem::from_raw(i << 8)))
-        .chain([0x0108, 0x1234, 0xbeef, 0xffff].map(gf16::Elem::from_raw))
+        .map(Elem::<Gf16>::from_raw)
+        .chain((0..256u16).map(|i| Elem::<Gf16>::from_raw(i << 8)))
+        .chain([0x0108, 0x1234, 0xbeef, 0xffff].map(Elem::<Gf16>::from_raw))
         .collect();
 
     for len in LENGTHS {
@@ -159,9 +158,9 @@ fn mul_add_is_its_own_inverse() {
     assert_eq!(buffer, original);
 
     let mut buffer = original.clone();
-    ops::mul_add::<Gf16>(&mut buffer, gf16::Elem::from_raw(0x9ace), &src);
+    ops::mul_add::<Gf16>(&mut buffer, Elem::<Gf16>::from_raw(0x9ace), &src);
     assert_ne!(buffer, original, "coefficient had no effect");
-    ops::mul_add::<Gf16>(&mut buffer, gf16::Elem::from_raw(0x9ace), &src);
+    ops::mul_add::<Gf16>(&mut buffer, Elem::<Gf16>::from_raw(0x9ace), &src);
     assert_eq!(buffer, original);
 }
 
@@ -196,7 +195,7 @@ fn gf8_mul_into_and_mul_assign_agree() {
 #[test]
 fn gf16_mul_into_and_mul_assign_agree() {
     let coeffs =
-        [0u16, 1, 0x0100, 0x0108, 0x00ff, 0xff00, 0x1234, 0xffff].map(gf16::Elem::from_raw);
+        [0u16, 1, 0x0100, 0x0108, 0x00ff, 0xff00, 0x1234, 0xffff].map(Elem::<Gf16>::from_raw);
     for len in LENGTHS {
         let src = noise(len, 0x22);
         for coeff in coeffs {
@@ -226,7 +225,7 @@ fn scaling_by_a_coefficient_then_its_inverse_is_identity() {
     assert_eq!(buffer, original);
 
     let mut buffer = original.clone();
-    let c = gf16::Elem::from_raw(0x57a3);
+    let c = Elem::<Gf16>::from_raw(0x57a3);
     ops::mul_assign::<Gf16>(&mut buffer, c);
     ops::mul_assign::<Gf16>(&mut buffer, c.inv());
     assert_eq!(buffer, original);
@@ -289,7 +288,7 @@ fn gf16_scatter_matches_repeated_mul_add() {
         for nrows in [1usize, 2, 3, 4, 5, 7, 8, 9] {
             let src = noise(row_len, 0x88);
             let coeffs: Vec<_> = (0..nrows)
-                .map(|j| gf16::Elem::from_raw((j as u16).wrapping_mul(9871)))
+                .map(|j| Elem::<Gf16>::from_raw((j as u16).wrapping_mul(9871)))
                 .collect();
 
             let mut got = noise(row_len * nrows, 0x99);
@@ -361,16 +360,18 @@ fn gf16_matrix_matches_repeated_scatter() {
                 let sources: Vec<Vec<u8>> = (0..nterms)
                     .map(|t| noise(row_len, 0x200 + t as u64))
                     .collect();
-                let coeff_sets: Vec<Vec<gf16::Elem>> = (0..nterms)
+                let coeff_sets: Vec<Vec<Elem<Gf16>>> = (0..nterms)
                     .map(|t| {
                         (0..nrows)
                             .map(|j| {
-                                gf16::Elem::from_raw(((t * 7919 + j * 613) as u16).wrapping_add(1))
+                                Elem::<Gf16>::from_raw(
+                                    ((t * 7919 + j * 613) as u16).wrapping_add(1),
+                                )
                             })
                             .collect()
                     })
                     .collect();
-                let terms: Vec<(&[gf16::Elem], &[u8])> = coeff_sets
+                let terms: Vec<(&[Elem<Gf16>], &[u8])> = coeff_sets
                     .iter()
                     .zip(&sources)
                     .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -786,7 +787,7 @@ fn gf16_gather_matches_summed_mul_add() {
     let sources: Vec<Vec<u8>> = (0..9).map(|i| noise(len, 0x340 + i)).collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
     let coeffs =
-        [0u16, 1, 0x0108, 0xffff, 2, 0x1d, 0x2000, 0xabcd, 0x0100].map(gf16::Elem::from_raw);
+        [0u16, 1, 0x0108, 0xffff, 2, 0x1d, 0x2000, 0xabcd, 0x0100].map(Elem::<Gf16>::from_raw);
     let mut got = noise(len, 0xef);
     let mut want = got.clone();
     ops::mul_add_gather::<Gf16>(&mut got, &coeffs, &refs);
@@ -832,9 +833,9 @@ fn prepared_mul_into_gather_matches_one_shot_over_gf16() {
     let sources = [noise(len, 0x371), noise(len, 0x372), noise(len, 0x373)];
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
     let coeffs = [
-        gf16::Elem::from_raw(0x0108),
-        gf16::Elem::from_raw(0),
-        gf16::Elem::from_raw(0xabcd),
+        Elem::<Gf16>::from_raw(0x0108),
+        Elem::<Gf16>::from_raw(0),
+        Elem::<Gf16>::from_raw(0xabcd),
     ];
     let vector = ops::CoeffVec::<Gf16>::new(&coeffs);
 
@@ -927,7 +928,7 @@ fn prepared_coefficients_match_one_shot_operations() {
     every_gf8_field!(prepared_coefficients_match_one_shot_for_gf8);
 
     let src16 = noise(258, 0x352);
-    for coeff in [0u16, 1, 2, 0x0108, 0xffff].map(gf16::Elem::from_raw) {
+    for coeff in [0u16, 1, 2, 0x0108, 0xffff].map(Elem::<Gf16>::from_raw) {
         let prepared = ops::Coeff::<Gf16>::new(coeff);
         assert_eq!(prepared.value(), coeff);
 
@@ -949,12 +950,12 @@ fn prepared_coefficients_match_one_shot_operations() {
 #[cfg(feature = "alloc")]
 fn coeff_matrix_preserves_shape_and_reuses_entries() {
     let values = [
-        gf16::Elem::from_raw(0),
-        gf16::Elem::from_raw(1),
-        gf16::Elem::from_raw(0x0108),
-        gf16::Elem::from_raw(0xffff),
-        gf16::Elem::from_raw(0x2000),
-        gf16::Elem::from_raw(0xabcd),
+        Elem::<Gf16>::from_raw(0),
+        Elem::<Gf16>::from_raw(1),
+        Elem::<Gf16>::from_raw(0x0108),
+        Elem::<Gf16>::from_raw(0xffff),
+        Elem::<Gf16>::from_raw(0x2000),
+        Elem::<Gf16>::from_raw(0xabcd),
     ];
     let matrix = ops::CoeffMatrix::<Gf16>::from_source_major(2, 3, &values);
     assert_eq!((matrix.source_count(), matrix.output_count()), (2, 3));
@@ -977,9 +978,9 @@ fn coeff_matrix_preserves_shape_and_reuses_entries() {
 fn prepared_collections_drive_all_multi_row_shapes() {
     let row_len = 66;
     let coeffs = [
-        gf16::Elem::from_raw(0x0108),
-        gf16::Elem::from_raw(0),
-        gf16::Elem::from_raw(0xabcd),
+        Elem::<Gf16>::from_raw(0x0108),
+        Elem::<Gf16>::from_raw(0),
+        Elem::<Gf16>::from_raw(0xabcd),
     ];
     let vector = ops::CoeffVec::<Gf16>::new(&coeffs);
     let src = noise(row_len, 0x360);
@@ -1003,12 +1004,12 @@ fn prepared_collections_drive_all_multi_row_shapes() {
     assert_eq!(gather, gather_want);
 
     let matrix_values = [
-        gf16::Elem::from_raw(1),
-        gf16::Elem::from_raw(0x0108),
-        gf16::Elem::from_raw(2),
-        gf16::Elem::from_raw(3),
-        gf16::Elem::from_raw(0),
-        gf16::Elem::from_raw(0xffff),
+        Elem::<Gf16>::from_raw(1),
+        Elem::<Gf16>::from_raw(0x0108),
+        Elem::<Gf16>::from_raw(2),
+        Elem::<Gf16>::from_raw(3),
+        Elem::<Gf16>::from_raw(0),
+        Elem::<Gf16>::from_raw(0xffff),
     ];
     let coding = ops::CoeffMatrix::<Gf16>::from_source_major(2, 3, &matrix_values);
     let matrix_sources = [&sources[0][..], &sources[1][..]];
@@ -1139,15 +1140,15 @@ fn blocked_prepared_shapes_match_raw_operations_across_group_boundaries() {
 #[cfg(feature = "alloc")]
 fn packed_element_helpers_round_trip() {
     let elems = [
-        gf16::Elem::ZERO,
-        gf16::Elem::ONE,
-        gf16::Elem::from_raw(0x0108),
-        gf16::Elem::from_raw(0xffff),
+        Elem::<Gf16>::ZERO,
+        Elem::<Gf16>::ONE,
+        Elem::<Gf16>::from_raw(0x0108),
+        Elem::<Gf16>::from_raw(0xffff),
     ];
     let bytes = ops::pack_to_vec::<Gf16>(&elems);
     assert_eq!(bytes.len(), elems.len() * Gf16::BYTES);
 
-    let mut decoded = [gf16::Elem::ZERO; 4];
+    let mut decoded = [Elem::<Gf16>::ZERO; 4];
     ops::unpack::<Gf16>(&mut decoded, &bytes);
     assert_eq!(decoded, elems);
 
@@ -1191,8 +1192,8 @@ fn elementwise_products_match_field_arithmetic() {
                 .zip(b.chunks_exact(2))
             {
                 d.copy_from_slice(
-                    &gf16::Elem::from_bytes([x[0], x[1]])
-                        .mul(gf16::Elem::from_bytes([y[0], y[1]]))
+                    &Elem::<Gf16>::from_bytes([x[0], x[1]])
+                        .mul(Elem::<Gf16>::from_bytes([y[0], y[1]]))
                         .to_bytes(),
                 );
             }
@@ -1237,7 +1238,7 @@ fn zero_and_one_coefficients_behave() {
     assert_eq!(buffer, want, "unit coefficient must be plain XOR");
 
     let mut buffer = original.clone();
-    ops::mul_assign::<Gf16>(&mut buffer, gf16::Elem::ZERO);
+    ops::mul_assign::<Gf16>(&mut buffer, Elem::<Gf16>::ZERO);
     assert!(buffer.iter().all(|&b| b == 0), "scaling by zero must clear");
 }
 
@@ -1348,7 +1349,7 @@ fn mul_add_rejects_length_mismatch() {
 #[should_panic(expected = "whole number of")]
 fn gf16_rejects_odd_length() {
     let mut dst = [0u8; 7];
-    ops::mul_add::<Gf16>(&mut dst, gf16::Elem::from_raw(2), &[0u8; 7]);
+    ops::mul_add::<Gf16>(&mut dst, Elem::<Gf16>::from_raw(2), &[0u8; 7]);
 }
 
 #[test]
@@ -1393,7 +1394,7 @@ fn mul_into_matrix_with_rejects_wrong_matrix_dimensions() {
 fn empty_buffers_are_no_ops() {
     let mut empty: [u8; 0] = [];
     ops::mul_add::<Gf8<Poly<AES>>>(&mut empty, Elem::<Gf<8, Poly<AES>>>::from_raw(7), &[]);
-    ops::mul_assign::<Gf16>(&mut empty, gf16::Elem::from_raw(7));
+    ops::mul_assign::<Gf16>(&mut empty, Elem::<Gf16>::from_raw(7));
     ops::mul_add_scatter::<Gf8<Poly<AES>>>(&mut empty, 0, &[], &[]);
     ops::mul_add_matrix::<Gf8<Poly<AES>>>(&mut empty, 8, 0, &[]);
     ops::mul_into_matrix::<Gf8<Poly<AES>>>(&mut empty, 8, 0, &[]);
@@ -1461,34 +1462,34 @@ fn check_wide_field_ops<F: fgf::FieldKernels>(coeffs: &[Elem<F>]) {
 #[test]
 fn tier3_field_public_ops_match_oracle() {
     check_wide_field_ops::<Gf32>(&[
-        gf32::Elem::ZERO,
-        gf32::Elem::ONE,
-        gf32::Elem::from_raw(0xdead_beef),
+        Elem::<Gf32>::ZERO,
+        Elem::<Gf32>::ONE,
+        Elem::<Gf32>::from_raw(0xdead_beef),
     ]);
     check_wide_field_ops::<Gf64>(&[
-        gf64::Elem::ZERO,
-        gf64::Elem::ONE,
-        gf64::Elem::from_raw(0x0123_4567_89ab_cdef),
+        Elem::<Gf64>::ZERO,
+        Elem::<Gf64>::ONE,
+        Elem::<Gf64>::from_raw(0x0123_4567_89ab_cdef),
     ]);
     check_wide_field_ops::<FanPaar8>(&[
-        fan_paar::fp8::Elem::ZERO,
-        fan_paar::fp8::Elem::ONE,
-        fan_paar::fp8::Elem::from_raw(0xa5),
+        Elem::<FanPaar8>::ZERO,
+        Elem::<FanPaar8>::ONE,
+        Elem::<FanPaar8>::from_raw(0xa5),
     ]);
     check_wide_field_ops::<FanPaar16>(&[
-        fan_paar::fp16::Elem::ZERO,
-        fan_paar::fp16::Elem::ONE,
-        fan_paar::fp16::Elem::from_raw(0xa55a),
+        Elem::<FanPaar16>::ZERO,
+        Elem::<FanPaar16>::ONE,
+        Elem::<FanPaar16>::from_raw(0xa55a),
     ]);
     check_wide_field_ops::<FanPaar32>(&[
-        fan_paar::fp32::Elem::ZERO,
-        fan_paar::fp32::Elem::ONE,
-        fan_paar::fp32::Elem::from_raw(0xa55a_1234),
+        Elem::<FanPaar32>::ZERO,
+        Elem::<FanPaar32>::ONE,
+        Elem::<FanPaar32>::from_raw(0xa55a_1234),
     ]);
     check_wide_field_ops::<FanPaar64>(&[
-        fan_paar::fp64::Elem::ZERO,
-        fan_paar::fp64::Elem::ONE,
-        fan_paar::fp64::Elem::from_raw(0xa55a_1234_dead_beef),
+        Elem::<FanPaar64>::ZERO,
+        Elem::<FanPaar64>::ONE,
+        Elem::<FanPaar64>::from_raw(0xa55a_1234_dead_beef),
     ]);
 }
 
@@ -1874,57 +1875,57 @@ fn binary_and_wide_field_assign_scalar_ops_match_oracle() {
     check_assign_and_broadcast_scalar::<Gf16>(
         &ELEMS,
         &[
-            gf16::Elem::from_raw(0),
-            gf16::Elem::from_raw(1),
-            gf16::Elem::from_raw(0x53a7),
+            Elem::<Gf16>::from_raw(0),
+            Elem::<Gf16>::from_raw(1),
+            Elem::<Gf16>::from_raw(0x53a7),
         ],
     );
     check_assign_and_broadcast_scalar::<Gf32>(
         &ELEMS,
         &[
-            gf32::Elem::from_raw(0),
-            gf32::Elem::from_raw(1),
-            gf32::Elem::from_raw(0xdead_beef),
+            Elem::<Gf32>::from_raw(0),
+            Elem::<Gf32>::from_raw(1),
+            Elem::<Gf32>::from_raw(0xdead_beef),
         ],
     );
     check_assign_and_broadcast_scalar::<Gf64>(
         &ELEMS,
         &[
-            gf64::Elem::from_raw(0),
-            gf64::Elem::from_raw(1),
-            gf64::Elem::from_raw(0x0123_4567_89ab_cdef),
+            Elem::<Gf64>::from_raw(0),
+            Elem::<Gf64>::from_raw(1),
+            Elem::<Gf64>::from_raw(0x0123_4567_89ab_cdef),
         ],
     );
     check_assign_and_broadcast_scalar::<FanPaar8>(
         &ELEMS,
         &[
-            fan_paar::fp8::Elem::from_raw(0),
-            fan_paar::fp8::Elem::from_raw(1),
-            fan_paar::fp8::Elem::from_raw(0xa5),
+            Elem::<FanPaar8>::from_raw(0),
+            Elem::<FanPaar8>::from_raw(1),
+            Elem::<FanPaar8>::from_raw(0xa5),
         ],
     );
     check_assign_and_broadcast_scalar::<FanPaar16>(
         &ELEMS,
         &[
-            fan_paar::fp16::Elem::from_raw(0),
-            fan_paar::fp16::Elem::from_raw(1),
-            fan_paar::fp16::Elem::from_raw(0xa55a),
+            Elem::<FanPaar16>::from_raw(0),
+            Elem::<FanPaar16>::from_raw(1),
+            Elem::<FanPaar16>::from_raw(0xa55a),
         ],
     );
     check_assign_and_broadcast_scalar::<FanPaar32>(
         &ELEMS,
         &[
-            fan_paar::fp32::Elem::from_raw(0),
-            fan_paar::fp32::Elem::from_raw(1),
-            fan_paar::fp32::Elem::from_raw(0xa55a_1234),
+            Elem::<FanPaar32>::from_raw(0),
+            Elem::<FanPaar32>::from_raw(1),
+            Elem::<FanPaar32>::from_raw(0xa55a_1234),
         ],
     );
     check_assign_and_broadcast_scalar::<FanPaar64>(
         &ELEMS,
         &[
-            fan_paar::fp64::Elem::from_raw(0),
-            fan_paar::fp64::Elem::from_raw(1),
-            fan_paar::fp64::Elem::from_raw(0xa55a_1234_dead_beef),
+            Elem::<FanPaar64>::from_raw(0),
+            Elem::<FanPaar64>::from_raw(1),
+            Elem::<FanPaar64>::from_raw(0xa55a_1234_dead_beef),
         ],
     );
 }
@@ -1985,9 +1986,9 @@ fn binary_broadcast_scalar_matches_filled_add_assign() {
     check_broadcast_scalar_matches_filled_add::<Gf16>(
         &[2, 14, 16, 18, 30, 32, 34, 50, 258],
         &[
-            gf16::Elem::from_raw(0),
-            gf16::Elem::from_raw(1),
-            gf16::Elem::from_raw(0x53a7),
+            Elem::<Gf16>::from_raw(0),
+            Elem::<Gf16>::from_raw(1),
+            Elem::<Gf16>::from_raw(0x53a7),
         ],
     );
 }
@@ -1997,7 +1998,7 @@ fn assign_scalar_empty_buffers_are_no_ops() {
     let mut empty: [u8; 0] = [];
     ops::mul_elementwise_assign::<Gf8<Poly<AES>>>(&mut empty, &[]);
     ops::add_assign_scalar::<Gf8<Poly<AES>>>(&mut empty, Elem::<Gf<8, Poly<AES>>>::from_raw(7));
-    ops::sub_assign_scalar::<Gf16>(&mut empty, gf16::Elem::from_raw(7));
+    ops::sub_assign_scalar::<Gf16>(&mut empty, Elem::<Gf16>::from_raw(7));
     ops::mul_elementwise_assign::<Goldilocks>(&mut empty, &[]);
     ops::add_assign_scalar::<Mersenne31>(&mut empty, m31(0));
 }
@@ -2169,13 +2170,13 @@ fn add_and_sub_assign_match_oracle_for_every_field() {
     }
     check::<Gf8<Poly<AES>>>(8, Elem::<Gf<8, Poly<AES>>>::from_raw(3));
     check::<Gf8<Poly<REED_SOLOMON>>>(8, Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(3));
-    check::<Gf16>(8, gf16::Elem::from_raw(3));
-    check::<Gf32>(8, gf32::Elem::from_raw(3));
-    check::<Gf64>(8, gf64::Elem::from_raw(3));
-    check::<FanPaar8>(8, fan_paar::fp8::Elem::from_raw(3));
-    check::<FanPaar16>(8, fan_paar::fp16::Elem::from_raw(3));
-    check::<FanPaar32>(8, fan_paar::fp32::Elem::from_raw(3));
-    check::<FanPaar64>(8, fan_paar::fp64::Elem::from_raw(3));
+    check::<Gf16>(8, Elem::<Gf16>::from_raw(3));
+    check::<Gf32>(8, Elem::<Gf32>::from_raw(3));
+    check::<Gf64>(8, Elem::<Gf64>::from_raw(3));
+    check::<FanPaar8>(8, Elem::<FanPaar8>::from_raw(3));
+    check::<FanPaar16>(8, Elem::<FanPaar16>::from_raw(3));
+    check::<FanPaar32>(8, Elem::<FanPaar32>::from_raw(3));
+    check::<FanPaar64>(8, Elem::<FanPaar64>::from_raw(3));
     check::<Mersenne31>(8, Elem::<Mersenne31>::from_raw(3));
     check::<Goldilocks>(8, Elem::<Goldilocks>::from_raw(3));
     check::<QuadMersenne31>(8, Elem::<QuadMersenne31>::from_raw(3, 5));
@@ -2185,9 +2186,9 @@ fn add_and_sub_assign_match_oracle_for_every_field() {
 #[cfg(feature = "alloc")]
 fn prepared_collections_report_their_contents() {
     let coeffs = [
-        gf16::Elem::from_raw(0x0102),
-        gf16::Elem::from_raw(0),
-        gf16::Elem::from_raw(0xbeef),
+        Elem::<Gf16>::from_raw(0x0102),
+        Elem::<Gf16>::from_raw(0),
+        Elem::<Gf16>::from_raw(0xbeef),
     ];
 
     let coeff = ops::Coeff::<Gf16>::new(coeffs[0]);
@@ -2352,7 +2353,7 @@ fn zero_and_empty_inputs_are_well_defined() {
 #[cfg(feature = "alloc")]
 fn single_term_mul_into_gathers_match_mul_into() {
     let src = noise(12, 0x41);
-    let coeff = gf16::Elem::from_raw(0x0a5a);
+    let coeff = Elem::<Gf16>::from_raw(0x0a5a);
     let mut dotted = noise(12, 0x42);
     ops::mul_into_gather::<Gf16>(&mut dotted, &[coeff], &[&src]);
     let mut scaled = [0u8; 12];
@@ -2636,7 +2637,7 @@ fn scattered_rejects_misaligned_row_start() {
         &mut dst,
         8,
         &[0, 13],
-        &[(&[gf16::Elem::from_raw(1); 2], &[0u8; 8])],
+        &[(&[Elem::<Gf16>::from_raw(1); 2], &[0u8; 8])],
     );
 }
 
@@ -2852,45 +2853,45 @@ fn prepared_variants_match_one_shot_operations() {
     );
     check!(
         Gf16,
-        gf16::Elem::from_raw(0),
-        gf16::Elem::from_raw(1),
-        gf16::Elem::from_raw(0x0a5a)
+        Elem::<Gf16>::from_raw(0),
+        Elem::<Gf16>::from_raw(1),
+        Elem::<Gf16>::from_raw(0x0a5a)
     );
     check!(
         Gf32,
-        gf32::Elem::from_raw(0),
-        gf32::Elem::from_raw(1),
-        gf32::Elem::from_raw(0x0a5a_1234)
+        Elem::<Gf32>::from_raw(0),
+        Elem::<Gf32>::from_raw(1),
+        Elem::<Gf32>::from_raw(0x0a5a_1234)
     );
     check!(
         Gf64,
-        gf64::Elem::from_raw(0),
-        gf64::Elem::from_raw(1),
-        gf64::Elem::from_raw(0x0a5a_1234_dead_beef)
+        Elem::<Gf64>::from_raw(0),
+        Elem::<Gf64>::from_raw(1),
+        Elem::<Gf64>::from_raw(0x0a5a_1234_dead_beef)
     );
     check!(
         FanPaar8,
-        fan_paar::fp8::Elem::from_raw(0),
-        fan_paar::fp8::Elem::from_raw(1),
-        fan_paar::fp8::Elem::from_raw(0x8d)
+        Elem::<FanPaar8>::from_raw(0),
+        Elem::<FanPaar8>::from_raw(1),
+        Elem::<FanPaar8>::from_raw(0x8d)
     );
     check!(
         FanPaar16,
-        fan_paar::fp16::Elem::from_raw(0),
-        fan_paar::fp16::Elem::from_raw(1),
-        fan_paar::fp16::Elem::from_raw(0xa55a)
+        Elem::<FanPaar16>::from_raw(0),
+        Elem::<FanPaar16>::from_raw(1),
+        Elem::<FanPaar16>::from_raw(0xa55a)
     );
     check!(
         FanPaar32,
-        fan_paar::fp32::Elem::from_raw(0),
-        fan_paar::fp32::Elem::from_raw(1),
-        fan_paar::fp32::Elem::from_raw(0xa55a_1234)
+        Elem::<FanPaar32>::from_raw(0),
+        Elem::<FanPaar32>::from_raw(1),
+        Elem::<FanPaar32>::from_raw(0xa55a_1234)
     );
     check!(
         FanPaar64,
-        fan_paar::fp64::Elem::from_raw(0),
-        fan_paar::fp64::Elem::from_raw(1),
-        fan_paar::fp64::Elem::from_raw(0xa55a_1234_dead_beef)
+        Elem::<FanPaar64>::from_raw(0),
+        Elem::<FanPaar64>::from_raw(1),
+        Elem::<FanPaar64>::from_raw(0xa55a_1234_dead_beef)
     );
     check!(
         Mersenne31,
@@ -2921,8 +2922,8 @@ fn matrix_source_drives_scatter_directly() {
     const SOURCES: usize = 3;
     const OUTPUTS: usize = 5;
     const ROW_LEN: usize = 96;
-    let flat: Vec<gf16::Elem> = (0..SOURCES * OUTPUTS)
-        .map(|i| gf16::Elem::from_raw((i as u16).wrapping_mul(511).wrapping_add(3)))
+    let flat: Vec<Elem<Gf16>> = (0..SOURCES * OUTPUTS)
+        .map(|i| Elem::<Gf16>::from_raw((i as u16).wrapping_mul(511).wrapping_add(3)))
         .collect();
     let matrix = ops::CoeffMatrix::<Gf16>::from_source_major(SOURCES, OUTPUTS, &flat);
     let src = noise(ROW_LEN, 0x8d0);

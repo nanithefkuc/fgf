@@ -47,11 +47,11 @@ fgf = { version = "2.1.0", default-features = false }
 Scalar elements expose inherent `const` arithmetic:
 
 ```rust
-use fgf::gf16;
+use fgf::{Elem, Gf16};
 
-const A: gf16::Elem = gf16::Elem::from_raw(0x1234);
-const B: gf16::Elem = gf16::Elem::from_raw(0x0108);
-const PRODUCT: gf16::Elem = A.mul(B);
+const A: Elem<Gf16> = Elem::<Gf16>::from_raw(0x1234);
+const B: Elem<Gf16> = Elem::<Gf16>::from_raw(0x0108);
+const PRODUCT: Elem<Gf16> = A.mul(B);
 
 assert_eq!(PRODUCT.div(B), A);
 ```
@@ -124,13 +124,14 @@ from `just examples`.
 | GF(2^8) | `Gf8<Poly<AES>>`, `Elem<Gf<8, Poly<AES>>>` | AES polynomial `0x11B` | x86 GFNI and shuffle; `AArch64` NEON/PMULL; Wasm SIMD |
 | GF(2^8) | `Gf8<Poly<REED_SOLOMON>>`, `Elem<Gf<8, Poly<REED_SOLOMON>>>` | polynomial `0x11D` | x86 GFNI affine and shuffle; `AArch64` and Wasm single-row shuffle |
 | GF(2^8) | `Gf8<Poly<POLY>>`, `Elem<Gf<8, Poly<POLY>>>` | any irreducible degree-eight polynomial | x86 GFNI affine and shuffle; `AArch64` and Wasm single-row shuffle |
-| GF(2^16) | `Gf16`, `gf16::Elem` | quadratic tower over `Gf8<Poly<AES>>` | x86 GFNI and shuffle |
-| GF(2^32) | `Gf32`, `gf32::Elem` | quadratic tower over `Gf16` | x86 GFNI |
-| GF(2^64) | `Gf64`, `gf64::Elem` | quadratic tower over `Gf32` | x86 GFNI |
-| Fan–Paar GF(2^8) | `FanPaar8`, `fan_paar::fp8::Elem` | canonical recursive tower | portable |
-| Fan–Paar GF(2^16) | `FanPaar16`, `fan_paar::fp16::Elem` | canonical recursive tower | x86 AVX2 and SSSE3 |
-| Fan–Paar GF(2^32) | `FanPaar32`, `fan_paar::fp32::Elem` | canonical recursive tower | x86 AVX2 |
-| Fan–Paar GF(2^64) | `FanPaar64`, `fan_paar::fp64::Elem` | canonical recursive tower | x86 AVX2 |
+| GF(2^16) | `Gf16`, `Elem<Gf16>` | quadratic tower over `Gf8<Poly<AES>>` | x86 GFNI and shuffle |
+| GF(2^32) | `Gf32`, `Elem<Gf32>` | quadratic tower over `Gf16` | x86 GFNI |
+| GF(2^64) | `Gf64`, `Elem<Gf64>` | quadratic tower over `Gf32` | x86 GFNI |
+| custom towers | `Gf<N, Tower<S>>`, `Elem<Gf<N, Tower<S>>>` | any spec over a supported base, degrees 2–64 | typed scalar fallback |
+| Fan–Paar GF(2^8) | `FanPaar8`, `Elem<FanPaar8>` | canonical recursive tower | portable |
+| Fan–Paar GF(2^16) | `FanPaar16`, `Elem<FanPaar16>` | canonical recursive tower | x86 AVX2 and SSSE3 |
+| Fan–Paar GF(2^32) | `FanPaar32`, `Elem<FanPaar32>` | canonical recursive tower | x86 AVX2 |
+| Fan–Paar GF(2^64) | `FanPaar64`, `Elem<FanPaar64>` | canonical recursive tower | x86 AVX2 |
 | GF(2^31 − 1) | `Mersenne31`, `Elem<Mersenne31>` | Mersenne prime in `u32` lanes | x86 AVX2 and SSE4.2 |
 | GF(2^64 − 2^32 + 1) | `Goldilocks`, `Elem<Goldilocks>` | Goldilocks prime in `u64` lanes | x86 AVX2 and SSE4.2 |
 | GF((2^31 − 1)²) | `QuadMersenne31`, `Elem<QuadMersenne31>` | `i² = −1` over Mersenne31 | x86 AVX2 |
@@ -175,9 +176,9 @@ The `_with` forms consume prepared coefficients. Preparation does not weaken
 validation: prepared and one-shot operations enforce the same public geometry.
 
 ```rust
-use fgf::{Gf16, gf16, ops};
+use fgf::{Elem, Gf16, ops};
 
-let coeff = ops::Coeff::<Gf16>::new(gf16::Elem::from_raw(0x0108));
+let coeff = ops::Coeff::<Gf16>::new(Elem::<Gf16>::from_raw(0x0108));
 let src = 0x1234u16.to_le_bytes();
 let mut dst = [0u8; 2];
 
@@ -185,7 +186,7 @@ for _ in 0..3 {
     ops::mul_add_with::<Gf16>(&mut dst, &coeff, &src);
 }
 
-let once = gf16::Elem::from_raw(0x1234).mul(gf16::Elem::from_raw(0x0108));
+let once = Elem::<Gf16>::from_raw(0x1234).mul(Elem::<Gf16>::from_raw(0x0108));
 assert_eq!(dst, once.to_bytes());
 ```
 
@@ -260,8 +261,8 @@ stated in full by the module that owns it.
 | every field | fixed-width little-endian element encoding of `FieldBuffer::BYTES`, packed without alignment or padding |
 | `Gf8<Poly<AES>>` | reduction polynomial `0x11B`, generator `0x03` |
 | `Gf8<Poly<REED_SOLOMON>>` | reduction polynomial `0x11D`, generator `0x02`, the Reed–Solomon interop field |
-| `field::tower` | component order `[a, b]`, constant component first, over `Gf8<Poly<AES>>` |
-| `fan_paar` | canonical Wiedemann tower basis, a different basis from `field::tower` and not interoperable with it |
+| Rijndael towers | component order `[a, b]`, constant component first, relations `t^2 + t + 0x20`, `v^2 + v + 0x2000`, `w^2 + w + 0x2000_0000` |
+| Fan–Paar towers | canonical Wiedemann tower basis `X^2 + alpha*X + 1`, a different basis from the Rijndael towers and not interoperable with them |
 | `bits` | one GF(2) element per bit, LSB-first within each byte, padding bits caller-owned |
 | prime fields | canonical lanes on packed buffer boundaries |
 

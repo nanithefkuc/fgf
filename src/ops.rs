@@ -24,9 +24,9 @@
 //! not. [`Coeff`] hoists it:
 //!
 //! ```
-//! use fgf::{Gf16, gf16, ops};
+//! use fgf::{Elem, Gf16, ops};
 //!
-//! let coeff = ops::Coeff::<Gf16>::new(gf16::Elem::from_raw(0x0108));
+//! let coeff = ops::Coeff::<Gf16>::new(Elem::<Gf16>::from_raw(0x0108));
 //! let src = [0u8; 64];
 //! for _ in 0..3 {
 //!     let mut symbol = [0u8; 64];
@@ -1413,9 +1413,9 @@ pub fn pack_to_vec<F: FieldBuffer>(elems: &[Elem<F>]) -> alloc::vec::Vec<u8> {
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
+    use crate::Gf16;
     use crate::field::poly::AES;
     use crate::field::{Elem as E8, Gf, Gf8, Poly};
-    use crate::{Gf16, gf16};
     use alloc::vec::Vec;
 
     /// `row_len == 0` with otherwise valid geometry is a no-op everywhere —
@@ -1450,7 +1450,7 @@ mod tests {
 
         // GF(2^16): the field whose odd-length buffers make the element
         // check matter.
-        let wide = [gf16::Elem::from_raw(0x0103); 2];
+        let wide = [Elem::<Gf16>::from_raw(0x0103); 2];
         let mut rows16 = [0x5Au8; 4];
         mul_add_scatter::<Gf16>(&mut rows16, 0, &wide, &[]);
         assert_eq!(rows16, [0x5A; 4]);
@@ -1530,14 +1530,14 @@ mod tests {
     #[test]
     fn prepared_matrix_ops_match_one_shot() {
         // source-major matrix: source s contributes coeffs[s * outputs + o].
-        let values: Vec<gf16::Elem> = (0u16..3 * 4)
-            .map(|i| gf16::Elem::from_raw(i * 511 + 3))
+        let values: Vec<Elem<Gf16>> = (0u16..3 * 4)
+            .map(|i| Elem::<Gf16>::from_raw(i * 511 + 3))
             .collect();
         let matrix = CoeffMatrix::<Gf16>::from_source_major(3, 4, &values);
         let srcs: Vec<Vec<u8>> = (0u8..3).map(|s| alloc::vec![s + 1; 8]).collect();
         let src_refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
 
-        let terms: Vec<(&[gf16::Elem], &[u8])> = (0..3)
+        let terms: Vec<(&[Elem<Gf16>], &[u8])> = (0..3)
             .map(|s| (&values[s * 4..s * 4 + 4], src_refs[s]))
             .collect();
 

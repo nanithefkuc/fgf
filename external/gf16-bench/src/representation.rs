@@ -141,8 +141,8 @@ impl Representations {
             for j in 0..16 {
                 let (x, y) = (1 << i, 1 << j);
                 assert_eq!(
-                    fgf::gf16::Elem::from_raw(x)
-                        .mul(fgf::gf16::Elem::from_raw(y))
+                    fgf::Elem::<fgf::Gf16>::from_raw(x)
+                        .mul(fgf::Elem::<fgf::Gf16>::from_raw(y))
                         .to_raw(),
                     tower_mul(x, y)
                 );

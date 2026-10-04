@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use fgf::poly::AES;
 use fgf::{
     Elem, FanPaar16, FanPaar32, FanPaar64, Gf, Gf8, Gf16, Gf32, Gf64, Goldilocks, Mersenne31, Poly,
-    QuadMersenne31, backend, fan_paar, gf16, gf32, gf64, ops,
+    QuadMersenne31, backend, ops,
 };
 
 fn noise(len: usize, seed: u64) -> Vec<u8> {
@@ -97,7 +97,7 @@ fn bench_preparation_crossover() {
         let src = noise(len, 0xa00 + len as u64);
         let mut dst = noise(len, 0xb00 + len as u64);
         let coeff8 = Elem::<Gf<8, Poly<AES>>>::from_raw(0x53);
-        let coeff16 = gf16::Elem::from_raw(0x53a7);
+        let coeff16 = Elem::<Gf16>::from_raw(0x53a7);
         let prepared8 = ops::Coeff::<Gf8<Poly<AES>>>::new(coeff8);
         let prepared16 = ops::Coeff::<Gf16>::new(coeff16);
 
@@ -284,8 +284,8 @@ fn bench_blocked_vs_axpy() {
                 .map(|t| noise(row_len, 0xc00 + t as u64))
                 .collect();
             let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-            let coeffs: Vec<gf16::Elem> = (0..nsrc)
-                .map(|t| gf16::Elem::from_raw(((t * 7919) as u16).wrapping_add(3)))
+            let coeffs: Vec<Elem<Gf16>> = (0..nsrc)
+                .map(|t| Elem::<Gf16>::from_raw(((t * 7919) as u16).wrapping_add(3)))
                 .collect();
             let mut dst = noise(row_len, 0xd00);
             let traffic = row_len * nsrc;
@@ -366,7 +366,7 @@ fn bench_large_destination() {
         bench(&format!("{mib:3} MiB mul_into         gf16"), len, || {
             ops::mul_into::<Gf16>(
                 black_box(&mut dst),
-                gf16::Elem::from_raw(0x53a7),
+                Elem::<Gf16>::from_raw(0x53a7),
                 black_box(&src),
             );
         });
@@ -410,7 +410,7 @@ fn bench_destination_alignment() {
             .map(|j| Elem::<Gf<8, Poly<AES>>>::from_raw((j as u8).wrapping_mul(37).wrapping_add(2)))
             .collect();
         let coeffs16: Vec<_> = (0..nrows)
-            .map(|j| gf16::Elem::from_raw((j as u16).wrapping_mul(9871).wrapping_add(2)))
+            .map(|j| Elem::<Gf16>::from_raw((j as u16).wrapping_mul(9871).wrapping_add(2)))
             .collect();
         let mut backing = noise(row_len * nrows + 32, 0xe01);
         let kib = row_len / 1024;
@@ -468,15 +468,15 @@ fn bench_small_row_shapes() {
         let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
         // Every fourth coefficient is zero and every fifth is one.
         let coeff_at = |i: usize| match i % 5 {
-            0 => gf16::Elem::ZERO,
-            1 => gf16::Elem::ONE,
-            _ => gf16::Elem::from_raw(((i * 7919) as u16) | 0x0100),
+            0 => Elem::<Gf16>::ZERO,
+            1 => Elem::<Gf16>::ONE,
+            _ => Elem::<Gf16>::from_raw(((i * 7919) as u16) | 0x0100),
         };
-        let row_coeffs: Vec<gf16::Elem> = (0..nrows).map(coeff_at).collect();
-        let coeff_sets: Vec<Vec<gf16::Elem>> = (0..nsrc)
+        let row_coeffs: Vec<Elem<Gf16>> = (0..nrows).map(coeff_at).collect();
+        let coeff_sets: Vec<Vec<Elem<Gf16>>> = (0..nsrc)
             .map(|t| (0..nrows).map(|j| coeff_at(t * 3 + j)).collect())
             .collect();
-        let terms: Vec<(&[gf16::Elem], &[u8])> = coeff_sets
+        let terms: Vec<(&[Elem<Gf16>], &[u8])> = coeff_sets
             .iter()
             .zip(&sources)
             .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -506,7 +506,7 @@ fn bench_small_row_shapes() {
 
         // Fused `mul_into` against the copy-then-scale it replaces: the
         // fused kernel touches the destination once.
-        let coeff = gf16::Elem::from_raw(0x53a7);
+        let coeff = Elem::<Gf16>::from_raw(0x53a7);
         let fused = bench("  mul_into fused            gf16", row_len, || {
             ops::mul_into::<Gf16>(black_box(&mut dst), coeff, black_box(srcs[0]));
         });
@@ -706,7 +706,7 @@ fn main() {
 
         let src = noise(len, 1);
         let mut dst = noise(len, 2);
-        let prepared16 = ops::Coeff::<Gf16>::new(gf16::Elem::from_raw(0x53a7));
+        let prepared16 = ops::Coeff::<Gf16>::new(Elem::<Gf16>::from_raw(0x53a7));
         let rhs = noise(len, 0x602);
         let mut product = vec![0; len];
 
@@ -724,7 +724,7 @@ fn main() {
             bench("mul_add                  gf16", len, || {
                 ops::mul_add::<Gf16>(
                     black_box(&mut dst),
-                    gf16::Elem::from_raw(0x53a7),
+                    Elem::<Gf16>::from_raw(0x53a7),
                     black_box(&src),
                 );
             });
@@ -741,7 +741,7 @@ fn main() {
             bench("mul_into                 gf16", len, || {
                 ops::mul_into::<Gf16>(
                     black_box(&mut product),
-                    gf16::Elem::from_raw(0x53a7),
+                    Elem::<Gf16>::from_raw(0x53a7),
                     black_box(&src),
                 );
             });
@@ -775,7 +775,7 @@ fn main() {
                 ops::mul_elementwise_assign::<Gf16>(black_box(&mut product), black_box(&src));
             });
             bench("mul_assign               gf16", len, || {
-                ops::mul_assign::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));
+                ops::mul_assign::<Gf16>(black_box(&mut dst), Elem::<Gf16>::from_raw(0x53a7));
             });
             bench("add_assign                gf16", len, || {
                 ops::add_assign::<Gf16>(black_box(&mut dst), black_box(&src));
@@ -793,10 +793,10 @@ fn main() {
                 );
             });
             bench("add_assign_scalar         gf16", len, || {
-                ops::add_assign_scalar::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));
+                ops::add_assign_scalar::<Gf16>(black_box(&mut dst), Elem::<Gf16>::from_raw(0x53a7));
             });
             bench("sub_assign_scalar         gf16", len, || {
-                ops::sub_assign_scalar::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));
+                ops::sub_assign_scalar::<Gf16>(black_box(&mut dst), Elem::<Gf16>::from_raw(0x53a7));
             });
         }
 
@@ -906,7 +906,7 @@ fn main() {
             .map(|j| Elem::<Gf<8, Poly<AES>>>::from_raw((j as u8).wrapping_mul(37).wrapping_add(2)))
             .collect();
         let coeffs16: Vec<_> = (0..nrows)
-            .map(|j| gf16::Elem::from_raw((j as u16).wrapping_mul(9871).wrapping_add(2)))
+            .map(|j| Elem::<Gf16>::from_raw((j as u16).wrapping_mul(9871).wrapping_add(2)))
             .collect();
         let scatter_coeffs8 = ops::CoeffVec::<Gf8<Poly<AES>>>::new(&coeffs8);
         let scatter_coeffs16 = ops::CoeffVec::<Gf16>::new(&coeffs16);
@@ -965,10 +965,10 @@ fn main() {
                     .collect()
             })
             .collect();
-        let coeff_sets16: Vec<Vec<gf16::Elem>> = (0..8)
+        let coeff_sets16: Vec<Vec<Elem<Gf16>>> = (0..8)
             .map(|t| {
                 (0..nrows)
-                    .map(|j| gf16::Elem::from_raw(((t * 7919 + j * 613) as u16).wrapping_add(1)))
+                    .map(|j| Elem::<Gf16>::from_raw(((t * 7919 + j * 613) as u16).wrapping_add(1)))
                     .collect()
             })
             .collect();
@@ -979,7 +979,7 @@ fn main() {
             .zip(&sources)
             .map(|(c, s)| (c.as_slice(), s.as_slice()))
             .collect();
-        let terms16: Vec<(&[gf16::Elem], &[u8])> = coeff_sets16
+        let terms16: Vec<(&[Elem<Gf16>], &[u8])> = coeff_sets16
             .iter()
             .zip(&sources)
             .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -1086,42 +1086,42 @@ fn main() {
     bench("mul_add polynomial tower     gf16", tier3_len, || {
         ops::mul_add::<Gf16>(
             black_box(&mut tier3_dst),
-            gf16::Elem::from_raw(0x53a7),
+            Elem::<Gf16>::from_raw(0x53a7),
             black_box(&tier3_src),
         );
     });
     bench("mul_add polynomial tower     gf32", tier3_len, || {
         ops::mul_add::<Gf32>(
             black_box(&mut tier3_dst),
-            gf32::Elem::from_raw(0xdead_beef),
+            Elem::<Gf32>::from_raw(0xdead_beef),
             black_box(&tier3_src),
         );
     });
     bench("mul_add polynomial tower     gf64", tier3_len, || {
         ops::mul_add::<Gf64>(
             black_box(&mut tier3_dst),
-            gf64::Elem::from_raw(0x0123_4567_89ab_cdef),
+            Elem::<Gf64>::from_raw(0x0123_4567_89ab_cdef),
             black_box(&tier3_src),
         );
     });
     bench("mul_add canonical Fan-Paar  fp16", tier3_len, || {
         ops::mul_add::<FanPaar16>(
             black_box(&mut tier3_dst),
-            fan_paar::fp16::Elem::from_raw(0xe2de),
+            Elem::<FanPaar16>::from_raw(0xe2de),
             black_box(&tier3_src),
         );
     });
     bench("mul_add canonical Fan-Paar  fp32", tier3_len, || {
         ops::mul_add::<FanPaar32>(
             black_box(&mut tier3_dst),
-            fan_paar::fp32::Elem::from_raw(0x03e2_1cea),
+            Elem::<FanPaar32>::from_raw(0x03e2_1cea),
             black_box(&tier3_src),
         );
     });
     bench("mul_add canonical Fan-Paar  fp64", tier3_len, || {
         ops::mul_add::<FanPaar64>(
             black_box(&mut tier3_dst),
-            fan_paar::fp64::Elem::from_raw(0x070f_870d_cd9c_1d88),
+            Elem::<FanPaar64>::from_raw(0x070f_870d_cd9c_1d88),
             black_box(&tier3_src),
         );
     });
