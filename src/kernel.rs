@@ -93,7 +93,7 @@ use simdispatch::Selection;
 mod private {
     pub trait Sealed {}
 }
-impl<R: crate::kernel::tables::ByteBanks> private::Sealed for crate::field::Gf<8, R> {}
+impl<R: crate::kernel::tables::Gf8Data> private::Sealed for crate::field::Gf<8, R> {}
 impl<S: crate::field::tower::TowerSpec> private::Sealed
     for crate::field::Gf<16, crate::field::tower::Tower<S>>
 where

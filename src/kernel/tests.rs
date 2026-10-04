@@ -16,7 +16,7 @@ extern crate std;
 use std::vec;
 use std::vec::Vec;
 
-use crate::field::poly::{AES, REED_SOLOMON};
+use crate::field::binary::{AES, REED_SOLOMON};
 use crate::field::{Elem, Gf, Gf8, Poly};
 use crate::field::{
     FanPaar8, FanPaar32, Gf32, Gf64, Goldilocks, fan_paar, gf16, gf32, gf64, quad_mersenne31,
@@ -82,7 +82,7 @@ fn gf8_rs_coeffs() -> Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>> {
     gf8_coeffs_of::<REED_SOLOMON>()
 }
 
-fn gf8_coeffs_of<const POLY: u32>() -> Vec<Elem<Gf<8, Poly<POLY>>>> {
+fn gf8_coeffs_of<const POLY: u128>() -> Vec<Elem<Gf<8, Poly<POLY>>>> {
     let mut coeffs = vec![
         Elem::<Gf<8, Poly<POLY>>>::ZERO,
         Elem::<Gf<8, Poly<POLY>>>::ONE,
@@ -167,7 +167,7 @@ fn host_supports(supported: &'static [crate::kernel::Backend]) -> bool {
 
 /// Compare a GF(2^8) `mul_add` kernel against the reference at every length
 /// and coefficient.
-fn check_gf8_mul_add<const POLY: u32>(
+fn check_gf8_mul_add<const POLY: u128>(
     name: &str,
     coeffs: &[Elem<Gf<8, Poly<POLY>>>],
     kernel: impl Fn(&mut [u8], &ScaleTable, &[u8]),
@@ -184,7 +184,7 @@ fn check_gf8_mul_add<const POLY: u32>(
     }
 }
 
-fn check_gf8_mul_assign<const POLY: u32>(
+fn check_gf8_mul_assign<const POLY: u128>(
     name: &str,
     coeffs: &[Elem<Gf<8, Poly<POLY>>>],
     kernel: impl Fn(&mut [u8], &ScaleTable),
@@ -228,7 +228,7 @@ fn check_gf16_mul_assign_tables(name: &str, kernel: impl Fn(&mut [u8], &TowerTab
 }
 
 #[allow(dead_code)]
-fn check_gf8_mul_into<const POLY: u32>(
+fn check_gf8_mul_into<const POLY: u128>(
     name: &str,
     coeffs: &[Elem<Gf<8, Poly<POLY>>>],
     kernel: impl Fn(&mut [u8], &ScaleTable, &[u8]),
@@ -425,7 +425,7 @@ fn check_gather_aligned<E: Copy, F>(
 /// between the two sweeps the blocked kernels below see all 65 536 products
 /// outright.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-fn for_each_gf8_coeff<const POLY: u32>(case: impl FnMut(Elem<Gf<8, Poly<POLY>>>, &[u8])) {
+fn for_each_gf8_coeff<const POLY: u128>(case: impl FnMut(Elem<Gf<8, Poly<POLY>>>, &[u8])) {
     let mut case = case;
     for &len in LENGTHS {
         let src = noise(len, 0x51);
@@ -443,7 +443,7 @@ fn for_each_gf8_coeff<const POLY: u32>(case: impl FnMut(Elem<Gf<8, Poly<POLY>>>,
 /// element for the blocked single-buffer entries, [`Prepared`](crate::kernel::gf8::Prepared)
 /// for the form dispatch hands them.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-fn check_gf8_exhaustive_mul_add<C: Copy + core::fmt::Debug, const POLY: u32>(
+fn check_gf8_exhaustive_mul_add<C: Copy + core::fmt::Debug, const POLY: u128>(
     name: &str,
     prepare: impl Fn(Elem<Gf<8, Poly<POLY>>>) -> C,
     kernel: impl Fn(&mut [u8], C, &[u8]),
@@ -459,7 +459,7 @@ fn check_gf8_exhaustive_mul_add<C: Copy + core::fmt::Debug, const POLY: u32>(
 
 /// Exhaustive `mul_assign` sweep through `prepare`'s coefficient form.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-fn check_gf8_exhaustive_mul_assign<C: Copy + core::fmt::Debug, const POLY: u32>(
+fn check_gf8_exhaustive_mul_assign<C: Copy + core::fmt::Debug, const POLY: u128>(
     name: &str,
     prepare: impl Fn(Elem<Gf<8, Poly<POLY>>>) -> C,
     kernel: impl Fn(&mut [u8], C),
@@ -476,7 +476,7 @@ fn check_gf8_exhaustive_mul_assign<C: Copy + core::fmt::Debug, const POLY: u32>(
 /// Exhaustive `mul_into` sweep through `prepare`'s coefficient form: the
 /// destination carries noise the fused kernel must overwrite.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-fn check_gf8_exhaustive_mul_into<C: Copy + core::fmt::Debug, const POLY: u32>(
+fn check_gf8_exhaustive_mul_into<C: Copy + core::fmt::Debug, const POLY: u128>(
     name: &str,
     prepare: impl Fn(Elem<Gf<8, Poly<POLY>>>) -> C,
     kernel: impl Fn(&mut [u8], C, &[u8]),
@@ -490,7 +490,7 @@ fn check_gf8_exhaustive_mul_into<C: Copy + core::fmt::Debug, const POLY: u32>(
     });
 }
 #[allow(dead_code)]
-fn check_gf8_elementwise<const POLY: u32>(name: &str, kernel: impl Fn(&mut [u8], &[u8], &[u8])) {
+fn check_gf8_elementwise<const POLY: u128>(name: &str, kernel: impl Fn(&mut [u8], &[u8], &[u8])) {
     for &len in LENGTHS {
         let a = noise(len, 0xf2);
         let b = noise(len, 0x103);
@@ -597,14 +597,14 @@ fn check_tower_mul_into<E: Copy + core::fmt::Debug>(
 }
 
 #[allow(dead_code)]
-fn gf8_coeff_at<const POLY: u32>(j: usize) -> Elem<Gf<8, Poly<POLY>>> {
+fn gf8_coeff_at<const POLY: u128>(j: usize) -> Elem<Gf<8, Poly<POLY>>> {
     // Includes 0 and 1 as j sweeps, which is what we want: the blocked
     // kernels must handle degenerate coefficients per row, not per call.
     Elem::<Gf<8, Poly<POLY>>>::from_raw((j as u8).wrapping_mul(29))
 }
 
 #[allow(dead_code)]
-fn gf8_coeff_at2<const POLY: u32>(t: usize, j: usize) -> Elem<Gf<8, Poly<POLY>>> {
+fn gf8_coeff_at2<const POLY: u128>(t: usize, j: usize) -> Elem<Gf<8, Poly<POLY>>> {
     Elem::<Gf<8, Poly<POLY>>>::from_raw(((t * 31 + j * 29) % 256) as u8)
 }
 
@@ -619,7 +619,7 @@ fn gf16_coeff_at2(t: usize, j: usize) -> gf16::Elem {
 }
 
 #[allow(dead_code)]
-fn gf8_reference<const POLY: u32>(dst: &mut [u8], coeff: Elem<Gf<8, Poly<POLY>>>, src: &[u8]) {
+fn gf8_reference<const POLY: u128>(dst: &mut [u8], coeff: Elem<Gf<8, Poly<POLY>>>, src: &[u8]) {
     scalar::mul_add::<Gf8<Poly<POLY>>>(dst, coeff, src);
 }
 
@@ -938,7 +938,7 @@ fn scalar_nibble_paths_match_the_generic_reference() {
     )
 ))]
 #[allow(dead_code)]
-fn prepared_coeffs<const POLY: u32>(coeffs: &[Elem<Gf<8, Poly<POLY>>>]) -> Vec<Prepared> {
+fn prepared_coeffs<const POLY: u128>(coeffs: &[Elem<Gf<8, Poly<POLY>>>]) -> Vec<Prepared> {
     coeffs.iter().map(|&c| Prepared::new(c)).collect()
 }
 
@@ -955,7 +955,7 @@ fn prepared_coeffs<const POLY: u32>(coeffs: &[Elem<Gf<8, Poly<POLY>>>]) -> Vec<P
     )
 ))]
 #[allow(dead_code)]
-struct PreparedMatrix<'a, const POLY: u32> {
+struct PreparedMatrix<'a, const POLY: u128> {
     sets: Vec<Vec<Prepared>>,
     srcs: Vec<&'a [u8]>,
 }
@@ -970,7 +970,7 @@ struct PreparedMatrix<'a, const POLY: u32> {
     )
 ))]
 #[allow(dead_code)]
-impl<const POLY: u32> crate::kernel::Matrix<Prepared> for PreparedMatrix<'_, POLY> {
+impl<const POLY: u128> crate::kernel::Matrix<Prepared> for PreparedMatrix<'_, POLY> {
     fn len(&self) -> usize {
         self.srcs.len()
     }
@@ -996,7 +996,7 @@ impl<const POLY: u32> crate::kernel::Matrix<Prepared> for PreparedMatrix<'_, POL
 #[allow(dead_code)]
 // Term geometry nests the unified element spelling; the slices stay slices.
 #[allow(clippy::type_complexity)]
-fn prepared_matrix<'a, const POLY: u32>(
+fn prepared_matrix<'a, const POLY: u128>(
     terms: &[(&'a [Elem<Gf<8, Poly<POLY>>>], &'a [u8])],
 ) -> PreparedMatrix<'a, POLY> {
     PreparedMatrix {
@@ -2435,7 +2435,7 @@ mod x86 {
     /// odd iterations a reversed (non-monotonic) order over the same windows.
     // Term geometry nests the unified element spelling; the slices stay slices.
     #[allow(clippy::type_complexity)]
-    fn check_gf8_scattered_gfni_rows<const POLY: u32>(name: &str, token: X64V3GfniCryptoToken) {
+    fn check_gf8_scattered_gfni_rows<const POLY: u128>(name: &str, token: X64V3GfniCryptoToken) {
         for &row_len in ROW_LENS {
             for (ri, &nrows) in ROW_COUNTS.iter().enumerate() {
                 let mut starts: Vec<usize> = (0..nrows).map(|j| j * (row_len + 7)).collect();
@@ -2620,7 +2620,7 @@ mod x86 {
     /// the term slice.
     // Term geometry nests the unified element spelling; the slices stay slices.
     #[allow(clippy::type_complexity)]
-    fn with_flat<const POLY: u32>(
+    fn with_flat<const POLY: u128>(
         terms: &[(&[Elem<Gf<8, Poly<POLY>>>], &[u8])],
         nrows: usize,
         f: impl FnOnce(&crate::kernel::FlatMatrix<'_, Prepared>),
@@ -3951,7 +3951,7 @@ mod x86 {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn check_gf8_polynomial_kernels<const POLY: u32>(name: &str) {
+    fn check_gf8_polynomial_kernels<const POLY: u128>(name: &str) {
         let coeffs = gf8_coeffs_of::<POLY>();
 
         // GFNI: the affine multiply folds any polynomial's coefficient in.
@@ -4090,7 +4090,7 @@ mod x86 {
     /// The 512-bit tier of [`check_gf8_polynomial_kernels`], compiled only
     /// where the dispatch tier exists.
     #[cfg(feature = "simd512")]
-    fn check_gf8_polynomial_avx512<const POLY: u32>(
+    fn check_gf8_polynomial_avx512<const POLY: u128>(
         name: &str,
         coeffs: &[Elem<Gf<8, Poly<POLY>>>],
     ) {
@@ -6304,7 +6304,7 @@ fn gf16_gfni_wrappers_tolerate_degenerate_geometry() {
 mod gf1_bits {
     use super::Vec;
     use crate::field::Elem;
-    use crate::field::gf1;
+    use crate::field::Gf1;
     use crate::kernel::gf1 as k;
 
     fn bit(buf: &[u8], i: usize) -> bool {
@@ -6451,14 +6451,12 @@ mod gf1_bits {
                 "weight {bits_len}"
             );
 
-            let mut acc = Elem::<gf1::Gf1>::ZERO;
+            let mut acc = Elem::<Gf1>::ZERO;
             for i in 0..bits_len {
-                acc = acc.add(Elem::<gf1::Gf1>::from_raw(u8::from(
-                    bit(&a, i) && bit(&b, i),
-                )));
+                acc = acc.add(Elem::<Gf1>::from_raw(u8::from(bit(&a, i) && bit(&b, i))));
             }
             assert_eq!(
-                Elem::<gf1::Gf1>::from_raw(k::parity(&a, &b, bits_len) as u8),
+                Elem::<Gf1>::from_raw(k::parity(&a, &b, bits_len) as u8),
                 acc,
                 "parity {bits_len}"
             );

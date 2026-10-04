@@ -8,13 +8,13 @@
 use fgf::field::{Field, FieldBuffer, PrimeIdentity};
 use fgf::poly::{AES, REED_SOLOMON};
 use fgf::{
-    Elem, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf, Gf8, Gf16, Gf32, Gf64, Goldilocks,
-    HasGenerator, Mersenne31, Poly, QuadMersenne31, fan_paar, gf1, gf16, gf32, gf64, goldilocks,
-    mersenne31, quad_mersenne31,
+    BinaryField, Cantor, Elem, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf, Gf1, Gf8, Gf16, Gf32,
+    Gf64, Goldilocks, HasGenerator, Mersenne31, Normal, Poly, QuadMersenne31, fan_paar, gf16, gf32,
+    gf64, goldilocks, mersenne31, quad_mersenne31,
 };
 
 /// Every element of `Gf8<Poly<POLY>>`, in ascending raw order.
-fn all_gf8_elems<const POLY: u32>() -> impl Iterator<Item = Elem<Gf<8, Poly<POLY>>>> {
+fn all_gf8_elems<const POLY: u128>() -> impl Iterator<Item = Elem<Gf<8, Poly<POLY>>>> {
     (0..=u8::MAX).map(Elem::<Gf<8, Poly<POLY>>>::from_raw)
 }
 
@@ -28,7 +28,7 @@ fn sample_gf16() -> Vec<gf16::Elem> {
         gf16::Elem::from_raw(0x00ff),
         gf16::Elem::from_raw(0xff00),
         gf16::Elem::from_raw(0xffff),
-        gf16::GENERATOR,
+        Elem::<Gf16>::GENERATOR,
     ];
     let mut state = 0x1234_5678_9abc_def0u64;
     for _ in 0..512 {
@@ -46,7 +46,7 @@ fn sample_gf16() -> Vec<gf16::Elem> {
 /// Independent shift-and-XOR GF(2^8) multiply over a field's public
 /// reduction polynomial: the oracle for the table backends, local to this
 /// test crate so it stays independent of every crate-internal path.
-fn xtime_mul(a: u8, b: u8, poly: u32) -> u8 {
+fn xtime_mul(a: u8, b: u8, poly: u128) -> u8 {
     let mut a = a;
     let mut acc = 0u8;
     for i in 0..8 {
@@ -64,7 +64,7 @@ fn xtime_mul(a: u8, b: u8, poly: u32) -> u8 {
 
 /// GF(2^8) inverse oracle: `a^254` by square-and-multiply, MSB first, with
 /// the crate's `inv(0) == 0` convention.
-fn xtime_inv(a: u8, poly: u32) -> u8 {
+fn xtime_inv(a: u8, poly: u128) -> u8 {
     if a == 0 {
         return 0;
     }
@@ -80,7 +80,7 @@ fn xtime_inv(a: u8, poly: u32) -> u8 {
     result
 }
 
-fn table_multiply_matches_shift_and_xor<const POLY: u32>() {
+fn table_multiply_matches_shift_and_xor<const POLY: u128>() {
     for a in all_gf8_elems::<POLY>() {
         for b in all_gf8_elems::<POLY>() {
             assert_eq!(
@@ -96,7 +96,7 @@ fn table_multiply_matches_shift_and_xor<const POLY: u32>() {
     }
 }
 
-fn inverse_matches_fermat_and_round_trips<const POLY: u32>() {
+fn inverse_matches_fermat_and_round_trips<const POLY: u128>() {
     assert_eq!(
         xtime_inv(Elem::<Gf<8, Poly<POLY>>>::ZERO.to_raw(), Poly::<POLY>::POLY),
         0,
@@ -126,7 +126,7 @@ fn inverse_matches_fermat_and_round_trips<const POLY: u32>() {
     }
 }
 
-fn generator_has_full_order<const POLY: u32>() {
+fn generator_has_full_order<const POLY: u128>() {
     let mut seen = [false; 256];
     let mut value = Elem::<Gf<8, Poly<POLY>>>::ONE;
     for step in 0..255u32 {
@@ -148,7 +148,7 @@ fn generator_has_full_order<const POLY: u32>() {
     );
 }
 
-fn field_axioms<const POLY: u32>() {
+fn field_axioms<const POLY: u128>() {
     let sample: Vec<_> = all_gf8_elems::<POLY>().step_by(7).collect();
     for &a in &sample {
         assert_eq!(a.add(Elem::<Gf<8, Poly<POLY>>>::ZERO), a);
@@ -183,7 +183,7 @@ fn field_axioms<const POLY: u32>() {
     }
 }
 
-fn pow_matches_repeated_multiplication<const POLY: u32>() {
+fn pow_matches_repeated_multiplication<const POLY: u128>() {
     for a in all_gf8_elems::<POLY>().step_by(11) {
         let mut expected = Elem::<Gf<8, Poly<POLY>>>::ONE;
         for exponent in 0..20u128 {
@@ -283,7 +283,7 @@ fn reduction_polynomials_are_introspectable() {
 fn gf8_fields_are_pairwise_distinct() {
     // Same raw bytes, genuinely different products: the guard against
     // filling one polynomial's tables from another's arithmetic.
-    fn disagreement_count<const P: u32, const Q: u32>() -> usize {
+    fn disagreement_count<const P: u128, const Q: u128>() -> usize {
         (0u16..=255)
             .flat_map(|a| (0u16..=255).map(move |b| (a as u8, b as u8)))
             .filter(|&(a, b)| {
@@ -309,6 +309,252 @@ fn gf8_fields_are_pairwise_distinct() {
     assert_ne!(disagreement_count::<REED_SOLOMON, 0x12D>(), 0);
     assert_ne!(disagreement_count::<REED_SOLOMON, 0x187>(), 0);
     assert_ne!(disagreement_count::<0x12D, 0x187>(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Small polynomial degrees and ordered bases
+// ---------------------------------------------------------------------------
+
+/// Independent shift-and-reduce multiply under a degree-`n` polynomial.
+///
+/// The oracle for every degree-2/4 field and basis map, local to this test
+/// crate so it stays independent of the descriptor interpreter.
+fn small_mul(poly: u128, n: u32, a: u8, b: u8) -> u8 {
+    let mut acc: u128 = 0;
+    for k in 0..n {
+        if (b >> k) & 1 == 1 {
+            acc ^= u128::from(a) << k;
+        }
+    }
+    let mut k = 2 * n;
+    while k > n {
+        k -= 1;
+        if (acc >> k) & 1 == 1 {
+            acc ^= poly << (k - n);
+        }
+    }
+    u8::try_from(acc).expect("reduction leaves n bits")
+}
+
+/// Exhaustive products, inversion, and generator order of one small
+/// polynomial field, against the shift-and-reduce oracle.
+macro_rules! small_poly_field {
+    ($poly:expr, $n:literal, $mask:literal, [$($factor:literal),+]) => {{
+        for a in 0..=$mask {
+            for b in 0..=$mask {
+                assert_eq!(
+                    Elem::<Gf<$n, Poly<$poly>>>::from_raw(a)
+                        .mul(Elem::<Gf<$n, Poly<$poly>>>::from_raw(b))
+                        .to_raw(),
+                    small_mul($poly, $n, a, b),
+                    "{a:#x} * {b:#x} under {:#x}",
+                    $poly
+                );
+            }
+        }
+        for a in 0..=$mask {
+            let elem = Elem::<Gf<$n, Poly<$poly>>>::from_raw(a);
+            if a != 0 {
+                assert_eq!(
+                    elem.mul(elem.inv()),
+                    Elem::<Gf<$n, Poly<$poly>>>::ONE,
+                    "inverse of {a:#x}"
+                );
+            } else {
+                assert_eq!(elem.inv(), elem, "inv(0) == 0");
+            }
+        }
+        let order = (1u128 << $n) - 1;
+        let generator = Elem::<Gf<$n, Poly<$poly>>>::GENERATOR;
+        assert_eq!(generator.pow(order), Elem::<Gf<$n, Poly<$poly>>>::ONE);
+        for factor in [$($factor),+] {
+            assert_ne!(
+                generator.pow(order / factor),
+                Elem::<Gf<$n, Poly<$poly>>>::ONE,
+                "cofactor {factor}"
+            );
+        }
+    }};
+}
+
+#[test]
+fn small_polynomial_products_match_shift_and_xor() {
+    small_poly_field!(0x7, 2, 0x3, [3]);
+    small_poly_field!(0x13, 4, 0xF, [3, 5]);
+    small_poly_field!(0x19, 4, 0xF, [3, 5]);
+    small_poly_field!(0x1F, 4, 0xF, [3, 5]);
+}
+
+/// The normal-basis coordinate columns of `e` over `poly`, computed by
+/// repeated squaring through the oracle: column `i` is `e^(2^i)`.
+fn normal_columns(poly: u128, n: u32, e: u8) -> [u8; 8] {
+    let mut columns = [0u8; 8];
+    let mut power = e;
+    for column in columns.iter_mut().take(n as usize) {
+        *column = power;
+        power = small_mul(poly, n, power, power);
+    }
+    columns
+}
+
+/// The Cantor coordinate columns of `seed` over `poly`, computed through
+/// the oracle: `chain[n - 1]` is the seed and each lower entry squares and
+/// adds its successor.
+fn cantor_columns(poly: u128, n: u32, seed: u8) -> [u8; 8] {
+    let mut chain = [0u8; 8];
+    chain[n as usize - 1] = seed;
+    for i in (0..n as usize - 1).rev() {
+        let top = chain[i + 1];
+        chain[i] = small_mul(poly, n, top, top) ^ top;
+    }
+    chain
+}
+
+/// Apply coordinate columns: bit `i` of `word` selects `columns[i]`.
+fn apply_columns(columns: [u8; 8], word: u64) -> u64 {
+    let mut image = 0u64;
+    for (i, &column) in columns.iter().enumerate() {
+        if (word >> i) & 1 == 1 {
+            image ^= u64::from(column);
+        }
+    }
+    image
+}
+
+/// Product agreement after mapping back, actual one and zero, and generator
+/// order of one ordered-basis presentation, against oracle-built columns.
+macro_rules! basis_field {
+    ($field:ty, $poly:expr, $n:literal, $columns:expr, $one:literal) => {{
+        let columns = $columns;
+        let map = |word: u8| apply_columns(columns, u64::from(word)) as u8;
+        let count = 1u32 << $n;
+        for x in 0..count {
+            for y in 0..count {
+                let product = Elem::<$field>::from_raw(x as u8)
+                    .mul(Elem::<$field>::from_raw(y as u8))
+                    .to_raw();
+                assert_eq!(
+                    map(product),
+                    small_mul($poly, $n, map(x as u8), map(y as u8)),
+                    "{x:#x} * {y:#x}"
+                );
+            }
+        }
+        assert_eq!(Elem::<$field>::ZERO.to_raw(), 0, "zero is zero");
+        assert_eq!(
+            Elem::<$field>::ONE.to_raw(),
+            $one,
+            "actual one of the basis"
+        );
+        assert_eq!(
+            Elem::<$field>::ONE.mul(Elem::<$field>::ONE),
+            Elem::<$field>::ONE
+        );
+        let order = (1u128 << $n) - 1;
+        let generator = Elem::<$field>::GENERATOR;
+        assert_eq!(generator.pow(order), Elem::<$field>::ONE);
+        for factor in [3u128, 5, 17] {
+            if order % factor != 0 {
+                continue;
+            }
+            assert_ne!(
+                generator.pow(order / factor),
+                Elem::<$field>::ONE,
+                "cofactor {factor}"
+            );
+        }
+    }};
+}
+
+#[test]
+fn normal_forward_coordinates_match_independent_powers() {
+    basis_field!(
+        Gf<2, Normal<0x7, 2>>,
+        0x7,
+        2,
+        normal_columns(0x7, 2, 2),
+        0x3
+    );
+    basis_field!(
+        Gf<4, Normal<0x13, 8>>,
+        0x13,
+        4,
+        normal_columns(0x13, 4, 8),
+        0xF
+    );
+    basis_field!(
+        Gf<8, Normal<0x11B, 0x20>>,
+        0x11B,
+        8,
+        normal_columns(0x11B, 8, 0x20),
+        0xFF
+    );
+    basis_field!(
+        Gf<8, Normal<0x11D, 0x20>>,
+        0x11D,
+        8,
+        normal_columns(0x11D, 8, 0x20),
+        0xFF
+    );
+}
+
+#[test]
+fn cantor_forward_coordinates_match_the_independent_chain() {
+    basis_field!(
+        Gf<2, Cantor<0x7, 2>>,
+        0x7,
+        2,
+        cantor_columns(0x7, 2, 2),
+        0x1
+    );
+    basis_field!(
+        Gf<4, Cantor<0x13, 8>>,
+        0x13,
+        4,
+        cantor_columns(0x13, 4, 8),
+        0x1
+    );
+    basis_field!(
+        Gf<8, Cantor<0x11B, 0x20>>,
+        0x11B,
+        8,
+        cantor_columns(0x11B, 8, 0x20),
+        0x1
+    );
+    basis_field!(
+        Gf<8, Cantor<0x11D, 0x20>>,
+        0x11D,
+        8,
+        cantor_columns(0x11D, 8, 0x20),
+        0x1
+    );
+}
+
+#[test]
+fn binary_coordinates_round_trip_and_reject_excess_bits() {
+    fn round_trip<F: BinaryField>(valid: u64, excess: &[u64]) {
+        assert_eq!(
+            F::to_coordinates(F::from_coordinates(valid).expect("valid word")),
+            valid
+        );
+        for &bad in excess {
+            assert!(
+                F::from_coordinates(bad).is_err(),
+                "excess bits {bad:#x} must be rejected"
+            );
+        }
+    }
+    round_trip::<Gf1>(1, &[2, 0xFF, u64::MAX]);
+    round_trip::<Gf<2, Poly<0x7>>>(3, &[4, 0xFF, u64::MAX]);
+    round_trip::<Gf<2, Normal<0x7, 2>>>(3, &[4, 0xFF, u64::MAX]);
+    round_trip::<Gf<2, Cantor<0x7, 2>>>(3, &[4, 0xFF, u64::MAX]);
+    round_trip::<Gf<4, Poly<0x13>>>(0xF, &[0x10, 0xFF, u64::MAX]);
+    round_trip::<Gf<4, Normal<0x13, 8>>>(0xF, &[0x10, 0xFF, u64::MAX]);
+    round_trip::<Gf<4, Cantor<0x13, 8>>>(0xF, &[0x10, 0xFF, u64::MAX]);
+    round_trip::<Gf<8, Poly<AES>>>(0xFF, &[0x100, 0xFFFF, u64::MAX]);
+    round_trip::<Gf<8, Normal<0x11B, 0x20>>>(0xFF, &[0x100, 0xFFFF, u64::MAX]);
+    round_trip::<Gf<8, Cantor<0x11B, 0x20>>>(0xFF, &[0x100, 0xFFFF, u64::MAX]);
+    round_trip::<Gf16>(0xFFFF, &[0x1_0000, u64::MAX]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1102,22 +1348,22 @@ fn fan_paar_subfield_encodings_are_nested() {
             .mul(fan_paar::fp8::Elem::from_raw(b))
             .to_raw();
         assert_eq!(
-            fan_paar::fp16::Elem::from_raw(a.into())
-                .mul(fan_paar::fp16::Elem::from_raw(b.into()))
+            fan_paar::fp16::Elem::from_raw(u16::from(a))
+                .mul(fan_paar::fp16::Elem::from_raw(u16::from(b)))
                 .to_raw(),
-            product.into()
+            u16::from(product)
         );
         assert_eq!(
-            fan_paar::fp32::Elem::from_raw(a.into())
-                .mul(fan_paar::fp32::Elem::from_raw(b.into()))
+            fan_paar::fp32::Elem::from_raw(u32::from(a))
+                .mul(fan_paar::fp32::Elem::from_raw(u32::from(b)))
                 .to_raw(),
-            product.into()
+            u32::from(product)
         );
         assert_eq!(
-            fan_paar::fp64::Elem::from_raw(a.into())
-                .mul(fan_paar::fp64::Elem::from_raw(b.into()))
+            fan_paar::fp64::Elem::from_raw(u64::from(a))
+                .mul(fan_paar::fp64::Elem::from_raw(u64::from(b)))
                 .to_raw(),
-            product.into()
+            u64::from(product)
         );
     }
 }
@@ -1490,7 +1736,7 @@ fn element_formatting_reports_insufficient_writer_capacity() {
     check::<Elem<Mersenne31>>();
     check::<Elem<Goldilocks>>();
     check::<Elem<QuadMersenne31>>();
-    check::<Elem<gf1::Gf1>>();
+    check::<Elem<Gf1>>();
 }
 
 /// The per-concrete-type surfaces generic code cannot reach: the
@@ -1556,7 +1802,7 @@ macro_rules! exercise_operators {
 
 #[test]
 fn gf8_trait_operator_and_formatting_surface() {
-    fn surface<const POLY: u32>() {
+    fn surface<const POLY: u128>() {
         let samples: Vec<_> = all_gf8_elems::<POLY>().step_by(97).collect();
         exercise_surface::<Gf8<Poly<POLY>>>(&samples);
         exercise_operators!(samples);
@@ -1636,7 +1882,7 @@ fn prime_trait_operator_and_formatting_surface() {
 #[test]
 fn inherent_conversion_helpers_round_trip() {
     // GF(2^8) flat fields.
-    fn gf8_conversions<const POLY: u32>() {
+    fn gf8_conversions<const POLY: u128>() {
         for a in all_gf8_elems::<POLY>().step_by(53) {
             assert_eq!(Elem::<Gf<8, Poly<POLY>>>::from_raw(a.to_raw()), a);
             assert_eq!(Elem::<Gf<8, Poly<POLY>>>::from_bytes(a.to_bytes()), a);
@@ -1739,10 +1985,10 @@ fn inherent_conversion_helpers_round_trip() {
 // ---------------------------------------------------------------------------
 
 /// The whole field, exhaustively: the four ordered pairs.
-fn all_gf1_pairs() -> impl Iterator<Item = (Elem<gf1::Gf1>, Elem<gf1::Gf1>)> {
-    let elems = [Elem::<gf1::Gf1>::from_raw(0), Elem::<gf1::Gf1>::from_raw(1)];
+fn all_gf1_pairs() -> impl Iterator<Item = (Elem<Gf1>, Elem<Gf1>)> {
+    let elems = [Elem::<Gf1>::from_raw(0), Elem::<Gf1>::from_raw(1)];
     elems.into_iter().flat_map(move |a| {
-        let elems = [Elem::<gf1::Gf1>::from_raw(0), Elem::<gf1::Gf1>::from_raw(1)];
+        let elems = [Elem::<Gf1>::from_raw(0), Elem::<Gf1>::from_raw(1)];
         elems.into_iter().map(move |b| (a, b))
     })
 }
@@ -1771,40 +2017,32 @@ fn gf1_inverse_division_and_power_conventions() {
         assert_eq!(quotient, expected, "x / 0 == 0 and x / 1 == x");
         assert_eq!(a / b, a.div(b));
     }
-    for a in [Elem::<gf1::Gf1>::from_raw(0), Elem::<gf1::Gf1>::from_raw(1)] {
-        assert_eq!(a.pow(0), Elem::<gf1::Gf1>::ONE, "pow(_, 0) is one");
+    for a in [Elem::<Gf1>::from_raw(0), Elem::<Gf1>::from_raw(1)] {
+        assert_eq!(a.pow(0), Elem::<Gf1>::ONE, "pow(_, 0) is one");
         for exponent in [1u128, 2, 3, 63, u128::from(u64::MAX)] {
             assert_eq!(a.pow(exponent), a, "x^n = x for n > 0");
         }
     }
     // Division stays total in const context.
-    const _: () = assert!(
-        Elem::<gf1::Gf1>::from_raw(1)
-            .div(Elem::<gf1::Gf1>::ZERO)
-            .to_raw()
-            == 0
-    );
-    const _: () = assert!(Elem::<gf1::Gf1>::from_raw(1).pow(0).to_raw() == 1);
+    const _: () = assert!(Elem::<Gf1>::from_raw(1).div(Elem::<Gf1>::ZERO).to_raw() == 0);
+    const _: () = assert!(Elem::<Gf1>::from_raw(1).pow(0).to_raw() == 1);
 }
 
 #[test]
 fn gf1_constants_and_predicates() {
-    assert_eq!(gf1::ORDER, 2);
-    assert_eq!(<gf1::Gf1 as Field>::NAME, "GF(2)");
+    assert_eq!(Gf1::ORDER, 2);
+    assert_eq!(<Gf1 as Field>::NAME, "GF(2)");
     // The multiplicative group is trivial: the generator is one and has
     // order 1.
-    assert_eq!(Elem::<gf1::Gf1>::GENERATOR, Elem::<gf1::Gf1>::ONE);
+    assert_eq!(Elem::<Gf1>::GENERATOR, Elem::<Gf1>::ONE);
     for exponent in [0u128, 1, 2, 100] {
-        assert_eq!(
-            Elem::<gf1::Gf1>::GENERATOR.pow(exponent),
-            Elem::<gf1::Gf1>::ONE
-        );
+        assert_eq!(Elem::<Gf1>::GENERATOR.pow(exponent), Elem::<Gf1>::ONE);
     }
-    assert!(Elem::<gf1::Gf1>::from_raw(0).is_zero());
-    assert!(Elem::<gf1::Gf1>::from_raw(1).is_one());
-    assert_eq!(Elem::<gf1::Gf1>::ZERO.to_raw(), 0);
-    assert_eq!(Elem::<gf1::Gf1>::ONE.to_raw(), 1);
-    assert_eq!(Elem::<gf1::Gf1>::default(), Elem::<gf1::Gf1>::ZERO);
+    assert!(Elem::<Gf1>::from_raw(0).is_zero());
+    assert!(Elem::<Gf1>::from_raw(1).is_one());
+    assert_eq!(Elem::<Gf1>::ZERO.to_raw(), 0);
+    assert_eq!(Elem::<Gf1>::ONE.to_raw(), 1);
+    assert_eq!(Elem::<Gf1>::default(), Elem::<Gf1>::ZERO);
 }
 
 #[test]
@@ -1836,44 +2074,44 @@ fn gf1_elem_trait_bodies_match_inherent() {
     for (a, b) in all_gf1_pairs() {
         through_trait(a, b);
         assert_eq!(
-            <Elem<gf1::Gf1> as fgf::field::FieldElem>::add(a, b),
-            Elem::<gf1::Gf1>::add(a, b)
+            <Elem<Gf1> as fgf::field::FieldElem>::add(a, b),
+            Elem::<Gf1>::add(a, b)
         );
         assert_eq!(
-            <Elem<gf1::Gf1> as fgf::field::FieldElem>::sub(a, b),
-            Elem::<gf1::Gf1>::sub(a, b)
+            <Elem<Gf1> as fgf::field::FieldElem>::sub(a, b),
+            Elem::<Gf1>::sub(a, b)
         );
         assert_eq!(
-            <Elem<gf1::Gf1> as fgf::field::FieldElem>::neg(a),
-            Elem::<gf1::Gf1>::neg(a)
+            <Elem<Gf1> as fgf::field::FieldElem>::neg(a),
+            Elem::<Gf1>::neg(a)
         );
         assert_eq!(
-            <Elem<gf1::Gf1> as fgf::field::FieldElem>::mul(a, b),
-            Elem::<gf1::Gf1>::mul(a, b)
+            <Elem<Gf1> as fgf::field::FieldElem>::mul(a, b),
+            Elem::<Gf1>::mul(a, b)
         );
         assert_eq!(
-            <Elem<gf1::Gf1> as fgf::field::FieldElem>::square(a),
-            Elem::<gf1::Gf1>::square(a)
+            <Elem<Gf1> as fgf::field::FieldElem>::square(a),
+            Elem::<Gf1>::square(a)
         );
         assert_eq!(
-            <Elem<gf1::Gf1> as fgf::field::FieldElem>::inv(a),
-            Elem::<gf1::Gf1>::inv(a)
+            <Elem<Gf1> as fgf::field::FieldElem>::inv(a),
+            Elem::<Gf1>::inv(a)
         );
         assert_eq!(
-            <Elem<gf1::Gf1> as fgf::field::FieldElem>::div(a, b),
-            Elem::<gf1::Gf1>::div(a, b)
+            <Elem<Gf1> as fgf::field::FieldElem>::div(a, b),
+            Elem::<Gf1>::div(a, b)
         );
         assert_eq!(
-            <Elem<gf1::Gf1> as fgf::field::FieldElem>::pow(a, 7),
-            Elem::<gf1::Gf1>::pow(a, 7)
+            <Elem<Gf1> as fgf::field::FieldElem>::pow(a, 7),
+            Elem::<Gf1>::pow(a, 7)
         );
         assert_eq!(
-            <Elem<gf1::Gf1> as fgf::field::FieldElem>::is_zero(a),
-            Elem::<gf1::Gf1>::is_zero(a)
+            <Elem<Gf1> as fgf::field::FieldElem>::is_zero(a),
+            Elem::<Gf1>::is_zero(a)
         );
         assert_eq!(
-            <Elem<gf1::Gf1> as fgf::field::FieldElem>::is_one(a),
-            Elem::<gf1::Gf1>::is_one(a)
+            <Elem<Gf1> as fgf::field::FieldElem>::is_one(a),
+            Elem::<Gf1>::is_one(a)
         );
     }
 }
@@ -1883,55 +2121,48 @@ fn gf1_raw_lanes_are_total_and_outputs_canonical() {
     // Any raw byte is a legal input; only bit 0 is meaningful, and every
     // arithmetic output is canonical — the crate's totality convention.
     for raw in [0u8, 1, 2, 3, 0x7f, 0x80, 0xfe, 0xff] {
-        let a = Elem::<gf1::Gf1>::from_raw(raw);
-        assert_eq!(a.add(Elem::<gf1::Gf1>::from_raw(1)).to_raw(), (raw & 1) ^ 1);
-        assert_eq!(a.mul(Elem::<gf1::Gf1>::from_raw(1)).to_raw(), raw & 1);
+        let a = Elem::<Gf1>::from_raw(raw);
+        assert_eq!(a.add(Elem::<Gf1>::from_raw(1)).to_raw(), (raw & 1) ^ 1);
+        assert_eq!(a.mul(Elem::<Gf1>::from_raw(1)).to_raw(), raw & 1);
         assert_eq!(a.square().to_raw(), raw & 1);
         assert_eq!(a.inv().to_raw(), raw & 1);
-        assert_eq!(a.div(Elem::<gf1::Gf1>::from_raw(0)).to_raw(), 0);
+        assert_eq!(a.div(Elem::<Gf1>::from_raw(0)).to_raw(), 0);
         assert_eq!(a.is_zero(), raw & 1 == 0);
         assert_eq!(a.is_one(), raw & 1 == 1);
     }
+    assert_eq!(Elem::<Gf1>::from_raw(0xfe).to_raw(), 0, "from_raw masks");
     assert_eq!(
-        Elem::<gf1::Gf1>::from_raw(0xfe).to_raw(),
-        0,
-        "from_raw masks"
-    );
-    assert_eq!(
-        Elem::<gf1::Gf1>::from_bytes([0xfe]).to_bytes(),
+        Elem::<Gf1>::from_bytes([0xfe]).to_bytes(),
         [0],
         "byte round trip masks"
     );
-    assert_eq!(
-        Elem::<gf1::Gf1>::from_raw(1).canonical(),
-        Elem::<gf1::Gf1>::ONE
-    );
+    assert_eq!(Elem::<Gf1>::from_raw(1).canonical(), Elem::<Gf1>::ONE);
 }
 
 #[test]
 fn gf1_operators_and_folds() {
-    let mut a = Elem::<gf1::Gf1>::from_raw(1);
-    a += Elem::<gf1::Gf1>::from_raw(1);
-    assert_eq!(a, Elem::<gf1::Gf1>::ZERO);
-    a -= Elem::<gf1::Gf1>::from_raw(1);
-    assert_eq!(a, Elem::<gf1::Gf1>::ONE);
-    a *= Elem::<gf1::Gf1>::from_raw(0);
-    assert_eq!(a, Elem::<gf1::Gf1>::ZERO);
-    a += Elem::<gf1::Gf1>::from_raw(1);
-    a /= Elem::<gf1::Gf1>::from_raw(1);
-    assert_eq!(a, Elem::<gf1::Gf1>::ONE);
-    a /= Elem::<gf1::Gf1>::ZERO;
-    assert_eq!(a, Elem::<gf1::Gf1>::ZERO);
+    let mut a = Elem::<Gf1>::from_raw(1);
+    a += Elem::<Gf1>::from_raw(1);
+    assert_eq!(a, Elem::<Gf1>::ZERO);
+    a -= Elem::<Gf1>::from_raw(1);
+    assert_eq!(a, Elem::<Gf1>::ONE);
+    a *= Elem::<Gf1>::from_raw(0);
+    assert_eq!(a, Elem::<Gf1>::ZERO);
+    a += Elem::<Gf1>::from_raw(1);
+    a /= Elem::<Gf1>::from_raw(1);
+    assert_eq!(a, Elem::<Gf1>::ONE);
+    a /= Elem::<Gf1>::ZERO;
+    assert_eq!(a, Elem::<Gf1>::ZERO);
 
-    let one = Elem::<gf1::Gf1>::from_raw(1);
-    let xor_sum: Elem<gf1::Gf1> = [one, one, one].into_iter().sum();
-    assert_eq!(xor_sum, Elem::<gf1::Gf1>::ONE, "sum of three ones");
-    let and_product: Elem<gf1::Gf1> = [one, one].into_iter().product();
-    assert_eq!(and_product, Elem::<gf1::Gf1>::ONE);
-    let borrowed_sum: Elem<gf1::Gf1> = [&one, &one].into_iter().sum();
-    assert_eq!(borrowed_sum, Elem::<gf1::Gf1>::ZERO);
-    let borrowed_product: Elem<gf1::Gf1> = [&one, &one].into_iter().product();
-    assert_eq!(borrowed_product, Elem::<gf1::Gf1>::ONE);
+    let one = Elem::<Gf1>::from_raw(1);
+    let xor_sum: Elem<Gf1> = [one, one, one].into_iter().sum();
+    assert_eq!(xor_sum, Elem::<Gf1>::ONE, "sum of three ones");
+    let and_product: Elem<Gf1> = [one, one].into_iter().product();
+    assert_eq!(and_product, Elem::<Gf1>::ONE);
+    let borrowed_sum: Elem<Gf1> = [&one, &one].into_iter().sum();
+    assert_eq!(borrowed_sum, Elem::<Gf1>::ZERO);
+    let borrowed_product: Elem<Gf1> = [&one, &one].into_iter().product();
+    assert_eq!(borrowed_product, Elem::<Gf1>::ONE);
 }
 
 // ---------------------------------------------------------------------------
@@ -2088,7 +2319,7 @@ fn generic_from_raw_agrees_with_inherent_constructors() {
         FanPaar64: [0, 1, 0x070F_870D_CD9C_1D88, u64::MAX],
         Mersenne31: [0, 1, 0x7FFF_FFFE, 0x7FFF_FFFF, u32::MAX],
         Goldilocks: [0, 1, 0xFFFF_FFFF_FFFF_FFFE, u64::MAX],
-        gf1::Gf1: [0, 1, 2, 0xFF]
+        Gf1: [0, 1, 2, 0xFF]
     );
     // QuadMersenne31 takes two limbs, so it does not fit the macro above.
     for &(re, im) in &[(0, 0), (1, 0), (0x7FFF_FFFF, 0), (u32::MAX, u32::MAX)] {
@@ -2265,13 +2496,10 @@ fn qm31_equivalent_representatives_are_one_value() {
 fn gf1_masked_inputs_are_one_value() {
     // `from_raw` masks to the low bit, and equality/hash/order follow that
     // bit, so masked high bits never split one field value.
-    assert_same_value(Elem::<gf1::Gf1>::from_raw(0x02), Elem::<gf1::Gf1>::ZERO);
-    assert_same_value(Elem::<gf1::Gf1>::from_raw(0xFD), Elem::<gf1::Gf1>::ONE);
-    assert!(Elem::<gf1::Gf1>::ZERO < Elem::<gf1::Gf1>::ONE);
-    let mut bits = [
-        Elem::<gf1::Gf1>::from_raw(0x80),
-        Elem::<gf1::Gf1>::from_raw(3),
-    ];
+    assert_same_value(Elem::<Gf1>::from_raw(0x02), Elem::<Gf1>::ZERO);
+    assert_same_value(Elem::<Gf1>::from_raw(0xFD), Elem::<Gf1>::ONE);
+    assert!(Elem::<Gf1>::ZERO < Elem::<Gf1>::ONE);
+    let mut bits = [Elem::<Gf1>::from_raw(0x80), Elem::<Gf1>::from_raw(3)];
     bits.sort();
-    assert_eq!(bits, [Elem::<gf1::Gf1>::ZERO, Elem::<gf1::Gf1>::ONE]);
+    assert_eq!(bits, [Elem::<Gf1>::ZERO, Elem::<Gf1>::ONE]);
 }

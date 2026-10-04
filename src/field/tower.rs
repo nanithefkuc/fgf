@@ -26,9 +26,10 @@
 
 use core::fmt;
 
-use super::poly::{AES, Poly};
-use super::repr::private;
-use super::repr::{ByteRepr, Gf, Repr};
+use super::binary::description::BinaryDescription;
+use super::binary::{
+    AES, BinaryDegree, BinaryField, BinaryRepr, CoordinateError, Gf, Poly, private,
+};
 use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, Validate};
 
 /// The defining data of one quadratic tower over a byte field.
@@ -42,7 +43,7 @@ pub trait TowerSpec:
     Copy + core::fmt::Debug + core::hash::Hash + PartialEq + Eq + 'static + private::Sealed
 {
     /// The degree-8 base representation.
-    type Base: ByteRepr;
+    type Base: BinaryRepr<8>;
     /// The linear coefficient `A` of the relation, raw in `Base`'s encoding.
     const A: u8;
     /// The constant coefficient `B` of the relation, raw in `Base`'s
@@ -67,12 +68,18 @@ pub struct Tower<S: TowerSpec>(core::marker::PhantomData<S>);
 
 impl<S: TowerSpec> private::Sealed for Tower<S> {}
 
-impl<S: TowerSpec> Repr<16> for Tower<S> {
-    type Raw = u16;
-
+impl<S: TowerSpec> BinaryRepr<16> for Tower<S> {
     const NAME: &'static str = S::NAME;
-    const ONE_RAW: u16 = u16::from_le_bytes([<S::Base as Repr<8>>::ONE_RAW, 0]);
-    const GENERATOR_RAW: u16 = S::GENERATOR;
+    const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::append_quadratic(
+        <Gf<8, S::Base> as super::binary::BinaryField>::DESCRIPTION,
+        S::A as u64,
+        S::B as u64,
+    );
+    const LOG_EXP: Option<&'static super::binary::ByteLogExp> = None;
+    const VALID: () = {
+        let () = <Gf<8, S::Base> as Field>::VALID;
+        <Self as BinaryRepr<16>>::DESCRIPTION.validate();
+    };
 }
 
 /// Whether `S::A` is nonzero: the first conjunct of [`Tower::SPEC`].
@@ -84,7 +91,7 @@ pub(crate) const fn spec_a_nonzero<S: TowerSpec>() -> bool {
 /// linear coefficient is then a unit, so the arithmetic formulas can drop
 /// its multiplies.
 pub(crate) const fn spec_a_is_one<S: TowerSpec>() -> bool {
-    S::A == <S::Base as Repr<8>>::ONE_RAW
+    (S::A as u64) == <Gf<8, S::Base> as super::binary::BinaryField>::DESCRIPTION.one()
 }
 
 /// Whether the absolute trace of `S::B / S::A^2` over the base is one: the
@@ -102,7 +109,7 @@ pub(crate) const fn spec_trace_one<S: TowerSpec>() -> bool {
         acc = acc.add(power);
         i += 1;
     }
-    acc.to_raw() == <S::Base as Repr<8>>::ONE_RAW
+    acc.to_raw() as u64 == <Gf<8, S::Base> as super::binary::BinaryField>::DESCRIPTION.one()
 }
 
 impl<S: TowerSpec> Tower<S> {
@@ -209,6 +216,7 @@ impl<S: TowerSpec> Elem<Gf<16, Tower<S>>> {
         let () = Validate::<Gf<16, Tower<S>>>::OK;
         let _ = Tower::<S>::SPEC;
         let _ = Tower::<S>::GENERATOR_VALID;
+        let _ = <Tower<S> as BinaryRepr<16>>::VALID;
         Elem { raw: value }
     }
 
@@ -353,7 +361,9 @@ impl<S: TowerSpec> Field for Gf<16, Tower<S>> {
     const DEGREE: u32 = 16;
     const ORDER: u128 = 65_536;
     const ZERO_RAW: u16 = 0;
-    const ONE_RAW: u16 = u16::from_le_bytes([<S::Base as Repr<8>>::ONE_RAW, 0]);
+    // The tower identity holds the base identity in the low half.
+    #[allow(clippy::cast_possible_truncation)]
+    const ONE_RAW: u16 = <Tower<S> as BinaryRepr<16>>::DESCRIPTION.one() as u16;
     const VALID: () = Tower::<S>::SPEC;
 
     #[inline]
@@ -395,6 +405,33 @@ impl<S: TowerSpec> HasGenerator for Gf<16, Tower<S>> {
         S::GENERATOR
     };
 }
+
+impl<S: TowerSpec> super::binary::binary_private::Sealed for Gf<16, Tower<S>> {}
+
+impl<S: TowerSpec> BinaryField for Gf<16, Tower<S>> {
+    const DESCRIPTION: &'static BinaryDescription = <Tower<S> as BinaryRepr<16>>::DESCRIPTION;
+
+    #[inline]
+    // Widening the stored half-words to the coordinate word is exact.
+    #[allow(clippy::cast_lossless)]
+    fn to_coordinates(value: Elem<Self>) -> u64 {
+        value.to_raw() as u64
+    }
+
+    #[inline]
+    fn from_coordinates(value: u64) -> Result<Elem<Self>, CoordinateError> {
+        if value >> 16 == 0 {
+            // The shift check proves the word fits two bytes.
+            #[allow(clippy::cast_possible_truncation)]
+            let raw = value as u16;
+            Ok(Elem::<Self>::from_raw(raw))
+        } else {
+            Err(CoordinateError)
+        }
+    }
+}
+
+impl<S: TowerSpec> BinaryDegree<16> for Gf<16, Tower<S>> {}
 
 impl<S: TowerSpec> FieldBuffer for Gf<16, Tower<S>> {
     const BYTES: usize = 2;
@@ -453,8 +490,7 @@ pub mod gf16 {
     //!
     //! ```
     //! use fgf::gf16::{self, DELTA};
-    //! use fgf::poly::AES;
-    //! use fgf::{Elem, Gf, Poly};
+    //! use fgf::{AES, Elem, Gf, Poly};
     //!
     //! let base = |raw: u8| Elem::<Gf<8, Poly<AES>>>::from_raw(raw);
     //! let x = Elem::<gf16::Gf16>::from_components(base(0x12), base(0x34));
@@ -471,7 +507,7 @@ pub mod gf16 {
     //! const _: () = assert!(U.square().to_raw() == U.add(DELTA_LIFTED).to_raw());
     //!
     //! // The documented generator really does have order 65535.
-    //! assert_eq!(gf16::GENERATOR.pow(65_535), Elem::<gf16::Gf16>::ONE);
+    //! assert_eq!(Elem::<gf16::Gf16>::GENERATOR.pow(65_535), Elem::<gf16::Gf16>::ONE);
     //!
     //! // Division is total: `x / 0` is zero, in `const` context too.
     //! const _: () = assert!(Elem::<gf16::Gf16>::from_raw(0x0108).div(Elem::<gf16::Gf16>::ZERO).to_raw() == 0);
@@ -479,8 +515,7 @@ pub mod gf16 {
 
     use super::RijndaelTower;
     use super::TowerSpec;
-    use crate::field::poly::{AES, Poly};
-    use crate::field::repr::Gf;
+    use crate::field::binary::{AES, Gf, Poly};
     use crate::field::tower::Tower;
 
     /// Marker for GF(2^16):
@@ -499,10 +534,6 @@ pub mod gf16 {
     /// Constant term of the irreducible tower polynomial `u^2 + u + DELTA`.
     pub const DELTA: crate::field::Elem<Gf<8, Poly<AES>>> =
         <crate::field::Elem<Gf<8, Poly<AES>>>>::from_raw(RijndaelTower::B);
-
-    /// A primitive element of the extension field: its multiplicative
-    /// order is the whole group.
-    pub const GENERATOR: Elem = crate::field::Elem::<Gf16>::GENERATOR;
 }
 
 /// Emit one quadratic tower level into the calling module.
@@ -878,8 +909,8 @@ pub mod gf64 {
 #[cfg(test)]
 pub(crate) mod rs_tower {
     use super::super::Elem;
-    use super::super::poly::{Poly, REED_SOLOMON};
-    use super::super::repr::Gf;
+    use super::super::binary::Gf;
+    use super::super::binary::{Poly, REED_SOLOMON};
     use super::{Tower, TowerSpec, private};
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -908,8 +939,8 @@ pub(crate) mod rs_tower {
 #[cfg(test)]
 pub(crate) mod aes_tower {
     use super::super::Elem;
-    use super::super::poly::{AES, Poly};
-    use super::super::repr::Gf;
+    use super::super::binary::Gf;
+    use super::super::binary::{AES, Poly};
     use super::{Tower, TowerSpec, private};
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -939,8 +970,8 @@ mod tests {
     use std::vec;
     use std::vec::Vec;
 
-    use super::super::poly::{AES, Poly, REED_SOLOMON};
-    use super::super::repr::Gf;
+    use super::super::binary::Gf;
+    use super::super::binary::{AES, Poly, REED_SOLOMON};
     use super::super::{Elem, FieldBuffer, FieldElem, PrimeIdentity};
     use super::aes_tower::AesTower;
     use super::rs_tower::RsTower;
@@ -1119,7 +1150,7 @@ mod tests {
         let delta =
             RijndaelElem::from_components(super::gf16::DELTA, Elem::<Gf<8, Poly<AES>>>::ZERO);
         assert_eq!(u.square(), u.add(delta));
-        assert_eq!(super::gf16::GENERATOR.pow(65_535), RijndaelElem::ONE);
+        assert_eq!(RijndaelElem::GENERATOR.pow(65_535), RijndaelElem::ONE);
     }
 
     #[test]

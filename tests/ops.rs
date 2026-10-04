@@ -10,8 +10,9 @@
 use fgf::field::{FieldBuffer, FieldElem as _};
 use fgf::poly::{AES, REED_SOLOMON};
 use fgf::{
-    Elem, FanPaar8, FanPaar16, FanPaar32, FanPaar64, FieldKernels, Gf, Gf8, Gf16, Gf32, Gf64,
-    Goldilocks, Mersenne31, Poly, QuadMersenne31, fan_paar, gf16, gf32, gf64, goldilocks, ops,
+    Cantor, Elem, FanPaar8, FanPaar16, FanPaar32, FanPaar64, FieldKernels, Gf, Gf8, Gf16, Gf32,
+    Gf64, Goldilocks, Mersenne31, Normal, Poly, QuadMersenne31, fan_paar, gf16, gf32, gf64,
+    goldilocks, ops,
 };
 
 /// Deterministic pseudo-random bytes. No dependency, reproducible failures.
@@ -102,7 +103,7 @@ macro_rules! every_gf8_field {
 /// 256-value sweep keeps running in ordinary tests.
 const GF8_MIRI_COEFFS: [u8; 4] = [0x00, 0x01, 0x53, 0xFF];
 
-fn gf8_mul_add_matches_oracle_for<const POLY: u32>() {
+fn gf8_mul_add_matches_oracle_for<const POLY: u128>() {
     for len in LENGTHS {
         let src = noise(len, 0xa1);
         for raw in 0..=u8::MAX {
@@ -168,7 +169,7 @@ fn mul_add_is_its_own_inverse() {
 // mul_into / mul_assign
 // ---------------------------------------------------------------------------
 
-fn gf8_mul_into_and_mul_assign_agree_for<const POLY: u32>() {
+fn gf8_mul_into_and_mul_assign_agree_for<const POLY: u128>() {
     for len in LENGTHS {
         let src = noise(len, 0x11);
         for coeff in (0..=u8::MAX).map(Elem::<Gf<8, Poly<POLY>>>::from_raw) {
@@ -257,7 +258,7 @@ fn add_assign_is_xor_and_self_cancels() {
 
 /// Every multi-row shape must agree with repeated single-row `mul_add`.
 /// That is the whole contract: blocking is an optimization, not a semantic.
-fn gf8_scatter_matches_repeated_mul_add_for<const POLY: u32>() {
+fn gf8_scatter_matches_repeated_mul_add_for<const POLY: u128>() {
     for row_len in [1usize, 15, 16, 31, 32, 33, 64, 129, 512] {
         for nrows in [1usize, 2, 3, 4, 5, 7, 8, 9] {
             let src = noise(row_len, 0x66);
@@ -305,7 +306,7 @@ fn gf16_scatter_matches_repeated_mul_add() {
 
 // Term geometry nests the unified element spelling; the slices stay slices.
 #[allow(clippy::type_complexity)]
-fn gf8_matrix_matches_repeated_scatter_for<const POLY: u32>() {
+fn gf8_matrix_matches_repeated_scatter_for<const POLY: u128>() {
     for row_len in RL_ELEMS {
         for nrows in [1usize, 2, 3, 4, 6, 8] {
             for nterms in [1usize, 2, 5] {
@@ -756,7 +757,7 @@ fn matrix_leaves_rows_beyond_nrows_untouched() {
     assert_eq!(&buffer[row_len * 3..], &untouched[..]);
 }
 
-fn gather_matches_summed_mul_add_for<const POLY: u32>() {
+fn gather_matches_summed_mul_add_for<const POLY: u128>() {
     let len = 300;
     let sources: Vec<Vec<u8>> = (0..6).map(|i| noise(len, 0x300 + i)).collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
@@ -795,7 +796,7 @@ fn gf16_gather_matches_summed_mul_add() {
     assert_eq!(got, want);
 }
 
-fn mul_into_gather_overwrites_and_matches_gather_from_zero_for<const POLY: u32>() {
+fn mul_into_gather_overwrites_and_matches_gather_from_zero_for<const POLY: u128>() {
     let len = 96;
     let sources: Vec<Vec<u8>> = (0..6).map(|i| noise(len, 0x348 + i)).collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
@@ -867,7 +868,7 @@ fn empty_and_zero_mul_into_gathers_zero_the_destination() {
     assert!(zero_coefficients.iter().all(|&value| value == 0));
 }
 
-fn prepared_coefficients_match_one_shot_for_gf8<const POLY: u32>() {
+fn prepared_coefficients_match_one_shot_for_gf8<const POLY: u128>() {
     let src8 = noise(258, 0x350);
     for coeff in [0u8, 1, 2, 0x53, 0xff].map(Elem::<Gf<8, Poly<POLY>>>::from_raw) {
         let prepared = ops::Coeff::<Gf8<Poly<POLY>>>::new(coeff);
@@ -1155,7 +1156,7 @@ fn packed_element_helpers_round_trip() {
     assert_eq!(repacked.as_slice(), bytes);
 }
 
-fn elementwise_products_match_field_arithmetic_for_gf8<const POLY: u32>() {
+fn elementwise_products_match_field_arithmetic_for_gf8<const POLY: u128>() {
     for len in LENGTHS {
         let a = noise(len, 0x354);
         let b = noise(len, 0x355);
@@ -1200,7 +1201,7 @@ fn elementwise_products_match_field_arithmetic() {
     }
 }
 
-fn elementwise_assign_products_match_field_arithmetic_for_gf8<const POLY: u32>() {
+fn elementwise_assign_products_match_field_arithmetic_for_gf8<const POLY: u128>() {
     for len in LENGTHS {
         let a = noise(len, 0x358);
         let b = noise(len, 0x359);
@@ -1496,7 +1497,7 @@ fn gf8_public_ops_match_oracle() {
     // The full public surface of each flat field at one representative
     // geometry: every multi-row shape against the oracle. The exhaustive
     // single-buffer sweeps live in the per-operation tests above.
-    fn wide_ops<const POLY: u32>() {
+    fn wide_ops<const POLY: u128>() {
         check_wide_field_ops::<Gf8<Poly<POLY>>>(&[
             Elem::<Gf<8, Poly<POLY>>>::ZERO,
             Elem::<Gf<8, Poly<POLY>>>::ONE,
@@ -2072,6 +2073,8 @@ fn backend_queries_are_consistent_per_field() {
     queries!(
         Gf8<Poly<AES>>,
         Gf8<Poly<REED_SOLOMON>>,
+        Gf8<Normal<0x11B, 0x20>>,
+        Gf8<Cantor<0x11B, 0x20>>,
         Gf16,
         Gf32,
         Gf64,
@@ -3237,4 +3240,180 @@ fn add_gather_accepts_empty_destination() {
     let region = [0x11u8; 16];
     let mut dst: [u8; 0] = [];
     ops::add_gather_offsets::<Gf8<Poly<AES>>>(&mut dst, &region, &[0, 8]);
+}
+
+// ---------------------------------------------------------------------------
+// Ordered-basis bulk operations
+// ---------------------------------------------------------------------------
+
+/// Single-row basis operations agree with the scalar reference at
+/// lane-straddling lengths while `backend_for` reports the scalar fallback.
+fn basis_bulk_matches_scalar_for<F: FieldKernels>() {
+    use fgf::{Backend, backend_for, has_vector_elementwise};
+    assert_eq!(
+        backend_for::<F>(),
+        Backend::Scalar,
+        "basis bulk operations must report the scalar fallback"
+    );
+    assert!(
+        !has_vector_elementwise::<F>(),
+        "basis elementwise multiplication is scalar"
+    );
+    let coeffs = [0u8, 1, 0x53, 0xFF, 0x20, 0x07].map(|raw| {
+        let mut bytes = [0u8; 1];
+        bytes[0] = raw;
+        F::decode(&bytes)
+    });
+    for &len in &LENGTHS {
+        let src = noise(len, 0x243F_6A88);
+        let dst = noise(len, 0x85A3_08D3);
+        for &coeff in &coeffs {
+            let mut got = dst.clone();
+            let mut want = dst.clone();
+            oracle_mul_add::<F>(&mut want, coeff, &src);
+            ops::mul_add::<F>(&mut got, coeff, &src);
+            assert_eq!(got, want, "mul_add at {len}");
+            // `mul_into` overwrites, so its oracle starts from zero.
+            let mut got = vec![0u8; len];
+            let mut want = vec![0u8; len];
+            oracle_mul_add::<F>(&mut want, coeff, &src);
+            ops::mul_into::<F>(&mut got, coeff, &src);
+            assert_eq!(got, want, "mul_into at {len}");
+            let mut got = dst.clone();
+            let mut want = dst.clone();
+            oracle_mul_assign::<F>(&mut want, coeff);
+            ops::mul_assign::<F>(&mut got, coeff);
+            assert_eq!(got, want, "mul_assign at {len}");
+        }
+        // Elementwise products against per-lane field arithmetic.
+        let a = noise(len, 0x11);
+        let b = noise(len, 0x22);
+        let mut want = vec![0u8; len];
+        for ((d, x), y) in want
+            .chunks_exact_mut(F::BYTES)
+            .zip(a.chunks_exact(F::BYTES))
+            .zip(b.chunks_exact(F::BYTES))
+        {
+            F::encode(d, F::decode(x).mul(F::decode(y)));
+        }
+        let mut got = vec![0u8; len];
+        ops::mul_elementwise::<F>(&mut got, &a, &b);
+        assert_eq!(got, want, "mul_elementwise at {len}");
+        let mut assign = a.clone();
+        ops::mul_elementwise_assign::<F>(&mut assign, &b);
+        assert_eq!(assign, want, "mul_elementwise_assign at {len}");
+    }
+}
+
+/// Multi-row basis shapes agree with repeated single-row oracles.
+fn basis_scatter_gather_matrix_for<F: FieldKernels>() {
+    let raws = [0x03u8, 0x53, 0x00, 0xFF];
+    let elem = |raw: u8| {
+        let mut bytes = [0u8; 1];
+        bytes[0] = raw;
+        F::decode(&bytes)
+    };
+    for &row_len in &[1usize, 16, 33, 64] {
+        let src = noise(row_len, 0x77);
+        let coeffs: Vec<Elem<F>> = raws.iter().copied().map(elem).collect();
+        let mut got = vec![0u8; coeffs.len() * row_len];
+        let mut want = got.clone();
+        ops::mul_add_scatter::<F>(&mut got, row_len, &coeffs, &src);
+        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs) {
+            oracle_mul_add::<F>(row, coeff, &src);
+        }
+        assert_eq!(got, want, "scatter at {row_len}");
+        let srcs: Vec<Vec<u8>> = (0..3).map(|i| noise(row_len, 0x100 + i)).collect();
+        let refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
+        let gather_coeffs = &coeffs[..3];
+        let mut got = vec![0u8; row_len];
+        let mut want = vec![0u8; row_len];
+        ops::mul_add_gather::<F>(&mut got, gather_coeffs, &refs);
+        for (&coeff, src) in gather_coeffs.iter().zip(&refs) {
+            oracle_mul_add::<F>(&mut want, coeff, src);
+        }
+        assert_eq!(got, want, "gather at {row_len}");
+        for &nrows in &[1usize, 3] {
+            let terms: Vec<(Vec<Elem<F>>, Vec<u8>)> = (0..2)
+                .map(|t| {
+                    (
+                        (0..nrows).map(|j| coeffs[(t + j) % coeffs.len()]).collect(),
+                        noise(row_len, 0x200 + t as u64),
+                    )
+                })
+                .collect();
+            let term_refs: Vec<(&[Elem<F>], &[u8])> = terms
+                .iter()
+                .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
+                .collect();
+            let mut got = vec![0u8; nrows * row_len];
+            let mut want = got.clone();
+            ops::mul_add_matrix::<F>(&mut got, row_len, nrows, &term_refs);
+            for &(cs, src) in &term_refs {
+                for (row, &coeff) in want.chunks_exact_mut(row_len).take(nrows).zip(cs) {
+                    oracle_mul_add::<F>(row, coeff, src);
+                }
+            }
+            assert_eq!(got, want, "matrix at {row_len}x{nrows}");
+            let starts: Vec<usize> = (0..nrows).map(|j| j * (row_len + 1)).collect();
+            let mut got = vec![0u8; nrows * (row_len + 1)];
+            let mut want = got.clone();
+            ops::mul_add_matrix_at::<F>(&mut got, row_len, &starts, &term_refs);
+            for &(cs, src) in &term_refs {
+                for (&start, &coeff) in starts.iter().zip(cs) {
+                    oracle_mul_add::<F>(&mut want[start..start + row_len], coeff, src);
+                }
+            }
+            assert_eq!(got, want, "matrix_at at {row_len}x{nrows}");
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+fn basis_prepared_matches_one_shot_for<F: FieldKernels>() {
+    let coeffs = [0x53u8, 0x00, 0xFF, 0x20].map(|raw| {
+        let mut bytes = [0u8; 1];
+        bytes[0] = raw;
+        F::decode(&bytes)
+    });
+    let src = noise(64, 0x99);
+    let vector = ops::CoeffVec::<F>::new(&coeffs);
+    let mut got = vec![0u8; 4 * 64];
+    let mut want = got.clone();
+    ops::mul_add_scatter_with::<F>(&mut got, 64, vector.as_ref(), &src);
+    ops::mul_add_scatter::<F>(&mut want, 64, &coeffs, &src);
+    assert_eq!(got, want, "prepared scatter matches one-shot");
+    let refs: Vec<&[u8]> = (0..4).map(|_| src.as_slice()).collect();
+    let mut got = vec![0u8; 64];
+    let mut want = got.clone();
+    ops::mul_add_gather_with::<F>(&mut got, vector.as_ref(), &refs);
+    ops::mul_add_gather::<F>(&mut want, &coeffs, &refs);
+    assert_eq!(got, want, "prepared gather matches one-shot");
+    let matrix = ops::CoeffMatrix::<F>::from_source_major(2, 2, &coeffs);
+    let matrix_srcs: Vec<&[u8]> = vec![src.as_slice(), src.as_slice()];
+    let mut got = vec![0u8; 2 * 64];
+    let mut want = got.clone();
+    ops::mul_add_matrix_with::<F>(&mut got, 64, &matrix, &matrix_srcs);
+    let flat: Vec<Elem<F>> = matrix.values().collect();
+    let terms: Vec<(&[Elem<F>], &[u8])> = (0..2)
+        .map(|t| (&flat[t * 2..(t + 1) * 2], src.as_slice()))
+        .collect();
+    ops::mul_add_matrix::<F>(&mut want, 64, 2, &terms);
+    assert_eq!(got, want, "prepared matrix matches one-shot");
+}
+
+#[test]
+fn normal_bulk_matches_scalar_and_reports_scalar() {
+    basis_bulk_matches_scalar_for::<Gf8<Normal<0x11B, 0x20>>>();
+    basis_scatter_gather_matrix_for::<Gf8<Normal<0x11B, 0x20>>>();
+    #[cfg(feature = "alloc")]
+    basis_prepared_matches_one_shot_for::<Gf8<Normal<0x11B, 0x20>>>();
+}
+
+#[test]
+fn cantor_bulk_matches_scalar_and_reports_scalar() {
+    basis_bulk_matches_scalar_for::<Gf8<Cantor<0x11B, 0x20>>>();
+    basis_scatter_gather_matrix_for::<Gf8<Cantor<0x11B, 0x20>>>();
+    #[cfg(feature = "alloc")]
+    basis_prepared_matches_one_shot_for::<Gf8<Cantor<0x11B, 0x20>>>();
 }

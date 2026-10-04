@@ -163,7 +163,7 @@ fn gf64_coeffs() -> Vec<gf64::Elem> {
 // Scalar oracles.
 // ---------------------------------------------------------------------------
 
-fn gf8_ref<const POLY: u32>(dst: &mut [u8], coeff: Elem<Gf<8, Poly<POLY>>>, src: &[u8]) {
+fn gf8_ref<const POLY: u128>(dst: &mut [u8], coeff: Elem<Gf<8, Poly<POLY>>>, src: &[u8]) {
     scalar::mul_add::<Gf8<Poly<POLY>>>(dst, coeff, src);
 }
 fn gf16_ref(dst: &mut [u8], coeff: gf16::Elem, src: &[u8]) {
@@ -428,18 +428,18 @@ fn check_matrix_overwrite<E: Copy>(
     }
 }
 
-fn gf8_coeff_at2<const POLY: u32>(t: usize, j: usize) -> Elem<Gf<8, Poly<POLY>>> {
+fn gf8_coeff_at2<const POLY: u128>(t: usize, j: usize) -> Elem<Gf<8, Poly<POLY>>> {
     Elem::<Gf<8, Poly<POLY>>>::from_raw(((t * 31 + j * 29) % 256) as u8)
 }
 
 /// The low byte of a polynomial, the reduction the shift/reduce elementwise
 /// entries thread, through the public polynomial constant.
-fn reduction_low<const POLY: u32>() -> u8 {
+fn reduction_low<const POLY: u128>() -> u8 {
     Poly::<POLY>::POLY.to_le_bytes()[0]
 }
 
 /// Resolve element coefficients to the prepared form the blocked entries take.
-fn prepared<const POLY: u32>(coeffs: &[Elem<Gf<8, Poly<POLY>>>]) -> Vec<Prepared> {
+fn prepared<const POLY: u128>(coeffs: &[Elem<Gf<8, Poly<POLY>>>]) -> Vec<Prepared> {
     coeffs.iter().map(|&c| Prepared::new(c)).collect()
 }
 
@@ -932,7 +932,7 @@ fn proven_gf8_matrix_kernels_match_scalar() {
 /// hand it to `body`.
 // Term geometry nests the unified element spelling; the slices stay slices.
 #[allow(clippy::type_complexity)]
-fn flat_gf8<const POLY: u32>(
+fn flat_gf8<const POLY: u128>(
     terms: &[(&[Elem<Gf<8, Poly<POLY>>>], &[u8])],
     nrows: usize,
     body: impl FnOnce(&FlatMatrix<'_, Prepared>),
@@ -973,7 +973,7 @@ fn proven_gf8_matrix_scattered_matches_scalar() {
 
 // Term geometry nests the unified element spelling; the slices stay slices.
 #[allow(clippy::type_complexity)]
-fn scattered_case_gf8<const POLY: u32>(
+fn scattered_case_gf8<const POLY: u128>(
     token: X64V3GfniCryptoToken,
     name: &str,
     row_len: usize,

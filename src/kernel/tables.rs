@@ -24,10 +24,32 @@
 //! copies out of the shared bank ([`TowerTables::new`]) — amortized over the
 //! whole buffer, or hoisted out entirely with `Coeff`/`CoeffVec`.
 
+use crate::field::binary::{AES, BinaryRepr, Gf, Poly};
 use crate::field::fan_paar::{fp8, fp16};
-use crate::field::poly::{self, AES};
 use crate::field::tower::{Tower, TowerSpec, spec_a_is_one};
-use crate::field::{Elem, Gf, Poly};
+use crate::field::{Cantor, Elem, Normal};
+
+/// Reference shift-and-XOR multiply under the degree-eight polynomial `poly`.
+///
+/// `const`, allocation-free, and independent of every table: the oracle the
+/// banks below are built from.
+const fn xtime_mul(poly: u128, mut a: u8, b: u8) -> u8 {
+    let reduction = (poly & 0xFF) as u8;
+    let mut acc: u8 = 0;
+    let mut i = 0;
+    while i < 8 {
+        if (b >> i) & 1 == 1 {
+            acc ^= a;
+        }
+        let overflow = a & 0x80 != 0;
+        a <<= 1;
+        if overflow {
+            a ^= reduction;
+        }
+        i += 1;
+    }
+    acc
+}
 
 /// Split-nibble multiplication tables for one GF(2^8) coefficient.
 ///
@@ -49,13 +71,13 @@ impl ScaleTable {
     // Loop counters are bounded by the array sizes (16, 256), so every cast
     // below is exact; `const fn` rules out `try_into`.
     #[allow(clippy::cast_possible_truncation)]
-    pub const fn new<const POLY: u32>(coeff: Elem<Gf<8, Poly<POLY>>>) -> Self {
+    pub const fn new<const POLY: u128>(coeff: Elem<Gf<8, Poly<POLY>>>) -> Self {
         let mut lo = [0u8; 16];
         let mut hi = [0u8; 16];
         let mut i = 0;
         while i < 16 {
-            lo[i] = poly::Poly::<POLY>::mul_xtime(i as u8, coeff.to_raw());
-            hi[i] = poly::Poly::<POLY>::mul_xtime((i as u8) << 4, coeff.to_raw());
+            lo[i] = xtime_mul(POLY, i as u8, coeff.to_raw());
+            hi[i] = xtime_mul(POLY, (i as u8) << 4, coeff.to_raw());
             i += 1;
         }
         Self {
@@ -90,11 +112,11 @@ impl ScaleTable {
 /// another library's tables — and is validated against a scalar model of
 /// the instruction in this module's tests.
 #[must_use]
-pub const fn build_affine_map<const POLY: u32>(coeff: Elem<Gf<8, Poly<POLY>>>) -> u64 {
+pub const fn build_affine_map<const POLY: u128>(coeff: Elem<Gf<8, Poly<POLY>>>) -> u64 {
     let mut columns = [0u8; 8];
     let mut k = 0;
     while k < 8 {
-        columns[k] = poly::Poly::<POLY>::mul_xtime(coeff.to_raw(), 1 << k);
+        columns[k] = xtime_mul(POLY, coeff.to_raw(), 1 << k);
         k += 1;
     }
     linear_map(columns)
@@ -121,9 +143,9 @@ const fn linear_map(columns: [u8; 8]) -> u64 {
 }
 
 /// The per-representation table banks, one entry per coefficient.
-struct Bank<const POLY: u32>;
+struct Bank<const POLY: u128>;
 
-impl<const POLY: u32> Bank<POLY> {
+impl<const POLY: u128> Bank<POLY> {
     /// The nibble tables of every coefficient, 8 KiB.
     ///
     /// Promoted `&'static` items rather than `const` arrays: a `const` array
@@ -143,19 +165,18 @@ impl<const POLY: u32> Bank<POLY> {
 /// qwords, reduction bytes), so no hot kernel body depends on the
 /// representation type. Implemented by every [`ByteRepr`] alongside that
 /// trait, so the pair cannot drift; in this crate only [`Poly`] carries it.
-pub(crate) trait ByteBanks: crate::field::ByteRepr {
+///
+/// [`Normal`](crate::field::Normal) and [`Cantor`](crate::field::Cantor)
+/// presentations never touch these banks: their bulk operations run the
+/// typed scalar fallback, so polynomial tables must not observe their
+/// coordinates.
+pub(crate) trait ByteBanks: BinaryRepr<8> {
     /// Whether this representation's encoding is the GF(2)[x]/0x11B
     /// polynomial basis, so `GF2P8MULB` multiplies in it natively.
     const AES_NATIVE: bool;
     /// The nibble tables of every coefficient, in this representation's
     /// encoding.
     const SCALE: &'static [ScaleTable; 256];
-    /// The `VGF2P8AFFINEQB` matrix of every coefficient.
-    const AFFINE: &'static [u64; 256];
-    /// The isomorphism onto the AES encoding: the identity when
-    /// [`AES_NATIVE`](ByteBanks::AES_NATIVE).
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    const ISOMORPHISM: Isomorphism;
     /// The reduction byte the shift-and-reduce elementwise kernels consume:
     /// the low byte of the reference polynomial.
     #[cfg(all(
@@ -170,12 +191,9 @@ pub(crate) trait ByteBanks: crate::field::ByteRepr {
     const REDUCTION_LOW: u8;
 }
 
-impl<const POLY: u32> ByteBanks for Poly<POLY> {
+impl<const POLY: u128> ByteBanks for Poly<POLY> {
     const AES_NATIVE: bool = POLY == AES;
     const SCALE: &'static [ScaleTable; 256] = Bank::<POLY>::SCALE;
-    const AFFINE: &'static [u64; 256] = Bank::<POLY>::AFFINE;
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    const ISOMORPHISM: Isomorphism = isomorphism::<POLY>();
     #[cfg(all(
         feature = "simd",
         any(
@@ -185,11 +203,11 @@ impl<const POLY: u32> ByteBanks for Poly<POLY> {
             target_arch = "wasm32"
         )
     ))]
-    const REDUCTION_LOW: u8 = Poly::<POLY>::REDUCTION_LOW;
+    const REDUCTION_LOW: u8 = (POLY & 0xFF) as u8;
 }
 
 #[allow(clippy::cast_possible_truncation)]
-const fn build_bank<const POLY: u32>() -> [ScaleTable; 256] {
+const fn build_bank<const POLY: u128>() -> [ScaleTable; 256] {
     let mut bank = [ScaleTable::new::<POLY>(Elem::<Gf<8, Poly<POLY>>>::ZERO); 256];
     let mut i = 0;
     while i < 256 {
@@ -200,7 +218,7 @@ const fn build_bank<const POLY: u32>() -> [ScaleTable; 256] {
 }
 
 #[allow(clippy::cast_possible_truncation)]
-const fn build_affine_bank<const POLY: u32>() -> [u64; 256] {
+const fn build_affine_bank<const POLY: u128>() -> [u64; 256] {
     let mut bank = [0u64; 256];
     let mut i = 0;
     while i < 256 {
@@ -227,7 +245,7 @@ pub(crate) static ZERO_TABLE: ScaleTable = ScaleTable {
 #[allow(dead_code)]
 #[inline]
 #[must_use]
-pub fn scale_table<const POLY: u32>(coeff: Elem<Gf<8, Poly<POLY>>>) -> &'static ScaleTable {
+pub fn scale_table<const POLY: u128>(coeff: Elem<Gf<8, Poly<POLY>>>) -> &'static ScaleTable {
     &Bank::<POLY>::SCALE[coeff.to_raw() as usize]
 }
 
@@ -236,8 +254,123 @@ pub fn scale_table<const POLY: u32>(coeff: Elem<Gf<8, Poly<POLY>>>) -> &'static 
 #[allow(dead_code)]
 #[inline]
 #[must_use]
-pub fn affine_map<const POLY: u32>(coeff: Elem<Gf<8, Poly<POLY>>>) -> u64 {
+pub fn affine_map<const POLY: u128>(coeff: Elem<Gf<8, Poly<POLY>>>) -> u64 {
     Bank::<POLY>::AFFINE[coeff.to_raw() as usize]
+}
+
+/// What the single degree-eight dispatch needs from every representation.
+///
+/// Polynomial presentations expose their real banks; basis presentations
+/// expose placeholder banks the fallback never reads. Dispatch branches on
+/// the descriptor first, so no kernel applies polynomial tables to basis
+/// coordinates.
+pub(crate) trait Gf8Data: BinaryRepr<8> {
+    /// Whether `GF2P8MULB` multiplies in this encoding natively.
+    const AES_NATIVE: bool;
+    /// Nibble tables per coefficient, or placeholders for basis roots.
+    const SCALE: &'static [ScaleTable; 256];
+    /// Affine map words per coefficient, or placeholders for basis roots.
+    const AFFINE: &'static [u64; 256];
+    /// Isomorphism onto AES, or the identity for basis roots.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const ISOMORPHISM: Isomorphism;
+    /// Reduction byte for shift/reduce tails, or zero for basis roots.
+    ///
+    /// Consumed only by the x86 elementwise kernels; other targets keep the
+    /// contract without reading it.
+    #[allow(dead_code)]
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
+    const REDUCTION_LOW: u8;
+}
+
+const DUMMY_AFFINE: [u64; 256] = [0u64; 256];
+
+/// Placeholder nibble banks for basis presentations: each entry carries its
+/// own coefficient byte with zero maps, so preparation stays reversible and
+/// the scalar fallback recovers the element without touching a table.
+pub(crate) static DUMMY_SCALE: [ScaleTable; 256] = {
+    let mut bank = [ScaleTable {
+        coeff: 0,
+        lo: [0; 16],
+        hi: [0; 16],
+    }; 256];
+    let mut i = 0;
+    while i < 256 {
+        // The counter never exceeds one byte here.
+        #[allow(clippy::cast_possible_truncation)]
+        let byte = i as u8;
+        bank[i].coeff = byte;
+        i += 1;
+    }
+    bank
+};
+
+impl<const POLY: u128> Gf8Data for Poly<POLY> {
+    const AES_NATIVE: bool = POLY == AES;
+    const SCALE: &'static [ScaleTable; 256] = Bank::<POLY>::SCALE;
+    const AFFINE: &'static [u64; 256] = Bank::<POLY>::AFFINE;
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const ISOMORPHISM: Isomorphism = isomorphism::<POLY>();
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
+    const REDUCTION_LOW: u8 = Poly::<POLY>::REDUCTION_LOW;
+}
+
+impl<const P: u128, const E: u8> Gf8Data for Normal<P, E> {
+    const AES_NATIVE: bool = false;
+    const SCALE: &'static [ScaleTable; 256] = &DUMMY_SCALE;
+    const AFFINE: &'static [u64; 256] = &DUMMY_AFFINE;
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const ISOMORPHISM: Isomorphism = Isomorphism {
+        forward: 0x0102_0408_1020_4080,
+        inverse: 0x0102_0408_1020_4080,
+    };
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
+    const REDUCTION_LOW: u8 = 0;
+}
+
+impl<const P: u128, const SEED: u8> Gf8Data for Cantor<P, SEED> {
+    const AES_NATIVE: bool = false;
+    const SCALE: &'static [ScaleTable; 256] = &DUMMY_SCALE;
+    const AFFINE: &'static [u64; 256] = &DUMMY_AFFINE;
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const ISOMORPHISM: Isomorphism = Isomorphism {
+        forward: 0x0102_0408_1020_4080,
+        inverse: 0x0102_0408_1020_4080,
+    };
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
+    const REDUCTION_LOW: u8 = 0;
 }
 
 /// A field isomorphism `φ: Gf8<Poly<POLY>> → Gf8<Poly<AES>>` and its inverse,
@@ -259,7 +392,7 @@ pub struct Isomorphism {
 #[allow(dead_code)]
 #[inline]
 #[must_use]
-pub const fn isomorphism_to_aes<const POLY: u32>() -> Isomorphism {
+pub const fn isomorphism_to_aes<const POLY: u128>() -> Isomorphism {
     isomorphism::<POLY>()
 }
 
@@ -270,8 +403,8 @@ pub const fn isomorphism_to_aes<const POLY: u32>() -> Isomorphism {
 /// The inverse columns are the preimages of the AES polynomial basis under
 /// that selected map; a separately chosen root need not give its inverse.
 #[allow(dead_code)]
-const fn isomorphism<const POLY: u32>() -> Isomorphism {
-    let to_aes = root_powers::<AES>(poly::Poly::<POLY>::POLY);
+const fn isomorphism<const POLY: u128>() -> Isomorphism {
+    let to_aes = root_powers::<AES>(POLY);
     let from_aes = inverse_columns(to_aes);
     Isomorphism {
         forward: linear_map(to_aes),
@@ -312,7 +445,7 @@ const fn inverse_columns(columns: [u8; 8]) -> [u8; 8] {
 /// `Gf8<Poly<FIELD>>`.
 #[allow(dead_code)]
 #[allow(clippy::cast_possible_truncation)]
-const fn root_powers<const FIELD: u32>(poly: u32) -> [u8; 8] {
+const fn root_powers<const FIELD: u128>(poly: u128) -> [u8; 8] {
     let mut candidate = 2u32;
     while candidate < 256 {
         let r = candidate.to_le_bytes()[0];
@@ -320,7 +453,7 @@ const fn root_powers<const FIELD: u32>(poly: u32) -> [u8; 8] {
         let mut value = 0u8;
         let mut bit = 8;
         loop {
-            value = poly::Poly::<FIELD>::mul_xtime(value, r);
+            value = xtime_mul(FIELD, value, r);
             if (poly >> bit) & 1 == 1 {
                 value ^= 1;
             }
@@ -335,7 +468,7 @@ const fn root_powers<const FIELD: u32>(poly: u32) -> [u8; 8] {
             let mut k = 0;
             while k < 8 {
                 powers[k] = power;
-                power = poly::Poly::<FIELD>::mul_xtime(power, r);
+                power = xtime_mul(FIELD, power, r);
                 k += 1;
             }
             return powers;
@@ -716,11 +849,11 @@ impl<E: crate::field::FieldElem> Tower2Coeff<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::field::poly::REED_SOLOMON;
+    use crate::field::REED_SOLOMON;
 
     type E8 = Elem<Gf<8, Poly<AES>>>;
 
-    fn check_bank<const P: u32>() {
+    fn check_bank<const P: u128>() {
         let runtime_scale = build_bank::<P>();
         let runtime_affine = build_affine_bank::<P>();
         for raw in 0..=u8::MAX {

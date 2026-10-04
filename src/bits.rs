@@ -50,7 +50,7 @@
 //! ```
 
 use crate::field::Elem;
-use crate::field::gf1::Gf1;
+use crate::field::Gf1;
 use crate::kernel;
 
 /// Number of bytes needed to hold `bits` packed elements.

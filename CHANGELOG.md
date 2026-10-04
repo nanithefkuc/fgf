@@ -22,9 +22,55 @@ All notable changes to this project are documented here. The format follows
   `qm31_entries_canonicalize_noncanonical_lanes`): every result-writing
   x86 entry, called directly at lane-straddling lengths, must match the
   portable prime reference and emit canonical lanes.
+- Descriptor-backed binary representations at degrees 1, 2, 4, 8, and 16.
+  `Poly` widens to `u128` and gains degree-2 (`0x7`) and degree-4 (`0x13`,
+  `0x19`, `0x1F`) fields; new `Normal` and `Cantor` ordered bases cover
+  degrees 2, 4, and 8; every degree-eight presentation carries
+  discrete-logarithm tables built from its descriptor. Scalar arithmetic
+  stays `const`, with table-free descriptor interpretation at degrees 1, 2,
+  and 4. Basis bulk operations run the typed scalar fallback with
+  `backend_for` reporting `Scalar`; polynomial dispatch and wire encodings
+  are unchanged.
+- Binary coordinate conversions: `BinaryField::to_coordinates` unwraps the
+  canonical raw bits and `from_coordinates` rejects excess bits above the
+  degree through `CoordinateError`.
 
 ### Changed
 
+- **Breaking:** binary representations are descriptor-backed. `Repr<N>` and
+  `ByteRepr` are removed in favour of `BinaryRepr<N>`, which carries the
+  presentation `NAME`, an opaque `BinaryDescription`, an optional
+  `ByteLogExp` table slot at degree eight, and the use-time `VALID` check.
+  `Gf<N, R>` keeps its shape; `BinaryField` adds the canonical coordinate
+  conversions and `BinaryDegree<N>` pins the exact degree. Migrate
+  `Repr<8>`/`ByteRepr` bounds to `BinaryRepr<8>` and read tables through
+  `LOG_EXP`; the kernel table banks move with the representations.
+  `src/field/repr.rs` is removed and its contents migrate to
+  `src/field/binary.rs` with descriptors in `src/field/binary/description.rs`.
+  Path moves: `field::repr` is gone; `Gf`, `Gf8`, and `Gf1` live in
+  `field::binary`.
+- **Breaking:** `Poly<const P: u32>` becomes `Poly<const P: u128>`, and the
+  `AES`/`REED_SOLOMON` constants widen to `u128` with the same values.
+  `Poly` now implements `BinaryRepr` at degrees 1, 2, 4, and 8; only
+  `Poly<3>` is the degree-one form and `Gf1` is the `Gf<1, Poly<3>>` alias,
+  so `src/field/gf1.rs` and `src/field/poly.rs` are removed in favour of
+  `src/field/binary/poly.rs`. Migrate const-polynomial parameters from `u32`
+  to `u128`; values and wire encodings are unchanged.
+- **Breaking:** new `Normal<const P: u128, const E: u8>` and
+  `Cantor<const P: u128, const SEED: u8>` ordered bases at degrees 2, 4,
+  and 8, in `src/field/binary/normal.rs` and `src/field/binary/cantor.rs`.
+  `E`/`SEED` are raw elements of `Poly<P>`; validity checks the basis rank
+  by bounded enumeration and asserts the actual one (all bits set for
+  normal bases, the `c_0 == ONE` chain for Cantor bases). Generators are
+  the transported polynomial generators, verified to full order. Basis bulk
+  operations run the typed scalar fallback and `backend_for` reports
+  `Scalar` for them; never apply polynomial arithmetic to basis
+  coordinates.
+- **Breaking:** `Gf<16, Tower<S>>` implements `BinaryRepr<16>` by appending
+  a quadratic node over its base description. The `TowerSpec` shape and
+  scalar arithmetic are unchanged; the base bound is now `BinaryRepr<8>`.
+  The `gf16::GENERATOR` element constant is removed in favour of
+  `Elem::<Gf16>::GENERATOR`; the `DELTA` relation constant stays.
 - **Breaking:** one element wrapper, `Elem<F>`, replaces every concrete
   element path. `mersenne31::Elem`, `goldilocks::Elem`,
   `quad_mersenne31::Elem`, `Elem<N, R>`, the `gf16`/`gf32`/`gf64` and

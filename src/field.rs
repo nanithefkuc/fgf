@@ -81,26 +81,29 @@
 //! const Q: u64 = <PrimeCharacteristic<91> as PrimeIdentity>::CHARACTERISTIC;
 //! ```
 
+pub mod binary;
 pub mod fan_paar;
-pub mod gf1;
 pub mod goldilocks;
 pub mod mersenne31;
-pub mod poly;
 pub mod quad_mersenne31;
-pub mod repr;
 pub mod tower;
 pub(crate) mod wiedemann;
 
+pub use binary::cantor;
+pub use binary::description;
+pub use binary::normal;
+pub use binary::poly;
+pub use binary::{
+    AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Gf, Gf1,
+    Gf8, Normal, Poly, REED_SOLOMON,
+};
 pub use fan_paar::{FanPaar8, FanPaar16, FanPaar32, FanPaar64};
-pub use gf1::Gf1;
 pub use gf16::Gf16;
 pub use gf32::Gf32;
 pub use gf64::Gf64;
 pub use goldilocks::Goldilocks;
 pub use mersenne31::Mersenne31;
-pub use poly::{AES, Poly, REED_SOLOMON};
 pub use quad_mersenne31::QuadMersenne31;
-pub use repr::{ByteRepr, Gf, Gf8, Repr};
 pub use tower::{RijndaelTower, Tower, TowerSpec, gf16, gf32, gf64};
 
 mod private {
