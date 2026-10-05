@@ -1,17 +1,19 @@
 # Benchmarks
 
-Public API performance and matched competitor comparisons for `fgf`, one page
-per field family. Every result cell reports **Tiger Lake / Golden Cove**. Units
-live in the column headers, and `-` marks an unavailable measurement.
+Public API performance and matched competitor comparisons for `fgf` 3.0.0, one
+page per field family. Every result cell reports **Tiger Lake / Golden Cove**.
+Units live in the column headers, and `-` marks an unavailable measurement.
+Same-session comparisons of 3.0.0 against the 2.x line live in
+[`benchmarks/v2/`](benchmarks/v2/), with the same per-family split.
 
-| Fields | Page | Campaign | Competitors |
-| --- | --- | --- | --- |
-| `Gf8B`, `Gf8D` | [GF(2^8)](benchmarks/gf8.md) | `bench-gf-comp` | Intel ISA-L, klauspost/reedsolomon |
-| `Gf16` | [GF(2^16)](benchmarks/gf16.md) | `bench-gf-comp`, `bench-gf16-comp` | GF-Complete, `reed-solomon-erasure`, `reed-solomon-simd`, Leopard-RS 1.x |
-| `Gf32`, `Gf64`, `FanPaar16`–`FanPaar64` | [Wider binary fields](benchmarks/wide-binary.md) | `bench-gf-comp` | - |
-| `Gf2` bit-packed | [GF(2)](benchmarks/gf2.md) | `bench-gf2-comp` | - |
-| `Mersenne31`, `QuadMersenne31` | [Mersenne31](benchmarks/mersenne31.md) | `bench-m31-comp` | Plonky3 |
-| `Goldilocks` | [Goldilocks](benchmarks/goldilocks.md) | `bench-gdl-comp` | Plonky3 |
+| Fields | Page | v2 comparison | Campaign | Competitors |
+| --- | --- | --- | --- | --- |
+| `Gf8<Poly<AES>>`, `Gf8<Poly<REED_SOLOMON>>` | [GF(2^8)](benchmarks/gf8.md) | [v2](benchmarks/v2/gf8.md) | `bench-gf-comp` | Intel ISA-L, klauspost/reedsolomon |
+| `Gf16` | [GF(2^16)](benchmarks/gf16.md) | [v2](benchmarks/v2/gf16.md) | `bench-gf-comp`, `bench-gf16-comp` | GF-Complete, `reed-solomon-erasure`, `reed-solomon-simd`, Leopard-RS 1.x |
+| `Gf32`, `Gf64`, `FanPaar16`–`FanPaar64` | [Wider binary fields](benchmarks/wide-binary.md) | [v2](benchmarks/v2/wide-binary.md) | `bench-gf-comp` | - |
+| `Gf2` bit-packed | [GF(2)](benchmarks/gf2.md) | [v2](benchmarks/v2/gf2.md) | `bench-gf2-comp` | - |
+| `Mersenne31`, `QuadMersenne31` | [Mersenne31](benchmarks/mersenne31.md) | [v2](benchmarks/v2/mersenne31.md) | `bench-m31-comp` | Plonky3 |
+| `Goldilocks` | [Goldilocks](benchmarks/goldilocks.md) | [v2](benchmarks/v2/goldilocks.md) | `bench-gdl-comp` | Plonky3 |
 
 ## Hosts
 
@@ -28,7 +30,7 @@ The hosts are separate machines, not interchangeable measurement controls.
 
 | Setting | Value |
 | --- | --- |
-| Source | `fgf` 2.1.0, identical measurement sources on both hosts |
+| Source | `fgf` 3.0.0, identical measurement sources on both hosts |
 | Toolchain | Rust 1.98.1 |
 | Dependencies | `simdispatch` 0.2.0, `archmage` 0.9.29 |
 | Build | Self suites use `--all-features`; each field page states its competitor build |

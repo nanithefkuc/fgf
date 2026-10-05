@@ -3,6 +3,7 @@
 Public API timings for the Goldilocks prime field and the matched Plonky3
 panel. Every result cell reports Tiger Lake / Golden Cove; shared hosts,
 toolchain, sampling, and number format: [BENCHMARKS.md](../BENCHMARKS.md).
+The v2-versus-v3 comparison lives at [v2 comparison](v2/goldilocks.md).
 
 ## Setup
 
@@ -17,7 +18,7 @@ toolchain, sampling, and number format: [BENCHMARKS.md](../BENCHMARKS.md).
 
 ## Self-timings
 
-Scalar latency is the `acc += a * b` row of the competitor table.
+Scalar latency is the `scalar a * b` row of the competitor table.
 
 ### Packed operations
 
@@ -25,11 +26,11 @@ Ordinary `Vec<u8>` buffers.
 
 | Field | Operation | 4 KiB (GiB/s) | 256 KiB (GiB/s) | 8 MiB (GiB/s) |
 | --- | --- | --- | --- | --- |
-| `Goldilocks` | `add_assign` | 30.0 / 21.9 | 27.3 / 22.5 | 8.23 / 21.8 |
-| `Goldilocks` | `add_assign_scalar` | 44.2 / 39.3 | 44.4 / 40.8 | 25.9 / 33.7 |
-| `Goldilocks` | `sub_assign_scalar` | 59.6 / 40.6 | 52.7 / 40.4 | 27.8 / 33.9 |
-| `Goldilocks` | `mul_elementwise` | 10.8 / 10.6 | 11.3 / 11.3 | 5.65 / 10.6 |
-| `Goldilocks` | `mul_elementwise_assign` | 11.0 / 11.1 | 11.3 / 11.3 | 7.27 / 10.0 |
+| `Goldilocks` | `add_assign` | 33.9 / 21.6 | 27.3 / 22.5 | 8.02 / 21.9 |
+| `Goldilocks` | `add_assign_scalar` | 44.2 / 38.9 | 44.4 / 40.8 | 26.2 / 33.7 |
+| `Goldilocks` | `sub_assign_scalar` | 59.7 / 40.1 | 52.7 / 40.4 | 28.1 / 33.9 |
+| `Goldilocks` | `mul_elementwise` | 10.4 / 10.7 | 11.3 / 11.2 | 5.80 / 10.6 |
+| `Goldilocks` | `mul_elementwise_assign` | 11.0 / 10.9 | 11.3 / 11.1 | 7.42 / 9.92 |
 
 ## Competitors
 
@@ -43,14 +44,14 @@ Indexed products with accumulation.
 
 | Field | Operation | `fgf` (ns/op) | Plonky3 (ns/op) |
 | --- | --- | --- | --- |
-| `Goldilocks` | `acc += a * b` | 3.74 / 1.64 | 2.57 / 1.11 |
+| `Goldilocks` | `scalar a * b` | 4.48 / 2.05 | 2.57 / 1.11 |
 
 ### Packed
 
 | Field | Operation | `fgf` (GiB/s) | Plonky3 (GiB/s) |
 | --- | --- | --- | --- |
-| `Goldilocks` | `dst = c * src` | 25.1 / 23.8 | 27.5 / 27.1 |
-| `Goldilocks` | `dst += c * src` | 19.7 / 17.0 | 22.5 / 20.7 |
-| `Goldilocks` | `dst = a * b` | 23.8 / 23.0 | 26.9 / 26.4 |
-| `Goldilocks` | `dst += v` | 97.5 / 81.5 | 103 / 148 |
-| `Goldilocks` | `dst -= v` | 103 / 81.0 | 103 / 148 |
+| `Goldilocks` | `dst = c * src` | 25.1 / 23.8 | 27.4 / 27.1 |
+| `Goldilocks` | `dst += c * src` | 19.7 / 17.0 | 22.5 / 20.6 |
+| `Goldilocks` | `dst = a * b` | 23.8 / 23.3 | 26.9 / 26.5 |
+| `Goldilocks` | `dst += v` | 97.5 / 81.7 | 103 / 149 |
+| `Goldilocks` | `dst -= v` | 103 / 80.9 | 103 / 147 |

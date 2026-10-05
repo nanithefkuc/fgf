@@ -2,7 +2,8 @@
 
 Public API timings for the binary tower fields above GF(2^16). Every result
 cell reports Tiger Lake / Golden Cove; shared hosts, toolchain, sampling, and
-number format: [BENCHMARKS.md](../BENCHMARKS.md).
+number format: [BENCHMARKS.md](../BENCHMARKS.md). Comparisons against the
+previous snapshot live in [v2 comparison](v2/wide-binary.md).
 
 ## Setup
 
@@ -19,11 +20,11 @@ number format: [BENCHMARKS.md](../BENCHMARKS.md).
 
 | Field | Throughput (GiB/s) |
 | --- | --- |
-| `Gf32` | 17.1 / 33.1 |
-| `Gf64` | 9.09 / 17.0 |
-| `FanPaar16` | 9.97 / 17.2 |
-| `FanPaar32` | 3.71 / 6.34 |
-| `FanPaar64` | 1.37 / 2.21 |
+| `Gf32` | 15.77 / 30.70 |
+| `Gf64` | 8.72 / 16.44 |
+| `FanPaar16` | 9.57 / 17.03 |
+| `FanPaar32` | 3.31 / 6.30 |
+| `FanPaar64` | 1.24 / 2.21 |
 
 ## Competitors
 
