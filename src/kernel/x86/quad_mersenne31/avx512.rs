@@ -2,7 +2,7 @@
 //!
 //! Element-for-element ports of the `avx2` multiply bodies at eight complex
 //! elements per vector: the same deferred 64-bit complex products, the same
-//! split against `2^31 ≡ 1 (mod p)`, and the same min-chain
+//! split against `2^31 ≡ 1 (mod p)`, and the same direct min-chain
 //! canonicalization, so every element produces the bytes the AVX2 kernel
 //! produces. Only AVX-512F instructions are used, so each entry takes
 //! `X64V4Token`. Complete 64-byte lanes run here; the remainder is handed
@@ -29,14 +29,9 @@ fn dup_im(x: __m512i) -> __m512i {
     _mm512_castps_si512(_mm512_movehdup_ps(_mm512_castsi512_ps(x)))
 }
 
-/// Mersenne fold per 32-bit lane: the low 31 bits plus the bit-31 carry.
-#[archmage::rite(v4)]
-#[must_use]
-fn fold(x: __m512i, p: __m512i) -> __m512i {
-    _mm512_add_epi32(_mm512_and_si512(x, p), _mm512_srli_epi32::<31>(x))
-}
-
-/// Canonicalize lanes in `0..=2p`: two unconditional subtract-and-min steps.
+/// Canonicalize arbitrary raw `u32` lanes below `p` in two unconditional
+/// subtract-and-min steps; every lane value fits `0..=2p + 1`
+/// (`u32::MAX == 2p + 1`).
 #[archmage::rite(v4)]
 #[must_use]
 fn min_chain(x: __m512i, p: __m512i) -> __m512i {
@@ -44,7 +39,7 @@ fn min_chain(x: __m512i, p: __m512i) -> __m512i {
     _mm512_min_epu32(u, _mm512_sub_epi32(u, p))
 }
 
-/// `a + b (mod p)` over sixteen folded lanes (`0..=p` in, canonical out).
+/// `a + b (mod p)` over sixteen lanes (`0..=p` in, canonical out).
 #[archmage::rite(v4)]
 #[must_use]
 fn addmod(a: __m512i, b: __m512i, p: __m512i) -> __m512i {
@@ -74,7 +69,7 @@ fn reduce_pair(re: __m512i, im: __m512i, p: __m512i) -> __m512i {
     _mm512_min_epu32(t, _mm512_sub_epi32(t, p))
 }
 
-/// Multiply eight folded complex elements by prepared coefficient
+/// Multiply eight canonical complex elements by prepared coefficient
 /// broadcasts: `cr` and `ci` as-is, `nci` holding `p - ci`. The real lanes
 /// accumulate `re*cr + im*(p-ci) ≡ re*cr - im*ci` and the imaginary lanes
 /// `im*cr + re*ci`, both deferred at 64 bits for [`reduce_pair`].
@@ -87,7 +82,7 @@ fn cmul(x: __m512i, cr: __m512i, ci: __m512i, nci: __m512i, p: __m512i) -> __m51
     reduce_pair(re, im, p)
 }
 
-/// Complex multiply of two folded vectors, `(ar*br - ai*bi, ar*bi + ai*br)`
+/// Complex multiply of two canonical vectors, `(ar*br - ai*bi, ar*bi + ai*br)`
 /// per element, negating the duplicated imaginary limbs of `b` with `p` and
 /// reducing the deferred 64-bit accumulators.
 #[archmage::rite(v4)]
@@ -144,9 +139,9 @@ pub fn mul_into_avx512(
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        // Canonicalize on load: `cmul`'s deferred reduction assumes limbs
-        // below the modulus, and a bare fold can leave `p + 1`.
-        let s = min_chain(fold(_mm512_loadu_si512(src_lane), p), p);
+        // Canonical limbs keep `cmul`'s deferred reduction inside its
+        // proven range.
+        let s = min_chain(_mm512_loadu_si512(src_lane), p);
         _mm512_storeu_si512(dst_lane, cmul(s, cr_v, ci_v, nci, p));
     }
     if !dst_tail.is_empty() {
@@ -191,15 +186,15 @@ pub fn mul_add_avx512(
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        // Canonicalize on load, as above.
+        // Canonical limbs, as above.
         let prod = cmul(
-            min_chain(fold(_mm512_loadu_si512(src_lane), p), p),
+            min_chain(_mm512_loadu_si512(src_lane), p),
             cr_v,
             ci_v,
             nci,
             p,
         );
-        let d = min_chain(fold(_mm512_loadu_si512(&*dst_lane), p), p);
+        let d = min_chain(_mm512_loadu_si512(&*dst_lane), p);
         _mm512_storeu_si512(dst_lane, addmod(d, prod, p));
     }
     if !dst_tail.is_empty() {
@@ -209,8 +204,8 @@ pub fn mul_add_avx512(
 
 /// `dst[i] = a[i] * b[i]` in GF((2^31 - 1)^2), AVX-512.
 ///
-/// Every input limb bit pattern is legal: limbs fold to canonical form on
-/// load, and every stored limb is canonical.
+/// Every input limb bit pattern is legal: limbs canonicalize on load,
+/// and every stored limb is canonical.
 ///
 /// # Panics
 /// Panics unless all three buffers match in length (whole elements).
@@ -237,9 +232,9 @@ pub fn mul_elementwise_avx512(token: archmage::X64V4Token, dst: &mut [u8], a: &[
     let (b_lanes, b_tail) = b.as_chunks::<64>();
     for ((dst_lane, a_lane), b_lane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
         // The duplicated-imaginary negation below XORs with `p`, which is
-        // exact only for canonical limbs: fold and canonicalize on load.
-        let va = min_chain(fold(_mm512_loadu_si512(a_lane), p), p);
-        let vb = min_chain(fold(_mm512_loadu_si512(b_lane), p), p);
+        // exact only for canonical limbs.
+        let va = min_chain(_mm512_loadu_si512(a_lane), p);
+        let vb = min_chain(_mm512_loadu_si512(b_lane), p);
         _mm512_storeu_si512(dst_lane, cmul_vec(va, vb, p));
     }
     if !dst_tail.is_empty() {

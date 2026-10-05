@@ -479,11 +479,11 @@ macro_rules! wide_row {
             #[inline]
             #[must_use]
             pub const fn mul(self, rhs: Self) -> Self {
-                if R::DESCRIPTION.same_structure($rijndael) {
+                if const { R::DESCRIPTION.same_structure($rijndael) } {
                     Elem {
                         raw: $rmul(self.raw, rhs.raw),
                     }
-                } else if R::DESCRIPTION.same_structure($fanpaar) {
+                } else if const { R::DESCRIPTION.same_structure($fanpaar) } {
                     Elem {
                         raw: tower::fp_multiply(self.raw as u64, rhs.raw as u64, $n) as $raw,
                     }
@@ -499,11 +499,11 @@ macro_rules! wide_row {
             #[inline]
             #[must_use]
             pub const fn square(self) -> Self {
-                if R::DESCRIPTION.same_structure($rijndael) {
+                if const { R::DESCRIPTION.same_structure($rijndael) } {
                     Elem {
                         raw: $rsquare(self.raw),
                     }
-                } else if R::DESCRIPTION.same_structure($fanpaar) {
+                } else if const { R::DESCRIPTION.same_structure($fanpaar) } {
                     Elem {
                         raw: tower::fp_square(self.raw as u64, $n) as $raw,
                     }
@@ -519,11 +519,11 @@ macro_rules! wide_row {
             #[inline]
             #[must_use]
             pub const fn inv(self) -> Self {
-                if R::DESCRIPTION.same_structure($rijndael) {
+                if const { R::DESCRIPTION.same_structure($rijndael) } {
                     Elem {
                         raw: $rinv(self.raw),
                     }
-                } else if R::DESCRIPTION.same_structure($fanpaar) {
+                } else if const { R::DESCRIPTION.same_structure($fanpaar) } {
                     Elem {
                         raw: tower::fp_invert(self.raw as u64, $n) as $raw,
                     }

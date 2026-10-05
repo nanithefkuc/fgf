@@ -20,19 +20,10 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-/// Fold eight raw `u32` lanes to `0..=p` (`2^31 ≡ 1`, no conditional
-/// subtract). The result is `p` only for the raw lane `p` itself; every
-/// consumer below tolerates `= p` inputs and canonicalizes with min chains.
-#[archmage::rite(v3)]
-pub(in crate::kernel::x86) fn fold_avx2(x: __m256i, p: __m256i) -> __m256i {
-    let lo = _mm256_and_si256(x, p);
-    let hi = _mm256_srli_epi32(x, 31);
-    _mm256_add_epi32(lo, hi)
-}
-
-/// Canonicalize lanes in `0..=2p`: two unconditional subtract-and-min steps.
-/// `min(x, x-p)` then `min(u, u-p)` handles both the `p` and the `2p` edge
-/// cases a single conditional subtract misses (raw lane `p` ≡ 0).
+/// Canonicalize arbitrary raw `u32` lanes below `p` in two unconditional
+/// subtract-and-min steps. Every lane value fits `0..=2p + 1`
+/// (`u32::MAX == 2p + 1`): `min(x, x - p)` lands in `0..=p + 1`, and the
+/// second step lands in `0..=p - 1`.
 #[archmage::rite(v3)]
 pub(in crate::kernel::x86) fn min_chain_avx2(x: __m256i, p: __m256i) -> __m256i {
     let u = _mm256_min_epu32(x, _mm256_sub_epi32(x, p));
@@ -63,9 +54,9 @@ pub(in crate::kernel::x86) fn mulmod_avx2(a: __m256i, b: __m256i, p: __m256i) ->
 
 /// `dst += src (mod p)`, Mersenne31, AVX2.
 ///
-/// Every input lane bit pattern is legal: lanes canonicalize on load (a
-/// bare fold can leave `p + 1`, whose double overflows the 32-bit sum), and
-/// every stored lane is canonical.
+/// Every input lane bit pattern is legal: lanes canonicalize on load, and
+/// every stored lane is canonical. Canonical operands sum to at most
+/// `2p - 2`, so one final subtract-and-min completes the reduction.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial lane.
@@ -87,24 +78,30 @@ pub fn add_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8])
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
         let (src_lanes, _) = src_tile.as_chunks::<32>();
         for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-            let d = min_chain_avx2(fold_avx2(_mm256_loadu_si256(&*dst_lane), p), p);
-            let s = min_chain_avx2(fold_avx2(_mm256_loadu_si256(src_lane), p), p);
+            let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+            let s = min_chain_avx2(_mm256_loadu_si256(src_lane), p);
             let sum = _mm256_add_epi32(d, s); // <= 2p - 2
-            _mm256_storeu_si256(dst_lane, min_chain_avx2(sum, p));
+            _mm256_storeu_si256(dst_lane, _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p)));
         }
     }
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src_rest.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let d = min_chain_avx2(fold_avx2(_mm256_loadu_si256(&*dst_lane), p), p);
-        let s = min_chain_avx2(fold_avx2(_mm256_loadu_si256(src_lane), p), p);
-        let sum = _mm256_add_epi32(d, s);
-        _mm256_storeu_si256(dst_lane, min_chain_avx2(sum, p));
+        let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+        let s = min_chain_avx2(_mm256_loadu_si256(src_lane), p);
+        let sum = _mm256_add_epi32(d, s); // <= 2p - 2
+        _mm256_storeu_si256(dst_lane, _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p)));
     }
     prime::add_assign::<Mersenne31>(dst_tail, src_tail);
 }
 
 /// `dst -= src (mod p)`, Mersenne31, AVX2.
+///
+/// Every input lane bit pattern is legal: lanes canonicalize on load, and
+/// every stored lane is canonical. The wrapping difference of canonical
+/// operands is already canonical after one unsigned min with its `+p`
+/// fixup: a nonnegative difference stays below `p`, a negative one wraps
+/// and the fixup restores the residue.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial lane.
@@ -126,23 +123,19 @@ pub fn sub_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8])
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
         let (src_lanes, _) = src_tile.as_chunks::<32>();
         for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-            // Canonicalize on load: `fixed` below assumes limbs below the
-            // modulus, and a bare fold can leave `p + 1`.
-            let d = min_chain_avx2(fold_avx2(_mm256_loadu_si256(&*dst_lane), p), p);
-            let s = min_chain_avx2(fold_avx2(_mm256_loadu_si256(src_lane), p), p);
+            let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+            let s = min_chain_avx2(_mm256_loadu_si256(src_lane), p);
             let diff = _mm256_sub_epi32(d, s); // wraps iff negative
-            let fixed = _mm256_min_epu32(diff, _mm256_add_epi32(diff, p));
-            _mm256_storeu_si256(dst_lane, min_chain_avx2(fixed, p));
+            _mm256_storeu_si256(dst_lane, _mm256_min_epu32(diff, _mm256_add_epi32(diff, p)));
         }
     }
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src_rest.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let d = min_chain_avx2(fold_avx2(_mm256_loadu_si256(&*dst_lane), p), p);
-        let s = min_chain_avx2(fold_avx2(_mm256_loadu_si256(src_lane), p), p);
-        let diff = _mm256_sub_epi32(d, s);
-        let fixed = _mm256_min_epu32(diff, _mm256_add_epi32(diff, p));
-        _mm256_storeu_si256(dst_lane, min_chain_avx2(fixed, p));
+        let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+        let s = min_chain_avx2(_mm256_loadu_si256(src_lane), p);
+        let diff = _mm256_sub_epi32(d, s); // wraps iff negative
+        _mm256_storeu_si256(dst_lane, _mm256_min_epu32(diff, _mm256_add_epi32(diff, p)));
     }
     prime::sub_assign::<Mersenne31>(dst_tail, src_tail);
 }
@@ -187,12 +180,8 @@ pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u32, sr
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
         let (src_lanes, _) = src_tile.as_chunks::<32>();
         for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-            let prod = mulmod_avx2(
-                cred,
-                min_chain_avx2(fold_avx2(_mm256_loadu_si256(src_lane), p), p),
-                p,
-            );
-            let d = min_chain_avx2(fold_avx2(_mm256_loadu_si256(&*dst_lane), p), p);
+            let prod = mulmod_avx2(cred, min_chain_avx2(_mm256_loadu_si256(src_lane), p), p);
+            let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
             let sum = _mm256_add_epi32(d, prod); // <= 2p - 2
             let u = _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p));
             _mm256_storeu_si256(dst_lane, u);
@@ -201,12 +190,8 @@ pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u32, sr
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src_rest.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let prod = mulmod_avx2(
-            cred,
-            min_chain_avx2(fold_avx2(_mm256_loadu_si256(src_lane), p), p),
-            p,
-        );
-        let d = min_chain_avx2(fold_avx2(_mm256_loadu_si256(&*dst_lane), p), p);
+        let prod = mulmod_avx2(cred, min_chain_avx2(_mm256_loadu_si256(src_lane), p), p);
+        let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
         let sum = _mm256_add_epi32(d, prod);
         let u = _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p));
         _mm256_storeu_si256(dst_lane, u);
@@ -216,8 +201,8 @@ pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u32, sr
 
 /// `dst *= coeff (mod p)`, Mersenne31, AVX2.
 ///
-/// Every input lane bit pattern is legal: lanes fold to canonical form on
-/// load, and every stored lane is canonical. `coeff` is canonicalized on
+/// Every input lane bit pattern is legal: lanes canonicalize on load,
+/// and every stored lane is canonical. `coeff` is canonicalized on
 /// entry.
 ///
 /// # Panics
@@ -243,13 +228,13 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u32)
     for dst_tile in dst_tiles {
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
         for dst_lane in dst_lanes {
-            let d = min_chain_avx2(fold_avx2(_mm256_loadu_si256(&*dst_lane), p), p);
+            let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
             _mm256_storeu_si256(dst_lane, mulmod_avx2(cred, d, p));
         }
     }
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
     for dst_lane in dst_lanes {
-        let d = min_chain_avx2(fold_avx2(_mm256_loadu_si256(&*dst_lane), p), p);
+        let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
         _mm256_storeu_si256(dst_lane, mulmod_avx2(cred, d, p));
     }
     prime::mul_assign::<Mersenne31>(dst_tail, Elem::<Mersenne31>::from_raw(coeff));
@@ -257,8 +242,8 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u32)
 
 /// `dst = coeff * src (mod p)`, Mersenne31, AVX2.
 ///
-/// Every input lane bit pattern is legal: lanes fold to canonical form on
-/// load, and every stored lane is canonical. `coeff` is canonicalized on
+/// Every input lane bit pattern is legal: lanes canonicalize on load,
+/// and every stored lane is canonical. `coeff` is canonicalized on
 /// entry.
 ///
 /// # Panics
@@ -275,23 +260,23 @@ pub fn mul_into_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u32, s
     );
     check_elem_multiple("mersenne31::mul_into_avx2", dst.len(), 4);
     let p = _mm256_set1_epi32(P);
-    // The coefficient is loop-invariant: canonicalize it once. Raw
-    // (non-canonical) coefficient lanes stay legal inputs.
-    let cred = min_chain_avx2(fold_avx2(_mm256_set1_epi32(coeff as i32), p), p);
+    // The coefficient is loop-invariant: canonicalize the raw broadcast
+    // once. Raw (non-canonical) coefficient lanes stay legal inputs.
+    let cred = min_chain_avx2(_mm256_set1_epi32(coeff as i32), p);
     let (dst_tiles, dst_rest) = dst.as_chunks_mut::<128>();
     let (src_tiles, src_rest) = src.as_chunks::<128>();
     for (dst_tile, src_tile) in dst_tiles.iter_mut().zip(src_tiles) {
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
         let (src_lanes, _) = src_tile.as_chunks::<32>();
         for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-            let s = min_chain_avx2(fold_avx2(_mm256_loadu_si256(src_lane), p), p);
+            let s = min_chain_avx2(_mm256_loadu_si256(src_lane), p);
             _mm256_storeu_si256(dst_lane, mulmod_avx2(cred, s, p));
         }
     }
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src_rest.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let s = min_chain_avx2(fold_avx2(_mm256_loadu_si256(src_lane), p), p);
+        let s = min_chain_avx2(_mm256_loadu_si256(src_lane), p);
         _mm256_storeu_si256(dst_lane, mulmod_avx2(cred, s, p));
     }
     // Scalar tail.
@@ -304,8 +289,8 @@ pub fn mul_into_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u32, s
 
 /// `dst[i] = a[i] * b[i] (mod p)`, Mersenne31, AVX2.
 ///
-/// Every input lane bit pattern is legal: lanes fold to canonical form on
-/// load, and every stored lane is canonical.
+/// Every input lane bit pattern is legal: lanes canonicalize on load,
+/// and every stored lane is canonical.
 ///
 /// # Panics
 /// Panics unless all three buffers match in length (whole lanes).
@@ -336,8 +321,8 @@ pub fn mul_elementwise_avx2(_token: archmage::X64V3Token, dst: &mut [u8], a: &[u
         let (a_lanes, _) = a_tile.as_chunks::<32>();
         let (b_lanes, _) = b_tile.as_chunks::<32>();
         for ((dst_lane, a_lane), b_lane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
-            let va = min_chain_avx2(fold_avx2(_mm256_loadu_si256(a_lane), p), p);
-            let vb = min_chain_avx2(fold_avx2(_mm256_loadu_si256(b_lane), p), p);
+            let va = min_chain_avx2(_mm256_loadu_si256(a_lane), p);
+            let vb = min_chain_avx2(_mm256_loadu_si256(b_lane), p);
             _mm256_storeu_si256(dst_lane, mulmod_avx2(va, vb, p));
         }
     }
@@ -345,8 +330,8 @@ pub fn mul_elementwise_avx2(_token: archmage::X64V3Token, dst: &mut [u8], a: &[u
     let (a_lanes, a_tail) = a_rest.as_chunks::<32>();
     let (b_lanes, b_tail) = b_rest.as_chunks::<32>();
     for ((dst_lane, a_lane), b_lane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
-        let va = min_chain_avx2(fold_avx2(_mm256_loadu_si256(a_lane), p), p);
-        let vb = min_chain_avx2(fold_avx2(_mm256_loadu_si256(b_lane), p), p);
+        let va = min_chain_avx2(_mm256_loadu_si256(a_lane), p);
+        let vb = min_chain_avx2(_mm256_loadu_si256(b_lane), p);
         _mm256_storeu_si256(dst_lane, mulmod_avx2(va, vb, p));
     }
     prime::mul_elementwise::<Mersenne31>(dst_tail, a_tail, b_tail);
@@ -354,8 +339,8 @@ pub fn mul_elementwise_avx2(_token: archmage::X64V3Token, dst: &mut [u8], a: &[u
 
 /// `dst[i] = dst[i] * src[i] (mod p)`, Mersenne31, AVX2.
 ///
-/// Every input lane bit pattern is legal: lanes fold to canonical form on
-/// load, and every stored lane is canonical.
+/// Every input lane bit pattern is legal: lanes canonicalize on load,
+/// and every stored lane is canonical.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial lane.
@@ -377,16 +362,16 @@ pub fn mul_elementwise_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8],
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
         let (src_lanes, _) = src_tile.as_chunks::<32>();
         for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-            let vd = min_chain_avx2(fold_avx2(_mm256_loadu_si256(&*dst_lane), p), p);
-            let vs = min_chain_avx2(fold_avx2(_mm256_loadu_si256(src_lane), p), p);
+            let vd = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+            let vs = min_chain_avx2(_mm256_loadu_si256(src_lane), p);
             _mm256_storeu_si256(dst_lane, mulmod_avx2(vd, vs, p));
         }
     }
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src_rest.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let vd = min_chain_avx2(fold_avx2(_mm256_loadu_si256(&*dst_lane), p), p);
-        let vs = min_chain_avx2(fold_avx2(_mm256_loadu_si256(src_lane), p), p);
+        let vd = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+        let vs = min_chain_avx2(_mm256_loadu_si256(src_lane), p);
         _mm256_storeu_si256(dst_lane, mulmod_avx2(vd, vs, p));
     }
     scalar::mul_elementwise_assign::<Mersenne31>(dst_tail, src_tail);
@@ -395,7 +380,8 @@ pub fn mul_elementwise_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8],
 /// `dst[i] += value (mod p)`, Mersenne31, AVX2. The raw `value` word is
 /// canonicalized once on entry.
 ///
-/// The destination lanes fold to canonical form on load, and every stored
+/// The destination lanes canonicalize on load; the canonical sum is at
+/// most `2p - 2`, so one final subtract-and-min completes it. Every stored
 /// lane is canonical.
 ///
 /// # Panics
@@ -411,16 +397,16 @@ pub fn add_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], valu
     for dst_tile in dst_tiles {
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
         for dst_lane in dst_lanes {
-            let d = fold_avx2(_mm256_loadu_si256(&*dst_lane), p);
-            let sum = _mm256_add_epi32(d, svec);
-            _mm256_storeu_si256(dst_lane, min_chain_avx2(sum, p));
+            let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+            let sum = _mm256_add_epi32(d, svec); // <= 2p - 2
+            _mm256_storeu_si256(dst_lane, _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p)));
         }
     }
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
     for dst_lane in dst_lanes {
-        let d = fold_avx2(_mm256_loadu_si256(&*dst_lane), p);
-        let sum = _mm256_add_epi32(d, svec);
-        _mm256_storeu_si256(dst_lane, min_chain_avx2(sum, p));
+        let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+        let sum = _mm256_add_epi32(d, svec); // <= 2p - 2
+        _mm256_storeu_si256(dst_lane, _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p)));
     }
     prime::add_assign_scalar::<Mersenne31>(dst_tail, Elem::<Mersenne31>::from_raw(value));
 }
@@ -428,8 +414,9 @@ pub fn add_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], valu
 /// `dst[i] -= value (mod p)`, Mersenne31, AVX2. The raw `value` word is
 /// canonicalized once on entry.
 ///
-/// The destination lanes are canonicalized on load; the broadcast value is
-/// used as given.
+/// The destination lanes canonicalize on load; the canonical difference is
+/// canonical after one unsigned min with its `+p` fixup, matching
+/// [`sub_assign_avx2`].
 ///
 /// # Panics
 /// Panics on a partial trailing lane.
@@ -443,18 +430,16 @@ pub fn sub_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], valu
     for dst_tile in dst_tiles {
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
         for dst_lane in dst_lanes {
-            let d = fold_avx2(_mm256_loadu_si256(&*dst_lane), p);
-            let diff = _mm256_sub_epi32(d, svec);
-            let fixed = _mm256_min_epu32(diff, _mm256_add_epi32(diff, p));
-            _mm256_storeu_si256(dst_lane, min_chain_avx2(fixed, p));
+            let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+            let diff = _mm256_sub_epi32(d, svec); // wraps iff negative
+            _mm256_storeu_si256(dst_lane, _mm256_min_epu32(diff, _mm256_add_epi32(diff, p)));
         }
     }
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
     for dst_lane in dst_lanes {
-        let d = fold_avx2(_mm256_loadu_si256(&*dst_lane), p);
-        let diff = _mm256_sub_epi32(d, svec);
-        let fixed = _mm256_min_epu32(diff, _mm256_add_epi32(diff, p));
-        _mm256_storeu_si256(dst_lane, min_chain_avx2(fixed, p));
+        let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+        let diff = _mm256_sub_epi32(d, svec); // wraps iff negative
+        _mm256_storeu_si256(dst_lane, _mm256_min_epu32(diff, _mm256_add_epi32(diff, p)));
     }
     prime::sub_assign_scalar::<Mersenne31>(dst_tail, Elem::<Mersenne31>::from_raw(value));
 }

@@ -371,7 +371,7 @@ impl<R: Gf8Data> FieldKernels for Gf8<R> {
         // touch the vector units: every bulk operation, including tails,
         // runs the typed scalar fallback, so polynomial arithmetic must not
         // observe their coordinates.
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             return Backend::Scalar;
         }
         backend()
@@ -379,7 +379,7 @@ impl<R: Gf8Data> FieldKernels for Gf8<R> {
 
     #[inline]
     fn has_vector_elementwise() -> bool {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             return false;
         }
         match backend() {
@@ -424,7 +424,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
     }
 
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             let coeff = <Elem<Gf<8, R>>>::from_raw(coeff.table.coeff);
             return scalar::mul_add::<Gf<8, R>>(dst, coeff, src);
         }
@@ -472,7 +472,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
     }
 
     fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             let coeff = <Elem<Gf<8, R>>>::from_raw(coeff.table.coeff);
             return scalar::mul_assign::<Gf<8, R>>(dst, coeff);
         }
@@ -522,7 +522,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
     }
 
     fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             let coeff = <Elem<Gf<8, R>>>::from_raw(coeff.table.coeff);
             dst.copy_from_slice(src);
             return scalar::mul_assign::<Gf<8, R>>(dst, coeff);
@@ -603,7 +603,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         coeffs: &[Elem<Gf<8, R>>],
         src: &[u8],
     ) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             return scalar::mul_add_scatter::<Gf<8, R>>(rows, row_len, coeffs, src);
         }
         match Self::backend() {
@@ -690,7 +690,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         coeffs: &[Self::Prepared],
         src: &[u8],
     ) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             return scalar::mul_add_scatter::<Gf<8, R>>(rows, row_len, values, src);
         }
         let _ = (values, coeffs);
@@ -715,7 +715,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         coeffs: &[Elem<Gf<8, R>>],
         srcs: &[&[u8]],
     ) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             return scalar::mul_add_gather::<Gf<8, R>>(dst, coeffs, srcs);
         }
         match Self::backend() {
@@ -795,7 +795,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             return scalar::mul_add_gather::<Gf<8, R>>(dst, values, srcs);
         }
         let _ = (values, coeffs);
@@ -819,7 +819,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         coeffs: &[Elem<Gf<8, R>>],
         srcs: &[&[u8]],
     ) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             let mut pairs = coeffs.iter().copied().zip(srcs.iter().copied());
             let Some((first, src)) = pairs.next() else {
                 dst.fill(0);
@@ -887,7 +887,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             return Self::mul_into_gather_with(RawDispatch, dst, coeffs, srcs);
         }
         if R::AES_NATIVE {
@@ -939,7 +939,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         nrows: usize,
         terms: &[(&[Elem<Gf<8, R>>], &[u8])],
     ) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             return scalar::mul_add_matrix::<Gf<8, R>>(rows, row_len, nrows, terms);
         }
         match Self::backend() {
@@ -1034,7 +1034,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             for (term, &src) in srcs.iter().enumerate() {
                 let start = term * nrows;
                 for (row, &coeff) in rows
@@ -1132,7 +1132,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         nrows: usize,
         terms: &[(&[Elem<Gf<8, R>>], &[u8])],
     ) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             for row in rows.chunks_exact_mut(row_len).take(nrows) {
                 row.fill(0);
             }
@@ -1185,7 +1185,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             for row in rows.chunks_exact_mut(row_len).take(nrows) {
                 row.fill(0);
             }
@@ -1253,7 +1253,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         row_starts: &[usize],
         terms: &[(&[Elem<Gf<8, R>>], &[u8])],
     ) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             return Self::mul_add_matrix_at_rows(RawDispatch, dst, row_len, row_starts, terms);
         }
         match Self::backend() {
@@ -1292,7 +1292,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
     }
 
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             return scalar::mul_elementwise::<Gf<8, R>>(dst, a, b);
         }
         match Self::backend() {
@@ -1388,7 +1388,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
     }
 
     fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
-        if !R::DESCRIPTION.is_polynomial_root() {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
             return scalar::mul_elementwise_assign::<Gf<8, R>>(dst, src);
         }
         match Self::backend() {

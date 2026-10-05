@@ -79,12 +79,16 @@ pub mod gf16 {
 
     /// Whether the tower's description is the pinned Rijndael16
     /// presentation, whose arithmetic the byte-multiply kernels implement.
+    ///
+    /// The body evaluates at compile time, so every caller's branch on it
+    /// folds in each monomorphization instead of walking the description
+    /// at run time.
     #[inline]
     pub(crate) const fn rijndael16<S: TowerSpec>() -> bool
     where
         S::Base: BinaryDegree<8>,
     {
-        <Tower<S> as BinaryRepr<16>>::DESCRIPTION.same_structure(RIJNDAEL16_DESC)
+        const { <Tower<S> as BinaryRepr<16>>::DESCRIPTION.same_structure(RIJNDAEL16_DESC) }
     }
 
     /// Whether the tower's description is the pinned Fan-Paar GF(2^16)
@@ -94,7 +98,7 @@ pub mod gf16 {
     where
         S::Base: BinaryDegree<8>,
     {
-        <Tower<S> as BinaryRepr<16>>::DESCRIPTION.same_structure(FANPAAR16_DESC)
+        const { <Tower<S> as BinaryRepr<16>>::DESCRIPTION.same_structure(FANPAAR16_DESC) }
     }
 
     /// A GF(2^16) coefficient resolved into the form this host's backend
@@ -1618,12 +1622,14 @@ pub mod gf32 {
 
     /// Whether the tower's description is the pinned Rijndael32
     /// presentation.
+    ///
+    /// The body evaluates at compile time; see [`tower::gf16::rijndael16`].
     #[inline]
     pub(crate) const fn rijndael32<S: TowerSpec>() -> bool
     where
         S::Base: BinaryDegree<16>,
     {
-        <Tower<S> as BinaryRepr<32>>::DESCRIPTION.same_structure(RIJNDAEL32_DESC)
+        const { <Tower<S> as BinaryRepr<32>>::DESCRIPTION.same_structure(RIJNDAEL32_DESC) }
     }
 
     /// Whether the tower's description is the pinned Fan-Paar GF(2^32)
@@ -1633,7 +1639,7 @@ pub mod gf32 {
     where
         S::Base: BinaryDegree<16>,
     {
-        <Tower<S> as BinaryRepr<32>>::DESCRIPTION.same_structure(FANPAAR32_DESC)
+        const { <Tower<S> as BinaryRepr<32>>::DESCRIPTION.same_structure(FANPAAR32_DESC) }
     }
 
     /// A GF(2^32) coefficient resolved into the form this host's backend
@@ -1901,12 +1907,14 @@ pub mod gf64 {
 
     /// Whether the tower's description is the pinned Rijndael64
     /// presentation.
+    ///
+    /// The body evaluates at compile time; see [`tower::gf16::rijndael16`].
     #[inline]
     pub(crate) const fn rijndael64<S: TowerSpec>() -> bool
     where
         S::Base: BinaryDegree<32>,
     {
-        <Tower<S> as BinaryRepr<64>>::DESCRIPTION.same_structure(RIJNDAEL64_DESC)
+        const { <Tower<S> as BinaryRepr<64>>::DESCRIPTION.same_structure(RIJNDAEL64_DESC) }
     }
 
     /// Whether the tower's description is the pinned Fan-Paar GF(2^64)
@@ -1916,7 +1924,7 @@ pub mod gf64 {
     where
         S::Base: BinaryDegree<32>,
     {
-        <Tower<S> as BinaryRepr<64>>::DESCRIPTION.same_structure(FANPAAR64_DESC)
+        const { <Tower<S> as BinaryRepr<64>>::DESCRIPTION.same_structure(FANPAAR64_DESC) }
     }
 
     /// A GF(2^64) coefficient resolved into the form this host's backend

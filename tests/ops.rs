@@ -7,7 +7,7 @@
 
 // Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
-use fgf::field::{FieldBuffer, FieldElem as _};
+use fgf::field::{FieldBuffer, FieldElem};
 use fgf::poly::{AES, REED_SOLOMON};
 use fgf::{
     Cantor, Elem, FanPaar8, FanPaar16, FanPaar32, FanPaar64, FieldKernels, Gf, Gf8, Gf16, Gf32,
@@ -3932,6 +3932,87 @@ fn custom_tower8_fallback_bulk_matches_scalar() {
 fn custom_tower16_fallback_bulk_matches_scalar() {
     fallback_single_row_matches_scalar_for::<Gf<16, Tower<Custom16Spec>>>();
     fallback_multi_row_matches_scalar_for::<Gf<16, Tower<Custom16Spec>>>();
+}
+
+/// A custom degree-16 tower whose description is structurally identical
+/// to the pinned Rijndael16 presentation: same base, same relation.
+#[derive(Clone, Copy)]
+struct SameRijndael16Spec;
+impl TowerSpec for SameRijndael16Spec {
+    type Base = Gf8<Poly<AES>>;
+    const A: u64 = 1;
+    const B: u64 = 0x20;
+    const NAME: &'static str = "rijndael-shaped custom GF(2^16) tower";
+}
+
+/// A custom tower with the pinned structure multiplies exactly as the
+/// pinned field does — inherent scalar arithmetic, the generic
+/// [`FieldElem`] route, and the dispatched `ops` buffers — while a custom
+/// tower without that structure takes its own correct route at every
+/// level.
+#[test]
+fn structural_route_matches_pinned_and_custom_route_matches_oracle() {
+    type Same16 = Gf<16, Tower<SameRijndael16Spec>>;
+    type Custom16 = Gf<16, Tower<Custom16Spec>>;
+
+    // Deterministic raw words: boundary values and a spread over both
+    // bytes.
+    let words = [0u16, 1, 0x53, 0xa7, 0x00ff, 0x0100, 0xbeef, 0xffff];
+    for &a in &words {
+        for &b in &words {
+            let (x, y) = (Elem::<Same16>::from_raw(a), Elem::<Same16>::from_raw(b));
+            // Inherent arithmetic follows the pinned Rijndael16 route.
+            let pinned = Elem::<Gf16>::from_raw(a).mul(Elem::<Gf16>::from_raw(b));
+            assert_eq!(
+                x.mul(y).to_raw(),
+                pinned.to_raw(),
+                "same-structure inherent mul {a:#x} * {b:#x}"
+            );
+            assert_eq!(
+                x.square().to_raw(),
+                Elem::<Gf16>::from_raw(a).square().to_raw(),
+                "same-structure inherent square {a:#x}"
+            );
+            // The generic FieldElem route agrees with the inherent one.
+            assert_eq!(
+                FieldElem::mul(x, y).to_raw(),
+                x.mul(y).to_raw(),
+                "same-structure FieldElem mul {a:#x} * {b:#x}"
+            );
+            // The non-identical custom tower agrees with itself through
+            // both spellings, on its own route.
+            let (u, v) = (Elem::<Custom16>::from_raw(a), Elem::<Custom16>::from_raw(b));
+            assert_eq!(
+                FieldElem::mul(u, v).to_raw(),
+                u.mul(v).to_raw(),
+                "custom inherent/FieldElem mul {a:#x} * {b:#x}"
+            );
+        }
+    }
+
+    // Dispatched buffers: the same-structure tower produces the pinned
+    // field's bytes; the custom tower produces its own oracle bytes.
+    for &len in LENGTHS.iter() {
+        let src = noise(len, 0x53a7);
+        for byte in [0u8, 1, 0x53, 0xa7] {
+            let coeff = pattern_elem::<Same16>(byte);
+            let mut got = noise(len, 0xb2);
+            let mut pinned = got.clone();
+            ops::mul_add::<Same16>(&mut got, coeff, &src);
+            ops::mul_add::<Gf16>(&mut pinned, pattern_elem::<Gf16>(byte), &src);
+            assert_eq!(
+                got, pinned,
+                "same-structure mul_add len {len} byte {byte:#x}"
+            );
+
+            let coeff = pattern_elem::<Custom16>(byte);
+            let mut got = noise(len, 0xb2);
+            let mut want = got.clone();
+            ops::mul_add::<Custom16>(&mut got, coeff, &src);
+            oracle_mul_add::<Custom16>(&mut want, coeff, &src);
+            assert_eq!(got, want, "custom mul_add len {len} byte {byte:#x}");
+        }
+    }
 }
 
 #[test]

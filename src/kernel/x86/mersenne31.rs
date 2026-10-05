@@ -38,7 +38,7 @@ pub use sse42::{
     sub_assign_sse42,
 };
 
-pub(super) use avx2::{fold_avx2, min_chain_avx2};
+pub(super) use avx2::min_chain_avx2;
 
 use crate::field::mersenne31;
 

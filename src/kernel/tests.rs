@@ -4815,10 +4815,158 @@ mod x86 {
             }
         }
 
+        /// Exhaustive boundary-word pairs for the Mersenne31 entries: for
+        /// every ordered pair of the seven boundary words `0, 1, p-1, p,
+        /// p+1, 2p, 2p+1 (= u32::MAX)`, one operand holds `x` in every
+        /// lane and the other holds `y`, so every lane position sees every
+        /// boundary value against every other in both operand roles. The
+        /// expectations come from an independent `u128 % p` model, not the
+        /// crate's reference.
+        #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+        fn drive_m31_pairs(
+            label: &str,
+            add: impl Fn(&mut [u8], &[u8]),
+            sub: impl Fn(&mut [u8], &[u8]),
+            muladd: impl Fn(&mut [u8], u32, &[u8]),
+            mulinto: impl Fn(&mut [u8], u32, &[u8]),
+            mulassign: impl Fn(&mut [u8], u32),
+            elemwise: impl Fn(&mut [u8], &[u8], &[u8]),
+            elemwise_assign: impl Fn(&mut [u8], &[u8]),
+            addscalar: impl Fn(&mut [u8], u32),
+            subscalar: impl Fn(&mut [u8], u32),
+        ) {
+            const P: u32 = crate::field::mersenne31::MODULUS;
+            const WORDS: [u32; 7] = [0, 1, P - 1, P, P + 1, 2 * P, u32::MAX];
+            // Lengths straddling the SSE4.2 lane/tile (16/64 bytes), the
+            // AVX2 lane/tile (32/128), and the AVX-512 lane (64), each
+            // ending in a vector or scalar tail somewhere.
+            const LENS: &[usize] = &[16, 20, 32, 64, 68, 128, 132];
+            const COEFFS: [u32; 6] = [0, 1, 2, 0x53, P, u32::MAX];
+            let wide = u128::from(P);
+            let canon = |v: u32| u128::from(v) % wide;
+            let word = |v: u128| u32::try_from(v).unwrap();
+            let fill = |len: usize, w: u32| -> Vec<u8> {
+                let mut out = Vec::with_capacity(len);
+                while out.len() < len {
+                    out.extend_from_slice(&w.to_le_bytes());
+                }
+                out
+            };
+
+            for &len in LENS {
+                let pairs = WORDS
+                    .iter()
+                    .flat_map(|&x| WORDS.iter().map(move |&y| (x, y)));
+                for (x, y) in pairs {
+                    let (cx, cy) = (canon(x), canon(y));
+                    let dst_x = fill(len, x);
+                    let src_y = fill(len, y);
+
+                    let mut got = dst_x.clone();
+                    add(&mut got, &src_y);
+                    let want = fill(len, word((cx + cy) % wide));
+                    assert_eq!(got, want, "{label} pair add {x:#x} {y:#x} len {len}");
+
+                    let mut got = dst_x.clone();
+                    sub(&mut got, &src_y);
+                    let want = fill(len, word((cx + wide - cy) % wide));
+                    assert_eq!(got, want, "{label} pair sub {x:#x} {y:#x} len {len}");
+
+                    let mut got = vec![0u8; len];
+                    elemwise(&mut got, &dst_x, &src_y);
+                    let want = fill(len, word(cx * cy % wide));
+                    assert_eq!(got, want, "{label} pair elemwise {x:#x} {y:#x} len {len}");
+
+                    let mut got = dst_x.clone();
+                    elemwise_assign(&mut got, &src_y);
+                    assert_eq!(
+                        got,
+                        fill(len, word(cx * cy % wide)),
+                        "{label} pair elemwise_assign {x:#x} {y:#x} len {len}"
+                    );
+
+                    for &cv in &COEFFS {
+                        let c = canon(cv);
+                        let mut got = dst_x.clone();
+                        muladd(&mut got, cv, &src_y);
+                        // A zero-valued coefficient is a defined no-op that
+                        // preserves the untouched lanes byte for byte.
+                        let expected = if c == 0 {
+                            x
+                        } else {
+                            word((cx + c * cy) % wide)
+                        };
+                        assert_eq!(
+                            got,
+                            fill(len, expected),
+                            "{label} pair mul_add {x:#x} {y:#x} coeff {cv:#x} len {len}"
+                        );
+
+                        let mut got = vec![0u8; len];
+                        mulinto(&mut got, cv, &src_y);
+                        let expected = if c == 0 { 0 } else { word(c * cy % wide) };
+                        assert_eq!(
+                            got,
+                            fill(len, expected),
+                            "{label} pair mul_into {x:#x} {y:#x} coeff {cv:#x} len {len}"
+                        );
+
+                        let mut got = dst_x.clone();
+                        mulassign(&mut got, cv);
+                        // A unit-valued coefficient is a defined no-op; a
+                        // zero-valued one zeroes the buffer.
+                        let expected = if c == 0 {
+                            0
+                        } else if c == 1 {
+                            x
+                        } else {
+                            word(c * cx % wide)
+                        };
+                        assert_eq!(
+                            got,
+                            fill(len, expected),
+                            "{label} pair mul_assign {x:#x} coeff {cv:#x} len {len}"
+                        );
+                    }
+
+                    for &v in &WORDS {
+                        let cv = canon(v);
+                        let mut got = dst_x.clone();
+                        addscalar(&mut got, v);
+                        assert_eq!(
+                            got,
+                            fill(len, word((cx + cv) % wide)),
+                            "{label} pair add_scalar {x:#x} value {v:#x} len {len}"
+                        );
+
+                        let mut got = dst_x.clone();
+                        subscalar(&mut got, v);
+                        assert_eq!(
+                            got,
+                            fill(len, word((cx + wide - cv) % wide)),
+                            "{label} pair sub_scalar {x:#x} value {v:#x} len {len}"
+                        );
+                    }
+                }
+            }
+        }
+
         if host_supports(&[Backend::V3]) {
             let token = X64V3Token::summon().expect("guard passed: AVX2 summons here");
             drive_m31(
                 "m31 avx2 noncanonical",
+                |dst, src| x86::mersenne31::add_assign_avx2(token, dst, src),
+                |dst, src| x86::mersenne31::sub_assign_avx2(token, dst, src),
+                |dst, coeff, src| x86::mersenne31::mul_add_avx2(token, dst, coeff, src),
+                |dst, coeff, src| x86::mersenne31::mul_into_avx2(token, dst, coeff, src),
+                |dst, coeff| x86::mersenne31::mul_assign_avx2(token, dst, coeff),
+                |dst, a, b| x86::mersenne31::mul_elementwise_avx2(token, dst, a, b),
+                |dst, s| x86::mersenne31::mul_elementwise_assign_avx2(token, dst, s),
+                |dst, c| x86::mersenne31::add_assign_scalar_avx2(token, dst, c),
+                |dst, c| x86::mersenne31::sub_assign_scalar_avx2(token, dst, c),
+            );
+            drive_m31_pairs(
+                "m31 avx2 pairs",
                 |dst, src| x86::mersenne31::add_assign_avx2(token, dst, src),
                 |dst, src| x86::mersenne31::sub_assign_avx2(token, dst, src),
                 |dst, coeff, src| x86::mersenne31::mul_add_avx2(token, dst, coeff, src),
@@ -4859,6 +5007,18 @@ mod x86 {
                 |dst, c| x86::mersenne31::add_assign_scalar_sse42(token, dst, c),
                 |dst, c| x86::mersenne31::sub_assign_scalar_sse42(token, dst, c),
             );
+            drive_m31_pairs(
+                "m31 sse4.2 pairs",
+                |dst, src| x86::mersenne31::add_assign_sse42(token, dst, src),
+                |dst, src| x86::mersenne31::sub_assign_sse42(token, dst, src),
+                |dst, coeff, src| x86::mersenne31::mul_add_sse42(token, dst, coeff, src),
+                |dst, coeff, src| x86::mersenne31::mul_into_sse42(token, dst, coeff, src),
+                |dst, coeff| x86::mersenne31::mul_assign_sse42(token, dst, coeff),
+                |dst, a, b| x86::mersenne31::mul_elementwise_sse42(token, dst, a, b),
+                |dst, s| x86::mersenne31::mul_elementwise_assign_sse42(token, dst, s),
+                |dst, c| x86::mersenne31::add_assign_scalar_sse42(token, dst, c),
+                |dst, c| x86::mersenne31::sub_assign_scalar_sse42(token, dst, c),
+            );
             drive_gld(
                 "gld sse4.2 noncanonical",
                 |dst, src| x86::goldilocks::add_assign_sse42(token, dst, src),
@@ -4884,6 +5044,18 @@ mod x86 {
             let token = v4x.v4();
             drive_m31(
                 "m31 avx512 noncanonical",
+                |dst, src| x86::mersenne31::add_assign_avx512(token, dst, src),
+                |dst, src| x86::mersenne31::sub_assign_avx512(token, dst, src),
+                |dst, coeff, src| x86::mersenne31::mul_add_avx512(token, dst, coeff, src),
+                |dst, coeff, src| x86::mersenne31::mul_into_avx512(token, dst, coeff, src),
+                |dst, coeff| x86::mersenne31::mul_assign_avx512(token, dst, coeff),
+                |dst, a, b| x86::mersenne31::mul_elementwise_avx512(token, dst, a, b),
+                |dst, s| x86::mersenne31::mul_elementwise_assign_avx512(token, dst, s),
+                |dst, c| x86::mersenne31::add_assign_scalar_avx512(token, dst, c),
+                |dst, c| x86::mersenne31::sub_assign_scalar_avx512(token, dst, c),
+            );
+            drive_m31_pairs(
+                "m31 avx512 pairs",
                 |dst, src| x86::mersenne31::add_assign_avx512(token, dst, src),
                 |dst, src| x86::mersenne31::sub_assign_avx512(token, dst, src),
                 |dst, coeff, src| x86::mersenne31::mul_add_avx512(token, dst, coeff, src),
@@ -5058,10 +5230,192 @@ mod x86 {
             }
         }
 
+        /// Exhaustive boundary-word pairs for the `QuadMersenne31` entries:
+        /// for every ordered pair of the seven boundary words `0, 1, p-1,
+        /// p, p+1, 2p, 2p+1 (= u32::MAX)`, one operand holds `(x, y)`
+        /// limbs in every element and the other `(y, x)`, so the real and
+        /// imaginary limb positions each see every boundary value against
+        /// every other in both operand roles. The expectations come from
+        /// an independent `u128 % p` complex model, not the crate's
+        /// reference.
+        #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+        fn drive_pairs(
+            label: &str,
+            add: impl Fn(&mut [u8], &[u8]),
+            sub: impl Fn(&mut [u8], &[u8]),
+            muladd: impl Fn(&mut [u8], Qm, &[u8]),
+            mulinto: impl Fn(&mut [u8], Qm, &[u8]),
+            mulassign: impl Fn(&mut [u8], Qm),
+            elemwise: impl Fn(&mut [u8], &[u8], &[u8]),
+            elemwise_assign: impl Fn(&mut [u8], &[u8]),
+            addscalar: impl Fn(&mut [u8], Qm),
+            subscalar: impl Fn(&mut [u8], Qm),
+        ) {
+            const WORDS: [u32; 7] = [0, 1, P - 1, P, P + 1, 2 * P, u32::MAX];
+            // Lengths straddling the AVX2 lane (32 bytes), the AVX-512
+            // lane (64), and whole-element tails, sub-lane included.
+            const PAIR_LENS: &[usize] = &[8, 32, 40, 64, 72, 136];
+            const VALUES: [Qm; 7] = [
+                Qm::from_raw(0, 0),
+                Qm::from_raw(1, 1),
+                Qm::from_raw(P - 1, P - 1),
+                Qm::from_raw(P, P),
+                Qm::from_raw(P + 1, P + 1),
+                Qm::from_raw(2 * P, 2 * P),
+                Qm::from_raw(u32::MAX, u32::MAX),
+            ];
+            let wide = u128::from(P);
+            let canon = |v: u32| u128::from(v) % wide;
+            let word = |v: u128| u32::try_from(v).unwrap();
+            let fill_pair = |len: usize, re: u32, im: u32| -> Vec<u8> {
+                let mut out = Vec::with_capacity(len);
+                while out.len() < len {
+                    out.extend_from_slice(&re.to_le_bytes());
+                    out.extend_from_slice(&im.to_le_bytes());
+                }
+                out.truncate(len);
+                out
+            };
+            // The independent complex model over canonical limb values.
+            let mul = |(ar, ai): (u128, u128), (br, bi): (u128, u128)| -> (u128, u128) {
+                (
+                    (ar * br + wide * wide - ai * bi) % wide,
+                    (ar * bi + ai * br) % wide,
+                )
+            };
+
+            for &len in PAIR_LENS {
+                let pairs = WORDS
+                    .iter()
+                    .flat_map(|&x| WORDS.iter().map(move |&y| (x, y)));
+                for (x, y) in pairs {
+                    let cv = (canon(x), canon(y));
+                    let dst_xy = fill_pair(len, x, y);
+                    let src_yx = fill_pair(len, y, x);
+
+                    let mut got = dst_xy.clone();
+                    add(&mut got, &src_yx);
+                    let want =
+                        fill_pair(len, word((cv.0 + cv.1) % wide), word((cv.1 + cv.0) % wide));
+                    assert_eq!(got, want, "{label} pair add {x:#x} {y:#x} len {len}");
+
+                    let mut got = dst_xy.clone();
+                    sub(&mut got, &src_yx);
+                    let want = fill_pair(
+                        len,
+                        word((cv.0 + wide - cv.1) % wide),
+                        word((cv.1 + wide - cv.0) % wide),
+                    );
+                    assert_eq!(got, want, "{label} pair sub {x:#x} {y:#x} len {len}");
+
+                    let mut got = vec![0u8; len];
+                    elemwise(&mut got, &dst_xy, &src_yx);
+                    let (re, im) = mul(cv, (cv.1, cv.0));
+                    let want = fill_pair(len, word(re), word(im));
+                    assert_eq!(got, want, "{label} pair elemwise {x:#x} {y:#x} len {len}");
+
+                    let mut got = dst_xy.clone();
+                    elemwise_assign(&mut got, &src_yx);
+                    let (re, im) = mul(cv, (cv.1, cv.0));
+                    assert_eq!(
+                        got,
+                        fill_pair(len, word(re), word(im)),
+                        "{label} pair elemwise_assign {x:#x} {y:#x} len {len}"
+                    );
+
+                    for &(cr, ci) in COEFFS {
+                        let cc = (canon(cr), canon(ci));
+                        let coeff = Qm::from_raw(cr, ci);
+                        let (pre, pim) = mul(cc, (cv.1, cv.0));
+
+                        let mut got = dst_xy.clone();
+                        muladd(&mut got, coeff, &src_yx);
+                        // A zero-valued coefficient is a defined no-op that
+                        // preserves the untouched limbs byte for byte.
+                        let want = if cc == (0, 0) {
+                            dst_xy.clone()
+                        } else {
+                            fill_pair(len, word((cv.0 + pre) % wide), word((cv.1 + pim) % wide))
+                        };
+                        assert_eq!(
+                            got, want,
+                            "{label} pair mul_add {x:#x} {y:#x} coeff {cr:#x},{ci:#x} len {len}"
+                        );
+
+                        let mut got = vec![0u8; len];
+                        mulinto(&mut got, coeff, &src_yx);
+                        let want = if cc == (0, 0) {
+                            fill_pair(len, 0, 0)
+                        } else {
+                            fill_pair(len, word(pre), word(pim))
+                        };
+                        assert_eq!(
+                            got, want,
+                            "{label} pair mul_into {x:#x} {y:#x} coeff {cr:#x},{ci:#x} len {len}"
+                        );
+
+                        let mut got = dst_xy.clone();
+                        mulassign(&mut got, coeff);
+                        // A unit-valued coefficient is a defined no-op; a
+                        // zero-valued one zeroes the buffer.
+                        let want = if cc == (0, 0) {
+                            fill_pair(len, 0, 0)
+                        } else if cc == (1, 0) {
+                            dst_xy.clone()
+                        } else {
+                            let (re, im) = mul(cc, cv);
+                            fill_pair(len, word(re), word(im))
+                        };
+                        assert_eq!(
+                            got, want,
+                            "{label} pair mul_assign {x:#x} coeff {cr:#x},{ci:#x} len {len}"
+                        );
+                    }
+
+                    for value in VALUES {
+                        let (vr, vi) = value.to_raw();
+                        let vv = (canon(vr), canon(vi));
+
+                        let mut got = dst_xy.clone();
+                        addscalar(&mut got, value);
+                        assert_eq!(
+                            got,
+                            fill_pair(len, word((cv.0 + vv.0) % wide), word((cv.1 + vv.1) % wide)),
+                            "{label} pair add_scalar {x:#x},{y:#x} value {vr:#x} len {len}"
+                        );
+
+                        let mut got = dst_xy.clone();
+                        subscalar(&mut got, value);
+                        assert_eq!(
+                            got,
+                            fill_pair(
+                                len,
+                                word((cv.0 + wide - vv.0) % wide),
+                                word((cv.1 + wide - vv.1) % wide)
+                            ),
+                            "{label} pair sub_scalar {x:#x},{y:#x} value {vr:#x} len {len}"
+                        );
+                    }
+                }
+            }
+        }
+
         if host_supports(&[Backend::V3]) {
             let token = X64V3Token::summon().expect("guard passed: AVX2 summons here");
             drive(
                 "qm31 avx2 noncanonical",
+                |dst, src| x86::quad_mersenne31::add_assign_avx2(token, dst, src),
+                |dst, src| x86::quad_mersenne31::sub_assign_avx2(token, dst, src),
+                |dst, coeff, src| x86::quad_mersenne31::mul_add_avx2(token, dst, coeff, src),
+                |dst, coeff, src| x86::quad_mersenne31::mul_into_avx2(token, dst, coeff, src),
+                |dst, coeff| x86::quad_mersenne31::mul_assign_avx2(token, dst, coeff),
+                |dst, a, b| x86::quad_mersenne31::mul_elementwise_avx2(token, dst, a, b),
+                |dst, s| x86::quad_mersenne31::mul_elementwise_assign_avx2(token, dst, s),
+                |dst, c| x86::quad_mersenne31::add_assign_scalar_avx2(token, dst, c),
+                |dst, c| x86::quad_mersenne31::sub_assign_scalar_avx2(token, dst, c),
+            );
+            drive_pairs(
+                "qm31 avx2 pairs",
                 |dst, src| x86::quad_mersenne31::add_assign_avx2(token, dst, src),
                 |dst, src| x86::quad_mersenne31::sub_assign_avx2(token, dst, src),
                 |dst, coeff, src| x86::quad_mersenne31::mul_add_avx2(token, dst, coeff, src),
@@ -5115,6 +5469,83 @@ mod x86 {
                 prime::mul_elementwise::<QuadMersenne31>(&mut want, &src, &other);
                 assert_eq!(got, want, "qm31 avx512 mul_elementwise len {len}");
                 assert_canonical("qm31 avx512 mul_elementwise", &got);
+            }
+
+            // Boundary-word pairs for the three multiply shapes this tier
+            // owns, against the same independent `u128 % p` complex model
+            // as the AVX2 pair sweep.
+            {
+                const WORDS: [u32; 7] = [0, 1, P - 1, P, P + 1, 2 * P, u32::MAX];
+                const PAIR_LENS: &[usize] = &[8, 32, 40, 64, 72, 136];
+                let wide = u128::from(P);
+                let canon = |v: u32| u128::from(v) % wide;
+                let word = |v: u128| u32::try_from(v).unwrap();
+                let fill_pair = |len: usize, re: u32, im: u32| -> Vec<u8> {
+                    let mut out = Vec::with_capacity(len);
+                    while out.len() < len {
+                        out.extend_from_slice(&re.to_le_bytes());
+                        out.extend_from_slice(&im.to_le_bytes());
+                    }
+                    out.truncate(len);
+                    out
+                };
+                let mul = |(ar, ai): (u128, u128), (br, bi): (u128, u128)| -> (u128, u128) {
+                    (
+                        (ar * br + wide * wide - ai * bi) % wide,
+                        (ar * bi + ai * br) % wide,
+                    )
+                };
+                for &len in PAIR_LENS {
+                    let pairs = WORDS
+                        .iter()
+                        .flat_map(|&x| WORDS.iter().map(move |&y| (x, y)));
+                    for (x, y) in pairs {
+                        let cv = (canon(x), canon(y));
+                        let dst_xy = fill_pair(len, x, y);
+                        let src_yx = fill_pair(len, y, x);
+
+                        let mut got = vec![0u8; len];
+                        x86::quad_mersenne31::mul_elementwise_avx512(
+                            token, &mut got, &dst_xy, &src_yx,
+                        );
+                        let (re, im) = mul(cv, (cv.1, cv.0));
+                        assert_eq!(
+                            got,
+                            fill_pair(len, word(re), word(im)),
+                            "qm31 avx512 pairs elemwise {x:#x} {y:#x} len {len}"
+                        );
+
+                        for &(cr, ci) in COEFFS {
+                            let cc = (canon(cr), canon(ci));
+                            let coeff = Qm::from_raw(cr, ci);
+                            let (pre, pim) = mul(cc, (cv.1, cv.0));
+
+                            let mut got = dst_xy.clone();
+                            x86::quad_mersenne31::mul_add_avx512(token, &mut got, coeff, &src_yx);
+                            let want = if cc == (0, 0) {
+                                dst_xy.clone()
+                            } else {
+                                fill_pair(len, word((cv.0 + pre) % wide), word((cv.1 + pim) % wide))
+                            };
+                            assert_eq!(
+                                got, want,
+                                "qm31 avx512 pairs mul_add {x:#x} {y:#x} coeff {cr:#x},{ci:#x} len {len}"
+                            );
+
+                            let mut got = vec![0u8; len];
+                            x86::quad_mersenne31::mul_into_avx512(token, &mut got, coeff, &src_yx);
+                            let want = if cc == (0, 0) {
+                                fill_pair(len, 0, 0)
+                            } else {
+                                fill_pair(len, word(pre), word(pim))
+                            };
+                            assert_eq!(
+                                got, want,
+                                "qm31 avx512 pairs mul_into {x:#x} {y:#x} coeff {cr:#x},{ci:#x} len {len}"
+                            );
+                        }
+                    }
+                }
             }
         }
     }
