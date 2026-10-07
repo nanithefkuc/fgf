@@ -1,57 +1,69 @@
-# Goldilocks: v2 versus v3
+# Goldilocks: `gld` (v2)
 
-Same-session comparison of the v2 line and v3. Every result cell reports
-Tiger Lake / Golden Cove; hosts and shared method:
-[BENCHMARKS.md](../../BENCHMARKS.md). The v3 pages one level up hold the
-v3 snapshot and its competitor comparisons.
+Paired-run snapshot for v2. Every result cell reports Willow Cove (i5-1135G7) / Golden Cove (i7-12700K); shared hosts, toolchain, sampling, and number format: [BENCHMARKS.md](../../BENCHMARKS.md). Canonical field labels: [labels.md](../labels.md). The paired comparison lives at [v2 versus v3](../comparison/goldilocks.md); the other snapshot at [v3](../v3/goldilocks.md).
 
 ## Setup
 
 | Setting | Value |
 | --- | --- |
-| v2 | Revision `b844fa6` (2.1.0 line, all features) |
-| v3 | Revision `b19d97b` (3.0.0, all features) |
-| Build | Portable x86-64, rustc 1.98.1, thin LTO, one codegen unit; identical binaries on both hosts |
-| Resolved backend | `v4x` / `v3_gfni_crypto`, checked on every run |
-| Protocol | Five rounds; each round runs every suite and shuffles the version order |
-| Aggregation | Median of five per-run medians |
-| Ratio | v3 throughput / v2 throughput; above one means v3 is faster |
-| Harness rows | Latency per call; the ratio is v2 latency / v3 latency |
+| Campaign | `just bench-paired` (family round `gdl`) |
+| Revision | `c20465ba22d078e0fb115fb6a99fa77027992c90` |
+| Toolchain | 1.98.1 |
+| Resolved process backend | `v4x` / `v3_gfni_crypto` |
+| Resolved field backends | `gld`: `v4x` / `v3` |
+| Protocol | Five rounds per host; each round runs both versions in a shuffled order; competitor arms interleave inside their harness process. |
+| Aggregation | Median of five per-run medians. |
+| Throughput | Logical bytes divided by the aggregate latency per call; numerators are stated per panel. |
+| Competitors | Willow Cove (i5-1135G7): Plonky3 0.7.0; native packing widths {'m31': 16, 'gld': 8, 'qm31': 16}; Golden Cove (i7-12700K): Plonky3 0.7.0; native packing widths {'m31': 8, 'gld': 4, 'qm31': 8} |
 
-## Results
+## Self-timings
 
-### buffer 4 KiB
+### Packed operations
 
-| Case | v2 (GiB/s) | v3 (GiB/s) | v3 / v2 |
+`gld`, ordinary `Vec<u8>` buffers.
+
+| Operation | 4 KiB (GiB/s) | 256 KiB (GiB/s) | 8 MiB (GiB/s) |
 | --- | --- | --- | --- |
-| add_assign gld | 29.6 / 22.4 | 29.6 / 22.4 | 1.00 / 1.00 |
-| add_assign_scalar gld | 44.5 / 39.3 | 44.8 / 41.0 | 1.01 / 1.04 |
-| sub_assign_scalar gld | 59.9 / 40.6 | 59.8 / 39.2 | 1.00 / 0.97 |
-| elementwise gld | 11.0 / 11.1 | 11.0 / 11.1 | 1.00 / 1.00 |
-| elementwise_assign gld | 11.2 / 11.2 | 11.2 / 11.2 | 1.00 / 1.00 |
+| add_assign | 29.6 / 22.0 | 27.3 / 22.5 | 8.11 / 20.9 |
+| add_assign_scalar | 43.9 / 39.4 | 44.4 / 40.8 | 26.0 / 33.7 |
+| mul_elementwise | 10.8 / 10.6 | 11.3 / 11.2 | 5.18 / 10.4 |
+| mul_elementwise_assign | 10.9 / 11.1 | 11.3 / 11.3 | 7.08 / 9.77 |
+| sub_assign_scalar | 58.9 / 40.8 | 52.7 / 40.2 | 27.9 / 33.9 |
 
-### buffer 256 KiB
+## Competitors
 
-| Case | v2 (GiB/s) | v3 (GiB/s) | v3 / v2 |
+Page-aligned regions on each library's native layout; conversions are excluded. Packed throughput counts two region byte extents per call. Scalar rows measure indexed products with accumulation. Arms alternate within one process, and outputs are validated before timing.
+
+### Scalar
+
+| Field | Operation | `fgf` (ns/op) | Plonky3 (ns/op) |
 | --- | --- | --- | --- |
-| add_assign gld | 28.47 / 22.51 | 28.41 / 22.54 | 1.00 / 1.00 |
-| add_assign_scalar gld | 49.20 / 41.46 | 49.18 / 41.51 | 1.00 / 1.00 |
-| sub_assign_scalar gld | 51.76 / 41.08 | 51.76 / 41.03 | 1.00 / 1.00 |
-| elementwise gld | 9.66 / 10.61 | 9.39 / 10.62 | 0.97 / 1.00 |
-| elementwise_assign gld | 10.45 / 11.16 | 10.13 / 10.99 | 0.97 / 0.98 |
+| gld | scalar a * b | 3.740 / 1.640 | 2.570 / 1.110 |
+| m31 | scalar a * b | 4.219 / 1.546 | 2.107 / 0.801 |
+| qm31 | scalar a * b | 9.003 / 4.365 | 6.963 / 2.908 |
 
-### buffer 8 MiB
+### Packed
 
-| Case | v2 (GiB/s) | v3 (GiB/s) | v3 / v2 |
+| Field | Operation | `fgf` (GiB/s) | Plonky3 (GiB/s) |
 | --- | --- | --- | --- |
-| add_assign gld | 5.43 / 5.14 | 5.42 / 10.18 | 1.00 / 1.98 |
-| add_assign_scalar gld | 27.46 / 35.66 | 27.47 / 35.64 | 1.00 / 1.00 |
-| sub_assign_scalar gld | 28.74 / 35.76 | 28.73 / 35.74 | 1.00 / 1.00 |
-| elementwise gld | 3.54 / 3.48 | 3.57 / 3.50 | 1.01 / 1.01 |
-| elementwise_assign gld | 3.82 / 3.57 | 3.82 / 6.37 | 1.00 / 1.78 |
+| gld | dst += c * src | 19.7 / 16.9 | 22.5 / 20.6 |
+| gld | dst += v | 97.5 / 81.6 | 103 / 148 |
+| gld | dst -= v | 103 / 80.9 | 103 / 147 |
+| gld | dst = a * b | 23.8 / 23.3 | 26.9 / 26.4 |
+| gld | dst = c * src | 25.1 / 23.2 | 27.4 / 27.1 |
+| m31 | dst += c * src | 55.6 / 61.1 | 49.8 / 57.1 |
+| m31 | dst += v | 87.6 / 108 | 103 / 153 |
+| m31 | dst -= v | 70.3 / 86.4 | 103 / 153 |
+| m31 | dst = a * b | 59.5 / 68.2 | 59.8 / 69.3 |
+| m31 | dst = c * src | 73.1 / 76.8 | 65.4 / 72.9 |
+| qm31 | dst += c * src | 22.9 / 28.3 | 27.0 / 31.7 |
+| qm31 | dst += v | 62.6 / 108 | 103 / 153 |
+| qm31 | dst -= v | 49.9 / 86.4 | 103 / 153 |
+| qm31 | dst = a * b | 27.0 / 31.1 | 24.1 / 26.2 |
+| qm31 | dst = c * src | 32.1 / 37.6 | 30.5 / 36.1 |
+
 
 ## Caveats
 
-- v3 makes every prime-field kernel output canonical for any accepted input lane; v2 assumed canonical inputs on its multiply paths. The Mersenne31 and `QuadMersenne31` elementwise rows carry that contract.
-- Rows whose code is instruction-identical between the two revisions can still differ by a few percent from binary layout; the same-session protocol bounds, but does not remove, that effect.
-- Case labels are the benchmark harness's own labels; field suffixes (`gf8`, `gf16`, `m31`, `qm31`, `gld`) name the measured field.
+- The unchanged byte-XOR control bracketed every self-suite process; its values are retained in the raw evidence.
+- The prime harness control row precedes the first field heading; control values are retained in the raw evidence.

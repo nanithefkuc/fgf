@@ -1,13 +1,13 @@
-# Wider binary fields: `gf32b`, `gf64b`, `fp16`, `fp32`, `fp64` (v2)
+# Wider binary fields: `gf32b`, `gf64b`, `fp16`, `fp32`, `fp64` (v3)
 
-Paired-run snapshot for v2. Every result cell reports Willow Cove (i5-1135G7) / Golden Cove (i7-12700K); shared hosts, toolchain, sampling, and number format: [BENCHMARKS.md](../../BENCHMARKS.md). Canonical field labels: [labels.md](../labels.md). The paired comparison lives at [v2 versus v3](../comparison/wide-binary.md); the other snapshot at [v3](../v3/wide-binary.md).
+Paired-run snapshot for v3. Every result cell reports Willow Cove (i5-1135G7) / Golden Cove (i7-12700K); shared hosts, toolchain, sampling, and number format: [BENCHMARKS.md](../../BENCHMARKS.md). Canonical field labels: [labels.md](../labels.md). The paired comparison lives at [v2 versus v3](../comparison/wide-binary.md); the other snapshot at [v2](../v2/wide-binary.md).
 
 ## Setup
 
 | Setting | Value |
 | --- | --- |
 | Campaign | `just bench-paired` (family round `gf`) |
-| Revision | `c20465ba22d078e0fb115fb6a99fa77027992c90` |
+| Revision | `4fa978b27d7b7b11c83291e212f47eccb5e7e8f3` |
 | Toolchain | 1.98.1 |
 | Resolved process backend | `v4x` / `v3_gfni_crypto` |
 | Resolved field backends | `gf32b`: `v4x` / `v3_gfni_crypto`; `gf64b`: `v4x` / `v3_gfni_crypto`; `fp16`: `v4x` / `v3_gfni_crypto`; `fp32`: `v4x` / `v3_gfni_crypto`; `fp64`: `v4x` / `v3_gfni_crypto` |
@@ -24,10 +24,10 @@ Paired-run snapshot for v2. Every result cell reports Willow Cove (i5-1135G7) / 
 | Field | Operation | mul_add (GiB/s) |
 | --- | --- | --- |
 | fp16 | mul_add | 9.98 / 17.1 |
-| fp32 | mul_add | 3.71 / 6.33 |
-| fp64 | mul_add | 1.38 / 1.91 |
-| gf32b | mul_add | 17.1 / 30.7 |
-| gf64b | mul_add | 9.11 / 17.0 |
+| fp32 | mul_add | 3.71 / 6.34 |
+| fp64 | mul_add | 1.38 / 2.19 |
+| gf32b | mul_add | 17.2 / 30.8 |
+| gf64b | mul_add | 9.11 / 16.9 |
 
 ## Competitors
 

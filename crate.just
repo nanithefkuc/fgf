@@ -288,3 +288,96 @@ bench-gf16-comp *ARGS: gf16-build
         echo "== GF16 round ${run}"
         chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" external/gf16-bench/target/release/fgf-gf16-bench {{ARGS}}
     done
+
+# Build all artifacts before the paired version campaign begins.
+[group('bench')]
+bench-refresh-build:
+    just bench-build kernels
+    just bench-build compare
+    just _trio-build
+    just gf16-build
+    RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml --features fgf/simd512
+
+# Run one family round; the paired runner owns repetition and version order.
+[group('bench')]
+bench-refresh-round FAMILY:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${FEC_GOLDEN_CORE:?set FEC_GOLDEN_CORE to an isolated core}"
+    case "{{FAMILY}}" in
+        gf) units=(self trio gf16) ;;
+        gdl|m31) units=(self prime) ;;
+        gf2) units=(self) ;;
+        *) printf 'invalid_family family=%s\n' "{{FAMILY}}" >&2; exit 2 ;;
+    esac
+    printf '%s\n' "${units[@]}" | shuf | while read -r unit; do
+        printf 'UNIT\t%s\n' "$unit"
+        case "$unit" in
+            self)
+                if [[ -n "${FGF_SELF_ARTIFACTS:-}" ]]; then
+                    taskset -c "$FEC_GOLDEN_CORE" "$FGF_SELF_ARTIFACTS/kernels" --{{FAMILY}}
+                    if [[ "{{FAMILY}}" == gf ]]; then
+                        taskset -c "$FEC_GOLDEN_CORE" "$FGF_SELF_ARTIFACTS/compare"
+                    fi
+                else
+                    just bench kernels --{{FAMILY}}
+                    if [[ "{{FAMILY}}" == gf ]]; then
+                        just bench compare
+                    fi
+                fi
+                ;;
+            trio) taskset -c "$FEC_GOLDEN_CORE" external/bench-trio/target/release/fgf-bench-trio ;;
+            gf16) taskset -c "$FEC_GOLDEN_CORE" external/gf16-bench/target/release/fgf-gf16-bench ;;
+            prime) taskset -c "$FEC_GOLDEN_CORE" external/prime-bench/target/release/fgf-bench-prime {{FAMILY}} ;;
+        esac
+    done
+
+# Compare two source roots on one host without reusing previous timings.
+[group('bench')]
+bench-paired V2_ROOT OUTPUT:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${FEC_GOLDEN_CORE:?set FEC_GOLDEN_CORE to an isolated core}"
+    : "${SIMD_BACKEND:?set SIMD_BACKEND to the intended host tier}"
+    export RAYON_NUM_THREADS=1 GOMAXPROCS=1
+    v2=$(realpath "{{V2_ROOT}}")
+    v3="$PWD"
+    out=$(realpath -m "{{OUTPUT}}")
+    mkdir -p "$out"
+    [[ ! -e "$out/complete.txt" && ! -e "$out/order.tsv" ]] || {
+        printf 'output_already_used path=%s\n' "$out" >&2
+        exit 2
+    }
+    exec 9>"$HOME/.fgf-benchmark-campaign.lock"
+    flock -n 9 || { printf 'campaign_host_busy\n' >&2; exit 2; }
+    for source in "$v2" "$v3"; do
+        just --justfile "$source/justfile" --working-directory "$source" bench-refresh-build
+        chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" just --justfile "$source/justfile" --working-directory "$source" test
+        chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" just --justfile "$source/justfile" --working-directory "$source" gf16-check
+    done
+    for round in 1 2 3 4 5; do
+        for family in gf gdl m31 gf2; do
+            printf '%s\n' v2 v3 | shuf | while read -r version; do
+                source="$v3"
+                [[ "$version" == v2 ]] && source="$v2"
+                if [[ -n "${FGF_PORTABLE_ARTIFACTS:-}" ]]; then
+                    export FGF_SELF_ARTIFACTS="$FGF_PORTABLE_ARTIFACTS/$version"
+                fi
+                printf '%s\t%s\t%s\n' "$round" "$family" "$version" | tee -a "$out/order.tsv"
+                chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" \
+                    just --justfile "$source/justfile" --working-directory "$source" bench-refresh-round "$family" \
+                    >"$out/round-$round-$version-$family.log" 2>&1
+            done
+        done
+    done
+    printf 'CAMPAIGN_COMPLETE\n' >"$out/complete.txt"
+
+# Materialize the frozen release with benchmark-only public API adapters.
+[group('bench')]
+bench-prepare-v2 DESTINATION:
+    python3 benches/prepare_v2.py --output "{{DESTINATION}}"
+
+# Generate or verify version snapshots and paired comparisons from raw runs.
+[group('bench')]
+bench-publish RECORDS OUTPUT *ARGS:
+    python3 benches/publish.py --records "{{RECORDS}}" --output "{{OUTPUT}}" {{ARGS}}
