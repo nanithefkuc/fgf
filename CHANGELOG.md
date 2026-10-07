@@ -10,29 +10,38 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Version-independent benchmark labels and separate absolute `benchmarks/v2/`
+  and `benchmarks/v3/` records, with matched speed factors under
+  `benchmarks/comparison/`. Released v2.1.0 replaces the generic-API baseline.
+- Reproducible benchmark-only v2 preparation, paired host campaigns, and a
+  fail-closed publisher with a raw-record cell evidence index.
+- Custom RS-rooted `gf16d` one-shot, prepared, and scalar measurements, with
+  no fabricated released-v2 counterpart.
 - Explicit binary embeddings: `Embedding<S, T>` prepares the canonical
   inclusion of one binary field into another whose degree is a multiple of
   it, for every supported presentation — polynomial, ordered-basis, and
   tower, custom `TowerSpec` instances included. One frozen reference per
-  degree (`Poly<3>`, `Poly<0x7>`, `Poly<0x13>`, the AES field, and the
-  Rijndael towers `Gf16`/`Gf32`/`Gf64`) fixes the consecutive inclusions:
-  the identity into degree two, smallest-raw-root inclusions below the AES
-  field, and low-component inclusions above it. `new` returns
-  `EmbeddingError::IncompatibleDegree` when the source degree does not
-  divide the target degree. `embed`, `contains`, `restrict`, `frobenius`,
-  `trace`, and `norm` apply the prepared column arrays without allocating;
-  equal presentation descriptions embed identically, and `Embedding<Gf1,
-  T>` supplies the absolute trace and norm.
-- Recursive quadratic towers through degree 64. One open `TowerSpec { Base,
-  A, B, NAME }` presents every quadratic tower at degrees 2, 4, 8, 16, 32,
-  and 64 over a supported base of half the degree; `TowerGeneratorSpec`
-  optionally pins a multiplicative generator checked to full order against
-  the complete prime factors of `2^N - 1` at each degree. Shipped specs root
-  at the AES field (`Rijndael16`, `Rijndael32`, `Rijndael64`) or nest from
-  GF(2) through the Wiedemann relation (`FanPaar2` through `FanPaar64`, the
-  degree-two and degree-four levels joining the ladder). Custom specs
-  validate through the field description: the base first, excess
-  coefficient bits, `A != 0`, and absolute `trace(B/A^2) == 1`.
+  degree (`Polynomial<3>`, `Polynomial<0x7>`, `Polynomial<0x13>`, the AES
+  field, and the Rijndael towers `Binary<16, Tower<Rijndael16>>`,
+  `Binary<32, Tower<Rijndael32>>`, and `Binary<64, Tower<Rijndael64>>`) fixes the
+  consecutive inclusions: the identity into degree two, smallest-raw-root
+  inclusions below the AES field, and low-component inclusions above it.
+  `new` returns `EmbeddingError::IncompatibleDegree` when the source degree
+  does not divide the target degree. `embed`, `contains`, `restrict`,
+  `frobenius`, `trace`, and `norm` apply the prepared column arrays without
+  allocating; equal presentation descriptions embed identically, and
+  `Embedding<Binary<1, Polynomial<3>>, T>` supplies the absolute trace and norm.
+- Recursive quadratic towers through degree 64. One open `TowerSpec`
+  supplies `Base`, `LINEAR_COEFFICIENT`, `CONSTANT_COEFFICIENT`, and `NAME`
+  for every quadratic tower at degrees 2, 4, 8, 16, 32, and 64 over a
+  supported base of half the degree; `TowerGeneratorSpec` optionally pins a
+  multiplicative generator checked to full order against the complete prime
+  factors of `2^N - 1` at each degree. Shipped specs root at the AES field
+  (`Rijndael16`, `Rijndael32`, `Rijndael64`) or nest from GF(2) through the
+  Wiedemann relation (`FanPaar2` through `FanPaar64`, the degree-two and
+  degree-four levels joining the ladder). Custom specs validate through the
+  field description: the base first, excess coefficient bits, `A != 0`, and
+  absolute `trace(B/A^2) == 1` for the relation `t^2 + A*t + B = 0`.
 - Custom tower bulk operations: one dispatch implementation per degree
   serves every representation, routing pinned Rijndael and Fan-Paar
   descriptions to their vector kernels and every other tower to the typed
@@ -46,10 +55,10 @@ All notable changes to this project are documented here. The format follows
   `c_0 == ONE`), at degrees 2, 4, and 8. Basis rank and inverse columns are
   checked by bounded enumeration; generators are the transported polynomial
   generators, verified to full order. Polynomial presentations extend to
-  degrees two (`Poly<0x7>`) and four (`Poly<0x13>`, `Poly<0x19>`,
-  `Poly<0x1F>`); degrees 1, 2, and 4 are scalar-only. Basis bulk operations
-  run the typed scalar fallback; polynomial arithmetic never touches basis
-  coordinates.
+  degrees two (`Polynomial<0x7>`) and four (`Polynomial<0x13>`,
+  `Polynomial<0x19>`, `Polynomial<0x1F>`); degrees 1, 2, and 4 are
+  scalar-only. Basis bulk operations run the typed scalar fallback;
+  polynomial arithmetic never touches basis coordinates.
 - Open scalar field definitions. `Field` is implementable downstream;
   `PrimeCharacteristic<P>` supplies a checked prime identity at any `u64`
   prime through deterministic Miller-Rabin, and the central validation
@@ -78,19 +87,50 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking:** fields have no public type aliases; `Binary<N, R>` is the
+  only spelling. `Gf1`, `Gf16`, `Gf32`, `Gf64`, and `FanPaar2` through
+  `FanPaar64` (the field aliases) are not provided: replace each with its
+  canonical type — `Binary<1, Polynomial<3>>`,
+  `Binary<16, Tower<Rijndael16>>`, `Binary<32, Tower<Rijndael32>>`,
+  `Binary<64, Tower<Rijndael64>>`, and `Binary<N, Tower<FanPaarN>>` — or
+  declare a local alias such as
+  `type Gf2P16 = Binary<16, Tower<Rijndael16>>;`. The Fan-Paar spec markers
+  are named like `Rijndael16`: `FanPaar2Spec` through `FanPaar64Spec` become
+  `FanPaar2` through `FanPaar64`, so Fan-Paar GF(2^16) is
+  `Binary<16, Tower<FanPaar16>>`.
+- **Breaking:** `Binary<N, R>` replaces `Gf<N, R>` and explicitly names
+  characteristic-two fields; `BinaryField` remains the capability trait.
+  `Polynomial<P>` replaces `Poly<P>`, and `RS` replaces `REED_SOLOMON`
+  for the unchanged `0x11D` polynomial convention. The `Gf8<R>` transition
+  alias is removed: replace it with `Binary<8, R>`, including associated
+  item paths such as `Binary::<8, Polynomial<AES>>::ORDER`. For example,
+  `Elem<Gf8<Poly<REED_SOLOMON>>>` becomes
+  `Elem<Binary<8, Polynomial<RS>>>`. No compatibility aliases remain.
+- **Breaking:** `TowerSpec::LINEAR_COEFFICIENT` and
+  `TowerSpec::CONSTANT_COEFFICIENT` replace `TowerSpec::A` and
+  `TowerSpec::B`. Rename the associated constants in custom specs and their
+  qualified uses; values remain raw coordinates in `Base` for the relation
+  `t^2 + A*t + B = 0`. `TowerSpec` and `TowerGeneratorSpec` remain separate:
+  arithmetic requires no selected generator. Field arithmetic, wire bytes,
+  selected generators, and backend routing are unchanged.
+- The canonical $GF(2)$ benchmark label is `gf1`, denoting extension degree.
+  Its pages move from `gf2.md` to `gf1.md` in the v2, v3, and comparison
+  directories; the released-v2 API mapping remains `Gf2`.
 - **Breaking:** one element wrapper, `Elem<F>`, replaces every concrete
   element path. `mersenne31::Elem`, `goldilocks::Elem`,
   `quad_mersenne31::Elem`, the binary `Elem<N, R>` spelling, the
   `gf16`/`gf32`/`gf64` and Fan-Paar element structs, and `gf2::Elem` are
   removed, as are the module `GENERATOR` constants (`Elem::<F>::GENERATOR`
-  replaces them all). `Gf2` becomes `Gf1`, the `Gf<1, Poly<3>>` field, and
-  `bits::dot_product` returns `Elem<Gf1>`. Migrate `gf2::Elem` to
-  `Elem<Gf1>`, `mersenne31::Elem` to `Elem<Mersenne31>`, `gf16::Elem` to
-  `Elem<Gf16>`, `fan_paar::fp16::Elem` to `Elem<FanPaar16>`, and the binary
-  `Elem<8, Poly<POLY>>` to `Elem<Gf<8, Poly<POLY>>>`; spell elements of the
-  wider towers and the prime families the same way. Inherent `const`
-  arithmetic sits on the `Elem<F>` types; `ZERO`, `ONE`, `GENERATOR`, and
-  `to_raw` are the generic items and are not redeclared per family. `Debug`
+  replaces them all). `Gf2` becomes `Binary<1, Polynomial<3>>`, and
+  `bits::dot_product` returns `Elem<Binary<1, Polynomial<3>>>`. Migrate
+  `gf2::Elem` to `Elem<Binary<1, Polynomial<3>>>`, `mersenne31::Elem` to
+  `Elem<Mersenne31>`, `gf16::Elem` to `Elem<Binary<16, Tower<Rijndael16>>>`,
+  `fan_paar::fp16::Elem` to `Elem<Binary<16, Tower<FanPaar16>>>`, and the
+  binary `Elem<8, Poly<POLY>>` to `Elem<Binary<8, Polynomial<POLY>>>`;
+  spell elements of the wider towers and the prime families the same way.
+  Inherent `const` arithmetic sits on the `Elem<F>` types; `ZERO`, `ONE`,
+  `GENERATOR`, and `to_raw` are the generic items and are not redeclared
+  per family. `Debug`
   for every element is the generic `NAME(raw)` format; family `Display`
   formats are unchanged. The scalar-arithmetic trait `field::Elem` is
   renamed `FieldElem` (re-exported as `fgf::FieldElem`): replace
@@ -132,42 +172,46 @@ All notable changes to this project are documented here. The format follows
   `ByteLogExp` table slot at degree eight, and the use-time `VALID` check;
   `BinaryField` adds the canonical coordinate conversions and
   `BinaryDegree<N>` pins the exact degree a generic tower row may build on.
-  `Gf<N, R>` keeps its shape. Migrate `Repr<8>`/`ByteRepr` bounds to
-  `BinaryRepr<8>` and read tables through `LOG_EXP`; the kernel table banks
+  Migrate `Repr<8>`/`ByteRepr` bounds to `BinaryRepr<8>` and read tables
+  through `LOG_EXP`; the kernel table banks
   move with the representations. The representations live in the binary
-  subtree: `field::binary` (`Gf`, `Gf8`, `Gf1`, the coordinate surface),
+  subtree: `field::binary` (`Binary`, the coordinate surface),
   `field::binary::poly`, `field::binary::normal`, `field::binary::cantor`,
   and `field::binary::description` replace the removed `field::repr`,
   `field::poly`, and `field::gf1` modules.
-- **Breaking:** `Poly<const P: u32>` becomes `Poly<const P: u128>`, and the
-  `AES`/`REED_SOLOMON` constants widen to `u128` with the same values.
-  `Poly` implements `BinaryRepr` at degrees 1, 2, 4, and 8; only `Poly<3>`
-  is the degree-one form and `Gf1` is the `Gf<1, Poly<3>>` alias. Generic
-  flat byte fields support any irreducible degree-eight polynomial — Data
-  Matrix `0x12D` and the CCSDS basis `0x187` included — with x86 GFNI
-  elementwise multiplication deriving an isomorphism onto the AES field for
-  each polynomial. Migrating from the 2.x names: `Gf8B`/`Gf8D` become
-  `Gf8<Poly<AES>>`/`Gf8<Poly<REED_SOLOMON>>`, `gf8b::Elem`/`gf8d::Elem`
-  become `Elem<Gf<8, Poly<AES>>>`/`Elem<Gf<8, Poly<REED_SOLOMON>>>`, and
-  other conventions spell `Poly<0x12D>` or `Poly<0x187>` directly; import
-  the constant (`Poly<AES>`) rather than qualifying it (`Poly<fgf::AES>`)
-  in const-generic position. Values, wire encodings, and generators are
-  unchanged.
+- **Breaking:** `Poly<const P: u32>` becomes `Polynomial<const P: u128>`,
+  and the `AES` and renamed `RS` constants widen to `u128` with the same
+  values. `Polynomial` implements `BinaryRepr` at degrees 1, 2, 4, and 8;
+  only `Polynomial<3>` is the degree-one form, giving GF(2) as
+  `Binary<1, Polynomial<3>>`. Generic flat byte fields support any
+  irreducible degree-eight polynomial — Data Matrix `0x12D` and the CCSDS
+  basis `0x187` included — with x86 GFNI elementwise multiplication deriving
+  an isomorphism onto the AES field for each polynomial. Migrating from the
+  2.x names: `Gf8B`/`Gf8D` become `Binary<8, Polynomial<AES>>`/
+  `Binary<8, Polynomial<RS>>`, `gf8b::Elem`/`gf8d::Elem` become
+  `Elem<Binary<8, Polynomial<AES>>>`/`Elem<Binary<8, Polynomial<RS>>>`,
+  and other conventions spell `Polynomial<0x12D>` or `Polynomial<0x187>`
+  directly; import the constant (`Polynomial<AES>`) rather than qualifying
+  it (`Polynomial<fgf::AES>`) in const-generic position. Values, wire
+  encodings, and generators are unchanged.
 - **Breaking:** the Rijndael and Fan-Paar hierarchies collapse into the
   recursive tower. `RijndaelTower` is renamed `Rijndael16` and joined by
-  `Rijndael32` and `Rijndael64`; `Gf16`, `Gf32`, and `Gf64` are aliases of
-  `Gf<N, Tower<RijndaelN>>`. The `gf16`, `gf32`, and `gf64` modules,
+  `Rijndael32` and `Rijndael64`: 2.x `Gf16`, `Gf32`, and `Gf64` become
+  `Binary<16, Tower<Rijndael16>>`, `Binary<32, Tower<Rijndael32>>`, and
+  `Binary<64, Tower<Rijndael64>>`. The `gf16`, `gf32`, and `gf64` modules,
   `quad_tower!`, the concrete Fan-Paar element and marker types, the
   `field::fan_paar` and `field::wiedemann` modules, and their
   `DELTA`/`ALPHA`/`GENERATOR` module constants are removed. Migrate the
-  relation constants to the spec `A`/`B` words; wire bytes, generators, and
-  relations are unchanged. The independent Fan-Paar recurrence stays
-  available as `field::binary::tower::{fp_multiply, fp_square, fp_invert,
+  relation constants to `LINEAR_COEFFICIENT`/`CONSTANT_COEFFICIENT` in the
+  spec; wire bytes, generators, and relations are unchanged. The
+  independent Fan-Paar recurrence stays available as
+  `field::binary::tower::{fp_multiply, fp_square, fp_invert,
   fp_mul_alpha}`, re-exported under `internals` as
-  `internals::field::fan_paar`. `TowerSpec` is open: `A` and `B` widen to
-  `u64` base-coordinate words, the base bound becomes `BinaryField` at half
-  the degree, and the generator moves to the optional
-  `TowerGeneratorSpec`. The unstable `internals::kernel::fan_paar` dispatch
+  `internals::field::fan_paar`. `TowerSpec` is open: `LINEAR_COEFFICIENT`
+  and `CONSTANT_COEFFICIENT` are `u64` base-coordinate words, the base
+  bound becomes `BinaryField` at half the degree, and the generator moves
+  to the optional `TowerGeneratorSpec`. The unstable
+  `internals::kernel::fan_paar` dispatch
   module merges into `internals::kernel::tower::{gf16, gf32, gf64}`, whose
   `Prepared` enums carry raw words and tiles; `x86::fan_paar` keeps its
   token-bearing entries unchanged. Path moves: `field::tower` →
@@ -1250,7 +1294,8 @@ behaviour.
 
 Initial public release.
 
-[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/nanithefkuc/fgf/compare/v2.1.0...v3.0.0
 [1.0.0]: https://github.com/nanithefkuc/fgf/compare/v0.7.1...v1.0.0
 [0.7.1]: https://github.com/nanithefkuc/fgf/compare/v0.7.0...v0.7.1
 [0.6.0]: https://github.com/nanithefkuc/fgf/compare/v0.5.0...v0.6.0

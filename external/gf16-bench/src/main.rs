@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::{Elem, Gf16, ops};
+use fgf::{Elem, ops};
 use reed_solomon_erasure::{Field, galois_16};
 use reed_solomon_simd::engine::{Avx2, Engine, tables};
 
@@ -16,6 +16,8 @@ mod representation;
 
 use native::Native;
 use representation::{Layout, Representations, tower_mul};
+
+type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
 
 const ALIGN: usize = 4096;
 const NAMES: [&str; 6] = [

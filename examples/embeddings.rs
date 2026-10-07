@@ -8,11 +8,17 @@
 
 #![forbid(unsafe_code)]
 
-use fgf::poly::{AES, REED_SOLOMON};
-use fgf::{Elem, Embedding, EmbeddingError, FanPaar16, Gf, Gf1, Gf8, Gf16, Gf64, Poly};
+use fgf::poly::{AES, RS};
+use fgf::{Binary, Elem, Embedding, EmbeddingError, Polynomial};
 
-type Aes = Gf8<Poly<AES>>;
-type Nibble = Gf<4, Poly<0x13>>;
+// Callers name their own fields; the canonical `Binary<N, R>` type is the API.
+type Gf1 = fgf::Binary<1, fgf::Polynomial<3>>;
+type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
+type Gf64 = fgf::Binary<64, fgf::Tower<fgf::Rijndael64>>;
+type FanPaar16Field = fgf::Binary<16, fgf::Tower<fgf::FanPaar16>>;
+
+type Aes = Binary<8, Polynomial<AES>>;
+type Nibble = Binary<4, Polynomial<0x13>>;
 
 fn main() {
     // Below the AES field the ladder inclusions are smallest-raw-root maps,
@@ -30,11 +36,12 @@ fn main() {
     // Equal degree is a change of presentation. The AES-to-Reed-Solomon map
     // is a ring isomorphism: it preserves one and products, and restriction
     // inverts it.
-    let involution = Embedding::<Gf8<Poly<AES>>, Gf8<Poly<REED_SOLOMON>>>::new().unwrap();
+    let involution =
+        Embedding::<Binary<8, Polynomial<AES>>, Binary<8, Polynomial<RS>>>::new().unwrap();
     let (a, b) = (Elem::<Aes>::from_raw(0x53), Elem::<Aes>::from_raw(0xca));
     assert_eq!(
         involution.embed(Elem::<Aes>::ONE),
-        Elem::<Gf8<Poly<REED_SOLOMON>>>::ONE
+        Elem::<Binary<8, Polynomial<RS>>>::ONE
     );
     assert_eq!(
         involution.embed(a * b),
@@ -76,10 +83,10 @@ fn main() {
     // Cross-basis at equal degree: the Fan-Paar tower through the same
     // ladder. Equal descriptions embed identically; different descriptions
     // still compare as fields, not as raw bytes.
-    let cross = Embedding::<FanPaar16, Gf16>::new().unwrap();
+    let cross = Embedding::<FanPaar16Field, Gf16>::new().unwrap();
     let (p, q) = (
-        Elem::<FanPaar16>::from_raw(0x35C2),
-        Elem::<FanPaar16>::from_raw(0x1234),
+        Elem::<FanPaar16Field>::from_raw(0x35C2),
+        Elem::<FanPaar16Field>::from_raw(0x1234),
     );
     assert_eq!(cross.restrict(cross.embed(p * q)), Some(p * q));
     assert_ne!(cross.embed(p).to_raw(), p.to_raw());

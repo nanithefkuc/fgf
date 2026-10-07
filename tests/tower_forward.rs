@@ -5,9 +5,17 @@
 //! stay unchanged through the tower cutover: they use only the surviving
 //! alias spellings and the unified low-component-first packing.
 
-use fgf::{AES, Elem, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf, Gf16, Gf32, Gf64, Poly};
+use fgf::{AES, Binary, Elem, Polynomial};
 
-type Aes8 = Gf<8, Poly<AES>>;
+type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
+type Gf32 = fgf::Binary<32, fgf::Tower<fgf::Rijndael32>>;
+type Gf64 = fgf::Binary<64, fgf::Tower<fgf::Rijndael64>>;
+type FanPaar8Field = fgf::Binary<8, fgf::Tower<fgf::FanPaar8>>;
+type FanPaar16Field = fgf::Binary<16, fgf::Tower<fgf::FanPaar16>>;
+type FanPaar32Field = fgf::Binary<32, fgf::Tower<fgf::FanPaar32>>;
+type FanPaar64Field = fgf::Binary<64, fgf::Tower<fgf::FanPaar64>>;
+
+type Aes8 = Binary<8, Polynomial<AES>>;
 
 #[test]
 fn gf16_forward_layout() {
@@ -117,10 +125,10 @@ fn gf64_forward_layout() {
 
 #[test]
 fn fan_paar8_forward_layout() {
-    assert_eq!(Elem::<FanPaar8>::ONE.to_raw(), 0x01);
-    assert_eq!(Elem::<FanPaar8>::GENERATOR.to_raw(), 0x2d);
+    assert_eq!(Elem::<FanPaar8Field>::ONE.to_raw(), 0x01);
+    assert_eq!(Elem::<FanPaar8Field>::GENERATOR.to_raw(), 0x2d);
     // Indeterminate of the byte tower.
-    assert_eq!(Elem::<FanPaar8>::from_raw(0x10).to_raw(), 0x10);
+    assert_eq!(Elem::<FanPaar8Field>::from_raw(0x10).to_raw(), 0x10);
     for (x, y, expect) in [
         (0x00u8, 0x00u8, 0x00u8),
         (0x01, 0x01, 0x01),
@@ -129,8 +137,8 @@ fn fan_paar8_forward_layout() {
         (0xFF, 0x2d, 0x1c),
     ] {
         assert_eq!(
-            Elem::<FanPaar8>::from_raw(x)
-                .mul(Elem::<FanPaar8>::from_raw(y))
+            Elem::<FanPaar8Field>::from_raw(x)
+                .mul(Elem::<FanPaar8Field>::from_raw(y))
                 .to_raw(),
             expect,
             "{x:02x} * {y:02x}"
@@ -140,22 +148,28 @@ fn fan_paar8_forward_layout() {
 
 #[test]
 fn fan_paar16_forward_layout() {
-    assert_eq!(Elem::<FanPaar16>::ONE.to_raw(), 0x0001);
-    assert_eq!(Elem::<FanPaar16>::GENERATOR.to_raw(), 0xe2de);
+    assert_eq!(Elem::<FanPaar16Field>::ONE.to_raw(), 0x0001);
+    assert_eq!(Elem::<FanPaar16Field>::GENERATOR.to_raw(), 0xe2de);
     for (b, expect) in [
         (0x00u8, 0x0000u16),
         (0x01, 0x0001),
         (0x1b, 0x001b),
         (0xFF, 0x00FF),
     ] {
-        let lifted = Elem::<FanPaar16>::from_components(
-            Elem::<FanPaar8>::from_raw(b),
-            Elem::<FanPaar8>::ZERO,
+        let lifted = Elem::<FanPaar16Field>::from_components(
+            Elem::<FanPaar8Field>::from_raw(b),
+            Elem::<FanPaar8Field>::ZERO,
         );
         assert_eq!(lifted.to_raw(), expect);
-        assert_eq!(Elem::<FanPaar16>::from_raw(u16::from(b)).to_raw(), expect);
+        assert_eq!(
+            Elem::<FanPaar16Field>::from_raw(u16::from(b)).to_raw(),
+            expect
+        );
     }
-    let ind = Elem::<FanPaar16>::from_components(Elem::<FanPaar8>::ZERO, Elem::<FanPaar8>::ONE);
+    let ind = Elem::<FanPaar16Field>::from_components(
+        Elem::<FanPaar8Field>::ZERO,
+        Elem::<FanPaar8Field>::ONE,
+    );
     assert_eq!(ind.to_raw(), 0x0100);
     for (x, y, expect) in [
         (0x0000u16, 0x0000u16, 0x0000u16),
@@ -166,8 +180,8 @@ fn fan_paar16_forward_layout() {
         (0xFFFF, 0xe2de, 0xa6ac),
     ] {
         assert_eq!(
-            Elem::<FanPaar16>::from_raw(x)
-                .mul(Elem::<FanPaar16>::from_raw(y))
+            Elem::<FanPaar16Field>::from_raw(x)
+                .mul(Elem::<FanPaar16Field>::from_raw(y))
                 .to_raw(),
             expect,
             "{x:04x} * {y:04x}"
@@ -177,22 +191,28 @@ fn fan_paar16_forward_layout() {
 
 #[test]
 fn fan_paar32_forward_layout() {
-    assert_eq!(Elem::<FanPaar32>::ONE.to_raw(), 0x00000001);
-    assert_eq!(Elem::<FanPaar32>::GENERATOR.to_raw(), 0x03e21cea);
+    assert_eq!(Elem::<FanPaar32Field>::ONE.to_raw(), 0x00000001);
+    assert_eq!(Elem::<FanPaar32Field>::GENERATOR.to_raw(), 0x03e21cea);
     for (b, expect) in [
         (0x0000u16, 0x00000000u32),
         (0x0001, 0x00000001),
         (0x48a8, 0x000048a8),
         (0xFFFF, 0x0000FFFF),
     ] {
-        let lifted = Elem::<FanPaar32>::from_components(
-            Elem::<FanPaar16>::from_raw(b),
-            Elem::<FanPaar16>::ZERO,
+        let lifted = Elem::<FanPaar32Field>::from_components(
+            Elem::<FanPaar16Field>::from_raw(b),
+            Elem::<FanPaar16Field>::ZERO,
         );
         assert_eq!(lifted.to_raw(), expect);
-        assert_eq!(Elem::<FanPaar32>::from_raw(u32::from(b)).to_raw(), expect);
+        assert_eq!(
+            Elem::<FanPaar32Field>::from_raw(u32::from(b)).to_raw(),
+            expect
+        );
     }
-    let ind = Elem::<FanPaar32>::from_components(Elem::<FanPaar16>::ZERO, Elem::<FanPaar16>::ONE);
+    let ind = Elem::<FanPaar32Field>::from_components(
+        Elem::<FanPaar16Field>::ZERO,
+        Elem::<FanPaar16Field>::ONE,
+    );
     assert_eq!(ind.to_raw(), 0x00010000);
     for (x, y, expect) in [
         (0x00000000u32, 0x00000000u32, 0x00000000u32),
@@ -203,8 +223,8 @@ fn fan_paar32_forward_layout() {
         (0xFFFFFFFF, 0x03e21cea, 0x9698865e),
     ] {
         assert_eq!(
-            Elem::<FanPaar32>::from_raw(x)
-                .mul(Elem::<FanPaar32>::from_raw(y))
+            Elem::<FanPaar32Field>::from_raw(x)
+                .mul(Elem::<FanPaar32Field>::from_raw(y))
                 .to_raw(),
             expect,
             "{x:08x} * {y:08x}"
@@ -214,22 +234,31 @@ fn fan_paar32_forward_layout() {
 
 #[test]
 fn fan_paar64_forward_layout() {
-    assert_eq!(Elem::<FanPaar64>::ONE.to_raw(), 0x0000000000000001);
-    assert_eq!(Elem::<FanPaar64>::GENERATOR.to_raw(), 0x070f870dcd9c1d88);
+    assert_eq!(Elem::<FanPaar64Field>::ONE.to_raw(), 0x0000000000000001);
+    assert_eq!(
+        Elem::<FanPaar64Field>::GENERATOR.to_raw(),
+        0x070f870dcd9c1d88
+    );
     for (b, expect) in [
         (0x00000000u32, 0x0000000000000000u64),
         (0x00000001, 0x0000000000000001),
         (0x12345678, 0x0000000012345678),
         (0xFFFFFFFF, 0x00000000ffffffff),
     ] {
-        let lifted = Elem::<FanPaar64>::from_components(
-            Elem::<FanPaar32>::from_raw(b),
-            Elem::<FanPaar32>::ZERO,
+        let lifted = Elem::<FanPaar64Field>::from_components(
+            Elem::<FanPaar32Field>::from_raw(b),
+            Elem::<FanPaar32Field>::ZERO,
         );
         assert_eq!(lifted.to_raw(), expect);
-        assert_eq!(Elem::<FanPaar64>::from_raw(u64::from(b)).to_raw(), expect);
+        assert_eq!(
+            Elem::<FanPaar64Field>::from_raw(u64::from(b)).to_raw(),
+            expect
+        );
     }
-    let ind = Elem::<FanPaar64>::from_components(Elem::<FanPaar32>::ZERO, Elem::<FanPaar32>::ONE);
+    let ind = Elem::<FanPaar64Field>::from_components(
+        Elem::<FanPaar32Field>::ZERO,
+        Elem::<FanPaar32Field>::ONE,
+    );
     assert_eq!(ind.to_raw(), 0x0000000100000000);
     for (x, y, expect) in [
         (
@@ -242,8 +271,8 @@ fn fan_paar64_forward_layout() {
         (0xFFFFFFFFFFFFFFFF, 0x070f870dcd9c1d88, 0x80076b4104dc0875),
     ] {
         assert_eq!(
-            Elem::<FanPaar64>::from_raw(x)
-                .mul(Elem::<FanPaar64>::from_raw(y))
+            Elem::<FanPaar64Field>::from_raw(x)
+                .mul(Elem::<FanPaar64Field>::from_raw(y))
                 .to_raw(),
             expect,
             "{x:016x} * {y:016x}"

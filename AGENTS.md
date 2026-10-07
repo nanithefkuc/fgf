@@ -24,14 +24,14 @@ just example NAME [ARGS] # one educational example, with Cargo options
 just examples [ARGS]     # all educational examples, excluding timing probes
 ```
 
-`just validate` does not run the GFNI Miri recipe; the dedicated `miri-gfni`
-CI job runs `just unsafe-check-gfni`.
+`just validate` does not run the GFNI Miri recipe; CI runs
+`just unsafe-check-gfni` as a separate job.
 
 Run `just validate` before submitting a change. Do not replace a recipe with a
 bare Cargo command; fix the recipe when its supported behavior is insufficient.
 The MSRV is Rust 1.93.
 
-`justfile` is a shared, byte-identical command surface. Do not edit it here.
+`justfile` is vendored unchanged from a shared template. Do not edit it here.
 Crate-specific values and recipes belong in `crate.just`.
 
 The example recipes default to the normal library features. Run
@@ -100,11 +100,13 @@ A helper private to one file carries no ISA or width marker; a helper shared
 across sibling files carries its defining file's ISA
 suffix (`bmul_gfni`, `store_avx2`, `fold_avx2`), and a half-width variant
 inside a wider tier is `_half`. The
-AVX-512 kernels dispatch on `V4x` under `simd512`; `Gf16` scatter and gather
+AVX-512 kernels dispatch on `V4x` under `simd512`; `Binary<16, Tower<Rijndael16>>` scatter and gather
 retain the narrower GFNI path. Direct differentials execute on AVX-512
-hardware, and the per-shape decisions are recorded in `benchmarks/gf8.md` and
-`benchmarks/gf16.md`. The byte-field and `Gf16` `mul_add` alignment peel floors
-remain measured thresholds with a benchmark record and misaligned-row coverage
+hardware, and the public per-shape measurements are recorded in
+`benchmarks/v3/gf8.md` and `benchmarks/v3/gf16.md`. The byte-field and
+`Binary<16, Tower<Rijndael16>>` `mul_add` alignment peel floors remain
+measured thresholds with a benchmark
+record and misaligned-row coverage
 in kernel tests.
 
 ## Residue ledger
@@ -151,6 +153,10 @@ Tests must defend observable contracts, not implementation wiring.
   tower packing against the shipped tower identities.
 - `tests/embedding.rs`: reference-ladder forward fixtures, inverse and
   commuting-triangle contracts, trace/norm, and failed restriction.
+- `tests/binary_bases.rs`: ordered-basis and custom-tower arithmetic against
+  base-field schoolbook oracles.
+- `tests/prime_fields.rs`: primality, prime-field bulk operations on raw
+  lanes, and independent modular oracles.
 - `src/kernel/tests.rs`: direct scalar-versus-architecture differentials across
   lane, tail, row, and source-count boundaries.
 - `tests/zero_alloc.rs`: allocation-free steady-state contracts.
@@ -211,11 +217,9 @@ pitches for the byte-field payload operations.
 family. Its `--peel-diagnostic` flag isolates matched source and destination
 offsets around the AVX-512 peel floors.
 `prime_ntt` interleaves the QuadMersenne31 scalar control against the AVX2
-kernels per row length; its campaign set the dispatch thresholds in
-`src/kernel/quad_mersenne31.rs`.
-
-`prime_ntt` is a dispatch-threshold investigation, not part of the public
-snapshot campaign. Its raw evidence stays in git-ignored `bench-records/`.
+kernels per row length; it measures the dispatch thresholds in
+`src/kernel/quad_mersenne31.rs` and is not part of the public benchmark
+record.
 
 Every external competitor harness lives in `external/`, one separate
 unpublished package per harness with its own `build.rs`, outside `src/` and
@@ -270,31 +274,31 @@ must stay outside the timed region. Record the CPU, OS, Rust version, selected
 backend, geometry, command, and aggregation rule in the benchmark record. Never
 reuse an old number or claim a performance change from an unpinned run.
 
-The benchmark record is a current snapshot, not a measurement ledger. A
-refresh runs all four family campaigns on both hosts' isolated CPUs in one
-session and rewrites every published value, with the median of five per-run
-medians for every published case. Competitor arms interleave inside each
-harness process. Dates, before/after comparisons, threshold variants,
-direct-kernel timings, and historical source fingerprints stay out of the
-public snapshot. Raw outputs and historical measurement evidence stay in
-`bench-records/`.
+The benchmark record contains separate version snapshots and same-session
+comparisons, not a measurement ledger. A refresh runs all four family
+campaigns for released v2 and v3 on each recorded host, interleaving
+versions in five rounds within one session per host. Every published case is
+the median of five per-run medians. Competitor arms interleave inside each
+harness process. Direct-kernel timings and threshold investigations stay out
+of the public record.
 
-The record is split by field family. `BENCHMARKS.md` is the index: one row
-per family page naming its fields, campaign recipe, and competitors, then the
-host table, the method shared by every page, the number format, and the
-reproduction commands. Each family page lives at `benchmarks/<family>.md`,
-named for the field it measures, and holds a `Setup` table with only that
-page's campaign, resolved backend, competitor versions and pins, build,
-protocol, and throughput numerator; then `Self-timings`; then `Competitors`;
-then a plain caveat list. A family with no competitor states that no matched
-competitor measurement is available. A new field adds a page and one index
-row; it never extends the shared method with page-specific provenance. A
-table covers one family, so a self-timing table never compares fields from
-different pages, and a competitor table includes only the arms that
-implement every row. Arms differing in supported primitives get separate
-tables, never `-` columns.
+`BENCHMARKS.md` indexes the same six family pages under `benchmarks/v2/`,
+`benchmarks/v3/`, and `benchmarks/comparison/`, followed by the host table,
+shared method, number format, and reproduction commands. Version directories
+contain only that version's public API snapshot and competitor comparisons.
+Version comparisons live only in `comparison/`; its README owns pairing and
+availability rules. `benchmarks/labels.md` defines canonical field labels,
+exact API mappings, recursive tower coefficients, and packing conventions.
 
-Every result cell is `Tiger Lake / Golden Cove`, in that order. Within one
+Snapshot pages contain `Setup`, `Self-timings`, `Competitors`, and a plain
+caveat list. Comparison blocks use canonical labels rather than API type
+names, with semantic operations and explicit geometry beneath them. A new
+field extends its family inventory and the label registry. A competitor table
+includes only arms implementing every row; differing primitive support gets
+separate tables. Missing version counterparts remain unavailable and carry no
+speed factor.
+
+Every result cell lists the hosts in the order `BENCHMARKS.md` declares. Within one
 table every value has the same digit count, counting leading zeros, so
 paired cells line up down each column. The count is the fewest digits that
 give the table's smallest value three significant figures, capped by the
@@ -311,7 +315,9 @@ change dispatch or a crossover from reasoning alone.
 ## Documentation and review
 
 - Rustdoc owns item contracts, invariants, panics, safety, layout, and ownership.
-- `README.md` owns user-facing scope, installation, features, and examples.
+- `README.md` is the short public overview: scope, a minimal example,
+  features, platforms, safety, building, and license. Guides and background
+  belong in the wiki, not the README.
 - `BENCHMARKS.md` and `benchmarks/` own reproducible current measurements.
 - `CHANGELOG.md` owns user-visible changes and migration notes.
 - Public files and source comments must not reference planning artifacts.

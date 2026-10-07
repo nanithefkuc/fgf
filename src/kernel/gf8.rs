@@ -1,6 +1,6 @@
 //! GF(2^8) kernel dispatch for every degree-eight representation.
 //!
-//! Every byte representation under [`Gf8`] shares one dispatch: the
+//! Every degree-eight representation under [`Binary`] shares one dispatch: the
 //! split-nibble scalar operations every architecture backend uses for
 //! sub-lane tails, and one routing table that diverges by representation
 //! only where the hardware does. [`Gf8Data`](crate::kernel::tables::Gf8Data)
@@ -25,7 +25,7 @@
 //! single-row scaling. Their blocked and elementwise routes serve only
 //! AES-native representations; the others compose the single-row kernels.
 
-use crate::field::{Elem, Gf, Gf8};
+use crate::field::{Binary, Elem};
 use crate::kernel::tables::{Gf8Data, ScaleTable};
 use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, scalar};
 
@@ -93,7 +93,7 @@ impl Prepared {
     #[allow(private_bounds)]
     #[inline]
     #[must_use]
-    pub fn new<R: Gf8Data>(coeff: Elem<Gf<8, R>>) -> Self {
+    pub fn new<R: Gf8Data>(coeff: Elem<Binary<8, R>>) -> Self {
         let raw = coeff.to_raw() as usize;
         Self {
             table: &R::SCALE[raw],
@@ -249,7 +249,7 @@ impl<const N: usize> Coeffs for [Prepared; N] {
         target_arch = "wasm32"
     )
 ))]
-struct Resolved<'a, R: Gf8Data>(&'a [Elem<Gf<8, R>>]);
+struct Resolved<'a, R: Gf8Data>(&'a [Elem<Binary<8, R>>]);
 
 #[cfg(all(
     feature = "simd",
@@ -309,7 +309,7 @@ impl<R: Gf8Data> Coeffs for Resolved<'_, R> {
 // Term slices stay slices so the dispatch layer serves raw-coefficient
 // operations without allocating.
 #[allow(clippy::type_complexity)]
-struct TermsResolved<'a, R: Gf8Data>(&'a [(&'a [Elem<Gf<8, R>>], &'a [u8])]);
+struct TermsResolved<'a, R: Gf8Data>(&'a [(&'a [Elem<Binary<8, R>>], &'a [u8])]);
 
 #[cfg(all(
     feature = "simd",
@@ -341,7 +341,7 @@ impl<R: Gf8Data> crate::kernel::Matrix<Prepared> for TermsResolved<'_, R> {
 /// prepared coefficients, resolved on access.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 struct FlatResolved<'a, R: Gf8Data> {
-    values: &'a [Elem<Gf<8, R>>],
+    values: &'a [Elem<Binary<8, R>>],
     nrows: usize,
     sources: &'a [&'a [u8]],
 }
@@ -364,7 +364,7 @@ impl<R: Gf8Data> crate::kernel::Matrix<Prepared> for FlatResolved<'_, R> {
     }
 }
 
-impl<R: Gf8Data> FieldKernels for Gf8<R> {
+impl<R: Gf8Data> FieldKernels for Binary<8, R> {
     #[inline]
     fn backend() -> Backend {
         // Non-polynomial presentations — ordered bases and towers — never
@@ -395,17 +395,17 @@ impl<R: Gf8Data> FieldKernels for Gf8<R> {
     }
 }
 
-impl<R: Gf8Data> KernelDispatch for Gf8<R> {
+impl<R: Gf8Data> KernelDispatch for Binary<8, R> {
     type Prepared = Prepared;
 
     #[inline]
-    fn prepare(_proof: RawDispatch, coeff: Elem<Gf<8, R>>) -> Self::Prepared {
+    fn prepare(_proof: RawDispatch, coeff: Elem<Binary<8, R>>) -> Self::Prepared {
         Prepared::new(coeff)
     }
 
     #[inline]
-    fn prepared_coeff(_proof: RawDispatch, prepared: &Self::Prepared) -> Elem<Gf<8, R>> {
-        <Elem<Gf<8, R>>>::from_raw(prepared.table.coeff)
+    fn prepared_coeff(_proof: RawDispatch, prepared: &Self::Prepared) -> Elem<Binary<8, R>> {
+        <Elem<Binary<8, R>>>::from_raw(prepared.table.coeff)
     }
 
     #[inline]
@@ -425,8 +425,8 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
 
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
-            let coeff = <Elem<Gf<8, R>>>::from_raw(coeff.table.coeff);
-            return scalar::mul_add::<Gf<8, R>>(dst, coeff, src);
+            let coeff = <Elem<Binary<8, R>>>::from_raw(coeff.table.coeff);
+            return scalar::mul_add::<Binary<8, R>>(dst, coeff, src);
         }
         match Self::backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -473,8 +473,8 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
 
     fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
-            let coeff = <Elem<Gf<8, R>>>::from_raw(coeff.table.coeff);
-            return scalar::mul_assign::<Gf<8, R>>(dst, coeff);
+            let coeff = <Elem<Binary<8, R>>>::from_raw(coeff.table.coeff);
+            return scalar::mul_assign::<Binary<8, R>>(dst, coeff);
         }
         match Self::backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -523,9 +523,9 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
 
     fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
-            let coeff = <Elem<Gf<8, R>>>::from_raw(coeff.table.coeff);
+            let coeff = <Elem<Binary<8, R>>>::from_raw(coeff.table.coeff);
             dst.copy_from_slice(src);
-            return scalar::mul_assign::<Gf<8, R>>(dst, coeff);
+            return scalar::mul_assign::<Binary<8, R>>(dst, coeff);
         }
         match Self::backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -600,11 +600,11 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
-        coeffs: &[Elem<Gf<8, R>>],
+        coeffs: &[Elem<Binary<8, R>>],
         src: &[u8],
     ) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
-            return scalar::mul_add_scatter::<Gf<8, R>>(rows, row_len, coeffs, src);
+            return scalar::mul_add_scatter::<Binary<8, R>>(rows, row_len, coeffs, src);
         }
         match Self::backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -686,12 +686,12 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
-        values: &[Elem<Gf<8, R>>],
+        values: &[Elem<Binary<8, R>>],
         coeffs: &[Self::Prepared],
         src: &[u8],
     ) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
-            return scalar::mul_add_scatter::<Gf<8, R>>(rows, row_len, values, src);
+            return scalar::mul_add_scatter::<Binary<8, R>>(rows, row_len, values, src);
         }
         let _ = (values, coeffs);
         // Prepared affine scatter: the grouped rows read stored maps instead
@@ -712,11 +712,11 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
     fn mul_add_gather(
         _proof: RawDispatch,
         dst: &mut [u8],
-        coeffs: &[Elem<Gf<8, R>>],
+        coeffs: &[Elem<Binary<8, R>>],
         srcs: &[&[u8]],
     ) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
-            return scalar::mul_add_gather::<Gf<8, R>>(dst, coeffs, srcs);
+            return scalar::mul_add_gather::<Binary<8, R>>(dst, coeffs, srcs);
         }
         match Self::backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -791,12 +791,12 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
     fn mul_add_gather_plan(
         _proof: RawDispatch,
         dst: &mut [u8],
-        values: &[Elem<Gf<8, R>>],
+        values: &[Elem<Binary<8, R>>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
-            return scalar::mul_add_gather::<Gf<8, R>>(dst, values, srcs);
+            return scalar::mul_add_gather::<Binary<8, R>>(dst, values, srcs);
         }
         let _ = (values, coeffs);
         // Prepared affine gather: the blocked tile reads stored maps instead
@@ -816,7 +816,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
     fn mul_into_gather(
         _proof: RawDispatch,
         dst: &mut [u8],
-        coeffs: &[Elem<Gf<8, R>>],
+        coeffs: &[Elem<Binary<8, R>>],
         srcs: &[&[u8]],
     ) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
@@ -883,7 +883,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
     fn mul_into_gather_plan(
         _proof: RawDispatch,
         dst: &mut [u8],
-        values: &[Elem<Gf<8, R>>],
+        values: &[Elem<Binary<8, R>>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -937,10 +937,10 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        terms: &[(&[Elem<Gf<8, R>>], &[u8])],
+        terms: &[(&[Elem<Binary<8, R>>], &[u8])],
     ) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
-            return scalar::mul_add_matrix::<Gf<8, R>>(rows, row_len, nrows, terms);
+            return scalar::mul_add_matrix::<Binary<8, R>>(rows, row_len, nrows, terms);
         }
         match Self::backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -1030,7 +1030,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        values: &[Elem<Gf<8, R>>],
+        values: &[Elem<Binary<8, R>>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -1042,7 +1042,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
                     .take(nrows)
                     .zip(&values[start..start + nrows])
                 {
-                    scalar::mul_add::<Gf<8, R>>(row, coeff, src);
+                    scalar::mul_add::<Binary<8, R>>(row, coeff, src);
                 }
             }
             return;
@@ -1130,13 +1130,13 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        terms: &[(&[Elem<Gf<8, R>>], &[u8])],
+        terms: &[(&[Elem<Binary<8, R>>], &[u8])],
     ) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
             for row in rows.chunks_exact_mut(row_len).take(nrows) {
                 row.fill(0);
             }
-            return scalar::mul_add_matrix::<Gf<8, R>>(rows, row_len, nrows, terms);
+            return scalar::mul_add_matrix::<Binary<8, R>>(rows, row_len, nrows, terms);
         }
         // Overwrite seeds accumulators from zero in registers: one write pass,
         // no destination read, no separate fill.
@@ -1181,7 +1181,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        values: &[Elem<Gf<8, R>>],
+        values: &[Elem<Binary<8, R>>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -1196,7 +1196,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
                     .take(nrows)
                     .zip(&values[start..start + nrows])
                 {
-                    scalar::mul_add::<Gf<8, R>>(row, coeff, src);
+                    scalar::mul_add::<Binary<8, R>>(row, coeff, src);
                 }
             }
             return;
@@ -1251,7 +1251,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
         dst: &mut [u8],
         row_len: usize,
         row_starts: &[usize],
-        terms: &[(&[Elem<Gf<8, R>>], &[u8])],
+        terms: &[(&[Elem<Binary<8, R>>], &[u8])],
     ) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
             return Self::mul_add_matrix_at_rows(RawDispatch, dst, row_len, row_starts, terms);
@@ -1293,7 +1293,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
 
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
-            return scalar::mul_elementwise::<Gf<8, R>>(dst, a, b);
+            return scalar::mul_elementwise::<Binary<8, R>>(dst, a, b);
         }
         match Self::backend() {
             // `GF2P8MULB` multiplies two vectors directly in the AES
@@ -1389,7 +1389,7 @@ impl<R: Gf8Data> KernelDispatch for Gf8<R> {
 
     fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
-            return scalar::mul_elementwise_assign::<Gf<8, R>>(dst, src);
+            return scalar::mul_elementwise_assign::<Binary<8, R>>(dst, src);
         }
         match Self::backend() {
             #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]

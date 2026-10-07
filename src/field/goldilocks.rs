@@ -326,3 +326,42 @@ impl core::fmt::Display for Elem<Goldilocks> {
         write!(formatter, "{}", self.raw)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Elem, Goldilocks, HasGenerator, MODULUS, is_primitive};
+
+    const fn gcd(mut a: u64, mut b: u64) -> u64 {
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        a
+    }
+
+    /// `g^k` has full order `p − 1` exactly when `gcd(k, p − 1) = 1`, so the
+    /// check must accept and reject powers of the generator by that rule.
+    #[test]
+    fn primitivity_follows_generator_power_coprimality() {
+        let generator =
+            Elem::<Goldilocks>::from_raw(core::hint::black_box(Goldilocks::GENERATOR_RAW));
+        for k in 1..=96u64 {
+            let candidate = generator.pow(u128::from(k)).to_raw();
+            assert_eq!(
+                is_primitive(core::hint::black_box(candidate)),
+                gcd(k, MODULUS - 1) == 1,
+                "7^{k}"
+            );
+        }
+    }
+
+    /// Zero has no multiplicative order; one and `−1` have orders 1 and 2.
+    #[test]
+    fn primitivity_rejects_degenerate_orders() {
+        for candidate in [0, 1, MODULUS - 1] {
+            assert!(
+                !is_primitive(core::hint::black_box(candidate)),
+                "{candidate}"
+            );
+        }
+    }
+}

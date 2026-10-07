@@ -595,11 +595,12 @@ mod tests {
         out
     }
 
-    /// Whether the host resolves to V3 — the same single-source selection
-    /// the shared differential tests use, honoring `SIMD_BACKEND`.
+    /// Whether the host resolves to V3, honoring `SIMD_BACKEND`: listing
+    /// `Scalar` as a supported tier lets `SIMD_BACKEND=scalar` downgrade the
+    /// selection, so the scalar tier run skips these direct-kernel tests.
     fn host_v3() -> bool {
         simdispatch::Selection::new("SIMD_BACKEND")
-            .supports(&[crate::kernel::Backend::V3])
+            .supports(&[crate::kernel::Backend::V3, crate::kernel::Backend::Scalar])
             .resolve()
             != crate::kernel::Backend::Scalar
     }

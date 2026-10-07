@@ -8,11 +8,19 @@
 // Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 use fgf::field::{FieldBuffer, FieldElem};
-use fgf::poly::{AES, REED_SOLOMON};
+use fgf::poly::{AES, RS};
 use fgf::{
-    Cantor, Elem, FanPaar8, FanPaar16, FanPaar32, FanPaar64, FieldKernels, Gf, Gf8, Gf16, Gf32,
-    Gf64, Goldilocks, Mersenne31, Normal, Poly, QuadMersenne31, Tower, TowerSpec, goldilocks, ops,
+    Binary, Cantor, Elem, FieldKernels, Goldilocks, Mersenne31, Normal, Polynomial, QuadMersenne31,
+    Tower, TowerSpec, goldilocks, ops,
 };
+
+type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
+type Gf32 = fgf::Binary<32, fgf::Tower<fgf::Rijndael32>>;
+type Gf64 = fgf::Binary<64, fgf::Tower<fgf::Rijndael64>>;
+type FanPaar8Field = fgf::Binary<8, fgf::Tower<fgf::FanPaar8>>;
+type FanPaar16Field = fgf::Binary<16, fgf::Tower<fgf::FanPaar16>>;
+type FanPaar32Field = fgf::Binary<32, fgf::Tower<fgf::FanPaar32>>;
+type FanPaar64Field = fgf::Binary<64, fgf::Tower<fgf::FanPaar64>>;
 
 /// Deterministic pseudo-random bytes. No dependency, reproducible failures.
 fn noise(len: usize, seed: u64) -> Vec<u8> {
@@ -89,7 +97,7 @@ const SCATTER_NTERMS: [usize; 2] = [1, 2];
 macro_rules! every_gf8_field {
     ($sweep:ident) => {
         $sweep::<AES>();
-        $sweep::<REED_SOLOMON>();
+        $sweep::<RS>();
         // Data Matrix and the CCSDS Reed–Solomon field: irreducible
         // polynomials no named constant covers.
         $sweep::<0x12D>();
@@ -109,11 +117,11 @@ fn gf8_mul_add_matches_oracle_for<const POLY: u128>() {
             if cfg!(miri) && !GF8_MIRI_COEFFS.contains(&raw) {
                 continue;
             }
-            let coeff = Elem::<Gf<8, Poly<POLY>>>::from_raw(raw);
+            let coeff = Elem::<Binary<8, Polynomial<POLY>>>::from_raw(raw);
             let mut got = noise(len, 0xb2);
             let mut want = got.clone();
-            ops::mul_add::<Gf8<Poly<POLY>>>(&mut got, coeff, &src);
-            oracle_mul_add::<Gf8<Poly<POLY>>>(&mut want, coeff, &src);
+            ops::mul_add::<Binary<8, Polynomial<POLY>>>(&mut got, coeff, &src);
+            oracle_mul_add::<Binary<8, Polynomial<POLY>>>(&mut want, coeff, &src);
             assert_eq!(got, want, "len {len}, coeff {coeff:?}");
         }
     }
@@ -152,9 +160,17 @@ fn mul_add_is_its_own_inverse() {
     let original = noise(300, 0xf6);
 
     let mut buffer = original.clone();
-    ops::mul_add::<Gf8<Poly<AES>>>(&mut buffer, Elem::<Gf<8, Poly<AES>>>::from_raw(0x8d), &src);
+    ops::mul_add::<Binary<8, Polynomial<AES>>>(
+        &mut buffer,
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x8d),
+        &src,
+    );
     assert_ne!(buffer, original, "coefficient had no effect");
-    ops::mul_add::<Gf8<Poly<AES>>>(&mut buffer, Elem::<Gf<8, Poly<AES>>>::from_raw(0x8d), &src);
+    ops::mul_add::<Binary<8, Polynomial<AES>>>(
+        &mut buffer,
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x8d),
+        &src,
+    );
     assert_eq!(buffer, original);
 
     let mut buffer = original.clone();
@@ -171,15 +187,15 @@ fn mul_add_is_its_own_inverse() {
 fn gf8_mul_into_and_mul_assign_agree_for<const POLY: u128>() {
     for len in LENGTHS {
         let src = noise(len, 0x11);
-        for coeff in (0..=u8::MAX).map(Elem::<Gf<8, Poly<POLY>>>::from_raw) {
+        for coeff in (0..=u8::MAX).map(Elem::<Binary<8, Polynomial<POLY>>>::from_raw) {
             let mut into = vec![0xaa; len];
-            ops::mul_into::<Gf8<Poly<POLY>>>(&mut into, coeff, &src);
+            ops::mul_into::<Binary<8, Polynomial<POLY>>>(&mut into, coeff, &src);
 
             let mut assign = src.clone();
-            ops::mul_assign::<Gf8<Poly<POLY>>>(&mut assign, coeff);
+            ops::mul_assign::<Binary<8, Polynomial<POLY>>>(&mut assign, coeff);
 
             let mut want = vec![0u8; len];
-            oracle_mul_add::<Gf8<Poly<POLY>>>(&mut want, coeff, &src);
+            oracle_mul_add::<Binary<8, Polynomial<POLY>>>(&mut want, coeff, &src);
 
             assert_eq!(into, want, "mul_into len {len} coeff {coeff:?}");
             assert_eq!(assign, want, "mul_assign len {len} coeff {coeff:?}");
@@ -219,9 +235,9 @@ fn scaling_by_a_coefficient_then_its_inverse_is_identity() {
     let original = noise(512, 0x33);
 
     let mut buffer = original.clone();
-    let c = Elem::<Gf<8, Poly<AES>>>::from_raw(0x57);
-    ops::mul_assign::<Gf8<Poly<AES>>>(&mut buffer, c);
-    ops::mul_assign::<Gf8<Poly<AES>>>(&mut buffer, c.inv());
+    let c = Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x57);
+    ops::mul_assign::<Binary<8, Polynomial<AES>>>(&mut buffer, c);
+    ops::mul_assign::<Binary<8, Polynomial<AES>>>(&mut buffer, c.inv());
     assert_eq!(buffer, original);
 
     let mut buffer = original.clone();
@@ -242,11 +258,11 @@ fn add_assign_is_xor_and_self_cancels() {
         let original = noise(len, 0x55);
 
         let mut buffer = original.clone();
-        ops::add_assign::<Gf8<Poly<AES>>>(&mut buffer, &src);
+        ops::add_assign::<Binary<8, Polynomial<AES>>>(&mut buffer, &src);
         let want: Vec<u8> = original.iter().zip(&src).map(|(a, b)| a ^ b).collect();
         assert_eq!(buffer, want, "len {len}");
 
-        ops::sub_assign::<Gf8<Poly<AES>>>(&mut buffer, &src);
+        ops::sub_assign::<Binary<8, Polynomial<AES>>>(&mut buffer, &src);
         assert_eq!(buffer, original, "len {len}");
     }
 }
@@ -262,15 +278,15 @@ fn gf8_scatter_matches_repeated_mul_add_for<const POLY: u128>() {
         for nrows in [1usize, 2, 3, 4, 5, 7, 8, 9] {
             let src = noise(row_len, 0x66);
             let coeffs: Vec<_> = (0..nrows)
-                .map(|j| Elem::<Gf<8, Poly<POLY>>>::from_raw((j as u8).wrapping_mul(37)))
+                .map(|j| Elem::<Binary<8, Polynomial<POLY>>>::from_raw((j as u8).wrapping_mul(37)))
                 .collect();
 
             let mut got = noise(row_len * nrows, 0x77);
             let mut want = got.clone();
 
-            ops::mul_add_scatter::<Gf8<Poly<POLY>>>(&mut got, row_len, &coeffs, &src);
+            ops::mul_add_scatter::<Binary<8, Polynomial<POLY>>>(&mut got, row_len, &coeffs, &src);
             for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs) {
-                oracle_mul_add::<Gf8<Poly<POLY>>>(row, coeff, &src);
+                oracle_mul_add::<Binary<8, Polynomial<POLY>>>(row, coeff, &src);
             }
             assert_eq!(got, want, "row_len {row_len}, nrows {nrows}");
         }
@@ -312,18 +328,18 @@ fn gf8_matrix_matches_repeated_scatter_for<const POLY: u128>() {
                 let sources: Vec<Vec<u8>> = (0..nterms)
                     .map(|t| noise(row_len, 0x100 + t as u64))
                     .collect();
-                let coeff_sets: Vec<Vec<Elem<Gf<8, Poly<POLY>>>>> = (0..nterms)
+                let coeff_sets: Vec<Vec<Elem<Binary<8, Polynomial<POLY>>>>> = (0..nterms)
                     .map(|t| {
                         (0..nrows)
                             .map(|j| {
-                                Elem::<Gf<8, Poly<POLY>>>::from_raw(
+                                Elem::<Binary<8, Polynomial<POLY>>>::from_raw(
                                     ((t * 31 + j * 17) as u8).wrapping_add(1),
                                 )
                             })
                             .collect()
                     })
                     .collect();
-                let terms: Vec<(&[Elem<Gf<8, Poly<POLY>>>], &[u8])> = coeff_sets
+                let terms: Vec<(&[Elem<Binary<8, Polynomial<POLY>>>], &[u8])> = coeff_sets
                     .iter()
                     .zip(&sources)
                     .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -332,10 +348,12 @@ fn gf8_matrix_matches_repeated_scatter_for<const POLY: u128>() {
                 let mut got = noise(row_len * nrows, 0xaa);
                 let mut want = got.clone();
 
-                ops::mul_add_matrix::<Gf8<Poly<POLY>>>(&mut got, row_len, nrows, &terms);
+                ops::mul_add_matrix::<Binary<8, Polynomial<POLY>>>(
+                    &mut got, row_len, nrows, &terms,
+                );
                 for &(coeffs, src) in &terms {
                     for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
-                        oracle_mul_add::<Gf8<Poly<POLY>>>(row, coeff, src);
+                        oracle_mul_add::<Binary<8, Polynomial<POLY>>>(row, coeff, src);
                     }
                 }
                 assert_eq!(
@@ -467,10 +485,10 @@ fn check_mul_into_matrix<F: fgf::FieldKernels>(tag: &str, seed: u64) {
 
 #[test]
 fn gf8_mul_into_matrix_overwrites() {
-    check_mul_into_matrix::<Gf8<Poly<AES>>>("gf8-aes", 0x7a1);
-    check_mul_into_matrix::<Gf8<Poly<REED_SOLOMON>>>("gf8-rs", 0x7a2);
-    check_mul_into_matrix::<Gf8<Poly<0x12D>>>("gf8-0x12d", 0x7a4);
-    check_mul_into_matrix::<Gf8<Poly<0x187>>>("gf8-0x187", 0x7a5);
+    check_mul_into_matrix::<Binary<8, Polynomial<AES>>>("gf8-aes", 0x7a1);
+    check_mul_into_matrix::<Binary<8, Polynomial<RS>>>("gf8-rs", 0x7a2);
+    check_mul_into_matrix::<Binary<8, Polynomial<0x12D>>>("gf8-0x12d", 0x7a4);
+    check_mul_into_matrix::<Binary<8, Polynomial<0x187>>>("gf8-0x187", 0x7a5);
 }
 
 #[test]
@@ -542,8 +560,8 @@ fn check_matrix_wide_term_counts<F: fgf::FieldKernels>(tag: &str, seed: u64) {
 
 #[test]
 fn gf8_matrix_handles_term_counts_past_the_resolve_chunk() {
-    check_matrix_wide_term_counts::<Gf8<Poly<AES>>>("gf8-aes", 0x8b1);
-    check_matrix_wide_term_counts::<Gf8<Poly<REED_SOLOMON>>>("gf8-rs", 0x8b2);
+    check_matrix_wide_term_counts::<Binary<8, Polynomial<AES>>>("gf8-aes", 0x8b1);
+    check_matrix_wide_term_counts::<Binary<8, Polynomial<RS>>>("gf8-rs", 0x8b2);
 }
 
 // ---------------------------------------------------------------------------
@@ -616,8 +634,8 @@ fn check_matrix_scattered<F: fgf::FieldKernels>(tag: &str, seed: u64) {
 
 #[test]
 fn gf8_matrix_scattered_matches_contiguous() {
-    check_matrix_scattered::<Gf8<Poly<AES>>>("gf8-aes", 0x5ca7);
-    check_matrix_scattered::<Gf8<Poly<REED_SOLOMON>>>("gf8-rs", 0x8d5c);
+    check_matrix_scattered::<Binary<8, Polynomial<AES>>>("gf8-aes", 0x5ca7);
+    check_matrix_scattered::<Binary<8, Polynomial<RS>>>("gf8-rs", 0x8d5c);
 }
 
 #[test]
@@ -677,15 +695,15 @@ fn check_matrix_scattered_oracle<F: FieldKernels>(tag: &str, seed: u64) {
 
 #[test]
 fn matrix_scattered_matches_oracle_on_every_field() {
-    check_matrix_scattered_oracle::<Gf8<Poly<AES>>>("gf8-aes", 0x5d01);
-    check_matrix_scattered_oracle::<Gf8<Poly<REED_SOLOMON>>>("gf8-rs", 0x5d02);
+    check_matrix_scattered_oracle::<Binary<8, Polynomial<AES>>>("gf8-aes", 0x5d01);
+    check_matrix_scattered_oracle::<Binary<8, Polynomial<RS>>>("gf8-rs", 0x5d02);
     check_matrix_scattered_oracle::<Gf16>("gf16", 0x5d03);
     check_matrix_scattered_oracle::<Gf32>("gf32", 0x5d04);
     check_matrix_scattered_oracle::<Gf64>("gf64", 0x5d05);
-    check_matrix_scattered_oracle::<FanPaar8>("fan_paar8", 0x5d06);
-    check_matrix_scattered_oracle::<FanPaar16>("fan_paar16", 0x5d07);
-    check_matrix_scattered_oracle::<FanPaar32>("fan_paar32", 0x5d08);
-    check_matrix_scattered_oracle::<FanPaar64>("fan_paar64", 0x5d09);
+    check_matrix_scattered_oracle::<FanPaar8Field>("fan_paar8", 0x5d06);
+    check_matrix_scattered_oracle::<FanPaar16Field>("fan_paar16", 0x5d07);
+    check_matrix_scattered_oracle::<FanPaar32Field>("fan_paar32", 0x5d08);
+    check_matrix_scattered_oracle::<FanPaar64Field>("fan_paar64", 0x5d09);
     check_matrix_scattered_oracle::<Mersenne31>("mersenne31", 0x5d0a);
     check_matrix_scattered_oracle::<Goldilocks>("goldilocks", 0x5d0b);
     check_matrix_scattered_oracle::<QuadMersenne31>("quad_mersenne31", 0x5d0c);
@@ -698,19 +716,24 @@ fn matrix_scattered_pairs_coefficients_to_out_of_order_rows() {
     let row_len = 64;
     let src = noise(row_len, 0x11);
     let coeffs = [
-        Elem::<Gf<8, Poly<AES>>>::from_raw(2),
-        Elem::<Gf<8, Poly<AES>>>::from_raw(9),
-        Elem::<Gf<8, Poly<AES>>>::from_raw(200),
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(2),
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(9),
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(200),
     ];
     // Three rows placed high-to-low, so offset order is the reverse of index
     // order.
     let row_starts = [2 * row_len, row_len, 0usize];
     let mut dst = vec![0u8; 3 * row_len];
-    ops::mul_add_matrix_at::<Gf8<Poly<AES>>>(&mut dst, row_len, &row_starts, &[(&coeffs, &src)]);
+    ops::mul_add_matrix_at::<Binary<8, Polynomial<AES>>>(
+        &mut dst,
+        row_len,
+        &row_starts,
+        &[(&coeffs, &src)],
+    );
 
     for (j, &start) in row_starts.iter().enumerate() {
         let mut want = vec![0u8; row_len];
-        oracle_mul_add::<Gf8<Poly<AES>>>(&mut want, coeffs[j], &src);
+        oracle_mul_add::<Binary<8, Polynomial<AES>>>(&mut want, coeffs[j], &src);
         assert_eq!(&dst[start..start + row_len], &want[..], "row {j}");
     }
 }
@@ -719,25 +742,40 @@ fn matrix_scattered_pairs_coefficients_to_out_of_order_rows() {
 #[should_panic(expected = "overlap")]
 fn matrix_scattered_rejects_overlapping_rows() {
     let mut dst = [0u8; 64];
-    let coeffs = [Elem::<Gf<8, Poly<AES>>>::from_raw(1); 2];
+    let coeffs = [Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 2];
     // Second row starts 8 bytes into the first 16-byte row.
-    ops::mul_add_matrix_at::<Gf8<Poly<AES>>>(&mut dst, 16, &[0, 8], &[(&coeffs, &[0u8; 16])]);
+    ops::mul_add_matrix_at::<Binary<8, Polynomial<AES>>>(
+        &mut dst,
+        16,
+        &[0, 8],
+        &[(&coeffs, &[0u8; 16])],
+    );
 }
 
 #[test]
 #[should_panic(expected = "but dst is")]
 fn matrix_scattered_rejects_out_of_bounds_row() {
     let mut dst = [0u8; 32];
-    let coeffs = [Elem::<Gf<8, Poly<AES>>>::from_raw(1); 2];
-    ops::mul_add_matrix_at::<Gf8<Poly<AES>>>(&mut dst, 16, &[0, 24], &[(&coeffs, &[0u8; 16])]);
+    let coeffs = [Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 2];
+    ops::mul_add_matrix_at::<Binary<8, Polynomial<AES>>>(
+        &mut dst,
+        16,
+        &[0, 24],
+        &[(&coeffs, &[0u8; 16])],
+    );
 }
 
 #[test]
 #[should_panic(expected = "coefficients for")]
 fn matrix_scattered_rejects_wrong_coefficient_count() {
     let mut dst = [0u8; 64];
-    let coeffs = [Elem::<Gf<8, Poly<AES>>>::from_raw(1); 2];
-    ops::mul_add_matrix_at::<Gf8<Poly<AES>>>(&mut dst, 16, &[0, 16, 32], &[(&coeffs, &[0u8; 16])]);
+    let coeffs = [Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 2];
+    ops::mul_add_matrix_at::<Binary<8, Polynomial<AES>>>(
+        &mut dst,
+        16,
+        &[0, 16, 32],
+        &[(&coeffs, &[0u8; 16])],
+    );
 }
 
 #[test]
@@ -749,11 +787,11 @@ fn matrix_leaves_rows_beyond_nrows_untouched() {
 
     let src = noise(row_len, 0xdd);
     let coeffs = [
-        Elem::<Gf<8, Poly<AES>>>::from_raw(2),
-        Elem::<Gf<8, Poly<AES>>>::from_raw(3),
-        Elem::<Gf<8, Poly<AES>>>::from_raw(4),
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(2),
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(3),
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(4),
     ];
-    ops::mul_add_matrix::<Gf8<Poly<AES>>>(&mut buffer, row_len, 3, &[(&coeffs, &src)]);
+    ops::mul_add_matrix::<Binary<8, Polynomial<AES>>>(&mut buffer, row_len, 3, &[(&coeffs, &src)]);
 
     assert_eq!(&buffer[row_len * 3..], &untouched[..]);
 }
@@ -764,14 +802,14 @@ fn gather_matches_summed_mul_add_for<const POLY: u128>() {
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
 
     // Include zero and one to exercise the short-circuits.
-    let coeffs = [0u8, 1, 0x53, 0xff, 2, 0x1d].map(Elem::<Gf<8, Poly<POLY>>>::from_raw);
+    let coeffs = [0u8, 1, 0x53, 0xff, 2, 0x1d].map(Elem::<Binary<8, Polynomial<POLY>>>::from_raw);
 
     let mut got = noise(len, 0xee);
     let mut want = got.clone();
 
-    ops::mul_add_gather::<Gf8<Poly<POLY>>>(&mut got, &coeffs, &refs);
+    ops::mul_add_gather::<Binary<8, Polynomial<POLY>>>(&mut got, &coeffs, &refs);
     for (&coeff, &src) in coeffs.iter().zip(&refs) {
-        oracle_mul_add::<Gf8<Poly<POLY>>>(&mut want, coeff, src);
+        oracle_mul_add::<Binary<8, Polynomial<POLY>>>(&mut want, coeff, src);
     }
     assert_eq!(got, want);
 }
@@ -801,20 +839,20 @@ fn mul_into_gather_overwrites_and_matches_gather_from_zero_for<const POLY: u128>
     let len = 96;
     let sources: Vec<Vec<u8>> = (0..6).map(|i| noise(len, 0x348 + i)).collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-    let coeffs = [0u8, 1, 0x53, 0xff, 2, 0x1d].map(Elem::<Gf<8, Poly<POLY>>>::from_raw);
+    let coeffs = [0u8, 1, 0x53, 0xff, 2, 0x1d].map(Elem::<Binary<8, Polynomial<POLY>>>::from_raw);
 
     let mut want = vec![0; len];
     for (&coeff, &src) in coeffs.iter().zip(&refs) {
-        oracle_mul_add::<Gf8<Poly<POLY>>>(&mut want, coeff, src);
+        oracle_mul_add::<Binary<8, Polynomial<POLY>>>(&mut want, coeff, src);
     }
 
     let initial = noise(len, 0x34f);
     let mut got = initial.clone();
-    ops::mul_into_gather::<Gf8<Poly<POLY>>>(&mut got, &coeffs, &refs);
+    ops::mul_into_gather::<Binary<8, Polynomial<POLY>>>(&mut got, &coeffs, &refs);
     assert_eq!(got, want);
 
     let mut accumulated = initial.clone();
-    ops::mul_add_gather::<Gf8<Poly<POLY>>>(&mut accumulated, &coeffs, &refs);
+    ops::mul_add_gather::<Binary<8, Polynomial<POLY>>>(&mut accumulated, &coeffs, &refs);
     for (value, &prefix) in accumulated.iter_mut().zip(&initial) {
         *value ^= prefix;
     }
@@ -855,15 +893,15 @@ fn prepared_mul_into_gather_matches_one_shot_over_gf16() {
 #[test]
 fn empty_and_zero_mul_into_gathers_zero_the_destination() {
     let mut empty_terms = noise(32, 0x377);
-    ops::mul_into_gather::<Gf8<Poly<AES>>>(&mut empty_terms, &[], &[]);
+    ops::mul_into_gather::<Binary<8, Polynomial<AES>>>(&mut empty_terms, &[], &[]);
     assert!(empty_terms.iter().all(|&value| value == 0));
 
     let sources = [noise(32, 0x378), noise(32, 0x379)];
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
     let mut zero_coefficients = noise(32, 0x37a);
-    ops::mul_into_gather::<Gf8<Poly<AES>>>(
+    ops::mul_into_gather::<Binary<8, Polynomial<AES>>>(
         &mut zero_coefficients,
-        &[Elem::<Gf<8, Poly<AES>>>::ZERO; 2],
+        &[Elem::<Binary<8, Polynomial<AES>>>::ZERO; 2],
         &refs,
     );
     assert!(zero_coefficients.iter().all(|&value| value == 0));
@@ -871,19 +909,19 @@ fn empty_and_zero_mul_into_gathers_zero_the_destination() {
 
 fn prepared_coefficients_match_one_shot_for_gf8<const POLY: u128>() {
     let src8 = noise(258, 0x350);
-    for coeff in [0u8, 1, 2, 0x53, 0xff].map(Elem::<Gf<8, Poly<POLY>>>::from_raw) {
-        let prepared = ops::Coeff::<Gf8<Poly<POLY>>>::new(coeff);
+    for coeff in [0u8, 1, 2, 0x53, 0xff].map(Elem::<Binary<8, Polynomial<POLY>>>::from_raw) {
+        let prepared = ops::Coeff::<Binary<8, Polynomial<POLY>>>::new(coeff);
 
         let mut got = noise(src8.len(), 0x351);
         let mut want = got.clone();
-        ops::mul_add_with::<Gf8<Poly<POLY>>>(&mut got, &prepared, &src8);
-        ops::mul_add::<Gf8<Poly<POLY>>>(&mut want, coeff, &src8);
+        ops::mul_add_with::<Binary<8, Polynomial<POLY>>>(&mut got, &prepared, &src8);
+        ops::mul_add::<Binary<8, Polynomial<POLY>>>(&mut want, coeff, &src8);
         assert_eq!(got, want, "GF8 prepared AXPY for {coeff:?}");
 
         let mut got = vec![0; src8.len()];
         let mut want = vec![0; src8.len()];
-        ops::mul_into_with::<Gf8<Poly<POLY>>>(&mut got, &prepared, &src8);
-        ops::mul_into::<Gf8<Poly<POLY>>>(&mut want, coeff, &src8);
+        ops::mul_into_with::<Binary<8, Polynomial<POLY>>>(&mut got, &prepared, &src8);
+        ops::mul_into::<Binary<8, Polynomial<POLY>>>(&mut want, coeff, &src8);
         assert_eq!(got, want, "GF8 prepared scale for {coeff:?}");
     }
 }
@@ -896,10 +934,10 @@ fn prepared_coefficient_identity_survives_identical_raw_coefficients() {
     let len = 192;
     let src = noise(len, 0x601);
     for raw in [0x53u8, 0x8d, 0xff] {
-        let elem_12d = Elem::<Gf<8, Poly<0x12D>>>::from_raw(raw);
-        let elem_187 = Elem::<Gf<8, Poly<0x187>>>::from_raw(raw);
-        let prepared_12d = ops::Coeff::<Gf8<Poly<0x12D>>>::new(elem_12d);
-        let prepared_187 = ops::Coeff::<Gf8<Poly<0x187>>>::new(elem_187);
+        let elem_12d = Elem::<Binary<8, Polynomial<0x12D>>>::from_raw(raw);
+        let elem_187 = Elem::<Binary<8, Polynomial<0x187>>>::from_raw(raw);
+        let prepared_12d = ops::Coeff::<Binary<8, Polynomial<0x12D>>>::new(elem_12d);
+        let prepared_187 = ops::Coeff::<Binary<8, Polynomial<0x187>>>::new(elem_187);
 
         // Same seed, so both outputs start from identical bytes and any
         // difference is the coefficient's polynomial at work.
@@ -907,13 +945,13 @@ fn prepared_coefficient_identity_survives_identical_raw_coefficients() {
         let seed_187 = noise(len, 0x602);
         let mut got_12d = seed_12d.clone();
         let mut got_187 = seed_187.clone();
-        ops::mul_add_with::<Gf8<Poly<0x12D>>>(&mut got_12d, &prepared_12d, &src);
-        ops::mul_add_with::<Gf8<Poly<0x187>>>(&mut got_187, &prepared_187, &src);
+        ops::mul_add_with::<Binary<8, Polynomial<0x12D>>>(&mut got_12d, &prepared_12d, &src);
+        ops::mul_add_with::<Binary<8, Polynomial<0x187>>>(&mut got_187, &prepared_187, &src);
 
         let mut want_12d = seed_12d;
-        oracle_mul_add::<Gf8<Poly<0x12D>>>(&mut want_12d, elem_12d, &src);
+        oracle_mul_add::<Binary<8, Polynomial<0x12D>>>(&mut want_12d, elem_12d, &src);
         let mut want_187 = seed_187;
-        oracle_mul_add::<Gf8<Poly<0x187>>>(&mut want_187, elem_187, &src);
+        oracle_mul_add::<Binary<8, Polynomial<0x187>>>(&mut want_187, elem_187, &src);
         assert_eq!(got_12d, want_12d, "0x12D prepared AXPY for {raw:#04x}");
         assert_eq!(got_187, want_187, "0x187 prepared AXPY for {raw:#04x}");
         assert_ne!(
@@ -1043,21 +1081,21 @@ fn prepared_collections_drive_all_multi_row_shapes() {
 fn single_source_matrix_overwrites_rows() {
     // One source against seven output rows — the 4+2+1 group walk at work.
     let row_len = 96;
-    let coeffs: Vec<Elem<Gf<8, Poly<REED_SOLOMON>>>> = (0..7)
-        .map(|r| Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(2 + ((r * 37 + 11) % 254) as u8))
+    let coeffs: Vec<Elem<Binary<8, Polynomial<RS>>>> = (0..7)
+        .map(|r| Elem::<Binary<8, Polynomial<RS>>>::from_raw(2 + ((r * 37 + 11) % 254) as u8))
         .collect();
     let matrix =
-        ops::CoeffMatrix::<Gf8<Poly<REED_SOLOMON>>>::from_source_major(1, coeffs.len(), &coeffs);
+        ops::CoeffMatrix::<Binary<8, Polynomial<RS>>>::from_source_major(1, coeffs.len(), &coeffs);
     let src = noise(row_len, 0x8f1);
     let srcs = [src.as_slice()];
 
     let mut got = noise(row_len * coeffs.len(), 0x8f2);
-    ops::mul_into_matrix_with::<Gf8<Poly<REED_SOLOMON>>>(&mut got, row_len, &matrix, &srcs);
+    ops::mul_into_matrix_with::<Binary<8, Polynomial<RS>>>(&mut got, row_len, &matrix, &srcs);
     for (row, &coeff) in coeffs.iter().enumerate() {
         let mut want = vec![0u8; row_len];
         for (byte, &value) in want.iter_mut().zip(&src) {
             *byte = coeff
-                .mul(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(value))
+                .mul(Elem::<Binary<8, Polynomial<RS>>>::from_raw(value))
                 .to_raw();
         }
         assert_eq!(
@@ -1125,15 +1163,15 @@ fn assert_blocked_prepared_shapes<F: fgf::FieldKernels>(row_len: usize, seed: u6
 #[test]
 #[cfg(feature = "alloc")]
 fn blocked_prepared_shapes_match_raw_operations_across_group_boundaries() {
-    assert_blocked_prepared_shapes::<Gf8<Poly<AES>>>(79, 0x370);
+    assert_blocked_prepared_shapes::<Binary<8, Polynomial<AES>>>(79, 0x370);
     assert_blocked_prepared_shapes::<Gf16>(78, 0x380);
     // Past two 256-byte tiles, one 64-byte lane, and a sub-lane ladder.
-    assert_blocked_prepared_shapes::<Gf8<Poly<AES>>>(591, 0x390);
-    assert_blocked_prepared_shapes::<Gf8<Poly<REED_SOLOMON>>>(591, 0x3a0);
+    assert_blocked_prepared_shapes::<Binary<8, Polynomial<AES>>>(591, 0x390);
+    assert_blocked_prepared_shapes::<Binary<8, Polynomial<RS>>>(591, 0x3a0);
     // The spelled-out polynomials: prepared scatter, gather, and matrix
     // through the same group boundaries.
-    assert_blocked_prepared_shapes::<Gf8<Poly<0x12D>>>(591, 0x3b0);
-    assert_blocked_prepared_shapes::<Gf8<Poly<0x187>>>(591, 0x3c0);
+    assert_blocked_prepared_shapes::<Binary<8, Polynomial<0x12D>>>(591, 0x3b0);
+    assert_blocked_prepared_shapes::<Binary<8, Polynomial<0x187>>>(591, 0x3c0);
 }
 
 #[test]
@@ -1163,10 +1201,10 @@ fn elementwise_products_match_field_arithmetic_for_gf8<const POLY: u128>() {
         let b = noise(len, 0x355);
         let mut got = vec![0; len];
         let mut want = vec![0; len];
-        ops::mul_elementwise::<Gf8<Poly<POLY>>>(&mut got, &a, &b);
+        ops::mul_elementwise::<Binary<8, Polynomial<POLY>>>(&mut got, &a, &b);
         for ((d, &x), &y) in want.iter_mut().zip(&a).zip(&b) {
-            *d = Elem::<Gf<8, Poly<POLY>>>::from_raw(x)
-                .mul(Elem::<Gf<8, Poly<POLY>>>::from_raw(y))
+            *d = Elem::<Binary<8, Polynomial<POLY>>>::from_raw(x)
+                .mul(Elem::<Binary<8, Polynomial<POLY>>>::from_raw(y))
                 .to_raw();
         }
         assert_eq!(got, want, "GF8 elementwise len {len}");
@@ -1208,10 +1246,11 @@ fn elementwise_assign_products_match_field_arithmetic_for_gf8<const POLY: u128>(
         let b = noise(len, 0x359);
 
         let mut got = a.clone();
-        ops::mul_elementwise_assign::<Gf8<Poly<POLY>>>(&mut got, &b);
+        ops::mul_elementwise_assign::<Binary<8, Polynomial<POLY>>>(&mut got, &b);
         for ((d, &x), &y) in got.iter().zip(&a).zip(&b) {
             let want =
-                Elem::<Gf<8, Poly<POLY>>>::from_raw(x).mul(Elem::<Gf<8, Poly<POLY>>>::from_raw(y));
+                Elem::<Binary<8, Polynomial<POLY>>>::from_raw(x)
+                    .mul(Elem::<Binary<8, Polynomial<POLY>>>::from_raw(y));
             assert_eq!(*d, want.to_raw(), "GF8 elementwise assign len {len}");
         }
     }
@@ -1229,11 +1268,19 @@ fn zero_and_one_coefficients_behave() {
     let original = noise(len, 0x0f);
 
     let mut buffer = original.clone();
-    ops::mul_add::<Gf8<Poly<AES>>>(&mut buffer, Elem::<Gf<8, Poly<AES>>>::ZERO, &src);
+    ops::mul_add::<Binary<8, Polynomial<AES>>>(
+        &mut buffer,
+        Elem::<Binary<8, Polynomial<AES>>>::ZERO,
+        &src,
+    );
     assert_eq!(buffer, original, "zero coefficient must be a no-op");
 
     let mut buffer = original.clone();
-    ops::mul_add::<Gf8<Poly<AES>>>(&mut buffer, Elem::<Gf<8, Poly<AES>>>::ONE, &src);
+    ops::mul_add::<Binary<8, Polynomial<AES>>>(
+        &mut buffer,
+        Elem::<Binary<8, Polynomial<AES>>>::ONE,
+        &src,
+    );
     let want: Vec<u8> = original.iter().zip(&src).map(|(a, b)| a ^ b).collect();
     assert_eq!(buffer, want, "unit coefficient must be plain XOR");
 
@@ -1259,13 +1306,14 @@ fn erasure_round_trip_gf8() {
     let data: Vec<u8> = noise(k * row_len, 0x5150);
 
     // parity[j] = sum_i coeff(i, j) * data[i], coeff(i, j) = g^((i+1)*(j+1)).
-    let coeff =
-        |i: usize, j: usize| Elem::<Gf<8, Poly<AES>>>::GENERATOR.pow(((i + 1) * (j + 1)) as u128);
+    let coeff = |i: usize, j: usize| {
+        Elem::<Binary<8, Polynomial<AES>>>::GENERATOR.pow(((i + 1) * (j + 1)) as u128)
+    };
 
     let mut parity = vec![0u8; m * row_len];
     for i in 0..k {
         let coeffs: Vec<_> = (0..m).map(|j| coeff(i, j)).collect();
-        ops::mul_add_scatter::<Gf8<Poly<AES>>>(
+        ops::mul_add_scatter::<Binary<8, Polynomial<AES>>>(
             &mut parity,
             row_len,
             &coeffs,
@@ -1279,7 +1327,7 @@ fn erasure_round_trip_gf8() {
     let mut residual = parity[..2 * row_len].to_vec();
     for i in (0..k).filter(|i| !lost.contains(i)) {
         let coeffs = [coeff(i, 0), coeff(i, 1)];
-        ops::mul_add_matrix::<Gf8<Poly<AES>>>(
+        ops::mul_add_matrix::<Binary<8, Polynomial<AES>>>(
             &mut residual,
             row_len,
             2,
@@ -1293,7 +1341,7 @@ fn erasure_round_trip_gf8() {
     let det = a0.mul(b1).add(a1.mul(b0));
     assert_ne!(
         det,
-        Elem::<Gf<8, Poly<AES>>>::ZERO,
+        Elem::<Binary<8, Polynomial<AES>>>::ZERO,
         "chosen submatrix is singular"
     );
     let det_inv = det.inv();
@@ -1301,9 +1349,17 @@ fn erasure_round_trip_gf8() {
     // Cramer's rule, characteristic two so signs vanish.
     let (r0, r1) = residual.split_at(row_len);
     let mut x = vec![0u8; row_len];
-    ops::mul_add_gather::<Gf8<Poly<AES>>>(&mut x, &[b1.mul(det_inv), b0.mul(det_inv)], &[r0, r1]);
+    ops::mul_add_gather::<Binary<8, Polynomial<AES>>>(
+        &mut x,
+        &[b1.mul(det_inv), b0.mul(det_inv)],
+        &[r0, r1],
+    );
     let mut y = vec![0u8; row_len];
-    ops::mul_add_gather::<Gf8<Poly<AES>>>(&mut y, &[a1.mul(det_inv), a0.mul(det_inv)], &[r0, r1]);
+    ops::mul_add_gather::<Binary<8, Polynomial<AES>>>(
+        &mut y,
+        &[a1.mul(det_inv), a0.mul(det_inv)],
+        &[r0, r1],
+    );
 
     assert_eq!(x, data[lost[0] * row_len..(lost[0] + 1) * row_len], "row 1");
     assert_eq!(y, data[lost[1] * row_len..(lost[1] + 1) * row_len], "row 4");
@@ -1313,11 +1369,11 @@ fn erasure_round_trip_gf8() {
 #[should_panic(expected = "mul_into_gather: 2 coefficients for 1 sources")]
 fn mul_into_gather_rejects_mismatched_source_count() {
     let mut dst = [0u8; 8];
-    ops::mul_into_gather::<Gf8<Poly<AES>>>(
+    ops::mul_into_gather::<Binary<8, Polynomial<AES>>>(
         &mut dst,
         &[
-            Elem::<Gf<8, Poly<AES>>>::from_raw(2),
-            Elem::<Gf<8, Poly<AES>>>::from_raw(3),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(2),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(3),
         ],
         &[&[0u8; 8]],
     );
@@ -1327,9 +1383,9 @@ fn mul_into_gather_rejects_mismatched_source_count() {
 #[should_panic(expected = "mul_into_gather: source 0 is 7 bytes, expected 8")]
 fn mul_into_gather_rejects_wrong_source_length() {
     let mut dst = [0u8; 8];
-    ops::mul_into_gather::<Gf8<Poly<AES>>>(
+    ops::mul_into_gather::<Binary<8, Polynomial<AES>>>(
         &mut dst,
-        &[Elem::<Gf<8, Poly<AES>>>::from_raw(2)],
+        &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(2)],
         &[&[0u8; 7]],
     );
 }
@@ -1342,7 +1398,11 @@ fn mul_into_gather_rejects_wrong_source_length() {
 #[should_panic(expected = "dst is 8 bytes but src is 4 bytes")]
 fn mul_add_rejects_length_mismatch() {
     let mut dst = [0u8; 8];
-    ops::mul_add::<Gf8<Poly<AES>>>(&mut dst, Elem::<Gf<8, Poly<AES>>>::from_raw(2), &[0u8; 4]);
+    ops::mul_add::<Binary<8, Polynomial<AES>>>(
+        &mut dst,
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(2),
+        &[0u8; 4],
+    );
 }
 
 #[test]
@@ -1356,24 +1416,24 @@ fn gf16_rejects_odd_length() {
 #[should_panic(expected = "rows is 30 bytes")]
 fn scatter_rejects_wrong_row_count() {
     let mut rows = [0u8; 30];
-    let coeffs = [Elem::<Gf<8, Poly<AES>>>::from_raw(1); 4];
-    ops::mul_add_scatter::<Gf8<Poly<AES>>>(&mut rows, 8, &coeffs, &[0u8; 8]);
+    let coeffs = [Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 4];
+    ops::mul_add_scatter::<Binary<8, Polynomial<AES>>>(&mut rows, 8, &coeffs, &[0u8; 8]);
 }
 
 #[test]
 #[should_panic(expected = "coefficients for")]
 fn matrix_rejects_wrong_coefficient_count() {
     let mut rows = [0u8; 32];
-    let coeffs = [Elem::<Gf<8, Poly<AES>>>::from_raw(1); 2];
-    ops::mul_add_matrix::<Gf8<Poly<AES>>>(&mut rows, 8, 4, &[(&coeffs, &[0u8; 8])]);
+    let coeffs = [Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 2];
+    ops::mul_add_matrix::<Binary<8, Polynomial<AES>>>(&mut rows, 8, 4, &[(&coeffs, &[0u8; 8])]);
 }
 
 #[test]
 #[should_panic(expected = "mul_into_matrix: term supplies 2 coefficients for 4 rows")]
 fn mul_into_matrix_rejects_wrong_coefficient_count() {
     let mut rows = [0u8; 32];
-    let coeffs = [Elem::<Gf<8, Poly<AES>>>::from_raw(1); 2];
-    ops::mul_into_matrix::<Gf8<Poly<AES>>>(&mut rows, 8, 4, &[(&coeffs, &[0u8; 8])]);
+    let coeffs = [Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 2];
+    ops::mul_into_matrix::<Binary<8, Polynomial<AES>>>(&mut rows, 8, 4, &[(&coeffs, &[0u8; 8])]);
 }
 
 #[cfg(feature = "alloc")]
@@ -1381,24 +1441,28 @@ fn mul_into_matrix_rejects_wrong_coefficient_count() {
 #[should_panic]
 fn mul_into_matrix_with_rejects_wrong_matrix_dimensions() {
     let mut rows = [0u8; 32];
-    let matrix = ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(
+    let matrix = ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(
         1,
         2,
-        &[Elem::<Gf<8, Poly<AES>>>::from_raw(1); 2],
+        &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 2],
     );
     let sources = [&[0u8; 8][..], &[0u8; 8][..]];
-    ops::mul_into_matrix_with::<Gf8<Poly<AES>>>(&mut rows, 8, &matrix, &sources);
+    ops::mul_into_matrix_with::<Binary<8, Polynomial<AES>>>(&mut rows, 8, &matrix, &sources);
 }
 
 #[test]
 fn empty_buffers_are_no_ops() {
     let mut empty: [u8; 0] = [];
-    ops::mul_add::<Gf8<Poly<AES>>>(&mut empty, Elem::<Gf<8, Poly<AES>>>::from_raw(7), &[]);
+    ops::mul_add::<Binary<8, Polynomial<AES>>>(
+        &mut empty,
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(7),
+        &[],
+    );
     ops::mul_assign::<Gf16>(&mut empty, Elem::<Gf16>::from_raw(7));
-    ops::mul_add_scatter::<Gf8<Poly<AES>>>(&mut empty, 0, &[], &[]);
-    ops::mul_add_matrix::<Gf8<Poly<AES>>>(&mut empty, 8, 0, &[]);
-    ops::mul_into_matrix::<Gf8<Poly<AES>>>(&mut empty, 8, 0, &[]);
-    ops::mul_add_gather::<Gf8<Poly<AES>>>(&mut empty, &[], &[]);
+    ops::mul_add_scatter::<Binary<8, Polynomial<AES>>>(&mut empty, 0, &[], &[]);
+    ops::mul_add_matrix::<Binary<8, Polynomial<AES>>>(&mut empty, 8, 0, &[]);
+    ops::mul_into_matrix::<Binary<8, Polynomial<AES>>>(&mut empty, 8, 0, &[]);
+    ops::mul_add_gather::<Binary<8, Polynomial<AES>>>(&mut empty, &[], &[]);
 }
 
 fn check_wide_field_ops<F: fgf::FieldKernels>(coeffs: &[Elem<F>]) {
@@ -1471,25 +1535,25 @@ fn tier3_field_public_ops_match_oracle() {
         Elem::<Gf64>::ONE,
         Elem::<Gf64>::from_raw(0x0123_4567_89ab_cdef),
     ]);
-    check_wide_field_ops::<FanPaar8>(&[
-        Elem::<FanPaar8>::ZERO,
-        Elem::<FanPaar8>::ONE,
-        Elem::<FanPaar8>::from_raw(0xa5),
+    check_wide_field_ops::<FanPaar8Field>(&[
+        Elem::<FanPaar8Field>::ZERO,
+        Elem::<FanPaar8Field>::ONE,
+        Elem::<FanPaar8Field>::from_raw(0xa5),
     ]);
-    check_wide_field_ops::<FanPaar16>(&[
-        Elem::<FanPaar16>::ZERO,
-        Elem::<FanPaar16>::ONE,
-        Elem::<FanPaar16>::from_raw(0xa55a),
+    check_wide_field_ops::<FanPaar16Field>(&[
+        Elem::<FanPaar16Field>::ZERO,
+        Elem::<FanPaar16Field>::ONE,
+        Elem::<FanPaar16Field>::from_raw(0xa55a),
     ]);
-    check_wide_field_ops::<FanPaar32>(&[
-        Elem::<FanPaar32>::ZERO,
-        Elem::<FanPaar32>::ONE,
-        Elem::<FanPaar32>::from_raw(0xa55a_1234),
+    check_wide_field_ops::<FanPaar32Field>(&[
+        Elem::<FanPaar32Field>::ZERO,
+        Elem::<FanPaar32Field>::ONE,
+        Elem::<FanPaar32Field>::from_raw(0xa55a_1234),
     ]);
-    check_wide_field_ops::<FanPaar64>(&[
-        Elem::<FanPaar64>::ZERO,
-        Elem::<FanPaar64>::ONE,
-        Elem::<FanPaar64>::from_raw(0xa55a_1234_dead_beef),
+    check_wide_field_ops::<FanPaar64Field>(&[
+        Elem::<FanPaar64Field>::ZERO,
+        Elem::<FanPaar64Field>::ONE,
+        Elem::<FanPaar64Field>::from_raw(0xa55a_1234_dead_beef),
     ]);
 }
 
@@ -1499,12 +1563,12 @@ fn gf8_public_ops_match_oracle() {
     // geometry: every multi-row shape against the oracle. The exhaustive
     // single-buffer sweeps live in the per-operation tests above.
     fn wide_ops<const POLY: u128>() {
-        check_wide_field_ops::<Gf8<Poly<POLY>>>(&[
-            Elem::<Gf<8, Poly<POLY>>>::ZERO,
-            Elem::<Gf<8, Poly<POLY>>>::ONE,
-            Elem::<Gf<8, Poly<POLY>>>::from_raw(0x53),
-            Elem::<Gf<8, Poly<POLY>>>::from_raw(0xff),
-            Elem::<Gf<8, Poly<POLY>>>::from_raw(0x02),
+        check_wide_field_ops::<Binary<8, Polynomial<POLY>>>(&[
+            Elem::<Binary<8, Polynomial<POLY>>>::ZERO,
+            Elem::<Binary<8, Polynomial<POLY>>>::ONE,
+            Elem::<Binary<8, Polynomial<POLY>>>::from_raw(0x53),
+            Elem::<Binary<8, Polynomial<POLY>>>::from_raw(0xff),
+            Elem::<Binary<8, Polynomial<POLY>>>::from_raw(0x02),
         ]);
     }
     every_gf8_field!(wide_ops);
@@ -1856,20 +1920,20 @@ fn check_assign_and_broadcast_scalar<F: FieldKernels>(lens: &[usize], values: &[
 #[test]
 fn binary_and_wide_field_assign_scalar_ops_match_oracle() {
     const ELEMS: [usize; 3] = [3, 257, 1024];
-    check_assign_and_broadcast_scalar::<Gf8<Poly<AES>>>(
+    check_assign_and_broadcast_scalar::<Binary<8, Polynomial<AES>>>(
         &ELEMS,
         &[
-            Elem::<Gf<8, Poly<AES>>>::from_raw(0),
-            Elem::<Gf<8, Poly<AES>>>::from_raw(1),
-            Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(0),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(1),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
         ],
     );
-    check_assign_and_broadcast_scalar::<Gf8<Poly<REED_SOLOMON>>>(
+    check_assign_and_broadcast_scalar::<Binary<8, Polynomial<RS>>>(
         &ELEMS,
         &[
-            Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0),
-            Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(1),
-            Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x53),
+            Elem::<Binary<8, Polynomial<RS>>>::from_raw(0),
+            Elem::<Binary<8, Polynomial<RS>>>::from_raw(1),
+            Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x53),
         ],
     );
     check_assign_and_broadcast_scalar::<Gf16>(
@@ -1896,36 +1960,36 @@ fn binary_and_wide_field_assign_scalar_ops_match_oracle() {
             Elem::<Gf64>::from_raw(0x0123_4567_89ab_cdef),
         ],
     );
-    check_assign_and_broadcast_scalar::<FanPaar8>(
+    check_assign_and_broadcast_scalar::<FanPaar8Field>(
         &ELEMS,
         &[
-            Elem::<FanPaar8>::from_raw(0),
-            Elem::<FanPaar8>::from_raw(1),
-            Elem::<FanPaar8>::from_raw(0xa5),
+            Elem::<FanPaar8Field>::from_raw(0),
+            Elem::<FanPaar8Field>::from_raw(1),
+            Elem::<FanPaar8Field>::from_raw(0xa5),
         ],
     );
-    check_assign_and_broadcast_scalar::<FanPaar16>(
+    check_assign_and_broadcast_scalar::<FanPaar16Field>(
         &ELEMS,
         &[
-            Elem::<FanPaar16>::from_raw(0),
-            Elem::<FanPaar16>::from_raw(1),
-            Elem::<FanPaar16>::from_raw(0xa55a),
+            Elem::<FanPaar16Field>::from_raw(0),
+            Elem::<FanPaar16Field>::from_raw(1),
+            Elem::<FanPaar16Field>::from_raw(0xa55a),
         ],
     );
-    check_assign_and_broadcast_scalar::<FanPaar32>(
+    check_assign_and_broadcast_scalar::<FanPaar32Field>(
         &ELEMS,
         &[
-            Elem::<FanPaar32>::from_raw(0),
-            Elem::<FanPaar32>::from_raw(1),
-            Elem::<FanPaar32>::from_raw(0xa55a_1234),
+            Elem::<FanPaar32Field>::from_raw(0),
+            Elem::<FanPaar32Field>::from_raw(1),
+            Elem::<FanPaar32Field>::from_raw(0xa55a_1234),
         ],
     );
-    check_assign_and_broadcast_scalar::<FanPaar64>(
+    check_assign_and_broadcast_scalar::<FanPaar64Field>(
         &ELEMS,
         &[
-            Elem::<FanPaar64>::from_raw(0),
-            Elem::<FanPaar64>::from_raw(1),
-            Elem::<FanPaar64>::from_raw(0xa55a_1234_dead_beef),
+            Elem::<FanPaar64Field>::from_raw(0),
+            Elem::<FanPaar64Field>::from_raw(1),
+            Elem::<FanPaar64Field>::from_raw(0xa55a_1234_dead_beef),
         ],
     );
 }
@@ -1967,20 +2031,20 @@ fn check_broadcast_scalar_matches_filled_add<F: FieldKernels>(lens: &[usize], va
 /// same boundaries.
 #[test]
 fn binary_broadcast_scalar_matches_filled_add_assign() {
-    check_broadcast_scalar_matches_filled_add::<Gf8<Poly<AES>>>(
+    check_broadcast_scalar_matches_filled_add::<Binary<8, Polynomial<AES>>>(
         &[1, 15, 16, 17, 31, 32, 33, 49, 257],
         &[
-            Elem::<Gf<8, Poly<AES>>>::from_raw(0),
-            Elem::<Gf<8, Poly<AES>>>::from_raw(1),
-            Elem::<Gf<8, Poly<AES>>>::from_raw(0x53),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(0),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(1),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
         ],
     );
-    check_broadcast_scalar_matches_filled_add::<Gf8<Poly<REED_SOLOMON>>>(
+    check_broadcast_scalar_matches_filled_add::<Binary<8, Polynomial<RS>>>(
         &[1, 15, 16, 17, 31, 32, 33, 49, 257],
         &[
-            Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0),
-            Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(1),
-            Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x53),
+            Elem::<Binary<8, Polynomial<RS>>>::from_raw(0),
+            Elem::<Binary<8, Polynomial<RS>>>::from_raw(1),
+            Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x53),
         ],
     );
     check_broadcast_scalar_matches_filled_add::<Gf16>(
@@ -1996,8 +2060,11 @@ fn binary_broadcast_scalar_matches_filled_add_assign() {
 #[test]
 fn assign_scalar_empty_buffers_are_no_ops() {
     let mut empty: [u8; 0] = [];
-    ops::mul_elementwise_assign::<Gf8<Poly<AES>>>(&mut empty, &[]);
-    ops::add_assign_scalar::<Gf8<Poly<AES>>>(&mut empty, Elem::<Gf<8, Poly<AES>>>::from_raw(7));
+    ops::mul_elementwise_assign::<Binary<8, Polynomial<AES>>>(&mut empty, &[]);
+    ops::add_assign_scalar::<Binary<8, Polynomial<AES>>>(
+        &mut empty,
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(7),
+    );
     ops::sub_assign_scalar::<Gf16>(&mut empty, Elem::<Gf16>::from_raw(7));
     ops::mul_elementwise_assign::<Goldilocks>(&mut empty, &[]);
     ops::add_assign_scalar::<Mersenne31>(&mut empty, m31(0));
@@ -2006,7 +2073,7 @@ fn assign_scalar_empty_buffers_are_no_ops() {
 #[test]
 #[should_panic(expected = "mul_elementwise_assign: dst is 8 bytes but src is 7 bytes")]
 fn mul_elementwise_assign_rejects_length_mismatch() {
-    ops::mul_elementwise_assign::<Gf8<Poly<AES>>>(&mut [0u8; 8], &[0u8; 7]);
+    ops::mul_elementwise_assign::<Binary<8, Polynomial<AES>>>(&mut [0u8; 8], &[0u8; 7]);
 }
 
 #[test]
@@ -2044,6 +2111,7 @@ fn goldilocks_public_ops_match_oracle() {
 
 #[test]
 fn backend_queries_are_consistent_per_field() {
+    use fgf::kernel::vector_elementwise_min_bytes;
     use fgf::{Backend, KernelBackend, backend, backend_for, has_vector_elementwise};
 
     let process = backend();
@@ -2069,20 +2137,27 @@ fn backend_queries_are_consistent_per_field() {
                 !vectorized || per_field != Backend::Scalar,
                 concat!(stringify!($field), ": vectorized elementwise requires a vector field backend")
             );
+            // The dispatch threshold is zero whenever no vector kernel serves
+            // the field.
+            let threshold = vector_elementwise_min_bytes::<$field>();
+            assert!(
+                vectorized || threshold == 0,
+                concat!(stringify!($field), ": threshold without a vector elementwise kernel")
+            );
         )+};
     }
     queries!(
-        Gf8<Poly<AES>>,
-        Gf8<Poly<REED_SOLOMON>>,
-        Gf8<Normal<0x11B, 0x20>>,
-        Gf8<Cantor<0x11B, 0x20>>,
+        Binary<8, Polynomial<AES>>,
+        Binary<8, Polynomial<RS>>,
+        Binary<8, Normal<0x11B, 0x20>>,
+        Binary<8, Cantor<0x11B, 0x20>>,
         Gf16,
         Gf32,
         Gf64,
-        FanPaar8,
-        FanPaar16,
-        FanPaar32,
-        FanPaar64,
+        FanPaar8Field,
+        FanPaar16Field,
+        FanPaar32Field,
+        FanPaar64Field,
         Mersenne31,
         Goldilocks,
         QuadMersenne31,
@@ -2108,9 +2183,9 @@ fn backend_queries_are_consistent_per_field() {
                 "AVX-512+GFNI summons but dispatch did not select V4x"
             );
             assert_eq!(
-                backend_for::<Gf8<Poly<REED_SOLOMON>>>(),
+                backend_for::<Binary<8, Polynomial<RS>>>(),
                 Backend::V4x,
-                "Gf8<Poly<REED_SOLOMON>> does not report V4x on a V4x host"
+                "Binary<8, Polynomial<RS>> does not report V4x on a V4x host"
             );
             // Both prime fields carry 64-byte kernels on V4x.
             assert_eq!(
@@ -2121,8 +2196,8 @@ fn backend_queries_are_consistent_per_field() {
             // Both byte fields carry 64-byte elementwise kernels on V4x, so
             // the capability query must not steer consumers to scalar.
             assert!(
-                has_vector_elementwise::<Gf8<Poly<AES>>>()
-                    && has_vector_elementwise::<Gf8<Poly<REED_SOLOMON>>>(),
+                has_vector_elementwise::<Binary<8, Polynomial<AES>>>()
+                    && has_vector_elementwise::<Binary<8, Polynomial<RS>>>(),
                 "byte fields do not report vector elementwise on a V4x host"
             );
         } else {
@@ -2168,15 +2243,15 @@ fn add_and_sub_assign_match_oracle_for_every_field() {
         assert_eq!(got, want, "sub_assign over {} bytes", len);
         let _ = coeff;
     }
-    check::<Gf8<Poly<AES>>>(8, Elem::<Gf<8, Poly<AES>>>::from_raw(3));
-    check::<Gf8<Poly<REED_SOLOMON>>>(8, Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(3));
+    check::<Binary<8, Polynomial<AES>>>(8, Elem::<Binary<8, Polynomial<AES>>>::from_raw(3));
+    check::<Binary<8, Polynomial<RS>>>(8, Elem::<Binary<8, Polynomial<RS>>>::from_raw(3));
     check::<Gf16>(8, Elem::<Gf16>::from_raw(3));
     check::<Gf32>(8, Elem::<Gf32>::from_raw(3));
     check::<Gf64>(8, Elem::<Gf64>::from_raw(3));
-    check::<FanPaar8>(8, Elem::<FanPaar8>::from_raw(3));
-    check::<FanPaar16>(8, Elem::<FanPaar16>::from_raw(3));
-    check::<FanPaar32>(8, Elem::<FanPaar32>::from_raw(3));
-    check::<FanPaar64>(8, Elem::<FanPaar64>::from_raw(3));
+    check::<FanPaar8Field>(8, Elem::<FanPaar8Field>::from_raw(3));
+    check::<FanPaar16Field>(8, Elem::<FanPaar16Field>::from_raw(3));
+    check::<FanPaar32Field>(8, Elem::<FanPaar32Field>::from_raw(3));
+    check::<FanPaar64Field>(8, Elem::<FanPaar64Field>::from_raw(3));
     check::<Mersenne31>(8, Elem::<Mersenne31>::from_raw(3));
     check::<Goldilocks>(8, Elem::<Goldilocks>::from_raw(3));
     check::<QuadMersenne31>(8, Elem::<QuadMersenne31>::from_raw(3, 5));
@@ -2230,14 +2305,88 @@ fn prepared_collections_report_their_contents() {
     assert!(matrix.source(2).is_none(), "source out of bounds");
 }
 
+/// Clones own their prepared tables: each keeps multiplying by its value
+/// after the original is dropped, exactly as the one-shot operation does.
+#[test]
+#[cfg(feature = "alloc")]
+fn prepared_clones_outlive_their_originals() {
+    let row_len = 70;
+    let values = [
+        Elem::<Gf16>::from_raw(0x9ace),
+        Elem::<Gf16>::from_raw(1),
+        Elem::<Gf16>::from_raw(0x0100),
+        Elem::<Gf16>::from_raw(0xfffe),
+    ];
+    let srcs = [noise(row_len, 0x3a1), noise(row_len, 0x3a2)];
+    let src_refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
+
+    let coeff = {
+        let original = ops::Coeff::<Gf16>::new(values[0]);
+        original.clone()
+    };
+    assert_eq!(coeff.value(), values[0]);
+    let mut got = noise(row_len, 0x3a3);
+    let mut want = got.clone();
+    ops::mul_add_with(&mut got, &coeff, &srcs[0]);
+    ops::mul_add::<Gf16>(&mut want, values[0], &srcs[0]);
+    assert_eq!(got, want, "cloned Coeff");
+
+    let original = ops::CoeffVec::<Gf16>::new(&values[..2]);
+    let vector = original.clone();
+    drop(original);
+    assert_eq!(vector.values().collect::<Vec<_>>(), values[..2]);
+    let mut got = noise(row_len * 2, 0x3a4);
+    let mut want = got.clone();
+    ops::mul_add_scatter_with(&mut got, row_len, vector.as_ref(), &srcs[1]);
+    ops::mul_add_scatter::<Gf16>(&mut want, row_len, &values[..2], &srcs[1]);
+    assert_eq!(got, want, "cloned CoeffVec");
+
+    let original = ops::CoeffMatrix::<Gf16>::from_source_major(2, 2, &values);
+    let matrix = original.clone();
+    drop(original);
+    assert_eq!(
+        (matrix.source_count(), matrix.output_count()),
+        (2, 2),
+        "cloned CoeffMatrix shape"
+    );
+    let mut got = noise(row_len * 2, 0x3a5);
+    let mut want = got.clone();
+    ops::mul_add_matrix_with(&mut got, row_len, &matrix, &src_refs);
+    let terms = [(&values[..2], src_refs[0]), (&values[2..], src_refs[1])];
+    ops::mul_add_matrix::<Gf16>(&mut want, row_len, 2, &terms);
+    assert_eq!(got, want, "cloned CoeffMatrix");
+}
+
+/// A zero-output matrix still answers every in-bounds source with a view,
+/// and that view is empty.
+#[test]
+#[cfg(feature = "alloc")]
+fn zero_output_matrix_sources_are_empty_views() {
+    let matrix = ops::CoeffMatrix::<Gf16>::from_source_major(3, 0, &[]);
+    assert!(matrix.is_empty());
+    for source in 0..3 {
+        let view = matrix.source(source).expect("source in bounds");
+        assert!(view.is_empty(), "source {source}");
+        assert_eq!(view.len(), 0);
+        assert!(view.get(0).is_none());
+    }
+    assert!(matrix.source(3).is_none());
+
+    let matrix =
+        ops::CoeffMatrix::<Gf16>::from_source_major(1, 2, &[Elem::<Gf16>::ONE, Elem::<Gf16>::ZERO]);
+    let view = matrix.source(0).expect("source in bounds");
+    assert!(!view.is_empty());
+    assert_eq!(view.len(), 2);
+}
+
 #[test]
 #[cfg(feature = "alloc")]
 #[should_panic]
 fn coeff_matrix_rejects_wrong_coefficient_count() {
-    let _ = ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(
+    let _ = ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(
         2,
         2,
-        &[Elem::<Gf<8, Poly<AES>>>::from_raw(1); 3],
+        &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 3],
     );
 }
 
@@ -2245,7 +2394,7 @@ fn coeff_matrix_rejects_wrong_coefficient_count() {
 #[cfg(feature = "alloc")]
 #[should_panic(expected = "CoeffMatrix::from_source_major: dimensions overflow")]
 fn coeff_matrix_rejects_overflowing_dimensions() {
-    let _ = ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(usize::MAX, 2, &[]);
+    let _ = ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(usize::MAX, 2, &[]);
 }
 
 // ---------------------------------------------------------------------------
@@ -2259,8 +2408,9 @@ fn zero_and_empty_inputs_are_well_defined() {
     // destination untouched (or zeroed, for the overwrite shapes).
     let srcs: Vec<Vec<u8>> = [noise(8, 0x31), noise(8, 0x32)].to_vec();
     let refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
-    let zero_vector =
-        ops::CoeffVec::<Gf8<Poly<AES>>>::new(&[Elem::<Gf<8, Poly<AES>>>::from_raw(0); 2]);
+    let zero_vector = ops::CoeffVec::<Binary<8, Polynomial<AES>>>::new(
+        &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(0); 2],
+    );
 
     let mut rows = noise(16, 0x33);
     let before = rows.clone();
@@ -2269,11 +2419,11 @@ fn zero_and_empty_inputs_are_well_defined() {
 
     let mut dst = noise(8, 0x34);
     let before = dst.clone();
-    ops::mul_add_gather::<Gf8<Poly<AES>>>(
+    ops::mul_add_gather::<Binary<8, Polynomial<AES>>>(
         &mut dst,
         &[
-            Elem::<Gf<8, Poly<AES>>>::from_raw(0),
-            Elem::<Gf<8, Poly<AES>>>::from_raw(0),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(0),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(0),
         ],
         &refs,
     );
@@ -2283,11 +2433,11 @@ fn zero_and_empty_inputs_are_well_defined() {
 
     // Overwrite shapes zero the destination instead.
     let mut dst = noise(8, 0x35);
-    ops::mul_into_gather::<Gf8<Poly<AES>>>(
+    ops::mul_into_gather::<Binary<8, Polynomial<AES>>>(
         &mut dst,
         &[
-            Elem::<Gf<8, Poly<AES>>>::from_raw(0),
-            Elem::<Gf<8, Poly<AES>>>::from_raw(0),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(0),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(0),
         ],
         &refs,
     );
@@ -2297,41 +2447,41 @@ fn zero_and_empty_inputs_are_well_defined() {
 
     // Empty inputs.
     let mut dst = noise(8, 0x36);
-    ops::mul_into_gather::<Gf8<Poly<AES>>>(&mut dst, &[], &[]);
+    ops::mul_into_gather::<Binary<8, Polynomial<AES>>>(&mut dst, &[], &[]);
     assert_eq!(dst, vec![0; 8], "no sources fills zero");
-    let empty_vector = ops::CoeffVec::<Gf8<Poly<AES>>>::new(&[]);
+    let empty_vector = ops::CoeffVec::<Binary<8, Polynomial<AES>>>::new(&[]);
     ops::mul_into_gather_with(&mut dst, empty_vector.as_ref(), &[]);
     assert_eq!(dst, vec![0; 8], "empty vector fills zero");
 
     let mut rows = noise(16, 0x37);
     let before = rows.clone();
-    ops::mul_add_matrix::<Gf8<Poly<AES>>>(&mut rows, 8, 2, &[]);
+    ops::mul_add_matrix::<Binary<8, Polynomial<AES>>>(&mut rows, 8, 2, &[]);
     assert_eq!(rows, before, "no terms is a no-op");
-    ops::mul_add_matrix::<Gf8<Poly<AES>>>(&mut rows, 8, 0, &[(&[], &srcs[0])]);
+    ops::mul_add_matrix::<Binary<8, Polynomial<AES>>>(&mut rows, 8, 0, &[(&[], &srcs[0])]);
     assert_eq!(rows, before, "zero rows is a no-op");
     ops::mul_add_matrix_with(
         &mut rows,
         8,
-        &ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(1, 0, &[]),
+        &ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(1, 0, &[]),
         &[&srcs[0]],
     );
     assert_eq!(rows, before, "zero-output matrix is a no-op");
     ops::mul_add_matrix_with(
         &mut rows,
         8,
-        &ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(0, 2, &[]),
+        &ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(0, 2, &[]),
         &[],
     );
     assert_eq!(rows, before, "empty-source matrix is a no-op");
 
     let mut overwritten = vec![1u8; 16];
-    ops::mul_into_matrix::<Gf8<Poly<AES>>>(&mut overwritten, 8, 0, &[(&[], &srcs[0])]);
-    ops::mul_into_matrix::<Gf8<Poly<AES>>>(&mut overwritten, 8, 2, &[]);
+    ops::mul_into_matrix::<Binary<8, Polynomial<AES>>>(&mut overwritten, 8, 0, &[(&[], &srcs[0])]);
+    ops::mul_into_matrix::<Binary<8, Polynomial<AES>>>(&mut overwritten, 8, 2, &[]);
     assert_eq!(overwritten, vec![0; 16], "empty terms zero the rows");
     ops::mul_into_matrix_with(
         &mut overwritten,
         8,
-        &ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(0, 0, &[]),
+        &ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(0, 0, &[]),
         &[],
     );
     assert_eq!(overwritten, vec![0; 16], "zero-row matrix keeps bytes");
@@ -2339,14 +2489,14 @@ fn zero_and_empty_inputs_are_well_defined() {
     ops::mul_into_matrix_with(
         &mut seeded,
         8,
-        &ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(0, 2, &[]),
+        &ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(0, 2, &[]),
         &[],
     );
     assert_eq!(seeded, vec![0; 16], "empty-source matrix zeros the rows");
 
     // Scattered reconstruction with nothing to do.
-    ops::mul_add_matrix_at::<Gf8<Poly<AES>>>(&mut rows, 8, &[0, 8], &[]);
-    ops::mul_add_matrix_at::<Gf8<Poly<AES>>>(&mut rows, 8, &[], &[(&[], &srcs[0])]);
+    ops::mul_add_matrix_at::<Binary<8, Polynomial<AES>>>(&mut rows, 8, &[0, 8], &[]);
+    ops::mul_add_matrix_at::<Binary<8, Polynomial<AES>>>(&mut rows, 8, &[], &[(&[], &srcs[0])]);
 }
 
 #[test]
@@ -2370,7 +2520,9 @@ fn single_term_mul_into_gathers_match_mul_into() {
 #[cfg(feature = "alloc")]
 #[should_panic(expected = "mul_add_scatter_with: rows is 8 bytes")]
 fn scatter_with_rejects_short_rows_buffer() {
-    let coeffs = ops::CoeffVec::<Gf8<Poly<AES>>>::new(&[Elem::<Gf<8, Poly<AES>>>::from_raw(1); 2]);
+    let coeffs = ops::CoeffVec::<Binary<8, Polynomial<AES>>>::new(
+        &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 2],
+    );
     let mut rows = vec![0u8; 8];
     ops::mul_add_scatter_with(&mut rows, 8, coeffs.as_ref(), &[0u8; 8]);
 }
@@ -2380,11 +2532,11 @@ fn scatter_with_rejects_short_rows_buffer() {
 fn gather_rejects_coefficient_count_mismatch() {
     let src = [0u8; 8];
     let mut dst = vec![0u8; 8];
-    ops::mul_add_gather::<Gf8<Poly<AES>>>(
+    ops::mul_add_gather::<Binary<8, Polynomial<AES>>>(
         &mut dst,
         &[
-            Elem::<Gf<8, Poly<AES>>>::from_raw(1),
-            Elem::<Gf<8, Poly<AES>>>::from_raw(2),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(1),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(2),
         ],
         &[&src],
     );
@@ -2395,9 +2547,9 @@ fn gather_rejects_coefficient_count_mismatch() {
 fn gather_rejects_source_length_mismatch() {
     let src = [0u8; 7];
     let mut dst = vec![0u8; 8];
-    ops::mul_add_gather::<Gf8<Poly<AES>>>(
+    ops::mul_add_gather::<Binary<8, Polynomial<AES>>>(
         &mut dst,
-        &[Elem::<Gf<8, Poly<AES>>>::from_raw(1)],
+        &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(1)],
         &[&src],
     );
 }
@@ -2408,9 +2560,9 @@ fn gather_rejects_source_length_mismatch() {
 fn gather_with_rejects_vector_source_mismatch() {
     let src = [0u8; 8];
     let mut dst = vec![0u8; 8];
-    let coeffs = ops::CoeffVec::<Gf8<Poly<AES>>>::new(&[
-        Elem::<Gf<8, Poly<AES>>>::from_raw(1),
-        Elem::<Gf<8, Poly<AES>>>::from_raw(2),
+    let coeffs = ops::CoeffVec::<Binary<8, Polynomial<AES>>>::new(&[
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(1),
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(2),
     ]);
     ops::mul_add_gather_with(&mut dst, coeffs.as_ref(), &[&src]);
 }
@@ -2421,7 +2573,9 @@ fn gather_with_rejects_vector_source_mismatch() {
 fn gather_with_rejects_source_length_mismatch() {
     let src = [0u8; 7];
     let mut dst = vec![0u8; 8];
-    let coeffs = ops::CoeffVec::<Gf8<Poly<AES>>>::new(&[Elem::<Gf<8, Poly<AES>>>::from_raw(1)]);
+    let coeffs = ops::CoeffVec::<Binary<8, Polynomial<AES>>>::new(&[Elem::<
+        Binary<8, Polynomial<AES>>,
+    >::from_raw(1)]);
     ops::mul_add_gather_with(&mut dst, coeffs.as_ref(), &[&src]);
 }
 
@@ -2431,9 +2585,9 @@ fn gather_with_rejects_source_length_mismatch() {
 fn mul_into_gather_with_rejects_vector_source_mismatch() {
     let src = [0u8; 8];
     let mut dst = vec![0u8; 8];
-    let coeffs = ops::CoeffVec::<Gf8<Poly<AES>>>::new(&[
-        Elem::<Gf<8, Poly<AES>>>::from_raw(1),
-        Elem::<Gf<8, Poly<AES>>>::from_raw(2),
+    let coeffs = ops::CoeffVec::<Binary<8, Polynomial<AES>>>::new(&[
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(1),
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(2),
     ]);
     ops::mul_into_gather_with(&mut dst, coeffs.as_ref(), &[&src]);
 }
@@ -2444,9 +2598,9 @@ fn mul_into_gather_with_rejects_vector_source_mismatch() {
 fn mul_into_gather_with_rejects_source_length_mismatch() {
     let srcs = [vec![0u8; 8], vec![0u8; 9]];
     let mut dst = vec![0u8; 8];
-    let coeffs = ops::CoeffVec::<Gf8<Poly<AES>>>::new(&[
-        Elem::<Gf<8, Poly<AES>>>::from_raw(1),
-        Elem::<Gf<8, Poly<AES>>>::from_raw(2),
+    let coeffs = ops::CoeffVec::<Binary<8, Polynomial<AES>>>::new(&[
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(1),
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(2),
     ]);
     ops::mul_into_gather_with(
         &mut dst,
@@ -2459,11 +2613,14 @@ fn mul_into_gather_with_rejects_source_length_mismatch() {
 #[should_panic(expected = "mul_add_matrix: rows is 8 bytes")]
 fn matrix_rejects_short_rows_buffer() {
     let mut rows = vec![0u8; 8];
-    ops::mul_add_matrix::<Gf8<Poly<AES>>>(
+    ops::mul_add_matrix::<Binary<8, Polynomial<AES>>>(
         &mut rows,
         8,
         2,
-        &[(&[Elem::<Gf<8, Poly<AES>>>::from_raw(1); 2], &[0u8; 8])],
+        &[(
+            &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 2],
+            &[0u8; 8],
+        )],
     );
 }
 
@@ -2471,11 +2628,14 @@ fn matrix_rejects_short_rows_buffer() {
 #[should_panic(expected = "mul_add_matrix: term supplies 1 coefficients for 2 rows")]
 fn matrix_rejects_term_coefficient_count() {
     let mut rows = vec![0u8; 16];
-    ops::mul_add_matrix::<Gf8<Poly<AES>>>(
+    ops::mul_add_matrix::<Binary<8, Polynomial<AES>>>(
         &mut rows,
         8,
         2,
-        &[(&[Elem::<Gf<8, Poly<AES>>>::from_raw(1)], &[0u8; 8])],
+        &[(
+            &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(1)],
+            &[0u8; 8],
+        )],
     );
 }
 
@@ -2483,11 +2643,14 @@ fn matrix_rejects_term_coefficient_count() {
 #[should_panic(expected = "mul_add_matrix: source is 7 bytes")]
 fn matrix_rejects_source_length_mismatch() {
     let mut rows = vec![0u8; 16];
-    ops::mul_add_matrix::<Gf8<Poly<AES>>>(
+    ops::mul_add_matrix::<Binary<8, Polynomial<AES>>>(
         &mut rows,
         8,
         2,
-        &[(&[Elem::<Gf<8, Poly<AES>>>::from_raw(1); 2], &[0u8; 7])],
+        &[(
+            &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 2],
+            &[0u8; 7],
+        )],
     );
 }
 
@@ -2496,12 +2659,12 @@ fn matrix_rejects_source_length_mismatch() {
 #[should_panic(expected = "mul_add_matrix_with: rows is 8 bytes")]
 fn matrix_with_rejects_short_rows_buffer() {
     let mut rows = vec![0u8; 8];
-    let matrix = ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(
+    let matrix = ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(
         1,
         2,
         &[
-            Elem::<Gf<8, Poly<AES>>>::from_raw(1),
-            Elem::<Gf<8, Poly<AES>>>::from_raw(2),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(1),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(2),
         ],
     );
     ops::mul_add_matrix_with(&mut rows, 8, &matrix, &[&[0u8; 8]]);
@@ -2512,10 +2675,10 @@ fn matrix_with_rejects_short_rows_buffer() {
 #[should_panic]
 fn matrix_with_rejects_dimension_mismatch() {
     let mut rows = vec![0u8; 16];
-    let matrix = ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(
+    let matrix = ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(
         2,
         2,
-        &[Elem::<Gf<8, Poly<AES>>>::from_raw(1); 4],
+        &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 4],
     );
     ops::mul_add_matrix_with(&mut rows, 8, &matrix, &[&[0u8; 8]]);
 }
@@ -2525,12 +2688,12 @@ fn matrix_with_rejects_dimension_mismatch() {
 #[should_panic(expected = "mul_add_matrix_with: source 0 is 7 bytes")]
 fn matrix_with_rejects_source_length_mismatch() {
     let mut rows = vec![0u8; 16];
-    let matrix = ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(
+    let matrix = ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(
         1,
         2,
         &[
-            Elem::<Gf<8, Poly<AES>>>::from_raw(1),
-            Elem::<Gf<8, Poly<AES>>>::from_raw(2),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(1),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(2),
         ],
     );
     ops::mul_add_matrix_with(&mut rows, 8, &matrix, &[&[0u8; 7]]);
@@ -2540,11 +2703,14 @@ fn matrix_with_rejects_source_length_mismatch() {
 #[should_panic(expected = "mul_into_matrix: rows is 8 bytes")]
 fn mul_into_matrix_rejects_short_rows_buffer() {
     let mut rows = vec![0u8; 8];
-    ops::mul_into_matrix::<Gf8<Poly<AES>>>(
+    ops::mul_into_matrix::<Binary<8, Polynomial<AES>>>(
         &mut rows,
         8,
         2,
-        &[(&[Elem::<Gf<8, Poly<AES>>>::from_raw(1); 2], &[0u8; 8])],
+        &[(
+            &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 2],
+            &[0u8; 8],
+        )],
     );
 }
 
@@ -2552,11 +2718,14 @@ fn mul_into_matrix_rejects_short_rows_buffer() {
 #[should_panic(expected = "mul_into_matrix: term supplies 1 coefficients")]
 fn mul_into_matrix_rejects_term_coefficient_count() {
     let mut rows = vec![0u8; 16];
-    ops::mul_into_matrix::<Gf8<Poly<AES>>>(
+    ops::mul_into_matrix::<Binary<8, Polynomial<AES>>>(
         &mut rows,
         8,
         2,
-        &[(&[Elem::<Gf<8, Poly<AES>>>::from_raw(1)], &[0u8; 8])],
+        &[(
+            &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(1)],
+            &[0u8; 8],
+        )],
     );
 }
 
@@ -2564,11 +2733,14 @@ fn mul_into_matrix_rejects_term_coefficient_count() {
 #[should_panic(expected = "mul_into_matrix: source is 7 bytes")]
 fn mul_into_matrix_rejects_source_length_mismatch() {
     let mut rows = vec![0u8; 16];
-    ops::mul_into_matrix::<Gf8<Poly<AES>>>(
+    ops::mul_into_matrix::<Binary<8, Polynomial<AES>>>(
         &mut rows,
         8,
         2,
-        &[(&[Elem::<Gf<8, Poly<AES>>>::from_raw(1); 2], &[0u8; 7])],
+        &[(
+            &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 2],
+            &[0u8; 7],
+        )],
     );
 }
 
@@ -2577,12 +2749,12 @@ fn mul_into_matrix_rejects_source_length_mismatch() {
 #[should_panic(expected = "mul_into_matrix_with: rows is 8 bytes")]
 fn mul_into_matrix_with_rejects_short_rows_buffer() {
     let mut rows = vec![0u8; 8];
-    let matrix = ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(
+    let matrix = ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(
         1,
         2,
         &[
-            Elem::<Gf<8, Poly<AES>>>::from_raw(1),
-            Elem::<Gf<8, Poly<AES>>>::from_raw(2),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(1),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(2),
         ],
     );
     ops::mul_into_matrix_with(&mut rows, 8, &matrix, &[&[0u8; 8]]);
@@ -2593,10 +2765,10 @@ fn mul_into_matrix_with_rejects_short_rows_buffer() {
 #[should_panic]
 fn mul_into_matrix_with_rejects_dimension_mismatch() {
     let mut rows = vec![0u8; 16];
-    let matrix = ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(
+    let matrix = ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(
         3,
         2,
-        &[Elem::<Gf<8, Poly<AES>>>::from_raw(1); 6],
+        &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 6],
     );
     ops::mul_into_matrix_with(&mut rows, 8, &matrix, &[&[0u8; 8]]);
 }
@@ -2606,12 +2778,12 @@ fn mul_into_matrix_with_rejects_dimension_mismatch() {
 #[should_panic(expected = "mul_into_matrix_with: source 0 is 7 bytes")]
 fn mul_into_matrix_with_rejects_source_length_mismatch() {
     let mut rows = vec![0u8; 16];
-    let matrix = ops::CoeffMatrix::<Gf8<Poly<AES>>>::from_source_major(
+    let matrix = ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(
         1,
         2,
         &[
-            Elem::<Gf<8, Poly<AES>>>::from_raw(1),
-            Elem::<Gf<8, Poly<AES>>>::from_raw(2),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(1),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(2),
         ],
     );
     ops::mul_into_matrix_with(&mut rows, 8, &matrix, &[&[0u8; 7]]);
@@ -2621,11 +2793,14 @@ fn mul_into_matrix_with_rejects_source_length_mismatch() {
 #[should_panic(expected = "spans 8..16 but dst is 12 bytes")]
 fn scattered_rejects_out_of_bounds_row() {
     let mut dst = vec![0u8; 12];
-    ops::mul_add_matrix_at::<Gf8<Poly<AES>>>(
+    ops::mul_add_matrix_at::<Binary<8, Polynomial<AES>>>(
         &mut dst,
         8,
         &[0, 8],
-        &[(&[Elem::<Gf<8, Poly<AES>>>::from_raw(1); 2], &[0u8; 8])],
+        &[(
+            &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 2],
+            &[0u8; 8],
+        )],
     );
 }
 
@@ -2645,11 +2820,14 @@ fn scattered_rejects_misaligned_row_start() {
 #[should_panic(expected = "mul_add_matrix_at: term supplies 1 coefficients")]
 fn scattered_rejects_term_coefficient_count() {
     let mut dst = vec![0u8; 16];
-    ops::mul_add_matrix_at::<Gf8<Poly<AES>>>(
+    ops::mul_add_matrix_at::<Binary<8, Polynomial<AES>>>(
         &mut dst,
         8,
         &[0, 8],
-        &[(&[Elem::<Gf<8, Poly<AES>>>::from_raw(1)], &[0u8; 8])],
+        &[(
+            &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(1)],
+            &[0u8; 8],
+        )],
     );
 }
 
@@ -2657,11 +2835,14 @@ fn scattered_rejects_term_coefficient_count() {
 #[should_panic(expected = "mul_add_matrix_at: source is 7 bytes")]
 fn scattered_rejects_source_length_mismatch() {
     let mut dst = vec![0u8; 16];
-    ops::mul_add_matrix_at::<Gf8<Poly<AES>>>(
+    ops::mul_add_matrix_at::<Binary<8, Polynomial<AES>>>(
         &mut dst,
         8,
         &[0, 8],
-        &[(&[Elem::<Gf<8, Poly<AES>>>::from_raw(1); 2], &[0u8; 7])],
+        &[(
+            &[Elem::<Binary<8, Polynomial<AES>>>::from_raw(1); 2],
+            &[0u8; 7],
+        )],
     );
 }
 
@@ -2669,26 +2850,26 @@ fn scattered_rejects_source_length_mismatch() {
 #[should_panic(expected = "mul_elementwise: dst is 8 bytes but a is 7 bytes")]
 fn elementwise_rejects_first_operand_mismatch() {
     let mut dst = vec![0u8; 8];
-    ops::mul_elementwise::<Gf8<Poly<AES>>>(&mut dst, &[0u8; 7], &[0u8; 8]);
+    ops::mul_elementwise::<Binary<8, Polynomial<AES>>>(&mut dst, &[0u8; 7], &[0u8; 8]);
 }
 
 #[test]
 #[should_panic(expected = "mul_elementwise: dst is 8 bytes but b is 9 bytes")]
 fn elementwise_rejects_second_operand_mismatch() {
     let mut dst = vec![0u8; 8];
-    ops::mul_elementwise::<Gf8<Poly<AES>>>(&mut dst, &[0u8; 8], &[0u8; 9]);
+    ops::mul_elementwise::<Binary<8, Polynomial<AES>>>(&mut dst, &[0u8; 8], &[0u8; 9]);
 }
 
 #[test]
 #[should_panic(expected = "pack:")]
 fn pack_rejects_destination_mismatch() {
     let mut dst = [0u8; 2];
-    ops::pack::<Gf8<Poly<AES>>>(
+    ops::pack::<Binary<8, Polynomial<AES>>>(
         &mut dst,
         &[
-            Elem::<Gf<8, Poly<AES>>>::from_raw(1),
-            Elem::<Gf<8, Poly<AES>>>::from_raw(2),
-            Elem::<Gf<8, Poly<AES>>>::from_raw(3),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(1),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(2),
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(3),
         ],
     );
 }
@@ -2696,25 +2877,25 @@ fn pack_rejects_destination_mismatch() {
 #[test]
 #[should_panic(expected = "unpack:")]
 fn unpack_rejects_source_mismatch() {
-    let mut dst = [Elem::<Gf<8, Poly<AES>>>::from_raw(0); 3];
-    ops::unpack::<Gf8<Poly<AES>>>(&mut dst, &[0u8; 2]);
+    let mut dst = [Elem::<Binary<8, Polynomial<AES>>>::from_raw(0); 3];
+    ops::unpack::<Binary<8, Polynomial<AES>>>(&mut dst, &[0u8; 2]);
 }
 
 #[cfg(not(miri))]
 #[test]
 fn gf8_reed_solomon_large_buffer_mul_assign_matches_oracle() {
     // Past 64 KiB the GFNI in-place scale takes its shuffle variant
-    // (benchmarks/gf8.md); hold both sides of the crossover to the oracle.
+    // (benchmarks/v3/gf8.md); hold both sides of the crossover to the oracle.
     for len in [65_536 - 8, 65_536 + 7] {
         let mut got = noise(len, 0x62);
         let mut want = got.clone();
-        ops::mul_assign::<Gf8<Poly<REED_SOLOMON>>>(
+        ops::mul_assign::<Binary<8, Polynomial<RS>>>(
             &mut got,
-            Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x53),
+            Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x53),
         );
-        oracle_mul_assign::<Gf8<Poly<REED_SOLOMON>>>(
+        oracle_mul_assign::<Binary<8, Polynomial<RS>>>(
             &mut want,
-            Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x53),
+            Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x53),
         );
         assert_eq!(got, want, "in-place scale at {len} bytes");
     }
@@ -2726,7 +2907,7 @@ fn gf8_reed_solomon_large_buffer_mul_assign_matches_oracle() {
 
 /// Every `_with` shape must produce byte-identical results to the one-shot
 /// operation over the same coefficients, for a representative of each kernel
-/// family: the flat byte fields (`Gf8<Poly<AES>>`, `Gf8<Poly<REED_SOLOMON>>`), tower
+/// family: the flat byte fields (`Binary<8, Polynomial<AES>>`, `Binary<8, Polynomial<RS>>`), tower
 /// (`Gf16`), scalar-defaulted wider towers (`Gf32`), Fan–Paar, and the prime
 /// fields.
 #[test]
@@ -2840,16 +3021,16 @@ fn prepared_variants_match_one_shot_operations() {
         }};
     }
     check!(
-        Gf8<Poly<AES>>,
-        Elem::<Gf<8, Poly<AES>>>::from_raw(0),
-        Elem::<Gf<8, Poly<AES>>>::from_raw(1),
-        Elem::<Gf<8, Poly<AES>>>::from_raw(0x8d)
+        Binary<8, Polynomial<AES>>,
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(0),
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(1),
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x8d)
     );
     check!(
-        Gf8<Poly<REED_SOLOMON>>,
-        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0),
-        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(1),
-        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x53)
+        Binary<8, Polynomial<RS>>,
+        Elem::<Binary<8, Polynomial<RS>>>::from_raw(0),
+        Elem::<Binary<8, Polynomial<RS>>>::from_raw(1),
+        Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x53)
     );
     check!(
         Gf16,
@@ -2870,28 +3051,28 @@ fn prepared_variants_match_one_shot_operations() {
         Elem::<Gf64>::from_raw(0x0a5a_1234_dead_beef)
     );
     check!(
-        FanPaar8,
-        Elem::<FanPaar8>::from_raw(0),
-        Elem::<FanPaar8>::from_raw(1),
-        Elem::<FanPaar8>::from_raw(0x8d)
+        FanPaar8Field,
+        Elem::<FanPaar8Field>::from_raw(0),
+        Elem::<FanPaar8Field>::from_raw(1),
+        Elem::<FanPaar8Field>::from_raw(0x8d)
     );
     check!(
-        FanPaar16,
-        Elem::<FanPaar16>::from_raw(0),
-        Elem::<FanPaar16>::from_raw(1),
-        Elem::<FanPaar16>::from_raw(0xa55a)
+        FanPaar16Field,
+        Elem::<FanPaar16Field>::from_raw(0),
+        Elem::<FanPaar16Field>::from_raw(1),
+        Elem::<FanPaar16Field>::from_raw(0xa55a)
     );
     check!(
-        FanPaar32,
-        Elem::<FanPaar32>::from_raw(0),
-        Elem::<FanPaar32>::from_raw(1),
-        Elem::<FanPaar32>::from_raw(0xa55a_1234)
+        FanPaar32Field,
+        Elem::<FanPaar32Field>::from_raw(0),
+        Elem::<FanPaar32Field>::from_raw(1),
+        Elem::<FanPaar32Field>::from_raw(0xa55a_1234)
     );
     check!(
-        FanPaar64,
-        Elem::<FanPaar64>::from_raw(0),
-        Elem::<FanPaar64>::from_raw(1),
-        Elem::<FanPaar64>::from_raw(0xa55a_1234_dead_beef)
+        FanPaar64Field,
+        Elem::<FanPaar64Field>::from_raw(0),
+        Elem::<FanPaar64Field>::from_raw(1),
+        Elem::<FanPaar64Field>::from_raw(0xa55a_1234_dead_beef)
     );
     check!(
         Mersenne31,
@@ -2996,7 +3177,7 @@ fn check_add_assign_rows<F: FieldKernels>(seed: u64) {
 
 #[test]
 fn gf8_add_assign_rows_matches_oracle() {
-    check_add_assign_rows::<Gf8<Poly<AES>>>(0x1001);
+    check_add_assign_rows::<Binary<8, Polynomial<AES>>>(0x1001);
 }
 
 #[test]
@@ -3011,7 +3192,7 @@ fn gf64_add_assign_rows_matches_oracle() {
 
 #[test]
 fn fan_paar8_add_assign_rows_matches_oracle() {
-    check_add_assign_rows::<FanPaar8>(0x4004);
+    check_add_assign_rows::<FanPaar8Field>(0x4004);
 }
 
 /// The prime fields have no interleaved kernel: their addition folds lanes,
@@ -3039,8 +3220,8 @@ fn add_assign_rows_extreme_patterns_match_oracle() {
         oracle_add_assign_rows::<F>(&mut want, row_len, &src);
         assert_eq!(got, want, "{}: fill {fill:#04x}", F::NAME);
     }
-    patterns::<Gf8<Poly<AES>>>(0x00);
-    patterns::<Gf8<Poly<AES>>>(0xff);
+    patterns::<Binary<8, Polynomial<AES>>>(0x00);
+    patterns::<Binary<8, Polynomial<AES>>>(0xff);
     patterns::<Gf16>(0x00);
     patterns::<Gf16>(0xff);
     patterns::<Mersenne31>(0x00);
@@ -3070,7 +3251,7 @@ fn gf16_add_assign_rows_wide_rows_match_oracle() {
 fn add_assign_rows_rejects_zero_row_length() {
     let mut dst = [0u8; 8];
     let src = [0u8; 8];
-    ops::add_assign_rows::<Gf8<Poly<AES>>>(&mut dst, 0, &src);
+    ops::add_assign_rows::<Binary<8, Polynomial<AES>>>(&mut dst, 0, &src);
 }
 
 #[test]
@@ -3087,7 +3268,7 @@ fn add_assign_rows_rejects_row_length_with_partial_element() {
 fn add_assign_rows_rejects_mismatched_buffers() {
     let mut dst = [0u8; 6];
     let src = [0u8; 4];
-    ops::add_assign_rows::<Gf8<Poly<AES>>>(&mut dst, 2, &src);
+    ops::add_assign_rows::<Binary<8, Polynomial<AES>>>(&mut dst, 2, &src);
 }
 
 #[test]
@@ -3096,7 +3277,7 @@ fn add_assign_rows_rejects_partial_trailing_row() {
     // Ten bytes into four-byte rows leaves a two-byte remainder.
     let mut dst = [0u8; 10];
     let src = [0u8; 10];
-    ops::add_assign_rows::<Gf8<Poly<AES>>>(&mut dst, 4, &src);
+    ops::add_assign_rows::<Binary<8, Polynomial<AES>>>(&mut dst, 4, &src);
 }
 
 /// Empty buffers with a valid nonzero `row_len` are a no-op, not an error.
@@ -3104,7 +3285,7 @@ fn add_assign_rows_rejects_partial_trailing_row() {
 fn add_assign_rows_accepts_empty_buffers() {
     let mut dst: [u8; 0] = [];
     let src: [u8; 0] = [];
-    ops::add_assign_rows::<Gf8<Poly<AES>>>(&mut dst, 16, &src);
+    ops::add_assign_rows::<Binary<8, Polynomial<AES>>>(&mut dst, 16, &src);
     ops::add_assign_rows::<Gf16>(&mut dst, 2, &src);
 }
 
@@ -3187,8 +3368,8 @@ fn check_add_gather<F: FieldKernels>(seed: u64) {
 
 #[test]
 fn gf8_add_gather_matches_oracle() {
-    check_add_gather::<Gf8<Poly<AES>>>(0x7101);
-    check_add_gather::<Gf8<Poly<REED_SOLOMON>>>(0x7202);
+    check_add_gather::<Binary<8, Polynomial<AES>>>(0x7101);
+    check_add_gather::<Binary<8, Polynomial<RS>>>(0x7202);
 }
 
 #[test]
@@ -3203,7 +3384,7 @@ fn gf64_add_gather_matches_oracle() {
 
 #[test]
 fn fan_paar8_add_gather_matches_oracle() {
-    check_add_gather::<FanPaar8>(0x7505);
+    check_add_gather::<FanPaar8Field>(0x7505);
 }
 
 /// The prime fields fold modularly, not by XOR: their addition must stay
@@ -3222,8 +3403,8 @@ fn add_gather_extreme_patterns_match_oracle() {
     let offsets = [0u32, 0, live as u32, live as u32, 0];
     let mut got = vec![0xffu8; live];
     let mut want = got.clone();
-    ops::add_gather_offsets::<Gf8<Poly<AES>>>(&mut got, &region, &offsets);
-    oracle_add_gather_offsets::<Gf8<Poly<AES>>>(&mut want, &region, &offsets);
+    ops::add_gather_offsets::<Binary<8, Polynomial<AES>>>(&mut got, &region, &offsets);
+    oracle_add_gather_offsets::<Binary<8, Polynomial<AES>>>(&mut want, &region, &offsets);
     assert_eq!(got, want);
 }
 
@@ -3232,7 +3413,7 @@ fn add_gather_extreme_patterns_match_oracle() {
 fn add_gather_rejects_offset_out_of_region() {
     let region = [0u8; 80];
     let mut dst = [0u8; 40];
-    ops::add_gather_offsets::<Gf8<Poly<AES>>>(&mut dst, &region, &[0, 48]);
+    ops::add_gather_offsets::<Binary<8, Polynomial<AES>>>(&mut dst, &region, &[0, 48]);
 }
 
 /// Empty destination with valid offsets is a no-op, not an error.
@@ -3240,7 +3421,7 @@ fn add_gather_rejects_offset_out_of_region() {
 fn add_gather_accepts_empty_destination() {
     let region = [0x11u8; 16];
     let mut dst: [u8; 0] = [];
-    ops::add_gather_offsets::<Gf8<Poly<AES>>>(&mut dst, &region, &[0, 8]);
+    ops::add_gather_offsets::<Binary<8, Polynomial<AES>>>(&mut dst, &region, &[0, 8]);
 }
 
 // ---------------------------------------------------------------------------
@@ -3405,18 +3586,18 @@ fn basis_prepared_matches_one_shot_for<F: FieldKernels>() {
 
 #[test]
 fn normal_bulk_matches_scalar_and_reports_scalar() {
-    basis_bulk_matches_scalar_for::<Gf8<Normal<0x11B, 0x20>>>();
-    basis_scatter_gather_matrix_for::<Gf8<Normal<0x11B, 0x20>>>();
+    basis_bulk_matches_scalar_for::<Binary<8, Normal<0x11B, 0x20>>>();
+    basis_scatter_gather_matrix_for::<Binary<8, Normal<0x11B, 0x20>>>();
     #[cfg(feature = "alloc")]
-    basis_prepared_matches_one_shot_for::<Gf8<Normal<0x11B, 0x20>>>();
+    basis_prepared_matches_one_shot_for::<Binary<8, Normal<0x11B, 0x20>>>();
 }
 
 #[test]
 fn cantor_bulk_matches_scalar_and_reports_scalar() {
-    basis_bulk_matches_scalar_for::<Gf8<Cantor<0x11B, 0x20>>>();
-    basis_scatter_gather_matrix_for::<Gf8<Cantor<0x11B, 0x20>>>();
+    basis_bulk_matches_scalar_for::<Binary<8, Cantor<0x11B, 0x20>>>();
+    basis_scatter_gather_matrix_for::<Binary<8, Cantor<0x11B, 0x20>>>();
     #[cfg(feature = "alloc")]
-    basis_prepared_matches_one_shot_for::<Gf8<Cantor<0x11B, 0x20>>>();
+    basis_prepared_matches_one_shot_for::<Binary<8, Cantor<0x11B, 0x20>>>();
 }
 
 // ---------------------------------------------------------------------------
@@ -3428,9 +3609,9 @@ fn cantor_bulk_matches_scalar_and_reports_scalar() {
 #[derive(Clone, Copy)]
 struct Custom8Spec;
 impl TowerSpec for Custom8Spec {
-    type Base = Gf<4, Poly<0x13>>;
-    const A: u64 = 1;
-    const B: u64 = 0x8;
+    type Base = Binary<4, Polynomial<0x13>>;
+    const LINEAR_COEFFICIENT: u64 = 1;
+    const CONSTANT_COEFFICIENT: u64 = 0x8;
     const NAME: &'static str = "custom GF(2^8) tower";
 }
 
@@ -3439,9 +3620,9 @@ impl TowerSpec for Custom8Spec {
 #[derive(Clone, Copy)]
 struct Custom16Spec;
 impl TowerSpec for Custom16Spec {
-    type Base = Gf8<Poly<REED_SOLOMON>>;
-    const A: u64 = 2;
-    const B: u64 = 0x80;
+    type Base = Binary<8, Polynomial<RS>>;
+    const LINEAR_COEFFICIENT: u64 = 2;
+    const CONSTANT_COEFFICIENT: u64 = 0x80;
     const NAME: &'static str = "custom GF(2^16) tower";
 }
 
@@ -3452,8 +3633,8 @@ impl TowerSpec for Custom16Spec {
 struct Custom32Spec;
 impl TowerSpec for Custom32Spec {
     type Base = Gf16;
-    const A: u64 = 1;
-    const B: u64 = 0x2001;
+    const LINEAR_COEFFICIENT: u64 = 1;
+    const CONSTANT_COEFFICIENT: u64 = 0x2001;
     const NAME: &'static str = "custom GF(2^32) tower";
 }
 
@@ -3462,8 +3643,8 @@ impl TowerSpec for Custom32Spec {
 struct Custom64Spec;
 impl TowerSpec for Custom64Spec {
     type Base = Gf32;
-    const A: u64 = 1;
-    const B: u64 = 0x2ada_7f36;
+    const LINEAR_COEFFICIENT: u64 = 1;
+    const CONSTANT_COEFFICIENT: u64 = 0x2ada_7f36;
     const NAME: &'static str = "custom GF(2^64) tower";
 }
 
@@ -3473,9 +3654,9 @@ impl TowerSpec for Custom64Spec {
 #[derive(Clone, Copy)]
 struct NormalBase16Spec;
 impl TowerSpec for NormalBase16Spec {
-    type Base = Gf8<Normal<0x11B, 0x20>>;
-    const A: u64 = 0xFF;
-    const B: u64 = 0x1;
+    type Base = Binary<8, Normal<0x11B, 0x20>>;
+    const LINEAR_COEFFICIENT: u64 = 0xFF;
+    const CONSTANT_COEFFICIENT: u64 = 0x1;
     const NAME: &'static str = "custom normal-base GF(2^16) tower";
 }
 
@@ -3507,26 +3688,26 @@ fn backend_reports_match_family_routes() {
         )+};
     }
     scalar_fallback!(
-        Gf8<Normal<0x11B, 0x20>>,
-        Gf8<Cantor<0x11B, 0x20>>,
-        FanPaar8,
-        Gf<8, Tower<Custom8Spec>>,
-        Gf<16, Tower<Custom16Spec>>,
-        Gf<32, Tower<Custom32Spec>>,
-        Gf<64, Tower<Custom64Spec>>,
-        Gf<16, Tower<NormalBase16Spec>>,
+        Binary<8, Normal<0x11B, 0x20>>,
+        Binary<8, Cantor<0x11B, 0x20>>,
+        FanPaar8Field,
+        Binary<8, Tower<Custom8Spec>>,
+        Binary<16, Tower<Custom16Spec>>,
+        Binary<32, Tower<Custom32Spec>>,
+        Binary<64, Tower<Custom64Spec>>,
+        Binary<16, Tower<NormalBase16Spec>>,
     );
 
     // Polynomial byte fields follow the process backend on every
     // architecture their kernels serve.
-    assert_eq!(backend_for::<Gf8<Poly<AES>>>(), process);
+    assert_eq!(backend_for::<Binary<8, Polynomial<AES>>>(), process);
     assert_eq!(
-        has_vector_elementwise::<Gf8<Poly<AES>>>(),
+        has_vector_elementwise::<Binary<8, Polynomial<AES>>>(),
         x86_tier || matches!(process, Backend::NeonAes | Backend::Neon | Backend::Wasm128),
     );
-    assert_eq!(backend_for::<Gf8<Poly<REED_SOLOMON>>>(), process);
+    assert_eq!(backend_for::<Binary<8, Polynomial<RS>>>(), process);
     assert_eq!(
-        has_vector_elementwise::<Gf8<Poly<REED_SOLOMON>>>(),
+        has_vector_elementwise::<Binary<8, Polynomial<RS>>>(),
         x86_tier,
     );
 
@@ -3549,18 +3730,18 @@ fn backend_reports_match_family_routes() {
 
     // Fan–Paar towers: nibble and lane kernels on the x86 tiers only.
     let tier_or_scalar = |served: bool| if served { process } else { Backend::Scalar };
-    assert_eq!(backend_for::<FanPaar16>(), tier_or_scalar(x86_tier));
+    assert_eq!(backend_for::<FanPaar16Field>(), tier_or_scalar(x86_tier));
     assert_eq!(
-        backend_for::<FanPaar32>(),
+        backend_for::<FanPaar32Field>(),
         tier_or_scalar(gfni || process == Backend::V3)
     );
     assert_eq!(
-        backend_for::<FanPaar64>(),
+        backend_for::<FanPaar64Field>(),
         tier_or_scalar(gfni || process == Backend::V3)
     );
-    assert!(!has_vector_elementwise::<FanPaar16>());
-    assert!(!has_vector_elementwise::<FanPaar32>());
-    assert!(!has_vector_elementwise::<FanPaar64>());
+    assert!(!has_vector_elementwise::<FanPaar16Field>());
+    assert!(!has_vector_elementwise::<FanPaar32Field>());
+    assert!(!has_vector_elementwise::<FanPaar64Field>());
 
     // Prime families: integer-lane kernels map the process tier.
     let prime = match process {
@@ -3916,22 +4097,22 @@ fn fallback_multi_row_matches_scalar_for<F: FieldKernels>() {
 
 #[test]
 fn basis8_fallback_bulk_matches_scalar() {
-    fallback_single_row_matches_scalar_for::<Gf8<Normal<0x11B, 0x20>>>();
-    fallback_multi_row_matches_scalar_for::<Gf8<Normal<0x11B, 0x20>>>();
-    fallback_single_row_matches_scalar_for::<Gf8<Cantor<0x11B, 0x20>>>();
-    fallback_multi_row_matches_scalar_for::<Gf8<Cantor<0x11B, 0x20>>>();
+    fallback_single_row_matches_scalar_for::<Binary<8, Normal<0x11B, 0x20>>>();
+    fallback_multi_row_matches_scalar_for::<Binary<8, Normal<0x11B, 0x20>>>();
+    fallback_single_row_matches_scalar_for::<Binary<8, Cantor<0x11B, 0x20>>>();
+    fallback_multi_row_matches_scalar_for::<Binary<8, Cantor<0x11B, 0x20>>>();
 }
 
 #[test]
 fn custom_tower8_fallback_bulk_matches_scalar() {
-    fallback_single_row_matches_scalar_for::<Gf<8, Tower<Custom8Spec>>>();
-    fallback_multi_row_matches_scalar_for::<Gf<8, Tower<Custom8Spec>>>();
+    fallback_single_row_matches_scalar_for::<Binary<8, Tower<Custom8Spec>>>();
+    fallback_multi_row_matches_scalar_for::<Binary<8, Tower<Custom8Spec>>>();
 }
 
 #[test]
 fn custom_tower16_fallback_bulk_matches_scalar() {
-    fallback_single_row_matches_scalar_for::<Gf<16, Tower<Custom16Spec>>>();
-    fallback_multi_row_matches_scalar_for::<Gf<16, Tower<Custom16Spec>>>();
+    fallback_single_row_matches_scalar_for::<Binary<16, Tower<Custom16Spec>>>();
+    fallback_multi_row_matches_scalar_for::<Binary<16, Tower<Custom16Spec>>>();
 }
 
 /// A custom degree-16 tower whose description is structurally identical
@@ -3939,9 +4120,9 @@ fn custom_tower16_fallback_bulk_matches_scalar() {
 #[derive(Clone, Copy)]
 struct SameRijndael16Spec;
 impl TowerSpec for SameRijndael16Spec {
-    type Base = Gf8<Poly<AES>>;
-    const A: u64 = 1;
-    const B: u64 = 0x20;
+    type Base = Binary<8, Polynomial<AES>>;
+    const LINEAR_COEFFICIENT: u64 = 1;
+    const CONSTANT_COEFFICIENT: u64 = 0x20;
     const NAME: &'static str = "rijndael-shaped custom GF(2^16) tower";
 }
 
@@ -3952,8 +4133,8 @@ impl TowerSpec for SameRijndael16Spec {
 /// level.
 #[test]
 fn structural_route_matches_pinned_and_custom_route_matches_oracle() {
-    type Same16 = Gf<16, Tower<SameRijndael16Spec>>;
-    type Custom16 = Gf<16, Tower<Custom16Spec>>;
+    type Same16 = Binary<16, Tower<SameRijndael16Spec>>;
+    type Custom16 = Binary<16, Tower<Custom16Spec>>;
 
     // Deterministic raw words: boundary values and a spread over both
     // bytes.
@@ -4017,20 +4198,20 @@ fn structural_route_matches_pinned_and_custom_route_matches_oracle() {
 
 #[test]
 fn custom_tower32_fallback_bulk_matches_scalar() {
-    fallback_single_row_matches_scalar_for::<Gf<32, Tower<Custom32Spec>>>();
-    fallback_multi_row_matches_scalar_for::<Gf<32, Tower<Custom32Spec>>>();
+    fallback_single_row_matches_scalar_for::<Binary<32, Tower<Custom32Spec>>>();
+    fallback_multi_row_matches_scalar_for::<Binary<32, Tower<Custom32Spec>>>();
 }
 
 #[test]
 fn custom_tower64_fallback_bulk_matches_scalar() {
-    fallback_single_row_matches_scalar_for::<Gf<64, Tower<Custom64Spec>>>();
-    fallback_multi_row_matches_scalar_for::<Gf<64, Tower<Custom64Spec>>>();
+    fallback_single_row_matches_scalar_for::<Binary<64, Tower<Custom64Spec>>>();
+    fallback_multi_row_matches_scalar_for::<Binary<64, Tower<Custom64Spec>>>();
 }
 
 #[test]
 fn normal_base_tower16_fallback_bulk_matches_scalar() {
-    fallback_single_row_matches_scalar_for::<Gf<16, Tower<NormalBase16Spec>>>();
-    fallback_multi_row_matches_scalar_for::<Gf<16, Tower<NormalBase16Spec>>>();
+    fallback_single_row_matches_scalar_for::<Binary<16, Tower<NormalBase16Spec>>>();
+    fallback_multi_row_matches_scalar_for::<Binary<16, Tower<NormalBase16Spec>>>();
 }
 
 // ---------------------------------------------------------------------------
@@ -4042,37 +4223,37 @@ fn normal_base_tower16_fallback_bulk_matches_scalar() {
 fn fallback_mul_add_rejects_length_mismatch() {
     let mut dst = [0u8; 4];
     let src = [0u8; 8];
-    ops::mul_add::<Gf8<Normal<0x11B, 0x20>>>(&mut dst, pattern_elem(0x53), &src);
+    ops::mul_add::<Binary<8, Normal<0x11B, 0x20>>>(&mut dst, pattern_elem(0x53), &src);
 }
 
 #[test]
 #[should_panic(expected = "buffer of 3 bytes is not a whole number")]
 fn fallback_mul_assign_rejects_partial_element() {
     let mut dst = [0u8; 3];
-    ops::mul_assign::<Gf<16, Tower<Custom16Spec>>>(&mut dst, pattern_elem(0x53));
+    ops::mul_assign::<Binary<16, Tower<Custom16Spec>>>(&mut dst, pattern_elem(0x53));
 }
 
 #[test]
 #[should_panic(expected = "mul_add_scatter: rows is 6 bytes but 4 rows of 2 bytes need 8")]
 fn fallback_scatter_rejects_short_rows_buffer() {
     let coeffs = [
-        Elem::<Gf<16, Tower<Custom16Spec>>>::ZERO,
-        Elem::<Gf<16, Tower<Custom16Spec>>>::ONE,
-        pattern_elem::<Gf<16, Tower<Custom16Spec>>>(0x53),
-        pattern_elem::<Gf<16, Tower<Custom16Spec>>>(0xA7),
+        Elem::<Binary<16, Tower<Custom16Spec>>>::ZERO,
+        Elem::<Binary<16, Tower<Custom16Spec>>>::ONE,
+        pattern_elem::<Binary<16, Tower<Custom16Spec>>>(0x53),
+        pattern_elem::<Binary<16, Tower<Custom16Spec>>>(0xA7),
     ];
     let mut rows = [0u8; 6];
     let src = [0u8; 2];
-    ops::mul_add_scatter::<Gf<16, Tower<Custom16Spec>>>(&mut rows, 2, &coeffs, &src);
+    ops::mul_add_scatter::<Binary<16, Tower<Custom16Spec>>>(&mut rows, 2, &coeffs, &src);
 }
 
 #[test]
 #[should_panic(expected = "term supplies 2 coefficients for 3 rows")]
 fn fallback_matrix_rejects_term_coefficient_count() {
-    let coeffs = [pattern_elem::<Gf8<Cantor<0x11B, 0x20>>>(0x53); 2];
+    let coeffs = [pattern_elem::<Binary<8, Cantor<0x11B, 0x20>>>(0x53); 2];
     let mut rows = [0u8; 3];
     let src = [0u8; 1];
-    ops::mul_add_matrix::<Gf8<Cantor<0x11B, 0x20>>>(&mut rows, 1, 3, &[(&coeffs, &src)]);
+    ops::mul_add_matrix::<Binary<8, Cantor<0x11B, 0x20>>>(&mut rows, 1, 3, &[(&coeffs, &src)]);
 }
 
 #[test]
@@ -4081,28 +4262,34 @@ fn fallback_matrix_rejects_term_coefficient_count() {
     expected = "mul_into_matrix_with: matrix holds coefficients for 2 sources but there are 3"
 )]
 fn fallback_prepared_matrix_rejects_dimension_mismatch() {
-    let coeffs = [pattern_elem::<Gf8<Normal<0x11B, 0x20>>>(0x53); 4];
-    let matrix = ops::CoeffMatrix::<Gf8<Normal<0x11B, 0x20>>>::from_source_major(2, 2, &coeffs);
+    let coeffs = [pattern_elem::<Binary<8, Normal<0x11B, 0x20>>>(0x53); 4];
+    let matrix =
+        ops::CoeffMatrix::<Binary<8, Normal<0x11B, 0x20>>>::from_source_major(2, 2, &coeffs);
     let srcs: [&[u8]; 3] = [&[0u8; 2], &[0u8; 2], &[0u8; 2]];
     let mut rows = [0u8; 4];
-    ops::mul_into_matrix_with::<Gf8<Normal<0x11B, 0x20>>>(&mut rows, 2, &matrix, &srcs);
+    ops::mul_into_matrix_with::<Binary<8, Normal<0x11B, 0x20>>>(&mut rows, 2, &matrix, &srcs);
 }
 
 #[test]
 #[should_panic(expected = "overlap for 8-byte rows")]
 fn fallback_matrix_at_rejects_overlapping_rows() {
-    let coeffs = [pattern_elem::<Gf<32, Tower<Custom32Spec>>>(0x53); 2];
+    let coeffs = [pattern_elem::<Binary<32, Tower<Custom32Spec>>>(0x53); 2];
     let mut dst = [0u8; 12];
     let src = [0u8; 8];
-    ops::mul_add_matrix_at::<Gf<32, Tower<Custom32Spec>>>(&mut dst, 8, &[0, 4], &[(&coeffs, &src)]);
+    ops::mul_add_matrix_at::<Binary<32, Tower<Custom32Spec>>>(
+        &mut dst,
+        8,
+        &[0, 4],
+        &[(&coeffs, &src)],
+    );
 }
 
 #[test]
 #[should_panic(expected = "unpack: src is 3 bytes but dst holds 4")]
 fn fallback_unpack_rejects_source_mismatch() {
-    let mut out = [Elem::<Gf<32, Tower<Custom32Spec>>>::ZERO; 4];
+    let mut out = [Elem::<Binary<32, Tower<Custom32Spec>>>::ZERO; 4];
     let src = [0u8; 3];
-    ops::unpack::<Gf<32, Tower<Custom32Spec>>>(&mut out, &src);
+    ops::unpack::<Binary<32, Tower<Custom32Spec>>>(&mut out, &src);
 }
 
 #[test]
@@ -4110,5 +4297,5 @@ fn fallback_unpack_rejects_source_mismatch() {
 fn fallback_add_assign_rows_rejects_partial_row() {
     let mut dst = [0u8; 10];
     let src = [0u8; 10];
-    ops::add_assign_rows::<Gf8<Normal<0x11B, 0x20>>>(&mut dst, 4, &src);
+    ops::add_assign_rows::<Binary<8, Normal<0x11B, 0x20>>>(&mut dst, 4, &src);
 }

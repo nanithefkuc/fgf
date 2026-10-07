@@ -1,6 +1,6 @@
 //! Polynomial-basis binary presentations at degrees 1, 2, 4, and 8.
 //!
-//! [`Poly`] is the construction `GF(2)[x] / p(x)` for an irreducible
+//! [`Polynomial`] is the construction `GF(2)[x] / p(x)` for an irreducible
 //! degree-`N` `p`. The representation, its descriptor, and its generator
 //! derive from the polynomial at compile time, so each polynomial is a
 //! distinct representation with fully `const` scalar arithmetic.
@@ -8,46 +8,46 @@
 //! | Constant | Polynomial | Convention |
 //! | --- | --- | --- |
 //! | [`AES`] | `0x11B` | AES/Rijndael; the field `GF2P8MULB` multiplies natively |
-//! | [`REED_SOLOMON`] | `0x11D` | Intel ISA-L, `klauspost/reedsolomon`, QR codes |
+//! | [`RS`] | `0x11D` | Intel ISA-L, `klauspost/reedsolomon`, QR codes |
 //!
 //! Any other degree-8 irreducible polynomial is spelled directly, such as
-//! `Poly<0x12D>` for Data Matrix or `Poly<0x187>` for the CCSDS Reed–Solomon
+//! `Polynomial<0x12D>` for Data Matrix or `Polynomial<0x187>` for the CCSDS Reed–Solomon
 //! field. Distinct polynomials are unrelated encodings: a byte has different
 //! products under each, so a buffer carries one convention and never two.
 //!
 //! ```
-//! use fgf::{AES, Elem, Gf, Poly, REED_SOLOMON};
+//! use fgf::{AES, Elem, Binary, Polynomial, RS};
 //!
 //! // The same bytes multiply differently under the two conventions.
 //! let (a, b) = (0x53, 0xca);
 //! assert_eq!(
-//!     Elem::<Gf<8, Poly<AES>>>::from_raw(a)
-//!         .mul(Elem::<Gf<8, Poly<AES>>>::from_raw(b))
+//!     Elem::<Binary<8, Polynomial<AES>>>::from_raw(a)
+//!         .mul(Elem::<Binary<8, Polynomial<AES>>>::from_raw(b))
 //!         .to_raw(),
 //!     0x01
 //! );
 //! assert_eq!(
-//!     Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(a)
-//!         .mul(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(b))
+//!     Elem::<Binary<8, Polynomial<RS>>>::from_raw(a)
+//!         .mul(Elem::<Binary<8, Polynomial<RS>>>::from_raw(b))
 //!         .to_raw(),
 //!     0x8f
 //! );
 //!
 //! // Any irreducible polynomial is a field; its generator is derived.
 //! assert_eq!(
-//!     Elem::<Gf<8, Poly<0x12D>>>::GENERATOR.pow(255),
-//!     Elem::<Gf<8, Poly<0x12D>>>::ONE
+//!     Elem::<Binary<8, Polynomial<0x12D>>>::GENERATOR.pow(255),
+//!     Elem::<Binary<8, Polynomial<0x12D>>>::ONE
 //! );
 //! ```
 //!
 //! ```compile_fail,E0080
 //! // x^8 + 1 = (x + 1)^8 is reducible, so this field does not exist.
-//! let _ = fgf::Elem::<fgf::Gf<8, fgf::Poly<0x101>>>::from_raw(1);
+//! let _ = fgf::Elem::<fgf::Binary<8, fgf::Polynomial<0x101>>>::from_raw(1);
 //! ```
 //!
 //! ```compile_fail,E0080
 //! // The degree-eight polynomial does not match a degree-four field.
-//! let _ = fgf::Elem::<fgf::Gf<4, fgf::Poly<0x11B>>>::from_raw(1);
+//! let _ = fgf::Elem::<fgf::Binary<4, fgf::Polynomial<0x11B>>>::from_raw(1);
 //! ```
 
 use super::description::{BinaryDescription, ByteLogExp};
@@ -56,16 +56,17 @@ use super::{BinaryRepr, private};
 /// The AES/Rijndael polynomial `x^8 + x^4 + x^3 + x + 1`.
 ///
 /// It is the field the x86 `GF2P8MULB` instruction implements, so
-/// `Gf8<Poly<AES>>` multiplies with one instruction per vector on GFNI
-/// hosts. Its derived generator is `0x03`.
+/// `Binary<8, Polynomial<AES>>` multiplies with one instruction per vector
+/// on GFNI hosts. Its derived generator is `0x03`.
 pub const AES: u128 = 0x11B;
 
-/// The polynomial `x^8 + x^4 + x^3 + x^2 + 1`.
+/// The `0x11D` Reed–Solomon convention, `x^8 + x^4 + x^3 + x^2 + 1`.
 ///
-/// It is the field of Intel ISA-L, `klauspost/reedsolomon`, QR codes, and
-/// the classical Reed–Solomon tables; `Gf8<Poly<REED_SOLOMON>>` shards are
-/// byte-identical to those ecosystems. Its derived generator is `0x02`.
-pub const REED_SOLOMON: u128 = 0x11D;
+/// Intel ISA-L, `klauspost/reedsolomon`, and QR codes use this polynomial;
+/// `Binary<8, Polynomial<RS>>` shards are byte-identical to those ecosystems.
+/// Reed–Solomon codes also use other polynomials. Its derived generator is
+/// `0x02`.
+pub const RS: u128 = 0x11D;
 
 /// The polynomial-basis representation of GF(2^N) under the reduction
 /// polynomial `P`.
@@ -73,13 +74,13 @@ pub const REED_SOLOMON: u128 = 0x11D;
 /// `P` is the full polynomial including the leading term, and must be
 /// irreducible of the field's degree; the check runs when the
 /// representation's constants are evaluated. The same type spells GF(2) as
-/// [`Poly<3>`](Poly), the polynomial `x + 1`.
+/// [`Polynomial<3>`](Polynomial), the polynomial `x + 1`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-pub struct Poly<const P: u128>;
+pub struct Polynomial<const P: u128>;
 
-impl<const P: u128> private::Sealed for Poly<P> {}
+impl<const P: u128> private::Sealed for Polynomial<P> {}
 
-impl<const P: u128> Poly<P> {
+impl<const P: u128> Polynomial<P> {
     /// The full reduction polynomial including the leading term.
     pub const POLY: u128 = P;
 
@@ -107,7 +108,7 @@ impl<const P: u128> Poly<P> {
         let limit = 1u64 << description.degree();
         let mut candidate = 2u64;
         loop {
-            assert!(candidate < limit, "Poly P has no primitive element");
+            assert!(candidate < limit, "Polynomial P has no primitive element");
             if description.is_generator(candidate) {
                 break candidate;
             }
@@ -145,15 +146,15 @@ const fn name_bytes2(poly: u128) -> [u8; 11] {
 
 macro_rules! poly_degree8 {
     () => {
-        impl<const P: u128> BinaryRepr<8> for Poly<P> {
-            const NAME: &'static str = match core::str::from_utf8(&Poly::<P>::NAME_BYTES8) {
+        impl<const P: u128> BinaryRepr<8> for Polynomial<P> {
+            const NAME: &'static str = match core::str::from_utf8(&Polynomial::<P>::NAME_BYTES8) {
                 Ok(name) => name,
-                Err(_) => panic!("Poly field names are ASCII"),
+                Err(_) => panic!("Polynomial field names are ASCII"),
             };
             const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::polynomial(8, P);
             const LOG_EXP: Option<&'static ByteLogExp> = Some(&ByteLogExp::build(
                 &BinaryDescription::polynomial(8, P),
-                Poly::<P>::smallest_generator(&BinaryDescription::polynomial(8, P)),
+                Polynomial::<P>::smallest_generator(&BinaryDescription::polynomial(8, P)),
             ));
             const VALID: () = {
                 assert!(
@@ -163,7 +164,7 @@ macro_rules! poly_degree8 {
                 <Self as BinaryRepr<8>>::DESCRIPTION.validate();
                 assert!(
                     <Self as BinaryRepr<8>>::DESCRIPTION.is_generator(
-                        Poly::<P>::smallest_generator(<Self as BinaryRepr<8>>::DESCRIPTION)
+                        Polynomial::<P>::smallest_generator(<Self as BinaryRepr<8>>::DESCRIPTION)
                     ),
                     "byte representation generator does not have full order"
                 );
@@ -174,10 +175,10 @@ macro_rules! poly_degree8 {
 
 poly_degree8!();
 
-impl<const P: u128> BinaryRepr<4> for Poly<P> {
-    const NAME: &'static str = match core::str::from_utf8(&Poly::<P>::NAME_BYTES4) {
+impl<const P: u128> BinaryRepr<4> for Polynomial<P> {
+    const NAME: &'static str = match core::str::from_utf8(&Polynomial::<P>::NAME_BYTES4) {
         Ok(name) => name,
-        Err(_) => panic!("Poly field names are ASCII"),
+        Err(_) => panic!("Polynomial field names are ASCII"),
     };
     const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::polynomial(4, P);
     const LOG_EXP: Option<&'static ByteLogExp> = None;
@@ -190,10 +191,10 @@ impl<const P: u128> BinaryRepr<4> for Poly<P> {
     };
 }
 
-impl<const P: u128> BinaryRepr<2> for Poly<P> {
-    const NAME: &'static str = match core::str::from_utf8(&Poly::<P>::NAME_BYTES2) {
+impl<const P: u128> BinaryRepr<2> for Polynomial<P> {
+    const NAME: &'static str = match core::str::from_utf8(&Polynomial::<P>::NAME_BYTES2) {
         Ok(name) => name,
-        Err(_) => panic!("Poly field names are ASCII"),
+        Err(_) => panic!("Polynomial field names are ASCII"),
     };
     const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::polynomial(2, P);
     const LOG_EXP: Option<&'static ByteLogExp> = None;
@@ -206,24 +207,24 @@ impl<const P: u128> BinaryRepr<2> for Poly<P> {
     };
 }
 
-impl<const P: u128> BinaryRepr<1> for Poly<P> {
+impl<const P: u128> BinaryRepr<1> for Polynomial<P> {
     const NAME: &'static str = "GF(2)";
     const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::polynomial(1, P);
     const LOG_EXP: Option<&'static ByteLogExp> = None;
     const VALID: () = {
-        assert!(P == 3, "Poly<3> is the only degree-one form");
+        assert!(P == 3, "Polynomial<3> is the only degree-one form");
         <Self as BinaryRepr<1>>::DESCRIPTION.validate();
     };
 }
 
 use super::super::HasGenerator;
-use super::Gf;
+use super::Binary;
 
-impl<const P: u128> HasGenerator for Gf<8, Poly<P>> {
+impl<const P: u128> HasGenerator for Binary<8, Polynomial<P>> {
     const GENERATOR_RAW: u8 = {
-        let g = Poly::<P>::smallest_generator(<Poly<P> as BinaryRepr<8>>::DESCRIPTION);
+        let g = Polynomial::<P>::smallest_generator(<Polynomial<P> as BinaryRepr<8>>::DESCRIPTION);
         assert!(
-            <Poly<P> as BinaryRepr<8>>::DESCRIPTION.is_generator(g),
+            <Polynomial<P> as BinaryRepr<8>>::DESCRIPTION.is_generator(g),
             "byte representation generator does not have full order"
         );
         #[allow(clippy::cast_possible_truncation)]
@@ -232,11 +233,11 @@ impl<const P: u128> HasGenerator for Gf<8, Poly<P>> {
     };
 }
 
-impl<const P: u128> HasGenerator for Gf<4, Poly<P>> {
+impl<const P: u128> HasGenerator for Binary<4, Polynomial<P>> {
     const GENERATOR_RAW: u8 = {
-        let g = Poly::<P>::smallest_generator(<Poly<P> as BinaryRepr<4>>::DESCRIPTION);
+        let g = Polynomial::<P>::smallest_generator(<Polynomial<P> as BinaryRepr<4>>::DESCRIPTION);
         assert!(
-            <Poly<P> as BinaryRepr<4>>::DESCRIPTION.is_generator(g),
+            <Polynomial<P> as BinaryRepr<4>>::DESCRIPTION.is_generator(g),
             "representation generator does not have full order"
         );
         #[allow(clippy::cast_possible_truncation)]
@@ -245,11 +246,11 @@ impl<const P: u128> HasGenerator for Gf<4, Poly<P>> {
     };
 }
 
-impl<const P: u128> HasGenerator for Gf<2, Poly<P>> {
+impl<const P: u128> HasGenerator for Binary<2, Polynomial<P>> {
     const GENERATOR_RAW: u8 = {
-        let g = Poly::<P>::smallest_generator(<Poly<P> as BinaryRepr<2>>::DESCRIPTION);
+        let g = Polynomial::<P>::smallest_generator(<Polynomial<P> as BinaryRepr<2>>::DESCRIPTION);
         assert!(
-            <Poly<P> as BinaryRepr<2>>::DESCRIPTION.is_generator(g),
+            <Polynomial<P> as BinaryRepr<2>>::DESCRIPTION.is_generator(g),
             "representation generator does not have full order"
         );
         #[allow(clippy::cast_possible_truncation)]
@@ -258,15 +259,102 @@ impl<const P: u128> HasGenerator for Gf<2, Poly<P>> {
     };
 }
 
-impl<const P: u128> HasGenerator for Gf<1, Poly<P>> {
+impl<const P: u128> HasGenerator for Binary<1, Polynomial<P>> {
     const GENERATOR_RAW: u8 = 1;
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     extern crate std;
 
+    use core::hint::black_box;
+
+    use super::super::description::poly_irreducible;
     use super::*;
+
+    /// Independent shift-reduce product in `GF(2)[x] / poly`, degree `n`.
+    pub(in crate::field::binary) fn oracle_mul(poly: u128, n: u32, x: u64, y: u64) -> u64 {
+        let mut acc: u128 = 0;
+        for k in 0..n {
+            if (y >> k) & 1 == 1 {
+                acc ^= u128::from(x) << k;
+            }
+        }
+        for k in (n..2 * n).rev() {
+            if (acc >> k) & 1 == 1 {
+                acc ^= poly << (k - n);
+            }
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let product = acc as u64;
+        product
+    }
+
+    /// The smallest element of `GF(2)[x] / poly` from two upward whose
+    /// powers first return to one after exactly `2^n - 1` steps.
+    pub(in crate::field::binary) fn oracle_smallest_generator(poly: u128, n: u32) -> u64 {
+        let order = (1u64 << n) - 1;
+        (2..=order)
+            .find(|&candidate| {
+                let mut power = candidate;
+                let mut steps = 1;
+                while power != 1 && steps <= order {
+                    power = oracle_mul(poly, n, power, candidate);
+                    steps += 1;
+                }
+                steps == order
+            })
+            .expect("a field has a primitive element")
+    }
+
+    /// Apply coordinate columns: bit `i` of `word` selects `columns[i]`.
+    pub(in crate::field::binary) fn apply_columns(columns: [u8; 8], word: u64) -> u64 {
+        (0..8)
+            .filter(|&i| (word >> i) & 1 == 1)
+            .fold(0, |image, i| image ^ u64::from(columns[i]))
+    }
+
+    /// Every irreducible polynomial of degree `n`.
+    fn irreducibles(n: u32) -> impl Iterator<Item = u128> {
+        (1u128 << n..2u128 << n).filter(move |&p| poly_irreducible(p, n))
+    }
+
+    /// The generator search, evaluated at runtime over every irreducible
+    /// polynomial of degrees 2, 4, and 8, finds the brute-force smallest
+    /// element of full multiplicative order.
+    #[test]
+    fn smallest_generator_matches_brute_force_order() {
+        for n in [2u8, 4, 8] {
+            for poly in irreducibles(u32::from(n)) {
+                let description = BinaryDescription::polynomial(black_box(n), black_box(poly));
+                assert_eq!(
+                    Polynomial::<AES>::smallest_generator(&description),
+                    oracle_smallest_generator(poly, u32::from(n)),
+                    "degree {n}, polynomial {poly:#x}"
+                );
+            }
+        }
+    }
+
+    /// Field names carry the polynomial: the hexadecimal digits after
+    /// `0x` parse back to every irreducible polynomial of the degree.
+    #[test]
+    fn field_names_round_trip_their_polynomial() {
+        fn parsed(name: &[u8]) -> u128 {
+            let name = core::str::from_utf8(name).expect("ASCII name");
+            let (_, digits) = name.rsplit_once("0x").expect("hexadecimal suffix");
+            u128::from_str_radix(digits, 16).expect("hexadecimal digits")
+        }
+        for poly in irreducibles(8) {
+            assert_eq!(parsed(&name_bytes8(black_box(poly))), poly);
+        }
+        for poly in irreducibles(4) {
+            assert_eq!(parsed(&name_bytes4(black_box(poly))), poly);
+        }
+        for poly in irreducibles(2) {
+            assert_eq!(parsed(&name_bytes2(black_box(poly))), poly);
+        }
+    }
 
     /// Every degree-8 polynomial, against an independent irreducibility
     /// count: GF(2) has exactly 30 irreducible polynomials of degree 8.
@@ -277,7 +365,7 @@ mod tests {
             .count();
         assert_eq!(count, 30);
         assert!(super::super::description::poly_irreducible(AES, 8));
-        assert!(super::super::description::poly_irreducible(REED_SOLOMON, 8));
+        assert!(super::super::description::poly_irreducible(RS, 8));
         assert!(super::super::description::poly_irreducible(0x12D, 8));
         assert!(super::super::description::poly_irreducible(0x187, 8));
         assert!(!super::super::description::poly_irreducible(0x101, 8));

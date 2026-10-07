@@ -14,7 +14,7 @@ homepage = "https://github.com/nanithefkuc/fgf"
 # `external` never enter `cargo package`.
 include = [
     "src/**",
-    "benches/**",
+    "benches/*.rs",
     "examples/**",
     "/README.md",
     "/CHANGELOG.md",

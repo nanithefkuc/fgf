@@ -18,7 +18,8 @@
 //! [`archmage`]: https://docs.rs/archmage
 
 use crate::field::Elem;
-use crate::field::binary::tower::{Gf32, Gf64, Rijndael64, TowerSpec};
+use crate::field::binary::Binary;
+use crate::field::binary::tower::{Rijndael32, Rijndael64, Tower, TowerSpec};
 use crate::kernel::scalar;
 use crate::kernel::tables::Tower2Coeff;
 
@@ -48,11 +49,12 @@ const fn pack64(lo: u32, hi: u32) -> u64 {
 /// GF(2^64) reuses the GF(2^32) tile derivation unchanged.
 #[inline]
 #[must_use]
-pub fn gf64_tiles(coeff: Elem<Gf64>) -> [u64; 8] {
+pub fn gf64_tiles(coeff: Elem<Binary<64, Tower<Rijndael64>>>) -> [u64; 8] {
     let (c0, c1) = coeff.to_components();
     // The pinned constant fits its base word by validation.
     #[allow(clippy::cast_possible_truncation)]
-    let delta = Elem::<Gf32>::from_raw(Rijndael64::B as u32);
+    let delta =
+        Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(Rijndael64::CONSTANT_COEFFICIENT as u32);
     let tower = Tower2Coeff::derive(c0, c1, delta);
     let [s0, s1] = tower.same;
     let [x0, x1] = tower.cross;
@@ -185,7 +187,7 @@ fn lane64(tiles: [u64; 8]) -> Lane64 {
 pub fn mul_add_gfni(
     _token: archmage::X64V3GfniCryptoToken,
     dst: &mut [u8],
-    coeff: Elem<Gf64>,
+    coeff: Elem<Binary<64, Tower<Rijndael64>>>,
     tiles: [u64; 8],
     src: &[u8],
 ) {
@@ -212,7 +214,7 @@ pub fn mul_add_gfni(
     }
     // Every 32-byte lane is a whole number of 8-byte elements, so the tail
     // starts on an element boundary.
-    scalar::mul_add::<Gf64>(dst_tail, coeff, src_tail);
+    scalar::mul_add::<Binary<64, Tower<Rijndael64>>>(dst_tail, coeff, src_tail);
 }
 
 /// `dst = coeff * dst` with `GF2P8MULB` over 32-byte lanes.
@@ -224,7 +226,7 @@ pub fn mul_add_gfni(
 pub fn mul_assign_gfni(
     _token: archmage::X64V3GfniCryptoToken,
     dst: &mut [u8],
-    coeff: Elem<Gf64>,
+    coeff: Elem<Binary<64, Tower<Rijndael64>>>,
     tiles: [u64; 8],
 ) {
     assert!(
@@ -239,7 +241,7 @@ pub fn mul_assign_gfni(
         let r = scale64(x, &l);
         _mm256_storeu_si256(dst_lane, r);
     }
-    scalar::mul_assign::<Gf64>(dst_tail, coeff);
+    scalar::mul_assign::<Binary<64, Tower<Rijndael64>>>(dst_tail, coeff);
 }
 
 /// `dst = coeff * src` with `GF2P8MULB` over 32-byte lanes, out of place.
@@ -254,7 +256,7 @@ pub fn mul_assign_gfni(
 pub fn mul_into_gfni(
     _token: archmage::X64V3GfniCryptoToken,
     dst: &mut [u8],
-    coeff: Elem<Gf64>,
+    coeff: Elem<Binary<64, Tower<Rijndael64>>>,
     tiles: [u64; 8],
     src: &[u8],
 ) {
@@ -281,5 +283,5 @@ pub fn mul_into_gfni(
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its
     // own source, so seeding it with `src` first matches the fused body.
     dst_tail.copy_from_slice(src_tail);
-    scalar::mul_assign::<Gf64>(dst_tail, coeff);
+    scalar::mul_assign::<Binary<64, Tower<Rijndael64>>>(dst_tail, coeff);
 }

@@ -3,17 +3,25 @@
 //! shift-reduce oracles computed inside this file.
 
 use fgf::{
-    AES, BinaryField, Cantor, Elem, Embedding, EmbeddingError, FanPaar8, FanPaar16, FanPaar32,
-    FanPaar64, FieldElem, Gf, Gf1, Gf8, Gf16, Gf32, Gf64, Normal, Poly, REED_SOLOMON, Tower,
-    TowerSpec,
+    AES, Binary, BinaryField, Cantor, Elem, Embedding, EmbeddingError, FieldElem, Normal,
+    Polynomial, RS, Tower, TowerSpec,
 };
 
+type Gf1 = fgf::Binary<1, fgf::Polynomial<3>>;
+type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
+type Gf32 = fgf::Binary<32, fgf::Tower<fgf::Rijndael32>>;
+type Gf64 = fgf::Binary<64, fgf::Tower<fgf::Rijndael64>>;
+type FanPaar8Field = fgf::Binary<8, fgf::Tower<fgf::FanPaar8>>;
+type FanPaar16Field = fgf::Binary<16, fgf::Tower<fgf::FanPaar16>>;
+type FanPaar32Field = fgf::Binary<32, fgf::Tower<fgf::FanPaar32>>;
+type FanPaar64Field = fgf::Binary<64, fgf::Tower<fgf::FanPaar64>>;
+
 /// Reference GF(2) at the bottom of the ladder.
-type Ref2 = Gf<2, Poly<0x7>>;
+type Ref2 = Binary<2, Polynomial<0x7>>;
 /// Reference GF(4) of the ladder.
-type Ref4 = Gf<4, Poly<0x13>>;
+type Ref4 = Binary<4, Polynomial<0x13>>;
 /// Reference GF(8) of the ladder: the AES field.
-type Ref8 = Gf8<Poly<AES>>;
+type Ref8 = Binary<8, Polynomial<AES>>;
 
 /// Independent shift-reduce product in GF(2)[x] reduced by `field`.
 fn oracle_mul(field: u128, n: u32, x: u64, y: u64) -> u64 {
@@ -106,8 +114,8 @@ struct Custom32;
 
 impl TowerSpec for Custom32 {
     type Base = Gf16;
-    const A: u64 = 1;
-    const B: u64 = 0x2001;
+    const LINEAR_COEFFICIENT: u64 = 1;
+    const CONSTANT_COEFFICIENT: u64 = 0x2001;
     const NAME: &'static str = "custom degree-32 tower";
 }
 
@@ -116,9 +124,9 @@ impl TowerSpec for Custom32 {
 struct SameAsRijndael16;
 
 impl TowerSpec for SameAsRijndael16 {
-    type Base = Gf8<Poly<AES>>;
-    const A: u64 = 1;
-    const B: u64 = 0x20;
+    type Base = Binary<8, Polynomial<AES>>;
+    const LINEAR_COEFFICIENT: u64 = 1;
+    const CONSTANT_COEFFICIENT: u64 = 0x20;
     const NAME: &'static str = "rijndael-shaped custom tower";
 }
 
@@ -292,43 +300,43 @@ fn check_mutual_isomorphism<S, T>(
 #[test]
 fn equal_degree_presentations_are_mutual_isomorphisms() {
     check_mutual_isomorphism(
-        &Embedding::<Gf8<Poly<AES>>, Gf8<Poly<REED_SOLOMON>>>::new().unwrap(),
-        &Embedding::<Gf8<Poly<REED_SOLOMON>>, Gf8<Poly<AES>>>::new().unwrap(),
+        &Embedding::<Binary<8, Polynomial<AES>>, Binary<8, Polynomial<RS>>>::new().unwrap(),
+        &Embedding::<Binary<8, Polynomial<RS>>, Binary<8, Polynomial<AES>>>::new().unwrap(),
         8,
     );
     check_mutual_isomorphism(
-        &Embedding::<Gf8<Poly<AES>>, Gf8<Normal<0x11B, 0x20>>>::new().unwrap(),
-        &Embedding::<Gf8<Normal<0x11B, 0x20>>, Gf8<Poly<AES>>>::new().unwrap(),
+        &Embedding::<Binary<8, Polynomial<AES>>, Binary<8, Normal<0x11B, 0x20>>>::new().unwrap(),
+        &Embedding::<Binary<8, Normal<0x11B, 0x20>>, Binary<8, Polynomial<AES>>>::new().unwrap(),
         8,
     );
     check_mutual_isomorphism(
-        &Embedding::<Gf8<Poly<AES>>, Gf8<Cantor<0x11B, 0x20>>>::new().unwrap(),
-        &Embedding::<Gf8<Cantor<0x11B, 0x20>>, Gf8<Poly<AES>>>::new().unwrap(),
+        &Embedding::<Binary<8, Polynomial<AES>>, Binary<8, Cantor<0x11B, 0x20>>>::new().unwrap(),
+        &Embedding::<Binary<8, Cantor<0x11B, 0x20>>, Binary<8, Polynomial<AES>>>::new().unwrap(),
         8,
     );
     check_mutual_isomorphism(
-        &Embedding::<FanPaar8, Gf8<Poly<AES>>>::new().unwrap(),
-        &Embedding::<Gf8<Poly<AES>>, FanPaar8>::new().unwrap(),
+        &Embedding::<FanPaar8Field, Binary<8, Polynomial<AES>>>::new().unwrap(),
+        &Embedding::<Binary<8, Polynomial<AES>>, FanPaar8Field>::new().unwrap(),
         8,
     );
     check_mutual_isomorphism(
-        &Embedding::<FanPaar16, Gf16>::new().unwrap(),
-        &Embedding::<Gf16, FanPaar16>::new().unwrap(),
+        &Embedding::<FanPaar16Field, Gf16>::new().unwrap(),
+        &Embedding::<Gf16, FanPaar16Field>::new().unwrap(),
         16,
     );
     check_mutual_isomorphism(
-        &Embedding::<FanPaar32, Gf32>::new().unwrap(),
-        &Embedding::<Gf32, FanPaar32>::new().unwrap(),
+        &Embedding::<FanPaar32Field, Gf32>::new().unwrap(),
+        &Embedding::<Gf32, FanPaar32Field>::new().unwrap(),
         32,
     );
     check_mutual_isomorphism(
-        &Embedding::<FanPaar64, Gf64>::new().unwrap(),
-        &Embedding::<Gf64, FanPaar64>::new().unwrap(),
+        &Embedding::<FanPaar64Field, Gf64>::new().unwrap(),
+        &Embedding::<Gf64, FanPaar64Field>::new().unwrap(),
         64,
     );
     check_mutual_isomorphism(
-        &Embedding::<Gf<32, Tower<Custom32>>, Gf32>::new().unwrap(),
-        &Embedding::<Gf32, Gf<32, Tower<Custom32>>>::new().unwrap(),
+        &Embedding::<Binary<32, Tower<Custom32>>, Gf32>::new().unwrap(),
+        &Embedding::<Gf32, Binary<32, Tower<Custom32>>>::new().unwrap(),
         32,
     );
 }
@@ -343,7 +351,7 @@ fn equal_descriptions_embed_identically() {
     }
     // A custom spec structurally identical to a shipped one embeds as the
     // identity: descriptions, not Rust types, select the map.
-    type Custom16 = Gf<16, Tower<SameAsRijndael16>>;
+    type Custom16 = Binary<16, Tower<SameAsRijndael16>>;
     let structural = Embedding::<Custom16, Gf16>::new().unwrap();
     let back = Embedding::<Gf16, Custom16>::new().unwrap();
     for &word in &samples(16, 0x61) {
@@ -455,13 +463,13 @@ fn inclusion_triangles_commute() {
 
     // Mixed presentations: a flat source through a Fan-Paar middle into the
     // Rijndael top.
-    let flat_fp = Embedding::<Ref4, FanPaar16>::new().unwrap();
-    let fp_top = Embedding::<FanPaar16, Gf64>::new().unwrap();
+    let flat_fp = Embedding::<Ref4, FanPaar16Field>::new().unwrap();
+    let fp_top = Embedding::<FanPaar16Field, Gf64>::new().unwrap();
     let flat_top = Embedding::<Ref4, Gf64>::new().unwrap();
     check_triangle(&flat_fp, &fp_top, &flat_top, 4);
     // A Fan-Paar byte field through the tower chain.
-    let fp8_aes = Embedding::<FanPaar8, Ref8>::new().unwrap();
-    let fp8_top = Embedding::<FanPaar8, Gf64>::new().unwrap();
+    let fp8_aes = Embedding::<FanPaar8Field, Ref8>::new().unwrap();
+    let fp8_top = Embedding::<FanPaar8Field, Gf64>::new().unwrap();
     check_triangle(
         &fp8_aes,
         &Embedding::<Ref8, Gf64>::new().unwrap(),
@@ -497,8 +505,8 @@ fn membership_agrees_with_the_frobenius_test() {
     check!(Ref8, Gf64, 64, 0x83);
     check!(Gf16, Gf64, 64, 0x84);
     check!(Gf32, Gf64, 64, 0x85);
-    check!(FanPaar8, FanPaar16, 16, 0x86);
-    check!(Gf8<Poly<REED_SOLOMON>>, Gf16, 16, 0x87);
+    check!(FanPaar8Field, FanPaar16Field, 16, 0x86);
+    check!(Binary<8, Polynomial<RS>>, Gf16, 16, 0x87);
     check!(Gf1, Gf64, 64, 0x88);
 
     // A concrete nonmember: the image of the 2->8 inclusion is sixteen
@@ -550,7 +558,7 @@ fn trace_and_norm_match_conjugates() {
     check!(Ref2, Gf16, 16, 0x91);
     check!(Ref8, Gf32, 32, 0x92);
     check!(Gf16, Gf64, 64, 0x93);
-    check!(Gf8<Poly<REED_SOLOMON>>, Gf64, 64, 0x94);
+    check!(Binary<8, Polynomial<RS>>, Gf64, 64, 0x94);
 }
 
 #[test]
@@ -594,7 +602,7 @@ fn absolute_trace_and_norm_through_gf2() {
 
 #[test]
 fn equal_degree_trace_and_norm_are_restriction() {
-    let embedding = Embedding::<FanPaar16, Gf16>::new().unwrap();
+    let embedding = Embedding::<FanPaar16Field, Gf16>::new().unwrap();
     for &word in &samples(16, 0xB0) {
         let y = Elem::<Gf16>::from_raw(word as u16);
         assert_eq!(embedding.trace(y), embedding.restrict(y).unwrap());
@@ -605,21 +613,21 @@ fn equal_degree_trace_and_norm_are_restriction() {
 #[test]
 fn incompatible_degrees_report_both_sides() {
     assert!(matches!(
-        Embedding::<Gf16, Gf8<Poly<AES>>>::new(),
+        Embedding::<Gf16, Binary<8, Polynomial<AES>>>::new(),
         Err(EmbeddingError::IncompatibleDegree {
             source: 16,
             target: 8
         })
     ));
     assert!(matches!(
-        Embedding::<Gf8<Poly<AES>>, Ref4>::new(),
+        Embedding::<Binary<8, Polynomial<AES>>, Ref4>::new(),
         Err(EmbeddingError::IncompatibleDegree {
             source: 8,
             target: 4
         })
     ));
-    assert!(Embedding::<Gf8<Poly<AES>>, Gf32>::new().is_ok());
-    assert!(Embedding::<Gf1, FanPaar64>::new().is_ok());
+    assert!(Embedding::<Binary<8, Polynomial<AES>>, Gf32>::new().is_ok());
+    assert!(Embedding::<Gf1, FanPaar64Field>::new().is_ok());
     assert!(Embedding::<Gf64, Gf64>::new().is_ok());
 }
 
@@ -680,8 +688,8 @@ fn degree8_maps_preserve_the_selected_aes_conventions() {
     macro_rules! check_polynomial {
         ($poly:expr) => {{
             let poly: u128 = $poly;
-            let backward = Embedding::<Gf8<Poly<{ $poly }>>, Ref8>::new().unwrap();
-            let forward = Embedding::<Ref8, Gf8<Poly<{ $poly }>>>::new().unwrap();
+            let backward = Embedding::<Binary<8, Polynomial<{ $poly }>>, Ref8>::new().unwrap();
+            let forward = Embedding::<Ref8, Binary<8, Polynomial<{ $poly }>>>::new().unwrap();
             // The independent smallest-root oracle reproduces every image.
             for x in 0..=u8::MAX {
                 let expected = if poly == AES {
@@ -691,33 +699,35 @@ fn degree8_maps_preserve_the_selected_aes_conventions() {
                     oracle_powers(0x11B, 8, root, u64::from(x))
                 };
                 assert_eq!(
-                    Ref8::to_coordinates(backward.embed(Elem::<Gf8<Poly<{ $poly }>>>::from_raw(x))),
+                    Ref8::to_coordinates(
+                        backward.embed(Elem::<Binary<8, Polynomial<{ $poly }>>>::from_raw(x))
+                    ),
                     expected,
                     "selected map of {poly:#x} at {x:#04x}"
                 );
             }
             // Mutual inverses over every byte.
             for x in 0..=u8::MAX {
-                let element = Elem::<Gf8<Poly<{ $poly }>>>::from_raw(x);
+                let element = Elem::<Binary<8, Polynomial<{ $poly }>>>::from_raw(x);
                 assert_eq!(forward.embed(backward.embed(element)), element);
             }
         }};
     }
 
     check_polynomial!(AES);
-    check_polynomial!(REED_SOLOMON);
+    check_polynomial!(RS);
     check_polynomial!(0x12D);
     check_polynomial!(0x187);
 
     // The Reed-Solomon map is the frozen involution: the historical qword
     // byte for byte, in both directions, since an involution equals its
     // own inverse.
-    let to_aes = Embedding::<Gf8<Poly<REED_SOLOMON>>, Ref8>::new().unwrap();
-    let from_aes = Embedding::<Ref8, Gf8<Poly<REED_SOLOMON>>>::new().unwrap();
+    let to_aes = Embedding::<Binary<8, Polynomial<RS>>, Ref8>::new().unwrap();
+    let from_aes = Embedding::<Ref8, Binary<8, Polynomial<RS>>>::new().unwrap();
     for x in 0..=u8::MAX {
         let image = affine_apply(FROZEN_RS, x);
         assert_eq!(
-            Ref8::to_coordinates(to_aes.embed(Elem::<Gf8<Poly<REED_SOLOMON>>>::from_raw(x))),
+            Ref8::to_coordinates(to_aes.embed(Elem::<Binary<8, Polynomial<RS>>>::from_raw(x))),
             u64::from(image),
             "frozen involution at {x:#04x}"
         );

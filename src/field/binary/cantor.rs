@@ -8,21 +8,21 @@
 //! Smallest valid test instances use the same seeds as the normal basis:
 //! `SEED = 2` over `P = 0x7`, `SEED = 8` over `P = 0x13`, and
 //! `SEED = 0x20` over [`AES`](super::poly::AES) and
-//! [`REED_SOLOMON`](super::poly::REED_SOLOMON).
+//! [`RS`](super::poly::RS).
 //!
 //! ```compile_fail,E0080
 //! // SEED = 0 builds the zero chain, which never reaches one.
-//! let _ = fgf::Elem::<fgf::Gf<8, fgf::Cantor<0x11B, 0>>>::from_raw(1);
+//! let _ = fgf::Elem::<fgf::Binary<8, fgf::Cantor<0x11B, 0>>>::from_raw(1);
 //! ```
 
 use super::description::{BinaryDescription, ByteLogExp};
 use super::normal::inverse_columns;
-use super::poly::Poly;
+use super::poly::Polynomial;
 use super::{BinaryRepr, private};
 
-/// A Cantor-basis presentation over `Poly<P>` seeded by `SEED`.
+/// A Cantor-basis presentation over `Polynomial<P>` seeded by `SEED`.
 ///
-/// `SEED` is a raw element of `Poly<P>`; the basis chain runs
+/// `SEED` is a raw element of `Polynomial<P>`; the basis chain runs
 /// `c_(N-1) = SEED` down through `c_i = c_(i+1)^2 + c_(i+1)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
 pub struct Cantor<const P: u128, const SEED: u8>;
@@ -74,7 +74,7 @@ cantor_row!(4);
 /// Transport the polynomial generator of `P` into Cantor coordinates.
 pub(crate) const fn transported_generator<const P: u128, const SEED: u8, const N: u8>() -> u64 {
     let poly_desc = BinaryDescription::polynomial(N, P);
-    let poly_gen = Poly::<P>::smallest_generator(&poly_desc);
+    let poly_gen = Polynomial::<P>::smallest_generator(&poly_desc);
     let from = inverse_columns(to_base::<P, SEED, N>(), N);
     let mut image = 0u64;
     let mut i = 0;
@@ -88,9 +88,9 @@ pub(crate) const fn transported_generator<const P: u128, const SEED: u8, const N
 }
 
 use super::super::HasGenerator;
-use super::Gf;
+use super::Binary;
 
-impl<const P: u128, const SEED: u8> HasGenerator for Gf<2, Cantor<P, SEED>> {
+impl<const P: u128, const SEED: u8> HasGenerator for Binary<2, Cantor<P, SEED>> {
     const GENERATOR_RAW: u8 = {
         let g = transported_generator::<P, SEED, 2>();
         assert!(
@@ -103,7 +103,7 @@ impl<const P: u128, const SEED: u8> HasGenerator for Gf<2, Cantor<P, SEED>> {
     };
 }
 
-impl<const P: u128, const SEED: u8> HasGenerator for Gf<4, Cantor<P, SEED>> {
+impl<const P: u128, const SEED: u8> HasGenerator for Binary<4, Cantor<P, SEED>> {
     const GENERATOR_RAW: u8 = {
         let g = transported_generator::<P, SEED, 4>();
         assert!(
@@ -116,7 +116,7 @@ impl<const P: u128, const SEED: u8> HasGenerator for Gf<4, Cantor<P, SEED>> {
     };
 }
 
-impl<const P: u128, const SEED: u8> HasGenerator for Gf<8, Cantor<P, SEED>> {
+impl<const P: u128, const SEED: u8> HasGenerator for Binary<8, Cantor<P, SEED>> {
     const GENERATOR_RAW: u8 = {
         let g = transported_generator::<P, SEED, 8>();
         assert!(
@@ -144,7 +144,7 @@ impl<const P: u128, const SEED: u8> BinaryRepr<8> for Cantor<P, SEED> {
         ),
         {
             let poly_desc = BinaryDescription::polynomial(8, P);
-            let poly_gen = Poly::<P>::smallest_generator(&poly_desc);
+            let poly_gen = Polynomial::<P>::smallest_generator(&poly_desc);
             let mut image = 0u64;
             let mut i = 0;
             let from = inverse_columns(to_base::<P, SEED, 8>(), 8);
@@ -166,7 +166,7 @@ impl<const P: u128, const SEED: u8> BinaryRepr<8> for Cantor<P, SEED> {
         assert!(
             <Self as BinaryRepr<8>>::DESCRIPTION.is_generator({
                 let poly_desc = BinaryDescription::polynomial(8, P);
-                let poly_gen = Poly::<P>::smallest_generator(&poly_desc);
+                let poly_gen = Polynomial::<P>::smallest_generator(&poly_desc);
                 let mut image = 0u64;
                 let mut i = 0;
                 let from = inverse_columns(to_base::<P, SEED, 8>(), 8);
@@ -181,4 +181,66 @@ impl<const P: u128, const SEED: u8> BinaryRepr<8> for Cantor<P, SEED> {
             "basis generator does not have full order"
         );
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::poly::tests::{apply_columns, oracle_mul, oracle_smallest_generator};
+    use super::*;
+
+    /// The Cantor chain and the transported generator of one basis,
+    /// evaluated at runtime against the shift-reduce oracle: each entry is
+    /// the square plus itself of its successor, the chain ends in one, and
+    /// the generator maps back to the smallest polynomial generator.
+    fn check_cantor(poly: u128, n: u32, seed: u8, chain: [u8; 8], generator: u64) {
+        let top = n as usize - 1;
+        assert_eq!(chain[top], seed, "seed heads the chain over {poly:#x}");
+        for i in 0..top {
+            let next = u64::from(chain[i + 1]);
+            assert_eq!(
+                u64::from(chain[i]),
+                oracle_mul(poly, n, next, next) ^ next,
+                "c_{i} over {poly:#x}"
+            );
+        }
+        assert_eq!(chain[0], 1, "the chain reaches one over {poly:#x}");
+        assert!(chain[n as usize..].iter().all(|&c| c == 0), "unused slots");
+        assert_eq!(
+            apply_columns(chain, generator),
+            oracle_smallest_generator(poly, n),
+            "transported generator over {poly:#x}"
+        );
+    }
+
+    #[test]
+    fn cantor_chain_reaches_one_and_transports_the_generator() {
+        check_cantor(
+            0x7,
+            2,
+            2,
+            to_base::<0x7, 2, 2>(),
+            transported_generator::<0x7, 2, 2>(),
+        );
+        check_cantor(
+            0x13,
+            4,
+            8,
+            to_base::<0x13, 8, 4>(),
+            transported_generator::<0x13, 8, 4>(),
+        );
+        check_cantor(
+            0x11B,
+            8,
+            0x20,
+            to_base::<0x11B, 0x20, 8>(),
+            transported_generator::<0x11B, 0x20, 8>(),
+        );
+        check_cantor(
+            0x11D,
+            8,
+            0x20,
+            to_base::<0x11D, 0x20, 8>(),
+            transported_generator::<0x11D, 0x20, 8>(),
+        );
+    }
 }

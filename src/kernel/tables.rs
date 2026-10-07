@@ -26,8 +26,8 @@
 
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::field::binary::tower::FanPaar8;
-use crate::field::binary::tower::{FanPaar16, Gf16, Rijndael16, Tower, TowerSpec};
-use crate::field::binary::{AES, BinaryDegree, BinaryRepr, Gf, Poly};
+use crate::field::binary::tower::{FanPaar16, Rijndael16, Tower, TowerSpec};
+use crate::field::binary::{AES, Binary, BinaryDegree, BinaryRepr, Polynomial};
 use crate::field::{Cantor, Elem, Normal};
 
 /// Reference shift-and-XOR multiply under the degree-eight polynomial `poly`.
@@ -72,7 +72,7 @@ impl ScaleTable {
     // Loop counters are bounded by the array sizes (16, 256), so every cast
     // below is exact; `const fn` rules out `try_into`.
     #[allow(clippy::cast_possible_truncation)]
-    pub const fn new<const POLY: u128>(coeff: Elem<Gf<8, Poly<POLY>>>) -> Self {
+    pub const fn new<const POLY: u128>(coeff: Elem<Binary<8, Polynomial<POLY>>>) -> Self {
         let mut lo = [0u8; 16];
         let mut hi = [0u8; 16];
         let mut i = 0;
@@ -113,7 +113,7 @@ impl ScaleTable {
 /// another library's tables — and is validated against a scalar model of
 /// the instruction in this module's tests.
 #[must_use]
-pub const fn build_affine_map<const POLY: u128>(coeff: Elem<Gf<8, Poly<POLY>>>) -> u64 {
+pub const fn build_affine_map<const POLY: u128>(coeff: Elem<Binary<8, Polynomial<POLY>>>) -> u64 {
     let mut columns = [0u8; 8];
     let mut k = 0;
     while k < 8 {
@@ -163,7 +163,7 @@ impl<const POLY: u128> Bank<POLY> {
 ///
 /// The GF(2^16) tower tables resolve their factors through this facet once
 /// per coefficient and hand the architecture kernels plain values, so no
-/// hot kernel body depends on the representation type. Only [`Poly`]
+/// hot kernel body depends on the representation type. Only [`Polynomial`]
 /// carries it: basis presentations and towers never touch these banks —
 /// their bulk operations run the typed scalar fallback, so polynomial
 /// tables must not observe their coordinates.
@@ -201,7 +201,7 @@ pub(crate) const AES_BANK: &[ScaleTable; 256] = Bank::<AES>::SCALE;
 ))]
 pub(crate) const RIJNDAEL16_B: u8 = 0x20;
 
-impl<const POLY: u128> ByteBanks for Poly<POLY> {
+impl<const POLY: u128> ByteBanks for Polynomial<POLY> {
     const SCALE: &'static [ScaleTable; 256] = Bank::<POLY>::SCALE;
     #[cfg(all(
         feature = "simd",
@@ -217,10 +217,10 @@ impl<const POLY: u128> ByteBanks for Poly<POLY> {
 
 #[allow(clippy::cast_possible_truncation)]
 const fn build_bank<const POLY: u128>() -> [ScaleTable; 256] {
-    let mut bank = [ScaleTable::new::<POLY>(Elem::<Gf<8, Poly<POLY>>>::ZERO); 256];
+    let mut bank = [ScaleTable::new::<POLY>(Elem::<Binary<8, Polynomial<POLY>>>::ZERO); 256];
     let mut i = 0;
     while i < 256 {
-        bank[i] = ScaleTable::new::<POLY>(Elem::<Gf<8, Poly<POLY>>>::from_raw(i as u8));
+        bank[i] = ScaleTable::new::<POLY>(Elem::<Binary<8, Polynomial<POLY>>>::from_raw(i as u8));
         i += 1;
     }
     bank
@@ -231,7 +231,7 @@ const fn build_affine_bank<const POLY: u128>() -> [u64; 256] {
     let mut bank = [0u64; 256];
     let mut i = 0;
     while i < 256 {
-        bank[i] = build_affine_map::<POLY>(Elem::<Gf<8, Poly<POLY>>>::from_raw(i as u8));
+        bank[i] = build_affine_map::<POLY>(Elem::<Binary<8, Polynomial<POLY>>>::from_raw(i as u8));
         i += 1;
     }
     bank
@@ -254,7 +254,9 @@ pub(crate) static ZERO_TABLE: ScaleTable = ScaleTable {
 #[allow(dead_code)]
 #[inline]
 #[must_use]
-pub fn scale_table<const POLY: u128>(coeff: Elem<Gf<8, Poly<POLY>>>) -> &'static ScaleTable {
+pub fn scale_table<const POLY: u128>(
+    coeff: Elem<Binary<8, Polynomial<POLY>>>,
+) -> &'static ScaleTable {
     &Bank::<POLY>::SCALE[coeff.to_raw() as usize]
 }
 
@@ -263,7 +265,7 @@ pub fn scale_table<const POLY: u128>(coeff: Elem<Gf<8, Poly<POLY>>>) -> &'static
 #[allow(dead_code)]
 #[inline]
 #[must_use]
-pub fn affine_map<const POLY: u128>(coeff: Elem<Gf<8, Poly<POLY>>>) -> u64 {
+pub fn affine_map<const POLY: u128>(coeff: Elem<Binary<8, Polynomial<POLY>>>) -> u64 {
     Bank::<POLY>::AFFINE[coeff.to_raw() as usize]
 }
 
@@ -322,7 +324,7 @@ pub(crate) static DUMMY_SCALE: [ScaleTable; 256] = {
     bank
 };
 
-impl<const POLY: u128> Gf8Data for Poly<POLY> {
+impl<const POLY: u128> Gf8Data for Polynomial<POLY> {
     const AES_NATIVE: bool = POLY == AES;
     const SCALE: &'static [ScaleTable; 256] = Bank::<POLY>::SCALE;
     const AFFINE: &'static [u64; 256] = Bank::<POLY>::AFFINE;
@@ -337,7 +339,7 @@ impl<const POLY: u128> Gf8Data for Poly<POLY> {
             target_arch = "wasm32"
         )
     ))]
-    const REDUCTION_LOW: u8 = Poly::<POLY>::REDUCTION_LOW;
+    const REDUCTION_LOW: u8 = Polynomial::<POLY>::REDUCTION_LOW;
 }
 
 impl<const P: u128, const E: u8> Gf8Data for Normal<P, E> {
@@ -406,7 +408,7 @@ impl<const P: u128, const SEED: u8> Gf8Data for Cantor<P, SEED> {
     const REDUCTION_LOW: u8 = 0;
 }
 
-/// A field isomorphism `φ: Gf8<Poly<POLY>> → Gf8<Poly<AES>>` and its inverse,
+/// A field isomorphism `φ: Binary<8, Polynomial<POLY>> → Binary<8, Polynomial<AES>>` and its inverse,
 /// as `VGF2P8AFFINEQB` matrix qwords.
 ///
 /// Conjugating `GF2P8MULB` by it multiplies two varying vectors under any
@@ -421,7 +423,7 @@ pub struct Isomorphism {
     pub inverse: u64,
 }
 
-/// Return the isomorphism between `Gf8<Poly<POLY>>` and `Gf8<Poly<AES>>`.
+/// Return the isomorphism between `Binary<8, Polynomial<POLY>>` and `Binary<8, Polynomial<AES>>`.
 #[allow(dead_code)]
 #[inline]
 #[must_use]
@@ -475,7 +477,7 @@ const fn inverse_columns(columns: [u8; 8]) -> [u8; 8] {
 }
 
 /// The powers `r^0..r^7` of the smallest root `r` of `poly` in
-/// `Gf8<Poly<FIELD>>`.
+/// `Binary<8, Polynomial<FIELD>>`.
 #[allow(dead_code)]
 #[allow(clippy::cast_possible_truncation)]
 const fn root_powers<const FIELD: u128>(poly: u128) -> [u8; 8] {
@@ -544,9 +546,10 @@ impl TowerCoeff {
     /// multiplies; the unit linear coefficient folds into the XOR.
     #[inline]
     #[must_use]
-    pub const fn new(coeff: Elem<Gf16>) -> Self {
+    pub const fn new(coeff: Elem<Binary<16, Tower<Rijndael16>>>) -> Self {
         #[allow(clippy::cast_possible_truncation)]
-        let con = Elem::<Gf<8, Poly<AES>>>::from_raw(Rijndael16::B as u8);
+        let con =
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(Rijndael16::CONSTANT_COEFFICIENT as u8);
         let (c0, c1) = coeff.to_components();
         let same_high = c0.add(c1);
         let same = u16::from_le_bytes([c0.to_raw(), same_high.to_raw()]);
@@ -581,10 +584,10 @@ impl TowerTables {
     /// AES bank.
     #[inline]
     #[must_use]
-    pub fn new(coeff: Elem<Gf16>) -> Self {
+    pub fn new(coeff: Elem<Binary<16, Tower<Rijndael16>>>) -> Self {
         let compact = TowerCoeff::new(coeff);
         let [f0, f1, f2, f3] = compact.factor_bytes();
-        let bank = <Poly<AES> as ByteBanks>::SCALE;
+        let bank = <Polynomial<AES> as ByteBanks>::SCALE;
         Self {
             coeff: compact.coeff,
             factors: [
@@ -692,7 +695,7 @@ impl FpScaleTable {
     /// Build the nibble tables for `coeff` in the Fan–Paar byte field.
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
-    pub const fn new(coeff: Elem<FanPaar8>) -> Self {
+    pub const fn new(coeff: Elem<Binary<8, Tower<FanPaar8>>>) -> Self {
         use crate::field::binary::tower::fp_multiply;
         let mut lo = [0u8; 16];
         let mut hi = [0u8; 16];
@@ -719,10 +722,10 @@ static FP_SCALE_TABLE_BANK: [FpScaleTable; 256] = build_fp_bank();
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 #[allow(clippy::cast_possible_truncation)]
 const fn build_fp_bank() -> [FpScaleTable; 256] {
-    let mut bank = [FpScaleTable::new(Elem::<FanPaar8>::from_raw(0)); 256];
+    let mut bank = [FpScaleTable::new(Elem::<Binary<8, Tower<FanPaar8>>>::from_raw(0)); 256];
     let mut i = 0;
     while i < 256 {
-        bank[i] = FpScaleTable::new(Elem::<FanPaar8>::from_raw(i as u8));
+        bank[i] = FpScaleTable::new(Elem::<Binary<8, Tower<FanPaar8>>>::from_raw(i as u8));
         i += 1;
     }
     bank
@@ -732,7 +735,7 @@ const fn build_fp_bank() -> [FpScaleTable; 256] {
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 #[inline]
 #[must_use]
-pub fn fp_scale_table(coeff: Elem<FanPaar8>) -> &'static FpScaleTable {
+pub fn fp_scale_table(coeff: Elem<Binary<8, Tower<FanPaar8>>>) -> &'static FpScaleTable {
     &FP_SCALE_TABLE_BANK[coeff.to_raw() as usize]
 }
 
@@ -786,7 +789,7 @@ impl NibbleFactors for TowerTables {
 pub struct FpTowerTables {
     /// The Fan–Paar GF(2^16) coefficient, recovered for the portable scalar
     /// tail of a vector kernel.
-    pub coeff: Elem<FanPaar16>,
+    pub coeff: Elem<Binary<16, Tower<FanPaar16>>>,
     /// Tables for `[c0, c0 ^ alpha·c1, c1, c1]`.
     pub factors: [FpScaleTable; 4],
 }
@@ -796,7 +799,7 @@ impl FpTowerTables {
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     #[inline]
     #[must_use]
-    pub fn new(coeff: Elem<FanPaar16>) -> Self {
+    pub fn new(coeff: Elem<Binary<16, Tower<FanPaar16>>>) -> Self {
         let (c0, c1) = coeff.to_components();
         // `c1.mul_alpha()` is `alpha·c1` in the byte subfield.
         let b = c0.add(c1.mul_alpha());
@@ -843,10 +846,8 @@ impl NibbleFactors for FpTowerTables {
 /// The form carries subfield elements, not byte broadcasts, so it is
 /// representation-agnostic: GF(2^32) builds it over `gf16::Elem` and GF(2^64)
 /// over `gf32::Elem`, each with its own `DELTA`.
-/// This is a representation-agnostic seam: every level-2 SIMD tower — the
-/// GFNI x86 path today, the aarch64/wasm paths to come — derives it from the
-/// subfield element, so it is dead weight only on targets with no such
-/// kernel.
+/// Every level-2 SIMD tower kernel derives it from the subfield element;
+/// targets without such a kernel never construct it.
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Tower2Coeff<E> {
@@ -875,17 +876,19 @@ impl<E: crate::field::FieldElem> Tower2Coeff<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::field::REED_SOLOMON;
+    use crate::field::RS;
 
-    type E8 = Elem<Gf<8, Poly<AES>>>;
+    type E8 = Elem<Binary<8, Polynomial<AES>>>;
 
     fn check_bank<const P: u128>() {
         let runtime_scale = build_bank::<P>();
         let runtime_affine = build_affine_bank::<P>();
         for raw in 0..=u8::MAX {
-            let coeff = Elem::<Gf<8, Poly<P>>>::from_raw(raw);
+            let coeff = Elem::<Binary<8, Polynomial<P>>>::from_raw(raw);
             for x in 0..=u8::MAX {
-                let product = Elem::<Gf<8, Poly<P>>>::from_raw(x).mul(coeff).to_raw();
+                let product = Elem::<Binary<8, Polynomial<P>>>::from_raw(x)
+                    .mul(coeff)
+                    .to_raw();
                 for table in [
                     &Bank::<P>::SCALE[usize::from(raw)],
                     &runtime_scale[usize::from(raw)],
@@ -906,8 +909,8 @@ mod tests {
                     "φ⁻¹φ at {a:#04x}"
                 );
                 for b in 0..=u8::MAX {
-                    let product = Elem::<Gf<8, Poly<P>>>::from_raw(a)
-                        .mul(Elem::<Gf<8, Poly<P>>>::from_raw(b))
+                    let product = Elem::<Binary<8, Polynomial<P>>>::from_raw(a)
+                        .mul(Elem::<Binary<8, Polynomial<P>>>::from_raw(b))
                         .to_raw();
                     let conjugated = apply(
                         iso.inverse,
@@ -937,7 +940,7 @@ mod tests {
     #[test]
     fn banks_reproduce_every_product_under_the_instruction_model() {
         check_bank::<AES>();
-        check_bank::<REED_SOLOMON>();
+        check_bank::<RS>();
         check_bank::<0x12D>();
         check_bank::<0x187>();
     }
@@ -972,14 +975,24 @@ mod tests {
     fn the_reed_solomon_isomorphism_is_the_frozen_involution() {
         // The kernels' historical `0x11D` conjugation constant: the map
         // derived from the smallest root is this involution.
-        let iso = isomorphism_to_aes::<REED_SOLOMON>();
+        let iso = isomorphism_to_aes::<RS>();
         assert_eq!(iso.forward, 0xffaa_cc88_f0a0_c080);
         assert_eq!(iso.inverse, iso.forward);
     }
 
     #[test]
+    #[should_panic(expected = "splits in every GF(2^8)")]
+    fn root_search_rejects_a_polynomial_without_a_root() {
+        // (x^3 + x + 1)(x^5 + x^2 + 1): its roots live in GF(2^3) and
+        // GF(2^5), neither of which lies inside GF(2^8).
+        let rootless = core::hint::black_box(0x147u128);
+        let _ = root_powers::<AES>(rootless);
+    }
+
+    #[test]
     fn tower_factors_reconstruct_the_product() {
-        use crate::field::binary::tower::{Gf16 as TowerGf16, Rijndael16 as TowerRijndael16};
+        use crate::field::binary::tower::{Rijndael16 as TowerRijndael16, Tower};
+        type TowerGf16 = crate::field::Binary<16, Tower<TowerRijndael16>>;
         // Exercise the identity the SIMD kernels rely on, scalar-side.
         for coeff in [0u16, 1, 0x0108, 0x2000, 0xffff, 0x1234] {
             let coeff = Elem::<TowerGf16>::from_raw(coeff);

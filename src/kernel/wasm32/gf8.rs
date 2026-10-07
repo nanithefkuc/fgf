@@ -20,7 +20,7 @@
 use core::arch::wasm32::*;
 
 use crate::field::poly::AES;
-use crate::field::{Gf8, Poly};
+use crate::field::{Binary, Polynomial};
 use crate::kernel::gf8::mul_add_nibble;
 use crate::kernel::gf8::{Coeffs, Prepared};
 use crate::kernel::proven_checks::{check_equal, check_row_span};
@@ -192,7 +192,7 @@ fn elementwise_impl(dst: &mut [u8], a: &[u8], b: &[u8]) {
         v128_store(d, multiply_vectors(v128_load(x), v128_load(y)));
     }
 
-    crate::kernel::scalar::mul_elementwise::<Gf8<Poly<AES>>>(
+    crate::kernel::scalar::mul_elementwise::<Binary<8, Polynomial<AES>>>(
         &mut dst[vector_len..span],
         &a[vector_len..span],
         &b[vector_len..span],

@@ -334,6 +334,16 @@ fn compare(
     let (low, high) = spread(paired);
     match kind {
         RowKind::Rate(bytes) => println!(
+            "PRIME\t{label}\trate\t{bytes}\t{our_median:.9}\t{their_median:.9}\t{low:.9}\t{high:.9}"
+        ),
+        RowKind::Scalar => println!(
+            "PRIME\t{label}\tscalar\t0\t{:.9}\t{:.9}\t{low:.9}\t{high:.9}",
+            our_median / SCALAR_ITERS as f64,
+            their_median / SCALAR_ITERS as f64,
+        ),
+    }
+    match kind {
+        RowKind::Rate(bytes) => println!(
             "  {label:<34} {:>9} {:>7.2} GiB/s | {:>9} {:>7.2} GiB/s | \
              {ratio:>5.2}x [{low:.2}-{high:.2}]",
             fmt_ns(our_median),

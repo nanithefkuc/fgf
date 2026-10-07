@@ -413,3 +413,44 @@ impl core::fmt::Display for Elem<QuadMersenne31> {
         write!(formatter, "({:#x}+{:#x}i)", self.raw.0, self.raw.1)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Elem, HasGenerator, MODULUS, QuadMersenne31, is_primitive};
+
+    const fn gcd(mut a: u64, mut b: u64) -> u64 {
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        a
+    }
+
+    /// `g^k` has full order `p² − 1` exactly when `gcd(k, p² − 1) = 1`, so
+    /// the check must accept and reject powers of the generator by that rule.
+    #[test]
+    fn primitivity_follows_generator_power_coprimality() {
+        let (re, im) = core::hint::black_box(QuadMersenne31::GENERATOR_RAW);
+        let generator = Elem::<QuadMersenne31>::from_raw(re, im);
+        let order = u64::from(MODULUS) * u64::from(MODULUS) - 1;
+        for k in 1..=48u64 {
+            let candidate = generator.pow(u128::from(k)).to_raw();
+            assert_eq!(
+                is_primitive(core::hint::black_box(candidate)),
+                gcd(k, order) == 1,
+                "(1 + 12i)^{k}"
+            );
+        }
+    }
+
+    /// Zero has no multiplicative order; base-field elements and `i` have
+    /// orders dividing `p − 1` and 4, far below `p² − 1`.
+    #[test]
+    fn primitivity_rejects_small_orders() {
+        for candidate in [(0, 0), (1, 0), (7, 0), (MODULUS - 1, 0), (0, 1)] {
+            assert!(
+                !is_primitive(core::hint::black_box(candidate)),
+                "{candidate:?}"
+            );
+        }
+    }
+}

@@ -92,13 +92,12 @@ pub use binary::normal;
 pub use binary::poly;
 pub use binary::tower;
 pub use binary::tower::{
-    FanPaar2, FanPaar2Spec, FanPaar4, FanPaar4Spec, FanPaar8, FanPaar8Spec, FanPaar16,
-    FanPaar16Spec, FanPaar32, FanPaar32Spec, FanPaar64, FanPaar64Spec, Gf16, Gf32, Gf64,
-    Rijndael16, Rijndael32, Rijndael64, Tower, TowerGeneratorSpec, TowerSpec,
+    FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Rijndael16, Rijndael32,
+    Rijndael64, Tower, TowerGeneratorSpec, TowerSpec,
 };
 pub use binary::{
-    AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Embedding,
-    EmbeddingError, Gf, Gf1, Gf8, Normal, Poly, REED_SOLOMON,
+    AES, Binary, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor,
+    Embedding, EmbeddingError, Normal, Polynomial, RS,
 };
 pub use goldilocks::Goldilocks;
 pub use mersenne31::Mersenne31;

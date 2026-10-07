@@ -5,6 +5,8 @@ use reed_solomon_simd::engine::{CANTOR_BASIS, tables};
 
 use crate::native::Native;
 
+type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
+
 fn polynomial_mul(mut a: u32, mut b: u32, polynomial: u32, bits: u32) -> u16 {
     let mut result = 0;
     for _ in 0..bits {
@@ -141,8 +143,8 @@ impl Representations {
             for j in 0..16 {
                 let (x, y) = (1 << i, 1 << j);
                 assert_eq!(
-                    fgf::Elem::<fgf::Gf16>::from_raw(x)
-                        .mul(fgf::Elem::<fgf::Gf16>::from_raw(y))
+                    fgf::Elem::<Gf16>::from_raw(x)
+                        .mul(fgf::Elem::<Gf16>::from_raw(y))
                         .to_raw(),
                     tower_mul(x, y)
                 );

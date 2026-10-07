@@ -8,10 +8,10 @@
 //! # Reference ladder
 //!
 //! The canonical map factors through one frozen reference per degree:
-//! GF(2) as [`Poly<3>`](super::poly::Poly), `Poly<0x7>` at degree two,
-//! `Poly<0x13>` at degree four, the AES field at degree eight, and the
-//! Rijndael towers [`Gf16`](super::tower::Gf16),
-//! [`Gf32`](super::tower::Gf32), [`Gf64`](super::tower::Gf64) above it.
+//! GF(2) as [`Polynomial<3>`](super::poly::Polynomial), `Polynomial<0x7>` at degree two,
+//! `Polynomial<0x13>` at degree four, the AES field at degree eight, and the
+//! Rijndael towers `Binary<16, Tower<Rijndael16>>`,
+//! `Binary<32, Tower<Rijndael32>>`, and `Binary<64, Tower<Rijndael64>>` above it.
 //! Consecutive inclusions are frozen: the identity into degree two, the
 //! smallest raw reference root of the source polynomial below the AES
 //! field, and the low component above it.
@@ -37,14 +37,15 @@
 //! source degree are zero, except that sources below degree eight use the
 //! frozen inverse inclusions of the byte field. [`frobenius`](Embedding::frobenius),
 //! [`trace`](Embedding::trace), and [`norm`](Embedding::norm) implement the
-//! relative Galois action of the extension; `Embedding<Gf1, T>` supplies
+//! relative Galois action of the extension; `Embedding<Binary<1, Polynomial<3>>, T>` supplies
 //! the absolute trace and norm.
 //!
 //! ```
-//! use fgf::{Elem, Embedding, Gf8, Gf16, Poly, AES};
+//! use fgf::{AES, Binary, Elem, Embedding, Polynomial, Rijndael16, Tower};
 //!
-//! let embedding = Embedding::<Gf8<Poly<AES>>, Gf16>::new().unwrap();
-//! let x = Elem::<Gf8<Poly<AES>>>::from_raw(0x53);
+//! let embedding =
+//!     Embedding::<Binary<8, Polynomial<AES>>, Binary<16, Tower<Rijndael16>>>::new().unwrap();
+//! let x = Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53);
 //! let lifted = embedding.embed(x);
 //! assert!(embedding.contains(lifted));
 //! assert_eq!(embedding.restrict(lifted), Some(x));
@@ -659,7 +660,7 @@ impl<S: BinaryField, T: BinaryField> Embedding<S, T> {
     /// The relative trace: the sum of the conjugates under the relative
     /// Frobenius, restricted to the source.
     ///
-    /// Equal degrees reduce to restriction. `Embedding<Gf1, T>` supplies
+    /// Equal degrees reduce to restriction. `Embedding<Binary<1, Polynomial<3>>, T>` supplies
     /// the absolute trace.
     ///
     /// # Panics
@@ -681,7 +682,7 @@ impl<S: BinaryField, T: BinaryField> Embedding<S, T> {
     /// The relative norm: the product of the conjugates under the relative
     /// Frobenius, restricted to the source.
     ///
-    /// Equal degrees reduce to restriction. `Embedding<Gf1, T>` supplies
+    /// Equal degrees reduce to restriction. `Embedding<Binary<1, Polynomial<3>>, T>` supplies
     /// the absolute norm.
     ///
     /// # Panics
@@ -862,5 +863,26 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "no reference field of degree")]
+    fn reference_rejects_an_unsupported_degree() {
+        let _ = reference(core::hint::black_box(3));
+    }
+
+    /// `x^2` has no nonzero root in GF(4): every candidate squares to a
+    /// nonzero element.
+    #[test]
+    #[should_panic(expected = "has no root")]
+    fn smallest_root_rejects_a_polynomial_without_nonzero_roots() {
+        let _ = smallest_root(&REFERENCE_2, 2, core::hint::black_box(0x4));
+    }
+
+    /// `w^2 + w` vanishes on all of GF(2), so `w^2 + w = 1` has no solution.
+    #[test]
+    #[should_panic(expected = "has no solution")]
+    fn artin_schreier_rejects_a_trace_one_right_side() {
+        let _ = solve_artin_schreier(1, core::hint::black_box(1));
     }
 }

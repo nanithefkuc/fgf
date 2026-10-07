@@ -31,14 +31,14 @@
 use core::arch::aarch64::*;
 
 use crate::field::poly::AES;
-use crate::field::{Elem as Gf8Elem, Gf, Poly};
+use crate::field::{Binary, Elem as Gf8Elem, Polynomial};
 use crate::kernel::Matrix;
 use crate::kernel::gf8::{Coeffs, Prepared, mul_add_nibble, mul_assign_nibble, mul_into_nibble};
 use crate::kernel::proven_checks::{check_equal, check_row_span};
 use crate::kernel::tables::ScaleTable;
 
 /// The AES byte element used by the elementwise scalar tails.
-type Elem = Gf8Elem<Gf<8, Poly<AES>>>;
+type Elem = Gf8Elem<Binary<8, Polynomial<AES>>>;
 
 /// Load a coefficient's nibble tables into two vector registers.
 #[inline]

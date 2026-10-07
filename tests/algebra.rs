@@ -6,16 +6,15 @@
 //! than self-consistent.
 
 use fgf::field::{Field, FieldBuffer, PrimeIdentity};
-use fgf::poly::{AES, REED_SOLOMON};
+use fgf::poly::{AES, RS};
 use fgf::{
-    BinaryField, Cantor, Elem, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Gf, Gf1, Gf8, Gf16, Gf32,
-    Gf64, Goldilocks, HasGenerator, Mersenne31, Normal, Poly, QuadMersenne31, goldilocks,
-    mersenne31, quad_mersenne31,
+    Binary, BinaryField, Cantor, Elem, Goldilocks, HasGenerator, Mersenne31, Normal, Polynomial,
+    QuadMersenne31, goldilocks, mersenne31, quad_mersenne31,
 };
 
-/// Every element of `Gf8<Poly<POLY>>`, in ascending raw order.
-fn all_gf8_elems<const POLY: u128>() -> impl Iterator<Item = Elem<Gf<8, Poly<POLY>>>> {
-    (0..=u8::MAX).map(Elem::<Gf<8, Poly<POLY>>>::from_raw)
+/// Every element of `Binary<8, Polynomial<POLY>>`, in ascending raw order.
+fn all_gf8_elems<const POLY: u128>() -> impl Iterator<Item = Elem<Binary<8, Polynomial<POLY>>>> {
+    (0..=u8::MAX).map(Elem::<Binary<8, Polynomial<POLY>>>::from_raw)
 }
 
 /// A spread of GF(2^16) elements: boundaries, both component planes, and a
@@ -85,10 +84,10 @@ fn table_multiply_matches_shift_and_xor<const POLY: u128>() {
         for b in all_gf8_elems::<POLY>() {
             assert_eq!(
                 a.mul(b),
-                Elem::<Gf<8, Poly<POLY>>>::from_raw(xtime_mul(
+                Elem::<Binary<8, Polynomial<POLY>>>::from_raw(xtime_mul(
                     a.to_raw(),
                     b.to_raw(),
-                    Poly::<POLY>::POLY
+                    Polynomial::<POLY>::POLY
                 )),
                 "table and xtime disagree on {a:?} * {b:?}"
             );
@@ -98,29 +97,32 @@ fn table_multiply_matches_shift_and_xor<const POLY: u128>() {
 
 fn inverse_matches_fermat_and_round_trips<const POLY: u128>() {
     assert_eq!(
-        xtime_inv(Elem::<Gf<8, Poly<POLY>>>::ZERO.to_raw(), Poly::<POLY>::POLY),
+        xtime_inv(
+            Elem::<Binary<8, Polynomial<POLY>>>::ZERO.to_raw(),
+            Polynomial::<POLY>::POLY
+        ),
         0,
         "inv_xtime(0) must be 0"
     );
     assert_eq!(
-        Elem::<Gf<8, Poly<POLY>>>::ZERO.inv(),
-        Elem::<Gf<8, Poly<POLY>>>::ZERO,
+        Elem::<Binary<8, Polynomial<POLY>>>::ZERO.inv(),
+        Elem::<Binary<8, Polynomial<POLY>>>::ZERO,
         "inv(0) must be 0"
     );
     for a in all_gf8_elems::<POLY>().skip(1) {
         assert_eq!(
             a.inv().to_raw(),
-            xtime_inv(a.to_raw(), Poly::<POLY>::POLY),
+            xtime_inv(a.to_raw(), Polynomial::<POLY>::POLY),
             "inverse backends disagree on {a:?}"
         );
         assert_eq!(
             a.mul(a.inv()),
-            Elem::<Gf<8, Poly<POLY>>>::ONE,
+            Elem::<Binary<8, Polynomial<POLY>>>::ONE,
             "{a:?} * inv({a:?}) != 1"
         );
         assert_eq!(
             a.div(a),
-            Elem::<Gf<8, Poly<POLY>>>::ONE,
+            Elem::<Binary<8, Polynomial<POLY>>>::ONE,
             "{a:?} / {a:?} != 1"
         );
     }
@@ -128,18 +130,18 @@ fn inverse_matches_fermat_and_round_trips<const POLY: u128>() {
 
 fn generator_has_full_order<const POLY: u128>() {
     let mut seen = [false; 256];
-    let mut value = Elem::<Gf<8, Poly<POLY>>>::ONE;
+    let mut value = Elem::<Binary<8, Polynomial<POLY>>>::ONE;
     for step in 0..255u32 {
         assert!(
             !seen[value.to_raw() as usize],
             "generator repeats at step {step}"
         );
         seen[value.to_raw() as usize] = true;
-        value = value.mul(Elem::<Gf<8, Poly<POLY>>>::GENERATOR);
+        value = value.mul(Elem::<Binary<8, Polynomial<POLY>>>::GENERATOR);
     }
     assert_eq!(
         value,
-        Elem::<Gf<8, Poly<POLY>>>::ONE,
+        Elem::<Binary<8, Polynomial<POLY>>>::ONE,
         "generator order is not 255"
     );
     assert!(
@@ -151,18 +153,18 @@ fn generator_has_full_order<const POLY: u128>() {
 fn field_axioms<const POLY: u128>() {
     let sample: Vec<_> = all_gf8_elems::<POLY>().step_by(7).collect();
     for &a in &sample {
-        assert_eq!(a.add(Elem::<Gf<8, Poly<POLY>>>::ZERO), a);
-        assert_eq!(a.mul(Elem::<Gf<8, Poly<POLY>>>::ONE), a);
+        assert_eq!(a.add(Elem::<Binary<8, Polynomial<POLY>>>::ZERO), a);
+        assert_eq!(a.mul(Elem::<Binary<8, Polynomial<POLY>>>::ONE), a);
         assert_eq!(
-            a.mul(Elem::<Gf<8, Poly<POLY>>>::ZERO),
-            Elem::<Gf<8, Poly<POLY>>>::ZERO
+            a.mul(Elem::<Binary<8, Polynomial<POLY>>>::ZERO),
+            Elem::<Binary<8, Polynomial<POLY>>>::ZERO
         );
         assert_eq!(
             a.add(a),
-            Elem::<Gf<8, Poly<POLY>>>::ZERO,
+            Elem::<Binary<8, Polynomial<POLY>>>::ZERO,
             "characteristic two"
         );
-        assert_eq!(a.sub(a), Elem::<Gf<8, Poly<POLY>>>::ZERO);
+        assert_eq!(a.sub(a), Elem::<Binary<8, Polynomial<POLY>>>::ZERO);
         for &b in &sample {
             assert_eq!(a.add(b), b.add(a), "addition commutes");
             assert_eq!(a.mul(b), b.mul(a), "multiplication commutes");
@@ -185,7 +187,7 @@ fn field_axioms<const POLY: u128>() {
 
 fn pow_matches_repeated_multiplication<const POLY: u128>() {
     for a in all_gf8_elems::<POLY>().step_by(11) {
-        let mut expected = Elem::<Gf<8, Poly<POLY>>>::ONE;
+        let mut expected = Elem::<Binary<8, Polynomial<POLY>>>::ONE;
         for exponent in 0..20u128 {
             assert_eq!(a.pow(exponent), expected, "{a:?}^{exponent}");
             expected = expected.mul(a);
@@ -198,7 +200,7 @@ fn pow_matches_repeated_multiplication<const POLY: u128>() {
 macro_rules! every_gf8_field {
     ($law:ident) => {
         $law::<AES>();
-        $law::<REED_SOLOMON>();
+        $law::<RS>();
         // Data Matrix and the CCSDS Reed–Solomon field: irreducible
         // polynomials no named constant covers.
         $law::<0x12D>();
@@ -234,49 +236,51 @@ fn gf8_pow_matches_repeated_multiplication() {
 #[test]
 fn gf8_known_answer_products() {
     // The derived generators are public facts: 0x03 under AES, 0x02 under
-    // REED_SOLOMON.
+    // RS.
     assert_eq!(
-        Elem::<Gf<8, Poly<AES>>>::GENERATOR,
-        Elem::<Gf<8, Poly<AES>>>::from_raw(0x03)
+        Elem::<Binary<8, Polynomial<AES>>>::GENERATOR,
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x03)
     );
     assert_eq!(
-        Elem::<Gf<8, Poly<REED_SOLOMON>>>::GENERATOR,
-        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x02)
+        Elem::<Binary<8, Polynomial<RS>>>::GENERATOR,
+        Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x02)
     );
     // AES: the classic Rijndael example.
     assert_eq!(
-        Elem::<Gf<8, Poly<AES>>>::from_raw(0x53).mul(Elem::<Gf<8, Poly<AES>>>::from_raw(0xca)),
-        Elem::<Gf<8, Poly<AES>>>::from_raw(0x01)
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53)
+            .mul(Elem::<Binary<8, Polynomial<AES>>>::from_raw(0xca)),
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x01)
     );
     assert_eq!(
-        Elem::<Gf<8, Poly<AES>>>::from_raw(0xff).mul(Elem::<Gf<8, Poly<AES>>>::from_raw(0xff)),
-        Elem::<Gf<8, Poly<AES>>>::from_raw(0x13)
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(0xff)
+            .mul(Elem::<Binary<8, Polynomial<AES>>>::from_raw(0xff)),
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x13)
     );
-    // REED_SOLOMON: the ISA-L / klauspost-reedsolomon field, independently
+    // RS: the ISA-L / klauspost-reedsolomon field, independently
     // computed from the shift/XOR oracle.
     assert_eq!(
-        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x53)
-            .mul(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0xca)),
-        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x8f)
+        Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x53)
+            .mul(Elem::<Binary<8, Polynomial<RS>>>::from_raw(0xca)),
+        Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x8f)
     );
     assert_eq!(
-        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x57)
-            .mul(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x83)),
-        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0x31)
+        Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x57)
+            .mul(Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x83)),
+        Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x31)
     );
     assert_eq!(
-        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0xff)
-            .mul(Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0xff)),
-        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(0xe2)
+        Elem::<Binary<8, Polynomial<RS>>>::from_raw(0xff)
+            .mul(Elem::<Binary<8, Polynomial<RS>>>::from_raw(0xff)),
+        Elem::<Binary<8, Polynomial<RS>>>::from_raw(0xe2)
     );
 }
 
 #[test]
 fn reduction_polynomials_are_introspectable() {
-    assert_eq!(Poly::<AES>::POLY, 0x11B);
-    assert_eq!(Poly::<REED_SOLOMON>::POLY, 0x11D);
-    assert_eq!(Poly::<0x12D>::POLY, 0x12D);
-    assert_eq!(Poly::<0x187>::POLY, 0x187);
+    assert_eq!(Polynomial::<AES>::POLY, 0x11B);
+    assert_eq!(Polynomial::<RS>::POLY, 0x11D);
+    assert_eq!(Polynomial::<0x12D>::POLY, 0x12D);
+    assert_eq!(Polynomial::<0x187>::POLY, 0x187);
 }
 
 #[test]
@@ -287,17 +291,17 @@ fn gf8_fields_are_pairwise_distinct() {
         (0u16..=255)
             .flat_map(|a| (0u16..=255).map(move |b| (a as u8, b as u8)))
             .filter(|&(a, b)| {
-                Elem::<Gf<8, Poly<P>>>::from_raw(a)
-                    .mul(Elem::<Gf<8, Poly<P>>>::from_raw(b))
+                Elem::<Binary<8, Polynomial<P>>>::from_raw(a)
+                    .mul(Elem::<Binary<8, Polynomial<P>>>::from_raw(b))
                     .to_raw()
-                    != Elem::<Gf<8, Poly<Q>>>::from_raw(a)
-                        .mul(Elem::<Gf<8, Poly<Q>>>::from_raw(b))
+                    != Elem::<Binary<8, Polynomial<Q>>>::from_raw(a)
+                        .mul(Elem::<Binary<8, Polynomial<Q>>>::from_raw(b))
                         .to_raw()
             })
             .count()
     }
     assert_eq!(
-        disagreement_count::<AES, REED_SOLOMON>(),
+        disagreement_count::<AES, RS>(),
         63_232,
         "0x11B and 0x11D must differ on most products"
     );
@@ -306,8 +310,8 @@ fn gf8_fields_are_pairwise_distinct() {
     // disagrees, and most pairs disagree almost everywhere.
     assert_ne!(disagreement_count::<AES, 0x12D>(), 0);
     assert_ne!(disagreement_count::<AES, 0x187>(), 0);
-    assert_ne!(disagreement_count::<REED_SOLOMON, 0x12D>(), 0);
-    assert_ne!(disagreement_count::<REED_SOLOMON, 0x187>(), 0);
+    assert_ne!(disagreement_count::<RS, 0x12D>(), 0);
+    assert_ne!(disagreement_count::<RS, 0x187>(), 0);
     assert_ne!(disagreement_count::<0x12D, 0x187>(), 0);
 }
 
@@ -343,8 +347,8 @@ macro_rules! small_poly_field {
         for a in 0..=$mask {
             for b in 0..=$mask {
                 assert_eq!(
-                    Elem::<Gf<$n, Poly<$poly>>>::from_raw(a)
-                        .mul(Elem::<Gf<$n, Poly<$poly>>>::from_raw(b))
+                    Elem::<Binary<$n, Polynomial<$poly>>>::from_raw(a)
+                        .mul(Elem::<Binary<$n, Polynomial<$poly>>>::from_raw(b))
                         .to_raw(),
                     small_mul($poly, $n, a, b),
                     "{a:#x} * {b:#x} under {:#x}",
@@ -353,11 +357,11 @@ macro_rules! small_poly_field {
             }
         }
         for a in 0..=$mask {
-            let elem = Elem::<Gf<$n, Poly<$poly>>>::from_raw(a);
+            let elem = Elem::<Binary<$n, Polynomial<$poly>>>::from_raw(a);
             if a != 0 {
                 assert_eq!(
                     elem.mul(elem.inv()),
-                    Elem::<Gf<$n, Poly<$poly>>>::ONE,
+                    Elem::<Binary<$n, Polynomial<$poly>>>::ONE,
                     "inverse of {a:#x}"
                 );
             } else {
@@ -365,12 +369,12 @@ macro_rules! small_poly_field {
             }
         }
         let order = (1u128 << $n) - 1;
-        let generator = Elem::<Gf<$n, Poly<$poly>>>::GENERATOR;
-        assert_eq!(generator.pow(order), Elem::<Gf<$n, Poly<$poly>>>::ONE);
+        let generator = Elem::<Binary<$n, Polynomial<$poly>>>::GENERATOR;
+        assert_eq!(generator.pow(order), Elem::<Binary<$n, Polynomial<$poly>>>::ONE);
         for factor in [$($factor),+] {
             assert_ne!(
                 generator.pow(order / factor),
-                Elem::<Gf<$n, Poly<$poly>>>::ONE,
+                Elem::<Binary<$n, Polynomial<$poly>>>::ONE,
                 "cofactor {factor}"
             );
         }
@@ -469,28 +473,28 @@ macro_rules! basis_field {
 #[test]
 fn normal_forward_coordinates_match_independent_powers() {
     basis_field!(
-        Gf<2, Normal<0x7, 2>>,
+        Binary<2, Normal<0x7, 2>>,
         0x7,
         2,
         normal_columns(0x7, 2, 2),
         0x3
     );
     basis_field!(
-        Gf<4, Normal<0x13, 8>>,
+        Binary<4, Normal<0x13, 8>>,
         0x13,
         4,
         normal_columns(0x13, 4, 8),
         0xF
     );
     basis_field!(
-        Gf<8, Normal<0x11B, 0x20>>,
+        Binary<8, Normal<0x11B, 0x20>>,
         0x11B,
         8,
         normal_columns(0x11B, 8, 0x20),
         0xFF
     );
     basis_field!(
-        Gf<8, Normal<0x11D, 0x20>>,
+        Binary<8, Normal<0x11D, 0x20>>,
         0x11D,
         8,
         normal_columns(0x11D, 8, 0x20),
@@ -501,28 +505,28 @@ fn normal_forward_coordinates_match_independent_powers() {
 #[test]
 fn cantor_forward_coordinates_match_the_independent_chain() {
     basis_field!(
-        Gf<2, Cantor<0x7, 2>>,
+        Binary<2, Cantor<0x7, 2>>,
         0x7,
         2,
         cantor_columns(0x7, 2, 2),
         0x1
     );
     basis_field!(
-        Gf<4, Cantor<0x13, 8>>,
+        Binary<4, Cantor<0x13, 8>>,
         0x13,
         4,
         cantor_columns(0x13, 4, 8),
         0x1
     );
     basis_field!(
-        Gf<8, Cantor<0x11B, 0x20>>,
+        Binary<8, Cantor<0x11B, 0x20>>,
         0x11B,
         8,
         cantor_columns(0x11B, 8, 0x20),
         0x1
     );
     basis_field!(
-        Gf<8, Cantor<0x11D, 0x20>>,
+        Binary<8, Cantor<0x11D, 0x20>>,
         0x11D,
         8,
         cantor_columns(0x11D, 8, 0x20),
@@ -545,15 +549,15 @@ fn binary_coordinates_round_trip_and_reject_excess_bits() {
         }
     }
     round_trip::<Gf1>(1, &[2, 0xFF, u64::MAX]);
-    round_trip::<Gf<2, Poly<0x7>>>(3, &[4, 0xFF, u64::MAX]);
-    round_trip::<Gf<2, Normal<0x7, 2>>>(3, &[4, 0xFF, u64::MAX]);
-    round_trip::<Gf<2, Cantor<0x7, 2>>>(3, &[4, 0xFF, u64::MAX]);
-    round_trip::<Gf<4, Poly<0x13>>>(0xF, &[0x10, 0xFF, u64::MAX]);
-    round_trip::<Gf<4, Normal<0x13, 8>>>(0xF, &[0x10, 0xFF, u64::MAX]);
-    round_trip::<Gf<4, Cantor<0x13, 8>>>(0xF, &[0x10, 0xFF, u64::MAX]);
-    round_trip::<Gf<8, Poly<AES>>>(0xFF, &[0x100, 0xFFFF, u64::MAX]);
-    round_trip::<Gf<8, Normal<0x11B, 0x20>>>(0xFF, &[0x100, 0xFFFF, u64::MAX]);
-    round_trip::<Gf<8, Cantor<0x11B, 0x20>>>(0xFF, &[0x100, 0xFFFF, u64::MAX]);
+    round_trip::<Binary<2, Polynomial<0x7>>>(3, &[4, 0xFF, u64::MAX]);
+    round_trip::<Binary<2, Normal<0x7, 2>>>(3, &[4, 0xFF, u64::MAX]);
+    round_trip::<Binary<2, Cantor<0x7, 2>>>(3, &[4, 0xFF, u64::MAX]);
+    round_trip::<Binary<4, Polynomial<0x13>>>(0xF, &[0x10, 0xFF, u64::MAX]);
+    round_trip::<Binary<4, Normal<0x13, 8>>>(0xF, &[0x10, 0xFF, u64::MAX]);
+    round_trip::<Binary<4, Cantor<0x13, 8>>>(0xF, &[0x10, 0xFF, u64::MAX]);
+    round_trip::<Binary<8, Polynomial<AES>>>(0xFF, &[0x100, 0xFFFF, u64::MAX]);
+    round_trip::<Binary<8, Normal<0x11B, 0x20>>>(0xFF, &[0x100, 0xFFFF, u64::MAX]);
+    round_trip::<Binary<8, Cantor<0x11B, 0x20>>>(0xFF, &[0x100, 0xFFFF, u64::MAX]);
     round_trip::<Gf16>(0xFFFF, &[0x1_0000, u64::MAX]);
 }
 
@@ -567,15 +571,19 @@ fn binary_coordinates_round_trip_and_reject_excess_bits() {
 fn gf16_mul_oracle(x: Elem<Gf16>, y: Elem<Gf16>) -> Elem<Gf16> {
     let (a, b) = x.to_components();
     let (c, d) = y.to_components();
-    let xt = |p: Elem<Gf<8, Poly<AES>>>, q: Elem<Gf<8, Poly<AES>>>| {
-        Elem::<Gf<8, Poly<AES>>>::from_raw(xtime_mul(p.to_raw(), q.to_raw(), Poly::<AES>::POLY))
+    let xt = |p: Elem<Binary<8, Polynomial<AES>>>, q: Elem<Binary<8, Polynomial<AES>>>| {
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(xtime_mul(
+            p.to_raw(),
+            q.to_raw(),
+            Polynomial::<AES>::POLY,
+        ))
     };
     let ac = xt(a, c);
     let ad = xt(a, d);
     let bc = xt(b, c);
     let bd = xt(b, d);
     // ac + (ad + bc)u + bd*u^2, and u^2 = u + DELTA.
-    let constant = ac.add(xt(Elem::<Gf<8, Poly<AES>>>::from_raw(0x20), bd));
+    let constant = ac.add(xt(Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x20), bd));
     let extension = ad.add(bc).add(bd);
     Elem::<Gf16>::from_components(constant, extension)
 }
@@ -661,16 +669,21 @@ fn gf16_embeds_the_base_field() {
     for a in all_gf8_elems::<AES>().step_by(5) {
         for b in all_gf8_elems::<AES>().step_by(7) {
             let lifted = Elem::<Gf16>::from_components(a, b).mul(Elem::<Gf16>::from_components(
-                Elem::<Gf<8, Poly<AES>>>::from_raw(0),
-                Elem::<Gf<8, Poly<AES>>>::from_raw(0),
+                Elem::<Binary<8, Polynomial<AES>>>::from_raw(0),
+                Elem::<Binary<8, Polynomial<AES>>>::from_raw(0),
             ));
             assert_eq!(lifted, Elem::<Gf16>::ZERO);
 
-            let x = Elem::<Gf16>::from_components(a, Elem::<Gf<8, Poly<AES>>>::from_raw(0));
-            let y = Elem::<Gf16>::from_components(b, Elem::<Gf<8, Poly<AES>>>::from_raw(0));
+            let x =
+                Elem::<Gf16>::from_components(a, Elem::<Binary<8, Polynomial<AES>>>::from_raw(0));
+            let y =
+                Elem::<Gf16>::from_components(b, Elem::<Binary<8, Polynomial<AES>>>::from_raw(0));
             assert_eq!(
                 x.mul(y),
-                Elem::<Gf16>::from_components(a.mul(b), Elem::<Gf<8, Poly<AES>>>::from_raw(0)),
+                Elem::<Gf16>::from_components(
+                    a.mul(b),
+                    Elem::<Binary<8, Polynomial<AES>>>::from_raw(0)
+                ),
                 "base-field embedding broken for {a:?} * {b:?}"
             );
         }
@@ -1274,21 +1287,21 @@ fn qm31_arithmetic_is_total_over_raw_limbs() {
 #[test]
 fn fan_paar_matches_canonical_vectors() {
     assert_eq!(
-        Elem::<FanPaar8>::from_raw(0x1b).mul(Elem::<FanPaar8>::from_raw(0xa8)),
-        Elem::<FanPaar8>::from_raw(0x09)
+        Elem::<FanPaar8Field>::from_raw(0x1b).mul(Elem::<FanPaar8Field>::from_raw(0xa8)),
+        Elem::<FanPaar8Field>::from_raw(0x09)
     );
     assert_eq!(
-        Elem::<FanPaar16>::from_raw(0x48a8).mul(Elem::<FanPaar16>::from_raw(0xf8a4)),
-        Elem::<FanPaar16>::from_raw(0x3656)
+        Elem::<FanPaar16Field>::from_raw(0x48a8).mul(Elem::<FanPaar16Field>::from_raw(0xf8a4)),
+        Elem::<FanPaar16Field>::from_raw(0x3656)
     );
     assert_eq!(
-        Elem::<FanPaar16>::from_raw(0xf8a4).square(),
-        Elem::<FanPaar16>::from_raw(0xe7e6)
+        Elem::<FanPaar16Field>::from_raw(0xf8a4).square(),
+        Elem::<FanPaar16Field>::from_raw(0xe7e6)
     );
     assert_eq!(
-        Elem::<FanPaar64>::from_raw(0xc84d_6191_1083_1cef)
-            .mul(Elem::<FanPaar64>::from_raw(0x0000_0000_0000_a14f)),
-        Elem::<FanPaar64>::from_raw(0x3565_086d_6b9e_f595)
+        Elem::<FanPaar64Field>::from_raw(0xc84d_6191_1083_1cef)
+            .mul(Elem::<FanPaar64Field>::from_raw(0x0000_0000_0000_a14f)),
+        Elem::<FanPaar64Field>::from_raw(0x3565_086d_6b9e_f595)
     );
 }
 
@@ -1307,11 +1320,11 @@ fn fan_paar_arithmetic_round_trips() {
         };
     }
 
-    check!(FanPaar8, 0, 1, 0x2d, 0x53, u8::MAX);
-    check!(FanPaar16, 0, 1, 0xe2de, 0x1234, u16::MAX);
-    check!(FanPaar32, 0, 1, 0x03e2_1cea, 0xdead_beef, u32::MAX);
+    check!(FanPaar8Field, 0, 1, 0x2d, 0x53, u8::MAX);
+    check!(FanPaar16Field, 0, 1, 0xe2de, 0x1234, u16::MAX);
+    check!(FanPaar32Field, 0, 1, 0x03e2_1cea, 0xdead_beef, u32::MAX);
     check!(
-        FanPaar64,
+        FanPaar64Field,
         0,
         1,
         0x070f_870d_cd9c_1d88,
@@ -1322,56 +1335,56 @@ fn fan_paar_arithmetic_round_trips() {
 
 #[test]
 fn fan_paar_generators_have_full_order() {
-    let g8 = Elem::<FanPaar8>::GENERATOR;
+    let g8 = Elem::<FanPaar8Field>::GENERATOR;
     for factor in [3u128, 5, 17] {
-        assert_ne!(g8.pow(255 / factor), Elem::<FanPaar8>::ONE);
+        assert_ne!(g8.pow(255 / factor), Elem::<FanPaar8Field>::ONE);
     }
-    assert_eq!(g8.pow(255), Elem::<FanPaar8>::ONE);
+    assert_eq!(g8.pow(255), Elem::<FanPaar8Field>::ONE);
 
-    let g16 = Elem::<FanPaar16>::GENERATOR;
+    let g16 = Elem::<FanPaar16Field>::GENERATOR;
     for factor in [3u128, 5, 17, 257] {
-        assert_ne!(g16.pow(65_535 / factor), Elem::<FanPaar16>::ONE);
+        assert_ne!(g16.pow(65_535 / factor), Elem::<FanPaar16Field>::ONE);
     }
-    assert_eq!(g16.pow(65_535), Elem::<FanPaar16>::ONE);
+    assert_eq!(g16.pow(65_535), Elem::<FanPaar16Field>::ONE);
 
-    let g32 = Elem::<FanPaar32>::GENERATOR;
+    let g32 = Elem::<FanPaar32Field>::GENERATOR;
     let order32 = u32::MAX as u128;
     for factor in [3u128, 5, 17, 257, 65_537] {
-        assert_ne!(g32.pow(order32 / factor), Elem::<FanPaar32>::ONE);
+        assert_ne!(g32.pow(order32 / factor), Elem::<FanPaar32Field>::ONE);
     }
-    assert_eq!(g32.pow(order32), Elem::<FanPaar32>::ONE);
+    assert_eq!(g32.pow(order32), Elem::<FanPaar32Field>::ONE);
 
-    let g64 = Elem::<FanPaar64>::GENERATOR;
+    let g64 = Elem::<FanPaar64Field>::GENERATOR;
     for factor in [3u128, 5, 17, 257, 641, 65_537, 6_700_417] {
         assert_ne!(
             g64.pow(u128::from(u64::MAX) / factor),
-            Elem::<FanPaar64>::ONE
+            Elem::<FanPaar64Field>::ONE
         );
     }
-    assert_eq!(g64.pow(u128::from(u64::MAX)), Elem::<FanPaar64>::ONE);
+    assert_eq!(g64.pow(u128::from(u64::MAX)), Elem::<FanPaar64Field>::ONE);
 }
 
 #[test]
 fn fan_paar_subfield_encodings_are_nested() {
     for (a, b) in [(0x1bu8, 0xa8u8), (0x53, 0xca), (0xff, 0x42)] {
-        let product = Elem::<FanPaar8>::from_raw(a)
-            .mul(Elem::<FanPaar8>::from_raw(b))
+        let product = Elem::<FanPaar8Field>::from_raw(a)
+            .mul(Elem::<FanPaar8Field>::from_raw(b))
             .to_raw();
         assert_eq!(
-            Elem::<FanPaar16>::from_raw(u16::from(a))
-                .mul(Elem::<FanPaar16>::from_raw(u16::from(b)))
+            Elem::<FanPaar16Field>::from_raw(u16::from(a))
+                .mul(Elem::<FanPaar16Field>::from_raw(u16::from(b)))
                 .to_raw(),
             u16::from(product)
         );
         assert_eq!(
-            Elem::<FanPaar32>::from_raw(u32::from(a))
-                .mul(Elem::<FanPaar32>::from_raw(u32::from(b)))
+            Elem::<FanPaar32Field>::from_raw(u32::from(a))
+                .mul(Elem::<FanPaar32Field>::from_raw(u32::from(b)))
                 .to_raw(),
             u32::from(product)
         );
         assert_eq!(
-            Elem::<FanPaar64>::from_raw(u64::from(a))
-                .mul(Elem::<FanPaar64>::from_raw(u64::from(b)))
+            Elem::<FanPaar64Field>::from_raw(u64::from(a))
+                .mul(Elem::<FanPaar64Field>::from_raw(u64::from(b)))
                 .to_raw(),
             u64::from(product)
         );
@@ -1386,8 +1399,8 @@ fn fan_paar_subfield_encodings_are_nested() {
 fn byte_representation_round_trips() {
     for a in all_gf8_elems::<AES>() {
         let mut buffer = [0u8; 1];
-        Gf8::<Poly<AES>>::encode(&mut buffer, a);
-        assert_eq!(Gf8::<Poly<AES>>::decode(&buffer), a);
+        Binary::<8, Polynomial<AES>>::encode(&mut buffer, a);
+        assert_eq!(Binary::<8, Polynomial<AES>>::decode(&buffer), a);
     }
     for a in sample_gf16() {
         let mut buffer = [0u8; 2];
@@ -1428,20 +1441,27 @@ fn byte_representation_round_trips() {
             assert_eq!(buffer, value.to_bytes());
         }};
     }
-    check_fan_paar_repr!(FanPaar8, Elem::<FanPaar8>::from_raw(0xa5), 1);
-    check_fan_paar_repr!(FanPaar16, Elem::<FanPaar16>::from_raw(0xa55a), 2);
-    check_fan_paar_repr!(FanPaar32, Elem::<FanPaar32>::from_raw(0xa55a_1234), 4);
+    check_fan_paar_repr!(FanPaar8Field, Elem::<FanPaar8Field>::from_raw(0xa5), 1);
+    check_fan_paar_repr!(FanPaar16Field, Elem::<FanPaar16Field>::from_raw(0xa55a), 2);
     check_fan_paar_repr!(
-        FanPaar64,
-        Elem::<FanPaar64>::from_raw(0xa55a_1234_dead_beef),
+        FanPaar32Field,
+        Elem::<FanPaar32Field>::from_raw(0xa55a_1234),
+        4
+    );
+    check_fan_paar_repr!(
+        FanPaar64Field,
+        Elem::<FanPaar64Field>::from_raw(0xa55a_1234_dead_beef),
         8
     );
 }
 
 #[test]
 fn field_constants_are_consistent() {
-    assert_eq!(<Gf8<Poly<AES>> as FieldBuffer>::BYTES, 1);
-    assert_eq!(Gf8::<Poly<AES>>::ORDER, 1u128 << Gf8::<Poly<AES>>::DEGREE);
+    assert_eq!(<Binary<8, Polynomial<AES>> as FieldBuffer>::BYTES, 1);
+    assert_eq!(
+        Binary::<8, Polynomial<AES>>::ORDER,
+        1u128 << Binary::<8, Polynomial<AES>>::DEGREE
+    );
     assert_eq!(<Gf16 as FieldBuffer>::BYTES, 2);
     assert_eq!(Gf16::ORDER, 1u128 << Gf16::DEGREE);
     assert_eq!(<Gf32 as FieldBuffer>::BYTES, 4);
@@ -1458,8 +1478,8 @@ fn field_constants_are_consistent() {
     assert_eq!(Goldilocks::ORDER, 0xFFFF_FFFF_0000_0001);
     for (bytes, bits) in [
         (
-            <Gf8<Poly<AES>> as FieldBuffer>::BYTES,
-            <Gf8<Poly<AES>> as FieldBuffer>::STORAGE_BITS,
+            <Binary<8, Polynomial<AES>> as FieldBuffer>::BYTES,
+            <Binary<8, Polynomial<AES>> as FieldBuffer>::STORAGE_BITS,
         ),
         (
             <Gf16 as FieldBuffer>::BYTES,
@@ -1474,20 +1494,20 @@ fn field_constants_are_consistent() {
             <Gf64 as FieldBuffer>::STORAGE_BITS,
         ),
         (
-            <FanPaar8 as FieldBuffer>::BYTES,
-            <FanPaar8 as FieldBuffer>::STORAGE_BITS,
+            <FanPaar8Field as FieldBuffer>::BYTES,
+            <FanPaar8Field as FieldBuffer>::STORAGE_BITS,
         ),
         (
-            <FanPaar16 as FieldBuffer>::BYTES,
-            <FanPaar16 as FieldBuffer>::STORAGE_BITS,
+            <FanPaar16Field as FieldBuffer>::BYTES,
+            <FanPaar16Field as FieldBuffer>::STORAGE_BITS,
         ),
         (
-            <FanPaar32 as FieldBuffer>::BYTES,
-            <FanPaar32 as FieldBuffer>::STORAGE_BITS,
+            <FanPaar32Field as FieldBuffer>::BYTES,
+            <FanPaar32Field as FieldBuffer>::STORAGE_BITS,
         ),
         (
-            <FanPaar64 as FieldBuffer>::BYTES,
-            <FanPaar64 as FieldBuffer>::STORAGE_BITS,
+            <FanPaar64Field as FieldBuffer>::BYTES,
+            <FanPaar64Field as FieldBuffer>::STORAGE_BITS,
         ),
         (
             <Mersenne31 as FieldBuffer>::BYTES,
@@ -1534,15 +1554,15 @@ fn field_characteristic_is_not_derived_from_order() {
 
     // Binary towers: order is 2^m, characteristic is two.
     for c in [
-        characteristic::<Gf8<Poly<AES>>>(),
-        characteristic::<Gf8<Poly<REED_SOLOMON>>>(),
+        characteristic::<Binary<8, Polynomial<AES>>>(),
+        characteristic::<Binary<8, Polynomial<RS>>>(),
         characteristic::<Gf16>(),
         characteristic::<Gf32>(),
         characteristic::<Gf64>(),
-        characteristic::<FanPaar8>(),
-        characteristic::<FanPaar16>(),
-        characteristic::<FanPaar32>(),
-        characteristic::<FanPaar64>(),
+        characteristic::<FanPaar8Field>(),
+        characteristic::<FanPaar16Field>(),
+        characteristic::<FanPaar32Field>(),
+        characteristic::<FanPaar64Field>(),
     ] {
         assert_eq!(c, 2);
     }
@@ -1578,15 +1598,15 @@ fn field_characteristic_is_not_derived_from_order() {
         })+};
     }
     check_embedding!(
-        Gf8<Poly<AES>>,
-        Gf8<Poly<REED_SOLOMON>>,
+        Binary<8, Polynomial<AES>>,
+        Binary<8, Polynomial<RS>>,
         Gf16,
         Gf32,
         Gf64,
-        FanPaar8,
-        FanPaar16,
-        FanPaar32,
-        FanPaar64,
+        FanPaar8Field,
+        FanPaar16Field,
+        FanPaar32Field,
+        FanPaar64Field,
         Mersenne31,
         Goldilocks,
         QuadMersenne31
@@ -1652,6 +1672,15 @@ fn empty_product_of_ref<'a, E: fgf::field::FieldElem + Product<&'a E>>(_seed: &'
 }
 
 use std::iter::{Product, Sum};
+
+type Gf1 = fgf::Binary<1, fgf::Polynomial<3>>;
+type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
+type Gf32 = fgf::Binary<32, fgf::Tower<fgf::Rijndael32>>;
+type Gf64 = fgf::Binary<64, fgf::Tower<fgf::Rijndael64>>;
+type FanPaar8Field = fgf::Binary<8, fgf::Tower<fgf::FanPaar8>>;
+type FanPaar16Field = fgf::Binary<16, fgf::Tower<fgf::FanPaar16>>;
+type FanPaar32Field = fgf::Binary<32, fgf::Tower<fgf::FanPaar32>>;
+type FanPaar64Field = fgf::Binary<64, fgf::Tower<fgf::FanPaar64>>;
 
 /// Every `field::FieldElem`/`field::Field` surface reachable from generic code:
 /// the trait's arithmetic (including defaulted methods), the total
@@ -1732,17 +1761,17 @@ fn element_formatting_reports_insufficient_writer_capacity() {
         assert!(matches!(write!(writer, "{value}"), Err(fmt::Error)));
     }
 
-    check::<Elem<Gf<8, Poly<AES>>>>();
-    check::<Elem<Gf<8, Poly<REED_SOLOMON>>>>();
-    check::<Elem<Gf<8, Poly<0x12D>>>>();
-    check::<Elem<Gf<8, Poly<0x187>>>>();
+    check::<Elem<Binary<8, Polynomial<AES>>>>();
+    check::<Elem<Binary<8, Polynomial<RS>>>>();
+    check::<Elem<Binary<8, Polynomial<0x12D>>>>();
+    check::<Elem<Binary<8, Polynomial<0x187>>>>();
     check::<Elem<Gf16>>();
     check::<Elem<Gf32>>();
     check::<Elem<Gf64>>();
-    check::<Elem<FanPaar8>>();
-    check::<Elem<FanPaar16>>();
-    check::<Elem<FanPaar32>>();
-    check::<Elem<FanPaar64>>();
+    check::<Elem<FanPaar8Field>>();
+    check::<Elem<FanPaar16Field>>();
+    check::<Elem<FanPaar32Field>>();
+    check::<Elem<FanPaar64Field>>();
     check::<Elem<Mersenne31>>();
     check::<Elem<Goldilocks>>();
     check::<Elem<QuadMersenne31>>();
@@ -1814,7 +1843,7 @@ macro_rules! exercise_operators {
 fn gf8_trait_operator_and_formatting_surface() {
     fn surface<const POLY: u128>() {
         let samples: Vec<_> = all_gf8_elems::<POLY>().step_by(97).collect();
-        exercise_surface::<Gf8<Poly<POLY>>>(&samples);
+        exercise_surface::<Binary<8, Polynomial<POLY>>>(&samples);
         exercise_operators!(samples);
     }
     every_gf8_field!(surface);
@@ -1845,27 +1874,27 @@ fn gf64_trait_operator_and_formatting_surface() {
 fn fan_paar_trait_operator_and_formatting_surface() {
     let fp8: Vec<_> = (0..=u8::MAX)
         .step_by(97)
-        .map(Elem::<FanPaar8>::from_raw)
+        .map(Elem::<FanPaar8Field>::from_raw)
         .collect();
-    exercise_surface::<FanPaar8>(&fp8);
+    exercise_surface::<FanPaar8Field>(&fp8);
     exercise_operators!(fp8);
     let fp16: Vec<_> = [0, 1, 0x0100, 0xffff, 0xa55a, 0x1234]
         .into_iter()
-        .map(Elem::<FanPaar16>::from_raw)
+        .map(Elem::<FanPaar16Field>::from_raw)
         .collect();
-    exercise_surface::<FanPaar16>(&fp16);
+    exercise_surface::<FanPaar16Field>(&fp16);
     exercise_operators!(fp16);
     let fp32: Vec<_> = [0, 1, 0x10000, 0xffff_ffff, 0xa55a_1234]
         .into_iter()
-        .map(Elem::<FanPaar32>::from_raw)
+        .map(Elem::<FanPaar32Field>::from_raw)
         .collect();
-    exercise_surface::<FanPaar32>(&fp32);
+    exercise_surface::<FanPaar32Field>(&fp32);
     exercise_operators!(fp32);
     let fp64: Vec<_> = [0, 1, 1 << 32, u64::MAX, 0xa55a_1234_dead_beef]
         .into_iter()
-        .map(Elem::<FanPaar64>::from_raw)
+        .map(Elem::<FanPaar64Field>::from_raw)
         .collect();
-    exercise_surface::<FanPaar64>(&fp64);
+    exercise_surface::<FanPaar64Field>(&fp64);
     exercise_operators!(fp64);
 }
 
@@ -1894,8 +1923,11 @@ fn inherent_conversion_helpers_round_trip() {
     // GF(2^8) flat fields.
     fn gf8_conversions<const POLY: u128>() {
         for a in all_gf8_elems::<POLY>().step_by(53) {
-            assert_eq!(Elem::<Gf<8, Poly<POLY>>>::from_raw(a.to_raw()), a);
-            assert_eq!(Elem::<Gf<8, Poly<POLY>>>::from_bytes(a.to_bytes()), a);
+            assert_eq!(Elem::<Binary<8, Polynomial<POLY>>>::from_raw(a.to_raw()), a);
+            assert_eq!(
+                Elem::<Binary<8, Polynomial<POLY>>>::from_bytes(a.to_bytes()),
+                a
+            );
         }
     }
     every_gf8_field!(gf8_conversions);
@@ -1975,15 +2007,21 @@ fn inherent_conversion_helpers_round_trip() {
             assert_eq!(<$elem>::from_components(lo, hi), a);
         }};
     }
-    fp_level!(Elem<FanPaar16>, Elem::<FanPaar16>::from_raw(0xa55a));
-    fp_level!(Elem<FanPaar32>, Elem::<FanPaar32>::from_raw(0xa55a_1234));
     fp_level!(
-        Elem<FanPaar64>,
-        Elem::<FanPaar64>::from_raw(0xa55a_1234_dead_beef)
+        Elem<FanPaar16Field>,
+        Elem::<FanPaar16Field>::from_raw(0xa55a)
+    );
+    fp_level!(
+        Elem<FanPaar32Field>,
+        Elem::<FanPaar32Field>::from_raw(0xa55a_1234)
+    );
+    fp_level!(
+        Elem<FanPaar64Field>,
+        Elem::<FanPaar64Field>::from_raw(0xa55a_1234_dead_beef)
     );
     assert_eq!(
-        Elem::<FanPaar8>::from_raw(0xa5).mul_alpha(),
-        Elem::<FanPaar8>::from_raw(0xa5).mul(Elem::<FanPaar8>::from_raw(0x10))
+        Elem::<FanPaar8Field>::from_raw(0xa5).mul_alpha(),
+        Elem::<FanPaar8Field>::from_raw(0xa5).mul(Elem::<FanPaar8Field>::from_raw(0x10))
     );
 }
 
@@ -2315,15 +2353,15 @@ fn generic_from_raw_agrees_with_inherent_constructors() {
     }
 
     check_agreement!(
-        Gf8<Poly<AES>>: [0, 1, 0x53, 0xFF],
-        Gf8<Poly<REED_SOLOMON>>: [0, 1, 0x53, 0xFF],
+        Binary<8, Polynomial<AES>>: [0, 1, 0x53, 0xFF],
+        Binary<8, Polynomial<RS>>: [0, 1, 0x53, 0xFF],
         Gf16: [0, 1, 0x0108, 0xFFFF],
         Gf32: [0, 1, 0x0001_0002, u32::MAX],
         Gf64: [0, 1, 0x0000_0001_0000_0004, u64::MAX],
-        FanPaar8: [0, 1, 0x2D, 0xFF],
-        FanPaar16: [0, 1, 0xE2DE, 0xFFFF],
-        FanPaar32: [0, 1, 0x03E2_1CEA, u32::MAX],
-        FanPaar64: [0, 1, 0x070F_870D_CD9C_1D88, u64::MAX],
+        FanPaar8Field: [0, 1, 0x2D, 0xFF],
+        FanPaar16Field: [0, 1, 0xE2DE, 0xFFFF],
+        FanPaar32Field: [0, 1, 0x03E2_1CEA, u32::MAX],
+        FanPaar64Field: [0, 1, 0x070F_870D_CD9C_1D88, u64::MAX],
         Mersenne31: [0, 1, 0x7FFF_FFFE, 0x7FFF_FFFF, u32::MAX],
         Goldilocks: [0, 1, 0xFFFF_FFFF_FFFF_FFFE, u64::MAX],
         Gf1: [0, 1, 2, 0xFF]

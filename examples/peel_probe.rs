@@ -1,5 +1,5 @@
 //! Offset-sweep and overwrite-gather probe for the half-lane peel and
-//! gather-dispatch records in `benchmarks/gf8.md` and `benchmarks/gf16.md`.
+//! gather-dispatch records in `benchmarks/v3/gf8.md` and `benchmarks/v3/gf16.md`.
 //!
 //! ```sh
 //! taskset -c <core> cargo run --release --all-features --example peel_probe
@@ -15,9 +15,12 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use fgf::{Elem, FieldKernels, Gf, Gf8, Gf16, Poly, backend, ops};
+use fgf::{Binary, Elem, FieldKernels, Polynomial, backend, ops};
 
-use fgf::poly::{AES, REED_SOLOMON};
+use fgf::poly::{AES, RS};
+
+// Callers name their own fields; the canonical `Binary<N, R>` type is the API.
+type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
 
 fn noise(len: usize, seed: u64) -> Vec<u8> {
     let mut state = seed | 1;
@@ -143,10 +146,10 @@ fn gather_probe<F: FieldKernels>(name: &str, coeff: impl Fn(usize) -> Elem<F>) {
 fn main() {
     println!("peel/gather probe — backend: {}", backend().name());
     gf16_sweep();
-    gather_probe::<Gf8<Poly<REED_SOLOMON>>>("Gf8D", |i| {
-        Elem::<Gf<8, Poly<REED_SOLOMON>>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
+    gather_probe::<Binary<8, Polynomial<RS>>>("Gf8D", |i| {
+        Elem::<Binary<8, Polynomial<RS>>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
     });
-    gather_probe::<Gf8<Poly<AES>>>("Gf8B", |i| {
-        Elem::<Gf<8, Poly<AES>>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
+    gather_probe::<Binary<8, Polynomial<AES>>>("Gf8B", |i| {
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
     });
 }

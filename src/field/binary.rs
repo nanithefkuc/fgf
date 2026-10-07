@@ -1,6 +1,6 @@
 //! Binary fields by total degree and representation.
 //!
-//! [`Gf`] names GF(2^N) under the representation `R`, and [`Elem`]
+//! [`Binary`] names GF(2^N) under the representation `R`, and [`Elem`]
 //! over it is its element. [`BinaryRepr`] is the sealed vocabulary of
 //! representations: each fixes its descriptor and, at degree eight, its
 //! discrete-logarithm tables. [`BinaryField`] adds the canonical coordinate
@@ -32,7 +32,7 @@ pub use cantor::Cantor;
 pub use description::{BinaryDescription, ByteLogExp};
 pub use embedding::{Embedding, EmbeddingError};
 pub use normal::Normal;
-pub use poly::{AES, Poly, REED_SOLOMON};
+pub use poly::{AES, Polynomial, RS};
 
 use core::fmt;
 
@@ -60,63 +60,57 @@ pub trait BinaryRepr<const N: u8>: private::Sealed + 'static {
 }
 
 /// Marker for GF(2^N) under the representation `R`. Zero-sized.
-pub struct Gf<const N: u8, R: BinaryRepr<N>>(core::marker::PhantomData<fn() -> R>);
+pub struct Binary<const N: u8, R: BinaryRepr<N>>(core::marker::PhantomData<fn() -> R>);
 
-impl<const N: u8, R: BinaryRepr<N>> Clone for Gf<N, R> {
+impl<const N: u8, R: BinaryRepr<N>> Clone for Binary<N, R> {
     #[inline]
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<const N: u8, R: BinaryRepr<N>> Copy for Gf<N, R> {}
+impl<const N: u8, R: BinaryRepr<N>> Copy for Binary<N, R> {}
 
-impl<const N: u8, R: BinaryRepr<N>> fmt::Debug for Gf<N, R> {
+impl<const N: u8, R: BinaryRepr<N>> fmt::Debug for Binary<N, R> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(R::NAME)
     }
 }
 
-impl<const N: u8, R: BinaryRepr<N>> Default for Gf<N, R> {
+impl<const N: u8, R: BinaryRepr<N>> Default for Binary<N, R> {
     #[inline]
     fn default() -> Self {
         Self(core::marker::PhantomData)
     }
 }
 
-impl<const N: u8, R: BinaryRepr<N>> PartialEq for Gf<N, R> {
+impl<const N: u8, R: BinaryRepr<N>> PartialEq for Binary<N, R> {
     #[inline]
     fn eq(&self, _other: &Self) -> bool {
         true
     }
 }
 
-impl<const N: u8, R: BinaryRepr<N>> Eq for Gf<N, R> {}
+impl<const N: u8, R: BinaryRepr<N>> Eq for Binary<N, R> {}
 
-impl<const N: u8, R: BinaryRepr<N>> core::hash::Hash for Gf<N, R> {
+impl<const N: u8, R: BinaryRepr<N>> core::hash::Hash for Binary<N, R> {
     #[inline]
     fn hash<H: core::hash::Hasher>(&self, _state: &mut H) {}
 }
 
-impl<const N: u8, R: BinaryRepr<N>> PartialOrd for Gf<N, R> {
+impl<const N: u8, R: BinaryRepr<N>> PartialOrd for Binary<N, R> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<const N: u8, R: BinaryRepr<N>> Ord for Gf<N, R> {
+impl<const N: u8, R: BinaryRepr<N>> Ord for Binary<N, R> {
     #[inline]
     fn cmp(&self, _other: &Self) -> core::cmp::Ordering {
         core::cmp::Ordering::Equal
     }
 }
-
-/// The GF(2^8) field under any degree-eight representation `R`.
-pub type Gf8<R> = Gf<8, R>;
-
-/// Marker for GF(2): [`Gf<1, Poly<3>>`](Gf), the polynomial `x + 1`.
-pub type Gf1 = Gf<1, Poly<3>>;
 
 /// Rejected coordinate words carry this error.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,7 +145,7 @@ pub trait BinaryField:
     fn from_coordinates(value: u64) -> Result<Elem<Self>, CoordinateError>;
 }
 
-/// Implemented by `Gf<N, R>` at its exact supported degree.
+/// Implemented by `Binary<N, R>` at its exact supported degree.
 pub trait BinaryDegree<const N: u8>: BinaryField {}
 
 /// Whether a `u64` coordinate word fits in `bits` bits, without ever
@@ -166,8 +160,8 @@ const fn coordinates_fit(value: u64, bits: u32) -> bool {
 /// with the concrete raw word and coordinate mask of the row.
 macro_rules! degree_row {
     ($n:literal, $raw:ty, $mask:expr) => {
-        impl<R: BinaryRepr<$n>> $crate::field::binary::binary_private::Sealed for Gf<$n, R> {}
-        impl<R: BinaryRepr<$n>> Field for Gf<$n, R> {
+        impl<R: BinaryRepr<$n>> $crate::field::binary::binary_private::Sealed for Binary<$n, R> {}
+        impl<R: BinaryRepr<$n>> Field for Binary<$n, R> {
             type Raw = $raw;
             type Characteristic = PrimeCharacteristic<2>;
             const NAME: &'static str = R::NAME;
@@ -211,7 +205,7 @@ macro_rules! degree_row {
                 Elem::<Self>::from_raw(value).inv().to_raw()
             }
         }
-        impl<R: BinaryRepr<$n>> BinaryField for Gf<$n, R> {
+        impl<R: BinaryRepr<$n>> BinaryField for Binary<$n, R> {
             const DESCRIPTION: &'static BinaryDescription = R::DESCRIPTION;
 
             #[inline]
@@ -233,7 +227,7 @@ macro_rules! degree_row {
                 }
             }
         }
-        impl<R: BinaryRepr<$n>> BinaryDegree<$n> for Gf<$n, R> {}
+        impl<R: BinaryRepr<$n>> BinaryDegree<$n> for Binary<$n, R> {}
     };
 }
 
@@ -243,7 +237,7 @@ macro_rules! degree_row {
 /// degrees 1, 2, and 4 interpret the descriptor directly.
 macro_rules! small_row {
     ($n:literal, $mask:expr) => {
-        impl<R: BinaryRepr<$n>> Elem<Gf<$n, R>> {
+        impl<R: BinaryRepr<$n>> Elem<Binary<$n, R>> {
             /// Wrap a raw storage word, keeping the low `N` coordinate bits.
             ///
             /// Referencing this constructor evaluates the representation's
@@ -254,7 +248,7 @@ macro_rules! small_row {
             #[inline]
             #[must_use]
             pub const fn from_raw(value: u8) -> Self {
-                let () = Validate::<Gf<$n, R>>::OK;
+                let () = Validate::<Binary<$n, R>>::OK;
                 let () = R::VALID;
                 Elem { raw: value & $mask }
             }
@@ -419,7 +413,7 @@ macro_rules! wide_row {
         $rijndael:expr, $fanpaar:expr,
         $rmul:path, $rsquare:path, $rinv:path
     ) => {
-        impl<R: BinaryRepr<$n>> Elem<Gf<$n, R>> {
+        impl<R: BinaryRepr<$n>> Elem<Binary<$n, R>> {
             /// Wrap a raw storage word.
             ///
             /// Referencing this constructor evaluates the representation's
@@ -430,7 +424,7 @@ macro_rules! wide_row {
             #[inline]
             #[must_use]
             pub const fn from_raw(value: $raw) -> Self {
-                let () = Validate::<Gf<$n, R>>::OK;
+                let () = Validate::<Binary<$n, R>>::OK;
                 let () = R::VALID;
                 Elem { raw: value }
             }
@@ -589,7 +583,7 @@ macro_rules! wide_row {
             }
         }
 
-        impl<R: BinaryRepr<$n>> fmt::Display for Elem<Gf<$n, R>> {
+        impl<R: BinaryRepr<$n>> fmt::Display for Elem<Binary<$n, R>> {
             fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(formatter, "{:0width$x}", self.raw, width = $width)
             }
@@ -631,7 +625,7 @@ wide_row!(
     tower::rijndael64_inv
 );
 
-impl<R: BinaryRepr<8>> FieldBuffer for Gf<8, R> {
+impl<R: BinaryRepr<8>> FieldBuffer for Binary<8, R> {
     const BYTES: usize = 1;
     const STORAGE_BITS: u32 = 8;
 
@@ -650,25 +644,25 @@ impl<R: BinaryRepr<8>> FieldBuffer for Gf<8, R> {
     }
 }
 
-impl<R: BinaryRepr<8>> fmt::Display for Elem<Gf<8, R>> {
+impl<R: BinaryRepr<8>> fmt::Display for Elem<Binary<8, R>> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{:02x}", self.raw)
     }
 }
 
-impl<R: BinaryRepr<1>> fmt::Display for Elem<Gf<1, R>> {
+impl<R: BinaryRepr<1>> fmt::Display for Elem<Binary<1, R>> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{}", self.raw)
     }
 }
 
-impl<R: BinaryRepr<2>> fmt::Display for Elem<Gf<2, R>> {
+impl<R: BinaryRepr<2>> fmt::Display for Elem<Binary<2, R>> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{:01x}", self.raw)
     }
 }
 
-impl<R: BinaryRepr<4>> fmt::Display for Elem<Gf<4, R>> {
+impl<R: BinaryRepr<4>> fmt::Display for Elem<Binary<4, R>> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{:01x}", self.raw)
     }
