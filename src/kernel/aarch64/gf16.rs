@@ -589,8 +589,8 @@ unsafe fn matrix_group<const N: usize, E>(
 {
     let len = span & !15;
 
-    for block in terms.chunks(TERM_BLOCK) {
-        let block_start = terms.len() - block.len();
+    for (block_index, block) in terms.chunks(TERM_BLOCK).enumerate() {
+        let block_start = block_index * TERM_BLOCK;
         let mut cache = [[empty_factors(); N]; TERM_BLOCK];
         let mut modes = [[Mode::Skip; N]; TERM_BLOCK];
         for t in 0..block.len() {

@@ -806,10 +806,7 @@ pub mod gf16 {
                     | Backend::NeonAes
                     | Backend::Neon
                     | Backend::Wasm128
-            ) && cfg!(all(
-                feature = "simd",
-                any(target_arch = "x86", target_arch = "x86_64")
-            ))
+            )
         }
     }
 

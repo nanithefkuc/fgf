@@ -3716,7 +3716,10 @@ fn backend_reports_match_family_routes() {
     // elementwise (the vector formulas fold the relation's linear term,
     // which the Rijndael relation pins to the base identity).
     assert_eq!(backend_for::<Gf16>(), process);
-    assert_eq!(has_vector_elementwise::<Gf16>(), x86_tier);
+    assert_eq!(
+        has_vector_elementwise::<Gf16>(),
+        x86_tier || matches!(process, Backend::NeonAes | Backend::Neon | Backend::Wasm128),
+    );
     assert_eq!(
         backend_for::<Gf32>(),
         if gfni { process } else { Backend::Scalar },

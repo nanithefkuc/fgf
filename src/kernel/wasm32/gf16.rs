@@ -715,8 +715,8 @@ where
     let mut lanes: [&mut [[u8; 16]]; 4] = [l0, l1, l2, l3];
     let mut tails: [&mut [u8]; 4] = [t0, t1, t2, t3];
 
-    for block in terms.chunks(TERM_BLOCK) {
-        let block_start = terms.len() - block.len();
+    for (block_index, block) in terms.chunks(TERM_BLOCK).enumerate() {
+        let block_start = block_index * TERM_BLOCK;
         let mut plans = [[Scaling::of(&TowerTables::zero()); 4]; TERM_BLOCK];
         for (t, slots) in plans.iter_mut().enumerate().take(block.len()) {
             for (row, slot) in slots.iter_mut().enumerate() {
