@@ -6,7 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-## [3.0.0] - 2026-10-07
+### Added
+
+- Wiki source guides cover the generic type model, field presentations,
+  embeddings, custom towers and scalar fields, packed workflows, preparation,
+  prime and bit-packed arithmetic, deployment, and migration from 2.x.
+  `wiki/Home.md` and the sidebar organize the reader paths.
+
+## [3.0.0-rc.1] - 2026-10-07
 
 ### Added
 
