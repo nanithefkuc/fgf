@@ -6278,7 +6278,14 @@ mod aarch64 {
             aarch64::gf8::mul_elementwise_neon(token, dst, a, b)
         });
         check_gf16_elementwise("gf16 neon elementwise", |dst, a, b| {
-            aarch64::gf16::mul_elementwise_neon(token, dst, a, b)
+            aarch64::gf16::mul_elementwise_neon(
+                token,
+                dst,
+                a,
+                b,
+                crate::kernel::tables::RIJNDAEL16_B,
+                <Polynomial<AES> as crate::kernel::tables::ByteBanks>::REDUCTION_LOW,
+            );
         });
     }
 
