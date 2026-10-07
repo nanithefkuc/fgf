@@ -8,12 +8,8 @@
 //! geometry contract; the row-group bodies keep the offset-addressed-row
 //! residue in [`archmage::rite`] helpers.
 
-use super::{
-    Affine8D, Blocked, Gfni, bfactor_gfni, bfactor_half_gfni, bmul_gfni, bmul_half_gfni, brem_gfni,
-};
-use crate::field::gf8b::Elem;
-use crate::field::gf8d;
-use crate::kernel::gf8::mul_add_nibble;
+use super::{bfactor_gfni, bfactor_half_gfni, bmul_gfni, bmul_half_gfni, brem_gfni};
+use crate::kernel::gf8::{Coeffs, Prepared, mul_add_nibble};
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
@@ -32,72 +28,47 @@ use core::arch::x86_64::*;
 /// of `row_len` bytes.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_scatter_gfni(
+pub fn mul_add_scatter_gfni<const NATIVE: bool>(
     _token: archmage::X64V3GfniCryptoToken,
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[Elem],
+    coeffs: &(impl Coeffs + ?Sized),
     src: &[u8],
 ) {
     assert_eq!(row_len, src.len());
     assert!(
         coeffs
-            .len()
+            .count()
             .checked_mul(row_len)
             .is_some_and(|needed| needed <= rows.len()),
         "mul_add_scatter_gfni: rows buffer does not hold {} rows of {row_len} bytes",
-        coeffs.len()
+        coeffs.count()
     );
-    mul_add_scatter_impl::<Gfni>(rows, row_len, coeffs, src);
-}
-
-/// [`mul_add_scatter_gfni`] under `0x11D`: one source into many rows, folding each in
-/// with its `VGF2P8AFFINEQB` map instead of `GF2P8MULB`.
-///
-/// # Panics
-/// As [`mul_add_scatter_gfni`].
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_add_scatter_gfni_8d(
-    _token: archmage::X64V3GfniCryptoToken,
-    rows: &mut [u8],
-    row_len: usize,
-    coeffs: &[gf8d::Elem],
-    src: &[u8],
-) {
-    assert_eq!(row_len, src.len());
-    assert!(
-        coeffs
-            .len()
-            .checked_mul(row_len)
-            .is_some_and(|needed| needed <= rows.len()),
-        "mul_add_scatter_gfni_8d: rows buffer does not hold {} rows of {row_len} bytes",
-        coeffs.len()
-    );
-    mul_add_scatter_impl::<Affine8D>(rows, row_len, coeffs, src);
+    mul_add_scatter_impl::<NATIVE>(rows, row_len, coeffs, src);
 }
 
 /// Stage the surviving rows into four-row groups and run the group bodies.
 ///
 /// Row staging addresses disjoint windows of one region at runtime offsets —
 /// zero coefficients leave gaps, so the rows are not adjacent — which is the
-/// residue this body keeps. Both entries assert `coeffs.len() * row_len <=
+/// residue this body keeps. The entry asserts `coeffs.len() * row_len <=
 /// rows.len()` and `row_len == src.len()` before dispatch.
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
-fn mul_add_scatter_impl<S: Blocked>(
+fn mul_add_scatter_impl<const NATIVE: bool>(
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[S::Coeff],
+    coeffs: &(impl Coeffs + ?Sized),
     src: &[u8],
 ) {
     let base = rows.as_mut_ptr();
     let mut ptrs = [base; 4];
-    let mut group = [S::zero(); 4];
+    let mut group = [Prepared::zero(); 4];
     let mut filled = 0;
 
-    for (j, &coeff) in coeffs.iter().enumerate() {
-        if S::byte(coeff) == 0 {
+    for j in 0..coeffs.count() {
+        let coeff = coeffs.resolved(j);
+        if coeff.is_zero() {
             // `row ^= 0 * src` is the identity: skip the row entirely rather
             // than stream it through the multiplier to add zero.
             continue;
@@ -119,7 +90,7 @@ fn mul_add_scatter_impl<S: Blocked>(
         if filled == 4 {
             // Four in-bounds, pairwise disjoint rows of `src.len()` bytes;
             // every nonzero coefficient is exact under the multiply.
-            scatter_rows4::<S>(ptrs, group, src);
+            scatter_rows4::<NATIVE>(ptrs, group, src);
             filled = 0;
         }
     }
@@ -127,7 +98,7 @@ fn mul_add_scatter_impl<S: Blocked>(
     // 3 left over is a pair plus a single; 2 a pair; 1 a single.
     if filled >= 2 {
         // As above, for the first two staged rows.
-        scatter_rows2::<S>([ptrs[0], ptrs[1]], [group[0], group[1]], src);
+        scatter_rows2::<NATIVE>([ptrs[0], ptrs[1]], [group[0], group[1]], src);
     }
     if filled == 1 || filled == 3 {
         let last = filled - 1;
@@ -142,7 +113,7 @@ fn mul_add_scatter_impl<S: Blocked>(
         //        are disjoint.
         // THUS: the mutable borrow conflicts with no live row window.
         let row = unsafe { core::slice::from_raw_parts_mut(ptrs[last], src.len()) };
-        brem_gfni::<S>(row, group[last], src);
+        brem_gfni::<NATIVE>(row, group[last], src);
     }
 }
 
@@ -152,21 +123,21 @@ fn mul_add_scatter_impl<S: Blocked>(
 /// and bounded by [`mul_add_scatter_impl`].
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
-fn scatter_rows4<S: Blocked>(ptrs: [*mut u8; 4], coeffs: [S::Coeff; 4], src: &[u8]) {
+fn scatter_rows4<const NATIVE: bool>(ptrs: [*mut u8; 4], coeffs: [Prepared; 4], src: &[u8]) {
     let len = src.len();
     // A half-lane row pitch alternates two destination alignments. Group
     // rows of the same phase so each pair can peel without misaligning its
     // neighbour; the source is still shared within each pair.
     if (512..2048).contains(&len) && len % 32 == 16 && (ptrs[0] as usize).is_multiple_of(16) {
-        scatter_rows2::<S>([ptrs[0], ptrs[2]], [coeffs[0], coeffs[2]], src);
-        scatter_rows2::<S>([ptrs[1], ptrs[3]], [coeffs[1], coeffs[3]], src);
+        scatter_rows2::<NATIVE>([ptrs[0], ptrs[2]], [coeffs[0], coeffs[2]], src);
+        scatter_rows2::<NATIVE>([ptrs[1], ptrs[3]], [coeffs[1], coeffs[3]], src);
         return;
     }
     let factors = [
-        bfactor_gfni::<S>(coeffs[0]),
-        bfactor_gfni::<S>(coeffs[1]),
-        bfactor_gfni::<S>(coeffs[2]),
-        bfactor_gfni::<S>(coeffs[3]),
+        bfactor_gfni::<NATIVE>(coeffs[0]),
+        bfactor_gfni::<NATIVE>(coeffs[1]),
+        bfactor_gfni::<NATIVE>(coeffs[2]),
+        bfactor_gfni::<NATIVE>(coeffs[3]),
     ];
     let src_ptr = src.as_ptr();
 
@@ -180,7 +151,7 @@ fn scatter_rows4<S: Blocked>(ptrs: [*mut u8; 4], coeffs: [S::Coeff; 4], src: &[u
     // `head <= len`, the length shared by `src` and every row, so `0..head`
     // is a sub-range of each; the four rows are distinct and in-bounds, and
     // no slice into them is live here.
-    scatter_span::<S>(ptrs.iter().zip(&coeffs), 0, head, src);
+    scatter_span::<NATIVE>(ptrs.iter().zip(&coeffs), 0, head, src);
     let mut offset = head;
 
     // One 128-byte source window feeds all four rows, and each row runs four
@@ -207,10 +178,10 @@ fn scatter_rows4<S: Blocked>(ptrs: [*mut u8; 4], coeffs: [S::Coeff; 4], src: &[u
                 let d1 = _mm256_loadu_si256(rp.add(32).cast());
                 let d2 = _mm256_loadu_si256(rp.add(64).cast());
                 let d3 = _mm256_loadu_si256(rp.add(96).cast());
-                let r0 = _mm256_xor_si256(d0, bmul_gfni::<S>(x0, factor));
-                let r1 = _mm256_xor_si256(d1, bmul_gfni::<S>(x1, factor));
-                let r2 = _mm256_xor_si256(d2, bmul_gfni::<S>(x2, factor));
-                let r3 = _mm256_xor_si256(d3, bmul_gfni::<S>(x3, factor));
+                let r0 = _mm256_xor_si256(d0, bmul_gfni::<NATIVE>(x0, factor));
+                let r1 = _mm256_xor_si256(d1, bmul_gfni::<NATIVE>(x1, factor));
+                let r2 = _mm256_xor_si256(d2, bmul_gfni::<NATIVE>(x2, factor));
+                let r3 = _mm256_xor_si256(d3, bmul_gfni::<NATIVE>(x3, factor));
                 _mm256_storeu_si256(rp.cast(), r0);
                 _mm256_storeu_si256(rp.add(32).cast(), r1);
                 _mm256_storeu_si256(rp.add(64).cast(), r2);
@@ -234,7 +205,10 @@ fn scatter_rows4<S: Blocked>(ptrs: [*mut u8; 4], coeffs: [S::Coeff; 4], src: &[u
             for (&row, &factor) in ptrs.iter().zip(&factors) {
                 let rp = row.add(offset);
                 let d = _mm256_loadu_si256(rp.cast());
-                _mm256_storeu_si256(rp.cast(), _mm256_xor_si256(d, bmul_gfni::<S>(x, factor)));
+                _mm256_storeu_si256(
+                    rp.cast(),
+                    _mm256_xor_si256(d, bmul_gfni::<NATIVE>(x, factor)),
+                );
             }
         }
         offset += 32;
@@ -242,7 +216,7 @@ fn scatter_rows4<S: Blocked>(ptrs: [*mut u8; 4], coeffs: [S::Coeff; 4], src: &[u
 
     // The four rows are distinct, in-bounds, and `src.len()` bytes long; no
     // slice into them is live here.
-    scatter_span::<S>(ptrs.iter().zip(&coeffs), offset, len, src);
+    scatter_span::<NATIVE>(ptrs.iter().zip(&coeffs), offset, len, src);
 }
 
 /// `rows[i] ^= coeffs[i] * src` for two disjoint rows of `src.len()` bytes.
@@ -250,8 +224,11 @@ fn scatter_rows4<S: Blocked>(ptrs: [*mut u8; 4], coeffs: [S::Coeff; 4], src: &[u
 /// Residue: as [`scatter_rows4`].
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
-fn scatter_rows2<S: Blocked>(ptrs: [*mut u8; 2], coeffs: [S::Coeff; 2], src: &[u8]) {
-    let factors = [bfactor_gfni::<S>(coeffs[0]), bfactor_gfni::<S>(coeffs[1])];
+fn scatter_rows2<const NATIVE: bool>(ptrs: [*mut u8; 2], coeffs: [Prepared; 2], src: &[u8]) {
+    let factors = [
+        bfactor_gfni::<NATIVE>(coeffs[0]),
+        bfactor_gfni::<NATIVE>(coeffs[1]),
+    ];
     let len = src.len();
     let src_ptr = src.as_ptr();
 
@@ -265,7 +242,7 @@ fn scatter_rows2<S: Blocked>(ptrs: [*mut u8; 2], coeffs: [S::Coeff; 2], src: &[u
     // `head <= len`, the length shared by `src` and both rows, so `0..head`
     // is a sub-range of each; the rows are distinct, in-bounds, and no slice
     // into them is live here.
-    scatter_span::<S>(ptrs.iter().zip(&coeffs), 0, head, src);
+    scatter_span::<NATIVE>(ptrs.iter().zip(&coeffs), 0, head, src);
     let mut offset = head;
 
     // With only two rows the 128-byte window leaves room for eight chains.
@@ -291,10 +268,10 @@ fn scatter_rows2<S: Blocked>(ptrs: [*mut u8; 2], coeffs: [S::Coeff; 2], src: &[u
                 let d1 = _mm256_loadu_si256(rp.add(32).cast());
                 let d2 = _mm256_loadu_si256(rp.add(64).cast());
                 let d3 = _mm256_loadu_si256(rp.add(96).cast());
-                let r0 = _mm256_xor_si256(d0, bmul_gfni::<S>(x0, factor));
-                let r1 = _mm256_xor_si256(d1, bmul_gfni::<S>(x1, factor));
-                let r2 = _mm256_xor_si256(d2, bmul_gfni::<S>(x2, factor));
-                let r3 = _mm256_xor_si256(d3, bmul_gfni::<S>(x3, factor));
+                let r0 = _mm256_xor_si256(d0, bmul_gfni::<NATIVE>(x0, factor));
+                let r1 = _mm256_xor_si256(d1, bmul_gfni::<NATIVE>(x1, factor));
+                let r2 = _mm256_xor_si256(d2, bmul_gfni::<NATIVE>(x2, factor));
+                let r3 = _mm256_xor_si256(d3, bmul_gfni::<NATIVE>(x3, factor));
                 _mm256_storeu_si256(rp.cast(), r0);
                 _mm256_storeu_si256(rp.add(32).cast(), r1);
                 _mm256_storeu_si256(rp.add(64).cast(), r2);
@@ -318,7 +295,10 @@ fn scatter_rows2<S: Blocked>(ptrs: [*mut u8; 2], coeffs: [S::Coeff; 2], src: &[u
             for (&row, &factor) in ptrs.iter().zip(&factors) {
                 let rp = row.add(offset);
                 let d = _mm256_loadu_si256(rp.cast());
-                _mm256_storeu_si256(rp.cast(), _mm256_xor_si256(d, bmul_gfni::<S>(x, factor)));
+                _mm256_storeu_si256(
+                    rp.cast(),
+                    _mm256_xor_si256(d, bmul_gfni::<NATIVE>(x, factor)),
+                );
             }
         }
         offset += 32;
@@ -326,7 +306,7 @@ fn scatter_rows2<S: Blocked>(ptrs: [*mut u8; 2], coeffs: [S::Coeff; 2], src: &[u
 
     // The two rows are distinct, in-bounds, and `src.len()` bytes long; no
     // slice into them is live here.
-    scatter_span::<S>(ptrs.iter().zip(&coeffs), offset, len, src);
+    scatter_span::<NATIVE>(ptrs.iter().zip(&coeffs), offset, len, src);
 }
 
 /// Narrow SIMD span shared by the scatter row groups.
@@ -338,20 +318,18 @@ fn scatter_rows2<S: Blocked>(ptrs: [*mut u8; 2], coeffs: [S::Coeff; 2], src: &[u
 /// bounded by the caller; `start..end` lies within `0..=src.len()`.
 #[allow(unsafe_code)]
 #[archmage::rite(v3_gfni_crypto)]
-fn scatter_span<'a, S: Blocked>(
-    rows: impl Iterator<Item = (&'a *mut u8, &'a S::Coeff)>,
+fn scatter_span<'a, const NATIVE: bool>(
+    rows: impl Iterator<Item = (&'a *mut u8, &'a Prepared)>,
     start: usize,
     end: usize,
     src: &[u8],
-) where
-    S::Coeff: 'a,
-{
+) {
     if start >= end {
         return;
     }
     let vector_end = start + ((end - start) & !15);
     for (&row, &coeff) in rows {
-        let factor = bfactor_half_gfni::<S>(coeff);
+        let factor = bfactor_half_gfni::<NATIVE>(coeff);
         let mut offset = start;
         while offset < vector_end {
             // SAFETY:
@@ -364,7 +342,10 @@ fn scatter_span<'a, S: Blocked>(
                 let x = _mm_loadu_si128(src.as_ptr().add(offset).cast());
                 let ptr = row.add(offset);
                 let d = _mm_loadu_si128(ptr.cast());
-                _mm_storeu_si128(ptr.cast(), _mm_xor_si128(d, bmul_half_gfni::<S>(x, factor)));
+                _mm_storeu_si128(
+                    ptr.cast(),
+                    _mm_xor_si128(d, bmul_half_gfni::<NATIVE>(x, factor)),
+                );
             }
             offset += 16;
         }
@@ -381,7 +362,7 @@ fn scatter_span<'a, S: Blocked>(
             // THUS: the borrow conflicts with no live row window.
             let dst =
                 unsafe { core::slice::from_raw_parts_mut(row.add(vector_end), end - vector_end) };
-            mul_add_nibble(dst, S::table(coeff), &src[vector_end..end]);
+            mul_add_nibble(dst, coeff.table, &src[vector_end..end]);
         }
     }
 }

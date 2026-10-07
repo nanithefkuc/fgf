@@ -14,12 +14,11 @@
 //!
 //! - **GFNI** does each byte multiply with `GF2P8MULB` and gets the two
 //!   alternating coefficients straight out of
-//!   [`TowerCoeff`] — one `vpbroadcastw`
+//!   [`TowerCoeff`](crate::kernel::tables::TowerCoeff) — one `vpbroadcastw`
 //!   each, no table at all.
 //! - **AVX2 / SSSE3** have no field multiply, so each of the four base-field
 //!   factors becomes a split-nibble `PSHUFB` pair against
-//!   [`TowerTables`]; the even and odd
-//!   byte lanes are then selected with a `0x00ff` halfword mask.
+//!   [`TowerTables`](crate::kernel::tables::TowerTables); the even and odd
 //!
 //! Multi-row wiring differs by backend. SSSE3 blocks gather and matrix;
 //! GFNI also blocks both, while AVX2 uses repeated AXPY for those shapes.
@@ -76,9 +75,7 @@ pub use ssse3::{
 pub(crate) use avx2::{NibbleAvx2, nibble_avx2, scale_avx2};
 pub(crate) use ssse3::{nibble_ssse3, scale_ssse3};
 
-use crate::field::gf16::Elem;
-use crate::kernel::gf16::Prepared;
-use crate::kernel::tables::{TowerCoeff, TowerTables};
+use crate::kernel::tables::TowerCoeff;
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
@@ -92,41 +89,6 @@ fn check_elements(name: &str, bytes: usize) {
         bytes.is_multiple_of(2),
         "{name}: buffer of {bytes} bytes ends with a partial GF(2^16) element",
     );
-}
-
-/// A GF(2^16) coefficient in a form the shuffle kernels can consume.
-pub trait TableCoefficient {
-    /// The raw coefficient element.
-    fn coefficient(&self) -> Elem;
-    /// Borrow the four nibble tables, building them on the fly if needed.
-    fn with_tables<R>(&self, consume: impl FnOnce(&TowerTables) -> R) -> R;
-}
-
-impl TableCoefficient for Elem {
-    #[inline]
-    fn coefficient(&self) -> Elem {
-        *self
-    }
-
-    #[inline]
-    fn with_tables<R>(&self, consume: impl FnOnce(&TowerTables) -> R) -> R {
-        consume(&TowerTables::new(*self))
-    }
-}
-
-impl TableCoefficient for Prepared {
-    #[inline]
-    fn coefficient(&self) -> Elem {
-        self.coeff()
-    }
-
-    #[inline]
-    fn with_tables<R>(&self, consume: impl FnOnce(&TowerTables) -> R) -> R {
-        match self {
-            Prepared::Tables(tables) => consume(tables),
-            other => consume(&TowerTables::new(other.coeff())),
-        }
-    }
 }
 
 /// `PSHUFB` control that exchanges the two bytes of every element.

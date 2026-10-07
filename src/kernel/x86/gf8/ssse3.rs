@@ -12,10 +12,9 @@
 //! [`archmage::rite`] helpers with per-block proofs.
 
 use super::check_gather;
-use crate::field::gf8b::Elem;
 use crate::kernel::Matrix;
-use crate::kernel::gf8::{mul_add_nibble, mul_assign_nibble, mul_into_nibble};
-use crate::kernel::tables::{ScaleTable, scale_table};
+use crate::kernel::gf8::{Coeffs, Prepared, mul_add_nibble, mul_assign_nibble, mul_into_nibble};
+use crate::kernel::tables::ScaleTable;
 
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
@@ -144,17 +143,17 @@ pub fn mul_add_scatter_ssse3(
     _token: archmage::X64V2Token,
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[Elem],
+    coeffs: &(impl Coeffs + ?Sized),
     src: &[u8],
 ) {
     assert_eq!(row_len, src.len());
     assert!(
         coeffs
-            .len()
+            .count()
             .checked_mul(row_len)
             .is_some_and(|needed| needed <= rows.len()),
         "mul_add_scatter_ssse3: rows buffer does not hold {} rows of {row_len} bytes",
-        coeffs.len()
+        coeffs.count()
     );
     if row_len == 0 {
         return;
@@ -162,12 +161,12 @@ pub fn mul_add_scatter_ssse3(
     let vector_len = row_len & !15;
     let base = rows.as_mut_ptr();
     let mask = _mm_set1_epi8(0x0f);
-    for group in (0..coeffs.len()).step_by(4) {
-        let count = (coeffs.len() - group).min(4);
+    for group in (0..coeffs.count()).step_by(4) {
+        let count = (coeffs.count() - group).min(4);
         let mut lo = [_mm_setzero_si128(); 4];
         let mut hi = [_mm_setzero_si128(); 4];
         for slot in 0..count {
-            let table = scale_table(coeffs[group + slot]);
+            let table = coeffs.table(group + slot);
             // Each table half is exactly one 16-byte lookup bank.
             lo[slot] = _mm_loadu_si128(&table.lo);
             hi[slot] = _mm_loadu_si128(&table.hi);
@@ -209,7 +208,7 @@ pub fn mul_add_scatter_ssse3(
             // SAFETY:
             // MEMORY VALIDITY
             // SINCE: `vector_len <= row_len` and the row spans
-            //        `coeffs.len() * row_len <= rows.len()` bytes overall, so
+            //        `coeffs.count() * row_len <= rows.len()` bytes overall, so
             //        `row_len - vector_len` bytes remain in this row.
             // THUS: the tail slice lies wholly within its originating row.
             //
@@ -223,32 +222,9 @@ pub fn mul_add_scatter_ssse3(
                     row_len - vector_len,
                 )
             };
-            mul_add_nibble(tail, scale_table(coeffs[group + slot]), src_tail);
+            mul_add_nibble(tail, coeffs.table(group + slot), src_tail);
         }
     }
-}
-
-/// Many sources into many rows using SSSE3 nibble shuffles.
-///
-/// # Panics
-/// As [`mul_add_matrix_avx2`](super::mul_add_matrix_avx2).
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_ssse3(
-    _token: archmage::X64V2Token,
-    rows: &mut [u8],
-    row_len: usize,
-    nrows: usize,
-    terms: &[(&[Elem], &[u8])],
-) {
-    for (t, (coeffs, _)) in terms.iter().enumerate() {
-        assert_eq!(
-            coeffs.len(),
-            nrows,
-            "mul_add_matrix_ssse3: term {t} needs {nrows} coefficients"
-        );
-    }
-    mul_add_matrix_ssse3_with(_token, rows, row_len, nrows, terms);
 }
 
 /// Many sources into many rows, SSSE3 backend, over a generic matrix source.
@@ -258,7 +234,7 @@ pub fn mul_add_matrix_ssse3(
 #[allow(clippy::used_underscore_binding)]
 #[allow(unsafe_code)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_ssse3_with<M: Matrix<Elem> + ?Sized>(
+pub fn mul_add_matrix_ssse3_with<M: Matrix<Prepared> + ?Sized>(
     _token: archmage::X64V2Token,
     rows: &mut [u8],
     row_len: usize,
@@ -314,7 +290,7 @@ pub fn mul_add_matrix_ssse3_with<M: Matrix<Elem> + ?Sized>(
                 let x =
                     unsafe { core::arch::x86_64::_mm_loadu_si128(src.as_ptr().add(offset).cast()) };
                 for (slot, value) in acc.iter_mut().take(count).enumerate() {
-                    let table = scale_table(*terms.coefficient(term, group + slot));
+                    let table = terms.coefficient(term, group + slot).table;
                     // Each table half is exactly one 16-byte lookup bank.
                     let lo = _mm_loadu_si128(&table.lo);
                     let hi = _mm_loadu_si128(&table.hi);
@@ -364,7 +340,7 @@ pub fn mul_add_matrix_ssse3_with<M: Matrix<Elem> + ?Sized>(
             };
             for term in 0..terms.len() {
                 let src = terms.source(term);
-                let table = scale_table(*terms.coefficient(term, group + slot));
+                let table = terms.coefficient(term, group + slot).table;
                 mul_add_nibble(tail, table, &src[vector_len..]);
             }
         }
@@ -381,18 +357,18 @@ pub fn mul_add_matrix_ssse3_with<M: Matrix<Elem> + ?Sized>(
 pub fn mul_add_gather_ssse3(
     token: archmage::X64V2Token,
     dst: &mut [u8],
-    coeffs: &[Elem],
+    coeffs: &(impl Coeffs + ?Sized),
     srcs: &[&[u8]],
 ) {
-    check_gather("mul_add_gather_ssse3", dst, coeffs.len(), srcs);
+    check_gather("mul_add_gather_ssse3", dst, coeffs.count(), srcs);
     let len = dst.len() & !63;
     let mask = _mm_set1_epi8(0x0f);
-    for group in (0..coeffs.len()).step_by(4) {
-        let count = (coeffs.len() - group).min(4);
+    for group in (0..coeffs.count()).step_by(4) {
+        let count = (coeffs.count() - group).min(4);
         let mut lo = [_mm_setzero_si128(); 4];
         let mut hi = [_mm_setzero_si128(); 4];
         for slot in 0..count {
-            let table = scale_table(coeffs[group + slot]);
+            let table = coeffs.table(group + slot);
             // Each table half is exactly one 16-byte lookup bank.
             lo[slot] = _mm_loadu_si128(&table.lo);
             hi[slot] = _mm_loadu_si128(&table.hi);
@@ -427,18 +403,17 @@ pub fn mul_add_gather_ssse3(
             mul_add_ssse3(
                 token,
                 rest,
-                scale_table(coeffs[group + slot]),
+                coeffs.table(group + slot),
                 &srcs[group + slot][len..],
             );
         }
     }
 }
 
-/// Reference GF(2^8) product under reduction-polynomial low byte `RED`, for
-/// the sub-lane elementwise tail. Field-agnostic: `RED` is `0x1b` for the AES
-/// field and `0x1d` for the Reed–Solomon field.
+/// Reference GF(2^8) product under the reduction byte `reduction`, for the
+/// sub-lane elementwise tail.
 #[inline]
-pub(super) fn gf_mul_ref<const RED: u8>(mut a: u8, mut b: u8) -> u8 {
+pub(super) fn gf_mul_ref(mut a: u8, mut b: u8, reduction: u8) -> u8 {
     let mut product = 0u8;
     for _ in 0..8 {
         if b & 1 != 0 {
@@ -447,7 +422,7 @@ pub(super) fn gf_mul_ref<const RED: u8>(mut a: u8, mut b: u8) -> u8 {
         let carry = a & 0x80 != 0;
         a <<= 1;
         if carry {
-            a ^= RED;
+            a ^= reduction;
         }
         b >>= 1;
     }
@@ -456,10 +431,10 @@ pub(super) fn gf_mul_ref<const RED: u8>(mut a: u8, mut b: u8) -> u8 {
 
 /// The 16-byte form of [`multiply_vectors_avx2`](super::multiply_vectors_avx2).
 #[archmage::rite(v2)]
-pub fn multiply_vectors_ssse3<const RED: u8>(mut a: __m128i, mut b: __m128i) -> __m128i {
+pub fn multiply_vectors_ssse3(mut a: __m128i, mut b: __m128i, reduction: u8) -> __m128i {
     let zero = _mm_setzero_si128();
     let one = _mm_set1_epi8(1);
-    let reduction = _mm_set1_epi8(RED.cast_signed());
+    let reduction = _mm_set1_epi8(reduction.cast_signed());
     let low7 = _mm_set1_epi8(0x7f);
     let mut product = zero;
     for round in 0..8 {
@@ -481,8 +456,9 @@ pub fn multiply_vectors_ssse3<const RED: u8>(mut a: __m128i, mut b: __m128i) -> 
 /// Panics unless all three buffers match in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_ssse3<const RED: u8>(
+pub fn mul_elementwise_ssse3(
     _token: archmage::X64V2Token,
+    reduction: u8,
     dst: &mut [u8],
     a: &[u8],
     b: &[u8],
@@ -503,10 +479,10 @@ pub fn mul_elementwise_ssse3<const RED: u8>(
     for ((dlane, alane), blane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
         let x = _mm_loadu_si128(alane);
         let y = _mm_loadu_si128(blane);
-        _mm_storeu_si128(dlane, multiply_vectors_ssse3::<RED>(x, y));
+        _mm_storeu_si128(dlane, multiply_vectors_ssse3(x, y, reduction));
     }
     for ((d, &x), &y) in dst_rest.iter_mut().zip(a_rest).zip(b_rest) {
-        *d = gf_mul_ref::<RED>(x, y);
+        *d = gf_mul_ref(x, y, reduction);
     }
 }
 
@@ -516,8 +492,9 @@ pub fn mul_elementwise_ssse3<const RED: u8>(
 /// Panics if the slices differ in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_elementwise_assign_ssse3<const RED: u8>(
+pub fn mul_elementwise_assign_ssse3(
     _token: archmage::X64V2Token,
+    reduction: u8,
     dst: &mut [u8],
     src: &[u8],
 ) {
@@ -531,9 +508,9 @@ pub fn mul_elementwise_assign_ssse3<const RED: u8>(
     for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
         let x = _mm_loadu_si128(&*dlane);
         let y = _mm_loadu_si128(slane);
-        _mm_storeu_si128(dlane, multiply_vectors_ssse3::<RED>(x, y));
+        _mm_storeu_si128(dlane, multiply_vectors_ssse3(x, y, reduction));
     }
     for (d, &s) in dst_rest.iter_mut().zip(src_rest) {
-        *d = gf_mul_ref::<RED>(*d, s);
+        *d = gf_mul_ref(*d, s, reduction);
     }
 }

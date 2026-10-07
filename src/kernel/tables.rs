@@ -11,22 +11,55 @@
 //!   adjacent-swapped self. No table at all, which is what makes the GFNI and
 //!   `PMULL` paths cheap.
 //!
-//! The GF(2^8) table bank is shared and built once; all 256 coefficients cost
-//! 8 KiB and stay resident in L1/L2. GF(2^16) has 65536 coefficients, so a
+//! Each GF(2^8) polynomial carries one nibble bank and one affine bank, built
+//! at compile time from that field's scalar multiply and promoted to rodata
+//! once per polynomial a program uses; all 256 coefficients cost 8 KiB plus
+//! 2 KiB and stay resident in L1/L2. [`ByteBanks`] exposes a
+//! representation's banks, AES nativity, AES isomorphism, and reduction byte
+//! to the dispatch layer, which resolves coefficients once and hands the
+//! kernels plain values. GF(2^16) has 65536 coefficients, so a
 //! full bank would be ~9 MiB and thrash cache. A GF(2^16) coefficient is
 //! instead resolved per call into its four base-field factors (two base
 //! multiplies, [`TowerCoeff::new`]) and, on shuffle backends, four table
 //! copies out of the shared bank ([`TowerTables::new`]) — amortized over the
 //! whole buffer, or hoisted out entirely with `Coeff`/`CoeffVec`.
 
-use crate::field::fan_paar::{fp8, fp16};
-use crate::field::{gf8b, gf8d, gf16};
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+use crate::field::binary::tower::FanPaar8;
+use crate::field::binary::tower::{FanPaar16, Rijndael16, Tower, TowerSpec};
+use crate::field::binary::{AES, Binary, BinaryDegree, BinaryRepr, Polynomial};
+use crate::field::{Cantor, Elem, Normal};
+
+/// Reference shift-and-XOR multiply under the degree-eight polynomial `poly`.
+///
+/// `const`, allocation-free, and independent of every table: the oracle the
+/// banks below are built from.
+const fn xtime_mul(poly: u128, mut a: u8, b: u8) -> u8 {
+    let reduction = (poly & 0xFF) as u8;
+    let mut acc: u8 = 0;
+    let mut i = 0;
+    while i < 8 {
+        if (b >> i) & 1 == 1 {
+            acc ^= a;
+        }
+        let overflow = a & 0x80 != 0;
+        a <<= 1;
+        if overflow {
+            a ^= reduction;
+        }
+        i += 1;
+    }
+    acc
+}
 
 /// Split-nibble multiplication tables for one GF(2^8) coefficient.
+///
+/// The shuffle kernels read only `lo` and `hi`, so one type serves every
+/// polynomial; the polynomial decides which bank an entry comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScaleTable {
-    /// The coefficient these tables multiply by.
-    pub coeff: gf8b::Elem,
+    /// The raw coefficient byte these tables multiply by.
+    pub coeff: u8,
     /// `lo[i] = coeff * i` for the low nibble.
     pub lo: [u8; 16],
     /// `hi[i] = coeff * (i << 4)` for the high nibble.
@@ -39,135 +72,36 @@ impl ScaleTable {
     // Loop counters are bounded by the array sizes (16, 256), so every cast
     // below is exact; `const fn` rules out `try_into`.
     #[allow(clippy::cast_possible_truncation)]
-    pub const fn new(coeff: gf8b::Elem) -> Self {
+    pub const fn new<const POLY: u128>(coeff: Elem<Binary<8, Polynomial<POLY>>>) -> Self {
         let mut lo = [0u8; 16];
         let mut hi = [0u8; 16];
         let mut i = 0;
         while i < 16 {
-            lo[i] = gf8b::Elem(i as u8).mul(coeff).0;
-            hi[i] = gf8b::Elem((i as u8) << 4).mul(coeff).0;
+            lo[i] = xtime_mul(POLY, i as u8, coeff.to_raw());
+            hi[i] = xtime_mul(POLY, (i as u8) << 4, coeff.to_raw());
             i += 1;
         }
-        Self { coeff, lo, hi }
-    }
-}
-
-/// Shared table bank, one entry per GF(2^8) coefficient.
-///
-/// A `static` rather than a `const`: a `const` array would be materialized
-/// onto the stack at every use site instead of being borrowed from rodata.
-static SCALE_TABLE_BANK: [ScaleTable; 256] = build_bank();
-
-#[allow(clippy::cast_possible_truncation)]
-const fn build_bank() -> [ScaleTable; 256] {
-    let mut bank = [ScaleTable::new(gf8b::Elem(0)); 256];
-    let mut i = 0;
-    while i < 256 {
-        bank[i] = ScaleTable::new(gf8b::Elem(i as u8));
-        i += 1;
-    }
-    bank
-}
-
-/// Return the shared nibble tables for a GF(2^8) coefficient.
-#[inline]
-#[must_use]
-pub fn scale_table(coeff: gf8b::Elem) -> &'static ScaleTable {
-    &SCALE_TABLE_BANK[coeff.0 as usize]
-}
-
-/// GF(2^8)/`0x11D` nibble-table bank, one entry per coefficient.
-///
-/// Same layout and 8 KiB budget as the AES [`SCALE_TABLE_BANK`]; only the
-/// products differ. Because the shuffle kernels read nothing but `lo`/`hi`,
-/// one implementation serves both byte fields — this bank just carries the
-/// `0x11D` products.
-static SCALE_TABLE_BANK_8D: [ScaleTable; 256] = build_bank_8d();
-
-#[allow(clippy::cast_possible_truncation)]
-const fn build_bank_8d() -> [ScaleTable; 256] {
-    let mut bank = [ScaleTable {
-        coeff: gf8b::Elem(0),
-        lo: [0; 16],
-        hi: [0; 16],
-    }; 256];
-    let mut i = 0;
-    while i < 256 {
-        let c = gf8d::Elem(i as u8);
-        let mut lo = [0u8; 16];
-        let mut hi = [0u8; 16];
-        let mut j = 0;
-        while j < 16 {
-            lo[j] = gf8d::Elem(j as u8).mul(c).0;
-            hi[j] = gf8d::Elem((j as u8) << 4).mul(c).0;
-            j += 1;
-        }
-        // `coeff` stores the coefficient byte; its AES-typed wrapper is inert
-        // storage the field-agnostic shuffle kernels never read.
-        bank[i] = ScaleTable {
-            coeff: gf8b::Elem(i as u8),
+        Self {
+            coeff: coeff.to_raw(),
             lo,
             hi,
-        };
-        i += 1;
-    }
-    bank
-}
-
-/// Return the shared `0x11D` nibble tables for a coefficient.
-#[inline]
-#[must_use]
-pub fn scale_table_8d(coeff: gf8d::Elem) -> &'static ScaleTable {
-    &SCALE_TABLE_BANK_8D[coeff.0 as usize]
-}
-
-/// Experimental GF(2^8)/`0x11B` affine-map bank, one
-/// `VGF2P8AFFINEQB` matrix qword per coefficient.
-///
-/// This uses the same instruction convention as [`affine_8d`], but derives
-/// each column from [`gf8b::Elem::mul`]. The bank supports experimental
-/// affine kernels; dispatched `Gf8B` kernels continue to use native
-/// `GF2P8MULB`.
-#[allow(dead_code)]
-static AFFINE_BANK_8B: [u64; 256] = build_affine_bank_8b();
-
-#[allow(clippy::cast_possible_truncation)]
-#[allow(dead_code)]
-const fn build_affine_bank_8b() -> [u64; 256] {
-    let mut bank = [0u64; 256];
-    let mut i = 0;
-    while i < 256 {
-        let c = gf8b::Elem(i as u8);
-        let mut map = 0u64;
-        let mut r = 0u8;
-        while r < 8 {
-            let mut row = 0u8;
-            let mut k = 0u8;
-            while k < 8 {
-                let column = c.mul(gf8b::Elem(1 << k)).0;
-                row |= ((column >> (7 - r)) & 1) << k;
-                k += 1;
-            }
-            map |= (row as u64) << (8 * r);
-            r += 1;
         }
-        bank[i] = map;
-        i += 1;
     }
-    bank
+
+    #[cfg(all(feature = "simd", any(target_arch = "aarch64", target_arch = "wasm32")))]
+    /// The zero coefficient's tables: every entry is zero.
+    #[inline]
+    #[must_use]
+    pub const fn zeroed() -> Self {
+        Self {
+            coeff: 0,
+            lo: [0; 16],
+            hi: [0; 16],
+        }
+    }
 }
 
-/// Return the experimental `VGF2P8AFFINEQB` matrix qword that multiplies by
-/// `coeff` under `0x11B`.
-#[inline]
-#[must_use]
-#[allow(dead_code)]
-pub fn affine_8b(coeff: gf8b::Elem) -> u64 {
-    AFFINE_BANK_8B[coeff.0 as usize]
-}
-
-/// GF(2^8)/`0x11D` affine-map bank, one `VGF2P8AFFINEQB` matrix qword per
-/// coefficient.
+/// Build the `VGF2P8AFFINEQB` matrix qword that multiplies by `coeff`.
 ///
 /// Multiplication by a fixed coefficient in any GF(2^8) is an 8×8 GF(2)
 /// linear map, and `VGF2P8AFFINEQB` applies an arbitrary such map per byte
@@ -175,59 +109,418 @@ pub fn affine_8b(coeff: gf8b::Elem) -> u64 {
 /// instruction computes `dst.bit[b] = parity(map.byte[7 - b] & x)` per lane,
 /// so the qword for coefficient `c` stores the product map transposed and
 /// row-reversed: byte `r`, bit `k` is bit `7 - r` of the column `c * x^k`.
-/// Every entry derives from the crate's own [`gf8d::Elem::mul`] oracle —
-/// never from another library's tables — and the derivation is validated
-/// exhaustively: the bank against a scalar model of the instruction in this
-/// module's tests, the hardware kernels against the scalar oracle over all
-/// 65 536 products in `kernel::tests`.
+/// Every entry derives from the field's own reference multiply — never from
+/// another library's tables — and is validated against a scalar model of
+/// the instruction in this module's tests.
+#[must_use]
+pub const fn build_affine_map<const POLY: u128>(coeff: Elem<Binary<8, Polynomial<POLY>>>) -> u64 {
+    let mut columns = [0u8; 8];
+    let mut k = 0;
+    while k < 8 {
+        columns[k] = xtime_mul(POLY, coeff.to_raw(), 1 << k);
+        k += 1;
+    }
+    linear_map(columns)
+}
+
+/// The `VGF2P8AFFINEQB` matrix qword of the GF(2)-linear byte map whose
+/// image of `x^k` is `columns[k]`.
+const fn linear_map(columns: [u8; 8]) -> u64 {
+    let mut map = 0u64;
+    // Row `r` of the instruction's matrix carries, across bits `k`, bit
+    // `7 - r` of every column.
+    let mut r = 0;
+    while r < 8 {
+        let mut row = 0u8;
+        let mut k = 0;
+        while k < 8 {
+            row |= ((columns[k] >> (7 - r)) & 1) << k;
+            k += 1;
+        }
+        map |= (row as u64) << (8 * r);
+        r += 1;
+    }
+    map
+}
+
+/// The per-representation table banks, one entry per coefficient.
+struct Bank<const POLY: u128>;
+
+impl<const POLY: u128> Bank<POLY> {
+    /// The nibble tables of every coefficient, 8 KiB.
+    ///
+    /// Promoted `&'static` items rather than `const` arrays: a `const` array
+    /// would be materialized onto the stack at every use site instead of
+    /// being borrowed from rodata.
+    const SCALE: &'static [ScaleTable; 256] = &build_bank::<POLY>();
+
+    /// The `VGF2P8AFFINEQB` matrix of every coefficient, 2 KiB.
+    const AFFINE: &'static [u64; 256] = &build_affine_bank::<POLY>();
+}
+
+/// The polynomial nibble-bank facet of a byte representation: constants and
+/// `&'static` data, never per-call computation.
 ///
-/// 2 KiB of rodata. Only the `Gf8D` GFNI kernels read the maps, but
-/// `Gf8D::prepare` fills them on every target.
-static AFFINE_BANK_8D: [u64; 256] = build_affine_bank_8d();
+/// The GF(2^16) tower tables resolve their factors through this facet once
+/// per coefficient and hand the architecture kernels plain values, so no
+/// hot kernel body depends on the representation type. Only [`Polynomial`]
+/// carries it: basis presentations and towers never touch these banks —
+/// their bulk operations run the typed scalar fallback, so polynomial
+/// tables must not observe their coordinates.
+pub(crate) trait ByteBanks: BinaryRepr<8> {
+    /// The nibble tables of every coefficient, in this representation's
+    /// encoding.
+    const SCALE: &'static [ScaleTable; 256];
+    /// The reduction byte the shift-and-reduce elementwise kernels consume:
+    /// the low byte of the reference polynomial.
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
+    const REDUCTION_LOW: u8;
+}
+
+/// The AES nibble bank, shared by the GF(2^16) elementwise dispatch arms.
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+pub(crate) const AES_BANK: &[ScaleTable; 256] = Bank::<AES>::SCALE;
+
+/// The Rijndael16 relation's constant byte, `t^2 + t + 0x20`.
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "x86",
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "wasm32"
+    )
+))]
+pub(crate) const RIJNDAEL16_B: u8 = 0x20;
+
+impl<const POLY: u128> ByteBanks for Polynomial<POLY> {
+    const SCALE: &'static [ScaleTable; 256] = Bank::<POLY>::SCALE;
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
+    const REDUCTION_LOW: u8 = (POLY & 0xFF) as u8;
+}
 
 #[allow(clippy::cast_possible_truncation)]
-const fn build_affine_bank_8d() -> [u64; 256] {
-    let mut bank = [0u64; 256];
+const fn build_bank<const POLY: u128>() -> [ScaleTable; 256] {
+    let mut bank = [ScaleTable::new::<POLY>(Elem::<Binary<8, Polynomial<POLY>>>::ZERO); 256];
     let mut i = 0;
     while i < 256 {
-        let c = gf8d::Elem(i as u8);
-        let mut map = 0u64;
-        // Row `r` of the instruction's matrix carries, across bits `k`, bit
-        // `7 - r` of every column `c * x^k` of the multiplication map.
-        let mut r = 0u8;
-        while r < 8 {
-            let mut row = 0u8;
-            let mut k = 0u8;
-            while k < 8 {
-                let column = c.mul(gf8d::Elem(1 << k)).0;
-                row |= ((column >> (7 - r)) & 1) << k;
-                k += 1;
-            }
-            map |= (row as u64) << (8 * r);
-            r += 1;
-        }
-        bank[i] = map;
+        bank[i] = ScaleTable::new::<POLY>(Elem::<Binary<8, Polynomial<POLY>>>::from_raw(i as u8));
         i += 1;
     }
     bank
 }
 
-/// Return the `VGF2P8AFFINEQB` matrix qword that multiplies by `coeff` under
-/// `0x11D`.
+#[allow(clippy::cast_possible_truncation)]
+const fn build_affine_bank<const POLY: u128>() -> [u64; 256] {
+    let mut bank = [0u64; 256];
+    let mut i = 0;
+    while i < 256 {
+        bank[i] = build_affine_map::<POLY>(Elem::<Binary<8, Polynomial<POLY>>>::from_raw(i as u8));
+        i += 1;
+    }
+    bank
+}
+
+/// The zero coefficient's nibble tables: an all-zero bank entry.
+///
+/// The zero prepared form's placeholder table; zero coefficients are skipped
+/// before any table is read, so its contents matter only in that multiplying
+/// by it yields zero.
+#[allow(dead_code)]
+pub(crate) static ZERO_TABLE: ScaleTable = ScaleTable {
+    coeff: 0,
+    lo: [0; 16],
+    hi: [0; 16],
+};
+
+/// Return the shared nibble tables for a GF(2^8) coefficient, from its
+/// polynomial's bank.
+#[allow(dead_code)]
 #[inline]
 #[must_use]
-pub fn affine_8d(coeff: gf8d::Elem) -> u64 {
-    AFFINE_BANK_8D[coeff.0 as usize]
+pub fn scale_table<const POLY: u128>(
+    coeff: Elem<Binary<8, Polynomial<POLY>>>,
+) -> &'static ScaleTable {
+    &Bank::<POLY>::SCALE[coeff.to_raw() as usize]
+}
+
+/// Return the `VGF2P8AFFINEQB` matrix qword that multiplies by `coeff`, from
+/// its polynomial's bank.
+#[allow(dead_code)]
+#[inline]
+#[must_use]
+pub fn affine_map<const POLY: u128>(coeff: Elem<Binary<8, Polynomial<POLY>>>) -> u64 {
+    Bank::<POLY>::AFFINE[coeff.to_raw() as usize]
+}
+
+/// What the single degree-eight dispatch needs from every representation.
+///
+/// Polynomial presentations expose their real banks; basis presentations
+/// expose placeholder banks the fallback never reads. Dispatch branches on
+/// the descriptor first, so no kernel applies polynomial tables to basis
+/// coordinates.
+pub(crate) trait Gf8Data: BinaryRepr<8> {
+    /// Whether `GF2P8MULB` multiplies in this encoding natively.
+    const AES_NATIVE: bool;
+    /// Nibble tables per coefficient, or placeholders for basis roots.
+    const SCALE: &'static [ScaleTable; 256];
+    /// Affine map words per coefficient, or placeholders for basis roots.
+    const AFFINE: &'static [u64; 256];
+    /// Isomorphism onto AES, or the identity for basis roots.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const ISOMORPHISM: Isomorphism;
+    /// Reduction byte for shift/reduce tails, or zero for basis roots.
+    ///
+    /// Consumed only by the x86 elementwise kernels; other targets keep the
+    /// contract without reading it.
+    #[allow(dead_code)]
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
+    const REDUCTION_LOW: u8;
+}
+
+const DUMMY_AFFINE: [u64; 256] = [0u64; 256];
+
+/// Placeholder nibble banks for basis presentations: each entry carries its
+/// own coefficient byte with zero maps, so preparation stays reversible and
+/// the scalar fallback recovers the element without touching a table.
+pub(crate) static DUMMY_SCALE: [ScaleTable; 256] = {
+    let mut bank = [ScaleTable {
+        coeff: 0,
+        lo: [0; 16],
+        hi: [0; 16],
+    }; 256];
+    let mut i = 0;
+    while i < 256 {
+        // The counter never exceeds one byte here.
+        #[allow(clippy::cast_possible_truncation)]
+        let byte = i as u8;
+        bank[i].coeff = byte;
+        i += 1;
+    }
+    bank
+};
+
+impl<const POLY: u128> Gf8Data for Polynomial<POLY> {
+    const AES_NATIVE: bool = POLY == AES;
+    const SCALE: &'static [ScaleTable; 256] = Bank::<POLY>::SCALE;
+    const AFFINE: &'static [u64; 256] = Bank::<POLY>::AFFINE;
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const ISOMORPHISM: Isomorphism = isomorphism::<POLY>();
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
+    const REDUCTION_LOW: u8 = Polynomial::<POLY>::REDUCTION_LOW;
+}
+
+impl<const P: u128, const E: u8> Gf8Data for Normal<P, E> {
+    const AES_NATIVE: bool = false;
+    const SCALE: &'static [ScaleTable; 256] = &DUMMY_SCALE;
+    const AFFINE: &'static [u64; 256] = &DUMMY_AFFINE;
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const ISOMORPHISM: Isomorphism = Isomorphism {
+        forward: 0x0102_0408_1020_4080,
+        inverse: 0x0102_0408_1020_4080,
+    };
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
+    const REDUCTION_LOW: u8 = 0;
+}
+
+impl<S: TowerSpec> Gf8Data for Tower<S>
+where
+    S::Base: BinaryDegree<4>,
+{
+    const AES_NATIVE: bool = false;
+    const SCALE: &'static [ScaleTable; 256] = &DUMMY_SCALE;
+    const AFFINE: &'static [u64; 256] = &DUMMY_AFFINE;
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const ISOMORPHISM: Isomorphism = Isomorphism {
+        forward: 0x0102_0408_1020_4080,
+        inverse: 0x0102_0408_1020_4080,
+    };
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
+    const REDUCTION_LOW: u8 = 0;
+}
+
+impl<const P: u128, const SEED: u8> Gf8Data for Cantor<P, SEED> {
+    const AES_NATIVE: bool = false;
+    const SCALE: &'static [ScaleTable; 256] = &DUMMY_SCALE;
+    const AFFINE: &'static [u64; 256] = &DUMMY_AFFINE;
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const ISOMORPHISM: Isomorphism = Isomorphism {
+        forward: 0x0102_0408_1020_4080,
+        inverse: 0x0102_0408_1020_4080,
+    };
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
+    const REDUCTION_LOW: u8 = 0;
+}
+
+/// A field isomorphism `φ: Binary<8, Polynomial<POLY>> → Binary<8, Polynomial<AES>>` and its inverse,
+/// as `VGF2P8AFFINEQB` matrix qwords.
+///
+/// Conjugating `GF2P8MULB` by it multiplies two varying vectors under any
+/// polynomial: `a · b = φ⁻¹(GF2P8MULB(φa, φb))`. Under [`AES`] both maps are
+/// the identity.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Isomorphism {
+    /// `φ`, into the AES field.
+    pub forward: u64,
+    /// `φ⁻¹`, back from the AES field.
+    pub inverse: u64,
+}
+
+/// Return the isomorphism between `Binary<8, Polynomial<POLY>>` and `Binary<8, Polynomial<AES>>`.
+#[allow(dead_code)]
+#[inline]
+#[must_use]
+pub const fn isomorphism_to_aes<const POLY: u128>() -> Isomorphism {
+    isomorphism::<POLY>()
+}
+
+/// Derive the isomorphism onto the AES field.
+///
+/// `φ(x) = r` for the smallest `r` in GF(2^8)/`0x11B` that is a root of
+/// `POLY`; the images of the powers of `x` are the powers of `r`.
+/// The inverse columns are the preimages of the AES polynomial basis under
+/// that selected map; a separately chosen root need not give its inverse.
+#[allow(dead_code)]
+const fn isomorphism<const POLY: u128>() -> Isomorphism {
+    let to_aes = root_powers::<AES>(POLY);
+    let from_aes = inverse_columns(to_aes);
+    Isomorphism {
+        forward: linear_map(to_aes),
+        inverse: linear_map(from_aes),
+    }
+}
+
+/// Invert a bijective byte-linear map by finding each basis vector's preimage.
+#[allow(dead_code)]
+const fn inverse_columns(columns: [u8; 8]) -> [u8; 8] {
+    let mut inverse = [0u8; 8];
+    let mut basis = 0;
+    while basis < 8 {
+        let mut candidate = 0u16;
+        loop {
+            assert!(candidate < 256, "a field isomorphism is bijective");
+            let value = candidate.to_le_bytes()[0];
+            let mut image = 0u8;
+            let mut bit = 0;
+            while bit < 8 {
+                if (value >> bit) & 1 != 0 {
+                    image ^= columns[bit];
+                }
+                bit += 1;
+            }
+            if image == 1 << basis {
+                inverse[basis] = value;
+                break;
+            }
+            candidate += 1;
+        }
+        basis += 1;
+    }
+    inverse
+}
+
+/// The powers `r^0..r^7` of the smallest root `r` of `poly` in
+/// `Binary<8, Polynomial<FIELD>>`.
+#[allow(dead_code)]
+#[allow(clippy::cast_possible_truncation)]
+const fn root_powers<const FIELD: u128>(poly: u128) -> [u8; 8] {
+    let mut candidate = 2u32;
+    while candidate < 256 {
+        let r = candidate.to_le_bytes()[0];
+        // Horner evaluation of `poly` at `r`.
+        let mut value = 0u8;
+        let mut bit = 8;
+        loop {
+            value = xtime_mul(FIELD, value, r);
+            if (poly >> bit) & 1 == 1 {
+                value ^= 1;
+            }
+            if bit == 0 {
+                break;
+            }
+            bit -= 1;
+        }
+        if value == 0 {
+            let mut powers = [0u8; 8];
+            let mut power = 1u8;
+            let mut k = 0;
+            while k < 8 {
+                powers[k] = power;
+                power = xtime_mul(FIELD, power, r);
+                k += 1;
+            }
+            return powers;
+        }
+        candidate += 1;
+    }
+    panic!("an irreducible degree-8 polynomial splits in every GF(2^8)")
 }
 
 /// Broadcast factors that express one GF(2^16) tower multiply as two
 /// byte-wide GF(2^8) multiplies.
 ///
-/// Interleaved source bytes are `[a, b]` meaning `a + b*u`. Multiplying by
-/// `c0 + c1*u` gives
+/// Interleaved source bytes are `[a, b]` meaning `a + b*t`. Multiplying by
+/// `c0 + c1*t` under the relation `t^2 + A*t + B = 0` gives
 ///
 /// ```text
-/// (c0*a + DELTA*c1*b) + (c1*a + (c0 + c1)*b) * u.
+/// (c0*a + B*c1*b) + (c1*a + (c0 + A*c1)*b) * t.
 /// ```
 ///
 /// The first term of each component multiplies the source in place; the
@@ -235,83 +528,160 @@ pub fn affine_8d(coeff: gf8d::Elem) -> u64 {
 /// alternating-coefficient byte multiply of `src` by [`TowerCoeff::same`],
 /// `XORed` with the same of `swap16(src)` by [`TowerCoeff::cross`], produces
 /// both components with no planar de-interleave.
+///
+/// The broadcasts are raw data: no representation or spec type reaches the
+/// kernels that consume them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TowerCoeff {
-    /// The GF(2^16) coefficient.
-    pub coeff: gf16::Elem,
-    /// Little-endian `[c0, c0 + c1]`, applied to the source directly.
+    /// The raw coefficient word.
+    pub coeff: u16,
+    /// Little-endian `[c0, c0 + A*c1]`, applied to the source directly.
     pub same: u16,
-    /// Little-endian `[DELTA*c1, c1]`, applied to the byte-swapped source.
+    /// Little-endian `[B*c1, c1]`, applied to the byte-swapped source.
     pub cross: u16,
 }
 
 impl TowerCoeff {
-    /// Derive the broadcast factors for `coeff`. Two base multiplies.
+    /// Derive the broadcast factors for a Rijndael16 coefficient. Two base
+    /// multiplies; the unit linear coefficient folds into the XOR.
     #[inline]
     #[must_use]
-    pub const fn new(coeff: gf16::Elem) -> Self {
+    pub const fn new(coeff: Elem<Binary<16, Tower<Rijndael16>>>) -> Self {
+        #[allow(clippy::cast_possible_truncation)]
+        let con =
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(Rijndael16::CONSTANT_COEFFICIENT as u8);
         let (c0, c1) = coeff.to_components();
-        let same = u16::from_le_bytes([c0.0, c0.add(c1).0]);
-        let cross = u16::from_le_bytes([gf16::DELTA.mul(c1).0, c1.0]);
-        Self { coeff, same, cross }
-    }
-
-    /// The four base-field coefficients in `[same.0, same.1, cross.0,
-    /// cross.1]` order, i.e. `[c0, c0+c1, DELTA*c1, c1]`.
-    #[inline]
-    #[must_use]
-    pub const fn factors(self) -> [gf8b::Elem; 4] {
-        let [s0, s1] = self.same.to_le_bytes();
-        let [x0, x1] = self.cross.to_le_bytes();
-        [
-            gf8b::Elem(s0),
-            gf8b::Elem(s1),
-            gf8b::Elem(x0),
-            gf8b::Elem(x1),
-        ]
+        let same_high = c0.add(c1);
+        let same = u16::from_le_bytes([c0.to_raw(), same_high.to_raw()]);
+        let cross = u16::from_le_bytes([con.mul(c1).to_raw(), c1.to_raw()]);
+        Self {
+            coeff: coeff.to_raw(),
+            same,
+            cross,
+        }
     }
 }
 
 /// Nibble tables for the four base-field factors of a GF(2^16) coefficient.
 ///
-/// Used by the shuffle backends (AVX2, SSSE3, NEON), which have no byte-wide
-/// field multiply instruction and must emulate one per factor.
+/// Used by the shuffle backends (AVX2, SSSE3, NEON, Wasm), which have no
+/// byte-wide field multiply instruction and must emulate one per factor, and
+/// by every scalar tail. The tables come from the base representation's
+/// bank, so the payload is raw data: no representation or spec type reaches
+/// the kernels that consume it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TowerTables {
-    /// The GF(2^16) coefficient.
-    pub coeff: gf16::Elem,
-    /// Tables for `[c0, c0+c1, DELTA*c1, c1]`. Entries 0 and 1 apply to the
+    /// The raw coefficient word.
+    pub coeff: u16,
+    /// Tables for `[c0, c0 + A*c1, B*c1, c1]`. Entries 0 and 1 apply to the
     /// source's even and odd byte lanes; entries 2 and 3 apply to the
     /// adjacent-swapped source's even and odd lanes.
     pub factors: [ScaleTable; 4],
 }
 
 impl TowerTables {
-    /// Build the four nibble tables for `coeff`.
+    /// Build the four nibble tables for a Rijndael16 coefficient from the
+    /// AES bank.
     #[inline]
     #[must_use]
-    pub fn new(coeff: gf16::Elem) -> Self {
-        let f = TowerCoeff::new(coeff).factors();
+    pub fn new(coeff: Elem<Binary<16, Tower<Rijndael16>>>) -> Self {
+        let compact = TowerCoeff::new(coeff);
+        let [f0, f1, f2, f3] = compact.factor_bytes();
+        let bank = <Polynomial<AES> as ByteBanks>::SCALE;
         Self {
-            coeff,
+            coeff: compact.coeff,
             factors: [
-                *scale_table(f[0]),
-                *scale_table(f[1]),
-                *scale_table(f[2]),
-                *scale_table(f[3]),
+                bank[f0 as usize],
+                bank[f1 as usize],
+                bank[f2 as usize],
+                bank[f3 as usize],
             ],
         }
     }
+
+    #[cfg(all(feature = "simd", any(target_arch = "aarch64", target_arch = "wasm32")))]
+    /// The zero coefficient's resolved form: all-zero tables. Group arrays
+    /// start here; every slot is overwritten before it is read.
+    #[inline]
+    #[must_use]
+    pub const fn zero() -> Self {
+        Self {
+            coeff: 0,
+            factors: [ScaleTable::zeroed(); 4],
+        }
+    }
+
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    /// The broadcast-pair form of this coefficient, recovered from the four
+    /// factor tables: the materialized-table provider's compact accessor.
+    #[inline]
+    #[must_use]
+    pub const fn compact(&self) -> TowerCoeff {
+        let [s0, s1] = self.same_bytes();
+        let [x0, x1] = self.cross_bytes();
+        TowerCoeff {
+            coeff: self.coeff,
+            same: u16::from_le_bytes([s0, s1]),
+            cross: u16::from_le_bytes([x0, x1]),
+        }
+    }
+
+    /// Whether the coefficient is zero: both components' raw bytes are zero.
+    #[inline]
+    #[must_use]
+    pub const fn is_zero(&self) -> bool {
+        self.coeff == 0
+    }
+
+    /// Whether the coefficient is the multiplicative identity: the extension
+    /// component is zero and the constant component's table is the identity
+    /// map.
+    #[inline]
+    #[must_use]
+    pub fn is_one(&self) -> bool {
+        self.factors[3].coeff == 0
+            && self.factors[0].lo == IDENTITY_LO
+            && self.factors[0].hi == IDENTITY_HI
+    }
+
+    /// The `same` broadcast's two factor bytes.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const fn same_bytes(&self) -> [u8; 2] {
+        [self.factors[0].coeff, self.factors[1].coeff]
+    }
+
+    /// The `cross` broadcast's two factor bytes.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    const fn cross_bytes(&self) -> [u8; 2] {
+        [self.factors[2].coeff, self.factors[3].coeff]
+    }
 }
 
-/// Split-nibble multiplication tables for one Fan–Paar `fp8` coefficient.
+/// The identity nibble table: `lo[i] = i`, `hi[i] = i << 4`.
+const IDENTITY_LO: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+const IDENTITY_HI: [u8; 16] = [
+    0, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240,
+];
+
+impl TowerCoeff {
+    /// The four base-field coefficients' raw bytes in `[same.0, same.1,
+    /// cross.0, cross.1]` order, i.e. `[c0, c0 + A*c1, B*c1, c1]`.
+    #[inline]
+    #[must_use]
+    pub const fn factor_bytes(self) -> [u8; 4] {
+        let [s0, s1] = self.same.to_le_bytes();
+        let [x0, x1] = self.cross.to_le_bytes();
+        [s0, s1, x0, x1]
+    }
+}
+
+/// Split-nibble multiplication tables for one Fan–Paar byte coefficient.
 ///
 /// The canonical Fan–Paar byte field is *not* the AES field, so `GF2P8MULB`
 /// cannot multiply its bytes; every backend emulates the byte product with a
 /// 16-entry nibble lookup, exactly as [`ScaleTable`] does for GF(2^8). The
 /// two share a shape and a 256-entry static bank, but the multiplication
-/// used to *fill* them differs (fp8 tower vs. AES reduction).
-#[allow(dead_code)]
+/// used to *fill* them differs (Fan–Paar tower vs. AES reduction).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FpScaleTable {
     /// `lo[i] = coeff * i` for the low nibble.
@@ -320,50 +690,53 @@ pub struct FpScaleTable {
     pub hi: [u8; 16],
 }
 
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 impl FpScaleTable {
     /// Build the nibble tables for `coeff` in the Fan–Paar byte field.
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
-    #[allow(dead_code)]
-    pub const fn new(coeff: fp8::Elem) -> Self {
+    pub const fn new(coeff: Elem<Binary<8, Tower<FanPaar8>>>) -> Self {
+        use crate::field::binary::tower::fp_multiply;
         let mut lo = [0u8; 16];
         let mut hi = [0u8; 16];
         let mut i = 0;
         while i < 16 {
-            lo[i] = fp8::Elem(i as u8).mul(coeff).0;
-            hi[i] = fp8::Elem((i as u8) << 4).mul(coeff).0;
+            // The Fan-Paar recurrence keeps this const build table-leaf fast;
+            // the shared small-row interpreter would recurse per product.
+            lo[i] = fp_multiply(i as u64, coeff.to_raw() as u64, 8) as u8;
+            hi[i] = fp_multiply((i as u64) << 4, coeff.to_raw() as u64, 8) as u8;
             i += 1;
         }
         Self { lo, hi }
     }
 }
 
-/// Shared nibble-table bank, one entry per Fan–Paar `fp8` coefficient.
+/// Shared nibble-table bank, one entry per Fan–Paar byte coefficient.
 ///
-/// A separate bank from [`SCALE_TABLE_BANK`]: fp8 is a different field, so its
-/// products are different bytes. 8 KiB, resident in L1/L2, touched only by
-/// Fan–Paar kernels.
-#[allow(dead_code)]
+/// A separate bank from the AES bank: the Fan–Paar byte field is a different
+/// field, so its products are different bytes. 8 KiB, resident in L1/L2,
+/// touched only by Fan–Paar kernels.
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 static FP_SCALE_TABLE_BANK: [FpScaleTable; 256] = build_fp_bank();
 
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 #[allow(clippy::cast_possible_truncation)]
-#[allow(dead_code)]
 const fn build_fp_bank() -> [FpScaleTable; 256] {
-    let mut bank = [FpScaleTable::new(fp8::Elem(0)); 256];
+    let mut bank = [FpScaleTable::new(Elem::<Binary<8, Tower<FanPaar8>>>::from_raw(0)); 256];
     let mut i = 0;
     while i < 256 {
-        bank[i] = FpScaleTable::new(fp8::Elem(i as u8));
+        bank[i] = FpScaleTable::new(Elem::<Binary<8, Tower<FanPaar8>>>::from_raw(i as u8));
         i += 1;
     }
     bank
 }
 
-/// Return the shared fp8 nibble tables for a Fan–Paar byte coefficient.
+/// Return the shared nibble tables for a Fan–Paar byte coefficient.
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 #[inline]
 #[must_use]
-#[allow(dead_code)]
-pub fn fp_scale_table(coeff: fp8::Elem) -> &'static FpScaleTable {
-    &FP_SCALE_TABLE_BANK[coeff.0 as usize]
+pub fn fp_scale_table(coeff: Elem<Binary<8, Tower<FanPaar8>>>) -> &'static FpScaleTable {
+    &FP_SCALE_TABLE_BANK[coeff.to_raw() as usize]
 }
 
 /// Four nibble-table factors a shuffle kernel consumes lane-by-lane.
@@ -395,11 +768,11 @@ impl NibbleFactors for TowerTables {
     }
 }
 
-/// Nibble tables for the four `fp8` factors of a Fan–Paar GF(2^16)
+/// Nibble tables for the four byte factors of a Fan–Paar GF(2^16)
 /// coefficient.
 ///
 /// The Fan–Paar tower relation is `X² + alpha·X + 1 = 0` with `alpha` the
-/// `fp8` tower generator, so for `c = c0 + c1·X` and `x = x0 + x1·X`:
+/// byte tower indeterminate, so for `c = c0 + c1·X` and `x = x0 + x1·X`:
 ///
 /// ```text
 /// r0 = c0·x0 ^ c1·x1
@@ -407,29 +780,28 @@ impl NibbleFactors for TowerTables {
 /// ```
 ///
 /// `alpha·(c1·x1) = (alpha·c1)·x1` because `alpha`, `c1`, `x1` all lie in the
-/// `fp8` subfield and the subfield commutes — so the `mul_alpha` fold lands in
+/// byte subfield and the subfield commutes — so the `mul_alpha` fold lands in
 /// coefficient preparation, not in the kernel. The four factors are therefore
 /// `[c0, c0 ^ alpha·c1, c1, c1]`: 0/1 scale the source, 2/3 (both `c1`) the
 /// swapped source. This is the same four-table shape as [`TowerTables`], which
 /// is why the shuffle multiply core is shared.
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FpTowerTables {
     /// The Fan–Paar GF(2^16) coefficient, recovered for the portable scalar
     /// tail of a vector kernel.
-    pub coeff: fp16::Elem,
+    pub coeff: Elem<Binary<16, Tower<FanPaar16>>>,
     /// Tables for `[c0, c0 ^ alpha·c1, c1, c1]`.
     pub factors: [FpScaleTable; 4],
 }
 
 impl FpTowerTables {
-    /// Build the four `fp8` nibble tables for `coeff`.
+    /// Build the four byte nibble tables for `coeff`.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     #[inline]
     #[must_use]
-    #[allow(dead_code)]
-    pub fn new(coeff: fp16::Elem) -> Self {
+    pub fn new(coeff: Elem<Binary<16, Tower<FanPaar16>>>) -> Self {
         let (c0, c1) = coeff.to_components();
-        // `c1.mul_alpha()` is `alpha·c1` in the fp8 subfield.
+        // `c1.mul_alpha()` is `alpha·c1` in the byte subfield.
         let b = c0.add(c1.mul_alpha());
         let [f0, f1, f2, f3] = [c0, b, c1, c1];
         Self {
@@ -474,10 +846,8 @@ impl NibbleFactors for FpTowerTables {
 /// The form carries subfield elements, not byte broadcasts, so it is
 /// representation-agnostic: GF(2^32) builds it over `gf16::Elem` and GF(2^64)
 /// over `gf32::Elem`, each with its own `DELTA`.
-/// This is a representation-agnostic seam: every level-2 SIMD tower — the
-/// GFNI x86 path today, the aarch64/wasm paths to come — derives it from the
-/// subfield element, so it is dead weight only on targets with no such
-/// kernel.
+/// Every level-2 SIMD tower kernel derives it from the subfield element;
+/// targets without such a kernel never construct it.
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Tower2Coeff<E> {
@@ -489,7 +859,7 @@ pub struct Tower2Coeff<E> {
     pub cross: [E; 2],
 }
 
-impl<E: crate::field::Elem> Tower2Coeff<E> {
+impl<E: crate::field::FieldElem> Tower2Coeff<E> {
     /// Derive the alternating subfield coefficient pair for `c0 + c1·u` over
     /// `u² + u + delta`.
     #[inline]
@@ -506,94 +876,146 @@ impl<E: crate::field::Elem> Tower2Coeff<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::field::gf8b::Elem as E8;
+    use crate::field::RS;
+
+    type E8 = Elem<Binary<8, Polynomial<AES>>>;
+
+    fn check_bank<const P: u128>() {
+        let runtime_scale = build_bank::<P>();
+        let runtime_affine = build_affine_bank::<P>();
+        for raw in 0..=u8::MAX {
+            let coeff = Elem::<Binary<8, Polynomial<P>>>::from_raw(raw);
+            for x in 0..=u8::MAX {
+                let product = Elem::<Binary<8, Polynomial<P>>>::from_raw(x)
+                    .mul(coeff)
+                    .to_raw();
+                for table in [
+                    &Bank::<P>::SCALE[usize::from(raw)],
+                    &runtime_scale[usize::from(raw)],
+                ] {
+                    let split = table.lo[(x & 0x0f) as usize] ^ table.hi[(x >> 4) as usize];
+                    assert_eq!(split, product, "{coeff:?} nibbles at {x:#04x}");
+                }
+                for map in [affine_map::<P>(coeff), runtime_affine[usize::from(raw)]] {
+                    assert_eq!(apply(map, x), product, "{coeff:?} affine at {x:#04x}");
+                }
+            }
+        }
+        for iso in [isomorphism_to_aes::<P>(), isomorphism::<P>()] {
+            for a in 0..=u8::MAX {
+                assert_eq!(
+                    apply(iso.inverse, apply(iso.forward, a)),
+                    a,
+                    "φ⁻¹φ at {a:#04x}"
+                );
+                for b in 0..=u8::MAX {
+                    let product = Elem::<Binary<8, Polynomial<P>>>::from_raw(a)
+                        .mul(Elem::<Binary<8, Polynomial<P>>>::from_raw(b))
+                        .to_raw();
+                    let conjugated = apply(
+                        iso.inverse,
+                        E8::from_raw(apply(iso.forward, a))
+                            .mul(E8::from_raw(apply(iso.forward, b)))
+                            .to_raw(),
+                    );
+                    assert_eq!(conjugated, product, "φ-conjugated {a:#04x} * {b:#04x}");
+                }
+            }
+        }
+    }
+
+    /// The semantics `VGF2P8AFFINEQB` documents, modeled in scalar code:
+    /// `dst.bit[b] = parity(map.byte[7 - b] & x)`.
+    #[allow(clippy::cast_possible_truncation)]
+    fn apply(map: u64, x: u8) -> u8 {
+        let mut out = 0u8;
+        for b in 0..8u8 {
+            let row = (map >> (8 * (7 - b))) as u8;
+            let parity = (row & x).count_ones() & 1;
+            out |= u8::try_from(parity).unwrap() << b;
+        }
+        out
+    }
 
     #[test]
-    fn nibble_tables_reconstruct_the_product() {
-        for c in 0..=u8::MAX {
-            let table = scale_table(E8(c));
-            for x in 0..=u8::MAX {
-                let split = table.lo[(x & 0x0f) as usize] ^ table.hi[(x >> 4) as usize];
-                assert_eq!(split, E8(x).mul(E8(c)).0, "coeff {c:#04x} value {x:#04x}");
+    fn banks_reproduce_every_product_under_the_instruction_model() {
+        check_bank::<AES>();
+        check_bank::<RS>();
+        check_bank::<0x12D>();
+        check_bank::<0x187>();
+    }
+
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[test]
+    fn fan_paar_nibble_tables_match_the_tower_recurrence() {
+        use crate::field::binary::tower::fp_multiply;
+        let runtime = build_fp_bank();
+        for bank in [&runtime, &FP_SCALE_TABLE_BANK] {
+            for c in 0..=u8::MAX {
+                let table = &bank[usize::from(c)];
+                for x in 0..=u8::MAX {
+                    let product = fp_multiply(u64::from(c), u64::from(x), 8);
+                    let split = table.lo[usize::from(x & 0x0f)] ^ table.hi[usize::from(x >> 4)];
+                    assert_eq!(u64::from(split), product, "{c:#04x} * {x:#04x}");
+                }
             }
         }
     }
 
     #[test]
-    #[allow(clippy::cast_possible_truncation)]
-    fn affine_bank_matches_the_instruction_model() {
-        // The semantics `VGF2P8AFFINEQB` documents, modeled in scalar code:
-        // `dst.bit[b] = parity(map.byte[7 - b] & x)`. This proves both const
-        // banks use the hardware bit-order convention.
-        fn apply(map: u64, x: u8) -> u8 {
-            let mut out = 0u8;
-            for b in 0..8u8 {
-                let row = (map >> (8 * (7 - b))) as u8;
-                let parity = (row & x).count_ones() & 1;
-                out |= u8::try_from(parity).unwrap() << b;
-            }
-            out
+    fn the_aes_isomorphism_is_the_identity() {
+        let iso = isomorphism_to_aes::<AES>();
+        for x in 0..=u8::MAX {
+            assert_eq!(apply(iso.forward, x), x);
+            assert_eq!(apply(iso.inverse, x), x);
         }
+    }
 
-        for c in 0..=u8::MAX {
-            let aes_map = affine_8b(gf8b::Elem(c));
-            let rs_map = affine_8d(gf8d::Elem(c));
-            for x in 0..=u8::MAX {
-                assert_eq!(
-                    apply(aes_map, x),
-                    gf8b::Elem(c).mul(gf8b::Elem(x)).0,
-                    "0x11B coeff {c:#04x} value {x:#04x}"
-                );
-                assert_eq!(
-                    apply(rs_map, x),
-                    gf8d::Elem(c).mul(gf8d::Elem(x)).0,
-                    "0x11D coeff {c:#04x} value {x:#04x}"
-                );
-            }
-        }
+    #[test]
+    fn the_reed_solomon_isomorphism_is_the_frozen_involution() {
+        // The kernels' historical `0x11D` conjugation constant: the map
+        // derived from the smallest root is this involution.
+        let iso = isomorphism_to_aes::<RS>();
+        assert_eq!(iso.forward, 0xffaa_cc88_f0a0_c080);
+        assert_eq!(iso.inverse, iso.forward);
+    }
+
+    #[test]
+    #[should_panic(expected = "splits in every GF(2^8)")]
+    fn root_search_rejects_a_polynomial_without_a_root() {
+        // (x^3 + x + 1)(x^5 + x^2 + 1): its roots live in GF(2^3) and
+        // GF(2^5), neither of which lies inside GF(2^8).
+        let rootless = core::hint::black_box(0x147u128);
+        let _ = root_powers::<AES>(rootless);
     }
 
     #[test]
     fn tower_factors_reconstruct_the_product() {
+        use crate::field::binary::tower::{Rijndael16 as TowerRijndael16, Tower};
+        type TowerGf16 = crate::field::Binary<16, Tower<TowerRijndael16>>;
         // Exercise the identity the SIMD kernels rely on, scalar-side.
         for coeff in [0u16, 1, 0x0108, 0x2000, 0xffff, 0x1234] {
-            let coeff = gf16::Elem(coeff);
+            let coeff = Elem::<TowerGf16>::from_raw(coeff);
             let tc = TowerCoeff::new(coeff);
-            let [f0, f1, f2, f3] = tc.factors();
+            let [f0, f1, f2, f3] = tc.factor_bytes();
+            let (f0, f1, f2, f3) = (
+                E8::from_raw(f0),
+                E8::from_raw(f1),
+                E8::from_raw(f2),
+                E8::from_raw(f3),
+            );
             for value in [0u16, 1, 0x00ff, 0xff00, 0xbeef] {
-                let value = gf16::Elem(value);
+                let value = Elem::<TowerGf16>::from_raw(value);
                 let [a, b] = value.to_bytes();
-                let (a, b) = (E8(a), E8(b));
+                let (a, b) = (E8::from_raw(a), E8::from_raw(b));
                 // even lane: same.0 * a  ^  cross.0 * b   (b is a's swap partner)
                 // odd  lane: same.1 * b  ^  cross.1 * a
                 let even = f0.mul(a).add(f2.mul(b));
                 let odd = f1.mul(b).add(f3.mul(a));
-                let got = gf16::Elem::from_bytes([even.0, odd.0]);
+                let got = Elem::<TowerGf16>::from_bytes([even.to_raw(), odd.to_raw()]);
                 assert_eq!(got, value.mul(coeff), "{value:?} * {coeff:?}");
             }
         }
-    }
-
-    #[test]
-    fn const_built_banks_match_their_runtime_builders() {
-        // The banks are `const`-evaluated into rodata; running the same
-        // builders at runtime must reproduce them bit for bit. This is the
-        // only place the builder bodies execute, and it doubles as a
-        // differential between compile-time and runtime evaluation.
-        assert_eq!(build_bank(), SCALE_TABLE_BANK);
-        assert_eq!(build_bank_8d(), SCALE_TABLE_BANK_8D);
-        assert_eq!(build_affine_bank_8d(), AFFINE_BANK_8D);
-        assert_eq!(build_fp_bank(), FP_SCALE_TABLE_BANK);
-        for c in 0..=u8::MAX {
-            let runtime = ScaleTable::new(E8(c));
-            assert_eq!(&runtime, scale_table(E8(c)), "0x11B coeff {c:#04x}");
-            let runtime = FpScaleTable::new(fp8::Elem(c));
-            assert_eq!(&runtime, fp_scale_table(fp8::Elem(c)), "fp8 coeff {c:#04x}");
-        }
-    }
-
-    #[test]
-    fn experimental_affine_bank_matches_its_runtime_builder() {
-        assert_eq!(build_affine_bank_8b(), AFFINE_BANK_8B);
+        let _ = TowerRijndael16::NAME;
     }
 }

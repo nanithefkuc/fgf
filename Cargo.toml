@@ -1,6 +1,6 @@
 [package]
 name = "fgf"
-version = "2.1.0"
+version = "3.0.0"
 edition = "2024"
 rust-version = "1.93"
 description = "Faster Galois Fields: SIMD and portable finite-field arithmetic (binary towers and prime fields) and vector kernels"
@@ -14,7 +14,7 @@ homepage = "https://github.com/nanithefkuc/fgf"
 # `external` never enter `cargo package`.
 include = [
     "src/**",
-    "benches/**",
+    "benches/*.rs",
     "examples/**",
     "/README.md",
     "/CHANGELOG.md",
@@ -35,7 +35,7 @@ std = ["alloc", "simdispatch/std"]
 # 64-byte AVX-512 tier needs `simd512`), neon_aes / neon on AArch64, and
 # `wasm128` on Wasm. Enabling also resolves the backend via `simdispatch`.
 simd = ["std", "dep:archmage"]
-# AVX-512 kernels for both byte fields, Gf16, Mersenne31, Goldilocks, byte XOR,
+# AVX-512 kernels for flat byte fields, Gf16, Mersenne31, Goldilocks, byte XOR,
 # and GF(2) popcount use safe 512-bit reference intrinsics behind
 # `archmage/avx512`. Gf16 scatter/gather retain GFNI lanes.
 # V4x dispatch needs `simdispatch/avx512`; without `simd512` detection never

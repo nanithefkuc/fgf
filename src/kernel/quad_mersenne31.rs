@@ -10,13 +10,12 @@
 //!
 //! The scalar loops canonicalize each loaded limb once and then run raw
 //! modular add/sub/mul on limbs known to be `< p`: one conditional subtract
-//! per op, no re-reduction of already-canonical operands. Raw non-canonical
-//! lanes in a destination are still legal input for add and sub — the fold
-//! is total — while the vector multiplies serve the packed canonical-lane
-//! contract the prime fields document.
+//! per op, no re-reduction of already-canonical operands. Every input limb
+//! bit pattern is legal and every stored limb is canonical, matching the
+//! vector kernels lane for lane.
 
-use crate::field::Field;
-use crate::field::quad_mersenne31::{Elem, QuadMersenne31};
+use crate::field::quad_mersenne31::QuadMersenne31;
+use crate::field::{Elem, FieldBuffer};
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use crate::kernel::backend;
 use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, prime, scalar};
@@ -87,12 +86,12 @@ const fn raw_sub(ac: u32, bd: u32) -> u32 {
 /// `(a+bi)(c+di)` over canonical limbs.
 #[inline]
 #[must_use]
-const fn qmul(ar: u32, ai: u32, br: u32, bi: u32) -> Elem {
+const fn qmul(ar: u32, ai: u32, br: u32, bi: u32) -> Elem<QuadMersenne31> {
     let ac = raw_mul(ar, br);
     let bd = raw_mul(ai, bi);
     let ad = raw_mul(ar, bi);
     let bc = raw_mul(ai, br);
-    Elem(raw_sub(ac, bd), raw_add(ad, bc))
+    Elem::<QuadMersenne31>::from_raw(raw_sub(ac, bd), raw_add(ad, bc))
 }
 
 impl FieldKernels for QuadMersenne31 {
@@ -152,15 +151,18 @@ impl FieldKernels for QuadMersenne31 {
 
 impl KernelDispatch for QuadMersenne31 {
     /// The canonical pair `(re, im)`, used as-is.
-    type Prepared = Elem;
+    type Prepared = Elem<QuadMersenne31>;
 
     #[inline]
-    fn prepare(_proof: RawDispatch, coeff: Elem) -> Elem {
-        coeff.canonical()
+    fn prepare(_proof: RawDispatch, coeff: Elem<QuadMersenne31>) -> Elem<QuadMersenne31> {
+        coeff
     }
 
     #[inline]
-    fn prepared_coeff(_proof: RawDispatch, prepared: &Elem) -> Elem {
+    fn prepared_coeff(
+        _proof: RawDispatch,
+        prepared: &Elem<QuadMersenne31>,
+    ) -> Elem<QuadMersenne31> {
         *prepared
     }
 
@@ -186,9 +188,9 @@ impl KernelDispatch for QuadMersenne31 {
             // subtract folds the sum.
             QuadMersenne31::encode(
                 d,
-                Elem(
-                    raw_add(canon(a.0), canon(b.0)),
-                    raw_add(canon(a.1), canon(b.1)),
+                Elem::<QuadMersenne31>::from_raw(
+                    raw_add(canon(a.to_raw().0), canon(b.to_raw().0)),
+                    raw_add(canon(a.to_raw().1), canon(b.to_raw().1)),
                 ),
             );
         }
@@ -212,13 +214,13 @@ impl KernelDispatch for QuadMersenne31 {
             let a = QuadMersenne31::decode(d);
             let b = QuadMersenne31::decode(s);
             // dst + (-src); negation of a canonical limb is p - limb (0 stays 0).
-            let br = canon(b.0);
-            let bi = canon(b.1);
-            let ar = canon(a.0);
-            let ai = canon(a.1);
+            let br = canon(b.to_raw().0);
+            let bi = canon(b.to_raw().1);
+            let ar = canon(a.to_raw().0);
+            let ai = canon(a.to_raw().1);
             QuadMersenne31::encode(
                 d,
-                Elem(
+                Elem::<QuadMersenne31>::from_raw(
                     raw_add(
                         ar,
                         if br == 0 {
@@ -240,7 +242,7 @@ impl KernelDispatch for QuadMersenne31 {
         }
     }
 
-    fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
+    fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem<QuadMersenne31>, src: &[u8]) {
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
         if matches!(backend(), Backend::V4x) && dst.len() >= VECTOR_MUL_MIN_BYTES {
             crate::kernel::x86::quad_mersenne31::mul_add_avx512(
@@ -265,8 +267,8 @@ impl KernelDispatch for QuadMersenne31 {
             );
             return;
         }
-        let cr = canon(coeff.0);
-        let ci = canon(coeff.1);
+        let cr = canon(coeff.to_raw().0);
+        let ci = canon(coeff.to_raw().1);
         if cr == 0 && ci == 0 {
             return;
         }
@@ -277,15 +279,18 @@ impl KernelDispatch for QuadMersenne31 {
         for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
             let a = QuadMersenne31::decode(d);
             let b = QuadMersenne31::decode(s);
-            let prod = qmul(canon(b.0), canon(b.1), cr, ci);
+            let prod = qmul(canon(b.to_raw().0), canon(b.to_raw().1), cr, ci);
             QuadMersenne31::encode(
                 d,
-                Elem(raw_add(canon(a.0), prod.0), raw_add(canon(a.1), prod.1)),
+                Elem::<QuadMersenne31>::from_raw(
+                    raw_add(canon(a.to_raw().0), prod.to_raw().0),
+                    raw_add(canon(a.to_raw().1), prod.to_raw().1),
+                ),
             );
         }
     }
 
-    fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem) {
+    fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem<QuadMersenne31>) {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         if matches!(
             backend(),
@@ -299,8 +304,8 @@ impl KernelDispatch for QuadMersenne31 {
             );
             return;
         }
-        let cr = canon(coeff.0);
-        let ci = canon(coeff.1);
+        let cr = canon(coeff.to_raw().0);
+        let ci = canon(coeff.to_raw().1);
         if cr == 0 && ci == 0 {
             dst.fill(0);
             return;
@@ -310,11 +315,11 @@ impl KernelDispatch for QuadMersenne31 {
         }
         for d in dst.chunks_exact_mut(8) {
             let a = QuadMersenne31::decode(d);
-            QuadMersenne31::encode(d, qmul(canon(a.0), canon(a.1), cr, ci));
+            QuadMersenne31::encode(d, qmul(canon(a.to_raw().0), canon(a.to_raw().1), cr, ci));
         }
     }
 
-    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem, src: &[u8]) {
+    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem<QuadMersenne31>, src: &[u8]) {
         #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
         if matches!(backend(), Backend::V4x) && dst.len() >= VECTOR_MUL_MIN_BYTES {
             crate::kernel::x86::quad_mersenne31::mul_into_avx512(
@@ -339,15 +344,15 @@ impl KernelDispatch for QuadMersenne31 {
             );
             return;
         }
-        let cr = canon(coeff.0);
-        let ci = canon(coeff.1);
+        let cr = canon(coeff.to_raw().0);
+        let ci = canon(coeff.to_raw().1);
         if cr == 0 && ci == 0 {
             dst.fill(0);
             return;
         }
         for (d, s) in dst.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
             let b = QuadMersenne31::decode(s);
-            QuadMersenne31::encode(d, qmul(canon(b.0), canon(b.1), cr, ci));
+            QuadMersenne31::encode(d, qmul(canon(b.to_raw().0), canon(b.to_raw().1), cr, ci));
         }
     }
 
@@ -355,7 +360,7 @@ impl KernelDispatch for QuadMersenne31 {
         _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
-        coeffs: &[Elem],
+        coeffs: &[Elem<QuadMersenne31>],
         src: &[u8],
     ) {
         for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
@@ -363,7 +368,12 @@ impl KernelDispatch for QuadMersenne31 {
         }
     }
 
-    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem], srcs: &[&[u8]]) {
+    fn mul_add_gather(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Elem<QuadMersenne31>],
+        srcs: &[&[u8]],
+    ) {
         for (&coeff, &src) in coeffs.iter().zip(srcs) {
             Self::mul_add(RawDispatch, dst, &coeff, src);
         }
@@ -374,7 +384,7 @@ impl KernelDispatch for QuadMersenne31 {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        terms: &[(&[Elem], &[u8])],
+        terms: &[(&[Elem<QuadMersenne31>], &[u8])],
     ) {
         for &(coeffs, src) in terms {
             for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
@@ -418,7 +428,15 @@ impl KernelDispatch for QuadMersenne31 {
         {
             let xa = QuadMersenne31::decode(x);
             let xb = QuadMersenne31::decode(y);
-            QuadMersenne31::encode(d, qmul(canon(xa.0), canon(xa.1), canon(xb.0), canon(xb.1)));
+            QuadMersenne31::encode(
+                d,
+                qmul(
+                    canon(xa.to_raw().0),
+                    canon(xa.to_raw().1),
+                    canon(xb.to_raw().0),
+                    canon(xb.to_raw().1),
+                ),
+            );
         }
     }
 
@@ -439,7 +457,7 @@ impl KernelDispatch for QuadMersenne31 {
         scalar::mul_elementwise_assign::<QuadMersenne31>(dst, src);
     }
 
-    fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
+    fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem<QuadMersenne31>) {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         if matches!(
             backend(),
@@ -456,7 +474,7 @@ impl KernelDispatch for QuadMersenne31 {
         prime::add_assign_scalar::<QuadMersenne31>(dst, *value);
     }
 
-    fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem) {
+    fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Elem<QuadMersenne31>) {
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         if matches!(
             backend(),

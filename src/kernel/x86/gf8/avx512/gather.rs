@@ -1,10 +1,11 @@
-//! Many sources into one destination for `Gf8D` over 64-byte lanes.
+//! Many sources into one destination over 64-byte lanes.
 //!
 //! Mirrors the GFNI gather at 64-byte lanes with `VGF2P8AFFINEQB`: the
 //! destination tile stays in registers across every source.
 
 use super::super::check_gather;
-use super::{MapCoeff, bfactor_avx512, bmul_avx512, brem_avx512};
+use super::{bfactor_avx512, bmul_avx512, brem_avx512};
+use crate::kernel::gf8::Coeffs;
 
 /// Shortest gather destination that peels its head to a 64-byte boundary.
 ///
@@ -26,13 +27,13 @@ pub(crate) const GATHER_PEEL_MIN: usize = 3072;
 /// in length.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_gather_avx512<C: MapCoeff>(
+pub fn mul_add_gather_avx512(
     _token: archmage::X64V4xToken,
     dst: &mut [u8],
-    coeffs: &[C],
+    coeffs: &(impl Coeffs + ?Sized),
     srcs: &[&[u8]],
 ) {
-    check_gather("mul_add_gather_avx512", dst, coeffs.len(), srcs);
+    check_gather("mul_add_gather_avx512", dst, coeffs.count(), srcs);
     if dst.is_empty() || srcs.is_empty() {
         return;
     }
@@ -46,13 +47,8 @@ pub fn mul_add_gather_avx512<C: MapCoeff>(
         head
     };
     if head > 0 {
-        for (&coeff, &src) in coeffs.iter().zip(srcs) {
-            brem_avx512(
-                &mut dst[..head],
-                C::map(coeff),
-                C::table(coeff),
-                &src[..head],
-            );
+        for (k, &src) in (0..coeffs.count()).zip(srcs) {
+            brem_avx512(&mut dst[..head], coeffs.resolved(k), &src[..head]);
         }
     }
     let (dhead, dtile) = dst.split_at_mut(head);
@@ -65,7 +61,7 @@ pub fn mul_add_gather_avx512<C: MapCoeff>(
 /// The main register-blocked tile loop: four 64-byte accumulators over whole
 /// tiles, every source folded in before the destination stores.
 #[archmage::rite(v4x, import_intrinsics)]
-fn gather_tiles<C: MapCoeff>(dst: &mut [u8], coeffs: &[C], srcs: &[&[u8]], base: usize) {
+fn gather_tiles(dst: &mut [u8], coeffs: &(impl Coeffs + ?Sized), srcs: &[&[u8]], base: usize) {
     let mut offset = base;
     for dtile in dst.chunks_exact_mut(256) {
         let (dl, _) = dtile.as_chunks_mut::<64>();
@@ -77,8 +73,8 @@ fn gather_tiles<C: MapCoeff>(dst: &mut [u8], coeffs: &[C], srcs: &[&[u8]], base:
             _mm512_loadu_si512(&dl[2]),
             _mm512_loadu_si512(&dl[3]),
         ];
-        for (&coeff, &src) in coeffs.iter().zip(srcs) {
-            let factor = bfactor_avx512(C::map(coeff));
+        for (k, &src) in (0..coeffs.count()).zip(srcs) {
+            let factor = bfactor_avx512(coeffs.affine(k));
             let (sl, _) = src[offset..offset + 256].as_chunks::<64>();
             let x0 = _mm512_loadu_si512(&sl[0]);
             let x1 = _mm512_loadu_si512(&sl[1]);
@@ -99,8 +95,11 @@ fn gather_tiles<C: MapCoeff>(dst: &mut [u8], coeffs: &[C], srcs: &[&[u8]], base:
 
 /// The single-source AXPY remainder over what no tile covered.
 #[archmage::rite(v4x, import_intrinsics)]
-fn gather_remainder<C: MapCoeff>(dst: &mut [u8], coeffs: &[C], srcs: &[&[u8]], tail: usize) {
-    for (&coeff, &src) in coeffs.iter().zip(srcs) {
-        brem_avx512(dst, C::map(coeff), C::table(coeff), &src[tail..]);
+fn gather_remainder(dst: &mut [u8], coeffs: &(impl Coeffs + ?Sized), srcs: &[&[u8]], tail: usize) {
+    if dst.is_empty() {
+        return;
+    }
+    for (k, &src) in (0..coeffs.count()).zip(srcs) {
+        brem_avx512(dst, coeffs.resolved(k), &src[tail..]);
     }
 }

@@ -1,10 +1,11 @@
-//! One source into many rows for `Gf8D` over 64-byte lanes.
+//! One source into many rows over 64-byte lanes.
 //!
 //! Mirrors the GFNI scatter at 64-byte lanes with `VGF2P8AFFINEQB`: the
 //! immediate is the XOR constant, so `<0>` selects the pure linear map, and
 //! each factor replicates one 64-bit map qword to all eight 64-bit lanes.
 
-use super::{MapCoeff, bfactor_avx512, bmul_avx512, brem_avx512};
+use super::{bfactor_avx512, bmul_avx512, brem_avx512, brem_half_avx512};
+use crate::kernel::gf8::{Coeffs, Prepared};
 
 /// Shortest scatter row that peels its head to a 64-byte boundary.
 ///
@@ -26,11 +27,11 @@ pub(crate) const SCATTER_PEEL_MIN: usize = 512;
 /// of `row_len` bytes.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_scatter_avx512<C: MapCoeff>(
+pub fn mul_add_scatter_avx512(
     _token: archmage::X64V4xToken,
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[C],
+    coeffs: &(impl Coeffs + ?Sized),
     src: &[u8],
 ) {
     assert_eq!(
@@ -40,12 +41,21 @@ pub fn mul_add_scatter_avx512<C: MapCoeff>(
     );
     assert!(
         coeffs
-            .len()
+            .count()
             .checked_mul(row_len)
             .is_some_and(|needed| needed <= rows.len()),
         "mul_add_scatter_avx512: rows buffer does not hold coefficients rows of {row_len} bytes"
     );
     mul_add_scatter_impl(rows, coeffs, src);
+}
+
+/// One staged row group: each surviving row's base pointer, the affine map
+/// qword its full lanes multiply by, and its coefficient index, from which a
+/// sub-lane tail recovers the nibble tables only when it runs.
+struct Group<const N: usize> {
+    ptrs: [*mut u8; N],
+    maps: [u64; N],
+    picks: [usize; N],
 }
 
 /// Stage the surviving rows into four-row groups and run the group bodies.
@@ -55,22 +65,25 @@ pub fn mul_add_scatter_avx512<C: MapCoeff>(
 /// residue this body keeps.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn mul_add_scatter_impl<C: MapCoeff>(rows: &mut [u8], coeffs: &[C], src: &[u8]) {
+fn mul_add_scatter_impl(rows: &mut [u8], coeffs: &(impl Coeffs + ?Sized), src: &[u8]) {
     let base = rows.as_mut_ptr();
     let row_len = src.len();
-    let mut ptrs = [base; 4];
-    let mut group = [C::zero(); 4];
+    let mut group = Group {
+        ptrs: [base; 4],
+        maps: [0; 4],
+        picks: [0; 4],
+    };
     let mut filled = 0;
 
-    for (j, &coeff) in coeffs.iter().enumerate() {
-        if C::is_zero(coeff) {
+    for j in 0..coeffs.count() {
+        if coeffs.byte(j) == 0 {
             // `row ^= 0 * src` is the identity: skip the row entirely rather
             // than stream it through the multiplier to add zero.
             continue;
         }
         // SAFETY:
         // MEMORY VALIDITY
-        // SINCE: `j < coeffs.len()` and `coeffs.len() * row_len <=
+        // SINCE: `j < coeffs.count()` and `coeffs.count() * row_len <=
         //        rows.len()` was asserted by the entry, so row `j` lies
         //        wholly inside `rows`.
         // THUS: the row pointer addresses writable memory of one row's span.
@@ -79,13 +92,14 @@ fn mul_add_scatter_impl<C: MapCoeff>(rows: &mut [u8], coeffs: &[C], src: &[u8]) 
         // SINCE: distinct `j` place the rows `row_len` apart in one region,
         //        so the staged rows never overlap.
         // THUS: no two grouped row windows alias.
-        ptrs[filled] = unsafe { base.add(j * row_len) };
-        group[filled] = coeff;
+        group.ptrs[filled] = unsafe { base.add(j * row_len) };
+        group.maps[filled] = coeffs.affine(j);
+        group.picks[filled] = j;
         filled += 1;
         if filled == 4 {
             // Four in-bounds, pairwise disjoint rows of `src.len()` bytes;
             // every nonzero coefficient is exact under the multiply.
-            scatter_rows4(ptrs, group, src);
+            scatter_rows4(&group, coeffs, src);
             filled = 0;
         }
     }
@@ -93,13 +107,18 @@ fn mul_add_scatter_impl<C: MapCoeff>(rows: &mut [u8], coeffs: &[C], src: &[u8]) 
     // 3 left over is a pair plus a single; 2 a pair; 1 a single.
     if filled >= 2 {
         // As above, for the first two staged rows.
-        scatter_rows2([ptrs[0], ptrs[1]], [group[0], group[1]], src);
+        let pair = Group {
+            ptrs: [group.ptrs[0], group.ptrs[1]],
+            maps: [group.maps[0], group.maps[1]],
+            picks: [group.picks[0], group.picks[1]],
+        };
+        scatter_rows2(&pair, coeffs, src);
     }
     if filled == 1 || filled == 3 {
         let last = filled - 1;
         // SAFETY:
         // MEMORY VALIDITY
-        // SINCE: `ptrs[last]` is a staged in-bounds row of `src.len()`
+        // SINCE: `group.ptrs[last]` is a staged in-bounds row of `src.len()`
         //        bytes, as established above.
         // THUS: the tail slice lies wholly within its originating row.
         //
@@ -107,23 +126,29 @@ fn mul_add_scatter_impl<C: MapCoeff>(rows: &mut [u8], coeffs: &[C], src: &[u8]) 
         // SINCE: no slice into `rows` outlives this statement and the rows
         //        are disjoint.
         // THUS: the mutable borrow conflicts with no live row window.
-        let row = unsafe { core::slice::from_raw_parts_mut(ptrs[last], src.len()) };
-        brem_avx512(row, C::map(group[last]), C::table(group[last]), src);
+        let row = unsafe { core::slice::from_raw_parts_mut(group.ptrs[last], src.len()) };
+        let coeff = Prepared {
+            table: coeffs.table(group.picks[last]),
+            affine: group.maps[last],
+        };
+        brem_avx512(row, coeff, src);
     }
 }
 
-/// `rows[i] ^= coeffs[i] * src` for four disjoint rows of `src.len()` bytes.
+/// `rows[i] ^= coeffs[i] * src` for the four disjoint staged rows of
+/// `src.len()` bytes.
 ///
 /// Residue: the rows are addressed as runtime offsets into one region, staged
 /// and bounded by [`mul_add_scatter_impl`].
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn scatter_rows4<C: MapCoeff>(ptrs: [*mut u8; 4], coeffs: [C; 4], src: &[u8]) {
+fn scatter_rows4(group: &Group<4>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) {
+    let ptrs = &group.ptrs;
     let factors = [
-        bfactor_avx512(C::map(coeffs[0])),
-        bfactor_avx512(C::map(coeffs[1])),
-        bfactor_avx512(C::map(coeffs[2])),
-        bfactor_avx512(C::map(coeffs[3])),
+        bfactor_avx512(group.maps[0]),
+        bfactor_avx512(group.maps[1]),
+        bfactor_avx512(group.maps[2]),
+        bfactor_avx512(group.maps[3]),
     ];
     let len = src.len();
 
@@ -137,7 +162,7 @@ fn scatter_rows4<C: MapCoeff>(ptrs: [*mut u8; 4], coeffs: [C; 4], src: &[u8]) {
     } else {
         0
     };
-    scatter_span(ptrs.iter().zip(coeffs.iter()), 0, head, src);
+    scatter_span(group, coeffs, 0, head, src);
 
     // One 256-byte source window feeds all four rows, and each row runs four
     // independent multiply chains over it.
@@ -196,19 +221,18 @@ fn scatter_rows4<C: MapCoeff>(ptrs: [*mut u8; 4], coeffs: [C; 4], src: &[u8]) {
         offset += 64;
     }
 
-    scatter_span(ptrs.iter().zip(coeffs.iter()), offset, len, src);
+    scatter_span(group, coeffs, offset, len, src);
 }
 
-/// `rows[i] ^= coeffs[i] * src` for two disjoint rows of `src.len()` bytes.
+/// `rows[i] ^= coeffs[i] * src` for the two disjoint staged rows of
+/// `src.len()` bytes.
 ///
 /// Residue: as [`scatter_rows4`].
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn scatter_rows2<C: MapCoeff>(ptrs: [*mut u8; 2], coeffs: [C; 2], src: &[u8]) {
-    let factors = [
-        bfactor_avx512(C::map(coeffs[0])),
-        bfactor_avx512(C::map(coeffs[1])),
-    ];
+fn scatter_rows2(group: &Group<2>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) {
+    let ptrs = &group.ptrs;
+    let factors = [bfactor_avx512(group.maps[0]), bfactor_avx512(group.maps[1])];
     let len = src.len();
 
     // As in `scatter_rows4`: peel to 64-byte alignment first.
@@ -218,7 +242,7 @@ fn scatter_rows2<C: MapCoeff>(ptrs: [*mut u8; 2], coeffs: [C; 2], src: &[u8]) {
     } else {
         0
     };
-    scatter_span(ptrs.iter().zip(coeffs.iter()), 0, head, src);
+    scatter_span(group, coeffs, 0, head, src);
 
     // With only two rows the 256-byte window leaves room for eight chains.
     let mut offset = head;
@@ -276,20 +300,23 @@ fn scatter_rows2<C: MapCoeff>(ptrs: [*mut u8; 2], coeffs: [C; 2], src: &[u8]) {
         offset += 64;
     }
 
-    scatter_span(ptrs.iter().zip(coeffs.iter()), offset, len, src);
+    scatter_span(group, coeffs, offset, len, src);
 }
 
 /// Narrow SIMD span shared by the 512-bit scatter row groups.
 ///
 /// Complete 64-byte lanes stay on the one-instruction multiply; the
 /// remainder descends through the AVX2 ladder to the scalar nibble kernel.
+/// The staged map qwords drive the vector lanes; each row's nibble tables are
+/// looked up only once its span is known to be nonempty.
 ///
 /// Residue: the rows arrive as runtime offsets into one region, staged and
 /// bounded by the caller; `start..end` lies within `0..=src.len()`.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn scatter_span<'a, C: MapCoeff + 'a>(
-    rows: impl Iterator<Item = (&'a *mut u8, &'a C)>,
+fn scatter_span<const N: usize>(
+    group: &Group<N>,
+    coeffs: &(impl Coeffs + ?Sized),
     start: usize,
     end: usize,
     src: &[u8],
@@ -300,7 +327,7 @@ fn scatter_span<'a, C: MapCoeff + 'a>(
     if start >= end {
         return;
     }
-    for (&row, &coeff) in rows {
+    for ((&row, &affine), &pick) in group.ptrs.iter().zip(&group.maps).zip(&group.picks) {
         // SAFETY:
         // MEMORY VALIDITY
         // SINCE: `start..end` is the row's final sub-lane span, and the row
@@ -312,11 +339,10 @@ fn scatter_span<'a, C: MapCoeff + 'a>(
         //        a time.
         // THUS: the borrow conflicts with no live row window.
         let dst = unsafe { core::slice::from_raw_parts_mut(row.add(start), end - start) };
-        super::super::gfni::mul_add_gfni_8d_impl(
-            dst,
-            C::map(coeff),
-            C::table(coeff),
-            &src[start..end],
-        );
+        let coeff = Prepared {
+            table: coeffs.table(pick),
+            affine,
+        };
+        brem_half_avx512(dst, coeff, &src[start..end]);
     }
 }

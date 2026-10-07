@@ -1,5 +1,5 @@
 //! Offset-sweep and overwrite-gather probe for the half-lane peel and
-//! gather-dispatch records in `BENCHMARKS.md`.
+//! gather-dispatch records in `benchmarks/v3/gf8.md` and `benchmarks/v3/gf16.md`.
 //!
 //! ```sh
 //! taskset -c <core> cargo run --release --all-features --example peel_probe
@@ -15,7 +15,12 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use fgf::{FieldKernels, Gf8B, Gf8D, Gf16, backend, gf8b, gf8d, gf16, ops};
+use fgf::{Binary, Elem, FieldKernels, Polynomial, backend, ops};
+
+use fgf::poly::{AES, RS};
+
+// Callers name their own fields; the canonical `Binary<N, R>` type is the API.
+type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
 
 fn noise(len: usize, seed: u64) -> Vec<u8> {
     let mut state = seed | 1;
@@ -79,7 +84,7 @@ impl OffBuf {
 
 fn gf16_sweep() {
     println!("\n== Gf16 single-row offset sweep (dst and src at the same base offset) ==");
-    let coeff = gf16::Elem::from_raw(0x53a7);
+    let coeff = Elem::<Gf16>::from_raw(0x53a7);
     for &len in &[1536usize, 2048, 3072, 3584, 4096, 8192, 16384, 65536] {
         let mut row = String::new();
         for &off in &[0usize, 16] {
@@ -102,7 +107,7 @@ fn gf16_sweep() {
     }
 }
 
-fn gather_probe<F: FieldKernels>(name: &str, coeff: impl Fn(usize) -> F::Elem) {
+fn gather_probe<F: FieldKernels>(name: &str, coeff: impl Fn(usize) -> Elem<F>) {
     println!("\n== {name} overwrite gather, 16 sources: raw coefficients vs prepared CoeffVec ==");
     for &len in &[4096usize, 16384] {
         let n = 16usize;
@@ -110,7 +115,7 @@ fn gather_probe<F: FieldKernels>(name: &str, coeff: impl Fn(usize) -> F::Elem) {
             .map(|i| noise(len, 0x1000 + i as u64 * 17 + len as u64))
             .collect();
         let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-        let coeffs: Vec<F::Elem> = (0..n).map(&coeff).collect();
+        let coeffs: Vec<Elem<F>> = (0..n).map(&coeff).collect();
         let prepared = ops::CoeffVec::<F>::new(&coeffs);
         let mut dst_raw = noise(len, 0x2000 + len as u64);
         let mut dst_prep = noise(len, 0x3000 + len as u64);
@@ -141,10 +146,10 @@ fn gather_probe<F: FieldKernels>(name: &str, coeff: impl Fn(usize) -> F::Elem) {
 fn main() {
     println!("peel/gather probe — backend: {}", backend().name());
     gf16_sweep();
-    gather_probe::<Gf8D>("Gf8D", |i| {
-        gf8d::Elem::from_raw(2 + ((i * 73 + 19) % 254) as u8)
+    gather_probe::<Binary<8, Polynomial<RS>>>("Gf8D", |i| {
+        Elem::<Binary<8, Polynomial<RS>>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
     });
-    gather_probe::<Gf8B>("Gf8B", |i| {
-        gf8b::Elem::from_raw(2 + ((i * 73 + 19) % 254) as u8)
+    gather_probe::<Binary<8, Polynomial<AES>>>("Gf8B", |i| {
+        Elem::<Binary<8, Polynomial<AES>>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
     });
 }

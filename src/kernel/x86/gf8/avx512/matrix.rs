@@ -1,22 +1,21 @@
-//! `Gf8D` AVX-512 affine matrix kernels (`VGF2P8AFFINEQB`, 64-byte lanes).
+//! AVX-512 affine GF(2^8) matrix kernels (`VGF2P8AFFINEQB`, 64-byte lanes).
 //!
-//! Many sources into many rows for the Reed–Solomon field GF(2^8)/`0x11D`,
-//! mirroring the AVX2 affine blocked shapes at 64-byte lanes: four-row
-//! groups over 256-byte tiles. A row group resolves its coefficients into a
-//! stack array of map words chunk by chunk, keeps its accumulators in
-//! registers across each chunk, and finishes the sub-lane remainder from the
-//! terms themselves. The immediate is the XOR constant, so `<0>` selects the
-//! pure linear map; each factor replicates one 64-bit map qword to all eight
-//! 64-bit lanes.
+//! Many sources into many rows, mirroring the AVX2 affine blocked shapes at
+//! 64-byte lanes: four-row groups over 256-byte tiles. A row group resolves
+//! its coefficients into a stack array of map words chunk by chunk, keeps its
+//! accumulators in registers across each chunk, and finishes the sub-lane
+//! remainder from the terms themselves. The immediate is the XOR constant,
+//! so `<0>` selects the pure linear map; each factor replicates one 64-bit
+//! map qword to all eight 64-bit lanes.
 //!
 //! The kernels dispatch on the `V4x` tier under the `simd512` feature and stay
 //! reachable through the `internals` facade for differential tests and
 //! measurement on AVX-512 hardware.
 
-use super::super::gfni::mul_add_gfni_8d_impl;
 use super::super::{ColumnWindow, RESOLVE_CHUNK, check_scattered, column_blocked, column_blocks};
-use super::{MapCoeff, bfactor_avx512, bmul_avx512};
+use super::{bfactor_avx512, bmul_avx512, brem_half_avx512};
 use crate::kernel::Matrix;
+use crate::kernel::gf8::Prepared;
 
 /// Shortest matrix row that peels its head to a 64-byte boundary.
 ///
@@ -27,103 +26,18 @@ pub(crate) const MATRIX_PEEL_MIN: usize = 8192;
 /// Shortest row using chunk-resolved matrix coefficients.
 ///
 /// Shorter rows read coefficients directly in each tile or lane. The crossover
-/// is a measured parameter; public matrix shapes appear in `BENCHMARKS.md`.
+/// is a measured parameter; public matrix shapes appear in `benchmarks/v3/gf8.md`.
 const MATRIX_RESOLVE_MIN: usize = 512;
 
 /// Many sources into many rows, four rows per group over 256-byte tiles.
 ///
 /// # Panics
 /// Panics unless `rows` holds at least `nrows` rows of `row_len` bytes and
-/// every term supplies `nrows` coefficients and a `row_len`-byte source.
+/// every term supplies a `row_len`-byte source. Coefficient counts per term
+/// are the provider's contract.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_avx512<C: MapCoeff>(
-    _token: archmage::X64V4xToken,
-    rows: &mut [u8],
-    row_len: usize,
-    nrows: usize,
-    terms: &[(&[C], &[u8])],
-) {
-    assert!(
-        nrows
-            .checked_mul(row_len)
-            .is_some_and(|needed| needed <= rows.len()),
-        "mul_add_matrix_avx512: rows buffer does not hold {nrows} rows of {row_len} bytes"
-    );
-    for (t, (coeffs, src)) in terms.iter().enumerate() {
-        assert_eq!(
-            coeffs.len(),
-            nrows,
-            "mul_add_matrix_avx512: term {t} needs {nrows} coefficients"
-        );
-        assert_eq!(
-            src.len(),
-            row_len,
-            "mul_add_matrix_avx512: term {t} source must span one row"
-        );
-    }
-    if row_len == 0 || nrows == 0 || terms.is_empty() {
-        return;
-    }
-    mul_add_matrix_impl::<C, [(&[C], &[u8])], false>(rows, row_len, nrows, terms);
-}
-
-/// [`mul_add_matrix_avx512`] with overwrite semantics: `rows[j] = sum_t
-/// coeffs[t][j] * src[t]`.
-///
-/// Accumulators are seeded from zero in registers instead of the
-/// destination, so prior destination contents are ignored; term counts above
-/// one resolve chunk accumulate later chunks into what the first wrote.
-///
-/// # Panics
-/// As [`mul_add_matrix_avx512`].
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_into_matrix_avx512<C: MapCoeff>(
-    _token: archmage::X64V4xToken,
-    rows: &mut [u8],
-    row_len: usize,
-    nrows: usize,
-    terms: &[(&[C], &[u8])],
-) {
-    assert!(
-        nrows
-            .checked_mul(row_len)
-            .is_some_and(|needed| needed <= rows.len()),
-        "mul_into_matrix_avx512: rows buffer does not hold {nrows} rows of {row_len} bytes"
-    );
-    for (t, (coeffs, src)) in terms.iter().enumerate() {
-        assert_eq!(
-            coeffs.len(),
-            nrows,
-            "mul_into_matrix_avx512: term {t} needs {nrows} coefficients"
-        );
-        assert_eq!(
-            src.len(),
-            row_len,
-            "mul_into_matrix_avx512: term {t} source must span one row"
-        );
-    }
-    // Overwrite seeds accumulators from zero, so no destination bytes are
-    // read; an empty term list still writes the zeroed sum.
-    if terms.is_empty() {
-        rows[..nrows * row_len].fill(0);
-        return;
-    }
-    if row_len == 0 || nrows == 0 {
-        return;
-    }
-    mul_into_matrix_avx512_with(_token, rows, row_len, nrows, terms);
-}
-
-/// [`mul_add_matrix_avx512`] over a generic matrix source.
-///
-/// # Panics
-/// As [`mul_add_matrix_avx512`], with the coefficient count per term left
-/// to the provider contract.
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_avx512_with<C: MapCoeff, M: Matrix<C> + ?Sized>(
+pub fn mul_add_matrix_avx512_with<M: Matrix<Prepared> + ?Sized>(
     _token: archmage::X64V4xToken,
     rows: &mut [u8],
     row_len: usize,
@@ -146,16 +60,17 @@ pub fn mul_add_matrix_avx512_with<C: MapCoeff, M: Matrix<C> + ?Sized>(
     if terms.len() == 0 || row_len == 0 || nrows == 0 {
         return;
     }
-    mul_add_matrix_impl::<C, M, false>(rows, row_len, nrows, terms);
+    mul_add_matrix_impl::<M, false>(rows, row_len, nrows, terms);
 }
 
-/// [`mul_into_matrix_avx512`] over a generic matrix source.
+/// [`mul_add_matrix_avx512_with`] with overwrite semantics:
+/// `rows[j] = sum_t coeffs[t][j] * src[t]`.
 ///
 /// # Panics
 /// As [`mul_add_matrix_avx512_with`].
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_into_matrix_avx512_with<C: MapCoeff, M: Matrix<C> + ?Sized>(
+pub fn mul_into_matrix_avx512_with<M: Matrix<Prepared> + ?Sized>(
     _token: archmage::X64V4xToken,
     rows: &mut [u8],
     row_len: usize,
@@ -186,7 +101,7 @@ pub fn mul_into_matrix_avx512_with<C: MapCoeff, M: Matrix<C> + ?Sized>(
     if row_len == 0 || nrows == 0 {
         return;
     }
-    mul_add_matrix_impl::<C, M, true>(rows, row_len, nrows, terms);
+    mul_add_matrix_impl::<M, true>(rows, row_len, nrows, terms);
 }
 
 /// Provider-generic matrix walk shared by the 512-bit matrix entries.
@@ -198,36 +113,36 @@ pub fn mul_into_matrix_avx512_with<C: MapCoeff, M: Matrix<C> + ?Sized>(
 /// blocks start aligned in every row whose pitch is a multiple of 64.
 /// Otherwise the row groups run over whole rows.
 #[archmage::rite(v4x, import_intrinsics)]
-fn mul_add_matrix_impl<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+fn mul_add_matrix_impl<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
     terms: &M,
 ) {
     if row_len < MATRIX_RESOLVE_MIN {
-        matrix_block::<C, M, OVERWRITE, true>(rows, row_len, 0, row_len, nrows, terms);
+        matrix_block::<M, OVERWRITE, true>(rows, row_len, 0, row_len, nrows, terms);
         return;
     }
-    matrix_long::<C, M, OVERWRITE>(rows, row_len, nrows, terms);
+    matrix_long::<M, OVERWRITE>(rows, row_len, nrows, terms);
 }
 
 /// Column-blocked or whole-row resolved matrix walk.
 #[archmage::rite(v4x, import_intrinsics)]
 #[inline(never)]
-fn matrix_long<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+fn matrix_long<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
     rows: &mut [u8],
     row_len: usize,
     nrows: usize,
     terms: &M,
 ) {
     if !column_blocked(nrows, row_len) {
-        matrix_block::<C, M, OVERWRITE, false>(rows, row_len, 0, row_len, nrows, terms);
+        matrix_block::<M, OVERWRITE, false>(rows, row_len, 0, row_len, nrows, terms);
         return;
     }
     let head = aligned_head(rows.as_ptr(), row_len);
     for (start, len) in column_blocks(row_len, head) {
         let window = ColumnWindow::new(terms, start, len);
-        matrix_block::<C, _, OVERWRITE, false>(rows, row_len, start, len, nrows, &window);
+        matrix_block::<_, OVERWRITE, false>(rows, row_len, start, len, nrows, &window);
     }
 }
 
@@ -247,7 +162,7 @@ fn aligned_head(first: *const u8, pitch: usize) -> usize {
 /// sit `pitch` bytes apart, against sources that span the block.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn matrix_block<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const DIRECT: bool>(
+fn matrix_block<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool, const DIRECT: bool>(
     rows: &mut [u8],
     pitch: usize,
     block_start: usize,
@@ -281,7 +196,7 @@ fn matrix_block<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const
                 base.add((g + 3) * pitch + block_start),
             ]
         };
-        matrix_rows4::<C, M, OVERWRITE, DIRECT>(ptrs, block_len, g, terms);
+        matrix_rows4::<M, OVERWRITE, DIRECT>(ptrs, block_len, g, terms);
         g += 4;
     }
     if g + 2 <= nrows {
@@ -302,7 +217,7 @@ fn matrix_block<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const
                 base.add((g + 1) * pitch + block_start),
             ]
         };
-        matrix_rows2::<C, M, OVERWRITE, DIRECT>(ptrs, block_len, g, terms);
+        matrix_rows2::<M, OVERWRITE, DIRECT>(ptrs, block_len, g, terms);
         g += 2;
     }
     if g < nrows {
@@ -312,13 +227,13 @@ fn matrix_block<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const
         // THUS: the staged pointer addresses an in-bounds, whole block of its
         //       row.
         let ptr = unsafe { base.add(g * pitch + block_start) };
-        matrix_rows1::<C, M, OVERWRITE, DIRECT>(ptr, block_len, g, terms);
+        matrix_rows1::<M, OVERWRITE, DIRECT>(ptr, block_len, g, terms);
     }
 }
 
 /// Provider-generic four-row fold.
 #[archmage::rite(v4x, import_intrinsics)]
-fn matrix_rows4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const DIRECT: bool>(
+fn matrix_rows4<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool, const DIRECT: bool>(
     ptrs: [*mut u8; 4],
     row_len: usize,
     g: usize,
@@ -334,29 +249,29 @@ fn matrix_rows4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const
         0
     };
     if head > 0 {
-        matrix_tail::<C, M, OVERWRITE>(&ptrs, head, 0, g, terms);
+        matrix_tail::<M, OVERWRITE>(&ptrs, head, 0, g, terms);
     }
     let vector_len = row_len & !63;
     let tile = if DIRECT {
         let mut tile = head;
         while tile + 256 <= vector_len {
-            rows_tile4::<C, M, OVERWRITE>(ptrs, tile, g, terms);
+            rows_tile4::<M, OVERWRITE>(ptrs, tile, g, terms);
             tile += 256;
         }
         while tile + 64 <= vector_len {
-            rows_lane4::<C, M, OVERWRITE>(ptrs, tile, g, terms);
+            rows_lane4::<M, OVERWRITE>(ptrs, tile, g, terms);
             tile += 64;
         }
         tile
     } else {
-        rows_resolved::<C, M, 4, OVERWRITE>(ptrs, head, vector_len, g, terms)
+        rows_resolved::<M, 4, OVERWRITE>(ptrs, head, vector_len, g, terms)
     };
-    matrix_tail::<C, M, OVERWRITE>(&ptrs, row_len, tile, g, terms);
+    matrix_tail::<M, OVERWRITE>(&ptrs, row_len, tile, g, terms);
 }
 
 /// Provider-generic two-row fold.
 #[archmage::rite(v4x, import_intrinsics)]
-fn matrix_rows2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const DIRECT: bool>(
+fn matrix_rows2<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool, const DIRECT: bool>(
     ptrs: [*mut u8; 2],
     row_len: usize,
     g: usize,
@@ -372,30 +287,30 @@ fn matrix_rows2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const
         0
     };
     if head > 0 {
-        matrix_tail::<C, M, OVERWRITE>(&ptrs, head, 0, g, terms);
+        matrix_tail::<M, OVERWRITE>(&ptrs, head, 0, g, terms);
     }
     let vector_len = row_len & !63;
     let tile = if DIRECT {
         let mut tile = head;
         while tile + 256 <= vector_len {
-            rows_tile2::<C, M, OVERWRITE>(ptrs, tile, g, terms);
+            rows_tile2::<M, OVERWRITE>(ptrs, tile, g, terms);
             tile += 256;
         }
         while tile + 64 <= vector_len {
-            rows_lane2::<C, M, OVERWRITE>(ptrs, tile, g, terms);
+            rows_lane2::<M, OVERWRITE>(ptrs, tile, g, terms);
             tile += 64;
         }
         tile
     } else {
-        rows_resolved::<C, M, 2, OVERWRITE>(ptrs, head, vector_len, g, terms)
+        rows_resolved::<M, 2, OVERWRITE>(ptrs, head, vector_len, g, terms)
     };
-    matrix_tail::<C, M, OVERWRITE>(&ptrs, row_len, tile, g, terms);
+    matrix_tail::<M, OVERWRITE>(&ptrs, row_len, tile, g, terms);
 }
 
 /// Provider-generic one-row fold.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn matrix_rows1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const DIRECT: bool>(
+fn matrix_rows1<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool, const DIRECT: bool>(
     ptr: *mut u8,
     row_len: usize,
     g: usize,
@@ -408,22 +323,22 @@ fn matrix_rows1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const
         0
     };
     if head > 0 {
-        matrix_tail::<C, M, OVERWRITE>(&[ptr], head, 0, g, terms);
+        matrix_tail::<M, OVERWRITE>(&[ptr], head, 0, g, terms);
     }
     let vector_len = row_len & !63;
     let tile = if DIRECT {
         let mut tile = head;
         while tile + 256 <= vector_len {
-            rows_tile1::<C, M, OVERWRITE>(ptr, tile, g, terms);
+            rows_tile1::<M, OVERWRITE>(ptr, tile, g, terms);
             tile += 256;
         }
         while tile + 64 <= vector_len {
-            rows_lane1::<C, M, OVERWRITE>(ptr, tile, g, terms);
+            rows_lane1::<M, OVERWRITE>(ptr, tile, g, terms);
             tile += 64;
         }
         tile
     } else {
-        rows_resolved::<C, M, 1, OVERWRITE>([ptr], head, vector_len, g, terms)
+        rows_resolved::<M, 1, OVERWRITE>([ptr], head, vector_len, g, terms)
     };
     // SAFETY:
     // MEMORY VALIDITY
@@ -436,14 +351,9 @@ fn matrix_rows1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const
         tail.fill(0);
     }
     for term in 0..terms.len() {
-        let coeff = *terms.coefficient(term, g);
-        if !C::is_zero(coeff) {
-            mul_add_gfni_8d_impl(
-                tail,
-                C::map(coeff),
-                C::table(coeff),
-                &terms.source(term)[tile..],
-            );
+        let coeff = terms.coefficient(term, g);
+        if !coeff.is_zero() {
+            brem_half_avx512(tail, coeff, &terms.source(term)[tile..]);
         }
     }
 }
@@ -451,7 +361,7 @@ fn matrix_rows1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool, const
 /// Provider-generic four-row tile.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn rows_tile4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+fn rows_tile4<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
     ptrs: [*mut u8; 4],
     tile: usize,
     g: usize,
@@ -482,10 +392,10 @@ fn rows_tile4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
         }
         for term in 0..terms.len() {
             let maps = [
-                C::map(*terms.coefficient(term, g)),
-                C::map(*terms.coefficient(term, g + 1)),
-                C::map(*terms.coefficient(term, g + 2)),
-                C::map(*terms.coefficient(term, g + 3)),
+                terms.coefficient(term, g).affine,
+                terms.coefficient(term, g + 1).affine,
+                terms.coefficient(term, g + 2).affine,
+                terms.coefficient(term, g + 3).affine,
             ];
             let f = [
                 bfactor_avx512(maps[0]),
@@ -522,7 +432,7 @@ fn rows_tile4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
 /// Provider-generic four-row lane.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn rows_lane4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+fn rows_lane4<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
     ptrs: [*mut u8; 4],
     tile: usize,
     g: usize,
@@ -553,7 +463,7 @@ fn rows_lane4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
             let (s, _) = src[tile..tile + 64].as_chunks::<64>();
             let x = _mm512_loadu_si512(&s[0]);
             for (row, slot) in acc.iter_mut().enumerate() {
-                let map = C::map(*terms.coefficient(term, g + row));
+                let map = terms.coefficient(term, g + row).affine;
                 *slot = _mm512_xor_si512(*slot, bmul_avx512(x, bfactor_avx512(map)));
             }
         }
@@ -570,7 +480,7 @@ fn rows_lane4<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
 /// Provider-generic two-row tile.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn rows_tile2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+fn rows_tile2<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
     ptrs: [*mut u8; 2],
     tile: usize,
     g: usize,
@@ -601,8 +511,8 @@ fn rows_tile2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
         }
         for term in 0..terms.len() {
             let maps = [
-                C::map(*terms.coefficient(term, g)),
-                C::map(*terms.coefficient(term, g + 1)),
+                terms.coefficient(term, g).affine,
+                terms.coefficient(term, g + 1).affine,
             ];
             let f = [bfactor_avx512(maps[0]), bfactor_avx512(maps[1])];
             let src = terms.source(term);
@@ -634,7 +544,7 @@ fn rows_tile2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
 /// Provider-generic two-row lane.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn rows_lane2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+fn rows_lane2<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
     ptrs: [*mut u8; 2],
     tile: usize,
     g: usize,
@@ -665,7 +575,7 @@ fn rows_lane2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
             let (s, _) = src[tile..tile + 64].as_chunks::<64>();
             let x = _mm512_loadu_si512(&s[0]);
             for (row, slot) in acc.iter_mut().enumerate() {
-                let map = C::map(*terms.coefficient(term, g + row));
+                let map = terms.coefficient(term, g + row).affine;
                 *slot = _mm512_xor_si512(*slot, bmul_avx512(x, bfactor_avx512(map)));
             }
         }
@@ -682,7 +592,7 @@ fn rows_lane2<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
 /// One row by one 256-byte tile.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn rows_tile1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+fn rows_tile1<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
     ptr: *mut u8,
     tile: usize,
     g: usize,
@@ -710,7 +620,7 @@ fn rows_tile1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
             }
         }
         for term in 0..terms.len() {
-            let factor = bfactor_avx512(C::map(*terms.coefficient(term, g)));
+            let factor = bfactor_avx512(terms.coefficient(term, g).affine);
             let src = terms.source(term);
             let (s, _) = src[tile..tile + 256].as_chunks::<64>();
             acc[0] = _mm512_xor_si512(acc[0], bmul_avx512(_mm512_loadu_si512(&s[0]), factor));
@@ -731,7 +641,7 @@ fn rows_tile1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
 /// One row by one 64-byte lane.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn rows_lane1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+fn rows_lane1<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
     ptr: *mut u8,
     tile: usize,
     g: usize,
@@ -756,7 +666,7 @@ fn rows_lane1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
             }
         }
         for term in 0..terms.len() {
-            let factor = bfactor_avx512(C::map(*terms.coefficient(term, g)));
+            let factor = bfactor_avx512(terms.coefficient(term, g).affine);
             let src = terms.source(term);
             let (s, _) = src[tile..tile + 64].as_chunks::<64>();
             acc = _mm512_xor_si512(acc, bmul_avx512(_mm512_loadu_si512(&s[0]), factor));
@@ -778,7 +688,7 @@ fn rows_lane1<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
 /// `head <= vector_len`.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn rows_resolved<C: MapCoeff, M: Matrix<C> + ?Sized, const ROWS: usize, const OVERWRITE: bool>(
+fn rows_resolved<M: Matrix<Prepared> + ?Sized, const ROWS: usize, const OVERWRITE: bool>(
     ptrs: [*mut u8; ROWS],
     head: usize,
     vector_len: usize,
@@ -813,7 +723,7 @@ fn rows_resolved<C: MapCoeff, M: Matrix<C> + ?Sized, const ROWS: usize, const OV
             let term = start + offset;
             let mut words = [0u64; ROWS];
             for (row, word) in words.iter_mut().enumerate() {
-                *word = C::map(*terms.coefficient(term, g + row));
+                *word = terms.coefficient(term, g + row).affine;
             }
             maps[offset].write(words);
             // The body reads the staged slice without bounds checks, so the
@@ -1058,7 +968,7 @@ fn rows_body<const ROWS: usize, const OVERWRITE: bool>(
 /// tail borrow is live at a time.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn matrix_tail<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
+fn matrix_tail<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
     ptrs: &[*mut u8],
     row_len: usize,
     tile: usize,
@@ -1086,14 +996,9 @@ fn matrix_tail<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
             tail.fill(0);
         }
         for term in 0..terms.len() {
-            let coeff = *terms.coefficient(term, g + slot);
-            if !C::is_zero(coeff) {
-                mul_add_gfni_8d_impl(
-                    tail,
-                    C::map(coeff),
-                    C::table(coeff),
-                    &terms.source(term)[tile..row_len],
-                );
+            let coeff = terms.coefficient(term, g + slot);
+            if !coeff.is_zero() {
+                brem_half_avx512(tail, coeff, &terms.source(term)[tile..row_len]);
             }
         }
     }
@@ -1103,63 +1008,57 @@ fn matrix_tail<C: MapCoeff, M: Matrix<C> + ?Sized, const OVERWRITE: bool>(
 // Scattered rows (`_at`): destination rows at explicit offsets.
 // ---------------------------------------------------------------------------
 
-/// [`mul_add_matrix_avx512`] with destination rows at explicit offsets.
+/// [`mul_add_matrix_avx512_with`] with destination rows at explicit offsets.
 ///
 /// # Panics
 /// Panics unless every `row_starts[j] + row_len <= dst.len()`, the rows are
-/// pairwise disjoint, and every term supplies `row_starts.len()`
-/// coefficients for a `row_len`-byte source.
+/// pairwise disjoint, and every term supplies a `row_len`-byte source.
+/// Coefficient counts per term are the provider's contract.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_at_avx512<C: MapCoeff>(
+pub fn mul_add_matrix_at_avx512_with<M: Matrix<Prepared> + ?Sized>(
     _token: archmage::X64V4xToken,
     dst: &mut [u8],
     row_len: usize,
     row_starts: &[usize],
-    terms: &[(&[C], &[u8])],
+    terms: &M,
 ) {
     check_scattered("mul_add_matrix_at_avx512", dst.len(), row_len, row_starts);
-    for (t, (coeffs, src)) in terms.iter().enumerate() {
+    for term in 0..terms.len() {
         assert_eq!(
-            coeffs.len(),
-            row_starts.len(),
-            "mul_add_matrix_at_avx512: term {t} needs {} coefficients",
-            row_starts.len()
-        );
-        assert_eq!(
-            src.len(),
+            terms.source(term).len(),
             row_len,
-            "mul_add_matrix_at_avx512: term {t} source must span one row"
+            "mul_add_matrix_at_avx512: term {term} source must span one row"
         );
     }
-    if terms.is_empty() || row_starts.is_empty() {
+    if terms.len() == 0 || row_starts.is_empty() {
         return;
     }
-    mul_add_matrix_at_impl(dst, row_len, row_starts, terms);
+    mul_add_matrix_at_impl::<M>(dst, row_len, row_starts, terms);
 }
 
 /// Scattered matrix walk: the same column blocking as
 /// [`mul_add_matrix_impl`], with each row starting at an arbitrary disjoint
 /// offset and the first block aligning the first row.
 #[archmage::rite(v4x, import_intrinsics)]
-fn mul_add_matrix_at_impl<C: MapCoeff>(
+fn mul_add_matrix_at_impl<M: Matrix<Prepared> + ?Sized>(
     dst: &mut [u8],
     row_len: usize,
     row_starts: &[usize],
-    terms: &[(&[C], &[u8])],
+    terms: &M,
 ) {
     if row_len < MATRIX_RESOLVE_MIN {
-        matrix_at_block::<C, [(&[C], &[u8])], true>(dst, row_len, 0, row_len, row_starts, terms);
+        matrix_at_block::<M, true>(dst, row_len, 0, row_len, row_starts, terms);
         return;
     }
     if !column_blocked(row_starts.len(), row_len) {
-        matrix_at_block::<C, [(&[C], &[u8])], false>(dst, row_len, 0, row_len, row_starts, terms);
+        matrix_at_block::<M, false>(dst, row_len, 0, row_len, row_starts, terms);
         return;
     }
     let head = aligned_head(dst.as_ptr().wrapping_add(row_starts[0]), row_len);
     for (start, len) in column_blocks(row_len, head) {
         let window = ColumnWindow::new(terms, start, len);
-        matrix_at_block::<C, _, false>(dst, row_len, start, len, row_starts, &window);
+        matrix_at_block::<_, false>(dst, row_len, start, len, row_starts, &window);
     }
 }
 
@@ -1171,7 +1070,7 @@ fn mul_add_matrix_at_impl<C: MapCoeff>(
 /// in-bounds and pairwise disjoint, which no safe primitive expresses.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn matrix_at_block<C: MapCoeff, M: Matrix<C> + ?Sized, const DIRECT: bool>(
+fn matrix_at_block<M: Matrix<Prepared> + ?Sized, const DIRECT: bool>(
     dst: &mut [u8],
     row_len: usize,
     block_start: usize,
@@ -1203,7 +1102,7 @@ fn matrix_at_block<C: MapCoeff, M: Matrix<C> + ?Sized, const DIRECT: bool>(
                 base.add(row_starts[g + 3] + block_start),
             ]
         };
-        matrix_rows4::<C, M, false, DIRECT>(ptrs, block_len, g, terms);
+        matrix_rows4::<M, false, DIRECT>(ptrs, block_len, g, terms);
         g += 4;
     }
     if g + 2 <= nrows {
@@ -1224,7 +1123,7 @@ fn matrix_at_block<C: MapCoeff, M: Matrix<C> + ?Sized, const DIRECT: bool>(
                 base.add(row_starts[g + 1] + block_start),
             ]
         };
-        matrix_rows2::<C, M, false, DIRECT>(ptrs, block_len, g, terms);
+        matrix_rows2::<M, false, DIRECT>(ptrs, block_len, g, terms);
         g += 2;
     }
     if g < nrows {
@@ -1234,83 +1133,6 @@ fn matrix_at_block<C: MapCoeff, M: Matrix<C> + ?Sized, const DIRECT: bool>(
         // THUS: the staged pointer addresses an in-bounds, whole block of its
         //       row.
         let ptr = unsafe { base.add(row_starts[g] + block_start) };
-        matrix_rows1::<C, M, false, DIRECT>(ptr, block_len, g, terms);
+        matrix_rows1::<M, false, DIRECT>(ptr, block_len, g, terms);
     }
-}
-
-/// A row-major coefficient matrix over already-prepared coefficients, in the
-/// same term-major order a [`crate::ops::CoeffMatrix`] stores: index
-/// `term * nrows + row`.
-#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
-struct PreparedMatrix<'a> {
-    /// Prepared coefficients, `terms * nrows` entries.
-    prepared: &'a [crate::kernel::gf8::Prepared8D],
-    /// Destination row count.
-    nrows: usize,
-    /// Source buffer of each term.
-    sources: &'a [&'a [u8]],
-}
-
-#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
-impl crate::kernel::Matrix<crate::kernel::gf8::Prepared8D> for PreparedMatrix<'_> {
-    #[inline]
-    fn len(&self) -> usize {
-        self.sources.len()
-    }
-    #[inline]
-    fn coefficient(&self, term: usize, row: usize) -> &crate::kernel::gf8::Prepared8D {
-        &self.prepared[term * self.nrows + row]
-    }
-    #[inline]
-    fn source(&self, term: usize) -> &[u8] {
-        self.sources[term]
-    }
-}
-
-/// [`mul_add_matrix_gfni_8d_with`](super::super::mul_add_matrix_gfni_8d_with) over prepared
-/// coefficients: the tile loop reads each term's stored affine map instead of
-/// re-deriving it per tile.
-///
-/// # Panics
-/// As [`mul_add_matrix_gfni_8d_with`](super::super::mul_add_matrix_gfni_8d_with).
-#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_add_matrix_avx512_8d_with(
-    _token: archmage::X64V4xToken,
-    rows: &mut [u8],
-    row_len: usize,
-    nrows: usize,
-    prepared: &[crate::kernel::gf8::Prepared8D],
-    srcs: &[&[u8]],
-) {
-    let terms = PreparedMatrix {
-        prepared,
-        nrows,
-        sources: srcs,
-    };
-    mul_add_matrix_avx512_with(_token, rows, row_len, nrows, &terms);
-}
-
-/// [`mul_add_matrix_avx512_8d_with`] with overwrite semantics.
-///
-/// # Panics
-/// As [`mul_add_matrix_avx512_8d_with`].
-#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
-#[allow(clippy::used_underscore_binding)]
-#[archmage::arcane(import_intrinsics)]
-pub fn mul_into_matrix_avx512_8d_with(
-    _token: archmage::X64V4xToken,
-    rows: &mut [u8],
-    row_len: usize,
-    nrows: usize,
-    prepared: &[crate::kernel::gf8::Prepared8D],
-    srcs: &[&[u8]],
-) {
-    let terms = PreparedMatrix {
-        prepared,
-        nrows,
-        sources: srcs,
-    };
-    mul_into_matrix_avx512_with(_token, rows, row_len, nrows, &terms);
 }

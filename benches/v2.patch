@@ -1,0 +1,3657 @@
+--- a/benches/compare.rs
++++ b/benches/compare.rs
+@@ -10,11 +10,24 @@
+ //! ```sh
+ //! just bench compare [--peel-diagnostic]
+ //! ```
++//!
++//! Every timing helper prints a machine record beside its human line:
++//! `SAMPLE\t{label}\t{logical_bytes}\t{ns_per_call:.9}` for region shapes
++//! and `SCALAR\t{label}\t{ns_per_scalar_op:.9}` for scalar element chains.
++//! Process entry prints `FIELD_BACKEND\t{label}\t{backend_name}` for every
++//! measured field — each field's own routing, not the process backend —
++//! plus the host's actual CPU affinity and scheduler policy. Each process
++//! times an unchanged byte-XOR control at start and end
++//! (`control byte xor start`, `control byte xor end`), so campaign drift is
++//! separable from field speed.
+ 
+ use std::hint::black_box;
+ use std::time::{Duration, Instant};
+ 
+-use fgf::{Gf8B, Gf8D, Gf16, backend, gf8b, gf8d, gf16, ops};
++use fgf::{
++    FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf8D, Gf16, Gf32, Gf64, Goldilocks, Mersenne31,
++    QuadMersenne31, backend, backend_for, gf16, gf8b, gf8d, ops,
++};
+ 
+ const BYTES: usize = 64 * 1024;
+ const SCALAR_ITERS: usize = 1 << 20;
+@@ -22,6 +35,14 @@
+ const DOT_LENGTHS: &[usize] = &[4 * 1024, 16 * 1024];
+ const ENCODE_SOURCES: usize = 10;
+ const ENCODE_ROWS: &[usize] = &[2, 4, 6];
++
++/// Target wall-clock duration of one sample batch: long enough that a short
++/// workload's batch sits above clock and scheduler jitter.
++const BATCH_TARGET_NS: f64 = 100_000.0;
++/// Upper bound on repetitions in one sample batch.
++const MAX_BATCH_REPS: u64 = 1 << 20;
++/// Logical byte count of the drift control's XOR pass.
++const CONTROL_BYTES: usize = 256 * 1024;
+ 
+ fn noise(len: usize, seed: u64) -> Vec<u8> {
+     let mut state = seed | 1;
+@@ -33,6 +54,81 @@
+             (state >> 33) as u8
+         })
+         .collect()
++}
++
++/// Repetitions per sample batch for a body whose calibration pass took
++/// `est_ns`: the batch grows to [`BATCH_TARGET_NS`] for short workloads and
++/// never drops below the helper's historical fixed batch.
++fn batch_reps(est_ns: f64, min_reps: u64) -> u64 {
++    ((BATCH_TARGET_NS / est_ns.max(1.0)).ceil() as u64).clamp(min_reps, MAX_BATCH_REPS)
++}
++
++/// The drift control: a plain byte XOR over black-boxed buffers. The body
++/// names no field code and is identical in every ported harness, so
++/// start/end movement measures the measurement environment, not a field.
++fn control_body(dst: &mut [u8], src: &[u8]) {
++    let dst = black_box(dst);
++    let src = black_box(src);
++    for (d, s) in dst.iter_mut().zip(src) {
++        *d ^= s;
++    }
++}
++
++/// The process's actual CPU affinity and scheduling policy, read from the
++/// kernel: every recorded run states where its numbers came from.
++fn print_host_lines() {
++    let status = std::fs::read_to_string("/proc/self/status").ok();
++    let cpus = status
++        .as_deref()
++        .and_then(|text| text.lines().find(|line| line.starts_with("Cpus_allowed_list:")))
++        .map(|line| line["Cpus_allowed_list:".len()..].trim().to_string());
++    // /proc/self/stat field 41 carries the scheduling policy number. The
++    // comm field may contain spaces and parentheses, so parsing starts
++    // after the last ')'; state is field 3, which puts policy at index 38.
++    let stat = std::fs::read_to_string("/proc/self/stat").ok();
++    let policy = stat.as_deref().and_then(|text| {
++        text.rsplit_once(')')?
++            .1
++            .split_whitespace()
++            .nth(38)
++            .and_then(|field| field.parse::<u32>().ok())
++    });
++    let policy_name = match policy {
++        Some(0) => "normal",
++        Some(1) => "fifo",
++        Some(2) => "rr",
++        Some(3) => "batch",
++        Some(5) => "idle",
++        Some(6) => "deadline",
++        Some(_) => "unknown",
++        None => "unavailable",
++    };
++    println!(
++        "HOST\tcpus_allowed_list={}\tsched_policy={} {policy_name}",
++        cpus.as_deref().unwrap_or("unavailable"),
++        policy.map_or("n/a".to_string(), |p| p.to_string()),
++    );
++}
++
++/// One `FIELD_BACKEND` record per measured field: where that field's bulk
++/// operations actually run in this process. Fields with narrower kernel
++/// routes report their own answer from `backend_for`, not the process
++/// backend.
++fn print_field_backends() {
++    fn field<F: fgf::FieldKernels>(label: &str) {
++        println!("FIELD_BACKEND\t{label}\t{}", backend_for::<F>().name());
++    }
++    field::<Gf8B>("gf8b");
++    field::<Gf8D>("gf8d");
++    field::<Gf16>("gf16b");
++    field::<Gf32>("gf32b");
++    field::<Gf64>("gf64b");
++    field::<FanPaar16>("fp16");
++    field::<FanPaar32>("fp32");
++    field::<FanPaar64>("fp64");
++    field::<Mersenne31>("m31");
++    field::<QuadMersenne31>("qm31");
++    field::<Goldilocks>("gld");
+ }
+ 
+ struct AlignedBuf {
+@@ -96,7 +192,7 @@
+         .map(gf8d::Elem::from_raw)
+         .collect();
+     println!("{len} B x {DOT_SOURCES} sources overwrite dot product (raw)");
+-    bench_region("fgf Gf8D mul_into_gather", len * DOT_SOURCES, || {
++    bench_region("fgf gf8d mul_into_gather", len * DOT_SOURCES, || {
+         ops::mul_into_gather::<Gf8D>(
+             black_box(dst_8d.as_mut_slice()),
+             &coeff_bytes,
+@@ -104,7 +200,7 @@
+         );
+     });
+     // Accumulate-form prepared gather: hits the `_with` default path.
+-    bench_region("fgf Gf8D mul_add_gather_with", len * DOT_SOURCES, || {
++    bench_region("fgf gf8d mul_add_gather_with", len * DOT_SOURCES, || {
+         ops::mul_add_gather_with::<Gf8D>(
+             black_box(dst_8d.as_mut_slice()),
+             prepared_8d.as_ref(),
+@@ -113,14 +209,14 @@
+     });
+     println!("{len} B x {DOT_SOURCES} sources overwrite dot product");
+     let logical_bytes = len * DOT_SOURCES;
+-    bench_region("fgf Gf8B mul_into_gather_with", logical_bytes, || {
++    bench_region("fgf gf8b mul_into_gather_with", logical_bytes, || {
+         ops::mul_into_gather_with::<Gf8B>(
+             black_box(dst_8b.as_mut_slice()),
+             prepared_8b.as_ref(),
+             black_box(&srcs),
+         );
+     });
+-    bench_region("fgf Gf8D mul_into_gather_with", logical_bytes, || {
++    bench_region("fgf gf8d mul_into_gather_with", logical_bytes, || {
+         ops::mul_into_gather_with::<Gf8D>(
+             black_box(dst_8d.as_mut_slice()),
+             prepared_8d.as_ref(),
+@@ -176,7 +272,7 @@
+     assert_eq!(
+         old_8b.as_slice(),
+         new_8b.as_slice(),
+-        "Gf8B matrix overwrite differs"
++        "gf8b matrix overwrite differs"
+     );
+ 
+     old_8d.as_mut_slice().fill(0);
+@@ -185,12 +281,12 @@
+     assert_eq!(
+         old_8d.as_slice(),
+         new_8d.as_slice(),
+-        "Gf8D matrix overwrite differs"
++        "gf8d matrix overwrite differs"
+     );
+ 
+     println!("{BYTES} B x {ENCODE_SOURCES} sources -> {nrows} rows encode");
+     let logical_bytes = BYTES * ENCODE_SOURCES;
+-    bench_region("fgf Gf8B fill + mul_add_matrix", logical_bytes, || {
++    bench_region("fgf gf8b fill + mul_add_matrix", logical_bytes, || {
+         old_8b.as_mut_slice().fill(0);
+         ops::mul_add_matrix::<Gf8B>(
+             black_box(old_8b.as_mut_slice()),
+@@ -199,7 +295,7 @@
+             black_box(&terms_8b),
+         );
+     });
+-    bench_region("fgf Gf8B mul_into_matrix", logical_bytes, || {
++    bench_region("fgf gf8b mul_into_matrix", logical_bytes, || {
+         ops::mul_into_matrix::<Gf8B>(
+             black_box(new_8b.as_mut_slice()),
+             BYTES,
+@@ -207,7 +303,7 @@
+             black_box(&terms_8b),
+         );
+     });
+-    bench_region("fgf Gf8D fill + mul_add_matrix", logical_bytes, || {
++    bench_region("fgf gf8d fill + mul_add_matrix", logical_bytes, || {
+         old_8d.as_mut_slice().fill(0);
+         ops::mul_add_matrix::<Gf8D>(
+             black_box(old_8d.as_mut_slice()),
+@@ -216,7 +312,7 @@
+             black_box(&terms_8d),
+         );
+     });
+-    bench_region("fgf Gf8D mul_into_matrix", logical_bytes, || {
++    bench_region("fgf gf8d mul_into_matrix", logical_bytes, || {
+         ops::mul_into_matrix::<Gf8D>(
+             black_box(new_8d.as_mut_slice()),
+             BYTES,
+@@ -237,16 +333,16 @@
+     assert_eq!(
+         new_8b.as_slice(),
+         with_8b.as_slice(),
+-        "Gf8B prepared overwrite differs"
++        "gf8b prepared overwrite differs"
+     );
+     at_8b.as_mut_slice().fill(0);
+     ops::mul_add_matrix_at::<Gf8B>(at_8b.as_mut_slice(), BYTES, &row_starts, &terms_8b);
+     assert_eq!(
+         new_8b.as_slice(),
+         at_8b.as_slice(),
+-        "Gf8B scattered rows differ"
+-    );
+-    bench_region("fgf Gf8B mul_into_matrix_with", logical_bytes, || {
++        "gf8b scattered rows differ"
++    );
++    bench_region("fgf gf8b mul_into_matrix_with", logical_bytes, || {
+         ops::mul_into_matrix_with::<Gf8B>(
+             black_box(with_8b.as_mut_slice()),
+             BYTES,
+@@ -254,7 +350,7 @@
+             black_box(&source_refs),
+         );
+     });
+-    bench_region("fgf Gf8B mul_add_matrix_with", logical_bytes, || {
++    bench_region("fgf gf8b mul_add_matrix_with", logical_bytes, || {
+         ops::mul_add_matrix_with::<Gf8B>(
+             black_box(with_8b.as_mut_slice()),
+             BYTES,
+@@ -262,7 +358,7 @@
+             black_box(&source_refs),
+         );
+     });
+-    bench_region("fgf Gf8B mul_add_matrix_at", logical_bytes, || {
++    bench_region("fgf gf8b mul_add_matrix_at", logical_bytes, || {
+         ops::mul_add_matrix_at::<Gf8B>(
+             black_box(at_8b.as_mut_slice()),
+             BYTES,
+@@ -290,19 +386,31 @@
+     for _ in 0..16 {
+         body();
+     }
++    // One calibration call sizes every sample batch: short workloads run
++    // enough repetitions to sit above clock and scheduler jitter, long
++    // workloads keep the historical fixed batch.
++    let reps = batch_reps(
++        {
++            let start = Instant::now();
++            body();
++            start.elapsed().as_secs_f64() * 1e9
++        },
++        32,
++    );
+     let mut samples = Vec::with_capacity(64);
+     let deadline = Instant::now() + Duration::from_millis(250);
+     while Instant::now() < deadline && samples.len() < 64 {
+         let start = Instant::now();
+-        for _ in 0..32 {
++        for _ in 0..reps {
+             body();
+         }
+-        samples.push(start.elapsed().as_secs_f64() * 1e9 / 32.0);
++        samples.push(start.elapsed().as_secs_f64() * 1e9 / reps as f64);
+     }
+     samples.sort_unstable_by(f64::total_cmp);
+     let median = samples[samples.len() / 2];
+     let gib = bytes as f64 / (median / 1e9) / (1024.0 * 1024.0 * 1024.0);
+     println!("  {label:<44} {:>9}  {gib:>7.2} GiB/s", fmt_ns(median));
++    println!("SAMPLE\t{label}\t{bytes}\t{median:.9}");
+ }
+ 
+ /// Fixed batches amortize the clock call when comparing peel variants.
+@@ -310,18 +418,27 @@
+     for _ in 0..64 {
+         body();
+     }
++    let reps = batch_reps(
++        {
++            let start = Instant::now();
++            body();
++            start.elapsed().as_secs_f64() * 1e9
++        },
++        512,
++    );
+     let mut samples = [0.0; 64];
+     for sample in &mut samples {
+         let start = Instant::now();
+-        for _ in 0..512 {
++        for _ in 0..reps {
+             body();
+         }
+-        *sample = start.elapsed().as_secs_f64() * 1e9 / 512.0;
++        *sample = start.elapsed().as_secs_f64() * 1e9 / reps as f64;
+     }
+     samples.sort_unstable_by(f64::total_cmp);
+     let median = samples[samples.len() / 2];
+     let gib = bytes as f64 / (median / 1e9) / (1024.0 * 1024.0 * 1024.0);
+     println!("  {label:<44} {:>9}  {gib:>7.2} GiB/s", fmt_ns(median));
++    println!("SAMPLE\t{label}\t{bytes}\t{median:.9}");
+ }
+ 
+ fn bench_scalar(label: &str, mut body: impl FnMut()) {
+@@ -340,9 +457,10 @@
+     let ns = median.as_secs_f64() * 1e9 / SCALAR_ITERS as f64;
+     let mops = SCALAR_ITERS as f64 / median.as_secs_f64() / 1e6;
+     println!("  {label:<44} {ns:>9.2} ns/op  {mops:>7.2} Mops/s");
+-}
+-
+-/// Offset-sweep probe for the 512-bit alignment question: the same Gf8D
++    println!("SCALAR\t{label}\t{ns:.9}");
++}
++
++/// Offset-sweep probe for the 512-bit alignment question: the same gf8d
+ /// `mul_add` region with destination/source buffer bases shifted by
+ /// `OFF mod 64`. Buffer bases are 64-byte aligned (`AlignedBuf`), so the
+ /// offset is exact. Glibc-sized allocations land 16 mod 64 in practice; the
+@@ -352,16 +470,16 @@
+     let c = gf8d::Elem::from_raw(0x53);
+     let backing_src = AlignedBuf::noise(LEN + 64, 0x700);
+     let mut backing_dst = AlignedBuf::noise(LEN + 64, 0x701);
+-    println!("Gf8D mul_add 16 KiB destination offset sweep (dst/src shift mod 64)");
++    println!("gf8d mul_add 16 KiB destination offset sweep (dst/src shift mod 64)");
+     for &off in &[0usize, 16, 32, 48] {
+         let src = &backing_src.as_slice()[off..off + LEN];
+         let dst = &mut backing_dst.as_mut_slice()[off..off + LEN];
+-        bench_region(&format!("w8d mul_add off={off}"), LEN, || {
++        bench_region(&format!("gf8d mul_add off={off}"), LEN, || {
+             ops::mul_add::<Gf8D>(black_box(dst), c, black_box(src));
+         });
+     }
+ 
+-    // Prepared scatter: raw values vs stored maps through the plan.
++    // Prepared scatter: raw values vs prepared coefficients through the plan.
+     {
+         let nrows = 4usize;
+         let row_len = 16384usize;
+@@ -393,13 +511,15 @@
+ /// Misaligned (16 mod 64) and aligned rows on both sides of each 64-byte
+ /// peel floor: four-row scatter, sixteen-source gather, and a ten-source
+ /// four-row matrix. Rows, sources, and destinations share the offset.
++// Term geometry nests the element spelling; the slices stay slices.
++#[allow(clippy::type_complexity)]
+ fn bench_peel_floors() {
+     const SCATTER_ROWS: usize = 4;
+     const GATHER_SOURCES: usize = 16;
+     const MATRIX_TERMS: usize = 10;
+     const MATRIX_ROWS: usize = 4;
+     let coeff = |i: usize| gf8d::Elem::from_raw((1 + (i * 97 + 13) % 255) as u8);
+-    println!("Gf8D peel floor sweep (row bytes, base offset mod 64)");
++    println!("gf8d peel floor sweep (row bytes, base offset mod 64)");
+     for &off in &[16usize, 0] {
+         for &len in &[256usize, 512, 1024, 2048, 3072, 4096, 8192, 16384] {
+             let src = AlignedBuf::noise(len + 64, 0x710);
+@@ -470,6 +590,29 @@
+ 
+ fn main() {
+     println!("fgf — backend: {}", backend().name());
++    print_host_lines();
++    print_field_backends();
++    println!("control byte xor — drift check:");
++    let control_src = noise(CONTROL_BYTES, 0x57a7);
++    let mut control_dst = noise(CONTROL_BYTES, 0x57a8);
++    bench_region(
++        "control byte xor start",
++        CONTROL_BYTES,
++        || control_body(&mut control_dst, &control_src),
++    );
++    run_panels();
++    println!("control byte xor — drift check:");
++    bench_region(
++        "control byte xor end",
++        CONTROL_BYTES,
++        || control_body(&mut control_dst, &control_src),
++    );
++}
++
++/// Every panel, behind `main`'s drift controls. The `--peel-diagnostic`
++/// flag returns early and only skips the remaining panels, never the end
++/// control.
++fn run_panels() {
+     if std::env::args().any(|arg| arg == "--peel-diagnostic") {
+         bench_peel_floors();
+         return;
+@@ -481,23 +624,23 @@
+     let src16 = AlignedBuf::noise(BYTES, 0x602);
+     let mut dst16 = AlignedBuf::noise(BYTES, 0x603);
+ 
+-    // w8
++    // gf8b
+     let c8 = gf8b::Elem::from_raw(0x53);
+-    bench_scalar("w8 scalar mul", || {
++    bench_scalar("gf8b scalar mul", || {
+         let mut x = gf8b::Elem::from_raw(0xA5);
+         for i in 0..SCALAR_ITERS {
+             x = black_box(x).mul(gf8b::Elem::from_raw((0x53u8).wrapping_add(i as u8)));
+         }
+         black_box(x);
+     });
+-    bench_region("w8 mul_add (dst ^= c*src)", BYTES, || {
++    bench_region("gf8b mul_add (dst ^= c*src)", BYTES, || {
+         ops::mul_add::<Gf8B>(
+             black_box(dst8.as_mut_slice()),
+             c8,
+             black_box(src8.as_slice()),
+         );
+     });
+-    bench_region("w8 mul_into (dst = c*src)", BYTES, || {
++    bench_region("gf8b mul_into (dst = c*src)", BYTES, || {
+         ops::mul_into::<Gf8B>(
+             black_box(dst8.as_mut_slice()),
+             c8,
+@@ -507,21 +650,21 @@
+ 
+     // Bit-compatible GF(2^8)/0x11D used by ISA-L and klauspost/reedsolomon.
+     let c8d = gf8d::Elem::from_raw(0x53);
+-    bench_scalar("w8d scalar mul", || {
++    bench_scalar("gf8d scalar mul", || {
+         let mut x = gf8d::Elem::from_raw(0xA5);
+         for i in 0..SCALAR_ITERS {
+             x = black_box(x).mul(gf8d::Elem::from_raw((0x53u8).wrapping_add(i as u8)));
+         }
+         black_box(x);
+     });
+-    bench_region("w8d mul_add (dst ^= c*src)", BYTES, || {
++    bench_region("gf8d mul_add (dst ^= c*src)", BYTES, || {
+         ops::mul_add::<Gf8D>(
+             black_box(dst8.as_mut_slice()),
+             c8d,
+             black_box(src8.as_slice()),
+         );
+     });
+-    bench_region("w8d mul_into (dst = c*src)", BYTES, || {
++    bench_region("gf8d mul_into (dst = c*src)", BYTES, || {
+         ops::mul_into::<Gf8D>(
+             black_box(dst8.as_mut_slice()),
+             c8d,
+@@ -529,14 +672,14 @@
+         );
+     });
+ 
+-    // In-place scale sweep: the V4x-unconditional question for Gf8B.
++    // In-place scale sweep: the V4x-unconditional question for gf8b.
+     for &len in &[4096usize, 16384, 65536, 262144, 1048576] {
+         let mut dst = AlignedBuf::noise(len, 0x610 + len as u64);
+-        bench_region(&format!("w8 assign {len}B"), len, || {
++        bench_region(&format!("gf8b assign {len}B"), len, || {
+             ops::mul_assign::<Gf8B>(black_box(dst.as_mut_slice()), c8);
+         });
+         let mut dst = AlignedBuf::noise(len, 0x620 + len as u64);
+-        bench_region(&format!("w8d assign {len}B"), len, || {
++        bench_region(&format!("gf8d assign {len}B"), len, || {
+             ops::mul_assign::<Gf8D>(black_box(dst.as_mut_slice()), c8d);
+         });
+     }
+@@ -544,7 +687,7 @@
+     {
+         let src4 = AlignedBuf::noise(4 * 1024 * 1024, 0x604);
+         let mut dst4 = AlignedBuf::noise(4 * 1024 * 1024, 0x605);
+-        bench_region("w8d mul_into 4MiB (dst = c*src)", 4 * 1024 * 1024, || {
++        bench_region("gf8d mul_into 4MiB (dst = c*src)", 4 * 1024 * 1024, || {
+             ops::mul_into::<Gf8D>(
+                 black_box(dst4.as_mut_slice()),
+                 c8d,
+@@ -553,33 +696,33 @@
+         });
+     }
+ 
+-    // Elementwise products, both byte fields and both forms. `Gf8D`
++    // Elementwise products, both byte fields and both forms. gf8d
+     // conjugates `GF2P8MULB` by the field isomorphism on GFNI tiers.
+     {
+         let a = AlignedBuf::noise(BYTES, 0x606);
+         let b = AlignedBuf::noise(BYTES, 0x607);
+         let mut dst = AlignedBuf::noise(BYTES, 0x608);
+-        bench_region("w8d elementwise (dst = a*b)", BYTES, || {
++        bench_region("gf8d elementwise (dst = a*b)", BYTES, || {
+             ops::mul_elementwise::<Gf8D>(
+                 black_box(dst.as_mut_slice()),
+                 black_box(a.as_slice()),
+                 black_box(b.as_slice()),
+             );
+         });
+-        bench_region("w8d elementwise assign (dst *= src)", BYTES, || {
++        bench_region("gf8d elementwise assign (dst *= src)", BYTES, || {
+             ops::mul_elementwise_assign::<Gf8D>(
+                 black_box(dst.as_mut_slice()),
+                 black_box(b.as_slice()),
+             );
+         });
+-        bench_region("w8 elementwise (dst = a*b)", BYTES, || {
++        bench_region("gf8b elementwise (dst = a*b)", BYTES, || {
+             ops::mul_elementwise::<Gf8B>(
+                 black_box(dst.as_mut_slice()),
+                 black_box(a.as_slice()),
+                 black_box(b.as_slice()),
+             );
+         });
+-        bench_region("w8 elementwise assign (dst *= src)", BYTES, || {
++        bench_region("gf8b elementwise assign (dst *= src)", BYTES, || {
+             ops::mul_elementwise_assign::<Gf8B>(
+                 black_box(dst.as_mut_slice()),
+                 black_box(b.as_slice()),
+@@ -587,23 +730,23 @@
+         });
+     }
+ 
+-    // w16
++    // gf16b
+     let c16 = gf16::Elem::from_raw(0x53A7);
+-    bench_scalar("w16 scalar mul", || {
++    bench_scalar("gf16b scalar mul", || {
+         let mut x = gf16::Elem::from_raw(0x1234);
+         for i in 0..SCALAR_ITERS {
+             x = black_box(x).mul(gf16::Elem::from_raw((0x53A7u16).wrapping_add(i as u16)));
+         }
+         black_box(x);
+     });
+-    bench_region("w16 mul_add (dst ^= c*src)", BYTES, || {
++    bench_region("gf16b mul_add (dst ^= c*src)", BYTES, || {
+         ops::mul_add::<Gf16>(
+             black_box(dst16.as_mut_slice()),
+             c16,
+             black_box(src16.as_slice()),
+         );
+     });
+-    bench_region("w16 mul_into (dst = c*src)", BYTES, || {
++    bench_region("gf16b mul_into (dst = c*src)", BYTES, || {
+         ops::mul_into::<Gf16>(
+             black_box(dst16.as_mut_slice()),
+             c16,
+--- a/benches/kernels.rs
++++ b/benches/kernels.rs
+@@ -10,6 +10,18 @@
+ //! SIMD_BACKEND=v3     cargo bench --features internals --bench kernels # compare backends
+ //! SIMD_BACKEND=scalar cargo bench --features internals --bench kernels
+ //! ```
++//!
++//! Every timing helper prints a machine record beside its human line:
++//! `SAMPLE\t{label}\t{logical_bytes}\t{ns_per_call:.9}` for region shapes
++//! and `SCALAR\t{label}\t{ns_per_scalar_op:.9}` for scalar element chains.
++//! Process entry prints `FIELD_BACKEND\t{label}\t{backend_name}` for every
++//! measured field — each field's own routing, not the process backend —
++//! plus the host's actual CPU affinity and scheduler policy. Each process
++//! times an unchanged byte-XOR control at start and end
++//! (`control byte xor start`, `control byte xor end`), so campaign drift is
++//! separable from field speed. `--blocked-diagnostic` runs the
++//! internals-only blocked-versus-AXPY probe; the public panels never
++//! invoke it.
+ 
+ // Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
+ #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
+@@ -17,9 +29,9 @@
+ use std::time::{Duration, Instant};
+ 
+ use fgf::{
+-    FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf16, Gf32, Gf64, Goldilocks, Mersenne31,
+-    QuadMersenne31, backend, fan_paar, gf8b, gf16, gf32, gf64, goldilocks, mersenne31, ops,
+-    quad_mersenne31,
++    FanPaar16, FanPaar32, FanPaar64, Gf8B, Gf8D, Gf16, Gf32, Gf64, Goldilocks, Mersenne31,
++    QuadMersenne31, backend, backend_for, fan_paar, gf8b, gf16, gf32, gf64, goldilocks,
++    mersenne31, ops, quad_mersenne31,
+ };
+ 
+ fn noise(len: usize, seed: u64) -> Vec<u8> {
+@@ -48,6 +60,114 @@
+     }
+ }
+ 
++/// Target wall-clock duration of one sample batch: long enough that a short
++/// workload's batch sits above clock and scheduler jitter.
++const BATCH_TARGET_NS: f64 = 100_000.0;
++/// Upper bound on repetitions in one sample batch.
++const MAX_BATCH_REPS: u64 = 1 << 20;
++/// Logical byte count of the drift control's XOR pass.
++const CONTROL_BYTES: usize = 256 * 1024;
++
++/// Repetitions per sample batch for a body whose calibration pass took
++/// `est_ns`: the batch grows to [`BATCH_TARGET_NS`] for short workloads and
++/// never drops below the helper's historical fixed batch.
++fn batch_reps(est_ns: f64, min_reps: u64) -> u64 {
++    ((BATCH_TARGET_NS / est_ns.max(1.0)).ceil() as u64).clamp(min_reps, MAX_BATCH_REPS)
++}
++
++/// The drift control: a plain byte XOR over black-boxed buffers. The body
++/// names no field code and is identical in every ported harness, so
++/// start/end movement measures the measurement environment, not a field.
++fn control_body(dst: &mut [u8], src: &[u8]) {
++    let dst = black_box(dst);
++    let src = black_box(src);
++    for (d, s) in dst.iter_mut().zip(src) {
++        *d ^= s;
++    }
++}
++
++/// The process's actual CPU affinity and scheduling policy, read from the
++/// kernel: every recorded run states where its numbers came from.
++fn print_host_lines() {
++    let status = std::fs::read_to_string("/proc/self/status").ok();
++    let cpus = status
++        .as_deref()
++        .and_then(|text| text.lines().find(|line| line.starts_with("Cpus_allowed_list:")))
++        .map(|line| line["Cpus_allowed_list:".len()..].trim().to_string());
++    // /proc/self/stat field 41 carries the scheduling policy number. The
++    // comm field may contain spaces and parentheses, so parsing starts
++    // after the last ')'; state is field 3, which puts policy at index 38.
++    let stat = std::fs::read_to_string("/proc/self/stat").ok();
++    let policy = stat.as_deref().and_then(|text| {
++        text.rsplit_once(')')?
++            .1
++            .split_whitespace()
++            .nth(38)
++            .and_then(|field| field.parse::<u32>().ok())
++    });
++    let policy_name = match policy {
++        Some(0) => "normal",
++        Some(1) => "fifo",
++        Some(2) => "rr",
++        Some(3) => "batch",
++        Some(5) => "idle",
++        Some(6) => "deadline",
++        Some(_) => "unknown",
++        None => "unavailable",
++    };
++    println!(
++        "HOST\tcpus_allowed_list={}\tsched_policy={} {policy_name}",
++        cpus.as_deref().unwrap_or("unavailable"),
++        policy.map_or("n/a".to_string(), |p| p.to_string()),
++    );
++}
++
++/// One `FIELD_BACKEND` record per measured field: where that field's bulk
++/// operations actually run in this process. Fields with narrower kernel
++/// routes report their own answer from `backend_for`, not the process
++/// backend.
++fn print_field_backends() {
++    fn field<F: fgf::FieldKernels>(label: &str) {
++        println!("FIELD_BACKEND\t{label}\t{}", backend_for::<F>().name());
++    }
++    field::<Gf8B>("gf8b");
++    field::<Gf8D>("gf8d");
++    field::<Gf16>("gf16b");
++    field::<Gf32>("gf32b");
++    field::<Gf64>("gf64b");
++    field::<FanPaar16>("fp16");
++    field::<FanPaar32>("fp32");
++    field::<FanPaar64>("fp64");
++    field::<Mersenne31>("m31");
++    field::<QuadMersenne31>("qm31");
++    field::<Goldilocks>("gld");
++}
++
++/// The Mersenne prime `2^31 - 1`: the m31 element bound and each qm31 limb
++/// bound.
++const M31_PRIME: u32 = 0x7fff_ffff;
++/// The Goldilocks prime `2^64 - 2^32 + 1`.
++const GOLDILOCKS_PRIME: u64 = 0xffff_ffff_0000_0001;
++
++/// Reduce every 4-byte lane to the canonical m31 range `0..p`. Random
++/// fixture bytes can exceed the prime, and a qm31 lane is two such limbs,
++/// so one pass canonicalizes both fields. Runs outside every timed region.
++fn canonicalize_m31_lanes(buf: &mut [u8]) {
++    for lane in buf.chunks_exact_mut(4) {
++        let value = u32::from_le_bytes(lane.try_into().unwrap()) % M31_PRIME;
++        lane.copy_from_slice(&value.to_le_bytes());
++    }
++}
++
++/// Reduce every 8-byte lane to the canonical Goldilocks range `0..p`.
++/// Runs outside every timed region.
++fn canonicalize_goldilocks_lanes(buf: &mut [u8]) {
++    for lane in buf.chunks_exact_mut(8) {
++        let value = u64::from_le_bytes(lane.try_into().unwrap()) % GOLDILOCKS_PRIME;
++        lane.copy_from_slice(&value.to_le_bytes());
++    }
++}
++
+ /// Run `body` until it has been timed enough times to trust the median, and
+ /// report bytes per second over `bytes` of logical traffic per iteration.
+ ///
+@@ -58,12 +178,22 @@
+     for _ in 0..16 {
+         body();
+     }
++    // One calibration call sizes every sample batch: short workloads run
++    // enough repetitions to sit above clock and scheduler jitter, long
++    // workloads keep the historical fixed batch.
++    let reps = batch_reps(
++        {
++            let start = Instant::now();
++            body();
++            start.elapsed().as_secs_f64() * 1e9
++        },
++        32,
++    );
+ 
+     let mut samples = Vec::with_capacity(64);
+     let deadline = Instant::now() + Duration::from_millis(250);
+     while Instant::now() < deadline && samples.len() < 64 {
+         let start = Instant::now();
+-        let reps = 32;
+         for _ in 0..reps {
+             body();
+         }
+@@ -77,6 +207,7 @@
+         "  {label:<44} {:>9}  {gib_per_sec:>7.2} GiB/s",
+         fmt_ns(median)
+     );
++    println!("SAMPLE\t{label}\t{bytes}\t{median:.9}");
+     median
+ }
+ 
+@@ -102,20 +233,20 @@
+         let prepared16 = ops::Coeff::<Gf16>::new(coeff16);
+ 
+         println!("  row {len} B:");
+-        let one8 = bench("  mul_add one-shot           gf8", len, || {
++        let one8 = bench("  mul_add one-shot           gf8b", len, || {
+             ops::mul_add::<Gf8B>(black_box(&mut dst), coeff8, black_box(&src));
+         });
+-        let with8 = bench("  mul_add prepared           gf8", len, || {
++        let with8 = bench("  mul_add prepared           gf8b", len, || {
+             ops::mul_add_with::<Gf8B>(black_box(&mut dst), &prepared8, black_box(&src));
+         });
+-        let one16 = bench("  mul_add one-shot          gf16", len, || {
++        let one16 = bench("  mul_add one-shot          gf16b", len, || {
+             ops::mul_add::<Gf16>(black_box(&mut dst), coeff16, black_box(&src));
+         });
+-        let with16 = bench("  mul_add prepared          gf16", len, || {
++        let with16 = bench("  mul_add prepared          gf16b", len, || {
+             ops::mul_add_with::<Gf16>(black_box(&mut dst), &prepared16, black_box(&src));
+         });
+         println!(
+-            "    one-shot/prepared: gf8 {:.2}x  gf16 {:.2}x",
++            "    one-shot/prepared: gf8b {:.2}x  gf16b {:.2}x",
+             one8 / with8,
+             one16 / with16
+         );
+@@ -176,13 +307,21 @@
+     for _ in 0..64 {
+         body();
+     }
++    let reps = batch_reps(
++        {
++            let start = Instant::now();
++            body();
++            start.elapsed().as_secs_f64() * 1e9
++        },
++        512,
++    );
+     let mut samples = [0.0; 64];
+     for sample in &mut samples {
+         let start = Instant::now();
+-        for _ in 0..512 {
++        for _ in 0..reps {
+             body();
+         }
+-        *sample = start.elapsed().as_secs_f64() * 1e9 / 512.0;
++        *sample = start.elapsed().as_secs_f64() * 1e9 / reps as f64;
+     }
+     samples.sort_unstable_by(f64::total_cmp);
+     let median = samples[samples.len() / 2];
+@@ -191,6 +330,7 @@
+         fmt_ns(median),
+         bytes as f64 / (median / 1e9) / (1024.0 * 1024.0 * 1024.0)
+     );
++    println!("SAMPLE\t{label}\t{bytes}\t{median:.9}");
+     median
+ }
+ 
+@@ -251,7 +391,8 @@
+ ///
+ /// The SSSE3 and GFNI tiers dispatch the blocked gather. This harness times
+ /// each against repeated AXPY in one process through `internals`
+-/// token-proven entries.
++/// token-proven entries. Diagnostics only: run it explicitly with
++/// `--blocked-diagnostic`; the public panels never invoke it.
+ #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+ fn bench_blocked_vs_axpy() {
+     use fgf::internals::kernel::tables::{TowerCoeff, TowerTables};
+@@ -344,21 +485,21 @@
+         let mut dst = noise(len, 0xd01);
+         let mib = len / (1024 * 1024);
+ 
+-        bench(&format!("{mib:3} MiB mul_into          gf8"), len, || {
++        bench(&format!("{mib:3} MiB mul_into          gf8b"), len, || {
+             ops::mul_into::<Gf8B>(
+                 black_box(&mut dst),
+                 gf8b::Elem::from_raw(0x53),
+                 black_box(&src),
+             );
+         });
+-        bench(&format!("{mib:3} MiB mul_into         gf16"), len, || {
++        bench(&format!("{mib:3} MiB mul_into         gf16b"), len, || {
+             ops::mul_into::<Gf16>(
+                 black_box(&mut dst),
+                 gf16::Elem::from_raw(0x53a7),
+                 black_box(&src),
+             );
+         });
+-        bench(&format!("{mib:3} MiB mul_into+read     gf8"), len, || {
++        bench(&format!("{mib:3} MiB mul_into+read     gf8b"), len, || {
+             ops::mul_into::<Gf8B>(
+                 black_box(&mut dst),
+                 gf8b::Elem::from_raw(0x53),
+@@ -370,7 +511,7 @@
+             }
+             black_box(acc);
+         });
+-        bench(&format!("{mib:3} MiB mul_add           gf8"), len, || {
++        bench(&format!("{mib:3} MiB mul_add           gf8b"), len, || {
+             ops::mul_add::<Gf8B>(
+                 black_box(&mut dst),
+                 gf8b::Elem::from_raw(0x53),
+@@ -400,13 +541,16 @@
+         let coeffs16: Vec<_> = (0..nrows)
+             .map(|j| gf16::Elem::from_raw((j as u16).wrapping_mul(9871).wrapping_add(2)))
+             .collect();
+-        let mut backing = noise(row_len * nrows + 32, 0xe01);
++        let mut backing = noise(row_len * nrows + 79, 0xe01);
++        let aligned = backing.as_ptr().align_offset(64);
+         let kib = row_len / 1024;
+         for skew in [0usize, 16] {
+-            let rows = &mut backing[skew..skew + row_len * nrows];
++            let start = aligned + skew;
++            let rows = &mut backing[start..start + row_len * nrows];
++            assert_eq!(rows.as_ptr() as usize % 64, skew);
+             let traffic = row_len * nrows;
+             bench(
+-                &format!("{kib:4} KiB rows, skew {skew:2}   gf8"),
++                &format!("{kib:4} KiB rows, skew {skew:2}   gf8b"),
+                 traffic,
+                 || {
+                     ops::mul_add_scatter::<Gf8B>(
+@@ -418,7 +562,7 @@
+                 },
+             );
+             bench(
+-                &format!("{kib:4} KiB rows, skew {skew:2}  gf16"),
++                &format!("{kib:4} KiB rows, skew {skew:2}  gf16b"),
+                 traffic,
+                 || {
+                     ops::mul_add_scatter::<Gf16>(
+@@ -473,7 +617,7 @@
+         let mut dst = noise(row_len, 0x1100);
+ 
+         println!("  row {row_len} B, {nrows} rows, {nsrc} sources:");
+-        bench("  scatter                   gf16", row_len * nrows, || {
++        bench("  scatter                   gf16b", row_len * nrows, || {
+             ops::mul_add_scatter::<Gf16>(
+                 black_box(&mut rows),
+                 row_len,
+@@ -481,11 +625,11 @@
+                 black_box(srcs[0]),
+             );
+         });
+-        bench("  gather                    gf16", row_len * nsrc, || {
++        bench("  gather                    gf16b", row_len * nsrc, || {
+             ops::mul_add_gather::<Gf16>(black_box(&mut dst), &row_coeffs[..nsrc], black_box(&srcs));
+         });
+         bench(
+-            "  matrix                    gf16",
++            "  matrix                    gf16b",
+             row_len * nrows * nsrc,
+             || {
+                 ops::mul_add_matrix::<Gf16>(black_box(&mut rows), row_len, nrows, &terms);
+@@ -495,10 +639,10 @@
+         // Fused `mul_into` against the copy-then-scale it replaces: the
+         // fused kernel touches the destination once.
+         let coeff = gf16::Elem::from_raw(0x53a7);
+-        let fused = bench("  mul_into fused            gf16", row_len, || {
++        let fused = bench("  mul_into fused            gf16b", row_len, || {
+             ops::mul_into::<Gf16>(black_box(&mut dst), coeff, black_box(srcs[0]));
+         });
+-        let copied = bench("  mul_into copy+scale       gf16", row_len, || {
++        let copied = bench("  mul_into copy+scale       gf16b", row_len, || {
+             let dst = black_box(&mut dst);
+             dst.copy_from_slice(black_box(srcs[0]));
+             ops::mul_assign::<Gf16>(dst, coeff);
+@@ -549,7 +693,7 @@
+         bench("  bits::XorRange   5/8    packed", bytes, || {
+             fgf::bits::xor_range_with(black_box(&mut dst), black_box(&a), black_box(&plan));
+         });
+-        bench("  ops::add_assign  gf8 control", bytes, || {
++        bench("  ops::add_assign  gf8b control", bytes, || {
+             ops::add_assign::<Gf8B>(black_box(&mut dst), black_box(&a));
+         });
+     }
+@@ -610,13 +754,19 @@
+ /// where it must not regress). Rerun under each `SIMD_BACKEND` tier for the
+ /// per-backend numbers; the crossover thresholds in `kernel::xor_rows` were
+ /// set from this matrix on the reference host.
+-fn bench_add_assign_rows<F: fgf::FieldKernels>(name: &str) {
++fn bench_add_assign_rows<F: fgf::FieldKernels>(name: &str, canon: Option<fn(&mut [u8])>) {
+     println!("add_assign_rows — {name}:");
+     for &row_len in &[64usize, 1024, 64 * 1024] {
+         for &rows in &[1usize, 2, 4, 8, 16, 32] {
+             let len = row_len * rows;
+-            let src = noise(len, 0x2a00 + row_len as u64);
++            let mut src = noise(len, 0x2a00 + row_len as u64);
+             let mut dst = noise(len, 0x2b00 + rows as u64);
++            // Prime fields need canonical lanes on every timed input; the
++            // binary fields read the same bytes as pure XOR vectors.
++            if let Some(canon) = canon {
++                canon(&mut src);
++                canon(&mut dst);
++            }
+ 
+             let flat = bench("  flat add_assign", len, || {
+                 ops::add_assign::<F>(black_box(&mut dst), black_box(&src));
+@@ -642,6 +792,29 @@
+ }
+ 
+ fn main() {
++    println!("fgf kernel benchmark — backend: {}", backend().name());
++    print_host_lines();
++    print_field_backends();
++    println!("control byte xor — drift check:");
++    let control_src = noise(CONTROL_BYTES, 0x57a7);
++    let mut control_dst = noise(CONTROL_BYTES, 0x57a8);
++    bench(
++        "control byte xor start",
++        CONTROL_BYTES,
++        || control_body(&mut control_dst, &control_src),
++    );
++    run_panels();
++    println!("control byte xor — drift check:");
++    bench(
++        "control byte xor end",
++        CONTROL_BYTES,
++        || control_body(&mut control_dst, &control_src),
++    );
++}
++
++/// Every panel, behind `main`'s drift controls. The diagnostic flags return
++/// early and only skip the remaining panels, never the end control.
++fn run_panels() {
+     // Family flags `--gf`, `--gdl`, `--m31`, and `--gf2` run only that
+     // family's panels. Unknown flags are ignored so wrapper arguments pass
+     // through unchanged, and no family flag runs every panel.
+@@ -653,26 +826,31 @@
+     let m31 = !named || has("--m31");
+     let gf2 = !named || has("--gf2");
+ 
+-    println!("fgf kernel benchmark — backend: {}", backend().name());
+     if has("--network-diagnostic") {
+         bench_network_alignment();
+         return;
+     }
++    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
++    if has("--blocked-diagnostic") {
++        bench_blocked_vs_axpy();
++        return;
++    }
+     println!("  (override with SIMD_BACKEND=v3_gfni_crypto|v3|v2|neon|scalar)\n");
+ 
+     if gf {
+         bench_preparation_crossover();
+         bench_small_row_shapes();
+-        bench_add_assign_rows::<Gf8B>("gf8");
+-        bench_add_assign_rows::<Gf16>("gf16");
++        bench_add_assign_rows::<Gf8B>("gf8b", None);
++        bench_add_assign_rows::<Gf16>("gf16b", None);
+         bench_large_destination();
+         bench_destination_alignment();
+-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+-        bench_blocked_vs_axpy();
+         bench_network_payloads();
+     }
+     if m31 {
+-        bench_add_assign_rows::<Mersenne31>("m31 (prime control, flat default)");
++        bench_add_assign_rows::<Mersenne31>(
++            "m31 (prime control, flat default)",
++            Some(canonicalize_m31_lanes),
++        );
+     }
+     if gf2 {
+         bench_gf2_bits();
+@@ -692,93 +870,99 @@
+         };
+         println!("buffer {human}:");
+ 
+-        let src = noise(len, 1);
++        let mut src = noise(len, 1);
+         let mut dst = noise(len, 2);
+         let prepared16 = ops::Coeff::<Gf16>::new(gf16::Elem::from_raw(0x53a7));
+-        let rhs = noise(len, 0x602);
++        let mut rhs = noise(len, 0x602);
+         let mut product = vec![0; len];
+ 
+         if gf {
+-            bench("xor                       gf8", len, || {
++            bench("xor                       gf8b", len, || {
+                 ops::add_assign::<Gf8B>(black_box(&mut dst), black_box(&src));
+             });
+-            bench("mul_add                   gf8", len, || {
++            bench("mul_add                   gf8b", len, || {
+                 ops::mul_add::<Gf8B>(
+                     black_box(&mut dst),
+                     gf8b::Elem::from_raw(0x53),
+                     black_box(&src),
+                 );
+             });
+-            bench("mul_add                  gf16", len, || {
++            bench("mul_add                  gf16b", len, || {
+                 ops::mul_add::<Gf16>(
+                     black_box(&mut dst),
+                     gf16::Elem::from_raw(0x53a7),
+                     black_box(&src),
+                 );
+             });
+-            bench("mul_add prepared         gf16", len, || {
++            bench("mul_add prepared         gf16b", len, || {
+                 ops::mul_add_with::<Gf16>(black_box(&mut dst), &prepared16, black_box(&src));
+             });
+-            bench("mul_into                  gf8", len, || {
++            bench("mul_into                  gf8b", len, || {
+                 ops::mul_into::<Gf8B>(
+                     black_box(&mut product),
+                     gf8b::Elem::from_raw(0x53),
+                     black_box(&src),
+                 );
+             });
+-            bench("mul_into                 gf16", len, || {
++            bench("mul_into                 gf16b", len, || {
+                 ops::mul_into::<Gf16>(
+                     black_box(&mut product),
+                     gf16::Elem::from_raw(0x53a7),
+                     black_box(&src),
+                 );
+             });
+-            bench("mul_assign                gf8", len, || {
++            bench("mul_assign                gf8b", len, || {
+                 ops::mul_assign::<Gf8B>(black_box(&mut dst), gf8b::Elem::from_raw(0x53));
+             });
+-            bench("elementwise                gf8", len, || {
++            bench("elementwise                gf8b", len, || {
+                 ops::mul_elementwise::<Gf8B>(
+                     black_box(&mut product),
+                     black_box(&src),
+                     black_box(&rhs),
+                 );
+             });
+-            bench("elementwise               gf16", len, || {
++            bench("elementwise               gf16b", len, || {
+                 ops::mul_elementwise::<Gf16>(
+                     black_box(&mut product),
+                     black_box(&src),
+                     black_box(&rhs),
+                 );
+             });
+-            bench("elementwise_assign        gf8", len, || {
++            bench("elementwise_assign        gf8b", len, || {
+                 ops::mul_elementwise_assign::<Gf8B>(black_box(&mut product), black_box(&src));
+             });
+-            bench("elementwise_assign       gf16", len, || {
++            bench("elementwise_assign       gf16b", len, || {
+                 ops::mul_elementwise_assign::<Gf16>(black_box(&mut product), black_box(&src));
+             });
+-            bench("mul_assign               gf16", len, || {
++            bench("mul_assign               gf16b", len, || {
+                 ops::mul_assign::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));
+             });
+-            bench("add_assign                gf16", len, || {
++            bench("add_assign                gf16b", len, || {
+                 ops::add_assign::<Gf16>(black_box(&mut dst), black_box(&src));
+             });
+-            bench("add_assign_scalar          gf8", len, || {
++            bench("add_assign_scalar          gf8b", len, || {
+                 ops::add_assign_scalar::<Gf8B>(black_box(&mut dst), gf8b::Elem::from_raw(0x53));
+             });
+-            bench("sub_assign_scalar          gf8", len, || {
++            bench("sub_assign_scalar          gf8b", len, || {
+                 ops::sub_assign_scalar::<Gf8B>(black_box(&mut dst), gf8b::Elem::from_raw(0x53));
+             });
+-            bench("add_assign_scalar         gf16", len, || {
++            bench("add_assign_scalar         gf16b", len, || {
+                 ops::add_assign_scalar::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));
+             });
+-            bench("sub_assign_scalar         gf16", len, || {
++            bench("sub_assign_scalar         gf16b", len, || {
+                 ops::sub_assign_scalar::<Gf16>(black_box(&mut dst), gf16::Elem::from_raw(0x53a7));
+             });
+         }
+ 
+         // Prime-field elementwise and broadcast scalar ops. `add_assign` and
+         // `elementwise` are the unchanged controls for the new assign forms.
++        // Every prime input and destination holds canonical lanes before
++        // the timed region; prime arithmetic preserves canonical values,
++        // so in-place panels stay canonical across batches.
+         if m31 {
++            for buf in [&mut src, &mut dst, &mut rhs, &mut product] {
++                canonicalize_m31_lanes(buf);
++            }
+             bench("add_assign                   m31", len, || {
+                 ops::add_assign::<Mersenne31>(black_box(&mut dst), black_box(&src));
+             });
+@@ -806,6 +990,9 @@
+             });
+         }
+         if gdl {
++            for buf in [&mut src, &mut dst, &mut rhs, &mut product] {
++                canonicalize_goldilocks_lanes(buf);
++            }
+             bench("add_assign                   gld", len, || {
+                 ops::add_assign::<Goldilocks>(black_box(&mut dst), black_box(&src));
+             });
+@@ -833,6 +1020,9 @@
+             });
+         }
+         if m31 {
++            for buf in [&mut src, &mut dst, &mut rhs, &mut product] {
++                canonicalize_m31_lanes(buf);
++            }
+             bench("add_assign                  qm31", len, || {
+                 ops::add_assign::<QuadMersenne31>(black_box(&mut dst), black_box(&src));
+             });
+@@ -888,13 +1078,13 @@
+         let scatter_coeffs16 = ops::CoeffVec::<Gf16>::new(&coeffs16);
+ 
+         let traffic = row_len * nrows;
+-        bench("scatter                   gf8", traffic, || {
++        bench("scatter                   gf8b", traffic, || {
+             ops::mul_add_scatter::<Gf8B>(black_box(&mut rows), row_len, &coeffs8, black_box(&src));
+         });
+-        bench("scatter                  gf16", traffic, || {
++        bench("scatter                  gf16b", traffic, || {
+             ops::mul_add_scatter::<Gf16>(black_box(&mut rows), row_len, &coeffs16, black_box(&src));
+         });
+-        bench("scatter prepared          gf8", traffic, || {
++        bench("scatter prepared          gf8b", traffic, || {
+             ops::mul_add_scatter_with::<Gf8B>(
+                 black_box(&mut rows),
+                 row_len,
+@@ -902,7 +1092,7 @@
+                 black_box(&src),
+             );
+         });
+-        bench("scatter prepared         gf16", traffic, || {
++        bench("scatter prepared         gf16b", traffic, || {
+             ops::mul_add_scatter_with::<Gf16>(
+                 black_box(&mut rows),
+                 row_len,
+@@ -910,12 +1100,12 @@
+                 black_box(&src),
+             );
+         });
+-        bench("scatter (unblocked)       gf8", traffic, || {
++        bench("scatter (unblocked)       gf8b", traffic, || {
+             for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(&coeffs8) {
+                 ops::mul_add::<Gf8B>(black_box(row), coeff, black_box(&src));
+             }
+         });
+-        bench("scatter (unblocked)      gf16", traffic, || {
++        bench("scatter (unblocked)      gf16b", traffic, || {
+             for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(&coeffs16) {
+                 ops::mul_add::<Gf16>(black_box(row), coeff, black_box(&src));
+             }
+@@ -956,20 +1146,20 @@
+         let matrix_srcs: Vec<&[u8]> = sources.iter().take(8).map(Vec::as_slice).collect();
+ 
+         let traffic = row_len * nrows * 8;
+-        bench("matrix (selected)          gf8", traffic, || {
++        bench("matrix (selected)          gf8b", traffic, || {
+             ops::mul_add_matrix::<Gf8B>(black_box(&mut rows), row_len, nrows, &terms);
+         });
+-        bench("matrix (unblocked AXPY)   gf8", traffic, || {
++        bench("matrix (unblocked AXPY)   gf8b", traffic, || {
+             for &(coeffs, src) in &terms {
+                 for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
+                     ops::mul_add::<Gf8B>(black_box(row), coeff, src);
+                 }
+             }
+         });
+-        bench("matrix (selected)         gf16", traffic, || {
++        bench("matrix (selected)         gf16b", traffic, || {
+             ops::mul_add_matrix::<Gf16>(black_box(&mut rows), row_len, nrows, &terms16);
+         });
+-        bench("matrix prepared           gf8", traffic, || {
++        bench("matrix prepared           gf8b", traffic, || {
+             ops::mul_add_matrix_with::<Gf8B>(
+                 black_box(&mut rows),
+                 row_len,
+@@ -977,7 +1167,7 @@
+                 black_box(&matrix_srcs),
+             );
+         });
+-        bench("matrix prepared          gf16", traffic, || {
++        bench("matrix prepared          gf16b", traffic, || {
+             ops::mul_add_matrix_with::<Gf16>(
+                 black_box(&mut rows),
+                 row_len,
+@@ -985,7 +1175,7 @@
+                 black_box(&matrix_srcs),
+             );
+         });
+-        bench("matrix (unblocked AXPY)  gf16", traffic, || {
++        bench("matrix (unblocked AXPY)  gf16b", traffic, || {
+             for &(coeffs, src) in &terms16 {
+                 for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
+                     ops::mul_add::<Gf16>(black_box(row), coeff, src);
+@@ -998,40 +1188,40 @@
+         let gather_coeffs8 = ops::CoeffVec::<Gf8B>::new(&coeffs8);
+         let gather_coeffs16 = ops::CoeffVec::<Gf16>::new(&coeffs16);
+         let gather_traffic = row_len * nrows;
+-        bench("gather (selected)          gf8", gather_traffic, || {
++        bench("gather (selected)          gf8b", gather_traffic, || {
+             ops::mul_add_gather::<Gf8B>(
+                 black_box(&mut gathered),
+                 &coeffs8,
+                 black_box(&gather_srcs),
+             );
+         });
+-        bench("gather (unblocked)        gf8", gather_traffic, || {
++        bench("gather (unblocked)        gf8b", gather_traffic, || {
+             for (&coeff, &source) in coeffs8.iter().zip(&gather_srcs) {
+                 ops::mul_add::<Gf8B>(black_box(&mut gathered), coeff, black_box(source));
+             }
+         });
+-        bench("gather (selected)         gf16", gather_traffic, || {
++        bench("gather (selected)         gf16b", gather_traffic, || {
+             ops::mul_add_gather::<Gf16>(
+                 black_box(&mut gathered),
+                 &coeffs16,
+                 black_box(&gather_srcs),
+             );
+         });
+-        bench("gather prepared           gf8", gather_traffic, || {
++        bench("gather prepared           gf8b", gather_traffic, || {
+             ops::mul_add_gather_with::<Gf8B>(
+                 black_box(&mut gathered),
+                 gather_coeffs8.as_ref(),
+                 black_box(&gather_srcs),
+             );
+         });
+-        bench("gather prepared          gf16", gather_traffic, || {
++        bench("gather prepared          gf16b", gather_traffic, || {
+             ops::mul_add_gather_with::<Gf16>(
+                 black_box(&mut gathered),
+                 gather_coeffs16.as_ref(),
+                 black_box(&gather_srcs),
+             );
+         });
+-        bench("gather (unblocked)       gf16", gather_traffic, || {
++        bench("gather (unblocked)       gf16b", gather_traffic, || {
+             for (&coeff, &source) in coeffs16.iter().zip(&gather_srcs) {
+                 ops::mul_add::<Gf16>(black_box(&mut gathered), coeff, black_box(source));
+             }
+@@ -1047,21 +1237,21 @@
+     let tier3_src = noise(tier3_len, 0x900);
+     let mut tier3_dst = noise(tier3_len, 0x901);
+     println!("Tier 3 field cost — {tier3_len} bytes:");
+-    bench("mul_add polynomial tower     gf16", tier3_len, || {
++    bench("mul_add polynomial tower     gf16b", tier3_len, || {
+         ops::mul_add::<Gf16>(
+             black_box(&mut tier3_dst),
+             gf16::Elem::from_raw(0x53a7),
+             black_box(&tier3_src),
+         );
+     });
+-    bench("mul_add polynomial tower     gf32", tier3_len, || {
++    bench("mul_add polynomial tower     gf32b", tier3_len, || {
+         ops::mul_add::<Gf32>(
+             black_box(&mut tier3_dst),
+             gf32::Elem::from_raw(0xdead_beef),
+             black_box(&tier3_src),
+         );
+     });
+-    bench("mul_add polynomial tower     gf64", tier3_len, || {
++    bench("mul_add polynomial tower     gf64b", tier3_len, || {
+         ops::mul_add::<Gf64>(
+             black_box(&mut tier3_dst),
+             gf64::Elem::from_raw(0x0123_4567_89ab_cdef),
+--- /dev/null
++++ b/external/bench-trio/Cargo.lock
+@@ -0,0 +1,145 @@
++# This file is automatically @generated by Cargo.
++# It is not intended for manual editing.
++version = 4
++
++[[package]]
++name = "archmage"
++version = "0.9.29"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8e3a17fc8196cce2902db52de7a21d4407971d080c01a0256037fcd3fc6e536e"
++dependencies = [
++ "archmage-macros",
++ "safe_unaligned_simd",
++ "winarm-cpufeatures",
++]
++
++[[package]]
++name = "archmage-macros"
++version = "0.9.29"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1d0c10fb756a60ff9418d3e5dcd2b665c5914e32391d2523995d2c2c09237ac6"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn",
++]
++
++[[package]]
++name = "fgf"
++version = "2.1.0"
++dependencies = [
++ "archmage",
++ "simdispatch",
++]
++
++[[package]]
++name = "fgf-bench-trio"
++version = "0.0.0"
++dependencies = [
++ "fgf",
++ "pkg-config",
++]
++
++[[package]]
++name = "pkg-config"
++version = "0.3.34"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
++
++[[package]]
++name = "proc-macro2"
++version = "1.0.107"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
++dependencies = [
++ "unicode-ident",
++]
++
++[[package]]
++name = "quote"
++version = "1.0.47"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
++dependencies = [
++ "proc-macro2",
++]
++
++[[package]]
++name = "safe_unaligned_simd"
++version = "0.2.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f9c874fb993656d484725d58fbfddb39dfcf98ebcadc1a1d09568aa6b39bafba"
++
++[[package]]
++name = "simdispatch"
++version = "0.2.0"
++dependencies = [
++ "archmage",
++]
++
++[[package]]
++name = "syn"
++version = "3.0.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "unicode-ident",
++]
++
++[[package]]
++name = "unicode-ident"
++version = "1.0.26"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
++
++[[package]]
++name = "winarm-cpufeatures"
++version = "0.1.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d107c80dd656e1a2c254dfb1d57ece73b7f515b8a8684c270c23cab68f4a440d"
++
++[[patch.unused]]
++name = "lattica"
++version = "1.0.1"
++
++[[patch.unused]]
++name = "sgraph"
++version = "0.1.0"
++
++[[patch.unused]]
++name = "poly-ring"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "butterfly-fft"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "butterfly-fft"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "gfm"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "poly-ring"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "polymat"
++version = "0.1.0"
++
++[[patch.unused]]
++name = "lattice-engine"
++version = "0.0.1"
++
++[[patch.unused]]
++name = "gfm"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "gs-engine"
++version = "0.1.0"
+--- a/external/bench-trio/src/main.rs
++++ b/external/bench-trio/src/main.rs
+@@ -2,11 +2,11 @@
+ //! klauspost/reedsolomon over GF(2^8)/`0x11D`.
+ //!
+ //! All three libraries implement the same field — the Reed-Solomon interop
+-//! polynomial `0x11D` that `fgf` exposes as [`Gf8D`] (klauspost's logarithm
+-//! tables are generated by the same polynomial) — so every arm is a
+-//! byte-for-byte comparison of the same result, not approximations of one.
+-//! Every shape is validated against each competitor's output before a
+-//! single timing is taken.
++//! polynomial `0x11D` that `fgf` exposes as `Gf8D`
++//! (klauspost's logarithm tables are generated by the same polynomial) — so
++//! every arm is a byte-for-byte comparison of the same result, not
++//! approximations of one. Every shape is validated against each competitor's
++//! output before a single timing is taken.
+ //!
+ //! The shapes are the ones an erasure codec actually issues: a
+ //! single-source region operation, a many-source dot product into one row,
+@@ -40,7 +40,7 @@
+ //! FEC_GOLDEN_CORE=<p-core> just bench-gf-comp   # from the fgf crate directory
+ //! ```
+ //!
+-//! Record the output in `BENCHMARKS.md` with the host, the resolved `fgf`
++//! Record the output in `benchmarks/v2/gf8.md` with the host, the resolved `fgf`
+ //! backend, the versions printed in the header, and the pinning core.
+ 
+ use std::hint::black_box;
+@@ -642,7 +642,10 @@
+     ];
+     let deadline = Instant::now() + BUDGET;
+     let mut round = 0usize;
+-    while Instant::now() < deadline && samples[0].len() < MAX_SAMPLES {
++    while round == 0
++        || round % PERMS.len() != 0
++        || (Instant::now() < deadline && samples[0].len() < MAX_SAMPLES)
++    {
+         for &slot in &PERMS[round % PERMS.len()] {
+             let value = sample(&mut *arms[slot]);
+             samples[slot].push(value);
+@@ -668,6 +671,9 @@
+     let (low_isal, high_isal) = spread(paired_isal);
+     let (low_kp, high_kp) = spread(paired_kp);
+     println!(
++        "TRIO\t{label}\t{bytes}\t{ours:.9}\t{isal_med:.9}\t{kp_med:.9}\t{low_isal:.9}\t{high_isal:.9}\t{low_kp:.9}\t{high_kp:.9}"
++    );
++    println!(
+         "  {label:<34} {:>9} {:>7.2} GiB/s | {:>9} {:>7.2} GiB/s | {:>9} {:>7.2} GiB/s | \
+          {ratio_isal:>5.2}x [{low_isal:.2}-{high_isal:.2}] {ratio_kp:>5.2}x [{low_kp:.2}-{high_kp:.2}] (trio)",
+         fmt_ns(ours),
+@@ -850,7 +856,11 @@
+ /// vector.
+ fn gather(len: usize) {
+     let raw = gather_coefficients(GATHER_SOURCES);
+-    let coefficients: Vec<gf8d::Elem> = raw.iter().copied().map(gf8d::Elem::from_raw).collect();
++    let coefficients: Vec<gf8d::Elem> = raw
++        .iter()
++        .copied()
++        .map(gf8d::Elem::from_raw)
++        .collect();
+     let buffers: Vec<AlignedBuf> = (0..GATHER_SOURCES)
+         .map(|source| AlignedBuf::new(len, 0x300 + source as u64))
+         .collect();
+--- /dev/null
++++ b/external/gf16-bench/Cargo.lock
+@@ -0,0 +1,297 @@
++# This file is automatically @generated by Cargo.
++# It is not intended for manual editing.
++version = 4
++
++[[package]]
++name = "ahash"
++version = "0.7.8"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "891477e0c6a8957309ee5c45a6368af3ae14bb510732d2684ffa19af310920f9"
++dependencies = [
++ "getrandom",
++ "once_cell",
++ "version_check",
++]
++
++[[package]]
++name = "archmage"
++version = "0.9.29"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8e3a17fc8196cce2902db52de7a21d4407971d080c01a0256037fcd3fc6e536e"
++dependencies = [
++ "archmage-macros",
++ "safe_unaligned_simd",
++ "winarm-cpufeatures",
++]
++
++[[package]]
++name = "archmage-macros"
++version = "0.9.29"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1d0c10fb756a60ff9418d3e5dcd2b665c5914e32391d2523995d2c2c09237ac6"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn",
++]
++
++[[package]]
++name = "cc"
++version = "1.4.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "a3eb0f42d6c360dc3f8a821f6bf2fdea7f72bfd36b3076eb0e6d1e9e0752fff4"
++dependencies = [
++ "find-msvc-tools",
++ "shlex",
++]
++
++[[package]]
++name = "cfg-if"
++version = "1.0.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
++
++[[package]]
++name = "cpufeatures"
++version = "0.2.17"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
++dependencies = [
++ "libc",
++]
++
++[[package]]
++name = "fgf"
++version = "2.1.0"
++dependencies = [
++ "archmage",
++ "simdispatch",
++]
++
++[[package]]
++name = "fgf-gf16-bench"
++version = "0.0.0"
++dependencies = [
++ "archmage",
++ "cc",
++ "fgf",
++ "reed-solomon-erasure",
++ "reed-solomon-simd",
++]
++
++[[package]]
++name = "find-msvc-tools"
++version = "0.1.14"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
++
++[[package]]
++name = "fixedbitset"
++version = "0.5.7"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
++
++[[package]]
++name = "getrandom"
++version = "0.2.17"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
++dependencies = [
++ "cfg-if",
++ "libc",
++ "wasi",
++]
++
++[[package]]
++name = "hashbrown"
++version = "0.12.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
++dependencies = [
++ "ahash",
++]
++
++[[package]]
++name = "libc"
++version = "0.2.190"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
++
++[[package]]
++name = "libm"
++version = "0.2.16"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
++
++[[package]]
++name = "lru"
++version = "0.7.8"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e999beba7b6e8345721bd280141ed958096a2e4abdf74f67ff4ce49b4b54e47a"
++dependencies = [
++ "hashbrown",
++]
++
++[[package]]
++name = "once_cell"
++version = "1.21.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
++
++[[package]]
++name = "proc-macro2"
++version = "1.0.107"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
++dependencies = [
++ "unicode-ident",
++]
++
++[[package]]
++name = "quote"
++version = "1.0.47"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
++dependencies = [
++ "proc-macro2",
++]
++
++[[package]]
++name = "readme-rustdocifier"
++version = "0.1.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "08ad765b21a08b1a8e5cdce052719188a23772bcbefb3c439f0baaf62c56ceac"
++
++[[package]]
++name = "reed-solomon-erasure"
++version = "6.0.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7263373d500d4d4f505d43a2a662d475a894aa94503a1ee28e9188b5f3960d4f"
++dependencies = [
++ "libm",
++ "lru",
++ "smallvec",
++ "spin",
++]
++
++[[package]]
++name = "reed-solomon-simd"
++version = "3.1.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "cffef0520d30fbd4151fb20e262947ae47fb0ab276a744a19b6398438105a072"
++dependencies = [
++ "cpufeatures",
++ "fixedbitset",
++ "once_cell",
++ "readme-rustdocifier",
++]
++
++[[package]]
++name = "safe_unaligned_simd"
++version = "0.2.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f9c874fb993656d484725d58fbfddb39dfcf98ebcadc1a1d09568aa6b39bafba"
++
++[[package]]
++name = "shlex"
++version = "2.0.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
++
++[[package]]
++name = "simdispatch"
++version = "0.2.0"
++dependencies = [
++ "archmage",
++]
++
++[[package]]
++name = "smallvec"
++version = "1.16.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f9395f0f0eee849a9b707b2f06bb92a6a422090e2123bb2ef8e87a0e61892a8e"
++
++[[package]]
++name = "spin"
++version = "0.9.9"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
++
++[[package]]
++name = "syn"
++version = "3.0.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "unicode-ident",
++]
++
++[[package]]
++name = "unicode-ident"
++version = "1.0.26"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
++
++[[package]]
++name = "version_check"
++version = "0.9.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
++
++[[package]]
++name = "wasi"
++version = "0.11.1+wasi-snapshot-preview1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
++
++[[package]]
++name = "winarm-cpufeatures"
++version = "0.1.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d107c80dd656e1a2c254dfb1d57ece73b7f515b8a8684c270c23cab68f4a440d"
++
++[[patch.unused]]
++name = "lattica"
++version = "1.0.1"
++
++[[patch.unused]]
++name = "butterfly-fft"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "gfm"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "poly-ring"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "polymat"
++version = "0.1.0"
++
++[[patch.unused]]
++name = "lattice-engine"
++version = "0.0.1"
++
++[[patch.unused]]
++name = "gfm"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "butterfly-fft"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "gs-engine"
++version = "0.1.0"
++
++[[patch.unused]]
++name = "sgraph"
++version = "0.1.0"
++
++[[patch.unused]]
++name = "poly-ring"
++version = "2.0.0"
+--- /dev/null
++++ b/external/gf16-bench/Cargo.toml
+@@ -0,0 +1,21 @@
++[package]
++name = "fgf-gf16-bench"
++version = "0.0.0"
++edition = "2024"
++rust-version = "1.93"
++publish = false
++license = "MIT"
++description = "Matched native GF16 field operations across permissive competitors"
++
++[dependencies]
++fgf = { path = "../..", features = ["simd512"] }
++archmage = "=0.9.29"
++reed-solomon-simd = "=3.1.0"
++reed-solomon-erasure = { version = "=6.0.0", default-features = false }
++
++[build-dependencies]
++cc = "=1.4.6"
++
++[profile.release]
++lto = "thin"
++codegen-units = 1
+--- /dev/null
++++ b/external/gf16-bench/build.rs
+@@ -0,0 +1,123 @@
++//! Builds pinned permissive competitors and the benchmark-only native bridges.
++
++use std::env;
++use std::path::{Path, PathBuf};
++use std::process::Command;
++
++const LEOPARD: &str = "6e5725ebdf9da4370b0bcc4f70fa8eb66f4e6198";
++const COMPLETE: &str = "a6862d10c9db467148f20eef2c6445ac9afd94d8";
++
++fn run(command: &mut Command) {
++    let output = command.output().expect("execute native source checkout");
++    assert!(
++        output.status.success(),
++        "{command:?}: {}",
++        String::from_utf8_lossy(&output.stderr)
++    );
++}
++
++fn checkout(root: &Path, name: &str, repository: &str, revision: &str) -> PathBuf {
++    let path = root.join(name);
++    if !path.exists() {
++        run(Command::new("git")
++            .args(["clone", "--filter=blob:none", "--no-checkout", repository])
++            .arg(&path));
++        run(Command::new("git")
++            .arg("-C")
++            .arg(&path)
++            .args(["fetch", "--depth", "1", "origin", revision]));
++        run(Command::new("git")
++            .arg("-C")
++            .arg(&path)
++            .args(["checkout", "--detach", revision]));
++    }
++    let output = Command::new("git")
++        .arg("-C")
++        .arg(&path)
++        .args(["rev-parse", "HEAD"])
++        .output()
++        .expect("read pinned revision");
++    assert!(output.status.success());
++    assert_eq!(
++        String::from_utf8_lossy(&output.stdout).trim(),
++        revision,
++        "native checkout must retain its pin"
++    );
++    path
++}
++
++fn main() {
++    assert_eq!(
++        env::var("CARGO_CFG_TARGET_ARCH").unwrap(),
++        "x86_64",
++        "the native competitor campaign requires x86-64 AVX2 hardware"
++    );
++    println!("cargo::rerun-if-changed=build.rs");
++    println!("cargo::rerun-if-changed=native/leopard.cpp");
++    println!("cargo::rerun-if-changed=native/complete.c");
++    println!("cargo::rerun-if-changed=../../Cargo.toml");
++    let manifest = std::fs::read_to_string("../../Cargo.toml").unwrap();
++    let fgf_version = manifest
++        .lines()
++        .find_map(|line| line.strip_prefix("version = \""))
++        .and_then(|rest| rest.strip_suffix('"'))
++        .expect("the fgf manifest must declare its package version");
++    println!("cargo::rustc-env=FGF_VERSION={fgf_version}");
++    let root = PathBuf::from(env::var_os("OUT_DIR").unwrap());
++    let leopard = checkout(
++        &root,
++        "leopard",
++        "https://github.com/catid/leopard.git",
++        LEOPARD,
++    );
++    let complete = checkout(
++        &root,
++        "gf-complete",
++        "https://github.com/ceph/gf-complete.git",
++        COMPLETE,
++    );
++    cc::Build::new()
++        .cpp(true)
++        .std("c++11")
++        .opt_level(3)
++        .warnings(false)
++        .flag("-mavx2")
++        .include(&leopard)
++        .file("native/leopard.cpp")
++        .file(leopard.join("LeopardCommon.cpp"))
++        .compile("gf16_leopard");
++    let mut build = cc::Build::new();
++    build
++        .std("gnu11")
++        .opt_level(3)
++        .warnings(false)
++        .include(complete.join("include"))
++        .include(complete.join("src"))
++        .flag("-mssse3")
++        .flag("-msse4.2")
++        .flag("-mpclmul")
++        .define("INTEL_SSE2", None)
++        .define("INTEL_SSE3", None)
++        .define("INTEL_SSSE3", None)
++        .define("INTEL_SSE4", None)
++        .define("INTEL_SSE4_PCLMUL", None)
++        .file("native/complete.c");
++    for source in [
++        "gf",
++        "gf_wgen",
++        "gf_w4",
++        "gf_w8",
++        "gf_w32",
++        "gf_w64",
++        "gf_w128",
++        "gf_rand",
++        "gf_general",
++        "gf_cpu",
++        "gf_method",
++    ] {
++        build.file(complete.join(format!("src/{source}.c")));
++    }
++    build.compile("gf16_complete");
++    println!("cargo::rustc-env=LEOPARD_REVISION={LEOPARD}");
++    println!("cargo::rustc-env=COMPLETE_REVISION={COMPLETE}");
++}
+--- /dev/null
++++ b/external/gf16-bench/native/complete.c
+@@ -0,0 +1,35 @@
++/* Native GF-Complete region calls; buffers use little-endian polynomial words. */
++#include "gf_complete.h"
++#include "gf_int.h"
++#include <stdlib.h>
++
++#include "gf_w16.c"
++
++void *gf16_complete_new(void) {
++    gf_t *gf = calloc(1, sizeof(*gf));
++    if (!gf) return NULL;
++    if (!gf_init_easy(gf, 16)) { free(gf); return NULL; }
++    if (((gf_internal_t *)gf->scratch)->prim_poly != 0x1100b ||
++        gf->multiply_region.w32 != gf_w16_split_4_16_lazy_sse_multiply_region) {
++        gf_free(gf, 1); free(gf); return NULL;
++    }
++    return gf;
++}
++
++void gf16_complete_free(void *context) {
++    gf_t *gf = context;
++    gf_free(gf, 1);
++    free(gf);
++}
++
++unsigned gf16_complete_mul(void *context, unsigned a, unsigned b) {
++    gf_t *gf = context;
++    return gf->multiply.w32(gf, a, b);
++}
++
++void gf16_complete_region(void *context, unsigned char *dst,
++                          const unsigned char *src, unsigned coefficient,
++                          int bytes, int add) {
++    gf_t *gf = context;
++    gf->multiply_region.w32(gf, (void *)src, dst, coefficient, bytes, add);
++}
+--- /dev/null
++++ b/external/gf16-bench/native/leopard.cpp
+@@ -0,0 +1,33 @@
++// Native Leopard-RS 1.x (pre-Leopard2) multiplication; ALTMAP tiles hold low bytes then high bytes.
++#include "LeopardFF16.cpp"
++
++extern "C" int gf16_leopard_init() {
++    leopard::InitializeCPUArch();
++    return leopard::CpuHasAVX2 && leopard::ff16::Initialize();
++}
++
++extern "C" unsigned gf16_leopard_mul(unsigned a, unsigned b) {
++    if (!a || !b) return 0;
++    return leopard::ff16::MultiplyLog(static_cast<uint16_t>(a), leopard::ff16::LogLUT[b]);
++}
++
++extern "C" void gf16_leopard_region(unsigned char *dst, const unsigned char *src,
++                                     unsigned coefficient_log, unsigned long long bytes,
++                                     int add) {
++    using namespace leopard::ff16;
++    if (!add) {
++        mul_mem(dst, src, static_cast<uint16_t>(coefficient_log), bytes);
++        return;
++    }
++    LEO_MUL_TABLES_256(0, coefficient_log);
++    const LEO_M256 clr_mask = _mm256_set1_epi8(0x0f);
++    for (unsigned long long offset = 0; offset < bytes; offset += 64) {
++        LEO_M256 x_lo = _mm256_loadu_si256(reinterpret_cast<const LEO_M256 *>(dst + offset));
++        LEO_M256 x_hi = _mm256_loadu_si256(reinterpret_cast<const LEO_M256 *>(dst + offset + 32));
++        const LEO_M256 y_lo = _mm256_loadu_si256(reinterpret_cast<const LEO_M256 *>(src + offset));
++        const LEO_M256 y_hi = _mm256_loadu_si256(reinterpret_cast<const LEO_M256 *>(src + offset + 32));
++        LEO_MULADD_256(x_lo, x_hi, y_lo, y_hi, 0);
++        _mm256_storeu_si256(reinterpret_cast<LEO_M256 *>(dst + offset), x_lo);
++        _mm256_storeu_si256(reinterpret_cast<LEO_M256 *>(dst + offset + 32), x_hi);
++    }
++}
+--- /dev/null
++++ b/external/gf16-bench/src/main.rs
+@@ -0,0 +1,662 @@
++//! Interleaved native GF16 field operations with exact representation validation.
++//!
++//! Preparation and conversion are excluded. Multi-row competitor arms compose
++//! their native region primitives; unsupported primitives are not substituted.
++
++use std::collections::HashMap;
++use std::hint::black_box;
++use std::time::{Duration, Instant};
++
++use fgf::{Gf16, gf16, ops};
++use reed_solomon_erasure::{Field, galois_16};
++use reed_solomon_simd::engine::{Avx2, Engine, tables};
++
++mod native;
++mod representation;
++
++use native::Native;
++use representation::{Layout, Representations, tower_mul};
++
++const ALIGN: usize = 4096;
++const NAMES: [&str; 6] = [
++    "fgf",
++    "fgf-control",
++    "gf-complete",
++    "reed-solomon-erasure",
++    "reed-solomon-simd",
++    "leopard",
++];
++
++struct Buffer {
++    storage: Vec<u8>,
++    start: usize,
++    len: usize,
++}
++
++impl Buffer {
++    fn new(len: usize, offset: usize) -> Self {
++        let storage = vec![0; len + ALIGN + offset];
++        let start = storage.as_ptr().align_offset(ALIGN) + offset;
++        Self {
++            storage,
++            start,
++            len,
++        }
++    }
++    fn bytes(&self) -> &[u8] {
++        &self.storage[self.start..self.start + self.len]
++    }
++    fn bytes_mut(&mut self) -> &mut [u8] {
++        &mut self.storage[self.start..self.start + self.len]
++    }
++}
++
++fn noise(len: usize, seed: u64) -> Vec<u8> {
++    let mut state = seed | 1;
++    (0..len)
++        .map(|_| {
++            state = state
++                .wrapping_mul(6_364_136_223_846_793_005)
++                .wrapping_add(1);
++            (state >> 33) as u8
++        })
++        .collect()
++}
++
++#[derive(Clone, Copy, Debug, PartialEq)]
++enum Operation {
++    Assign,
++    Into,
++    Add,
++}
++
++#[derive(Clone, Copy, Debug)]
++struct Shape {
++    operation: Operation,
++    sources: usize,
++    destinations: usize,
++    bytes: usize,
++    cycling: bool,
++}
++
++impl Shape {
++    fn label(self) -> &'static str {
++        match (self.operation, self.sources, self.destinations) {
++            (Operation::Assign, _, _) => "mul_assign",
++            (Operation::Into, 1, 1) => "mul_into",
++            (Operation::Add, 1, 1) => "mul_add",
++            (Operation::Into, _, 1) => "mul_into_gather_with",
++            (Operation::Add, _, 1) => "mul_add_gather_with",
++            (Operation::Into, _, _) => "mul_into_matrix_with",
++            (Operation::Add, _, _) => "mul_add_matrix_with",
++        }
++    }
++    fn schedule(self) -> &'static str {
++        if self.cycling { "cycling16" } else { "fixed" }
++    }
++}
++
++struct Bank {
++    canonical: Vec<gf16::Elem>,
++    complete: Vec<u16>,
++    erasure: Vec<u16>,
++    logs: Vec<u16>,
++    matrix: ops::CoeffMatrix<Gf16>,
++    gather: ops::CoeffVec<Gf16>,
++}
++
++struct Plan {
++    shape: Shape,
++    banks: Vec<Bank>,
++}
++
++impl Plan {
++    fn new(shape: Shape, maps: &Representations, special: Option<u16>) -> Self {
++        let banks = (0..if shape.cycling { 16 } else { 1 })
++            .map(|bank| {
++                let canonical: Vec<_> = (0..shape.sources * shape.destinations)
++                    .map(|index| {
++                        let mut value = (0x1234usize + index * 0x2311 + bank * 0x19ab) as u16;
++                        if value >> 8 == 0 {
++                            value |= 0x100;
++                        }
++                        gf16::Elem::from_raw(special.unwrap_or(value))
++                    })
++                    .collect();
++                let map = |layout| {
++                    canonical
++                        .iter()
++                        .map(|c| maps.element(c.to_raw(), layout))
++                        .collect::<Vec<_>>()
++                };
++                let logs = map(Layout::Cantor)
++                    .iter()
++                    .map(|&c| tables::get_exp_log().log[usize::from(c)])
++                    .collect();
++                let matrix = ops::CoeffMatrix::from_source_major(
++                    shape.sources,
++                    shape.destinations,
++                    &canonical,
++                );
++                let gather = ops::CoeffVec::new(&canonical);
++                Bank {
++                    complete: map(Layout::Complete),
++                    erasure: map(Layout::Erasure),
++                    logs,
++                    matrix,
++                    gather,
++                    canonical,
++                }
++            })
++            .collect();
++        Self { shape, banks }
++    }
++}
++
++struct Arm<'a> {
++    kind: usize,
++    layout: Layout,
++    source: Vec<&'a [u8]>,
++    destination: Buffer,
++}
++
++impl Arm<'_> {
++    fn apply(&mut self, plan: &Plan, bank_index: usize, native: &Native, simd: &Avx2) {
++        let shape = plan.shape;
++        let bank = &plan.banks[bank_index % plan.banks.len()];
++        let dst = black_box(self.destination.bytes_mut());
++        let sources = black_box(self.source.as_slice());
++        if self.kind <= 1 {
++            let coefficient = bank.canonical[0];
++            match (shape.operation, shape.sources, shape.destinations) {
++                (Operation::Assign, _, _) => ops::mul_assign::<Gf16>(dst, black_box(coefficient)),
++                (Operation::Into, 1, 1) => {
++                    ops::mul_into::<Gf16>(dst, black_box(coefficient), sources[0])
++                }
++                (Operation::Add, 1, 1) => {
++                    ops::mul_add::<Gf16>(dst, black_box(coefficient), sources[0])
++                }
++                (Operation::Into, _, 1) => {
++                    ops::mul_into_gather_with::<Gf16>(dst, bank.gather.as_ref(), sources)
++                }
++                (Operation::Add, _, 1) => {
++                    ops::mul_add_gather_with::<Gf16>(dst, bank.gather.as_ref(), sources)
++                }
++                (Operation::Into, _, _) => {
++                    ops::mul_into_matrix_with::<Gf16>(dst, shape.bytes, &bank.matrix, sources)
++                }
++                (Operation::Add, _, _) => {
++                    ops::mul_add_matrix_with::<Gf16>(dst, shape.bytes, &bank.matrix, sources)
++                }
++            }
++            return;
++        }
++        if shape.operation == Operation::Assign {
++            match self.kind {
++                2 => native.complete_assign(dst, bank.complete[0]),
++                4 => {
++                    if bank.canonical[0] == gf16::Elem::ZERO {
++                        dst.fill(0);
++                    } else {
++                        simd.mul(dst.as_chunks_mut::<64>().0, black_box(bank.logs[0]));
++                    }
++                }
++                _ => unreachable!("unsupported assign arm"),
++            }
++            return;
++        }
++        for (source_index, src) in sources.iter().enumerate() {
++            for (row, output) in dst.chunks_exact_mut(shape.bytes).enumerate() {
++                let index = source_index * shape.destinations + row;
++                let add = shape.operation == Operation::Add || source_index != 0;
++                match self.kind {
++                    2 => native.complete_region(output, src, black_box(bank.complete[index]), add),
++                    3 => {
++                        let coefficient = black_box(bank.erasure[index].to_be_bytes());
++                        if add {
++                            galois_16::Field::mul_slice_add(
++                                coefficient,
++                                src.as_chunks::<2>().0,
++                                output.as_chunks_mut::<2>().0,
++                            );
++                        } else {
++                            galois_16::Field::mul_slice(
++                                coefficient,
++                                src.as_chunks::<2>().0,
++                                output.as_chunks_mut::<2>().0,
++                            );
++                        }
++                    }
++                    5 => {
++                        if bank.canonical[index] == gf16::Elem::ZERO {
++                            if !add {
++                                output.fill(0);
++                            }
++                        } else {
++                            native.leopard_region(output, src, black_box(bank.logs[index]), add);
++                        }
++                    }
++                    _ => unreachable!("unsupported region arm"),
++                }
++            }
++        }
++    }
++}
++
++struct Oracle {
++    products: HashMap<u16, Vec<u16>>,
++}
++
++impl Oracle {
++    fn result(
++        &mut self,
++        plan: &Plan,
++        bank_index: usize,
++        source: &[Vec<u8>],
++        initial: &[u8],
++    ) -> Vec<u8> {
++        let shape = plan.shape;
++        let coefficients = &plan.banks[bank_index].canonical;
++        for c in coefficients {
++            self.products
++                .entry(c.to_raw())
++                .or_insert_with(|| (0..=u16::MAX).map(|x| tower_mul(x, c.to_raw())).collect());
++        }
++        let mut output = if shape.operation == Operation::Into {
++            vec![0; initial.len()]
++        } else {
++            initial.to_vec()
++        };
++        if shape.operation == Operation::Assign {
++            let table = &self.products[&coefficients[0].to_raw()];
++            for pair in output.as_chunks_mut::<2>().0 {
++                *pair = table[usize::from(u16::from_le_bytes(*pair))].to_le_bytes();
++            }
++            return output;
++        }
++        for (term, src) in source.iter().enumerate() {
++            for row in 0..shape.destinations {
++                let table = &self.products[&coefficients[term * shape.destinations + row].to_raw()];
++                for (dst, pair) in output[row * shape.bytes..(row + 1) * shape.bytes]
++                    .as_chunks_mut::<2>()
++                    .0
++                    .iter_mut()
++                    .zip(src.as_chunks::<2>().0)
++                {
++                    let product =
++                        table[usize::from(u16::from_le_bytes([pair[0], pair[1]]))].to_le_bytes();
++                    dst[0] ^= product[0];
++                    dst[1] ^= product[1];
++                }
++            }
++        }
++        output
++    }
++}
++
++fn quantile(samples: &[f64], q: f64) -> f64 {
++    samples[((samples.len() - 1) as f64 * q).round() as usize]
++}
++
++fn arm_orders(count: usize) -> Vec<Vec<usize>> {
++    fn visit(order: &mut [usize], position: usize, result: &mut Vec<Vec<usize>>) {
++        if position == order.len() {
++            result.push(order.to_vec());
++            return;
++        }
++        for index in position..order.len() {
++            order.swap(position, index);
++            visit(order, position + 1, result);
++            order.swap(position, index);
++        }
++    }
++    let mut result = Vec::new();
++    visit(&mut (0..count).collect::<Vec<_>>(), 0, &mut result);
++    let mut state = 0x9e37_79b9_7f4a_7c15u64;
++    for index in (1..result.len()).rev() {
++        state = state
++            .wrapping_mul(6_364_136_223_846_793_005)
++            .wrapping_add(1);
++        result.swap(index, (state as usize) % (index + 1));
++    }
++    result
++}
++
++struct RunOptions {
++    timing: bool,
++    smoke: bool,
++    offset: usize,
++    exhaustive: bool,
++}
++
++fn run_case(
++    plan: Plan,
++    maps: &Representations,
++    native: &Native,
++    simd: &Avx2,
++    oracle: &mut Oracle,
++    options: RunOptions,
++) {
++    let RunOptions {
++        timing,
++        smoke,
++        offset,
++        exhaustive,
++    } = options;
++    let shape = plan.shape;
++    let canonical_sources: Vec<_> = (0..shape.sources)
++        .map(|term| {
++            if exhaustive {
++                (0..=u16::MAX).flat_map(u16::to_le_bytes).collect()
++            } else {
++                noise(shape.bytes, 0x800 + term as u64)
++            }
++        })
++        .collect();
++    let initial = noise(shape.bytes * shape.destinations, 0x900);
++    let layouts = [
++        Layout::Tower,
++        Layout::Complete,
++        Layout::Erasure,
++        Layout::Cantor,
++    ];
++    let fixtures: Vec<Vec<Buffer>> = layouts
++        .iter()
++        .map(|&layout| {
++            canonical_sources
++                .iter()
++                .map(|src| {
++                    let mut buffer = Buffer::new(shape.bytes, offset);
++                    maps.pack(buffer.bytes_mut(), src, layout);
++                    buffer
++                })
++                .collect()
++        })
++        .collect();
++    let kinds: Vec<_> = if shape.operation == Operation::Assign {
++        vec![0, 1, 2, 4]
++    } else {
++        vec![0, 1, 2, 3, 5]
++    };
++    let mut arms: Vec<_> = kinds
++        .into_iter()
++        .map(|kind| {
++            let fixture = match kind {
++                0 | 1 => 0,
++                2 => 1,
++                3 => 2,
++                4 | 5 => 3,
++                _ => unreachable!(),
++            };
++            Arm {
++                kind,
++                layout: layouts[fixture],
++                source: fixtures[fixture].iter().map(Buffer::bytes).collect(),
++                destination: Buffer::new(shape.bytes * shape.destinations, offset),
++            }
++        })
++        .collect();
++    for bank in 0..plan.banks.len() {
++        let expected = oracle.result(&plan, bank, &canonical_sources, &initial);
++        for arm in &mut arms {
++            maps.pack(arm.destination.bytes_mut(), &initial, arm.layout);
++            arm.apply(&plan, bank, native, simd);
++            let mut packed = vec![0; expected.len()];
++            maps.pack(&mut packed, &expected, arm.layout);
++            assert_eq!(
++                arm.destination.bytes(),
++                packed,
++                "{} {:?} bank {bank} offset {offset}",
++                NAMES[arm.kind],
++                shape
++            );
++            let repeated = oracle.result(&plan, bank, &canonical_sources, &expected);
++            arm.apply(&plan, bank, native, simd);
++            maps.pack(&mut packed, &repeated, arm.layout);
++            assert_eq!(
++                arm.destination.bytes(),
++                packed,
++                "repeated {} {:?}",
++                NAMES[arm.kind],
++                shape
++            );
++        }
++    }
++    if !timing {
++        return;
++    }
++    for arm in &mut arms {
++        for call in 0..32 {
++            arm.apply(&plan, call, native, simd);
++        }
++    }
++    let reps = if shape.bytes >= 1024 * 1024 {
++        1
++    } else if shape.bytes >= 64 * 1024 {
++        8
++    } else {
++        32
++    };
++    let orders = arm_orders(arms.len());
++    let period = orders.len();
++    let budget = Duration::from_millis(if smoke { 50 } else { 500 });
++    let mut samples = vec![Vec::new(); arms.len()];
++    let start = Instant::now();
++    let mut round = 0;
++    loop {
++        for &index in &orders[round % period] {
++            for call in 0..reps {
++                arms[index].apply(&plan, round * reps + call, native, simd);
++            }
++            let begin = Instant::now();
++            for call in 0..reps {
++                arms[index].apply(&plan, round * reps + call, native, simd);
++            }
++            let nanos = begin.elapsed().as_secs_f64() * 1e9 / reps as f64;
++            black_box(arms[index].destination.bytes());
++            samples[index].push(nanos);
++        }
++        round += 1;
++        if round % period == 0
++            && ((round >= period * 3 && start.elapsed() >= budget) || round >= 1200)
++        {
++            break;
++        }
++    }
++    for list in &mut samples {
++        list.sort_unstable_by(f64::total_cmp);
++    }
++    let control = quantile(&samples[1], 0.5) / quantile(&samples[0], 0.5);
++    println!(
++        "CONTROL\t{}\t{}\t{}\t{}\t{}\t{control:.6}",
++        shape.label(),
++        shape.sources,
++        shape.destinations,
++        shape.bytes,
++        shape.schedule()
++    );
++    for (arm, samples) in arms.iter().zip(&samples) {
++        let ns = quantile(samples, 0.5);
++        let gib = (shape.bytes * shape.sources) as f64 / ns * 1e9 / 1073741824.0;
++        println!(
++            "RESULT\t{}\t{}\t{}\t{}\t{}\t{}\t{ns:.6}\t{gib:.6}\t{:.6}\t{:.6}\t{}",
++            shape.label(),
++            shape.sources,
++            shape.destinations,
++            shape.bytes,
++            shape.schedule(),
++            NAMES[arm.kind],
++            quantile(samples, 0.1),
++            quantile(samples, 0.9),
++            samples.len()
++        );
++    }
++}
++
++fn shapes(smoke: bool) -> Vec<Shape> {
++    let mut result = Vec::new();
++    for &cycling in &[false, true] {
++        for &bytes in if smoke {
++            &[4096][..]
++        } else {
++            &[64, 4096, 16384, 65536, 262144, 1048576, 8388608][..]
++        } {
++            result.push(Shape {
++                operation: Operation::Assign,
++                sources: 1,
++                destinations: 1,
++                bytes,
++                cycling,
++            });
++        }
++        for &bytes in if smoke {
++            &[4096][..]
++        } else {
++            &[4096, 16384, 65536, 1048576, 8388608][..]
++        } {
++            for operation in [Operation::Into, Operation::Add] {
++                result.push(Shape {
++                    operation,
++                    sources: 1,
++                    destinations: 1,
++                    bytes,
++                    cycling,
++                });
++            }
++        }
++    }
++    for &bytes in if smoke {
++        &[4096][..]
++    } else {
++        &[4096, 16384, 65536][..]
++    } {
++        for operation in [Operation::Into, Operation::Add] {
++            result.push(Shape {
++                operation,
++                sources: 16,
++                destinations: 1,
++                bytes,
++                cycling: false,
++            });
++            for &destinations in if smoke { &[2][..] } else { &[2, 4, 6][..] } {
++                result.push(Shape {
++                    operation,
++                    sources: 10,
++                    destinations,
++                    bytes,
++                    cycling: false,
++                });
++            }
++        }
++    }
++    result
++}
++
++fn main() {
++    let arguments: Vec<_> = std::env::args().skip(1).collect();
++    assert!(
++        arguments
++            .iter()
++            .all(|arg| arg == "--check" || arg == "--smoke"),
++        "supported options: --check, --smoke"
++    );
++    let check = arguments.iter().any(|arg| arg == "--check");
++    let smoke = arguments.iter().any(|arg| arg == "--smoke");
++    let native = Native::new();
++    let simd = Avx2::new();
++    let maps = Representations::new(&native);
++    let mut oracle = Oracle {
++        products: HashMap::new(),
++    };
++    println!(
++        "GF16 native field comparison; fgf={} backend={:?} field_backend={:?}; rss=3.1.0 AVX2; rse=6.0.0 scalar GF16; GF-Complete=1.03 {} SSSE3 split-4/16 polynomial=0x1100b; Leopard-RS 1.x (pre-Leopard2)={} AVX2",
++        env!("FGF_VERSION"),
++        fgf::backend(),
++        fgf::backend_for::<Gf16>(),
++        env!("COMPLETE_REVISION"),
++        env!("LEOPARD_REVISION")
++    );
++    println!(
++        "affinity={} scheduler={}",
++        std::fs::read_to_string("/proc/self/status")
++            .unwrap()
++            .lines()
++            .find(|line| line.starts_with("Cpus_allowed_list:"))
++            .unwrap(),
++        std::fs::read_to_string("/proc/self/sched")
++            .unwrap()
++            .lines()
++            .find(|line| line.starts_with("policy"))
++            .unwrap_or("unknown")
++    );
++    println!(
++        "Native layouts; page-aligned buffers; setup, maps, logarithms and allocation excluded; source-byte throughput; single-row raw coefficients, prepared fgf multi-row coefficients; other multi-row arms repeat native regions; fixed or cycling16 coefficients; duplicate fgf control per case."
++    );
++    for operation in [Operation::Assign, Operation::Into, Operation::Add] {
++        for &coefficient in &[0, 1, 0x100, 0x1234, 0xffff] {
++            let shape = Shape {
++                operation,
++                sources: 1,
++                destinations: 1,
++                bytes: 131072,
++                cycling: false,
++            };
++            run_case(
++                Plan::new(shape, &maps, Some(coefficient)),
++                &maps,
++                &native,
++                &simd,
++                &mut oracle,
++                RunOptions {
++                    timing: false,
++                    smoke,
++                    offset: 0,
++                    exhaustive: true,
++                },
++            );
++        }
++        for bytes in [64, 128, 192, 320] {
++            let shape = Shape {
++                operation,
++                sources: 1,
++                destinations: 1,
++                bytes,
++                cycling: false,
++            };
++            run_case(
++                Plan::new(shape, &maps, None),
++                &maps,
++                &native,
++                &simd,
++                &mut oracle,
++                RunOptions {
++                    timing: false,
++                    smoke,
++                    offset: 16,
++                    exhaustive: false,
++                },
++            );
++        }
++    }
++    println!(
++        "CHECK field maps: all 65536 values, all 256 basis products; native scalar oracles; all-value regions with zero/unit/full-field coefficients; repeated calls; legal tile boundaries and offset alignment passed."
++    );
++    for shape in shapes(smoke) {
++        run_case(
++            Plan::new(shape, &maps, None),
++            &maps,
++            &native,
++            &simd,
++            &mut oracle,
++            RunOptions {
++                timing: !check,
++                smoke,
++                offset: 0,
++                exhaustive: false,
++            },
++        );
++    }
++    println!(
++        "CHECK every measured geometry and coefficient schedule passed exact differential validation."
++    );
++}
+--- /dev/null
++++ b/external/gf16-bench/src/native.rs
+@@ -0,0 +1,201 @@
++//! Checked calls into the pinned native GF16 competitors.
++
++use archmage::SimdToken;
++use std::ffi::c_void;
++use std::marker::PhantomData;
++use std::ptr::NonNull;
++use std::rc::Rc;
++
++// SAFETY:
++// ABI
++// SINCE: the x86-64 native bridge definitions use the C ABI with unsigned/int/u64 scalars and opaque or byte pointers matching these declarations.
++// THUS: the declarations match the linked functions' calling convention and representations.
++#[allow(unsafe_code)]
++unsafe extern "C" {
++    fn gf16_complete_new() -> *mut c_void;
++    fn gf16_complete_free(context: *mut c_void);
++    fn gf16_complete_mul(context: *mut c_void, a: u32, b: u32) -> u32;
++    fn gf16_complete_region(
++        context: *mut c_void,
++        dst: *mut u8,
++        src: *const u8,
++        coefficient: u32,
++        bytes: i32,
++        add: i32,
++    );
++    fn gf16_leopard_init() -> i32;
++    fn gf16_leopard_mul(a: u32, b: u32) -> u32;
++    fn gf16_leopard_region(
++        dst: *mut u8,
++        src: *const u8,
++        coefficient_log: u32,
++        bytes: u64,
++        add: i32,
++    );
++}
++
++pub struct Native {
++    complete: NonNull<c_void>,
++    _token: archmage::X64V3GfniCryptoToken,
++    _single_thread: PhantomData<Rc<()>>,
++}
++
++impl Native {
++    #[allow(unsafe_code)]
++    pub fn new() -> Self {
++        let token = archmage::X64V3GfniCryptoToken::summon()
++            .expect("native competitor build requires AVX2, GFNI and crypto hardware");
++        // SAFETY:
++        // CPU FEATURES
++        // SINCE: `token` proves the AVX2, SSSE3, SSE4 and PCLMUL instructions used by both native builds.
++        // THUS: initialization can legally execute their compiled instructions.
++        // OWNERSHIP
++        // SINCE: the C constructor allocates a fresh GF-Complete context; Leopard initializes process-global tables without callbacks.
++        // THUS: no borrowed Rust storage escapes or conflicts with native initialization.
++        let complete = unsafe {
++            assert_eq!(
++                gf16_leopard_init(),
++                1,
++                "Leopard must initialize its AVX2 arm"
++            );
++            NonNull::new(gf16_complete_new()).expect(
++                "GF-Complete must select polynomial 0x1100b and its SSSE3 split-table region arm",
++            )
++        };
++        Self {
++            complete,
++            _token: token,
++            _single_thread: PhantomData,
++        }
++    }
++
++    #[allow(unsafe_code)]
++    pub fn complete_mul(&self, a: u16, b: u16) -> u16 {
++        // SAFETY:
++        // LIFETIME
++        // SINCE: `self` owns the live native context until Drop, and u16 arguments are valid GF16 values.
++        // THUS: the scalar call reads a live initialized field context and in-range operands.
++        // CPU FEATURES
++        // SINCE: `self._token` proves every instruction enabled in the native build.
++        // THUS: its scalar field implementation can execute legally.
++        unsafe { gf16_complete_mul(self.complete.as_ptr(), u32::from(a), u32::from(b)) as u16 }
++    }
++
++    #[allow(unsafe_code)]
++    pub fn leopard_mul(&self, a: u16, b: u16) -> u16 {
++        // SAFETY:
++        // INITIALIZATION
++        // SINCE: Native::new initializes Leopard's tables before constructing self, and both operands index at most 65535.
++        // THUS: the scalar helper reads initialized, in-bounds tables.
++        // CPU FEATURES
++        // SINCE: `self._token` proves the native build's instruction set.
++        // THUS: the scalar helper executes legally.
++        unsafe { gf16_leopard_mul(u32::from(a), u32::from(b)) as u16 }
++    }
++
++    #[allow(unsafe_code)]
++    pub fn complete_region(&self, dst: &mut [u8], src: &[u8], coefficient: u16, add: bool) {
++        check_complete(dst, src.len());
++        assert_eq!(src.as_ptr().align_offset(16), 0);
++        // SAFETY:
++        // MEMORY VALIDITY
++        // SINCE: equal-length initialized slices contain complete words; check_complete bounds the signed byte count.
++        // THUS: the native region reads and writes only live slice storage and a live owned context.
++        // ALIGNMENT
++        // SINCE: both checked pointers are 16-byte aligned and their lengths are multiples of 64.
++        // THUS: the native SIMD body and uint16 accesses meet their alignment requirements.
++        // ALIASING
++        // SINCE: the exclusive destination borrow is disjoint from the shared source borrow; Native is not Send or Sync.
++        // THUS: destination writes and native scratch updates conflict with no other access.
++        // CPU FEATURES
++        // SINCE: `self._token` proves the enabled native instruction set.
++        // THUS: the selected SSSE3 implementation can execute legally.
++        unsafe {
++            gf16_complete_region(
++                self.complete.as_ptr(),
++                dst.as_mut_ptr(),
++                src.as_ptr(),
++                u32::from(coefficient),
++                dst.len() as i32,
++                i32::from(add),
++            )
++        };
++    }
++
++    #[allow(unsafe_code)]
++    pub fn complete_assign(&self, dst: &mut [u8], coefficient: u16) {
++        check_complete(dst, dst.len());
++        // SAFETY:
++        // MEMORY VALIDITY
++        // SINCE: the checked initialized slice bounds the signed byte count and the context is owned by self.
++        // THUS: every read and write stays inside live storage.
++        // ALIGNMENT
++        // SINCE: check_complete establishes 16-byte alignment and whole SIMD tiles.
++        // THUS: native vector and uint16 accesses are aligned.
++        // ALIASING
++        // SINCE: GF-Complete's region body loads each source tile before storing the corresponding destination tile; both pointers derive from one exclusive borrow.
++        // THUS: exact in-place execution is valid and does not conflict with another reference.
++        // CPU FEATURES
++        // SINCE: `self._token` proves the enabled native instruction set.
++        // THUS: the selected SSSE3 implementation can execute legally.
++        unsafe {
++            gf16_complete_region(
++                self.complete.as_ptr(),
++                dst.as_mut_ptr(),
++                dst.as_ptr(),
++                u32::from(coefficient),
++                dst.len() as i32,
++                0,
++            )
++        };
++    }
++
++    #[allow(unsafe_code)]
++    pub fn leopard_region(&self, dst: &mut [u8], src: &[u8], coefficient_log: u16, add: bool) {
++        assert_eq!(dst.len(), src.len());
++        assert!(!dst.is_empty() && dst.len().is_multiple_of(64));
++        // SAFETY:
++        // MEMORY VALIDITY
++        // SINCE: initialized equal-length slices contain a positive whole number of ALTMAP tiles; coefficient_log is a u16 table index.
++        // THUS: all unaligned SIMD accesses and table reads stay in bounds.
++        // ALIASING
++        // SINCE: exclusive destination and shared source borrows are disjoint.
++        // THUS: the upstream restrict-qualified overwrite and accumulating macro have no overlapping buffers.
++        // INITIALIZATION
++        // SINCE: Native::new initializes Leopard's multiplication tables before constructing self.
++        // THUS: the native calls read fully initialized table entries.
++        // CPU FEATURES
++        // SINCE: `self._token` proves AVX2 and construction verifies Leopard selected AVX2.
++        // THUS: the native AVX2 region can execute legally.
++        unsafe {
++            gf16_leopard_region(
++                dst.as_mut_ptr(),
++                src.as_ptr(),
++                u32::from(coefficient_log),
++                dst.len() as u64,
++                i32::from(add),
++            )
++        };
++    }
++}
++
++#[allow(unsafe_code)]
++impl Drop for Native {
++    fn drop(&mut self) {
++        // SAFETY:
++        // OWNERSHIP
++        // SINCE: self uniquely owns the pointer returned by the native constructor; no reference to it escapes Native.
++        // THUS: the native destructor frees it exactly once after its last access.
++        // CPU FEATURES
++        // SINCE: self retains the native build's capability token through this call.
++        // THUS: the native destructor's compiled instructions can execute legally.
++        unsafe { gf16_complete_free(self.complete.as_ptr()) };
++    }
++}
++
++fn check_complete(dst: &[u8], source_len: usize) {
++    assert_eq!(dst.len(), source_len);
++    assert!(!dst.is_empty() && dst.len().is_multiple_of(64));
++    assert!(i32::try_from(dst.len()).is_ok());
++    assert_eq!(dst.as_ptr().align_offset(16), 0);
++}
+--- /dev/null
++++ b/external/gf16-bench/src/representation.rs
+@@ -0,0 +1,210 @@
++//! Independent field arithmetic and validated linear maps between GF16 encodings.
++
++use reed_solomon_erasure::{Field, galois_16};
++use reed_solomon_simd::engine::{CANTOR_BASIS, tables};
++
++use crate::native::Native;
++
++fn polynomial_mul(mut a: u32, mut b: u32, polynomial: u32, bits: u32) -> u16 {
++    let mut result = 0;
++    for _ in 0..bits {
++        if b & 1 != 0 {
++            result ^= a;
++        }
++        b >>= 1;
++        a <<= 1;
++        if a & (1 << bits) != 0 {
++            a ^= polynomial;
++        }
++    }
++    result as u16
++}
++
++fn byte_mul(a: u16, b: u16, polynomial: u32) -> u16 {
++    polynomial_mul(u32::from(a), u32::from(b), polynomial, 8)
++}
++
++pub fn tower_mul(x: u16, y: u16) -> u16 {
++    let (a, b, c, d) = (x & 255, x >> 8, y & 255, y >> 8);
++    let ac = byte_mul(a, c, 0x11b);
++    let bd = byte_mul(b, d, 0x11b);
++    (ac ^ byte_mul(0x20, bd, 0x11b)) | ((byte_mul(a, d, 0x11b) ^ byte_mul(b, c, 0x11b) ^ bd) << 8)
++}
++
++fn erasure_mul(x: u16, y: u16) -> u16 {
++    let (a, b, c, d) = (x >> 8, x & 255, y >> 8, y & 255);
++    let ac = byte_mul(a, c, 0x11d);
++    let hi = byte_mul(ac, 2, 0x11d) ^ byte_mul(a, d, 0x11d) ^ byte_mul(b, c, 0x11d);
++    let lo = byte_mul(b, d, 0x11d) ^ byte_mul(ac, 128, 0x11d);
++    (hi << 8) | lo
++}
++
++fn linear(x: u16, basis: &[u16; 16]) -> u16 {
++    let mut result = 0;
++    for (bit, &image) in basis.iter().enumerate() {
++        if x & (1 << bit) != 0 {
++            result ^= image;
++        }
++    }
++    result
++}
++
++struct Map {
++    forward: Vec<u16>,
++}
++
++impl Map {
++    fn new(mul: impl Fn(u16, u16) -> u16) -> Self {
++        let beta = (0..=u16::MAX)
++            .find(|&x| {
++                let x2 = mul(x, x);
++                let x3 = mul(x2, x);
++                let x4 = mul(x2, x2);
++                let x8 = mul(x4, x4);
++                x8 ^ x4 ^ x3 ^ x ^ 1 == 0
++            })
++            .expect("GF16 contains an AES-byte-field root");
++        let mut basis = [0u16; 16];
++        basis[0] = 1;
++        for bit in 1..8 {
++            basis[bit] = mul(basis[bit - 1], beta);
++        }
++        let delta = linear(0x20, &basis);
++        let root = (0..=u16::MAX)
++            .find(|&x| mul(x, x) ^ x == delta)
++            .expect("the tower quadratic splits over GF16");
++        for bit in 0..8 {
++            basis[bit + 8] = mul(basis[bit], root);
++        }
++        let forward: Vec<_> = (0..=u16::MAX).map(|x| linear(x, &basis)).collect();
++        let mut seen = vec![false; 65536];
++        for &value in &forward {
++            assert!(!seen[usize::from(value)], "field map must be injective");
++            seen[usize::from(value)] = true;
++        }
++        assert_eq!(forward[0], 0);
++        assert_eq!(forward[1], 1);
++        for i in 0..16 {
++            for j in 0..16 {
++                let (x, y) = (1 << i, 1 << j);
++                assert_eq!(
++                    forward[usize::from(tower_mul(x, y))],
++                    mul(forward[usize::from(x)], forward[usize::from(y)]),
++                    "field map must preserve every basis product"
++                );
++            }
++        }
++        Self { forward }
++    }
++}
++
++#[derive(Clone, Copy, Debug)]
++pub enum Layout {
++    Tower,
++    Complete,
++    Cantor,
++    Erasure,
++}
++
++pub struct Representations {
++    complete: Map,
++    cantor: Map,
++    erasure: Map,
++}
++
++impl Representations {
++    pub fn new(native: &Native) -> Self {
++        let mut cantor_to_poly = [0u16; 65536];
++        let mut poly_to_cantor = [0u16; 65536];
++        for value in 0..=u16::MAX {
++            let image = linear(value, &CANTOR_BASIS);
++            cantor_to_poly[usize::from(value)] = image;
++            poly_to_cantor[usize::from(image)] = value;
++        }
++        for value in 0..=u16::MAX {
++            assert_eq!(
++                poly_to_cantor[usize::from(cantor_to_poly[usize::from(value)])],
++                value,
++                "Cantor basis must be invertible"
++            );
++        }
++        let cantor_mul = |a: u16, b: u16| {
++            let product = polynomial_mul(
++                u32::from(cantor_to_poly[usize::from(a)]),
++                u32::from(cantor_to_poly[usize::from(b)]),
++                0x1002d,
++                16,
++            );
++            poly_to_cantor[usize::from(product)]
++        };
++        for i in 0..16 {
++            for j in 0..16 {
++                let (x, y) = (1 << i, 1 << j);
++                assert_eq!(
++                    fgf::gf16::Elem::from_raw(x)
++                        .mul(fgf::gf16::Elem::from_raw(y))
++                        .to_raw(),
++                    tower_mul(x, y)
++                );
++                assert_eq!(
++                    native.complete_mul(x, y),
++                    polynomial_mul(u32::from(x), u32::from(y), 0x1100b, 16)
++                );
++                assert_eq!(native.leopard_mul(x, y), cantor_mul(x, y));
++                let lut = tables::get_exp_log();
++                assert_eq!(
++                    tables::mul(x, lut.log[usize::from(y)], &lut.exp, &lut.log),
++                    cantor_mul(x, y)
++                );
++                assert_eq!(
++                    u16::from_be_bytes(galois_16::Field::mul(x.to_be_bytes(), y.to_be_bytes())),
++                    erasure_mul(x, y)
++                );
++            }
++        }
++        assert_eq!(tower_mul(0x100, 0x100), 0x120);
++        assert_eq!(tower_mul(2, 2), 4);
++        assert_eq!(cantor_mul(2, 2), 3);
++        Self {
++            complete: Map::new(|a, b| polynomial_mul(u32::from(a), u32::from(b), 0x1100b, 16)),
++            cantor: Map::new(cantor_mul),
++            erasure: Map::new(erasure_mul),
++        }
++    }
++
++    pub fn element(&self, value: u16, layout: Layout) -> u16 {
++        match layout {
++            Layout::Tower => value,
++            Layout::Complete => self.complete.forward[usize::from(value)],
++            Layout::Cantor => self.cantor.forward[usize::from(value)],
++            Layout::Erasure => self.erasure.forward[usize::from(value)],
++        }
++    }
++
++    pub fn pack(&self, dst: &mut [u8], canonical: &[u8], layout: Layout) {
++        assert_eq!(dst.len(), canonical.len());
++        assert!(dst.len().is_multiple_of(64));
++        for (out, input) in dst
++            .as_chunks_mut::<64>()
++            .0
++            .iter_mut()
++            .zip(canonical.as_chunks::<64>().0)
++        {
++            for (index, symbol) in input.as_chunks::<2>().0.iter().enumerate() {
++                let value = self.element(u16::from_le_bytes([symbol[0], symbol[1]]), layout);
++                match layout {
++                    Layout::Cantor => {
++                        out[index] = value as u8;
++                        out[index + 32] = (value >> 8) as u8;
++                    }
++                    Layout::Erasure => {
++                        out[2 * index..2 * index + 2].copy_from_slice(&value.to_be_bytes())
++                    }
++                    Layout::Tower | Layout::Complete => {
++                        out[2 * index..2 * index + 2].copy_from_slice(&value.to_le_bytes())
++                    }
++                }
++            }
++        }
++    }
++}
+--- /dev/null
++++ b/external/prime-bench/Cargo.lock
+@@ -0,0 +1,463 @@
++# This file is automatically @generated by Cargo.
++# It is not intended for manual editing.
++version = 4
++
++[[package]]
++name = "archmage"
++version = "0.9.29"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8e3a17fc8196cce2902db52de7a21d4407971d080c01a0256037fcd3fc6e536e"
++dependencies = [
++ "archmage-macros",
++ "safe_unaligned_simd",
++ "winarm-cpufeatures",
++]
++
++[[package]]
++name = "archmage-macros"
++version = "0.9.29"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1d0c10fb756a60ff9418d3e5dcd2b665c5914e32391d2523995d2c2c09237ac6"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 3.0.6",
++]
++
++[[package]]
++name = "autocfg"
++version = "1.5.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
++
++[[package]]
++name = "either"
++version = "1.18.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
++
++[[package]]
++name = "fgf"
++version = "2.1.0"
++dependencies = [
++ "archmage",
++ "simdispatch",
++]
++
++[[package]]
++name = "itertools"
++version = "0.15.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
++dependencies = [
++ "either",
++]
++
++[[package]]
++name = "lock_api"
++version = "0.4.14"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
++dependencies = [
++ "scopeguard",
++]
++
++[[package]]
++name = "num-bigint"
++version = "0.5.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "93e7820bc0a80a0238e650327316f929ba18d5be054b647490a3a6a339f3e7c0"
++dependencies = [
++ "num-integer",
++ "num-traits",
++]
++
++[[package]]
++name = "num-integer"
++version = "0.1.47"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7ce2d95d4b3734dc35aa2f45e1aa22cd416814592a4f9d9205e11affd5b8e10b"
++dependencies = [
++ "num-traits",
++]
++
++[[package]]
++name = "num-traits"
++version = "0.2.19"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
++dependencies = [
++ "autocfg",
++]
++
++[[package]]
++name = "p3-dft"
++version = "0.7.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4344492a3a2981879411ef31b51b12fb364efeda59b9ac855d7d92559e7b46e8"
++dependencies = [
++ "itertools",
++ "p3-field",
++ "p3-matrix",
++ "p3-maybe-rayon",
++ "p3-util",
++ "spin",
++ "tracing",
++]
++
++[[package]]
++name = "p3-field"
++version = "0.7.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f45f7364ae3aac1bd42e8dfec4aa76d1bc9087c4749649c893a671e386e96727"
++dependencies = [
++ "itertools",
++ "num-bigint",
++ "p3-maybe-rayon",
++ "p3-util",
++ "paste",
++ "rand",
++ "serde",
++ "tracing",
++]
++
++[[package]]
++name = "p3-goldilocks"
++version = "0.7.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5c62b44c110832ba3d3a5c11160f591205e23f81a08ceb8c7be1a3a71fc4c214"
++dependencies = [
++ "num-bigint",
++ "p3-dft",
++ "p3-field",
++ "p3-mds",
++ "p3-poseidon1",
++ "p3-poseidon2",
++ "p3-symmetric",
++ "p3-util",
++ "paste",
++ "rand",
++ "serde",
++ "spin",
++]
++
++[[package]]
++name = "p3-matrix"
++version = "0.7.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "92f322bd7dded657d51f4c3adcc64bed27ffe4894dbd0f9c077d5670ce73217e"
++dependencies = [
++ "itertools",
++ "p3-field",
++ "p3-maybe-rayon",
++ "p3-util",
++ "rand",
++ "serde",
++ "tracing",
++]
++
++[[package]]
++name = "p3-maybe-rayon"
++version = "0.7.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "486d6396b0d22274f862a6c5987bb25f9ea61b34f21b54c23a2ee53f2d8c20ea"
++
++[[package]]
++name = "p3-mds"
++version = "0.7.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "00e11f572a44aa3c91057e59625d0992aacc6ffdb80dc1b44948d5587d66a159"
++dependencies = [
++ "p3-dft",
++ "p3-field",
++ "p3-symmetric",
++ "p3-util",
++ "rand",
++]
++
++[[package]]
++name = "p3-mersenne-31"
++version = "0.7.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b9fffe308287d1644c518a8c7f161581baabb2590783d3c686313f44e487e72b"
++dependencies = [
++ "itertools",
++ "num-bigint",
++ "p3-dft",
++ "p3-field",
++ "p3-matrix",
++ "p3-mds",
++ "p3-poseidon1",
++ "p3-poseidon2",
++ "p3-symmetric",
++ "p3-util",
++ "paste",
++ "rand",
++ "serde",
++]
++
++[[package]]
++name = "p3-poseidon1"
++version = "0.7.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "457e895bcf89b77e062653021b60c12ccd94dce599c54898d9ced4bfbabc820d"
++dependencies = [
++ "p3-field",
++ "p3-mds",
++ "p3-symmetric",
++ "rand",
++]
++
++[[package]]
++name = "p3-poseidon2"
++version = "0.7.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "65501f32d58b5055c9470ccff459b2576de5f4e6ba72e91f78457231bc67b1c6"
++dependencies = [
++ "p3-field",
++ "p3-mds",
++ "p3-symmetric",
++ "p3-util",
++ "rand",
++]
++
++[[package]]
++name = "p3-symmetric"
++version = "0.7.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3335886a1e2bec45877e050f76e6bf7a1a77019111c5f599d8b41c5889a2ea1c"
++dependencies = [
++ "itertools",
++ "p3-field",
++ "p3-util",
++ "serde",
++]
++
++[[package]]
++name = "p3-util"
++version = "0.7.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e020b468e9188da32310d8c876225e5183df105a1970368df97f8a76b85dcc5b"
++dependencies = [
++ "p3-maybe-rayon",
++ "serde",
++]
++
++[[package]]
++name = "paste"
++version = "1.0.15"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
++
++[[package]]
++name = "pin-project-lite"
++version = "0.2.17"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
++
++[[package]]
++name = "prime-bench"
++version = "0.0.0"
++dependencies = [
++ "fgf",
++ "p3-field",
++ "p3-goldilocks",
++ "p3-mersenne-31",
++]
++
++[[package]]
++name = "proc-macro2"
++version = "1.0.107"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
++dependencies = [
++ "unicode-ident",
++]
++
++[[package]]
++name = "quote"
++version = "1.0.47"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
++dependencies = [
++ "proc-macro2",
++]
++
++[[package]]
++name = "rand"
++version = "0.10.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
++dependencies = [
++ "rand_core",
++]
++
++[[package]]
++name = "rand_core"
++version = "0.10.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
++
++[[package]]
++name = "safe_unaligned_simd"
++version = "0.2.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f9c874fb993656d484725d58fbfddb39dfcf98ebcadc1a1d09568aa6b39bafba"
++
++[[package]]
++name = "scopeguard"
++version = "1.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
++
++[[package]]
++name = "serde"
++version = "1.0.229"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
++dependencies = [
++ "serde_core",
++ "serde_derive",
++]
++
++[[package]]
++name = "serde_core"
++version = "1.0.229"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48"
++dependencies = [
++ "serde_derive",
++]
++
++[[package]]
++name = "serde_derive"
++version = "1.0.229"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 3.0.6",
++]
++
++[[package]]
++name = "simdispatch"
++version = "0.2.0"
++dependencies = [
++ "archmage",
++]
++
++[[package]]
++name = "spin"
++version = "0.12.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0134f9043ed38b087ac4f7d4af44c79e2c9e5094421fe3164f435ce585953b10"
++dependencies = [
++ "lock_api",
++]
++
++[[package]]
++name = "syn"
++version = "2.0.119"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "unicode-ident",
++]
++
++[[package]]
++name = "syn"
++version = "3.0.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "unicode-ident",
++]
++
++[[package]]
++name = "tracing"
++version = "0.1.44"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
++dependencies = [
++ "pin-project-lite",
++ "tracing-attributes",
++ "tracing-core",
++]
++
++[[package]]
++name = "tracing-attributes"
++version = "0.1.31"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 2.0.119",
++]
++
++[[package]]
++name = "tracing-core"
++version = "0.1.36"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
++
++[[package]]
++name = "unicode-ident"
++version = "1.0.26"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
++
++[[package]]
++name = "winarm-cpufeatures"
++version = "0.1.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d107c80dd656e1a2c254dfb1d57ece73b7f515b8a8684c270c23cab68f4a440d"
++
++[[patch.unused]]
++name = "lattice-engine"
++version = "0.0.1"
++
++[[patch.unused]]
++name = "gfm"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "lattica"
++version = "1.0.1"
++
++[[patch.unused]]
++name = "butterfly-fft"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "poly-ring"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "gs-engine"
++version = "0.1.0"
++
++[[patch.unused]]
++name = "polymat"
++version = "0.1.0"
++
++[[patch.unused]]
++name = "sgraph"
++version = "0.1.0"
++
++[[patch.unused]]
++name = "butterfly-fft"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "gfm"
++version = "2.0.0"
++
++[[patch.unused]]
++name = "poly-ring"
++version = "2.0.0"
+--- a/external/prime-bench/src/main.rs
++++ b/external/prime-bench/src/main.rs
+@@ -49,7 +49,6 @@
+ use std::hint::black_box;
+ use std::time::{Duration, Instant};
+ 
+-use fgf::Field as FgfField;
+ use fgf::{
+     Goldilocks, Mersenne31, QuadMersenne31, backend, backend_for, goldilocks, mersenne31, ops,
+     quad_mersenne31,
+@@ -333,6 +332,16 @@
+     let their_median = median(their_samples);
+     let ratio = their_median / our_median;
+     let (low, high) = spread(paired);
++    match kind {
++        RowKind::Rate(bytes) => println!(
++            "PRIME\t{label}\trate\t{bytes}\t{our_median:.9}\t{their_median:.9}\t{low:.9}\t{high:.9}"
++        ),
++        RowKind::Scalar => println!(
++            "PRIME\t{label}\tscalar\t0\t{:.9}\t{:.9}\t{low:.9}\t{high:.9}",
++            our_median / SCALAR_ITERS as f64,
++            their_median / SCALAR_ITERS as f64,
++        ),
++    }
+     match kind {
+         RowKind::Rate(bytes) => println!(
+             "  {label:<34} {:>9} {:>7.2} GiB/s | {:>9} {:>7.2} GiB/s | \
+@@ -443,7 +452,7 @@
+     Fg::Elem: Copy + core::ops::Add<Output = Fg::Elem> + core::ops::Mul<Output = Fg::Elem>,
+     Fp: P3Field,
+ {
+-    let elem_bytes = <Fg as FgfField>::BYTES;
++    let elem_bytes = <Fg as fgf::Field>::BYTES;
+     let n = REGION_BYTES / elem_bytes;
+ 
+     let raws = |count: usize, seed: u64| seeds(count, seed);
+@@ -525,7 +534,7 @@
+     );
+ 
+     compare("scalar a * b", RowKind::Scalar, || {
+-        let mut acc = Fg::Elem::default();
++        let mut acc = <Fg::Elem>::default();
+         for i in 0..SCALAR_ITERS {
+             let x = src_fg[(i.wrapping_mul(7919)) & (n - 1)];
+             let y = src_fg[(i.wrapping_mul(104729)) & (n - 1)];
+@@ -593,7 +602,7 @@
+     Fg::Elem: Copy + Default,
+     Fp: Copy,
+ {
+-    let mut elems = vec![Fg::Elem::default(); n];
++    let mut elems = vec![<Fg::Elem>::default(); n];
+     ops::unpack::<Fg>(&mut elems, fg_bytes);
+     assert_eq!(fg_bytes.len(), n * elem_bytes, "whole elements");
+     for (index, (fg, p3)) in elems.iter().zip(p3_elems).enumerate() {
+@@ -616,7 +625,7 @@
+                 P3M31::new(lane),
+             )
+         },
+-        |e| u128::from(e.canonical().to_raw()),
++        |e| u128::from(e.to_raw()),
+         |e| u128::from(e.as_canonical_u32()),
+     );
+ }
+@@ -632,7 +641,7 @@
+                 P3Gld::new(lane),
+             )
+         },
+-        |e| u128::from(e.canonical().to_raw()),
++        |e| u128::from(e.to_raw()),
+         |e| u128::from(e.to_unique_u64()),
+     );
+ }
+@@ -642,7 +651,7 @@
+ // ---------------------------------------------------------------------------
+ 
+ fn run_quadratic(control_row: bool) {
+-    let elem_bytes = <QuadMersenne31 as FgfField>::BYTES;
++    let elem_bytes = <QuadMersenne31 as fgf::Field>::BYTES;
+     let n = REGION_BYTES / elem_bytes;
+     let width = <P3M31 as P3Field>::Packing::WIDTH;
+     assert_eq!(n % width, 0, "whole packed extension groups");
+@@ -717,7 +726,7 @@
+     let cb = PackedExt::from(c_p);
+ 
+     let canon_fg = |e: quad_mersenne31::Elem| -> u128 {
+-        let (re, im) = e.canonical().to_raw();
++        let (re, im) = e.to_raw();
+         (u128::from(im) << 32) | u128::from(re)
+     };
+     let canon_p = |e: Ext| -> u128 {

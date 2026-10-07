@@ -49,10 +49,9 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::Field as FgfField;
+use fgf::{Elem, FieldBuffer};
 use fgf::{
     Goldilocks, Mersenne31, QuadMersenne31, backend, backend_for, goldilocks, mersenne31, ops,
-    quad_mersenne31,
 };
 use p3_field::extension::Complex;
 use p3_field::{
@@ -335,6 +334,16 @@ fn compare(
     let (low, high) = spread(paired);
     match kind {
         RowKind::Rate(bytes) => println!(
+            "PRIME\t{label}\trate\t{bytes}\t{our_median:.9}\t{their_median:.9}\t{low:.9}\t{high:.9}"
+        ),
+        RowKind::Scalar => println!(
+            "PRIME\t{label}\tscalar\t0\t{:.9}\t{:.9}\t{low:.9}\t{high:.9}",
+            our_median / SCALAR_ITERS as f64,
+            their_median / SCALAR_ITERS as f64,
+        ),
+    }
+    match kind {
+        RowKind::Rate(bytes) => println!(
             "  {label:<34} {:>9} {:>7.2} GiB/s | {:>9} {:>7.2} GiB/s | \
              {ratio:>5.2}x [{low:.2}-{high:.2}]",
             fmt_ns(our_median),
@@ -396,7 +405,7 @@ fn sink(canon: u128) -> u64 {
 /// over two distinct destinations. Anything other than 1.00x is
 /// interleaving bias.
 fn control<Fg: fgf::FieldKernels>(
-    c: Fg::Elem,
+    c: Elem<Fg>,
     src: &Aligned<u8>,
     first: &mut Aligned<u8>,
     second: &mut Aligned<u8>,
@@ -435,19 +444,19 @@ fn control<Fg: fgf::FieldKernels>(
 fn run_slice_field<Fg, Fp>(
     name: &str,
     control_row: bool,
-    draw: impl Fn(u64) -> (Fg::Elem, Fp),
-    canon_fg: impl Fn(Fg::Elem) -> u128,
+    draw: impl Fn(u64) -> (Elem<Fg>, Fp),
+    canon_fg: impl Fn(Elem<Fg>) -> u128,
     canon_p: impl Fn(Fp) -> u128,
 ) where
     Fg: fgf::FieldKernels,
-    Fg::Elem: Copy + core::ops::Add<Output = Fg::Elem> + core::ops::Mul<Output = Fg::Elem>,
+    Elem<Fg>: Copy + core::ops::Add<Output = Elem<Fg>> + core::ops::Mul<Output = Elem<Fg>>,
     Fp: P3Field,
 {
-    let elem_bytes = <Fg as FgfField>::BYTES;
+    let elem_bytes = <Fg as FieldBuffer>::BYTES;
     let n = REGION_BYTES / elem_bytes;
 
     let raws = |count: usize, seed: u64| seeds(count, seed);
-    let elems = |count: usize, seed: u64| -> (Vec<Fg::Elem>, Vec<Fp>) {
+    let elems = |count: usize, seed: u64| -> (Vec<Elem<Fg>>, Vec<Fp>) {
         raws(count, seed).into_iter().map(&draw).unzip()
     };
 
@@ -462,7 +471,7 @@ fn run_slice_field<Fg, Fp>(
     let (v_fg, v_p) = draw(0x2AAA_AAAA);
 
     // `fgf` native layout: packed little-endian bytes.
-    let pack = |elems: &[Fg::Elem]| -> Aligned<u8> {
+    let pack = |elems: &[Elem<Fg>]| -> Aligned<u8> {
         let mut bytes = vec![0u8; n * elem_bytes];
         ops::pack::<Fg>(&mut bytes, elems);
         Aligned::from_vec(bytes)
@@ -525,7 +534,7 @@ fn run_slice_field<Fg, Fp>(
     );
 
     compare("scalar a * b", RowKind::Scalar, || {
-        let mut acc = Fg::Elem::default();
+        let mut acc = Elem::<Fg>::default();
         for i in 0..SCALAR_ITERS {
             let x = src_fg[(i.wrapping_mul(7919)) & (n - 1)];
             let y = src_fg[(i.wrapping_mul(104729)) & (n - 1)];
@@ -584,16 +593,16 @@ fn assert_canon<Fg, Fp>(
     label: &str,
     fg_bytes: &[u8],
     p3_elems: &[Fp],
-    canon_fg: &impl Fn(Fg::Elem) -> u128,
+    canon_fg: &impl Fn(Elem<Fg>) -> u128,
     canon_p: &impl Fn(Fp) -> u128,
     n: usize,
     elem_bytes: usize,
 ) where
     Fg: fgf::FieldKernels,
-    Fg::Elem: Copy + Default,
+    Elem<Fg>: Copy + Default,
     Fp: Copy,
 {
-    let mut elems = vec![Fg::Elem::default(); n];
+    let mut elems = vec![Elem::<Fg>::default(); n];
     ops::unpack::<Fg>(&mut elems, fg_bytes);
     assert_eq!(fg_bytes.len(), n * elem_bytes, "whole elements");
     for (index, (fg, p3)) in elems.iter().zip(p3_elems).enumerate() {
@@ -612,11 +621,11 @@ fn run_mersenne31(control_row: bool) {
         |raw| {
             let lane = (raw % mersenne31::MODULUS as u64) as u32;
             (
-                mersenne31::Elem::from_raw(lane),
+                Elem::<Mersenne31>::from_raw(lane),
                 P3M31::new(lane),
             )
         },
-        |e| u128::from(e.canonical().to_raw()),
+        |e| u128::from(e.to_raw()),
         |e| u128::from(e.as_canonical_u32()),
     );
 }
@@ -628,11 +637,11 @@ fn run_goldilocks(control_row: bool) {
         |raw| {
             let lane = raw % goldilocks::MODULUS;
             (
-                goldilocks::Elem::from_raw(lane),
+                Elem::<Goldilocks>::from_raw(lane),
                 P3Gld::new(lane),
             )
         },
-        |e| u128::from(e.canonical().to_raw()),
+        |e| u128::from(e.to_raw()),
         |e| u128::from(e.to_unique_u64()),
     );
 }
@@ -642,19 +651,19 @@ fn run_goldilocks(control_row: bool) {
 // ---------------------------------------------------------------------------
 
 fn run_quadratic(control_row: bool) {
-    let elem_bytes = <QuadMersenne31 as FgfField>::BYTES;
+    let elem_bytes = <QuadMersenne31 as FieldBuffer>::BYTES;
     let n = REGION_BYTES / elem_bytes;
     let width = <P3M31 as P3Field>::Packing::WIDTH;
     assert_eq!(n % width, 0, "whole packed extension groups");
 
-    let elems = |count: usize, seed: u64| -> (Vec<quad_mersenne31::Elem>, Vec<Ext>) {
+    let elems = |count: usize, seed: u64| -> (Vec<Elem<QuadMersenne31>>, Vec<Ext>) {
         let raw = seeds(2 * count, seed);
         (0..count)
             .map(|i| {
                 let re = (raw[2 * i] % mersenne31::MODULUS as u64) as u32;
                 let im = (raw[2 * i + 1] % mersenne31::MODULUS as u64) as u32;
                 (
-                    quad_mersenne31::Elem::from_raw(re, im),
+                    Elem::<QuadMersenne31>::from_raw(re, im),
                     Complex::<P3M31>::new_complex(P3M31::new(re), P3M31::new(im)),
                 )
             })
@@ -673,7 +682,7 @@ fn run_quadratic(control_row: bool) {
         let re = (raw[0] % mersenne31::MODULUS as u64) as u32;
         let im = (raw[1] % mersenne31::MODULUS as u64) as u32;
         (
-            quad_mersenne31::Elem::from_raw(re, im),
+            Elem::<QuadMersenne31>::from_raw(re, im),
             Complex::<P3M31>::new_complex(P3M31::new(re), P3M31::new(im)),
         )
     };
@@ -682,13 +691,13 @@ fn run_quadratic(control_row: bool) {
         let re = (raw[0] % mersenne31::MODULUS as u64) as u32;
         let im = (raw[1] % mersenne31::MODULUS as u64) as u32;
         (
-            quad_mersenne31::Elem::from_raw(re, im),
+            Elem::<QuadMersenne31>::from_raw(re, im),
             Complex::<P3M31>::new_complex(P3M31::new(re), P3M31::new(im)),
         )
     };
 
     // `fgf` native layout: interleaved little-endian limb pairs.
-    let pack = |elems: &[quad_mersenne31::Elem]| -> Aligned<u8> {
+    let pack = |elems: &[Elem<QuadMersenne31>]| -> Aligned<u8> {
         let mut bytes = vec![0u8; n * elem_bytes];
         ops::pack::<QuadMersenne31>(&mut bytes, elems);
         Aligned::from_vec(bytes)
@@ -716,8 +725,8 @@ fn run_quadratic(control_row: bool) {
 
     let cb = PackedExt::from(c_p);
 
-    let canon_fg = |e: quad_mersenne31::Elem| -> u128 {
-        let (re, im) = e.canonical().to_raw();
+    let canon_fg = |e: Elem<QuadMersenne31>| -> u128 {
+        let (re, im) = e.to_raw();
         (u128::from(im) << 32) | u128::from(re)
     };
     let canon_p = |e: Ext| -> u128 {
@@ -786,7 +795,7 @@ fn run_quadratic(control_row: bool) {
     );
 
     compare("scalar a * b", RowKind::Scalar, || {
-        let mut acc = quad_mersenne31::Elem::ZERO;
+        let mut acc = Elem::<QuadMersenne31>::ZERO;
         for i in 0..SCALAR_ITERS {
             let x = src_fg[(i.wrapping_mul(7919)) & (n - 1)];
             let y = src_fg[(i.wrapping_mul(104729)) & (n - 1)];

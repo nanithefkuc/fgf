@@ -35,11 +35,6 @@ pub mod kernel {
         pub use crate::kernel::tower::*;
     }
 
-    /// Fan–Paar tower kernels and preparation.
-    pub mod fan_paar {
-        pub use crate::kernel::fan_paar::*;
-    }
-
     /// Portable prime-field kernels.
     pub mod prime {
         pub use crate::kernel::prime::*;
@@ -87,8 +82,8 @@ pub mod kernel {
 
 /// Independent scalar field oracles.
 pub mod field {
-    /// Wiedemann recurrence for differential checks of the Fan–Paar tower.
-    pub mod wiedemann {
-        pub use crate::field::wiedemann::*;
+    /// Fan–Paar recurrence for differential checks of the tower family.
+    pub mod fan_paar {
+        pub use crate::field::binary::tower::{fp_invert, fp_mul_alpha, fp_multiply, fp_square};
     }
 }

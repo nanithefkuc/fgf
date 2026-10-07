@@ -6,6 +6,258 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-07
+
+### Added
+
+- Version-independent benchmark labels and separate absolute `benchmarks/v2/`
+  and `benchmarks/v3/` records, with matched speed factors under
+  `benchmarks/comparison/`. Released v2.1.0 replaces the generic-API baseline.
+- Reproducible benchmark-only v2 preparation, paired host campaigns, and a
+  fail-closed publisher with a raw-record cell evidence index.
+- Custom RS-rooted `gf16d` one-shot, prepared, and scalar measurements, with
+  no fabricated released-v2 counterpart.
+- Explicit binary embeddings: `Embedding<S, T>` prepares the canonical
+  inclusion of one binary field into another whose degree is a multiple of
+  it, for every supported presentation — polynomial, ordered-basis, and
+  tower, custom `TowerSpec` instances included. One frozen reference per
+  degree (`Polynomial<3>`, `Polynomial<0x7>`, `Polynomial<0x13>`, the AES
+  field, and the Rijndael towers `Binary<16, Tower<Rijndael16>>`,
+  `Binary<32, Tower<Rijndael32>>`, and `Binary<64, Tower<Rijndael64>>`) fixes the
+  consecutive inclusions: the identity into degree two, smallest-raw-root
+  inclusions below the AES field, and low-component inclusions above it.
+  `new` returns `EmbeddingError::IncompatibleDegree` when the source degree
+  does not divide the target degree. `embed`, `contains`, `restrict`,
+  `frobenius`, `trace`, and `norm` apply the prepared column arrays without
+  allocating; equal presentation descriptions embed identically, and
+  `Embedding<Binary<1, Polynomial<3>>, T>` supplies the absolute trace and norm.
+- Recursive quadratic towers through degree 64. One open `TowerSpec`
+  supplies `Base`, `LINEAR_COEFFICIENT`, `CONSTANT_COEFFICIENT`, and `NAME`
+  for every quadratic tower at degrees 2, 4, 8, 16, 32, and 64 over a
+  supported base of half the degree; `TowerGeneratorSpec` optionally pins a
+  multiplicative generator checked to full order against the complete prime
+  factors of `2^N - 1` at each degree. Shipped specs root at the AES field
+  (`Rijndael16`, `Rijndael32`, `Rijndael64`) or nest from GF(2) through the
+  Wiedemann relation (`FanPaar2` through `FanPaar64`, the degree-two and
+  degree-four levels joining the ladder). Custom specs validate through the
+  field description: the base first, excess coefficient bits, `A != 0`, and
+  absolute `trace(B/A^2) == 1` for the relation `t^2 + A*t + B = 0`.
+- Custom tower bulk operations: one dispatch implementation per degree
+  serves every representation, routing pinned Rijndael and Fan-Paar
+  descriptions to their vector kernels and every other tower to the typed
+  scalar fallback with `backend_for` reporting `Scalar`; degree-eight
+  towers join the single degree-eight dispatch. Towers at degrees 8, 16,
+  32, and 64 implement `FieldBuffer`.
+- Ordered-basis byte presentations: `Normal<P, E>` wraps a polynomial
+  element into its conjugate basis (bit `i` selects `E^(2^i)`; one is all
+  bits set) and `Cantor<P, SEED>` builds the chain `c_(N-1) = SEED`,
+  `c_i = c_(i+1)^2 + c_(i+1)` (bit `i` selects `c_i`; validity asserts
+  `c_0 == ONE`), at degrees 2, 4, and 8. Basis rank and inverse columns are
+  checked by bounded enumeration; generators are the transported polynomial
+  generators, verified to full order. Polynomial presentations extend to
+  degrees two (`Polynomial<0x7>`) and four (`Polynomial<0x13>`,
+  `Polynomial<0x19>`, `Polynomial<0x1F>`); degrees 1, 2, and 4 are
+  scalar-only. Basis bulk operations run the typed scalar fallback;
+  polynomial arithmetic never touches basis coordinates.
+- Open scalar field definitions. `Field` is implementable downstream;
+  `PrimeCharacteristic<P>` supplies a checked prime identity at any `u64`
+  prime through deterministic Miller-Rabin, and the central validation
+  block — reached from every generic construction — checks the
+  characteristic identity, a positive degree, `ORDER ==
+  CHARACTERISTIC^DEGREE` with overflow checking, and the binary degree cap
+  of 64. Binary fields convert through `BinaryField::to_coordinates` and
+  `from_coordinates`, which reject excess bits above the degree through
+  `CoordinateError`.
+- `just cross-check` compiles the AArch64 and Wasm library paths, including
+  the explicit Wasm SIMD configuration, and `just bench-build NAME` builds a
+  portable benchmark artifact without running it.
+- `just bench-gf16-comp` runs an interleaved native GF(2^16) field
+  comparison against GF-Complete, `reed-solomon-erasure`,
+  `reed-solomon-simd`, and Leopard-RS 1.x; the harness validates basis maps
+  and region outputs against independent arithmetic, includes
+  duplicate-operation controls, and reports unavailable primitives
+  separately. `bench-gf-comp` includes the same harness in its shuffled
+  rounds.
+- The benchmark record is split by field family. `BENCHMARKS.md` indexes
+  the pages under `benchmarks/` and holds the hosts, shared method, number
+  format, and reproduction commands; each page carries its own setup,
+  self-timings, and competitor tables. Every value in a table has the same
+  digit count, so paired Tiger Lake / Golden Cove cells line up down each
+  column.
+
+### Changed
+
+- **Breaking:** fields have no public type aliases; `Binary<N, R>` is the
+  only spelling. `Gf1`, `Gf16`, `Gf32`, `Gf64`, and `FanPaar2` through
+  `FanPaar64` (the field aliases) are not provided: replace each with its
+  canonical type — `Binary<1, Polynomial<3>>`,
+  `Binary<16, Tower<Rijndael16>>`, `Binary<32, Tower<Rijndael32>>`,
+  `Binary<64, Tower<Rijndael64>>`, and `Binary<N, Tower<FanPaarN>>` — or
+  declare a local alias such as
+  `type Gf2P16 = Binary<16, Tower<Rijndael16>>;`. The Fan-Paar spec markers
+  are named like `Rijndael16`: `FanPaar2Spec` through `FanPaar64Spec` become
+  `FanPaar2` through `FanPaar64`, so Fan-Paar GF(2^16) is
+  `Binary<16, Tower<FanPaar16>>`.
+- **Breaking:** `Binary<N, R>` replaces `Gf<N, R>` and explicitly names
+  characteristic-two fields; `BinaryField` remains the capability trait.
+  `Polynomial<P>` replaces `Poly<P>`, and `RS` replaces `REED_SOLOMON`
+  for the unchanged `0x11D` polynomial convention. The `Gf8<R>` transition
+  alias is removed: replace it with `Binary<8, R>`, including associated
+  item paths such as `Binary::<8, Polynomial<AES>>::ORDER`. For example,
+  `Elem<Gf8<Poly<REED_SOLOMON>>>` becomes
+  `Elem<Binary<8, Polynomial<RS>>>`. No compatibility aliases remain.
+- **Breaking:** `TowerSpec::LINEAR_COEFFICIENT` and
+  `TowerSpec::CONSTANT_COEFFICIENT` replace `TowerSpec::A` and
+  `TowerSpec::B`. Rename the associated constants in custom specs and their
+  qualified uses; values remain raw coordinates in `Base` for the relation
+  `t^2 + A*t + B = 0`. `TowerSpec` and `TowerGeneratorSpec` remain separate:
+  arithmetic requires no selected generator. Field arithmetic, wire bytes,
+  selected generators, and backend routing are unchanged.
+- The canonical $GF(2)$ benchmark label is `gf1`, denoting extension degree.
+  Its pages move from `gf2.md` to `gf1.md` in the v2, v3, and comparison
+  directories; the released-v2 API mapping remains `Gf2`.
+- **Breaking:** one element wrapper, `Elem<F>`, replaces every concrete
+  element path. `mersenne31::Elem`, `goldilocks::Elem`,
+  `quad_mersenne31::Elem`, the binary `Elem<N, R>` spelling, the
+  `gf16`/`gf32`/`gf64` and Fan-Paar element structs, and `gf2::Elem` are
+  removed, as are the module `GENERATOR` constants (`Elem::<F>::GENERATOR`
+  replaces them all). `Gf2` becomes `Binary<1, Polynomial<3>>`, and
+  `bits::dot_product` returns `Elem<Binary<1, Polynomial<3>>>`. Migrate
+  `gf2::Elem` to `Elem<Binary<1, Polynomial<3>>>`, `mersenne31::Elem` to
+  `Elem<Mersenne31>`, `gf16::Elem` to `Elem<Binary<16, Tower<Rijndael16>>>`,
+  `fan_paar::fp16::Elem` to `Elem<Binary<16, Tower<FanPaar16>>>`, and the
+  binary `Elem<8, Poly<POLY>>` to `Elem<Binary<8, Polynomial<POLY>>>`;
+  spell elements of the wider towers and the prime families the same way.
+  Inherent `const` arithmetic sits on the `Elem<F>` types; `ZERO`, `ONE`,
+  `GENERATOR`, and `to_raw` are the generic items and are not redeclared
+  per family. `Debug`
+  for every element is the generic `NAME(raw)` format; family `Display`
+  formats are unchanged. The scalar-arithmetic trait `field::Elem` is
+  renamed `FieldElem` (re-exported as `fgf::FieldElem`): replace
+  `use fgf::field::Elem;` trait imports with `use fgf::field::FieldElem;`.
+  Wire bytes, generators, and relations are unchanged.
+- **Breaking:** `Field` is split into three contracts. `Field` keeps scalar
+  algebra and metadata (`Raw`, `Characteristic`, `NAME`, `DEGREE`, `ORDER`,
+  `ZERO_RAW`, `ONE_RAW`, `VALID`, raw arithmetic); `FieldBuffer` carries the
+  byte encoding (`BYTES`, `STORAGE_BITS`, `decode`, `encode`), implemented
+  by binary degrees 8/16/32/64 and the prime families; `HasGenerator`
+  carries the selected generator (`GENERATOR_RAW`). `Field::Elem`,
+  `Field::BITS`, `Field::CHARACTERISTIC`, `Field::GENERATOR`, and
+  `Field::elem_count` are removed. Generic code reads the characteristic as
+  `<F::Characteristic as PrimeIdentity>::CHARACTERISTIC`, the storage width
+  as `FieldBuffer::STORAGE_BITS`, and the generator as
+  `Elem::<F>::GENERATOR` under a `HasGenerator` bound. `FieldKernels` and
+  every `ops` operation — `pack`, `unpack`, and `pack_to_vec` included —
+  bound on `FieldBuffer` and take `Elem<F>`. `FieldElem` is sealed and
+  implemented only by the blanket `impl<F: Field> FieldElem for Elem<F>`;
+  downstream custom fields implement the new `Field` contract and receive
+  the trait. The trait exponent is `u128` (`pow(u128)`), the inherent
+  `const pow` on every family takes `u128`, and `QuadMersenne31::pow_u128`
+  is removed in its favour.
+- **Breaking:** prime `from_raw` canonicalizes and `to_raw` returns
+  canonical storage. In 2.x, `from_raw` and `decode` retained the
+  unreduced lane and `to_raw` exposed the stored bits; every safely
+  constructed element now holds canonical coordinates, so comparison,
+  hashing, and packing see the reduced lane. Packed prime operations accept
+  every lane bit pattern a decode accepts and emit canonical lanes on
+  output — accumulate, in-place, and tails included — and zero-coefficient
+  accumulation and unit-coefficient in-place scaling are defined no-ops
+  that preserve their inputs byte for byte. Migrate by deleting manual
+  canonicalization after construction; published canonical byte fixtures
+  and mathematical values are unchanged. The inherent `canonical()` methods
+  are removed; `pack`/`unpack` round-trip canonical lanes.
+- **Breaking:** binary representations are descriptor-backed. `Repr<N>` and
+  `ByteRepr` are removed in favour of `BinaryRepr<N>`, which carries the
+  presentation `NAME`, an opaque `BinaryDescription`, an optional
+  `ByteLogExp` table slot at degree eight, and the use-time `VALID` check;
+  `BinaryField` adds the canonical coordinate conversions and
+  `BinaryDegree<N>` pins the exact degree a generic tower row may build on.
+  Migrate `Repr<8>`/`ByteRepr` bounds to `BinaryRepr<8>` and read tables
+  through `LOG_EXP`; the kernel table banks
+  move with the representations. The representations live in the binary
+  subtree: `field::binary` (`Binary`, the coordinate surface),
+  `field::binary::poly`, `field::binary::normal`, `field::binary::cantor`,
+  and `field::binary::description` replace the removed `field::repr`,
+  `field::poly`, and `field::gf1` modules.
+- **Breaking:** `Poly<const P: u32>` becomes `Polynomial<const P: u128>`,
+  and the `AES` and renamed `RS` constants widen to `u128` with the same
+  values. `Polynomial` implements `BinaryRepr` at degrees 1, 2, 4, and 8;
+  only `Polynomial<3>` is the degree-one form, giving GF(2) as
+  `Binary<1, Polynomial<3>>`. Generic flat byte fields support any
+  irreducible degree-eight polynomial — Data Matrix `0x12D` and the CCSDS
+  basis `0x187` included — with x86 GFNI elementwise multiplication deriving
+  an isomorphism onto the AES field for each polynomial. Migrating from the
+  2.x names: `Gf8B`/`Gf8D` become `Binary<8, Polynomial<AES>>`/
+  `Binary<8, Polynomial<RS>>`, `gf8b::Elem`/`gf8d::Elem` become
+  `Elem<Binary<8, Polynomial<AES>>>`/`Elem<Binary<8, Polynomial<RS>>>`,
+  and other conventions spell `Polynomial<0x12D>` or `Polynomial<0x187>`
+  directly; import the constant (`Polynomial<AES>`) rather than qualifying
+  it (`Polynomial<fgf::AES>`) in const-generic position. Values, wire
+  encodings, and generators are unchanged.
+- **Breaking:** the Rijndael and Fan-Paar hierarchies collapse into the
+  recursive tower. `RijndaelTower` is renamed `Rijndael16` and joined by
+  `Rijndael32` and `Rijndael64`: 2.x `Gf16`, `Gf32`, and `Gf64` become
+  `Binary<16, Tower<Rijndael16>>`, `Binary<32, Tower<Rijndael32>>`, and
+  `Binary<64, Tower<Rijndael64>>`. The `gf16`, `gf32`, and `gf64` modules,
+  `quad_tower!`, the concrete Fan-Paar element and marker types, the
+  `field::fan_paar` and `field::wiedemann` modules, and their
+  `DELTA`/`ALPHA`/`GENERATOR` module constants are removed. Migrate the
+  relation constants to `LINEAR_COEFFICIENT`/`CONSTANT_COEFFICIENT` in the
+  spec; wire bytes, generators, and relations are unchanged. The
+  independent Fan-Paar recurrence stays available as
+  `field::binary::tower::{fp_multiply, fp_square, fp_invert,
+  fp_mul_alpha}`, re-exported under `internals` as
+  `internals::field::fan_paar`. `TowerSpec` is open: `LINEAR_COEFFICIENT`
+  and `CONSTANT_COEFFICIENT` are `u64` base-coordinate words, the base
+  bound becomes `BinaryField` at half the degree, and the generator moves
+  to the optional `TowerGeneratorSpec`. The unstable
+  `internals::kernel::fan_paar` dispatch
+  module merges into `internals::kernel::tower::{gf16, gf32, gf64}`, whose
+  `Prepared` enums carry raw words and tiles; `x86::fan_paar` keeps its
+  token-bearing entries unchanged. Path moves: `field::tower` →
+  `field::binary::tower`; `field::wiedemann` → the recurrence functions in
+  `field::binary::tower`; the `kernel::fan_paar` dispatch merges into
+  `kernel::tower`.
+- Bulk routing follows the field description. Ordered-basis byte fields,
+  degree-eight towers, custom tower specs, and towers over basis bases
+  route every bulk operation and tail through the typed scalar fallback,
+  with `backend_for` reporting `Scalar`; the GFNI degree-sixteen route that
+  served non-AES polynomial bases through the AVX2 tables kernels is
+  removed in favour of that fallback. `backend_for::<F>()` states the tier
+  actually serving `F`'s bulk operations and
+  `has_vector_elementwise::<F>()` reports elementwise eligibility
+  separately. XOR-shaped operations — row addition, broadcast scalars, and
+  `add`/`sub_assign` — stay field-independent and serve basis coordinates
+  on the vector units.
+- **Breaking (unstable surface only):** the direct kernels under
+  `fgf::internals::kernel` are laid out by field family, then instruction
+  set, with one entry per operation and ISA, representation-erased. The
+  GFNI and AVX-512 fixed-coefficient entries take `Prepared` —
+  unparameterized, built with `Prepared::new` — instead of a typed element
+  or `Prepared<POLY>`; the GFNI byte bodies select their multiply through a
+  `const NATIVE: bool` parameter (`true` for the AES encoding, `false` for
+  the affine map). `scale_table_8d` and `affine_8b`/`affine_8d` become
+  `scale_table` and `affine_map`. Elementwise ISA entries take the
+  isomorphism onto the AES field and the reduction byte as explicit
+  arguments (`isomorphism_to_aes::<POLY>()` and the polynomial's low byte)
+  instead of a polynomial const parameter; the GF(2^16) elementwise entries
+  take the relation's constant byte and the base reduction byte. The
+  multi-row x86, AArch64, and Wasm entries take prepared coefficients — a
+  `Matrix<Prepared>` provider such as `FlatMatrix<Prepared>` or a slice of
+  `(&[Prepared], &[u8])` pairs — instead of element slices; the
+  element-taking matrix wrappers (`mul_add_matrix_gfni`,
+  `mul_into_matrix_avx512`, and kin) are removed in favour of the `_with`
+  provider entries. The GF(2^16) kernel surface carries raw-erased
+  payloads: `TowerCoeff` the raw coefficient word and the two broadcast
+  words, `TowerTables` the raw word and four nibble tables, both built with
+  `new` (representation inferred from the element);
+  `internals::kernel::gf16::Prepared` carries those raw forms, with
+  `Plain(u16)` for the fallback. The scatter, gather, and matrix entries
+  take coefficients through provider forms — an element slice (resolved on
+  access), a materialized table slice, or a matrix provider such as
+  `FlatMatrix` or `gf16::FlatResolved`. Supported public API paths are
+  unchanged.
+
 ## [2.1.0] - 2026-10-02
 
 ### Added
@@ -1042,7 +1294,8 @@ behaviour.
 
 Initial public release.
 
-[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/nanithefkuc/fgf/compare/v2.1.0...v3.0.0
 [1.0.0]: https://github.com/nanithefkuc/fgf/compare/v0.7.1...v1.0.0
 [0.7.1]: https://github.com/nanithefkuc/fgf/compare/v0.7.0...v0.7.1
 [0.6.0]: https://github.com/nanithefkuc/fgf/compare/v0.5.0...v0.6.0

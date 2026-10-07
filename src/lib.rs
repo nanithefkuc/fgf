@@ -30,9 +30,12 @@ pub mod ops;
 pub mod internals;
 
 pub use field::{
-    FanPaar8, FanPaar16, FanPaar32, FanPaar64, Field, Gf2, Gf8B, Gf8D, Gf16, Gf32, Gf64,
-    Goldilocks, Mersenne31, QuadMersenne31, fan_paar, gf2, gf8b, gf8d, gf16, gf32, gf64,
-    goldilocks, mersenne31, quad_mersenne31,
+    AES, Binary, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor,
+    Elem, Embedding, EmbeddingError, FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64,
+    Field, FieldBuffer, FieldElem, Goldilocks, HasGenerator, Mersenne31, Normal, Polynomial,
+    PrimeCharacteristic, PrimeIdentity, QuadMersenne31, RS, Rijndael16, Rijndael32, Rijndael64,
+    Tower, TowerGeneratorSpec, TowerSpec, cantor, description, embedding, goldilocks, mersenne31,
+    normal, poly, quad_mersenne31, tower,
 };
 pub use kernel::{
     Backend, FGF_TIERS, FieldKernels, KernelBackend, ParseBackendError, backend, backend_for,

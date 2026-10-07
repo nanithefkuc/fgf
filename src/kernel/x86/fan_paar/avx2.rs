@@ -1,6 +1,8 @@
 //! Fan–Paar AVX2 kernels over 32-byte lanes.
 
-use crate::field::fan_paar::{FanPaar16, FanPaar32, FanPaar64, fp32, fp64};
+use crate::field::Elem;
+use crate::field::binary::Binary;
+use crate::field::binary::tower::{FanPaar16, FanPaar32, FanPaar64, Tower};
 use crate::kernel::scalar;
 use crate::kernel::tables::FpTowerTables;
 use crate::kernel::x86::gf16::{nibble_avx2, nibble_ssse3, scale_avx2, scale_ssse3};
@@ -58,7 +60,7 @@ pub fn mul_add_avx2_fp16(
     // Both steps above are a whole number of 2-byte elements, so the tail
     // starts on an element boundary. Recover the coefficient from the tables
     // it was built from for the portable fallback.
-    scalar::mul_add::<FanPaar16>(dst_tail, tables.coeff, src_tail);
+    scalar::mul_add::<Binary<16, Tower<FanPaar16>>>(dst_tail, tables.coeff, src_tail);
 }
 
 /// `dst = coeff * dst` with `PSHUFB` lookups over 32-byte lanes (AVX2).
@@ -86,7 +88,7 @@ pub fn mul_assign_avx2_fp16(_token: archmage::X64V3Token, dst: &mut [u8], tables
         let x = _mm_loadu_si128(&*dst_lane);
         _mm_storeu_si128(dst_lane, scale_ssse3(x, &table));
     }
-    scalar::mul_assign::<FanPaar16>(dst_tail, tables.coeff);
+    scalar::mul_assign::<Binary<16, Tower<FanPaar16>>>(dst_tail, tables.coeff);
 }
 
 /// `dst = coeff * src` with `PSHUFB` lookups over 32-byte lanes (AVX2), fused.
@@ -131,7 +133,7 @@ pub fn mul_into_avx2_fp16(
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its
     // own source, so seeding it with `src` first matches the fused body.
     dst_tail.copy_from_slice(src_tail);
-    scalar::mul_assign::<FanPaar16>(dst_tail, tables.coeff);
+    scalar::mul_assign::<Binary<16, Tower<FanPaar16>>>(dst_tail, tables.coeff);
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +158,7 @@ struct Fp32Lanes {
 }
 
 #[archmage::rite(v3)]
-fn fp32_lanes(coeff: fp32::Elem) -> Fp32Lanes {
+fn fp32_lanes(coeff: Elem<Binary<32, Tower<FanPaar32>>>) -> Fp32Lanes {
     let (c0, c1) = coeff.to_components();
     let a_coeff = c0;
     let b_coeff = c0.add(c1.mul_alpha());
@@ -194,7 +196,7 @@ fn scale_fp32(x: __m256i, lanes: &Fp32Lanes) -> __m256i {
 pub fn mul_add_avx2_fp32(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
-    coeff: fp32::Elem,
+    coeff: Elem<Binary<32, Tower<FanPaar32>>>,
     src: &[u8],
 ) {
     assert_eq!(
@@ -220,7 +222,7 @@ pub fn mul_add_avx2_fp32(
     }
     // Every 32-byte lane is a whole number of 4-byte elements, so the tail
     // starts on an element boundary.
-    scalar::mul_add::<FanPaar32>(dst_tail, coeff, src_tail);
+    scalar::mul_add::<Binary<32, Tower<FanPaar32>>>(dst_tail, coeff, src_tail);
 }
 
 /// `dst = coeff * dst` (Fan–Paar GF(2^32), AVX2).
@@ -229,7 +231,11 @@ pub fn mul_add_avx2_fp32(
 /// Panics on a partial trailing element.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_avx2_fp32(_token: archmage::X64V3Token, dst: &mut [u8], coeff: fp32::Elem) {
+pub fn mul_assign_avx2_fp32(
+    _token: archmage::X64V3Token,
+    dst: &mut [u8],
+    coeff: Elem<Binary<32, Tower<FanPaar32>>>,
+) {
     assert!(
         dst.len().is_multiple_of(4),
         "fan_paar::mul_assign_avx2_fp32: buffer of {} bytes is not a whole number of 4-byte elements",
@@ -241,7 +247,7 @@ pub fn mul_assign_avx2_fp32(_token: archmage::X64V3Token, dst: &mut [u8], coeff:
         let x = _mm256_loadu_si256(&*dst_lane);
         _mm256_storeu_si256(dst_lane, scale_fp32(x, &l));
     }
-    scalar::mul_assign::<FanPaar32>(dst_tail, coeff);
+    scalar::mul_assign::<Binary<32, Tower<FanPaar32>>>(dst_tail, coeff);
 }
 
 /// `dst = coeff * src` (Fan–Paar GF(2^32), AVX2), fused.
@@ -253,7 +259,7 @@ pub fn mul_assign_avx2_fp32(_token: archmage::X64V3Token, dst: &mut [u8], coeff:
 pub fn mul_into_avx2_fp32(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
-    coeff: fp32::Elem,
+    coeff: Elem<Binary<32, Tower<FanPaar32>>>,
     src: &[u8],
 ) {
     assert_eq!(
@@ -278,7 +284,7 @@ pub fn mul_into_avx2_fp32(
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its
     // own source, so seeding it with `src` first matches the fused body.
     dst_tail.copy_from_slice(src_tail);
-    scalar::mul_assign::<FanPaar32>(dst_tail, coeff);
+    scalar::mul_assign::<Binary<32, Tower<FanPaar32>>>(dst_tail, coeff);
 }
 
 // ---------------------------------------------------------------------------
@@ -301,7 +307,7 @@ struct Fp64Lanes {
 }
 
 #[archmage::rite(v3)]
-fn fp64_lanes(coeff: fp64::Elem) -> Fp64Lanes {
+fn fp64_lanes(coeff: Elem<Binary<64, Tower<FanPaar64>>>) -> Fp64Lanes {
     let (c0, c1) = coeff.to_components();
     let a_coeff = c0;
     let b_coeff = c0.add(c1.mul_alpha());
@@ -339,7 +345,7 @@ fn scale_fp64(x: __m256i, lanes: &Fp64Lanes) -> __m256i {
 pub fn mul_add_avx2_fp64(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
-    coeff: fp64::Elem,
+    coeff: Elem<Binary<64, Tower<FanPaar64>>>,
     src: &[u8],
 ) {
     assert_eq!(
@@ -365,7 +371,7 @@ pub fn mul_add_avx2_fp64(
     }
     // Every 32-byte lane is a whole number of 8-byte elements, so the tail
     // starts on an element boundary.
-    scalar::mul_add::<FanPaar64>(dst_tail, coeff, src_tail);
+    scalar::mul_add::<Binary<64, Tower<FanPaar64>>>(dst_tail, coeff, src_tail);
 }
 
 /// `dst = coeff * dst` (Fan–Paar GF(2^64), AVX2).
@@ -374,7 +380,11 @@ pub fn mul_add_avx2_fp64(
 /// Panics on a partial trailing element.
 #[allow(clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_avx2_fp64(_token: archmage::X64V3Token, dst: &mut [u8], coeff: fp64::Elem) {
+pub fn mul_assign_avx2_fp64(
+    _token: archmage::X64V3Token,
+    dst: &mut [u8],
+    coeff: Elem<Binary<64, Tower<FanPaar64>>>,
+) {
     assert!(
         dst.len().is_multiple_of(8),
         "fan_paar::mul_assign_avx2_fp64: buffer of {} bytes is not a whole number of 8-byte elements",
@@ -386,7 +396,7 @@ pub fn mul_assign_avx2_fp64(_token: archmage::X64V3Token, dst: &mut [u8], coeff:
         let x = _mm256_loadu_si256(&*dst_lane);
         _mm256_storeu_si256(dst_lane, scale_fp64(x, &l));
     }
-    scalar::mul_assign::<FanPaar64>(dst_tail, coeff);
+    scalar::mul_assign::<Binary<64, Tower<FanPaar64>>>(dst_tail, coeff);
 }
 
 /// `dst = coeff * src` (Fan–Paar GF(2^64), AVX2), fused.
@@ -398,7 +408,7 @@ pub fn mul_assign_avx2_fp64(_token: archmage::X64V3Token, dst: &mut [u8], coeff:
 pub fn mul_into_avx2_fp64(
     _token: archmage::X64V3Token,
     dst: &mut [u8],
-    coeff: fp64::Elem,
+    coeff: Elem<Binary<64, Tower<FanPaar64>>>,
     src: &[u8],
 ) {
     assert_eq!(
@@ -423,5 +433,5 @@ pub fn mul_into_avx2_fp64(
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its
     // own source, so seeding it with `src` first matches the fused body.
     dst_tail.copy_from_slice(src_tail);
-    scalar::mul_assign::<FanPaar64>(dst_tail, coeff);
+    scalar::mul_assign::<Binary<64, Tower<FanPaar64>>>(dst_tail, coeff);
 }

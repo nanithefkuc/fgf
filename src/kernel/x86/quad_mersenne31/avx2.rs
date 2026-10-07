@@ -3,8 +3,8 @@
 //! Four complex elements per 256-bit vector: eight 32-bit lanes holding
 //! `[re0, im0, re1, im1, re2, im2, re3, im3]`, little-endian, so the even
 //! 32-bit lanes are the real limbs and the odd lanes the imaginary limbs.
-//! The limb arithmetic — the fold and the canonicalizing min chain — is
-//! the Mersenne31 discipline shared with
+//! The limb arithmetic — the direct canonicalizing min chain — is the
+//! Mersenne31 discipline shared with
 //! [`crate::kernel::x86::mersenne31`]; this module adds the complex layer
 //! on top of it.
 //!
@@ -24,7 +24,7 @@
 //!
 //! Buffers meet the packed canonical-lane contract: every input limb is
 //! below the modulus and every stored limb is canonical, the same contract
-//! as [`crate::ops`]. Coefficients are total — any raw `Elem` limbs
+//! as [`crate::ops`]. Coefficients are total — any raw `Elem<QuadMersenne31>` limbs
 //! canonicalize once per call.
 //!
 //! Reaching these entries directly is an `internals` surface, like the
@@ -34,10 +34,11 @@
 //! zero and one coefficient shortcuts mirror the scalar control exactly,
 //! byte for byte.
 
-use crate::field::quad_mersenne31::{Elem, QuadMersenne31};
-use crate::field::{Field, mersenne31};
+use crate::field::Elem;
+use crate::field::quad_mersenne31::QuadMersenne31;
+use crate::field::{FieldBuffer, mersenne31};
 use crate::kernel::proven_checks::{check_elem_multiple, check_equal};
-use crate::kernel::x86::mersenne31::{P, fold_avx2, min_chain_avx2};
+use crate::kernel::x86::mersenne31::{P, min_chain_avx2};
 use crate::kernel::{prime, scalar};
 
 #[cfg(target_arch = "x86")]
@@ -52,23 +53,14 @@ fn dup_im(x: __m256i) -> __m256i {
     _mm256_castps_si256(_mm256_movehdup_ps(_mm256_castsi256_ps(x)))
 }
 
-/// `a + b (mod p)` over eight folded lanes (`0..=p` in, canonical out).
+/// `a + b (mod p)` over eight lanes (`0..=p` in, canonical out).
 #[archmage::rite(v3)]
 #[must_use]
 fn addmod(a: __m256i, b: __m256i, p: __m256i) -> __m256i {
     min_chain_avx2(_mm256_add_epi32(a, b), p) // sum <= 2p
 }
 
-/// `a - b (mod p)` over eight folded lanes (`0..=p` in, canonical out).
-#[archmage::rite(v3)]
-#[must_use]
-fn submod(a: __m256i, b: __m256i, p: __m256i) -> __m256i {
-    let diff = _mm256_sub_epi32(a, b); // wraps iff negative
-    let fixed = _mm256_min_epu32(diff, _mm256_add_epi32(diff, p));
-    min_chain_avx2(fixed, p)
-}
-
-/// Multiply four folded complex elements by a prepared coefficient:
+/// Multiply four canonical complex elements by a prepared coefficient:
 /// `cr` broadcast to all lanes, `ci_mixed` holding `p - ci` on the real
 /// lanes and `ci` on the imaginary lanes. The real lanes accumulate
 /// `cr*re + (p-ci)*im = cr*re - ci*im` and the imaginary lanes
@@ -83,7 +75,7 @@ fn cmul(x: __m256i, cr: __m256i, ci_mixed: __m256i, p: __m256i) -> __m256i {
     reduce_pair(re, im, p)
 }
 
-/// Complex multiply of two folded vectors, `(ar*br - ai*bi, ar*bi + ai*br)`
+/// Complex multiply of two canonical vectors, `(ar*br - ai*bi, ar*bi + ai*br)`
 /// per element, negating the duplicated imaginary limbs of `b` with `p`
 /// and reducing the deferred 64-bit accumulators.
 #[archmage::rite(v3)]
@@ -132,8 +124,8 @@ fn coeff_vectors(cr: u32, ci: u32) -> (__m256i, __m256i) {
 
 /// `dst += src` in GF((2^31 - 1)^2), AVX2.
 ///
-/// Both buffers hold canonical lanes — every 32-bit limb below the
-/// modulus — and every stored lane is canonical.
+/// Every input limb bit pattern is legal: limbs canonicalize on load,
+/// and every stored limb is canonical.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial element.
@@ -152,17 +144,20 @@ pub fn add_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8])
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let d = fold_avx2(_mm256_loadu_si256(&*dst_lane), p);
-        let s = fold_avx2(_mm256_loadu_si256(src_lane), p);
-        _mm256_storeu_si256(dst_lane, addmod(d, s, p));
+        // Canonical limbs sum to at most `2p - 2` per lane, so one final
+        // subtract-and-min completes the reduction.
+        let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+        let s = min_chain_avx2(_mm256_loadu_si256(src_lane), p);
+        let sum = _mm256_add_epi32(d, s); // <= 2p - 2
+        _mm256_storeu_si256(dst_lane, _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p)));
     }
     prime::add_assign::<QuadMersenne31>(dst_tail, src_tail);
 }
 
 /// `dst -= src` in GF((2^31 - 1)^2), AVX2.
 ///
-/// Both buffers hold canonical lanes — every 32-bit limb below the
-/// modulus — and every stored lane is canonical.
+/// Every input limb bit pattern is legal: limbs canonicalize on load,
+/// and every stored limb is canonical.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial element.
@@ -181,17 +176,20 @@ pub fn sub_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8])
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let d = fold_avx2(_mm256_loadu_si256(&*dst_lane), p);
-        let s = fold_avx2(_mm256_loadu_si256(src_lane), p);
-        _mm256_storeu_si256(dst_lane, submod(d, s, p));
+        // The unsigned min of the wrapping difference and its `+p` fixup is
+        // already canonical for canonical limbs.
+        let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+        let s = min_chain_avx2(_mm256_loadu_si256(src_lane), p);
+        let diff = _mm256_sub_epi32(d, s); // wraps iff negative
+        _mm256_storeu_si256(dst_lane, _mm256_min_epu32(diff, _mm256_add_epi32(diff, p)));
     }
     prime::sub_assign::<QuadMersenne31>(dst_tail, src_tail);
 }
 
 /// `dst += coeff * src` in GF((2^31 - 1)^2), AVX2.
 ///
-/// Both buffers hold canonical lanes; the coefficient may hold any raw
-/// limbs, canonicalized once before the loop. A zero coefficient leaves
+/// Every input limb bit pattern is legal: limbs canonicalize on load,
+/// and every stored limb is canonical. A zero coefficient leaves
 /// `dst` untouched and the coefficient `1 + 0i` adds `src` elementwise,
 /// mirroring the scalar control.
 ///
@@ -199,7 +197,12 @@ pub fn sub_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8])
 /// Panics if the slices differ in length or hold a partial element.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem, src: &[u8]) {
+pub fn mul_add_avx2(
+    _token: archmage::X64V3Token,
+    dst: &mut [u8],
+    coeff: Elem<QuadMersenne31>,
+    src: &[u8],
+) {
     check_equal(
         "quad_mersenne31::mul_add_avx2",
         "dst",
@@ -208,7 +211,7 @@ pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem, s
         src.len(),
     );
     check_elem_multiple("quad_mersenne31::mul_add_avx2", dst.len(), 8);
-    let (cr, ci) = coeff.canonical().to_raw();
+    let (cr, ci) = coeff.to_raw();
     if cr == 0 && ci == 0 {
         return;
     }
@@ -221,13 +224,15 @@ pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem, s
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
+        // Canonical limbs keep `cmul`'s deferred reduction and the final
+        // `addmod` inside their proven ranges.
         let prod = cmul(
-            fold_avx2(_mm256_loadu_si256(src_lane), p),
+            min_chain_avx2(_mm256_loadu_si256(src_lane), p),
             cr_v,
             ci_mixed,
             p,
         );
-        let d = fold_avx2(_mm256_loadu_si256(&*dst_lane), p);
+        let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
         _mm256_storeu_si256(dst_lane, addmod(d, prod, p));
     }
     prime::mul_add::<QuadMersenne31>(dst_tail, coeff, src_tail);
@@ -244,9 +249,9 @@ pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem, s
 /// Panics on a partial trailing element.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem) {
+pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem<QuadMersenne31>) {
     check_elem_multiple("quad_mersenne31::mul_assign_avx2", dst.len(), 8);
-    let (cr, ci) = coeff.canonical().to_raw();
+    let (cr, ci) = coeff.to_raw();
     if cr == 0 && ci == 0 {
         dst.fill(0);
         return;
@@ -258,7 +263,8 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem
     let (cr_v, ci_mixed) = coeff_vectors(cr, ci);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     for dst_lane in dst_lanes {
-        let d = fold_avx2(_mm256_loadu_si256(&*dst_lane), p);
+        // Canonical limbs, as above.
+        let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
         _mm256_storeu_si256(dst_lane, cmul(d, cr_v, ci_mixed, p));
     }
     prime::mul_assign::<QuadMersenne31>(dst_tail, coeff);
@@ -267,15 +273,20 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem
 /// `dst = coeff * src` in GF((2^31 - 1)^2), AVX2. The destination is
 /// write-only: its prior contents are ignored, never read.
 ///
-/// Both buffers hold canonical lanes; the coefficient may hold any raw
-/// limbs, canonicalized once before the loop. A zero coefficient zeroes
+/// Every input limb bit pattern is legal: limbs canonicalize on load,
+/// and every stored limb is canonical. A zero coefficient zeroes
 /// `dst`, mirroring the scalar control.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial element.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn mul_into_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem, src: &[u8]) {
+pub fn mul_into_avx2(
+    _token: archmage::X64V3Token,
+    dst: &mut [u8],
+    coeff: Elem<QuadMersenne31>,
+    src: &[u8],
+) {
     check_equal(
         "quad_mersenne31::mul_into_avx2",
         "dst",
@@ -284,7 +295,7 @@ pub fn mul_into_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem, 
         src.len(),
     );
     check_elem_multiple("quad_mersenne31::mul_into_avx2", dst.len(), 8);
-    let (cr, ci) = coeff.canonical().to_raw();
+    let (cr, ci) = coeff.to_raw();
     if cr == 0 && ci == 0 {
         dst.fill(0);
         return;
@@ -294,7 +305,8 @@ pub fn mul_into_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem, 
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let s = fold_avx2(_mm256_loadu_si256(src_lane), p);
+        // Canonical limbs, as above.
+        let s = min_chain_avx2(_mm256_loadu_si256(src_lane), p);
         _mm256_storeu_si256(dst_lane, cmul(s, cr_v, ci_mixed, p));
     }
     // Whole-element scalar tail.
@@ -306,8 +318,8 @@ pub fn mul_into_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem, 
 
 /// `dst[i] = a[i] * b[i]` in GF((2^31 - 1)^2), AVX2.
 ///
-/// All three buffers hold canonical lanes — every 32-bit limb below the
-/// modulus — and every stored lane is canonical.
+/// Every input limb bit pattern is legal: limbs canonicalize on load,
+/// and every stored limb is canonical.
 ///
 /// # Panics
 /// Panics unless all three buffers match in length (whole elements).
@@ -334,8 +346,10 @@ pub fn mul_elementwise_avx2(_token: archmage::X64V3Token, dst: &mut [u8], a: &[u
     let (a_lanes, a_tail) = a.as_chunks::<32>();
     let (b_lanes, b_tail) = b.as_chunks::<32>();
     for ((dst_lane, a_lane), b_lane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
-        let va = fold_avx2(_mm256_loadu_si256(a_lane), p);
-        let vb = fold_avx2(_mm256_loadu_si256(b_lane), p);
+        // The duplicated-imaginary negation below XORs with `p`, which is
+        // exact only for canonical limbs.
+        let va = min_chain_avx2(_mm256_loadu_si256(a_lane), p);
+        let vb = min_chain_avx2(_mm256_loadu_si256(b_lane), p);
         _mm256_storeu_si256(dst_lane, cmul_vec(va, vb, p));
     }
     prime::mul_elementwise::<QuadMersenne31>(dst_tail, a_tail, b_tail);
@@ -343,8 +357,8 @@ pub fn mul_elementwise_avx2(_token: archmage::X64V3Token, dst: &mut [u8], a: &[u
 
 /// `dst[i] = dst[i] * src[i]` in GF((2^31 - 1)^2), AVX2.
 ///
-/// All buffers hold canonical lanes — every 32-bit limb below the modulus —
-/// and every stored lane is canonical.
+/// Every input limb bit pattern is legal: limbs canonicalize on load,
+/// and every stored limb is canonical.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial element.
@@ -363,8 +377,9 @@ pub fn mul_elementwise_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8],
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let vd = fold_avx2(_mm256_loadu_si256(&*dst_lane), p);
-        let vs = fold_avx2(_mm256_loadu_si256(src_lane), p);
+        // As above: the negation needs canonical limbs.
+        let vd = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+        let vs = min_chain_avx2(_mm256_loadu_si256(src_lane), p);
         _mm256_storeu_si256(dst_lane, cmul_vec(vd, vs, p));
     }
     scalar::mul_elementwise_assign::<QuadMersenne31>(dst_tail, src_tail);
@@ -373,17 +388,21 @@ pub fn mul_elementwise_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8],
 /// `dst[i] += value` in GF((2^31 - 1)^2), AVX2. The raw `value` limbs are
 /// canonicalized once on entry.
 ///
-/// The destination lanes are canonicalized on load; the broadcast value is
-/// used as given.
+/// The destination limbs canonicalize on load; the canonical sum reduces
+/// with one subtract-and-min, and every stored limb is canonical.
 ///
 /// # Panics
 /// Panics on a partial trailing element.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn add_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], value: Elem) {
+pub fn add_assign_scalar_avx2(
+    _token: archmage::X64V3Token,
+    dst: &mut [u8],
+    value: Elem<QuadMersenne31>,
+) {
     check_elem_multiple("quad_mersenne31::add_assign_scalar_avx2", dst.len(), 8);
     // The broadcast value is loop-invariant: canonicalize the raw limbs once.
-    let (vr, vi) = value.canonical().to_raw();
+    let (vr, vi) = value.to_raw();
     // Broadcast the (re, im) pair onto the alternating limb lanes.
     let svec = _mm256_blend_epi32::<0b1010_1010>(
         _mm256_set1_epi32(vr as i32),
@@ -392,8 +411,9 @@ pub fn add_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], valu
     let p = _mm256_set1_epi32(P);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     for dst_lane in dst_lanes {
-        let d = fold_avx2(_mm256_loadu_si256(&*dst_lane), p);
-        _mm256_storeu_si256(dst_lane, addmod(d, svec, p));
+        let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+        let sum = _mm256_add_epi32(d, svec); // <= 2p - 2
+        _mm256_storeu_si256(dst_lane, _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p)));
     }
     prime::add_assign_scalar::<QuadMersenne31>(dst_tail, value);
 }
@@ -401,16 +421,21 @@ pub fn add_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], valu
 /// `dst[i] -= value` in GF((2^31 - 1)^2), AVX2. The raw `value` limbs are
 /// canonicalized once on entry.
 ///
-/// The destination lanes are canonicalized on load; the broadcast value is
-/// used as given.
+/// The destination limbs canonicalize on load; the canonical difference is
+/// canonical after one unsigned min with its `+p` fixup, matching
+/// [`sub_assign_avx2`].
 ///
 /// # Panics
 /// Panics on a partial trailing element.
 #[allow(clippy::cast_possible_wrap, clippy::used_underscore_binding)]
 #[archmage::arcane(import_intrinsics)]
-pub fn sub_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], value: Elem) {
+pub fn sub_assign_scalar_avx2(
+    _token: archmage::X64V3Token,
+    dst: &mut [u8],
+    value: Elem<QuadMersenne31>,
+) {
     check_elem_multiple("quad_mersenne31::sub_assign_scalar_avx2", dst.len(), 8);
-    let (vr, vi) = value.canonical().to_raw();
+    let (vr, vi) = value.to_raw();
     let svec = _mm256_blend_epi32::<0b1010_1010>(
         _mm256_set1_epi32(vr as i32),
         _mm256_set1_epi32(vi as i32),
@@ -418,8 +443,9 @@ pub fn sub_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], valu
     let p = _mm256_set1_epi32(P);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     for dst_lane in dst_lanes {
-        let d = fold_avx2(_mm256_loadu_si256(&*dst_lane), p);
-        _mm256_storeu_si256(dst_lane, submod(d, svec, p));
+        let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+        let diff = _mm256_sub_epi32(d, svec); // wraps iff negative
+        _mm256_storeu_si256(dst_lane, _mm256_min_epu32(diff, _mm256_add_epi32(diff, p)));
     }
     prime::sub_assign_scalar::<QuadMersenne31>(dst_tail, value);
 }
@@ -439,21 +465,22 @@ mod tests {
     /// extremes, mixed values, the field generator, and raw non-canonical
     /// limbs — the last two exercise the coefficient canonicalization the
     /// contract allows.
-    const COEFFS: [Elem; 9] = [
-        Elem::ZERO,
-        Elem::ONE,
-        Elem::I,
-        Elem::from_raw(mersenne31::MODULUS - 1, mersenne31::MODULUS - 1),
-        Elem::from_raw(1, mersenne31::MODULUS - 1),
-        Elem::from_raw(0x5555_5555, 0x1234_5678),
-        Elem::from_raw(mersenne31::MODULUS, 0), // non-canonical zero
-        Elem::from_raw(u32::MAX, 2),            // raw limb, value 1 + 2i
-        Elem::from_raw(1, 12),                  // the field generator
+    const COEFFS: [Elem<QuadMersenne31>; 9] = [
+        Elem::<QuadMersenne31>::ZERO,
+        Elem::<QuadMersenne31>::ONE,
+        Elem::<QuadMersenne31>::I,
+        Elem::<QuadMersenne31>::from_raw(mersenne31::MODULUS - 1, mersenne31::MODULUS - 1),
+        Elem::<QuadMersenne31>::from_raw(1, mersenne31::MODULUS - 1),
+        Elem::<QuadMersenne31>::from_raw(0x5555_5555, 0x1234_5678),
+        Elem::<QuadMersenne31>::from_raw(mersenne31::MODULUS, 0), // non-canonical zero
+        Elem::<QuadMersenne31>::from_raw(u32::MAX, 2),            // raw limb, value 1 + 2i
+        Elem::<QuadMersenne31>::from_raw(1, 12),                  // the field generator
     ];
 
     /// A full-work coefficient: canonical, neither zero nor one, both
     /// limbs nonzero.
-    const FULL_WORK: Elem = Elem::from_raw(0x1234_5678, 0x3FFF_FFF1);
+    const FULL_WORK: Elem<QuadMersenne31> =
+        Elem::<QuadMersenne31>::from_raw(0x1234_5678, 0x3FFF_FFF1);
 
     fn noise(len: usize, seed: u64) -> Vec<u8> {
         let mut state = seed | 1;
@@ -472,8 +499,8 @@ mod tests {
     fn canonical(len: usize, seed: u64) -> Vec<u8> {
         let mut out = noise(len, seed);
         for chunk in out.chunks_exact_mut(8) {
-            let e = Elem::from_bytes(chunk.try_into().unwrap());
-            chunk.copy_from_slice(&e.canonical().to_bytes());
+            let e = Elem::<QuadMersenne31>::from_bytes(chunk.try_into().unwrap());
+            chunk.copy_from_slice(&e.to_bytes());
         }
         out
     }
@@ -482,12 +509,12 @@ mod tests {
     /// single-limb `p - 1` (the largest canonical limb), one, and a mixed
     /// pair — the range edges in the source operands themselves.
     fn edges(len: usize) -> Vec<u8> {
-        const EDGES: [Elem; 5] = [
-            Elem::ZERO,
-            Elem::from_raw(mersenne31::MODULUS - 1, mersenne31::MODULUS - 1),
-            Elem::from_raw(mersenne31::MODULUS - 1, 0),
-            Elem::ONE,
-            Elem::from_raw(0x5555_5555, 0x1234_5678),
+        const EDGES: [Elem<QuadMersenne31>; 5] = [
+            Elem::<QuadMersenne31>::ZERO,
+            Elem::<QuadMersenne31>::from_raw(mersenne31::MODULUS - 1, mersenne31::MODULUS - 1),
+            Elem::<QuadMersenne31>::from_raw(mersenne31::MODULUS - 1, 0),
+            Elem::<QuadMersenne31>::ONE,
+            Elem::<QuadMersenne31>::from_raw(0x5555_5555, 0x1234_5678),
         ];
         let mut out = Vec::with_capacity(len);
         for i in 0..len / 8 {
@@ -518,30 +545,32 @@ mod tests {
         .unwrap()
     }
 
-    fn model_elem_add(a: Elem, b: Elem) -> Elem {
+    fn model_elem_add(a: Elem<QuadMersenne31>, b: Elem<QuadMersenne31>) -> Elem<QuadMersenne31> {
         let (ar, ai) = a.to_raw();
         let (br, bi) = b.to_raw();
-        Elem::from_raw(o_add(ar, br), o_add(ai, bi))
+        Elem::<QuadMersenne31>::from_raw(o_add(ar, br), o_add(ai, bi))
     }
-    fn model_elem_sub(a: Elem, b: Elem) -> Elem {
+    fn model_elem_sub(a: Elem<QuadMersenne31>, b: Elem<QuadMersenne31>) -> Elem<QuadMersenne31> {
         let (ar, ai) = a.to_raw();
         let (br, bi) = b.to_raw();
-        Elem::from_raw(o_sub(ar, br), o_sub(ai, bi))
+        Elem::<QuadMersenne31>::from_raw(o_sub(ar, br), o_sub(ai, bi))
     }
-    fn model_elem_mul(a: Elem, b: Elem) -> Elem {
+    fn model_elem_mul(a: Elem<QuadMersenne31>, b: Elem<QuadMersenne31>) -> Elem<QuadMersenne31> {
         let (ar, ai) = a.to_raw();
         let (br, bi) = b.to_raw();
-        Elem::from_raw(
+        Elem::<QuadMersenne31>::from_raw(
             o_sub(o_mul(ar, br), o_mul(ai, bi)),
             o_add(o_mul(ar, bi), o_mul(ai, br)),
         )
     }
 
     /// Decode a whole-element buffer, apply `f` elementwise, re-encode.
-    fn model_map(buf: &[u8], f: impl Fn(Elem) -> Elem) -> Vec<u8> {
+    fn model_map(buf: &[u8], f: impl Fn(Elem<QuadMersenne31>) -> Elem<QuadMersenne31>) -> Vec<u8> {
         let mut out = buf.to_vec();
         for chunk in out.chunks_exact_mut(8) {
-            let e = f(Elem::from_bytes(chunk.try_into().unwrap()));
+            let e = f(Elem::<QuadMersenne31>::from_bytes(
+                chunk.try_into().unwrap(),
+            ));
             chunk.copy_from_slice(&e.to_bytes());
         }
         out
@@ -549,24 +578,29 @@ mod tests {
 
     /// Decode two whole-element buffers positionally, apply `f` pairwise,
     /// re-encode.
-    fn model_zip(a: &[u8], b: &[u8], f: impl Fn(Elem, Elem) -> Elem) -> Vec<u8> {
+    fn model_zip(
+        a: &[u8],
+        b: &[u8],
+        f: impl Fn(Elem<QuadMersenne31>, Elem<QuadMersenne31>) -> Elem<QuadMersenne31>,
+    ) -> Vec<u8> {
         assert_eq!(a.len(), b.len());
         let mut out = a.to_vec();
         for (ca, cb) in out.chunks_exact_mut(8).zip(b.chunks_exact(8)) {
             let e = f(
-                Elem::from_bytes(ca.try_into().unwrap()),
-                Elem::from_bytes(cb.try_into().unwrap()),
+                Elem::<QuadMersenne31>::from_bytes(ca.try_into().unwrap()),
+                Elem::<QuadMersenne31>::from_bytes(cb.try_into().unwrap()),
             );
             ca.copy_from_slice(&e.to_bytes());
         }
         out
     }
 
-    /// Whether the host resolves to V3 — the same single-source selection
-    /// the shared differential tests use, honoring `SIMD_BACKEND`.
+    /// Whether the host resolves to V3, honoring `SIMD_BACKEND`: listing
+    /// `Scalar` as a supported tier lets `SIMD_BACKEND=scalar` downgrade the
+    /// selection, so the scalar tier run skips these direct-kernel tests.
     fn host_v3() -> bool {
         simdispatch::Selection::new("SIMD_BACKEND")
-            .supports(&[crate::kernel::Backend::V3])
+            .supports(&[crate::kernel::Backend::V3, crate::kernel::Backend::Scalar])
             .resolve()
             != crate::kernel::Backend::Scalar
     }
@@ -714,7 +748,10 @@ mod tests {
         let src = canonical(len, 0x71);
         // Zero, including a non-canonical limb spelling of it: the no-op
         // for mul_add and the fill for mul_assign and mul_into.
-        for coeff in [Elem::ZERO, Elem::from_raw(mersenne31::MODULUS, 0)] {
+        for coeff in [
+            Elem::<QuadMersenne31>::ZERO,
+            Elem::<QuadMersenne31>::from_raw(mersenne31::MODULUS, 0),
+        ] {
             let mut got = vec![0xA5u8; len];
             let mut want = vec![0xA5u8; len];
             mul_add_avx2(token, &mut got, coeff, &src);
@@ -736,14 +773,23 @@ mod tests {
         // The one shortcut: mul_add adds, mul_assign is the identity.
         let mut got = canonical(len, 0x72);
         let mut want = got.clone();
-        mul_add_avx2(token, &mut got, Elem::ONE, &src);
-        <QuadMersenne31 as KernelDispatch>::mul_add(RawDispatch, &mut want, &Elem::ONE, &src);
+        mul_add_avx2(token, &mut got, Elem::<QuadMersenne31>::ONE, &src);
+        <QuadMersenne31 as KernelDispatch>::mul_add(
+            RawDispatch,
+            &mut want,
+            &Elem::<QuadMersenne31>::ONE,
+            &src,
+        );
         assert_eq!(got, want, "shortcut mul_add one");
 
         let mut got = canonical(len, 0x72);
         let mut want = got.clone();
-        mul_assign_avx2(token, &mut got, Elem::ONE);
-        <QuadMersenne31 as KernelDispatch>::mul_assign(RawDispatch, &mut want, &Elem::ONE);
+        mul_assign_avx2(token, &mut got, Elem::<QuadMersenne31>::ONE);
+        <QuadMersenne31 as KernelDispatch>::mul_assign(
+            RawDispatch,
+            &mut want,
+            &Elem::<QuadMersenne31>::ONE,
+        );
         assert_eq!(got, want, "shortcut mul_assign one");
     }
 
@@ -760,7 +806,7 @@ mod tests {
         let len = 72;
         let src_elems = edges(len);
         let dst_elems = canonical(len, 0x82);
-        let coeff = Elem::from_raw(3, 5);
+        let coeff = Elem::<QuadMersenne31>::from_raw(3, 5);
         for offset in [0usize, 1, 3, 5] {
             let mut src_storage = vec![0u8; len + 8];
             src_storage[offset..offset + len].copy_from_slice(&src_elems);
@@ -810,7 +856,7 @@ mod tests {
             return;
         }
         let token = archmage::X64V3Token::summon().expect("guard passed: AVX2 summons here");
-        let coeff = Elem::from_raw(3, 5);
+        let coeff = Elem::<QuadMersenne31>::from_raw(3, 5);
 
         let mut partial = [1u8; 12];
         let partial_src = [1u8; 12];

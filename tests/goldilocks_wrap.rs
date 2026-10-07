@@ -14,7 +14,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
-use fgf::{Goldilocks, goldilocks, ops};
+use fgf::{Elem, Goldilocks, ops};
 
 #[path = "common/goldilocks_wrap.rs"]
 mod common;
@@ -30,7 +30,7 @@ fn wrap_boundary_public_ops_match_u128_oracle() {
     let rotated_bytes = lanes_bytes(&rotated);
 
     for &coeff in &family {
-        let element = goldilocks::Elem::from_raw(coeff);
+        let element = Elem::<Goldilocks>::from_raw(coeff);
         let prepared = ops::Coeff::<Goldilocks>::new(element);
 
         let mut got = vec![0u8; src.len()];

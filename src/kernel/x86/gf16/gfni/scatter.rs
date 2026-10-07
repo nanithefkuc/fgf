@@ -5,8 +5,7 @@
 //! peel. The group body is the sanctioned offset-addressed-rows residue.
 
 use super::super::{broadcast_words, check_elements, swap_mask_avx2};
-use crate::field::gf16::Elem;
-use crate::kernel::gf16::mul_add_scalar;
+use crate::kernel::gf16::Coeffs;
 use crate::kernel::tables::TowerCoeff;
 use crate::kernel::x86::peel_to_align;
 
@@ -38,7 +37,7 @@ pub fn mul_add_scatter_gfni(
     token: archmage::X64V3GfniCryptoToken,
     rows: &mut [u8],
     row_len: usize,
-    coeffs: &[Elem],
+    coeffs: &(impl Coeffs + ?Sized),
     src: &[u8],
 ) {
     check_elements("gf16::mul_add_scatter_gfni", row_len);
@@ -49,24 +48,23 @@ pub fn mul_add_scatter_gfni(
         src.len(),
     );
     let used = coeffs
-        .len()
+        .count()
         .checked_mul(row_len)
         .expect("gf16::mul_add_scatter_gfni: row geometry overflows");
     assert!(
         rows.len() >= used,
         "gf16::mul_add_scatter_gfni: rows is {} bytes but {} rows of {row_len} bytes need {used}",
         rows.len(),
-        coeffs.len(),
+        coeffs.count(),
     );
-    if row_len == 0 || coeffs.is_empty() {
+    if row_len == 0 || coeffs.count() == 0 {
         return;
     }
     let base = rows.as_mut_ptr();
     let swap = swap_mask_avx2();
     let mut j = 0;
-    while j + 4 <= coeffs.len() {
-        let mut group = [Elem(0); 4];
-        group.copy_from_slice(&coeffs[j..j + 4]);
+    while j + 4 <= coeffs.count() {
+        let group: [TowerCoeff; 4] = core::array::from_fn(|slot| coeffs.compact(j + slot));
         // SAFETY:
         // CPU FEATURES
         // SINCE: this entrypoint holds an `X64V3GfniCryptoToken` (the
@@ -89,9 +87,8 @@ pub fn mul_add_scatter_gfni(
         unsafe { scatter_group(token, base.add(j * row_len), row_len, group, src, swap) };
         j += 4;
     }
-    if j + 2 <= coeffs.len() {
-        let mut group = [Elem(0); 2];
-        group.copy_from_slice(&coeffs[j..j + 2]);
+    if j + 2 <= coeffs.count() {
+        let group: [TowerCoeff; 2] = core::array::from_fn(|slot| coeffs.compact(j + slot));
         // SAFETY:
         // CPU FEATURES
         // SINCE: as the four-row call above, the same `token` is held.
@@ -108,7 +105,7 @@ pub fn mul_add_scatter_gfni(
         unsafe { scatter_group(token, base.add(j * row_len), row_len, group, src, swap) };
         j += 2;
     }
-    if j < coeffs.len() {
+    if j < coeffs.count() {
         // The unrolled single-destination kernel is the better shape for the
         // last row.
         // SAFETY:
@@ -119,7 +116,7 @@ pub fn mul_add_scatter_gfni(
         // THUS: the reconstructed row slice stays within `rows`.
         unsafe {
             let row = core::slice::from_raw_parts_mut(base.add(j * row_len), row_len);
-            mul_add_gfni(token, row, TowerCoeff::new(coeffs[j]), src);
+            mul_add_gfni(token, row, coeffs.compact(j), src);
         }
     }
 }
@@ -136,7 +133,7 @@ unsafe fn scatter_group<const N: usize>(
     token: archmage::X64V3GfniCryptoToken,
     base: *mut u8,
     row_len: usize,
-    coeffs: [Elem; N],
+    coeffs: [TowerCoeff; N],
     src: &[u8],
     swap: __m256i,
 ) {
@@ -152,8 +149,8 @@ unsafe fn scatter_group<const N: usize>(
     // Derived once per group, never inside the byte loop.
     let mut same = [_mm256_setzero_si256(); N];
     let mut cross = [_mm256_setzero_si256(); N];
-    for (k, &coeff) in coeffs.iter().enumerate() {
-        let (same_word, cross_word) = broadcast_words(TowerCoeff::new(coeff));
+    for (k, coeff) in coeffs.iter().enumerate() {
+        let (same_word, cross_word) = broadcast_words(*coeff);
         same[k] = _mm256_set1_epi16(same_word);
         cross[k] = _mm256_set1_epi16(cross_word);
     }
@@ -161,7 +158,7 @@ unsafe fn scatter_group<const N: usize>(
     let src_ptr = src.as_ptr();
     // Bring the destinations to a 32-byte boundary; see `peel_to_align`.
     let head = peel_to_align(rows[0], row_len, 2);
-    for (k, &coeff) in coeffs.iter().enumerate() {
+    for (k, coeff) in coeffs.iter().enumerate() {
         // SAFETY:
         // MEMORY VALIDITY
         // SINCE: the function contract bounds every row by `row_len`,
@@ -170,7 +167,7 @@ unsafe fn scatter_group<const N: usize>(
         // THUS: the `head`-byte lead slice lies inside row `k`, and
         //       `&src[..head]` inside `src`.
         let lead = unsafe { core::slice::from_raw_parts_mut(rows[k], head) };
-        mul_add_gfni(token, lead, TowerCoeff::new(coeff), &src[..head]);
+        mul_add_gfni(token, lead, *coeff, &src[..head]);
     }
     let mut offset = head;
     while offset + 32 <= row_len {
@@ -198,17 +195,19 @@ unsafe fn scatter_group<const N: usize>(
         }
         offset += 32;
     }
-    for (k, &coeff) in coeffs.iter().enumerate() {
-        // SAFETY:
-        // MEMORY VALIDITY
-        // SINCE: the loop above advanced `offset` past every whole 32-byte
-        //        window, so `offset..row_len` is the untouched remainder of
-        //        row `k`, and 32-byte steps leave it starting on an element
-        //        boundary.
-        // THUS: the tail slice lies inside row `k`, and `&src[offset..]`
-        //       inside `src`.
-        let tail =
-            unsafe { core::slice::from_raw_parts_mut(rows[k].add(offset), row_len - offset) };
-        mul_add_scalar(tail, coeff, &src[offset..]);
+    if offset < row_len {
+        for (k, coeff) in coeffs.iter().enumerate() {
+            // SAFETY:
+            // MEMORY VALIDITY
+            // SINCE: the loop above advanced `offset` past every whole 32-byte
+            //        window, so `offset..row_len` is the untouched remainder of
+            //        row `k`, and 32-byte steps leave it starting on an element
+            //        boundary.
+            // THUS: the tail slice lies inside row `k`, and `&src[offset..]`
+            //       inside `src`.
+            let tail =
+                unsafe { core::slice::from_raw_parts_mut(rows[k].add(offset), row_len - offset) };
+            mul_add_gfni(token, tail, *coeff, &src[offset..]);
+        }
     }
 }

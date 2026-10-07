@@ -6,15 +6,19 @@
 
 #![forbid(unsafe_code)]
 
-use fgf::{Gf16, backend_for, gf16::Elem, ops};
+use fgf::{Elem, backend_for, ops};
+
+// Callers name their own fields; the canonical `Binary<N, R>` type is the API.
+type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
 
 const SYMBOLS: usize = 8;
 const ROW_LEN: usize = SYMBOLS * 2;
 
 fn main() {
-    let first = std::array::from_fn::<_, SYMBOLS, _>(|i| Elem::from_raw(0x1200 + i as u16));
-    let second = std::array::from_fn::<_, SYMBOLS, _>(|i| Elem::from_raw(0x3400 + i as u16));
-    let third = std::array::from_fn::<_, SYMBOLS, _>(|i| Elem::from_raw(0x5600 + i as u16));
+    let first = std::array::from_fn::<_, SYMBOLS, _>(|i| Elem::<Gf16>::from_raw(0x1200 + i as u16));
+    let second =
+        std::array::from_fn::<_, SYMBOLS, _>(|i| Elem::<Gf16>::from_raw(0x3400 + i as u16));
+    let third = std::array::from_fn::<_, SYMBOLS, _>(|i| Elem::<Gf16>::from_raw(0x5600 + i as u16));
     let mut payloads = [[0u8; ROW_LEN]; 3];
     for (dst, elements) in payloads.iter_mut().zip([first, second, third]) {
         ops::pack::<Gf16>(dst, &elements);
@@ -23,12 +27,12 @@ fn main() {
     // Each source contributes to two parity rows. The byte buffers contain
     // little-endian tower elements, not independent GF(256) bytes.
     let coefficients = [
-        Elem::ONE,
-        Elem::from_raw(0x0108),
-        Elem::ONE,
-        Elem::from_raw(0x0203),
-        Elem::ONE,
-        Elem::from_raw(0x0405),
+        Elem::<Gf16>::ONE,
+        Elem::<Gf16>::from_raw(0x0108),
+        Elem::<Gf16>::ONE,
+        Elem::<Gf16>::from_raw(0x0203),
+        Elem::<Gf16>::ONE,
+        Elem::<Gf16>::from_raw(0x0405),
     ];
     let matrix = ops::CoeffMatrix::<Gf16>::from_source_major(3, 2, &coefficients);
     let mut parity = [0u8; 2 * ROW_LEN];
@@ -43,7 +47,7 @@ fn main() {
 
     // An incremental edit needs only delta = new - old, not a full re-encode.
     let mut replacement = second;
-    replacement[3] += Elem::from_raw(0xabcd);
+    replacement[3] += Elem::<Gf16>::from_raw(0xabcd);
     let mut replacement_bytes = [0u8; ROW_LEN];
     ops::pack::<Gf16>(&mut replacement_bytes, &replacement);
     let mut delta = replacement_bytes;

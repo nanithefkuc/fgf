@@ -8,7 +8,9 @@
 mod common;
 
 use common::{TEST_LOCK, count_allocations, noise};
-use fgf::{Gf8B, ops};
+use fgf::ops;
+
+type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
 
 /// The token-proven `internals` wrappers replaced eager `format!`
 /// validation with `format_args`; successful direct calls must stay
@@ -18,9 +20,11 @@ use fgf::{Gf8B, ops};
 #[test]
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn proven_internals_gather_and_overwrite_allocate_nothing() {
+    use fgf::internals::kernel::gf8::Prepared;
     use fgf::internals::kernel::tables::{TowerCoeff, TowerTables};
     use fgf::internals::kernel::{SimdToken, X64V3GfniCryptoToken, x86};
-    use fgf::{gf8b, gf16};
+    use fgf::poly::AES;
+    use fgf::{Binary, Elem, Polynomial};
 
     let _guard = TEST_LOCK
         .lock()
@@ -39,18 +43,31 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
         .map(|index| noise(LEN, 0x900 + index as u64))
         .collect();
     let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-    let coeffs: Vec<gf8b::Elem> = (0..SOURCES)
-        .map(|index| gf8b::Elem::from_raw((index as u8).wrapping_mul(37).wrapping_add(2)))
+    let coeffs: Vec<Elem<Binary<8, Polynomial<AES>>>> = (0..SOURCES)
+        .map(|index| {
+            Elem::<Binary<8, Polynomial<AES>>>::from_raw(
+                (index as u8).wrapping_mul(37).wrapping_add(2),
+            )
+        })
         .collect();
 
-    let columns: Vec<Vec<gf8b::Elem>> = (0..TERMS)
+    let prepared: Vec<Prepared> = coeffs.iter().map(|&c| Prepared::new(c)).collect();
+    let columns: Vec<Vec<Elem<Binary<8, Polynomial<AES>>>>> = (0..TERMS)
         .map(|term| {
             (0..NROWS)
-                .map(|row| gf8b::Elem::from_raw(((term * 31 + row * 29) % 256) as u8))
+                .map(|row| {
+                    Elem::<Binary<8, Polynomial<AES>>>::from_raw(
+                        ((term * 31 + row * 29) % 256) as u8,
+                    )
+                })
                 .collect()
         })
         .collect();
-    let terms: Vec<(&[gf8b::Elem], &[u8])> = columns
+    let prepared_columns: Vec<Vec<Prepared>> = columns
+        .iter()
+        .map(|column| column.iter().map(|&c| Prepared::new(c)).collect())
+        .collect();
+    let terms: Vec<(&[Prepared], &[u8])> = prepared_columns
         .iter()
         .zip(&srcs)
         .map(|(column, src)| (column.as_slice(), *src))
@@ -60,17 +77,23 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
 
     // Warm dispatch and validation paths before counting, then reset so the
     // counted call folds into the original seed exactly once.
-    x86::gf8::mul_add_gather_gfni(token, &mut gather_dst, &coeffs, &srcs);
-    x86::gf8::mul_into_matrix_gfni(token, &mut matrix_rows, LEN, NROWS, &terms);
+    x86::gf8::mul_add_gather_gfni::<true>(token, &mut gather_dst, &prepared, &srcs);
+    x86::gf8::mul_into_matrix_gfni_with::<true, _>(token, &mut matrix_rows, LEN, NROWS, &terms[..]);
     gather_dst = noise(LEN, 0xa40);
 
     let gather_count = count_allocations(|| {
-        x86::gf8::mul_add_gather_gfni(token, &mut gather_dst, &coeffs, &srcs);
+        x86::gf8::mul_add_gather_gfni::<true>(token, &mut gather_dst, &prepared, &srcs);
     });
     assert_eq!(gather_count, 0, "proven gather allocated");
 
     let matrix_count = count_allocations(|| {
-        x86::gf8::mul_into_matrix_gfni(token, &mut matrix_rows, LEN, NROWS, &terms);
+        x86::gf8::mul_into_matrix_gfni_with::<true, _>(
+            token,
+            &mut matrix_rows,
+            LEN,
+            NROWS,
+            &terms[..],
+        );
     });
     assert_eq!(matrix_count, 0, "proven overwrite matrix allocated");
 
@@ -78,18 +101,20 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
     // into the seeded destination.
     let mut gather_want = noise(LEN, 0xa40);
     for (&coeff, &src) in coeffs.iter().zip(&srcs) {
-        ops::mul_add::<Gf8B>(&mut gather_want, coeff, src);
+        ops::mul_add::<Binary<8, Polynomial<AES>>>(&mut gather_want, coeff, src);
     }
     assert_eq!(gather_dst, gather_want, "proven gather output");
 
     let mut matrix_want = noise(NROWS * LEN, 0xa50);
     for row in 0..NROWS {
-        let row_coeffs: Vec<gf8b::Elem> = (0..TERMS)
-            .map(|term| gf8b::Elem::from_raw(((term * 31 + row * 29) % 256) as u8))
+        let row_coeffs: Vec<Elem<Binary<8, Polynomial<AES>>>> = (0..TERMS)
+            .map(|term| {
+                Elem::<Binary<8, Polynomial<AES>>>::from_raw(((term * 31 + row * 29) % 256) as u8)
+            })
             .collect();
         let target = &mut matrix_want[row * LEN..(row + 1) * LEN];
         target.fill(0);
-        ops::mul_into_gather::<Gf8B>(target, &row_coeffs, &srcs[..TERMS]);
+        ops::mul_into_gather::<Binary<8, Polynomial<AES>>>(target, &row_coeffs, &srcs[..TERMS]);
     }
     assert_eq!(matrix_rows, matrix_want, "proven overwrite matrix output");
 
@@ -97,7 +122,7 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
     // built outside the window; the calls themselves must not allocate.
     let tower_src = noise(512, 0xa60);
     let mut tower_dst = noise(512, 0xa61);
-    let coeff = gf16::Elem::from_raw(0xbeef);
+    let coeff = Elem::<Gf16>::from_raw(0xbeef);
     let tower_coeff = TowerCoeff::new(coeff);
     let tower_tables = TowerTables::new(coeff);
     x86::gf16::mul_add_gfni(token, &mut tower_dst, tower_coeff, &tower_src);

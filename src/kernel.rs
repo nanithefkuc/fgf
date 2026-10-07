@@ -19,14 +19,13 @@
 //! Callers should use the safe, validated wrappers in [`crate::ops`] rather
 //! than this module directly.
 
-pub(crate) mod fan_paar;
 pub(crate) mod tower;
 // Reached only from the architecture kernels, which cfg away entirely on a
 // scalar-only build.
 #[allow(unused_imports)]
 pub(crate) use tower::gf16;
 
-pub(crate) mod gf2;
+pub(crate) mod gf1;
 pub(crate) mod gf8;
 pub(crate) mod goldilocks;
 pub(crate) mod mersenne31;
@@ -42,16 +41,38 @@ pub(crate) mod wasm32;
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 pub(crate) mod x86;
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "x86",
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "wasm32"
+    )
+))]
 pub(crate) mod matrix_provider;
 pub(crate) use byte_ops::xor;
+// Used by the simd512-gated blocked kernels and by tests (`just lint`
+// builds `--all-targets`, where tests use it); a lib-only build without
+// `simd512` has no other user.
+#[allow(unused_imports)]
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-pub(crate) use matrix_provider::{FlatMatrix, Matrix};
+pub(crate) use matrix_provider::FlatMatrix;
+#[cfg(all(
+    feature = "simd",
+    any(
+        target_arch = "x86",
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "wasm32"
+    )
+))]
+pub(crate) use matrix_provider::Matrix;
 
 #[cfg(test)]
 mod tests;
 
-use crate::field::Field;
+use crate::field::{FieldBuffer, PrimeIdentity};
 
 // Only the SIMD-enabled resolve path consults the environment; under a
 // std-less build `backend()` reports `Scalar` without touching `Selection`.
@@ -71,15 +92,25 @@ use simdispatch::Selection;
 mod private {
     pub trait Sealed {}
 }
-impl private::Sealed for crate::field::gf8b::Gf8B {}
-impl private::Sealed for crate::field::gf8d::Gf8D {}
-impl private::Sealed for crate::field::gf16::Gf16 {}
-impl private::Sealed for crate::field::gf32::Gf32 {}
-impl private::Sealed for crate::field::gf64::Gf64 {}
-impl private::Sealed for crate::field::fan_paar::FanPaar8 {}
-impl private::Sealed for crate::field::fan_paar::FanPaar16 {}
-impl private::Sealed for crate::field::fan_paar::FanPaar32 {}
-impl private::Sealed for crate::field::fan_paar::FanPaar64 {}
+impl<R: crate::kernel::tables::Gf8Data> private::Sealed for crate::field::Binary<8, R> {}
+impl<S: crate::field::binary::tower::TowerSpec> private::Sealed
+    for crate::field::Binary<16, crate::field::binary::tower::Tower<S>>
+where
+    S::Base: crate::field::binary::BinaryDegree<8>,
+{
+}
+impl<S: crate::field::binary::tower::TowerSpec> private::Sealed
+    for crate::field::Binary<32, crate::field::binary::tower::Tower<S>>
+where
+    S::Base: crate::field::binary::BinaryDegree<16>,
+{
+}
+impl<S: crate::field::binary::tower::TowerSpec> private::Sealed
+    for crate::field::Binary<64, crate::field::binary::tower::Tower<S>>
+where
+    S::Base: crate::field::binary::BinaryDegree<32>,
+{
+}
 impl private::Sealed for crate::field::mersenne31::Mersenne31 {}
 impl private::Sealed for crate::field::goldilocks::Goldilocks {}
 impl private::Sealed for crate::field::quad_mersenne31::QuadMersenne31 {}
@@ -280,7 +311,7 @@ pub(crate) fn x86_v3_gfni_token() -> archmage::X64V3GfniCryptoToken {
     }
 }
 
-/// The selected V4x proof: `Gf8D`'s 512-bit kernels take it directly.
+/// The selected V4x proof: the byte-field 512-bit kernels take it directly.
 #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
 #[inline]
 pub(crate) fn x86_v4x_token() -> archmage::X64V4xToken {
@@ -364,11 +395,12 @@ pub(crate) fn wasm128_token() -> archmage::Wasm128Token {
         .expect("Wasm kernel reached without a selected simd128 proof")
 }
 
-/// The backend used for a particular field.
+/// The backend used for a particular field's bulk operations.
 ///
-/// Wider polynomial towers and the Fan–Paar fields currently report
-/// [`Backend::Scalar`] even when [`backend()`] selected a vector backend for
-/// `Gf8B` and `Gf16`.
+/// Presentations without a kernel strategy on the selected tier report
+/// [`Backend::Scalar`] and run the typed scalar fallback: ordered-basis byte
+/// fields, degree-eight towers, custom tower specs, and pinned towers on a
+/// tier their kernels do not serve.
 #[inline]
 #[must_use]
 pub fn backend_for<F: FieldKernels>() -> Backend {
@@ -405,7 +437,7 @@ pub fn vector_elementwise_min_bytes<F: FieldKernels>() -> usize {
 /// modules — never as bare unchecked dispatch).
 // Raw dispatch is sealed behind a private proof argument.
 #[allow(private_bounds)]
-pub trait FieldKernels: Field + private::Sealed + KernelDispatch {
+pub trait FieldKernels: FieldBuffer + private::Sealed + KernelDispatch {
     /// Backend used by this field's kernels.
     #[inline]
     #[must_use]
@@ -445,7 +477,7 @@ pub trait FieldKernels: Field + private::Sealed + KernelDispatch {
 ///
 /// All slice lengths are in **bytes** and must be whole multiples of
 /// `Self::BYTES`. `dst` and `src` must have equal length.
-pub(crate) trait KernelDispatch: Field {
+pub(crate) trait KernelDispatch: FieldBuffer {
     /// The backend-ready form of one coefficient.
     ///
     /// Different backends want different things from a coefficient: GFNI
@@ -458,10 +490,10 @@ pub(crate) trait KernelDispatch: Field {
     type Prepared: Clone + Send + Sync + core::fmt::Debug;
 
     /// Resolve a coefficient into the form this host's backend wants.
-    fn prepare(_proof: RawDispatch, coeff: Self::Elem) -> Self::Prepared;
+    fn prepare(_proof: RawDispatch, coeff: crate::field::Elem<Self>) -> Self::Prepared;
 
     /// Recover the coefficient a [`KernelDispatch::Prepared`] was built from.
-    fn prepared_coeff(_proof: RawDispatch, prepared: &Self::Prepared) -> Self::Elem;
+    fn prepared_coeff(_proof: RawDispatch, prepared: &Self::Prepared) -> crate::field::Elem<Self>;
 
     /// `dst += src`, elementwise field addition.
     ///
@@ -542,7 +574,7 @@ pub(crate) trait KernelDispatch: Field {
         _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
-        coeffs: &[Self::Elem],
+        coeffs: &[crate::field::Elem<Self>],
         src: &[u8],
     );
 
@@ -554,7 +586,12 @@ pub(crate) trait KernelDispatch: Field {
     /// is read and written once per tile rather than once per source.
     ///
     /// See [`KernelDispatch::mul_add_gather_with`] for the prepared form.
-    fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Self::Elem], srcs: &[&[u8]]);
+    fn mul_add_gather(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[crate::field::Elem<Self>],
+        srcs: &[&[u8]],
+    );
 
     /// Many sources overwrite one row: `dst = sum(coeffs[i] * srcs[i])`.
     ///
@@ -562,7 +599,12 @@ pub(crate) trait KernelDispatch: Field {
     /// ignored. The default starts with a fused single-source
     /// [`KernelDispatch::mul_into`], then accumulates the remaining prepared
     /// terms without allocation.
-    fn mul_into_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Self::Elem], srcs: &[&[u8]]) {
+    fn mul_into_gather(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[crate::field::Elem<Self>],
+        srcs: &[&[u8]],
+    ) {
         let mut pairs = coeffs.iter().copied().zip(srcs.iter().copied());
         let Some((first, src)) = pairs.next() else {
             dst.fill(0);
@@ -588,7 +630,7 @@ pub(crate) trait KernelDispatch: Field {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        terms: &[(&[Self::Elem], &[u8])],
+        terms: &[(&[crate::field::Elem<Self>], &[u8])],
     );
 
     /// [`KernelDispatch::mul_add_scatter`] over already-prepared coefficients.
@@ -619,7 +661,7 @@ pub(crate) trait KernelDispatch: Field {
         _proof: RawDispatch,
         rows: &mut [u8],
         row_len: usize,
-        _values: &[Self::Elem],
+        _values: &[crate::field::Elem<Self>],
         coeffs: &[Self::Prepared],
         src: &[u8],
     ) {
@@ -649,7 +691,7 @@ pub(crate) trait KernelDispatch: Field {
     fn mul_add_gather_plan(
         _proof: RawDispatch,
         dst: &mut [u8],
-        _values: &[Self::Elem],
+        _values: &[crate::field::Elem<Self>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -680,7 +722,7 @@ pub(crate) trait KernelDispatch: Field {
     fn mul_into_gather_plan(
         _proof: RawDispatch,
         dst: &mut [u8],
-        _values: &[Self::Elem],
+        _values: &[crate::field::Elem<Self>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -716,7 +758,7 @@ pub(crate) trait KernelDispatch: Field {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        _values: &[Self::Elem],
+        _values: &[crate::field::Elem<Self>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -744,7 +786,7 @@ pub(crate) trait KernelDispatch: Field {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        terms: &[(&[Self::Elem], &[u8])],
+        terms: &[(&[crate::field::Elem<Self>], &[u8])],
     ) {
         for row in rows.chunks_exact_mut(row_len).take(nrows) {
             row.fill(0);
@@ -759,7 +801,7 @@ pub(crate) trait KernelDispatch: Field {
         rows: &mut [u8],
         row_len: usize,
         nrows: usize,
-        values: &[Self::Elem],
+        values: &[crate::field::Elem<Self>],
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
@@ -789,7 +831,7 @@ pub(crate) trait KernelDispatch: Field {
         dst: &mut [u8],
         row_len: usize,
         row_starts: &[usize],
-        terms: &[(&[Self::Elem], &[u8])],
+        terms: &[(&[crate::field::Elem<Self>], &[u8])],
     ) {
         Self::mul_add_matrix_at_rows(RawDispatch, dst, row_len, row_starts, terms);
     }
@@ -803,7 +845,7 @@ pub(crate) trait KernelDispatch: Field {
         dst: &mut [u8],
         row_len: usize,
         row_starts: &[usize],
-        terms: &[(&[Self::Elem], &[u8])],
+        terms: &[(&[crate::field::Elem<Self>], &[u8])],
     ) {
         for &(coeffs, src) in terms {
             for (&start, &coeff) in row_starts.iter().zip(coeffs) {
@@ -833,7 +875,7 @@ pub(crate) trait KernelDispatch: Field {
     /// `dst[i] += value`, one field element broadcast across every lane.
     fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
         let elem = Self::prepared_coeff(RawDispatch, value);
-        if Self::CHARACTERISTIC == 2 {
+        if <Self::Characteristic as PrimeIdentity>::CHARACTERISTIC == 2 {
             let mut encoded = [0u8; 8];
             Self::encode(&mut encoded[..Self::BYTES], elem);
             byte_ops::xor_broadcast(dst, &encoded[..Self::BYTES]);
@@ -845,7 +887,7 @@ pub(crate) trait KernelDispatch: Field {
     /// `dst[i] -= value`, one field element broadcast across every lane.
     fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
         let elem = Self::prepared_coeff(RawDispatch, value);
-        if Self::CHARACTERISTIC == 2 {
+        if <Self::Characteristic as PrimeIdentity>::CHARACTERISTIC == 2 {
             let mut encoded = [0u8; 8];
             Self::encode(&mut encoded[..Self::BYTES], elem);
             byte_ops::xor_broadcast(dst, &encoded[..Self::BYTES]);
@@ -923,7 +965,15 @@ pub(crate) mod proven_checks {
 
     /// Flat term geometry shared by the matrix entries: every term supplies
     /// `nrows` coefficients and a `row_len`-byte source.
-    #[cfg(any(target_arch = "aarch64", target_arch = "wasm32"))]
+    #[cfg(all(
+        feature = "simd",
+        any(
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        )
+    ))]
     #[inline]
     pub(crate) fn check_terms<E>(
         name: &str,

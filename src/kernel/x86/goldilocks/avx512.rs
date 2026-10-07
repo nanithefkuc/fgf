@@ -15,7 +15,8 @@ use super::{
     mul_elementwise_assign_avx2, mul_elementwise_avx2, mul_into_avx2, sub_assign_avx2,
     sub_assign_scalar_avx2,
 };
-use crate::field::goldilocks;
+use crate::field::Elem;
+use crate::field::goldilocks::Goldilocks;
 use crate::kernel::proven_checks::{check_elem_multiple, check_equal};
 
 #[cfg(target_arch = "x86")]
@@ -156,6 +157,10 @@ pub fn sub_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], src: &[u8]
 
 /// `dst += coeff * src (mod p)`, Goldilocks, AVX-512.
 ///
+/// A zero coefficient leaves `dst` untouched, mirroring the portable
+/// reference. Every other lane is canonicalized on load, so every input
+/// lane bit pattern is legal and every stored lane is canonical.
+///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial lane.
 #[archmage::arcane(import_intrinsics)]
@@ -168,8 +173,21 @@ pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u64, s
         src.len(),
     );
     check_elem_multiple("goldilocks::mul_add_avx512", dst.len(), 8);
+    // Reduce the raw word once; the zero check runs on the value, matching
+    // the portable reference.
+    let reduced = {
+        let modulus = crate::field::goldilocks::MODULUS;
+        if coeff >= modulus {
+            coeff - modulus
+        } else {
+            coeff
+        }
+    };
+    if reduced == 0 {
+        return;
+    }
     let c = consts();
-    let cvec = _mm512_set1_epi64(coeff.cast_signed());
+    let cvec = _mm512_set1_epi64(reduced.cast_signed());
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
@@ -189,8 +207,21 @@ pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u64, s
 #[archmage::arcane(import_intrinsics)]
 pub fn mul_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u64) {
     check_elem_multiple("goldilocks::mul_assign_avx512", dst.len(), 8);
+    // Reduce the raw word once; the unit check runs on the value, matching
+    // the portable reference.
+    let reduced = {
+        let modulus = crate::field::goldilocks::MODULUS;
+        if coeff >= modulus {
+            coeff - modulus
+        } else {
+            coeff
+        }
+    };
+    if reduced == 1 {
+        return;
+    }
     let c = consts();
-    let cvec = _mm512_set1_epi64(coeff.cast_signed());
+    let cvec = _mm512_set1_epi64(reduced.cast_signed());
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     for dst_lane in dst_lanes {
         let d = _mm512_loadu_si512(&*dst_lane);
@@ -300,7 +331,7 @@ pub fn mul_elementwise_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8]
 pub fn add_assign_scalar_avx512(token: archmage::X64V4Token, dst: &mut [u8], value: u64) {
     check_elem_multiple("goldilocks::add_assign_scalar_avx512", dst.len(), 8);
     let c = consts();
-    let svec = _mm512_set1_epi64(goldilocks::Elem(value).canonical().to_raw().cast_signed());
+    let svec = _mm512_set1_epi64(Elem::<Goldilocks>::from_raw(value).to_raw().cast_signed());
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     for dst_lane in dst_lanes {
         let d = canon(_mm512_loadu_si512(&*dst_lane), c);
@@ -320,7 +351,7 @@ pub fn add_assign_scalar_avx512(token: archmage::X64V4Token, dst: &mut [u8], val
 pub fn sub_assign_scalar_avx512(token: archmage::X64V4Token, dst: &mut [u8], value: u64) {
     check_elem_multiple("goldilocks::sub_assign_scalar_avx512", dst.len(), 8);
     let c = consts();
-    let svec = _mm512_set1_epi64(goldilocks::Elem(value).canonical().to_raw().cast_signed());
+    let svec = _mm512_set1_epi64(Elem::<Goldilocks>::from_raw(value).to_raw().cast_signed());
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     for dst_lane in dst_lanes {
         let d = canon(_mm512_loadu_si512(&*dst_lane), c);
