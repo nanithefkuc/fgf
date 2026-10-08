@@ -106,7 +106,9 @@ mod private {
     /// Every hook evaluates the row's central validation first, as the raw
     /// methods do, and canonicalizes `raw` inputs through
     /// `Field::canonical_raw` before reading them.
-    pub trait RowAccess: 'static {
+    // No production reader: the tests exercise the hooks directly.
+    #[allow(dead_code)]
+    pub(crate) trait RowAccess: 'static {
         /// Descriptor of the row's presentation.
         const DESCRIPTOR: &'static Descriptor;
         /// Writes the flattened prime-subfield coordinates of `raw` into
@@ -744,9 +746,11 @@ impl core::error::Error for RangeError {}
 #[cfg(test)]
 mod tests {
     //! Cross-row checks of the row hooks, at the common parent of the rows:
-    //! descriptor agreement, flattened prime-subfield coordinates, and the
-    //! prime-value embedding, against expectations written in this module.
+    //! descriptor agreement against independently built shipped-instance
+    //! descriptors, flattened prime-subfield coordinates, and the
+    //! prime-value embedding, against expectations derived by remainder.
 
+    use super::extension::Descriptor;
     use super::extension::pinned;
     use super::private::RowAccess as _;
     use super::*;
@@ -754,20 +758,19 @@ mod tests {
     /// The largest `u64` prime, for full-width residue samples.
     const WIDEST_PRIME: u64 = 0xFFFF_FFFF_FFFF_FFC5;
 
-    /// Exercises the coordinate hooks on one canonical raw word against an
-    /// independently computed coordinate vector.
-    fn coordinates_round_trip<F: Field>(raw: F::Raw, expected: &[u64]) {
+    /// Exercises the coordinate hooks on one raw word — canonical or an
+    /// alias of it — against an independently computed coordinate vector
+    /// and canonical expectation: the write canonicalizes, and the read
+    /// rebuilds the canonical word exactly, with no canonicalization of
+    /// the output.
+    fn coordinates_round_trip<F: Field>(raw: F::Raw, expected: &[u64], canonical: F::Raw) {
         let degree = F::DEGREE as usize;
         assert_eq!(expected.len(), degree, "expectation arity");
         let mut buffer = [u64::MAX; 64];
         F::prime_coordinates_into(&mut buffer[..degree], raw);
         assert_eq!(&buffer[..degree], expected, "coordinates of {raw:?}");
         let rebuilt = F::from_prime_coordinates(&buffer[..degree]);
-        assert_eq!(
-            F::canonical_raw(rebuilt),
-            F::canonical_raw(raw),
-            "round trip"
-        );
+        assert_eq!(rebuilt, canonical, "round trip of {raw:?}");
     }
 
     /// Every element of a residue row: the residue is the coordinate, the
@@ -776,7 +779,7 @@ mod tests {
         ($p:literal) => {{
             type Row = FiniteField<$p, 1>;
             for value in 0..$p {
-                coordinates_round_trip::<Row>(value, &[value]);
+                coordinates_round_trip::<Row>(value, &[value], value);
                 assert_eq!(Row::to_prime(value), Some(value), "prime readout");
             }
             let large = $p + 5 * $p;
@@ -812,7 +815,7 @@ mod tests {
                 for (i, coordinate) in expected.iter_mut().enumerate().take($n) {
                     *coordinate = (word >> i) & 1;
                 }
-                coordinates_round_trip::<Row>(raw, &expected[..$n]);
+                coordinates_round_trip::<Row>(raw, &expected[..$n], raw);
                 let readout = Row::to_prime(raw);
                 let prime_member = if element == Elem::<Row>::ZERO {
                     Some(0)
@@ -846,6 +849,10 @@ mod tests {
         binary_row_exhaustive!(FiniteField<2, 8, Polynomial<RS>>, 8);
         binary_row_exhaustive!(FiniteField<2, 8, Polynomial<0x12D>>, 8);
         binary_row_exhaustive!(FiniteField<2, 8, Polynomial<0x187>>, 8);
+        binary_row_exhaustive!(FiniteField<2, 8, Normal<0x11B, 0x20>>, 8);
+        binary_row_exhaustive!(FiniteField<2, 8, Normal<0x11D, 0x20>>, 8);
+        binary_row_exhaustive!(FiniteField<2, 8, Cantor<0x11B, 0x20>>, 8);
+        binary_row_exhaustive!(FiniteField<2, 8, Cantor<0x11D, 0x20>>, 8);
     }
 
     #[test]
@@ -872,7 +879,7 @@ mod tests {
                 for (i, coordinate) in expected.iter_mut().enumerate().take($n) {
                     *coordinate = (word >> i) & 1;
                 }
-                coordinates_round_trip::<Row>(raw, &expected[..$n]);
+                coordinates_round_trip::<Row>(raw, &expected[..$n], raw);
                 let prime_member = if element == Elem::<Row>::ZERO {
                     Some(0)
                 } else if element == Elem::<Row>::ONE {
@@ -911,63 +918,66 @@ mod tests {
     }
 
     #[test]
-    fn odd_rows_round_trip_full_width_samples() {
+    fn odd_rows_read_unreduced_lanes_by_remainder() {
         type M31 = Mersenne31;
         type Gld = Goldilocks;
         type Qm = QuadMersenne31;
         const M31_MODULUS: u64 = 0x7FFF_FFFF;
         const GLD_MODULUS: u64 = 0xFFFF_FFFF_0000_0001;
 
-        for sample in [
-            0u64,
-            1,
-            2,
-            M31_MODULUS - 1,
-            M31_MODULUS,
-            0x5555_5555,
-            u64::MAX,
-        ] {
-            // The plain remainder is the independent reduction.
+        // The plain remainder is the independent reduction: every raw
+        // lane below is handed to the hooks unreduced.
+        for sample in [0u32, 1, 2, 0x5555_5555, 0x7FFF_FFFE, 0x7FFF_FFFF, u32::MAX] {
+            let expected = u64::from(sample) % M31_MODULUS;
+            // The remainder sits below the modulus, so it fits the lane.
             #[allow(clippy::cast_possible_truncation)]
-            let raw = (sample % M31_MODULUS) as u32;
-            coordinates_round_trip::<M31>(raw, &[u64::from(raw)]);
-            assert_eq!(M31::to_prime(raw), Some(u64::from(raw)));
+            let canonical = expected as u32;
+            coordinates_round_trip::<M31>(sample, &[expected], canonical);
+            assert_eq!(M31::to_prime(sample), Some(expected), "lane {sample:#x}");
         }
         #[allow(clippy::cast_lossless)]
         let widest_m31 = M31::from_prime(u64::MAX) as u64;
         assert_eq!(widest_m31, u64::MAX % M31_MODULUS);
 
-        for sample in [0u64, 1, 2, GLD_MODULUS - 1, GLD_MODULUS, u64::MAX] {
-            let raw = sample % GLD_MODULUS;
-            coordinates_round_trip::<Gld>(raw, &[raw]);
-            assert_eq!(Gld::to_prime(raw), Some(raw));
+        for sample in [
+            0u64,
+            1,
+            2,
+            GLD_MODULUS - 1,
+            GLD_MODULUS,
+            GLD_MODULUS + 1,
+            u64::MAX,
+        ] {
+            let expected = sample % GLD_MODULUS;
+            coordinates_round_trip::<Gld>(sample, &[expected], expected);
+            assert_eq!(Gld::to_prime(sample), Some(expected), "lane {sample:#x}");
         }
         assert_eq!(Gld::from_prime(u64::MAX), u64::MAX % GLD_MODULUS);
 
-        let top_limb: u32 = 0x7FFF_FFFE;
+        // An unreduced limb aliases its remainder: a limb at the modulus
+        // reads as zero, so the element stays in the prime subfield.
         for (re, im) in [
             (0u32, 0u32),
             (1, 0),
             (0, 1),
-            (top_limb, 0),
+            (0x7FFF_FFFE, 0),
+            (0x7FFF_FFFF, 0x7FFF_FFFF),
             (0x5555_5555, 0x5555_5555),
+            (u32::MAX, 0),
             (u32::MAX, u32::MAX),
         ] {
+            let expected = (u64::from(re) % M31_MODULUS, u64::from(im) % M31_MODULUS);
+            // Both remainders sit below the modulus, so they fit the
+            // lanes.
             #[allow(clippy::cast_possible_truncation)]
-            let canonical = (
-                (u64::from(re) % M31_MODULUS) as u32,
-                (u64::from(im) % M31_MODULUS) as u32,
-            );
-            coordinates_round_trip::<Qm>(
-                canonical,
-                &[u64::from(canonical.0), u64::from(canonical.1)],
-            );
-            let expected = if canonical.1 == 0 {
-                Some(u64::from(canonical.0))
+            let canonical = (expected.0 as u32, expected.1 as u32);
+            coordinates_round_trip::<Qm>((re, im), &[expected.0, expected.1], canonical);
+            let readout = if expected.1 == 0 {
+                Some(expected.0)
             } else {
                 None
             };
-            assert_eq!(Qm::to_prime(canonical), expected);
+            assert_eq!(Qm::to_prime((re, im)), readout, "lane ({re:#x}, {im:#x})");
         }
         let widest_qm = Qm::from_prime(u64::MAX);
         assert_eq!(u64::from(widest_qm.0), u64::MAX % M31_MODULUS);
@@ -987,16 +997,17 @@ mod tests {
             u64::MAX,
         ] {
             let raw = sample % WIDEST_PRIME;
-            coordinates_round_trip::<Row>(raw, &[raw]);
+            coordinates_round_trip::<Row>(raw, &[raw], raw);
             assert_eq!(Row::to_prime(raw), Some(raw));
         }
         assert_eq!(Row::from_prime(u64::MAX), u64::MAX % WIDEST_PRIME);
     }
 
-    /// Descriptor agreement for one row: its own facts, and its pinned
-    /// entry where the pinned set holds one.
+    /// Descriptor agreement for one row: its own facts, and its expected
+    /// descriptor built from the shipped-instance table where the table
+    /// holds an entry for the row.
     macro_rules! descriptor_agreement {
-        ($row:ty $(, pinned $index:literal)?) => {{
+        ($row:ty $(, expected $expected:expr)?) => {{
             type Row = $row;
             assert_eq!(Row::DESCRIPTOR.degree(), Row::DEGREE);
             assert_eq!(
@@ -1004,21 +1015,25 @@ mod tests {
                 <Row as Field>::Characteristic::CHARACTERISTIC
             );
             $(
+                let expected: Descriptor = $expected;
                 assert!(
-                    Row::DESCRIPTOR.same_structure(&pinned::PINNED[$index]),
-                    "descriptor is not the pinned entry"
+                    Row::DESCRIPTOR.same_structure(&expected),
+                    "descriptor is not the expected shipped instance"
                 );
             )?
         }};
     }
 
     #[test]
-    fn row_descriptors_agree_with_their_rows_and_the_pinned_set() {
+    fn row_descriptors_agree_with_their_rows_and_the_instance_table() {
         descriptor_agreement!(FiniteField<7, 1>);
         descriptor_agreement!(FiniteField<WIDEST_PRIME, 1>);
         descriptor_agreement!(Mersenne31);
         descriptor_agreement!(Goldilocks);
-        descriptor_agreement!(QuadMersenne31, pinned 9);
+        descriptor_agreement!(
+            QuadMersenne31,
+            expected pinned::shipped_instances::quad_mersenne31()
+        );
         descriptor_agreement!(FiniteField<2, 1, Polynomial<3>>);
         descriptor_agreement!(FiniteField<2, 2, Polynomial<7>>);
         descriptor_agreement!(FiniteField<2, 2, Normal<7, 2>>);
@@ -1028,15 +1043,42 @@ mod tests {
         descriptor_agreement!(FiniteField<2, 4, Cantor<0x13, 8>>);
         descriptor_agreement!(FiniteField<2, 8, Polynomial<AES>>);
         descriptor_agreement!(FiniteField<2, 8, Polynomial<RS>>);
-        descriptor_agreement!(FiniteField<2, 16, Tower<Rijndael16>>, pinned 0);
-        descriptor_agreement!(FiniteField<2, 32, Tower<Rijndael32>>, pinned 1);
-        descriptor_agreement!(FiniteField<2, 64, Tower<Rijndael64>>, pinned 2);
-        descriptor_agreement!(FiniteField<2, 2, Tower<FanPaar2>>, pinned 3);
-        descriptor_agreement!(FiniteField<2, 4, Tower<FanPaar4>>, pinned 4);
-        descriptor_agreement!(FiniteField<2, 8, Tower<FanPaar8>>, pinned 5);
-        descriptor_agreement!(FiniteField<2, 16, Tower<FanPaar16>>, pinned 6);
-        descriptor_agreement!(FiniteField<2, 32, Tower<FanPaar32>>, pinned 7);
-        descriptor_agreement!(FiniteField<2, 64, Tower<FanPaar64>>, pinned 8);
+        descriptor_agreement!(
+            FiniteField<2, 16, Tower<Rijndael16>>,
+            expected pinned::shipped_instances::rijndael16()
+        );
+        descriptor_agreement!(
+            FiniteField<2, 32, Tower<Rijndael32>>,
+            expected pinned::shipped_instances::rijndael32()
+        );
+        descriptor_agreement!(
+            FiniteField<2, 64, Tower<Rijndael64>>,
+            expected pinned::shipped_instances::rijndael64()
+        );
+        descriptor_agreement!(
+            FiniteField<2, 2, Tower<FanPaar2>>,
+            expected pinned::shipped_instances::fanpaar2()
+        );
+        descriptor_agreement!(
+            FiniteField<2, 4, Tower<FanPaar4>>,
+            expected pinned::shipped_instances::fanpaar4()
+        );
+        descriptor_agreement!(
+            FiniteField<2, 8, Tower<FanPaar8>>,
+            expected pinned::shipped_instances::fanpaar8()
+        );
+        descriptor_agreement!(
+            FiniteField<2, 16, Tower<FanPaar16>>,
+            expected pinned::shipped_instances::fanpaar16()
+        );
+        descriptor_agreement!(
+            FiniteField<2, 32, Tower<FanPaar32>>,
+            expected pinned::shipped_instances::fanpaar32()
+        );
+        descriptor_agreement!(
+            FiniteField<2, 64, Tower<FanPaar64>>,
+            expected pinned::shipped_instances::fanpaar64()
+        );
 
         // One modulus under two presentations is two different rows.
         assert!(!FiniteField::<0x7FFF_FFFF, 1>::DESCRIPTOR.same_structure(Mersenne31::DESCRIPTOR));

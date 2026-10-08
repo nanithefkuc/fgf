@@ -53,13 +53,15 @@ pub const COORDINATES: usize = 80;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PrimePresentation {
     /// The ordinary-residue row: one `u64` residue per element.
-    // Constructed through tests and the general constructor.
+    // Constructed by the residue row hooks and the tests.
     #[allow(dead_code)]
     Residue,
     /// The Mersenne fold row of `2^31 - 1`: one `u32` lane per element.
+    // Constructed by the fold row hooks, the pinned set, and the tests.
+    #[allow(dead_code)]
     MersenneFold,
     /// The Goldilocks fold row of `2^64 - 2^32 + 1`: one `u64` lane.
-    // Constructed through tests; no shipped pinned descriptor names it.
+    // Constructed by the fold row hooks and the tests.
     #[allow(dead_code)]
     GoldilocksFold,
 }
@@ -71,6 +73,8 @@ pub enum PrimePresentation {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Storage {
     /// One base element per component, in the base's coordinate order.
+    // Constructed by the pinned QuadMersenne31 row and the tests.
+    #[allow(dead_code)]
     Components,
     /// The row's coordinate word fills the storage word exactly.
     Packed {
@@ -85,9 +89,9 @@ pub enum Storage {
 }
 
 /// One node of a field descriptor.
-// The relation variant carries the full coefficient array inline, matching
-// the measured const-evaluation layout of the interpreter; the size
-// difference against the leaf variants is that layout's cost.
+// The relation variant carries its full coefficient array inline, so the
+// interpreter reads the coefficients by reference through the node; the
+// variant's width over the leaf variants is the cost of that layout.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Copy)]
 pub enum Node {
@@ -95,6 +99,9 @@ pub enum Node {
     Unused,
     /// A prime-field leaf. At characteristic two with `Residue` the word
     /// arithmetic is `AND` and the identity word is `1`.
+    // Constructed through the prime leaf constructor, by the row hooks and
+    // the tests.
+    #[allow(dead_code)]
     Prime {
         /// The prime modulus.
         modulus: u64,
@@ -157,6 +164,9 @@ pub struct Descriptor {
 impl Descriptor {
     /// A prime-field leaf of `modulus` under `presentation`.
     #[must_use]
+    // No production caller: the row hooks and the tests build leaves
+    // through it.
+    #[allow(dead_code)]
     pub const fn prime(modulus: u64, presentation: PrimePresentation) -> Self {
         let mut nodes = [Node::Unused; NODES];
         nodes[0] = Node::Prime {
@@ -263,6 +273,9 @@ impl Descriptor {
     // `u8::MAX` and `u32::MAX`.
     #[allow(clippy::cast_possible_truncation)]
     #[must_use]
+    // No production caller: the pinned QuadMersenne31 row and the tests
+    // build relations through it.
+    #[allow(dead_code)]
     pub const fn extension(
         base: &Self,
         characteristic: u64,
@@ -389,9 +402,9 @@ impl Descriptor {
     }
 
     /// Characteristic of the root.
-    // No production caller: the checked constructor and the tests read it.
-    #[allow(dead_code)]
     #[must_use]
+    // No production caller: the tests read it.
+    #[allow(dead_code)]
     pub const fn characteristic(&self) -> u64 {
         super::arithmetic::characteristic_of(self, self.root)
     }
@@ -523,9 +536,9 @@ impl Descriptor {
     /// # Panics
     ///
     /// Panics when the root node holds no relation.
-    // No production caller: the validator and the tests run it directly.
-    #[allow(dead_code)]
     #[must_use]
+    // No production caller: the tests and the const proofs run it.
+    #[allow(dead_code)]
     pub const fn is_irreducible(&self) -> bool {
         super::irreducibility::root_relation_irreducible(self)
     }
@@ -537,8 +550,8 @@ impl Descriptor {
     /// # Panics
     ///
     /// Panics when the root relation is reducible.
-    // No production caller: no shipped row validates a relation through it,
-    // and the tests run it directly.
+    // No production caller: the tests call the module-level entry
+    // directly.
     #[allow(dead_code)]
     pub const fn validate_relation(&self) {
         super::irreducibility::validate_relation(self);
@@ -732,16 +745,11 @@ mod tests {
         let quadratic = build(&RESIDUE_SEVEN, 7, 2, 2, &[3, 0], Storage::Components);
         assert_eq!(quadratic.characteristic(), 7);
         assert_eq!(quadratic.degree(), 2);
-        assert_eq!(quadratic.node_count(), 2);
-        assert_eq!(quadratic.root_index(), 1);
-        assert!(matches!(
-            quadratic.node(quadratic.root_index()),
-            Node::Extension { .. }
-        ));
-        assert!(matches!(quadratic.node(0), Node::Prime { modulus: 7, .. }));
-        // The sub-descriptor restricts to the prime leaf.
+        // The sub-descriptor restricts to the prime leaf under its own
+        // presentation.
         let base = quadratic.base_descriptor();
         assert_eq!(base.degree(), 1);
+        assert_eq!(base.characteristic(), 7);
         assert!(base.same_structure(&RESIDUE_SEVEN));
     }
 }

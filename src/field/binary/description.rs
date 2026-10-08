@@ -22,6 +22,9 @@ pub struct BinaryDescription {
 impl BinaryDescription {
     /// The shared descriptor this binary description wraps.
     #[must_use]
+    // No production reader: the row hooks, the pinned set, and the tests
+    // reach it.
+    #[allow(dead_code)]
     pub(crate) const fn as_descriptor(&self) -> &Descriptor {
         &self.inner
     }
@@ -129,6 +132,10 @@ impl BinaryDescription {
     }
 
     /// Multiplicative inverse in root coordinates, mapping zero to zero.
+    ///
+    /// A polynomial root reads only the low `degree()` bits of the word,
+    /// matching its multiplication, so higher bits are ignored and a word
+    /// that masks to zero inverts to zero.
     #[must_use]
     pub const fn inv(&self, x: u64) -> u64 {
         arithmetic::word_inv(&self.inner, self.inner.root_index(), x)
@@ -168,7 +175,7 @@ impl BinaryDescription {
                         "polynomial is reducible"
                     );
                 }
-                Node::Basis { .. } => self.validate_basis_node(i),
+                Node::Basis { .. } => self.validate_basis_node(i, used),
                 Node::Extension {
                     base,
                     relative_degree,
@@ -206,7 +213,7 @@ impl BinaryDescription {
     /// bijection.
     // The single-character locals mirror the node fields they check.
     #[allow(clippy::many_single_char_names)]
-    const fn validate_basis_node(&self, index: u8) {
+    const fn validate_basis_node(&self, index: u8, used: bool) {
         let descriptor = &self.inner;
         let (base, to_base, from_base) = match descriptor.node(index) {
             Node::Basis {
@@ -216,7 +223,7 @@ impl BinaryDescription {
             } => (*base, *to_base, *from_base),
             _ => panic!("not a basis node"),
         };
-        assert!(base < index, "basis node order");
+        assert!(used && base < index, "basis node order");
         let n = arithmetic::degree_of(descriptor, base);
         assert!(n == 2 || n == 4 || n == 8, "unsupported basis degree");
         let mask = (1u64 << n) - 1;
@@ -798,6 +805,42 @@ mod tests {
         }
     }
 
+    /// `inv` on words with bits at or above a polynomial leaf's degree: the
+    /// low `degree()` bits alone name the element, a masked zero inverts to
+    /// zero, and every other masked word inverts to its own inverse under
+    /// the independent product. The degree-four case includes the reduction
+    /// polynomial itself as input.
+    #[test]
+    fn polynomial_leaf_inverse_ignores_bits_above_the_degree() {
+        let cases = [
+            (0x13u128, 4u32, 0x10u64),
+            (0x13, 4, 0x13),
+            (0x13, 4, 0x1F),
+            (0x13, 4, 0xF0),
+            (0x13, 4, 0xFFFF),
+            (0x13, 4, u64::MAX),
+            (0x11B, 8, 0x100),
+            (0x11B, 8, 0x1FF),
+            (0x11B, 8, 0x10000),
+            (0x11B, 8, u64::MAX),
+        ];
+        for (full, degree, word) in cases {
+            let desc = BinaryDescription::polynomial(u8::try_from(degree).unwrap(), full);
+            let masked = word & mask(degree);
+            let inverse = desc.inv(black_box(word));
+            assert_eq!(inverse, desc.inv(masked), "inverse of {word:#x}");
+            if masked == 0 {
+                assert_eq!(inverse, 0, "masked zero of {word:#x}");
+            } else {
+                assert_eq!(
+                    xtime_mul(full, degree, masked, inverse),
+                    1,
+                    "inverse of {word:#x}"
+                );
+            }
+        }
+    }
+
     /// Sampled differential of one pinned tower. The reference trace walks
     /// `n` reference squarings, so it runs on the first `traced` samples;
     /// `exponents` are the powers `k` of the selected generator whose
@@ -1113,6 +1156,25 @@ mod tests {
             },
         );
         validate(&desc);
+    }
+
+    #[test]
+    #[should_panic(expected = "basis node order")]
+    fn validate_rejects_a_basis_node_past_the_length() {
+        // Identity maps over a degree-four leaf: a valid basis node whose
+        // slot sits outside the occupied prefix.
+        let mut desc = BinaryDescription::polynomial(4, 0x13);
+        desc.inner = desc.inner.with_node(1, basis_identity4());
+        validate(&desc);
+    }
+
+    /// The identity basis over the degree-four leaf, as a raw node.
+    fn basis_identity4() -> Node {
+        Node::Basis {
+            base: 0,
+            to_base: IDENTITY4,
+            from_base: IDENTITY4,
+        }
     }
 
     #[test]

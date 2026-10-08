@@ -5,7 +5,7 @@
 //! uses the Karatsuba form under test, so reduction bugs remain visible rather
 //! than self-consistent.
 
-use fgf::field::{Field, FieldBuffer, PrimeIdentity};
+use fgf::field::{Field, FieldBuffer, HasGenerator, PrimeIdentity};
 use fgf::poly::{AES, RS};
 use fgf::{
     BinaryField, Cantor, Elem, FiniteField, Goldilocks, Mersenne31, Normal, Polynomial,
@@ -1710,7 +1710,8 @@ fn exercise_surface<F: FieldBuffer>(samples: &[Elem<F>]) {
     // Field facts that hold for every field, checked through the trait.
     assert!(!F::NAME.is_empty());
     assert_eq!(F::STORAGE_BITS as usize, 8 * F::BYTES);
-    // Generator coverage lives in the per-row full-order tests.
+    // The generator shape is checked beside this sweep; full-order proof
+    // lives in the per-row generator tests.
     assert!(zero.is_zero());
     assert!(!one.is_zero());
     assert!(one.is_one());
@@ -1741,6 +1742,13 @@ fn exercise_surface<F: FieldBuffer>(samples: &[Elem<F>]) {
 
         assert!(hashes_equal(&a, &a.clone()), "equal elements hash equally");
     }
+}
+
+/// The generator surface of a row that publishes a checked generator: the
+/// generator is a nonzero element. Its full-order proof lives in the
+/// per-row generator tests.
+fn exercise_generator<F: HasGenerator>() {
+    assert!(!Elem::<F>::GENERATOR.is_zero());
 }
 
 #[test]
@@ -1856,6 +1864,7 @@ fn gf8_trait_operator_and_formatting_surface() {
     fn surface<const POLY: u128>() {
         let samples: Vec<_> = all_gf8_elems::<POLY>().step_by(97).collect();
         exercise_surface::<FiniteField<2, 8, Polynomial<POLY>>>(&samples);
+        exercise_generator::<FiniteField<2, 8, Polynomial<POLY>>>();
         exercise_operators!(samples);
     }
     every_gf8_field!(surface);
@@ -1865,6 +1874,7 @@ fn gf8_trait_operator_and_formatting_surface() {
 fn gf16_trait_operator_and_formatting_surface() {
     let samples: Vec<_> = sample_gf16().into_iter().step_by(61).collect();
     exercise_surface::<Gf16>(&samples);
+    exercise_generator::<Gf16>();
     exercise_operators!(samples);
 }
 
@@ -1872,6 +1882,7 @@ fn gf16_trait_operator_and_formatting_surface() {
 fn gf32_trait_operator_and_formatting_surface() {
     let samples: Vec<_> = sample_gf32().into_iter().step_by(7).collect();
     exercise_surface::<Gf32>(&samples);
+    exercise_generator::<Gf32>();
     exercise_operators!(samples);
 }
 
@@ -1879,6 +1890,7 @@ fn gf32_trait_operator_and_formatting_surface() {
 fn gf64_trait_operator_and_formatting_surface() {
     let samples: Vec<_> = sample_gf64().into_iter().step_by(7).collect();
     exercise_surface::<Gf64>(&samples);
+    exercise_generator::<Gf64>();
     exercise_operators!(samples);
 }
 
@@ -1889,24 +1901,28 @@ fn fan_paar_trait_operator_and_formatting_surface() {
         .map(Elem::<FanPaar8Field>::from_raw)
         .collect();
     exercise_surface::<FanPaar8Field>(&fp8);
+    exercise_generator::<FanPaar8Field>();
     exercise_operators!(fp8);
     let fp16: Vec<_> = [0, 1, 0x0100, 0xffff, 0xa55a, 0x1234]
         .into_iter()
         .map(Elem::<FanPaar16Field>::from_raw)
         .collect();
     exercise_surface::<FanPaar16Field>(&fp16);
+    exercise_generator::<FanPaar16Field>();
     exercise_operators!(fp16);
     let fp32: Vec<_> = [0, 1, 0x10000, 0xffff_ffff, 0xa55a_1234]
         .into_iter()
         .map(Elem::<FanPaar32Field>::from_raw)
         .collect();
     exercise_surface::<FanPaar32Field>(&fp32);
+    exercise_generator::<FanPaar32Field>();
     exercise_operators!(fp32);
     let fp64: Vec<_> = [0, 1, 1 << 32, u64::MAX, 0xa55a_1234_dead_beef]
         .into_iter()
         .map(Elem::<FanPaar64Field>::from_raw)
         .collect();
     exercise_surface::<FanPaar64Field>(&fp64);
+    exercise_generator::<FanPaar64Field>();
     exercise_operators!(fp64);
 }
 
@@ -1918,12 +1934,15 @@ fn prime_trait_operator_and_formatting_surface() {
     // equal everywhere below.
     let m31: Vec<_> = sample_m31().into_iter().step_by(7).collect();
     exercise_surface::<Mersenne31>(&m31);
+    exercise_generator::<Mersenne31>();
     exercise_operators!(m31);
     let gld: Vec<_> = sample_gld().into_iter().step_by(7).collect();
     exercise_surface::<Goldilocks>(&gld);
+    exercise_generator::<Goldilocks>();
     exercise_operators!(gld);
     let qm: Vec<_> = sample_qm().into_iter().step_by(7).collect();
     exercise_surface::<QuadMersenne31>(&qm);
+    exercise_generator::<QuadMersenne31>();
     exercise_operators!(qm);
 }
 

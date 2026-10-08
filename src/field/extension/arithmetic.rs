@@ -319,7 +319,6 @@ pub const fn word_inv(descriptor: &Descriptor, index: u8, x: u64) -> u64 {
     match descriptor.node(index) {
         Node::Unused => panic!("unused node"),
         Node::Prime { modulus: 2, .. } => x,
-        Node::Prime { .. } => panic!("word inversion on an odd node"),
         Node::Polynomial { full, .. } => polynomial_leaf_inv(*full, x),
         Node::Basis {
             base,
@@ -371,25 +370,37 @@ pub const fn word_inv(descriptor: &Descriptor, index: u8, x: u64) -> u64 {
             } else {
                 let mut value = zero_element();
                 value[0] = x;
-                element_inverse(descriptor, index, &value)[0]
+                euclid_inverse(descriptor, index, &value)[0]
             }
         }
-        Node::Extension { .. } => {
-            let mut value = zero_element();
-            value[0] = x;
-            element_inverse(descriptor, index, &value)[0]
-        }
+        // An odd prime leaf and an odd-characteristic relation node both
+        // sit outside the word layer.
+        Node::Prime { .. } | Node::Extension { .. } => panic!("word inversion on an odd node"),
     }
 }
 
 /// Extended Euclid on the polynomial leaf: `g` with `x*g = 1 (mod full)`.
+///
+/// Only the low `degree(full)` bits of `x` name a leaf element, matching
+/// the leaf multiplication's truncation, so the high bits are ignored and
+/// a masked zero inverts to zero.
 // The swap loop reuses both operand degrees, so the leading-bit counts stay
 // spelled as `127 - leading_zeros` rather than `ilog2`.
 #[allow(clippy::manual_ilog2)]
 const fn polynomial_leaf_inv(full: u128, x: u64) -> u64 {
-    // Operands stay below 2^128: `x` below the leaf's degree and `full` of
-    // degree at most 127.
-    let mut u = x as u128;
+    let degree = crate::field::binary::description::poly_degree(full);
+    let mask = if degree >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << degree) - 1
+    };
+    let masked = x & mask;
+    if masked == 0 {
+        return 0;
+    }
+    // Operands stay below 2^128: `masked` below the leaf's degree and
+    // `full` of degree at most 127.
+    let mut u = masked as u128;
     let mut v = full;
     let mut g1 = 1u128;
     let mut g2 = 0u128;
@@ -702,7 +713,7 @@ pub const fn element_inv(descriptor: &Descriptor, index: u8, element: &Element) 
     }
     match descriptor.node(index) {
         Node::Prime { modulus, .. } => prime_inverse(*modulus, element[0]),
-        Node::Extension { .. } => element_inverse(descriptor, index, element),
+        Node::Extension { .. } => euclid_inverse(descriptor, index, element),
         _ => panic!("unused node"),
     }
 }
@@ -975,7 +986,7 @@ const fn poly_sub(
 
 /// Extended Euclid over the relation of the node at `index`: the inverse of
 /// a nonzero element, scaled by the inverse of the unit gcd.
-pub(super) const fn element_inverse(
+pub(super) const fn euclid_inverse(
     descriptor: &Descriptor,
     index: u8,
     element: &Element,
@@ -1081,6 +1092,20 @@ mod tests {
                 .wrapping_add(1);
             state >> 24
         })
+    }
+
+    #[test]
+    #[should_panic(expected = "word inversion on an odd node")]
+    fn word_inversion_rejects_an_odd_extension_node() {
+        let descriptor = super::super::descriptor::Descriptor::extension(
+            &super::super::descriptor::Descriptor::prime(7, PrimePresentation::Residue),
+            7,
+            2,
+            2,
+            &[4, 0],
+            Storage::Components,
+        );
+        let _ = word_inv(&descriptor, descriptor.root_index(), 1);
     }
 
     /// Carry-less product of two GF(2) polynomials below degree six.

@@ -24,6 +24,8 @@ use super::pinned;
 ///
 /// Panics when the root node holds no relation.
 #[must_use]
+// No production caller: reached through the descriptor's test entries.
+#[allow(dead_code)]
 pub const fn root_relation_irreducible(descriptor: &Descriptor) -> bool {
     match descriptor.node(descriptor.root_index()) {
         Node::Extension {
@@ -46,6 +48,8 @@ pub const fn root_relation_irreducible(descriptor: &Descriptor) -> bool {
 /// # Panics
 ///
 /// Panics when the root relation is reducible.
+// No production caller: the tests reach the underlying test directly.
+#[allow(dead_code)]
 pub const fn validate_relation(descriptor: &Descriptor) {
     if pinned::is_pinned(descriptor) {
         return;
@@ -112,6 +116,8 @@ pub const fn quadratic_relation_holds(descriptor: &Descriptor, index: u8) -> boo
 /// The generalized Ben-Or test for a relation node of relative degree at
 /// least three: `gcd(f, t^(q^i) - t)` must be a unit for every
 /// `1 <= i <= floor(D/2)`, `q` the base order.
+// No production caller: reached through the irreducibility entry points.
+#[allow(dead_code)]
 const fn ben_or_irreducible(descriptor: &Descriptor, index: u8) -> bool {
     let (base, relative_degree, base_words) = match descriptor.node(index) {
         Node::Extension {
@@ -673,14 +679,11 @@ mod tests {
             <crate::field::binary::Cantor<0x13, 8> as crate::field::binary::BinaryRepr<4>>::DESCRIPTION,
         ] {
             let descriptor = row.as_descriptor();
-            let (to_base, from_base) = match descriptor.node(descriptor.root_index()) {
-                Node::Basis {
-                    to_base, from_base, ..
-                } => (*to_base, *from_base),
+            let to_base = match descriptor.node(descriptor.root_index()) {
+                Node::Basis { to_base, .. } => *to_base,
                 _ => panic!("expected a basis root"),
             };
             let transport = |word: u64| crate::field::binary::description::apply(to_base, word);
-            let back = |word: u64| crate::field::binary::description::apply(from_base, word);
             // Linear word 0x2, constant word 0x5, in the row's coordinates.
             let c0 = transport(5);
             let c1 = transport(2);
@@ -688,7 +691,6 @@ mod tests {
                 let x = transport(word);
                 let value = gf16_mul(c1, x) ^ gf16_mul(x, x) ^ c0;
                 assert_ne!(value, 0, "root word {word:#x}");
-                assert_eq!(back(value) == 0, value == 0);
             }
         }
     }
@@ -699,18 +701,56 @@ mod tests {
         crate::field::extension::pinned::PINNED[8].is_irreducible(),
         "FanPaar64"
     );
-    const _: () = assert!(quad_const(7, 2, 2, &[4, 0]), "GF(49)");
     const _: () = assert!(
-        quad_const(GOLDILOCKS, 2, 2, &[GOLDILOCKS - 7, 0]),
-        "goldilocks"
+        relation_over_prime(PrimePresentation::Residue, 7, 2, 2, &[4, 0]),
+        "GF(49)"
     );
-    const _: () = assert!(quad_const(M31, 3, 3, &[M31 - 5, 0, 0]), "mersenne31");
     const _: () = assert!(
-        quad_const(BABY_BEAR, 4, 4, &[BABY_BEAR - 11, 0, 0, 0]),
+        relation_over_prime(
+            PrimePresentation::Residue,
+            GOLDILOCKS,
+            2,
+            2,
+            &[GOLDILOCKS - 7, 0]
+        ),
+        "goldilocks residue t^2 - 7"
+    );
+    const _: () = assert!(
+        relation_over_prime(
+            PrimePresentation::GoldilocksFold,
+            GOLDILOCKS,
+            2,
+            2,
+            &[GOLDILOCKS - 7, 0]
+        ),
+        "goldilocks fold t^2 - 7"
+    );
+    const _: () = assert!(
+        relation_over_prime(PrimePresentation::Residue, M31, 3, 3, &[M31 - 5, 0, 0]),
+        "mersenne31 residue t^3 - 5"
+    );
+    const _: () = assert!(
+        relation_over_prime(PrimePresentation::MersenneFold, M31, 3, 3, &[M31 - 5, 0, 0]),
+        "mersenne31 fold t^3 - 5"
+    );
+    const _: () = assert!(
+        relation_over_prime(
+            PrimePresentation::Residue,
+            BABY_BEAR,
+            4,
+            4,
+            &[BABY_BEAR - 11, 0, 0, 0]
+        ),
         "babybear"
     );
     const _: () = assert!(
-        quad_const(KOALA_BEAR, 4, 4, &[KOALA_BEAR - 3, 0, 0, 0]),
+        relation_over_prime(
+            PrimePresentation::Residue,
+            KOALA_BEAR,
+            4,
+            4,
+            &[KOALA_BEAR - 3, 0, 0, 0]
+        ),
         "koalabear"
     );
     const _: () = assert!(
@@ -719,19 +759,34 @@ mod tests {
     );
     const _: () = assert!(aes_cubic(), "cubic over AES");
     const _: () = assert!(
-        quad_const(2, 13, 13, &[1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]),
+        relation_over_prime(
+            PrimePresentation::Residue,
+            2,
+            13,
+            13,
+            &[1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+        ),
         "degree 13 over GF(2)"
     );
     const _: () = assert!(cubic_over_gf49(), "cubic over GF(49)");
     const _: () = assert!(gf64_over_gf8(), "GF(64)");
     const _: () = assert!(normal_row_extension(), "normal row");
     const _: () = assert!(cantor_row_extension(), "cantor row");
-    const _: () = assert!(quad_const(2, 3, 3, &[1, 1, 0]), "cubic over GF(2)");
+    const _: () = assert!(
+        relation_over_prime(PrimePresentation::Residue, 2, 3, 3, &[1, 1, 0]),
+        "cubic over GF(2)"
+    );
 
-    /// A prime-base relation built in const.
-    const fn quad_const(p: u64, degree: u32, relative_degree: usize, relation: &[u64]) -> bool {
+    /// A prime-base relation built in const over the named presentation.
+    const fn relation_over_prime(
+        presentation: PrimePresentation,
+        p: u64,
+        degree: u32,
+        relative_degree: usize,
+        relation: &[u64],
+    ) -> bool {
         Descriptor::extension(
-            &Descriptor::prime(p, PrimePresentation::Residue),
+            &Descriptor::prime(p, presentation),
             p,
             degree,
             relative_degree,
