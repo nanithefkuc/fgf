@@ -89,10 +89,11 @@ All notable changes to this project are documented here. The format follows
   at any checked `u64` prime: it supplies `Field`, `PrimeField`,
   `FieldBuffer`, the checked packed operation surface, and the `const`
   element API.
-- `BinaryDescription::inv` on a word with bits at or above the
-  description's degree inverts the word's low `degree()` bits instead of
-  returning an unspecified value. Results on canonical coordinate words are
-  unchanged.
+- `BinaryDescription::inv` takes canonical coordinate words. On a
+  polynomial-root description, a word with bits at or above `degree()`
+  inverts its low `degree()` bits instead of returning an unspecified
+  value; on other roots such a word still gives an unspecified result.
+  Results on canonical words are unchanged.
 
 ## [3.0.0-rc.1] - 2026-10-07
 
