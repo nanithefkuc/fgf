@@ -5,9 +5,9 @@ poly2 poly 2 0x7
 poly4 poly 4 0x13
 poly8aes poly 8 0x11B
 poly8rs poly 8 0x11D
-rijndael16 tower 16 rijndael16 0x1 0x20
-rijndael32 tower 32 rijndael32 0x1 0x2000
-rijndael64 tower 64 rijndael64 0x1 0x20000000
+rijndael16 tower 16 poly8aes 0x1 0x20
+rijndael32 tower 32 rijndael16 0x1 0x2000
+rijndael64 tower 64 rijndael32 0x1 0x20000000
 fanpaar2 tower 2 poly1 0x1 0x1
 fanpaar4 tower 4 fanpaar2 0x2 0x1
 fanpaar8 tower 8 fanpaar4 0x4 0x1

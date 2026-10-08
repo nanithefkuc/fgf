@@ -2,9 +2,7 @@
 //! images, level-generator images, embeddings, and target analyses asserted
 //! against recomputed values.
 
-#[macro_use]
-#[path = "common/frozen.rs"]
-mod frozen;
+use crate::common as frozen;
 
 #[allow(unused_imports)]
 use frozen::{

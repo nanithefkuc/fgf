@@ -6,8 +6,6 @@
 //! mirrors the fixture sampling rule, and re-derives the presentation facts
 //! the fixtures record so every test asserts against recomputed values.
 
-#![allow(dead_code)]
-
 /// The capture revision every fixture file names in its header.
 pub const TAG: &str = "v3.0.0-rc.1";
 
@@ -93,16 +91,6 @@ pub fn opt_word(file: &'static str, number: usize, field: &str) -> Option<u64> {
     }
 }
 
-/// Parse one hexadecimal byte-string field.
-pub fn byte_string(file: &'static str, number: usize, field: &str) -> Vec<u8> {
-    (0..field.len() / 2)
-        .map(|index| {
-            u8::from_str_radix(&field[index * 2..index * 2 + 2], 16)
-                .unwrap_or_else(|_| panic!("{file}:{number}: not a byte string: {field}"))
-        })
-        .collect()
-}
-
 /// The fixture sample generator: SplitMix64 seeded at zero.
 pub struct SplitMix64Reader(u64);
 
@@ -142,12 +130,6 @@ pub fn pair_samples(source_degree: u32, target_degree: u32) -> ([u64; 64], [u64;
     let source_words = core::array::from_fn(|_| source.next() & degree_mask(source_degree));
     let target_words = core::array::from_fn(|_| source.next() & degree_mask(target_degree));
     (source_words, target_words)
-}
-
-/// Draw `count` raw words from a freshly seeded generator.
-pub fn raw_draws(count: usize) -> Vec<u64> {
-    let mut source = SplitMix64Reader::new();
-    (0..count).map(|_| source.next()).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -336,9 +318,10 @@ macro_rules! wide_tower_levels {
 wide_tower_levels!(16, u8; 32, u16; 64, u32;);
 
 /// The manifest facts of one captured presentation.
-pub trait Presentation: fgf::BinaryField + ByteEnc + AliasDecode + Levels + Sized {
+pub trait Presentation:
+    fgf::BinaryField<Raw: Into<u64>> + ByteEnc + AliasDecode + Levels + Sized
+{
     const SHORT: &'static str;
-    const FLAT: bool;
 }
 
 // ---------------------------------------------------------------------------
@@ -531,10 +514,10 @@ macro_rules! for_each_presentation {
             (poly4, Poly4, "poly", "0x13", true),
             (poly8aes, Poly8Aes, "poly", "0x11B", true),
             (poly8rs, Poly8Rs, "poly", "0x11D", true),
-            (rijndael16, Rijndael16F, "tower", "rijndael16 0x1 0x20", false),
-            (rijndael32, Rijndael32F, "tower", "rijndael32 0x1 0x2000", false),
+            (rijndael16, Rijndael16F, "tower", "poly8aes 0x1 0x20", false),
+            (rijndael32, Rijndael32F, "tower", "rijndael16 0x1 0x2000", false),
             (
-                rijndael64, Rijndael64F, "tower", "rijndael64 0x1 0x20000000",
+                rijndael64, Rijndael64F, "tower", "rijndael32 0x1 0x20000000",
                 false
             ),
             (fanpaar2, FanPaar2F, "tower", "poly1 0x1 0x1", false),
@@ -588,7 +571,6 @@ macro_rules! define_presentations {
         $(
             impl Presentation for $typ {
                 const SHORT: &'static str = stringify!($short);
-                const FLAT: bool = $flat;
             }
         )*
     };

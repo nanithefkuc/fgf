@@ -1,9 +1,7 @@
 //! Frozen field fixtures: presentation manifest, samples, generators, and
 //! shipped-instance known answers, asserted against recomputed values.
 
-#[macro_use]
-#[path = "common/frozen.rs"]
-mod frozen;
+use crate::common as frozen;
 
 #[allow(unused_imports)]
 use frozen::{
@@ -17,7 +15,7 @@ use frozen::{
 use fgf::{
     BinaryField, Elem, Field, FieldElem, Goldilocks, HasGenerator, Mersenne31, QuadMersenne31,
 };
-use frozen::{AliasDecode, ByteEnc, Levels, Records, SplitMix64Reader, TAG, samples};
+use frozen::{AliasDecode, ByteEnc, Levels, Records, SplitMix64Reader, samples};
 
 const MANIFEST: &str = include_str!("fixtures/manifest.txt");
 const PRESENTATIONS: &str = include_str!("fixtures/presentations.txt");
@@ -49,20 +47,27 @@ fn fields_of<'a>(file: &'static str, number: usize, line: &'a str) -> Vec<&'a st
 /// defining data and degree.
 #[test]
 fn manifest_lists_every_presentation_in_order() {
-    assert_eq!(TAG, "v3.0.0-rc.1");
     let mut lines = Records::new("manifest.txt", MANIFEST);
+    let mut degrees: Vec<(&str, u32)> = Vec::new();
     macro_rules! check {
         ([$(($short:ident, $typ:ty, $kind:literal, $data:literal, $flat:literal)),* $(,)?]) => {{
             $(
                 let (line, number) = lines.next().expect("manifest line");
-                let expected = format!(
-                    "{} {} {} {}",
-                    stringify!($short),
-                    $kind,
-                    <$typ as Field>::DEGREE,
-                    $data,
-                );
+                let degree = <$typ as Field>::DEGREE;
+                let expected = format!("{} {} {} {}", stringify!($short), $kind, degree, $data);
                 assert_eq!(line, expected, "manifest.txt:{number}");
+                if $kind == "tower" {
+                    // A tower's first defining-data token names its base, which
+                    // precedes it in the manifest at half its degree.
+                    let base = $data.split_whitespace().next().expect("tower base");
+                    let base_degree = degrees
+                        .iter()
+                        .find(|(name, _)| *name == base)
+                        .map(|&(_, degree)| degree)
+                        .unwrap_or_else(|| panic!("manifest.txt:{number}: unknown base {base}"));
+                    assert_eq!(2 * base_degree, degree, "manifest.txt:{number}: base degree");
+                }
+                degrees.push((stringify!($short), degree));
             )*
         }};
     }
@@ -91,7 +96,7 @@ fn sample_words_match_recomputed_values() {
                         .expect("a masked sample fits the field degree");
                     assert_eq!(
                         fields[3],
-                        hex(<$typ as BinaryField>::to_coordinates(value)),
+                        hex(value.to_raw().into()),
                         "presentations.txt:{number}"
                     );
                     assert_eq!(
