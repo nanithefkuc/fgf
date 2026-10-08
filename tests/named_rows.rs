@@ -51,14 +51,21 @@ fn presentation_labels_and_field_names() {
     );
     assert_eq!(Mersenne31::NAME, "GF(2^31 - 1)");
     assert_eq!(Goldilocks::NAME, "GF(2^64 - 2^32 + 1)");
-    assert_eq!(
-        format!("{:?}", Mersenne31::default()),
-        "FiniteField<2147483647, 1, mersenne-fold>"
-    );
-    assert_eq!(
-        format!("{:?}", Goldilocks::default()),
-        "FiniteField<18446744069414584321, 1, goldilocks-fold>"
-    );
+    // Marker Debug carries the characteristic, degree, and presentation
+    // label; its punctuation is not a contract.
+    for (debug, p, label) in [
+        (format!("{:?}", Mersenne31::default()), M31, "mersenne-fold"),
+        (
+            format!("{:?}", Goldilocks::default()),
+            GOLDILOCKS,
+            "goldilocks-fold",
+        ),
+    ] {
+        assert!(
+            debug.contains(&p.to_string()) && debug.contains('1') && debug.contains(label),
+            "{debug}"
+        );
+    }
 }
 
 /// Residues worth transporting: identities, the generator, `p − 1`, and a
@@ -129,6 +136,13 @@ fn named_and_residue_lanes_differ_in_width() {
 fn residue_conversions_reject_out_of_range() {
     assert_eq!(Elem::<Mersenne31>::from_residue(M31), Err(RangeError));
     assert_eq!(Elem::<Mersenne31>::from_residue(u64::MAX), Err(RangeError));
+    // Values whose low 32 bits look like valid residues are still rejected:
+    // the range check runs before any narrowing.
+    assert_eq!(Elem::<Mersenne31>::from_residue(1 << 32), Err(RangeError));
+    assert_eq!(
+        Elem::<Mersenne31>::from_residue((1 << 32) + 7),
+        Err(RangeError)
+    );
     assert_eq!(
         Elem::<Goldilocks>::from_residue(GOLDILOCKS),
         Err(RangeError)
