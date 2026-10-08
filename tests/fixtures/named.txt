@@ -1,0 +1,658 @@
+# Named prime fields: sample, alias, mul, inv, pow, powexp records
+# captured from v3.0.0-rc.1
+mersenne31 sample 0 0x7b1dcdaf 0x7b1dcdaf afcd1d7b
+mersenne31 sample 1 0xa1b965f4 0x21b965f5 f565b921
+mersenne31 sample 2 0x8009454f 0x94550 50450900
+mersenne31 sample 3 0x724c81ec 0x724c81ec ec814c72
+mersenne31 sample 4 0x51a8749b 0x51a8749b 9b74a851
+mersenne31 sample 5 0x747ea2ea 0x747ea2ea eaa27e74
+mersenne31 sample 6 0x1f4532e1 0x1f4532e1 e132451f
+mersenne31 sample 7 0xc916ab3c 0x4916ab3d 3dab1649
+mersenne31 sample 8 0x41c98ac3 0x41c98ac3 c38ac941
+mersenne31 sample 9 0x368cb0a6 0x368cb0a6 a6b08c36
+mersenne31 sample 10 0x3cb13d09 0x3cb13d09 093db13c
+mersenne31 sample 11 0x55bdef6 0x55bdef6 f6de5b05
+mersenne31 sample 12 0xe0bbdb7b 0x60bbdb7c 7cdbbb60
+mersenne31 sample 13 0x983aa92f 0x183aa930 30a93a18
+mersenne31 sample 14 0xcc4d19 0xcc4d19 194dcc00
+mersenne31 sample 15 0x971d80ab 0x171d80ac ac801d17
+mersenne31 sample 16 0x75521255 0x75521255 55125275
+mersenne31 sample 17 0x2b7f7f86 0x2b7f7f86 867f7f2b
+mersenne31 sample 18 0x83914f64 0x3914f65 654f9103
+mersenne31 sample 19 0x5a4485ac 0x5a4485ac ac85445a
+mersenne31 sample 20 0x100b9ed7 0x100b9ed7 d79e0b10
+mersenne31 sample 21 0x1825f10d 0x1825f10d 0df12518
+mersenne31 sample 22 0xdca2f6a 0xdca2f6a 6a2fca0d
+mersenne31 sample 23 0x7bd2634c 0x7bd2634c 4c63d27b
+mersenne31 sample 24 0xf5407269 0x7540726a 6a724075
+mersenne31 sample 25 0xdb4c4f7b 0x5b4c4f7c 7c4f4c5b
+mersenne31 sample 26 0x92233300 0x12233301 01332312
+mersenne31 sample 27 0x7de1d510 0x7de1d510 10d5e17d
+mersenne31 sample 28 0xb45c6316 0x345c6317 17635c34
+mersenne31 sample 29 0xf4d3872 0xf4d3872 72384d0f
+mersenne31 sample 30 0x72f3454f 0x72f3454f 4f45f372
+mersenne31 sample 31 0xa8e40225 0x28e40226 2602e428
+mersenne31 sample 32 0x4963bab0 0x4963bab0 b0ba6349
+mersenne31 sample 33 0x111ac529 0x111ac529 29c51a11
+mersenne31 sample 34 0x599dc6f7 0x599dc6f7 f7c69d59
+mersenne31 sample 35 0x93d108c3 0x13d108c4 c408d113
+mersenne31 sample 36 0x81daa383 0x1daa384 84a3da01
+mersenne31 sample 37 0xb43343a1 0x343343a2 a2433334
+mersenne31 sample 38 0xcbe531df 0x4be531e0 e031e54b
+mersenne31 sample 39 0x24851729 0x24851729 29178524
+mersenne31 sample 40 0xa792922a 0x2792922b 2b929227
+mersenne31 sample 41 0x918175ce 0x118175cf cf758111
+mersenne31 sample 42 0x302278a8 0x302278a8 a8782230
+mersenne31 sample 43 0x7019e937 0x7019e937 37e91970
+mersenne31 sample 44 0x52ebf438 0x52ebf438 38f4eb52
+mersenne31 sample 45 0xa691e37 0xa691e37 371e690a
+mersenne31 sample 46 0x763e79ad 0x763e79ad ad793e76
+mersenne31 sample 47 0x743aae49 0x743aae49 49ae3a74
+mersenne31 sample 48 0xb1a1f2e1 0x31a1f2e2 e2f2a131
+mersenne31 sample 49 0x4f4f52da 0x4f4f52da da524f4f
+mersenne31 sample 50 0xa71a5eb1 0x271a5eb2 b25e1a27
+mersenne31 sample 51 0xb6513356 0x36513357 57335136
+mersenne31 sample 52 0xd4367d77 0x54367d78 787d3654
+mersenne31 sample 53 0x23ce3c71 0x23ce3c71 713cce23
+mersenne31 sample 54 0x43c714 0x43c714 14c74300
+mersenne31 sample 55 0x844f1705 0x44f1706 06174f04
+mersenne31 sample 56 0xdd9e0ec1 0x5d9e0ec2 c20e9e5d
+mersenne31 sample 57 0x82bb9698 0x2bb9699 9996bb02
+mersenne31 sample 58 0xcbc87656 0x4bc87657 5776c84b
+mersenne31 sample 59 0xa17b3c8f 0x217b3c90 903c7b21
+mersenne31 sample 60 0x1d5c5d7b 0x1d5c5d7b 7b5d5c1d
+mersenne31 sample 61 0x1cbbf170 0x1cbbf170 70f1bb1c
+mersenne31 sample 62 0x29a88f1d 0x29a88f1d 1d8fa829
+mersenne31 sample 63 0xb8bb18fb 0x38bb18fc fc18bb38
+mersenne31 alias 0x0 0x0 00000000
+mersenne31 alias 0x1 0x1 01000000
+mersenne31 alias 0x7ffffffe 0x7ffffffe feffff7f
+mersenne31 alias 0x7fffffff 0x0 00000000
+mersenne31 alias 0x80000000 0x1 01000000
+mersenne31 alias 0x8000ffff 0x10000 00000100
+mersenne31 alias 0xfffffffe 0x0 00000000
+mersenne31 alias 0xffffffffffffffff 0x1 01000000
+mersenne31 mul 0 0x7b1dcdaf 0xa1b965f4 0x6892e5a6
+mersenne31 mul 1 0xa1b965f4 0x8009454f 0x180a56dc
+mersenne31 mul 2 0x8009454f 0x724c81ec 0x68417d05
+mersenne31 mul 3 0x724c81ec 0x51a8749b 0x16fc70a6
+mersenne31 mul 4 0x51a8749b 0x747ea2ea 0x28601f1c
+mersenne31 mul 5 0x747ea2ea 0x1f4532e1 0x7aa689b0
+mersenne31 mul 6 0x1f4532e1 0xc916ab3c 0x46aa6b5b
+mersenne31 mul 7 0xc916ab3c 0x41c98ac3 0x7a08e940
+mersenne31 mul 8 0x41c98ac3 0x368cb0a6 0x58c36036
+mersenne31 mul 9 0x368cb0a6 0x3cb13d09 0x15ad3f33
+mersenne31 mul 10 0x3cb13d09 0x55bdef6 0x66fbf0c1
+mersenne31 mul 11 0x55bdef6 0xe0bbdb7b 0x51fb35c8
+mersenne31 mul 12 0xe0bbdb7b 0x983aa92f 0x13859163
+mersenne31 mul 13 0x983aa92f 0xcc4d19 0x5504a1c5
+mersenne31 mul 14 0xcc4d19 0x971d80ab 0x2aca31bd
+mersenne31 mul 15 0x971d80ab 0x75521255 0x281f9aef
+mersenne31 mul 16 0x75521255 0x2b7f7f86 0x271731f7
+mersenne31 mul 17 0x2b7f7f86 0x83914f64 0x4fc40844
+mersenne31 mul 18 0x83914f64 0x5a4485ac 0x7f38e59a
+mersenne31 mul 19 0x5a4485ac 0x100b9ed7 0x23c12e11
+mersenne31 mul 20 0x100b9ed7 0x1825f10d 0x61396746
+mersenne31 mul 21 0x1825f10d 0xdca2f6a 0x56d331af
+mersenne31 mul 22 0xdca2f6a 0x7bd2634c 0x28a70570
+mersenne31 mul 23 0x7bd2634c 0xf5407269 0x75c19c1b
+mersenne31 mul 24 0xf5407269 0xdb4c4f7b 0x279fd9c3
+mersenne31 mul 25 0xdb4c4f7b 0x92233300 0x3205d9e8
+mersenne31 mul 26 0x92233300 0x7de1d510 0x4e5a64ef
+mersenne31 mul 27 0x7de1d510 0xb45c6316 0x29edeec3
+mersenne31 mul 28 0xb45c6316 0xf4d3872 0x33fe9285
+mersenne31 mul 29 0xf4d3872 0x72f3454f 0x6eff0055
+mersenne31 mul 30 0x72f3454f 0xa8e40225 0x2dbbb0a4
+mersenne31 mul 31 0xa8e40225 0x4963bab0 0x874fb57
+mersenne31 mul 32 0x4963bab0 0x111ac529 0x2f50ee48
+mersenne31 mul 33 0x111ac529 0x599dc6f7 0x6c70a311
+mersenne31 mul 34 0x599dc6f7 0x93d108c3 0x5d8ad266
+mersenne31 mul 35 0x93d108c3 0x81daa383 0xb8ecc75
+mersenne31 mul 36 0x81daa383 0xb43343a1 0x4934960d
+mersenne31 mul 37 0xb43343a1 0xcbe531df 0x11aab16f
+mersenne31 mul 38 0xcbe531df 0x24851729 0x3e377cc8
+mersenne31 mul 39 0x24851729 0xa792922a 0x93ca474
+mersenne31 mul 40 0xa792922a 0x918175ce 0x4665552
+mersenne31 mul 41 0x918175ce 0x302278a8 0x28419ae9
+mersenne31 mul 42 0x302278a8 0x7019e937 0x29c8bc1a
+mersenne31 mul 43 0x7019e937 0x52ebf438 0x340faee4
+mersenne31 mul 44 0x52ebf438 0xa691e37 0x5906903d
+mersenne31 mul 45 0xa691e37 0x763e79ad 0x6d4166d5
+mersenne31 mul 46 0x763e79ad 0x743aae49 0xf151bea
+mersenne31 mul 47 0x743aae49 0xb1a1f2e1 0x56896385
+mersenne31 mul 48 0xb1a1f2e1 0x4f4f52da 0x7433ee6f
+mersenne31 mul 49 0x4f4f52da 0xa71a5eb1 0x7df2299b
+mersenne31 mul 50 0xa71a5eb1 0xb6513356 0x1dbd92d0
+mersenne31 mul 51 0xb6513356 0xd4367d77 0x2037f4f9
+mersenne31 mul 52 0xd4367d77 0x23ce3c71 0x679417bc
+mersenne31 mul 53 0x23ce3c71 0x43c714 0x6ebe8577
+mersenne31 mul 54 0x43c714 0x844f1705 0x57a7be91
+mersenne31 mul 55 0x844f1705 0xdd9e0ec1 0x7e0c8f65
+mersenne31 mul 56 0xdd9e0ec1 0x82bb9698 0x5dd2293b
+mersenne31 mul 57 0x82bb9698 0xcbc87656 0x6150e5de
+mersenne31 mul 58 0xcbc87656 0xa17b3c8f 0x431e99ef
+mersenne31 mul 59 0xa17b3c8f 0x1d5c5d7b 0x76a47def
+mersenne31 mul 60 0x1d5c5d7b 0x1cbbf170 0xfda0195
+mersenne31 mul 61 0x1cbbf170 0x29a88f1d 0x2801f3d3
+mersenne31 mul 62 0x29a88f1d 0xb8bb18fb 0x43fd3b8b
+mersenne31 mul 63 0xb8bb18fb 0x7b1dcdaf 0x3a04dfd3
+mersenne31 inv 0 0x7b1dcdaf 0x1d07875d
+mersenne31 inv 1 0xa1b965f4 0xa546907
+mersenne31 inv 2 0x8009454f 0x5b36e91c
+mersenne31 inv 3 0x724c81ec 0x644c8673
+mersenne31 inv 4 0x51a8749b 0x2adfd9b3
+mersenne31 inv 5 0x747ea2ea 0x37702c9c
+mersenne31 inv 6 0x1f4532e1 0x44f6dc17
+mersenne31 inv 7 0xc916ab3c 0x237014a6
+mersenne31 inv 8 0x41c98ac3 0x46dd43b3
+mersenne31 inv 9 0x368cb0a6 0x765eab67
+mersenne31 inv 10 0x3cb13d09 0xf05e86a
+mersenne31 inv 11 0x55bdef6 0xbb511c8
+mersenne31 inv 12 0xe0bbdb7b 0x6a9876ee
+mersenne31 inv 13 0x983aa92f 0x6c17e39e
+mersenne31 inv 14 0xcc4d19 0x50c65a4a
+mersenne31 inv 15 0x971d80ab 0x773f04c0
+mersenne31 inv 16 0x75521255 0x2f78f809
+mersenne31 inv 17 0x2b7f7f86 0x447b2a27
+mersenne31 inv 18 0x83914f64 0x32789c48
+mersenne31 inv 19 0x5a4485ac 0x4dca245c
+mersenne31 inv 20 0x100b9ed7 0x105cab7b
+mersenne31 inv 21 0x1825f10d 0x5a077cc3
+mersenne31 inv 22 0xdca2f6a 0x10b44447
+mersenne31 inv 23 0x7bd2634c 0x1dd7f053
+mersenne31 inv 24 0xf5407269 0x2ecd875b
+mersenne31 inv 25 0xdb4c4f7b 0x9204bcf
+mersenne31 inv 26 0x92233300 0x7cd0d28f
+mersenne31 inv 27 0x7de1d510 0x124b136a
+mersenne31 inv 28 0xb45c6316 0x3203c053
+mersenne31 inv 29 0xf4d3872 0x333401b8
+mersenne31 inv 30 0x72f3454f 0x47ff13d3
+mersenne31 inv 31 0xa8e40225 0x3f5409be
+mersenne31 inv 32 0x4963bab0 0x6ccfd0ab
+mersenne31 inv 33 0x111ac529 0x18c79c10
+mersenne31 inv 34 0x599dc6f7 0x389b3d19
+mersenne31 inv 35 0x93d108c3 0x3c7a2932
+mersenne31 inv 36 0x81daa383 0x52177f08
+mersenne31 inv 37 0xb43343a1 0x6c8c2dc9
+mersenne31 inv 38 0xcbe531df 0x6b60f2ed
+mersenne31 inv 39 0x24851729 0x2031d313
+mersenne31 inv 40 0xa792922a 0x35eafe
+mersenne31 inv 41 0x918175ce 0x70115ecd
+mersenne31 inv 42 0x302278a8 0x77d27f36
+mersenne31 inv 43 0x7019e937 0x41c3b419
+mersenne31 inv 44 0x52ebf438 0x3574225f
+mersenne31 inv 45 0xa691e37 0x65952b63
+mersenne31 inv 46 0x763e79ad 0x6646a5f5
+mersenne31 inv 47 0x743aae49 0x79aebc41
+mersenne31 inv 48 0xb1a1f2e1 0x203814c1
+mersenne31 inv 49 0x4f4f52da 0x67a39f3f
+mersenne31 inv 50 0xa71a5eb1 0x1066aec9
+mersenne31 inv 51 0xb6513356 0x7bd9884d
+mersenne31 inv 52 0xd4367d77 0x23879106
+mersenne31 inv 53 0x23ce3c71 0x52462e4c
+mersenne31 inv 54 0x43c714 0x585490ab
+mersenne31 inv 55 0x844f1705 0x20ad501c
+mersenne31 inv 56 0xdd9e0ec1 0x77c194e7
+mersenne31 inv 57 0x82bb9698 0x7d12a866
+mersenne31 inv 58 0xcbc87656 0x415e9d54
+mersenne31 inv 59 0xa17b3c8f 0x5d54a7fb
+mersenne31 inv 60 0x1d5c5d7b 0x182b23db
+mersenne31 inv 61 0x1cbbf170 0x6c2efbf5
+mersenne31 inv 62 0x29a88f1d 0x3ee14b1a
+mersenne31 inv 63 0xb8bb18fb 0x33be8215
+mersenne31 pow 0 0x1
+mersenne31 pow 1 0x7
+mersenne31 pow 2 0x31
+mersenne31 pow 3 0x157
+mersenne31 pow 4 0x961
+mersenne31 pow 5 0x41a7
+mersenne31 pow 6 0x1cb91
+mersenne31 pow 7 0xc90f7
+mersenne31 pow 8 0x57f6c1
+mersenne31 pow 9 0x267bf47
+mersenne31 pow 10 0x10d63af1
+mersenne31 pow 11 0x75db9c97
+mersenne31 pow 12 0x39014827
+mersenne31 pow 13 0xf08f914
+mersenne31 pow 14 0x693ecf8c
+mersenne31 pow 15 0x60b7acd9
+mersenne31 pow 16 0x2505b9f4
+mersenne31 pow 17 0x32815ae
+mersenne31 pow 18 0x161897c2
+mersenne31 pow 19 0x1aac264f
+mersenne31 pow 20 0x3ab50c2a
+mersenne31 pow 21 0x1af35529
+mersenne31 pow 22 0x3ca75420
+mersenne31 pow 23 0x28934ce3
+mersenne31 pow 24 0x1c071a37
+mersenne31 pow 25 0x4431b782
+mersenne31 pow 26 0x5d5c0491
+mersenne31 pow 27 0xd841ffc
+mersenne31 pow 28 0x5e9cdfe4
+mersenne31 pow 29 0x164a1f41
+mersenne31 pow 30 0x1c06dac8
+mersenne31 pow 31 0x442ffb79
+mersenne31 pow 32 0x5d4fe052
+mersenne31 pow 33 0xd2f2243
+mersenne31 pow 34 0x5c49efd5
+mersenne31 pow 35 0x6058ed8
+mersenne31 pow 36 0x2a26e7e8
+mersenne31 pow 37 0x2710575a
+mersenne31 pow 38 0x11726378
+mersenne31 pow 39 0x7a20b848
+mersenne31 pow 40 0x56e509fe
+mersenne31 pow 41 0x604345f6
+mersenne31 pow 42 0x21d6e9bf
+mersenne31 pow 43 0x6ce0643a
+mersenne31 pow 44 0x7a22bd9b
+mersenne31 pow 45 0x56f32f43
+mersenne31 pow 46 0x60a64ad9
+mersenne31 pow 47 0x248c0bf4
+mersenne31 pow 48 0x7fd453ad
+mersenne31 pow 49 0x7ece49c1
+mersenne31 pow 50 0x77a4044d
+mersenne31 pow 51 0x457c1e21
+mersenne31 pow 52 0x6664d2ea
+mersenne31 pow 53 0x4cc1c46b
+mersenne31 pow 54 0x194c5ef1
+mersenne31 pow 55 0x31169898
+mersenne31 pow 56 0x579e2c2a
+mersenne31 pow 57 0x6553352a
+mersenne31 pow 58 0x4546742b
+mersenne31 pow 59 0x64ed2d30
+mersenne31 pow 60 0x427c3c55
+mersenne31 pow 61 0x5165a656
+mersenne31 pow 62 0x39c78c5e
+mersenne31 pow 63 0x1474d695
+mersenne31 powexp 0 0x7b1dcdaf 0x47a9fbf1
+mersenne31 powexp 1 0xa1b965f4 0x5dcfbac1
+mersenne31 powexp 2 0x8009454f 0x49bda17e
+mersenne31 powexp 3 0x724c81ec 0x59f7af0f
+mersenne31 powexp 4 0x51a8749b 0x63d528d0
+mersenne31 powexp 5 0x747ea2ea 0x60cad901
+mersenne31 powexp 6 0x1f4532e1 0x7b62e9ae
+mersenne31 powexp 7 0xc916ab3c 0x3afede85
+mersenne31 powexp 8 0x41c98ac3 0x32388d16
+mersenne31 powexp 9 0x368cb0a6 0x31903b28
+mersenne31 powexp 10 0x3cb13d09 0x4f2d6971
+mersenne31 powexp 11 0x55bdef6 0x3821233f
+mersenne31 powexp 12 0xe0bbdb7b 0x49d9dd7e
+mersenne31 powexp 13 0x983aa92f 0x76f511fc
+mersenne31 powexp 14 0xcc4d19 0x158e491
+mersenne31 powexp 15 0x971d80ab 0x2985a65d
+mersenne31 powexp 16 0x75521255 0x6db019ee
+mersenne31 powexp 17 0x2b7f7f86 0x556dcf6c
+mersenne31 powexp 18 0x83914f64 0x5a7ae3f2
+mersenne31 powexp 19 0x5a4485ac 0x115490d0
+mersenne31 powexp 20 0x100b9ed7 0x516749f5
+mersenne31 powexp 21 0x1825f10d 0x431feda1
+mersenne31 powexp 22 0xdca2f6a 0x664663c
+mersenne31 powexp 23 0x7bd2634c 0x9477628
+mersenne31 powexp 24 0xf5407269 0x61d71bc2
+mersenne31 powexp 25 0xdb4c4f7b 0x46bf6134
+mersenne31 powexp 26 0x92233300 0x30f78bb7
+mersenne31 powexp 27 0x7de1d510 0x62895692
+mersenne31 powexp 28 0xb45c6316 0x3f3983ac
+mersenne31 powexp 29 0xf4d3872 0x765a91e2
+mersenne31 powexp 30 0x72f3454f 0x69a316f8
+mersenne31 powexp 31 0xa8e40225 0x20ae0fb
+mersenne31 powexp 32 0x4963bab0 0x2cbdba2a
+mersenne31 powexp 33 0x111ac529 0x31c71a44
+mersenne31 powexp 34 0x599dc6f7 0x6c92fa3b
+mersenne31 powexp 35 0x93d108c3 0x113651be
+mersenne31 powexp 36 0x81daa383 0x5ca58226
+mersenne31 powexp 37 0xb43343a1 0x5cf37e9
+mersenne31 powexp 38 0xcbe531df 0x445b8882
+mersenne31 powexp 39 0x24851729 0xe22de5e
+mersenne31 powexp 40 0xa792922a 0x763a6b0b
+mersenne31 powexp 41 0x918175ce 0x194a72f6
+mersenne31 powexp 42 0x302278a8 0x305e03
+mersenne31 powexp 43 0x7019e937 0x29b26188
+mersenne31 powexp 44 0x52ebf438 0x7c476897
+mersenne31 powexp 45 0xa691e37 0x23622dd4
+mersenne31 powexp 46 0x763e79ad 0x75f7f187
+mersenne31 powexp 47 0x743aae49 0x12d1e49d
+mersenne31 powexp 48 0xb1a1f2e1 0x27b8616f
+mersenne31 powexp 49 0x4f4f52da 0x4ecc5ed0
+mersenne31 powexp 50 0xa71a5eb1 0x55f8d680
+mersenne31 powexp 51 0xb6513356 0x13471b4c
+mersenne31 powexp 52 0xd4367d77 0x4c873215
+mersenne31 powexp 53 0x23ce3c71 0x7b768da1
+mersenne31 powexp 54 0x43c714 0x25cee6bc
+mersenne31 powexp 55 0x844f1705 0x79c6e656
+mersenne31 powexp 56 0xdd9e0ec1 0x44110326
+mersenne31 powexp 57 0x82bb9698 0x7b474fc3
+mersenne31 powexp 58 0xcbc87656 0x1d2dfb9
+mersenne31 powexp 59 0xa17b3c8f 0x438fb058
+mersenne31 powexp 60 0x1d5c5d7b 0x54514698
+mersenne31 powexp 61 0x1cbbf170 0x3ab2e13b
+mersenne31 powexp 62 0x29a88f1d 0xa7ae9c5
+mersenne31 powexp 63 0xb8bb18fb 0x46d9d52d
+goldilocks sample 0 0xe220a8397b1dcdaf 0xe220a8397b1dcdaf afcd1d7b39a820e2
+goldilocks sample 1 0x6e789e6aa1b965f4 0x6e789e6aa1b965f4 f465b9a16a9e786e
+goldilocks sample 2 0x6c45d188009454f 0x6c45d188009454f 4f450980185dc406
+goldilocks sample 3 0xf88bb8a8724c81ec 0xf88bb8a8724c81ec ec814c72a8b88bf8
+goldilocks sample 4 0x1b39896a51a8749b 0x1b39896a51a8749b 9b74a8516a89391b
+goldilocks sample 5 0x53cb9f0c747ea2ea 0x53cb9f0c747ea2ea eaa27e740c9fcb53
+goldilocks sample 6 0x2c829abe1f4532e1 0x2c829abe1f4532e1 e132451fbe9a822c
+goldilocks sample 7 0xc584133ac916ab3c 0xc584133ac916ab3c 3cab16c93a1384c5
+goldilocks sample 8 0x3ee5789041c98ac3 0x3ee5789041c98ac3 c38ac9419078e53e
+goldilocks sample 9 0xf3b8488c368cb0a6 0xf3b8488c368cb0a6 a6b08c368c48b8f3
+goldilocks sample 10 0x657eecdd3cb13d09 0x657eecdd3cb13d09 093db13cddec7e65
+goldilocks sample 11 0xc2d326e0055bdef6 0xc2d326e0055bdef6 f6de5b05e026d3c2
+goldilocks sample 12 0x8621a03fe0bbdb7b 0x8621a03fe0bbdb7b 7bdbbbe03fa02186
+goldilocks sample 13 0x8e1f7555983aa92f 0x8e1f7555983aa92f 2fa93a9855751f8e
+goldilocks sample 14 0xb54e0f1600cc4d19 0xb54e0f1600cc4d19 194dcc00160f4eb5
+goldilocks sample 15 0x84bb3f97971d80ab 0x84bb3f97971d80ab ab801d97973fbb84
+goldilocks sample 16 0x7d29825c75521255 0x7d29825c75521255 551252755c82297d
+goldilocks sample 17 0xc3cf17102b7f7f86 0xc3cf17102b7f7f86 867f7f2b1017cfc3
+goldilocks sample 18 0x3466e9a083914f64 0x3466e9a083914f64 644f9183a0e96634
+goldilocks sample 19 0xd81a8d2b5a4485ac 0xd81a8d2b5a4485ac ac85445a2b8d1ad8
+goldilocks sample 20 0xdb01602b100b9ed7 0xdb01602b100b9ed7 d79e0b102b6001db
+goldilocks sample 21 0xa9038a921825f10d 0xa9038a921825f10d 0df12518928a03a9
+goldilocks sample 22 0xedf5f1d90dca2f6a 0xedf5f1d90dca2f6a 6a2fca0dd9f1f5ed
+goldilocks sample 23 0x54496ad67bd2634c 0x54496ad67bd2634c 4c63d27bd66a4954
+goldilocks sample 24 0xdd7c01d4f5407269 0xdd7c01d4f5407269 697240f5d4017cdd
+goldilocks sample 25 0x935e82f1db4c4f7b 0x935e82f1db4c4f7b 7b4f4cdbf1825e93
+goldilocks sample 26 0x69b82ebc92233300 0x69b82ebc92233300 00332392bc2eb869
+goldilocks sample 27 0x40d29eb57de1d510 0x40d29eb57de1d510 10d5e17db59ed240
+goldilocks sample 28 0xa2f09dabb45c6316 0xa2f09dabb45c6316 16635cb4ab9df0a2
+goldilocks sample 29 0xee521d7a0f4d3872 0xee521d7a0f4d3872 72384d0f7a1d52ee
+goldilocks sample 30 0xf16952ee72f3454f 0xf16952ee72f3454f 4f45f372ee5269f1
+goldilocks sample 31 0x377d35dea8e40225 0x377d35dea8e40225 2502e4a8de357d37
+goldilocks sample 32 0xc7de8064963bab0 0xc7de8064963bab0 b0ba634906e87d0c
+goldilocks sample 33 0x5582d37111ac529 0x5582d37111ac529 29c51a11372d5805
+goldilocks sample 34 0xd254741f599dc6f7 0xd254741f599dc6f7 f7c69d591f7454d2
+goldilocks sample 35 0x69630f7593d108c3 0x69630f7593d108c3 c308d193750f6369
+goldilocks sample 36 0x417ef96181daa383 0x417ef96181daa383 83a3da8161f97e41
+goldilocks sample 37 0x3c3c41a3b43343a1 0x3c3c41a3b43343a1 a14333b4a3413c3c
+goldilocks sample 38 0x6e19905dcbe531df 0x6e19905dcbe531df df31e5cb5d90196e
+goldilocks sample 39 0x4fa9fa7324851729 0x4fa9fa7324851729 2917852473faa94f
+goldilocks sample 40 0x84eb4454a792922a 0x84eb4454a792922a 2a9292a75444eb84
+goldilocks sample 41 0x134f7096918175ce 0x134f7096918175ce ce75819196704f13
+goldilocks sample 42 0x7dc930b302278a8 0x7dc930b302278a8 a87822300b93dc07
+goldilocks sample 43 0x12c015a97019e937 0x12c015a97019e937 37e91970a915c012
+goldilocks sample 44 0xcc06c31652ebf438 0xcc06c31652ebf438 38f4eb5216c306cc
+goldilocks sample 45 0xecee65630a691e37 0xecee65630a691e37 371e690a6365eeec
+goldilocks sample 46 0x3e84ecb1763e79ad 0x3e84ecb1763e79ad ad793e76b1ec843e
+goldilocks sample 47 0x690ed476743aae49 0x690ed476743aae49 49ae3a7476d40e69
+goldilocks sample 48 0x774615d7b1a1f2e1 0x774615d7b1a1f2e1 e1f2a1b1d7154677
+goldilocks sample 49 0x22b353f04f4f52da 0x22b353f04f4f52da da524f4ff053b322
+goldilocks sample 50 0xe3ddd86ba71a5eb1 0xe3ddd86ba71a5eb1 b15e1aa76bd8dde3
+goldilocks sample 51 0xdf268adeb6513356 0xdf268adeb6513356 563351b6de8a26df
+goldilocks sample 52 0x2098eb73d4367d77 0x2098eb73d4367d77 777d36d473eb9820
+goldilocks sample 53 0x3d6845323ce3c71 0x3d6845323ce3c71 713cce235384d603
+goldilocks sample 54 0xc952c5620043c714 0xc952c5620043c714 14c7430062c552c9
+goldilocks sample 55 0x9b196bca844f1705 0x9b196bca844f1705 05174f84ca6b199b
+goldilocks sample 56 0x30260345dd9e0ec1 0x30260345dd9e0ec1 c10e9edd45032630
+goldilocks sample 57 0xcf448a5882bb9698 0xcf448a5882bb9698 9896bb82588a44cf
+goldilocks sample 58 0xf4a578dccbc87656 0xf4a578dccbc87656 5676c8cbdc78a5f4
+goldilocks sample 59 0xbfdeaed9a17b3c8f 0xbfdeaed9a17b3c8f 8f3c7ba1d9aedebf
+goldilocks sample 60 0xed79402d1d5c5d7b 0xed79402d1d5c5d7b 7b5d5c1d2d4079ed
+goldilocks sample 61 0x55f070ab1cbbf170 0x55f070ab1cbbf170 70f1bb1cab70f055
+goldilocks sample 62 0x3e00a34929a88f1d 0x3e00a34929a88f1d 1d8fa82949a3003e
+goldilocks sample 63 0xe255b237b8bb18fb 0xe255b237b8bb18fb fb18bbb837b255e2
+goldilocks alias 0x0 0x0 0000000000000000
+goldilocks alias 0x1 0x1 0100000000000000
+goldilocks alias 0xffffffff00000000 0xffffffff00000000 00000000ffffffff
+goldilocks alias 0xffffffff00000001 0x0 0000000000000000
+goldilocks alias 0xffffffff00000002 0x1 0100000000000000
+goldilocks alias 0xffffffff00010001 0x10000 0000010000000000
+goldilocks alias 0xfffffffe00000003 0xfffffffe00000003 03000000feffffff
+goldilocks alias 0xffffffffffffffff 0xfffffffe feffffff00000000
+goldilocks mul 0 0xe220a8397b1dcdaf 0x6e789e6aa1b965f4 0x2d3db4d85648eaf
+goldilocks mul 1 0x6e789e6aa1b965f4 0x6c45d188009454f 0xf44d464d45cf99a0
+goldilocks mul 2 0x6c45d188009454f 0xf88bb8a8724c81ec 0x75273e0790381cad
+goldilocks mul 3 0xf88bb8a8724c81ec 0x1b39896a51a8749b 0x3e3f52cbd31f1ee9
+goldilocks mul 4 0x1b39896a51a8749b 0x53cb9f0c747ea2ea 0xc65386dd55edfa98
+goldilocks mul 5 0x53cb9f0c747ea2ea 0x2c829abe1f4532e1 0x3b266a8ae3c5fd9
+goldilocks mul 6 0x2c829abe1f4532e1 0xc584133ac916ab3c 0xda778a097110b840
+goldilocks mul 7 0xc584133ac916ab3c 0x3ee5789041c98ac3 0xc43932eb3bcdf72a
+goldilocks mul 8 0x3ee5789041c98ac3 0xf3b8488c368cb0a6 0xf9c9a42f6de9e0f6
+goldilocks mul 9 0xf3b8488c368cb0a6 0x657eecdd3cb13d09 0x43c859b391e70d37
+goldilocks mul 10 0x657eecdd3cb13d09 0xc2d326e0055bdef6 0x3372945d0c84380e
+goldilocks mul 11 0xc2d326e0055bdef6 0x8621a03fe0bbdb7b 0xc1ae534507855f5c
+goldilocks mul 12 0x8621a03fe0bbdb7b 0x8e1f7555983aa92f 0x6401a79fb039d753
+goldilocks mul 13 0x8e1f7555983aa92f 0xb54e0f1600cc4d19 0x77942e909baeb409
+goldilocks mul 14 0xb54e0f1600cc4d19 0x84bb3f97971d80ab 0xb6a67a7cdc94f5d6
+goldilocks mul 15 0x84bb3f97971d80ab 0x7d29825c75521255 0x82124efa223e38d6
+goldilocks mul 16 0x7d29825c75521255 0xc3cf17102b7f7f86 0xe2e042fa6c9c0df
+goldilocks mul 17 0xc3cf17102b7f7f86 0x3466e9a083914f64 0xb8e8052e3fa3e83b
+goldilocks mul 18 0x3466e9a083914f64 0xd81a8d2b5a4485ac 0x7374a1813e7333b7
+goldilocks mul 19 0xd81a8d2b5a4485ac 0xdb01602b100b9ed7 0x1f92d71bed3b229a
+goldilocks mul 20 0xdb01602b100b9ed7 0xa9038a921825f10d 0xd77bd31c063a063d
+goldilocks mul 21 0xa9038a921825f10d 0xedf5f1d90dca2f6a 0xcfaba44bb663a5dd
+goldilocks mul 22 0xedf5f1d90dca2f6a 0x54496ad67bd2634c 0x5f57c4a168b7130e
+goldilocks mul 23 0x54496ad67bd2634c 0xdd7c01d4f5407269 0x9efc8eac6fd6f7c7
+goldilocks mul 24 0xdd7c01d4f5407269 0x935e82f1db4c4f7b 0x7eec9961d6845d0c
+goldilocks mul 25 0x935e82f1db4c4f7b 0x69b82ebc92233300 0xd9cadc3320f30209
+goldilocks mul 26 0x69b82ebc92233300 0x40d29eb57de1d510 0xff20ce0b0896dcdc
+goldilocks mul 27 0x40d29eb57de1d510 0xa2f09dabb45c6316 0x6939b64885cb8f36
+goldilocks mul 28 0xa2f09dabb45c6316 0xee521d7a0f4d3872 0x5f19a67ff1cc78df
+goldilocks mul 29 0xee521d7a0f4d3872 0xf16952ee72f3454f 0xb9da68fcb84047c4
+goldilocks mul 30 0xf16952ee72f3454f 0x377d35dea8e40225 0x6b75248461d61edf
+goldilocks mul 31 0x377d35dea8e40225 0xc7de8064963bab0 0x65243f65919dac87
+goldilocks mul 32 0xc7de8064963bab0 0x5582d37111ac529 0x7b3bead071fbc72d
+goldilocks mul 33 0x5582d37111ac529 0xd254741f599dc6f7 0x5fef6a2bbdefe53a
+goldilocks mul 34 0xd254741f599dc6f7 0x69630f7593d108c3 0x6d071da6cebcbb21
+goldilocks mul 35 0x69630f7593d108c3 0x417ef96181daa383 0x8546f17b66353f8d
+goldilocks mul 36 0x417ef96181daa383 0x3c3c41a3b43343a1 0x4ed6f1cf166d53d2
+goldilocks mul 37 0x3c3c41a3b43343a1 0x6e19905dcbe531df 0x54f9c0a621828e9b
+goldilocks mul 38 0x6e19905dcbe531df 0x4fa9fa7324851729 0x35b8017a5c46a16
+goldilocks mul 39 0x4fa9fa7324851729 0x84eb4454a792922a 0x76a54d94eb16eae4
+goldilocks mul 40 0x84eb4454a792922a 0x134f7096918175ce 0xdfc34a5fc206f741
+goldilocks mul 41 0x134f7096918175ce 0x7dc930b302278a8 0xe37eca681be0af7e
+goldilocks mul 42 0x7dc930b302278a8 0x12c015a97019e937 0xf9ebccf9a1289bf5
+goldilocks mul 43 0x12c015a97019e937 0xcc06c31652ebf438 0x7ba762ad621cdd6d
+goldilocks mul 44 0xcc06c31652ebf438 0xecee65630a691e37 0xe57332ce885fe5c6
+goldilocks mul 45 0xecee65630a691e37 0x3e84ecb1763e79ad 0x4805d4efe274b7f4
+goldilocks mul 46 0x3e84ecb1763e79ad 0x690ed476743aae49 0xcd7546f94d2f6d20
+goldilocks mul 47 0x690ed476743aae49 0x774615d7b1a1f2e1 0xc879aaaba0179b68
+goldilocks mul 48 0x774615d7b1a1f2e1 0x22b353f04f4f52da 0xac19d6b4dad35452
+goldilocks mul 49 0x22b353f04f4f52da 0xe3ddd86ba71a5eb1 0x7c6ad99a04500a0b
+goldilocks mul 50 0xe3ddd86ba71a5eb1 0xdf268adeb6513356 0xd88ec72faf3b09d2
+goldilocks mul 51 0xdf268adeb6513356 0x2098eb73d4367d77 0x9625a65ab1bd18f6
+goldilocks mul 52 0x2098eb73d4367d77 0x3d6845323ce3c71 0x529898620ddee627
+goldilocks mul 53 0x3d6845323ce3c71 0xc952c5620043c714 0x63bb7a95b5f4d83d
+goldilocks mul 54 0xc952c5620043c714 0x9b196bca844f1705 0x5ef6c84be4d0ee04
+goldilocks mul 55 0x9b196bca844f1705 0x30260345dd9e0ec1 0x37da23d1e28c3aee
+goldilocks mul 56 0x30260345dd9e0ec1 0xcf448a5882bb9698 0x97ca2ec654502caf
+goldilocks mul 57 0xcf448a5882bb9698 0xf4a578dccbc87656 0x21c5ea6e5eb64353
+goldilocks mul 58 0xf4a578dccbc87656 0xbfdeaed9a17b3c8f 0x232ea5ea0c6d5a17
+goldilocks mul 59 0xbfdeaed9a17b3c8f 0xed79402d1d5c5d7b 0x62a17858046500a6
+goldilocks mul 60 0xed79402d1d5c5d7b 0x55f070ab1cbbf170 0x464dc1654dc5fd27
+goldilocks mul 61 0x55f070ab1cbbf170 0x3e00a34929a88f1d 0x77a226d07198c726
+goldilocks mul 62 0x3e00a34929a88f1d 0xe255b237b8bb18fb 0xba26cfba12915b0a
+goldilocks mul 63 0xe255b237b8bb18fb 0xe220a8397b1dcdaf 0x74b9965c397a828c
+goldilocks inv 0 0xe220a8397b1dcdaf 0x377a795cbc01eaec
+goldilocks inv 1 0x6e789e6aa1b965f4 0x80655dfa5c957447
+goldilocks inv 2 0x6c45d188009454f 0xcd1433c052f05c19
+goldilocks inv 3 0xf88bb8a8724c81ec 0x34a862d9bc363e05
+goldilocks inv 4 0x1b39896a51a8749b 0x15da3fe4f8f9015b
+goldilocks inv 5 0x53cb9f0c747ea2ea 0xe23f5367f39d6743
+goldilocks inv 6 0x2c829abe1f4532e1 0x4c0ebeab14c69cfa
+goldilocks inv 7 0xc584133ac916ab3c 0x565b63fc96484745
+goldilocks inv 8 0x3ee5789041c98ac3 0x5e6675de5d5df810
+goldilocks inv 9 0xf3b8488c368cb0a6 0x409011999786296f
+goldilocks inv 10 0x657eecdd3cb13d09 0xb3f558c509804073
+goldilocks inv 11 0xc2d326e0055bdef6 0xf64e48992fea80bb
+goldilocks inv 12 0x8621a03fe0bbdb7b 0x8c672975a1ba3583
+goldilocks inv 13 0x8e1f7555983aa92f 0xd324b662bf12a534
+goldilocks inv 14 0xb54e0f1600cc4d19 0x63f1a9e9ceea1d78
+goldilocks inv 15 0x84bb3f97971d80ab 0xfc6483492f924b84
+goldilocks inv 16 0x7d29825c75521255 0x35b4128b87d51cf
+goldilocks inv 17 0xc3cf17102b7f7f86 0xd072a14857602f34
+goldilocks inv 18 0x3466e9a083914f64 0xf11fd8ffdc239bfd
+goldilocks inv 19 0xd81a8d2b5a4485ac 0x797f9d3a43841de2
+goldilocks inv 20 0xdb01602b100b9ed7 0x25870535ad12550b
+goldilocks inv 21 0xa9038a921825f10d 0xdd8463b72cce9970
+goldilocks inv 22 0xedf5f1d90dca2f6a 0x4171e24326ee02f6
+goldilocks inv 23 0x54496ad67bd2634c 0x3729cf2947b8bd22
+goldilocks inv 24 0xdd7c01d4f5407269 0x982bd19b29127349
+goldilocks inv 25 0x935e82f1db4c4f7b 0x9e11d59d148188c9
+goldilocks inv 26 0x69b82ebc92233300 0xbe9d3ed039b79bb4
+goldilocks inv 27 0x40d29eb57de1d510 0xdbffe176f69cca85
+goldilocks inv 28 0xa2f09dabb45c6316 0x611a61c53c29433
+goldilocks inv 29 0xee521d7a0f4d3872 0x7f25e54cd3c4e76b
+goldilocks inv 30 0xf16952ee72f3454f 0x1a95b90df82c4a60
+goldilocks inv 31 0x377d35dea8e40225 0xa31b0035d80f99c3
+goldilocks inv 32 0xc7de8064963bab0 0x361e66cd4841b3e3
+goldilocks inv 33 0x5582d37111ac529 0xcb444f4ed9e969f5
+goldilocks inv 34 0xd254741f599dc6f7 0x7cc5800088681c4e
+goldilocks inv 35 0x69630f7593d108c3 0x7add49ff5a7787fd
+goldilocks inv 36 0x417ef96181daa383 0x22ee1737b8e7bb51
+goldilocks inv 37 0x3c3c41a3b43343a1 0x7054a3f1b9552f97
+goldilocks inv 38 0x6e19905dcbe531df 0xd2b1319517cbe0
+goldilocks inv 39 0x4fa9fa7324851729 0xe5dcc7bb7a2bd042
+goldilocks inv 40 0x84eb4454a792922a 0xad5a1cfd823878ab
+goldilocks inv 41 0x134f7096918175ce 0x1bc671410f823396
+goldilocks inv 42 0x7dc930b302278a8 0x92a45d2a8eee8e68
+goldilocks inv 43 0x12c015a97019e937 0xe06ee8b2408c58a8
+goldilocks inv 44 0xcc06c31652ebf438 0xee6ccdc9d3382db
+goldilocks inv 45 0xecee65630a691e37 0x809ed1187641d95b
+goldilocks inv 46 0x3e84ecb1763e79ad 0xeccae301138c3017
+goldilocks inv 47 0x690ed476743aae49 0xb2822ce87e48e89b
+goldilocks inv 48 0x774615d7b1a1f2e1 0x33bb2fa4b0cc1667
+goldilocks inv 49 0x22b353f04f4f52da 0x32a994189277f0bf
+goldilocks inv 50 0xe3ddd86ba71a5eb1 0xec373f4669854010
+goldilocks inv 51 0xdf268adeb6513356 0xd0d6caba902fe0e9
+goldilocks inv 52 0x2098eb73d4367d77 0xa2e282df4897ca47
+goldilocks inv 53 0x3d6845323ce3c71 0x670a81bcfab6f470
+goldilocks inv 54 0xc952c5620043c714 0x6b619e0499179317
+goldilocks inv 55 0x9b196bca844f1705 0x8558f2b9c69258cf
+goldilocks inv 56 0x30260345dd9e0ec1 0x96bf7ac65eda5dd0
+goldilocks inv 57 0xcf448a5882bb9698 0x6b245238cb710218
+goldilocks inv 58 0xf4a578dccbc87656 0x9cd6d7d1ea3efe38
+goldilocks inv 59 0xbfdeaed9a17b3c8f 0xd7e102d2c9f43d22
+goldilocks inv 60 0xed79402d1d5c5d7b 0x761f1eb7e3ab4cd
+goldilocks inv 61 0x55f070ab1cbbf170 0x2422df7db926f4e6
+goldilocks inv 62 0x3e00a34929a88f1d 0x23025d7da5c1eefa
+goldilocks inv 63 0xe255b237b8bb18fb 0xa5a0c37da0997b95
+goldilocks pow 0 0x1
+goldilocks pow 1 0x7
+goldilocks pow 2 0x31
+goldilocks pow 3 0x157
+goldilocks pow 4 0x961
+goldilocks pow 5 0x41a7
+goldilocks pow 6 0x1cb91
+goldilocks pow 7 0xc90f7
+goldilocks pow 8 0x57f6c1
+goldilocks pow 9 0x267bf47
+goldilocks pow 10 0x10d63af1
+goldilocks pow 11 0x75db9c97
+goldilocks pow 12 0x339014821
+goldilocks pow 13 0x168f08f8e7
+goldilocks pow 14 0x9de93ece51
+goldilocks pow 15 0x45160b7a437
+goldilocks pow 16 0x1e39a5057d81
+goldilocks pow 17 0xd39383266e87
+goldilocks pow 18 0x5c908960d05b1
+goldilocks pow 19 0x287f3c1a5b27d7
+goldilocks pow 20 0x11b7aa4b87e16e1
+goldilocks pow 21 0x7c05a810b72a027
+goldilocks pow 22 0x3642798750226111
+goldilocks pow 23 0x7bd152b430f0a776
+goldilocks pow 24 0x62b942f056949437
+goldilocks pow 25 0xb310d4945e100d7f
+goldilocks pow 26 0xe575d01292705e75
+goldilocks pow 27 0x4638b0880112952d
+goldilocks pow 28 0xeb8cd3b90782143a
+goldilocks pow 29 0x70d9ca15348e8d90
+goldilocks pow 30 0x15f486976fe5deed
+goldilocks pow 31 0x99afae240f49187b
+goldilocks pow 32 0x33cdc3006affab59
+goldilocks pow 33 0x6aa05503ecfdaf6e
+goldilocks pow 34 0xea62531d7aefcc00
+goldilocks pow 35 0x68b045d45c8e93fa
+goldilocks pow 36 0xdcd1e8d087e60bd4
+goldilocks pow 37 0x9bd5db9b74a52c6
+goldilocks pow 38 0x442d90140308436a
+goldilocks pow 39 0xdd3ef08d1539d7e5
+goldilocks pow 40 0xcb893e19494e73d
+goldilocks pow 41 0x590c0b2b101252ab
+goldilocks pow 42 0x6f544e2f708042ab
+goldilocks pow 43 0xb4e234f1381d2aa
+goldilocks pow 44 0x4f22f729888cc2a6
+goldilocks pow 45 0x29f4c224bbd95288
+goldilocks pow 46 0x25b14f0222f141b7
+goldilocks pow 47 0x7d9290ff498cc00
+goldilocks pow 48 0x36f01f6fb02d9400
+goldilocks pow 49 0x8090dc0ed13f0bff
+goldilocks pow 50 0x83f6046ab8b953f6
+goldilocks pow 51 0x9bba1eee0d114bb7
+goldilocks pow 52 0x4216d8865b7911fd
+goldilocks pow 53 0xce9febad804f7dea
+goldilocks pow 54 0xa65f71c3822c7161
+goldilocks pow 55 0x8c9c1c5c8f3719a3
+goldilocks pow 56 0xd844c68aea81b372
+goldilocks pow 57 0xe9e16dd1698be819
+goldilocks pow 58 0x652a00bfe2d358a9
+goldilocks pow 59 0xc426054133c76c9d
+goldilocks pow 60 0x5d0a24cd6a73f846
+goldilocks pow 61 0x8b47019fe92bc9e8
+goldilocks pow 62 0xcef10b6260328555
+goldilocks pow 63 0xa8974fb5a161a54e
+goldilocks powexp 0 0xe220a8397b1dcdaf 0x60e12d6b7be1ec7c
+goldilocks powexp 1 0x6e789e6aa1b965f4 0x1454fc1a382d9150
+goldilocks powexp 2 0x6c45d188009454f 0x87de7bb7c4322aa8
+goldilocks powexp 3 0xf88bb8a8724c81ec 0xef7a5edfb0b9116
+goldilocks powexp 4 0x1b39896a51a8749b 0x3fb01a084e67701f
+goldilocks powexp 5 0x53cb9f0c747ea2ea 0x76464910e969e51d
+goldilocks powexp 6 0x2c829abe1f4532e1 0x6b946ebc4f384aa2
+goldilocks powexp 7 0xc584133ac916ab3c 0x92c04abb580840ef
+goldilocks powexp 8 0x3ee5789041c98ac3 0xb1f4baa58f7386f
+goldilocks powexp 9 0xf3b8488c368cb0a6 0xd70c553240a00dce
+goldilocks powexp 10 0x657eecdd3cb13d09 0x280e22b8ca9ad71a
+goldilocks powexp 11 0xc2d326e0055bdef6 0x2f20a01a0275f48d
+goldilocks powexp 12 0x8621a03fe0bbdb7b 0xab1455de63a58f2f
+goldilocks powexp 13 0x8e1f7555983aa92f 0xa06f937b78b3b0b0
+goldilocks powexp 14 0xb54e0f1600cc4d19 0x72d060a5401040c1
+goldilocks powexp 15 0x84bb3f97971d80ab 0x3fe6bdf060bdd234
+goldilocks powexp 16 0x7d29825c75521255 0x7a0b9693eb385c42
+goldilocks powexp 17 0xc3cf17102b7f7f86 0x17af55b57206bea
+goldilocks powexp 18 0x3466e9a083914f64 0xfb66f448e4391f6e
+goldilocks powexp 19 0xd81a8d2b5a4485ac 0xf583943fee1a24c4
+goldilocks powexp 20 0xdb01602b100b9ed7 0x1f5c8126792b78de
+goldilocks powexp 21 0xa9038a921825f10d 0x4cc2acfff560c40c
+goldilocks powexp 22 0xedf5f1d90dca2f6a 0x5814b820c5dfc917
+goldilocks powexp 23 0x54496ad67bd2634c 0x3c344ad1412f53d3
+goldilocks powexp 24 0xdd7c01d4f5407269 0x341a41ce33e3da97
+goldilocks powexp 25 0x935e82f1db4c4f7b 0xab5c2ae2d2dd2491
+goldilocks powexp 26 0x69b82ebc92233300 0xc8e6410a42f1a835
+goldilocks powexp 27 0x40d29eb57de1d510 0x744c78d71a73d3e3
+goldilocks powexp 28 0xa2f09dabb45c6316 0xa02ae7c6f88a9420
+goldilocks powexp 29 0xee521d7a0f4d3872 0xf13e184170e131a9
+goldilocks powexp 30 0xf16952ee72f3454f 0xcb3212f5522aa24a
+goldilocks powexp 31 0x377d35dea8e40225 0xd0c78b8694ad7364
+goldilocks powexp 32 0xc7de8064963bab0 0x47d00b2428074cac
+goldilocks powexp 33 0x5582d37111ac529 0xbe284d3f3988cd65
+goldilocks powexp 34 0xd254741f599dc6f7 0x7b7a8bcfe6d68f8b
+goldilocks powexp 35 0x69630f7593d108c3 0x459c170bd214e7e4
+goldilocks powexp 36 0x417ef96181daa383 0x8caec1e677ef9aae
+goldilocks powexp 37 0x3c3c41a3b43343a1 0x646080c42134fe3e
+goldilocks powexp 38 0x6e19905dcbe531df 0xc7ae34b55f05fb26
+goldilocks powexp 39 0x4fa9fa7324851729 0x4efbd72301e4e675
+goldilocks powexp 40 0x84eb4454a792922a 0x5d96b971d9bd6b30
+goldilocks powexp 41 0x134f7096918175ce 0xbc01f19fd67aa390
+goldilocks powexp 42 0x7dc930b302278a8 0x14763c292f9204e
+goldilocks powexp 43 0x12c015a97019e937 0x699d295c0628a1cb
+goldilocks powexp 44 0xcc06c31652ebf438 0x60f8b317518eedf1
+goldilocks powexp 45 0xecee65630a691e37 0x36580a32a959baee
+goldilocks powexp 46 0x3e84ecb1763e79ad 0xa3f10cb248f81c6b
+goldilocks powexp 47 0x690ed476743aae49 0x765718e3c830f6e4
+goldilocks powexp 48 0x774615d7b1a1f2e1 0xed583950e56e6df5
+goldilocks powexp 49 0x22b353f04f4f52da 0xc1c0201f9adc665e
+goldilocks powexp 50 0xe3ddd86ba71a5eb1 0xee2a688e542ae8e4
+goldilocks powexp 51 0xdf268adeb6513356 0xb7b8a433e5aa3010
+goldilocks powexp 52 0x2098eb73d4367d77 0x7307ed0b17dfdd1d
+goldilocks powexp 53 0x3d6845323ce3c71 0xde7ea93fde2327ac
+goldilocks powexp 54 0xc952c5620043c714 0xbbc555a4e805d3a
+goldilocks powexp 55 0x9b196bca844f1705 0x82e0cfc46a873dc
+goldilocks powexp 56 0x30260345dd9e0ec1 0xbabae105b56e764a
+goldilocks powexp 57 0xcf448a5882bb9698 0xe18563bbd058e0a3
+goldilocks powexp 58 0xf4a578dccbc87656 0xb12863b03d02972f
+goldilocks powexp 59 0xbfdeaed9a17b3c8f 0x5d755bd5b097ce61
+goldilocks powexp 60 0xed79402d1d5c5d7b 0xa39ecec18b21c945
+goldilocks powexp 61 0x55f070ab1cbbf170 0xee806978f504157c
+goldilocks powexp 62 0x3e00a34929a88f1d 0x8be4602e4d7700c1
+goldilocks powexp 63 0xe255b237b8bb18fb 0x68b73994a532cef0

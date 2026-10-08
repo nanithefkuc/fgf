@@ -1,0 +1,37 @@
+# Presentation manifest: name, kind, degree, defining data
+# captured from v3.0.0-rc.1
+poly1 poly 1 0x3
+poly2 poly 2 0x7
+poly4 poly 4 0x13
+poly8aes poly 8 0x11B
+poly8rs poly 8 0x11D
+rijndael16 tower 16 rijndael16 0x1 0x20
+rijndael32 tower 32 rijndael32 0x1 0x2000
+rijndael64 tower 64 rijndael64 0x1 0x20000000
+fanpaar2 tower 2 poly1 0x1 0x1
+fanpaar4 tower 4 fanpaar2 0x2 0x1
+fanpaar8 tower 8 fanpaar4 0x4 0x1
+fanpaar16 tower 16 fanpaar8 0x10 0x1
+fanpaar32 tower 32 fanpaar16 0x100 0x1
+fanpaar64 tower 64 fanpaar32 0x10000 0x1
+normal2 normal 2 0x7 0x2
+normal4 normal 4 0x13 0x8
+normal8aes normal 8 0x11B 0x20
+normal8rs normal 8 0x11D 0x20
+cantor2 cantor 2 0x7 0x2
+cantor4 cantor 4 0x13 0x8
+cantor8aes cantor 8 0x11B 0x20
+cantor8rs cantor 8 0x11D 0x20
+custom8 tower 8 poly4 0x1 0x8
+custom16 tower 16 poly8rs 0x2 0x80
+aeslin16 tower 16 poly8aes 0x2 0x1
+custom32 tower 32 rijndael16 0x1 0x2001
+custom64 tower 64 rijndael32 0x1 0x2ada7f36
+normbase16 tower 16 normal8aes 0xff 0x1
+overnormal16 tower 16 normal8aes 0xff 0x1
+same16 tower 16 poly8aes 0x1 0x20
+extraalin16 tower 16 poly8aes 0x3 0xa0
+extraaconst16 tower 16 poly8aes 0x1 0x21
+extracantor16 tower 16 cantor8aes 0x1 0x80
+extratwin16a tower 16 poly8aes 0x5 0x16
+extratwin16b tower 16 poly8aes 0x5 0x16
