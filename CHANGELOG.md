@@ -33,6 +33,26 @@ All notable changes to this project are documented here. The format follows
   embeddings, custom towers and scalar fields, packed workflows, preparation,
   prime and bit-packed arithmetic, deployment, and migration from 2.x.
   `wiki/Home.md` and the sidebar organize the reader paths.
+- Sealed presentations `MersenneFold` (label `mersenne-fold`) and
+  `GoldilocksFold` (label `goldilocks-fold`), re-exported at the root. Both
+  rows implement `PrimeField` and gain `const` `from_residue(u64) ->
+  Result<Self, RangeError>` and `to_residue(self) -> Option<u64>`. The
+  default `Residue` row at either modulus remains a distinct type with its
+  own lane width; values move between the two by residue conversion.
+
+### Changed
+
+- **Breaking:** `Mersenne31` and `Goldilocks` are type aliases of the
+  canonical family rows `FiniteField<0x7FFF_FFFF, 1, MersenneFold>` and
+  `FiniteField<0xFFFF_FFFF_0000_0001, 1, GoldilocksFold>` instead of unit
+  marker structs. Moduli, raw widths, bytes, generators, arithmetic, and
+  kernel routing are unchanged. The aliases are no longer value
+  expressions: replace `Mersenne31` or `Goldilocks` used as a value with
+  `Mersenne31::default()` (or drop the value where only the type was
+  needed). Marker `Debug` now prints the family spelling, e.g.
+  `FiniteField<2147483647, 1, mersenne-fold>`. Kernel receivers move to the
+  rows with the aliases, so `FieldKernels` calls through the alias names
+  compile unchanged.
 
 ## [3.0.0-rc.1] - 2026-10-07
 

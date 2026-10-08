@@ -9,6 +9,8 @@
 //! type.
 
 use super::finite_field::{FiniteField, Residue};
+use super::goldilocks::Goldilocks;
+use super::mersenne31::Mersenne31;
 use super::{Field, is_prime, private};
 
 /// A field of degree one: GF(P) itself.
@@ -23,6 +25,14 @@ pub trait PrimeField: Field + private::PrimeFieldSeal {}
 impl<const P: u64> private::PrimeFieldSeal for FiniteField<P, 1, Residue> {}
 
 impl<const P: u64> PrimeField for FiniteField<P, 1, Residue> {}
+
+impl private::PrimeFieldSeal for Mersenne31 {}
+
+impl PrimeField for Mersenne31 {}
+
+impl private::PrimeFieldSeal for Goldilocks {}
+
+impl PrimeField for Goldilocks {}
 
 /// Reduce a `u64` to its ordinary residue modulo the prime `P`.
 ///

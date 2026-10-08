@@ -107,8 +107,8 @@ pub use binary::{
     Embedding, EmbeddingError, Normal, Polynomial, RS,
 };
 pub use finite_field::{FiniteField, FiniteFieldRepr, Residue};
-pub use goldilocks::Goldilocks;
-pub use mersenne31::Mersenne31;
+pub use goldilocks::{Goldilocks, GoldilocksFold};
+pub use mersenne31::{Mersenne31, MersenneFold};
 pub use prime::PrimeField;
 pub use quad_mersenne31::QuadMersenne31;
 

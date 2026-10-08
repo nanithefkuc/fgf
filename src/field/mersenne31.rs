@@ -39,7 +39,8 @@
 //! );
 //! ```
 
-use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic};
+use super::finite_field::{FiniteField, FiniteFieldRepr, checked_order};
+use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, RangeError};
 
 /// The field modulus, the Mersenne prime `2^31 − 1`.
 pub const MODULUS: u32 = 0x7FFF_FFFF;
@@ -58,9 +59,27 @@ pub const fn reduce(x: u32) -> u32 {
     if s >= MODULUS { s - MODULUS } else { s }
 }
 
-/// Marker type for GF(2^31 − 1).
+/// The Mersenne fold presentation of GF(2^31 − 1).
+///
+/// One canonical `u32` per element, reduced with `2^31 ≡ 1`. Field
+/// [`NAME`](Field::NAME): `GF(2^31 - 1)`; this label: `mersenne-fold`. The
+/// [`Residue`](super::Residue) row at the same modulus is a distinct
+/// presentation with `u64` storage; values move between the two by residue,
+/// never by buffer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-pub struct Mersenne31;
+pub struct MersenneFold;
+
+impl super::private::Sealed for MersenneFold {}
+
+impl FiniteFieldRepr<0x7FFF_FFFF, 1> for MersenneFold {
+    const NAME: &'static str = "mersenne-fold";
+    const VALID: () = {
+        checked_order::<0x7FFF_FFFF, 1>();
+    };
+}
+
+/// GF(2^31 − 1): the [`MersenneFold`] row of the canonical family.
+pub type Mersenne31 = FiniteField<0x7FFF_FFFF, 1, MersenneFold>;
 
 /// Prime factors of the group order `p − 1`, for the generator check.
 const GROUP_FACTORS: [u64; 7] = [2, 3, 7, 11, 31, 151, 331];
@@ -89,7 +108,7 @@ impl Field for Mersenne31 {
     const ORDER: u128 = MODULUS as u128;
     const ZERO_RAW: u32 = 0;
     const ONE_RAW: u32 = 1;
-    const VALID: () = ();
+    const VALID: () = <MersenneFold as FiniteFieldRepr<0x7FFF_FFFF, 1>>::VALID;
 
     #[inline]
     fn canonical_raw(raw: u32) -> u32 {
@@ -187,6 +206,27 @@ impl Elem<Mersenne31> {
     pub const fn from_raw(value: u32) -> Self {
         let () = super::Validate::<Mersenne31>::OK;
         Elem { raw: reduce(value) }
+    }
+
+    /// The element with ordinary residue `value`.
+    ///
+    /// # Errors
+    /// Returns [`RangeError`] when `value` is at or above the modulus.
+    #[inline]
+    #[allow(clippy::cast_possible_truncation)]
+    pub const fn from_residue(value: u64) -> Result<Self, RangeError> {
+        if value >= MODULUS as u64 {
+            return Err(RangeError);
+        }
+        Ok(Self::from_raw(value as u32))
+    }
+
+    /// The ordinary residue naming this element. Always `Some` at degree
+    /// one.
+    #[inline]
+    #[must_use]
+    pub const fn to_residue(self) -> Option<u64> {
+        Some(self.raw as u64)
     }
 
     /// Field addition.
