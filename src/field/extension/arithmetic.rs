@@ -381,9 +381,8 @@ pub const fn word_inv(descriptor: &Descriptor, index: u8, x: u64) -> u64 {
 
 /// Extended Euclid on the polynomial leaf: `g` with `x*g = 1 (mod full)`.
 ///
-/// Only the low `degree(full)` bits of `x` name a leaf element, matching
-/// the leaf multiplication's truncation, so the high bits are ignored and
-/// a masked zero inverts to zero.
+/// The inverse is of the low `degree(full)` bits of `x`, so the loop always
+/// terminates, and a word whose low bits are zero inverts to zero.
 // The swap loop reuses both operand degrees, so the leading-bit counts stay
 // spelled as `127 - leading_zeros` rather than `ilog2`.
 #[allow(clippy::manual_ilog2)]

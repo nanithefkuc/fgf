@@ -773,22 +773,25 @@ mod tests {
         assert_eq!(rebuilt, canonical, "round trip of {raw:?}");
     }
 
-    /// Every element of a residue row: the residue is the coordinate, the
-    /// prime readout covers the whole field, and `from_prime` reduces.
+    /// Every element of a residue row, canonical and as the alias one
+    /// modulus up: the residue is the coordinate, the prime readout covers
+    /// the whole field, and `from_prime` reduces.
     macro_rules! residue_row_exhaustive {
         ($p:literal) => {{
             type Row = FiniteField<$p, 1>;
             for value in 0..$p {
                 coordinates_round_trip::<Row>(value, &[value], value);
                 assert_eq!(Row::to_prime(value), Some(value), "prime readout");
+                let alias = value + $p;
+                coordinates_round_trip::<Row>(alias, &[value], value);
+                assert_eq!(Row::to_prime(alias), Some(value), "alias readout");
             }
+            let widest = u64::MAX % $p;
+            coordinates_round_trip::<Row>(u64::MAX, &[widest], widest);
+            assert_eq!(Row::to_prime(u64::MAX), Some(widest), "widest readout");
             let large = $p + 5 * $p;
             assert_eq!(Row::from_prime(large), large % $p, "from_prime reduces");
-            assert_eq!(
-                Row::from_prime(u64::MAX),
-                u64::MAX % $p,
-                "from_prime widest"
-            );
+            assert_eq!(Row::from_prime(u64::MAX), widest, "from_prime widest");
         }};
     }
 
@@ -853,6 +856,42 @@ mod tests {
         binary_row_exhaustive!(FiniteField<2, 8, Normal<0x11D, 0x20>>, 8);
         binary_row_exhaustive!(FiniteField<2, 8, Cantor<0x11B, 0x20>>, 8);
         binary_row_exhaustive!(FiniteField<2, 8, Cantor<0x11D, 0x20>>, 8);
+    }
+
+    /// Every word of a sub-byte binary row with every bit above the degree
+    /// set: the hooks read the canonical word's coordinates and readout.
+    fn sub_byte_aliases<F: Field<Raw = u8>>() {
+        let degree = F::DEGREE;
+        let high = !((1u8 << degree) - 1);
+        let mut expected = [0u64; 8];
+        for word in 0..(1u8 << degree) {
+            for (i, coordinate) in expected.iter_mut().enumerate().take(degree as usize) {
+                *coordinate = u64::from(word >> i) & 1;
+            }
+            let alias = word | high;
+            coordinates_round_trip::<F>(alias, &expected[..degree as usize], word);
+            let member = if word == 0 {
+                Some(0)
+            } else if word == F::ONE_RAW {
+                Some(1)
+            } else {
+                None
+            };
+            assert_eq!(F::to_prime(alias), member, "readout of alias {alias:#x}");
+        }
+    }
+
+    #[test]
+    fn sub_byte_binary_rows_read_aliases_canonically() {
+        sub_byte_aliases::<FiniteField<2, 1, Polynomial<3>>>();
+        sub_byte_aliases::<FiniteField<2, 2, Polynomial<7>>>();
+        sub_byte_aliases::<FiniteField<2, 2, Normal<7, 2>>>();
+        sub_byte_aliases::<FiniteField<2, 2, Cantor<7, 2>>>();
+        sub_byte_aliases::<FiniteField<2, 4, Polynomial<0x13>>>();
+        sub_byte_aliases::<FiniteField<2, 4, Normal<0x13, 8>>>();
+        sub_byte_aliases::<FiniteField<2, 4, Cantor<0x13, 8>>>();
+        sub_byte_aliases::<FiniteField<2, 2, Tower<FanPaar2>>>();
+        sub_byte_aliases::<FiniteField<2, 4, Tower<FanPaar4>>>();
     }
 
     #[test]
@@ -996,9 +1035,9 @@ mod tests {
             WIDEST_PRIME + 1,
             u64::MAX,
         ] {
-            let raw = sample % WIDEST_PRIME;
-            coordinates_round_trip::<Row>(raw, &[raw], raw);
-            assert_eq!(Row::to_prime(raw), Some(raw));
+            let residue = sample % WIDEST_PRIME;
+            coordinates_round_trip::<Row>(sample, &[residue], residue);
+            assert_eq!(Row::to_prime(sample), Some(residue));
         }
         assert_eq!(Row::from_prime(u64::MAX), u64::MAX % WIDEST_PRIME);
     }

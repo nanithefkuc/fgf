@@ -133,9 +133,10 @@ impl BinaryDescription {
 
     /// Multiplicative inverse in root coordinates, mapping zero to zero.
     ///
-    /// A polynomial root reads only the low `degree()` bits of the word,
-    /// matching its multiplication, so higher bits are ignored and a word
-    /// that masks to zero inverts to zero.
+    /// The arithmetic methods take canonical coordinate words, with no bits
+    /// at or above `degree()`. On any other word `inv` stays total: a
+    /// polynomial root inverts the low `degree()` bits of the word, and a
+    /// word whose low bits are zero inverts to zero.
     #[must_use]
     pub const fn inv(&self, x: u64) -> u64 {
         arithmetic::word_inv(&self.inner, self.inner.root_index(), x)

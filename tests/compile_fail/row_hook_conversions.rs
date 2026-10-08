@@ -1,4 +1,4 @@
-// expect-rejection
+// expect: is private
 use fgf::field::Field;
 
 // Every conversion hook sits beside the descriptor in the crate-private

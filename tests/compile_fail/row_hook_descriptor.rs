@@ -1,4 +1,4 @@
-// expect-rejection
+// expect: is private
 use fgf::field::Field;
 
 // The row hooks sit in a crate-private supertrait: generic downstream code
