@@ -92,6 +92,10 @@ name = "prime_vectors"
 required-features = ["alloc"]
 
 [[example]]
+name = "generic_prime"
+required-features = ["alloc"]
+
+[[example]]
 name = "peel_probe"
 # The prepared CoeffVec gather form needs the allocation feature.
 required-features = ["std", "alloc"]

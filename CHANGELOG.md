@@ -8,6 +8,27 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The canonical generic field family `FiniteField<const P: u64, const N: u32,
+  R: FiniteFieldRepr<P, N> = Residue>` with the `Residue` presentation at
+  degree one over every `u64` prime. Each row exposes the full scalar and
+  `const` element surface (`from_raw`, checked `from_residue`, `to_residue`,
+  little-endian byte conversions, arithmetic, `pow`, `canonical`),
+  total arithmetic under the crate-wide conventions (`inv(0) == 0`,
+  `x / 0 == 0`, `0^0 == 1`, with the explicit inverse-zero branch at
+  `P = 2`), an eight-byte little-endian wire lane, the checked packed
+  operation surface with prepared coefficients, and `Scalar` routing on
+  every host. Broadcast add/sub take the modular path for every
+  characteristic, so packed lanes stay canonical at `P = 2`. Values live in
+  `field::finite_field`, re-exported at the root.
+- Sealed `PrimeField` marker for degree-one fields, the validated `const`
+  integer reductions `field::prime::reduce` and `reduce_wide`, `RangeError`
+  for out-of-range conversions, and the `PrimeIdentity` characteristic
+  facts `BITS`, `TWO_ADICITY`, and `RESIDUE_MOD_8`.
+- `just compile-fail` compiles the negative consumer snippets under
+  `tests/compile_fail/` on the crate MSRV, each required to fail with its
+  declared message fragment or error code, and `just msrv-accept` runs
+  those snippets plus the `tests/consumers.rs` compile-and-run matrix on
+  the MSRV toolchain.
 - Wiki source guides cover the generic type model, field presentations,
   embeddings, custom towers and scalar fields, packed workflows, preparation,
   prime and bit-packed arithmetic, deployment, and migration from 2.x.

@@ -9,6 +9,11 @@
 //! [`crate::kernel::FieldKernels`], so callers write one algorithm and get a
 //! monomorphized, SIMD-dispatched implementation per field.
 //!
+//! The canonical generic family [`FiniteField`] names a field by its prime
+//! characteristic, its degree, and a presentation, with [`Residue`] as the
+//! ordinary-residue presentation at degree one over every `u64` prime; see
+//! [`finite_field`] and [`prime`].
+//!
 //! # Scalar storage
 //!
 //! Every safely constructed element holds canonical raw coordinates, so
@@ -81,8 +86,10 @@
 //! ```
 
 pub mod binary;
+pub mod finite_field;
 pub mod goldilocks;
 pub mod mersenne31;
+pub mod prime;
 pub mod quad_mersenne31;
 
 pub use binary::cantor;
@@ -99,12 +106,17 @@ pub use binary::{
     AES, Binary, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor,
     Embedding, EmbeddingError, Normal, Polynomial, RS,
 };
+pub use finite_field::{FiniteField, FiniteFieldRepr, Residue};
 pub use goldilocks::Goldilocks;
 pub use mersenne31::Mersenne31;
+pub use prime::PrimeField;
 pub use quad_mersenne31::QuadMersenne31;
 
 mod private {
     pub trait Sealed {}
+
+    /// Marks the degree-one rows eligible for prime-field membership.
+    pub trait PrimeFieldSeal {}
 }
 
 mod element_private {
@@ -193,6 +205,14 @@ pub trait PrimeIdentity: private::Sealed + Copy + 'static {
     const CHARACTERISTIC: u64;
     /// Use-time primality proof for the characteristic.
     const VALID: ();
+    /// Bit width of the characteristic: `64 - P.leading_zeros()`. Two at
+    /// `P = 2`, sixty-four at the widest `u64` primes.
+    const BITS: u32;
+    /// The power of two dividing `P - 1`: `(P - 1).trailing_zeros()`. Zero
+    /// at `P = 2`, where `P - 1` is odd.
+    const TWO_ADICITY: u32;
+    /// The characteristic modulo eight: `(P % 8) as u8`. Two at `P = 2`.
+    const RESIDUE_MOD_8: u8;
 }
 
 /// The checked identity of the prime characteristic `P`.
@@ -211,6 +231,20 @@ impl<const P: u64> PrimeIdentity for PrimeCharacteristic<P> {
         P
     };
     const VALID: () = assert!(is_prime(P), "characteristic is not prime");
+    #[allow(clippy::cast_possible_truncation)]
+    const BITS: u32 = {
+        assert!(is_prime(P), "characteristic is not prime");
+        64 - P.leading_zeros()
+    };
+    const TWO_ADICITY: u32 = {
+        assert!(is_prime(P), "characteristic is not prime");
+        (P - 1).trailing_zeros()
+    };
+    #[allow(clippy::cast_possible_truncation)]
+    const RESIDUE_MOD_8: u8 = {
+        assert!(is_prime(P), "characteristic is not prime");
+        (P % 8) as u8
+    };
 }
 
 /// A finite field supported by this crate.
@@ -678,3 +712,19 @@ pub trait FieldBuffer: Field {
     /// Panics if `bytes.len() != Self::BYTES`.
     fn encode(bytes: &mut [u8], value: Elem<Self>);
 }
+
+/// An integer outside the range a conversion accepts.
+///
+/// Returned when a value does not name an element of the target field: a
+/// residue at or above the characteristic, or an index at or above the field
+/// order. The unit carries no payload; tests compare by value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RangeError;
+
+impl core::fmt::Display for RangeError {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(formatter, "value is outside the field's range")
+    }
+}
+
+impl core::error::Error for RangeError {}

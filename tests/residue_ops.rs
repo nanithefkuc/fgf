@@ -1,0 +1,681 @@
+//! Packed acceptance for the residue rows: the full public operation
+//! surface against a scalar-field oracle, on whatever backend the host
+//! selected.
+//!
+//! Covers empty and minimal geometries, invalid geometries, rectangular and
+//! offset-addressed row shapes, overwrite versus accumulation, prepared
+//! reuse, zero/one/mixed/max coefficients, noncanonical raw lanes, and the
+//! canonical characteristic-two broadcast output.
+
+// Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
+#![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
+use fgf::field::{Field, FieldBuffer, FieldElem};
+use fgf::{Elem, FieldKernels, FiniteField, Residue, ops};
+
+type P2 = FiniteField<2, 1, Residue>;
+type P7 = FiniteField<7, 1, Residue>;
+type PPrime = FiniteField<1_000_000_007, 1, Residue>;
+type PWide = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1, Residue>;
+
+/// Byte lengths straddling the eight-byte lane boundary plus longer rows;
+/// every packed call requires whole lanes.
+const LENS: [usize; 8] = [0, 8, 16, 24, 40, 64, 72, 256];
+/// Row lengths in elements for the multi-row shapes.
+const ROW_ELEMS: [usize; 5] = [1, 2, 3, 8, 64];
+
+/// Deterministic pseudo-random bytes. No dependency, reproducible failures.
+fn noise(len: usize, seed: u64) -> Vec<u8> {
+    let mut state = seed | 1;
+    (0..len)
+        .map(|_| {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            (state >> 33) as u8
+        })
+        .collect()
+}
+
+fn oracle_add_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
+    for (d, s) in dst
+        .chunks_exact_mut(F::BYTES)
+        .zip(src.chunks_exact(F::BYTES))
+    {
+        F::encode(d, F::decode(d).add(F::decode(s)));
+    }
+}
+
+fn oracle_sub_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
+    for (d, s) in dst
+        .chunks_exact_mut(F::BYTES)
+        .zip(src.chunks_exact(F::BYTES))
+    {
+        F::encode(d, F::decode(d).sub(F::decode(s)));
+    }
+}
+
+fn oracle_mul_add<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
+    for (d, s) in dst
+        .chunks_exact_mut(F::BYTES)
+        .zip(src.chunks_exact(F::BYTES))
+    {
+        F::encode(d, F::decode(d).add(F::decode(s).mul(coeff)));
+    }
+}
+
+fn oracle_mul_assign<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>) {
+    for d in dst.chunks_exact_mut(F::BYTES) {
+        F::encode(d, F::decode(d).mul(coeff));
+    }
+}
+
+fn oracle_mul_elementwise<F: FieldBuffer>(dst: &mut [u8], a: &[u8], b: &[u8]) {
+    for ((d, x), y) in dst
+        .chunks_exact_mut(F::BYTES)
+        .zip(a.chunks_exact(F::BYTES))
+        .zip(b.chunks_exact(F::BYTES))
+    {
+        F::encode(d, F::decode(x).mul(F::decode(y)));
+    }
+}
+
+fn oracle_add_scalar<F: FieldBuffer>(dst: &mut [u8], value: Elem<F>) {
+    for d in dst.chunks_exact_mut(F::BYTES) {
+        F::encode(d, F::decode(d).add(value));
+    }
+}
+
+fn oracle_sub_scalar<F: FieldBuffer>(dst: &mut [u8], value: Elem<F>) {
+    for d in dst.chunks_exact_mut(F::BYTES) {
+        F::encode(d, F::decode(d).sub(value));
+    }
+}
+
+/// Canonicalize every lane in place through the scalar field, giving the
+/// canonical bytes the packed kernels must produce.
+fn canon<F: FieldBuffer>(buf: &mut [u8]) {
+    let zero = vec![0u8; buf.len()];
+    oracle_add_assign::<F>(buf, &zero);
+}
+
+/// Exercise the elementwise operation surface against the oracle.
+fn check_elementwise<F: FieldKernels>(coeffs: &[Elem<F>]) {
+    for &len in &LENS {
+        let mut src = noise(len, 0xa1);
+        canon::<F>(&mut src);
+        let dst0 = {
+            let mut b = noise(len, 0xb2);
+            canon::<F>(&mut b);
+            b
+        };
+
+        {
+            let mut got = dst0.clone();
+            let mut want = dst0.clone();
+            ops::add_assign::<F>(&mut got, &src);
+            oracle_add_assign::<F>(&mut want, &src);
+            assert_eq!(got, want, "add_assign len {len}");
+            let mut got = dst0.clone();
+            let mut want = dst0.clone();
+            ops::sub_assign::<F>(&mut got, &src);
+            oracle_sub_assign::<F>(&mut want, &src);
+            assert_eq!(got, want, "sub_assign len {len}");
+            // add then sub restores the addend.
+            let mut round_trip = dst0.clone();
+            ops::add_assign::<F>(&mut round_trip, &src);
+            ops::sub_assign::<F>(&mut round_trip, &src);
+            assert_eq!(round_trip, dst0, "round trip len {len}");
+        }
+
+        {
+            let mut b = noise(len, 0xc3);
+            canon::<F>(&mut b);
+            let mut got = vec![0u8; len];
+            let mut want = vec![0u8; len];
+            ops::mul_elementwise::<F>(&mut got, &src, &b);
+            oracle_mul_elementwise::<F>(&mut want, &src, &b);
+            assert_eq!(got, want, "mul_elementwise len {len}");
+
+            let mut got = dst0.clone();
+            ops::mul_elementwise_assign::<F>(&mut got, &src);
+            let mut want = vec![0u8; len];
+            oracle_mul_elementwise::<F>(&mut want, &dst0, &src);
+            assert_eq!(got, want, "mul_elementwise_assign len {len}");
+        }
+
+        for &coeff in coeffs {
+            let mut got = dst0.clone();
+            let mut want = dst0.clone();
+            ops::mul_add::<F>(&mut got, coeff, &src);
+            oracle_mul_add::<F>(&mut want, coeff, &src);
+            assert_eq!(got, want, "mul_add len {len} coeff {:?}", coeff.to_raw());
+
+            let mut got = dst0.clone();
+            ops::mul_assign::<F>(&mut got, coeff);
+            let mut want = dst0.clone();
+            oracle_mul_assign::<F>(&mut want, coeff);
+            assert_eq!(got, want, "mul_assign len {len}");
+
+            // Overwrite ignores prior destination bytes.
+            let mut got = noise(len, 0xd4);
+            canon::<F>(&mut got);
+            let mut want = src.clone();
+            oracle_mul_assign::<F>(&mut want, coeff);
+            ops::mul_into::<F>(&mut got, coeff, &src);
+            assert_eq!(got, want, "mul_into len {len}");
+
+            let mut got = dst0.clone();
+            let mut want = dst0.clone();
+            ops::add_assign_scalar::<F>(&mut got, coeff);
+            oracle_add_scalar::<F>(&mut want, coeff);
+            assert_eq!(got, want, "add_assign_scalar len {len}");
+
+            let mut got = dst0.clone();
+            let mut want = dst0.clone();
+            ops::sub_assign_scalar::<F>(&mut got, coeff);
+            oracle_sub_scalar::<F>(&mut want, coeff);
+            assert_eq!(got, want, "sub_assign_scalar len {len}");
+        }
+    }
+}
+
+/// Gather, scatter, matrix, offset-addressed, and row-interleaved shapes,
+/// each against repeated single-row accumulation.
+fn check_shapes<F: FieldKernels>(coeffs: &[Elem<F>]) {
+    for &row_elems in &ROW_ELEMS {
+        let row_len = row_elems * F::BYTES;
+        let nsrc = coeffs.len();
+        let srcs: Vec<Vec<u8>> = (0..nsrc)
+            .map(|i| {
+                let mut s = noise(row_len, 0x100 + i as u64);
+                canon::<F>(&mut s);
+                s
+            })
+            .collect();
+        let src_refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
+
+        // gather accumulates every term.
+        {
+            let mut got = noise(row_len, 0x55);
+            canon::<F>(&mut got);
+            let mut want = got.clone();
+            ops::mul_add_gather::<F>(&mut got, coeffs, &src_refs);
+            for (&c, s) in coeffs.iter().zip(&src_refs) {
+                oracle_mul_add::<F>(&mut want, c, s);
+            }
+            assert_eq!(got, want, "gather row {row_len}");
+        }
+
+        // mul_into_gather overwrites: it must equal accumulating from zero.
+        {
+            let mut got = noise(row_len, 0x55);
+            canon::<F>(&mut got);
+            let mut want = vec![0u8; row_len];
+            ops::mul_into_gather::<F>(&mut got, coeffs, &src_refs);
+            for (&c, s) in coeffs.iter().zip(&src_refs) {
+                oracle_mul_add::<F>(&mut want, c, s);
+            }
+            assert_eq!(got, want, "mul_into_gather row {row_len}");
+        }
+
+        // scatter fans one source into many rows.
+        {
+            let mut got = noise(row_len * nsrc, 0x66);
+            canon::<F>(&mut got);
+            let mut want = got.clone();
+            ops::mul_add_scatter::<F>(&mut got, row_len, coeffs, &srcs[0]);
+            for (row, &c) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                oracle_mul_add::<F>(row, c, &srcs[0]);
+            }
+            assert_eq!(got, want, "scatter row {row_len}");
+        }
+
+        // matrix: many sources into many rows, plus its overwrite form,
+        // which must ignore prior bytes and equal accumulation from zero.
+        {
+            let nrows = nsrc;
+            let terms: Vec<(&[Elem<F>], &[u8])> = src_refs.iter().map(|s| (coeffs, *s)).collect();
+            let mut got = noise(row_len * nrows, 0x77);
+            canon::<F>(&mut got);
+            let mut want = got.clone();
+            ops::mul_add_matrix::<F>(&mut got, row_len, nrows, &terms);
+            for &(cs, s) in &terms {
+                for (row, &c) in want.chunks_exact_mut(row_len).take(nrows).zip(cs) {
+                    oracle_mul_add::<F>(row, c, s);
+                }
+            }
+            assert_eq!(got, want, "matrix row {row_len}");
+
+            let mut overwrote = noise(row_len * nrows, 0x88);
+            canon::<F>(&mut overwrote);
+            let mut want_overwrite = vec![0u8; row_len * nrows];
+            for &(cs, s) in &terms {
+                for (row, &c) in want_overwrite.chunks_exact_mut(row_len).take(nrows).zip(cs) {
+                    oracle_mul_add::<F>(row, c, s);
+                }
+            }
+            ops::mul_into_matrix::<F>(&mut overwrote, row_len, nrows, &terms);
+            assert_eq!(overwrote, want_overwrite, "mul_into_matrix row {row_len}");
+        }
+
+        // Offset-addressed destination rows, rectangular with gaps.
+        {
+            let nrows = nsrc;
+            let gap = F::BYTES;
+            let stride = row_len + gap;
+            let mut got = noise(stride * nrows, 0x99);
+            canon::<F>(&mut got);
+            let starts: Vec<usize> = (0..nrows).map(|r| r * stride).collect();
+            let terms: Vec<(&[Elem<F>], &[u8])> = src_refs.iter().map(|s| (coeffs, *s)).collect();
+            let rows_before: Vec<Vec<u8>> = starts
+                .iter()
+                .map(|&s| got[s..s + row_len].to_vec())
+                .collect();
+            let gaps_before: Vec<Vec<u8>> = starts
+                .iter()
+                .map(|&s| got[s + row_len..s + row_len + gap].to_vec())
+                .collect();
+            ops::mul_add_matrix_at::<F>(&mut got, row_len, &starts, &terms);
+            for (row, &start) in starts.iter().enumerate() {
+                let mut want = rows_before[row].clone();
+                for &(cs, s) in &terms {
+                    oracle_mul_add::<F>(&mut want, cs[row], s);
+                }
+                assert_eq!(
+                    &got[start..start + row_len],
+                    &want[..],
+                    "matrix_at row {row} row_len {row_len} field {} order {}",
+                    F::NAME,
+                    <F as Field>::ORDER
+                );
+            }
+            for (&start, gap) in starts.iter().zip(&gaps_before) {
+                let gap_start = start + row_len;
+                assert_eq!(
+                    &got[gap_start..gap_start + gap.len()],
+                    &gap[..],
+                    "gap after row untouched"
+                );
+            }
+        }
+
+        // Row-interleaved addition stays elementwise over whole rows.
+        {
+            let rows = nsrc.max(2);
+            let len = row_len * rows;
+            let mut src = noise(len, 0x1a1);
+            canon::<F>(&mut src);
+            let mut got = noise(len, 0x1a2);
+            canon::<F>(&mut got);
+            let mut want = got.clone();
+            ops::add_assign_rows::<F>(&mut got, row_len, &src);
+            oracle_add_assign::<F>(&mut want, &src);
+            assert_eq!(got, want, "add_assign_rows row {row_len}");
+        }
+
+        // Offset gather with every coefficient one.
+        {
+            let live = row_len;
+            let region = noise(live * 4, 0x2a1);
+            let offsets: Vec<u32> = (0..4u32).map(|i| i * live as u32).collect();
+            let mut got = noise(live, 0x2a2);
+            canon::<F>(&mut got);
+            let mut want = got.clone();
+            ops::add_gather_offsets::<F>(&mut got, &region, &offsets);
+            for &start in &offsets {
+                oracle_add_assign::<F>(&mut want, &region[start as usize..start as usize + live]);
+            }
+            assert_eq!(got, want, "add_gather_offsets row {row_len}");
+        }
+    }
+}
+
+/// Prepared forms drive the same kernels with the coefficient resolved once.
+#[cfg(feature = "alloc")]
+fn check_prepared_reuse<F: FieldKernels>(coeffs: &[Elem<F>]) {
+    let row_len = 8 * F::BYTES;
+    let nsrc = coeffs.len();
+    let srcs: Vec<Vec<u8>> = (0..nsrc)
+        .map(|i| {
+            let mut s = noise(row_len, 0x300 + i as u64);
+            canon::<F>(&mut s);
+            s
+        })
+        .collect();
+    let src_refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
+
+    let single = ops::Coeff::<F>::new(coeffs[0]);
+    for src in &src_refs {
+        let mut got = vec![0u8; row_len];
+        let mut want = vec![0u8; row_len];
+        ops::mul_add_with::<F>(&mut got, &single, src);
+        oracle_mul_add::<F>(&mut want, coeffs[0], src);
+        assert_eq!(got, want, "prepared mul_add reuse");
+        let mut got = vec![0u8; row_len];
+        ops::mul_into_with::<F>(&mut got, &single, src);
+        let mut want = src.to_vec();
+        oracle_mul_assign::<F>(&mut want, coeffs[0]);
+        assert_eq!(got, want, "prepared mul_into reuse");
+    }
+    assert_eq!(single.value(), coeffs[0], "prepared keeps its coefficient");
+
+    let vector = ops::CoeffVec::<F>::new(coeffs);
+    {
+        let mut got = noise(row_len * nsrc, 0x310);
+        canon::<F>(&mut got);
+        let mut want = got.clone();
+        ops::mul_add_scatter_with::<F>(&mut got, row_len, vector.as_ref(), &srcs[0]);
+        for (row, &c) in want.chunks_exact_mut(row_len).zip(coeffs) {
+            oracle_mul_add::<F>(row, c, &srcs[0]);
+        }
+        assert_eq!(got, want, "prepared scatter");
+    }
+    {
+        let mut got = noise(row_len, 0x320);
+        canon::<F>(&mut got);
+        let mut want = got.clone();
+        ops::mul_add_gather_with::<F>(&mut got, vector.as_ref(), &src_refs);
+        for (&c, s) in coeffs.iter().zip(&src_refs) {
+            oracle_mul_add::<F>(&mut want, c, s);
+        }
+        assert_eq!(got, want, "prepared gather");
+    }
+    {
+        let mut got = noise(row_len, 0x330);
+        canon::<F>(&mut got);
+        let mut want = vec![0u8; row_len];
+        ops::mul_into_gather_with::<F>(&mut got, vector.as_ref(), &src_refs);
+        for (&c, s) in coeffs.iter().zip(&src_refs) {
+            oracle_mul_add::<F>(&mut want, c, s);
+        }
+        assert_eq!(got, want, "prepared overwrite gather");
+    }
+
+    let flat: Vec<Elem<F>> = (0..2).flat_map(|_| coeffs.iter().copied()).collect();
+    let matrix = ops::CoeffMatrix::<F>::from_source_major(2, nsrc, &flat);
+    let matrix_refs: Vec<&[u8]> = vec![src_refs[0], src_refs[0]];
+    {
+        let nrows = nsrc;
+        let mut got = noise(row_len * nrows, 0x340);
+        canon::<F>(&mut got);
+        let mut want = got.clone();
+        ops::mul_add_matrix_with::<F>(&mut got, row_len, &matrix, &matrix_refs);
+        for row in 0..nrows {
+            // Source-major matrix: source s pairs with coefficient row s of
+            // the flat layout, and every output row sees every source.
+            for (source, &src) in matrix_refs.iter().enumerate() {
+                let coeff = flat[source * nrows + row];
+                oracle_mul_add::<F>(&mut want[row * row_len..(row + 1) * row_len], coeff, src);
+            }
+        }
+        assert_eq!(got, want, "prepared matrix");
+
+        let mut overwrote = noise(row_len * nrows, 0x350);
+        canon::<F>(&mut overwrote);
+        let mut want_overwrite = vec![0u8; row_len * nrows];
+        for row in 0..nrows {
+            for (source, &src) in matrix_refs.iter().enumerate() {
+                let coeff = flat[source * nrows + row];
+                let seg = &mut want_overwrite[row * row_len..(row + 1) * row_len];
+                oracle_mul_add::<F>(seg, coeff, src);
+            }
+        }
+        ops::mul_into_matrix_with::<F>(&mut overwrote, row_len, &matrix, &matrix_refs);
+        assert_eq!(overwrote, want_overwrite, "prepared overwrite matrix");
+    }
+}
+
+/// Noncanonical lanes in, canonical lanes out, through the packed add path.
+fn check_alias_lanes<F: FieldKernels>(modulus: u64, aliases: &[u64]) {
+    for &alias in aliases {
+        let mut buf = alias.to_le_bytes().repeat(4);
+        canon::<F>(&mut buf);
+        for lane in buf.chunks_exact(F::BYTES) {
+            assert_eq!(
+                u64::from_le_bytes(lane.try_into().expect("lane width")),
+                alias % modulus,
+                "alias {alias} canonicalized"
+            );
+        }
+    }
+}
+
+#[test]
+fn residue_rows_match_oracle() {
+    let coeffs7 = [
+        Elem::<P7>::ZERO,
+        Elem::<P7>::ONE,
+        Elem::<P7>::from_residue(3).expect("in range"),
+        Elem::<P7>::from_residue(6).expect("in range"),
+        Elem::<P7>::from_raw(7),        // alias of zero
+        Elem::<P7>::from_raw(8),        // alias of one
+        Elem::<P7>::from_raw(u64::MAX), // alias of 3
+    ];
+    check_elementwise::<P7>(&coeffs7);
+    check_shapes::<P7>(&coeffs7[1..6]);
+
+    let coeffs_prime = [
+        Elem::<PPrime>::ZERO,
+        Elem::<PPrime>::ONE,
+        Elem::<PPrime>::from_raw(123_456_789),
+        Elem::<PPrime>::from_raw(999_999_999),
+        Elem::<PPrime>::from_raw(1_000_000_007), // alias of zero
+        Elem::<PPrime>::from_raw(u64::MAX),
+    ];
+    check_elementwise::<PPrime>(&coeffs_prime);
+    check_shapes::<PPrime>(&coeffs_prime[1..5]);
+
+    let coeffs_wide = [
+        Elem::<PWide>::ZERO,
+        Elem::<PWide>::ONE,
+        Elem::<PWide>::from_raw(1 << 63),
+        Elem::<PWide>::from_raw(0xFFFF_FFFF_FFFF_FFC4), // P - 1
+        Elem::<PWide>::from_raw(0xFFFF_FFFF_FFFF_FFC5), // alias of zero
+        Elem::<PWide>::from_raw(u64::MAX),
+    ];
+    check_elementwise::<PWide>(&coeffs_wide);
+    check_shapes::<PWide>(&coeffs_wide[1..5]);
+
+    // The characteristic-two row: modular broadcast, never XOR.
+    let coeffs2 = [
+        Elem::<P2>::ZERO,
+        Elem::<P2>::ONE,
+        Elem::<P2>::from_raw(2), // alias of zero
+        Elem::<P2>::from_raw(3), // alias of one
+        Elem::<P2>::from_raw(u64::MAX),
+    ];
+    check_elementwise::<P2>(&coeffs2);
+    check_shapes::<P2>(&coeffs2[1..4]);
+}
+
+/// Prepared reuse needs the allocation feature for the owned collections.
+#[test]
+#[cfg(feature = "alloc")]
+fn residue_prepared_reuse_matches_one_shot() {
+    let coeffs7 = [
+        Elem::<P7>::ONE,
+        Elem::<P7>::from_residue(3).expect("in range"),
+        Elem::<P7>::from_residue(6).expect("in range"),
+        Elem::<P7>::from_raw(7), // alias of zero
+        Elem::<P7>::from_raw(8), // alias of one
+    ];
+    check_prepared_reuse::<P7>(&coeffs7);
+
+    let coeffs_prime = [
+        Elem::<PPrime>::ONE,
+        Elem::<PPrime>::from_raw(123_456_789),
+        Elem::<PPrime>::from_raw(999_999_999),
+        Elem::<PPrime>::from_raw(1_000_000_007), // alias of zero
+    ];
+    check_prepared_reuse::<PPrime>(&coeffs_prime);
+
+    let coeffs_wide = [
+        Elem::<PWide>::ONE,
+        Elem::<PWide>::from_raw(1 << 63),
+        Elem::<PWide>::from_raw(0xFFFF_FFFF_FFFF_FFC4), // P - 1
+        Elem::<PWide>::from_raw(0xFFFF_FFFF_FFFF_FFC5), // alias of zero
+    ];
+    check_prepared_reuse::<PWide>(&coeffs_wide);
+
+    let coeffs2 = [
+        Elem::<P2>::ONE,
+        Elem::<P2>::from_raw(2), // alias of zero
+        Elem::<P2>::from_raw(3), // alias of one
+    ];
+    check_prepared_reuse::<P2>(&coeffs2);
+}
+
+#[test]
+fn alias_lanes_canonicalize_through_packed_ops() {
+    check_alias_lanes::<P7>(7, &[7, 8, 14, u64::MAX]);
+    check_alias_lanes::<PPrime>(1_000_000_007, &[1_000_000_007, 1_000_000_008, u64::MAX]);
+    check_alias_lanes::<PWide>(
+        0xFFFF_FFFF_FFFF_FFC5,
+        &[0xFFFF_FFFF_FFFF_FFC5, 0xFFFF_FFFF_FFFF_FFC6, u64::MAX],
+    );
+    check_alias_lanes::<P2>(2, &[2, 3, 4, u64::MAX]);
+}
+
+/// Every packed kernel must leave the characteristic-two row's lanes
+/// canonical: the XOR broadcast default would leave alias words behind.
+#[test]
+fn characteristic_two_broadcast_output_is_canonical() {
+    for &lane in &[2u64, 3, 4, 5, u64::MAX] {
+        let mut buf = lane.to_le_bytes().repeat(3);
+        // Broadcast add and subtract of one must read canonical residues.
+        ops::add_assign_scalar::<P2>(&mut buf, Elem::<P2>::ONE);
+        for (i, lane_bytes) in buf.chunks_exact(8).enumerate() {
+            let word = u64::from_le_bytes(lane_bytes.try_into().expect("lane width"));
+            let want = (lane % 2 + 1) % 2;
+            assert_eq!(word, want, "broadcast add lane {i} from {lane}");
+        }
+        ops::sub_assign_scalar::<P2>(&mut buf, Elem::<P2>::ONE);
+        for (i, lane_bytes) in buf.chunks_exact(8).enumerate() {
+            let word = u64::from_le_bytes(lane_bytes.try_into().expect("lane width"));
+            assert_eq!(word, lane % 2, "broadcast sub lane {i} from {lane}");
+        }
+    }
+
+    // Elementwise add/sub of alias lanes lands on canonical residues too.
+    let mut a = 3u64.to_le_bytes().repeat(2);
+    let mut b = 6u64.to_le_bytes().repeat(2);
+    canon::<P2>(&mut a);
+    canon::<P2>(&mut b);
+    ops::add_assign::<P2>(&mut a, &b);
+    for lane_bytes in a.chunks_exact(8) {
+        assert_eq!(u64::from_le_bytes(lane_bytes.try_into().expect("w")), 1);
+    }
+}
+
+#[test]
+fn zero_and_one_coefficients_preserve_contracts() {
+    let row_len = 16;
+    let len = row_len * 3;
+    let mut src = noise(len, 0x410);
+    canon::<PPrime>(&mut src);
+    let dst0 = noise(len, 0x420);
+
+    // Zero accumulation leaves bytes unchanged; in-place scaling by one
+    // leaves bytes unchanged, and overwrite by one copies bytes.
+    let mut got = dst0.clone();
+    canon::<PPrime>(&mut got);
+    let want = got.clone();
+    ops::mul_add::<PPrime>(&mut got, Elem::<PPrime>::ZERO, &src);
+    assert_eq!(got, want, "zero accumulation");
+
+    let mut got = src.clone();
+    ops::mul_assign::<PPrime>(&mut got, Elem::<PPrime>::ONE);
+    assert_eq!(got, src, "one scaling");
+
+    let mut got = vec![0u8; len];
+    ops::mul_into::<PPrime>(&mut got, Elem::<PPrime>::ONE, &src);
+    assert_eq!(got, src, "one overwrite copies");
+
+    // Zero scaling zeroes; packed packing round-trips through aliases.
+    let mut got = src.clone();
+    ops::mul_assign::<PPrime>(&mut got, Elem::<PPrime>::ZERO);
+    assert!(got.iter().all(|&b| b == 0), "zero scaling");
+}
+
+#[test]
+#[cfg(feature = "alloc")]
+fn packing_round_trips_and_rejects_bad_geometry() {
+    let elems = [
+        Elem::<PPrime>::ZERO,
+        Elem::<PPrime>::ONE,
+        Elem::<PPrime>::from_raw(1_000_000_007), // alias of zero
+        Elem::<PPrime>::from_raw(515),
+    ];
+    let packed = ops::pack_to_vec::<PPrime>(&elems);
+    assert_eq!(packed.len(), elems.len() * 8);
+    let mut out = [Elem::<PPrime>::ZERO; 4];
+    ops::unpack::<PPrime>(&mut out, &packed);
+    assert_eq!(out, elems);
+    // Packing emits canonical lanes.
+    assert_eq!(
+        &packed[16..24],
+        &0u64.to_le_bytes(),
+        "alias packs canonically"
+    );
+}
+
+#[test]
+#[should_panic(expected = "bytes but")]
+fn mul_add_rejects_length_mismatch() {
+    let mut dst = vec![0u8; 16];
+    let src = vec![0u8; 24];
+    ops::mul_add::<P7>(&mut dst, Elem::<P7>::ONE, &src);
+}
+
+#[test]
+#[should_panic(expected = "not a whole number")]
+fn mul_add_rejects_partial_lane() {
+    let mut dst = vec![0u8; 12];
+    let src = vec![0u8; 12];
+    ops::mul_add::<P7>(&mut dst, Elem::<P7>::ONE, &src);
+}
+
+#[test]
+#[should_panic(expected = "mul_add_scatter: rows is")]
+fn scatter_rejects_wrong_row_count() {
+    let mut rows = vec![0u8; 8 * 2];
+    let src = vec![0u8; 8];
+    let coeffs = [Elem::<P7>::ONE, Elem::<P7>::ONE, Elem::<P7>::ONE];
+    ops::mul_add_scatter::<P7>(&mut rows, 8, &coeffs, &src);
+}
+
+#[test]
+#[should_panic(expected = "term supplies")]
+fn matrix_rejects_wrong_coefficient_count() {
+    let mut rows = vec![0u8; 8 * 2];
+    let srcs = [vec![0u8; 8], vec![0u8; 8]];
+    let refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
+    let coeffs = [Elem::<P7>::ONE];
+    let terms: Vec<(&[Elem<P7>], &[u8])> = refs.iter().map(|s| (&coeffs[..], *s)).collect();
+    ops::mul_add_matrix::<P7>(&mut rows, 8, 2, &terms);
+}
+
+#[test]
+#[should_panic(expected = "mul_into_gather:")]
+fn mul_into_gather_rejects_mismatched_source_count() {
+    let srcs = [[0u8; 8]];
+    let refs: Vec<&[u8]> = srcs.iter().map(|s| s.as_slice()).collect();
+    let coeffs = [Elem::<P7>::ONE, Elem::<P7>::ONE];
+    let dst = &mut [0u8; 8];
+    ops::mul_into_gather::<P7>(dst, &coeffs, &refs);
+}
+
+#[test]
+fn empty_buffers_are_no_ops() {
+    let mut dst: Vec<u8> = vec![];
+    let src: Vec<u8> = vec![];
+    ops::mul_add::<P7>(&mut dst, Elem::<P7>::ONE, &src);
+    ops::add_assign::<P7>(&mut dst, &src);
+    ops::sub_assign::<P7>(&mut dst, &src);
+    ops::mul_elementwise::<P7>(&mut dst, &src, &src);
+    ops::mul_assign::<P7>(&mut dst, Elem::<P7>::ZERO);
+    assert!(dst.is_empty());
+    // Empty gather writes nothing and must not panic.
+    ops::mul_into_gather::<P7>(&mut dst, &[], &[]);
+    assert!(dst.is_empty());
+}

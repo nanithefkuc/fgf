@@ -14,6 +14,8 @@ just test-tiers        # every supported backend tier
 just features          # no-default, default, all-features
 just features-alloc    # alloc without std
 just cross-check       # AArch64 and Wasm library compilation
+just compile-fail      # negative consumer snippets must fail to compile
+just msrv-accept       # compile-fail plus the consumer matrix on the MSRV
 just lint              # rustfmt and clippy at both feature ends
 just doc               # rustdoc with warnings denied
 just unsafe-check-gfni # owned-unsafe GFNI Miri cases

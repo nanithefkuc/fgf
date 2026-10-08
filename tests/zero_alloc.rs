@@ -2,7 +2,10 @@
 
 use fgf::field::binary::tower::{Tower, TowerSpec};
 use fgf::poly::{AES, RS};
-use fgf::{Binary, Elem, Embedding, FieldKernels, Goldilocks, Mersenne31, Normal, Polynomial, ops};
+use fgf::{
+    Binary, Elem, Embedding, FieldKernels, FiniteField, Goldilocks, Mersenne31, Normal, Polynomial,
+    Residue, ops,
+};
 
 #[path = "common/zero_alloc.rs"]
 mod common;
@@ -12,6 +15,8 @@ type Gf1 = fgf::Binary<1, fgf::Polynomial<3>>;
 type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
 type Gf64 = fgf::Binary<64, fgf::Tower<fgf::Rijndael64>>;
 type FanPaar64Field = fgf::Binary<64, fgf::Tower<fgf::FanPaar64>>;
+type ResiduePrime = FiniteField<1_000_000_007, 1, Residue>;
+type ResidueTwo = FiniteField<2, 1, Residue>;
 
 /// A custom degree-32 tower over GF(2^16): `t^2 + t + 0x2001`, distinct from
 /// every pinned presentation.
@@ -312,6 +317,44 @@ fn goldilocks_steady_state_allocates_nothing() {
         .lock()
         .expect("zero-allocation test lock poisoned");
     assert_prime_steady_state_zero_alloc::<Goldilocks>(Elem::<Goldilocks>::from_raw(7));
+}
+
+/// Residue rows: the borrowed steady-state path is allocation-free, the
+/// characteristic-two row included.
+#[test]
+fn residue_steady_state_allocates_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    assert_prime_steady_state_zero_alloc::<ResiduePrime>(Elem::<ResiduePrime>::from_raw(7));
+    assert_prime_steady_state_zero_alloc::<ResidueTwo>(Elem::<ResidueTwo>::ONE);
+}
+
+/// Residue rows: prepared coefficients resolve to the canonical element, so
+/// preparation and construction allocate nothing and every prepared
+/// application runs allocation-free. Construction sits outside the counted
+/// interval; the counted window covers the reused application paths.
+#[test]
+fn residue_prepared_steady_state_allocates_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    let coeffs: Vec<Elem<ResiduePrime>> = (0..4u64)
+        .map(|index| Elem::<ResiduePrime>::from_raw(index.wrapping_mul(71) + 1))
+        .collect();
+    assert_fallback_steady_state_zero_alloc::<ResiduePrime>(&coeffs);
+
+    // A single prepared coefficient reused across short buffers: the
+    // counted window starts after construction.
+    let src = noise(64, 0x1500);
+    let mut dst = noise(64, 0x1501);
+    let prepared = ops::Coeff::<ResiduePrime>::new(coeffs[2]);
+    ops::mul_add_with::<ResiduePrime>(&mut dst, &prepared, &src);
+    let allocations = count_allocations(|| {
+        ops::mul_add_with::<ResiduePrime>(&mut dst, &prepared, &src);
+        ops::mul_into_with::<ResiduePrime>(&mut dst, &prepared, &src);
+    });
+    assert_eq!(allocations, 0, "residue prepared reuse allocated");
 }
 
 #[test]
