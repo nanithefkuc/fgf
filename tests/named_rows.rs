@@ -52,7 +52,9 @@ fn presentation_labels_and_field_names() {
     assert_eq!(Mersenne31::NAME, "GF(2^31 - 1)");
     assert_eq!(Goldilocks::NAME, "GF(2^64 - 2^32 + 1)");
     // Marker Debug carries the characteristic, degree, and presentation
-    // label; its punctuation is not a contract.
+    // label; its punctuation is not a contract. The degree digit is looked
+    // for after the characteristic is removed, since the characteristic's
+    // own digits contain a `1`.
     for (debug, p, label) in [
         (format!("{:?}", Mersenne31::default()), M31, "mersenne-fold"),
         (
@@ -61,8 +63,9 @@ fn presentation_labels_and_field_names() {
             "goldilocks-fold",
         ),
     ] {
+        let without_p = debug.replacen(&p.to_string(), "", 1);
         assert!(
-            debug.contains(&p.to_string()) && debug.contains('1') && debug.contains(label),
+            debug.contains(&p.to_string()) && without_p.contains('1') && debug.contains(label),
             "{debug}"
         );
     }

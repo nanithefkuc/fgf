@@ -25,7 +25,9 @@ const ROW_ELEMS: [usize; 5] = [1, 2, 3, 8, 64];
 
 /// Deterministic pseudo-random bytes. No dependency, reproducible failures.
 fn noise(len: usize, seed: u64) -> Vec<u8> {
-    let mut state = seed | 1;
+    // `2 * seed + 1` keeps the LCG state odd without collapsing neighbouring
+    // seeds onto one stream.
+    let mut state = seed.wrapping_mul(2).wrapping_add(1);
     (0..len)
         .map(|_| {
             state = state
@@ -343,6 +345,7 @@ fn check_prepared_reuse<F: FieldKernels>(coeffs: &[Elem<F>]) {
         })
         .collect();
     let src_refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
+    assert_ne!(srcs[0], srcs[1], "matrix sources must be distinguishable");
 
     // Every coefficient, identity or not, is prepared once and reused over
     // distinct sources.
