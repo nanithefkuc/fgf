@@ -68,6 +68,17 @@ cross-check:
     cargo check --target wasm32-unknown-unknown --all-features --lib
     RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+simd128" cargo check --target wasm32-unknown-unknown --all-features --lib
 
+# Type-check every standalone comparison package under `external/` against
+# this working copy, so public API changes cannot strand them.
+[group('test')]
+external-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for manifest in external/*/Cargo.toml; do
+        echo "external-check: ${manifest%/Cargo.toml}"
+        cargo check --manifest-path "${manifest}" --all-targets
+    done
+
 # Negative consumer snippets under `tests/compile_fail/`: each must fail to
 # compile on the crate MSRV. The first line names the expectation: a
 # crate-owned panic fragment (`expect:`) that must appear in the error, or

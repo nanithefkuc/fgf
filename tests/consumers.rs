@@ -13,7 +13,7 @@
 use fgf::field::{Field, FieldBuffer, FieldElem};
 use fgf::poly::{AES, RS};
 use fgf::{
-    Binary, Cantor, Elem, FieldKernels, FiniteField, FiniteFieldRepr, Goldilocks, Mersenne31,
+    BinaryRepr, Cantor, Elem, FieldKernels, FiniteField, FiniteFieldRepr, Goldilocks, Mersenne31,
     Normal, Polynomial, PrimeField, QuadMersenne31, Residue, Rijndael16, Rijndael32, Rijndael64,
     Tower, ops,
 };
@@ -23,9 +23,9 @@ type Residue7 = FiniteField<7, 1, Residue>;
 type ResiduePrime = FiniteField<1_000_000_007, 1, Residue>;
 type ResidueWide = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1, Residue>;
 
-type Gf16 = Binary<16, Tower<Rijndael16>>;
-type Gf32 = Binary<32, Tower<Rijndael32>>;
-type Gf64 = Binary<64, Tower<Rijndael64>>;
+type Gf16 = FiniteField<2, 16, Tower<Rijndael16>>;
+type Gf32 = FiniteField<2, 32, Tower<Rijndael32>>;
+type Gf64 = FiniteField<2, 64, Tower<Rijndael64>>;
 
 /// Drive the generic `Field` surface end to end: identities, arithmetic,
 /// inversion totality, and exponentiation, all through the trait.
@@ -96,17 +96,17 @@ fn exercise_kernels<F: FieldKernels>(coeff: Elem<F>) {
 #[test]
 fn every_field_row_drives_the_generic_surface() {
     // Binary polynomial presentations at degrees one, two, four, eight.
-    exercise_field::<Binary<1, Polynomial<3>>>(0, 1);
-    exercise_field::<Binary<1, Polynomial<3>>>(1, 1);
-    exercise_field::<Binary<2, Polynomial<0x7>>>(0x2, 0x1);
-    exercise_field::<Binary<4, Polynomial<0x13>>>(0x9, 0x5);
-    exercise_field::<Binary<8, Polynomial<AES>>>(0x53, 0xCA);
-    exercise_field::<Binary<8, Polynomial<RS>>>(0xFF, 0x01);
+    exercise_field::<FiniteField<2, 1, Polynomial<3>>>(0, 1);
+    exercise_field::<FiniteField<2, 1, Polynomial<3>>>(1, 1);
+    exercise_field::<FiniteField<2, 2, Polynomial<0x7>>>(0x2, 0x1);
+    exercise_field::<FiniteField<2, 4, Polynomial<0x13>>>(0x9, 0x5);
+    exercise_field::<FiniteField<2, 8, Polynomial<AES>>>(0x53, 0xCA);
+    exercise_field::<FiniteField<2, 8, Polynomial<RS>>>(0xFF, 0x01);
     // Ordered bases at degrees two, four, and eight.
-    exercise_field::<Binary<2, Normal<0x7, 0x2>>>(0x1, 0x2);
-    exercise_field::<Binary<4, Cantor<0x13, 0xE>>>(0x7, 0x3);
-    exercise_field::<Binary<8, Normal<0x11B, 0x20>>>(0x53, 0x01);
-    exercise_field::<Binary<8, Tower<fgf::FanPaar8>>>(0xAB, 0xCD);
+    exercise_field::<FiniteField<2, 2, Normal<0x7, 0x2>>>(0x1, 0x2);
+    exercise_field::<FiniteField<2, 4, Cantor<0x13, 0xE>>>(0x7, 0x3);
+    exercise_field::<FiniteField<2, 8, Normal<0x11B, 0x20>>>(0x53, 0x01);
+    exercise_field::<FiniteField<2, 8, Tower<fgf::FanPaar8>>>(0xAB, 0xCD);
     // Towers at degrees sixteen, thirty-two, and sixty-four.
     exercise_field::<Gf16>(0x0108, 0x1B70);
     exercise_field::<Gf32>(0x5555_5555, 0x0F0F_0F0F);
@@ -128,6 +128,31 @@ fn degree_one_rows_are_prime_fields() {
     exercise_prime_field::<Residue7>();
     exercise_prime_field::<ResiduePrime>();
     exercise_prime_field::<ResidueWide>();
+    exercise_prime_field::<Mersenne31>();
+    exercise_prime_field::<Goldilocks>();
+    exercise_prime_field::<FiniteField<2, 1, Polynomial<3>>>();
+}
+
+#[test]
+fn binary_rows_keep_fixed_raw_words_under_generic_presentations() {
+    // Generic over the presentation at a fixed binary degree: the raw word
+    // stays the row's primitive, and both characteristic-two degree-one
+    // presentations coexist with their own widths.
+    fn one_raw<R: BinaryRepr<8>>() -> u8 {
+        <FiniteField<2, 8, R> as Field>::ONE_RAW
+    }
+    fn degree_one<R: BinaryRepr<1>>() -> u8 {
+        <FiniteField<2, 1, R> as Field>::ONE_RAW
+    }
+    fn label<const N: u32, R: BinaryRepr<N>>() -> &'static str {
+        <R as FiniteFieldRepr<2, N>>::NAME
+    }
+    assert_eq!(one_raw::<Polynomial<AES>>(), 1);
+    assert_eq!(one_raw::<Normal<0x11B, 0x20>>(), 0xFF);
+    assert_eq!(degree_one::<Polynomial<3>>(), 1);
+    assert_eq!(<Residue2 as Field>::ONE_RAW, 1u64);
+    assert_eq!(label::<8, Polynomial<AES>>(), "GF(2^8)/0x11B");
+    assert_eq!(label::<4, Cantor<0x13, 0xE>>(), "cantor");
 }
 
 #[test]
@@ -136,9 +161,9 @@ fn wire_format_rows_round_trip() {
     exercise_buffer::<Goldilocks>(Elem::<Goldilocks>::from_raw(7));
     let quad = Elem::<QuadMersenne31>::from_raw(3, 5);
     exercise_buffer::<QuadMersenne31>(quad);
-    exercise_buffer::<Binary<8, Polynomial<AES>>>(Elem::<Binary<8, Polynomial<AES>>>::from_raw(
-        0x53,
-    ));
+    exercise_buffer::<FiniteField<2, 8, Polynomial<AES>>>(
+        Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
+    );
     exercise_buffer::<Gf16>(Elem::<Gf16>::from_raw(0x1B70));
     exercise_buffer::<Gf32>(Elem::<Gf32>::from_raw(0x0F0F_0F0F));
     exercise_buffer::<Gf64>(Elem::<Gf64>::from_raw(0xFFFF_0000_0000_FFFF));
@@ -152,9 +177,9 @@ fn dispatchable_rows_drive_packed_operations() {
     exercise_kernels::<Mersenne31>(Elem::<Mersenne31>::from_raw(7));
     exercise_kernels::<Goldilocks>(Elem::<Goldilocks>::from_raw(7));
     exercise_kernels::<QuadMersenne31>(Elem::<QuadMersenne31>::from_raw(13, 17));
-    exercise_kernels::<Binary<8, Polynomial<AES>>>(Elem::<Binary<8, Polynomial<AES>>>::from_raw(
-        0x53,
-    ));
+    exercise_kernels::<FiniteField<2, 8, Polynomial<AES>>>(Elem::<
+        FiniteField<2, 8, Polynomial<AES>>,
+    >::from_raw(0x53));
     exercise_kernels::<Gf16>(Elem::<Gf16>::from_raw(0x0108));
     exercise_kernels::<Gf32>(Elem::<Gf32>::from_raw(0x5555_5555));
     exercise_kernels::<Gf64>(Elem::<Gf64>::from_raw(0x00C0_FFEE_00C0_FFEE));
@@ -186,6 +211,13 @@ const FAMILY_ADD: Elem<FiniteField<7, 1, Residue>> =
         .add(Elem::<FiniteField<7, 1, Residue>>::from_raw(6));
 const _: () = assert!(FAMILY_ADD.to_raw() == 5);
 
+const BINARY_RESIDUE: Option<u64> = match Elem::<FiniteField<2, 1, Polynomial<3>>>::from_residue(1)
+{
+    Ok(value) => value.add(value).add(value).to_residue(),
+    Err(_) => None,
+};
+const _: () = assert!(matches!(BINARY_RESIDUE, Some(1)));
+
 #[test]
 fn const_contexts_evaluate() {
     // Runtime reads of the compile-time values above. The rejected and
@@ -206,7 +238,10 @@ fn raw_words_are_primitives_of_fixed_width() {
     {
         a ^ b
     }
-    assert_eq!(xor_raws::<Binary<8, Polynomial<AES>>>(0xF0, 0x0F), 0xFF);
+    assert_eq!(
+        xor_raws::<FiniteField<2, 8, Polynomial<AES>>>(0xF0, 0x0F),
+        0xFF
+    );
     assert_eq!(xor_raws::<Gf16>(0x00FF, 0x0F0F), 0x0FF0);
     assert_eq!(xor_raws::<Gf32>(1, 3), 2);
     assert_eq!(xor_raws::<Gf64>(1, 3), 2);
@@ -219,10 +254,10 @@ fn raw_words_are_primitives_of_fixed_width() {
     const fn width<F: Field>() -> usize {
         size_of::<F::Raw>()
     }
-    assert_eq!(width::<Binary<1, Polynomial<3>>>(), 1);
-    assert_eq!(width::<Binary<2, Polynomial<0x7>>>(), 1);
-    assert_eq!(width::<Binary<4, Polynomial<0x13>>>(), 1);
-    assert_eq!(width::<Binary<8, Polynomial<AES>>>(), 1);
+    assert_eq!(width::<FiniteField<2, 1, Polynomial<3>>>(), 1);
+    assert_eq!(width::<FiniteField<2, 2, Polynomial<0x7>>>(), 1);
+    assert_eq!(width::<FiniteField<2, 4, Polynomial<0x13>>>(), 1);
+    assert_eq!(width::<FiniteField<2, 8, Polynomial<AES>>>(), 1);
     assert_eq!(width::<Gf16>(), 2);
     assert_eq!(width::<Gf32>(), 4);
     assert_eq!(width::<Gf64>(), 8);

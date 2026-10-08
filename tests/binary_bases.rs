@@ -5,13 +5,13 @@
 use std::fmt::{self, Write};
 
 use fgf::{
-    AES, Binary, BinaryField, Cantor, Elem, Embedding, FieldElem, Normal, Polynomial, RS, Tower,
-    TowerSpec,
+    AES, BinaryField, Cantor, Elem, Embedding, Field, FieldElem, FiniteField, Normal, Polynomial,
+    RS, RangeError, Residue, Tower, TowerSpec,
 };
 
-type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
-type Gf32 = fgf::Binary<32, fgf::Tower<fgf::Rijndael32>>;
-type Gf64 = fgf::Binary<64, fgf::Tower<fgf::Rijndael64>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::Tower<fgf::Rijndael32>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
 
 /// Deterministic linear-congruential samples.
 fn lcg_samples(count: usize, seed: u64) -> Vec<u64> {
@@ -40,12 +40,12 @@ fn small_degree_display_parses_back_to_coordinates() {
             assert_eq!(u64::from_str_radix(&text, 16), Ok(word), "{text:?}");
         }
     }
-    check::<Binary<2, Polynomial<0x7>>>(4);
-    check::<Binary<2, Normal<0x7, 2>>>(4);
-    check::<Binary<2, Cantor<0x7, 2>>>(4);
-    check::<Binary<4, Polynomial<0x13>>>(16);
-    check::<Binary<4, Normal<0x13, 8>>>(16);
-    check::<Binary<4, Cantor<0x13, 8>>>(16);
+    check::<FiniteField<2, 2, Polynomial<0x7>>>(4);
+    check::<FiniteField<2, 2, Normal<0x7, 2>>>(4);
+    check::<FiniteField<2, 2, Cantor<0x7, 2>>>(4);
+    check::<FiniteField<2, 4, Polynomial<0x13>>>(16);
+    check::<FiniteField<2, 4, Normal<0x13, 8>>>(16);
+    check::<FiniteField<2, 4, Cantor<0x13, 8>>>(16);
 }
 
 /// A writer with no capacity, failing every nonempty write.
@@ -65,19 +65,19 @@ impl Write for FullWriter {
 /// the writer's failure instead of swallowing it.
 #[test]
 fn binary_formatting_reports_writer_failure() {
-    let marker = Binary::<8, Normal<0x11B, 0x20>>::default();
+    let marker = FiniteField::<2, 8, Normal<0x11B, 0x20>>::default();
     assert_eq!(write!(FullWriter, "{marker:?}"), Err(fmt::Error));
 
-    let coordinate =
-        Binary::<4, Polynomial<0x13>>::from_coordinates(0x10).expect_err("excess coordinate bits");
+    let coordinate = FiniteField::<2, 4, Polynomial<0x13>>::from_coordinates(0x10)
+        .expect_err("excess coordinate bits");
     assert_eq!(write!(FullWriter, "{coordinate}"), Err(fmt::Error));
 
-    let degree = Embedding::<Gf16, Binary<8, Polynomial<AES>>>::new()
+    let degree = Embedding::<Gf16, FiniteField<2, 8, Polynomial<AES>>>::new()
         .expect_err("sixteen does not divide eight");
     assert_eq!(write!(FullWriter, "{degree}"), Err(fmt::Error));
 
-    let embedding =
-        Embedding::<Binary<8, Polynomial<AES>>, Gf16>::new().expect("eight divides sixteen");
+    let embedding = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf16>::new()
+        .expect("eight divides sixteen");
     assert_eq!(write!(FullWriter, "{embedding:?}"), Err(fmt::Error));
 }
 
@@ -85,7 +85,7 @@ fn binary_formatting_reports_writer_failure() {
 #[derive(Clone, Copy)]
 struct BasesCustom16;
 impl TowerSpec for BasesCustom16 {
-    type Base = Binary<8, Polynomial<RS>>;
+    type Base = FiniteField<2, 8, Polynomial<RS>>;
     const LINEAR_COEFFICIENT: u64 = 2;
     const CONSTANT_COEFFICIENT: u64 = 0x80;
     const NAME: &'static str = "bases custom GF(2^16)";
@@ -116,7 +116,7 @@ impl TowerSpec for BasesCustom64 {
 #[derive(Clone, Copy)]
 struct BasesNormal16;
 impl TowerSpec for BasesNormal16 {
-    type Base = Binary<8, Normal<0x11B, 0x20>>;
+    type Base = FiniteField<2, 8, Normal<0x11B, 0x20>>;
     const LINEAR_COEFFICIENT: u64 = 0xFF;
     const CONSTANT_COEFFICIENT: u64 = 0x1;
     const NAME: &'static str = "bases normal-base GF(2^16)";
@@ -140,14 +140,14 @@ fn schoolbook_square<B: BinaryField>(half: u32, linear: u64, constant: u64, word
 /// result matches the base-field schoolbook of the defining relation.
 #[test]
 fn custom_tower_squares_match_the_base_schoolbook() {
-    type F16 = Binary<16, Tower<BasesCustom16>>;
-    type F32 = Binary<32, Tower<BasesCustom32>>;
-    type F64 = Binary<64, Tower<BasesCustom64>>;
+    type F16 = FiniteField<2, 16, Tower<BasesCustom16>>;
+    type F32 = FiniteField<2, 32, Tower<BasesCustom32>>;
+    type F64 = FiniteField<2, 64, Tower<BasesCustom64>>;
     for raw in 0..=u16::MAX {
         let square = Elem::<F16>::from_raw(raw).square();
         assert_eq!(
             u64::from(square.to_raw()),
-            schoolbook_square::<Binary<8, Polynomial<RS>>>(8, 2, 0x80, u64::from(raw)),
+            schoolbook_square::<FiniteField<2, 8, Polynomial<RS>>>(8, 2, 0x80, u64::from(raw)),
             "{raw:#06x}"
         );
     }
@@ -211,8 +211,43 @@ fn wide_identity_and_canonical_predicates_follow_the_field() {
             .map(|word| word as u32)
             .collect()
     };
-    check!(Binary<16, Tower<BasesNormal16>>, narrow(64, 0x1d16), 0x1234);
+    check!(FiniteField<2, 16, Tower<BasesNormal16>>, narrow(64, 0x1d16), 0x1234);
     check!(Gf16, narrow(64, 0x6f16), 0x1234);
     check!(Gf32, medium(64, 0x6f32), 0x1234_5678);
     check!(Gf64, lcg_samples(64, 0x6f64), 0x1234_5678_9abc_def0);
+}
+
+/// The two characteristic-two degree-one presentations are distinct types
+/// with different lane widths; every residue moves between them through the
+/// const residue conversions and keeps its arithmetic.
+#[test]
+fn residue_two_and_binary_degree_one_transport_by_residue() {
+    type Bin = FiniteField<2, 1, Polynomial<3>>;
+    type Res = FiniteField<2, 1, Residue>;
+    assert_ne!(std::any::TypeId::of::<Bin>(), std::any::TypeId::of::<Res>());
+    // Different storage: one byte for the binary row, a u64 residue for the
+    // residue row, so their buffers are never interchangeable.
+    assert_eq!(size_of::<<Bin as Field>::Raw>(), 1);
+    assert_eq!(size_of::<<Res as Field>::Raw>(), 8);
+
+    for a in 0..2u64 {
+        let bin = Elem::<Bin>::from_residue(a).expect("residue below two");
+        let res = Elem::<Res>::from_residue(bin.to_residue().expect("degree one"))
+            .expect("residue below two");
+        assert_eq!(res.to_residue(), Some(a));
+        let back = Elem::<Bin>::from_residue(res.to_residue().expect("degree one"))
+            .expect("residue below two");
+        assert_eq!(back, bin);
+        for b in 0..2u64 {
+            let (bin_b, res_b) = (
+                Elem::<Bin>::from_residue(b).expect("residue below two"),
+                Elem::<Res>::from_residue(b).expect("residue below two"),
+            );
+            assert_eq!(bin.add(bin_b).to_residue(), res.add(res_b).to_residue());
+            assert_eq!(bin.mul(bin_b).to_residue(), res.mul(res_b).to_residue());
+        }
+    }
+    for out_of_range in [2, 3, 256, u64::MAX] {
+        assert_eq!(Elem::<Bin>::from_residue(out_of_range), Err(RangeError));
+    }
 }

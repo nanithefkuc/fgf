@@ -3,7 +3,7 @@
 use fgf::field::binary::tower::{Tower, TowerSpec};
 use fgf::poly::{AES, RS};
 use fgf::{
-    Binary, Elem, Embedding, FieldKernels, FiniteField, Goldilocks, Mersenne31, Normal, Polynomial,
+    Elem, Embedding, FieldKernels, FiniteField, Goldilocks, Mersenne31, Normal, Polynomial,
     Residue, ops,
 };
 
@@ -11,10 +11,10 @@ use fgf::{
 mod common;
 use common::{TEST_LOCK, count_allocations, noise};
 
-type Gf1 = fgf::Binary<1, fgf::Polynomial<3>>;
-type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
-type Gf64 = fgf::Binary<64, fgf::Tower<fgf::Rijndael64>>;
-type FanPaar64Field = fgf::Binary<64, fgf::Tower<fgf::FanPaar64>>;
+type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Tower<fgf::FanPaar64>>;
 type ResiduePrime = FiniteField<1_000_000_007, 1, Residue>;
 type ResidueTwo = FiniteField<2, 1, Residue>;
 
@@ -71,8 +71,10 @@ fn basis8_prepared_steady_state_allocates_nothing() {
     let _guard = TEST_LOCK
         .lock()
         .expect("zero-allocation test lock poisoned");
-    let coeffs: Vec<Elem<Binary<8, Normal<0x11B, 0x20>>>> = (0..4u8)
-        .map(|index| Elem::<Binary<8, Normal<0x11B, 0x20>>>::from_raw(index.wrapping_mul(71)))
+    let coeffs: Vec<Elem<FiniteField<2, 8, Normal<0x11B, 0x20>>>> = (0..4u8)
+        .map(|index| {
+            Elem::<FiniteField<2, 8, Normal<0x11B, 0x20>>>::from_raw(index.wrapping_mul(71))
+        })
         .collect();
     assert_fallback_steady_state_zero_alloc(&coeffs);
 }
@@ -82,9 +84,11 @@ fn custom_tower32_prepared_steady_state_allocates_nothing() {
     let _guard = TEST_LOCK
         .lock()
         .expect("zero-allocation test lock poisoned");
-    let coeffs: Vec<Elem<Binary<32, Tower<Custom32Spec>>>> = (0..4u32)
+    let coeffs: Vec<Elem<FiniteField<2, 32, Tower<Custom32Spec>>>> = (0..4u32)
         .map(|index| {
-            Elem::<Binary<32, Tower<Custom32Spec>>>::from_raw(index.wrapping_mul(0x1F3B_5A79))
+            Elem::<FiniteField<2, 32, Tower<Custom32Spec>>>::from_raw(
+                index.wrapping_mul(0x1F3B_5A79),
+            )
         })
         .collect();
     assert_fallback_steady_state_zero_alloc(&coeffs);
@@ -111,25 +115,33 @@ fn mul_into_gather_steady_state_allocates_nothing() {
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
     let coeffs: Vec<_> = (0..8)
         .map(|index| {
-            Elem::<Binary<8, Polynomial<AES>>>::from_raw(
+            Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
                 (index as u8).wrapping_mul(37).wrapping_add(2),
             )
         })
         .collect();
-    let vector = ops::CoeffVec::<Binary<8, Polynomial<AES>>>::new(&coeffs);
+    let vector = ops::CoeffVec::<FiniteField<2, 8, Polynomial<AES>>>::new(&coeffs);
     let mut dst = noise(len, 0x800);
 
     // Resolve backend selection and warm every code path before counting.
-    ops::mul_into_gather::<Binary<8, Polynomial<AES>>>(&mut dst, &coeffs, &refs);
-    ops::mul_into_gather_with::<Binary<8, Polynomial<AES>>>(&mut dst, vector.as_ref(), &refs);
+    ops::mul_into_gather::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, &coeffs, &refs);
+    ops::mul_into_gather_with::<FiniteField<2, 8, Polynomial<AES>>>(
+        &mut dst,
+        vector.as_ref(),
+        &refs,
+    );
 
     let one_shot = count_allocations(|| {
-        ops::mul_into_gather::<Binary<8, Polynomial<AES>>>(&mut dst, &coeffs, &refs)
+        ops::mul_into_gather::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, &coeffs, &refs)
     });
     assert_eq!(one_shot, 0, "one-shot dot product allocated");
 
     let prepared = count_allocations(|| {
-        ops::mul_into_gather_with::<Binary<8, Polynomial<AES>>>(&mut dst, vector.as_ref(), &refs)
+        ops::mul_into_gather_with::<FiniteField<2, 8, Polynomial<AES>>>(
+            &mut dst,
+            vector.as_ref(),
+            &refs,
+        )
     });
     assert_eq!(prepared, 0, "prepared dot product allocated");
 }
@@ -149,39 +161,46 @@ fn mul_into_matrix_steady_state_allocates_nothing() {
         .map(|index| noise(ROW_LEN, 0x900 + index as u64))
         .collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-    let coeff_sets: Vec<Vec<Elem<Binary<8, Polynomial<AES>>>>> = (0..NTERMS)
+    let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>>> = (0..NTERMS)
         .map(|term| {
             (0..NROWS)
                 .map(|row| {
-                    Elem::<Binary<8, Polynomial<AES>>>::from_raw(
+                    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
                         ((term * 37 + row * 19 + 2) & 0xff) as u8,
                     )
                 })
                 .collect()
         })
         .collect();
-    let terms: Vec<(&[Elem<Binary<8, Polynomial<AES>>>], &[u8])> = coeff_sets
+    let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<AES>>>], &[u8])> = coeff_sets
         .iter()
         .zip(&sources)
         .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
         .collect();
-    let flat: Vec<Elem<Binary<8, Polynomial<AES>>>> =
+    let flat: Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> =
         coeff_sets.iter().flatten().copied().collect();
-    let matrix =
-        ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(NTERMS, NROWS, &flat);
+    let matrix = ops::CoeffMatrix::<FiniteField<2, 8, Polynomial<AES>>>::from_source_major(
+        NTERMS, NROWS, &flat,
+    );
     let mut rows = noise(ROW_LEN * NROWS, 0xa00);
 
     // Resolve backend selection and warm both paths before counting.
-    ops::mul_into_matrix::<Binary<8, Polynomial<AES>>>(&mut rows, ROW_LEN, NROWS, &terms);
-    ops::mul_into_matrix_with::<Binary<8, Polynomial<AES>>>(&mut rows, ROW_LEN, &matrix, &refs);
+    ops::mul_into_matrix::<FiniteField<2, 8, Polynomial<AES>>>(&mut rows, ROW_LEN, NROWS, &terms);
+    ops::mul_into_matrix_with::<FiniteField<2, 8, Polynomial<AES>>>(
+        &mut rows, ROW_LEN, &matrix, &refs,
+    );
 
     let one_shot = count_allocations(|| {
-        ops::mul_into_matrix::<Binary<8, Polynomial<AES>>>(&mut rows, ROW_LEN, NROWS, &terms);
+        ops::mul_into_matrix::<FiniteField<2, 8, Polynomial<AES>>>(
+            &mut rows, ROW_LEN, NROWS, &terms,
+        );
     });
     assert_eq!(one_shot, 0, "one-shot overwrite matrix allocated");
 
     let prepared = count_allocations(|| {
-        ops::mul_into_matrix_with::<Binary<8, Polynomial<AES>>>(&mut rows, ROW_LEN, &matrix, &refs);
+        ops::mul_into_matrix_with::<FiniteField<2, 8, Polynomial<AES>>>(
+            &mut rows, ROW_LEN, &matrix, &refs,
+        );
     });
     assert_eq!(prepared, 0, "prepared overwrite matrix allocated");
 }
@@ -202,27 +221,29 @@ fn mul_into_matrix_reed_solomon_chunk_boundary_allocates_nothing() {
     let sources: Vec<Vec<u8>> = (0..NTERMS)
         .map(|index| noise(ROW_LEN, 0xb00 + index as u64))
         .collect();
-    let coeff_sets: Vec<Vec<Elem<Binary<8, Polynomial<RS>>>>> = (0..NTERMS)
+    let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>>> = (0..NTERMS)
         .map(|term| {
             (0..NROWS)
                 .map(|row| {
-                    Elem::<Binary<8, Polynomial<RS>>>::from_raw(
+                    Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(
                         ((term * 41 + row * 23 + 3) & 0xff) as u8,
                     )
                 })
                 .collect()
         })
         .collect();
-    let terms: Vec<(&[Elem<Binary<8, Polynomial<RS>>>], &[u8])> = coeff_sets
+    let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<RS>>>], &[u8])> = coeff_sets
         .iter()
         .zip(&sources)
         .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
         .collect();
     let mut rows = noise(ROW_LEN * NROWS, 0xc00);
 
-    ops::mul_into_matrix::<Binary<8, Polynomial<RS>>>(&mut rows, ROW_LEN, NROWS, &terms);
+    ops::mul_into_matrix::<FiniteField<2, 8, Polynomial<RS>>>(&mut rows, ROW_LEN, NROWS, &terms);
     let steady = count_allocations(|| {
-        ops::mul_into_matrix::<Binary<8, Polynomial<RS>>>(&mut rows, ROW_LEN, NROWS, &terms);
+        ops::mul_into_matrix::<FiniteField<2, 8, Polynomial<RS>>>(
+            &mut rows, ROW_LEN, NROWS, &terms,
+        );
     });
     assert_eq!(steady, 0, "reed-solomon chunk-boundary matrix allocated");
 }
@@ -240,24 +261,31 @@ fn coeff_matrix_reed_solomon_steady_state_allocates_nothing() {
         .map(|index| noise(ROW_LEN, 0xd00 + index as u64))
         .collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-    let flat: Vec<Elem<Binary<8, Polynomial<RS>>>> = (0..NTERMS)
+    let flat: Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>> = (0..NTERMS)
         .flat_map(|term| {
             (0..NROWS).map(move |row| {
-                Elem::<Binary<8, Polynomial<RS>>>::from_raw(
+                Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(
                     ((term * 43 + row * 7 + 5) & 0xff) as u8,
                 )
             })
         })
         .collect();
-    let matrix =
-        ops::CoeffMatrix::<Binary<8, Polynomial<RS>>>::from_source_major(NTERMS, NROWS, &flat);
+    let matrix = ops::CoeffMatrix::<FiniteField<2, 8, Polynomial<RS>>>::from_source_major(
+        NTERMS, NROWS, &flat,
+    );
     let mut rows = noise(ROW_LEN * NROWS, 0xe00);
 
-    ops::mul_into_matrix_with::<Binary<8, Polynomial<RS>>>(&mut rows, ROW_LEN, &matrix, &refs);
-    ops::mul_add_matrix_with::<Binary<8, Polynomial<RS>>>(&mut rows, ROW_LEN, &matrix, &refs);
+    ops::mul_into_matrix_with::<FiniteField<2, 8, Polynomial<RS>>>(
+        &mut rows, ROW_LEN, &matrix, &refs,
+    );
+    ops::mul_add_matrix_with::<FiniteField<2, 8, Polynomial<RS>>>(
+        &mut rows, ROW_LEN, &matrix, &refs,
+    );
 
     let overwrite = count_allocations(|| {
-        ops::mul_into_matrix_with::<Binary<8, Polynomial<RS>>>(&mut rows, ROW_LEN, &matrix, &refs);
+        ops::mul_into_matrix_with::<FiniteField<2, 8, Polynomial<RS>>>(
+            &mut rows, ROW_LEN, &matrix, &refs,
+        );
     });
     assert_eq!(
         overwrite, 0,
@@ -265,7 +293,9 @@ fn coeff_matrix_reed_solomon_steady_state_allocates_nothing() {
     );
 
     let accumulate = count_allocations(|| {
-        ops::mul_add_matrix_with::<Binary<8, Polynomial<RS>>>(&mut rows, ROW_LEN, &matrix, &refs);
+        ops::mul_add_matrix_with::<FiniteField<2, 8, Polynomial<RS>>>(
+            &mut rows, ROW_LEN, &matrix, &refs,
+        );
     });
     assert_eq!(
         accumulate, 0,
@@ -413,11 +443,11 @@ fn add_assign_rows_steady_state_allocates_nothing() {
     let mut dst_p = noise(len, 0xa03);
 
     // Resolve backend selection and warm every code path before counting.
-    ops::add_assign_rows::<Binary<8, Polynomial<AES>>>(&mut dst, row_len, &src);
+    ops::add_assign_rows::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, row_len, &src);
     ops::add_assign_rows::<Mersenne31>(&mut dst_p, row_len, &src_p);
 
     let binary = count_allocations(|| {
-        ops::add_assign_rows::<Binary<8, Polynomial<AES>>>(&mut dst, row_len, &src);
+        ops::add_assign_rows::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, row_len, &src);
     });
     assert_eq!(binary, 0, "row-interleaved binary add allocated");
 
@@ -432,10 +462,10 @@ fn embedding_construction_and_application_allocate_nothing() {
     let _guard = TEST_LOCK
         .lock()
         .expect("zero-allocation test lock poisoned");
-    let byte_tower = Embedding::<Binary<8, Polynomial<AES>>, Gf64>::new().unwrap();
+    let byte_tower = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf64>::new().unwrap();
     let fanpaar_pair = Embedding::<FanPaar64Field, Gf64>::new().unwrap();
     let absolute = Embedding::<Gf1, Gf64>::new().unwrap();
-    let source = Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53);
+    let source = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
     let target = Elem::<Gf64>::from_raw(u64::MAX);
 
     // Warm every method before counting.
@@ -449,10 +479,10 @@ fn embedding_construction_and_application_allocate_nothing() {
     let _ = absolute.norm(target);
 
     let constructions = count_allocations(|| {
-        let _ = Embedding::<Binary<8, Polynomial<AES>>, Gf64>::new().unwrap();
+        let _ = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf64>::new().unwrap();
         let _ = Embedding::<FanPaar64Field, Gf64>::new().unwrap();
         let _ = Embedding::<Gf1, Gf64>::new().unwrap();
-        let _ = Embedding::<Gf64, Binary<8, Polynomial<AES>>>::new();
+        let _ = Embedding::<Gf64, FiniteField<2, 8, Polynomial<AES>>>::new();
     });
     assert_eq!(constructions, 0, "embedding construction allocated");
 

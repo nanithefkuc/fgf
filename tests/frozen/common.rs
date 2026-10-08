@@ -143,7 +143,7 @@ pub trait ByteEnc: fgf::Field {
 
 macro_rules! byte_enc_small {
     ($($n:literal),* $(,)?) => {$(
-        impl<R: fgf::BinaryRepr<$n>> ByteEnc for fgf::Binary<$n, R> {
+        impl<R: fgf::BinaryRepr<$n>> ByteEnc for fgf::FiniteField<2, $n, R> {
             fn encode_bytes(value: fgf::Elem<Self>) -> Vec<u8> {
                 value.to_bytes().into_iter().collect()
             }
@@ -155,7 +155,7 @@ byte_enc_small!(1, 2, 4, 8);
 
 macro_rules! byte_enc_tower {
     ($($n:literal),* $(,)?) => {$(
-        impl<S: fgf::TowerSpec> ByteEnc for fgf::Binary<$n, fgf::Tower<S>>
+        impl<S: fgf::TowerSpec> ByteEnc for fgf::FiniteField<2, $n, fgf::Tower<S>>
         where
             S::Base: fgf::BinaryDegree<{ $n / 2 }>,
         {
@@ -176,7 +176,7 @@ pub trait AliasDecode: fgf::Field {
 
 macro_rules! alias_decode_small {
     ($($n:literal),* $(,)?) => {$(
-        impl<R: fgf::BinaryRepr<$n>> AliasDecode for fgf::Binary<$n, R> {
+        impl<R: fgf::BinaryRepr<$n>> AliasDecode for fgf::FiniteField<2, $n, R> {
             fn decode_alias(word: u64) -> (u64, Vec<u8>) {
                 let value = fgf::Elem::<Self>::from_raw(word as u8);
                 let raw = value.to_raw();
@@ -190,7 +190,7 @@ alias_decode_small!(1, 2, 4, 8);
 
 macro_rules! alias_decode_tower {
     ($($n:literal, $raw:ty;)* $(,)?) => {$(
-        impl<S: fgf::TowerSpec> AliasDecode for fgf::Binary<$n, fgf::Tower<S>>
+        impl<S: fgf::TowerSpec> AliasDecode for fgf::FiniteField<2, $n, fgf::Tower<S>>
         where
             S::Base: fgf::BinaryDegree<{ $n / 2 }>,
         {
@@ -216,7 +216,7 @@ pub trait Levels: fgf::Field + Sized {
 
 macro_rules! poly_levels {
     ($($n:literal),* $(,)?) => {$(
-        impl<const P: u128> Levels for fgf::Binary<$n, fgf::Polynomial<P>> {
+        impl<const P: u128> Levels for fgf::FiniteField<2, $n, fgf::Polynomial<P>> {
             const LEVEL_COUNT: usize = if $n == 1 { 0 } else { 1 };
 
             fn level_element(_level: usize) -> (u64, fgf::Elem<Self>) {
@@ -232,26 +232,26 @@ poly_levels!(1, 2, 4, 8);
 
 macro_rules! basis_levels {
     ($($n:literal),* $(,)?) => {$(
-        impl<const P: u128, const E: u8> Levels for fgf::Binary<$n, fgf::Normal<P, E>> {
+        impl<const P: u128, const E: u8> Levels for fgf::FiniteField<2, $n, fgf::Normal<P, E>> {
             const LEVEL_COUNT: usize = 1;
 
             fn level_element(_level: usize) -> (u64, fgf::Elem<Self>) {
-                let route = fgf::Embedding::<fgf::Binary<$n, fgf::Polynomial<P>>, Self>::new()
+                let route = fgf::Embedding::<fgf::FiniteField<2, $n, fgf::Polynomial<P>>, Self>::new()
                     .expect("equal degrees embed");
                 let generator =
-                    route.embed(fgf::Elem::<fgf::Binary<$n, fgf::Polynomial<P>>>::from_raw(2));
+                    route.embed(fgf::Elem::<fgf::FiniteField<2, $n, fgf::Polynomial<P>>>::from_raw(2));
                 (<Self as fgf::BinaryField>::to_coordinates(generator), generator)
             }
         }
 
-        impl<const P: u128, const SEED: u8> Levels for fgf::Binary<$n, fgf::Cantor<P, SEED>> {
+        impl<const P: u128, const SEED: u8> Levels for fgf::FiniteField<2, $n, fgf::Cantor<P, SEED>> {
             const LEVEL_COUNT: usize = 1;
 
             fn level_element(_level: usize) -> (u64, fgf::Elem<Self>) {
-                let route = fgf::Embedding::<fgf::Binary<$n, fgf::Polynomial<P>>, Self>::new()
+                let route = fgf::Embedding::<fgf::FiniteField<2, $n, fgf::Polynomial<P>>, Self>::new()
                     .expect("equal degrees embed");
                 let generator =
-                    route.embed(fgf::Elem::<fgf::Binary<$n, fgf::Polynomial<P>>>::from_raw(2));
+                    route.embed(fgf::Elem::<fgf::FiniteField<2, $n, fgf::Polynomial<P>>>::from_raw(2));
                 (<Self as fgf::BinaryField>::to_coordinates(generator), generator)
             }
         }
@@ -262,7 +262,7 @@ basis_levels!(2, 4, 8);
 
 macro_rules! small_tower_levels {
     ($($n:literal),* $(,)?) => {$(
-        impl<S: fgf::TowerSpec> Levels for fgf::Binary<$n, fgf::Tower<S>>
+        impl<S: fgf::TowerSpec> Levels for fgf::FiniteField<2, $n, fgf::Tower<S>>
         where
             S::Base: Levels + fgf::BinaryField + fgf::BinaryDegree<{ $n / 2 }>,
             S::Base: fgf::Field<Raw = u8>,
@@ -288,7 +288,7 @@ small_tower_levels!(2, 4, 8);
 
 macro_rules! wide_tower_levels {
     ($($n:literal, $baseraw:ty;)* $(,)?) => {$(
-        impl<S: fgf::TowerSpec> Levels for fgf::Binary<$n, fgf::Tower<S>>
+        impl<S: fgf::TowerSpec> Levels for fgf::FiniteField<2, $n, fgf::Tower<S>>
         where
             S::Base: Levels + fgf::BinaryField + fgf::BinaryDegree<{ $n / 2 }>,
             S::Base: fgf::Field<Raw = $baseraw>,
@@ -328,28 +328,28 @@ pub trait Presentation:
 // The captured presentation inventory
 // ---------------------------------------------------------------------------
 
-pub type Poly1 = fgf::Binary<1, fgf::Polynomial<3>>;
-pub type Poly2 = fgf::Binary<2, fgf::Polynomial<0x7>>;
-pub type Poly4 = fgf::Binary<4, fgf::Polynomial<0x13>>;
-pub type Poly8Aes = fgf::Binary<8, fgf::Polynomial<{ fgf::AES }>>;
-pub type Poly8Rs = fgf::Binary<8, fgf::Polynomial<{ fgf::RS }>>;
-pub type Rijndael16F = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
-pub type Rijndael32F = fgf::Binary<32, fgf::Tower<fgf::Rijndael32>>;
-pub type Rijndael64F = fgf::Binary<64, fgf::Tower<fgf::Rijndael64>>;
-pub type FanPaar2F = fgf::Binary<2, fgf::Tower<fgf::FanPaar2>>;
-pub type FanPaar4F = fgf::Binary<4, fgf::Tower<fgf::FanPaar4>>;
-pub type FanPaar8F = fgf::Binary<8, fgf::Tower<fgf::FanPaar8>>;
-pub type FanPaar16F = fgf::Binary<16, fgf::Tower<fgf::FanPaar16>>;
-pub type FanPaar32F = fgf::Binary<32, fgf::Tower<fgf::FanPaar32>>;
-pub type FanPaar64F = fgf::Binary<64, fgf::Tower<fgf::FanPaar64>>;
-pub type Normal2 = fgf::Binary<2, fgf::Normal<0x7, 2>>;
-pub type Normal4 = fgf::Binary<4, fgf::Normal<0x13, 8>>;
-pub type Normal8Aes = fgf::Binary<8, fgf::Normal<0x11B, 0x20>>;
-pub type Normal8Rs = fgf::Binary<8, fgf::Normal<0x11D, 0x20>>;
-pub type Cantor2 = fgf::Binary<2, fgf::Cantor<0x7, 2>>;
-pub type Cantor4 = fgf::Binary<4, fgf::Cantor<0x13, 8>>;
-pub type Cantor8Aes = fgf::Binary<8, fgf::Cantor<0x11B, 0x20>>;
-pub type Cantor8Rs = fgf::Binary<8, fgf::Cantor<0x11D, 0x20>>;
+pub type Poly1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
+pub type Poly2 = fgf::FiniteField<2, 2, fgf::Polynomial<0x7>>;
+pub type Poly4 = fgf::FiniteField<2, 4, fgf::Polynomial<0x13>>;
+pub type Poly8Aes = fgf::FiniteField<2, 8, fgf::Polynomial<{ fgf::AES }>>;
+pub type Poly8Rs = fgf::FiniteField<2, 8, fgf::Polynomial<{ fgf::RS }>>;
+pub type Rijndael16F = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
+pub type Rijndael32F = fgf::FiniteField<2, 32, fgf::Tower<fgf::Rijndael32>>;
+pub type Rijndael64F = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
+pub type FanPaar2F = fgf::FiniteField<2, 2, fgf::Tower<fgf::FanPaar2>>;
+pub type FanPaar4F = fgf::FiniteField<2, 4, fgf::Tower<fgf::FanPaar4>>;
+pub type FanPaar8F = fgf::FiniteField<2, 8, fgf::Tower<fgf::FanPaar8>>;
+pub type FanPaar16F = fgf::FiniteField<2, 16, fgf::Tower<fgf::FanPaar16>>;
+pub type FanPaar32F = fgf::FiniteField<2, 32, fgf::Tower<fgf::FanPaar32>>;
+pub type FanPaar64F = fgf::FiniteField<2, 64, fgf::Tower<fgf::FanPaar64>>;
+pub type Normal2 = fgf::FiniteField<2, 2, fgf::Normal<0x7, 2>>;
+pub type Normal4 = fgf::FiniteField<2, 4, fgf::Normal<0x13, 8>>;
+pub type Normal8Aes = fgf::FiniteField<2, 8, fgf::Normal<0x11B, 0x20>>;
+pub type Normal8Rs = fgf::FiniteField<2, 8, fgf::Normal<0x11D, 0x20>>;
+pub type Cantor2 = fgf::FiniteField<2, 2, fgf::Cantor<0x7, 2>>;
+pub type Cantor4 = fgf::FiniteField<2, 4, fgf::Cantor<0x13, 8>>;
+pub type Cantor8Aes = fgf::FiniteField<2, 8, fgf::Cantor<0x11B, 0x20>>;
+pub type Cantor8Rs = fgf::FiniteField<2, 8, fgf::Cantor<0x11D, 0x20>>;
 
 /// A custom degree-8 tower over the degree-four polynomial field:
 /// `t^2 + t + 0x8`.
@@ -361,7 +361,7 @@ impl fgf::TowerSpec for Custom8Spec {
     const CONSTANT_COEFFICIENT: u64 = 0x8;
     const NAME: &'static str = "custom GF(2^8) tower";
 }
-pub type Custom8F = fgf::Binary<8, fgf::Tower<Custom8Spec>>;
+pub type Custom8F = fgf::FiniteField<2, 8, fgf::Tower<Custom8Spec>>;
 
 /// A custom degree-16 tower over the Reed-Solomon byte field:
 /// `t^2 + 2*t + 0x80`.
@@ -373,7 +373,7 @@ impl fgf::TowerSpec for Custom16Spec {
     const CONSTANT_COEFFICIENT: u64 = 0x80;
     const NAME: &'static str = "custom GF(2^16) tower";
 }
-pub type Custom16F = fgf::Binary<16, fgf::Tower<Custom16Spec>>;
+pub type Custom16F = fgf::FiniteField<2, 16, fgf::Tower<Custom16Spec>>;
 
 /// A custom degree-16 tower over the AES byte field with a non-unit linear
 /// coefficient: `t^2 + 2*t + 0x01`.
@@ -385,7 +385,7 @@ impl fgf::TowerSpec for AesLin16Spec {
     const CONSTANT_COEFFICIENT: u64 = 0x01;
     const NAME: &'static str = "AES-base non-unit linear tower";
 }
-pub type AesLin16F = fgf::Binary<16, fgf::Tower<AesLin16Spec>>;
+pub type AesLin16F = fgf::FiniteField<2, 16, fgf::Tower<AesLin16Spec>>;
 
 /// A custom degree-32 tower over Rijndael16: `t^2 + t + 0x2001`.
 #[derive(Clone, Copy)]
@@ -396,7 +396,7 @@ impl fgf::TowerSpec for Custom32Spec {
     const CONSTANT_COEFFICIENT: u64 = 0x2001;
     const NAME: &'static str = "custom GF(2^32) tower";
 }
-pub type Custom32F = fgf::Binary<32, fgf::Tower<Custom32Spec>>;
+pub type Custom32F = fgf::FiniteField<2, 32, fgf::Tower<Custom32Spec>>;
 
 /// A custom degree-64 tower over Rijndael32: `t^2 + t + 0x2ada7f36`.
 #[derive(Clone, Copy)]
@@ -407,7 +407,7 @@ impl fgf::TowerSpec for Custom64Spec {
     const CONSTANT_COEFFICIENT: u64 = 0x2ada_7f36;
     const NAME: &'static str = "custom GF(2^64) tower";
 }
-pub type Custom64F = fgf::Binary<64, fgf::Tower<Custom64Spec>>;
+pub type Custom64F = fgf::FiniteField<2, 64, fgf::Tower<Custom64Spec>>;
 
 /// A custom degree-16 tower over the normal-basis byte field: the linear
 /// coefficient is the base's identity (all bits set) and the constant term
@@ -420,7 +420,7 @@ impl fgf::TowerSpec for NormBase16Spec {
     const CONSTANT_COEFFICIENT: u64 = 0x1;
     const NAME: &'static str = "normal-base GF(2^16) tower";
 }
-pub type NormBase16F = fgf::Binary<16, fgf::Tower<NormBase16Spec>>;
+pub type NormBase16F = fgf::FiniteField<2, 16, fgf::Tower<NormBase16Spec>>;
 
 /// A second normal-base spec with the same defining data: its descriptor is
 /// structurally identical to [`NormBase16Spec`].
@@ -432,7 +432,7 @@ impl fgf::TowerSpec for OverNormal16Spec {
     const CONSTANT_COEFFICIENT: u64 = 0x1;
     const NAME: &'static str = "over-normal GF(2^16) tower";
 }
-pub type OverNormal16F = fgf::Binary<16, fgf::Tower<OverNormal16Spec>>;
+pub type OverNormal16F = fgf::FiniteField<2, 16, fgf::Tower<OverNormal16Spec>>;
 
 /// A custom degree-16 tower structurally identical to Rijndael16.
 #[derive(Clone, Copy)]
@@ -443,7 +443,7 @@ impl fgf::TowerSpec for Same16Spec {
     const CONSTANT_COEFFICIENT: u64 = 0x20;
     const NAME: &'static str = "rijndael-shaped custom tower";
 }
-pub type Same16F = fgf::Binary<16, fgf::Tower<Same16Spec>>;
+pub type Same16F = fgf::FiniteField<2, 16, fgf::Tower<Same16Spec>>;
 
 /// An extra custom tower with a non-identity linear coefficient over the AES
 /// byte field: `t^2 + 3*t + 0xa0`.
@@ -455,7 +455,7 @@ impl fgf::TowerSpec for ExtraALin16Spec {
     const CONSTANT_COEFFICIENT: u64 = 0xA0;
     const NAME: &'static str = "extra non-unit linear tower";
 }
-pub type ExtraALin16F = fgf::Binary<16, fgf::Tower<ExtraALin16Spec>>;
+pub type ExtraALin16F = fgf::FiniteField<2, 16, fgf::Tower<ExtraALin16Spec>>;
 
 /// An extra custom tower over the AES byte field with the Rijndael relation
 /// constant altered by one: `t^2 + t + 0x21`.
@@ -467,7 +467,7 @@ impl fgf::TowerSpec for ExtraAConst16Spec {
     const CONSTANT_COEFFICIENT: u64 = 0x21;
     const NAME: &'static str = "extra altered constant tower";
 }
-pub type ExtraAConst16F = fgf::Binary<16, fgf::Tower<ExtraAConst16Spec>>;
+pub type ExtraAConst16F = fgf::FiniteField<2, 16, fgf::Tower<ExtraAConst16Spec>>;
 
 /// An extra custom tower over the Cantor-basis byte field: the linear
 /// coefficient is the base identity and the constant term is the transported
@@ -480,7 +480,7 @@ impl fgf::TowerSpec for ExtraCantor16Spec {
     const CONSTANT_COEFFICIENT: u64 = 0x80;
     const NAME: &'static str = "extra cantor-base tower";
 }
-pub type ExtraCantor16F = fgf::Binary<16, fgf::Tower<ExtraCantor16Spec>>;
+pub type ExtraCantor16F = fgf::FiniteField<2, 16, fgf::Tower<ExtraCantor16Spec>>;
 
 /// Two extra spec types whose descriptors are structurally identical to each
 /// other and to no shipped presentation: `t^2 + 5*t + 0x16` over AES.
@@ -492,7 +492,7 @@ impl fgf::TowerSpec for ExtraTwin16ASpec {
     const CONSTANT_COEFFICIENT: u64 = 0x16;
     const NAME: &'static str = "extra twin tower";
 }
-pub type ExtraTwin16AF = fgf::Binary<16, fgf::Tower<ExtraTwin16ASpec>>;
+pub type ExtraTwin16AF = fgf::FiniteField<2, 16, fgf::Tower<ExtraTwin16ASpec>>;
 
 /// The second twin of the pair; see [`ExtraTwin16ASpec`].
 #[derive(Clone, Copy)]
@@ -503,7 +503,7 @@ impl fgf::TowerSpec for ExtraTwin16BSpec {
     const CONSTANT_COEFFICIENT: u64 = 0x16;
     const NAME: &'static str = "extra twin tower";
 }
-pub type ExtraTwin16BF = fgf::Binary<16, fgf::Tower<ExtraTwin16BSpec>>;
+pub type ExtraTwin16BF = fgf::FiniteField<2, 16, fgf::Tower<ExtraTwin16BSpec>>;
 
 /// Feed the captured presentation inventory to `$mac`.
 macro_rules! for_each_presentation {

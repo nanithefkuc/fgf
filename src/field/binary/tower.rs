@@ -28,9 +28,9 @@
 //! [`Rijndael64`] root at the AES field, and the Fan-Paar specs nest through
 //! the Wiedemann relation `X^2 + alpha*X + 1`, where `alpha` is the previous
 //! level's indeterminate (`1` over GF(2), then the raw `base_one << (h/2)`
-//! in its own packing). Each spec names one field as `Binary<N, Tower<S>>`
-//! with its frozen generator: GF(2^16) as `Binary<16, Tower<Rijndael16>>`,
-//! Fan-Paar GF(2^16) as `Binary<16, Tower<FanPaar16>>`, and likewise for
+//! in its own packing). Each spec names one field as `FiniteField<2, N, Tower<S>>`
+//! with its frozen generator: GF(2^16) as `FiniteField<2, 16, Tower<Rijndael16>>`,
+//! Fan-Paar GF(2^16) as `FiniteField<2, 16, Tower<FanPaar16>>`, and likewise for
 //! [`FanPaar2`] through [`FanPaar64`].
 //!
 //! Scalar arithmetic is one `const` body per degree row. Degrees 2, 4, and 8
@@ -43,105 +43,105 @@
 //! specs cannot claim a strategy.
 //!
 //! ```
-//! use fgf::{Binary, Elem, Rijndael16, Tower};
+//! use fgf::{FiniteField, Elem, Rijndael16, Tower};
 //!
-//! let x = Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0x1234);
-//! assert_eq!(x.mul(Elem::<Binary<16, Tower<Rijndael16>>>::ONE), x);
+//! let x = Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0x1234);
+//! assert_eq!(x.mul(Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::ONE), x);
 //! assert_eq!(
-//!     Elem::<Binary<16, Tower<Rijndael16>>>::GENERATOR.pow(65_535),
-//!     Elem::<Binary<16, Tower<Rijndael16>>>::ONE
+//!     Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::GENERATOR.pow(65_535),
+//!     Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::ONE
 //! );
 //! ```
 //!
 //! A degree-128 tower has no representation row:
 //!
 //! ```compile_fail,E0277
-//! use fgf::{Binary, Tower, TowerSpec};
+//! use fgf::{FiniteField, Tower, TowerSpec};
 //!
 //! #[derive(Clone, Copy)]
 //! struct Over64;
 //! impl TowerSpec for Over64 {
-//!     type Base = fgf::Binary<64, Tower<fgf::Rijndael64>>;
+//!     type Base = fgf::FiniteField<2, 64, Tower<fgf::Rijndael64>>;
 //!     const LINEAR_COEFFICIENT: u64 = 1;
 //!     const CONSTANT_COEFFICIENT: u64 = 0x2000_0000_0000_0000;
 //!     const NAME: &'static str = "too wide";
 //! }
-//! let _ = fgf::Elem::<Binary<128, Tower<Over64>>>::ZERO;
+//! let _ = fgf::Elem::<FiniteField<2, 128, Tower<Over64>>>::ZERO;
 //! ```
 //!
 //! A tower over the wrong base degree is rejected by the trait bounds:
 //!
 //! ```compile_fail,E0277
-//! use fgf::{Binary, Tower, TowerSpec};
+//! use fgf::{FiniteField, Tower, TowerSpec};
 //!
 //! #[derive(Clone, Copy)]
 //! struct WrongBase;
 //! impl TowerSpec for WrongBase {
-//!     type Base = fgf::Binary<16, Tower<fgf::Rijndael16>>;
+//!     type Base = fgf::FiniteField<2, 16, Tower<fgf::Rijndael16>>;
 //!     const LINEAR_COEFFICIENT: u64 = 1;
 //!     const CONSTANT_COEFFICIENT: u64 = 0x2000;
 //!     const NAME: &'static str = "wrong base";
 //! }
-//! let _ = fgf::Elem::<Binary<64, Tower<WrongBase>>>::ZERO;
+//! let _ = fgf::Elem::<FiniteField<2, 64, Tower<WrongBase>>>::ZERO;
 //! ```
 //!
 //! The correct-base positive case for the same shape:
 //!
 //! ```
-//! use fgf::{Binary, Tower, TowerSpec};
+//! use fgf::{FiniteField, Tower, TowerSpec};
 //!
 //! #[derive(Clone, Copy)]
 //! struct RightBase;
 //! impl TowerSpec for RightBase {
-//!     type Base = fgf::Binary<16, Tower<fgf::Rijndael16>>;
+//!     type Base = fgf::FiniteField<2, 16, Tower<fgf::Rijndael16>>;
 //!     const LINEAR_COEFFICIENT: u64 = 1;
 //!     const CONSTANT_COEFFICIENT: u64 = 0x2000;
 //!     const NAME: &'static str = "right base";
 //! }
-//! let _ = fgf::Elem::<Binary<32, Tower<RightBase>>>::ONE;
+//! let _ = fgf::Elem::<FiniteField<2, 32, Tower<RightBase>>>::ONE;
 //! ```
 //!
 //! A zero linear coefficient is rejected at value use:
 //!
 //! ```compile_fail,E0080
-//! use fgf::{Binary, Tower, TowerSpec};
+//! use fgf::{FiniteField, Tower, TowerSpec};
 //!
 //! #[derive(Clone, Copy)]
 //! struct ZeroA;
 //! impl TowerSpec for ZeroA {
-//!     type Base = fgf::Binary<8, fgf::Polynomial<0x11B>>;
+//!     type Base = fgf::FiniteField<2, 8, fgf::Polynomial<0x11B>>;
 //!     const LINEAR_COEFFICIENT: u64 = 0;
 //!     const CONSTANT_COEFFICIENT: u64 = 0x20;
 //!     const NAME: &'static str = "zero a";
 //! }
-//! let _ = fgf::Elem::<Binary<16, Tower<ZeroA>>>::ONE;
+//! let _ = fgf::Elem::<FiniteField<2, 16, Tower<ZeroA>>>::ONE;
 //! ```
 //!
 //! A reducible relation is rejected at value use:
 //!
 //! ```compile_fail,E0080
-//! use fgf::{Binary, Tower, TowerSpec};
+//! use fgf::{FiniteField, Tower, TowerSpec};
 //!
 //! #[derive(Clone, Copy)]
 //! struct TraceZero;
 //! impl TowerSpec for TraceZero {
-//!     type Base = fgf::Binary<8, fgf::Polynomial<0x11D>>;
+//!     type Base = fgf::FiniteField<2, 8, fgf::Polynomial<0x11D>>;
 //!     const LINEAR_COEFFICIENT: u64 = 1;
 //!     const CONSTANT_COEFFICIENT: u64 = 1;
 //!     const NAME: &'static str = "reducible";
 //! }
-//! let _ = fgf::Elem::<Binary<16, Tower<TraceZero>>>::ONE;
+//! let _ = fgf::Elem::<FiniteField<2, 16, Tower<TraceZero>>>::ONE;
 //! ```
 //!
 //! A non-generator is rejected at generator use:
 //!
 //! ```compile_fail,E0080
-//! use fgf::{Binary, Tower, TowerGeneratorSpec, TowerSpec};
+//! use fgf::{FiniteField, Tower, TowerGeneratorSpec, TowerSpec};
 //!
 //! #[derive(Clone, Copy)]
 //! struct BadGen;
 //! impl TowerSpec for BadGen {
-//!     type Base = fgf::Binary<8, fgf::Polynomial<0x11B>>;
+//!     type Base = fgf::FiniteField<2, 8, fgf::Polynomial<0x11B>>;
 //!     const LINEAR_COEFFICIENT: u64 = 1;
 //!     const CONSTANT_COEFFICIENT: u64 = 0x20;
 //!     const NAME: &'static str = "bad gen";
@@ -149,15 +149,15 @@
 //! impl TowerGeneratorSpec for BadGen {
 //!     const GENERATOR: u64 = 2;
 //! }
-//! let _ = fgf::Elem::<Binary<16, Tower<BadGen>>>::GENERATOR;
+//! let _ = fgf::Elem::<FiniteField<2, 16, Tower<BadGen>>>::GENERATOR;
 //! ```
 
 use core::fmt;
 
 use super::description::{BinaryDescription, ByteLogExp};
 use super::poly::{AES, Polynomial};
-use super::{Binary, BinaryDegree, BinaryField, BinaryRepr, private};
-use crate::field::{Elem, Field, FieldBuffer, HasGenerator};
+use super::{BinaryDegree, BinaryField, BinaryRepr};
+use crate::field::{Elem, Field, FieldBuffer, FiniteField, FiniteFieldRepr, HasGenerator};
 
 /// The defining data of one quadratic tower.
 ///
@@ -185,7 +185,7 @@ pub trait TowerGeneratorSpec: TowerSpec {
 /// The quadratic tower representation over the spec's base.
 pub struct Tower<S: TowerSpec>(core::marker::PhantomData<fn() -> S>);
 
-impl<S: TowerSpec> private::Sealed for Tower<S> {}
+impl<S: TowerSpec> crate::field::private::Sealed for Tower<S> {}
 
 // A derive would bound the impl on `S: Clone`; the manual impl bounds
 // only through `S: Copy`, which the spec contract already supplies.
@@ -369,7 +369,7 @@ pub const fn fp_invert(value: u64, bits: u32) -> u64 {
 pub struct Rijndael16;
 
 impl TowerSpec for Rijndael16 {
-    type Base = Binary<8, Polynomial<AES>>;
+    type Base = FiniteField<2, 8, Polynomial<AES>>;
     const LINEAR_COEFFICIENT: u64 = 1;
     const CONSTANT_COEFFICIENT: u64 = 0x20;
     const NAME: &'static str = "GF(2^16)";
@@ -379,13 +379,13 @@ impl TowerGeneratorSpec for Rijndael16 {
     const GENERATOR: u64 = 0x0108;
 }
 
-/// The Rijndael-rooted tower over GF(2^16) as `Binary<16, Tower<Rijndael16>>`:
+/// The Rijndael-rooted tower over GF(2^16) as `FiniteField<2, 16, Tower<Rijndael16>>`:
 /// `v^2 + v + 0x2000`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Rijndael32;
 
 impl TowerSpec for Rijndael32 {
-    type Base = Binary<16, Tower<Rijndael16>>;
+    type Base = FiniteField<2, 16, Tower<Rijndael16>>;
     const LINEAR_COEFFICIENT: u64 = 1;
     const CONSTANT_COEFFICIENT: u64 = 0x2000;
     const NAME: &'static str = "GF(2^32)";
@@ -395,13 +395,13 @@ impl TowerGeneratorSpec for Rijndael32 {
     const GENERATOR: u64 = 0x0001_0002;
 }
 
-/// The Rijndael-rooted tower over GF(2^32) as `Binary<32, Tower<Rijndael32>>`:
+/// The Rijndael-rooted tower over GF(2^32) as `FiniteField<2, 32, Tower<Rijndael32>>`:
 /// `w^2 + w + 0x2000_0000`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Rijndael64;
 
 impl TowerSpec for Rijndael64 {
-    type Base = Binary<32, Tower<Rijndael32>>;
+    type Base = FiniteField<2, 32, Tower<Rijndael32>>;
     const LINEAR_COEFFICIENT: u64 = 1;
     const CONSTANT_COEFFICIENT: u64 = 0x2000_0000;
     const NAME: &'static str = "GF(2^64)";
@@ -416,7 +416,7 @@ impl TowerGeneratorSpec for Rijndael64 {
 pub struct FanPaar2;
 
 impl TowerSpec for FanPaar2 {
-    type Base = Binary<1, Polynomial<3>>;
+    type Base = FiniteField<2, 1, Polynomial<3>>;
     const LINEAR_COEFFICIENT: u64 = 1;
     const CONSTANT_COEFFICIENT: u64 = 1;
     const NAME: &'static str = "Fan-Paar GF(2^2)";
@@ -431,7 +431,7 @@ impl TowerGeneratorSpec for FanPaar2 {
 pub struct FanPaar4;
 
 impl TowerSpec for FanPaar4 {
-    type Base = Binary<2, Tower<FanPaar2>>;
+    type Base = FiniteField<2, 2, Tower<FanPaar2>>;
     const LINEAR_COEFFICIENT: u64 = 0x2;
     const CONSTANT_COEFFICIENT: u64 = 1;
     const NAME: &'static str = "Fan-Paar GF(2^4)";
@@ -446,7 +446,7 @@ impl TowerGeneratorSpec for FanPaar4 {
 pub struct FanPaar8;
 
 impl TowerSpec for FanPaar8 {
-    type Base = Binary<4, Tower<FanPaar4>>;
+    type Base = FiniteField<2, 4, Tower<FanPaar4>>;
     const LINEAR_COEFFICIENT: u64 = 0x4;
     const CONSTANT_COEFFICIENT: u64 = 1;
     const NAME: &'static str = "Fan-Paar GF(2^8)";
@@ -461,7 +461,7 @@ impl TowerGeneratorSpec for FanPaar8 {
 pub struct FanPaar16;
 
 impl TowerSpec for FanPaar16 {
-    type Base = Binary<8, Tower<FanPaar8>>;
+    type Base = FiniteField<2, 8, Tower<FanPaar8>>;
     const LINEAR_COEFFICIENT: u64 = 0x10;
     const CONSTANT_COEFFICIENT: u64 = 1;
     const NAME: &'static str = "Fan-Paar GF(2^16)";
@@ -476,7 +476,7 @@ impl TowerGeneratorSpec for FanPaar16 {
 pub struct FanPaar32;
 
 impl TowerSpec for FanPaar32 {
-    type Base = Binary<16, Tower<FanPaar16>>;
+    type Base = FiniteField<2, 16, Tower<FanPaar16>>;
     const LINEAR_COEFFICIENT: u64 = 0x0100;
     const CONSTANT_COEFFICIENT: u64 = 1;
     const NAME: &'static str = "Fan-Paar GF(2^32)";
@@ -491,7 +491,7 @@ impl TowerGeneratorSpec for FanPaar32 {
 pub struct FanPaar64;
 
 impl TowerSpec for FanPaar64 {
-    type Base = Binary<32, Tower<FanPaar32>>;
+    type Base = FiniteField<2, 32, Tower<FanPaar32>>;
     const LINEAR_COEFFICIENT: u64 = 0x0001_0000;
     const CONSTANT_COEFFICIENT: u64 = 1;
     const NAME: &'static str = "Fan-Paar GF(2^64)";
@@ -506,21 +506,26 @@ impl TowerGeneratorSpec for FanPaar64 {
 
 macro_rules! tower_repr_row {
     ($n:literal, $h:literal) => {
-        impl<S: TowerSpec> BinaryRepr<$n> for Tower<S>
+        impl<S: TowerSpec> FiniteFieldRepr<2, $n> for Tower<S>
         where
             S::Base: BinaryDegree<$h>,
         {
             const NAME: &'static str = S::NAME;
+            const VALID: () = {
+                let () = <S::Base as Field>::VALID;
+                <Self as BinaryRepr<$n>>::DESCRIPTION.validate();
+            };
+        }
+        impl<S: TowerSpec> BinaryRepr<$n> for Tower<S>
+        where
+            S::Base: BinaryDegree<$h>,
+        {
             const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::append_quadratic(
                 <S::Base as BinaryField>::DESCRIPTION,
                 S::LINEAR_COEFFICIENT,
                 S::CONSTANT_COEFFICIENT,
             );
             const LOG_EXP: Option<&'static ByteLogExp> = None;
-            const VALID: () = {
-                let () = <S::Base as Field>::VALID;
-                <Self as BinaryRepr<$n>>::DESCRIPTION.validate();
-            };
         }
     };
 }
@@ -555,18 +560,18 @@ pub(crate) const FANPAAR64_DESC: &BinaryDescription =
 // arithmetic (Karatsuba with the relation fold, single base inversion).
 
 const fn aes_mul(a: u8, b: u8) -> u8 {
-    Elem::<Binary<8, Polynomial<AES>>>::from_raw(a)
-        .mul(Elem::<Binary<8, Polynomial<AES>>>::from_raw(b))
+    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(a)
+        .mul(Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(b))
         .to_raw()
 }
 
 const fn aes_square(a: u8) -> u8 {
-    let e = Elem::<Binary<8, Polynomial<AES>>>::from_raw(a);
+    let e = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(a);
     e.mul(e).to_raw()
 }
 
 const fn aes_inv(a: u8) -> u8 {
-    Elem::<Binary<8, Polynomial<AES>>>::from_raw(a)
+    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(a)
         .inv()
         .to_raw()
 }
@@ -616,13 +621,13 @@ pub(crate) const fn rijndael16_inv(a: u16) -> u16 {
 // Splitting the raw word into halves: the truncation IS the operation.
 #[allow(clippy::cast_possible_truncation)]
 pub(crate) const fn rijndael32_mul(a: u32, b: u32) -> u32 {
-    let x0 = Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(a as u16);
-    let x1 = Elem::<Binary<16, Tower<Rijndael16>>>::from_raw((a >> 16) as u16);
-    let y0 = Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(b as u16);
-    let y1 = Elem::<Binary<16, Tower<Rijndael16>>>::from_raw((b >> 16) as u16);
+    let x0 = Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(a as u16);
+    let x1 = Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw((a >> 16) as u16);
+    let y0 = Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(b as u16);
+    let y1 = Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw((b >> 16) as u16);
     let ac = x0.mul(y0);
     let bd = x1.mul(y1);
-    let lo = ac.add(Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0x2000).mul(bd));
+    let lo = ac.add(Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0x2000).mul(bd));
     let hi = x0.add(x1).mul(y0.add(y1)).add(ac);
     (lo.to_raw() as u32) | ((hi.to_raw() as u32) << 16)
 }
@@ -630,11 +635,11 @@ pub(crate) const fn rijndael32_mul(a: u32, b: u32) -> u32 {
 // Splitting the raw word into halves: the truncation IS the operation.
 #[allow(clippy::cast_possible_truncation)]
 pub(crate) const fn rijndael32_square(a: u32) -> u32 {
-    let x0 = Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(a as u16);
-    let x1 = Elem::<Binary<16, Tower<Rijndael16>>>::from_raw((a >> 16) as u16);
+    let x0 = Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(a as u16);
+    let x1 = Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw((a >> 16) as u16);
     let x02 = x0.square();
     let x12 = x1.square();
-    let lo = x02.add(Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0x2000).mul(x12));
+    let lo = x02.add(Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0x2000).mul(x12));
     (lo.to_raw() as u32) | ((x12.to_raw() as u32) << 16)
 }
 
@@ -644,9 +649,9 @@ pub(crate) const fn rijndael32_inv(a: u32) -> u32 {
     if a == 0 {
         return 0;
     }
-    let x0 = Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(a as u16);
-    let x1 = Elem::<Binary<16, Tower<Rijndael16>>>::from_raw((a >> 16) as u16);
-    let delta = Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0x2000);
+    let x0 = Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(a as u16);
+    let x1 = Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw((a >> 16) as u16);
+    let delta = Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0x2000);
     let norm = x0.square().add(x0.mul(x1)).add(delta.mul(x1.square()));
     let ni = norm.inv();
     let lo = x0.add(x1).mul(ni);
@@ -657,13 +662,13 @@ pub(crate) const fn rijndael32_inv(a: u32) -> u32 {
 // Splitting the raw word into halves: the truncation IS the operation.
 #[allow(clippy::cast_possible_truncation)]
 pub(crate) const fn rijndael64_mul(a: u64, b: u64) -> u64 {
-    let x0 = Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(a as u32);
-    let x1 = Elem::<Binary<32, Tower<Rijndael32>>>::from_raw((a >> 32) as u32);
-    let y0 = Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(b as u32);
-    let y1 = Elem::<Binary<32, Tower<Rijndael32>>>::from_raw((b >> 32) as u32);
+    let x0 = Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(a as u32);
+    let x1 = Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw((a >> 32) as u32);
+    let y0 = Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(b as u32);
+    let y1 = Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw((b >> 32) as u32);
     let ac = x0.mul(y0);
     let bd = x1.mul(y1);
-    let lo = ac.add(Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(0x2000_0000).mul(bd));
+    let lo = ac.add(Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(0x2000_0000).mul(bd));
     let hi = x0.add(x1).mul(y0.add(y1)).add(ac);
     (lo.to_raw() as u64) | ((hi.to_raw() as u64) << 32)
 }
@@ -671,11 +676,11 @@ pub(crate) const fn rijndael64_mul(a: u64, b: u64) -> u64 {
 // Splitting the raw word into halves: the truncation IS the operation.
 #[allow(clippy::cast_possible_truncation)]
 pub(crate) const fn rijndael64_square(a: u64) -> u64 {
-    let x0 = Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(a as u32);
-    let x1 = Elem::<Binary<32, Tower<Rijndael32>>>::from_raw((a >> 32) as u32);
+    let x0 = Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(a as u32);
+    let x1 = Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw((a >> 32) as u32);
     let x02 = x0.square();
     let x12 = x1.square();
-    let lo = x02.add(Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(0x2000_0000).mul(x12));
+    let lo = x02.add(Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(0x2000_0000).mul(x12));
     (lo.to_raw() as u64) | ((x12.to_raw() as u64) << 32)
 }
 
@@ -685,9 +690,9 @@ pub(crate) const fn rijndael64_inv(a: u64) -> u64 {
     if a == 0 {
         return 0;
     }
-    let x0 = Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(a as u32);
-    let x1 = Elem::<Binary<32, Tower<Rijndael32>>>::from_raw((a >> 32) as u32);
-    let delta = Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(0x2000_0000);
+    let x0 = Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(a as u32);
+    let x1 = Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw((a >> 32) as u32);
+    let delta = Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(0x2000_0000);
     let norm = x0.square().add(x0.mul(x1)).add(delta.mul(x1.square()));
     let ni = norm.inv();
     let lo = x0.add(x1).mul(ni);
@@ -711,7 +716,7 @@ pub(crate) const fn rijndael64_inv(a: u64) -> u64 {
 macro_rules! tower_wide_row {
     ($n:literal, $h:literal, $raw:ty, $baseraw:ty, $half:literal,
      $bytes:literal, $order:expr, $factors:expr) => {
-        impl<S: TowerGeneratorSpec> HasGenerator for Binary<$n, Tower<S>>
+        impl<S: TowerGeneratorSpec> HasGenerator for FiniteField<2, $n, Tower<S>>
         where
             S::Base: BinaryDegree<$h>,
         {
@@ -725,10 +730,10 @@ macro_rules! tower_wide_row {
                 // validity but not this check, while this check reads the
                 // arithmetic below; routing through the constructor would
                 // close the const-eval cycle.
-                let g = Elem::<Binary<$n, Tower<S>>> {
+                let g = Elem::<FiniteField<2, $n, Tower<S>>> {
                     raw: S::GENERATOR as $raw,
                 };
-                let one = <Binary<$n, Tower<S>> as Field>::ONE_RAW;
+                let one = <FiniteField<2, $n, Tower<S>> as Field>::ONE_RAW;
                 let order: u128 = $order - 1;
                 assert!(
                     g.pow(order).to_raw() == one,
@@ -746,7 +751,7 @@ macro_rules! tower_wide_row {
             };
         }
 
-        impl<S: TowerSpec> FieldBuffer for Binary<$n, Tower<S>>
+        impl<S: TowerSpec> FieldBuffer for FiniteField<2, $n, Tower<S>>
         where
             S::Base: BinaryDegree<$h>,
         {
@@ -772,7 +777,7 @@ macro_rules! tower_wide_row {
             }
         }
 
-        impl<S: TowerSpec> Elem<Binary<$n, Tower<S>>>
+        impl<S: TowerSpec> Elem<FiniteField<2, $n, Tower<S>>>
         where
             S::Base: BinaryDegree<$h>,
         {
@@ -838,7 +843,7 @@ tower_wide_row!(
 
 macro_rules! tower_small_generator {
     ($n:literal, $h:literal) => {
-        impl<S: TowerGeneratorSpec> HasGenerator for Binary<$n, Tower<S>>
+        impl<S: TowerGeneratorSpec> HasGenerator for FiniteField<2, $n, Tower<S>>
         where
             S::Base: BinaryDegree<$h>,
         {
@@ -864,7 +869,7 @@ tower_small_generator!(8, 4);
 // arithmetic itself stays shared; only this factor helper is Fan-Paar
 // specific.
 
-impl Elem<Binary<8, Tower<FanPaar8>>> {
+impl Elem<FiniteField<2, 8, Tower<FanPaar8>>> {
     /// Multiply by this level's tower indeterminate `X`.
     #[allow(clippy::cast_possible_truncation)]
     #[inline]
@@ -876,7 +881,7 @@ impl Elem<Binary<8, Tower<FanPaar8>>> {
     }
 }
 
-impl Elem<Binary<16, Tower<FanPaar16>>> {
+impl Elem<FiniteField<2, 16, Tower<FanPaar16>>> {
     /// Multiply by this level's tower indeterminate `X`.
     #[allow(clippy::cast_possible_truncation)]
     #[inline]
@@ -888,7 +893,7 @@ impl Elem<Binary<16, Tower<FanPaar16>>> {
     }
 }
 
-impl Elem<Binary<32, Tower<FanPaar32>>> {
+impl Elem<FiniteField<2, 32, Tower<FanPaar32>>> {
     /// Multiply by this level's tower indeterminate `X`.
     #[allow(clippy::cast_possible_truncation)]
     #[inline]
@@ -952,8 +957,8 @@ mod tests {
     {
         for &x in &tower_sample16(&[generator]) {
             for &y in &tower_sample16(&[generator]) {
-                let got = Elem::<Binary<16, Tower<S>>>::from_raw(x)
-                    .mul(Elem::<Binary<16, Tower<S>>>::from_raw(y))
+                let got = Elem::<FiniteField<2, 16, Tower<S>>>::from_raw(x)
+                    .mul(Elem::<FiniteField<2, 16, Tower<S>>>::from_raw(y))
                     .to_raw();
                 assert_eq!(got, schoolbook16::<S>(x, y, a, b), "{x:04x} * {y:04x}");
             }
@@ -964,18 +969,18 @@ mod tests {
     where
         S::Base: BinaryDegree<8>,
     {
-        let one = Elem::<Binary<16, Tower<S>>>::ONE;
+        let one = Elem::<FiniteField<2, 16, Tower<S>>>::ONE;
         for &x in &tower_sample16(&[generator]) {
-            let a = Elem::<Binary<16, Tower<S>>>::from_raw(x);
-            assert_eq!(a.add(a), Elem::<Binary<16, Tower<S>>>::ZERO);
+            let a = Elem::<FiniteField<2, 16, Tower<S>>>::from_raw(x);
+            assert_eq!(a.add(a), Elem::<FiniteField<2, 16, Tower<S>>>::ZERO);
             assert_eq!(a.mul(one), a);
             assert_eq!(a.square(), a.mul(a));
             if !a.is_zero() {
                 assert_eq!(a.mul(a.inv()), one);
             }
             assert_eq!(
-                a.div(Elem::<Binary<16, Tower<S>>>::ZERO),
-                Elem::<Binary<16, Tower<S>>>::ZERO
+                a.div(Elem::<FiniteField<2, 16, Tower<S>>>::ZERO),
+                Elem::<FiniteField<2, 16, Tower<S>>>::ZERO
             );
             assert_eq!(a.pow(0), one);
         }
@@ -985,10 +990,10 @@ mod tests {
     where
         S::Base: BinaryDegree<8>,
     {
-        let g = Elem::<Binary<16, Tower<S>>>::GENERATOR;
-        assert_eq!(g.pow(65_535), Elem::<Binary<16, Tower<S>>>::ONE);
+        let g = Elem::<FiniteField<2, 16, Tower<S>>>::GENERATOR;
+        assert_eq!(g.pow(65_535), Elem::<FiniteField<2, 16, Tower<S>>>::ONE);
         for &q in factors {
-            assert_ne!(g.pow(65_535 / q), Elem::<Binary<16, Tower<S>>>::ONE);
+            assert_ne!(g.pow(65_535 / q), Elem::<FiniteField<2, 16, Tower<S>>>::ONE);
         }
     }
 
@@ -1038,17 +1043,17 @@ mod tests {
         }
         // Small tower elements agree with the recurrence.
         for (x, y) in [(0x2u8, 0x3u8), (0x1u8, 0x1u8), (0x0u8, 0x2u8)] {
-            let got = Elem::<Binary<2, Tower<FanPaar2>>>::from_raw(x)
-                .mul(Elem::<Binary<2, Tower<FanPaar2>>>::from_raw(y))
+            let got = Elem::<FiniteField<2, 2, Tower<FanPaar2>>>::from_raw(x)
+                .mul(Elem::<FiniteField<2, 2, Tower<FanPaar2>>>::from_raw(y))
                 .to_raw();
             assert_eq!(u64::from(got), fp_multiply(u64::from(x), u64::from(y), 2));
         }
-        let g2 = Elem::<Binary<2, Tower<FanPaar2>>>::GENERATOR;
-        assert_eq!(g2.pow(3), Elem::<Binary<2, Tower<FanPaar2>>>::ONE);
-        let g4 = Elem::<Binary<4, Tower<FanPaar4>>>::GENERATOR;
-        assert_eq!(g4.pow(15), Elem::<Binary<4, Tower<FanPaar4>>>::ONE);
-        let g8 = Elem::<Binary<8, Tower<FanPaar8>>>::GENERATOR;
-        assert_eq!(g8.pow(255), Elem::<Binary<8, Tower<FanPaar8>>>::ONE);
+        let g2 = Elem::<FiniteField<2, 2, Tower<FanPaar2>>>::GENERATOR;
+        assert_eq!(g2.pow(3), Elem::<FiniteField<2, 2, Tower<FanPaar2>>>::ONE);
+        let g4 = Elem::<FiniteField<2, 4, Tower<FanPaar4>>>::GENERATOR;
+        assert_eq!(g4.pow(15), Elem::<FiniteField<2, 4, Tower<FanPaar4>>>::ONE);
+        let g8 = Elem::<FiniteField<2, 8, Tower<FanPaar8>>>::GENERATOR;
+        assert_eq!(g8.pow(255), Elem::<FiniteField<2, 8, Tower<FanPaar8>>>::ONE);
     }
 
     #[test]
@@ -1086,28 +1091,31 @@ mod tests {
         }
         for &x in &values {
             for &y in &values {
-                let got = Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(x)
-                    .mul(Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(y))
+                let got = Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(x)
+                    .mul(Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(y))
                     .to_raw();
                 assert_eq!(got, mul(x, y), "{x:08x} * {y:08x}");
             }
         }
         for &x in &values {
-            let a = Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(x);
+            let a = Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(x);
             assert_eq!(a.square(), a.mul(a));
             if !a.is_zero() {
-                assert_eq!(a.mul(a.inv()), Elem::<Binary<32, Tower<Rijndael32>>>::ONE);
+                assert_eq!(
+                    a.mul(a.inv()),
+                    Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::ONE
+                );
             }
         }
-        let g = Elem::<Binary<32, Tower<Rijndael32>>>::GENERATOR;
+        let g = Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::GENERATOR;
         assert_eq!(
             g.pow(u128::from(u32::MAX)),
-            Elem::<Binary<32, Tower<Rijndael32>>>::ONE
+            Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::ONE
         );
         for q in [3u128, 5, 17, 257, 65_537] {
             assert_ne!(
                 g.pow(u128::from(u32::MAX) / q),
-                Elem::<Binary<32, Tower<Rijndael32>>>::ONE
+                Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::ONE
             );
         }
     }
@@ -1148,58 +1156,73 @@ mod tests {
         }
         for &x in &values {
             for &y in &values {
-                let got = Elem::<Binary<32, Tower<FanPaar32>>>::from_raw(x)
-                    .mul(Elem::<Binary<32, Tower<FanPaar32>>>::from_raw(y))
+                let got = Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::from_raw(x)
+                    .mul(Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::from_raw(y))
                     .to_raw();
                 assert_eq!(got, mul(x, y), "{x:08x} * {y:08x}");
             }
         }
-        let g = Elem::<Binary<32, Tower<FanPaar32>>>::GENERATOR;
+        let g = Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::GENERATOR;
         assert_eq!(
             g.pow(u128::from(u32::MAX)),
-            Elem::<Binary<32, Tower<FanPaar32>>>::ONE
+            Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::ONE
         );
         for q in [3u128, 5, 17, 257, 65_537] {
             assert_ne!(
                 g.pow(u128::from(u32::MAX) / q),
-                Elem::<Binary<32, Tower<FanPaar32>>>::ONE
+                Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::ONE
             );
         }
     }
 
     #[test]
     fn wide_field_facts() {
-        assert_eq!(<Binary<64, Tower<Rijndael64>> as Field>::DEGREE, 64);
-        assert_eq!(<Binary<64, Tower<Rijndael64>> as Field>::ORDER, 1u128 << 64);
-        assert_eq!(<Binary<64, Tower<Rijndael64>> as FieldBuffer>::BYTES, 8);
-        assert_eq!(<Binary<32, Tower<Rijndael32>> as FieldBuffer>::BYTES, 4);
-        let g = Elem::<Binary<64, Tower<Rijndael64>>>::GENERATOR;
+        assert_eq!(<FiniteField<2, 64, Tower<Rijndael64>> as Field>::DEGREE, 64);
+        assert_eq!(
+            <FiniteField<2, 64, Tower<Rijndael64>> as Field>::ORDER,
+            1u128 << 64
+        );
+        assert_eq!(
+            <FiniteField<2, 64, Tower<Rijndael64>> as FieldBuffer>::BYTES,
+            8
+        );
+        assert_eq!(
+            <FiniteField<2, 32, Tower<Rijndael32>> as FieldBuffer>::BYTES,
+            4
+        );
+        let g = Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::GENERATOR;
         assert_eq!(
             g.pow(u128::from(u64::MAX)),
-            Elem::<Binary<64, Tower<Rijndael64>>>::ONE
+            Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::ONE
         );
         for q in [3u128, 5, 17, 257, 641, 65_537, 6_700_417] {
             assert_ne!(
                 g.pow(u128::from(u64::MAX) / q),
-                Elem::<Binary<64, Tower<Rijndael64>>>::ONE
+                Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::ONE
             );
         }
         // Coordinate round trip of `u64::MAX`.
-        let max = <Binary<64, Tower<Rijndael64>> as BinaryField>::from_coordinates(u64::MAX)
-            .expect("full-width word");
+        let max =
+            <FiniteField<2, 64, Tower<Rijndael64>> as BinaryField>::from_coordinates(u64::MAX)
+                .expect("full-width word");
         assert_eq!(
-            <Binary<64, Tower<Rijndael64>> as BinaryField>::to_coordinates(max),
+            <FiniteField<2, 64, Tower<Rijndael64>> as BinaryField>::to_coordinates(max),
             u64::MAX
         );
         // Excess-bit rejection below the cap.
         assert!(
-            <Binary<32, Tower<Rijndael32>> as BinaryField>::from_coordinates(1u64 << 32).is_err()
+            <FiniteField<2, 32, Tower<Rijndael32>> as BinaryField>::from_coordinates(1u64 << 32)
+                .is_err()
         );
         assert!(
-            <Binary<16, Tower<Rijndael16>> as BinaryField>::from_coordinates(1u64 << 16).is_err()
+            <FiniteField<2, 16, Tower<Rijndael16>> as BinaryField>::from_coordinates(1u64 << 16)
+                .is_err()
         );
         // Masks never shift by 64: the full word is accepted.
-        assert!(<Binary<64, Tower<Rijndael64>> as BinaryField>::from_coordinates(u64::MAX).is_ok());
+        assert!(
+            <FiniteField<2, 64, Tower<Rijndael64>> as BinaryField>::from_coordinates(u64::MAX)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -1209,10 +1232,10 @@ mod tests {
             fp_multiply(0xc84d_6191_1083_1cef, 0x0000_0000_0000_a14f, 64),
             0x3565_086d_6b9e_f595
         );
-        let g = Elem::<Binary<64, Tower<FanPaar64>>>::GENERATOR;
+        let g = Elem::<FiniteField<2, 64, Tower<FanPaar64>>>::GENERATOR;
         assert_eq!(
             g.pow(u128::from(u64::MAX)),
-            Elem::<Binary<64, Tower<FanPaar64>>>::ONE
+            Elem::<FiniteField<2, 64, Tower<FanPaar64>>>::ONE
         );
     }
 
@@ -1221,7 +1244,7 @@ mod tests {
     struct CustomNormal8;
 
     impl TowerSpec for CustomNormal8 {
-        type Base = Binary<8, crate::field::Normal<0x11B, 0x20>>;
+        type Base = FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>;
         const LINEAR_COEFFICIENT: u64 = 0xFF;
         const CONSTANT_COEFFICIENT: u64 = transport_poly(0x20);
         const NAME: &'static str = "custom normal tower";
@@ -1245,7 +1268,7 @@ mod tests {
 
     #[test]
     fn custom_normal_tower_zero_one_inverse() {
-        type F = Binary<16, Tower<CustomNormal8>>;
+        type F = FiniteField<2, 16, Tower<CustomNormal8>>;
         assert_eq!(Elem::<F>::ZERO.to_raw(), 0);
         // The actual one holds the base one in the low component.
         let base_one = <CustomNormal8 as TowerSpec>::Base::DESCRIPTION.one();
@@ -1268,8 +1291,8 @@ mod tests {
     /// product to the normal-basis product of the images.
     #[test]
     fn transport_poly_is_a_field_isomorphism() {
-        type Poly8 = Binary<8, crate::field::Polynomial<0x11B>>;
-        type Normal8 = Binary<8, crate::field::Normal<0x11B, 0x20>>;
+        type Poly8 = FiniteField<2, 8, crate::field::Polynomial<0x11B>>;
+        type Normal8 = FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>;
         #[allow(clippy::cast_possible_truncation)]
         let transport = |word: u8| transport_poly(core::hint::black_box(u64::from(word))) as u8;
         assert_eq!(transport(1), Elem::<Normal8>::ONE.to_raw());

@@ -12,13 +12,14 @@
 //!
 //! ```compile_fail,E0080
 //! // SEED = 0 builds the zero chain, which never reaches one.
-//! let _ = fgf::Elem::<fgf::Binary<8, fgf::Cantor<0x11B, 0>>>::from_raw(1);
+//! let _ = fgf::Elem::<fgf::FiniteField<2, 8, fgf::Cantor<0x11B, 0>>>::from_raw(1);
 //! ```
 
+use super::BinaryRepr;
 use super::description::{BinaryDescription, ByteLogExp};
 use super::normal::inverse_columns;
 use super::poly::Polynomial;
-use super::{BinaryRepr, private};
+use crate::field::FiniteFieldRepr;
 
 /// A Cantor-basis presentation over `Polynomial<P>` seeded by `SEED`.
 ///
@@ -27,7 +28,7 @@ use super::{BinaryRepr, private};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
 pub struct Cantor<const P: u128, const SEED: u8>;
 
-impl<const P: u128, const SEED: u8> private::Sealed for Cantor<P, SEED> {}
+impl<const P: u128, const SEED: u8> crate::field::private::Sealed for Cantor<P, SEED> {}
 
 /// Cantor chain in polynomial coordinates: `cols[i]` is `c_i`.
 pub(crate) const fn to_base<const P: u128, const SEED: u8, const N: u8>() -> [u8; 8] {
@@ -48,14 +49,8 @@ pub(crate) const fn to_base<const P: u128, const SEED: u8, const N: u8>() -> [u8
 
 macro_rules! cantor_row {
     ($n:literal) => {
-        impl<const P: u128, const SEED: u8> BinaryRepr<$n> for Cantor<P, SEED> {
+        impl<const P: u128, const SEED: u8> FiniteFieldRepr<2, $n> for Cantor<P, SEED> {
             const NAME: &'static str = "cantor";
-            const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::append_basis(
-                &BinaryDescription::polynomial($n, P),
-                to_base::<P, SEED, $n>(),
-                inverse_columns(to_base::<P, SEED, $n>(), $n),
-            );
-            const LOG_EXP: Option<&'static ByteLogExp> = None;
             const VALID: () = {
                 assert!((SEED as u64) < (1u64 << $n), "cantor seed has excess bits");
                 assert!(
@@ -64,6 +59,14 @@ macro_rules! cantor_row {
                 );
                 <Self as BinaryRepr<$n>>::DESCRIPTION.validate();
             };
+        }
+        impl<const P: u128, const SEED: u8> BinaryRepr<$n> for Cantor<P, SEED> {
+            const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::append_basis(
+                &BinaryDescription::polynomial($n, P),
+                to_base::<P, SEED, $n>(),
+                inverse_columns(to_base::<P, SEED, $n>(), $n),
+            );
+            const LOG_EXP: Option<&'static ByteLogExp> = None;
         }
     };
 }
@@ -88,9 +91,9 @@ pub(crate) const fn transported_generator<const P: u128, const SEED: u8, const N
 }
 
 use super::super::HasGenerator;
-use super::Binary;
+use crate::field::FiniteField;
 
-impl<const P: u128, const SEED: u8> HasGenerator for Binary<2, Cantor<P, SEED>> {
+impl<const P: u128, const SEED: u8> HasGenerator for FiniteField<2, 2, Cantor<P, SEED>> {
     const GENERATOR_RAW: u8 = {
         let g = transported_generator::<P, SEED, 2>();
         assert!(
@@ -103,7 +106,7 @@ impl<const P: u128, const SEED: u8> HasGenerator for Binary<2, Cantor<P, SEED>> 
     };
 }
 
-impl<const P: u128, const SEED: u8> HasGenerator for Binary<4, Cantor<P, SEED>> {
+impl<const P: u128, const SEED: u8> HasGenerator for FiniteField<2, 4, Cantor<P, SEED>> {
     const GENERATOR_RAW: u8 = {
         let g = transported_generator::<P, SEED, 4>();
         assert!(
@@ -116,7 +119,7 @@ impl<const P: u128, const SEED: u8> HasGenerator for Binary<4, Cantor<P, SEED>> 
     };
 }
 
-impl<const P: u128, const SEED: u8> HasGenerator for Binary<8, Cantor<P, SEED>> {
+impl<const P: u128, const SEED: u8> HasGenerator for FiniteField<2, 8, Cantor<P, SEED>> {
     const GENERATOR_RAW: u8 = {
         let g = transported_generator::<P, SEED, 8>();
         assert!(
@@ -130,7 +133,6 @@ impl<const P: u128, const SEED: u8> HasGenerator for Binary<8, Cantor<P, SEED>> 
 }
 
 impl<const P: u128, const SEED: u8> BinaryRepr<8> for Cantor<P, SEED> {
-    const NAME: &'static str = "cantor";
     const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::append_basis(
         &BinaryDescription::polynomial(8, P),
         to_base::<P, SEED, 8>(),
@@ -157,6 +159,10 @@ impl<const P: u128, const SEED: u8> BinaryRepr<8> for Cantor<P, SEED> {
             image
         },
     ));
+}
+
+impl<const P: u128, const SEED: u8> FiniteFieldRepr<2, 8> for Cantor<P, SEED> {
+    const NAME: &'static str = "cantor";
     const VALID: () = {
         assert!(
             to_base::<P, SEED, 8>()[0] == 1,

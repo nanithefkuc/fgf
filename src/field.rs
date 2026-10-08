@@ -103,8 +103,8 @@ pub use binary::tower::{
     Rijndael64, Tower, TowerGeneratorSpec, TowerSpec,
 };
 pub use binary::{
-    AES, Binary, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor,
-    Embedding, EmbeddingError, Normal, Polynomial, RS,
+    AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Embedding,
+    EmbeddingError, Normal, Polynomial, RS,
 };
 pub use finite_field::{FiniteField, FiniteFieldRepr, Residue};
 pub use goldilocks::{Goldilocks, GoldilocksFold};

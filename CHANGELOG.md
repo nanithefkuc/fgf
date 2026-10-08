@@ -40,6 +40,12 @@ All notable changes to this project are documented here. The format follows
   Result<Self, RangeError>` and `to_residue(self) -> Option<u64>`. The
   default `Residue` row at either modulus remains a distinct type with its
   own lane width; values move between the two by residue conversion.
+- The binary degree-one rows `FiniteField<2, 1, R>` implement `PrimeField`
+  and gain `const` `from_residue(u64) -> Result<Self, RangeError>` and
+  `to_residue(self) -> Option<u64>`; they stay distinct from
+  `FiniteField<2, 1, Residue>`, which stores a `u64` residue.
+- `just external-check` type-checks every package under `external/`
+  against the working copy.
 
 ### Changed
 
@@ -54,6 +60,23 @@ All notable changes to this project are documented here. The format follows
   `FiniteField<2147483647, 1, mersenne-fold>`. Kernel receivers move to the
   rows with the aliases, so `FieldKernels` calls through the alias names
   compile unchanged.
+- **Breaking:** the `Binary<N, R>` marker is removed without an alias;
+  binary fields are the canonical family rows `FiniteField<2, N, R>`.
+  Replace `Binary<8, Polynomial<AES>>` with `FiniteField<2, 8,
+  Polynomial<AES>>` and `Binary::<…>` with `FiniteField::<2, …>`, and
+  import `FiniteField` instead of `Binary`. Raw widths, bytes, descriptors,
+  coordinates, embeddings, bit-packed buffers, and kernel routing are
+  unchanged.
+- **Breaking:** `BinaryRepr<const N: u32>` and `BinaryDegree<const N: u32>`
+  take `u32` degree parameters instead of `u8`; generic code declaring
+  `const N: u8` against them changes the parameter type.
+- **Breaking:** `BinaryRepr` now extends `FiniteFieldRepr<2, N>`, which
+  owns `NAME` and `VALID`. Replace `<R as BinaryRepr<N>>::NAME` and
+  `::VALID` with `<R as FiniteFieldRepr<2, N>>::NAME` and `::VALID`;
+  `DESCRIPTION` and `LOG_EXP` stay on `BinaryRepr`.
+- **Breaking:** binary marker `Debug` prints the family spelling with the
+  presentation label, e.g. `FiniteField<2, 8, GF(2^8)/0x11B>`, instead of
+  the label alone. Element `Debug` and every wire format are unchanged.
 
 ## [3.0.0-rc.1] - 2026-10-07
 

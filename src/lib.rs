@@ -30,8 +30,8 @@ pub mod ops;
 pub mod internals;
 
 pub use field::{
-    AES, Binary, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor,
-    Elem, Embedding, EmbeddingError, FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64,
+    AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Elem,
+    Embedding, EmbeddingError, FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64,
     Field, FieldBuffer, FieldElem, FiniteField, FiniteFieldRepr, Goldilocks, GoldilocksFold,
     HasGenerator, Mersenne31, MersenneFold, Normal, Polynomial, PrimeCharacteristic, PrimeField,
     PrimeIdentity, QuadMersenne31, RS, RangeError, Residue, Rijndael16, Rijndael32, Rijndael64,

@@ -93,21 +93,21 @@ use simdispatch::Selection;
 mod private {
     pub trait Sealed {}
 }
-impl<R: crate::kernel::tables::Gf8Data> private::Sealed for crate::field::Binary<8, R> {}
+impl<R: crate::kernel::tables::Gf8Data> private::Sealed for crate::field::FiniteField<2, 8, R> {}
 impl<S: crate::field::binary::tower::TowerSpec> private::Sealed
-    for crate::field::Binary<16, crate::field::binary::tower::Tower<S>>
+    for crate::field::FiniteField<2, 16, crate::field::binary::tower::Tower<S>>
 where
     S::Base: crate::field::binary::BinaryDegree<8>,
 {
 }
 impl<S: crate::field::binary::tower::TowerSpec> private::Sealed
-    for crate::field::Binary<32, crate::field::binary::tower::Tower<S>>
+    for crate::field::FiniteField<2, 32, crate::field::binary::tower::Tower<S>>
 where
     S::Base: crate::field::binary::BinaryDegree<16>,
 {
 }
 impl<S: crate::field::binary::tower::TowerSpec> private::Sealed
-    for crate::field::Binary<64, crate::field::binary::tower::Tower<S>>
+    for crate::field::FiniteField<2, 64, crate::field::binary::tower::Tower<S>>
 where
     S::Base: crate::field::binary::BinaryDegree<32>,
 {

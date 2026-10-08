@@ -8,6 +8,7 @@
 //! `const` integer reductions, independent of any element or presentation
 //! type.
 
+use super::binary::BinaryRepr;
 use super::finite_field::{FiniteField, Residue};
 use super::goldilocks::Goldilocks;
 use super::mersenne31::Mersenne31;
@@ -33,6 +34,10 @@ impl PrimeField for Mersenne31 {}
 impl private::PrimeFieldSeal for Goldilocks {}
 
 impl PrimeField for Goldilocks {}
+
+impl<R: BinaryRepr<1>> private::PrimeFieldSeal for FiniteField<2, 1, R> {}
+
+impl<R: BinaryRepr<1>> PrimeField for FiniteField<2, 1, R> {}
 
 /// Reduce a `u64` to its ordinary residue modulo the prime `P`.
 ///

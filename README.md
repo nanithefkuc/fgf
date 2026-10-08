@@ -36,9 +36,9 @@ fgf = "3.0.0"
 Scalar arithmetic is `const`:
 
 ```rust
-use fgf::{Binary, Elem, Polynomial, poly::AES};
+use fgf::{FiniteField, Elem, Polynomial, poly::AES};
 
-type Gf2P8 = Binary<8, Polynomial<AES>>;
+type Gf2P8 = FiniteField<2, 8, Polynomial<AES>>;
 
 const A: Elem<Gf2P8> = Elem::<Gf2P8>::from_raw(0x53);
 const B: Elem<Gf2P8> = Elem::<Gf2P8>::from_raw(0xCA);
@@ -50,9 +50,9 @@ assert_eq!(A.mul(B).div(B), A);
 Bulk operations take the field as a type parameter and work on packed bytes:
 
 ```rust
-use fgf::{Binary, Elem, Polynomial, poly::AES, ops};
+use fgf::{FiniteField, Elem, Polynomial, poly::AES, ops};
 
-type Gf2P8 = Binary<8, Polynomial<AES>>;
+type Gf2P8 = FiniteField<2, 8, Polynomial<AES>>;
 
 let src = [0x01u8, 0x02, 0x03, 0x04];
 let mut dst = [0u8; 4];
