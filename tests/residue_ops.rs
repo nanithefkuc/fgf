@@ -344,20 +344,25 @@ fn check_prepared_reuse<F: FieldKernels>(coeffs: &[Elem<F>]) {
         .collect();
     let src_refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
 
-    let single = ops::Coeff::<F>::new(coeffs[0]);
-    for src in &src_refs {
-        let mut got = vec![0u8; row_len];
-        let mut want = vec![0u8; row_len];
-        ops::mul_add_with::<F>(&mut got, &single, src);
-        oracle_mul_add::<F>(&mut want, coeffs[0], src);
-        assert_eq!(got, want, "prepared mul_add reuse");
-        let mut got = vec![0u8; row_len];
-        ops::mul_into_with::<F>(&mut got, &single, src);
-        let mut want = src.to_vec();
-        oracle_mul_assign::<F>(&mut want, coeffs[0]);
-        assert_eq!(got, want, "prepared mul_into reuse");
+    // Every coefficient, identity or not, is prepared once and reused over
+    // distinct sources.
+    for &coeff in coeffs {
+        let single = ops::Coeff::<F>::new(coeff);
+        for src in &src_refs {
+            let mut got = noise(row_len, 0x301);
+            canon::<F>(&mut got);
+            let mut want = got.clone();
+            ops::mul_add_with::<F>(&mut got, &single, src);
+            oracle_mul_add::<F>(&mut want, coeff, src);
+            assert_eq!(got, want, "prepared mul_add reuse");
+            let mut got = noise(row_len, 0x302);
+            ops::mul_into_with::<F>(&mut got, &single, src);
+            let mut want = src.to_vec();
+            oracle_mul_assign::<F>(&mut want, coeff);
+            assert_eq!(got, want, "prepared mul_into reuse");
+        }
+        assert_eq!(single.value(), coeff, "prepared keeps its coefficient");
     }
-    assert_eq!(single.value(), coeffs[0], "prepared keeps its coefficient");
 
     let vector = ops::CoeffVec::<F>::new(coeffs);
     {
@@ -391,9 +396,15 @@ fn check_prepared_reuse<F: FieldKernels>(coeffs: &[Elem<F>]) {
         assert_eq!(got, want, "prepared overwrite gather");
     }
 
-    let flat: Vec<Elem<F>> = (0..2).flat_map(|_| coeffs.iter().copied()).collect();
+    // Two distinct sources with distinct coefficient columns, so a swapped
+    // source index or column stride changes the result.
+    let flat: Vec<Elem<F>> = coeffs
+        .iter()
+        .copied()
+        .chain(coeffs.iter().rev().map(|c| c.add(Elem::<F>::ONE)))
+        .collect();
     let matrix = ops::CoeffMatrix::<F>::from_source_major(2, nsrc, &flat);
-    let matrix_refs: Vec<&[u8]> = vec![src_refs[0], src_refs[0]];
+    let matrix_refs: Vec<&[u8]> = vec![src_refs[0], src_refs[1]];
     {
         let nrows = nsrc;
         let mut got = noise(row_len * nrows, 0x340);
@@ -425,19 +436,87 @@ fn check_prepared_reuse<F: FieldKernels>(coeffs: &[Elem<F>]) {
     }
 }
 
-/// Noncanonical lanes in, canonical lanes out, through the packed add path.
-fn check_alias_lanes<F: FieldKernels>(modulus: u64, aliases: &[u64]) {
-    for &alias in aliases {
-        let mut buf = alias.to_le_bytes().repeat(4);
-        canon::<F>(&mut buf);
+/// Noncanonical lanes through the packed dispatch: arithmetic paths emit
+/// canonical lanes equal to the oracle over the reduced values, and the
+/// documented shortcuts preserve the alias bytes exactly.
+fn check_alias_lanes<F: FieldKernels>(modulus: u64, aliases: &[u64], coeff: Elem<F>) {
+    let alias_buf: Vec<u8> = aliases.iter().flat_map(|a| a.to_le_bytes()).collect();
+    let len = alias_buf.len();
+    let mut other = noise(len, 0x500);
+    canon::<F>(&mut other);
+    let assert_canonical = |buf: &[u8], what: &str| {
         for lane in buf.chunks_exact(F::BYTES) {
-            assert_eq!(
-                u64::from_le_bytes(lane.try_into().expect("lane width")),
-                alias % modulus,
-                "alias {alias} canonicalized"
-            );
+            let word = u64::from_le_bytes(lane.try_into().expect("lane width"));
+            assert!(word < modulus, "{what}: lane {word} not canonical");
         }
+    };
+
+    // Aliases as the destination of accumulation and in-place scaling.
+    let mut got = alias_buf.clone();
+    let mut want = alias_buf.clone();
+    ops::add_assign::<F>(&mut got, &other);
+    oracle_add_assign::<F>(&mut want, &other);
+    assert_eq!(got, want, "add_assign over aliases");
+    assert_canonical(&got, "add_assign");
+
+    let mut got = alias_buf.clone();
+    let mut want = alias_buf.clone();
+    ops::mul_add::<F>(&mut got, coeff, &other);
+    oracle_mul_add::<F>(&mut want, coeff, &other);
+    assert_eq!(got, want, "mul_add into aliases");
+    assert_canonical(&got, "mul_add");
+
+    // A unit coefficient takes the byte-preserving shortcut checked below.
+    if !coeff.is_one() {
+        let mut got = alias_buf.clone();
+        let mut want = alias_buf.clone();
+        ops::mul_assign::<F>(&mut got, coeff);
+        oracle_mul_assign::<F>(&mut want, coeff);
+        assert_eq!(got, want, "mul_assign over aliases");
+        assert_canonical(&got, "mul_assign");
     }
+
+    let mut got = alias_buf.clone();
+    let mut want = alias_buf.clone();
+    ops::sub_assign_scalar::<F>(&mut got, coeff);
+    oracle_sub_scalar::<F>(&mut want, coeff);
+    assert_eq!(got, want, "sub_assign_scalar over aliases");
+    assert_canonical(&got, "sub_assign_scalar");
+
+    // Aliases as the source of accumulation, overwrite, and products.
+    let mut got = other.clone();
+    let mut want = other.clone();
+    ops::sub_assign::<F>(&mut got, &alias_buf);
+    oracle_sub_assign::<F>(&mut want, &alias_buf);
+    assert_eq!(got, want, "sub_assign from aliases");
+    assert_canonical(&got, "sub_assign");
+
+    if !coeff.is_one() {
+        let mut got = noise(len, 0x501);
+        ops::mul_into::<F>(&mut got, coeff, &alias_buf);
+        let mut want = alias_buf.clone();
+        oracle_mul_assign::<F>(&mut want, coeff);
+        assert_eq!(got, want, "mul_into from aliases");
+        assert_canonical(&got, "mul_into");
+    }
+
+    let mut got = vec![0u8; len];
+    let mut want = vec![0u8; len];
+    ops::mul_elementwise::<F>(&mut got, &alias_buf, &other);
+    oracle_mul_elementwise::<F>(&mut want, &alias_buf, &other);
+    assert_eq!(got, want, "mul_elementwise of aliases");
+    assert_canonical(&got, "mul_elementwise");
+
+    // Shortcuts preserve bytes, aliases included.
+    let mut got = alias_buf.clone();
+    ops::mul_add::<F>(&mut got, Elem::<F>::ZERO, &other);
+    assert_eq!(got, alias_buf, "zero accumulation keeps alias bytes");
+    let mut got = alias_buf.clone();
+    ops::mul_assign::<F>(&mut got, Elem::<F>::ONE);
+    assert_eq!(got, alias_buf, "one scaling keeps alias bytes");
+    let mut got = noise(len, 0x502);
+    ops::mul_into::<F>(&mut got, Elem::<F>::ONE, &alias_buf);
+    assert_eq!(got, alias_buf, "one overwrite copies alias bytes");
 }
 
 #[test]
@@ -527,13 +606,18 @@ fn residue_prepared_reuse_matches_one_shot() {
 
 #[test]
 fn alias_lanes_canonicalize_through_packed_ops() {
-    check_alias_lanes::<P7>(7, &[7, 8, 14, u64::MAX]);
-    check_alias_lanes::<PPrime>(1_000_000_007, &[1_000_000_007, 1_000_000_008, u64::MAX]);
+    check_alias_lanes::<P7>(7, &[7, 8, 14, u64::MAX], Elem::<P7>::from_raw(3));
+    check_alias_lanes::<PPrime>(
+        1_000_000_007,
+        &[1_000_000_007, 1_000_000_008, u64::MAX],
+        Elem::<PPrime>::from_raw(123_456_789),
+    );
     check_alias_lanes::<PWide>(
         0xFFFF_FFFF_FFFF_FFC5,
         &[0xFFFF_FFFF_FFFF_FFC5, 0xFFFF_FFFF_FFFF_FFC6, u64::MAX],
+        Elem::<PWide>::from_raw(0xFFFF_FFFF_FFFF_FFC4),
     );
-    check_alias_lanes::<P2>(2, &[2, 3, 4, u64::MAX]);
+    check_alias_lanes::<P2>(2, &[2, 3, 4, u64::MAX], Elem::<P2>::ONE);
 }
 
 /// Every packed kernel must leave the characteristic-two row's lanes

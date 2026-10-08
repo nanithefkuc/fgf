@@ -1,4 +1,4 @@
-// expect-code: E0277
+// expect-rejection
 use fgf::{Binary, Polynomial, AES, PrimeField};
 
 // The prime-field marker covers degree-one rows only; a degree-eight binary

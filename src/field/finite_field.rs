@@ -40,24 +40,23 @@ mod residue;
 
 pub use residue::Residue;
 
-/// Validated `P^N` in `u128`: the shared metadata check for family rows.
+/// Validated `characteristic^degree` in `u128`: the shared metadata check.
 ///
-/// Asserts the characteristic is prime, the degree is positive, the binary
-/// degree cap of 64 holds at characteristic two, and the cardinality fits
-/// `u128` with overflow checking, then returns the order. Central field
-/// validation runs the same checks from every [`Field`] construction; this
-/// is the reusable extraction the rows' own metadata items read.
+/// Asserts the degree is positive, the binary degree cap of 64 holds at
+/// characteristic two, and the cardinality fits `u128` with overflow
+/// checking, then returns the order. The caller supplies a characteristic
+/// already read through the primality proof. Central field validation and
+/// the family rows' metadata items both run this one body.
 #[allow(clippy::cast_lossless)]
-pub(crate) const fn checked_order<const P: u64, const N: u32>() -> u128 {
-    let characteristic = <PrimeCharacteristic<P> as PrimeIdentity>::CHARACTERISTIC;
-    assert!(N > 0, "field degree must be positive");
+pub(crate) const fn metadata_order(characteristic: u64, degree: u32) -> u128 {
+    assert!(degree > 0, "field degree must be positive");
     assert!(
-        characteristic != 2 || N <= 64,
+        characteristic != 2 || degree <= 64,
         "binary field degree exceeds 64"
     );
     let mut order: u128 = 1;
     let mut i = 0;
-    while i < N {
+    while i < degree {
         order = match order.checked_mul(characteristic as u128) {
             Some(value) => value,
             None => panic!("field order overflows u128"),
@@ -65,6 +64,12 @@ pub(crate) const fn checked_order<const P: u64, const N: u32>() -> u128 {
         i += 1;
     }
     order
+}
+
+/// Validated `P^N` for a family row: the primality proof of `P`, then
+/// [`metadata_order`].
+pub(crate) const fn checked_order<const P: u64, const N: u32>() -> u128 {
+    metadata_order(<PrimeCharacteristic<P> as PrimeIdentity>::CHARACTERISTIC, N)
 }
 
 /// A finite field with prime characteristic `P`, absolute degree `N`, and
@@ -132,7 +137,7 @@ impl<const P: u64, const N: u32, R: FiniteFieldRepr<P, N>> core::fmt::Debug
 
 /// The presentation metadata of a canonical family row.
 ///
-/// Sealed, like the fields and elements: representations are crate-defined,
+/// Sealed, like the elements: representations are crate-defined,
 /// and downstream code names a row with its public type rather than
 /// implementing this trait. `NAME` is a human-readable presentation label,
 /// distinct from the field name a [`Field`](crate::field::Field) row

@@ -49,6 +49,11 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
         prime::mul_add::<Self>(dst, *coeff, src);
     }
 
+    /// One pass: decode, multiply, encode, never reading the old destination.
+    fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
+        prime::mul_into::<Self>(dst, *coeff, src);
+    }
+
     fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared) {
         prime::mul_assign::<Self>(dst, *coeff);
     }

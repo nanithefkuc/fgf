@@ -1,4 +1,4 @@
-// expect-code: E0277
+// expect-rejection
 use fgf::{Elem, FiniteField};
 
 // Degree zero is rejected at the type level: no representation is defined

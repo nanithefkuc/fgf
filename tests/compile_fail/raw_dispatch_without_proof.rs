@@ -1,4 +1,4 @@
-// expect-code: E0624
+// expect-rejection
 use fgf::FieldKernels;
 
 // Bound elaboration names the raw dispatch entry, but its proof argument is

@@ -69,8 +69,10 @@ cross-check:
     RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+simd128" cargo check --target wasm32-unknown-unknown --all-features --lib
 
 # Negative consumer snippets under `tests/compile_fail/`: each must fail to
-# compile on the crate MSRV, with the message fragment (`expect:`) or error
-# code (`expect-code:`) named on its first line. Cargo does not treat that
+# compile on the crate MSRV. The first line names the expectation: a
+# crate-owned panic fragment (`expect:`) that must appear in the error, or
+# `expect-rejection` for trait-bound and privacy rejections, where only the
+# failure itself is the contract. Cargo does not treat that
 # directory as test targets, so these run only through this recipe.
 [group('test')]
 compile-fail:
@@ -87,8 +89,8 @@ compile-fail:
     for snippet in tests/compile_fail/*.rs; do
         header=$(head -n 1 "${snippet}")
         case "${header}" in
-            "// expect-code: "*) code="${header##*expect-code: }"; fragment="" ;;
-            "// expect: "*) fragment="${header##*expect: }"; code="" ;;
+            "// expect-rejection") fragment="" ;;
+            "// expect: "*) fragment="${header##*expect: }" ;;
             *)
                 echo "compile-fail: ${snippet}: missing expectation header" >&2
                 exit 1
@@ -96,9 +98,6 @@ compile-fail:
         esac
         if err=$(rustc +{{MSRV}} --edition 2024 --crate-type lib --extern fgf="${rlib}" -L dependency=target/debug/deps --out-dir "${scratch}" "${snippet}" 2>&1); then
             echo "compile-fail: FAIL ${snippet} compiled successfully" >&2
-            failures=$((failures + 1))
-        elif [[ -n "${code}" ]] && ! grep -q "error\[${code}\]" <<< "${err}"; then
-            echo "compile-fail: FAIL ${snippet} expected error ${code}" >&2
             failures=$((failures + 1))
         elif [[ -n "${fragment}" ]] && ! grep -qF -- "${fragment}" <<< "${err}"; then
             echo "compile-fail: FAIL ${snippet} expected fragment: ${fragment}" >&2

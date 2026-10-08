@@ -26,7 +26,8 @@ All notable changes to this project are documented here. The format follows
   facts `BITS`, `TWO_ADICITY`, and `RESIDUE_MOD_8`.
 - `just compile-fail` compiles the negative consumer snippets under
   `tests/compile_fail/` on the crate MSRV, each required to fail with its
-  declared message fragment or error code, and `just msrv-accept` runs
+  declared crate panic fragment, or simply to be rejected for trait-bound
+  and privacy cases, and `just msrv-accept` runs
   those snippets plus the `tests/consumers.rs` compile-and-run matrix on
   the MSRV toolchain.
 - Wiki source guides cover the generic type model, field presentations,

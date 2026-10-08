@@ -299,20 +299,7 @@ pub(crate) struct Validate<F>(core::marker::PhantomData<F>);
 impl<F: Field> Validate<F> {
     pub(crate) const OK: () = {
         let characteristic = <F::Characteristic as PrimeIdentity>::CHARACTERISTIC;
-        assert!(F::DEGREE > 0, "field degree must be positive");
-        assert!(
-            characteristic != 2 || F::DEGREE <= 64,
-            "binary field degree exceeds 64"
-        );
-        let mut order: u128 = 1;
-        let mut i = 0;
-        while i < F::DEGREE {
-            order = match order.checked_mul(characteristic as u128) {
-                Some(value) => value,
-                None => panic!("field order overflows u128"),
-            };
-            i += 1;
-        }
+        let order = finite_field::metadata_order(characteristic, F::DEGREE);
         assert!(order == F::ORDER, "ORDER is not CHARACTERISTIC^DEGREE");
         let () = F::VALID;
     };

@@ -152,7 +152,12 @@ impl<const P: u64> Field for FiniteField<P, 1, Residue> {
     type Raw = u64;
     type Characteristic = PrimeCharacteristic<P>;
     const NAME: &'static str = "GF(p)";
-    const DEGREE: u32 = 1;
+    // Degree and order read the metadata proof directly, never the row's
+    // identities, so central validation can read them without a cycle.
+    const DEGREE: u32 = {
+        checked_order::<P, 1>();
+        1
+    };
     const ORDER: u128 = checked_order::<P, 1>();
     // The identity words evaluate the row's validity first and then read
     // their row-local data, never the reverse.
@@ -171,37 +176,37 @@ impl<const P: u64> Field for FiniteField<P, 1, Residue> {
 
     #[inline]
     fn canonical_raw(raw: u64) -> u64 {
-        let () = Self::VALID;
+        let () = Validate::<Self>::OK;
         reduce_body::<P>(raw)
     }
 
     #[inline]
     fn add_raw(left: u64, right: u64) -> u64 {
-        let () = Self::VALID;
+        let () = Validate::<Self>::OK;
         add_body::<P>(left, right)
     }
 
     #[inline]
     fn sub_raw(left: u64, right: u64) -> u64 {
-        let () = Self::VALID;
+        let () = Validate::<Self>::OK;
         sub_body::<P>(left, right)
     }
 
     #[inline]
     fn neg_raw(value: u64) -> u64 {
-        let () = Self::VALID;
+        let () = Validate::<Self>::OK;
         neg_body::<P>(value)
     }
 
     #[inline]
     fn mul_raw(left: u64, right: u64) -> u64 {
-        let () = Self::VALID;
+        let () = Validate::<Self>::OK;
         mul_body::<P>(left, right)
     }
 
     #[inline]
     fn inv_raw(value: u64) -> u64 {
-        let () = Self::VALID;
+        let () = Validate::<Self>::OK;
         inv_body::<P>(value)
     }
 }

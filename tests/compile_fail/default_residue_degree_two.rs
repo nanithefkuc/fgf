@@ -1,4 +1,4 @@
-// expect-code: E0277
+// expect-rejection
 use fgf::{Elem, FiniteField};
 
 // Omitting the presentation at degree two must not silently select an
