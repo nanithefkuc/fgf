@@ -1,42 +1,14 @@
-//! Opaque binary-field descriptors and their const interpreter.
+//! Opaque binary-field descriptors over the shared descriptor body.
 //!
-//! A [`BinaryDescription`] is plain const data interpreted by bounded field
-//! arithmetic helpers. One topologically ordered description contains
-//! polynomial, ordered-basis, and quadratic-extension nodes. The public
-//! sealed traits expose it only as an opaque contract; construction stays
-//! inside the representation modules.
+//! A [`BinaryDescription`] wraps the general field descriptor with its
+//! nodes restricted to the binary leaves and quadratic relation nodes. The
+//! public sealed traits expose it only as an opaque contract; construction
+//! stays inside the representation modules, and the element interpreter
+//! lives with the general descriptor in `crate::field::extension`.
 
-/// One node of a binary-field description.
-#[derive(Clone, Copy)]
-enum BinaryNode {
-    /// An unused capacity slot past the description length.
-    Unused,
-    /// A flat polynomial root of the stated degree.
-    Polynomial {
-        /// Total degree of this node.
-        degree: u8,
-        /// The full reduction polynomial including the leading term.
-        full: u128,
-    },
-    /// An ordered basis over an earlier node.
-    Basis {
-        /// Index of the base node.
-        base: u8,
-        /// Basis vectors in base coordinates; bit `i` selects `to_base[i]`.
-        to_base: [u8; 8],
-        /// Inverse columns; bit `j` of a base word selects `from_base[j]`.
-        from_base: [u8; 8],
-    },
-    /// A quadratic extension of an earlier node.
-    Quadratic {
-        /// Index of the base node.
-        base: u8,
-        /// Linear coefficient as a base-coordinate word.
-        a: u64,
-        /// Constant coefficient as a base-coordinate word.
-        b: u64,
-    },
-}
+use crate::field::extension::arithmetic;
+use crate::field::extension::irreducibility;
+use crate::field::extension::{Descriptor, Node};
 
 /// Opaque scalar description of a binary-field presentation.
 ///
@@ -44,9 +16,290 @@ enum BinaryNode {
 /// constants, and every value construction forces that validation.
 #[derive(Clone, Copy)]
 pub struct BinaryDescription {
-    nodes: [BinaryNode; 8],
-    len: u8,
-    root: u8,
+    inner: Descriptor,
+}
+
+impl BinaryDescription {
+    /// The shared descriptor this binary description wraps.
+    #[must_use]
+    pub(crate) const fn as_descriptor(&self) -> &Descriptor {
+        &self.inner
+    }
+
+    /// Defining data of the root node.
+    #[must_use]
+    pub(crate) const fn root_data(&self) -> NodeData {
+        match self.inner.node(self.inner.root_index()) {
+            Node::Unused | Node::Prime { .. } => panic!("unused node"),
+            Node::Polynomial { degree, full } => NodeData::Polynomial {
+                degree: *degree,
+                full: *full,
+            },
+            Node::Basis {
+                to_base, from_base, ..
+            } => NodeData::Basis {
+                to_base: *to_base,
+                from_base: *from_base,
+            },
+            Node::Extension {
+                relative_degree: 2,
+                coefficients,
+                ..
+            } => NodeData::Quadratic {
+                a: coefficients[1],
+                b: coefficients[0],
+            },
+            Node::Extension { .. } => panic!("the root node holds no relation"),
+        }
+    }
+
+    /// The sub-description rooted at the root node's base.
+    #[must_use]
+    pub(crate) const fn base_description(&self) -> BinaryDescription {
+        Self {
+            inner: self.inner.base_descriptor(),
+        }
+    }
+
+    /// A lone polynomial root of the stated degree.
+    #[must_use]
+    pub(crate) const fn polynomial(degree: u8, full: u128) -> Self {
+        Self {
+            inner: Descriptor::polynomial(degree, full),
+        }
+    }
+
+    /// Append an ordered-basis wrapper over `base`'s root.
+    #[must_use]
+    pub(crate) const fn append_basis(
+        base: &BinaryDescription,
+        to_base: [u8; 8],
+        from_base: [u8; 8],
+    ) -> Self {
+        Self {
+            inner: base.inner.append_basis(to_base, from_base),
+        }
+    }
+
+    /// Append a quadratic extension over `base`'s root.
+    #[must_use]
+    pub(crate) const fn append_quadratic(base: &BinaryDescription, a: u64, b: u64) -> Self {
+        Self {
+            inner: base.inner.append_quadratic_words(a, b),
+        }
+    }
+
+    /// Total degree of the root presentation.
+    #[must_use]
+    pub const fn degree(&self) -> u32 {
+        self.inner.degree()
+    }
+
+    /// Whether the root node is a flat polynomial presentation.
+    #[must_use]
+    pub const fn is_polynomial_root(&self) -> bool {
+        matches!(
+            self.inner.node(self.inner.root_index()),
+            Node::Polynomial { .. }
+        )
+    }
+
+    /// Whether the root node is an ordered-basis presentation.
+    #[must_use]
+    pub const fn is_basis_root(&self) -> bool {
+        matches!(self.inner.node(self.inner.root_index()), Node::Basis { .. })
+    }
+
+    /// The multiplicative identity in root coordinates.
+    #[must_use]
+    pub const fn one(&self) -> u64 {
+        arithmetic::word_one(&self.inner, self.inner.root_index())
+    }
+
+    /// Field multiplication in root coordinates.
+    #[must_use]
+    pub const fn mul(&self, x: u64, y: u64) -> u64 {
+        arithmetic::word_mul(&self.inner, self.inner.root_index(), x, y)
+    }
+
+    /// Field exponentiation in root coordinates.
+    #[must_use]
+    pub const fn pow(&self, x: u64, e: u128) -> u64 {
+        arithmetic::word_pow(&self.inner, self.inner.root_index(), x, e)
+    }
+
+    /// Multiplicative inverse in root coordinates, mapping zero to zero.
+    #[must_use]
+    pub const fn inv(&self, x: u64) -> u64 {
+        arithmetic::word_inv(&self.inner, self.inner.root_index(), x)
+    }
+
+    /// Absolute trace to GF(2) in root coordinates.
+    #[must_use]
+    pub const fn trace(&self, x: u64) -> u64 {
+        arithmetic::word_trace(&self.inner, self.inner.root_index(), x)
+    }
+
+    /// Use-time validation of the whole description.
+    pub(crate) const fn validate(&self) {
+        let descriptor = &self.inner;
+        assert!(
+            descriptor.node_count() > 0
+                && descriptor.node_count() <= 8
+                && descriptor.root_index() < descriptor.node_count(),
+            "bad description shape"
+        );
+        let mut i = 0u8;
+        while i < 8 {
+            let used = i < descriptor.node_count();
+            match descriptor.node(i) {
+                Node::Prime { .. } => {
+                    assert!(!used, "non-binary node inside a binary description");
+                }
+                Node::Unused => assert!(!used, "unused node inside description"),
+                Node::Polynomial { degree, full } => {
+                    assert!(used, "node outside description");
+                    assert!(
+                        *degree == 1 || *degree == 2 || *degree == 4 || *degree == 8,
+                        "unsupported flat degree"
+                    );
+                    assert!(
+                        poly_irreducible(*full, *degree as u32),
+                        "polynomial is reducible"
+                    );
+                }
+                Node::Basis { .. } => self.validate_basis_node(i),
+                Node::Extension {
+                    base,
+                    relative_degree,
+                    base_degree,
+                    coefficients,
+                    ..
+                } => {
+                    assert!(used && *base < i, "quadratic node order");
+                    let h = arithmetic::degree_of(descriptor, *base);
+                    assert!(h <= 32, "binary degree exceeds 64");
+                    let (a, b) = (coefficients[1], coefficients[0]);
+                    if h < 64 {
+                        assert!(a >> h == 0, "tower coefficient has excess bits");
+                        assert!(b >> h == 0, "tower coefficient has excess bits");
+                    }
+                    assert!(a != 0, "tower coefficient A is zero");
+                    assert!(*relative_degree == 2, "non-quadratic binary node");
+                    assert!(
+                        h == *base_degree,
+                        "quadratic node caches a wrong base degree"
+                    );
+                    assert!(
+                        irreducibility::quadratic_relation_holds(descriptor, i),
+                        "tower relation is reducible"
+                    );
+                }
+            }
+            i += 1;
+        }
+        assert!(self.degree() <= 64, "binary degree exceeds 64");
+    }
+
+    /// Validate the ordered-basis node at `index` of this descriptor:
+    /// degree, column widths, padding, and the bounded-enumeration
+    /// bijection.
+    // The single-character locals mirror the node fields they check.
+    #[allow(clippy::many_single_char_names)]
+    const fn validate_basis_node(&self, index: u8) {
+        let descriptor = &self.inner;
+        let (base, to_base, from_base) = match descriptor.node(index) {
+            Node::Basis {
+                base,
+                to_base,
+                from_base,
+            } => (*base, *to_base, *from_base),
+            _ => panic!("not a basis node"),
+        };
+        assert!(base < index, "basis node order");
+        let n = arithmetic::degree_of(descriptor, base);
+        assert!(n == 2 || n == 4 || n == 8, "unsupported basis degree");
+        let mask = (1u64 << n) - 1;
+        let mut k = 0usize;
+        while k < 8 {
+            // The counter never exceeds the column arrays.
+            #[allow(clippy::cast_possible_truncation)]
+            let column = k as u32;
+            if column < n {
+                assert!((to_base[k] as u64) <= mask, "basis vector has excess bits");
+                assert!(
+                    (from_base[k] as u64) <= mask,
+                    "inverse column has excess bits"
+                );
+            } else {
+                assert!(to_base[k] == 0, "basis padding must be zero");
+                assert!(from_base[k] == 0, "inverse padding must be zero");
+            }
+            k += 1;
+        }
+        // Bounded-enumeration bijection: the stored inverse inverts the
+        // forward map on every coordinate word.
+        let count = 1u64 << n;
+        let mut x = 0;
+        while x < count {
+            let forth = apply(to_base, x);
+            let back = apply(from_base, forth);
+            assert!(back == x, "basis map is not invertible");
+            x += 1;
+        }
+        let mut y = 0;
+        while y < count {
+            let forth = apply(from_base, y);
+            let back = apply(to_base, forth);
+            assert!(back == y, "inverse map is not invertible");
+            y += 1;
+        }
+    }
+
+    /// Structural equality ignoring unused slots.
+    ///
+    /// Strategy selection compares complete descriptions through this
+    /// comparator; hashes alone do not prove arithmetic equality.
+    #[must_use]
+    pub const fn same_structure(&self, other: &BinaryDescription) -> bool {
+        self.inner.same_structure(&other.inner)
+    }
+
+    /// Whether `candidate` generates the multiplicative group.
+    ///
+    /// Checks the full-order power plus every cofactor quotient against the
+    /// complete prime-factor list of `2^N - 1` at each supported degree.
+    ///
+    /// # Panics
+    ///
+    /// Panics in `const` evaluation when the descriptor's degree is not one
+    /// of the supported binary degrees.
+    #[must_use]
+    pub const fn is_generator(&self, candidate: u64) -> bool {
+        let n = self.degree();
+        let factors: &[u64] = match n {
+            1 => &[],
+            2 => &[3],
+            4 => &[3, 5],
+            8 => &[3, 5, 17],
+            16 => &[3, 5, 17, 257],
+            32 => &[3, 5, 17, 257, 65_537],
+            64 => &[3, 5, 17, 257, 641, 65_537, 6_700_417],
+            _ => panic!("unsupported degree"),
+        };
+        let order: u128 = (1u128 << n) - 1;
+        if candidate == 0 || self.pow(candidate, order) != self.one() {
+            return false;
+        }
+        let mut i = 0;
+        while i < factors.len() {
+            if self.pow(candidate, order / factors[i] as u128) == self.one() {
+                return false;
+            }
+            i += 1;
+        }
+        true
+    }
 }
 
 /// Opaque discrete-logarithm tables for one degree-eight presentation.
@@ -155,7 +408,7 @@ pub(crate) const fn apply(columns: [u8; 8], x: u64) -> u64 {
 ///
 /// The table builders below run through this path so that constructing the
 /// pinned log/exp leaves never reads the leaves themselves.
-const fn poly_mul_serial(full: u128, n: u32, x: u64, y: u64) -> u64 {
+pub(crate) const fn poly_mul_serial(full: u128, n: u32, x: u64, y: u64) -> u64 {
     let mut acc: u128 = 0;
     let mut k = 0;
     while k < n {
@@ -178,10 +431,10 @@ const fn poly_mul_serial(full: u128, n: u32, x: u64, y: u64) -> u64 {
 }
 
 /// The pinned AES log/exp leaf, built serially under the derived generator.
-const PINNED_AES_LEAF: ByteLogExp = serial_log_exp(0x11B, 3);
+pub(crate) const PINNED_AES_LEAF: ByteLogExp = serial_log_exp(0x11B, 3);
 
 /// The pinned Reed-Solomon log/exp leaf, built serially.
-const PINNED_RS_LEAF: ByteLogExp = serial_log_exp(0x11D, 2);
+pub(crate) const PINNED_RS_LEAF: ByteLogExp = serial_log_exp(0x11D, 2);
 
 /// Build one pinned leaf's log/exp pair without consulting any leaf table.
 const fn serial_log_exp(full: u128, generator: u64) -> ByteLogExp {
@@ -236,421 +489,6 @@ pub(crate) enum NodeData {
     },
 }
 
-impl BinaryDescription {
-    /// Defining data of the root node.
-    #[must_use]
-    pub(crate) const fn root_data(&self) -> NodeData {
-        match self.nodes[self.root as usize] {
-            BinaryNode::Unused => panic!("unused node"),
-            BinaryNode::Polynomial { degree, full } => NodeData::Polynomial { degree, full },
-            BinaryNode::Basis {
-                to_base, from_base, ..
-            } => NodeData::Basis { to_base, from_base },
-            BinaryNode::Quadratic { a, b, .. } => NodeData::Quadratic { a, b },
-        }
-    }
-
-    /// The sub-description rooted at the root node's base.
-    #[must_use]
-    pub(crate) const fn base_description(&self) -> BinaryDescription {
-        let (BinaryNode::Basis { base, .. } | BinaryNode::Quadratic { base, .. }) =
-            self.nodes[self.root as usize]
-        else {
-            panic!("the root node has no base");
-        };
-        let mut sub = *self;
-        sub.root = base;
-        sub.len = base + 1;
-        let mut index = sub.len;
-        while index < 8 {
-            sub.nodes[index as usize] = BinaryNode::Unused;
-            index += 1;
-        }
-        sub
-    }
-
-    /// A lone polynomial root of the stated degree.
-    #[must_use]
-    pub(crate) const fn polynomial(degree: u8, full: u128) -> Self {
-        let mut nodes = [BinaryNode::Unused; 8];
-        nodes[0] = BinaryNode::Polynomial { degree, full };
-        Self {
-            nodes,
-            len: 1,
-            root: 0,
-        }
-    }
-
-    /// Append an ordered-basis wrapper over `base`'s root.
-    #[must_use]
-    pub(crate) const fn append_basis(
-        base: &BinaryDescription,
-        to_base: [u8; 8],
-        from_base: [u8; 8],
-    ) -> Self {
-        assert!(base.len < 8, "description capacity exhausted");
-        let mut next = *base;
-        next.nodes[next.len as usize] = BinaryNode::Basis {
-            base: base.root,
-            to_base,
-            from_base,
-        };
-        next.root = next.len;
-        next.len += 1;
-        next
-    }
-
-    /// Append a quadratic extension over `base`'s root.
-    #[must_use]
-    pub(crate) const fn append_quadratic(base: &BinaryDescription, a: u64, b: u64) -> Self {
-        assert!(base.len < 8, "description capacity exhausted");
-        let mut next = *base;
-        next.nodes[next.len as usize] = BinaryNode::Quadratic {
-            base: base.root,
-            a,
-            b,
-        };
-        next.root = next.len;
-        next.len += 1;
-        next
-    }
-
-    const fn degree_of(&self, index: u8) -> u32 {
-        match self.nodes[index as usize] {
-            BinaryNode::Unused => panic!("unused node"),
-            BinaryNode::Polynomial { degree, .. } => degree as u32,
-            BinaryNode::Basis { base, .. } => self.degree_of(base),
-            BinaryNode::Quadratic { base, .. } => 2 * self.degree_of(base),
-        }
-    }
-
-    /// Total degree of the root presentation.
-    #[must_use]
-    pub const fn degree(&self) -> u32 {
-        self.degree_of(self.root)
-    }
-
-    /// Whether the root node is a flat polynomial presentation.
-    #[must_use]
-    pub const fn is_polynomial_root(&self) -> bool {
-        matches!(
-            self.nodes[self.root as usize],
-            BinaryNode::Polynomial { .. }
-        )
-    }
-
-    /// Whether the root node is an ordered-basis presentation.
-    #[must_use]
-    pub const fn is_basis_root(&self) -> bool {
-        matches!(self.nodes[self.root as usize], BinaryNode::Basis { .. })
-    }
-
-    const fn one_of(&self, index: u8) -> u64 {
-        match self.nodes[index as usize] {
-            BinaryNode::Unused => panic!("unused node"),
-            BinaryNode::Polynomial { .. } => 1,
-            BinaryNode::Basis { from_base, .. } => apply(from_base, 1),
-            BinaryNode::Quadratic { base, .. } => self.one_of(base),
-        }
-    }
-
-    /// The multiplicative identity in root coordinates.
-    #[must_use]
-    pub const fn one(&self) -> u64 {
-        self.one_of(self.root)
-    }
-
-    const fn mul_of(&self, index: u8, x: u64, y: u64) -> u64 {
-        match self.nodes[index as usize] {
-            BinaryNode::Unused => panic!("unused node"),
-            BinaryNode::Polynomial { degree, full } => {
-                let n = degree as u32;
-                // Pinned degree-eight leaves take their log/exp tables; the
-                // binding tables are built serially, so reading them here
-                // closes no cycle. Leaf coordinates hold one byte.
-                #[allow(clippy::cast_possible_truncation)]
-                let pinned = if n == 8 && full == 0x11B {
-                    Some(PINNED_AES_LEAF.mul(x as u8, y as u8) as u64)
-                } else if n == 8 && full == 0x11D {
-                    Some(PINNED_RS_LEAF.mul(x as u8, y as u8) as u64)
-                } else {
-                    None
-                };
-                match pinned {
-                    Some(product) => product,
-                    None => poly_mul_serial(full, n, x, y),
-                }
-            }
-            BinaryNode::Basis {
-                base,
-                to_base,
-                from_base,
-            } => {
-                let product = self.mul_of(base, apply(to_base, x), apply(to_base, y));
-                apply(from_base, product)
-            }
-            BinaryNode::Quadratic { base, a, b } => {
-                let h = self.degree_of(base);
-                let mask = if h >= 64 { u64::MAX } else { (1u64 << h) - 1 };
-                let (x0, x1, y0, y1) = (x & mask, x >> h, y & mask, y >> h);
-                let ac = self.mul_of(base, x0, y0);
-                let bd = self.mul_of(base, x1, y1);
-                let mid = self.mul_of(base, x0 ^ x1, y0 ^ y1) ^ ac ^ bd;
-                let lo = ac ^ self.mul_of(base, b, bd);
-                let hi = mid ^ self.mul_of(base, a, bd);
-                (lo & mask) | ((hi & mask) << h)
-            }
-        }
-    }
-
-    /// Field multiplication in root coordinates.
-    #[must_use]
-    pub const fn mul(&self, x: u64, y: u64) -> u64 {
-        self.mul_of(self.root, x, y)
-    }
-
-    const fn pow_of(&self, index: u8, mut x: u64, mut e: u128) -> u64 {
-        let mut result = self.one_of(index);
-        while e > 0 {
-            if e & 1 == 1 {
-                result = self.mul_of(index, result, x);
-            }
-            x = self.mul_of(index, x, x);
-            e >>= 1;
-        }
-        result
-    }
-
-    /// Field exponentiation in root coordinates.
-    #[must_use]
-    pub const fn pow(&self, x: u64, e: u128) -> u64 {
-        self.pow_of(self.root, x, e)
-    }
-
-    const fn inv_of(&self, index: u8, x: u64) -> u64 {
-        if x == 0 {
-            return 0;
-        }
-        let n = self.degree_of(index);
-        self.pow_of(index, x, (1u128 << n) - 2)
-    }
-
-    /// Multiplicative inverse in root coordinates, mapping zero to zero.
-    #[must_use]
-    pub const fn inv(&self, x: u64) -> u64 {
-        self.inv_of(self.root, x)
-    }
-
-    const fn trace_of(&self, index: u8, x: u64) -> u64 {
-        let n = self.degree_of(index);
-        let mut acc = 0;
-        let mut power = x;
-        let mut k = 0;
-        while k < n {
-            acc ^= power;
-            power = self.mul_of(index, power, power);
-            k += 1;
-        }
-        acc
-    }
-
-    /// Absolute trace to GF(2) in root coordinates.
-    #[must_use]
-    pub const fn trace(&self, x: u64) -> u64 {
-        self.trace_of(self.root, x)
-    }
-
-    /// Use-time validation of the whole description.
-    // The single-character locals mirror the node fields they check.
-    #[allow(clippy::many_single_char_names)]
-    pub(crate) const fn validate(&self) {
-        assert!(
-            self.len > 0 && self.len <= 8 && self.root < self.len,
-            "bad description shape"
-        );
-        let mut i = 0u8;
-        while i < 8 {
-            let used = i < self.len;
-            match self.nodes[i as usize] {
-                BinaryNode::Unused => assert!(!used, "unused node inside description"),
-                BinaryNode::Polynomial { degree, full } => {
-                    assert!(used, "node outside description");
-                    assert!(
-                        degree == 1 || degree == 2 || degree == 4 || degree == 8,
-                        "unsupported flat degree"
-                    );
-                    assert!(
-                        poly_irreducible(full, degree as u32),
-                        "polynomial is reducible"
-                    );
-                }
-                BinaryNode::Basis {
-                    base,
-                    to_base,
-                    from_base,
-                } => {
-                    assert!(used && base < i, "basis node order");
-                    let n = self.degree_of(base);
-                    assert!(n == 2 || n == 4 || n == 8, "unsupported basis degree");
-                    let mask = (1u64 << n) - 1;
-                    let mut k = 0usize;
-                    while k < 8 {
-                        // The counter never exceeds the column arrays.
-                        #[allow(clippy::cast_possible_truncation)]
-                        let column = k as u32;
-                        if column < n {
-                            assert!((to_base[k] as u64) <= mask, "basis vector has excess bits");
-                            assert!(
-                                (from_base[k] as u64) <= mask,
-                                "inverse column has excess bits"
-                            );
-                        } else {
-                            assert!(to_base[k] == 0, "basis padding must be zero");
-                            assert!(from_base[k] == 0, "inverse padding must be zero");
-                        }
-                        k += 1;
-                    }
-                    // Bounded-enumeration bijection: the stored inverse inverts
-                    // the forward map on every coordinate word.
-                    let count = 1u64 << n;
-                    let mut x = 0;
-                    while x < count {
-                        let forth = apply(to_base, x);
-                        let back = apply(from_base, forth);
-                        assert!(back == x, "basis map is not invertible");
-                        x += 1;
-                    }
-                    let mut y = 0;
-                    while y < count {
-                        let forth = apply(from_base, y);
-                        let back = apply(to_base, forth);
-                        assert!(back == y, "inverse map is not invertible");
-                        y += 1;
-                    }
-                }
-                BinaryNode::Quadratic { base, a, b } => {
-                    assert!(used && base < i, "quadratic node order");
-                    let h = self.degree_of(base);
-                    assert!(h <= 32, "binary degree exceeds 64");
-                    if h < 64 {
-                        assert!(a >> h == 0, "tower coefficient has excess bits");
-                        assert!(b >> h == 0, "tower coefficient has excess bits");
-                    }
-                    assert!(a != 0, "tower coefficient A is zero");
-                    let a_inv = self.inv_of(base, a);
-                    let scaled = self.mul_of(base, b, self.mul_of(base, a_inv, a_inv));
-                    assert!(
-                        self.trace_of(base, scaled) == self.one_of(base),
-                        "tower relation is reducible"
-                    );
-                }
-            }
-            i += 1;
-        }
-        assert!(self.degree() <= 64, "binary degree exceeds 64");
-    }
-
-    /// Structural equality ignoring unused slots.
-    ///
-    /// Strategy selection compares complete descriptions through this
-    /// comparator; hashes alone do not prove arithmetic equality.
-    #[must_use]
-    pub const fn same_structure(&self, other: &BinaryDescription) -> bool {
-        if self.len != other.len || self.root != other.root {
-            return false;
-        }
-        let mut i = 0;
-        while i < self.len as usize {
-            let same = match (self.nodes[i], other.nodes[i]) {
-                (
-                    BinaryNode::Polynomial {
-                        degree: d0,
-                        full: f0,
-                    },
-                    BinaryNode::Polynomial {
-                        degree: d1,
-                        full: f1,
-                    },
-                ) => d0 == d1 && f0 == f1,
-                (
-                    BinaryNode::Basis {
-                        base: b0,
-                        to_base: t0,
-                        from_base: f0,
-                    },
-                    BinaryNode::Basis {
-                        base: b1,
-                        to_base: t1,
-                        from_base: f1,
-                    },
-                ) => {
-                    let mut eq = b0 == b1;
-                    let mut k = 0;
-                    while k < 8 {
-                        eq = eq && t0[k] == t1[k] && f0[k] == f1[k];
-                        k += 1;
-                    }
-                    eq
-                }
-                (
-                    BinaryNode::Quadratic {
-                        base: b0,
-                        a: a0,
-                        b: c0,
-                    },
-                    BinaryNode::Quadratic {
-                        base: b1,
-                        a: a1,
-                        b: c1,
-                    },
-                ) => b0 == b1 && a0 == a1 && c0 == c1,
-                _ => false,
-            };
-            if !same {
-                return false;
-            }
-            i += 1;
-        }
-        true
-    }
-
-    /// Whether `candidate` generates the multiplicative group.
-    ///
-    /// Checks the full-order power plus every cofactor quotient against the
-    /// complete prime-factor list of `2^N - 1` at each supported degree.
-    ///
-    /// # Panics
-    ///
-    /// Panics in `const` evaluation when the descriptor's degree is not one
-    /// of the supported binary degrees.
-    #[must_use]
-    pub const fn is_generator(&self, candidate: u64) -> bool {
-        let n = self.degree();
-        let factors: &[u64] = match n {
-            1 => &[],
-            2 => &[3],
-            4 => &[3, 5],
-            8 => &[3, 5, 17],
-            16 => &[3, 5, 17, 257],
-            32 => &[3, 5, 17, 257, 65_537],
-            64 => &[3, 5, 17, 257, 641, 65_537, 6_700_417],
-            _ => panic!("unsupported degree"),
-        };
-        let order: u128 = (1u128 << n) - 1;
-        if candidate == 0 || self.pow_of(self.root, candidate, order) != self.one() {
-            return false;
-        }
-        let mut i = 0;
-        while i < factors.len() {
-            if self.pow_of(self.root, candidate, order / factors[i] as u128) == self.one() {
-                return false;
-            }
-            i += 1;
-        }
-        true
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use core::hint::black_box;
@@ -659,11 +497,29 @@ mod tests {
     use crate::field::FiniteField;
     use crate::field::binary::normal::inverse_columns;
     use crate::field::binary::{BinaryField, Cantor, Normal};
+    use crate::field::extension::descriptor::{COORDINATES, NODES, Storage};
     use crate::field::{Elem, HasGenerator};
     use crate::{
         FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Polynomial, Rijndael16,
         Rijndael32, Rijndael64, Tower,
     };
+
+    /// A quadratic relation node with packed coefficient words, for tests
+    /// that place malformed nodes by hand.
+    fn quadratic_words_node(base: u8, linear: u64, constant: u64) -> Node {
+        let mut coefficients = [0u64; COORDINATES];
+        coefficients[0] = constant;
+        coefficients[1] = linear;
+        Node::Extension {
+            base,
+            relative_degree: 2,
+            characteristic: 2,
+            base_degree: 1,
+            base_words: 1,
+            coefficients,
+            storage: Storage::Packed { width: 8 },
+        }
+    }
 
     /// Deterministic 64-bit words from the crate's shared LCG constants.
     fn words(seed: u64) -> impl Iterator<Item = u64> {
@@ -804,6 +660,8 @@ mod tests {
 
     /// Every validated presentation of degree at most eight under test,
     /// with its expected degree and root kind.
+    // One descriptor occupies the shared node array's width.
+    #[allow(clippy::large_stack_arrays)]
     fn small_fixtures() -> [(BinaryDescription, u32, Kind); 18] {
         let poly = BinaryDescription::polynomial;
         [
@@ -853,6 +711,8 @@ mod tests {
     }
 
     /// The pinned GF(2^16), GF(2^32), and GF(2^64) towers.
+    // One descriptor occupies the shared node array's width.
+    #[allow(clippy::large_stack_arrays)]
     fn tower_fixtures() -> [BinaryDescription; 6] {
         [
             desc_of::<FiniteField<2, 16, Tower<Rijndael16>>>(),
@@ -1099,6 +959,8 @@ mod tests {
     }
 
     #[test]
+    // The compared pool holds whole descriptors by value.
+    #[allow(clippy::large_stack_arrays)]
     fn same_structure_distinguishes_every_defining_datum() {
         let poly = BinaryDescription::polynomial;
         let mut all = [poly(1, 3); 32];
@@ -1138,9 +1000,7 @@ mod tests {
 
     /// A description whose root slot was never filled.
     const HOLLOW: BinaryDescription = BinaryDescription {
-        nodes: [BinaryNode::Unused; 8],
-        len: 1,
-        root: 0,
+        inner: Descriptor::from_parts([Node::Unused; NODES], 1, 0),
     };
 
     #[test]
@@ -1209,7 +1069,9 @@ mod tests {
     #[test]
     #[should_panic(expected = "bad description shape")]
     fn validate_rejects_an_empty_description() {
-        validate(&BinaryDescription { len: 0, ..HOLLOW });
+        validate(&BinaryDescription {
+            inner: Descriptor::from_parts([Node::Unused; NODES], 0, 0),
+        });
     }
 
     #[test]
@@ -1222,7 +1084,7 @@ mod tests {
     #[should_panic(expected = "node outside description")]
     fn validate_rejects_a_node_past_the_length() {
         let mut desc = BinaryDescription::polynomial(2, 0x7);
-        desc.nodes[1] = desc.nodes[0];
+        desc.inner = desc.inner.with_node(1, *desc.inner.node(0));
         validate(&desc);
     }
 
@@ -1242,11 +1104,14 @@ mod tests {
     #[should_panic(expected = "basis node order")]
     fn validate_rejects_a_basis_over_itself() {
         let mut desc = BinaryDescription::polynomial(2, 0x7);
-        desc.nodes[0] = BinaryNode::Basis {
-            base: 0,
-            to_base: triangular(2),
-            from_base: triangular(2),
-        };
+        desc.inner = desc.inner.with_node(
+            0,
+            Node::Basis {
+                base: 0,
+                to_base: triangular(2),
+                from_base: triangular(2),
+            },
+        );
         validate(&desc);
     }
 
@@ -1300,11 +1165,7 @@ mod tests {
     #[should_panic(expected = "quadratic node order")]
     fn validate_rejects_a_quadratic_over_itself() {
         let mut desc = BinaryDescription::polynomial(2, 0x7);
-        desc.nodes[0] = BinaryNode::Quadratic {
-            base: 0,
-            a: 1,
-            b: 1,
-        };
+        desc.inner = desc.inner.with_node(0, quadratic_words_node(0, 1, 1));
         validate(&desc);
     }
 

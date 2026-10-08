@@ -86,6 +86,7 @@
 //! ```
 
 pub mod binary;
+mod extension;
 pub mod finite_field;
 pub mod goldilocks;
 pub mod mersenne31;
