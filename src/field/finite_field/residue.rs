@@ -44,6 +44,8 @@
 //! application allocates nothing, and no workspace carries meaning between
 //! calls.
 
+use crate::field::extension::Descriptor;
+use crate::field::extension::descriptor::PrimePresentation;
 use crate::field::{
     Elem, Field, FieldBuffer, PrimeCharacteristic, PrimeIdentity, RangeError, Validate,
 };
@@ -208,6 +210,44 @@ impl<const P: u64> Field for FiniteField<P, 1, Residue> {
     fn inv_raw(value: u64) -> u64 {
         let () = Validate::<Self>::OK;
         inv_body::<P>(value)
+    }
+}
+
+impl<const P: u64> super::super::private::RowAccess for FiniteField<P, 1, Residue> {
+    const DESCRIPTOR: &'static Descriptor = &Descriptor::prime(P, PrimePresentation::Residue);
+
+    fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw) {
+        let () = Validate::<Self>::OK;
+        assert_eq!(
+            dst.len(),
+            1,
+            "prime coordinate count differs from the field degree"
+        );
+        dst[0] = reduce_body::<P>(raw);
+    }
+
+    fn from_prime_coordinates(src: &[u64]) -> <Self as Field>::Raw {
+        let () = Validate::<Self>::OK;
+        assert_eq!(
+            src.len(),
+            1,
+            "prime coordinate count differs from the field degree"
+        );
+        assert!(
+            src[0] < P,
+            "prime coordinate is not below the characteristic"
+        );
+        src[0]
+    }
+
+    fn from_prime(value: u64) -> <Self as Field>::Raw {
+        let () = Validate::<Self>::OK;
+        reduce_body::<P>(value)
+    }
+
+    fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
+        let () = Validate::<Self>::OK;
+        Some(reduce_body::<P>(raw))
     }
 }
 

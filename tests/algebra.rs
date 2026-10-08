@@ -8,8 +8,8 @@
 use fgf::field::{Field, FieldBuffer, PrimeIdentity};
 use fgf::poly::{AES, RS};
 use fgf::{
-    BinaryField, Cantor, Elem, FiniteField, Goldilocks, HasGenerator, Mersenne31, Normal,
-    Polynomial, QuadMersenne31, goldilocks, mersenne31, quad_mersenne31,
+    BinaryField, Cantor, Elem, FiniteField, Goldilocks, Mersenne31, Normal, Polynomial,
+    QuadMersenne31, goldilocks, mersenne31, quad_mersenne31,
 };
 
 /// Every element of `FiniteField<2, 8, Polynomial<POLY>>`, in ascending raw order.
@@ -1697,7 +1697,7 @@ type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Tower<fgf::FanPaar64>>;
 /// Every `field::FieldElem`/`field::Field` surface reachable from generic code:
 /// the trait's arithmetic (including defaulted methods), the total
 /// zero conventions, `Debug`/`Hash`/`Default`, and the byte codec.
-fn exercise_surface<F: FieldBuffer + HasGenerator>(samples: &[Elem<F>]) {
+fn exercise_surface<F: FieldBuffer>(samples: &[Elem<F>]) {
     let zero = Elem::<F>::ZERO;
     let one = Elem::<F>::ONE;
     assert!(samples.len() >= 2, "surface sweep needs samples");
@@ -1710,7 +1710,7 @@ fn exercise_surface<F: FieldBuffer + HasGenerator>(samples: &[Elem<F>]) {
     // Field facts that hold for every field, checked through the trait.
     assert!(!F::NAME.is_empty());
     assert_eq!(F::STORAGE_BITS as usize, 8 * F::BYTES);
-    assert!(!Elem::<F>::GENERATOR.is_zero());
+    // Generator coverage lives in the per-row full-order tests.
     assert!(zero.is_zero());
     assert!(!one.is_zero());
     assert!(one.is_one());
@@ -2229,125 +2229,32 @@ fn gf1_operators_and_folds() {
 // Trait default bodies
 // ---------------------------------------------------------------------------
 
-mod toy {
-    //! Minimal GF(2^3) over `x^3 + x + 1` implementing only the required
-    //! [`Field`](fgf::field::Field) raw methods. The blanket
-    //! [`FieldElem`](fgf::field::FieldElem) implementation supplies `neg`,
-    //! `square`, `pow`, `div`, `is_zero`, and `is_one` over them, so this is
-    //! the only field where those blanket bodies execute against custom
-    //! arithmetic.
-    use fgf::Elem;
-    use fgf::field::FieldElem as _;
-    use fgf::field::{Field, FieldBuffer, HasGenerator, PrimeCharacteristic};
-
-    #[derive(Debug, Clone, Copy)]
-    pub struct Gf8Toy;
-
-    /// Shift-and-XOR multiply under `x^3 + x + 1`, masked to three bits.
-    const fn raw_mul(a: u8, b: u8) -> u8 {
-        let mut acc = 0u8;
-        let mut x = a & 7;
-        let mut y = b & 7;
-        let mut i = 0;
-        while i < 3 {
-            if y & 1 == 1 {
-                acc ^= x;
-            }
-            let overflow = x & 0x04 != 0;
-            x <<= 1;
-            if overflow {
-                x ^= 0x0B; // x^3 = x + 1
-            }
-            y >>= 1;
-            i += 1;
-        }
-        acc & 7
-    }
-
-    /// Brute-force inverse over the seven nonzero lanes; zero maps to zero.
-    const fn raw_inv(a: u8) -> u8 {
-        let a = a & 7;
-        if a == 0 {
-            return 0;
-        }
-        let mut candidate = 1u8;
-        while candidate < 8 {
-            if raw_mul(a, candidate) == 1 {
-                return candidate;
-            }
-            candidate += 1;
-        }
-        0
-    }
-
-    impl Field for Gf8Toy {
-        type Raw = u8;
-        type Characteristic = PrimeCharacteristic<2>;
-
-        const NAME: &'static str = "GF(2^3) toy";
-        const DEGREE: u32 = 3;
-        const ORDER: u128 = 8;
-        const ZERO_RAW: u8 = 0;
-        const ONE_RAW: u8 = 1;
-        const VALID: () = ();
-
-        fn canonical_raw(raw: u8) -> u8 {
-            raw & 7
-        }
-        fn add_raw(a: u8, b: u8) -> u8 {
-            (a ^ b) & 7
-        }
-        fn sub_raw(a: u8, b: u8) -> u8 {
-            (a ^ b) & 7
-        }
-        fn neg_raw(a: u8) -> u8 {
-            a & 7
-        }
-        fn mul_raw(a: u8, b: u8) -> u8 {
-            raw_mul(a, b)
-        }
-        fn inv_raw(a: u8) -> u8 {
-            raw_inv(a)
-        }
-    }
-
-    impl FieldBuffer for Gf8Toy {
-        const BYTES: usize = 1;
-        const STORAGE_BITS: u32 = 8;
-
-        fn decode(bytes: &[u8]) -> Elem<Self> {
-            let bytes: [u8; 1] = bytes.try_into().expect("toy element width");
-            Elem::<Self>::from_raw(bytes[0])
-        }
-        fn encode(bytes: &mut [u8], value: Elem<Self>) {
-            assert_eq!(bytes.len(), 1, "toy element width");
-            bytes[0] = value.to_raw();
-        }
-    }
-
-    impl HasGenerator for Gf8Toy {
-        const GENERATOR_RAW: u8 = 2;
-    }
-}
-
 #[test]
-fn elem_trait_defaults_are_correct_for_minimal_implementors() {
-    use fgf::Elem;
-    let samples: Vec<Elem<toy::Gf8Toy>> = (0..8u8).map(Elem::<toy::Gf8Toy>::from_raw).collect();
-    exercise_surface::<toy::Gf8Toy>(&samples);
+fn elem_trait_defaults_hold_over_every_residue_element() {
+    type Seven = FiniteField<7, 1>;
+    let samples: Vec<Elem<Seven>> = (0..7u64).map(Elem::<Seven>::from_raw).collect();
+    exercise_surface::<Seven>(&samples);
 
-    // The blanket bodies specifically: neg is the identity in
-    // characteristic two, square is mul, pow is square-and-multiply.
-    for a in samples {
-        assert_eq!(a.neg(), a, "blanket neg in characteristic two");
-        assert_eq!(a.square(), a.mul(a), "blanket square");
-        assert_eq!(a.pow(5), a.mul(a).mul(a).mul(a).mul(a), "blanket pow");
+    // The blanket bodies specifically, through the trait beside the row's
+    // inherent `const` surface: neg is the additive inverse, square is
+    // mul, pow is square-and-multiply.
+    for &a in &samples {
+        assert_eq!(
+            <Elem<Seven> as fgf::field::FieldElem>::neg(a).add(a),
+            Elem::<Seven>::ZERO,
+            "blanket neg"
+        );
+        assert_eq!(
+            <Elem<Seven> as fgf::field::FieldElem>::square(a),
+            a.mul(a),
+            "blanket square"
+        );
+        assert_eq!(
+            <Elem<Seven> as fgf::field::FieldElem>::pow(a, 5),
+            a.mul(a).mul(a).mul(a).mul(a),
+            "blanket pow"
+        );
     }
-    // GF(8)* has order 7: the generator must have full order through the
-    // blanket pow.
-    let g = Elem::<toy::Gf8Toy>::from_raw(2);
-    assert_eq!(g.pow(7), Elem::<toy::Gf8Toy>::ONE);
-    assert_ne!(g.pow(1), Elem::<toy::Gf8Toy>::ONE);
 }
 
 #[test]

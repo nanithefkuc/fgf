@@ -39,8 +39,10 @@
 //! );
 //! ```
 
+use super::extension::Descriptor;
+use super::extension::descriptor::PrimePresentation;
 use super::finite_field::{FiniteField, FiniteFieldRepr, checked_order};
-use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, RangeError};
+use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, RangeError, Validate};
 
 /// The field modulus, the Mersenne prime `2^31 − 1`.
 pub const MODULUS: u32 = 0x7FFF_FFFF;
@@ -149,6 +151,51 @@ impl Field for Mersenne31 {
             return 0;
         }
         super::powmod(reduce(value) as u64, (MODULUS - 2) as u64, MODULUS as u64) as u32
+    }
+}
+
+impl super::private::RowAccess for Mersenne31 {
+    const DESCRIPTOR: &'static Descriptor =
+        &Descriptor::prime(MODULUS as u64, PrimePresentation::MersenneFold);
+
+    fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw) {
+        let () = Validate::<Self>::OK;
+        assert_eq!(
+            dst.len(),
+            1,
+            "prime coordinate count differs from the field degree"
+        );
+        dst[0] = u64::from(reduce(raw));
+    }
+
+    fn from_prime_coordinates(src: &[u64]) -> <Self as Field>::Raw {
+        let () = Validate::<Self>::OK;
+        assert_eq!(
+            src.len(),
+            1,
+            "prime coordinate count differs from the field degree"
+        );
+        assert!(
+            src[0] < u64::from(MODULUS),
+            "prime coordinate is not below the characteristic"
+        );
+        // The checked coordinate is below the modulus, so it fits the lane.
+        #[allow(clippy::cast_possible_truncation)]
+        let residue = src[0] as u32;
+        residue
+    }
+
+    fn from_prime(value: u64) -> <Self as Field>::Raw {
+        let () = Validate::<Self>::OK;
+        // The remainder below the modulus fits the lane.
+        #[allow(clippy::cast_possible_truncation)]
+        let residue = (value % u64::from(MODULUS)) as u32;
+        residue
+    }
+
+    fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
+        let () = Validate::<Self>::OK;
+        Some(u64::from(reduce(raw)))
     }
 }
 

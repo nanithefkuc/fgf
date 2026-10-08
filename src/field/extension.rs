@@ -12,6 +12,6 @@
 pub mod arithmetic;
 pub mod descriptor;
 pub mod irreducibility;
-mod pinned;
+pub mod pinned;
 
 pub use descriptor::{Descriptor, Node};

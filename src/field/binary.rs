@@ -169,6 +169,83 @@ macro_rules! degree_row {
                 Elem::<Self>::from_raw(value).inv().to_raw()
             }
         }
+
+        impl<R: BinaryRepr<$n>> $crate::field::private::RowAccess for FiniteField<2, $n, R> {
+            const DESCRIPTOR: &'static $crate::field::extension::Descriptor =
+                R::DESCRIPTION.as_descriptor();
+
+            // The row hooks leave the trait's `where Self: Field` clause
+            // implicit: every row implements `Field`, and omitting the
+            // clause keeps `<Self as Field>::Raw` normalizable in the
+            // bodies.
+            fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw) {
+                let () = Validate::<Self>::OK;
+                assert_eq!(
+                    dst.len(),
+                    $n,
+                    "prime coordinate count differs from the field degree"
+                );
+                // Widening the canonical word to the coordinate word is
+                // exact.
+                #[allow(clippy::cast_lossless)]
+                let word = <Self as Field>::canonical_raw(raw) as u64;
+                let mut i: u32 = 0;
+                while i < $n {
+                    dst[i as usize] = (word >> i) & 1;
+                    i += 1;
+                }
+            }
+
+            fn from_prime_coordinates(src: &[u64]) -> <Self as Field>::Raw {
+                let () = Validate::<Self>::OK;
+                assert_eq!(
+                    src.len(),
+                    $n,
+                    "prime coordinate count differs from the field degree"
+                );
+                let mut word = 0u64;
+                let mut i: u32 = 0;
+                while i < $n {
+                    let coordinate = src[i as usize];
+                    assert!(
+                        coordinate < 2,
+                        "prime coordinate is not below the characteristic"
+                    );
+                    word |= coordinate << i;
+                    i += 1;
+                }
+                // The occupied bits stop at the degree, which the raw word
+                // holds exactly.
+                #[allow(clippy::cast_possible_truncation)]
+                let raw = word as $raw;
+                raw
+            }
+
+            fn from_prime(value: u64) -> <Self as Field>::Raw {
+                let () = Validate::<Self>::OK;
+                // An odd value reduces to the identity, an even one to
+                // zero.
+                if value % 2 == 0 {
+                    <Self as Field>::ZERO_RAW
+                } else {
+                    <Self as Field>::ONE_RAW
+                }
+            }
+
+            fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
+                let () = Validate::<Self>::OK;
+                let raw = <Self as Field>::canonical_raw(raw);
+                // The prime subfield holds zero and the identity, and an
+                // ordered-basis row's identity word need not be one.
+                if raw == <Self as Field>::ZERO_RAW {
+                    Some(0)
+                } else if raw == <Self as Field>::ONE_RAW {
+                    Some(1)
+                } else {
+                    None
+                }
+            }
+        }
         impl<R: BinaryRepr<$n>> BinaryField for FiniteField<2, $n, R> {
             const DESCRIPTION: &'static BinaryDescription = R::DESCRIPTION;
 

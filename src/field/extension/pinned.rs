@@ -27,15 +27,19 @@ pub const PINNED: [Descriptor; 10] = [
     *tower::FANPAAR16_DESC.as_descriptor(),
     *tower::FANPAAR32_DESC.as_descriptor(),
     *tower::FANPAAR64_DESC.as_descriptor(),
-    Descriptor::extension(
-        &Descriptor::prime(0x7FFF_FFFF, PrimePresentation::MersenneFold),
-        0x7FFF_FFFF,
-        2,
-        2,
-        &[1, 0],
-        Storage::Components,
-    ),
+    QUAD_MERSENNE31,
 ];
+
+/// The pinned `QuadMersenne31` descriptor: the Mersenne fold leaf extended
+/// by `t^2 + 1`.
+pub const QUAD_MERSENNE31: Descriptor = Descriptor::extension(
+    &Descriptor::prime(0x7FFF_FFFF, PrimePresentation::MersenneFold),
+    0x7FFF_FFFF,
+    2,
+    2,
+    &[1, 0],
+    Storage::Components,
+);
 
 /// Whether `candidate` is structurally equal to a pinned descriptor.
 #[allow(dead_code)]
@@ -51,11 +55,6 @@ pub const fn is_pinned(candidate: &Descriptor) -> bool {
     }
     false
 }
-
-/// The index of the pinned `QuadMersenne31` descriptor in [`PINNED`].
-// No production caller: tests read this entry while sampling elements.
-#[allow(dead_code)]
-pub const QUAD_MERSENNE31: usize = 9;
 
 #[cfg(test)]
 mod tests {

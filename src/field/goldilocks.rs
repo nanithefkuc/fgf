@@ -38,8 +38,10 @@
 //! );
 //! ```
 
+use super::extension::Descriptor;
+use super::extension::descriptor::PrimePresentation;
 use super::finite_field::{FiniteField, FiniteFieldRepr, checked_order};
-use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, RangeError};
+use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, RangeError, Validate};
 
 /// The field modulus, `2^64 − 2^32 + 1`.
 pub const MODULUS: u64 = 0xFFFF_FFFF_0000_0001;
@@ -182,6 +184,45 @@ impl Field for Goldilocks {
             return 0;
         }
         super::powmod(reduce(value), MODULUS - 2, MODULUS)
+    }
+}
+
+impl super::private::RowAccess for Goldilocks {
+    const DESCRIPTOR: &'static Descriptor =
+        &Descriptor::prime(MODULUS, PrimePresentation::GoldilocksFold);
+
+    fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw) {
+        let () = Validate::<Self>::OK;
+        assert_eq!(
+            dst.len(),
+            1,
+            "prime coordinate count differs from the field degree"
+        );
+        dst[0] = reduce(raw);
+    }
+
+    fn from_prime_coordinates(src: &[u64]) -> <Self as Field>::Raw {
+        let () = Validate::<Self>::OK;
+        assert_eq!(
+            src.len(),
+            1,
+            "prime coordinate count differs from the field degree"
+        );
+        assert!(
+            src[0] < MODULUS,
+            "prime coordinate is not below the characteristic"
+        );
+        src[0]
+    }
+
+    fn from_prime(value: u64) -> <Self as Field>::Raw {
+        let () = Validate::<Self>::OK;
+        reduce(value)
+    }
+
+    fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
+        let () = Validate::<Self>::OK;
+        Some(reduce(raw))
     }
 }
 

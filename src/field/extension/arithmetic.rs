@@ -1340,7 +1340,7 @@ mod tests {
     // Limbs stay below the 31-bit modulus, so the narrowing casts are exact.
     #[allow(clippy::cast_possible_truncation)]
     fn quad_mersenne31_descriptor_matches_field_arithmetic() {
-        let descriptor = &pinned::PINNED[pinned::QUAD_MERSENNE31];
+        let descriptor = &pinned::QUAD_MERSENNE31;
         let root = descriptor.root_index();
         let from_parts = |raw: (u32, u32)| {
             let mut element = zero_element();

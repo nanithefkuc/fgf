@@ -26,13 +26,16 @@
 //! convention chosen so hot loops never branch on an impossible case; it is
 //! *not* a claim that zero is invertible.
 //!
-//! # Custom fields
+//! # Row vocabulary
 //!
-//! [`Field`] stays open for downstream scalar definitions. The central
-//! validation block checks the characteristic identity, a positive degree,
-//! `ORDER == CHARACTERISTIC^DEGREE`, and the binary degree cap of 64 before
-//! evaluating `VALID`. It runs from every generic constructor, so a field
-//! that misdeclares its metadata fails at value use:
+//! [`Field`] is sealed: the crate implements it for the canonical family
+//! rows and the named rows only, so a presentation's defining facts are
+//! always crate-owned. A custom prime field is the family's degree-one row
+//! [`FiniteField<P, 1>`](FiniteField) over any checked `u64` prime. The
+//! central validation block checks the characteristic identity, a positive
+//! degree, `ORDER == CHARACTERISTIC^DEGREE`, and the binary degree cap of 64
+//! before evaluating `VALID`. It runs from every generic constructor, so a
+//! row that misdeclares its metadata fails at value use:
 //!
 //! ```
 //! use fgf::{Elem, Mersenne31};
@@ -40,31 +43,6 @@
 //! // A shipped prime field constructs its identities generically.
 //! const ONE: Elem<Mersenne31> = Elem::<Mersenne31>::ONE;
 //! assert_eq!(ONE.to_raw(), 1);
-//! ```
-//!
-//! ```compile_fail,E0080
-//! use fgf::{Elem, Field, PrimeCharacteristic};
-//!
-//! // Degree 65 exceeds the binary cap, so even the identities fail.
-//! #[derive(Clone, Copy, Debug)]
-//! struct Wide;
-//! impl Field for Wide {
-//!     type Raw = u128;
-//!     type Characteristic = PrimeCharacteristic<2>;
-//!     const NAME: &'static str = "wide";
-//!     const DEGREE: u32 = 65;
-//!     const ORDER: u128 = 0;
-//!     const ZERO_RAW: u128 = 0;
-//!     const ONE_RAW: u128 = 1;
-//!     const VALID: () = ();
-//!     fn canonical_raw(raw: u128) -> u128 { raw }
-//!     fn add_raw(a: u128, b: u128) -> u128 { a ^ b }
-//!     fn sub_raw(a: u128, b: u128) -> u128 { a ^ b }
-//!     fn neg_raw(a: u128) -> u128 { a }
-//!     fn mul_raw(a: u128, b: u128) -> u128 { a }
-//!     fn inv_raw(a: u128) -> u128 { a }
-//! }
-//! const Z: Elem<Wide> = Elem::<Wide>::ZERO;
 //! ```
 //!
 //! A prime identity is available at any checked `u64` prime, and a composite
@@ -114,10 +92,54 @@ pub use prime::PrimeField;
 pub use quad_mersenne31::QuadMersenne31;
 
 mod private {
+    use super::Field;
+    use super::extension::Descriptor;
+
     pub trait Sealed {}
 
     /// Marks the degree-one rows eligible for prime-field membership.
     pub trait PrimeFieldSeal {}
+
+    /// The row hooks behind the `Field` seal: the presentation access the
+    /// crate's relation algorithms share.
+    ///
+    /// Every hook evaluates the row's central validation first, as the raw
+    /// methods do, and canonicalizes `raw` inputs through
+    /// `Field::canonical_raw` before reading them.
+    pub trait RowAccess: 'static {
+        /// Descriptor of the row's presentation.
+        const DESCRIPTOR: &'static Descriptor;
+        /// Writes the flattened prime-subfield coordinates of `raw` into
+        /// `dst`, in the descriptor's coordinate order.
+        ///
+        /// A prime row writes its ordinary residue; a binary row writes the
+        /// bits of its coordinate word, least significant first; a quadratic
+        /// prime extension writes its limbs in component order.
+        ///
+        /// # Panics
+        /// Panics when `dst.len()` differs from `Field::DEGREE`.
+        fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw)
+        where
+            Self: Field;
+        /// The raw element named by the given flattened prime-subfield
+        /// coordinates, in the descriptor's coordinate order.
+        ///
+        /// # Panics
+        /// Panics when `src.len()` differs from `Field::DEGREE` or a
+        /// coordinate is at or above the characteristic.
+        fn from_prime_coordinates(src: &[u64]) -> <Self as Field>::Raw
+        where
+            Self: Field;
+        /// `value · 1`, with `value` reduced modulo the characteristic.
+        fn from_prime(value: u64) -> <Self as Field>::Raw
+        where
+            Self: Field;
+        /// `Some(c)` exactly when `raw == c · 1` with `c` below the
+        /// characteristic; `None` otherwise.
+        fn to_prime(raw: <Self as Field>::Raw) -> Option<u64>
+        where
+            Self: Field;
+    }
 }
 
 mod element_private {
@@ -252,11 +274,12 @@ impl<const P: u64> PrimeIdentity for PrimeCharacteristic<P> {
 ///
 /// The marker carries only compile-time facts. `Raw` describes a single
 /// scalar's representation, not buffer pitch, alignment, byte order, or
-/// vector packing. The raw arithmetic methods are the implementation
-/// contract for custom field definitions; ordinary callers work with
-/// [`Elem<F>`] and its operations. Generic code reads the characteristic as
-/// `<F::Characteristic as PrimeIdentity>::CHARACTERISTIC`.
-pub trait Field: Copy + core::fmt::Debug + 'static {
+/// vector packing. The trait is sealed to the crate's own rows: the raw
+/// arithmetic methods are a row's scalar body, and ordinary callers work
+/// with [`Elem<F>`] and its operations. Generic code reads the characteristic
+/// as `<F::Characteristic as PrimeIdentity>::CHARACTERISTIC`.
+#[allow(private_bounds)]
+pub trait Field: private::RowAccess + Copy + core::fmt::Debug + 'static {
     /// The raw word of one scalar element.
     type Raw: Copy + Eq + Ord + core::hash::Hash + core::fmt::Debug;
     /// The prime characteristic identity of the field.
@@ -392,10 +415,11 @@ impl<F: Field> Elem<F> {
 
 /// A selected multiplicative generator of the field.
 ///
-/// The raw provider lets downstream custom fields supply a generator without
-/// a public unchecked element constructor. Raw canonicality and full
-/// generator order are provider obligations; crate-owned providers verify
-/// full multiplicative order inside the constant.
+/// Every implementor is a crate-owned row, since the trait applies to
+/// [`Field`] rows and `Field` is sealed to the crate's own definitions. Raw
+/// canonicality and full multiplicative order hold inside the constant: each
+/// provider verifies the full order against the factorization of the group
+/// order.
 pub trait HasGenerator: Field {
     /// Raw word of the selected generator, of full multiplicative order.
     const GENERATOR_RAW: Self::Raw;
@@ -716,3 +740,333 @@ impl core::fmt::Display for RangeError {
 }
 
 impl core::error::Error for RangeError {}
+
+#[cfg(test)]
+mod tests {
+    //! Cross-row checks of the row hooks, at the common parent of the rows:
+    //! descriptor agreement, flattened prime-subfield coordinates, and the
+    //! prime-value embedding, against expectations written in this module.
+
+    use super::extension::pinned;
+    use super::private::RowAccess as _;
+    use super::*;
+
+    /// The largest `u64` prime, for full-width residue samples.
+    const WIDEST_PRIME: u64 = 0xFFFF_FFFF_FFFF_FFC5;
+
+    /// Exercises the coordinate hooks on one canonical raw word against an
+    /// independently computed coordinate vector.
+    fn coordinates_round_trip<F: Field>(raw: F::Raw, expected: &[u64]) {
+        let degree = F::DEGREE as usize;
+        assert_eq!(expected.len(), degree, "expectation arity");
+        let mut buffer = [u64::MAX; 64];
+        F::prime_coordinates_into(&mut buffer[..degree], raw);
+        assert_eq!(&buffer[..degree], expected, "coordinates of {raw:?}");
+        let rebuilt = F::from_prime_coordinates(&buffer[..degree]);
+        assert_eq!(
+            F::canonical_raw(rebuilt),
+            F::canonical_raw(raw),
+            "round trip"
+        );
+    }
+
+    /// Every element of a residue row: the residue is the coordinate, the
+    /// prime readout covers the whole field, and `from_prime` reduces.
+    macro_rules! residue_row_exhaustive {
+        ($p:literal) => {{
+            type Row = FiniteField<$p, 1>;
+            for value in 0..$p {
+                coordinates_round_trip::<Row>(value, &[value]);
+                assert_eq!(Row::to_prime(value), Some(value), "prime readout");
+            }
+            let large = $p + 5 * $p;
+            assert_eq!(Row::from_prime(large), large % $p, "from_prime reduces");
+            assert_eq!(
+                Row::from_prime(u64::MAX),
+                u64::MAX % $p,
+                "from_prime widest"
+            );
+        }};
+    }
+
+    #[test]
+    fn residue_rows_round_trip_every_element() {
+        residue_row_exhaustive!(2);
+        residue_row_exhaustive!(3);
+        residue_row_exhaustive!(5);
+        residue_row_exhaustive!(7);
+        residue_row_exhaustive!(251);
+    }
+
+    /// Every element of one enumerable binary row: the coordinate word's
+    /// bits are the coordinates, and the prime readout covers exactly
+    /// `{0, 1}`.
+    macro_rules! binary_row_exhaustive {
+        ($row:ty, $n:literal) => {{
+            type Row = $row;
+            let one = Elem::<Row>::ONE.to_raw();
+            let mut expected = [0u64; 64];
+            for word in 0..(1u64 << $n) {
+                let element = Row::from_coordinates(word).expect("word fits the degree");
+                let raw = element.to_raw();
+                for (i, coordinate) in expected.iter_mut().enumerate().take($n) {
+                    *coordinate = (word >> i) & 1;
+                }
+                coordinates_round_trip::<Row>(raw, &expected[..$n]);
+                let readout = Row::to_prime(raw);
+                let prime_member = if element == Elem::<Row>::ZERO {
+                    Some(0)
+                } else if element == Elem::<Row>::ONE {
+                    Some(1)
+                } else {
+                    None
+                };
+                assert_eq!(readout, prime_member, "prime readout of word {word}");
+                if let Some(c) = prime_member {
+                    assert_eq!(Elem::<Row>::from_raw(Row::from_prime(c)), element);
+                }
+            }
+            assert_eq!(Row::from_prime(0), Elem::<Row>::ZERO.to_raw());
+            assert_eq!(Row::from_prime(2), Elem::<Row>::ZERO.to_raw());
+            assert_eq!(Row::from_prime(1), one);
+            assert_eq!(Row::from_prime(u64::MAX), one, "odd values reduce to one");
+        }};
+    }
+
+    #[test]
+    fn binary_rows_round_trip_every_element() {
+        binary_row_exhaustive!(FiniteField<2, 1, Polynomial<3>>, 1);
+        binary_row_exhaustive!(FiniteField<2, 2, Polynomial<7>>, 2);
+        binary_row_exhaustive!(FiniteField<2, 2, Normal<7, 2>>, 2);
+        binary_row_exhaustive!(FiniteField<2, 2, Cantor<7, 2>>, 2);
+        binary_row_exhaustive!(FiniteField<2, 4, Polynomial<0x13>>, 4);
+        binary_row_exhaustive!(FiniteField<2, 4, Normal<0x13, 8>>, 4);
+        binary_row_exhaustive!(FiniteField<2, 4, Cantor<0x13, 8>>, 4);
+        binary_row_exhaustive!(FiniteField<2, 8, Polynomial<AES>>, 8);
+        binary_row_exhaustive!(FiniteField<2, 8, Polynomial<RS>>, 8);
+        binary_row_exhaustive!(FiniteField<2, 8, Polynomial<0x12D>>, 8);
+        binary_row_exhaustive!(FiniteField<2, 8, Polynomial<0x187>>, 8);
+    }
+
+    #[test]
+    fn tower_rows_round_trip_every_element() {
+        binary_row_exhaustive!(FiniteField<2, 2, Tower<FanPaar2>>, 2);
+        binary_row_exhaustive!(FiniteField<2, 4, Tower<FanPaar4>>, 4);
+        binary_row_exhaustive!(FiniteField<2, 8, Tower<FanPaar8>>, 8);
+        // Sixty-five thousand elements each.
+        binary_row_exhaustive!(FiniteField<2, 16, Tower<Rijndael16>>, 16);
+        binary_row_exhaustive!(FiniteField<2, 16, Tower<FanPaar16>>, 16);
+    }
+
+    /// A spread of full-width binary words: boundaries and a deterministic
+    /// spray, checked through the same expectations as the enumerable rows.
+    macro_rules! binary_row_samples {
+        ($row:ty, $n:literal, [$($word:expr),+]) => {{
+            type Row = $row;
+            let one = Elem::<Row>::ONE.to_raw();
+            let mut expected = [0u64; 64];
+            $(
+                let word: u64 = $word;
+                let element = Row::from_coordinates(word).expect("sample fits the degree");
+                let raw = element.to_raw();
+                for (i, coordinate) in expected.iter_mut().enumerate().take($n) {
+                    *coordinate = (word >> i) & 1;
+                }
+                coordinates_round_trip::<Row>(raw, &expected[..$n]);
+                let prime_member = if element == Elem::<Row>::ZERO {
+                    Some(0)
+                } else if element == Elem::<Row>::ONE {
+                    Some(1)
+                } else {
+                    None
+                };
+                assert_eq!(Row::to_prime(raw), prime_member, "word {word}");
+            )+
+            assert_eq!(Row::from_prime(u64::MAX), one, "odd values reduce to one");
+        }};
+    }
+
+    #[test]
+    fn wide_binary_rows_round_trip_samples() {
+        binary_row_samples!(
+            FiniteField<2, 32, Tower<Rijndael32>>,
+            32,
+            [0, 1, 2, 0x0001_0002, 0xa55a_1234, 0x7fff_ffff, u64::from(u32::MAX)]
+        );
+        binary_row_samples!(
+            FiniteField<2, 64, Tower<Rijndael64>>,
+            64,
+            [0, 1, 2, 0x0000_0001_0000_0004, 0xa55a_1234_dead_beef, u64::MAX]
+        );
+        binary_row_samples!(
+            FiniteField<2, 32, Tower<FanPaar32>>,
+            32,
+            [0, 1, 0x0100, 0x03e2_1cea, 0xffff_ffff]
+        );
+        binary_row_samples!(
+            FiniteField<2, 64, Tower<FanPaar64>>,
+            64,
+            [0, 1, 0x0001_0000, 0x070f_870d_cd9c_1d88, u64::MAX]
+        );
+    }
+
+    #[test]
+    fn odd_rows_round_trip_full_width_samples() {
+        type M31 = Mersenne31;
+        type Gld = Goldilocks;
+        type Qm = QuadMersenne31;
+        const M31_MODULUS: u64 = 0x7FFF_FFFF;
+        const GLD_MODULUS: u64 = 0xFFFF_FFFF_0000_0001;
+
+        for sample in [
+            0u64,
+            1,
+            2,
+            M31_MODULUS - 1,
+            M31_MODULUS,
+            0x5555_5555,
+            u64::MAX,
+        ] {
+            // The plain remainder is the independent reduction.
+            #[allow(clippy::cast_possible_truncation)]
+            let raw = (sample % M31_MODULUS) as u32;
+            coordinates_round_trip::<M31>(raw, &[u64::from(raw)]);
+            assert_eq!(M31::to_prime(raw), Some(u64::from(raw)));
+        }
+        #[allow(clippy::cast_lossless)]
+        let widest_m31 = M31::from_prime(u64::MAX) as u64;
+        assert_eq!(widest_m31, u64::MAX % M31_MODULUS);
+
+        for sample in [0u64, 1, 2, GLD_MODULUS - 1, GLD_MODULUS, u64::MAX] {
+            let raw = sample % GLD_MODULUS;
+            coordinates_round_trip::<Gld>(raw, &[raw]);
+            assert_eq!(Gld::to_prime(raw), Some(raw));
+        }
+        assert_eq!(Gld::from_prime(u64::MAX), u64::MAX % GLD_MODULUS);
+
+        let top_limb: u32 = 0x7FFF_FFFE;
+        for (re, im) in [
+            (0u32, 0u32),
+            (1, 0),
+            (0, 1),
+            (top_limb, 0),
+            (0x5555_5555, 0x5555_5555),
+            (u32::MAX, u32::MAX),
+        ] {
+            #[allow(clippy::cast_possible_truncation)]
+            let canonical = (
+                (u64::from(re) % M31_MODULUS) as u32,
+                (u64::from(im) % M31_MODULUS) as u32,
+            );
+            coordinates_round_trip::<Qm>(
+                canonical,
+                &[u64::from(canonical.0), u64::from(canonical.1)],
+            );
+            let expected = if canonical.1 == 0 {
+                Some(u64::from(canonical.0))
+            } else {
+                None
+            };
+            assert_eq!(Qm::to_prime(canonical), expected);
+        }
+        let widest_qm = Qm::from_prime(u64::MAX);
+        assert_eq!(u64::from(widest_qm.0), u64::MAX % M31_MODULUS);
+        assert_eq!(widest_qm.1, 0);
+    }
+
+    #[test]
+    fn widest_residue_row_round_trip_boundaries() {
+        type Row = FiniteField<WIDEST_PRIME, 1>;
+        for sample in [
+            0u64,
+            1,
+            2,
+            WIDEST_PRIME - 1,
+            WIDEST_PRIME,
+            WIDEST_PRIME + 1,
+            u64::MAX,
+        ] {
+            let raw = sample % WIDEST_PRIME;
+            coordinates_round_trip::<Row>(raw, &[raw]);
+            assert_eq!(Row::to_prime(raw), Some(raw));
+        }
+        assert_eq!(Row::from_prime(u64::MAX), u64::MAX % WIDEST_PRIME);
+    }
+
+    /// Descriptor agreement for one row: its own facts, and its pinned
+    /// entry where the pinned set holds one.
+    macro_rules! descriptor_agreement {
+        ($row:ty $(, pinned $index:literal)?) => {{
+            type Row = $row;
+            assert_eq!(Row::DESCRIPTOR.degree(), Row::DEGREE);
+            assert_eq!(
+                Row::DESCRIPTOR.characteristic(),
+                <Row as Field>::Characteristic::CHARACTERISTIC
+            );
+            $(
+                assert!(
+                    Row::DESCRIPTOR.same_structure(&pinned::PINNED[$index]),
+                    "descriptor is not the pinned entry"
+                );
+            )?
+        }};
+    }
+
+    #[test]
+    fn row_descriptors_agree_with_their_rows_and_the_pinned_set() {
+        descriptor_agreement!(FiniteField<7, 1>);
+        descriptor_agreement!(FiniteField<WIDEST_PRIME, 1>);
+        descriptor_agreement!(Mersenne31);
+        descriptor_agreement!(Goldilocks);
+        descriptor_agreement!(QuadMersenne31, pinned 9);
+        descriptor_agreement!(FiniteField<2, 1, Polynomial<3>>);
+        descriptor_agreement!(FiniteField<2, 2, Polynomial<7>>);
+        descriptor_agreement!(FiniteField<2, 2, Normal<7, 2>>);
+        descriptor_agreement!(FiniteField<2, 2, Cantor<7, 2>>);
+        descriptor_agreement!(FiniteField<2, 4, Polynomial<0x13>>);
+        descriptor_agreement!(FiniteField<2, 4, Normal<0x13, 8>>);
+        descriptor_agreement!(FiniteField<2, 4, Cantor<0x13, 8>>);
+        descriptor_agreement!(FiniteField<2, 8, Polynomial<AES>>);
+        descriptor_agreement!(FiniteField<2, 8, Polynomial<RS>>);
+        descriptor_agreement!(FiniteField<2, 16, Tower<Rijndael16>>, pinned 0);
+        descriptor_agreement!(FiniteField<2, 32, Tower<Rijndael32>>, pinned 1);
+        descriptor_agreement!(FiniteField<2, 64, Tower<Rijndael64>>, pinned 2);
+        descriptor_agreement!(FiniteField<2, 2, Tower<FanPaar2>>, pinned 3);
+        descriptor_agreement!(FiniteField<2, 4, Tower<FanPaar4>>, pinned 4);
+        descriptor_agreement!(FiniteField<2, 8, Tower<FanPaar8>>, pinned 5);
+        descriptor_agreement!(FiniteField<2, 16, Tower<FanPaar16>>, pinned 6);
+        descriptor_agreement!(FiniteField<2, 32, Tower<FanPaar32>>, pinned 7);
+        descriptor_agreement!(FiniteField<2, 64, Tower<FanPaar64>>, pinned 8);
+
+        // One modulus under two presentations is two different rows.
+        assert!(!FiniteField::<0x7FFF_FFFF, 1>::DESCRIPTOR.same_structure(Mersenne31::DESCRIPTOR));
+        assert!(
+            FiniteField::<0x7FFF_FFFF, 1>::DESCRIPTOR
+                .same_structure(FiniteField::<0x7FFF_FFFF, 1>::DESCRIPTOR)
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "prime coordinate count differs from the field degree")]
+    fn coordinate_write_rejects_a_wrong_buffer_length() {
+        FiniteField::<7, 1>::prime_coordinates_into(&mut [0u64; 2], 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "prime coordinate count differs from the field degree")]
+    fn coordinate_read_rejects_a_wrong_buffer_length() {
+        QuadMersenne31::from_prime_coordinates(&[0u64; 1]);
+    }
+
+    #[test]
+    #[should_panic(expected = "prime coordinate is not below the characteristic")]
+    fn coordinate_read_rejects_a_coordinate_at_the_characteristic() {
+        FiniteField::<7, 1>::from_prime_coordinates(&[7]);
+    }
+
+    #[test]
+    #[should_panic(expected = "prime coordinate is not below the characteristic")]
+    fn coordinate_read_rejects_a_binary_coordinate_above_one() {
+        FiniteField::<2, 4, Polynomial<0x13>>::from_prime_coordinates(&[0, 2, 0, 0]);
+    }
+}

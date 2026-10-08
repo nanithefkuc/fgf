@@ -42,8 +42,10 @@
 //! );
 //! ```
 
+use super::extension::Descriptor;
+use super::extension::pinned::QUAD_MERSENNE31;
 use super::mersenne31;
-use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic};
+use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, Validate};
 use crate::field::Mersenne31;
 
 /// The base modulus `p = 2³¹ − 1`.
@@ -199,6 +201,54 @@ impl Field for QuadMersenne31 {
             limb_mul(value.0, norm_inv),
             limb_mul(limb_neg(value.1), norm_inv),
         )
+    }
+}
+
+impl super::private::RowAccess for QuadMersenne31 {
+    const DESCRIPTOR: &'static Descriptor = &QUAD_MERSENNE31;
+
+    fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw) {
+        let () = Validate::<Self>::OK;
+        assert_eq!(
+            dst.len(),
+            2,
+            "prime coordinate count differs from the field degree"
+        );
+        dst[0] = u64::from(limb_canonical(raw.0));
+        dst[1] = u64::from(limb_canonical(raw.1));
+    }
+
+    fn from_prime_coordinates(src: &[u64]) -> <Self as Field>::Raw {
+        let () = Validate::<Self>::OK;
+        assert_eq!(
+            src.len(),
+            2,
+            "prime coordinate count differs from the field degree"
+        );
+        assert!(
+            src[0] < u64::from(MODULUS) && src[1] < u64::from(MODULUS),
+            "prime coordinate is not below the characteristic"
+        );
+        // Both checked coordinates are below the modulus, so they fit the
+        // lanes.
+        #[allow(clippy::cast_possible_truncation)]
+        let limbs = (src[0] as u32, src[1] as u32);
+        limbs
+    }
+
+    fn from_prime(value: u64) -> <Self as Field>::Raw {
+        let () = Validate::<Self>::OK;
+        // The remainder below the modulus fits the lane.
+        #[allow(clippy::cast_possible_truncation)]
+        let re = (value % u64::from(MODULUS)) as u32;
+        (re, 0)
+    }
+
+    fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
+        let () = Validate::<Self>::OK;
+        let re = limb_canonical(raw.0);
+        let im = limb_canonical(raw.1);
+        if im == 0 { Some(u64::from(re)) } else { None }
     }
 }
 

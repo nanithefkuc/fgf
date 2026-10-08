@@ -82,6 +82,13 @@ All notable changes to this project are documented here. The format follows
   `from_bytes` now fail const evaluation for an invalid polynomial, basis,
   or tower relation, as `from_raw` already did. Valid presentations are
   unaffected.
+- **Breaking:** `Field` is sealed. Implementing `Field` outside the crate
+  no longer compiles, so `HasGenerator` and `FieldBuffer` on custom types
+  become unreachable too. Migrate a custom prime field to the family's
+  degree-one row `FiniteField<P, 1>` (the default `Residue` presentation)
+  at any checked `u64` prime: it supplies `Field`, `PrimeField`,
+  `FieldBuffer`, the checked packed operation surface, and the `const`
+  element API.
 
 ## [3.0.0-rc.1] - 2026-10-07
 
