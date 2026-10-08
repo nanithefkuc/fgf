@@ -4,11 +4,17 @@
 //! its absolute degree `N` over GF(P), and a presentation `R`. Identity and
 //! representation are type-selected: values are [`Elem<FiniteField<P, N,
 //! R>>`](crate::field::Elem), and equal `P` and `N` with different
-//! presentations stay distinct types. The family ships one presentation,
-//! [`Residue`], which is implemented at degree one only — so
-//! `FiniteField<P, 1>` is the prime field GF(P) for every `u64` prime, and
-//! `FiniteField<P, N>` with `N > 1` does not compile until an extension
-//! presentation names itself explicitly.
+//! presentations stay distinct types. The default presentation,
+//! [`Residue`], is implemented at degree one only — so `FiniteField<P, 1>`
+//! is the prime field GF(P) for every `u64` prime, and `FiniteField<P, N>`
+//! with `N > 1` does not compile without an explicit presentation. The
+//! other presentations are the named prime folds
+//! ([`MersenneFold`](crate::field::MersenneFold),
+//! [`GoldilocksFold`](crate::field::GoldilocksFold)) and the binary
+//! presentations at characteristic two
+//! ([`Polynomial`](crate::field::Polynomial),
+//! [`Normal`](crate::field::Normal), [`Cantor`](crate::field::Cantor), and
+//! [`Tower`](crate::field::Tower)).
 //!
 //! # Capability rows
 //!

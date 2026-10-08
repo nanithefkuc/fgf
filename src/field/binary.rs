@@ -115,10 +115,18 @@ macro_rules! degree_row {
             const NAME: &'static str = <R as FiniteFieldRepr<2, $n>>::NAME;
             const DEGREE: u32 = $n;
             const ORDER: u128 = checked_order::<2, $n>();
-            const ZERO_RAW: $raw = 0;
+            // The identity words evaluate the row's validity first and then
+            // read row-local data, never the reverse.
+            const ZERO_RAW: $raw = {
+                let () = <Self as Field>::VALID;
+                0
+            };
             // The descriptor's identity holds at most `N` bits here.
             #[allow(clippy::cast_possible_truncation)]
-            const ONE_RAW: $raw = R::DESCRIPTION.one() as $raw;
+            const ONE_RAW: $raw = {
+                let () = <Self as Field>::VALID;
+                R::DESCRIPTION.one() as $raw
+            };
             // Metadata first, then the representation's defining data.
             const VALID: () = {
                 checked_order::<2, $n>();
@@ -127,21 +135,25 @@ macro_rules! degree_row {
 
             #[inline]
             fn canonical_raw(raw: $raw) -> $raw {
+                let () = Validate::<Self>::OK;
                 raw & $mask
             }
 
             #[inline]
             fn add_raw(left: $raw, right: $raw) -> $raw {
+                let () = Validate::<Self>::OK;
                 left ^ right
             }
 
             #[inline]
             fn sub_raw(left: $raw, right: $raw) -> $raw {
+                let () = Validate::<Self>::OK;
                 left ^ right
             }
 
             #[inline]
             fn neg_raw(value: $raw) -> $raw {
+                let () = Validate::<Self>::OK;
                 value
             }
 
@@ -408,9 +420,7 @@ macro_rules! wide_row {
             #[inline]
             #[must_use]
             pub const fn from_bytes(bytes: [u8; $bytes]) -> Self {
-                Elem {
-                    raw: <$raw>::from_le_bytes(bytes),
-                }
+                Self::from_raw(<$raw>::from_le_bytes(bytes))
             }
 
             /// Encode to the stable little-endian representation.

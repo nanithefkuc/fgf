@@ -77,6 +77,11 @@ All notable changes to this project are documented here. The format follows
 - **Breaking:** binary marker `Debug` prints the family spelling with the
   presentation label, e.g. `FiniteField<2, 8, GF(2^8)/0x11B>`, instead of
   the label alone. Element `Debug` and every wire format are unchanged.
+- **Breaking:** binary rows validate their defining data at every entry
+  point: `ZERO_RAW`, `ONE_RAW`, every raw `Field` method, and the wide rows'
+  `from_bytes` now fail const evaluation for an invalid polynomial, basis,
+  or tower relation, as `from_raw` already did. Valid presentations are
+  unaffected.
 
 ## [3.0.0-rc.1] - 2026-10-07
 

@@ -15,7 +15,7 @@ use fgf::poly::{AES, RS};
 use fgf::{
     BinaryRepr, Cantor, Elem, FieldKernels, FiniteField, FiniteFieldRepr, Goldilocks, Mersenne31,
     Normal, Polynomial, PrimeField, QuadMersenne31, Residue, Rijndael16, Rijndael32, Rijndael64,
-    Tower, ops,
+    Tower, TowerSpec, ops,
 };
 
 type Residue2 = FiniteField<2, 1, Residue>;
@@ -26,6 +26,44 @@ type ResidueWide = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1, Residue>;
 type Gf16 = FiniteField<2, 16, Tower<Rijndael16>>;
 type Gf32 = FiniteField<2, 32, Tower<Rijndael32>>;
 type Gf64 = FiniteField<2, 64, Tower<Rijndael64>>;
+
+/// A downstream tower specification: the open `TowerSpec` data provider
+/// over a shipped byte field, reaching the library-owned tower rows.
+#[derive(Clone, Copy)]
+struct CustomSpec;
+
+impl TowerSpec for CustomSpec {
+    type Base = FiniteField<2, 8, Polynomial<AES>>;
+    const LINEAR_COEFFICIENT: u64 = 1;
+    const CONSTANT_COEFFICIENT: u64 = 0x20;
+    const NAME: &'static str = "custom GF(2^16)";
+}
+
+type CustomGf16 = FiniteField<2, 16, Tower<CustomSpec>>;
+
+/// Every byte-buffer row at degree eight and above, each driven through
+/// both the buffer and the packed-operation surface.
+macro_rules! byte_rows {
+    ($check:ident) => {
+        byte_rows!(@each $check;
+            FiniteField<2, 8, Polynomial<AES>> => 0x53,
+            FiniteField<2, 8, Polynomial<RS>> => 0x53,
+            FiniteField<2, 8, Normal<0x11B, 0x20>> => 0x53,
+            FiniteField<2, 8, Cantor<0x11B, 0x20>> => 0x53,
+            FiniteField<2, 8, Tower<fgf::FanPaar8>> => 0xAB,
+            FiniteField<2, 16, Tower<fgf::FanPaar16>> => 0x0108,
+            FiniteField<2, 32, Tower<fgf::FanPaar32>> => 0x5555_5555,
+            FiniteField<2, 64, Tower<fgf::FanPaar64>> => 0x00C0_FFEE,
+            Gf16 => 0x1B70,
+            Gf32 => 0x0F0F_0F0F,
+            Gf64 => 0xFFFF_0000_0000_FFFF,
+            CustomGf16 => 0x0108,
+        );
+    };
+    (@each $check:ident; $($row:ty => $raw:expr,)*) => {
+        $($check::<$row>(Elem::<$row>::from_raw($raw));)*
+    };
+}
 
 /// Drive the generic `Field` surface end to end: identities, arithmetic,
 /// inversion totality, and exponentiation, all through the trait.
@@ -104,13 +142,23 @@ fn every_field_row_drives_the_generic_surface() {
     exercise_field::<FiniteField<2, 8, Polynomial<RS>>>(0xFF, 0x01);
     // Ordered bases at degrees two, four, and eight.
     exercise_field::<FiniteField<2, 2, Normal<0x7, 0x2>>>(0x1, 0x2);
+    exercise_field::<FiniteField<2, 2, Cantor<0x7, 0x2>>>(0x1, 0x3);
+    exercise_field::<FiniteField<2, 4, Normal<0x13, 0x8>>>(0x7, 0x3);
     exercise_field::<FiniteField<2, 4, Cantor<0x13, 0xE>>>(0x7, 0x3);
     exercise_field::<FiniteField<2, 8, Normal<0x11B, 0x20>>>(0x53, 0x01);
+    exercise_field::<FiniteField<2, 8, Cantor<0x11B, 0x20>>>(0x53, 0xCA);
+    // Shipped Fan-Paar towers at every degree, and the Rijndael towers.
+    exercise_field::<FiniteField<2, 2, Tower<fgf::FanPaar2>>>(0x2, 0x3);
+    exercise_field::<FiniteField<2, 4, Tower<fgf::FanPaar4>>>(0x9, 0x5);
     exercise_field::<FiniteField<2, 8, Tower<fgf::FanPaar8>>>(0xAB, 0xCD);
-    // Towers at degrees sixteen, thirty-two, and sixty-four.
+    exercise_field::<FiniteField<2, 16, Tower<fgf::FanPaar16>>>(0x0108, 0x1B70);
+    exercise_field::<FiniteField<2, 32, Tower<fgf::FanPaar32>>>(0x5555_5555, 0x0F0F_0F0F);
+    exercise_field::<FiniteField<2, 64, Tower<fgf::FanPaar64>>>(0x0123_4567_89AB_CDEF, 7);
     exercise_field::<Gf16>(0x0108, 0x1B70);
     exercise_field::<Gf32>(0x5555_5555, 0x0F0F_0F0F);
     exercise_field::<Gf64>(0x0123_4567_89AB_CDEF, 0xFFFF_0000_0000_FFFF);
+    // A downstream tower specification over a shipped byte field.
+    exercise_field::<CustomGf16>(0x0108, 0x1B70);
     // Named prime rows and the quadratic extension.
     exercise_field::<Mersenne31>(0x5555_5555, 0x71C7_1C71);
     exercise_field::<Goldilocks>(0xFFFF_FFFF_0000_0000, 7);
@@ -161,12 +209,7 @@ fn wire_format_rows_round_trip() {
     exercise_buffer::<Goldilocks>(Elem::<Goldilocks>::from_raw(7));
     let quad = Elem::<QuadMersenne31>::from_raw(3, 5);
     exercise_buffer::<QuadMersenne31>(quad);
-    exercise_buffer::<FiniteField<2, 8, Polynomial<AES>>>(
-        Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
-    );
-    exercise_buffer::<Gf16>(Elem::<Gf16>::from_raw(0x1B70));
-    exercise_buffer::<Gf32>(Elem::<Gf32>::from_raw(0x0F0F_0F0F));
-    exercise_buffer::<Gf64>(Elem::<Gf64>::from_raw(0xFFFF_0000_0000_FFFF));
+    byte_rows!(exercise_buffer);
     exercise_buffer::<Residue7>(Elem::<Residue7>::from_residue(6).expect("in range"));
     exercise_buffer::<ResiduePrime>(Elem::<ResiduePrime>::from_raw(123_456_789));
     exercise_buffer::<ResidueWide>(Elem::<ResidueWide>::from_raw(u64::MAX));
@@ -177,12 +220,7 @@ fn dispatchable_rows_drive_packed_operations() {
     exercise_kernels::<Mersenne31>(Elem::<Mersenne31>::from_raw(7));
     exercise_kernels::<Goldilocks>(Elem::<Goldilocks>::from_raw(7));
     exercise_kernels::<QuadMersenne31>(Elem::<QuadMersenne31>::from_raw(13, 17));
-    exercise_kernels::<FiniteField<2, 8, Polynomial<AES>>>(Elem::<
-        FiniteField<2, 8, Polynomial<AES>>,
-    >::from_raw(0x53));
-    exercise_kernels::<Gf16>(Elem::<Gf16>::from_raw(0x0108));
-    exercise_kernels::<Gf32>(Elem::<Gf32>::from_raw(0x5555_5555));
-    exercise_kernels::<Gf64>(Elem::<Gf64>::from_raw(0x00C0_FFEE_00C0_FFEE));
+    byte_rows!(exercise_kernels);
     exercise_kernels::<Residue2>(Elem::<Residue2>::ONE);
     exercise_kernels::<Residue7>(Elem::<Residue7>::from_residue(3).expect("in range"));
     exercise_kernels::<ResiduePrime>(Elem::<ResiduePrime>::from_raw(123_456_789));
