@@ -2,7 +2,7 @@
 
 Feature selection determines whether `fgf` can allocate, use standard-library support, and dispatch architecture kernels. Representation and operation support determine what a particular field can execute on that host.
 
-This guide targets fgf 3.0.0 and Rust 1.93 or later. The [README](https://github.com/nanithefkuc/fgf/blob/v3.0.0/README.md) and [kernel reference](https://docs.rs/fgf/3.0.0/fgf/kernel/index.html) own the supported configuration and query contracts.
+This guide targets fgf 3.0.1 and Rust 1.93 or later. The [README](https://github.com/nanithefkuc/fgf/blob/v3.0.1/README.md) and [kernel reference](https://docs.rs/fgf/3.0.1/fgf/kernel/index.html) own the supported configuration and query contracts.
 
 ## Select the runtime requirements
 
@@ -20,14 +20,14 @@ For a portable library dependency:
 
 ```toml
 [dependencies]
-fgf = { version = "=3.0.0", default-features = false }
+fgf = { version = "=3.0.1", default-features = false }
 ```
 
 For portable prepared collections:
 
 ```toml
 [dependencies]
-fgf = { version = "=3.0.0", default-features = false, features = ["alloc"] }
+fgf = { version = "=3.0.1", default-features = false, features = ["alloc"] }
 ```
 
 Cargo unifies features across dependents. One dependency disabling defaults does not force the whole dependency graph to disable another dependent's request for `std` or `simd`. A constrained application must check its resolved feature graph as well as its own declaration.
@@ -72,7 +72,7 @@ The complete packed examples print their field backends. Those reports should be
 | Wasm | `simd128` when enabled in the target configuration |
 | Other targets | Portable scalar |
 
-The table describes available architecture families, not uniform acceleration of every presentation or operation. Custom extension rows whose base, relation, and storage differ from every shipped tower use the typed scalar fallback. Ordered-basis byte presentations also report scalar.
+The table describes available architecture families, not uniform acceleration of every presentation or operation. Custom extension rows whose base, relation, and storage differ from every shipped instance use the typed scalar fallback. Ordered-basis byte presentations also report scalar.
 
 Wasm SIMD needs a module built with the explicit `+simd128` target feature and an execution environment supporting it. The repository's `just cross-check` compiles both the portable Wasm path and that SIMD configuration, together with the AArch64 library path. Compilation does not prove that either target executed.
 
@@ -102,6 +102,6 @@ Safe APIs validate buffer geometry, but invalid inputs can panic. A higher-level
 
 Arithmetic is variable-time. Table lookups, cache behavior, and data-dependent work make secret elements, coefficients, and buffers an unsupported security use without an independent audit.
 
-[BENCHMARKS.md](https://github.com/nanithefkuc/fgf/blob/v3.0.0/BENCHMARKS.md) owns measured public-operation results and reproduction details. A capability report alone is not a performance measurement.
+[BENCHMARKS.md](https://github.com/nanithefkuc/fgf/blob/v3.0.1/BENCHMARKS.md) owns measured public-operation results and reproduction details. A capability report alone is not a performance measurement.
 
 Next: [Home](Home), or [Migrating from 2.x](Migrating-from-2.x).

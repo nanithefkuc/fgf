@@ -1,10 +1,10 @@
 //! Characteristic-independent embedding and isomorphism acceptance.
 //!
-//! The §18 enumeration reference checks every valid image tuple —
-//! enumerated as full cartesian products filtered by `from_images` — with
-//! exhaustive round trips, brute-force restriction, and homomorphism
-//! samples. Construction, error precedence, conjugates, and the §22
-//! boundary cases follow.
+//! The enumeration reference checks every valid image tuple — enumerated
+//! as full cartesian products filtered by `from_images` — with exhaustive
+//! round trips, brute-force restriction, and homomorphism samples.
+//! Construction, error precedence, conjugates, and the boundary cases
+//! follow.
 
 use fgf::{
     AES, Components, Elem, Embedding, EmbeddingError, Extension, ExtensionSpec, Field, FieldElem,
@@ -12,7 +12,7 @@ use fgf::{
 };
 
 // ---------------------------------------------------------------------------
-// The §18 inventory rows
+// Inventory rows for the enumeration reference
 // ---------------------------------------------------------------------------
 
 type R3 = FiniteField<3, 1, Residue>;
@@ -46,15 +46,15 @@ impl ExtensionSpec<2> for G9AltSpec {
 }
 type G9Alt = FiniteField<3, 2, Extension<G9AltSpec, 2>>;
 
-struct G81TowerSpec;
-impl ExtensionSpec<2> for G81TowerSpec {
+struct G81ExtSpec;
+impl ExtensionSpec<2> for G81ExtSpec {
     type Base = G9Alt;
     type Storage = Components;
     const NAME: &'static str = "GF(81) as t^2 - (1 + a)";
     // `-(1 + a)`: constant `2 + 2a`, linear zero.
     const RELATION: Relation = Relation::from_coordinates(&[2, 2, 0, 0]);
 }
-type G81Tower = FiniteField<3, 4, Extension<G81TowerSpec, 2>>;
+type G81Ext = FiniteField<3, 4, Extension<G81ExtSpec, 2>>;
 
 struct G25Spec;
 impl ExtensionSpec<2> for G25Spec {
@@ -83,8 +83,8 @@ impl ExtensionSpec<2> for G49OddSpec {
 }
 type G49Odd = FiniteField<7, 2, Extension<G49OddSpec, 2>>;
 
-struct G2401TowerSpec;
-impl ExtensionSpec<2> for G2401TowerSpec {
+struct G2401ExtSpec;
+impl ExtensionSpec<2> for G2401ExtSpec {
     type Base = G49Odd;
     type Storage = Components;
     const NAME: &'static str = "GF(7^4) as t^2 - (1 + a)";
@@ -92,7 +92,7 @@ impl ExtensionSpec<2> for G2401TowerSpec {
     // modulo seven. The constant is `-(1 + a)`, linear zero.
     const RELATION: Relation = Relation::from_coordinates(&[6, 6, 0, 0]);
 }
-type G2401Tower = FiniteField<7, 4, Extension<G2401TowerSpec, 2>>;
+type G2401Ext = FiniteField<7, 4, Extension<G2401ExtSpec, 2>>;
 
 struct G343Spec;
 impl ExtensionSpec<3> for G343Spec {
@@ -107,8 +107,8 @@ type Poly2 = FiniteField<2, 2, Polynomial<0x7>>;
 type Poly4 = FiniteField<2, 4, Polynomial<0x13>>;
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
 
-struct G16TowerSpec;
-impl ExtensionSpec<2> for G16TowerSpec {
+struct G16ExtSpec;
+impl ExtensionSpec<2> for G16ExtSpec {
     type Base = Poly2;
     type Storage = Components;
     const NAME: &'static str = "GF(16) tower over GF(4)";
@@ -116,7 +116,7 @@ impl ExtensionSpec<2> for G16TowerSpec {
     // irreducible (constant one would split: `t = 2` is a root).
     const RELATION: Relation = Relation::from_binary_words::<Poly2>(&[2, 1]);
 }
-type G16Tower = FiniteField<2, 4, Extension<G16TowerSpec, 2>>;
+type G16Ext = FiniteField<2, 4, Extension<G16ExtSpec, 2>>;
 
 struct G4Spec;
 impl ExtensionSpec<2> for G4Spec {
@@ -195,7 +195,7 @@ fn agree_on_tuples<S: Field, T: Field<Characteristic = S::Characteristic>>(
 }
 
 // ---------------------------------------------------------------------------
-// §18 full-tuple agreement on the inventory pairs
+// Full-tuple agreement on the inventory pairs
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -203,14 +203,14 @@ fn enumeration_agrees_over_gf3_towers() {
     agree_on_tuples::<R3, G9>(3, 9);
     agree_on_tuples::<R3, G81Quartic>(3, 81);
     agree_on_tuples::<R3, G9Alt>(3, 9);
-    agree_on_tuples::<R3, G81Tower>(3, 81);
-    agree_on_tuples::<G9, G81Tower>(9, 81);
-    agree_on_tuples::<G9Alt, G81Tower>(9, 81);
+    agree_on_tuples::<R3, G81Ext>(3, 81);
+    agree_on_tuples::<G9, G81Ext>(9, 81);
+    agree_on_tuples::<G9Alt, G81Ext>(9, 81);
     agree_on_tuples::<G81Quartic, G81Quartic>(81, 81);
-    agree_on_tuples::<G81Tower, G81Tower>(81, 81);
+    agree_on_tuples::<G81Ext, G81Ext>(81, 81);
     // The tower and the flat presentation are mutual isomorphisms.
-    agree_on_tuples::<G81Quartic, G81Tower>(81, 81);
-    agree_on_tuples::<G81Tower, G81Quartic>(81, 81);
+    agree_on_tuples::<G81Quartic, G81Ext>(81, 81);
+    agree_on_tuples::<G81Ext, G81Quartic>(81, 81);
 }
 
 #[test]
@@ -225,8 +225,8 @@ fn enumeration_agrees_over_gf5_towers() {
 fn enumeration_agrees_over_gf7_towers() {
     agree_on_tuples::<R7, G49Odd>(7, 49);
     agree_on_tuples::<R7, G343>(7, 343);
-    agree_on_tuples::<R7, G2401Tower>(7, 2401);
-    agree_on_tuples::<G49Odd, G2401Tower>(49, 2401);
+    agree_on_tuples::<R7, G2401Ext>(7, 2401);
+    agree_on_tuples::<G49Odd, G2401Ext>(49, 2401);
     agree_on_tuples::<G343, G343>(343, 343);
 }
 
@@ -235,13 +235,13 @@ fn enumeration_agrees_on_small_binary_pairs() {
     agree_on_tuples::<Poly2, Poly4>(4, 16);
     agree_on_tuples::<Poly2, Aes>(4, 256);
     agree_on_tuples::<Poly4, Aes>(16, 256);
-    agree_on_tuples::<G4, G16Tower>(4, 16);
-    agree_on_tuples::<Poly4, G16Tower>(16, 16);
-    agree_on_tuples::<G16Tower, G16Tower>(16, 16);
+    agree_on_tuples::<G4, G16Ext>(4, 16);
+    agree_on_tuples::<Poly4, G16Ext>(16, 16);
+    agree_on_tuples::<G16Ext, G16Ext>(16, 16);
 }
 
 // ---------------------------------------------------------------------------
-// §19 construction and error precedence
+// Construction and error precedence
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -287,27 +287,27 @@ fn unrelated_odd_presentations_have_no_canonical_map() {
 
 #[test]
 fn from_images_rejects_counts_and_non_roots() {
-    let e = Embedding::<G9Alt, G81Tower>::new().unwrap();
+    let e = Embedding::<G9Alt, G81Ext>::new().unwrap();
     // Wrong count: the source holds one level.
     assert_eq!(
-        Embedding::<G9Alt, G81Tower>::from_images(&[]).unwrap_err(),
+        Embedding::<G9Alt, G81Ext>::from_images(&[]).unwrap_err(),
         EmbeddingError::InvalidImages
     );
     let doubled = [e.to_images()[0], e.to_images()[0]];
     assert_eq!(
-        Embedding::<G9Alt, G81Tower>::from_images(&doubled).unwrap_err(),
+        Embedding::<G9Alt, G81Ext>::from_images(&doubled).unwrap_err(),
         EmbeddingError::InvalidImages
     );
     // A perturbed image fails the transported relation: the tower pair
     // holds two levels, so its top image perturbs.
-    let t = Embedding::<G81Tower, G81Tower>::new().unwrap();
+    let t = Embedding::<G81Ext, G81Ext>::new().unwrap();
     let worse = [t.to_images()[0], t.to_images()[1] + Elem::ONE];
     assert_eq!(
-        Embedding::<G81Tower, G81Tower>::from_images(&worse).unwrap_err(),
+        Embedding::<G81Ext, G81Ext>::from_images(&worse).unwrap_err(),
         EmbeddingError::InvalidImages
     );
     // Round trip through images reproduces the map.
-    let rebuilt = Embedding::<G9Alt, G81Tower>::from_images(e.to_images()).unwrap();
+    let rebuilt = Embedding::<G9Alt, G81Ext>::from_images(e.to_images()).unwrap();
     for s in elements::<G9Alt>(9) {
         assert_eq!(rebuilt.embed(s), e.embed(s));
     }
@@ -317,28 +317,28 @@ fn from_images_rejects_counts_and_non_roots() {
 fn incompatible_degree_precedes_every_other_error() {
     // Every constructor reports the degree first, even with malformed
     // images and no canonical embedding on unequal but dividing degrees.
-    let bad = [Elem::<G81Tower>::ZERO; 3];
+    let bad = [Elem::<G81Ext>::ZERO; 3];
     assert_eq!(
-        Embedding::<G9Alt, G81Tower>::from_images(&bad).unwrap_err(),
+        Embedding::<G9Alt, G81Ext>::from_images(&bad).unwrap_err(),
         EmbeddingError::InvalidImages
     );
     assert_eq!(
-        Isomorphism::<G9Alt, G81Tower>::new().unwrap_err(),
+        Isomorphism::<G9Alt, G81Ext>::new().unwrap_err(),
         EmbeddingError::IncompatibleDegree {
             source: 2,
             target: 4
         }
     );
     assert_eq!(
-        Isomorphism::<G9Alt, G81Tower>::from_images(&bad).unwrap_err(),
+        Isomorphism::<G9Alt, G81Ext>::from_images(&bad).unwrap_err(),
         EmbeddingError::IncompatibleDegree {
             source: 2,
             target: 4
         }
     );
-    let embedding = Embedding::<G9Alt, G81Tower>::new().unwrap();
+    let embedding = Embedding::<G9Alt, G81Ext>::new().unwrap();
     assert_eq!(
-        Isomorphism::<G9Alt, G81Tower>::from_embedding(embedding).unwrap_err(),
+        Isomorphism::<G9Alt, G81Ext>::from_embedding(embedding).unwrap_err(),
         EmbeddingError::IncompatibleDegree {
             source: 2,
             target: 4
@@ -372,9 +372,26 @@ fn isomorphisms_are_total_and_invertible_on_small_fields() {
     for s in elements::<G9Alt>(9) {
         assert_eq!(composed.apply(s), forth.apply(iso.apply(s)));
     }
+    // Unequal level counts across the flat and tower GF(81) rows: the
+    // inverse image set rebuilds, and composition agrees sequentially.
+    // No canonical map exists between these unrelated odd presentations,
+    // so the map comes from a validated image tuple.
+    let tuple: Vec<Elem<G81Ext>> = valid_tuples::<G81Quartic, G81Ext>(81)[0].clone();
+    let flat_tower = Isomorphism::<G81Quartic, G81Ext>::from_images(&tuple).unwrap();
+    let rebuilt =
+        Isomorphism::<G81Ext, G81Quartic>::from_images(flat_tower.inverse().to_images()).unwrap();
+    for t in elements::<G81Ext>(81) {
+        assert_eq!(rebuilt.apply(t), flat_tower.inverse().apply(t));
+    }
+    let back = Isomorphism::<G81Ext, G81Quartic>::from_images(rebuilt.to_images()).unwrap();
+    let cycle = flat_tower.then(&back);
+    for s in elements::<G81Quartic>(81) {
+        assert_eq!(cycle.apply(s), back.apply(flat_tower.apply(s)));
+        assert_eq!(cycle.unapply(s), flat_tower.unapply(back.unapply(s)));
+    }
     // Embedding composition agrees too.
     let e1 = Embedding::<R3, G9Alt>::new().unwrap();
-    let e2 = Embedding::<G9Alt, G81Tower>::new().unwrap();
+    let e2 = Embedding::<G9Alt, G81Ext>::new().unwrap();
     let composed = e1.then(&e2);
     for s in elements::<R3>(3) {
         assert_eq!(composed.embed(s), e2.embed(e1.embed(s)));
@@ -382,25 +399,33 @@ fn isomorphisms_are_total_and_invertible_on_small_fields() {
 }
 
 // ---------------------------------------------------------------------------
-// §20 conjugate references
+// Conjugate references
 // ---------------------------------------------------------------------------
 
 #[test]
 fn trace_and_norm_match_independent_conjugates() {
-    let e = Embedding::<G9Alt, G81Tower>::new().unwrap();
-    for t in elements::<G81Tower>(81) {
-        // Independent sums and products of the relative-degree conjugates
-        // under the relative Frobenius.
+    let e = Embedding::<G9Alt, G81Ext>::new().unwrap();
+    for t in elements::<G81Ext>(81) {
+        // Independent conjugates from raw powering, mapped back by a
+        // brute-force preimage scan rather than `restrict`.
         let mut sum = t;
         let mut product = t;
         let mut power = t;
         for _ in 1..2 {
-            power = e.frobenius(power);
+            power = power.pow(9);
             sum += power;
             product *= power;
         }
-        assert_eq!(e.trace(t), e.restrict(sum).unwrap());
-        assert_eq!(e.norm(t), e.restrict(product).unwrap());
+        let expected_sum = elements::<G9Alt>(9)
+            .into_iter()
+            .find(|&s| e.embed(s) == sum)
+            .expect("a trace lies in the embedding image");
+        let expected_product = elements::<G9Alt>(9)
+            .into_iter()
+            .find(|&s| e.embed(s) == product)
+            .expect("a norm lies in the embedding image");
+        assert_eq!(e.trace(t), expected_sum);
+        assert_eq!(e.norm(t), expected_product);
     }
     // QuadMersenne31 norm over Mersenne31 equals the inherent method.
     let qm = Embedding::<Mersenne31, QuadMersenne31>::new().unwrap();
@@ -411,7 +436,7 @@ fn trace_and_norm_match_independent_conjugates() {
 }
 
 // ---------------------------------------------------------------------------
-// §22 boundary cases
+// Boundary cases
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -419,8 +444,8 @@ fn gf9_conjugate_images_reach_gf81() {
     // Both roots of `a^2 + 1` over GF(3) embed GF(9) into the tower GF(81);
     // each choice validates, and the two maps differ.
     let mut maps = Vec::new();
-    for a_image in elements::<G81Tower>(81) {
-        if let Ok(e) = Embedding::<G9Alt, G81Tower>::from_images(&[a_image]) {
+    for a_image in elements::<G81Ext>(81) {
+        if let Ok(e) = Embedding::<G9Alt, G81Ext>::from_images(&[a_image]) {
             maps.push(e);
         }
     }
@@ -439,15 +464,15 @@ fn tower_transport_rejects_the_unchanged_top_image() {
     // The tower `t^2 - (1 + a)` with the lower image `a ↦ -a`: the
     // transported relation at the unchanged top image evaluates to `2a`,
     // nonzero, so the pair is rejected. The unchanged pair validates.
-    let e = Embedding::<G81Tower, G81Tower>::new().unwrap();
+    let e = Embedding::<G81Ext, G81Ext>::new().unwrap();
     let (lower, top) = (e.to_images()[0], e.to_images()[1]);
     let neg_lower = lower.neg();
     assert_ne!(neg_lower, lower);
     assert_eq!(
-        Embedding::<G81Tower, G81Tower>::from_images(&[neg_lower, top]).unwrap_err(),
+        Embedding::<G81Ext, G81Ext>::from_images(&[neg_lower, top]).unwrap_err(),
         EmbeddingError::InvalidImages
     );
-    assert!(Embedding::<G81Tower, G81Tower>::from_images(&[lower, top]).is_ok());
+    assert!(Embedding::<G81Ext, G81Ext>::from_images(&[lower, top]).is_ok());
 }
 
 #[test]
@@ -484,10 +509,10 @@ fn prime_rows_embed_with_no_images() {
         assert_eq!(back.restrict(x), Some(y));
     }
     // Into extensions: the prime subfield of a tower.
-    let into_tower = Embedding::<Res2, G16Tower>::new().unwrap();
+    let into_tower = Embedding::<Res2, G16Ext>::new().unwrap();
     assert_eq!(
         into_tower.to_images().len(),
-        Embedding::<Res2, G16Tower>::generator_count()
+        Embedding::<Res2, G16Ext>::generator_count()
     );
     let one = into_tower.embed(Elem::ONE);
     assert_eq!(into_tower.restrict(one), Some(Elem::ONE));
@@ -530,13 +555,13 @@ fn composition_crosses_layouts_and_counts() {
     // generator count: GF(2) into GF(4) into GF(16).
     type Bin1 = FiniteField<2, 1, Polynomial<3>>;
     let e1 = Embedding::<Bin1, G4>::new().unwrap();
-    let e2 = Embedding::<G4, G16Tower>::new().unwrap();
+    let e2 = Embedding::<G4, G16Ext>::new().unwrap();
     let composed = e1.then(&e2);
     for s in elements::<Bin1>(2) {
         assert_eq!(composed.embed(s), e2.embed(e1.embed(s)));
     }
     assert_eq!(
-        Embedding::<Bin1, G16Tower>::generator_count(),
+        Embedding::<Bin1, G16Ext>::generator_count(),
         0,
         "prime sources hold no levels"
     );

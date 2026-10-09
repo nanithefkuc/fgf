@@ -70,6 +70,85 @@ pub trait BinaryField:
 /// Implemented by `FiniteField<2, N, R>` at its exact supported degree.
 pub trait BinaryDegree<const N: u32>: BinaryField {}
 
+/// The raw word of the binary degree-one element with ordinary residue
+/// `value`: zero for even values, the row identity for odd ones. Shared by
+/// the inherent `const` residue constructor and the row hook.
+///
+/// The macro below emits the shared surface of one binary degree row.
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) const fn residue_row_raw<R: BinaryRepr<1>>(value: u64) -> u8 {
+    let () = Validate::<FiniteField<2, 1, R>>::OK;
+    if value.is_multiple_of(2) {
+        0
+    } else {
+        // The descriptor identity holds one bit here.
+        R::DESCRIPTION.one() as u8
+    }
+}
+
+/// The ordinary residue of a binary degree-one canonical raw word: zero
+/// for the zero word, one for the identity word, `None` otherwise.
+/// Shared by the inherent `const` residue readout and the row hook.
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) const fn residue_row_value<R: BinaryRepr<1>>(raw: u8) -> Option<u64> {
+    let () = Validate::<FiniteField<2, 1, R>>::OK;
+    // The descriptor identity holds one bit here.
+    let one = R::DESCRIPTION.one() as u8;
+    if raw == 0 {
+        Some(0)
+    } else if raw == one {
+        Some(1)
+    } else {
+        None
+    }
+}
+
+/// Emit the prime-subfield row hooks of one binary degree row.
+///
+/// The degree-one arm shares the inherent `const` residue bodies, so const
+/// and runtime contexts build and read exactly the same element. Wider
+/// rows keep their identity-word bodies; no inherent residue conversion
+/// exists there.
+macro_rules! prime_hooks {
+    (1) => {
+        fn from_prime(value: u64) -> <Self as Field>::Raw {
+            let () = Validate::<Self>::OK;
+            $crate::field::binary::residue_row_raw::<R>(value % 2)
+        }
+
+        fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
+            let () = Validate::<Self>::OK;
+            $crate::field::binary::residue_row_value::<R>(<Self as Field>::canonical_raw(raw))
+        }
+    };
+    ($n:literal) => {
+        fn from_prime(value: u64) -> <Self as Field>::Raw {
+            let () = Validate::<Self>::OK;
+            // An odd value reduces to the identity, an even one to
+            // zero.
+            if value % 2 == 0 {
+                <Self as Field>::ZERO_RAW
+            } else {
+                <Self as Field>::ONE_RAW
+            }
+        }
+
+        fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
+            let () = Validate::<Self>::OK;
+            let raw = <Self as Field>::canonical_raw(raw);
+            // The prime subfield holds zero and the identity, and an
+            // ordered-basis row's identity word need not be one.
+            if raw == <Self as Field>::ZERO_RAW {
+                Some(0)
+            } else if raw == <Self as Field>::ONE_RAW {
+                Some(1)
+            } else {
+                None
+            }
+        }
+    };
+}
+
 /// Emit the shared surface of one binary degree row.
 ///
 /// `Field`, `BinaryField`, and `BinaryDegree` over every representation,
@@ -194,30 +273,7 @@ macro_rules! degree_row {
                 raw
             }
 
-            fn from_prime(value: u64) -> <Self as Field>::Raw {
-                let () = Validate::<Self>::OK;
-                // An odd value reduces to the identity, an even one to
-                // zero.
-                if value % 2 == 0 {
-                    <Self as Field>::ZERO_RAW
-                } else {
-                    <Self as Field>::ONE_RAW
-                }
-            }
-
-            fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
-                let () = Validate::<Self>::OK;
-                let raw = <Self as Field>::canonical_raw(raw);
-                // The prime subfield holds zero and the identity, and an
-                // ordered-basis row's identity word need not be one.
-                if raw == <Self as Field>::ZERO_RAW {
-                    Some(0)
-                } else if raw == <Self as Field>::ONE_RAW {
-                    Some(1)
-                } else {
-                    None
-                }
-            }
+            prime_hooks!($n);
         }
         impl<R: BinaryRepr<$n>> BinaryField for FiniteField<2, $n, R> {
             const DESCRIPTION: &'static BinaryDescription = R::DESCRIPTION;
@@ -401,8 +457,9 @@ impl<R: BinaryRepr<1>> Elem<FiniteField<2, 1, R>> {
     #[inline]
     pub const fn from_residue(value: u64) -> Result<Self, RangeError> {
         match super::check_residue(value, 2) {
-            Ok(0) => Ok(Self::ZERO),
-            Ok(_) => Ok(Self::ONE),
+            Ok(checked) => Ok(Elem {
+                raw: residue_row_raw::<R>(checked),
+            }),
             Err(error) => Err(error),
         }
     }
@@ -412,7 +469,7 @@ impl<R: BinaryRepr<1>> Elem<FiniteField<2, 1, R>> {
     #[inline]
     #[must_use]
     pub const fn to_residue(self) -> Option<u64> {
-        Some(if self.raw == Self::ZERO.raw { 0 } else { 1 })
+        residue_row_value::<R>(self.raw)
     }
 }
 

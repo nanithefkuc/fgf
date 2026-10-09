@@ -150,6 +150,43 @@ pub struct Descriptor {
     root: u8,
 }
 
+/// Check storage admissibility of an extension relation: packed storages
+/// require characteristic two and supported widths, with the coordinate
+/// word filling or sitting below the word.
+const fn check_storage(storage: Storage, characteristic: u64, degree: u32) {
+    match storage {
+        Storage::Components => {}
+        Storage::Packed { width } => {
+            assert!(
+                characteristic == 2,
+                "packed storage requires characteristic two"
+            );
+            assert!(
+                matches!(width, 8 | 16 | 32 | 64),
+                "packed storage word width is unsupported"
+            );
+            assert!(
+                width as u32 == degree,
+                "packed storage width differs from the field degree"
+            );
+        }
+        Storage::PackedPadded { width } => {
+            assert!(
+                characteristic == 2,
+                "packed storage requires characteristic two"
+            );
+            assert!(
+                matches!(width, 8 | 16 | 32 | 64),
+                "packed storage word width is unsupported"
+            );
+            assert!(
+                degree < width as u32,
+                "padded packed storage is not narrower than its word"
+            );
+        }
+    }
+}
+
 impl Descriptor {
     /// A prime-field leaf of `modulus` under `presentation`.
     #[must_use]
@@ -269,6 +306,14 @@ impl Descriptor {
         relation: &[u64],
         storage: Storage,
     ) -> Self {
+        // Family metadata first: primality, degree, and cardinality
+        // precede base agreement, so direct validity queries fail on
+        // metadata before representation.
+        assert!(
+            crate::field::is_prime(characteristic),
+            "characteristic is not prime"
+        );
+        crate::field::finite_field::metadata_order(characteristic, degree);
         assert!(
             relation.len() <= COORDINATES,
             "relation exceeds the coordinate capacity"
@@ -289,7 +334,6 @@ impl Descriptor {
             product == degree as u64,
             "extension degree is not the base degree times the relative degree"
         );
-        crate::field::finite_field::metadata_order(characteristic, degree);
         assert!(
             relation.len() == degree as usize,
             "relation coordinate count differs from the field degree"
@@ -302,37 +346,7 @@ impl Descriptor {
             );
             i += 1;
         }
-        match storage {
-            Storage::Components => {}
-            Storage::Packed { width } => {
-                assert!(
-                    characteristic == 2,
-                    "packed storage requires characteristic two"
-                );
-                assert!(
-                    matches!(width, 8 | 16 | 32 | 64),
-                    "packed storage word width is unsupported"
-                );
-                assert!(
-                    width as u32 == degree,
-                    "packed storage width differs from the field degree"
-                );
-            }
-            Storage::PackedPadded { width } => {
-                assert!(
-                    characteristic == 2,
-                    "packed storage requires characteristic two"
-                );
-                assert!(
-                    matches!(width, 8 | 16 | 32 | 64),
-                    "packed storage word width is unsupported"
-                );
-                assert!(
-                    degree < width as u32,
-                    "padded packed storage is not narrower than its word"
-                );
-            }
-        }
+        check_storage(storage, characteristic, degree);
         assert!(base.len < NODES as u8, "description capacity exhausted");
         // The cardinality check above bounds `degree` by `COORDINATES`, so
         // the packing below stays inside the coefficient array.

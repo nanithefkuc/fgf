@@ -56,8 +56,6 @@ pub const fn root_relation_irreducible(descriptor: &Descriptor) -> bool {
 /// # Panics
 ///
 /// Panics when the root relation is reducible.
-// No production caller: the tests reach the underlying test directly.
-#[allow(dead_code)]
 pub const fn validate_relation(descriptor: &Descriptor) {
     if pinned::is_pinned(descriptor) {
         return;
@@ -124,8 +122,6 @@ pub const fn quadratic_relation_holds(descriptor: &Descriptor, index: u8) -> boo
 /// The generalized Ben-Or test for a relation node of relative degree at
 /// least three: `gcd(f, t^(q^i) - t)` must be a unit for every
 /// `1 <= i <= floor(D/2)`, `q` the base order.
-// No production caller: reached through the irreducibility entry points.
-#[allow(dead_code)]
 const fn ben_or_irreducible(descriptor: &Descriptor, index: u8) -> bool {
     let (base, relative_degree, base_words) = match descriptor.node(index) {
         Node::Extension {

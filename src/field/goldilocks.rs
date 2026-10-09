@@ -217,8 +217,9 @@ impl super::private::RowAccess for Goldilocks {
     }
 
     fn from_prime(value: u64) -> <Self as Field>::Raw {
-        let () = Validate::<Self>::OK;
-        reduce(value)
+        // Shares the inherent `from_raw` body, so const and runtime
+        // contexts build exactly the same element.
+        Elem::<Self>::from_raw(value).to_raw()
     }
 
     fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {

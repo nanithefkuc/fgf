@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-10-10
+
 ### Added
 
 - The canonical generic field family `FiniteField<const P: u64, const N: u32,
@@ -156,9 +158,7 @@ All notable changes to this project are documented here. The format follows
   `from_residue`/`to_residue` and `from_index`/`to_index`, shared by every
   row. `BinaryField::to_coordinates`/`from_coordinates` are removed: use
   `to_index`/`from_index`, identical words below degree 64 widened to
-  `u128`. `to_residue` returns `Option`, `None` off the prime subfield;
-  `PrimeField` is a method-free marker; `CoordinateError` and
-  `ResidueError` are replaced by `fgf::RangeError` (also
+  `u128`. `CoordinateError` is replaced by `fgf::RangeError` (also
   `fgf::field::RangeError`). Residues and indices are distinct: the index
   of one is the presentation's coordinate encoding of one.
 - Binary embedding evaluation no longer uses precomputed linear columns:

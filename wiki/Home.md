@@ -1,6 +1,6 @@
 # fgf guides
 
-`fgf` supplies finite-field values and arithmetic over application-owned packed buffers. These guides explain field presentations, generic algorithms, and the mapping from equations to bulk operations. They target **fgf 3.0.0** and Rust **1.93 or later**.
+`fgf` supplies finite-field values and arithmetic over application-owned packed buffers. These guides explain field presentations, generic algorithms, and the mapping from equations to bulk operations. They target **fgf 3.0.1** and Rust **1.93 or later**.
 
 > This library is AI-assisted. Its code requires independent audit. Arithmetic is variable-time; safe Rust does not make operations suitable for secret elements, coefficients, or buffers.
 
@@ -22,6 +22,7 @@ Specialized buffer guides cover [prime fields](Prime-fields) and [bit-packed GF(
 
 - [Downstream scalar fields](Downstream-scalar-fields) explains choosing a crate-defined row, the `Residue` row for a custom prime modulus, and an `ExtensionSpec` for a custom extension; `Field` itself is sealed.
 - [Migrating from 2.x](Migrating-from-2.x) gives replacements for removed names and explains changed construction and buffer behavior.
+- [Migrating from 3.0.0-rc.1](Migrating-from-3.0.0-rc.1) covers the canonical family cutover: named rows, binary spellings, extension instances, residue and index conversions, and the field-level embedding surface.
 
 ## A first useful computation
 
@@ -43,9 +44,9 @@ The overwrite operation ignores the previous destination bytes. A production enc
 
 ## Reference and executable examples
 
-The [versioned API reference](https://docs.rs/fgf/3.0.0/fgf/) owns exact signatures, panics, and invariants. The [README](https://github.com/nanithefkuc/fgf/blob/v3.0.0/README.md) covers installation and scope. The [changelog](https://github.com/nanithefkuc/fgf/blob/v3.0.0/CHANGELOG.md) records release changes; [BENCHMARKS.md](https://github.com/nanithefkuc/fgf/blob/v3.0.0/BENCHMARKS.md) owns measurements.
+The [versioned API reference](https://docs.rs/fgf/3.0.1/fgf/) owns exact signatures, panics, and invariants. The [README](https://github.com/nanithefkuc/fgf/blob/v3.0.1/README.md) covers installation and scope. The [changelog](https://github.com/nanithefkuc/fgf/blob/v3.0.1/CHANGELOG.md) records release changes; [BENCHMARKS.md](https://github.com/nanithefkuc/fgf/blob/v3.0.1/BENCHMARKS.md) owns measurements.
 
-The [examples directory](https://github.com/nanithefkuc/fgf/tree/v3.0.0/examples) contains complete programs with assertions and printed results. From a crate checkout:
+The [examples directory](https://github.com/nanithefkuc/fgf/tree/v3.0.1/examples) contains complete programs with assertions and printed results. From a crate checkout:
 
 ```sh
 just example shard_recovery

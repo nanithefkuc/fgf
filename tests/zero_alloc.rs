@@ -3,7 +3,8 @@
 use fgf::poly::{AES, RS};
 use fgf::{
     Components, Elem, Embedding, Extension, ExtensionSpec, FieldElem, FieldKernels, FiniteField,
-    Goldilocks, Isomorphism, Mersenne31, Normal, Packed, Polynomial, Relation, Residue, ops,
+    Goldilocks, Isomorphism, Mersenne31, Normal, Packed, Polynomial, QuadMersenne31, Relation,
+    Residue, ops,
 };
 
 #[path = "common/zero_alloc.rs"]
@@ -489,6 +490,8 @@ fn embedding_construction_and_application_allocate_nothing() {
         let _ = byte_tower.frobenius(target);
         let _ = byte_tower.trace(target);
         let _ = byte_tower.norm(target);
+        let _ = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf64>::generator_count();
+        let _ = byte_tower.relative_degree();
         let _ = fanpaar_pair.trace(target);
         let _ = fanpaar_pair.norm(target);
         let _ = absolute.trace(target);
@@ -499,6 +502,7 @@ fn embedding_construction_and_application_allocate_nothing() {
             byte_tower.to_images(),
         )
         .unwrap();
+        let _ = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf64>::generator(0);
         let wide = Embedding::<Gf64, Gf64>::new().unwrap();
         let _ = rebuilt.then(&wide);
         let iso = Isomorphism::<Gf64, Gf64>::new().unwrap();
@@ -506,6 +510,17 @@ fn embedding_construction_and_application_allocate_nothing() {
         let _ = iso.unapply(target);
         let _ = iso.inverse();
         let _ = iso.to_embedding();
+        let _ = iso.to_images();
+        let _ = Isomorphism::<Gf64, Gf64>::from_images(iso.to_images()).unwrap();
+        let _ = Isomorphism::<Gf64, Gf64>::from_embedding(wide).unwrap();
+        let _ = iso.then(&iso);
+        // An odd-characteristic isomorphism under the allocator.
+        let qiso = Isomorphism::<QuadMersenne31, QuadMersenne31>::new().unwrap();
+        let z = Elem::<QuadMersenne31>::from_raw([3, 5]);
+        let _ = qiso.apply(z);
+        let _ = qiso.unapply(qiso.apply(z));
+        let _ = qiso.inverse();
+        let _ = qiso.to_images();
     });
     assert_eq!(applications, 0, "embedding application allocated");
 }

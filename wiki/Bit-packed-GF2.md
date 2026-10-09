@@ -2,7 +2,7 @@
 
 The `bits` module stores one GF(2) element per bit, with explicit logical lengths for operations whose meaning depends on the live element count. Its byte buffers are not the byte-per-element layout used by `ops`.
 
-This guide targets fgf 3.0.0. The [bits reference](https://docs.rs/fgf/3.0.0/fgf/bits/index.html) owns exact range, length, and padding contracts.
+This guide targets fgf 3.0.1. The [bits reference](https://docs.rs/fgf/3.0.1/fgf/bits/index.html) owns exact range, length, and padding contracts.
 
 ## Scalar values and vector storage
 
@@ -107,6 +107,6 @@ bits::xor_gather(&mut output, 7, 0b101, &sources);
 assert_eq!(output, [0b0010_1101]);
 ```
 
-The [binary-syndrome program](https://github.com/nanithefkuc/fgf/blob/v3.0.0/examples/binary_syndrome.rs) supplies generator rows, encodes a message by subset XOR, and checks a single-error recovery. From a checkout, `just example binary_syndrome --no-default-features` exercises the portable library surface.
+The [binary-syndrome program](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/binary_syndrome.rs) supplies generator rows, encodes a message by subset XOR, and checks a single-error recovery. From a checkout, `just example binary_syndrome --no-default-features` exercises the portable library surface.
 
 Next: [Features and deployment](Features-and-deployment).

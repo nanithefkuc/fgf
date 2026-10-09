@@ -113,6 +113,9 @@ compile-fail:
         if err=$(rustc +{{MSRV}} --edition 2024 --crate-type lib --extern fgf="${rlib}" -L dependency=target/debug/deps --out-dir "${scratch}" "${snippet}" 2>&1); then
             echo "compile-fail: FAIL ${snippet} compiled successfully" >&2
             failures=$((failures + 1))
+        elif [[ -n "${fragment}" ]] && ! grep -qF -- "${fragment}" <<< "${err}"; then
+            echo "compile-fail: FAIL ${snippet} expected fragment: ${fragment}" >&2
+            failures=$((failures + 1))
         elif [[ -z "${fragment}" ]] && grep -qE -- 'error\[E(0412|0425|0432|0433)\]' <<< "${err}"; then
             echo "compile-fail: FAIL ${snippet}: rejected for an unresolved name" >&2
             failures=$((failures + 1))

@@ -2,7 +2,7 @@
 
 fgf 3.0.0 replaces field-specific element wrappers with `Elem<F>` and makes scalar algebra, byte encoding, and generator selection separate capabilities. Migration changes both type names and the handling of noncanonical prime lanes.
 
-The [3.0.0 changelog](https://github.com/nanithefkuc/fgf/blob/v3.0.0/CHANGELOG.md) is the authoritative release record. This page groups the changes by caller task. Historical 2.x fragments are fenced as text because they do not compile against 3.0.0; all Rust-fenced replacements target 3.0.0.
+The [3.0.0 changelog](https://github.com/nanithefkuc/fgf/blob/v3.0.1/CHANGELOG.md) is the authoritative release record. This page groups the changes by caller task. Historical 2.x fragments are fenced as text because they do not compile against 3.0.0; all Rust-fenced replacements target 3.0.0.
 
 ## Replace field and element spellings together
 

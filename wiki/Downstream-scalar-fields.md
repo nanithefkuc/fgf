@@ -53,7 +53,7 @@ The residue row's defining data is the characteristic itself, so the primality p
 
 ## Generators and kernels on named rows
 
-The residue row implements `FieldBuffer` and the packed operations with `Scalar` routing; it does not implement `HasGenerator`, because a generic generator needs the factorization of `P − 1`, which fgf holds only for pinned moduli. Rows with a checked generator — the named prime rows, the binary rows, the shipped towers, and `QuadMersenne31` — prove full multiplicative order inside the provider constant.
+The residue row implements `FieldBuffer` and the packed operations with `Scalar` routing; it does not implement `HasGenerator`, because a generic generator needs the factorization of `P − 1`, which fgf holds only for pinned moduli. Rows with a checked generator — the named prime rows, the binary rows, the shipped extension instances, and `QuadMersenne31` — prove full multiplicative order inside the provider constant.
 
 ```rust
 use fgf::{Elem, Mersenne31};

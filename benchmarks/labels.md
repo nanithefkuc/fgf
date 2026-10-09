@@ -9,9 +9,13 @@ Thus `gf1` denotes $GF(2)$ independently of the v2 spelling `Gf2`.
 
 ## API mapping
 
-The v2 column describes released `v2.1.0`. The v3 column gives field markers;
-v3 elements use `Elem<F>`. `Rs16Tower` is a benchmark-owned `TowerSpec`, not a
-production alias. A missing v2 marker has no public version counterpart.
+The v2 column describes released `v2.1.0`. The v3 column gives the field
+markers of the measured v3 snapshot (`Binary<N, R>` rows, `Tower<S>`
+specifications with `LINEAR_COEFFICIENT`/`CONSTANT_COEFFICIENT`); the
+current tree spells those rows `FiniteField<2, N, R>` with `Extension<S, 2>`
+specifications carrying `RELATION` constant-first.
+`Rs16Tower` is a benchmark-owned specification, not a production alias. A
+missing v2 marker has no public version counterpart.
 
 | Label | v2 Canonical | v3 Canonical | Definition |
 | --- | --- | --- | --- |

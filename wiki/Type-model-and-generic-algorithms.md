@@ -2,7 +2,7 @@
 
 A field type fixes arithmetic and representation; `Elem<F>` holds one value in that field. A generic algorithm chooses capabilities through trait bounds rather than naming a particular field family.
 
-This guide targets fgf 3.0.0. The [field module reference](https://docs.rs/fgf/3.0.0/fgf/field/index.html) owns the detailed contracts.
+This guide targets fgf 3.0.1. The [field module reference](https://docs.rs/fgf/3.0.1/fgf/field/index.html) owns the detailed contracts.
 
 ## A field is not an element
 

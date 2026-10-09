@@ -3,3 +3,4 @@
 /bench-records/
 /external/*/target
 /external/*/Cargo.lock
+/coverage.lcov

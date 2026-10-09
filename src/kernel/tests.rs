@@ -99,7 +99,7 @@ fn gf8_coeffs_of<const POLY: u128>() -> Vec<Elem<FiniteField<2, 8, Polynomial<PO
     coeffs
 }
 
-/// The Rijndael tower's relation constant and base reduction byte: the raw
+/// The Rijndael extension's relation constant and base reduction byte: the raw
 /// facts the elementwise kernels receive as plain values.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 const DELTA_BYTE: u8 = 0x20;
@@ -115,26 +115,26 @@ const AES_REDUCTION: u8 = Polynomial::<AES>::REDUCTION_LOW;
 /// not a pinned presentation, so every bulk operation routes through the
 /// typed scalar fallback and `backend_for` reports `Scalar`.
 #[derive(Clone, Copy)]
-pub(crate) struct RsTower;
+pub(crate) struct RsExtension;
 
-impl crate::field::ExtensionSpec<2> for RsTower {
+impl crate::field::ExtensionSpec<2> for RsExtension {
     type Base = FiniteField<2, 8, Polynomial<RS>>;
     type Storage = Packed<u16>;
     const NAME: &'static str = "GF(2^16)/0x11D";
     const RELATION: Relation = Relation::from_binary_words::<Self::Base>(&[0x80, 2]);
 }
 
-pub(crate) type RsField = FiniteField<2, 16, crate::field::Extension<RsTower, 2>>;
+pub(crate) type RsExtField = FiniteField<2, 16, crate::field::Extension<RsExtension, 2>>;
 #[allow(dead_code)]
-pub(crate) type RsElem = Elem<RsField>;
+pub(crate) type RsExtElem = Elem<RsExtField>;
 
 /// A custom degree-16 extension over the AES base with a non-unit linear
 /// coefficient: `t^2 + 2*t + 0x01`.
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
-pub(crate) struct AesTower;
+pub(crate) struct AesExtension;
 
-impl crate::field::ExtensionSpec<2> for AesTower {
+impl crate::field::ExtensionSpec<2> for AesExtension {
     type Base = FiniteField<2, 8, Polynomial<AES>>;
     type Storage = Packed<u16>;
     const NAME: &'static str = "GF(2^16)/0x11B/A2";
@@ -142,12 +142,12 @@ impl crate::field::ExtensionSpec<2> for AesTower {
 }
 
 #[allow(dead_code)]
-pub(crate) type AesField = FiniteField<2, 16, crate::field::Extension<AesTower, 2>>;
+pub(crate) type AesExtField = FiniteField<2, 16, crate::field::Extension<AesExtension, 2>>;
 #[allow(dead_code)]
-pub(crate) type AesElem = Elem<AesField>;
+pub(crate) type AesExtElem = Elem<AesExtField>;
 
 /// GF(2^16) coefficients: pure base-field, pure extension, and mixed. The
-/// tower kernels have distinct code paths for the `same` and `cross` factors,
+/// extension kernels have distinct code paths for the `same` and `cross` factors,
 /// and a coefficient with a zero component silently masks one of them.
 fn gf16_coeffs() -> Vec<Elem<Rijndael16Field>> {
     let mut coeffs = vec![
@@ -972,21 +972,21 @@ fn gf64_into_reference(dst: &mut [u8], coeff: Elem<Rijndael64Field>, src: &[u8])
 // Backend-independent
 // ---------------------------------------------------------------------------
 
-/// A custom tower is not a pinned presentation: every tier routes it to
+/// A custom extension is not a pinned presentation: every tier routes it to
 /// the typed scalar fallback, `backend_for` reports `Scalar`, and
 /// elementwise stays on the scalar path.
 #[test]
-fn rs_tower_routing_reports_serving_tiers() {
+fn rs_extension_routing_reports_serving_tiers() {
     use crate::kernel::FieldKernels;
 
     assert_eq!(
-        <RsField as FieldKernels>::backend(),
+        <RsExtField as FieldKernels>::backend(),
         crate::kernel::Backend::Scalar,
-        "a custom tower routes to the typed scalar fallback"
+        "a custom extension routes to the typed scalar fallback"
     );
     assert!(
-        !<RsField as FieldKernels>::has_vector_elementwise(),
-        "a custom tower keeps elementwise scalar"
+        !<RsExtField as FieldKernels>::has_vector_elementwise(),
+        "a custom extension keeps elementwise scalar"
     );
     assert!(
         <Rijndael16Field as FieldKernels>::has_vector_elementwise()
@@ -998,14 +998,14 @@ fn rs_tower_routing_reports_serving_tiers() {
 /// A prepared GF(2^16) coefficient for a custom tower carries the raw word
 /// on every host: the scalar fallback is the only route.
 #[test]
-fn rs_tower_prepared_form_matches_serving_route() {
+fn rs_extension_prepared_form_matches_serving_route() {
     use crate::kernel::tower::gf16::Prepared;
 
     let prepared =
-        <RsField as KernelDispatch>::prepare(RawDispatch, Elem::<RsField>::from_raw(0x0100));
+        <RsExtField as KernelDispatch>::prepare(RawDispatch, Elem::<RsExtField>::from_raw(0x0100));
     assert!(
         matches!(prepared, Prepared::Plain(_)),
-        "a custom tower prepares the raw coefficient word"
+        "a custom extension prepares the raw coefficient word"
     );
 }
 
@@ -5695,59 +5695,60 @@ mod x86 {
         );
     }
 
-    /// Differential coverage for the Reed-Solomon-rooted custom tower: a
+    /// Differential coverage for the Reed-Solomon-rooted custom extension: a
     /// description without a pinned strategy routes every dispatched
     /// single-row operation through the typed scalar fallback, at lengths
     /// straddling the 32-byte lane boundaries the vector kernels would use.
     #[test]
-    fn rs_tower_kernels_match_scalar() {
-        let coeffs: Vec<RsElem> = [0u16, 1, 2, 0x00ff, 0x0100, 0xff00, 0xffff, 0xbeef]
+    fn rs_extension_kernels_match_scalar() {
+        let coeffs: Vec<RsExtElem> = [0u16, 1, 2, 0x00ff, 0x0100, 0xff00, 0xffff, 0xbeef]
             .iter()
             .copied()
-            .map(RsElem::from_raw)
+            .map(RsExtElem::from_raw)
             .collect();
 
         check_tower_mul_add(
             "rs16 fallback mul_add",
             LENGTHS,
             &coeffs,
-            scalar::mul_add::<RsField>,
+            scalar::mul_add::<RsExtField>,
             |dst, c, src| {
-                let prepared = <RsField as KernelDispatch>::prepare(RawDispatch, c);
-                <RsField as KernelDispatch>::mul_add(RawDispatch, dst, &prepared, src);
+                let prepared = <RsExtField as KernelDispatch>::prepare(RawDispatch, c);
+                <RsExtField as KernelDispatch>::mul_add(RawDispatch, dst, &prepared, src);
             },
         );
         check_tower_mul_assign(
             "rs16 fallback mul_assign",
             LENGTHS,
             &coeffs,
-            scalar::mul_assign::<RsField>,
+            scalar::mul_assign::<RsExtField>,
             |dst, c| {
-                let prepared = <RsField as KernelDispatch>::prepare(RawDispatch, c);
-                <RsField as KernelDispatch>::mul_assign(RawDispatch, dst, &prepared);
+                let prepared = <RsExtField as KernelDispatch>::prepare(RawDispatch, c);
+                <RsExtField as KernelDispatch>::mul_assign(RawDispatch, dst, &prepared);
             },
         );
         check_tower_mul_into(
             "rs16 fallback mul_into",
             LENGTHS,
             &coeffs,
-            scalar::mul_add::<RsField>,
+            scalar::mul_add::<RsExtField>,
             |dst, c, src| {
-                let prepared = <RsField as KernelDispatch>::prepare(RawDispatch, c);
-                <RsField as KernelDispatch>::mul_into(RawDispatch, dst, &prepared, src);
+                let prepared = <RsExtField as KernelDispatch>::prepare(RawDispatch, c);
+                <RsExtField as KernelDispatch>::mul_into(RawDispatch, dst, &prepared, src);
             },
         );
 
         // The vector elementwise bodies fold the relation's linear term into
         // the Karatsuba cross sum, which holds only for a unit linear
-        // coefficient — so the RS tower's elementwise route is the scalar
+        // coefficient — so the RS extension's elementwise route is the scalar
         // path, exercised in the dispatch test below.
     }
 
-    /// The dispatched operations for the Reed–Solomon-rooted tower: the
+    /// The dispatched operations for the Reed–Solomon-rooted extension: the
     /// one-shot raw-element forms resolve against the RS bank on access.
     #[test]
-    fn rs_tower_dispatch_matches_scalar() {
+    #[allow(clippy::too_many_lines)]
+    fn rs_extension_dispatch_matches_scalar() {
         if !host_supports(&[Backend::V2]) {
             eprintln!("skipping: no SSSE3 on this host");
             return;
@@ -5755,13 +5756,13 @@ mod x86 {
         for &len in LENGTHS {
             let src = noise(len, 0x238);
             for raw in [0u16, 1, 0x0100, 0xbeef] {
-                let coeff = RsElem::from_raw(raw);
-                let prepared = <RsField as KernelDispatch>::prepare(RawDispatch, coeff);
+                let coeff = RsExtElem::from_raw(raw);
+                let prepared = <RsExtField as KernelDispatch>::prepare(RawDispatch, coeff);
 
                 let mut got = noise(len, 0x249);
                 let mut want = got.clone();
-                <RsField as KernelDispatch>::mul_add(RawDispatch, &mut got, &prepared, &src);
-                scalar::mul_add::<RsField>(&mut want, coeff, &src);
+                <RsExtField as KernelDispatch>::mul_add(RawDispatch, &mut got, &prepared, &src);
+                scalar::mul_add::<RsExtField>(&mut want, coeff, &src);
                 assert_eq!(
                     got, want,
                     "rs16 dispatch mul_add: len {len} coeff {raw:04x}"
@@ -5769,8 +5770,8 @@ mod x86 {
 
                 let mut got = noise(len, 0x25a);
                 let mut want = got.clone();
-                <RsField as KernelDispatch>::mul_assign(RawDispatch, &mut got, &prepared);
-                scalar::mul_assign::<RsField>(&mut want, coeff);
+                <RsExtField as KernelDispatch>::mul_assign(RawDispatch, &mut got, &prepared);
+                scalar::mul_assign::<RsExtField>(&mut want, coeff);
                 assert_eq!(
                     got, want,
                     "rs16 dispatch mul_assign: len {len} coeff {raw:04x}"
@@ -5778,8 +5779,8 @@ mod x86 {
 
                 let mut got = vec![0xaa; len];
                 let mut want = vec![0u8; len];
-                <RsField as KernelDispatch>::mul_into(RawDispatch, &mut got, &prepared, &src);
-                scalar::mul_add::<RsField>(&mut want, coeff, &src);
+                <RsExtField as KernelDispatch>::mul_into(RawDispatch, &mut got, &prepared, &src);
+                scalar::mul_add::<RsExtField>(&mut want, coeff, &src);
                 assert_eq!(
                     got, want,
                     "rs16 dispatch mul_into: len {len} coeff {raw:04x}"
@@ -5792,8 +5793,8 @@ mod x86 {
             let b = noise(len, 0x27c);
             let mut got = vec![0; len];
             let mut want = vec![0; len];
-            <RsField as KernelDispatch>::mul_elementwise(RawDispatch, &mut got, &a, &b);
-            scalar::mul_elementwise::<RsField>(&mut want, &a, &b);
+            <RsExtField as KernelDispatch>::mul_elementwise(RawDispatch, &mut got, &a, &b);
+            scalar::mul_elementwise::<RsExtField>(&mut want, &a, &b);
             assert_eq!(got, want, "rs16 dispatch elementwise: len {len}");
         }
 
@@ -5801,14 +5802,20 @@ mod x86 {
         let row_len = 34;
         let nrows = 5;
         let src = noise(row_len, 0x28d);
-        let coeffs: Vec<RsElem> = (0..nrows as u16)
-            .map(|j| RsElem::from_raw(j * 8191))
+        let coeffs: Vec<RsExtElem> = (0..nrows as u16)
+            .map(|j| RsExtElem::from_raw(j * 8191))
             .collect();
         let mut got = noise(row_len * nrows, 0x29e);
         let mut want = got.clone();
-        <RsField as KernelDispatch>::mul_add_scatter(RawDispatch, &mut got, row_len, &coeffs, &src);
+        <RsExtField as KernelDispatch>::mul_add_scatter(
+            RawDispatch,
+            &mut got,
+            row_len,
+            &coeffs,
+            &src,
+        );
         for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs) {
-            scalar::mul_add::<RsField>(row, coeff, &src);
+            scalar::mul_add::<RsExtField>(row, coeff, &src);
         }
         assert_eq!(got, want, "rs16 dispatch scatter");
 
@@ -5816,27 +5823,27 @@ mod x86 {
             .map(|t| noise(row_len, 0x2af + u64::from(t)))
             .collect();
         let src_refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
-        let gather_coeffs: Vec<RsElem> = (0u16..3)
-            .map(|t| RsElem::from_raw(t.wrapping_mul(40_961).wrapping_add(7)))
+        let gather_coeffs: Vec<RsExtElem> = (0u16..3)
+            .map(|t| RsExtElem::from_raw(t.wrapping_mul(40_961).wrapping_add(7)))
             .collect();
         let mut got = noise(row_len, 0x2c0);
         let mut want = got.clone();
-        <RsField as KernelDispatch>::mul_add_gather(
+        <RsExtField as KernelDispatch>::mul_add_gather(
             RawDispatch,
             &mut got,
             &gather_coeffs,
             &src_refs,
         );
         for (&coeff, &s) in gather_coeffs.iter().zip(&src_refs) {
-            scalar::mul_add::<RsField>(&mut want, coeff, s);
+            scalar::mul_add::<RsExtField>(&mut want, coeff, s);
         }
         assert_eq!(got, want, "rs16 dispatch gather");
 
-        let matrix_coeffs: Vec<Vec<RsElem>> = (0u16..3)
+        let matrix_coeffs: Vec<Vec<RsExtElem>> = (0u16..3)
             .map(|t| {
                 (0..nrows)
                     .map(|j| {
-                        RsElem::from_raw(
+                        RsExtElem::from_raw(
                             t.wrapping_mul(7919)
                                 .wrapping_add((j as u16).wrapping_mul(613)),
                         )
@@ -5844,15 +5851,21 @@ mod x86 {
                     .collect()
             })
             .collect();
-        let terms: Vec<(&[RsElem], &[u8])> = (0..3)
+        let terms: Vec<(&[RsExtElem], &[u8])> = (0..3)
             .map(|t| (matrix_coeffs[t].as_slice(), src_refs[t]))
             .collect();
         let mut got = noise(row_len * nrows, 0x2d1);
         let mut want = got.clone();
-        <RsField as KernelDispatch>::mul_add_matrix(RawDispatch, &mut got, row_len, nrows, &terms);
+        <RsExtField as KernelDispatch>::mul_add_matrix(
+            RawDispatch,
+            &mut got,
+            row_len,
+            nrows,
+            &terms,
+        );
         for &(coeffs, s) in &terms {
             for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
-                scalar::mul_add::<RsField>(row, coeff, s);
+                scalar::mul_add::<RsExtField>(row, coeff, s);
             }
         }
         assert_eq!(got, want, "rs16 dispatch matrix");
@@ -5868,14 +5881,14 @@ mod x86 {
         // A custom extension takes the scalar fallback on every tier: the
         // backend reports `Scalar` and the prepared form is the raw word.
         assert_eq!(
-            <AesField as crate::kernel::FieldKernels>::backend(),
+            <AesExtField as crate::kernel::FieldKernels>::backend(),
             crate::kernel::Backend::Scalar
         );
         assert!(matches!(
-            <AesField as KernelDispatch>::prepare(RawDispatch, AesElem::from_raw(0x0104)),
+            <AesExtField as KernelDispatch>::prepare(RawDispatch, AesExtElem::from_raw(0x0104)),
             Prepared::Plain(_)
         ));
-        assert!(!<AesField as crate::kernel::FieldKernels>::has_vector_elementwise());
+        assert!(!<AesExtField as crate::kernel::FieldKernels>::has_vector_elementwise());
 
         if !host_supports(&[Backend::V2]) {
             eprintln!("skipping: no SSSE3 on this host");
@@ -5884,13 +5897,13 @@ mod x86 {
         for &len in LENGTHS {
             let src = noise(len, 0x238);
             for raw in [0u16, 1, 0x0104, 0xbeef] {
-                let coeff = AesElem::from_raw(raw);
-                let prepared = <AesField as KernelDispatch>::prepare(RawDispatch, coeff);
+                let coeff = AesExtElem::from_raw(raw);
+                let prepared = <AesExtField as KernelDispatch>::prepare(RawDispatch, coeff);
 
                 let mut got = noise(len, 0x249);
                 let mut want = got.clone();
-                <AesField as KernelDispatch>::mul_add(RawDispatch, &mut got, &prepared, &src);
-                scalar::mul_add::<AesField>(&mut want, coeff, &src);
+                <AesExtField as KernelDispatch>::mul_add(RawDispatch, &mut got, &prepared, &src);
+                scalar::mul_add::<AesExtField>(&mut want, coeff, &src);
                 assert_eq!(
                     got, want,
                     "aes16 dispatch mul_add: len {len} coeff {raw:04x}"
@@ -5898,8 +5911,8 @@ mod x86 {
 
                 let mut got = noise(len, 0x25a);
                 let mut want = got.clone();
-                <AesField as KernelDispatch>::mul_assign(RawDispatch, &mut got, &prepared);
-                scalar::mul_assign::<AesField>(&mut want, coeff);
+                <AesExtField as KernelDispatch>::mul_assign(RawDispatch, &mut got, &prepared);
+                scalar::mul_assign::<AesExtField>(&mut want, coeff);
                 assert_eq!(
                     got, want,
                     "aes16 dispatch mul_assign: len {len} coeff {raw:04x}"
@@ -5907,8 +5920,8 @@ mod x86 {
 
                 let mut got = vec![0xaa; len];
                 let mut want = vec![0u8; len];
-                <AesField as KernelDispatch>::mul_into(RawDispatch, &mut got, &prepared, &src);
-                scalar::mul_add::<AesField>(&mut want, coeff, &src);
+                <AesExtField as KernelDispatch>::mul_into(RawDispatch, &mut got, &prepared, &src);
+                scalar::mul_add::<AesExtField>(&mut want, coeff, &src);
                 assert_eq!(
                     got, want,
                     "aes16 dispatch mul_into: len {len} coeff {raw:04x}"
@@ -5920,13 +5933,13 @@ mod x86 {
             let b = noise(len, 0x27c);
             let mut got = vec![0; len];
             let mut want = vec![0; len];
-            <AesField as KernelDispatch>::mul_elementwise(RawDispatch, &mut got, &a, &b);
-            scalar::mul_elementwise::<AesField>(&mut want, &a, &b);
+            <AesExtField as KernelDispatch>::mul_elementwise(RawDispatch, &mut got, &a, &b);
+            scalar::mul_elementwise::<AesExtField>(&mut want, &a, &b);
             assert_eq!(got, want, "aes16 dispatch elementwise: len {len}");
             let mut got = a.clone();
             let mut want = a.clone();
-            <AesField as KernelDispatch>::mul_elementwise_assign(RawDispatch, &mut got, &b);
-            scalar::mul_elementwise_assign::<AesField>(&mut want, &b);
+            <AesExtField as KernelDispatch>::mul_elementwise_assign(RawDispatch, &mut got, &b);
+            scalar::mul_elementwise_assign::<AesExtField>(&mut want, &b);
             assert_eq!(got, want, "aes16 dispatch elementwise assign: len {len}");
         }
 
@@ -5997,12 +6010,12 @@ mod x86 {
         let row_len = 34;
         let nrows = 5;
         let src = noise(row_len, 0x28d);
-        let coeffs: Vec<AesElem> = (0..nrows as u16)
-            .map(|j| AesElem::from_raw(j * 8191))
+        let coeffs: Vec<AesExtElem> = (0..nrows as u16)
+            .map(|j| AesExtElem::from_raw(j * 8191))
             .collect();
         let mut got = noise(row_len * nrows, 0x29e);
         let mut want = got.clone();
-        <AesField as KernelDispatch>::mul_add_scatter(
+        <AesExtField as KernelDispatch>::mul_add_scatter(
             RawDispatch,
             &mut got,
             row_len,
@@ -6010,7 +6023,7 @@ mod x86 {
             &src,
         );
         for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs) {
-            scalar::mul_add::<AesField>(row, coeff, &src);
+            scalar::mul_add::<AesExtField>(row, coeff, &src);
         }
         assert_eq!(got, want, "aes16 dispatch scatter");
 
@@ -6018,27 +6031,27 @@ mod x86 {
             .map(|t| noise(row_len, 0x2af + u64::from(t)))
             .collect();
         let src_refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
-        let gather_coeffs: Vec<AesElem> = (0u16..3)
-            .map(|t| AesElem::from_raw(t.wrapping_mul(40_961).wrapping_add(7)))
+        let gather_coeffs: Vec<AesExtElem> = (0u16..3)
+            .map(|t| AesExtElem::from_raw(t.wrapping_mul(40_961).wrapping_add(7)))
             .collect();
         let mut got = noise(row_len, 0x2c0);
         let mut want = got.clone();
-        <AesField as KernelDispatch>::mul_add_gather(
+        <AesExtField as KernelDispatch>::mul_add_gather(
             RawDispatch,
             &mut got,
             &gather_coeffs,
             &src_refs,
         );
         for (&coeff, &s) in gather_coeffs.iter().zip(&src_refs) {
-            scalar::mul_add::<AesField>(&mut want, coeff, s);
+            scalar::mul_add::<AesExtField>(&mut want, coeff, s);
         }
         assert_eq!(got, want, "aes16 dispatch gather");
 
-        let matrix_coeffs: Vec<Vec<AesElem>> = (0u16..3)
+        let matrix_coeffs: Vec<Vec<AesExtElem>> = (0u16..3)
             .map(|t| {
                 (0..nrows)
                     .map(|j| {
-                        AesElem::from_raw(
+                        AesExtElem::from_raw(
                             t.wrapping_mul(7919)
                                 .wrapping_add((j as u16).wrapping_mul(613)),
                         )
@@ -6046,15 +6059,21 @@ mod x86 {
                     .collect()
             })
             .collect();
-        let terms: Vec<(&[AesElem], &[u8])> = (0..3)
+        let terms: Vec<(&[AesExtElem], &[u8])> = (0..3)
             .map(|t| (matrix_coeffs[t].as_slice(), src_refs[t]))
             .collect();
         let mut got = noise(row_len * nrows, 0x2d1);
         let mut want = got.clone();
-        <AesField as KernelDispatch>::mul_add_matrix(RawDispatch, &mut got, row_len, nrows, &terms);
+        <AesExtField as KernelDispatch>::mul_add_matrix(
+            RawDispatch,
+            &mut got,
+            row_len,
+            nrows,
+            &terms,
+        );
         for &(coeffs, s) in &terms {
             for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
-                scalar::mul_add::<AesField>(row, coeff, s);
+                scalar::mul_add::<AesExtField>(row, coeff, s);
             }
         }
         assert_eq!(got, want, "aes16 dispatch matrix");
@@ -6063,16 +6082,16 @@ mod x86 {
         // row and term.
         #[cfg(feature = "alloc")]
         {
-            let values: Vec<AesElem> = (0..nrows as u16)
-                .map(|j| AesElem::from_raw(j.wrapping_mul(7411).wrapping_add(3)))
+            let values: Vec<AesExtElem> = (0..nrows as u16)
+                .map(|j| AesExtElem::from_raw(j.wrapping_mul(7411).wrapping_add(3)))
                 .collect();
-            let prepared: Vec<<AesField as KernelDispatch>::Prepared> = values
+            let prepared: Vec<<AesExtField as KernelDispatch>::Prepared> = values
                 .iter()
-                .map(|&c| <AesField as KernelDispatch>::prepare(RawDispatch, c))
+                .map(|&c| <AesExtField as KernelDispatch>::prepare(RawDispatch, c))
                 .collect();
             let mut got = noise(row_len * nrows, 0x2e2);
             let mut want = got.clone();
-            <AesField as KernelDispatch>::mul_add_scatter_with(
+            <AesExtField as KernelDispatch>::mul_add_scatter_with(
                 RawDispatch,
                 &mut got,
                 row_len,
@@ -6080,12 +6099,12 @@ mod x86 {
                 &src,
             );
             for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&values) {
-                scalar::mul_add::<AesField>(row, coeff, &src);
+                scalar::mul_add::<AesExtField>(row, coeff, &src);
             }
             assert_eq!(got, want, "aes16 dispatch scatter with");
             let mut got = noise(row_len * nrows, 0x2e3);
             let mut want = got.clone();
-            <AesField as KernelDispatch>::mul_add_scatter_plan(
+            <AesExtField as KernelDispatch>::mul_add_scatter_plan(
                 RawDispatch,
                 &mut got,
                 row_len,
@@ -6094,25 +6113,25 @@ mod x86 {
                 &src,
             );
             for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&values) {
-                scalar::mul_add::<AesField>(row, coeff, &src);
+                scalar::mul_add::<AesExtField>(row, coeff, &src);
             }
             assert_eq!(got, want, "aes16 dispatch scatter plan");
 
             let mut got = noise(row_len, 0x2e4);
             let mut want = got.clone();
-            <AesField as KernelDispatch>::mul_add_gather_with(
+            <AesExtField as KernelDispatch>::mul_add_gather_with(
                 RawDispatch,
                 &mut got,
                 &prepared[..src_refs.len()],
                 &src_refs,
             );
             for (&coeff, &s) in values.iter().zip(&src_refs) {
-                scalar::mul_add::<AesField>(&mut want, coeff, s);
+                scalar::mul_add::<AesExtField>(&mut want, coeff, s);
             }
             assert_eq!(got, want, "aes16 dispatch gather with");
             let mut got = noise(row_len, 0x2e5);
             let mut want = got.clone();
-            <AesField as KernelDispatch>::mul_add_gather_plan(
+            <AesExtField as KernelDispatch>::mul_add_gather_plan(
                 RawDispatch,
                 &mut got,
                 &values[..src_refs.len()],
@@ -6120,21 +6139,21 @@ mod x86 {
                 &src_refs,
             );
             for (&coeff, &s) in values.iter().zip(&src_refs) {
-                scalar::mul_add::<AesField>(&mut want, coeff, s);
+                scalar::mul_add::<AesExtField>(&mut want, coeff, s);
             }
             assert_eq!(got, want, "aes16 dispatch gather plan");
 
             let nterms = src_refs.len();
-            let flat: Vec<AesElem> = (0..nterms * nrows)
-                .map(|k| AesElem::from_raw((k as u16).wrapping_mul(911).wrapping_add(17)))
+            let flat: Vec<AesExtElem> = (0..nterms * nrows)
+                .map(|k| AesExtElem::from_raw((k as u16).wrapping_mul(911).wrapping_add(17)))
                 .collect();
-            let flat_prepared: Vec<<AesField as KernelDispatch>::Prepared> = flat
+            let flat_prepared: Vec<<AesExtField as KernelDispatch>::Prepared> = flat
                 .iter()
-                .map(|&c| <AesField as KernelDispatch>::prepare(RawDispatch, c))
+                .map(|&c| <AesExtField as KernelDispatch>::prepare(RawDispatch, c))
                 .collect();
             let mut got = noise(row_len * nrows, 0x2e6);
             let mut want = got.clone();
-            <AesField as KernelDispatch>::mul_add_matrix_plan(
+            <AesExtField as KernelDispatch>::mul_add_matrix_plan(
                 RawDispatch,
                 &mut got,
                 row_len,
@@ -6148,7 +6167,7 @@ mod x86 {
                     .chunks_exact_mut(row_len)
                     .zip(&flat[term * nrows..(term + 1) * nrows])
                 {
-                    scalar::mul_add::<AesField>(row, coeff, s);
+                    scalar::mul_add::<AesExtField>(row, coeff, s);
                 }
             }
             assert_eq!(got, want, "aes16 dispatch matrix plan");

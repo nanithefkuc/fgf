@@ -2,7 +2,7 @@
 
 A field choice fixes both the algebra and the coordinates used to represent values. Interoperability requires agreement on that presentation, not only the number of elements.
 
-This guide targets fgf 3.0.0. The [binary field reference](https://docs.rs/fgf/3.0.0/fgf/field/binary/index.html) lists the representation contracts.
+This guide targets fgf 3.0.1. The [binary field reference](https://docs.rs/fgf/3.0.1/fgf/field/binary/index.html) lists the representation contracts.
 
 ## Start with the application's convention
 
@@ -76,16 +76,16 @@ assert_eq!(change.embed(Elem::<PolynomialField>::ONE), Elem::<CantorField>::ONE)
 
 An ordered basis does not provide an FFT or a polynomial evaluation algorithm. `fgf` owns the field representation and arithmetic; transform algorithms belong to their own libraries.
 
-## Tower coordinates
+## Extension components
 
-A quadratic tower holds `a + b*t` over a base field. Low coordinate bits hold `a`, high coordinate bits hold `b`, and the specification's `Relation` fixes the relation for `t`. The base presentation is part of the construction.
+A quadratic extension holds `a + b*t` over a base field. Low coordinate bits hold `a`, high coordinate bits hold `b`, and the specification's `Relation` fixes the relation for `t`. The base presentation is part of the construction.
 
 `FiniteField<2, 16, Extension<Rijndael16, 2>>` roots at the AES field. `FiniteField<2, 16, Extension<FanPaar16, 2>>` uses the recursive Fan–Paar presentation. Both have the same order but different coordinates. [Quadratic towers](Quadratic-towers) explains their components and custom relations; [Embeddings](Embeddings-and-presentation-changes) converts values between them.
 
 ## Generators and acceleration are separate capabilities
 
-A selected multiplicative generator is not the same thing as the polynomial indeterminate or a tower indeterminate. Algorithms that enumerate nonzero elements use `HasGenerator`, which custom extension rows do not implement; tower arithmetic itself requires no selected generator.
+A selected multiplicative generator is not the same thing as the polynomial indeterminate or an extension indeterminate. Algorithms that enumerate nonzero elements use `HasGenerator`, which custom extension rows do not implement; extension arithmetic itself requires no selected generator.
 
-The [deployment guide](Features-and-deployment) explains backend queries. Shipped presentations can have architecture kernels, while ordered-basis presentations and custom extension rows use a typed scalar fallback unless their base, relation, and storage match a shipped tower. Representation selection is not a promise that every operation executes SIMD.
+The [deployment guide](Features-and-deployment) explains backend queries. Shipped presentations can have architecture kernels, while ordered-basis presentations and custom extension rows use a typed scalar fallback unless their base, relation, and storage match a shipped instance. Representation selection is not a promise that every operation executes SIMD.
 
 Next: [Coordinates and packed bytes](Coordinates-and-packed-bytes), or [Embeddings and presentation changes](Embeddings-and-presentation-changes).

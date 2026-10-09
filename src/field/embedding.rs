@@ -20,6 +20,8 @@
 //!
 //! Construction and every method are allocation-free; the prepared state is
 //! fixed arrays. Repeated application never reruns image construction.
+//! Map construction and evaluation are variable-time and unsuitable for
+//! secret data.
 //!
 //! # Levels
 //!
@@ -224,7 +226,7 @@ fn levels(descriptor: &Descriptor) -> ([Level; 8], usize) {
     (out, count)
 }
 
-/// The index of the level owned by `node`, or `u8::MAX` when the node owns
+/// The index of the level owned by `node`, or `None` when the node owns
 /// none (a prime leaf, a degree-one polynomial leaf, or a polynomial node
 /// consumed by its basis leaf).
 fn level_of(levels: &[Level; 8], count: usize, node: u8) -> Option<usize> {
@@ -284,7 +286,7 @@ fn one_coordinates(descriptor: &Descriptor, root: u8, out: &mut [u64]) {
 /// The flattened prime-subfield coordinates of the level generator named
 /// by `level`: the indeterminate of an extension or polynomial level, or
 /// the underlying polynomial root expressed in the basis.
-fn generator_coordinates(descriptor: &Descriptor, level: &Level, degree: usize, out: &mut [u64]) {
+fn generator_coordinates(descriptor: &Descriptor, level: &Level, out: &mut [u64]) {
     let span = level.span_offset..level.span_offset + level.span_len;
     let mut i = span.start;
     while i < span.end {
@@ -309,21 +311,19 @@ fn generator_coordinates(descriptor: &Descriptor, level: &Level, degree: usize, 
         LevelKind::Polynomial { .. } => {
             out[span.start + 1] = 1;
         }
-        LevelKind::Basis { poly } => {
+        LevelKind::Basis { .. } => {
             // The polynomial indeterminate transported into the basis.
             let mut poly_coords = [0u64; 8];
             poly_coords[1] = 1;
             let Node::Basis { from_base, .. } = descriptor.node(level.node) else {
                 panic!("a basis level reads its own node");
             };
-            let _ = poly;
             unpack_bits(
                 apply(*from_base, pack_bits(&poly_coords)),
                 &mut out[span.clone()],
             );
         }
     }
-    let _ = degree;
 }
 
 /// Pack binary coordinate bits into a word, least significant first.
@@ -451,9 +451,6 @@ fn relations_hold<T: Field>(
     }
     true
 }
-/// Restrict `value` to the presentation rooted at `at`, writing its
-/// flattened prime-subfield coordinates into `out`. Returns `false`
-/// exactly when `value` lies outside the image.
 /// Restrict `value` to the presentation rooted at `at`, writing its
 /// flattened prime-subfield coordinates into `out`. Returns `false`
 /// exactly when `value` lies outside the image.
@@ -843,12 +840,7 @@ fn structural_images<T: Field>(
     let mut l = 0;
     while l < source_count {
         let mut coords = [0u64; 128];
-        generator_coordinates(
-            source_descriptor,
-            &source_levels[l],
-            source_degree,
-            &mut coords,
-        );
+        generator_coordinates(source_descriptor, &source_levels[l], &mut coords);
         let mut len = source_degree;
         // Lift innermost first, back up to the target root.
         let mut u = upper_count;
@@ -1005,12 +997,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
             let mut l = 0;
             while l < source_count {
                 let mut coords = [0u64; 128];
-                generator_coordinates(
-                    source_descriptor,
-                    &source_levels[l],
-                    m as usize,
-                    &mut coords,
-                );
+                generator_coordinates(source_descriptor, &source_levels[l], &mut coords);
                 // Generator words of a binary row fit the word.
                 words[l] = u64::try_from(super::coordinates_index(&coords[..m as usize], 2))
                     .expect("a binary generator fits the word");
@@ -1133,12 +1120,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
             "a generator level sits below the generator count"
         );
         let mut coords = [0u64; 128];
-        generator_coordinates(
-            descriptor,
-            &source_levels[level],
-            S::DEGREE as usize,
-            &mut coords,
-        );
+        generator_coordinates(descriptor, &source_levels[level], &mut coords);
         Elem::<S>::from_raw(S::from_prime_coordinates(&coords[..S::DEGREE as usize]))
     }
 
@@ -1164,7 +1146,8 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
 
     /// The relative degree `T::DEGREE / S::DEGREE`.
     #[must_use]
-    pub fn relative_degree() -> u32 {
+    pub fn relative_degree(&self) -> u32 {
+        let _ = self.phantom;
         T::DEGREE / S::DEGREE
     }
 
@@ -1288,7 +1271,8 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
 pub struct Isomorphism<S: Field, T: Field<Characteristic = S::Characteristic>> {
     forward: [Elem<T>; 8],
     reverse: [Elem<S>; 8],
-    count: u8,
+    forward_count: u8,
+    reverse_count: u8,
     phantom: PhantomData<fn() -> (S, T)>,
 }
 
@@ -1373,12 +1357,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         let mut l = 0;
         while l < target_count {
             let mut coords = [0u64; 128];
-            generator_coordinates(
-                descriptor,
-                &target_levels[l],
-                T::DEGREE as usize,
-                &mut coords,
-            );
+            generator_coordinates(descriptor, &target_levels[l], &mut coords);
             let generator =
                 Elem::<T>::from_raw(T::from_prime_coordinates(&coords[..T::DEGREE as usize]));
             reverse[l] = embedding
@@ -1389,7 +1368,9 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         Ok(Self {
             forward: embedding.images,
             reverse,
-            count: embedding.count,
+            forward_count: embedding.count,
+            // Levels are capped at eight per presentation.
+            reverse_count: u8::try_from(target_count).expect("a level count fits its byte"),
             phantom: PhantomData,
         })
     }
@@ -1399,7 +1380,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
     pub fn to_embedding(&self) -> Embedding<S, T> {
         Embedding {
             images: self.forward,
-            count: self.count,
+            count: self.forward_count,
             phantom: PhantomData,
         }
     }
@@ -1407,7 +1388,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
     /// The forward images in the order `from_images` accepts.
     #[must_use]
     pub fn to_images(&self) -> &[Elem<T>] {
-        &self.forward[..self.count as usize]
+        &self.forward[..self.forward_count as usize]
     }
 
     /// Compose with the next isomorphism by image transport.
@@ -1425,7 +1406,8 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         Isomorphism {
             forward: forward.images,
             reverse: reverse.images,
-            count: forward.count,
+            forward_count: forward.count,
+            reverse_count: reverse.count,
             phantom: PhantomData,
         }
     }
@@ -1436,7 +1418,8 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         Isomorphism {
             forward: self.reverse,
             reverse: self.forward,
-            count: self.count,
+            forward_count: self.reverse_count,
+            reverse_count: self.forward_count,
             phantom: PhantomData,
         }
     }

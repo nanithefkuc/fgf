@@ -2,7 +2,7 @@
 
 A quadratic tower represents a binary extension element as `a + b*t` over a half-degree base field, with a checked relation `t² + A*t + B = 0`. Recursive bases build towers through binary degree 64. Every tower is an extension row `FiniteField<2, N, Extension<Spec, 2>>`, where `Spec` implements `ExtensionSpec<2>`.
 
-This guide targets fgf 3.0.0. The [tower reference](https://docs.rs/fgf/3.0.0/fgf/field/binary/tower/index.html) defines the shipped specifications; the [extension reference](https://docs.rs/fgf/3.0.0/fgf/field/extension/index.html) defines the specification trait, storage, and validation.
+This guide targets fgf 3.0.1. The [tower reference](https://docs.rs/fgf/3.0.1/fgf/field/binary/tower/index.html) defines the shipped specifications; the [extension reference](https://docs.rs/fgf/3.0.1/fgf/field/extension/index.html) defines the specification trait, storage, and validation.
 
 ## Components are values in the base presentation
 
@@ -41,7 +41,7 @@ Every coefficient operation in these equations belongs to the base field. In par
 
 `Rijndael16` roots at `FiniteField<2, 8, Polynomial<AES>>`; `Rijndael32` and `Rijndael64` continue that tower. `FanPaar2` through `FanPaar64` nest from GF(2) through the Fan–Paar relation. Each marker is a specification, used inside `FiniteField<2, N, Extension<Spec, 2>>`, rather than a standalone field type.
 
-An application chooses a local alias such as `type F = FiniteField<2, 16, Extension<Rijndael16, 2>>`. The shipped specification's relation and selected generator are frozen conventions. Shipped rows carry the `const` element surface: constructors, byte and component conversions, and arithmetic. Equal degree does not make Rijndael and Fan–Paar coordinates interchangeable; [embeddings](Embeddings-and-presentation-changes) change the presentation explicitly.
+An application chooses a local alias such as `type F = FiniteField<2, 16, Extension<Rijndael16, 2>>`. The shipped specification's relation and selected generator are frozen conventions. Shipped rows carry the `const` element surface: constructors, byte conversions, and arithmetic, with component conversions on the 16-, 32-, and 64-bit instances. Equal degree does not make Rijndael and Fan–Paar coordinates interchangeable; [embeddings](Embeddings-and-presentation-changes) change the presentation explicitly.
 
 ## Define a custom relation
 
@@ -83,7 +83,7 @@ A custom row carries the `const` identities `Elem::<F>::ZERO` and `Elem::<F>::ON
 
 The relation is not valid merely because its coefficients fit. Validation checks the base, that the extension degree is twice the base degree, that every coefficient word fits the base, that the storage admits the degree, and that the quadratic is irreducible over the base.
 
-Validation is evaluated when the defining constants or values require it. A type declaration alone is not proof that its relation is valid. Invalid const constructions fail compilation, and an invalid row panics at its first runtime use. There is no degree-128 tower row.
+Validation is evaluated when the defining constants or values require it. A type declaration alone is not proof that its relation is valid: using a value-producing operation or identity forces compile-time validation and rejects invalid defining data. There is no degree-128 tower row.
 
 ## A generator is optional
 
@@ -97,4 +97,4 @@ Rows with `Packed` storage have a byte form at degrees 8, 16, 32, and 64 and imp
 
 `ExtensionSpec` is not limited to binary quadratic towers: its base is any row fgf implements, and its relative degree is any `D` that `Extension<Spec, D>` names. `Components` storage keeps one base element per component and suits a prime base. [Downstream scalar fields](Downstream-scalar-fields) covers the sealed scalar rows and the residue row for custom prime fields.
 
-Next: [Coordinates and packed bytes](Coordinates-and-packed-bytes). The [extension-fields example](https://github.com/nanithefkuc/fgf/blob/v3.0.0/examples/extension_fields.rs) compares binary towers with `QuadMersenne31`.
+Next: [Coordinates and packed bytes](Coordinates-and-packed-bytes). The [extension-fields example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/extension_fields.rs) compares binary towers with `QuadMersenne31`.

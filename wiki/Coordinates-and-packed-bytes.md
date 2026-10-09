@@ -2,7 +2,7 @@
 
 `Elem<F>` holds a canonical scalar value in a chosen presentation. `FieldBuffer` encodes that value as a fixed-width little-endian lane, and `ops` packs consecutive lanes without alignment or padding requirements.
 
-This guide targets fgf 3.0.0. The [field reference](https://docs.rs/fgf/3.0.0/fgf/field/index.html) owns encoding contracts; the [ops reference](https://docs.rs/fgf/3.0.0/fgf/ops/index.html) owns packed conversion and arithmetic contracts.
+This guide targets fgf 3.0.1. The [field reference](https://docs.rs/fgf/3.0.1/fgf/field/index.html) owns encoding contracts; the [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) owns packed conversion and arithmetic contracts.
 
 ## Raw coordinates are not mathematical integers
 

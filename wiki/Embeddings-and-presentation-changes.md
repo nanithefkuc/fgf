@@ -2,7 +2,7 @@
 
 `Embedding<S, T>` prepares a value-preserving map between rows of equal characteristic when the source degree divides the target degree. Equal degrees give a change of presentation; a larger target gives a subfield inclusion. `Isomorphism<S, T>` is the equal-degree form with a total inverse. One implementation serves every characteristic: the prepared state stores the image of each generator level, and every method evaluates in the target's arithmetic.
 
-This guide targets fgf 3.0.0. It builds on [Choosing a field and basis](Choosing-a-field-and-basis). The [embedding reference](https://docs.rs/fgf/3.0.0/fgf/field/embedding/index.html) owns the map sources and method contracts.
+This guide targets fgf 3.0.1. It builds on [Choosing a field and basis](Choosing-a-field-and-basis). The [embedding reference](https://docs.rs/fgf/3.0.1/fgf/field/embedding/index.html) owns the map sources and method contracts.
 
 ## A smaller field is not a prefix of arbitrary coordinates
 
@@ -41,11 +41,11 @@ assert_eq!(change.embed(Elem::<Aes>::ONE), Elem::<Rs>::ONE);
 assert_eq!(change.restrict(change.embed(a)), Some(a));
 ```
 
-The same surface handles normal, Cantor, and tower presentations. Equal-degree maps are bijective, so every target element has a source preimage. A larger-degree inclusion is injective but not surjective.
+The same surface handles normal, Cantor, and extension presentations. Equal-degree maps are bijective, so every target element has a source preimage. A larger-degree inclusion is injective but not surjective.
 
 ## One convention makes composed inclusions agree
 
-An abstract pair of finite fields can admit several embeddings. Structural inclusions need no choice: a tower's own bases and the prime subfield embed as constant components. In characteristic two a frozen reference ladder selects the remaining canonical maps: polynomial presentations at degrees one, two, and four; the AES field at degree eight; and Rijndael towers above it. Presentation changes factor through that ladder.
+An abstract pair of finite fields can admit several embeddings. Structural inclusions need no choice: an extension's own bases and the prime subfield embed as constant components. In characteristic two a frozen reference ladder selects the remaining canonical maps: polynomial presentations at degrees one, two, and four; the AES field at degree eight; and Rijndael extensions above it. Presentation changes factor through that ladder.
 
 The consequence for applications is composability: embedding through an intermediate supported degree agrees with embedding directly. The reference's root selection and coordinate ordering are interoperability facts, not knobs for a caller to tune.
 
@@ -103,6 +103,6 @@ assert_eq!(
 );
 ```
 
-The [complete embeddings example](https://github.com/nanithefkuc/fgf/blob/v3.0.0/examples/embeddings.rs) also covers cross-tower conversions and absolute trace. From a checkout, `just example embeddings` runs it.
+The [complete embeddings example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/embeddings.rs) also covers cross-presentation conversions and absolute trace. From a checkout, `just example embeddings` runs it.
 
 Next: [Quadratic towers](Quadratic-towers), or [Coordinates and packed bytes](Coordinates-and-packed-bytes).

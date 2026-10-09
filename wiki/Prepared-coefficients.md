@@ -2,7 +2,7 @@
 
 Prepared coefficients retain the backend's reusable form of a field multiplier. `_with` operations apply that state to new buffers without rebuilding it or weakening geometry checks.
 
-This guide targets fgf 3.0.0 and builds on [Linear operations and row geometry](Linear-operations-and-row-geometry). The [ops reference](https://docs.rs/fgf/3.0.0/fgf/ops/index.html) owns the prepared types and application contracts.
+This guide targets fgf 3.0.1 and builds on [Linear operations and row geometry](Linear-operations-and-row-geometry). The [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) owns the prepared types and application contracts.
 
 ## Separate values, preparation, and destination storage
 
@@ -82,7 +82,7 @@ Views cannot outlive their owning collection. Moving or dropping the owner while
 
 Owned collections allocate during construction. Their documented applications reuse the prepared state without allocation. That steady-state contract does not mean an application has no first-use setup: feature-enabled dispatch or shared table initialization can have separate startup work. Buffers and source-slice arrays must also be supplied without allocating inside the repeated region if the application needs an allocation-free loop.
 
-The crate's [counting-allocator tests](https://github.com/nanithefkuc/fgf/blob/v3.0.0/tests/zero_alloc.rs) defend its steady-state promises. These examples check arithmetic and reuse; they are not allocation measurements.
+The crate's [counting-allocator tests](https://github.com/nanithefkuc/fgf/blob/v3.0.1/tests/zero_alloc.rs) defend its steady-state promises. These examples check arithmetic and reuse; they are not allocation measurements.
 
 Preparation hoists coefficient work, not validation. A wrong source count, destination span, or row length still panics through a prepared operation. `CoeffVec` and `CoeffMatrix` require `alloc`, not `std`; [deployment](Features-and-deployment) covers that feature combination.
 
@@ -90,4 +90,4 @@ Preparation hoists coefficient work, not validation. A wrong source count, desti
 
 Prepared state is bound to the process backend and deliberately opaque. Persist the coefficient values in their agreed field encoding and reconstruct preparation after loading. An application also persists matrix dimensions and source-major ordering; raw coefficient bytes alone do not describe geometry.
 
-Next: [Features and deployment](Features-and-deployment), or the [shard recovery example](https://github.com/nanithefkuc/fgf/blob/v3.0.0/examples/shard_recovery.rs).
+Next: [Features and deployment](Features-and-deployment), or the [shard recovery example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/shard_recovery.rs).

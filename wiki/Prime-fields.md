@@ -2,7 +2,7 @@
 
 Prime-family elements reduce integer lanes into canonical storage on construction. Packed operations interpret accepted raw lanes as field values, while arithmetic shortcuts can preserve bytes instead of acting as a normalization pass.
 
-This guide targets fgf 3.0.0. The references for [Mersenne31](https://docs.rs/fgf/3.0.0/fgf/field/mersenne31/index.html), [Goldilocks](https://docs.rs/fgf/3.0.0/fgf/field/goldilocks/index.html), and [QuadMersenne31](https://docs.rs/fgf/3.0.0/fgf/field/quad_mersenne31/index.html) own their arithmetic and encoding contracts.
+This guide targets fgf 3.0.1. The references for [Mersenne31](https://docs.rs/fgf/3.0.1/fgf/field/mersenne31/index.html), [Goldilocks](https://docs.rs/fgf/3.0.1/fgf/field/goldilocks/index.html), and [QuadMersenne31](https://docs.rs/fgf/3.0.1/fgf/field/quad_mersenne31/index.html) own their arithmetic and encoding contracts.
 
 ## Modulus, order, and lane width
 
@@ -118,6 +118,6 @@ assert_eq!(z.to_bytes(), [7, 0, 0, 0, 11, 0, 0, 0]);
 
 The inherent constructor and a generic `FieldElem::from_raw` call both take the field's `Raw` array `[re, im]`. The wrapper remains `Elem<QuadMersenne31>` in both cases.
 
-All these operations are variable-time. From a checkout, `just example prime_vectors` runs the [complete multi-family workflow](https://github.com/nanithefkuc/fgf/blob/v3.0.0/examples/prime_vectors.rs).
+All these operations are variable-time. From a checkout, `just example prime_vectors` runs the [complete multi-family workflow](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/prime_vectors.rs).
 
 Next: [Features and deployment](Features-and-deployment).

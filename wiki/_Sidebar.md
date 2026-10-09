@@ -20,5 +20,6 @@
 **Upgrading**
 
 - [Migrating from 2.x](Migrating-from-2.x)
+- [Migrating from 3.0.0-rc.1](Migrating-from-3.0.0-rc.1)
 
-[API reference](https://docs.rs/fgf/3.0.0/fgf/)
+[API reference](https://docs.rs/fgf/3.0.1/fgf/)

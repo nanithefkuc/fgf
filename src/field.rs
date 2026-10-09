@@ -134,9 +134,6 @@ mod private {
         ///
         /// # Panics
         /// Panics when `dst.len()` differs from `Field::DEGREE`.
-        // The extension rows compose it through their bases and the
-        // tests read it directly.
-        #[allow(dead_code)]
         fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw)
         where
             Self: Field;
@@ -150,17 +147,11 @@ mod private {
         where
             Self: Field;
         /// `value · 1`, with `value` reduced modulo the characteristic.
-        // The extension rows compose it through their bases and the
-        // tests read it directly.
-        #[allow(dead_code)]
         fn from_prime(value: u64) -> <Self as Field>::Raw
         where
             Self: Field;
         /// `Some(c)` exactly when `raw == c · 1` with `c` below the
         /// characteristic; `None` otherwise.
-        // The extension rows compose it through their bases and the
-        // tests read it directly.
-        #[allow(dead_code)]
         fn to_prime(raw: <Self as Field>::Raw) -> Option<u64>
         where
             Self: Field;
@@ -170,8 +161,8 @@ mod private {
 ///
 /// Returns `value` when it names an element of the prime subfield and
 /// [`RangeError`] otherwise. The inherent `const` residue constructors and
-/// the [`FieldElem::from_residue`] blanket implementation share this body,
-/// so const and runtime contexts accept exactly the same inputs.
+/// the [`FieldElem::from_residue`] blanket implementation share this range
+/// check; construction and readout share each row's conversion body.
 pub(crate) const fn check_residue(value: u64, characteristic: u64) -> Result<u64, RangeError> {
     if value < characteristic {
         Ok(value)

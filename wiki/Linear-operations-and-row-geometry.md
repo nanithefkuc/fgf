@@ -2,7 +2,7 @@
 
 Packed linear operations apply field coefficients independently at every element position of a row. Their shape names describe how sources feed outputs, while their suffixes describe what happens to the destination.
 
-This guide targets fgf 3.0.0. [Coordinates and packed bytes](Coordinates-and-packed-bytes) establishes the lane format. The [ops reference](https://docs.rs/fgf/3.0.0/fgf/ops/index.html) owns each call's validation and mutation contract.
+This guide targets fgf 3.0.1. [Coordinates and packed bytes](Coordinates-and-packed-bytes) establishes the lane format. The [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) owns each call's validation and mutation contract.
 
 ## Match the equation to the operation
 
@@ -70,7 +70,7 @@ ops::mul_add_scatter::<F>(&mut outputs, 2, &from_b, &b);
 assert_eq!(outputs, [13, 18, 13, 16, 9, 30]);
 ```
 
-A source replacement can use the delta `new_source - old_source`: scattering that delta updates the existing outputs. Subtraction is XOR for binary fields, but not for prime fields. The [streaming example](https://github.com/nanithefkuc/fgf/blob/v3.0.0/examples/streaming_encode.rs) demonstrates this workflow over degree-sixteen lanes.
+A source replacement can use the delta `new_source - old_source`: scattering that delta updates the existing outputs. Subtraction is XOR for binary fields, but not for prime fields. The [streaming example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/streaming_encode.rs) demonstrates this workflow over degree-sixteen lanes.
 
 ## Offset destinations preserve unrelated frame bytes
 
@@ -100,6 +100,6 @@ This is accumulation, so the example initializes only the output slots to zero. 
 
 Invalid lengths, counts, offsets, or overlapping destination rows panic through the checked surface. Valid zero-work shapes still undergo structural validation. An empty source sum overwrites with zero in an overwrite operation; an empty sum contributes nothing to an accumulation operation. Consult each operation's reference rather than treating all empty geometries alike.
 
-The [shard recovery example](https://github.com/nanithefkuc/fgf/blob/v3.0.0/examples/shard_recovery.rs) derives a fixed recovery matrix. Its supplied equations cover the stated erasure patterns, not arbitrary decoding.
+The [shard recovery example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/shard_recovery.rs) derives a fixed recovery matrix. Its supplied equations cover the stated erasure patterns, not arbitrary decoding.
 
 Next: [Prepared coefficients](Prepared-coefficients).
