@@ -527,7 +527,98 @@ impl ExtensionSpec<2> for Packed16Spec {
 }
 type Packed16Row = FiniteField<2, 16, Extension<Packed16Spec, 2>>;
 
-/// Generic extension rows: the borrowed packed surface runs
+/// The whole checked packed surface the generic family serves, inside one
+/// counted window per row: every borrowed operation, the scatter, matrix,
+/// and offset-addressed forms, the broadcast scalar forms, and the
+/// prepared coefficient and prepared collections.
+#[allow(clippy::too_many_lines)]
+fn assert_extension_packed_surface_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
+    let row_len = 64;
+    let src = noise(row_len, 0x611);
+    let other = noise(row_len, 0x622);
+    let mut dst = noise(row_len, 0x633);
+    let mut gather_dst = noise(row_len, 0x644);
+    let mut ew = noise(row_len, 0x655);
+    let region = noise(4 * row_len, 0x666);
+    let sources = [
+        noise(row_len, 0x671),
+        noise(row_len, 0x672),
+        noise(row_len, 0x673),
+        noise(row_len, 0x674),
+    ];
+    let refs: [&[u8]; 4] = [&sources[0], &sources[1], &sources[2], &sources[3]];
+    let coeffs = [coeff; 4];
+    let ones = [Elem::<F>::ONE; 4];
+    let mut scatter_rows = noise(4 * row_len, 0x681);
+    let mut matrix_rows = noise(4 * row_len, 0x682);
+    let mut at_rows = noise(4 * row_len, 0x683);
+    let row_starts = [0, row_len, 2 * row_len, 3 * row_len];
+    let offsets = [0u32, 64, 128, 192];
+    let terms = [(&coeffs[..], &src[..]), (&ones[..], &other[..])];
+    let prepared = ops::Coeff::<F>::new(coeff);
+    let vector = ops::CoeffVec::<F>::new(&coeffs);
+    let flat = [coeff; 8];
+    let matrix = ops::CoeffMatrix::<F>::from_source_major(2, 4, &flat);
+    let matrix_refs: [&[u8]; 2] = [&src, &other];
+
+    // Warm dispatch and every path before counting.
+    ops::add_assign::<F>(&mut dst, &src);
+    ops::add_assign_rows::<F>(&mut dst, row_len, &src);
+    ops::add_gather_offsets::<F>(&mut dst, &region, &offsets);
+    ops::sub_assign::<F>(&mut dst, &src);
+    ops::mul_add::<F>(&mut dst, coeff, &src);
+    ops::mul_into::<F>(&mut ew, coeff, &src);
+    ops::mul_assign::<F>(&mut ew, coeff);
+    ops::mul_add_scatter::<F>(&mut scatter_rows, row_len, &coeffs, &src);
+    ops::mul_add_gather::<F>(&mut gather_dst, &coeffs, &refs);
+    ops::mul_into_gather::<F>(&mut gather_dst, &coeffs, &refs);
+    ops::mul_add_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
+    ops::mul_into_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
+    ops::mul_add_matrix_at::<F>(&mut at_rows, row_len, &row_starts, &terms);
+    ops::mul_elementwise::<F>(&mut ew, &src, &other);
+    ops::mul_elementwise_assign::<F>(&mut ew, &other);
+    ops::add_assign_scalar::<F>(&mut dst, coeff);
+    ops::sub_assign_scalar::<F>(&mut dst, coeff);
+    ops::mul_add_with::<F>(&mut dst, &prepared, &src);
+    ops::mul_into_with::<F>(&mut dst, &prepared, &src);
+    ops::mul_assign_with::<F>(&mut dst, &prepared);
+    ops::mul_add_scatter_with::<F>(&mut scatter_rows, row_len, vector.as_ref(), &src);
+    ops::mul_add_gather_with::<F>(&mut gather_dst, vector.as_ref(), &refs);
+    ops::mul_into_gather_with::<F>(&mut gather_dst, vector.as_ref(), &refs);
+    ops::mul_add_matrix_with::<F>(&mut matrix_rows, row_len, &matrix, &matrix_refs);
+    ops::mul_into_matrix_with::<F>(&mut matrix_rows, row_len, &matrix, &matrix_refs);
+
+    let allocations = count_allocations(|| {
+        ops::add_assign::<F>(&mut dst, &src);
+        ops::add_assign_rows::<F>(&mut dst, row_len, &src);
+        ops::add_gather_offsets::<F>(&mut dst, &region, &offsets);
+        ops::sub_assign::<F>(&mut dst, &src);
+        ops::mul_add::<F>(&mut dst, coeff, &src);
+        ops::mul_into::<F>(&mut ew, coeff, &src);
+        ops::mul_assign::<F>(&mut ew, coeff);
+        ops::mul_add_scatter::<F>(&mut scatter_rows, row_len, &coeffs, &src);
+        ops::mul_add_gather::<F>(&mut gather_dst, &coeffs, &refs);
+        ops::mul_into_gather::<F>(&mut gather_dst, &coeffs, &refs);
+        ops::mul_add_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
+        ops::mul_into_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
+        ops::mul_add_matrix_at::<F>(&mut at_rows, row_len, &row_starts, &terms);
+        ops::mul_elementwise::<F>(&mut ew, &src, &other);
+        ops::mul_elementwise_assign::<F>(&mut ew, &other);
+        ops::add_assign_scalar::<F>(&mut dst, coeff);
+        ops::sub_assign_scalar::<F>(&mut dst, coeff);
+        ops::mul_add_with::<F>(&mut dst, &prepared, &src);
+        ops::mul_into_with::<F>(&mut dst, &prepared, &src);
+        ops::mul_assign_with::<F>(&mut dst, &prepared);
+        ops::mul_add_scatter_with::<F>(&mut scatter_rows, row_len, vector.as_ref(), &src);
+        ops::mul_add_gather_with::<F>(&mut gather_dst, vector.as_ref(), &refs);
+        ops::mul_into_gather_with::<F>(&mut gather_dst, vector.as_ref(), &refs);
+        ops::mul_add_matrix_with::<F>(&mut matrix_rows, row_len, &matrix, &matrix_refs);
+        ops::mul_into_matrix_with::<F>(&mut matrix_rows, row_len, &matrix, &matrix_refs);
+    });
+    assert_eq!(allocations, 0, "generic extension packed surface allocated");
+}
+
+/// Generic extension rows: the whole checked packed surface runs
 /// allocation-free, and the prepared coefficient is the element itself,
 /// so preparation outside the counted window buys allocation-free reuse.
 #[test]
@@ -536,30 +627,9 @@ fn generic_extension_rows_steady_state_allocate_nothing() {
         .lock()
         .expect("zero-allocation test lock poisoned");
 
-    // Odd characteristic: construction and warming sit outside the
-    // counted window.
+    // Odd characteristic and characteristic two over packed storage.
     let odd_coeff = Elem::<Gf49Row>::from_raw([3, 5]);
-    assert_prime_steady_state_zero_alloc::<Gf49Row>(odd_coeff);
-
-    // Characteristic two over packed storage.
+    assert_extension_packed_surface_zero_alloc::<Gf49Row>(odd_coeff);
     let binary_coeff = Elem::<Packed16Row>::from_raw(0x1B70);
-    assert_prime_steady_state_zero_alloc::<Packed16Row>(binary_coeff);
-
-    // Prepared reuse: the coefficient is prepared once outside the
-    // counted window, then applied.
-    let src = noise(64, 0x1700);
-    let mut dst = noise(64, 0x1701);
-    let prepared_odd = ops::Coeff::<Gf49Row>::new(odd_coeff);
-    ops::mul_add_with::<Gf49Row>(&mut dst, &prepared_odd, &src);
-    let binary_src = noise(64, 0x1702);
-    let mut binary_dst = noise(64, 0x1703);
-    let prepared_binary = ops::Coeff::<Packed16Row>::new(binary_coeff);
-    ops::mul_add_with::<Packed16Row>(&mut binary_dst, &prepared_binary, &binary_src);
-    let allocations = count_allocations(|| {
-        ops::mul_add_with::<Gf49Row>(&mut dst, &prepared_odd, &src);
-        ops::mul_into_with::<Gf49Row>(&mut dst, &prepared_odd, &src);
-        ops::mul_add_with::<Packed16Row>(&mut binary_dst, &prepared_binary, &binary_src);
-        ops::mul_into_with::<Packed16Row>(&mut binary_dst, &prepared_binary, &binary_src);
-    });
-    assert_eq!(allocations, 0, "generic extension prepared reuse allocated");
+    assert_extension_packed_surface_zero_alloc::<Packed16Row>(binary_coeff);
 }

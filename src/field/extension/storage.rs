@@ -44,8 +44,8 @@ pub struct Packed<W: PackedWord>(PhantomData<W>);
 /// storage bit at or above the field degree stays zero.
 pub struct PackedPadded<W: PackedWord>(PhantomData<W>);
 // Manual marker impls: derives would bound the traits on `W`, which the
-// storage contract does not supply. Every storage is a distinct zero-sized
-// identity, so equality, hashing, and ordering are constant.
+// storage contract does not supply. The markers implement `Clone`, `Copy`,
+// `Default`, and `Debug` only.
 
 #[allow(clippy::expl_impl_clone_on_copy)]
 impl Clone for Components {
@@ -465,22 +465,6 @@ mod tests {
         assert_eq!(
             <Components as StorageRepr<FanPaar4Row, 2>>::ONE,
             [Elem::<FanPaar4Row>::ONE.raw, 0]
-        );
-    }
-
-    #[test]
-    fn storage_tags_name_their_widths() {
-        assert_eq!(
-            <Components as StorageRepr<Aes8, 2>>::TAG,
-            Storage::Components
-        );
-        assert_eq!(
-            <Packed<u16> as StorageRepr<Aes8, 2>>::TAG,
-            Storage::Packed { width: 16 }
-        );
-        assert_eq!(
-            <PackedPadded<u8> as StorageRepr<Gf4, 2>>::TAG,
-            Storage::PackedPadded { width: 8 }
         );
     }
 

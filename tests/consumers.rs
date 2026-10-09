@@ -437,6 +437,19 @@ impl ExtensionSpec<2> for OverCustomMersenneSpec {
 }
 type OverCustomMersenne = FiniteField<0x7FFF_FFFF, 4, Extension<OverCustomMersenneSpec, 2>>;
 
+/// `t^2 - (2 + i)` over the shipped QuadMersenne31 row.
+#[derive(Clone, Copy)]
+struct OverQuadMersenneSpec;
+impl ExtensionSpec<2> for OverQuadMersenneSpec {
+    type Base = QuadMersenne31;
+    type Storage = Components;
+    const NAME: &'static str = "GF(((2^31 - 1)^2)^2)";
+    // `-(2 + i)` in base components: `(-2, -1)`.
+    const RELATION: Relation =
+        Relation::from_coordinates(&[0x7FFF_FFFF - 2, 0x7FFF_FFFF - 1, 0, 0]);
+}
+type OverQuadMersenne = FiniteField<0x7FFF_FFFF, 4, Extension<OverQuadMersenneSpec, 2>>;
+
 /// The largest `u64` prime squared as `t^2 - 2`, two a nonresidue.
 #[derive(Clone, Copy)]
 struct WidePrimeSquareSpec;
@@ -621,6 +634,28 @@ fn extension_rows_exercise_arithmetic_and_relations() {
         i.mul(i),
         Elem::<CustomComplexMersenne>::from_raw([0x7FFF_FFFE, 0])
     );
+
+    // Over the shipped QuadMersenne31: `t^2 = 2 + i` in the base's own
+    // limbs, and the byte form concatenates the base encodings.
+    exercise_extension::<OverQuadMersenne, 2>(
+        Elem::<OverQuadMersenne>::from_raw([(1, 2), (3, 4)]),
+        Elem::<OverQuadMersenne>::from_raw([(0x7FFF_FFFE, 0), (12, 0x4000_0000)]),
+    );
+    let t = indeterminate::<OverQuadMersenne, 2>();
+    assert_eq!(
+        t.mul(t),
+        Elem::<OverQuadMersenne>::from_raw([(2, 1), (0, 0)])
+    );
+    assert_eq!(<OverQuadMersenne as FieldBuffer>::BYTES, 16);
+    let mut bytes = [0u8; 16];
+    FieldBuffer::encode(&mut bytes, t.mul(t));
+    assert_eq!(
+        FieldBuffer::decode(&bytes),
+        Elem::<OverQuadMersenne>::from_raw([(2, 1), (0, 0)])
+    );
+    assert_eq!(&bytes[..4], &2u32.to_le_bytes());
+    assert_eq!(&bytes[4..8], &1u32.to_le_bytes());
+    assert_eq!(&bytes[8..], &[0u8; 8]);
 
     exercise_extension::<WidePrimeSquare, 2>(
         Elem::<WidePrimeSquare>::from_raw([7, 9]),

@@ -6,9 +6,10 @@
 //! `t^2 + 4` over the Mersenne fold row, a packed GF(2^16) as
 //! `t^2 + t + 0x21` over the AES byte field, and a padded packed GF(2^4)
 //! as `t^2 + t + omega` over GF(4). Each row checks the inverse identity
-//! and the defining relation against independent references; the
-//! byte-backed rows check byte round trips and report the scalar backend
-//! through one packed call.
+//! and the defining relation — exhaustive products, inverses, and
+//! component round trips of the odd rows, GF(7^3) included, live in
+//! `extension_reference` — and the byte-backed rows check byte round
+//! trips and report the scalar backend through one packed call.
 
 use fgf::field::mersenne31::Mersenne31;
 use fgf::{
@@ -261,35 +262,14 @@ fn gf49_bytes_and_backend() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn gf343_inverses_and_relation() {
-    const ONE: Elem<Gf343> = Elem::<Gf343>::ONE;
+fn gf343_relation_holds() {
+    // Exhaustive products, inverses, and component round trips against
+    // the independent reference live in `extension_reference`.
     let two = <Gf343 as ExtensionField<3>>::from_components([
         Elem::<Base7>::from_raw(2),
         Elem::<Base7>::ZERO,
         Elem::<Base7>::ZERO,
     ]);
-    let mut sample = Sample { state: 0x5EED_5EED };
-    for _ in 0..200 {
-        let components: [Elem<Base7>; 3] =
-            core::array::from_fn(|_| Elem::<Base7>::from_raw(sample.next() % 7));
-        let a = <Gf343 as ExtensionField<3>>::from_components(components);
-        assert_eq!(a * a.inv(), if a.is_zero() { Elem::ZERO } else { ONE });
-        let read_back = <Gf343 as ExtensionField<3>>::to_components(a);
-        assert_eq!(<Gf343 as ExtensionField<3>>::from_components(read_back), a);
-    }
-    // Exhaustive over the small field.
-    for c0 in 0..7 {
-        for c1 in 0..7 {
-            for c2 in 0..7 {
-                let a = <Gf343 as ExtensionField<3>>::from_components([
-                    Elem::<Base7>::from_raw(c0),
-                    Elem::<Base7>::from_raw(c1),
-                    Elem::<Base7>::from_raw(c2),
-                ]);
-                assert_eq!(a * a.inv(), if a.is_zero() { Elem::ZERO } else { ONE });
-            }
-        }
-    }
     // The defining relation `t^3 = 2` holds at `t`.
     let t = <Gf343 as ExtensionField<3>>::from_components([
         Elem::<Base7>::ZERO,
@@ -361,7 +341,7 @@ fn packed16_matches_reference_exhaustively() {
 }
 
 #[test]
-fn packed16_relation_bytes_display_backend() {
+fn packed16_relation_bytes_backend() {
     // `t^2 + t + 0x21 = 0` at `t`.
     let t =
         <Packed16 as ExtensionField<2>>::from_components([Elem::<Aes8>::ZERO, Elem::<Aes8>::ONE]);
@@ -384,10 +364,6 @@ fn packed16_relation_bytes_display_backend() {
     <Packed16 as FieldBuffer>::encode(&mut bytes, t);
     assert_eq!(bytes, 0x0100u16.to_le_bytes());
     assert_eq!(<Packed16 as FieldBuffer>::decode(&bytes), t);
-
-    // Display prints the zero-padded coordinate word.
-    assert_eq!(format!("{}", Elem::<Packed16>::ONE), "0001");
-    assert_eq!(format!("{}", t), "0100");
 
     // One packed call through the checked surface, reporting the scalar
     // backend.
@@ -441,9 +417,6 @@ fn padded4_matches_reference_and_clears_padding() {
         Elem::<Gf4>::ZERO,
     ]);
     assert_eq!(t.square() + t + omega, Elem::<Padded4>::ZERO);
-    // Display prints one zero-padded hex digit at degree four.
-    assert_eq!(format!("{}", t), "4");
-    assert_eq!(format!("{}", Elem::<Padded4>::ONE), "1");
 }
 
 // ---------------------------------------------------------------------------

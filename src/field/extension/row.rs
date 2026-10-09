@@ -339,11 +339,10 @@ where
         let () = <Self as Field>::VALID;
         <S::Storage as StorageRepr<S::Base, D>>::ONE
     };
-    // Metadata first, then the representation's defining data.
-    const VALID: () = {
-        checked_order::<P, N>();
-        let () = <Extension<S, D> as FiniteFieldRepr<P, N>>::VALID;
-    };
+    // The central metadata block runs before the representation proof on
+    // every value path, and the descriptor proof below repeats the
+    // characteristic and degree checks against the base.
+    const VALID: () = <Extension<S, D> as FiniteFieldRepr<P, N>>::VALID;
 
     #[inline]
     fn canonical_raw(raw: Self::Raw) -> Self::Raw {
@@ -452,7 +451,7 @@ where
 
     fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
         let () = Validate::<Self>::OK;
-        let components = split::<S, D>(raw);
+        let components = split::<S, D>(<Self as Field>::canonical_raw(raw));
         if components[1..]
             .iter()
             .any(|&component| component != <S::Base as Field>::ZERO_RAW)

@@ -122,8 +122,8 @@ mod private {
         ///
         /// # Panics
         /// Panics when `dst.len()` differs from `Field::DEGREE`.
-        // Read by the field-relation algorithms; the extension rows
-        // compose it through their bases and the tests read it directly.
+        // The extension rows compose it through their bases and the
+        // tests read it directly.
         #[allow(dead_code)]
         fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw)
         where
@@ -138,16 +138,16 @@ mod private {
         where
             Self: Field;
         /// `value · 1`, with `value` reduced modulo the characteristic.
-        // Read by the field-relation algorithms; the tests read it
-        // directly.
+        // The extension rows compose it through their bases and the
+        // tests read it directly.
         #[allow(dead_code)]
         fn from_prime(value: u64) -> <Self as Field>::Raw
         where
             Self: Field;
         /// `Some(c)` exactly when `raw == c · 1` with `c` below the
         /// characteristic; `None` otherwise.
-        // Read by the field-relation algorithms; the tests read it
-        // directly.
+        // The extension rows compose it through their bases and the
+        // tests read it directly.
         #[allow(dead_code)]
         fn to_prime(raw: <Self as Field>::Raw) -> Option<u64>
         where
@@ -1056,6 +1056,75 @@ mod tests {
         }
         assert_eq!(Row::from_prime(9), [2, 0]);
         assert_eq!(Row::from_prime(u64::MAX), [u64::MAX % 7, 0]);
+    }
+
+    #[test]
+    fn extension_row_hooks_canonicalize_the_prime_readout() {
+        struct Gf49Spec;
+        impl ExtensionSpec<2> for Gf49Spec {
+            type Base = FiniteField<7, 1>;
+            type Storage = Components;
+            const NAME: &'static str = "GF(49) hook row";
+            const RELATION: Relation = Relation::from_coordinates(&[4, 0]);
+        }
+        type Gf49 = FiniteField<7, 2, Extension<Gf49Spec, 2>>;
+
+        struct Gf4Spec;
+        impl ExtensionSpec<2> for Gf4Spec {
+            type Base = FiniteField<2, 1, Polynomial<3>>;
+            type Storage = PackedPadded<u8>;
+            const NAME: &'static str = "GF(4) hook row";
+            const RELATION: Relation =
+                Relation::from_binary_words::<FiniteField<2, 1, Polynomial<3>>>(&[1, 1]);
+        }
+        type Gf4Row = FiniteField<2, 2, Extension<Gf4Spec, 2>>;
+
+        struct Gf8Spec;
+        impl ExtensionSpec<3> for Gf8Spec {
+            type Base = FiniteField<2, 1, Polynomial<3>>;
+            type Storage = PackedPadded<u8>;
+            const NAME: &'static str = "GF(8) hook row";
+            const RELATION: Relation =
+                Relation::from_binary_words::<FiniteField<2, 1, Polynomial<3>>>(&[1, 1, 0]);
+        }
+        type Gf8Row = FiniteField<2, 3, Extension<Gf8Spec, 3>>;
+        struct Gf64Spec;
+        impl ExtensionSpec<2> for Gf64Spec {
+            type Base = Gf8Row;
+            type Storage = PackedPadded<u8>;
+            const NAME: &'static str = "GF(64) hook row";
+            const RELATION: Relation = Relation::from_binary_words::<Gf8Row>(&[1, 2]);
+        }
+        type Gf64Row = FiniteField<2, 6, Extension<Gf64Spec, 2>>;
+
+        // Component storage: an aliased base component reduces before the
+        // readout.
+        assert_eq!(Gf49::to_prime([3, 7]), Some(3), "aliased base component");
+        assert_eq!(Gf49::to_prime([7, 0]), Some(0), "aliased whole word");
+        assert_eq!(Gf49::to_prime([3, 1]), None, "off the prime subfield");
+
+        // Packed storage: the padding bits of a padded word clear before
+        // the readout.
+        assert_eq!(Gf4Row::to_prime(0b101), Some(1), "padding above the degree");
+        assert_eq!(
+            Gf4Row::to_prime(0b10),
+            None,
+            "generator off the prime subfield"
+        );
+
+        // A nested extension row: the outer word canonicalizes through the
+        // base row's own canonicalization.
+        assert_eq!(
+            Gf64Row::to_prime(0b1100_0001),
+            Some(1),
+            "padding above six bits"
+        );
+        assert_eq!(Gf64Row::to_prime(0b000_010), None, "base generator readout");
+        assert_eq!(
+            Gf64Row::to_prime(0b001_001),
+            None,
+            "nonzero upper component"
+        );
     }
 
     #[test]

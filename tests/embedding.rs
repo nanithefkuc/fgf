@@ -763,16 +763,18 @@ mod extension_rows {
     }
     pub type Gf8Cubic = FiniteField<2, 3, Extension<Gf8Spec, 3>>;
 
-    /// GF(64) as `t^2 + alpha*t + 1` over that GF(8): an unrelated
-    /// degree-six row of dividing degree.
-    pub struct Gf64Spec;
-    impl ExtensionSpec<2> for Gf64Spec {
-        type Base = Gf8Cubic;
+    /// GF(64) as the sextic `x^6 + x + 1` over GF(2): a degree-six row
+    /// whose presentation shares no tower level with the cubic source.
+    pub struct Gf64SexticSpec;
+    impl ExtensionSpec<6> for Gf64SexticSpec {
+        type Base = FiniteField<2, 1, fgf::Polynomial<3>>;
         type Storage = PackedPadded<u8>;
-        const NAME: &'static str = "GF(64) over cubic";
-        const RELATION: Relation = Relation::from_binary_words::<Gf8Cubic>(&[1, 2]);
+        const NAME: &'static str = "GF(64) sextic";
+        const RELATION: Relation = Relation::from_binary_words::<
+            FiniteField<2, 1, fgf::Polynomial<3>>,
+        >(&[1, 1, 0, 0, 0, 0]);
     }
-    pub type Gf64OverCubic = FiniteField<2, 6, Extension<Gf64Spec, 2>>;
+    pub type Gf64Sextic = FiniteField<2, 6, Extension<Gf64SexticSpec, 6>>;
 
     /// GF(2^4) as the quartic `x^4 + x + 1` over GF(2): a non-quadratic
     /// relation node the ladder covers.
@@ -811,17 +813,18 @@ fn incompatible_degree_precedes_every_other_rejection() {
     );
 }
 
-/// A degree-three binary extension into the unrelated degree-six row of
-/// dividing degree: no canonical map exists, and none is searched for.
+/// A degree-three binary extension into a degree-six row outside its own
+/// tower: the degrees divide, no structural inclusion relates the rows,
+/// and the ladder covers neither, so no canonical map is searched for.
 #[test]
 fn uncovered_presentations_report_no_canonical_map() {
     let error =
-        Embedding::<extension_rows::Gf8Cubic, extension_rows::Gf64OverCubic>::new().unwrap_err();
+        Embedding::<extension_rows::Gf8Cubic, extension_rows::Gf64Sextic>::new().unwrap_err();
     assert_eq!(error, EmbeddingError::NoCanonicalMap);
-    // The reverse direction divides the other way (six is not divided by
-    // three's complement), so it reports the degree.
+    // The reverse direction embeds a larger field into a smaller one, so
+    // it reports the degree before any presentation question.
     assert!(matches!(
-        Embedding::<extension_rows::Gf64OverCubic, extension_rows::Gf8Cubic>::new(),
+        Embedding::<extension_rows::Gf64Sextic, extension_rows::Gf8Cubic>::new(),
         Err(EmbeddingError::IncompatibleDegree {
             source: 6,
             target: 3

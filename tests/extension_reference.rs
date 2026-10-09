@@ -5,8 +5,10 @@
 //! products are plain schoolbook polynomial multiplication reduced by the
 //! defining relation through recursive base multiplication, and inverses
 //! are found by brute-force enumeration of the field. Exhaustive sweeps
-//! cover every element pair of every row of order at most 625, and
-//! deterministic samples cover the full-width prime rows.
+//! cover every element pair of every row of order at most 625 — odd
+//! relations with nonzero middle coefficients, the odd cubic and quartic,
+//! and an odd depth-two tower included — and deterministic samples cover
+//! the full-width prime rows.
 
 use fgf::field::mersenne31::Mersenne31;
 use fgf::{
@@ -113,6 +115,71 @@ impl ExtensionSpec<2> for WidePrimeSquareSpec {
     const RELATION: Relation = Relation::from_coordinates(&[0xFFFF_FFFF_FFFF_FFC5 - 2, 0]);
 }
 type WidePrimeSquare = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 2, Extension<WidePrimeSquareSpec, 2>>;
+
+/// GF(49) as `t^2 + t + 3` over the residue row at seven: a non-binomial
+/// odd relation.
+struct Gf49FullSpec;
+impl ExtensionSpec<2> for Gf49FullSpec {
+    type Base = FiniteField<7, 1>;
+    type Storage = fgf::Components;
+    const NAME: &'static str = "GF(49) full relation";
+    const RELATION: Relation = Relation::from_coordinates(&[3, 1]);
+}
+type Gf49Full = FiniteField<7, 2, Extension<Gf49FullSpec, 2>>;
+
+/// GF(125) as `x^3 + x + 1` over the residue row at five.
+struct Gf125Spec;
+impl ExtensionSpec<3> for Gf125Spec {
+    type Base = FiniteField<5, 1>;
+    type Storage = fgf::Components;
+    const NAME: &'static str = "GF(125)";
+    const RELATION: Relation = Relation::from_coordinates(&[1, 1, 0]);
+}
+type Gf125 = FiniteField<5, 3, Extension<Gf125Spec, 3>>;
+
+/// GF(343) as `t^3 - 2` over the residue row at seven: the odd cubic
+/// Euclid inversion path.
+struct Gf343Spec;
+impl ExtensionSpec<3> for Gf343Spec {
+    type Base = FiniteField<7, 1>;
+    type Storage = fgf::Components;
+    const NAME: &'static str = "GF(343)";
+    const RELATION: Relation = Relation::from_coordinates(&[5, 0, 0]);
+}
+type Gf343 = FiniteField<7, 3, Extension<Gf343Spec, 3>>;
+
+/// GF(625) as `t^4 + t^3 + t^2 + t + 3` over the residue row at five: a
+/// quartic with every middle coefficient nonzero.
+struct Gf625Spec;
+impl ExtensionSpec<4> for Gf625Spec {
+    type Base = FiniteField<5, 1>;
+    type Storage = fgf::Components;
+    const NAME: &'static str = "GF(625)";
+    const RELATION: Relation = Relation::from_coordinates(&[3, 1, 1, 1]);
+}
+type Gf625 = FiniteField<5, 4, Extension<Gf625Spec, 4>>;
+
+/// GF(9) as `a^2 + 1` over the residue row at three, and `t^2 - (1 + a)`
+/// above it: an odd depth-two tower.
+struct Gf9Spec;
+impl ExtensionSpec<2> for Gf9Spec {
+    type Base = FiniteField<3, 1>;
+    type Storage = fgf::Components;
+    const NAME: &'static str = "GF(9)";
+    const RELATION: Relation = Relation::from_coordinates(&[1, 0]);
+}
+type Gf9Row = FiniteField<3, 2, Extension<Gf9Spec, 2>>;
+
+struct Gf81Spec;
+impl ExtensionSpec<2> for Gf81Spec {
+    type Base = Gf9Row;
+    type Storage = fgf::Components;
+    const NAME: &'static str = "GF(81)";
+    // `-(1 + a)` in base components: `(-1, -1)`, then the zero linear
+    // coefficient.
+    const RELATION: Relation = Relation::from_coordinates(&[2, 2, 0, 0]);
+}
+type Gf81Row = FiniteField<3, 4, Extension<Gf81Spec, 2>>;
 
 // ---------------------------------------------------------------------------
 // The independent reference
@@ -315,6 +382,8 @@ macro_rules! extension_coordinates {
 leaf_coordinates!(FiniteField<7, 1>);
 leaf_coordinates!(FiniteField<2, 1>);
 leaf_coordinates!(FiniteField<2, 1, Polynomial<3>>);
+leaf_coordinates!(FiniteField<3, 1>);
+leaf_coordinates!(FiniteField<5, 1>);
 
 /// The flat GF(4): one coordinate per bit of its byte word.
 impl Coordinates for Elem<FlatGf4> {
@@ -341,6 +410,12 @@ extension_coordinates!(GoldilocksSquare, Goldilocks, 2);
 extension_coordinates!(CustomComplex, Mersenne31, 2);
 extension_coordinates!(OverCustom, CustomComplex, 2);
 extension_coordinates!(WidePrimeSquare, FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1>, 2);
+extension_coordinates!(Gf49Full, FiniteField<7, 1>, 2);
+extension_coordinates!(Gf125, FiniteField<5, 1>, 3);
+extension_coordinates!(Gf343, FiniteField<7, 1>, 3);
+extension_coordinates!(Gf625, FiniteField<5, 1>, 4);
+extension_coordinates!(Gf9Row, FiniteField<3, 1>, 2);
+extension_coordinates!(Gf81Row, Gf9Row, 2);
 
 // ---------------------------------------------------------------------------
 // Exhaustive sweeps
@@ -511,6 +586,57 @@ fn binary_components_reference() -> Reference {
     }
 }
 
+/// The reference of GF(49) as `t^2 + t + 3` over GF(7).
+fn gf49_full_reference() -> Reference {
+    Reference::Extension {
+        base: Box::new(Reference::Prime(7)),
+        degree: 2,
+        relation: vec![vec![3], vec![1]],
+    }
+}
+
+/// The reference of GF(125) as `x^3 + x + 1` over GF(5).
+fn gf125_reference() -> Reference {
+    Reference::Extension {
+        base: Box::new(Reference::Prime(5)),
+        degree: 3,
+        relation: vec![vec![1], vec![1], vec![0]],
+    }
+}
+
+/// The reference of GF(343) as `t^3 - 2` over GF(7).
+fn gf343_reference() -> Reference {
+    Reference::Extension {
+        base: Box::new(Reference::Prime(7)),
+        degree: 3,
+        relation: vec![vec![5], vec![0], vec![0]],
+    }
+}
+
+/// The reference of GF(625) as `t^4 + t^3 + t^2 + t + 3` over GF(5).
+fn gf625_reference() -> Reference {
+    Reference::Extension {
+        base: Box::new(Reference::Prime(5)),
+        degree: 4,
+        relation: vec![vec![3], vec![1], vec![1], vec![1]],
+    }
+}
+
+/// The reference of GF(81) as `t^2 - (1 + a)` over GF(9), itself
+/// `a^2 + 1` over GF(3); `1 + a` has flattened coordinates `[1, 1]`, so
+/// its negation is `[2, 2]`.
+fn gf81_reference() -> Reference {
+    Reference::Extension {
+        base: Box::new(Reference::Extension {
+            base: Box::new(Reference::Prime(3)),
+            degree: 2,
+            relation: vec![vec![1], vec![0]],
+        }),
+        degree: 2,
+        relation: vec![vec![2, 2], vec![0, 0]],
+    }
+}
+
 #[test]
 fn gf49_matches_the_reference_exhaustively() {
     sweep::<Gf49, 2>(&gf49_reference());
@@ -534,6 +660,31 @@ fn gf64_depth_two_tower_matches_the_reference_exhaustively() {
 #[test]
 fn binary_components_row_matches_the_reference_exhaustively() {
     sweep::<BinaryComponents, 2>(&binary_components_reference());
+}
+
+#[test]
+fn gf49_full_relation_matches_the_reference_exhaustively() {
+    sweep::<Gf49Full, 2>(&gf49_full_reference());
+}
+
+#[test]
+fn gf125_matches_the_reference_exhaustively() {
+    sweep::<Gf125, 3>(&gf125_reference());
+}
+
+#[test]
+fn gf343_matches_the_reference_exhaustively() {
+    sweep::<Gf343, 3>(&gf343_reference());
+}
+
+#[test]
+fn gf625_quartic_matches_the_reference_exhaustively() {
+    sweep::<Gf625, 4>(&gf625_reference());
+}
+
+#[test]
+fn gf81_odd_depth_two_tower_matches_the_reference_exhaustively() {
+    sweep::<Gf81Row, 2>(&gf81_reference());
 }
 
 // ---------------------------------------------------------------------------

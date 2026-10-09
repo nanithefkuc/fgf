@@ -1,12 +1,14 @@
 //! General field extensions: one presentation over every canonical row.
 //!
 //! [`FiniteField<P, N, Extension<S, D>>`](super::FiniteField) names
-//! GF(P^N) as a relative degree-`D` extension of the base row `S::Base`
+//! GF(P^N) as a relative degree-`D` extension of the base row `S::Base`.
 //! [`ExtensionSpec`] is open and data-only: a base row, a storage
 //! selection, a name, and the relation. The defining relation is
-//! validated in const at first value use — the base's validity
-//! first, then the characteristic, degree, cardinality, relation,
-//! storage-admissibility, and descriptor-capacity checks, and finally the
+//! validated in const at first value use — the field metadata first
+//! (prime characteristic, binary degree cap, cardinality bound), then
+//! the base's validity, the characteristic agreement, the degree
+//! identity, the relation's length and coordinate range, storage
+//! admissibility, the descriptor capacity, and finally the
 //! irreducibility of the relation over its base — so an invalid row fails
 //! to compile in const contexts and panics at first use otherwise.
 //!
@@ -40,11 +42,11 @@
 //!
 //! # Capacity
 //!
-//! Validation is exact, and a relation whose validation exceeds the
-//! compiler's constant-evaluation budget fails to compile as a capacity
-//! limit rather than a reducibility verdict; fgf raises no lint against
-//! that limit on its own items, so an over-budget relation stays a
-//! compile error. Deep towers also cost compiler time within the budget.
+//! Validation is exact, and a relation whose validation exceeds rustc's
+//! `long_running_const_eval` limit fails to compile as a capacity limit
+//! rather than a reducibility verdict; fgf does not `allow` that lint on
+//! its own items, so an over-budget relation stays a compile error. Deep
+//! towers also cost compiler time within the limit.
 //!
 //! # Examples
 //!
@@ -140,8 +142,8 @@ pub struct Extension<S: ExtensionSpec<D>, const D: usize>(PhantomData<fn() -> S>
 impl<const D: usize, S: ExtensionSpec<D>> super::private::Sealed for Extension<S, D> {}
 
 // Manual marker impls: derives would bound the traits on `S`, which the
-// spec contract does not supply. Every presentation is a distinct
-// zero-sized identity, so equality, hashing, and ordering are constant.
+// spec contract does not supply. The markers implement `Clone`, `Copy`,
+// `Default`, and `Debug` only.
 impl<S: ExtensionSpec<D>, const D: usize> Clone for Extension<S, D> {
     fn clone(&self) -> Self {
         *self
