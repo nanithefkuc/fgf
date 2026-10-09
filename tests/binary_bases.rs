@@ -35,7 +35,7 @@ fn small_degree_display_parses_back_to_coordinates() {
         Elem<F>: fmt::Display,
     {
         for word in 0..count {
-            let element = F::from_coordinates(word).expect("in-range coordinates");
+            let element = Elem::<F>::from_index(word as u128).expect("in-range coordinates");
             let text = element.to_string();
             assert_eq!(u64::from_str_radix(&text, 16), Ok(word), "{text:?}");
         }
@@ -68,7 +68,7 @@ fn binary_formatting_reports_writer_failure() {
     let marker = FiniteField::<2, 8, Normal<0x11B, 0x20>>::default();
     assert_eq!(write!(FullWriter, "{marker:?}"), Err(fmt::Error));
 
-    let coordinate = FiniteField::<2, 4, Polynomial<0x13>>::from_coordinates(0x10)
+    let coordinate = Elem::<FiniteField<2, 4, Polynomial<0x13>>>::from_index(0x10)
         .expect_err("excess coordinate bits");
     assert_eq!(write!(FullWriter, "{coordinate}"), Err(fmt::Error));
 
@@ -127,7 +127,8 @@ impl ExtensionSpec<2> for BasesNormal16 {
 /// The square of `a + b*t` under `t^2 = A*t + B`, computed in the base:
 /// `(a^2 + B*b^2) + (A*b^2)*t`.
 fn schoolbook_square<B: BinaryField>(half: u32, linear: u64, constant: u64, word: u64) -> u64 {
-    let base = |coordinates: u64| B::from_coordinates(coordinates).expect("base coordinates");
+    let base =
+        |coordinates: u64| Elem::<B>::from_index(coordinates as u128).expect("base coordinates");
     let mask = (1u64 << half) - 1;
     let low = base(word & mask);
     let high = base(word >> half);
@@ -135,7 +136,7 @@ fn schoolbook_square<B: BinaryField>(half: u32, linear: u64, constant: u64, word
     let high_sq = FieldElem::mul(high, high);
     let new_low = FieldElem::add(low_sq, FieldElem::mul(base(constant), high_sq));
     let new_high = FieldElem::mul(base(linear), high_sq);
-    B::to_coordinates(new_low) | (B::to_coordinates(new_high) << half)
+    (new_low.to_index() as u64) | ((new_high.to_index() as u64) << half)
 }
 
 /// Custom extensions square through the generic extension body; the result

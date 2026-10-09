@@ -923,25 +923,25 @@ fn characteristic_two_extension_rows_join_the_binary_capability() {
     // The padded GF(8) and GF(64) rows convert through their coordinate
     // words: component `i` at the bits `[i*B, (i+1)*B)`.
     fn coordinate_word<F: BinaryField>(value: Elem<F>) -> u64 {
-        F::to_coordinates(value)
+        value.to_index() as u64
     }
     let t = indeterminate::<Gf8Cubic, 3>();
     assert_eq!(coordinate_word(t), 0b010);
     assert_eq!(
-        Gf8Cubic::from_coordinates(0b010).map(coordinate_word),
+        Elem::<Gf8Cubic>::from_index(0b010).map(coordinate_word),
         Ok(0b010)
     );
-    assert!(Gf8Cubic::from_coordinates(1 << 3).is_err());
+    assert!(Elem::<Gf8Cubic>::from_index(1 << 3).is_err());
     let u = indeterminate::<Gf64OverGf8, 2>();
     assert_eq!(coordinate_word(u), 0b001_000);
-    assert!(Gf64OverGf8::from_coordinates(1 << 6).is_err());
+    assert!(Elem::<Gf64OverGf8>::from_index(1 << 6).is_err());
     // The wide rows report their full words.
     assert_eq!(
         coordinate_word(Elem::<OverNormal>::from_raw(0x1B70)),
         0x1B70
     );
     assert_eq!(
-        OverCantor::from_coordinates(0x00FF).map(|v| v.to_raw()),
+        Elem::<OverCantor>::from_index(0x00FF).map(|v| v.to_raw()),
         Ok(0x00FF)
     );
     // Every characteristic-two row above is a binary degree member at its

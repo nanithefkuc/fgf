@@ -539,12 +539,14 @@ fn cantor_forward_coordinates_match_the_independent_chain() {
 fn binary_coordinates_round_trip_and_reject_excess_bits() {
     fn round_trip<F: BinaryField>(valid: u64, excess: &[u64]) {
         assert_eq!(
-            F::to_coordinates(F::from_coordinates(valid).expect("valid word")),
+            Elem::<F>::from_index(valid as u128)
+                .expect("valid word")
+                .to_index() as u64,
             valid
         );
         for &bad in excess {
             assert!(
-                F::from_coordinates(bad).is_err(),
+                Elem::<F>::from_index(bad as u128).is_err(),
                 "excess bits {bad:#x} must be rejected"
             );
         }

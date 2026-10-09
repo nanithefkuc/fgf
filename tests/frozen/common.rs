@@ -6,6 +6,8 @@
 //! mirrors the fixture sampling rule, and re-derives the presentation facts
 //! the fixtures record so every test asserts against recomputed values.
 
+use fgf::FieldElem;
+
 /// The capture revision every fixture file names in its header.
 pub const TAG: &str = "v3.0.0-rc.1";
 
@@ -207,8 +209,7 @@ macro_rules! poly_levels {
             const LEVEL_COUNT: usize = if $n == 1 { 0 } else { 1 };
 
             fn level_element(_level: usize) -> (u64, fgf::Elem<Self>) {
-                let indeterminate = <Self as fgf::BinaryField>::from_coordinates(2)
-                    .expect("the indeterminate fits");
+                let indeterminate = fgf::Elem::<Self>::from_index(2).expect("the indeterminate fits");
                 (2, indeterminate)
             }
         }
@@ -227,7 +228,7 @@ macro_rules! basis_levels {
                     .expect("equal degrees embed");
                 let generator =
                     route.embed(fgf::Elem::<fgf::FiniteField<2, $n, fgf::Polynomial<P>>>::from_raw(2));
-                (<Self as fgf::BinaryField>::to_coordinates(generator), generator)
+                (generator.to_index() as u64, generator)
             }
         }
 
@@ -239,7 +240,7 @@ macro_rules! basis_levels {
                     .expect("equal degrees embed");
                 let generator =
                     route.embed(fgf::Elem::<fgf::FiniteField<2, $n, fgf::Polynomial<P>>>::from_raw(2));
-                (<Self as fgf::BinaryField>::to_coordinates(generator), generator)
+                (generator.to_index() as u64, generator)
             }
         }
     )*};

@@ -62,6 +62,10 @@ All notable changes to this project are documented here. The format follows
   shipped instance's runs that instance's specialized scalar arithmetic and
   reaches its kernel arms; every other extension row runs the generic body
   and reports `Scalar`.
+- `FieldElem::from_residue`/`to_residue` and `from_index`/`to_index` on
+  every row: the prime-subfield value and the presentation index share one
+  generic body over the crate-private row hooks, and the inherent `const`
+  residue constructors check through the same bound.
 
 ### Changed
 
@@ -139,6 +143,15 @@ All notable changes to this project are documented here. The format follows
   inverts its low `degree()` bits instead of returning an unspecified
   value; on other roots such a word still gives an unspecified result.
   Results on canonical words are unchanged.
+- **Breaking:** `FieldElem` owns the residue and index conversions
+  `from_residue`/`to_residue` and `from_index`/`to_index`, shared by every
+  row. `BinaryField::to_coordinates`/`from_coordinates` are removed: use
+  `to_index`/`from_index`, identical words below degree 64 widened to
+  `u128`. `to_residue` returns `Option`, `None` off the prime subfield;
+  `PrimeField` is a method-free marker; `CoordinateError` and
+  `ResidueError` are replaced by `fgf::RangeError` (also
+  `fgf::field::RangeError`). Residues and indices are distinct: the index
+  of one is the presentation's coordinate encoding of one.
 
 ### Removed
 

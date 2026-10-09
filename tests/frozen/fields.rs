@@ -12,9 +12,7 @@ use frozen::{
     Rijndael32F, Rijndael64F, Same16F,
 };
 
-use fgf::{
-    BinaryField, Elem, Field, FieldElem, Goldilocks, HasGenerator, Mersenne31, QuadMersenne31,
-};
+use fgf::{Elem, Field, FieldElem, Goldilocks, HasGenerator, Mersenne31, QuadMersenne31};
 use frozen::{AliasDecode, ByteEnc, Levels, Records, SplitMix64Reader, samples};
 
 const MANIFEST: &str = include_str!("fixtures/manifest.txt");
@@ -92,7 +90,7 @@ fn sample_words_match_recomputed_values() {
                     assert_eq!(fields[0], stringify!($short), "presentations.txt:{number}");
                     assert_eq!(fields[1], index.to_string(), "presentations.txt:{number}");
                     assert_eq!(fields[2], hex(word), "presentations.txt:{number}");
-                    let value = <$typ as BinaryField>::from_coordinates(word)
+                    let value = Elem::<$typ>::from_index(u128::from(word))
                         .expect("a masked sample fits the field degree");
                     assert_eq!(
                         fields[3],
@@ -130,7 +128,7 @@ fn generators_match_recomputed_levels() {
                     <$typ as Levels>::LEVEL_COUNT.to_string(),
                     "generators.txt:{number}"
                 );
-                let one = <$typ as BinaryField>::to_coordinates(Elem::<$typ>::ONE);
+                let one = Elem::<$typ>::ONE.to_index() as u64;
                 assert_eq!(fields[2], hex(one), "generators.txt:{number}");
                 assert_eq!(
                     fields.len(),
@@ -215,9 +213,9 @@ macro_rules! check_shipped_tower {
             assert_eq!(fields[2], hex(word), "{}:{number}", $file);
         }
         for index in 0..64 {
-            let left = <$typ as BinaryField>::from_coordinates(drawn[index]).expect("sample");
+            let left = Elem::<$typ>::from_index(u128::from(drawn[index])).expect("sample");
             let right =
-                <$typ as BinaryField>::from_coordinates(drawn[(index + 1) % 64]).expect("sample");
+                Elem::<$typ>::from_index(u128::from(drawn[(index + 1) % 64])).expect("sample");
             let (line, number) = $lines.next().expect("mul line");
             let fields = fields_of($file, number, line);
             assert_eq!(fields[0], "mul", "{}:{number}", $file);
@@ -231,15 +229,13 @@ macro_rules! check_shipped_tower {
             );
             assert_eq!(
                 fields[4],
-                hex(<$typ as BinaryField>::to_coordinates(FieldElem::mul(
-                    left, right
-                ))),
+                hex(FieldElem::mul(left, right).to_index() as u64),
                 "{}:{number}",
                 $file
             );
         }
         for (index, word) in drawn.into_iter().enumerate() {
-            let value = <$typ as BinaryField>::from_coordinates(word).expect("sample");
+            let value = Elem::<$typ>::from_index(u128::from(word)).expect("sample");
             let (line, number) = $lines.next().expect("inv line");
             let fields = fields_of($file, number, line);
             assert_eq!(fields[0], "inv", "{}:{number}", $file);
@@ -247,7 +243,7 @@ macro_rules! check_shipped_tower {
             assert_eq!(fields[2], hex(word), "{}:{number}", $file);
             assert_eq!(
                 fields[3],
-                hex(<$typ as BinaryField>::to_coordinates(FieldElem::inv(value))),
+                hex(FieldElem::inv(value).to_index() as u64),
                 "{}:{number}",
                 $file
             );
@@ -261,7 +257,7 @@ macro_rules! check_shipped_tower {
             assert_eq!(fields[1], exponent.to_string(), "{}:{number}", $file);
             assert_eq!(
                 fields[2],
-                hex(<$typ as BinaryField>::to_coordinates(power)),
+                hex(power.to_index() as u64),
                 "{}:{number}",
                 $file
             );
@@ -275,13 +271,13 @@ macro_rules! check_shipped_tower {
             assert_eq!(fields[2], hex(word), "{}:{number}", $file);
             assert_eq!(
                 fields[3],
-                hex(<$typ as BinaryField>::to_coordinates(power)),
+                hex(power.to_index() as u64),
                 "{}:{number}",
                 $file
             );
         }
         for (index, word) in drawn.into_iter().enumerate() {
-            let value = <$typ as BinaryField>::from_coordinates(word).expect("sample");
+            let value = Elem::<$typ>::from_index(u128::from(word)).expect("sample");
             let (line, number) = $lines.next().expect("bytes line");
             let fields = fields_of($file, number, line);
             assert_eq!(fields[0], "bytes", "{}:{number}", $file);

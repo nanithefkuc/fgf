@@ -708,8 +708,10 @@ impl<S: BinaryField, T: BinaryField> Embedding<S, T> {
     /// coordinate conversion, which construction verified impossible.
     #[must_use]
     pub fn embed(&self, value: Elem<S>) -> Elem<T> {
-        let word = fold(&self.basis_images, S::to_coordinates(value));
-        T::from_coordinates(word).expect("an embedding image fits the target degree")
+        // A binary index is a coordinate word, so it fits `u64`.
+        let word = u64::try_from(value.to_index()).expect("binary index fits the word");
+        let word = fold(&self.basis_images, word);
+        Elem::<T>::from_index(u128::from(word)).expect("an embedding image fits the target degree")
     }
 
     /// Whether `value` lies in the image of this embedding.
@@ -728,10 +730,12 @@ impl<S: BinaryField, T: BinaryField> Embedding<S, T> {
     /// coordinate conversion, which construction verified impossible.
     #[must_use]
     pub fn restrict(&self, value: Elem<T>) -> Option<Elem<S>> {
-        self.restrict_coordinates(T::to_coordinates(value))
-            .map(|word| {
-                S::from_coordinates(word).expect("a restriction image fits the source degree")
-            })
+        // A binary index is a coordinate word, so it fits `u64`.
+        let word = u64::try_from(value.to_index()).expect("binary index fits the word");
+        self.restrict_coordinates(word).map(|word| {
+            Elem::<S>::from_index(u128::from(word))
+                .expect("a restriction image fits the source degree")
+        })
     }
 
     /// The relative Frobenius `x^(2^m)` of the extension.

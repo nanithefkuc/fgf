@@ -13,7 +13,7 @@ use frozen::{
     Rijndael32F, Rijndael64F, Same16F,
 };
 
-use fgf::{BinaryField, Embedding, EmbeddingError, Field};
+use fgf::{Embedding, EmbeddingError, Field, FieldElem};
 use frozen::{Levels, Presentation, Records, pair_samples};
 
 /// The manifest order every fixture file follows.
@@ -179,11 +179,11 @@ fn check_pair<S: Presentation, T: Presentation>(records: &PairRecords, file: &st
             );
             for (index, word, image) in &records.units {
                 assert_eq!(*word, 1u64 << *index, "{file}: unit word");
-                let value = <S as BinaryField>::from_coordinates(*word)
+                let value = fgf::Elem::<S>::from_index(u128::from(*word))
                     .expect("a unit vector fits the field degree");
                 assert_eq!(
                     *image,
-                    <T as BinaryField>::to_coordinates(embedding.embed(value)),
+                    embedding.embed(value).to_index() as u64,
                     "{file}: unit {index} image"
                 );
             }
@@ -199,7 +199,7 @@ fn check_pair<S: Presentation, T: Presentation>(records: &PairRecords, file: &st
                 assert_eq!(*word, expected_word, "{file}: level {level} word");
                 assert_eq!(
                     *image,
-                    <T as BinaryField>::to_coordinates(embedding.embed(element)),
+                    embedding.embed(element).to_index() as u64,
                     "{file}: level {level} image"
                 );
             }
@@ -210,11 +210,11 @@ fn check_pair<S: Presentation, T: Presentation>(records: &PairRecords, file: &st
             assert_eq!(records.embeds.len(), 64, "{file}: embed count");
             for (index, word, image) in &records.embeds {
                 assert_eq!(*word, source_samples[*index], "{file}: embed {index} input");
-                let value = <S as BinaryField>::from_coordinates(*word)
+                let value = fgf::Elem::<S>::from_index(u128::from(*word))
                     .expect("a masked sample fits the field degree");
                 assert_eq!(
                     *image,
-                    <T as BinaryField>::to_coordinates(embedding.embed(value)),
+                    embedding.embed(value).to_index() as u64,
                     "{file}: embed {index} image"
                 );
             }
@@ -227,7 +227,7 @@ fn check_pair<S: Presentation, T: Presentation>(records: &PairRecords, file: &st
                     *word, target_samples[*index],
                     "{file}: target {index} input"
                 );
-                let value = <T as BinaryField>::from_coordinates(*word)
+                let value = fgf::Elem::<T>::from_index(u128::from(*word))
                     .expect("a masked sample fits the field degree");
                 assert_eq!(
                     *contained,
@@ -238,22 +238,22 @@ fn check_pair<S: Presentation, T: Presentation>(records: &PairRecords, file: &st
                     *restrict,
                     embedding
                         .restrict(value)
-                        .map(|preimage| <S as BinaryField>::to_coordinates(preimage)),
+                        .map(|preimage| preimage.to_index() as u64),
                     "{file}: target {index} restrict"
                 );
                 assert_eq!(
                     *frobenius,
-                    <T as BinaryField>::to_coordinates(embedding.frobenius(value)),
+                    embedding.frobenius(value).to_index() as u64,
                     "{file}: target {index} frobenius"
                 );
                 assert_eq!(
                     *trace,
-                    <S as BinaryField>::to_coordinates(embedding.trace(value)),
+                    embedding.trace(value).to_index() as u64,
                     "{file}: target {index} trace"
                 );
                 assert_eq!(
                     *norm,
-                    <S as BinaryField>::to_coordinates(embedding.norm(value)),
+                    embedding.norm(value).to_index() as u64,
                     "{file}: target {index} norm"
                 );
             }

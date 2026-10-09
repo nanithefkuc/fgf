@@ -574,7 +574,7 @@ mod tests {
     };
     use crate::field::binary::{BinaryField, Cantor, Normal};
     use crate::field::extension::descriptor::{COORDINATES, NODES, Storage};
-    use crate::field::{Elem, HasGenerator};
+    use crate::field::{Elem, FieldElem, HasGenerator};
 
     /// A quadratic relation node with packed coefficient words, for tests
     /// that place malformed nodes by hand.
@@ -948,7 +948,7 @@ mod tests {
         let n = F::DEGREE;
         assert_eq!(desc.degree(), n);
         assert!(!desc.is_polynomial_root() && !desc.is_basis_root());
-        let elem = |x| F::from_coordinates(x).unwrap();
+        let elem = |x| Elem::<F>::from_index(u128::from(x)).unwrap();
         let one = desc.one();
         let mut words = words(seed).map(|w| w & mask(n));
         for sample in 0..samples {
@@ -959,7 +959,10 @@ mod tests {
             );
             let product = desc.mul(x, y);
             assert_eq!(product, root_mul(&desc, x, y), "{x:#x} * {y:#x}");
-            assert_eq!(product, F::to_coordinates(elem(x) * elem(y)));
+            assert_eq!(
+                product,
+                u64::try_from((elem(x) * elem(y)).to_index()).unwrap()
+            );
             assert_eq!(root_mul(&desc, one, x), x);
             assert_eq!(root_mul(&desc, x, desc.inv(x)), one);
             let (e1, e2) = (u128::from(y), u128::from(z));
@@ -976,7 +979,7 @@ mod tests {
             assert_eq!(desc.trace(x ^ y), trace ^ desc.trace(y));
         }
         assert_eq!(desc.inv(0), 0);
-        let generator = F::to_coordinates(Elem::<F>::GENERATOR);
+        let generator = u64::try_from(Elem::<F>::GENERATOR.to_index()).unwrap();
         let group = (1u128 << n) - 1;
         assert!(!desc.is_generator(0));
         assert!(!desc.is_generator(one));

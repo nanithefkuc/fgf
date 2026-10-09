@@ -14,14 +14,14 @@ use core::fmt;
 use super::descriptor::Descriptor;
 use super::pinned::{self, Instance};
 use super::private::Sealed;
-use super::storage::{ExtensionStorage, StorageBuffer, StorageDisplay, StorageRepr, extract_bits};
+use super::storage::{ExtensionStorage, StorageBuffer, StorageDisplay, StorageRepr};
 use super::{Extension, ExtensionField, ExtensionSpec};
 use crate::field::binary::binary_private;
 use crate::field::binary::description::BinaryDescription;
-use crate::field::binary::{BinaryDegree, BinaryField, CoordinateError};
+use crate::field::binary::{BinaryDegree, BinaryField};
 use crate::field::finite_field::{FiniteField, FiniteFieldRepr, checked_order};
 use crate::field::private::RowAccess;
-use crate::field::{Elem, Field, FieldBuffer, FieldElem, PrimeCharacteristic, Validate};
+use crate::field::{Elem, Field, FieldBuffer, PrimeCharacteristic, Validate};
 
 /// The raw word of an extension row over `S`.
 type RawOf<S, const D: usize> =
@@ -679,37 +679,6 @@ where
         S::RELATION.to_coordinates(),
         <S::Storage as StorageRepr<S::Base, D>>::TAG,
     );
-
-    #[inline]
-    fn to_coordinates(value: Elem<Self>) -> u64 {
-        // Component `i` occupies the bits `[i*B, (i+1)*B)` of the base
-        // degree `B`, whatever the storage; the absolute degree stays at
-        // or below 64, so the shifts never wrap.
-        let degree = <S::Base as Field>::DEGREE as usize;
-        let mut word = 0u64;
-        for (index, component) in split::<S, D>(value.raw).iter().enumerate() {
-            let element = Elem::<S::Base> { raw: *component };
-            word |= <S::Base as BinaryField>::to_coordinates(element) << (index * degree);
-        }
-        word
-    }
-
-    #[inline]
-    fn from_coordinates(value: u64) -> Result<Elem<Self>, CoordinateError> {
-        // The fit check bounds the word by the row's absolute degree, so
-        // every extracted component word fits the base.
-        if N < 64 && value >> N != 0 {
-            return Err(CoordinateError);
-        }
-        let degree = <S::Base as Field>::DEGREE as usize;
-        let components = core::array::from_fn(|index| {
-            let component = extract_bits(value, index * degree, degree);
-            <S::Base as BinaryField>::from_coordinates(component)
-                .expect("a fitted component word fits the base degree")
-                .to_raw()
-        });
-        Ok(Elem::<Self>::from_raw(join::<S, D>(components)))
-    }
 }
 
 impl<const N: u32, const D: usize, S: ExtensionSpec<D>> BinaryDegree<N>

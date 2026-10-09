@@ -1144,16 +1144,13 @@ mod tests {
                 Elem::<Rijndael64Field>::ONE
             );
         }
-        // Coordinate round trip of `u64::MAX`.
+        // Index round trip of `u64::MAX`.
         let max =
-            <Rijndael64Field as BinaryField>::from_coordinates(u64::MAX).expect("full-width word");
-        assert_eq!(
-            <Rijndael64Field as BinaryField>::to_coordinates(max),
-            u64::MAX
-        );
+            Elem::<Rijndael64Field>::from_index(u128::from(u64::MAX)).expect("full-width word");
+        assert_eq!(max.to_index(), u128::from(u64::MAX));
         // Excess-bit rejection below the cap.
-        assert!(<Rijndael32Field as BinaryField>::from_coordinates(1u64 << 32).is_err());
-        assert!(<Rijndael16Field as BinaryField>::from_coordinates(1u64 << 16).is_err());
+        assert!(Elem::<Rijndael32Field>::from_index(1u128 << 32).is_err());
+        assert!(Elem::<Rijndael16Field>::from_index(1u128 << 16).is_err());
     }
 
     #[test]

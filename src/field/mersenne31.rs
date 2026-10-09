@@ -262,10 +262,10 @@ impl Elem<Mersenne31> {
     #[inline]
     #[allow(clippy::cast_possible_truncation)]
     pub const fn from_residue(value: u64) -> Result<Self, RangeError> {
-        if value >= MODULUS as u64 {
-            return Err(RangeError);
+        match super::check_residue(value, MODULUS as u64) {
+            Ok(checked) => Ok(Self::from_raw(checked as u32)),
+            Err(error) => Err(error),
         }
-        Ok(Self::from_raw(value as u32))
     }
 
     /// The ordinary residue naming this element. Always `Some` at degree

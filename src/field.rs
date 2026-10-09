@@ -158,7 +158,57 @@ mod private {
             Self: Field;
     }
 }
+/// Checks a residue against the characteristic before narrowing.
+///
+/// Returns `value` when it names an element of the prime subfield and
+/// [`RangeError`] otherwise. The inherent `const` residue constructors and
+/// the [`FieldElem::from_residue`] blanket implementation share this body,
+/// so const and runtime contexts accept exactly the same inputs.
+pub(crate) const fn check_residue(value: u64, characteristic: u64) -> Result<u64, RangeError> {
+    if value < characteristic {
+        Ok(value)
+    } else {
+        Err(RangeError)
+    }
+}
 
+/// The presentation index of flattened prime-subfield coordinates.
+///
+/// `Σ_i coordinates[i] · characteristic^i`, evaluated widening so the full
+/// `u128` order range never overflows. Shared by the [`FieldElem::to_index`]
+/// blanket implementation.
+pub(crate) fn coordinates_index(coordinates: &[u64], characteristic: u64) -> u128 {
+    let mut index = 0u128;
+    let mut place = 1u128;
+    let mut i = 0;
+    while i < coordinates.len() {
+        index += u128::from(coordinates[i]) * place;
+        place *= u128::from(characteristic);
+        i += 1;
+    }
+    index
+}
+
+/// Splits a presentation index into flattened prime-subfield coordinates.
+///
+/// The inverse of [`coordinates_index`]: `degree` base-`characteristic`
+/// digits, least significant first. Shared by the [`FieldElem::from_index`]
+/// blanket implementation.
+pub(crate) fn index_coordinates(index: u128, degree: u32, characteristic: u64) -> [u64; 64] {
+    let mut coordinates = [0u64; 64];
+    let mut rest = index;
+    let mut i = 0;
+    while i < degree {
+        let modulus = u128::from(characteristic);
+        // The remainder sits below the modulus, so it fits the lane.
+        #[allow(clippy::cast_possible_truncation)]
+        let digit = (rest % modulus) as u64;
+        coordinates[i as usize] = digit;
+        rest /= modulus;
+        i += 1;
+    }
+    coordinates
+}
 mod element_private {
     pub trait Sealed {}
 }
@@ -468,6 +518,22 @@ impl<F: HasGenerator> Elem<F> {
 /// profile and under `const` evaluation alike. This is a total-function
 /// convention chosen so hot loops never branch on an impossible case; it is
 /// *not* a claim that zero is invertible.
+///
+/// Residues are mathematical values; indices are presentation coordinates.
+///
+/// [`FieldElem::from_residue`] maps an ordinary residue to its multiple of
+/// one whatever the basis, while [`FieldElem::from_index`] decodes the
+/// flattened prime-subfield coordinates. The two agree only where one is
+/// coordinate word one:
+///
+/// ```
+/// use fgf::{Elem, FieldElem, FiniteField, Normal};
+///
+/// type Row = FiniteField<2, 2, Normal<7, 2>>;
+/// let one = Elem::<Row>::ONE;
+/// assert_eq!(one.to_residue(), Some(1));
+/// assert_eq!(one.to_index(), 3);
+/// ```
 #[allow(private_bounds)]
 pub trait FieldElem:
     element_private::Sealed + Copy + Eq + core::fmt::Debug + core::hash::Hash + Default + 'static
@@ -517,6 +583,47 @@ pub trait FieldElem:
     fn is_zero(self) -> bool;
     /// Whether this element is the multiplicative identity.
     fn is_one(self) -> bool;
+    /// The element named by an ordinary residue of the characteristic.
+    ///
+    /// Returns `value · 1` when `value` is below the characteristic and
+    /// [`RangeError`] otherwise, before any narrowing: `256` on a
+    /// byte-backed binary row and `1 << 32` on Mersenne31 are rejected even
+    /// though their narrowed low bits look valid. Mathematical and
+    /// independent of presentation: a basis row whose one is not coordinate
+    /// word one still maps one to its one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RangeError`] when `value` is at or above the
+    /// characteristic.
+    fn from_residue(value: u64) -> Result<Self, RangeError>;
+    /// The ordinary residue naming this element, if it lies in the prime
+    /// subfield.
+    ///
+    /// Returns `Some(c)` exactly when `self` equals `c · 1` for `c` below
+    /// the characteristic, and `None` otherwise. At degree one always
+    /// `Some`.
+    #[must_use]
+    fn to_residue(self) -> Option<u64>;
+    /// The element named by a presentation index.
+    ///
+    /// The inverse of [`FieldElem::to_index`]: the flattened
+    /// prime-subfield coordinates are the base-characteristic digits of
+    /// `index`, least significant first. Residues and indices are distinct:
+    /// the index of one is the presentation's coordinate encoding of one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RangeError`] when `index` is at or above the field order.
+    fn from_index(index: u128) -> Result<Self, RangeError>;
+    /// The presentation index of this element.
+    ///
+    /// `Σ_i d_i · P^i` over the flattened prime-subfield coordinates in
+    /// descriptor order, a bijection between the field and `0..ORDER`. A
+    /// prime row's index is its ordinary residue; a binary row's index is
+    /// its coordinate word.
+    #[must_use]
+    fn to_index(self) -> u128;
 }
 
 impl<F: Field> element_private::Sealed for Elem<F> {}
@@ -610,6 +717,43 @@ impl<F: Field> FieldElem for Elem<F> {
     #[inline]
     fn is_one(self) -> bool {
         self.raw == F::ONE_RAW
+    }
+
+    #[inline]
+    fn from_residue(value: u64) -> Result<Self, RangeError> {
+        let characteristic = <F::Characteristic as PrimeIdentity>::CHARACTERISTIC;
+        let () = <F::Characteristic as PrimeIdentity>::VALID;
+        check_residue(value, characteristic)?;
+        Ok(Elem {
+            raw: F::canonical_raw(F::from_prime(value)),
+        })
+    }
+
+    #[inline]
+    fn to_residue(self) -> Option<u64> {
+        F::to_prime(self.raw)
+    }
+
+    #[inline]
+    fn from_index(index: u128) -> Result<Self, RangeError> {
+        if index >= F::ORDER {
+            return Err(RangeError);
+        }
+        let characteristic = <F::Characteristic as PrimeIdentity>::CHARACTERISTIC;
+        let coordinates = index_coordinates(index, F::DEGREE, characteristic);
+        Ok(Elem {
+            raw: F::canonical_raw(F::from_prime_coordinates(
+                &coordinates[..F::DEGREE as usize],
+            )),
+        })
+    }
+
+    #[inline]
+    fn to_index(self) -> u128 {
+        let characteristic = <F::Characteristic as PrimeIdentity>::CHARACTERISTIC;
+        let mut coordinates = [0u64; 64];
+        F::prime_coordinates_into(&mut coordinates[..F::DEGREE as usize], self.raw);
+        coordinates_index(&coordinates[..F::DEGREE as usize], characteristic)
     }
 }
 
@@ -836,7 +980,8 @@ mod tests {
             let one = Elem::<Row>::ONE.to_raw();
             let mut expected = [0u64; 64];
             for word in 0..(1u64 << $n) {
-                let element = Row::from_coordinates(word).expect("word fits the degree");
+                let element =
+                    Elem::<Row>::from_index(u128::from(word)).expect("word fits the degree");
                 let raw = element.to_raw();
                 for (i, coordinate) in expected.iter_mut().enumerate().take($n) {
                     *coordinate = (word >> i) & 1;
@@ -936,7 +1081,7 @@ mod tests {
             let mut expected = [0u64; 64];
             $(
                 let word: u64 = $word;
-                let element = Row::from_coordinates(word).expect("sample fits the degree");
+                let element = Elem::<Row>::from_index(u128::from(word)).expect("sample fits the degree");
                 let raw = element.to_raw();
                 for (i, coordinate) in expected.iter_mut().enumerate().take($n) {
                     *coordinate = (word >> i) & 1;

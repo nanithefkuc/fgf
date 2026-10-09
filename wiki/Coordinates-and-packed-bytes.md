@@ -10,18 +10,33 @@ For a binary presentation, raw bits select basis coordinates. `Elem::<F>::from_r
 
 For a prime field, the raw integer is reduced modulo the characteristic. `from_raw` canonicalizes storage; `to_raw` returns the stored canonical word. It cannot recover a noncanonical spelling used to construct the element. Equality and hashing see canonical field values, while ordering is coordinate order rather than an order compatible with field multiplication.
 
-## Canonicalize or reject excess coordinates
+## Residues name values, indices name coordinates
 
-Small binary element constructors mask away bits above the degree. The `BinaryField` coordinate API instead rejects an oversized word. The checked conversion is useful at a format boundary where excess bits indicate malformed input rather than an accepted alias.
+`FieldElem::from_residue` maps an ordinary residue below the characteristic to its multiple of one, whatever the basis. `FieldElem::from_index` decodes the flattened prime-subfield coordinates instead. The two agree only where one is coordinate word one: in `Normal<7, 2>` the one is the sum of both basis vectors, so it reads residue one at index three.
 
 ```rust
-use fgf::{FiniteField, BinaryField, Elem, Polynomial};
+use fgf::{Elem, FieldElem, FiniteField, Normal};
+
+type Row = FiniteField<2, 2, Normal<7, 2>>;
+let one = Elem::<Row>::ONE;
+assert_eq!(one.to_residue(), Some(1));
+assert_eq!(one.to_index(), 3);
+assert_eq!(Elem::<Row>::from_residue(1).unwrap(), one);
+assert_eq!(Elem::<Row>::from_index(3).unwrap(), one);
+```
+
+## Canonicalize or reject excess coordinates
+
+Small binary element constructors mask away bits above the degree. The `FieldElem::from_index` conversion instead rejects an out-of-range word. The checked conversion is useful at a format boundary where excess bits indicate malformed input rather than an accepted alias.
+
+```rust
+use fgf::{Elem, FieldElem, FiniteField, Polynomial};
 
 type Small = FiniteField<2, 4, Polynomial<0x13>>;
 assert_eq!(Elem::<Small>::from_raw(0x12).to_raw(), 2);
-assert!(Small::from_coordinates(0x12).is_err());
-let x = Small::from_coordinates(2).unwrap();
-assert_eq!(Small::to_coordinates(x), 2);
+assert!(Elem::<Small>::from_index(0x12).is_err());
+let x = Elem::<Small>::from_index(2).unwrap();
+assert_eq!(x.to_index(), 2);
 ```
 
 Canonicalization operates within a presentation. It does not convert a polynomial element into normal coordinates or an AES value into RS coordinates. [Embeddings](Embeddings-and-presentation-changes) handle those conversions.

@@ -140,21 +140,23 @@ fn frozen_ladder_fixtures_recompute_by_brute_force() {
     // The consecutive 1->2 inclusion is the identity on GF(2).
     let one_two = Embedding::<Gf1, Ref2>::new().unwrap();
     for word in 0..2u64 {
-        let x = Gf1::from_coordinates(word).unwrap();
-        assert_eq!(Ref2::to_coordinates(one_two.embed(x)), word);
+        let x = Elem::<Gf1>::from_index(word as u128).unwrap();
+        assert_eq!(one_two.embed(x).to_index() as u64, word);
     }
 
     // The consecutive 2->4 inclusion maps x to the frozen 0x6 and every
     // element to its brute-force image.
     let two_four = Embedding::<Ref2, Ref4>::new().unwrap();
     assert_eq!(
-        Ref4::to_coordinates(two_four.embed(Ref2::from_coordinates(2).unwrap())),
+        two_four
+            .embed(Elem::<Ref2>::from_index(2).unwrap())
+            .to_index() as u64,
         0x6
     );
     for word in 0..4u64 {
-        let x = Ref2::from_coordinates(word).unwrap();
+        let x = Elem::<Ref2>::from_index(word as u128).unwrap();
         assert_eq!(
-            Ref4::to_coordinates(two_four.embed(x)),
+            two_four.embed(x).to_index() as u64,
             oracle_powers(0x13, 4, 0x6, word),
             "2->4 image of {word}"
         );
@@ -163,13 +165,15 @@ fn frozen_ladder_fixtures_recompute_by_brute_force() {
     // The consecutive 4->8 inclusion maps x to the frozen 0x5C.
     let four_eight = Embedding::<Ref4, Ref8>::new().unwrap();
     assert_eq!(
-        Ref8::to_coordinates(four_eight.embed(Ref4::from_coordinates(2).unwrap())),
+        four_eight
+            .embed(Elem::<Ref4>::from_index(2).unwrap())
+            .to_index() as u64,
         0x5C
     );
     for word in 0..16u64 {
-        let x = Ref4::from_coordinates(word).unwrap();
+        let x = Elem::<Ref4>::from_index(word as u128).unwrap();
         assert_eq!(
-            Ref8::to_coordinates(four_eight.embed(x)),
+            four_eight.embed(x).to_index() as u64,
             oracle_powers(0x11B, 8, 0x5C, word),
             "4->8 image of {word}"
         );
@@ -179,15 +183,17 @@ fn frozen_ladder_fixtures_recompute_by_brute_force() {
     // never separately minimized roots.
     let two_eight = Embedding::<Ref2, Ref8>::new().unwrap();
     assert_eq!(
-        Ref8::to_coordinates(two_eight.embed(Ref2::from_coordinates(2).unwrap())),
+        two_eight
+            .embed(Elem::<Ref2>::from_index(2).unwrap())
+            .to_index() as u64,
         0xBC
     );
     let composed = oracle_powers(0x11B, 8, 0x5C, oracle_powers(0x13, 4, 0x6, 2));
     assert_eq!(composed, 0xBC);
     for word in 0..4u64 {
-        let x = Ref2::from_coordinates(word).unwrap();
+        let x = Elem::<Ref2>::from_index(word as u128).unwrap();
         let expected = oracle_powers(0x11B, 8, 0x5C, oracle_powers(0x13, 4, 0x6, word));
-        assert_eq!(Ref8::to_coordinates(two_eight.embed(x)), expected);
+        assert_eq!(two_eight.embed(x).to_index() as u64, expected);
     }
 }
 
@@ -196,9 +202,9 @@ fn consecutive_inclusions_above_the_byte_field() {
     // The tower-chain inclusions are the low component, element by element.
     let eight_sixteen = Embedding::<Ref8, Gf16>::new().unwrap();
     for byte in 0..=u8::MAX {
-        let x = Ref8::from_coordinates(u64::from(byte)).unwrap();
+        let x = Elem::<Ref8>::from_index(u64::from(byte) as u128).unwrap();
         assert_eq!(
-            Gf16::to_coordinates(eight_sixteen.embed(x)),
+            eight_sixteen.embed(x).to_index() as u64,
             u64::from(byte),
             "8->16 image of byte {byte}"
         );
@@ -207,7 +213,7 @@ fn consecutive_inclusions_above_the_byte_field() {
     for word in 0..=u16::MAX {
         let x = Elem::<Gf16>::from_raw(word);
         assert_eq!(
-            Gf32::to_coordinates(sixteen_thirtytwo.embed(x)),
+            sixteen_thirtytwo.embed(x).to_index() as u64,
             u64::from(word),
             "16->32 image of {word}"
         );
@@ -216,7 +222,7 @@ fn consecutive_inclusions_above_the_byte_field() {
     for &word in &samples(32, 0x33) {
         let x = Elem::<Gf32>::from_raw(word as u32);
         assert_eq!(
-            Gf64::to_coordinates(thirtytwo_sixtyfour.embed(x)),
+            thirtytwo_sixtyfour.embed(x).to_index() as u64,
             u64::from(word as u32),
             "32->64 image of {word}"
         );
@@ -262,13 +268,13 @@ fn check_mutual_isomorphism<S, T>(
     T: BinaryField,
 {
     for &word in &samples(degree, 0x50) {
-        let x = S::from_coordinates(word).unwrap();
+        let x = Elem::<S>::from_index(word as u128).unwrap();
         let image = forward.embed(x);
         assert_eq!(backward.embed(image), x, "round trip failed at {word}");
         assert_eq!(forward.restrict(image), Some(x));
     }
     for &word in &samples(degree, 0x51) {
-        let y = T::from_coordinates(word).unwrap();
+        let y = Elem::<T>::from_index(word as u128).unwrap();
         assert_eq!(forward.embed(backward.embed(y)), y);
         assert_eq!(backward.restrict(backward.embed(y)), Some(y));
     }
@@ -277,8 +283,8 @@ fn check_mutual_isomorphism<S, T>(
     for &a in left {
         for &b in right {
             let (x, y) = (
-                S::from_coordinates(a).unwrap(),
-                S::from_coordinates(b).unwrap(),
+                Elem::<S>::from_index(a as u128).unwrap(),
+                Elem::<S>::from_index(b as u128).unwrap(),
             );
             assert_eq!(
                 forward.embed(x.add(y)),
@@ -293,8 +299,8 @@ fn check_mutual_isomorphism<S, T>(
         }
     }
     assert_eq!(
-        forward.embed(S::from_coordinates(S::DESCRIPTION.one()).unwrap()),
-        T::from_coordinates(T::DESCRIPTION.one()).unwrap()
+        forward.embed(Elem::<S>::from_index(S::DESCRIPTION.one() as u128).unwrap()),
+        Elem::<T>::from_index(T::DESCRIPTION.one() as u128).unwrap()
     );
 }
 
@@ -349,7 +355,7 @@ fn equal_descriptions_embed_identically() {
     let identity16 = Embedding::<Gf16, Gf16>::new().unwrap();
     for &word in &samples(16, 0x60) {
         let x = Elem::<Gf16>::from_raw(word as u16);
-        assert_eq!(Gf16::to_coordinates(identity16.embed(x)), word);
+        assert_eq!(identity16.embed(x).to_index() as u64, word);
         assert_eq!(identity16.restrict(x), Some(x));
     }
     // A custom spec structurally identical to a shipped one embeds as the
@@ -360,7 +366,9 @@ fn equal_descriptions_embed_identically() {
     for &word in &samples(16, 0x61) {
         let word = word as u16;
         assert_eq!(
-            Gf16::to_coordinates(structural.embed(Elem::<Custom16>::from_raw(word))),
+            structural
+                .embed(Elem::<Custom16>::from_raw(word))
+                .to_index() as u64,
             u64::from(word)
         );
         assert_eq!(back.embed(Elem::<Gf16>::from_raw(word)).to_raw(), word);
@@ -379,10 +387,10 @@ fn check_triangle<A, B, C>(
     C: BinaryField,
 {
     for &word in &samples(degree, 0x70) {
-        let x = A::from_coordinates(word).unwrap();
+        let x = Elem::<A>::from_index(word as u128).unwrap();
         assert_eq!(
-            C::to_coordinates(bc.embed(ab.embed(x))),
-            C::to_coordinates(ac.embed(x)),
+            bc.embed(ab.embed(x)).to_index(),
+            ac.embed(x).to_index(),
             "triangle failed at {word}"
         );
     }
@@ -453,14 +461,16 @@ fn inclusion_triangles_commute() {
     );
     // The whole-chain triangle.
     for &word in &samples(1, 0x71) {
-        let x = Gf1::from_coordinates(word).unwrap();
+        let x = Elem::<Gf1>::from_index(word as u128).unwrap();
         assert_eq!(
-            Gf64::to_coordinates(one_sixtyfour.embed(x)),
-            Gf64::to_coordinates(
-                thirtytwo_sixtyfour.embed(sixteen_thirtytwo.embed(
-                    eight_sixteen.embed(four_eight.embed(two_four.embed(one_two.embed(x))))
-                ))
-            )
+            one_sixtyfour.embed(x).to_index(),
+            thirtytwo_sixtyfour
+                .embed(
+                    sixteen_thirtytwo.embed(
+                        eight_sixteen.embed(four_eight.embed(two_four.embed(one_two.embed(x))))
+                    )
+                )
+                .to_index()
         );
     }
 
@@ -489,14 +499,14 @@ fn membership_agrees_with_the_frobenius_test() {
             let m: u32 = <$source as fgf::Field>::DEGREE;
             // contains/restrict agree with x^(2^m) == x.
             for &word in &samples($degree, $salt) {
-                let y = <$target>::from_coordinates(word).unwrap();
+                let y = Elem::<$target>::from_index(word as u128).unwrap();
                 let frobenius_fixed = y.pow(1u128 << m) == y;
                 assert_eq!(embedding.contains(y), frobenius_fixed, "{word}");
                 assert_eq!(embedding.restrict(y).is_some(), frobenius_fixed, "{word}");
             }
             // restrict inverts embed.
             for &word in &samples(m, $salt + 1) {
-                let x = <$source>::from_coordinates(word).unwrap();
+                let x = Elem::<$source>::from_index(word as u128).unwrap();
                 assert_eq!(embedding.restrict(embedding.embed(x)), Some(x));
                 assert!(embedding.contains(embedding.embed(x)));
             }
@@ -517,12 +527,14 @@ fn membership_agrees_with_the_frobenius_test() {
     let two_eight = Embedding::<Ref2, Ref8>::new().unwrap();
     let mut image = std::vec::Vec::new();
     for word in 0..4u64 {
-        image.push(Ref8::to_coordinates(
-            two_eight.embed(Ref2::from_coordinates(word).unwrap()),
-        ));
+        image.push(
+            two_eight
+                .embed(Elem::<Ref2>::from_index(word as u128).unwrap())
+                .to_index() as u64,
+        );
     }
     assert!(!image.contains(&2));
-    let nonmember = Ref8::from_coordinates(2).unwrap();
+    let nonmember = Elem::<Ref8>::from_index(2).unwrap();
     assert!(!two_eight.contains(nonmember));
     assert_eq!(two_eight.restrict(nonmember), None);
 
@@ -541,7 +553,7 @@ fn trace_and_norm_match_conjugates() {
             let m: u32 = <$source as fgf::Field>::DEGREE;
             let n: u32 = <$target as fgf::Field>::DEGREE;
             for &word in &samples($degree, $salt) {
-                let y = <$target>::from_coordinates(word).unwrap();
+                let y = Elem::<$target>::from_index(word as u128).unwrap();
                 let mut sum = y;
                 let mut product = y;
                 let mut power = y;
@@ -704,9 +716,11 @@ fn degree8_maps_preserve_the_selected_aes_conventions() {
                     oracle_powers(0x11B, 8, root, u64::from(x))
                 };
                 assert_eq!(
-                    Ref8::to_coordinates(backward.embed(Elem::<
-                        FiniteField<2, 8, Polynomial<{ $poly }>>,
-                    >::from_raw(x))),
+                    backward
+                        .embed(Elem::<FiniteField<2, 8, Polynomial<{ $poly }>>>::from_raw(
+                            x
+                        ))
+                        .to_index() as u64,
                     expected,
                     "selected map of {poly:#x} at {x:#04x}"
                 );
@@ -732,9 +746,9 @@ fn degree8_maps_preserve_the_selected_aes_conventions() {
     for x in 0..=u8::MAX {
         let image = affine_apply(FROZEN_RS, x);
         assert_eq!(
-            Ref8::to_coordinates(
-                to_aes.embed(Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(x))
-            ),
+            to_aes
+                .embed(Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(x))
+                .to_index() as u64,
             u64::from(image),
             "frozen involution at {x:#04x}"
         );
@@ -838,17 +852,15 @@ fn uncovered_presentations_report_no_canonical_map() {
 /// degrees include, and restriction inverts embedding.
 #[test]
 fn covered_quartic_relation_embeds_through_the_reference() {
-    use fgf::BinaryField;
-
     let equal = Embedding::<extension_rows::Gf16Quartic, Ref4>::new().unwrap();
     for word in 0..16u64 {
-        let element = extension_rows::Gf16Quartic::from_coordinates(word).unwrap();
+        let element = Elem::<extension_rows::Gf16Quartic>::from_index(word as u128).unwrap();
         assert!(equal.contains(equal.embed(element)));
         assert_eq!(equal.restrict(equal.embed(element)), Some(element));
     }
     let lifted = Embedding::<extension_rows::Gf16Quartic, Ref8>::new().unwrap();
     for word in 0..16u64 {
-        let element = extension_rows::Gf16Quartic::from_coordinates(word).unwrap();
+        let element = Elem::<extension_rows::Gf16Quartic>::from_index(word as u128).unwrap();
         let image = lifted.embed(element);
         assert!(lifted.contains(image));
         assert_eq!(lifted.restrict(image), Some(element));
@@ -859,9 +871,9 @@ fn covered_quartic_relation_embeds_through_the_reference() {
     // reference root of `x^4 + x + 1`, and the ladder inclusion maps the
     // degree-four reference's indeterminate to the smallest root of its
     // own polynomial below the AES field.
-    let t = extension_rows::Gf16Quartic::from_coordinates(0b0010).unwrap();
+    let t = Elem::<extension_rows::Gf16Quartic>::from_index(0b0010).unwrap();
     let root = oracle_root(0b10011, 4, 0x13, 4);
-    assert_eq!(Ref4::to_coordinates(equal.embed(t)), root);
+    assert_eq!(equal.embed(t).to_index() as u64, root);
     let squared = oracle_mul(0x13, 4, root, root);
     let step = oracle_root(0x13, 4, 0x11B, 8);
     let mut lifted_square = 0u64;
@@ -872,5 +884,5 @@ fn covered_quartic_relation_embeds_through_the_reference() {
         }
         power = oracle_mul(0x11B, 8, power, step);
     }
-    assert_eq!(Ref8::to_coordinates(lifted.embed(t.mul(t))), lifted_square);
+    assert_eq!(lifted.embed(t.mul(t)).to_index() as u64, lifted_square);
 }

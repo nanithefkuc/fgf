@@ -56,47 +56,21 @@ pub trait BinaryRepr<const N: u32>: FiniteFieldRepr<2, N> {
     const LOG_EXP: Option<&'static ByteLogExp>;
 }
 
-/// Rejected coordinate words carry this error.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CoordinateError;
-
-impl fmt::Display for CoordinateError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("binary coordinate has excess bits")
-    }
-}
-
-impl core::error::Error for CoordinateError {}
-
-/// A binary field: characteristic two with canonical coordinate conversions.
+/// A binary field: characteristic two with a canonical coordinate word.
 ///
-/// Coordinates are the canonical raw bits; excess bits above the degree are
-/// an error rather than a mask.
+/// The descriptor names the presentation; element indices are the coordinate
+/// words. Conversions between elements and their presentation indices live
+/// on [`FieldElem`](super::FieldElem).
 #[allow(private_bounds)]
 pub trait BinaryField:
     Field<Characteristic = PrimeCharacteristic<2>> + binary_private::Sealed
 {
     /// The opaque descriptor of this field's presentation.
     const DESCRIPTION: &'static BinaryDescription;
-    /// Unwrap to the canonical coordinate word.
-    fn to_coordinates(value: Elem<Self>) -> u64;
-    /// Wrap a coordinate word, rejecting excess bits above the degree.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CoordinateError`] when `value` holds bits at or above the
-    /// field's degree.
-    fn from_coordinates(value: u64) -> Result<Elem<Self>, CoordinateError>;
 }
 
 /// Implemented by `FiniteField<2, N, R>` at its exact supported degree.
 pub trait BinaryDegree<const N: u32>: BinaryField {}
-
-/// Whether a `u64` coordinate word fits in `bits` bits, without ever
-/// shifting a `u64` by 64.
-const fn coordinates_fit(value: u64, bits: u32) -> bool {
-    if bits >= 64 { true } else { value >> bits == 0 }
-}
 
 /// Emit the shared surface of one binary degree row.
 ///
@@ -247,25 +221,6 @@ macro_rules! degree_row {
         }
         impl<R: BinaryRepr<$n>> BinaryField for FiniteField<2, $n, R> {
             const DESCRIPTION: &'static BinaryDescription = R::DESCRIPTION;
-
-            #[inline]
-            // Widening a stored word to the coordinate word is exact.
-            #[allow(clippy::cast_lossless)]
-            fn to_coordinates(value: Elem<Self>) -> u64 {
-                value.to_raw() as u64
-            }
-
-            #[inline]
-            fn from_coordinates(value: u64) -> Result<Elem<Self>, CoordinateError> {
-                if coordinates_fit(value, $n) {
-                    // The fit check proves the word fits the raw type.
-                    #[allow(clippy::cast_possible_truncation)]
-                    let raw = value as $raw;
-                    Ok(Elem::<Self>::from_raw(raw))
-                } else {
-                    Err(CoordinateError)
-                }
-            }
         }
         impl<R: BinaryRepr<$n>> BinaryDegree<$n> for FiniteField<2, $n, R> {}
     };
@@ -445,10 +400,10 @@ impl<R: BinaryRepr<1>> Elem<FiniteField<2, 1, R>> {
     /// Returns [`RangeError`] when `value` is two or more.
     #[inline]
     pub const fn from_residue(value: u64) -> Result<Self, RangeError> {
-        match value {
-            0 => Ok(Self::ZERO),
-            1 => Ok(Self::ONE),
-            _ => Err(RangeError),
+        match super::check_residue(value, 2) {
+            Ok(0) => Ok(Self::ZERO),
+            Ok(_) => Ok(Self::ONE),
+            Err(error) => Err(error),
         }
     }
 

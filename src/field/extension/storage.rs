@@ -20,7 +20,7 @@ use super::descriptor::Storage;
 use super::private::Sealed;
 use crate::field::binary::BinaryField;
 use crate::field::private::RowAccess;
-use crate::field::{Elem, Field, FieldBuffer};
+use crate::field::{Elem, Field, FieldBuffer, FieldElem};
 
 /// The storage word types a packed extension row may select.
 pub trait PackedWord: Sealed {}
@@ -305,8 +305,8 @@ macro_rules! packed_storage {
                 core::array::from_fn(|i| {
                     let component = extract_bits(word, i * degree, degree);
                     // The extracted word holds at most the base's degree
-                    // bits, so the conversion cannot see excess bits.
-                    <B as BinaryField>::from_coordinates(component)
+                    // bits, so the index conversion cannot see excess bits.
+                    Elem::<B>::from_index(component as u128)
                         .expect("packed component word holds excess bits")
                         .to_raw()
                 })
@@ -321,9 +321,12 @@ macro_rules! packed_storage {
                         raw: <B as Field>::canonical_raw(*component),
                     };
                     // A packed row places component `i` at the bits
-                    // `[i*degree, (i+1)*degree)`; the shift stays at or
-                    // below the word width.
-                    word |= <B as BinaryField>::to_coordinates(element) << (i * degree);
+                    // `[i*degree, (i+1)*degree)`; the base index is a
+                    // coordinate word, so it fits `u64`, and the shift stays
+                    // at or below the word width.
+                    let component =
+                        u64::try_from(element.to_index()).expect("base index fits the word");
+                    word |= component << (i * degree);
                 }
                 word as $word
             }
