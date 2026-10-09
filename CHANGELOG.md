@@ -46,6 +46,15 @@ All notable changes to this project are documented here. The format follows
   `FiniteField<2, 1, Residue>`, which stores a `u64` residue.
 - `just external-check` type-checks every package under `external/`
   against the working copy.
+- The generic extension presentation `FiniteField<P, N, Extension<S, D>>`
+  with data-only `ExtensionSpec` providers, the sealed storage family
+  (`Components`, `Packed`, `PackedPadded`), the opaque const-constructible
+  `Relation`, generic arithmetic under the crate-wide total conventions,
+  component bytes and the checked packed surface with `Scalar` routing,
+  `ExtensionField` component conversions, and `BinaryField` on
+  characteristic-two rows over binary bases. The surface lives in
+  `field::extension`, re-exported at the root. `EmbeddingError` gains the
+  `NoCanonicalMap` variant for dividing degrees with no canonical map.
 
 ### Changed
 

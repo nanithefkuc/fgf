@@ -159,6 +159,11 @@ Tests must defend observable contracts, not implementation wiring.
   base-field schoolbook oracles.
 - `tests/prime_fields.rs`: primality, prime-field bulk operations on raw
   lanes, and independent modular oracles.
+- `tests/extension.rs`: generic extension rows over every base shape,
+  packed byte forms, and the checked packed surface.
+- `tests/extension_reference.rs`: generic extension arithmetic against an
+  independent in-test schoolbook and brute-force reference, exhaustive on
+  small fields and sampled at full width.
 - `src/kernel/tests.rs`: direct scalar-versus-architecture differentials across
   lane, tail, row, and source-count boundaries.
 - `tests/zero_alloc.rs`: allocation-free steady-state contracts.

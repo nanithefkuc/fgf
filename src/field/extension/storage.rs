@@ -339,7 +339,7 @@ packed_buffer!(u64, 8, 64);
 /// The `bits` bits of `word` at offset `offset`.
 ///
 /// `offset + bits` stays at or below 64, so the shifts never wrap.
-const fn extract_bits(word: u64, offset: usize, bits: usize) -> u64 {
+pub(crate) const fn extract_bits(word: u64, offset: usize, bits: usize) -> u64 {
     if bits >= 64 {
         word
     } else {

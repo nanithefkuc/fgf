@@ -744,3 +744,129 @@ fn degree8_maps_preserve_the_selected_aes_conventions() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Construction errors and non-quadratic relation nodes
+// ---------------------------------------------------------------------------
+
+mod extension_rows {
+    use fgf::{Extension, ExtensionSpec, FiniteField, PackedPadded, Relation};
+
+    /// GF(8) as `x^3 + x + 1` over GF(2): a degree outside the ladder.
+    pub struct Gf8Spec;
+    impl ExtensionSpec<3> for Gf8Spec {
+        type Base = FiniteField<2, 1, fgf::Polynomial<3>>;
+        type Storage = PackedPadded<u8>;
+        const NAME: &'static str = "GF(8) cubic";
+        const RELATION: Relation =
+            Relation::from_binary_words::<FiniteField<2, 1, fgf::Polynomial<3>>>(&[1, 1, 0]);
+    }
+    pub type Gf8Cubic = FiniteField<2, 3, Extension<Gf8Spec, 3>>;
+
+    /// GF(64) as `t^2 + alpha*t + 1` over that GF(8): an unrelated
+    /// degree-six row of dividing degree.
+    pub struct Gf64Spec;
+    impl ExtensionSpec<2> for Gf64Spec {
+        type Base = Gf8Cubic;
+        type Storage = PackedPadded<u8>;
+        const NAME: &'static str = "GF(64) over cubic";
+        const RELATION: Relation = Relation::from_binary_words::<Gf8Cubic>(&[1, 2]);
+    }
+    pub type Gf64OverCubic = FiniteField<2, 6, Extension<Gf64Spec, 2>>;
+
+    /// GF(2^4) as the quartic `x^4 + x + 1` over GF(2): a non-quadratic
+    /// relation node the ladder covers.
+    pub struct Gf16QuarticSpec;
+    impl ExtensionSpec<4> for Gf16QuarticSpec {
+        type Base = FiniteField<2, 1, fgf::Polynomial<3>>;
+        type Storage = PackedPadded<u8>;
+        const NAME: &'static str = "GF(2^4) quartic";
+        const RELATION: Relation =
+            Relation::from_binary_words::<FiniteField<2, 1, fgf::Polynomial<3>>>(&[1, 1, 0, 0]);
+    }
+    pub type Gf16Quartic = FiniteField<2, 4, Extension<Gf16QuarticSpec, 4>>;
+}
+
+/// `Embedding::new` rejects non-dividing degrees of supported
+/// presentations by variant, before any presentation coverage question.
+#[test]
+fn incompatible_degree_precedes_every_other_rejection() {
+    let error = Embedding::<Gf16, Ref4>::new().unwrap_err();
+    assert_eq!(
+        error,
+        EmbeddingError::IncompatibleDegree {
+            source: 16,
+            target: 4
+        }
+    );
+    // An unsupported presentation of non-dividing degree still reports the
+    // degree first.
+    let error = Embedding::<extension_rows::Gf8Cubic, Ref4>::new().unwrap_err();
+    assert_eq!(
+        error,
+        EmbeddingError::IncompatibleDegree {
+            source: 3,
+            target: 4
+        }
+    );
+}
+
+/// A degree-three binary extension into the unrelated degree-six row of
+/// dividing degree: no canonical map exists, and none is searched for.
+#[test]
+fn uncovered_presentations_report_no_canonical_map() {
+    let error =
+        Embedding::<extension_rows::Gf8Cubic, extension_rows::Gf64OverCubic>::new().unwrap_err();
+    assert_eq!(error, EmbeddingError::NoCanonicalMap);
+    // The reverse direction divides the other way (six is not divided by
+    // three's complement), so it reports the degree.
+    assert!(matches!(
+        Embedding::<extension_rows::Gf64OverCubic, extension_rows::Gf8Cubic>::new(),
+        Err(EmbeddingError::IncompatibleDegree {
+            source: 6,
+            target: 3
+        })
+    ));
+}
+
+/// A covered non-quadratic relation node maps through the bounded
+/// reference like any flat presentation: equal degrees biject, dividing
+/// degrees include, and restriction inverts embedding.
+#[test]
+fn covered_quartic_relation_embeds_through_the_reference() {
+    use fgf::BinaryField;
+
+    let equal = Embedding::<extension_rows::Gf16Quartic, Ref4>::new().unwrap();
+    for word in 0..16u64 {
+        let element = extension_rows::Gf16Quartic::from_coordinates(word).unwrap();
+        assert!(equal.contains(equal.embed(element)));
+        assert_eq!(equal.restrict(equal.embed(element)), Some(element));
+    }
+    let lifted = Embedding::<extension_rows::Gf16Quartic, Ref8>::new().unwrap();
+    for word in 0..16u64 {
+        let element = extension_rows::Gf16Quartic::from_coordinates(word).unwrap();
+        let image = lifted.embed(element);
+        assert!(lifted.contains(image));
+        assert_eq!(lifted.restrict(image), Some(element));
+        assert_eq!(lifted.frobenius(image), image);
+    }
+    // The embedded copy multiplies like the source, through both maps of
+    // the composite: the quartic indeterminate maps to the smallest
+    // reference root of `x^4 + x + 1`, and the ladder inclusion maps the
+    // degree-four reference's indeterminate to the smallest root of its
+    // own polynomial below the AES field.
+    let t = extension_rows::Gf16Quartic::from_coordinates(0b0010).unwrap();
+    let root = oracle_root(0b10011, 4, 0x13, 4);
+    assert_eq!(Ref4::to_coordinates(equal.embed(t)), root);
+    let squared = oracle_mul(0x13, 4, root, root);
+    let step = oracle_root(0x13, 4, 0x11B, 8);
+    let mut lifted_square = 0u64;
+    let mut power = 1u64;
+    for i in 0..4 {
+        if (squared >> i) & 1 == 1 {
+            lifted_square ^= power;
+        }
+        power = oracle_mul(0x11B, 8, power, step);
+    }
+    assert_eq!(Ref8::to_coordinates(lifted.embed(t.mul(t))), lifted_square);
+}

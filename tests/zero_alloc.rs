@@ -3,8 +3,8 @@
 use fgf::field::binary::tower::{Tower, TowerSpec};
 use fgf::poly::{AES, RS};
 use fgf::{
-    Elem, Embedding, FieldKernels, FiniteField, Goldilocks, Mersenne31, Normal, Polynomial,
-    Residue, ops,
+    Components, Elem, Embedding, Extension, ExtensionSpec, FieldElem, FieldKernels, FiniteField,
+    Goldilocks, Mersenne31, Normal, Packed, Polynomial, Relation, Residue, ops,
 };
 
 #[path = "common/zero_alloc.rs"]
@@ -499,4 +499,67 @@ fn embedding_construction_and_application_allocate_nothing() {
         let _ = absolute.norm(target);
     });
     assert_eq!(applications, 0, "embedding application allocated");
+}
+
+/// A generic odd-characteristic extension row: GF(49) as `t^2 - 3` over
+/// the residue row at seven, component storage with a byte form.
+#[derive(Clone, Copy)]
+struct Gf49Spec;
+impl ExtensionSpec<2> for Gf49Spec {
+    type Base = FiniteField<7, 1>;
+    type Storage = Components;
+    const NAME: &'static str = "GF(49)";
+    const RELATION: Relation = Relation::from_coordinates(&[4, 0]);
+}
+type Gf49Row = FiniteField<7, 2, Extension<Gf49Spec, 2>>;
+
+/// A generic characteristic-two extension row: GF(2^16) as `t^2 + t +
+/// 0x21` over the AES field, packed storage, distinct from every pinned
+/// presentation.
+#[derive(Clone, Copy)]
+struct Packed16Spec;
+impl ExtensionSpec<2> for Packed16Spec {
+    type Base = FiniteField<2, 8, Polynomial<AES>>;
+    type Storage = Packed<u16>;
+    const NAME: &'static str = "GF(2^16)";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 8, Polynomial<AES>>>(&[0x21, 0x01]);
+}
+type Packed16Row = FiniteField<2, 16, Extension<Packed16Spec, 2>>;
+
+/// Generic extension rows: the borrowed packed surface runs
+/// allocation-free, and the prepared coefficient is the element itself,
+/// so preparation outside the counted window buys allocation-free reuse.
+#[test]
+fn generic_extension_rows_steady_state_allocate_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+
+    // Odd characteristic: construction and warming sit outside the
+    // counted window.
+    let odd_coeff = Elem::<Gf49Row>::from_raw([3, 5]);
+    assert_prime_steady_state_zero_alloc::<Gf49Row>(odd_coeff);
+
+    // Characteristic two over packed storage.
+    let binary_coeff = Elem::<Packed16Row>::from_raw(0x1B70);
+    assert_prime_steady_state_zero_alloc::<Packed16Row>(binary_coeff);
+
+    // Prepared reuse: the coefficient is prepared once outside the
+    // counted window, then applied.
+    let src = noise(64, 0x1700);
+    let mut dst = noise(64, 0x1701);
+    let prepared_odd = ops::Coeff::<Gf49Row>::new(odd_coeff);
+    ops::mul_add_with::<Gf49Row>(&mut dst, &prepared_odd, &src);
+    let binary_src = noise(64, 0x1702);
+    let mut binary_dst = noise(64, 0x1703);
+    let prepared_binary = ops::Coeff::<Packed16Row>::new(binary_coeff);
+    ops::mul_add_with::<Packed16Row>(&mut binary_dst, &prepared_binary, &binary_src);
+    let allocations = count_allocations(|| {
+        ops::mul_add_with::<Gf49Row>(&mut dst, &prepared_odd, &src);
+        ops::mul_into_with::<Gf49Row>(&mut dst, &prepared_odd, &src);
+        ops::mul_add_with::<Packed16Row>(&mut binary_dst, &prepared_binary, &binary_src);
+        ops::mul_into_with::<Packed16Row>(&mut binary_dst, &prepared_binary, &binary_src);
+    });
+    assert_eq!(allocations, 0, "generic extension prepared reuse allocated");
 }

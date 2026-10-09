@@ -101,18 +101,6 @@ impl Relation {
     pub const fn to_coordinates(&self) -> &[u64] {
         self.coordinates.split_at(self.len as usize).0
     }
-
-    /// The full coordinate array, occupied up to
-    /// [`Self::coordinate_count`], for const readers: taking a subslice is
-    /// not const-callable on the crate MSRV.
-    pub(crate) const fn all_coordinates(&self) -> &[u64; COORDINATES] {
-        &self.coordinates
-    }
-
-    /// The occupied coordinate count.
-    pub(crate) const fn coordinate_count(&self) -> usize {
-        self.len as usize
-    }
 }
 
 #[cfg(test)]
@@ -128,8 +116,8 @@ mod tests {
     fn const_construction_reads_back() {
         const RELATION: Relation = Relation::from_coordinates(&[4, 0]);
         const BINARY: Relation = Relation::from_binary_words::<Gf4>(&[2, 1]);
-        const _: () = assert!(BINARY.coordinate_count() == 4);
-        const _: () = assert!(BINARY.all_coordinates()[0] == 0);
+        const _: () = assert!(BINARY.to_coordinates().len() == 4);
+        const _: () = assert!(BINARY.to_coordinates()[0] == 0);
 
         // Runtime construction walks the same copy and expansion loops as
         // const evaluation.

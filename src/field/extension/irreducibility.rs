@@ -16,27 +16,37 @@ use super::arithmetic::{
 use super::descriptor::{Descriptor, Node};
 use super::pinned;
 
-/// Whether the root node's relation is irreducible over its base, by the
-/// quadratic fast path at relative degree two and the generalized Ben-Or
-/// test otherwise.
+/// Whether the relation node at `index` is irreducible over its base, by
+/// the quadratic fast path at relative degree two and the generalized
+/// Ben-Or test otherwise.
+///
+/// # Panics
+///
+/// Panics when the node at `index` holds no relation.
+#[must_use]
+pub const fn node_relation_irreducible(descriptor: &Descriptor, index: u8) -> bool {
+    match descriptor.node(index) {
+        Node::Extension {
+            relative_degree, ..
+        } => {
+            if *relative_degree == 2 {
+                quadratic_relation_holds(descriptor, index)
+            } else {
+                ben_or_irreducible(descriptor, index)
+            }
+        }
+        _ => panic!("not a relation node"),
+    }
+}
+
+/// Whether the root node's relation is irreducible over its base.
 ///
 /// # Panics
 ///
 /// Panics when the root node holds no relation.
 #[must_use]
 pub const fn root_relation_irreducible(descriptor: &Descriptor) -> bool {
-    match descriptor.node(descriptor.root_index()) {
-        Node::Extension {
-            relative_degree, ..
-        } => {
-            if *relative_degree == 2 {
-                quadratic_relation_holds(descriptor, descriptor.root_index())
-            } else {
-                ben_or_irreducible(descriptor, descriptor.root_index())
-            }
-        }
-        _ => panic!("the root node holds no relation"),
-    }
+    node_relation_irreducible(descriptor, descriptor.root_index())
 }
 
 /// Validation entry point of a relation node: a descriptor structurally

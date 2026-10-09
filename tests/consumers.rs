@@ -345,3 +345,444 @@ fn residue_conversions_are_independent_of_presentation_spelling() {
             .map(Elem::to_raw)
     );
 }
+
+// ---------------------------------------------------------------------------
+// Generic extension rows over every base shape
+// ---------------------------------------------------------------------------
+
+use fgf::{
+    BinaryField, Components, Extension, ExtensionField, ExtensionSpec, Packed, PackedPadded,
+    Relation,
+};
+
+type Residue3 = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1>;
+
+/// GF(49) as `t^2 - 3` over the residue row at seven.
+#[derive(Clone, Copy)]
+struct Gf49Spec;
+impl ExtensionSpec<2> for Gf49Spec {
+    type Base = Residue7;
+    type Storage = Components;
+    const NAME: &'static str = "GF(49)";
+    // `4 = -3` constant first, then the zero linear coefficient.
+    const RELATION: Relation = Relation::from_coordinates(&[4, 0]);
+}
+type Gf49Row = FiniteField<7, 2, Extension<Gf49Spec, 2>>;
+
+/// Goldilocks squared as `t^2 - 7`.
+#[derive(Clone, Copy)]
+struct GoldilocksSquareSpec;
+impl ExtensionSpec<2> for GoldilocksSquareSpec {
+    type Base = Goldilocks;
+    type Storage = Components;
+    const NAME: &'static str = "GF(g^2)";
+    const RELATION: Relation = Relation::from_coordinates(&[0xFFFF_FFFF_0000_0001 - 7, 0]);
+}
+type GoldilocksSquare = FiniteField<0xFFFF_FFFF_0000_0001, 2, Extension<GoldilocksSquareSpec, 2>>;
+
+/// Mersenne31 cubed as `t^3 - 5`.
+#[derive(Clone, Copy)]
+struct MersenneCubeSpec;
+impl ExtensionSpec<3> for MersenneCubeSpec {
+    type Base = Mersenne31;
+    type Storage = Components;
+    const NAME: &'static str = "GF((2^31 - 1)^3)";
+    const RELATION: Relation = Relation::from_coordinates(&[0x7FFF_FFFF - 5, 0, 0]);
+}
+type MersenneCube = FiniteField<0x7FFF_FFFF, 3, Extension<MersenneCubeSpec, 3>>;
+
+/// BabyBear to the fourth as `t^4 - 11`.
+#[derive(Clone, Copy)]
+struct BabyBearFourthSpec;
+impl ExtensionSpec<4> for BabyBearFourthSpec {
+    type Base = FiniteField<0x7800_0001, 1>;
+    type Storage = Components;
+    const NAME: &'static str = "BabyBear^4";
+    const RELATION: Relation = Relation::from_coordinates(&[0x7800_0001 - 11, 0, 0, 0]);
+}
+type BabyBearFourth = FiniteField<0x7800_0001, 4, Extension<BabyBearFourthSpec, 4>>;
+
+/// KoalaBear to the fourth as `t^4 - 3`.
+#[derive(Clone, Copy)]
+struct KoalaBearFourthSpec;
+impl ExtensionSpec<4> for KoalaBearFourthSpec {
+    type Base = FiniteField<0x7F00_0001, 1>;
+    type Storage = Components;
+    const NAME: &'static str = "KoalaBear^4";
+    const RELATION: Relation = Relation::from_coordinates(&[0x7F00_0001 - 3, 0, 0, 0]);
+}
+type KoalaBearFourth = FiniteField<0x7F00_0001, 4, Extension<KoalaBearFourthSpec, 4>>;
+
+/// A custom GF(p^2) as `t^2 + 1` over Mersenne31, and `t^2 - (2 + i)`
+/// above it: an extension whose base is a custom extension row.
+#[derive(Clone, Copy)]
+struct CustomComplexMersenneSpec;
+impl ExtensionSpec<2> for CustomComplexMersenneSpec {
+    type Base = Mersenne31;
+    type Storage = Components;
+    const NAME: &'static str = "custom GF(p^2)";
+    const RELATION: Relation = Relation::from_coordinates(&[1, 0]);
+}
+type CustomComplexMersenne = FiniteField<0x7FFF_FFFF, 2, Extension<CustomComplexMersenneSpec, 2>>;
+
+#[derive(Clone, Copy)]
+struct OverCustomMersenneSpec;
+impl ExtensionSpec<2> for OverCustomMersenneSpec {
+    type Base = CustomComplexMersenne;
+    type Storage = Components;
+    const NAME: &'static str = "GF(p^4) over custom";
+    // `-(2 + i)` in base components: `(-2, -1)`.
+    const RELATION: Relation =
+        Relation::from_coordinates(&[0x7FFF_FFFF - 2, 0x7FFF_FFFF - 1, 0, 0]);
+}
+type OverCustomMersenne = FiniteField<0x7FFF_FFFF, 4, Extension<OverCustomMersenneSpec, 2>>;
+
+/// The largest `u64` prime squared as `t^2 - 2`, two a nonresidue.
+#[derive(Clone, Copy)]
+struct WidePrimeSquareSpec;
+impl ExtensionSpec<2> for WidePrimeSquareSpec {
+    type Base = Residue3;
+    type Storage = Components;
+    const NAME: &'static str = "GF(p^2) at the widest prime";
+    const RELATION: Relation = Relation::from_coordinates(&[0xFFFF_FFFF_FFFF_FFC5 - 2, 0]);
+}
+type WidePrimeSquare = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 2, Extension<WidePrimeSquareSpec, 2>>;
+
+/// A cubic `t^3 + t + 1` over the AES byte field.
+#[derive(Clone, Copy)]
+struct AesCubicSpec;
+impl ExtensionSpec<3> for AesCubicSpec {
+    type Base = FiniteField<2, 8, Polynomial<AES>>;
+    type Storage = PackedPadded<u32>;
+    const NAME: &'static str = "GF(2^24)";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 8, Polynomial<AES>>>(&[1, 1, 0]);
+}
+type AesCubic = FiniteField<2, 24, Extension<AesCubicSpec, 3>>;
+
+/// `x^13 + x^4 + x^3 + x + 1` over GF(2).
+#[derive(Clone, Copy)]
+struct Degree13Spec;
+impl ExtensionSpec<13> for Degree13Spec {
+    type Base = FiniteField<2, 1, Polynomial<3>>;
+    type Storage = PackedPadded<u16>;
+    const NAME: &'static str = "GF(2^13)";
+    const RELATION: Relation = Relation::from_binary_words::<FiniteField<2, 1, Polynomial<3>>>(&[
+        1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+    ]);
+}
+type Degree13 = FiniteField<2, 13, Extension<Degree13Spec, 13>>;
+
+/// GF(8) as `x^3 + x + 1` over GF(2), and `t^2 + alpha*t + 1` above it
+/// with `alpha` the base indeterminate: a quadratic over a non-quadratic
+/// characteristic-two extension base.
+#[derive(Clone, Copy)]
+struct Gf8CubicSpec;
+impl ExtensionSpec<3> for Gf8CubicSpec {
+    type Base = FiniteField<2, 1, Polynomial<3>>;
+    type Storage = PackedPadded<u8>;
+    const NAME: &'static str = "GF(8)";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 1, Polynomial<3>>>(&[1, 1, 0]);
+}
+type Gf8Cubic = FiniteField<2, 3, Extension<Gf8CubicSpec, 3>>;
+
+#[derive(Clone, Copy)]
+struct Gf64OverGf8Spec;
+impl ExtensionSpec<2> for Gf64OverGf8Spec {
+    type Base = Gf8Cubic;
+    type Storage = PackedPadded<u8>;
+    const NAME: &'static str = "GF(64)";
+    const RELATION: Relation = Relation::from_binary_words::<Gf8Cubic>(&[1, 2]);
+}
+type Gf64OverGf8 = FiniteField<2, 6, Extension<Gf64OverGf8Spec, 2>>;
+
+/// `t^2 + t + 1` over the AES normal basis.
+#[derive(Clone, Copy)]
+struct OverNormalSpec;
+impl ExtensionSpec<2> for OverNormalSpec {
+    type Base = FiniteField<2, 8, Normal<0x11B, 0x20>>;
+    type Storage = Packed<u16>;
+    const NAME: &'static str = "GF(2^16) over normal";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 8, Normal<0x11B, 0x20>>>(&[1, 1]);
+}
+type OverNormal = FiniteField<2, 16, Extension<OverNormalSpec, 2>>;
+
+/// `t^2 + one*t + 3` over the AES Cantor basis, the linear coefficient
+/// the basis identity word.
+#[derive(Clone, Copy)]
+struct OverCantorSpec;
+impl ExtensionSpec<2> for OverCantorSpec {
+    type Base = FiniteField<2, 8, Cantor<0x11B, 0x20>>;
+    type Storage = Packed<u16>;
+    const NAME: &'static str = "GF(2^16) over cantor";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 8, Cantor<0x11B, 0x20>>>(&[3, 0xFF]);
+}
+type OverCantor = FiniteField<2, 16, Extension<OverCantorSpec, 2>>;
+
+/// `t^2 + t + 1` over the residue row at two, which is not a binary
+/// presentation: the row keeps its component bytes but never joins the
+/// binary capability.
+#[derive(Clone, Copy)]
+struct ResidueTwoSquareSpec;
+impl ExtensionSpec<2> for ResidueTwoSquareSpec {
+    type Base = Residue2;
+    type Storage = Components;
+    const NAME: &'static str = "GF(4) over residues";
+    const RELATION: Relation = Relation::from_coordinates(&[1, 1]);
+}
+type ResidueTwoSquare = FiniteField<2, 2, Extension<ResidueTwoSquareSpec, 2>>;
+
+/// Product, inverse, and component round trip shared by every extension
+/// row above.
+fn exercise_extension<F: ExtensionField<D>, const D: usize>(value: Elem<F>, other: Elem<F>) {
+    let zero = Elem::<F>::ZERO;
+    let one = Elem::<F>::ONE;
+    assert_eq!(value.mul(one), value);
+    assert_eq!(value.mul(other), other.mul(value));
+    assert_eq!(value.mul(value), value.pow(2));
+    assert_eq!(value.mul(value.inv()), one);
+    assert_eq!(zero.inv(), zero);
+    assert_eq!(
+        value.mul(other.add(one)),
+        value.mul(other).add(value),
+        "{}",
+        <F as Field>::NAME
+    );
+    let components = <F as ExtensionField<D>>::to_components(value);
+    assert_eq!(
+        <F as ExtensionField<D>>::from_components(components),
+        value,
+        "{}",
+        <F as Field>::NAME
+    );
+}
+
+/// The indeterminate `t` of an extension row: component one.
+fn indeterminate<F: ExtensionField<D>, const D: usize>() -> Elem<F> {
+    let mut components = <F as ExtensionField<D>>::to_components(Elem::<F>::ZERO);
+    components[1] = Elem::<F::Base>::ONE;
+    <F as ExtensionField<D>>::from_components(components)
+}
+
+#[test]
+fn extension_rows_exercise_arithmetic_and_relations() {
+    // Odd characteristic, component storage.
+    exercise_extension::<Gf49Row, 2>(
+        Elem::<Gf49Row>::from_raw([3, 5]),
+        Elem::<Gf49Row>::from_raw([6, 2]),
+    );
+    let t = indeterminate::<Gf49Row, 2>();
+    assert_eq!(t.mul(t), Elem::<Gf49Row>::from_raw([3, 0]));
+
+    exercise_extension::<GoldilocksSquare, 2>(
+        Elem::<GoldilocksSquare>::from_raw([0xFFFF_FFFF_0000_0001 - 3, 0x0123_4567_89AB_CDEF]),
+        Elem::<GoldilocksSquare>::from_raw([7, 9]),
+    );
+    let t = indeterminate::<GoldilocksSquare, 2>();
+    assert_eq!(t.mul(t), Elem::<GoldilocksSquare>::from_raw([7, 0]));
+
+    exercise_extension::<MersenneCube, 3>(
+        Elem::<MersenneCube>::from_raw([5, 9, 2]),
+        Elem::<MersenneCube>::from_raw([0x7FFF_FFFE, 1, 0x4000_0000]),
+    );
+    let t = indeterminate::<MersenneCube, 3>();
+    assert_eq!(t.mul(t).mul(t), Elem::<MersenneCube>::from_raw([5, 0, 0]));
+
+    exercise_extension::<BabyBearFourth, 4>(
+        Elem::<BabyBearFourth>::from_raw([5, 9, 2, 11]),
+        Elem::<BabyBearFourth>::from_raw([1, 2, 3, 4]),
+    );
+    let t = indeterminate::<BabyBearFourth, 4>();
+    assert_eq!(t.pow(4), Elem::<BabyBearFourth>::from_raw([11, 0, 0, 0]));
+
+    exercise_extension::<KoalaBearFourth, 4>(
+        Elem::<KoalaBearFourth>::from_raw([1, 2, 3, 4]),
+        Elem::<KoalaBearFourth>::from_raw([0x7F00_0000, 7, 7, 7]),
+    );
+    let t = indeterminate::<KoalaBearFourth, 4>();
+    assert_eq!(t.pow(4), Elem::<KoalaBearFourth>::from_raw([3, 0, 0, 0]));
+
+    exercise_extension::<OverCustomMersenne, 2>(
+        Elem::<OverCustomMersenne>::from_raw([[1, 2], [3, 4]]),
+        Elem::<OverCustomMersenne>::from_raw([[0x7FFF_FFFE, 0], [12, 0x4000_0000]]),
+    );
+    let t = indeterminate::<OverCustomMersenne, 2>();
+    // `t^2 = 2 + i` in base components.
+    assert_eq!(
+        t.mul(t),
+        Elem::<OverCustomMersenne>::from_raw([[2, 1], [0, 0]])
+    );
+    // The base row inverts through its own relation: `i^2 + 1 = 0`.
+    let i = indeterminate::<CustomComplexMersenne, 2>();
+    assert_eq!(
+        i.mul(i),
+        Elem::<CustomComplexMersenne>::from_raw([0x7FFF_FFFE, 0])
+    );
+
+    exercise_extension::<WidePrimeSquare, 2>(
+        Elem::<WidePrimeSquare>::from_raw([7, 9]),
+        Elem::<WidePrimeSquare>::from_raw([0xFFFF_FFFF_FFFF_FFC4, 0xFFFF_FFFF_FFFF_FFC3]),
+    );
+    let t = indeterminate::<WidePrimeSquare, 2>();
+    assert_eq!(t.mul(t), Elem::<WidePrimeSquare>::from_raw([2, 0]));
+
+    // Characteristic two.
+    exercise_extension::<AesCubic, 3>(
+        Elem::<AesCubic>::from_raw(0x00AB_CDEF),
+        Elem::<AesCubic>::from_raw(0x1200_0034),
+    );
+    let t = indeterminate::<AesCubic, 3>();
+    // `t^3 + t + 1 = 0`: the indeterminate occupies bits `[8, 16)`.
+    assert!(t.mul(t).mul(t).add(t).add(Elem::<AesCubic>::ONE).is_zero());
+
+    exercise_extension::<Degree13, 13>(
+        Elem::<Degree13>::from_raw(0x1234),
+        Elem::<Degree13>::from_raw(0x1B53),
+    );
+    let t = indeterminate::<Degree13, 13>();
+    // `x^13 + x^4 + x^3 + x + 1 = 0`.
+    assert!(
+        t.pow(13)
+            .add(t.pow(4))
+            .add(t.pow(3))
+            .add(t)
+            .add(Elem::<Degree13>::ONE)
+            .is_zero()
+    );
+
+    exercise_extension::<Gf8Cubic, 3>(
+        Elem::<Gf8Cubic>::from_raw(0x5),
+        Elem::<Gf8Cubic>::from_raw(0x3),
+    );
+    let t = indeterminate::<Gf8Cubic, 3>();
+    assert!(t.mul(t).mul(t).add(t).add(Elem::<Gf8Cubic>::ONE).is_zero());
+
+    exercise_extension::<Gf64OverGf8, 2>(
+        Elem::<Gf64OverGf8>::from_raw(0x2A),
+        Elem::<Gf64OverGf8>::from_raw(0x15),
+    );
+    let t = indeterminate::<Gf64OverGf8, 2>();
+    // `t^2 + alpha*t + 1 = 0` with `alpha` the base indeterminate (word 2).
+    assert!(
+        t.mul(t)
+            .add(t.mul(Elem::<Gf64OverGf8>::from_raw(0x02)))
+            .add(Elem::<Gf64OverGf8>::ONE)
+            .is_zero()
+    );
+
+    // Ordered-basis bases: the identity is the basis identity word, and
+    // arithmetic runs through the basis.
+    exercise_extension::<OverNormal, 2>(
+        Elem::<OverNormal>::from_raw(0x1B70),
+        Elem::<OverNormal>::from_raw(0x0108),
+    );
+    assert_eq!(
+        <OverNormal as Field>::ONE_RAW,
+        <OverNormal as ExtensionField<2>>::from_components([
+            Elem::<FiniteField<2, 8, Normal<0x11B, 0x20>>>::ONE,
+            Elem::<FiniteField<2, 8, Normal<0x11B, 0x20>>>::ZERO,
+        ])
+        .to_raw()
+    );
+    let t = indeterminate::<OverNormal, 2>();
+    // The relation words are base coordinate words: `t^2 + 1*t + 1` over
+    // the basis elements named by word one, not the basis identity.
+    let word_one = Elem::<OverNormal>::from_raw(0x0001);
+    assert!(t.mul(t).add(t.mul(word_one)).add(word_one).is_zero());
+
+    exercise_extension::<OverCantor, 2>(
+        Elem::<OverCantor>::from_raw(0x1B70),
+        Elem::<OverCantor>::from_raw(0x0108),
+    );
+    assert_eq!(
+        <OverCantor as Field>::ONE_RAW,
+        <OverCantor as ExtensionField<2>>::from_components([
+            Elem::<FiniteField<2, 8, Cantor<0x11B, 0x20>>>::ONE,
+            Elem::<FiniteField<2, 8, Cantor<0x11B, 0x20>>>::ZERO,
+        ])
+        .to_raw()
+    );
+    let t = indeterminate::<OverCantor, 2>();
+
+    // The relation words are base coordinate words: `t^2 + 0xFF*t + 3`
+    // over the basis element named by word `0xFF`.
+    assert!(
+        t.mul(t)
+            .add(t.mul(Elem::<OverCantor>::from_raw(0x00FF)))
+            .add(Elem::<OverCantor>::from_raw(0x0003))
+            .is_zero()
+    );
+
+    // The residue row at two: component bytes, never a binary row.
+    exercise_extension::<ResidueTwoSquare, 2>(
+        Elem::<ResidueTwoSquare>::from_raw([1, 0]),
+        Elem::<ResidueTwoSquare>::from_raw([0, 1]),
+    );
+    let t = indeterminate::<ResidueTwoSquare, 2>();
+    assert!(t.mul(t).add(t).add(Elem::<ResidueTwoSquare>::ONE).is_zero());
+    assert_eq!(<ResidueTwoSquare as FieldBuffer>::BYTES, 16);
+    let mut bytes = [0u8; 16];
+    FieldBuffer::encode(&mut bytes, Elem::<ResidueTwoSquare>::from_raw([1, 1]));
+    assert_eq!(
+        FieldBuffer::decode(&bytes),
+        Elem::<ResidueTwoSquare>::from_raw([1, 1])
+    );
+    assert_eq!(&bytes[..8], &1u64.to_le_bytes());
+    assert_eq!(&bytes[8..], &1u64.to_le_bytes());
+}
+
+#[test]
+fn characteristic_two_extension_rows_join_the_binary_capability() {
+    use fgf::BinaryDegree;
+
+    // The padded GF(8) and GF(64) rows convert through their coordinate
+    // words: component `i` at the bits `[i*B, (i+1)*B)`.
+    fn coordinate_word<F: BinaryField>(value: Elem<F>) -> u64 {
+        F::to_coordinates(value)
+    }
+    let t = indeterminate::<Gf8Cubic, 3>();
+    assert_eq!(coordinate_word(t), 0b010);
+    assert_eq!(
+        Gf8Cubic::from_coordinates(0b010).map(coordinate_word),
+        Ok(0b010)
+    );
+    assert!(Gf8Cubic::from_coordinates(1 << 3).is_err());
+    let u = indeterminate::<Gf64OverGf8, 2>();
+    assert_eq!(coordinate_word(u), 0b001_000);
+    assert!(Gf64OverGf8::from_coordinates(1 << 6).is_err());
+    // The wide rows report their full words.
+    assert_eq!(
+        coordinate_word(Elem::<OverNormal>::from_raw(0x1B70)),
+        0x1B70
+    );
+    assert_eq!(
+        OverCantor::from_coordinates(0x00FF).map(|v| v.to_raw()),
+        Ok(0x00FF)
+    );
+    // Every characteristic-two row above is a binary degree member at its
+    // exact degree, whatever the storage. The element argument carries the
+    // row into the bound; the value is the degree the bound names.
+    fn degree<F: BinaryDegree<N>, const N: u32>(_: Elem<F>) -> u32 {
+        N
+    }
+    assert_eq!(degree::<Gf8Cubic, 3>(Elem::<Gf8Cubic>::from_raw(0x5)), 3);
+    assert_eq!(
+        degree::<Gf64OverGf8, 6>(Elem::<Gf64OverGf8>::from_raw(0x2A)),
+        6
+    );
+    assert_eq!(
+        degree::<Degree13, 13>(Elem::<Degree13>::from_raw(0x1234)),
+        13
+    );
+    assert_eq!(
+        degree::<AesCubic, 24>(Elem::<AesCubic>::from_raw(0x00AB_CDEF)),
+        24
+    );
+    assert_eq!(
+        degree::<OverNormal, 16>(Elem::<OverNormal>::from_raw(0x1B70)),
+        16
+    );
+}

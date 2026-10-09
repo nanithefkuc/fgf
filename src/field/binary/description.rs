@@ -7,6 +7,7 @@
 //! lives with the general descriptor in `crate::field::extension`.
 
 use crate::field::extension::arithmetic;
+use crate::field::extension::descriptor::Storage;
 use crate::field::extension::irreducibility;
 use crate::field::extension::{Descriptor, Node};
 
@@ -28,7 +29,7 @@ impl BinaryDescription {
 
     /// Defining data of the root node.
     #[must_use]
-    pub(crate) const fn root_data(&self) -> NodeData {
+    pub(crate) const fn root_data(&self) -> NodeData<'_> {
         match self.inner.node(self.inner.root_index()) {
             Node::Unused | Node::Prime { .. } => panic!("unused node"),
             Node::Polynomial { degree, full } => NodeData::Polynomial {
@@ -49,7 +50,14 @@ impl BinaryDescription {
                 a: coefficients[1],
                 b: coefficients[0],
             },
-            Node::Extension { .. } => panic!("the root node holds no relation"),
+            Node::Extension {
+                relative_degree,
+                coefficients,
+                ..
+            } => NodeData::Relation {
+                relative_degree: *relative_degree,
+                coefficients: coefficients.split_at(*relative_degree).0,
+            },
         }
     }
 
@@ -86,6 +94,35 @@ impl BinaryDescription {
     pub(crate) const fn append_quadratic(base: &BinaryDescription, a: u64, b: u64) -> Self {
         Self {
             inner: base.inner.append_quadratic_words(a, b),
+        }
+    }
+
+    /// Append a defining relation over `base`'s root at any relative
+    /// degree, taking the non-leading coefficients as flattened
+    /// prime-subfield coordinates, constant term first. Runs every check
+    /// of the shared descriptor's relation constructor at characteristic
+    /// two; irreducibility stays with [`Self::validate`].
+    ///
+    /// # Panics
+    ///
+    /// Panics with a check-specific message when any check fails.
+    #[must_use]
+    pub(crate) const fn append_relation(
+        base: &BinaryDescription,
+        degree: u32,
+        relative_degree: usize,
+        relation: &[u64],
+        storage: Storage,
+    ) -> Self {
+        Self {
+            inner: Descriptor::extension(
+                &base.inner,
+                2,
+                degree,
+                relative_degree,
+                relation,
+                storage,
+            ),
         }
     }
 
@@ -184,21 +221,36 @@ impl BinaryDescription {
                     assert!(used && *base < i, "quadratic node order");
                     let h = arithmetic::degree_of(descriptor, *base);
                     assert!(h <= 32, "binary degree exceeds 64");
-                    let (a, b) = (coefficients[1], coefficients[0]);
                     if h < 64 {
-                        assert!(a >> h == 0, "tower coefficient has excess bits");
-                        assert!(b >> h == 0, "tower coefficient has excess bits");
+                        let mut j = 0;
+                        while j < *relative_degree {
+                            assert!(
+                                coefficients[j] >> h == 0,
+                                "tower coefficient has excess bits"
+                            );
+                            j += 1;
+                        }
                     }
-                    assert!(a != 0, "tower coefficient A is zero");
-                    assert!(*relative_degree == 2, "non-quadratic binary node");
-                    assert!(
-                        h == *base_degree,
-                        "quadratic node caches a wrong base degree"
-                    );
-                    assert!(
-                        irreducibility::quadratic_relation_holds(descriptor, i),
-                        "tower relation is reducible"
-                    );
+                    if *relative_degree == 2 {
+                        assert!(coefficients[1] != 0, "tower coefficient A is zero");
+                        assert!(
+                            h == *base_degree,
+                            "quadratic node caches a wrong base degree"
+                        );
+                        assert!(
+                            irreducibility::quadratic_relation_holds(descriptor, i),
+                            "tower relation is reducible"
+                        );
+                    } else {
+                        assert!(
+                            h == *base_degree,
+                            "relation node caches a wrong base degree"
+                        );
+                        assert!(
+                            irreducibility::node_relation_irreducible(descriptor, i),
+                            "relation node is reducible"
+                        );
+                    }
                 }
             }
             i += 1;
@@ -469,8 +521,12 @@ const fn serial_log_exp(full: u128, generator: u64) -> ByteLogExp {
 }
 
 /// Crate-visible defining data of one description node.
+///
+/// The relation variant covers every relative degree above two, holding
+/// the node's coefficient words in interpreter form, constant term first;
+/// the quadratic node stays its own shape, matching the shipped towers.
 #[derive(Clone, Copy)]
-pub(crate) enum NodeData {
+pub(crate) enum NodeData<'a> {
     /// A flat polynomial root.
     Polynomial {
         /// Total degree of the node.
@@ -491,6 +547,13 @@ pub(crate) enum NodeData {
         a: u64,
         /// Constant coefficient as a base-coordinate word.
         b: u64,
+    },
+    /// An extension of an earlier node at any relative degree.
+    Relation {
+        /// Degree of the relation over its base.
+        relative_degree: usize,
+        /// Non-leading coefficient words, constant term first.
+        coefficients: &'a [u64],
     },
 }
 
@@ -623,6 +686,49 @@ mod tests {
                 let lo = m(x0, y0) ^ m(b, top);
                 let hi = m(x0, y1) ^ m(x1, y0) ^ m(a, top);
                 lo | (hi << h)
+            }
+            NodeData::Relation {
+                relative_degree,
+                coefficients,
+            } => {
+                let base = desc.base_description();
+                let h = base.degree();
+                let count = relative_degree;
+                // Test-only storage for one schoolbook product: the binary
+                // degree stays at or below 64, so fixed component and
+                // double-width arrays cover every relative degree.
+                assert!(
+                    count <= 64,
+                    "test interpreter covers binary degrees up to 64"
+                );
+                let words = [x, y].map(|value| {
+                    let mut parts = [0u64; 64];
+                    for (slot, part) in parts.iter_mut().enumerate().take(count) {
+                        *part = (value >> (slot * h as usize)) & mask(h);
+                    }
+                    parts
+                });
+                let [xs, ys] = words;
+                let m = |u: u64, v: u64| root_mul(&base, u, v);
+                // Schoolbook up to degree `2d - 2`, then fold
+                // `t^k = Σ_j coefficients[j] t^(k - d + j)` from the top.
+                let mut wide = [0u64; 128];
+                for first in 0..count {
+                    for second in 0..count {
+                        wide[first + second] ^= m(xs[first], ys[second]);
+                    }
+                }
+                for top_degree in (count..2 * count).rev() {
+                    let top = wide[top_degree];
+                    for shift in 0..count {
+                        wide[top_degree - count + shift] ^= m(coefficients[shift], top);
+                    }
+                }
+                let mut word = 0u64;
+                for (position, digit) in wide.iter().enumerate().take(count) {
+                    word |= digit << (position * h as usize);
+                }
+                word
             }
         }
     }

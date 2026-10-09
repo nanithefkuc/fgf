@@ -58,7 +58,9 @@ use core::marker::PhantomData;
 use super::BinaryField;
 use super::description::{BinaryDescription, NodeData};
 use super::tower;
-use crate::field::{Elem, FieldElem};
+use crate::field::Elem;
+use crate::field::FieldElem;
+use crate::field::extension::descriptor::Node;
 
 /// The error returned when a requested embedding cannot exist.
 #[non_exhaustive]
@@ -71,15 +73,22 @@ pub enum EmbeddingError {
         /// Total degree of the target field.
         target: u32,
     },
+    /// Neither the frozen reference ladder nor a structural inclusion
+    /// names a canonical map for the pair.
+    NoCanonicalMap,
 }
 
 impl fmt::Display for EmbeddingError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let EmbeddingError::IncompatibleDegree { source, target } = self;
-        write!(
-            formatter,
-            "source degree {source} does not divide target degree {target}"
-        )
+        match self {
+            EmbeddingError::IncompatibleDegree { source, target } => write!(
+                formatter,
+                "source degree {source} does not divide target degree {target}"
+            ),
+            EmbeddingError::NoCanonicalMap => {
+                formatter.write_str("no canonical map between the presentations")
+            }
+        }
     }
 }
 
@@ -236,6 +245,36 @@ fn ladder_inclusion(m: u32, n: u32) -> [u64; 64] {
     columns
 }
 
+/// Whether the frozen reference ladder covers `description`: a ladder
+/// degree at the root, and every relation node of absolute degree above
+/// eight quadratic, so the reference towers above the byte field apply
+/// unchanged. Flat presentations always pass.
+fn ladder_covers(description: &BinaryDescription) -> bool {
+    let descriptor = description.as_descriptor();
+    if !matches!(descriptor.degree(), 1 | 2 | 4 | 8 | 16 | 32 | 64) {
+        return false;
+    }
+    let mut index = 0;
+    while index < descriptor.node_count() {
+        let covered = match descriptor.node(index) {
+            Node::Extension {
+                base_degree,
+                relative_degree,
+                ..
+            } => {
+                let absolute = (*base_degree as usize).saturating_mul(*relative_degree);
+                *relative_degree == 2 || absolute <= 8
+            }
+            _ => true,
+        };
+        if !covered {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
 /// The canonical map of one presentation into the reference of its degree,
 /// as GF(2)-linear columns both ways.
 struct PhiMap {
@@ -327,6 +366,27 @@ fn build_phi(description: &BinaryDescription) -> PhiMap {
             let inner = build_phi(&description.base_description());
             build_quadratic_phi(&inner, a, b)
         }
+        NodeData::Relation {
+            relative_degree,
+            coefficients,
+            ..
+        } => {
+            let inner = build_phi(&description.base_description());
+            let h = inner.degree;
+            // The coverage check admits a non-quadratic relation node only
+            // at an absolute degree the bounded reference reaches: the base
+            // degree times the relative degree stays at or below eight.
+            assert!(
+                matches!((h, relative_degree), (1, 1..=8) | (2, 1..=4) | (4, 1..=2)),
+                "a non-quadratic relation node sits above the bounded reference"
+            );
+            let transported: [u64; 8] = core::array::from_fn(|index| {
+                coefficients
+                    .get(index)
+                    .map_or(0, |word| fold(&inner.forward, *word))
+            });
+            build_small_relation_phi(&inner, &transported[..relative_degree])
+        }
     }
 }
 
@@ -345,29 +405,52 @@ fn build_quadratic_phi(base: &PhiMap, a: u64, b: u64) -> PhiMap {
     let transported_a = fold(&base.forward, a);
     let transported_b = fold(&base.forward, b);
     if n <= 8 {
-        build_small_quadratic_phi(base, transported_a, transported_b)
+        build_small_relation_phi(base, &[transported_b, transported_a])
     } else {
         build_wide_quadratic_phi(base, transported_a, transported_b)
     }
 }
 
-/// The bounded-root branch of [`build_quadratic_phi`] for output degrees
-/// up to eight.
-// The single-character locals mirror the node fields they transport.
-#[allow(clippy::many_single_char_names)]
-fn build_small_quadratic_phi(base: &PhiMap, transported_a: u64, transported_b: u64) -> PhiMap {
+/// Build the canonical map of one relation over a base whose map is
+/// `base`, at an output degree up to eight, by enumerating the bounded
+/// reference for the smallest nonzero root of the transported relation.
+///
+/// `transported` holds the relation's non-leading coefficients in
+/// reference coordinates of the base's degree, constant term first; the
+/// `j`-th component's basis vectors map to the `j`-th power of the root
+/// times the base image.
+// The bounded word counts stay below one byte, so the table casts are
+// exact. The single-character locals mirror the node fields they transport.
+#[allow(clippy::cast_possible_truncation, clippy::many_single_char_names)]
+fn build_small_relation_phi(base: &PhiMap, transported: &[u64]) -> PhiMap {
     let h = base.degree;
-    let n = 2 * h;
+    let d = transported.len();
+    let n = h * d as u32;
+    assert!(
+        n <= 8,
+        "the bounded reference enumeration covers degrees up to eight"
+    );
     let ref_n = reference(n);
     // The base embeds through the frozen ladder inclusion, whose
     // low components are not literal words below the AES field.
     let iota = ladder_inclusion(h, n);
-    let embedded_a = fold(&iota, transported_a);
-    let embedded_b = fold(&iota, transported_b);
+    let mut embedded = [0u64; 8];
+    let mut j = 0;
+    while j < d {
+        embedded[j] = fold(&iota, transported[j]);
+        j += 1;
+    }
+    // Horner descent from the monic leading term: the value is
+    // `r^d + e_{d-1} r^{d-1} + ... + e_0`.
     let mut root = 0;
     for candidate in 1..(1u64 << n) {
-        let square = ref_n.mul(candidate, candidate);
-        if square ^ ref_n.mul(candidate, embedded_a) ^ embedded_b == 0 {
+        let mut acc = 1u64;
+        let mut k = d;
+        while k > 0 {
+            k -= 1;
+            acc = ref_n.mul(acc, candidate) ^ embedded[k];
+        }
+        if acc == 0 {
             root = candidate;
             break;
         }
@@ -377,13 +460,12 @@ fn build_small_quadratic_phi(base: &PhiMap, transported_a: u64, transported_b: u
     for (index, column) in forward.iter_mut().enumerate().take(h as usize) {
         *column = fold(&iota, base.forward[index]);
     }
-    for (index, column) in forward
-        .iter_mut()
-        .skip(h as usize)
-        .enumerate()
-        .take(h as usize)
-    {
-        *column = ref_n.mul(fold(&iota, base.forward[index]), root);
+    let mut power = 1u64;
+    for j in 1..d {
+        power = ref_n.mul(power, root);
+        for index in 0..h as usize {
+            forward[j * h as usize + index] = ref_n.mul(fold(&iota, base.forward[index]), power);
+        }
     }
     let mut inverse = [0u64; 64];
     // The whole map and its inverse lookup are bounded by the byte field.
@@ -560,7 +642,11 @@ impl<S: BinaryField, T: BinaryField> Embedding<S, T> {
     /// # Errors
     ///
     /// Returns [`EmbeddingError::IncompatibleDegree`] when `S::DEGREE`
-    /// does not divide `T::DEGREE`; no other pair is rejected.
+    /// does not divide `T::DEGREE`, and
+    /// [`EmbeddingError::NoCanonicalMap`] when either presentation lies
+    /// outside the frozen reference ladder's coverage: a root degree the
+    /// ladder holds no reference for, or a relation node of absolute
+    /// degree above eight that is not quadratic.
     ///
     /// # Panics
     ///
@@ -574,6 +660,9 @@ impl<S: BinaryField, T: BinaryField> Embedding<S, T> {
                 source: m,
                 target: n,
             });
+        }
+        if !ladder_covers(S::DESCRIPTION) || !ladder_covers(T::DESCRIPTION) {
+            return Err(EmbeddingError::NoCanonicalMap);
         }
         let source = build_phi(S::DESCRIPTION);
         let target = build_phi(T::DESCRIPTION);
