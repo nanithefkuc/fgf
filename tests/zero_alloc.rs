@@ -3,7 +3,7 @@
 use fgf::poly::{AES, RS};
 use fgf::{
     Components, Elem, Embedding, Extension, ExtensionSpec, FieldElem, FieldKernels, FiniteField,
-    Goldilocks, Mersenne31, Normal, Packed, Polynomial, Relation, Residue, ops,
+    Goldilocks, Isomorphism, Mersenne31, Normal, Packed, Polynomial, Relation, Residue, ops,
 };
 
 #[path = "common/zero_alloc.rs"]
@@ -493,6 +493,19 @@ fn embedding_construction_and_application_allocate_nothing() {
         let _ = fanpaar_pair.norm(target);
         let _ = absolute.trace(target);
         let _ = absolute.norm(target);
+        // The generic relation surface: image construction, composition,
+        // and the isomorphism round trip.
+        let rebuilt = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf64>::from_images(
+            byte_tower.to_images(),
+        )
+        .unwrap();
+        let wide = Embedding::<Gf64, Gf64>::new().unwrap();
+        let _ = rebuilt.then(&wide);
+        let iso = Isomorphism::<Gf64, Gf64>::new().unwrap();
+        let _ = iso.apply(target);
+        let _ = iso.unapply(target);
+        let _ = iso.inverse();
+        let _ = iso.to_embedding();
     });
     assert_eq!(applications, 0, "embedding application allocated");
 }

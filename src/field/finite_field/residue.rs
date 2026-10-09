@@ -216,6 +216,9 @@ impl<const P: u64> Field for FiniteField<P, 1, Residue> {
 impl<const P: u64> super::super::private::RowAccess for FiniteField<P, 1, Residue> {
     const DESCRIPTOR: &'static Descriptor = &Descriptor::prime(P, PrimePresentation::Residue);
 
+    const BINARY_DESCRIPTION: Option<
+        &'static super::super::binary::description::BinaryDescription,
+    > = None;
     fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw) {
         let () = Validate::<Self>::OK;
         assert_eq!(

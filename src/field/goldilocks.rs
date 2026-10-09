@@ -190,6 +190,7 @@ impl Field for Goldilocks {
 impl super::private::RowAccess for Goldilocks {
     const DESCRIPTOR: &'static Descriptor =
         &Descriptor::prime(MODULUS, PrimePresentation::GoldilocksFold);
+    const BINARY_DESCRIPTION: Option<&'static super::binary::description::BinaryDescription> = None;
 
     fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw) {
         let () = Validate::<Self>::OK;

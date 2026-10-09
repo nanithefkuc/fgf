@@ -24,14 +24,12 @@
 
 pub mod cantor;
 pub mod description;
-pub mod embedding;
 pub mod normal;
 pub mod poly;
 pub mod tower;
 
 pub use cantor::Cantor;
 pub use description::{BinaryDescription, ByteLogExp};
-pub use embedding::{Embedding, EmbeddingError};
 pub use normal::Normal;
 pub use poly::{AES, Polynomial, RS};
 
@@ -146,7 +144,9 @@ macro_rules! degree_row {
         impl<R: BinaryRepr<$n>> $crate::field::private::RowAccess for FiniteField<2, $n, R> {
             const DESCRIPTOR: &'static $crate::field::extension::Descriptor =
                 R::DESCRIPTION.as_descriptor();
-
+            const BINARY_DESCRIPTION: Option<
+                &'static $crate::field::binary::description::BinaryDescription,
+            > = Some(R::DESCRIPTION);
             // The row hooks leave the trait's `where Self: Field` clause
             // implicit: every row implements `Field`, and omitting the
             // clause keeps `<Self as Field>::Raw` normalizable in the

@@ -1,8 +1,8 @@
 # Embeddings and presentation changes
 
-`Embedding<S, T>` prepares a value-preserving map between supported binary presentations when the source degree divides the target degree. Equal degrees give a change of presentation; a larger target gives a subfield inclusion.
+`Embedding<S, T>` prepares a value-preserving map between rows of equal characteristic when the source degree divides the target degree. Equal degrees give a change of presentation; a larger target gives a subfield inclusion. `Isomorphism<S, T>` is the equal-degree form with a total inverse. One implementation serves every characteristic: the prepared state stores the image of each generator level, and every method evaluates in the target's arithmetic.
 
-This guide targets fgf 3.0.0. It builds on [Choosing a field and basis](Choosing-a-field-and-basis). The [embedding reference](https://docs.rs/fgf/3.0.0/fgf/field/binary/embedding/index.html) owns the canonical-map convention and method contracts.
+This guide targets fgf 3.0.0. It builds on [Choosing a field and basis](Choosing-a-field-and-basis). The [embedding reference](https://docs.rs/fgf/3.0.0/fgf/field/embedding/index.html) owns the map sources and method contracts.
 
 ## A smaller field is not a prefix of arbitrary coordinates
 
@@ -45,7 +45,7 @@ The same surface handles normal, Cantor, and tower presentations. Equal-degree m
 
 ## One convention makes composed inclusions agree
 
-An abstract pair of finite fields can admit several embeddings. `fgf` selects one convention through a frozen reference ladder: polynomial presentations at degrees one, two, and four; the AES field at degree eight; and Rijndael towers above it. Presentation changes factor through that ladder.
+An abstract pair of finite fields can admit several embeddings. Structural inclusions need no choice: a tower's own bases and the prime subfield embed as constant components. In characteristic two a frozen reference ladder selects the remaining canonical maps: polynomial presentations at degrees one, two, and four; the AES field at degree eight; and Rijndael towers above it. Presentation changes factor through that ladder.
 
 The consequence for applications is composability: embedding through an intermediate supported degree agrees with embedding directly. The reference's root selection and coordinate ordering are interoperability facts, not knobs for a caller to tune.
 
@@ -88,7 +88,7 @@ The last assertion is not a failed conversion: `z` has a nonzero extension compo
 
 ## Reuse and rejected requests
 
-Construction and application use fixed-size prepared arrays and allocate nothing. A map can be retained across values and shared immutably. It prepares scalar coordinate maps, not an `ops` coefficient or a bulk conversion buffer.
+Construction and application use fixed-size prepared arrays and allocate nothing. A map can be retained across values and shared immutably. It prepares generator images, not an `ops` coefficient or a bulk conversion buffer. Caller-supplied images through `from_images` relate presentations no canonical rule covers, in any characteristic; the images validate against the transported relations.
 
 A source degree larger than the target cannot divide it. Construction returns `EmbeddingError::IncompatibleDegree`; restriction in the opposite direction is performed through a valid smaller-to-larger map.
 

@@ -697,20 +697,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 
 [[patch.unused]]
-name = "poly-ring"
-version = "2.0.0"
-
-[[patch.unused]]
-name = "butterfly-fft"
-version = "2.0.0"
-
-[[patch.unused]]
 name = "lattice-engine"
 version = "0.0.1"
 
 [[patch.unused]]
-name = "gfm"
-version = "2.0.0"
+name = "lattica"
+version = "1.0.1"
 
 [[patch.unused]]
 name = "butterfly-fft"
@@ -725,8 +717,16 @@ name = "poly-ring"
 version = "2.0.0"
 
 [[patch.unused]]
-name = "lattica"
-version = "1.0.1"
+name = "butterfly-fft"
+version = "2.0.0"
+
+[[patch.unused]]
+name = "gfm"
+version = "2.0.0"
+
+[[patch.unused]]
+name = "poly-ring"
+version = "2.0.0"
 
 [[patch.unused]]
 name = "polymat"

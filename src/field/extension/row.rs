@@ -516,6 +516,19 @@ where
         S::RELATION.to_coordinates(),
         <S::Storage as StorageRepr<S::Base, D>>::TAG,
     );
+    // Characteristic-two rows over binary bases carry the binary
+    // presentation; every other extension row reports none.
+    const BINARY_DESCRIPTION: Option<&'static BinaryDescription> =
+        match <S::Base as RowAccess>::BINARY_DESCRIPTION {
+            Some(base) if P == 2 => Some(&BinaryDescription::append_relation(
+                base,
+                N,
+                D,
+                S::RELATION.to_coordinates(),
+                <S::Storage as StorageRepr<S::Base, D>>::TAG,
+            )),
+            _ => None,
+        };
 
     // The row hooks leave the trait's `where Self: Field` clause implicit:
     // every row implements `Field`, and omitting the clause keeps

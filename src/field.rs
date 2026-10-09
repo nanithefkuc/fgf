@@ -64,6 +64,7 @@
 //! ```
 
 pub mod binary;
+pub mod embedding;
 pub mod extension;
 pub mod finite_field;
 pub mod goldilocks;
@@ -73,7 +74,6 @@ pub mod quad_mersenne31;
 
 pub use binary::cantor;
 pub use binary::description;
-pub use binary::embedding;
 pub use binary::normal;
 pub use binary::poly;
 pub use binary::tower;
@@ -82,9 +82,10 @@ pub use binary::tower::{
     Rijndael64,
 };
 pub use binary::{
-    AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Embedding,
-    EmbeddingError, Normal, Polynomial, RS,
+    AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Normal,
+    Polynomial, RS,
 };
+pub use embedding::{Embedding, EmbeddingError, Isomorphism};
 pub use extension::{
     Components, Extension, ExtensionField, ExtensionSpec, ExtensionStorage, Packed, PackedPadded,
     PackedWord, Relation,
@@ -117,6 +118,13 @@ mod private {
     pub(crate) trait RowAccess: 'static {
         /// Descriptor of the row's presentation.
         const DESCRIPTOR: &'static Descriptor;
+        /// Binary presentation description, when the row is a binary row.
+        ///
+        /// `Some` exactly for the rows implementing `BinaryField`: flat
+        /// binary rows and characteristic-two extension rows over binary
+        /// bases. The generic embedding reads it for the frozen
+        /// characteristic-two image rule; every other row reports `None`.
+        const BINARY_DESCRIPTION: Option<&'static super::binary::description::BinaryDescription>;
         /// Writes the flattened prime-subfield coordinates of `raw` into
         /// `dst`, in the descriptor's coordinate order.
         ///

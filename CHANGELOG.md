@@ -66,6 +66,15 @@ All notable changes to this project are documented here. The format follows
   every row: the prime-subfield value and the presentation index share one
   generic body over the crate-private row hooks, and the inherent `const`
   residue constructors check through the same bound.
+- The characteristic-independent relation surface in `field::embedding`,
+  re-exported at the root: `Embedding<S, T>` over every pair of rows of
+  equal characteristic whose degrees divide, with `from_images`,
+  `to_images`, `generator_count`, `generator`, `then`, and
+  `relative_degree`; `Isomorphism<S, T>` with `apply`, a total `unapply`,
+  `inverse`, and composition; and the `NoCanonicalMap` and `InvalidImages`
+  variants of `EmbeddingError`. Maps come from structural inclusions, the
+  frozen binary ladder, or validated caller images; every pre-cutover
+  binary result is unchanged.
 
 ### Changed
 
@@ -152,6 +161,14 @@ All notable changes to this project are documented here. The format follows
   `ResidueError` are replaced by `fgf::RangeError` (also
   `fgf::field::RangeError`). Residues and indices are distinct: the index
   of one is the presentation's coordinate encoding of one.
+- Binary embedding evaluation no longer uses precomputed linear columns:
+  maps evaluate by Horner substitution and restrict through trace-dual
+  bases, with unchanged results on every pair.
+- **Breaking:** the `field::binary` embedding paths are removed without
+  an alias: `fgf::field::binary::embedding`, `Embedding`, and
+  `EmbeddingError` under it. Import from the crate root or
+  `field::embedding` instead; the struct bounds widen from `BinaryField`
+  to `Field`, and `Embedding` keeps `Clone`, `Copy`, and `Debug`.
 
 ### Removed
 
