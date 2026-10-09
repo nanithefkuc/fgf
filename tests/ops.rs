@@ -10,17 +10,17 @@
 use fgf::field::{FieldBuffer, FieldElem};
 use fgf::poly::{AES, RS};
 use fgf::{
-    Cantor, Elem, FieldKernels, FiniteField, Goldilocks, Mersenne31, Normal, Polynomial,
-    QuadMersenne31, Tower, TowerSpec, goldilocks, ops,
+    Cantor, Elem, Extension, ExtensionSpec, FieldKernels, FiniteField, Goldilocks, Mersenne31,
+    Normal, Packed, Polynomial, QuadMersenne31, Relation, goldilocks, ops,
 };
 
-type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
-type Gf32 = fgf::FiniteField<2, 32, fgf::Tower<fgf::Rijndael32>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
-type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Tower<fgf::FanPaar8>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Tower<fgf::FanPaar16>>;
-type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Tower<fgf::FanPaar32>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Tower<fgf::FanPaar64>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
+type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Extension<fgf::FanPaar8, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
+type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Extension<fgf::FanPaar32, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
 
 /// Deterministic pseudo-random bytes. No dependency, reproducible failures.
 fn noise(len: usize, seed: u64) -> Vec<u8> {
@@ -1897,7 +1897,7 @@ fn mersenne31_public_ops_match_oracle() {
 }
 
 fn qm(re: u32, im: u32) -> Elem<QuadMersenne31> {
-    Elem::<QuadMersenne31>::from_raw(re, im)
+    Elem::<QuadMersenne31>::from_raw([re, im])
 }
 
 /// 8-byte element lengths straddling the SSE (16 B = 2 elements) and AVX2
@@ -2303,7 +2303,7 @@ fn add_and_sub_assign_match_oracle_for_every_field() {
     check::<FanPaar64Field>(8, Elem::<FanPaar64Field>::from_raw(3));
     check::<Mersenne31>(8, Elem::<Mersenne31>::from_raw(3));
     check::<Goldilocks>(8, Elem::<Goldilocks>::from_raw(3));
-    check::<QuadMersenne31>(8, Elem::<QuadMersenne31>::from_raw(3, 5));
+    check::<QuadMersenne31>(8, Elem::<QuadMersenne31>::from_raw([3, 5]));
 }
 
 #[test]
@@ -3151,9 +3151,9 @@ fn prepared_variants_match_one_shot_operations() {
     );
     check!(
         QuadMersenne31,
-        Elem::<QuadMersenne31>::from_raw(0, 0),
-        Elem::<QuadMersenne31>::from_raw(1, 0),
-        Elem::<QuadMersenne31>::from_raw(0x1234_5678, 0x9abc_def0)
+        Elem::<QuadMersenne31>::from_raw([0, 0]),
+        Elem::<QuadMersenne31>::from_raw([1, 0]),
+        Elem::<QuadMersenne31>::from_raw([0x1234_5678, 0x9abc_def0])
     );
 }
 
@@ -3664,64 +3664,72 @@ fn cantor_bulk_matches_scalar_and_reports_scalar() {
 }
 
 // ---------------------------------------------------------------------------
-// Custom towers and the scalar-fallback classes
+// Custom extension rows and the scalar-fallback classes
 // ---------------------------------------------------------------------------
 
-/// A custom degree-8 tower over the degree-four polynomial field
+/// A custom degree-8 extension over the degree-four polynomial field
 /// `GF(2^4)/0x13`: `t^2 + t + 0x8`.
 #[derive(Clone, Copy)]
 struct Custom8Spec;
-impl TowerSpec for Custom8Spec {
+impl ExtensionSpec<2> for Custom8Spec {
     type Base = FiniteField<2, 4, Polynomial<0x13>>;
-    const LINEAR_COEFFICIENT: u64 = 1;
-    const CONSTANT_COEFFICIENT: u64 = 0x8;
-    const NAME: &'static str = "custom GF(2^8) tower";
+    type Storage = Packed<u8>;
+    const NAME: &'static str = "custom GF(2^8) extension";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 4, Polynomial<0x13>>>(&[0x8, 0x1]);
 }
+type Custom8Row = FiniteField<2, 8, Extension<Custom8Spec, 2>>;
 
-/// A custom degree-16 tower over the Reed–Solomon byte field:
+/// A custom degree-16 extension over the Reed–Solomon byte field:
 /// `t^2 + 2*t + 0x80`.
 #[derive(Clone, Copy)]
 struct Custom16Spec;
-impl TowerSpec for Custom16Spec {
+impl ExtensionSpec<2> for Custom16Spec {
     type Base = FiniteField<2, 8, Polynomial<RS>>;
-    const LINEAR_COEFFICIENT: u64 = 2;
-    const CONSTANT_COEFFICIENT: u64 = 0x80;
-    const NAME: &'static str = "custom GF(2^16) tower";
+    type Storage = Packed<u16>;
+    const NAME: &'static str = "custom GF(2^16) extension";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 8, Polynomial<RS>>>(&[0x80, 0x2]);
 }
+type Custom16Row = FiniteField<2, 16, Extension<Custom16Spec, 2>>;
 
-/// A custom degree-32 tower over GF(2^16): `t^2 + t + 0x2001`. The relation
-/// constant differs from the pinned Rijndael32 word, so the description is
-/// not structurally any pinned tower.
+/// A custom degree-32 extension over GF(2^16): `t^2 + t + 0x2001`. The
+/// relation constant differs from the pinned Rijndael32 word, so the
+/// presentation is not structurally any pinned instance.
 #[derive(Clone, Copy)]
 struct Custom32Spec;
-impl TowerSpec for Custom32Spec {
+impl ExtensionSpec<2> for Custom32Spec {
     type Base = Gf16;
-    const LINEAR_COEFFICIENT: u64 = 1;
-    const CONSTANT_COEFFICIENT: u64 = 0x2001;
-    const NAME: &'static str = "custom GF(2^32) tower";
+    type Storage = Packed<u32>;
+    const NAME: &'static str = "custom GF(2^32) extension";
+    const RELATION: Relation = Relation::from_binary_words::<Gf16>(&[0x2001, 0x0001]);
 }
+type Custom32Row = FiniteField<2, 32, Extension<Custom32Spec, 2>>;
 
-/// A custom degree-64 tower over GF(2^32): `t^2 + t + 0x2ada7f36`.
+/// A custom degree-64 extension over GF(2^32): `t^2 + t + 0x2ada7f36`.
 #[derive(Clone, Copy)]
 struct Custom64Spec;
-impl TowerSpec for Custom64Spec {
+impl ExtensionSpec<2> for Custom64Spec {
     type Base = Gf32;
-    const LINEAR_COEFFICIENT: u64 = 1;
-    const CONSTANT_COEFFICIENT: u64 = 0x2ada_7f36;
-    const NAME: &'static str = "custom GF(2^64) tower";
+    type Storage = Packed<u64>;
+    const NAME: &'static str = "custom GF(2^64) extension";
+    const RELATION: Relation = Relation::from_binary_words::<Gf32>(&[0x2ada_7f36, 0x0000_0001]);
 }
+type Custom64Row = FiniteField<2, 64, Extension<Custom64Spec, 2>>;
 
-/// A custom degree-16 tower over a normal-basis byte field: the linear
+/// A custom degree-16 extension over a normal-basis byte field: the linear
 /// coefficient is the base's actual one (all bits set) and the constant term
 /// is a trace-one element in normal coordinates.
 #[derive(Clone, Copy)]
 struct NormalBase16Spec;
-impl TowerSpec for NormalBase16Spec {
+impl ExtensionSpec<2> for NormalBase16Spec {
     type Base = FiniteField<2, 8, Normal<0x11B, 0x20>>;
-    const LINEAR_COEFFICIENT: u64 = 0xFF;
-    const CONSTANT_COEFFICIENT: u64 = 0x1;
-    const NAME: &'static str = "custom normal-base GF(2^16) tower";
+    type Storage = Packed<u16>;
+    const NAME: &'static str = "custom normal-base GF(2^16) extension";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 8, Normal<0x11B, 0x20>>>(&[0x1, 0xFF]);
 }
+type NormalBase16Row = FiniteField<2, 16, Extension<NormalBase16Spec, 2>>;
 
 /// The per-family backend report: the tier serving each class's bulk
 /// operations — [`Backend::Scalar`] for the typed scalar fallback — with
@@ -3754,11 +3762,11 @@ fn backend_reports_match_family_routes() {
         FiniteField<2, 8, Normal<0x11B, 0x20>>,
         FiniteField<2, 8, Cantor<0x11B, 0x20>>,
         FanPaar8Field,
-        FiniteField<2, 8, Tower<Custom8Spec>>,
-        FiniteField<2, 16, Tower<Custom16Spec>>,
-        FiniteField<2, 32, Tower<Custom32Spec>>,
-        FiniteField<2, 64, Tower<Custom64Spec>>,
-        FiniteField<2, 16, Tower<NormalBase16Spec>>,
+        Custom8Row,
+        Custom16Row,
+        Custom32Row,
+        Custom64Row,
+        NormalBase16Row,
     );
 
     // Polynomial byte fields follow the process backend on every
@@ -4171,36 +4179,36 @@ fn basis8_fallback_bulk_matches_scalar() {
 
 #[test]
 fn custom_tower8_fallback_bulk_matches_scalar() {
-    fallback_single_row_matches_scalar_for::<FiniteField<2, 8, Tower<Custom8Spec>>>();
-    fallback_multi_row_matches_scalar_for::<FiniteField<2, 8, Tower<Custom8Spec>>>();
+    fallback_single_row_matches_scalar_for::<Custom8Row>();
+    fallback_multi_row_matches_scalar_for::<Custom8Row>();
 }
 
 #[test]
 fn custom_tower16_fallback_bulk_matches_scalar() {
-    fallback_single_row_matches_scalar_for::<FiniteField<2, 16, Tower<Custom16Spec>>>();
-    fallback_multi_row_matches_scalar_for::<FiniteField<2, 16, Tower<Custom16Spec>>>();
+    fallback_single_row_matches_scalar_for::<Custom16Row>();
+    fallback_multi_row_matches_scalar_for::<Custom16Row>();
 }
 
-/// A custom degree-16 tower whose description is structurally identical
-/// to the pinned Rijndael16 presentation: same base, same relation.
+/// A custom degree-16 extension whose presentation is structurally
+/// identical to the pinned Rijndael16 row: same base, relation, and storage.
 #[derive(Clone, Copy)]
 struct SameRijndael16Spec;
-impl TowerSpec for SameRijndael16Spec {
+impl ExtensionSpec<2> for SameRijndael16Spec {
     type Base = FiniteField<2, 8, Polynomial<AES>>;
-    const LINEAR_COEFFICIENT: u64 = 1;
-    const CONSTANT_COEFFICIENT: u64 = 0x20;
-    const NAME: &'static str = "rijndael-shaped custom GF(2^16) tower";
+    type Storage = Packed<u16>;
+    const NAME: &'static str = "rijndael-shaped custom GF(2^16) extension";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 8, Polynomial<AES>>>(&[0x20, 0x01]);
 }
 
-/// A custom tower with the pinned structure multiplies exactly as the
-/// pinned field does — inherent scalar arithmetic, the generic
-/// [`FieldElem`] route, and the dispatched `ops` buffers — while a custom
-/// tower without that structure takes its own correct route at every
-/// level.
+/// A custom extension with the pinned presentation multiplies exactly as
+/// the pinned field does — the generic [`FieldElem`] route and the
+/// dispatched `ops` buffers — while a custom extension without that
+/// presentation takes its own correct route.
 #[test]
 fn structural_route_matches_pinned_and_custom_route_matches_oracle() {
-    type Same16 = FiniteField<2, 16, Tower<SameRijndael16Spec>>;
-    type Custom16 = FiniteField<2, 16, Tower<Custom16Spec>>;
+    type Same16 = FiniteField<2, 16, Extension<SameRijndael16Spec, 2>>;
+    type Custom16 = Custom16Row;
 
     // Deterministic raw words: boundary values and a spread over both
     // bytes.
@@ -4208,37 +4216,23 @@ fn structural_route_matches_pinned_and_custom_route_matches_oracle() {
     for &a in &words {
         for &b in &words {
             let (x, y) = (Elem::<Same16>::from_raw(a), Elem::<Same16>::from_raw(b));
-            // Inherent arithmetic follows the pinned Rijndael16 route.
+            // Field arithmetic follows the pinned Rijndael16 route.
             let pinned = Elem::<Gf16>::from_raw(a).mul(Elem::<Gf16>::from_raw(b));
             assert_eq!(
-                x.mul(y).to_raw(),
-                pinned.to_raw(),
-                "same-structure inherent mul {a:#x} * {b:#x}"
-            );
-            assert_eq!(
-                x.square().to_raw(),
-                Elem::<Gf16>::from_raw(a).square().to_raw(),
-                "same-structure inherent square {a:#x}"
-            );
-            // The generic FieldElem route agrees with the inherent one.
-            assert_eq!(
                 FieldElem::mul(x, y).to_raw(),
-                x.mul(y).to_raw(),
-                "same-structure FieldElem mul {a:#x} * {b:#x}"
+                pinned.to_raw(),
+                "same-structure mul {a:#x} * {b:#x}"
             );
-            // The non-identical custom tower agrees with itself through
-            // both spellings, on its own route.
-            let (u, v) = (Elem::<Custom16>::from_raw(a), Elem::<Custom16>::from_raw(b));
             assert_eq!(
-                FieldElem::mul(u, v).to_raw(),
-                u.mul(v).to_raw(),
-                "custom inherent/FieldElem mul {a:#x} * {b:#x}"
+                FieldElem::square(x).to_raw(),
+                Elem::<Gf16>::from_raw(a).square().to_raw(),
+                "same-structure square {a:#x}"
             );
         }
     }
 
-    // Dispatched buffers: the same-structure tower produces the pinned
-    // field's bytes; the custom tower produces its own oracle bytes.
+    // Dispatched buffers: the same-structure row produces the pinned
+    // field's bytes; the custom row produces its own oracle bytes.
     for &len in LENGTHS.iter() {
         let src = noise(len, 0x53a7);
         for byte in [0u8, 1, 0x53, 0xa7] {
@@ -4264,20 +4258,20 @@ fn structural_route_matches_pinned_and_custom_route_matches_oracle() {
 
 #[test]
 fn custom_tower32_fallback_bulk_matches_scalar() {
-    fallback_single_row_matches_scalar_for::<FiniteField<2, 32, Tower<Custom32Spec>>>();
-    fallback_multi_row_matches_scalar_for::<FiniteField<2, 32, Tower<Custom32Spec>>>();
+    fallback_single_row_matches_scalar_for::<Custom32Row>();
+    fallback_multi_row_matches_scalar_for::<Custom32Row>();
 }
 
 #[test]
 fn custom_tower64_fallback_bulk_matches_scalar() {
-    fallback_single_row_matches_scalar_for::<FiniteField<2, 64, Tower<Custom64Spec>>>();
-    fallback_multi_row_matches_scalar_for::<FiniteField<2, 64, Tower<Custom64Spec>>>();
+    fallback_single_row_matches_scalar_for::<Custom64Row>();
+    fallback_multi_row_matches_scalar_for::<Custom64Row>();
 }
 
 #[test]
 fn normal_base_tower16_fallback_bulk_matches_scalar() {
-    fallback_single_row_matches_scalar_for::<FiniteField<2, 16, Tower<NormalBase16Spec>>>();
-    fallback_multi_row_matches_scalar_for::<FiniteField<2, 16, Tower<NormalBase16Spec>>>();
+    fallback_single_row_matches_scalar_for::<NormalBase16Row>();
+    fallback_multi_row_matches_scalar_for::<NormalBase16Row>();
 }
 
 // ---------------------------------------------------------------------------
@@ -4296,21 +4290,21 @@ fn fallback_mul_add_rejects_length_mismatch() {
 #[should_panic(expected = "buffer of 3 bytes is not a whole number")]
 fn fallback_mul_assign_rejects_partial_element() {
     let mut dst = [0u8; 3];
-    ops::mul_assign::<FiniteField<2, 16, Tower<Custom16Spec>>>(&mut dst, pattern_elem(0x53));
+    ops::mul_assign::<Custom16Row>(&mut dst, pattern_elem(0x53));
 }
 
 #[test]
 #[should_panic(expected = "mul_add_scatter: rows is 6 bytes but 4 rows of 2 bytes need 8")]
 fn fallback_scatter_rejects_short_rows_buffer() {
     let coeffs = [
-        Elem::<FiniteField<2, 16, Tower<Custom16Spec>>>::ZERO,
-        Elem::<FiniteField<2, 16, Tower<Custom16Spec>>>::ONE,
-        pattern_elem::<FiniteField<2, 16, Tower<Custom16Spec>>>(0x53),
-        pattern_elem::<FiniteField<2, 16, Tower<Custom16Spec>>>(0xA7),
+        Elem::<Custom16Row>::ZERO,
+        Elem::<Custom16Row>::ONE,
+        pattern_elem::<Custom16Row>(0x53),
+        pattern_elem::<Custom16Row>(0xA7),
     ];
     let mut rows = [0u8; 6];
     let src = [0u8; 2];
-    ops::mul_add_scatter::<FiniteField<2, 16, Tower<Custom16Spec>>>(&mut rows, 2, &coeffs, &src);
+    ops::mul_add_scatter::<Custom16Row>(&mut rows, 2, &coeffs, &src);
 }
 
 #[test]
@@ -4347,23 +4341,18 @@ fn fallback_prepared_matrix_rejects_dimension_mismatch() {
 #[test]
 #[should_panic(expected = "overlap for 8-byte rows")]
 fn fallback_matrix_at_rejects_overlapping_rows() {
-    let coeffs = [pattern_elem::<FiniteField<2, 32, Tower<Custom32Spec>>>(0x53); 2];
+    let coeffs = [pattern_elem::<Custom32Row>(0x53); 2];
     let mut dst = [0u8; 12];
     let src = [0u8; 8];
-    ops::mul_add_matrix_at::<FiniteField<2, 32, Tower<Custom32Spec>>>(
-        &mut dst,
-        8,
-        &[0, 4],
-        &[(&coeffs, &src)],
-    );
+    ops::mul_add_matrix_at::<Custom32Row>(&mut dst, 8, &[0, 4], &[(&coeffs, &src)]);
 }
 
 #[test]
 #[should_panic(expected = "unpack: src is 3 bytes but dst holds 4")]
 fn fallback_unpack_rejects_source_mismatch() {
-    let mut out = [Elem::<FiniteField<2, 32, Tower<Custom32Spec>>>::ZERO; 4];
+    let mut out = [Elem::<Custom32Row>::ZERO; 4];
     let src = [0u8; 3];
-    ops::unpack::<FiniteField<2, 32, Tower<Custom32Spec>>>(&mut out, &src);
+    ops::unpack::<Custom32Row>(&mut out, &src);
 }
 
 #[test]

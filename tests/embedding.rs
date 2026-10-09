@@ -3,18 +3,18 @@
 //! shift-reduce oracles computed inside this file.
 
 use fgf::{
-    AES, BinaryField, Cantor, Elem, Embedding, EmbeddingError, FieldElem, FiniteField, Normal,
-    Polynomial, RS, Tower, TowerSpec,
+    AES, BinaryField, Cantor, Elem, Embedding, EmbeddingError, Extension, ExtensionSpec, FieldElem,
+    FiniteField, Normal, Packed, Polynomial, RS, Relation,
 };
 
 type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
-type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
-type Gf32 = fgf::FiniteField<2, 32, fgf::Tower<fgf::Rijndael32>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
-type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Tower<fgf::FanPaar8>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Tower<fgf::FanPaar16>>;
-type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Tower<fgf::FanPaar32>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Tower<fgf::FanPaar64>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
+type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Extension<fgf::FanPaar8, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
+type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Extension<fgf::FanPaar32, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
 
 /// Reference GF(2) at the bottom of the ladder.
 type Ref2 = FiniteField<2, 2, Polynomial<0x7>>;
@@ -107,27 +107,28 @@ fn samples(degree: u32, extra: u64) -> Vec<u64> {
     values
 }
 
-/// A custom degree-32 tower over [`Gf16`], distinct from every shipped
+/// A custom degree-32 extension over [`Gf16`], distinct from every shipped
 /// description.
 #[derive(Clone, Copy)]
 struct Custom32;
 
-impl TowerSpec for Custom32 {
+impl ExtensionSpec<2> for Custom32 {
     type Base = Gf16;
-    const LINEAR_COEFFICIENT: u64 = 1;
-    const CONSTANT_COEFFICIENT: u64 = 0x2001;
-    const NAME: &'static str = "custom degree-32 tower";
+    type Storage = Packed<u32>;
+    const NAME: &'static str = "custom degree-32 extension";
+    const RELATION: Relation = Relation::from_binary_words::<Gf16>(&[0x2001, 0x0001]);
 }
 
-/// A custom degree-16 tower structurally identical to [`Rijndael16`].
+/// A custom degree-16 extension structurally identical to [`Rijndael16`].
 #[derive(Clone, Copy)]
 struct SameAsRijndael16;
 
-impl TowerSpec for SameAsRijndael16 {
+impl ExtensionSpec<2> for SameAsRijndael16 {
     type Base = FiniteField<2, 8, Polynomial<AES>>;
-    const LINEAR_COEFFICIENT: u64 = 1;
-    const CONSTANT_COEFFICIENT: u64 = 0x20;
-    const NAME: &'static str = "rijndael-shaped custom tower";
+    type Storage = Packed<u16>;
+    const NAME: &'static str = "rijndael-shaped custom extension";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 8, Polynomial<AES>>>(&[0x20, 0x01]);
 }
 
 #[test]
@@ -337,8 +338,8 @@ fn equal_degree_presentations_are_mutual_isomorphisms() {
         64,
     );
     check_mutual_isomorphism(
-        &Embedding::<FiniteField<2, 32, Tower<Custom32>>, Gf32>::new().unwrap(),
-        &Embedding::<Gf32, FiniteField<2, 32, Tower<Custom32>>>::new().unwrap(),
+        &Embedding::<FiniteField<2, 32, Extension<Custom32, 2>>, Gf32>::new().unwrap(),
+        &Embedding::<Gf32, FiniteField<2, 32, Extension<Custom32, 2>>>::new().unwrap(),
         32,
     );
 }
@@ -353,7 +354,7 @@ fn equal_descriptions_embed_identically() {
     }
     // A custom spec structurally identical to a shipped one embeds as the
     // identity: descriptions, not Rust types, select the map.
-    type Custom16 = FiniteField<2, 16, Tower<SameAsRijndael16>>;
+    type Custom16 = FiniteField<2, 16, Extension<SameAsRijndael16, 2>>;
     let structural = Embedding::<Custom16, Gf16>::new().unwrap();
     let back = Embedding::<Gf16, Custom16>::new().unwrap();
     for &word in &samples(16, 0x61) {

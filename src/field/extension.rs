@@ -40,6 +40,15 @@
 //! [`FieldBuffer`](super::FieldBuffer) and the packed operation surface
 //! over [`crate::kernel::FieldKernels`], reporting the scalar backend.
 //!
+//! The shipped instances — the Rijndael and Fan-Paar towers in
+//! [`tower`](super::tower) and
+//! [`QuadMersenne31`](super::quad_mersenne31::QuadMersenne31) — are rows of
+//! this family with specialized scalar bodies, a full `const` element
+//! surface, a checked generator, and their vector kernels. A row whose
+//! descriptor equals a shipped instance's — the same base presentations,
+//! relations, and storages at every level — runs that instance's body and
+//! kernels, so equal presentations produce equal bytes.
+//!
 //! # Capacity
 //!
 //! Validation is exact, and a relation whose validation exceeds rustc's

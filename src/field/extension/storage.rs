@@ -10,6 +10,7 @@
 //! [`StorageBuffer`] and [`StorageDisplay`] extensions, in the row-hook
 //! pattern: never as public methods.
 
+use core::any::Any;
 use core::fmt::Formatter;
 use core::hash::Hash;
 use core::marker::PhantomData;
@@ -131,6 +132,26 @@ pub(crate) trait StorageRepr<B: Field, const D: usize>: ExtensionStorage<B, D> {
     fn split(raw: Self::Raw) -> [<B as Field>::Raw; D];
     /// The raw word of base components, canonicalized on the way in.
     fn join(components: [<B as Field>::Raw; D]) -> Self::Raw;
+    /// The shipped-instance word of a raw value: the coordinate word of a
+    /// packed storage, and `re | im << 32` for the component limbs of the
+    /// shipped prime extension.
+    ///
+    /// Read only for rows whose descriptor equals a shipped instance's,
+    /// where the storage is the instance's own.
+    ///
+    /// # Panics
+    ///
+    /// Panics when a component storage's raw word is not a pair of `u32`
+    /// limbs.
+    fn to_pinned_word(raw: Self::Raw) -> u64;
+    /// The raw value of a shipped-instance word; the inverse of
+    /// [`Self::to_pinned_word`].
+    ///
+    /// # Panics
+    ///
+    /// Panics when a component storage's raw word is not a pair of `u32`
+    /// limbs.
+    fn from_pinned_word(word: u64) -> Self::Raw;
 }
 
 /// The fixed-width byte form of one storage, for the rows that carry one.
@@ -184,6 +205,25 @@ impl<B: Field, const D: usize> StorageRepr<B, D> for Components {
 
     fn join(components: [<B as Field>::Raw; D]) -> Self::Raw {
         components.map(<B as Field>::canonical_raw)
+    }
+
+    // The shipped component instance stores two `u32` limbs; the checked
+    // downcast is the type proof that this row's raw word is that pair.
+    fn to_pinned_word(raw: Self::Raw) -> u64 {
+        let limbs = (&raw as &dyn Any)
+            .downcast_ref::<[u32; 2]>()
+            .expect("pinned component storage holds two u32 limbs");
+        u64::from(limbs[0]) | (u64::from(limbs[1]) << 32)
+    }
+
+    // Splitting the word into its two limbs: the truncation is the
+    // operation.
+    #[allow(clippy::cast_possible_truncation)]
+    fn from_pinned_word(word: u64) -> Self::Raw {
+        let limbs: [u32; 2] = [word as u32, (word >> 32) as u32];
+        *(&limbs as &dyn Any)
+            .downcast_ref::<Self::Raw>()
+            .expect("pinned component storage holds two u32 limbs")
     }
 }
 
@@ -287,6 +327,18 @@ macro_rules! packed_storage {
                 }
                 word as $word
             }
+
+            #[allow(clippy::cast_lossless)]
+            fn to_pinned_word(raw: Self::Raw) -> u64 {
+                raw as u64
+            }
+
+            // A pinned word is the row's own coordinate word, which fits
+            // the storage word.
+            #[allow(clippy::cast_possible_truncation)]
+            fn from_pinned_word(word: u64) -> Self::Raw {
+                word as $word
+            }
         }
 
         impl<B: BinaryField, const D: usize> StorageDisplay<B, D> for $storage<$word> {
@@ -355,10 +407,10 @@ mod tests {
 
     type Aes8 = FiniteField<2, 8, Polynomial<AES>>;
     type Gf4 = FiniteField<2, 2, Polynomial<7>>;
-    type FanPaar4Row = FiniteField<2, 4, crate::field::Tower<crate::field::FanPaar4>>;
-    type FanPaar8Row = FiniteField<2, 8, crate::field::Tower<crate::field::FanPaar8>>;
-    type Rijndael16Row = FiniteField<2, 16, crate::field::Tower<crate::field::Rijndael16>>;
-    type Rijndael32Row = FiniteField<2, 32, crate::field::Tower<crate::field::Rijndael32>>;
+    type FanPaar4Row = FiniteField<2, 4, crate::field::Extension<crate::field::FanPaar4, 2>>;
+    type FanPaar8Row = FiniteField<2, 8, crate::field::Extension<crate::field::FanPaar8, 2>>;
+    type Rijndael16Row = FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>;
+    type Rijndael32Row = FiniteField<2, 32, crate::field::Extension<crate::field::Rijndael32, 2>>;
 
     /// One packed storage joins its components, splits back, canonicalizes
     /// padding, and carries the base identity in component zero.

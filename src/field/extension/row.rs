@@ -12,6 +12,7 @@
 use core::fmt;
 
 use super::descriptor::Descriptor;
+use super::pinned::{self, Instance};
 use super::private::Sealed;
 use super::storage::{ExtensionStorage, StorageBuffer, StorageDisplay, StorageRepr, extract_bits};
 use super::{Extension, ExtensionField, ExtensionSpec};
@@ -311,8 +312,107 @@ fn inv_components<B: Field, const D: usize>(
 }
 
 // ---------------------------------------------------------------------------
+// Generic raw bodies
+//
+// The bodies every row without a shipped-instance descriptor runs, over
+// the storage's component form. The shipped instances run their own
+// specialized bodies instead; the tests compare the two on every pinned
+// descriptor.
+// ---------------------------------------------------------------------------
+
+/// The generic canonical form of a raw word.
+pub(crate) fn generic_canonical<S: ExtensionSpec<D>, const D: usize>(
+    raw: RawOf<S, D>,
+) -> RawOf<S, D>
+where
+    S::Storage: StorageRepr<S::Base, D>,
+{
+    <S::Storage as StorageRepr<S::Base, D>>::canonical(raw)
+}
+
+/// The generic componentwise sum.
+pub(crate) fn generic_add<S: ExtensionSpec<D>, const D: usize>(
+    left: RawOf<S, D>,
+    right: RawOf<S, D>,
+) -> RawOf<S, D>
+where
+    S::Storage: StorageRepr<S::Base, D>,
+{
+    let (a, b) = (split::<S, D>(left), split::<S, D>(right));
+    join::<S, D>(add_components::<S::Base, D>(&a, &b))
+}
+
+/// The generic componentwise difference.
+pub(crate) fn generic_sub<S: ExtensionSpec<D>, const D: usize>(
+    left: RawOf<S, D>,
+    right: RawOf<S, D>,
+) -> RawOf<S, D>
+where
+    S::Storage: StorageRepr<S::Base, D>,
+{
+    let (a, b) = (split::<S, D>(left), split::<S, D>(right));
+    join::<S, D>(sub_components::<S::Base, D>(&a, &b))
+}
+
+/// The generic componentwise negation.
+pub(crate) fn generic_neg<S: ExtensionSpec<D>, const D: usize>(value: RawOf<S, D>) -> RawOf<S, D>
+where
+    S::Storage: StorageRepr<S::Base, D>,
+{
+    join::<S, D>(neg_components::<S::Base, D>(&split::<S, D>(value)))
+}
+
+/// The generic schoolbook product reduced by the relation.
+pub(crate) fn generic_mul<S: ExtensionSpec<D>, const D: usize>(
+    left: RawOf<S, D>,
+    right: RawOf<S, D>,
+) -> RawOf<S, D>
+where
+    S::Storage: StorageRepr<S::Base, D>,
+{
+    let (a, b) = (split::<S, D>(left), split::<S, D>(right));
+    let relation = relation_components::<S, D>();
+    join::<S, D>(mul_components::<S::Base, D>(&a, &b, &relation))
+}
+
+/// The generic inverse, zero to zero.
+pub(crate) fn generic_inv<S: ExtensionSpec<D>, const D: usize>(value: RawOf<S, D>) -> RawOf<S, D>
+where
+    S::Storage: StorageRepr<S::Base, D>,
+{
+    let a = split::<S, D>(value);
+    if a.iter().all(|&x| x == <S::Base as Field>::ZERO_RAW) {
+        return <S::Storage as StorageRepr<S::Base, D>>::ZERO;
+    }
+    let relation = relation_components::<S, D>();
+    join::<S, D>(inv_components::<S::Base, D>(&a, &relation))
+}
+
+/// The instance word of a raw value, for a row running a shipped body.
+fn word<S: ExtensionSpec<D>, const D: usize>(raw: RawOf<S, D>) -> u64
+where
+    S::Storage: StorageRepr<S::Base, D>,
+{
+    <S::Storage as StorageRepr<S::Base, D>>::to_pinned_word(raw)
+}
+
+/// The raw value of an instance word, for a row running a shipped body.
+fn from_word<S: ExtensionSpec<D>, const D: usize>(word: u64) -> RawOf<S, D>
+where
+    S::Storage: StorageRepr<S::Base, D>,
+{
+    <S::Storage as StorageRepr<S::Base, D>>::from_pinned_word(word)
+}
+
+// ---------------------------------------------------------------------------
 // Field row
 // ---------------------------------------------------------------------------
+
+/// The shipped instance whose body a row runs, decided in const by
+/// structural equality of the row's descriptor with the pinned set.
+const fn instance_of<F: RowAccess>() -> Option<Instance> {
+    pinned::instance(F::DESCRIPTOR)
+}
 
 impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> Field
     for FiniteField<P, N, Extension<S, D>>
@@ -347,46 +447,55 @@ where
     #[inline]
     fn canonical_raw(raw: Self::Raw) -> Self::Raw {
         let () = Validate::<Self>::OK;
-        <S::Storage as StorageRepr<S::Base, D>>::canonical(raw)
+        if let Some(instance) = const { instance_of::<Self>() } {
+            return from_word::<S, D>(instance.canonical(word::<S, D>(raw)));
+        }
+        generic_canonical::<S, D>(raw)
     }
 
     #[inline]
     fn add_raw(left: Self::Raw, right: Self::Raw) -> Self::Raw {
         let () = Validate::<Self>::OK;
-        let (a, b) = (split::<S, D>(left), split::<S, D>(right));
-        join::<S, D>(add_components::<S::Base, D>(&a, &b))
+        if let Some(instance) = const { instance_of::<Self>() } {
+            return from_word::<S, D>(instance.add(word::<S, D>(left), word::<S, D>(right)));
+        }
+        generic_add::<S, D>(left, right)
     }
 
     #[inline]
     fn sub_raw(left: Self::Raw, right: Self::Raw) -> Self::Raw {
         let () = Validate::<Self>::OK;
-        let (a, b) = (split::<S, D>(left), split::<S, D>(right));
-        join::<S, D>(sub_components::<S::Base, D>(&a, &b))
+        if let Some(instance) = const { instance_of::<Self>() } {
+            return from_word::<S, D>(instance.sub(word::<S, D>(left), word::<S, D>(right)));
+        }
+        generic_sub::<S, D>(left, right)
     }
 
     #[inline]
     fn neg_raw(value: Self::Raw) -> Self::Raw {
         let () = Validate::<Self>::OK;
-        join::<S, D>(neg_components::<S::Base, D>(&split::<S, D>(value)))
+        if let Some(instance) = const { instance_of::<Self>() } {
+            return from_word::<S, D>(instance.neg(word::<S, D>(value)));
+        }
+        generic_neg::<S, D>(value)
     }
 
     #[inline]
     fn mul_raw(left: Self::Raw, right: Self::Raw) -> Self::Raw {
         let () = Validate::<Self>::OK;
-        let (a, b) = (split::<S, D>(left), split::<S, D>(right));
-        let relation = relation_components::<S, D>();
-        join::<S, D>(mul_components::<S::Base, D>(&a, &b, &relation))
+        if let Some(instance) = const { instance_of::<Self>() } {
+            return from_word::<S, D>(instance.mul(word::<S, D>(left), word::<S, D>(right)));
+        }
+        generic_mul::<S, D>(left, right)
     }
 
     #[inline]
     fn inv_raw(value: Self::Raw) -> Self::Raw {
         let () = Validate::<Self>::OK;
-        let a = split::<S, D>(value);
-        if a.iter().all(|&x| x == <S::Base as Field>::ZERO_RAW) {
-            return <S::Storage as StorageRepr<S::Base, D>>::ZERO;
+        if let Some(instance) = const { instance_of::<Self>() } {
+            return from_word::<S, D>(instance.inv(word::<S, D>(value)));
         }
-        let relation = relation_components::<S, D>();
-        join::<S, D>(inv_components::<S::Base, D>(&a, &relation))
+        generic_inv::<S, D>(value)
     }
 }
 
@@ -609,4 +718,139 @@ where
     S::Storage: StorageRepr<S::Base, D>,
     S::Base: BinaryField,
 {
+}
+
+#[cfg(test)]
+mod tests {
+    //! The shipped instances' specialized bodies against the generic
+    //! extension body, on the same rows.
+
+    extern crate std;
+
+    use std::vec;
+    use std::vec::Vec;
+
+    use super::*;
+    use crate::field::binary::tower::{
+        FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Rijndael16, Rijndael32,
+        Rijndael64,
+    };
+    use crate::field::quad_mersenne31::ComplexMersenne31;
+
+    /// Deterministic 64-bit words from the crate's shared LCG constants.
+    fn words(seed: u64) -> impl Iterator<Item = u64> {
+        let mut state = seed | 1;
+        core::iter::repeat_with(move || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            state ^ (state >> 29)
+        })
+    }
+
+    /// Every operation of the row `FiniteField<P, N, Extension<S, 2>>`
+    /// runs a specialized body, and that body agrees with the generic body
+    /// on every pair of the canonical samples and on the canonical form of
+    /// every raw sample.
+    fn specialized_matches_generic<S: ExtensionSpec<2>, const P: u64, const N: u32>(
+        raws: &[RawOf<S, 2>],
+    ) where
+        S::Storage: StorageRepr<S::Base, 2>,
+    {
+        type Row<S, const P: u64, const N: u32> = FiniteField<P, N, Extension<S, 2>>;
+        assert!(
+            instance_of::<Row<S, P, N>>().is_some(),
+            "{} runs no specialized body",
+            S::NAME
+        );
+        let canonical: Vec<RawOf<S, 2>> = raws
+            .iter()
+            .map(|&raw| generic_canonical::<S, 2>(raw))
+            .collect();
+        for (&raw, &want) in raws.iter().zip(&canonical) {
+            assert_eq!(
+                <Row<S, P, N> as Field>::canonical_raw(raw),
+                want,
+                "canonical {raw:?}"
+            );
+        }
+        for &a in &canonical {
+            assert_eq!(
+                <Row<S, P, N> as Field>::neg_raw(a),
+                generic_neg::<S, 2>(a),
+                "-{a:?}"
+            );
+            assert_eq!(
+                <Row<S, P, N> as Field>::inv_raw(a),
+                generic_inv::<S, 2>(a),
+                "1/{a:?}"
+            );
+            for &b in &canonical {
+                assert_eq!(
+                    <Row<S, P, N> as Field>::add_raw(a, b),
+                    generic_add::<S, 2>(a, b),
+                    "{a:?} + {b:?}"
+                );
+                assert_eq!(
+                    <Row<S, P, N> as Field>::sub_raw(a, b),
+                    generic_sub::<S, 2>(a, b),
+                    "{a:?} - {b:?}"
+                );
+                assert_eq!(
+                    <Row<S, P, N> as Field>::mul_raw(a, b),
+                    generic_mul::<S, 2>(a, b),
+                    "{a:?} * {b:?}"
+                );
+            }
+        }
+    }
+
+    /// Zero, one, the all-ones word, and a deterministic spray, narrowed to
+    /// the storage word.
+    // The narrowing keeps the low bits of each sample word: the sample.
+    #[allow(clippy::cast_possible_truncation)]
+    fn packed_samples<W: Copy>(seed: u64, count: usize, narrow: fn(u64) -> W) -> Vec<W> {
+        let mut samples: Vec<W> = [0, 1, u64::MAX].into_iter().map(narrow).collect();
+        samples.extend(words(seed).take(count).map(narrow));
+        samples
+    }
+
+    #[test]
+    fn small_fan_paar_bodies_match_generic_exhaustively() {
+        // Every byte, so the padded rows also see every excess-bit alias.
+        let bytes: Vec<u8> = (0..=u8::MAX).collect();
+        specialized_matches_generic::<FanPaar2, 2, 2>(&bytes);
+        specialized_matches_generic::<FanPaar4, 2, 4>(&bytes);
+        specialized_matches_generic::<FanPaar8, 2, 8>(&bytes);
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn wide_tower_bodies_match_generic_on_samples() {
+        specialized_matches_generic::<Rijndael16, 2, 16>(&packed_samples(0x16, 48, |w| w as u16));
+        specialized_matches_generic::<FanPaar16, 2, 16>(&packed_samples(0x116, 48, |w| w as u16));
+        specialized_matches_generic::<Rijndael32, 2, 32>(&packed_samples(0x32, 24, |w| w as u32));
+        specialized_matches_generic::<FanPaar32, 2, 32>(&packed_samples(0x132, 24, |w| w as u32));
+        specialized_matches_generic::<Rijndael64, 2, 64>(&packed_samples(0x64, 12, |w| w));
+        specialized_matches_generic::<FanPaar64, 2, 64>(&packed_samples(0x164, 12, |w| w));
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn quad_mersenne31_body_matches_generic_on_samples() {
+        const P: u32 = 0x7FFF_FFFF;
+        // Limb boundaries, their aliases at and above the modulus, and a
+        // deterministic spray.
+        let mut raws = vec![
+            [0, 0],
+            [1, 0],
+            [0, 1],
+            [P - 1, P - 1],
+            [P, 0],
+            [u32::MAX, P],
+            [1, 12],
+        ];
+        raws.extend(words(0x931).take(40).map(|w| [w as u32, (w >> 32) as u32]));
+        specialized_matches_generic::<ComplexMersenne31, 0x7FFF_FFFF, 2>(&raws);
+    }
 }

@@ -95,27 +95,8 @@ mod private {
     pub trait Sealed {}
 }
 impl<R: crate::kernel::tables::Gf8Data> private::Sealed for crate::field::FiniteField<2, 8, R> {}
-impl<S: crate::field::binary::tower::TowerSpec> private::Sealed
-    for crate::field::FiniteField<2, 16, crate::field::binary::tower::Tower<S>>
-where
-    S::Base: crate::field::binary::BinaryDegree<8>,
-{
-}
-impl<S: crate::field::binary::tower::TowerSpec> private::Sealed
-    for crate::field::FiniteField<2, 32, crate::field::binary::tower::Tower<S>>
-where
-    S::Base: crate::field::binary::BinaryDegree<16>,
-{
-}
-impl<S: crate::field::binary::tower::TowerSpec> private::Sealed
-    for crate::field::FiniteField<2, 64, crate::field::binary::tower::Tower<S>>
-where
-    S::Base: crate::field::binary::BinaryDegree<32>,
-{
-}
 impl private::Sealed for crate::field::mersenne31::Mersenne31 {}
 impl private::Sealed for crate::field::goldilocks::Goldilocks {}
-impl private::Sealed for crate::field::quad_mersenne31::QuadMersenne31 {}
 impl<const P: u64> private::Sealed for crate::field::FiniteField<P, 1, Residue> {}
 impl<const P: u64, const N: u32, const D: usize, S: crate::field::extension::ExtensionSpec<D>>
     private::Sealed for crate::field::FiniteField<P, N, crate::field::extension::Extension<S, D>>
@@ -529,14 +510,7 @@ pub(crate) trait KernelDispatch: FieldBuffer {
     /// Callers pass offsets that satisfy `offset + dst.len() <=
     /// region.len()`; [`crate::ops::add_gather_offsets`] validates that.
     fn add_gather_offsets(_proof: RawDispatch, region: &[u8], dst: &mut [u8], offsets: &[u32]) {
-        let live = dst.len();
-        for &start in offsets {
-            Self::add_assign(
-                RawDispatch,
-                dst,
-                &region[start as usize..start as usize + live],
-            );
-        }
+        fallback::add_gather_offsets::<Self>(region, dst, offsets);
     }
 
     /// `dst -= src`, elementwise field subtraction.
@@ -567,8 +541,7 @@ pub(crate) trait KernelDispatch: FieldBuffer {
     /// over the destination. Backends with a fused single-pass kernel
     /// override this to write the destination in one pass.
     fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
-        dst.copy_from_slice(src);
-        Self::mul_assign(RawDispatch, dst, coeff);
+        fallback::mul_into::<Self>(dst, coeff, src);
     }
 
     /// `dst *= coeff`, in place.
@@ -775,16 +748,7 @@ pub(crate) trait KernelDispatch: FieldBuffer {
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        for (term, &src) in srcs.iter().enumerate() {
-            let start = term * nrows;
-            for (row, coeff) in rows
-                .chunks_exact_mut(row_len)
-                .take(nrows)
-                .zip(&coeffs[start..start + nrows])
-            {
-                Self::mul_add(RawDispatch, row, coeff, src);
-            }
-        }
+        fallback::mul_add_matrix_plan::<Self>(rows, row_len, nrows, coeffs, srcs);
     }
 
     /// Many sources overwrite many rows: `rows[j] = sum_t coeffs[t][j] * src[t]`.
@@ -887,25 +851,88 @@ pub(crate) trait KernelDispatch: FieldBuffer {
 
     /// `dst[i] += value`, one field element broadcast across every lane.
     fn add_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
-        let elem = Self::prepared_coeff(RawDispatch, value);
-        if <Self::Characteristic as PrimeIdentity>::CHARACTERISTIC == 2 {
-            let mut encoded = [0u8; 8];
-            Self::encode(&mut encoded[..Self::BYTES], elem);
-            byte_ops::xor_broadcast(dst, &encoded[..Self::BYTES]);
-        } else {
-            prime::add_assign_scalar::<Self>(dst, elem);
-        }
+        fallback::add_assign_scalar::<Self>(dst, value);
     }
 
     /// `dst[i] -= value`, one field element broadcast across every lane.
     fn sub_assign_scalar(_proof: RawDispatch, dst: &mut [u8], value: &Self::Prepared) {
-        let elem = Self::prepared_coeff(RawDispatch, value);
-        if <Self::Characteristic as PrimeIdentity>::CHARACTERISTIC == 2 {
+        fallback::sub_assign_scalar::<Self>(dst, value);
+    }
+}
+
+/// The default bodies of the [`KernelDispatch`] entries a storage-routed
+/// extension row forwards, shared so the extension storages default to
+/// exactly the trait's own defaults.
+pub(crate) mod fallback {
+    use super::{KernelDispatch, PrimeIdentity, RawDispatch, byte_ops, prime};
+    use crate::field::Field;
+
+    /// Folds byte-offset sources one at a time through `add_assign`.
+    pub(crate) fn add_gather_offsets<F: KernelDispatch>(
+        region: &[u8],
+        dst: &mut [u8],
+        offsets: &[u32],
+    ) {
+        let live = dst.len();
+        for &start in offsets {
+            F::add_assign(
+                RawDispatch,
+                dst,
+                &region[start as usize..start as usize + live],
+            );
+        }
+    }
+
+    /// Copies `src` into `dst`, then scales in place.
+    pub(crate) fn mul_into<F: KernelDispatch>(dst: &mut [u8], coeff: &F::Prepared, src: &[u8]) {
+        dst.copy_from_slice(src);
+        F::mul_assign(RawDispatch, dst, coeff);
+    }
+
+    /// Allocation-free repeated prepared AXPY over flat row-major
+    /// coefficients.
+    #[cfg(feature = "alloc")]
+    pub(crate) fn mul_add_matrix_plan<F: KernelDispatch>(
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        coeffs: &[F::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        for (term, &src) in srcs.iter().enumerate() {
+            let start = term * nrows;
+            for (row, coeff) in rows
+                .chunks_exact_mut(row_len)
+                .take(nrows)
+                .zip(&coeffs[start..start + nrows])
+            {
+                F::mul_add(RawDispatch, row, coeff, src);
+            }
+        }
+    }
+
+    /// Broadcast addition: XOR of the encoded value in characteristic two,
+    /// the modular path otherwise.
+    pub(crate) fn add_assign_scalar<F: KernelDispatch>(dst: &mut [u8], value: &F::Prepared) {
+        let elem = F::prepared_coeff(RawDispatch, value);
+        if <<F as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC == 2 {
             let mut encoded = [0u8; 8];
-            Self::encode(&mut encoded[..Self::BYTES], elem);
-            byte_ops::xor_broadcast(dst, &encoded[..Self::BYTES]);
+            F::encode(&mut encoded[..F::BYTES], elem);
+            byte_ops::xor_broadcast(dst, &encoded[..F::BYTES]);
         } else {
-            prime::sub_assign_scalar::<Self>(dst, elem);
+            prime::add_assign_scalar::<F>(dst, elem);
+        }
+    }
+
+    /// Broadcast subtraction, as [`add_assign_scalar`].
+    pub(crate) fn sub_assign_scalar<F: KernelDispatch>(dst: &mut [u8], value: &F::Prepared) {
+        let elem = F::prepared_coeff(RawDispatch, value);
+        if <<F as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC == 2 {
+            let mut encoded = [0u8; 8];
+            F::encode(&mut encoded[..F::BYTES], elem);
+            byte_ops::xor_broadcast(dst, &encoded[..F::BYTES]);
+        } else {
+            prime::sub_assign_scalar::<F>(dst, elem);
         }
     }
 }

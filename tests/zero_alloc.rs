@@ -1,6 +1,5 @@
 #![cfg(feature = "std")]
 
-use fgf::field::binary::tower::{Tower, TowerSpec};
 use fgf::poly::{AES, RS};
 use fgf::{
     Components, Elem, Embedding, Extension, ExtensionSpec, FieldElem, FieldKernels, FiniteField,
@@ -12,22 +11,23 @@ mod common;
 use common::{TEST_LOCK, count_allocations, noise};
 
 type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
-type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Tower<fgf::FanPaar64>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
 type ResiduePrime = FiniteField<1_000_000_007, 1, Residue>;
 type ResidueTwo = FiniteField<2, 1, Residue>;
 
-/// A custom degree-32 tower over GF(2^16): `t^2 + t + 0x2001`, distinct from
-/// every pinned presentation.
+/// A custom degree-32 extension over GF(2^16): `t^2 + t + 0x2001`, distinct
+/// from every pinned presentation.
 #[derive(Clone, Copy)]
 struct Custom32Spec;
-impl TowerSpec for Custom32Spec {
+impl ExtensionSpec<2> for Custom32Spec {
     type Base = Gf16;
-    const LINEAR_COEFFICIENT: u64 = 1;
-    const CONSTANT_COEFFICIENT: u64 = 0x2001;
-    const NAME: &'static str = "custom GF(2^32) tower";
+    type Storage = Packed<u32>;
+    const NAME: &'static str = "custom GF(2^32) extension";
+    const RELATION: Relation = Relation::from_binary_words::<Gf16>(&[0x2001, 0x0001]);
 }
+type Custom32Row = FiniteField<2, 32, Extension<Custom32Spec, 2>>;
 
 /// Steady-state prepared application over one fallback class: preparation
 /// allocates by contract, application must not.
@@ -84,12 +84,8 @@ fn custom_tower32_prepared_steady_state_allocates_nothing() {
     let _guard = TEST_LOCK
         .lock()
         .expect("zero-allocation test lock poisoned");
-    let coeffs: Vec<Elem<FiniteField<2, 32, Tower<Custom32Spec>>>> = (0..4u32)
-        .map(|index| {
-            Elem::<FiniteField<2, 32, Tower<Custom32Spec>>>::from_raw(
-                index.wrapping_mul(0x1F3B_5A79),
-            )
-        })
+    let coeffs: Vec<Elem<Custom32Row>> = (0..4u32)
+        .map(|index| Elem::<Custom32Row>::from_raw(index.wrapping_mul(0x1F3B_5A79)))
         .collect();
     assert_fallback_steady_state_zero_alloc(&coeffs);
 }

@@ -1,39 +1,37 @@
-//! Kernel dispatch for the recursive quadratic tower fields.
+//! Kernel dispatch for the two-byte, four-byte, and eight-byte packed
+//! extension storages.
 //!
-//! One dispatch implementation per degree serves every representation,
-//! branching on the field description: presentations structurally equal to
-//! the pinned Rijndael towers route to their byte-multiply kernels, those
-//! equal to the pinned Fan-Paar towers to the Fan-Paar shuffle and lane
-//! kernels, and every other tower — custom specs and towers over basis
-//! bases — routes every bulk operation and tail to the typed scalar
-//! fallback, reporting [`Backend::Scalar`]. The trait defaults compose
-//! multi-row and prepared operations from the single-row multiply, so the
-//! vector wins reach scatter/gather/matrix over a prepared
+//! One storage implementation per width serves every packed extension row
+//! of that width, branching on the row's descriptor: rows structurally
+//! equal to the shipped Rijndael instances route to their byte-multiply
+//! kernels, those equal to the shipped Fan-Paar instances to the Fan-Paar
+//! shuffle and lane kernels, and every other row — custom specs and
+//! extensions over basis bases — routes every bulk operation and tail to the
+//! typed scalar fallback, reporting [`Backend::Scalar`]. The trait defaults
+//! compose multi-row and prepared operations from the single-row multiply,
+//! so the vector wins reach scatter/gather/matrix over a prepared
 //! [`crate::ops::CoeffVec`] without a per-shape kernel.
 
 pub mod gf16 {
-    //! GF(2^16) kernel dispatch for every tower presentation.
+    //! GF(2^16) kernel dispatch for every `Packed<u16>` extension row.
     //!
-    //! The Rijndael tower exploits the tower identity on every backend: a
-    //! 16-bit multiply is two byte-wide multiplies, one of the source and
+    //! The Rijndael instance exploits the tower identity on every backend:
+    //! a 16-bit multiply is two byte-wide multiplies, one of the source and
     //! one of the source with adjacent bytes swapped, under the alternating
     //! coefficient pair in [`TowerCoeff`]. Hardware that can multiply AES
     //! bytes — GFNI — needs no table; hardware that cannot emulates each of
     //! the four base-field factors with a nibble shuffle from
-    //! [`TowerTables`]. The Fan-Paar tower multiplies through its own four
-    //! nibble tables ([`FpTowerTables`]), built from the Fan-Paar byte
+    //! [`TowerTables`]. The Fan-Paar instance multiplies through its own
+    //! four nibble tables ([`FpTowerTables`]), built from the Fan-Paar byte
     //! subfield. Coefficients erase to those raw forms at the dispatch
     //! boundary: no kernel body below sees the spec, the base
     //! representation, or an element.
 
-    use crate::field::Elem;
-    use crate::field::FiniteField;
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    use crate::field::binary::tower::FanPaar16;
-    use crate::field::binary::tower::{
-        FANPAAR16_DESC, RIJNDAEL16_DESC, Rijndael16, Tower, TowerSpec,
-    };
-    use crate::field::binary::{BinaryDegree, BinaryRepr};
+    use crate::field::binary::tower::FanPaar16Field;
+    use crate::field::binary::tower::Rijndael16Field;
+    use crate::field::extension::Packed;
+    use crate::field::extension::pinned::{self, Instance};
     #[cfg(all(
         feature = "simd",
         any(
@@ -44,6 +42,8 @@ pub mod gf16 {
         )
     ))]
     use crate::field::{AES, Polynomial};
+    use crate::field::{BinaryField, Elem, Field};
+    use crate::kernel::extension::{StorageKernels, StorageRow};
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     use crate::kernel::tables::AES_BANK;
     #[cfg(all(
@@ -61,7 +61,7 @@ pub mod gf16 {
     // away entirely on a scalar-only build or on an architecture without the
     // corresponding backend.
     #[allow(unused_imports)]
-    use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, scalar};
+    use crate::kernel::{Backend, KernelDispatch, RawDispatch, backend, scalar};
 
     #[cfg(all(
         feature = "simd",
@@ -80,28 +80,28 @@ pub mod gf16 {
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     use crate::kernel::x86;
 
-    /// Whether the tower's description is the pinned Rijndael16
-    /// presentation, whose arithmetic the byte-multiply kernels implement.
+    /// Whether the row is structurally equal to the shipped Rijndael16
+    /// instance, whose arithmetic the byte-multiply kernels implement.
     ///
     /// The body evaluates at compile time, so every caller's branch on it
-    /// folds in each monomorphization instead of walking the description
+    /// folds in each monomorphization instead of walking the descriptor
     /// at run time.
     #[inline]
-    pub(crate) const fn rijndael16<S: TowerSpec>() -> bool
-    where
-        S::Base: BinaryDegree<8>,
-    {
-        const { <Tower<S> as BinaryRepr<16>>::DESCRIPTION.same_structure(RIJNDAEL16_DESC) }
+    pub(crate) const fn rijndael16<F: Field>() -> bool {
+        matches!(
+            const { pinned::instance(F::DESCRIPTOR) },
+            Some(Instance::Rijndael16)
+        )
     }
 
-    /// Whether the tower's description is the pinned Fan-Paar GF(2^16)
-    /// presentation, whose arithmetic the Fan-Paar kernels implement.
+    /// Whether the row is structurally equal to the shipped Fan-Paar
+    /// GF(2^16) instance, whose arithmetic the Fan-Paar kernels implement.
     #[inline]
-    pub(crate) const fn fanpaar16<S: TowerSpec>() -> bool
-    where
-        S::Base: BinaryDegree<8>,
-    {
-        const { <Tower<S> as BinaryRepr<16>>::DESCRIPTION.same_structure(FANPAAR16_DESC) }
+    pub(crate) const fn fanpaar16<F: Field>() -> bool {
+        matches!(
+            const { pinned::instance(F::DESCRIPTOR) },
+            Some(Instance::FanPaar16)
+        )
     }
 
     /// A GF(2^16) coefficient resolved into the form this host's backend
@@ -194,13 +194,13 @@ pub mod gf16 {
     /// Rijndael16 presentation, whose arithmetic those tables encode.
     #[inline]
     fn rijndael_tables(raw: u16) -> TowerTables {
-        TowerTables::new(Elem::<FiniteField<2, 16, Tower<Rijndael16>>> { raw })
+        TowerTables::new(Elem::<Rijndael16Field> { raw })
     }
 
     /// Resolve one raw tower word into the Rijndael broadcast pair.
     #[inline]
     fn rijndael_compact(raw: u16) -> TowerCoeff {
-        TowerCoeff::new(Elem::<FiniteField<2, 16, Tower<Rijndael16>>> { raw })
+        TowerCoeff::new(Elem::<Rijndael16Field> { raw })
     }
 
     #[cfg(all(
@@ -320,10 +320,7 @@ pub mod gf16 {
             target_arch = "wasm32"
         )
     ))]
-    impl<S: TowerSpec> Coeffs for alloc::vec::Vec<Elem<FiniteField<2, 16, Tower<S>>>>
-    where
-        S::Base: BinaryDegree<8>,
-    {
+    impl<F: Field<Raw = u16>> Coeffs for alloc::vec::Vec<Elem<F>> {
         #[inline]
         fn count(&self) -> usize {
             self.len()
@@ -335,7 +332,7 @@ pub mod gf16 {
             let raw = self[index].to_raw();
             if raw == 0 {
                 CoeffKind::Zero
-            } else if raw == Elem::<FiniteField<2, 16, Tower<S>>>::ONE.to_raw() {
+            } else if raw == Elem::<F>::ONE.to_raw() {
                 CoeffKind::One
             } else {
                 CoeffKind::General
@@ -363,10 +360,7 @@ pub mod gf16 {
             target_arch = "wasm32"
         )
     ))]
-    impl<S: TowerSpec, const N: usize> Coeffs for [Elem<FiniteField<2, 16, Tower<S>>>; N]
-    where
-        S::Base: BinaryDegree<8>,
-    {
+    impl<F: Field<Raw = u16>, const N: usize> Coeffs for [Elem<F>; N] {
         #[inline]
         fn count(&self) -> usize {
             N
@@ -378,7 +372,7 @@ pub mod gf16 {
             let raw = self[index].to_raw();
             if raw == 0 {
                 CoeffKind::Zero
-            } else if raw == Elem::<FiniteField<2, 16, Tower<S>>>::ONE.to_raw() {
+            } else if raw == Elem::<F>::ONE.to_raw() {
                 CoeffKind::One
             } else {
                 CoeffKind::General
@@ -406,10 +400,7 @@ pub mod gf16 {
             target_arch = "wasm32"
         )
     ))]
-    impl<S: TowerSpec> Coeffs for [Elem<FiniteField<2, 16, Tower<S>>>]
-    where
-        S::Base: BinaryDegree<8>,
-    {
+    impl<F: Field<Raw = u16>> Coeffs for [Elem<F>] {
         #[inline]
         fn count(&self) -> usize {
             self.len()
@@ -421,7 +412,7 @@ pub mod gf16 {
             let raw = self[index].to_raw();
             if raw == 0 {
                 CoeffKind::Zero
-            } else if raw == Elem::<FiniteField<2, 16, Tower<S>>>::ONE.to_raw() {
+            } else if raw == Elem::<F>::ONE.to_raw() {
                 CoeffKind::One
             } else {
                 CoeffKind::General
@@ -458,13 +449,10 @@ pub mod gf16 {
             target_arch = "wasm32"
         )
     ))]
-    impl<S: TowerSpec> Matrix<TowerTables> for [(&[Elem<FiniteField<2, 16, Tower<S>>>], &[u8])]
-    where
-        S::Base: BinaryDegree<8>,
-    {
+    impl<F: Field<Raw = u16>> Matrix<TowerTables> for [(&[Elem<F>], &[u8])] {
         #[inline]
         fn len(&self) -> usize {
-            <[(&[Elem<FiniteField<2, 16, Tower<S>>>], &[u8])]>::len(self)
+            <[(&[Elem<F>], &[u8])]>::len(self)
         }
 
         #[inline]
@@ -481,13 +469,10 @@ pub mod gf16 {
     /// Raw per-term tower elements as a [`Matrix`] of broadcast pairs: the
     /// GFNI and AVX-512 matrix routes, which read no nibble table.
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    impl<S: TowerSpec> Matrix<TowerCoeff> for [(&[Elem<FiniteField<2, 16, Tower<S>>>], &[u8])]
-    where
-        S::Base: BinaryDegree<8>,
-    {
+    impl<F: Field<Raw = u16>> Matrix<TowerCoeff> for [(&[Elem<F>], &[u8])] {
         #[inline]
         fn len(&self) -> usize {
-            <[(&[Elem<FiniteField<2, 16, Tower<S>>>], &[u8])]>::len(self)
+            <[(&[Elem<F>], &[u8])]>::len(self)
         }
 
         #[inline]
@@ -505,30 +490,24 @@ pub mod gf16 {
     /// access into nibble tables or broadcast pairs.
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     #[allow(private_bounds)]
-    pub struct FlatResolved<'a, S: TowerSpec>
-    where
-        S::Base: BinaryDegree<8>,
-    {
-        values: &'a [Elem<FiniteField<2, 16, Tower<S>>>],
+    pub struct FlatResolved<'a, F: Field<Raw = u16>> {
+        values: &'a [Elem<F>],
         nrows: usize,
         sources: &'a [&'a [u8]],
     }
 
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     #[allow(private_bounds)]
-    impl<S: TowerSpec> FlatResolved<'_, S>
-    where
-        S::Base: BinaryDegree<8>,
-    {
+    impl<F: Field<Raw = u16>> FlatResolved<'_, F> {
         /// Wrap flat row-major coefficients (`terms * nrows` values) with
         /// their per-term sources.
         #[inline]
         #[must_use]
         pub fn new<'a>(
-            values: &'a [Elem<FiniteField<2, 16, Tower<S>>>],
+            values: &'a [Elem<F>],
             nrows: usize,
             sources: &'a [&'a [u8]],
-        ) -> FlatResolved<'a, S> {
+        ) -> FlatResolved<'a, F> {
             FlatResolved {
                 values,
                 nrows,
@@ -538,10 +517,7 @@ pub mod gf16 {
     }
 
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    impl<S: TowerSpec> Matrix<TowerTables> for FlatResolved<'_, S>
-    where
-        S::Base: BinaryDegree<8>,
-    {
+    impl<F: Field<Raw = u16>> Matrix<TowerTables> for FlatResolved<'_, F> {
         #[inline]
         fn len(&self) -> usize {
             self.sources.len()
@@ -559,10 +535,7 @@ pub mod gf16 {
     }
 
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    impl<S: TowerSpec> Matrix<TowerCoeff> for FlatResolved<'_, S>
-    where
-        S::Base: BinaryDegree<8>,
-    {
+    impl<F: Field<Raw = u16>> Matrix<TowerCoeff> for FlatResolved<'_, F> {
         #[inline]
         fn len(&self) -> usize {
             self.sources.len()
@@ -769,16 +742,15 @@ pub mod gf16 {
         }
     }
 
-    impl<S: TowerSpec> FieldKernels for FiniteField<2, 16, Tower<S>>
-    where
-        S::Base: BinaryDegree<8>,
-    {
+    impl<B: BinaryField, const D: usize> StorageKernels<B, D> for Packed<u16> {
+        type Prepared = Prepared;
+
         #[inline]
-        fn backend() -> Backend {
-            if rijndael16::<S>() {
+        fn backend<F: StorageRow<B, D, Self>>() -> Backend {
+            if rijndael16::<F>() {
                 return backend();
             }
-            if fanpaar16::<S>() {
+            if fanpaar16::<F>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2 => backend(),
@@ -789,13 +761,13 @@ pub mod gf16 {
         }
 
         #[inline]
-        fn has_vector_elementwise() -> bool {
+        fn has_vector_elementwise<F: StorageRow<B, D, Self>>() -> bool {
             // The vector elementwise formulas fold the relation's linear
             // term into the Karatsuba cross sum, which holds only when that
             // coefficient is the base's multiplicative identity: the
-            // Rijndael relation's `A = 1`. Every other tower runs the
-            // scalar path.
-            if !rijndael16::<S>() {
+            // Rijndael relation's `c1 = 1`. Every other row runs the scalar
+            // path.
+            if !rijndael16::<F>() {
                 return false;
             }
             matches!(
@@ -809,17 +781,10 @@ pub mod gf16 {
                     | Backend::Wasm128
             )
         }
-    }
 
-    impl<S: TowerSpec> KernelDispatch for FiniteField<2, 16, Tower<S>>
-    where
-        S::Base: BinaryDegree<8>,
-    {
-        type Prepared = Prepared;
-
-        fn prepare(_proof: RawDispatch, coeff: Elem<FiniteField<2, 16, Tower<S>>>) -> Prepared {
+        fn prepare<F: StorageRow<B, D, Self>>(_proof: RawDispatch, coeff: Elem<F>) -> Prepared {
             let raw = coeff.to_raw();
-            if rijndael16::<S>() {
+            if rijndael16::<F>() {
                 return match backend() {
                     Backend::V4x | Backend::V3GfniCrypto => {
                         Prepared::Compact(rijndael_compact(raw))
@@ -838,15 +803,11 @@ pub mod gf16 {
                     _ => Prepared::Plain(raw),
                 };
             }
-            if fanpaar16::<S>() {
+            if fanpaar16::<F>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2 => {
-                        Prepared::Fp(FpTowerTables::new(Elem::<
-                            FiniteField<2, 16, Tower<FanPaar16>>,
-                        > {
-                            raw,
-                        }))
+                        Prepared::Fp(FpTowerTables::new(Elem::<FanPaar16Field> { raw }))
                     }
                     _ => Prepared::Plain(raw),
                 };
@@ -855,29 +816,41 @@ pub mod gf16 {
         }
 
         #[inline]
-        fn prepared_coeff(
+        fn prepared_coeff<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             prepared: &Prepared,
-        ) -> Elem<FiniteField<2, 16, Tower<S>>> {
-            Elem::<FiniteField<2, 16, Tower<S>>>::from_raw(prepared.coeff())
+        ) -> Elem<F> {
+            Elem {
+                raw: prepared.coeff(),
+            }
         }
 
         #[inline]
-        fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        fn add_assign<F: StorageRow<B, D, Self>>(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
             crate::kernel::xor(dst, src);
         }
 
         #[inline]
-        fn add_gather_offsets(_proof: RawDispatch, region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+        fn add_gather_offsets<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            region: &[u8],
+            dst: &mut [u8],
+            offsets: &[u32],
+        ) {
             crate::kernel::xor_gather(region, dst, offsets);
         }
 
         #[inline]
-        fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        fn sub_assign<F: StorageRow<B, D, Self>>(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
             crate::kernel::xor(dst, src);
         }
 
-        fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
+        fn mul_add<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            coeff: &Prepared,
+            src: &[u8],
+        ) {
             match coeff {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Prepared::Compact(compact) => match backend() {
@@ -932,19 +905,23 @@ pub mod gf16 {
                     wasm32::gf16::mul_add_simd128(crate::kernel::wasm128_token(), dst, tables, src)
                 }
                 other => {
-                    let coeff = Elem::<Self>::from_raw(other.coeff());
-                    if rijndael16::<S>() {
+                    let coeff = Elem::<F> { raw: other.coeff() };
+                    if rijndael16::<F>() {
                         // Not `scalar::mul_add`: the nibble tables amortize
                         // one resolve over the whole buffer.
                         mul_add_scalar(dst, &rijndael_tables(other.coeff()), src);
                     } else {
-                        scalar::mul_add::<Self>(dst, coeff, src);
+                        scalar::mul_add::<F>(dst, coeff, src);
                     }
                 }
             }
         }
 
-        fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared) {
+        fn mul_assign<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            coeff: &Prepared,
+        ) {
             match coeff {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Prepared::Compact(compact) => match backend() {
@@ -991,17 +968,22 @@ pub mod gf16 {
                     wasm32::gf16::mul_assign_simd128(crate::kernel::wasm128_token(), dst, tables)
                 }
                 other => {
-                    let coeff = Elem::<Self>::from_raw(other.coeff());
-                    if rijndael16::<S>() {
+                    let coeff = Elem::<F> { raw: other.coeff() };
+                    if rijndael16::<F>() {
                         mul_assign_scalar(dst, &rijndael_tables(other.coeff()));
                     } else {
-                        scalar::mul_assign::<Self>(dst, coeff);
+                        scalar::mul_assign::<F>(dst, coeff);
                     }
                 }
             }
         }
 
-        fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
+        fn mul_into<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            coeff: &Prepared,
+            src: &[u8],
+        ) {
             match coeff {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Prepared::Compact(compact) => match backend() {
@@ -1057,19 +1039,19 @@ pub mod gf16 {
                 // scaling in place is one pass either way.
                 other => {
                     dst.copy_from_slice(src);
-                    Self::mul_assign(RawDispatch, dst, other);
+                    F::mul_assign(RawDispatch, dst, other);
                 }
             }
         }
 
-        fn mul_add_scatter(
+        fn mul_add_scatter<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             rows: &mut [u8],
             row_len: usize,
-            coeffs: &[Elem<FiniteField<2, 16, Tower<S>>>],
+            coeffs: &[Elem<F>],
             src: &[u8],
         ) {
-            if rijndael16::<S>() {
+            if rijndael16::<F>() {
                 match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V4x | Backend::V3GfniCrypto => {
@@ -1129,28 +1111,28 @@ pub mod gf16 {
                 }
                 return;
             }
-            if fanpaar16::<S>() {
+            if fanpaar16::<F>() {
                 for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-                    Self::mul_add(RawDispatch, row, &Self::prepare(RawDispatch, coeff), src);
+                    F::mul_add(RawDispatch, row, &F::prepare(RawDispatch, coeff), src);
                 }
                 return;
             }
-            scalar::mul_add_scatter::<Self>(rows, row_len, coeffs, src);
+            scalar::mul_add_scatter::<F>(rows, row_len, coeffs, src);
         }
 
         #[cfg(feature = "alloc")]
-        fn mul_add_scatter_plan(
+        fn mul_add_scatter_plan<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             rows: &mut [u8],
             row_len: usize,
-            values: &[Elem<FiniteField<2, 16, Tower<S>>>],
+            values: &[Elem<F>],
             coeffs: &[Prepared],
             src: &[u8],
         ) {
             #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
             let _ = values;
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            if rijndael16::<S>()
+            if rijndael16::<F>()
                 && matches!(
                     backend(),
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2
@@ -1158,18 +1140,18 @@ pub mod gf16 {
             {
                 // The element slice resolves against the base bank on
                 // access, which is the same work the prepared form holds.
-                return Self::mul_add_scatter(RawDispatch, rows, row_len, values, src);
+                return F::mul_add_scatter(RawDispatch, rows, row_len, values, src);
             }
-            Self::mul_add_scatter_with(RawDispatch, rows, row_len, coeffs, src);
+            F::mul_add_scatter_with(RawDispatch, rows, row_len, coeffs, src);
         }
 
-        fn mul_add_gather(
+        fn mul_add_gather<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             dst: &mut [u8],
-            coeffs: &[Elem<FiniteField<2, 16, Tower<S>>>],
+            coeffs: &[Elem<F>],
             srcs: &[&[u8]],
         ) {
-            if rijndael16::<S>() {
+            if rijndael16::<F>() {
                 match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     // Blocked: the four-source group derives its broadcasts once and
@@ -1216,30 +1198,30 @@ pub mod gf16 {
                 }
                 return;
             }
-            if fanpaar16::<S>() {
+            if fanpaar16::<F>() {
                 for (&coeff, &src) in coeffs.iter().zip(srcs) {
-                    Self::mul_add(RawDispatch, dst, &Self::prepare(RawDispatch, coeff), src);
+                    F::mul_add(RawDispatch, dst, &F::prepare(RawDispatch, coeff), src);
                 }
                 return;
             }
-            scalar::mul_add_gather::<Self>(dst, coeffs, srcs);
+            scalar::mul_add_gather::<F>(dst, coeffs, srcs);
         }
 
         #[cfg(feature = "alloc")]
-        fn mul_add_gather_plan(
+        fn mul_add_gather_plan<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             dst: &mut [u8],
-            values: &[Elem<FiniteField<2, 16, Tower<S>>>],
+            values: &[Elem<F>],
             coeffs: &[Prepared],
             srcs: &[&[u8]],
         ) {
             #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
             let _ = values;
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            if rijndael16::<S>() {
+            if rijndael16::<F>() {
                 match backend() {
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
-                        return Self::mul_add_gather(RawDispatch, dst, values, srcs);
+                        return F::mul_add_gather(RawDispatch, dst, values, srcs);
                     }
                     Backend::V2 => {
                         return x86::gf16::mul_add_gather_ssse3(
@@ -1252,17 +1234,17 @@ pub mod gf16 {
                     _ => {}
                 }
             }
-            Self::mul_add_gather_with(RawDispatch, dst, coeffs, srcs);
+            F::mul_add_gather_with(RawDispatch, dst, coeffs, srcs);
         }
 
-        fn mul_add_matrix(
+        fn mul_add_matrix<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             rows: &mut [u8],
             row_len: usize,
             nrows: usize,
-            terms: &[(&[Elem<FiniteField<2, 16, Tower<S>>>], &[u8])],
+            terms: &[(&[Elem<F>], &[u8])],
         ) {
-            if rijndael16::<S>() {
+            if rijndael16::<F>() {
                 match backend() {
                     #[cfg(all(
                         feature = "simd512",
@@ -1334,24 +1316,24 @@ pub mod gf16 {
                 }
                 return;
             }
-            if fanpaar16::<S>() {
+            if fanpaar16::<F>() {
                 for &(coeffs, src) in terms {
                     for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
-                        Self::mul_add(RawDispatch, row, &Self::prepare(RawDispatch, coeff), src);
+                        F::mul_add(RawDispatch, row, &F::prepare(RawDispatch, coeff), src);
                     }
                 }
                 return;
             }
-            scalar::mul_add_matrix::<Self>(rows, row_len, nrows, terms);
+            scalar::mul_add_matrix::<F>(rows, row_len, nrows, terms);
         }
 
         #[cfg(feature = "alloc")]
-        fn mul_add_matrix_plan(
+        fn mul_add_matrix_plan<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             rows: &mut [u8],
             row_len: usize,
             nrows: usize,
-            values: &[Elem<FiniteField<2, 16, Tower<S>>>],
+            values: &[Elem<F>],
             coeffs: &[Prepared],
             srcs: &[&[u8]],
         ) {
@@ -1360,11 +1342,11 @@ pub mod gf16 {
                 let _ = (values, coeffs, srcs);
             }
             #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-            if rijndael16::<S>() {
+            if rijndael16::<F>() {
                 match backend() {
                     #[cfg(feature = "simd512")]
                     Backend::V4x => {
-                        let terms = FlatResolved::<S>::new(values, nrows, srcs);
+                        let terms = FlatResolved::<F>::new(values, nrows, srcs);
                         x86::gf16::mul_add_matrix_avx512_with(
                             crate::kernel::x86_v4x_token(),
                             rows,
@@ -1375,7 +1357,7 @@ pub mod gf16 {
                         return;
                     }
                     Backend::V3GfniCrypto => {
-                        let terms = FlatResolved::<S>::new(values, nrows, srcs);
+                        let terms = FlatResolved::<F>::new(values, nrows, srcs);
                         x86::gf16::mul_add_matrix_gfni_with(
                             crate::kernel::x86_v3_gfni_token(),
                             rows,
@@ -1386,7 +1368,7 @@ pub mod gf16 {
                         return;
                     }
                     Backend::V2 => {
-                        let terms = FlatResolved::<S>::new(values, nrows, srcs);
+                        let terms = FlatResolved::<F>::new(values, nrows, srcs);
                         x86::gf16::mul_add_matrix_ssse3_with(
                             crate::kernel::x86_v2_token(),
                             rows,
@@ -1406,7 +1388,7 @@ pub mod gf16 {
                     .take(nrows)
                     .zip(&coeffs[start..start + nrows])
                 {
-                    Self::mul_add(RawDispatch, row, coeff, src);
+                    F::mul_add(RawDispatch, row, coeff, src);
                 }
             }
         }
@@ -1414,13 +1396,18 @@ pub mod gf16 {
         // One dispatch body over every backend arm; the split keeps the
         // tier routing readable in one place.
         #[allow(clippy::too_many_lines)]
-        fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
+        fn mul_elementwise<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            a: &[u8],
+            b: &[u8],
+        ) {
             // The vector bodies below fold the relation's linear term into
             // the Karatsuba cross sum, which holds only for the Rijndael
-            // relation (`A = 1`); every other tower runs the portable
+            // relation (`c1 = 1`); every other row runs the portable
             // scalar path.
-            if !rijndael16::<S>() {
-                return scalar::mul_elementwise::<Self>(dst, a, b);
+            if !rijndael16::<F>() {
+                return scalar::mul_elementwise::<F>(dst, a, b);
             }
             #[cfg(all(
                 feature = "simd",
@@ -1526,16 +1513,20 @@ pub mod gf16 {
                         reduction,
                     );
                 }
-                _ => scalar::mul_elementwise::<Self>(dst, a, b),
+                _ => scalar::mul_elementwise::<F>(dst, a, b),
             }
         }
 
-        fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        fn mul_elementwise_assign<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            src: &[u8],
+        ) {
             // As `mul_elementwise`: the vector assign formulas hold only
             // for the Rijndael relation; the other tiers take the scalar
             // default.
-            if !rijndael16::<S>() {
-                return scalar::mul_elementwise_assign::<Self>(dst, src);
+            if !rijndael16::<F>() {
+                return scalar::mul_elementwise_assign::<F>(dst, src);
             }
             // The vector assign kernels are x86-only; the other tiers take
             // the scalar default.
@@ -1600,54 +1591,54 @@ pub mod gf16 {
                         reduction,
                     );
                 }
-                _ => scalar::mul_elementwise_assign::<Self>(dst, src),
+                _ => scalar::mul_elementwise_assign::<F>(dst, src),
             }
         }
     }
 }
 
 pub mod gf32 {
-    //! GF(2^32) kernel dispatch for every tower presentation.
+    //! GF(2^32) kernel dispatch for every `Packed<u32>` extension row.
     //!
-    //! On GFNI x86 the Rijndael tower's multiply is the level-2 tower
+    //! On GFNI x86 the Rijndael instance's multiply is the level-2 tower
     //! identity of the GF(2^16) dispatch: two GF(2^16) lane multiplies
     //! under a period-2 coefficient, each itself two byte-wide multiplies —
-    //! four `GF2P8MULB` per 32-byte lane. The Fan-Paar tower runs its AVX2
-    //! lane scales. Everywhere else, and for every other tower, the
+    //! four `GF2P8MULB` per 32-byte lane. The Fan-Paar instance runs its
+    //! AVX2 lane scales. Everywhere else, and for every other row, the
     //! portable scalar kernel applies.
 
-    use crate::field::Elem;
-    use crate::field::FiniteField;
-    use crate::field::binary::tower::{FANPAAR32_DESC, RIJNDAEL32_DESC, Tower, TowerSpec};
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    use crate::field::binary::tower::{FanPaar32, Rijndael32};
-    use crate::field::binary::{BinaryDegree, BinaryRepr};
+    use crate::field::binary::tower::{FanPaar32Field, Rijndael32Field};
+    use crate::field::extension::Packed;
+    use crate::field::extension::pinned::{self, Instance};
+    use crate::field::{BinaryField, Elem, Field};
+    use crate::kernel::extension::{StorageKernels, StorageRow};
     #[allow(unused_imports)]
-    use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, scalar};
+    use crate::kernel::{Backend, KernelDispatch, RawDispatch, backend, scalar};
 
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     use crate::kernel::x86;
 
-    /// Whether the tower's description is the pinned Rijndael32
-    /// presentation.
+    /// Whether the row is structurally equal to the shipped Rijndael32
+    /// instance.
     ///
-    /// The body evaluates at compile time; see [`tower::gf16::rijndael16`].
+    /// The body evaluates at compile time; see [`super::gf16::rijndael16`].
     #[inline]
-    pub(crate) const fn rijndael32<S: TowerSpec>() -> bool
-    where
-        S::Base: BinaryDegree<16>,
-    {
-        const { <Tower<S> as BinaryRepr<32>>::DESCRIPTION.same_structure(RIJNDAEL32_DESC) }
+    pub(crate) const fn rijndael32<F: Field>() -> bool {
+        matches!(
+            const { pinned::instance(F::DESCRIPTOR) },
+            Some(Instance::Rijndael32)
+        )
     }
 
-    /// Whether the tower's description is the pinned Fan-Paar GF(2^32)
-    /// presentation.
+    /// Whether the row is structurally equal to the shipped Fan-Paar
+    /// GF(2^32) instance.
     #[inline]
-    pub(crate) const fn fanpaar32<S: TowerSpec>() -> bool
-    where
-        S::Base: BinaryDegree<16>,
-    {
-        const { <Tower<S> as BinaryRepr<32>>::DESCRIPTION.same_structure(FANPAAR32_DESC) }
+    pub(crate) const fn fanpaar32<F: Field>() -> bool {
+        matches!(
+            const { pinned::instance(F::DESCRIPTOR) },
+            Some(Instance::FanPaar32)
+        )
     }
 
     /// A GF(2^32) coefficient resolved into the form this host's backend
@@ -1687,20 +1678,19 @@ pub mod gf32 {
         }
     }
 
-    impl<S: TowerSpec> FieldKernels for FiniteField<2, 32, Tower<S>>
-    where
-        S::Base: BinaryDegree<16>,
-    {
+    impl<B: BinaryField, const D: usize> StorageKernels<B, D> for Packed<u32> {
+        type Prepared = Prepared;
+
         #[inline]
-        fn backend() -> Backend {
-            if rijndael32::<S>() {
+        fn backend<F: StorageRow<B, D, Self>>() -> Backend {
+            if rijndael32::<F>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V4x | Backend::V3GfniCrypto => backend(),
                     _ => Backend::Scalar,
                 };
             }
-            if fanpaar32::<S>() {
+            if fanpaar32::<F>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => backend(),
@@ -1710,33 +1700,19 @@ pub mod gf32 {
             Backend::Scalar
         }
 
-        #[inline]
-        fn has_vector_elementwise() -> bool {
-            false
-        }
-    }
-
-    impl<S: TowerSpec> KernelDispatch for FiniteField<2, 32, Tower<S>>
-    where
-        S::Base: BinaryDegree<16>,
-    {
-        type Prepared = Prepared;
-
-        fn prepare(_proof: RawDispatch, coeff: Elem<FiniteField<2, 32, Tower<S>>>) -> Prepared {
+        fn prepare<F: StorageRow<B, D, Self>>(_proof: RawDispatch, coeff: Elem<F>) -> Prepared {
             let raw = coeff.to_raw();
-            if rijndael32::<S>() {
+            if rijndael32::<F>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V4x | Backend::V3GfniCrypto => Prepared::Compact {
                         coeff: raw,
-                        tiles: x86::gf32::gf32_tiles(
-                            Elem::<FiniteField<2, 32, Tower<Rijndael32>>> { raw },
-                        ),
+                        tiles: x86::gf32::gf32_tiles(Elem::<Rijndael32Field> { raw }),
                     },
                     _ => Prepared::Plain(raw),
                 };
             }
-            if fanpaar32::<S>() {
+            if fanpaar32::<F>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => Prepared::Fp(raw),
@@ -1747,36 +1723,48 @@ pub mod gf32 {
         }
 
         #[inline]
-        fn prepared_coeff(
+        fn prepared_coeff<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             prepared: &Prepared,
-        ) -> Elem<FiniteField<2, 32, Tower<S>>> {
-            Elem::<FiniteField<2, 32, Tower<S>>>::from_raw(prepared.coeff())
+        ) -> Elem<F> {
+            Elem {
+                raw: prepared.coeff(),
+            }
         }
 
         #[inline]
-        fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        fn add_assign<F: StorageRow<B, D, Self>>(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
             crate::kernel::xor(dst, src);
         }
 
         #[inline]
-        fn add_gather_offsets(_proof: RawDispatch, region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+        fn add_gather_offsets<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            region: &[u8],
+            dst: &mut [u8],
+            offsets: &[u32],
+        ) {
             crate::kernel::xor_gather(region, dst, offsets);
         }
 
         #[inline]
-        fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        fn sub_assign<F: StorageRow<B, D, Self>>(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
             crate::kernel::xor(dst, src);
         }
 
-        fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
+        fn mul_add<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            coeff: &Prepared,
+            src: &[u8],
+        ) {
             match coeff {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Prepared::Compact { coeff, tiles } => {
                     x86::gf32::mul_add_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
-                        Elem::<FiniteField<2, 32, Tower<Rijndael32>>> { raw: *coeff },
+                        Elem::<Rijndael32Field> { raw: *coeff },
                         *tiles,
                         src,
                     );
@@ -1786,22 +1774,26 @@ pub mod gf32 {
                     x86::fan_paar::mul_add_avx2_fp32(
                         crate::kernel::x86_v3_token(),
                         dst,
-                        Elem::<FiniteField<2, 32, Tower<FanPaar32>>> { raw: *coeff },
+                        Elem::<FanPaar32Field> { raw: *coeff },
                         src,
                     );
                 }
-                other => scalar::mul_add::<Self>(dst, Elem::<Self>::from_raw(other.coeff()), src),
+                other => scalar::mul_add::<F>(dst, Elem { raw: other.coeff() }, src),
             }
         }
 
-        fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared) {
+        fn mul_assign<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            coeff: &Prepared,
+        ) {
             match coeff {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Prepared::Compact { coeff, tiles } => {
                     x86::gf32::mul_assign_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
-                        Elem::<FiniteField<2, 32, Tower<Rijndael32>>> { raw: *coeff },
+                        Elem::<Rijndael32Field> { raw: *coeff },
                         *tiles,
                     );
                 }
@@ -1810,21 +1802,26 @@ pub mod gf32 {
                     x86::fan_paar::mul_assign_avx2_fp32(
                         crate::kernel::x86_v3_token(),
                         dst,
-                        Elem::<FiniteField<2, 32, Tower<FanPaar32>>> { raw: *coeff },
+                        Elem::<FanPaar32Field> { raw: *coeff },
                     );
                 }
-                other => scalar::mul_assign::<Self>(dst, Elem::<Self>::from_raw(other.coeff())),
+                other => scalar::mul_assign::<F>(dst, Elem { raw: other.coeff() }),
             }
         }
 
-        fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
+        fn mul_into<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            coeff: &Prepared,
+            src: &[u8],
+        ) {
             match coeff {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Prepared::Compact { coeff, tiles } => {
                     x86::gf32::mul_into_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
-                        Elem::<FiniteField<2, 32, Tower<Rijndael32>>> { raw: *coeff },
+                        Elem::<Rijndael32Field> { raw: *coeff },
                         *tiles,
                         src,
                     );
@@ -1834,22 +1831,22 @@ pub mod gf32 {
                     x86::fan_paar::mul_into_avx2_fp32(
                         crate::kernel::x86_v3_token(),
                         dst,
-                        Elem::<FiniteField<2, 32, Tower<FanPaar32>>> { raw: *coeff },
+                        Elem::<FanPaar32Field> { raw: *coeff },
                         src,
                     );
                 }
                 other => {
                     dst.copy_from_slice(src);
-                    Self::mul_assign(RawDispatch, dst, other);
+                    F::mul_assign(RawDispatch, dst, other);
                 }
             }
         }
 
-        fn mul_add_scatter(
+        fn mul_add_scatter<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             rows: &mut [u8],
             row_len: usize,
-            coeffs: &[Elem<FiniteField<2, 32, Tower<S>>>],
+            coeffs: &[Elem<F>],
             src: &[u8],
         ) {
             // The trait default `mul_add_scatter_with` would do the same
@@ -1858,87 +1855,91 @@ pub mod gf32 {
             // own; the cost is one tile derivation per row, amortized over
             // `row_len`.
             for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-                Self::mul_add(RawDispatch, row, &Self::prepare(RawDispatch, coeff), src);
+                F::mul_add(RawDispatch, row, &F::prepare(RawDispatch, coeff), src);
             }
         }
 
-        fn mul_add_gather(
+        fn mul_add_gather<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             dst: &mut [u8],
-            coeffs: &[Elem<FiniteField<2, 32, Tower<S>>>],
+            coeffs: &[Elem<F>],
             srcs: &[&[u8]],
         ) {
             for (&coeff, &src) in coeffs.iter().zip(srcs) {
-                Self::mul_add(RawDispatch, dst, &Self::prepare(RawDispatch, coeff), src);
+                F::mul_add(RawDispatch, dst, &F::prepare(RawDispatch, coeff), src);
             }
         }
 
-        fn mul_add_matrix(
+        fn mul_add_matrix<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             rows: &mut [u8],
             row_len: usize,
             nrows: usize,
-            terms: &[(&[Elem<FiniteField<2, 32, Tower<S>>>], &[u8])],
+            terms: &[(&[Elem<F>], &[u8])],
         ) {
             for &(coeffs, src) in terms {
                 for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
-                    Self::mul_add(RawDispatch, row, &Self::prepare(RawDispatch, coeff), src);
+                    F::mul_add(RawDispatch, row, &F::prepare(RawDispatch, coeff), src);
                 }
             }
         }
 
-        fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
+        fn mul_elementwise<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            a: &[u8],
+            b: &[u8],
+        ) {
             // Both operands vary per lane, so there is no fixed
             // coefficient to broadcast; no elementwise vector path serves
-            // the degree-32 towers.
-            scalar::mul_elementwise::<Self>(dst, a, b);
+            // the degree-32 rows.
+            scalar::mul_elementwise::<F>(dst, a, b);
         }
     }
 }
 
 pub mod gf64 {
-    //! GF(2^64) kernel dispatch for every tower presentation.
+    //! GF(2^64) kernel dispatch for every `Packed<u64>` extension row.
     //!
-    //! On GFNI x86 the Rijndael tower's multiply is the level-3 tower
+    //! On GFNI x86 the Rijndael instance's multiply is the level-3 tower
     //! identity — two GF(2^32) lane multiplies under a period-2
     //! coefficient, each itself the four-`GF2P8MULB`
     //! [`crate::kernel::tower::gf32`] scale, so eight `GF2P8MULB` per 32-byte
-    //! lane. The Fan-Paar tower runs its AVX2 lane scales. Everywhere
-    //! else, and for every other tower, the portable scalar kernel
-    //! applies.
+    //! lane. The Fan-Paar instance runs its AVX2 lane scales. Everywhere
+    //! else, and for every other row, the portable scalar kernel applies.
 
-    use crate::field::Elem;
-    use crate::field::FiniteField;
-    use crate::field::binary::tower::{FANPAAR64_DESC, RIJNDAEL64_DESC, Tower, TowerSpec};
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    use crate::field::binary::tower::{FanPaar64, Rijndael64};
-    use crate::field::binary::{BinaryDegree, BinaryRepr};
+    use crate::field::binary::tower::{FanPaar64Field, Rijndael64Field};
+    use crate::field::extension::Packed;
+    use crate::field::extension::pinned::{self, Instance};
+    use crate::field::{BinaryField, Elem, Field};
+    use crate::kernel::extension::{StorageKernels, StorageRow};
     #[allow(unused_imports)]
-    use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, scalar};
+    use crate::kernel::{Backend, KernelDispatch, RawDispatch, backend, scalar};
 
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     use crate::kernel::x86;
 
-    /// Whether the tower's description is the pinned Rijndael64
-    /// presentation.
+    /// Whether the row is structurally equal to the shipped Rijndael64
+    /// instance.
     ///
-    /// The body evaluates at compile time; see [`tower::gf16::rijndael16`].
+    /// The body evaluates at compile time; see [`super::gf16::rijndael16`].
     #[inline]
-    pub(crate) const fn rijndael64<S: TowerSpec>() -> bool
-    where
-        S::Base: BinaryDegree<32>,
-    {
-        const { <Tower<S> as BinaryRepr<64>>::DESCRIPTION.same_structure(RIJNDAEL64_DESC) }
+    pub(crate) const fn rijndael64<F: Field>() -> bool {
+        matches!(
+            const { pinned::instance(F::DESCRIPTOR) },
+            Some(Instance::Rijndael64)
+        )
     }
 
-    /// Whether the tower's description is the pinned Fan-Paar GF(2^64)
-    /// presentation.
+    /// Whether the row is structurally equal to the shipped Fan-Paar
+    /// GF(2^64) instance.
     #[inline]
-    pub(crate) const fn fanpaar64<S: TowerSpec>() -> bool
-    where
-        S::Base: BinaryDegree<32>,
-    {
-        const { <Tower<S> as BinaryRepr<64>>::DESCRIPTION.same_structure(FANPAAR64_DESC) }
+    pub(crate) const fn fanpaar64<F: Field>() -> bool {
+        matches!(
+            const { pinned::instance(F::DESCRIPTOR) },
+            Some(Instance::FanPaar64)
+        )
     }
 
     /// A GF(2^64) coefficient resolved into the form this host's backend
@@ -1976,20 +1977,19 @@ pub mod gf64 {
         }
     }
 
-    impl<S: TowerSpec> FieldKernels for FiniteField<2, 64, Tower<S>>
-    where
-        S::Base: BinaryDegree<32>,
-    {
+    impl<B: BinaryField, const D: usize> StorageKernels<B, D> for Packed<u64> {
+        type Prepared = Prepared;
+
         #[inline]
-        fn backend() -> Backend {
-            if rijndael64::<S>() {
+        fn backend<F: StorageRow<B, D, Self>>() -> Backend {
+            if rijndael64::<F>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V4x | Backend::V3GfniCrypto => backend(),
                     _ => Backend::Scalar,
                 };
             }
-            if fanpaar64::<S>() {
+            if fanpaar64::<F>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => backend(),
@@ -1999,33 +1999,19 @@ pub mod gf64 {
             Backend::Scalar
         }
 
-        #[inline]
-        fn has_vector_elementwise() -> bool {
-            false
-        }
-    }
-
-    impl<S: TowerSpec> KernelDispatch for FiniteField<2, 64, Tower<S>>
-    where
-        S::Base: BinaryDegree<32>,
-    {
-        type Prepared = Prepared;
-
-        fn prepare(_proof: RawDispatch, coeff: Elem<FiniteField<2, 64, Tower<S>>>) -> Prepared {
+        fn prepare<F: StorageRow<B, D, Self>>(_proof: RawDispatch, coeff: Elem<F>) -> Prepared {
             let raw = coeff.to_raw();
-            if rijndael64::<S>() {
+            if rijndael64::<F>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V4x | Backend::V3GfniCrypto => Prepared::Compact {
                         coeff: raw,
-                        tiles: x86::gf64::gf64_tiles(
-                            Elem::<FiniteField<2, 64, Tower<Rijndael64>>> { raw },
-                        ),
+                        tiles: x86::gf64::gf64_tiles(Elem::<Rijndael64Field> { raw }),
                     },
                     _ => Prepared::Plain(raw),
                 };
             }
-            if fanpaar64::<S>() {
+            if fanpaar64::<F>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => Prepared::Fp(raw),
@@ -2036,36 +2022,48 @@ pub mod gf64 {
         }
 
         #[inline]
-        fn prepared_coeff(
+        fn prepared_coeff<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             prepared: &Prepared,
-        ) -> Elem<FiniteField<2, 64, Tower<S>>> {
-            Elem::<FiniteField<2, 64, Tower<S>>>::from_raw(prepared.coeff())
+        ) -> Elem<F> {
+            Elem {
+                raw: prepared.coeff(),
+            }
         }
 
         #[inline]
-        fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        fn add_assign<F: StorageRow<B, D, Self>>(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
             crate::kernel::xor(dst, src);
         }
 
         #[inline]
-        fn add_gather_offsets(_proof: RawDispatch, region: &[u8], dst: &mut [u8], offsets: &[u32]) {
+        fn add_gather_offsets<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            region: &[u8],
+            dst: &mut [u8],
+            offsets: &[u32],
+        ) {
             crate::kernel::xor_gather(region, dst, offsets);
         }
 
         #[inline]
-        fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
+        fn sub_assign<F: StorageRow<B, D, Self>>(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
             crate::kernel::xor(dst, src);
         }
 
-        fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
+        fn mul_add<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            coeff: &Prepared,
+            src: &[u8],
+        ) {
             match coeff {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Prepared::Compact { coeff, tiles } => {
                     x86::gf64::mul_add_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
-                        Elem::<FiniteField<2, 64, Tower<Rijndael64>>> { raw: *coeff },
+                        Elem::<Rijndael64Field> { raw: *coeff },
                         *tiles,
                         src,
                     );
@@ -2075,22 +2073,26 @@ pub mod gf64 {
                     x86::fan_paar::mul_add_avx2_fp64(
                         crate::kernel::x86_v3_token(),
                         dst,
-                        Elem::<FiniteField<2, 64, Tower<FanPaar64>>> { raw: *coeff },
+                        Elem::<FanPaar64Field> { raw: *coeff },
                         src,
                     );
                 }
-                other => scalar::mul_add::<Self>(dst, Elem::<Self>::from_raw(other.coeff()), src),
+                other => scalar::mul_add::<F>(dst, Elem { raw: other.coeff() }, src),
             }
         }
 
-        fn mul_assign(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared) {
+        fn mul_assign<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            coeff: &Prepared,
+        ) {
             match coeff {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Prepared::Compact { coeff, tiles } => {
                     x86::gf64::mul_assign_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
-                        Elem::<FiniteField<2, 64, Tower<Rijndael64>>> { raw: *coeff },
+                        Elem::<Rijndael64Field> { raw: *coeff },
                         *tiles,
                     );
                 }
@@ -2099,21 +2101,26 @@ pub mod gf64 {
                     x86::fan_paar::mul_assign_avx2_fp64(
                         crate::kernel::x86_v3_token(),
                         dst,
-                        Elem::<FiniteField<2, 64, Tower<FanPaar64>>> { raw: *coeff },
+                        Elem::<FanPaar64Field> { raw: *coeff },
                     );
                 }
-                other => scalar::mul_assign::<Self>(dst, Elem::<Self>::from_raw(other.coeff())),
+                other => scalar::mul_assign::<F>(dst, Elem { raw: other.coeff() }),
             }
         }
 
-        fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
+        fn mul_into<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            coeff: &Prepared,
+            src: &[u8],
+        ) {
             match coeff {
                 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                 Prepared::Compact { coeff, tiles } => {
                     x86::gf64::mul_into_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
-                        Elem::<FiniteField<2, 64, Tower<Rijndael64>>> { raw: *coeff },
+                        Elem::<Rijndael64Field> { raw: *coeff },
                         *tiles,
                         src,
                     );
@@ -2123,61 +2130,66 @@ pub mod gf64 {
                     x86::fan_paar::mul_into_avx2_fp64(
                         crate::kernel::x86_v3_token(),
                         dst,
-                        Elem::<FiniteField<2, 64, Tower<FanPaar64>>> { raw: *coeff },
+                        Elem::<FanPaar64Field> { raw: *coeff },
                         src,
                     );
                 }
                 other => {
                     dst.copy_from_slice(src);
-                    Self::mul_assign(RawDispatch, dst, other);
+                    F::mul_assign(RawDispatch, dst, other);
                 }
             }
         }
 
-        fn mul_add_scatter(
+        fn mul_add_scatter<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             rows: &mut [u8],
             row_len: usize,
-            coeffs: &[Elem<FiniteField<2, 64, Tower<S>>>],
+            coeffs: &[Elem<F>],
             src: &[u8],
         ) {
             // As the degree-32 dispatch: each row prepares its own
             // coefficient, amortizing the derivation over `row_len`.
             for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-                Self::mul_add(RawDispatch, row, &Self::prepare(RawDispatch, coeff), src);
+                F::mul_add(RawDispatch, row, &F::prepare(RawDispatch, coeff), src);
             }
         }
 
-        fn mul_add_gather(
+        fn mul_add_gather<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             dst: &mut [u8],
-            coeffs: &[Elem<FiniteField<2, 64, Tower<S>>>],
+            coeffs: &[Elem<F>],
             srcs: &[&[u8]],
         ) {
             for (&coeff, &src) in coeffs.iter().zip(srcs) {
-                Self::mul_add(RawDispatch, dst, &Self::prepare(RawDispatch, coeff), src);
+                F::mul_add(RawDispatch, dst, &F::prepare(RawDispatch, coeff), src);
             }
         }
 
-        fn mul_add_matrix(
+        fn mul_add_matrix<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             rows: &mut [u8],
             row_len: usize,
             nrows: usize,
-            terms: &[(&[Elem<FiniteField<2, 64, Tower<S>>>], &[u8])],
+            terms: &[(&[Elem<F>], &[u8])],
         ) {
             for &(coeffs, src) in terms {
                 for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
-                    Self::mul_add(RawDispatch, row, &Self::prepare(RawDispatch, coeff), src);
+                    F::mul_add(RawDispatch, row, &F::prepare(RawDispatch, coeff), src);
                 }
             }
         }
 
-        fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
+        fn mul_elementwise<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            a: &[u8],
+            b: &[u8],
+        ) {
             // Both operands vary per lane, so there is no fixed
             // coefficient to broadcast; no elementwise vector path serves
-            // the degree-64 towers.
-            scalar::mul_elementwise::<Self>(dst, a, b);
+            // the degree-64 rows.
+            scalar::mul_elementwise::<F>(dst, a, b);
         }
     }
 }

@@ -12,17 +12,17 @@ use fgf::{Elem, FiniteField, Mersenne31, Polynomial, QuadMersenne31};
 use fgf::poly::AES;
 
 // Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
-type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
-type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Tower<fgf::FanPaar8>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Tower<fgf::FanPaar16>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Extension<fgf::FanPaar8, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
 
 fn main() {
     // In the AES-rooted tower, x = a + b*u and u^2 + u + DELTA = 0.
     let a = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
     let b = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0xca);
-    let x = Elem::<Gf16>::from_components(a, b);
+    let x = Elem::<Gf16>::from_components([a, b]);
     let conjugate = x.pow(FiniteField::<2, 8, Polynomial<AES>>::ORDER);
-    assert_eq!(conjugate, Elem::<Gf16>::from_components(a + b, b));
+    assert_eq!(conjugate, Elem::<Gf16>::from_components([a + b, b]));
     assert_eq!(
         conjugate.pow(FiniteField::<2, 8, Polynomial<AES>>::ORDER),
         x
@@ -34,9 +34,9 @@ fn main() {
     let norm = x * conjugate;
     assert_eq!(
         trace,
-        Elem::<Gf16>::from_components(b, Elem::<FiniteField<2, 8, Polynomial<AES>>>::ZERO)
+        Elem::<Gf16>::from_components([b, Elem::<FiniteField<2, 8, Polynomial<AES>>>::ZERO])
     );
-    let (norm_base, norm_extension) = norm.to_components();
+    let [norm_base, norm_extension] = norm.to_components();
     assert_eq!(
         norm_extension,
         Elem::<FiniteField<2, 8, Polynomial<AES>>>::ZERO
@@ -55,21 +55,21 @@ fn main() {
     // an AES or polynomial-basis payload as a Fan–Paar payload.
     let c = Elem::<FanPaar8Field>::from_raw(0x53);
     let d = Elem::<FanPaar8Field>::from_raw(0xca);
-    let embedded_c = Elem::<FanPaar16Field>::from_components(c, Elem::<FanPaar8Field>::ZERO);
-    let embedded_d = Elem::<FanPaar16Field>::from_components(d, Elem::<FanPaar8Field>::ZERO);
+    let embedded_c = Elem::<FanPaar16Field>::from_components([c, Elem::<FanPaar8Field>::ZERO]);
+    let embedded_d = Elem::<FanPaar16Field>::from_components([d, Elem::<FanPaar8Field>::ZERO]);
     assert_eq!(
         embedded_c * embedded_d,
-        Elem::<FanPaar16Field>::from_components(c * d, Elem::<FanPaar8Field>::ZERO)
+        Elem::<FanPaar16Field>::from_components([c * d, Elem::<FanPaar8Field>::ZERO])
     );
-    let y = Elem::<FanPaar16Field>::from_components(c, d);
+    let y = Elem::<FanPaar16Field>::from_components([c, d]);
     assert_eq!(y.mul_alpha(), y * Elem::<FanPaar16Field>::from_raw(0x0100));
     let y_conjugate = y.pow(256);
     assert_eq!(
-        (y + y_conjugate).to_components().1,
+        (y + y_conjugate).to_components()[1],
         Elem::<FanPaar8Field>::ZERO
     );
     assert_eq!(
-        (y * y_conjugate).to_components().1,
+        (y * y_conjugate).to_components()[1],
         Elem::<FanPaar8Field>::ZERO
     );
     println!(
@@ -80,7 +80,7 @@ fn main() {
     // Odd-characteristic quadratic extension: z = re + im*i, i^2 = -1.
     let re = Elem::<Mersenne31>::from_raw(7);
     let im = Elem::<Mersenne31>::from_raw(11);
-    let z = Elem::<QuadMersenne31>::from_components(re, im);
+    let z = Elem::<QuadMersenne31>::from_components([re, im]);
     assert_eq!(
         Elem::<QuadMersenne31>::I.square(),
         -Elem::<QuadMersenne31>::ONE
@@ -89,7 +89,7 @@ fn main() {
     assert_eq!(z.norm(), re.square() + im.square());
     assert_eq!(
         z * z.conjugate(),
-        Elem::<QuadMersenne31>::from_components(z.norm(), Elem::<Mersenne31>::ZERO)
+        Elem::<QuadMersenne31>::from_components([z.norm(), Elem::<Mersenne31>::ZERO])
     );
     assert_eq!(z * z.inv(), Elem::<QuadMersenne31>::ONE);
     println!(

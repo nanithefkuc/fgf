@@ -1,9 +1,13 @@
 //! The quadratic extension GF((2^31 − 1)^2), the QM31 field.
 //!
-//! Elements are pairs `(re, im)` of Mersenne31 lanes with `i² = −1`.
-//! Since `p = 2³¹ − 1 ≡ 3 (mod 4)`, `−1` is a quadratic non-residue, so
-//! `Fₚ[i]/(i²+1)` is a field. The stable byte form is the interleaved
-//! little-endian pair `[re: u32, im: u32]`, 8 bytes per element.
+//! [`QuadMersenne31`] is the extension row
+//! `FiniteField<0x7FFF_FFFF, 2, Extension<ComplexMersenne31, 2>>`: pairs
+//! `[re, im]` of [`Mersenne31`] limbs with `i² = −1`, under the relation
+//! `t^2 + 1` that [`ComplexMersenne31`] names. Since `p = 2³¹ − 1 ≡ 3
+//! (mod 4)`, `−1` is a quadratic non-residue, so `Fₚ[i]/(i²+1)` is a field.
+//! The raw word is `[u32; 2]`, real limb first, and the stable byte form is
+//! the interleaved little-endian pair `[re: u32, im: u32]`, 8 bytes per
+//! element.
 //!
 //! # Totality and canonicalization
 //!
@@ -20,20 +24,18 @@
 //! use fgf::{Elem, QuadMersenne31};
 //!
 //! // i² = −1  →  (0 + i)² = (−1 + 0·i)
-//! const I: Elem<QuadMersenne31> = Elem::<QuadMersenne31>::from_raw(0, 1);
-//! const _: () = assert!(I.square().to_raw().0 == 0x7FFF_FFFE);
-//! const _: () = assert!(I.square().to_raw().1 == 0);
+//! const I: Elem<QuadMersenne31> = Elem::<QuadMersenne31>::from_raw([0, 1]);
+//! const _: () = assert!(I.square().to_raw()[0] == 0x7FFF_FFFE);
+//! const _: () = assert!(I.square().to_raw()[1] == 0);
 //!
 //! // Known product, pinned against the frozen M31 known answer
 //! // a² = 0x71C7_1C71: (a + a·i)² = 0 + 2a²·i with 2a² mod p = 0x638E_38E3.
-//! const A: Elem<QuadMersenne31> = Elem::<QuadMersenne31>::from_raw(0x5555_5555, 0x5555_5555);
-//! const B: Elem<QuadMersenne31> = Elem::<QuadMersenne31>::from_raw(0x5555_5555, 0x5555_5555);
-//! const _: () = assert!(A.mul(B).to_raw().0 == 0);
-//! const _: () = assert!(A.mul(B).to_raw().1 == 0x638E_38E3);
+//! const A: Elem<QuadMersenne31> = Elem::<QuadMersenne31>::from_raw([0x5555_5555, 0x5555_5555]);
+//! const _: () = assert!(A.mul(A).to_raw()[0] == 0);
+//! const _: () = assert!(A.mul(A).to_raw()[1] == 0x638E_38E3);
 //!
 //! // Division total
-//! const _: () = assert!(A.div(Elem::<QuadMersenne31>::ZERO).to_raw().0 == 0);
-//! const _: () = assert!(A.div(Elem::<QuadMersenne31>::ZERO).to_raw().1 == 0);
+//! const _: () = assert!(A.div(Elem::<QuadMersenne31>::ZERO).is_zero());
 //!
 //! // Generator has full order p²−1
 //! assert_eq!(
@@ -42,18 +44,30 @@
 //! );
 //! ```
 
-use super::extension::Descriptor;
-use super::extension::pinned::QUAD_MERSENNE31;
+use super::extension::{Components, Extension, ExtensionSpec, Relation};
+use super::finite_field::FiniteField;
 use super::mersenne31;
-use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, Validate};
-use crate::field::Mersenne31;
+use super::{Elem, HasGenerator, Mersenne31, Validate};
 
 /// The base modulus `p = 2³¹ − 1`.
 pub const MODULUS: u32 = mersenne31::MODULUS;
 
-/// Marker type for GF((2³¹ − 1)²).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-pub struct QuadMersenne31;
+/// The defining data of QM31: [`Mersenne31`] extended by `t^2 + 1`, with
+/// one base limb per component.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct ComplexMersenne31;
+
+impl ExtensionSpec<2> for ComplexMersenne31 {
+    type Base = Mersenne31;
+    type Storage = Components;
+    const NAME: &'static str = "GF((2^31 - 1)^2)";
+    // `t^2 + 1`: constant coefficient one, linear coefficient zero.
+    const RELATION: Relation = Relation::from_coordinates(&[1, 0]);
+}
+
+/// GF((2³¹ − 1)²), the QM31 field, as an extension row over
+/// [`Mersenne31`].
+pub type QuadMersenne31 = FiniteField<0x7FFF_FFFF, 2, Extension<ComplexMersenne31, 2>>;
 
 #[inline]
 #[must_use]
@@ -98,26 +112,86 @@ const fn limb_mul(a: u32, b: u32) -> u32 {
     mersenne31::reduce(lo + hi)
 }
 
-/// Raw product `(a+bi)(c+di)`, over canonical limbs.
-const fn raw_mul(left: (u32, u32), right: (u32, u32)) -> (u32, u32) {
-    let ac = limb_mul(left.0, right.0);
-    let bd = limb_mul(left.1, right.1);
-    let ad = limb_mul(left.0, right.1);
-    let bc = limb_mul(left.1, right.0);
-    (limb_sub(ac, bd), limb_add(ad, bc))
+// The shared scalar bodies: the row's `Field` arithmetic and its const
+// surface both run these.
+
+/// Canonical limbs.
+#[inline]
+#[must_use]
+pub(crate) const fn raw_canonical(value: [u32; 2]) -> [u32; 2] {
+    [limb_canonical(value[0]), limb_canonical(value[1])]
 }
 
-/// Raw square `(a+bi)²`, over canonical limbs.
-const fn raw_square(value: (u32, u32)) -> (u32, u32) {
-    let a2 = limb_mul(value.0, value.0);
-    let b2 = limb_mul(value.1, value.1);
-    let ab = limb_mul(value.0, value.1);
-    (limb_sub(a2, b2), limb_add(ab, ab))
+/// Raw sum.
+#[inline]
+#[must_use]
+pub(crate) const fn raw_add(left: [u32; 2], right: [u32; 2]) -> [u32; 2] {
+    [limb_add(left[0], right[0]), limb_add(left[1], right[1])]
+}
+
+/// Raw difference.
+#[inline]
+#[must_use]
+pub(crate) const fn raw_sub(left: [u32; 2], right: [u32; 2]) -> [u32; 2] {
+    [limb_sub(left[0], right[0]), limb_sub(left[1], right[1])]
+}
+
+/// Raw additive inverse.
+#[inline]
+#[must_use]
+pub(crate) const fn raw_neg(value: [u32; 2]) -> [u32; 2] {
+    [limb_neg(value[0]), limb_neg(value[1])]
+}
+
+/// Raw product `(a+bi)(c+di) = (ac−bd)+(ad+bc)i`.
+#[inline]
+#[must_use]
+pub(crate) const fn raw_mul(left: [u32; 2], right: [u32; 2]) -> [u32; 2] {
+    let ac = limb_mul(left[0], right[0]);
+    let bd = limb_mul(left[1], right[1]);
+    let ad = limb_mul(left[0], right[1]);
+    let bc = limb_mul(left[1], right[0]);
+    [limb_sub(ac, bd), limb_add(ad, bc)]
+}
+
+/// Raw square `(a+bi)² = (a²−b²) + 2ab·i`: three base multiplies.
+#[inline]
+#[must_use]
+pub(crate) const fn raw_square(value: [u32; 2]) -> [u32; 2] {
+    let a2 = limb_mul(value[0], value[0]);
+    let b2 = limb_mul(value[1], value[1]);
+    let ab = limb_mul(value[0], value[1]);
+    [limb_sub(a2, b2), limb_add(ab, ab)]
+}
+
+/// The norm `a² + b²` in the base field, canonical.
+#[inline]
+#[must_use]
+const fn raw_norm(value: [u32; 2]) -> u32 {
+    let re2 = limb_mul(value[0], value[0]);
+    let im2 = limb_mul(value[1], value[1]);
+    limb_add(re2, im2)
+}
+
+/// Raw inverse via conjugate over norm, zero to zero.
+#[inline]
+#[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+pub(crate) const fn raw_inv(value: [u32; 2]) -> [u32; 2] {
+    let norm = raw_norm(value);
+    if norm == 0 {
+        return [0, 0];
+    }
+    let norm_inv = super::powmod(norm as u64, (MODULUS - 2) as u64, MODULUS as u64) as u32;
+    [
+        limb_mul(value[0], norm_inv),
+        limb_mul(limb_neg(value[1]), norm_inv),
+    ]
 }
 
 /// Raw power by square-and-multiply, over canonical limbs.
-const fn raw_pow(mut base: (u32, u32), mut exponent: u64) -> (u32, u32) {
-    let mut result = (1, 0);
+const fn raw_pow(mut base: [u32; 2], mut exponent: u64) -> [u32; 2] {
+    let mut result = [1, 0];
     while exponent != 0 {
         if exponent & 1 != 0 {
             result = raw_mul(result, base);
@@ -128,16 +202,16 @@ const fn raw_pow(mut base: (u32, u32), mut exponent: u64) -> (u32, u32) {
     result
 }
 
-/// Whether `(re, im)` is the multiplicative identity.
-const fn is_raw_one(value: (u32, u32)) -> bool {
-    limb_canonical(value.0) == 1 && limb_canonical(value.1) == 0
+/// Whether `[re, im]` is the multiplicative identity.
+const fn is_raw_one(value: [u32; 2]) -> bool {
+    limb_canonical(value[0]) == 1 && limb_canonical(value[1]) == 0
 }
 
 /// Prime factors of the group order `p² − 1`, for the generator check.
 const GROUP_FACTORS: [u64; 7] = [2, 3, 7, 11, 31, 151, 331];
 
-/// Whether `(re, im)` has full multiplicative order `p² − 1`.
-const fn is_primitive(candidate: (u32, u32)) -> bool {
+/// Whether `[re, im]` has full multiplicative order `p² − 1`.
+const fn is_primitive(candidate: [u32; 2]) -> bool {
     let order = (MODULUS as u64) * (MODULUS as u64) - 1;
     if !is_raw_one(raw_pow(candidate, order)) {
         return false;
@@ -152,138 +226,29 @@ const fn is_primitive(candidate: (u32, u32)) -> bool {
     true
 }
 
-impl Field for QuadMersenne31 {
-    type Raw = (u32, u32);
-    type Characteristic = PrimeCharacteristic<{ MODULUS as u64 }>;
-    const NAME: &'static str = "GF((2^31 - 1)^2)";
-    const DEGREE: u32 = 2;
-    const ORDER: u128 = (MODULUS as u128) * (MODULUS as u128);
-    const ZERO_RAW: (u32, u32) = (0, 0);
-    const ONE_RAW: (u32, u32) = (1, 0);
-    const VALID: () = ();
-
-    #[inline]
-    fn canonical_raw(raw: (u32, u32)) -> (u32, u32) {
-        (limb_canonical(raw.0), limb_canonical(raw.1))
-    }
-
-    #[inline]
-    fn add_raw(left: (u32, u32), right: (u32, u32)) -> (u32, u32) {
-        (limb_add(left.0, right.0), limb_add(left.1, right.1))
-    }
-
-    #[inline]
-    fn sub_raw(left: (u32, u32), right: (u32, u32)) -> (u32, u32) {
-        (limb_sub(left.0, right.0), limb_sub(left.1, right.1))
-    }
-
-    #[inline]
-    fn neg_raw(value: (u32, u32)) -> (u32, u32) {
-        (limb_neg(value.0), limb_neg(value.1))
-    }
-
-    #[inline]
-    fn mul_raw(left: (u32, u32), right: (u32, u32)) -> (u32, u32) {
-        raw_mul(left, right)
-    }
-
-    #[inline]
-    #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
-    fn inv_raw(value: (u32, u32)) -> (u32, u32) {
-        let re2 = limb_mul(value.0, value.0);
-        let im2 = limb_mul(value.1, value.1);
-        let norm = limb_add(re2, im2);
-        if norm == 0 {
-            return (0, 0);
-        }
-        let norm_inv = super::powmod(norm as u64, (MODULUS - 2) as u64, MODULUS as u64) as u32;
-        (
-            limb_mul(value.0, norm_inv),
-            limb_mul(limb_neg(value.1), norm_inv),
-        )
-    }
-}
-
-impl super::private::RowAccess for QuadMersenne31 {
-    const DESCRIPTOR: &'static Descriptor = &QUAD_MERSENNE31;
-
-    fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw) {
-        let () = Validate::<Self>::OK;
-        assert_eq!(
-            dst.len(),
-            2,
-            "prime coordinate count differs from the field degree"
-        );
-        dst[0] = u64::from(limb_canonical(raw.0));
-        dst[1] = u64::from(limb_canonical(raw.1));
-    }
-
-    fn from_prime_coordinates(src: &[u64]) -> <Self as Field>::Raw {
-        let () = Validate::<Self>::OK;
-        assert_eq!(
-            src.len(),
-            2,
-            "prime coordinate count differs from the field degree"
-        );
-        assert!(
-            src[0] < u64::from(MODULUS) && src[1] < u64::from(MODULUS),
-            "prime coordinate is not below the characteristic"
-        );
-        // Both checked coordinates are below the modulus, so they fit the
-        // lanes.
-        #[allow(clippy::cast_possible_truncation)]
-        let limbs = (src[0] as u32, src[1] as u32);
-        limbs
-    }
-
-    fn from_prime(value: u64) -> <Self as Field>::Raw {
-        let () = Validate::<Self>::OK;
-        // The remainder below the modulus fits the lane.
-        #[allow(clippy::cast_possible_truncation)]
-        let re = (value % u64::from(MODULUS)) as u32;
-        (re, 0)
-    }
-
-    fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
-        let () = Validate::<Self>::OK;
-        let re = limb_canonical(raw.0);
-        let im = limb_canonical(raw.1);
-        if im == 0 { Some(u64::from(re)) } else { None }
-    }
-}
-
 impl HasGenerator for QuadMersenne31 {
-    const GENERATOR_RAW: (u32, u32) = {
+    const GENERATOR_RAW: [u32; 2] = {
         assert!(
-            is_primitive((1, 12)),
+            is_primitive([1, 12]),
             "QuadMersenne31 generator does not have full order"
         );
-        (1, 12)
+        [1, 12]
     };
-}
-
-impl FieldBuffer for QuadMersenne31 {
-    const BYTES: usize = 8;
-    const STORAGE_BITS: u32 = 64;
-
-    #[inline]
-    fn decode(bytes: &[u8]) -> Elem<Self> {
-        let bytes: [u8; 8] = bytes
-            .try_into()
-            .expect("QM31 element has the wrong byte width");
-        Elem::<Self>::from_bytes(bytes)
-    }
-
-    #[inline]
-    fn encode(bytes: &mut [u8], value: Elem<Self>) {
-        assert_eq!(bytes.len(), 8, "QM31 element has the wrong byte width");
-        bytes.copy_from_slice(&value.to_bytes());
-    }
 }
 
 impl Elem<QuadMersenne31> {
     /// The imaginary unit `i` with `i² = −1`.
-    pub const I: Self = Elem { raw: (0, 1) };
+    pub const I: Self = Elem { raw: [0, 1] };
+
+    /// Wrap raw limbs `[re, im]`, reducing each into canonical storage.
+    #[inline]
+    #[must_use]
+    pub const fn from_raw(value: [u32; 2]) -> Self {
+        let () = Validate::<QuadMersenne31>::OK;
+        Elem {
+            raw: raw_canonical(value),
+        }
+    }
 
     /// Decode from stable little-endian `[re, im]`.
     #[inline]
@@ -291,45 +256,35 @@ impl Elem<QuadMersenne31> {
     pub const fn from_bytes(bytes: [u8; 8]) -> Self {
         let re = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
         let im = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
-        Self::from_raw(re, im)
+        Self::from_raw([re, im])
     }
 
     /// Encode to stable little-endian `[re, im]`.
     #[inline]
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 8] {
-        let re = self.raw.0.to_le_bytes();
-        let im = self.raw.1.to_le_bytes();
+        let re = self.raw[0].to_le_bytes();
+        let im = self.raw[1].to_le_bytes();
         [re[0], re[1], re[2], re[3], im[0], im[1], im[2], im[3]]
     }
 
-    /// Wrap raw limbs, reducing each into canonical storage.
+    /// Build from base-field components `[re, im]`.
     #[inline]
     #[must_use]
-    pub const fn from_raw(re: u32, im: u32) -> Self {
-        let () = super::Validate::<QuadMersenne31>::OK;
+    pub const fn from_components(components: [Elem<Mersenne31>; 2]) -> Self {
         Elem {
-            raw: (limb_canonical(re), limb_canonical(im)),
+            raw: raw_canonical([components[0].raw, components[1].raw]),
         }
     }
 
-    /// Real and imaginary components, as base-field elements.
+    /// Real and imaginary components `[re, im]`, as base-field elements.
     #[inline]
     #[must_use]
-    pub const fn to_components(self) -> (Elem<Mersenne31>, Elem<Mersenne31>) {
-        (
-            Elem::<Mersenne31> { raw: self.raw.0 },
-            Elem::<Mersenne31> { raw: self.raw.1 },
-        )
-    }
-
-    /// Build from base-field components.
-    #[inline]
-    #[must_use]
-    pub const fn from_components(re: Elem<Mersenne31>, im: Elem<Mersenne31>) -> Self {
-        Elem {
-            raw: (re.raw, im.raw),
-        }
+    pub const fn to_components(self) -> [Elem<Mersenne31>; 2] {
+        [
+            Elem::<Mersenne31> { raw: self.raw[0] },
+            Elem::<Mersenne31> { raw: self.raw[1] },
+        ]
     }
 
     /// Conjugate `a − bi`.
@@ -337,7 +292,7 @@ impl Elem<QuadMersenne31> {
     #[must_use]
     pub const fn conjugate(self) -> Self {
         Elem {
-            raw: (self.raw.0, limb_neg(self.raw.1)),
+            raw: [self.raw[0], limb_neg(self.raw[1])],
         }
     }
 
@@ -348,10 +303,8 @@ impl Elem<QuadMersenne31> {
     #[inline]
     #[must_use]
     pub const fn norm(self) -> Elem<Mersenne31> {
-        let re2 = limb_mul(self.raw.0, self.raw.0);
-        let im2 = limb_mul(self.raw.1, self.raw.1);
         Elem::<Mersenne31> {
-            raw: limb_add(re2, im2),
+            raw: raw_norm(self.raw),
         }
     }
 
@@ -360,10 +313,7 @@ impl Elem<QuadMersenne31> {
     #[must_use]
     pub const fn add(self, rhs: Self) -> Self {
         Elem {
-            raw: (
-                limb_add(self.raw.0, rhs.raw.0),
-                limb_add(self.raw.1, rhs.raw.1),
-            ),
+            raw: raw_add(self.raw, rhs.raw),
         }
     }
 
@@ -372,10 +322,7 @@ impl Elem<QuadMersenne31> {
     #[must_use]
     pub const fn sub(self, rhs: Self) -> Self {
         Elem {
-            raw: (
-                limb_sub(self.raw.0, rhs.raw.0),
-                limb_sub(self.raw.1, rhs.raw.1),
-            ),
+            raw: raw_sub(self.raw, rhs.raw),
         }
     }
 
@@ -384,7 +331,7 @@ impl Elem<QuadMersenne31> {
     #[must_use]
     pub const fn neg(self) -> Self {
         Elem {
-            raw: (limb_neg(self.raw.0), limb_neg(self.raw.1)),
+            raw: raw_neg(self.raw),
         }
     }
 
@@ -398,9 +345,6 @@ impl Elem<QuadMersenne31> {
     }
 
     /// Square: `(a+bi)² = (a²−b²) + 2ab·i`.
-    ///
-    /// Three base multiplies instead of the four a general multiply costs;
-    /// `2ab` is one modular add of `ab` with itself.
     #[inline]
     #[must_use]
     pub const fn square(self) -> Self {
@@ -409,25 +353,12 @@ impl Elem<QuadMersenne31> {
         }
     }
 
-    /// Multiplicative inverse via conjugate / norm.
-    ///
-    /// Maps zero to zero.
+    /// Multiplicative inverse via conjugate / norm. Maps zero to zero.
     #[inline]
     #[must_use]
-    #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
     pub const fn inv(self) -> Self {
-        let re2 = limb_mul(self.raw.0, self.raw.0);
-        let im2 = limb_mul(self.raw.1, self.raw.1);
-        let norm = limb_add(re2, im2);
-        if norm == 0 {
-            return Self::ZERO;
-        }
-        let norm_inv = super::powmod(norm as u64, (MODULUS - 2) as u64, MODULUS as u64) as u32;
         Elem {
-            raw: (
-                limb_mul(self.raw.0, norm_inv),
-                limb_mul(limb_neg(self.raw.1), norm_inv),
-            ),
+            raw: raw_inv(self.raw),
         }
     }
 
@@ -435,7 +366,7 @@ impl Elem<QuadMersenne31> {
     #[inline]
     #[must_use]
     pub const fn div(self, rhs: Self) -> Self {
-        if limb_canonical(rhs.raw.0) == 0 && limb_canonical(rhs.raw.1) == 0 {
+        if limb_canonical(rhs.raw[0]) == 0 && limb_canonical(rhs.raw[1]) == 0 {
             return Self::ZERO;
         }
         self.mul(rhs.inv())
@@ -456,11 +387,27 @@ impl Elem<QuadMersenne31> {
         }
         result
     }
-}
 
-impl core::fmt::Display for Elem<QuadMersenne31> {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(formatter, "({:#x}+{:#x}i)", self.raw.0, self.raw.1)
+    /// The canonical representative of this element: the element itself,
+    /// since storage is canonical by construction.
+    #[inline]
+    #[must_use]
+    pub const fn canonical(self) -> Self {
+        self
+    }
+
+    /// Whether this element is the additive identity.
+    #[inline]
+    #[must_use]
+    pub const fn is_zero(self) -> bool {
+        self.raw[0] == 0 && self.raw[1] == 0
+    }
+
+    /// Whether this element is the multiplicative identity.
+    #[inline]
+    #[must_use]
+    pub const fn is_one(self) -> bool {
+        self.raw[0] == 1 && self.raw[1] == 0
     }
 }
 
@@ -479,8 +426,8 @@ mod tests {
     /// the check must accept and reject powers of the generator by that rule.
     #[test]
     fn primitivity_follows_generator_power_coprimality() {
-        let (re, im) = core::hint::black_box(QuadMersenne31::GENERATOR_RAW);
-        let generator = Elem::<QuadMersenne31>::from_raw(re, im);
+        let generator =
+            Elem::<QuadMersenne31>::from_raw(core::hint::black_box(QuadMersenne31::GENERATOR_RAW));
         let order = u64::from(MODULUS) * u64::from(MODULUS) - 1;
         for k in 1..=48u64 {
             let candidate = generator.pow(u128::from(k)).to_raw();
@@ -496,7 +443,7 @@ mod tests {
     /// orders dividing `p − 1` and 4, far below `p² − 1`.
     #[test]
     fn primitivity_rejects_small_orders() {
-        for candidate in [(0, 0), (1, 0), (7, 0), (MODULUS - 1, 0), (0, 1)] {
+        for candidate in [[0, 0], [1, 0], [7, 0], [MODULUS - 1, 0], [0, 1]] {
             assert!(
                 !is_primitive(core::hint::black_box(candidate)),
                 "{candidate:?}"

@@ -10,7 +10,7 @@ mod common;
 use common::{TEST_LOCK, count_allocations, noise};
 use fgf::ops;
 
-type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
 
 /// The token-proven `internals` wrappers replaced eager `format!`
 /// validation with `format_args`; successful direct calls must stay
@@ -124,8 +124,9 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
     }
     assert_eq!(matrix_rows, matrix_want, "proven overwrite matrix output");
 
-    // Tower kernels: the GFNI tower coefficient and the shuffle tables are
-    // built outside the window; the calls themselves must not allocate.
+    // Packed-extension kernels: the GFNI broadcast coefficient and the
+    // shuffle tables are built outside the window; the calls themselves must
+    // not allocate.
     let tower_src = noise(512, 0xa60);
     let mut tower_dst = noise(512, 0xa61);
     let coeff = Elem::<Gf16>::from_raw(0xbeef);

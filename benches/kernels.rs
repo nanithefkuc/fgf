@@ -30,16 +30,16 @@ use std::time::{Duration, Instant};
 
 use fgf::poly::AES;
 use fgf::{
-    Elem, FiniteField, Goldilocks, Mersenne31, Polynomial, QuadMersenne31, RS, Tower, TowerSpec,
-    backend, backend_for, ops,
+    Elem, Extension, ExtensionSpec, FieldElem, FiniteField, Goldilocks, Mersenne31, Packed,
+    Polynomial, QuadMersenne31, RS, Relation, backend, backend_for, ops,
 };
 
-type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
-type Gf32 = fgf::FiniteField<2, 32, fgf::Tower<fgf::Rijndael32>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Tower<fgf::FanPaar16>>;
-type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Tower<fgf::FanPaar32>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Tower<fgf::FanPaar64>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
+type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Extension<fgf::FanPaar32, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
 
 fn noise(len: usize, seed: u64) -> Vec<u8> {
     let mut state = seed | 1;
@@ -722,21 +722,21 @@ fn bench_small_row_shapes() {
 /// The benchmark-owned gf16d presentation: GF(2^16) as `a + b*t` over
 /// `FiniteField<2, 8, Polynomial<RS>>` under the relation `t^2 + 2*t + 0x80`. The
 /// raw word packs the low component first (`a | b << 8`). The crate's
-/// `RsTower` kernel tests exercise the same spec; no pinned presentation
-/// matches it, so every bulk operation routes through the typed scalar
-/// fallback and `backend_for` reports `Scalar` on every host.
-#[derive(Clone, Copy)]
-struct Rs16Tower;
+/// kernel tests exercise the same relation; no shipped instance matches it,
+/// so every bulk operation routes through the typed scalar fallback and
+/// `backend_for` reports `Scalar` on every host.
+struct Rs16Spec;
 
-impl TowerSpec for Rs16Tower {
+impl ExtensionSpec<2> for Rs16Spec {
     type Base = FiniteField<2, 8, Polynomial<RS>>;
-    const LINEAR_COEFFICIENT: u64 = 2;
-    const CONSTANT_COEFFICIENT: u64 = 0x80;
+    type Storage = Packed<u16>;
     const NAME: &'static str = "GF(2^16)/0x11D";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 8, Polynomial<RS>>>(&[0x80, 2]);
 }
 
-/// The gf16d field: a degree-16 tower over the Reed–Solomon byte field.
-type Gf16d = FiniteField<2, 16, Tower<Rs16Tower>>;
+/// The gf16d field: a degree-16 extension over the Reed–Solomon byte field.
+type Gf16d = FiniteField<2, 16, Extension<Rs16Spec, 2>>;
 
 /// The coefficient the gf16d regions multiply by: nonzero in both
 /// components.
@@ -1235,13 +1235,13 @@ fn run_panels() {
             bench("add_assign_scalar           qm31", len, || {
                 ops::add_assign_scalar::<QuadMersenne31>(
                     black_box(&mut dst),
-                    Elem::<QuadMersenne31>::from_raw(0x1234_5678, 0x0987_6543),
+                    Elem::<QuadMersenne31>::from_raw([0x1234_5678, 0x0987_6543]),
                 );
             });
             bench("sub_assign_scalar           qm31", len, || {
                 ops::sub_assign_scalar::<QuadMersenne31>(
                     black_box(&mut dst),
-                    Elem::<QuadMersenne31>::from_raw(0x1234_5678, 0x0987_6543),
+                    Elem::<QuadMersenne31>::from_raw([0x1234_5678, 0x0987_6543]),
                 );
             });
             bench("elementwise                 qm31", len, || {

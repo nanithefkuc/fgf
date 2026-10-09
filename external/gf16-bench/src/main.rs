@@ -17,7 +17,7 @@ mod representation;
 use native::Native;
 use representation::{Layout, Representations, tower_mul};
 
-type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
 
 const ALIGN: usize = 4096;
 const NAMES: [&str; 6] = [

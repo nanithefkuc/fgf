@@ -89,7 +89,10 @@ impl BinaryDescription {
         }
     }
 
-    /// Append a quadratic extension over `base`'s root.
+    /// Append a quadratic relation node over `base`'s root, with packed
+    /// coefficient words stored verbatim, for tests that build malformed
+    /// nodes.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn append_quadratic(base: &BinaryDescription, a: u64, b: u64) -> Self {
         Self {
@@ -562,15 +565,16 @@ mod tests {
     use core::hint::black_box;
 
     use super::*;
+    use crate::Polynomial;
     use crate::field::FiniteField;
     use crate::field::binary::normal::inverse_columns;
+    use crate::field::binary::tower::{
+        FanPaar2Field, FanPaar4Field, FanPaar8Field, FanPaar16Field, FanPaar32Field,
+        FanPaar64Field, Rijndael16Field, Rijndael32Field, Rijndael64Field,
+    };
     use crate::field::binary::{BinaryField, Cantor, Normal};
     use crate::field::extension::descriptor::{COORDINATES, NODES, Storage};
     use crate::field::{Elem, HasGenerator};
-    use crate::{
-        FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Polynomial, Rijndael16,
-        Rijndael32, Rijndael64, Tower,
-    };
 
     /// A quadratic relation node with packed coefficient words, for tests
     /// that place malformed nodes by hand.
@@ -798,26 +802,10 @@ mod tests {
                 8,
                 Kind::Basis,
             ),
-            (
-                desc_of::<FiniteField<2, 2, Tower<FanPaar2>>>(),
-                2,
-                Kind::Quadratic,
-            ),
-            (
-                desc_of::<FiniteField<2, 4, Tower<FanPaar4>>>(),
-                4,
-                Kind::Quadratic,
-            ),
-            (
-                desc_of::<FiniteField<2, 8, Tower<FanPaar8>>>(),
-                8,
-                Kind::Quadratic,
-            ),
-            (
-                triangular_over(&desc_of::<FiniteField<2, 8, Tower<FanPaar8>>>()),
-                8,
-                Kind::Basis,
-            ),
+            (desc_of::<FanPaar2Field>(), 2, Kind::Quadratic),
+            (desc_of::<FanPaar4Field>(), 4, Kind::Quadratic),
+            (desc_of::<FanPaar8Field>(), 8, Kind::Quadratic),
+            (triangular_over(&desc_of::<FanPaar8Field>()), 8, Kind::Basis),
         ]
     }
 
@@ -826,12 +814,12 @@ mod tests {
     #[allow(clippy::large_stack_arrays)]
     fn tower_fixtures() -> [BinaryDescription; 6] {
         [
-            desc_of::<FiniteField<2, 16, Tower<Rijndael16>>>(),
-            desc_of::<FiniteField<2, 32, Tower<Rijndael32>>>(),
-            desc_of::<FiniteField<2, 64, Tower<Rijndael64>>>(),
-            desc_of::<FiniteField<2, 16, Tower<FanPaar16>>>(),
-            desc_of::<FiniteField<2, 32, Tower<FanPaar32>>>(),
-            desc_of::<FiniteField<2, 64, Tower<FanPaar64>>>(),
+            desc_of::<Rijndael16Field>(),
+            desc_of::<Rijndael32Field>(),
+            desc_of::<Rijndael64Field>(),
+            desc_of::<FanPaar16Field>(),
+            desc_of::<FanPaar32Field>(),
+            desc_of::<FanPaar64Field>(),
         ]
     }
 
@@ -1003,16 +991,16 @@ mod tests {
 
     #[test]
     fn rijndael_towers_match_independent_arithmetic() {
-        check_tower::<FiniteField<2, 16, Tower<Rijndael16>>>(0x16, 200, 200, &EXPONENTS);
-        check_tower::<FiniteField<2, 32, Tower<Rijndael32>>>(0x32, 200, 64, &EXPONENTS);
-        check_tower::<FiniteField<2, 64, Tower<Rijndael64>>>(0x64, 100, 16, &EXPONENTS);
+        check_tower::<Rijndael16Field>(0x16, 200, 200, &EXPONENTS);
+        check_tower::<Rijndael32Field>(0x32, 200, 64, &EXPONENTS);
+        check_tower::<Rijndael64Field>(0x64, 100, 16, &EXPONENTS);
     }
 
     #[test]
     fn fan_paar_towers_match_independent_arithmetic() {
-        check_tower::<FiniteField<2, 16, Tower<FanPaar16>>>(0x116, 32, 8, &EXPONENTS);
-        check_tower::<FiniteField<2, 32, Tower<FanPaar32>>>(0x132, 8, 2, &EXPONENTS[..6]);
-        check_tower::<FiniteField<2, 64, Tower<FanPaar64>>>(0x164, 2, 0, &EXPONENTS[..2]);
+        check_tower::<FanPaar16Field>(0x116, 32, 8, &EXPONENTS);
+        check_tower::<FanPaar32Field>(0x132, 8, 2, &EXPONENTS[..6]);
+        check_tower::<FanPaar64Field>(0x164, 2, 0, &EXPONENTS[..2]);
     }
 
     /// `EXP` walks the powers of the generator and `LOG` inverts it.
@@ -1086,11 +1074,11 @@ mod tests {
 
     #[test]
     fn base_description_restricts_to_the_base_presentation() {
-        let gf64 = black_box(desc_of::<FiniteField<2, 64, Tower<Rijndael64>>>());
+        let gf64 = black_box(desc_of::<Rijndael64Field>());
         let gf32 = gf64.base_description();
-        assert!(gf32.same_structure(&desc_of::<FiniteField<2, 32, Tower<Rijndael32>>>()));
+        assert!(gf32.same_structure(&desc_of::<Rijndael32Field>()));
         let gf16 = gf32.base_description();
-        assert!(gf16.same_structure(&desc_of::<FiniteField<2, 16, Tower<Rijndael16>>>()));
+        assert!(gf16.same_structure(&desc_of::<Rijndael16Field>()));
         let leaf = gf16.base_description();
         assert!(leaf.same_structure(&BinaryDescription::polynomial(8, 0x11B)));
         let normal = black_box(desc_of::<FiniteField<2, 8, Normal<0x11B, 0x20>>>());
@@ -1189,22 +1177,14 @@ mod tests {
     #[test]
     #[should_panic(expected = "description capacity exhausted")]
     fn append_quadratic_rejects_a_full_description() {
-        let full = BinaryDescription::append_quadratic(
-            &desc_of::<FiniteField<2, 64, Tower<FanPaar64>>>(),
-            1,
-            1,
-        );
+        let full = BinaryDescription::append_quadratic(&desc_of::<FanPaar64Field>(), 1, 1);
         let _ = BinaryDescription::append_quadratic(black_box(&full), 1, 1);
     }
 
     #[test]
     #[should_panic(expected = "description capacity exhausted")]
     fn append_basis_rejects_a_full_description() {
-        let full = BinaryDescription::append_quadratic(
-            &desc_of::<FiniteField<2, 64, Tower<FanPaar64>>>(),
-            1,
-            1,
-        );
+        let full = BinaryDescription::append_quadratic(&desc_of::<FanPaar64Field>(), 1, 1);
         let _ = BinaryDescription::append_basis(black_box(&full), [0; 8], [0; 8]);
     }
 
@@ -1339,7 +1319,7 @@ mod tests {
     #[should_panic(expected = "binary degree exceeds 64")]
     fn validate_rejects_a_degree_above_sixty_four() {
         validate(&BinaryDescription::append_quadratic(
-            &desc_of::<FiniteField<2, 64, Tower<FanPaar64>>>(),
+            &desc_of::<FanPaar64Field>(),
             1,
             1,
         ));

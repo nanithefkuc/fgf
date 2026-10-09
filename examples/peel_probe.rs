@@ -20,7 +20,7 @@ use fgf::{Elem, FieldKernels, FiniteField, Polynomial, backend, ops};
 use fgf::poly::{AES, RS};
 
 // Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
-type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
 
 fn noise(len: usize, seed: u64) -> Vec<u8> {
     let mut state = seed | 1;

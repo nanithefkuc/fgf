@@ -570,8 +570,8 @@ fn binary_coordinates_round_trip_and_reject_excess_bits() {
 /// GF(2^8) shift-and-XOR multiply. Independent of the Karatsuba form under
 /// test and of the log tables.
 fn gf16_mul_oracle(x: Elem<Gf16>, y: Elem<Gf16>) -> Elem<Gf16> {
-    let (a, b) = x.to_components();
-    let (c, d) = y.to_components();
+    let [a, b] = x.to_components();
+    let [c, d] = y.to_components();
     let xt = |p: Elem<FiniteField<2, 8, Polynomial<AES>>>,
               q: Elem<FiniteField<2, 8, Polynomial<AES>>>| {
         Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(xtime_mul(
@@ -590,7 +590,7 @@ fn gf16_mul_oracle(x: Elem<Gf16>, y: Elem<Gf16>) -> Elem<Gf16> {
         bd,
     ));
     let extension = ad.add(bc).add(bd);
-    Elem::<Gf16>::from_components(constant, extension)
+    Elem::<Gf16>::from_components([constant, extension])
 }
 
 #[test]
@@ -673,26 +673,27 @@ fn gf16_embeds_the_base_field() {
     // GF(2^8) does. If the tower reduction were wrong this would break.
     for a in all_gf8_elems::<AES>().step_by(5) {
         for b in all_gf8_elems::<AES>().step_by(7) {
-            let lifted = Elem::<Gf16>::from_components(a, b).mul(Elem::<Gf16>::from_components(
-                Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0),
-                Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0),
-            ));
+            let lifted =
+                Elem::<Gf16>::from_components([a, b]).mul(Elem::<Gf16>::from_components([
+                    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0),
+                    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0),
+                ]));
             assert_eq!(lifted, Elem::<Gf16>::ZERO);
 
-            let x = Elem::<Gf16>::from_components(
+            let x = Elem::<Gf16>::from_components([
                 a,
                 Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0),
-            );
-            let y = Elem::<Gf16>::from_components(
+            ]);
+            let y = Elem::<Gf16>::from_components([
                 b,
                 Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0),
-            );
+            ]);
             assert_eq!(
                 x.mul(y),
-                Elem::<Gf16>::from_components(
+                Elem::<Gf16>::from_components([
                     a.mul(b),
                     Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0)
-                ),
+                ]),
                 "base-field embedding broken for {a:?} * {b:?}"
             );
         }
@@ -710,7 +711,7 @@ fn sample_gf32() -> Vec<Elem<Gf32>> {
         Elem::<Gf32>::from_raw(u32::MAX),
         Elem::<Gf32>::from_raw(0x0000_ffff),
         Elem::<Gf32>::from_raw(0xffff_0000),
-        Elem::<Gf32>::from_components(Elem::<Gf16>::from_raw(0x2000), Elem::<Gf16>::ZERO),
+        Elem::<Gf32>::from_components([Elem::<Gf16>::from_raw(0x2000), Elem::<Gf16>::ZERO]),
         Elem::<Gf32>::GENERATOR,
     ];
     let mut state = 0x243f_6a88u32;
@@ -741,29 +742,29 @@ fn sample_gf64() -> Vec<Elem<Gf64>> {
 }
 
 fn gf32_mul_oracle(x: Elem<Gf32>, y: Elem<Gf32>) -> Elem<Gf32> {
-    let (a, b) = x.to_components();
-    let (c, d) = y.to_components();
+    let [a, b] = x.to_components();
+    let [c, d] = y.to_components();
     let ac = a.mul(c);
     let ad = a.mul(d);
     let bc = b.mul(c);
     let bd = b.mul(d);
-    Elem::<Gf32>::from_components(
+    Elem::<Gf32>::from_components([
         ac.add(Elem::<Gf16>::from_raw(0x2000).mul(bd)),
         ad.add(bc).add(bd),
-    )
+    ])
 }
 
 fn gf64_mul_oracle(x: Elem<Gf64>, y: Elem<Gf64>) -> Elem<Gf64> {
-    let (a, b) = x.to_components();
-    let (c, d) = y.to_components();
+    let [a, b] = x.to_components();
+    let [c, d] = y.to_components();
     let ac = a.mul(c);
     let ad = a.mul(d);
     let bc = b.mul(c);
     let bd = b.mul(d);
-    Elem::<Gf64>::from_components(
+    Elem::<Gf64>::from_components([
         ac.add(Elem::<Gf32>::from_raw(0x2000_0000).mul(bd)),
         ad.add(bc).add(bd),
-    )
+    ])
 }
 
 #[test]
@@ -1110,29 +1111,29 @@ fn prime_arithmetic_is_total_over_raw_lanes() {
 // The independent oracle is schoolbook (a+bi)(c+di) over u128 % p base
 // arithmetic: no fold, no lane tricks.
 fn qm_mul_oracle(x: Elem<QuadMersenne31>, y: Elem<QuadMersenne31>) -> Elem<QuadMersenne31> {
-    let (xr, xi) = x.to_raw();
-    let (yr, yi) = y.to_raw();
+    let [xr, xi] = x.to_raw();
+    let [yr, yi] = y.to_raw();
     let ar = xr as u128 % M31_P;
     let ai = xi as u128 % M31_P;
     let br = yr as u128 % M31_P;
     let bi = yi as u128 % M31_P;
     let re = (ar * br + M31_P * M31_P - ai * bi) % M31_P;
     let im = (ar * bi + ai * br) % M31_P;
-    Elem::<QuadMersenne31>::from_raw(re as u32, im as u32)
+    Elem::<QuadMersenne31>::from_raw([re as u32, im as u32])
 }
 fn qm_add_oracle(x: Elem<QuadMersenne31>, y: Elem<QuadMersenne31>) -> Elem<QuadMersenne31> {
-    let (xr, xi) = x.to_raw();
-    let (yr, yi) = y.to_raw();
+    let [xr, xi] = x.to_raw();
+    let [yr, yi] = y.to_raw();
     let re = (xr as u128 % M31_P + yr as u128 % M31_P) % M31_P;
     let im = (xi as u128 % M31_P + yi as u128 % M31_P) % M31_P;
-    Elem::<QuadMersenne31>::from_raw(re as u32, im as u32)
+    Elem::<QuadMersenne31>::from_raw([re as u32, im as u32])
 }
 fn qm_sub_oracle(x: Elem<QuadMersenne31>, y: Elem<QuadMersenne31>) -> Elem<QuadMersenne31> {
-    let (xr, xi) = x.to_raw();
-    let (yr, yi) = y.to_raw();
+    let [xr, xi] = x.to_raw();
+    let [yr, yi] = y.to_raw();
     let re = (xr as u128 % M31_P + M31_P - yr as u128 % M31_P) % M31_P;
     let im = (xi as u128 % M31_P + M31_P - yi as u128 % M31_P) % M31_P;
-    Elem::<QuadMersenne31>::from_raw(re as u32, im as u32)
+    Elem::<QuadMersenne31>::from_raw([re as u32, im as u32])
 }
 
 fn sample_qm() -> Vec<Elem<QuadMersenne31>> {
@@ -1148,15 +1149,15 @@ fn sample_qm() -> Vec<Elem<QuadMersenne31>> {
         (7, 12),
     ]
     .into_iter()
-    .map(|(re, im)| Elem::<QuadMersenne31>::from_raw(re, im))
+    .map(|(re, im)| Elem::<QuadMersenne31>::from_raw([re, im]))
     .collect();
     let mut state = 0x243f_6a88u32;
     for _ in 0..48 {
         state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        values.push(Elem::<QuadMersenne31>::from_raw(
+        values.push(Elem::<QuadMersenne31>::from_raw([
             state,
             state.rotate_left(7),
-        ));
+        ]));
     }
     values
 }
@@ -1167,23 +1168,23 @@ fn qm31_known_answer_products() {
     type Elem = fgf::Elem<_Qm>;
     // i^2 = -1
     assert_eq!(
-        Elem::from_raw(0, 1).square(),
-        Elem::from_raw(0x7FFF_FFFE, 0)
+        Elem::from_raw([0, 1]).square(),
+        Elem::from_raw([0x7FFF_FFFE, 0])
     );
     assert_eq!(
-        Elem::from_raw(0, 1).mul(Elem::from_raw(0, 1)),
-        Elem::from_raw(0x7FFF_FFFE, 0)
+        Elem::from_raw([0, 1]).mul(Elem::from_raw([0, 1])),
+        Elem::from_raw([0x7FFF_FFFE, 0])
     );
     // (a+ai)^2 = 0 + 2a^2 i with a^2 = 0x71C7_1C71 (the frozen M31 KAT).
     let two_a_sq = fgf::Elem::<fgf::Mersenne31>::from_raw(0x71C7_1C71)
         .add(fgf::Elem::<fgf::Mersenne31>::from_raw(0x71C7_1C71))
         .to_raw();
     assert_eq!(
-        Elem::from_raw(0x5555_5555, 0x5555_5555).square(),
-        Elem::from_raw(0, two_a_sq)
+        Elem::from_raw([0x5555_5555, 0x5555_5555]).square(),
+        Elem::from_raw([0, two_a_sq])
     );
     // Conjugate/norm inverse: inv(a+bi) = (a-bi)/(a^2+b^2).
-    let x = Elem::from_raw(0x1234_5678, 0x9abc_def0 % 0x7FFF_FFFF);
+    let x = Elem::from_raw([0x1234_5678, 0x9abc_def0 % 0x7FFF_FFFF]);
     assert_eq!(x.mul(x.inv()), Elem::ONE);
     assert_eq!(Elem::ZERO.inv(), Elem::ZERO);
 }
@@ -1197,22 +1198,22 @@ fn qm31_field_axioms() {
         // Every output is canonical per limb on any input.
         let m = a.mul(b);
         assert!(
-            m.to_raw().0 < 0x7FFF_FFFF && m.to_raw().1 < 0x7FFF_FFFF,
+            m.to_raw()[0] < 0x7FFF_FFFF && m.to_raw()[1] < 0x7FFF_FFFF,
             "mul canonical"
         );
         let s = a.add(b);
         assert!(
-            s.to_raw().0 < 0x7FFF_FFFF && s.to_raw().1 < 0x7FFF_FFFF,
+            s.to_raw()[0] < 0x7FFF_FFFF && s.to_raw()[1] < 0x7FFF_FFFF,
             "add canonical"
         );
         let d = a.sub(b);
         assert!(
-            d.to_raw().0 < 0x7FFF_FFFF && d.to_raw().1 < 0x7FFF_FFFF,
+            d.to_raw()[0] < 0x7FFF_FFFF && d.to_raw()[1] < 0x7FFF_FFFF,
             "sub canonical"
         );
         let g = a.neg();
         assert!(
-            g.to_raw().0 < 0x7FFF_FFFF && g.to_raw().1 < 0x7FFF_FFFF,
+            g.to_raw()[0] < 0x7FFF_FFFF && g.to_raw()[1] < 0x7FFF_FFFF,
             "neg canonical"
         );
         // Differentials against the u128 oracle.
@@ -1240,7 +1241,7 @@ fn qm31_field_axioms() {
         }
         // Norm is the base-field element a^2 + b^2.
         let n = a.norm();
-        let (ar, ai) = a.to_raw();
+        let [ar, ai] = a.to_raw();
         assert_eq!(
             n,
             Elem::<Mersenne31>::from_raw(ar)
@@ -1278,10 +1279,10 @@ fn qm31_arithmetic_is_total_over_raw_limbs() {
     ];
     for &(ra, rai) in &raws {
         for &(rb, rbi) in &raws {
-            let a = Elem::<QuadMersenne31>::from_raw(ra, rai);
-            let b = Elem::<QuadMersenne31>::from_raw(rb, rbi);
+            let a = Elem::<QuadMersenne31>::from_raw([ra, rai]);
+            let b = Elem::<QuadMersenne31>::from_raw([rb, rbi]);
             let m = a.mul(b);
-            assert!(m.to_raw().0 < 0x7FFF_FFFF && m.to_raw().1 < 0x7FFF_FFFF);
+            assert!(m.to_raw()[0] < 0x7FFF_FFFF && m.to_raw()[1] < 0x7FFF_FFFF);
             assert_eq!(m, qm_mul_oracle(a, b));
             assert_eq!(a.add(b), qm_add_oracle(a, b));
             assert_eq!(a.sub(b), qm_sub_oracle(a, b));
@@ -1686,13 +1687,13 @@ fn empty_product_of_ref<'a, E: fgf::field::FieldElem + Product<&'a E>>(_seed: &'
 use std::iter::{Product, Sum};
 
 type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
-type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
-type Gf32 = fgf::FiniteField<2, 32, fgf::Tower<fgf::Rijndael32>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
-type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Tower<fgf::FanPaar8>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Tower<fgf::FanPaar16>>;
-type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Tower<fgf::FanPaar32>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Tower<fgf::FanPaar64>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
+type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Extension<fgf::FanPaar8, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
+type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Extension<fgf::FanPaar32, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
 
 /// Every `field::FieldElem`/`field::Field` surface reachable from generic code:
 /// the trait's arithmetic (including defaulted methods), the total
@@ -1965,22 +1966,23 @@ fn inherent_conversion_helpers_round_trip() {
         }
     }
     every_gf8_field!(gf8_conversions);
-    // Towers: component projection is a bijection with from_components.
+    // Wide binary rows: component projection is a bijection with
+    // from_components.
     for a in sample_gf16().into_iter().step_by(61) {
-        let (lo, hi) = a.to_components();
-        assert_eq!(Elem::<Gf16>::from_components(lo, hi), a);
+        let [lo, hi] = a.to_components();
+        assert_eq!(Elem::<Gf16>::from_components([lo, hi]), a);
         assert_eq!(Elem::<Gf16>::from_raw(a.to_raw()), a);
         assert_eq!(Elem::<Gf16>::from_bytes(a.to_bytes()), a);
     }
     for a in sample_gf32().into_iter().step_by(11) {
-        let (lo, hi) = a.to_components();
-        assert_eq!(Elem::<Gf32>::from_components(lo, hi), a);
+        let [lo, hi] = a.to_components();
+        assert_eq!(Elem::<Gf32>::from_components([lo, hi]), a);
         assert_eq!(Elem::<Gf32>::from_raw(a.to_raw()), a);
         assert_eq!(Elem::<Gf32>::from_bytes(a.to_bytes()), a);
     }
     for a in sample_gf64().into_iter().step_by(11) {
-        let (lo, hi) = a.to_components();
-        assert_eq!(Elem::<Gf64>::from_components(lo, hi), a);
+        let [lo, hi] = a.to_components();
+        assert_eq!(Elem::<Gf64>::from_components([lo, hi]), a);
         assert_eq!(Elem::<Gf64>::from_raw(a.to_raw()), a);
         assert_eq!(Elem::<Gf64>::from_bytes(a.to_bytes()), a);
     }
@@ -2006,13 +2008,10 @@ fn inherent_conversion_helpers_round_trip() {
     }
     // Quadratic extension: conjugation and the norm land in the base field.
     for a in sample_qm().into_iter().step_by(7) {
-        assert_eq!(
-            Elem::<QuadMersenne31>::from_raw(a.to_raw().0, a.to_raw().1),
-            a
-        );
+        assert_eq!(Elem::<QuadMersenne31>::from_raw(a.to_raw()), a);
         assert_eq!(Elem::<QuadMersenne31>::from_bytes(a.to_bytes()), a);
-        let (re, im) = a.to_components();
-        assert_eq!(Elem::<QuadMersenne31>::from_components(re, im), a);
+        let [re, im] = a.to_components();
+        assert_eq!(Elem::<QuadMersenne31>::from_components([re, im]), a);
         assert_eq!(a.conjugate().conjugate(), a, "conjugation is an involution");
         assert_eq!(
             a.conjugate().norm(),
@@ -2023,7 +2022,7 @@ fn inherent_conversion_helpers_round_trip() {
             a.norm().to_raw() < 0x7FFF_FFFF,
             "norm lands in the base field"
         );
-        let (re, im) = a.mul(a.conjugate()).to_components();
+        let [re, im] = a.mul(a.conjugate()).to_components();
         assert_eq!(
             re.to_raw(),
             a.norm().to_raw(),
@@ -2037,8 +2036,8 @@ fn inherent_conversion_helpers_round_trip() {
             let a = $value;
             assert_eq!(<$elem>::from_raw(a.to_raw()), a);
             assert_eq!(<$elem>::from_bytes(a.to_bytes()), a);
-            let (lo, hi) = a.to_components();
-            assert_eq!(<$elem>::from_components(lo, hi), a);
+            let [lo, hi] = a.to_components();
+            assert_eq!(<$elem>::from_components([lo, hi]), a);
         }};
     }
     fp_level!(
@@ -2308,10 +2307,10 @@ fn generic_from_raw_agrees_with_inherent_constructors() {
         Gf1: [0, 1, 2, 0xFF]
     );
     // QuadMersenne31 takes two limbs, so it does not fit the macro above.
-    for &(re, im) in &[(0, 0), (1, 0), (0x7FFF_FFFF, 0), (u32::MAX, u32::MAX)] {
+    for &raw in &[[0, 0], [1, 0], [0x7FFF_FFFF, 0], [u32::MAX, u32::MAX]] {
         assert_eq!(
-            <Elem<QuadMersenne31> as fgf::field::FieldElem>::from_raw((re, im)),
-            Elem::<QuadMersenne31>::from_raw(re, im),
+            <Elem<QuadMersenne31> as fgf::field::FieldElem>::from_raw(raw),
+            Elem::<QuadMersenne31>::from_raw(raw),
             "generic and inherent from_raw disagree",
         );
     }
@@ -2319,7 +2318,7 @@ fn generic_from_raw_agrees_with_inherent_constructors() {
 
 #[test]
 fn qm31_wide_pow_matches_repeated_squaring() {
-    let a = Elem::<QuadMersenne31>::from_raw(0x1234_5678, 0x9abc_def0);
+    let a = Elem::<QuadMersenne31>::from_raw([0x1234_5678, 0x9abc_def0]);
     // Across the u64 range the const inherent pow agrees with manual
     // square-and-multiply.
     for exponent in [0u128, 1, 2, 3, 7, 255, 1 << 32, u64::MAX as u128] {
@@ -2452,30 +2451,30 @@ fn qm31_equivalent_representatives_are_one_value() {
     let p = quad_mersenne31::MODULUS;
     // Each limb canonicalizes independently: p ≡ 0, 2^31 ≡ 1.
     assert_same_value(
-        Elem::<QuadMersenne31>::from_raw(p, 0),
+        Elem::<QuadMersenne31>::from_raw([p, 0]),
         Elem::<QuadMersenne31>::ZERO,
     );
     assert_same_value(
-        Elem::<QuadMersenne31>::from_raw(0x8000_0000, 0x8000_0000),
-        Elem::<QuadMersenne31>::from_raw(1, 1),
+        Elem::<QuadMersenne31>::from_raw([0x8000_0000, 0x8000_0000]),
+        Elem::<QuadMersenne31>::from_raw([1, 1]),
     );
     // Mixed limbs: one canonical, the other not.
     assert_same_value(
-        Elem::<QuadMersenne31>::from_raw(1, p + 5),
-        Elem::<QuadMersenne31>::from_raw(1, 5),
+        Elem::<QuadMersenne31>::from_raw([1, p + 5]),
+        Elem::<QuadMersenne31>::from_raw([1, 5]),
     );
     assert_same_value(
-        Elem::<QuadMersenne31>::from_raw(0xFFFF_FFFF, 2),
-        Elem::<QuadMersenne31>::from_raw(1, 2),
+        Elem::<QuadMersenne31>::from_raw([0xFFFF_FFFF, 2]),
+        Elem::<QuadMersenne31>::from_raw([1, 2]),
     );
     // Lexicographic order over canonical limbs: raw-bit order would place
-    // from_raw(p, 1) above ONE.
+    // from_raw([p, 1]) above ONE.
     let i = Elem::<QuadMersenne31>::I;
     assert!(Elem::<QuadMersenne31>::ZERO < i);
     assert!(i < Elem::<QuadMersenne31>::ONE);
     assert!(Elem::<QuadMersenne31>::ONE < Elem::<QuadMersenne31>::ONE.add(i));
-    assert_eq!(Elem::<QuadMersenne31>::from_raw(p, 1), i);
-    assert!(Elem::<QuadMersenne31>::from_raw(p, 1) < Elem::<QuadMersenne31>::ONE);
+    assert_eq!(Elem::<QuadMersenne31>::from_raw([p, 1]), i);
+    assert!(Elem::<QuadMersenne31>::from_raw([p, 1]) < Elem::<QuadMersenne31>::ONE);
 }
 
 #[test]

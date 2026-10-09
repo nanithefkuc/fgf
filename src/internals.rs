@@ -15,22 +15,22 @@ pub mod kernel {
         pub use crate::kernel::gf8::*;
     }
 
-    /// Quadratic tower kernels over GF(2¹⁶).
+    /// Packed-extension kernels over GF(2¹⁶).
     pub mod gf16 {
         pub use crate::kernel::tower::gf16::*;
     }
 
-    /// Quadratic tower kernels over GF(2³²).
+    /// Packed-extension kernels over GF(2³²).
     pub mod gf32 {
         pub use crate::kernel::tower::gf32::*;
     }
 
-    /// Quadratic tower kernels over GF(2⁶⁴).
+    /// Packed-extension kernels over GF(2⁶⁴).
     pub mod gf64 {
         pub use crate::kernel::tower::gf64::*;
     }
 
-    /// Rijndael-rooted quadratic tower kernel family.
+    /// Packed-extension kernel families of the shipped quadratic towers.
     pub mod tower {
         pub use crate::kernel::tower::*;
     }

@@ -1,17 +1,17 @@
 //! Binary presentation surfaces outside the arithmetic sweeps: element
-//! formatting, custom-tower squaring against a base-field schoolbook, and the
+//! formatting, custom-extension squaring against a base-field schoolbook, and the
 //! wide identity and canonical predicates.
 
 use std::fmt::{self, Write};
 
 use fgf::{
-    AES, BinaryField, Cantor, Elem, Embedding, Field, FieldElem, FiniteField, Normal, Polynomial,
-    RS, RangeError, Residue, Tower, TowerSpec,
+    AES, BinaryField, Cantor, Elem, Embedding, Extension, ExtensionSpec, Field, FieldBuffer,
+    FieldElem, FiniteField, Normal, Packed, Polynomial, RS, RangeError, Relation, Residue,
 };
 
-type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
-type Gf32 = fgf::FiniteField<2, 32, fgf::Tower<fgf::Rijndael32>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
 
 /// Deterministic linear-congruential samples.
 fn lcg_samples(count: usize, seed: u64) -> Vec<u64> {
@@ -84,42 +84,44 @@ fn binary_formatting_reports_writer_failure() {
 /// `t^2 + 2*t + 0x80` over the Reed–Solomon byte field.
 #[derive(Clone, Copy)]
 struct BasesCustom16;
-impl TowerSpec for BasesCustom16 {
+impl ExtensionSpec<2> for BasesCustom16 {
     type Base = FiniteField<2, 8, Polynomial<RS>>;
-    const LINEAR_COEFFICIENT: u64 = 2;
-    const CONSTANT_COEFFICIENT: u64 = 0x80;
+    type Storage = Packed<u16>;
     const NAME: &'static str = "bases custom GF(2^16)";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 8, Polynomial<RS>>>(&[0x80, 0x2]);
 }
 
 /// `t^2 + t + 0x2001` over [`Gf16`].
 #[derive(Clone, Copy)]
 struct BasesCustom32;
-impl TowerSpec for BasesCustom32 {
+impl ExtensionSpec<2> for BasesCustom32 {
     type Base = Gf16;
-    const LINEAR_COEFFICIENT: u64 = 1;
-    const CONSTANT_COEFFICIENT: u64 = 0x2001;
+    type Storage = Packed<u32>;
     const NAME: &'static str = "bases custom GF(2^32)";
+    const RELATION: Relation = Relation::from_binary_words::<Gf16>(&[0x2001, 0x0001]);
 }
 
 /// `t^2 + t + 0x2ada7f36` over [`Gf32`].
 #[derive(Clone, Copy)]
 struct BasesCustom64;
-impl TowerSpec for BasesCustom64 {
+impl ExtensionSpec<2> for BasesCustom64 {
     type Base = Gf32;
-    const LINEAR_COEFFICIENT: u64 = 1;
-    const CONSTANT_COEFFICIENT: u64 = 0x2ada_7f36;
+    type Storage = Packed<u64>;
     const NAME: &'static str = "bases custom GF(2^64)";
+    const RELATION: Relation = Relation::from_binary_words::<Gf32>(&[0x2ada_7f36, 0x0000_0001]);
 }
 
-/// A tower over a normal-basis byte field, whose one is `0x00FF` rather
-/// than raw one.
+/// An extension over a normal-basis byte field, whose one is `0x00FF`
+/// rather than raw one.
 #[derive(Clone, Copy)]
 struct BasesNormal16;
-impl TowerSpec for BasesNormal16 {
+impl ExtensionSpec<2> for BasesNormal16 {
     type Base = FiniteField<2, 8, Normal<0x11B, 0x20>>;
-    const LINEAR_COEFFICIENT: u64 = 0xFF;
-    const CONSTANT_COEFFICIENT: u64 = 0x1;
+    type Storage = Packed<u16>;
     const NAME: &'static str = "bases normal-base GF(2^16)";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 8, Normal<0x11B, 0x20>>>(&[0x1, 0xFF]);
 }
 
 /// The square of `a + b*t` under `t^2 = A*t + B`, computed in the base:
@@ -136,13 +138,13 @@ fn schoolbook_square<B: BinaryField>(half: u32, linear: u64, constant: u64, word
     B::to_coordinates(new_low) | (B::to_coordinates(new_high) << half)
 }
 
-/// Custom towers square through the general descriptor interpreter; the
-/// result matches the base-field schoolbook of the defining relation.
+/// Custom extensions square through the generic extension body; the result
+/// matches the base-field schoolbook of the defining relation.
 #[test]
 fn custom_tower_squares_match_the_base_schoolbook() {
-    type F16 = FiniteField<2, 16, Tower<BasesCustom16>>;
-    type F32 = FiniteField<2, 32, Tower<BasesCustom32>>;
-    type F64 = FiniteField<2, 64, Tower<BasesCustom64>>;
+    type F16 = FiniteField<2, 16, Extension<BasesCustom16, 2>>;
+    type F32 = FiniteField<2, 32, Extension<BasesCustom32, 2>>;
+    type F64 = FiniteField<2, 64, Extension<BasesCustom64, 2>>;
     for raw in 0..=u16::MAX {
         let square = Elem::<F16>::from_raw(raw).square();
         assert_eq!(
@@ -172,12 +174,21 @@ fn custom_tower_squares_match_the_base_schoolbook() {
 }
 
 /// `is_one` holds exactly for the multiplicative identity — `x * g == g`
-/// for a nonzero `g` — including a tower whose one is not raw one, and
+/// for a nonzero `g` — including an extension whose one is not raw one, and
 /// canonical encodings agree with element equality.
 #[test]
 fn wide_identity_and_canonical_predicates_follow_the_field() {
     macro_rules! check {
-        ($field:ty, $samples:expr, $probe:expr) => {{
+        // Custom rows: the buffer encoding.
+        (custom $field:ty, $samples:expr, $probe:expr) => {
+            check!(@run $field, $samples, $probe, |x: Elem<$field>| {
+                let mut bytes = vec![0u8; <$field as FieldBuffer>::BYTES];
+                <$field as FieldBuffer>::encode(&mut bytes, x);
+                bytes
+            })
+        };
+        (@run $field:ty, $samples:expr, $probe:expr, $encode:expr) => {{
+            let encode = $encode;
             let probe = Elem::<$field>::from_raw($probe);
             let elements: Vec<Elem<$field>> = $samples
                 .into_iter()
@@ -189,13 +200,19 @@ fn wide_identity_and_canonical_predicates_follow_the_field() {
                 let identity = x.mul(probe) == probe;
                 assert_eq!(x.is_one(), identity, "{:#x}", x.to_raw());
                 ones += usize::from(identity);
-                assert_eq!(x.canonical(), x);
                 for &y in &elements {
-                    assert_eq!(x.canonical().to_bytes() == y.canonical().to_bytes(), x == y);
+                    assert_eq!(encode(x) == encode(y), x == y);
                 }
             }
             assert!(ones >= 1, "the identity is among the samples");
         }};
+        // Shipped rows: the inherent `canonical` and byte surface.
+        ($field:ty, $samples:expr, $probe:expr) => {
+            check!(@run $field, $samples, $probe, |x: Elem<$field>| {
+                assert_eq!(x.canonical(), x);
+                x.canonical().to_bytes().to_vec()
+            })
+        };
     }
     #[allow(clippy::cast_possible_truncation)]
     let narrow = |count, seed| -> Vec<u16> {
@@ -211,7 +228,7 @@ fn wide_identity_and_canonical_predicates_follow_the_field() {
             .map(|word| word as u32)
             .collect()
     };
-    check!(FiniteField<2, 16, Tower<BasesNormal16>>, narrow(64, 0x1d16), 0x1234);
+    check!(custom FiniteField<2, 16, Extension<BasesNormal16, 2>>, narrow(64, 0x1d16), 0x1234);
     check!(Gf16, narrow(64, 0x6f16), 0x1234);
     check!(Gf32, medium(64, 0x6f32), 0x1234_5678);
     check!(Gf64, lcg_samples(64, 0x6f64), 0x1234_5678_9abc_def0);

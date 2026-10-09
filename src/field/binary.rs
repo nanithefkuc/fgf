@@ -1,22 +1,21 @@
 //! Binary fields by total degree and representation.
 //!
-//! GF(2^N) under the representation `R` is the canonical family row
+//! GF(2^N) under the flat representation `R` is the canonical family row
 //! [`FiniteField<2, N, R>`](crate::field::FiniteField), and [`Elem`] over it
-//! is its element. [`BinaryRepr`] is the sealed vocabulary of binary
+//! is its element. [`BinaryRepr`] is the sealed vocabulary of flat binary
 //! representations: it extends the family's presentation metadata with the
 //! descriptor and, at degree eight, the discrete-logarithm tables.
 //! [`BinaryField`] adds the canonical coordinate conversions shared by every
-//! binary presentation, and [`BinaryDegree`] pins the exact degree a generic
-//! tower row may build on.
+//! binary field, flat rows and characteristic-two extension rows alike, and
+//! [`BinaryDegree`] pins the exact degree generic code may build on. The
+//! shipped quadratic towers are extension rows; see [`tower`].
 //!
 //! # Layout
 //!
-//! Raw storage is private to the crate. Degrees 1, 2, 4, and 8 store one
-//! element in a byte holding exactly the `N` low coordinate bits; degrees 16,
-//! 32, and 64 store one element in the little-endian `u16`, `u32`, or `u64`
-//! holding exactly `N` bits. The stable byte encoding of an element is the
-//! little-endian encoding of its raw word, and degree 64 is the crate's
-//! binary cap.
+//! Raw storage is private to the crate. Flat rows of degrees 1, 2, 4, and 8
+//! store one element in a byte holding exactly the `N` low coordinate bits.
+//! The stable byte encoding of an element is the little-endian encoding of
+//! its raw word, and degree 64 is the crate's binary cap.
 //!
 //! # Totality and canonicalization
 //!
@@ -433,9 +432,6 @@ degree_row!(1, u8, 0x1);
 degree_row!(2, u8, 0x3);
 degree_row!(4, u8, 0xF);
 degree_row!(8, u8, 0xFF);
-degree_row!(16, u16, u16::MAX);
-degree_row!(32, u32, u32::MAX);
-degree_row!(64, u64, u64::MAX);
 
 small_row!(1, 0x1);
 small_row!(2, 0x3);
@@ -464,228 +460,6 @@ impl<R: BinaryRepr<1>> Elem<FiniteField<2, 1, R>> {
         Some(if self.raw == Self::ZERO.raw { 0 } else { 1 })
     }
 }
-
-/// Emit the inherent `const` scalar arithmetic of one wide degree row.
-///
-/// One body per operation branches on structural equality with the
-/// crate-pinned descriptions: the Rijndael and Fan-Paar presentations keep
-/// their specialized recurrences and every other description uses the
-/// general descriptor interpreter. Custom specs cannot claim a strategy.
-macro_rules! wide_row {
-    (
-        $n:literal, $raw:ty, $bytes:literal, $width:expr,
-        $rijndael:expr, $fanpaar:expr,
-        $rmul:path, $rsquare:path, $rinv:path
-    ) => {
-        impl<R: BinaryRepr<$n>> Elem<FiniteField<2, $n, R>> {
-            /// Wrap a raw storage word.
-            ///
-            /// Referencing this constructor evaluates the representation's
-            /// validity check, so an invalid relation fails to compile at
-            /// the use site.
-            #[allow(clippy::let_unit_value)]
-            #[allow(clippy::ignored_unit_patterns)]
-            #[inline]
-            #[must_use]
-            pub const fn from_raw(value: $raw) -> Self {
-                let () = Validate::<FiniteField<2, $n, R>>::OK;
-                let () = R::VALID;
-                Elem { raw: value }
-            }
-
-            /// Decode from the stable little-endian representation.
-            #[inline]
-            #[must_use]
-            pub const fn from_bytes(bytes: [u8; $bytes]) -> Self {
-                Self::from_raw(<$raw>::from_le_bytes(bytes))
-            }
-
-            /// Encode to the stable little-endian representation.
-            #[inline]
-            #[must_use]
-            pub const fn to_bytes(self) -> [u8; $bytes] {
-                self.raw.to_le_bytes()
-            }
-
-            /// Field addition. Identical to subtraction and to bitwise XOR.
-            #[inline]
-            #[must_use]
-            pub const fn add(self, rhs: Self) -> Self {
-                Elem {
-                    raw: self.raw ^ rhs.raw,
-                }
-            }
-
-            /// Field subtraction. Identical to [`Elem::add`](Self::add).
-            #[inline]
-            #[must_use]
-            pub const fn sub(self, rhs: Self) -> Self {
-                self.add(rhs)
-            }
-
-            /// Additive inverse. The identity: `x + x = 0`.
-            #[inline]
-            #[must_use]
-            pub const fn neg(self) -> Self {
-                self
-            }
-
-            /// Field multiplication.
-            #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
-            #[inline]
-            #[must_use]
-            pub const fn mul(self, rhs: Self) -> Self {
-                if const { R::DESCRIPTION.same_structure($rijndael) } {
-                    Elem {
-                        raw: $rmul(self.raw, rhs.raw),
-                    }
-                } else if const { R::DESCRIPTION.same_structure($fanpaar) } {
-                    Elem {
-                        raw: tower::fp_multiply(self.raw as u64, rhs.raw as u64, $n) as $raw,
-                    }
-                } else {
-                    Elem {
-                        raw: R::DESCRIPTION.mul(self.raw as u64, rhs.raw as u64) as $raw,
-                    }
-                }
-            }
-
-            /// Square.
-            #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
-            #[inline]
-            #[must_use]
-            pub const fn square(self) -> Self {
-                if const { R::DESCRIPTION.same_structure($rijndael) } {
-                    Elem {
-                        raw: $rsquare(self.raw),
-                    }
-                } else if const { R::DESCRIPTION.same_structure($fanpaar) } {
-                    Elem {
-                        raw: tower::fp_square(self.raw as u64, $n) as $raw,
-                    }
-                } else {
-                    Elem {
-                        raw: R::DESCRIPTION.mul(self.raw as u64, self.raw as u64) as $raw,
-                    }
-                }
-            }
-
-            /// Multiplicative inverse. Maps zero to zero by crate convention.
-            #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
-            #[inline]
-            #[must_use]
-            pub const fn inv(self) -> Self {
-                if const { R::DESCRIPTION.same_structure($rijndael) } {
-                    Elem {
-                        raw: $rinv(self.raw),
-                    }
-                } else if const { R::DESCRIPTION.same_structure($fanpaar) } {
-                    Elem {
-                        raw: tower::fp_invert(self.raw as u64, $n) as $raw,
-                    }
-                } else {
-                    Elem {
-                        raw: R::DESCRIPTION.inv(self.raw as u64) as $raw,
-                    }
-                }
-            }
-
-            /// Field division. Returns zero when either operand is zero.
-            ///
-            /// `x / 0 == 0` is a definition, not an oversight: keeping
-            /// division total leaves hot loops branch-free and keeps this
-            /// callable from `const` context.
-            #[inline]
-            #[must_use]
-            pub const fn div(self, rhs: Self) -> Self {
-                if self.raw == 0 || rhs.raw == 0 {
-                    return Self::ZERO;
-                }
-                self.mul(rhs.inv())
-            }
-
-            /// Raise to an unsigned integer power.
-            #[must_use]
-            pub const fn pow(self, mut exponent: u128) -> Self {
-                let mut base = self;
-                let mut result = Self::ONE;
-                while exponent != 0 {
-                    if exponent & 1 != 0 {
-                        result = result.mul(base);
-                    }
-                    base = base.square();
-                    exponent >>= 1;
-                }
-                result
-            }
-
-            /// The canonical representative of this element.
-            ///
-            /// Stored bytes are canonical by construction, so this is the
-            /// identity. It exists because every field in the crate answers
-            /// the question.
-            #[inline]
-            #[must_use]
-            pub const fn canonical(self) -> Self {
-                self
-            }
-
-            /// Whether this element is the additive identity.
-            #[inline]
-            #[must_use]
-            pub const fn is_zero(self) -> bool {
-                self.raw == 0
-            }
-
-            /// Whether this element is the multiplicative identity.
-            #[inline]
-            #[must_use]
-            pub const fn is_one(self) -> bool {
-                self.raw == Self::ONE.raw
-            }
-        }
-
-        impl<R: BinaryRepr<$n>> fmt::Display for Elem<FiniteField<2, $n, R>> {
-            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(formatter, "{:0width$x}", self.raw, width = $width)
-            }
-        }
-    };
-}
-
-wide_row!(
-    16,
-    u16,
-    2,
-    4,
-    tower::RIJNDAEL16_DESC,
-    tower::FANPAAR16_DESC,
-    tower::rijndael16_mul,
-    tower::rijndael16_square,
-    tower::rijndael16_inv
-);
-wide_row!(
-    32,
-    u32,
-    4,
-    8,
-    tower::RIJNDAEL32_DESC,
-    tower::FANPAAR32_DESC,
-    tower::rijndael32_mul,
-    tower::rijndael32_square,
-    tower::rijndael32_inv
-);
-wide_row!(
-    64,
-    u64,
-    8,
-    16,
-    tower::RIJNDAEL64_DESC,
-    tower::FANPAAR64_DESC,
-    tower::rijndael64_mul,
-    tower::rijndael64_square,
-    tower::rijndael64_inv
-);
 
 impl<R: BinaryRepr<8>> FieldBuffer for FiniteField<2, 8, R> {
     const BYTES: usize = 1;

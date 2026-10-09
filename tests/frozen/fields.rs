@@ -327,7 +327,7 @@ fn check_quad_mersenne(lines: &mut Records<'_>) {
         *im = u32::try_from(source.next() % prime).expect("below the prime");
     }
     let elements: [Elem<Q>; 64] =
-        core::array::from_fn(|index| Elem::<Q>::from_raw(limbs[index].0, limbs[index].1));
+        core::array::from_fn(|index| Elem::<Q>::from_raw([limbs[index].0, limbs[index].1]));
     for (index, (re, im)) in limbs.into_iter().enumerate() {
         let (line, number) = lines.next().expect("sample line");
         let fields = fields_of("shipped.txt", number, line);
@@ -336,8 +336,8 @@ fn check_quad_mersenne(lines: &mut Records<'_>) {
         assert_eq!(fields[2], hex(u64::from(re)), "shipped.txt:{number}");
         assert_eq!(fields[3], hex(u64::from(im)), "shipped.txt:{number}");
         let raw = elements[index].to_raw();
-        assert_eq!(fields[4], hex(u64::from(raw.0)), "shipped.txt:{number}");
-        assert_eq!(fields[5], hex(u64::from(raw.1)), "shipped.txt:{number}");
+        assert_eq!(fields[4], hex(u64::from(raw[0])), "shipped.txt:{number}");
+        assert_eq!(fields[5], hex(u64::from(raw[1])), "shipped.txt:{number}");
     }
     for index in 0..64 {
         let left = elements[index];
@@ -349,32 +349,32 @@ fn check_quad_mersenne(lines: &mut Records<'_>) {
         assert_eq!(fields[1], index.to_string(), "shipped.txt:{number}");
         assert_eq!(
             fields[2],
-            hex(u64::from(left.to_raw().0)),
+            hex(u64::from(left.to_raw()[0])),
             "shipped.txt:{number}"
         );
         assert_eq!(
             fields[3],
-            hex(u64::from(left.to_raw().1)),
+            hex(u64::from(left.to_raw()[1])),
             "shipped.txt:{number}"
         );
         assert_eq!(
             fields[4],
-            hex(u64::from(right.to_raw().0)),
+            hex(u64::from(right.to_raw()[0])),
             "shipped.txt:{number}"
         );
         assert_eq!(
             fields[5],
-            hex(u64::from(right.to_raw().1)),
+            hex(u64::from(right.to_raw()[1])),
             "shipped.txt:{number}"
         );
         assert_eq!(
             fields[6],
-            hex(u64::from(product.to_raw().0)),
+            hex(u64::from(product.to_raw()[0])),
             "shipped.txt:{number}"
         );
         assert_eq!(
             fields[7],
-            hex(u64::from(product.to_raw().1)),
+            hex(u64::from(product.to_raw()[1])),
             "shipped.txt:{number}"
         );
         assert_eq!(
@@ -391,22 +391,22 @@ fn check_quad_mersenne(lines: &mut Records<'_>) {
         assert_eq!(fields[1], index.to_string(), "shipped.txt:{number}");
         assert_eq!(
             fields[2],
-            hex(u64::from(element.to_raw().0)),
+            hex(u64::from(element.to_raw()[0])),
             "shipped.txt:{number}"
         );
         assert_eq!(
             fields[3],
-            hex(u64::from(element.to_raw().1)),
+            hex(u64::from(element.to_raw()[1])),
             "shipped.txt:{number}"
         );
         assert_eq!(
             fields[4],
-            hex(u64::from(inverse.to_raw().0)),
+            hex(u64::from(inverse.to_raw()[0])),
             "shipped.txt:{number}"
         );
         assert_eq!(
             fields[5],
-            hex(u64::from(inverse.to_raw().1)),
+            hex(u64::from(inverse.to_raw()[1])),
             "shipped.txt:{number}"
         );
     }
@@ -419,17 +419,17 @@ fn check_quad_mersenne(lines: &mut Records<'_>) {
         assert_eq!(fields[1], exponent.to_string(), "shipped.txt:{number}");
         assert_eq!(
             fields[2],
-            hex(u64::from(power.to_raw().0)),
+            hex(u64::from(power.to_raw()[0])),
             "shipped.txt:{number}"
         );
         assert_eq!(
             fields[3],
-            hex(u64::from(power.to_raw().1)),
+            hex(u64::from(power.to_raw()[1])),
             "shipped.txt:{number}"
         );
     }
     for (index, element) in elements.into_iter().enumerate() {
-        let exponent = element.to_raw().0;
+        let exponent = element.to_raw()[0];
         let power = FieldElem::pow(generator, u128::from(exponent));
         let (line, number) = lines.next().expect("powexp line");
         let fields = fields_of("shipped.txt", number, line);
@@ -438,12 +438,12 @@ fn check_quad_mersenne(lines: &mut Records<'_>) {
         assert_eq!(fields[2], hex(u64::from(exponent)), "shipped.txt:{number}");
         assert_eq!(
             fields[3],
-            hex(u64::from(power.to_raw().0)),
+            hex(u64::from(power.to_raw()[0])),
             "shipped.txt:{number}"
         );
         assert_eq!(
             fields[4],
-            hex(u64::from(power.to_raw().1)),
+            hex(u64::from(power.to_raw()[1])),
             "shipped.txt:{number}"
         );
     }
@@ -454,12 +454,12 @@ fn check_quad_mersenne(lines: &mut Records<'_>) {
         assert_eq!(fields[1], index.to_string(), "shipped.txt:{number}");
         assert_eq!(
             fields[2],
-            hex(u64::from(element.to_raw().0)),
+            hex(u64::from(element.to_raw()[0])),
             "shipped.txt:{number}"
         );
         assert_eq!(
             fields[3],
-            hex(u64::from(element.to_raw().1)),
+            hex(u64::from(element.to_raw()[1])),
             "shipped.txt:{number}"
         );
         assert_eq!(

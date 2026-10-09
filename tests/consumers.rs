@@ -15,7 +15,7 @@ use fgf::poly::{AES, RS};
 use fgf::{
     BinaryRepr, Cantor, Elem, FieldKernels, FiniteField, FiniteFieldRepr, Goldilocks, Mersenne31,
     Normal, Polynomial, PrimeField, QuadMersenne31, Residue, Rijndael16, Rijndael32, Rijndael64,
-    Tower, TowerSpec, ops,
+    ops,
 };
 
 type Residue2 = FiniteField<2, 1, Residue>;
@@ -23,23 +23,30 @@ type Residue7 = FiniteField<7, 1, Residue>;
 type ResiduePrime = FiniteField<1_000_000_007, 1, Residue>;
 type ResidueWide = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1, Residue>;
 
-type Gf16 = FiniteField<2, 16, Tower<Rijndael16>>;
-type Gf32 = FiniteField<2, 32, Tower<Rijndael32>>;
-type Gf64 = FiniteField<2, 64, Tower<Rijndael64>>;
+type Gf16 = FiniteField<2, 16, Extension<Rijndael16, 2>>;
+type Gf32 = FiniteField<2, 32, Extension<Rijndael32, 2>>;
+type Gf64 = FiniteField<2, 64, Extension<Rijndael64, 2>>;
+type FanPaar2Row = FiniteField<2, 2, Extension<fgf::FanPaar2, 2>>;
+type FanPaar4Row = FiniteField<2, 4, Extension<fgf::FanPaar4, 2>>;
+type FanPaar8Row = FiniteField<2, 8, Extension<fgf::FanPaar8, 2>>;
+type FanPaar16Row = FiniteField<2, 16, Extension<fgf::FanPaar16, 2>>;
+type FanPaar32Row = FiniteField<2, 32, Extension<fgf::FanPaar32, 2>>;
+type FanPaar64Row = FiniteField<2, 64, Extension<fgf::FanPaar64, 2>>;
 
-/// A downstream tower specification: the open `TowerSpec` data provider
-/// over a shipped byte field, reaching the library-owned tower rows.
+/// A downstream extension specification over a shipped byte field with the
+/// Rijndael relation `t^2 + t + 0x20`, reaching the library-owned kernels.
 #[derive(Clone, Copy)]
 struct CustomSpec;
 
-impl TowerSpec for CustomSpec {
+impl ExtensionSpec<2> for CustomSpec {
     type Base = FiniteField<2, 8, Polynomial<AES>>;
-    const LINEAR_COEFFICIENT: u64 = 1;
-    const CONSTANT_COEFFICIENT: u64 = 0x20;
+    type Storage = Packed<u16>;
     const NAME: &'static str = "custom GF(2^16)";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 8, Polynomial<AES>>>(&[0x20, 1]);
 }
 
-type CustomGf16 = FiniteField<2, 16, Tower<CustomSpec>>;
+type CustomGf16 = FiniteField<2, 16, Extension<CustomSpec, 2>>;
 
 /// Every byte-buffer row at degree eight and above, each driven through
 /// both the buffer and the packed-operation surface.
@@ -50,10 +57,10 @@ macro_rules! byte_rows {
             FiniteField<2, 8, Polynomial<RS>> => 0x53,
             FiniteField<2, 8, Normal<0x11B, 0x20>> => 0x53,
             FiniteField<2, 8, Cantor<0x11B, 0x20>> => 0x53,
-            FiniteField<2, 8, Tower<fgf::FanPaar8>> => 0xAB,
-            FiniteField<2, 16, Tower<fgf::FanPaar16>> => 0x0108,
-            FiniteField<2, 32, Tower<fgf::FanPaar32>> => 0x5555_5555,
-            FiniteField<2, 64, Tower<fgf::FanPaar64>> => 0x00C0_FFEE,
+            FanPaar8Row => 0xAB,
+            FanPaar16Row => 0x0108,
+            FanPaar32Row => 0x5555_5555,
+            FanPaar64Row => 0x00C0_FFEE,
             Gf16 => 0x1B70,
             Gf32 => 0x0F0F_0F0F,
             Gf64 => 0xFFFF_0000_0000_FFFF,
@@ -147,22 +154,22 @@ fn every_field_row_drives_the_generic_surface() {
     exercise_field::<FiniteField<2, 4, Cantor<0x13, 0xE>>>(0x7, 0x3);
     exercise_field::<FiniteField<2, 8, Normal<0x11B, 0x20>>>(0x53, 0x01);
     exercise_field::<FiniteField<2, 8, Cantor<0x11B, 0x20>>>(0x53, 0xCA);
-    // Shipped Fan-Paar towers at every degree, and the Rijndael towers.
-    exercise_field::<FiniteField<2, 2, Tower<fgf::FanPaar2>>>(0x2, 0x3);
-    exercise_field::<FiniteField<2, 4, Tower<fgf::FanPaar4>>>(0x9, 0x5);
-    exercise_field::<FiniteField<2, 8, Tower<fgf::FanPaar8>>>(0xAB, 0xCD);
-    exercise_field::<FiniteField<2, 16, Tower<fgf::FanPaar16>>>(0x0108, 0x1B70);
-    exercise_field::<FiniteField<2, 32, Tower<fgf::FanPaar32>>>(0x5555_5555, 0x0F0F_0F0F);
-    exercise_field::<FiniteField<2, 64, Tower<fgf::FanPaar64>>>(0x0123_4567_89AB_CDEF, 7);
+    // Shipped Fan-Paar rows at every degree, and the Rijndael rows.
+    exercise_field::<FanPaar2Row>(0x2, 0x3);
+    exercise_field::<FanPaar4Row>(0x9, 0x5);
+    exercise_field::<FanPaar8Row>(0xAB, 0xCD);
+    exercise_field::<FanPaar16Row>(0x0108, 0x1B70);
+    exercise_field::<FanPaar32Row>(0x5555_5555, 0x0F0F_0F0F);
+    exercise_field::<FanPaar64Row>(0x0123_4567_89AB_CDEF, 7);
     exercise_field::<Gf16>(0x0108, 0x1B70);
     exercise_field::<Gf32>(0x5555_5555, 0x0F0F_0F0F);
     exercise_field::<Gf64>(0x0123_4567_89AB_CDEF, 0xFFFF_0000_0000_FFFF);
-    // A downstream tower specification over a shipped byte field.
+    // A downstream extension specification over a shipped byte field.
     exercise_field::<CustomGf16>(0x0108, 0x1B70);
     // Named prime rows and the quadratic extension.
     exercise_field::<Mersenne31>(0x5555_5555, 0x71C7_1C71);
     exercise_field::<Goldilocks>(0xFFFF_FFFF_0000_0000, 7);
-    exercise_field::<QuadMersenne31>((0x5555_5555, 0x1234_5678), (0x7FFF_FFFF, 0x7FFF_FFFF));
+    exercise_field::<QuadMersenne31>([0x5555_5555, 0x1234_5678], [0x7FFF_FFFF, 0x7FFF_FFFF]);
     // Residue rows across the characteristic range.
     exercise_field::<Residue2>(1, 1);
     exercise_field::<Residue7>(5, 6);
@@ -207,7 +214,7 @@ fn binary_rows_keep_fixed_raw_words_under_generic_presentations() {
 fn wire_format_rows_round_trip() {
     exercise_buffer::<Mersenne31>(Elem::<Mersenne31>::from_raw(0x5555_5555));
     exercise_buffer::<Goldilocks>(Elem::<Goldilocks>::from_raw(7));
-    let quad = Elem::<QuadMersenne31>::from_raw(3, 5);
+    let quad = Elem::<QuadMersenne31>::from_raw([3, 5]);
     exercise_buffer::<QuadMersenne31>(quad);
     byte_rows!(exercise_buffer);
     exercise_buffer::<Residue7>(Elem::<Residue7>::from_residue(6).expect("in range"));
@@ -219,7 +226,7 @@ fn wire_format_rows_round_trip() {
 fn dispatchable_rows_drive_packed_operations() {
     exercise_kernels::<Mersenne31>(Elem::<Mersenne31>::from_raw(7));
     exercise_kernels::<Goldilocks>(Elem::<Goldilocks>::from_raw(7));
-    exercise_kernels::<QuadMersenne31>(Elem::<QuadMersenne31>::from_raw(13, 17));
+    exercise_kernels::<QuadMersenne31>(Elem::<QuadMersenne31>::from_raw([13, 17]));
     byte_rows!(exercise_kernels);
     exercise_kernels::<Residue2>(Elem::<Residue2>::ONE);
     exercise_kernels::<Residue7>(Elem::<Residue7>::from_residue(3).expect("in range"));
@@ -264,6 +271,146 @@ fn const_contexts_evaluate() {
     assert_eq!(RESIDUE_WIDE_SUM.to_residue(), Some(59));
     assert_eq!(NAMED_FIELD_INVERSE.to_raw(), 0x4000_0000);
     assert_eq!(FAMILY_ADD.to_residue(), Some(5));
+}
+
+/// Every shipped binary extension instance with two nonzero raw words.
+macro_rules! shipped_binary_instances {
+    ($mac:ident) => {
+        $mac!(RIJNDAEL16_CONST, Gf16, 0x1B70, 0x0108);
+        $mac!(RIJNDAEL32_CONST, Gf32, 0x5555_5555, 0x0F0F_0F0F);
+        $mac!(
+            RIJNDAEL64_CONST,
+            Gf64,
+            0x0123_4567_89AB_CDEF,
+            0xFFFF_0000_0000_FFFF
+        );
+        $mac!(FAN_PAAR2_CONST, FanPaar2Row, 0x2, 0x3);
+        $mac!(FAN_PAAR4_CONST, FanPaar4Row, 0x9, 0x5);
+        $mac!(FAN_PAAR8_CONST, FanPaar8Row, 0xAB, 0xCD);
+        $mac!(FAN_PAAR16_CONST, FanPaar16Row, 0x0108, 0x1B70);
+        $mac!(FAN_PAAR32_CONST, FanPaar32Row, 0x5555_5555, 0x0F0F_0F0F);
+        $mac!(FAN_PAAR64_CONST, FanPaar64Row, 0x0123_4567_89AB_CDEF, 7);
+    };
+}
+
+/// The inherent const surface of one shipped binary instance, evaluated
+/// during compilation: a combined value, the field identities, the byte
+/// round trip, and the generator's order.
+macro_rules! const_binary_surface {
+    ($name:ident, $row:ty, $x:expr, $y:expr) => {
+        const $name: Elem<$row> = Elem::<$row>::from_raw($x)
+            .mul(Elem::<$row>::from_raw($y))
+            .inv()
+            .pow(3);
+        const _: () = {
+            let x = Elem::<$row>::from_raw($x);
+            let y = Elem::<$row>::from_raw($y);
+            assert!(x.mul(x.inv()).is_one());
+            assert!(x.div(y).mul(y).to_raw() == x.to_raw());
+            assert!(x.add(y).sub(y).to_raw() == x.to_raw());
+            assert!(x.neg().add(x).is_zero());
+            assert!(x.square().to_raw() == x.mul(x).to_raw());
+            assert!(x.canonical().to_raw() == x.to_raw());
+            assert!(Elem::<$row>::from_bytes(x.to_bytes()).to_raw() == x.to_raw());
+            assert!($name.pow(3).mul(x.mul(y).pow(9)).is_one());
+            let generator = Elem::<$row>::GENERATOR;
+            assert!(generator.pow(<$row as Field>::ORDER - 1).is_one());
+            assert!(!generator.pow((<$row as Field>::ORDER - 1) / 3).is_one());
+        };
+    };
+}
+
+shipped_binary_instances!(const_binary_surface);
+
+/// `mul_alpha` multiplies by the level indeterminate: component one set,
+/// the word `1 << (N / 2)`.
+const _: () = {
+    let x8 = Elem::<FanPaar8Row>::from_raw(0xAB);
+    assert!(x8.mul_alpha().to_raw() == x8.mul(Elem::<FanPaar8Row>::from_raw(0x10)).to_raw());
+    let x16 = Elem::<FanPaar16Row>::from_raw(0x1B70);
+    assert!(x16.mul_alpha().to_raw() == x16.mul(Elem::<FanPaar16Row>::from_raw(0x100)).to_raw());
+    let x32 = Elem::<FanPaar32Row>::from_raw(0x5555_5555);
+    assert!(x32.mul_alpha().to_raw() == x32.mul(Elem::<FanPaar32Row>::from_raw(0x1_0000)).to_raw());
+};
+
+/// The wide component form: component zero is the constant term, component
+/// one the indeterminate, and the split round-trips.
+macro_rules! const_components {
+    ($($row:ty, $half:literal;)*) => {$(
+        const _: () = {
+            type Base = <$row as ExtensionField<2>>::Base;
+            let one = Elem::<$row>::from_components([Elem::<Base>::ONE, Elem::<Base>::ZERO]);
+            assert!(one.is_one());
+            let t = Elem::<$row>::from_components([Elem::<Base>::ZERO, Elem::<Base>::ONE]);
+            assert!(t.to_raw() == 1 << $half);
+            let x = Elem::<$row>::GENERATOR;
+            let [low, high] = x.to_components();
+            assert!(Elem::<$row>::from_components([low, high]).to_raw() == x.to_raw());
+            assert!(Elem::<$row>::from_components([low, Elem::<Base>::ZERO])
+                .add(t.mul(Elem::<$row>::from_components([high, Elem::<Base>::ZERO])))
+                .to_raw()
+                == x.to_raw());
+        };
+    )*};
+}
+
+const_components!(
+    Gf16, 8;
+    Gf32, 16;
+    Gf64, 32;
+    FanPaar16Row, 8;
+    FanPaar32Row, 16;
+    FanPaar64Row, 32;
+);
+
+const QUAD_CONST: Elem<QuadMersenne31> = Elem::<QuadMersenne31>::from_raw([3, 5])
+    .mul(Elem::<QuadMersenne31>::from_raw([0x7FFF_FFFE, 12]))
+    .inv()
+    .pow(3);
+const _: () = {
+    type Q = QuadMersenne31;
+    let x = Elem::<Q>::from_raw([3, 5]);
+    let y = Elem::<Q>::from_raw([0x7FFF_FFFE, 12]);
+    assert!(x.mul(x.inv()).is_one());
+    assert!(x.div(y).mul(y).to_raw()[0] == 3 && x.div(y).mul(y).to_raw()[1] == 5);
+    assert!(x.add(y).sub(y).to_raw()[1] == 5);
+    assert!(x.neg().add(x).is_zero());
+    assert!(x.square().to_raw()[0] == x.mul(x).to_raw()[0]);
+    assert!(x.canonical().to_raw()[1] == 5);
+    assert!(Elem::<Q>::from_bytes(x.to_bytes()).to_raw()[1] == 5);
+    assert!(QUAD_CONST.pow(3).mul(x.mul(y).pow(9)).is_one());
+    // `i^2 = -1`, the conjugate flips the imaginary limb, and the norm is
+    // `re^2 + im^2` both directly and as `x * conj(x)`.
+    assert!(Elem::<Q>::I.mul(Elem::<Q>::I).add(Elem::<Q>::ONE).is_zero());
+    let conjugate = x.conjugate();
+    assert!(conjugate.to_raw()[0] == 3 && conjugate.to_raw()[1] == 0x7FFF_FFFF - 5);
+    assert!(x.norm().to_raw() == 34);
+    let [re, im] = x.mul(conjugate).to_components();
+    assert!(re.to_raw() == 34 && im.to_raw() == 0);
+    let [re, im] = x.to_components();
+    assert!(Elem::<Q>::from_components([re, im]).to_raw()[1] == 5);
+    let generator = Elem::<Q>::GENERATOR;
+    assert!(generator.pow(<Q as Field>::ORDER - 1).is_one());
+};
+
+#[test]
+fn shipped_instance_const_surface_matches_the_trait_surface() {
+    // The compile-time values above, recomputed through the generic trait
+    // surface at runtime.
+    macro_rules! check {
+        ($name:ident, $row:ty, $x:expr, $y:expr) => {
+            let x = <Elem<$row> as FieldElem>::from_raw($x);
+            let y = <Elem<$row> as FieldElem>::from_raw($y);
+            assert_eq!(
+                $name,
+                FieldElem::pow(FieldElem::inv(FieldElem::mul(x, y)), 3),
+                "{}",
+                <$row as Field>::NAME
+            );
+        };
+    }
+    shipped_binary_instances!(check);
+    check!(QUAD_CONST, QuadMersenne31, [3, 5], [0x7FFF_FFFE, 12]);
 }
 
 #[test]
@@ -638,20 +785,20 @@ fn extension_rows_exercise_arithmetic_and_relations() {
     // Over the shipped QuadMersenne31: `t^2 = 2 + i` in the base's own
     // limbs, and the byte form concatenates the base encodings.
     exercise_extension::<OverQuadMersenne, 2>(
-        Elem::<OverQuadMersenne>::from_raw([(1, 2), (3, 4)]),
-        Elem::<OverQuadMersenne>::from_raw([(0x7FFF_FFFE, 0), (12, 0x4000_0000)]),
+        Elem::<OverQuadMersenne>::from_raw([[1, 2], [3, 4]]),
+        Elem::<OverQuadMersenne>::from_raw([[0x7FFF_FFFE, 0], [12, 0x4000_0000]]),
     );
     let t = indeterminate::<OverQuadMersenne, 2>();
     assert_eq!(
         t.mul(t),
-        Elem::<OverQuadMersenne>::from_raw([(2, 1), (0, 0)])
+        Elem::<OverQuadMersenne>::from_raw([[2, 1], [0, 0]])
     );
     assert_eq!(<OverQuadMersenne as FieldBuffer>::BYTES, 16);
     let mut bytes = [0u8; 16];
     FieldBuffer::encode(&mut bytes, t.mul(t));
     assert_eq!(
         FieldBuffer::decode(&bytes),
-        Elem::<OverQuadMersenne>::from_raw([(2, 1), (0, 0)])
+        Elem::<OverQuadMersenne>::from_raw([[2, 1], [0, 0]])
     );
     assert_eq!(&bytes[..4], &2u32.to_le_bytes());
     assert_eq!(&bytes[4..8], &1u32.to_le_bytes());

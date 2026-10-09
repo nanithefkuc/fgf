@@ -9,12 +9,16 @@
 //! and the defining relation — exhaustive products, inverses, and
 //! component round trips of the odd rows, GF(7^3) included, live in
 //! `extension_reference` — and the byte-backed rows check byte round
-//! trips and report the scalar backend through one packed call.
+//! trips and report the scalar backend through one packed call. The
+//! shipped `QuadMersenne31` name is checked to be the extension row itself.
+
+use core::any::TypeId;
 
 use fgf::field::mersenne31::Mersenne31;
 use fgf::{
-    AES, Backend, Components, Elem, Extension, ExtensionField, ExtensionSpec, FieldBuffer,
-    FieldElem, FiniteField, Packed, PackedPadded, Polynomial, Relation, backend_for, ops,
+    AES, Backend, ComplexMersenne31, Components, Elem, Extension, ExtensionField, ExtensionSpec,
+    FieldBuffer, FieldElem, FiniteField, Packed, PackedPadded, Polynomial, QuadMersenne31,
+    Relation, backend_for, ops,
 };
 
 // ---------------------------------------------------------------------------
@@ -563,4 +567,23 @@ fn packed_surface_matches_element_arithmetic() {
     let second = Elem::<Packed16>::from_raw(0x0F0F);
     assert_eq!(unpacked[0], first * first);
     assert_eq!(unpacked[1], second * second);
+}
+
+/// `QuadMersenne31` names the quadratic extension row over Mersenne31; it
+/// is the same type as the spelled-out row, not a distinct marker.
+#[test]
+fn quad_mersenne31_is_the_spelled_extension_row() {
+    type Spelled = FiniteField<0x7FFF_FFFF, 2, Extension<ComplexMersenne31, 2>>;
+    // Compiles only when the two spellings are one type.
+    fn through_spelled(value: Elem<Spelled>) -> Elem<Spelled> {
+        value
+    }
+    let x = Elem::<QuadMersenne31>::from_raw([3, 5]);
+    let y: Elem<QuadMersenne31> = through_spelled(x);
+    assert_eq!(y, x);
+    assert_eq!(TypeId::of::<QuadMersenne31>(), TypeId::of::<Spelled>());
+    assert_eq!(
+        TypeId::of::<Elem<QuadMersenne31>>(),
+        TypeId::of::<Elem<Spelled>>()
+    );
 }

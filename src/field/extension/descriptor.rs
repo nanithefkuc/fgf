@@ -203,14 +203,16 @@ impl Descriptor {
     /// `self`, taking both coefficients as packed base-coordinate words.
     ///
     /// The words are stored verbatim, so a later validation can still
-    /// reject excess bits. The storage follows the tower width rule:
-    /// `PackedPadded` at one byte below it, `Packed` from one byte up.
+    /// reject excess bits: the tests build malformed nodes through it. The
+    /// storage follows the packed width rule: `PackedPadded` at one byte
+    /// below it, `Packed` from one byte up.
     ///
     /// # Panics
     ///
     /// Panics when the node capacity is exhausted.
     // `NODES` is 8 and the doubled base degree stays below the storage word
     // widths, both far below `u8::MAX`.
+    #[cfg(test)]
     #[allow(clippy::cast_possible_truncation)]
     #[must_use]
     pub const fn append_quadratic_words(&self, linear: u64, constant: u64) -> Self {
@@ -610,7 +612,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "binary field degree exceeds 64")]
     fn extension_rejects_a_binary_degree_above_sixty_four() {
-        let base = crate::field::binary::tower::FANPAAR64_DESC.as_descriptor();
+        let base = <crate::field::binary::tower::FanPaar64Field as crate::field::private::RowAccess>::DESCRIPTOR;
         let wide = build(base, 2, 128, 2, &[], Storage::Packed { width: 64 });
         let _ = wide;
     }

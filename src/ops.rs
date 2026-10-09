@@ -24,9 +24,9 @@
 //! not. [`Coeff`] hoists it:
 //!
 //! ```
-//! use fgf::{FiniteField, Elem, Rijndael16, Tower, ops};
+//! use fgf::{Elem, Extension, FiniteField, Rijndael16, ops};
 //!
-//! type F = FiniteField<2, 16, Tower<Rijndael16>>;
+//! type F = FiniteField<2, 16, Extension<Rijndael16, 2>>;
 //! let coeff = ops::Coeff::<F>::new(Elem::<F>::from_raw(0x0108));
 //! let src = [0u8; 64];
 //! for _ in 0..3 {
@@ -1419,8 +1419,9 @@ pub fn pack_to_vec<F: FieldBuffer>(elems: &[Elem<F>]) -> alloc::vec::Vec<u8> {
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
+    use crate::field::binary::tower::Rijndael16Field;
     use crate::field::poly::AES;
-    use crate::field::{Elem as E8, FiniteField, Polynomial, Rijndael16, Tower};
+    use crate::field::{Elem as E8, FiniteField, Polynomial};
     use alloc::vec::Vec;
 
     /// `row_len == 0` with otherwise valid geometry is a no-op everywhere —
@@ -1466,9 +1467,9 @@ mod tests {
 
         // GF(2^16): the field whose odd-length buffers make the element
         // check matter.
-        let wide = [Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0x0103); 2];
+        let wide = [Elem::<Rijndael16Field>::from_raw(0x0103); 2];
         let mut rows16 = [0x5Au8; 4];
-        mul_add_scatter::<FiniteField<2, 16, Tower<Rijndael16>>>(&mut rows16, 0, &wide, &[]);
+        mul_add_scatter::<Rijndael16Field>(&mut rows16, 0, &wide, &[]);
         assert_eq!(rows16, [0x5A; 4]);
     }
 
@@ -1547,11 +1548,10 @@ mod tests {
     #[test]
     fn prepared_matrix_ops_match_one_shot() {
         // source-major matrix: source s contributes coeffs[s * outputs + o].
-        let values: Vec<Elem<FiniteField<2, 16, Tower<Rijndael16>>>> = (0u16..3 * 4)
-            .map(|i| Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(i * 511 + 3))
+        let values: Vec<Elem<Rijndael16Field>> = (0u16..3 * 4)
+            .map(|i| Elem::<Rijndael16Field>::from_raw(i * 511 + 3))
             .collect();
-        let matrix =
-            CoeffMatrix::<FiniteField<2, 16, Tower<Rijndael16>>>::from_source_major(3, 4, &values);
+        let matrix = CoeffMatrix::<Rijndael16Field>::from_source_major(3, 4, &values);
         let srcs: Vec<Vec<u8>> = (0u8..3).map(|s| alloc::vec![s + 1; 8]).collect();
         let src_refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
 
@@ -1560,25 +1560,15 @@ mod tests {
             .collect();
 
         let mut one_shot = [0x11u8; 32];
-        mul_add_matrix::<FiniteField<2, 16, Tower<Rijndael16>>>(&mut one_shot, 8, 4, &terms);
+        mul_add_matrix::<Rijndael16Field>(&mut one_shot, 8, 4, &terms);
         let mut prepared = [0x11u8; 32];
-        mul_add_matrix_with::<FiniteField<2, 16, Tower<Rijndael16>>>(
-            &mut prepared,
-            8,
-            &matrix,
-            &src_refs,
-        );
+        mul_add_matrix_with::<Rijndael16Field>(&mut prepared, 8, &matrix, &src_refs);
         assert_eq!(one_shot, prepared);
 
         let mut one_shot = [0x22u8; 32];
-        mul_into_matrix::<FiniteField<2, 16, Tower<Rijndael16>>>(&mut one_shot, 8, 4, &terms);
+        mul_into_matrix::<Rijndael16Field>(&mut one_shot, 8, 4, &terms);
         let mut prepared = [0x22u8; 32];
-        mul_into_matrix_with::<FiniteField<2, 16, Tower<Rijndael16>>>(
-            &mut prepared,
-            8,
-            &matrix,
-            &src_refs,
-        );
+        mul_into_matrix_with::<Rijndael16Field>(&mut prepared, 8, &matrix, &src_refs);
         assert_eq!(one_shot, prepared);
     }
 }

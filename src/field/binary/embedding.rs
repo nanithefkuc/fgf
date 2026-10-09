@@ -10,8 +10,9 @@
 //! The canonical map factors through one frozen reference per degree:
 //! GF(2) as [`Polynomial<3>`](super::poly::Polynomial), `Polynomial<0x7>` at degree two,
 //! `Polynomial<0x13>` at degree four, the AES field at degree eight, and the
-//! Rijndael towers `FiniteField<2, 16, Tower<Rijndael16>>`,
-//! `FiniteField<2, 32, Tower<Rijndael32>>`, and `FiniteField<2, 64, Tower<Rijndael64>>` above it.
+//! Rijndael instances `FiniteField<2, 16, Extension<Rijndael16, 2>>`,
+//! `FiniteField<2, 32, Extension<Rijndael32, 2>>`, and
+//! `FiniteField<2, 64, Extension<Rijndael64, 2>>` above it.
 //! Consecutive inclusions are frozen: the identity into degree two, the
 //! smallest raw reference root of the source polynomial below the AES
 //! field, and the low component above it.
@@ -41,10 +42,10 @@
 //! the absolute trace and norm.
 //!
 //! ```
-//! use fgf::{AES, FiniteField, Elem, Embedding, Polynomial, Rijndael16, Tower};
+//! use fgf::{AES, Elem, Embedding, Extension, FiniteField, Polynomial, Rijndael16};
 //!
-//! let embedding =
-//!     Embedding::<FiniteField<2, 8, Polynomial<AES>>, FiniteField<2, 16, Tower<Rijndael16>>>::new().unwrap();
+//! type Gf16 = FiniteField<2, 16, Extension<Rijndael16, 2>>;
+//! let embedding = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf16>::new().unwrap();
 //! let x = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
 //! let lifted = embedding.embed(x);
 //! assert!(embedding.contains(lifted));
@@ -911,9 +912,9 @@ mod tests {
         check_tower_phi(tower::RIJNDAEL16_DESC);
         check_tower_phi(tower::RIJNDAEL32_DESC);
         check_tower_phi(tower::RIJNDAEL64_DESC);
-        check_tower_phi(tower::FANPAAR16_DESC);
-        check_tower_phi(tower::FANPAAR32_DESC);
-        check_tower_phi(tower::FANPAAR64_DESC);
+        check_tower_phi(<tower::FanPaar16Field as crate::field::BinaryField>::DESCRIPTION);
+        check_tower_phi(<tower::FanPaar32Field as crate::field::BinaryField>::DESCRIPTION);
+        check_tower_phi(<tower::FanPaar64Field as crate::field::BinaryField>::DESCRIPTION);
     }
 
     #[test]

@@ -1,56 +1,176 @@
-//! The pinned shipped descriptors and structural membership in that set.
+//! The shipped instances: their pinned descriptors, structural membership
+//! in that set, and the specialized scalar bodies a member runs.
 //!
 //! A descriptor structurally equal to a pinned descriptor skips the
 //! irreducibility test: the shipped row's validity holds through its own
 //! known-answer fixtures, and every pinned descriptor's irreducibility is
-//! proven by the full test in this module's tests.
+//! proven by the full test in this module's tests. A row whose descriptor
+//! is pinned also runs that instance's specialized scalar body, over the
+//! instance word its storage converts to: the coordinate word of a packed
+//! storage, and `re | im << 32` for the prime extension's limbs.
 
-use super::descriptor::{Descriptor, PrimePresentation, Storage};
-use crate::field::binary::BinaryRepr;
-use crate::field::binary::tower::{self, FanPaar2, FanPaar4, FanPaar8, Tower};
+use super::descriptor::Descriptor;
+use crate::field::binary::tower::{
+    self, FanPaar2Field, FanPaar4Field, FanPaar8Field, FanPaar16Field, FanPaar32Field,
+    FanPaar64Field, Rijndael16Field, Rijndael32Field, Rijndael64Field,
+};
+use crate::field::private::RowAccess;
+use crate::field::quad_mersenne31::{self, QuadMersenne31};
 
-/// The pinned shipped descriptors: every shipped tower row, taken through
-/// its binary description, and the `QuadMersenne31` row over the Mersenne
-/// fold leaf under `t^2 + 1`.
-#[allow(clippy::large_const_arrays)]
-pub const PINNED: [Descriptor; 10] = [
-    *tower::RIJNDAEL16_DESC.as_descriptor(),
-    *tower::RIJNDAEL32_DESC.as_descriptor(),
-    *tower::RIJNDAEL64_DESC.as_descriptor(),
-    *<Tower<FanPaar2> as BinaryRepr<2>>::DESCRIPTION.as_descriptor(),
-    *<Tower<FanPaar4> as BinaryRepr<4>>::DESCRIPTION.as_descriptor(),
-    *<Tower<FanPaar8> as BinaryRepr<8>>::DESCRIPTION.as_descriptor(),
-    *tower::FANPAAR16_DESC.as_descriptor(),
-    *tower::FANPAAR32_DESC.as_descriptor(),
-    *tower::FANPAAR64_DESC.as_descriptor(),
-    QUAD_MERSENNE31,
+/// One shipped extension instance, naming its specialized scalar body.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Instance {
+    /// GF(2^16) over the AES field.
+    Rijndael16,
+    /// GF(2^32) over Rijndael GF(2^16).
+    Rijndael32,
+    /// GF(2^64) over Rijndael GF(2^32).
+    Rijndael64,
+    /// Fan-Paar GF(2^2) over GF(2).
+    FanPaar2,
+    /// Fan-Paar GF(2^4).
+    FanPaar4,
+    /// Fan-Paar GF(2^8).
+    FanPaar8,
+    /// Fan-Paar GF(2^16).
+    FanPaar16,
+    /// Fan-Paar GF(2^32).
+    FanPaar32,
+    /// Fan-Paar GF(2^64).
+    FanPaar64,
+    /// GF((2^31 - 1)^2) over the Mersenne fold row.
+    QuadMersenne31,
+}
+
+/// The shipped instances, in [`PINNED`] order.
+const INSTANCES: [Instance; 10] = [
+    Instance::Rijndael16,
+    Instance::Rijndael32,
+    Instance::Rijndael64,
+    Instance::FanPaar2,
+    Instance::FanPaar4,
+    Instance::FanPaar8,
+    Instance::FanPaar16,
+    Instance::FanPaar32,
+    Instance::FanPaar64,
+    Instance::QuadMersenne31,
 ];
 
-/// The pinned `QuadMersenne31` descriptor: the Mersenne fold leaf extended
-/// by `t^2 + 1`.
-// No production reader: the pinned set and the row's hook read it.
-#[allow(dead_code)]
-pub const QUAD_MERSENNE31: Descriptor = Descriptor::extension(
-    &Descriptor::prime(0x7FFF_FFFF, PrimePresentation::MersenneFold),
-    0x7FFF_FFFF,
-    2,
-    2,
-    &[1, 0],
-    Storage::Components,
-);
+/// The pinned shipped descriptors: every shipped instance row's descriptor,
+/// in [`INSTANCES`] order.
+#[allow(clippy::large_const_arrays)]
+pub const PINNED: [Descriptor; 10] = [
+    *<Rijndael16Field as RowAccess>::DESCRIPTOR,
+    *<Rijndael32Field as RowAccess>::DESCRIPTOR,
+    *<Rijndael64Field as RowAccess>::DESCRIPTOR,
+    *<FanPaar2Field as RowAccess>::DESCRIPTOR,
+    *<FanPaar4Field as RowAccess>::DESCRIPTOR,
+    *<FanPaar8Field as RowAccess>::DESCRIPTOR,
+    *<FanPaar16Field as RowAccess>::DESCRIPTOR,
+    *<FanPaar32Field as RowAccess>::DESCRIPTOR,
+    *<FanPaar64Field as RowAccess>::DESCRIPTOR,
+    *<QuadMersenne31 as RowAccess>::DESCRIPTOR,
+];
 
-/// Whether `candidate` is structurally equal to a pinned descriptor.
-// No production reader: the validator entry and the tests call it.
-#[allow(dead_code)]
-pub const fn is_pinned(candidate: &Descriptor) -> bool {
+/// The shipped instance structurally equal to `candidate`, if any.
+pub const fn instance(candidate: &Descriptor) -> Option<Instance> {
     let mut i = 0;
     while i < PINNED.len() {
         if candidate.same_structure(&PINNED[i]) {
-            return true;
+            return Some(INSTANCES[i]);
         }
         i += 1;
     }
-    false
+    None
+}
+
+/// Whether `candidate` is structurally equal to a pinned descriptor.
+pub const fn is_pinned(candidate: &Descriptor) -> bool {
+    instance(candidate).is_some()
+}
+
+/// The two limbs of a prime-extension instance word.
+// Splitting the word into its two limbs: the truncation is the operation.
+#[allow(clippy::cast_possible_truncation)]
+const fn limbs(word: u64) -> [u32; 2] {
+    [word as u32, (word >> 32) as u32]
+}
+
+/// The instance word of two prime-extension limbs.
+const fn limb_word(limbs: [u32; 2]) -> u64 {
+    (limbs[0] as u64) | ((limbs[1] as u64) << 32)
+}
+
+// The specialized bodies over instance words. Every packed word holds the
+// row's coordinate word, so the narrowing casts drop only zero bits.
+#[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+impl Instance {
+    /// The canonical form of an instance word.
+    pub const fn canonical(self, word: u64) -> u64 {
+        match self {
+            Self::FanPaar2 => word & 0x3,
+            Self::FanPaar4 => word & 0xF,
+            Self::QuadMersenne31 => limb_word(quad_mersenne31::raw_canonical(limbs(word))),
+            _ => word,
+        }
+    }
+
+    /// Field addition of two canonical instance words.
+    pub const fn add(self, left: u64, right: u64) -> u64 {
+        match self {
+            Self::QuadMersenne31 => limb_word(quad_mersenne31::raw_add(limbs(left), limbs(right))),
+            _ => left ^ right,
+        }
+    }
+
+    /// Field subtraction of two canonical instance words.
+    pub const fn sub(self, left: u64, right: u64) -> u64 {
+        match self {
+            Self::QuadMersenne31 => limb_word(quad_mersenne31::raw_sub(limbs(left), limbs(right))),
+            _ => left ^ right,
+        }
+    }
+
+    /// The additive inverse of a canonical instance word.
+    pub const fn neg(self, value: u64) -> u64 {
+        match self {
+            Self::QuadMersenne31 => limb_word(quad_mersenne31::raw_neg(limbs(value))),
+            _ => value,
+        }
+    }
+
+    /// Field multiplication of two canonical instance words.
+    pub const fn mul(self, left: u64, right: u64) -> u64 {
+        match self {
+            Self::Rijndael16 => tower::rijndael16_mul(left as u16, right as u16) as u64,
+            Self::Rijndael32 => tower::rijndael32_mul(left as u32, right as u32) as u64,
+            Self::Rijndael64 => tower::rijndael64_mul(left, right),
+            Self::FanPaar2 => tower::FANPAAR2_DESC.mul(left, right),
+            Self::FanPaar4 => tower::FANPAAR4_DESC.mul(left, right),
+            Self::FanPaar8 => tower::FANPAAR8_DESC.mul(left, right),
+            Self::FanPaar16 => tower::fp_multiply(left, right, 16),
+            Self::FanPaar32 => tower::fp_multiply(left, right, 32),
+            Self::FanPaar64 => tower::fp_multiply(left, right, 64),
+            Self::QuadMersenne31 => limb_word(quad_mersenne31::raw_mul(limbs(left), limbs(right))),
+        }
+    }
+
+    /// The multiplicative inverse of a canonical instance word, zero to
+    /// zero.
+    pub const fn inv(self, value: u64) -> u64 {
+        match self {
+            Self::Rijndael16 => tower::rijndael16_inv(value as u16) as u64,
+            Self::Rijndael32 => tower::rijndael32_inv(value as u32) as u64,
+            Self::Rijndael64 => tower::rijndael64_inv(value),
+            Self::FanPaar2 => tower::FANPAAR2_DESC.inv(value),
+            Self::FanPaar4 => tower::FANPAAR4_DESC.inv(value),
+            Self::FanPaar8 => tower::FANPAAR8_DESC.inv(value),
+            Self::FanPaar16 => tower::fp_invert(value, 16),
+            Self::FanPaar32 => tower::fp_invert(value, 32),
+            Self::FanPaar64 => tower::fp_invert(value, 64),
+            Self::QuadMersenne31 => limb_word(quad_mersenne31::raw_inv(limbs(value))),
+        }
+    }
 }
 
 /// The shipped instances' descriptors rebuilt from their defining table
@@ -166,12 +286,14 @@ mod tests {
     use super::super::descriptor::{Descriptor, PrimePresentation, Storage};
     use super::PINNED;
     use super::shipped_instances as table;
+    use crate::field::BinaryField;
+    use crate::field::QuadMersenne31;
     use crate::field::binary::description::BinaryDescription;
     use crate::field::binary::tower::{
-        FanPaar16, FanPaar32, FanPaar64, Rijndael16, Rijndael32, Rijndael64,
+        FanPaar2Field, FanPaar4Field, FanPaar8Field, FanPaar16Field, FanPaar32Field,
+        FanPaar64Field, Rijndael16Field, Rijndael32Field, Rijndael64Field,
     };
     use crate::field::private::RowAccess;
-    use crate::field::{FanPaar2, FanPaar4, FanPaar8, FiniteField, QuadMersenne31, Tower};
 
     #[test]
     fn pinned_descriptors_prove_irreducible_by_the_full_test() {
@@ -183,7 +305,7 @@ mod tests {
         }
     }
 
-    /// Every pinned entry and every shipped row's hook descriptor equals
+    /// Every pinned entry and every shipped row's binary description equals
     /// the descriptor built from the instance's table row.
     #[test]
     fn pinned_entries_and_row_hooks_match_the_instance_table() {
@@ -202,15 +324,15 @@ mod tests {
             table::quad_mersenne31(),
         ];
         let hooks: [&Descriptor; 10] = [
-            <FiniteField<2, 16, Tower<Rijndael16>> as RowAccess>::DESCRIPTOR,
-            <FiniteField<2, 32, Tower<Rijndael32>> as RowAccess>::DESCRIPTOR,
-            <FiniteField<2, 64, Tower<Rijndael64>> as RowAccess>::DESCRIPTOR,
-            <FiniteField<2, 2, Tower<FanPaar2>> as RowAccess>::DESCRIPTOR,
-            <FiniteField<2, 4, Tower<FanPaar4>> as RowAccess>::DESCRIPTOR,
-            <FiniteField<2, 8, Tower<FanPaar8>> as RowAccess>::DESCRIPTOR,
-            <FiniteField<2, 16, Tower<FanPaar16>> as RowAccess>::DESCRIPTOR,
-            <FiniteField<2, 32, Tower<FanPaar32>> as RowAccess>::DESCRIPTOR,
-            <FiniteField<2, 64, Tower<FanPaar64>> as RowAccess>::DESCRIPTOR,
+            <Rijndael16Field as BinaryField>::DESCRIPTION.as_descriptor(),
+            <Rijndael32Field as BinaryField>::DESCRIPTION.as_descriptor(),
+            <Rijndael64Field as BinaryField>::DESCRIPTION.as_descriptor(),
+            <FanPaar2Field as BinaryField>::DESCRIPTION.as_descriptor(),
+            <FanPaar4Field as BinaryField>::DESCRIPTION.as_descriptor(),
+            <FanPaar8Field as BinaryField>::DESCRIPTION.as_descriptor(),
+            <FanPaar16Field as BinaryField>::DESCRIPTION.as_descriptor(),
+            <FanPaar32Field as BinaryField>::DESCRIPTION.as_descriptor(),
+            <FanPaar64Field as BinaryField>::DESCRIPTION.as_descriptor(),
             <QuadMersenne31 as RowAccess>::DESCRIPTOR,
         ];
         for index in 0..expected.len() {

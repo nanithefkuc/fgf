@@ -79,7 +79,7 @@ pub use binary::poly;
 pub use binary::tower;
 pub use binary::tower::{
     FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Rijndael16, Rijndael32,
-    Rijndael64, Tower, TowerGeneratorSpec, TowerSpec,
+    Rijndael64,
 };
 pub use binary::{
     AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Embedding,
@@ -93,13 +93,17 @@ pub use finite_field::{FiniteField, FiniteFieldRepr, Residue};
 pub use goldilocks::{Goldilocks, GoldilocksFold};
 pub use mersenne31::{Mersenne31, MersenneFold};
 pub use prime::PrimeField;
-pub use quad_mersenne31::QuadMersenne31;
+pub use quad_mersenne31::{ComplexMersenne31, QuadMersenne31};
 
 mod private {
     use super::Field;
     use super::extension::Descriptor;
 
     pub trait Sealed {}
+
+    /// Seals the capabilities a field row carries beyond [`Field`]:
+    /// every implementor is a crate-owned row.
+    pub trait FieldSeal {}
 
     /// Marks the degree-one rows eligible for prime-field membership.
     pub trait PrimeFieldSeal {}
@@ -294,7 +298,7 @@ impl<const P: u64> PrimeIdentity for PrimeCharacteristic<P> {
 #[allow(private_bounds)]
 pub trait Field: private::RowAccess + Copy + core::fmt::Debug + 'static {
     /// The raw word of one scalar element.
-    type Raw: Copy + Eq + Ord + core::hash::Hash + core::fmt::Debug;
+    type Raw: Copy + Eq + Ord + core::hash::Hash + core::fmt::Debug + 'static;
     /// The prime characteristic identity of the field.
     type Characteristic: PrimeIdentity;
     /// Human-readable field name, e.g. `"GF(2^8)"`.
@@ -428,12 +432,11 @@ impl<F: Field> Elem<F> {
 
 /// A selected multiplicative generator of the field.
 ///
-/// Every implementor is a crate-owned row, since the trait applies to
-/// [`Field`] rows and `Field` is sealed to the crate's own definitions. Raw
-/// canonicality and full multiplicative order hold inside the constant: each
-/// provider verifies the full order against the factorization of the group
-/// order.
-pub trait HasGenerator: Field {
+/// The trait is sealed: only the crate's shipped rows implement it, each
+/// with its frozen generator. Raw canonicality and full multiplicative order
+/// hold inside the constant: each provider verifies the full order against
+/// the factorization of the group order.
+pub trait HasGenerator: Field + private::FieldSeal {
     /// Raw word of the selected generator, of full multiplicative order.
     const GENERATOR_RAW: Self::Raw;
 }
@@ -720,8 +723,8 @@ impl<'a, F: Field> core::iter::Product<&'a Elem<F>> for Elem<F> {
 /// BYTES`, never confused with the extension degree. Encoders emit canonical
 /// little-endian coordinates; decoders canonicalize accepted aliases.
 /// Buffers hold fixed-width coordinates, not prepared coefficients or native
-/// scratch.
-pub trait FieldBuffer: Field {
+/// scratch. The trait is sealed: the crate's rows define every byte layout.
+pub trait FieldBuffer: Field + private::FieldSeal {
     /// Width of the stable byte representation of one element.
     const BYTES: usize;
     /// Storage bit width of one element: `8 * BYTES`.
@@ -736,6 +739,11 @@ pub trait FieldBuffer: Field {
     /// # Panics
     /// Panics if `bytes.len() != Self::BYTES`.
     fn encode(bytes: &mut [u8], value: Elem<Self>);
+}
+
+impl<const P: u64, const N: u32, R: FiniteFieldRepr<P, N>> private::FieldSeal
+    for FiniteField<P, N, R>
+{
 }
 
 /// An integer outside the range a conversion accepts.
@@ -761,6 +769,10 @@ mod tests {
     //! descriptors, flattened prime-subfield coordinates, and the
     //! prime-value embedding, against expectations derived by remainder.
 
+    use super::binary::tower::{
+        FanPaar2Field, FanPaar4Field, FanPaar8Field, FanPaar16Field, FanPaar32Field,
+        FanPaar64Field, Rijndael16Field, Rijndael32Field, Rijndael64Field,
+    };
     use super::extension::Descriptor;
     use super::extension::pinned;
     use super::private::RowAccess as _;
@@ -901,18 +913,18 @@ mod tests {
         sub_byte_aliases::<FiniteField<2, 4, Polynomial<0x13>>>();
         sub_byte_aliases::<FiniteField<2, 4, Normal<0x13, 8>>>();
         sub_byte_aliases::<FiniteField<2, 4, Cantor<0x13, 8>>>();
-        sub_byte_aliases::<FiniteField<2, 2, Tower<FanPaar2>>>();
-        sub_byte_aliases::<FiniteField<2, 4, Tower<FanPaar4>>>();
+        sub_byte_aliases::<FanPaar2Field>();
+        sub_byte_aliases::<FanPaar4Field>();
     }
 
     #[test]
     fn tower_rows_round_trip_every_element() {
-        binary_row_exhaustive!(FiniteField<2, 2, Tower<FanPaar2>>, 2);
-        binary_row_exhaustive!(FiniteField<2, 4, Tower<FanPaar4>>, 4);
-        binary_row_exhaustive!(FiniteField<2, 8, Tower<FanPaar8>>, 8);
+        binary_row_exhaustive!(FanPaar2Field, 2);
+        binary_row_exhaustive!(FanPaar4Field, 4);
+        binary_row_exhaustive!(FanPaar8Field, 8);
         // Sixty-five thousand elements each.
-        binary_row_exhaustive!(FiniteField<2, 16, Tower<Rijndael16>>, 16);
-        binary_row_exhaustive!(FiniteField<2, 16, Tower<FanPaar16>>, 16);
+        binary_row_exhaustive!(Rijndael16Field, 16);
+        binary_row_exhaustive!(FanPaar16Field, 16);
     }
 
     /// A spread of full-width binary words: boundaries and a deterministic
@@ -946,22 +958,33 @@ mod tests {
     #[test]
     fn wide_binary_rows_round_trip_samples() {
         binary_row_samples!(
-            FiniteField<2, 32, Tower<Rijndael32>>,
+            Rijndael32Field,
             32,
-            [0, 1, 2, 0x0001_0002, 0xa55a_1234, 0x7fff_ffff, u64::from(u32::MAX)]
+            [
+                0,
+                1,
+                2,
+                0x0001_0002,
+                0xa55a_1234,
+                0x7fff_ffff,
+                u64::from(u32::MAX)
+            ]
         );
         binary_row_samples!(
-            FiniteField<2, 64, Tower<Rijndael64>>,
+            Rijndael64Field,
             64,
-            [0, 1, 2, 0x0000_0001_0000_0004, 0xa55a_1234_dead_beef, u64::MAX]
+            [
+                0,
+                1,
+                2,
+                0x0000_0001_0000_0004,
+                0xa55a_1234_dead_beef,
+                u64::MAX
+            ]
         );
+        binary_row_samples!(FanPaar32Field, 32, [0, 1, 0x0100, 0x03e2_1cea, 0xffff_ffff]);
         binary_row_samples!(
-            FiniteField<2, 32, Tower<FanPaar32>>,
-            32,
-            [0, 1, 0x0100, 0x03e2_1cea, 0xffff_ffff]
-        );
-        binary_row_samples!(
-            FiniteField<2, 64, Tower<FanPaar64>>,
+            FanPaar64Field,
             64,
             [0, 1, 0x0001_0000, 0x070f_870d_cd9c_1d88, u64::MAX]
         );
@@ -1006,32 +1029,32 @@ mod tests {
 
         // An unreduced limb aliases its remainder: a limb at the modulus
         // reads as zero, so the element stays in the prime subfield.
-        for (re, im) in [
-            (0u32, 0u32),
-            (1, 0),
-            (0, 1),
-            (0x7FFF_FFFE, 0),
-            (0x7FFF_FFFF, 0x7FFF_FFFF),
-            (0x5555_5555, 0x5555_5555),
-            (u32::MAX, 0),
-            (u32::MAX, u32::MAX),
+        for [re, im] in [
+            [0u32, 0],
+            [1, 0],
+            [0, 1],
+            [0x7FFF_FFFE, 0],
+            [0x7FFF_FFFF, 0x7FFF_FFFF],
+            [0x5555_5555, 0x5555_5555],
+            [u32::MAX, 0],
+            [u32::MAX, u32::MAX],
         ] {
-            let expected = (u64::from(re) % M31_MODULUS, u64::from(im) % M31_MODULUS);
+            let expected = [u64::from(re) % M31_MODULUS, u64::from(im) % M31_MODULUS];
             // Both remainders sit below the modulus, so they fit the
             // lanes.
             #[allow(clippy::cast_possible_truncation)]
-            let canonical = (expected.0 as u32, expected.1 as u32);
-            coordinates_round_trip::<Qm>((re, im), &[expected.0, expected.1], canonical);
-            let readout = if expected.1 == 0 {
-                Some(expected.0)
+            let canonical = [expected[0] as u32, expected[1] as u32];
+            coordinates_round_trip::<Qm>([re, im], &expected, canonical);
+            let readout = if expected[1] == 0 {
+                Some(expected[0])
             } else {
                 None
             };
-            assert_eq!(Qm::to_prime((re, im)), readout, "lane ({re:#x}, {im:#x})");
+            assert_eq!(Qm::to_prime([re, im]), readout, "lane [{re:#x}, {im:#x}]");
         }
         let widest_qm = Qm::from_prime(u64::MAX);
-        assert_eq!(u64::from(widest_qm.0), u64::MAX % M31_MODULUS);
-        assert_eq!(widest_qm.1, 0);
+        assert_eq!(u64::from(widest_qm[0]), u64::MAX % M31_MODULUS);
+        assert_eq!(widest_qm[1], 0);
     }
 
     #[test]
@@ -1187,39 +1210,39 @@ mod tests {
         descriptor_agreement!(FiniteField<2, 8, Polynomial<AES>>);
         descriptor_agreement!(FiniteField<2, 8, Polynomial<RS>>);
         descriptor_agreement!(
-            FiniteField<2, 16, Tower<Rijndael16>>,
+            Rijndael16Field,
             expected pinned::shipped_instances::rijndael16()
         );
         descriptor_agreement!(
-            FiniteField<2, 32, Tower<Rijndael32>>,
+            Rijndael32Field,
             expected pinned::shipped_instances::rijndael32()
         );
         descriptor_agreement!(
-            FiniteField<2, 64, Tower<Rijndael64>>,
+            Rijndael64Field,
             expected pinned::shipped_instances::rijndael64()
         );
         descriptor_agreement!(
-            FiniteField<2, 2, Tower<FanPaar2>>,
+            FanPaar2Field,
             expected pinned::shipped_instances::fanpaar2()
         );
         descriptor_agreement!(
-            FiniteField<2, 4, Tower<FanPaar4>>,
+            FanPaar4Field,
             expected pinned::shipped_instances::fanpaar4()
         );
         descriptor_agreement!(
-            FiniteField<2, 8, Tower<FanPaar8>>,
+            FanPaar8Field,
             expected pinned::shipped_instances::fanpaar8()
         );
         descriptor_agreement!(
-            FiniteField<2, 16, Tower<FanPaar16>>,
+            FanPaar16Field,
             expected pinned::shipped_instances::fanpaar16()
         );
         descriptor_agreement!(
-            FiniteField<2, 32, Tower<FanPaar32>>,
+            FanPaar32Field,
             expected pinned::shipped_instances::fanpaar32()
         );
         descriptor_agreement!(
-            FiniteField<2, 64, Tower<FanPaar64>>,
+            FanPaar64Field,
             expected pinned::shipped_instances::fanpaar64()
         );
 
