@@ -22,9 +22,6 @@ pub struct BinaryDescription {
 impl BinaryDescription {
     /// The shared descriptor this binary description wraps.
     #[must_use]
-    // No production reader: the row hooks, the pinned set, and the tests
-    // reach it.
-    #[allow(dead_code)]
     pub(crate) const fn as_descriptor(&self) -> &Descriptor {
         &self.inner
     }

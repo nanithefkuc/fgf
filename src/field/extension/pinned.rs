@@ -12,8 +12,6 @@ use crate::field::binary::tower::{self, FanPaar2, FanPaar4, FanPaar8, Tower};
 /// The pinned shipped descriptors: every shipped tower row, taken through
 /// its binary description, and the `QuadMersenne31` row over the Mersenne
 /// fold leaf under `t^2 + 1`.
-// No production reader: the validator entry and the tests read the set.
-#[allow(dead_code)]
 #[allow(clippy::large_const_arrays)]
 pub const PINNED: [Descriptor; 10] = [
     *tower::RIJNDAEL16_DESC.as_descriptor(),

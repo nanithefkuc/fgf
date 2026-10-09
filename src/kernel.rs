@@ -25,6 +25,7 @@ pub(crate) mod tower;
 #[allow(unused_imports)]
 pub(crate) use tower::gf16;
 
+pub(crate) mod extension;
 pub(crate) mod gf1;
 pub(crate) mod gf8;
 pub(crate) mod goldilocks;
@@ -116,6 +117,16 @@ impl private::Sealed for crate::field::mersenne31::Mersenne31 {}
 impl private::Sealed for crate::field::goldilocks::Goldilocks {}
 impl private::Sealed for crate::field::quad_mersenne31::QuadMersenne31 {}
 impl<const P: u64> private::Sealed for crate::field::FiniteField<P, 1, Residue> {}
+impl<const P: u64, const N: u32, const D: usize, S: crate::field::extension::ExtensionSpec<D>>
+    private::Sealed for crate::field::FiniteField<P, N, crate::field::extension::Extension<S, D>>
+where
+    <S as crate::field::extension::ExtensionSpec<D>>::Storage:
+        crate::field::extension::storage::StorageRepr<
+                <S as crate::field::extension::ExtensionSpec<D>>::Base,
+                D,
+            >,
+{
+}
 
 // The backend ladder is owned by `simdispatch` (the Level 0 single source for
 // detection and ordering); FGF re-exports it so downstream consumers keep

@@ -64,7 +64,7 @@
 //! ```
 
 pub mod binary;
-mod extension;
+pub mod extension;
 pub mod finite_field;
 pub mod goldilocks;
 pub mod mersenne31;
@@ -84,6 +84,10 @@ pub use binary::tower::{
 pub use binary::{
     AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Embedding,
     EmbeddingError, Normal, Polynomial, RS,
+};
+pub use extension::{
+    Components, Extension, ExtensionField, ExtensionSpec, ExtensionStorage, Packed, PackedPadded,
+    PackedWord, Relation,
 };
 pub use finite_field::{FiniteField, FiniteFieldRepr, Residue};
 pub use goldilocks::{Goldilocks, GoldilocksFold};
@@ -106,8 +110,6 @@ mod private {
     /// Every hook evaluates the row's central validation first, as the raw
     /// methods do, and canonicalizes `raw` inputs through
     /// `Field::canonical_raw` before reading them.
-    // No production reader: the tests exercise the hooks directly.
-    #[allow(dead_code)]
     pub(crate) trait RowAccess: 'static {
         /// Descriptor of the row's presentation.
         const DESCRIPTOR: &'static Descriptor;
@@ -120,6 +122,9 @@ mod private {
         ///
         /// # Panics
         /// Panics when `dst.len()` differs from `Field::DEGREE`.
+        // Read by the field-relation algorithms; the extension rows
+        // compose it through their bases and the tests read it directly.
+        #[allow(dead_code)]
         fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw)
         where
             Self: Field;
@@ -133,11 +138,17 @@ mod private {
         where
             Self: Field;
         /// `value · 1`, with `value` reduced modulo the characteristic.
+        // Read by the field-relation algorithms; the tests read it
+        // directly.
+        #[allow(dead_code)]
         fn from_prime(value: u64) -> <Self as Field>::Raw
         where
             Self: Field;
         /// `Some(c)` exactly when `raw == c · 1` with `c` below the
         /// characteristic; `None` otherwise.
+        // Read by the field-relation algorithms; the tests read it
+        // directly.
+        #[allow(dead_code)]
         fn to_prime(raw: <Self as Field>::Raw) -> Option<u64>
         where
             Self: Field;
@@ -1021,6 +1032,30 @@ mod tests {
         let widest_qm = Qm::from_prime(u64::MAX);
         assert_eq!(u64::from(widest_qm.0), u64::MAX % M31_MODULUS);
         assert_eq!(widest_qm.1, 0);
+    }
+
+    #[test]
+    fn extension_rows_round_trip_components_and_prime_readout() {
+        struct Spec;
+        impl ExtensionSpec<2> for Spec {
+            type Base = FiniteField<7, 1>;
+            type Storage = Components;
+            const NAME: &'static str = "GF(49) hook row";
+            const RELATION: Relation = Relation::from_coordinates(&[4, 0]);
+        }
+        type Row = FiniteField<7, 2, Extension<Spec, 2>>;
+        // Every element: the components are the coordinates in component
+        // order, and the prime readout covers exactly the base row.
+        for a0 in 0..7u64 {
+            for a1 in 0..7u64 {
+                let raw = [a0, a1];
+                coordinates_round_trip::<Row>(raw, &[a0, a1], raw);
+                let readout = (a1 == 0).then_some(a0);
+                assert_eq!(Row::to_prime(raw), readout, "components ({a0}, {a1})");
+            }
+        }
+        assert_eq!(Row::from_prime(9), [2, 0]);
+        assert_eq!(Row::from_prime(u64::MAX), [u64::MAX % 7, 0]);
     }
 
     #[test]

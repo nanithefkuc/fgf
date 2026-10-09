@@ -24,8 +24,6 @@ use super::pinned;
 ///
 /// Panics when the root node holds no relation.
 #[must_use]
-// No production caller: reached through the descriptor's test entries.
-#[allow(dead_code)]
 pub const fn root_relation_irreducible(descriptor: &Descriptor) -> bool {
     match descriptor.node(descriptor.root_index()) {
         Node::Extension {

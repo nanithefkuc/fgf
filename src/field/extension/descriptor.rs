@@ -53,16 +53,10 @@ pub const COORDINATES: usize = 80;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PrimePresentation {
     /// The ordinary-residue row: one `u64` residue per element.
-    // Constructed by the residue row hooks and the tests.
-    #[allow(dead_code)]
     Residue,
     /// The Mersenne fold row of `2^31 - 1`: one `u32` lane per element.
-    // Constructed by the fold row hooks, the pinned set, and the tests.
-    #[allow(dead_code)]
     MersenneFold,
     /// The Goldilocks fold row of `2^64 - 2^32 + 1`: one `u64` lane.
-    // Constructed by the fold row hooks and the tests.
-    #[allow(dead_code)]
     GoldilocksFold,
 }
 
@@ -73,8 +67,6 @@ pub enum PrimePresentation {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Storage {
     /// One base element per component, in the base's coordinate order.
-    // Constructed by the pinned QuadMersenne31 row and the tests.
-    #[allow(dead_code)]
     Components,
     /// The row's coordinate word fills the storage word exactly.
     Packed {
@@ -99,9 +91,6 @@ pub enum Node {
     Unused,
     /// A prime-field leaf. At characteristic two with `Residue` the word
     /// arithmetic is `AND` and the identity word is `1`.
-    // Constructed through the prime leaf constructor, by the row hooks and
-    // the tests.
-    #[allow(dead_code)]
     Prime {
         /// The prime modulus.
         modulus: u64,
@@ -164,9 +153,6 @@ pub struct Descriptor {
 impl Descriptor {
     /// A prime-field leaf of `modulus` under `presentation`.
     #[must_use]
-    // No production caller: the row hooks and the tests build leaves
-    // through it.
-    #[allow(dead_code)]
     pub const fn prime(modulus: u64, presentation: PrimePresentation) -> Self {
         let mut nodes = [Node::Unused; NODES];
         nodes[0] = Node::Prime {
@@ -264,7 +250,9 @@ impl Descriptor {
     /// `relation` holds the non-leading coefficients in flattened
     /// prime-subfield coordinates, constant term first, each coefficient's
     /// coordinates in the base's own order. The relation length equals the
-    /// root's absolute degree.
+    /// root's absolute degree. The checks run in
+    /// [`Self::extension_bounded`], which this constructor wraps over the
+    /// full coordinate array.
     ///
     /// # Panics
     ///
@@ -273,15 +261,55 @@ impl Descriptor {
     // `u8::MAX` and `u32::MAX`.
     #[allow(clippy::cast_possible_truncation)]
     #[must_use]
-    // No production caller: the pinned QuadMersenne31 row and the tests
-    // build relations through it.
-    #[allow(dead_code)]
     pub const fn extension(
         base: &Self,
         characteristic: u64,
         degree: u32,
         relative_degree: usize,
         relation: &[u64],
+        storage: Storage,
+    ) -> Self {
+        assert!(
+            relation.len() <= COORDINATES,
+            "relation exceeds the coordinate capacity"
+        );
+        let mut full = [0u64; COORDINATES];
+        let mut i = 0;
+        while i < relation.len() {
+            full[i] = relation[i];
+            i += 1;
+        }
+        Self::extension_bounded(
+            base,
+            characteristic,
+            degree,
+            relative_degree,
+            &full,
+            relation.len(),
+            storage,
+        )
+    }
+
+    /// The relation-node constructor over the relation's full coordinate
+    /// array and occupied count, reached by the extension rows' hooks:
+    /// taking a subslice of a value is not const-callable on the crate
+    /// MSRV, so the bounded form carries the count beside the full array.
+    ///
+    /// Runs every check of [`Self::extension`], in the same order.
+    ///
+    /// # Panics
+    ///
+    /// Panics with a check-specific message when any check fails.
+    // `NODES` is 8 and every coordinate count and width stays far below
+    // `u8::MAX` and `u32::MAX`.
+    #[allow(clippy::cast_possible_truncation)]
+    pub(crate) const fn extension_bounded(
+        base: &Self,
+        characteristic: u64,
+        degree: u32,
+        relative_degree: usize,
+        relation: &[u64; COORDINATES],
+        count: usize,
         storage: Storage,
     ) -> Self {
         assert!(
@@ -302,11 +330,11 @@ impl Descriptor {
         );
         crate::field::finite_field::metadata_order(characteristic, degree);
         assert!(
-            relation.len() == degree as usize,
+            count == degree as usize,
             "relation coordinate count differs from the field degree"
         );
         let mut i = 0;
-        while i < relation.len() {
+        while i < count {
             assert!(
                 relation[i] < characteristic,
                 "relation coordinate is not below the characteristic"
@@ -363,7 +391,7 @@ impl Descriptor {
             }
         } else {
             let mut i = 0;
-            while i < relation.len() {
+            while i < count {
                 coefficients[i] = relation[i];
                 i += 1;
             }
@@ -550,9 +578,6 @@ impl Descriptor {
     /// # Panics
     ///
     /// Panics when the root relation is reducible.
-    // No production caller: the tests call the module-level entry
-    // directly.
-    #[allow(dead_code)]
     pub const fn validate_relation(&self) {
         super::irreducibility::validate_relation(self);
     }
