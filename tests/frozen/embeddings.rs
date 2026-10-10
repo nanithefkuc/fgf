@@ -261,16 +261,18 @@ fn check_pair<S: Presentation, T: Presentation>(records: &PairRecords, file: &st
     }
 }
 
-/// Every ordered pair of manifest presentations reproduces its records.
-#[test]
-fn ordered_pair_matrix_matches() {
-    macro_rules! check_sources {
-        ([$(($sname:ident, $styp:ty, $($srest:tt)*)),* $(,)?]) => {$(
+/// Every ordered pair of manifest presentations reproduces its records,
+/// one test per source presentation so the runner executes sources in
+/// parallel and failures name their source.
+macro_rules! source_tests {
+    ([$(($sname:ident, $styp:ty, $($srest:tt)*)),* $(,)?]) => {$(
+        #[test]
+        fn $sname() {
             check_source::<$styp>(stringify!($sname));
-        )*};
-    }
-    for_each_presentation!(check_sources);
+        }
+    )*};
 }
+for_each_presentation!(source_tests);
 
 /// The fixture text of one source presentation.
 fn source_text(name: &str) -> (&'static str, &'static str) {
