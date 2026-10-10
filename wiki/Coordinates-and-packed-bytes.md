@@ -1,8 +1,8 @@
 # Coordinates and packed bytes
 
-`Elem<F>` holds a canonical scalar value in a chosen presentation. `FieldBuffer` encodes that value as a fixed-width little-endian lane, and `ops` packs consecutive lanes without alignment or padding requirements.
+A scalar value and its serialized bytes are different things. `Elem<F>` stores a canonical value in the chosen presentation; `FieldBuffer` reads and writes that value as a fixed-width little-endian lane. A packed `ops` buffer is a sequence of those lanes, with no padding between them and no address-alignment requirement.
 
-This guide targets fgf 3.0.1. The [field reference](https://docs.rs/fgf/3.0.1/fgf/field/index.html) owns encoding contracts; the [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) owns packed conversion and arithmetic contracts.
+The examples use fgf 3.0.1. The [field reference](https://docs.rs/fgf/3.0.1/fgf/field/index.html) describes scalar encoding, and the [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) describes buffer conversion.
 
 ## Raw coordinates are not mathematical integers
 
@@ -12,7 +12,7 @@ For a prime field, the raw integer is reduced modulo the characteristic. `from_r
 
 ## Residues name values, indices name coordinates
 
-`FieldElem::from_residue` maps an ordinary residue below the characteristic to its multiple of one, whatever the basis. `FieldElem::from_index` decodes the flattened prime-subfield coordinates instead. The two agree only where one is coordinate word one: in `Normal<7, 2>` the one is the sum of both basis vectors, so it reads residue one at index three.
+Use `from_residue` when the input means a multiple of the field's one, and `from_index` when it means a position in the flattened prime-subfield coordinates. These are `FieldElem` methods. Their results can differ: in `Normal<7, 2>`, one is the sum of both basis vectors, so residue one has coordinate index three.
 
 ```rust
 use fgf::{Elem, FieldElem, FiniteField, Normal};
@@ -62,7 +62,7 @@ ops::unpack::<F>(&mut decoded, &bytes);
 assert_eq!(decoded, values);
 ```
 
-Packing needs `FieldBuffer`, not `FieldKernels`: byte conversion does not require arithmetic kernels. A row with a byte format does not thereby gain the sealed `ops` arithmetic capability; the residue row carries the packed surface with `Scalar` routing.
+Packing needs only `FieldBuffer`. Arithmetic on those bytes additionally needs `FieldKernels`; an encoding alone does not supply that capability. The generic residue fields support both, with scalar arithmetic routing.
 
 ## Apply arithmetic to an unaligned payload
 
@@ -100,4 +100,3 @@ Prime decoding accepts aliases and stores their canonical value. Decode–encode
 
 Prepared coefficients are backend-bound state, not a wire format. Serialize their scalar values and rebuild preparation in the receiving process.
 
-Next: [Linear operations and row geometry](Linear-operations-and-row-geometry).

@@ -1,8 +1,8 @@
 # Linear operations and row geometry
 
-Packed linear operations apply field coefficients independently at every element position of a row. Their shape names describe how sources feed outputs, while their suffixes describe what happens to the destination.
+Once values are stored in a buffer, `ops` applies the same field arithmetic at every element position. A row is a sequence of packed elements. Scatter, gather, and matrix operations combine rows without choosing the coefficients or solving a coding problem.
 
-This guide targets fgf 3.0.1. [Coordinates and packed bytes](Coordinates-and-packed-bytes) establishes the lane format. The [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) owns each call's validation and mutation contract.
+The examples use fgf 3.0.1. Start with [Operation suffixes](Operation-suffixes) for the naming conventions. Each example below uses one-byte AES-field elements; [Coordinates and packed bytes](Coordinates-and-packed-bytes) explains wider lanes. The [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) gives the exact validation rules.
 
 ## Match the equation to the operation
 
@@ -17,7 +17,7 @@ This guide targets fgf 3.0.1. [Coordinates and packed bytes](Coordinates-and-pac
 | `out[o] = sum(c[s,o] * src[s])` | Many sources, many outputs | `mul_into_matrix` |
 | `dst[i] = a[i] * b[i]` | Two varying operands | `mul_elementwise` |
 
-`_into` ignores previous destination contents; `_add` accumulates into them; `_assign` makes the destination an operand. Accumulation needs an intentional initial value, often zero. Overwrite needs no pre-zeroing. `_with` selects reusable prepared state, not a different mathematical operation.
+Choose the destination behavior first: overwrite with `_into`, accumulate with `_add`, or use the destination as an operand with `_assign`. An overwrite call needs no pre-zeroing. An accumulation call needs an intentional starting value. Prepared `_with` forms compute the same result using reusable state.
 
 Scatter can update all parity rows when one source arrives. Gather can reconstruct one output from several inputs. Matrix application performs several such linear combinations together. None of these operations chooses coefficients, solves a system, or validates a code's erasure-correction capability.
 
@@ -31,7 +31,7 @@ out[1] = 2*a + 5*b
 out[2] = 3*a + 6*b
 ```
 
-The source-major coefficient order is `[1, 2, 3, 4, 5, 6]`: all output coefficients for `a`, then all output coefficients for `b`. Its index is `source * outputs + output`. The application equations can be written as a conventional output-by-source matrix, but `fgf`'s coefficient storage uses the opposite axis order.
+Store the coefficients source-major: `[1, 2, 3, 4, 5, 6]` lists all coefficients for `a`, then all coefficients for `b`. The index is `source * outputs + output`. This differs from an output-by-source matrix written on paper, so keeping the two axes explicit avoids an accidental transpose.
 
 ```rust
 use fgf::{AES, FiniteField, Elem, Polynomial, ops};
@@ -102,4 +102,3 @@ Invalid lengths, counts, offsets, or overlapping destination rows panic through 
 
 The [shard recovery example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/shard_recovery.rs) derives a fixed recovery matrix. Its supplied equations cover the stated erasure patterns, not arbitrary decoding.
 
-Next: [Prepared coefficients](Prepared-coefficients).

@@ -1,18 +1,18 @@
-# Downstream scalar fields
+# Custom prime fields and extensions
 
-`Field`, `FieldBuffer`, and `HasGenerator` are sealed: fgf implements them for the canonical family rows and the named rows only, and the crate's relation algorithms read presentation facts that stay crate-owned. A downstream crate names a row; it does not implement the traits. A custom prime field is the family's degree-one row `FiniteField<P, 1>` over any checked `u64` prime, and a custom extension is an `ExtensionSpec` named inside an extension row.
+A new field does not require a new element wrapper or an implementation of `Field`. Choose a prime modulus with `FiniteField<P, 1>`, or define an extension relation with `ExtensionSpec`. The resulting values still use `Elem<F>` and the same arithmetic operators as the named fields.
 
-The [field reference](https://docs.rs/fgf/latest/fgf/field/index.html) owns the row contracts. [The type model](Type-model-and-generic-algorithms) introduces the capability split.
+The examples use fgf 3.0.1. The [field reference](https://docs.rs/fgf/3.0.1/fgf/field/index.html) describes the supported types. `Field`, `FieldBuffer`, and `HasGenerator` are sealed; custom definitions supply parameters to crate-defined implementations rather than replacing those traits.
 
-## Choose the correct row
+## Choose a modulus or an extension
 
-A custom extension, such as a binary quadratic tower over a byte field, implements the data-only `ExtensionSpec` trait and uses `FiniteField<P, N, Extension<Spec, D>>`, not a new scalar wrapper. It receives scalar arithmetic, component conversion, the byte-buffer surface when its storage has a byte form, and embeddings over a binary base; it carries no `const` element arithmetic and no generator. [Quadratic towers](Quadratic-towers) explains that route.
+`FiniteField<P, 1>` uses the default `Residue` presentation for a checked `u64` prime. Each element stores a canonical `u64` residue and encodes as an eight-byte little-endian lane. A custom extension instead uses `FiniteField<P, N, Extension<Spec, D>>`, with a data-only `ExtensionSpec` supplying its base, storage, and relation. [Quadratic towers](Quadratic-towers) gives a binary example.
 
-A prime field at any checked modulus is `FiniteField<P, 1>`, the default `Residue` presentation: one canonical `u64` residue per element, with eight-byte little-endian wire lanes. At characteristic two this row is distinct from the binary degree-one row `FiniteField<2, 1, Polynomial<3>>`, whose lane is one byte; values move between presentations by residue, never by buffer. `PrimeCharacteristic<P>` checks a prime identity; it is not an arithmetic engine for every `P`.
+`FiniteField<2, 1>` and `FiniteField<2, 1, Polynomial<3>>` have the same algebra but different storage APIs. The residue presentation has eight-byte lanes; the polynomial presentation has a scalar raw byte and uses `bits` for vectors, not `FieldBuffer`. Convert scalar values by residue rather than copying buffers between them. `PrimeCharacteristic<P>` checks a prime identity; the field row supplies the arithmetic.
 
 ## Use the residue row
 
-The residue row supplies the whole scalar surface `Elem<F>` wraps: operators, the `FieldElem` trait methods, `FieldBuffer` bytes, the checked packed operations with `Scalar` routing, and the `const` element API.
+The residue presentation provides operators, `FieldElem` methods, a `const` element API, and `FieldBuffer` encoding. It also supports checked packed arithmetic through `ops`, routed to the scalar backend.
 
 ```rust
 use fgf::{Elem, FieldBuffer, FiniteField, ops};
@@ -47,9 +47,9 @@ Every raw lane is a legal input to construction and decoding, which reduce it in
 
 ## What central validation establishes
 
-Generic construction checks a prime characteristic identity, positive degree, and `ORDER == CHARACTERISTIC^DEGREE` with checked exponentiation, before the row's own validity proof runs. These checks reject inconsistent metadata at first value use, in `const` context or at runtime.
+Construction checks that the characteristic is prime, the degree is positive, and the field order fits and equals the characteristic raised to that degree. Each presentation then validates its own defining data.
 
-The residue row's defining data is the characteristic itself, so the primality proof is the whole validation: an invalid `P` fails construction of any element. The named fold rows (`Mersenne31`, `Goldilocks`) carry the same central validation over their own moduli.
+For a residue field, the defining parameter is the prime modulus. An invalid modulus is rejected when constructing an element. The named prime fields validate their moduli through the same field-level checks.
 
 ## Generators and kernels on named rows
 
@@ -68,6 +68,5 @@ for q in [2u128, 3, 7, 11, 31, 151, 331] {
 
 ## Verification before application use
 
-A row chosen from the vocabulary arrives tested: known answers, field laws, byte codecs, and kernel routing are the crate's own contract. Application checks still need observable results against an independent modular reference — boundary residues, zero inversion, nonzero inverse products — because an algorithm misusing a correct field still produces incorrect results.
+The crate checks its field implementations, but an application can still misuse a correct field. Compare application results against an independent modular calculation, including boundary residues and zero handling, and check that every required inverse is nonzero.
 
-Next: [Features and deployment](Features-and-deployment), or [The type model and generic algorithms](Type-model-and-generic-algorithms).

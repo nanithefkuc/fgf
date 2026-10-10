@@ -1,8 +1,8 @@
 # Embeddings and presentation changes
 
-`Embedding<S, T>` prepares a value-preserving map between rows of equal characteristic when the source degree divides the target degree. Equal degrees give a change of presentation; a larger target gives a subfield inclusion. `Isomorphism<S, T>` is the equal-degree form with a total inverse. One implementation serves every characteristic: the prepared state stores the image of each generator level, and every method evaluates in the target's arithmetic.
+Copying coordinates between field types is not generally a conversion. `Embedding<S, T>` maps values while preserving addition, multiplication, zero, and one. Equal-degree fields give a change of presentation; a larger target can contain the source as a subfield. `Isomorphism<S, T>` expresses the equal-degree case with a total inverse.
 
-This guide targets fgf 3.0.1. It builds on [Choosing a field and basis](Choosing-a-field-and-basis). The [embedding reference](https://docs.rs/fgf/3.0.1/fgf/field/embedding/index.html) owns the map sources and method contracts.
+The examples use fgf 3.0.1 and the presentations introduced in [Field presentations and bases](Choosing-a-field-and-basis). The [embedding reference](https://docs.rs/fgf/3.0.1/fgf/field/embedding/index.html) describes construction and the available map operations.
 
 ## A smaller field is not a prefix of arbitrary coordinates
 
@@ -45,9 +45,9 @@ The same surface handles normal, Cantor, and extension presentations. Equal-degr
 
 ## One convention makes composed inclusions agree
 
-An abstract pair of finite fields can admit several embeddings. Structural inclusions need no choice: an extension's own bases and the prime subfield embed as constant components. In characteristic two a frozen reference ladder selects the remaining canonical maps: polynomial presentations at degrees one, two, and four; the AES field at degree eight; and Rijndael extensions above it. Presentation changes factor through that ladder.
+Finite fields can admit more than one embedding, so a conversion needs a convention. An extension's own base embeds as constant components, as does the prime subfield. For other canonical binary maps, fgf uses a fixed chain of reference presentations: polynomial fields at degrees one, two, and four, AES at degree eight, and Rijndael extensions above it.
 
-The consequence for applications is composability: embedding through an intermediate supported degree agrees with embedding directly. The reference's root selection and coordinate ordering are interoperability facts, not knobs for a caller to tune.
+With that convention, conversion through an intermediate supported degree agrees with direct conversion. Root selection and coordinate order are fixed interoperability rules, not application tuning options.
 
 ```rust
 use fgf::{AES, Elem, Embedding, Extension, FiniteField, Polynomial, Rijndael16, Rijndael64};
@@ -88,7 +88,7 @@ The last assertion is not a failed conversion: `z` has a nonzero extension compo
 
 ## Reuse and rejected requests
 
-Construction and application use fixed-size prepared arrays and allocate nothing. A map can be retained across values and shared immutably. It prepares generator images, not an `ops` coefficient or a bulk conversion buffer. Caller-supplied images through `from_images` relate presentations no canonical rule covers, in any characteristic; the images validate against the transported relations.
+A prepared map uses fixed-size arrays and allocates nothing during construction or application. Keep it across calls and borrow it immutably for each value. When no canonical rule covers the presentations, `from_images` accepts caller-supplied generator images and checks them against the source relations expressed in the target field.
 
 A source degree larger than the target cannot divide it. Construction returns `EmbeddingError::IncompatibleDegree`; restriction in the opposite direction is performed through a valid smaller-to-larger map.
 
@@ -105,4 +105,3 @@ assert_eq!(
 
 The [complete embeddings example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/embeddings.rs) also covers cross-presentation conversions and absolute trace. From a checkout, `just example embeddings` runs it.
 
-Next: [Quadratic towers](Quadratic-towers), or [Coordinates and packed bytes](Coordinates-and-packed-bytes).

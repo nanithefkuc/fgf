@@ -1,8 +1,8 @@
 # Prime fields and quadratic prime extensions
 
-Prime-family elements reduce integer lanes into canonical storage on construction. Packed operations interpret accepted raw lanes as field values, while arithmetic shortcuts can preserve bytes instead of acting as a normalization pass.
+Prime-field arithmetic adds and multiplies residues modulo a prime. `Mersenne31` and `Goldilocks` provide named fields with compact lanes; `QuadMersenne31` adds a second component to form a quadratic extension of `Mersenne31`.
 
-This guide targets fgf 3.0.1. The references for [Mersenne31](https://docs.rs/fgf/3.0.1/fgf/field/mersenne31/index.html), [Goldilocks](https://docs.rs/fgf/3.0.1/fgf/field/goldilocks/index.html), and [QuadMersenne31](https://docs.rs/fgf/3.0.1/fgf/field/quad_mersenne31/index.html) own their arithmetic and encoding contracts.
+The examples use fgf 3.0.1. The API references for [Mersenne31](https://docs.rs/fgf/3.0.1/fgf/field/mersenne31/index.html), [Goldilocks](https://docs.rs/fgf/3.0.1/fgf/field/goldilocks/index.html), and [QuadMersenne31](https://docs.rs/fgf/3.0.1/fgf/field/quad_mersenne31/index.html) give their encoding and arithmetic contracts.
 
 ## Modulus, order, and lane width
 
@@ -32,7 +32,7 @@ assert_eq!(canonical_bytes, 7u32.to_le_bytes());
 assert_ne!(canonical_bytes, raw_bytes);
 ```
 
-Every safely constructed element stores a canonical value. `to_raw` does not retain an incoming raw lane, and the removed `canonical()` method is unnecessary after construction. Applications preserving original payload bytes keep those bytes separately.
+Construction stores only the canonical value. `to_raw` cannot recover the original noncanonical word, so an application that needs the incoming payload bytes must retain them separately.
 
 ## Raw packed lanes are accepted
 
@@ -47,7 +47,7 @@ ops::mul_into::<Mersenne31>(&mut destination, Elem::<Mersenne31>::from_raw(3), &
 assert_eq!(destination, 21u32.to_le_bytes());
 ```
 
-This acceptance is not a claim that arbitrary bytes have the application-specific meaning of a valid proof or evaluation vector. Geometry and higher-level format validation remain the application's responsibility.
+Accepting a lane for field arithmetic does not validate it as a proof, codeword, or evaluation vector. The application still checks its own format and mathematical constraints.
 
 ## Identity operations are not normalization requests
 
@@ -120,4 +120,3 @@ The inherent constructor and a generic `FieldElem::from_raw` call both take the 
 
 All these operations are variable-time. From a checkout, `just example prime_vectors` runs the [complete multi-family workflow](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/prime_vectors.rs).
 
-Next: [Features and deployment](Features-and-deployment).

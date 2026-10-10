@@ -1,28 +1,30 @@
 # fgf guides
 
-`fgf` supplies finite-field values and arithmetic over application-owned packed buffers. These guides explain field presentations, generic algorithms, and the mapping from equations to bulk operations. They target **fgf 3.0.1** and Rust **1.93 or later**.
+`fgf` provides finite-field arithmetic for individual values and packed buffers. These guides start with choosing a field and constructing its elements, then work through arithmetic, storage, and conversions between fields. **3.0.1 is the base v3 release** used throughout, with Rust **1.93 or later**.
 
 > This library is AI-assisted. Its code requires independent audit. Arithmetic is variable-time; safe Rust does not make operations suitable for secret elements, coefficients, or buffers.
 
-## Using fgf
+## Start with a field and a few values
 
-1. [The type model and generic algorithms](Type-model-and-generic-algorithms) — distinguish a field from its elements and choose the necessary trait bounds.
-2. [Choosing a field and basis](Choosing-a-field-and-basis) — match the mathematical field and coordinate convention to an application.
-3. [Coordinates and packed bytes](Coordinates-and-packed-bytes) — encode values without confusing representation conversion with serialization.
-4. [Linear operations and row geometry](Linear-operations-and-row-geometry) — map scaling and linear combinations to scatter, gather, and matrix calls.
-5. [Prepared coefficients](Prepared-coefficients) — reuse coefficients across blocks and incremental updates.
+Begin with [Fields, elements, and scalar arithmetic](Type-model-and-generic-algorithms). It introduces `FiniteField` and `Elem<F>` with a small computation before explaining how to write an algorithm that works over several fields.
 
-Specialized buffer guides cover [prime fields](Prime-fields) and [bit-packed GF(2)](Bit-packed-GF2). [Features and deployment](Features-and-deployment) covers portable builds, allocation, and runtime backends.
+## Apply arithmetic to buffers
 
-## Working across presentations
+[Operation suffixes](Operation-suffixes) explains what names such as `_into`, `_add`, `_with`, and `_at` say about a call. [Linear operations and row geometry](Linear-operations-and-row-geometry) then shows how to express scaling and linear combinations, and [Prepared coefficients](Prepared-coefficients) shows how to reuse the same coefficients across blocks.
 
-[Choosing a field and basis](Choosing-a-field-and-basis) establishes what raw coordinates mean. [Embeddings and presentation changes](Embeddings-and-presentation-changes) maps values between bases and into subfields. [Quadratic towers](Quadratic-towers) explains components, defining relations, and custom extension specifications.
+For layouts other than byte-sized binary elements, use [Prime fields](Prime-fields) or [Bit-packed GF(2)](Bit-packed-GF2). The buffer examples introduce their layouts where they are needed; the presentation guides below explain what the stored coordinates mean.
 
-## Extending or upgrading
+## Understand the presentation
 
-- [Downstream scalar fields](Downstream-scalar-fields) explains choosing a crate-defined row, the `Residue` row for a custom prime modulus, and an `ExtensionSpec` for a custom extension; `Field` itself is sealed.
-- [Migrating from 2.x](Migrating-from-2.x) gives replacements for removed names and explains changed construction and buffer behavior.
-- [Migrating from 3.0.0-rc.1](Migrating-from-3.0.0-rc.1) covers the canonical family cutover: named rows, binary spellings, extension instances, residue and index conversions, and the field-level embedding surface.
+[Field presentations and bases](Choosing-a-field-and-basis) explains polynomial, normal, and Cantor coordinates. [Coordinates and packed bytes](Coordinates-and-packed-bytes) connects those coordinates to integer conversions and serialization. [Quadratic towers](Quadratic-towers) builds larger fields from base-field components.
+
+## Relate fields and define new ones
+
+[Embeddings and presentation changes](Embeddings-and-presentation-changes) covers value-preserving conversions, subfield membership, trace, and norm. [Custom prime fields and extensions](Downstream-scalar-fields) explains how to choose a new prime modulus or supply an extension relation without implementing the sealed field traits.
+
+## Build or upgrade an application
+
+[Features and deployment](Features-and-deployment) covers `no_std`, allocation, and backend selection. Existing 2.x applications can use [Migrating from 2.x to 3.0.1](Migrating-from-2.x); new applications can start directly with the examples here.
 
 ## A first useful computation
 

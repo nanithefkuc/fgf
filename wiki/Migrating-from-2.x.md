@@ -1,12 +1,12 @@
-# Migrating from 2.x to 3.0
+# Migrating from 2.x to 3.0.1
 
-fgf 3.0.0 replaces field-specific element wrappers with `Elem<F>` and makes scalar algebra, byte encoding, and generator selection separate capabilities. Migration changes both type names and the handling of noncanonical prime lanes.
+Upgrading to fgf 3.0.1 replaces field-specific element wrappers with `Elem<F>`. Scalar arithmetic, byte encoding, and generator selection have separate trait bounds, and prime elements store canonical values rather than retaining noncanonical input words.
 
-The [3.0.0 changelog](https://github.com/nanithefkuc/fgf/blob/v3.0.1/CHANGELOG.md) is the authoritative release record. This page groups the changes by caller task. Historical 2.x fragments are fenced as text because they do not compile against 3.0.0; all Rust-fenced replacements target 3.0.0.
+This guide goes directly from 2.x to 3.0.1. The [changelog](https://github.com/nanithefkuc/fgf/blob/v3.0.1/CHANGELOG.md) records the release changes. Historical 2.x examples are fenced as text; every Rust example uses the 3.0.1 API.
 
 ## Replace field and element spellings together
 
-| Released 2.x field | 3.0 field |
+| Released 2.x field | 3.0.1 field |
 | --- | --- |
 | `Gf8B` | `FiniteField<2, 8, Polynomial<AES>>` |
 | `Gf8D` | `FiniteField<2, 8, Polynomial<RS>>` |
@@ -31,7 +31,7 @@ const B: gf16::Elem = gf16::Elem::from_raw(0x0108);
 const PRODUCT: gf16::Elem = A.mul(B);
 ```
 
-Its 3.0 replacement:
+The replacement in 3.0.1:
 
 ```rust
 use fgf::{Elem, Extension, FiniteField, Rijndael16};
@@ -43,7 +43,7 @@ const PRODUCT: Elem<F> = A.mul(B);
 assert_eq!(PRODUCT.div(B), A);
 ```
 
-Import polynomial constants before using them in the const-generic position, such as `Polynomial<AES>`. The full polynomial type is `Polynomial<P>` with `P: u128`. `RS` names the unchanged `0x11D` convention. Intermediate names from development branches are not compatibility aliases; the changelog also maps those spellings.
+Import polynomial constants before using them in the const-generic position, such as `Polynomial<AES>`. The full polynomial type is `Polynomial<P>` with `P: u128`. `RS` keeps the `0x11D` convention.
 
 ## Update generic trait bounds
 
@@ -102,7 +102,7 @@ Prepared values are not a serialized compatibility surface. Rebuild them from sc
 
 ## Remove explicit post-construction canonicalization
 
-In 2.x, prime construction and decoding could retain raw lanes, and `canonical()` reduced the element explicitly. In 3.0, construction and decoding store canonical coordinates, so `canonical()` is removed and `to_raw()` returns the reduced storage.
+In 2.x, prime construction and decoding could retain raw lanes, and `canonical()` reduced the element explicitly. In 3.0.1, construction and decoding store canonical coordinates, so `canonical()` is removed and `to_raw()` returns the reduced storage.
 
 ```rust
 use fgf::{Elem, FieldBuffer, Mersenne31, mersenne31};

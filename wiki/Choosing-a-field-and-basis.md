@@ -1,12 +1,12 @@
-# Choosing a field and basis
+# Field presentations and bases
 
-A field choice fixes both the algebra and the coordinates used to represent values. Interoperability requires agreement on that presentation, not only the number of elements.
+Two fields can have the same number of elements without using the same coordinates. A presentation specifies what each stored bit or component means. That choice matters when reading a protocol, serializing values, or moving between field types.
 
-This guide targets fgf 3.0.1. The [binary field reference](https://docs.rs/fgf/3.0.1/fgf/field/binary/index.html) lists the representation contracts.
+The examples use fgf 3.0.1. The [binary field reference](https://docs.rs/fgf/3.0.1/fgf/field/binary/index.html) lists the supported presentations.
 
 ## Start with the application's convention
 
-An existing protocol or algebraic construction determines the characteristic, degree, and often the basis. A new application can choose a presentation, but must record that choice wherever another process reconstructs the same values. Backend availability is a separate deployment question; it does not justify silently changing wire coordinates.
+For an existing protocol, start with its characteristic, degree, and basis. For a new format, choose those conventions and record them so another process can reconstruct the same values. Backend selection is independent of that agreement: changing the host must not change the wire coordinates.
 
 Common choices are `FiniteField<2, 8, Polynomial<RS>>` for the `0x11D` convention and `FiniteField<2, 8, Polynomial<AES>>` for the `0x11B` convention. A Reed–Solomon code is not enough to determine a polynomial or a generator schedule. Matching the field does not by itself match a codec's coefficients or wire protocol.
 
@@ -19,7 +19,7 @@ Common choices are `FiniteField<2, 8, Polynomial<RS>>` for the `0x11D` conventio
 | `Cantor<P, SEED>` | 2, 4, 8 | Yes | Degree 8, scalar fallback |
 | `Extension<S, 2>` over a binary base | 2, 4, 8, 16, 32, 64 | Yes | Degrees 8, 16, 32, 64 with `Packed` storage |
 
-The presentation parameters must pass their validity checks. This table does not mean that every integer polynomial, normal element, seed, or tower relation is valid. Polynomial degree one is specifically `Polynomial<3>`. `bits` supplies the vector surface for GF(2); degrees two and four have no packed arithmetic surface.
+Each presentation checks its defining parameters. The table lists supported shapes, not a promise that every polynomial, normal element, seed, or extension relation is valid. The degree-one polynomial presentation is `Polynomial<3>`. GF(2) vectors use `bits`; degrees two and four support scalar arithmetic but not byte-lane buffer arithmetic.
 
 The shipped nonbinary families are `Mersenne31`, `Goldilocks`, and `QuadMersenne31`, all with scalar and byte-buffer arithmetic. `QuadMersenne31` is a quadratic extension of a prime field, not itself a prime field. Their coordinate rules are explained in [Prime fields](Prime-fields).
 
@@ -84,8 +84,7 @@ A quadratic extension holds `a + b*t` over a base field. Low coordinate bits hol
 
 ## Generators and acceleration are separate capabilities
 
-A selected multiplicative generator is not the same thing as the polynomial indeterminate or an extension indeterminate. Algorithms that enumerate nonzero elements use `HasGenerator`, which custom extension rows do not implement; extension arithmetic itself requires no selected generator.
+A multiplicative generator enumerates the nonzero elements. It need not be the polynomial or extension indeterminate. Algorithms that need a selected generator use `HasGenerator`; ordinary arithmetic does not need that bound, and custom extension rows do not provide it.
 
 The [deployment guide](Features-and-deployment) explains backend queries. Shipped presentations can have architecture kernels, while ordered-basis presentations and custom extension rows use a typed scalar fallback unless their base, relation, and storage match a shipped instance. Representation selection is not a promise that every operation executes SIMD.
 
-Next: [Coordinates and packed bytes](Coordinates-and-packed-bytes), or [Embeddings and presentation changes](Embeddings-and-presentation-changes).

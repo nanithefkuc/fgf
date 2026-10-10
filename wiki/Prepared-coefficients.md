@@ -1,12 +1,12 @@
 # Prepared coefficients
 
-Prepared coefficients retain the backend's reusable form of a field multiplier. `_with` operations apply that state to new buffers without rebuilding it or weakening geometry checks.
+When the same coefficient is used across several buffers, prepare it once and reuse it. A prepared coefficient keeps the backend-specific multiplier state; an `_with` call borrows that state and applies it to new data.
 
-This guide targets fgf 3.0.1 and builds on [Linear operations and row geometry](Linear-operations-and-row-geometry). The [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) owns the prepared types and application contracts.
+The examples use fgf 3.0.1 and the row shapes from [Linear operations and row geometry](Linear-operations-and-row-geometry). The [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) describes the prepared types.
 
 ## Separate values, preparation, and destination storage
 
-A scalar `Elem<F>` is the coefficient's portable mathematical value. A `Coeff<F>` is its opaque process-backend-specific preparation. Destination and source buffers remain application-owned; preparation neither owns those buffers nor retains their contents.
+`Elem<F>` is the coefficient's field value. `Coeff<F>` prepares that value for the process backend. Neither preparation nor reuse takes ownership of the source or destination buffers, and preparation retains no buffer contents.
 
 ```rust
 use fgf::{Elem, Extension, FiniteField, Rijndael16, ops};
@@ -70,7 +70,7 @@ ops::mul_into_with::<F>(&mut scaled, &borrowed, &[1, 2]);
 assert_eq!(scaled, [2, 4]);
 ```
 
-The scalar equations check the source-major mapping; the incremental comparison checks that arrival-by-arrival accumulation implements the same block-final operation. Neither requires a second matrix constructor or a cloned coefficient table.
+The same source view works for incremental scatter and block-final matrix application. The scalar calculation in the example also checks the coefficient ordering. Reuse needs neither a second matrix nor a cloned coefficient table.
 
 ## Gather views and lifetimes
 
@@ -90,4 +90,3 @@ Preparation hoists coefficient work, not validation. A wrong source count, desti
 
 Prepared state is bound to the process backend and deliberately opaque. Persist the coefficient values in their agreed field encoding and reconstruct preparation after loading. An application also persists matrix dimensions and source-major ordering; raw coefficient bytes alone do not describe geometry.
 
-Next: [Features and deployment](Features-and-deployment), or the [shard recovery example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/shard_recovery.rs).

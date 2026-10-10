@@ -1,8 +1,8 @@
 # Bit-packed GF(2)
 
-The `bits` module stores one GF(2) element per bit, with explicit logical lengths for operations whose meaning depends on the live element count. Its byte buffers are not the byte-per-element layout used by `ops`.
+GF(2) has just zero and one, so its vectors need only one bit per element. The `bits` module works directly on that packed layout. Operations that depend on the number of live elements take an explicit logical bit length, rather than guessing it from the byte count.
 
-This guide targets fgf 3.0.1. The [bits reference](https://docs.rs/fgf/3.0.1/fgf/bits/index.html) owns exact range, length, and padding contracts.
+The examples use fgf 3.0.1. The [bits reference](https://docs.rs/fgf/3.0.1/fgf/bits/index.html) describes ranges, lengths, and padding.
 
 ## Scalar values and vector storage
 
@@ -36,9 +36,9 @@ The buffer length cannot recover the exact live bit count. Range endpoints are h
 
 ## Padding belongs to the caller
 
-A valid reusable row maintains zero bits beyond its logical length. Range operations leave bits outside their selected window untouched. Whole-buffer XOR operates on all supplied bytes, including padding; it preserves zero padding if its inputs already have zero padding. No operation promises to sanitize arbitrary padding.
+Keep padding zero when storing or transmitting a row that requires that convention. Range operations leave bits outside their window untouched. Whole-buffer XOR includes all supplied bytes, so it preserves zero padding only when the inputs already have zero padding.
 
-Logical-length queries such as `weight` and `dot_product` exclude padding, even if incoming bytes contain nonzero padding. That query behavior does not make the row's padding invariant true.
+Queries such as `weight` and `dot_product` ignore padding. They can return the right answer even when the stored row has nonzero padding; they do not repair it.
 
 ```rust
 use fgf::bits;
@@ -109,4 +109,3 @@ assert_eq!(output, [0b0010_1101]);
 
 The [binary-syndrome program](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/binary_syndrome.rs) supplies generator rows, encodes a message by subset XOR, and checks a single-error recovery. From a checkout, `just example binary_syndrome --no-default-features` exercises the portable library surface.
 
-Next: [Features and deployment](Features-and-deployment).

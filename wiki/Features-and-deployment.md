@@ -1,8 +1,8 @@
 # Features and deployment
 
-Feature selection determines whether `fgf` can allocate, use standard-library support, and dispatch architecture kernels. Representation and operation support determine what a particular field can execute on that host.
+Choose features to match the application's environment: portable arithmetic, allocation for prepared collections, or runtime SIMD support. Those build choices do not change a field's coordinates or guarantee that every operation uses a vector kernel.
 
-This guide targets fgf 3.0.1 and Rust 1.93 or later. The [README](https://github.com/nanithefkuc/fgf/blob/v3.0.1/README.md) and [kernel reference](https://docs.rs/fgf/3.0.1/fgf/kernel/index.html) own the supported configuration and query contracts.
+The examples use fgf 3.0.1 and Rust 1.93 or later. The [README](https://github.com/nanithefkuc/fgf/blob/v3.0.1/README.md) lists build requirements, and the [kernel reference](https://docs.rs/fgf/3.0.1/fgf/kernel/index.html) describes backend queries.
 
 ## Select the runtime requirements
 
@@ -48,7 +48,7 @@ println!("AES vector elementwise capability: {}", has_vector_elementwise::<Polyn
 assert_eq!(backend_for::<NormalField>(), fgf::Backend::Scalar);
 ```
 
-A field backend report is not an instruction-level trace for every operation or length. An operation can use a narrower kernel or a scalar tail. `has_vector_elementwise` asks about that operation family, not all field operations; short rows can still take another path. The minimum-length query in the kernel reference provides the corresponding elementwise threshold.
+The field backend is a capability report, not a trace of every call. A short buffer can use another path, and a vector kernel can finish with a scalar tail. `has_vector_elementwise` reports support for elementwise multiplication, not all operations; the kernel reference also provides its minimum-length query.
 
 ## Overrides request a downgrade
 
@@ -104,4 +104,3 @@ Arithmetic is variable-time. Table lookups, cache behavior, and data-dependent w
 
 [BENCHMARKS.md](https://github.com/nanithefkuc/fgf/blob/v3.0.1/BENCHMARKS.md) owns measured public-operation results and reproduction details. A capability report alone is not a performance measurement.
 
-Next: [Home](Home), or [Migrating from 2.x](Migrating-from-2.x).

@@ -1,12 +1,12 @@
-# The type model and generic algorithms
+# Fields, elements, and scalar arithmetic
 
-A field type fixes arithmetic and representation; `Elem<F>` holds one value in that field. A generic algorithm chooses capabilities through trait bounds rather than naming a particular field family.
+Start by choosing a field type, then construct values as `Elem<F>`. The field type determines how addition and multiplication work; the element holds the value. Arithmetic uses Rust's usual operators, but follows the field's rules rather than integer arithmetic.
 
-This guide targets fgf 3.0.1. The [field module reference](https://docs.rs/fgf/3.0.1/fgf/field/index.html) owns the detailed contracts.
+The examples use fgf 3.0.1. The [field reference](https://docs.rs/fgf/3.0.1/fgf/field/index.html) describes the full scalar API.
 
 ## A field is not an element
 
-`FiniteField<2, 8, Polynomial<AES>>` names a presentation of GF(2^8). It is a zero-sized marker, not a byte containing a field value. `Elem<FiniteField<2, 8, Polynomial<AES>>>` contains that value. A local alias shortens both spellings without creating another library API.
+`FiniteField<2, 8, Polynomial<AES>>` selects the AES polynomial presentation of GF(2^8). It is a zero-sized marker, not a field value. A local alias keeps that choice readable, and `Elem<F>` holds each value:
 
 ```rust
 use fgf::{AES, FiniteField, Elem, Polynomial};
@@ -21,6 +21,14 @@ assert_eq!(PRODUCT.to_raw(), 1);
 
 The representation is part of the type. An AES value and an RS value cannot be mixed in an arithmetic expression merely because both occupy one byte. [Embeddings](Embeddings-and-presentation-changes) perform an explicit value-preserving conversion.
 
+## Constructing elements
+
+For a small prime field, `type F = FiniteField<7, 1>` is enough: `Elem::<F>::from_raw(12)` stores the residue five. For a binary polynomial field, `from_raw` reads polynomial coefficients from the bits instead. It does not interpret its argument as an ordinary integer modulo the field's order.
+
+Use `Elem::<F>::ZERO` and `Elem::<F>::ONE` for the identities. The raw coordinate word for one depends on the presentation. [Field presentations and bases](Choosing-a-field-and-basis) explains that distinction after the arithmetic guides.
+
+Concrete field types provide methods such as `square`, `pow`, and `inv` alongside `+`, `-`, `*`, and `/`. Inversion and division return zero on a zero divisor; an algorithm that requires an inverse must check for zero itself.
+
 ## Choose the narrowest capability
 
 | Bound | What an algorithm can use |
@@ -32,9 +40,9 @@ The representation is part of the type. An AES value and an RS value cannot be m
 | `F: BinaryField` | Supported binary presentations and checked coordinate conversions |
 | `F: BinaryDegree<N>` | A supported binary field of exactly degree `N` |
 
-`FieldElem` is the scalar-arithmetic trait implemented for `Elem<F>`. It, `Field`, `FieldBuffer`, and `HasGenerator` are sealed: rows are crate-defined, and generic code works over the shipped vocabulary. A custom extension supplies only a data-only `ExtensionSpec` to a crate-defined extension row. Importing `FieldElem` exposes trait methods when a generic function cannot name a concrete family's inherent methods.
+For generic code, the bounds express what the algorithm actually needs. `FieldElem` provides scalar methods on `Elem<F>`; import it when calling those trait methods. `Field`, `FieldElem`, `FieldBuffer`, `HasGenerator`, and `FieldKernels` are sealed, so a downstream crate selects a supported field rather than implementing its own arithmetic provider.
 
-`FieldKernels` is also sealed. A row does not gain packed operations by declaring a byte format alone; the residue row carries the packed surface with `Scalar` routing. The [downstream field guide](Downstream-scalar-fields) separates these boundaries.
+Custom fields still fit this model. A new prime modulus uses `FiniteField<P, 1>`, and an extension supplies an `ExtensionSpec`. [Custom prime fields and extensions](Downstream-scalar-fields) explains both choices.
 
 ## One scalar algorithm, several fields
 
@@ -102,10 +110,8 @@ assert_eq!(QuadMersenne31::ORDER, u128::from(p) * u128::from(p));
 
 GF(2), spelled `FiniteField<2, 1, Polynomial<3>>`, has scalar arithmetic but no `FieldBuffer` implementation. Its vectors use [bit-packed operations](Bit-packed-GF2). Degrees two and four are likewise scalar-only rather than byte-lane bulk fields.
 
-## Const arithmetic and zero division
+## Const arithmetic
 
 Concrete shipped element families provide inherent `const` methods such as `mul` and `inv`. Custom extension rows provide only the `const` identities and `to_raw`; their arithmetic goes through `FieldElem` and the operators. Generic trait calls and overloaded operators are ordinary runtime calls; an `F: Field` bound does not make the call const-evaluable.
 
-Inversion and division are total: `inv(0) == 0` and `x / 0 == 0`. An algorithm requiring a multiplicative inverse must reject zero explicitly. Zero division does not signal an error on its own.
 
-Next: [Choosing a field and basis](Choosing-a-field-and-basis).

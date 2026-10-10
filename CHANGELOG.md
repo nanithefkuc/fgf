@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Wiki reference for operation suffixes, destination behavior, prepared state,
+  row addressing, and allocation.
+
+### Changed
+
+- Wiki guides use 3.0.1 as the base v3 release and lead from field construction
+  and arithmetic through presentations, embeddings, and custom fields.
+  Migration guidance goes directly from 2.x to 3.0.1.
+- Wiki navigation groups the reading path in the home page and sidebar instead
+  of per-page `Next:` footers.
+
+### Removed
+
+- Wiki migration guide from the withdrawn v3 release candidate.
+
 ## [3.0.1] - 2026-10-10
 
 ### Added
