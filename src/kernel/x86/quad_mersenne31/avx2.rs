@@ -211,7 +211,7 @@ pub fn mul_add_avx2(
         src.len(),
     );
     check_elem_multiple("quad_mersenne31::mul_add_avx2", dst.len(), 8);
-    let (cr, ci) = coeff.to_raw();
+    let [cr, ci] = coeff.to_raw();
     if cr == 0 && ci == 0 {
         return;
     }
@@ -251,7 +251,7 @@ pub fn mul_add_avx2(
 #[archmage::arcane(import_intrinsics)]
 pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem<QuadMersenne31>) {
     check_elem_multiple("quad_mersenne31::mul_assign_avx2", dst.len(), 8);
-    let (cr, ci) = coeff.to_raw();
+    let [cr, ci] = coeff.to_raw();
     if cr == 0 && ci == 0 {
         dst.fill(0);
         return;
@@ -295,7 +295,7 @@ pub fn mul_into_avx2(
         src.len(),
     );
     check_elem_multiple("quad_mersenne31::mul_into_avx2", dst.len(), 8);
-    let (cr, ci) = coeff.to_raw();
+    let [cr, ci] = coeff.to_raw();
     if cr == 0 && ci == 0 {
         dst.fill(0);
         return;
@@ -402,7 +402,7 @@ pub fn add_assign_scalar_avx2(
 ) {
     check_elem_multiple("quad_mersenne31::add_assign_scalar_avx2", dst.len(), 8);
     // The broadcast value is loop-invariant: canonicalize the raw limbs once.
-    let (vr, vi) = value.to_raw();
+    let [vr, vi] = value.to_raw();
     // Broadcast the (re, im) pair onto the alternating limb lanes.
     let svec = _mm256_blend_epi32::<0b1010_1010>(
         _mm256_set1_epi32(vr as i32),
@@ -435,7 +435,7 @@ pub fn sub_assign_scalar_avx2(
     value: Elem<QuadMersenne31>,
 ) {
     check_elem_multiple("quad_mersenne31::sub_assign_scalar_avx2", dst.len(), 8);
-    let (vr, vi) = value.to_raw();
+    let [vr, vi] = value.to_raw();
     let svec = _mm256_blend_epi32::<0b1010_1010>(
         _mm256_set1_epi32(vr as i32),
         _mm256_set1_epi32(vi as i32),
@@ -469,18 +469,18 @@ mod tests {
         Elem::<QuadMersenne31>::ZERO,
         Elem::<QuadMersenne31>::ONE,
         Elem::<QuadMersenne31>::I,
-        Elem::<QuadMersenne31>::from_raw(mersenne31::MODULUS - 1, mersenne31::MODULUS - 1),
-        Elem::<QuadMersenne31>::from_raw(1, mersenne31::MODULUS - 1),
-        Elem::<QuadMersenne31>::from_raw(0x5555_5555, 0x1234_5678),
-        Elem::<QuadMersenne31>::from_raw(mersenne31::MODULUS, 0), // non-canonical zero
-        Elem::<QuadMersenne31>::from_raw(u32::MAX, 2),            // raw limb, value 1 + 2i
-        Elem::<QuadMersenne31>::from_raw(1, 12),                  // the field generator
+        Elem::<QuadMersenne31>::from_raw([mersenne31::MODULUS - 1, mersenne31::MODULUS - 1]),
+        Elem::<QuadMersenne31>::from_raw([1, mersenne31::MODULUS - 1]),
+        Elem::<QuadMersenne31>::from_raw([0x5555_5555, 0x1234_5678]),
+        Elem::<QuadMersenne31>::from_raw([mersenne31::MODULUS, 0]), // non-canonical zero
+        Elem::<QuadMersenne31>::from_raw([u32::MAX, 2]),            // raw limb, value 1 + 2i
+        Elem::<QuadMersenne31>::from_raw([1, 12]),                  // the field generator
     ];
 
     /// A full-work coefficient: canonical, neither zero nor one, both
     /// limbs nonzero.
     const FULL_WORK: Elem<QuadMersenne31> =
-        Elem::<QuadMersenne31>::from_raw(0x1234_5678, 0x3FFF_FFF1);
+        Elem::<QuadMersenne31>::from_raw([0x1234_5678, 0x3FFF_FFF1]);
 
     fn noise(len: usize, seed: u64) -> Vec<u8> {
         let mut state = seed | 1;
@@ -511,10 +511,10 @@ mod tests {
     fn edges(len: usize) -> Vec<u8> {
         const EDGES: [Elem<QuadMersenne31>; 5] = [
             Elem::<QuadMersenne31>::ZERO,
-            Elem::<QuadMersenne31>::from_raw(mersenne31::MODULUS - 1, mersenne31::MODULUS - 1),
-            Elem::<QuadMersenne31>::from_raw(mersenne31::MODULUS - 1, 0),
+            Elem::<QuadMersenne31>::from_raw([mersenne31::MODULUS - 1, mersenne31::MODULUS - 1]),
+            Elem::<QuadMersenne31>::from_raw([mersenne31::MODULUS - 1, 0]),
             Elem::<QuadMersenne31>::ONE,
-            Elem::<QuadMersenne31>::from_raw(0x5555_5555, 0x1234_5678),
+            Elem::<QuadMersenne31>::from_raw([0x5555_5555, 0x1234_5678]),
         ];
         let mut out = Vec::with_capacity(len);
         for i in 0..len / 8 {
@@ -546,22 +546,22 @@ mod tests {
     }
 
     fn model_elem_add(a: Elem<QuadMersenne31>, b: Elem<QuadMersenne31>) -> Elem<QuadMersenne31> {
-        let (ar, ai) = a.to_raw();
-        let (br, bi) = b.to_raw();
-        Elem::<QuadMersenne31>::from_raw(o_add(ar, br), o_add(ai, bi))
+        let [ar, ai] = a.to_raw();
+        let [br, bi] = b.to_raw();
+        Elem::<QuadMersenne31>::from_raw([o_add(ar, br), o_add(ai, bi)])
     }
     fn model_elem_sub(a: Elem<QuadMersenne31>, b: Elem<QuadMersenne31>) -> Elem<QuadMersenne31> {
-        let (ar, ai) = a.to_raw();
-        let (br, bi) = b.to_raw();
-        Elem::<QuadMersenne31>::from_raw(o_sub(ar, br), o_sub(ai, bi))
+        let [ar, ai] = a.to_raw();
+        let [br, bi] = b.to_raw();
+        Elem::<QuadMersenne31>::from_raw([o_sub(ar, br), o_sub(ai, bi)])
     }
     fn model_elem_mul(a: Elem<QuadMersenne31>, b: Elem<QuadMersenne31>) -> Elem<QuadMersenne31> {
-        let (ar, ai) = a.to_raw();
-        let (br, bi) = b.to_raw();
-        Elem::<QuadMersenne31>::from_raw(
+        let [ar, ai] = a.to_raw();
+        let [br, bi] = b.to_raw();
+        Elem::<QuadMersenne31>::from_raw([
             o_sub(o_mul(ar, br), o_mul(ai, bi)),
             o_add(o_mul(ar, bi), o_mul(ai, br)),
-        )
+        ])
     }
 
     /// Decode a whole-element buffer, apply `f` elementwise, re-encode.
@@ -750,24 +750,25 @@ mod tests {
         // for mul_add and the fill for mul_assign and mul_into.
         for coeff in [
             Elem::<QuadMersenne31>::ZERO,
-            Elem::<QuadMersenne31>::from_raw(mersenne31::MODULUS, 0),
+            Elem::<QuadMersenne31>::from_raw([mersenne31::MODULUS, 0]),
         ] {
             let mut got = vec![0xA5u8; len];
             let mut want = vec![0xA5u8; len];
             mul_add_avx2(token, &mut got, coeff, &src);
-            <QuadMersenne31 as KernelDispatch>::mul_add(RawDispatch, &mut want, &coeff, &src);
+            let prepared = <QuadMersenne31 as KernelDispatch>::prepare(RawDispatch, coeff);
+            <QuadMersenne31 as KernelDispatch>::mul_add(RawDispatch, &mut want, &prepared, &src);
             assert_eq!(got, want, "shortcut mul_add {coeff:?}");
 
             let mut got = vec![0xA5u8; len];
             let mut want = vec![0xA5u8; len];
             mul_assign_avx2(token, &mut got, coeff);
-            <QuadMersenne31 as KernelDispatch>::mul_assign(RawDispatch, &mut want, &coeff);
+            <QuadMersenne31 as KernelDispatch>::mul_assign(RawDispatch, &mut want, &prepared);
             assert_eq!(got, want, "shortcut mul_assign {coeff:?}");
 
             let mut got = vec![0xA5u8; len];
             let mut want = vec![0xA5u8; len];
             mul_into_avx2(token, &mut got, coeff, &src);
-            <QuadMersenne31 as KernelDispatch>::mul_into(RawDispatch, &mut want, &coeff, &src);
+            <QuadMersenne31 as KernelDispatch>::mul_into(RawDispatch, &mut want, &prepared, &src);
             assert_eq!(got, want, "shortcut mul_into {coeff:?}");
         }
         // The one shortcut: mul_add adds, mul_assign is the identity.
@@ -777,7 +778,7 @@ mod tests {
         <QuadMersenne31 as KernelDispatch>::mul_add(
             RawDispatch,
             &mut want,
-            &Elem::<QuadMersenne31>::ONE,
+            &<QuadMersenne31 as KernelDispatch>::prepare(RawDispatch, Elem::<QuadMersenne31>::ONE),
             &src,
         );
         assert_eq!(got, want, "shortcut mul_add one");
@@ -788,7 +789,7 @@ mod tests {
         <QuadMersenne31 as KernelDispatch>::mul_assign(
             RawDispatch,
             &mut want,
-            &Elem::<QuadMersenne31>::ONE,
+            &<QuadMersenne31 as KernelDispatch>::prepare(RawDispatch, Elem::<QuadMersenne31>::ONE),
         );
         assert_eq!(got, want, "shortcut mul_assign one");
     }
@@ -806,7 +807,7 @@ mod tests {
         let len = 72;
         let src_elems = edges(len);
         let dst_elems = canonical(len, 0x82);
-        let coeff = Elem::<QuadMersenne31>::from_raw(3, 5);
+        let coeff = Elem::<QuadMersenne31>::from_raw([3, 5]);
         for offset in [0usize, 1, 3, 5] {
             let mut src_storage = vec![0u8; len + 8];
             src_storage[offset..offset + len].copy_from_slice(&src_elems);
@@ -856,7 +857,7 @@ mod tests {
             return;
         }
         let token = archmage::X64V3Token::summon().expect("guard passed: AVX2 summons here");
-        let coeff = Elem::<QuadMersenne31>::from_raw(3, 5);
+        let coeff = Elem::<QuadMersenne31>::from_raw([3, 5]);
 
         let mut partial = [1u8; 12];
         let partial_src = [1u8; 12];

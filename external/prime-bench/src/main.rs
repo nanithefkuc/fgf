@@ -663,7 +663,7 @@ fn run_quadratic(control_row: bool) {
                 let re = (raw[2 * i] % mersenne31::MODULUS as u64) as u32;
                 let im = (raw[2 * i + 1] % mersenne31::MODULUS as u64) as u32;
                 (
-                    Elem::<QuadMersenne31>::from_raw(re, im),
+                    Elem::<QuadMersenne31>::from_raw([re, im]),
                     Complex::<P3M31>::new_complex(P3M31::new(re), P3M31::new(im)),
                 )
             })
@@ -682,7 +682,7 @@ fn run_quadratic(control_row: bool) {
         let re = (raw[0] % mersenne31::MODULUS as u64) as u32;
         let im = (raw[1] % mersenne31::MODULUS as u64) as u32;
         (
-            Elem::<QuadMersenne31>::from_raw(re, im),
+            Elem::<QuadMersenne31>::from_raw([re, im]),
             Complex::<P3M31>::new_complex(P3M31::new(re), P3M31::new(im)),
         )
     };
@@ -691,7 +691,7 @@ fn run_quadratic(control_row: bool) {
         let re = (raw[0] % mersenne31::MODULUS as u64) as u32;
         let im = (raw[1] % mersenne31::MODULUS as u64) as u32;
         (
-            Elem::<QuadMersenne31>::from_raw(re, im),
+            Elem::<QuadMersenne31>::from_raw([re, im]),
             Complex::<P3M31>::new_complex(P3M31::new(re), P3M31::new(im)),
         )
     };
@@ -726,7 +726,7 @@ fn run_quadratic(control_row: bool) {
     let cb = PackedExt::from(c_p);
 
     let canon_fg = |e: Elem<QuadMersenne31>| -> u128 {
-        let (re, im) = e.to_raw();
+        let [re, im] = e.to_raw();
         (u128::from(im) << 32) | u128::from(re)
     };
     let canon_p = |e: Ext| -> u128 {

@@ -9,7 +9,7 @@
 use fgf::{Elem, backend_for, ops};
 
 // Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
-type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
 
 const SYMBOLS: usize = 8;
 const ROW_LEN: usize = SYMBOLS * 2;

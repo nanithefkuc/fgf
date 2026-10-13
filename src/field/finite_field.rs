@@ -10,11 +10,11 @@
 //! with `N > 1` does not compile without an explicit presentation. The
 //! other presentations are the named prime folds
 //! ([`MersenneFold`](crate::field::MersenneFold),
-//! [`GoldilocksFold`](crate::field::GoldilocksFold)) and the binary
+//! [`GoldilocksFold`](crate::field::GoldilocksFold)), the flat binary
 //! presentations at characteristic two
 //! ([`Polynomial`](crate::field::Polynomial),
-//! [`Normal`](crate::field::Normal), [`Cantor`](crate::field::Cantor), and
-//! [`Tower`](crate::field::Tower)).
+//! [`Normal`](crate::field::Normal), [`Cantor`](crate::field::Cantor)), and
+//! [`Extension`](crate::field::Extension) over any of these rows.
 //!
 //! # Capability rows
 //!

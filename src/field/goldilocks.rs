@@ -288,10 +288,10 @@ impl Elem<Goldilocks> {
     /// Returns [`RangeError`] when `value` is at or above the modulus.
     #[inline]
     pub const fn from_residue(value: u64) -> Result<Self, RangeError> {
-        if value >= MODULUS {
-            return Err(RangeError);
+        match super::check_residue(value, MODULUS) {
+            Ok(checked) => Ok(Self::from_raw(checked)),
+            Err(error) => Err(error),
         }
-        Ok(Self::from_raw(value))
     }
 
     /// The ordinary residue naming this element. Always `Some` at degree

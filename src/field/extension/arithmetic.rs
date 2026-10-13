@@ -1079,7 +1079,6 @@ pub(super) const fn euclid_inverse(
 mod tests {
     use super::*;
     use crate::field::extension::descriptor::{PrimePresentation, Storage};
-    use crate::field::extension::pinned;
     use crate::field::{Elem, Goldilocks, Mersenne31, QuadMersenne31};
 
     /// Deterministic 64-bit words from the crate's shared LCG constants.
@@ -1364,23 +1363,23 @@ mod tests {
     // Limbs stay below the 31-bit modulus, so the narrowing casts are exact.
     #[allow(clippy::cast_possible_truncation)]
     fn quad_mersenne31_descriptor_matches_field_arithmetic() {
-        let descriptor = &pinned::QUAD_MERSENNE31;
+        let descriptor = <QuadMersenne31 as crate::field::private::RowAccess>::DESCRIPTOR;
         let root = descriptor.root_index();
-        let from_parts = |raw: (u32, u32)| {
+        let from_parts = |raw: [u32; 2]| {
             let mut element = zero_element();
-            element[0] = u64::from(raw.0);
-            element[1] = u64::from(raw.1);
+            element[0] = u64::from(raw[0]);
+            element[1] = u64::from(raw[1]);
             element
         };
         for w in words(0x931).take(32) {
-            let x = Elem::<QuadMersenne31>::from_raw(
+            let x = Elem::<QuadMersenne31>::from_raw([
                 (w % 0x7FFF_FFFF) as u32,
                 ((w >> 24) % 0x7FFF_FFFF) as u32,
-            );
-            let y = Elem::<QuadMersenne31>::from_raw(
+            ]);
+            let y = Elem::<QuadMersenne31>::from_raw([
                 ((w >> 11) % 0x7FFF_FFFF) as u32,
                 ((w >> 7) % 0x7FFF_FFFF) as u32,
-            );
+            ]);
             let product = element_mul(
                 descriptor,
                 root,
@@ -1388,16 +1387,10 @@ mod tests {
                 &from_parts(y.to_raw()),
             );
             let expected = (x * y).to_raw();
-            assert_eq!(
-                [product[0] as u32, product[1] as u32],
-                [expected.0, expected.1]
-            );
+            assert_eq!([product[0] as u32, product[1] as u32], expected);
             let inverse = element_inv(descriptor, root, &from_parts(x.to_raw()));
             let expected = x.inv().to_raw();
-            assert_eq!(
-                [inverse[0] as u32, inverse[1] as u32],
-                [expected.0, expected.1]
-            );
+            assert_eq!([inverse[0] as u32, inverse[1] as u32], expected);
         }
     }
 }

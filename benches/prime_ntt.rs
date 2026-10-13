@@ -36,7 +36,8 @@ mod imp {
 
     /// The benchmark coefficient: canonical, neither zero nor one, both
     /// limbs nonzero so every multiply path does full work.
-    const COEFF: Elem<QuadMersenne31> = Elem::<QuadMersenne31>::from_raw(0x1234_5678, 0x3FFF_FFF1);
+    const COEFF: Elem<QuadMersenne31> =
+        Elem::<QuadMersenne31>::from_raw([0x1234_5678, 0x3FFF_FFF1]);
 
     static REPORTED: Once = Once::new();
 

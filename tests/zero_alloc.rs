@@ -1,10 +1,9 @@
 #![cfg(feature = "std")]
 
-use fgf::field::binary::tower::{Tower, TowerSpec};
 use fgf::poly::{AES, RS};
 use fgf::{
-    Elem, Embedding, FieldKernels, FiniteField, Goldilocks, Mersenne31, Normal, Polynomial,
-    Residue, ops,
+    Components, Elem, Embedding, Extension, ExtensionSpec, FieldElem, FieldKernels, FiniteField,
+    Goldilocks, Mersenne31, Normal, Packed, Polynomial, Relation, Residue, ops,
 };
 
 #[path = "common/zero_alloc.rs"]
@@ -12,22 +11,23 @@ mod common;
 use common::{TEST_LOCK, count_allocations, noise};
 
 type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
-type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Tower<fgf::FanPaar64>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
 type ResiduePrime = FiniteField<1_000_000_007, 1, Residue>;
 type ResidueTwo = FiniteField<2, 1, Residue>;
 
-/// A custom degree-32 tower over GF(2^16): `t^2 + t + 0x2001`, distinct from
-/// every pinned presentation.
+/// A custom degree-32 extension over GF(2^16): `t^2 + t + 0x2001`, distinct
+/// from every pinned presentation.
 #[derive(Clone, Copy)]
 struct Custom32Spec;
-impl TowerSpec for Custom32Spec {
+impl ExtensionSpec<2> for Custom32Spec {
     type Base = Gf16;
-    const LINEAR_COEFFICIENT: u64 = 1;
-    const CONSTANT_COEFFICIENT: u64 = 0x2001;
-    const NAME: &'static str = "custom GF(2^32) tower";
+    type Storage = Packed<u32>;
+    const NAME: &'static str = "custom GF(2^32) extension";
+    const RELATION: Relation = Relation::from_binary_words::<Gf16>(&[0x2001, 0x0001]);
 }
+type Custom32Row = FiniteField<2, 32, Extension<Custom32Spec, 2>>;
 
 /// Steady-state prepared application over one fallback class: preparation
 /// allocates by contract, application must not.
@@ -84,12 +84,8 @@ fn custom_tower32_prepared_steady_state_allocates_nothing() {
     let _guard = TEST_LOCK
         .lock()
         .expect("zero-allocation test lock poisoned");
-    let coeffs: Vec<Elem<FiniteField<2, 32, Tower<Custom32Spec>>>> = (0..4u32)
-        .map(|index| {
-            Elem::<FiniteField<2, 32, Tower<Custom32Spec>>>::from_raw(
-                index.wrapping_mul(0x1F3B_5A79),
-            )
-        })
+    let coeffs: Vec<Elem<Custom32Row>> = (0..4u32)
+        .map(|index| Elem::<Custom32Row>::from_raw(index.wrapping_mul(0x1F3B_5A79)))
         .collect();
     assert_fallback_steady_state_zero_alloc(&coeffs);
 }
@@ -499,4 +495,137 @@ fn embedding_construction_and_application_allocate_nothing() {
         let _ = absolute.norm(target);
     });
     assert_eq!(applications, 0, "embedding application allocated");
+}
+
+/// A generic odd-characteristic extension row: GF(49) as `t^2 - 3` over
+/// the residue row at seven, component storage with a byte form.
+#[derive(Clone, Copy)]
+struct Gf49Spec;
+impl ExtensionSpec<2> for Gf49Spec {
+    type Base = FiniteField<7, 1>;
+    type Storage = Components;
+    const NAME: &'static str = "GF(49)";
+    const RELATION: Relation = Relation::from_coordinates(&[4, 0]);
+}
+type Gf49Row = FiniteField<7, 2, Extension<Gf49Spec, 2>>;
+
+/// A generic characteristic-two extension row: GF(2^16) as `t^2 + t +
+/// 0x21` over the AES field, packed storage, distinct from every pinned
+/// presentation.
+#[derive(Clone, Copy)]
+struct Packed16Spec;
+impl ExtensionSpec<2> for Packed16Spec {
+    type Base = FiniteField<2, 8, Polynomial<AES>>;
+    type Storage = Packed<u16>;
+    const NAME: &'static str = "GF(2^16)";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 8, Polynomial<AES>>>(&[0x21, 0x01]);
+}
+type Packed16Row = FiniteField<2, 16, Extension<Packed16Spec, 2>>;
+
+/// The whole checked packed surface the generic family serves, inside one
+/// counted window per row: every borrowed operation, the scatter, matrix,
+/// and offset-addressed forms, the broadcast scalar forms, and the
+/// prepared coefficient and prepared collections.
+#[allow(clippy::too_many_lines)]
+fn assert_extension_packed_surface_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
+    let row_len = 64;
+    let src = noise(row_len, 0x611);
+    let other = noise(row_len, 0x622);
+    let mut dst = noise(row_len, 0x633);
+    let mut gather_dst = noise(row_len, 0x644);
+    let mut ew = noise(row_len, 0x655);
+    let region = noise(4 * row_len, 0x666);
+    let sources = [
+        noise(row_len, 0x671),
+        noise(row_len, 0x672),
+        noise(row_len, 0x673),
+        noise(row_len, 0x674),
+    ];
+    let refs: [&[u8]; 4] = [&sources[0], &sources[1], &sources[2], &sources[3]];
+    let coeffs = [coeff; 4];
+    let ones = [Elem::<F>::ONE; 4];
+    let mut scatter_rows = noise(4 * row_len, 0x681);
+    let mut matrix_rows = noise(4 * row_len, 0x682);
+    let mut at_rows = noise(4 * row_len, 0x683);
+    let row_starts = [0, row_len, 2 * row_len, 3 * row_len];
+    let offsets = [0u32, 64, 128, 192];
+    let terms = [(&coeffs[..], &src[..]), (&ones[..], &other[..])];
+    let prepared = ops::Coeff::<F>::new(coeff);
+    let vector = ops::CoeffVec::<F>::new(&coeffs);
+    let flat = [coeff; 8];
+    let matrix = ops::CoeffMatrix::<F>::from_source_major(2, 4, &flat);
+    let matrix_refs: [&[u8]; 2] = [&src, &other];
+
+    // Warm dispatch and every path before counting.
+    ops::add_assign::<F>(&mut dst, &src);
+    ops::add_assign_rows::<F>(&mut dst, row_len, &src);
+    ops::add_gather_offsets::<F>(&mut dst, &region, &offsets);
+    ops::sub_assign::<F>(&mut dst, &src);
+    ops::mul_add::<F>(&mut dst, coeff, &src);
+    ops::mul_into::<F>(&mut ew, coeff, &src);
+    ops::mul_assign::<F>(&mut ew, coeff);
+    ops::mul_add_scatter::<F>(&mut scatter_rows, row_len, &coeffs, &src);
+    ops::mul_add_gather::<F>(&mut gather_dst, &coeffs, &refs);
+    ops::mul_into_gather::<F>(&mut gather_dst, &coeffs, &refs);
+    ops::mul_add_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
+    ops::mul_into_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
+    ops::mul_add_matrix_at::<F>(&mut at_rows, row_len, &row_starts, &terms);
+    ops::mul_elementwise::<F>(&mut ew, &src, &other);
+    ops::mul_elementwise_assign::<F>(&mut ew, &other);
+    ops::add_assign_scalar::<F>(&mut dst, coeff);
+    ops::sub_assign_scalar::<F>(&mut dst, coeff);
+    ops::mul_add_with::<F>(&mut dst, &prepared, &src);
+    ops::mul_into_with::<F>(&mut dst, &prepared, &src);
+    ops::mul_assign_with::<F>(&mut dst, &prepared);
+    ops::mul_add_scatter_with::<F>(&mut scatter_rows, row_len, vector.as_ref(), &src);
+    ops::mul_add_gather_with::<F>(&mut gather_dst, vector.as_ref(), &refs);
+    ops::mul_into_gather_with::<F>(&mut gather_dst, vector.as_ref(), &refs);
+    ops::mul_add_matrix_with::<F>(&mut matrix_rows, row_len, &matrix, &matrix_refs);
+    ops::mul_into_matrix_with::<F>(&mut matrix_rows, row_len, &matrix, &matrix_refs);
+
+    let allocations = count_allocations(|| {
+        ops::add_assign::<F>(&mut dst, &src);
+        ops::add_assign_rows::<F>(&mut dst, row_len, &src);
+        ops::add_gather_offsets::<F>(&mut dst, &region, &offsets);
+        ops::sub_assign::<F>(&mut dst, &src);
+        ops::mul_add::<F>(&mut dst, coeff, &src);
+        ops::mul_into::<F>(&mut ew, coeff, &src);
+        ops::mul_assign::<F>(&mut ew, coeff);
+        ops::mul_add_scatter::<F>(&mut scatter_rows, row_len, &coeffs, &src);
+        ops::mul_add_gather::<F>(&mut gather_dst, &coeffs, &refs);
+        ops::mul_into_gather::<F>(&mut gather_dst, &coeffs, &refs);
+        ops::mul_add_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
+        ops::mul_into_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
+        ops::mul_add_matrix_at::<F>(&mut at_rows, row_len, &row_starts, &terms);
+        ops::mul_elementwise::<F>(&mut ew, &src, &other);
+        ops::mul_elementwise_assign::<F>(&mut ew, &other);
+        ops::add_assign_scalar::<F>(&mut dst, coeff);
+        ops::sub_assign_scalar::<F>(&mut dst, coeff);
+        ops::mul_add_with::<F>(&mut dst, &prepared, &src);
+        ops::mul_into_with::<F>(&mut dst, &prepared, &src);
+        ops::mul_assign_with::<F>(&mut dst, &prepared);
+        ops::mul_add_scatter_with::<F>(&mut scatter_rows, row_len, vector.as_ref(), &src);
+        ops::mul_add_gather_with::<F>(&mut gather_dst, vector.as_ref(), &refs);
+        ops::mul_into_gather_with::<F>(&mut gather_dst, vector.as_ref(), &refs);
+        ops::mul_add_matrix_with::<F>(&mut matrix_rows, row_len, &matrix, &matrix_refs);
+        ops::mul_into_matrix_with::<F>(&mut matrix_rows, row_len, &matrix, &matrix_refs);
+    });
+    assert_eq!(allocations, 0, "generic extension packed surface allocated");
+}
+
+/// Generic extension rows: the whole checked packed surface runs
+/// allocation-free, and the prepared coefficient is the element itself,
+/// so preparation outside the counted window buys allocation-free reuse.
+#[test]
+fn generic_extension_rows_steady_state_allocate_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+
+    // Odd characteristic and characteristic two over packed storage.
+    let odd_coeff = Elem::<Gf49Row>::from_raw([3, 5]);
+    assert_extension_packed_surface_zero_alloc::<Gf49Row>(odd_coeff);
+    let binary_coeff = Elem::<Packed16Row>::from_raw(0x1B70);
+    assert_extension_packed_surface_zero_alloc::<Packed16Row>(binary_coeff);
 }

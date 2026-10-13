@@ -294,10 +294,13 @@ impl<const P: u64> Elem<FiniteField<P, 1, Residue>> {
     /// characteristic.
     #[inline]
     pub const fn from_residue(value: u64) -> Result<Self, RangeError> {
-        if value >= <PrimeCharacteristic<P> as PrimeIdentity>::CHARACTERISTIC {
-            return Err(RangeError);
+        match super::super::check_residue(
+            value,
+            <PrimeCharacteristic<P> as PrimeIdentity>::CHARACTERISTIC,
+        ) {
+            Ok(checked) => Ok(Self::from_raw(checked)),
+            Err(error) => Err(error),
         }
-        Ok(Self::from_raw(value))
     }
 
     /// The ordinary residue naming this element. Always `Some` at degree

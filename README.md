@@ -10,11 +10,13 @@ and other workloads that repeatedly scale, combine, and reconstruct rows of
 field elements.
 
 - **Fields:** binary fields from GF(2) to GF(2^64) — polynomial bases,
-  ordered (normal and Cantor) bases, and quadratic towers, including custom
-  ones — plus the Mersenne31, Goldilocks, and QM31 prime fields, and
-  bit-packed GF(2).
-- **One element type:** `Elem<F>` is the element of every field, with `const`
-  arithmetic, so coefficients and matrices can be built at compile time.
+  ordered (normal and Cantor) bases, and quadratic towers — plus the
+  Mersenne31 and Goldilocks prime fields, the QM31 extension of Mersenne31,
+  bit-packed GF(2), and custom extensions of any of them through
+  `ExtensionSpec`.
+- **One element type:** `Elem<F>` is the element of every field. The shipped
+  fields carry `const` arithmetic, so coefficients and matrices can be built
+  at compile time.
 - **Bulk operations:** `ops` provides checked AXPY, scaling, scatter, gather,
   matrix, and elementwise operations over unaligned little-endian buffers,
   with prepared coefficients for allocation-free repeated use.

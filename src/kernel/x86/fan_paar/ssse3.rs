@@ -1,6 +1,5 @@
 //! Fan–Paar SSSE3 kernels over 16-byte lanes.
-use crate::field::FiniteField;
-use crate::field::binary::tower::{FanPaar16, Tower};
+use crate::field::binary::tower::FanPaar16Field;
 use crate::kernel::scalar;
 use crate::kernel::tables::FpTowerTables;
 use crate::kernel::x86::gf16::{nibble_ssse3, scale_ssse3};
@@ -38,7 +37,7 @@ pub fn mul_add_ssse3_fp16(
         let scaled = scale_ssse3(x, &vectors);
         _mm_storeu_si128(dst_lane, _mm_xor_si128(d, scaled));
     }
-    scalar::mul_add::<FiniteField<2, 16, Tower<FanPaar16>>>(dst_tail, tables.coeff, src_tail);
+    scalar::mul_add::<FanPaar16Field>(dst_tail, tables.coeff, src_tail);
 }
 
 /// `dst = coeff * dst` with `PSHUFB` lookups over 16-byte lanes (SSSE3).
@@ -59,7 +58,7 @@ pub fn mul_assign_ssse3_fp16(_token: archmage::X64V2Token, dst: &mut [u8], table
         let x = _mm_loadu_si128(&*dst_lane);
         _mm_storeu_si128(dst_lane, scale_ssse3(x, &vectors));
     }
-    scalar::mul_assign::<FiniteField<2, 16, Tower<FanPaar16>>>(dst_tail, tables.coeff);
+    scalar::mul_assign::<FanPaar16Field>(dst_tail, tables.coeff);
 }
 
 /// `dst = coeff * src` with `PSHUFB` lookups over 16-byte lanes (SSSE3), fused.
@@ -96,5 +95,5 @@ pub fn mul_into_ssse3_fp16(
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its
     // own source, so seeding it with `src` first matches the fused body.
     dst_tail.copy_from_slice(src_tail);
-    scalar::mul_assign::<FiniteField<2, 16, Tower<FanPaar16>>>(dst_tail, tables.coeff);
+    scalar::mul_assign::<FanPaar16Field>(dst_tail, tables.coeff);
 }

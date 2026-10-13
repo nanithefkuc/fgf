@@ -107,11 +107,11 @@ A helper private to one file carries no ISA or width marker; a helper shared
 across sibling files carries its defining file's ISA
 suffix (`bmul_gfni`, `store_avx2`, `fold_avx2`), and a half-width variant
 inside a wider tier is `_half`. The
-AVX-512 kernels dispatch on `V4x` under `simd512`; `Binary<16, Tower<Rijndael16>>` scatter and gather
+AVX-512 kernels dispatch on `V4x` under `simd512`; `FiniteField<2, 16, Extension<Rijndael16, 2>>` scatter and gather
 retain the narrower GFNI path. Direct differentials execute on AVX-512
 hardware, and the public per-shape measurements are recorded in
 `benchmarks/v3/gf8.md` and `benchmarks/v3/gf16.md`. The byte-field and
-`Binary<16, Tower<Rijndael16>>` `mul_add` alignment peel floors remain
+`FiniteField<2, 16, Extension<Rijndael16, 2>>` `mul_add` alignment peel floors remain
 measured thresholds with a benchmark
 record and misaligned-row coverage
 in kernel tests.
@@ -160,10 +160,15 @@ Tests must defend observable contracts, not implementation wiring.
   tower packing against the shipped tower identities.
 - `tests/embedding.rs`: reference-ladder forward fixtures, inverse and
   commuting-triangle contracts, trace/norm, and failed restriction.
-- `tests/binary_bases.rs`: ordered-basis and custom-tower arithmetic against
+- `tests/binary_bases.rs`: ordered-basis and custom extension-spec arithmetic against
   base-field schoolbook oracles.
 - `tests/prime_fields.rs`: primality, prime-field bulk operations on raw
   lanes, and independent modular oracles.
+- `tests/extension.rs`: generic extension rows over every base shape,
+  packed byte forms, and the checked packed surface.
+- `tests/extension_reference.rs`: generic extension arithmetic against an
+  independent in-test schoolbook and brute-force reference, exhaustive on
+  small fields and sampled at full width.
 - `src/kernel/tests.rs`: direct scalar-versus-architecture differentials across
   lane, tail, row, and source-count boundaries.
 - `tests/zero_alloc.rs`: allocation-free steady-state contracts.
