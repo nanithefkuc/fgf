@@ -1,6 +1,6 @@
 //! Smoke tests of generic extension rows over every storage shape.
 //!
-//! Five rows cover the slice's surface: GF(49) as `t^2 - 3` and GF(7^3) as
+//! Five rows cover the extension surface: GF(49) as `t^2 - 3` and GF(7^3) as
 //! `t^3 - 2` over the residue row at seven (component storage, quadratic
 //! and cubic relations, norm-form and Euclid inversion), GF(p^2) as
 //! `t^2 + 4` over the Mersenne fold row, a packed GF(2^16) as

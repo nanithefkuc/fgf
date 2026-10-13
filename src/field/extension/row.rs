@@ -31,18 +31,12 @@ type RawOf<S, const D: usize> =
 type BaseRaw<S, const D: usize> = <<S as ExtensionSpec<D>>::Base as Field>::Raw;
 
 /// The base components of a raw word, in component order.
-fn split<S: ExtensionSpec<D>, const D: usize>(raw: RawOf<S, D>) -> [BaseRaw<S, D>; D]
-where
-    S::Storage: StorageRepr<S::Base, D>,
-{
+fn split<S: ExtensionSpec<D>, const D: usize>(raw: RawOf<S, D>) -> [BaseRaw<S, D>; D] {
     <S::Storage as StorageRepr<S::Base, D>>::split(raw)
 }
 
 /// The raw word of base components, canonicalized on the way in.
-fn join<S: ExtensionSpec<D>, const D: usize>(components: [BaseRaw<S, D>; D]) -> RawOf<S, D>
-where
-    S::Storage: StorageRepr<S::Base, D>,
-{
+fn join<S: ExtensionSpec<D>, const D: usize>(components: [BaseRaw<S, D>; D]) -> RawOf<S, D> {
     <S::Storage as StorageRepr<S::Base, D>>::join(components)
 }
 
@@ -52,11 +46,14 @@ where
 
 impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> FiniteFieldRepr<P, N>
     for Extension<S, D>
-where
-    S::Storage: StorageRepr<S::Base, D>,
 {
     const NAME: &'static str = S::NAME;
     const VALID: () = {
+        // Family metadata first: the primality proof and cardinality
+        // bound precede base validation and descriptor construction, so
+        // direct validity and identity queries fail on metadata before
+        // representation.
+        let _ = checked_order::<P, N>();
         let () = <S::Base as Field>::VALID;
         let descriptor = <FiniteField<P, N, Extension<S, D>> as RowAccess>::DESCRIPTOR;
         Descriptor::validate_relation(descriptor);
@@ -323,10 +320,7 @@ fn inv_components<B: Field, const D: usize>(
 /// The generic canonical form of a raw word.
 pub(crate) fn generic_canonical<S: ExtensionSpec<D>, const D: usize>(
     raw: RawOf<S, D>,
-) -> RawOf<S, D>
-where
-    S::Storage: StorageRepr<S::Base, D>,
-{
+) -> RawOf<S, D> {
     <S::Storage as StorageRepr<S::Base, D>>::canonical(raw)
 }
 
@@ -334,10 +328,7 @@ where
 pub(crate) fn generic_add<S: ExtensionSpec<D>, const D: usize>(
     left: RawOf<S, D>,
     right: RawOf<S, D>,
-) -> RawOf<S, D>
-where
-    S::Storage: StorageRepr<S::Base, D>,
-{
+) -> RawOf<S, D> {
     let (a, b) = (split::<S, D>(left), split::<S, D>(right));
     join::<S, D>(add_components::<S::Base, D>(&a, &b))
 }
@@ -346,19 +337,13 @@ where
 pub(crate) fn generic_sub<S: ExtensionSpec<D>, const D: usize>(
     left: RawOf<S, D>,
     right: RawOf<S, D>,
-) -> RawOf<S, D>
-where
-    S::Storage: StorageRepr<S::Base, D>,
-{
+) -> RawOf<S, D> {
     let (a, b) = (split::<S, D>(left), split::<S, D>(right));
     join::<S, D>(sub_components::<S::Base, D>(&a, &b))
 }
 
 /// The generic componentwise negation.
-pub(crate) fn generic_neg<S: ExtensionSpec<D>, const D: usize>(value: RawOf<S, D>) -> RawOf<S, D>
-where
-    S::Storage: StorageRepr<S::Base, D>,
-{
+pub(crate) fn generic_neg<S: ExtensionSpec<D>, const D: usize>(value: RawOf<S, D>) -> RawOf<S, D> {
     join::<S, D>(neg_components::<S::Base, D>(&split::<S, D>(value)))
 }
 
@@ -366,20 +351,14 @@ where
 pub(crate) fn generic_mul<S: ExtensionSpec<D>, const D: usize>(
     left: RawOf<S, D>,
     right: RawOf<S, D>,
-) -> RawOf<S, D>
-where
-    S::Storage: StorageRepr<S::Base, D>,
-{
+) -> RawOf<S, D> {
     let (a, b) = (split::<S, D>(left), split::<S, D>(right));
     let relation = relation_components::<S, D>();
     join::<S, D>(mul_components::<S::Base, D>(&a, &b, &relation))
 }
 
 /// The generic inverse, zero to zero.
-pub(crate) fn generic_inv<S: ExtensionSpec<D>, const D: usize>(value: RawOf<S, D>) -> RawOf<S, D>
-where
-    S::Storage: StorageRepr<S::Base, D>,
-{
+pub(crate) fn generic_inv<S: ExtensionSpec<D>, const D: usize>(value: RawOf<S, D>) -> RawOf<S, D> {
     let a = split::<S, D>(value);
     if a.iter().all(|&x| x == <S::Base as Field>::ZERO_RAW) {
         return <S::Storage as StorageRepr<S::Base, D>>::ZERO;
@@ -389,18 +368,12 @@ where
 }
 
 /// The instance word of a raw value, for a row running a shipped body.
-fn word<S: ExtensionSpec<D>, const D: usize>(raw: RawOf<S, D>) -> u64
-where
-    S::Storage: StorageRepr<S::Base, D>,
-{
+fn word<S: ExtensionSpec<D>, const D: usize>(raw: RawOf<S, D>) -> u64 {
     <S::Storage as StorageRepr<S::Base, D>>::to_pinned_word(raw)
 }
 
 /// The raw value of an instance word, for a row running a shipped body.
-fn from_word<S: ExtensionSpec<D>, const D: usize>(word: u64) -> RawOf<S, D>
-where
-    S::Storage: StorageRepr<S::Base, D>,
-{
+fn from_word<S: ExtensionSpec<D>, const D: usize>(word: u64) -> RawOf<S, D> {
     <S::Storage as StorageRepr<S::Base, D>>::from_pinned_word(word)
 }
 
@@ -416,8 +389,6 @@ const fn instance_of<F: RowAccess>() -> Option<Instance> {
 
 impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> Field
     for FiniteField<P, N, Extension<S, D>>
-where
-    S::Storage: StorageRepr<S::Base, D>,
 {
     type Raw = RawOf<S, D>;
     type Characteristic = PrimeCharacteristic<P>;
@@ -505,8 +476,6 @@ where
 
 impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> RowAccess
     for FiniteField<P, N, Extension<S, D>>
-where
-    S::Storage: StorageRepr<S::Base, D>,
 {
     const DESCRIPTOR: &'static Descriptor = &Descriptor::extension(
         <S::Base as RowAccess>::DESCRIPTOR,
@@ -516,6 +485,19 @@ where
         S::RELATION.to_coordinates(),
         <S::Storage as StorageRepr<S::Base, D>>::TAG,
     );
+    // Characteristic-two rows over binary bases carry the binary
+    // presentation; every other extension row reports none.
+    const BINARY_DESCRIPTION: Option<&'static BinaryDescription> =
+        match <S::Base as RowAccess>::BINARY_DESCRIPTION {
+            Some(base) if P == 2 => Some(&BinaryDescription::append_relation(
+                base,
+                N,
+                D,
+                S::RELATION.to_coordinates(),
+                <S::Storage as StorageRepr<S::Base, D>>::TAG,
+            )),
+            _ => None,
+        };
 
     // The row hooks leave the trait's `where Self: Field` clause implicit:
     // every row implements `Field`, and omitting the clause keeps
@@ -577,15 +559,11 @@ where
 
 impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> Sealed
     for FiniteField<P, N, Extension<S, D>>
-where
-    S::Storage: StorageRepr<S::Base, D>,
 {
 }
 
 impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> ExtensionField<D>
     for FiniteField<P, N, Extension<S, D>>
-where
-    S::Storage: StorageRepr<S::Base, D>,
 {
     type Base = S::Base;
 

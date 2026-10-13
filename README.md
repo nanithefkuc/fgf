@@ -32,7 +32,7 @@ matrices, manage shards, or implement a recovery protocol.
 
 ```toml
 [dependencies]
-fgf = "3.0.0"
+fgf = "3.0.1"
 ```
 
 Scalar arithmetic is `const`:

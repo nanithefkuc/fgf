@@ -11,7 +11,17 @@ All notable changes to this project are documented here. The format follows
 - One-time field migration verification is recorded in
   [Issue #41](https://github.com/nanithefkuc/fgf/issues/41), rather than a
   permanent expanded regression corpus.
+- Behavioral regressions cover relation-field arithmetic and validity,
+  ordered-basis subfield embeddings, rejected restrictions, degree
+  mismatches, and quadratic prime identity predicates.
+
+### Changed
+
 - The dependency lock uses published sources for locked MSRV checks.
+
+## [3.0.1] - 2026-10-10
+
+### Added
 
 - The canonical generic field family `FiniteField<const P: u64, const N: u32,
   R: FiniteFieldRepr<P, N> = Residue>` with the `Residue` presentation at
@@ -67,6 +77,15 @@ All notable changes to this project are documented here. The format follows
   every row: the prime-subfield value and the presentation index share one
   generic body over the crate-private row hooks, and the inherent `const`
   residue constructors check through the same bound.
+- The characteristic-independent relation surface in `field::embedding`,
+  re-exported at the root: `Embedding<S, T>` over every pair of rows of
+  equal characteristic whose degrees divide, with `from_images`,
+  `to_images`, `generator_count`, `generator`, `then`, and
+  `relative_degree`; `Isomorphism<S, T>` with `apply`, a total `unapply`,
+  `inverse`, and composition; and the `NoCanonicalMap` and `InvalidImages`
+  variants of `EmbeddingError`. Maps come from structural inclusions, the
+  frozen binary ladder, or validated caller images; every pre-cutover
+  binary result is unchanged.
 
 ### Changed
 
@@ -148,11 +167,17 @@ All notable changes to this project are documented here. The format follows
   `from_residue`/`to_residue` and `from_index`/`to_index`, shared by every
   row. `BinaryField::to_coordinates`/`from_coordinates` are removed: use
   `to_index`/`from_index`, identical words below degree 64 widened to
-  `u128`. `to_residue` returns `Option`, `None` off the prime subfield;
-  `PrimeField` is a method-free marker; `CoordinateError` and
-  `ResidueError` are replaced by `fgf::RangeError` (also
+  `u128`. `CoordinateError` is replaced by `fgf::RangeError` (also
   `fgf::field::RangeError`). Residues and indices are distinct: the index
   of one is the presentation's coordinate encoding of one.
+- Binary embedding evaluation no longer uses precomputed linear columns:
+  maps evaluate by Horner substitution and restrict through trace-dual
+  bases, with unchanged results on every pair.
+- **Breaking:** the `field::binary` embedding paths are removed without
+  an alias: `fgf::field::binary::embedding`, `Embedding`, and
+  `EmbeddingError` under it. Import from the crate root or
+  `field::embedding` instead; the struct bounds widen from `BinaryField`
+  to `Field`, and `Embedding` keeps `Clone`, `Copy`, and `Debug`.
 
 ### Removed
 

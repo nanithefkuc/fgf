@@ -125,11 +125,12 @@ mod private {
 /// The base is any [`Field`] row fgf implements, and
 /// the relation is the monic polynomial
 /// `t^D + c_{D-1} t^{D-1} + ... + c_0` over it.
+#[allow(private_bounds)]
 pub trait ExtensionSpec<const D: usize>: 'static {
     /// The base row this field extends.
     type Base: Field;
     /// The element storage of the row.
-    type Storage: ExtensionStorage<Self::Base, D>;
+    type Storage: ExtensionStorage<Self::Base, D> + storage::StorageRepr<Self::Base, D>;
     /// Human-readable field name; the row's `Field::NAME`.
     const NAME: &'static str;
     /// The defining relation's non-leading coefficients as flattened

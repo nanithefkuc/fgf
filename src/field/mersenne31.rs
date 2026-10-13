@@ -157,6 +157,7 @@ impl Field for Mersenne31 {
 impl super::private::RowAccess for Mersenne31 {
     const DESCRIPTOR: &'static Descriptor =
         &Descriptor::prime(MODULUS as u64, PrimePresentation::MersenneFold);
+    const BINARY_DESCRIPTION: Option<&'static super::binary::description::BinaryDescription> = None;
 
     fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw) {
         let () = Validate::<Self>::OK;
@@ -186,11 +187,11 @@ impl super::private::RowAccess for Mersenne31 {
     }
 
     fn from_prime(value: u64) -> <Self as Field>::Raw {
-        let () = Validate::<Self>::OK;
-        // The remainder below the modulus fits the lane.
+        // Shares the inherent `from_raw` body, so const and runtime
+        // contexts build exactly the same element. The remainder below
+        // the modulus fits the lane.
         #[allow(clippy::cast_possible_truncation)]
-        let residue = (value % u64::from(MODULUS)) as u32;
-        residue
+        Elem::<Self>::from_raw((value % u64::from(MODULUS)) as u32).to_raw()
     }
 
     fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {

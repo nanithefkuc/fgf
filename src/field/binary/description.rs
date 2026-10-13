@@ -1368,4 +1368,89 @@ mod tests {
             1,
         ));
     }
+
+    /// A relation node with packed coefficient words, for tests that place
+    /// a malformed relation node by hand.
+    fn relation_words_node(
+        base: u8,
+        relative_degree: usize,
+        base_degree: u32,
+        words: &[u64],
+    ) -> Node {
+        let mut coefficients = [0u64; COORDINATES];
+        for (slot, word) in coefficients.iter_mut().zip(words) {
+            *slot = *word;
+        }
+        Node::Extension {
+            base,
+            relative_degree,
+            characteristic: 2,
+            base_degree,
+            base_words: base_degree as usize,
+            coefficients,
+            storage: Storage::Components,
+        }
+    }
+
+    /// Cubic and quartic byte fields over GF(2): every product matches the
+    /// independent schoolbook interpreter, inverses are total with
+    /// `inv(0) == 0`, the trace matches the Frobenius sum, and powers
+    /// follow the multiplicative group order `2^degree - 1`.
+    #[test]
+    fn relation_presentations_match_independent_arithmetic() {
+        for (relation, degree) in [(&[1u64, 1, 0][..], 3u32), (&[1u64, 1, 0, 0][..], 4)] {
+            let desc = BinaryDescription::append_relation(
+                &BinaryDescription::polynomial(1, 3),
+                degree,
+                degree as usize,
+                relation,
+                Storage::Components,
+            );
+            validate(&desc);
+            let size = 1u64 << degree;
+            let one = desc.one();
+            let order = u128::from(size - 1);
+            for x in 0..size {
+                for y in 0..size {
+                    assert_eq!(desc.mul(x, y), root_mul(&desc, x, y), "{degree}: {x}*{y}");
+                }
+                assert_eq!(desc.mul(desc.inv(x), x), if x == 0 { 0 } else { one });
+                assert_eq!(
+                    desc.trace(x),
+                    reference_trace(&desc, x),
+                    "{degree}: tr({x})"
+                );
+                assert_eq!(desc.pow(x, order), if x == 0 { 0 } else { one });
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "relation node is reducible")]
+    fn validate_rejects_a_reducible_relation_node() {
+        // `t^3 + t^2 + t + 1 = (t + 1)(t^2 + t + 1)` over GF(2).
+        validate(&BinaryDescription::append_relation(
+            &BinaryDescription::polynomial(1, 3),
+            3,
+            3,
+            &[1, 1, 1],
+            Storage::Components,
+        ));
+    }
+
+    #[test]
+    #[should_panic(expected = "relation node caches a wrong base degree")]
+    fn validate_rejects_a_relation_node_with_a_wrong_base_degree() {
+        let mut desc = BinaryDescription::append_relation(
+            &BinaryDescription::polynomial(1, 3),
+            3,
+            3,
+            &[1, 1, 0],
+            Storage::Components,
+        );
+        desc.inner = desc
+            .inner
+            .with_node(1, relation_words_node(0, 3, 2, &[1, 1, 1]));
+        validate(&desc);
+    }
 }
