@@ -1,72 +1,74 @@
 # Custom prime fields and extensions
 
-A new field does not require a new element wrapper or an implementation of `Field`. Choose a prime modulus with `FiniteField<P, 1>`, or define an extension relation with `ExtensionSpec`. The resulting values still use `Elem<F>` and the same arithmetic operators as the named fields.
+Custom fields use the same `Elem<F>` as shipped fields. Choose parameters for
+`FiniteField`; do not implement the sealed arithmetic traits.
 
-The examples use fgf 3.0.1. The [field reference](https://docs.rs/fgf/3.0.1/fgf/field/index.html) describes the supported types. `Field`, `FieldBuffer`, and `HasGenerator` are sealed; custom definitions supply parameters to crate-defined implementations rather than replacing those traits.
+## Decide what needs to vary
 
-## Choose a modulus or an extension
+| Need | Choice |
+| --- | --- |
+| A new prime modulus | `FiniteField<P, 1>`; see [prime fields](Prime-fields) |
+| A binary polynomial or ordered basis | A supported [presentation](Choosing-a-field-and-basis) |
+| An extension relation or storage representation | `ExtensionSpec<D>` with `Extension<Spec, D>` |
 
-`FiniteField<P, 1>` uses the default `Residue` presentation for a checked `u64` prime. Each element stores a canonical `u64` residue and encodes as an eight-byte little-endian lane. A custom extension instead uses `FiniteField<P, N, Extension<Spec, D>>`, with a data-only `ExtensionSpec` supplying its base, storage, and relation. [Quadratic towers](Quadratic-towers) gives a binary example.
+An extension specification supplies a base field, storage, name, and monic
+relation. The field's absolute degree is the base degree multiplied by the
+relative degree `D`.
 
-`FiniteField<2, 1>` and `FiniteField<2, 1, Polynomial<3>>` have the same algebra but different storage APIs. The residue presentation has eight-byte lanes; the polynomial presentation has a scalar raw byte and uses `bits` for vectors, not `FieldBuffer`. Convert scalar values by residue rather than copying buffers between them. `PrimeCharacteristic<P>` checks a prime identity; the field row supplies the arithmetic.
+## Define an extension over a prime base
 
-## Use the residue row
-
-The residue presentation provides operators, `FieldElem` methods, a `const` element API, and `FieldBuffer` encoding. It also supports checked packed arithmetic through `ops`, routed to the scalar backend.
-
-```rust
-use fgf::{Elem, FieldBuffer, FiniteField, ops};
-
-type Seven = FiniteField<7, 1>;
-
-let a = Elem::<Seven>::from_raw(12); // reduces on construction
-let b = Elem::<Seven>::from_raw(3);
-assert_eq!(a.to_raw(), 5);
-assert_eq!((a * b).to_raw(), 1);
-assert_eq!((a - b).to_raw(), 2);
-assert_eq!((-a).to_raw(), 2);
-assert_eq!(a * a.inv(), Elem::<Seven>::ONE);
-assert_eq!(a / Elem::<Seven>::ZERO, Elem::<Seven>::ZERO);
-
-// Construction outside `0..P` is rejected instead of narrowed.
-assert!(Elem::<Seven>::from_residue(7).is_err());
-
-// The `const` surface: a reciprocal table can be a `const` item.
-const HALF: Elem<Seven> = Elem::<Seven>::from_raw(2).inv();
-const _: () = assert!(HALF.to_raw() == 4);
-
-// Eight-byte little-endian lanes: packing needs the buffer, not kernels.
-let mut bytes = [0u8; 16];
-ops::pack::<Seven>(&mut bytes, &[a, b]);
-assert_eq!(&bytes[..8], &5u64.to_le_bytes());
-assert_eq!(&bytes[8..], &3u64.to_le_bytes());
-assert_eq!(Seven::decode(&12u64.to_le_bytes()), a);
-```
-
-Every raw lane is a legal input to construction and decoding, which reduce it into `0..P` on the way in. Arithmetic is total under the crate-wide conventions — `inv(0) == 0`, `x / 0 == 0`, `0^0 == 1` — variable-time and not intended for secret data.
-
-## What central validation establishes
-
-Construction checks that the characteristic is prime, the degree is positive, and the field order fits and equals the characteristic raised to that degree. Each presentation then validates its own defining data.
-
-For a residue field, the defining parameter is the prime modulus. An invalid modulus is rejected when constructing an element. The named prime fields validate their moduli through the same field-level checks.
-
-## Generators and kernels on named rows
-
-The residue row implements `FieldBuffer` and the packed operations with `Scalar` routing; it does not implement `HasGenerator`, because a generic generator needs the factorization of `P − 1`, which fgf holds only for pinned moduli. Rows with a checked generator — the named prime rows, the binary rows, the shipped extension instances, and `QuadMersenne31` — prove full multiplicative order inside the provider constant.
+This constructs GF(49) as GF(7)[t]/(t² - 3). The relation omits the monic
+leading coefficient and lists the remaining coordinates constant-first:
 
 ```rust
-use fgf::{Elem, Mersenne31};
+use fgf::{Components, Elem, Extension, ExtensionField, ExtensionSpec,
+          FieldElem, FiniteField, Relation};
 
-// Order p - 1 = 2 * 3^2 * 7 * 11 * 31 * 151 * 331, checked by cofactors.
-let g = Elem::<Mersenne31>::GENERATOR;
-assert_eq!(g.pow(0x7FFF_FFFE), Elem::<Mersenne31>::ONE);
-for q in [2u128, 3, 7, 11, 31, 151, 331] {
-    assert_ne!(g.pow(0x7FFF_FFFE / q), Elem::<Mersenne31>::ONE);
+type Base = FiniteField<7, 1>;
+struct Quadratic;
+impl ExtensionSpec<2> for Quadratic {
+    type Base = Base;
+    type Storage = Components;
+    const NAME: &'static str = "GF(49)";
+    const RELATION: Relation = Relation::from_coordinates(&[4, 0]);
 }
+type F = FiniteField<7, 2, Extension<Quadratic, 2>>;
+let pair = <F as ExtensionField<2>>::from_components;
+let t = pair([Elem::<Base>::ZERO, Elem::<Base>::ONE]);
+assert_eq!(t * t, pair([Elem::<Base>::from_raw(3), Elem::<Base>::ZERO]));
+let x = pair([Elem::<Base>::from_raw(2), Elem::<Base>::from_raw(3)]);
+assert_eq!(x * x.inv(), Elem::<F>::ONE);
 ```
 
-## Verification before application use
+`Components` stores base elements individually. For compact binary words,
+[quadratic towers](Quadratic-towers) uses `Packed<W>`; padded binary storage
+uses `PackedPadded<W>`. Byte encoding and packed arithmetic depend on the
+chosen storage and base, not merely the existence of a scalar raw word.
 
-The crate checks its field implementations, but an application can still misuse a correct field. Compare application results against an independent modular calculation, including boundary residues and zero handling, and check that every required inverse is nonzero.
+## Validate before application use
 
+Value-producing operations and identities force validation. The characteristic
+must be prime, the degree and order consistent, the storage suitable, and the
+extension relation irreducible with valid base coordinates. A type alias alone
+does not validate its parameters.
+
+Custom extensions have `const` identities and `to_raw`; their arithmetic and
+component conversion use traits and operators, not shipped-family inherent
+`const` methods. Import `FieldElem` for trait methods on elements and
+`ExtensionField` for component conversion.
+
+## Request only supplied capabilities
+
+Generic residue rows and custom extensions do not supply `HasGenerator`.
+Arithmetic needs no selected generator. Algorithms requiring one must choose a
+row with that capability rather than assuming the extension indeterminate is
+primitive.
+
+Packed routing follows the representation: custom specifications matching a
+shipped base, relation, and storage can use its kernels; other custom rows use
+typed scalar fallback. [Deployment](Features-and-deployment) explains backend
+queries and feature choices.
+
+The [extension reference](https://docs.rs/fgf/3.0.1/fgf/field/extension/index.html)
+owns validity and storage contracts. Application checks should also cover
+expected relations, nonzero inverses, and agreed wire encodings.

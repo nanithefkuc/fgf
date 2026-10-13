@@ -8,10 +8,10 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 | --- | --- |
 | Campaign | `just bench-paired` (family round `gf`) |
 | v2 | `c20465ba22d078e0fb115fb6a99fa77027992c90` |
-| v3 | `4fa978b27d7b7b11c83291e212f47eccb5e7e8f3` |
+| v3 | `f3cd58c39e6e3672216912dd3e6131da1c4b670a` |
 | Toolchain | 1.98.1 |
-| Resolved process backend | v2: `v4x` / `v3_gfni_crypto`; v3: `v4x` / `v3_gfni_crypto` |
-| Resolved field backends | v2 `gf32b`: `v4x` / `v3_gfni_crypto`; v2 `gf64b`: `v4x` / `v3_gfni_crypto`; v2 `fp16`: `v4x` / `v3_gfni_crypto`; v2 `fp32`: `v4x` / `v3_gfni_crypto`; v2 `fp64`: `v4x` / `v3_gfni_crypto`; v3 `gf32b`: `v4x` / `v3_gfni_crypto`; v3 `gf64b`: `v4x` / `v3_gfni_crypto`; v3 `fp16`: `v4x` / `v3_gfni_crypto`; v3 `fp32`: `v4x` / `v3_gfni_crypto`; v3 `fp64`: `v4x` / `v3_gfni_crypto` |
+| Resolved process backend | v2: `v4x` / `-`; v3: `v4x` / `-` |
+| Resolved field backends | v2 `gf32b`: `v4x` / -; v2 `gf64b`: `v4x` / -; v2 `fp16`: `v4x` / -; v2 `fp32`: `v4x` / -; v2 `fp64`: `v4x` / -; v3 `gf32b`: `v4x` / -; v3 `gf64b`: `v4x` / -; v3 `fp16`: `v4x` / -; v3 `fp32`: `v4x` / -; v3 `fp64`: `v4x` / - |
 | Protocol | Five rounds per host; each round runs both versions in a shuffled order; competitor arms interleave inside their harness process. |
 | Aggregation | Median of five per-run medians. |
 | Ratio | v3/v2 for throughput, v2/v3 for latency; above one means v3 is faster. Computed from unrounded host-local aggregates. |
@@ -24,7 +24,7 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 
 | Operation | v3 speed factor |
 | --- | --- |
-| mul_add | 1.0040 / 1.0051 |
+| mul_add | 0.9965 / - |
 
 ## gf64b
 
@@ -34,7 +34,7 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 
 | Operation | v3 speed factor |
 | --- | --- |
-| mul_add | 1.0009 / 0.9998 |
+| mul_add | 0.9998 / - |
 
 ## fp16
 
@@ -44,7 +44,7 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 
 | Operation | v3 speed factor |
 | --- | --- |
-| mul_add | 0.9994 / 1.0000 |
+| mul_add | 0.9998 / - |
 
 ## fp32
 
@@ -54,7 +54,7 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 
 | Operation | v3 speed factor |
 | --- | --- |
-| mul_add | 0.9999 / 1.0009 |
+| mul_add | 0.9996 / - |
 
 ## fp64
 
@@ -64,7 +64,7 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 
 | Operation | v3 speed factor |
 | --- | --- |
-| mul_add | 0.9992 / 1.1463 |
+| mul_add | 0.9943 / - |
 
 ## Caveats
 

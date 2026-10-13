@@ -1,12 +1,12 @@
 # Bit-packed GF(2)
 
-GF(2) has just zero and one, so its vectors need only one bit per element. The `bits` module works directly on that packed layout. Operations that depend on the number of live elements take an explicit logical bit length, rather than guessing it from the byte count.
-
-The examples use fgf 3.0.1. The [bits reference](https://docs.rs/fgf/3.0.1/fgf/bits/index.html) describes ranges, lengths, and padding.
+Use `bits` for one bit per GF(2) vector element. Supply the logical length
+explicitly; byte count alone cannot identify the final live bit.
 
 ## Scalar values and vector storage
 
-The scalar field is `FiniteField<2, 1, Polynomial<3>>`, and its element is `Elem<FiniteField<2, 1, Polynomial<3>>>`. It supports generic scalar arithmetic through `Field`. It does not implement `FieldBuffer` or `FieldKernels`; vectors use `bits` rather than `ops::pack`.
+Polynomial GF(2) has scalar arithmetic but no byte-lane `FieldBuffer` or
+`FieldKernels`. Its vectors do not use `ops::pack`:
 
 ```rust
 use fgf::{FiniteField, Elem, Polynomial};
@@ -16,7 +16,8 @@ assert_eq!(Elem::<F>::ONE + Elem::<F>::ONE, Elem::<F>::ZERO);
 assert_eq!(Elem::<F>::ONE * Elem::<F>::ONE, Elem::<F>::ONE);
 ```
 
-For vectors, addition is XOR and elementwise multiplication is AND. A scalar multiplier is either zero, contributing nothing, or one, contributing the source. There is no coefficient-table preparation for this field.
+Vector addition is XOR; elementwise multiplication is AND. Scalar coefficients
+are zero or one, so no coefficient preparation is needed.
 
 ## Indexing and logical length
 
@@ -36,9 +37,9 @@ The buffer length cannot recover the exact live bit count. Range endpoints are h
 
 ## Padding belongs to the caller
 
-Keep padding zero when storing or transmitting a row that requires that convention. Range operations leave bits outside their window untouched. Whole-buffer XOR includes all supplied bytes, so it preserves zero padding only when the inputs already have zero padding.
-
-Queries such as `weight` and `dot_product` ignore padding. They can return the right answer even when the stored row has nonzero padding; they do not repair it.
+Padding is caller-owned. Range operations preserve bits outside the window;
+whole-buffer XOR includes all supplied bytes. `weight` and `dot_product` ignore
+padding without repairing it:
 
 ```rust
 use fgf::bits;
@@ -52,7 +53,9 @@ assert_eq!(received, [0, 0xfc]);
 assert_eq!(bits::weight(&received, 10), 0);
 ```
 
-The six high bits remain set. `XorRange` prepares geometry and masks for reuse across buffer pairs, not field coefficients. An application can mask the final byte and clear surplus bytes explicitly when its wire format requires zero padding.
+The high padding bits remain set. `XorRange` prepares geometry and masks,
+not coefficients. Mask the final byte and clear surplus bytes if the wire
+format requires zero padding.
 
 ## Dot products compute parity equations
 
@@ -89,7 +92,8 @@ let with_padding = [codeword[0] | 0x80];
 assert_eq!(syndrome(&with_padding), 0);
 ```
 
-This interpretation assumes at most one error. Multiple errors can produce another coordinate's syndrome; flipping that coordinate is not a general decoding algorithm. `fgf` computes parity facts and does not choose a correction policy.
+This correction assumes at most one error. Multiple errors can produce the
+same syndrome; `fgf` supplies parity arithmetic, not a decoding policy.
 
 ## Subset XOR combines supplied rows
 
@@ -107,5 +111,8 @@ bits::xor_gather(&mut output, 7, 0b101, &sources);
 assert_eq!(output, [0b0010_1101]);
 ```
 
-The [binary-syndrome program](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/binary_syndrome.rs) supplies generator rows, encodes a message by subset XOR, and checks a single-error recovery. From a checkout, `just example binary_syndrome --no-default-features` exercises the portable library surface.
+Run the [binary syndrome example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/binary_syndrome.rs)
+with `just example binary_syndrome --no-default-features`. Exact range and
+padding contracts belong to the
+[bits reference](https://docs.rs/fgf/3.0.1/fgf/bits/index.html).
 

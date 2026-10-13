@@ -876,4 +876,69 @@ mod tests {
         Descriptor::extension(base, 2, 8, 2, &relation, Storage::Packed { width: 8 })
             .is_irreducible()
     }
+
+    #[test]
+    #[should_panic(expected = "not a relation node")]
+    fn node_relation_irreducible_rejects_a_prime_root() {
+        let _ = node_relation_irreducible(&Descriptor::prime(2, PrimePresentation::Residue), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "not a relation node")]
+    fn quadratic_relation_holds_rejects_a_prime_root() {
+        let _ = quadratic_relation_holds(&Descriptor::prime(7, PrimePresentation::Residue), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "not a relation node")]
+    fn ben_or_irreducible_rejects_a_prime_root() {
+        let _ = ben_or_irreducible(&Descriptor::prime(2, PrimePresentation::Residue), 0);
+    }
+
+    #[test]
+    fn validate_relation_accepts_an_unpinned_irreducible_quadratic() {
+        // GF(25): the discriminant of `t^2 + 2` is `-8 = 2`, a quadratic
+        // nonresidue over GF(5), and the descriptor matches no pinned row.
+        let descriptor = Descriptor::extension(
+            &Descriptor::prime(5, PrimePresentation::Residue),
+            5,
+            2,
+            2,
+            &[2, 0],
+            Storage::Components,
+        );
+        assert!(brute_irreducible(&[2, 0, 0, 0], 2, 5));
+        assert!(quadratic_relation_holds(
+            &descriptor,
+            descriptor.root_index()
+        ));
+        validate_relation(&descriptor);
+    }
+
+    #[test]
+    #[should_panic(expected = "extension relation is reducible")]
+    fn validate_relation_rejects_a_reducible_quadratic() {
+        // `t^2 + 1` splits over GF(5): its discriminant `-4 = 1` is a square.
+        validate_relation(&Descriptor::extension(
+            &Descriptor::prime(5, PrimePresentation::Residue),
+            5,
+            2,
+            2,
+            &[1, 0],
+            Storage::Components,
+        ));
+    }
+
+    #[test]
+    fn unchecked_binary_relations_decide_with_the_checked_constructor() {
+        let leaf = Descriptor::polynomial(1, 0b11);
+        // `t^3 + t + 1` is irreducible and `t^3 + t^2 + t + 1` factors as
+        // `(t + 1)(t^2 + t + 1)` over GF(2).
+        let irreducible = unchecked_extension(&leaf, 2, 3, &[1, 1, 0]);
+        let reducible = unchecked_extension(&leaf, 2, 3, &[1, 1, 1]);
+        let checked = Descriptor::extension(&leaf, 2, 3, 3, &[1, 1, 0], Storage::Components);
+        assert!(irreducible.is_irreducible());
+        assert!(!reducible.is_irreducible());
+        assert_eq!(irreducible.is_irreducible(), checked.is_irreducible());
+    }
 }

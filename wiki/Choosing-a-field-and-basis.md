@@ -1,14 +1,15 @@
 # Field presentations and bases
 
-Two fields can have the same number of elements without using the same coordinates. A presentation specifies what each stored bit or component means. That choice matters when reading a protocol, serializing values, or moving between field types.
-
-The examples use fgf 3.0.1. The [binary field reference](https://docs.rs/fgf/3.0.1/fgf/field/binary/index.html) lists the supported presentations.
+Choose the coordinates required by the application or protocol. Equal field
+orders do not make raw words interchangeable; the presentation is part of
+the value's meaning.
 
 ## Start with the application's convention
 
-For an existing protocol, start with its characteristic, degree, and basis. For a new format, choose those conventions and record them so another process can reconstruct the same values. Backend selection is independent of that agreement: changing the host must not change the wire coordinates.
-
-Common choices are `FiniteField<2, 8, Polynomial<RS>>` for the `0x11D` convention and `FiniteField<2, 8, Polynomial<AES>>` for the `0x11B` convention. A Reed–Solomon code is not enough to determine a polynomial or a generator schedule. Matching the field does not by itself match a codec's coefficients or wire protocol.
+For an existing protocol, match its characteristic, degree, and basis.
+For a new format, record these conventions. Backend selection must not change
+wire coordinates. A Reed–Solomon code alone does not specify its field
+polynomial, coefficients, or generator schedule.
 
 ## Supported presentations
 
@@ -19,9 +20,13 @@ Common choices are `FiniteField<2, 8, Polynomial<RS>>` for the `0x11D` conventio
 | `Cantor<P, SEED>` | 2, 4, 8 | Yes | Degree 8, scalar fallback |
 | `Extension<S, 2>` over a binary base | 2, 4, 8, 16, 32, 64 | Yes | Degrees 8, 16, 32, 64 with `Packed` storage |
 
-Each presentation checks its defining parameters. The table lists supported shapes, not a promise that every polynomial, normal element, seed, or extension relation is valid. The degree-one polynomial presentation is `Polynomial<3>`. GF(2) vectors use `bits`; degrees two and four support scalar arithmetic but not byte-lane buffer arithmetic.
+Defining parameters are checked; a listed shape does not make every polynomial,
+normal element, seed, or relation valid. GF(2) uses `Polynomial<3>` for scalars
+and `bits` for vectors. Binary degrees two and four are scalar-only.
 
-The shipped nonbinary families are `Mersenne31`, `Goldilocks`, and `QuadMersenne31`, all with scalar and byte-buffer arithmetic. `QuadMersenne31` is a quadratic extension of a prime field, not itself a prime field. Their coordinate rules are explained in [Prime fields](Prime-fields).
+For a prime characteristic, start with `FiniteField<P, 1>`. Mersenne31 and
+Goldilocks select specialized representations of prime fields;
+QuadMersenne31 is a quadratic extension. See [prime fields](Prime-fields).
 
 ## Polynomial coordinates
 
@@ -38,7 +43,8 @@ assert_eq!(aes_product.to_raw(), 0x1b);
 assert_eq!(rs_product.to_raw(), 0x1d);
 ```
 
-Here `0x80` denotes `x^7` and `2` denotes `x`. Their product is reduced using different defining polynomials. Copying the raw byte into the other type changes the value's interpretation; it is not a field conversion.
+The same raw product reduces differently under the two polynomials.
+Copying coordinates is not a value-preserving conversion.
 
 ## Normal coordinates
 
@@ -74,7 +80,7 @@ assert_eq!(change.embed(x * y), change.embed(x) * change.embed(y));
 assert_eq!(change.embed(Elem::<PolynomialField>::ONE), Elem::<CantorField>::ONE);
 ```
 
-An ordered basis does not provide an FFT or a polynomial evaluation algorithm. `fgf` owns the field representation and arithmetic; transform algorithms belong to their own libraries.
+Ordered bases supply coordinates and arithmetic, not an FFT algorithm.
 
 ## Extension components
 
@@ -84,7 +90,12 @@ A quadratic extension holds `a + b*t` over a base field. Low coordinate bits hol
 
 ## Generators and acceleration are separate capabilities
 
-A multiplicative generator enumerates the nonzero elements. It need not be the polynomial or extension indeterminate. Algorithms that need a selected generator use `HasGenerator`; ordinary arithmetic does not need that bound, and custom extension rows do not provide it.
+Use `HasGenerator` only when an algorithm needs a selected multiplicative
+generator; arithmetic itself does not need it. The generator need not be the
+polynomial indeterminate, and custom rows need not supply one.
 
-The [deployment guide](Features-and-deployment) explains backend queries. Shipped presentations can have architecture kernels, while ordered-basis presentations and custom extension rows use a typed scalar fallback unless their base, relation, and storage match a shipped instance. Representation selection is not a promise that every operation executes SIMD.
+Continue with [packing](Coordinates-and-packed-bytes), [quadratic extensions](Quadratic-towers),
+or [presentation changes](Embeddings-and-presentation-changes).
+The [binary reference](https://docs.rs/fgf/3.0.1/fgf/field/binary/index.html) owns
+parameter validity; [deployment](Features-and-deployment) explains acceleration.
 

@@ -1,12 +1,13 @@
 # Quadratic towers
 
-A quadratic extension builds a larger field from pairs of base-field elements. Write a value as `a + b*t`, where a relation specifies how to reduce `t²`. Repeating the construction produces a tower; the shipped binary towers reach degree 64.
-
-The examples use fgf 3.0.1. A tower type is `FiniteField<2, N, Extension<Spec, 2>>`. The [tower reference](https://docs.rs/fgf/3.0.1/fgf/field/binary/tower/index.html) lists the shipped specifications, and the [extension reference](https://docs.rs/fgf/3.0.1/fgf/field/extension/index.html) describes custom relations and storage.
+Represent an extension value as `a + b*t` over a base field, with a relation
+for reducing `t²`. `FiniteField<2, N, Extension<Spec, 2>>` selects a binary
+quadratic extension; repeating it produces a tower.
 
 ## Components are values in the base presentation
 
-For a degree-sixteen tower over a byte field, the low byte contains `a` and the high byte contains `b`. The stable encoding is little-endian, so the constant component comes first. Components are typed base-field elements, not interchangeable bytes from another basis.
+In a degree-sixteen packed tower, the low byte holds `a` and the high byte
+holds `b`. Components belong to the declared base presentation:
 
 ```rust
 use fgf::{AES, Elem, Extension, FiniteField, Polynomial, Rijndael16};
@@ -39,13 +40,26 @@ Every coefficient operation in these equations belongs to the base field. In par
 
 ## Shipped specifications
 
-`Rijndael16` roots at `FiniteField<2, 8, Polynomial<AES>>`; `Rijndael32` and `Rijndael64` continue that tower. `FanPaar2` through `FanPaar64` nest from GF(2) through the Fan–Paar relation. Each marker is a specification, used inside `FiniteField<2, N, Extension<Spec, 2>>`, rather than a standalone field type.
+`Rijndael16` starts at the AES byte field; `Rijndael32` and `Rijndael64`
+continue its tower. `FanPaar2` through `FanPaar64` nest from GF(2).
+These names are specifications, not standalone field markers.
 
-Use a local alias such as `type F = FiniteField<2, 16, Extension<Rijndael16, 2>>` for repeated code. Each shipped specification fixes its relation and selected generator. The shipped rows provide `const` constructors and arithmetic, with component conversions on the 16-, 32-, and 64-bit instances. Rijndael and Fan–Paar coordinates are different even at equal degree; [embeddings](Embeddings-and-presentation-changes) convert values between them.
+Shipped rows provide `const` arithmetic and selected generators, with component
+conversions on the 16-, 32-, and 64-bit instances. Equal-degree Rijndael and
+Fan–Paar values need an [embedding](Embeddings-and-presentation-changes).
 
 ## Define a custom relation
 
-A custom specification declares a base row, a storage, a descriptive name, and the relation. Over a binary base, `Relation::from_binary_words` takes one raw base word per coefficient, constant term first, so `[B, A]` names `t² + A*t + B`. `Packed<W>` storage keeps the coordinate word in an integer `W` whose width equals the extension degree and gives the row a little-endian byte form; `PackedPadded<W>` keeps a narrower coordinate word in a padded integer and has no byte form. The example below uses the RS byte field as its base.
+Supply the base, storage, name, and constant-first relation.
+`[B, A]` specifies `t² + A*t + B` over a binary base.
+
+| Storage | Coordinates | Byte form |
+| --- | --- | --- |
+| `Packed<W>` | Integer word matching the binary degree | Little-endian lanes at supported buffer degrees |
+| `PackedPadded<W>` | Narrower coordinates in a padded integer | Scalar only |
+| `Components` | Individual base elements | Depends on the base |
+
+This example uses the RS byte field and packed storage:
 
 ```rust
 use fgf::{
@@ -79,22 +93,25 @@ assert_eq!(base_map.trace(z), linear * b);
 assert_eq!(base_map.norm(z), expected_norm);
 ```
 
-A custom row carries the `const` identities `Elem::<F>::ZERO` and `Elem::<F>::ONE` and a `const` `to_raw`, but no `const` element arithmetic and no inherent constructors. Construction and arithmetic go through the `FieldElem` trait, the operators, `ExtensionField::from_components` and `to_components`, and `FieldBuffer` when the storage has a byte form.
-
-The relation is not valid merely because its coefficients fit. Validation checks the base, that the extension degree is twice the base degree, that every coefficient word fits the base, that the storage admits the degree, and that the quadratic is irreducible over the base.
-
-Declaring a type does not by itself validate the relation. Using an identity or a value-producing operation forces validation of its defining data; invalid constants are rejected at compile time. Binary tower rows stop at degree 64.
+Custom rows use trait arithmetic and component conversion, with `const`
+identities and `to_raw`. Using a value or identity forces validation of the
+base, storage, degree, coordinates, and irreducible relation; an alias alone
+does not. Binary packed towers stop at degree 64.
 
 ## A generator is optional
 
-Each shipped specification carries a selected generator, read as `Elem::<F>::GENERATOR` under a `HasGenerator` bound. A custom specification declares no generator: arithmetic, component conversion, and embeddings need none. `HasGenerator` is sealed, so a custom row offers no `GENERATOR`.
-
-The tower indeterminate `t` is not automatically a multiplicative generator. Algorithms that need one add a `HasGenerator` bound and use a shipped row. Arithmetic-only applications need not search for or declare a generator.
+`HasGenerator` exposes a selected generator on shipped rows. Custom rows
+declare none; arithmetic, component conversion, and embeddings need none.
+The indeterminate `t` is not automatically primitive.
 
 ## Bulk operations and application boundaries
 
-Rows with `Packed` storage have a byte form at degrees 8, 16, 32, and 64 and implement the packed `ops` surface. Routing follows the presentation, not the spelling of a specification marker: a custom specification whose base, relation, and storage equal a shipped specification's runs that row's arithmetic and kernels, while every other custom row uses the typed scalar fallback. `backend_for::<F>()` reports the field's backend. Fan–Paar degrees two and four keep a padded byte word and have no byte-lane surface.
+Packed binary rows at degrees 8, 16, 32, and 64 support `ops`.
+Routing follows base, relation, and storage: matching a shipped instance uses
+its kernels; other custom rows use typed scalar fallback.
 
-`ExtensionSpec` is not limited to binary quadratic towers: its base is any row fgf implements, and its relative degree is any `D` that `Extension<Spec, D>` names. `Components` storage keeps one base element per component and suits a prime base. [Downstream scalar fields](Downstream-scalar-fields) covers the sealed scalar rows and the residue row for custom prime fields.
-
-The [extension-fields example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/extension_fields.rs) compares binary towers with `QuadMersenne31`.
+For arbitrary relative degree and a prime base, continue with
+[custom extensions](Downstream-scalar-fields). The
+[tower reference](https://docs.rs/fgf/3.0.1/fgf/field/binary/tower/index.html) and
+[extension reference](https://docs.rs/fgf/3.0.1/fgf/field/extension/index.html)
+own the specification and storage contracts.

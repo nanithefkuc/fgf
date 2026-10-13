@@ -6,7 +6,7 @@
 
 /// Direct kernel implementations, preparation tables, and capability tokens.
 pub mod kernel {
-    pub use crate::kernel::byte_ops::xor;
+    pub use crate::kernel::bytes::xor;
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     pub use crate::kernel::matrix_provider::{FlatMatrix, Matrix};
 
@@ -45,6 +45,18 @@ pub mod kernel {
         pub use crate::kernel::scalar::*;
     }
 
+    /// Residue row routing: the selector functions the production dispatch
+    /// runs, for benchmark routing reports that must not copy constants.
+    /// Available only where the x86 SIMD dispatch exists; other targets
+    /// route every residue shape through the portable path.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    pub mod residue {
+        pub use crate::kernel::residue::{
+            DELAYED_ADD_MIN_DEPTH, DELAYED_INTO_MIN_DEPTH, DELAYED_MIN_SOURCES, VectorOp,
+            avx2_floor_op_len, delay_depth, delayed_matrix_backend, routes_delayed, routes_vector,
+            single_row_backend, vector_backend,
+        };
+    }
     /// Coefficient tables shared by field and architecture kernels.
     pub mod tables {
         pub use crate::kernel::tables::*;
@@ -54,6 +66,21 @@ pub mod kernel {
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     pub mod x86 {
         pub use crate::kernel::x86::*;
+
+        /// Direct residue kernels and reduction parameters.
+        pub mod residue {
+            #[cfg(feature = "simd512")]
+            pub use crate::kernel::x86::residue::avx512::{
+                matrix::{mul_add_matrix_u32_avx512_with, mul_into_matrix_u32_avx512_with},
+                single::{
+                    mul_add_u8_avx512, mul_add_u32_avx512, mul_add_u64_avx512,
+                    mul_assign_u8_avx512, mul_assign_u32_avx512, mul_assign_u64_avx512,
+                    mul_elementwise_assign_u32_avx512, mul_elementwise_u32_avx512,
+                    mul_into_u8_avx512, mul_into_u32_avx512, mul_into_u64_avx512,
+                },
+            };
+            pub use crate::kernel::x86::residue::*;
+        }
     }
 
     /// Token-bearing AArch64 kernels.

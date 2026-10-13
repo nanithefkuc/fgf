@@ -1,28 +1,24 @@
 [fgf guides](Home)
 
-**Fields and arithmetic**
+**Usage flow**
 
-- [Fields, elements, and scalar arithmetic](Type-model-and-generic-algorithms)
-- [Operation suffixes](Operation-suffixes)
-- [Linear operations and row geometry](Linear-operations-and-row-geometry)
+- [Fields and scalar arithmetic](Type-model-and-generic-algorithms)
+- [Presentations and bases](Choosing-a-field-and-basis)
+- [Coordinates and packed bytes](Coordinates-and-packed-bytes)
+- [Row operations and geometry](Linear-operations-and-row-geometry)
 - [Prepared coefficients](Prepared-coefficients)
+- [Features and deployment](Features-and-deployment)
+
+**Field-specific guides**
+
 - [Prime fields](Prime-fields)
 - [Bit-packed GF(2)](Bit-packed-GF2)
-
-**Presentations**
-
-- [Field presentations and bases](Choosing-a-field-and-basis)
-- [Coordinates and packed bytes](Coordinates-and-packed-bytes)
 - [Quadratic towers](Quadratic-towers)
+- [Embeddings](Embeddings-and-presentation-changes)
+- [Custom fields and extensions](Downstream-scalar-fields)
 
-**Relationships and custom fields**
+**Reference**
 
-- [Embeddings and presentation changes](Embeddings-and-presentation-changes)
-- [Custom prime fields and extensions](Downstream-scalar-fields)
-
-**Building and upgrading**
-
-- [Features and deployment](Features-and-deployment)
-- [Migrating from 2.x to 3.0.1](Migrating-from-2.x)
-
-[API reference](https://docs.rs/fgf/3.0.1/fgf/)
+- [Operation suffixes](Operation-suffixes)
+- [Migrating from 2.x](Migrating-from-2.x)
+- [API reference](https://docs.rs/fgf/3.0.1/fgf/)

@@ -886,3 +886,63 @@ fn covered_quartic_relation_embeds_through_the_reference() {
     }
     assert_eq!(lifted.embed(t.mul(t)).to_index() as u64, lifted_square);
 }
+
+/// Byte fields presented over a normal or Cantor basis embed into the
+/// Rijndael tower through the ladder, and restriction inverts the
+/// embedding element by element while rejecting elements outside the
+/// subfield.
+#[test]
+fn basis_row_presentations_embed_and_restrict_through_the_ladder() {
+    type Normal8 = FiniteField<2, 8, Normal<0x11B, 0x20>>;
+    type Cantor8 = FiniteField<2, 8, Cantor<0x11B, 0x20>>;
+    let normal = Embedding::<Normal8, Gf16>::new().unwrap();
+    let cantor = Embedding::<Cantor8, Gf16>::new().unwrap();
+    for word in samples(8, 0x5A) {
+        let element = Elem::<Normal8>::from_index(u128::from(word)).unwrap();
+        let image = normal.embed(element);
+        assert!(normal.contains(image), "normal row: {word}");
+        assert_eq!(normal.restrict(image), Some(element), "normal row: {word}");
+        let element = Elem::<Cantor8>::from_index(u128::from(word)).unwrap();
+        let image = cantor.embed(element);
+        assert!(cantor.contains(image), "cantor row: {word}");
+        assert_eq!(cantor.restrict(image), Some(element), "cantor row: {word}");
+    }
+    // The tower indeterminate has a zero low byte, so it lies outside every
+    // byte subfield: restriction fails on the basis source too.
+    let outside = Elem::<Gf16>::from_raw(0x0100);
+    assert_eq!(normal.restrict(outside), None);
+    assert_eq!(cantor.restrict(outside), None);
+}
+
+/// Restriction answers `None` for every target element outside the source
+/// subfield, across flat, tower, and prime-subfield sources.
+#[test]
+fn restrict_rejects_elements_outside_the_subfield() {
+    // GF(4) inside the AES field: `2` and `3` are not fourth roots of
+    // themselves, so neither lies in the subfield.
+    let two_four = Embedding::<Ref2, Ref8>::new().unwrap();
+    for word in [2u128, 3] {
+        let element = Elem::<Ref8>::from_index(word).unwrap();
+        assert_eq!(two_four.restrict(element), None, "{word}");
+    }
+    // GF(2^16) inside GF(2^32): a nonzero high component is outside.
+    let sixteen_thirtytwo = Embedding::<Gf16, Gf32>::new().unwrap();
+    let element = Elem::<Gf32>::from_raw(0x0001_0000);
+    assert_eq!(sixteen_thirtytwo.restrict(element), None);
+    // GF(2) inside the AES field: only `0` and `1` restrict.
+    let one_eight = Embedding::<Gf1, Ref8>::new().unwrap();
+    let element = Elem::<Ref8>::from_index(2).unwrap();
+    assert_eq!(one_eight.restrict(element), None);
+}
+
+/// `from_images` reports a degree mismatch before reading the slice.
+#[test]
+fn embedding_from_images_rejects_a_degree_mismatch() {
+    assert!(matches!(
+        Embedding::<Ref8, Ref4>::from_images(&[]),
+        Err(EmbeddingError::IncompatibleDegree {
+            source: 8,
+            target: 4
+        })
+    ));
+}

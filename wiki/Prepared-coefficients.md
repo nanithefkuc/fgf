@@ -1,12 +1,10 @@
 # Prepared coefficients
 
-When the same coefficient is used across several buffers, prepare it once and reuse it. A prepared coefficient keeps the backend-specific multiplier state; an `_with` call borrows that state and applies it to new data.
+Prepare coefficients when they repeat across buffers. A `_with` call borrows
+the backend-specific state without retaining source or destination contents.
+Preparation does not relax [row validation](Linear-operations-and-row-geometry).
 
-The examples use fgf 3.0.1 and the row shapes from [Linear operations and row geometry](Linear-operations-and-row-geometry). The [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) describes the prepared types.
-
-## Separate values, preparation, and destination storage
-
-`Elem<F>` is the coefficient's field value. `Coeff<F>` prepares that value for the process backend. Neither preparation nor reuse takes ownership of the source or destination buffers, and preparation retains no buffer contents.
+## Prepare one coefficient
 
 ```rust
 use fgf::{Elem, Extension, FiniteField, Rijndael16, ops};
@@ -23,7 +21,8 @@ for raw in [0x1234u16, 0xabcd] {
 assert_eq!(prepared.value(), value);
 ```
 
-`Coeff` construction allocates nothing. It is still computation, and its size and contents depend on the field and backend. Preparation is appropriate when a coefficient repeats; it is not a blanket recommendation to prepare every one-shot call.
+`Coeff` is inline and does not allocate. Preparation is useful for reuse, not
+a requirement for every one-shot call.
 
 ## Collections encode a coefficient axis
 
@@ -39,7 +38,8 @@ A vector position denotes an output for scatter and a source for gather. The vec
 
 ## Apply a matrix repeatedly
 
-The following block requires the `alloc` feature, enabled by default. One matrix supplies two source terms and three output rows for each block. A borrowed source view also drives incremental scatter without cloning prepared entries.
+This example requires `alloc` (enabled by default). One matrix drives both
+block application and incremental scatter without cloning its entries:
 
 <!-- requires: alloc -->
 ```rust
@@ -70,23 +70,29 @@ ops::mul_into_with::<F>(&mut scaled, &borrowed, &[1, 2]);
 assert_eq!(scaled, [2, 4]);
 ```
 
-The same source view works for incremental scatter and block-final matrix application. The scalar calculation in the example also checks the coefficient ordering. Reuse needs neither a second matrix nor a cloned coefficient table.
+The scalar checks make source-major ordering explicit.
 
 ## Gather views and lifetimes
 
-A `CoeffVec::as_ref()` view feeds gather or scatter `_with` operations. `CoeffMatrix::source(s)` yields the same view for source `s` across every output. `get` and `get_at` return `Option<CoeffRef>` for individual positions.
+`CoeffVec::as_ref()` feeds gather or scatter calls. `CoeffMatrix::source(s)`
+borrows source `s` across all outputs; `get` and `get_at` borrow individual
+entries. Views cannot outlive their owner and do not copy its tables.
 
-Views cannot outlive their owning collection. Moving or dropping the owner while a view is still borrowed is rejected by Rust. A copied borrowed view does not copy the backend tables; cloning an owning preparation is a different operation.
+## Keep allocation outside the repeated loop
 
-## Allocation and startup
+Owned collections allocate during construction; their prepared applications
+reuse that state. Source-slice arrays and destination buffers are also
+caller-owned. First-use dispatch and table initialization are separate from
+the warmed steady-state contract.
 
-Owned collections allocate during construction. Their documented applications reuse the prepared state without allocation. That steady-state contract does not mean an application has no first-use setup: feature-enabled dispatch or shared table initialization can have separate startup work. Buffers and source-slice arrays must also be supplied without allocating inside the repeated region if the application needs an allocation-free loop.
-
-The crate's [counting-allocator tests](https://github.com/nanithefkuc/fgf/blob/v3.0.1/tests/zero_alloc.rs) defend its steady-state promises. These examples check arithmetic and reuse; they are not allocation measurements.
-
-Preparation hoists coefficient work, not validation. A wrong source count, destination span, or row length still panics through a prepared operation. `CoeffVec` and `CoeffMatrix` require `alloc`, not `std`; [deployment](Features-and-deployment) covers that feature combination.
+The [counting-allocator tests](https://github.com/nanithefkuc/fgf/blob/v3.0.1/tests/zero_alloc.rs)
+defend allocation promises; these examples check arithmetic, not allocation.
+`CoeffVec` and `CoeffMatrix` require `alloc`, not `std`.
 
 ## Persist the scalar values, not the prepared form
 
-Prepared state is bound to the process backend and deliberately opaque. Persist the coefficient values in their agreed field encoding and reconstruct preparation after loading. An application also persists matrix dimensions and source-major ordering; raw coefficient bytes alone do not describe geometry.
+Serialize scalar coefficients, matrix dimensions, and source-major ordering.
+Rebuild preparation after loading; its opaque backend state is not a wire
+format. See [deployment](Features-and-deployment) for feature choices and the
+[ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) for prepared contracts.
 

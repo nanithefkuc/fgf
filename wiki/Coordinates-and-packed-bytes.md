@@ -1,18 +1,20 @@
 # Coordinates and packed bytes
 
-A scalar value and its serialized bytes are different things. `Elem<F>` stores a canonical value in the chosen presentation; `FieldBuffer` reads and writes that value as a fixed-width little-endian lane. A packed `ops` buffer is a sequence of those lanes, with no padding between them and no address-alignment requirement.
-
-The examples use fgf 3.0.1. The [field reference](https://docs.rs/fgf/3.0.1/fgf/field/index.html) describes scalar encoding, and the [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) describes buffer conversion.
+Pack values into fixed-width little-endian lanes before calling byte-buffer
+operations. Lanes are adjacent, without padding, and their starting address
+need not be aligned. `FieldBuffer` owns the encoding.
 
 ## Raw coordinates are not mathematical integers
 
-For a binary presentation, raw bits select basis coordinates. `Elem::<F>::from_raw(2)` need not mean the sum of two copies of one: that sum is zero in characteristic two. In a polynomial basis, raw `2` is the indeterminate. In a normal basis, it selects the second conjugate basis vector.
-
-For a prime field, the raw integer is reduced modulo the characteristic. `from_raw` canonicalizes storage; `to_raw` returns the stored canonical word. It cannot recover a noncanonical spelling used to construct the element. Equality and hashing see canonical field values, while ordering is coordinate order rather than an order compatible with field multiplication.
+Binary raw bits select basis coordinates, not ordinary integers. Polynomial
+raw `2` means the indeterminate; normal raw `2` selects the second basis vector.
+Prime raw integers reduce modulo the characteristic. `to_raw` returns canonical
+coordinates, not the original input spelling.
 
 ## Residues name values, indices name coordinates
 
-Use `from_residue` when the input means a multiple of the field's one, and `from_index` when it means a position in the flattened prime-subfield coordinates. These are `FieldElem` methods. Their results can differ: in `Normal<7, 2>`, one is the sum of both basis vectors, so residue one has coordinate index three.
+`from_residue` names a multiple of one; `from_index` names flattened prime-subfield
+coordinates. In a normal basis these differ:
 
 ```rust
 use fgf::{Elem, FieldElem, FiniteField, Normal};
@@ -27,7 +29,8 @@ assert_eq!(Elem::<Row>::from_index(3).unwrap(), one);
 
 ## Canonicalize or reject excess coordinates
 
-Small binary element constructors mask away bits above the degree. The `FieldElem::from_index` conversion instead rejects an out-of-range word. The checked conversion is useful at a format boundary where excess bits indicate malformed input rather than an accepted alias.
+Use checked `from_index` at format boundaries. Unlike a masking `from_raw`
+constructor, it rejects excess coordinates:
 
 ```rust
 use fgf::{Elem, FieldElem, FiniteField, Polynomial};
@@ -43,7 +46,9 @@ Canonicalization operates within a presentation. It does not convert a polynomia
 
 ## Encode a scalar, then pack a vector
 
-`FieldBuffer::encode` writes one scalar to a slice of exactly `F::BYTES` bytes. Concrete shipped families also provide fixed-array methods such as `to_bytes`. `ops::pack` and `ops::unpack` fill caller-owned buffers; the allocating `pack_to_vec` variant requires `alloc`.
+`encode` writes exactly `F::BYTES` bytes. `ops::pack` and `unpack` fill caller-owned
+storage; `pack_to_vec` requires `alloc`. Generic residue rows use `encode` and
+`decode`, not the fixed-array `to_bytes` methods of shipped element families.
 
 ```rust
 use fgf::{Elem, Extension, FieldBuffer, FiniteField, Rijndael16, ops};
@@ -62,7 +67,7 @@ ops::unpack::<F>(&mut decoded, &bytes);
 assert_eq!(decoded, values);
 ```
 
-Packing needs only `FieldBuffer`. Arithmetic on those bytes additionally needs `FieldKernels`; an encoding alone does not supply that capability. The generic residue fields support both, with scalar arithmetic routing.
+Packing requires `FieldBuffer`; arithmetic on packed bytes requires `FieldKernels`.
 
 ## Apply arithmetic to an unaligned payload
 
@@ -84,19 +89,22 @@ assert_eq!(frame[0], 0x7e);
 assert_eq!(frame[5], 0x7e);
 ```
 
-The slice begins after one metadata byte, and only the payload changes. Its length is still a multiple of `F::BYTES`. An odd byte count would contain a partial degree-sixteen element and would panic in checked packed arithmetic.
+The frame's metadata stays unchanged. Payload length must still be a multiple
+of `F::BYTES`; a partial lane panics. Paired operations also require matching
+lengths, and row operations check their declared geometry.
 
-## Byte count, lane width, and logical length
-
-A byte-lane buffer contains `bytes.len() / F::BYTES` elements only if the division is exact. Multiplication and pairwise operations require whole lanes and, where paired, equal byte lengths. Row operations additionally validate their declared geometry.
-
-GF(2) vectors are different: eight logical elements share one byte, and the final byte may be partial. Degrees two and four have scalar storage but no `FieldBuffer`; the existence of a raw byte word is not permission to use packed `ops`. [Bit-packed GF(2)](Bit-packed-GF2) explains logical length and padding.
+GF(2) vectors instead pack several logical elements into each byte. Their final
+byte can be partial; use [bit-packed operations](Bit-packed-GF2), not byte-lane
+`ops`. Binary degrees two and four have no `FieldBuffer`.
 
 ## Serialization needs a presentation agreement
 
-A stable encoding fixes byte order and coordinate order. It does not identify the field in the byte stream. Peers must agree on the polynomial, ordered basis, or recursive tower relation, along with the payload's element count. A generic `Elem<F>` supplies no universal self-describing wire header.
+Peers must agree on the polynomial, ordered basis or extension relation, byte
+order, and element count. Field bytes do not contain a self-describing header.
+Prime decode–encode can change noncanonical input bytes; retain the original
+payload separately if exact byte preservation matters.
 
-Prime decoding accepts aliases and stores their canonical value. Decode–encode therefore need not reproduce the original bytes of an arbitrary raw payload. Applications requiring byte-for-byte preservation retain the original bytes separately. [Prime fields](Prime-fields) explains arithmetic passthrough cases as well.
-
-Prepared coefficients are backend-bound state, not a wire format. Serialize their scalar values and rebuild preparation in the receiving process.
+Continue with [row operations](Linear-operations-and-row-geometry). The
+[packing reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) owns exact sizes
+and errors.
 

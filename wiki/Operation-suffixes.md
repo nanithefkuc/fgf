@@ -1,8 +1,8 @@
 # Operation suffixes
 
-An operation name tells how it uses the destination, whether it takes prepared state, and how rows are addressed. Read those parts separately: `mul_add_matrix_with` accumulates matrix results using prepared coefficients, while `mul_add_matrix_at` accumulates into destination rows at explicit offsets.
-
-This guide uses fgf 3.0.1. The [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) gives the exact signatures and validation rules. Suffixes describe a contract; they do not imply that every possible combination exists.
+Read destination behavior, row shape, preparation, and addressing separately.
+For example, `mul_add_matrix_with` accumulates matrix results using prepared
+coefficients. Suffixes do not imply every combination exists.
 
 ## What happens to the destination?
 
@@ -12,7 +12,9 @@ This guide uses fgf 3.0.1. The [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops
 | `_assign` | Uses the old destination as an operand and replaces it with the result. | `mul_assign`: `dst = c * old_dst` |
 | `_add` | Adds the result to the destination's previous contents. | `mul_add`: `dst = old_dst + c * src` |
 
-Accumulation needs a deliberate initial value. Zero is appropriate for building a new sum; an existing result is appropriate for an incremental update. The addition operations fold that behavior into the verb: `add_assign` adds a source to the destination, and `add_gather` adds several sources. They do not need a separate multiplication coefficient.
+Start accumulation at zero for a new sum, or at an existing value for an update.
+Addition folds this into the verb: `add_assign` adds a source; `add_gather_offsets`
+adds sources addressed in one region.
 
 ```rust
 use fgf::{AES, Elem, FiniteField, Polynomial, ops};
@@ -35,21 +37,13 @@ These are field equations, not integer equations. In this binary field, adding o
 
 ## What does `_with` reuse?
 
-`_with` means that a call takes reusable prepared state. In `ops`, that is usually a prepared coefficient, vector, or matrix. The destination behavior does not change: `mul_into_with` overwrites, and `mul_add_with` accumulates.
+`_with` borrows reusable preparation without changing destination behavior.
+`mul_into_with` overwrites; `mul_add_with` accumulates. Preparation does not
+skip validation or imply allocation-free construction.
 
-```rust
-use fgf::{AES, Elem, FiniteField, Polynomial, ops};
-
-type F = FiniteField<2, 8, Polynomial<AES>>;
-let coefficient = ops::Coeff::<F>::new(Elem::<F>::from_raw(2));
-let mut destination = [0xa5u8; 3];
-ops::mul_into_with::<F>(&mut destination, &coefficient, &[1, 2, 3]);
-assert_eq!(destination, [2, 4, 6]);
-ops::mul_add_with::<F>(&mut destination, &coefficient, &[1, 2, 3]);
-assert_eq!(destination, [0, 0, 0]);
-```
-
-Prepared state can also describe geometry. For example, `bits::xor_range_with` borrows an `XorRange` containing a bit range and its masks. `_with` does not mean an arbitrary extra argument, caller scratch, or permission to skip validation. [Prepared coefficients](Prepared-coefficients) explains the ownership and allocation requirements of the coefficient forms.
+[Prepared coefficients](Prepared-coefficients) covers coefficient, vector,
+and matrix ownership. Bit operations use the same convention:
+`bits::xor_range_with` borrows an `XorRange` with cached masks.
 
 ## Which rows does the call address?
 
@@ -66,12 +60,17 @@ The shape words answer a different question:
 | `matrix` | Several sources contribute to several outputs; the matrix need not be square. |
 | `elementwise` | Each position combines the corresponding elements of two buffers. |
 
-For example, `mul_add_matrix_with` accumulates several linear combinations using a prepared matrix. Its argument order is destination, row length, prepared matrix, then sources. Preparing the matrix does not relax row-length or source-count checks. `mul_add_matrix_at` takes offset-addressed destinations and ordinary coefficient terms; fgf 3.0.1 has no prepared `_at_with` matrix form.
+`mul_add_matrix_with` takes destination, row length, prepared matrix, then
+sources. `mul_add_matrix_at` instead takes destination offsets and ordinary
+coefficient terms. There is no prepared `_at_with` matrix form.
 
-## Allocation and scratch are separate questions
+## Allocation
 
-`_to_vec` marks an allocating conversion, such as `pack_to_vec`. The corresponding `pack` call fills caller-owned storage. `_with` alone makes no allocation promise: a single `Coeff` is inline, while owned coefficient collections require `alloc` during construction.
+`_to_vec` allocates output; `pack` instead fills caller-owned storage.
+`_with` means reusable state, not scratch workspace: `fgf` has no public
+`_scratch` operation.
 
-The ecosystem's `_scratch` suffix means a call borrows caller-provided workspace instead of allocating that workspace itself. Scratch carries no reusable mathematical state between calls, unlike preparation. fgf 3.0.1 does not expose a public `_scratch` operation; there is no scratch argument to add to its `_with` calls.
-
-Names are a useful starting point, but the operation's reference decides its exact buffer sizes, empty-input behavior, and failure conditions. Not every output-writing operation includes `_into`: `pack` and `mul_elementwise` write their results to the destination under their documented contracts.
+Use [row geometry](Linear-operations-and-row-geometry) to select the call and
+the [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) for exact sizes,
+empty-input behavior, and errors. Names are not a substitute for the contract:
+`pack` and `mul_elementwise` overwrite without an `_into` suffix.

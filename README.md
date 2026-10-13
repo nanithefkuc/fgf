@@ -7,26 +7,27 @@
 `fgf` provides finite-field arithmetic and fast bulk operations over packed
 byte buffers. It is the arithmetic layer beneath erasure codes, proof systems,
 and other workloads that repeatedly scale, combine, and reconstruct rows of
-field elements.
+field elements. It is not a codec: it does not build coding matrices, manage
+shards, or implement a recovery protocol.
 
-- **Fields:** binary fields from GF(2) to GF(2^64) — polynomial bases,
-  ordered (normal and Cantor) bases, and quadratic towers — plus the
-  Mersenne31 and Goldilocks prime fields, the QM31 extension of Mersenne31,
-  bit-packed GF(2), and custom extensions of any of them through
-  `ExtensionSpec`.
-- **One element type:** `Elem<F>` is the element of every field. The shipped
-  fields carry `const` arithmetic, so coefficients and matrices can be built
-  at compile time.
-- **Bulk operations:** `ops` provides checked AXPY, scaling, scatter, gather,
-  matrix, and elementwise operations over unaligned little-endian buffers,
-  with prepared coefficients for allocation-free repeated use.
-- **Runtime SIMD:** the best available backend is selected once per process,
-  with a portable fallback everywhere.
-- **Embeddings:** `Embedding<S, T>` maps one binary field into a larger one,
-  with Frobenius, trace, and norm.
+## One model for every field
 
-`fgf` is an arithmetic library, not a codec: it does not build coding
-matrices, manage shards, or implement a recovery protocol.
+`FiniteField<P, N, Representation>` selects a field's characteristic, extension
+degree, and coordinates. `Elem<F>` holds its values through one scalar API.
+Fields with byte-lane storage also share the packed-operation API.
+
+| Presentation | Covers |
+| --- | --- |
+| `Residue` (default) | Prime fields `FiniteField<P, 1>` for any `u64` prime |
+| `Polynomial<POLY>` | Binary polynomial bases, including AES and Reed–Solomon conventions |
+| `Normal<POLY, E>`, `Cantor<POLY, SEED>` | Ordered binary bases |
+| `Extension<Spec, D>` | Extensions over supported bases, with a chosen relation and storage representation |
+
+`Mersenne31` and `Goldilocks` select specialized prime representations;
+`QuadMersenne31` selects a quadratic extension. They use the same model, not
+separate element systems. Shipped binary towers reach GF(2^64); custom
+extensions use `ExtensionSpec`. [The wiki](https://github.com/nanithefkuc/fgf/wiki)
+explains supported degrees, relations, storage choices, and embeddings.
 
 ## Usage
 
@@ -35,21 +36,26 @@ matrices, manage shards, or implement a recovery protocol.
 fgf = "3.0.1"
 ```
 
-Scalar arithmetic is `const`:
+Choose the field, then construct its elements. Shipped scalar arithmetic is
+`const`; operators follow field arithmetic, not ordinary integer arithmetic.
 
 ```rust
-use fgf::{FiniteField, Elem, Polynomial, poly::AES};
+use fgf::{Elem, FiniteField, Polynomial, AES};
 
-type Gf2P8 = FiniteField<2, 8, Polynomial<AES>>;
+type Prime = FiniteField<17, 1>;
+type Binary = FiniteField<2, 8, Polynomial<AES>>;
 
-const A: Elem<Gf2P8> = Elem::<Gf2P8>::from_raw(0x53);
-const B: Elem<Gf2P8> = Elem::<Gf2P8>::from_raw(0xCA);
-
-assert_eq!(A.mul(B), Elem::<Gf2P8>::ONE);
-assert_eq!(A.mul(B).div(B), A);
+const X: Elem<Prime> = Elem::<Prime>::from_raw(7);
+assert_eq!(X.mul(X).to_raw(), 15);
+assert_eq!(
+    Elem::<Binary>::from_raw(0x53) * Elem::<Binary>::from_raw(0xca),
+    Elem::<Binary>::ONE,
+);
 ```
 
-Bulk operations take the field as a type parameter and work on packed bytes:
+`ops` scales and combines rows of packed elements, with prepared coefficients
+for repeated calls. Byte lanes are fixed-width and little-endian; their size
+depends on the field representation. Bit-packed GF(2) vectors use `bits`.
 
 ```rust
 use fgf::{FiniteField, Elem, Polynomial, poly::AES, ops};
@@ -100,9 +106,17 @@ implementation.
 | `wasm32` | `simd128` |
 | any other | portable scalar |
 
-`fgf::backend()` reports the selected backend. Setting `SIMD_BACKEND` (for
-example `SIMD_BACKEND=scalar`) at process start requests a weaker backend;
-requests the host cannot support are ignored.
+The best available backend is selected once per process, with a portable
+fallback everywhere. `fgf::backend()` reports the selection, and setting
+`SIMD_BACKEND` (for example `SIMD_BACKEND=scalar`) at process start requests
+a weaker backend; requests the host cannot support are ignored.
+
+Which operations accelerate depends on the field, the operation, and the
+buffer geometry; `backend_for::<F>()` reports the backend implemented for a
+field. Routing notes are in the
+[deployment guide](https://github.com/nanithefkuc/fgf/wiki/Features-and-deployment),
+and measured results live in
+[`BENCHMARKS.md`](https://github.com/nanithefkuc/fgf/blob/main/BENCHMARKS.md).
 
 ## Safety
 

@@ -131,7 +131,7 @@ pub fn mul_elementwise_assign<F: FieldBuffer>(dst: &mut [u8], src: &[u8]) {
     }
 }
 
-/// [`byte_ops::xor_broadcast`]'s portable body: XOR the cyclic `value_bytes`
+/// [`super::bytes::xor_broadcast`]'s portable body: XOR the cyclic `value_bytes`
 /// pattern over the whole buffer, regardless of element boundaries.
 ///
 /// The vector broadcast kernels peel whole lanes and hand every remaining

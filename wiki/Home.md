@@ -1,37 +1,33 @@
 # fgf guides
 
-`fgf` provides finite-field arithmetic for individual values and packed buffers. These guides start with choosing a field and constructing its elements, then work through arithmetic, storage, and conversions between fields. **3.0.1 is the base v3 release** used throughout, with Rust **1.93 or later**.
+Define a field, compute with `Elem<F>`, then apply the same arithmetic to packed
+buffers. These guides use 3.0.1 as the base v3 release and require Rust 1.93 or later.
 
-> This library is AI-assisted. Its code requires independent audit. Arithmetic is variable-time; safe Rust does not make operations suitable for secret elements, coefficients, or buffers.
+> This library is AI-assisted and requires independent audit. Arithmetic is
+> variable-time; safe Rust does not make it suitable for secret data.
 
-## Start with a field and a few values
+## Start here
 
-Begin with [Fields, elements, and scalar arithmetic](Type-model-and-generic-algorithms). It introduces `FiniteField` and `Elem<F>` with a small computation before explaining how to write an algorithm that works over several fields.
+| Step | Guide |
+| --- | --- |
+| Choose a field and construct values | [Fields and scalar arithmetic](Type-model-and-generic-algorithms) |
+| Match a protocol's coordinates | [Presentations and bases](Choosing-a-field-and-basis) |
+| Encode values for bulk work | [Coordinates and packed bytes](Coordinates-and-packed-bytes) |
+| Express a linear combination | [Row operations and geometry](Linear-operations-and-row-geometry) |
+| Reuse coefficients across blocks | [Prepared coefficients](Prepared-coefficients) |
+| Choose runtime requirements | [Features and deployment](Features-and-deployment) |
 
-## Apply arithmetic to buffers
+[Operation suffixes](Operation-suffixes) is the naming reference. Exact
+signatures, panics, and invariants belong to the
+[API reference](https://docs.rs/fgf/3.0.1/fgf/).
 
-[Operation suffixes](Operation-suffixes) explains what names such as `_into`, `_add`, `_with`, and `_at` say about a call. [Linear operations and row geometry](Linear-operations-and-row-geometry) then shows how to express scaling and linear combinations, and [Prepared coefficients](Prepared-coefficients) shows how to reuse the same coefficients across blocks.
+## A linear combination
 
-For layouts other than byte-sized binary elements, use [Prime fields](Prime-fields) or [Bit-packed GF(2)](Bit-packed-GF2). The buffer examples introduce their layouts where they are needed; the presentation guides below explain what the stored coordinates mean.
-
-## Understand the presentation
-
-[Field presentations and bases](Choosing-a-field-and-basis) explains polynomial, normal, and Cantor coordinates. [Coordinates and packed bytes](Coordinates-and-packed-bytes) connects those coordinates to integer conversions and serialization. [Quadratic towers](Quadratic-towers) builds larger fields from base-field components.
-
-## Relate fields and define new ones
-
-[Embeddings and presentation changes](Embeddings-and-presentation-changes) covers value-preserving conversions, subfield membership, trace, and norm. [Custom prime fields and extensions](Downstream-scalar-fields) explains how to choose a new prime modulus or supply an extension relation without implementing the sealed field traits.
-
-## Build or upgrade an application
-
-[Features and deployment](Features-and-deployment) covers `no_std`, allocation, and backend selection. Existing 2.x applications can use [Migrating from 2.x to 3.0.1](Migrating-from-2.x); new applications can start directly with the examples here.
-
-## A first useful computation
-
-A supplied pair of coefficients defines a linear combination at every byte position. In the AES field, multiplication is polynomial arithmetic, not integer multiplication modulo 256.
+Here `out[i] = a[i] + 2*b[i]` in the AES binary field. The overwrite call needs
+no pre-zeroing:
 
 ```rust
-use fgf::{AES, FiniteField, Elem, Polynomial, ops};
+use fgf::{AES, Elem, FiniteField, Polynomial, ops};
 
 type F = FiniteField<2, 8, Polynomial<AES>>;
 let a = [1u8, 2, 3];
@@ -42,17 +38,25 @@ ops::mul_into_gather::<F>(&mut out, &coefficients, &[&a, &b]);
 assert_eq!(out, [9, 8, 15]);
 ```
 
-The overwrite operation ignores the previous destination bytes. A production encoder or decoder supplies its own coefficients, matrix construction, and recovery decisions: `fgf` applies arithmetic, not a coding protocol.
+The application supplies coefficients and recovery decisions; `fgf` is not a codec.
 
-## Reference and executable examples
+## Follow the application's needs
 
-The [versioned API reference](https://docs.rs/fgf/3.0.1/fgf/) owns exact signatures, panics, and invariants. The [README](https://github.com/nanithefkuc/fgf/blob/v3.0.1/README.md) covers installation and scope. The [changelog](https://github.com/nanithefkuc/fgf/blob/v3.0.1/CHANGELOG.md) records release changes; [BENCHMARKS.md](https://github.com/nanithefkuc/fgf/blob/v3.0.1/BENCHMARKS.md) owns measurements.
+| Need | Guide |
+| --- | --- |
+| A prime modulus or specialized prime representation | [Prime fields](Prime-fields) |
+| One bit per GF(2) vector element | [Bit-packed GF(2)](Bit-packed-GF2) |
+| Larger fields from base components | [Quadratic towers](Quadratic-towers) |
+| Value-preserving field conversions, trace, or norm | [Embeddings](Embeddings-and-presentation-changes) |
+| A custom extension relation or storage | [Custom fields](Downstream-scalar-fields) |
+| Upgrade an existing application | [Migrating from 2.x](Migrating-from-2.x) |
 
-The [examples directory](https://github.com/nanithefkuc/fgf/tree/v3.0.1/examples) contains complete programs with assertions and printed results. From a crate checkout:
+Rust blocks are self-contained unless marked as historical text; pages identify
+`alloc` requirements. Local type aliases are examples, not extra crate exports.
+The [example programs](https://github.com/nanithefkuc/fgf/tree/v3.0.1/examples)
+run from a checkout with `just example NAME` or `just examples`.
 
-```sh
-just example shard_recovery
-just examples
-```
-
-The Rust blocks in these guides are self-contained unless marked as historical text. Blocks using prepared collections require `alloc`; their pages state that requirement. The guides use local type aliases for readability, not additional public names supplied by the crate.
+[Installation](https://github.com/nanithefkuc/fgf/blob/main/README.md),
+[release changes](https://github.com/nanithefkuc/fgf/blob/main/CHANGELOG.md), and
+[measurements](https://github.com/nanithefkuc/fgf/blob/main/BENCHMARKS.md)
+each have their own reference page.

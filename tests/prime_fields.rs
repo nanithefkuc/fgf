@@ -347,3 +347,21 @@ fn quad_mersenne31_elementwise_threshold_is_consistent() {
         "threshold {threshold} disagrees with elementwise eligibility"
     );
 }
+
+/// The identity predicates read the canonical limbs: zero reports zero and
+/// not one, one reports one and not zero, and a general element reports
+/// neither, with `canonical` a fixed point on already-canonical storage.
+#[test]
+fn quad_mersenne31_identity_predicates_follow_the_limbs() {
+    let zero = Elem::<QuadMersenne31>::ZERO;
+    let one = Elem::<QuadMersenne31>::ONE;
+    let unit = Elem::<QuadMersenne31>::from_raw([2, 3]);
+    assert!(zero.is_zero());
+    assert!(!zero.is_one());
+    assert!(one.is_one());
+    assert!(!one.is_zero());
+    assert!(!unit.is_zero());
+    assert!(!unit.is_one());
+    assert_eq!(unit.canonical(), unit);
+    assert_eq!(zero.canonical(), zero);
+}

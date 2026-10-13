@@ -1,12 +1,14 @@
 # Embeddings and presentation changes
 
-Copying coordinates between field types is not generally a conversion. `Embedding<S, T>` maps values while preserving addition, multiplication, zero, and one. Equal-degree fields give a change of presentation; a larger target can contain the source as a subfield. `Isomorphism<S, T>` expresses the equal-degree case with a total inverse.
-
-The examples use fgf 3.0.1 and the presentations introduced in [Field presentations and bases](Choosing-a-field-and-basis). The [embedding reference](https://docs.rs/fgf/3.0.1/fgf/field/embedding/index.html) describes construction and the available map operations.
+Use `Embedding<S, T>` to preserve values when changing field types.
+Equal degrees give a presentation change; a larger target can contain the
+source as a subfield. `Isomorphism<S, T>` supplies a total inverse in the
+equal-degree case. Raw-coordinate copying is not a conversion.
 
 ## A smaller field is not a prefix of arbitrary coordinates
 
-GF(2^4) occurs as a subfield of GF(2^8), but its polynomial indeterminate need not be the AES indeterminate. The canonical map sends the degree-four indeterminate to a root of its defining polynomial in the target.
+Embed the smaller field through a root of its defining polynomial in the
+target, not by treating its coordinates as a byte prefix:
 
 ```rust
 use fgf::{AES, FiniteField, Elem, Embedding, Polynomial};
@@ -22,11 +24,12 @@ assert!(!inclusion.contains(Elem::<Aes>::from_raw(2)));
 assert_eq!(inclusion.restrict(Elem::<Aes>::from_raw(2)), None);
 ```
 
-The literal target byte `2` lies outside this subfield image. An unchecked raw copy would not preserve the source arithmetic. `restrict` answers membership and returns the source value only for elements in the image.
+`restrict` returns a source value only inside the image; target raw `2` is
+outside this particular subfield.
 
 ## Equal degree changes the presentation
 
-A change from AES polynomial coordinates to RS polynomial coordinates preserves addition, multiplication, zero, and one. It is not a relabelling of raw bytes.
+AES-to-RS conversion preserves arithmetic, not raw bytes:
 
 ```rust
 use fgf::{AES, FiniteField, Elem, Embedding, Polynomial, RS};
@@ -45,9 +48,10 @@ The same surface handles normal, Cantor, and extension presentations. Equal-degr
 
 ## One convention makes composed inclusions agree
 
-Finite fields can admit more than one embedding, so a conversion needs a convention. An extension's own base embeds as constant components, as does the prime subfield. For other canonical binary maps, fgf uses a fixed chain of reference presentations: polynomial fields at degrees one, two, and four, AES at degree eight, and Rijndael extensions above it.
-
-With that convention, conversion through an intermediate supported degree agrees with direct conversion. Root selection and coordinate order are fixed interoperability rules, not application tuning options.
+Canonical maps agree through intermediate supported fields. An extension's
+base embeds as constant components; other binary maps follow a fixed
+reference convention. Root and coordinate choices are interoperability rules,
+not tuning options:
 
 ```rust
 use fgf::{AES, Elem, Embedding, Extension, FiniteField, Polynomial, Rijndael16, Rijndael64};
@@ -84,13 +88,17 @@ assert_eq!(map.norm(z), a.square() + a * b + Elem::<Base>::from_raw(0x20) * b.sq
 assert_eq!(map.restrict(z), None);
 ```
 
-The last assertion is not a failed conversion: `z` has a nonzero extension component, so it is not a base-field value. `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` provides the absolute trace and norm to GF(2).
+`z` has a nonzero extension component, so restriction returns `None`.
+Embedding from polynomial GF(2) gives absolute trace and norm.
 
 ## Reuse and rejected requests
 
-A prepared map uses fixed-size arrays and allocates nothing during construction or application. Keep it across calls and borrow it immutably for each value. When no canonical rule covers the presentations, `from_images` accepts caller-supplied generator images and checks them against the source relations expressed in the target field.
+Prepare a map once and reuse it. Construction and application use fixed-size
+arrays without allocation. `from_images` checks caller-supplied generator
+images when a canonical map is unavailable.
 
-A source degree larger than the target cannot divide it. Construction returns `EmbeddingError::IncompatibleDegree`; restriction in the opposite direction is performed through a valid smaller-to-larger map.
+Source degree must divide target degree. Restrict through a valid
+smaller-to-larger map rather than constructing the reverse inclusion:
 
 ```rust
 use fgf::{AES, Embedding, EmbeddingError, Extension, FiniteField, Polynomial, Rijndael16};
@@ -103,5 +111,8 @@ assert_eq!(
 );
 ```
 
-The [complete embeddings example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/embeddings.rs) also covers cross-presentation conversions and absolute trace. From a checkout, `just example embeddings` runs it.
+Run the [complete example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/embeddings.rs)
+with `just example embeddings`. The
+[embedding reference](https://docs.rs/fgf/3.0.1/fgf/field/embedding/index.html)
+owns map construction and error contracts.
 

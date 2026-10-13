@@ -1,8 +1,9 @@
 # Linear operations and row geometry
 
-Once values are stored in a buffer, `ops` applies the same field arithmetic at every element position. A row is a sequence of packed elements. Scatter, gather, and matrix operations combine rows without choosing the coefficients or solving a coding problem.
-
-The examples use fgf 3.0.1. Start with [Operation suffixes](Operation-suffixes) for the naming conventions. Each example below uses one-byte AES-field elements; [Coordinates and packed bytes](Coordinates-and-packed-bytes) explains wider lanes. The [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) gives the exact validation rules.
+Choose the equation and output shape, then supply the coefficients and packed
+rows. `ops` applies arithmetic; it does not choose coding coefficients or solve
+a recovery problem. Examples use one-byte AES elements; wider fields follow
+the same flow with their [lane encoding](Coordinates-and-packed-bytes).
 
 ## Match the equation to the operation
 
@@ -17,21 +18,16 @@ The examples use fgf 3.0.1. Start with [Operation suffixes](Operation-suffixes) 
 | `out[o] = sum(c[s,o] * src[s])` | Many sources, many outputs | `mul_into_matrix` |
 | `dst[i] = a[i] * b[i]` | Two varying operands | `mul_elementwise` |
 
-Choose the destination behavior first: overwrite with `_into`, accumulate with `_add`, or use the destination as an operand with `_assign`. An overwrite call needs no pre-zeroing. An accumulation call needs an intentional starting value. Prepared `_with` forms compute the same result using reusable state.
+Overwrite calls need no pre-zeroing. Accumulation needs a deliberate starting
+value; `_assign` uses the old destination as an operand. See
+[operation suffixes](Operation-suffixes) for the naming reference.
 
-Scatter can update all parity rows when one source arrives. Gather can reconstruct one output from several inputs. Matrix application performs several such linear combinations together. None of these operations chooses coefficients, solves a system, or validates a code's erasure-correction capability.
+## Apply a rectangular matrix
 
-## A rectangular example exposes coefficient axes
-
-Let two input rows `a` and `b` produce three outputs:
-
-```text
-out[0] = 1*a + 4*b
-out[1] = 2*a + 5*b
-out[2] = 3*a + 6*b
-```
-
-Store the coefficients source-major: `[1, 2, 3, 4, 5, 6]` lists all coefficients for `a`, then all coefficients for `b`. The index is `source * outputs + output`. This differs from an output-by-source matrix written on paper, so keeping the two axes explicit avoids an accidental transpose.
+Two sources produce three outputs. Coefficients are source-major:
+`[1, 2, 3, 4, 5, 6]` lists the coefficients for the first source, then the
+second. The index is `source * outputs + output`, not the output-major
+order often written on paper.
 
 ```rust
 use fgf::{AES, FiniteField, Elem, Polynomial, ops};
@@ -50,11 +46,11 @@ ops::mul_into_matrix::<F>(&mut outputs, 2, 3, &terms);
 assert_eq!(outputs, [13, 18, 13, 16, 9, 30]);
 ```
 
-Each output row occupies two bytes. In the first lane, for example, `1*1 + 4*3` is `1 XOR 12 = 13`. The initialized `0xa5` bytes disappear because this is an overwrite call.
+Each output occupies a complete row. Prior destination bytes are ignored.
 
 ## Scatter is the same matrix applied incrementally
 
-The same terms can accumulate as inputs arrive. The result agrees with the block-final overwrite result when accumulation begins at zero.
+Start at zero and scatter each source as it arrives to obtain the same result:
 
 ```rust
 use fgf::{AES, FiniteField, Elem, Polynomial, ops};
@@ -70,7 +66,10 @@ ops::mul_add_scatter::<F>(&mut outputs, 2, &from_b, &b);
 assert_eq!(outputs, [13, 18, 13, 16, 9, 30]);
 ```
 
-A source replacement can use the delta `new_source - old_source`: scattering that delta updates the existing outputs. Subtraction is XOR for binary fields, but not for prime fields. The [streaming example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/streaming_encode.rs) demonstrates this workflow over degree-sixteen lanes.
+For a source replacement, scatter `new_source - old_source` into existing
+outputs. Subtraction is XOR only in binary fields. The
+[streaming example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/streaming_encode.rs)
+uses this update with wider lanes.
 
 ## Offset destinations preserve unrelated frame bytes
 
@@ -96,9 +95,15 @@ This is accumulation, so the example initializes only the output slots to zero. 
 
 ## Geometry and errors
 
-`row_len` is measured in bytes and must describe whole lanes. Sources must have the documented row length, every term must supply the output coefficient count, and destination storage must cover the used row prefix or every named offset span. Prepared matrix dimensions are `(sources, outputs)`, not implicitly square.
+`row_len` counts bytes, not elements. Rows must contain whole lanes; term
+coefficient counts and prepared `(sources, outputs)` dimensions must match
+the declared geometry. Invalid spans, counts, or overlapping outputs panic.
 
-Invalid lengths, counts, offsets, or overlapping destination rows panic through the checked surface. Valid zero-work shapes still undergo structural validation. An empty source sum overwrites with zero in an overwrite operation; an empty sum contributes nothing to an accumulation operation. Consult each operation's reference rather than treating all empty geometries alike.
+Empty overwrite sums produce zero; empty accumulation sums contribute nothing.
+Zero-work calls still validate structure. A multi-call workflow is not
+transactional: validate it before writing if later failure must leave output
+unchanged.
 
-The [shard recovery example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/shard_recovery.rs) derives a fixed recovery matrix. Its supplied equations cover the stated erasure patterns, not arbitrary decoding.
-
+For repeated coefficients, continue with [preparation](Prepared-coefficients).
+The [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) owns each call's
+exact validation and empty-input rules.

@@ -1,8 +1,10 @@
 # Migrating from 2.x to 3.0.1
 
-Upgrading to fgf 3.0.1 replaces field-specific element wrappers with `Elem<F>`. Scalar arithmetic, byte encoding, and generator selection have separate trait bounds, and prime elements store canonical values rather than retaining noncanonical input words.
-
-This guide goes directly from 2.x to 3.0.1. The [changelog](https://github.com/nanithefkuc/fgf/blob/v3.0.1/CHANGELOG.md) records the release changes. Historical 2.x examples are fenced as text; every Rust example uses the 3.0.1 API.
+Migration replaces field-specific element wrappers with `Elem<F>`, separates
+scalar, encoding, and generator capabilities, and canonicalizes named prime
+elements at construction. Historical snippets below are text; Rust snippets
+use 3.0.1. The [changelog](https://github.com/nanithefkuc/fgf/blob/v3.0.1/CHANGELOG.md)
+records the release changes.
 
 ## Replace field and element spellings together
 
@@ -84,25 +86,30 @@ assert_eq!(destination, [2, 4, 6]);
 
 `pow` takes `u128` on both the scalar trait and inherent shipped-family methods. Existing `u64` variables need an explicit conversion such as `u128::from(exponent)`. The separate `QuadMersenne31::pow_u128` method is replaced by `pow`.
 
+## Size generic-residue rows from the lane width
+
+Generic residue rows `FiniteField<P, 1>` use a compact lane sized to the
+characteristic: one, two, four, or eight bytes as residues fit within
+`2^8`, `2^16`, `2^32`, and `u64` (characteristic two keeps an eight-byte
+lane). Size buffers from `FieldBuffer::BYTES` and move lanes through
+`FieldBuffer::decode`/`encode`; the inherent fixed-array `from_bytes` and
+`to_bytes` are absent on these rows at every characteristic, and no
+`const` byte form exists for them. Named rows keep their lane widths and
+fixed-array methods. Extensions over a residue base shrink with the base
+lane: a degree-`D` extension over a `B`-byte base moves `D * B` bytes per
+element, with `Components`, `Packed`, and `PackedPadded` storage as before.
+
 ## Retain prepared-operation geometry
 
-`Coeff<F>`, `CoeffVec<F>`, and `CoeffMatrix<F>` remain typed by the field; their constructors take `Elem<F>` coefficients. Matrix construction remains source-major, and application still borrows ordinary byte buffers. A field rename does not transpose coefficient axes or change row lengths.
-
-```rust
-use fgf::{AES, FiniteField, Elem, Polynomial, ops};
-
-type F = FiniteField<2, 8, Polynomial<AES>>;
-let coefficient = ops::Coeff::<F>::new(Elem::<F>::from_raw(3));
-let mut destination = [0xa5u8; 3];
-ops::mul_into_with::<F>(&mut destination, &coefficient, &[1, 2, 3]);
-assert_eq!(destination, [3, 6, 5]);
-```
-
-Prepared values are not a serialized compatibility surface. Rebuild them from scalar values in the new process. [Prepared coefficients](Prepared-coefficients) explains owned collections and borrowed views.
+Prepared calls retain their row lengths, coefficient axes, and source counts.
+Rebuild backend-bound preparation from scalar values after loading; it is not
+a serialized compatibility surface. [Prepared coefficients](Prepared-coefficients)
+shows reusable matrices and borrowed views.
 
 ## Remove explicit post-construction canonicalization
 
-In 2.x, prime construction and decoding could retain raw lanes, and `canonical()` reduced the element explicitly. In 3.0.1, construction and decoding store canonical coordinates, so `canonical()` is removed and `to_raw()` returns the reduced storage.
+Named prime elements reduce input words during construction and decoding.
+Remove their explicit `canonical()` calls; `to_raw()` returns reduced storage.
 
 ```rust
 use fgf::{Elem, FieldBuffer, Mersenne31, mersenne31};
@@ -114,9 +121,11 @@ assert_eq!(Mersenne31::decode(&input.to_le_bytes()), value);
 assert_eq!(value.to_bytes(), 7u32.to_le_bytes());
 ```
 
-Applications that relied on retaining unreduced bits must retain the original bytes separately. Published canonical encodings and mathematical values remain unchanged, but decoding a noncanonical alias and encoding it again does not preserve its original bytes.
-
-Packed prime operations accept raw lane patterns supported by decoding. Manual input canonicalization is not a precondition for arithmetic. Zero-coefficient accumulation, unit in-place scaling, and unit overwrite copying can preserve raw bytes; those operations must not be treated as normalization requests. [Prime fields](Prime-fields) gives an explicit decode–encode boundary and executable shortcut examples.
+Retain original bytes separately if the application needs unreduced spellings.
+Canonical wire values remain unchanged, but decode–encode can change aliases.
+Packed operations accept decoder-supported raw lanes; zero/unit shortcuts can
+preserve those bytes. Use an explicit [normalization boundary](Prime-fields)
+rather than an identity multiplication.
 
 ## Replace constants and tower paths
 

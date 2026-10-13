@@ -32,6 +32,7 @@ pub mod gf8;
 pub mod goldilocks;
 pub mod mersenne31;
 pub mod quad_mersenne31;
+pub mod residue;
 
 pub(crate) use bytes::{xor_avx2, xor_gather_avx2, xor_sse2};
 

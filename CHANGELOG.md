@@ -10,14 +10,59 @@ All notable changes to this project are documented here. The format follows
 
 - Wiki reference for operation suffixes, destination behavior, prepared state,
   row addressing, and allocation.
+- AVX-512 generic residue kernels under `simd512`: nibble-table `u8`,
+  Shoup and Barrett `u32`, Montgomery `u64`, and delayed-reduction prepared
+  matrices. Capable residue rows report `V4x`; short rows retain narrower
+  or portable routes, and zero/unit coefficient byte behavior is unchanged.
+- Behavioral regressions cover irreducible and reducible extension relations,
+  relation-field arithmetic, ordered-basis subfield embeddings, rejected
+  restrictions and degree mismatches, and quadratic prime identity predicates.
 
 ### Changed
+
+- Public documentation leads with `FiniteField`, its representations, and
+  `Elem<F>`; named prime families appear as specializations. Wiki guides
+  follow field selection, scalar arithmetic, packing, row operations,
+  preparation, and deployment, with task-oriented navigation and a custom
+  prime-base extension example.
+- Benchmark publication refreshes all families and competitors together.
+  Generic residue results use expandable, length-column tables with
+  separate AVX2/scalar comparisons; explicitly unavailable hosts show `-`
+  instead of historical measurements.
 
 - Wiki guides use 3.0.1 as the base v3 release and lead from field construction
   and arithmetic through presentations, embeddings, and custom fields.
   Migration guidance goes directly from 2.x to 3.0.1.
 - Wiki navigation groups the reading path in the home page and sidebar instead
   of per-page `Next:` footers.
+- Four-byte generic residue rows vectorize elementwise multiplication on
+  AVX2-capable x86 hosts.
+- One-byte generic residue rows at moduli up to 127 vectorize prepared
+  fixed-coefficient scaling through nibble-table lookups, four-byte rows
+  through Shoup multiplication, and eight-byte rows at odd moduli through
+  doubleword Montgomery multiplication; those rows report the vector
+  backend, and vector-routed operations produce byte-identical output to
+  the portable path on every input, applying the documented zero/unit
+  shortcuts before vector dispatch.
+- Four-byte generic residue rows delay reduction across shared sources in
+  prepared overwrite/accumulate four-output matrices with enough shared
+  sources and modulus headroom, as recorded in
+  [the residue benchmark record](benchmarks/v3/residue.md), with delayed
+  accumulation falling back to the repeated single-row path when an output
+  row's coefficients are all zero.
+- Operation implementations move from `ops.rs` into the `ops/` coefficient,
+  single-row, scatter, gather, matrix, and packing modules, retaining public
+  `ops::*` paths. Byte dispatch moves into `kernel/bytes.rs`.
+- Generic residue single-row AVX2 kernels move from `residue/avx2/single.rs`
+  into `residue/avx2/single/{u8,u32,u64}.rs`.
+- **Breaking:** Unstable residue kernel entries use `u8`, `u32`, and `u64`
+  lane names instead of `byte`, `word`, and `doubleword`; `WordParams`
+  becomes `U32Params`. Migrate direct `internals` callers to the explicit
+  lane-width spellings.
+- **Breaking:** Unstable residue routing queries report an actual
+  `Backend` through `single_row_backend` and `delayed_matrix_backend`.
+  Replace boolean selector calls with comparisons to `Backend::Scalar`;
+  use `avx2_floor_op_len` for the AVX2-specific row floor.
 
 ### Removed
 
@@ -31,10 +76,14 @@ All notable changes to this project are documented here. The format follows
   R: FiniteFieldRepr<P, N> = Residue>` with the `Residue` presentation at
   degree one over every `u64` prime. Each row exposes the full scalar and
   `const` element surface (`from_raw`, checked `from_residue`, `to_residue`,
-  little-endian byte conversions, arithmetic, `pow`, `canonical`),
+  arithmetic, `pow`, `canonical`),
   total arithmetic under the crate-wide conventions (`inv(0) == 0`,
   `x / 0 == 0`, `0^0 == 1`, with the explicit inverse-zero branch at
-  `P = 2`), an eight-byte little-endian wire lane, the checked packed
+  `P = 2`), a little-endian wire lane sized to the characteristic —
+  characteristic two uses an eight-byte lane, and an odd characteristic
+  uses one, two, four, or eight bytes as its residues fit within `2^8`,
+  `2^16`, `2^32`, and `u64` — with `FieldBuffer::decode`/`encode` as the
+  byte API of these rows, the checked packed
   operation surface with prepared coefficients, and `Scalar` routing on
   every host. Broadcast add/sub take the modular path for every
   characteristic, so packed lanes stay canonical at `P = 2`. Values live in
@@ -97,6 +146,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking:** generic residue rows size their byte lane to the
+  characteristic instead of always storing eight bytes: characteristic
+  two keeps an eight-byte lane, and an odd characteristic uses one, two,
+  four, or eight bytes as its residues fit within `2^8`, `2^16`, `2^32`,
+  and `u64` — for example `FiniteField<7, 1>` moves one byte per element
+  and `FiniteField<1_000_000_007, 1>` moves four. `FieldBuffer::decode`
+  and `encode` are the byte API of these rows. Migration: the inherent
+  fixed-array `from_bytes`/`to_bytes` are absent for these rows (every
+  characteristic, `P = 2` included), and no `const` byte form exists for
+  them — size buffers from `FieldBuffer::BYTES`, decode and encode
+  through `FieldBuffer`, and in `const` code build from `from_raw` with
+  `u64::from_le_bytes` and read back through `to_raw`. Extensions over a
+  residue base shrink with the base lane; the named prime rows, binary
+  rows, towers, and `QuadMersenne31` keep their lane widths and fixed-array
+  methods.
 - **Breaking:** `Mersenne31` and `Goldilocks` are type aliases of the
   canonical family rows `FiniteField<0x7FFF_FFFF, 1, MersenneFold>` and
   `FiniteField<0xFFFF_FFFF_0000_0001, 1, GoldilocksFold>` instead of unit

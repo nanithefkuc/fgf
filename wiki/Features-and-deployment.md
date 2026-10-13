@@ -1,106 +1,93 @@
 # Features and deployment
 
-Choose features to match the application's environment: portable arithmetic, allocation for prepared collections, or runtime SIMD support. Those build choices do not change a field's coordinates or guarantee that every operation uses a vector kernel.
+Choose features for the execution environment. They do not change field
+coordinates or guarantee SIMD for every representation and operation.
+Rust 1.93 or later is required.
 
-The examples use fgf 3.0.1 and Rust 1.93 or later. The [README](https://github.com/nanithefkuc/fgf/blob/v3.0.1/README.md) lists build requirements, and the [kernel reference](https://docs.rs/fgf/3.0.1/fgf/kernel/index.html) describes backend queries.
+## Choose the dependency configuration
 
-## Select the runtime requirements
-
-| Configuration | Library environment | Prepared collections | Arithmetic routing |
+| Configuration | Environment | Prepared collections | Routing |
 | --- | --- | --- | --- |
-| Defaults | `std` and allocation | Available | Runtime SIMD where implemented, otherwise scalar |
-| No default features | `no_std`, no allocation requirement | Unavailable | Portable scalar |
-| No defaults plus `alloc` | `no_std` with an allocator supplied by the application | Available | Portable scalar |
-| `std` without `simd` | Standard-library support and allocation | Available | Scalar |
-| `simd512` | Implies `simd`, `std`, and `alloc` | Available | Adds AVX-512 capability selection on suitable x86 hosts |
+| Defaults | `std` and allocation | Available | Runtime SIMD where implemented |
+| No defaults | `no_std`, no allocator required | Unavailable | Portable scalar |
+| No defaults plus `alloc` | `no_std` with an application allocator | Available | Portable scalar |
+| `std` without `simd` | Standard library and allocation | Available | Scalar |
+| `simd512` | Implies `simd`, `std`, and `alloc` | Available | Adds AVX-512 on capable x86 hosts |
 
-`internals` only exposes an unstable facade. It does not enable SIMD or provide compatibility guarantees. Normal applications use `ops` rather than direct architecture entries.
-
-For a portable library dependency:
-
-```toml
-[dependencies]
-fgf = { version = "=3.0.1", default-features = false }
-```
-
-For portable prepared collections:
+For portable prepared operations:
 
 ```toml
 [dependencies]
 fgf = { version = "=3.0.1", default-features = false, features = ["alloc"] }
 ```
 
-Cargo unifies features across dependents. One dependency disabling defaults does not force the whole dependency graph to disable another dependent's request for `std` or `simd`. A constrained application must check its resolved feature graph as well as its own declaration.
+Omit `features = ["alloc"]` for scalar arithmetic and caller-owned storage
+without an allocator. Cargo unifies features: another dependent can still
+enable `std` or `simd`, so constrained applications must inspect the resolved
+dependency graph.
 
-## Process selection and field selection differ
+`internals` exposes an unstable facade, not additional runtime capability or a
+compatibility promise. Applications normally use `ops`, not direct kernels.
 
-`backend()` reports the process-wide choice. `backend_for::<F>()` reports the backend implemented for that field. Custom presentations may use scalar arithmetic on a host whose byte-polynomial field uses GFNI.
+## Inspect the field, not only the process
 
 ```rust
-use fgf::{AES, FiniteField, Normal, Polynomial, backend, backend_for, has_vector_elementwise};
+use fgf::{AES, FiniteField, Normal, Polynomial, backend, backend_for};
 
 type PolynomialField = FiniteField<2, 8, Polynomial<AES>>;
 type NormalField = FiniteField<2, 8, Normal<AES, 0x20>>;
 println!("process: {:?}", backend());
-println!("AES polynomial field: {:?}", backend_for::<PolynomialField>());
-println!("normal presentation: {:?}", backend_for::<NormalField>());
-println!("AES vector elementwise capability: {}", has_vector_elementwise::<PolynomialField>());
+println!("polynomial: {:?}", backend_for::<PolynomialField>());
+println!("normal: {:?}", backend_for::<NormalField>());
 assert_eq!(backend_for::<NormalField>(), fgf::Backend::Scalar);
 ```
 
-The field backend is a capability report, not a trace of every call. A short buffer can use another path, and a vector kernel can finish with a scalar tail. `has_vector_elementwise` reports support for elementwise multiplication, not all operations; the kernel reference also provides its minimum-length query.
+`backend()` reports process selection; `backend_for::<F>()` reports the field's
+implemented tier. Neither traces every call: short rows can use a narrower
+path, vector loops can finish with scalar tails, and elementwise support differs
+from fixed-coefficient support. Ordered-basis rows and custom extensions not
+matching a shipped instance use scalar fallback.
 
-## Overrides request a downgrade
-
-`SIMD_BACKEND` is read at process startup when backend selection first occurs. The selection is cached, so changing the environment after first use is not a per-call backend control. Unsupported upgrades are ignored; a forced request is not proof that a requested ISA executed.
-
-From a checkout:
+`SIMD_BACKEND` requests a downgrade when selection first occurs. The cached
+selection does not change per call; unsupported upgrades are ignored. For a
+portable comparison from a checkout:
 
 ```sh
-SIMD_BACKEND=scalar just example shard_recovery
 SIMD_BACKEND=scalar just examples
 ```
 
-The complete packed examples print their field backends. Those reports should be inspected rather than treating process exit success as backend evidence. A scalar override is useful for arithmetic comparison, not a replacement for hardware capable of exercising an architecture kernel.
+Inspect reported field backends. A successful forced-tier command alone does
+not prove that ISA executed.
 
-## Targets and fallback behavior
+## Reuse state and verify the target
 
-| Target | Architecture support |
-| --- | --- |
-| x86 / x86-64 | SSSE3/SSE4.2, AVX2, and GFNI; AVX-512 with `simd512` |
-| AArch64 | NEON and NEON with AES/PMULL capability |
-| Wasm | `simd128` when enabled in the target configuration |
-| Other targets | Portable scalar |
+`Coeff` is inline preparation. `CoeffVec`, `CoeffMatrix`, and `pack_to_vec`
+require `alloc`; construct owned preparation outside a repeated application
+loop. Warmed steady-state behavior is distinct from first-use dispatch or shared
+table initialization. [Prepared coefficients](Prepared-coefficients) explains
+ownership and allocation evidence.
 
-The table describes available architecture families, not uniform acceleration of every presentation or operation. Custom extension rows whose base, relation, and storage differ from every shipped instance use the typed scalar fallback. Ordered-basis byte presentations also report scalar.
-
-Wasm SIMD needs a module built with the explicit `+simd128` target feature and an execution environment supporting it. The repository's `just cross-check` compiles both the portable Wasm path and that SIMD configuration, together with the AArch64 library path. Compilation does not prove that either target executed.
-
-## Allocation and first use
-
-Scalar elements and caller-owned byte slices do not require `alloc`. `Coeff` is inline preparation; `CoeffVec`, `CoeffMatrix`, and `pack_to_vec` require allocation. Their construction belongs outside a repeated allocation-free application loop.
-
-Feature-enabled dispatch and shared tables can have startup work. A steady-state claim refers to the warmed, prepared path documented by the operation, not every conceivable first call. [Prepared coefficients](Prepared-coefficients) explains state ownership and links the counting-allocator evidence.
-
-## Exercise the selected surface
-
-The example programs use the host standard library even when the dependency is built with `no_std`. These commands exercise library feature configurations, not a complete embedded application:
+The [README](https://github.com/nanithefkuc/fgf/blob/main/README.md#platforms)
+lists targets. Wasm SIMD additionally needs `+simd128` at build time and an
+execution environment supporting it. Cross-compilation is not execution proof.
 
 ```sh
 just doctor
-just example field_arithmetic --no-default-features
-just example embeddings --no-default-features
 just examples --no-default-features --features alloc
 just examples --all-features
+just cross-check
 ```
 
-`just doc` builds rustdoc with warnings denied. `just validate` is the repository's full submission gate; routine checks use recipes from the crate directory.
+Examples use a host standard library even when the dependency is `no_std`;
+they do not constitute an embedded application. `just doc` checks rustdoc;
+`just validate` is the repository submission gate.
 
-## Safety and measurements
+## Keep safety and measurement claims separate
 
-Safe APIs validate buffer geometry, but invalid inputs can panic. A higher-level multi-call workflow can have changed state before a later call panics. Rust's memory guarantees do not imply a recovery protocol, transactional updates, or correct coefficients.
+Checked APIs can panic on invalid geometry. A multi-call workflow can have
+written output before a later call fails; it is not transactional. Arithmetic
+is variable-time and requires an independent audit before handling secrets.
 
-Arithmetic is variable-time. Table lookups, cache behavior, and data-dependent work make secret elements, coefficients, and buffers an unsupported security use without an independent audit.
-
-[BENCHMARKS.md](https://github.com/nanithefkuc/fgf/blob/v3.0.1/BENCHMARKS.md) owns measured public-operation results and reproduction details. A capability report alone is not a performance measurement.
-
+The [kernel reference](https://docs.rs/fgf/3.0.1/fgf/kernel/index.html) owns backend
+query contracts. [BENCHMARKS.md](https://github.com/nanithefkuc/fgf/blob/main/BENCHMARKS.md)
+owns measured results and reproduction, including per-operation residue routes.

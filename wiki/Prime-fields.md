@@ -1,81 +1,81 @@
-# Prime fields and quadratic prime extensions
+# Prime fields and their specializations
 
-Prime-field arithmetic adds and multiplies residues modulo a prime. `Mersenne31` and `Goldilocks` provide named fields with compact lanes; `QuadMersenne31` adds a second component to form a quadratic extension of `Mersenne31`.
+Use `FiniteField<P, 1>` for arithmetic modulo a `u64` prime. The default
+`Residue` representation supplies scalar arithmetic, packed operations, and
+prepared coefficients without implementing a field trait.
 
-The examples use fgf 3.0.1. The API references for [Mersenne31](https://docs.rs/fgf/3.0.1/fgf/field/mersenne31/index.html), [Goldilocks](https://docs.rs/fgf/3.0.1/fgf/field/goldilocks/index.html), and [QuadMersenne31](https://docs.rs/fgf/3.0.1/fgf/field/quad_mersenne31/index.html) give their encoding and arithmetic contracts.
-
-## Modulus, order, and lane width
-
-| Field | Characteristic | Degree | Order | Encoding |
-| --- | --- | --- | --- | --- |
-| `Mersenne31` | `2^31 - 1` | 1 | `2^31 - 1` | One little-endian `u32` |
-| `Goldilocks` | `2^64 - 2^32 + 1` | 1 | `2^64 - 2^32 + 1` | One little-endian `u64` |
-| `QuadMersenne31` | `2^31 - 1` | 2 | `(2^31 - 1)^2` | Interleaved `[re: u32, im: u32]`, little-endian |
-
-Prime addition and subtraction are modular arithmetic, not bytewise XOR. `QuadMersenne31` has two base-field components and is an extension field, not arithmetic modulo its order.
-
-## Construction loses noncanonical spellings
+## Start with the modulus
 
 ```rust
-use fgf::{Elem, FieldBuffer, Mersenne31, mersenne31};
+use fgf::{Elem, FieldBuffer, FiniteField, ops};
 
-let p = mersenne31::MODULUS;
-let x = Elem::<Mersenne31>::from_raw(p + 7);
+type F = FiniteField<17, 1>;
+let x = Elem::<F>::from_raw(24);
 assert_eq!(x.to_raw(), 7);
-assert_eq!(Elem::<Mersenne31>::from_raw(p), Elem::<Mersenne31>::ZERO);
-assert_eq!(Elem::<Mersenne31>::from_raw(u32::MAX).to_raw(), 1);
-let raw_bytes = (p + 7).to_le_bytes();
-let decoded = Mersenne31::decode(&raw_bytes);
-let mut canonical_bytes = [0u8; 4];
-Mersenne31::encode(&mut canonical_bytes, decoded);
-assert_eq!(canonical_bytes, 7u32.to_le_bytes());
-assert_ne!(canonical_bytes, raw_bytes);
+assert_eq!(Elem::<F>::from_residue(17), Err(fgf::RangeError));
+
+let source = [24u8];
+let mut destination = [0xa5u8];
+ops::mul_into::<F>(&mut destination, Elem::<F>::from_raw(3), &source);
+assert_eq!(F::decode(&destination), x * Elem::<F>::from_raw(3));
+assert_eq!(destination, [4]);
 ```
 
-Construction stores only the canonical value. `to_raw` cannot recover the original noncanonical word, so an application that needs the incoming payload bytes must retain them separately.
+`from_raw` and decoding reduce integer aliases; `from_residue` rejects values
+outside `0..P`. Constructors check that `P` is prime. Generic residue arithmetic
+uses modular addition and subtraction, never bytewise XOR.
 
-## Raw packed lanes are accepted
+| Default residue characteristic | Little-endian lane |
+| --- | --- |
+| Odd prime below `2^8` | `u8` |
+| Odd prime below `2^16` | `u16` |
+| Odd prime below `2^32` | `u32` |
+| Larger prime, or `P = 2` | `u64` |
 
-A packed prime row need not have been produced by `pack`. Arithmetic accepts the lane patterns accepted by field decoding. A nontrivial scale can consume raw lanes directly and emit reduced results.
+Use `FieldBuffer::encode` and `decode` for scalar bytes, or `ops::pack` and
+`unpack` for vectors. Generic residue rows do not have fixed-array `to_bytes`
+methods. [Packing](Coordinates-and-packed-bytes) shows the shared workflow.
 
-```rust
-use fgf::{Elem, Mersenne31, mersenne31, ops};
+## Select a specialized representation when needed
 
-let source = (mersenne31::MODULUS + 7).to_le_bytes();
-let mut destination = [0xa5u8; 4];
-ops::mul_into::<Mersenne31>(&mut destination, Elem::<Mersenne31>::from_raw(3), &source);
-assert_eq!(destination, 21u32.to_le_bytes());
-```
+Named prime families are choices within the same `FiniteField` model:
 
-Accepting a lane for field arithmetic does not validate it as a proof, codeword, or evaluation vector. The application still checks its own format and mathematical constraints.
+| Alias | Representation | Characteristic | Encoding |
+| --- | --- | --- | --- |
+| `Mersenne31` | `MersenneFold` | `2^31 - 1` | Little-endian `u32` |
+| `Goldilocks` | `GoldilocksFold` | `2^64 - 2^32 + 1` | Little-endian `u64` |
+| `QuadMersenne31` | `Extension<ComplexMersenne31, 2>` | `2^31 - 1` | Interleaved `[re: u32, im: u32]` |
 
-## Identity operations are not normalization requests
+A default residue row at the same modulus is a distinct type. Move values by
+checked residue conversion, not by assuming the raw-word types match.
+`QuadMersenne31` is an extension, not arithmetic modulo its order.
 
-Zero-coefficient accumulation contributes nothing and leaves the destination byte-for-byte unchanged. Unit-coefficient in-place scaling also preserves the input. Unit-coefficient overwrite scaling copies the source bytes. These shortcuts preserve the field value but can retain noncanonical raw spellings.
+## Canonical values do not imply canonical passthrough bytes
+
+Zero-coefficient accumulation leaves the destination unchanged. Unit in-place
+scaling preserves it; unit overwrite scaling copies the source. These shortcuts
+can retain noncanonical byte spellings. Normalize explicitly at a format boundary:
 
 ```rust
 use fgf::{Elem, Mersenne31, mersenne31, ops};
 
 let original = (mersenne31::MODULUS + 7).to_le_bytes();
-let mut destination = original;
-ops::mul_add::<Mersenne31>(&mut destination, Elem::<Mersenne31>::ZERO, &original);
-assert_eq!(destination, original);
-ops::mul_assign::<Mersenne31>(&mut destination, Elem::<Mersenne31>::ONE);
-assert_eq!(destination, original);
 let mut copied = [0u8; 4];
 ops::mul_into::<Mersenne31>(&mut copied, Elem::<Mersenne31>::ONE, &original);
 assert_eq!(copied, original);
-let mut decoded = [Elem::<Mersenne31>::ZERO; 1];
-ops::unpack::<Mersenne31>(&mut decoded, &copied);
-ops::pack::<Mersenne31>(&mut copied, &decoded);
+let mut value = [Elem::<Mersenne31>::ZERO];
+ops::unpack::<Mersenne31>(&mut value, &copied);
+ops::pack::<Mersenne31>(&mut copied, &value);
 assert_eq!(copied, 7u32.to_le_bytes());
 ```
 
-An explicit decode–encode or unpack–pack boundary produces canonical bytes even when an arithmetic passthrough does not. Identity coefficients must not be used as a substitute for that boundary.
+Decode–encode loses the original alias. Applications needing byte-for-byte
+preservation retain the incoming bytes separately. Accepting a lane for arithmetic
+does not validate a proof, codeword, or evaluation vector.
 
-## An evaluation-vector workflow
+## Combine pointwise and fixed-coefficient operations
 
-Pointwise products differ from multiplying every lane by one coefficient. The following calculation combines both: `out[i] = a[i]*b[i] + challenge*a[i] - a[i]`. Stack buffers avoid requiring `alloc`.
+This computes `out[i] = a[i]*b[i] + challenge*a[i] - a[i]`:
 
 ```rust
 use fgf::{Elem, Mersenne31, ops};
@@ -96,27 +96,27 @@ ops::unpack::<Mersenne31>(&mut values, &output);
 assert_eq!(values.map(Elem::to_raw), [16, 34, 54]);
 ```
 
-Transforms and interpolation are outside `fgf`; a transform library can compose these field operations rather than treating the vector example as a transform implementation.
+Transforms and interpolation belong to other libraries. `fgf` supplies their
+field arithmetic, not the transform or evaluation schedule.
 
-## Quadratic components, conjugation, and norm
+## Work with quadratic components
 
-`QuadMersenne31` names the extension row `FiniteField<0x7FFF_FFFF, 2, Extension<ComplexMersenne31, 2>>` and represents `re + im*i` with `i² = -1`. Each limb canonicalizes independently. Conjugation negates the imaginary component, and the norm returns `re² + im²` in `Mersenne31`.
+`QuadMersenne31` represents `re + im*i`, with `i² = -1`. Conjugation negates
+the imaginary component; the norm returns `re² + im²` in `Mersenne31`:
 
 ```rust
-use fgf::{Elem, Mersenne31, QuadMersenne31, mersenne31};
+use fgf::{Elem, Mersenne31, QuadMersenne31};
 
-let limbs = [mersenne31::MODULUS + 7, 11];
-let z = Elem::<QuadMersenne31>::from_raw(limbs);
-assert_eq!(z.to_raw(), [7, 11]);
-let [re, im] = z.to_components();
-assert_eq!(Elem::<QuadMersenne31>::I.square(), -Elem::<QuadMersenne31>::ONE);
+let z = Elem::<QuadMersenne31>::from_components([
+    Elem::<Mersenne31>::from_raw(7), Elem::<Mersenne31>::from_raw(11),
+]);
 assert_eq!(z.norm().to_raw(), 170);
-assert_eq!(z * z.conjugate(), Elem::<QuadMersenne31>::from_components([z.norm(), Elem::<Mersenne31>::ZERO]));
-assert_eq!(z.norm(), re.square() + im.square());
+assert_eq!(z * z.conjugate(), Elem::<QuadMersenne31>::from_components([
+    z.norm(), Elem::<Mersenne31>::ZERO,
+]));
 assert_eq!(z.to_bytes(), [7, 0, 0, 0, 11, 0, 0, 0]);
 ```
 
-The inherent constructor and a generic `FieldElem::from_raw` call both take the field's `Raw` array `[re, im]`. The wrapper remains `Elem<QuadMersenne31>` in both cases.
-
-All these operations are variable-time. From a checkout, `just example prime_vectors` runs the [complete multi-family workflow](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/prime_vectors.rs).
-
+For a custom relation or storage choice, continue with
+[custom fields and extensions](Downstream-scalar-fields). Exact contracts live in
+the [field reference](https://docs.rs/fgf/3.0.1/fgf/field/index.html).
