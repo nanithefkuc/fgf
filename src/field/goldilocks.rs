@@ -38,7 +38,10 @@
 //! );
 //! ```
 
-use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic};
+use super::extension::Descriptor;
+use super::extension::descriptor::PrimePresentation;
+use super::finite_field::{FiniteField, FiniteFieldRepr, checked_order};
+use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, RangeError, Validate};
 
 /// The field modulus, `2^64 − 2^32 + 1`.
 pub const MODULUS: u64 = 0xFFFF_FFFF_0000_0001;
@@ -83,9 +86,27 @@ pub const fn reduce_wide(x: u128) -> u64 {
     reduce(t2)
 }
 
-/// Marker type for GF(2^64 − 2^32 + 1).
+/// The Goldilocks fold presentation of GF(2^64 − 2^32 + 1).
+///
+/// One canonical `u64` per element, with 128-bit products reduced by
+/// `2^64 ≡ 2^32 − 1`. Field [`NAME`](Field::NAME): `GF(2^64 - 2^32 + 1)`;
+/// this label: `goldilocks-fold`. The [`Residue`](super::Residue) row at the
+/// same modulus is a distinct presentation; values move between the two by
+/// residue, never by buffer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
-pub struct Goldilocks;
+pub struct GoldilocksFold;
+
+impl super::private::Sealed for GoldilocksFold {}
+
+impl FiniteFieldRepr<0xFFFF_FFFF_0000_0001, 1> for GoldilocksFold {
+    const NAME: &'static str = "goldilocks-fold";
+    const VALID: () = {
+        checked_order::<0xFFFF_FFFF_0000_0001, 1>();
+    };
+}
+
+/// GF(2^64 − 2^32 + 1): the [`GoldilocksFold`] row of the canonical family.
+pub type Goldilocks = FiniteField<0xFFFF_FFFF_0000_0001, 1, GoldilocksFold>;
 
 /// Prime factors of the group order `p − 1`, for the generator check.
 const GROUP_FACTORS: [u64; 6] = [2, 3, 5, 17, 257, 65537];
@@ -114,7 +135,7 @@ impl Field for Goldilocks {
     const ORDER: u128 = MODULUS as u128;
     const ZERO_RAW: u64 = 0;
     const ONE_RAW: u64 = 1;
-    const VALID: () = ();
+    const VALID: () = <GoldilocksFold as FiniteFieldRepr<0xFFFF_FFFF_0000_0001, 1>>::VALID;
 
     #[inline]
     fn canonical_raw(raw: u64) -> u64 {
@@ -163,6 +184,45 @@ impl Field for Goldilocks {
             return 0;
         }
         super::powmod(reduce(value), MODULUS - 2, MODULUS)
+    }
+}
+
+impl super::private::RowAccess for Goldilocks {
+    const DESCRIPTOR: &'static Descriptor =
+        &Descriptor::prime(MODULUS, PrimePresentation::GoldilocksFold);
+
+    fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw) {
+        let () = Validate::<Self>::OK;
+        assert_eq!(
+            dst.len(),
+            1,
+            "prime coordinate count differs from the field degree"
+        );
+        dst[0] = reduce(raw);
+    }
+
+    fn from_prime_coordinates(src: &[u64]) -> <Self as Field>::Raw {
+        let () = Validate::<Self>::OK;
+        assert_eq!(
+            src.len(),
+            1,
+            "prime coordinate count differs from the field degree"
+        );
+        assert!(
+            src[0] < MODULUS,
+            "prime coordinate is not below the characteristic"
+        );
+        src[0]
+    }
+
+    fn from_prime(value: u64) -> <Self as Field>::Raw {
+        let () = Validate::<Self>::OK;
+        reduce(value)
+    }
+
+    fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
+        let () = Validate::<Self>::OK;
+        Some(reduce(raw))
     }
 }
 
@@ -220,6 +280,26 @@ impl Elem<Goldilocks> {
     pub const fn from_raw(value: u64) -> Self {
         let () = super::Validate::<Goldilocks>::OK;
         Elem { raw: reduce(value) }
+    }
+
+    /// The element with ordinary residue `value`.
+    ///
+    /// # Errors
+    /// Returns [`RangeError`] when `value` is at or above the modulus.
+    #[inline]
+    pub const fn from_residue(value: u64) -> Result<Self, RangeError> {
+        if value >= MODULUS {
+            return Err(RangeError);
+        }
+        Ok(Self::from_raw(value))
+    }
+
+    /// The ordinary residue naming this element. Always `Some` at degree
+    /// one.
+    #[inline]
+    #[must_use]
+    pub const fn to_residue(self) -> Option<u64> {
+        Some(self.raw)
     }
 
     /// Field addition.

@@ -15,12 +15,12 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use fgf::{Binary, Elem, FieldKernels, Polynomial, backend, ops};
+use fgf::{Elem, FieldKernels, FiniteField, Polynomial, backend, ops};
 
 use fgf::poly::{AES, RS};
 
-// Callers name their own fields; the canonical `Binary<N, R>` type is the API.
-type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
+// Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
+type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
 
 fn noise(len: usize, seed: u64) -> Vec<u8> {
     let mut state = seed | 1;
@@ -146,10 +146,10 @@ fn gather_probe<F: FieldKernels>(name: &str, coeff: impl Fn(usize) -> Elem<F>) {
 fn main() {
     println!("peel/gather probe — backend: {}", backend().name());
     gf16_sweep();
-    gather_probe::<Binary<8, Polynomial<RS>>>("Gf8D", |i| {
-        Elem::<Binary<8, Polynomial<RS>>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
+    gather_probe::<FiniteField<2, 8, Polynomial<RS>>>("Gf8D", |i| {
+        Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
     });
-    gather_probe::<Binary<8, Polynomial<AES>>>("Gf8B", |i| {
-        Elem::<Binary<8, Polynomial<AES>>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
+    gather_probe::<FiniteField<2, 8, Polynomial<AES>>>("Gf8B", |i| {
+        Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(2 + ((i * 73 + 19) % 254) as u8)
     });
 }

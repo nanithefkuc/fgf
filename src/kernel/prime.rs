@@ -69,6 +69,29 @@ pub fn mul_assign<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>) {
     }
 }
 
+/// `dst[i] = coeff * src[i]`, out of place in one pass.
+///
+/// The prior destination bytes are never read. A zero coefficient fills
+/// zero lanes and a unit coefficient copies the source bytes unchanged;
+/// every other coefficient decodes, multiplies, and encodes canonical lanes.
+pub fn mul_into<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
+    debug_assert_eq!(dst.len(), src.len());
+    if coeff.is_zero() {
+        dst.fill(0);
+        return;
+    }
+    if coeff.is_one() {
+        dst.copy_from_slice(src);
+        return;
+    }
+    for (d, s) in dst
+        .chunks_exact_mut(F::BYTES)
+        .zip(src.chunks_exact(F::BYTES))
+    {
+        F::encode(d, F::decode(s).mul(coeff));
+    }
+}
+
 /// `rows[j] += coeffs[j] * src` for every row `j`.
 pub fn mul_add_scatter<F: FieldBuffer>(
     rows: &mut [u8],

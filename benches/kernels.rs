@@ -30,16 +30,16 @@ use std::time::{Duration, Instant};
 
 use fgf::poly::AES;
 use fgf::{
-    Binary, Elem, Goldilocks, Mersenne31, Polynomial, QuadMersenne31, RS, Tower, TowerSpec,
+    Elem, FiniteField, Goldilocks, Mersenne31, Polynomial, QuadMersenne31, RS, Tower, TowerSpec,
     backend, backend_for, ops,
 };
 
-type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
-type Gf32 = fgf::Binary<32, fgf::Tower<fgf::Rijndael32>>;
-type Gf64 = fgf::Binary<64, fgf::Tower<fgf::Rijndael64>>;
-type FanPaar16Field = fgf::Binary<16, fgf::Tower<fgf::FanPaar16>>;
-type FanPaar32Field = fgf::Binary<32, fgf::Tower<fgf::FanPaar32>>;
-type FanPaar64Field = fgf::Binary<64, fgf::Tower<fgf::FanPaar64>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::Tower<fgf::Rijndael32>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Tower<fgf::FanPaar16>>;
+type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Tower<fgf::FanPaar32>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Tower<fgf::FanPaar64>>;
 
 fn noise(len: usize, seed: u64) -> Vec<u8> {
     let mut state = seed | 1;
@@ -142,8 +142,8 @@ fn print_field_backends() {
     fn field<F: fgf::FieldKernels>(label: &str) {
         println!("FIELD_BACKEND\t{label}\t{}", backend_for::<F>().name());
     }
-    field::<Binary<8, Polynomial<AES>>>("gf8b");
-    field::<Binary<8, Polynomial<RS>>>("gf8d");
+    field::<FiniteField<2, 8, Polynomial<AES>>>("gf8b");
+    field::<FiniteField<2, 8, Polynomial<RS>>>("gf8d");
     field::<Gf16>("gf16b");
     field::<Gf32>("gf32b");
     field::<Gf64>("gf64b");
@@ -240,21 +240,21 @@ fn bench_preparation_crossover() {
     for &len in CROSSOVER_LENGTHS {
         let src = noise(len, 0xa00 + len as u64);
         let mut dst = noise(len, 0xb00 + len as u64);
-        let coeff8 = Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53);
+        let coeff8 = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
         let coeff16 = Elem::<Gf16>::from_raw(0x53a7);
-        let prepared8 = ops::Coeff::<Binary<8, Polynomial<AES>>>::new(coeff8);
+        let prepared8 = ops::Coeff::<FiniteField<2, 8, Polynomial<AES>>>::new(coeff8);
         let prepared16 = ops::Coeff::<Gf16>::new(coeff16);
 
         println!("  row {len} B:");
         let one8 = bench("  mul_add one-shot           gf8b", len, || {
-            ops::mul_add::<Binary<8, Polynomial<AES>>>(
+            ops::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(&mut dst),
                 coeff8,
                 black_box(&src),
             );
         });
         let with8 = bench("  mul_add prepared           gf8b", len, || {
-            ops::mul_add_with::<Binary<8, Polynomial<AES>>>(
+            ops::mul_add_with::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(&mut dst),
                 &prepared8,
                 black_box(&src),
@@ -291,26 +291,29 @@ fn bench_network_payloads() {
         let mut dst = noise(len, 0x800 + len as u64);
 
         bench("xor", len, || {
-            ops::add_assign::<Binary<8, Polynomial<AES>>>(black_box(&mut dst), black_box(&src));
+            ops::add_assign::<FiniteField<2, 8, Polynomial<AES>>>(
+                black_box(&mut dst),
+                black_box(&src),
+            );
         });
         bench("mul_add", len, || {
-            ops::mul_add::<Binary<8, Polynomial<AES>>>(
+            ops::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(&mut dst),
-                Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
+                Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
                 black_box(&src),
             );
         });
         bench("mul_assign", len, || {
-            ops::mul_assign::<Binary<8, Polynomial<AES>>>(
+            ops::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(&mut dst),
-                Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
+                Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
             );
         });
 
         for nrows in [4usize, 16] {
             let coeffs: Vec<_> = (0..nrows)
                 .map(|row| {
-                    Elem::<Binary<8, Polynomial<AES>>>::from_raw(
+                    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
                         (row as u8).wrapping_mul(37).wrapping_add(2),
                     )
                 })
@@ -318,7 +321,7 @@ fn bench_network_payloads() {
             let mut rows = noise(len * nrows, 0x900 + nrows as u64);
             let label = format!("scatter ({nrows} rows)");
             bench(&label, len * nrows, || {
-                ops::mul_add_scatter::<Binary<8, Polynomial<AES>>>(
+                ops::mul_add_scatter::<FiniteField<2, 8, Polynomial<AES>>>(
                     black_box(&mut rows),
                     len,
                     black_box(&coeffs),
@@ -400,25 +403,28 @@ fn bench_network_alignment() {
                 (dst.as_ptr() as usize) & 63
             );
             bench_network("xor", len, || {
-                ops::add_assign::<Binary<8, Polynomial<AES>>>(black_box(&mut *dst), black_box(src))
+                ops::add_assign::<FiniteField<2, 8, Polynomial<AES>>>(
+                    black_box(&mut *dst),
+                    black_box(src),
+                )
             });
             bench_network("mul_add", len, || {
-                ops::mul_add::<Binary<8, Polynomial<AES>>>(
+                ops::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(
                     black_box(&mut *dst),
-                    Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
+                    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
                     black_box(src),
                 )
             });
             bench_network("mul_assign", len, || {
-                ops::mul_assign::<Binary<8, Polynomial<AES>>>(
+                ops::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>(
                     black_box(&mut *dst),
-                    Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
+                    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
                 )
             });
             for nrows in [4usize, 16] {
                 let coeffs: Vec<_> = (0..nrows)
                     .map(|row| {
-                        Elem::<Binary<8, Polynomial<AES>>>::from_raw(
+                        Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
                             (row as u8).wrapping_mul(37).wrapping_add(2),
                         )
                     })
@@ -431,7 +437,7 @@ fn bench_network_alignment() {
                 );
                 let rows = &mut storage[r..r + len * nrows];
                 bench_network(&format!("scatter {nrows}"), len * nrows, || {
-                    ops::mul_add_scatter::<Binary<8, Polynomial<AES>>>(
+                    ops::mul_add_scatter::<FiniteField<2, 8, Polynomial<AES>>>(
                         black_box(&mut *rows),
                         len,
                         black_box(&coeffs),
@@ -543,9 +549,9 @@ fn bench_large_destination() {
         let mib = len / (1024 * 1024);
 
         bench(&format!("{mib:3} MiB mul_into          gf8b"), len, || {
-            ops::mul_into::<Binary<8, Polynomial<AES>>>(
+            ops::mul_into::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(&mut dst),
-                Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
+                Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
                 black_box(&src),
             );
         });
@@ -557,9 +563,9 @@ fn bench_large_destination() {
             );
         });
         bench(&format!("{mib:3} MiB mul_into+read     gf8b"), len, || {
-            ops::mul_into::<Binary<8, Polynomial<AES>>>(
+            ops::mul_into::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(&mut dst),
-                Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
+                Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
                 black_box(&src),
             );
             let mut acc = 0u64;
@@ -569,9 +575,9 @@ fn bench_large_destination() {
             black_box(acc);
         });
         bench(&format!("{mib:3} MiB mul_add           gf8b"), len, || {
-            ops::mul_add::<Binary<8, Polynomial<AES>>>(
+            ops::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(&mut dst),
-                Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
+                Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
                 black_box(&src),
             );
         });
@@ -594,7 +600,7 @@ fn bench_destination_alignment() {
         let src = noise(row_len, 0xe00);
         let coeffs8: Vec<_> = (0..nrows)
             .map(|j| {
-                Elem::<Binary<8, Polynomial<AES>>>::from_raw(
+                Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
                     (j as u8).wrapping_mul(37).wrapping_add(2),
                 )
             })
@@ -614,7 +620,7 @@ fn bench_destination_alignment() {
                 &format!("{kib:4} KiB rows, skew {skew:2}   gf8b"),
                 traffic,
                 || {
-                    ops::mul_add_scatter::<Binary<8, Polynomial<AES>>>(
+                    ops::mul_add_scatter::<FiniteField<2, 8, Polynomial<AES>>>(
                         black_box(rows),
                         row_len,
                         &coeffs8,
@@ -714,7 +720,7 @@ fn bench_small_row_shapes() {
 }
 
 /// The benchmark-owned gf16d presentation: GF(2^16) as `a + b*t` over
-/// `Binary<8, Polynomial<RS>>` under the relation `t^2 + 2*t + 0x80`. The
+/// `FiniteField<2, 8, Polynomial<RS>>` under the relation `t^2 + 2*t + 0x80`. The
 /// raw word packs the low component first (`a | b << 8`). The crate's
 /// `RsTower` kernel tests exercise the same spec; no pinned presentation
 /// matches it, so every bulk operation routes through the typed scalar
@@ -723,14 +729,14 @@ fn bench_small_row_shapes() {
 struct Rs16Tower;
 
 impl TowerSpec for Rs16Tower {
-    type Base = Binary<8, Polynomial<RS>>;
+    type Base = FiniteField<2, 8, Polynomial<RS>>;
     const LINEAR_COEFFICIENT: u64 = 2;
     const CONSTANT_COEFFICIENT: u64 = 0x80;
     const NAME: &'static str = "GF(2^16)/0x11D";
 }
 
 /// The gf16d field: a degree-16 tower over the Reed–Solomon byte field.
-type Gf16d = Binary<16, Tower<Rs16Tower>>;
+type Gf16d = FiniteField<2, 16, Tower<Rs16Tower>>;
 
 /// The coefficient the gf16d regions multiply by: nonzero in both
 /// components.
@@ -879,7 +885,10 @@ fn bench_gf2_bits() {
             fgf::bits::xor_range_with(black_box(&mut dst), black_box(&a), black_box(&plan));
         });
         bench("  ops::add_assign  gf8b control", bytes, || {
-            ops::add_assign::<Binary<8, Polynomial<AES>>>(black_box(&mut dst), black_box(&a));
+            ops::add_assign::<FiniteField<2, 8, Polynomial<AES>>>(
+                black_box(&mut dst),
+                black_box(&a),
+            );
         });
     }
     println!();
@@ -1022,7 +1031,7 @@ fn run_panels() {
         bench_preparation_crossover();
         bench_small_row_shapes();
         bench_gf16d_custom_tower();
-        bench_add_assign_rows::<Binary<8, Polynomial<AES>>>("gf8b", None);
+        bench_add_assign_rows::<FiniteField<2, 8, Polynomial<AES>>>("gf8b", None);
         bench_add_assign_rows::<Gf16>("gf16b", None);
         bench_large_destination();
         bench_destination_alignment();
@@ -1060,12 +1069,15 @@ fn run_panels() {
 
         if gf {
             bench("xor                       gf8b", len, || {
-                ops::add_assign::<Binary<8, Polynomial<AES>>>(black_box(&mut dst), black_box(&src));
+                ops::add_assign::<FiniteField<2, 8, Polynomial<AES>>>(
+                    black_box(&mut dst),
+                    black_box(&src),
+                );
             });
             bench("mul_add                   gf8b", len, || {
-                ops::mul_add::<Binary<8, Polynomial<AES>>>(
+                ops::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(
                     black_box(&mut dst),
-                    Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
+                    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
                     black_box(&src),
                 );
             });
@@ -1080,9 +1092,9 @@ fn run_panels() {
                 ops::mul_add_with::<Gf16>(black_box(&mut dst), &prepared16, black_box(&src));
             });
             bench("mul_into                  gf8b", len, || {
-                ops::mul_into::<Binary<8, Polynomial<AES>>>(
+                ops::mul_into::<FiniteField<2, 8, Polynomial<AES>>>(
                     black_box(&mut product),
-                    Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
+                    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
                     black_box(&src),
                 );
             });
@@ -1094,13 +1106,13 @@ fn run_panels() {
                 );
             });
             bench("mul_assign                gf8b", len, || {
-                ops::mul_assign::<Binary<8, Polynomial<AES>>>(
+                ops::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>(
                     black_box(&mut dst),
-                    Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
+                    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
                 );
             });
             bench("elementwise                gf8b", len, || {
-                ops::mul_elementwise::<Binary<8, Polynomial<AES>>>(
+                ops::mul_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(
                     black_box(&mut product),
                     black_box(&src),
                     black_box(&rhs),
@@ -1114,7 +1126,7 @@ fn run_panels() {
                 );
             });
             bench("elementwise_assign        gf8b", len, || {
-                ops::mul_elementwise_assign::<Binary<8, Polynomial<AES>>>(
+                ops::mul_elementwise_assign::<FiniteField<2, 8, Polynomial<AES>>>(
                     black_box(&mut product),
                     black_box(&src),
                 );
@@ -1129,15 +1141,15 @@ fn run_panels() {
                 ops::add_assign::<Gf16>(black_box(&mut dst), black_box(&src));
             });
             bench("add_assign_scalar          gf8b", len, || {
-                ops::add_assign_scalar::<Binary<8, Polynomial<AES>>>(
+                ops::add_assign_scalar::<FiniteField<2, 8, Polynomial<AES>>>(
                     black_box(&mut dst),
-                    Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
+                    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
                 );
             });
             bench("sub_assign_scalar          gf8b", len, || {
-                ops::sub_assign_scalar::<Binary<8, Polynomial<AES>>>(
+                ops::sub_assign_scalar::<FiniteField<2, 8, Polynomial<AES>>>(
                     black_box(&mut dst),
-                    Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
+                    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
                 );
             });
             bench("add_assign_scalar         gf16b", len, || {
@@ -1264,7 +1276,7 @@ fn run_panels() {
         let mut rows = noise(row_len * nrows, 4);
         let coeffs8: Vec<_> = (0..nrows)
             .map(|j| {
-                Elem::<Binary<8, Polynomial<AES>>>::from_raw(
+                Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
                     (j as u8).wrapping_mul(37).wrapping_add(2),
                 )
             })
@@ -1272,12 +1284,12 @@ fn run_panels() {
         let coeffs16: Vec<_> = (0..nrows)
             .map(|j| Elem::<Gf16>::from_raw((j as u16).wrapping_mul(9871).wrapping_add(2)))
             .collect();
-        let scatter_coeffs8 = ops::CoeffVec::<Binary<8, Polynomial<AES>>>::new(&coeffs8);
+        let scatter_coeffs8 = ops::CoeffVec::<FiniteField<2, 8, Polynomial<AES>>>::new(&coeffs8);
         let scatter_coeffs16 = ops::CoeffVec::<Gf16>::new(&coeffs16);
 
         let traffic = row_len * nrows;
         bench("scatter                   gf8b", traffic, || {
-            ops::mul_add_scatter::<Binary<8, Polynomial<AES>>>(
+            ops::mul_add_scatter::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(&mut rows),
                 row_len,
                 &coeffs8,
@@ -1288,7 +1300,7 @@ fn run_panels() {
             ops::mul_add_scatter::<Gf16>(black_box(&mut rows), row_len, &coeffs16, black_box(&src));
         });
         bench("scatter prepared          gf8b", traffic, || {
-            ops::mul_add_scatter_with::<Binary<8, Polynomial<AES>>>(
+            ops::mul_add_scatter_with::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(&mut rows),
                 row_len,
                 scatter_coeffs8.as_ref(),
@@ -1305,7 +1317,11 @@ fn run_panels() {
         });
         bench("scatter (unblocked)       gf8b", traffic, || {
             for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(&coeffs8) {
-                ops::mul_add::<Binary<8, Polynomial<AES>>>(black_box(row), coeff, black_box(&src));
+                ops::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(
+                    black_box(row),
+                    coeff,
+                    black_box(&src),
+                );
             }
         });
         bench("scatter (unblocked)      gf16b", traffic, || {
@@ -1318,11 +1334,11 @@ fn run_panels() {
         // as one matrix call versus eight scatter calls. Same arithmetic,
         // different destination memory traffic.
         let sources: Vec<Vec<u8>> = (0..16).map(|t| noise(row_len, 100 + t as u64)).collect();
-        let coeff_sets: Vec<Vec<Elem<Binary<8, Polynomial<AES>>>>> = (0..8)
+        let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>>> = (0..8)
             .map(|t| {
                 (0..nrows)
                     .map(|j| {
-                        Elem::<Binary<8, Polynomial<AES>>>::from_raw(
+                        Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
                             ((t * 31 + j * 17) as u8).wrapping_add(1),
                         )
                     })
@@ -1338,7 +1354,7 @@ fn run_panels() {
             .collect();
         // Term geometry nests the unified element spelling; the slices stay slices.
         #[allow(clippy::type_complexity)]
-        let terms: Vec<(&[Elem<Binary<8, Polynomial<AES>>>], &[u8])> = coeff_sets
+        let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<AES>>>], &[u8])> = coeff_sets
             .iter()
             .zip(&sources)
             .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -1350,7 +1366,7 @@ fn run_panels() {
             .collect();
         let matrix_coeffs8: Vec<_> = coeff_sets.iter().flatten().copied().collect();
         let matrix_coeffs16: Vec<_> = coeff_sets16.iter().flatten().copied().collect();
-        let matrix8 = ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(
+        let matrix8 = ops::CoeffMatrix::<FiniteField<2, 8, Polynomial<AES>>>::from_source_major(
             8,
             nrows,
             &matrix_coeffs8,
@@ -1360,7 +1376,7 @@ fn run_panels() {
 
         let traffic = row_len * nrows * 8;
         bench("matrix (selected)          gf8b", traffic, || {
-            ops::mul_add_matrix::<Binary<8, Polynomial<AES>>>(
+            ops::mul_add_matrix::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(&mut rows),
                 row_len,
                 nrows,
@@ -1370,7 +1386,7 @@ fn run_panels() {
         bench("matrix (unblocked AXPY)   gf8b", traffic, || {
             for &(coeffs, src) in &terms {
                 for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-                    ops::mul_add::<Binary<8, Polynomial<AES>>>(black_box(row), coeff, src);
+                    ops::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(black_box(row), coeff, src);
                 }
             }
         });
@@ -1378,7 +1394,7 @@ fn run_panels() {
             ops::mul_add_matrix::<Gf16>(black_box(&mut rows), row_len, nrows, &terms16);
         });
         bench("matrix prepared           gf8b", traffic, || {
-            ops::mul_add_matrix_with::<Binary<8, Polynomial<AES>>>(
+            ops::mul_add_matrix_with::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(&mut rows),
                 row_len,
                 &matrix8,
@@ -1403,11 +1419,11 @@ fn run_panels() {
 
         let gather_srcs: Vec<&[u8]> = sources.iter().take(nrows).map(Vec::as_slice).collect();
         let mut gathered = noise(row_len, 5);
-        let gather_coeffs8 = ops::CoeffVec::<Binary<8, Polynomial<AES>>>::new(&coeffs8);
+        let gather_coeffs8 = ops::CoeffVec::<FiniteField<2, 8, Polynomial<AES>>>::new(&coeffs8);
         let gather_coeffs16 = ops::CoeffVec::<Gf16>::new(&coeffs16);
         let gather_traffic = row_len * nrows;
         bench("gather (selected)          gf8b", gather_traffic, || {
-            ops::mul_add_gather::<Binary<8, Polynomial<AES>>>(
+            ops::mul_add_gather::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(&mut gathered),
                 &coeffs8,
                 black_box(&gather_srcs),
@@ -1415,7 +1431,7 @@ fn run_panels() {
         });
         bench("gather (unblocked)        gf8b", gather_traffic, || {
             for (&coeff, &source) in coeffs8.iter().zip(&gather_srcs) {
-                ops::mul_add::<Binary<8, Polynomial<AES>>>(
+                ops::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(
                     black_box(&mut gathered),
                     coeff,
                     black_box(source),
@@ -1430,7 +1446,7 @@ fn run_panels() {
             );
         });
         bench("gather prepared           gf8b", gather_traffic, || {
-            ops::mul_add_gather_with::<Binary<8, Polynomial<AES>>>(
+            ops::mul_add_gather_with::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(&mut gathered),
                 gather_coeffs8.as_ref(),
                 black_box(&gather_srcs),

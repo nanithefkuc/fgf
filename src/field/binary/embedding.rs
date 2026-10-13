@@ -10,8 +10,8 @@
 //! The canonical map factors through one frozen reference per degree:
 //! GF(2) as [`Polynomial<3>`](super::poly::Polynomial), `Polynomial<0x7>` at degree two,
 //! `Polynomial<0x13>` at degree four, the AES field at degree eight, and the
-//! Rijndael towers `Binary<16, Tower<Rijndael16>>`,
-//! `Binary<32, Tower<Rijndael32>>`, and `Binary<64, Tower<Rijndael64>>` above it.
+//! Rijndael towers `FiniteField<2, 16, Tower<Rijndael16>>`,
+//! `FiniteField<2, 32, Tower<Rijndael32>>`, and `FiniteField<2, 64, Tower<Rijndael64>>` above it.
 //! Consecutive inclusions are frozen: the identity into degree two, the
 //! smallest raw reference root of the source polynomial below the AES
 //! field, and the low component above it.
@@ -37,15 +37,15 @@
 //! source degree are zero, except that sources below degree eight use the
 //! frozen inverse inclusions of the byte field. [`frobenius`](Embedding::frobenius),
 //! [`trace`](Embedding::trace), and [`norm`](Embedding::norm) implement the
-//! relative Galois action of the extension; `Embedding<Binary<1, Polynomial<3>>, T>` supplies
+//! relative Galois action of the extension; `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies
 //! the absolute trace and norm.
 //!
 //! ```
-//! use fgf::{AES, Binary, Elem, Embedding, Polynomial, Rijndael16, Tower};
+//! use fgf::{AES, FiniteField, Elem, Embedding, Polynomial, Rijndael16, Tower};
 //!
 //! let embedding =
-//!     Embedding::<Binary<8, Polynomial<AES>>, Binary<16, Tower<Rijndael16>>>::new().unwrap();
-//! let x = Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53);
+//!     Embedding::<FiniteField<2, 8, Polynomial<AES>>, FiniteField<2, 16, Tower<Rijndael16>>>::new().unwrap();
+//! let x = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
 //! let lifted = embedding.embed(x);
 //! assert!(embedding.contains(lifted));
 //! assert_eq!(embedding.restrict(lifted), Some(x));
@@ -660,7 +660,7 @@ impl<S: BinaryField, T: BinaryField> Embedding<S, T> {
     /// The relative trace: the sum of the conjugates under the relative
     /// Frobenius, restricted to the source.
     ///
-    /// Equal degrees reduce to restriction. `Embedding<Binary<1, Polynomial<3>>, T>` supplies
+    /// Equal degrees reduce to restriction. `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies
     /// the absolute trace.
     ///
     /// # Panics
@@ -682,7 +682,7 @@ impl<S: BinaryField, T: BinaryField> Embedding<S, T> {
     /// The relative norm: the product of the conjugates under the relative
     /// Frobenius, restricted to the source.
     ///
-    /// Equal degrees reduce to restriction. `Embedding<Binary<1, Polynomial<3>>, T>` supplies
+    /// Equal degrees reduce to restriction. `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies
     /// the absolute norm.
     ///
     /// # Panics

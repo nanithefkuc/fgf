@@ -1,6 +1,6 @@
 [package]
 name = "fgf"
-version = "3.0.0-rc.1"
+version = "3.0.1"
 edition = "2024"
 rust-version = "1.93"
 description = "Faster Galois Fields: SIMD and portable finite-field arithmetic (binary towers and prime fields) and vector kernels"
@@ -60,6 +60,11 @@ criterion = "0.8"
 lto = "thin"
 codegen-units = 1
 
+# Arithmetic-heavy tests retain debug assertions and overflow checks.
+# Coverage recipes select unoptimized code generation separately.
+[profile.test]
+opt-level = 1
+
 [[bench]]
 name = "kernels"
 harness = false
@@ -89,6 +94,10 @@ required-features = ["alloc"]
 
 [[example]]
 name = "prime_vectors"
+required-features = ["alloc"]
+
+[[example]]
+name = "generic_prime"
 required-features = ["alloc"]
 
 [[example]]

@@ -10,7 +10,7 @@ mod common;
 use common::{TEST_LOCK, count_allocations, noise};
 use fgf::ops;
 
-type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
 
 /// The token-proven `internals` wrappers replaced eager `format!`
 /// validation with `format_args`; successful direct calls must stay
@@ -24,7 +24,7 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
     use fgf::internals::kernel::tables::{TowerCoeff, TowerTables};
     use fgf::internals::kernel::{SimdToken, X64V3GfniCryptoToken, x86};
     use fgf::poly::AES;
-    use fgf::{Binary, Elem, Polynomial};
+    use fgf::{Elem, FiniteField, Polynomial};
 
     let _guard = TEST_LOCK
         .lock()
@@ -43,20 +43,20 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
         .map(|index| noise(LEN, 0x900 + index as u64))
         .collect();
     let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-    let coeffs: Vec<Elem<Binary<8, Polynomial<AES>>>> = (0..SOURCES)
+    let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> = (0..SOURCES)
         .map(|index| {
-            Elem::<Binary<8, Polynomial<AES>>>::from_raw(
+            Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
                 (index as u8).wrapping_mul(37).wrapping_add(2),
             )
         })
         .collect();
 
     let prepared: Vec<Prepared> = coeffs.iter().map(|&c| Prepared::new(c)).collect();
-    let columns: Vec<Vec<Elem<Binary<8, Polynomial<AES>>>>> = (0..TERMS)
+    let columns: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>>> = (0..TERMS)
         .map(|term| {
             (0..NROWS)
                 .map(|row| {
-                    Elem::<Binary<8, Polynomial<AES>>>::from_raw(
+                    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
                         ((term * 31 + row * 29) % 256) as u8,
                     )
                 })
@@ -101,20 +101,26 @@ fn proven_internals_gather_and_overwrite_allocate_nothing() {
     // into the seeded destination.
     let mut gather_want = noise(LEN, 0xa40);
     for (&coeff, &src) in coeffs.iter().zip(&srcs) {
-        ops::mul_add::<Binary<8, Polynomial<AES>>>(&mut gather_want, coeff, src);
+        ops::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(&mut gather_want, coeff, src);
     }
     assert_eq!(gather_dst, gather_want, "proven gather output");
 
     let mut matrix_want = noise(NROWS * LEN, 0xa50);
     for row in 0..NROWS {
-        let row_coeffs: Vec<Elem<Binary<8, Polynomial<AES>>>> = (0..TERMS)
+        let row_coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> = (0..TERMS)
             .map(|term| {
-                Elem::<Binary<8, Polynomial<AES>>>::from_raw(((term * 31 + row * 29) % 256) as u8)
+                Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
+                    ((term * 31 + row * 29) % 256) as u8,
+                )
             })
             .collect();
         let target = &mut matrix_want[row * LEN..(row + 1) * LEN];
         target.fill(0);
-        ops::mul_into_gather::<Binary<8, Polynomial<AES>>>(target, &row_coeffs, &srcs[..TERMS]);
+        ops::mul_into_gather::<FiniteField<2, 8, Polynomial<AES>>>(
+            target,
+            &row_coeffs,
+            &srcs[..TERMS],
+        );
     }
     assert_eq!(matrix_rows, matrix_want, "proven overwrite matrix output");
 

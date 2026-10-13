@@ -31,6 +31,7 @@ pub(crate) mod goldilocks;
 pub(crate) mod mersenne31;
 pub(crate) mod prime;
 pub(crate) mod quad_mersenne31;
+pub(crate) mod residue;
 pub(crate) mod scalar;
 pub(crate) mod tables;
 
@@ -72,7 +73,7 @@ pub(crate) use matrix_provider::Matrix;
 #[cfg(test)]
 mod tests;
 
-use crate::field::{FieldBuffer, PrimeIdentity};
+use crate::field::{FieldBuffer, PrimeIdentity, Residue};
 
 // Only the SIMD-enabled resolve path consults the environment; under a
 // std-less build `backend()` reports `Scalar` without touching `Selection`.
@@ -92,21 +93,21 @@ use simdispatch::Selection;
 mod private {
     pub trait Sealed {}
 }
-impl<R: crate::kernel::tables::Gf8Data> private::Sealed for crate::field::Binary<8, R> {}
+impl<R: crate::kernel::tables::Gf8Data> private::Sealed for crate::field::FiniteField<2, 8, R> {}
 impl<S: crate::field::binary::tower::TowerSpec> private::Sealed
-    for crate::field::Binary<16, crate::field::binary::tower::Tower<S>>
+    for crate::field::FiniteField<2, 16, crate::field::binary::tower::Tower<S>>
 where
     S::Base: crate::field::binary::BinaryDegree<8>,
 {
 }
 impl<S: crate::field::binary::tower::TowerSpec> private::Sealed
-    for crate::field::Binary<32, crate::field::binary::tower::Tower<S>>
+    for crate::field::FiniteField<2, 32, crate::field::binary::tower::Tower<S>>
 where
     S::Base: crate::field::binary::BinaryDegree<16>,
 {
 }
 impl<S: crate::field::binary::tower::TowerSpec> private::Sealed
-    for crate::field::Binary<64, crate::field::binary::tower::Tower<S>>
+    for crate::field::FiniteField<2, 64, crate::field::binary::tower::Tower<S>>
 where
     S::Base: crate::field::binary::BinaryDegree<32>,
 {
@@ -114,6 +115,7 @@ where
 impl private::Sealed for crate::field::mersenne31::Mersenne31 {}
 impl private::Sealed for crate::field::goldilocks::Goldilocks {}
 impl private::Sealed for crate::field::quad_mersenne31::QuadMersenne31 {}
+impl<const P: u64> private::Sealed for crate::field::FiniteField<P, 1, Residue> {}
 
 // The backend ladder is owned by `simdispatch` (the Level 0 single source for
 // detection and ordering); FGF re-exports it so downstream consumers keep
