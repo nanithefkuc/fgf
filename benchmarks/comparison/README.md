@@ -55,9 +55,11 @@ latency and `v3 / v2` for throughput. Above one means less elapsed time for
 v3 on the matched workload. Ratios are computed from unrounded host-local
 aggregates, not the displayed cells.
 
-The residue page compares one current artifact under `v4x`, `v3`, and
-`scalar` requests. Its factors divide AVX2 or scalar latency by current
-routed latency; they are not released-v2 comparisons. Per-operation routes
+The residue page compares one current artifact per host under routed, `v3`,
+and `scalar` requests. The routed request is `v4x` on Willow Cove and
+`v3_gfni_crypto` on Golden Cove. Its factors divide AVX2 or scalar latency
+by routed latency; they are not released-v2 comparisons. Golden Cove's
+routed residue calls use AVX2 or scalar, not AVX-512. Per-operation routes
 are retained because short rows can select a narrower or portable path.
 
 Throughput numerators belong to each panel. Multi-row self panels and native
@@ -73,12 +75,12 @@ The raw evidence retains controls, individual round values, and variability.
 Differences comparable to control variability are unresolved, not proof of
 a faster implementation.
 
-`-` means an explicitly unavailable host, an absent public version counterpart,
-or an unsupported native primitive. Golden Cove is unavailable for this
-campaign; its historical values are not reused. Missing records for an
-available host, failed correctness, missing required arms, mismatched
-geometry, and incomplete runs reject publication. No factor is computed
-from an unavailable pair.
+`-` means an explicitly unavailable measurement, an absent public version
+counterpart, or an unsupported native primitive. Both hosts run the complete
+campaign; historical values are not reused. Missing records for an available
+host, failed correctness, missing required arms, mismatched geometry, and
+incomplete runs reject publication. No factor is computed from an unavailable
+pair.
 The custom `gf16d` fixture is v3-only and scalar-routed;
 its existence does not imply a public v2 API or host-tier SIMD execution.
 
