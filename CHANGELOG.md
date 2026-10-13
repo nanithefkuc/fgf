@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Wiki reference for operation suffixes, destination behavior, prepared state,
+  row addressing, and allocation.
 - One-time field migration verification is recorded in
   [Issue #41](https://github.com/nanithefkuc/fgf/issues/41), rather than a
   permanent expanded regression corpus.
@@ -24,11 +26,21 @@ All notable changes to this project are documented here. The format follows
 - The dependency lock records published sources for locked MSRV checks;
   umbrella-local patch resolution is excluded from the publication lock.
 
+- Public documentation leads with `FiniteField`, its representations, and
+  `Elem<F>`; named prime families appear as specializations. Wiki guides
+  follow field selection, scalar arithmetic, packing, row operations,
+  preparation, and deployment, with task-oriented navigation and a custom
+  prime-base extension example.
 - Benchmark publication refreshes all families and competitors together.
   Generic residue results use expandable, length-column tables with
   separate AVX2/scalar comparisons; explicitly unavailable hosts show `-`
   instead of historical measurements.
 
+- Wiki guides use 3.0.1 as the base v3 release and lead from field construction
+  and arithmetic through presentations, embeddings, and custom fields.
+  Migration guidance goes directly from 2.x to 3.0.1.
+- Wiki navigation groups the reading path in the home page and sidebar instead
+  of per-page `Next:` footers.
 - Four-byte generic residue rows vectorize elementwise multiplication on
   AVX2-capable x86 hosts.
 - One-byte generic residue rows at moduli up to 127 vectorize prepared
@@ -57,6 +69,10 @@ All notable changes to this project are documented here. The format follows
   `Backend` through `single_row_backend` and `delayed_matrix_backend`.
   Replace boolean selector calls with comparisons to `Backend::Scalar`;
   use `avx2_floor_op_len` for the AVX2-specific row floor.
+
+### Removed
+
+- Wiki migration guide from the withdrawn v3 release candidate.
 
 ## [3.0.1] - 2026-10-10
 
@@ -88,6 +104,10 @@ All notable changes to this project are documented here. The format follows
   and privacy cases, and `just msrv-accept` runs
   those snippets plus the `tests/consumers.rs` compile-and-run matrix on
   the MSRV toolchain.
+- Wiki source guides cover the generic type model, field presentations,
+  embeddings, custom towers and scalar fields, packed workflows, preparation,
+  prime and bit-packed arithmetic, deployment, and migration from 2.x.
+  `wiki/Home.md` and the sidebar organize the reader paths.
 - Sealed presentations `MersenneFold` (label `mersenne-fold`) and
   `GoldilocksFold` (label `goldilocks-fold`), re-exported at the root. Both
   rows implement `PrimeField` and gain `const` `from_residue(u64) ->
