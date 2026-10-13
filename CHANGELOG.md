@@ -35,10 +35,6 @@ All notable changes to this project are documented here. The format follows
   and privacy cases, and `just msrv-accept` runs
   those snippets plus the `tests/consumers.rs` compile-and-run matrix on
   the MSRV toolchain.
-- Wiki source guides cover the generic type model, field presentations,
-  embeddings, custom towers and scalar fields, packed workflows, preparation,
-  prime and bit-packed arithmetic, deployment, and migration from 2.x.
-  `wiki/Home.md` and the sidebar organize the reader paths.
 - Sealed presentations `MersenneFold` (label `mersenne-fold`) and
   `GoldilocksFold` (label `goldilocks-fold`), re-exported at the root. Both
   rows implement `PrimeField` and gain `const` `from_residue(u64) ->
@@ -51,6 +47,26 @@ All notable changes to this project are documented here. The format follows
   `FiniteField<2, 1, Residue>`, which stores a `u64` residue.
 - `just external-check` type-checks every package under `external/`
   against the working copy.
+- The generic extension presentation `FiniteField<P, N, Extension<S, D>>`
+  with data-only `ExtensionSpec` providers, the sealed storage family
+  (`Components`, `Packed`, `PackedPadded`), the opaque const-constructible
+  `Relation`, generic arithmetic under the crate-wide total conventions,
+  component bytes and the checked packed surface with `Scalar` routing,
+  `ExtensionField` component conversions, and `BinaryField` on
+  characteristic-two rows over binary bases. The surface lives in
+  `field::extension`, re-exported at the root. `EmbeddingError` gains the
+  `NoCanonicalMap` variant for dividing degrees with no canonical map.
+- `ComplexMersenne31`, the `ExtensionSpec<2>` of `QuadMersenne31`:
+  `Mersenne31` extended by `t^2 + 1` with `Components` storage,
+  re-exported at the root.
+- An extension row whose base presentation, relation, and storage equal a
+  shipped instance's runs that instance's specialized scalar arithmetic and
+  reaches its kernel arms; every other extension row runs the generic body
+  and reports `Scalar`.
+- `FieldElem::from_residue`/`to_residue` and `from_index`/`to_index` on
+  every row: the prime-subfield value and the presentation index share one
+  generic body over the crate-private row hooks, and the inherent `const`
+  residue constructors check through the same bound.
 
 ### Changed
 
@@ -83,22 +99,82 @@ All notable changes to this project are documented here. The format follows
   presentation label, e.g. `FiniteField<2, 8, GF(2^8)/0x11B>`, instead of
   the label alone. Element `Debug` and every wire format are unchanged.
 - **Breaking:** binary rows validate their defining data at every entry
-  point: `ZERO_RAW`, `ONE_RAW`, every raw `Field` method, and the wide rows'
-  `from_bytes` now fail const evaluation for an invalid polynomial, basis,
-  or tower relation, as `from_raw` already did. Valid presentations are
-  unaffected.
-- **Breaking:** `Field` is sealed. Implementing `Field` outside the crate
-  no longer compiles, so `HasGenerator` and `FieldBuffer` on custom types
-  become unreachable too. Migrate a custom prime field to the family's
-  degree-one row `FiniteField<P, 1>` (the default `Residue` presentation)
-  at any checked `u64` prime: it supplies `Field`, `PrimeField`,
-  `FieldBuffer`, the checked packed operation surface, and the `const`
-  element API.
+  point: `ZERO_RAW`, `ONE_RAW`, and every raw `Field` method now fail const
+  evaluation for an invalid polynomial or basis, as `from_raw` already did.
+  Valid presentations are unaffected.
+- **Breaking:** `Field`, `HasGenerator`, and `FieldBuffer` are sealed.
+  Implementing any of them outside the crate no longer compiles. Migrate a
+  custom prime field to the family's degree-one row `FiniteField<P, 1>`
+  (the default `Residue` presentation) at any checked `u64` prime: it
+  supplies `Field`, `PrimeField`, `FieldBuffer`, the checked packed
+  operation surface, and the `const` element API. Migrate a custom
+  extension to an `ExtensionSpec` over a crate row.
+- **Breaking:** the shipped towers are extension rows: `FiniteField<2, N,
+  Tower<S>>` is spelled `FiniteField<2, N, Extension<S, 2>>` for `S` in
+  `Rijndael16`, `Rijndael32`, `Rijndael64`, and `FanPaar2` through
+  `FanPaar64`, each now an `ExtensionSpec<2>` with `Packed<W>` storage
+  (`PackedPadded<u8>` for `FanPaar2` and `FanPaar4`). Raw words, bytes,
+  coordinate words, generators, embeddings, and kernel routing are
+  unchanged, and each instance keeps its `const` element surface and
+  `mul_alpha`. Replace `Tower<S>` with `Extension<S, 2>` and import
+  `Extension`.
+- **Breaking:** the wide shipped instances' component conversions take
+  and return arrays: `Elem::<F>::from_components(a, b)` becomes
+  `from_components([a, b])` and `to_components()` returns `[a, b]` instead
+  of `(a, b)`, matching `ExtensionField<2>`.
+- **Breaking:** towers leave `BinaryRepr`: `BinaryRepr<N>` covers the flat
+  presentations only, and no flat presentation exists at degrees 16, 32,
+  and 64. Replace generic bounds `R: BinaryRepr<N>` that reached towers with
+  field-level bounds (`F: BinaryDegree<N>` or `F: BinaryField`) and
+  `<Tower<S> as BinaryRepr<N>>::DESCRIPTION` with `F::DESCRIPTION`.
+- **Breaking:** `QuadMersenne31` is a type alias of
+  `FiniteField<0x7FFF_FFFF, 2, Extension<ComplexMersenne31, 2>>` instead of
+  a unit marker struct, and its raw word is `[u32; 2]` instead of
+  `(u32, u32)`, with the same limbs in the same order. Replace
+  `Elem::<QuadMersenne31>::from_raw(re, im)` with `from_raw([re, im])`,
+  `to_raw().0` and `.1` with `to_raw()[0]` and `[1]`, `from_components(re,
+  im)` with `from_components([re, im])`, and tuple destructuring of
+  `to_components()` with array destructuring. Element `Display` prints
+  `[re, im]` in the base field's form instead of `(re+imi)`; bytes,
+  arithmetic, the generator, `I`, `conjugate`, `norm`, and kernel routing
+  are unchanged. Replace `QuadMersenne31` used as a value with
+  `QuadMersenne31::default()`.
 - `BinaryDescription::inv` takes canonical coordinate words. On a
   polynomial-root description, a word with bits at or above `degree()`
   inverts its low `degree()` bits instead of returning an unspecified
   value; on other roots such a word still gives an unspecified result.
   Results on canonical words are unchanged.
+- **Breaking:** `FieldElem` owns the residue and index conversions
+  `from_residue`/`to_residue` and `from_index`/`to_index`, shared by every
+  row. `BinaryField::to_coordinates`/`from_coordinates` are removed: use
+  `to_index`/`from_index`, identical words below degree 64 widened to
+  `u128`. `to_residue` returns `Option`, `None` off the prime subfield;
+  `PrimeField` is a method-free marker; `CoordinateError` and
+  `ResidueError` are replaced by `fgf::RangeError` (also
+  `fgf::field::RangeError`). Residues and indices are distinct: the index
+  of one is the presentation's coordinate encoding of one.
+
+### Removed
+
+- **Breaking:** `Tower`, `TowerSpec`, and `TowerGeneratorSpec` are removed
+  without an alias. A custom tower becomes an `ExtensionSpec<2>`: `impl
+  TowerSpec for S` with `LINEAR_COEFFICIENT = A` and
+  `CONSTANT_COEFFICIENT = B` becomes `impl ExtensionSpec<2> for S` with
+  the same `Base` and `NAME`, `type Storage = Packed<W>` at the field's
+  width (`PackedPadded<u8>` below one byte), and `const RELATION: Relation
+  = Relation::from_binary_words::<Base>(&[B, A])` — constant coefficient
+  first, the reverse of the old field order. The row is
+  `FiniteField<2, N, Extension<S, 2>>`.
+- **Breaking:** custom extension rows carry no generator:
+  `TowerGeneratorSpec` has no replacement, and `HasGenerator` belongs to the
+  shipped instances only. Request a shipped instance for a presentation that
+  needs a checked generator.
+- **Breaking:** custom extension rows have no `const` element surface:
+  `from_raw`, `from_bytes`, `to_bytes`, the arithmetic methods, and the
+  component conversions that custom towers exposed as `const fn` are gone.
+  Use the `FieldElem` methods and operators, `FieldBuffer::decode` and
+  `encode`, and `ExtensionField::from_components` and `to_components` at
+  run time; `Elem::ZERO`, `Elem::ONE`, and `to_raw` stay `const`.
 
 ## [3.0.0-rc.1] - 2026-10-07
 

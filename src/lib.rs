@@ -30,13 +30,14 @@ pub mod ops;
 pub mod internals;
 
 pub use field::{
-    AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Elem,
-    Embedding, EmbeddingError, FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64,
+    AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor,
+    ComplexMersenne31, Components, Elem, Embedding, EmbeddingError, Extension, ExtensionField,
+    ExtensionSpec, ExtensionStorage, FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64,
     Field, FieldBuffer, FieldElem, FiniteField, FiniteFieldRepr, Goldilocks, GoldilocksFold,
-    HasGenerator, Mersenne31, MersenneFold, Normal, Polynomial, PrimeCharacteristic, PrimeField,
-    PrimeIdentity, QuadMersenne31, RS, RangeError, Residue, Rijndael16, Rijndael32, Rijndael64,
-    Tower, TowerGeneratorSpec, TowerSpec, cantor, description, embedding, goldilocks, mersenne31,
-    normal, poly, quad_mersenne31, tower,
+    HasGenerator, Mersenne31, MersenneFold, Normal, Packed, PackedPadded, PackedWord, Polynomial,
+    PrimeCharacteristic, PrimeField, PrimeIdentity, QuadMersenne31, RS, RangeError, Relation,
+    Residue, Rijndael16, Rijndael32, Rijndael64, cantor, description, embedding, extension,
+    goldilocks, mersenne31, normal, poly, quad_mersenne31, tower,
 };
 pub use kernel::{
     Backend, FGF_TIERS, FieldKernels, KernelBackend, ParseBackendError, backend, backend_for,

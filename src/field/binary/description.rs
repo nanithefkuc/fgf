@@ -7,6 +7,7 @@
 //! lives with the general descriptor in `crate::field::extension`.
 
 use crate::field::extension::arithmetic;
+use crate::field::extension::descriptor::Storage;
 use crate::field::extension::irreducibility;
 use crate::field::extension::{Descriptor, Node};
 
@@ -22,16 +23,13 @@ pub struct BinaryDescription {
 impl BinaryDescription {
     /// The shared descriptor this binary description wraps.
     #[must_use]
-    // No production reader: the row hooks, the pinned set, and the tests
-    // reach it.
-    #[allow(dead_code)]
     pub(crate) const fn as_descriptor(&self) -> &Descriptor {
         &self.inner
     }
 
     /// Defining data of the root node.
     #[must_use]
-    pub(crate) const fn root_data(&self) -> NodeData {
+    pub(crate) const fn root_data(&self) -> NodeData<'_> {
         match self.inner.node(self.inner.root_index()) {
             Node::Unused | Node::Prime { .. } => panic!("unused node"),
             Node::Polynomial { degree, full } => NodeData::Polynomial {
@@ -52,7 +50,14 @@ impl BinaryDescription {
                 a: coefficients[1],
                 b: coefficients[0],
             },
-            Node::Extension { .. } => panic!("the root node holds no relation"),
+            Node::Extension {
+                relative_degree,
+                coefficients,
+                ..
+            } => NodeData::Relation {
+                relative_degree: *relative_degree,
+                coefficients: coefficients.split_at(*relative_degree).0,
+            },
         }
     }
 
@@ -84,11 +89,43 @@ impl BinaryDescription {
         }
     }
 
-    /// Append a quadratic extension over `base`'s root.
+    /// Append a quadratic relation node over `base`'s root, with packed
+    /// coefficient words stored verbatim, for tests that build malformed
+    /// nodes.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn append_quadratic(base: &BinaryDescription, a: u64, b: u64) -> Self {
         Self {
             inner: base.inner.append_quadratic_words(a, b),
+        }
+    }
+
+    /// Append a defining relation over `base`'s root at any relative
+    /// degree, taking the non-leading coefficients as flattened
+    /// prime-subfield coordinates, constant term first. Runs every check
+    /// of the shared descriptor's relation constructor at characteristic
+    /// two; irreducibility stays with [`Self::validate`].
+    ///
+    /// # Panics
+    ///
+    /// Panics with a check-specific message when any check fails.
+    #[must_use]
+    pub(crate) const fn append_relation(
+        base: &BinaryDescription,
+        degree: u32,
+        relative_degree: usize,
+        relation: &[u64],
+        storage: Storage,
+    ) -> Self {
+        Self {
+            inner: Descriptor::extension(
+                &base.inner,
+                2,
+                degree,
+                relative_degree,
+                relation,
+                storage,
+            ),
         }
     }
 
@@ -187,21 +224,36 @@ impl BinaryDescription {
                     assert!(used && *base < i, "quadratic node order");
                     let h = arithmetic::degree_of(descriptor, *base);
                     assert!(h <= 32, "binary degree exceeds 64");
-                    let (a, b) = (coefficients[1], coefficients[0]);
                     if h < 64 {
-                        assert!(a >> h == 0, "tower coefficient has excess bits");
-                        assert!(b >> h == 0, "tower coefficient has excess bits");
+                        let mut j = 0;
+                        while j < *relative_degree {
+                            assert!(
+                                coefficients[j] >> h == 0,
+                                "tower coefficient has excess bits"
+                            );
+                            j += 1;
+                        }
                     }
-                    assert!(a != 0, "tower coefficient A is zero");
-                    assert!(*relative_degree == 2, "non-quadratic binary node");
-                    assert!(
-                        h == *base_degree,
-                        "quadratic node caches a wrong base degree"
-                    );
-                    assert!(
-                        irreducibility::quadratic_relation_holds(descriptor, i),
-                        "tower relation is reducible"
-                    );
+                    if *relative_degree == 2 {
+                        assert!(coefficients[1] != 0, "tower coefficient A is zero");
+                        assert!(
+                            h == *base_degree,
+                            "quadratic node caches a wrong base degree"
+                        );
+                        assert!(
+                            irreducibility::quadratic_relation_holds(descriptor, i),
+                            "tower relation is reducible"
+                        );
+                    } else {
+                        assert!(
+                            h == *base_degree,
+                            "relation node caches a wrong base degree"
+                        );
+                        assert!(
+                            irreducibility::node_relation_irreducible(descriptor, i),
+                            "relation node is reducible"
+                        );
+                    }
                 }
             }
             i += 1;
@@ -472,8 +524,12 @@ const fn serial_log_exp(full: u128, generator: u64) -> ByteLogExp {
 }
 
 /// Crate-visible defining data of one description node.
+///
+/// The relation variant covers every relative degree above two, holding
+/// the node's coefficient words in interpreter form, constant term first;
+/// the quadratic node stays its own shape, matching the shipped towers.
 #[derive(Clone, Copy)]
-pub(crate) enum NodeData {
+pub(crate) enum NodeData<'a> {
     /// A flat polynomial root.
     Polynomial {
         /// Total degree of the node.
@@ -495,6 +551,13 @@ pub(crate) enum NodeData {
         /// Constant coefficient as a base-coordinate word.
         b: u64,
     },
+    /// An extension of an earlier node at any relative degree.
+    Relation {
+        /// Degree of the relation over its base.
+        relative_degree: usize,
+        /// Non-leading coefficient words, constant term first.
+        coefficients: &'a [u64],
+    },
 }
 
 #[cfg(test)]
@@ -502,15 +565,16 @@ mod tests {
     use core::hint::black_box;
 
     use super::*;
+    use crate::Polynomial;
     use crate::field::FiniteField;
     use crate::field::binary::normal::inverse_columns;
+    use crate::field::binary::tower::{
+        FanPaar2Field, FanPaar4Field, FanPaar8Field, FanPaar16Field, FanPaar32Field,
+        FanPaar64Field, Rijndael16Field, Rijndael32Field, Rijndael64Field,
+    };
     use crate::field::binary::{BinaryField, Cantor, Normal};
     use crate::field::extension::descriptor::{COORDINATES, NODES, Storage};
-    use crate::field::{Elem, HasGenerator};
-    use crate::{
-        FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64, Polynomial, Rijndael16,
-        Rijndael32, Rijndael64, Tower,
-    };
+    use crate::field::{Elem, FieldElem, HasGenerator};
 
     /// A quadratic relation node with packed coefficient words, for tests
     /// that place malformed nodes by hand.
@@ -627,6 +691,49 @@ mod tests {
                 let hi = m(x0, y1) ^ m(x1, y0) ^ m(a, top);
                 lo | (hi << h)
             }
+            NodeData::Relation {
+                relative_degree,
+                coefficients,
+            } => {
+                let base = desc.base_description();
+                let h = base.degree();
+                let count = relative_degree;
+                // Test-only storage for one schoolbook product: the binary
+                // degree stays at or below 64, so fixed component and
+                // double-width arrays cover every relative degree.
+                assert!(
+                    count <= 64,
+                    "test interpreter covers binary degrees up to 64"
+                );
+                let words = [x, y].map(|value| {
+                    let mut parts = [0u64; 64];
+                    for (slot, part) in parts.iter_mut().enumerate().take(count) {
+                        *part = (value >> (slot * h as usize)) & mask(h);
+                    }
+                    parts
+                });
+                let [xs, ys] = words;
+                let m = |u: u64, v: u64| root_mul(&base, u, v);
+                // Schoolbook up to degree `2d - 2`, then fold
+                // `t^k = Σ_j coefficients[j] t^(k - d + j)` from the top.
+                let mut wide = [0u64; 128];
+                for first in 0..count {
+                    for second in 0..count {
+                        wide[first + second] ^= m(xs[first], ys[second]);
+                    }
+                }
+                for top_degree in (count..2 * count).rev() {
+                    let top = wide[top_degree];
+                    for shift in 0..count {
+                        wide[top_degree - count + shift] ^= m(coefficients[shift], top);
+                    }
+                }
+                let mut word = 0u64;
+                for (position, digit) in wide.iter().enumerate().take(count) {
+                    word |= digit << (position * h as usize);
+                }
+                word
+            }
         }
     }
 
@@ -695,26 +802,10 @@ mod tests {
                 8,
                 Kind::Basis,
             ),
-            (
-                desc_of::<FiniteField<2, 2, Tower<FanPaar2>>>(),
-                2,
-                Kind::Quadratic,
-            ),
-            (
-                desc_of::<FiniteField<2, 4, Tower<FanPaar4>>>(),
-                4,
-                Kind::Quadratic,
-            ),
-            (
-                desc_of::<FiniteField<2, 8, Tower<FanPaar8>>>(),
-                8,
-                Kind::Quadratic,
-            ),
-            (
-                triangular_over(&desc_of::<FiniteField<2, 8, Tower<FanPaar8>>>()),
-                8,
-                Kind::Basis,
-            ),
+            (desc_of::<FanPaar2Field>(), 2, Kind::Quadratic),
+            (desc_of::<FanPaar4Field>(), 4, Kind::Quadratic),
+            (desc_of::<FanPaar8Field>(), 8, Kind::Quadratic),
+            (triangular_over(&desc_of::<FanPaar8Field>()), 8, Kind::Basis),
         ]
     }
 
@@ -723,12 +814,12 @@ mod tests {
     #[allow(clippy::large_stack_arrays)]
     fn tower_fixtures() -> [BinaryDescription; 6] {
         [
-            desc_of::<FiniteField<2, 16, Tower<Rijndael16>>>(),
-            desc_of::<FiniteField<2, 32, Tower<Rijndael32>>>(),
-            desc_of::<FiniteField<2, 64, Tower<Rijndael64>>>(),
-            desc_of::<FiniteField<2, 16, Tower<FanPaar16>>>(),
-            desc_of::<FiniteField<2, 32, Tower<FanPaar32>>>(),
-            desc_of::<FiniteField<2, 64, Tower<FanPaar64>>>(),
+            desc_of::<Rijndael16Field>(),
+            desc_of::<Rijndael32Field>(),
+            desc_of::<Rijndael64Field>(),
+            desc_of::<FanPaar16Field>(),
+            desc_of::<FanPaar32Field>(),
+            desc_of::<FanPaar64Field>(),
         ]
     }
 
@@ -857,7 +948,7 @@ mod tests {
         let n = F::DEGREE;
         assert_eq!(desc.degree(), n);
         assert!(!desc.is_polynomial_root() && !desc.is_basis_root());
-        let elem = |x| F::from_coordinates(x).unwrap();
+        let elem = |x| Elem::<F>::from_index(u128::from(x)).unwrap();
         let one = desc.one();
         let mut words = words(seed).map(|w| w & mask(n));
         for sample in 0..samples {
@@ -868,7 +959,10 @@ mod tests {
             );
             let product = desc.mul(x, y);
             assert_eq!(product, root_mul(&desc, x, y), "{x:#x} * {y:#x}");
-            assert_eq!(product, F::to_coordinates(elem(x) * elem(y)));
+            assert_eq!(
+                product,
+                u64::try_from((elem(x) * elem(y)).to_index()).unwrap()
+            );
             assert_eq!(root_mul(&desc, one, x), x);
             assert_eq!(root_mul(&desc, x, desc.inv(x)), one);
             let (e1, e2) = (u128::from(y), u128::from(z));
@@ -885,7 +979,7 @@ mod tests {
             assert_eq!(desc.trace(x ^ y), trace ^ desc.trace(y));
         }
         assert_eq!(desc.inv(0), 0);
-        let generator = F::to_coordinates(Elem::<F>::GENERATOR);
+        let generator = u64::try_from(Elem::<F>::GENERATOR.to_index()).unwrap();
         let group = (1u128 << n) - 1;
         assert!(!desc.is_generator(0));
         assert!(!desc.is_generator(one));
@@ -900,16 +994,16 @@ mod tests {
 
     #[test]
     fn rijndael_towers_match_independent_arithmetic() {
-        check_tower::<FiniteField<2, 16, Tower<Rijndael16>>>(0x16, 200, 200, &EXPONENTS);
-        check_tower::<FiniteField<2, 32, Tower<Rijndael32>>>(0x32, 200, 64, &EXPONENTS);
-        check_tower::<FiniteField<2, 64, Tower<Rijndael64>>>(0x64, 100, 16, &EXPONENTS);
+        check_tower::<Rijndael16Field>(0x16, 200, 200, &EXPONENTS);
+        check_tower::<Rijndael32Field>(0x32, 200, 64, &EXPONENTS);
+        check_tower::<Rijndael64Field>(0x64, 100, 16, &EXPONENTS);
     }
 
     #[test]
     fn fan_paar_towers_match_independent_arithmetic() {
-        check_tower::<FiniteField<2, 16, Tower<FanPaar16>>>(0x116, 32, 8, &EXPONENTS);
-        check_tower::<FiniteField<2, 32, Tower<FanPaar32>>>(0x132, 8, 2, &EXPONENTS[..6]);
-        check_tower::<FiniteField<2, 64, Tower<FanPaar64>>>(0x164, 2, 0, &EXPONENTS[..2]);
+        check_tower::<FanPaar16Field>(0x116, 32, 8, &EXPONENTS);
+        check_tower::<FanPaar32Field>(0x132, 8, 2, &EXPONENTS[..6]);
+        check_tower::<FanPaar64Field>(0x164, 2, 0, &EXPONENTS[..2]);
     }
 
     /// `EXP` walks the powers of the generator and `LOG` inverts it.
@@ -983,11 +1077,11 @@ mod tests {
 
     #[test]
     fn base_description_restricts_to_the_base_presentation() {
-        let gf64 = black_box(desc_of::<FiniteField<2, 64, Tower<Rijndael64>>>());
+        let gf64 = black_box(desc_of::<Rijndael64Field>());
         let gf32 = gf64.base_description();
-        assert!(gf32.same_structure(&desc_of::<FiniteField<2, 32, Tower<Rijndael32>>>()));
+        assert!(gf32.same_structure(&desc_of::<Rijndael32Field>()));
         let gf16 = gf32.base_description();
-        assert!(gf16.same_structure(&desc_of::<FiniteField<2, 16, Tower<Rijndael16>>>()));
+        assert!(gf16.same_structure(&desc_of::<Rijndael16Field>()));
         let leaf = gf16.base_description();
         assert!(leaf.same_structure(&BinaryDescription::polynomial(8, 0x11B)));
         let normal = black_box(desc_of::<FiniteField<2, 8, Normal<0x11B, 0x20>>>());
@@ -1086,22 +1180,14 @@ mod tests {
     #[test]
     #[should_panic(expected = "description capacity exhausted")]
     fn append_quadratic_rejects_a_full_description() {
-        let full = BinaryDescription::append_quadratic(
-            &desc_of::<FiniteField<2, 64, Tower<FanPaar64>>>(),
-            1,
-            1,
-        );
+        let full = BinaryDescription::append_quadratic(&desc_of::<FanPaar64Field>(), 1, 1);
         let _ = BinaryDescription::append_quadratic(black_box(&full), 1, 1);
     }
 
     #[test]
     #[should_panic(expected = "description capacity exhausted")]
     fn append_basis_rejects_a_full_description() {
-        let full = BinaryDescription::append_quadratic(
-            &desc_of::<FiniteField<2, 64, Tower<FanPaar64>>>(),
-            1,
-            1,
-        );
+        let full = BinaryDescription::append_quadratic(&desc_of::<FanPaar64Field>(), 1, 1);
         let _ = BinaryDescription::append_basis(black_box(&full), [0; 8], [0; 8]);
     }
 
@@ -1236,7 +1322,7 @@ mod tests {
     #[should_panic(expected = "binary degree exceeds 64")]
     fn validate_rejects_a_degree_above_sixty_four() {
         validate(&BinaryDescription::append_quadratic(
-            &desc_of::<FiniteField<2, 64, Tower<FanPaar64>>>(),
+            &desc_of::<FanPaar64Field>(),
             1,
             1,
         ));

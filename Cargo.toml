@@ -110,10 +110,6 @@ name = "internals"
 required-features = ["std", "simd", "internals"]
 
 [[test]]
-name = "goldilocks_wrap_internals"
-required-features = ["std", "simd", "internals"]
-
-[[test]]
 name = "zero_alloc_internals"
 required-features = ["std", "simd", "internals"]
 

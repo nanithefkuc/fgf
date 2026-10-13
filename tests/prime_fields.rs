@@ -229,10 +229,10 @@ fn canonical_bytes(elems: &[(u64, u64)]) -> Vec<u8> {
 }
 
 fn elem(value: (u64, u64)) -> Elem<QuadMersenne31> {
-    Elem::<QuadMersenne31>::from_raw(
+    Elem::<QuadMersenne31>::from_raw([
         u32::try_from(value.0).expect("canonical limb"),
         u32::try_from(value.1).expect("canonical limb"),
-    )
+    ])
 }
 
 fn map(a: &[(u32, u32)], f: impl Fn((u64, u64)) -> (u64, u64)) -> Vec<u8> {

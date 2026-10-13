@@ -53,16 +53,10 @@ pub const COORDINATES: usize = 80;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PrimePresentation {
     /// The ordinary-residue row: one `u64` residue per element.
-    // Constructed by the residue row hooks and the tests.
-    #[allow(dead_code)]
     Residue,
     /// The Mersenne fold row of `2^31 - 1`: one `u32` lane per element.
-    // Constructed by the fold row hooks, the pinned set, and the tests.
-    #[allow(dead_code)]
     MersenneFold,
     /// The Goldilocks fold row of `2^64 - 2^32 + 1`: one `u64` lane.
-    // Constructed by the fold row hooks and the tests.
-    #[allow(dead_code)]
     GoldilocksFold,
 }
 
@@ -73,8 +67,6 @@ pub enum PrimePresentation {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Storage {
     /// One base element per component, in the base's coordinate order.
-    // Constructed by the pinned QuadMersenne31 row and the tests.
-    #[allow(dead_code)]
     Components,
     /// The row's coordinate word fills the storage word exactly.
     Packed {
@@ -99,9 +91,6 @@ pub enum Node {
     Unused,
     /// A prime-field leaf. At characteristic two with `Residue` the word
     /// arithmetic is `AND` and the identity word is `1`.
-    // Constructed through the prime leaf constructor, by the row hooks and
-    // the tests.
-    #[allow(dead_code)]
     Prime {
         /// The prime modulus.
         modulus: u64,
@@ -164,9 +153,6 @@ pub struct Descriptor {
 impl Descriptor {
     /// A prime-field leaf of `modulus` under `presentation`.
     #[must_use]
-    // No production caller: the row hooks and the tests build leaves
-    // through it.
-    #[allow(dead_code)]
     pub const fn prime(modulus: u64, presentation: PrimePresentation) -> Self {
         let mut nodes = [Node::Unused; NODES];
         nodes[0] = Node::Prime {
@@ -217,14 +203,16 @@ impl Descriptor {
     /// `self`, taking both coefficients as packed base-coordinate words.
     ///
     /// The words are stored verbatim, so a later validation can still
-    /// reject excess bits. The storage follows the tower width rule:
-    /// `PackedPadded` at one byte below it, `Packed` from one byte up.
+    /// reject excess bits: the tests build malformed nodes through it. The
+    /// storage follows the packed width rule: `PackedPadded` at one byte
+    /// below it, `Packed` from one byte up.
     ///
     /// # Panics
     ///
     /// Panics when the node capacity is exhausted.
     // `NODES` is 8 and the doubled base degree stays below the storage word
     // widths, both far below `u8::MAX`.
+    #[cfg(test)]
     #[allow(clippy::cast_possible_truncation)]
     #[must_use]
     pub const fn append_quadratic_words(&self, linear: u64, constant: u64) -> Self {
@@ -273,9 +261,6 @@ impl Descriptor {
     // `u8::MAX` and `u32::MAX`.
     #[allow(clippy::cast_possible_truncation)]
     #[must_use]
-    // No production caller: the pinned QuadMersenne31 row and the tests
-    // build relations through it.
-    #[allow(dead_code)]
     pub const fn extension(
         base: &Self,
         characteristic: u64,
@@ -284,6 +269,10 @@ impl Descriptor {
         relation: &[u64],
         storage: Storage,
     ) -> Self {
+        assert!(
+            relation.len() <= COORDINATES,
+            "relation exceeds the coordinate capacity"
+        );
         assert!(
             super::arithmetic::characteristic_of(base, base.root) == characteristic,
             "extension base characteristic differs from the field characteristic"
@@ -550,9 +539,6 @@ impl Descriptor {
     /// # Panics
     ///
     /// Panics when the root relation is reducible.
-    // No production caller: the tests call the module-level entry
-    // directly.
-    #[allow(dead_code)]
     pub const fn validate_relation(&self) {
         super::irreducibility::validate_relation(self);
     }
@@ -626,7 +612,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "binary field degree exceeds 64")]
     fn extension_rejects_a_binary_degree_above_sixty_four() {
-        let base = crate::field::binary::tower::FANPAAR64_DESC.as_descriptor();
+        let base = <crate::field::binary::tower::FanPaar64Field as crate::field::private::RowAccess>::DESCRIPTOR;
         let wide = build(base, 2, 128, 2, &[], Storage::Packed { width: 64 });
         let _ = wide;
     }

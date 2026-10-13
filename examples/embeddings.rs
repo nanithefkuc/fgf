@@ -13,9 +13,9 @@ use fgf::{Elem, Embedding, EmbeddingError, FiniteField, Polynomial};
 
 // Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
 type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
-type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Tower<fgf::FanPaar16>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
 
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
 type Nibble = FiniteField<2, 4, Polynomial<0x13>>;
@@ -59,14 +59,14 @@ fn main() {
     // The relative Frobenius, trace, and norm come with the embedding.
     let tower = Embedding::<Aes, Gf16>::new().unwrap();
     let (lo, hi) = (Elem::<Aes>::from_raw(0x53), Elem::<Aes>::from_raw(0xca));
-    let z = Elem::<Gf16>::from_components(lo, hi);
+    let z = Elem::<Gf16>::from_components([lo, hi]);
     assert_eq!(
         tower.embed(lo),
-        Elem::<Gf16>::from_components(lo, Elem::<Aes>::ZERO)
+        Elem::<Gf16>::from_components([lo, Elem::<Aes>::ZERO])
     );
     assert_eq!(
         tower.frobenius(z),
-        Elem::<Gf16>::from_components(lo + hi, hi)
+        Elem::<Gf16>::from_components([lo + hi, hi])
     );
     assert_eq!(tower.trace(z), hi);
     assert_eq!(

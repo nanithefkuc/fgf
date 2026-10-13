@@ -32,16 +32,16 @@ fn main() {
     // QuadMersenne31 has two canonical u32 limbs per element, in [re, im]
     // order. A raw byte stream is not automatically a valid evaluation vector.
     let q = [
-        (0, 0),
-        (1, 2),
-        (mersenne31::MODULUS + 7, 11),
-        (u32::MAX, u32::MAX),
+        [0, 0],
+        [1, 2],
+        [mersenne31::MODULUS + 7, 11],
+        [u32::MAX, u32::MAX],
     ]
-    .map(|(re, im)| Elem::<QuadMersenne31>::from_raw(re, im));
+    .map(Elem::<QuadMersenne31>::from_raw);
     combine::<QuadMersenne31>(
         q,
-        [(2, 1), (3, 4), (5, 6), (8, 9)].map(|(re, im)| Elem::<QuadMersenne31>::from_raw(re, im)),
-        Elem::<QuadMersenne31>::from_raw(13, 17),
+        [[2, 1], [3, 4], [5, 6], [8, 9]].map(Elem::<QuadMersenne31>::from_raw),
+        Elem::<QuadMersenne31>::from_raw([13, 17]),
     );
 }
 

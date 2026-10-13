@@ -1,19 +1,18 @@
 //! Forward layout fixtures for every shipped tower degree.
 //!
 //! Records the raw words of `ONE`, the generator, base inclusions, the
-//! indeterminate, and fixed products from the pre-cutover types. These tests
-//! stay unchanged through the tower cutover: they use only the surviving
-//! alias spellings and the unified low-component-first packing.
+//! indeterminate, and fixed products of every shipped quadratic binary
+//! extension row, in the unified low-component-first packing.
 
 use fgf::{AES, Elem, FiniteField, Polynomial};
 
-type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
-type Gf32 = fgf::FiniteField<2, 32, fgf::Tower<fgf::Rijndael32>>;
-type Gf64 = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
-type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Tower<fgf::FanPaar8>>;
-type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Tower<fgf::FanPaar16>>;
-type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Tower<fgf::FanPaar32>>;
-type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Tower<fgf::FanPaar64>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
+type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Extension<fgf::FanPaar8, 2>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Extension<fgf::FanPaar16, 2>>;
+type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Extension<fgf::FanPaar32, 2>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
 
 type Aes8 = FiniteField<2, 8, Polynomial<AES>>;
 
@@ -28,11 +27,11 @@ fn gf16_forward_layout() {
         (0x53, 0x0053),
         (0xFF, 0x00FF),
     ] {
-        let lifted = Elem::<Gf16>::from_components(Elem::<Aes8>::from_raw(b), Elem::<Aes8>::ZERO);
+        let lifted = Elem::<Gf16>::from_components([Elem::<Aes8>::from_raw(b), Elem::<Aes8>::ZERO]);
         assert_eq!(lifted.to_raw(), expect);
     }
     // Indeterminate is the high component alone.
-    let ind = Elem::<Gf16>::from_components(Elem::<Aes8>::ZERO, Elem::<Aes8>::ONE);
+    let ind = Elem::<Gf16>::from_components([Elem::<Aes8>::ZERO, Elem::<Aes8>::ONE]);
     assert_eq!(ind.to_raw(), 0x0100);
     // Fixed products: zero, one, high-only, low-only, full-width.
     for (x, y, expect) in [
@@ -63,10 +62,10 @@ fn gf32_forward_layout() {
         (0x1234, 0x00001234),
         (0xFFFF, 0x0000FFFF),
     ] {
-        let lifted = Elem::<Gf32>::from_components(Elem::<Gf16>::from_raw(b), Elem::<Gf16>::ZERO);
+        let lifted = Elem::<Gf32>::from_components([Elem::<Gf16>::from_raw(b), Elem::<Gf16>::ZERO]);
         assert_eq!(lifted.to_raw(), expect);
     }
-    let ind = Elem::<Gf32>::from_components(Elem::<Gf16>::ZERO, Elem::<Gf16>::ONE);
+    let ind = Elem::<Gf32>::from_components([Elem::<Gf16>::ZERO, Elem::<Gf16>::ONE]);
     assert_eq!(ind.to_raw(), 0x00010000);
     for (x, y, expect) in [
         (0x00000000u32, 0x00000000u32, 0x00000000u32),
@@ -96,10 +95,10 @@ fn gf64_forward_layout() {
         (0xdeadbeef, 0x00000000deadbeef),
         (0xFFFFFFFF, 0x00000000ffffffff),
     ] {
-        let lifted = Elem::<Gf64>::from_components(Elem::<Gf32>::from_raw(b), Elem::<Gf32>::ZERO);
+        let lifted = Elem::<Gf64>::from_components([Elem::<Gf32>::from_raw(b), Elem::<Gf32>::ZERO]);
         assert_eq!(lifted.to_raw(), expect);
     }
-    let ind = Elem::<Gf64>::from_components(Elem::<Gf32>::ZERO, Elem::<Gf32>::ONE);
+    let ind = Elem::<Gf64>::from_components([Elem::<Gf32>::ZERO, Elem::<Gf32>::ONE]);
     assert_eq!(ind.to_raw(), 0x0000000100000000);
     for (x, y, expect) in [
         (
@@ -156,20 +155,20 @@ fn fan_paar16_forward_layout() {
         (0x1b, 0x001b),
         (0xFF, 0x00FF),
     ] {
-        let lifted = Elem::<FanPaar16Field>::from_components(
+        let lifted = Elem::<FanPaar16Field>::from_components([
             Elem::<FanPaar8Field>::from_raw(b),
             Elem::<FanPaar8Field>::ZERO,
-        );
+        ]);
         assert_eq!(lifted.to_raw(), expect);
         assert_eq!(
             Elem::<FanPaar16Field>::from_raw(u16::from(b)).to_raw(),
             expect
         );
     }
-    let ind = Elem::<FanPaar16Field>::from_components(
+    let ind = Elem::<FanPaar16Field>::from_components([
         Elem::<FanPaar8Field>::ZERO,
         Elem::<FanPaar8Field>::ONE,
-    );
+    ]);
     assert_eq!(ind.to_raw(), 0x0100);
     for (x, y, expect) in [
         (0x0000u16, 0x0000u16, 0x0000u16),
@@ -199,20 +198,20 @@ fn fan_paar32_forward_layout() {
         (0x48a8, 0x000048a8),
         (0xFFFF, 0x0000FFFF),
     ] {
-        let lifted = Elem::<FanPaar32Field>::from_components(
+        let lifted = Elem::<FanPaar32Field>::from_components([
             Elem::<FanPaar16Field>::from_raw(b),
             Elem::<FanPaar16Field>::ZERO,
-        );
+        ]);
         assert_eq!(lifted.to_raw(), expect);
         assert_eq!(
             Elem::<FanPaar32Field>::from_raw(u32::from(b)).to_raw(),
             expect
         );
     }
-    let ind = Elem::<FanPaar32Field>::from_components(
+    let ind = Elem::<FanPaar32Field>::from_components([
         Elem::<FanPaar16Field>::ZERO,
         Elem::<FanPaar16Field>::ONE,
-    );
+    ]);
     assert_eq!(ind.to_raw(), 0x00010000);
     for (x, y, expect) in [
         (0x00000000u32, 0x00000000u32, 0x00000000u32),
@@ -245,20 +244,20 @@ fn fan_paar64_forward_layout() {
         (0x12345678, 0x0000000012345678),
         (0xFFFFFFFF, 0x00000000ffffffff),
     ] {
-        let lifted = Elem::<FanPaar64Field>::from_components(
+        let lifted = Elem::<FanPaar64Field>::from_components([
             Elem::<FanPaar32Field>::from_raw(b),
             Elem::<FanPaar32Field>::ZERO,
-        );
+        ]);
         assert_eq!(lifted.to_raw(), expect);
         assert_eq!(
             Elem::<FanPaar64Field>::from_raw(u64::from(b)).to_raw(),
             expect
         );
     }
-    let ind = Elem::<FanPaar64Field>::from_components(
+    let ind = Elem::<FanPaar64Field>::from_components([
         Elem::<FanPaar32Field>::ZERO,
         Elem::<FanPaar32Field>::ONE,
-    );
+    ]);
     assert_eq!(ind.to_raw(), 0x0000000100000000);
     for (x, y, expect) in [
         (

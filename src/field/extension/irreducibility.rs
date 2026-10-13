@@ -16,29 +16,37 @@ use super::arithmetic::{
 use super::descriptor::{Descriptor, Node};
 use super::pinned;
 
-/// Whether the root node's relation is irreducible over its base, by the
-/// quadratic fast path at relative degree two and the generalized Ben-Or
-/// test otherwise.
+/// Whether the relation node at `index` is irreducible over its base, by
+/// the quadratic fast path at relative degree two and the generalized
+/// Ben-Or test otherwise.
+///
+/// # Panics
+///
+/// Panics when the node at `index` holds no relation.
+#[must_use]
+pub const fn node_relation_irreducible(descriptor: &Descriptor, index: u8) -> bool {
+    match descriptor.node(index) {
+        Node::Extension {
+            relative_degree, ..
+        } => {
+            if *relative_degree == 2 {
+                quadratic_relation_holds(descriptor, index)
+            } else {
+                ben_or_irreducible(descriptor, index)
+            }
+        }
+        _ => panic!("not a relation node"),
+    }
+}
+
+/// Whether the root node's relation is irreducible over its base.
 ///
 /// # Panics
 ///
 /// Panics when the root node holds no relation.
 #[must_use]
-// No production caller: reached through the descriptor's test entries.
-#[allow(dead_code)]
 pub const fn root_relation_irreducible(descriptor: &Descriptor) -> bool {
-    match descriptor.node(descriptor.root_index()) {
-        Node::Extension {
-            relative_degree, ..
-        } => {
-            if *relative_degree == 2 {
-                quadratic_relation_holds(descriptor, descriptor.root_index())
-            } else {
-                ben_or_irreducible(descriptor, descriptor.root_index())
-            }
-        }
-        _ => panic!("the root node holds no relation"),
-    }
+    node_relation_irreducible(descriptor, descriptor.root_index())
 }
 
 /// Validation entry point of a relation node: a descriptor structurally
@@ -394,7 +402,7 @@ mod tests {
         };
         // CM31 relations over the pinned QuadMersenne31 descriptor: the
         // cubic exceeds the cardinality bound and runs past the checks.
-        let qm31 = super::super::pinned::QUAD_MERSENNE31;
+        let qm31 = *<crate::field::QuadMersenne31 as crate::field::private::RowAccess>::DESCRIPTOR;
         assert!(
             Descriptor::extension(
                 &qm31,
@@ -798,7 +806,7 @@ mod tests {
 
     /// `t^2 - (2 + i)` over the pinned `QuadMersenne31` descriptor.
     const fn quad_over_quad_mersenne31() -> bool {
-        let base = crate::field::extension::pinned::QUAD_MERSENNE31;
+        let base = *<crate::field::QuadMersenne31 as crate::field::private::RowAccess>::DESCRIPTOR;
         Descriptor::extension(
             &base,
             0x7FFF_FFFF,
