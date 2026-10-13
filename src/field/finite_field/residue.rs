@@ -216,6 +216,9 @@ impl<const P: u64> Field for FiniteField<P, 1, Residue> {
 impl<const P: u64> super::super::private::RowAccess for FiniteField<P, 1, Residue> {
     const DESCRIPTOR: &'static Descriptor = &Descriptor::prime(P, PrimePresentation::Residue);
 
+    const BINARY_DESCRIPTION: Option<
+        &'static super::super::binary::description::BinaryDescription,
+    > = None;
     fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw) {
         let () = Validate::<Self>::OK;
         assert_eq!(
@@ -241,12 +244,15 @@ impl<const P: u64> super::super::private::RowAccess for FiniteField<P, 1, Residu
     }
 
     fn from_prime(value: u64) -> <Self as Field>::Raw {
-        let () = Validate::<Self>::OK;
-        reduce_body::<P>(value)
+        // Shares the inherent `from_raw` body, so const and runtime
+        // contexts build exactly the same element.
+        Elem::<Self>::from_raw(value).to_raw()
     }
 
     fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
-        let () = Validate::<Self>::OK;
+        // Shares the `reduce_body` reduction with the inherent
+        // construction: the hook additionally reduces alias lanes, which
+        // the inherent readout never sees because storage is canonical.
         Some(reduce_body::<P>(raw))
     }
 }

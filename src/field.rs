@@ -64,6 +64,7 @@
 //! ```
 
 pub mod binary;
+pub mod embedding;
 pub mod extension;
 pub mod finite_field;
 pub mod goldilocks;
@@ -73,7 +74,6 @@ pub mod quad_mersenne31;
 
 pub use binary::cantor;
 pub use binary::description;
-pub use binary::embedding;
 pub use binary::normal;
 pub use binary::poly;
 pub use binary::tower;
@@ -82,9 +82,10 @@ pub use binary::tower::{
     Rijndael64,
 };
 pub use binary::{
-    AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Embedding,
-    EmbeddingError, Normal, Polynomial, RS,
+    AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Normal,
+    Polynomial, RS,
 };
+pub use embedding::{Embedding, EmbeddingError, Isomorphism};
 pub use extension::{
     Components, Extension, ExtensionField, ExtensionSpec, ExtensionStorage, Packed, PackedPadded,
     PackedWord, Relation,
@@ -117,6 +118,13 @@ mod private {
     pub(crate) trait RowAccess: 'static {
         /// Descriptor of the row's presentation.
         const DESCRIPTOR: &'static Descriptor;
+        /// Binary presentation description, when the row is a binary row.
+        ///
+        /// `Some` exactly for the rows implementing `BinaryField`: flat
+        /// binary rows and characteristic-two extension rows over binary
+        /// bases. The generic embedding reads it for the frozen
+        /// characteristic-two image rule; every other row reports `None`.
+        const BINARY_DESCRIPTION: Option<&'static super::binary::description::BinaryDescription>;
         /// Writes the flattened prime-subfield coordinates of `raw` into
         /// `dst`, in the descriptor's coordinate order.
         ///
@@ -126,9 +134,6 @@ mod private {
         ///
         /// # Panics
         /// Panics when `dst.len()` differs from `Field::DEGREE`.
-        // The extension rows compose it through their bases and the
-        // tests read it directly.
-        #[allow(dead_code)]
         fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw)
         where
             Self: Field;
@@ -142,17 +147,11 @@ mod private {
         where
             Self: Field;
         /// `value · 1`, with `value` reduced modulo the characteristic.
-        // The extension rows compose it through their bases and the
-        // tests read it directly.
-        #[allow(dead_code)]
         fn from_prime(value: u64) -> <Self as Field>::Raw
         where
             Self: Field;
         /// `Some(c)` exactly when `raw == c · 1` with `c` below the
         /// characteristic; `None` otherwise.
-        // The extension rows compose it through their bases and the
-        // tests read it directly.
-        #[allow(dead_code)]
         fn to_prime(raw: <Self as Field>::Raw) -> Option<u64>
         where
             Self: Field;
@@ -162,8 +161,8 @@ mod private {
 ///
 /// Returns `value` when it names an element of the prime subfield and
 /// [`RangeError`] otherwise. The inherent `const` residue constructors and
-/// the [`FieldElem::from_residue`] blanket implementation share this body,
-/// so const and runtime contexts accept exactly the same inputs.
+/// the [`FieldElem::from_residue`] blanket implementation share this range
+/// check; construction and readout share each row's conversion body.
 pub(crate) const fn check_residue(value: u64, characteristic: u64) -> Result<u64, RangeError> {
     if value < characteristic {
         Ok(value)

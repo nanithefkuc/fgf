@@ -1,21 +1,16 @@
-//! Coherent embeddings between binary-field presentations.
+//! The frozen characteristic-two canonical-image rule.
 //!
-//! [`Embedding<S, T>`](Embedding) prepares the canonical inclusion of the
-//! binary field `S` into the binary field `T`, for every pair whose source
-//! degree divides its target degree. Construction and application allocate
-//! nothing; the prepared state is fixed column arrays.
-//!
-//! # Reference ladder
-//!
-//! The canonical map factors through one frozen reference per degree:
-//! GF(2) as [`Polynomial<3>`](super::poly::Polynomial), `Polynomial<0x7>` at degree two,
-//! `Polynomial<0x13>` at degree four, the AES field at degree eight, and the
-//! Rijndael instances `FiniteField<2, 16, Extension<Rijndael16, 2>>`,
-//! `FiniteField<2, 32, Extension<Rijndael32, 2>>`, and
-//! `FiniteField<2, 64, Extension<Rijndael64, 2>>` above it.
-//! Consecutive inclusions are frozen: the identity into degree two, the
-//! smallest raw reference root of the source polynomial below the AES
-//! field, and the low component above it.
+//! The generic embedding chooses no map between unrelated odd-characteristic
+//! presentations, but in characteristic two every covered pair keeps the
+//! historical canonical map: the source's canonical map into the reference
+//! of its degree, the frozen consecutive inclusions up to the target's
+//! degree, and the inverse of the target's canonical map. The canonical map
+//! factors through one frozen reference per degree: GF(2) as
+//! `Polynomial<3>`, `Polynomial<0x7>` at degree two, `Polynomial<0x13>` at
+//! degree four, the AES field at degree eight, and the Rijndael towers
+//! above it. Consecutive inclusions are frozen: the identity into degree
+//! two, the smallest raw reference root of the source polynomial below the
+//! AES field, and the low component above it.
 //!
 //! For a presentation `R`, the canonical map `phi_R` into the reference of
 //! the same degree sends a flat polynomial's indeterminate to the smallest
@@ -25,75 +20,15 @@
 //! Presentations of degree at most eight tabulate that root search over the
 //! bounded field; larger towers solve the transported quadratic through
 //! recursive Artin-Schreier reduction in the reference tower, with no
-//! elimination and no enumeration above the byte field. The default
-//! embedding of `S` into `T` is the composite of the source map, the frozen
-//! inclusion, and the inverse target map, so equal descriptions embed
-//! identically and triangles of inclusions commute.
+//! elimination and no enumeration above the byte field.
 //!
-//! # Application
-//!
-//! [`embed`](Embedding::embed) applies the prepared columns directly.
-//! [`restrict`](Embedding::restrict) inverts them through the ladder:
-//! members are exactly the reference words whose components above the
-//! source degree are zero, except that sources below degree eight use the
-//! frozen inverse inclusions of the byte field. [`frobenius`](Embedding::frobenius),
-//! [`trace`](Embedding::trace), and [`norm`](Embedding::norm) implement the
-//! relative Galois action of the extension; `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies
-//! the absolute trace and norm.
-//!
-//! ```
-//! use fgf::{AES, Elem, Embedding, Extension, FiniteField, Polynomial, Rijndael16};
-//!
-//! type Gf16 = FiniteField<2, 16, Extension<Rijndael16, 2>>;
-//! let embedding = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf16>::new().unwrap();
-//! let x = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
-//! let lifted = embedding.embed(x);
-//! assert!(embedding.contains(lifted));
-//! assert_eq!(embedding.restrict(lifted), Some(x));
-//! assert_eq!(embedding.frobenius(lifted), lifted);
-//! ```
+//! The column maps below are transient construction aids: they compute the
+//! canonical images of the source's level generators once, and the prepared
+//! embedding stores only those images. No column table survives
+//! construction.
 
-use core::fmt;
-use core::marker::PhantomData;
-
-use super::BinaryField;
-use super::description::{BinaryDescription, NodeData};
-use super::tower;
-use crate::field::Elem;
-use crate::field::FieldElem;
-use crate::field::extension::descriptor::Node;
-
-/// The error returned when a requested embedding cannot exist.
-#[non_exhaustive]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EmbeddingError {
-    /// The source degree does not divide the target degree.
-    IncompatibleDegree {
-        /// Total degree of the source field.
-        source: u32,
-        /// Total degree of the target field.
-        target: u32,
-    },
-    /// Neither the frozen reference ladder nor a structural inclusion
-    /// names a canonical map for the pair.
-    NoCanonicalMap,
-}
-
-impl fmt::Display for EmbeddingError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EmbeddingError::IncompatibleDegree { source, target } => write!(
-                formatter,
-                "source degree {source} does not divide target degree {target}"
-            ),
-            EmbeddingError::NoCanonicalMap => {
-                formatter.write_str("no canonical map between the presentations")
-            }
-        }
-    }
-}
-
-impl core::error::Error for EmbeddingError {}
+use super::super::binary::description::{BinaryDescription, NodeData, apply};
+use super::super::binary::tower;
 
 /// The reference description of the frozen ladder at degree one.
 static REFERENCE_1: BinaryDescription = BinaryDescription::polynomial(1, 3);
@@ -116,6 +51,68 @@ fn reference(degree: u32) -> &'static BinaryDescription {
         64 => tower::RIJNDAEL64_DESC,
         _ => panic!("no reference field of degree {degree}"),
     }
+}
+
+/// Whether the frozen reference ladder covers `description`: a ladder
+/// degree at the root, and every relation node of absolute degree above
+/// eight quadratic, so the reference towers above the byte field apply
+/// unchanged. Flat presentations always pass.
+pub(super) fn covers(description: &BinaryDescription) -> bool {
+    use super::super::extension::descriptor::Node;
+    let descriptor = description.as_descriptor();
+    if !matches!(descriptor.degree(), 1 | 2 | 4 | 8 | 16 | 32 | 64) {
+        return false;
+    }
+    let mut index = 0;
+    while index < descriptor.node_count() {
+        let covered = match descriptor.node(index) {
+            Node::Extension {
+                base_degree,
+                relative_degree,
+                ..
+            } => {
+                let absolute = (*base_degree as usize).saturating_mul(*relative_degree);
+                *relative_degree == 2 || absolute <= 8
+            }
+            _ => true,
+        };
+        if !covered {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+/// The canonical images of the source's level-generator words in the
+/// target's coordinates, in level order.
+///
+/// Returns `None` when either presentation lies outside the ladder's
+/// coverage. The images reproduce the historical binary embedding exactly:
+/// the composite of the source map, the frozen inclusion, and the inverse
+/// target map applied to each generator word.
+///
+/// # Panics
+///
+/// Panics when a covered presentation's transported relation has no
+/// reference root. That is a crate defect, not an input condition.
+pub(super) fn canonical_images(
+    source: &BinaryDescription,
+    target: &BinaryDescription,
+    generator_words: &[u64],
+) -> Option<[u64; 8]> {
+    if !covers(source) || !covers(target) {
+        return None;
+    }
+    let from = build_phi(source);
+    let to = build_phi(target);
+    let inclusion = ladder_inclusion(from.degree, to.degree);
+    let mut images = [0u64; 8];
+    for (slot, word) in images.iter_mut().zip(generator_words.iter()) {
+        let reference = fold(&inclusion, fold(&from.forward, *word));
+        *slot = fold(&to.inverse, reference);
+    }
+    Some(images)
 }
 
 /// Apply the GF(2)-linear map given by `columns` to `word`.
@@ -246,36 +243,6 @@ fn ladder_inclusion(m: u32, n: u32) -> [u64; 64] {
     columns
 }
 
-/// Whether the frozen reference ladder covers `description`: a ladder
-/// degree at the root, and every relation node of absolute degree above
-/// eight quadratic, so the reference towers above the byte field apply
-/// unchanged. Flat presentations always pass.
-fn ladder_covers(description: &BinaryDescription) -> bool {
-    let descriptor = description.as_descriptor();
-    if !matches!(descriptor.degree(), 1 | 2 | 4 | 8 | 16 | 32 | 64) {
-        return false;
-    }
-    let mut index = 0;
-    while index < descriptor.node_count() {
-        let covered = match descriptor.node(index) {
-            Node::Extension {
-                base_degree,
-                relative_degree,
-                ..
-            } => {
-                let absolute = (*base_degree as usize).saturating_mul(*relative_degree);
-                *relative_degree == 2 || absolute <= 8
-            }
-            _ => true,
-        };
-        if !covered {
-            return false;
-        }
-        index += 1;
-    }
-    true
-}
-
 /// The canonical map of one presentation into the reference of its degree,
 /// as GF(2)-linear columns both ways.
 struct PhiMap {
@@ -348,14 +315,11 @@ fn build_phi(description: &BinaryDescription) -> PhiMap {
             let inner = build_phi(&description.base_description());
             let mut forward = [0u64; 64];
             for (index, column) in forward.iter_mut().enumerate().take(inner.degree as usize) {
-                *column = fold(
-                    &inner.forward,
-                    super::description::apply(to_base, 1 << index),
-                );
+                *column = fold(&inner.forward, apply(to_base, 1 << index));
             }
             let mut inverse = [0u64; 64];
             for (index, column) in inverse.iter_mut().enumerate().take(inner.degree as usize) {
-                *column = super::description::apply(from_base, fold(&inner.inverse, 1 << index));
+                *column = apply(from_base, fold(&inner.inverse, 1 << index));
             }
             PhiMap {
                 degree: inner.degree,
@@ -552,334 +516,6 @@ fn build_wide_quadratic_phi(base: &PhiMap, transported_a: u64, transported_b: u6
     }
 }
 
-/// Table entry marking a byte that is not in a frozen inclusion's image.
-const NONMEMBER: u8 = 0xFF;
-
-/// The frozen inverse of the ladder inclusion `Ref_m -> Ref_top`, as a byte
-/// lookup, for a source below degree eight.
-// Inclusion images and source words below degree eight hold one byte.
-#[allow(clippy::cast_possible_truncation)]
-fn inverse_inclusion(m: u32, top: u32) -> [u8; 256] {
-    let columns = ladder_inclusion(m, top);
-    let mut table = [NONMEMBER; 256];
-    for word in 0..(1u64 << m) {
-        let image = fold(&columns, word) as u8;
-        table[usize::from(image)] = word as u8;
-    }
-    table
-}
-
-/// Ladder membership data for restriction.
-// Prepared state is fixed arrays by contract; boxing the table would
-// allocate where the embedding promises none.
-#[allow(clippy::large_enum_variant)]
-#[derive(Clone, Copy)]
-enum Restriction {
-    /// Equal degrees: the reference map itself is a bijection.
-    Equal,
-    /// Source degree at least eight: members are exactly the reference
-    /// words with zero bits at and above `shift`.
-    HighZero {
-        /// The first bit above the embedded source.
-        shift: u32,
-    },
-    /// Source degree below eight: zero bits at and above `shift`, then the
-    /// frozen inverse-inclusion lookup of the byte field.
-    Table {
-        /// The first bit above the checked span.
-        shift: u32,
-        /// Inverse inclusion with `NONMEMBER` marking nonmembers.
-        inverse: [u8; 256],
-    },
-}
-
-/// A prepared, explicitly selected field inclusion of `S` into `T`.
-///
-/// The embedding is the canonical one through the frozen reference ladder:
-/// the source's canonical map into the reference of its degree, the frozen
-/// consecutive inclusions up to the target's degree, and the inverse of the
-/// target's canonical map. Equal presentation descriptions therefore embed
-/// identically, and inclusions commute as triangles.
-///
-/// Construction verifies the composed map on valid descriptions (unit,
-/// inverse round trips, basis-pair multiplicativity, and Frobenius-fixed
-/// images); a failed verification is a crate defect and panics. Descriptor
-/// invalidity is the descriptions' own use-time validation, not an error
-/// here.
-///
-/// The prepared state is fixed arrays; construction and every method are
-/// allocation-free. Repeated application never reruns root construction.
-pub struct Embedding<S: BinaryField, T: BinaryField> {
-    basis_images: [u64; 64],
-    target_to_reference: [u64; 64],
-    source_from_reference: [u64; 64],
-    source_degree: u32,
-    target_degree: u32,
-    restriction: Restriction,
-    phantom: PhantomData<fn() -> (S, T)>,
-}
-
-// A derive would bound the impl on `S: Clone`; the manual impl needs only
-// the field contract the type already carries.
-#[allow(clippy::expl_impl_clone_on_copy)]
-impl<S: BinaryField, T: BinaryField> Clone for Embedding<S, T> {
-    #[inline]
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<S: BinaryField, T: BinaryField> Copy for Embedding<S, T> {}
-
-impl<S: BinaryField, T: BinaryField> fmt::Debug for Embedding<S, T> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "Embedding<{}, {}>", S::NAME, T::NAME)
-    }
-}
-
-impl<S: BinaryField, T: BinaryField> Embedding<S, T> {
-    /// Prepare the canonical embedding of `S` into `T`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EmbeddingError::IncompatibleDegree`] when `S::DEGREE`
-    /// does not divide `T::DEGREE`, and
-    /// [`EmbeddingError::NoCanonicalMap`] when either presentation lies
-    /// outside the frozen reference ladder's coverage: a root degree the
-    /// ladder holds no reference for, or a relation node of absolute
-    /// degree above eight that is not quadratic.
-    ///
-    /// # Panics
-    ///
-    /// Panics when verification of the composed map fails on otherwise
-    /// valid descriptions. That is a crate defect, not an input condition.
-    pub fn new() -> Result<Self, EmbeddingError> {
-        let m = S::DEGREE;
-        let n = T::DEGREE;
-        if n % m != 0 {
-            return Err(EmbeddingError::IncompatibleDegree {
-                source: m,
-                target: n,
-            });
-        }
-        if !ladder_covers(S::DESCRIPTION) || !ladder_covers(T::DESCRIPTION) {
-            return Err(EmbeddingError::NoCanonicalMap);
-        }
-        let source = build_phi(S::DESCRIPTION);
-        let target = build_phi(T::DESCRIPTION);
-        assert!(
-            source.degree == m && target.degree == n,
-            "a description degree disagrees with its field"
-        );
-        let inclusion = ladder_inclusion(m, n);
-        let mut basis_images = [0u64; 64];
-        for (index, image) in basis_images.iter_mut().enumerate().take(m as usize) {
-            let reference = fold(&inclusion, source.forward[index]);
-            *image = fold(&target.inverse, reference);
-        }
-        let restriction = if m == n {
-            Restriction::Equal
-        } else if m >= 8 {
-            Restriction::HighZero { shift: m }
-        } else {
-            Restriction::Table {
-                shift: if n >= 16 { 8 } else { n },
-                inverse: inverse_inclusion(m, if n >= 8 { 8 } else { n }),
-            }
-        };
-        let embedding = Self {
-            basis_images,
-            target_to_reference: target.forward,
-            source_from_reference: source.inverse,
-            source_degree: m,
-            target_degree: n,
-            restriction,
-            phantom: PhantomData,
-        };
-        embedding.verify(&source, &target);
-        Ok(embedding)
-    }
-
-    /// Map `value` into the target field.
-    ///
-    /// # Panics
-    ///
-    /// Panics only on a crate defect: a prepared image that fails target
-    /// coordinate conversion, which construction verified impossible.
-    #[must_use]
-    pub fn embed(&self, value: Elem<S>) -> Elem<T> {
-        // A binary index is a coordinate word, so it fits `u64`.
-        let word = u64::try_from(value.to_index()).expect("binary index fits the word");
-        let word = fold(&self.basis_images, word);
-        Elem::<T>::from_index(u128::from(word)).expect("an embedding image fits the target degree")
-    }
-
-    /// Whether `value` lies in the image of this embedding.
-    ///
-    /// Membership is the fixed points of the relative Frobenius.
-    #[must_use]
-    pub fn contains(&self, value: Elem<T>) -> bool {
-        self.frobenius(value) == value
-    }
-
-    /// The inverse of [`embed`](Self::embed) on the image, or `None`.
-    ///
-    /// # Panics
-    ///
-    /// Panics only on a crate defect: a restricted word that fails source
-    /// coordinate conversion, which construction verified impossible.
-    #[must_use]
-    pub fn restrict(&self, value: Elem<T>) -> Option<Elem<S>> {
-        // A binary index is a coordinate word, so it fits `u64`.
-        let word = u64::try_from(value.to_index()).expect("binary index fits the word");
-        self.restrict_coordinates(word).map(|word| {
-            Elem::<S>::from_index(u128::from(word))
-                .expect("a restriction image fits the source degree")
-        })
-    }
-
-    /// The relative Frobenius `x^(2^m)` of the extension.
-    ///
-    /// Computed by `m` repeated squarings, so no exponent is ever shifted
-    /// into or out of a 64-bit word.
-    #[must_use]
-    pub fn frobenius(&self, value: Elem<T>) -> Elem<T> {
-        let mut power = value;
-        for _ in 0..self.source_degree {
-            power = power.square();
-        }
-        power
-    }
-
-    /// The relative trace: the sum of the conjugates under the relative
-    /// Frobenius, restricted to the source.
-    ///
-    /// Equal degrees reduce to restriction. `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies
-    /// the absolute trace.
-    ///
-    /// # Panics
-    ///
-    /// Panics only on a crate defect: a conjugate sum outside the verified
-    /// embedding image.
-    #[must_use]
-    pub fn trace(&self, value: Elem<T>) -> Elem<S> {
-        let mut sum = value;
-        let mut power = value;
-        for _ in 1..self.target_degree / self.source_degree {
-            power = self.frobenius(power);
-            sum = sum.add(power);
-        }
-        self.restrict(sum)
-            .expect("a conjugate sum lies in the embedding image")
-    }
-
-    /// The relative norm: the product of the conjugates under the relative
-    /// Frobenius, restricted to the source.
-    ///
-    /// Equal degrees reduce to restriction. `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies
-    /// the absolute norm.
-    ///
-    /// # Panics
-    ///
-    /// Panics only on a crate defect: a conjugate product outside the
-    /// verified embedding image.
-    #[must_use]
-    pub fn norm(&self, value: Elem<T>) -> Elem<S> {
-        let mut product = value;
-        let mut power = value;
-        for _ in 1..self.target_degree / self.source_degree {
-            power = self.frobenius(power);
-            product = product.mul(power);
-        }
-        self.restrict(product)
-            .expect("a conjugate product lies in the embedding image")
-    }
-
-    /// Restriction over target coordinate words.
-    fn restrict_coordinates(&self, word: u64) -> Option<u64> {
-        let reference = fold(&self.target_to_reference, word);
-        let low = match &self.restriction {
-            Restriction::Equal => reference,
-            Restriction::HighZero { shift } => {
-                if reference >> shift == 0 {
-                    reference
-                } else {
-                    return None;
-                }
-            }
-            Restriction::Table { shift, inverse } => {
-                if reference >> shift != 0 {
-                    return None;
-                }
-                // The checked span holds one byte.
-                #[allow(clippy::cast_possible_truncation)]
-                let byte = (reference & 0xFF) as u8;
-                let entry = inverse[usize::from(byte)];
-                if entry == NONMEMBER {
-                    return None;
-                }
-                u64::from(entry)
-            }
-        };
-        Some(fold(&self.source_from_reference, low))
-    }
-
-    /// Verify the prepared map on valid descriptions.
-    fn verify(&self, source: &PhiMap, target: &PhiMap) {
-        let m = self.source_degree as usize;
-        // Unit.
-        let source_one = S::DESCRIPTION.one();
-        let target_one = T::DESCRIPTION.one();
-        assert_eq!(
-            fold(&self.basis_images, source_one),
-            target_one,
-            "an embedding does not preserve one"
-        );
-        // Inverse coordinate round trips on every basis vector, both ways.
-        for index in 0..m {
-            assert_eq!(
-                fold(&source.inverse, source.forward[index]),
-                1 << index,
-                "a source map is not invertible"
-            );
-        }
-        for index in 0..self.target_degree as usize {
-            assert_eq!(
-                fold(&target.inverse, target.forward[index]),
-                1 << index,
-                "a target map is not invertible"
-            );
-        }
-        // Basis images: Frobenius-fixed, restrict back, and multiplicative
-        // in pairs. A unital map multiplicative on basis products is a
-        // ring homomorphism.
-        for left in 0..m {
-            let image = fold(&self.basis_images, 1 << left);
-            assert_eq!(
-                T::DESCRIPTION.pow(image, 1u128 << self.source_degree),
-                image,
-                "a basis image is not Frobenius-fixed"
-            );
-            assert_eq!(
-                self.restrict_coordinates(image),
-                Some(1 << left),
-                "restriction does not invert embedding"
-            );
-            for right in 0..m {
-                let product = S::DESCRIPTION.mul(1 << left, 1 << right);
-                assert_eq!(
-                    fold(&self.basis_images, product),
-                    T::DESCRIPTION.mul(
-                        fold(&self.basis_images, 1 << left),
-                        fold(&self.basis_images, 1 << right)
-                    ),
-                    "an embedding is not multiplicative on a basis pair"
-                );
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -887,7 +523,7 @@ mod tests {
     /// Every shipped tower at degree sixteen and above maps its
     /// indeterminate to the smaller root of its transported relation, and
     /// the resulting map round-trips.
-    fn check_tower_phi(description: &'static BinaryDescription) {
+    fn check_tower_phi(description: &BinaryDescription) {
         let phi = build_phi(description);
         let n = phi.degree;
         let h = n / 2;
@@ -913,12 +549,14 @@ mod tests {
 
     #[test]
     fn shipped_tower_reference_maps_satisfy_their_relations() {
+        use super::super::super::binary::BinaryField;
+
         check_tower_phi(tower::RIJNDAEL16_DESC);
         check_tower_phi(tower::RIJNDAEL32_DESC);
         check_tower_phi(tower::RIJNDAEL64_DESC);
-        check_tower_phi(<tower::FanPaar16Field as crate::field::BinaryField>::DESCRIPTION);
-        check_tower_phi(<tower::FanPaar32Field as crate::field::BinaryField>::DESCRIPTION);
-        check_tower_phi(<tower::FanPaar64Field as crate::field::BinaryField>::DESCRIPTION);
+        check_tower_phi(<tower::FanPaar16Field as BinaryField>::DESCRIPTION);
+        check_tower_phi(<tower::FanPaar32Field as BinaryField>::DESCRIPTION);
+        check_tower_phi(<tower::FanPaar64Field as BinaryField>::DESCRIPTION);
     }
 
     #[test]

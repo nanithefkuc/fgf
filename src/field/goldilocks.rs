@@ -190,6 +190,7 @@ impl Field for Goldilocks {
 impl super::private::RowAccess for Goldilocks {
     const DESCRIPTOR: &'static Descriptor =
         &Descriptor::prime(MODULUS, PrimePresentation::GoldilocksFold);
+    const BINARY_DESCRIPTION: Option<&'static super::binary::description::BinaryDescription> = None;
 
     fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw) {
         let () = Validate::<Self>::OK;
@@ -216,8 +217,9 @@ impl super::private::RowAccess for Goldilocks {
     }
 
     fn from_prime(value: u64) -> <Self as Field>::Raw {
-        let () = Validate::<Self>::OK;
-        reduce(value)
+        // Shares the inherent `from_raw` body, so const and runtime
+        // contexts build exactly the same element.
+        Elem::<Self>::from_raw(value).to_raw()
     }
 
     fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {

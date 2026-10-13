@@ -13,9 +13,10 @@
 use fgf::field::{Field, FieldBuffer, FieldElem};
 use fgf::poly::{AES, RS};
 use fgf::{
-    BinaryRepr, Cantor, Elem, FieldKernels, FiniteField, FiniteFieldRepr, Goldilocks, Mersenne31,
-    Normal, Polynomial, PrimeField, QuadMersenne31, Residue, Rijndael16, Rijndael32, Rijndael64,
-    ops,
+    BinaryField, BinaryRepr, Cantor, Components, Elem, Extension, ExtensionField, ExtensionSpec,
+    FieldKernels, FiniteField, FiniteFieldRepr, Goldilocks, Mersenne31, Normal, Packed,
+    PackedPadded, Polynomial, PrimeField, QuadMersenne31, Relation, Residue, Rijndael16,
+    Rijndael32, Rijndael64, ops,
 };
 
 type Residue2 = FiniteField<2, 1, Residue>;
@@ -497,13 +498,6 @@ fn residue_conversions_are_independent_of_presentation_spelling() {
 // Generic extension rows over every base shape
 // ---------------------------------------------------------------------------
 
-use fgf::{
-    BinaryField, Components, Extension, ExtensionField, ExtensionSpec, Packed, PackedPadded,
-    Relation,
-};
-
-type Residue3 = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1>;
-
 /// GF(49) as `t^2 - 3` over the residue row at seven.
 #[derive(Clone, Copy)]
 struct Gf49Spec;
@@ -601,7 +595,7 @@ type OverQuadMersenne = FiniteField<0x7FFF_FFFF, 4, Extension<OverQuadMersenneSp
 #[derive(Clone, Copy)]
 struct WidePrimeSquareSpec;
 impl ExtensionSpec<2> for WidePrimeSquareSpec {
-    type Base = Residue3;
+    type Base = ResidueWide;
     type Storage = Components;
     const NAME: &'static str = "GF(p^2) at the widest prime";
     const RELATION: Relation = Relation::from_coordinates(&[0xFFFF_FFFF_FFFF_FFC5 - 2, 0]);

@@ -1,6 +1,6 @@
 // expect-rejection
-//! A padded packed custom row has no byte form, so the buffer and kernel
-//! capabilities reject it.
+//! A padded packed custom row has no byte form, so the buffer capability
+//! rejects it.
 use fgf::{Elem, Extension, ExtensionSpec, FiniteField, PackedPadded, Relation};
 
 struct Spec;
@@ -17,7 +17,4 @@ type Row = FiniteField<2, 3, Extension<Spec, 3>>;
 fn main() {
     let mut bytes = [0u8; 1];
     fgf::FieldBuffer::encode(&mut bytes, Elem::<Row>::ONE);
-    let mut dst = vec![0u8; 4];
-    let src = vec![0u8; 4];
-    fgf::ops::mul_add::<Row>(&mut dst, Elem::<Row>::ONE, &src);
 }
