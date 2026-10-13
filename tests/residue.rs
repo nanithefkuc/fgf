@@ -13,8 +13,8 @@ use core::error::Error;
 use fgf::field::finite_field::Residue;
 use fgf::field::prime::{reduce, reduce_wide};
 use fgf::{
-    Elem, Field, FieldBuffer, FieldElem, FiniteField, FiniteFieldRepr, PrimeCharacteristic,
-    PrimeIdentity, RangeError,
+    Components, Elem, Extension, ExtensionField, ExtensionSpec, Field, FieldBuffer, FieldElem,
+    FiniteField, FiniteFieldRepr, PrimeCharacteristic, PrimeIdentity, RangeError, Relation,
 };
 
 /// `2^64 − 59`, the largest `u64` prime.
@@ -114,9 +114,12 @@ fn exhaustive<const P: u64>() {
         assert_eq!(value.to_residue(), Some(a), "a={a}");
         assert_eq!(value.to_raw(), a);
         assert_eq!(value.canonical().to_raw(), a);
-        assert_eq!(value.to_bytes(), a.to_le_bytes());
+        let width = <Res<P> as FieldBuffer>::BYTES;
+        let mut lane = [0u8; 8];
+        <Res<P> as FieldBuffer>::encode(&mut lane[..width], value);
+        assert_eq!(&lane[..width], &a.to_le_bytes()[..width]);
         assert_eq!(
-            Elem::<Res<P>>::from_bytes(a.to_le_bytes()).to_raw(),
+            <Res<P> as FieldBuffer>::decode(&a.to_le_bytes()[..width]).to_raw(),
             a,
             "a={a}"
         );
@@ -234,7 +237,7 @@ fn boundaries<const P: u64>() {
         assert_eq!(value.to_residue(), Some(alias % P), "alias {alias}");
         assert_eq!(value, el::<P>(alias % P), "alias {alias}");
         assert_eq!(
-            Elem::<Res<P>>::from_bytes(alias.to_le_bytes()).to_raw(),
+            <Res<P> as FieldBuffer>::decode(&alias.to_le_bytes()).to_raw(),
             alias % P,
             "alias {alias}"
         );
@@ -447,4 +450,163 @@ fn buffer_round_trip_is_canonical() {
     // Decoding an all-zero lane yields the additive identity.
     assert!(round_trip(Elem::<Res<7>>::ZERO).is_zero());
     assert!(round_trip(Elem::<Res<WIDE>>::ZERO).is_zero());
+}
+
+/// Lane widths across the characteristic range, at each side of every
+/// threshold, with characteristic two keeping its eight-byte lane.
+#[test]
+fn lane_widths_follow_the_characteristic_rule() {
+    fn widths<const P: u64>() -> (usize, u32) {
+        (
+            <Res<P> as FieldBuffer>::BYTES,
+            <Res<P> as FieldBuffer>::STORAGE_BITS,
+        )
+    }
+    assert_eq!(widths::<2>(), (8, 64));
+    assert_eq!(widths::<3>(), (1, 8));
+    assert_eq!(widths::<251>(), (1, 8));
+    assert_eq!(widths::<257>(), (2, 16));
+    assert_eq!(widths::<65521>(), (2, 16));
+    assert_eq!(widths::<65537>(), (4, 32));
+    assert_eq!(widths::<4294967291>(), (4, 32));
+    assert_eq!(widths::<4294967311>(), (8, 64));
+    assert_eq!(widths::<18446744073709551557>(), (8, 64));
+}
+
+/// Frozen lane fixtures: `encode` writes the canonical residue into the
+/// exact little-endian bytes computed by hand, at every lane width.
+#[test]
+fn encode_emits_the_frozen_lanes() {
+    fn lane<const P: u64>(value: u64) -> Vec<u8> {
+        let mut bytes = vec![0u8; <Res<P> as FieldBuffer>::BYTES];
+        <Res<P> as FieldBuffer>::encode(&mut bytes, el::<P>(value));
+        bytes
+    }
+
+    assert_eq!(lane::<2>(0), [0u8; 8]);
+    assert_eq!(lane::<2>(1), [1, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(lane::<2>(2 - 1), [1, 0, 0, 0, 0, 0, 0, 0]);
+
+    assert_eq!(lane::<3>(0), [0]);
+    assert_eq!(lane::<3>(1), [1]);
+    assert_eq!(lane::<3>(2), [2]);
+
+    assert_eq!(lane::<251>(0), [0]);
+    assert_eq!(lane::<251>(1), [1]);
+    assert_eq!(lane::<251>(250), [0xFA]);
+
+    assert_eq!(lane::<257>(0), [0, 0]);
+    assert_eq!(lane::<257>(1), [1, 0]);
+    assert_eq!(lane::<257>(256), [0, 1]);
+
+    assert_eq!(lane::<65521>(0), [0, 0]);
+    assert_eq!(lane::<65521>(1), [1, 0]);
+    assert_eq!(lane::<65521>(65520), [0xF0, 0xFF]);
+
+    assert_eq!(lane::<65537>(0), [0, 0, 0, 0]);
+    assert_eq!(lane::<65537>(1), [1, 0, 0, 0]);
+    assert_eq!(lane::<65537>(65536), [0, 0, 1, 0]);
+
+    assert_eq!(lane::<4294967291>(0), [0, 0, 0, 0]);
+    assert_eq!(lane::<4294967291>(1), [1, 0, 0, 0]);
+    assert_eq!(lane::<4294967291>(4294967290), [0xFA, 0xFF, 0xFF, 0xFF]);
+
+    assert_eq!(lane::<4294967311>(0), [0u8; 8]);
+    assert_eq!(lane::<4294967311>(1), [1, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(lane::<4294967311>(4294967310), [0x0E, 0, 0, 0, 1, 0, 0, 0]);
+
+    assert_eq!(lane::<18446744073709551557>(0), [0u8; 8]);
+    assert_eq!(lane::<18446744073709551557>(1), [1, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(
+        lane::<18446744073709551557>(18446744073709551556),
+        [0xC4, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+    );
+}
+
+/// Decoding the all-ones lane reduces `2^(8*BYTES) - 1` into the field,
+/// against the remainder computed independently over `u128`.
+#[test]
+fn all_ones_lane_decodes_to_its_reduced_word() {
+    fn ones<const P: u64>() -> u64 {
+        let bytes = [0xFFu8; 8];
+        let width = <Res<P> as FieldBuffer>::BYTES;
+        <Res<P> as FieldBuffer>::decode(&bytes[..width]).to_raw()
+    }
+    assert_eq!(u128::from(ones::<2>()), ((1u128 << 64) - 1) % 2);
+    assert_eq!(u128::from(ones::<3>()), ((1u128 << 8) - 1) % 3);
+    assert_eq!(u128::from(ones::<251>()), ((1u128 << 8) - 1) % 251);
+    assert_eq!(u128::from(ones::<257>()), ((1u128 << 16) - 1) % 257);
+    assert_eq!(u128::from(ones::<65521>()), ((1u128 << 16) - 1) % 65521);
+    assert_eq!(u128::from(ones::<65537>()), ((1u128 << 32) - 1) % 65537);
+    assert_eq!(
+        u128::from(ones::<4294967291>()),
+        ((1u128 << 32) - 1) % 4294967291
+    );
+    assert_eq!(
+        u128::from(ones::<4294967311>()),
+        ((1u128 << 64) - 1) % 4294967311
+    );
+    assert_eq!(
+        u128::from(ones::<18446744073709551557>()),
+        ((1u128 << 64) - 1) % 18446744073709551557
+    );
+}
+
+/// Every residue of the one- and two-byte lanes round-trips through the
+/// byte form and encodes to its own little-endian bytes.
+#[test]
+fn every_residue_round_trips_through_its_lane() {
+    fn round_trips<const P: u64>() {
+        let width = <Res<P> as FieldBuffer>::BYTES;
+        for a in 0..P {
+            let mut lane = [0u8; 8];
+            <Res<P> as FieldBuffer>::encode(&mut lane[..width], el::<P>(a));
+            assert_eq!(&lane[..width], &a.to_le_bytes()[..width], "a={a}");
+            assert_eq!(
+                <Res<P> as FieldBuffer>::decode(&lane[..width]),
+                el::<P>(a),
+                "a={a}"
+            );
+        }
+    }
+    round_trips::<3>();
+    round_trips::<251>();
+    round_trips::<257>();
+}
+
+#[test]
+#[should_panic(expected = "wrong byte width")]
+fn decode_rejects_a_wrong_length_slice() {
+    let _ = <Res<257> as FieldBuffer>::decode(&[0u8; 1]);
+}
+
+#[test]
+#[should_panic(expected = "wrong byte width")]
+fn encode_rejects_a_wrong_length_slice() {
+    let mut lane = [0u8; 1];
+    <Res<257> as FieldBuffer>::encode(&mut lane, Elem::<Res<257>>::ONE);
+}
+
+/// An extension over a one-byte residue base concatenates the component
+/// lanes in component order.
+#[test]
+fn extension_components_over_a_one_byte_base_pack_tightly() {
+    struct SevenSquareSpec;
+    impl ExtensionSpec<2> for SevenSquareSpec {
+        type Base = FiniteField<7, 1>;
+        type Storage = Components;
+        const NAME: &'static str = "GF(49)";
+        // `t^2 - 3`: `4 = -3` constant first.
+        const RELATION: Relation = Relation::from_coordinates(&[4, 0]);
+    }
+    type SevenSquare = FiniteField<7, 2, Extension<SevenSquareSpec, 2>>;
+
+    assert_eq!(<SevenSquare as FieldBuffer>::BYTES, 2);
+    let a = el::<7>(3);
+    let b = el::<7>(5);
+    let element = <SevenSquare as ExtensionField<2>>::from_components([a, b]);
+    let mut lane = [0u8; 2];
+    <SevenSquare as FieldBuffer>::encode(&mut lane, element);
+    assert_eq!(lane, [3, 5]);
+    assert_eq!(<SevenSquare as FieldBuffer>::decode(&lane), element);
 }

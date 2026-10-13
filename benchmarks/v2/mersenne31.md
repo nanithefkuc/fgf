@@ -24,21 +24,21 @@ Paired-run snapshot for v2. Every result cell reports Willow Cove (i5-1135G7) / 
 
 | Operation | 4 KiB (GiB/s) | 256 KiB (GiB/s) | 8 MiB (GiB/s) |
 | --- | --- | --- | --- |
-| add_assign | 29.5 / 34.9 | 28.4 / 35.9 | 7.95 / 21.3 |
-| add_assign_scalar | 40.2 / 52.6 | 41.2 / 52.2 | 24.8 / 22.0 |
-| mul_elementwise | 23.2 / 33.3 | 20.3 / 30.0 | 5.43 / 15.4 |
-| mul_elementwise_assign | 25.1 / 33.0 | 22.7 / 34.0 | 7.92 / 22.1 |
-| sub_assign_scalar | 32.5 / 41.3 | 33.9 / 43.5 | 23.0 / 25.0 |
+| add_assign | 29.4 / 33.4 | 28.0 / 34.5 | 8.14 / 20.5 |
+| add_assign_scalar | 40.4 / 50.5 | 41.2 / 50.1 | 24.7 / 20.9 |
+| mul_elementwise | 23.0 / 31.9 | 20.2 / 31.1 | 5.47 / 17.9 |
+| mul_elementwise_assign | 25.1 / 31.7 | 22.7 / 32.7 | 7.92 / 21.3 |
+| sub_assign_scalar | 32.7 / 39.6 | 34.1 / 41.7 | 23.0 / 24.1 |
 
 `qm31`, ordinary `Vec<u8>` buffers.
 
 | Operation | 4 KiB (GiB/s) | 256 KiB (GiB/s) | 8 MiB (GiB/s) |
 | --- | --- | --- | --- |
-| add_assign | 20.0 / 33.5 | 18.4 / 33.0 | 7.77 / 24.2 |
-| add_assign_scalar | 29.8 / 51.7 | 26.0 / 50.6 | 19.1 / 26.9 |
-| mul_elementwise | 11.6 / 14.5 | 11.7 / 14.1 | 5.27 / 13.1 |
-| mul_elementwise_assign | 7.26 / 15.1 | 7.38 / 14.9 | 6.61 / 13.6 |
-| sub_assign_scalar | 23.6 / 42.7 | 21.2 / 43.1 | 16.8 / 33.1 |
+| add_assign | 19.0 / 32.0 | 18.3 / 31.7 | 7.77 / 24.2 |
+| add_assign_scalar | 29.8 / 49.7 | 25.8 / 48.7 | 19.1 / 25.8 |
+| mul_elementwise | 11.5 / 13.9 | 11.7 / 14.2 | 5.31 / 13.6 |
+| mul_elementwise_assign | 7.24 / 14.5 | 7.37 / 14.3 | 6.56 / 13.2 |
+| sub_assign_scalar | 23.6 / 41.0 | 21.1 / 41.2 | 16.8 / 31.7 |
 
 ### Row-wise addition
 
@@ -46,24 +46,24 @@ Paired-run snapshot for v2. Every result cell reports Willow Cove (i5-1135G7) / 
 
 | Row bytes | Rows | add_assign_rows (GiB/s) |
 | --- | --- | --- |
-| 1 KiB | 1 | 26.0 / 33.7 |
-| 1 KiB | 16 | 30.5 / 37.3 |
-| 1 KiB | 2 | 26.1 / 36.6 |
-| 1 KiB | 32 | 29.8 / 33.9 |
-| 1 KiB | 4 | 29.0 / 34.6 |
-| 1 KiB | 8 | 30.0 / 36.3 |
-| 64 B | 1 | 5.55 / 11.7 |
-| 64 B | 16 | 26.0 / 33.6 |
-| 64 B | 2 | 6.27 / 19.9 |
-| 64 B | 32 | 26.1 / 36.6 |
-| 64 B | 4 | 17.6 / 25.4 |
-| 64 B | 8 | 25.2 / 30.3 |
-| 64 KiB | 1 | 28.2 / 35.7 |
-| 64 KiB | 16 | 18.7 / 22.5 |
-| 64 KiB | 2 | 29.7 / 38.5 |
-| 64 KiB | 32 | 17.8 / 21.5 |
-| 64 KiB | 4 | 26.1 / 36.6 |
-| 64 KiB | 8 | 25.5 / 32.6 |
+| 1 KiB | 1 | 28.3 / 32.3 |
+| 1 KiB | 16 | 30.3 / 35.7 |
+| 1 KiB | 2 | 26.9 / 35.1 |
+| 1 KiB | 32 | 29.4 / 34.0 |
+| 1 KiB | 4 | 29.1 / 33.6 |
+| 1 KiB | 8 | 29.8 / 34.8 |
+| 64 B | 1 | 5.57 / 11.2 |
+| 64 B | 16 | 28.3 / 32.2 |
+| 64 B | 2 | 10.3 / 19.2 |
+| 64 B | 32 | 26.9 / 35.1 |
+| 64 B | 4 | 18.0 / 24.3 |
+| 64 B | 8 | 25.3 / 29.0 |
+| 64 KiB | 1 | 27.9 / 34.3 |
+| 64 KiB | 16 | 18.5 / 21.7 |
+| 64 KiB | 2 | 29.6 / 36.9 |
+| 64 KiB | 32 | 17.9 / 20.7 |
+| 64 KiB | 4 | 26.1 / 35.2 |
+| 64 KiB | 8 | 25.6 / 30.9 |
 
 ### Row-wise addition compositions
 
@@ -71,42 +71,42 @@ Public call compositions: flat `add_assign` and the literal per-row loop over th
 
 | Operation | Row bytes | Rows | Throughput (GiB/s) |
 | --- | --- | --- | --- |
-| add_assign per row | 1 KiB | 1 | 27.1 / 34.5 |
-| add_assign per row | 1 KiB | 16 | 28.7 / 32.7 |
-| add_assign per row | 1 KiB | 2 | 28.8 / 35.3 |
-| add_assign per row | 1 KiB | 32 | 28.1 / 31.7 |
-| add_assign per row | 1 KiB | 4 | 28.9 / 33.0 |
-| add_assign per row | 1 KiB | 8 | 29.2 / 33.0 |
-| add_assign per row | 64 B | 1 | 6.14 / 11.6 |
-| add_assign per row | 64 B | 16 | 8.29 / 15.8 |
-| add_assign per row | 64 B | 2 | 6.04 / 13.5 |
-| add_assign per row | 64 B | 32 | 8.35 / 15.4 |
-| add_assign per row | 64 B | 4 | 8.20 / 14.7 |
-| add_assign per row | 64 B | 8 | 8.75 / 15.4 |
-| add_assign per row | 64 KiB | 1 | 28.2 / 35.7 |
-| add_assign per row | 64 KiB | 16 | 18.6 / 22.5 |
-| add_assign per row | 64 KiB | 2 | 29.6 / 38.4 |
-| add_assign per row | 64 KiB | 32 | 17.8 / 21.5 |
-| add_assign per row | 64 KiB | 4 | 26.0 / 36.4 |
-| add_assign per row | 64 KiB | 8 | 25.4 / 32.6 |
-| add_assign | 1 KiB | 1 | 30.4 / 34.5 |
-| add_assign | 1 KiB | 16 | 30.7 / 37.4 |
-| add_assign | 1 KiB | 2 | 27.8 / 36.9 |
-| add_assign | 1 KiB | 32 | 29.9 / 35.3 |
-| add_assign | 1 KiB | 4 | 29.5 / 34.9 |
-| add_assign | 1 KiB | 8 | 30.3 / 36.6 |
-| add_assign | 64 B | 1 | 7.40 / 12.1 |
-| add_assign | 64 B | 16 | 30.5 / 34.2 |
-| add_assign | 64 B | 2 | 6.31 / 20.0 |
-| add_assign | 64 B | 32 | 27.7 / 36.8 |
-| add_assign | 64 B | 4 | 21.0 / 27.0 |
-| add_assign | 64 B | 8 | 28.1 / 31.2 |
-| add_assign | 64 KiB | 1 | 28.2 / 35.3 |
-| add_assign | 64 KiB | 16 | 18.7 / 22.5 |
-| add_assign | 64 KiB | 2 | 29.7 / 38.5 |
-| add_assign | 64 KiB | 32 | 17.8 / 21.5 |
-| add_assign | 64 KiB | 4 | 26.1 / 36.6 |
-| add_assign | 64 KiB | 8 | 25.5 / 32.4 |
+| add_assign per row | 1 KiB | 1 | 28.1 / 33.0 |
+| add_assign per row | 1 KiB | 16 | 29.1 / 31.3 |
+| add_assign per row | 1 KiB | 2 | 30.0 / 33.9 |
+| add_assign per row | 1 KiB | 32 | 28.4 / 30.4 |
+| add_assign per row | 1 KiB | 4 | 29.9 / 31.5 |
+| add_assign per row | 1 KiB | 8 | 30.0 / 31.6 |
+| add_assign per row | 64 B | 1 | 6.14 / 11.1 |
+| add_assign per row | 64 B | 16 | 8.98 / 15.1 |
+| add_assign per row | 64 B | 2 | 7.42 / 13.0 |
+| add_assign per row | 64 B | 32 | 8.43 / 14.8 |
+| add_assign per row | 64 B | 4 | 8.19 / 14.1 |
+| add_assign per row | 64 B | 8 | 8.80 / 14.8 |
+| add_assign per row | 64 KiB | 1 | 27.9 / 34.3 |
+| add_assign per row | 64 KiB | 16 | 18.5 / 21.6 |
+| add_assign per row | 64 KiB | 2 | 29.5 / 36.8 |
+| add_assign per row | 64 KiB | 32 | 18.0 / 20.6 |
+| add_assign per row | 64 KiB | 4 | 26.0 / 35.1 |
+| add_assign per row | 64 KiB | 8 | 25.5 / 30.4 |
+| add_assign | 1 KiB | 1 | 30.3 / 32.8 |
+| add_assign | 1 KiB | 16 | 30.4 / 35.8 |
+| add_assign | 1 KiB | 2 | 27.8 / 35.3 |
+| add_assign | 1 KiB | 32 | 29.5 / 34.0 |
+| add_assign | 1 KiB | 4 | 29.6 / 33.5 |
+| add_assign | 1 KiB | 8 | 30.2 / 35.1 |
+| add_assign | 64 B | 1 | 7.41 / 12.1 |
+| add_assign | 64 B | 16 | 30.2 / 33.0 |
+| add_assign | 64 B | 2 | 13.2 / 19.1 |
+| add_assign | 64 B | 32 | 27.9 / 35.4 |
+| add_assign | 64 B | 4 | 21.0 / 25.9 |
+| add_assign | 64 B | 8 | 27.8 / 29.9 |
+| add_assign | 64 KiB | 1 | 27.9 / 34.3 |
+| add_assign | 64 KiB | 16 | 18.5 / 21.7 |
+| add_assign | 64 KiB | 2 | 29.6 / 36.9 |
+| add_assign | 64 KiB | 32 | 18.0 / 20.7 |
+| add_assign | 64 KiB | 4 | 26.1 / 35.3 |
+| add_assign | 64 KiB | 8 | 25.6 / 30.9 |
 
 ## Competitors
 
@@ -116,29 +116,29 @@ Page-aligned regions on each library's native layout; conversions are excluded. 
 
 | Field | Operation | `fgf` (ns/op) | Plonky3 (ns/op) |
 | --- | --- | --- | --- |
-| gld | scalar a * b | 3.740 / 1.640 | 2.570 / 1.110 |
-| m31 | scalar a * b | 4.219 / 1.546 | 2.107 / 0.801 |
-| qm31 | scalar a * b | 9.003 / 4.365 | 6.963 / 2.908 |
+| gld | scalar a * b | 3.742 / 1.712 | 2.570 / 1.161 |
+| m31 | scalar a * b | 4.201 / 1.605 | 2.098 / 0.831 |
+| qm31 | scalar a * b | 8.999 / 4.550 | 6.959 / 3.007 |
 
 ### Packed
 
 | Field | Operation | `fgf` (GiB/s) | Plonky3 (GiB/s) |
 | --- | --- | --- | --- |
-| gld | dst += c * src | 19.7 / 16.9 | 22.5 / 20.6 |
-| gld | dst += v | 97.5 / 81.6 | 103 / 148 |
-| gld | dst -= v | 103 / 80.9 | 103 / 147 |
-| gld | dst = a * b | 23.8 / 23.3 | 26.9 / 26.4 |
-| gld | dst = c * src | 25.1 / 23.2 | 27.4 / 27.1 |
-| m31 | dst += c * src | 55.6 / 61.1 | 49.8 / 57.1 |
-| m31 | dst += v | 87.6 / 108 | 103 / 153 |
-| m31 | dst -= v | 70.3 / 86.4 | 103 / 153 |
-| m31 | dst = a * b | 59.5 / 68.2 | 59.8 / 69.3 |
-| m31 | dst = c * src | 73.1 / 76.8 | 65.4 / 72.9 |
-| qm31 | dst += c * src | 22.9 / 28.3 | 27.0 / 31.7 |
-| qm31 | dst += v | 62.6 / 108 | 103 / 153 |
-| qm31 | dst -= v | 49.9 / 86.4 | 103 / 153 |
-| qm31 | dst = a * b | 27.0 / 31.1 | 24.1 / 26.2 |
-| qm31 | dst = c * src | 32.1 / 37.6 | 30.5 / 36.1 |
+| gld | dst += c * src | 19.7 / 16.3 | 22.5 / 19.8 |
+| gld | dst += v | 97.5 / 78.2 | 103 / 141 |
+| gld | dst -= v | 103 / 78.3 | 103 / 142 |
+| gld | dst = a * b | 23.8 / 22.4 | 26.9 / 25.3 |
+| gld | dst = c * src | 25.1 / 22.8 | 27.4 / 26.0 |
+| m31 | dst += c * src | 55.6 / 58.6 | 49.8 / 54.7 |
+| m31 | dst += v | 87.6 / 103 | 103 / 147 |
+| m31 | dst -= v | 70.3 / 82.9 | 103 / 147 |
+| m31 | dst = a * b | 59.5 / 65.5 | 59.9 / 66.4 |
+| m31 | dst = c * src | 73.1 / 73.7 | 65.4 / 69.7 |
+| qm31 | dst += c * src | 22.9 / 27.2 | 27.0 / 30.5 |
+| qm31 | dst += v | 62.5 / 103 | 103 / 146 |
+| qm31 | dst -= v | 49.9 / 82.8 | 103 / 146 |
+| qm31 | dst = a * b | 27.0 / 29.9 | 24.1 / 25.4 |
+| qm31 | dst = c * src | 32.1 / 35.9 | 30.6 / 34.7 |
 
 
 ## Caveats

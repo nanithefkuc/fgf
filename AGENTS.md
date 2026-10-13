@@ -103,6 +103,9 @@ by fan shape only when it outgrows one file (`gf8/gfni/`, `gf8/avx512/`,
 order operation, ISA, `_with` (`mul_add_matrix_at_gfni`,
 `mul_add_matrix_avx512_with`). Byte-field entries are generic over the
 polynomial or its typed prepared coefficient, without field-specific suffixes.
+Residue single-row kernels split by arithmetic lane type into `u8.rs`,
+`u32.rs`, and `u64.rs`; reduction parameters and source-provider windows
+shared by AVX2 and AVX-512 remain in `kernel/x86/residue.rs`.
 A helper private to one file carries no ISA or width marker; a helper shared
 across sibling files carries its defining file's ISA
 suffix (`bmul_gfni`, `store_avx2`, `fold_avx2`), and a half-width variant
@@ -110,7 +113,8 @@ inside a wider tier is `_half`. The
 AVX-512 kernels dispatch on `V4x` under `simd512`; `FiniteField<2, 16, Extension<Rijndael16, 2>>` scatter and gather
 retain the narrower GFNI path. Direct differentials execute on AVX-512
 hardware, and the public per-shape measurements are recorded in
-`benchmarks/v3/gf8.md` and `benchmarks/v3/gf16.md`. The byte-field and
+`benchmarks/v3/gf8.md`, `benchmarks/v3/gf16.md`, and
+`benchmarks/v3/residue.md`. The byte-field and
 `FiniteField<2, 16, Extension<Rijndael16, 2>>` `mul_add` alignment peel floors remain
 measured thresholds with a benchmark
 record and misaligned-row coverage
@@ -189,10 +193,12 @@ a green run as ISA coverage.
 
 Coverage excludes the x86 binary-field kernel subtrees and the GFNI dispatch
 arms in `kernel/gf8.rs` and `kernel/tower.rs`, which require GFNI unavailable
-on the GitHub-hosted coverage runner. It also excludes only
-`kernel/x86/quad_mersenne31/avx512.rs`: its V4x instructions cannot execute on
-that runner. The AVX2 kernel and mixed-ISA prime dispatch modules remain
-included. Direct AVX-512 differentials run on capable hosts.
+on the GitHub-hosted coverage runner. It also excludes
+`kernel/x86/quad_mersenne31/avx512.rs` and
+`kernel/x86/residue/avx512.rs` with its child subtree: their AVX-512
+instructions cannot execute on that runner. The AVX2 residue kernels and
+mixed-ISA prime dispatch modules remain included. Direct AVX-512
+differentials run on capable hosts.
 Keep `COV_IGNORE` narrow and document every exclusion here.
 
 ## Benchmarks
@@ -215,7 +221,7 @@ round and printing the realized order. `gf` is the binary tower fields,
 GF(2). The granular self entry points stay available:
 
 ```sh
-FEC_GOLDEN_CORE=<cpu> just bench kernels [--gf|--gdl|--m31|--gf2]
+FEC_GOLDEN_CORE=<cpu> just bench kernels [--gf|--gdl|--m31|--gf2|--prime]
 FEC_GOLDEN_CORE=<cpu> just bench compare
 just bench-build NAME # build a portable artifact without running it
 FEC_GOLDEN_CORE=<cpu> just bench prime_ntt
@@ -286,29 +292,38 @@ must stay outside the timed region. Record the CPU, OS, Rust version, selected
 backend, geometry, command, and aggregation rule in the benchmark record. Never
 reuse an old number or claim a performance change from an unpinned run.
 
-The benchmark record contains separate version snapshots and same-session
-comparisons, not a measurement ledger. A refresh runs all four family
-campaigns for released v2 and v3 on each recorded host, interleaving
-versions in five rounds within one session per host. Every published case is
-the median of five per-run medians. Competitor arms interleave inside each
-harness process. Direct-kernel timings and threshold investigations stay out
-of the public record.
+The benchmark record contains current snapshots and same-session comparisons,
+not an appended tuning ledger. `bench-paired` refreshes all four released-v2
+and current-v3 families, their competitors, and the v3-only generic residue
+family in one session. Five rounds interleave versions; residue rounds rotate
+one current artifact through the requested tier, AVX2, and scalar requests.
+Every published case is the median of five per-run medians. Competitor arms
+interleave inside their harness. Direct-kernel timings and threshold
+investigations stay out of the public record.
 
-`BENCHMARKS.md` indexes the same six family pages under `benchmarks/v2/`,
-`benchmarks/v3/`, and `benchmarks/comparison/`, followed by the host table,
-shared method, number format, and reproduction commands. Version directories
-contain only that version's public API snapshot and competitor comparisons.
-Version comparisons live only in `comparison/`; its README owns pairing and
-availability rules. `benchmarks/labels.md` defines canonical field labels,
-exact API mappings, recursive tower coefficients, and packing conventions.
+`BENCHMARKS.md` indexes six matched families under `benchmarks/v2/`,
+`benchmarks/v3/`, and `benchmarks/comparison/`, plus the v3 residue snapshot
+and its backend comparison. The residue comparison is not a released-v2
+comparison. Root metadata fixes Willow/Golden display order and explicitly
+marks unavailable hosts with `available: false` and a reason; those hosts
+have no fabricated logs or reused historical cells. Available hosts must
+provide every round. Environment, source/build digests, original logs,
+completion markers, and generated cell evidence remain in `bench-records/`.
+`benchmarks/labels.md` defines canonical field labels, exact API mappings,
+recursive tower coefficients, and packing conventions.
 
-Snapshot pages contain `Setup`, `Self-timings`, `Competitors`, and a plain
-caveat list. Comparison blocks use canonical labels rather than API type
-names, with semantic operations and explicit geometry beneath them. A new
-field extends its family inventory and the label registry. A competitor table
-includes only arms implementing every row; differing primitive support gets
-separate tables. Missing version counterparts remain unavailable and carry no
-speed factor.
+Snapshot pages contain setup, public self-timings, competitor panels, and
+caveats. Family pages without competitor measurements say so. Comparison
+pages use semantic operations and explicit geometry; missing version
+counterparts have no factor. Residue pages pivot lengths into columns and
+group operation panels with expandable details, without dropping public
+geometries or duplicating earlier campaigns. Backend factors use matched
+unrounded latency aggregates; regressions remain visible.
+
+The publisher generates all snapshots and comparisons together and verifies
+their bytes and cell evidence with `--verify`. It rejects incomplete
+available-host runs, changed workload inventories, invalid timing values,
+missing controls or competitors, and backend mismatches.
 
 Every result cell lists the hosts in the order `BENCHMARKS.md` declares. Within one
 table every value has the same digit count, counting leading zeros, so

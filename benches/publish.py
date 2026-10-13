@@ -3,23 +3,32 @@
 
     python3 benches/publish.py --records PATH --output PATH [--verify]
 
-The records directory holds one subdirectory per private host identifier,
-each produced by ``just bench-paired``: ``complete.txt``,
-``environment.txt``, ``order.tsv``, and
-``round-{1..5}-{v2|v3}-{gf|gdl|m31|gf2}.log``. ``PATH/metadata.json`` is the
-parent-supplied campaign manifest; it must declare the host list, and may
-carry source revisions, toolchain facts, and per-host backend expectations.
+The records directory holds one subdirectory per available host, each
+produced by ``just bench-paired``: ``complete.txt``, ``environment.txt``,
+``order.tsv``, the version logs ``round-{1..5}-{v2|v3}-{gf|gdl|m31|gf2}.log``,
+and the residue logs ``round-{1..5}-{v3|avx2|scalar}-prime.log``.
+``PATH/metadata.json`` is the parent-supplied campaign manifest; it declares
+the host list in measurement order, and may carry source revisions,
+toolchain facts, and per-host backend expectations. A host whose details set
+``available: false`` carries a ``reason`` instead of a core and backend, has
+no record directory, and renders as ``-`` in its display slot; only its
+label survives into the pages.
 
-Generation fails closed: a missing or incomplete run, a nonfinite or
-nonpositive value, a malformed or duplicate workload key, or a row set that
-changes across rounds is an error, never a silently dropped measurement.
+Generation fails closed: a missing or incomplete available-host run, a
+nonfinite or nonpositive value, a malformed or duplicate workload key, a row
+set that changes across rounds or between residue backend requests,
+or a broken prime-arm rotation is an error, never a silently dropped
+measurement.
 
 Outputs, under ``--output``: ``v2/<family>.md``, ``v3/<family>.md``, and
-``comparison/<family>.md`` for the six family pages. The raw-record side
-gains ``evidence.json`` with every normalized case, per-host per-round
-samples, aggregates, backend banners, controls, availability, and the page,
-table, row, and column of every published cell. ``--verify`` regenerates the
-expected bytes and compares them against the files on disk without writing.
+``comparison/<family>.md`` for the six family pages, plus the residue
+snapshot ``v3/residue.md`` and the backend factor page
+``comparison/residue.md``. The raw-record side gains ``evidence.json`` with
+every normalized case, per-host per-round samples, aggregates, backend
+banners, controls, availability, residue routes and field caps, and the
+page, table, row, and column of every published cell. ``--verify``
+regenerates the expected bytes and compares them against the files on disk
+without writing.
 
 No previously published number is an input; the generator reads only the raw
 records and the metadata manifest.
@@ -38,10 +47,24 @@ from dataclasses import dataclass, field
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
+# residue_publish imports this module by name; as an entry-point script,
+# publish.py runs as __main__, so register the running module under its
+# import name before any lazy import happens.
+sys.modules.setdefault("publish", sys.modules[__name__])
+
 GIB = 1024.0**3
 ROUNDS = (1, 2, 3, 4, 5)
 VERSIONS = ("v2", "v3")
-FAMILIES = ("gf", "gdl", "m31", "gf2")
+FAMILIES = ("gf", "gdl", "m31", "gf2", "prime")
+# Residue arms use the current artifact under routed, AVX2, and scalar
+# requests. None is a released-v2 residue measurement.
+FAMILY_VERSIONS = {
+    "gf": ("v2", "v3"),
+    "gdl": ("v2", "v3"),
+    "m31": ("v2", "v3"),
+    "gf2": ("v2", "v3"),
+    "prime": ("v3", "avx2", "scalar"),
+}
 # Capture-family identifiers preserve the immutable raw record filenames.
 PAGE_FAMILIES = ("gf8", "gf16", "wide-binary", "gf1", "mersenne31", "goldilocks")
 ROUND_FAMILY = {
@@ -53,6 +76,7 @@ FAMILY_UNITS = {
     "gdl": ("self", "prime"),
     "m31": ("self", "prime"),
     "gf2": ("self",),
+    "prime": ("self",),
 }
 NATIVE_GF16_ARMS = ("gf-complete", "reed-solomon-erasure", "reed-solomon-simd", "leopard")
 GF16_ARM_DISPLAY = {
@@ -128,6 +152,91 @@ GF16_CHECK_LINES = frozenset({
     "boundaries and offset alignment passed.",
     "CHECK every measured geometry and coefficient schedule passed exact differential validation.",
 })
+
+# ---------------------------------------------------------------------------
+# Prime residue rows (`kernels --prime`)
+# ---------------------------------------------------------------------------
+
+# Panel rows in emission order, with their canonical labels.md identities.
+RESIDUE_SINGLE_ROWS = (
+    "byte101", "byte131", "half65521", "word1e9p7",
+    "word1280000003", "wordmax", "widemax", "rowp2",
+)
+RESIDUE_ELEMENTWISE_ROWS = ("word1e9p7", "word1280000003", "wordmax")
+RESIDUE_MATRIX_ROWS = (
+    "word1e9p7", "word65537", "word1280000003", "wordmax",
+    "word858m", "word536m", "word268m", "word67m",
+)
+RESIDUE_ROW_OF = {
+    "byte101": "res101", "byte131": "res131", "half65521": "res65521",
+    "word1e9p7": "res1e9p7", "word1280000003": "res1280000003",
+    "wordmax": "reswordmax", "widemax": "reswide", "rowp2": "res2",
+    "word65537": "res65537", "word858m": "res858m", "word536m": "res536m",
+    "word268m": "res268m", "word67m": "res67m",
+}
+RESIDUE_LANE_BYTES = {
+    "byte101": 1, "byte131": 1, "rowp2": 8, "half65521": 2,
+    "word1e9p7": 4, "word65537": 4, "word1280000003": 4, "wordmax": 4,
+    "word858m": 4, "word536m": 4, "word268m": 4, "word67m": 4, "widemax": 8,
+}
+RESIDUE_SINGLE_LANES = (8, 16, 32, 64, 256, 1024)
+RESIDUE_ELEMENTWISE_LANES = (8, 16, 32, 64, 256, 1024)
+RESIDUE_MATRIX_SOURCES = (4, 8, 16, 32)
+RESIDUE_MATRIX_LANES = (64, 4096)
+RESIDUE_SINGLE_ROW_NAMES = frozenset(RESIDUE_SINGLE_ROWS)
+RESIDUE_ELEMENTWISE_ROW_NAMES = frozenset(RESIDUE_ELEMENTWISE_ROWS)
+RESIDUE_MATRIX_ROW_NAMES = frozenset(RESIDUE_MATRIX_ROWS)
+
+PRIME_SINGLE_PLACEMENT_RE = re.compile(
+    r"prime (?:(direct) )?(with|once) ("
+    + "|".join(RESIDUE_SINGLE_ROW_NAMES)
+    + r") (into|add|assign) (\d+)$")
+PRIME_ELEMENTWISE_PLACEMENT_RE = re.compile(
+    r"prime (?:(direct) )?(elementwise|elementwise_assign) ("
+    + "|".join(RESIDUE_ELEMENTWISE_ROW_NAMES)
+    + r") (\d+)$")
+PRIME_MATRIX_PLACEMENT_RE = re.compile(
+    r"prime (?:(direct) )?(matrix once|matrix|gather) (into|add) ("
+    + "|".join(RESIDUE_MATRIX_ROW_NAMES)
+    + r") s(\d+) o4 L(\d+)$")
+PRIME_PANEL_RES = [
+    (re.compile(r"^prime row (\S+) — backend (\S+):$"), "single"),
+    (re.compile(r"^prime elementwise (\S+) — backend (\S+):$"), "elementwise"),
+    (re.compile(r"^prime matrix (\S+) — backend (\S+) K=(\d+):$"), "matrix"),
+]
+# Public operation behind each placement label; direct arms prefix "direct ".
+PRIME_SINGLE_OPS = {
+    ("with", "into"): "mul_into_with",
+    ("with", "add"): "mul_add_with",
+    ("with", "assign"): "mul_assign_with",
+    ("once", "into"): "mul_into",
+}
+PRIME_ELEMENTWISE_OPS = {
+    "elementwise": "mul_elementwise",
+    "elementwise_assign": "mul_elementwise_assign",
+}
+PRIME_MATRIX_OPS = {
+    ("matrix", "into"): "mul_into_matrix_with",
+    ("matrix", "add"): "mul_add_matrix_with",
+    ("gather", "into"): "mul_into_gather_with",
+    ("gather", "add"): "mul_add_gather_with",
+    ("matrix once", "into"): "mul_into_matrix",
+    ("matrix once", "add"): "mul_add_matrix",
+}
+PRIME_PANEL_SEQUENCE = tuple(
+    [("single", row) for row in RESIDUE_SINGLE_ROWS]
+    + [("elementwise", row) for row in RESIDUE_ELEMENTWISE_ROWS]
+    + [("matrix", row) for row in RESIDUE_MATRIX_ROWS])
+
+# `FIELD_BACKEND` banners: the released-v2 binary prints the canonical
+# fields; the current kernels binary additionally reports gf16d and the
+# generic residue rows. The compare artifact always prints the canonical set.
+V2_BANNER_FIELDS = frozenset(set(FIELDS) - {"gf1", "gf16d"})
+RESIDUE_BANNER_ROWS = frozenset(
+    {"byte101", "byte127", "byte131", "half65521", "word1e9p7",
+     "word1280000003", "wordmax", "widemax", "rowp2"})
+V3_BANNER_FIELDS = frozenset(
+    V2_BANNER_FIELDS | {"gf16d"} | RESIDUE_BANNER_ROWS)
 
 
 class PublishError(Exception):
@@ -315,6 +424,25 @@ class CaseData:
         self.byte_counts[slot + (rnd,)] = rec.logical_bytes
 
 
+@dataclass
+class ResidueCase:
+    """One residue placement case across arms and rounds.
+
+    The version slot names a routed, AVX2, or scalar request of the same
+    current artifact, not a released version.
+    """
+    first: Rec
+    values: dict = field(default_factory=dict)      # (host, arm) -> VersionSeries
+
+    def add(self, host: str, arm: str, rnd: int, rec: Rec, where: str) -> None:
+        slot = (host, arm)
+        if slot in self.values and rnd in self.values[slot].rounds:
+            fail(f"{where}: duplicate residue case in one round: {rec.raw_label!r}")
+        if self.first.logical_bytes != rec.logical_bytes:
+            fail(f"{where}: residue byte count for {rec.raw_label!r} changed across records")
+        self.values.setdefault(slot, VersionSeries()).add(rnd, rec.ns)
+
+
 def case_key(rec: Rec) -> tuple:
     geometry = tuple(sorted((k, _jsonable(v)) for k, v in rec.geometry.items()))
     return (rec.kind, rec.suite, rec.panel, rec.label, rec.field, rec.metric, geometry)
@@ -441,6 +569,15 @@ class LogParser:
         self.addrows_pending: list[Rec] = []
         self.trio_control_seen = False
         self.prime_headings_seen = 0
+        self.prime_panel: str | None = None
+        self.prime_panel_row: str | None = None
+        self.prime_panel_seq: list[tuple[str, str]] = []
+        self.prime_caps: dict[str, dict] = {}
+        self.prime_routes: dict[str, dict] = {}
+        self.prime_layouts: dict[str, str] = {}
+        self.prime_skips: dict[str, int] = {}
+        self.prime_seen: set = set()
+        self.prime_pending: dict[str, dict[int, float]] = {}
 
     def error(self, message: str) -> None:
         fail(f"{self.path.name}: {message}")
@@ -460,6 +597,8 @@ class LogParser:
         if sorted(self.unit_sequence) != sorted(FAMILY_UNITS[self.family]):
             self.error(f"unit sequence {self.unit_sequence} does not match "
                        f"{FAMILY_UNITS[self.family]}")
+        if self.family == "prime":
+            self._finish_prime()
 
     def line(self, raw: str) -> None:
         for prefix, handler in (
@@ -473,6 +612,11 @@ class LogParser:
             ("RESULT\t", self.result_line),
             ("CONTROL\t", self.control_line),
             ("CHECK ", self.check_line),
+            ("PLACEMENT\t", self.placement_line),
+            ("DIRECT_SKIP\t", self.direct_skip_line),
+            ("PRIME_ROW\t", self.prime_row_line),
+            ("PRIME_ROUTES\t", self.prime_routes_line),
+            ("PRIME_LAYOUT\t", self.prime_layout_line),
         ):
             if raw.startswith(prefix):
                 handler(raw)
@@ -534,6 +678,20 @@ class LogParser:
                 "unit": self.unit, "suite": self.suite,
                 "logical_bytes": logical_bytes, "ns": ns,
             })
+            return
+        if self.family == "prime":
+            self._require_prime(line)
+            match = re.fullmatch(r"(.+) place(0|16|32)", normalize_label(label))
+            if match is None:
+                self.error(f"unsupported residue SAMPLE label: {label!r}")
+            base_label, offset = match.group(1), int(match.group(2))
+            _, _, _, _, expected_bytes, _ = self._prime_placement_fields(base_label, line)
+            if logical_bytes != expected_bytes:
+                self.error(f"residue SAMPLE byte count does not match geometry: {line!r}")
+            samples = self.prime_pending.setdefault(base_label, {})
+            if offset in samples:
+                self.error(f"duplicate residue placement sample: {line!r}")
+            samples[offset] = ns
             return
         self.self_record("sample", label, logical_bytes, ns)
 
@@ -724,6 +882,193 @@ class LogParser:
             self.error(f"altered gf16 CHECK statement: {line!r}")
         self.check_lines.append(line)
 
+    # -- prime residue records -----------------------------------------------------
+
+    def _require_prime(self, line: str) -> None:
+        if self.family != "prime" or self.unit != "self":
+            self.error(f"residue record outside the prime self suite: {line!r}")
+
+    def _prime_placement_fields(self, raw_label: str, line: str):
+        """Parse one PLACEMENT label into (panel, op, row, geometry, byte check)."""
+        match = PRIME_SINGLE_PLACEMENT_RE.fullmatch(raw_label)
+        if match:
+            direct, form, row, op, lanes = match.groups()
+            if form == "once" and op != "into":
+                self.error(f"unsupported single-row form and operation: {line!r}")
+            lanes = int(lanes)
+            if lanes not in RESIDUE_SINGLE_LANES or row != self.prime_panel_row:
+                self.error(f"unexpected single-row geometry or panel row: {line!r}")
+            return ("single", PRIME_SINGLE_OPS[(form, op)], row,
+                    {"lanes": lanes}, lanes * RESIDUE_LANE_BYTES[row], direct)
+        match = PRIME_ELEMENTWISE_PLACEMENT_RE.fullmatch(raw_label)
+        if match:
+            direct, name, row, lanes = match.groups()
+            lanes = int(lanes)
+            if lanes not in RESIDUE_ELEMENTWISE_LANES or row != self.prime_panel_row:
+                self.error(f"unexpected elementwise geometry or panel row: {line!r}")
+            return ("elementwise", PRIME_ELEMENTWISE_OPS[name], row,
+                    {"lanes": lanes}, lanes * RESIDUE_LANE_BYTES[row], direct)
+        match = PRIME_MATRIX_PLACEMENT_RE.fullmatch(raw_label)
+        if match:
+            direct, name, disposition, row, sources, lanes = match.groups()
+            sources, lanes = int(sources), int(lanes)
+            if direct and name != "matrix":
+                self.error(f"the harness prints no direct {name} arm: {line!r}")
+            if (sources not in RESIDUE_MATRIX_SOURCES or lanes not in RESIDUE_MATRIX_LANES
+                    or row != self.prime_panel_row):
+                self.error(f"unexpected matrix geometry or panel row: {line!r}")
+            # The harness declares its numerator: source extent times four.
+            traffic = 16 * lanes * sources
+            return ("matrix", PRIME_MATRIX_OPS[(name, disposition)], row,
+                    {"sources": sources, "lanes": lanes,
+                     "accumulate": disposition == "add"},
+                    traffic, direct)
+        self.error(f"unsupported residue placement label: {line!r}")
+
+    def placement_line(self, line: str) -> None:
+        self._require_prime(line)
+        if self.prime_panel is None:
+            self.error(f"PLACEMENT record before any residue panel: {line!r}")
+        parts = line.split("\t")
+        if len(parts) != 4:
+            self.error(f"malformed PLACEMENT record: {line!r}")
+        raw_label = normalize_label(parts[1])
+        try:
+            logical_bytes, ns = int(parts[2]), float(parts[3])
+        except ValueError:
+            self.error(f"malformed PLACEMENT record: {line!r}")
+        check_positive(ns, "PLACEMENT ns value")
+        panel, op, row, geometry, expected_bytes, direct = \
+            self._prime_placement_fields(raw_label, line)
+        if logical_bytes != expected_bytes:
+            self.error(f"PLACEMENT byte count {logical_bytes} does not match the "
+                       f"declared geometry {expected_bytes}: {line!r}")
+        samples = self.prime_pending.pop(raw_label, {})
+        if set(samples) != {0, 16, 32} or median(list(samples.values())) != ns:
+            self.error(f"PLACEMENT does not match its three SAMPLE records: {line!r}")
+        label = f"direct {op}" if direct else op
+        key = (panel, label, RESIDUE_ROW_OF[row],
+               tuple(sorted(geometry.items())))
+        if key in self.prime_seen:
+            self.error(f"duplicate residue placement: {line!r}")
+        self.prime_seen.add(key)
+        self.records.append(Rec(
+            kind="placement", suite="prime", panel=panel, heading=self.heading,
+            label=label, raw_label=raw_label, field=RESIDUE_ROW_OF[row],
+            metric=THROUGHPUT, logical_bytes=logical_bytes, ns=ns,
+            geometry=geometry, public=not direct, extra={"placements": samples},
+            disposition="public" if not direct else "direct kernel"))
+
+    def direct_skip_line(self, line: str) -> None:
+        self._require_prime(line)
+        parts = line.split("\t")
+        if len(parts) != 3:
+            self.error(f"malformed DIRECT_SKIP record: {line!r}")
+        raw_label = normalize_label(parts[1])
+        self._prime_placement_fields(raw_label, line)
+        if raw_label in self.prime_skips:
+            self.error(f"duplicate residue direct skip: {line!r}")
+        self.prime_skips[raw_label] = int(parts[2])
+
+    def prime_row_line(self, line: str) -> None:
+        self._require_prime(line)
+        parts = line.split("\t")
+        if len(parts) != 3:
+            self.error(f"malformed PRIME_ROW record: {line!r}")
+        label = parts[1]
+        cap = {"backend": parts[2], "k": None}
+        row = label
+        for prefix in ("matrix-", "elementwise-"):
+            if row.startswith(prefix):
+                row = row[len(prefix):]
+                if prefix == "matrix-":
+                    match = re.fullmatch(r"(\S+) K=(\d+)", parts[2])
+                    if match is None:
+                        self.error(f"malformed matrix PRIME_ROW record: {line!r}")
+                    cap = {"backend": match.group(1), "k": int(match.group(2))}
+                break
+        if row not in RESIDUE_ROW_OF or label in self.prime_caps:
+            self.error(f"unknown or duplicate PRIME_ROW record: {line!r}")
+        self.prime_caps[label] = cap
+
+    def prime_routes_line(self, line: str) -> None:
+        self._require_prime(line)
+        parts = line.split("\t")
+        if len(parts) != 3:
+            self.error(f"malformed PRIME_ROUTES record: {line!r}")
+        geometry = normalize_label(parts[1])
+        if geometry in self.prime_routes:
+            self.error(f"duplicate PRIME_ROUTES record: {line!r}")
+        attrs = {}
+        for field in parts[2].split():
+            key, sep, value = field.partition("=")
+            if not sep:
+                self.error(f"malformed PRIME_ROUTES attribute: {line!r}")
+            attrs[key] = value
+        if attrs.get("via") != "selector" or "backend" not in attrs:
+            self.error(f"unsupported PRIME_ROUTES attributes: {line!r}")
+        if geometry.startswith("prime matrix") or geometry.startswith("prime direct matrix"):
+            needed = ("backend", "delayed_backend", "K", "routes_delayed", "via")
+        else:
+            needed = ("backend", "takes_vector", "via")
+        if any(key not in attrs for key in needed):
+            self.error(f"incomplete PRIME_ROUTES attributes: {line!r}")
+        self.prime_routes[geometry] = attrs
+
+    def prime_layout_line(self, line: str) -> None:
+        self._require_prime(line)
+        parts = line.split("\t")
+        if len(parts) != 3:
+            self.error(f"malformed PRIME_LAYOUT record: {line!r}")
+        geometry = normalize_label(parts[1])
+        if geometry in self.prime_layouts:
+            self.error(f"duplicate PRIME_LAYOUT record: {line!r}")
+        if not re.fullmatch(r"region=\d+B align=64 .+ placements=0,16,32", parts[2]):
+            self.error(f"unsupported PRIME_LAYOUT detail: {line!r}")
+        self.prime_layouts[geometry] = parts[2]
+
+    def _finish_prime(self) -> None:
+        if self.prime_pending:
+            self.error("residue samples lack their placement median")
+        if tuple(self.prime_panel_seq) != PRIME_PANEL_SEQUENCE:
+            self.error(f"residue panel sequence {self.prime_panel_seq} does not "
+                       f"match {PRIME_PANEL_SEQUENCE}")
+        expected_caps = (
+            set(RESIDUE_SINGLE_ROWS)
+            | {f"elementwise-{row}" for row in RESIDUE_ELEMENTWISE_ROWS}
+            | {f"matrix-{row}" for row in RESIDUE_MATRIX_ROWS})
+        if set(self.prime_caps) != expected_caps:
+            self.error(f"residue field caps {sorted(self.prime_caps)} do not "
+                       f"match {sorted(expected_caps)}")
+        public_raw = {rec.raw_label for rec in self.records
+                      if rec.kind == "placement" and rec.public}
+        expected_routes = {raw for raw in public_raw
+                           if not raw.startswith("prime gather ")}
+        if set(self.prime_routes) != expected_routes:
+            missing = sorted(expected_routes - set(self.prime_routes))
+            extra = sorted(set(self.prime_routes) - expected_routes)
+            self.error(f"residue routes do not match the public placements; "
+                       f"missing {missing[:3]}, unexpected {extra[:3]}")
+        expected_layouts = (
+            {f"prime {row} {lanes}" for row in RESIDUE_SINGLE_ROWS
+             for lanes in RESIDUE_SINGLE_LANES}
+            | {f"prime elementwise {row} {lanes}" for row in RESIDUE_ELEMENTWISE_ROWS
+               for lanes in RESIDUE_ELEMENTWISE_LANES}
+            | {f"prime matrix {disposition} {row} s{sources} o4 L{lanes}"
+               for disposition in ("into", "add") for row in RESIDUE_MATRIX_ROWS
+               for sources in RESIDUE_MATRIX_SOURCES
+               for lanes in RESIDUE_MATRIX_LANES})
+        if set(self.prime_layouts) != expected_layouts:
+            self.error("residue layout records do not cover every panel geometry")
+
+    def prime_state(self) -> dict:
+        return {
+            "caps": self.prime_caps,
+            "routes": self.prime_routes,
+            "layouts": self.prime_layouts,
+            "skips": self.prime_skips,
+        }
+
     # -- context lines ---------------------------------------------------------------
 
     def context_line(self, line: str) -> None:
@@ -843,6 +1188,9 @@ class LogParser:
             self.geom = {}
             self.process_backends.append({"unit": "self", "suite": "kernels", "backend": m.group(1)})
             return
+        if self.family == "prime":
+            self._prime_self_context(stripped)
+            return
         m = re.fullmatch(r"fgf — backend: (\S+)", stripped)
         if m:
             self.suite = "compare"
@@ -894,6 +1242,31 @@ class LogParser:
                                 "Downloading", "Downloaded", "pinned to core", "── ")):
             return
         self.error(f"unsupported line in the self suite: {line!r}")
+
+    def _prime_self_context(self, stripped: str) -> None:
+        for pattern, panel in PRIME_PANEL_RES:
+            m = pattern.match(stripped)
+            if m:
+                row = m.group(1)
+                expected_rows = {
+                    "single": RESIDUE_SINGLE_ROWS,
+                    "elementwise": RESIDUE_ELEMENTWISE_ROWS,
+                    "matrix": RESIDUE_MATRIX_ROWS,
+                }[panel]
+                if row not in expected_rows:
+                    self.error(f"unknown residue panel row: {stripped!r}")
+                self.prime_panel = panel
+                self.prime_panel_row = row
+                self.prime_panel_seq.append((panel, row))
+                self.panel = f"prime-{panel}"
+                self.heading = stripped
+                self.geom = {}
+                return
+        if stripped.startswith("(override with SIMD_BACKEND"):
+            return
+        if is_noise(stripped) or is_human_row(stripped):
+            return
+        self.error(f"unsupported residue line: {stripped!r}")
 
     def _kernel_panel(self, panel: str, m: re.Match, line: str) -> None:
         if self.addrows_pending:
@@ -1279,9 +1652,15 @@ class Campaign:
         self.records_root = records
         self.metadata = self._load_metadata(records / "metadata.json")
         self.hosts: list[str] = list(self.metadata["hosts"])
+        self.available_hosts = [
+            host for host in self.hosts
+            if self.metadata["hosts"][host].get("available", True)]
         self.host_labels = dict(zip(self.hosts, (
             "Willow Cove (i5-1135G7)", "Golden Cove (i7-12700K)"), strict=True))
         self.cases: dict[tuple, CaseData] = {}
+        self.residue_cases: dict[tuple, ResidueCase] = {}
+        self.residue_state: dict[tuple, dict] = {}
+        self.residue_aggregates: dict[tuple, float] = {}
         self.trio: dict[tuple, dict] = {}
         self.prime: dict[tuple, dict] = {}
         self.gf16: dict[tuple, dict] = {}
@@ -1311,21 +1690,37 @@ class Campaign:
         if metadata.get("host_order") != list(hosts) or metadata.get("rounds") != 5:
             fail("metadata must fix the agreed host order and five complete rounds")
         for host, details in hosts.items():
-            if (not isinstance(details, dict)
-                    or not isinstance(details.get("core"), int)
-                    or details["core"] < 0
-                    or not isinstance(details.get("requested_backend"), str)):
-                fail(f"metadata host {host!r} needs a core and requested_backend")
+            if not isinstance(details, dict):
+                fail(f"metadata host {host!r} must be an object")
+            available = details.get("available", True)
+            if not isinstance(available, bool):
+                fail(f"metadata host {host!r} must declare a boolean availability")
+            if available:
+                if (not isinstance(details.get("core"), int)
+                        or details["core"] < 0
+                        or not isinstance(details.get("requested_backend"), str)
+                        or not details["requested_backend"]):
+                    fail(f"metadata host {host!r} needs a core and requested_backend")
+            else:
+                if not isinstance(details.get("reason"), str) or not details["reason"]:
+                    fail(f"unavailable metadata host {host!r} needs a reason")
+                if "core" in details or "requested_backend" in details:
+                    fail(f"unavailable metadata host {host!r} must not declare a "
+                         f"core or requested_backend")
+        if not any(details.get("available", True) for details in hosts.values()):
+            fail("metadata declares no available host; publication fails closed")
         return metadata
 
     def load(self) -> None:
         present = sorted(p.name for p in self.records_root.iterdir() if p.is_dir())
-        if sorted(self.hosts) != present:
-            fail(f"record host directories {present} do not match declared hosts "
-                 f"{sorted(self.hosts)}")
-        for host in self.hosts:
+        if sorted(self.available_hosts) != present:
+            fail(f"record host directories {present} do not match the available "
+                 f"declared hosts {sorted(self.available_hosts)}; unavailable hosts "
+                 f"carry no record directory")
+        for host in self.available_hosts:
             self._load_host(host)
         self._validate_row_sets()
+        self._validate_residue()
         self._aggregate()
 
     def _load_host(self, host: str) -> None:
@@ -1345,8 +1740,8 @@ class Campaign:
         }
         self.order_rows[host] = self._parse_order(order)
         for rnd in ROUNDS:
-            for version in VERSIONS:
-                for family in FAMILIES:
+            for family in FAMILIES:
+                for version in FAMILY_VERSIONS[family]:
                     path = root / f"round-{rnd}-{version}-{family}.log"
                     if not path.is_file():
                         fail(f"missing round log {path}")
@@ -1362,17 +1757,31 @@ class Campaign:
                 fail(f"{path}:{lineno}: an order row has three columns: {line!r}")
             rnd, family, version = parts
             if (rnd not in {str(r) for r in ROUNDS} or family not in FAMILIES
-                    or version not in VERSIONS):
+                    or version not in FAMILY_VERSIONS[family]):
                 fail(f"{path}:{lineno}: malformed order row: {line!r}")
             rows.append({"round": int(rnd), "family": family, "version": version})
         keys = [(row["round"], row["family"], row["version"]) for row in rows]
         if len(keys) != len(set(keys)):
             fail(f"{path}: duplicate order rows")
         expected = {(rnd, family, version)
-                    for rnd in ROUNDS for family in FAMILIES for version in VERSIONS}
+                    for rnd in ROUNDS for family in FAMILIES
+                    for version in FAMILY_VERSIONS[family]}
         if set(keys) != expected:
-            fail(f"{path}: order rows do not cover every round, family, and version "
-                 f"exactly once")
+            fail(f"{path}: order rows do not cover every round and allowed "
+                 f"family-version pair exactly once")
+        prime_order: dict[int, list[str]] = {}
+        for row in rows:
+            if row["family"] == "prime":
+                prime_order.setdefault(row["round"], []).append(row["version"])
+        for rnd in ROUNDS:
+            if sorted(prime_order.get(rnd, [])) != sorted(FAMILY_VERSIONS["prime"]):
+                fail(f"{path}: round {rnd} must contain every residue backend request")
+        for previous, current in zip(ROUNDS, ROUNDS[1:]):
+            expected_order = prime_order[previous][1:] + prime_order[previous][:1]
+            if prime_order[current] != expected_order:
+                fail(f"{path}: residue backend order must rotate between rounds; "
+                     f"round {previous} ran {prime_order[previous]} and round "
+                     f"{current} ran {prime_order[current]}")
         return rows
 
     def _parse_log(self, host: str, rnd: int, version: str, family: str, path: Path) -> None:
@@ -1390,6 +1799,9 @@ class Campaign:
             "host_placement": parser.host_placement,
             "trio_header": parser.trio_header, "prime_header": parser.prime_header,
             "gf16_header": parser.gf16_header, "controls": parser.controls,
+            "prime_state": parser.prime_state() if family == "prime" else {},
+            "prime_samples": {rec.raw_label: rec.extra["placements"]
+                              for rec in parser.records if rec.kind == "placement"},
         })
         self._collect(parser, host, version, rnd)
 
@@ -1400,16 +1812,21 @@ class Campaign:
         if "gf16" in parser.unit_sequence and set(parser.check_lines) != GF16_CHECK_LINES:
             fail(f"{path}: the gf16 harness CHECK statements are missing or altered")
         details = self.metadata["hosts"][host]
-        expected = details["requested_backend"]
+        if version == "scalar":
+            expected_backend = "scalar"
+        elif version == "avx2":
+            expected_backend = "v3"
+        else:
+            expected_backend = details["requested_backend"]
         suites = {"kernels", "compare"} if parser.family == "gf" else {"kernels"}
         expected_processes = suites | (set(parser.unit_sequence) - {"self"})
         reported = [banner["suite"] for banner in parser.process_backends]
         if sorted(reported) != sorted(expected_processes):
             fail(f"{path}: missing or duplicate process backend banners: {reported}")
         for banner in parser.process_backends:
-            if banner["backend"] != expected:
+            if banner["backend"] != expected_backend:
                 fail(f"{path}: resolved process backend {banner['backend']!r} "
-                     f"does not match requested {expected!r}")
+                     f"does not match requested {expected_backend!r}")
         if sorted(item["suite"] for item in parser.host_placement) != sorted(suites):
             fail(f"{path}: missing or duplicate self process placement records")
         for placement in parser.host_placement:
@@ -1420,10 +1837,11 @@ class Campaign:
                          if control["kind"] == "byte-xor" and control["suite"] == suite]
             if sorted(positions) != ["end", "start"]:
                 fail(f"{path}: {suite} must have exactly one entry and exit byte-XOR control")
+            if suite == "kernels" and version in ("v3", "avx2", "scalar"):
+                expected_fields = V3_BANNER_FIELDS
+            else:
+                expected_fields = V2_BANNER_FIELDS
             fields = [banner["label"] for banner in parser.banners if banner["suite"] == suite]
-            expected_fields = set(FIELDS) - {"gf1", "gf16d"}
-            if version == "v3" and suite == "kernels":
-                expected_fields.add("gf16d")
             if sorted(fields) != sorted(expected_fields):
                 fail(f"{path}: missing or duplicate {suite} field backend banners: {fields}")
         for banner in parser.banners:
@@ -1440,6 +1858,34 @@ class Campaign:
             missing = [arm for arm in NATIVE_GF16_ARMS if arm not in arms]
             if missing:
                 fail(f"{path}: native gf16 arms absent from the run: {missing}")
+        if parser.family == "prime":
+            self._check_prime_semantics(parser, version, path)
+
+    def _check_prime_semantics(self, parser: LogParser, version: str, path: Path) -> None:
+        """Cross-check residue caps, routes, and banners within one prime log."""
+        banner_backend = {banner["label"]: banner["backend"] for banner in parser.banners}
+        for label, cap in parser.prime_caps.items():
+            row = label.removeprefix("matrix-").removeprefix("elementwise-")
+            if row in banner_backend and cap["backend"] != banner_backend[row]:
+                fail(f"{path}: residue row {label} reports {cap['backend']!r} but its "
+                     f"field banner reports {banner_backend[row]!r}")
+            if version == "scalar" and cap["backend"] != "scalar":
+                fail(f"{path}: the scalar residue arm reports vector row caps for {label!r}")
+            if version == "avx2" and cap["backend"] not in {"v3", "scalar"}:
+                fail(f"{path}: AVX2 residue request reports {cap['backend']!r}")
+        if version == "scalar":
+            for geometry, attrs in parser.prime_routes.items():
+                vector = attrs.get("takes_vector", attrs.get("routes_delayed"))
+                backends = {attrs["backend"], attrs.get("delayed_backend", attrs["backend"])}
+                if vector != "false" or backends != {"scalar"}:
+                    fail(f"{path}: the scalar residue arm reports a vector route for "
+                         f"{geometry!r}: {attrs}")
+        if version == "avx2":
+            for geometry, attrs in parser.prime_routes.items():
+                backends = {attrs["backend"], attrs.get("delayed_backend", attrs["backend"])}
+                if not backends <= {"v3", "scalar"}:
+                    fail(f"{path}: AVX2 residue request reports a stronger route "
+                         f"for {geometry!r}: {attrs}")
 
     def _collect(self, parser: LogParser, host: str, version: str, rnd: int) -> None:
         where = parser.path.name
@@ -1451,6 +1897,9 @@ class Campaign:
                     host, version, rnd, rec, where)
             if rec.kind in ("sample", "scalar"):
                 self.cases.setdefault(key, CaseData(first=rec)).add(
+                    host, version, rnd, rec, where)
+            elif rec.kind == "placement":
+                self.residue_cases.setdefault(key, ResidueCase(first=rec)).add(
                     host, version, rnd, rec, where)
             elif rec.kind == "trio":
                 entry = self.trio.setdefault(key, {
@@ -1494,21 +1943,22 @@ class Campaign:
                 ratios[rnd] = rec.extra["ratio"]
 
     def _log_case_keys(self, entry: dict) -> set:
-        """Re-derive the case keys of one log by reparsing it."""
+        """Re-derive the case keys of one log by reparsing it, with each key's
+        public flag so direct-kernel arms can be separated."""
         parser = LogParser(entry["family"], Path(entry["file"]))
         parser.parse(Path(entry["file"]).read_text(encoding="utf-8", errors="replace"))
         keys = set()
         for rec in parser.records:
             key = case_key(rec)
             if rec.kind == "result":
-                keys.add(key + (rec.extra["arm"],))
+                keys.add((key + (rec.extra["arm"],), rec.public))
             else:
-                keys.add(key)
+                keys.add((key, rec.public))
         return keys
 
     def _validate_row_sets(self) -> None:
-        """Row sets must be identical across rounds within one host, version,
-        and family."""
+        """Row sets must be identical across rounds within one host, arm, and
+        family; the residue arms must measure the same public workloads."""
         grouped: dict[tuple, dict[int, set]] = {}
         for entry in self.log_evidence:
             log_id = (entry["host"], entry["version"], entry["family"])
@@ -1525,18 +1975,66 @@ class Campaign:
                     diff = sorted(str(k) for k in set(rounds[rnd]) ^ set(reference))
                     fail(f"{host} {version} {family}: the row set changed at round {rnd}: "
                          f"{diff[:4]}")
-        for version in VERSIONS:
-            for family in FAMILIES:
-                reference = grouped[(self.hosts[0], version, family)][ROUNDS[0]]
-                for host in self.hosts[1:]:
+        for family in FAMILIES:
+            for version in FAMILY_VERSIONS[family]:
+                reference = grouped[(self.available_hosts[0], version, family)][ROUNDS[0]]
+                for host in self.available_hosts[1:]:
                     if grouped[(host, version, family)][ROUNDS[0]] != reference:
                         fail(f"{version} {family}: host workload sets differ")
+        for host in self.available_hosts:
+            routed = grouped[(host, "v3", "prime")][ROUNDS[0]]
+            public_routed = {key for key, public in routed if public}
+            for arm in ("avx2", "scalar"):
+                other = grouped[(host, arm, "prime")][ROUNDS[0]]
+                public_other = {key for key, public in other if public}
+                if public_routed != public_other:
+                    fail(f"{host}: routed and {arm} residue workloads differ: "
+                         f"{sorted(str(k) for k in public_routed ^ public_other)[:4]}")
         for family in FAMILIES:
-            released = grouped[(self.hosts[0], "v2", family)][ROUNDS[0]]
-            current = grouped[(self.hosts[0], "v3", family)][ROUNDS[0]]
-            matched = {key for key in current if key[4] != "gf16d"}
+            if "v2" not in FAMILY_VERSIONS[family]:
+                continue
+            released = grouped[(self.available_hosts[0], "v2", family)][ROUNDS[0]]
+            current = grouped[(self.available_hosts[0], "v3", family)][ROUNDS[0]]
+            matched = {pair for pair in current if pair[0][4] != "gf16d"}
             if released != matched:
                 fail(f"{family}: version workload sets differ beyond custom gf16d")
+
+    def _validate_residue(self) -> None:
+        """Residue caps, routes, layouts, and direct-arm skips must be identical
+        across rounds within one host and arm; the scalar arm must report
+        scalar routes everywhere."""
+        by_log = {}
+        for entry in self.log_evidence:
+            if entry["family"] == "prime":
+                by_log[(entry["host"], entry["version"], entry["round"])] = entry
+        for host in self.available_hosts:
+            for arm in FAMILY_VERSIONS["prime"]:
+                reference = None
+                for rnd in ROUNDS:
+                    state = by_log[(host, arm, rnd)]["prime_state"]
+                    if reference is None:
+                        reference = state
+                    elif state != reference:
+                        fail(f"{host} {arm} prime: residue routes or field caps "
+                             f"changed at round {rnd}")
+                self.residue_state[(host, arm)] = reference
+        for key, case in self.residue_cases.items():
+            for (host, arm), series in case.values.items():
+                if sorted(series.rounds) != list(ROUNDS):
+                    fail(f"residue case {key[3]!r} on {host} {arm} is missing rounds")
+                self.residue_aggregates[(key, host, arm)] = series.agg()
+
+    def residue_value(self, key: tuple, host: str, arm: str) -> float | None:
+        return self.residue_aggregates.get((key, host, arm))
+
+    def residue_backend(self, host: str, arm: str) -> str | None:
+        backends = set()
+        for entry in self.log_evidence:
+            if (entry["host"], entry["version"], entry["family"]) == (host, arm, "prime"):
+                backends.update(b["backend"] for b in entry["process_backends"])
+        if len(backends) > 1:
+            fail(f"{host} {arm} prime: inconsistent backend banners: {sorted(backends)}")
+        return next(iter(backends), None)
 
     def _aggregate(self) -> None:
         for key, data in self.cases.items():
@@ -1916,6 +2414,9 @@ class Renderer:
                                ["Latency per call. The one-shot form derives the backend "
                                 "coefficient on every call; the prepared form reuses "
                                 "coefficients built outside the timed region."])
+        if table:
+            byte_size = {fmt_bytes(length): length for length in lengths}
+            table.rows.sort(key=lambda row: (row.field, byte_size[row.labels[-1]]))
         return [table] if table else []
 
     def section_scattermatrix(self, family: str) -> list[Table]:
@@ -2651,18 +3152,21 @@ def _gf16_payload(campaign: Campaign) -> list[dict]:
 
 
 def build_evidence(campaign: Campaign, renderer: Renderer) -> bytes:
+    import residue_publish
     payload = {
         "generator": "benches/publish.py",
         "records_root": str(campaign.records_root),
         "metadata": campaign.metadata,
         "hosts": [{"name": host,
+                   "available": host in campaign.available_hosts,
                    "environment_sha256": campaign.environments[host]["sha256"],
                    "environment_text": campaign.environments[host]["text"]}
-                  for host in campaign.hosts],
+                  for host in campaign.available_hosts],
         "order": campaign.order_rows,
         "logs": campaign.log_evidence,
         "cases": [_case_payload(campaign, key, data)
                   for key, data in sorted(campaign.cases.items(), key=str)],
+        "residue_cases": residue_publish.residue_payload(campaign),
         "trio_cases": _competitor_payload(campaign, campaign.trio,
                                           ("fgf", "isal", "klauspost")),
         "prime_cases": _competitor_payload(campaign, campaign.prime, ("fgf", "p3")),
@@ -2712,6 +3216,11 @@ def main(argv: list[str] | None = None) -> int:
         for family in PAGE_FAMILIES:
             pages[f"comparison/{family}.md"] = renderer.render_comparison(
                 family).encode("utf-8")
+        import residue_publish
+        pages["v3/residue.md"] = residue_publish.render_snapshot(
+            campaign, renderer).encode("utf-8")
+        pages["comparison/residue.md"] = residue_publish.render_comparison(
+            campaign, renderer).encode("utf-8")
     except PublishError as exc:
         print(f"publish: {exc}", file=sys.stderr)
         return 1

@@ -1,121 +1,128 @@
 # Benchmarks
 
-Released v2 and v3 absolute measurements occupy separate directories. The
-comparison directory contains matched v3 speed factors, not absolute results.
-The [canonical labels](benchmarks/labels.md) identify field presentations
-independently of public type names.
+One campaign refreshes every family, both released-v2 and current-v3 workloads,
+and all wired competitors. Generic prime residues compare the current public
+API across backend requests; they have no released-v2 counterpart.
 
-Every paired cell uses **Willow Cove (i5-1135G7) / Golden Cove (i7-12700K)** order. Units appear in table
-headers; `-` marks an unavailable measurement. The
-[comparison protocol](benchmarks/comparison/README.md) defines matching and ratios.
+Cells use **Willow Cove / Golden Cove** order. Both hosts run the complete
+campaign; unavailable operations or competitor measurements remain `-`.
+[Field labels](benchmarks/labels.md) identify the exact presentations;
+[comparison rules](benchmarks/comparison/README.md) define matched work and ratios.
 
-| Family | Released v2 | v3 | Comparison | Competitors |
+## Results
+
+| Field presentation | Released v2 | Current v3 | Comparison | Competitors |
 | --- | --- | --- | --- | --- |
-| `gf8b`, `gf8d` | [v2](benchmarks/v2/gf8.md) | [v3](benchmarks/v3/gf8.md) | [Factors](benchmarks/comparison/gf8.md) | Intel ISA-L, klauspost/reedsolomon |
-| `gf16b`, custom `gf16d` | [v2](benchmarks/v2/gf16.md) | [v3](benchmarks/v3/gf16.md) | [Factors](benchmarks/comparison/gf16.md) | GF-Complete, reed-solomon-erasure, reed-solomon-simd, Leopard-RS 1.x |
-| `gf32b`, `gf64b`, `fp16`, `fp32`, `fp64` | [v2](benchmarks/v2/wide-binary.md) | [v3](benchmarks/v3/wide-binary.md) | [Factors](benchmarks/comparison/wide-binary.md) | - |
-| Bit-packed `gf1` | [v2](benchmarks/v2/gf1.md) | [v3](benchmarks/v3/gf1.md) | [Factors](benchmarks/comparison/gf1.md) | - |
-| `m31`, `qm31` | [v2](benchmarks/v2/mersenne31.md) | [v3](benchmarks/v3/mersenne31.md) | [Factors](benchmarks/comparison/mersenne31.md) | Plonky3 |
-| `gld` | [v2](benchmarks/v2/goldilocks.md) | [v3](benchmarks/v3/goldilocks.md) | [Factors](benchmarks/comparison/goldilocks.md) | Plonky3 |
+| Byte polynomial fields | [gf8](benchmarks/v2/gf8.md) | [gf8](benchmarks/v3/gf8.md) | [v3/v2](benchmarks/comparison/gf8.md) | Intel ISA-L, klauspost/reedsolomon |
+| Degree-16 extensions | [gf16](benchmarks/v2/gf16.md) | [gf16](benchmarks/v3/gf16.md) | [v3/v2](benchmarks/comparison/gf16.md) | GF-Complete, reed-solomon-erasure, reed-solomon-simd, Leopard-RS 1.x |
+| Wider binary extensions | [wide binary](benchmarks/v2/wide-binary.md) | [wide binary](benchmarks/v3/wide-binary.md) | [v3/v2](benchmarks/comparison/wide-binary.md) | - |
+| Bit-packed GF(2) | [gf1](benchmarks/v2/gf1.md) | [gf1](benchmarks/v3/gf1.md) | [v3/v2](benchmarks/comparison/gf1.md) | - |
+| Mersenne specializations | [m31, qm31](benchmarks/v2/mersenne31.md) | [m31, qm31](benchmarks/v3/mersenne31.md) | [v3/v2](benchmarks/comparison/mersenne31.md) | Plonky3 |
+| Goldilocks specialization | [gld](benchmarks/v2/goldilocks.md) | [gld](benchmarks/v3/goldilocks.md) | [v3/v2](benchmarks/comparison/goldilocks.md) | Plonky3 |
+| Generic prime residues | - | [Residues](benchmarks/v3/residue.md) | [AVX2 and scalar](benchmarks/comparison/residue.md) | - |
 
-## Sources and hosts
+Absolute pages contain public-operation timings and competitor comparisons.
+The residue tables put row lengths in columns, with expandable operation panels
+instead of appending separate tuning campaigns. Version and backend factors
+live only in the comparison pages; values below one remain visible.
 
-| Setting | Value |
+## Campaign
+
+| Setting | Willow Cove | Golden Cove |
+| --- | --- | --- |
+| Campaign date (UTC) | 2026-10-13 | 2026-10-13 |
+| CPU | Intel Core i5-1135G7 | Intel Core i7-12700K |
+| Availability | Measured | Measured |
+| OS | Arch Linux 7.2.7-arch1-1 | CachyOS Linux 7.2.6-1-cachyos |
+| Isolated CPU | 3 | 8; isolated set 8–11 |
+| Governor | performance | performance |
+| SMT | Siblings offline | Enabled; sibling 9 isolated and online |
+| Requested process backend | v4x | v3_gfni_crypto |
+| Rust | 1.98.1 | 1.98.1 |
+| Execution | SCHED_IDLE, pinned CPU; RAYON_NUM_THREADS=1, GOMAXPROCS=1 | SCHED_IDLE, pinned CPU; RAYON_NUM_THREADS=1, GOMAXPROCS=1 |
+
+| Source and method | Value |
 | --- | --- |
-| Campaign date (UTC) | 2026-10-06 |
 | Released baseline | v2.1.0, `c20465ba22d078e0fb115fb6a99fa77027992c90` |
-| v3 revision | `4fa978b27d7b7b11c83291e212f47eccb5e7e8f3` |
-| Baseline adapter | Benchmark-only API adaptation; released library source unchanged |
-| Measurement adapters | Matched benchmark-only timing/logging and canonical input/alignment fixtures; v3 library change is a documentation link |
-| CPU | Intel Core i5-1135G7 / Intel Core i7-12700K |
-| OS | Arch Linux 7.2.7-arch1-1 / CachyOS Linux 7.2.6-1-cachyos |
-| Isolated CPU | 3 / 8 |
-| Governor | `performance` / `powersave` |
-| SMT | Willow Cove siblings offline; Golden Cove CPU 8 has online sibling 9 |
-| Requested process backend | `v4x` / `v3_gfni_crypto` |
-| Rust | 1.98.1 |
-| Dependencies | `simdispatch` 0.2.0, `archmage` 0.9.29 |
-| Portable self executables | Identical binaries on both hosts; default x86-64 target, all features, thin LTO, one codegen unit; published dependencies, outside umbrella patches |
-| Native competitors | Built on each host; versions and execution modes appear in family pages |
-| Execution | `SCHED_IDLE`, pinned CPU, `RAYON_NUM_THREADS=1`, `GOMAXPROCS=1` |
+| Current library | Working tree based on v3.0.1, revision `f3cd58c39e6e3672216912dd3e6131da1c4b670a` |
+| Current source archive SHA-256 | `778804696da94a736b05ca29dd1c686c2c7d42813d6e166ad5441c77ef5e84f9` |
+| Baseline source archive SHA-256 | `9c36b80d2f5fb5c585f581854f6e4ba6a4e4fb564746077ac5903d2452aa6c42` |
+| Self build | Portable x86-64 target, all features, thin LTO, one codegen unit; published dependency pins |
+| Competitor build | Native host builds; versions and packing widths in family pages |
+| Sampling | Median of five per-run medians; no historical timing inputs |
+| Version order | Both versions in shuffled order within every family round |
+| Residue order | Same artifact per host under routed, v3, scalar requests; rotating order within every round |
+| Residue placements | Median over offsets 0, 16, 32 within each run |
+| Self calibration | Target 100 µs; at most 64 samples, 250 ms deadline |
+| Controls | Unchanged byte-XOR at process entry/exit; duplicate fgf competitor arms |
+| Number format | Uniform total digit count per table, at least three significant figures; round-half-up; ratios keep five digits |
 
-Process selection is not an operation-level capability claim. Prime-field
-routes and the scalar custom `gf16d` route are recorded separately. GF(2^16)
-scatter and gather retain their implemented narrower kernel routes.
+## Caveats
 
-## Sampling and geometry
+- A process backend is not an operation-level claim. Field caps and residue
+  operation routes are retained in the evidence; short rows can use narrower
+  or portable paths.
+- Allocation, fixture generation, reusable preparation, and representation
+  conversion are excluded unless the panel explicitly includes them.
+- Throughput numerators belong to each panel. Self multi-row panels and native
+  competitor panels do not use interchangeable byte counts.
+- Scalar dependency chains include zero coefficients. Plonky3 scalar panels
+  instead perform indexed multiply-accumulate operations.
+- Native GF(2^16) libraries keep their own encodings; validated field maps are
+  outside timing. The custom `gf16d` presentation is v3-only and scalar-routed.
+- Backend comparisons measure public calls under downgrade requests, not
+  isolated instruction bodies or a separate released residue implementation.
+- Differences comparable to control or round variability do not establish a win.
+- Golden Cove has no live AVX-512 capability. Its routed residue calls use
+  AVX2 or scalar; a routed-versus-AVX2 factor on that host is not an
+  AVX-512 comparison.
+- Short-call and native competitor results can vary across rounds. Per-case
+  duplicate-fgf controls remain in the GF(2^16) pages; their variability
+  also limits interpretation of small differences.
 
-Five rounds interleave both versions independently for each family. Competitor
-arms interleave within their harness. Each result aggregates the five per-run
-medians; no historical values feed the tables. Controls retain the same rounds
-and aggregation rather than serving as cross-host calibration.
+## Reproduce
 
-Self-suite batches calibrate toward a minimum elapsed duration before collecting
-bounded repeated samples. Scalar chains use wrapping coefficient streams,
-including zero; they do not represent a nonzero-only dependency chain. The
-Plonky3 scalar panel instead performs indexed `acc += a * b` operations.
-
-| Protocol | Value |
-| --- | --- |
-| Self batch calibration | Target 100 µs; minimum 32 or 512 calls according to panel; maximum 1,048,576 calls |
-| Self repeated sampling | At most 64 samples, 250 ms deadline |
-| Scalar batch | 1,048,576 operations |
-| Self controls | Identical 256 KiB byte-XOR operation at process start and end |
-| Native GF(2^16) checks | All 65,536 mapped values, all 256 basis products, and every measured geometry checked before timing |
-| Setup excluded | Allocation, deterministic input construction, caller-owned coefficient preparation, representation conversion, and native map construction; one-shot API internal preparation remains timed |
-| Self single-row numerator | Buffer bytes |
-| Self scatter/gather/matrix numerator | Row bytes × sources × destinations, unless the panel explicitly states a source-byte numerator |
-| ISA-L/Go and native GF(2^16) numerator | Row bytes × sources; destination count does not multiply the numerator |
-| Plonky3 packed numerator | Two region extents; 131,072 logical bytes for the 64 KiB-region workload |
-| GF(2) numerator | Packed bytes; row-pair latency is per compared pair |
-
-Native GF(2^16) arms retain their own encodings. Validated field maps convert
-inputs and coefficients outside timing; native encodings are not relabeled
-`gf16d`. That label denotes the custom v3 presentation and has no invented v2
-counterpart.
-
-## Number format
-
-A table uses a uniform total digit count, including leading zeros, sufficient
-for at least three significant figures at its recorded resolution. Rounding is
-round-half-up; integer parts remain intact. Ratios use five total digits.
-Throughput and speed factors derive from unrounded host-local latency
-aggregates, not displayed cells.
-
-## Reproduction
-
-Prepare the released baseline and run the paired campaign from each v3 checkout:
+Run the complete campaign on each host from an isolated checkout outside
+umbrella dependency patches, then collect both host directories before
+publishing:
 
 ```sh
 just doctor
 just bench-prepare-v2 /tmp/fgf-v2-bench
 export RUSTUP_TOOLCHAIN=1.98.1 RAYON_NUM_THREADS=1 GOMAXPROCS=1
-export FEC_GOLDEN_CORE=3 SIMD_BACKEND=v4x # Willow Cove (i5-1135G7)
-# Golden Cove (i7-12700K): FEC_GOLDEN_CORE=8 SIMD_BACKEND=v3_gfni_crypto
-just bench-paired /tmp/fgf-v2-bench /tmp/fgf-paired-records
+export HOST=willow FEC_GOLDEN_CORE=3 SIMD_BACKEND=v4x
+# Golden Cove: HOST=golden FEC_GOLDEN_CORE=8 SIMD_BACKEND=v3_gfni_crypto
+mkdir -p "/tmp/fgf-records/$HOST"
+{
+  date -u; uname -a; lscpu; rustc -Vv; cargo -V
+  cat "/sys/devices/system/cpu/cpu$FEC_GOLDEN_CORE/cpufreq/scaling_governor"
+  cat "/sys/devices/system/cpu/cpu$FEC_GOLDEN_CORE/topology/thread_siblings_list"
+} > "/tmp/fgf-records/$HOST/environment.txt"
+just bench-paired /tmp/fgf-v2-bench "/tmp/fgf-records/$HOST"
+# Supply metadata.json and collect both complete host directories.
+just bench-publish /tmp/fgf-records benchmarks
+just bench-publish /tmp/fgf-records benchmarks --verify
 ```
 
-The measured campaign also supplied `FGF_SELF_ARTIFACTS` pointing at the shared
-portable `v2/` and `v3/` executable directories. Without that setting, the
-recipe builds the self executables locally. A host lock prevents overlapping
-campaigns, and completion markers and shuffled-order records accompany the logs.
+Use this manifest shape, replacing the current revision with the measured
+checkout's revision and retaining source/artifact digests with the raw records:
 
-Collect both host directories beneath one records root with the campaign
-metadata, then publish and verify without overwriting:
-
-```sh
-just bench-publish <records-root> benchmarks
-just bench-publish <records-root> benchmarks --verify
+```json
+{
+  "v2_revision": "c20465ba22d078e0fb115fb6a99fa77027992c90",
+  "v3_revision": "<measured-revision>",
+  "toolchain": "1.98.1",
+  "rounds": 5,
+  "host_order": ["willow", "golden"],
+  "hosts": {
+    "willow": {"cpu": "Intel Core i5-1135G7", "core": 3, "requested_backend": "v4x"},
+    "golden": {"cpu": "Intel Core i7-12700K", "core": 8, "requested_backend": "v3_gfni_crypto"}
+  }
+}
 ```
 
-`metadata.json` declares `v2_revision`, `v3_revision`, `toolchain`, `rounds`
-(five), and `host_order` (private identifiers ordered Willow Cove, Golden Cove).
-Its `hosts` object uses that insertion order and gives each host's CPU model,
-integer `core`, and string
-`requested_backend`. Environment captures and source/build checksums accompany
-the manifest; host directories contain the runner's original logs and markers.
-
-The publisher rejects incomplete rounds, changed workload sets, malformed
-records, invalid timing values, missing controls, and backend mismatches. Raw
-logs, build/source checksums, environment captures, and the cell-level evidence
-index remain in git-ignored `bench-records/`.
+The runner records realized order and completion under a host-wide lock.
+Raw logs, source/build digests, and cell-level `evidence.json` stay in
+git-ignored `bench-records/`. The publisher rejects incomplete available-host
+rounds, changed geometries, missing competitors or controls, invalid values,
+and backend mismatches.

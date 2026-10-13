@@ -14,10 +14,10 @@ TIERS := 'v4x v3_gfni_crypto v3 v2 scalar'
 MIRI := ''
 
 # Coverage exclusions for code that cannot execute on a CI host. The binary
-# field kernels require GFNI, and QuadMersenne31's AVX-512 kernel requires V4x.
-# The GitHub-hosted coverage runner cannot select those tiers; mixed-ISA prime
-# dispatch modules remain included.
-COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/(gf8|tower)\.rs$"'
+# field kernels require GFNI; QuadMersenne31 and residue AVX-512 kernels require
+# V4x. The GitHub-hosted coverage runner cannot select those tiers; AVX2
+# residue kernels and mixed-ISA prime dispatch modules remain included.
+COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/x86/residue/avx512(/|\.rs$)|kernel/(gf8|tower)\.rs$"'
 
 # Export the existing merged profiles, including after a failed coverage gate.
 [group('cover')]
@@ -82,9 +82,12 @@ external-check:
 # Negative consumer snippets under `tests/compile_fail/`: each must fail to
 # compile on the crate MSRV. The first line names the expectation: a
 # crate-owned panic fragment (`expect:`) that must appear in the error, or
-# `expect-rejection` for trait-bound and privacy rejections. Unresolved-name
-# errors reject a missing import rather than the intended bound and fail the
-# case. Cargo does not treat this directory as test targets.
+# `expect-rejection` for trait-bound and privacy rejections, where only the
+# failure itself is the contract. A rejection case fails when stderr holds
+# an unresolved-name error (`E0412`, `E0425`, `E0432`, `E0433`): such a
+# snippet was rejected for a missing import, not the bound under test.
+# Cargo does not treat that directory as test targets, so these run only
+# through this recipe.
 [group('test')]
 compile-fail:
     #!/usr/bin/env bash
@@ -376,7 +379,7 @@ bench-refresh-round FAMILY:
     case "{{FAMILY}}" in
         gf) units=(self trio gf16) ;;
         gdl|m31) units=(self prime) ;;
-        gf2) units=(self) ;;
+        gf2|prime) units=(self) ;;
         *) printf 'invalid_family family=%s\n' "{{FAMILY}}" >&2; exit 2 ;;
     esac
     printf '%s\n' "${units[@]}" | shuf | while read -r unit; do
@@ -437,6 +440,25 @@ bench-paired V2_ROOT OUTPUT:
                     just --justfile "$source/justfile" --working-directory "$source" bench-refresh-round "$family" \
                     >"$out/round-$round-$version-$family.log" 2>&1
             done
+        done
+        case "$((round % 3))" in
+            1) variants=(v3 avx2 scalar) ;;
+            2) variants=(avx2 scalar v3) ;;
+            0) variants=(scalar v3 avx2) ;;
+        esac
+        for variant in "${variants[@]}"; do
+            case "$variant" in
+                v3) tier="$SIMD_BACKEND" ;;
+                avx2) tier=v3 ;;
+                scalar) tier=scalar ;;
+            esac
+            if [[ -n "${FGF_PORTABLE_ARTIFACTS:-}" ]]; then
+                export FGF_SELF_ARTIFACTS="$FGF_PORTABLE_ARTIFACTS/v3"
+            fi
+            printf '%s\tprime\t%s\n' "$round" "$variant" | tee -a "$out/order.tsv"
+            SIMD_BACKEND="$tier" chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" \
+                just --justfile "$v3/justfile" --working-directory "$v3" bench-refresh-round prime \
+                >"$out/round-$round-$variant-prime.log" 2>&1
         done
     done
     printf 'CAMPAIGN_COMPLETE\n' >"$out/complete.txt"
