@@ -7,23 +7,26 @@
 #![forbid(unsafe_code)]
 
 use fgf::Field;
-use fgf::{Binary, Elem, Mersenne31, Polynomial, QuadMersenne31};
+use fgf::{Elem, FiniteField, Mersenne31, Polynomial, QuadMersenne31};
 
 use fgf::poly::AES;
 
-// Callers name their own fields; the canonical `Binary<N, R>` type is the API.
-type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
-type FanPaar8Field = fgf::Binary<8, fgf::Tower<fgf::FanPaar8>>;
-type FanPaar16Field = fgf::Binary<16, fgf::Tower<fgf::FanPaar16>>;
+// Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
+type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
+type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Tower<fgf::FanPaar8>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Tower<fgf::FanPaar16>>;
 
 fn main() {
     // In the AES-rooted tower, x = a + b*u and u^2 + u + DELTA = 0.
-    let a = Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53);
-    let b = Elem::<Binary<8, Polynomial<AES>>>::from_raw(0xca);
+    let a = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
+    let b = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0xca);
     let x = Elem::<Gf16>::from_components(a, b);
-    let conjugate = x.pow(Binary::<8, Polynomial<AES>>::ORDER);
+    let conjugate = x.pow(FiniteField::<2, 8, Polynomial<AES>>::ORDER);
     assert_eq!(conjugate, Elem::<Gf16>::from_components(a + b, b));
-    assert_eq!(conjugate.pow(Binary::<8, Polynomial<AES>>::ORDER), x);
+    assert_eq!(
+        conjugate.pow(FiniteField::<2, 8, Polynomial<AES>>::ORDER),
+        x
+    );
     assert_eq!(x.pow(Gf16::ORDER), x);
 
     // Relative trace and norm land in the embedded byte subfield.
@@ -31,13 +34,18 @@ fn main() {
     let norm = x * conjugate;
     assert_eq!(
         trace,
-        Elem::<Gf16>::from_components(b, Elem::<Binary<8, Polynomial<AES>>>::ZERO)
+        Elem::<Gf16>::from_components(b, Elem::<FiniteField<2, 8, Polynomial<AES>>>::ZERO)
     );
     let (norm_base, norm_extension) = norm.to_components();
-    assert_eq!(norm_extension, Elem::<Binary<8, Polynomial<AES>>>::ZERO);
+    assert_eq!(
+        norm_extension,
+        Elem::<FiniteField<2, 8, Polynomial<AES>>>::ZERO
+    );
     assert_eq!(
         norm_base,
-        a.square() + a * b + Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x20) * b.square()
+        a.square()
+            + a * b
+            + Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x20) * b.square()
     );
     assert_eq!(x * x.inv(), Elem::<Gf16>::ONE);
     assert_eq!(x.to_bytes(), [a.to_raw(), b.to_raw()]);

@@ -5,17 +5,17 @@
 //! stay unchanged through the tower cutover: they use only the surviving
 //! alias spellings and the unified low-component-first packing.
 
-use fgf::{AES, Binary, Elem, Polynomial};
+use fgf::{AES, Elem, FiniteField, Polynomial};
 
-type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
-type Gf32 = fgf::Binary<32, fgf::Tower<fgf::Rijndael32>>;
-type Gf64 = fgf::Binary<64, fgf::Tower<fgf::Rijndael64>>;
-type FanPaar8Field = fgf::Binary<8, fgf::Tower<fgf::FanPaar8>>;
-type FanPaar16Field = fgf::Binary<16, fgf::Tower<fgf::FanPaar16>>;
-type FanPaar32Field = fgf::Binary<32, fgf::Tower<fgf::FanPaar32>>;
-type FanPaar64Field = fgf::Binary<64, fgf::Tower<fgf::FanPaar64>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::Tower<fgf::Rijndael32>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
+type FanPaar8Field = fgf::FiniteField<2, 8, fgf::Tower<fgf::FanPaar8>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Tower<fgf::FanPaar16>>;
+type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Tower<fgf::FanPaar32>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Tower<fgf::FanPaar64>>;
 
-type Aes8 = Binary<8, Polynomial<AES>>;
+type Aes8 = FiniteField<2, 8, Polynomial<AES>>;
 
 #[test]
 fn gf16_forward_layout() {

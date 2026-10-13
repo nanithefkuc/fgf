@@ -22,7 +22,7 @@
 //! [`archmage`]: https://docs.rs/archmage
 
 use crate::field::Elem;
-use crate::field::binary::Binary;
+use crate::field::FiniteField;
 use crate::field::binary::tower::{Rijndael16, Rijndael32, Tower, TowerSpec};
 use crate::kernel::scalar;
 use crate::kernel::tables::{Tower2Coeff, TowerCoeff};
@@ -51,14 +51,15 @@ const fn pack32(lo: u16, hi: u16) -> u32 {
 /// build its own 8-byte tiles.
 #[inline]
 #[must_use]
-pub fn gf32_tiles(coeff: Elem<Binary<32, Tower<Rijndael32>>>) -> [u32; 4] {
+pub fn gf32_tiles(coeff: Elem<FiniteField<2, 32, Tower<Rijndael32>>>) -> [u32; 4] {
     let (c0, c1) = coeff.to_components();
     // `same = [c0, c0 + c1]` multiplies the source; `cross = [DELTA*c1, c1]`
     // the half-swapped source.
     // The pinned constant fits its base word by validation.
     #[allow(clippy::cast_possible_truncation)]
-    let delta =
-        Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(Rijndael32::CONSTANT_COEFFICIENT as u16);
+    let delta = Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(
+        Rijndael32::CONSTANT_COEFFICIENT as u16,
+    );
     let t = Tower2Coeff::derive(c0, c1, delta);
     let [s0, s1] = t.same;
     let [x0, x1] = t.cross;
@@ -162,7 +163,7 @@ fn lane32(tiles: [u32; 4]) -> Lane32 {
 pub fn mul_add_gfni(
     _token: archmage::X64V3GfniCryptoToken,
     dst: &mut [u8],
-    coeff: Elem<Binary<32, Tower<Rijndael32>>>,
+    coeff: Elem<FiniteField<2, 32, Tower<Rijndael32>>>,
     tiles: [u32; 4],
     src: &[u8],
 ) {
@@ -189,7 +190,7 @@ pub fn mul_add_gfni(
     }
     // Every 32-byte lane is a whole number of 4-byte elements, so the tail
     // starts on an element boundary.
-    scalar::mul_add::<Binary<32, Tower<Rijndael32>>>(dst_tail, coeff, src_tail);
+    scalar::mul_add::<FiniteField<2, 32, Tower<Rijndael32>>>(dst_tail, coeff, src_tail);
 }
 
 /// `dst = coeff * dst` with `GF2P8MULB` over 32-byte lanes.
@@ -201,7 +202,7 @@ pub fn mul_add_gfni(
 pub fn mul_assign_gfni(
     _token: archmage::X64V3GfniCryptoToken,
     dst: &mut [u8],
-    coeff: Elem<Binary<32, Tower<Rijndael32>>>,
+    coeff: Elem<FiniteField<2, 32, Tower<Rijndael32>>>,
     tiles: [u32; 4],
 ) {
     assert!(
@@ -216,7 +217,7 @@ pub fn mul_assign_gfni(
         let r = scale32(x, &l);
         _mm256_storeu_si256(dst_lane, r);
     }
-    scalar::mul_assign::<Binary<32, Tower<Rijndael32>>>(dst_tail, coeff);
+    scalar::mul_assign::<FiniteField<2, 32, Tower<Rijndael32>>>(dst_tail, coeff);
 }
 
 /// `dst = coeff * src` with `GF2P8MULB` over 32-byte lanes, out of place.
@@ -231,7 +232,7 @@ pub fn mul_assign_gfni(
 pub fn mul_into_gfni(
     _token: archmage::X64V3GfniCryptoToken,
     dst: &mut [u8],
-    coeff: Elem<Binary<32, Tower<Rijndael32>>>,
+    coeff: Elem<FiniteField<2, 32, Tower<Rijndael32>>>,
     tiles: [u32; 4],
     src: &[u8],
 ) {
@@ -258,5 +259,5 @@ pub fn mul_into_gfni(
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its
     // own source, so seeding it with `src` first matches the fused body.
     dst_tail.copy_from_slice(src_tail);
-    scalar::mul_assign::<Binary<32, Tower<Rijndael32>>>(dst_tail, coeff);
+    scalar::mul_assign::<FiniteField<2, 32, Tower<Rijndael32>>>(dst_tail, coeff);
 }

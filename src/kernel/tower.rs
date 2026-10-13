@@ -27,12 +27,13 @@ pub mod gf16 {
     //! representation, or an element.
 
     use crate::field::Elem;
+    use crate::field::FiniteField;
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     use crate::field::binary::tower::FanPaar16;
     use crate::field::binary::tower::{
         FANPAAR16_DESC, RIJNDAEL16_DESC, Rijndael16, Tower, TowerSpec,
     };
-    use crate::field::binary::{Binary, BinaryDegree, BinaryRepr};
+    use crate::field::binary::{BinaryDegree, BinaryRepr};
     #[cfg(all(
         feature = "simd",
         any(
@@ -193,13 +194,13 @@ pub mod gf16 {
     /// Rijndael16 presentation, whose arithmetic those tables encode.
     #[inline]
     fn rijndael_tables(raw: u16) -> TowerTables {
-        TowerTables::new(Elem::<Binary<16, Tower<Rijndael16>>> { raw })
+        TowerTables::new(Elem::<FiniteField<2, 16, Tower<Rijndael16>>> { raw })
     }
 
     /// Resolve one raw tower word into the Rijndael broadcast pair.
     #[inline]
     fn rijndael_compact(raw: u16) -> TowerCoeff {
-        TowerCoeff::new(Elem::<Binary<16, Tower<Rijndael16>>> { raw })
+        TowerCoeff::new(Elem::<FiniteField<2, 16, Tower<Rijndael16>>> { raw })
     }
 
     #[cfg(all(
@@ -319,7 +320,7 @@ pub mod gf16 {
             target_arch = "wasm32"
         )
     ))]
-    impl<S: TowerSpec> Coeffs for alloc::vec::Vec<Elem<Binary<16, Tower<S>>>>
+    impl<S: TowerSpec> Coeffs for alloc::vec::Vec<Elem<FiniteField<2, 16, Tower<S>>>>
     where
         S::Base: BinaryDegree<8>,
     {
@@ -334,7 +335,7 @@ pub mod gf16 {
             let raw = self[index].to_raw();
             if raw == 0 {
                 CoeffKind::Zero
-            } else if raw == Elem::<Binary<16, Tower<S>>>::ONE.to_raw() {
+            } else if raw == Elem::<FiniteField<2, 16, Tower<S>>>::ONE.to_raw() {
                 CoeffKind::One
             } else {
                 CoeffKind::General
@@ -362,7 +363,7 @@ pub mod gf16 {
             target_arch = "wasm32"
         )
     ))]
-    impl<S: TowerSpec, const N: usize> Coeffs for [Elem<Binary<16, Tower<S>>>; N]
+    impl<S: TowerSpec, const N: usize> Coeffs for [Elem<FiniteField<2, 16, Tower<S>>>; N]
     where
         S::Base: BinaryDegree<8>,
     {
@@ -377,7 +378,7 @@ pub mod gf16 {
             let raw = self[index].to_raw();
             if raw == 0 {
                 CoeffKind::Zero
-            } else if raw == Elem::<Binary<16, Tower<S>>>::ONE.to_raw() {
+            } else if raw == Elem::<FiniteField<2, 16, Tower<S>>>::ONE.to_raw() {
                 CoeffKind::One
             } else {
                 CoeffKind::General
@@ -405,7 +406,7 @@ pub mod gf16 {
             target_arch = "wasm32"
         )
     ))]
-    impl<S: TowerSpec> Coeffs for [Elem<Binary<16, Tower<S>>>]
+    impl<S: TowerSpec> Coeffs for [Elem<FiniteField<2, 16, Tower<S>>>]
     where
         S::Base: BinaryDegree<8>,
     {
@@ -420,7 +421,7 @@ pub mod gf16 {
             let raw = self[index].to_raw();
             if raw == 0 {
                 CoeffKind::Zero
-            } else if raw == Elem::<Binary<16, Tower<S>>>::ONE.to_raw() {
+            } else if raw == Elem::<FiniteField<2, 16, Tower<S>>>::ONE.to_raw() {
                 CoeffKind::One
             } else {
                 CoeffKind::General
@@ -457,13 +458,13 @@ pub mod gf16 {
             target_arch = "wasm32"
         )
     ))]
-    impl<S: TowerSpec> Matrix<TowerTables> for [(&[Elem<Binary<16, Tower<S>>>], &[u8])]
+    impl<S: TowerSpec> Matrix<TowerTables> for [(&[Elem<FiniteField<2, 16, Tower<S>>>], &[u8])]
     where
         S::Base: BinaryDegree<8>,
     {
         #[inline]
         fn len(&self) -> usize {
-            <[(&[Elem<Binary<16, Tower<S>>>], &[u8])]>::len(self)
+            <[(&[Elem<FiniteField<2, 16, Tower<S>>>], &[u8])]>::len(self)
         }
 
         #[inline]
@@ -480,13 +481,13 @@ pub mod gf16 {
     /// Raw per-term tower elements as a [`Matrix`] of broadcast pairs: the
     /// GFNI and AVX-512 matrix routes, which read no nibble table.
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    impl<S: TowerSpec> Matrix<TowerCoeff> for [(&[Elem<Binary<16, Tower<S>>>], &[u8])]
+    impl<S: TowerSpec> Matrix<TowerCoeff> for [(&[Elem<FiniteField<2, 16, Tower<S>>>], &[u8])]
     where
         S::Base: BinaryDegree<8>,
     {
         #[inline]
         fn len(&self) -> usize {
-            <[(&[Elem<Binary<16, Tower<S>>>], &[u8])]>::len(self)
+            <[(&[Elem<FiniteField<2, 16, Tower<S>>>], &[u8])]>::len(self)
         }
 
         #[inline]
@@ -508,7 +509,7 @@ pub mod gf16 {
     where
         S::Base: BinaryDegree<8>,
     {
-        values: &'a [Elem<Binary<16, Tower<S>>>],
+        values: &'a [Elem<FiniteField<2, 16, Tower<S>>>],
         nrows: usize,
         sources: &'a [&'a [u8]],
     }
@@ -524,7 +525,7 @@ pub mod gf16 {
         #[inline]
         #[must_use]
         pub fn new<'a>(
-            values: &'a [Elem<Binary<16, Tower<S>>>],
+            values: &'a [Elem<FiniteField<2, 16, Tower<S>>>],
             nrows: usize,
             sources: &'a [&'a [u8]],
         ) -> FlatResolved<'a, S> {
@@ -768,7 +769,7 @@ pub mod gf16 {
         }
     }
 
-    impl<S: TowerSpec> FieldKernels for Binary<16, Tower<S>>
+    impl<S: TowerSpec> FieldKernels for FiniteField<2, 16, Tower<S>>
     where
         S::Base: BinaryDegree<8>,
     {
@@ -810,13 +811,13 @@ pub mod gf16 {
         }
     }
 
-    impl<S: TowerSpec> KernelDispatch for Binary<16, Tower<S>>
+    impl<S: TowerSpec> KernelDispatch for FiniteField<2, 16, Tower<S>>
     where
         S::Base: BinaryDegree<8>,
     {
         type Prepared = Prepared;
 
-        fn prepare(_proof: RawDispatch, coeff: Elem<Binary<16, Tower<S>>>) -> Prepared {
+        fn prepare(_proof: RawDispatch, coeff: Elem<FiniteField<2, 16, Tower<S>>>) -> Prepared {
             let raw = coeff.to_raw();
             if rijndael16::<S>() {
                 return match backend() {
@@ -841,7 +842,9 @@ pub mod gf16 {
                 return match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2 => {
-                        Prepared::Fp(FpTowerTables::new(Elem::<Binary<16, Tower<FanPaar16>>> {
+                        Prepared::Fp(FpTowerTables::new(Elem::<
+                            FiniteField<2, 16, Tower<FanPaar16>>,
+                        > {
                             raw,
                         }))
                     }
@@ -852,8 +855,11 @@ pub mod gf16 {
         }
 
         #[inline]
-        fn prepared_coeff(_proof: RawDispatch, prepared: &Prepared) -> Elem<Binary<16, Tower<S>>> {
-            Elem::<Binary<16, Tower<S>>>::from_raw(prepared.coeff())
+        fn prepared_coeff(
+            _proof: RawDispatch,
+            prepared: &Prepared,
+        ) -> Elem<FiniteField<2, 16, Tower<S>>> {
+            Elem::<FiniteField<2, 16, Tower<S>>>::from_raw(prepared.coeff())
         }
 
         #[inline]
@@ -1060,7 +1066,7 @@ pub mod gf16 {
             _proof: RawDispatch,
             rows: &mut [u8],
             row_len: usize,
-            coeffs: &[Elem<Binary<16, Tower<S>>>],
+            coeffs: &[Elem<FiniteField<2, 16, Tower<S>>>],
             src: &[u8],
         ) {
             if rijndael16::<S>() {
@@ -1137,7 +1143,7 @@ pub mod gf16 {
             _proof: RawDispatch,
             rows: &mut [u8],
             row_len: usize,
-            values: &[Elem<Binary<16, Tower<S>>>],
+            values: &[Elem<FiniteField<2, 16, Tower<S>>>],
             coeffs: &[Prepared],
             src: &[u8],
         ) {
@@ -1160,7 +1166,7 @@ pub mod gf16 {
         fn mul_add_gather(
             _proof: RawDispatch,
             dst: &mut [u8],
-            coeffs: &[Elem<Binary<16, Tower<S>>>],
+            coeffs: &[Elem<FiniteField<2, 16, Tower<S>>>],
             srcs: &[&[u8]],
         ) {
             if rijndael16::<S>() {
@@ -1223,7 +1229,7 @@ pub mod gf16 {
         fn mul_add_gather_plan(
             _proof: RawDispatch,
             dst: &mut [u8],
-            values: &[Elem<Binary<16, Tower<S>>>],
+            values: &[Elem<FiniteField<2, 16, Tower<S>>>],
             coeffs: &[Prepared],
             srcs: &[&[u8]],
         ) {
@@ -1254,7 +1260,7 @@ pub mod gf16 {
             rows: &mut [u8],
             row_len: usize,
             nrows: usize,
-            terms: &[(&[Elem<Binary<16, Tower<S>>>], &[u8])],
+            terms: &[(&[Elem<FiniteField<2, 16, Tower<S>>>], &[u8])],
         ) {
             if rijndael16::<S>() {
                 match backend() {
@@ -1345,7 +1351,7 @@ pub mod gf16 {
             rows: &mut [u8],
             row_len: usize,
             nrows: usize,
-            values: &[Elem<Binary<16, Tower<S>>>],
+            values: &[Elem<FiniteField<2, 16, Tower<S>>>],
             coeffs: &[Prepared],
             srcs: &[&[u8]],
         ) {
@@ -1611,10 +1617,11 @@ pub mod gf32 {
     //! portable scalar kernel applies.
 
     use crate::field::Elem;
+    use crate::field::FiniteField;
     use crate::field::binary::tower::{FANPAAR32_DESC, RIJNDAEL32_DESC, Tower, TowerSpec};
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     use crate::field::binary::tower::{FanPaar32, Rijndael32};
-    use crate::field::binary::{Binary, BinaryDegree, BinaryRepr};
+    use crate::field::binary::{BinaryDegree, BinaryRepr};
     #[allow(unused_imports)]
     use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, scalar};
 
@@ -1680,7 +1687,7 @@ pub mod gf32 {
         }
     }
 
-    impl<S: TowerSpec> FieldKernels for Binary<32, Tower<S>>
+    impl<S: TowerSpec> FieldKernels for FiniteField<2, 32, Tower<S>>
     where
         S::Base: BinaryDegree<16>,
     {
@@ -1709,20 +1716,22 @@ pub mod gf32 {
         }
     }
 
-    impl<S: TowerSpec> KernelDispatch for Binary<32, Tower<S>>
+    impl<S: TowerSpec> KernelDispatch for FiniteField<2, 32, Tower<S>>
     where
         S::Base: BinaryDegree<16>,
     {
         type Prepared = Prepared;
 
-        fn prepare(_proof: RawDispatch, coeff: Elem<Binary<32, Tower<S>>>) -> Prepared {
+        fn prepare(_proof: RawDispatch, coeff: Elem<FiniteField<2, 32, Tower<S>>>) -> Prepared {
             let raw = coeff.to_raw();
             if rijndael32::<S>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V4x | Backend::V3GfniCrypto => Prepared::Compact {
                         coeff: raw,
-                        tiles: x86::gf32::gf32_tiles(Elem::<Binary<32, Tower<Rijndael32>>> { raw }),
+                        tiles: x86::gf32::gf32_tiles(
+                            Elem::<FiniteField<2, 32, Tower<Rijndael32>>> { raw },
+                        ),
                     },
                     _ => Prepared::Plain(raw),
                 };
@@ -1738,8 +1747,11 @@ pub mod gf32 {
         }
 
         #[inline]
-        fn prepared_coeff(_proof: RawDispatch, prepared: &Prepared) -> Elem<Binary<32, Tower<S>>> {
-            Elem::<Binary<32, Tower<S>>>::from_raw(prepared.coeff())
+        fn prepared_coeff(
+            _proof: RawDispatch,
+            prepared: &Prepared,
+        ) -> Elem<FiniteField<2, 32, Tower<S>>> {
+            Elem::<FiniteField<2, 32, Tower<S>>>::from_raw(prepared.coeff())
         }
 
         #[inline]
@@ -1764,7 +1776,7 @@ pub mod gf32 {
                     x86::gf32::mul_add_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
-                        Elem::<Binary<32, Tower<Rijndael32>>> { raw: *coeff },
+                        Elem::<FiniteField<2, 32, Tower<Rijndael32>>> { raw: *coeff },
                         *tiles,
                         src,
                     );
@@ -1774,7 +1786,7 @@ pub mod gf32 {
                     x86::fan_paar::mul_add_avx2_fp32(
                         crate::kernel::x86_v3_token(),
                         dst,
-                        Elem::<Binary<32, Tower<FanPaar32>>> { raw: *coeff },
+                        Elem::<FiniteField<2, 32, Tower<FanPaar32>>> { raw: *coeff },
                         src,
                     );
                 }
@@ -1789,7 +1801,7 @@ pub mod gf32 {
                     x86::gf32::mul_assign_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
-                        Elem::<Binary<32, Tower<Rijndael32>>> { raw: *coeff },
+                        Elem::<FiniteField<2, 32, Tower<Rijndael32>>> { raw: *coeff },
                         *tiles,
                     );
                 }
@@ -1798,7 +1810,7 @@ pub mod gf32 {
                     x86::fan_paar::mul_assign_avx2_fp32(
                         crate::kernel::x86_v3_token(),
                         dst,
-                        Elem::<Binary<32, Tower<FanPaar32>>> { raw: *coeff },
+                        Elem::<FiniteField<2, 32, Tower<FanPaar32>>> { raw: *coeff },
                     );
                 }
                 other => scalar::mul_assign::<Self>(dst, Elem::<Self>::from_raw(other.coeff())),
@@ -1812,7 +1824,7 @@ pub mod gf32 {
                     x86::gf32::mul_into_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
-                        Elem::<Binary<32, Tower<Rijndael32>>> { raw: *coeff },
+                        Elem::<FiniteField<2, 32, Tower<Rijndael32>>> { raw: *coeff },
                         *tiles,
                         src,
                     );
@@ -1822,7 +1834,7 @@ pub mod gf32 {
                     x86::fan_paar::mul_into_avx2_fp32(
                         crate::kernel::x86_v3_token(),
                         dst,
-                        Elem::<Binary<32, Tower<FanPaar32>>> { raw: *coeff },
+                        Elem::<FiniteField<2, 32, Tower<FanPaar32>>> { raw: *coeff },
                         src,
                     );
                 }
@@ -1837,7 +1849,7 @@ pub mod gf32 {
             _proof: RawDispatch,
             rows: &mut [u8],
             row_len: usize,
-            coeffs: &[Elem<Binary<32, Tower<S>>>],
+            coeffs: &[Elem<FiniteField<2, 32, Tower<S>>>],
             src: &[u8],
         ) {
             // The trait default `mul_add_scatter_with` would do the same
@@ -1853,7 +1865,7 @@ pub mod gf32 {
         fn mul_add_gather(
             _proof: RawDispatch,
             dst: &mut [u8],
-            coeffs: &[Elem<Binary<32, Tower<S>>>],
+            coeffs: &[Elem<FiniteField<2, 32, Tower<S>>>],
             srcs: &[&[u8]],
         ) {
             for (&coeff, &src) in coeffs.iter().zip(srcs) {
@@ -1866,7 +1878,7 @@ pub mod gf32 {
             rows: &mut [u8],
             row_len: usize,
             nrows: usize,
-            terms: &[(&[Elem<Binary<32, Tower<S>>>], &[u8])],
+            terms: &[(&[Elem<FiniteField<2, 32, Tower<S>>>], &[u8])],
         ) {
             for &(coeffs, src) in terms {
                 for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
@@ -1896,10 +1908,11 @@ pub mod gf64 {
     //! applies.
 
     use crate::field::Elem;
+    use crate::field::FiniteField;
     use crate::field::binary::tower::{FANPAAR64_DESC, RIJNDAEL64_DESC, Tower, TowerSpec};
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     use crate::field::binary::tower::{FanPaar64, Rijndael64};
-    use crate::field::binary::{Binary, BinaryDegree, BinaryRepr};
+    use crate::field::binary::{BinaryDegree, BinaryRepr};
     #[allow(unused_imports)]
     use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, scalar};
 
@@ -1963,7 +1976,7 @@ pub mod gf64 {
         }
     }
 
-    impl<S: TowerSpec> FieldKernels for Binary<64, Tower<S>>
+    impl<S: TowerSpec> FieldKernels for FiniteField<2, 64, Tower<S>>
     where
         S::Base: BinaryDegree<32>,
     {
@@ -1992,20 +2005,22 @@ pub mod gf64 {
         }
     }
 
-    impl<S: TowerSpec> KernelDispatch for Binary<64, Tower<S>>
+    impl<S: TowerSpec> KernelDispatch for FiniteField<2, 64, Tower<S>>
     where
         S::Base: BinaryDegree<32>,
     {
         type Prepared = Prepared;
 
-        fn prepare(_proof: RawDispatch, coeff: Elem<Binary<64, Tower<S>>>) -> Prepared {
+        fn prepare(_proof: RawDispatch, coeff: Elem<FiniteField<2, 64, Tower<S>>>) -> Prepared {
             let raw = coeff.to_raw();
             if rijndael64::<S>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V4x | Backend::V3GfniCrypto => Prepared::Compact {
                         coeff: raw,
-                        tiles: x86::gf64::gf64_tiles(Elem::<Binary<64, Tower<Rijndael64>>> { raw }),
+                        tiles: x86::gf64::gf64_tiles(
+                            Elem::<FiniteField<2, 64, Tower<Rijndael64>>> { raw },
+                        ),
                     },
                     _ => Prepared::Plain(raw),
                 };
@@ -2021,8 +2036,11 @@ pub mod gf64 {
         }
 
         #[inline]
-        fn prepared_coeff(_proof: RawDispatch, prepared: &Prepared) -> Elem<Binary<64, Tower<S>>> {
-            Elem::<Binary<64, Tower<S>>>::from_raw(prepared.coeff())
+        fn prepared_coeff(
+            _proof: RawDispatch,
+            prepared: &Prepared,
+        ) -> Elem<FiniteField<2, 64, Tower<S>>> {
+            Elem::<FiniteField<2, 64, Tower<S>>>::from_raw(prepared.coeff())
         }
 
         #[inline]
@@ -2047,7 +2065,7 @@ pub mod gf64 {
                     x86::gf64::mul_add_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
-                        Elem::<Binary<64, Tower<Rijndael64>>> { raw: *coeff },
+                        Elem::<FiniteField<2, 64, Tower<Rijndael64>>> { raw: *coeff },
                         *tiles,
                         src,
                     );
@@ -2057,7 +2075,7 @@ pub mod gf64 {
                     x86::fan_paar::mul_add_avx2_fp64(
                         crate::kernel::x86_v3_token(),
                         dst,
-                        Elem::<Binary<64, Tower<FanPaar64>>> { raw: *coeff },
+                        Elem::<FiniteField<2, 64, Tower<FanPaar64>>> { raw: *coeff },
                         src,
                     );
                 }
@@ -2072,7 +2090,7 @@ pub mod gf64 {
                     x86::gf64::mul_assign_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
-                        Elem::<Binary<64, Tower<Rijndael64>>> { raw: *coeff },
+                        Elem::<FiniteField<2, 64, Tower<Rijndael64>>> { raw: *coeff },
                         *tiles,
                     );
                 }
@@ -2081,7 +2099,7 @@ pub mod gf64 {
                     x86::fan_paar::mul_assign_avx2_fp64(
                         crate::kernel::x86_v3_token(),
                         dst,
-                        Elem::<Binary<64, Tower<FanPaar64>>> { raw: *coeff },
+                        Elem::<FiniteField<2, 64, Tower<FanPaar64>>> { raw: *coeff },
                     );
                 }
                 other => scalar::mul_assign::<Self>(dst, Elem::<Self>::from_raw(other.coeff())),
@@ -2095,7 +2113,7 @@ pub mod gf64 {
                     x86::gf64::mul_into_gfni(
                         crate::kernel::x86_v3_gfni_token(),
                         dst,
-                        Elem::<Binary<64, Tower<Rijndael64>>> { raw: *coeff },
+                        Elem::<FiniteField<2, 64, Tower<Rijndael64>>> { raw: *coeff },
                         *tiles,
                         src,
                     );
@@ -2105,7 +2123,7 @@ pub mod gf64 {
                     x86::fan_paar::mul_into_avx2_fp64(
                         crate::kernel::x86_v3_token(),
                         dst,
-                        Elem::<Binary<64, Tower<FanPaar64>>> { raw: *coeff },
+                        Elem::<FiniteField<2, 64, Tower<FanPaar64>>> { raw: *coeff },
                         src,
                     );
                 }
@@ -2120,7 +2138,7 @@ pub mod gf64 {
             _proof: RawDispatch,
             rows: &mut [u8],
             row_len: usize,
-            coeffs: &[Elem<Binary<64, Tower<S>>>],
+            coeffs: &[Elem<FiniteField<2, 64, Tower<S>>>],
             src: &[u8],
         ) {
             // As the degree-32 dispatch: each row prepares its own
@@ -2133,7 +2151,7 @@ pub mod gf64 {
         fn mul_add_gather(
             _proof: RawDispatch,
             dst: &mut [u8],
-            coeffs: &[Elem<Binary<64, Tower<S>>>],
+            coeffs: &[Elem<FiniteField<2, 64, Tower<S>>>],
             srcs: &[&[u8]],
         ) {
             for (&coeff, &src) in coeffs.iter().zip(srcs) {
@@ -2146,7 +2164,7 @@ pub mod gf64 {
             rows: &mut [u8],
             row_len: usize,
             nrows: usize,
-            terms: &[(&[Elem<Binary<64, Tower<S>>>], &[u8])],
+            terms: &[(&[Elem<FiniteField<2, 64, Tower<S>>>], &[u8])],
         ) {
             for &(coeffs, src) in terms {
                 for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {

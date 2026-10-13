@@ -17,7 +17,7 @@ use std::vec;
 use std::vec::Vec;
 
 use crate::field::binary::{AES, RS};
-use crate::field::{Binary, Elem, Polynomial};
+use crate::field::{Elem, FiniteField, Polynomial};
 use crate::field::{
     FanPaar8, FanPaar16, FanPaar32, FanPaar64, Goldilocks, Rijndael16, Rijndael32, Rijndael64,
     Tower, quad_mersenne31,
@@ -72,27 +72,27 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
 
 /// GF(2^8) coefficients worth testing: the two short-circuits, the extremes,
 /// and a spread through the field.
-fn gf8_aes_coeffs() -> Vec<Elem<Binary<8, Polynomial<AES>>>> {
+fn gf8_aes_coeffs() -> Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> {
     gf8_coeffs_of::<AES>()
 }
 
 /// The Reed–Solomon field coefficients, same byte spread under `0x11D`.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-fn gf8_rs_coeffs() -> Vec<Elem<Binary<8, Polynomial<RS>>>> {
+fn gf8_rs_coeffs() -> Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>> {
     gf8_coeffs_of::<RS>()
 }
 
-fn gf8_coeffs_of<const POLY: u128>() -> Vec<Elem<Binary<8, Polynomial<POLY>>>> {
+fn gf8_coeffs_of<const POLY: u128>() -> Vec<Elem<FiniteField<2, 8, Polynomial<POLY>>>> {
     let mut coeffs = vec![
-        Elem::<Binary<8, Polynomial<POLY>>>::ZERO,
-        Elem::<Binary<8, Polynomial<POLY>>>::ONE,
-        Elem::<Binary<8, Polynomial<POLY>>>::from_raw(2),
-        Elem::<Binary<8, Polynomial<POLY>>>::from_raw(0xff),
+        Elem::<FiniteField<2, 8, Polynomial<POLY>>>::ZERO,
+        Elem::<FiniteField<2, 8, Polynomial<POLY>>>::ONE,
+        Elem::<FiniteField<2, 8, Polynomial<POLY>>>::from_raw(2),
+        Elem::<FiniteField<2, 8, Polynomial<POLY>>>::from_raw(0xff),
     ];
     coeffs.extend(
         (0..=u8::MAX)
             .step_by(23)
-            .map(Elem::<Binary<8, Polynomial<POLY>>>::from_raw),
+            .map(Elem::<FiniteField<2, 8, Polynomial<POLY>>>::from_raw),
     );
     coeffs
 }
@@ -103,7 +103,7 @@ fn gf8_coeffs_of<const POLY: u128>() -> Vec<Elem<Binary<8, Polynomial<POLY>>>> {
 const DELTA_BYTE: u8 = 0x20;
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn delta_table() -> &'static ScaleTable {
-    scale_table(Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x20))
+    scale_table(Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x20))
 }
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 const AES_REDUCTION: u8 = Polynomial::<AES>::REDUCTION_LOW;
@@ -116,13 +116,13 @@ const AES_REDUCTION: u8 = Polynomial::<AES>::REDUCTION_LOW;
 pub(crate) struct RsTower;
 
 impl crate::field::binary::tower::TowerSpec for RsTower {
-    type Base = Binary<8, Polynomial<RS>>;
+    type Base = FiniteField<2, 8, Polynomial<RS>>;
     const LINEAR_COEFFICIENT: u64 = 2;
     const CONSTANT_COEFFICIENT: u64 = 0x80;
     const NAME: &'static str = "GF(2^16)/0x11D";
 }
 
-pub(crate) type RsField = Binary<16, crate::field::binary::tower::Tower<RsTower>>;
+pub(crate) type RsField = FiniteField<2, 16, crate::field::binary::tower::Tower<RsTower>>;
 #[allow(dead_code)]
 pub(crate) type RsElem = Elem<RsField>;
 
@@ -133,7 +133,7 @@ pub(crate) type RsElem = Elem<RsField>;
 pub(crate) struct AesTower;
 
 impl crate::field::binary::tower::TowerSpec for AesTower {
-    type Base = Binary<8, Polynomial<AES>>;
+    type Base = FiniteField<2, 8, Polynomial<AES>>;
     const LINEAR_COEFFICIENT: u64 = 2;
     const CONSTANT_COEFFICIENT: u64 = 0x01;
     const NAME: &'static str = "GF(2^16)/0x11B/A2";
@@ -144,30 +144,30 @@ impl crate::field::binary::tower::TowerGeneratorSpec for AesTower {
 }
 
 #[allow(dead_code)]
-pub(crate) type AesField = Binary<16, crate::field::binary::tower::Tower<AesTower>>;
+pub(crate) type AesField = FiniteField<2, 16, crate::field::binary::tower::Tower<AesTower>>;
 #[allow(dead_code)]
 pub(crate) type AesElem = Elem<AesField>;
 
 /// GF(2^16) coefficients: pure base-field, pure extension, and mixed. The
 /// tower kernels have distinct code paths for the `same` and `cross` factors,
 /// and a coefficient with a zero component silently masks one of them.
-fn gf16_coeffs() -> Vec<Elem<Binary<16, Tower<Rijndael16>>>> {
+fn gf16_coeffs() -> Vec<Elem<FiniteField<2, 16, Tower<Rijndael16>>>> {
     let mut coeffs = vec![
-        Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0x0000),
-        Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0x0001),
-        Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0x0002),
-        Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0x00ff),
-        Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0x0100),
-        Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0xff00),
-        Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0xffff),
-        Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0x0108),
+        Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0x0000),
+        Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0x0001),
+        Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0x0002),
+        Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0x00ff),
+        Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0x0100),
+        Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0xff00),
+        Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0xffff),
+        Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0x0108),
     ];
     let mut state = 0x9e37_79b9_7f4a_7c15u64;
     for _ in 0..24 {
         state = state
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1);
-        coeffs.push(Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(
+        coeffs.push(Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(
             (state >> 32) as u16,
         ));
     }
@@ -211,7 +211,7 @@ fn host_supports(supported: &'static [crate::kernel::Backend]) -> bool {
 /// and coefficient.
 fn check_gf8_mul_add<const POLY: u128>(
     name: &str,
-    coeffs: &[Elem<Binary<8, Polynomial<POLY>>>],
+    coeffs: &[Elem<FiniteField<2, 8, Polynomial<POLY>>>],
     kernel: impl Fn(&mut [u8], &ScaleTable, &[u8]),
 ) {
     for &len in LENGTHS {
@@ -220,7 +220,7 @@ fn check_gf8_mul_add<const POLY: u128>(
             let mut got = noise(len, 0x62);
             let mut want = got.clone();
             kernel(&mut got, scale_table(coeff), &src);
-            scalar::mul_add::<Binary<8, Polynomial<POLY>>>(&mut want, coeff, &src);
+            scalar::mul_add::<FiniteField<2, 8, Polynomial<POLY>>>(&mut want, coeff, &src);
             assert_eq!(got, want, "{name}: len {len}, coeff {coeff:?}");
         }
     }
@@ -228,7 +228,7 @@ fn check_gf8_mul_add<const POLY: u128>(
 
 fn check_gf8_mul_assign<const POLY: u128>(
     name: &str,
-    coeffs: &[Elem<Binary<8, Polynomial<POLY>>>],
+    coeffs: &[Elem<FiniteField<2, 8, Polynomial<POLY>>>],
     kernel: impl Fn(&mut [u8], &ScaleTable),
 ) {
     for &len in LENGTHS {
@@ -236,7 +236,7 @@ fn check_gf8_mul_assign<const POLY: u128>(
             let mut got = noise(len, 0x73);
             let mut want = got.clone();
             kernel(&mut got, scale_table(coeff));
-            scalar::mul_assign::<Binary<8, Polynomial<POLY>>>(&mut want, coeff);
+            scalar::mul_assign::<FiniteField<2, 8, Polynomial<POLY>>>(&mut want, coeff);
             assert_eq!(got, want, "{name}: len {len}, coeff {coeff:?}");
         }
     }
@@ -250,7 +250,7 @@ fn check_gf16_mul_add_tables(name: &str, kernel: impl Fn(&mut [u8], &TowerTables
             let mut got = noise(len, 0x95);
             let mut want = got.clone();
             kernel(&mut got, &TowerTables::new(coeff), &src);
-            scalar::mul_add::<Binary<16, Tower<Rijndael16>>>(&mut want, coeff, &src);
+            scalar::mul_add::<FiniteField<2, 16, Tower<Rijndael16>>>(&mut want, coeff, &src);
             assert_eq!(got, want, "{name}: len {len}, coeff {coeff:?}");
         }
     }
@@ -263,7 +263,7 @@ fn check_gf16_mul_assign_tables(name: &str, kernel: impl Fn(&mut [u8], &TowerTab
             let mut got = noise(len, 0xa6);
             let mut want = got.clone();
             kernel(&mut got, &TowerTables::new(coeff));
-            scalar::mul_assign::<Binary<16, Tower<Rijndael16>>>(&mut want, coeff);
+            scalar::mul_assign::<FiniteField<2, 16, Tower<Rijndael16>>>(&mut want, coeff);
             assert_eq!(got, want, "{name}: len {len}, coeff {coeff:?}");
         }
     }
@@ -272,7 +272,7 @@ fn check_gf16_mul_assign_tables(name: &str, kernel: impl Fn(&mut [u8], &TowerTab
 #[allow(dead_code)]
 fn check_gf8_mul_into<const POLY: u128>(
     name: &str,
-    coeffs: &[Elem<Binary<8, Polynomial<POLY>>>],
+    coeffs: &[Elem<FiniteField<2, 8, Polynomial<POLY>>>],
     kernel: impl Fn(&mut [u8], &ScaleTable, &[u8]),
 ) {
     for &len in LENGTHS {
@@ -283,7 +283,7 @@ fn check_gf8_mul_into<const POLY: u128>(
             let mut got = noise(len, 0x147);
             let mut want = src.clone();
             kernel(&mut got, scale_table(coeff), &src);
-            scalar::mul_assign::<Binary<8, Polynomial<POLY>>>(&mut want, coeff);
+            scalar::mul_assign::<FiniteField<2, 8, Polynomial<POLY>>>(&mut want, coeff);
             assert_eq!(got, want, "{name}: len {len}, coeff {coeff:?}");
         }
     }
@@ -297,7 +297,7 @@ fn check_gf16_mul_into_tables(name: &str, kernel: impl Fn(&mut [u8], &TowerTable
             let mut got = noise(len, 0x169);
             let mut want = src.clone();
             kernel(&mut got, &TowerTables::new(coeff), &src);
-            scalar::mul_assign::<Binary<16, Tower<Rijndael16>>>(&mut want, coeff);
+            scalar::mul_assign::<FiniteField<2, 16, Tower<Rijndael16>>>(&mut want, coeff);
             assert_eq!(got, want, "{name}: len {len}, coeff {coeff:?}");
         }
     }
@@ -468,19 +468,22 @@ fn check_gather_aligned<E: Copy, F>(
 /// outright.
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn for_each_gf8_coeff<const POLY: u128>(
-    case: impl FnMut(Elem<Binary<8, Polynomial<POLY>>>, &[u8]),
+    case: impl FnMut(Elem<FiniteField<2, 8, Polynomial<POLY>>>, &[u8]),
 ) {
     let mut case = case;
     for &len in LENGTHS {
         let src = noise(len, 0x51);
         for c in 0..=u8::MAX {
-            case(Elem::<Binary<8, Polynomial<POLY>>>::from_raw(c), &src);
+            case(
+                Elem::<FiniteField<2, 8, Polynomial<POLY>>>::from_raw(c),
+                &src,
+            );
         }
     }
     let every_byte: Vec<u8> = (0..=u8::MAX).collect();
     for c in 0..=u8::MAX {
         case(
-            Elem::<Binary<8, Polynomial<POLY>>>::from_raw(c),
+            Elem::<FiniteField<2, 8, Polynomial<POLY>>>::from_raw(c),
             &every_byte,
         );
     }
@@ -492,14 +495,14 @@ fn for_each_gf8_coeff<const POLY: u128>(
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn check_gf8_exhaustive_mul_add<C: Copy + core::fmt::Debug, const POLY: u128>(
     name: &str,
-    prepare: impl Fn(Elem<Binary<8, Polynomial<POLY>>>) -> C,
+    prepare: impl Fn(Elem<FiniteField<2, 8, Polynomial<POLY>>>) -> C,
     kernel: impl Fn(&mut [u8], C, &[u8]),
 ) {
     for_each_gf8_coeff(|coeff, src| {
         let mut got = noise(src.len(), 0x62);
         let mut want = got.clone();
         kernel(&mut got, prepare(coeff), src);
-        scalar::mul_add::<Binary<8, Polynomial<POLY>>>(&mut want, coeff, src);
+        scalar::mul_add::<FiniteField<2, 8, Polynomial<POLY>>>(&mut want, coeff, src);
         assert_eq!(got, want, "{name}: len {}, coeff {coeff:?}", src.len());
     });
 }
@@ -508,14 +511,14 @@ fn check_gf8_exhaustive_mul_add<C: Copy + core::fmt::Debug, const POLY: u128>(
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn check_gf8_exhaustive_mul_assign<C: Copy + core::fmt::Debug, const POLY: u128>(
     name: &str,
-    prepare: impl Fn(Elem<Binary<8, Polynomial<POLY>>>) -> C,
+    prepare: impl Fn(Elem<FiniteField<2, 8, Polynomial<POLY>>>) -> C,
     kernel: impl Fn(&mut [u8], C),
 ) {
     for_each_gf8_coeff(|coeff, src| {
         let mut got = noise(src.len(), 0x73);
         let mut want = got.clone();
         kernel(&mut got, prepare(coeff));
-        scalar::mul_assign::<Binary<8, Polynomial<POLY>>>(&mut want, coeff);
+        scalar::mul_assign::<FiniteField<2, 8, Polynomial<POLY>>>(&mut want, coeff);
         assert_eq!(got, want, "{name}: len {}, coeff {coeff:?}", src.len());
     });
 }
@@ -525,14 +528,14 @@ fn check_gf8_exhaustive_mul_assign<C: Copy + core::fmt::Debug, const POLY: u128>
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 fn check_gf8_exhaustive_mul_into<C: Copy + core::fmt::Debug, const POLY: u128>(
     name: &str,
-    prepare: impl Fn(Elem<Binary<8, Polynomial<POLY>>>) -> C,
+    prepare: impl Fn(Elem<FiniteField<2, 8, Polynomial<POLY>>>) -> C,
     kernel: impl Fn(&mut [u8], C, &[u8]),
 ) {
     for_each_gf8_coeff(|coeff, src| {
         let mut got = noise(src.len(), 0x147);
         let mut want = src.to_vec();
         kernel(&mut got, prepare(coeff), src);
-        scalar::mul_assign::<Binary<8, Polynomial<POLY>>>(&mut want, coeff);
+        scalar::mul_assign::<FiniteField<2, 8, Polynomial<POLY>>>(&mut want, coeff);
         assert_eq!(got, want, "{name}: len {}, coeff {coeff:?}", src.len());
     });
 }
@@ -544,7 +547,7 @@ fn check_gf8_elementwise<const POLY: u128>(name: &str, kernel: impl Fn(&mut [u8]
         let mut got = vec![0; len];
         let mut want = vec![0; len];
         kernel(&mut got, &a, &b);
-        scalar::mul_elementwise::<Binary<8, Polynomial<POLY>>>(&mut want, &a, &b);
+        scalar::mul_elementwise::<FiniteField<2, 8, Polynomial<POLY>>>(&mut want, &a, &b);
         assert_eq!(got, want, "{name}: len {len}");
     }
 }
@@ -575,7 +578,7 @@ fn check_gf16_elementwise(name: &str, kernel: impl Fn(&mut [u8], &[u8], &[u8])) 
         let mut got = vec![0; len];
         let mut want = vec![0; len];
         kernel(&mut got, &a, &b);
-        scalar::mul_elementwise::<Binary<16, Tower<Rijndael16>>>(&mut want, &a, &b);
+        scalar::mul_elementwise::<FiniteField<2, 16, Tower<Rijndael16>>>(&mut want, &a, &b);
         assert_eq!(got, want, "{name}: len {len}");
     }
 }
@@ -644,66 +647,69 @@ fn check_tower_mul_into<E: Copy + core::fmt::Debug>(
 }
 
 #[allow(dead_code)]
-fn gf8_coeff_at<const POLY: u128>(j: usize) -> Elem<Binary<8, Polynomial<POLY>>> {
+fn gf8_coeff_at<const POLY: u128>(j: usize) -> Elem<FiniteField<2, 8, Polynomial<POLY>>> {
     // Includes 0 and 1 as j sweeps, which is what we want: the blocked
     // kernels must handle degenerate coefficients per row, not per call.
-    Elem::<Binary<8, Polynomial<POLY>>>::from_raw((j as u8).wrapping_mul(29))
+    Elem::<FiniteField<2, 8, Polynomial<POLY>>>::from_raw((j as u8).wrapping_mul(29))
 }
 
 #[allow(dead_code)]
-fn gf8_coeff_at2<const POLY: u128>(t: usize, j: usize) -> Elem<Binary<8, Polynomial<POLY>>> {
-    Elem::<Binary<8, Polynomial<POLY>>>::from_raw(((t * 31 + j * 29) % 256) as u8)
+fn gf8_coeff_at2<const POLY: u128>(
+    t: usize,
+    j: usize,
+) -> Elem<FiniteField<2, 8, Polynomial<POLY>>> {
+    Elem::<FiniteField<2, 8, Polynomial<POLY>>>::from_raw(((t * 31 + j * 29) % 256) as u8)
 }
 
 #[allow(dead_code)]
-fn gf16_coeff_at(j: usize) -> Elem<Binary<16, Tower<Rijndael16>>> {
-    Elem::<Binary<16, Tower<Rijndael16>>>::from_raw((j as u16).wrapping_mul(7411))
+fn gf16_coeff_at(j: usize) -> Elem<FiniteField<2, 16, Tower<Rijndael16>>> {
+    Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw((j as u16).wrapping_mul(7411))
 }
 
 #[allow(dead_code)]
-fn gf16_coeff_at2(t: usize, j: usize) -> Elem<Binary<16, Tower<Rijndael16>>> {
-    Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(((t * 7919 + j * 613) % 65536) as u16)
+fn gf16_coeff_at2(t: usize, j: usize) -> Elem<FiniteField<2, 16, Tower<Rijndael16>>> {
+    Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(((t * 7919 + j * 613) % 65536) as u16)
 }
 
 #[allow(dead_code)]
 fn gf8_reference<const POLY: u128>(
     dst: &mut [u8],
-    coeff: Elem<Binary<8, Polynomial<POLY>>>,
+    coeff: Elem<FiniteField<2, 8, Polynomial<POLY>>>,
     src: &[u8],
 ) {
-    scalar::mul_add::<Binary<8, Polynomial<POLY>>>(dst, coeff, src);
+    scalar::mul_add::<FiniteField<2, 8, Polynomial<POLY>>>(dst, coeff, src);
 }
 
 #[allow(dead_code)]
-fn gf16_reference(dst: &mut [u8], coeff: Elem<Binary<16, Tower<Rijndael16>>>, src: &[u8]) {
-    scalar::mul_add::<Binary<16, Tower<Rijndael16>>>(dst, coeff, src);
+fn gf16_reference(dst: &mut [u8], coeff: Elem<FiniteField<2, 16, Tower<Rijndael16>>>, src: &[u8]) {
+    scalar::mul_add::<FiniteField<2, 16, Tower<Rijndael16>>>(dst, coeff, src);
 }
 
 /// Fan–Paar GF(2^16) coefficients: short-circuits, extremes, the tower
 /// generator and its components, and a deterministic spread.
 #[allow(dead_code)]
-fn fp16_coeffs() -> Vec<Elem<Binary<16, Tower<FanPaar16>>>> {
+fn fp16_coeffs() -> Vec<Elem<FiniteField<2, 16, Tower<FanPaar16>>>> {
     let mut v = vec![
-        Elem::<Binary<16, Tower<FanPaar16>>>::ZERO,
-        Elem::<Binary<16, Tower<FanPaar16>>>::ONE,
-        Elem::<Binary<16, Tower<FanPaar16>>>::from_raw(u16::MAX),
+        Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::ZERO,
+        Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::ONE,
+        Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::from_raw(u16::MAX),
         // Pure base-field and pure extension.
-        Elem::<Binary<16, Tower<FanPaar16>>>::from_components(
-            Elem::<Binary<8, Tower<FanPaar8>>>::ONE,
-            Elem::<Binary<8, Tower<FanPaar8>>>::ZERO,
+        Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::from_components(
+            Elem::<FiniteField<2, 8, Tower<FanPaar8>>>::ONE,
+            Elem::<FiniteField<2, 8, Tower<FanPaar8>>>::ZERO,
         ),
-        Elem::<Binary<16, Tower<FanPaar16>>>::from_components(
-            Elem::<Binary<8, Tower<FanPaar8>>>::ZERO,
-            Elem::<Binary<8, Tower<FanPaar8>>>::ONE,
+        Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::from_components(
+            Elem::<FiniteField<2, 8, Tower<FanPaar8>>>::ZERO,
+            Elem::<FiniteField<2, 8, Tower<FanPaar8>>>::ONE,
         ),
         // The tower generator and its subfield tower generator.
-        Elem::<Binary<16, Tower<FanPaar16>>>::GENERATOR,
-        Elem::<Binary<16, Tower<FanPaar16>>>::from_raw(0x0100),
+        Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::GENERATOR,
+        Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::from_raw(0x0100),
     ];
     let mut s = 0xf491u16;
     for _ in 0..16 {
         s = s.wrapping_mul(2057).wrapping_add(13849);
-        v.push(Elem::<Binary<16, Tower<FanPaar16>>>::from_raw(s));
+        v.push(Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::from_raw(s));
     }
     v
 }
@@ -744,73 +750,77 @@ fn fp_mul_assign(dst: &mut [u8], coeff: u64, bits: u32) {
 }
 
 #[allow(dead_code)]
-fn fp16_reference(dst: &mut [u8], coeff: Elem<Binary<16, Tower<FanPaar16>>>, src: &[u8]) {
+fn fp16_reference(dst: &mut [u8], coeff: Elem<FiniteField<2, 16, Tower<FanPaar16>>>, src: &[u8]) {
     fp_mul_add(dst, u64::from(coeff.to_raw()), src, 16);
 }
 #[allow(dead_code)]
-fn fp16_assign_reference(dst: &mut [u8], coeff: Elem<Binary<16, Tower<FanPaar16>>>) {
+fn fp16_assign_reference(dst: &mut [u8], coeff: Elem<FiniteField<2, 16, Tower<FanPaar16>>>) {
     fp_mul_assign(dst, u64::from(coeff.to_raw()), 16);
 }
 #[allow(dead_code)]
-fn fp16_into_reference(dst: &mut [u8], coeff: Elem<Binary<16, Tower<FanPaar16>>>, src: &[u8]) {
+fn fp16_into_reference(
+    dst: &mut [u8],
+    coeff: Elem<FiniteField<2, 16, Tower<FanPaar16>>>,
+    src: &[u8],
+) {
     dst.copy_from_slice(src);
     fp_mul_assign(dst, u64::from(coeff.to_raw()), 16);
 }
 
 /// Fan–Paar GF(2^32) coefficients, the same shape as the polynomial towers.
 #[allow(dead_code)]
-fn fp32_coeffs() -> Vec<Elem<Binary<32, Tower<FanPaar32>>>> {
+fn fp32_coeffs() -> Vec<Elem<FiniteField<2, 32, Tower<FanPaar32>>>> {
     let mut v = vec![
-        Elem::<Binary<32, Tower<FanPaar32>>>::ZERO,
-        Elem::<Binary<32, Tower<FanPaar32>>>::ONE,
-        Elem::<Binary<32, Tower<FanPaar32>>>::from_raw(u32::MAX),
-        Elem::<Binary<32, Tower<FanPaar32>>>::from_components(
-            Elem::<Binary<16, Tower<FanPaar16>>>::ONE,
-            Elem::<Binary<16, Tower<FanPaar16>>>::ZERO,
+        Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::ZERO,
+        Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::ONE,
+        Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::from_raw(u32::MAX),
+        Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::from_components(
+            Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::ONE,
+            Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::ZERO,
         ),
-        Elem::<Binary<32, Tower<FanPaar32>>>::from_components(
-            Elem::<Binary<16, Tower<FanPaar16>>>::ZERO,
-            Elem::<Binary<16, Tower<FanPaar16>>>::ONE,
+        Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::from_components(
+            Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::ZERO,
+            Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::ONE,
         ),
-        Elem::<Binary<32, Tower<FanPaar32>>>::from_raw(0x0001_0000),
-        Elem::<Binary<32, Tower<FanPaar32>>>::from_components(
-            Elem::<Binary<16, Tower<FanPaar16>>>::ZERO,
-            Elem::<Binary<16, Tower<FanPaar16>>>::from_raw(0x0100),
+        Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::from_raw(0x0001_0000),
+        Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::from_components(
+            Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::ZERO,
+            Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::from_raw(0x0100),
         ),
-        Elem::<Binary<32, Tower<FanPaar32>>>::GENERATOR,
+        Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::GENERATOR,
     ];
     let mut s = 0x243f_6a88u32;
     for _ in 0..16 {
         s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        v.push(Elem::<Binary<32, Tower<FanPaar32>>>::from_raw(s));
+        v.push(Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::from_raw(s));
     }
     v
 }
 
 /// Fan–Paar GF(2^64) coefficients.
 #[allow(dead_code)]
-fn fp64_coeffs() -> Vec<Elem<Binary<64, Tower<FanPaar64>>>> {
+fn fp64_coeffs() -> Vec<Elem<FiniteField<2, 64, Tower<FanPaar64>>>> {
     let mut v = vec![
-        Elem::<Binary<64, Tower<FanPaar64>>>::ZERO,
-        Elem::<Binary<64, Tower<FanPaar64>>>::ONE,
-        Elem::<Binary<64, Tower<FanPaar64>>>::from_raw(u64::MAX),
-        Elem::<Binary<64, Tower<FanPaar64>>>::from_components(
-            Elem::<Binary<32, Tower<FanPaar32>>>::ONE,
-            Elem::<Binary<32, Tower<FanPaar32>>>::ZERO,
+        Elem::<FiniteField<2, 64, Tower<FanPaar64>>>::ZERO,
+        Elem::<FiniteField<2, 64, Tower<FanPaar64>>>::ONE,
+        Elem::<FiniteField<2, 64, Tower<FanPaar64>>>::from_raw(u64::MAX),
+        Elem::<FiniteField<2, 64, Tower<FanPaar64>>>::from_components(
+            Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::ONE,
+            Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::ZERO,
         ),
-        Elem::<Binary<64, Tower<FanPaar64>>>::from_raw(0x0000_0001_0000_0000),
-        Elem::<Binary<64, Tower<FanPaar64>>>::from_components(
-            Elem::<Binary<32, Tower<FanPaar32>>>::ZERO,
-            Elem::<Binary<32, Tower<FanPaar32>>>::from_raw(0x0001_0000),
+        Elem::<FiniteField<2, 64, Tower<FanPaar64>>>::from_raw(0x0000_0001_0000_0000),
+        Elem::<FiniteField<2, 64, Tower<FanPaar64>>>::from_components(
+            Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::ZERO,
+            Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::from_raw(0x0001_0000),
         ),
-        Elem::<Binary<64, Tower<FanPaar64>>>::GENERATOR,
+        Elem::<FiniteField<2, 64, Tower<FanPaar64>>>::GENERATOR,
     ];
     let mut s = 0x243f_6a88_85a3_08d3u64;
     for _ in 0..16 {
         s = s
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
-        v.push(Elem::<Binary<64, Tower<FanPaar64>>>::from_raw(s));
+        v.push(Elem::<FiniteField<2, 64, Tower<FanPaar64>>>::from_raw(s));
     }
     v
 }
@@ -827,28 +837,36 @@ const FP64_LENGTHS: &[usize] = &[
 ];
 
 #[allow(dead_code)]
-fn fp32_reference(dst: &mut [u8], coeff: Elem<Binary<32, Tower<FanPaar32>>>, src: &[u8]) {
+fn fp32_reference(dst: &mut [u8], coeff: Elem<FiniteField<2, 32, Tower<FanPaar32>>>, src: &[u8]) {
     fp_mul_add(dst, u64::from(coeff.to_raw()), src, 32);
 }
 #[allow(dead_code)]
-fn fp32_assign_reference(dst: &mut [u8], coeff: Elem<Binary<32, Tower<FanPaar32>>>) {
+fn fp32_assign_reference(dst: &mut [u8], coeff: Elem<FiniteField<2, 32, Tower<FanPaar32>>>) {
     fp_mul_assign(dst, u64::from(coeff.to_raw()), 32);
 }
 #[allow(dead_code)]
-fn fp32_into_reference(dst: &mut [u8], coeff: Elem<Binary<32, Tower<FanPaar32>>>, src: &[u8]) {
+fn fp32_into_reference(
+    dst: &mut [u8],
+    coeff: Elem<FiniteField<2, 32, Tower<FanPaar32>>>,
+    src: &[u8],
+) {
     dst.copy_from_slice(src);
     fp_mul_assign(dst, u64::from(coeff.to_raw()), 32);
 }
 #[allow(dead_code)]
-fn fp64_reference(dst: &mut [u8], coeff: Elem<Binary<64, Tower<FanPaar64>>>, src: &[u8]) {
+fn fp64_reference(dst: &mut [u8], coeff: Elem<FiniteField<2, 64, Tower<FanPaar64>>>, src: &[u8]) {
     fp_mul_add(dst, coeff.to_raw(), src, 64);
 }
 #[allow(dead_code)]
-fn fp64_assign_reference(dst: &mut [u8], coeff: Elem<Binary<64, Tower<FanPaar64>>>) {
+fn fp64_assign_reference(dst: &mut [u8], coeff: Elem<FiniteField<2, 64, Tower<FanPaar64>>>) {
     fp_mul_assign(dst, coeff.to_raw(), 64);
 }
 #[allow(dead_code)]
-fn fp64_into_reference(dst: &mut [u8], coeff: Elem<Binary<64, Tower<FanPaar64>>>, src: &[u8]) {
+fn fp64_into_reference(
+    dst: &mut [u8],
+    coeff: Elem<FiniteField<2, 64, Tower<FanPaar64>>>,
+    src: &[u8],
+) {
     dst.copy_from_slice(src);
     fp_mul_assign(dst, coeff.to_raw(), 64);
 }
@@ -856,74 +874,74 @@ fn fp64_into_reference(dst: &mut [u8], coeff: Elem<Binary<64, Tower<FanPaar64>>>
 /// GF(2^32) coefficients: the short-circuits, the extremes, pure tower
 /// components, the tower constant, the generator, and a deterministic spread.
 #[allow(dead_code)]
-fn gf32_coeffs() -> Vec<Elem<Binary<32, Tower<Rijndael32>>>> {
+fn gf32_coeffs() -> Vec<Elem<FiniteField<2, 32, Tower<Rijndael32>>>> {
     let mut v = vec![
-        Elem::<Binary<32, Tower<Rijndael32>>>::ZERO,
-        Elem::<Binary<32, Tower<Rijndael32>>>::ONE,
-        Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(u32::MAX),
-        Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(0x0000_ffff),
-        Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(0xffff_0000),
+        Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::ZERO,
+        Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::ONE,
+        Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(u32::MAX),
+        Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(0x0000_ffff),
+        Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(0xffff_0000),
         // Pure base field and pure extension.
-        Elem::<Binary<32, Tower<Rijndael32>>>::from_components(
-            Elem::<Binary<16, Tower<Rijndael16>>>::ONE,
-            Elem::<Binary<16, Tower<Rijndael16>>>::ZERO,
+        Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_components(
+            Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::ONE,
+            Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::ZERO,
         ),
-        Elem::<Binary<32, Tower<Rijndael32>>>::from_components(
-            Elem::<Binary<16, Tower<Rijndael16>>>::ZERO,
-            Elem::<Binary<16, Tower<Rijndael16>>>::ONE,
+        Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_components(
+            Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::ZERO,
+            Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::ONE,
         ),
         // The tower constant in each component.
-        Elem::<Binary<32, Tower<Rijndael32>>>::from_components(
-            Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0x2000),
-            Elem::<Binary<16, Tower<Rijndael16>>>::ZERO,
+        Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_components(
+            Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0x2000),
+            Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::ZERO,
         ),
-        Elem::<Binary<32, Tower<Rijndael32>>>::from_components(
-            Elem::<Binary<16, Tower<Rijndael16>>>::ZERO,
-            Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0x2000),
+        Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_components(
+            Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::ZERO,
+            Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0x2000),
         ),
-        Elem::<Binary<32, Tower<Rijndael32>>>::GENERATOR,
+        Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::GENERATOR,
     ];
     let mut s = 0x243f_6a88u32;
     for _ in 0..16 {
         s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        v.push(Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(s));
+        v.push(Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(s));
     }
     v
 }
 
 /// GF(2^64) coefficients, the same shape one level up.
 #[allow(dead_code)]
-fn gf64_coeffs() -> Vec<Elem<Binary<64, Tower<Rijndael64>>>> {
+fn gf64_coeffs() -> Vec<Elem<FiniteField<2, 64, Tower<Rijndael64>>>> {
     let mut v = vec![
-        Elem::<Binary<64, Tower<Rijndael64>>>::ZERO,
-        Elem::<Binary<64, Tower<Rijndael64>>>::ONE,
-        Elem::<Binary<64, Tower<Rijndael64>>>::from_raw(u64::MAX),
-        Elem::<Binary<64, Tower<Rijndael64>>>::from_raw(0x0000_0000_ffff_ffff),
-        Elem::<Binary<64, Tower<Rijndael64>>>::from_raw(0xffff_ffff_0000_0000),
-        Elem::<Binary<64, Tower<Rijndael64>>>::from_components(
-            Elem::<Binary<32, Tower<Rijndael32>>>::ONE,
-            Elem::<Binary<32, Tower<Rijndael32>>>::ZERO,
+        Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::ZERO,
+        Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::ONE,
+        Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::from_raw(u64::MAX),
+        Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::from_raw(0x0000_0000_ffff_ffff),
+        Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::from_raw(0xffff_ffff_0000_0000),
+        Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::from_components(
+            Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::ONE,
+            Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::ZERO,
         ),
-        Elem::<Binary<64, Tower<Rijndael64>>>::from_components(
-            Elem::<Binary<32, Tower<Rijndael32>>>::ZERO,
-            Elem::<Binary<32, Tower<Rijndael32>>>::ONE,
+        Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::from_components(
+            Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::ZERO,
+            Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::ONE,
         ),
-        Elem::<Binary<64, Tower<Rijndael64>>>::from_components(
-            Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(0x2000_0000),
-            Elem::<Binary<32, Tower<Rijndael32>>>::ZERO,
+        Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::from_components(
+            Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(0x2000_0000),
+            Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::ZERO,
         ),
-        Elem::<Binary<64, Tower<Rijndael64>>>::from_components(
-            Elem::<Binary<32, Tower<Rijndael32>>>::ZERO,
-            Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(0x2000_0000),
+        Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::from_components(
+            Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::ZERO,
+            Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(0x2000_0000),
         ),
-        Elem::<Binary<64, Tower<Rijndael64>>>::GENERATOR,
+        Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::GENERATOR,
     ];
     let mut s = 0x243f_6a88_85a3_08d3u64;
     for _ in 0..16 {
         s = s
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
-        v.push(Elem::<Binary<64, Tower<Rijndael64>>>::from_raw(s));
+        v.push(Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::from_raw(s));
     }
     v
 }
@@ -940,30 +958,38 @@ const GF64_LENGTHS: &[usize] = &[
 ];
 
 #[allow(dead_code)]
-fn gf32_reference(dst: &mut [u8], coeff: Elem<Binary<32, Tower<Rijndael32>>>, src: &[u8]) {
-    scalar::mul_add::<Binary<32, Tower<Rijndael32>>>(dst, coeff, src);
+fn gf32_reference(dst: &mut [u8], coeff: Elem<FiniteField<2, 32, Tower<Rijndael32>>>, src: &[u8]) {
+    scalar::mul_add::<FiniteField<2, 32, Tower<Rijndael32>>>(dst, coeff, src);
 }
 #[allow(dead_code)]
-fn gf32_assign_reference(dst: &mut [u8], coeff: Elem<Binary<32, Tower<Rijndael32>>>) {
-    scalar::mul_assign::<Binary<32, Tower<Rijndael32>>>(dst, coeff);
+fn gf32_assign_reference(dst: &mut [u8], coeff: Elem<FiniteField<2, 32, Tower<Rijndael32>>>) {
+    scalar::mul_assign::<FiniteField<2, 32, Tower<Rijndael32>>>(dst, coeff);
 }
 #[allow(dead_code)]
-fn gf32_into_reference(dst: &mut [u8], coeff: Elem<Binary<32, Tower<Rijndael32>>>, src: &[u8]) {
+fn gf32_into_reference(
+    dst: &mut [u8],
+    coeff: Elem<FiniteField<2, 32, Tower<Rijndael32>>>,
+    src: &[u8],
+) {
     dst.copy_from_slice(src);
-    scalar::mul_assign::<Binary<32, Tower<Rijndael32>>>(dst, coeff);
+    scalar::mul_assign::<FiniteField<2, 32, Tower<Rijndael32>>>(dst, coeff);
 }
 #[allow(dead_code)]
-fn gf64_reference(dst: &mut [u8], coeff: Elem<Binary<64, Tower<Rijndael64>>>, src: &[u8]) {
-    scalar::mul_add::<Binary<64, Tower<Rijndael64>>>(dst, coeff, src);
+fn gf64_reference(dst: &mut [u8], coeff: Elem<FiniteField<2, 64, Tower<Rijndael64>>>, src: &[u8]) {
+    scalar::mul_add::<FiniteField<2, 64, Tower<Rijndael64>>>(dst, coeff, src);
 }
 #[allow(dead_code)]
-fn gf64_assign_reference(dst: &mut [u8], coeff: Elem<Binary<64, Tower<Rijndael64>>>) {
-    scalar::mul_assign::<Binary<64, Tower<Rijndael64>>>(dst, coeff);
+fn gf64_assign_reference(dst: &mut [u8], coeff: Elem<FiniteField<2, 64, Tower<Rijndael64>>>) {
+    scalar::mul_assign::<FiniteField<2, 64, Tower<Rijndael64>>>(dst, coeff);
 }
 #[allow(dead_code)]
-fn gf64_into_reference(dst: &mut [u8], coeff: Elem<Binary<64, Tower<Rijndael64>>>, src: &[u8]) {
+fn gf64_into_reference(
+    dst: &mut [u8],
+    coeff: Elem<FiniteField<2, 64, Tower<Rijndael64>>>,
+    src: &[u8],
+) {
     dst.copy_from_slice(src);
-    scalar::mul_assign::<Binary<64, Tower<Rijndael64>>>(dst, coeff);
+    scalar::mul_assign::<FiniteField<2, 64, Tower<Rijndael64>>>(dst, coeff);
 }
 
 // ---------------------------------------------------------------------------
@@ -987,7 +1013,7 @@ fn rs_tower_routing_reports_serving_tiers() {
         "a custom tower keeps elementwise scalar"
     );
     assert!(
-        <Binary<16, Tower<Rijndael16>> as FieldKernels>::has_vector_elementwise()
+        <FiniteField<2, 16, Tower<Rijndael16>> as FieldKernels>::has_vector_elementwise()
             || matches!(crate::kernel::backend(), crate::kernel::Backend::Scalar),
         "the Rijndael tower keeps its vector elementwise"
     );
@@ -1023,7 +1049,7 @@ fn scalar_nibble_paths_match_the_generic_reference() {
             let mut got = noise(len, 0xfb);
             let mut want = got.clone();
             super::gf16::mul_add_scalar(&mut got, &TowerTables::new(coeff), &src);
-            scalar::mul_add::<Binary<16, Tower<Rijndael16>>>(&mut want, coeff, &src);
+            scalar::mul_add::<FiniteField<2, 16, Tower<Rijndael16>>>(&mut want, coeff, &src);
             assert_eq!(got, want, "gf16 scalar: len {len}, coeff {coeff:?}");
         }
     }
@@ -1042,7 +1068,7 @@ fn scalar_nibble_paths_match_the_generic_reference() {
 ))]
 #[allow(dead_code)]
 fn prepared_coeffs<const POLY: u128>(
-    coeffs: &[Elem<Binary<8, Polynomial<POLY>>>],
+    coeffs: &[Elem<FiniteField<2, 8, Polynomial<POLY>>>],
 ) -> Vec<Prepared> {
     coeffs.iter().map(|&c| Prepared::new(c)).collect()
 }
@@ -1102,7 +1128,7 @@ impl<const POLY: u128> crate::kernel::Matrix<Prepared> for PreparedMatrix<'_, PO
 // Term geometry nests the unified element spelling; the slices stay slices.
 #[allow(clippy::type_complexity)]
 fn prepared_matrix<'a, const POLY: u128>(
-    terms: &[(&'a [Elem<Binary<8, Polynomial<POLY>>>], &'a [u8])],
+    terms: &[(&'a [Elem<FiniteField<2, 8, Polynomial<POLY>>>], &'a [u8])],
 ) -> PreparedMatrix<'a, POLY> {
     PreparedMatrix {
         sets: terms
@@ -1167,7 +1193,11 @@ mod x86 {
             let src = noise(len, 0xb51);
             for coeff in gf16_coeffs() {
                 let mut expected = vec![0u8; len];
-                scalar::mul_add::<Binary<16, Tower<Rijndael16>>>(&mut expected, coeff, &src);
+                scalar::mul_add::<FiniteField<2, 16, Tower<Rijndael16>>>(
+                    &mut expected,
+                    coeff,
+                    &src,
+                );
                 let mut got = noise(len, 0xb52);
                 x86::gf16::mul_into_avx512(token, &mut got, TowerCoeff::new(coeff), &src);
                 assert_eq!(
@@ -1179,7 +1209,7 @@ mod x86 {
         check_gf16_elementwise("gf16 wide elementwise", |dst, a, b| {
             x86::gf16::mul_elementwise_avx512(token, dst, a, b, DELTA_BYTE, AES_REDUCTION);
         });
-        check_elementwise_assign::<Binary<16, Tower<Rijndael16>>>(
+        check_elementwise_assign::<FiniteField<2, 16, Tower<Rijndael16>>>(
             "gf16 wide elementwise assign",
             |dst, src| {
                 x86::gf16::mul_elementwise_assign_avx512(
@@ -1213,7 +1243,7 @@ mod x86 {
                 for coeff in gf16_coeffs() {
                     let before = dst.to_vec();
                     let mut want = before.clone();
-                    scalar::mul_add::<Binary<16, Tower<Rijndael16>>>(&mut want, coeff, src);
+                    scalar::mul_add::<FiniteField<2, 16, Tower<Rijndael16>>>(&mut want, coeff, src);
                     x86::gf16::mul_add_avx512(token, dst, TowerCoeff::new(coeff), src);
                     assert_eq!(
                         &*dst, want,
@@ -1244,7 +1274,7 @@ mod x86 {
                 let src = &src_storage[offset..offset + len];
                 for coeff in gf16_coeffs() {
                     let mut want = src.to_vec();
-                    scalar::mul_assign::<Binary<16, Tower<Rijndael16>>>(&mut want, coeff);
+                    scalar::mul_assign::<FiniteField<2, 16, Tower<Rijndael16>>>(&mut want, coeff);
                     x86::gf16::mul_into_avx512(token, dst, TowerCoeff::new(coeff), src);
                     assert_eq!(
                         &*dst, want,
@@ -1353,21 +1383,21 @@ mod x86 {
         // and the dispatch-shaped `Prepared` twin in the resolve test below.
         check_gf8_exhaustive_mul_add(
             "gf8 rs avx512",
-            |c: Elem<Binary<8, Polynomial<RS>>>| Prepared::new(c),
+            |c: Elem<FiniteField<2, 8, Polynomial<RS>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_add_avx512(token, dst, c, src);
             },
         );
         check_gf8_exhaustive_mul_assign(
             "gf8 rs avx512",
-            |c: Elem<Binary<8, Polynomial<RS>>>| Prepared::new(c),
+            |c: Elem<FiniteField<2, 8, Polynomial<RS>>>| Prepared::new(c),
             |dst, c| {
                 x86::gf8::mul_assign_avx512(token, dst, c);
             },
         );
         check_gf8_exhaustive_mul_into(
             "gf8 rs avx512",
-            |c: Elem<Binary<8, Polynomial<RS>>>| Prepared::new(c),
+            |c: Elem<FiniteField<2, 8, Polynomial<RS>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_into_avx512(token, dst, c, src);
             },
@@ -1376,21 +1406,21 @@ mod x86 {
         // folds in through its affine map, `GF2P8MULB` never enters.
         check_gf8_exhaustive_mul_add(
             "gf8 aes avx512",
-            |c: Elem<Binary<8, Polynomial<AES>>>| Prepared::new(c),
+            |c: Elem<FiniteField<2, 8, Polynomial<AES>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_add_avx512(token, dst, c, src);
             },
         );
         check_gf8_exhaustive_mul_assign(
             "gf8 aes avx512",
-            |c: Elem<Binary<8, Polynomial<AES>>>| Prepared::new(c),
+            |c: Elem<FiniteField<2, 8, Polynomial<AES>>>| Prepared::new(c),
             |dst, c| {
                 x86::gf8::mul_assign_avx512(token, dst, c);
             },
         );
         check_gf8_exhaustive_mul_into(
             "gf8 aes avx512",
-            |c: Elem<Binary<8, Polynomial<AES>>>| Prepared::new(c),
+            |c: Elem<FiniteField<2, 8, Polynomial<AES>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_into_avx512(token, dst, c, src);
             },
@@ -1401,15 +1431,15 @@ mod x86 {
         for len in [24 * 1024, 24 * 1024 + 359, 32 * 1024 + 71] {
             let src = noise(len, 0xb20 + len as u64);
             for &coeff in &[
-                Elem::<Binary<8, Polynomial<RS>>>::ZERO,
-                Elem::<Binary<8, Polynomial<RS>>>::ONE,
-                Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x53),
-                Elem::<Binary<8, Polynomial<RS>>>::from_raw(0xff),
+                Elem::<FiniteField<2, 8, Polynomial<RS>>>::ZERO,
+                Elem::<FiniteField<2, 8, Polynomial<RS>>>::ONE,
+                Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0x53),
+                Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0xff),
             ] {
                 let mut got = noise(len, 0xb21);
                 let mut want = src.clone();
                 x86::gf8::mul_into_avx512(token, &mut got, Prepared::new(coeff), &src);
-                scalar::mul_assign::<Binary<8, Polynomial<RS>>>(&mut want, coeff);
+                scalar::mul_assign::<FiniteField<2, 8, Polynomial<RS>>>(&mut want, coeff);
                 assert_eq!(
                     got, want,
                     "gf8 rs avx512 into prefetch: len {len}, coeff {coeff:?}"
@@ -1525,14 +1555,15 @@ mod x86 {
                     let sources: Vec<Vec<u8>> = (0..nterms)
                         .map(|t| noise(row_len, 0xb00 + t as u64))
                         .collect();
-                    let coeff_sets: Vec<Vec<Elem<Binary<8, Polynomial<RS>>>>> = (0..nterms)
+                    let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>>> = (0..nterms)
                         .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<RS>(t, j)).collect())
                         .collect();
-                    let terms: Vec<(&[Elem<Binary<8, Polynomial<RS>>>], &[u8])> = coeff_sets
-                        .iter()
-                        .zip(&sources)
-                        .map(|(c, s)| (c.as_slice(), s.as_slice()))
-                        .collect();
+                    let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<RS>>>], &[u8])> =
+                        coeff_sets
+                            .iter()
+                            .zip(&sources)
+                            .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                            .collect();
                     let mut got = noise(row_len * nrows, 0xb10);
                     let mut want = got.clone();
                     x86::gf8::mul_add_matrix_avx512_with(
@@ -1584,14 +1615,15 @@ mod x86 {
                     let sources: Vec<Vec<u8>> = (0..3usize)
                         .map(|t| noise(row_len, 0xb30 + t as u64))
                         .collect();
-                    let coeff_sets: Vec<Vec<Elem<Binary<8, Polynomial<RS>>>>> = (0..3usize)
+                    let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>>> = (0..3usize)
                         .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<RS>(t, j)).collect())
                         .collect();
-                    let terms: Vec<(&[Elem<Binary<8, Polynomial<RS>>>], &[u8])> = coeff_sets
-                        .iter()
-                        .zip(&sources)
-                        .map(|(c, s)| (c.as_slice(), s.as_slice()))
-                        .collect();
+                    let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<RS>>>], &[u8])> =
+                        coeff_sets
+                            .iter()
+                            .zip(&sources)
+                            .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                            .collect();
                     let span = row_len * nrows;
                     let mut backing = noise(span + 128, 0xb31);
                     let start = backing.as_ptr().align_offset(64) + offset;
@@ -1650,7 +1682,7 @@ mod x86 {
                     let src_backing = noise(len + 128, 0xb40);
                     let s0 = src_backing.as_ptr().align_offset(64) + offset;
                     let src = &src_backing[s0..s0 + len];
-                    let coeffs: Vec<Elem<Binary<8, Polynomial<RS>>>> =
+                    let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>> =
                         (0..nrows).map(gf8_coeff_at::<RS>).collect();
                     let mut backing = noise(len * nrows + 128, 0xb41);
                     let start = backing.as_ptr().align_offset(64) + offset;
@@ -1689,7 +1721,7 @@ mod x86 {
                             &b[s..s + len]
                         })
                         .collect();
-                    let coeffs: Vec<Elem<Binary<8, Polynomial<RS>>>> =
+                    let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>> =
                         (0..nsrcs).map(gf8_coeff_at::<RS>).collect();
                     let mut backing = noise(len + 128, 0xb51);
                     let start = backing.as_ptr().align_offset(64) + offset;
@@ -1720,10 +1752,10 @@ mod x86 {
                 let sources: Vec<Vec<u8>> = (0..3usize)
                     .map(|t| noise(row_len, 0x900 + t as u64))
                     .collect();
-                let coeff_sets: Vec<Vec<Elem<Binary<8, Polynomial<RS>>>>> = (0..3usize)
+                let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>>> = (0..3usize)
                     .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<RS>(t, j)).collect())
                     .collect();
-                let terms: Vec<(&[Elem<Binary<8, Polynomial<RS>>>], &[u8])> = coeff_sets
+                let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<RS>>>], &[u8])> = coeff_sets
                     .iter()
                     .zip(&sources)
                     .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -1739,7 +1771,7 @@ mod x86 {
                 );
                 for &(coeffs, src) in &terms {
                     for (j, &coeff) in coeffs.iter().enumerate() {
-                        scalar::mul_add::<Binary<8, Polynomial<RS>>>(
+                        scalar::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(
                             &mut want[starts[j]..starts[j] + row_len],
                             coeff,
                             src,
@@ -1773,10 +1805,10 @@ mod x86 {
                 let sources: Vec<Vec<u8>> = (0..3usize)
                     .map(|t| noise(row_len, 0x940 + t as u64))
                     .collect();
-                let coeff_sets: Vec<Vec<Elem<Binary<8, Polynomial<AES>>>>> = (0..3usize)
+                let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>>> = (0..3usize)
                     .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<AES>(t, j)).collect())
                     .collect();
-                let terms: Vec<(&[Elem<Binary<8, Polynomial<AES>>>], &[u8])> = coeff_sets
+                let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<AES>>>], &[u8])> = coeff_sets
                     .iter()
                     .zip(&sources)
                     .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -1810,7 +1842,7 @@ mod x86 {
                 b,
             );
         });
-        check_elementwise_assign::<Binary<8, Polynomial<AES>>>(
+        check_elementwise_assign::<FiniteField<2, 8, Polynomial<AES>>>(
             "gf8 aes avx512 elementwise assign",
             |dst, src| {
                 x86::gf8::mul_elementwise_assign_avx512::<true>(
@@ -1832,7 +1864,7 @@ mod x86 {
                 b,
             );
         });
-        check_elementwise_assign::<Binary<8, Polynomial<RS>>>(
+        check_elementwise_assign::<FiniteField<2, 8, Polynomial<RS>>>(
             "gf8 rs avx512 elementwise assign",
             |dst, src| {
                 x86::gf8::mul_elementwise_assign_avx512::<false>(
@@ -1850,10 +1882,10 @@ mod x86 {
                 let sources: Vec<Vec<u8>> = (0..3usize)
                     .map(|t| noise(row_len, 0xa00 + t as u64))
                     .collect();
-                let coeff_sets: Vec<Vec<Elem<Binary<8, Polynomial<RS>>>>> = (0..3usize)
+                let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>>> = (0..3usize)
                     .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<RS>(t, j)).collect())
                     .collect();
-                let terms: Vec<(&[Elem<Binary<8, Polynomial<RS>>>], &[u8])> = coeff_sets
+                let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<RS>>>], &[u8])> = coeff_sets
                     .iter()
                     .zip(&sources)
                     .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -1873,7 +1905,7 @@ mod x86 {
                 x86::gf8::mul_add_matrix_avx512_with(token, &mut got, row_len, nrows, &matrix);
                 for &(coeffs, src) in &terms {
                     for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
-                        scalar::mul_add::<Binary<8, Polynomial<RS>>>(row, coeff, src);
+                        scalar::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(row, coeff, src);
                     }
                 }
                 assert_eq!(got, want, "gf8 rs avx512 with: {row_len}B x {nrows}");
@@ -1882,7 +1914,7 @@ mod x86 {
                 let mut want = vec![0u8; row_len * nrows];
                 for &(coeffs, src) in &terms {
                     for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
-                        scalar::mul_add::<Binary<8, Polynomial<RS>>>(row, coeff, src);
+                        scalar::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(row, coeff, src);
                     }
                 }
                 assert_eq!(
@@ -2016,7 +2048,7 @@ mod x86 {
             eprintln!("skipping: no AVX-512F+AVX-512BW+GFNI on this host");
             return;
         };
-        let entries: [MatrixEntry<'_, Elem<Binary<8, Polynomial<RS>>>>; 7] = [
+        let entries: [MatrixEntry<'_, Elem<FiniteField<2, 8, Polynomial<RS>>>>; 7] = [
             ("mul_add", false, &|rows, row_len, nrows, terms| {
                 prepared_pairs!(terms, |pairs| {
                     x86::gf8::mul_add_matrix_avx512_with(token, rows, row_len, nrows, &pairs[..]);
@@ -2051,7 +2083,7 @@ mod x86 {
                                           row_len,
                                           nrows,
                                           terms: &[(
-                &[Elem<Binary<8, Polynomial<RS>>>],
+                &[Elem<FiniteField<2, 8, Polynomial<RS>>>],
                 &[u8],
             )]| {
                 let (coefficients, sources) = flatten(terms);
@@ -2067,7 +2099,7 @@ mod x86 {
                                           row_len,
                                           nrows,
                                           terms: &[(
-                &[Elem<Binary<8, Polynomial<RS>>>],
+                &[Elem<FiniteField<2, 8, Polynomial<RS>>>],
                 &[u8],
             )]| {
                 let (coefficients, sources) = flatten(terms);
@@ -2093,7 +2125,7 @@ mod x86 {
             }),
         ];
         check_matrix_resolve_chunks("gf8 rs", gf8_coeff_at2::<RS>, gf8_reference::<RS>, &entries);
-        let entries: [MatrixEntry<'_, Elem<Binary<8, Polynomial<AES>>>>; 7] = [
+        let entries: [MatrixEntry<'_, Elem<FiniteField<2, 8, Polynomial<AES>>>>; 7] = [
             ("mul_add", false, &|rows, row_len, nrows, terms| {
                 prepared_pairs!(terms, |pairs| {
                     x86::gf8::mul_add_matrix_avx512_with(token, rows, row_len, nrows, &pairs[..]);
@@ -2128,7 +2160,7 @@ mod x86 {
                                           row_len,
                                           nrows,
                                           terms: &[(
-                &[Elem<Binary<8, Polynomial<AES>>>],
+                &[Elem<FiniteField<2, 8, Polynomial<AES>>>],
                 &[u8],
             )]| {
                 let (coefficients, sources) = flatten(terms);
@@ -2144,7 +2176,7 @@ mod x86 {
                                           row_len,
                                           nrows,
                                           terms: &[(
-                &[Elem<Binary<8, Polynomial<AES>>>],
+                &[Elem<FiniteField<2, 8, Polynomial<AES>>>],
                 &[u8],
             )]| {
                 let (coefficients, sources) = flatten(terms);
@@ -2277,21 +2309,21 @@ mod x86 {
         // field runs the native multiply, the affine form follows.
         check_gf8_exhaustive_mul_add(
             "gf8 aes gfni",
-            |c: Elem<Binary<8, Polynomial<AES>>>| Prepared::new(c),
+            |c: Elem<FiniteField<2, 8, Polynomial<AES>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_add_gfni::<true>(token, dst, c, src);
             },
         );
         check_gf8_exhaustive_mul_assign(
             "gf8 aes gfni",
-            |c: Elem<Binary<8, Polynomial<AES>>>| Prepared::new(c),
+            |c: Elem<FiniteField<2, 8, Polynomial<AES>>>| Prepared::new(c),
             |dst, c| {
                 x86::gf8::mul_assign_gfni::<true>(token, dst, c);
             },
         );
         check_gf8_exhaustive_mul_into(
             "gf8 aes gfni",
-            |c: Elem<Binary<8, Polynomial<AES>>>| Prepared::new(c),
+            |c: Elem<FiniteField<2, 8, Polynomial<AES>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_into_gfni::<true>(token, dst, c, src);
             },
@@ -2300,21 +2332,21 @@ mod x86 {
         // non-AES representation takes, exercised on AES data.
         check_gf8_exhaustive_mul_add(
             "gf8 aes gfni affine",
-            |c: Elem<Binary<8, Polynomial<AES>>>| Prepared::new(c),
+            |c: Elem<FiniteField<2, 8, Polynomial<AES>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_add_gfni::<false>(token, dst, c, src);
             },
         );
         check_gf8_exhaustive_mul_assign(
             "gf8 aes gfni affine",
-            |c: Elem<Binary<8, Polynomial<AES>>>| Prepared::new(c),
+            |c: Elem<FiniteField<2, 8, Polynomial<AES>>>| Prepared::new(c),
             |dst, c| {
                 x86::gf8::mul_assign_gfni::<false>(token, dst, c);
             },
         );
         check_gf8_exhaustive_mul_into(
             "gf8 aes gfni affine",
-            |c: Elem<Binary<8, Polynomial<AES>>>| Prepared::new(c),
+            |c: Elem<FiniteField<2, 8, Polynomial<AES>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_into_gfni::<false>(token, dst, c, src);
             },
@@ -2453,7 +2485,7 @@ mod x86 {
         check_gf16_elementwise("gf16 gfni elementwise", |dst, a, b| {
             x86::gf16::mul_elementwise_gfni(token, dst, a, b, DELTA_BYTE, AES_REDUCTION);
         });
-        check_elementwise_assign::<Binary<8, Polynomial<AES>>>(
+        check_elementwise_assign::<FiniteField<2, 8, Polynomial<AES>>>(
             "gf8 gfni elementwise assign",
             |dst, src| {
                 x86::gf8::mul_elementwise_assign_gfni::<true>(
@@ -2465,7 +2497,7 @@ mod x86 {
                 );
             },
         );
-        check_elementwise_assign::<Binary<8, Polynomial<RS>>>(
+        check_elementwise_assign::<FiniteField<2, 8, Polynomial<RS>>>(
             "gf8 rs gfni elementwise assign",
             |dst, src| {
                 x86::gf8::mul_elementwise_assign_gfni::<false>(
@@ -2477,7 +2509,7 @@ mod x86 {
                 );
             },
         );
-        check_elementwise_assign::<Binary<16, Tower<Rijndael16>>>(
+        check_elementwise_assign::<FiniteField<2, 16, Tower<Rijndael16>>>(
             "gf16 gfni elementwise assign",
             |dst, src| {
                 x86::gf16::mul_elementwise_assign_gfni(token, dst, src, DELTA_BYTE, AES_REDUCTION);
@@ -2564,10 +2596,10 @@ mod x86 {
                 let sources: Vec<Vec<u8>> = (0..3usize)
                     .map(|t| noise(row_len, 0x900 + t as u64))
                     .collect();
-                let coeff_sets: Vec<Vec<Elem<Binary<8, Polynomial<POLY>>>>> = (0..3usize)
+                let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<POLY>>>>> = (0..3usize)
                     .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<POLY>(t, j)).collect())
                     .collect();
-                let terms: Vec<(&[Elem<Binary<8, Polynomial<POLY>>>], &[u8])> = coeff_sets
+                let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<POLY>>>], &[u8])> = coeff_sets
                     .iter()
                     .zip(&sources)
                     .map(|(c, s)| (c.as_slice(), s.as_slice()))
@@ -2593,7 +2625,7 @@ mod x86 {
                 }
                 for &(coeffs, src) in &terms {
                     for (j, &coeff) in coeffs.iter().enumerate() {
-                        scalar::mul_add::<Binary<8, Polynomial<POLY>>>(
+                        scalar::mul_add::<FiniteField<2, 8, Polynomial<POLY>>>(
                             &mut want[starts[j]..starts[j] + row_len],
                             coeff,
                             src,
@@ -2739,7 +2771,7 @@ mod x86 {
     // Term geometry nests the unified element spelling; the slices stay slices.
     #[allow(clippy::type_complexity)]
     fn with_flat<const POLY: u128>(
-        terms: &[(&[Elem<Binary<8, Polynomial<POLY>>>], &[u8])],
+        terms: &[(&[Elem<FiniteField<2, 8, Polynomial<POLY>>>], &[u8])],
         nrows: usize,
         f: impl FnOnce(&crate::kernel::FlatMatrix<'_, Prepared>),
     ) {
@@ -2995,21 +3027,21 @@ mod x86 {
 
         check_gf8_exhaustive_mul_add(
             "gf8 rs gfni",
-            |c: Elem<Binary<8, Polynomial<RS>>>| Prepared::new(c),
+            |c: Elem<FiniteField<2, 8, Polynomial<RS>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_add_gfni::<false>(token, dst, c, src);
             },
         );
         check_gf8_exhaustive_mul_assign(
             "gf8 rs gfni",
-            |c: Elem<Binary<8, Polynomial<RS>>>| Prepared::new(c),
+            |c: Elem<FiniteField<2, 8, Polynomial<RS>>>| Prepared::new(c),
             |dst, c| {
                 x86::gf8::mul_assign_gfni::<false>(token, dst, c);
             },
         );
         check_gf8_exhaustive_mul_into(
             "gf8 rs gfni",
-            |c: Elem<Binary<8, Polynomial<RS>>>| Prepared::new(c),
+            |c: Elem<FiniteField<2, 8, Polynomial<RS>>>| Prepared::new(c),
             |dst, c, src| {
                 x86::gf8::mul_into_gfni::<false>(token, dst, c, src);
             },
@@ -3021,13 +3053,13 @@ mod x86 {
             // destination instead of overwriting it must fail this check.
             let mut buffer = noise(NT_LEN + 1, 0x2b9);
             for &coeff in &[
-                Elem::<Binary<8, Polynomial<RS>>>::ZERO,
-                Elem::<Binary<8, Polynomial<RS>>>::ONE,
-                Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x53),
-                Elem::<Binary<8, Polynomial<RS>>>::from_raw(0xff),
+                Elem::<FiniteField<2, 8, Polynomial<RS>>>::ZERO,
+                Elem::<FiniteField<2, 8, Polynomial<RS>>>::ONE,
+                Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0x53),
+                Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0xff),
             ] {
                 let mut want = src.to_vec();
-                scalar::mul_assign::<Binary<8, Polynomial<RS>>>(&mut want, coeff);
+                scalar::mul_assign::<FiniteField<2, 8, Polynomial<RS>>>(&mut want, coeff);
                 let got = &mut buffer[offset..offset + NT_LEN];
                 x86::gf8::mul_into_gfni::<false>(token, got, Prepared::new(coeff), src);
                 assert_eq!(&*got, want, "gf8 rs gfni NT mul_into: offset {offset}");
@@ -3163,20 +3195,21 @@ mod x86 {
                 let base = dst_storage.as_ptr().align_offset(64);
                 let dst = &mut dst_storage[base + offset..base + offset + len];
                 let src = &src_storage[offset..offset + len];
-                for coeff in [0u8, 1, 0x53, 0xff].map(Elem::<Binary<8, Polynomial<AES>>>::from_raw)
+                for coeff in
+                    [0u8, 1, 0x53, 0xff].map(Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw)
                 {
                     let before = dst.to_vec();
                     let mut want = before.clone();
-                    scalar::mul_add::<Binary<8, Polynomial<AES>>>(&mut want, coeff, src);
+                    scalar::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, coeff, src);
                     x86::gf8::mul_add_gfni::<true>(token, dst, Prepared::new(coeff), src);
                     assert_eq!(&*dst, want, "mul_add_gfni: len {len}, offset {offset}");
                     dst.copy_from_slice(&before);
                     let mut want = before.clone();
-                    scalar::mul_assign::<Binary<8, Polynomial<AES>>>(&mut want, coeff);
+                    scalar::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, coeff);
                     x86::gf8::mul_assign_gfni::<true>(token, dst, Prepared::new(coeff));
                     assert_eq!(&*dst, want, "mul_assign_gfni: len {len}, offset {offset}");
                     let mut want = src.to_vec();
-                    scalar::mul_assign::<Binary<8, Polynomial<AES>>>(&mut want, coeff);
+                    scalar::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, coeff);
                     x86::gf8::mul_into_gfni::<true>(token, dst, Prepared::new(coeff), src);
                     assert_eq!(&*dst, want, "mul_into_gfni: len {len}, offset {offset}");
                 }
@@ -3201,22 +3234,24 @@ mod x86 {
                 let base = dst_storage.as_ptr().align_offset(64);
                 let dst = &mut dst_storage[base + offset..base + offset + len];
                 let src = &src_storage[offset..offset + len];
-                for coeff in [0u8, 1, 0x53, 0xff].map(Elem::<Binary<8, Polynomial<RS>>>::from_raw) {
+                for coeff in
+                    [0u8, 1, 0x53, 0xff].map(Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw)
+                {
                     let before = dst.to_vec();
                     let mut want = before.clone();
-                    scalar::mul_add::<Binary<8, Polynomial<RS>>>(&mut want, coeff, src);
+                    scalar::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(&mut want, coeff, src);
                     x86::gf8::mul_add_gfni::<false>(token, dst, Prepared::new(coeff), src);
                     assert_eq!(&*dst, want, "rs mul_add_gfni: len {len}, offset {offset}");
                     dst.copy_from_slice(&before);
                     let mut want = before.clone();
-                    scalar::mul_assign::<Binary<8, Polynomial<RS>>>(&mut want, coeff);
+                    scalar::mul_assign::<FiniteField<2, 8, Polynomial<RS>>>(&mut want, coeff);
                     x86::gf8::mul_assign_gfni::<false>(token, dst, Prepared::new(coeff));
                     assert_eq!(
                         &*dst, want,
                         "rs mul_assign_gfni: len {len}, offset {offset}"
                     );
                     let mut want = src.to_vec();
-                    scalar::mul_assign::<Binary<8, Polynomial<RS>>>(&mut want, coeff);
+                    scalar::mul_assign::<FiniteField<2, 8, Polynomial<RS>>>(&mut want, coeff);
                     x86::gf8::mul_into_gfni::<false>(token, dst, Prepared::new(coeff), src);
                     assert_eq!(&*dst, want, "rs mul_into_gfni: len {len}, offset {offset}");
                 }
@@ -3246,19 +3281,19 @@ mod x86 {
                     let prepared = TowerCoeff::new(coeff);
                     let before = dst.to_vec();
                     let mut want = before.clone();
-                    scalar::mul_add::<Binary<16, Tower<Rijndael16>>>(&mut want, coeff, src);
+                    scalar::mul_add::<FiniteField<2, 16, Tower<Rijndael16>>>(&mut want, coeff, src);
                     x86::gf16::mul_add_gfni(token, dst, prepared, src);
                     assert_eq!(&*dst, want, "gf16 mul_add_gfni: len {len}, offset {offset}");
                     dst.copy_from_slice(&before);
                     let mut want = before.clone();
-                    scalar::mul_assign::<Binary<16, Tower<Rijndael16>>>(&mut want, coeff);
+                    scalar::mul_assign::<FiniteField<2, 16, Tower<Rijndael16>>>(&mut want, coeff);
                     x86::gf16::mul_assign_gfni(token, dst, prepared);
                     assert_eq!(
                         &*dst, want,
                         "gf16 mul_assign_gfni: len {len}, offset {offset}"
                     );
                     let mut want = src.to_vec();
-                    scalar::mul_assign::<Binary<16, Tower<Rijndael16>>>(&mut want, coeff);
+                    scalar::mul_assign::<FiniteField<2, 16, Tower<Rijndael16>>>(&mut want, coeff);
                     x86::gf16::mul_into_gfni(token, dst, prepared, src);
                     assert_eq!(
                         &*dst, want,
@@ -3281,17 +3316,17 @@ mod x86 {
             return;
         }
         let token = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
-        let coeffs: Vec<Elem<Binary<16, Tower<Rijndael16>>>> =
+        let coeffs: Vec<Elem<FiniteField<2, 16, Tower<Rijndael16>>>> =
             [0x0000u16, 0x0001, 0x0100, 0x53a7, 0xbeef, 0xffff]
                 .iter()
                 .copied()
-                .map(Elem::<Binary<16, Tower<Rijndael16>>>::from_raw)
+                .map(Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw)
                 .collect();
         for &row_len in GFNI_TAIL_LENGTHS {
             for nrows in [1usize, 2, 3, 5] {
                 for skew in [0usize, 1] {
                     let src = noise(row_len, 0x311);
-                    let row_coeffs: Vec<Elem<Binary<16, Tower<Rijndael16>>>> =
+                    let row_coeffs: Vec<Elem<FiniteField<2, 16, Tower<Rijndael16>>>> =
                         (0..nrows).map(|j| coeffs[j % coeffs.len()]).collect();
                     let mut backing = noise(row_len * nrows + skew, 0x322);
                     let rows = &mut backing[skew..skew + row_len * nrows];
@@ -3311,7 +3346,7 @@ mod x86 {
                 .map(|t| noise(row_len, 0x333 + t as u64))
                 .collect();
             let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
-            let gather_coeffs: Vec<Elem<Binary<16, Tower<Rijndael16>>>> =
+            let gather_coeffs: Vec<Elem<FiniteField<2, 16, Tower<Rijndael16>>>> =
                 (0..5).map(|t| coeffs[t % coeffs.len()]).collect();
             let mut got = noise(row_len, 0x344);
             let mut want = got.clone();
@@ -3321,7 +3356,7 @@ mod x86 {
             }
             assert_eq!(got, want, "gf16 gfni gather tail: row_len {row_len}");
             let nrows = 5;
-            let coeff_sets: Vec<Vec<Elem<Binary<16, Tower<Rijndael16>>>>> = (0..3)
+            let coeff_sets: Vec<Vec<Elem<FiniteField<2, 16, Tower<Rijndael16>>>>> = (0..3)
                 .map(|t| (0..nrows).map(|j| gf16_coeff_at2(t, j)).collect())
                 .collect();
             let terms: Vec<(&[Elem<_>], &[u8])> = coeff_sets
@@ -3441,7 +3476,7 @@ mod x86 {
         });
         // Fan–Paar tower (GF(2^16)/32/64): the fp8 nibble tower and its
         // period-2 lane-mul extensions.
-        check_elementwise_assign::<Binary<8, Polynomial<AES>>>(
+        check_elementwise_assign::<FiniteField<2, 8, Polynomial<AES>>>(
             "gf8 avx2 elementwise assign",
             |dst, src| {
                 x86::gf8::mul_elementwise_assign_avx2(
@@ -3452,7 +3487,7 @@ mod x86 {
                 );
             },
         );
-        check_elementwise_assign::<Binary<8, Polynomial<RS>>>(
+        check_elementwise_assign::<FiniteField<2, 8, Polynomial<RS>>>(
             "gf8 rs avx2 elementwise assign",
             |dst, src| {
                 x86::gf8::mul_elementwise_assign_avx2(
@@ -3463,7 +3498,7 @@ mod x86 {
                 );
             },
         );
-        check_elementwise_assign::<Binary<16, Tower<Rijndael16>>>(
+        check_elementwise_assign::<FiniteField<2, 16, Tower<Rijndael16>>>(
             "gf16 avx2 elementwise assign",
             |dst, src| {
                 x86::gf16::mul_elementwise_assign_avx2(
@@ -3672,7 +3707,7 @@ mod x86 {
         check_gf16_elementwise("gf16 ssse3 elementwise", |dst, a, b| {
             x86::gf16::mul_elementwise_ssse3(token, dst, a, b, delta_table(), AES_REDUCTION);
         });
-        check_elementwise_assign::<Binary<8, Polynomial<AES>>>(
+        check_elementwise_assign::<FiniteField<2, 8, Polynomial<AES>>>(
             "gf8 ssse3 elementwise assign",
             |dst, src| {
                 x86::gf8::mul_elementwise_assign_ssse3(
@@ -3683,7 +3718,7 @@ mod x86 {
                 );
             },
         );
-        check_elementwise_assign::<Binary<8, Polynomial<RS>>>(
+        check_elementwise_assign::<FiniteField<2, 8, Polynomial<RS>>>(
             "gf8 rs ssse3 elementwise assign",
             |dst, src| {
                 x86::gf8::mul_elementwise_assign_ssse3(
@@ -3694,7 +3729,7 @@ mod x86 {
                 );
             },
         );
-        check_elementwise_assign::<Binary<16, Tower<Rijndael16>>>(
+        check_elementwise_assign::<FiniteField<2, 16, Tower<Rijndael16>>>(
             "gf16 ssse3 elementwise assign",
             |dst, src| {
                 x86::gf16::mul_elementwise_assign_ssse3(
@@ -3885,15 +3920,15 @@ mod x86 {
         const NT_LEN: usize = (2 << 20) + 130;
         // The non-temporal split is a store-side choice, independent of the
         // coefficient, so a zero, a one and a mixed value are enough.
-        const GF8_COEFFS: [Elem<Binary<8, Polynomial<AES>>>; 3] = [
-            Elem::<Binary<8, Polynomial<AES>>>::ZERO,
-            Elem::<Binary<8, Polynomial<AES>>>::ONE,
-            Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
+        const GF8_COEFFS: [Elem<FiniteField<2, 8, Polynomial<AES>>>; 3] = [
+            Elem::<FiniteField<2, 8, Polynomial<AES>>>::ZERO,
+            Elem::<FiniteField<2, 8, Polynomial<AES>>>::ONE,
+            Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
         ];
-        const GF16_COEFFS: [Elem<Binary<16, Tower<Rijndael16>>>; 3] = [
-            Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0),
-            Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(1),
-            Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0x53a7),
+        const GF16_COEFFS: [Elem<FiniteField<2, 16, Tower<Rijndael16>>>; 3] = [
+            Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0),
+            Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(1),
+            Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0x53a7),
         ];
 
         let source = noise(NT_LEN + 2, 0x1a7);
@@ -3906,7 +3941,7 @@ mod x86 {
             for coeff in GF8_COEFFS {
                 let table = scale_table(coeff);
                 let mut want = src.to_vec();
-                scalar::mul_assign::<Binary<8, Polynomial<AES>>>(&mut want, coeff);
+                scalar::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, coeff);
                 if host_supports(&[Backend::V3GfniCrypto]) {
                     let got = &mut got[offset..offset + NT_LEN];
                     x86::gf8::mul_into_gfni::<true>(
@@ -3949,7 +3984,7 @@ mod x86 {
             for coeff in GF16_COEFFS {
                 let tables = TowerTables::new(coeff);
                 let mut want = src.to_vec();
-                scalar::mul_assign::<Binary<16, Tower<Rijndael16>>>(&mut want, coeff);
+                scalar::mul_assign::<FiniteField<2, 16, Tower<Rijndael16>>>(&mut want, coeff);
                 if host_supports(&[Backend::V3GfniCrypto]) {
                     let got = &mut got[offset..offset + src.len()];
                     x86::gf16::mul_into_gfni(
@@ -3997,7 +4032,7 @@ mod x86 {
         }
         let gfni = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
         let avx2 = X64V3Token::summon().expect("GFNI implies AVX2");
-        let coeff = Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53);
+        let coeff = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
         for len in [511usize, 512, 1152, 1168, 1200, 2048] {
             for off in [0usize, 1, 16, 32, 48] {
                 let src_backing = noise(len + 128, 0x522);
@@ -4013,11 +4048,11 @@ mod x86 {
                 assert_eq!(dst, want, "xor {len} +{off}");
 
                 x86::gf8::mul_add_gfni::<true>(gfni, dst, Prepared::new(coeff), src);
-                scalar::mul_add::<Binary<8, Polynomial<AES>>>(&mut want, coeff, src);
+                scalar::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, coeff, src);
                 assert_eq!(dst, want, "mul_add {len} +{off}");
 
                 x86::gf8::mul_assign_gfni::<true>(gfni, dst, Prepared::new(coeff));
-                scalar::mul_assign::<Binary<8, Polynomial<AES>>>(&mut want, coeff);
+                scalar::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, coeff);
                 assert_eq!(dst, want, "mul_assign {len} +{off}");
             }
         }
@@ -4032,7 +4067,7 @@ mod x86 {
     fn aligned_scatter_matches_reference() {
         const ROW_LENS: &[usize] = &[512, 1152, 1168, 1184, 1200, 2048, 4096];
         type ScatterKernel<'a> =
-            dyn Fn(&mut [u8], usize, &[Elem<Binary<16, Tower<Rijndael16>>>], &[u8]) + 'a;
+            dyn Fn(&mut [u8], usize, &[Elem<FiniteField<2, 16, Tower<Rijndael16>>>], &[u8]) + 'a;
 
         if !(host_supports(&[Backend::V3GfniCrypto])) {
             eprintln!("skipping: no AVX2+GFNI on this host");
@@ -4100,7 +4135,7 @@ mod x86 {
                         ("avx2", &|rows: &mut [u8],
                                    row_len: usize,
                                    coeffs: &[Elem<
-                            Binary<16, Tower<Rijndael16>>,
+                            FiniteField<2, 16, Tower<Rijndael16>>,
                         >],
                                    src: &[u8]| {
                             x86::gf16::mul_add_scatter_avx2(v3, rows, row_len, coeffs, src);
@@ -4108,7 +4143,7 @@ mod x86 {
                         ("ssse3", &|rows: &mut [u8],
                                     row_len: usize,
                                     coeffs: &[Elem<
-                            Binary<16, Tower<Rijndael16>>,
+                            FiniteField<2, 16, Tower<Rijndael16>>,
                         >],
                                     src: &[u8]| {
                             x86::gf16::mul_add_scatter_ssse3(v2, rows, row_len, coeffs, src);
@@ -4133,7 +4168,7 @@ mod x86 {
 
     /// Direct differentials for polynomials beyond the two named constants:
     /// Data Matrix `0x12D` and the CCSDS Reed–Solomon field `0x187`, exactly
-    /// the shapes a caller spells as `Binary<8, Polynomial<0x12D>>`. Each tier exercises the
+    /// the shapes a caller spells as `FiniteField<2, 8, Polynomial<0x12D>>`. Each tier exercises the
     /// single-buffer and elementwise kernels at lane/tail boundaries — raw
     /// coefficients everywhere, plus the dispatch-shaped `Prepared` form on
     /// the blocked backends — and skips through its token convention when
@@ -4164,7 +4199,7 @@ mod x86 {
                 &format!("{name} gfni mul_assign"),
                 LENGTHS,
                 &coeffs,
-                scalar::mul_assign::<Binary<8, Polynomial<POLY>>>,
+                scalar::mul_assign::<FiniteField<2, 8, Polynomial<POLY>>>,
                 |dst, c| x86::gf8::mul_assign_gfni::<false>(token, dst, Prepared::new(c)),
             );
             check_tower_mul_into(
@@ -4195,7 +4230,7 @@ mod x86 {
                     );
                 }
             });
-            check_elementwise_assign::<Binary<8, Polynomial<POLY>>>(
+            check_elementwise_assign::<FiniteField<2, 8, Polynomial<POLY>>>(
                 &format!("{name} gfni elementwise assign"),
                 |dst, src| {
                     if POLY == AES {
@@ -4233,7 +4268,7 @@ mod x86 {
             check_gf8_elementwise::<POLY>(&format!("{name} avx2 elementwise"), |dst, a, b| {
                 x86::gf8::mul_elementwise_avx2(token, Polynomial::<POLY>::REDUCTION_LOW, dst, a, b);
             });
-            check_elementwise_assign::<Binary<8, Polynomial<POLY>>>(
+            check_elementwise_assign::<FiniteField<2, 8, Polynomial<POLY>>>(
                 &format!("{name} avx2 elementwise assign"),
                 |dst, src| {
                     x86::gf8::mul_elementwise_assign_avx2(
@@ -4264,7 +4299,7 @@ mod x86 {
                     b,
                 );
             });
-            check_elementwise_assign::<Binary<8, Polynomial<POLY>>>(
+            check_elementwise_assign::<FiniteField<2, 8, Polynomial<POLY>>>(
                 &format!("{name} ssse3 elementwise assign"),
                 |dst, src| {
                     x86::gf8::mul_elementwise_assign_ssse3(
@@ -4292,7 +4327,7 @@ mod x86 {
     #[cfg(feature = "simd512")]
     fn check_gf8_polynomial_avx512<const POLY: u128>(
         name: &str,
-        coeffs: &[Elem<Binary<8, Polynomial<POLY>>>],
+        coeffs: &[Elem<FiniteField<2, 8, Polynomial<POLY>>>],
     ) {
         let Some(token) = X64V4xToken::summon() else {
             eprintln!("skipping {name}: no V4x token on this host");
@@ -4309,7 +4344,7 @@ mod x86 {
             &format!("{name} avx512 mul_assign"),
             LENGTHS,
             coeffs,
-            scalar::mul_assign::<Binary<8, Polynomial<POLY>>>,
+            scalar::mul_assign::<FiniteField<2, 8, Polynomial<POLY>>>,
             |dst, c| x86::gf8::mul_assign_avx512(token, dst, Prepared::new(c)),
         );
         check_tower_mul_into(
@@ -4340,7 +4375,7 @@ mod x86 {
                 );
             }
         });
-        check_elementwise_assign::<Binary<8, Polynomial<POLY>>>(
+        check_elementwise_assign::<FiniteField<2, 8, Polynomial<POLY>>>(
             &format!("{name} avx512 elementwise assign"),
             |dst, src| {
                 if POLY == AES {
@@ -5963,7 +5998,7 @@ mod x86 {
     /// reports `Scalar`.
     #[test]
     fn custom_normal_base_tower_bulk_matches_scalar() {
-        type NormalBase = Binary<8, Normal<0x11B, 0x20>>;
+        type NormalBase = FiniteField<2, 8, Normal<0x11B, 0x20>>;
 
         #[derive(Clone, Copy)]
         struct OverNormal;
@@ -5978,7 +6013,7 @@ mod x86 {
             const NAME: &'static str = "custom normal-base tower";
         }
 
-        type Field = Binary<16, crate::field::binary::tower::Tower<OverNormal>>;
+        type Field = FiniteField<2, 16, crate::field::binary::tower::Tower<OverNormal>>;
         assert_eq!(Elem::<NormalBase>::ONE.to_raw(), 0xFF);
 
         assert_eq!(
@@ -6564,7 +6599,7 @@ fn default_kernels_handle_empty_terms() {
     <Goldilocks as KernelDispatch>::mul_into_gather(RawDispatch, &mut dst, &[], &[]);
     assert!(dst.iter().all(|&b| b == 0), "empty terms must zero dst");
     let mut dst = noise(16, 0x5b);
-    <Binary<32, Tower<FanPaar32>> as KernelDispatch>::mul_into_gather(
+    <FiniteField<2, 32, Tower<FanPaar32>> as KernelDispatch>::mul_into_gather(
         RawDispatch,
         &mut dst,
         &[],
@@ -6621,50 +6656,50 @@ fn binary_broadcast_dispatch_matches_reference_and_reports_backend() {
         "binary broadcast dispatch backend: {:?}",
         crate::kernel::backend()
     );
-    check_binary_broadcast_dispatch::<Binary<8, Polynomial<AES>>>(&[
-        Elem::<Binary<8, Polynomial<AES>>>::from_raw(0),
-        Elem::<Binary<8, Polynomial<AES>>>::from_raw(1),
-        Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53),
+    check_binary_broadcast_dispatch::<FiniteField<2, 8, Polynomial<AES>>>(&[
+        Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0),
+        Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(1),
+        Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53),
     ]);
-    check_binary_broadcast_dispatch::<Binary<8, Polynomial<RS>>>(&[
-        Elem::<Binary<8, Polynomial<RS>>>::from_raw(0),
-        Elem::<Binary<8, Polynomial<RS>>>::from_raw(1),
-        Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x53),
+    check_binary_broadcast_dispatch::<FiniteField<2, 8, Polynomial<RS>>>(&[
+        Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0),
+        Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(1),
+        Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0x53),
     ]);
-    check_binary_broadcast_dispatch::<Binary<16, Tower<Rijndael16>>>(&[
-        Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0),
-        Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(1),
-        Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(0x53a7),
+    check_binary_broadcast_dispatch::<FiniteField<2, 16, Tower<Rijndael16>>>(&[
+        Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0),
+        Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(1),
+        Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(0x53a7),
     ]);
-    check_binary_broadcast_dispatch::<Binary<32, Tower<Rijndael32>>>(&[
-        Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(0),
-        Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(1),
-        Elem::<Binary<32, Tower<Rijndael32>>>::from_raw(0xdead_beef),
+    check_binary_broadcast_dispatch::<FiniteField<2, 32, Tower<Rijndael32>>>(&[
+        Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(0),
+        Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(1),
+        Elem::<FiniteField<2, 32, Tower<Rijndael32>>>::from_raw(0xdead_beef),
     ]);
-    check_binary_broadcast_dispatch::<Binary<64, Tower<Rijndael64>>>(&[
-        Elem::<Binary<64, Tower<Rijndael64>>>::from_raw(0),
-        Elem::<Binary<64, Tower<Rijndael64>>>::from_raw(1),
-        Elem::<Binary<64, Tower<Rijndael64>>>::from_raw(0x0123_4567_89ab_cdef),
+    check_binary_broadcast_dispatch::<FiniteField<2, 64, Tower<Rijndael64>>>(&[
+        Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::from_raw(0),
+        Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::from_raw(1),
+        Elem::<FiniteField<2, 64, Tower<Rijndael64>>>::from_raw(0x0123_4567_89ab_cdef),
     ]);
-    check_binary_broadcast_dispatch::<Binary<8, Tower<FanPaar8>>>(&[
-        Elem::<Binary<8, Tower<FanPaar8>>>::from_raw(0),
-        Elem::<Binary<8, Tower<FanPaar8>>>::from_raw(1),
-        Elem::<Binary<8, Tower<FanPaar8>>>::from_raw(0xa5),
+    check_binary_broadcast_dispatch::<FiniteField<2, 8, Tower<FanPaar8>>>(&[
+        Elem::<FiniteField<2, 8, Tower<FanPaar8>>>::from_raw(0),
+        Elem::<FiniteField<2, 8, Tower<FanPaar8>>>::from_raw(1),
+        Elem::<FiniteField<2, 8, Tower<FanPaar8>>>::from_raw(0xa5),
     ]);
-    check_binary_broadcast_dispatch::<Binary<16, Tower<FanPaar16>>>(&[
-        Elem::<Binary<16, Tower<FanPaar16>>>::from_raw(0),
-        Elem::<Binary<16, Tower<FanPaar16>>>::from_raw(1),
-        Elem::<Binary<16, Tower<FanPaar16>>>::from_raw(0xa55a),
+    check_binary_broadcast_dispatch::<FiniteField<2, 16, Tower<FanPaar16>>>(&[
+        Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::from_raw(0),
+        Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::from_raw(1),
+        Elem::<FiniteField<2, 16, Tower<FanPaar16>>>::from_raw(0xa55a),
     ]);
-    check_binary_broadcast_dispatch::<Binary<32, Tower<FanPaar32>>>(&[
-        Elem::<Binary<32, Tower<FanPaar32>>>::from_raw(0),
-        Elem::<Binary<32, Tower<FanPaar32>>>::from_raw(1),
-        Elem::<Binary<32, Tower<FanPaar32>>>::from_raw(0xa55a_1234),
+    check_binary_broadcast_dispatch::<FiniteField<2, 32, Tower<FanPaar32>>>(&[
+        Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::from_raw(0),
+        Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::from_raw(1),
+        Elem::<FiniteField<2, 32, Tower<FanPaar32>>>::from_raw(0xa55a_1234),
     ]);
-    check_binary_broadcast_dispatch::<Binary<64, Tower<FanPaar64>>>(&[
-        Elem::<Binary<64, Tower<FanPaar64>>>::from_raw(0),
-        Elem::<Binary<64, Tower<FanPaar64>>>::from_raw(1),
-        Elem::<Binary<64, Tower<FanPaar64>>>::from_raw(0xa55a_1234_dead_beef),
+    check_binary_broadcast_dispatch::<FiniteField<2, 64, Tower<FanPaar64>>>(&[
+        Elem::<FiniteField<2, 64, Tower<FanPaar64>>>::from_raw(0),
+        Elem::<FiniteField<2, 64, Tower<FanPaar64>>>::from_raw(1),
+        Elem::<FiniteField<2, 64, Tower<FanPaar64>>>::from_raw(0xa55a_1234_dead_beef),
     ]);
 }
 
@@ -6687,21 +6722,33 @@ fn gf16_scatter_accepts_plain_prepared_coefficients() {
         let mut want = got.clone();
         let coeffs = [gf16_coeff_at(1), gf16_coeff_at(2)];
         x86::gf16::mul_add_scatter_avx2(v3, &mut got, len, &coeffs, &src);
-        scalar::mul_add::<Binary<16, Tower<Rijndael16>>>(&mut want[..len], gf16_coeff_at(1), &src);
-        scalar::mul_add::<Binary<16, Tower<Rijndael16>>>(&mut want[len..], gf16_coeff_at(2), &src);
+        scalar::mul_add::<FiniteField<2, 16, Tower<Rijndael16>>>(
+            &mut want[..len],
+            gf16_coeff_at(1),
+            &src,
+        );
+        scalar::mul_add::<FiniteField<2, 16, Tower<Rijndael16>>>(
+            &mut want[len..],
+            gf16_coeff_at(2),
+            &src,
+        );
         assert_eq!(got, want, "plain-prepared scatter at len {len}");
 
         // The plain prepared form reaches the dispatched single-row path.
         let prepared = crate::kernel::gf16::Prepared::Plain(gf16_coeff_at(1).to_raw());
         let mut dispatched = noise(len, 0x63);
         let mut reference = dispatched.clone();
-        <Binary<16, Tower<Rijndael16>> as KernelDispatch>::mul_add(
+        <FiniteField<2, 16, Tower<Rijndael16>> as KernelDispatch>::mul_add(
             RawDispatch,
             &mut dispatched,
             &prepared,
             &src,
         );
-        scalar::mul_add::<Binary<16, Tower<Rijndael16>>>(&mut reference, gf16_coeff_at(1), &src);
+        scalar::mul_add::<FiniteField<2, 16, Tower<Rijndael16>>>(
+            &mut reference,
+            gf16_coeff_at(1),
+            &src,
+        );
         assert_eq!(
             dispatched, reference,
             "plain-prepared dispatch at len {len}"
@@ -6712,7 +6759,7 @@ fn gf16_scatter_accepts_plain_prepared_coefficients() {
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 #[test]
 fn x86_geometry_guards_accept_zero_length_rows() {
-    type E16 = Elem<Binary<16, Tower<Rijndael16>>>;
+    type E16 = Elem<FiniteField<2, 16, Tower<Rijndael16>>>;
 
     use crate::kernel::x86;
     use archmage::{SimdToken as _, X64V2Token, X64V3GfniCryptoToken, X64V3Token};
@@ -6724,12 +6771,12 @@ fn x86_geometry_guards_accept_zero_length_rows() {
     }
 
     let v2 = X64V2Token::summon().expect("SSSE3 detected above");
-    let coeffs = [Prepared::new(Elem::<Binary<8, Polynomial<AES>>>::from_raw(
-        3,
-    ))];
+    let coeffs = [Prepared::new(
+        Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(3),
+    )];
     let empty_aes: &[(&[Prepared], &[u8])] = &[];
     x86::gf8::mul_add_scatter_ssse3(v2, &mut [], 0, &coeffs, &[]);
-    let gf16_coeffs = [Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(5)];
+    let gf16_coeffs = [Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(5)];
     x86::gf16::mul_add_scatter_ssse3(v2, &mut [], 0, &gf16_coeffs, &[]);
 
     if let Some(v3) = X64V3Token::summon() {
@@ -6771,8 +6818,8 @@ fn scatter_gfni_rejects_short_rows_buffer() {
             &mut [0u8; 4],
             4,
             &[
-                Prepared::new(Elem::<Binary<8, Polynomial<AES>>>::from_raw(1)),
-                Prepared::new(Elem::<Binary<8, Polynomial<AES>>>::from_raw(2)),
+                Prepared::new(Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(1)),
+                Prepared::new(Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(2)),
             ],
             &[0u8; 4],
         );
@@ -6786,23 +6833,23 @@ fn scatter_gfni_rejects_short_rows_buffer() {
 
 #[test]
 fn macro_kernels_matrix_with_matches_per_row_application() {
-    // `impl_field_kernels!`'s prepared-terms matrix override (Binary<8, Tower<FanPaar8>>):
+    // `impl_field_kernels!`'s prepared-terms matrix override (FiniteField<2, 8, Tower<FanPaar8>>):
     // apply the same prepared coefficients row by row and compare.
     let row_len = 8;
     let srcs: Vec<Vec<u8>> = vec![noise(row_len, 0x71), noise(row_len, 0x72)];
     let coeffs = [
-        Elem::<Binary<8, Tower<FanPaar8>>>::from_raw(1),
-        Elem::<Binary<8, Tower<FanPaar8>>>::from_raw(0x8d),
+        Elem::<FiniteField<2, 8, Tower<FanPaar8>>>::from_raw(1),
+        Elem::<FiniteField<2, 8, Tower<FanPaar8>>>::from_raw(0x8d),
     ];
     let prepared: Vec<_> = coeffs
         .iter()
         .copied()
-        .map(|coeff| <Binary<8, Tower<FanPaar8>>>::prepare(RawDispatch, coeff))
+        .map(|coeff| <FiniteField<2, 8, Tower<FanPaar8>>>::prepare(RawDispatch, coeff))
         .collect();
 
     let mut got = noise(2 * row_len, 0x73);
     let mut want = got.clone();
-    <Binary<8, Tower<FanPaar8>> as KernelDispatch>::mul_add_matrix_with(
+    <FiniteField<2, 8, Tower<FanPaar8>> as KernelDispatch>::mul_add_matrix_with(
         RawDispatch,
         &mut got,
         row_len,
@@ -6819,7 +6866,12 @@ fn macro_kernels_matrix_with_matches_per_row_application() {
             [&prepared[1], &prepared[0]]
         };
         for (row, coeff) in want.chunks_exact_mut(row_len).zip(row_coeffs) {
-            <Binary<8, Tower<FanPaar8>> as KernelDispatch>::mul_add(RawDispatch, row, coeff, src);
+            <FiniteField<2, 8, Tower<FanPaar8>> as KernelDispatch>::mul_add(
+                RawDispatch,
+                row,
+                coeff,
+                src,
+            );
         }
     }
     assert_eq!(got, want, "prepared matrix");
@@ -6830,7 +6882,7 @@ fn default_prepared_kernels_handle_empty_inputs() {
     // `KernelDispatch::mul_into_gather_with`'s defaulted empty arm (the scalar and
     // Fan-Paar fields): no terms zeroes the destination.
     let mut dst = noise(16, 0x66);
-    <Binary<8, Tower<FanPaar8>> as KernelDispatch>::mul_into_gather_with(
+    <FiniteField<2, 8, Tower<FanPaar8>> as KernelDispatch>::mul_into_gather_with(
         RawDispatch,
         &mut dst,
         &[],
@@ -6922,8 +6974,8 @@ fn scatter_gfni_rs_rejects_short_rows_buffer() {
             &mut [0u8; 4],
             4,
             &[
-                Prepared::new(Elem::<Binary<8, Polynomial<RS>>>::from_raw(1)),
-                Prepared::new(Elem::<Binary<8, Polynomial<RS>>>::from_raw(2)),
+                Prepared::new(Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(1)),
+                Prepared::new(Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(2)),
             ],
             &[0u8; 4],
         );
@@ -6953,7 +7005,7 @@ fn gf16_gfni_wrappers_tolerate_degenerate_geometry() {
         token,
         &mut [],
         0,
-        &[Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(1)],
+        &[Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(1)],
         &[],
     );
     let mut rows = [0u8; 8];
@@ -6961,7 +7013,7 @@ fn gf16_gfni_wrappers_tolerate_degenerate_geometry() {
         token,
         &mut rows,
         0,
-        &[Elem::<Binary<16, Tower<Rijndael16>>>::from_raw(1)],
+        &[Elem::<FiniteField<2, 16, Tower<Rijndael16>>>::from_raw(1)],
         &[],
     );
     assert_eq!(rows, [0; 8]);
@@ -6988,7 +7040,7 @@ fn gf16_gfni_wrappers_tolerate_degenerate_geometry() {
 /// wrapper bug cannot mask a kernel bug.
 mod gf1_bits {
     use super::Vec;
-    use crate::field::{Binary, Elem, Polynomial};
+    use crate::field::{Elem, FiniteField, Polynomial};
     use crate::kernel::gf1 as k;
 
     fn bit(buf: &[u8], i: usize) -> bool {
@@ -7135,14 +7187,16 @@ mod gf1_bits {
                 "weight {bits_len}"
             );
 
-            let mut acc = Elem::<Binary<1, Polynomial<3>>>::ZERO;
+            let mut acc = Elem::<FiniteField<2, 1, Polynomial<3>>>::ZERO;
             for i in 0..bits_len {
-                acc = acc.add(Elem::<Binary<1, Polynomial<3>>>::from_raw(u8::from(
-                    bit(&a, i) && bit(&b, i),
-                )));
+                acc = acc.add(Elem::<FiniteField<2, 1, Polynomial<3>>>::from_raw(
+                    u8::from(bit(&a, i) && bit(&b, i)),
+                ));
             }
             assert_eq!(
-                Elem::<Binary<1, Polynomial<3>>>::from_raw(k::parity(&a, &b, bits_len) as u8),
+                Elem::<FiniteField<2, 1, Polynomial<3>>>::from_raw(
+                    k::parity(&a, &b, bits_len) as u8
+                ),
                 acc,
                 "parity {bits_len}"
             );

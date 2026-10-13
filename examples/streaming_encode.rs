@@ -8,8 +8,8 @@
 
 use fgf::{Elem, backend_for, ops};
 
-// Callers name their own fields; the canonical `Binary<N, R>` type is the API.
-type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
+// Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
+type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
 
 const SYMBOLS: usize = 8;
 const ROW_LEN: usize = SYMBOLS * 2;

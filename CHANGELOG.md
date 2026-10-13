@@ -8,10 +8,97 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- One-time field migration verification is recorded in
+  [Issue #41](https://github.com/nanithefkuc/fgf/issues/41), rather than a
+  permanent expanded regression corpus.
+- The dependency lock uses published sources for locked MSRV checks.
+
+- The canonical generic field family `FiniteField<const P: u64, const N: u32,
+  R: FiniteFieldRepr<P, N> = Residue>` with the `Residue` presentation at
+  degree one over every `u64` prime. Each row exposes the full scalar and
+  `const` element surface (`from_raw`, checked `from_residue`, `to_residue`,
+  little-endian byte conversions, arithmetic, `pow`, `canonical`),
+  total arithmetic under the crate-wide conventions (`inv(0) == 0`,
+  `x / 0 == 0`, `0^0 == 1`, with the explicit inverse-zero branch at
+  `P = 2`), an eight-byte little-endian wire lane, the checked packed
+  operation surface with prepared coefficients, and `Scalar` routing on
+  every host. Broadcast add/sub take the modular path for every
+  characteristic, so packed lanes stay canonical at `P = 2`. Values live in
+  `field::finite_field`, re-exported at the root.
+- Sealed `PrimeField` marker for degree-one fields, the validated `const`
+  integer reductions `field::prime::reduce` and `reduce_wide`, `RangeError`
+  for out-of-range conversions, and the `PrimeIdentity` characteristic
+  facts `BITS`, `TWO_ADICITY`, and `RESIDUE_MOD_8`.
+- `just compile-fail` compiles the negative consumer snippets under
+  `tests/compile_fail/` on the crate MSRV, each required to fail with its
+  declared crate panic fragment, or simply to be rejected for trait-bound
+  and privacy cases, and `just msrv-accept` runs
+  those snippets plus the `tests/consumers.rs` compile-and-run matrix on
+  the MSRV toolchain.
 - Wiki source guides cover the generic type model, field presentations,
   embeddings, custom towers and scalar fields, packed workflows, preparation,
   prime and bit-packed arithmetic, deployment, and migration from 2.x.
   `wiki/Home.md` and the sidebar organize the reader paths.
+- Sealed presentations `MersenneFold` (label `mersenne-fold`) and
+  `GoldilocksFold` (label `goldilocks-fold`), re-exported at the root. Both
+  rows implement `PrimeField` and gain `const` `from_residue(u64) ->
+  Result<Self, RangeError>` and `to_residue(self) -> Option<u64>`. The
+  default `Residue` row at either modulus remains a distinct type with its
+  own lane width; values move between the two by residue conversion.
+- The binary degree-one rows `FiniteField<2, 1, R>` implement `PrimeField`
+  and gain `const` `from_residue(u64) -> Result<Self, RangeError>` and
+  `to_residue(self) -> Option<u64>`; they stay distinct from
+  `FiniteField<2, 1, Residue>`, which stores a `u64` residue.
+- `just external-check` type-checks every package under `external/`
+  against the working copy.
+
+### Changed
+
+- **Breaking:** `Mersenne31` and `Goldilocks` are type aliases of the
+  canonical family rows `FiniteField<0x7FFF_FFFF, 1, MersenneFold>` and
+  `FiniteField<0xFFFF_FFFF_0000_0001, 1, GoldilocksFold>` instead of unit
+  marker structs. Moduli, raw widths, bytes, generators, arithmetic, and
+  kernel routing are unchanged. The aliases are no longer value
+  expressions: replace `Mersenne31` or `Goldilocks` used as a value with
+  `Mersenne31::default()` (or drop the value where only the type was
+  needed). Marker `Debug` now prints the family spelling, e.g.
+  `FiniteField<2147483647, 1, mersenne-fold>`. Kernel receivers move to the
+  rows with the aliases, so `FieldKernels` calls through the alias names
+  compile unchanged.
+- **Breaking:** the `Binary<N, R>` marker is removed without an alias;
+  binary fields are the canonical family rows `FiniteField<2, N, R>`.
+  Replace `Binary<8, Polynomial<AES>>` with `FiniteField<2, 8,
+  Polynomial<AES>>` and `Binary::<…>` with `FiniteField::<2, …>`, and
+  import `FiniteField` instead of `Binary`. Raw widths, bytes, descriptors,
+  coordinates, embeddings, bit-packed buffers, and kernel routing are
+  unchanged.
+- **Breaking:** `BinaryRepr<const N: u32>` and `BinaryDegree<const N: u32>`
+  take `u32` degree parameters instead of `u8`; generic code declaring
+  `const N: u8` against them changes the parameter type.
+- **Breaking:** `BinaryRepr` now extends `FiniteFieldRepr<2, N>`, which
+  owns `NAME` and `VALID`. Replace `<R as BinaryRepr<N>>::NAME` and
+  `::VALID` with `<R as FiniteFieldRepr<2, N>>::NAME` and `::VALID`;
+  `DESCRIPTION` and `LOG_EXP` stay on `BinaryRepr`.
+- **Breaking:** binary marker `Debug` prints the family spelling with the
+  presentation label, e.g. `FiniteField<2, 8, GF(2^8)/0x11B>`, instead of
+  the label alone. Element `Debug` and every wire format are unchanged.
+- **Breaking:** binary rows validate their defining data at every entry
+  point: `ZERO_RAW`, `ONE_RAW`, every raw `Field` method, and the wide rows'
+  `from_bytes` now fail const evaluation for an invalid polynomial, basis,
+  or tower relation, as `from_raw` already did. Valid presentations are
+  unaffected.
+- **Breaking:** `Field` is sealed. Implementing `Field` outside the crate
+  no longer compiles, so `HasGenerator` and `FieldBuffer` on custom types
+  become unreachable too. Migrate a custom prime field to the family's
+  degree-one row `FiniteField<P, 1>` (the default `Residue` presentation)
+  at any checked `u64` prime: it supplies `Field`, `PrimeField`,
+  `FieldBuffer`, the checked packed operation surface, and the `const`
+  element API.
+- `BinaryDescription::inv` takes canonical coordinate words. On a
+  polynomial-root description, a word with bits at or above `degree()`
+  inverts its low `degree()` bits instead of returning an unspecified
+  value; on other roots such a word still gives an unspecified result.
+  Results on canonical words are unchanged.
 
 ## [3.0.0-rc.1] - 2026-10-07
 

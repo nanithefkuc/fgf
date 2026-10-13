@@ -9,16 +9,16 @@
 #![forbid(unsafe_code)]
 
 use fgf::poly::{AES, RS};
-use fgf::{Binary, Elem, Embedding, EmbeddingError, Polynomial};
+use fgf::{Elem, Embedding, EmbeddingError, FiniteField, Polynomial};
 
-// Callers name their own fields; the canonical `Binary<N, R>` type is the API.
-type Gf1 = fgf::Binary<1, fgf::Polynomial<3>>;
-type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
-type Gf64 = fgf::Binary<64, fgf::Tower<fgf::Rijndael64>>;
-type FanPaar16Field = fgf::Binary<16, fgf::Tower<fgf::FanPaar16>>;
+// Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
+type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Tower<fgf::FanPaar16>>;
 
-type Aes = Binary<8, Polynomial<AES>>;
-type Nibble = Binary<4, Polynomial<0x13>>;
+type Aes = FiniteField<2, 8, Polynomial<AES>>;
+type Nibble = FiniteField<2, 4, Polynomial<0x13>>;
 
 fn main() {
     // Below the AES field the ladder inclusions are smallest-raw-root maps,
@@ -37,11 +37,12 @@ fn main() {
     // is a ring isomorphism: it preserves one and products, and restriction
     // inverts it.
     let involution =
-        Embedding::<Binary<8, Polynomial<AES>>, Binary<8, Polynomial<RS>>>::new().unwrap();
+        Embedding::<FiniteField<2, 8, Polynomial<AES>>, FiniteField<2, 8, Polynomial<RS>>>::new()
+            .unwrap();
     let (a, b) = (Elem::<Aes>::from_raw(0x53), Elem::<Aes>::from_raw(0xca));
     assert_eq!(
         involution.embed(Elem::<Aes>::ONE),
-        Elem::<Binary<8, Polynomial<RS>>>::ONE
+        Elem::<FiniteField<2, 8, Polynomial<RS>>>::ONE
     );
     assert_eq!(
         involution.embed(a * b),

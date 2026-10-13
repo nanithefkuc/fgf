@@ -14,6 +14,9 @@ just test-tiers        # every supported backend tier
 just features          # no-default, default, all-features
 just features-alloc    # alloc without std
 just cross-check       # AArch64 and Wasm library compilation
+just compile-fail      # negative consumer snippets must fail to compile
+just msrv-accept       # compile-fail plus the consumer matrix on the MSRV
+just msrv-locked       # locked published dependencies, outside umbrella patches
 just lint              # rustfmt and clippy at both feature ends
 just doc               # rustdoc with warnings denied
 just unsafe-check-gfni # owned-unsafe GFNI Miri cases
@@ -30,6 +33,10 @@ just examples [ARGS]     # all educational examples, excluding timing probes
 Run `just validate` before submitting a change. Do not replace a recipe with a
 bare Cargo command; fix the recipe when its supported behavior is insufficient.
 The MSRV is Rust 1.93.
+
+CI's locked MSRV check uses published dependencies. Run `just msrv-locked`
+from an isolated checkout outside the umbrella patch table; regenerate a
+publication lock there with `just msrv`, not by changing pins or patch entries.
 
 `justfile` is vendored unchanged from a shared template. Do not edit it here.
 Crate-specific values and recipes belong in `crate.just`.

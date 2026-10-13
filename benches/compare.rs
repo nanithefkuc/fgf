@@ -25,17 +25,18 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use fgf::{
-    Binary, Elem, Goldilocks, Mersenne31, Polynomial, QuadMersenne31, backend, backend_for, ops,
+    Elem, FiniteField, Goldilocks, Mersenne31, Polynomial, QuadMersenne31, backend, backend_for,
+    ops,
 };
 
 use fgf::poly::{AES, RS};
 
-type Gf16 = fgf::Binary<16, fgf::Tower<fgf::Rijndael16>>;
-type Gf32 = fgf::Binary<32, fgf::Tower<fgf::Rijndael32>>;
-type Gf64 = fgf::Binary<64, fgf::Tower<fgf::Rijndael64>>;
-type FanPaar16Field = fgf::Binary<16, fgf::Tower<fgf::FanPaar16>>;
-type FanPaar32Field = fgf::Binary<32, fgf::Tower<fgf::FanPaar32>>;
-type FanPaar64Field = fgf::Binary<64, fgf::Tower<fgf::FanPaar64>>;
+type Gf16 = fgf::FiniteField<2, 16, fgf::Tower<fgf::Rijndael16>>;
+type Gf32 = fgf::FiniteField<2, 32, fgf::Tower<fgf::Rijndael32>>;
+type Gf64 = fgf::FiniteField<2, 64, fgf::Tower<fgf::Rijndael64>>;
+type FanPaar16Field = fgf::FiniteField<2, 16, fgf::Tower<fgf::FanPaar16>>;
+type FanPaar32Field = fgf::FiniteField<2, 32, fgf::Tower<fgf::FanPaar32>>;
+type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Tower<fgf::FanPaar64>>;
 
 const BYTES: usize = 64 * 1024;
 const SCALAR_ITERS: usize = 1 << 20;
@@ -129,8 +130,8 @@ fn print_field_backends() {
     fn field<F: fgf::FieldKernels>(label: &str) {
         println!("FIELD_BACKEND\t{label}\t{}", backend_for::<F>().name());
     }
-    field::<Binary<8, Polynomial<AES>>>("gf8b");
-    field::<Binary<8, Polynomial<RS>>>("gf8d");
+    field::<FiniteField<2, 8, Polynomial<AES>>>("gf8b");
+    field::<FiniteField<2, 8, Polynomial<RS>>>("gf8d");
     field::<Gf16>("gf16b");
     field::<Gf32>("gf32b");
     field::<Gf64>("gf64b");
@@ -183,15 +184,15 @@ fn bench_mul_into_gather(len: usize) {
     let coeffs_8b: Vec<_> = coefficient_bytes
         .iter()
         .copied()
-        .map(Elem::<Binary<8, Polynomial<AES>>>::from_raw)
+        .map(Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw)
         .collect();
     let coeffs_8d: Vec<_> = coefficient_bytes
         .iter()
         .copied()
-        .map(Elem::<Binary<8, Polynomial<RS>>>::from_raw)
+        .map(Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw)
         .collect();
-    let prepared_8b = ops::CoeffVec::<Binary<8, Polynomial<AES>>>::new(&coeffs_8b);
-    let prepared_8d = ops::CoeffVec::<Binary<8, Polynomial<RS>>>::new(&coeffs_8d);
+    let prepared_8b = ops::CoeffVec::<FiniteField<2, 8, Polynomial<AES>>>::new(&coeffs_8b);
+    let prepared_8d = ops::CoeffVec::<FiniteField<2, 8, Polynomial<RS>>>::new(&coeffs_8d);
     let mut dst_8b = AlignedBuf::noise(len, 0x900);
     let mut dst_8d = AlignedBuf::noise(len, 0x901);
 
@@ -200,11 +201,11 @@ fn bench_mul_into_gather(len: usize) {
     let coeff_bytes: Vec<_> = coefficient_bytes
         .iter()
         .copied()
-        .map(Elem::<Binary<8, Polynomial<RS>>>::from_raw)
+        .map(Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw)
         .collect();
     println!("{len} B x {DOT_SOURCES} sources overwrite dot product (raw)");
     bench_region("fgf gf8d mul_into_gather", len * DOT_SOURCES, || {
-        ops::mul_into_gather::<Binary<8, Polynomial<RS>>>(
+        ops::mul_into_gather::<FiniteField<2, 8, Polynomial<RS>>>(
             black_box(dst_8d.as_mut_slice()),
             &coeff_bytes,
             black_box(&srcs),
@@ -212,7 +213,7 @@ fn bench_mul_into_gather(len: usize) {
     });
     // Accumulate-form prepared gather: hits the `_with` default path.
     bench_region("fgf gf8d mul_add_gather_with", len * DOT_SOURCES, || {
-        ops::mul_add_gather_with::<Binary<8, Polynomial<RS>>>(
+        ops::mul_add_gather_with::<FiniteField<2, 8, Polynomial<RS>>>(
             black_box(dst_8d.as_mut_slice()),
             prepared_8d.as_ref(),
             black_box(&srcs),
@@ -221,14 +222,14 @@ fn bench_mul_into_gather(len: usize) {
     println!("{len} B x {DOT_SOURCES} sources overwrite dot product");
     let logical_bytes = len * DOT_SOURCES;
     bench_region("fgf gf8b mul_into_gather_with", logical_bytes, || {
-        ops::mul_into_gather_with::<Binary<8, Polynomial<AES>>>(
+        ops::mul_into_gather_with::<FiniteField<2, 8, Polynomial<AES>>>(
             black_box(dst_8b.as_mut_slice()),
             prepared_8b.as_ref(),
             black_box(&srcs),
         );
     });
     bench_region("fgf gf8d mul_into_gather_with", logical_bytes, || {
-        ops::mul_into_gather_with::<Binary<8, Polynomial<RS>>>(
+        ops::mul_into_gather_with::<FiniteField<2, 8, Polynomial<RS>>>(
             black_box(dst_8d.as_mut_slice()),
             prepared_8d.as_ref(),
             black_box(&srcs),
@@ -242,34 +243,34 @@ fn bench_encode(nrows: usize) {
     let sources: Vec<AlignedBuf> = (0..ENCODE_SOURCES)
         .map(|term| AlignedBuf::noise(BYTES, 0xa00 + term as u64))
         .collect();
-    let columns_8b: Vec<Vec<Elem<Binary<8, Polynomial<AES>>>>> = (0..ENCODE_SOURCES)
+    let columns_8b: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>>> = (0..ENCODE_SOURCES)
         .map(|term| {
             (0..nrows)
                 .map(|row| {
-                    Elem::<Binary<8, Polynomial<AES>>>::from_raw(
+                    Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
                         (1 + ((row * ENCODE_SOURCES + term) * 97 + 13) % 255) as u8,
                     )
                 })
                 .collect()
         })
         .collect();
-    let columns_8d: Vec<Vec<Elem<Binary<8, Polynomial<RS>>>>> = (0..ENCODE_SOURCES)
+    let columns_8d: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>>> = (0..ENCODE_SOURCES)
         .map(|term| {
             (0..nrows)
                 .map(|row| {
-                    Elem::<Binary<8, Polynomial<RS>>>::from_raw(
+                    Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(
                         (1 + ((row * ENCODE_SOURCES + term) * 97 + 13) % 255) as u8,
                     )
                 })
                 .collect()
         })
         .collect();
-    let terms_8b: Vec<(&[Elem<Binary<8, Polynomial<AES>>>], &[u8])> = columns_8b
+    let terms_8b: Vec<(&[Elem<FiniteField<2, 8, Polynomial<AES>>>], &[u8])> = columns_8b
         .iter()
         .zip(&sources)
         .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
         .collect();
-    let terms_8d: Vec<(&[Elem<Binary<8, Polynomial<RS>>>], &[u8])> = columns_8d
+    let terms_8d: Vec<(&[Elem<FiniteField<2, 8, Polynomial<RS>>>], &[u8])> = columns_8d
         .iter()
         .zip(&sources)
         .map(|(coeffs, src)| (coeffs.as_slice(), src.as_slice()))
@@ -280,13 +281,13 @@ fn bench_encode(nrows: usize) {
     let mut new_8d = AlignedBuf::noise(BYTES * nrows, 0xb03);
 
     old_8b.as_mut_slice().fill(0);
-    ops::mul_add_matrix::<Binary<8, Polynomial<AES>>>(
+    ops::mul_add_matrix::<FiniteField<2, 8, Polynomial<AES>>>(
         old_8b.as_mut_slice(),
         BYTES,
         nrows,
         &terms_8b,
     );
-    ops::mul_into_matrix::<Binary<8, Polynomial<AES>>>(
+    ops::mul_into_matrix::<FiniteField<2, 8, Polynomial<AES>>>(
         new_8b.as_mut_slice(),
         BYTES,
         nrows,
@@ -295,17 +296,17 @@ fn bench_encode(nrows: usize) {
     assert_eq!(
         old_8b.as_slice(),
         new_8b.as_slice(),
-        "Binary<8, Polynomial<AES>> matrix overwrite differs"
+        "FiniteField<2, 8, Polynomial<AES>> matrix overwrite differs"
     );
 
     old_8d.as_mut_slice().fill(0);
-    ops::mul_add_matrix::<Binary<8, Polynomial<RS>>>(
+    ops::mul_add_matrix::<FiniteField<2, 8, Polynomial<RS>>>(
         old_8d.as_mut_slice(),
         BYTES,
         nrows,
         &terms_8d,
     );
-    ops::mul_into_matrix::<Binary<8, Polynomial<RS>>>(
+    ops::mul_into_matrix::<FiniteField<2, 8, Polynomial<RS>>>(
         new_8d.as_mut_slice(),
         BYTES,
         nrows,
@@ -314,14 +315,14 @@ fn bench_encode(nrows: usize) {
     assert_eq!(
         old_8d.as_slice(),
         new_8d.as_slice(),
-        "Binary<8, Polynomial<RS>> matrix overwrite differs"
+        "FiniteField<2, 8, Polynomial<RS>> matrix overwrite differs"
     );
 
     println!("{BYTES} B x {ENCODE_SOURCES} sources -> {nrows} rows encode");
     let logical_bytes = BYTES * ENCODE_SOURCES;
     bench_region("fgf gf8b fill + mul_add_matrix", logical_bytes, || {
         old_8b.as_mut_slice().fill(0);
-        ops::mul_add_matrix::<Binary<8, Polynomial<AES>>>(
+        ops::mul_add_matrix::<FiniteField<2, 8, Polynomial<AES>>>(
             black_box(old_8b.as_mut_slice()),
             BYTES,
             nrows,
@@ -329,7 +330,7 @@ fn bench_encode(nrows: usize) {
         );
     });
     bench_region("fgf gf8b mul_into_matrix", logical_bytes, || {
-        ops::mul_into_matrix::<Binary<8, Polynomial<AES>>>(
+        ops::mul_into_matrix::<FiniteField<2, 8, Polynomial<AES>>>(
             black_box(new_8b.as_mut_slice()),
             BYTES,
             nrows,
@@ -338,7 +339,7 @@ fn bench_encode(nrows: usize) {
     });
     bench_region("fgf gf8d fill + mul_add_matrix", logical_bytes, || {
         old_8d.as_mut_slice().fill(0);
-        ops::mul_add_matrix::<Binary<8, Polynomial<RS>>>(
+        ops::mul_add_matrix::<FiniteField<2, 8, Polynomial<RS>>>(
             black_box(old_8d.as_mut_slice()),
             BYTES,
             nrows,
@@ -346,7 +347,7 @@ fn bench_encode(nrows: usize) {
         );
     });
     bench_region("fgf gf8d mul_into_matrix", logical_bytes, || {
-        ops::mul_into_matrix::<Binary<8, Polynomial<RS>>>(
+        ops::mul_into_matrix::<FiniteField<2, 8, Polynomial<RS>>>(
             black_box(new_8d.as_mut_slice()),
             BYTES,
             nrows,
@@ -357,9 +358,9 @@ fn bench_encode(nrows: usize) {
     // Prepared and scattered-row forms of the same encode, validated against
     // the raw overwrite result before timing.
     let source_refs: Vec<&[u8]> = sources.iter().map(AlignedBuf::as_slice).collect();
-    let flat_8b: Vec<Elem<Binary<8, Polynomial<AES>>>> =
+    let flat_8b: Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> =
         columns_8b.iter().flatten().copied().collect();
-    let prepared_8b = ops::CoeffMatrix::<Binary<8, Polynomial<AES>>>::from_source_major(
+    let prepared_8b = ops::CoeffMatrix::<FiniteField<2, 8, Polynomial<AES>>>::from_source_major(
         ENCODE_SOURCES,
         nrows,
         &flat_8b,
@@ -367,7 +368,7 @@ fn bench_encode(nrows: usize) {
     let row_starts: Vec<usize> = (0..nrows).map(|row| row * BYTES).collect();
     let mut with_8b = AlignedBuf::noise(BYTES * nrows, 0xb08);
     let mut at_8b = AlignedBuf::noise(BYTES * nrows, 0xb09);
-    ops::mul_into_matrix_with::<Binary<8, Polynomial<AES>>>(
+    ops::mul_into_matrix_with::<FiniteField<2, 8, Polynomial<AES>>>(
         with_8b.as_mut_slice(),
         BYTES,
         &prepared_8b,
@@ -376,10 +377,10 @@ fn bench_encode(nrows: usize) {
     assert_eq!(
         new_8b.as_slice(),
         with_8b.as_slice(),
-        "Binary<8, Polynomial<AES>> prepared overwrite differs"
+        "FiniteField<2, 8, Polynomial<AES>> prepared overwrite differs"
     );
     at_8b.as_mut_slice().fill(0);
-    ops::mul_add_matrix_at::<Binary<8, Polynomial<AES>>>(
+    ops::mul_add_matrix_at::<FiniteField<2, 8, Polynomial<AES>>>(
         at_8b.as_mut_slice(),
         BYTES,
         &row_starts,
@@ -388,10 +389,10 @@ fn bench_encode(nrows: usize) {
     assert_eq!(
         new_8b.as_slice(),
         at_8b.as_slice(),
-        "Binary<8, Polynomial<AES>> scattered rows differ"
+        "FiniteField<2, 8, Polynomial<AES>> scattered rows differ"
     );
     bench_region("fgf gf8b mul_into_matrix_with", logical_bytes, || {
-        ops::mul_into_matrix_with::<Binary<8, Polynomial<AES>>>(
+        ops::mul_into_matrix_with::<FiniteField<2, 8, Polynomial<AES>>>(
             black_box(with_8b.as_mut_slice()),
             BYTES,
             black_box(&prepared_8b),
@@ -399,7 +400,7 @@ fn bench_encode(nrows: usize) {
         );
     });
     bench_region("fgf gf8b mul_add_matrix_with", logical_bytes, || {
-        ops::mul_add_matrix_with::<Binary<8, Polynomial<AES>>>(
+        ops::mul_add_matrix_with::<FiniteField<2, 8, Polynomial<AES>>>(
             black_box(with_8b.as_mut_slice()),
             BYTES,
             black_box(&prepared_8b),
@@ -407,7 +408,7 @@ fn bench_encode(nrows: usize) {
         );
     });
     bench_region("fgf gf8b mul_add_matrix_at", logical_bytes, || {
-        ops::mul_add_matrix_at::<Binary<8, Polynomial<AES>>>(
+        ops::mul_add_matrix_at::<FiniteField<2, 8, Polynomial<AES>>>(
             black_box(at_8b.as_mut_slice()),
             BYTES,
             black_box(&row_starts),
@@ -509,14 +510,14 @@ fn bench_scalar(label: &str, mut body: impl FnMut()) {
 }
 
 /// Offset-sweep probe for the 512-bit alignment question: the same
-/// `Binary<8, Polynomial<RS>>` `mul_add` region with destination/source buffer bases
+/// `FiniteField<2, 8, Polynomial<RS>>` `mul_add` region with destination/source buffer bases
 /// shifted by `OFF mod 64`. Buffer bases are 64-byte aligned (`AlignedBuf`),
 /// so the offset is exact. Glibc-sized allocations land 16 mod 64 in
 /// practice; the sweep names the realistic line-split cost before any
 /// alignment-step work.
 fn bench_offset_sweep() {
     const LEN: usize = 16 * 1024;
-    let c = Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x53);
+    let c = Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0x53);
     let backing_src = AlignedBuf::noise(LEN + 64, 0x700);
     let mut backing_dst = AlignedBuf::noise(LEN + 64, 0x701);
     println!("gf8d mul_add 16 KiB destination offset sweep (dst/src shift mod 64)");
@@ -524,7 +525,7 @@ fn bench_offset_sweep() {
         let src = &backing_src.as_slice()[off..off + LEN];
         let dst = &mut backing_dst.as_mut_slice()[off..off + LEN];
         bench_region(&format!("gf8d mul_add off={off}"), LEN, || {
-            ops::mul_add::<Binary<8, Polynomial<RS>>>(black_box(dst), c, black_box(src));
+            ops::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(black_box(dst), c, black_box(src));
         });
     }
 
@@ -536,14 +537,14 @@ fn bench_offset_sweep() {
         let mut rows = AlignedBuf::noise(row_len * nrows, 0x721);
         let values: Vec<_> = (0..nrows)
             .map(|j| {
-                Elem::<Binary<8, Polynomial<RS>>>::from_raw(
+                Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(
                     (j as u8).wrapping_mul(37).wrapping_add(2),
                 )
             })
             .collect();
-        let prepared = ops::CoeffVec::<Binary<8, Polynomial<RS>>>::new(&values);
+        let prepared = ops::CoeffVec::<FiniteField<2, 8, Polynomial<RS>>>::new(&values);
         bench_region("scatter 4x16K raw", row_len * nrows, || {
-            ops::mul_add_scatter::<Binary<8, Polynomial<RS>>>(
+            ops::mul_add_scatter::<FiniteField<2, 8, Polynomial<RS>>>(
                 black_box(rows.as_mut_slice()),
                 row_len,
                 &values,
@@ -551,7 +552,7 @@ fn bench_offset_sweep() {
             );
         });
         bench_region("scatter 4x16K prepared", row_len * nrows, || {
-            ops::mul_add_scatter_with::<Binary<8, Polynomial<RS>>>(
+            ops::mul_add_scatter_with::<FiniteField<2, 8, Polynomial<RS>>>(
                 black_box(rows.as_mut_slice()),
                 row_len,
                 prepared.as_ref(),
@@ -571,8 +572,9 @@ fn bench_peel_floors() {
     const GATHER_SOURCES: usize = 16;
     const MATRIX_TERMS: usize = 10;
     const MATRIX_ROWS: usize = 4;
-    let coeff =
-        |i: usize| Elem::<Binary<8, Polynomial<RS>>>::from_raw((1 + (i * 97 + 13) % 255) as u8);
+    let coeff = |i: usize| {
+        Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw((1 + (i * 97 + 13) % 255) as u8)
+    };
     println!("gf8d peel floor sweep (row bytes, base offset mod 64)");
     for &off in &[16usize, 0] {
         for &len in &[256usize, 512, 1024, 2048, 3072, 4096, 8192, 16384] {
@@ -585,7 +587,7 @@ fn bench_peel_floors() {
                 &format!("scatter {SCATTER_ROWS}x{len} off={off}"),
                 len * SCATTER_ROWS,
                 || {
-                    ops::mul_add_scatter::<Binary<8, Polynomial<RS>>>(
+                    ops::mul_add_scatter::<FiniteField<2, 8, Polynomial<RS>>>(
                         black_box(&mut *rows),
                         len,
                         &scatter,
@@ -608,7 +610,7 @@ fn bench_peel_floors() {
                 &format!("gather {GATHER_SOURCES}x{len} off={off}"),
                 len * GATHER_SOURCES,
                 || {
-                    ops::mul_add_gather::<Binary<8, Polynomial<RS>>>(
+                    ops::mul_add_gather::<FiniteField<2, 8, Polynomial<RS>>>(
                         black_box(&mut *dst),
                         &gather,
                         black_box(&gather_srcs),
@@ -620,7 +622,7 @@ fn bench_peel_floors() {
                 .map(|t| AlignedBuf::noise(len + 64, 0x740 + t as u64))
                 .collect();
             let matrix_coeffs: Vec<_> = (0..MATRIX_TERMS * MATRIX_ROWS).map(coeff).collect();
-            let terms: Vec<(&[Elem<Binary<8, Polynomial<RS>>>], &[u8])> = matrix_coeffs
+            let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<RS>>>], &[u8])> = matrix_coeffs
                 .chunks(MATRIX_ROWS)
                 .zip(matrix_bufs.iter().map(|b| &b.as_slice()[off..off + len]))
                 .collect();
@@ -630,7 +632,7 @@ fn bench_peel_floors() {
                 &format!("matrix {MATRIX_TERMS}->{MATRIX_ROWS}x{len} off={off}"),
                 len * MATRIX_TERMS,
                 || {
-                    ops::mul_add_matrix::<Binary<8, Polynomial<RS>>>(
+                    ops::mul_add_matrix::<FiniteField<2, 8, Polynomial<RS>>>(
                         black_box(&mut *matrix),
                         len,
                         MATRIX_ROWS,
@@ -675,25 +677,25 @@ fn run_panels() {
     let mut dst16 = AlignedBuf::noise(BYTES, 0x603);
 
     // gf8b
-    let c8 = Elem::<Binary<8, Polynomial<AES>>>::from_raw(0x53);
+    let c8 = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
     bench_scalar("gf8b scalar mul", || {
-        let mut x = Elem::<Binary<8, Polynomial<AES>>>::from_raw(0xA5);
+        let mut x = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0xA5);
         for i in 0..SCALAR_ITERS {
-            x = black_box(x).mul(Elem::<Binary<8, Polynomial<AES>>>::from_raw(
+            x = black_box(x).mul(Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
                 (0x53u8).wrapping_add(i as u8),
             ));
         }
         black_box(x);
     });
     bench_region("gf8b mul_add (dst ^= c*src)", BYTES, || {
-        ops::mul_add::<Binary<8, Polynomial<AES>>>(
+        ops::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(
             black_box(dst8.as_mut_slice()),
             c8,
             black_box(src8.as_slice()),
         );
     });
     bench_region("gf8b mul_into (dst = c*src)", BYTES, || {
-        ops::mul_into::<Binary<8, Polynomial<AES>>>(
+        ops::mul_into::<FiniteField<2, 8, Polynomial<AES>>>(
             black_box(dst8.as_mut_slice()),
             c8,
             black_box(src8.as_slice()),
@@ -701,40 +703,46 @@ fn run_panels() {
     });
 
     // Bit-compatible GF(2^8)/0x11D used by ISA-L and klauspost/reedsolomon.
-    let c8d = Elem::<Binary<8, Polynomial<RS>>>::from_raw(0x53);
+    let c8d = Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0x53);
     bench_scalar("gf8d scalar mul", || {
-        let mut x = Elem::<Binary<8, Polynomial<RS>>>::from_raw(0xA5);
+        let mut x = Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0xA5);
         for i in 0..SCALAR_ITERS {
-            x = black_box(x).mul(Elem::<Binary<8, Polynomial<RS>>>::from_raw(
+            x = black_box(x).mul(Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(
                 (0x53u8).wrapping_add(i as u8),
             ));
         }
         black_box(x);
     });
     bench_region("gf8d mul_add (dst ^= c*src)", BYTES, || {
-        ops::mul_add::<Binary<8, Polynomial<RS>>>(
+        ops::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(
             black_box(dst8.as_mut_slice()),
             c8d,
             black_box(src8.as_slice()),
         );
     });
     bench_region("gf8d mul_into (dst = c*src)", BYTES, || {
-        ops::mul_into::<Binary<8, Polynomial<RS>>>(
+        ops::mul_into::<FiniteField<2, 8, Polynomial<RS>>>(
             black_box(dst8.as_mut_slice()),
             c8d,
             black_box(src8.as_slice()),
         );
     });
 
-    // In-place scale sweep: the V4x-unconditional question for `Binary<8, Polynomial<AES>>`.
+    // In-place scale sweep: the V4x-unconditional question for `FiniteField<2, 8, Polynomial<AES>>`.
     for &len in &[4096usize, 16384, 65536, 262144, 1048576] {
         let mut dst = AlignedBuf::noise(len, 0x610 + len as u64);
         bench_region(&format!("gf8b assign {len}B"), len, || {
-            ops::mul_assign::<Binary<8, Polynomial<AES>>>(black_box(dst.as_mut_slice()), c8);
+            ops::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>(
+                black_box(dst.as_mut_slice()),
+                c8,
+            );
         });
         let mut dst = AlignedBuf::noise(len, 0x620 + len as u64);
         bench_region(&format!("gf8d assign {len}B"), len, || {
-            ops::mul_assign::<Binary<8, Polynomial<RS>>>(black_box(dst.as_mut_slice()), c8d);
+            ops::mul_assign::<FiniteField<2, 8, Polynomial<RS>>>(
+                black_box(dst.as_mut_slice()),
+                c8d,
+            );
         });
     }
     // 4 MiB overwrite: the streaming-store threshold shape.
@@ -742,7 +750,7 @@ fn run_panels() {
         let src4 = AlignedBuf::noise(4 * 1024 * 1024, 0x604);
         let mut dst4 = AlignedBuf::noise(4 * 1024 * 1024, 0x605);
         bench_region("gf8d mul_into 4MiB (dst = c*src)", 4 * 1024 * 1024, || {
-            ops::mul_into::<Binary<8, Polynomial<RS>>>(
+            ops::mul_into::<FiniteField<2, 8, Polynomial<RS>>>(
                 black_box(dst4.as_mut_slice()),
                 c8d,
                 black_box(src4.as_slice()),
@@ -751,34 +759,34 @@ fn run_panels() {
     }
 
     // Elementwise products, both byte fields and both forms.
-    // `Binary<8, Polynomial<RS>>` conjugates `GF2P8MULB` by the field isomorphism on
+    // `FiniteField<2, 8, Polynomial<RS>>` conjugates `GF2P8MULB` by the field isomorphism on
     // GFNI tiers.
     {
         let a = AlignedBuf::noise(BYTES, 0x606);
         let b = AlignedBuf::noise(BYTES, 0x607);
         let mut dst = AlignedBuf::noise(BYTES, 0x608);
         bench_region("gf8d elementwise (dst = a*b)", BYTES, || {
-            ops::mul_elementwise::<Binary<8, Polynomial<RS>>>(
+            ops::mul_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(
                 black_box(dst.as_mut_slice()),
                 black_box(a.as_slice()),
                 black_box(b.as_slice()),
             );
         });
         bench_region("gf8d elementwise assign (dst *= src)", BYTES, || {
-            ops::mul_elementwise_assign::<Binary<8, Polynomial<RS>>>(
+            ops::mul_elementwise_assign::<FiniteField<2, 8, Polynomial<RS>>>(
                 black_box(dst.as_mut_slice()),
                 black_box(b.as_slice()),
             );
         });
         bench_region("gf8b elementwise (dst = a*b)", BYTES, || {
-            ops::mul_elementwise::<Binary<8, Polynomial<AES>>>(
+            ops::mul_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(dst.as_mut_slice()),
                 black_box(a.as_slice()),
                 black_box(b.as_slice()),
             );
         });
         bench_region("gf8b elementwise assign (dst *= src)", BYTES, || {
-            ops::mul_elementwise_assign::<Binary<8, Polynomial<AES>>>(
+            ops::mul_elementwise_assign::<FiniteField<2, 8, Polynomial<AES>>>(
                 black_box(dst.as_mut_slice()),
                 black_box(b.as_slice()),
             );

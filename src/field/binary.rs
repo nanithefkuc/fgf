@@ -1,11 +1,13 @@
 //! Binary fields by total degree and representation.
 //!
-//! [`Binary`] names GF(2^N) under the representation `R`, and [`Elem`]
-//! over it is its element. [`BinaryRepr`] is the sealed vocabulary of
-//! representations: each fixes its descriptor and, at degree eight, its
-//! discrete-logarithm tables. [`BinaryField`] adds the canonical coordinate
-//! conversions shared by every binary presentation, and [`BinaryDegree`]
-//! pins the exact degree a generic tower row may build on.
+//! GF(2^N) under the representation `R` is the canonical family row
+//! [`FiniteField<2, N, R>`](crate::field::FiniteField), and [`Elem`] over it
+//! is its element. [`BinaryRepr`] is the sealed vocabulary of binary
+//! representations: it extends the family's presentation metadata with the
+//! descriptor and, at degree eight, the discrete-logarithm tables.
+//! [`BinaryField`] adds the canonical coordinate conversions shared by every
+//! binary presentation, and [`BinaryDegree`] pins the exact degree a generic
+//! tower row may build on.
 //!
 //! # Layout
 //!
@@ -36,80 +38,23 @@ pub use poly::{AES, Polynomial, RS};
 
 use core::fmt;
 
-use super::{Elem, Field, FieldBuffer, PrimeCharacteristic, Validate};
-
-pub(crate) mod private {
-    pub trait Sealed {}
-}
+use super::finite_field::{FiniteField, FiniteFieldRepr, checked_order};
+use super::{Elem, Field, FieldBuffer, PrimeCharacteristic, RangeError, Validate};
 
 pub(crate) mod binary_private {
     pub trait Sealed {}
 }
 
-/// A sealed representation of GF(2^N).
-#[allow(private_bounds)]
-pub trait BinaryRepr<const N: u8>: private::Sealed + 'static {
-    /// Human-readable presentation name.
-    const NAME: &'static str;
+/// A sealed binary representation of GF(2^N).
+///
+/// The presentation label and the defining-data proof are the family's
+/// [`FiniteFieldRepr::NAME`] and [`FiniteFieldRepr::VALID`]; this trait adds
+/// the binary descriptor and the optional degree-eight log/exp tables.
+pub trait BinaryRepr<const N: u32>: FiniteFieldRepr<2, N> {
     /// The opaque descriptor of this presentation.
     const DESCRIPTION: &'static BinaryDescription;
     /// Discrete-logarithm tables, present only for degree-eight strategies.
     const LOG_EXP: Option<&'static ByteLogExp>;
-    /// Use-time validity check for the representation's defining data.
-    const VALID: ();
-}
-
-/// Marker for GF(2^N) under the representation `R`. Zero-sized.
-pub struct Binary<const N: u8, R: BinaryRepr<N>>(core::marker::PhantomData<fn() -> R>);
-
-impl<const N: u8, R: BinaryRepr<N>> Clone for Binary<N, R> {
-    #[inline]
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<const N: u8, R: BinaryRepr<N>> Copy for Binary<N, R> {}
-
-impl<const N: u8, R: BinaryRepr<N>> fmt::Debug for Binary<N, R> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(R::NAME)
-    }
-}
-
-impl<const N: u8, R: BinaryRepr<N>> Default for Binary<N, R> {
-    #[inline]
-    fn default() -> Self {
-        Self(core::marker::PhantomData)
-    }
-}
-
-impl<const N: u8, R: BinaryRepr<N>> PartialEq for Binary<N, R> {
-    #[inline]
-    fn eq(&self, _other: &Self) -> bool {
-        true
-    }
-}
-
-impl<const N: u8, R: BinaryRepr<N>> Eq for Binary<N, R> {}
-
-impl<const N: u8, R: BinaryRepr<N>> core::hash::Hash for Binary<N, R> {
-    #[inline]
-    fn hash<H: core::hash::Hasher>(&self, _state: &mut H) {}
-}
-
-impl<const N: u8, R: BinaryRepr<N>> PartialOrd for Binary<N, R> {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<const N: u8, R: BinaryRepr<N>> Ord for Binary<N, R> {
-    #[inline]
-    fn cmp(&self, _other: &Self) -> core::cmp::Ordering {
-        core::cmp::Ordering::Equal
-    }
 }
 
 /// Rejected coordinate words carry this error.
@@ -145,8 +90,8 @@ pub trait BinaryField:
     fn from_coordinates(value: u64) -> Result<Elem<Self>, CoordinateError>;
 }
 
-/// Implemented by `Binary<N, R>` at its exact supported degree.
-pub trait BinaryDegree<const N: u8>: BinaryField {}
+/// Implemented by `FiniteField<2, N, R>` at its exact supported degree.
+pub trait BinaryDegree<const N: u32>: BinaryField {}
 
 /// Whether a `u64` coordinate word fits in `bits` bits, without ever
 /// shifting a `u64` by 64.
@@ -160,36 +105,55 @@ const fn coordinates_fit(value: u64, bits: u32) -> bool {
 /// with the concrete raw word and coordinate mask of the row.
 macro_rules! degree_row {
     ($n:literal, $raw:ty, $mask:expr) => {
-        impl<R: BinaryRepr<$n>> $crate::field::binary::binary_private::Sealed for Binary<$n, R> {}
-        impl<R: BinaryRepr<$n>> Field for Binary<$n, R> {
+        impl<R: BinaryRepr<$n>> $crate::field::binary::binary_private::Sealed
+            for FiniteField<2, $n, R>
+        {
+        }
+        impl<R: BinaryRepr<$n>> Field for FiniteField<2, $n, R> {
             type Raw = $raw;
             type Characteristic = PrimeCharacteristic<2>;
-            const NAME: &'static str = R::NAME;
+            const NAME: &'static str = <R as FiniteFieldRepr<2, $n>>::NAME;
             const DEGREE: u32 = $n;
-            const ORDER: u128 = 1u128 << $n;
-            const ZERO_RAW: $raw = 0;
+            const ORDER: u128 = checked_order::<2, $n>();
+            // The identity words evaluate the row's validity first and then
+            // read row-local data, never the reverse.
+            const ZERO_RAW: $raw = {
+                let () = <Self as Field>::VALID;
+                0
+            };
             // The descriptor's identity holds at most `N` bits here.
             #[allow(clippy::cast_possible_truncation)]
-            const ONE_RAW: $raw = R::DESCRIPTION.one() as $raw;
-            const VALID: () = R::VALID;
+            const ONE_RAW: $raw = {
+                let () = <Self as Field>::VALID;
+                R::DESCRIPTION.one() as $raw
+            };
+            // Metadata first, then the representation's defining data.
+            const VALID: () = {
+                checked_order::<2, $n>();
+                let () = <R as FiniteFieldRepr<2, $n>>::VALID;
+            };
 
             #[inline]
             fn canonical_raw(raw: $raw) -> $raw {
+                let () = Validate::<Self>::OK;
                 raw & $mask
             }
 
             #[inline]
             fn add_raw(left: $raw, right: $raw) -> $raw {
+                let () = Validate::<Self>::OK;
                 left ^ right
             }
 
             #[inline]
             fn sub_raw(left: $raw, right: $raw) -> $raw {
+                let () = Validate::<Self>::OK;
                 left ^ right
             }
 
             #[inline]
             fn neg_raw(value: $raw) -> $raw {
+                let () = Validate::<Self>::OK;
                 value
             }
 
@@ -205,7 +169,84 @@ macro_rules! degree_row {
                 Elem::<Self>::from_raw(value).inv().to_raw()
             }
         }
-        impl<R: BinaryRepr<$n>> BinaryField for Binary<$n, R> {
+
+        impl<R: BinaryRepr<$n>> $crate::field::private::RowAccess for FiniteField<2, $n, R> {
+            const DESCRIPTOR: &'static $crate::field::extension::Descriptor =
+                R::DESCRIPTION.as_descriptor();
+
+            // The row hooks leave the trait's `where Self: Field` clause
+            // implicit: every row implements `Field`, and omitting the
+            // clause keeps `<Self as Field>::Raw` normalizable in the
+            // bodies.
+            fn prime_coordinates_into(dst: &mut [u64], raw: <Self as Field>::Raw) {
+                let () = Validate::<Self>::OK;
+                assert_eq!(
+                    dst.len(),
+                    $n,
+                    "prime coordinate count differs from the field degree"
+                );
+                // Widening the canonical word to the coordinate word is
+                // exact.
+                #[allow(clippy::cast_lossless)]
+                let word = <Self as Field>::canonical_raw(raw) as u64;
+                let mut i: u32 = 0;
+                while i < $n {
+                    dst[i as usize] = (word >> i) & 1;
+                    i += 1;
+                }
+            }
+
+            fn from_prime_coordinates(src: &[u64]) -> <Self as Field>::Raw {
+                let () = Validate::<Self>::OK;
+                assert_eq!(
+                    src.len(),
+                    $n,
+                    "prime coordinate count differs from the field degree"
+                );
+                let mut word = 0u64;
+                let mut i: u32 = 0;
+                while i < $n {
+                    let coordinate = src[i as usize];
+                    assert!(
+                        coordinate < 2,
+                        "prime coordinate is not below the characteristic"
+                    );
+                    word |= coordinate << i;
+                    i += 1;
+                }
+                // The occupied bits stop at the degree, which the raw word
+                // holds exactly.
+                #[allow(clippy::cast_possible_truncation)]
+                let raw = word as $raw;
+                raw
+            }
+
+            fn from_prime(value: u64) -> <Self as Field>::Raw {
+                let () = Validate::<Self>::OK;
+                // An odd value reduces to the identity, an even one to
+                // zero.
+                if value % 2 == 0 {
+                    <Self as Field>::ZERO_RAW
+                } else {
+                    <Self as Field>::ONE_RAW
+                }
+            }
+
+            fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
+                let () = Validate::<Self>::OK;
+                let raw = <Self as Field>::canonical_raw(raw);
+                // The prime subfield holds zero and the identity, and an
+                // ordered-basis row's identity word need not be one.
+                if raw == <Self as Field>::ZERO_RAW {
+                    Some(0)
+                } else if raw == <Self as Field>::ONE_RAW {
+                    Some(1)
+                } else {
+                    None
+                }
+            }
+        }
+        impl<R: BinaryRepr<$n>> BinaryField for FiniteField<2, $n, R> {
             const DESCRIPTION: &'static BinaryDescription = R::DESCRIPTION;
 
             #[inline]
@@ -227,7 +268,7 @@ macro_rules! degree_row {
                 }
             }
         }
-        impl<R: BinaryRepr<$n>> BinaryDegree<$n> for Binary<$n, R> {}
+        impl<R: BinaryRepr<$n>> BinaryDegree<$n> for FiniteField<2, $n, R> {}
     };
 }
 
@@ -237,7 +278,7 @@ macro_rules! degree_row {
 /// degrees 1, 2, and 4 interpret the descriptor directly.
 macro_rules! small_row {
     ($n:literal, $mask:expr) => {
-        impl<R: BinaryRepr<$n>> Elem<Binary<$n, R>> {
+        impl<R: BinaryRepr<$n>> Elem<FiniteField<2, $n, R>> {
             /// Wrap a raw storage word, keeping the low `N` coordinate bits.
             ///
             /// Referencing this constructor evaluates the representation's
@@ -248,7 +289,7 @@ macro_rules! small_row {
             #[inline]
             #[must_use]
             pub const fn from_raw(value: u8) -> Self {
-                let () = Validate::<Binary<$n, R>>::OK;
+                let () = Validate::<FiniteField<2, $n, R>>::OK;
                 let () = R::VALID;
                 Elem { raw: value & $mask }
             }
@@ -401,6 +442,29 @@ small_row!(2, 0x3);
 small_row!(4, 0xF);
 small_row!(8, 0xFF);
 
+impl<R: BinaryRepr<1>> Elem<FiniteField<2, 1, R>> {
+    /// The element with ordinary residue `value` modulo two: zero or one.
+    ///
+    /// # Errors
+    /// Returns [`RangeError`] when `value` is two or more.
+    #[inline]
+    pub const fn from_residue(value: u64) -> Result<Self, RangeError> {
+        match value {
+            0 => Ok(Self::ZERO),
+            1 => Ok(Self::ONE),
+            _ => Err(RangeError),
+        }
+    }
+
+    /// The ordinary residue naming this element. Always `Some` at degree
+    /// one.
+    #[inline]
+    #[must_use]
+    pub const fn to_residue(self) -> Option<u64> {
+        Some(if self.raw == Self::ZERO.raw { 0 } else { 1 })
+    }
+}
+
 /// Emit the inherent `const` scalar arithmetic of one wide degree row.
 ///
 /// One body per operation branches on structural equality with the
@@ -413,7 +477,7 @@ macro_rules! wide_row {
         $rijndael:expr, $fanpaar:expr,
         $rmul:path, $rsquare:path, $rinv:path
     ) => {
-        impl<R: BinaryRepr<$n>> Elem<Binary<$n, R>> {
+        impl<R: BinaryRepr<$n>> Elem<FiniteField<2, $n, R>> {
             /// Wrap a raw storage word.
             ///
             /// Referencing this constructor evaluates the representation's
@@ -424,7 +488,7 @@ macro_rules! wide_row {
             #[inline]
             #[must_use]
             pub const fn from_raw(value: $raw) -> Self {
-                let () = Validate::<Binary<$n, R>>::OK;
+                let () = Validate::<FiniteField<2, $n, R>>::OK;
                 let () = R::VALID;
                 Elem { raw: value }
             }
@@ -433,9 +497,7 @@ macro_rules! wide_row {
             #[inline]
             #[must_use]
             pub const fn from_bytes(bytes: [u8; $bytes]) -> Self {
-                Elem {
-                    raw: <$raw>::from_le_bytes(bytes),
-                }
+                Self::from_raw(<$raw>::from_le_bytes(bytes))
             }
 
             /// Encode to the stable little-endian representation.
@@ -583,7 +645,7 @@ macro_rules! wide_row {
             }
         }
 
-        impl<R: BinaryRepr<$n>> fmt::Display for Elem<Binary<$n, R>> {
+        impl<R: BinaryRepr<$n>> fmt::Display for Elem<FiniteField<2, $n, R>> {
             fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(formatter, "{:0width$x}", self.raw, width = $width)
             }
@@ -625,7 +687,7 @@ wide_row!(
     tower::rijndael64_inv
 );
 
-impl<R: BinaryRepr<8>> FieldBuffer for Binary<8, R> {
+impl<R: BinaryRepr<8>> FieldBuffer for FiniteField<2, 8, R> {
     const BYTES: usize = 1;
     const STORAGE_BITS: u32 = 8;
 
@@ -644,25 +706,25 @@ impl<R: BinaryRepr<8>> FieldBuffer for Binary<8, R> {
     }
 }
 
-impl<R: BinaryRepr<8>> fmt::Display for Elem<Binary<8, R>> {
+impl<R: BinaryRepr<8>> fmt::Display for Elem<FiniteField<2, 8, R>> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{:02x}", self.raw)
     }
 }
 
-impl<R: BinaryRepr<1>> fmt::Display for Elem<Binary<1, R>> {
+impl<R: BinaryRepr<1>> fmt::Display for Elem<FiniteField<2, 1, R>> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{}", self.raw)
     }
 }
 
-impl<R: BinaryRepr<2>> fmt::Display for Elem<Binary<2, R>> {
+impl<R: BinaryRepr<2>> fmt::Display for Elem<FiniteField<2, 2, R>> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{:01x}", self.raw)
     }
 }
 
-impl<R: BinaryRepr<4>> fmt::Display for Elem<Binary<4, R>> {
+impl<R: BinaryRepr<4>> fmt::Display for Elem<FiniteField<2, 4, R>> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{:01x}", self.raw)
     }

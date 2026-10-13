@@ -35,7 +35,7 @@ example NAME *ARGS:
 examples *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    for name in field_arithmetic shard_recovery streaming_encode binary_syndrome extension_fields embeddings prime_vectors; do
+    for name in field_arithmetic shard_recovery streaming_encode binary_syndrome extension_fields embeddings prime_vectors generic_prime; do
         cargo run --example "${name}" {{ARGS}}
     done
 
@@ -67,6 +67,75 @@ cross-check:
     cargo check --target aarch64-unknown-linux-gnu --all-features --lib
     cargo check --target wasm32-unknown-unknown --all-features --lib
     RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+simd128" cargo check --target wasm32-unknown-unknown --all-features --lib
+
+# Type-check every standalone comparison package under `external/` against
+# this working copy, so public API changes cannot strand them.
+[group('test')]
+external-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for manifest in external/*/Cargo.toml; do
+        echo "external-check: ${manifest%/Cargo.toml}"
+        cargo check --manifest-path "${manifest}" --all-targets
+    done
+
+# Negative consumer snippets under `tests/compile_fail/`: each must fail to
+# compile on the crate MSRV. The first line names the expectation: a
+# crate-owned panic fragment (`expect:`) that must appear in the error, or
+# `expect-rejection` for trait-bound and privacy rejections. Unresolved-name
+# errors reject a missing import rather than the intended bound and fail the
+# case. Cargo does not treat this directory as test targets.
+[group('test')]
+compile-fail:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rlib=$(cargo +{{MSRV}} build --lib --all-features --message-format=json | jq -rs '[.[] | select(.reason == "compiler-artifact" and .target.name == "fgf") | .filenames[]? | select(endswith(".rlib"))] | first // empty')
+    if [[ -z "${rlib}" ]]; then
+        echo "compile-fail: fgf rlib not found in the build output" >&2
+        exit 1
+    fi
+    scratch=$(mktemp -d)
+    trap 'rm -rf "${scratch}"' EXIT
+    failures=0
+    for snippet in tests/compile_fail/*.rs; do
+        header=$(head -n 1 "${snippet}")
+        case "${header}" in
+            "// expect-rejection") fragment="" ;;
+            "// expect: "*) fragment="${header##*expect: }" ;;
+            *)
+                echo "compile-fail: ${snippet}: missing expectation header" >&2
+                exit 1
+                ;;
+        esac
+        if err=$(rustc +{{MSRV}} --edition 2024 --crate-type lib --extern fgf="${rlib}" -L dependency=target/debug/deps --out-dir "${scratch}" "${snippet}" 2>&1); then
+            echo "compile-fail: FAIL ${snippet} compiled successfully" >&2
+            failures=$((failures + 1))
+        elif [[ -n "${fragment}" ]] && ! grep -qF -- "${fragment}" <<< "${err}"; then
+            echo "compile-fail: FAIL ${snippet} expected fragment: ${fragment}" >&2
+            failures=$((failures + 1))
+        elif [[ -z "${fragment}" ]] && grep -qE -- 'error\[E(0412|0425|0432|0433)\]' <<< "${err}"; then
+            echo "compile-fail: FAIL ${snippet}: rejected for an unresolved name" >&2
+            failures=$((failures + 1))
+        else
+            echo "compile-fail: ok $(basename "${snippet}")"
+        fi
+    done
+    if [[ "${failures}" -ne 0 ]]; then
+        echo "compile-fail: ${failures} case(s) failed" >&2
+        exit 1
+    fi
+
+# MSRV acceptance: every negative consumer snippet rejects and the positive
+# consumer matrix runs on the crate MSRV toolchain.
+[group('test')]
+msrv-accept:
+    just compile-fail
+    cargo +{{MSRV}} test --all-features --test consumers
+
+# Check the published dependency lock in an isolated checkout.
+[group('test')]
+msrv-locked:
+    cargo +{{MSRV}} check --locked --all-features --all-targets
 
 # Build a portable benchmark artifact for interleaved remote comparisons.
 [group('bench')]
