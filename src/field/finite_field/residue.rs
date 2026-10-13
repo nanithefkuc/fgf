@@ -25,9 +25,14 @@
 //!
 //! # Representation and layout
 //!
-//! One canonical `u64` per element. The stable byte encoding is exactly
-//! eight little-endian bytes of the canonical residue; decoding accepts any
-//! `u64` and reduces it, and encoding always emits the canonical residue.
+//! One canonical `u64` per element. The stable byte lane is the smallest
+//! little-endian lane holding every residue: characteristic two uses an
+//! eight-byte lane, and an odd characteristic uses one, two, four, or
+//! eight bytes as its residues fit within `2^8`, `2^16`, `2^32`, and
+//! `u64`. `FieldBuffer::decode` zero-extends the lane to `u64` and
+//! reduces it, so every bit pattern of the lane is accepted, and
+//! `FieldBuffer::encode` always emits the canonical residue at the
+//! row's lane width. These two methods are the byte API of the rows.
 //!
 //! # Totality and canonicalization
 //!
@@ -39,10 +44,12 @@
 //! zero explicitly instead of exponentiating. Arithmetic is variable-time
 //! and not intended for secret data.
 //!
-//! Prepared coefficients for the packed surface are the canonical elements
-//! themselves: preparation copies the value and allocates nothing, packed
-//! application allocates nothing, and no workspace carries meaning between
-//! calls.
+//! Prepared coefficients for the packed surface resolve the canonical
+//! element into the row's one-word backend form: the canonical value
+//! itself on byte, two-byte, and `P = 2` rows, the Shoup pair on
+//! four-byte rows, and the Montgomery word on eight-byte rows at odd `P`.
+//! Preparation allocates nothing, packed application allocates nothing,
+//! and no workspace carries meaning between calls.
 
 use crate::field::extension::Descriptor;
 use crate::field::extension::descriptor::PrimePresentation;
@@ -144,6 +151,37 @@ const fn inv_body<const P: u64>(value: u64) -> u64 {
 /// The canonical residue of any raw word.
 const fn reduce_body<const P: u64>(value: u64) -> u64 {
     value % P
+}
+
+/// The lane width in bytes of one characteristic: the smallest
+/// little-endian lane holding every residue, with characteristic two
+/// keeping the eight-byte lane. Total over every `u64`, including the
+/// values other code rejects as characteristics.
+const fn lane_bytes(characteristic: u64) -> usize {
+    if characteristic == 2 {
+        8
+    } else if characteristic <= (1 << 8) {
+        1
+    } else if characteristic <= (1 << 16) {
+        2
+    } else if characteristic <= (1 << 32) {
+        4
+    } else {
+        8
+    }
+}
+
+/// The little-endian word one lane spells, zero-extended to `u64`. The
+/// caller bounds the lane to the row's byte width.
+#[allow(clippy::cast_lossless)]
+const fn read_lane(lane: &[u8]) -> u64 {
+    let mut word = 0;
+    let mut index = lane.len();
+    while index > 0 {
+        index -= 1;
+        word = (word << 8) | (lane[index] as u64);
+    }
+    word
 }
 
 // ---------------------------------------------------------------------------
@@ -258,21 +296,32 @@ impl<const P: u64> super::super::private::RowAccess for FiniteField<P, 1, Residu
 }
 
 impl<const P: u64> FieldBuffer for FiniteField<P, 1, Residue> {
-    const BYTES: usize = 8;
-    const STORAGE_BITS: u32 = 64;
+    // The lane width is the presentation's layout fact of the
+    // characteristic.
+    const BYTES: usize = lane_bytes(P);
+    // The lane never exceeds eight bytes, so the product fits `u32`.
+    #[allow(clippy::cast_possible_truncation)]
+    const STORAGE_BITS: u32 = (8 * lane_bytes(P)) as u32;
 
     #[inline]
     fn decode(bytes: &[u8]) -> Elem<Self> {
-        let bytes: [u8; 8] = bytes
-            .try_into()
-            .expect("GF(p) element has the wrong byte width");
-        Elem::<Self>::from_raw(u64::from_le_bytes(bytes))
+        assert_eq!(
+            bytes.len(),
+            Self::BYTES,
+            "GF(p) element has the wrong byte width"
+        );
+        Elem::<Self>::from_raw(read_lane(bytes))
     }
 
     #[inline]
     fn encode(bytes: &mut [u8], value: Elem<Self>) {
-        assert_eq!(bytes.len(), 8, "GF(p) element has the wrong byte width");
-        bytes.copy_from_slice(&value.to_raw().to_le_bytes());
+        assert_eq!(
+            bytes.len(),
+            Self::BYTES,
+            "GF(p) element has the wrong byte width"
+        );
+        let raw = value.to_raw().to_le_bytes();
+        bytes.copy_from_slice(&raw[..Self::BYTES]);
     }
 }
 
@@ -315,21 +364,6 @@ impl<const P: u64> Elem<FiniteField<P, 1, Residue>> {
     #[must_use]
     pub const fn to_residue(self) -> Option<u64> {
         Some(self.raw)
-    }
-
-    /// Decode from the stable little-endian representation, reducing any
-    /// `u64` alias.
-    #[inline]
-    #[must_use]
-    pub const fn from_bytes(bytes: [u8; 8]) -> Self {
-        Self::from_raw(u64::from_le_bytes(bytes))
-    }
-
-    /// Encode to the stable little-endian representation.
-    #[inline]
-    #[must_use]
-    pub const fn to_bytes(self) -> [u8; 8] {
-        self.raw.to_le_bytes()
     }
 
     /// Field addition.
@@ -436,5 +470,53 @@ impl<const P: u64> Elem<FiniteField<P, 1, Residue>> {
 impl<const P: u64> core::fmt::Display for Elem<FiniteField<P, 1, Residue>> {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(formatter, "{}", self.raw)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The width rule is total over `u64` and switches exactly at each
+    /// lane's capacity, with characteristic two on the eight-byte lane.
+    #[test]
+    fn lane_bytes_switches_at_each_capacity() {
+        let cases: [(u64, usize); 12] = [
+            (0, 1),
+            (1, 1),
+            (2, 8),
+            (3, 1),
+            (1 << 8, 1),
+            ((1 << 8) + 1, 2),
+            (1 << 16, 2),
+            ((1 << 16) + 1, 4),
+            (1 << 32, 4),
+            ((1 << 32) + 1, 8),
+            (u64::MAX - 58, 8),
+            (u64::MAX, 8),
+        ];
+        for (characteristic, bytes) in cases {
+            assert_eq!(lane_bytes(characteristic), bytes, "{characteristic}");
+        }
+    }
+
+    /// `read_lane` spells little-endian words of every width.
+    #[test]
+    fn read_lane_is_little_endian() {
+        assert_eq!(read_lane(&[]), 0);
+        assert_eq!(read_lane(&[0xAB]), 0xAB);
+        assert_eq!(read_lane(&[0x34, 0x12]), 0x1234);
+        assert_eq!(read_lane(&[0xFF; 8]), u64::MAX);
+    }
+
+    /// The inherent identity predicates agree with the identities.
+    #[test]
+    fn identity_predicates() {
+        type Seven = FiniteField<7, 1, Residue>;
+        assert!(Elem::<Seven>::ONE.is_one());
+        assert!(!Elem::<Seven>::ZERO.is_one());
+        assert!(Elem::<Seven>::ZERO.is_zero());
+        assert!(!Elem::<Seven>::from_raw(8).is_zero());
+        assert!(Elem::<Seven>::from_raw(8).is_one());
     }
 }

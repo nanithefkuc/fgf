@@ -237,12 +237,14 @@ fn gf49_zero_and_division_conventions() {
 
 #[test]
 fn gf49_bytes_and_backend() {
-    assert_eq!(<Gf49 as FieldBuffer>::BYTES, 16);
+    // The base lane is one byte at characteristic seven, so both components
+    // fit two bytes.
+    assert_eq!(<Gf49 as FieldBuffer>::BYTES, 2);
     let a = <Gf49 as ExtensionField<2>>::from_components([
         Elem::<Base7>::from_raw(6),
         Elem::<Base7>::from_raw(2),
     ]);
-    let mut bytes = [0u8; 16];
+    let mut bytes = [0u8; 2];
     <Gf49 as FieldBuffer>::encode(&mut bytes, a);
     assert_eq!(<Gf49 as FieldBuffer>::decode(&bytes), a);
 
@@ -250,7 +252,7 @@ fn gf49_bytes_and_backend() {
     // backend.
     assert_eq!(backend_for::<Gf49>(), Backend::Scalar);
     let coeff = a.inv();
-    let mut row = [0u8; 32];
+    let mut row = [0u8; 4];
     ops::pack(&mut row, &[Elem::<Gf49>::ONE, a]);
     let before = row;
     ops::mul_add(&mut row, coeff, &before);

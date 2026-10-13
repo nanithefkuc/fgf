@@ -9,8 +9,8 @@ Paired-run snapshot for v2. Every result cell reports Willow Cove (i5-1135G7) / 
 | Campaign | `just bench-paired` (family round `gf`) |
 | Revision | `c20465ba22d078e0fb115fb6a99fa77027992c90` |
 | Toolchain | 1.98.1 |
-| Resolved process backend | `v4x` / `v3_gfni_crypto` |
-| Resolved field backends | `gf32b`: `v4x` / `v3_gfni_crypto`; `gf64b`: `v4x` / `v3_gfni_crypto`; `fp16`: `v4x` / `v3_gfni_crypto`; `fp32`: `v4x` / `v3_gfni_crypto`; `fp64`: `v4x` / `v3_gfni_crypto` |
+| Resolved process backend | `v4x` / `-` |
+| Resolved field backends | `gf32b`: `v4x` / -; `gf64b`: `v4x` / -; `fp16`: `v4x` / -; `fp32`: `v4x` / -; `fp64`: `v4x` / - |
 | Protocol | Five rounds per host; each round runs both versions in a shuffled order; competitor arms interleave inside their harness process. |
 | Aggregation | Median of five per-run medians. |
 | Throughput | Logical bytes divided by the aggregate latency per call; numerators are stated per panel. |
@@ -23,11 +23,11 @@ Paired-run snapshot for v2. Every result cell reports Willow Cove (i5-1135G7) / 
 
 | Field | Operation | mul_add (GiB/s) |
 | --- | --- | --- |
-| fp16 | mul_add | 9.98 / 17.1 |
-| fp32 | mul_add | 3.71 / 6.33 |
-| fp64 | mul_add | 1.38 / 1.91 |
-| gf32b | mul_add | 17.1 / 30.7 |
-| gf64b | mul_add | 9.11 / 17.0 |
+| fp16 | mul_add | 9.97 / - |
+| fp32 | mul_add | 3.71 / - |
+| fp64 | mul_add | 1.37 / - |
+| gf32b | mul_add | 17.1 / - |
+| gf64b | mul_add | 9.09 / - |
 
 ## Competitors
 

@@ -16,6 +16,7 @@
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 #![allow(clippy::cast_possible_truncation)]
+#![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 
 use fgf::internals::field::fan_paar as wiedemann;
 #[cfg(feature = "simd512")]
@@ -1982,4 +1983,1120 @@ fn proven_prime_kernels_match_scalar() {
         scalar::mul_elementwise::<Goldilocks>(&mut want, &a, &b);
         assert_eq!(got, want, "goldilocks::mul_elementwise_sse42: lanes {n}");
     }
+}
+
+#[derive(Clone, Copy)]
+enum ResidueToken {
+    Avx2(X64V3Token),
+    #[cfg(feature = "simd512")]
+    Avx512(archmage::X64V4Token),
+}
+
+fn for_residue_kernels(mut check: impl FnMut(ResidueToken)) {
+    if let Some(token) = X64V3Token::summon() {
+        eprintln!("residue differential: executing kernel=avx2 token=x64_v3");
+        check(ResidueToken::Avx2(token));
+    } else {
+        eprintln!("residue differential: skipping unsupported kernel=avx2 token=x64_v3");
+    }
+    #[cfg(feature = "simd512")]
+    if let Some(token) = archmage::X64V4Token::summon() {
+        eprintln!("residue differential: executing kernel=avx512 token=x64_v4");
+        check(ResidueToken::Avx512(token));
+    } else {
+        eprintln!("residue differential: skipping unsupported kernel=avx512 token=x64_v4");
+    }
+}
+
+macro_rules! residue_call {
+    ($token:expr, $avx2:ident, $avx512:ident $(, $arg:expr)* $(,)?) => {
+        match $token {
+            ResidueToken::Avx2(token) => x86::residue::$avx2(token $(, $arg)*),
+            #[cfg(feature = "simd512")]
+            ResidueToken::Avx512(token) => x86::residue::$avx512(token $(, $arg)*),
+        }
+    };
+}
+
+/// Four-byte generic residue lanes past dispatch: the direct AVX2 and AVX-512 entries
+/// against the independent `u128` oracle, with raw lanes in and canonical
+/// lanes out. Byte offsets 0 and 4 into a larger buffer exercise alignment.
+#[test]
+fn proven_residue_u32_elementwise_matches_oracle() {
+    const PRIMES: [u64; 6] = [
+        65_537,
+        1_000_000_007,
+        2_013_265_921,
+        2_147_483_647,
+        2_147_483_659,
+        4_294_967_291,
+    ];
+    for_residue_kernels(|token| {
+        let mut lens: Vec<usize> = (0..=33).collect();
+        lens.push(517);
+        for &p in &PRIMES {
+            let params = x86::residue::U32Params::new(p as u32);
+            for &lanes in &lens {
+                for &offset in &[0usize, 4] {
+                    let pad = offset + lanes * 4 + 4;
+                    let mut backing_a = noise(pad, 0x1a2b + p + lanes as u64);
+                    let mut backing_b = noise(pad, 0x3c4d + p + lanes as u64);
+                    for (i, lane) in backing_a[offset..offset + lanes * 4]
+                        .chunks_exact_mut(4)
+                        .enumerate()
+                    {
+                        let edge = match i % 10 {
+                            0 => 0u64,
+                            1 => 1,
+                            2 => p - 1,
+                            3 => p,
+                            4 => p + 1,
+                            5 => 0x7FFF_FFFF,
+                            6 => 0x8000_0000,
+                            7 => 0xFFFF_FFFF,
+                            _ => u64::from(u32::from_le_bytes(lane.try_into().unwrap())),
+                        };
+                        lane.copy_from_slice(&(edge as u32).to_le_bytes());
+                    }
+                    for (i, lane) in backing_b[offset..offset + lanes * 4]
+                        .chunks_exact_mut(4)
+                        .enumerate()
+                    {
+                        let edge = match (i + 4) % 10 {
+                            0 => 0u64,
+                            1 => 1,
+                            2 => p - 1,
+                            3 => p,
+                            4 => p + 1,
+                            5 => 0x7FFF_FFFF,
+                            6 => 0x8000_0000,
+                            7 => 0xFFFF_FFFF,
+                            _ => u64::from(u32::from_le_bytes(lane.try_into().unwrap())),
+                        };
+                        lane.copy_from_slice(&(edge as u32).to_le_bytes());
+                    }
+                    let (a, b) = (
+                        backing_a[offset..offset + lanes * 4].to_vec(),
+                        backing_b[offset..offset + lanes * 4].to_vec(),
+                    );
+                    let mut want = vec![0u8; lanes * 4];
+                    for ((w, x), y) in want
+                        .chunks_exact_mut(4)
+                        .zip(a.chunks_exact(4))
+                        .zip(b.chunks_exact(4))
+                    {
+                        let x = u64::from(u32::from_le_bytes(x.try_into().unwrap())) % p;
+                        let y = u64::from(u32::from_le_bytes(y.try_into().unwrap())) % p;
+                        w.copy_from_slice(
+                            &((x as u128 * y as u128 % p as u128) as u32).to_le_bytes(),
+                        );
+                    }
+                    // Offset windows of the retained backings, with guards.
+                    let mut backing_d = noise(pad, 0x5e6f + p + lanes as u64);
+                    let before_d = backing_d.clone();
+                    {
+                        let (dst, a_win, b_win) = (
+                            &mut backing_d[offset..offset + lanes * 4],
+                            &backing_a[offset..offset + lanes * 4],
+                            &backing_b[offset..offset + lanes * 4],
+                        );
+                        residue_call!(
+                            token,
+                            mul_elementwise_u32_avx2,
+                            mul_elementwise_u32_avx512,
+                            dst,
+                            a_win,
+                            b_win,
+                            params
+                        );
+                        assert_eq!(dst, &want, "residue mul p {p} lanes {lanes} off {offset}");
+                    }
+                    assert_eq!(&backing_d[..offset], &before_d[..offset], "head guard");
+                    assert_eq!(
+                        &backing_d[offset + lanes * 4..],
+                        &before_d[offset + lanes * 4..],
+                        "tail guard"
+                    );
+                    let mut backing_assign = backing_a.clone();
+                    let before_assign = backing_assign.clone();
+                    {
+                        let (dst, src) = (
+                            &mut backing_assign[offset..offset + lanes * 4],
+                            &backing_b[offset..offset + lanes * 4],
+                        );
+                        residue_call!(
+                            token,
+                            mul_elementwise_assign_u32_avx2,
+                            mul_elementwise_assign_u32_avx512,
+                            dst,
+                            src,
+                            params
+                        );
+                        assert_eq!(
+                            dst, &want,
+                            "residue mul_assign p {p} lanes {lanes} off {offset}"
+                        );
+                    }
+                    assert_eq!(
+                        &backing_assign[..offset],
+                        &before_assign[..offset],
+                        "head guard"
+                    );
+                    assert_eq!(
+                        &backing_assign[offset + lanes * 4..],
+                        &before_assign[offset + lanes * 4..],
+                        "tail guard"
+                    );
+                }
+            }
+        }
+    });
+}
+
+/// Prepared Shoup fixed-coefficient kernels past dispatch: every four-byte
+/// row class against the independent `u128` oracle
+/// `((x mod P) * c) mod P`, with raw lanes in and canonical lanes out.
+#[test]
+fn proven_residue_u32_shoup_coeff_matches_oracle() {
+    const PRIMES: [u64; 6] = [
+        65_537,
+        1_000_000_007,
+        2_013_265_921,
+        2_147_483_647,
+        2_147_483_659,
+        4_294_967_291,
+    ];
+    for_residue_kernels(|token| {
+        let mut lens: Vec<usize> = (0..=33).collect();
+        lens.push(517);
+        for &p in &PRIMES {
+            let p32 = p as u32;
+            let mut coeffs = vec![2u64, p / 2, p - 1];
+            let mut state = p.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+            for _ in 0..4 {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1);
+                coeffs.push((state >> 11) % p);
+            }
+            for &c in &coeffs {
+                let c32 = c as u32;
+                let q = ((c as u128 * (1u128 << 32) / p as u128) as u64) as u32;
+                for &lanes in &lens {
+                    for &offset in &[0usize, 4] {
+                        let pad = offset + lanes * 4 + 4;
+                        let raw = noise(pad, 0x81 + p + c + lanes as u64);
+                        let mut backing_s = raw.clone();
+                        for (i, lane) in backing_s[offset..offset + lanes * 4]
+                            .chunks_exact_mut(4)
+                            .enumerate()
+                        {
+                            let edge = match i % 10 {
+                                0 => 0u64,
+                                1 => 1,
+                                2 => p - 1,
+                                3 => p,
+                                4 => p + 1,
+                                5 => 0x7FFF_FFFF,
+                                6 => 0x8000_0000,
+                                7 => 0xFFFF_FFFF,
+                                9 => c,
+                                _ => u64::from(u32::from_le_bytes(lane.try_into().unwrap())),
+                            };
+                            lane.copy_from_slice(&(edge as u32).to_le_bytes());
+                        }
+                        let src = backing_s[offset..offset + lanes * 4].to_vec();
+                        let mut want = vec![0u8; lanes * 4];
+                        for (w, x) in want.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+                            let x = u64::from(u32::from_le_bytes(x.try_into().unwrap())) % p;
+                            w.copy_from_slice(
+                                &((x as u128 * c as u128 % p as u128) as u32).to_le_bytes(),
+                            );
+                        }
+                        // Overwrite into a retained destination window.
+                        let mut backing_d = noise(pad, 0x83 + p + c + lanes as u64);
+                        let before_d = backing_d.clone();
+                        {
+                            let (dst, s) = (
+                                &mut backing_d[offset..offset + lanes * 4],
+                                &backing_s[offset..offset + lanes * 4],
+                            );
+                            residue_call!(
+                                token,
+                                mul_into_u32_avx2,
+                                mul_into_u32_avx512,
+                                dst,
+                                s,
+                                c32,
+                                q,
+                                p32
+                            );
+                            assert_eq!(
+                                dst, &want,
+                                "shoup into p {p} c {c} lanes {lanes} off {offset}"
+                            );
+                        }
+                        assert_eq!(&backing_d[..offset], &before_d[..offset], "head guard");
+                        assert_eq!(
+                            &backing_d[offset + lanes * 4..],
+                            &before_d[offset + lanes * 4..],
+                            "tail guard"
+                        );
+                        // Accumulate into a retained destination window at
+                        // the same offset as the source window.
+                        let mut backing_a = noise(pad, 0x82 + p + c + lanes as u64);
+                        let mut want_add = backing_a[offset..offset + lanes * 4].to_vec();
+                        for (d, x) in want_add.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+                            let a = u64::from(u32::from_le_bytes(d.try_into().unwrap())) % p;
+                            let x = u64::from(u32::from_le_bytes(x.try_into().unwrap())) % p;
+                            d.copy_from_slice(
+                                &(((a as u128 + x as u128 * c as u128 % p as u128) % p as u128)
+                                    as u32)
+                                    .to_le_bytes(),
+                            );
+                        }
+                        let before_a = backing_a.clone();
+                        {
+                            let (dst, s) = (
+                                &mut backing_a[offset..offset + lanes * 4],
+                                &backing_s[offset..offset + lanes * 4],
+                            );
+                            residue_call!(
+                                token,
+                                mul_add_u32_avx2,
+                                mul_add_u32_avx512,
+                                dst,
+                                s,
+                                c32,
+                                q,
+                                p32
+                            );
+                            assert_eq!(
+                                dst, &want_add,
+                                "shoup add p {p} c {c} lanes {lanes} off {offset}"
+                            );
+                        }
+                        assert_eq!(&backing_a[..offset], &before_a[..offset], "head guard");
+                        assert_eq!(
+                            &backing_a[offset + lanes * 4..],
+                            &before_a[offset + lanes * 4..],
+                            "tail guard"
+                        );
+                        // In-place window of the retained source backing.
+                        let before_s = backing_s.clone();
+                        {
+                            let dst = &mut backing_s[offset..offset + lanes * 4];
+                            residue_call!(
+                                token,
+                                mul_assign_u32_avx2,
+                                mul_assign_u32_avx512,
+                                dst,
+                                c32,
+                                q,
+                                p32
+                            );
+                            assert_eq!(
+                                dst, &want,
+                                "shoup assign p {p} c {c} lanes {lanes} off {offset}"
+                            );
+                        }
+                        assert_eq!(&backing_s[..offset], &before_s[..offset], "head guard");
+                        assert_eq!(
+                            &backing_s[offset + lanes * 4..],
+                            &before_s[offset + lanes * 4..],
+                            "tail guard"
+                        );
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// Prepared doubleword-REDC fixed-coefficient kernels past dispatch:
+/// eight-byte odd rows against the same oracle and geometry.
+#[test]
+fn proven_residue_u64_redc_coeff_matches_oracle() {
+    const PRIMES: [u64; 3] = [
+        4_294_967_311,
+        1_000_000_000_000_000_003,
+        18_446_744_073_709_551_557,
+    ];
+    for_residue_kernels(|token| {
+        let mut lens: Vec<usize> = (0..=33).collect();
+        lens.push(257);
+        for &p in &PRIMES {
+            let mut coeffs = vec![2u64 % p, p / 2, p - 1];
+            let mut state = p.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+            for _ in 0..4 {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1);
+                coeffs.push((state as u128 % p as u128) as u64);
+            }
+            for &c in &coeffs {
+                let c_mont = (c as u128 * (1u128 << 64) % p as u128) as u64;
+                for &lanes in &lens {
+                    for &offset in &[0usize, 8] {
+                        let pad = offset + lanes * 8 + 8;
+                        let raw = noise(
+                            pad,
+                            0x91u64
+                                .wrapping_add(p)
+                                .wrapping_add(c)
+                                .wrapping_add(lanes as u64),
+                        );
+                        let mut backing_s = raw.clone();
+                        for (i, lane) in backing_s[offset..offset + lanes * 8]
+                            .chunks_exact_mut(8)
+                            .enumerate()
+                        {
+                            let edge: u128 = match i % 8 {
+                                0 => 0,
+                                1 => 1,
+                                2 => (p - 1) as u128,
+                                3 => p as u128,
+                                4 => p as u128 + 1,
+                                5 => 0xFFFF_FFFF_FFFF_FFFF,
+                                7 => c as u128,
+                                _ => u64::from_le_bytes(lane.try_into().unwrap()) as u128,
+                            };
+                            lane.copy_from_slice(&((edge % (1u128 << 64)) as u64).to_le_bytes());
+                        }
+                        let src = backing_s[offset..offset + lanes * 8].to_vec();
+                        let mut want = vec![0u8; lanes * 8];
+                        for (w, x) in want.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
+                            let x = (u64::from_le_bytes(x.try_into().unwrap()) as u128) % p as u128;
+                            w.copy_from_slice(&((x * c as u128 % p as u128) as u64).to_le_bytes());
+                        }
+                        // Overwrite into a retained destination window.
+                        let mut backing_d = noise(
+                            pad,
+                            0x93u64
+                                .wrapping_add(p)
+                                .wrapping_add(c)
+                                .wrapping_add(lanes as u64),
+                        );
+                        let before_d = backing_d.clone();
+                        {
+                            let (dst, s) = (
+                                &mut backing_d[offset..offset + lanes * 8],
+                                &backing_s[offset..offset + lanes * 8],
+                            );
+                            residue_call!(
+                                token,
+                                mul_into_u64_avx2,
+                                mul_into_u64_avx512,
+                                dst,
+                                s,
+                                c_mont,
+                                p
+                            );
+                            assert_eq!(
+                                dst, &want,
+                                "wide into p {p} c {c} lanes {lanes} off {offset}"
+                            );
+                        }
+                        assert_eq!(&backing_d[..offset], &before_d[..offset], "head guard");
+                        assert_eq!(
+                            &backing_d[offset + lanes * 8..],
+                            &before_d[offset + lanes * 8..],
+                            "tail guard"
+                        );
+                        // Accumulate into a retained destination window.
+                        let mut backing_a_pad = noise(
+                            pad,
+                            0x94u64
+                                .wrapping_add(p)
+                                .wrapping_add(c)
+                                .wrapping_add(lanes as u64),
+                        );
+                        let mut want_add = backing_a_pad[offset..offset + lanes * 8].to_vec();
+                        for (d, x) in want_add.chunks_exact_mut(8).zip(src.chunks_exact(8)) {
+                            let a = (u64::from_le_bytes(d.try_into().unwrap()) as u128) % p as u128;
+                            let x = (u64::from_le_bytes(x.try_into().unwrap()) as u128) % p as u128;
+                            d.copy_from_slice(
+                                &(((a + x * c as u128 % p as u128) % p as u128) as u64)
+                                    .to_le_bytes(),
+                            );
+                        }
+                        let before_a = backing_a_pad.clone();
+                        {
+                            let (dst, s) = (
+                                &mut backing_a_pad[offset..offset + lanes * 8],
+                                &backing_s[offset..offset + lanes * 8],
+                            );
+                            residue_call!(
+                                token,
+                                mul_add_u64_avx2,
+                                mul_add_u64_avx512,
+                                dst,
+                                s,
+                                c_mont,
+                                p
+                            );
+                            assert_eq!(
+                                &dst[..],
+                                &want_add[..],
+                                "wide add p {p} c {c} lanes {lanes} off {offset}"
+                            );
+                        }
+                        assert_eq!(&backing_a_pad[..offset], &before_a[..offset], "head guard");
+                        assert_eq!(
+                            &backing_a_pad[offset + lanes * 8..],
+                            &before_a[offset + lanes * 8..],
+                            "tail guard"
+                        );
+                        // In-place window of the retained source backing.
+                        let before_s = backing_s.clone();
+                        {
+                            let dst = &mut backing_s[offset..offset + lanes * 8];
+                            residue_call!(
+                                token,
+                                mul_assign_u64_avx2,
+                                mul_assign_u64_avx512,
+                                dst,
+                                c_mont,
+                                p
+                            );
+                            assert_eq!(
+                                dst, &want,
+                                "wide assign p {p} c {c} lanes {lanes} off {offset}"
+                            );
+                        }
+                        assert_eq!(&backing_s[..offset], &before_s[..offset], "head guard");
+                        assert_eq!(
+                            &backing_s[offset + lanes * 8..],
+                            &before_s[offset + lanes * 8..],
+                            "tail guard"
+                        );
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// Byte nibble-lookup kernels, exhaustive: every odd prime `P <= 127`,
+/// every coefficient, and every raw byte 0..=255, through all three
+/// dispositions against the integer oracle, at lengths below, at, and
+/// above both vector widths (tails included).
+#[test]
+fn proven_residue_u8_lookup_coeff_is_exhaustive() {
+    const PRIMES: [u64; 30] = [
+        3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89,
+        97, 101, 103, 107, 109, 113, 127,
+    ];
+    const LENS: [usize; 8] = [0, 1, 31, 32, 33, 63, 64, 65];
+    for_residue_kernels(|token| {
+        for &p in &PRIMES {
+            let p8 = p as u8;
+            for c in 0..p {
+                let c8 = c as u8;
+                // Full raw-byte coverage in one 256-byte body plus tails at
+                // every length class: the body lanes cycle all 256 values, so
+                // vector lanes and scalar tails both meet raw bytes at and
+                // above `P`.
+                let full: Vec<u8> = (0..=255u16).map(|x| x as u8).collect();
+                let mut want_full = vec![0u8; 256];
+                for (w, &x) in want_full.iter_mut().zip(full.iter()) {
+                    *w = ((x as u128 * c as u128 % p as u128) as u64) as u8;
+                }
+                let mut got = vec![0u8; 256];
+                residue_call!(
+                    token,
+                    mul_into_u8_avx2,
+                    mul_into_u8_avx512,
+                    &mut got,
+                    &full,
+                    c8,
+                    p8
+                );
+                assert_eq!(got, want_full, "lookup into p {p} c {c}");
+                let mut acc = full.clone();
+                let mut want_add = full.clone();
+                for (d, &x) in want_add.iter_mut().zip(full.iter()) {
+                    *d = (((*d as u128 % p as u128) + x as u128 * c as u128 % p as u128)
+                        % p as u128) as u8;
+                }
+                residue_call!(
+                    token,
+                    mul_add_u8_avx2,
+                    mul_add_u8_avx512,
+                    &mut acc,
+                    &full,
+                    c8,
+                    p8
+                );
+                assert_eq!(acc, want_add, "lookup add p {p} c {c}");
+                let mut got_assign = full.clone();
+                residue_call!(
+                    token,
+                    mul_assign_u8_avx2,
+                    mul_assign_u8_avx512,
+                    &mut got_assign,
+                    c8,
+                    p8
+                );
+                assert_eq!(got_assign, want_full, "lookup assign p {p} c {c}");
+                for &len in &LENS {
+                    // Retained backings with head/tail guards; the kernel sees
+                    // the offset window, and source/destination offsets vary
+                    // independently with the prime and coefficient.
+                    let doff = (p as usize) % 3;
+                    let soff = (c as usize) % 3;
+                    let dpad = doff + len + 2;
+                    let spad = soff + len + 2;
+                    let src: Vec<u8> = (0..len)
+                        .map(|i| ((i * 37 + c as usize) % 256) as u8)
+                        .collect();
+                    let mut want = vec![0u8; len];
+                    for (w, &x) in want.iter_mut().zip(src.iter()) {
+                        *w = ((x as u128 * c as u128 % p as u128) as u64) as u8;
+                    }
+                    let mut backing_s = noise(spad, 0xa1 + p + c);
+                    backing_s[soff..soff + len].copy_from_slice(&src);
+                    let before_s = backing_s.clone();
+                    let mut backing_d = noise(dpad, 0xa2 + p + c);
+                    let before_d = backing_d.clone();
+                    {
+                        let (dst, s) = (
+                            &mut backing_d[doff..doff + len],
+                            &backing_s[soff..soff + len],
+                        );
+                        residue_call!(token, mul_into_u8_avx2, mul_into_u8_avx512, dst, s, c8, p8);
+                        assert_eq!(dst, &want, "lookup into tail p {p} c {c} len {len}");
+                    }
+                    assert_eq!(&backing_d[..doff], &before_d[..doff], "head guard");
+                    assert_eq!(
+                        &backing_d[doff + len..],
+                        &before_d[doff + len..],
+                        "tail guard"
+                    );
+                    assert_eq!(&backing_s[..], &before_s[..], "source untouched");
+                    // Accumulate into a retained window over raw destination
+                    // bytes (the destination doubles as the addend oracle).
+                    let mut backing_a = noise(dpad, 0xa3 + p + c);
+                    let mut want_add = backing_a[doff..doff + len].to_vec();
+                    for (d, &x) in want_add.iter_mut().zip(src.iter()) {
+                        *d = (((*d as u128 % p as u128) + x as u128 * c as u128 % p as u128)
+                            % p as u128) as u8;
+                    }
+                    let before_a = backing_a.clone();
+                    {
+                        let (dst, s) = (
+                            &mut backing_a[doff..doff + len],
+                            &backing_s[soff..soff + len],
+                        );
+                        residue_call!(token, mul_add_u8_avx2, mul_add_u8_avx512, dst, s, c8, p8);
+                        assert_eq!(dst, &want_add, "lookup add tail p {p} c {c} len {len}");
+                    }
+                    assert_eq!(&backing_a[..doff], &before_a[..doff], "head guard");
+                    assert_eq!(
+                        &backing_a[doff + len..],
+                        &before_a[doff + len..],
+                        "tail guard"
+                    );
+                    // In-place window of a retained backing.
+                    let mut backing_m = noise(dpad, 0xa4 + p + c);
+                    backing_m[doff..doff + len].copy_from_slice(&src);
+                    let before_m = backing_m.clone();
+                    {
+                        let dst = &mut backing_m[doff..doff + len];
+                        residue_call!(token, mul_assign_u8_avx2, mul_assign_u8_avx512, dst, c8, p8);
+                        assert_eq!(dst, &want, "lookup assign tail p {p} c {c} len {len}");
+                    }
+                    assert_eq!(&backing_m[..doff], &before_m[..doff], "head guard");
+                    assert_eq!(
+                        &backing_m[doff + len..],
+                        &before_m[doff + len..],
+                        "tail guard"
+                    );
+                }
+            }
+        }
+    });
+}
+
+/// Delayed-reduction prepared matrix kernels past dispatch: the direct
+/// AVX2 and AVX-512 entries against the independent block-final `u128` oracle
+/// `sum_i (x_i mod P) * c_i mod P`, then overwrite or modular add of the
+/// raw destination. Sources carry raw lanes (noise plus all-ones words);
+/// every stored lane is canonical. Rows sit at byte offsets 0 and 4 in a
+/// larger buffer, whose guards must survive untouched.
+#[test]
+fn proven_residue_delayed_matrix_matches_oracle() {
+    use fgf::internals::kernel::x86::residue::PreparedResidue;
+
+    const PRIMES: [u64; 8] = [
+        65_537,
+        1_000_000_007,
+        1_073_741_827,
+        1_280_000_003,
+        1_431_655_751,
+        2_013_265_921,
+        2_147_483_647,
+        4_294_967_291,
+    ];
+    const LONG_LANES: usize = 260;
+    for_residue_kernels(|token| {
+        for &p in &PRIMES {
+            let k = ((1u128 << 32) / p as u128) as usize;
+            if k < 2 {
+                // The kernel itself rejects `k < 2`, and routing requires a
+                // deeper delay, so the fallback covers this prime through
+                // `ops`.
+                continue;
+            }
+            let p32 = p as u32;
+            let mut counts = vec![0usize, 1, k - 1, k, k + 1, 16, 17];
+            counts.sort_unstable();
+            counts.dedup();
+            for &nterms in &counts {
+                // Source counts past the small panel only run at two lane
+                // counts; the oracle is linear in sources either way.
+                let lane_counts: Vec<usize> = if nterms > 32 {
+                    vec![1, 9]
+                } else {
+                    let mut lane_counts: Vec<usize> = (0..=17).collect();
+                    lane_counts.push(LONG_LANES);
+                    lane_counts
+                };
+                for &lanes in &lane_counts {
+                    let row_len = lanes * 4;
+                    for nrows in 1..=6usize {
+                        for &offset in &[0usize, 4] {
+                            // Coefficients cycle {0, 1, P-1} so every row
+                            // and column covers all three.
+                            let raw: Vec<u64> =
+                                (0..nterms * nrows).map(|i| [0, 1, p - 1][i % 3]).collect();
+                            let flat: Vec<PreparedResidue> = raw
+                                .iter()
+                                .map(|&c| {
+                                    let q = (c as u128 * (1u128 << 32) / p as u128) as u64;
+                                    PreparedResidue::from_word(c | (q << 32))
+                                })
+                                .collect();
+                            // Two source fixtures: deterministic noise with
+                            // edge lanes, and raw all-ones words.
+                            for &ones in &[false, true] {
+                                let sources: Vec<Vec<u8>> = (0..nterms)
+                                    .map(|t| {
+                                        let mut src = if ones {
+                                            vec![0xFFu8; row_len]
+                                        } else {
+                                            noise(row_len, 0xd1 + p + t as u64 + lanes as u64)
+                                        };
+                                        for (i, lane) in src.chunks_exact_mut(4).enumerate().take(8)
+                                        {
+                                            let edge = match (i + t) % 10 {
+                                                0 => 0u64,
+                                                1 => 1,
+                                                2 => p - 1,
+                                                3 => p,
+                                                4 => p + 1,
+                                                5 => 0x7FFF_FFFF,
+                                                6 => 0x8000_0000,
+                                                7 => 0xFFFF_FFFF,
+                                                _ => u64::from(u32::from_le_bytes(
+                                                    lane.try_into().unwrap(),
+                                                )),
+                                            };
+                                            lane.copy_from_slice(&(edge as u32).to_le_bytes());
+                                        }
+                                        src
+                                    })
+                                    .collect();
+                                let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+                                let terms = FlatMatrix {
+                                    coefficients: &flat,
+                                    nrows,
+                                    sources: &refs,
+                                };
+                                // Block-final oracle, one `u128` sum per lane.
+                                let mut want = vec![0u8; nrows * row_len];
+                                for j in 0..nrows {
+                                    for (l, w) in want[j * row_len..(j + 1) * row_len]
+                                        .chunks_exact_mut(4)
+                                        .enumerate()
+                                    {
+                                        let mut acc: u128 = 0;
+                                        for (t, src) in sources.iter().enumerate() {
+                                            let x = u64::from(u32::from_le_bytes(
+                                                src[l * 4..l * 4 + 4].try_into().unwrap(),
+                                            )) % p;
+                                            acc += x as u128 * raw[t * nrows + j] as u128;
+                                        }
+                                        w.copy_from_slice(
+                                            &((acc % p as u128) as u32).to_le_bytes(),
+                                        );
+                                    }
+                                }
+                                // Overwrite past dispatch, with guards.
+                                let pad = offset + nrows * row_len + offset;
+                                let mut backing = noise(pad, 0xd2 + p + nterms as u64);
+                                let before = backing.clone();
+                                {
+                                    let rows = &mut backing[offset..offset + nrows * row_len];
+                                    // Nonzero destination catches
+                                    // accumulation-into-destination bugs.
+                                    for b in rows.iter_mut() {
+                                        *b = b.wrapping_mul(3).wrapping_add(0x5a);
+                                    }
+                                    residue_call!(
+                                        token,
+                                        mul_into_matrix_u32_avx2_with,
+                                        mul_into_matrix_u32_avx512_with,
+                                        rows,
+                                        row_len,
+                                        nrows,
+                                        &terms,
+                                        p32,
+                                    );
+                                    assert_eq!(
+                                        rows, &want,
+                                        "delayed into p {p} terms {nterms} rows {nrows} lanes {lanes} ones {ones} off {offset}"
+                                    );
+                                }
+                                assert_eq!(
+                                    &backing[..offset],
+                                    &before[..offset],
+                                    "delayed into head guard p {p}"
+                                );
+                                assert_eq!(
+                                    &backing[offset + nrows * row_len..],
+                                    &before[offset + nrows * row_len..],
+                                    "delayed into tail guard p {p}"
+                                );
+                                // Accumulation past dispatch, with guards. An
+                                // empty sum is a no-op: the destination,
+                                // canonical or not, survives byte-identical.
+                                let mut backing = noise(pad, 0xd3 + p + nterms as u64);
+                                let mut want_add =
+                                    backing[offset..offset + nrows * row_len].to_vec();
+                                if nterms > 0 {
+                                    for j in 0..nrows {
+                                        for (l, w) in want_add[j * row_len..(j + 1) * row_len]
+                                            .chunks_exact_mut(4)
+                                            .enumerate()
+                                        {
+                                            let d = u64::from(u32::from_le_bytes(
+                                                backing[offset + j * row_len + l * 4
+                                                    ..offset + j * row_len + l * 4 + 4]
+                                                    .try_into()
+                                                    .unwrap(),
+                                            )) % p;
+                                            let r = u64::from(u32::from_le_bytes(
+                                                want[j * row_len + l * 4..j * row_len + l * 4 + 4]
+                                                    .try_into()
+                                                    .unwrap(),
+                                            ));
+                                            w.copy_from_slice(
+                                                &(((d as u128 + r as u128) % p as u128) as u32)
+                                                    .to_le_bytes(),
+                                            );
+                                        }
+                                    }
+                                }
+                                let before = backing.clone();
+                                {
+                                    let rows = &mut backing[offset..offset + nrows * row_len];
+                                    residue_call!(
+                                        token,
+                                        mul_add_matrix_u32_avx2_with,
+                                        mul_add_matrix_u32_avx512_with,
+                                        rows,
+                                        row_len,
+                                        nrows,
+                                        &terms,
+                                        p32,
+                                    );
+                                    assert_eq!(
+                                        rows, &want_add,
+                                        "delayed add p {p} terms {nterms} rows {nrows} lanes {lanes} ones {ones} off {offset}"
+                                    );
+                                }
+                                assert_eq!(
+                                    &backing[..offset],
+                                    &before[..offset],
+                                    "delayed add head guard p {p}"
+                                );
+                                assert_eq!(
+                                    &backing[offset + nrows * row_len..],
+                                    &before[offset + nrows * row_len..],
+                                    "delayed add tail guard p {p}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// The delayed entries reject an even modulus before the first lane, with
+/// the same message style as the doubleword siblings.
+#[test]
+fn proven_residue_delayed_matrix_rejects_even_modulus() {
+    use fgf::internals::kernel::x86::residue::PreparedResidue;
+    for_residue_kernels(|token| {
+        let coeff = PreparedResidue::from_word(1 | (1u64 << 32));
+        let src = vec![0u8; 32];
+        let terms = FlatMatrix {
+            coefficients: &[coeff],
+            nrows: 1,
+            sources: &[src.as_slice()],
+        };
+        let rows_of = |entry: &str, into: bool| {
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut rows = vec![0u8; 32];
+                if into {
+                    residue_call!(
+                        token,
+                        mul_into_matrix_u32_avx2_with,
+                        mul_into_matrix_u32_avx512_with,
+                        &mut rows,
+                        32,
+                        1,
+                        &terms,
+                        2
+                    );
+                } else {
+                    residue_call!(
+                        token,
+                        mul_add_matrix_u32_avx2_with,
+                        mul_add_matrix_u32_avx512_with,
+                        &mut rows,
+                        32,
+                        1,
+                        &terms,
+                        2
+                    );
+                }
+            }));
+            let err = outcome.expect_err(&format!("{entry} must reject an even modulus"));
+            let msg = err.downcast_ref::<String>().expect("string panic payload");
+            assert!(
+                msg.contains("modulus 2 is even"),
+                "{entry}: panic must name the even modulus: {msg}"
+            );
+        };
+        rows_of("residue::mul_into_matrix_u32_avx2_with", true);
+        rows_of("residue::mul_add_matrix_u32_avx2_with", false);
+    });
+}
+/// The delayed entries reject a non-positive modulus before the first lane,
+/// with the same message style as the even-modulus guard.
+#[test]
+fn proven_residue_delayed_matrix_rejects_non_positive_modulus() {
+    use fgf::internals::kernel::x86::residue::PreparedResidue;
+    for_residue_kernels(|token| {
+        let coeff = PreparedResidue::from_word(0);
+        let src = vec![0u8; 32];
+        let terms = FlatMatrix {
+            coefficients: &[coeff],
+            nrows: 1,
+            sources: &[src.as_slice()],
+        };
+        for (entry, into, modulus) in [
+            ("residue::mul_into_matrix_u32_avx2_with", true, 0u32),
+            ("residue::mul_add_matrix_u32_avx2_with", false, 0u32),
+            ("residue::mul_into_matrix_u32_avx2_with", true, 1u32),
+            ("residue::mul_add_matrix_u32_avx2_with", false, 1u32),
+        ] {
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut rows = vec![0u8; 32];
+                if into {
+                    residue_call!(
+                        token,
+                        mul_into_matrix_u32_avx2_with,
+                        mul_into_matrix_u32_avx512_with,
+                        &mut rows,
+                        32,
+                        1,
+                        &terms,
+                        modulus,
+                    );
+                } else {
+                    residue_call!(
+                        token,
+                        mul_add_matrix_u32_avx2_with,
+                        mul_add_matrix_u32_avx512_with,
+                        &mut rows,
+                        32,
+                        1,
+                        &terms,
+                        modulus,
+                    );
+                }
+            }));
+            let err = outcome.expect_err(&format!("{entry} must reject modulus {modulus}"));
+            let msg = err.downcast_ref::<String>().expect("string panic payload");
+            assert!(
+                msg.contains("not a delayed-reduction modulus"),
+                "{entry}: panic must name the rejected modulus: {msg}"
+            );
+        }
+    });
+}
+
+/// The delayed entries reject a modulus whose derived depth sits below two
+/// (any odd `p` above `2^31`) before the first lane.
+#[test]
+fn proven_residue_delayed_matrix_rejects_shallow_depth() {
+    use fgf::internals::kernel::x86::residue::PreparedResidue;
+    for_residue_kernels(|token| {
+        let p = 4_294_967_291u32;
+        let coeff = PreparedResidue::from_word(1 | (1u64 << 32));
+        let src = vec![0u8; 32];
+        let terms = FlatMatrix {
+            coefficients: &[coeff],
+            nrows: 1,
+            sources: &[src.as_slice()],
+        };
+        for (entry, into) in [
+            ("residue::mul_into_matrix_u32_avx2_with", true),
+            ("residue::mul_add_matrix_u32_avx2_with", false),
+        ] {
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut rows = vec![0u8; 32];
+                if into {
+                    residue_call!(
+                        token,
+                        mul_into_matrix_u32_avx2_with,
+                        mul_into_matrix_u32_avx512_with,
+                        &mut rows,
+                        32,
+                        1,
+                        &terms,
+                        p
+                    );
+                } else {
+                    residue_call!(
+                        token,
+                        mul_add_matrix_u32_avx2_with,
+                        mul_add_matrix_u32_avx512_with,
+                        &mut rows,
+                        32,
+                        1,
+                        &terms,
+                        p
+                    );
+                }
+            }));
+            let err = outcome.expect_err(&format!("{entry} must reject a depth-below-two modulus"));
+            let msg = err.downcast_ref::<String>().expect("string panic payload");
+            assert!(
+                msg.contains("delay depth 1"),
+                "{entry}: panic must name the shallow depth: {msg}"
+            );
+        }
+    });
+}
+
+/// The delayed entries reject a noncanonical coefficient before the first
+/// lane.
+#[test]
+fn proven_residue_delayed_matrix_rejects_noncanonical_coefficient() {
+    use fgf::internals::kernel::x86::residue::PreparedResidue;
+    for_residue_kernels(|token| {
+        let p = 1_000_000_007u32;
+        let bad = PreparedResidue::from_word(u64::from(p) | (1u64 << 32));
+        let src = vec![0u8; 32];
+        let terms = FlatMatrix {
+            coefficients: &[bad],
+            nrows: 1,
+            sources: &[src.as_slice()],
+        };
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut rows = vec![0u8; 32];
+            residue_call!(
+                token,
+                mul_into_matrix_u32_avx2_with,
+                mul_into_matrix_u32_avx512_with,
+                &mut rows,
+                32,
+                1,
+                &terms,
+                p
+            );
+        }));
+        let err = outcome.expect_err("delayed overwrite must reject a noncanonical coefficient");
+        let msg = err.downcast_ref::<String>().expect("string panic payload");
+        assert!(
+            msg.contains("reaches modulus"),
+            "panic must name the noncanonical coefficient: {msg}"
+        );
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut rows = vec![0u8; 32];
+            residue_call!(
+                token,
+                mul_add_matrix_u32_avx2_with,
+                mul_add_matrix_u32_avx512_with,
+                &mut rows,
+                32,
+                1,
+                &terms,
+                p
+            );
+        }));
+        let err = outcome.expect_err("delayed accumulate must reject a noncanonical coefficient");
+        let msg = err.downcast_ref::<String>().expect("string panic payload");
+        assert!(
+            msg.contains("reaches modulus"),
+            "panic must name the noncanonical coefficient: {msg}"
+        );
+    });
+}
+
+/// The delayed entries reject a row geometry whose byte count overflows
+/// before touching any lane.
+#[test]
+fn proven_residue_delayed_matrix_rejects_overflowing_geometry() {
+    use fgf::internals::kernel::x86::residue::PreparedResidue;
+    for_residue_kernels(|token| {
+        let p = 1_000_000_007u32;
+        let coeff = PreparedResidue::from_word(1 | (1u64 << 32));
+        let src = vec![0u8; 32];
+        let terms = FlatMatrix {
+            coefficients: &[coeff],
+            nrows: 1,
+            sources: &[src.as_slice()],
+        };
+        for into in [true, false] {
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut rows = vec![0u8; 32];
+                if into {
+                    residue_call!(
+                        token,
+                        mul_into_matrix_u32_avx2_with,
+                        mul_into_matrix_u32_avx512_with,
+                        &mut rows,
+                        32,
+                        usize::MAX,
+                        &terms,
+                        p,
+                    );
+                } else {
+                    residue_call!(
+                        token,
+                        mul_add_matrix_u32_avx2_with,
+                        mul_add_matrix_u32_avx512_with,
+                        &mut rows,
+                        32,
+                        usize::MAX,
+                        &terms,
+                        p,
+                    );
+                }
+            }));
+            let err = outcome.expect_err("an overflowing row geometry must be rejected");
+            let msg = err.downcast_ref::<String>().expect("string panic payload");
+            assert!(
+                msg.contains("row geometry overflows"),
+                "panic must name the overflowing geometry: {msg}"
+            );
+        }
+    });
 }

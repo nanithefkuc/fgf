@@ -130,7 +130,7 @@ fn named_and_residue_lanes_differ_in_width() {
     // Same modulus, different wire layouts: transport must go through the
     // residue, because the buffers are not interchangeable.
     assert_eq!(Mersenne31::BYTES, 4);
-    assert_eq!(<FiniteField<M31, 1> as FieldBuffer>::BYTES, 8);
+    assert_eq!(<FiniteField<M31, 1> as FieldBuffer>::BYTES, 4);
     assert_eq!(Goldilocks::BYTES, 8);
     assert_eq!(<FiniteField<GOLDILOCKS, 1> as FieldBuffer>::BYTES, 8);
 }

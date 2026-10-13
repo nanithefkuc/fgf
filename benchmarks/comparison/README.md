@@ -1,9 +1,10 @@
-# v2 versus v3 comparisons
+# Benchmark comparisons
 
-These pages compare matched public workloads on released v2 and v3, grouped
-by [canonical field label](../labels.md). Absolute timings and competitor
-panels live separately under [v2](../v2/) and [v3](../v3/). Shared hosts,
-builds, and reproduction are recorded in [BENCHMARKS.md](../../BENCHMARKS.md).
+Released-v2 comparisons match public workloads by
+[field presentation](../labels.md). Absolute timings and competitor panels
+live under [v2](../v2/) and [v3](../v3/). Generic residue comparisons instead
+match the current public API across backend requests. Shared host context
+and reproduction live in [BENCHMARKS.md](../../BENCHMARKS.md).
 
 | Family | Comparison |
 | --- | --- |
@@ -13,6 +14,7 @@ builds, and reproduction are recorded in [BENCHMARKS.md](../../BENCHMARKS.md).
 | Bit-packed field | [gf1](gf1.md) |
 | Mersenne fields | [m31, qm31](mersenne31.md) |
 | Goldilocks | [gld](goldilocks.md) |
+| Generic prime residues | [AVX-512, AVX2, scalar](residue.md) |
 
 ## Matched workloads
 
@@ -53,6 +55,11 @@ latency and `v3 / v2` for throughput. Above one means less elapsed time for
 v3 on the matched workload. Ratios are computed from unrounded host-local
 aggregates, not the displayed cells.
 
+The residue page compares one current artifact under `v4x`, `v3`, and
+`scalar` requests. Its factors divide AVX2 or scalar latency by current
+routed latency; they are not released-v2 comparisons. Per-operation routes
+are retained because short rows can select a narrower or portable path.
+
 Throughput numerators belong to each panel. Multi-row self panels and native
 competitor panels do not share an assumed byte count. Bit-range XOR reports
 its touched range while retaining its documented full-buffer numerator;
@@ -66,10 +73,12 @@ The raw evidence retains controls, individual round values, and variability.
 Differences comparable to control variability are unresolved, not proof of
 a faster implementation.
 
-`-` means no public version counterpart or no native primitive for that panel.
-Missing host records, failed correctness, missing required arms, mismatched
-geometry, and incomplete runs reject publication rather than producing partial
-results. No speed factor is computed from an unavailable pair.
+`-` means an explicitly unavailable host, an absent public version counterpart,
+or an unsupported native primitive. Golden Cove is unavailable for this
+campaign; its historical values are not reused. Missing records for an
+available host, failed correctness, missing required arms, mismatched
+geometry, and incomplete runs reject publication. No factor is computed
+from an unavailable pair.
 The custom `gf16d` fixture is v3-only and scalar-routed;
 its existence does not imply a public v2 API or host-tier SIMD execution.
 

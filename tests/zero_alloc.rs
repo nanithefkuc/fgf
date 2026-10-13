@@ -2,9 +2,9 @@
 
 use fgf::poly::{AES, RS};
 use fgf::{
-    Components, Elem, Embedding, Extension, ExtensionSpec, FieldElem, FieldKernels, FiniteField,
-    Goldilocks, Isomorphism, Mersenne31, Normal, Packed, Polynomial, QuadMersenne31, Relation,
-    Residue, ops,
+    Components, Elem, Embedding, Extension, ExtensionSpec, FieldBuffer, FieldElem, FieldKernels,
+    FiniteField, Goldilocks, Isomorphism, Mersenne31, Normal, Packed, Polynomial, QuadMersenne31,
+    Relation, Residue, ops,
 };
 
 #[path = "common/zero_alloc.rs"]
@@ -357,10 +357,12 @@ fn residue_steady_state_allocates_nothing() {
     assert_prime_steady_state_zero_alloc::<ResidueTwo>(Elem::<ResidueTwo>::ONE);
 }
 
-/// Residue rows: prepared coefficients resolve to the canonical element, so
-/// preparation and construction allocate nothing and every prepared
-/// application runs allocation-free. Construction sits outside the counted
-/// interval; the counted window covers the reused application paths.
+/// Residue rows: prepared coefficients resolve into the row's one-word
+/// backend form (the canonical element on byte rows, the Shoup pair on
+/// word rows, the Montgomery word on doubleword rows), so preparation and
+/// construction allocate nothing and every prepared application runs
+/// allocation-free. Construction sits outside the counted interval; the
+/// counted window covers the reused application paths.
 #[test]
 fn residue_prepared_steady_state_allocates_nothing() {
     let _guard = TEST_LOCK
@@ -382,6 +384,116 @@ fn residue_prepared_steady_state_allocates_nothing() {
         ops::mul_into_with::<ResiduePrime>(&mut dst, &prepared, &src);
     });
     assert_eq!(allocations, 0, "residue prepared reuse allocated");
+}
+
+/// Warmed prepared residue ops on one row per width plus the overwrite
+/// matrix on a word row: preparation happens before the counted window,
+/// every application inside it allocates nothing.
+#[test]
+fn residue_prepared_widths_steady_state_allocate_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    type Byte = FiniteField<101, 1, Residue>;
+    type Short = FiniteField<65_521, 1, Residue>;
+    type Full = FiniteField<4_294_967_291, 1, Residue>;
+    type Wide = FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1, Residue>;
+    fn warmed<F: FieldKernels>(coeff: Elem<F>) {
+        let row_len = 64 * F::BYTES;
+        let src = noise(row_len, 0x1600);
+        let mut dst = noise(row_len, 0x1601);
+        let prepared = ops::Coeff::<F>::new(coeff);
+        ops::mul_into_with::<F>(&mut dst, &prepared, &src);
+        ops::mul_add_with::<F>(&mut dst, &prepared, &src);
+        let allocations = count_allocations(|| {
+            ops::mul_into_with::<F>(&mut dst, &prepared, &src);
+            ops::mul_add_with::<F>(&mut dst, &prepared, &src);
+        });
+        assert_eq!(allocations, 0, "warmed residue prepared ops allocated");
+    }
+    warmed::<Byte>(Elem::<Byte>::from_raw(37));
+    warmed::<Short>(Elem::<Short>::from_raw(41_000));
+    warmed::<ResiduePrime>(Elem::<ResiduePrime>::from_raw(123_456_789));
+    warmed::<Full>(Elem::<Full>::from_raw(4_000_000_007));
+    warmed::<Wide>(Elem::<Wide>::from_raw(0xFFFF_FFFF_FFFF_FFC4));
+    warmed::<ResidueTwo>(Elem::<ResidueTwo>::ONE);
+
+    // Overwrite matrix on a word row.
+    let row_len = 64 * ResiduePrime::BYTES;
+    let sources = [noise(row_len, 0x1610), noise(row_len, 0x1611)];
+    let refs: [&[u8]; 2] = [&sources[0], &sources[1]];
+    let flat = [
+        Elem::<ResiduePrime>::from_raw(3),
+        Elem::<ResiduePrime>::from_raw(5),
+        Elem::<ResiduePrime>::from_raw(7),
+        Elem::<ResiduePrime>::from_raw(11),
+    ];
+    let matrix = ops::CoeffMatrix::<ResiduePrime>::from_source_major(2, 2, &flat);
+    let mut rows = noise(row_len * 2, 0x1612);
+    ops::mul_into_matrix_with::<ResiduePrime>(&mut rows, row_len, &matrix, &refs);
+    let allocations = count_allocations(|| {
+        ops::mul_into_matrix_with::<ResiduePrime>(&mut rows, row_len, &matrix, &refs);
+    });
+    assert_eq!(allocations, 0, "residue overwrite matrix allocated");
+}
+
+/// Warmed routed delayed-reduction matrix on a four-byte row: four
+/// outputs, 256-byte rows, sixteen sources at `K = 8`, every output column
+/// nonzero. That depth routes through the delayed tile on capable hosts
+/// for both overwrite and accumulation, and allocates nothing in steady
+/// state.
+#[test]
+fn residue_delayed_matrix_steady_state_allocates_nothing() {
+    type DelayedPrime = FiniteField<536_870_909, 1, Residue>;
+    const SOURCES: usize = 16;
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    let row_len = 64 * DelayedPrime::BYTES;
+    let sources: Vec<Vec<u8>> = (0..SOURCES as u64)
+        .map(|index| noise(row_len, 0x1620 + index))
+        .collect();
+    let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+    let flat: Vec<Elem<DelayedPrime>> = (0..4 * SOURCES as u64)
+        .map(|index| Elem::<DelayedPrime>::from_raw(index.wrapping_mul(71) + 1))
+        .collect();
+    let matrix = ops::CoeffMatrix::<DelayedPrime>::from_source_major(SOURCES, 4, &flat);
+    let mut rows = noise(row_len * 4, 0x1623);
+    ops::mul_into_matrix_with::<DelayedPrime>(&mut rows, row_len, &matrix, &refs);
+    ops::mul_add_matrix_with::<DelayedPrime>(&mut rows, row_len, &matrix, &refs);
+    let allocations = count_allocations(|| {
+        ops::mul_into_matrix_with::<DelayedPrime>(&mut rows, row_len, &matrix, &refs);
+        ops::mul_add_matrix_with::<DelayedPrime>(&mut rows, row_len, &matrix, &refs);
+    });
+    assert_eq!(allocations, 0, "residue delayed matrix allocated");
+}
+
+/// A fallback-geometry residue matrix stays allocation-free: one output
+/// row never reaches the delayed tile.
+#[test]
+fn residue_fallback_matrix_steady_state_allocates_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    let row_len = 64 * ResiduePrime::BYTES;
+    let sources = [
+        noise(row_len, 0x1630),
+        noise(row_len, 0x1631),
+        noise(row_len, 0x1632),
+    ];
+    let refs: [&[u8]; 3] = [&sources[0], &sources[1], &sources[2]];
+    let flat: Vec<Elem<ResiduePrime>> = (0..3u64)
+        .map(|index| Elem::<ResiduePrime>::from_raw(index.wrapping_mul(71) + 1))
+        .collect();
+    let matrix = ops::CoeffMatrix::<ResiduePrime>::from_source_major(3, 1, &flat);
+    let mut rows = noise(row_len, 0x1633);
+    ops::mul_into_matrix_with::<ResiduePrime>(&mut rows, row_len, &matrix, &refs);
+    ops::mul_add_matrix_with::<ResiduePrime>(&mut rows, row_len, &matrix, &refs);
+    let allocations = count_allocations(|| {
+        ops::mul_into_matrix_with::<ResiduePrime>(&mut rows, row_len, &matrix, &refs);
+        ops::mul_add_matrix_with::<ResiduePrime>(&mut rows, row_len, &matrix, &refs);
+    });
+    assert_eq!(allocations, 0, "residue fallback matrix allocated");
 }
 
 #[test]
