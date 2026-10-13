@@ -20,6 +20,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The dependency lock records published sources for locked MSRV checks;
+  umbrella-local patch resolution is excluded from the publication lock.
+
 - Public documentation leads with `FiniteField`, its representations, and
   `Elem<F>`; named prime families appear as specializations. Wiki guides
   follow field selection, scalar arithmetic, packing, row operations,

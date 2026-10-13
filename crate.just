@@ -135,6 +135,11 @@ msrv-accept:
     just compile-fail
     cargo +{{MSRV}} test --all-features --test consumers
 
+# Check the published dependency lock in an isolated checkout.
+[group('test')]
+msrv-locked:
+    cargo +{{MSRV}} check --locked --all-features --all-targets
+
 # Build a portable benchmark artifact for interleaved remote comparisons.
 [group('bench')]
 bench-build NAME:
