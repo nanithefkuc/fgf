@@ -160,6 +160,19 @@ and backend mismatches.
 | 2.1.0 → 601b07d | v4x | QM31 mul_into | 64 KiB region | 3803.875 | 3672.906 | 1.0357 |
 | 2.1.0 → 601b07d | v4x | QM31 mul_add | 64 KiB region | 5337.406 | 5225.500 | 1.0214 |
 | 2.1.0 → 601b07d | v4x | QM31 mul_elementwise | 64 KiB region | 4525.156 | 4327.969 | 1.0456 |
+| 35a7d16 → 80276c7 | v4x | M31 mul_into (native) | 64 KiB region | 2197.438 | 2197.312 | 1.0001 |
+| 35a7d16 → 80276c7 | v4x | M31 mul_add (native) | 64 KiB region | 3254.750 | 3205.938 | 1.0152 |
+| 35a7d16 → 80276c7 | v4x | M31 mul_elementwise (native) | 64 KiB region | 2390.250 | 2392.344 | 0.9991 |
+| 35a7d16 → 80276c7 | v4x | M31 mul_elementwise (portable) | 4 KiB region | 192.030 | 160.281 | 1.1981 |
+| 35a7d16 → 80276c7 | v4x | M31 mul_elementwise (portable) | 256 KiB region | 12781.375 | 10828.812 | 1.1803 |
+| 2.1.0 → 80276c7 | v4x | M31 mul_into (native) | 64 KiB region | 1667.688 | 2197.312 | 0.7590 |
+| 2.1.0 → 80276c7 | v4x | M31 mul_add (native) | 64 KiB region | 2197.875 | 3205.938 | 0.6856 |
+| 2.1.0 → 80276c7 | v4x | M31 mul_elementwise (native) | 64 KiB region | 2050.344 | 2392.344 | 0.8570 |
+| 2.1.0 → 80276c7 | v4x | M31 mul_elementwise (portable) | 4 KiB region | 166.044 | 160.281 | 1.0360 |
+| 2.1.0 → 80276c7 | v4x | M31 mul_elementwise (portable) | 256 KiB region | 12700.469 | 10828.812 | 1.1728 |
+| 35a7d16 → 80276c7 | v4x | QM31 mul_elementwise control (native) | 64 KiB region | 4326.656 | 4325.469 | 1.0003 |
+| 35a7d16 → 80276c7 | v4x | QM31 mul_elementwise control (portable) | 4 KiB region | 304.012 | 304.759 | 0.9975 |
+| 35a7d16 → 80276c7 | v4x | QM31 mul_elementwise control (portable) | 256 KiB region | 19741.531 | 20329.781 | 0.9711 |
 
 - Tracking, candidate decisions, source identities, and reproduction:
   [Issue #47](https://github.com/nanithefkuc/fgf/issues/47).
@@ -170,6 +183,9 @@ and backend mismatches.
   The initial comparison interleaves both versions. The release-parity rows
   rotate release 2.1.0 (`c20465ba`), unmodified v3 (`f3cd58c3`), `365102a`,
   and `601b07d` within every round of a separate same-session campaign.
+- The V4x follow-up rows rotate release 2.1.0, `35a7d16`, and `80276c7`
+  within every round of another same-session campaign. Earlier campaign
+  medians are not reused in these comparisons.
 - Each version runs `just bench-refresh-round m31` with the requested
   `SIMD_BACKEND` and `FEC_GOLDEN_CORE=3`, under `chrt --idle 0 taskset -c 3`.
 - Self artifacts use the portable all-feature bench profile; comparator
@@ -177,9 +193,17 @@ and backend mismatches.
 - Native fixtures use page-aligned canonical lanes. Setup, allocation, fixture
   generation, conversion, and preparation remain outside timing; required
   operand checks and normalization remain inside the public calls.
+- Portable rows use the canonical, vector-backed fixtures from
+  `just bench kernels --m31`; native rows use the matched Plonky3 0.7.0
+  consumer from `external/prime-bench`. The native consumer is built by
+  `just bench-m31-comp` before the paired campaign; both versions use the
+  same dependency lock. `just bench-refresh-round m31` runs both surfaces.
+- The portable QM31 control has overlapping per-run ranges between versions.
+  The tables retain its measured medians; small margins within run variation
+  remain unresolved. Byte-XOR and native packed-M31 controls are also recorded.
 - The native harness validates outputs against Plonky3 before timing.
   Byte-XOR and duplicate-native-body controls accompany the calls; QM31
-  elementwise is an unchanged control only in the initial comparison.
+  elementwise is an unchanged control in the initial and V4x follow-up comparisons.
 - These targeted results do not replace the published family snapshots and
   are not Golden Cove measurements. Full Willow Cove and Golden Cove campaigns gate merging.
 
