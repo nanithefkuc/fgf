@@ -37,6 +37,20 @@ fn min_chain(x: __m512i, p: __m512i) -> __m512i {
     _mm512_min_epu32(u, _mm512_sub_epi32(u, p))
 }
 
+/// Reduce multiplication inputs to `0..=p`, retaining redundant zero.
+///
+/// Lanes without their high bit set already meet the product's range.
+/// Other vectors canonicalize before the product, including raw aliases.
+#[archmage::rite(v4)]
+#[must_use]
+fn mul_input(x: __m512i, p: __m512i) -> __m512i {
+    if _mm512_cmpgt_epi32_mask(_mm512_setzero_si512(), x) == 0 {
+        x
+    } else {
+        min_chain(x, p)
+    }
+}
+
 /// `a * b (mod p)` over sixteen 31-bit lanes (`0..=p` in, canonical out).
 #[archmage::rite(v4)]
 fn mulmod(a: __m512i, b: __m512i, p: __m512i) -> __m512i {
@@ -64,7 +78,7 @@ fn mulmod(a: __m512i, b: __m512i, p: __m512i) -> __m512i {
 #[allow(clippy::cast_possible_wrap)]
 #[archmage::rite(v4)]
 fn broadcast(word: u32, p: __m512i) -> __m512i {
-    min_chain(_mm512_set1_epi32(word as i32), p)
+    mul_input(_mm512_set1_epi32(word as i32), p)
 }
 
 /// `dst += src (mod p)`, Mersenne31, AVX-512.
@@ -162,7 +176,7 @@ pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, s
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let prod = mulmod(cred, min_chain(_mm512_loadu_si512(src_lane), p), p);
+        let prod = mulmod(cred, mul_input(_mm512_loadu_si512(src_lane), p), p);
         let d = min_chain(_mm512_loadu_si512(&*dst_lane), p);
         let sum = _mm512_add_epi32(d, prod); // <= 2p - 2
         _mm512_storeu_si512(dst_lane, _mm512_min_epu32(sum, _mm512_sub_epi32(sum, p)));
@@ -198,7 +212,7 @@ pub fn mul_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32
     let cred = _mm512_set1_epi32(c as i32);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     for dst_lane in dst_lanes {
-        let d = min_chain(_mm512_loadu_si512(&*dst_lane), p);
+        let d = mul_input(_mm512_loadu_si512(&*dst_lane), p);
         _mm512_storeu_si512(dst_lane, mulmod(cred, d, p));
     }
     if !dst_tail.is_empty() {
@@ -228,7 +242,7 @@ pub fn mul_into_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, 
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let s = min_chain(_mm512_loadu_si512(src_lane), p);
+        let s = mul_input(_mm512_loadu_si512(src_lane), p);
         _mm512_storeu_si512(dst_lane, mulmod(cred, s, p));
     }
     if !dst_tail.is_empty() {
@@ -265,8 +279,8 @@ pub fn mul_elementwise_avx512(token: archmage::X64V4Token, dst: &mut [u8], a: &[
     let (a_lanes, a_tail) = a.as_chunks::<64>();
     let (b_lanes, b_tail) = b.as_chunks::<64>();
     for ((dst_lane, a_lane), b_lane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
-        let va = min_chain(_mm512_loadu_si512(a_lane), p);
-        let vb = min_chain(_mm512_loadu_si512(b_lane), p);
+        let va = mul_input(_mm512_loadu_si512(a_lane), p);
+        let vb = mul_input(_mm512_loadu_si512(b_lane), p);
         _mm512_storeu_si512(dst_lane, mulmod(va, vb, p));
     }
     if !dst_tail.is_empty() {
@@ -295,8 +309,8 @@ pub fn mul_elementwise_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8]
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let vd = min_chain(_mm512_loadu_si512(&*dst_lane), p);
-        let vs = min_chain(_mm512_loadu_si512(src_lane), p);
+        let vd = mul_input(_mm512_loadu_si512(&*dst_lane), p);
+        let vs = mul_input(_mm512_loadu_si512(src_lane), p);
         _mm512_storeu_si512(dst_lane, mulmod(vd, vs, p));
     }
     if !dst_tail.is_empty() {
