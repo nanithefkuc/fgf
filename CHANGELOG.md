@@ -85,6 +85,12 @@ All notable changes to this project are documented here. The format follows
   [Issue #47](https://github.com/nanithefkuc/fgf/issues/47).
 - QuadMersenne31 scalar products defer reduction across the real and imaginary
   product sums instead of reducing each base-field product separately.
+- Mersenne31 multiply-accumulate accepts redundant destination zero, and
+  elementwise products share input-range checks across vector tiles while
+  retaining ISA-width remainders.
+- QuadMersenne31 vector products retain redundant zero internally; scalar
+  arithmetic consumes canonical element storage without repeating entry
+  reductions. Constructors and packed-buffer decodes retain normalization.
 
 ## [3.0.1] - 2026-10-10
 
