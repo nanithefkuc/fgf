@@ -6,6 +6,7 @@
 //! Construction, error precedence, conjugates, and the boundary cases
 //! follow.
 
+use fgf::poly::RS;
 use fgf::{
     AES, Components, Elem, Embedding, EmbeddingError, Extension, ExtensionSpec, Field, FieldElem,
     FiniteField, Isomorphism, Mersenne31, Polynomial, QuadMersenne31, Relation, Residue,
@@ -145,6 +146,27 @@ fn valid_tuples<S: Field, T: Field<Characteristic = S::Characteristic>>(
     order_t: u128,
 ) -> Vec<Vec<Elem<T>>> {
     let count = Embedding::<S, T>::generator_count();
+    valid_iso_tuples(count, order_t, &|tuple| {
+        Embedding::<S, T>::from_images(tuple).is_ok()
+    })
+}
+
+/// Every valid image tuple of an equal-degree pair, filtered by the
+/// isomorphism constructor.
+fn valid_iso_tuples_raw<S: Field, T: Field<Characteristic = S::Characteristic>>(
+    order_t: u128,
+) -> Vec<Vec<Elem<T>>> {
+    let count = Embedding::<S, T>::generator_count();
+    valid_iso_tuples(count, order_t, &|tuple| {
+        Isomorphism::<S, T>::from_images(tuple).is_ok()
+    })
+}
+
+fn valid_iso_tuples<T: Field>(
+    count: usize,
+    order_t: u128,
+    accepts: &dyn Fn(&[Elem<T>]) -> bool,
+) -> Vec<Vec<Elem<T>>> {
     let target = elements::<T>(order_t);
     let mut tuples = vec![Vec::new()];
     for _ in 0..count {
@@ -158,10 +180,7 @@ fn valid_tuples<S: Field, T: Field<Characteristic = S::Characteristic>>(
         }
         tuples = next;
     }
-    tuples
-        .into_iter()
-        .filter(|tuple| Embedding::<S, T>::from_images(tuple).is_ok())
-        .collect()
+    tuples.into_iter().filter(|tuple| accepts(tuple)).collect()
 }
 
 /// Exhaustive agreement on every valid image tuple: every source element
@@ -194,10 +213,38 @@ fn agree_on_tuples<S: Field, T: Field<Characteristic = S::Characteristic>>(
     }
 }
 
+/// Exhaustive agreement on every valid image tuple of an equal-degree
+/// pair: the isomorphism round-trips every element in both directions by
+/// brute-force scan, and samples preserve addition and multiplication.
+fn agree_on_iso_tuples<S: Field, T: Field<Characteristic = S::Characteristic>>(
+    order_s: u128,
+    order_t: u128,
+) {
+    let tuples = valid_iso_tuples_raw::<S, T>(order_t);
+    assert!(!tuples.is_empty(), "a pair holds a valid image tuple");
+    let source = elements::<S>(order_s);
+    let target = elements::<T>(order_t);
+    for tuple in &tuples {
+        let iso = Isomorphism::<S, T>::from_images(tuple).unwrap();
+        for &s in &source {
+            assert_eq!(iso.unapply(iso.apply(s)), s, "round trip");
+        }
+        for &y in &target {
+            let expected = source.iter().find(|&&s| iso.apply(s) == y).copied();
+            assert_eq!(expected.map(|s| iso.apply(s)), expected.map(|_| y));
+            assert_eq!(iso.apply(iso.unapply(y)), y);
+        }
+        for (i, &a) in source.iter().enumerate() {
+            let b = source[(i * 7 + 3) % source.len()];
+            assert_eq!(iso.apply(a + b), iso.apply(a) + iso.apply(b));
+            assert_eq!(iso.apply(a * b), iso.apply(a) * iso.apply(b));
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Full-tuple agreement on the inventory pairs
 // ---------------------------------------------------------------------------
-
 #[test]
 fn enumeration_agrees_over_gf3_towers() {
     agree_on_tuples::<R3, G9>(3, 9);
@@ -206,11 +253,11 @@ fn enumeration_agrees_over_gf3_towers() {
     agree_on_tuples::<R3, G81Ext>(3, 81);
     agree_on_tuples::<G9, G81Ext>(9, 81);
     agree_on_tuples::<G9Alt, G81Ext>(9, 81);
-    agree_on_tuples::<G81Quartic, G81Quartic>(81, 81);
-    agree_on_tuples::<G81Ext, G81Ext>(81, 81);
+    agree_on_iso_tuples::<G81Quartic, G81Quartic>(81, 81);
+    agree_on_iso_tuples::<G81Ext, G81Ext>(81, 81);
     // The tower and the flat presentation are mutual isomorphisms.
-    agree_on_tuples::<G81Quartic, G81Ext>(81, 81);
-    agree_on_tuples::<G81Ext, G81Quartic>(81, 81);
+    agree_on_iso_tuples::<G81Quartic, G81Ext>(81, 81);
+    agree_on_iso_tuples::<G81Ext, G81Quartic>(81, 81);
 }
 
 #[test]
@@ -218,7 +265,7 @@ fn enumeration_agrees_over_gf5_towers() {
     agree_on_tuples::<R5, G25>(5, 25);
     agree_on_tuples::<R5, G625>(5, 625);
     agree_on_tuples::<G25, G625>(25, 625);
-    agree_on_tuples::<G625, G625>(625, 625);
+    agree_on_iso_tuples::<G625, G625>(625, 625);
 }
 
 #[test]
@@ -227,7 +274,7 @@ fn enumeration_agrees_over_gf7_towers() {
     agree_on_tuples::<R7, G343>(7, 343);
     agree_on_tuples::<R7, G2401Ext>(7, 2401);
     agree_on_tuples::<G49Odd, G2401Ext>(49, 2401);
-    agree_on_tuples::<G343, G343>(343, 343);
+    agree_on_iso_tuples::<G343, G343>(343, 343);
 }
 
 #[test]
@@ -236,8 +283,8 @@ fn enumeration_agrees_on_small_binary_pairs() {
     agree_on_tuples::<Poly2, Aes>(4, 256);
     agree_on_tuples::<Poly4, Aes>(16, 256);
     agree_on_tuples::<G4, G16Ext>(4, 16);
-    agree_on_tuples::<Poly4, G16Ext>(16, 16);
-    agree_on_tuples::<G16Ext, G16Ext>(16, 16);
+    agree_on_iso_tuples::<Poly4, G16Ext>(16, 16);
+    agree_on_iso_tuples::<G16Ext, G16Ext>(16, 16);
 }
 
 // ---------------------------------------------------------------------------
@@ -274,13 +321,22 @@ fn shipped_instances_embed_over_every_base_and_the_prime_subfield() {
 #[test]
 fn unrelated_odd_presentations_have_no_canonical_map() {
     // GF(9) in two unrelated presentations of the same order: equal
-    // degrees, so no degree error, and no structural or ladder map.
+    // degrees reject the proper inclusion, and no structural or ladder
+    // map covers the isomorphism pair.
     assert_eq!(
         Embedding::<G9, G9Alt>::new().unwrap_err(),
-        EmbeddingError::NoCanonicalMap
+        EmbeddingError::EqualDegree { degree: 2 }
     );
     assert_eq!(
         Embedding::<G9Alt, G9>::new().unwrap_err(),
+        EmbeddingError::EqualDegree { degree: 2 }
+    );
+    assert_eq!(
+        Isomorphism::<G9, G9Alt>::new().unwrap_err(),
+        EmbeddingError::NoCanonicalMap
+    );
+    assert_eq!(
+        Isomorphism::<G9Alt, G9>::new().unwrap_err(),
         EmbeddingError::NoCanonicalMap
     );
 }
@@ -298,12 +354,12 @@ fn from_images_rejects_counts_and_non_roots() {
         Embedding::<G9Alt, G81Ext>::from_images(&doubled).unwrap_err(),
         EmbeddingError::InvalidImages
     );
-    // A perturbed image fails the transported relation: the tower pair
-    // holds two levels, so its top image perturbs.
-    let t = Embedding::<G81Ext, G81Ext>::new().unwrap();
+    // A perturbed image fails the transported relation: the tower
+    // isomorphism holds two levels, so its top image perturbs.
+    let t = Isomorphism::<G81Ext, G81Ext>::new().unwrap();
     let worse = [t.to_images()[0], t.to_images()[1] + Elem::ONE];
     assert_eq!(
-        Embedding::<G81Ext, G81Ext>::from_images(&worse).unwrap_err(),
+        Isomorphism::<G81Ext, G81Ext>::from_images(&worse).unwrap_err(),
         EmbeddingError::InvalidImages
     );
     // Round trip through images reproduces the map.
@@ -336,13 +392,15 @@ fn incompatible_degree_precedes_every_other_error() {
             target: 4
         }
     );
-    let embedding = Embedding::<G9Alt, G81Ext>::new().unwrap();
+    // Equal degrees reject the proper inclusion before reading images.
+    let bad_iso = [Elem::<G9Alt>::ZERO; 3];
     assert_eq!(
-        Isomorphism::<G9Alt, G81Ext>::from_embedding(embedding).unwrap_err(),
-        EmbeddingError::IncompatibleDegree {
-            source: 2,
-            target: 4
-        }
+        Embedding::<G9Alt, G9Alt>::from_images(&bad_iso).unwrap_err(),
+        EmbeddingError::EqualDegree { degree: 2 }
+    );
+    assert_eq!(
+        Embedding::<G9Alt, G9Alt>::new().unwrap_err(),
+        EmbeddingError::EqualDegree { degree: 2 }
     );
     // Equal degrees with a short image list report invalid images.
     assert_eq!(
@@ -361,10 +419,11 @@ fn isomorphisms_are_total_and_invertible_on_small_fields() {
         assert_eq!(iso.apply(iso.unapply(t)), t);
     }
     assert_eq!(iso.inverse().inverse().to_images(), iso.to_images());
-    // The denoted embedding agrees on every element.
-    let embedding = iso.to_embedding();
+    // The rebuilt isomorphism from the forward images agrees on every
+    // element.
+    let rebuilt_iso = Isomorphism::<G9Alt, G9Alt>::from_images(iso.to_images()).unwrap();
     for s in elements::<G9Alt>(9) {
-        assert_eq!(iso.apply(s), embedding.embed(s));
+        assert_eq!(iso.apply(s), rebuilt_iso.apply(s));
     }
     // Composition equals sequential application.
     let forth = Isomorphism::<G9Alt, G9Alt>::new().unwrap();
@@ -376,7 +435,7 @@ fn isomorphisms_are_total_and_invertible_on_small_fields() {
     // inverse image set rebuilds, and composition agrees sequentially.
     // No canonical map exists between these unrelated odd presentations,
     // so the map comes from a validated image tuple.
-    let tuple: Vec<Elem<G81Ext>> = valid_tuples::<G81Quartic, G81Ext>(81)[0].clone();
+    let tuple: Vec<Elem<G81Ext>> = valid_iso_tuples_raw::<G81Quartic, G81Ext>(81)[0].clone();
     let flat_tower = Isomorphism::<G81Quartic, G81Ext>::from_images(&tuple).unwrap();
     let rebuilt =
         Isomorphism::<G81Ext, G81Quartic>::from_images(flat_tower.inverse().to_images()).unwrap();
@@ -395,6 +454,50 @@ fn isomorphisms_are_total_and_invertible_on_small_fields() {
     let composed = e1.then(&e2);
     for s in elements::<R3>(3) {
         assert_eq!(composed.embed(s), e2.embed(e1.embed(s)));
+    }
+}
+
+#[test]
+fn mixed_composition_agrees_with_sequential_application() {
+    // An isomorphism into a proper inclusion, on every element of the
+    // small source rows.
+    let iso = Isomorphism::<G9Alt, G9Alt>::new().unwrap();
+    let inclusion = Embedding::<G9Alt, G81Ext>::new().unwrap();
+    let forward = iso.then_embedding(&inclusion);
+    for s in elements::<G9Alt>(9) {
+        assert_eq!(forward.embed(s), inclusion.embed(iso.apply(s)));
+    }
+    // A proper inclusion into an isomorphism.
+    let across = Isomorphism::<G81Ext, G81Ext>::new().unwrap();
+    let backward = inclusion.then(&across);
+    for s in elements::<G9Alt>(9) {
+        assert_eq!(backward.embed(s), across.apply(inclusion.embed(s)));
+    }
+    // Sampled binary rows: a byte-field isomorphism into the tower, and
+    // the tower inclusion into an equal-degree tower isomorphism.
+    type ByteAes = FiniteField<2, 8, Polynomial<AES>>;
+    type ByteRs = FiniteField<2, 8, Polynomial<RS>>;
+    type Tower = FiniteField<2, 16, Extension<fgf::Rijndael16, 2>>;
+    let swap = Isomorphism::<ByteAes, ByteRs>::new().unwrap();
+    let lift = Embedding::<ByteRs, Tower>::new().unwrap();
+    let mixed = swap.then_embedding(&lift);
+    for word in 0..=u8::MAX {
+        let x = Elem::<ByteAes>::from_raw(word);
+        assert_eq!(mixed.embed(x), lift.embed(swap.apply(x)));
+    }
+    let tower_lift = Embedding::<ByteAes, Tower>::new().unwrap();
+    let tower_swap = Isomorphism::<Tower, Tower>::new().unwrap();
+    let mixed_back = tower_lift.then(&tower_swap);
+    for word in 0..=u8::MAX {
+        let x = Elem::<ByteAes>::from_raw(word);
+        assert_eq!(mixed_back.embed(x), tower_swap.apply(tower_lift.embed(x)));
+    }
+    // A proper inclusion into a non-identity change of presentation.
+    let nibble_lift = Embedding::<Poly4, ByteAes>::new().unwrap();
+    let nibble_swap = nibble_lift.then(&swap);
+    for word in 0..16u64 {
+        let x = Elem::<Poly4>::from_index(u128::from(word)).unwrap();
+        assert_eq!(nibble_swap.embed(x), swap.apply(nibble_lift.embed(x)));
     }
 }
 
@@ -427,11 +530,13 @@ fn trace_and_norm_match_independent_conjugates() {
         assert_eq!(e.trace(t), expected_sum);
         assert_eq!(e.norm(t), expected_product);
     }
-    // QuadMersenne31 norm over Mersenne31 equals the inherent method.
+    // QuadMersenne31 norm over Mersenne31 equals the inherent method, as
+    // does the conjugate against the relative Frobenius.
     let qm = Embedding::<Mersenne31, QuadMersenne31>::new().unwrap();
     for (re, im) in [(0u32, 0u32), (1, 0), (0, 1), (3, 4), (7, 11)] {
         let z = Elem::<QuadMersenne31>::from_raw([re, im]);
         assert_eq!(qm.norm(z).to_raw(), z.norm().to_raw());
+        assert_eq!(qm.frobenius(z), z.conjugate());
     }
 }
 
@@ -464,49 +569,52 @@ fn tower_transport_rejects_the_unchanged_top_image() {
     // The tower `t^2 - (1 + a)` with the lower image `a ↦ -a`: the
     // transported relation at the unchanged top image evaluates to `2a`,
     // nonzero, so the pair is rejected. The unchanged pair validates.
-    let e = Embedding::<G81Ext, G81Ext>::new().unwrap();
+    let e = Isomorphism::<G81Ext, G81Ext>::new().unwrap();
     let (lower, top) = (e.to_images()[0], e.to_images()[1]);
     let neg_lower = lower.neg();
     assert_ne!(neg_lower, lower);
     assert_eq!(
-        Embedding::<G81Ext, G81Ext>::from_images(&[neg_lower, top]).unwrap_err(),
+        Isomorphism::<G81Ext, G81Ext>::from_images(&[neg_lower, top]).unwrap_err(),
         EmbeddingError::InvalidImages
     );
-    assert!(Embedding::<G81Ext, G81Ext>::from_images(&[lower, top]).is_ok());
+    assert!(Isomorphism::<G81Ext, G81Ext>::from_images(&[lower, top]).is_ok());
 }
 
 #[test]
 fn non_identity_equal_degree_maps_return_preimages() {
-    // A non-identity automorphism of GF(9): trace and norm return the
-    // preimage in the source rather than the target value.
+    // A non-identity automorphism of GF(9) composed through the tower
+    // GF(81): the mixed composite agrees with sequential application on
+    // every element.
     let conj =
         Isomorphism::<G9Alt, G9Alt>::from_images(&[Elem::<G9Alt>::from_raw([0, 2])]).unwrap();
     let a = Elem::<G9Alt>::from_raw([1, 1]);
     let image = conj.apply(a);
     assert_ne!(image, a);
-    let embedding = conj.to_embedding();
-    assert_eq!(embedding.trace(image), a);
-    assert_eq!(embedding.norm(image), a);
+    let inclusion = Embedding::<G9Alt, G81Ext>::new().unwrap();
+    let mixed = conj.then_embedding(&inclusion);
+    for s in elements::<G9Alt>(9) {
+        assert_eq!(mixed.embed(s), inclusion.embed(conj.apply(s)));
+    }
 }
 
 #[test]
 fn prime_rows_embed_with_no_images() {
-    // Residue at 2 against the binary degree-one row, both directions, and
-    // their inclusions into extensions.
+    // Residue at 2 against the binary degree-one row, both directions as
+    // isomorphisms, and their inclusions into extensions.
     type Res2 = FiniteField<2, 1, Residue>;
     type Bin1 = FiniteField<2, 1, Polynomial<3>>;
     assert_eq!(Embedding::<Res2, Bin1>::generator_count(), 0);
     assert_eq!(Embedding::<Bin1, Res2>::generator_count(), 0);
-    let there = Embedding::<Res2, Bin1>::new().unwrap();
-    let back = Embedding::<Bin1, Res2>::new().unwrap();
+    let there = Isomorphism::<Res2, Bin1>::new().unwrap();
+    let back = Isomorphism::<Bin1, Res2>::new().unwrap();
     assert!(there.to_images().is_empty() && back.to_images().is_empty());
     for r in 0..2u64 {
         let x = Elem::<Res2>::from_residue(r).unwrap();
         let y = Elem::<Bin1>::from_residue(r).unwrap();
-        assert_eq!(there.embed(x), y);
-        assert_eq!(there.restrict(y), Some(x));
-        assert_eq!(back.embed(y), x);
-        assert_eq!(back.restrict(x), Some(y));
+        assert_eq!(there.apply(x), y);
+        assert_eq!(there.unapply(y), x);
+        assert_eq!(back.apply(y), x);
+        assert_eq!(back.unapply(x), y);
     }
     // Into extensions: the prime subfield of a tower.
     let into_tower = Embedding::<Res2, G16Ext>::new().unwrap();

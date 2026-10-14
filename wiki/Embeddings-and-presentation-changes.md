@@ -1,9 +1,9 @@
 # Embeddings and presentation changes
 
-Use `Embedding<S, T>` to preserve values when changing field types.
-Equal degrees give a presentation change; a larger target can contain the
-source as a subfield. `Isomorphism<S, T>` supplies a total inverse in the
-equal-degree case. Raw-coordinate copying is not a conversion.
+Use `Embedding<S, T>` for a proper inclusion of a smaller field in a
+larger target, and `Isomorphism<S, T>` for a presentation change at
+equal degree with a total inverse. Raw-coordinate copying is not a
+conversion.
 
 ## A smaller field is not a prefix of arbitrary coordinates
 
@@ -32,16 +32,16 @@ outside this particular subfield.
 AES-to-RS conversion preserves arithmetic, not raw bytes:
 
 ```rust
-use fgf::{AES, FiniteField, Elem, Embedding, Polynomial, RS};
+use fgf::{AES, FiniteField, Elem, Isomorphism, Polynomial, RS};
 
 type Aes = FiniteField<2, 8, Polynomial<AES>>;
 type Rs = FiniteField<2, 8, Polynomial<RS>>;
-let change = Embedding::<Aes, Rs>::new().unwrap();
+let change = Isomorphism::<Aes, Rs>::new().unwrap();
 let a = Elem::<Aes>::from_raw(0x53);
 let b = Elem::<Aes>::from_raw(0xca);
-assert_eq!(change.embed(a * b), change.embed(a) * change.embed(b));
-assert_eq!(change.embed(Elem::<Aes>::ONE), Elem::<Rs>::ONE);
-assert_eq!(change.restrict(change.embed(a)), Some(a));
+assert_eq!(change.apply(a * b), change.apply(a) * change.apply(b));
+assert_eq!(change.apply(Elem::<Aes>::ONE), Elem::<Rs>::ONE);
+assert_eq!(change.unapply(change.apply(a)), a);
 ```
 
 The same surface handles normal, Cantor, and extension presentations. Equal-degree maps are bijective, so every target element has a source preimage. A larger-degree inclusion is injective but not surjective.

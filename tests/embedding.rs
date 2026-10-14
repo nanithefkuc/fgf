@@ -4,7 +4,7 @@
 
 use fgf::{
     AES, BinaryField, Cantor, Elem, Embedding, EmbeddingError, Extension, ExtensionSpec, FieldElem,
-    FiniteField, Normal, Packed, Polynomial, RS, Relation,
+    FiniteField, Isomorphism, Normal, Packed, Polynomial, RS, Relation,
 };
 
 type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
@@ -257,11 +257,11 @@ fn consecutive_inclusions_above_the_byte_field() {
     }
 }
 
-/// Check that an equal-degree pair of embeddings are mutual inverses and
+/// Check that an equal-degree pair of isomorphisms are mutual inverses and
 /// ring isomorphisms on sampled coordinate words.
 fn check_mutual_isomorphism<S, T>(
-    forward: &Embedding<S, T>,
-    backward: &Embedding<T, S>,
+    forward: &Isomorphism<S, T>,
+    backward: &Isomorphism<T, S>,
     degree: u32,
 ) where
     S: BinaryField,
@@ -269,14 +269,14 @@ fn check_mutual_isomorphism<S, T>(
 {
     for &word in &samples(degree, 0x50) {
         let x = Elem::<S>::from_index(word as u128).unwrap();
-        let image = forward.embed(x);
-        assert_eq!(backward.embed(image), x, "round trip failed at {word}");
-        assert_eq!(forward.restrict(image), Some(x));
+        let image = forward.apply(x);
+        assert_eq!(backward.apply(image), x, "round trip failed at {word}");
+        assert_eq!(forward.unapply(image), x);
     }
     for &word in &samples(degree, 0x51) {
         let y = Elem::<T>::from_index(word as u128).unwrap();
-        assert_eq!(forward.embed(backward.embed(y)), y);
-        assert_eq!(backward.restrict(backward.embed(y)), Some(y));
+        assert_eq!(forward.apply(backward.apply(y)), y);
+        assert_eq!(backward.unapply(backward.apply(y)), y);
     }
     let left = &samples(degree, 0x52);
     let right = &samples(degree, 0x53);
@@ -287,19 +287,19 @@ fn check_mutual_isomorphism<S, T>(
                 Elem::<S>::from_index(b as u128).unwrap(),
             );
             assert_eq!(
-                forward.embed(x.add(y)),
-                forward.embed(x).add(forward.embed(y)),
+                forward.apply(x.add(y)),
+                forward.apply(x).add(forward.apply(y)),
                 "addition at {a} + {b}"
             );
             assert_eq!(
-                forward.embed(x.mul(y)),
-                forward.embed(x).mul(forward.embed(y)),
+                forward.apply(x.mul(y)),
+                forward.apply(x).mul(forward.apply(y)),
                 "multiplication at {a} * {b}"
             );
         }
     }
     assert_eq!(
-        forward.embed(Elem::<S>::from_index(S::DESCRIPTION.one() as u128).unwrap()),
+        forward.apply(Elem::<S>::from_index(S::DESCRIPTION.one() as u128).unwrap()),
         Elem::<T>::from_index(T::DESCRIPTION.one() as u128).unwrap()
     );
 }
@@ -307,71 +307,73 @@ fn check_mutual_isomorphism<S, T>(
 #[test]
 fn equal_degree_presentations_are_mutual_isomorphisms() {
     check_mutual_isomorphism(
-        &Embedding::<FiniteField<2, 8, Polynomial<AES>>, FiniteField<2, 8, Polynomial<RS>>>::new()
-            .unwrap(),
-        &Embedding::<FiniteField<2, 8, Polynomial<RS>>, FiniteField<2, 8, Polynomial<AES>>>::new()
-            .unwrap(),
+        &Isomorphism::<FiniteField<2, 8, Polynomial<AES>>, FiniteField<2, 8, Polynomial<RS>>>::new(
+        )
+        .unwrap(),
+        &Isomorphism::<FiniteField<2, 8, Polynomial<RS>>, FiniteField<2, 8, Polynomial<AES>>>::new(
+        )
+        .unwrap(),
         8,
     );
     check_mutual_isomorphism(
-        &Embedding::<FiniteField<2, 8, Polynomial<AES>>, FiniteField<2, 8, Normal<0x11B, 0x20>>>::new().unwrap(),
-        &Embedding::<FiniteField<2, 8, Normal<0x11B, 0x20>>, FiniteField<2, 8, Polynomial<AES>>>::new().unwrap(),
+        &Isomorphism::<FiniteField<2, 8, Polynomial<AES>>, FiniteField<2, 8, Normal<0x11B, 0x20>>>::new().unwrap(),
+        &Isomorphism::<FiniteField<2, 8, Normal<0x11B, 0x20>>, FiniteField<2, 8, Polynomial<AES>>>::new().unwrap(),
         8,
     );
     check_mutual_isomorphism(
-        &Embedding::<FiniteField<2, 8, Polynomial<AES>>, FiniteField<2, 8, Cantor<0x11B, 0x20>>>::new().unwrap(),
-        &Embedding::<FiniteField<2, 8, Cantor<0x11B, 0x20>>, FiniteField<2, 8, Polynomial<AES>>>::new().unwrap(),
+        &Isomorphism::<FiniteField<2, 8, Polynomial<AES>>, FiniteField<2, 8, Cantor<0x11B, 0x20>>>::new().unwrap(),
+        &Isomorphism::<FiniteField<2, 8, Cantor<0x11B, 0x20>>, FiniteField<2, 8, Polynomial<AES>>>::new().unwrap(),
         8,
     );
     check_mutual_isomorphism(
-        &Embedding::<FanPaar8Field, FiniteField<2, 8, Polynomial<AES>>>::new().unwrap(),
-        &Embedding::<FiniteField<2, 8, Polynomial<AES>>, FanPaar8Field>::new().unwrap(),
+        &Isomorphism::<FanPaar8Field, FiniteField<2, 8, Polynomial<AES>>>::new().unwrap(),
+        &Isomorphism::<FiniteField<2, 8, Polynomial<AES>>, FanPaar8Field>::new().unwrap(),
         8,
     );
     check_mutual_isomorphism(
-        &Embedding::<FanPaar16Field, Gf16>::new().unwrap(),
-        &Embedding::<Gf16, FanPaar16Field>::new().unwrap(),
+        &Isomorphism::<FanPaar16Field, Gf16>::new().unwrap(),
+        &Isomorphism::<Gf16, FanPaar16Field>::new().unwrap(),
         16,
     );
     check_mutual_isomorphism(
-        &Embedding::<FanPaar32Field, Gf32>::new().unwrap(),
-        &Embedding::<Gf32, FanPaar32Field>::new().unwrap(),
+        &Isomorphism::<FanPaar32Field, Gf32>::new().unwrap(),
+        &Isomorphism::<Gf32, FanPaar32Field>::new().unwrap(),
         32,
     );
     check_mutual_isomorphism(
-        &Embedding::<FanPaar64Field, Gf64>::new().unwrap(),
-        &Embedding::<Gf64, FanPaar64Field>::new().unwrap(),
+        &Isomorphism::<FanPaar64Field, Gf64>::new().unwrap(),
+        &Isomorphism::<Gf64, FanPaar64Field>::new().unwrap(),
         64,
     );
     check_mutual_isomorphism(
-        &Embedding::<FiniteField<2, 32, Extension<Custom32, 2>>, Gf32>::new().unwrap(),
-        &Embedding::<Gf32, FiniteField<2, 32, Extension<Custom32, 2>>>::new().unwrap(),
+        &Isomorphism::<FiniteField<2, 32, Extension<Custom32, 2>>, Gf32>::new().unwrap(),
+        &Isomorphism::<Gf32, FiniteField<2, 32, Extension<Custom32, 2>>>::new().unwrap(),
         32,
     );
 }
 
 #[test]
 fn equal_descriptions_embed_identically() {
-    let identity16 = Embedding::<Gf16, Gf16>::new().unwrap();
+    let identity16 = Isomorphism::<Gf16, Gf16>::new().unwrap();
     for &word in &samples(16, 0x60) {
         let x = Elem::<Gf16>::from_raw(word as u16);
-        assert_eq!(identity16.embed(x).to_index() as u64, word);
-        assert_eq!(identity16.restrict(x), Some(x));
+        assert_eq!(identity16.apply(x).to_index() as u64, word);
+        assert_eq!(identity16.unapply(x), x);
     }
-    // A custom spec structurally identical to a shipped one embeds as the
+    // A custom spec structurally identical to a shipped one maps as the
     // identity: descriptions, not Rust types, select the map.
     type Custom16 = FiniteField<2, 16, Extension<SameAsRijndael16, 2>>;
-    let structural = Embedding::<Custom16, Gf16>::new().unwrap();
-    let back = Embedding::<Gf16, Custom16>::new().unwrap();
+    let structural = Isomorphism::<Custom16, Gf16>::new().unwrap();
+    let back = Isomorphism::<Gf16, Custom16>::new().unwrap();
     for &word in &samples(16, 0x61) {
         let word = word as u16;
         assert_eq!(
             structural
-                .embed(Elem::<Custom16>::from_raw(word))
+                .apply(Elem::<Custom16>::from_raw(word))
                 .to_index() as u64,
             u64::from(word)
         );
-        assert_eq!(back.embed(Elem::<Gf16>::from_raw(word)).to_raw(), word);
+        assert_eq!(back.apply(Elem::<Gf16>::from_raw(word)).to_raw(), word);
     }
 }
 
@@ -453,13 +455,6 @@ fn inclusion_triangles_commute() {
         &Embedding::<Gf1, Gf16>::new().unwrap(),
         1,
     );
-    check_triangle(
-        &sixteen_sixtyfour,
-        &Embedding::<Gf64, Gf64>::new().unwrap(),
-        &sixteen_sixtyfour,
-        16,
-    );
-    // The whole-chain triangle.
     for &word in &samples(1, 0x71) {
         let x = Elem::<Gf1>::from_index(word as u128).unwrap();
         assert_eq!(
@@ -480,15 +475,15 @@ fn inclusion_triangles_commute() {
     let fp_top = Embedding::<FanPaar16Field, Gf64>::new().unwrap();
     let flat_top = Embedding::<Ref4, Gf64>::new().unwrap();
     check_triangle(&flat_fp, &fp_top, &flat_top, 4);
-    // A Fan-Paar byte field through the tower chain.
-    let fp8_aes = Embedding::<FanPaar8Field, Ref8>::new().unwrap();
+    // A Fan-Paar byte field through the tower chain: the equal-degree
+    // byte map is an isomorphism, composed into the tower inclusion.
+    let fp8_aes = Isomorphism::<FanPaar8Field, Ref8>::new().unwrap();
     let fp8_top = Embedding::<FanPaar8Field, Gf64>::new().unwrap();
-    check_triangle(
-        &fp8_aes,
-        &Embedding::<Ref8, Gf64>::new().unwrap(),
-        &fp8_top,
-        8,
-    );
+    let aes_top = Embedding::<Ref8, Gf64>::new().unwrap();
+    for &word in &samples(8, 0x72) {
+        let x = Elem::<FanPaar8Field>::from_index(word as u128).unwrap();
+        assert_eq!(fp8_top.embed(x), aes_top.embed(fp8_aes.apply(x)));
+    }
 }
 
 #[test]
@@ -616,13 +611,15 @@ fn absolute_trace_and_norm_through_gf2() {
 }
 
 #[test]
-fn equal_degree_trace_and_norm_are_restriction() {
-    let embedding = Embedding::<FanPaar16Field, Gf16>::new().unwrap();
-    for &word in &samples(16, 0xB0) {
-        let y = Elem::<Gf16>::from_raw(word as u16);
-        assert_eq!(embedding.trace(y), embedding.restrict(y).unwrap());
-        assert_eq!(embedding.norm(y), embedding.restrict(y).unwrap());
-    }
+fn equal_degree_constructors_reject_proper_inclusions() {
+    assert_eq!(
+        Embedding::<FanPaar16Field, Gf16>::new().unwrap_err(),
+        EmbeddingError::EqualDegree { degree: 16 }
+    );
+    assert_eq!(
+        Embedding::<FanPaar16Field, Gf16>::from_images(&[]).unwrap_err(),
+        EmbeddingError::EqualDegree { degree: 16 }
+    );
 }
 
 #[test]
@@ -643,7 +640,10 @@ fn incompatible_degrees_report_both_sides() {
     ));
     assert!(Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf32>::new().is_ok());
     assert!(Embedding::<Gf1, FanPaar64Field>::new().is_ok());
-    assert!(Embedding::<Gf64, Gf64>::new().is_ok());
+    assert_eq!(
+        Embedding::<Gf64, Gf64>::new().unwrap_err(),
+        EmbeddingError::EqualDegree { degree: 64 }
+    );
 }
 
 #[test]
@@ -671,16 +671,10 @@ fn degree64_boundaries_run_without_overflow() {
     }
     assert_eq!(wide.trace(full), wide.restrict(sum).unwrap());
     assert_eq!(wide.norm(full), wide.restrict(product).unwrap());
-
-    let identity = Embedding::<Gf64, Gf64>::new().unwrap();
+    let identity = Isomorphism::<Gf64, Gf64>::new().unwrap();
     let full_element = Elem::<Gf64>::from_raw(u64::MAX);
-    assert_eq!(identity.embed(full_element), full_element);
-    assert_eq!(identity.restrict(full_element), Some(full_element));
-    // The degree-64 relative Frobenius is the absolute one: 64 squarings
-    // raise to 2^64, which fixes the whole field without shifting by 64.
-    assert_eq!(identity.frobenius(full_element), full_element);
-    assert_eq!(identity.trace(full_element), full_element);
-    assert_eq!(identity.norm(full_element), full_element);
+    assert_eq!(identity.apply(full_element), full_element);
+    assert_eq!(identity.unapply(full_element), full_element);
 }
 
 /// The semantics `VGF2P8AFFINEQB` documents, modeled in scalar code:
@@ -704,9 +698,9 @@ fn degree8_maps_preserve_the_selected_aes_conventions() {
         ($poly:expr) => {{
             let poly: u128 = $poly;
             let backward =
-                Embedding::<FiniteField<2, 8, Polynomial<{ $poly }>>, Ref8>::new().unwrap();
+                Isomorphism::<FiniteField<2, 8, Polynomial<{ $poly }>>, Ref8>::new().unwrap();
             let forward =
-                Embedding::<Ref8, FiniteField<2, 8, Polynomial<{ $poly }>>>::new().unwrap();
+                Isomorphism::<Ref8, FiniteField<2, 8, Polynomial<{ $poly }>>>::new().unwrap();
             // The independent smallest-root oracle reproduces every image.
             for x in 0..=u8::MAX {
                 let expected = if poly == AES {
@@ -717,7 +711,7 @@ fn degree8_maps_preserve_the_selected_aes_conventions() {
                 };
                 assert_eq!(
                     backward
-                        .embed(Elem::<FiniteField<2, 8, Polynomial<{ $poly }>>>::from_raw(
+                        .apply(Elem::<FiniteField<2, 8, Polynomial<{ $poly }>>>::from_raw(
                             x
                         ))
                         .to_index() as u64,
@@ -728,7 +722,7 @@ fn degree8_maps_preserve_the_selected_aes_conventions() {
             // Mutual inverses over every byte.
             for x in 0..=u8::MAX {
                 let element = Elem::<FiniteField<2, 8, Polynomial<{ $poly }>>>::from_raw(x);
-                assert_eq!(forward.embed(backward.embed(element)), element);
+                assert_eq!(forward.apply(backward.apply(element)), element);
             }
         }};
     }
@@ -741,19 +735,19 @@ fn degree8_maps_preserve_the_selected_aes_conventions() {
     // The Reed-Solomon map is the frozen involution: the historical qword
     // byte for byte, in both directions, since an involution equals its
     // own inverse.
-    let to_aes = Embedding::<FiniteField<2, 8, Polynomial<RS>>, Ref8>::new().unwrap();
-    let from_aes = Embedding::<Ref8, FiniteField<2, 8, Polynomial<RS>>>::new().unwrap();
+    let to_aes = Isomorphism::<FiniteField<2, 8, Polynomial<RS>>, Ref8>::new().unwrap();
+    let from_aes = Isomorphism::<Ref8, FiniteField<2, 8, Polynomial<RS>>>::new().unwrap();
     for x in 0..=u8::MAX {
         let image = affine_apply(FROZEN_RS, x);
         assert_eq!(
             to_aes
-                .embed(Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(x))
+                .apply(Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(x))
                 .to_index() as u64,
             u64::from(image),
             "frozen involution at {x:#04x}"
         );
         assert_eq!(
-            from_aes.embed(Elem::<Ref8>::from_raw(x)).to_raw(),
+            from_aes.apply(Elem::<Ref8>::from_raw(x)).to_raw(),
             image,
             "the frozen map is its own inverse"
         );
@@ -848,15 +842,15 @@ fn uncovered_presentations_report_no_canonical_map() {
 }
 
 /// A covered non-quadratic relation node maps through the bounded
-/// reference like any flat presentation: equal degrees biject, dividing
-/// degrees include, and restriction inverts embedding.
+/// reference like any flat presentation: equal degrees biject through
+/// the isomorphism surface, dividing degrees include, and restriction
+/// inverts embedding.
 #[test]
 fn covered_quartic_relation_embeds_through_the_reference() {
-    let equal = Embedding::<extension_rows::Gf16Quartic, Ref4>::new().unwrap();
+    let equal = Isomorphism::<extension_rows::Gf16Quartic, Ref4>::new().unwrap();
     for word in 0..16u64 {
         let element = Elem::<extension_rows::Gf16Quartic>::from_index(word as u128).unwrap();
-        assert!(equal.contains(equal.embed(element)));
-        assert_eq!(equal.restrict(equal.embed(element)), Some(element));
+        assert_eq!(equal.unapply(equal.apply(element)), element);
     }
     let lifted = Embedding::<extension_rows::Gf16Quartic, Ref8>::new().unwrap();
     for word in 0..16u64 {
@@ -873,7 +867,7 @@ fn covered_quartic_relation_embeds_through_the_reference() {
     // own polynomial below the AES field.
     let t = Elem::<extension_rows::Gf16Quartic>::from_index(0b0010).unwrap();
     let root = oracle_root(0b10011, 4, 0x13, 4);
-    assert_eq!(equal.embed(t).to_index() as u64, root);
+    assert_eq!(equal.apply(t).to_index() as u64, root);
     let squared = oracle_mul(0x13, 4, root, root);
     let step = oracle_root(0x13, 4, 0x11B, 8);
     let mut lifted_square = 0u64;

@@ -15,6 +15,7 @@ type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
 type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
 type Gf64 = fgf::FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
 type FanPaar64Field = fgf::FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
+type FanPaar8Row = fgf::FiniteField<2, 8, fgf::Extension<fgf::FanPaar8, 2>>;
 type ResiduePrime = FiniteField<1_000_000_007, 1, Residue>;
 type ResidueTwo = FiniteField<2, 1, Residue>;
 
@@ -572,7 +573,7 @@ fn embedding_construction_and_application_allocate_nothing() {
         .lock()
         .expect("zero-allocation test lock poisoned");
     let byte_tower = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf64>::new().unwrap();
-    let fanpaar_pair = Embedding::<FanPaar64Field, Gf64>::new().unwrap();
+    let fanpaar_tower = Embedding::<FanPaar8Row, Gf64>::new().unwrap();
     let absolute = Embedding::<Gf1, Gf64>::new().unwrap();
     let source = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
     let target = Elem::<Gf64>::from_raw(u64::MAX);
@@ -584,14 +585,19 @@ fn embedding_construction_and_application_allocate_nothing() {
     let _ = byte_tower.frobenius(target);
     let _ = byte_tower.trace(target);
     let _ = byte_tower.norm(target);
-    let _ = fanpaar_pair.trace(target);
+    let _ = fanpaar_tower.trace(target);
     let _ = absolute.norm(target);
+    let fanpaar_pair = Isomorphism::<FanPaar64Field, Gf64>::new().unwrap();
+    let source_pair = Elem::<FanPaar64Field>::from_raw(u64::MAX);
+    let _ = fanpaar_pair.apply(source_pair);
+    let _ = fanpaar_pair.unapply(target);
 
     let constructions = count_allocations(|| {
         let _ = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf64>::new().unwrap();
-        let _ = Embedding::<FanPaar64Field, Gf64>::new().unwrap();
+        let _ = Embedding::<FanPaar8Row, Gf64>::new().unwrap();
         let _ = Embedding::<Gf1, Gf64>::new().unwrap();
         let _ = Embedding::<Gf64, FiniteField<2, 8, Polynomial<AES>>>::new();
+        let _ = Isomorphism::<FanPaar64Field, Gf64>::new().unwrap();
     });
     assert_eq!(constructions, 0, "embedding construction allocated");
 
@@ -604,8 +610,8 @@ fn embedding_construction_and_application_allocate_nothing() {
         let _ = byte_tower.norm(target);
         let _ = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf64>::generator_count();
         let _ = byte_tower.relative_degree();
-        let _ = fanpaar_pair.trace(target);
-        let _ = fanpaar_pair.norm(target);
+        let _ = fanpaar_tower.trace(target);
+        let _ = fanpaar_tower.norm(target);
         let _ = absolute.trace(target);
         let _ = absolute.norm(target);
         // The generic relation surface: image construction, composition,
@@ -615,16 +621,20 @@ fn embedding_construction_and_application_allocate_nothing() {
         )
         .unwrap();
         let _ = Embedding::<FiniteField<2, 8, Polynomial<AES>>, Gf64>::generator(0);
-        let wide = Embedding::<Gf64, Gf64>::new().unwrap();
+        let wide = Isomorphism::<Gf64, Gf64>::new().unwrap();
         let _ = rebuilt.then(&wide);
+        let byte_iso = Isomorphism::<
+            FiniteField<2, 8, Polynomial<AES>>,
+            FiniteField<2, 8, Polynomial<AES>>,
+        >::new()
+        .unwrap();
+        let _ = byte_iso.then_embedding(&byte_tower);
         let iso = Isomorphism::<Gf64, Gf64>::new().unwrap();
         let _ = iso.apply(target);
         let _ = iso.unapply(target);
         let _ = iso.inverse();
-        let _ = iso.to_embedding();
         let _ = iso.to_images();
         let _ = Isomorphism::<Gf64, Gf64>::from_images(iso.to_images()).unwrap();
-        let _ = Isomorphism::<Gf64, Gf64>::from_embedding(wide).unwrap();
         let _ = iso.then(&iso);
         // An odd-characteristic isomorphism under the allocator.
         let qiso = Isomorphism::<QuadMersenne31, QuadMersenne31>::new().unwrap();
