@@ -146,12 +146,31 @@ pub(crate) const fn raw_neg(value: [u32; 2]) -> [u32; 2] {
 /// Raw product `(a+bi)(c+di) = (ac−bd)+(ad+bc)i`.
 #[inline]
 #[must_use]
+#[allow(clippy::cast_lossless)]
 pub(crate) const fn raw_mul(left: [u32; 2], right: [u32; 2]) -> [u32; 2] {
-    let ac = limb_mul(left[0], right[0]);
-    let bd = limb_mul(left[1], right[1]);
-    let ad = limb_mul(left[0], right[1]);
-    let bc = limb_mul(left[1], right[0]);
-    [limb_sub(ac, bd), limb_add(ad, bc)]
+    let ar = limb_canonical(left[0]) as u64;
+    let ai = limb_canonical(left[1]) as u64;
+    let br = limb_canonical(right[0]) as u64;
+    let bi = limb_canonical(right[1]) as u64;
+    // Each nonnegative accumulator is below `2p²`, hence fits in `u64`.
+    [
+        reduce_product_sum(ar * br + ai * (MODULUS as u64 - bi)),
+        reduce_product_sum(ar * bi + ai * br),
+    ]
+}
+
+/// Reduce a nonnegative product sum below `2p²` with two Mersenne folds.
+#[inline]
+#[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+const fn reduce_product_sum(value: u64) -> u32 {
+    let folded = (value & MODULUS as u64) + (value >> 31);
+    let folded = ((folded as u32) & MODULUS) + (folded >> 31) as u32;
+    if folded >= MODULUS {
+        folded - MODULUS
+    } else {
+        folded
+    }
 }
 
 /// Raw square `(a+bi)² = (a²−b²) + 2ab·i`: three base multiplies.
@@ -414,6 +433,18 @@ impl Elem<QuadMersenne31> {
 #[cfg(test)]
 mod tests {
     use super::{Elem, HasGenerator, MODULUS, QuadMersenne31, is_primitive};
+
+    #[test]
+    fn deferred_product_sums_match_integer_remainders() {
+        let p = u64::from(MODULUS);
+        for value in [0, 1, p - 1, p, p + 1, p * p - 1, p * p, 2 * p * p - 1] {
+            assert_eq!(
+                u64::from(super::reduce_product_sum(value)),
+                value % p,
+                "product sum {value}"
+            );
+        }
+    }
 
     const fn gcd(mut a: u64, mut b: u64) -> u64 {
         while b != 0 {

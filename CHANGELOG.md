@@ -74,6 +74,18 @@ All notable changes to this project are documented here. The format follows
 
 - Wiki migration guide from the withdrawn v3 release candidate.
 
+### Fixed
+
+- Mersenne31 x86 multiplication accepts lanes already inside its redundant
+  residue range directly and normalizes wider raw lanes before multiplication,
+  preserving arbitrary raw inputs and canonical outputs.
+- Pinned extension scalar arithmetic exposes its instance bodies for
+  cross-crate inlining, removing runtime instance dispatch from specialized
+  QuadMersenne31 operator multiplication. Investigation and merge gates:
+  [Issue #47](https://github.com/nanithefkuc/fgf/issues/47).
+- QuadMersenne31 scalar products defer reduction across the real and imaginary
+  product sums instead of reducing each base-field product separately.
+
 ## [3.0.1] - 2026-10-10
 
 ### Added
