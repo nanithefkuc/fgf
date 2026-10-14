@@ -8,7 +8,7 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 | --- | --- |
 | Campaign | `just bench-paired` (family round `gdl`) |
 | v2 | `c20465ba22d078e0fb115fb6a99fa77027992c90` |
-| v3 | `f3cd58c39e6e3672216912dd3e6131da1c4b670a` |
+| v3 | `358c31f92e3febd885a4b9d2cdb4858c632cb4fc` |
 | Toolchain | 1.98.1 |
 | Resolved process backend | v2: `v4x` / `v3_gfni_crypto`; v3: `v4x` / `v3_gfni_crypto` |
 | Resolved field backends | v2 `gld`: `v4x` / `v3`; v3 `gld`: `v4x` / `v3` |
@@ -25,21 +25,21 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 
 | Operation | Case | v3 speed factor |
 | --- | --- | --- |
-| add_assign | 4 KiB | 0.9989 / 1.0000 |
-| add_assign | 256 KiB | 1.0001 / 0.9999 |
-| add_assign | 8 MiB | 0.9806 / 0.9981 |
-| add_assign_scalar | 4 KiB | 1.0051 / 1.0512 |
-| add_assign_scalar | 256 KiB | 1.0001 / 1.0001 |
-| add_assign_scalar | 8 MiB | 0.9865 / 1.0022 |
-| mul_elementwise | 4 KiB | 1.0001 / 0.9966 |
-| mul_elementwise | 256 KiB | 0.9999 / 0.9850 |
-| mul_elementwise | 8 MiB | 0.9919 / 0.9945 |
-| mul_elementwise_assign | 4 KiB | 1.0002 / 0.9994 |
-| mul_elementwise_assign | 256 KiB | 1.0000 / 0.9998 |
-| mul_elementwise_assign | 8 MiB | 1.0139 / 1.0033 |
-| sub_assign_scalar | 4 KiB | 0.9793 / 1.0008 |
-| sub_assign_scalar | 256 KiB | 1.0002 / 0.9994 |
-| sub_assign_scalar | 8 MiB | 0.9855 / 1.0021 |
+| add_assign | 4 KiB | 0.9921 / 1.0245 |
+| add_assign | 256 KiB | 0.9999 / 0.9991 |
+| add_assign | 8 MiB | 0.9777 / 1.0079 |
+| add_assign_scalar | 4 KiB | 1.0014 / 0.9978 |
+| add_assign_scalar | 256 KiB | 0.9999 / 1.0000 |
+| add_assign_scalar | 8 MiB | 1.0047 / 1.0001 |
+| mul_elementwise | 4 KiB | 0.9983 / 0.9996 |
+| mul_elementwise | 256 KiB | 0.9999 / 1.0037 |
+| mul_elementwise | 8 MiB | 1.0041 / 1.0015 |
+| mul_elementwise_assign | 4 KiB | 1.0000 / 0.9995 |
+| mul_elementwise_assign | 256 KiB | 1.0000 / 0.9836 |
+| mul_elementwise_assign | 8 MiB | 0.9932 / 0.9892 |
+| sub_assign_scalar | 4 KiB | 0.9999 / 1.0015 |
+| sub_assign_scalar | 256 KiB | 1.0000 / 1.0001 |
+| sub_assign_scalar | 8 MiB | 1.0023 / 0.9981 |
 
 ### Indexed scalar multiplication and accumulation
 
@@ -47,7 +47,7 @@ The fgf arm's public calls from the native-layout harness; only version arms are
 
 | Operation | Geometry | v3 speed factor |
 | --- | --- | --- |
-| acc += a * b | alignment=page; field=gld; lane_bytes=8; region_bytes=65536; scope=indexed acc += a * b | 0.8356 / 0.7967 |
+| acc += a * b | alignment=page; field=gld; lane_bytes=8; region_bytes=65536; scope=indexed acc += a * b | 0.8344 / 0.7977 |
 
 ### Native-layout public operations
 
@@ -55,11 +55,11 @@ The fgf arm's public calls from the native-layout harness; only version arms are
 
 | Operation | Geometry | v3 speed factor |
 | --- | --- | --- |
-| dst += c * src | alignment=page; field=gld; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.0001 / 1.0022 |
-| dst += v | alignment=page; field=gld; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.0000 / 1.0025 |
-| dst -= v | alignment=page; field=gld; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.0000 / 0.9938 |
-| dst = a * b | alignment=page; field=gld; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 0.9999 / 1.0003 |
-| dst = c * src | alignment=page; field=gld; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 0.9999 / 1.0022 |
+| dst += c * src | alignment=page; field=gld; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.0000 / 1.0000 |
+| dst += v | alignment=page; field=gld; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.0004 / 0.9968 |
+| dst -= v | alignment=page; field=gld; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 0.9994 / 0.9999 |
+| dst = a * b | alignment=page; field=gld; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.0001 / 1.0014 |
+| dst = c * src | alignment=page; field=gld; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.0000 / 1.0235 |
 
 ## Caveats
 

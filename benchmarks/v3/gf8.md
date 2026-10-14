@@ -7,7 +7,7 @@ Paired-run snapshot for v3. Every result cell reports Willow Cove (i5-1135G7) / 
 | Setting | Value |
 | --- | --- |
 | Campaign | `just bench-paired` (family round `gf`) |
-| Revision | `f3cd58c39e6e3672216912dd3e6131da1c4b670a` |
+| Revision | `358c31f92e3febd885a4b9d2cdb4858c632cb4fc` |
 | Toolchain | 1.98.1 |
 | Resolved process backend | `v4x` / `v3_gfni_crypto` |
 | Resolved field backends | `gf8b`: `v4x` / `v3_gfni_crypto`; `gf8d`: `v4x` / `v3_gfni_crypto` |
@@ -33,14 +33,14 @@ Latency of the dependent multiply chain, per scalar operation.
 
 | Operation | 4 KiB (GiB/s) | 256 KiB (GiB/s) | 8 MiB (GiB/s) |
 | --- | --- | --- | --- |
-| add_assign | 52.4 / 94.1 | 32.0 / 61.1 | 7.66 / 10.3 |
-| add_assign_scalar | 41.5 / 77.1 | 41.5 / 64.8 | 28.3 / 24.6 |
-| mul_add | 64.3 / 81.3 | 37.9 / 56.1 | 8.48 / 16.3 |
-| mul_assign | 127 / 167 | 51.5 / 73.5 | 30.6 / 27.8 |
-| mul_elementwise | 74.3 / 99.2 | 25.4 / 38.4 | 5.16 / 7.23 |
-| mul_elementwise_assign | 74.1 / 113 | 29.7 / 47.8 | 6.56 / 9.64 |
-| mul_into | 83.4 / 163 | 38.2 / 62.1 | 13.1 / 27.9 |
-| sub_assign_scalar | 43.0 / 77.1 | 41.5 / 64.8 | 28.3 / 24.5 |
+| add_assign | 51.5 / 93.7 | 32.0 / 61.1 | 7.68 / 10.3 |
+| add_assign_scalar | 54.8 / 110 | 51.9 / 73.5 | 29.1 / 27.5 |
+| mul_add | 64.7 / 81.7 | 37.9 / 56.1 | 8.55 / 16.7 |
+| mul_assign | 125 / 172 | 51.5 / 73.5 | 30.7 / 27.9 |
+| mul_elementwise | 55.6 / 64.8 | 24.3 / 37.6 | 5.15 / 7.13 |
+| mul_elementwise_assign | 59.9 / 66.3 | 28.1 / 60.7 | 7.21 / 9.71 |
+| mul_into | 82.7 / 159 | 38.1 / 62.2 | 5.24 / 27.1 |
+| sub_assign_scalar | 59.9 / 109 | 51.9 / 73.5 | 29.1 / 27.7 |
 
 ### Aligned single-row operations
 
@@ -49,13 +49,13 @@ Latency of the dependent multiply chain, per scalar operation.
 | Field | Operation | 64 KiB (GiB/s) | 4 MiB (GiB/s) |
 | --- | --- | --- | --- |
 | gf8b | mul_add | 40.9 / 62.0 | - |
-| gf8b | mul_elementwise | 29.2 / 51.9 | - |
+| gf8b | mul_elementwise | 29.1 / 51.9 | - |
 | gf8b | mul_elementwise_assign | 40.7 / 63.1 | - |
-| gf8b | mul_into | 39.9 / 62.0 | - |
+| gf8b | mul_into | 40.0 / 62.0 | - |
 | gf8d | mul_add | 40.9 / 62.0 | - |
-| gf8d | mul_elementwise | 28.8 / 48.4 | - |
+| gf8d | mul_elementwise | 28.6 / 48.4 | - |
 | gf8d | mul_elementwise_assign | 40.8 / 54.4 | - |
-| gf8d | mul_into | 40.0 / 62.0 | 18.2 / 40.0 |
+| gf8d | mul_into | 40.0 / 62.0 | 18.2 / 40.1 |
 
 ### One-shot and prepared multiplication
 
@@ -63,17 +63,17 @@ Latency per call. The one-shot form derives the backend coefficient on every cal
 
 | Row bytes | mul_add (ns/op) | mul_add_with (ns/op) |
 | --- | --- | --- |
-| 16 B | 10.74 / 4.272 | 10.31 / 3.859 |
-| 32 B | 10.82 / 4.058 | 10.27 / 3.845 |
-| 64 B | 12.32 / 4.287 | 11.76 / 4.071 |
-| 128 B | 11.04 / 5.120 | 10.55 / 4.700 |
-| 256 B | 14.01 / 6.187 | 13.17 / 5.764 |
-| 512 B | 17.65 / 8.320 | 17.35 / 8.231 |
-| 1 KiB | 20.66 / 14.03 | 21.08 / 13.92 |
-| 2 KiB | 30.14 / 24.83 | 30.35 / 24.76 |
-| 4 KiB | 61.86 / 47.00 | 61.11 / 46.98 |
-| 16 KiB | 209.7 / 177.0 | 209.4 / 177.0 |
-| 64 KiB | 1636 / 1092 | 1634 / 1092 |
+| 16 B | 10.72 / 4.271 | 10.24 / 3.859 |
+| 32 B | 10.68 / 4.270 | 10.14 / 3.859 |
+| 64 B | 12.69 / 4.272 | 12.25 / 4.076 |
+| 128 B | 13.31 / 10.24 | 13.03 / 10.24 |
+| 256 B | 14.06 / 6.243 | 13.48 / 5.790 |
+| 512 B | 15.84 / 8.450 | 15.83 / 8.112 |
+| 1 KiB | 20.69 / 14.15 | 21.14 / 14.11 |
+| 2 KiB | 29.73 / 24.95 | 30.55 / 24.85 |
+| 4 KiB | 61.06 / 47.07 | 61.16 / 47.05 |
+| 16 KiB | 207.8 / 176.3 | 207.9 / 175.7 |
+| 64 KiB | 1633 / 1093 | 1633 / 1092 |
 
 ### Scatter, gather, and matrix
 
@@ -81,12 +81,12 @@ Latency per call. The one-shot form derives the backend coefficient on every cal
 
 | Operation | 2 rows (GiB/s) | 4 rows (GiB/s) | 8 rows (GiB/s) | 16 rows (GiB/s) |
 | --- | --- | --- | --- | --- |
-| mul_add_gather | 44.5 / 69.2 | 43.9 / 76.4 | 45.0 / 67.1 | 45.0 / 62.0 |
-| mul_add_gather_with | 44.4 / 69.3 | 43.8 / 76.5 | 44.9 / 66.8 | 45.0 / 62.4 |
-| mul_add_matrix | 89.1 / 102 | 132 / 140 | 129 / 138 | 121 / 135 |
-| mul_add_matrix_with | 89.5 / 102 | 132 / 139 | 128 / 139 | 120 / 135 |
-| mul_add_scatter | 45.3 / 66.9 | 48.3 / 69.2 | 48.3 / 68.7 | 46.5 / 41.7 |
-| mul_add_scatter_with | 45.3 / 67.0 | 48.3 / 69.3 | 48.3 / 68.7 | 46.5 / 41.7 |
+| mul_add_gather | 44.7 / 64.8 | 43.7 / 71.8 | 45.3 / 63.9 | 44.9 / 63.0 |
+| mul_add_gather_with | 44.6 / 64.4 | 43.5 / 71.9 | 45.1 / 63.8 | 44.6 / 62.6 |
+| mul_add_matrix | 90.1 / 106 | 135 / 145 | 130 / 146 | 122 / 146 |
+| mul_add_matrix_with | 90.6 / 106 | 135 / 147 | 130 / 147 | 123 / 145 |
+| mul_add_scatter | 45.4 / 66.8 | 48.4 / 69.3 | 48.5 / 69.3 | 45.8 / 46.6 |
+| mul_add_scatter_with | 45.5 / 67.0 | 48.4 / 69.4 | 48.5 / 69.4 | 45.8 / 46.2 |
 
 ### Aligned gather
 
@@ -94,10 +94,10 @@ Sixteen sources into one row, 64-byte-aligned buffers. `mul_into_gather` is the 
 
 | Field | Operation | 4 KiB (GiB/s) | 16 KiB (GiB/s) |
 | --- | --- | --- | --- |
-| gf8b | mul_into_gather_with | 90.9 / 83.0 | 104 / 85.5 |
-| gf8d | mul_add_gather_with | 97.9 / 87.0 | 103 / 89.0 |
-| gf8d | mul_into_gather | 91.0 / 102 | 105 / 107 |
-| gf8d | mul_into_gather_with | 89.0 / 101 | 104 / 106 |
+| gf8b | mul_into_gather_with | 91.2 / 83.2 | 104 / 85.5 |
+| gf8d | mul_add_gather_with | 98.0 / 87.1 | 102 / 89.1 |
+| gf8d | mul_into_gather | 90.9 / 101 | 104 / 107 |
+| gf8d | mul_into_gather_with | 89.1 / 101 | 103 / 107 |
 
 ### Overwrite matrix
 
@@ -105,13 +105,13 @@ Ten sources, 64 KiB rows, 64-byte-aligned buffers. The `fill(0)` cases include c
 
 | Field | Operation | 2 destinations (GiB/s) | 4 destinations (GiB/s) | 6 destinations (GiB/s) |
 | --- | --- | --- | --- | --- |
-| gf8b | fill(0) + mul_add_matrix | 57.0 / 50.5 | 31.4 / 26.1 | 19.6 / 18.7 |
-| gf8b | mul_add_matrix_at | 74.4 / 58.2 | 40.4 / 29.9 | 25.0 / 22.9 |
-| gf8b | mul_add_matrix_with | 74.3 / 57.7 | 39.4 / 29.9 | 25.9 / 22.9 |
-| gf8b | mul_into_matrix | 73.7 / 66.9 | 42.2 / 34.3 | 25.6 / 25.0 |
-| gf8b | mul_into_matrix_with | 76.5 / 68.3 | 42.0 / 34.1 | 26.2 / 25.9 |
-| gf8d | fill(0) + mul_add_matrix | 57.5 / 52.4 | 30.7 / 32.4 | 19.3 / 22.0 |
-| gf8d | mul_into_matrix | 76.2 / 69.8 | 41.5 / 37.0 | 25.4 / 27.7 |
+| gf8b | fill(0) + mul_add_matrix | 57.5 / 50.1 | 31.2 / 27.8 | 19.4 / 19.6 |
+| gf8b | mul_add_matrix_at | 74.5 / 58.5 | 39.3 / 31.1 | 24.3 / 22.4 |
+| gf8b | mul_add_matrix_with | 74.6 / 58.4 | 40.0 / 31.0 | 25.1 / 21.9 |
+| gf8b | mul_into_matrix | 76.3 / 65.8 | 42.9 / 36.3 | 26.1 / 25.4 |
+| gf8b | mul_into_matrix_with | 76.6 / 67.5 | 42.6 / 36.0 | 26.0 / 25.4 |
+| gf8d | fill(0) + mul_add_matrix | 56.9 / 52.5 | 31.5 / 34.3 | 19.7 / 22.4 |
+| gf8d | mul_into_matrix | 76.4 / 68.5 | 43.1 / 39.3 | 26.1 / 28.7 |
 
 ### Row-wise addition
 
@@ -119,24 +119,24 @@ Ten sources, 64 KiB rows, 64-byte-aligned buffers. The `fill(0)` cases include c
 
 | Row bytes | Rows | add_assign_rows (GiB/s) |
 | --- | --- | --- |
-| 1 KiB | 1 | 50.7 / 79.2 |
-| 1 KiB | 16 | 84.3 / 128 |
-| 1 KiB | 2 | 67.5 / 87.5 |
-| 1 KiB | 32 | 34.8 / 63.8 |
-| 1 KiB | 4 | 43.0 / 93.0 |
-| 1 KiB | 8 | 81.0 / 127 |
-| 64 B | 1 | 7.02 / 13.9 |
-| 64 B | 16 | 50.8 / 79.3 |
-| 64 B | 2 | 13.8 / 26.6 |
-| 64 B | 32 | 67.3 / 87.6 |
-| 64 B | 4 | 26.0 / 43.0 |
-| 64 B | 8 | 25.5 / 69.6 |
+| 1 KiB | 1 | 46.1 / 79.4 |
+| 1 KiB | 16 | 83.8 / 128 |
+| 1 KiB | 2 | 67.4 / 88.5 |
+| 1 KiB | 32 | 34.5 / 63.8 |
+| 1 KiB | 4 | 42.8 / 93.2 |
+| 1 KiB | 8 | 80.5 / 124 |
+| 64 B | 1 | 7.13 / 14.7 |
+| 64 B | 16 | 46.2 / 79.3 |
+| 64 B | 2 | 7.32 / 12.3 |
+| 64 B | 32 | 67.8 / 88.5 |
+| 64 B | 4 | 26.0 / 46.6 |
+| 64 B | 8 | 26.3 / 69.8 |
 | 64 KiB | 1 | 31.8 / 60.7 |
-| 64 KiB | 16 | 18.9 / 25.2 |
-| 64 KiB | 2 | 32.0 / 60.9 |
-| 64 KiB | 32 | 18.5 / 24.7 |
+| 64 KiB | 16 | 18.9 / 25.8 |
+| 64 KiB | 2 | 31.9 / 60.9 |
+| 64 KiB | 32 | 18.3 / 24.7 |
 | 64 KiB | 4 | 32.0 / 61.1 |
-| 64 KiB | 8 | 35.4 / 45.8 |
+| 64 KiB | 8 | 37.1 / 45.5 |
 
 ### Row-wise addition compositions
 
@@ -144,42 +144,42 @@ Public call compositions: flat `add_assign` and the literal per-row loop over th
 
 | Operation | Row bytes | Rows | Throughput (GiB/s) |
 | --- | --- | --- | --- |
-| add_assign per row | 1 KiB | 1 | 47.3 / 80.1 |
-| add_assign per row | 1 KiB | 16 | 61.9 / 97.2 |
-| add_assign per row | 1 KiB | 2 | 50.0 / 82.9 |
-| add_assign per row | 1 KiB | 32 | 33.7 / 62.7 |
-| add_assign per row | 1 KiB | 4 | 45.8 / 82.9 |
-| add_assign per row | 1 KiB | 8 | 65.0 / 99.4 |
-| add_assign per row | 64 B | 1 | 6.72 / 13.3 |
-| add_assign per row | 64 B | 16 | 7.52 / 14.9 |
-| add_assign per row | 64 B | 2 | 7.42 / 14.0 |
-| add_assign per row | 64 B | 32 | 8.07 / 14.1 |
-| add_assign per row | 64 B | 4 | 8.19 / 15.1 |
-| add_assign per row | 64 B | 8 | 8.54 / 14.1 |
-| add_assign per row | 64 KiB | 1 | 31.9 / 60.8 |
-| add_assign per row | 64 KiB | 16 | 18.9 / 25.1 |
-| add_assign per row | 64 KiB | 2 | 31.9 / 60.6 |
-| add_assign per row | 64 KiB | 32 | 18.5 / 24.7 |
+| add_assign per row | 1 KiB | 1 | 44.3 / 80.3 |
+| add_assign per row | 1 KiB | 16 | 53.0 / 97.3 |
+| add_assign per row | 1 KiB | 2 | 51.6 / 83.8 |
+| add_assign per row | 1 KiB | 32 | 31.9 / 61.2 |
+| add_assign per row | 1 KiB | 4 | 45.2 / 83.2 |
+| add_assign per row | 1 KiB | 8 | 55.5 / 99.4 |
+| add_assign per row | 64 B | 1 | 6.74 / 13.3 |
+| add_assign per row | 64 B | 16 | 8.32 / 15.7 |
+| add_assign per row | 64 B | 2 | 6.85 / 11.4 |
+| add_assign per row | 64 B | 32 | 8.89 / 16.6 |
+| add_assign per row | 64 B | 4 | 8.69 / 15.1 |
+| add_assign per row | 64 B | 8 | 9.03 / 16.7 |
+| add_assign per row | 64 KiB | 1 | 31.7 / 60.8 |
+| add_assign per row | 64 KiB | 16 | 18.9 / 25.7 |
+| add_assign per row | 64 KiB | 2 | 31.9 / 60.7 |
+| add_assign per row | 64 KiB | 32 | 18.3 / 24.7 |
 | add_assign per row | 64 KiB | 4 | 31.9 / 60.8 |
-| add_assign per row | 64 KiB | 8 | 35.3 / 45.8 |
-| add_assign | 1 KiB | 1 | 60.8 / 82.8 |
-| add_assign | 1 KiB | 16 | 86.1 / 134 |
-| add_assign | 1 KiB | 2 | 75.0 / 91.1 |
-| add_assign | 1 KiB | 32 | 35.0 / 64.2 |
-| add_assign | 1 KiB | 4 | 43.1 / 94.0 |
-| add_assign | 1 KiB | 8 | 84.5 / 131 |
-| add_assign | 64 B | 1 | 7.72 / 13.9 |
-| add_assign | 64 B | 16 | 60.8 / 82.7 |
-| add_assign | 64 B | 2 | 14.8 / 27.8 |
-| add_assign | 64 B | 32 | 74.9 / 91.0 |
+| add_assign per row | 64 KiB | 8 | 37.0 / 45.4 |
+| add_assign | 1 KiB | 1 | 52.7 / 82.4 |
+| add_assign | 1 KiB | 16 | 84.9 / 133 |
+| add_assign | 1 KiB | 2 | 75.1 / 91.0 |
+| add_assign | 1 KiB | 32 | 35.1 / 64.1 |
+| add_assign | 1 KiB | 4 | 43.2 / 94.2 |
+| add_assign | 1 KiB | 8 | 82.2 / 130 |
+| add_assign | 64 B | 1 | 8.44 / 14.7 |
+| add_assign | 64 B | 16 | 52.7 / 82.6 |
+| add_assign | 64 B | 2 | 7.13 / 12.4 |
+| add_assign | 64 B | 32 | 74.8 / 91.6 |
 | add_assign | 64 B | 4 | 28.5 / 44.7 |
-| add_assign | 64 B | 8 | 30.6 / 70.7 |
-| add_assign | 64 KiB | 1 | 31.7 / 60.8 |
-| add_assign | 64 KiB | 16 | 18.9 / 25.2 |
+| add_assign | 64 B | 8 | 31.0 / 72.0 |
+| add_assign | 64 KiB | 1 | 31.8 / 60.7 |
+| add_assign | 64 KiB | 16 | 18.9 / 25.7 |
 | add_assign | 64 KiB | 2 | 31.9 / 61.0 |
-| add_assign | 64 KiB | 32 | 18.5 / 24.7 |
+| add_assign | 64 KiB | 32 | 18.3 / 24.7 |
 | add_assign | 64 KiB | 4 | 32.0 / 61.1 |
-| add_assign | 64 KiB | 8 | 35.4 / 45.7 |
+| add_assign | 64 KiB | 8 | 37.1 / 45.5 |
 
 ### Network-size payloads
 
@@ -187,11 +187,11 @@ gf8b, ordinary `Vec<u8>` buffers; scatter rows use the payload length as the row
 
 | Operation | 64 B (GiB/s) | 256 B (GiB/s) | 512 B (GiB/s) | 1152 B (GiB/s) | 1168 B (GiB/s) | 1184 B (GiB/s) | 1200 B (GiB/s) | 1216 B (GiB/s) | 1232 B (GiB/s) | 1248 B (GiB/s) | 1400 B (GiB/s) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| add_assign | 7.41 / 12.1 | 28.5 / 43.0 | 29.6 / 71.1 | 55.8 / 81.7 | 62.5 / 98.0 | 57.4 / 82.5 | 57.6 / 98.1 | 58.2 / 82.3 | 63.5 / 101 | 59.7 / 83.4 | 62.8 / 102 |
-| mul_add | 4.90 / 13.9 | 19.3 / 39.9 | 28.9 / 58.7 | 52.8 / 70.7 | 54.8 / 78.4 | 54.5 / 71.0 | 63.0 / 78.2 | 54.3 / 70.7 | 56.4 / 80.3 | 54.8 / 71.9 | 49.6 / 67.9 |
-| mul_add_scatter (16 rows) | 13.2 / 27.1 | 37.7 / 74.5 | 44.7 / 90.4 | 89.1 / 109 | 63.7 / 96.0 | 68.5 / 111 | 59.9 / 95.0 | 89.2 / 112 | 63.6 / 96.3 | 69.2 / 113 | 44.4 / 62.2 |
-| mul_add_scatter (4 rows) | 9.01 / 17.9 | 31.0 / 43.7 | 37.3 / 72.9 | 79.8 / 96.6 | 63.0 / 86.6 | 68.0 / 98.4 | 55.4 / 87.8 | 83.8 / 98.7 | 64.6 / 89.3 | 69.1 / 99.8 | 41.4 / 59.6 |
-| mul_assign | 8.09 / 19.9 | 25.5 / 74.4 | 43.2 / 74.5 | 87.8 / 137 | 95.6 / 136 | 86.7 / 140 | 90.1 / 137 | 89.1 / 137 | 95.3 / 136 | 86.9 / 135 | 73.5 / 121 |
+| add_assign | 8.07 / 15.5 | 28.5 / 44.7 | 31.0 / 71.2 | 56.3 / 82.5 | 65.1 / 97.9 | 62.2 / 83.3 | 68.2 / 98.7 | 58.4 / 83.1 | 66.4 / 98.3 | 64.4 / 83.9 | 62.9 / 100 |
+| mul_add | 5.91 / 13.8 | 18.6 / 39.9 | 35.0 / 57.3 | 54.3 / 73.0 | 55.1 / 78.4 | 56.7 / 72.7 | 64.1 / 79.4 | 55.4 / 71.7 | 55.0 / 80.3 | 57.0 / 72.8 | 48.9 / 68.1 |
+| mul_add_scatter (16 rows) | 13.2 / 26.8 | 37.6 / 55.5 | 42.9 / 83.1 | 71.4 / 104 | 61.7 / 95.8 | 68.3 / 106 | 60.6 / 95.8 | 74.7 / 106 | 64.1 / 96.4 | 68.8 / 107 | 43.2 / 64.8 |
+| mul_add_scatter (4 rows) | 9.03 / 17.7 | 31.1 / 55.2 | 36.6 / 66.7 | 64.3 / 92.3 | 57.5 / 86.5 | 63.9 / 94.2 | 54.7 / 87.5 | 66.1 / 95.1 | 59.1 / 88.5 | 64.2 / 96.5 | 39.7 / 57.4 |
+| mul_assign | 9.37 / 21.5 | 26.4 / 69.9 | 49.1 / 112 | 86.7 / 139 | 85.6 / 138 | 94.1 / 139 | 90.3 / 137 | 86.8 / 139 | 92.7 / 137 | 96.5 / 140 | 69.6 / 122 |
 
 ### Fixed-offset multi-row operations
 
@@ -199,22 +199,22 @@ gf8d; every source and destination base carries the stated offset modulo 64. Sca
 
 | Row bytes | Base offset mod 64 | mul_add_scatter (GiB/s) | mul_add_gather (GiB/s) | mul_add_matrix (GiB/s) |
 | --- | --- | --- | --- | --- |
-| 1 KiB | 0 | 81.2 / 98.6 | 110 / 111 | 35.4 / 41.4 |
-| 1 KiB | 16 | 61.4 / 88.9 | 87.0 / 92.8 | 31.8 / 41.1 |
-| 16 KiB | 0 | 47.8 / 69.5 | 93.5 / 90.1 | 42.5 / 46.3 |
-| 16 KiB | 16 | 47.3 / 69.1 | 83.2 / 73.2 | 39.7 / 43.4 |
-| 2 KiB | 0 | 92.9 / 110 | 123 / 116 | 39.5 / 43.8 |
-| 2 KiB | 16 | 85.4 / 102 | 94.5 / 96.3 | 36.3 / 43.2 |
-| 256 B | 0 | 33.0 / 47.3 | 70.0 / 82.3 | 26.1 / 29.0 |
-| 256 B | 16 | 32.3 / 38.6 | 56.4 / 71.8 | 23.5 / 28.7 |
-| 3 KiB | 0 | 97.4 / 117 | 98.4 / 92.7 | 40.9 / 44.8 |
-| 3 KiB | 16 | 89.5 / 112 | 60.7 / 75.9 | 36.6 / 43.2 |
-| 4 KiB | 0 | 90.9 / 110 | 90.8 / 88.7 | 40.9 / 43.6 |
-| 4 KiB | 16 | 83.2 / 106 | 64.6 / 72.4 | 33.8 / 40.4 |
-| 512 B | 0 | 54.7 / 79.2 | 95.9 / 101 | 29.4 / 36.2 |
-| 512 B | 16 | 37.8 / 67.0 | 73.6 / 84.6 | 27.1 / 35.9 |
-| 8 KiB | 0 | 92.0 / 115 | 92.1 / 89.4 | 41.7 / 45.6 |
-| 8 KiB | 16 | 88.7 / 111 | 75.5 / 72.7 | 36.4 / 42.9 |
+| 1 KiB | 0 | 80.4 / 98.5 | 110 / 111 | 35.5 / 41.4 |
+| 1 KiB | 16 | 61.4 / 89.2 | 86.5 / 92.8 | 32.0 / 41.0 |
+| 16 KiB | 0 | 47.8 / 69.5 | 95.2 / 89.9 | 42.6 / 44.8 |
+| 16 KiB | 16 | 47.3 / 69.2 | 85.4 / 73.0 | 39.9 / 42.5 |
+| 2 KiB | 0 | 92.7 / 110 | 122 / 116 | 39.5 / 43.8 |
+| 2 KiB | 16 | 88.5 / 102 | 94.8 / 96.9 | 35.9 / 43.1 |
+| 256 B | 0 | 32.9 / 47.3 | 70.2 / 82.3 | 26.1 / 29.0 |
+| 256 B | 16 | 26.2 / 32.5 | 56.5 / 71.8 | 21.9 / 28.7 |
+| 3 KiB | 0 | 97.5 / 117 | 98.6 / 91.5 | 40.8 / 44.5 |
+| 3 KiB | 16 | 90.6 / 113 | 59.8 / 75.7 | 36.7 / 42.6 |
+| 4 KiB | 0 | 91.1 / 110 | 89.5 / 88.6 | 40.9 / 43.7 |
+| 4 KiB | 16 | 84.0 / 106 | 63.3 / 72.1 | 33.7 / 40.1 |
+| 512 B | 0 | 54.3 / 79.4 | 96.4 / 101 | 29.6 / 36.2 |
+| 512 B | 16 | 38.0 / 66.9 | 68.9 / 84.6 | 26.2 / 35.7 |
+| 8 KiB | 0 | 93.3 / 115 | 91.2 / 89.3 | 41.7 / 45.7 |
+| 8 KiB | 16 | 89.3 / 111 | 73.3 / 72.4 | 36.7 / 42.7 |
 
 ### Fixed-offset single-row multiplication
 
@@ -222,10 +222,10 @@ gf8d `mul_add`, 16 KiB; source and destination start at the stated offset from a
 
 | Base offset mod 64 | mul_add (GiB/s) |
 | --- | --- |
-| 0 | 97.8 / 95.1 |
-| 16 | 97.7 / 95.1 |
-| 32 | 97.9 / 95.1 |
-| 48 | 97.8 / 95.2 |
+| 0 | 97.9 / 95.1 |
+| 16 | 97.8 / 95.2 |
+| 32 | 98.1 / 95.1 |
+| 48 | 98.0 / 95.1 |
 
 ### Scatter destination alignment
 
@@ -233,17 +233,17 @@ Eight destinations, ordinary `Vec<u8>` source; the destination starts at the sta
 
 | Row size | Destination offset mod 64 | mul_add_scatter (GiB/s) |
 | --- | --- | --- |
-| 256 KiB | 0 | 29.6 / 30.1 |
-| 256 KiB | 16 | 29.7 / 22.4 |
-| 64 KiB | 0 | 48.4 / 69.4 |
-| 64 KiB | 16 | 48.3 / 69.1 |
+| 256 KiB | 0 | 29.3 / 29.9 |
+| 256 KiB | 16 | 29.6 / 22.6 |
+| 64 KiB | 0 | 48.5 / 69.3 |
+| 64 KiB | 16 | 48.3 / 69.4 |
 
 gf8d, one source and four 16 KiB destination rows, 64-byte-aligned buffers; raw coefficients against prepared coefficients through the plan.
 
 | Operation | Throughput (GiB/s) |
 | --- | --- |
-| mul_add_scatter | 48.5 / 70.7 |
-| mul_add_scatter_with | 48.6 / 70.9 |
+| mul_add_scatter | 48.6 / 70.6 |
+| mul_add_scatter_with | 48.6 / 70.8 |
 
 ### In-place scaling by buffer size
 
@@ -251,16 +251,16 @@ gf8d, one source and four 16 KiB destination rows, 64-byte-aligned buffers; raw 
 
 | Field | Buffer size | mul_assign (GiB/s) |
 | --- | --- | --- |
-| gf8b | 1 MiB | 49.5 / 53.0 |
+| gf8b | 1 MiB | 50.0 / 52.9 |
 | gf8b | 16 KiB | 137 / 179 |
 | gf8b | 256 KiB | 51.5 / 73.5 |
 | gf8b | 4 KiB | 128 / 166 |
 | gf8b | 64 KiB | 51.3 / 73.3 |
-| gf8d | 1 MiB | 47.5 / 50.0 |
+| gf8d | 1 MiB | 49.0 / 50.1 |
 | gf8d | 16 KiB | 137 / 180 |
-| gf8d | 256 KiB | 51.5 / 66.4 |
-| gf8d | 4 KiB | 128 / 166 |
-| gf8d | 64 KiB | 51.3 / 65.6 |
+| gf8d | 256 KiB | 51.5 / 66.2 |
+| gf8d | 4 KiB | 127 / 166 |
+| gf8d | 64 KiB | 51.4 / 66.1 |
 
 ### Byte-field density control
 
@@ -269,8 +269,8 @@ gf8d, one source and four 16 KiB destination rows, 64-byte-aligned buffers; raw 
 | Buffer bytes | add_assign (GiB/s) |
 | --- | --- |
 | 256 KiB | 41.4 / 63.4 |
-| 4 KiB | 43.3 / 101 |
-| 64 MiB | 6.05 / 14.5 |
+| 4 KiB | 43.3 / 99.4 |
+| 64 MiB | 6.05 / 14.4 |
 | 8 MiB | 8.39 / 24.1 |
 
 ### Large destinations
@@ -279,9 +279,9 @@ Ordinary `Vec<u8>` buffers. The read-back row XOR-folds every written 64-bit wor
 
 | Buffer size | mul_into (GiB/s) | mul_into + read (GiB/s) | mul_add (GiB/s) |
 | --- | --- | --- | --- |
-| 1 MiB | 18.8 / 25.7 | 13.7 / 20.3 | 18.8 / 26.3 |
-| 32 MiB | 9.38 / 27.5 | 5.96 / 14.2 | 6.27 / 16.3 |
-| 8 MiB | 18.2 / 40.0 | 7.68 / 16.2 | 8.30 / 24.8 |
+| 1 MiB | 18.9 / 25.4 | 13.8 / 19.9 | 18.9 / 24.3 |
+| 32 MiB | 9.32 / 27.2 | 5.95 / 14.1 | 6.26 / 16.3 |
+| 8 MiB | 18.2 / 40.0 | 7.60 / 16.2 | 8.40 / 24.2 |
 
 ## Competitors
 
@@ -289,19 +289,19 @@ Polynomial `0x11D`, page-aligned buffers, and matched coding coefficients. ISA-L
 
 | Operation | Sources × destinations | Row size | `fgf` (GiB/s) | Intel ISA-L (GiB/s) | klauspost/reedsolomon (GiB/s) |
 | --- | --- | --- | --- | --- | --- |
-| dst = c * src | 1 × 1 | 64 KiB | 40.0 / 62.0 | 17.8 / 43.7 | 33.7 / 54.8 |
+| dst = c * src | 1 × 1 | 64 KiB | 40.1 / 62.0 | 17.7 / 43.7 | 33.7 / 54.5 |
 | dst ^= c * src | 1 × 1 | 64 KiB | 40.9 / 62.1 | 41.2 / 62.5 | 29.1 / 46.9 |
-| dst = sum(c[i] * src[i]) | 16 × 1 | 4 KiB | 88.7 / 98.7 | 83.1 / 99.6 | 30.6 / 48.2 |
-| dst = sum(c[i] * src[i]) | 16 × 1 | 16 KiB | 92.5 / 93.8 | 75.0 / 91.0 | 35.7 / 54.6 |
-| systematic encode | 10 × 2 | 4 KiB | 75.1 / 73.5 | 65.5 / 71.2 | 53.8 / 71.6 |
-| systematic encode | 10 × 4 | 4 KiB | 39.7 / 45.7 | 35.8 / 43.0 | 32.0 / 42.7 |
-| systematic encode | 10 × 6 | 4 KiB | 26.7 / 31.3 | 24.4 / 29.9 | 22.7 / 29.9 |
-| systematic encode | 10 × 2 | 16 KiB | 81.8 / 80.5 | 52.9 / 66.6 | 67.5 / 81.5 |
-| systematic encode | 10 × 4 | 16 KiB | 42.9 / 48.8 | 36.7 / 37.8 | 38.3 / 48.1 |
-| systematic encode | 10 × 6 | 16 KiB | 27.1 / 33.1 | 25.1 / 29.2 | 25.7 / 32.6 |
-| systematic encode | 10 × 2 | 64 KiB | 83.5 / 75.9 | 54.0 / 65.4 | 73.6 / 82.2 |
-| systematic encode | 10 × 4 | 64 KiB | 43.3 / 48.6 | 35.6 / 33.6 | 40.7 / 45.9 |
-| systematic encode | 10 × 6 | 64 KiB | 27.0 / 32.6 | 23.9 / 23.0 | 26.5 / 29.4 |
+| dst = sum(c[i] * src[i]) | 16 × 1 | 4 KiB | 89.4 / 98.6 | 83.1 / 99.6 | 30.6 / 48.2 |
+| dst = sum(c[i] * src[i]) | 16 × 1 | 16 KiB | 95.5 / 93.7 | 74.9 / 91.1 | 35.7 / 54.8 |
+| systematic encode | 10 × 2 | 4 KiB | 75.8 / 73.4 | 65.7 / 71.3 | 53.7 / 71.9 |
+| systematic encode | 10 × 4 | 4 KiB | 39.6 / 45.6 | 35.8 / 43.1 | 31.9 / 42.7 |
+| systematic encode | 10 × 6 | 4 KiB | 26.8 / 31.4 | 24.5 / 30.1 | 22.5 / 29.9 |
+| systematic encode | 10 × 2 | 16 KiB | 81.8 / 81.3 | 53.1 / 66.4 | 67.2 / 81.6 |
+| systematic encode | 10 × 4 | 16 KiB | 42.9 / 48.8 | 36.7 / 37.9 | 38.5 / 48.1 |
+| systematic encode | 10 × 6 | 16 KiB | 27.1 / 33.2 | 25.0 / 29.0 | 25.7 / 32.6 |
+| systematic encode | 10 × 2 | 64 KiB | 83.7 / 75.9 | 54.1 / 65.3 | 73.6 / 82.3 |
+| systematic encode | 10 × 4 | 64 KiB | 43.3 / 48.5 | 35.8 / 32.1 | 40.7 / 45.5 |
+| systematic encode | 10 × 6 | 64 KiB | 27.0 / 32.6 | 23.8 / 23.0 | 26.6 / 29.5 |
 
 ## Caveats
 

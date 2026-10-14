@@ -23,11 +23,11 @@ Paired-run snapshot for v2. Every result cell reports Willow Cove (i5-1135G7) / 
 
 | Field | Operation | mul_add (GiB/s) |
 | --- | --- | --- |
-| fp16 | mul_add | 9.97 / 16.5 |
-| fp32 | mul_add | 3.71 / 6.07 |
-| fp64 | mul_add | 1.37 / 2.10 |
-| gf32b | mul_add | 17.1 / 29.5 |
-| gf64b | mul_add | 9.09 / 16.3 |
+| fp16 | mul_add | 9.17 / 16.4 |
+| fp32 | mul_add | 3.27 / 6.04 |
+| fp64 | mul_add | 1.25 / 2.11 |
+| gf32b | mul_add | 14.5 / 29.5 |
+| gf64b | mul_add | 8.34 / 15.9 |
 
 ## Competitors
 
