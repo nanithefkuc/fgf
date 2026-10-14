@@ -75,38 +75,46 @@ const fn limb_canonical(x: u32) -> u32 {
     mersenne31::reduce(x)
 }
 
+/// Add two canonical limbs: one conditional subtract, no re-reduction.
+///
+/// Storage is canonical by construction: `Elem::from_raw` reduces through
+/// [`raw_canonical`], buffer decodes funnel into `from_raw`, and every
+/// arithmetic output below is canonical, so callers never owe an entry
+/// reduction.
 #[inline]
 #[must_use]
 const fn limb_add(a: u32, b: u32) -> u32 {
-    let a = limb_canonical(a);
-    let b = limb_canonical(b);
     let s = a + b;
     if s >= MODULUS { s - MODULUS } else { s }
 }
 
+/// Subtract two canonical limbs: the wrapping add of `p` absorbs the borrow.
+///
+/// As for [`limb_add`]: inputs are canonical by construction.
 #[inline]
 #[must_use]
 const fn limb_sub(a: u32, b: u32) -> u32 {
-    let a = limb_canonical(a);
-    let b = limb_canonical(b);
     let s = a + (MODULUS - b);
     if s >= MODULUS { s - MODULUS } else { s }
 }
 
+/// Negate a canonical limb, with `neg(0) == 0`.
+///
+/// As for [`limb_add`]: the input is canonical by construction.
 #[inline]
 #[must_use]
 const fn limb_neg(a: u32) -> u32 {
-    let a = limb_canonical(a);
     if a == 0 { 0 } else { MODULUS - a }
 }
 
+/// Multiply two canonical limbs, folding the 62-bit product with `2^31 ≡ 1`.
+///
+/// As for [`limb_add`]: the inputs are canonical by construction.
 #[inline]
 #[must_use]
 #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
 const fn limb_mul(a: u32, b: u32) -> u32 {
-    let a = limb_canonical(a) as u64;
-    let b = limb_canonical(b) as u64;
-    let prod = a * b;
+    let prod = a as u64 * b as u64;
     let lo = (prod as u32) & MODULUS;
     let hi = (prod >> 31) as u32;
     mersenne31::reduce(lo + hi)
@@ -122,36 +130,44 @@ pub(crate) const fn raw_canonical(value: [u32; 2]) -> [u32; 2] {
     [limb_canonical(value[0]), limb_canonical(value[1])]
 }
 
-/// Raw sum.
+/// Sum of two canonical pairs: storage is canonical by construction, so no
+/// entry reduction.
+///
+/// Totality still holds because `Elem::from_raw` and the buffer decodes
+/// reduce raw limbs on the way in; arithmetic itself runs on canonical
+/// storage only.
 #[inline]
 #[must_use]
 pub(crate) const fn raw_add(left: [u32; 2], right: [u32; 2]) -> [u32; 2] {
     [limb_add(left[0], right[0]), limb_add(left[1], right[1])]
 }
 
-/// Raw difference.
+/// Difference of two canonical pairs, as for [`raw_add`].
 #[inline]
 #[must_use]
 pub(crate) const fn raw_sub(left: [u32; 2], right: [u32; 2]) -> [u32; 2] {
     [limb_sub(left[0], right[0]), limb_sub(left[1], right[1])]
 }
 
-/// Raw additive inverse.
+/// Additive inverse of a canonical pair, as for [`raw_add`].
 #[inline]
 #[must_use]
 pub(crate) const fn raw_neg(value: [u32; 2]) -> [u32; 2] {
     [limb_neg(value[0]), limb_neg(value[1])]
 }
 
-/// Raw product `(a+bi)(c+di) = (ac−bd)+(ad+bc)i`.
+/// Product `(a+bi)(c+di) = (ac−bd)+(ad+bc)i` over canonical pairs.
+///
+/// As for [`raw_add`]: the four limbs are canonical by construction, so the
+/// two nonnegative accumulators stay below `2p²` with no entry reduction.
 #[inline]
 #[must_use]
 #[allow(clippy::cast_lossless)]
 pub(crate) const fn raw_mul(left: [u32; 2], right: [u32; 2]) -> [u32; 2] {
-    let ar = limb_canonical(left[0]) as u64;
-    let ai = limb_canonical(left[1]) as u64;
-    let br = limb_canonical(right[0]) as u64;
-    let bi = limb_canonical(right[1]) as u64;
+    let ar = left[0] as u64;
+    let ai = left[1] as u64;
+    let br = right[0] as u64;
+    let bi = right[1] as u64;
     // Each nonnegative accumulator is below `2p²`, hence fits in `u64`.
     [
         reduce_product_sum(ar * br + ai * (MODULUS as u64 - bi)),
@@ -197,6 +213,7 @@ const fn raw_norm(value: [u32; 2]) -> u32 {
 #[must_use]
 #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
 pub(crate) const fn raw_inv(value: [u32; 2]) -> [u32; 2] {
+    let value = raw_canonical(value);
     let norm = raw_norm(value);
     if norm == 0 {
         return [0, 0];
@@ -208,8 +225,9 @@ pub(crate) const fn raw_inv(value: [u32; 2]) -> [u32; 2] {
     ]
 }
 
-/// Raw power by square-and-multiply, over canonical limbs.
+/// Square-and-multiply with entry normalization and canonical intermediates.
 const fn raw_pow(mut base: [u32; 2], mut exponent: u64) -> [u32; 2] {
+    base = raw_canonical(base);
     let mut result = [1, 0];
     while exponent != 0 {
         if exponent & 1 != 0 {
@@ -306,7 +324,7 @@ impl Elem<QuadMersenne31> {
         ]
     }
 
-    /// Conjugate `a − bi`.
+    /// Conjugate `a − bi` over canonical storage: no re-reduction.
     ///
     /// The result equals `Embedding<Mersenne31, QuadMersenne31>::frobenius`
     /// at this element.
@@ -318,7 +336,8 @@ impl Elem<QuadMersenne31> {
         }
     }
 
-    /// Norm `a² + b²` as an element of the base field.
+    /// Norm `a² + b²` as an element of the base field, over canonical
+    /// storage: no re-reduction of the inputs.
     ///
     /// The norm lives in `GF(2^31 − 1)`, not in a raw lane; the returned
     /// value is canonical. The result equals
@@ -331,7 +350,7 @@ impl Elem<QuadMersenne31> {
         }
     }
 
-    /// Field addition.
+    /// Field addition over canonical storage: no re-reduction.
     #[inline]
     #[must_use]
     pub const fn add(self, rhs: Self) -> Self {
@@ -340,7 +359,7 @@ impl Elem<QuadMersenne31> {
         }
     }
 
-    /// Field subtraction.
+    /// Field subtraction over canonical storage: no re-reduction.
     #[inline]
     #[must_use]
     pub const fn sub(self, rhs: Self) -> Self {
@@ -349,7 +368,7 @@ impl Elem<QuadMersenne31> {
         }
     }
 
-    /// Additive inverse.
+    /// Additive inverse over canonical storage: no re-reduction.
     #[inline]
     #[must_use]
     pub const fn neg(self) -> Self {
@@ -367,7 +386,8 @@ impl Elem<QuadMersenne31> {
         }
     }
 
-    /// Square: `(a+bi)² = (a²−b²) + 2ab·i`.
+    /// Square over canonical storage: `(a+bi)² = (a²−b²) + 2ab·i`, no
+    /// re-reduction of the inputs.
     #[inline]
     #[must_use]
     pub const fn square(self) -> Self {
@@ -376,7 +396,8 @@ impl Elem<QuadMersenne31> {
         }
     }
 
-    /// Multiplicative inverse via conjugate / norm. Maps zero to zero.
+    /// Multiplicative inverse via conjugate / norm over canonical storage.
+    /// Maps zero to zero.
     #[inline]
     #[must_use]
     pub const fn inv(self) -> Self {
@@ -385,11 +406,11 @@ impl Elem<QuadMersenne31> {
         }
     }
 
-    /// Field division. `x / 0 == 0`.
+    /// Field division over canonical storage. `x / 0 == 0`.
     #[inline]
     #[must_use]
     pub const fn div(self, rhs: Self) -> Self {
-        if limb_canonical(rhs.raw[0]) == 0 && limb_canonical(rhs.raw[1]) == 0 {
+        if rhs.raw[0] == 0 && rhs.raw[1] == 0 {
             return Self::ZERO;
         }
         self.mul(rhs.inv())

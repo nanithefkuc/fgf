@@ -120,8 +120,11 @@ pub fn sub_assign_sse42(_token: archmage::X64V2Token, dst: &mut [u8], src: &[u8]
 /// `dst += coeff * src (mod p)`, Mersenne31, SSE4.2.
 ///
 /// A zero coefficient leaves `dst` untouched, mirroring the portable
-/// reference. Every other lane canonicalizes on load, so every input lane
-/// bit pattern is legal and every stored lane is canonical.
+/// reference. The source canonicalizes through `mul_input` and the
+/// product stays canonical, so the destination needs only the
+/// redundant range `0..=p` (retaining redundant zero): `prod + dst <=`
+/// `2p - 1`, and the single trailing subtract-and-min canonicalizes
+/// every raw lane bit pattern. Every stored lane is canonical.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial lane.
@@ -156,8 +159,8 @@ pub fn mul_add_sse42(_token: archmage::X64V2Token, dst: &mut [u8], coeff: u32, s
         let (src_lanes, _) = src_tile.as_chunks::<16>();
         for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
             let prod = mulmod(cred, mul_input(_mm_loadu_si128(src_lane), p), p);
-            let d = min_chain(_mm_loadu_si128(&*dst_lane), p);
-            let sum = _mm_add_epi32(d, prod); // <= 2p - 2
+            let d = mul_input(_mm_loadu_si128(&*dst_lane), p);
+            let sum = _mm_add_epi32(d, prod); // <= 2p - 1
             let u = _mm_min_epu32(sum, _mm_sub_epi32(sum, p));
             _mm_storeu_si128(dst_lane, u);
         }
@@ -166,14 +169,13 @@ pub fn mul_add_sse42(_token: archmage::X64V2Token, dst: &mut [u8], coeff: u32, s
     let (src_lanes, src_tail) = src_rest.as_chunks::<16>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
         let prod = mulmod(cred, mul_input(_mm_loadu_si128(src_lane), p), p);
-        let d = min_chain(_mm_loadu_si128(&*dst_lane), p);
+        let d = mul_input(_mm_loadu_si128(&*dst_lane), p);
         let sum = _mm_add_epi32(d, prod);
         let u = _mm_min_epu32(sum, _mm_sub_epi32(sum, p));
         _mm_storeu_si128(dst_lane, u);
     }
     prime::mul_add::<Mersenne31>(dst_tail, Elem::<Mersenne31>::from_raw(coeff), src_tail);
 }
-
 /// `dst *= coeff (mod p)`, Mersenne31, SSE4.2.
 ///
 /// Every input lane bit pattern is legal: lanes canonicalize on load,

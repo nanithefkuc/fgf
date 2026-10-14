@@ -144,8 +144,11 @@ pub fn sub_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], src: &[u8]
 /// `dst += coeff * src (mod p)`, Mersenne31, AVX-512.
 ///
 /// A zero coefficient leaves `dst` untouched, mirroring the portable
-/// reference. Every other lane canonicalizes on load, so every input lane
-/// bit pattern is legal and every stored lane is canonical.
+/// reference. The source canonicalizes through `mul_input` and the
+/// product stays canonical, so the destination needs only the
+/// redundant range `0..=p` (retaining redundant zero): `prod + dst <=`
+/// `2p - 1`, and the single trailing subtract-and-min canonicalizes
+/// every raw lane bit pattern. Every stored lane is canonical.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial lane.
@@ -177,8 +180,8 @@ pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, s
     let (src_lanes, src_tail) = src.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
         let prod = mulmod(cred, mul_input(_mm512_loadu_si512(src_lane), p), p);
-        let d = min_chain(_mm512_loadu_si512(&*dst_lane), p);
-        let sum = _mm512_add_epi32(d, prod); // <= 2p - 2
+        let d = mul_input(_mm512_loadu_si512(&*dst_lane), p);
+        let sum = _mm512_add_epi32(d, prod); // <= 2p - 1
         _mm512_storeu_si512(dst_lane, _mm512_min_epu32(sum, _mm512_sub_epi32(sum, p)));
     }
     if !dst_tail.is_empty() {
@@ -253,7 +256,12 @@ pub fn mul_into_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, 
 /// `dst[i] = a[i] * b[i] (mod p)`, Mersenne31, AVX-512.
 ///
 /// Every input lane bit pattern is legal: lanes canonicalize on load,
-/// and every stored lane is canonical.
+/// and every stored lane is canonical. Each 256-byte group ORs its eight
+/// input lanes once and runs a single mask test: a clean group skips every
+/// per-vector `mul_input` (high-bit-free lanes already meet `mulmod`'s
+/// `0..=p` range), a dirty group falls back to the per-vector path. The
+/// sub-group remainder keeps the original 64-byte AVX-512 vector loop; only
+/// the sub-64-byte tail descends to AVX2.
 ///
 /// # Panics
 /// Panics unless all three buffers match in length (whole lanes).
@@ -275,9 +283,46 @@ pub fn mul_elementwise_avx512(token: archmage::X64V4Token, dst: &mut [u8], a: &[
     );
     check_elem_multiple("mersenne31::mul_elementwise_avx512", dst.len(), 4);
     let p = _mm512_set1_epi32(P);
-    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
-    let (a_lanes, a_tail) = a.as_chunks::<64>();
-    let (b_lanes, b_tail) = b.as_chunks::<64>();
+    let zero = _mm512_setzero_si512();
+    let (dst_groups, dst_rest) = dst.as_chunks_mut::<256>();
+    let (a_groups, a_rest) = a.as_chunks::<256>();
+    let (b_groups, b_rest) = b.as_chunks::<256>();
+    for (dst_group, (a_group, b_group)) in dst_groups.iter_mut().zip(a_groups.iter().zip(b_groups))
+    {
+        let (dst_lanes, _) = dst_group.as_chunks_mut::<64>();
+        let (a_lanes, _) = a_group.as_chunks::<64>();
+        let (b_lanes, _) = b_group.as_chunks::<64>();
+        let va = [
+            _mm512_loadu_si512(&a_lanes[0]),
+            _mm512_loadu_si512(&a_lanes[1]),
+            _mm512_loadu_si512(&a_lanes[2]),
+            _mm512_loadu_si512(&a_lanes[3]),
+        ];
+        let vb = [
+            _mm512_loadu_si512(&b_lanes[0]),
+            _mm512_loadu_si512(&b_lanes[1]),
+            _mm512_loadu_si512(&b_lanes[2]),
+            _mm512_loadu_si512(&b_lanes[3]),
+        ];
+        let acc = _mm512_or_si512(
+            _mm512_or_si512(_mm512_or_si512(va[0], va[1]), _mm512_or_si512(va[2], va[3])),
+            _mm512_or_si512(_mm512_or_si512(vb[0], vb[1]), _mm512_or_si512(vb[2], vb[3])),
+        );
+        if _mm512_cmpgt_epi32_mask(zero, acc) == 0 {
+            for ((dst_lane, &x), &y) in dst_lanes.iter_mut().zip(va.iter()).zip(vb.iter()) {
+                _mm512_storeu_si512(dst_lane, mulmod(x, y, p));
+            }
+        } else {
+            for ((dst_lane, &x), &y) in dst_lanes.iter_mut().zip(va.iter()).zip(vb.iter()) {
+                _mm512_storeu_si512(dst_lane, mulmod(mul_input(x, p), mul_input(y, p), p));
+            }
+        }
+    }
+    // Sub-group remainder keeps the original 64-byte AVX-512 vector loop;
+    // only the sub-64-byte tail descends to AVX2.
+    let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<64>();
+    let (a_lanes, a_tail) = a_rest.as_chunks::<64>();
+    let (b_lanes, b_tail) = b_rest.as_chunks::<64>();
     for ((dst_lane, a_lane), b_lane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
         let va = mul_input(_mm512_loadu_si512(a_lane), p);
         let vb = mul_input(_mm512_loadu_si512(b_lane), p);
