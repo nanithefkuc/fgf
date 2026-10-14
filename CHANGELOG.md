@@ -95,6 +95,10 @@ All notable changes to this project are documented here. The format follows
 - QuadMersenne31 vector products retain redundant zero internally; scalar
   arithmetic consumes canonical element storage without repeating entry
   reductions. Constructors and packed-buffer decodes retain normalization.
+- Mersenne31 AVX-512 products use explicit two-source word permutations,
+  and multiply-accumulate groups independent vectors while retaining
+  per-vector raw-input normalization and ISA-width tails. Measurements:
+  [targeted Mersenne record](BENCHMARKS.md#targeted-mersenne-regression-measurements).
 
 ## [3.0.1] - 2026-10-10
 
