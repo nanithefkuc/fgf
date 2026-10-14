@@ -129,31 +129,47 @@ and backend mismatches.
 
 ## Targeted Mersenne regression measurements
 
-| Request | Public operation | Work unit | Before (ns) | After (ns) | Before / after |
-| --- | --- | --- | ---: | ---: | ---: |
-| v3_gfni_crypto | M31 mul_into | 64 KiB region | 4018.250 | 3046.250 | 1.3191 |
-| v3_gfni_crypto | M31 mul_add | 64 KiB region | 5603.625 | 4637.688 | 1.2083 |
-| v3_gfni_crypto | M31 mul_elementwise | 64 KiB region | 5151.125 | 3694.594 | 1.3942 |
-| v3_gfni_crypto | QM31 indexed acc += a*b | element | 16.195 | 10.737 | 1.5083 |
-| v3_gfni_crypto | QM31 mul_elementwise control | 64 KiB region | 7480.812 | 7479.719 | 1.0001 |
-| v4x | M31 mul_into | 64 KiB region | 2420.875 | 2197.594 | 1.1016 |
-| v4x | M31 mul_add | 64 KiB region | 3715.312 | 3359.469 | 1.1059 |
-| v4x | M31 mul_elementwise | 64 KiB region | 3503.531 | 3208.688 | 1.0919 |
-| v4x | QM31 indexed acc += a*b | element | 16.196 | 10.715 | 1.5115 |
-| v4x | QM31 mul_elementwise control | 64 KiB region | 5113.750 | 5114.344 | 0.9999 |
-| v2 | M31 mul_into | 64 KiB region | 7880.344 | 5911.250 | 1.3331 |
-| v2 | M31 mul_add | 64 KiB region | 11101.500 | 9185.875 | 1.2085 |
-| v2 | M31 mul_elementwise | 64 KiB region | 10203.781 | 7217.906 | 1.4137 |
-| v2 | QM31 indexed acc += a*b | element | 16.149 | 10.737 | 1.5041 |
-| v2 | QM31 mul_elementwise control | 64 KiB region | 32184.188 | 32265.031 | 0.9975 |
+| Comparison | Request | Public operation | Work unit | Before (ns) | After (ns) | Before / after |
+| --- | --- | --- | --- | ---: | ---: | ---: |
+| f3cd58c3 → 365102a | v3_gfni_crypto | M31 mul_into | 64 KiB region | 4018.250 | 3046.250 | 1.3191 |
+| f3cd58c3 → 365102a | v3_gfni_crypto | M31 mul_add | 64 KiB region | 5603.625 | 4637.688 | 1.2083 |
+| f3cd58c3 → 365102a | v3_gfni_crypto | M31 mul_elementwise | 64 KiB region | 5151.125 | 3694.594 | 1.3942 |
+| f3cd58c3 → 365102a | v3_gfni_crypto | QM31 indexed acc += a*b | element | 16.195 | 10.737 | 1.5083 |
+| f3cd58c3 → 365102a | v3_gfni_crypto | QM31 mul_elementwise control | 64 KiB region | 7480.812 | 7479.719 | 1.0001 |
+| f3cd58c3 → 365102a | v4x | M31 mul_into | 64 KiB region | 2420.875 | 2197.594 | 1.1016 |
+| f3cd58c3 → 365102a | v4x | M31 mul_add | 64 KiB region | 3715.312 | 3359.469 | 1.1059 |
+| f3cd58c3 → 365102a | v4x | M31 mul_elementwise | 64 KiB region | 3503.531 | 3208.688 | 1.0919 |
+| f3cd58c3 → 365102a | v4x | QM31 indexed acc += a*b | element | 16.196 | 10.715 | 1.5115 |
+| f3cd58c3 → 365102a | v4x | QM31 mul_elementwise control | 64 KiB region | 5113.750 | 5114.344 | 0.9999 |
+| f3cd58c3 → 365102a | v2 | M31 mul_into | 64 KiB region | 7880.344 | 5911.250 | 1.3331 |
+| f3cd58c3 → 365102a | v2 | M31 mul_add | 64 KiB region | 11101.500 | 9185.875 | 1.2085 |
+| f3cd58c3 → 365102a | v2 | M31 mul_elementwise | 64 KiB region | 10203.781 | 7217.906 | 1.4137 |
+| f3cd58c3 → 365102a | v2 | QM31 indexed acc += a*b | element | 16.149 | 10.737 | 1.5041 |
+| f3cd58c3 → 365102a | v2 | QM31 mul_elementwise control | 64 KiB region | 32184.188 | 32265.031 | 0.9975 |
+| 2.1.0 → 601b07d | v3_gfni_crypto | M31 mul_into | 64 KiB region | 2810.719 | 3038.094 | 0.9252 |
+| 2.1.0 → 601b07d | v3_gfni_crypto | M31 mul_add | 64 KiB region | 3696.375 | 4175.562 | 0.8852 |
+| 2.1.0 → 601b07d | v3_gfni_crypto | M31 mul_elementwise | 64 KiB region | 3154.562 | 3398.969 | 0.9281 |
+| 2.1.0 → 601b07d | v3_gfni_crypto | QM31 indexed acc += a*b | element | 8.999 | 4.524 | 1.9892 |
+| 2.1.0 → 601b07d | v3_gfni_crypto | QM31 mul_into | 64 KiB region | 5554.219 | 4656.156 | 1.1929 |
+| 2.1.0 → 601b07d | v3_gfni_crypto | QM31 mul_add | 64 KiB region | 7687.969 | 6961.688 | 1.1043 |
+| 2.1.0 → 601b07d | v3_gfni_crypto | QM31 mul_elementwise | 64 KiB region | 6744.875 | 5498.562 | 1.2267 |
+| 2.1.0 → 601b07d | v4x | M31 mul_into | 64 KiB region | 1668.125 | 2196.969 | 0.7593 |
+| 2.1.0 → 601b07d | v4x | M31 mul_add | 64 KiB region | 2195.938 | 3257.375 | 0.6741 |
+| 2.1.0 → 601b07d | v4x | M31 mul_elementwise | 64 KiB region | 2045.938 | 2384.906 | 0.8579 |
+| 2.1.0 → 601b07d | v4x | QM31 indexed acc += a*b | element | 8.989 | 4.525 | 1.9868 |
+| 2.1.0 → 601b07d | v4x | QM31 mul_into | 64 KiB region | 3803.875 | 3672.906 | 1.0357 |
+| 2.1.0 → 601b07d | v4x | QM31 mul_add | 64 KiB region | 5337.406 | 5225.500 | 1.0214 |
+| 2.1.0 → 601b07d | v4x | QM31 mul_elementwise | 64 KiB region | 4525.156 | 4327.969 | 1.0456 |
 
 - Tracking, candidate decisions, source identities, and reproduction:
   [Issue #47](https://github.com/nanithefkuc/fgf/issues/47).
 - Host architecture: Willow Cove i5-1135G7; Linux 7.2.7, Rust 1.98.1, isolated core
   3, performance governor, SCHED_IDLE; actual affinity is recorded by the harness.
 - Requests resolve M31 and QM31 to `v3`, `v4x`, and `v2`, respectively.
-- Both versions run interleaved in each of five rounds; aggregation is the
-  median of per-run medians. Ratios use unrounded values.
+- Aggregation is the median of five per-run medians; ratios use unrounded values.
+  The initial comparison interleaves both versions. The release-parity rows
+  rotate release 2.1.0 (`c20465ba`), unmodified v3 (`f3cd58c3`), `365102a`,
+  and `601b07d` within every round of a separate same-session campaign.
 - Each version runs `just bench-refresh-round m31` with the requested
   `SIMD_BACKEND` and `FEC_GOLDEN_CORE=3`, under `chrt --idle 0 taskset -c 3`.
 - Self artifacts use the portable all-feature bench profile; comparator
@@ -161,8 +177,9 @@ and backend mismatches.
 - Native fixtures use page-aligned canonical lanes. Setup, allocation, fixture
   generation, conversion, and preparation remain outside timing; required
   operand checks and normalization remain inside the public calls.
-- The native harness validates outputs against Plonky3 before timing. Unchanged
-  QM31 elementwise and byte-XOR controls accompany the changed operations.
+- The native harness validates outputs against Plonky3 before timing.
+  Byte-XOR and duplicate-native-body controls accompany the calls; QM31
+  elementwise is an unchanged control only in the initial comparison.
 - These targeted results do not replace the published family snapshots and
   are not Golden Cove measurements. Full Willow Cove and Golden Cove campaigns gate merging.
 
