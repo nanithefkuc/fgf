@@ -94,7 +94,7 @@ All notable changes to this project are documented here. The format follows
 - Mersenne31 AVX-512 products use explicit two-source word permutations,
   and multiply-accumulate groups independent vectors while retaining
   per-vector raw-input normalization and ISA-width tails. Measurements:
-  [targeted Mersenne record](BENCHMARKS.md#targeted-mersenne-regression-measurements).
+  [PR measurement record](https://github.com/nanithefkuc/fgf/pull/48#issuecomment-6163124505).
 
 ## [3.0.1] - 2026-10-10
 
