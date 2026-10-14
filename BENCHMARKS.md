@@ -149,7 +149,7 @@ and backend mismatches.
 
 - Tracking, candidate decisions, source identities, and reproduction:
   [Issue #47](https://github.com/nanithefkuc/fgf/issues/47).
-- Host: zbox, Willow Cove i5-1135G7; Linux 7.2.7, Rust 1.98.1, isolated core
+- Host architecture: Willow Cove i5-1135G7; Linux 7.2.7, Rust 1.98.1, isolated core
   3, performance governor, SCHED_IDLE; actual affinity is recorded by the harness.
 - Requests resolve M31 and QM31 to `v3`, `v4x`, and `v2`, respectively.
 - Both versions run interleaved in each of five rounds; aggregation is the
@@ -164,5 +164,5 @@ and backend mismatches.
 - The native harness validates outputs against Plonky3 before timing. Unchanged
   QM31 elementwise and byte-XOR controls accompany the changed operations.
 - These targeted results do not replace the published family snapshots and
-  are not Golden Cove measurements. Full zbox and cachy campaigns gate merging.
+  are not Golden Cove measurements. Full Willow Cove and Golden Cove campaigns gate merging.
 
