@@ -30,7 +30,7 @@ live only in the comparison pages; values below one remain visible.
 
 | Setting | Willow Cove | Golden Cove |
 | --- | --- | --- |
-| Campaign date (UTC) | 2026-10-13 | 2026-10-13 |
+| Campaign date (UTC) | 2026-10-14 | 2026-10-14 |
 | CPU | Intel Core i5-1135G7 | Intel Core i7-12700K |
 | Availability | Measured | Measured |
 | OS | Arch Linux 7.2.7-arch1-1 | CachyOS Linux 7.2.6-1-cachyos |
@@ -39,14 +39,17 @@ live only in the comparison pages; values below one remain visible.
 | SMT | Siblings offline | Enabled; sibling 9 isolated and online |
 | Requested process backend | v4x | v3_gfni_crypto |
 | Rust | 1.98.1 | 1.98.1 |
+| Go | 1.27.1-X:nodwarf5 | 1.27.1-X:nodwarf5 |
+| GCC | 16.2.1 | 16.2.1 |
+| System ISA-L | 2.32.0 | 2.32.0 |
 | Execution | SCHED_IDLE, pinned CPU; RAYON_NUM_THREADS=1, GOMAXPROCS=1 | SCHED_IDLE, pinned CPU; RAYON_NUM_THREADS=1, GOMAXPROCS=1 |
 
 | Source and method | Value |
 | --- | --- |
 | Released baseline | v2.1.0, `c20465ba22d078e0fb115fb6a99fa77027992c90` |
-| Current library | Working tree based on v3.0.1, revision `f3cd58c39e6e3672216912dd3e6131da1c4b670a` |
-| Current source archive SHA-256 | `778804696da94a736b05ca29dd1c686c2c7d42813d6e166ad5441c77ef5e84f9` |
-| Baseline source archive SHA-256 | `9c36b80d2f5fb5c585f581854f6e4ba6a4e4fb564746077ac5903d2452aa6c42` |
+| Current library | v3.0.1 with PR #48 changes, revision `358c31f92e3febd885a4b9d2cdb4858c632cb4fc` |
+| Current source archive SHA-256 | `8b1fcda6fea880f6020ebb6afbf40d06a3f81c35a4d9da63b20fc9112a7cd185` |
+| Baseline source archive SHA-256 | `38caddb2daf594f65b9a436703d2f71e1efca958ea8436f0bdfd465d72e8c68b` |
 | Self build | Portable x86-64 target, all features, thin LTO, one codegen unit; published dependency pins |
 | Competitor build | Native host builds; versions and packing widths in family pages |
 | Sampling | Median of five per-run medians; no historical timing inputs |
