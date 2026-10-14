@@ -1,15 +1,15 @@
 //! Mersenne31 kernels over 512-bit lanes (`V4x`).
 //!
-//! Lane-for-lane ports of the `avx2` entries at sixteen 32-bit lanes per
-//! vector: the same direct `vpminud` canonicalization, so every lane
-//! produces the bytes the AVX2 kernel produces. The multiply
-//! recombination differs from the AVX2 blend form: both `a` limb sets are
-//! doubled, the odd `b` limbs are gathered with `vmovehdup`, and masked
-//! `vmovsldup`/`vmovshdup` recombination pairs each doubled partial product
-//! for one right shift and one conditional subtract. Only AVX-512F
-//! instructions are used, so each entry takes `X64V4Token`. Complete 64-byte
-//! lanes run here; the remainder descends through the matching AVX2 entry,
-//! which carries its own scalar tail.
+//! Buffers use `fgf`'s little-endian 32-bit field-lane layout. Raw lanes
+//! normalize to the multiplication input range before their products are
+//! computed; stored products are canonical.
+//!
+//! Multiplication doubles the left limbs and interleaves the low and high
+//! partial-product words with fixed two-source permutations before the
+//! Mersenne fold. Multiply-accumulate groups independent vectors without
+//! sharing their input-range decisions. Each entry takes `X64V4Token`;
+//! complete 64-byte lanes run here, and smaller remainders descend through
+//! the matching AVX2 entry and its scalar tail.
 
 use super::{
     P, add_assign_avx2, add_assign_scalar_avx2, mul_add_avx2, mul_assign_avx2,
@@ -24,9 +24,6 @@ use crate::kernel::proven_checks::{check_elem_multiple, check_equal};
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
-
-/// Odd 32-bit lanes of a 512-bit vector, as a blend mask.
-const ODD_LANES: __mmask16 = 0xAAAA;
 
 /// Canonicalize arbitrary raw `u32` lanes below `p` in two unconditional
 /// subtract-and-min steps; every lane value fits `0..=2p + 1`
@@ -59,16 +56,10 @@ fn mulmod(a: __m512i, b: __m512i, p: __m512i) -> __m512i {
     let b_odd = _mm512_castps_si512(_mm512_movehdup_ps(_mm512_castsi512_ps(b)));
     let even = _mm512_mul_epu32(a_even_dbl, b);
     let odd = _mm512_mul_epu32(a_odd_dbl, b_odd);
-    let lo_dbl = _mm512_castps_si512(_mm512_mask_moveldup_ps(
-        _mm512_castsi512_ps(even),
-        ODD_LANES,
-        _mm512_castsi512_ps(odd),
-    ));
-    let hi = _mm512_castps_si512(_mm512_mask_movehdup_ps(
-        _mm512_castsi512_ps(odd),
-        !ODD_LANES,
-        _mm512_castsi512_ps(even),
-    ));
+    let lo_index = _mm512_setr_epi32(0, 16, 2, 18, 4, 20, 6, 22, 8, 24, 10, 26, 12, 28, 14, 30);
+    let hi_index = _mm512_setr_epi32(1, 17, 3, 19, 5, 21, 7, 23, 9, 25, 11, 27, 13, 29, 15, 31);
+    let lo_dbl = _mm512_permutex2var_epi32(even, lo_index, odd);
+    let hi = _mm512_permutex2var_epi32(even, hi_index, odd);
     let lo = _mm512_srli_epi32::<1>(lo_dbl);
     let t = _mm512_add_epi32(lo, hi);
     _mm512_min_epu32(t, _mm512_sub_epi32(t, p))
@@ -176,8 +167,20 @@ pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, s
     }
     let p = _mm512_set1_epi32(P);
     let cred = _mm512_set1_epi32(c as i32);
-    let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
-    let (src_lanes, src_tail) = src.as_chunks::<64>();
+    let (dst_tiles, dst_rest) = dst.as_chunks_mut::<256>();
+    let (src_tiles, src_rest) = src.as_chunks::<256>();
+    for (dst_tile, src_tile) in dst_tiles.iter_mut().zip(src_tiles) {
+        let (ds, _) = dst_tile.as_chunks_mut::<64>();
+        let (ss, _) = src_tile.as_chunks::<64>();
+        for i in 0..4 {
+            let prod = mulmod(cred, mul_input(_mm512_loadu_si512(&ss[i]), p), p);
+            let d = mul_input(_mm512_loadu_si512(&ds[i]), p);
+            let sum = _mm512_add_epi32(d, prod);
+            _mm512_storeu_si512(&mut ds[i], _mm512_min_epu32(sum, _mm512_sub_epi32(sum, p)));
+        }
+    }
+    let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<64>();
+    let (src_lanes, src_tail) = src_rest.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
         let prod = mulmod(cred, mul_input(_mm512_loadu_si512(src_lane), p), p);
         let d = mul_input(_mm512_loadu_si512(&*dst_lane), p);
