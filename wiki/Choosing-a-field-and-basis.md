@@ -51,15 +51,15 @@ Copying coordinates is not a value-preserving conversion.
 `Normal<P, E>` starts from a polynomial-field element `E` and uses its conjugates `E, E^2, E^4, ...` as an ordered basis. Bit `i` selects `E^(2^i)`. The conjugates must form a full-rank basis. One is represented by all the live coordinate bits being set, not by the integer `1`.
 
 ```rust
-use fgf::{AES, FiniteField, Elem, Embedding, Normal, Polynomial};
+use fgf::{AES, FiniteField, Elem, Isomorphism, Normal, Polynomial};
 
 type PolynomialField = FiniteField<2, 8, Polynomial<AES>>;
 type NormalField = FiniteField<2, 8, Normal<AES, 0x20>>;
-let change = Embedding::<PolynomialField, NormalField>::new().unwrap();
+let change = Isomorphism::<PolynomialField, NormalField>::new().unwrap();
 assert_eq!(Elem::<NormalField>::ONE.to_raw(), 0xff);
-assert_eq!(change.embed(Elem::<PolynomialField>::ONE), Elem::<NormalField>::ONE);
+assert_eq!(change.apply(Elem::<PolynomialField>::ONE), Elem::<NormalField>::ONE);
 let x = Elem::<PolynomialField>::from_raw(0x53);
-assert_eq!(change.restrict(change.embed(x)), Some(x));
+assert_eq!(change.unapply(change.apply(x)), x);
 ```
 
 `from_raw(1)` means the first basis vector. Application code uses `Elem::<F>::ONE` when it needs the multiplicative identity, independent of the basis.
@@ -69,15 +69,15 @@ assert_eq!(change.restrict(change.embed(x)), Some(x));
 `Cantor<P, SEED>` builds an ordered chain with `c_(N-1) = SEED` and `c_i = c_(i+1)^2 + c_(i+1)`. Bit `i` selects `c_i`. A valid chain reaches `c_0 = ONE` and spans the field.
 
 ```rust
-use fgf::{AES, FiniteField, Cantor, Elem, Embedding, Polynomial};
+use fgf::{AES, FiniteField, Cantor, Elem, Isomorphism, Polynomial};
 
 type PolynomialField = FiniteField<2, 8, Polynomial<AES>>;
 type CantorField = FiniteField<2, 8, Cantor<AES, 0x20>>;
-let change = Embedding::<PolynomialField, CantorField>::new().unwrap();
+let change = Isomorphism::<PolynomialField, CantorField>::new().unwrap();
 let x = Elem::<PolynomialField>::from_raw(0x53);
 let y = Elem::<PolynomialField>::from_raw(0xca);
-assert_eq!(change.embed(x * y), change.embed(x) * change.embed(y));
-assert_eq!(change.embed(Elem::<PolynomialField>::ONE), Elem::<CantorField>::ONE);
+assert_eq!(change.apply(x * y), change.apply(x) * change.apply(y));
+assert_eq!(change.apply(Elem::<PolynomialField>::ONE), Elem::<CantorField>::ONE);
 ```
 
 Ordered bases supply coordinates and arithmetic, not an FFT algorithm.

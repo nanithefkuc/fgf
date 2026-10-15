@@ -288,6 +288,9 @@ impl Elem<QuadMersenne31> {
     }
 
     /// Conjugate `a − bi`.
+    ///
+    /// The result equals `Embedding<Mersenne31, QuadMersenne31>::frobenius`
+    /// at this element.
     #[inline]
     #[must_use]
     pub const fn conjugate(self) -> Self {
@@ -299,7 +302,8 @@ impl Elem<QuadMersenne31> {
     /// Norm `a² + b²` as an element of the base field.
     ///
     /// The norm lives in `GF(2^31 − 1)`, not in a raw lane; the returned
-    /// value is canonical.
+    /// value is canonical. The result equals
+    /// `Embedding<Mersenne31, QuadMersenne31>::norm` at this element.
     #[inline]
     #[must_use]
     pub const fn norm(self) -> Elem<Mersenne31> {

@@ -8,21 +8,25 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Mixed embedding composition over a sealed `Postcompose` right-hand
+  operand: `Embedding::then` accepts a proper inclusion or an
+  isomorphism out of the middle row, and
+  `Isomorphism::then_embedding` composes an isomorphism into a proper
+  inclusion.
 - Wiki reference for operation suffixes, destination behavior, prepared state,
-  row addressing, and allocation.
-- One-time field migration verification is recorded in
-  [Issue #41](https://github.com/nanithefkuc/fgf/issues/41), rather than a
-  permanent expanded regression corpus.
-- AVX-512 generic residue kernels under `simd512`: nibble-table `u8`,
-  Shoup and Barrett `u32`, Montgomery `u64`, and delayed-reduction prepared
-  matrices. Capable residue rows report `V4x`; short rows retain narrower
-  or portable routes, and zero/unit coefficient byte behavior is unchanged.
-- Behavioral regressions cover irreducible and reducible extension relations,
-  relation-field arithmetic, ordered-basis subfield embeddings, rejected
-  restrictions and degree mismatches, and quadratic prime identity predicates.
 
 ### Changed
 
+- **Breaking:** `Embedding` names proper inclusions only: equal-degree
+  construction reports `EmbeddingError::EqualDegree`, and
+  `Isomorphism` is the only equal-degree map with `apply`/`unapply`.
+  `Isomorphism::from_embedding` and `Isomorphism::to_embedding` are
+  removed. Migrate equal-degree `Embedding::new`/`from_images` to
+  `Isomorphism::new`/`from_images`, `embed` to `apply`, and `restrict`
+  to `unapply` at equal degree.
+- The wiki embedding guide covers the proper-inclusion and isomorphism
+  split, mixed composition through `then` and `then_embedding`, and the
+  `EqualDegree` and `IncompatibleDegree` rejection pair.
 - The dependency lock records published sources for locked MSRV checks;
   umbrella-local patch resolution is excluded from the publication lock.
 

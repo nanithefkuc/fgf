@@ -85,7 +85,7 @@ pub use binary::{
     AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Normal,
     Polynomial, RS,
 };
-pub use embedding::{Embedding, EmbeddingError, Isomorphism};
+pub use embedding::{Embedding, EmbeddingError, Isomorphism, Postcompose};
 pub use extension::{
     Components, Extension, ExtensionField, ExtensionSpec, ExtensionStorage, Packed, PackedPadded,
     PackedWord, Relation,

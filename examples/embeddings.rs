@@ -2,14 +2,15 @@
 //!
 //! Run with `just example embeddings`, optionally with
 //! `--no-default-features`. `Embedding<S, T>` prepares one canonical
-//! inclusion through the frozen reference ladder; construction and
+//! proper inclusion through the frozen reference ladder, and
+//! `Isomorphism<S, T>` names the equal-degree map; construction and
 //! application allocate nothing, and repeated application reuses the
 //! prepared columns without rebuilding them.
 
 #![forbid(unsafe_code)]
 
 use fgf::poly::{AES, RS};
-use fgf::{Elem, Embedding, EmbeddingError, FiniteField, Polynomial};
+use fgf::{Elem, Embedding, EmbeddingError, FiniteField, Isomorphism, Polynomial};
 
 // Callers name their own fields; the canonical `FiniteField<2, N, R>` type is the API.
 type Gf1 = fgf::FiniteField<2, 1, fgf::Polynomial<3>>;
@@ -34,25 +35,25 @@ fn main() {
     println!("GF(16) x embeds into AES as {image}; the literal byte 2 is outside the image.");
 
     // Equal degree is a change of presentation. The AES-to-Reed-Solomon map
-    // is a ring isomorphism: it preserves one and products, and restriction
-    // inverts it.
+    // is a ring isomorphism: it preserves one and products, and the
+    // inverse inverts it.
     let involution =
-        Embedding::<FiniteField<2, 8, Polynomial<AES>>, FiniteField<2, 8, Polynomial<RS>>>::new()
+        Isomorphism::<FiniteField<2, 8, Polynomial<AES>>, FiniteField<2, 8, Polynomial<RS>>>::new()
             .unwrap();
     let (a, b) = (Elem::<Aes>::from_raw(0x53), Elem::<Aes>::from_raw(0xca));
     assert_eq!(
-        involution.embed(Elem::<Aes>::ONE),
+        involution.apply(Elem::<Aes>::ONE),
         Elem::<FiniteField<2, 8, Polynomial<RS>>>::ONE
     );
     assert_eq!(
-        involution.embed(a * b),
-        involution.embed(a) * involution.embed(b)
+        involution.apply(a * b),
+        involution.apply(a) * involution.apply(b)
     );
-    assert_eq!(involution.restrict(involution.embed(a)), Some(a));
+    assert_eq!(involution.unapply(involution.apply(a)), a);
     println!(
         "AES {a} * {b} = {} maps to {} in the Reed-Solomon basis.",
         a * b,
-        involution.embed(a * b)
+        involution.apply(a * b)
     );
 
     // Above the AES field, inclusions keep the base in the low component.
@@ -82,18 +83,18 @@ fn main() {
     );
 
     // Cross-basis at equal degree: the Fan-Paar tower through the same
-    // ladder. Equal descriptions embed identically; different descriptions
+    // ladder. Equal descriptions map identically; different descriptions
     // still compare as fields, not as raw bytes.
-    let cross = Embedding::<FanPaar16Field, Gf16>::new().unwrap();
+    let cross = Isomorphism::<FanPaar16Field, Gf16>::new().unwrap();
     let (p, q) = (
         Elem::<FanPaar16Field>::from_raw(0x35C2),
         Elem::<FanPaar16Field>::from_raw(0x1234),
     );
-    assert_eq!(cross.restrict(cross.embed(p * q)), Some(p * q));
-    assert_ne!(cross.embed(p).to_raw(), p.to_raw());
+    assert_eq!(cross.unapply(cross.apply(p * q)), p * q);
+    assert_ne!(cross.apply(p).to_raw(), p.to_raw());
     println!(
         "Fan-Paar {p} maps to {} in the Rijndael basis.",
-        cross.embed(p)
+        cross.apply(p)
     );
 
     // Through to degree 64: commuting triangles make the composite the

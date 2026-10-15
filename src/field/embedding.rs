@@ -1,22 +1,22 @@
 //! Characteristic-independent field embeddings and isomorphisms.
 //!
-//! [`Embedding<S, T>`](Embedding) prepares one injective field homomorphism
-//! from `S` into `T`, for every pair of rows of equal characteristic whose
-//! source degree divides the target degree. [`Isomorphism<S, T>`](Isomorphism)
-//! is its equal-degree form with a total inverse. One implementation serves
-//! every characteristic: the prepared state stores the image in `T` of each
-//! generator level of `S`, embedding evaluates by Horner's rule in the
-//! target's arithmetic, membership is the relative Frobenius, and
-//! restriction recovers components through trace-dual bases without solving
-//! a linear system.
+//! [`Embedding<S, T>`](Embedding) prepares one proper inclusion of `S`
+//! into `T`: the source degree strictly divides the target degree.
+//! [`Isomorphism<S, T>`](Isomorphism) names the equal-degree map with a
+//! total inverse. One implementation serves every characteristic: the
+//! prepared state stores the image in the target of each generator level
+//! of the source, embedding evaluates by Horner rule in the target
+//! arithmetic, membership is the relative Frobenius, and restriction
+//! recovers components through trace-dual bases without solving a linear
+//! system.
 //!
 //! A map comes from two sources only: an inclusion forced by `Extension`
-//! structure (the source itself, its prime subfield, or a row of the
-//! target's own tower), or caller-supplied generator images validated
-//! against the transported relations. Characteristic two keeps the frozen
-//! reference ladder as its canonical-image rule, so every historical binary
-//! result reproduces exactly; odd characteristic chooses no canonical map
-//! between unrelated presentations.
+//! structure (the prime subfield of the target, or a row of its own
+//! tower), or caller-supplied generator images validated against the
+//! transported relations. Characteristic two keeps the frozen reference
+//! ladder as its canonical-image rule, so every historical binary result
+//! reproduces exactly; odd characteristic chooses no canonical map between
+//! unrelated presentations.
 //!
 //! Construction and every method are allocation-free; the prepared state is
 //! fixed arrays. Repeated application never reruns image construction.
@@ -56,12 +56,19 @@ use super::{Elem, Field, FieldElem, PrimeIdentity};
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EmbeddingError {
-    /// The source degree does not divide the target degree.
+    /// The source degree does not divide the target degree, or the map is
+    /// not a proper inclusion.
     IncompatibleDegree {
         /// Total degree of the source field.
         source: u32,
         /// Total degree of the target field.
         target: u32,
+    },
+    /// The source and target rows share one degree: a proper embedding
+    /// cannot exist. [`Isomorphism`] names the equal-degree map.
+    EqualDegree {
+        /// Shared degree of the source and target fields.
+        degree: u32,
     },
     /// Neither a structural inclusion nor, in characteristic two, the
     /// frozen reference ladder names a canonical map for the pair.
@@ -77,6 +84,10 @@ impl core::fmt::Display for EmbeddingError {
             EmbeddingError::IncompatibleDegree { source, target } => write!(
                 formatter,
                 "source degree {source} does not divide target degree {target}"
+            ),
+            EmbeddingError::EqualDegree { degree } => write!(
+                formatter,
+                "source and target share degree {degree}: use Isomorphism"
             ),
             EmbeddingError::NoCanonicalMap => {
                 formatter.write_str("no canonical map between the presentations")
@@ -892,14 +903,15 @@ fn lift_coordinates(descriptor: &Descriptor, at: u8, coords: &mut [u64; 128], le
 // A prepared, explicitly selected field inclusion of `S` into `T`
 // ---------------------------------------------------------------------------
 
-/// A prepared, explicitly selected field inclusion of `S` into `T`.
+/// A prepared, explicitly selected proper inclusion of `S` into `T`.
 ///
 /// The map is fixed by the image in `T` of each generator level of `S`,
 /// prime field upward. Construction selects those images structurally,
 /// through the frozen characteristic-two ladder, or from caller-supplied
 /// values validated against the transported relations; every other method
-/// evaluates them in the target's arithmetic. Equal presentation
-/// descriptions embed identically, and inclusions commute as triangles.
+/// evaluates them in the target arithmetic. Equal source and target
+/// presentations are not embeddings: [`Isomorphism`] names that map.
+/// Inclusions commute as triangles.
 ///
 /// The prepared state is fixed arrays; construction and every method are
 /// allocation-free. Repeated application never reruns image construction.
@@ -928,21 +940,23 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> core::fmt::Debug fo
 }
 
 impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
-    /// Prepare the canonical embedding of `S` into `T`.
+    /// Prepare the canonical proper inclusion of `S` into `T`.
     ///
     /// Returns, in order: [`EmbeddingError::IncompatibleDegree`] when
-    /// `S::DEGREE` does not divide `T::DEGREE`; the structural inclusion
-    /// when `S` is `T`, the prime subfield of `T`, or a row of `T`'s own
-    /// tower; the canonical ladder embedding when both rows are
-    /// characteristic-two presentations the ladder covers; and
+    /// `S::DEGREE` does not divide `T::DEGREE`; [`EmbeddingError::EqualDegree`]
+    /// when the degrees coincide, naming [`Isomorphism`] as the map of that
+    /// pair; the structural inclusion when `S` is the prime subfield of `T`
+    /// or a row of the target own tower; the canonical ladder inclusion when
+    /// both rows are characteristic-two presentations the ladder covers; and
     /// [`EmbeddingError::NoCanonicalMap`] otherwise. No root search runs
-    /// outside the binary ladder's frozen rules.
+    /// outside the binary ladder frozen rules.
     ///
     /// # Errors
     ///
-    /// Returns [`EmbeddingError::IncompatibleDegree`] on a degree mismatch
-    /// and [`EmbeddingError::NoCanonicalMap`] when no map source covers
-    /// the pair.
+    /// Returns [`EmbeddingError::IncompatibleDegree`] on a degree mismatch,
+    /// [`EmbeddingError::EqualDegree`] on equal degrees, and
+    /// [`EmbeddingError::NoCanonicalMap`] when no map source covers the
+    /// pair.
     ///
     /// # Panics
     ///
@@ -952,6 +966,9 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     pub fn new() -> Result<Self, EmbeddingError> {
         let m = S::DEGREE;
         let n = T::DEGREE;
+        if m == n {
+            return Err(EmbeddingError::EqualDegree { degree: m });
+        }
         if n % m != 0 {
             return Err(EmbeddingError::IncompatibleDegree {
                 source: m,
@@ -1025,18 +1042,19 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
         Err(EmbeddingError::NoCanonicalMap)
     }
 
-    /// Prepare the embedding fixed by `images`: the image in `T` of each
-    /// generator level of `S` in level order, validated against the
-    /// transported relations.
+    /// Prepare the proper inclusion fixed by `images`: the image in `T`
+    /// of each generator level of `S` in level order, validated against
+    /// the transported relations.
     ///
     /// [`to_images`](Self::to_images) returns the stored images in the
     /// same order, so `from_images(e.to_images())` reproduces `e`.
     ///
     /// # Errors
     ///
-    /// Returns [`EmbeddingError::IncompatibleDegree`] on a degree mismatch
-    /// first, then [`EmbeddingError::InvalidImages`] on a count mismatch
-    /// or a failed relation.
+    /// Returns [`EmbeddingError::IncompatibleDegree`] on a degree
+    /// mismatch first, then [`EmbeddingError::EqualDegree`] on equal
+    /// degrees, then [`EmbeddingError::InvalidImages`] on a count
+    /// mismatch or a failed relation.
     ///
     /// # Panics
     ///
@@ -1046,6 +1064,9 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     pub fn from_images(images: &[Elem<T>]) -> Result<Self, EmbeddingError> {
         let m = S::DEGREE;
         let n = T::DEGREE;
+        if m == n {
+            return Err(EmbeddingError::EqualDegree { degree: m });
+        }
         if n % m != 0 {
             return Err(EmbeddingError::IncompatibleDegree {
                 source: m,
@@ -1124,17 +1145,19 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
         Elem::<S>::from_raw(S::from_prime_coordinates(&coords[..S::DEGREE as usize]))
     }
 
-    /// Compose with the next embedding: `self.then(next)` applies `self`,
-    /// then `next`, by image transport.
+    /// Compose with the next map: `self.then(next)` applies `self`, then
+    /// `next`, by image transport. The right-hand map is a proper
+    /// inclusion or an isomorphism out of the middle row.
     #[must_use]
-    pub fn then<U: Field<Characteristic = S::Characteristic>>(
-        &self,
-        next: &Embedding<T, U>,
-    ) -> Embedding<S, U> {
+    pub fn then<M, U>(&self, next: &M) -> Embedding<S, U>
+    where
+        M: Postcompose<T, U>,
+        U: Field<Characteristic = S::Characteristic>,
+    {
         let mut images = [Elem::<U>::ZERO; 8];
         let mut l = 0;
         while l < self.count as usize {
-            images[l] = next.embed(self.images[l]);
+            images[l] = compose::Postcompose::postcompose(next, self.images[l]);
             l += 1;
         }
         Embedding {
@@ -1211,8 +1234,8 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     /// The relative trace: the sum of the conjugates under the relative
     /// Frobenius, restricted to the source.
     ///
-    /// Equal degrees reduce to restriction. `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies
-    /// the absolute trace.
+    /// `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies the absolute
+    /// trace.
     ///
     /// # Panics
     ///
@@ -1235,8 +1258,8 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     /// The relative norm: the product of the conjugates under the relative
     /// Frobenius, restricted to the source.
     ///
-    /// Equal degrees reduce to restriction. `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies
-    /// the absolute norm.
+    /// `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies the absolute
+    /// norm.
     ///
     /// # Panics
     ///
@@ -1258,16 +1281,57 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
 }
 
 // ---------------------------------------------------------------------------
+// Mixed composition: the right-hand operand of `then`
+// ---------------------------------------------------------------------------
+
+mod compose {
+    use super::{Elem, Embedding, Field, Isomorphism};
+
+    /// A right-hand operand of composition: a map out of the middle row
+    /// that transports prepared images into its own target. Private, so
+    /// only [`Embedding`] and [`Isomorphism`] qualify.
+    pub trait Postcompose<Mid: Field, Out: Field> {
+        /// Map `image`: one prepared image of the left-hand map, seen as
+        /// an element of the middle row.
+        fn postcompose(&self, image: Elem<Mid>) -> Elem<Out>;
+    }
+
+    impl<Mid: Field, Out: Field<Characteristic = Mid::Characteristic>> Postcompose<Mid, Out>
+        for Embedding<Mid, Out>
+    {
+        #[inline]
+        fn postcompose(&self, image: Elem<Mid>) -> Elem<Out> {
+            self.embed(image)
+        }
+    }
+
+    impl<Mid: Field, Out: Field<Characteristic = Mid::Characteristic>> Postcompose<Mid, Out>
+        for Isomorphism<Mid, Out>
+    {
+        #[inline]
+        fn postcompose(&self, image: Elem<Mid>) -> Elem<Out> {
+            self.apply(image)
+        }
+    }
+}
+
+/// A right-hand operand of [`Embedding::then`]: a proper inclusion or an
+/// isomorphism out of the middle row.
+///
+/// The trait is sealed: only [`Embedding`] and [`Isomorphism`] implement
+/// it, so `then` keeps one verb for every combination of proper and
+/// equal-degree right-hand maps.
+#[allow(private_bounds)]
+pub trait Postcompose<Mid: Field, Out: Field>: compose::Postcompose<Mid, Out> {}
+
+impl<Mid: Field, Out: Field, M: compose::Postcompose<Mid, Out>> Postcompose<Mid, Out> for M {}
+
+// ---------------------------------------------------------------------------
 // A prepared field isomorphism of `S` onto `T`
 // ---------------------------------------------------------------------------
 
 /// A prepared field isomorphism between rows of equal characteristic and
 /// equal degree, with a total inverse.
-///
-/// An [`Embedding`] of equal degrees and the `Isomorphism` built from it
-/// denote the same map and agree on every element. The prepared state adds
-/// the reverse images to the forward ones; composition and inversion are
-/// infallible and agree with sequential application.
 pub struct Isomorphism<S: Field, T: Field<Characteristic = S::Characteristic>> {
     forward: [Elem<T>; 8],
     reverse: [Elem<S>; 8],
@@ -1296,6 +1360,100 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> core::fmt::Debug
     }
 }
 
+/// Validate prepared forward images against the source transported
+/// relations and recover the reverse images by restricting the target
+/// generators through them.
+fn iso_images<S: Field, T: Field<Characteristic = S::Characteristic>>(
+    forward: &[Elem<T>; 8],
+    forward_count: usize,
+) -> ([Elem<S>; 8], usize) {
+    let source_descriptor = S::DESCRIPTOR;
+    let (source_levels, source_count) = levels(source_descriptor);
+    assert_eq!(
+        forward_count, source_count,
+        "an isomorphism covers every source level"
+    );
+    assert!(
+        relations_hold(source_descriptor, &source_levels, source_count, forward),
+        "a constructed image fails its transported relation"
+    );
+    let target_descriptor = T::DESCRIPTOR;
+    let (target_levels, target_count) = levels(target_descriptor);
+    let mut reverse = [Elem::<S>::ZERO; 8];
+    let mut l = 0;
+    while l < target_count {
+        let mut coords = [0u64; 128];
+        generator_coordinates(target_descriptor, &target_levels[l], &mut coords);
+        let generator =
+            Elem::<T>::from_raw(T::from_prime_coordinates(&coords[..T::DEGREE as usize]));
+        let mut preimage = [0u64; 128];
+        assert!(
+            restrict_coordinates(
+                source_descriptor,
+                source_descriptor.root_index(),
+                generator,
+                &source_levels,
+                source_count,
+                forward,
+                &mut preimage[..S::DEGREE as usize],
+            ),
+            "a target generator lies in the isomorphism image"
+        );
+        reverse[l] =
+            Elem::<S>::from_raw(S::from_prime_coordinates(&preimage[..S::DEGREE as usize]));
+        l += 1;
+    }
+    (reverse, target_count)
+}
+
+/// The canonical forward images of the source generator levels in the
+/// target: the structural inclusion when the presentations match, else
+/// the frozen characteristic-two ladder rule.
+fn canonical_iso_images<S: Field, T: Field<Characteristic = S::Characteristic>>()
+-> Option<([Elem<T>; 8], usize)> {
+    let source_descriptor = S::DESCRIPTOR;
+    let target_descriptor = T::DESCRIPTOR;
+    let (source_levels, source_count) = levels(source_descriptor);
+    let m = S::DEGREE as usize;
+    if let Some((images, count)) = structural_images::<T>(
+        source_descriptor,
+        &source_levels,
+        source_count,
+        m,
+        target_descriptor,
+        T::DEGREE as usize,
+    ) {
+        return Some((images, count));
+    }
+    if <S::Characteristic as PrimeIdentity>::CHARACTERISTIC != 2 {
+        return None;
+    }
+    let (Some(source_binary), Some(target_binary)) = (S::BINARY_DESCRIPTION, T::BINARY_DESCRIPTION)
+    else {
+        return None;
+    };
+    let mut words = [0u64; 8];
+    let mut l = 0;
+    while l < source_count {
+        let mut coords = [0u64; 128];
+        generator_coordinates(source_descriptor, &source_levels[l], &mut coords);
+        // Generator words of a binary row fit the word.
+        words[l] = u64::try_from(super::coordinates_index(&coords[..m], 2))
+            .expect("a binary generator fits the word");
+        l += 1;
+    }
+    let image_words =
+        ladder::canonical_images(source_binary, target_binary, &words[..source_count])?;
+    let mut images = [Elem::<T>::ZERO; 8];
+    let mut l = 0;
+    while l < source_count {
+        images[l] = Elem::<T>::from_index(u128::from(image_words[l]))
+            .expect("a ladder image fits the target");
+        l += 1;
+    }
+    Some((images, source_count))
+}
+
 impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
     /// Prepare the canonical isomorphism of `S` onto `T`.
     ///
@@ -1305,6 +1463,12 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
     /// are equal, before any other check, and
     /// [`EmbeddingError::NoCanonicalMap`] when no map source covers the
     /// pair.
+    ///
+    /// # Panics
+    ///
+    /// Panics when a selected image fails its transported relation on an
+    /// otherwise valid presentation. That is a crate defect, not an input
+    /// condition.
     pub fn new() -> Result<Self, EmbeddingError> {
         if S::DEGREE != T::DEGREE {
             return Err(EmbeddingError::IncompatibleDegree {
@@ -1312,17 +1476,49 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
                 target: T::DEGREE,
             });
         }
-        Self::from_embedding(Embedding::new()?)
+        let Some((forward, count)) = canonical_iso_images::<S, T>() else {
+            // Degree-one rows hold no generator levels: the prime map is
+            // unique and needs no structural or ladder source.
+            if S::DEGREE == 1 {
+                return Ok(Self {
+                    forward: [Elem::<T>::ZERO; 8],
+                    reverse: [Elem::<S>::ZERO; 8],
+                    forward_count: 0,
+                    reverse_count: 0,
+                    phantom: PhantomData,
+                });
+            }
+            return Err(EmbeddingError::NoCanonicalMap);
+        };
+        let (reverse, reverse_count) = iso_images::<S, T>(&forward, count);
+        Ok(Self {
+            forward,
+            reverse,
+            // Levels are capped at eight per presentation.
+            forward_count: u8::try_from(count).expect("a level count fits its byte"),
+            reverse_count: u8::try_from(reverse_count).expect("a level count fits its byte"),
+            phantom: PhantomData,
+        })
     }
 
-    /// Prepare the isomorphism fixed by `images`, in the order
-    /// [`from_images`](Embedding::from_images) accepts.
+    /// Prepare the isomorphism fixed by `images`: the image in `T` of
+    /// each generator level of `S` in level order, validated against the
+    /// transported relations.
+    ///
+    /// [`to_images`](Self::to_images) returns the stored images in the
+    /// same order, so `from_images(i.to_images())` reproduces `i`.
     ///
     /// # Errors
     ///
     /// Returns [`EmbeddingError::IncompatibleDegree`] on unequal degrees
     /// first, then [`EmbeddingError::InvalidImages`] on a count mismatch
     /// or a failed relation.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the source holds more than eight generator levels.
+    /// Presentations are capped at eight descriptor nodes, so valid rows
+    /// never reach this.
     pub fn from_images(images: &[Elem<T>]) -> Result<Self, EmbeddingError> {
         if S::DEGREE != T::DEGREE {
             return Err(EmbeddingError::IncompatibleDegree {
@@ -1330,59 +1526,25 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
                 target: T::DEGREE,
             });
         }
-        Self::from_embedding(Embedding::from_images(images)?)
-    }
-
-    /// Prepare the isomorphism denoted by `embedding`: the reverse images
-    /// restrict the target's generators once.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EmbeddingError::IncompatibleDegree`] on unequal degrees.
-    ///
-    /// # Panics
-    ///
-    /// Panics only on a crate defect: a target generator outside the
-    /// constructed embedding image.
-    pub fn from_embedding(embedding: Embedding<S, T>) -> Result<Self, EmbeddingError> {
-        if S::DEGREE != T::DEGREE {
-            return Err(EmbeddingError::IncompatibleDegree {
-                source: S::DEGREE,
-                target: T::DEGREE,
-            });
+        let source_descriptor = S::DESCRIPTOR;
+        let (source_levels, source_count) = levels(source_descriptor);
+        if images.len() != source_count {
+            return Err(EmbeddingError::InvalidImages);
         }
-        let descriptor = T::DESCRIPTOR;
-        let (target_levels, target_count) = levels(descriptor);
-        let mut reverse = [Elem::<S>::ZERO; 8];
-        let mut l = 0;
-        while l < target_count {
-            let mut coords = [0u64; 128];
-            generator_coordinates(descriptor, &target_levels[l], &mut coords);
-            let generator =
-                Elem::<T>::from_raw(T::from_prime_coordinates(&coords[..T::DEGREE as usize]));
-            reverse[l] = embedding
-                .restrict(generator)
-                .expect("a target generator lies in the embedding image");
-            l += 1;
+        let mut forward = [Elem::<T>::ZERO; 8];
+        forward[..source_count].copy_from_slice(images);
+        if !relations_hold(source_descriptor, &source_levels, source_count, &forward) {
+            return Err(EmbeddingError::InvalidImages);
         }
+        let (reverse, reverse_count) = iso_images::<S, T>(&forward, source_count);
         Ok(Self {
-            forward: embedding.images,
+            forward,
             reverse,
-            forward_count: embedding.count,
             // Levels are capped at eight per presentation.
-            reverse_count: u8::try_from(target_count).expect("a level count fits its byte"),
+            forward_count: u8::try_from(source_count).expect("a level count fits its byte"),
+            reverse_count: u8::try_from(reverse_count).expect("a level count fits its byte"),
             phantom: PhantomData,
         })
-    }
-
-    /// The forward embedding this isomorphism denotes.
-    #[must_use]
-    pub fn to_embedding(&self) -> Embedding<S, T> {
-        Embedding {
-            images: self.forward,
-            count: self.forward_count,
-            phantom: PhantomData,
-        }
     }
 
     /// The forward images in the order `from_images` accepts.
@@ -1397,17 +1559,46 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         &self,
         next: &Isomorphism<T, U>,
     ) -> Isomorphism<S, U> {
-        // The reverse composite runs the reverses in reverse order.
-        let forward = self.to_embedding().then(&next.to_embedding());
-        let reverse = next
-            .inverse()
-            .to_embedding()
-            .then(&self.inverse().to_embedding());
+        // The forward composite transports the forward images through the
+        // next map; the reverse composite transports the next reverse
+        // images back through this map.
+        let mut forward = [Elem::<U>::ZERO; 8];
+        let mut l = 0;
+        while l < self.forward_count as usize {
+            forward[l] = next.apply(self.forward[l]);
+            l += 1;
+        }
+        let mut reverse = [Elem::<S>::ZERO; 8];
+        let mut l = 0;
+        while l < next.reverse_count as usize {
+            reverse[l] = self.unapply(next.reverse[l]);
+            l += 1;
+        }
         Isomorphism {
-            forward: forward.images,
-            reverse: reverse.images,
-            forward_count: forward.count,
-            reverse_count: reverse.count,
+            forward,
+            reverse,
+            forward_count: self.forward_count,
+            reverse_count: next.reverse_count,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Compose with the next proper inclusion: `self.then_embedding(next)`
+    /// applies this isomorphism, then `next`, by forward-image transport.
+    #[must_use]
+    pub fn then_embedding<U: Field<Characteristic = S::Characteristic>>(
+        &self,
+        next: &Embedding<T, U>,
+    ) -> Embedding<S, U> {
+        let mut images = [Elem::<U>::ZERO; 8];
+        let mut l = 0;
+        while l < self.forward_count as usize {
+            images[l] = next.embed(self.forward[l]);
+            l += 1;
+        }
+        Embedding {
+            images,
+            count: self.forward_count,
             phantom: PhantomData,
         }
     }
@@ -1424,10 +1615,22 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
         }
     }
 
-    /// Map `value` into the target field; equals the denoted embedding.
+    /// Map `value` into the target field by Horner evaluation in the
+    /// target arithmetic, recursing into the base.
     #[must_use]
     pub fn apply(&self, value: Elem<S>) -> Elem<T> {
-        self.to_embedding().embed(value)
+        let descriptor = S::DESCRIPTOR;
+        let (source_levels, source_count) = levels(descriptor);
+        let mut coords = [0u64; 128];
+        S::prime_coordinates_into(&mut coords[..S::DEGREE as usize], value.to_raw());
+        embed_coordinates(
+            descriptor,
+            descriptor.root_index(),
+            &coords[..S::DEGREE as usize],
+            &source_levels,
+            source_count,
+            &self.forward,
+        )
     }
 
     /// Map `value` back into the source field: the total inverse.

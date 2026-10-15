@@ -117,6 +117,10 @@ assert_eq!(z * z.conjugate(), Elem::<QuadMersenne31>::from_components([
 assert_eq!(z.to_bytes(), [7, 0, 0, 0, 11, 0, 0, 0]);
 ```
 
+`conjugate` and `norm` equal the relative Frobenius and norm of
+`Embedding<Mersenne31, QuadMersenne31>`;
+[embeddings](Embeddings-and-presentation-changes) define both relative maps.
+
 For a custom relation or storage choice, continue with
 [custom fields and extensions](Downstream-scalar-fields). Exact contracts live in
 the [field reference](https://docs.rs/fgf/3.0.1/fgf/field/index.html).
