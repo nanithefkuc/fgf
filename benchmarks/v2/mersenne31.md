@@ -24,21 +24,21 @@ Paired-run snapshot for v2. Every result cell reports Willow Cove (i5-1135G7) / 
 
 | Operation | 4 KiB (GiB/s) | 256 KiB (GiB/s) | 8 MiB (GiB/s) |
 | --- | --- | --- | --- |
-| add_assign | 29.5 / 33.4 | 28.4 / 34.4 | 7.90 / 19.8 |
-| add_assign_scalar | 40.5 / 50.5 | 41.3 / 50.1 | 24.7 / 20.9 |
-| mul_elementwise | 23.1 / 31.9 | 20.3 / 28.8 | 5.45 / 17.1 |
-| mul_elementwise_assign | 25.1 / 31.7 | 23.0 / 32.7 | 7.92 / 21.3 |
-| sub_assign_scalar | 32.6 / 39.6 | 33.9 / 41.7 | 22.8 / 23.9 |
+| add_assign | 29.4 / 33.4 | 28.1 / 34.2 | 7.91 / 20.4 |
+| add_assign_scalar | 40.4 / 50.5 | 41.2 / 50.1 | 24.2 / 21.0 |
+| mul_elementwise | 23.0 / 31.9 | 19.2 / 28.4 | 5.41 / 19.1 |
+| mul_elementwise_assign | 25.0 / 31.7 | 21.3 / 32.6 | 7.87 / 21.6 |
+| sub_assign_scalar | 32.6 / 39.6 | 33.9 / 41.7 | 22.5 / 24.1 |
 
 `qm31`, ordinary `Vec<u8>` buffers.
 
 | Operation | 4 KiB (GiB/s) | 256 KiB (GiB/s) | 8 MiB (GiB/s) |
 | --- | --- | --- | --- |
-| add_assign | 20.0 / 32.0 | 18.4 / 31.6 | 7.88 / 22.4 |
-| add_assign_scalar | 29.7 / 49.6 | 26.0 / 48.5 | 19.1 / 25.8 |
-| mul_elementwise | 11.6 / 13.9 | 11.8 / 13.6 | 5.28 / 13.6 |
-| mul_elementwise_assign | 7.26 / 14.5 | 7.39 / 14.3 | 6.61 / 13.1 |
-| sub_assign_scalar | 23.6 / 41.0 | 21.2 / 41.3 | 16.7 / 31.7 |
+| add_assign | 19.1 / 32.0 | 18.3 / 30.9 | 7.62 / 23.9 |
+| add_assign_scalar | 29.8 / 49.7 | 25.8 / 48.7 | 18.8 / 25.8 |
+| mul_elementwise | 11.5 / 13.9 | 11.4 / 14.1 | 5.23 / 13.5 |
+| mul_elementwise_assign | 7.24 / 14.1 | 7.10 / 14.3 | 6.56 / 13.3 |
+| sub_assign_scalar | 23.6 / 41.0 | 21.1 / 41.3 | 16.6 / 31.8 |
 
 ### Row-wise addition
 
@@ -46,24 +46,24 @@ Paired-run snapshot for v2. Every result cell reports Willow Cove (i5-1135G7) / 
 
 | Row bytes | Rows | add_assign_rows (GiB/s) |
 | --- | --- | --- |
-| 1 KiB | 1 | 24.7 / 32.3 |
-| 1 KiB | 16 | 30.5 / 35.7 |
-| 1 KiB | 2 | 26.3 / 35.1 |
-| 1 KiB | 32 | 29.9 / 33.8 |
-| 1 KiB | 4 | 28.9 / 33.1 |
-| 1 KiB | 8 | 29.9 / 34.9 |
-| 64 B | 1 | 5.57 / 11.6 |
-| 64 B | 16 | 24.7 / 32.3 |
-| 64 B | 2 | 6.36 / 10.5 |
-| 64 B | 32 | 26.3 / 35.1 |
-| 64 B | 4 | 17.9 / 24.5 |
-| 64 B | 8 | 26.2 / 31.4 |
-| 64 KiB | 1 | 28.2 / 34.2 |
-| 64 KiB | 16 | 18.7 / 21.6 |
+| 1 KiB | 1 | 28.2 / 32.3 |
+| 1 KiB | 16 | 30.2 / 35.7 |
+| 1 KiB | 2 | 26.9 / 35.1 |
+| 1 KiB | 32 | 29.3 / 33.9 |
+| 1 KiB | 4 | 29.1 / 33.2 |
+| 1 KiB | 8 | 29.8 / 34.2 |
+| 64 B | 1 | 5.73 / 11.6 |
+| 64 B | 16 | 28.2 / 32.2 |
+| 64 B | 2 | 10.4 / 19.2 |
+| 64 B | 32 | 26.8 / 35.1 |
+| 64 B | 4 | 17.9 / 24.4 |
+| 64 B | 8 | 26.0 / 29.0 |
+| 64 KiB | 1 | 27.9 / 34.1 |
+| 64 KiB | 16 | 18.7 / 21.4 |
 | 64 KiB | 2 | 29.6 / 36.9 |
-| 64 KiB | 32 | 17.9 / 20.7 |
+| 64 KiB | 32 | 17.5 / 20.7 |
 | 64 KiB | 4 | 26.1 / 35.3 |
-| 64 KiB | 8 | 25.5 / 31.5 |
+| 64 KiB | 8 | 24.9 / 31.8 |
 
 ### Row-wise addition compositions
 
@@ -71,42 +71,42 @@ Public call compositions: flat `add_assign` and the literal per-row loop over th
 
 | Operation | Row bytes | Rows | Throughput (GiB/s) |
 | --- | --- | --- | --- |
-| add_assign per row | 1 KiB | 1 | 26.4 / 33.1 |
-| add_assign per row | 1 KiB | 16 | 28.2 / 31.5 |
-| add_assign per row | 1 KiB | 2 | 28.6 / 33.9 |
-| add_assign per row | 1 KiB | 32 | 27.9 / 30.3 |
-| add_assign per row | 1 KiB | 4 | 28.9 / 31.6 |
-| add_assign per row | 1 KiB | 8 | 29.2 / 31.7 |
-| add_assign per row | 64 B | 1 | 6.14 / 11.2 |
-| add_assign per row | 64 B | 16 | 8.70 / 15.1 |
-| add_assign per row | 64 B | 2 | 6.25 / 9.70 |
-| add_assign per row | 64 B | 32 | 8.55 / 14.7 |
+| add_assign per row | 1 KiB | 1 | 28.2 / 33.1 |
+| add_assign per row | 1 KiB | 16 | 29.5 / 31.4 |
+| add_assign per row | 1 KiB | 2 | 30.1 / 33.9 |
+| add_assign per row | 1 KiB | 32 | 28.1 / 30.4 |
+| add_assign per row | 1 KiB | 4 | 29.8 / 31.6 |
+| add_assign per row | 1 KiB | 8 | 29.9 / 31.7 |
+| add_assign per row | 64 B | 1 | 6.14 / 11.1 |
+| add_assign per row | 64 B | 16 | 8.75 / 15.1 |
+| add_assign per row | 64 B | 2 | 7.42 / 13.0 |
+| add_assign per row | 64 B | 32 | 8.50 / 14.7 |
 | add_assign per row | 64 B | 4 | 8.29 / 14.1 |
 | add_assign per row | 64 B | 8 | 8.49 / 14.8 |
-| add_assign per row | 64 KiB | 1 | 28.2 / 33.0 |
-| add_assign per row | 64 KiB | 16 | 18.6 / 21.7 |
-| add_assign per row | 64 KiB | 2 | 29.6 / 36.9 |
-| add_assign per row | 64 KiB | 32 | 17.9 / 20.6 |
+| add_assign per row | 64 KiB | 1 | 27.9 / 34.1 |
+| add_assign per row | 64 KiB | 16 | 18.6 / 21.2 |
+| add_assign per row | 64 KiB | 2 | 29.5 / 36.9 |
+| add_assign per row | 64 KiB | 32 | 17.5 / 20.6 |
 | add_assign per row | 64 KiB | 4 | 26.0 / 35.1 |
-| add_assign per row | 64 KiB | 8 | 25.3 / 31.8 |
-| add_assign | 1 KiB | 1 | 26.5 / 33.2 |
-| add_assign | 1 KiB | 16 | 30.6 / 35.9 |
-| add_assign | 1 KiB | 2 | 27.7 / 35.3 |
-| add_assign | 1 KiB | 32 | 29.8 / 33.9 |
-| add_assign | 1 KiB | 4 | 29.7 / 33.5 |
-| add_assign | 1 KiB | 8 | 30.3 / 35.1 |
-| add_assign | 64 B | 1 | 7.11 / 11.6 |
-| add_assign | 64 B | 16 | 26.5 / 32.7 |
-| add_assign | 64 B | 2 | 6.31 / 10.5 |
-| add_assign | 64 B | 32 | 27.8 / 35.5 |
-| add_assign | 64 B | 4 | 21.0 / 25.5 |
-| add_assign | 64 B | 8 | 30.2 / 32.3 |
-| add_assign | 64 KiB | 1 | 28.2 / 32.8 |
-| add_assign | 64 KiB | 16 | 18.7 / 21.7 |
-| add_assign | 64 KiB | 2 | 29.7 / 36.9 |
-| add_assign | 64 KiB | 32 | 17.9 / 20.7 |
+| add_assign per row | 64 KiB | 8 | 24.8 / 31.7 |
+| add_assign | 1 KiB | 1 | 29.3 / 32.8 |
+| add_assign | 1 KiB | 16 | 30.3 / 35.8 |
+| add_assign | 1 KiB | 2 | 27.9 / 35.2 |
+| add_assign | 1 KiB | 32 | 29.4 / 34.0 |
+| add_assign | 1 KiB | 4 | 29.5 / 33.5 |
+| add_assign | 1 KiB | 8 | 30.1 / 34.2 |
+| add_assign | 64 B | 1 | 7.11 / 12.1 |
+| add_assign | 64 B | 16 | 29.5 / 32.9 |
+| add_assign | 64 B | 2 | 13.2 / 19.2 |
+| add_assign | 64 B | 32 | 27.9 / 35.3 |
+| add_assign | 64 B | 4 | 21.0 / 25.9 |
+| add_assign | 64 B | 8 | 29.8 / 29.8 |
+| add_assign | 64 KiB | 1 | 27.9 / 34.2 |
+| add_assign | 64 KiB | 16 | 18.7 / 21.3 |
+| add_assign | 64 KiB | 2 | 29.6 / 36.9 |
+| add_assign | 64 KiB | 32 | 17.5 / 20.7 |
 | add_assign | 64 KiB | 4 | 26.1 / 35.3 |
-| add_assign | 64 KiB | 8 | 25.5 / 31.8 |
+| add_assign | 64 KiB | 8 | 24.9 / 31.7 |
 
 ## Competitors
 
@@ -116,29 +116,29 @@ Page-aligned regions on each library's native layout; conversions are excluded. 
 
 | Field | Operation | `fgf` (ns/op) | Plonky3 (ns/op) |
 | --- | --- | --- | --- |
-| gld | scalar a * b | 3.742 / 1.714 | 2.570 / 1.159 |
-| m31 | scalar a * b | 4.219 / 1.620 | 2.105 / 0.837 |
-| qm31 | scalar a * b | 9.004 / 4.578 | 6.975 / 3.039 |
+| gld | scalar a * b | 3.740 / 1.696 | 2.574 / 1.157 |
+| m31 | scalar a * b | 4.210 / 1.615 | 2.104 / 0.837 |
+| qm31 | scalar a * b | 9.003 / 4.591 | 6.964 / 3.038 |
 
 ### Packed
 
 | Field | Operation | `fgf` (GiB/s) | Plonky3 (GiB/s) |
 | --- | --- | --- | --- |
 | gld | dst += c * src | 19.7 / 16.3 | 22.5 / 19.6 |
-| gld | dst += v | 97.4 / 78.4 | 103 / 141 |
+| gld | dst += v | 97.5 / 78.3 | 103 / 142 |
 | gld | dst -= v | 103 / 77.6 | 103 / 142 |
-| gld | dst = a * b | 23.8 / 22.3 | 26.9 / 25.4 |
-| gld | dst = c * src | 25.1 / 22.3 | 27.4 / 26.0 |
-| m31 | dst += c * src | 55.6 / 58.7 | 49.8 / 54.7 |
+| gld | dst = a * b | 23.8 / 22.4 | 26.9 / 25.4 |
+| gld | dst = c * src | 25.1 / 22.8 | 27.4 / 26.0 |
+| m31 | dst += c * src | 55.5 / 58.7 | 49.8 / 54.8 |
 | m31 | dst += v | 87.5 / 103 | 103 / 147 |
 | m31 | dst -= v | 70.3 / 82.9 | 103 / 147 |
-| m31 | dst = a * b | 59.6 / 66.2 | 59.9 / 66.5 |
-| m31 | dst = c * src | 73.3 / 73.7 | 65.4 / 69.9 |
-| qm31 | dst += c * src | 22.9 / 27.2 | 27.0 / 30.5 |
-| qm31 | dst += v | 62.6 / 103 | 103 / 147 |
+| m31 | dst = a * b | 59.5 / 65.4 | 59.9 / 66.5 |
+| m31 | dst = c * src | 73.2 / 73.7 | 65.4 / 69.9 |
+| qm31 | dst += c * src | 22.9 / 27.2 | 27.0 / 30.4 |
+| qm31 | dst += v | 62.5 / 103 | 103 / 147 |
 | qm31 | dst -= v | 49.9 / 82.9 | 103 / 147 |
 | qm31 | dst = a * b | 27.0 / 29.8 | 24.1 / 25.1 |
-| qm31 | dst = c * src | 32.1 / 36.1 | 30.5 / 34.6 |
+| qm31 | dst = c * src | 32.1 / 36.1 | 30.6 / 34.6 |
 
 
 ## Caveats

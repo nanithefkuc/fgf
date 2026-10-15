@@ -34,31 +34,32 @@ input contract costs a high-bit screen on the AVX-512 multiply path:
 lanes already inside the redundant range multiply as loaded, and any
 lane outside it triggers canonicalized recomputation of its group.
 That screen is the remaining v2-to-v3 difference on native M31 bulk
-multiplication, not a dispatch or bounds-check difference. Published
-snapshots below still record revision `358c31f`; the targeted Willow
-Cove factors for the screened revision follow, and Golden Cove
-remeasurement of that revision remains pending.
+multiplication, not a dispatch or bounds-check difference. The snapshots
+below record the screened revision; the targeted factors for both hosts
+follow.
 
 | Operation (native, 64 KiB region) | v3/v2 speed factor, Willow Cove | Golden Cove |
 | --- | ---: | ---: |
-| m31 `dst = c * src` | 0.96304 | - |
-| m31 `dst += c * src` | 0.87112 | - |
-| m31 `dst = a * b` | 0.93141 | - |
-| qm31 `dst = c * src` | 1.17114 | - |
-| qm31 `dst += c * src` | 1.17121 | - |
-| qm31 `dst = a * b` | 1.28862 | - |
+| m31 `dst = c * src` | 0.96304 | 0.89862 |
+| m31 `dst += c * src` | 0.87112 | 0.82646 |
+| m31 `dst = a * b` | 0.93141 | 0.89566 |
+| qm31 `dst = c * src` | 1.17114 | 1.16713 |
+| qm31 `dst += c * src` | 1.17121 | 1.05870 |
+| qm31 `dst = a * b` | 1.28862 | 1.21884 |
 
-- Targeted campaign: five interleaved rounds on Willow Cove (i5-1135G7,
-  isolated core 3, `v4x`), median of per-run medians, released v2.1.0
-  against the screened v3 revision. Golden Cove cells stay `-` until
-  that host remeasures the same revision.
+- Targeted campaign: five interleaved rounds per host, median of per-run
+  medians, released v2.1.0 against the screened v3 revision. Willow Cove
+  runs isolated core 3 under `v4x`; Golden Cove runs isolated core 8 and
+  resolves the `v3` field route (no live AVX-512), so the screened
+  multiply does not execute there and its M31 rows stay at the v3-route
+  floor.
 
 
 ## Campaign
 
 | Setting | Willow Cove | Golden Cove |
 | --- | --- | --- |
-| Campaign date (UTC) | 2026-10-14 | 2026-10-14 |
+| Campaign date (UTC) | 2026-10-15 | 2026-10-15 |
 | CPU | Intel Core i5-1135G7 | Intel Core i7-12700K |
 | Availability | Measured | Measured |
 | OS | Arch Linux 7.2.7-arch1-1 | CachyOS Linux 7.2.6-1-cachyos |
@@ -75,9 +76,9 @@ remeasurement of that revision remains pending.
 | Source and method | Value |
 | --- | --- |
 | Released baseline | v2.1.0, `c20465ba22d078e0fb115fb6a99fa77027992c90` |
-| Current library | v3.0.1 with PR #48 changes, revision `358c31f92e3febd885a4b9d2cdb4858c632cb4fc` |
-| Current source archive SHA-256 | `8b1fcda6fea880f6020ebb6afbf40d06a3f81c35a4d9da63b20fc9112a7cd185` |
-| Baseline source archive SHA-256 | `38caddb2daf594f65b9a436703d2f71e1efca958ea8436f0bdfd465d72e8c68b` |
+| Current library | v3.0.1 with PR #48 changes, revision `388cbb4a43d5d20e8a663e89c3b44380c7c4f8b7` |
+| Current source archive SHA-256 | `e175077850f4d870fd2b57989f20806e491a4b86f42cad014bf759b07f4ddd97` |
+| Baseline source archive SHA-256 | `9fcc1e026932a4e80f9faca6e1c0c272bc61971805fc26de7180495571a87ab2` |
 | Self build | Portable x86-64 target, all features, thin LTO, one codegen unit; published dependency pins |
 | Competitor build | Native host builds; versions and packing widths in family pages |
 | Sampling | Median of five per-run medians; no historical timing inputs |
