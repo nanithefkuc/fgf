@@ -187,7 +187,7 @@ MAP_POW_PAIRS = frozenset(
     pair for pair in MAP_PAIRS
     if pair not in MAP_ISO_PAIRS and pair not in MAP_SCALAR_ONLY)
 MAP_EMBED_OPS = frozenset({
-    "embed", "restrict-member", "restrict-nonmember", "contains",
+    "embed", "restrict-member", "restrict-nonmember", "restrict-mixed", "contains",
     "frobenius", "trace", "norm",
 })
 MAP_ISO_OPS = frozenset({"apply", "unapply"})
@@ -195,7 +195,7 @@ MAP_ROW_COUNTS = (1, 8, 64, 1024, 16384)
 MAP_SHAPES = frozenset({"scalar-chain", "row-1", "row-8", "row-64", "row-1024", "row-16384"})
 MAP_LABEL_RE = re.compile(
     r"field-maps/(" + "|".join(MAP_PAIRS) + r")/"
-    r"(embed|restrict-member|restrict-nonmember|contains|frobenius|trace|norm|"
+    r"(embed|restrict-member|restrict-nonmember|restrict-mixed|contains|frobenius|trace|norm|"
     r"apply|unapply|construct)/"
     r"(scalar-chain|row-1|row-8|row-64|row-1024|row-16384|once)$")
 # Arithmetic controls beside the map panels. The pow control names the
@@ -1525,7 +1525,7 @@ def _maps_check_bytes(parser, pair: str, op: str, shape: str, nbytes: int | None
         expected = 2 * count * dst
     elif op == "contains":
         expected = count * dst + mask
-    elif op in ("restrict-member", "restrict-nonmember"):
+    elif op in ("restrict-member", "restrict-nonmember", "restrict-mixed"):
         expected = count * (src + dst) + mask
     elif op == "construct":
         expected = count * (src + dst)
@@ -1625,6 +1625,10 @@ def build_maps(parser, kind, raw, label, nbytes, ns):
         parser.error(f"shape once is reserved for construct: {raw!r}")
     elif pair in MAP_SCALAR_ONLY and shape != "scalar-chain":
         parser.error(f"pair {pair!r} has no byte form: scalar panels only: {raw!r}")
+    elif (op == "restrict-mixed" and shape == "scalar-chain"
+            and pair not in MAP_SCALAR_ONLY):
+        parser.error(f"restrict-mixed is measured as chains only for pairs with "
+                     f"no byte form: {raw!r}")
     if shape == "scalar-chain":
         if kind != "scalar":
             parser.error(f"scalar-chain arrives as SCALAR: {raw!r}")
@@ -2327,7 +2331,10 @@ class Campaign:
                     if pair not in MAP_SCALAR_ONLY:
                         expected.add((pair, op, "row-16384"))
                 else:
-                    expected.add((pair, op, "scalar-chain"))
+                    # restrict-mixed mirrors the other restriction ops: region
+                    # rows for byte-form pairs, chains only for scalar-only pairs.
+                    if pair in MAP_SCALAR_ONLY or op != "restrict-mixed":
+                        expected.add((pair, op, "scalar-chain"))
                     if pair in MAP_SCALAR_ONLY:
                         continue
                     for count in MAP_ROW_COUNTS:
@@ -3182,7 +3189,7 @@ class Renderer:
              "construct amortization row; two target elements for frobenius; one "
              "target element plus the LSB-first validity bitmap for contains; one "
              "source plus one target element plus the validity bitmap for "
-             "restrict-member and restrict-nonmember. "
+             "restrict-member, restrict-nonmember, and restrict-mixed. "
              "The construct row at row-16384 reports construction plus 16384 "
              "applications as one amortized call."])
         if table is not None:
@@ -3514,10 +3521,14 @@ class Renderer:
                          "decode, map, encode. Throughput counts one source plus one "
                          "target element per entry, except frobenius (two target "
                          "elements), contains (one target element plus the validity "
-                         "bitmap), and restrict-member/nonmember (one source plus one "
-                         "target element plus the validity bitmap).")
+                         "bitmap), and restrict-member/nonmember/mixed (one source "
+                         "plus one target element plus the validity bitmap).")
             lines.append("- Map construction is timed separately under construct; "
                          "application rows exclude construction.")
+            lines.append("- The `r3-g3-40` target is the quadratic tower "
+                         "`t^2 - (1 + s)` over the Rabin-verified GF(3^20) base, not "
+                         "a flat degree-40 extension: the flat presentation is "
+                         "blocked by the crate's const-eval irreducibility budget.")
             lines.append("- Field maps have no released-v2 counterpart and no "
                          "competitor harness, so there is no paired comparison.")
         if family == "gf16" and self._has_gf16d():
@@ -3671,17 +3682,22 @@ def main(argv: list[str] | None = None) -> int:
     try:
         for version in VERSIONS:
             for family in PAGE_FAMILIES:
-                pages[f"{version}/{family}.md"] = renderer.render_snapshot(
-                    family, version).encode("utf-8")
+                if (ROUND_FAMILY[family] in campaign.families
+                        and version in FAMILY_VERSIONS[ROUND_FAMILY[family]]):
+                    pages[f"{version}/{family}.md"] = renderer.render_snapshot(
+                        family, version).encode("utf-8")
         for family in PAGE_FAMILIES:
-            pages[f"comparison/{family}.md"] = renderer.render_comparison(
-                family).encode("utf-8")
-        pages["v3/field-maps.md"] = renderer.render_maps_snapshot().encode("utf-8")
+            if ROUND_FAMILY[family] in campaign.families:
+                pages[f"comparison/{family}.md"] = renderer.render_comparison(
+                    family).encode("utf-8")
+        if "maps" in campaign.families:
+            pages["v3/field-maps.md"] = renderer.render_maps_snapshot().encode("utf-8")
         import residue_publish
-        pages["v3/residue.md"] = residue_publish.render_snapshot(
-            campaign, renderer).encode("utf-8")
-        pages["comparison/residue.md"] = residue_publish.render_comparison(
-            campaign, renderer).encode("utf-8")
+        if "prime" in campaign.families:
+            pages["v3/residue.md"] = residue_publish.render_snapshot(
+                campaign, renderer).encode("utf-8")
+            pages["comparison/residue.md"] = residue_publish.render_comparison(
+                campaign, renderer).encode("utf-8")
     except PublishError as exc:
         print(f"publish: {exc}", file=sys.stderr)
         return 1

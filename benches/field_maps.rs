@@ -622,7 +622,10 @@ fn encode_staged<F: FieldBuffer>(pair: &str, operation: &str, elems: &[Elem<F>])
 // Embedding panels
 // ---------------------------------------------------------------------------
 
-/// Scalar element chains for one embedding pair.
+/// Scalar independent-input throughput for one embedding pair: each timed
+/// iteration maps one staged input, and the reported count is one operation
+/// per iteration. Only the Frobenius panel is a dependent chain (its seed
+/// sits outside the relative fixed field).
 fn emb_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
     pair: &str,
     map: &Embedding<S, T>,
@@ -671,6 +674,30 @@ fn emb_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
                 misses += map.restrict(outsiders[i & stage]).is_none() as u64;
             }
             black_box(misses);
+            ops as u64
+        },
+    );
+    bench_scalar(
+        &format!("field-maps/{pair}/restrict-mixed/scalar-chain"),
+        |ops| {
+            let mut hits = 0u64;
+            let mut acc = Elem::<S>::ZERO;
+            for i in 0..ops {
+                // Alternate member/outsider with the region mask's rotation.
+                let y = if (i + 0x5A) % 2 == 0 {
+                    members[(i / 2) & (SCALAR_STAGE / 2 - 1)]
+                } else {
+                    outsiders[(i / 2) & (SCALAR_STAGE / 2 - 1)]
+                };
+                match map.restrict(y) {
+                    Some(preimage) => {
+                        acc = black_box(preimage);
+                        hits += 1;
+                    }
+                    None => acc = black_box(Elem::<S>::ZERO),
+                }
+            }
+            black_box((acc, hits));
             ops as u64
         },
     );
@@ -745,6 +772,18 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
     let member_bytes = encode_staged::<T>(pair, "restrict-member", &members);
     let outsider_bytes = encode_staged::<T>(pair, "restrict-nonmember", &outsiders);
     let mixed_bytes = encode_staged::<T>(pair, "contains", &mixed);
+    // Deterministic mixed mask: alternate member/outsider with a seed-varied
+    // rotation, so both outcomes interleave at every count.
+    let mixed_restrict: Vec<Elem<T>> = (0..top)
+        .map(|i| {
+            if (i + 0x5A) % 2 == 0 {
+                members[i % members.len()]
+            } else {
+                outsiders[i % outsiders.len()]
+            }
+        })
+        .collect();
+    let mixed_restrict_bytes = encode_staged::<T>(pair, "restrict-mixed", &mixed_restrict);
     let elem_traffic = S::BYTES + T::BYTES;
     let mask_bytes = fgf::bits::bytes_for(top);
 
@@ -796,6 +835,72 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
         let label = format!("field-maps/{pair}/restrict-nonmember/row-{count}");
         let bytes = count * elem_traffic + fgf::bits::bytes_for(count);
         let src = &outsider_bytes[..count * T::BYTES];
+        let mut dst = vec![0u8; top * S::BYTES];
+        let mut mask = vec![0u8; mask_bytes];
+        bench_region(&label, bytes, || {
+            let src = black_box(src);
+            let dst = black_box(&mut dst[..count * S::BYTES]);
+            let mask = black_box(&mut mask[..fgf::bits::bytes_for(count)]);
+            mask.fill(0);
+            for (i, (s, d)) in src
+                .chunks_exact(T::BYTES)
+                .zip(dst.chunks_exact_mut(S::BYTES))
+                .enumerate()
+            {
+                match map.restrict(T::decode(s)) {
+                    Some(preimage) => {
+                        S::encode(d, preimage);
+                        mask[i / 8] |= 1 << (i % 8);
+                    }
+                    None => S::encode(d, Elem::<S>::ZERO),
+                }
+            }
+            black_box((dst, mask));
+        });
+    }
+    for &count in region_counts() {
+        let label = format!("field-maps/{pair}/restrict-mixed/row-{count}");
+        let bytes = count * elem_traffic + fgf::bits::bytes_for(count);
+        let src = &mixed_restrict_bytes[..count * T::BYTES];
+        // Pre-timing check: lanes hold canonical preimage-or-zero, bits
+        // match membership, tail bits stay cleared.
+        {
+            let mask_len = fgf::bits::bytes_for(count);
+            let mut expect_mask = vec![0u8; mask_len];
+            for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
+                let value = T::decode(s);
+                match map.restrict(value) {
+                    Some(preimage) => {
+                        assert_eq!(
+                            map.restrict(value),
+                            Some(preimage),
+                            "field-maps {pair} restrict-mixed oracle {i}"
+                        );
+                        let mut lane = vec![0u8; S::BYTES];
+                        S::encode(&mut lane, preimage);
+                        expect_mask[i / 8] |= 1 << (i % 8);
+                    }
+                    None => {
+                        assert!(
+                            !map.contains(value),
+                            "field-maps {pair} restrict-mixed member {i}"
+                        );
+                    }
+                }
+            }
+            assert_eq!(
+                fgf::bits::weight(&expect_mask, count),
+                mixed_restrict[..count]
+                    .iter()
+                    .filter(|y| map.contains(**y))
+                    .count(),
+                "field-maps {pair} restrict-mixed validity bits"
+            );
+            if mask_len * 8 > count {
+                let tail = expect_mask[mask_len - 1] >> (count % 8);
+                assert_eq!(tail, 0, "field-maps {pair} restrict-mixed tail bits");
+            }
+        }
         let mut dst = vec![0u8; top * S::BYTES];
         let mut mask = vec![0u8; mask_bytes];
         bench_region(&label, bytes, || {
@@ -944,14 +1049,16 @@ fn emb_construct_once<S: Field, T: Field<Characteristic = S::Characteristic>>(pa
 // Isomorphism panels
 // ---------------------------------------------------------------------------
 
-/// Scalar element chains for one isomorphism pair.
+/// Scalar element chains for one isomorphism pair. Each panel keeps a live
+/// value on each side so the chain never stalls on a fixed point, but the
+/// reported operation is exactly one direction per iteration: the opposite
+/// call only re-advances the carrier with staged seed material. The reported
+/// count is one operation per iteration.
 fn iso_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
     pair: &str,
     map: &Isomorphism<S, T>,
 ) {
     // Nonzero seeds on each side, so neither direction times the zero map.
-    // Each chain feeds its own direction's outputs back, advanced through
-    // staged inputs so the sequence never settles onto a fixed point.
     let sources: Vec<Elem<S>> = field_samples(SCALAR_STAGE, 0x150);
     let images: Vec<Elem<T>> = sources.iter().map(|x| map.apply(*x)).collect();
     let stage = SCALAR_STAGE - 1;
@@ -959,21 +1066,21 @@ fn iso_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
         let mut fwd = sources[1];
         let mut back = map.apply(fwd);
         for i in 0..ops {
-            fwd = map.unapply(black_box(back));
-            back = map.apply(black_box(fwd.add(sources[i & stage])));
+            back = map.apply(black_box(fwd));
+            fwd = map.unapply(black_box(back.add(images[i & stage])));
         }
         black_box((fwd, back));
-        (2 * ops) as u64
+        ops as u64
     });
     bench_scalar(&format!("field-maps/{pair}/unapply/scalar-chain"), |ops| {
         let mut back = images[1];
         let mut fwd = map.unapply(back);
         for i in 0..ops {
-            back = map.apply(black_box(fwd));
-            fwd = map.unapply(black_box(back.add(images[i & stage])));
+            fwd = map.unapply(black_box(back));
+            back = map.apply(black_box(fwd.add(sources[i & stage])));
         }
         black_box((fwd, back));
-        (2 * ops) as u64
+        ops as u64
     });
 }
 
