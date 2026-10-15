@@ -99,6 +99,14 @@ All notable changes to this project are documented here. The format follows
   and multiply-accumulate groups independent vectors while retaining
   per-vector raw-input normalization and ISA-width tails. Measurements:
   [PR measurement record](https://github.com/nanithefkuc/fgf/pull/48#issuecomment-6163124505).
+- Mersenne31 and QuadMersenne31 AVX-512 multiplication screens operand
+  lanes for the high bit instead of canonicalizing every load: lanes
+  already inside the redundant range multiply as loaded, and any lane
+  outside it triggers canonicalized recomputation of its group before
+  any store. Arbitrary raw inputs and canonical outputs are preserved.
+- Goldilocks scalar multiplication no longer reduces operands that the
+  field arithmetic boundary already guarantees canonical before the
+  wide product reduction.
 
 ## [3.0.1] - 2026-10-10
 
