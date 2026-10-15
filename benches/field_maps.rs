@@ -92,12 +92,32 @@ impl ExtensionSpec<3> for G343Spec {
 }
 type G343 = FiniteField<7, 3, Extension<G343Spec, 3>>;
 
+struct OverRes2Spec;
+impl ExtensionSpec<2> for OverRes2Spec {
+    type Base = Res2;
+    type Storage = Components;
+    const NAME: &'static str = "GF(4) as t^2 + t + 1 over residues";
+    const RELATION: Relation = Relation::from_coordinates(&[1, 1]);
+}
+type OverRes2 = FiniteField<2, 2, Extension<OverRes2Spec, 2>>;
+
+struct OverAesSpec;
+impl ExtensionSpec<2> for OverAesSpec {
+    type Base = Aes8;
+    type Storage = Components;
+    const NAME: &'static str = "GF(2^16) as t^2 + 0x53*t + 1";
+    const RELATION: Relation = Relation::from_binary_words::<Aes8>(&[1, 0x53]);
+}
+type OverAes = FiniteField<2, 16, Extension<OverAesSpec, 2>>;
+
 struct G320Spec;
 impl ExtensionSpec<20> for G320Spec {
     type Base = R3;
     type Storage = Components;
     const NAME: &'static str = "GF(3^20) as t^20 + 2t^16 + t^14 + 2t^10 + t^2 + t + 2";
-    // Constant first: `2 + t + t^2 + 2t^10 + t^14 + 2t^16`.
+    // Constant first: `2 + t + t^2 + 2t^10 + t^14 + 2t^16`. Rabin-verified
+    // irreducible (independent checker: trivial gcds at every proper divisor
+    // of 20, `x^(3^20) == x`).
     #[rustfmt::skip]
     const RELATION: Relation = Relation::from_coordinates(&[
         2, 1, 1, 0, 0, 0, 0, 0, 0, 0,
@@ -112,6 +132,8 @@ impl ExtensionSpec<2> for G340Spec {
     type Storage = Components;
     const NAME: &'static str = "GF(3^40) as t^2 - (1 + s)";
     // `-(1 + s)`: constant `2 + 2s`, linear zero, in the base's own order.
+    // `(1 + s)` is a nonsquare in GF(3^20) (`(1+s)^((3^20-1)/2) != 1` in the
+    // independent checker), so the quadratic is irreducible.
     const RELATION: Relation = Relation::from_coordinates(&[
         2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -265,6 +287,8 @@ fn print_field_backends() {
     field::<Fp16>("fp16");
     field::<Fp64>("fp64");
     field::<Res2>("res2");
+    field::<OverRes2>("res2q");
+    field::<OverAes>("aesq");
     field::<R3>("r3");
     field::<G9Alt>("g9");
     field::<G81Ext>("g81");
@@ -658,10 +682,16 @@ fn emb_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
         black_box(hits);
         ops as u64
     });
+    // The chain seed sits outside the relative fixed field, so every step
+    // does full work: a fixed seed would time the identity forever.
+    let chain_seed = *mixed
+        .iter()
+        .find(|y| !map.contains(**y))
+        .unwrap_or(&mixed[1]);
     bench_scalar(
         &format!("field-maps/{pair}/frobenius/scalar-chain"),
         |ops| {
-            let mut value = members[0];
+            let mut value = chain_seed;
             for _ in 0..ops {
                 value = black_box(map.frobenius(value));
             }
@@ -687,9 +717,12 @@ fn emb_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
     });
 }
 
-/// Region panels for one embedding pair: the compact-map control loop of
-/// `FieldBuffer::decode` into the compact-map method into
-/// `FieldBuffer::encode`, the baseline every future kernel PR must beat.
+/// Region panels for one embedding pair: the compact-map control loops of
+/// `FieldBuffer::decode` into a compact-map method into preallocated
+/// `FieldBuffer::encode` lanes (plus an LSB-first validity bitmap for the
+/// membership-reporting operations, per the `bits.rs` convention), the
+/// baseline every future kernel PR must beat. All buffers are allocated
+/// once outside timing; the timed bodies borrow black-boxed slices only.
 #[allow(clippy::too_many_lines)]
 fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic> + FieldBuffer>(
     pair: &str,
@@ -712,16 +745,17 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
     let member_bytes = encode_staged::<T>(pair, "restrict-member", &members);
     let outsider_bytes = encode_staged::<T>(pair, "restrict-nonmember", &outsiders);
     let mixed_bytes = encode_staged::<T>(pair, "contains", &mixed);
-    let traffic = S::BYTES + T::BYTES;
+    let elem_traffic = S::BYTES + T::BYTES;
+    let mask_bytes = fgf::bits::bytes_for(top);
 
     for &count in region_counts() {
         let label = format!("field-maps/{pair}/embed/row-{count}");
-        let bytes = count * traffic;
+        let bytes = count * elem_traffic;
         let src = &source_bytes[..count * S::BYTES];
+        let mut dst = vec![0u8; top * T::BYTES];
         bench_region(&label, bytes, || {
-            let mut dst = vec![0u8; count * T::BYTES];
             let src = black_box(src);
-            let dst = black_box(dst.as_mut_slice());
+            let dst = black_box(&mut dst[..count * T::BYTES]);
             for (s, d) in src
                 .chunks_exact(S::BYTES)
                 .zip(dst.chunks_exact_mut(T::BYTES))
@@ -733,59 +767,83 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
     }
     for &count in region_counts() {
         let label = format!("field-maps/{pair}/restrict-member/row-{count}");
-        let bytes = count * traffic;
+        let bytes = count * elem_traffic + fgf::bits::bytes_for(count);
         let src = &member_bytes[..count * T::BYTES];
+        let mut dst = vec![0u8; top * S::BYTES];
+        let mut mask = vec![0u8; mask_bytes];
         bench_region(&label, bytes, || {
-            let mut dst = vec![0u8; count * S::BYTES];
             let src = black_box(src);
-            let dst = black_box(dst.as_mut_slice());
-            for (s, d) in src
+            let dst = black_box(&mut dst[..count * S::BYTES]);
+            let mask = black_box(&mut mask[..fgf::bits::bytes_for(count)]);
+            mask.fill(0);
+            for (i, (s, d)) in src
                 .chunks_exact(T::BYTES)
                 .zip(dst.chunks_exact_mut(S::BYTES))
+                .enumerate()
             {
-                S::encode(
-                    d,
-                    map.restrict(T::decode(s))
-                        .expect("an image member restricts"),
-                );
+                match map.restrict(T::decode(s)) {
+                    Some(preimage) => {
+                        S::encode(d, preimage);
+                        mask[i / 8] |= 1 << (i % 8);
+                    }
+                    None => S::encode(d, Elem::<S>::ZERO),
+                }
             }
-            black_box(dst);
+            black_box((dst, mask));
         });
     }
     for &count in region_counts() {
         let label = format!("field-maps/{pair}/restrict-nonmember/row-{count}");
-        let bytes = count * traffic;
+        let bytes = count * elem_traffic + fgf::bits::bytes_for(count);
         let src = &outsider_bytes[..count * T::BYTES];
+        let mut dst = vec![0u8; top * S::BYTES];
+        let mut mask = vec![0u8; mask_bytes];
         bench_region(&label, bytes, || {
             let src = black_box(src);
-            let mut misses = 0u64;
-            for s in src.chunks_exact(T::BYTES) {
-                misses += map.restrict(T::decode(s)).is_none() as u64;
+            let dst = black_box(&mut dst[..count * S::BYTES]);
+            let mask = black_box(&mut mask[..fgf::bits::bytes_for(count)]);
+            mask.fill(0);
+            for (i, (s, d)) in src
+                .chunks_exact(T::BYTES)
+                .zip(dst.chunks_exact_mut(S::BYTES))
+                .enumerate()
+            {
+                match map.restrict(T::decode(s)) {
+                    Some(preimage) => {
+                        S::encode(d, preimage);
+                        mask[i / 8] |= 1 << (i % 8);
+                    }
+                    None => S::encode(d, Elem::<S>::ZERO),
+                }
             }
-            black_box(misses);
+            black_box((dst, mask));
         });
     }
     for &count in region_counts() {
         let label = format!("field-maps/{pair}/contains/row-{count}");
-        let bytes = count * traffic;
+        let bytes = count * T::BYTES + fgf::bits::bytes_for(count);
         let src = &mixed_bytes[..count * T::BYTES];
+        let mut mask = vec![0u8; mask_bytes];
         bench_region(&label, bytes, || {
             let src = black_box(src);
-            let mut hits = 0u64;
-            for s in src.chunks_exact(T::BYTES) {
-                hits += map.contains(T::decode(s)) as u64;
+            let mask = black_box(&mut mask[..fgf::bits::bytes_for(count)]);
+            mask.fill(0);
+            for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
+                if map.contains(T::decode(s)) {
+                    mask[i / 8] |= 1 << (i % 8);
+                }
             }
-            black_box(hits);
+            black_box(mask);
         });
     }
     for &count in region_counts() {
         let label = format!("field-maps/{pair}/frobenius/row-{count}");
-        let bytes = count * traffic;
+        let bytes = 2 * count * T::BYTES;
         let src = &mixed_bytes[..count * T::BYTES];
+        let mut dst = vec![0u8; top * T::BYTES];
         bench_region(&label, bytes, || {
-            let mut dst = vec![0u8; count * T::BYTES];
             let src = black_box(src);
-            let dst = black_box(dst.as_mut_slice());
+            let dst = black_box(&mut dst[..count * T::BYTES]);
             for (s, d) in src
                 .chunks_exact(T::BYTES)
                 .zip(dst.chunks_exact_mut(T::BYTES))
@@ -797,12 +855,12 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
     }
     for &count in region_counts() {
         let label = format!("field-maps/{pair}/trace/row-{count}");
-        let bytes = count * traffic;
+        let bytes = count * elem_traffic;
         let src = &mixed_bytes[..count * T::BYTES];
+        let mut dst = vec![0u8; top * S::BYTES];
         bench_region(&label, bytes, || {
-            let mut dst = vec![0u8; count * S::BYTES];
             let src = black_box(src);
-            let dst = black_box(dst.as_mut_slice());
+            let dst = black_box(&mut dst[..count * S::BYTES]);
             for (s, d) in src
                 .chunks_exact(T::BYTES)
                 .zip(dst.chunks_exact_mut(S::BYTES))
@@ -814,12 +872,12 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
     }
     for &count in region_counts() {
         let label = format!("field-maps/{pair}/norm/row-{count}");
-        let bytes = count * traffic;
+        let bytes = count * elem_traffic;
         let src = &mixed_bytes[..count * T::BYTES];
+        let mut dst = vec![0u8; top * S::BYTES];
         bench_region(&label, bytes, || {
-            let mut dst = vec![0u8; count * S::BYTES];
             let src = black_box(src);
-            let dst = black_box(dst.as_mut_slice());
+            let dst = black_box(&mut dst[..count * S::BYTES]);
             for (s, d) in src
                 .chunks_exact(T::BYTES)
                 .zip(dst.chunks_exact_mut(S::BYTES))
@@ -853,12 +911,12 @@ fn emb_construct_panels<
     let staged: Vec<Elem<S>> = sources.iter().copied().take(count).collect();
     let source_bytes = encode_staged::<S>(pair, "construct", &staged);
     let bytes = count * (S::BYTES + T::BYTES);
+    let mut dst = vec![0u8; count * T::BYTES];
     bench_region(
         &format!("field-maps/{pair}/construct/row-16384"),
         bytes,
         || {
             let map = black_box(Embedding::<S, T>::new()).expect("a validated pair constructs");
-            let mut dst = vec![0u8; count * T::BYTES];
             let src = black_box(source_bytes.as_slice());
             let dst = black_box(dst.as_mut_slice());
             for (s, d) in src
@@ -891,29 +949,31 @@ fn iso_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
     pair: &str,
     map: &Isomorphism<S, T>,
 ) {
+    // Nonzero seeds on each side, so neither direction times the zero map.
+    // Each chain feeds its own direction's outputs back, advanced through
+    // staged inputs so the sequence never settles onto a fixed point.
     let sources: Vec<Elem<S>> = field_samples(SCALAR_STAGE, 0x150);
+    let images: Vec<Elem<T>> = sources.iter().map(|x| map.apply(*x)).collect();
+    let stage = SCALAR_STAGE - 1;
     bench_scalar(&format!("field-maps/{pair}/apply/scalar-chain"), |ops| {
-        let half = (ops / 2).max(1);
-        let mut x = sources[0];
-        let mut y = map.apply(x);
-        for i in 0..half {
-            y = black_box(map.apply(x));
-            x = black_box(map.unapply(y));
-            black_box(sources[i & (SCALAR_STAGE - 1)]);
+        let mut fwd = sources[1];
+        let mut back = map.apply(fwd);
+        for i in 0..ops {
+            fwd = map.unapply(black_box(back));
+            back = map.apply(black_box(fwd.add(sources[i & stage])));
         }
-        black_box((x, y));
-        (2 * half) as u64
+        black_box((fwd, back));
+        (2 * ops) as u64
     });
     bench_scalar(&format!("field-maps/{pair}/unapply/scalar-chain"), |ops| {
-        let half = (ops / 2).max(1);
-        let mut y = map.apply(sources[0]);
-        let mut x = map.unapply(y);
-        for _ in 0..half {
-            x = black_box(map.unapply(y));
-            y = black_box(map.apply(x));
+        let mut back = images[1];
+        let mut fwd = map.unapply(back);
+        for i in 0..ops {
+            back = map.apply(black_box(fwd));
+            fwd = map.unapply(black_box(back.add(images[i & stage])));
         }
-        black_box((x, y));
-        (2 * half) as u64
+        black_box((fwd, back));
+        (2 * ops) as u64
     });
 }
 
@@ -934,10 +994,10 @@ fn iso_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
         let label = format!("field-maps/{pair}/apply/row-{count}");
         let bytes = count * traffic;
         let src = &source_bytes[..count * S::BYTES];
+        let mut dst = vec![0u8; top * T::BYTES];
         bench_region(&label, bytes, || {
-            let mut dst = vec![0u8; count * T::BYTES];
             let src = black_box(src);
-            let dst = black_box(dst.as_mut_slice());
+            let dst = black_box(&mut dst[..count * T::BYTES]);
             for (s, d) in src
                 .chunks_exact(S::BYTES)
                 .zip(dst.chunks_exact_mut(T::BYTES))
@@ -951,10 +1011,10 @@ fn iso_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
         let label = format!("field-maps/{pair}/unapply/row-{count}");
         let bytes = count * traffic;
         let src = &image_bytes[..count * T::BYTES];
+        let mut dst = vec![0u8; top * S::BYTES];
         bench_region(&label, bytes, || {
-            let mut dst = vec![0u8; count * S::BYTES];
             let src = black_box(src);
-            let dst = black_box(dst.as_mut_slice());
+            let dst = black_box(&mut dst[..count * S::BYTES]);
             for (s, d) in src
                 .chunks_exact(T::BYTES)
                 .zip(dst.chunks_exact_mut(S::BYTES))
@@ -988,12 +1048,12 @@ fn iso_construct_panels<
     let staged: Vec<Elem<S>> = sources.iter().copied().take(count).collect();
     let source_bytes = encode_staged::<S>(pair, "construct", &staged);
     let bytes = count * (S::BYTES + T::BYTES);
+    let mut dst = vec![0u8; count * T::BYTES];
     bench_region(
         &format!("field-maps/{pair}/construct/row-16384"),
         bytes,
         || {
             let map = black_box(Isomorphism::<S, T>::new()).expect("a validated pair constructs");
-            let mut dst = vec![0u8; count * T::BYTES];
             let src = black_box(source_bytes.as_slice());
             let dst = black_box(dst.as_mut_slice());
             for (s, d) in src
@@ -1019,9 +1079,19 @@ fn run_emb_pair<S: FieldBuffer, T: Field<Characteristic = S::Characteristic> + F
     let map = Embedding::<S, T>::new()
         .unwrap_or_else(|error| panic!("field-maps {pair}: construction failed: {error:?}"));
     validate_embedding(pair, &map);
-    println!("field-maps panel: {pair} (embedding)");
+    println!(
+        "field-maps panel: {pair} (embedding) endpoint bytes {} -> {}",
+        S::BYTES,
+        T::BYTES,
+    );
     emb_scalar_panels(pair, &map);
     emb_region_panels(pair, &map);
+    let top = region_counts().iter().max().copied().unwrap_or(1);
+    let control_targets: Vec<Elem<T>> = field_samples(top, 0xF21);
+    pow_control_panels::<S, T>(
+        pair,
+        &encode_staged::<T>(pair, "pow-control", &control_targets),
+    );
     let sources: Vec<Elem<S>> = field_samples(16_384, 0xC0);
     emb_construct_panels::<S, T>(pair, &sources);
 }
@@ -1045,11 +1115,110 @@ fn run_iso_pair<S: FieldBuffer, T: Field<Characteristic = S::Characteristic> + F
     let map = Isomorphism::<S, T>::new()
         .unwrap_or_else(|error| panic!("field-maps {pair}: construction failed: {error:?}"));
     validate_isomorphism(pair, &map);
-    println!("field-maps panel: {pair} (isomorphism)");
+    println!(
+        "field-maps panel: {pair} (isomorphism) endpoint bytes {} -> {}",
+        S::BYTES,
+        T::BYTES,
+    );
     iso_scalar_panels(pair, &map);
     iso_region_panels(pair, &map);
     let sources: Vec<Elem<S>> = field_samples(16_384, 0xC0);
     iso_construct_panels::<S, T>(pair, &sources);
+}
+
+/// D7 arithmetic control: the direct `x.pow(S::ORDER)` power the relative
+/// Frobenius names, timed as scalar chains and region rows beside the map's
+/// own `frobenius` panels.
+fn pow_control_panels<S: Field, T: Field<Characteristic = S::Characteristic> + FieldBuffer>(
+    pair: &str,
+    target_bytes: &[u8],
+) {
+    let stage_targets: Vec<Elem<T>> = field_samples(SCALAR_STAGE, 0xF20);
+    let stage = SCALAR_STAGE - 1;
+    bench_scalar(&format!("control pow {pair}/scalar-chain"), |ops| {
+        let mut value = stage_targets[1];
+        for i in 0..ops {
+            value = black_box(value.pow(S::ORDER));
+            value = value.add(stage_targets[i & stage]);
+        }
+        black_box(value);
+        ops as u64
+    });
+    for &count in region_counts() {
+        let label = format!("control pow {pair}/row-{count}");
+        let bytes = 2 * count * T::BYTES;
+        let src = &target_bytes[..count * T::BYTES];
+        let mut dst = vec![0u8; target_bytes.len()];
+        bench_region(&label, bytes, || {
+            let src = black_box(src);
+            let dst = black_box(&mut dst[..count * T::BYTES]);
+            for (s, d) in src
+                .chunks_exact(T::BYTES)
+                .zip(dst.chunks_exact_mut(T::BYTES))
+            {
+                T::encode(d, T::decode(s).pow(S::ORDER));
+            }
+            black_box(dst);
+        });
+    }
+}
+
+/// D7 QM31 controls: the inherent `conjugate` and `norm` beside the map's
+/// own panels.
+fn qm31_control_panels(target_bytes: &[u8]) {
+    let stage_targets: Vec<Elem<QuadMersenne31>> = field_samples(SCALAR_STAGE, 0xF23);
+    let stage = SCALAR_STAGE - 1;
+    bench_scalar("control qm31 conjugate/scalar-chain", |ops| {
+        let mut value = stage_targets[1];
+        for i in 0..ops {
+            value = black_box(value.conjugate());
+            value = value.add(stage_targets[i & stage]);
+        }
+        black_box(value);
+        ops as u64
+    });
+    bench_scalar("control qm31 norm/scalar-chain", |ops| {
+        let mut acc = Elem::<Mersenne31>::ZERO;
+        for i in 0..ops {
+            acc = black_box(stage_targets[i & stage].norm());
+        }
+        black_box(acc);
+        ops as u64
+    });
+    for &count in region_counts() {
+        let label = format!("control qm31 conjugate/row-{count}");
+        let bytes = 2 * count * QuadMersenne31::BYTES;
+        let src = &target_bytes[..count * QuadMersenne31::BYTES];
+        let mut dst = vec![0u8; target_bytes.len()];
+        bench_region(&label, bytes, || {
+            let src = black_box(src);
+            let dst = black_box(&mut dst[..count * QuadMersenne31::BYTES]);
+            for (s, d) in src
+                .chunks_exact(QuadMersenne31::BYTES)
+                .zip(dst.chunks_exact_mut(QuadMersenne31::BYTES))
+            {
+                QuadMersenne31::encode(d, QuadMersenne31::decode(s).conjugate());
+            }
+            black_box(dst);
+        });
+    }
+    for &count in region_counts() {
+        let label = format!("control qm31 norm/row-{count}");
+        let bytes = count * (QuadMersenne31::BYTES + Mersenne31::BYTES);
+        let src = &target_bytes[..count * QuadMersenne31::BYTES];
+        let mut dst = vec![0u8; target_bytes.len() / QuadMersenne31::BYTES * Mersenne31::BYTES];
+        bench_region(&label, bytes, || {
+            let src = black_box(src);
+            let dst = black_box(&mut dst[..count * Mersenne31::BYTES]);
+            for (s, d) in src
+                .chunks_exact(QuadMersenne31::BYTES)
+                .zip(dst.chunks_exact_mut(Mersenne31::BYTES))
+            {
+                Mersenne31::encode(d, QuadMersenne31::decode(s).norm());
+            }
+            black_box(dst);
+        });
+    }
 }
 
 fn main() {
@@ -1087,7 +1256,16 @@ fn run_panels() {
     run_emb_pair::<Rs8, Gf16>("rs8-gf16");
     run_emb_pair::<Normal8, Gf16>("normal8-gf16");
     run_emb_pair::<Res2, Gf64>("res2-gf64");
+    run_emb_pair::<Res2, OverRes2>("res2-res2q");
+    run_emb_pair::<Aes8, OverAes>("aes8-aesq");
     run_emb_pair::<Mersenne31, QuadMersenne31>("m31-qm31");
+    let qm_top = region_counts().iter().max().copied().unwrap_or(1);
+    let qm_targets: Vec<Elem<QuadMersenne31>> = field_samples(qm_top, 0x31);
+    qm31_control_panels(&encode_staged::<QuadMersenne31>(
+        "m31-qm31",
+        "qm31-control",
+        &qm_targets,
+    ));
     run_emb_pair::<Goldilocks, GldSquare>("gdl2");
     run_emb_pair::<G9Alt, G81Ext>("g9-g81");
     run_emb_pair::<R3, G81Quartic>("r3-g81q");

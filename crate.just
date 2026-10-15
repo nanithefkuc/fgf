@@ -371,8 +371,14 @@ bench-gf16-comp *ARGS: gf16-build
 # Build all artifacts before the paired version campaign begins.
 [group('bench')]
 bench-refresh-build:
+    #!/usr/bin/env bash
+    set -euo pipefail
     just bench-build kernels
     just bench-build compare
+    # The frozen v2 tree predates the maps suite and carries no field_maps bench.
+    if [[ -f benches/field_maps.rs ]]; then
+        just bench-build field_maps
+    fi
     just _trio-build
     just gf16-build
     RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml --features fgf/simd512
@@ -386,14 +392,20 @@ bench-refresh-round FAMILY:
     case "{{FAMILY}}" in
         gf) units=(self trio gf16) ;;
         gdl|m31) units=(self prime) ;;
-        gf2|prime) units=(self) ;;
+        gf2|prime|maps) units=(self) ;;
         *) printf 'invalid_family family=%s\n' "{{FAMILY}}" >&2; exit 2 ;;
     esac
     printf '%s\n' "${units[@]}" | shuf | while read -r unit; do
         printf 'UNIT\t%s\n' "$unit"
         case "$unit" in
             self)
-                if [[ -n "${FGF_SELF_ARTIFACTS:-}" ]]; then
+                if [[ "{{FAMILY}}" == maps ]]; then
+                    if [[ -n "${FGF_SELF_ARTIFACTS:-}" ]]; then
+                        taskset -c "$FEC_GOLDEN_CORE" "$FGF_SELF_ARTIFACTS/field_maps"
+                    else
+                        just bench field_maps
+                    fi
+                elif [[ -n "${FGF_SELF_ARTIFACTS:-}" ]]; then
                     taskset -c "$FEC_GOLDEN_CORE" "$FGF_SELF_ARTIFACTS/kernels" --{{FAMILY}}
                     if [[ "{{FAMILY}}" == gf ]]; then
                         taskset -c "$FEC_GOLDEN_CORE" "$FGF_SELF_ARTIFACTS/compare"
@@ -435,8 +447,14 @@ bench-paired V2_ROOT OUTPUT:
         chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" just --justfile "$source/justfile" --working-directory "$source" gf16-check
     done
     for round in 1 2 3 4 5; do
-        for family in gf gdl m31 gf2; do
-            printf '%s\n' v2 v3 | shuf | while read -r version; do
+        for family in gf gdl m31 gf2 maps; do
+            # Field maps have no released-v2 counterpart: the v3 tree alone runs them.
+            if [[ "$family" == maps ]]; then
+                versions=(v3)
+            else
+                mapfile -t versions < <(printf '%s\n' v2 v3 | shuf)
+            fi
+            for version in "${versions[@]}"; do
                 source="$v3"
                 [[ "$version" == v2 ]] && source="$v2"
                 if [[ -n "${FGF_PORTABLE_ARTIFACTS:-}" ]]; then
