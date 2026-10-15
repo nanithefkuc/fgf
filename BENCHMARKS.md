@@ -26,6 +26,34 @@ The residue tables put row lengths in columns, with expandable operation panels
 instead of appending separate tuning campaigns. Version and backend factors
 live only in the comparison pages; values below one remain visible.
 
+## Mersenne31 contract note
+
+v3 packed Mersenne31 operations accept every raw lane bit pattern and
+return canonical lanes; v2 kernels assumed canonical inputs. The wider
+input contract costs a high-bit screen on the AVX-512 multiply path:
+lanes already inside the redundant range multiply as loaded, and any
+lane outside it triggers canonicalized recomputation of its group.
+That screen is the remaining v2-to-v3 difference on native M31 bulk
+multiplication, not a dispatch or bounds-check difference. Published
+snapshots below still record revision `358c31f`; the targeted Willow
+Cove factors for the screened revision follow, and Golden Cove
+remeasurement of that revision remains pending.
+
+| Operation (native, 64 KiB region) | v3/v2 speed factor, Willow Cove | Golden Cove |
+| --- | ---: | ---: |
+| m31 `dst = c * src` | 0.96304 | - |
+| m31 `dst += c * src` | 0.87112 | - |
+| m31 `dst = a * b` | 0.93141 | - |
+| qm31 `dst = c * src` | 1.17114 | - |
+| qm31 `dst += c * src` | 1.17121 | - |
+| qm31 `dst = a * b` | 1.28862 | - |
+
+- Targeted campaign: five interleaved rounds on Willow Cove (i5-1135G7,
+  isolated core 3, `v4x`), median of per-run medians, released v2.1.0
+  against the screened v3 revision. Golden Cove cells stay `-` until
+  that host remeasures the same revision.
+
+
 ## Campaign
 
 | Setting | Willow Cove | Golden Cove |
