@@ -8,7 +8,7 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 | --- | --- |
 | Campaign | `just bench-paired` (family round `m31`) |
 | v2 | `c20465ba22d078e0fb115fb6a99fa77027992c90` |
-| v3 | `358c31f92e3febd885a4b9d2cdb4858c632cb4fc` |
+| v3 | `388cbb4a43d5d20e8a663e89c3b44380c7c4f8b7` |
 | Toolchain | 1.98.1 |
 | Resolved process backend | v2: `v4x` / `v3_gfni_crypto`; v3: `v4x` / `v3_gfni_crypto` |
 | Resolved field backends | v2 `m31`: `v4x` / `v3`; v2 `qm31`: `v4x` / `v3`; v3 `m31`: `v4x` / `v3`; v3 `qm31`: `v4x` / `v3` |
@@ -25,21 +25,21 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 
 | Operation | Case | v3 speed factor |
 | --- | --- | --- |
-| add_assign | 4 KiB | 1.0087 / 1.0058 |
-| add_assign | 256 KiB | 1.0035 / 1.0015 |
-| add_assign | 8 MiB | 1.0113 / 0.9987 |
-| add_assign_scalar | 4 KiB | 1.1250 / 1.0858 |
-| add_assign_scalar | 256 KiB | 1.0858 / 1.0387 |
-| add_assign_scalar | 8 MiB | 1.0191 / 1.0115 |
-| mul_elementwise | 4 KiB | 1.0415 / 0.8718 |
-| mul_elementwise | 256 KiB | 1.1187 / 1.0019 |
-| mul_elementwise | 8 MiB | 0.9897 / 1.0160 |
-| mul_elementwise_assign | 4 KiB | 0.7399 / 0.8177 |
-| mul_elementwise_assign | 256 KiB | 0.7862 / 0.7595 |
-| mul_elementwise_assign | 8 MiB | 0.9923 / 1.0532 |
-| sub_assign_scalar | 4 KiB | 1.3956 / 1.3829 |
-| sub_assign_scalar | 256 KiB | 1.3262 / 1.2451 |
-| sub_assign_scalar | 8 MiB | 1.1016 / 0.8809 |
+| add_assign | 4 KiB | 1.0073 / 1.0105 |
+| add_assign | 256 KiB | 1.0053 / 1.0036 |
+| add_assign | 8 MiB | 0.9954 / 1.0013 |
+| add_assign_scalar | 4 KiB | 1.1173 / 1.0857 |
+| add_assign_scalar | 256 KiB | 1.0855 / 1.0474 |
+| add_assign_scalar | 8 MiB | 1.0338 / 1.0007 |
+| mul_elementwise | 4 KiB | 1.0503 / 0.8958 |
+| mul_elementwise | 256 KiB | 1.0534 / 1.0097 |
+| mul_elementwise | 8 MiB | 1.0072 / 0.9935 |
+| mul_elementwise_assign | 4 KiB | 0.9977 / 0.8133 |
+| mul_elementwise_assign | 256 KiB | 1.1678 / 0.8300 |
+| mul_elementwise_assign | 8 MiB | 1.0529 / 1.0570 |
+| sub_assign_scalar | 4 KiB | 1.4044 / 1.3849 |
+| sub_assign_scalar | 256 KiB | 1.3241 / 1.2577 |
+| sub_assign_scalar | 8 MiB | 1.1109 / 0.8754 |
 
 ### Row-wise addition
 
@@ -47,24 +47,24 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 
 | Row bytes | Rows | v3 speed factor |
 | --- | --- | --- |
-| 1 KiB | 1 | 1.1220 / 0.9997 |
-| 1 KiB | 16 | 1.0080 / 1.0001 |
-| 1 KiB | 2 | 1.0214 / 0.9991 |
-| 1 KiB | 32 | 1.0076 / 1.0065 |
-| 1 KiB | 4 | 1.0080 / 1.0044 |
-| 1 KiB | 8 | 1.0138 / 1.0036 |
-| 64 B | 1 | 1.0372 / 1.0008 |
-| 64 B | 16 | 1.1228 / 0.9998 |
-| 64 B | 2 | 1.0006 / 1.0001 |
-| 64 B | 32 | 1.0131 / 0.9989 |
-| 64 B | 4 | 0.9956 / 0.9993 |
-| 64 B | 8 | 0.9998 / 1.0148 |
-| 64 KiB | 1 | 1.0016 / 0.9945 |
-| 64 KiB | 16 | 0.9939 / 1.0149 |
-| 64 KiB | 2 | 0.9997 / 0.9993 |
-| 64 KiB | 32 | 1.0001 / 0.9977 |
-| 64 KiB | 4 | 1.0004 / 0.9979 |
-| 64 KiB | 8 | 1.0124 / 0.9773 |
+| 1 KiB | 1 | 0.9091 / 1.0014 |
+| 1 KiB | 16 | 1.0046 / 1.0015 |
+| 1 KiB | 2 | 0.9781 / 0.9976 |
+| 1 KiB | 32 | 1.0140 / 1.0098 |
+| 1 KiB | 4 | 0.9945 / 1.0036 |
+| 1 KiB | 8 | 1.0001 / 1.0230 |
+| 64 B | 1 | 0.9628 / 1.0005 |
+| 64 B | 16 | 0.9078 / 1.0039 |
+| 64 B | 2 | 0.9391 / 0.9657 |
+| 64 B | 32 | 0.9795 / 0.9975 |
+| 64 B | 4 | 0.9493 / 1.0040 |
+| 64 B | 8 | 1.0172 / 1.0002 |
+| 64 KiB | 1 | 1.0008 / 1.0065 |
+| 64 KiB | 16 | 0.9947 / 1.0157 |
+| 64 KiB | 2 | 1.0006 / 0.9992 |
+| 64 KiB | 32 | 1.0319 / 0.9980 |
+| 64 KiB | 4 | 1.0003 / 0.9946 |
+| 64 KiB | 8 | 1.0353 / 1.0044 |
 
 ### Row-wise addition compositions
 
@@ -72,42 +72,42 @@ Public call compositions: flat `add_assign` and the literal per-row loop over th
 
 | Operation | Row bytes | Rows | v3 speed factor |
 | --- | --- | --- | --- |
-| add_assign per row | 1 KiB | 1 | 1.0658 / 0.9976 |
-| add_assign per row | 1 KiB | 16 | 1.0356 / 0.9981 |
-| add_assign per row | 1 KiB | 2 | 1.0514 / 0.9941 |
-| add_assign per row | 1 KiB | 32 | 1.0091 / 1.0082 |
-| add_assign per row | 1 KiB | 4 | 1.0193 / 1.0025 |
-| add_assign per row | 1 KiB | 8 | 1.0158 / 1.0024 |
-| add_assign per row | 64 B | 1 | 1.0001 / 0.9938 |
-| add_assign per row | 64 B | 16 | 1.0355 / 1.0007 |
-| add_assign per row | 64 B | 2 | 0.9663 / 0.9768 |
-| add_assign per row | 64 B | 32 | 0.9967 / 1.0012 |
-| add_assign per row | 64 B | 4 | 1.0001 / 1.0012 |
-| add_assign per row | 64 B | 8 | 1.0060 / 0.9938 |
-| add_assign per row | 64 KiB | 1 | 1.0023 / 1.0361 |
-| add_assign per row | 64 KiB | 16 | 0.9943 / 1.0117 |
-| add_assign per row | 64 KiB | 2 | 0.9998 / 0.9727 |
-| add_assign per row | 64 KiB | 32 | 1.0010 / 1.0080 |
-| add_assign per row | 64 KiB | 4 | 1.0005 / 0.9619 |
-| add_assign per row | 64 KiB | 8 | 1.0129 / 1.0112 |
-| add_assign | 1 KiB | 1 | 1.1123 / 0.9986 |
-| add_assign | 1 KiB | 16 | 1.0095 / 0.9989 |
-| add_assign | 1 KiB | 2 | 1.0030 / 1.0001 |
-| add_assign | 1 KiB | 32 | 1.0140 / 0.9991 |
-| add_assign | 1 KiB | 4 | 1.0046 / 1.0040 |
-| add_assign | 1 KiB | 8 | 1.0084 / 0.9756 |
-| add_assign | 64 B | 1 | 1.0415 / 0.9597 |
-| add_assign | 64 B | 16 | 1.1111 / 1.0108 |
-| add_assign | 64 B | 2 | 1.0089 / 1.0011 |
-| add_assign | 64 B | 32 | 1.0003 / 0.9949 |
-| add_assign | 64 B | 4 | 1.0303 / 1.0309 |
-| add_assign | 64 B | 8 | 1.0200 / 1.0041 |
-| add_assign | 64 KiB | 1 | 1.0030 / 1.0080 |
-| add_assign | 64 KiB | 16 | 0.9936 / 1.0066 |
-| add_assign | 64 KiB | 2 | 0.9995 / 0.9991 |
-| add_assign | 64 KiB | 32 | 1.0025 / 0.9967 |
-| add_assign | 64 KiB | 4 | 1.0006 / 1.0018 |
-| add_assign | 64 KiB | 8 | 1.0125 / 0.9813 |
+| add_assign per row | 1 KiB | 1 | 0.9440 / 0.9978 |
+| add_assign per row | 1 KiB | 16 | 0.9843 / 1.0004 |
+| add_assign per row | 1 KiB | 2 | 0.9497 / 0.9990 |
+| add_assign per row | 1 KiB | 32 | 0.9929 / 1.0056 |
+| add_assign per row | 1 KiB | 4 | 0.9735 / 1.0034 |
+| add_assign per row | 1 KiB | 8 | 0.9682 / 0.9997 |
+| add_assign per row | 64 B | 1 | 0.9990 / 1.0029 |
+| add_assign per row | 64 B | 16 | 0.9474 / 1.0004 |
+| add_assign per row | 64 B | 2 | 0.9996 / 1.0000 |
+| add_assign per row | 64 B | 32 | 0.9959 / 1.0000 |
+| add_assign per row | 64 B | 4 | 0.9777 / 1.0002 |
+| add_assign per row | 64 B | 8 | 1.0371 / 1.0009 |
+| add_assign per row | 64 KiB | 1 | 1.0030 / 1.0111 |
+| add_assign per row | 64 KiB | 16 | 0.9956 / 1.0190 |
+| add_assign per row | 64 KiB | 2 | 0.9992 / 0.9987 |
+| add_assign per row | 64 KiB | 32 | 1.0306 / 0.9980 |
+| add_assign per row | 64 KiB | 4 | 1.0004 / 0.9949 |
+| add_assign per row | 64 KiB | 8 | 1.0362 / 0.9991 |
+| add_assign | 1 KiB | 1 | 1.0271 / 1.0043 |
+| add_assign | 1 KiB | 16 | 1.0076 / 1.0017 |
+| add_assign | 1 KiB | 2 | 0.9756 / 1.0007 |
+| add_assign | 1 KiB | 32 | 1.0162 / 1.0071 |
+| add_assign | 1 KiB | 4 | 0.9941 / 1.0122 |
+| add_assign | 1 KiB | 8 | 0.9979 / 1.0280 |
+| add_assign | 64 B | 1 | 0.9998 / 1.0453 |
+| add_assign | 64 B | 16 | 1.0233 / 1.0072 |
+| add_assign | 64 B | 2 | 0.9998 / 1.0006 |
+| add_assign | 64 B | 32 | 0.9761 / 0.9982 |
+| add_assign | 64 B | 4 | 0.9591 / 1.0092 |
+| add_assign | 64 B | 8 | 1.0158 / 1.0055 |
+| add_assign | 64 KiB | 1 | 1.0068 / 1.0058 |
+| add_assign | 64 KiB | 16 | 0.9946 / 1.0176 |
+| add_assign | 64 KiB | 2 | 1.0004 / 1.0018 |
+| add_assign | 64 KiB | 32 | 1.0331 / 0.9973 |
+| add_assign | 64 KiB | 4 | 1.0007 / 0.9939 |
+| add_assign | 64 KiB | 8 | 1.0357 / 0.9994 |
 
 ### Indexed scalar multiplication and accumulation
 
@@ -115,7 +115,7 @@ The fgf arm's public calls from the native-layout harness; only version arms are
 
 | Operation | Geometry | v3 speed factor |
 | --- | --- | --- |
-| acc += a * b | alignment=page; field=m31; lane_bytes=4; region_bytes=65536; scope=indexed acc += a * b | 1.0043 / 1.0055 |
+| acc += a * b | alignment=page; field=m31; lane_bytes=4; region_bytes=65536; scope=indexed acc += a * b | 1.0070 / 1.0021 |
 
 ### Native-layout public operations
 
@@ -123,11 +123,11 @@ The fgf arm's public calls from the native-layout harness; only version arms are
 
 | Operation | Geometry | v3 speed factor |
 | --- | --- | --- |
-| dst += c * src | alignment=page; field=m31; lane_bytes=4; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 0.6849 / 0.8214 |
-| dst += v | alignment=page; field=m31; lane_bytes=4; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.1247 / 1.1267 |
-| dst -= v | alignment=page; field=m31; lane_bytes=4; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.4005 / 1.4044 |
-| dst = a * b | alignment=page; field=m31; lane_bytes=4; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 0.8632 / 0.8846 |
-| dst = c * src | alignment=page; field=m31; lane_bytes=4; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 0.7580 / 0.9039 |
+| dst += c * src | alignment=page; field=m31; lane_bytes=4; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 0.8718 / 0.8264 |
+| dst += v | alignment=page; field=m31; lane_bytes=4; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.1243 / 1.1266 |
+| dst -= v | alignment=page; field=m31; lane_bytes=4; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.4000 / 1.4055 |
+| dst = a * b | alignment=page; field=m31; lane_bytes=4; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 0.9354 / 0.8960 |
+| dst = c * src | alignment=page; field=m31; lane_bytes=4; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 0.9635 / 0.8984 |
 
 ## qm31
 
@@ -137,21 +137,21 @@ The fgf arm's public calls from the native-layout harness; only version arms are
 
 | Operation | Case | v3 speed factor |
 | --- | --- | --- |
-| add_assign | 4 KiB | 0.9988 / 1.0098 |
-| add_assign | 256 KiB | 1.0036 / 1.0042 |
-| add_assign | 8 MiB | 0.9991 / 0.9937 |
-| add_assign_scalar | 4 KiB | 1.1236 / 1.0761 |
-| add_assign_scalar | 256 KiB | 1.0995 / 1.0474 |
-| add_assign_scalar | 8 MiB | 1.0766 / 0.9484 |
-| mul_elementwise | 4 KiB | 1.0856 / 1.2305 |
-| mul_elementwise | 256 KiB | 1.0492 / 1.2308 |
-| mul_elementwise | 8 MiB | 0.9967 / 1.1422 |
-| mul_elementwise_assign | 4 KiB | 1.1274 / 1.1968 |
-| mul_elementwise_assign | 256 KiB | 1.1350 / 1.1729 |
-| mul_elementwise_assign | 8 MiB | 1.0548 / 1.2840 |
-| sub_assign_scalar | 4 KiB | 1.4179 / 1.3058 |
-| sub_assign_scalar | 256 KiB | 1.3392 / 1.2310 |
-| sub_assign_scalar | 8 MiB | 1.2257 / 0.7725 |
+| add_assign | 4 KiB | 0.9947 / 1.0077 |
+| add_assign | 256 KiB | 1.0036 / 1.0222 |
+| add_assign | 8 MiB | 1.0165 / 1.0128 |
+| add_assign_scalar | 4 KiB | 1.1109 / 1.0749 |
+| add_assign_scalar | 256 KiB | 1.0989 / 1.0722 |
+| add_assign_scalar | 8 MiB | 1.0715 / 0.9473 |
+| mul_elementwise | 4 KiB | 1.2975 / 1.2207 |
+| mul_elementwise | 256 KiB | 1.2331 / 1.2120 |
+| mul_elementwise | 8 MiB | 1.0177 / 1.1946 |
+| mul_elementwise_assign | 4 KiB | 1.0995 / 1.2189 |
+| mul_elementwise_assign | 256 KiB | 1.1458 / 1.2254 |
+| mul_elementwise_assign | 8 MiB | 1.0946 / 1.3021 |
+| sub_assign_scalar | 4 KiB | 1.4163 / 1.3054 |
+| sub_assign_scalar | 256 KiB | 1.3371 / 1.2317 |
+| sub_assign_scalar | 8 MiB | 1.2050 / 0.7702 |
 
 ### Indexed scalar multiplication and accumulation
 
@@ -159,7 +159,7 @@ The fgf arm's public calls from the native-layout harness; only version arms are
 
 | Operation | Geometry | v3 speed factor |
 | --- | --- | --- |
-| acc += a * b | alignment=page; field=qm31; lane_bytes=8; region_bytes=65536; scope=indexed acc += a * b | 1.9901 / 1.8940 |
+| acc += a * b | alignment=page; field=qm31; lane_bytes=8; region_bytes=65536; scope=indexed acc += a * b | 1.9975 / 1.9079 |
 
 ### Native-layout public operations
 
@@ -167,11 +167,11 @@ The fgf arm's public calls from the native-layout harness; only version arms are
 
 | Operation | Geometry | v3 speed factor |
 | --- | --- | --- |
-| dst += c * src | alignment=page; field=qm31; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.0222 / 1.0585 |
-| dst += v | alignment=page; field=qm31; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.0904 / 1.1306 |
-| dst -= v | alignment=page; field=qm31; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.3583 / 1.4060 |
-| dst = a * b | alignment=page; field=qm31; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.0464 / 1.2185 |
-| dst = c * src | alignment=page; field=qm31; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.0357 / 1.1670 |
+| dst += c * src | alignment=page; field=qm31; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.1707 / 1.0599 |
+| dst += v | alignment=page; field=qm31; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.0903 / 1.1278 |
+| dst -= v | alignment=page; field=qm31; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.3581 / 1.4059 |
+| dst = a * b | alignment=page; field=qm31; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.2894 / 1.2182 |
+| dst = c * src | alignment=page; field=qm31; lane_bytes=8; logical_bytes=131072; preparation=one-shot; region_bytes=65536 | 1.1714 / 1.1665 |
 
 ## Caveats
 
