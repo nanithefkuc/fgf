@@ -629,6 +629,7 @@ fn encode_staged<F: FieldBuffer>(pair: &str, operation: &str, elems: &[Elem<F>])
 fn emb_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
     pair: &str,
     map: &Embedding<S, T>,
+    with_mixed: bool,
 ) {
     let sources: Vec<Elem<S>> = field_samples(SCALAR_STAGE, 0x501);
     let members: Vec<Elem<T>> = sources.iter().map(|x| map.embed(*x)).collect();
@@ -677,30 +678,34 @@ fn emb_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
             ops as u64
         },
     );
-    bench_scalar(
-        &format!("field-maps/{pair}/restrict-mixed/scalar-chain"),
-        |ops| {
-            let mut hits = 0u64;
-            let mut acc = Elem::<S>::ZERO;
-            for i in 0..ops {
-                // Alternate member/outsider with the region mask's rotation.
-                let y = if (i + 0x5A) % 2 == 0 {
-                    members[(i / 2) & (SCALAR_STAGE / 2 - 1)]
-                } else {
-                    outsiders[(i / 2) & (SCALAR_STAGE / 2 - 1)]
-                };
-                match map.restrict(y) {
-                    Some(preimage) => {
-                        acc = black_box(preimage);
-                        hits += 1;
+    // The publisher grammar accepts mixed scalar chains only from the
+    // scalar-only pairs; byte-form pairs emit region rows only.
+    if with_mixed {
+        bench_scalar(
+            &format!("field-maps/{pair}/restrict-mixed/scalar-chain"),
+            |ops| {
+                let mut hits = 0u64;
+                let mut acc = Elem::<S>::ZERO;
+                for i in 0..ops {
+                    // Alternate member/outsider with the region mask's rotation.
+                    let y = if (i + 0x5A) % 2 == 0 {
+                        members[(i / 2) & (SCALAR_STAGE / 2 - 1)]
+                    } else {
+                        outsiders[(i / 2) & (SCALAR_STAGE / 2 - 1)]
+                    };
+                    match map.restrict(y) {
+                        Some(preimage) => {
+                            acc = black_box(preimage);
+                            hits += 1;
+                        }
+                        None => acc = black_box(Elem::<S>::ZERO),
                     }
-                    None => acc = black_box(Elem::<S>::ZERO),
                 }
-            }
-            black_box((acc, hits));
-            ops as u64
-        },
-    );
+                black_box((acc, hits));
+                ops as u64
+            },
+        );
+    }
     bench_scalar(&format!("field-maps/{pair}/contains/scalar-chain"), |ops| {
         let mut hits = 0u64;
         for i in 0..ops {
@@ -862,51 +867,11 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
         let label = format!("field-maps/{pair}/restrict-mixed/row-{count}");
         let bytes = count * elem_traffic + fgf::bits::bytes_for(count);
         let src = &mixed_restrict_bytes[..count * T::BYTES];
-        // Pre-timing check: lanes hold canonical preimage-or-zero, bits
-        // match membership, tail bits stay cleared.
-        {
-            let mask_len = fgf::bits::bytes_for(count);
-            let mut expect_mask = vec![0u8; mask_len];
-            for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
-                let value = T::decode(s);
-                match map.restrict(value) {
-                    Some(preimage) => {
-                        assert_eq!(
-                            map.restrict(value),
-                            Some(preimage),
-                            "field-maps {pair} restrict-mixed oracle {i}"
-                        );
-                        let mut lane = vec![0u8; S::BYTES];
-                        S::encode(&mut lane, preimage);
-                        expect_mask[i / 8] |= 1 << (i % 8);
-                    }
-                    None => {
-                        assert!(
-                            !map.contains(value),
-                            "field-maps {pair} restrict-mixed member {i}"
-                        );
-                    }
-                }
-            }
-            assert_eq!(
-                fgf::bits::weight(&expect_mask, count),
-                mixed_restrict[..count]
-                    .iter()
-                    .filter(|y| map.contains(**y))
-                    .count(),
-                "field-maps {pair} restrict-mixed validity bits"
-            );
-            if mask_len * 8 > count {
-                let tail = expect_mask[mask_len - 1] >> (count % 8);
-                assert_eq!(tail, 0, "field-maps {pair} restrict-mixed tail bits");
-            }
-        }
         let mut dst = vec![0u8; top * S::BYTES];
         let mut mask = vec![0u8; mask_bytes];
-        bench_region(&label, bytes, || {
-            let src = black_box(src);
-            let dst = black_box(&mut dst[..count * S::BYTES]);
-            let mask = black_box(&mut mask[..fgf::bits::bytes_for(count)]);
+        // The exact row body the timing loop runs, shared so validation
+        // executes the measured outputs rather than a parallel oracle.
+        let run_mixed_row = |map: &Embedding<S, T>, dst: &mut [u8], mask: &mut [u8]| {
             mask.fill(0);
             for (i, (s, d)) in src
                 .chunks_exact(T::BYTES)
@@ -921,6 +886,68 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
                     None => S::encode(d, Elem::<S>::ZERO),
                 }
             }
+        };
+        // Validate the measured lanes and bitmap against independently
+        // computed expectations: canonical preimage-or-zero lanes,
+        // LSB-first membership bits, cleared tail bits.
+        {
+            let mask_len = fgf::bits::bytes_for(count);
+            run_mixed_row(map, &mut dst[..count * S::BYTES], &mut mask[..mask_len]);
+            for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
+                let value = T::decode(s);
+                let lane = &dst[i * S::BYTES..(i + 1) * S::BYTES];
+                match map.restrict(value) {
+                    Some(preimage) => {
+                        let mut expect = vec![0u8; S::BYTES];
+                        S::encode(&mut expect, preimage);
+                        assert_eq!(
+                            lane,
+                            expect.as_slice(),
+                            "field-maps {pair} restrict-mixed lane {i}"
+                        );
+                        assert_eq!(
+                            mask[i / 8] & (1 << (i % 8)),
+                            1 << (i % 8),
+                            "field-maps {pair} restrict-mixed bit {i}"
+                        );
+                    }
+                    None => {
+                        let mut expect = vec![0u8; S::BYTES];
+                        S::encode(&mut expect, Elem::<S>::ZERO);
+                        assert_eq!(
+                            lane,
+                            expect.as_slice(),
+                            "field-maps {pair} restrict-mixed zero lane {i}"
+                        );
+                        assert_eq!(
+                            mask[i / 8] & (1 << (i % 8)),
+                            0,
+                            "field-maps {pair} restrict-mixed cleared bit {i}"
+                        );
+                        assert!(
+                            !map.contains(value),
+                            "field-maps {pair} restrict-mixed member {i}"
+                        );
+                    }
+                }
+            }
+            assert_eq!(
+                fgf::bits::weight(&mask[..mask_len], count),
+                mixed_restrict[..count]
+                    .iter()
+                    .filter(|y| map.contains(**y))
+                    .count(),
+                "field-maps {pair} restrict-mixed validity weight"
+            );
+            if mask_len * 8 > count {
+                let tail = mask[mask_len - 1] >> (count % 8);
+                assert_eq!(tail, 0, "field-maps {pair} restrict-mixed tail bits");
+            }
+        }
+        bench_region(&label, bytes, || {
+            let dst = black_box(&mut dst[..count * S::BYTES]);
+            let mask = black_box(&mut mask[..fgf::bits::bytes_for(count)]);
+            run_mixed_row(map, dst, mask);
             black_box((dst, mask));
         });
     }
@@ -1049,37 +1076,32 @@ fn emb_construct_once<S: Field, T: Field<Characteristic = S::Characteristic>>(pa
 // Isomorphism panels
 // ---------------------------------------------------------------------------
 
-/// Scalar element chains for one isomorphism pair. Each panel keeps a live
-/// value on each side so the chain never stalls on a fixed point, but the
-/// reported operation is exactly one direction per iteration: the opposite
-/// call only re-advances the carrier with staged seed material. The reported
+/// Scalar independent-input throughput for one isomorphism pair: each timed
+/// iteration applies one direction to one pre-staged input, and the reported
 /// count is one operation per iteration.
 fn iso_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
     pair: &str,
     map: &Isomorphism<S, T>,
 ) {
-    // Nonzero seeds on each side, so neither direction times the zero map.
-    let sources: Vec<Elem<S>> = field_samples(SCALAR_STAGE, 0x150);
-    let images: Vec<Elem<T>> = sources.iter().map(|x| map.apply(*x)).collect();
+    // Nonzero staged inputs on each side, so neither direction times the
+    // zero map.
+    let staged_sources: Vec<Elem<S>> = field_samples(SCALAR_STAGE, 0x150);
+    let staged_targets: Vec<Elem<T>> = field_samples(SCALAR_STAGE, 0xA99);
     let stage = SCALAR_STAGE - 1;
     bench_scalar(&format!("field-maps/{pair}/apply/scalar-chain"), |ops| {
-        let mut fwd = sources[1];
-        let mut back = map.apply(fwd);
+        let mut acc = Elem::<T>::ZERO;
         for i in 0..ops {
-            back = map.apply(black_box(fwd));
-            fwd = map.unapply(black_box(back.add(images[i & stage])));
+            acc = black_box(map.apply(staged_sources[i & stage]));
         }
-        black_box((fwd, back));
+        black_box(acc);
         ops as u64
     });
     bench_scalar(&format!("field-maps/{pair}/unapply/scalar-chain"), |ops| {
-        let mut back = images[1];
-        let mut fwd = map.unapply(back);
+        let mut acc = Elem::<S>::ZERO;
         for i in 0..ops {
-            fwd = map.unapply(black_box(back));
-            back = map.apply(black_box(fwd.add(sources[i & stage])));
+            acc = black_box(map.unapply(staged_targets[i & stage]));
         }
-        black_box((fwd, back));
+        black_box(acc);
         ops as u64
     });
 }
@@ -1191,7 +1213,7 @@ fn run_emb_pair<S: FieldBuffer, T: Field<Characteristic = S::Characteristic> + F
         S::BYTES,
         T::BYTES,
     );
-    emb_scalar_panels(pair, &map);
+    emb_scalar_panels(pair, &map, false);
     emb_region_panels(pair, &map);
     let top = region_counts().iter().max().copied().unwrap_or(1);
     let control_targets: Vec<Elem<T>> = field_samples(top, 0xF21);
@@ -1210,7 +1232,7 @@ fn run_emb_pair_scalar<S: Field, T: Field<Characteristic = S::Characteristic>>(p
         .unwrap_or_else(|error| panic!("field-maps {pair}: construction failed: {error:?}"));
     validate_embedding(pair, &map);
     println!("field-maps panel: {pair} (embedding)");
-    emb_scalar_panels(pair, &map);
+    emb_scalar_panels(pair, &map, true);
     emb_construct_once::<S, T>(pair);
 }
 

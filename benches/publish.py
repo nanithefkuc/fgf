@@ -3174,7 +3174,10 @@ class Renderer:
         table = self._assemble(
             "maps-scalar", SCALAR_METRIC, ["Pair", "Operation"], ["scalar chain"],
             entries,
-            ["Latency of the dependent element chain, per scalar operation."])
+            ["Frobenius scalar panels are dependent chains; every other scalar "
+             "panel (embed, restriction rows, contains, trace, norm, apply, "
+             "unapply, construction) is independent-input throughput over staged "
+             "deterministic inputs, per scalar operation."])
         if table is not None:
             tables.append(table)
         region_keys = [k for k in keys if k[5] == THROUGHPUT]
