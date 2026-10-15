@@ -248,6 +248,13 @@ bench-gf-comp:
 bench-gdl:
     just bench kernels --gdl
 
+# Field-map operations across every measured pair geometry: scalar chains,
+# region rows over the compact-map control loop, and construction
+# amortization, with machine records for the `maps` publisher suite.
+[group('bench')]
+bench-field-maps:
+    just bench field_maps
+
 # The prime-field competitor: `external/prime-bench/` compares `fgf`
 # against Plonky3 on each library's native layout, built with
 # `-C target-cpu=native` because Plonky3 selects its packed kernels at
