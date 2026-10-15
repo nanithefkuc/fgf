@@ -14,7 +14,7 @@ use core::fmt;
 use super::descriptor::Descriptor;
 use super::pinned::{self, Instance};
 use super::private::Sealed;
-use super::storage::{ExtensionStorage, StorageBuffer, StorageDisplay, StorageRepr};
+use super::storage::{ExtensionStorage, StorageBuffer, StorageDisplay, StorageRepr, extract_bits};
 use super::{Extension, ExtensionField, ExtensionSpec};
 use crate::field::binary::binary_private;
 use crate::field::binary::description::BinaryDescription;
@@ -550,6 +550,44 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> RowAccess
             return None;
         }
         <S::Base as RowAccess>::to_prime(components[0])
+    }
+
+    fn coordinate_word(raw: <Self as Field>::Raw) -> u64 {
+        let () = Validate::<Self>::OK;
+        assert!(P == 2, "coordinate word on a row of odd characteristic");
+        // The pinned word is packed-only; component rows rebuild the
+        // coordinate word from canonical components through `RowAccess`,
+        // so residue-two leaves keep their own conversion.
+        let base_degree = <S::Base as Field>::DEGREE as usize;
+        let mut word = 0u64;
+        for (i, component) in split::<S, D>(<Self as Field>::canonical_raw(raw))
+            .iter()
+            .enumerate()
+        {
+            let part = <S::Base as RowAccess>::coordinate_word(*component);
+            debug_assert!(
+                base_degree >= 64 || part >> base_degree == 0,
+                "base coordinate word exceeds the base degree"
+            );
+            word |= part << (i * base_degree);
+        }
+        word
+    }
+
+    fn from_coordinate_word(word: u64) -> <Self as Field>::Raw {
+        let () = Validate::<Self>::OK;
+        assert!(P == 2, "coordinate word on a row of odd characteristic");
+        // Every `u64` word names a coordinate at the binary cap.
+        assert!(
+            N == 64 || word >> N == 0,
+            "coordinate word holds bits at or above the field degree"
+        );
+        let base_degree = <S::Base as Field>::DEGREE as usize;
+        let components = core::array::from_fn(|i| {
+            let part = extract_bits(word, i * base_degree, base_degree);
+            <S::Base as RowAccess>::from_coordinate_word(part)
+        });
+        join::<S, D>(components)
     }
 }
 

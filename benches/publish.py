@@ -188,14 +188,14 @@ MAP_POW_PAIRS = frozenset(
     if pair not in MAP_ISO_PAIRS and pair not in MAP_SCALAR_ONLY)
 MAP_EMBED_OPS = frozenset({
     "embed", "restrict-member", "restrict-nonmember", "restrict-mixed", "contains",
-    "frobenius", "trace", "norm",
+    "frobenius", "frobenius-prepared", "trace", "norm",
 })
 MAP_ISO_OPS = frozenset({"apply", "unapply"})
 MAP_ROW_COUNTS = (1, 8, 64, 1024, 16384)
 MAP_SHAPES = frozenset({"scalar-chain", "row-1", "row-8", "row-64", "row-1024", "row-16384"})
 MAP_LABEL_RE = re.compile(
     r"field-maps/(" + "|".join(MAP_PAIRS) + r")/"
-    r"(embed|restrict-member|restrict-nonmember|restrict-mixed|contains|frobenius|trace|norm|"
+    r"(embed|restrict-member|restrict-nonmember|restrict-mixed|contains|frobenius|frobenius-prepared|trace|norm|"
     r"apply|unapply|construct)/"
     r"(scalar-chain|row-1|row-8|row-64|row-1024|row-16384|once)$")
 # Arithmetic controls beside the map panels. The pow control names the
@@ -1521,7 +1521,7 @@ def _maps_check_bytes(parser, pair: str, op: str, shape: str, nbytes: int | None
     mask = (count + 7) // 8
     if op in ("embed", "trace", "norm", "apply", "unapply"):
         expected = count * (src + dst)
-    elif op == "frobenius":
+    elif op in ("frobenius", "frobenius-prepared"):
         expected = 2 * count * dst
     elif op == "contains":
         expected = count * dst + mask

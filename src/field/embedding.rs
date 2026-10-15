@@ -44,7 +44,10 @@
 //! assert_eq!(embedding.frobenius(lifted), lifted);
 //! ```
 
+mod frobenius;
 mod ladder;
+#[cfg(feature = "alloc")]
+pub use frobenius::Frobenius;
 
 use core::marker::PhantomData;
 

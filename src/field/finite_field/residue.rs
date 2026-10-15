@@ -293,6 +293,22 @@ impl<const P: u64> super::super::private::RowAccess for FiniteField<P, 1, Residu
         // the inherent readout never sees because storage is canonical.
         Some(reduce_body::<P>(raw))
     }
+
+    fn coordinate_word(raw: <Self as Field>::Raw) -> u64 {
+        let () = Validate::<Self>::OK;
+        assert!(P == 2, "coordinate word on a row of odd characteristic");
+        reduce_body::<P>(raw)
+    }
+
+    fn from_coordinate_word(word: u64) -> <Self as Field>::Raw {
+        let () = Validate::<Self>::OK;
+        assert!(P == 2, "coordinate word on a row of odd characteristic");
+        assert!(
+            word < 2,
+            "coordinate word holds bits at or above the field degree"
+        );
+        word
+    }
 }
 
 impl<const P: u64> FieldBuffer for FiniteField<P, 1, Residue> {

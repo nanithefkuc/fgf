@@ -30,8 +30,8 @@ use std::time::{Duration, Instant};
 use fgf::poly::{AES, RS};
 use fgf::{
     Components, Elem, Embedding, Extension, ExtensionSpec, Field, FieldBuffer, FieldElem,
-    FiniteField, Goldilocks, Isomorphism, Mersenne31, Normal, Polynomial, QuadMersenne31, Relation,
-    Residue, backend, backend_for,
+    FiniteField, Frobenius, Goldilocks, Isomorphism, Mersenne31, Normal, Polynomial,
+    QuadMersenne31, Relation, Residue, backend, backend_for, ops,
 };
 use fgf::{FanPaar8, FanPaar16, FanPaar64, Rijndael16, Rijndael32, Rijndael64};
 
@@ -731,6 +731,22 @@ fn emb_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
             ops as u64
         },
     );
+    {
+        // Same map as the compact `frobenius` row beside it: the relative
+        // σ_m with m = S::DEGREE, prepared once outside the timed chain.
+        let prepared = Frobenius::<T>::new(S::DEGREE);
+        bench_scalar(
+            &format!("field-maps/{pair}/frobenius-prepared/scalar-chain"),
+            |ops| {
+                let mut value = members[0];
+                for _ in 0..ops {
+                    value = black_box(value.frobenius_with(&prepared));
+                }
+                black_box(value);
+                ops as u64
+            },
+        );
+    }
     bench_scalar(&format!("field-maps/{pair}/trace/scalar-chain"), |ops| {
         let mut acc = Elem::<S>::ZERO;
         for i in 0..ops {
@@ -755,6 +771,8 @@ fn emb_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
 /// membership-reporting operations, per the `bits.rs` convention), the
 /// baseline every future kernel PR must beat. All buffers are allocated
 /// once outside timing; the timed bodies borrow black-boxed slices only.
+/// The `frobenius-prepared` rows time the prepared row entry point instead,
+/// with preparation hoisted out of the timed region.
 #[allow(clippy::too_many_lines)]
 fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic> + FieldBuffer>(
     pair: &str,
@@ -986,6 +1004,23 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
         });
     }
     for &count in region_counts() {
+        let label = format!("field-maps/{pair}/frobenius-prepared/row-{count}");
+        // Frobenius is T → T: one target element each way, unlike the
+        // S → T traffic of the embedding panels beside it.
+        let bytes = count * 2 * T::BYTES;
+        // Same relative map as the compact row, prepared once outside the
+        // timed region; the destination is reused across batches.
+        let prepared = Frobenius::<T>::new(S::DEGREE);
+        let src = &mixed_bytes[..count * T::BYTES];
+        let mut dst = vec![0u8; top * T::BYTES];
+        bench_region(&label, bytes, || {
+            let src = black_box(src);
+            let dst = black_box(&mut dst[..count * T::BYTES]);
+            ops::frobenius_into_with(dst, black_box(&prepared), src);
+            black_box(dst);
+        });
+    }
+    for &count in region_counts() {
         let label = format!("field-maps/{pair}/trace/row-{count}");
         let bytes = count * elem_traffic;
         let src = &mixed_bytes[..count * T::BYTES];
@@ -1036,6 +1071,15 @@ fn emb_construct_panels<
         }
         ops as u64
     });
+    bench_scalar(
+        &format!("field-maps/{pair}/frobenius-prepared/once"),
+        |ops| {
+            for _ in 0..ops {
+                black_box(Frobenius::<T>::new(S::DEGREE));
+            }
+            ops as u64
+        },
+    );
     if smoke() {
         return;
     }
@@ -1070,6 +1114,19 @@ fn emb_construct_once<S: Field, T: Field<Characteristic = S::Characteristic>>(pa
         }
         ops as u64
     });
+}
+
+/// Scalar-only Frobenius preparation panel for pairs with no byte form.
+fn frob_construct_once<T: Field>(pair: &str, m: u32) {
+    bench_scalar(
+        &format!("field-maps/{pair}/frobenius-prepared/once"),
+        |ops| {
+            for _ in 0..ops {
+                black_box(Frobenius::<T>::new(m));
+            }
+            ops as u64
+        },
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1234,6 +1291,7 @@ fn run_emb_pair_scalar<S: Field, T: Field<Characteristic = S::Characteristic>>(p
     println!("field-maps panel: {pair} (embedding)");
     emb_scalar_panels(pair, &map, true);
     emb_construct_once::<S, T>(pair);
+    frob_construct_once::<T>(pair, S::DEGREE);
 }
 
 /// One isomorphism pair: construct, validate, then run the apply/unapply

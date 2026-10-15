@@ -274,6 +274,29 @@ macro_rules! degree_row {
             }
 
             prime_hooks!($n);
+
+            fn coordinate_word(raw: <Self as Field>::Raw) -> u64 {
+                let () = Validate::<Self>::OK;
+                // Widening the canonical word to the coordinate word is
+                // exact.
+                #[allow(clippy::cast_lossless)]
+                let word = <Self as Field>::canonical_raw(raw) as u64;
+                word
+            }
+
+            fn from_coordinate_word(word: u64) -> <Self as Field>::Raw {
+                let () = Validate::<Self>::OK;
+                // Every `u64` word names a coordinate at the binary cap.
+                assert!(
+                    $n == 64 || word >> $n == 0,
+                    "coordinate word holds bits at or above the field degree"
+                );
+                // The occupied bits stop at the degree, which the raw word
+                // holds exactly.
+                #[allow(clippy::cast_possible_truncation)]
+                let raw = word as $raw;
+                <Self as Field>::canonical_raw(raw)
+            }
         }
         impl<R: BinaryRepr<$n>> BinaryField for FiniteField<2, $n, R> {
             const DESCRIPTION: &'static BinaryDescription = R::DESCRIPTION;
