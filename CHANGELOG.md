@@ -24,6 +24,9 @@ All notable changes to this project are documented here. The format follows
   removed. Migrate equal-degree `Embedding::new`/`from_images` to
   `Isomorphism::new`/`from_images`, `embed` to `apply`, and `restrict`
   to `unapply` at equal degree.
+- The wiki embedding guide covers the proper-inclusion and isomorphism
+  split, mixed composition through `then` and `then_embedding`, and the
+  `EqualDegree` and `IncompatibleDegree` rejection pair.
 - The dependency lock records published sources for locked MSRV checks;
   umbrella-local patch resolution is excluded from the publication lock.
 
