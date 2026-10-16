@@ -17,6 +17,13 @@ All notable changes to this project are documented here. The format follows
   characteristic-power automorphism for repeated scalar and row use, and
   `ops::frobenius_into_with` / `ops::frobenius_assign_with` apply it
   across stable byte lanes.
+- Prepared embedding and isomorphism maps with the complete byte-row
+  surface: `PreparedEmbedding` compiles one canonical inclusion for
+  repeated `embed`, `contains`, `restrict`, `frobenius`, `trace`, and
+  `norm` use, `PreparedIsomorphism` compiles one presentation change for
+  repeated `apply` / `unapply` use, and the `ops` row functions apply
+  them across stable byte lanes with a validity bitmap for partial
+  restriction.
 - Wiki reference for operation suffixes, destination behavior, prepared state,
 
 ### Changed

@@ -187,16 +187,24 @@ MAP_POW_PAIRS = frozenset(
     pair for pair in MAP_PAIRS
     if pair not in MAP_ISO_PAIRS and pair not in MAP_SCALAR_ONLY)
 MAP_EMBED_OPS = frozenset({
-    "embed", "restrict-member", "restrict-nonmember", "restrict-mixed", "contains",
-    "frobenius", "frobenius-prepared", "trace", "norm",
+    "embed", "embed-prepared", "restrict-member", "restrict-member-prepared",
+    "restrict-nonmember", "restrict-nonmember-prepared", "restrict-mixed",
+    "restrict-mixed-prepared", "contains", "contains-prepared", "frobenius",
+    "frobenius-prepared", "trace", "trace-prepared", "norm", "norm-prepared",
 })
-MAP_ISO_OPS = frozenset({"apply", "unapply"})
+MAP_ISO_OPS = frozenset({
+    "apply", "apply-prepared", "unapply", "unapply-prepared",
+})
 MAP_ROW_COUNTS = (1, 8, 64, 1024, 16384)
 MAP_SHAPES = frozenset({"scalar-chain", "row-1", "row-8", "row-64", "row-1024", "row-16384"})
 MAP_LABEL_RE = re.compile(
     r"field-maps/(" + "|".join(MAP_PAIRS) + r")/"
-    r"(embed|restrict-member|restrict-nonmember|restrict-mixed|contains|frobenius|frobenius-prepared|trace|norm|"
-    r"apply|unapply|construct)/"
+    r"(embed|embed-prepared|restrict-member|restrict-member-prepared|"
+    r"restrict-nonmember|restrict-nonmember-prepared|restrict-mixed|"
+    r"restrict-mixed-prepared|contains|contains-prepared|frobenius|"
+    r"frobenius-prepared|trace|trace-prepared|norm|norm-prepared|"
+    r"apply|apply-prepared|unapply|unapply-prepared|construct|construct-embedding|"
+    r"construct-isomorphism)/"
     r"(scalar-chain|row-1|row-8|row-64|row-1024|row-16384|once)$")
 # Arithmetic controls beside the map panels. The pow control names the
 # inclusion pair whose target field it powers; the qm31 controls stand alone
@@ -1519,13 +1527,17 @@ def _maps_check_bytes(parser, pair: str, op: str, shape: str, nbytes: int | None
     count = int(shape.removeprefix("row-"))
     src, dst = _maps_endpoints(parser, pair, raw)
     mask = (count + 7) // 8
-    if op in ("embed", "trace", "norm", "apply", "unapply"):
+    if op in ("embed", "embed-prepared", "trace", "trace-prepared", "norm",
+                "norm-prepared", "apply", "apply-prepared", "unapply",
+                "unapply-prepared"):
         expected = count * (src + dst)
     elif op in ("frobenius", "frobenius-prepared"):
         expected = 2 * count * dst
-    elif op == "contains":
+    elif op in ("contains", "contains-prepared"):
         expected = count * dst + mask
-    elif op in ("restrict-member", "restrict-nonmember", "restrict-mixed"):
+    elif op in ("restrict-member", "restrict-member-prepared", "restrict-nonmember",
+                "restrict-nonmember-prepared", "restrict-mixed",
+                "restrict-mixed-prepared"):
         expected = count * (src + dst) + mask
     elif op == "construct":
         expected = count * (src + dst)
@@ -1614,11 +1626,28 @@ def build_maps(parser, kind, raw, label, nbytes, ns):
         parser.error(f"unsupported field-maps label: {raw!r}")
     pair, op, shape = m.group(1), m.group(2), m.group(3)
     allowed = MAP_ISO_OPS if pair in MAP_ISO_PAIRS else MAP_EMBED_OPS
+    # Applicability classes: embedding pairs run the embedding ops,
+    # isomorphism pairs the isomorphism ops; construction ids are
+    # pair-class-specific (inapplicable rows are omitted, never aliased).
+    applicable_construct = (
+        ("construct", "construct-embedding")
+        if pair not in MAP_ISO_PAIRS
+        else ("construct", "construct-isomorphism")
+    )
+    construct_op = op in applicable_construct
+    if (
+        op in ("construct-embedding", "construct-isomorphism")
+        and op not in applicable_construct
+    ):
+        parser.error(f"operation {op!r} is not measured for pair {pair!r}: {raw!r}")
     if op == "construct":
         if shape not in ("once", "row-16384"):
             parser.error(f"field-maps construct uses shape once or row-16384: {raw!r}")
         if pair in MAP_SCALAR_ONLY and shape != "once":
             parser.error(f"pair {pair!r} has no byte form: scalar panels only: {raw!r}")
+    elif construct_op:
+        if shape != "once":
+            parser.error(f"field-maps {op} uses shape once: {raw!r}")
     elif op == "frobenius-prepared" and shape == "once":
         # Frobenius preparation is embedding-pair-only: iso pairs have no
         # relative map to prepare.
@@ -1628,10 +1657,13 @@ def build_maps(parser, kind, raw, label, nbytes, ns):
         parser.error(f"operation {op!r} is not measured for pair {pair!r}: {raw!r}")
     elif shape == "once":
         parser.error(f"shape once is reserved for construct: {raw!r}")
-    elif pair in MAP_SCALAR_ONLY and shape != "scalar-chain":
+    elif pair in MAP_SCALAR_ONLY and shape != "scalar-chain" and not (construct_op and shape == "once"):
         parser.error(f"pair {pair!r} has no byte form: scalar panels only: {raw!r}")
-    elif (op == "restrict-mixed" and shape == "scalar-chain"
-            and pair not in MAP_SCALAR_ONLY):
+    elif (
+        op in ("restrict-mixed", "restrict-mixed-prepared")
+        and shape == "scalar-chain"
+        and pair not in MAP_SCALAR_ONLY
+    ):
         parser.error(f"restrict-mixed is measured as chains only for pairs with "
                      f"no byte form: {raw!r}")
     if shape == "scalar-chain":
@@ -1656,6 +1688,24 @@ def build_maps(parser, kind, raw, label, nbytes, ns):
         metric, geometry = THROUGHPUT, {"shape": shape, "elements": count}
     _push_self(parser, kind, raw, f"{pair} {op}", "maps", "maps", metric,
                nbytes, ns, geometry)
+
+
+def maps_grammar_mutation_probes() -> list[tuple[str, str]]:
+    """Negative labels the fail-closed grammar must reject.
+
+    Each entry is an (op-description, label) pair. The harness calls
+    `MAP_LABEL_RE` plus the `build_maps` eligibility checks; a probe
+    passes when the label is rejected. The two bypasses this guards:
+    `frobenius-prepared/once` on an isomorphism pair (construction shape
+    is pair-class-specific) and `restrict-mixed-prepared/scalar-chain`
+    on a byte-form pair (mixed chains are scalar-only pairs only).
+    """
+    return [
+        ("frobenius-prepared-once-on-iso-pair",
+         "field-maps/fp64-gf64-iso/frobenius-prepared/once"),
+        ("restrict-mixed-prepared-chain-on-byte-form-pair",
+         "field-maps/gf16-gf64/restrict-mixed-prepared/scalar-chain"),
+    ]
 
 
 def build_crossover(parser, kind, raw, label, nbytes, ns):
@@ -2331,14 +2381,14 @@ class Campaign:
         for pair in MAP_PAIRS:
             ops = MAP_ISO_OPS if pair in MAP_ISO_PAIRS else MAP_EMBED_OPS
             constructors = (
-                ["construct", "frobenius-prepared-once"]
+                ["construct", "construct-embedding", "frobenius-prepared-once"]
                 if pair not in MAP_ISO_PAIRS
-                else ["construct"]
+                else ["construct", "construct-isomorphism"]
             )
             for op in (*sorted(ops), *constructors):
-                if op == "construct":
+                if op in ("construct", "construct-embedding", "construct-isomorphism"):
                     expected.add((pair, op, "once"))
-                    if pair not in MAP_SCALAR_ONLY:
+                    if pair not in MAP_SCALAR_ONLY and op == "construct":
                         expected.add((pair, op, "row-16384"))
                 elif op == "frobenius-prepared-once":
                     # The Frobenius construction panel emits
@@ -2346,9 +2396,13 @@ class Campaign:
                     if pair not in MAP_ISO_PAIRS:
                         expected.add((pair, "frobenius-prepared", "once"))
                 else:
-                    # restrict-mixed mirrors the other restriction ops: region
-                    # rows for byte-form pairs, chains only for scalar-only pairs.
-                    if pair in MAP_SCALAR_ONLY or op != "restrict-mixed":
+                    # Both mixed variants mirror the other restriction ops:
+                    # region rows for byte-form pairs, chains only for
+                    # scalar-only pairs.
+                    if pair in MAP_SCALAR_ONLY or op not in (
+                        "restrict-mixed",
+                        "restrict-mixed-prepared",
+                    ):
                         expected.add((pair, op, "scalar-chain"))
                     if pair in MAP_SCALAR_ONLY:
                         continue
@@ -3213,10 +3267,10 @@ class Renderer:
         if table is not None:
             tables.append(table)
         construct_keys = [k for k in keys if k[5] == LATENCY]
-        entries = [([k[3].split(" ", 1)[0]], "maps", "construct", k)
-                   for k in construct_keys]
+        entries = [([k[3].split(" ", 1)[0], k[3].split(" ", 1)[1]], "maps",
+                    "construct", k) for k in construct_keys]
         table = self._assemble(
-            "maps-construct", LATENCY, ["Pair"], ["construct"], entries,
+            "maps-construct", LATENCY, ["Pair", "Operation"], ["construct"], entries,
             ["Map construction latency per call, timed separately from "
              "application."])
         if table is not None:

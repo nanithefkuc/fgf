@@ -29,8 +29,6 @@ pub mod ops;
 #[cfg(feature = "internals")]
 pub mod internals;
 
-#[cfg(feature = "alloc")]
-pub use field::Frobenius;
 pub use field::{
     AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor,
     ComplexMersenne31, Components, Elem, Embedding, EmbeddingError, Extension, ExtensionField,
@@ -41,6 +39,8 @@ pub use field::{
     RangeError, Relation, Residue, Rijndael16, Rijndael32, Rijndael64, cantor, description,
     embedding, extension, goldilocks, mersenne31, normal, poly, quad_mersenne31, tower,
 };
+#[cfg(feature = "alloc")]
+pub use field::{Frobenius, PreparedEmbedding, PreparedIsomorphism};
 pub use kernel::{
     Backend, FGF_TIERS, FieldKernels, KernelBackend, ParseBackendError, backend, backend_for,
     has_vector_elementwise,
