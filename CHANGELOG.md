@@ -24,6 +24,13 @@ All notable changes to this project are documented here. The format follows
   repeated `apply` / `unapply` use, and the `ops` row functions apply
   them across stable byte lanes with a validity bitmap for partial
   restriction.
+- Bit-packed GF(2) map rows in `ops::map_bits`: `embed_into_with`,
+  `trace_into_with`, `norm_into_with`, `restrict_into_with`, and
+  `contains_into_with` move one prepared GF(2)-sourced map across packed
+  bits and target lanes. Packed sides follow the `bits` LSB-first layout
+  with caller-maintained zero padding; packed outputs are exactly
+  `bits::bytes_for(bits)` bytes with cleared tail bits, lane sides hold
+  whole target elements exactly, and empty rows are valid.
 - Wiki reference for operation suffixes, destination behavior, prepared state,
 
 ### Changed

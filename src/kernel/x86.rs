@@ -25,6 +25,8 @@
 
 pub mod bytes;
 pub mod fan_paar;
+#[cfg(feature = "alloc")]
+pub mod gf1;
 pub mod gf16;
 pub mod gf32;
 pub mod gf64;

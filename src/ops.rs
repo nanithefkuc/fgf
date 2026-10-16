@@ -7,7 +7,8 @@
 //! stable little-endian byte form, never a kernel operand. Buffers are plain
 //! `&[u8]` holding packed elements in that representation. Canonically
 //! encoded payloads need no repacking; Section "Prime fields" below states
-//! the packed-lane contract.
+//! the packed-lane contract. GF(2)-endpoint map rows over the bit-packed
+//! [`crate::bits`] representation live in `map_bits`.
 //!
 //! Implementations split by operation shape: single-row, scatter, gather,
 //! and matrix. Coefficient storage and packing conversions have separate
@@ -75,6 +76,8 @@ mod coefficient;
 mod gather;
 #[cfg(feature = "alloc")]
 pub mod map;
+#[cfg(feature = "alloc")]
+pub mod map_bits;
 mod matrix;
 mod packing;
 mod scatter;

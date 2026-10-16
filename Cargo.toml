@@ -81,8 +81,9 @@ required-features = ["std", "simd", "internals"]
 [[bench]]
 name = "field_maps"
 harness = false
-# The field-map panels time with `std` only: every map body is scalar, so no
-# kernel dispatch or internal access is needed.
+# The field-map panels time with `std` only: every map body is scalar —
+# the GF(2) bit/lane interop rows included — so no kernel dispatch or
+# internal access is needed.
 required-features = ["std"]
 
 [[bench]]

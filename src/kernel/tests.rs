@@ -6966,8 +6966,11 @@ fn gf16_gfni_wrappers_tolerate_degenerate_geometry() {
 /// the word loops (no packing, no masks). Geometry sweeps the same tail and
 /// boundary cases the public suite drives, minus the wrapper checks, so a
 /// wrapper bug cannot mask a kernel bug.
+#[cfg(feature = "alloc")]
 mod gf1_bits {
     use super::Vec;
+    use std::vec;
+
     use crate::field::{Elem, FiniteField, Polynomial};
     use crate::kernel::gf1 as k;
 
@@ -7164,5 +7167,250 @@ mod gf1_bits {
         assert_eq!(dst, [0b1010_1010]);
         k::xor_gather(&mut dst, &[], 0);
         assert_eq!(dst, [0b1010_1010]);
+    }
+
+    /// Element counts around every vector and 64-lane unit the interop
+    /// kernels step over: sub-unit, exact units, unit edges, the
+    /// overlapping 64-lane seam, and multi-unit bodies with tails.
+    const INTEROP_BITS: &[usize] = &[
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 15, 16, 17, 31, 32, 33, 63, 64, 65, 66, 67, 68, 69, 70,
+        100, 127, 128, 129, 200, 255, 256, 257, 511, 512, 513,
+    ];
+
+    /// Lane widths every interop entry is generic over.
+    const INTEROP_BYTES: &[usize] = &[1, 2, 4, 8];
+
+    /// Trace/one words worth testing: the degenerates, a byte mask, and
+    /// sampled fixed-seed values.
+    fn interop_words(seed: u64) -> Vec<u64> {
+        let mut words = vec![0u64, 1, u64::MAX, 0xFF];
+        let mut state = seed | 1;
+        for _ in 0..4 {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            words.push(state ^ state.rotate_left(17));
+        }
+        words
+    }
+
+    /// Portable expand oracle: the dispatched seam's scalar body.
+    fn oracle_expand(dst: &mut [u8], one_w: u64, src: &[u8], bits: usize, bytes: usize) {
+        for i in 0..bits {
+            let bit = (src[i / 8] >> (i % 8)) & 1;
+            let lane = one_w & 0u64.wrapping_sub(u64::from(bit));
+            let lane_bytes = lane.to_le_bytes();
+            dst[i * bytes..(i + 1) * bytes].copy_from_slice(&lane_bytes[..bytes]);
+        }
+    }
+
+    fn oracle_lane_word(src: &[u8], i: usize, bytes: usize) -> u64 {
+        let mut word = 0u64;
+        for (shift, &byte) in src[i * bytes..(i + 1) * bytes].iter().enumerate() {
+            word |= u64::from(byte) << (8 * shift);
+        }
+        word
+    }
+
+    /// Portable compress oracle over the lane predicate.
+    fn oracle_compress(dst: &mut [u8], src: &[u8], bits: usize, bytes: usize, test: &k::LaneTest) {
+        dst.fill(0);
+        for i in 0..bits {
+            let w = oracle_lane_word(src, i, bytes);
+            let ok = match *test {
+                k::LaneTest::NonZero => w != 0,
+                k::LaneTest::ZeroOrOne(one) => w == 0 || w == one,
+                k::LaneTest::Parity(tau) => (w & tau).count_ones() & 1 == 1,
+            };
+            if ok {
+                dst[i / 8] |= 1 << (i % 8);
+            }
+        }
+    }
+
+    /// Portable restrict oracle.
+    fn oracle_restrict(
+        dst: &mut [u8],
+        valid: &mut [u8],
+        one_w: u64,
+        src: &[u8],
+        bits: usize,
+        bytes: usize,
+    ) {
+        dst.fill(0);
+        valid.fill(0);
+        for i in 0..bits {
+            let w = oracle_lane_word(src, i, bytes);
+            if w == 0 || w == one_w {
+                valid[i / 8] |= 1 << (i % 8);
+            }
+            if w == one_w {
+                dst[i / 8] |= 1 << (i % 8);
+            }
+        }
+    }
+
+    /// Lane buffers whose every lane is exactly zero, `one`, or noise: the
+    /// membership predicates need all three populations.
+    fn lane_bytes(bits: usize, bytes: usize, one_w: u64, seed: u64) -> Vec<u8> {
+        let mut state = seed | 1;
+        let mut buf = vec![0u8; bits * bytes];
+        let one_bytes = one_w.to_le_bytes();
+        for i in 0..bits {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            let pick = (state >> 33) % 4;
+            let lane = match pick {
+                0 => 0u64,
+                1 => one_w,
+                _ => state ^ state.rotate_right(29),
+            };
+            let lane_bytes = lane.to_le_bytes();
+            if pick == 3 && (state >> 41) & 1 == 1 {
+                buf[i * bytes..(i + 1) * bytes].copy_from_slice(&one_bytes[..bytes]);
+            } else {
+                buf[i * bytes..(i + 1) * bytes].copy_from_slice(&lane_bytes[..bytes]);
+            }
+        }
+        buf
+    }
+
+    /// Drive one tier's expand/compress/restrict entries against the
+    /// portable oracles across widths, predicates, words, and boundary
+    /// lengths.
+    fn check_interop_tier(
+        name: &str,
+        mut expand: impl FnMut(&mut [u8], u64, &[u8], usize, usize),
+        mut compress: impl FnMut(&mut [u8], &[u8], usize, usize, &k::LaneTest),
+        mut restrict: impl FnMut(&mut [u8], &mut [u8], u64, &[u8], usize, usize),
+    ) {
+        for &bytes in INTEROP_BYTES {
+            for &bits in INTEROP_BITS {
+                for &one in &interop_words(0x1e00 + bits as u64) {
+                    let src = noise_bits(
+                        bits,
+                        0x1f00_u64
+                            .wrapping_add(bits as u64 * 31)
+                            .wrapping_add(one >> 3),
+                    );
+                    let mut got = vec![0u8; bits * bytes];
+                    let mut want = vec![0u8; bits * bytes];
+                    expand(&mut got, one, &src, bits, bytes);
+                    oracle_expand(&mut want, one, &src, bits, bytes);
+                    assert_eq!(
+                        got, want,
+                        "{name} expand: bytes {bytes}, bits {bits}, one {one:#x}"
+                    );
+                    let lanes = lane_bytes(bits, bytes, one, 0x2000 + bits as u64);
+                    for &tau in &interop_words(0x2100 + bits as u64) {
+                        for test in [
+                            k::LaneTest::NonZero,
+                            k::LaneTest::ZeroOrOne(one),
+                            k::LaneTest::Parity(tau),
+                        ] {
+                            let mut got_c = zeros(bits.div_ceil(8));
+                            let mut want_c = zeros(bits.div_ceil(8));
+                            compress(&mut got_c, &lanes, bits, bytes, &test);
+                            oracle_compress(&mut want_c, &lanes, bits, bytes, &test);
+                            assert_eq!(
+                                got_c, want_c,
+                                "{name} compress: bytes {bytes}, bits {bits}, test {test:?}"
+                            );
+                            assert_padding_zero(&got_c, bits);
+                        }
+                    }
+                    let mut got_d = zeros(bits.div_ceil(8));
+                    let mut got_v = zeros(bits.div_ceil(8));
+                    let mut want_d = zeros(bits.div_ceil(8));
+                    let mut want_v = zeros(bits.div_ceil(8));
+                    restrict(&mut got_d, &mut got_v, one, &lanes, bits, bytes);
+                    oracle_restrict(&mut want_d, &mut want_v, one, &lanes, bits, bytes);
+                    assert_eq!(
+                        (&got_d, &got_v),
+                        (&want_d, &want_v),
+                        "{name} restrict: bytes {bytes}, bits {bits}, one {one:#x}"
+                    );
+                    assert_padding_zero(&got_d, bits);
+                    assert_padding_zero(&got_v, bits);
+                }
+            }
+        }
+    }
+
+    /// SSE4.2 interop entries against the portable oracles.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[test]
+    fn gf1_sse42_matches_portable() {
+        use crate::kernel::Backend;
+        use crate::kernel::x86;
+        use archmage::{SimdToken as _, X64V2Token};
+        if !super::host_supports(&[Backend::V2]) {
+            eprintln!("skipping: no SSE4.2 on this host");
+            return;
+        }
+        let token = X64V2Token::summon().expect("guard passed: SSE4.2 summons here");
+        check_interop_tier(
+            "sse42",
+            |dst, one, src, bits, bytes| x86::gf1::expand_sse42(token, dst, one, src, bits, bytes),
+            |dst, src, bits, bytes, test| {
+                x86::gf1::compress_sse42(token, dst, src, bits, bytes, test);
+            },
+            |dst, valid, one, src, bits, bytes| {
+                x86::gf1::restrict_sse42(token, dst, valid, one, src, bits, bytes);
+            },
+        );
+    }
+
+    /// AVX2 interop entries against the portable oracles.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[test]
+    fn gf1_avx2_matches_portable() {
+        use crate::kernel::Backend;
+        use crate::kernel::x86;
+        use archmage::{SimdToken as _, X64V3Token};
+        if !super::host_supports(&[Backend::V3]) {
+            eprintln!("skipping: no AVX2 on this host");
+            return;
+        }
+        let token = X64V3Token::summon().expect("guard passed: AVX2 summons here");
+        check_interop_tier(
+            "avx2",
+            |dst, one, src, bits, bytes| x86::gf1::expand_avx2(token, dst, one, src, bits, bytes),
+            |dst, src, bits, bytes, test| {
+                x86::gf1::compress_avx2(token, dst, src, bits, bytes, test);
+            },
+            |dst, valid, one, src, bits, bytes| {
+                x86::gf1::restrict_avx2(token, dst, valid, one, src, bits, bytes);
+            },
+        );
+    }
+
+    /// AVX-512 interop entries against the portable oracles.
+    #[cfg(all(
+        feature = "simd512",
+        feature = "simd",
+        any(target_arch = "x86", target_arch = "x86_64")
+    ))]
+    #[test]
+    fn gf1_avx512_matches_portable() {
+        use crate::kernel::Backend;
+        use crate::kernel::x86;
+        use archmage::{SimdToken as _, X64V4xToken};
+        if !super::host_supports(&[Backend::V4x]) {
+            eprintln!("skipping: no AVX-512 V4x on this host");
+            return;
+        }
+        let token = X64V4xToken::summon().expect("guard passed: V4x summons here");
+        check_interop_tier(
+            "avx512",
+            |dst, one, src, bits, bytes| x86::gf1::expand_avx512(token, dst, one, src, bits, bytes),
+            |dst, src, bits, bytes, test| {
+                x86::gf1::compress_avx512(token, dst, src, bits, bytes, test);
+            },
+            |dst, valid, one, src, bits, bytes| {
+                x86::gf1::restrict_avx512(token, dst, valid, one, src, bits, bytes);
+            },
+        );
     }
 }
