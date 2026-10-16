@@ -79,6 +79,13 @@ harness = false
 required-features = ["std", "simd", "internals"]
 
 [[bench]]
+name = "field_maps"
+harness = false
+# The field-map panels time with `std` only: every map body is scalar, so no
+# kernel dispatch or internal access is needed.
+required-features = ["std"]
+
+[[bench]]
 name = "prime_ntt"
 harness = false
 # Direct AVX2 kernel calls need the internal architecture modules.

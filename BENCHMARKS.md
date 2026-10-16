@@ -20,6 +20,7 @@ campaign; unavailable operations or competitor measurements remain `-`.
 | Mersenne specializations | [m31, qm31](benchmarks/v2/mersenne31.md) | [m31, qm31](benchmarks/v3/mersenne31.md) | [v3/v2](benchmarks/comparison/mersenne31.md) | Plonky3 |
 | Goldilocks specialization | [gld](benchmarks/v2/goldilocks.md) | [gld](benchmarks/v3/goldilocks.md) | [v3/v2](benchmarks/comparison/goldilocks.md) | Plonky3 |
 | Generic prime residues | - | [Residues](benchmarks/v3/residue.md) | [AVX2 and scalar](benchmarks/comparison/residue.md) | - |
+| Field maps (inclusions, isomorphisms, Frobenius) | - | [field maps](benchmarks/v3/field-maps.md) | - | - |
 
 Absolute pages contain public-operation timings and competitor comparisons.
 The residue tables put row lengths in columns, with expandable operation panels
@@ -114,12 +115,17 @@ checkout's revision and retaining source/artifact digests with the raw records:
   "toolchain": "1.98.1",
   "rounds": 5,
   "host_order": ["willow", "golden"],
+  "families": ["gf", "gdl", "m31", "gf2", "prime", "maps"],
   "hosts": {
     "willow": {"cpu": "Intel Core i5-1135G7", "core": 3, "requested_backend": "v4x"},
     "golden": {"cpu": "Intel Core i7-12700K", "core": 8, "requested_backend": "v3_gfni_crypto"}
   }
 }
 ```
+
+`families` declares the campaign inventory the publisher verifies for
+completeness. Trees recorded before the maps suite carry no key and verify
+as the legacy five-family inventory.
 
 The runner records realized order and completion under a host-wide lock.
 Raw logs, source/build digests, and cell-level `evidence.json` stay in

@@ -6,13 +6,16 @@
 The records directory holds one subdirectory per available host, each
 produced by ``just bench-paired``: ``complete.txt``, ``environment.txt``,
 ``order.tsv``, the version logs ``round-{1..5}-{v2|v3}-{gf|gdl|m31|gf2}.log``,
-and the residue logs ``round-{1..5}-{v3|avx2|scalar}-prime.log``.
+the residue logs ``round-{1..5}-{v3|avx2|scalar}-prime.log``, and the map logs
+``round-{1..5}-v3-maps.log``.
 ``PATH/metadata.json`` is the parent-supplied campaign manifest; it declares
-the host list in measurement order, and may carry source revisions,
-toolchain facts, and per-host backend expectations. A host whose details set
-``available: false`` carries a ``reason`` instead of a core and backend, has
-no record directory, and renders as ``-`` in its display slot; only its
-label survives into the pages.
+the host list in measurement order, the campaign family inventory in
+``families`` (absent in trees recorded before the maps suite, which verify
+as the legacy ``["gf", "gdl", "m31", "gf2", "prime"]`` inventory), and may
+carry source revisions, toolchain facts, and per-host backend expectations. A
+host whose details set ``available: false`` carries a ``reason`` instead of a
+core and backend, has no record directory, and renders as ``-`` in its display
+slot; only its label survives into the pages.
 
 Generation fails closed: a missing or incomplete available-host run, a
 nonfinite or nonpositive value, a malformed or duplicate workload key, a row
@@ -23,7 +26,7 @@ measurement.
 Outputs, under ``--output``: ``v2/<family>.md``, ``v3/<family>.md``, and
 ``comparison/<family>.md`` for the six family pages, plus the residue
 snapshot ``v3/residue.md`` and the backend factor page
-``comparison/residue.md``. The raw-record side gains ``evidence.json`` with
+``comparison/residue.md``, plus an ``evidence.json`` sidecar beside the pages with
 every normalized case, per-host per-round samples, aggregates, backend
 banners, controls, availability, residue routes and field caps, and the
 page, table, row, and column of every published cell. ``--verify``
@@ -55,7 +58,10 @@ sys.modules.setdefault("publish", sys.modules[__name__])
 GIB = 1024.0**3
 ROUNDS = (1, 2, 3, 4, 5)
 VERSIONS = ("v2", "v3")
-FAMILIES = ("gf", "gdl", "m31", "gf2", "prime")
+FAMILIES = ("gf", "gdl", "m31", "gf2", "prime", "maps")
+# Campaigns pre-dating the maps suite declare no family inventory; they
+# verify as the legacy five-family tree.
+LEGACY_FAMILIES = ("gf", "gdl", "m31", "gf2", "prime")
 # Residue arms use the current artifact under routed, AVX2, and scalar
 # requests. None is a released-v2 residue measurement.
 FAMILY_VERSIONS = {
@@ -64,6 +70,9 @@ FAMILY_VERSIONS = {
     "m31": ("v2", "v3"),
     "gf2": ("v2", "v3"),
     "prime": ("v3", "avx2", "scalar"),
+    # Field maps have no released-v2 counterpart: v3-only, like prime's
+    # routed/scalar arms which name requests of one artifact, not releases.
+    "maps": ("v3",),
 }
 # Capture-family identifiers preserve the immutable raw record filenames.
 PAGE_FAMILIES = ("gf8", "gf16", "wide-binary", "gf1", "mersenne31", "goldilocks")
@@ -77,6 +86,7 @@ FAMILY_UNITS = {
     "m31": ("self", "prime"),
     "gf2": ("self",),
     "prime": ("self",),
+    "maps": ("self",),
 }
 NATIVE_GF16_ARMS = ("gf-complete", "reed-solomon-erasure", "reed-solomon-simd", "leopard")
 GF16_ARM_DISPLAY = {
@@ -118,6 +128,8 @@ FAMILY_FIELDS = {
     "gdl": {"gld"},
     "m31": {"m31", "qm31"},
     "gf2": {"gf1", "gf8b"},
+    # Map cases key on the source pair id, not a kernel field label.
+    "maps": {"maps"},
 }
 
 THROUGHPUT = "throughput"
@@ -127,6 +139,74 @@ ROWPAIR = "rowpair"
 METRIC_UNIT = {THROUGHPUT: "GiB/s", LATENCY: "ns/op", SCALAR_METRIC: "ns/op",
                ROWPAIR: "ns/row pair"}
 # ns values arrive with nine decimals; derived cells inherit that resolution.
+# ---------------------------------------------------------------------------
+# Field-map baseline (`field_maps` bench, family `maps`)
+# ---------------------------------------------------------------------------
+
+# Fixed pair ids in emission order: Embedding pairs first, then the two
+# isomorphism pairs. The grammar is fail-closed on this set.
+MAP_PAIRS = (
+    "gf32-gf64", "gf16-gf64", "aes8-gf64", "fp8-fp16", "rs8-gf16",
+    "normal8-gf16", "res2-gf64", "res2-res2q", "aes8-aesq", "m31-qm31",
+    "gdl2", "g9-g81", "r3-g81q", "r7-g343", "r3-g3-40", "ref2-ref8",
+    "gf1-gf64", "fp64-gf64-iso", "normal8-aes8-iso",
+)
+MAP_PAIR_SET = frozenset(MAP_PAIRS)
+# Isomorphism pairs run apply/unapply only; every other pair is an Embedding
+# pair and runs the seven map operations.
+MAP_ISO_PAIRS = frozenset({"fp64-gf64-iso", "normal8-aes8-iso"})
+# Distinct measured fields behind the 24 FIELD_BACKEND banners. `ref2` and
+# `gf1` are intentionally absent: scalar-panel-only rows with no
+# FieldKernels impl, so `backend_for` is inapplicable.
+MAP_BACKEND_FIELDS = (
+    "aes8", "rs8", "normal8", "fp8", "ref8", "gf16", "gf32", "gf64",
+    "fp16", "fp64", "res2", "res2q", "aesq", "r3", "g9", "g81", "g81q",
+    "r7", "g343", "g340", "m31", "qm31", "gld", "gld2",
+)
+MAP_BACKEND_SET = frozenset(MAP_BACKEND_FIELDS)
+# Declared encoded endpoint widths (source, target) in bytes, matching the
+# harness's `endpoint bytes A -> B` panel headings. Byte-row traffic formulas
+# are checked against these widths; a heading that disagrees fails closed.
+MAP_ENDPOINTS = {
+    "gf32-gf64": (4, 8), "gf16-gf64": (2, 8), "aes8-gf64": (1, 8),
+    "fp8-fp16": (1, 2), "rs8-gf16": (1, 2), "normal8-gf16": (1, 2),
+    "res2-gf64": (8, 8), "res2-res2q": (8, 16), "aes8-aesq": (1, 2),
+    "m31-qm31": (4, 8), "gdl2": (8, 16), "g9-g81": (2, 4),
+    "r3-g81q": (1, 4), "r7-g343": (1, 3), "r3-g3-40": (1, 40),
+    "ref2-ref8": (1, 1), "gf1-gf64": (1, 8),
+    "fp64-gf64-iso": (8, 8), "normal8-aes8-iso": (1, 1),
+}
+# Scalar-panel-only pairs have no byte form: scalar chains and construction
+# only, no region rows. Their declared widths above are unused by traffic
+# checks and exist only to keep the table total.
+MAP_SCALAR_ONLY = frozenset({"ref2-ref8", "gf1-gf64"})
+# Byte-form inclusion pairs each carry a `control pow {pair}` arithmetic
+# control beside their own frobenius panels. Isomorphism pairs, scalar-only
+# pairs, and the standalone qm31 controls carry none.
+MAP_POW_PAIRS = frozenset(
+    pair for pair in MAP_PAIRS
+    if pair not in MAP_ISO_PAIRS and pair not in MAP_SCALAR_ONLY)
+MAP_EMBED_OPS = frozenset({
+    "embed", "restrict-member", "restrict-nonmember", "restrict-mixed", "contains",
+    "frobenius", "trace", "norm",
+})
+MAP_ISO_OPS = frozenset({"apply", "unapply"})
+MAP_ROW_COUNTS = (1, 8, 64, 1024, 16384)
+MAP_SHAPES = frozenset({"scalar-chain", "row-1", "row-8", "row-64", "row-1024", "row-16384"})
+MAP_LABEL_RE = re.compile(
+    r"field-maps/(" + "|".join(MAP_PAIRS) + r")/"
+    r"(embed|restrict-member|restrict-nonmember|restrict-mixed|contains|frobenius|trace|norm|"
+    r"apply|unapply|construct)/"
+    r"(scalar-chain|row-1|row-8|row-64|row-1024|row-16384|once)$")
+# Arithmetic controls beside the map panels. The pow control names the
+# inclusion pair whose target field it powers; the qm31 controls stand alone
+# after the m31-qm31 panels.
+MAP_CONTROL_POW_RE = re.compile(
+    r"control pow (" + "|".join(sorted(MAP_POW_PAIRS)) + r")/"
+    r"(scalar-chain|row-1|row-8|row-64|row-1024|row-16384)$")
+MAP_CONTROL_QM31_RE = re.compile(
+    r"control qm31 (conjugate|norm)/(scalar-chain|row-1|row-8|row-64|row-1024|row-16384)$")
+
 SOURCE_DECIMALS = 9
 
 TRIO_CONTROL_LABEL = "control: mul_into vs itself"
@@ -578,13 +658,20 @@ class LogParser:
         self.prime_skips: dict[str, int] = {}
         self.prime_seen: set = set()
         self.prime_pending: dict[str, dict[int, float]] = {}
+        self.maps_endpoints: dict[str, tuple[int, int]] = {}
 
     def error(self, message: str) -> None:
         fail(f"{self.path.name}: {message}")
 
     # -- record routing ----------------------------------------------------------
-
     def parse(self, text: str) -> None:
+        # The maps harness runs one self process per log and emits no UNIT
+        # marker; treat the whole log as the self unit.
+        if self.family == "maps":
+            self.unit = "self"
+            self.unit_sequence = ["self"]
+            self.suite = "field_maps"
+            self.panel = "maps"
         for lineno, raw in enumerate(text.splitlines(), 1):
             try:
                 self.line(raw)
@@ -625,6 +712,8 @@ class LogParser:
 
     def unit_line(self, line: str) -> None:
         unit = line.split("\t", 1)[1].strip()
+        if self.family == "maps" and unit == "self" and self.unit_sequence == ["self"]:
+            return  # the paired runner's own UNIT marker; already the self unit
         if unit not in FAMILY_UNITS[self.family]:
             self.error(f"unexpected unit {unit!r}")
         if unit in self.unit_sequence:
@@ -716,8 +805,11 @@ class LogParser:
 
     def self_record(self, kind: str, raw_label: str, logical_bytes: int | None,
                     ns: float) -> None:
-        if self.suite not in ("kernels", "compare"):
+        if self.suite not in ("kernels", "compare", "field_maps"):
             self.error(f"{kind.upper()} record outside the self suite: {raw_label!r}")
+        if self.suite == "field_maps":
+            build_maps(self, kind, raw_label, normalize_label(raw_label), logical_bytes, ns)
+            return
         if kind == "scalar":
             build_regions(self, kind, raw_label, normalize_label(raw_label), None, ns)
             return
@@ -1191,6 +1283,9 @@ class LogParser:
         if self.family == "prime":
             self._prime_self_context(stripped)
             return
+        if self.family == "maps":
+            self._maps_self_context(line, stripped)
+            return
         m = re.fullmatch(r"fgf — backend: (\S+)", stripped)
         if m:
             self.suite = "compare"
@@ -1267,6 +1362,60 @@ class LogParser:
         if is_noise(stripped) or is_human_row(stripped):
             return
         self.error(f"unsupported residue line: {stripped!r}")
+
+    def _maps_self_context(self, line: str, stripped: str) -> None:
+        m = re.fullmatch(r"fgf field-maps benchmark — backend: (\S+)", stripped)
+        if m:
+            self.suite = "field_maps"
+            self.panel = "maps"
+            self.heading = stripped
+            self.geom = {}
+            self.process_backends.append({"unit": "self", "suite": "field_maps",
+                                          "backend": m.group(1)})
+            return
+        if stripped == "control byte xor — drift check:":
+            return
+        if stripped.startswith("(override with SIMD_BACKEND"):
+            return
+        if self._maps_panel_heading(stripped):
+            return
+        if is_noise(line) or is_human_row(line):
+            return
+        self.error(f"unsupported field-maps line: {line!r}")
+
+    def _maps_panel_heading(self, stripped: str) -> bool:
+        m = re.fullmatch(r"field-maps panel: (\S+) \((embedding|isomorphism)\)"
+                         r"( endpoint bytes (\d+) -> (\d+))?$", stripped)
+        if m is None:
+            return False
+        pair, class_ = m.group(1), m.group(2)
+        if pair not in MAP_PAIR_SET:
+            self.error(f"unknown field-maps panel pair: {pair!r}")
+        expected = "isomorphism" if pair in MAP_ISO_PAIRS else "embedding"
+        if class_ != expected:
+            self.error(f"field-maps panel {pair!r} declares class {class_!r}, "
+                       f"expected {expected!r}")
+        wired = (int(m.group(4)), int(m.group(5))) if m.group(3) is not None else None
+        if pair in MAP_SCALAR_ONLY:
+            if wired is not None:
+                self.error(f"pair {pair!r} has no byte form: the panel heading "
+                           f"must not declare endpoint bytes: {stripped!r}")
+        else:
+            if wired is None:
+                self.error(f"field-maps panel heading for {pair!r} must declare "
+                           f"endpoint bytes: {stripped!r}")
+            if wired != MAP_ENDPOINTS[pair]:
+                self.error(f"field-maps endpoint bytes for {pair!r} are "
+                           f"{wired[0]} -> {wired[1]}, expected "
+                           f"{MAP_ENDPOINTS[pair][0]} -> {MAP_ENDPOINTS[pair][1]}: "
+                           f"{stripped!r}")
+            known = self.maps_endpoints.get(pair)
+            if known is not None and known != wired:
+                self.error(f"field-maps endpoint bytes for {pair!r} changed "
+                           f"across panel headings: {stripped!r}")
+            self.maps_endpoints[pair] = wired
+        self.heading = stripped
+        return True
 
     def _kernel_panel(self, panel: str, m: re.Match, line: str) -> None:
         if self.addrows_pending:
@@ -1356,6 +1505,161 @@ def _field_of(parser: LogParser, label: str) -> str:
     if found is None:
         parser.error(f"cannot resolve the field of record: {label!r}")
     return found
+
+
+def _maps_endpoints(parser, pair: str, raw: str) -> tuple[int, int]:
+    """Declared endpoint widths, confirmed by the panel heading on the wire."""
+    declared = MAP_ENDPOINTS[pair]
+    wired = parser.maps_endpoints.get(pair)
+    if wired is None:
+        parser.error(f"field-maps panel heading must declare endpoint bytes "
+                     f"before pair {pair!r} records: {raw!r}")
+    if wired != declared:
+        parser.error(f"field-maps endpoint bytes for {pair!r} changed across "
+                     f"records: heading {wired} disagrees with {declared}: {raw!r}")
+    return declared
+
+
+def _maps_check_bytes(parser, pair: str, op: str, shape: str, nbytes: int | None,
+                      raw: str) -> None:
+    """Enforce the exact per-operation traffic formula for one byte row."""
+    if nbytes is None or nbytes <= 0:
+        parser.error(f"field-maps byte row carries no positive byte count: {raw!r}")
+    count = int(shape.removeprefix("row-"))
+    src, dst = _maps_endpoints(parser, pair, raw)
+    mask = (count + 7) // 8
+    if op in ("embed", "trace", "norm", "apply", "unapply"):
+        expected = count * (src + dst)
+    elif op == "frobenius":
+        expected = 2 * count * dst
+    elif op == "contains":
+        expected = count * dst + mask
+    elif op in ("restrict-member", "restrict-nonmember", "restrict-mixed"):
+        expected = count * (src + dst) + mask
+    elif op == "construct":
+        expected = count * (src + dst)
+    else:
+        parser.error(f"operation {op!r} is not measured for pair {pair!r}: {raw!r}")
+    if nbytes != expected:
+        parser.error(f"field-maps byte count for {pair} {op} {shape} is {nbytes}, "
+                     f"expected {expected} (endpoint bytes {src} -> {dst}): {raw!r}")
+
+
+def build_maps_control(parser, kind, raw, label, nbytes, ns) -> bool:
+    """File control rows (pow, qm31) as unpublished control records.
+
+    Returns True when the label is a control row. Controls ride the same
+    SCALAR/SAMPLE verbs as map rows but never reach a published table:
+    they are retained in the evidence with a control disposition."""
+    m = MAP_CONTROL_POW_RE.fullmatch(label)
+    if m is not None:
+        pair, shape = m.group(1), m.group(2)
+        if shape == "scalar-chain":
+            if kind != "scalar":
+                parser.error(f"scalar-chain arrives as SCALAR: {raw!r}")
+            if nbytes is not None:
+                parser.error(f"SCALAR carries no byte count: {raw!r}")
+            metric, geometry = SCALAR_METRIC, {"shape": shape}
+        else:
+            if kind != "sample":
+                parser.error(f"row shapes arrive as SAMPLE: {raw!r}")
+            _maps_pow_bytes(parser, pair, shape, nbytes, raw)
+            count = int(shape.removeprefix("row-"))
+            metric, geometry = THROUGHPUT, {"shape": shape, "elements": count}
+        _push_control(parser, kind, raw, f"control pow {pair}", metric,
+                      nbytes, ns, geometry)
+        return True
+    m = MAP_CONTROL_QM31_RE.fullmatch(label)
+    if m is not None:
+        op, shape = m.group(1), m.group(2)
+        if shape == "scalar-chain":
+            if kind != "scalar":
+                parser.error(f"scalar-chain arrives as SCALAR: {raw!r}")
+            if nbytes is not None:
+                parser.error(f"SCALAR carries no byte count: {raw!r}")
+            metric, geometry = SCALAR_METRIC, {"shape": shape}
+        else:
+            if kind != "sample":
+                parser.error(f"row shapes arrive as SAMPLE: {raw!r}")
+            if nbytes is None or nbytes <= 0:
+                parser.error(f"field-maps byte row carries no positive byte count: {raw!r}")
+            count = int(shape.removeprefix("row-"))
+            expected = 2 * count * 8 if op == "conjugate" else count * (8 + 4)
+            if nbytes != expected:
+                parser.error(f"field-maps byte count for control qm31 {op} {shape} "
+                             f"is {nbytes}, expected {expected}: {raw!r}")
+            metric, geometry = THROUGHPUT, {"shape": shape, "elements": count}
+        _push_control(parser, kind, raw, f"control qm31 {op}", metric,
+                      nbytes, ns, geometry)
+        return True
+    return False
+
+
+def _maps_pow_bytes(parser, pair: str, shape: str, nbytes: int | None, raw: str) -> None:
+    if nbytes is None or nbytes <= 0:
+        parser.error(f"field-maps byte row carries no positive byte count: {raw!r}")
+    count = int(shape.removeprefix("row-"))
+    _src, dst = _maps_endpoints(parser, pair, raw)
+    expected = 2 * count * dst
+    if nbytes != expected:
+        parser.error(f"field-maps byte count for control pow {pair} {shape} is "
+                     f"{nbytes}, expected {expected} (target bytes {dst}): {raw!r}")
+
+
+def _push_control(parser, kind: str, raw: str, label: str, metric: str,
+                  nbytes: int | None, ns: float, geometry: dict) -> None:
+    _push(parser, Rec(
+        kind=kind, suite=parser.suite, panel=parser.panel, heading=parser.heading,
+        label=label, raw_label=raw, field="maps", metric=metric,
+        logical_bytes=nbytes, ns=ns, geometry=geometry, public=False,
+        disposition="control"))
+
+
+def build_maps(parser, kind, raw, label, nbytes, ns):
+    if build_maps_control(parser, kind, raw, label, nbytes, ns):
+        return
+    m = MAP_LABEL_RE.fullmatch(label)
+    if m is None:
+        parser.error(f"unsupported field-maps label: {raw!r}")
+    pair, op, shape = m.group(1), m.group(2), m.group(3)
+    allowed = MAP_ISO_OPS if pair in MAP_ISO_PAIRS else MAP_EMBED_OPS
+    if op == "construct":
+        if shape not in ("once", "row-16384"):
+            parser.error(f"field-maps construct uses shape once or row-16384: {raw!r}")
+        if pair in MAP_SCALAR_ONLY and shape != "once":
+            parser.error(f"pair {pair!r} has no byte form: scalar panels only: {raw!r}")
+    elif op not in allowed:
+        parser.error(f"operation {op!r} is not measured for pair {pair!r}: {raw!r}")
+    elif shape == "once":
+        parser.error(f"shape once is reserved for construct: {raw!r}")
+    elif pair in MAP_SCALAR_ONLY and shape != "scalar-chain":
+        parser.error(f"pair {pair!r} has no byte form: scalar panels only: {raw!r}")
+    elif (op == "restrict-mixed" and shape == "scalar-chain"
+            and pair not in MAP_SCALAR_ONLY):
+        parser.error(f"restrict-mixed is measured as chains only for pairs with "
+                     f"no byte form: {raw!r}")
+    if shape == "scalar-chain":
+        if kind != "scalar":
+            parser.error(f"scalar-chain arrives as SCALAR: {raw!r}")
+        if nbytes is not None:
+            parser.error(f"SCALAR carries no byte count: {raw!r}")
+        metric, geometry = SCALAR_METRIC, {"shape": shape}
+    elif shape == "once":
+        # Construction latency arrives on the SCALAR verb (no byte count) but
+        # classifies as a latency case so the construction table populates.
+        if kind != "scalar":
+            parser.error(f"construct/once arrives as SCALAR: {raw!r}")
+        if nbytes is not None:
+            parser.error(f"SCALAR carries no byte count: {raw!r}")
+        metric, geometry = LATENCY, {"shape": shape}
+    else:
+        if kind != "sample":
+            parser.error(f"row shapes arrive as SAMPLE: {raw!r}")
+        _maps_check_bytes(parser, pair, op, shape, nbytes, raw)
+        count = int(shape.removeprefix("row-"))
+        metric, geometry = THROUGHPUT, {"shape": shape, "elements": count}
+    _push_self(parser, kind, raw, f"{pair} {op}", "maps", "maps", metric,
+               nbytes, ns, geometry)
 
 
 def build_crossover(parser, kind, raw, label, nbytes, ns):
@@ -1689,6 +1993,17 @@ class Campaign:
             fail("metadata hosts must declare Willow Cove then Golden Cove CPUs")
         if metadata.get("host_order") != list(hosts) or metadata.get("rounds") != 5:
             fail("metadata must fix the agreed host order and five complete rounds")
+        declared = metadata.get("families")
+        if declared is None:
+            # Trees recorded before the maps suite carry no inventory key and
+            # verify as the legacy five-family campaign.
+            self.families = LEGACY_FAMILIES
+        else:
+            if (not isinstance(declared, list) or not declared
+                    or sorted(declared) != sorted(set(declared))
+                    or any(family not in FAMILIES for family in declared)):
+                fail("metadata 'families' must list distinct known campaign families")
+            self.families = tuple(family for family in FAMILIES if family in declared)
         for host, details in hosts.items():
             if not isinstance(details, dict):
                 fail(f"metadata host {host!r} must be an object")
@@ -1740,7 +2055,7 @@ class Campaign:
         }
         self.order_rows[host] = self._parse_order(order)
         for rnd in ROUNDS:
-            for family in FAMILIES:
+            for family in self.families:
                 for version in FAMILY_VERSIONS[family]:
                     path = root / f"round-{rnd}-{version}-{family}.log"
                     if not path.is_file():
@@ -1764,24 +2079,25 @@ class Campaign:
         if len(keys) != len(set(keys)):
             fail(f"{path}: duplicate order rows")
         expected = {(rnd, family, version)
-                    for rnd in ROUNDS for family in FAMILIES
+                    for rnd in ROUNDS for family in self.families
                     for version in FAMILY_VERSIONS[family]}
         if set(keys) != expected:
             fail(f"{path}: order rows do not cover every round and allowed "
                  f"family-version pair exactly once")
-        prime_order: dict[int, list[str]] = {}
-        for row in rows:
-            if row["family"] == "prime":
-                prime_order.setdefault(row["round"], []).append(row["version"])
-        for rnd in ROUNDS:
-            if sorted(prime_order.get(rnd, [])) != sorted(FAMILY_VERSIONS["prime"]):
-                fail(f"{path}: round {rnd} must contain every residue backend request")
-        for previous, current in zip(ROUNDS, ROUNDS[1:]):
-            expected_order = prime_order[previous][1:] + prime_order[previous][:1]
-            if prime_order[current] != expected_order:
-                fail(f"{path}: residue backend order must rotate between rounds; "
-                     f"round {previous} ran {prime_order[previous]} and round "
-                     f"{current} ran {prime_order[current]}")
+        if "prime" in self.families:
+            prime_order: dict[int, list[str]] = {}
+            for row in rows:
+                if row["family"] == "prime":
+                    prime_order.setdefault(row["round"], []).append(row["version"])
+            for rnd in ROUNDS:
+                if sorted(prime_order.get(rnd, [])) != sorted(FAMILY_VERSIONS["prime"]):
+                    fail(f"{path}: round {rnd} must contain every residue backend request")
+            for previous, current in zip(ROUNDS, ROUNDS[1:]):
+                expected_order = prime_order[previous][1:] + prime_order[previous][:1]
+                if prime_order[current] != expected_order:
+                    fail(f"{path}: residue backend order must rotate between rounds; "
+                         f"round {previous} ran {prime_order[previous]} and round "
+                         f"{current} ran {prime_order[current]}")
         return rows
 
     def _parse_log(self, host: str, rnd: int, version: str, family: str, path: Path) -> None:
@@ -1818,25 +2134,39 @@ class Campaign:
             expected_backend = "v3"
         else:
             expected_backend = details["requested_backend"]
-        suites = {"kernels", "compare"} if parser.family == "gf" else {"kernels"}
+        if parser.family == "gf":
+            suites = {"kernels", "compare"}
+        elif parser.family == "maps":
+            suites = {"field_maps"}
+        else:
+            suites = {"kernels"}
         expected_processes = suites | (set(parser.unit_sequence) - {"self"})
         reported = [banner["suite"] for banner in parser.process_backends]
         if sorted(reported) != sorted(expected_processes):
             fail(f"{path}: missing or duplicate process backend banners: {reported}")
         for banner in parser.process_backends:
+            if expected_backend == "auto":
+                continue
             if banner["backend"] != expected_backend:
                 fail(f"{path}: resolved process backend {banner['backend']!r} "
                      f"does not match requested {expected_backend!r}")
         if sorted(item["suite"] for item in parser.host_placement) != sorted(suites):
             fail(f"{path}: missing or duplicate self process placement records")
         for placement in parser.host_placement:
-            if placement["cpus"] != str(details["core"]) or placement["policy"] != 5:
-                fail(f"{path}: process is not core-pinned under SCHED_IDLE: {placement}")
+            if placement["cpus"] != str(details["core"]):
+                fail(f"{path}: process is not core-pinned: {placement}")
+            if placement["policy"] != 5 and details.get("requested_backend") != "auto":
+                fail(f"{path}: process is not under SCHED_IDLE: {placement}")
         for suite in suites:
             positions = [control["position"] for control in parser.controls
                          if control["kind"] == "byte-xor" and control["suite"] == suite]
             if sorted(positions) != ["end", "start"]:
                 fail(f"{path}: {suite} must have exactly one entry and exit byte-XOR control")
+            if parser.family == "maps":
+                fields = [banner["label"] for banner in parser.banners if banner["suite"] == suite]
+                if sorted(fields) != sorted(MAP_BACKEND_FIELDS):
+                    fail(f"{path}: missing or duplicate {suite} field backend banners: {fields}")
+                continue
             if suite == "kernels" and version in ("v3", "avx2", "scalar"):
                 expected_fields = V3_BANNER_FIELDS
             else:
@@ -1975,23 +2305,26 @@ class Campaign:
                     diff = sorted(str(k) for k in set(rounds[rnd]) ^ set(reference))
                     fail(f"{host} {version} {family}: the row set changed at round {rnd}: "
                          f"{diff[:4]}")
-        for family in FAMILIES:
+        for family in self.families:
             for version in FAMILY_VERSIONS[family]:
                 reference = grouped[(self.available_hosts[0], version, family)][ROUNDS[0]]
                 for host in self.available_hosts[1:]:
                     if grouped[(host, version, family)][ROUNDS[0]] != reference:
                         fail(f"{version} {family}: host workload sets differ")
-        for host in self.available_hosts:
-            routed = grouped[(host, "v3", "prime")][ROUNDS[0]]
-            public_routed = {key for key, public in routed if public}
-            for arm in ("avx2", "scalar"):
-                other = grouped[(host, arm, "prime")][ROUNDS[0]]
-                public_other = {key for key, public in other if public}
-                if public_routed != public_other:
-                    fail(f"{host}: routed and {arm} residue workloads differ: "
-                         f"{sorted(str(k) for k in public_routed ^ public_other)[:4]}")
-        for family in FAMILIES:
+        if "prime" in self.families:
+            for host in self.available_hosts:
+                routed = grouped[(host, "v3", "prime")][ROUNDS[0]]
+                public_routed = {key for key, public in routed if public}
+                for arm in ("avx2", "scalar"):
+                    other = grouped[(host, arm, "prime")][ROUNDS[0]]
+                    public_other = {key for key, public in other if public}
+                    if public_routed != public_other:
+                        fail(f"{host}: routed and {arm} residue workloads differ: "
+                             f"{sorted(str(k) for k in public_routed ^ public_other)[:4]}")
+        for family in self.families:
             if "v2" not in FAMILY_VERSIONS[family]:
+                if family == "maps":
+                    self._validate_maps_completeness(grouped)
                 continue
             released = grouped[(self.available_hosts[0], "v2", family)][ROUNDS[0]]
             current = grouped[(self.available_hosts[0], "v3", family)][ROUNDS[0]]
@@ -1999,10 +2332,61 @@ class Campaign:
             if released != matched:
                 fail(f"{family}: version workload sets differ beyond custom gf16d")
 
+    def _validate_maps_completeness(self, grouped: dict) -> None:
+        """Every contracted pair/operation/shape must be present exactly once
+        per round; the maps grammar is a fixed inventory, not a sampled set."""
+        expected = set()
+        for pair in MAP_PAIRS:
+            ops = MAP_ISO_OPS if pair in MAP_ISO_PAIRS else MAP_EMBED_OPS
+            for op in (*sorted(ops), "construct"):
+                if op == "construct":
+                    expected.add((pair, op, "once"))
+                    if pair not in MAP_SCALAR_ONLY:
+                        expected.add((pair, op, "row-16384"))
+                else:
+                    # restrict-mixed mirrors the other restriction ops: region
+                    # rows for byte-form pairs, chains only for scalar-only pairs.
+                    if pair in MAP_SCALAR_ONLY or op != "restrict-mixed":
+                        expected.add((pair, op, "scalar-chain"))
+                    if pair in MAP_SCALAR_ONLY:
+                        continue
+                    for count in MAP_ROW_COUNTS:
+                        expected.add((pair, op, f"row-{count}"))
+        for pair in MAP_POW_PAIRS:
+            expected.add((pair, "control pow", "scalar-chain"))
+            for count in MAP_ROW_COUNTS:
+                expected.add((pair, "control pow", f"row-{count}"))
+        for op in ("conjugate", "norm"):
+            expected.add(("control qm31", op, "scalar-chain"))
+            for count in MAP_ROW_COUNTS:
+                expected.add(("control qm31", op, f"row-{count}"))
+        for host in self.available_hosts:
+            for rnd in ROUNDS:
+                keys = grouped[(host, "v3", "maps")][rnd]
+                observed = set()
+                for key, _public in keys:
+                    _kind, _suite, _panel, label, _field, _metric, geometry = key
+                    if label.startswith("control pow "):
+                        pair = label.removeprefix("control pow ")
+                        observed.add((pair, "control pow", dict(geometry)["shape"]))
+                    elif label.startswith("control qm31 "):
+                        op = label.removeprefix("control qm31 ")
+                        observed.add(("control qm31", op, dict(geometry)["shape"]))
+                    else:
+                        pair, op = label.split(" ", 1)
+                        observed.add((pair, op, dict(geometry)["shape"]))
+                if observed != expected:
+                    missing = sorted(expected - observed)[:4]
+                    extra = sorted(observed - expected)[:4]
+                    fail(f"{host} v3 maps: incomplete map inventory at round {rnd}: "
+                         f"missing {missing}, unexpected {extra}")
+
     def _validate_residue(self) -> None:
         """Residue caps, routes, layouts, and direct-arm skips must be identical
         across rounds within one host and arm; the scalar arm must report
         scalar routes everywhere."""
+        if "prime" not in self.families:
+            return
         by_log = {}
         for entry in self.log_evidence:
             if entry["family"] == "prime":
@@ -2077,8 +2461,9 @@ class Campaign:
 
     def backend_of(self, host: str, version: str, family: str) -> str | None:
         backends = set()
+        round_family = "maps" if family == "field-maps" else ROUND_FAMILY[family]
         for entry in self.log_evidence:
-            if (entry["host"], entry["version"], entry["family"]) == (host, version, ROUND_FAMILY[family]):
+            if (entry["host"], entry["version"], entry["family"]) == (host, version, round_family):
                 backends.update(b["backend"] for b in entry["process_backends"])
         if not backends:
             return None
@@ -2787,6 +3172,87 @@ class Renderer:
                               key, version)
         return render_markdown_table(header, lines)
 
+    # -- field-maps page -----------------------------------------------------------------
+
+    def _maps_keys(self) -> list[tuple]:
+        return [key for key, data in self.campaign.cases.items()
+                if data.first.public and key[1] == "field_maps" and key[2] == "maps"]
+
+    def section_maps(self) -> list[Table]:
+        keys = self._maps_keys()
+        scalar_keys = [k for k in keys if k[5] == SCALAR_METRIC]
+        entries = [([k[3].split(" ", 1)[0], k[3].split(" ", 1)[1]], "maps",
+                    "scalar chain", k) for k in scalar_keys]
+        tables = []
+        table = self._assemble(
+            "maps-scalar", SCALAR_METRIC, ["Pair", "Operation"], ["scalar chain"],
+            entries,
+            ["Frobenius scalar panels are dependent chains; every other scalar "
+             "panel (embed, restriction rows, contains, trace, norm, apply, "
+             "unapply, construction) is independent-input throughput over staged "
+             "deterministic inputs, per scalar operation."])
+        if table is not None:
+            tables.append(table)
+        region_keys = [k for k in keys if k[5] == THROUGHPUT]
+        shapes = ["row-1", "row-8", "row-64", "row-1024", "row-16384"]
+        entries = [([k[3].split(" ", 1)[0], k[3].split(" ", 1)[1]], "maps",
+                    dict(k[6])["shape"], k) for k in region_keys]
+        table = self._assemble(
+            "maps-regions", THROUGHPUT, ["Pair", "Operation"], shapes, entries,
+            ["Compact-map control: a user loop of decode, map, encode over "
+             "preallocated buffers. Numerator per row entry: one source plus one "
+             "target element for embed, trace, norm, apply, unapply, and the "
+             "construct amortization row; two target elements for frobenius; one "
+             "target element plus the LSB-first validity bitmap for contains; one "
+             "source plus one target element plus the validity bitmap for "
+             "restrict-member, restrict-nonmember, and restrict-mixed. "
+             "The construct row at row-16384 reports construction plus 16384 "
+             "applications as one amortized call."])
+        if table is not None:
+            tables.append(table)
+        construct_keys = [k for k in keys if k[5] == LATENCY]
+        entries = [([k[3].split(" ", 1)[0]], "maps", "construct", k)
+                   for k in construct_keys]
+        table = self._assemble(
+            "maps-construct", LATENCY, ["Pair"], ["construct"], entries,
+            ["Map construction latency per call, timed separately from "
+             "application."])
+        if table is not None:
+            tables.append(table)
+        return tables
+
+    def render_maps_snapshot(self) -> str:
+        campaign = self.campaign
+        hosts = [campaign.host_labels[host] for host in campaign.hosts]
+        page = "v3/field-maps.md"
+        lines = [
+            "# Field maps (v3)",
+            "",
+            f"Paired-run snapshot for v3. Every result cell reports "
+            f"{hosts[0]} / {hosts[1]}; shared hosts, toolchain, sampling, and number "
+            f"format: [BENCHMARKS.md](../../BENCHMARKS.md). Canonical field labels: "
+            f"[labels.md](../labels.md). Field maps have no released-v2 counterpart, "
+            f"so there is no v2 snapshot and no paired comparison.",
+            "",
+            "## Setup",
+            "",
+        ]
+        setup = self.setup_rows("field-maps", version="v3")
+        lines.append(render_markdown_table(["Setting", "Value"], setup))
+        lines += ["", "## Self-timings", ""]
+        for table in self.section_maps():
+            for prose in table.prose:
+                lines.append(prose)
+                lines.append("")
+            lines.append(self.render_table(page, table, "v3"))
+            lines.append("")
+        lines.append("## Competitors")
+        lines.append("")
+        lines.append("No matched competitor measurements are available.")
+        lines += ["", "## Caveats", ""]
+        lines.extend(self.caveat_lines("field-maps", comparison=False))
+        return "\n".join(lines).rstrip() + "\n"
+
     # -- page assembly -------------------------------------------------------------------
 
     def render_snapshot(self, family: str, version: str) -> str:
@@ -2878,8 +3344,11 @@ class Renderer:
 
     def setup_rows(self, family: str, version: str | None) -> list[list[str]]:
         campaign = self.campaign
-        rows = [["Campaign", "`just bench-paired` (canonical family `gf1`)" if family == "gf1"
-                 else "`just bench-paired` (family round `{}`)".format(ROUND_FAMILY[family])]]
+        if family == "field-maps":
+            rows = [["Campaign", "`just bench-field-maps` (family round `maps`)"]]
+        else:
+            rows = [["Campaign", "`just bench-paired` (canonical family `gf1`)" if family == "gf1"
+                     else "`just bench-paired` (family round `{}`)".format(ROUND_FAMILY[family])]]
         if version is None:
             for ver in VERSIONS:
                 revision = self._revision(ver)
@@ -2907,7 +3376,7 @@ class Renderer:
             rows.append(["Resolved process backend", "; ".join(per_version)])
         field_routes = []
         for ver in ([version] if version else VERSIONS):
-            for label in page_fields(family):
+            for label in (MAP_BACKEND_FIELDS if family == "field-maps" else page_fields(family)):
                 routes = [campaign.field_backend_of(host, ver, label) for host in campaign.hosts]
                 if any(route is not None for route in routes):
                     prefix = f"{ver} " if version is None else ""
@@ -2915,9 +3384,12 @@ class Renderer:
                         f"`{route}`" if route is not None else "-" for route in routes))
         if field_routes:
             rows.append(["Resolved field backends", "; ".join(field_routes)])
-        rows.append(["Protocol", "Five rounds per host; each round runs both versions in "
-                                 "a shuffled order; competitor arms interleave inside "
-                                 "their harness process."])
+        if family == "field-maps":
+            rows.append(["Protocol", "Five rounds per host; one measured version."])
+        else:
+            rows.append(["Protocol", "Five rounds per host; each round runs both versions in "
+                                     "a shuffled order; competitor arms interleave inside "
+                                     "their harness process."])
         rows.append(["Aggregation", "Median of five per-run medians."])
         if version is None:
             rows.append(["Ratio", "v3/v2 for throughput, v2/v3 for latency; above one "
@@ -3060,6 +3532,21 @@ class Renderer:
         if family == "mersenne31" or family == "goldilocks":
             lines.append("- The prime harness control row precedes the first field "
                          "heading; control values are retained in the raw evidence.")
+        if family == "field-maps":
+            lines.append("- Region rows use the compact-map control: a user loop of "
+                         "decode, map, encode. Throughput counts one source plus one "
+                         "target element per entry, except frobenius (two target "
+                         "elements), contains (one target element plus the validity "
+                         "bitmap), and restrict-member/nonmember/mixed (one source "
+                         "plus one target element plus the validity bitmap).")
+            lines.append("- Map construction is timed separately under construct; "
+                         "application rows exclude construction.")
+            lines.append("- The `r3-g3-40` target is the quadratic tower "
+                         "`t^2 - (1 + s)` over the Rabin-verified GF(3^20) base, not "
+                         "a flat degree-40 extension: the flat presentation is "
+                         "blocked by the crate's const-eval irreducibility budget.")
+            lines.append("- Field maps have no released-v2 counterpart and no "
+                         "competitor harness, so there is no paired comparison.")
         if family == "gf16" and self._has_gf16d():
             if comparison:
                 lines.append("- `gf16d` is measured only on v3: the v2 release has no "
@@ -3211,16 +3698,22 @@ def main(argv: list[str] | None = None) -> int:
     try:
         for version in VERSIONS:
             for family in PAGE_FAMILIES:
-                pages[f"{version}/{family}.md"] = renderer.render_snapshot(
-                    family, version).encode("utf-8")
+                if (ROUND_FAMILY[family] in campaign.families
+                        and version in FAMILY_VERSIONS[ROUND_FAMILY[family]]):
+                    pages[f"{version}/{family}.md"] = renderer.render_snapshot(
+                        family, version).encode("utf-8")
         for family in PAGE_FAMILIES:
-            pages[f"comparison/{family}.md"] = renderer.render_comparison(
-                family).encode("utf-8")
+            if ROUND_FAMILY[family] in campaign.families:
+                pages[f"comparison/{family}.md"] = renderer.render_comparison(
+                    family).encode("utf-8")
+        if "maps" in campaign.families:
+            pages["v3/field-maps.md"] = renderer.render_maps_snapshot().encode("utf-8")
         import residue_publish
-        pages["v3/residue.md"] = residue_publish.render_snapshot(
-            campaign, renderer).encode("utf-8")
-        pages["comparison/residue.md"] = residue_publish.render_comparison(
-            campaign, renderer).encode("utf-8")
+        if "prime" in campaign.families:
+            pages["v3/residue.md"] = residue_publish.render_snapshot(
+                campaign, renderer).encode("utf-8")
+            pages["comparison/residue.md"] = residue_publish.render_comparison(
+                campaign, renderer).encode("utf-8")
     except PublishError as exc:
         print(f"publish: {exc}", file=sys.stderr)
         return 1
@@ -3234,7 +3727,7 @@ def main(argv: list[str] | None = None) -> int:
                 mismatches.append(f"missing {path}")
             elif path.read_bytes() != content:
                 mismatches.append(f"changed {path}")
-        evidence_path = arguments.records / "evidence.json"
+        evidence_path = arguments.output / "evidence.json"
         if not evidence_path.is_file():
             mismatches.append(f"missing {evidence_path}")
         elif evidence_path.read_bytes() != evidence:
@@ -3250,9 +3743,9 @@ def main(argv: list[str] | None = None) -> int:
         path = arguments.output / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
-    (arguments.records / "evidence.json").write_bytes(evidence)
+    (arguments.output / "evidence.json").write_bytes(evidence)
     print(f"wrote {len(pages)} pages under {arguments.output} and "
-          f"{arguments.records / 'evidence.json'}")
+          f"{arguments.output / 'evidence.json'}")
     return 0
 
 
