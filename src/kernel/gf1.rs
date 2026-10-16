@@ -359,22 +359,36 @@ pub(crate) enum LaneTest {
 /// `[0, bits)`. The checked surface pairs the spans; only `debug_assert`s
 #[cfg(feature = "alloc")]
 pub(crate) fn expand(dst: &mut [u8], one_w: u64, src: &[u8], bits: usize, bytes: usize) {
+    // Tier floors are measured, not reasoned: a row shorter than the tier's
+    // vector unit pays setup without vector work and loses to the portable
+    // body (i7-12700K pinned core, 2026-10-17: at 8 lanes of 2 bytes SSE4.2
+    // beat the portable body 6.6ns to 18.8ns while AVX2 lost at 22.9ns; from
+    // one full unit up every tier wins). V4x carries the same unit argument
+    // at 64 bytes.
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     match super::x86_proof() {
         #[cfg(feature = "simd512")]
-        super::X86Proof::V4x(token) if matches!(bytes, 1 | 2 | 4 | 8) => {
+        super::X86Proof::V4x(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 64 =>
+        {
             super::x86::gf1::expand_avx512(token, dst, one_w, src, bits, bytes);
             return;
         }
-        super::X86Proof::V3GfniCrypto(token) if matches!(bytes, 1 | 2 | 4 | 8) => {
+        super::X86Proof::V3GfniCrypto(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 32 =>
+        {
             super::x86::gf1::expand_avx2(token.v3(), dst, one_w, src, bits, bytes);
             return;
         }
-        super::X86Proof::V3(token) if matches!(bytes, 1 | 2 | 4 | 8) => {
+        super::X86Proof::V3(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 32 =>
+        {
             super::x86::gf1::expand_avx2(token, dst, one_w, src, bits, bytes);
             return;
         }
-        super::X86Proof::V2(token) if matches!(bytes, 1 | 2 | 4 | 8) => {
+        super::X86Proof::V2(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 16 =>
+        {
             super::x86::gf1::expand_sse42(token, dst, one_w, src, bits, bytes);
             return;
         }
@@ -398,22 +412,31 @@ pub(crate) fn expand(dst: &mut [u8], one_w: u64, src: &[u8], bits: usize, bytes:
 /// cleared tail bits, assembled from zero and written once. The checked
 #[cfg(feature = "alloc")]
 pub(crate) fn compress(dst: &mut [u8], src: &[u8], bits: usize, bytes: usize, test: &LaneTest) {
+    // Tier floors as in `expand`: measured unit floors, not reasoning.
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     match super::x86_proof() {
         #[cfg(feature = "simd512")]
-        super::X86Proof::V4x(token) if matches!(bytes, 1 | 2 | 4 | 8) => {
+        super::X86Proof::V4x(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 64 =>
+        {
             super::x86::gf1::compress_avx512(token, dst, src, bits, bytes, test);
             return;
         }
-        super::X86Proof::V3GfniCrypto(token) if matches!(bytes, 1 | 2 | 4 | 8) => {
+        super::X86Proof::V3GfniCrypto(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 32 =>
+        {
             super::x86::gf1::compress_avx2(token.v3(), dst, src, bits, bytes, test);
             return;
         }
-        super::X86Proof::V3(token) if matches!(bytes, 1 | 2 | 4 | 8) => {
+        super::X86Proof::V3(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 32 =>
+        {
             super::x86::gf1::compress_avx2(token, dst, src, bits, bytes, test);
             return;
         }
-        super::X86Proof::V2(token) if matches!(bytes, 1 | 2 | 4 | 8) => {
+        super::X86Proof::V2(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 16 =>
+        {
             super::x86::gf1::compress_sse42(token, dst, src, bits, bytes, test);
             return;
         }
@@ -481,22 +504,31 @@ pub(crate) fn restrict(
     bits: usize,
     bytes: usize,
 ) {
+    // Tier floors as in `expand`: measured unit floors, not reasoning.
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     match super::x86_proof() {
         #[cfg(feature = "simd512")]
-        super::X86Proof::V4x(token) if matches!(bytes, 1 | 2 | 4 | 8) => {
+        super::X86Proof::V4x(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 64 =>
+        {
             super::x86::gf1::restrict_avx512(token, dst, valid, one_w, src, bits, bytes);
             return;
         }
-        super::X86Proof::V3GfniCrypto(token) if matches!(bytes, 1 | 2 | 4 | 8) => {
+        super::X86Proof::V3GfniCrypto(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 32 =>
+        {
             super::x86::gf1::restrict_avx2(token.v3(), dst, valid, one_w, src, bits, bytes);
             return;
         }
-        super::X86Proof::V3(token) if matches!(bytes, 1 | 2 | 4 | 8) => {
+        super::X86Proof::V3(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 32 =>
+        {
             super::x86::gf1::restrict_avx2(token, dst, valid, one_w, src, bits, bytes);
             return;
         }
-        super::X86Proof::V2(token) if matches!(bytes, 1 | 2 | 4 | 8) => {
+        super::X86Proof::V2(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 16 =>
+        {
             super::x86::gf1::restrict_sse42(token, dst, valid, one_w, src, bits, bytes);
             return;
         }
