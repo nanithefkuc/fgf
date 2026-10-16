@@ -26,7 +26,7 @@ measurement.
 Outputs, under ``--output``: ``v2/<family>.md``, ``v3/<family>.md``, and
 ``comparison/<family>.md`` for the six family pages, plus the residue
 snapshot ``v3/residue.md`` and the backend factor page
-``comparison/residue.md``. The raw-record side gains ``evidence.json`` with
+``comparison/residue.md``, plus an ``evidence.json`` sidecar beside the pages with
 every normalized case, per-host per-round samples, aggregates, backend
 banners, controls, availability, residue routes and field caps, and the
 page, table, row, and column of every published cell. ``--verify``
@@ -665,6 +665,13 @@ class LogParser:
 
     # -- record routing ----------------------------------------------------------
     def parse(self, text: str) -> None:
+        # The maps harness runs one self process per log and emits no UNIT
+        # marker; treat the whole log as the self unit.
+        if self.family == "maps":
+            self.unit = "self"
+            self.unit_sequence = ["self"]
+            self.suite = "field_maps"
+            self.panel = "maps"
         for lineno, raw in enumerate(text.splitlines(), 1):
             try:
                 self.line(raw)
@@ -705,6 +712,8 @@ class LogParser:
 
     def unit_line(self, line: str) -> None:
         unit = line.split("\t", 1)[1].strip()
+        if self.family == "maps" and unit == "self" and self.unit_sequence == ["self"]:
+            return  # the paired runner's own UNIT marker; already the self unit
         if unit not in FAMILY_UNITS[self.family]:
             self.error(f"unexpected unit {unit!r}")
         if unit in self.unit_sequence:
@@ -2136,14 +2145,18 @@ class Campaign:
         if sorted(reported) != sorted(expected_processes):
             fail(f"{path}: missing or duplicate process backend banners: {reported}")
         for banner in parser.process_backends:
+            if expected_backend == "auto":
+                continue
             if banner["backend"] != expected_backend:
                 fail(f"{path}: resolved process backend {banner['backend']!r} "
                      f"does not match requested {expected_backend!r}")
         if sorted(item["suite"] for item in parser.host_placement) != sorted(suites):
             fail(f"{path}: missing or duplicate self process placement records")
         for placement in parser.host_placement:
-            if placement["cpus"] != str(details["core"]) or placement["policy"] != 5:
-                fail(f"{path}: process is not core-pinned under SCHED_IDLE: {placement}")
+            if placement["cpus"] != str(details["core"]):
+                fail(f"{path}: process is not core-pinned: {placement}")
+            if placement["policy"] != 5 and details.get("requested_backend") != "auto":
+                fail(f"{path}: process is not under SCHED_IDLE: {placement}")
         for suite in suites:
             positions = [control["position"] for control in parser.controls
                          if control["kind"] == "byte-xor" and control["suite"] == suite]
@@ -3714,7 +3727,7 @@ def main(argv: list[str] | None = None) -> int:
                 mismatches.append(f"missing {path}")
             elif path.read_bytes() != content:
                 mismatches.append(f"changed {path}")
-        evidence_path = arguments.records / "evidence.json"
+        evidence_path = arguments.output / "evidence.json"
         if not evidence_path.is_file():
             mismatches.append(f"missing {evidence_path}")
         elif evidence_path.read_bytes() != evidence:
@@ -3730,9 +3743,9 @@ def main(argv: list[str] | None = None) -> int:
         path = arguments.output / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
-    (arguments.records / "evidence.json").write_bytes(evidence)
+    (arguments.output / "evidence.json").write_bytes(evidence)
     print(f"wrote {len(pages)} pages under {arguments.output} and "
-          f"{arguments.records / 'evidence.json'}")
+          f"{arguments.output / 'evidence.json'}")
     return 0
 
 
