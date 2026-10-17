@@ -96,17 +96,20 @@ All notable changes to this project are documented here. The format follows
   arithmetic consumes canonical element storage without repeating entry
   reductions. Constructors and packed-buffer decodes retain normalization.
 - Mersenne31 AVX-512 products use explicit two-source word permutations,
-  and multiply-accumulate groups independent vectors while retaining
-  per-vector raw-input normalization and ISA-width tails. Measurements:
+  and multiply-accumulate screens each register group for the high bit,
+  canonicalizing the group before any store when a lane carries it and
+  retaining ISA-width tails. Measurements:
   [PR measurement record](https://github.com/nanithefkuc/fgf/pull/48#issuecomment-6163124505).
 - Mersenne31 and QuadMersenne31 AVX-512 multiplication screens operand
   lanes for the high bit instead of canonicalizing every load: lanes
-  already inside the redundant range multiply as loaded, and any lane
-  outside it triggers canonicalized recomputation of its group before
-  any store. Arbitrary raw inputs and canonical outputs are preserved.
-- Goldilocks scalar multiplication no longer reduces operands that the
-  field arithmetic boundary already guarantees canonical before the
-  wide product reduction.
+  already inside the redundant range multiply as loaded. A lane outside it
+  triggers canonicalized recomputation of its register group for the
+  in-place entries and of the whole call for the out-of-place entries,
+  before any final store. Arbitrary raw inputs and canonical outputs are
+  preserved.
+- Goldilocks scalar multiplication feeds the operand product directly to
+  the wide reduction, which is total over `u128` and needs no canonical
+  operands.
 
 ## [3.0.1] - 2026-10-10
 

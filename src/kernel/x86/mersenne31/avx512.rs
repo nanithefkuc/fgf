@@ -211,7 +211,7 @@ pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, s
     for (dst_lane, src_lane) in dst_rest.iter_mut().zip(src_rest) {
         let prod = mulmod(cred, min_chain(_mm512_loadu_si512(src_lane), p), p);
         let d = min_chain(_mm512_loadu_si512(&*dst_lane), p);
-        let sum = _mm512_add_epi32(d, prod); // <= 2p - 2
+        let sum = _mm512_add_epi32(d, prod); // <= 2p - 1
         _mm512_storeu_si512(dst_lane, _mm512_min_epu32(sum, _mm512_sub_epi32(sum, p)));
     }
     if !dst_tail.is_empty() {

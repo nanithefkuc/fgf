@@ -176,6 +176,7 @@ pub fn mul_add_sse42(_token: archmage::X64V2Token, dst: &mut [u8], coeff: u32, s
     }
     prime::mul_add::<Mersenne31>(dst_tail, Elem::<Mersenne31>::from_raw(coeff), src_tail);
 }
+
 /// `dst *= coeff (mod p)`, Mersenne31, SSE4.2.
 ///
 /// Every input lane bit pattern is legal: lanes canonicalize on load,

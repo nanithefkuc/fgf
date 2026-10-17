@@ -29,30 +29,20 @@ live only in the comparison pages; values below one remain visible.
 ## Mersenne31 contract note
 
 v3 packed Mersenne31 operations accept every raw lane bit pattern and
-return canonical lanes; v2 kernels assumed canonical inputs. The wider
-input contract costs a high-bit screen on the AVX-512 multiply path:
-lanes already inside the redundant range multiply as loaded, and any
-lane outside it triggers canonicalized recomputation of its group.
-That screen is the remaining v2-to-v3 difference on native M31 bulk
-multiplication, not a dispatch or bounds-check difference. The snapshots
-below record the screened revision; the targeted factors for both hosts
-follow.
-
-| Operation (native, 64 KiB region) | v3/v2 speed factor, Willow Cove | Golden Cove |
-| --- | ---: | ---: |
-| m31 `dst = c * src` | 0.96304 | 0.89862 |
-| m31 `dst += c * src` | 0.87112 | 0.82646 |
-| m31 `dst = a * b` | 0.93141 | 0.89566 |
-| qm31 `dst = c * src` | 1.17114 | 1.16713 |
-| qm31 `dst += c * src` | 1.17121 | 1.05870 |
-| qm31 `dst = a * b` | 1.28862 | 1.21884 |
-
-- Targeted campaign: five interleaved rounds per host, median of per-run
-  medians, released v2.1.0 against the screened v3 revision. Willow Cove
-  runs isolated core 3 under `v4x`; Golden Cove runs isolated core 8 and
-  resolves the `v3` field route (no live AVX-512), so the screened
-  multiply does not execute there and its M31 rows stay at the v3-route
-  floor.
+return canonical lanes; v2 kernels assume canonical inputs. The wider
+input contract costs a high-bit screen on the multiply paths: the
+AVX-512 entries screen lanes for bit 31, multiplying lanes already
+inside the redundant range as loaded. A lane outside it triggers
+canonicalized recomputation of its register group for the in-place
+entries and of the whole call for the out-of-place entries. The AVX2
+entries screen each input vector on load. M31 parity is not reached:
+the remaining native M31 gap is an accepted measured tradeoff,
+attributed by two independent assembly reviews to the raw-lane contract
+rather than to dispatch or bounds-check overhead. Golden Cove runs the
+v3/AVX2 route and never executes the AVX-512 screen; its M31 rows carry
+the AVX2 per-vector screen cost. A tile-amortized AVX2 screen remains an
+unevaluated follow-up. The snapshots below record the screened revision;
+the targeted factors for both hosts follow.
 
 
 ## Campaign
