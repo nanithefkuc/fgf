@@ -11,7 +11,7 @@
 // Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 
-use fgf::field::FieldBuffer;
+use fgf::field::{BinaryField, FieldBuffer, PrimeCharacteristic, PrimeField};
 use fgf::poly::AES;
 use fgf::{
     Components, Elem, Embedding, Extension, ExtensionSpec, Field, FieldElem, FiniteField,
@@ -716,6 +716,293 @@ fn noise_rows_match_the_scalar_loop() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Bit-packed GF(2) endpoint rows (`ops::map_bits`)
+// ---------------------------------------------------------------------------
+
+type Gf1 = FiniteField<2, 1, Polynomial<3>>;
+type Res2 = FiniteField<2, 1, Residue>;
+type Gf32 = FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
+type Cantor8 = FiniteField<2, 8, fgf::Cantor<0x11B, 0x20>>;
+
+struct OverAesSpec;
+impl ExtensionSpec<2> for OverAesSpec {
+    type Base = Aes8;
+    type Storage = Components;
+    const NAME: &'static str = "GF(2^16) as t^2 + 0x53*t + 1";
+    const RELATION: Relation = Relation::from_binary_words::<Aes8>(&[1, 0x53]);
+}
+type OverAes = FiniteField<2, 16, Extension<OverAesSpec, 2>>;
+
+/// `t^3 + 2` over `Aes8`: irreducible (no root in GF(2^8)), so a legal
+/// three-byte `Components` row — the odd lane width stays on the portable
+/// body while remaining a valid `BinaryField + FieldBuffer` target.
+struct D3AesSpec;
+impl ExtensionSpec<3> for D3AesSpec {
+    type Base = Aes8;
+    type Storage = Components;
+    const NAME: &'static str = "GF(2^24) as t^3 + 2";
+    const RELATION: Relation = Relation::from_binary_words::<Aes8>(&[2, 0, 0]);
+}
+type D3Aes = FiniteField<2, 24, Extension<D3AesSpec, 3>>;
+
+/// Bit counts straddle byte, 64-bit word, and vector boundaries, plus one
+/// large tail-heavy count.
+const BIT_COUNTS: [usize; 21] = [
+    0, 1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 128, 129, 511, 512, 513, 4099,
+];
+
+/// Bit `i` of a packed buffer.
+fn bit_of(buf: &[u8], i: usize) -> u8 {
+    (buf[i / 8] >> (i % 8)) & 1
+}
+
+/// Assemble `bits[i] in {0,1}` into the packed LSB-first form with cleared
+/// tail bits — the expected shape of every packed output.
+fn pack_bits(bits: &[u8]) -> Vec<u8> {
+    let mut out = vec![0u8; bits::bytes_for(bits.len())];
+    for (i, &bit) in bits.iter().enumerate() {
+        out[i / 8] |= bit << (i % 8);
+    }
+    out
+}
+
+/// A packed source row plus one surplus byte, every byte noise: padding bits
+/// and surplus are garbage, so a row that reads outside `[0, bits)` leaks.
+fn noisy_packed(bits: usize, seed: u64) -> Vec<u8> {
+    noise(bits::bytes_for(bits) + 1, seed | 1)
+}
+
+/// Target lanes outside the two-element image, staged by `contains` probes.
+fn bits_outsiders<S, T>(map: &PreparedEmbedding<S, T>, seed: u64, n: usize) -> Vec<Elem<T>>
+where
+    S: Field,
+    T: Field<Characteristic = S::Characteristic>,
+{
+    let mut out = Vec::with_capacity(n);
+    let mut state = seed | 1;
+    let mut probes = 0u64;
+    while out.len() < n {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        let index = u128::from(state >> 33) % T::ORDER;
+        let candidate = Elem::<T>::from_index(index).expect("a sampled index sits below the order");
+        if !map.contains(candidate) {
+            out.push(candidate);
+        }
+        probes += 1;
+        assert!(
+            probes < 1_000_000,
+            "the image of degree {} into {} is too dense for outsiders",
+            S::DEGREE,
+            T::DEGREE
+        );
+    }
+    out
+}
+
+/// Every bit-packed row against the per-bit scalar loop: bits are read by
+/// `i/8, i%8`, run through the prepared scalar methods, and compared lane
+/// by lane and bit by bit.
+fn check_bit_rows<S, T>(seed: u64)
+where
+    S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
+    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
+{
+    let compact = Embedding::<S, T>::new().expect("the prime field embeds in a binary row");
+    let map = PreparedEmbedding::<S, T>::new(&compact);
+    let zero = Elem::<S>::ZERO;
+    let one = Elem::<S>::ONE;
+    let top = *BIT_COUNTS.iter().max().unwrap_or(&1);
+
+    // Packed source bits (garbage padding and surplus included) and the
+    // member lanes their embed images define: valid zeros and valid ones
+    // both occur because the noise bits mix.
+    let source = noisy_packed(top, seed);
+    let member_bytes: Vec<u8> = (0..top)
+        .flat_map(|i| {
+            let mut lane = [0u8; 8];
+            T::encode(
+                &mut lane[..T::BYTES],
+                map.embed(if bit_of(&source, i) == 1 { one } else { zero }),
+            );
+            lane[..T::BYTES].to_vec()
+        })
+        .collect();
+    let strangers = bits_outsiders::<S, T>(&map, seed ^ 0x5DEE, 65.min(top));
+    let noise_lanes = encode_all::<T>(&staged::<T>(top, seed ^ 0xCECE));
+    let mixed_bytes: Vec<u8> = (0..top)
+        .flat_map(|i| {
+            let elem = if i % 2 == 0 {
+                map.embed(if bit_of(&source, i) == 1 { one } else { zero })
+            } else {
+                strangers[(i / 2) % strangers.len()]
+            };
+            let mut lane = [0u8; 8];
+            T::encode(&mut lane[..T::BYTES], elem);
+            lane[..T::BYTES].to_vec()
+        })
+        .collect();
+
+    for &count in &BIT_COUNTS {
+        let packed = bits::bytes_for(count);
+        // embed: garbage-packed input with surplus, exact lane output.
+        {
+            let src = &source[..packed + 1];
+            let mut expected = vec![0u8; count * T::BYTES];
+            for (i, d) in expected.chunks_exact_mut(T::BYTES).enumerate() {
+                T::encode(d, map.embed(if bit_of(src, i) == 1 { one } else { zero }));
+            }
+            let mut dst = vec![0xA5u8; count * T::BYTES];
+            ops::map_bits::embed_into_with(&mut dst, &map, src, count);
+            assert_eq!(dst, expected, "bit embed count {count}");
+        }
+        // trace and norm: noise lanes in, packed bits out.
+        for (op, method) in [("trace", 0u8), ("norm", 1u8)] {
+            let src = &noise_lanes[..count * T::BYTES];
+            let mut expected = vec![0u8; count];
+            for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
+                let elem = T::decode(s);
+                let image = if method == 0 {
+                    map.trace(elem)
+                } else {
+                    map.norm(elem)
+                };
+                expected[i] = u8::from(image == one);
+            }
+            let mut dst = vec![0xA5u8; packed];
+            if method == 0 {
+                ops::map_bits::trace_into_with(&mut dst, &map, src, count);
+            } else {
+                ops::map_bits::norm_into_with(&mut dst, &map, src, count);
+            }
+            assert_eq!(dst, pack_bits(&expected[..count]), "bit {op} count {count}");
+        }
+        // contains over members and mixed rows.
+        for (label, bytes) in [("members", &member_bytes), ("mixed", &mixed_bytes)] {
+            let src = &bytes[..count * T::BYTES];
+            let mut expected = vec![0u8; count];
+            for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
+                expected[i] = u8::from(map.contains(T::decode(s)));
+            }
+            let mut valid = vec![0xA5u8; packed];
+            ops::map_bits::contains_into_with(&mut valid, &map, src, count);
+            assert_eq!(
+                valid,
+                pack_bits(&expected[..count]),
+                "bit contains {label} {count}"
+            );
+        }
+        // restrict over members (value bit = source bit, all valid bits set)
+        // and over mixed rows (outsiders write zero bits with no valid bit).
+        for (label, bytes) in [("members", &member_bytes), ("mixed", &mixed_bytes)] {
+            let src = &bytes[..count * T::BYTES];
+            let mut expected_value = vec![0u8; count];
+            let mut expected_valid = vec![0u8; count];
+            for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
+                let elem = T::decode(s);
+                expected_valid[i] = u8::from(map.contains(elem));
+                expected_value[i] = match map.restrict(elem) {
+                    Some(preimage) => u8::from(preimage == one),
+                    None => 0,
+                };
+            }
+            let mut dst = vec![0xA5u8; packed];
+            let mut valid = vec![0xA5u8; packed];
+            ops::map_bits::restrict_into_with(&mut dst, &mut valid, &map, src, count);
+            assert_eq!(
+                dst,
+                pack_bits(&expected_value[..count]),
+                "bit restrict value {label} {count}"
+            );
+            assert_eq!(
+                valid,
+                pack_bits(&expected_valid[..count]),
+                "bit restrict valid {label} {count}"
+            );
+        }
+    }
+}
+
+#[test]
+fn bit_rows_match_the_scalar_loop() {
+    check_bit_rows::<Gf1, Aes8>(0x101);
+    check_bit_rows::<Gf1, Normal8>(0x102);
+    check_bit_rows::<Gf1, Cantor8>(0x103);
+    check_bit_rows::<Gf1, Gf16>(0x104);
+    check_bit_rows::<Gf1, Gf32>(0x105);
+    check_bit_rows::<Gf1, Gf64>(0x106);
+    check_bit_rows::<Gf1, Fp64>(0x107);
+    check_bit_rows::<Gf1, OverAes>(0x108);
+    check_bit_rows::<Gf1, D3Aes>(0x109);
+    check_bit_rows::<Res2, Gf64>(0x10A);
+}
+
+#[test]
+fn bit_embed_known_answer() {
+    // 0b0111_1001: bits 0, 3, 4, 5, 6 are set.
+    let byte = 0b0111_1001u8;
+    let map = PreparedEmbedding::<Gf1, Aes8>::new(&Embedding::<Gf1, Aes8>::new().unwrap());
+    let mut dst = vec![0u8; 7];
+    ops::map_bits::embed_into_with(&mut dst, &map, &[byte], 7);
+    assert_eq!(dst, [0x01, 0x00, 0x00, 0x01, 0x01, 0x01, 0x01]);
+
+    // The normal-basis identity is 0xFF, not 0x01.
+    let map = PreparedEmbedding::<Gf1, Normal8>::new(&Embedding::<Gf1, Normal8>::new().unwrap());
+    let mut dst = vec![0u8; 7];
+    ops::map_bits::embed_into_with(&mut dst, &map, &[byte], 7);
+    assert_eq!(dst, [0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF]);
+}
+
+#[test]
+fn binary_fieldbuffer_lanes_are_coordinate_words() {
+    fn check<T: BinaryField + FieldBuffer>() {
+        assert_eq!(
+            8 * T::BYTES,
+            T::DEGREE as usize,
+            "{} lanes are full coordinate words",
+            T::NAME
+        );
+        let mut lane = [0u8; 8];
+        T::encode(&mut lane[..T::BYTES], Elem::<T>::ZERO);
+        assert!(
+            lane[..T::BYTES].iter().all(|&b| b == 0),
+            "{} canonical zero lane is all zero bytes",
+            T::NAME
+        );
+        // Exhaustive at one byte; staged samples above.
+        let samples: Vec<Elem<T>> = if T::ORDER <= 256 {
+            (0..T::ORDER)
+                .map(|i| Elem::<T>::from_index(i).unwrap())
+                .collect()
+        } else {
+            staged::<T>(257, 0xB17)
+        };
+        for elem in samples {
+            T::encode(&mut lane[..T::BYTES], elem);
+            let mut word = 0u64;
+            for (shift, &byte) in lane[..T::BYTES].iter().enumerate() {
+                word |= u64::from(byte) << (8 * shift);
+            }
+            assert_eq!(
+                word,
+                elem.to_index() as u64,
+                "{} lane little-endian word equals the coordinate word",
+                T::NAME
+            );
+        }
+    }
+    check::<Aes8>();
+    check::<Normal8>();
+    check::<Cantor8>();
+    check::<Gf16>();
+    check::<Gf32>();
+    check::<Gf64>();
+    check::<Fp64>();
+    check::<OverAes>();
+    check::<D3Aes>();
+}
 #[cfg(feature = "std")]
 mod panics {
     use super::*;
@@ -867,5 +1154,96 @@ mod panics {
             "unexpected message: {message}"
         );
         assert_eq!(dst, before, "failed unapply must not write dst");
+    }
+
+    #[test]
+    fn bit_geometry_failures_name_the_operand_and_leave_outputs_unchanged() {
+        let map = PreparedEmbedding::<Gf1, Gf16>::new(&Embedding::<Gf1, Gf16>::new().unwrap());
+
+        // embed: short packed coverage names `src`.
+        let mut dst = vec![0xA5u8; 32];
+        let before = dst.clone();
+        let (message, panicked) = catch(|| {
+            ops::map_bits::embed_into_with(&mut dst, &map, &[0u8; 1], 16);
+        });
+        assert!(panicked, "short packed src must panic");
+        assert!(
+            message.contains("embed_into_with") && message.contains("src"),
+            "unexpected message: {message}"
+        );
+        assert_eq!(dst, before, "failed bit embed must not write dst");
+
+        // embed: wrong lane count names `dst`.
+        let mut dst = vec![0xA5u8; 31];
+        let before = dst.clone();
+        let (message, panicked) = catch(|| {
+            ops::map_bits::embed_into_with(&mut dst, &map, &[0u8; 2], 16);
+        });
+        assert!(panicked, "wrong lane count must panic");
+        assert!(
+            message.contains("embed_into_with") && message.contains("dst"),
+            "unexpected message: {message}"
+        );
+        assert_eq!(dst, before, "failed bit embed must not write dst");
+
+        // trace: oversized bitmap names `dst` (exact outputs, not coverage).
+        let mut dst = vec![0xA5u8; 3];
+        let before = dst.clone();
+        let (message, panicked) = catch(|| {
+            ops::map_bits::trace_into_with(&mut dst, &map, &[0u8; 32], 16);
+        });
+        assert!(panicked, "oversized packed dst must panic");
+        assert!(
+            message.contains("trace_into_with") && message.contains("dst"),
+            "unexpected message: {message}"
+        );
+        assert_eq!(dst, before, "failed bit trace must not write dst");
+
+        // restrict: oversized `valid` names `valid` with both outputs
+        // untouched (the second output is validated before any write).
+        let mut dst = vec![0xA5u8; 2];
+        let mut valid = vec![0xA5u8; 3];
+        let (d_before, v_before) = (dst.clone(), valid.clone());
+        let (message, panicked) = catch(|| {
+            ops::map_bits::restrict_into_with(&mut dst, &mut valid, &map, &[0u8; 32], 16);
+        });
+        assert!(panicked, "oversized valid must panic");
+        assert!(
+            message.contains("restrict_into_with") && message.contains("valid"),
+            "unexpected message: {message}"
+        );
+        assert_eq!(
+            (dst, valid),
+            (d_before, v_before),
+            "failed bit restrict writes nothing"
+        );
+
+        // contains: `bits == 0` with a nonempty bitmap names `valid`.
+        let mut valid = vec![0xA5u8; 1];
+        let v_before = valid.clone();
+        let (message, panicked) = catch(|| {
+            ops::map_bits::contains_into_with(&mut valid, &map, &[], 0);
+        });
+        assert!(panicked, "empty row with nonempty bitmap must panic");
+        assert!(
+            message.contains("contains_into_with") && message.contains("valid"),
+            "unexpected message: {message}"
+        );
+        assert_eq!(valid, v_before, "failed bit contains must not write valid");
+
+        // checked span product overflow, reached through the public row.
+        let mut dst = vec![0xA5u8; 0];
+        let before = dst.clone();
+        let (message, panicked) = catch(|| {
+            ops::map_bits::trace_into_with(&mut dst, &map, &[], usize::MAX);
+        });
+        assert!(panicked, "span overflow must panic");
+        assert!(
+            message.contains("trace_into_with")
+                && message.contains("src")
+                && message.contains("overflow"),
+            "unexpected message: {message}"
+        );
+        assert_eq!(dst, before, "overflowing bit trace must not write dst");
     }
 }

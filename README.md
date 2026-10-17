@@ -56,7 +56,8 @@ assert_eq!(
 `ops` scales and combines rows of packed elements, with prepared coefficients
 for repeated calls. Prepared Frobenius, embedding, and isomorphism maps apply
 one compiled map across scalar elements and byte rows alike, with a validity
-bitmap for partial restriction. Byte lanes are fixed-width and
+bitmap for partial restriction; `ops::map_bits` carries the GF(2) bit/lane
+interop rows over packed bits. Byte lanes are fixed-width and
 little-endian; their size depends on the field representation. Bit-packed
 GF(2) vectors use `bits`.
 

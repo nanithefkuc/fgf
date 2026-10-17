@@ -98,6 +98,89 @@ fn binary_embedding_application_allocates_nothing() {
 }
 
 #[test]
+fn bit_rows_application_allocates_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    type Gf1 = FiniteField<2, 1, fgf::Polynomial<3>>;
+
+    fn exercise<T>(
+        map: &PreparedEmbedding<Gf1, T>,
+        expand: &mut [u8],
+        packed_out: &mut [u8],
+        packed_out_2: &mut [u8],
+        packed_in: &[u8],
+        lanes: &[u8],
+        count: usize,
+    ) where
+        T: fgf::field::BinaryField
+            + FieldBuffer<Characteristic = fgf::field::PrimeCharacteristic<2>>,
+    {
+        ops::map_bits::embed_into_with(expand, map, packed_in, count);
+        ops::map_bits::trace_into_with(packed_out, map, lanes, count);
+        ops::map_bits::norm_into_with(packed_out, map, lanes, count);
+        ops::map_bits::restrict_into_with(packed_out, packed_out_2, map, lanes, count);
+        ops::map_bits::contains_into_with(packed_out, map, lanes, count);
+        let checksum = expand.iter().sum::<u8>()
+            ^ packed_out.iter().sum::<u8>()
+            ^ packed_out_2.iter().sum::<u8>();
+        core::hint::black_box(checksum);
+    }
+
+    let gf64 = PreparedEmbedding::<Gf1, Gf64>::new(&Embedding::<Gf1, Gf64>::new().unwrap());
+    let aes8 = PreparedEmbedding::<Gf1, Aes8>::new(&Embedding::<Gf1, Aes8>::new().unwrap());
+    let count = 64usize;
+    let packed = bits::bytes_for(count);
+    let mut expand64 = vec![0u8; count * Gf64::BYTES];
+    let mut expand8 = vec![0u8; count * Aes8::BYTES];
+    let mut packed_out = vec![0u8; packed];
+    let mut packed_out_2 = vec![0u8; packed];
+    let packed_in = noise(packed, 0xE8);
+    let lanes64 = noise(count * Gf64::BYTES, 0xE9);
+    let lanes8 = noise(count * Aes8::BYTES, 0xEA);
+    // Warm every row on both maps before counting.
+    exercise(
+        &aes8,
+        &mut expand8,
+        &mut packed_out,
+        &mut packed_out_2,
+        &packed_in,
+        &lanes8,
+        count,
+    );
+    exercise(
+        &gf64,
+        &mut expand64,
+        &mut packed_out,
+        &mut packed_out_2,
+        &packed_in,
+        &lanes64,
+        count,
+    );
+    let allocations = count_allocations(|| {
+        exercise(
+            &aes8,
+            &mut expand8,
+            &mut packed_out,
+            &mut packed_out_2,
+            &packed_in,
+            &lanes8,
+            count,
+        );
+        exercise(
+            &gf64,
+            &mut expand64,
+            &mut packed_out,
+            &mut packed_out_2,
+            &packed_in,
+            &lanes64,
+            count,
+        );
+    });
+    assert_eq!(allocations, 0, "bit rows allocated in steady state");
+}
+
+#[test]
 fn odd_embedding_application_allocates_nothing() {
     let _guard = TEST_LOCK
         .lock()

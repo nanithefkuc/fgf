@@ -29,10 +29,10 @@ use std::time::{Duration, Instant};
 
 use fgf::poly::{AES, RS};
 use fgf::{
-    Components, Elem, Embedding, Extension, ExtensionSpec, Field, FieldBuffer, FieldElem,
-    FiniteField, Frobenius, Goldilocks, Isomorphism, Mersenne31, Normal, Polynomial,
-    PreparedEmbedding, PreparedIsomorphism, QuadMersenne31, Relation, Residue, backend,
-    backend_for, ops,
+    BinaryField, Components, Elem, Embedding, Extension, ExtensionSpec, Field, FieldBuffer,
+    FieldElem, FiniteField, Frobenius, Goldilocks, Isomorphism, Mersenne31, Normal, Polynomial,
+    PreparedEmbedding, PreparedIsomorphism, PrimeCharacteristic, PrimeField, QuadMersenne31,
+    Relation, Residue, backend, backend_for, ops,
 };
 use fgf::{FanPaar8, FanPaar16, FanPaar64, Rijndael16, Rijndael32, Rijndael64};
 
@@ -181,6 +181,13 @@ const MAX_SCALAR_OPS: usize = 1 << 20;
 /// Staging length of every scalar panel's deterministic input cycle.
 const SCALAR_STAGE: usize = 256;
 
+/// Inventory mode for the publisher regression (`just bench-maps-publisher`):
+/// print every `SCALAR`/`SAMPLE` label with a placeholder value and return,
+/// so the full producer inventory feeds the grammar without timing. Staging,
+/// validation, and headings still run; unknown flags pass through harmlessly.
+static LIST_LABELS: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::args().any(|arg| arg == "--list-labels"));
+
 static SMOKE: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::args().any(|arg| arg == "--smoke"));
 
@@ -318,6 +325,10 @@ fn fmt_ns(ns: f64) -> String {
 }
 
 fn bench_region(label: &str, bytes: usize, mut body: impl FnMut()) {
+    if *LIST_LABELS {
+        println!("SAMPLE\t{label}\t{bytes}\t0.000000001");
+        return;
+    }
     let warmup = if smoke() { 2 } else { 16 };
     for _ in 0..warmup {
         body();
@@ -354,6 +365,10 @@ fn bench_region(label: &str, bytes: usize, mut body: impl FnMut()) {
 /// reports one timed call per sample. Emits a `SCALAR` machine record
 /// instead of `SAMPLE`; a chain has no logical byte count.
 fn bench_scalar(label: &str, mut body: impl FnMut(usize) -> u64) {
+    if *LIST_LABELS {
+        println!("SCALAR\t{label}\t0.000000001");
+        return;
+    }
     let warmup = if smoke() { 1 } else { 4 };
     for _ in 0..warmup {
         body(8);
@@ -1800,6 +1815,354 @@ fn run_emb_pair_scalar<S: Field, T: Field<Characteristic = S::Characteristic>>(p
     frob_construct_once::<T>(pair, S::DEGREE);
 }
 
+/// One GF(2)-sourced bit/lane interop pair: the compact scalar chains and
+/// construction panels, then the `ops::map_bits` packed-bit rows beside
+/// them. The bits rows read packed GF(2) bits LSB-first on one side and
+/// stable target lanes on the other, per the `ops::map_bits`
+/// representation contract. The panel heading declares the bit-width
+/// source (`endpoint bits 1 -> B`); the scalar chains underneath time the
+/// same compact methods as every other pair.
+#[allow(clippy::too_many_lines)]
+fn run_emb_pair_bits<
+    S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
+    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
+>(
+    pair: &str,
+) {
+    let map = Embedding::<S, T>::new()
+        .unwrap_or_else(|error| panic!("field-maps {pair}: construction failed: {error:?}"));
+    validate_embedding(pair, &map);
+    println!(
+        "field-maps panel: {pair} (embedding) endpoint bits 1 -> {}",
+        T::BYTES,
+    );
+    emb_scalar_panels(pair, &map, true);
+    emb_construct_once::<S, T>(pair);
+    frob_construct_once::<T>(pair, S::DEGREE);
+    emb_bits_panels(pair, &map);
+}
+
+/// Bits rows appended to a pair the scalar runner already emitted: the
+/// same `emb_bits_panels` rows under a second bits-form heading, without
+/// repeating the scalar chains. Used for `gf1-gf64`, whose scalar-only
+/// pair stays intact.
+fn run_emb_pair_bits_append<
+    S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
+    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
+>(
+    pair: &str,
+) {
+    let map = Embedding::<S, T>::new()
+        .unwrap_or_else(|error| panic!("field-maps {pair}: construction failed: {error:?}"));
+    validate_embedding(pair, &map);
+    println!(
+        "field-maps panel: {pair} (embedding) endpoint bits 1 -> {}",
+        T::BYTES,
+    );
+    emb_bits_panels(pair, &map);
+}
+
+/// Packed-bit rows for one GF(2)-sourced pair: each `*-bits` arm times an
+/// `ops::map_bits` row, and each `*-bits-control` arm times the matching
+/// per-bit read plus prepared scalar method plus write loop. The row must
+/// equal the control before timing (full packed outputs including tails)
+/// and beat it. Construction (`Embedding::new`,
+/// `PreparedEmbedding::new`), staging, and allocation stay outside the
+/// timed regions.
+#[allow(clippy::too_many_lines)]
+fn emb_bits_panels<
+    S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
+    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
+>(
+    pair: &str,
+    map: &Embedding<S, T>,
+) {
+    let prepared = PreparedEmbedding::<S, T>::new(map);
+    let top = region_counts().iter().max().copied().unwrap_or(1);
+    let pack_len = fgf::bits::bytes_for(top);
+    // Staged target lanes: the mixed member/outsider rotation the
+    // byte-form panels use, so every op sees both outcomes at each count.
+    let sources: Vec<Elem<S>> = field_samples(top, 0x860);
+    let members: Vec<Elem<T>> = sources.iter().map(|x| map.embed(*x)).collect();
+    let outsiders = synthesize_outsiders(pair, map, &members, top);
+    let mixed: Vec<Elem<T>> = (0..top)
+        .map(|i| {
+            if (i + 0x5A) % 2 == 0 {
+                members[i % members.len()]
+            } else {
+                outsiders[i % outsiders.len()]
+            }
+        })
+        .collect();
+    let lane_bytes = encode_staged::<T>(pair, "bits", &mixed);
+    let member_bytes = encode_staged::<T>(pair, "bits-member", &members);
+    // Staged packed source bits: member preimages when the lane is in the
+    // image, zero otherwise (a valid zero keeps its membership; every
+    // embed row validates against the per-bit oracle below).
+    let mut pack_src = vec![0u8; pack_len];
+    fgf::bits::clear_range(&mut pack_src, top, 0, top);
+    for (i, y) in mixed.iter().enumerate() {
+        if let Some(x) = map.restrict(*y)
+            && x.is_one()
+        {
+            fgf::bits::set_range(&mut pack_src, top, i, i + 1);
+        }
+    }
+    let packed_traffic = |count: usize| count * T::BYTES + fgf::bits::bytes_for(count);
+    // Decode one packed bit the way the control loop reads it: the scalar
+    // oracle each `*-bits` row must equal.
+    let read_bit = |packed: &[u8], i: usize| {
+        if packed[i / 8] & (1 << (i % 8)) == 0 {
+            Elem::<S>::ZERO
+        } else {
+            Elem::<S>::ONE
+        }
+    };
+    for &count in region_counts() {
+        let mask_len = fgf::bits::bytes_for(count);
+        // --- embed-bits: packed bits into target lanes. ---
+        {
+            let label = format!("field-maps/{pair}/embed-bits/row-{count}");
+            let bytes = packed_traffic(count);
+            let src = &pack_src[..mask_len];
+            let mut dst = vec![0u8; top * T::BYTES];
+            let mut control = vec![0u8; top * T::BYTES];
+            ops::map_bits::embed_into_with(&mut dst[..count * T::BYTES], &prepared, src, count);
+            for (i, d) in control.chunks_exact_mut(T::BYTES).enumerate().take(count) {
+                T::encode(d, prepared.embed(read_bit(src, i)));
+            }
+            assert_eq!(
+                &dst[..count * T::BYTES],
+                &control[..count * T::BYTES],
+                "field-maps {pair} embed-bits row differs from its control"
+            );
+            bench_region(&label, bytes, || {
+                let src = black_box(src);
+                let dst = black_box(&mut dst[..count * T::BYTES]);
+                ops::map_bits::embed_into_with(dst, black_box(&prepared), src, count);
+                black_box(dst);
+            });
+        }
+        {
+            let label = format!("field-maps/{pair}/embed-bits-control/row-{count}");
+            let bytes = packed_traffic(count);
+            let src = &pack_src[..mask_len];
+            let mut dst = vec![0u8; top * T::BYTES];
+            bench_region(&label, bytes, || {
+                let src = black_box(src);
+                let dst = black_box(&mut dst[..count * T::BYTES]);
+                for (i, d) in dst.chunks_exact_mut(T::BYTES).enumerate() {
+                    T::encode(d, black_box(&prepared).embed(read_bit(black_box(src), i)));
+                }
+                black_box(dst);
+            });
+        }
+        // --- trace-bits / norm-bits: lanes into packed bits. ---
+        for (op, is_trace) in [("trace-bits", true), ("norm-bits", false)] {
+            let label = format!("field-maps/{pair}/{op}/row-{count}");
+            let bytes = packed_traffic(count);
+            let src = &lane_bytes[..count * T::BYTES];
+            let mut dst = vec![0u8; pack_len];
+            let mut control = vec![0u8; pack_len];
+            if is_trace {
+                ops::map_bits::trace_into_with(&mut dst[..mask_len], &prepared, src, count);
+            } else {
+                ops::map_bits::norm_into_with(&mut dst[..mask_len], &prepared, src, count);
+            }
+            fgf::bits::clear_range(&mut control[..mask_len], count, 0, count);
+            for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
+                let bit = if is_trace {
+                    prepared.trace(T::decode(s))
+                } else {
+                    prepared.norm(T::decode(s))
+                };
+                if bit.is_one() {
+                    fgf::bits::set_range(&mut control[..mask_len], count, i, i + 1);
+                }
+            }
+            assert_eq!(
+                &dst[..mask_len],
+                &control[..mask_len],
+                "field-maps {pair} {op} row differs from its control"
+            );
+            bench_region(&label, bytes, || {
+                let src = black_box(src);
+                let dst = black_box(&mut dst[..mask_len]);
+                if is_trace {
+                    ops::map_bits::trace_into_with(
+                        dst,
+                        black_box(&prepared),
+                        black_box(src),
+                        count,
+                    );
+                } else {
+                    ops::map_bits::norm_into_with(dst, black_box(&prepared), black_box(src), count);
+                }
+                black_box(dst);
+            });
+            let control_label = format!("field-maps/{pair}/{op}-control/row-{count}");
+            let mut control_dst = vec![0u8; pack_len];
+            bench_region(&control_label, bytes, || {
+                let src = black_box(src);
+                let dst = black_box(&mut control_dst[..mask_len]);
+                fgf::bits::clear_range(dst, count, 0, count);
+                for (i, s) in black_box(src).chunks_exact(T::BYTES).enumerate() {
+                    let bit = if is_trace {
+                        black_box(&prepared).trace(T::decode(s))
+                    } else {
+                        black_box(&prepared).norm(T::decode(s))
+                    };
+                    if bit.is_one() {
+                        fgf::bits::set_range(dst, count, i, i + 1);
+                    }
+                }
+                black_box(dst);
+            });
+        }
+        // --- restrict-bits-member / restrict-bits-mixed / contains-bits. ---
+        for (op, staged) in [
+            ("restrict-bits-member", member_bytes.as_slice()),
+            ("restrict-bits-mixed", lane_bytes.as_slice()),
+            ("contains-bits", lane_bytes.as_slice()),
+        ] {
+            let label = format!("field-maps/{pair}/{op}/row-{count}");
+            let src = &staged[..count * T::BYTES];
+            if op == "contains-bits" {
+                let bytes = packed_traffic(count);
+                let mut dst = vec![0u8; pack_len];
+                let mut control = vec![0u8; pack_len];
+                ops::map_bits::contains_into_with(&mut dst[..mask_len], &prepared, src, count);
+                fgf::bits::clear_range(&mut control[..mask_len], count, 0, count);
+                for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
+                    if prepared.contains(T::decode(s)) {
+                        fgf::bits::set_range(&mut control[..mask_len], count, i, i + 1);
+                    }
+                }
+                assert_eq!(
+                    &dst[..mask_len],
+                    &control[..mask_len],
+                    "field-maps {pair} {op} row differs from its control"
+                );
+                bench_region(&label, bytes, || {
+                    let src = black_box(src);
+                    let dst = black_box(&mut dst[..mask_len]);
+                    ops::map_bits::contains_into_with(dst, black_box(&prepared), src, count);
+                    black_box(dst);
+                });
+                let control_label = format!("field-maps/{pair}/{op}-control/row-{count}");
+                let mut control_dst = vec![0u8; pack_len];
+                bench_region(&control_label, bytes, || {
+                    let src = black_box(src);
+                    let dst = black_box(&mut control_dst[..mask_len]);
+                    fgf::bits::clear_range(dst, count, 0, count);
+                    for (i, s) in black_box(src).chunks_exact(T::BYTES).enumerate() {
+                        if black_box(&prepared).contains(T::decode(s)) {
+                            fgf::bits::set_range(dst, count, i, i + 1);
+                        }
+                    }
+                    black_box(dst);
+                });
+            } else {
+                let bytes = packed_traffic(count) + fgf::bits::bytes_for(count);
+                let mut dst = vec![0u8; pack_len];
+                let mut valid = vec![0u8; pack_len];
+                let mut control_dst = vec![0u8; pack_len];
+                let mut control_valid = vec![0u8; pack_len];
+                ops::map_bits::restrict_into_with(
+                    &mut dst[..mask_len],
+                    &mut valid[..mask_len],
+                    &prepared,
+                    src,
+                    count,
+                );
+                fgf::bits::clear_range(&mut control_dst[..mask_len], count, 0, count);
+                fgf::bits::clear_range(&mut control_valid[..mask_len], count, 0, count);
+                for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
+                    if let Some(x) = prepared.restrict(T::decode(s)) {
+                        if x.is_one() {
+                            fgf::bits::set_range(&mut control_dst[..mask_len], count, i, i + 1);
+                        }
+                        fgf::bits::set_range(&mut control_valid[..mask_len], count, i, i + 1);
+                    }
+                }
+                assert_eq!(
+                    &dst[..mask_len],
+                    &control_dst[..mask_len],
+                    "field-maps {pair} {op} row differs from its control"
+                );
+                assert_eq!(
+                    &valid[..mask_len],
+                    &control_valid[..mask_len],
+                    "field-maps {pair} {op} validity differs from its control"
+                );
+                bench_region(&label, bytes, || {
+                    let src = black_box(src);
+                    let dst = black_box(&mut dst[..mask_len]);
+                    let valid = black_box(&mut valid[..mask_len]);
+                    ops::map_bits::restrict_into_with(dst, valid, black_box(&prepared), src, count);
+                    black_box((dst, valid));
+                });
+                let control_label = format!("field-maps/{pair}/{op}-control/row-{count}");
+                let mut control_timed_dst = vec![0u8; pack_len];
+                let mut control_timed_valid = vec![0u8; pack_len];
+                bench_region(&control_label, bytes, || {
+                    let src = black_box(src);
+                    let dst = black_box(&mut control_timed_dst[..mask_len]);
+                    let valid = black_box(&mut control_timed_valid[..mask_len]);
+                    fgf::bits::clear_range(dst, count, 0, count);
+                    fgf::bits::clear_range(valid, count, 0, count);
+                    for (i, s) in black_box(src).chunks_exact(T::BYTES).enumerate() {
+                        if let Some(x) = black_box(&prepared).restrict(T::decode(s)) {
+                            if x.is_one() {
+                                fgf::bits::set_range(dst, count, i, i + 1);
+                            }
+                            fgf::bits::set_range(valid, count, i, i + 1);
+                        }
+                    }
+                    black_box((dst, valid));
+                });
+            }
+        }
+    }
+}
+
+/// Validation-only arm over the normal-basis target: the `gf1-normal8`
+/// pair runs the same bits kernel through the oracle checks and times
+/// nothing. It prints no `field-maps panel` line: `gf1-normal8` is not a
+/// measured pair in the publisher grammar, so a bare panel line would
+/// fail closed on full runs.
+fn run_emb_pair_bits_validate_only<
+    S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
+    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
+>(
+    pair: &str,
+) {
+    let map = Embedding::<S, T>::new()
+        .unwrap_or_else(|error| panic!("field-maps {pair}: construction failed: {error:?}"));
+    validate_embedding(pair, &map);
+    let prepared = PreparedEmbedding::<S, T>::new(&map);
+    for &count in region_counts() {
+        let pack_len = fgf::bits::bytes_for(count);
+        let targets: Vec<Elem<T>> = field_samples(count, 0xB17);
+        let lanes = encode_staged::<T>(pair, "bits-validate", &targets);
+        let mut packed = vec![0u8; pack_len.max(1)];
+        let mut control = vec![0u8; pack_len.max(1)];
+        let slice_len = pack_len;
+        ops::map_bits::trace_into_with(&mut packed[..slice_len], &prepared, &lanes, count);
+        fgf::bits::clear_range(&mut control[..slice_len], count, 0, count);
+        for (i, s) in lanes.chunks_exact(T::BYTES).enumerate() {
+            if prepared.trace(T::decode(s)).is_one() {
+                fgf::bits::set_range(&mut control[..slice_len], count, i, i + 1);
+            }
+        }
+        assert_eq!(
+            &packed[..slice_len],
+            &control[..slice_len],
+            "field-maps {pair} validation-only trace row differs from its oracle"
+        );
+    }
+}
+
 /// One isomorphism pair: construct, validate, then run the apply/unapply
 /// scalar, region, and construction panels.
 fn run_iso_pair<S: FieldBuffer, T: Field<Characteristic = S::Characteristic> + FieldBuffer>(
@@ -1937,6 +2300,7 @@ fn main() {
 fn run_panels() {
     if smoke() {
         run_emb_pair::<Gf16, Gf64>("gf16-gf64");
+        run_emb_pair_bits::<Gf1, Gf16>("gf1-gf16");
         run_iso_pair::<Fp64, Gf64>("fp64-gf64-iso");
         return;
     }
@@ -1966,6 +2330,11 @@ fn run_panels() {
     run_emb_pair::<R3, G340>("r3-g3-40");
     run_emb_pair_scalar::<Ref2, Ref8>("ref2-ref8");
     run_emb_pair_scalar::<Gf1, Gf64>("gf1-gf64");
+    run_emb_pair_bits::<Gf1, Aes8>("gf1-aes8");
+    run_emb_pair_bits::<Gf1, Gf16>("gf1-gf16");
+    run_emb_pair_bits::<Gf1, Gf32>("gf1-gf32");
+    run_emb_pair_bits_append::<Gf1, Gf64>("gf1-gf64");
+    run_emb_pair_bits_validate_only::<Gf1, Normal8>("gf1-normal8");
     run_iso_pair::<Fp64, Gf64>("fp64-gf64-iso");
     run_iso_pair::<Normal8, Aes8>("normal8-aes8-iso");
 }

@@ -103,6 +103,8 @@ by fan shape only when it outgrows one file (`gf8/gfni/`, `gf8/avx512/`,
 order operation, ISA, `_with` (`mul_add_matrix_at_gfni`,
 `mul_add_matrix_avx512_with`). Byte-field entries are generic over the
 polynomial or its typed prepared coefficient, without field-specific suffixes.
+The `gf1` family holds the bit-packed GF(2) kernels beside the byte-field
+families.
 Residue single-row kernels split by arithmetic lane type into `u8.rs`,
 `u32.rs`, and `u64.rs`; reduction parameters and source-provider windows
 shared by AVX2 and AVX-512 remain in `kernel/x86/residue.rs`.
@@ -186,6 +188,11 @@ Tests must defend observable contracts, not implementation wiring.
   small fields and sampled at full width.
 - `src/kernel/tests.rs`: direct scalar-versus-architecture differentials across
   lane, tail, row, and source-count boundaries.
+- `tests/prepared_maps.rs`: prepared embedding and isomorphism scalar
+  acceptance against the compact maps.
+- `tests/prepared_map_rows.rs`: prepared row equality, bitmap discipline,
+  mixed restriction, and geometry panics.
+- `tests/prepared_maps_alloc.rs`: allocation-free prepared-map steady state.
 - `tests/zero_alloc.rs`: allocation-free steady-state contracts.
 - `tests/internals.rs`: explicitly unstable direct-kernel surfaces.
 
@@ -205,11 +212,15 @@ a green run as ISA coverage.
 Coverage excludes the x86 binary-field kernel subtrees and the GFNI dispatch
 arms in `kernel/gf8.rs` and `kernel/tower.rs`, which require GFNI unavailable
 on the GitHub-hosted coverage runner. It also excludes
-`kernel/x86/quad_mersenne31/avx512.rs` and
+`kernel/x86/quad_mersenne31/avx512.rs`, `kernel/x86/gf1/avx512.rs`, and
 `kernel/x86/residue/avx512.rs` with its child subtree: their AVX-512
-instructions cannot execute on that runner. The AVX2 residue kernels and
-mixed-ISA prime dispatch modules remain included. Direct AVX-512
-differentials run on capable hosts.
+instructions cannot execute on that runner. `kernel/gf1/dispatch.rs` (the
+GF(2) interop tier dispatch, whose `V3GfniCrypto` and `V4x` arms need GFNI
+or AVX-512) is excluded the same way. The V4x weight arm in `kernel/gf1.rs`
+cannot execute on the coverage runner either (documented, not excluded). The
+AVX2 residue kernels and GF(2) interop `sse42`/`avx2` kernels, the portable
+seam, and the mixed-ISA prime dispatch modules remain included. Direct
+AVX-512 differentials run on capable hosts.
 Keep `COV_IGNORE` narrow and document every exclusion here.
 
 ## Benchmarks

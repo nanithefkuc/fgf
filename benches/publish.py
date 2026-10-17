@@ -149,7 +149,8 @@ MAP_PAIRS = (
     "gf32-gf64", "gf16-gf64", "aes8-gf64", "fp8-fp16", "rs8-gf16",
     "normal8-gf16", "res2-gf64", "res2-res2q", "aes8-aesq", "m31-qm31",
     "gdl2", "g9-g81", "r3-g81q", "r7-g343", "r3-g3-40", "ref2-ref8",
-    "gf1-gf64", "fp64-gf64-iso", "normal8-aes8-iso",
+    "gf1-gf64", "gf1-aes8", "gf1-gf16", "gf1-gf32",
+    "fp64-gf64-iso", "normal8-aes8-iso",
 )
 MAP_PAIR_SET = frozenset(MAP_PAIRS)
 # Isomorphism pairs run apply/unapply only; every other pair is an Embedding
@@ -167,6 +168,9 @@ MAP_BACKEND_SET = frozenset(MAP_BACKEND_FIELDS)
 # Declared encoded endpoint widths (source, target) in bytes, matching the
 # harness's `endpoint bytes A -> B` panel headings. Byte-row traffic formulas
 # are checked against these widths; a heading that disagrees fails closed.
+# The `gf1-*` pairs additionally run packed-bit rows whose heading declares
+# the bit-width source (`endpoint bits 1 -> B`); the bits traffic formulas
+# use the target byte width recorded here.
 MAP_ENDPOINTS = {
     "gf32-gf64": (4, 8), "gf16-gf64": (2, 8), "aes8-gf64": (1, 8),
     "fp8-fp16": (1, 2), "rs8-gf16": (1, 2), "normal8-gf16": (1, 2),
@@ -174,18 +178,35 @@ MAP_ENDPOINTS = {
     "m31-qm31": (4, 8), "gdl2": (8, 16), "g9-g81": (2, 4),
     "r3-g81q": (1, 4), "r7-g343": (1, 3), "r3-g3-40": (1, 40),
     "ref2-ref8": (1, 1), "gf1-gf64": (1, 8),
+    "gf1-aes8": (1, 1), "gf1-gf16": (1, 2), "gf1-gf32": (1, 4),
     "fp64-gf64-iso": (8, 8), "normal8-aes8-iso": (1, 1),
 }
 # Scalar-panel-only pairs have no byte form: scalar chains and construction
-# only, no region rows. Their declared widths above are unused by traffic
-# checks and exist only to keep the table total.
+# only, no lane region rows. `gf1-gf64` is listed here for its lane rows;
+# its bits rows are region rows and bypass this restriction.
 MAP_SCALAR_ONLY = frozenset({"ref2-ref8", "gf1-gf64"})
+# `gf1-gf64` carries both the scalar-only lane rows and the packed-bit rows:
+# the lane rows keep the scalar-only restriction, the bits rows are region
+# rows. `gf1-aes8`, `gf1-gf16`, and `gf1-gf32` are bits pairs only.
+MAP_BITS_PAIRS = frozenset({"gf1-gf64", "gf1-aes8", "gf1-gf16", "gf1-gf32"})
+MAP_BITS_ONLY = frozenset({"gf1-aes8", "gf1-gf16", "gf1-gf32"})
 # Byte-form inclusion pairs each carry a `control pow {pair}` arithmetic
 # control beside their own frobenius panels. Isomorphism pairs, scalar-only
-# pairs, and the standalone qm31 controls carry none.
+# pairs, bits-only pairs (whose producers emit no lane rows and no pow
+# controls), and the standalone qm31 controls carry none.
 MAP_POW_PAIRS = frozenset(
     pair for pair in MAP_PAIRS
-    if pair not in MAP_ISO_PAIRS and pair not in MAP_SCALAR_ONLY)
+    if pair not in MAP_ISO_PAIRS and pair not in MAP_SCALAR_ONLY
+    and pair not in MAP_BITS_ONLY)
+# Packed-bit interop rows over the GF(2) bit-packed representation, measured
+# only on the `gf1-*` pairs. Kept out of the lane `MAP_EMBED_OPS` Cartesian
+# product so completeness never demands them for odd-characteristic pairs.
+MAP_BITS_OPS = frozenset({
+    "embed-bits", "embed-bits-control", "trace-bits", "trace-bits-control",
+    "norm-bits", "norm-bits-control", "restrict-bits-member",
+    "restrict-bits-member-control", "restrict-bits-mixed",
+    "restrict-bits-mixed-control", "contains-bits", "contains-bits-control",
+})
 MAP_EMBED_OPS = frozenset({
     "embed", "embed-prepared", "restrict-member", "restrict-member-prepared",
     "restrict-nonmember", "restrict-nonmember-prepared", "restrict-mixed",
@@ -203,6 +224,10 @@ MAP_LABEL_RE = re.compile(
     r"restrict-nonmember|restrict-nonmember-prepared|restrict-mixed|"
     r"restrict-mixed-prepared|contains|contains-prepared|frobenius|"
     r"frobenius-prepared|trace|trace-prepared|norm|norm-prepared|"
+    r"embed-bits|embed-bits-control|trace-bits|trace-bits-control|"
+    r"norm-bits|norm-bits-control|restrict-bits-member|"
+    r"restrict-bits-member-control|restrict-bits-mixed|"
+    r"restrict-bits-mixed-control|contains-bits|contains-bits-control|"
     r"apply|apply-prepared|unapply|unapply-prepared|construct|construct-embedding|"
     r"construct-isomorphism)/"
     r"(scalar-chain|row-1|row-8|row-64|row-1024|row-16384|once)$")
@@ -1384,7 +1409,7 @@ class LogParser:
 
     def _maps_panel_heading(self, stripped: str) -> bool:
         m = re.fullmatch(r"field-maps panel: (\S+) \((embedding|isomorphism)\)"
-                         r"( endpoint bytes (\d+) -> (\d+))?$", stripped)
+                         r"( endpoint (?:bytes|bits) (\d+) -> (\d+))?$", stripped)
         if m is None:
             return False
         pair, class_ = m.group(1), m.group(2)
@@ -1394,8 +1419,16 @@ class LogParser:
         if class_ != expected:
             self.error(f"field-maps panel {pair!r} declares class {class_!r}, "
                        f"expected {expected!r}")
+        bits_form = "endpoint bits" in stripped
         wired = (int(m.group(4)), int(m.group(5))) if m.group(3) is not None else None
-        if pair in MAP_SCALAR_ONLY:
+        # Representation-keyed headings: bits-form panels declare the
+        # bit-width source (`endpoint bits 1 -> B`) and lane-form panels the
+        # byte widths. `gf1-gf64` emits both forms: the scalar-only lane
+        # heading with no widths, then the bits heading. Other scalar-only
+        # pairs emit the bare heading only.
+        if bits_form and pair not in MAP_BITS_PAIRS:
+            self.error(f"pair {pair!r} has no packed-bit form: {stripped!r}")
+        if pair in MAP_SCALAR_ONLY and not bits_form:
             if wired is not None:
                 self.error(f"pair {pair!r} has no byte form: the panel heading "
                            f"must not declare endpoint bytes: {stripped!r}")
@@ -1521,7 +1554,7 @@ def _maps_endpoints(parser, pair: str, raw: str) -> tuple[int, int]:
 
 def _maps_check_bytes(parser, pair: str, op: str, shape: str, nbytes: int | None,
                       raw: str) -> None:
-    """Enforce the exact per-operation traffic formula for one byte row."""
+    """Enforce the exact per-operation traffic formula for one row."""
     if nbytes is None or nbytes <= 0:
         parser.error(f"field-maps byte row carries no positive byte count: {raw!r}")
     count = int(shape.removeprefix("row-"))
@@ -1541,6 +1574,15 @@ def _maps_check_bytes(parser, pair: str, op: str, shape: str, nbytes: int | None
         expected = count * (src + dst) + mask
     elif op == "construct":
         expected = count * (src + dst)
+    elif op in ("embed-bits", "embed-bits-control", "trace-bits",
+                "trace-bits-control", "norm-bits", "norm-bits-control",
+                "contains-bits", "contains-bits-control"):
+        # Packed-bit panels: N lanes of B bytes beside the packed bitmap K.
+        expected = count * dst + mask
+    elif op in ("restrict-bits-member", "restrict-bits-member-control",
+                "restrict-bits-mixed", "restrict-bits-mixed-control"):
+        # Restriction reports two bitmaps: value bits plus validity bits.
+        expected = count * dst + 2 * mask
     else:
         parser.error(f"operation {op!r} is not measured for pair {pair!r}: {raw!r}")
     if nbytes != expected:
@@ -1629,16 +1671,20 @@ def build_maps(parser, kind, raw, label, nbytes, ns):
     # Applicability classes: embedding pairs run the embedding ops,
     # isomorphism pairs the isomorphism ops; construction ids are
     # pair-class-specific (inapplicable rows are omitted, never aliased).
+    # Packed-bit rows are a third class: `gf1-*` pairs only.
     applicable_construct = (
         ("construct", "construct-embedding")
         if pair not in MAP_ISO_PAIRS
         else ("construct", "construct-isomorphism")
     )
     construct_op = op in applicable_construct
+    bits_op = op in MAP_BITS_OPS
     if (
         op in ("construct-embedding", "construct-isomorphism")
         and op not in applicable_construct
     ):
+        parser.error(f"operation {op!r} is not measured for pair {pair!r}: {raw!r}")
+    if bits_op and pair not in MAP_BITS_PAIRS:
         parser.error(f"operation {op!r} is not measured for pair {pair!r}: {raw!r}")
     if op == "construct":
         if shape not in ("once", "row-16384"):
@@ -1653,16 +1699,29 @@ def build_maps(parser, kind, raw, label, nbytes, ns):
         # relative map to prepare.
         if pair in MAP_ISO_PAIRS:
             parser.error(f"operation {op!r} is not measured for pair {pair!r}: {raw!r}")
-    elif op not in allowed:
+    elif op not in allowed and not bits_op:
         parser.error(f"operation {op!r} is not measured for pair {pair!r}: {raw!r}")
     elif shape == "once":
         parser.error(f"shape once is reserved for construct: {raw!r}")
-    elif pair in MAP_SCALAR_ONLY and shape != "scalar-chain" and not (construct_op and shape == "once"):
+    elif (
+        pair in MAP_SCALAR_ONLY
+        and shape != "scalar-chain"
+        and not (construct_op and shape == "once")
+        and not bits_op
+    ):
         parser.error(f"pair {pair!r} has no byte form: scalar panels only: {raw!r}")
+    elif (
+        pair in MAP_BITS_ONLY
+        and not bits_op
+        and not construct_op
+        and shape != "scalar-chain"
+    ):
+        parser.error(f"pair {pair!r} has no lane byte form: scalar chains only: {raw!r}")
     elif (
         op in ("restrict-mixed", "restrict-mixed-prepared")
         and shape == "scalar-chain"
         and pair not in MAP_SCALAR_ONLY
+        and pair not in MAP_BITS_PAIRS
     ):
         parser.error(f"restrict-mixed is measured as chains only for pairs with "
                      f"no byte form: {raw!r}")
@@ -1695,16 +1754,19 @@ def maps_grammar_mutation_probes() -> list[tuple[str, str]]:
 
     Each entry is an (op-description, label) pair. The harness calls
     `MAP_LABEL_RE` plus the `build_maps` eligibility checks; a probe
-    passes when the label is rejected. The two bypasses this guards:
+    passes when the label is rejected. The bypasses this guards:
     `frobenius-prepared/once` on an isomorphism pair (construction shape
-    is pair-class-specific) and `restrict-mixed-prepared/scalar-chain`
-    on a byte-form pair (mixed chains are scalar-only pairs only).
+    is pair-class-specific), `restrict-mixed-prepared/scalar-chain`
+    on a byte-form pair (mixed chains are scalar-only pairs only), and
+    packed-bit rows on a lane pair (bits rows are `gf1-*` pairs only).
     """
     return [
         ("frobenius-prepared-once-on-iso-pair",
          "field-maps/fp64-gf64-iso/frobenius-prepared/once"),
         ("restrict-mixed-prepared-chain-on-byte-form-pair",
          "field-maps/gf16-gf64/restrict-mixed-prepared/scalar-chain"),
+        ("embed-bits-on-lane-pair",
+         "field-maps/gf16-gf64/embed-bits/row-8"),
     ]
 
 
@@ -2379,6 +2441,18 @@ class Campaign:
         per round; the maps grammar is a fixed inventory, not a sampled set."""
         expected = set()
         for pair in MAP_PAIRS:
+            if pair in MAP_BITS_ONLY:
+                # Bits-only pairs emit the lane scalar chains (compact
+                # methods, no byte form) plus the packed-bit region rows.
+                for op in sorted(MAP_EMBED_OPS):
+                    expected.add((pair, op, "scalar-chain"))
+                for op in sorted(MAP_BITS_OPS):
+                    for count in MAP_ROW_COUNTS:
+                        expected.add((pair, op, f"row-{count}"))
+                expected.add((pair, "construct", "once"))
+                expected.add((pair, "construct-embedding", "once"))
+                expected.add((pair, "frobenius-prepared", "once"))
+                continue
             ops = MAP_ISO_OPS if pair in MAP_ISO_PAIRS else MAP_EMBED_OPS
             constructors = (
                 ["construct", "construct-embedding", "frobenius-prepared-once"]
@@ -2398,7 +2472,9 @@ class Campaign:
                 else:
                     # Both mixed variants mirror the other restriction ops:
                     # region rows for byte-form pairs, chains only for
-                    # scalar-only pairs.
+                    # scalar-only pairs. Bits pairs emit the lane scalar
+                    # chains (compact methods, no byte form) plus the
+                    # packed-bit region rows below.
                     if pair in MAP_SCALAR_ONLY or op not in (
                         "restrict-mixed",
                         "restrict-mixed-prepared",
@@ -2406,6 +2482,12 @@ class Campaign:
                         expected.add((pair, op, "scalar-chain"))
                     if pair in MAP_SCALAR_ONLY:
                         continue
+                    for count in MAP_ROW_COUNTS:
+                        expected.add((pair, op, f"row-{count}"))
+            # Packed-bit rows are representation-keyed to the `gf1-*` pairs
+            # only; they never join the lane Cartesian product above.
+            if pair in MAP_BITS_PAIRS:
+                for op in sorted(MAP_BITS_OPS):
                     for count in MAP_ROW_COUNTS:
                         expected.add((pair, op, f"row-{count}"))
         for pair in MAP_POW_PAIRS:
@@ -3260,8 +3342,12 @@ class Renderer:
              "target element for embed, trace, norm, apply, unapply, and the "
              "construct amortization row; two target elements for frobenius; one "
              "target element plus the LSB-first validity bitmap for contains; one "
-             "source plus one target element plus the validity bitmap for "
              "restrict-member, restrict-nonmember, and restrict-mixed. "
+             "Packed-bit rows (`gf1-*` pairs, `ops::map_bits`): N target lanes "
+             "plus the packed bitmap for embed-bits, trace-bits, norm-bits, "
+             "and contains-bits, with a second validity bitmap for "
+             "restrict-bits-member and restrict-bits-mixed; each bits row is "
+             "validated against a per-bit control loop before timing. "
              "The construct row at row-16384 reports construction plus 16384 "
              "applications as one amortized call."])
         if table is not None:

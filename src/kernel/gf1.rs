@@ -338,3 +338,139 @@ fn low_mask(n: usize) -> u64 {
 fn mask_between(lo: usize, hi: usize) -> u64 {
     (u64::MAX << lo) & low_mask(hi)
 }
+#[cfg(all(
+    feature = "alloc",
+    feature = "simd",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+pub(crate) mod dispatch;
+
+/// The per-lane predicate one bit-packed interop row applies.
+#[cfg(feature = "alloc")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LaneTest {
+    /// The lane word is nonzero (relative norm out of GF(2)).
+    NonZero,
+    /// The lane word is zero or the embedded one (image membership).
+    ZeroOrOne(u64),
+    /// The parity of the lane word masked by the trace word.
+    Parity(u64),
+}
+
+/// Expand `bits` packed GF(2) bits into `bits` target lanes.
+///
+/// Element `i` is bit `i % 8` of `src[i / 8]`; lane `i` is `one_w` when the
+/// bit is set and zero otherwise, truncated little-endian to `bytes` bytes.
+/// Writes `bits * bytes` bytes of `dst`; reads source bits only in
+/// `[0, bits)`. The checked surface pairs the spans; only `debug_assert`s
+#[cfg(feature = "alloc")]
+pub(crate) fn expand(dst: &mut [u8], one_w: u64, src: &[u8], bits: usize, bytes: usize) {
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    if dispatch::expand(dst, one_w, src, bits, bytes) {
+        return;
+    }
+    debug_assert_eq!(dst.len(), bits.saturating_mul(bytes));
+    debug_assert!(crate::bits::bytes_for(bits) <= src.len());
+    for i in 0..bits {
+        let bit = (src[i / 8] >> (i % 8)) & 1;
+        let lane = one_w & 0u64.wrapping_sub(u64::from(bit));
+        let lane_bytes = lane.to_le_bytes();
+        dst[i * bytes..(i + 1) * bytes].copy_from_slice(&lane_bytes[..bytes]);
+    }
+}
+
+/// Compress `bits` target lanes into one packed GF(2) bitmap.
+///
+/// Lane `i` is the little-endian word of `bytes` bytes at
+/// `src[i * bytes..]`; bit `i` of `dst` is the `LaneTest` predicate over
+/// that word. Writes exactly `crate::bits::bytes_for(bits)` bytes with
+/// cleared tail bits, assembled from zero and written once. The checked
+#[cfg(feature = "alloc")]
+pub(crate) fn compress(dst: &mut [u8], src: &[u8], bits: usize, bytes: usize, test: &LaneTest) {
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    if dispatch::compress(dst, src, bits, bytes, test) {
+        return;
+    }
+    debug_assert_eq!(src.len(), bits.saturating_mul(bytes));
+    debug_assert_eq!(dst.len(), crate::bits::bytes_for(bits));
+    match *test {
+        LaneTest::NonZero => compress_nonzero(dst, src, bits, bytes),
+        LaneTest::ZeroOrOne(one) => compress_zero_or_one(dst, src, bits, bytes, one),
+        LaneTest::Parity(tau) => compress_parity(dst, src, bits, bytes, tau),
+    }
+}
+#[cfg(feature = "alloc")]
+fn compress_nonzero(dst: &mut [u8], src: &[u8], bits: usize, bytes: usize) {
+    dst.fill(0);
+    for i in 0..bits {
+        if lane_word(src, i, bytes) != 0 {
+            dst[i / 8] |= 1 << (i % 8);
+        }
+    }
+}
+#[cfg(feature = "alloc")]
+fn compress_zero_or_one(dst: &mut [u8], src: &[u8], bits: usize, bytes: usize, one: u64) {
+    dst.fill(0);
+    for i in 0..bits {
+        let w = lane_word(src, i, bytes);
+        if w == 0 || w == one {
+            dst[i / 8] |= 1 << (i % 8);
+        }
+    }
+}
+#[cfg(feature = "alloc")]
+fn compress_parity(dst: &mut [u8], src: &[u8], bits: usize, bytes: usize, tau: u64) {
+    dst.fill(0);
+    for i in 0..bits {
+        if (lane_word(src, i, bytes) & tau).count_ones() & 1 == 1 {
+            dst[i / 8] |= 1 << (i % 8);
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[inline]
+fn lane_word(src: &[u8], i: usize, bytes: usize) -> u64 {
+    let mut word = 0u64;
+    for (shift, &byte) in src[i * bytes..(i + 1) * bytes].iter().enumerate() {
+        word |= u64::from(byte) << (8 * shift);
+    }
+    word
+}
+
+/// Fused image-membership and preimage row over `bits` target lanes.
+///
+/// Reads each lane once: `valid` bit `i` is `w == 0 || w == one_w` and `dst`
+/// bit `i` is `w == one_w`, so outsiders and valid zeros both write a zero
+/// value bit. Both outputs are exactly `crate::bits::bytes_for(bits)` bytes
+/// with cleared tails, assembled from zero and written once. The checked
+#[cfg(feature = "alloc")]
+pub(crate) fn restrict(
+    dst: &mut [u8],
+    valid: &mut [u8],
+    one_w: u64,
+    src: &[u8],
+    bits: usize,
+    bytes: usize,
+) {
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    if dispatch::restrict(dst, valid, one_w, src, bits, bytes) {
+        return;
+    }
+    debug_assert_eq!(dst.len(), crate::bits::bytes_for(bits));
+    debug_assert_eq!(valid.len(), crate::bits::bytes_for(bits));
+    dst.fill(0);
+    valid.fill(0);
+    for i in 0..bits {
+        let mut word = 0u64;
+        for (shift, &byte) in src[i * bytes..(i + 1) * bytes].iter().enumerate() {
+            word |= u64::from(byte) << (8 * shift);
+        }
+        if word == 0 || word == one_w {
+            valid[i / 8] |= 1 << (i % 8);
+        }
+        if word == one_w {
+            dst[i / 8] |= 1 << (i % 8);
+        }
+    }
+}
