@@ -164,6 +164,10 @@ Tests must defend observable contracts, not implementation wiring.
   tower packing against the shipped tower identities.
 - `tests/embedding.rs`: reference-ladder forward fixtures, inverse and
   commuting-triangle contracts, trace/norm, and failed restriction.
+- `tests/frobenius_rows.rs`: prepared Frobenius row acceptance against the
+  per-element scalar loop, alias lanes, and geometry failures.
+- `tests/frobenius_alloc.rs`: prepared Frobenius steady-state
+  zero-allocation contracts.
 - `tests/binary_bases.rs`: ordered-basis and custom extension-spec arithmetic against
   base-field schoolbook oracles.
 - `tests/prime_fields.rs`: primality, prime-field bulk operations on raw

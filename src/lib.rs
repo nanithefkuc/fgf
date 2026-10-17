@@ -29,6 +29,8 @@ pub mod ops;
 #[cfg(feature = "internals")]
 pub mod internals;
 
+#[cfg(feature = "alloc")]
+pub use field::Frobenius;
 pub use field::{
     AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor,
     ComplexMersenne31, Components, Elem, Embedding, EmbeddingError, Extension, ExtensionField,

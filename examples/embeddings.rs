@@ -115,6 +115,17 @@ fn main() {
     assert_eq!(frobenius, lifted);
     println!("Gf16 z={z} lifts into GF(2^64) as {lifted}; four Frobenius steps return it.");
 
+    // The prepared absolute Frobenius reuses one compiled map: each power
+    // of two is a squaring, so preparing once and applying repeatedly
+    // matches the compact spelling lane for lane. Prepared maps need the
+    // allocation feature; the no-alloc build skips this section.
+    #[cfg(feature = "alloc")]
+    {
+        let absolute_frobenius = fgf::Frobenius::<Gf64>::new(1);
+        let prepared_first = lifted.frobenius_with(&absolute_frobenius);
+        assert_eq!(prepared_first, lifted.square());
+    }
+
     // Embedding<Gf1, T> carries the absolute trace and norm.
     let absolute = Embedding::<Gf1, Gf16>::new().unwrap();
     let mut conjugate_sum = Elem::<Gf16>::ZERO;

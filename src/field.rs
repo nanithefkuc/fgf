@@ -85,6 +85,8 @@ pub use binary::{
     AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Normal,
     Polynomial, RS,
 };
+#[cfg(feature = "alloc")]
+pub use embedding::Frobenius;
 pub use embedding::{Embedding, EmbeddingError, Isomorphism, Postcompose};
 pub use extension::{
     Components, Extension, ExtensionField, ExtensionSpec, ExtensionStorage, Packed, PackedPadded,
@@ -108,6 +110,17 @@ mod private {
 
     /// Marks the degree-one rows eligible for prime-field membership.
     pub trait PrimeFieldSeal {}
+
+    /// The ordinary-residue row of a prime characteristic.
+    ///
+    /// The private counterpart of the public characteristic query: each
+    /// prime identity names the degree-one row its compiled odd maps
+    /// accumulate through. `PrimeCharacteristic<P>` is the sole
+    /// implementor.
+    pub trait ResidueRowOf: Sealed {
+        /// The degree-one ordinary-residue row of this characteristic.
+        type Row: crate::kernel::FieldKernels + super::Field<Characteristic = Self>;
+    }
 
     /// The row hooks behind the `Field` seal: the presentation access the
     /// crate's relation algorithms share.
@@ -153,6 +166,33 @@ mod private {
         /// `Some(c)` exactly when `raw == c · 1` with `c` below the
         /// characteristic; `None` otherwise.
         fn to_prime(raw: <Self as Field>::Raw) -> Option<u64>
+        where
+            Self: Field;
+        /// The packed coordinate word of `raw`, in characteristic two.
+        ///
+        /// Bit `i` of the word is the `i`th prime-subfield coordinate in
+        /// the descriptor's coordinate order. Flat rows cast their word;
+        /// packed rows read the pinned word; component rows convert
+        /// recursively through `RowAccess`, including residue-two leaves.
+        /// The engine behind `Frobenius` is the only production caller;
+        /// builds without it still run these hooks through the tests.
+        ///
+        /// # Panics
+        /// Panics on any row of odd characteristic.
+        #[cfg_attr(not(feature = "alloc"), allow(dead_code))]
+        fn coordinate_word(raw: <Self as Field>::Raw) -> u64
+        where
+            Self: Field;
+        /// The raw element named by a packed coordinate word.
+        ///
+        /// The inverse of `coordinate_word`: bit `i` of `word` is the
+        /// `i`th prime-subfield coordinate in the descriptor's
+        /// coordinate order.
+        ///
+        /// # Panics
+        /// Panics on any row of odd characteristic.
+        #[cfg_attr(not(feature = "alloc"), allow(dead_code))]
+        fn from_coordinate_word(word: u64) -> <Self as Field>::Raw
         where
             Self: Field;
     }
@@ -289,7 +329,8 @@ pub const fn is_prime(candidate: u64) -> bool {
 ///
 /// One identity type per prime, independent of coordinates or a named
 /// modulus. This is not an arithmetic backend.
-pub trait PrimeIdentity: private::Sealed + Copy + 'static {
+#[allow(private_bounds)]
+pub trait PrimeIdentity: private::Sealed + private::ResidueRowOf + Copy + 'static {
     /// The prime characteristic value, checked primality on read.
     const CHARACTERISTIC: u64;
     /// Use-time primality proof for the characteristic.
@@ -335,6 +376,16 @@ impl<const P: u64> PrimeIdentity for PrimeCharacteristic<P> {
         (P % 8) as u8
     };
 }
+
+impl<const P: u64> private::ResidueRowOf for PrimeCharacteristic<P> {
+    type Row = FiniteField<P, 1, Residue>;
+}
+
+/// The ordinary-residue row of a field's characteristic.
+///
+/// The degree-one row the compiled odd maps of `F` accumulate through.
+#[cfg(feature = "alloc")]
+pub(crate) type ResidueRow<F> = <<F as Field>::Characteristic as private::ResidueRowOf>::Row;
 
 /// A finite field supported by this crate.
 ///
@@ -1420,5 +1471,103 @@ mod tests {
     #[should_panic(expected = "prime coordinate is not below the characteristic")]
     fn coordinate_read_rejects_a_binary_coordinate_above_one() {
         FiniteField::<2, 4, Polynomial<0x13>>::from_prime_coordinates(&[0, 2, 0, 0]);
+    }
+
+    /// The coordinate word of one element equals its prime-coordinate
+    /// bits: bit `i` is coordinate `i` in descriptor order.
+    fn word_matches_coordinates<F: Field>(raw: F::Raw) {
+        let degree = F::DEGREE as usize;
+        let canonical = F::canonical_raw(raw);
+        let word = F::coordinate_word(raw);
+        let mut coordinates = [0u64; 64];
+        F::prime_coordinates_into(&mut coordinates[..degree], canonical);
+        let mut expected = 0u64;
+        for (i, coordinate) in coordinates[..degree].iter().enumerate() {
+            assert!(*coordinate < 2, "binary coordinate above one");
+            expected |= coordinate << i;
+        }
+        assert_eq!(word, expected, "coordinate word of {raw:?}");
+        assert_eq!(
+            F::from_coordinate_word(word),
+            canonical,
+            "word round trip of {raw:?}"
+        );
+    }
+
+    /// Every element of one enumerable binary row: the word hook agrees
+    /// with the coordinate hooks exactly.
+    macro_rules! word_row_exhaustive {
+        ($row:ty, $n:literal) => {{
+            type Row = $row;
+            for index in 0..(1u128 << $n) {
+                let element = Elem::<Row>::from_index(index).expect("index fits the degree");
+                word_matches_coordinates::<Row>(element.to_raw());
+            }
+        }};
+    }
+
+    #[test]
+    fn coordinate_words_match_prime_coordinates() {
+        word_row_exhaustive!(FiniteField<2, 1, Polynomial<3>>, 1);
+        word_row_exhaustive!(FiniteField<2, 2, Polynomial<0x7>>, 2);
+        word_row_exhaustive!(FiniteField<2, 2, Normal<7, 2>>, 2);
+        word_row_exhaustive!(FiniteField<2, 2, Cantor<7, 2>>, 2);
+        word_row_exhaustive!(FiniteField<2, 4, Polynomial<0x13>>, 4);
+        word_row_exhaustive!(FiniteField<2, 4, Normal<0x13, 8>>, 4);
+        word_row_exhaustive!(FiniteField<2, 8, Polynomial<AES>>, 8);
+        word_row_exhaustive!(FiniteField<2, 8, Polynomial<RS>>, 8);
+        word_row_exhaustive!(FiniteField<2, 8, Normal<0x11B, 0x20>>, 8);
+        word_row_exhaustive!(FanPaar2Field, 2);
+        word_row_exhaustive!(FanPaar4Field, 4);
+        word_row_exhaustive!(FanPaar8Field, 8);
+        word_row_exhaustive!(FiniteField<2, 1, Residue>, 1);
+        word_row_exhaustive!(Rijndael16Field, 16);
+        // Sampled words at the wider tower degrees, plus edge words.
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut sample = |mask: u64| {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            (state >> 33) & mask
+        };
+        for _ in 0..256 {
+            // The mask keeps only the storage width, so the narrowing
+            // conversion holds exactly the sampled bits.
+            let narrow32 = u32::try_from(sample(u64::from(u32::MAX)))
+                .expect("masked sample fits the storage width");
+            word_matches_coordinates::<Rijndael32Field>(narrow32);
+            word_matches_coordinates::<Rijndael64Field>(
+                sample(u64::MAX) ^ (sample(u64::MAX) << 32),
+            );
+            let narrow16 = u16::try_from(sample(u64::from(u16::MAX)))
+                .expect("masked sample fits the storage width");
+            word_matches_coordinates::<FanPaar16Field>(narrow16);
+            word_matches_coordinates::<FanPaar32Field>(narrow32);
+            word_matches_coordinates::<FanPaar64Field>(sample(u64::MAX) ^ (sample(u64::MAX) << 32));
+        }
+        word_matches_coordinates::<Rijndael32Field>(0);
+        word_matches_coordinates::<Rijndael32Field>(u32::MAX);
+        word_matches_coordinates::<Rijndael64Field>(0);
+        word_matches_coordinates::<Rijndael64Field>(u64::MAX);
+        word_matches_coordinates::<FanPaar64Field>(0);
+        word_matches_coordinates::<FanPaar64Field>(u64::MAX);
+    }
+
+    #[test]
+    #[should_panic(expected = "coordinate word on a row of odd characteristic")]
+    fn coordinate_word_rejects_an_odd_row() {
+        let _ = FiniteField::<7, 1>::coordinate_word(3);
+    }
+
+    #[test]
+    #[should_panic(expected = "coordinate word on a row of odd characteristic")]
+    fn from_coordinate_word_rejects_an_odd_row() {
+        let _ = FiniteField::<7, 1>::from_coordinate_word(1);
+    }
+
+    #[test]
+    #[should_panic(expected = "coordinate word holds bits at or above the field degree")]
+    fn from_coordinate_word_rejects_excess_bits() {
+        let _ = FiniteField::<2, 4, Polynomial<0x13>>::from_coordinate_word(1 << 4);
     }
 }
