@@ -24,8 +24,8 @@
 //! Multiplying by a coefficient is masked out of the API on purpose: the
 //! coefficient of GF(2) is a bit — multiply by zero is "skip", by one is
 //! "XOR" — so there is no prepared-coefficient form. Prepared-map rows over
-//! GF(2) endpoints live in [`crate::ops::map_bits`] (alloc): the bit-packed
-//! counterparts of the lane rows in [`crate::ops::map`]. What *is* prepared
+//! GF(2) endpoints live in `crate::ops::map_bits` (alloc): the bit-packed
+//! counterparts of the lane rows in `crate::ops::map`. What *is* prepared
 //! here is geometry: a [`XorRange`] derives a
 //! bit range's window and masks once for [`xor_range_with`] to apply to
 //! many buffer pairs. The scalar oracle for this surface is

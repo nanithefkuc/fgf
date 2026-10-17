@@ -214,11 +214,13 @@ arms in `kernel/gf8.rs` and `kernel/tower.rs`, which require GFNI unavailable
 on the GitHub-hosted coverage runner. It also excludes
 `kernel/x86/quad_mersenne31/avx512.rs`, `kernel/x86/gf1/avx512.rs`, and
 `kernel/x86/residue/avx512.rs` with its child subtree: their AVX-512
-instructions cannot execute on that runner. The V4x seam arm in
-`kernel/gf1.rs` cannot execute on the coverage runner either (documented,
-not excluded). The AVX2 residue kernels and
-mixed-ISA prime dispatch modules remain included. Direct AVX-512
-differentials run on capable hosts.
+instructions cannot execute on that runner. `kernel/gf1/dispatch.rs` (the
+GF(2) interop tier dispatch, whose `V3GfniCrypto` and `V4x` arms need GFNI
+or AVX-512) is excluded the same way. The V4x weight arm in `kernel/gf1.rs`
+cannot execute on the coverage runner either (documented, not excluded). The
+AVX2 residue kernels and GF(2) interop `sse42`/`avx2` kernels, the portable
+seam, and the mixed-ISA prime dispatch modules remain included. Direct
+AVX-512 differentials run on capable hosts.
 Keep `COV_IGNORE` narrow and document every exclusion here.
 
 ## Benchmarks
