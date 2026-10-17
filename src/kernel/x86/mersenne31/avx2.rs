@@ -44,6 +44,16 @@ fn mul_input(x: __m256i, p: __m256i) -> __m256i {
     }
 }
 
+/// Whether four source vectors are jointly inside [`mulmod_avx2`]'s
+/// `0..=p` range: one OR-reduction and one sign test covers the tile, so
+/// a clean tile skips every per-vector screen.
+#[archmage::rite(v3)]
+#[must_use]
+fn tile_clean(s0: __m256i, s1: __m256i, s2: __m256i, s3: __m256i) -> bool {
+    let acc = _mm256_or_si256(_mm256_or_si256(s0, s1), _mm256_or_si256(s2, s3));
+    _mm256_movemask_epi8(acc) >= 0
+}
+
 /// `a * b (mod p)` over eight 31-bit lanes (`0..=p` in, canonical out).
 ///
 /// Doubled-odd-limb form: `vpmuludq` on the even lanes and on the odd lanes
@@ -195,12 +205,37 @@ pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u32, sr
     for (dst_tile, src_tile) in dst_tiles.iter_mut().zip(src_tiles) {
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
         let (src_lanes, _) = src_tile.as_chunks::<32>();
-        for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-            let prod = mulmod_avx2(cred, mul_input(_mm256_loadu_si256(src_lane), p), p);
-            let d = mul_input(_mm256_loadu_si256(&*dst_lane), p);
-            let sum = _mm256_add_epi32(d, prod); // <= 2p - 1
-            let u = _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p));
-            _mm256_storeu_si256(dst_lane, u);
+        let s = [
+            _mm256_loadu_si256(&src_lanes[0]),
+            _mm256_loadu_si256(&src_lanes[1]),
+            _mm256_loadu_si256(&src_lanes[2]),
+            _mm256_loadu_si256(&src_lanes[3]),
+        ];
+        let d = [
+            _mm256_loadu_si256(&dst_lanes[0]),
+            _mm256_loadu_si256(&dst_lanes[1]),
+            _mm256_loadu_si256(&dst_lanes[2]),
+            _mm256_loadu_si256(&dst_lanes[3]),
+        ];
+        // One OR-reduction covers all eight input vectors: a clean tile
+        // skips every per-vector `mul_input`.
+        let acc = _mm256_or_si256(
+            _mm256_or_si256(_mm256_or_si256(s[0], s[1]), _mm256_or_si256(s[2], s[3])),
+            _mm256_or_si256(_mm256_or_si256(d[0], d[1]), _mm256_or_si256(d[2], d[3])),
+        );
+        if _mm256_movemask_epi8(acc) >= 0 {
+            for ((dst_lane, &sv), &dv) in dst_lanes.iter_mut().zip(s.iter()).zip(d.iter()) {
+                let prod = mulmod_avx2(cred, sv, p);
+                let sum = _mm256_add_epi32(dv, prod); // <= 2p - 1
+                _mm256_storeu_si256(dst_lane, _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p)));
+            }
+        } else {
+            for ((dst_lane, &sv), &dv) in dst_lanes.iter_mut().zip(s.iter()).zip(d.iter()) {
+                let prod = mulmod_avx2(cred, mul_input(sv, p), p);
+                let dd = mul_input(dv, p);
+                let sum = _mm256_add_epi32(dd, prod); // <= 2p - 1
+                _mm256_storeu_si256(dst_lane, _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p)));
+            }
         }
     }
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
@@ -284,9 +319,20 @@ pub fn mul_into_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u32, s
     for (dst_tile, src_tile) in dst_tiles.iter_mut().zip(src_tiles) {
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
         let (src_lanes, _) = src_tile.as_chunks::<32>();
-        for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-            let s = mul_input(_mm256_loadu_si256(src_lane), p);
-            _mm256_storeu_si256(dst_lane, mulmod_avx2(cred, s, p));
+        let s = [
+            _mm256_loadu_si256(&src_lanes[0]),
+            _mm256_loadu_si256(&src_lanes[1]),
+            _mm256_loadu_si256(&src_lanes[2]),
+            _mm256_loadu_si256(&src_lanes[3]),
+        ];
+        if tile_clean(s[0], s[1], s[2], s[3]) {
+            for (dst_lane, &v) in dst_lanes.iter_mut().zip(s.iter()) {
+                _mm256_storeu_si256(dst_lane, mulmod_avx2(cred, v, p));
+            }
+        } else {
+            for (dst_lane, &v) in dst_lanes.iter_mut().zip(s.iter()) {
+                _mm256_storeu_si256(dst_lane, mulmod_avx2(cred, mul_input(v, p), p));
+            }
         }
     }
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
