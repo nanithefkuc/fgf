@@ -2112,8 +2112,10 @@ fn emb_bits_panels<
 }
 
 /// Validation-only arm over the normal-basis target: the `gf1-normal8`
-/// pair runs the same bits kernel through the oracle checks and prints
-/// its panel header but times nothing.
+/// pair runs the same bits kernel through the oracle checks and times
+/// nothing. It prints no `field-maps panel` line: `gf1-normal8` is not a
+/// measured pair in the publisher grammar, so a bare panel line would
+/// fail closed on full runs.
 fn run_emb_pair_bits_validate_only<
     S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
     T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
@@ -2123,7 +2125,6 @@ fn run_emb_pair_bits_validate_only<
     let map = Embedding::<S, T>::new()
         .unwrap_or_else(|error| panic!("field-maps {pair}: construction failed: {error:?}"));
     validate_embedding(pair, &map);
-    println!("field-maps panel: {pair} (embedding)");
     let prepared = PreparedEmbedding::<S, T>::new(&map);
     for &count in region_counts() {
         let pack_len = fgf::bits::bytes_for(count);

@@ -343,7 +343,7 @@ fn mask_between(lo: usize, hi: usize) -> u64 {
     feature = "simd",
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
-mod dispatch;
+pub(crate) mod dispatch;
 
 /// The per-lane predicate one bit-packed interop row applies.
 #[cfg(feature = "alloc")]

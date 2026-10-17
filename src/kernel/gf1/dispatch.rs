@@ -8,11 +8,10 @@
 //!
 //! Tier floors are measured, not reasoned: a row shorter than the tier's
 //! vector unit pays setup without vector work and loses to the portable
-//! body (i7-12700K pinned core, 2026-10-17: at 8 lanes of 2 bytes SSE4.2
-//! beat the portable body 6.6 ns to 18.8 ns while AVX2 lost at 22.9 ns;
-//! from one full unit up every tier wins). Each arm therefore requires one
-//! full vector unit of row coverage: 16 bytes at `V2`, 32 at `V3` and
-//! `V3GfniCrypto`, 64 at `V4x`.
+//! body; from one full unit up every tier wins. Each arm therefore requires
+//! one full vector unit of row coverage: 16 bytes at `V2`, 32 at `V3` and
+//! `V3GfniCrypto`, 64 at `V4x`. The floor benchmark record lives in the
+//! `maps/04-bits-interop` PR body.
 
 use super::super::{X86Proof, x86, x86_proof};
 
@@ -25,6 +24,23 @@ pub(crate) fn expand(dst: &mut [u8], one_w: u64, src: &[u8], bits: usize, bytes:
             if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 64 =>
         {
             x86::gf1::expand_avx512(token, dst, one_w, src, bits, bytes);
+            true
+        }
+        // A short V4x row falls through to the narrower vector tiers
+        // instead of the portable body: 16-63 byte rows still cover a
+        // full SSE4.2 or AVX2 unit.
+        #[cfg(feature = "simd512")]
+        X86Proof::V4x(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 32 =>
+        {
+            x86::gf1::expand_avx2(token.v3(), dst, one_w, src, bits, bytes);
+            true
+        }
+        #[cfg(feature = "simd512")]
+        X86Proof::V4x(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 16 =>
+        {
+            x86::gf1::expand_sse42(token.v3().v2(), dst, one_w, src, bits, bytes);
             true
         }
         X86Proof::V3GfniCrypto(token)
@@ -66,6 +82,20 @@ pub(crate) fn compress(
             x86::gf1::compress_avx512(token, dst, src, bits, bytes, test);
             true
         }
+        #[cfg(feature = "simd512")]
+        X86Proof::V4x(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 32 =>
+        {
+            x86::gf1::compress_avx2(token.v3(), dst, src, bits, bytes, test);
+            true
+        }
+        #[cfg(feature = "simd512")]
+        X86Proof::V4x(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 16 =>
+        {
+            x86::gf1::compress_sse42(token.v3().v2(), dst, src, bits, bytes, test);
+            true
+        }
         X86Proof::V3GfniCrypto(token)
             if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 32 =>
         {
@@ -105,6 +135,20 @@ pub(crate) fn restrict(
             if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 64 =>
         {
             x86::gf1::restrict_avx512(token, dst, valid, one_w, src, bits, bytes);
+            true
+        }
+        #[cfg(feature = "simd512")]
+        X86Proof::V4x(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 32 =>
+        {
+            x86::gf1::restrict_avx2(token.v3(), dst, valid, one_w, src, bits, bytes);
+            true
+        }
+        #[cfg(feature = "simd512")]
+        X86Proof::V4x(token)
+            if matches!(bytes, 1 | 2 | 4 | 8) && bits.saturating_mul(bytes) >= 16 =>
+        {
+            x86::gf1::restrict_sse42(token.v3().v2(), dst, valid, one_w, src, bits, bytes);
             true
         }
         X86Proof::V3GfniCrypto(token)

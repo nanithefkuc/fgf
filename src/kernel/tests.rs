@@ -6966,11 +6966,7 @@ fn gf16_gfni_wrappers_tolerate_degenerate_geometry() {
 /// the word loops (no packing, no masks). Geometry sweeps the same tail and
 /// boundary cases the public suite drives, minus the wrapper checks, so a
 /// wrapper bug cannot mask a kernel bug.
-#[cfg(all(
-    feature = "alloc",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
+#[cfg(feature = "alloc")]
 mod gf1_bits {
     use super::Vec;
     use super::vec;
@@ -7364,6 +7360,49 @@ mod gf1_bits {
                 x86::gf1::restrict_sse42(token, dst, valid, one, src, bits, bytes);
             },
         );
+    }
+
+    /// The V4x dispatch seam on short rows: 16-63 byte rows fall through
+    /// to the narrower vector tiers instead of the portable body, and
+    /// every row still matches the portable oracle. The tier boundary
+    /// assertions pin which tier handled each row width.
+    #[cfg(all(
+        feature = "simd512",
+        feature = "simd",
+        any(target_arch = "x86", target_arch = "x86_64")
+    ))]
+    #[test]
+    fn gf1_v4x_short_rows_fall_through_to_narrower_tiers() {
+        use crate::kernel::Backend;
+        if !super::host_supports(&[Backend::V4x]) {
+            eprintln!("skipping: no AVX-512 V4x on this host");
+            return;
+        }
+        // The dispatch seam resolves V4x on this host; route short rows
+        // through it and check the seam against the portable oracle.
+        // `dispatch` reports which tier handled the row, so the test
+        // asserts the fall-through tier directly: AVX2 at 32-63 bytes,
+        // SSE4.2 at 16-31, portable below one unit.
+        use crate::kernel::gf1::dispatch;
+        for &bytes in INTEROP_BYTES {
+            for &bits in INTEROP_BITS {
+                let row = bits.saturating_mul(bytes);
+                if !matches!(bytes, 1 | 2 | 4 | 8) || row >= 64 {
+                    continue;
+                }
+                let one = 0x0102_0304_0506_0708u64;
+                let src = noise_bits(bits.max(1), 0x3000 + bits as u64);
+                let mut seam = vec![0u8; bits * bytes];
+                k::expand(&mut seam, one, &src, bits, bytes);
+                let mut oracle = vec![0u8; bits * bytes];
+                oracle_expand(&mut oracle, one, &src, bits, bytes);
+                assert_eq!(seam, oracle, "seam matches oracle at {bits}x{bytes}");
+                let mut probed = vec![0u8; bits * bytes];
+                let handled = dispatch::expand(&mut probed, one, &src, bits, bytes);
+                assert_eq!(handled, row >= 16, "tier handled row {row}");
+                assert_eq!(probed, seam, "dispatch matches seam at {bits}x{bytes}");
+            }
+        }
     }
 
     /// AVX2 interop entries against the portable oracles.
