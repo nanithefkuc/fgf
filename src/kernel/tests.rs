@@ -6966,7 +6966,11 @@ fn gf16_gfni_wrappers_tolerate_degenerate_geometry() {
 /// the word loops (no packing, no masks). Geometry sweeps the same tail and
 /// boundary cases the public suite drives, minus the wrapper checks, so a
 /// wrapper bug cannot mask a kernel bug.
-#[cfg(all(feature = "alloc", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(
+    feature = "alloc",
+    feature = "simd",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
 mod gf1_bits {
     use super::Vec;
     use super::vec;
