@@ -365,3 +365,79 @@ fn quad_mersenne31_identity_predicates_follow_the_limbs() {
     assert_eq!(unit.canonical(), unit);
     assert_eq!(zero.canonical(), zero);
 }
+#[test]
+fn quad_scalar_operations_accept_raw_aliases() {
+    const MODULUS: u32 = 0x7FFF_FFFF;
+    const RAW: [u32; 6] = [0, 1, MODULUS - 1, MODULUS, 2 * MODULUS - 2, u32::MAX];
+    let wide = u64::from(MODULUS);
+    let canon = |v: u32| u64::from(v) % wide;
+    let word = |v: u64| u32::try_from(v).unwrap();
+    let cmul = |(ar, ai): (u64, u64), (br, bi): (u64, u64)| -> (u64, u64) {
+        (
+            (ar * br + wide * wide - ai * bi % wide) % wide,
+            (ar * bi + ai * br) % wide,
+        )
+    };
+    for &a0 in &RAW {
+        for &a1 in &RAW {
+            let (ar, ai) = (canon(a0), canon(a1));
+            for &b0 in &RAW {
+                for &b1 in &RAW {
+                    let (br, bi) = (canon(b0), canon(b1));
+                    let a = Elem::<QuadMersenne31>::from_raw([a0, a1]);
+                    let b = Elem::<QuadMersenne31>::from_raw([b0, b1]);
+                    assert_eq!(
+                        a.add(b).to_raw(),
+                        [word((ar + br) % wide), word((ai + bi) % wide)],
+                        "add [{a0:#x},{a1:#x}] [{b0:#x},{b1:#x}]"
+                    );
+                    assert_eq!(
+                        a.sub(b).to_raw(),
+                        [word((ar + wide - br) % wide), word((ai + wide - bi) % wide)],
+                        "sub [{a0:#x},{a1:#x}] [{b0:#x},{b1:#x}]"
+                    );
+                    let (re, im) = cmul((ar, ai), (br, bi));
+                    assert_eq!(
+                        a.mul(b).to_raw(),
+                        [word(re), word(im)],
+                        "mul [{a0:#x},{a1:#x}] [{b0:#x},{b1:#x}]"
+                    );
+                }
+            }
+            let a = Elem::<QuadMersenne31>::from_raw([a0, a1]);
+            assert_eq!(
+                a.neg().to_raw(),
+                [word((wide - ar) % wide), word((wide - ai) % wide),],
+                "neg [{a0:#x},{a1:#x}]"
+            );
+            let (re, im) = cmul((ar, ai), (ar, ai));
+            assert_eq!(
+                a.square().to_raw(),
+                [word(re), word(im)],
+                "square [{a0:#x},{a1:#x}]"
+            );
+            let norm = (ar * ar + ai * ai) % wide;
+            assert_eq!(a.norm().to_raw(), word(norm), "norm [{a0:#x},{a1:#x}]");
+            // Inverse through the field law, not the Fermat spelling:
+            // nonzero elements multiply with their inverse to one.
+            if ar == 0 && ai == 0 {
+                assert_eq!(
+                    a.inv(),
+                    Elem::<QuadMersenne31>::ZERO,
+                    "inv zero [{a0:#x},{a1:#x}]"
+                );
+            } else {
+                assert_eq!(
+                    a.mul(a.inv()),
+                    Elem::<QuadMersenne31>::ONE,
+                    "inv [{a0:#x},{a1:#x}]"
+                );
+            }
+            assert_eq!(
+                a.conjugate().to_raw(),
+                [word(ar), word((wide - ai) % wide)],
+                "conjugate [{a0:#x},{a1:#x}]"
+            );
+        }
+    }
+}
