@@ -7375,8 +7375,8 @@ mod gf1_bits {
     fn gf1_v4x_short_rows_fall_through_to_narrower_tiers() {
         use crate::kernel::Backend;
         use crate::kernel::gf1::dispatch;
-        if !super::host_supports(&[Backend::V4x]) {
-            eprintln!("skipping: no AVX-512 V4x on this host");
+        if crate::kernel::backend() != Backend::V4x {
+            eprintln!("skipping: process backend is not V4x (downgrade-only request)");
             return;
         }
         // The dispatch seam resolves V4x on this host; route short rows
