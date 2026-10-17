@@ -44,6 +44,7 @@
 //! assert_eq!(embedding.frobenius(lifted), lifted);
 //! ```
 
+#[cfg(feature = "alloc")]
 mod frobenius;
 mod ladder;
 #[cfg(feature = "alloc")]
@@ -1229,6 +1230,10 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     }
 
     /// The relative Frobenius `x^|S|` of the extension.
+    ///
+    /// This pow-based spelling is the reference behaviour the prepared
+    /// maps must match: `Frobenius`, `PreparedEmbedding`, and
+    /// `PreparedIsomorphism` agree with it element by element.
     #[must_use]
     pub fn frobenius(&self, value: Elem<T>) -> Elem<T> {
         value.pow(S::ORDER)

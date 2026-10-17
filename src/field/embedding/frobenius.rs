@@ -1,26 +1,24 @@
-//! The absolute Frobenius map of one field, in closed form or compiled.
+//! The prepared Frobenius map of one field: identity, Vieta conjugation
+//! over a quadratic relation root, or compiled prime-coordinate columns.
 //!
-//! The closed-form arms — identity and Vieta conjugation over a quadratic
-//! relation root — run through the crate-private descriptor interpreter,
-//! so they need no allocation. `Frobenius<F>` additionally compiles the
-//! general arm's prime-coordinate columns once, so repeated application
-//! never re-evaluates powers on basis vectors. Map evaluation is
-//! variable-time and unsuitable for secret data.
+//! `Frobenius<F>` compiles the arm of `x |-> x^(p^k)` once, so repeated
+//! application never re-evaluates exponentiation. The column arms evaluate
+//! the scalar power on the prime-coordinate basis vectors at construction;
+//! application only folds the stored columns. The scalar spelling of the
+//! map is `Elem::pow`; the compact [`Embedding::frobenius`](super::Embedding::frobenius)
+//! stays pow-based as the reference behaviour these prepared arms must
+//! match. Map evaluation is variable-time and unsuitable for secret data.
+//!
+//! Requires `alloc`: the column arms own their entries, so this module is
+//! alloc-only.
 
-#[cfg(feature = "alloc")]
 use alloc::boxed::Box;
-#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
-// Reached through the alloc-gated engine; ungated so compact-tier
-// routing needs no feature change.
-#[cfg_attr(not(feature = "alloc"), allow(dead_code))]
 use super::super::extension::arithmetic;
 use super::super::extension::descriptor::{COORDINATES, Node};
-#[cfg_attr(not(feature = "alloc"), allow(unused_imports))]
 use super::super::private::RowAccess;
 use super::super::{Elem, Field};
-#[cfg(feature = "alloc")]
 use super::super::{FieldElem, PrimeIdentity, ResidueRow, Validate};
 
 /// The closed-form conjugation coefficient of a quadratic relation root.
@@ -29,9 +27,6 @@ use super::super::{FieldElem, PrimeIdentity, ResidueRow, Validate};
 /// one in characteristic two, or needs its stored value. The general case
 /// carries no payload: application re-reads the coefficient from the
 /// field descriptor, which already stores it.
-// Reached through the alloc-gated engine; ungated so compact-tier
-// routing needs no feature change.
-#[cfg_attr(not(feature = "alloc"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConjugationCoefficient {
     /// Odd characteristic with a vanishing linear coefficient.
@@ -42,30 +37,10 @@ enum ConjugationCoefficient {
     General,
 }
 
-/// A closed-form Frobenius arm.
-///
-/// Identity at a multiple of the field degree, or Vieta conjugation over
-/// a quadratic relation root. Both run through the descriptor
-/// interpreter, so they need no allocation.
-// Reached through the alloc-gated engine; ungated so compact-tier
-// routing needs no feature change.
-#[cfg_attr(not(feature = "alloc"), allow(dead_code))]
-#[derive(Clone, Copy, Debug)]
-enum ClosedArm {
-    /// The identity arm, at a multiple of the field degree.
-    Identity,
-    /// Closed-form Vieta conjugation over a quadratic relation root.
-    Conjugation {
-        base_degree: u8,
-        coefficient: ConjugationCoefficient,
-    },
-}
-
 /// A compiled Frobenius arm.
 ///
-/// The closed-form arms dispatch through [`ClosedArm`]; the column arms
-/// own their entries behind `alloc`.
-#[cfg(feature = "alloc")]
+/// Identity and Vieta conjugation run through the crate-private descriptor
+/// interpreter; the column arms own their entries.
 #[derive(Clone, Debug)]
 enum CompiledMap<F: Field> {
     /// The identity arm, at a multiple of the field degree.
@@ -89,18 +64,18 @@ enum CompiledMap<F: Field> {
     },
 }
 
-/// The prepared Frobenius automorphism of one field.
+/// Compiled from structure and checked against the scalar path:
+/// construction evaluates the scalar power on the prime-coordinate basis
+/// vectors, and every arm agrees with `Elem::pow` element by element.
 ///
 /// Holds the compiled arm of `x |-> x^(p^k)` with `k` normalized to the
 /// field degree, so application never re-evaluates exponentiation.
 /// Requires `alloc`: the column arms own their entries.
-#[cfg(feature = "alloc")]
 pub struct Frobenius<F: Field> {
     power: u32,
     map: CompiledMap<F>,
 }
 
-#[cfg(feature = "alloc")]
 impl<F: Field> Frobenius<F> {
     /// Prepare the Frobenius map `x |-> x^(p^k)`.
     ///
@@ -129,13 +104,10 @@ impl<F: Field> Frobenius<F> {
 /// The closed-form arm of the `k`th Frobenius power of `F`, when one
 /// applies: identity at a vanishing power, Vieta conjugation at a
 /// quadratic relation root whose base is fixed pointwise with the
-/// indeterminate moved.
-// Reached through the alloc-gated engine; ungated so compact-tier
-// routing needs no feature change.
-#[cfg_attr(not(feature = "alloc"), allow(dead_code))]
-fn closed_form<F: Field>(power: u32) -> Option<ClosedArm> {
+/// indeterminate moved. The column compiler covers every other root shape.
+fn closed_form<F: Field>(power: u32) -> Option<CompiledMap<F>> {
     if power == 0 {
-        return Some(ClosedArm::Identity);
+        return Some(CompiledMap::Identity);
     }
     let (base_degree, coefficient) = conjugation::<F>()?;
     let base = u32::from(base_degree);
@@ -146,9 +118,9 @@ fn closed_form<F: Field>(power: u32) -> Option<ClosedArm> {
     // pointwise; an odd multiple moves the indeterminate once, an even
     // multiple returns it.
     if (power / base).is_multiple_of(2) {
-        return Some(ClosedArm::Identity);
+        return Some(CompiledMap::Identity);
     }
-    Some(ClosedArm::Conjugation {
+    Some(CompiledMap::Conjugation {
         base_degree,
         coefficient,
     })
@@ -158,19 +130,8 @@ fn closed_form<F: Field>(power: u32) -> Option<ClosedArm> {
 ///
 /// The closed-form arms come first; compiled prime-coordinate columns
 /// cover every other root shape.
-#[cfg(feature = "alloc")]
 fn compile<F: Field>(power: u32) -> CompiledMap<F> {
-    match closed_form::<F>(power) {
-        Some(ClosedArm::Identity) => CompiledMap::Identity,
-        Some(ClosedArm::Conjugation {
-            base_degree,
-            coefficient,
-        }) => CompiledMap::Conjugation {
-            base_degree,
-            coefficient,
-        },
-        None => compile_columns::<F>(power),
-    }
+    closed_form::<F>(power).unwrap_or_else(|| compile_columns::<F>(power))
 }
 
 /// The Vieta data of a quadratic relation root, when the field has one.
@@ -179,9 +140,6 @@ fn compile<F: Field>(power: u32) -> CompiledMap<F> {
 /// vanishing, unit, or general. Any other root shape — prime leaves,
 /// flat polynomial leaves, basis leaves, wider relations — reports none
 /// and compiles to columns.
-// Reached through the alloc-gated engine; ungated so compact-tier
-// routing needs no feature change.
-#[cfg_attr(not(feature = "alloc"), allow(dead_code))]
 fn conjugation<F: Field>() -> Option<(u8, ConjugationCoefficient)> {
     let descriptor = F::DESCRIPTOR;
     let root = descriptor.root_index();
@@ -201,7 +159,7 @@ fn conjugation<F: Field>() -> Option<(u8, ConjugationCoefficient)> {
     let base_degree = *base_degree as u8;
     let characteristic = arithmetic::characteristic_of(descriptor, root);
     if characteristic == 2 {
-        if coefficients[1] == 1 {
+        if coefficients[1] == arithmetic::word_one(descriptor, *base) {
             return Some((base_degree, ConjugationCoefficient::One));
         }
         return Some((base_degree, ConjugationCoefficient::General));
@@ -222,7 +180,6 @@ fn conjugation<F: Field>() -> Option<(u8, ConjugationCoefficient)> {
 ///
 /// The normalized power stays below the degree, so the product stays
 /// below the field order, which fits `u128` by validation.
-#[cfg(feature = "alloc")]
 fn pow_exp(characteristic: u64, power: u32) -> u128 {
     let mut exponent = 1u128;
     let mut k = 0;
@@ -233,9 +190,12 @@ fn pow_exp(characteristic: u64, power: u32) -> u128 {
     exponent
 }
 
-/// The `j`th prime-coordinate basis vector of `F`.
-#[cfg(feature = "alloc")]
-fn basis_vector<F: Field>(j: usize) -> Elem<F> {
+/// The `j`th prime-coordinate basis vector of `F`: coordinate `j` set to
+/// the prime one, every other coordinate zero.
+///
+/// Shared with the prepared embeddings and isomorphisms, which compile
+/// their columns over the same basis.
+pub(super) fn basis_vector<F: Field>(j: usize) -> Elem<F> {
     let degree = F::DEGREE as usize;
     let mut coordinates = [0u64; COORDINATES];
     coordinates[j] = 1;
@@ -243,7 +203,6 @@ fn basis_vector<F: Field>(j: usize) -> Elem<F> {
 }
 
 /// Apply one compiled arm to an element.
-#[cfg(feature = "alloc")]
 fn apply_map<F: Field>(map: &CompiledMap<F>, value: Elem<F>) -> Elem<F> {
     match map {
         CompiledMap::Identity => value,
@@ -258,9 +217,6 @@ fn apply_map<F: Field>(map: &CompiledMap<F>, value: Elem<F>) -> Elem<F> {
 
 /// The stored linear coefficient of a quadratic relation root, as a base
 /// element in interpreter form.
-// Reached through the alloc-gated engine; ungated so compact-tier
-// routing needs no feature change.
-#[cfg_attr(not(feature = "alloc"), allow(dead_code))]
 fn linear_coefficient<F: Field>() -> arithmetic::Element {
     let descriptor = F::DESCRIPTOR;
     let root = descriptor.root_index();
@@ -295,9 +251,6 @@ fn linear_coefficient<F: Field>() -> arithmetic::Element {
 /// characteristic two, and a stored-coefficient multiply otherwise.
 /// Reproduces the quadratic Mersenne conjugation and every
 /// characteristic-two tower step.
-// Reached through the alloc-gated engine; ungated so compact-tier
-// routing needs no feature change.
-#[cfg_attr(not(feature = "alloc"), allow(dead_code))]
 fn apply_conjugation<F: Field>(
     value: Elem<F>,
     base_degree: u8,
@@ -374,7 +327,6 @@ fn apply_conjugation<F: Field>(
 /// Each column evaluates the existing scalar power on one
 /// prime-coordinate basis vector, so exponentiation runs once per column
 /// at construction and never at application.
-#[cfg(feature = "alloc")]
 fn compile_columns<F: Field>(power: u32) -> CompiledMap<F> {
     let characteristic = <F::Characteristic as PrimeIdentity>::CHARACTERISTIC;
     let exponent = pow_exp(characteristic, power);
@@ -414,9 +366,53 @@ fn compile_columns<F: Field>(power: u32) -> CompiledMap<F> {
     }
 }
 
+/// The shared binary column fold: the image is the XOR of the entries
+/// selected by the set bits of the input coordinate word.
+///
+/// Used by every binary column application — Frobenius, forward and
+/// inverse maps, and the trace — so the hot loop compiles once.
+#[inline]
+pub(super) fn fold_binary_columns(entries: &[u64], mut word: u64) -> u64 {
+    let mut image = 0u64;
+    let mut j = 0;
+    while word != 0 {
+        if word & 1 == 1 {
+            image ^= entries[j];
+        }
+        word >>= 1;
+        j += 1;
+    }
+    image
+}
+
+/// The shared residue column accumulation: each image coordinate
+/// accumulates the input coordinates against the stored prime-row
+/// entries, through the prime row's own arithmetic.
+///
+/// Entries hold one row of `width` per input coordinate. Used by every
+/// residue column application — Frobenius, forward and inverse maps, and
+/// the trace — so the hot loop compiles once.
+#[inline]
+pub(super) fn accumulate_residue_columns<T: Field>(
+    entries: &[Elem<ResidueRow<T>>],
+    coordinates: &[u64],
+    width: usize,
+    image: &mut [Elem<ResidueRow<T>>; COORDINATES],
+) {
+    for (j, coordinate) in coordinates.iter().enumerate() {
+        if *coordinate == 0 {
+            continue;
+        }
+        let factor = Elem::<ResidueRow<T>>::from_residue(*coordinate)
+            .expect("input coordinate below the characteristic");
+        for (o, slot) in image[..width].iter_mut().enumerate() {
+            *slot += entries[j * width + o] * factor;
+        }
+    }
+}
+
 /// Apply binary columns: the image is the XOR of the columns selected by
 /// the set bits of the input coordinate word.
-#[cfg(feature = "alloc")]
 fn apply_binary<F: Field>(map: &CompiledMap<F>, value: Elem<F>) -> Elem<F> {
     let CompiledMap::BinaryColumns {
         inputs,
@@ -429,16 +425,7 @@ fn apply_binary<F: Field>(map: &CompiledMap<F>, value: Elem<F>) -> Elem<F> {
     };
     debug_assert!(usize::from(*inputs) == entries.len(), "column count");
     debug_assert!(usize::from(*outputs) == F::DEGREE as usize, "row count");
-    let mut word = F::coordinate_word(value.raw);
-    let mut image = 0u64;
-    let mut j = 0;
-    while word != 0 {
-        if word & 1 == 1 {
-            image ^= entries[j];
-        }
-        word >>= 1;
-        j += 1;
-    }
+    let image = fold_binary_columns(entries, F::coordinate_word(value.raw));
     Elem {
         raw: F::from_coordinate_word(image),
     }
@@ -447,7 +434,6 @@ fn apply_binary<F: Field>(map: &CompiledMap<F>, value: Elem<F>) -> Elem<F> {
 /// Apply residue columns: each image coordinate accumulates the input
 /// coordinates against the stored prime-row entries, through the prime
 /// row's own arithmetic.
-#[cfg(feature = "alloc")]
 fn apply_residue<F: Field>(map: &CompiledMap<F>, value: Elem<F>) -> Elem<F> {
     let CompiledMap::ResidueColumns {
         inputs,
@@ -464,16 +450,7 @@ fn apply_residue<F: Field>(map: &CompiledMap<F>, value: Elem<F>) -> Elem<F> {
     let mut coordinates = [0u64; COORDINATES];
     F::prime_coordinates_into(&mut coordinates[..degree], value.raw);
     let mut image = [Elem::<ResidueRow<F>>::ZERO; COORDINATES];
-    for (j, coordinate) in coordinates[..degree].iter().enumerate() {
-        if *coordinate == 0 {
-            continue;
-        }
-        let factor = Elem::<ResidueRow<F>>::from_residue(*coordinate)
-            .expect("input coordinate below the characteristic");
-        for (o, slot) in image[..degree].iter_mut().enumerate() {
-            *slot += entries[j * degree + o] * factor;
-        }
-    }
+    accumulate_residue_columns::<F>(entries, &coordinates[..degree], degree, &mut image);
     let mut residues = [0u64; COORDINATES];
     for (o, slot) in image[..degree].iter().enumerate() {
         residues[o] = slot
@@ -486,9 +463,6 @@ fn apply_residue<F: Field>(map: &CompiledMap<F>, value: Elem<F>) -> Elem<F> {
 }
 
 /// A mask of `bits` set low bits, without shifting by the word width.
-// Reached through the alloc-gated engine; ungated so compact-tier
-// routing needs no feature change.
-#[cfg_attr(not(feature = "alloc"), allow(dead_code))]
 const fn mask_of(bits: u32) -> u64 {
     if bits >= 64 {
         u64::MAX
@@ -497,7 +471,6 @@ const fn mask_of(bits: u32) -> u64 {
     }
 }
 
-#[cfg(feature = "alloc")]
 impl<F: Field> Elem<F> {
     /// Apply a prepared Frobenius map: the image of `self` under
     /// `x |-> x^(p^k)` for the power the map was prepared with.
@@ -613,7 +586,7 @@ mod tests {
                 for &b in powers {
                     let first = Frobenius::<F>::new(a);
                     let second = Frobenius::<F>::new(b);
-                    let composed = Frobenius::<F>::new(a.wrapping_add(b));
+                    let composed = Frobenius::<F>::new(((a as u64 + b as u64) % u64::from(degree)) as u32);
                     assert_eq!(
                         value.frobenius_with(&first).frobenius_with(&second),
                         value.frobenius_with(&composed)
@@ -689,6 +662,37 @@ mod tests {
             &[0, 1, 15, 16, 17, u32::MAX],
         );
         check_exhaustive::<FiniteField<2, 2, Extension<OverRes2Spec, 2>>>(&[0, 1, 2, 3, u32::MAX]);
+    }
+
+    /// A quadratic extension of the normal-basis GF(4): the base's word
+    /// one is raw 3, so a raw-word comparison against 1 misfires here.
+    struct OverNormal4Spec;
+    impl ExtensionSpec<2> for OverNormal4Spec {
+        type Base = FiniteField<2, 2, Normal<7, 2>>;
+        type Storage = Components;
+        const NAME: &'static str = "GF(16) over normal-basis GF(4)";
+        const RELATION: Relation =
+            Relation::from_binary_words::<FiniteField<2, 2, Normal<7, 2>>>(&[1, 1]);
+    }
+
+    #[test]
+    fn normal_basis_quadratic_matches_scalar_powers() {
+        type E = FiniteField<2, 4, Extension<OverNormal4Spec, 2>>;
+        type N = FiniteField<2, 2, Normal<7, 2>>;
+        // The base word one is raw 3, not raw 1: the conjugation arm must
+        // compare against the base identity, not the raw word.
+        assert_eq!(
+            super::super::super::Elem::<N>::ONE.to_raw(),
+            3,
+            "this regression needs raw 1 below the base one"
+        );
+        // The reported case: the order-two prepared map against `x^4`.
+        let reported = super::super::super::Elem::<E>::from_raw([0, 3]);
+        assert_eq!(
+            reported.frobenius_with(&Frobenius::<E>::new(2)),
+            reported.pow(4)
+        );
+        check_exhaustive::<E>(&[0, 1, 2, 3, 4, u32::MAX]);
     }
 
     #[test]
