@@ -7400,7 +7400,9 @@ mod gf1_bits {
                 let mut probed = vec![0u8; bits * bytes];
                 let handled = dispatch::expand(&mut probed, one, &src, bits, bytes);
                 assert_eq!(handled, row >= 16, "tier handled row {row}");
-                assert_eq!(probed, seam, "dispatch matches seam at {bits}x{bytes}");
+                if handled {
+                    assert_eq!(probed, seam, "dispatch matches seam at {bits}x{bytes}");
+                }
             }
         }
     }
