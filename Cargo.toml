@@ -113,6 +113,12 @@ name = "peel_probe"
 # The prepared CoeffVec gather form needs the allocation feature.
 required-features = ["std", "alloc"]
 
+[[example]]
+name = "gf1_floors"
+# The floor probe times the prepared interop entry points, which need
+# the allocation feature; `std` covers the process clock.
+required-features = ["std", "alloc"]
+
 [[test]]
 name = "internals"
 required-features = ["std", "simd", "internals"]

@@ -7374,6 +7374,7 @@ mod gf1_bits {
     #[test]
     fn gf1_v4x_short_rows_fall_through_to_narrower_tiers() {
         use crate::kernel::Backend;
+        use crate::kernel::gf1::dispatch;
         if !super::host_supports(&[Backend::V4x]) {
             eprintln!("skipping: no AVX-512 V4x on this host");
             return;
@@ -7383,7 +7384,6 @@ mod gf1_bits {
         // `dispatch` reports which tier handled the row, so the test
         // asserts the fall-through tier directly: AVX2 at 32-63 bytes,
         // SSE4.2 at 16-31, portable below one unit.
-        use crate::kernel::gf1::dispatch;
         for &bytes in INTEROP_BYTES {
             for &bits in INTEROP_BITS {
                 let row = bits.saturating_mul(bytes);

@@ -76,12 +76,12 @@ fn main() {
         let mut samples = Vec::with_capacity(ROUNDS);
         for _ in 0..ROUNDS {
             samples.push(round_ns(calls, || {
-                black_box(ops::map_bits::embed_into_with(
+                ops::map_bits::embed_into_with(
                     black_box(&mut dst),
                     &prepared,
                     black_box(&src),
                     black_box(bits),
-                ));
+                );
             }));
         }
         samples.sort_by(f64::total_cmp);
@@ -90,12 +90,12 @@ fn main() {
         let mut samples = Vec::with_capacity(ROUNDS);
         for _ in 0..ROUNDS {
             samples.push(round_ns(calls, || {
-                black_box(ops::map_bits::trace_into_with(
+                ops::map_bits::trace_into_with(
                     black_box(&mut packed),
                     &prepared,
                     black_box(&lane_bytes),
                     black_box(bits),
-                ));
+                );
             }));
         }
         samples.sort_by(f64::total_cmp);
@@ -105,13 +105,13 @@ fn main() {
         let mut samples = Vec::with_capacity(ROUNDS);
         for _ in 0..ROUNDS {
             samples.push(round_ns(calls, || {
-                black_box(ops::map_bits::restrict_into_with(
+                ops::map_bits::restrict_into_with(
                     black_box(&mut dst),
                     black_box(&mut valid),
                     &prepared,
                     black_box(&lane_bytes),
                     black_box(bits),
-                ));
+                );
             }));
         }
         samples.sort_by(f64::total_cmp);
