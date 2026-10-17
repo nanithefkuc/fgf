@@ -192,10 +192,12 @@ MAP_BITS_PAIRS = frozenset({"gf1-gf64", "gf1-aes8", "gf1-gf16", "gf1-gf32"})
 MAP_BITS_ONLY = frozenset({"gf1-aes8", "gf1-gf16", "gf1-gf32"})
 # Byte-form inclusion pairs each carry a `control pow {pair}` arithmetic
 # control beside their own frobenius panels. Isomorphism pairs, scalar-only
-# pairs, and the standalone qm31 controls carry none.
+# pairs, bits-only pairs (whose producers emit no lane rows and no pow
+# controls), and the standalone qm31 controls carry none.
 MAP_POW_PAIRS = frozenset(
     pair for pair in MAP_PAIRS
-    if pair not in MAP_ISO_PAIRS and pair not in MAP_SCALAR_ONLY)
+    if pair not in MAP_ISO_PAIRS and pair not in MAP_SCALAR_ONLY
+    and pair not in MAP_BITS_ONLY)
 # Packed-bit interop rows over the GF(2) bit-packed representation, measured
 # only on the `gf1-*` pairs. Kept out of the lane `MAP_EMBED_OPS` Cartesian
 # product so completeness never demands them for odd-characteristic pairs.
@@ -2478,7 +2480,7 @@ class Campaign:
                         "restrict-mixed-prepared",
                     ):
                         expected.add((pair, op, "scalar-chain"))
-                    if pair in MAP_SCALAR_ONLY and pair not in MAP_BITS_PAIRS:
+                    if pair in MAP_SCALAR_ONLY:
                         continue
                     for count in MAP_ROW_COUNTS:
                         expected.add((pair, op, f"row-{count}"))

@@ -497,3 +497,18 @@ bench-prepare-v2 DESTINATION:
 [group('bench')]
 bench-publish RECORDS OUTPUT *ARGS:
     python3 benches/publish.py --records "{{RECORDS}}" --output "{{OUTPUT}}" {{ARGS}}
+
+# Publisher regression: feed real `field_maps` producer output through the
+# maps grammar (per-record checks plus the completeness inventory), so a
+# grammar change that wrongly requires lane-region or pow-control rows for
+# scalar-only or bits-only pairs fails here instead of in a campaign.
+# Builds the bench, captures its `--list-labels` inventory (label grammar
+# only, no timing), and validates the full producer inventory.
+[group('bench')]
+bench-maps-publisher:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build --release --bench field_maps
+    bin=$(ls -t target/release/deps/field_maps-* | grep -v '\.d$' | head -n 1)
+    "$bin" --list-labels > "$bin-maps-inventory.txt"
+    python3 benches/test_maps_publisher.py "$bin-maps-inventory.txt"
