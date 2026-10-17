@@ -1619,6 +1619,11 @@ def build_maps(parser, kind, raw, label, nbytes, ns):
             parser.error(f"field-maps construct uses shape once or row-16384: {raw!r}")
         if pair in MAP_SCALAR_ONLY and shape != "once":
             parser.error(f"pair {pair!r} has no byte form: scalar panels only: {raw!r}")
+    elif op == "frobenius-prepared" and shape == "once":
+        # Frobenius preparation is embedding-pair-only: iso pairs have no
+        # relative map to prepare.
+        if pair in MAP_ISO_PAIRS:
+            parser.error(f"operation {op!r} is not measured for pair {pair!r}: {raw!r}")
     elif op not in allowed:
         parser.error(f"operation {op!r} is not measured for pair {pair!r}: {raw!r}")
     elif shape == "once":
@@ -2325,11 +2330,21 @@ class Campaign:
         expected = set()
         for pair in MAP_PAIRS:
             ops = MAP_ISO_OPS if pair in MAP_ISO_PAIRS else MAP_EMBED_OPS
-            for op in (*sorted(ops), "construct"):
+            constructors = (
+                ["construct", "frobenius-prepared-once"]
+                if pair not in MAP_ISO_PAIRS
+                else ["construct"]
+            )
+            for op in (*sorted(ops), *constructors):
                 if op == "construct":
                     expected.add((pair, op, "once"))
                     if pair not in MAP_SCALAR_ONLY:
                         expected.add((pair, op, "row-16384"))
+                elif op == "frobenius-prepared-once":
+                    # The Frobenius construction panel emits
+                    # `frobenius-prepared/once` on inclusion pairs only.
+                    if pair not in MAP_ISO_PAIRS:
+                        expected.add((pair, "frobenius-prepared", "once"))
                 else:
                     # restrict-mixed mirrors the other restriction ops: region
                     # rows for byte-form pairs, chains only for scalar-only pairs.
