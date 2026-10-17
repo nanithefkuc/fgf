@@ -13,7 +13,6 @@ use super::{check_pair, check_width};
 #[cfg(feature = "alloc")]
 use crate::Frobenius;
 #[cfg(feature = "alloc")]
-#[cfg(feature = "alloc")]
 use crate::bits;
 #[cfg(feature = "alloc")]
 use crate::field::{Elem, FieldBuffer};

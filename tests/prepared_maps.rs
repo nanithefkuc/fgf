@@ -551,6 +551,51 @@ impl ExtensionSpec<2> for Normal16Spec {
 }
 type Normal16 = FiniteField<2, 16, Extension<Normal16Spec, 2>>;
 
+// A quadratic extension of the normal-basis GF(4): the base word one is
+// raw 3, so raw 1 is not field one anywhere on this tower. `t^2 + u*t + b`
+// with `u` the base one (raw 3) and `b` the base element of raw 2 (trace
+// one over GF(2)) is irreducible by the Artin-Schreier criterion, the
+// same shape as the `G16Ext` tower above with the linear coefficient
+// spelled in the base's own words.
+type Normal4 = FiniteField<2, 2, Normal<7, 2>>;
+struct OverNormal4Spec;
+impl ExtensionSpec<2> for OverNormal4Spec {
+    type Base = Normal4;
+    type Storage = Components;
+    const NAME: &'static str = "GF(16) over normal-basis GF(4)";
+    const RELATION: Relation = Relation::from_binary_words::<Normal4>(&[2, 3]);
+}
+type OverNormal16 = FiniteField<2, 4, Extension<OverNormal4Spec, 2>>;
+#[test]
+fn prepared_agrees_over_the_normal_basis_tower() {
+    // Raw 1 is not field one on this tower: the regression needs the
+    // prepared map to agree with the compact map here, where a raw-word
+    // comparison against 1 misfires.
+    assert_eq!(
+        Elem::<Normal4>::ONE.to_raw(),
+        3,
+        "raw 1 is not field one on the normal-basis row"
+    );
+    // The reported case from the conjugation fix: word `[0, 3]` is the
+    // base one in the upper coordinate.
+    let reported = Elem::<OverNormal16>::from_raw([0, 3]);
+    let compact = Embedding::<Normal4, OverNormal16>::new().unwrap();
+    let prepared = PreparedEmbedding::<Normal4, OverNormal16>::new(&compact);
+    for i in 0..16u128 {
+        let y = Elem::<OverNormal16>::from_index(i).unwrap();
+        assert_eq!(prepared.frobenius(y), compact.frobenius(y), "frobenius at {i}");
+        assert_eq!(prepared.contains(y), compact.contains(y), "contains at {i}");
+        assert_eq!(prepared.restrict(y), compact.restrict(y), "restrict at {i}");
+        assert_eq!(prepared.trace(y), compact.trace(y), "trace at {i}");
+        assert_eq!(prepared.norm(y), compact.norm(y), "norm at {i}");
+    }
+    assert_eq!(
+        prepared.frobenius(reported),
+        reported.pow(4),
+        "the reported case matches scalar exponentiation"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // A structural polynomial→basis→extension lift, with exhaustive preimages
 // and outsider rejection for both directions

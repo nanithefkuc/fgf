@@ -25,6 +25,8 @@ use super::super::private::RowAccess;
 use super::super::{Elem, Field, FieldElem, PrimeIdentity, ResidueRow, Validate};
 #[cfg(feature = "alloc")]
 use super::frobenius::Frobenius;
+#[cfg(feature = "alloc")]
+use super::frobenius::{accumulate_residue_columns, basis_vector, fold_binary_columns};
 use super::{Embedding, Isomorphism};
 
 /// A compiled embedding arm over prime coordinates.
@@ -549,16 +551,7 @@ fn debug_assert_inverse<S: Field, T: Field<Characteristic = S::Characteristic>>(
         let basis = basis_vector::<S>(j);
         let embedded = T::coordinate_word(embedding.embed(basis).raw);
         debug_assert_eq!(embedded, *column, "forward column reproduces the map");
-        let mut word = embedded;
-        let mut image = 0u64;
-        let mut i = 0;
-        while word != 0 {
-            if word & 1 == 1 {
-                image ^= inverse[i];
-            }
-            word >>= 1;
-            i += 1;
-        }
+        let image = fold_binary_columns(inverse, embedded);
         // The inverse is exact on the image; masking keeps the prefix the
         // source degree names. Degrees below 64 mask to the prefix width;
         // degree 64 keeps the full word, which no shift can name.
@@ -582,13 +575,30 @@ fn mask_prefix(inputs: usize) -> u64 {
     }
 }
 
-/// The `j`th prime-coordinate basis vector of `F`.
+/// Copy the source prefix into the target: the shared identity-prefix
+/// arm used by the forward map and by each isomorphism direction.
 #[cfg(feature = "alloc")]
-fn basis_vector<F: Field>(j: usize) -> Elem<F> {
-    let degree = F::DEGREE as usize;
+fn inject_prefix<S: Field, T: Field<Characteristic = S::Characteristic>>(
+    value: Elem<S>,
+) -> Elem<T> {
     let mut coordinates = [0u64; COORDINATES];
-    coordinates[j] = 1;
-    Elem::<F>::from_raw(F::from_prime_coordinates(&coordinates[..degree]))
+    S::prime_coordinates_into(&mut coordinates[..S::DEGREE as usize], value.raw);
+    Elem::<T>::from_raw(T::from_prime_coordinates(
+        &coordinates[..T::DEGREE as usize],
+    ))
+}
+
+/// Read the source prefix back from a target element: the shared
+/// identity-prefix left inverse.
+#[cfg(feature = "alloc")]
+fn project_prefix<S: Field, T: Field<Characteristic = S::Characteristic>>(
+    value: Elem<T>,
+) -> Elem<S> {
+    let mut coordinates = [0u64; COORDINATES];
+    T::prime_coordinates_into(&mut coordinates[..T::DEGREE as usize], value.raw);
+    Elem::<S>::from_raw(S::from_prime_coordinates(
+        &coordinates[..S::DEGREE as usize],
+    ))
 }
 
 /// Apply one compiled forward arm to an element.
@@ -600,11 +610,7 @@ fn apply_forward<S: Field, T: Field<Characteristic = S::Characteristic>>(
     match arm {
         PreparedArm::Injection { inputs, .. } => {
             debug_assert_eq!(usize::from(*inputs), S::DEGREE as usize, "prefix width");
-            let mut coordinates = [0u64; COORDINATES];
-            S::prime_coordinates_into(&mut coordinates[..S::DEGREE as usize], value.raw);
-            let mut image = [0u64; COORDINATES];
-            image[..S::DEGREE as usize].copy_from_slice(&coordinates[..S::DEGREE as usize]);
-            Elem::<T>::from_raw(T::from_prime_coordinates(&image[..T::DEGREE as usize]))
+            inject_prefix::<S, T>(value)
         }
         PreparedArm::BinaryColumns {
             inputs,
@@ -614,17 +620,7 @@ fn apply_forward<S: Field, T: Field<Characteristic = S::Characteristic>>(
         } => {
             debug_assert_eq!(usize::from(*inputs), S::DEGREE as usize, "column count");
             debug_assert_eq!(usize::from(*outputs), T::DEGREE as usize, "row count");
-            let word = S::coordinate_word(value.raw);
-            let mut image = 0u64;
-            let mut rest = word;
-            let mut j = 0;
-            while rest != 0 {
-                if rest & 1 == 1 {
-                    image ^= forward[j];
-                }
-                rest >>= 1;
-                j += 1;
-            }
+            let image = fold_binary_columns(forward, S::coordinate_word(value.raw));
             Elem {
                 raw: T::from_coordinate_word(image),
             }
@@ -642,16 +638,7 @@ fn apply_forward<S: Field, T: Field<Characteristic = S::Characteristic>>(
             let mut coordinates = [0u64; COORDINATES];
             S::prime_coordinates_into(&mut coordinates[..inputs], value.raw);
             let mut image = [Elem::<ResidueRow<T>>::ZERO; COORDINATES];
-            for (j, coordinate) in coordinates[..inputs].iter().enumerate() {
-                if *coordinate == 0 {
-                    continue;
-                }
-                let factor = Elem::<ResidueRow<T>>::from_residue(*coordinate)
-                    .expect("input coordinate below the characteristic");
-                for (o, slot) in image[..outputs].iter_mut().enumerate() {
-                    *slot += forward[j * outputs + o] * factor;
-                }
-            }
+            accumulate_residue_columns::<T>(forward, &coordinates[..inputs], outputs, &mut image);
             let mut residues = [0u64; COORDINATES];
             for (o, slot) in image[..outputs].iter().enumerate() {
                 residues[o] = slot
@@ -665,11 +652,6 @@ fn apply_forward<S: Field, T: Field<Characteristic = S::Characteristic>>(
     }
 }
 
-/// Apply one compiled left inverse to an image element.
-///
-/// The caller guarantees membership; on the image the weighted trace
-/// inverts the forward map exactly.
-#[cfg(feature = "alloc")]
 /// The relative trace as compiled prime-coordinate columns: entry `i`
 /// is `map.trace(e_i)` for the `i`-th target basis vector.
 #[cfg(feature = "alloc")]
@@ -740,17 +722,7 @@ fn apply_trace<S: Field, T: Field<Characteristic = S::Characteristic>>(
         TraceColumns::Binary { inputs, entries } => {
             let inputs = usize::from(*inputs);
             debug_assert_eq!(inputs, T::DEGREE as usize, "input bit count");
-            let word = T::coordinate_word(value.raw);
-            let mut image = 0u64;
-            let mut rest = word;
-            let mut i = 0;
-            while rest != 0 {
-                if rest & 1 == 1 {
-                    image ^= entries[i];
-                }
-                rest >>= 1;
-                i += 1;
-            }
+            let image = fold_binary_columns(entries, T::coordinate_word(value.raw));
             Elem {
                 raw: S::from_coordinate_word(image),
             }
@@ -766,16 +738,7 @@ fn apply_trace<S: Field, T: Field<Characteristic = S::Characteristic>>(
             let mut coordinates = [0u64; COORDINATES];
             T::prime_coordinates_into(&mut coordinates[..outputs], value.raw);
             let mut image = [Elem::<ResidueRow<T>>::ZERO; COORDINATES];
-            for (i, coordinate) in coordinates[..outputs].iter().enumerate() {
-                if *coordinate == 0 {
-                    continue;
-                }
-                let factor = Elem::<ResidueRow<T>>::from_residue(*coordinate)
-                    .expect("input coordinate below the characteristic");
-                for (k, slot) in image[..inputs].iter_mut().enumerate() {
-                    *slot += entries[i * inputs + k] * factor;
-                }
-            }
+            accumulate_residue_columns::<T>(entries, &coordinates[..outputs], inputs, &mut image);
             let mut residues = [0u64; COORDINATES];
             for (k, slot) in image[..inputs].iter().enumerate() {
                 residues[k] = slot
@@ -789,6 +752,10 @@ fn apply_trace<S: Field, T: Field<Characteristic = S::Characteristic>>(
     }
 }
 
+/// Apply one compiled left inverse to an image element.
+///
+/// The caller guarantees membership; on the image the weighted trace
+/// inverts the forward map exactly.
 fn apply_inverse<S: Field, T: Field<Characteristic = S::Characteristic>>(
     arm: &PreparedArm<T>,
     value: Elem<T>,
@@ -796,27 +763,13 @@ fn apply_inverse<S: Field, T: Field<Characteristic = S::Characteristic>>(
     match arm {
         PreparedArm::Injection { inputs, .. } => {
             debug_assert_eq!(usize::from(*inputs), S::DEGREE as usize, "prefix width");
-            let mut coordinates = [0u64; COORDINATES];
-            T::prime_coordinates_into(&mut coordinates[..T::DEGREE as usize], value.raw);
-            Elem::<S>::from_raw(S::from_prime_coordinates(
-                &coordinates[..S::DEGREE as usize],
-            ))
+            project_prefix::<S, T>(value)
         }
         PreparedArm::BinaryColumns {
             outputs, inverse, ..
         } => {
             debug_assert_eq!(usize::from(*outputs), T::DEGREE as usize, "row count");
-            let word = T::coordinate_word(value.raw);
-            let mut image = 0u64;
-            let mut rest = word;
-            let mut i = 0;
-            while rest != 0 {
-                if rest & 1 == 1 {
-                    image ^= inverse[i];
-                }
-                rest >>= 1;
-                i += 1;
-            }
+            let image = fold_binary_columns(inverse, T::coordinate_word(value.raw));
             Elem {
                 raw: S::from_coordinate_word(image),
             }
@@ -834,16 +787,7 @@ fn apply_inverse<S: Field, T: Field<Characteristic = S::Characteristic>>(
             let mut coordinates = [0u64; COORDINATES];
             T::prime_coordinates_into(&mut coordinates[..outputs], value.raw);
             let mut image = [Elem::<ResidueRow<T>>::ZERO; COORDINATES];
-            for (i, coordinate) in coordinates[..outputs].iter().enumerate() {
-                if *coordinate == 0 {
-                    continue;
-                }
-                let factor = Elem::<ResidueRow<T>>::from_residue(*coordinate)
-                    .expect("input coordinate below the characteristic");
-                for (k, slot) in image[..inputs].iter_mut().enumerate() {
-                    *slot += inverse[i * inputs + k] * factor;
-                }
-            }
+            accumulate_residue_columns::<T>(inverse, &coordinates[..outputs], inputs, &mut image);
             let mut residues = [0u64; COORDINATES];
             for (k, slot) in image[..inputs].iter().enumerate() {
                 residues[k] = slot
@@ -916,25 +860,11 @@ fn apply_iso<S: Field, T: Field<Characteristic = S::Characteristic>>(
     match arm {
         PreparedIsoArm::Injection { degree } => {
             debug_assert_eq!(usize::from(*degree), S::DEGREE as usize, "prefix width");
-            let mut coordinates = [0u64; COORDINATES];
-            S::prime_coordinates_into(&mut coordinates[..S::DEGREE as usize], value.raw);
-            Elem::<T>::from_raw(T::from_prime_coordinates(
-                &coordinates[..T::DEGREE as usize],
-            ))
+            inject_prefix::<S, T>(value)
         }
         PreparedIsoArm::BinaryColumns { degree, entries } => {
             debug_assert_eq!(usize::from(*degree), S::DEGREE as usize, "column count");
-            let word = S::coordinate_word(value.raw);
-            let mut image = 0u64;
-            let mut rest = word;
-            let mut j = 0;
-            while rest != 0 {
-                if rest & 1 == 1 {
-                    image ^= entries[j];
-                }
-                rest >>= 1;
-                j += 1;
-            }
+            let image = fold_binary_columns(entries, S::coordinate_word(value.raw));
             Elem {
                 raw: T::from_coordinate_word(image),
             }
@@ -945,16 +875,7 @@ fn apply_iso<S: Field, T: Field<Characteristic = S::Characteristic>>(
             let mut coordinates = [0u64; COORDINATES];
             S::prime_coordinates_into(&mut coordinates[..degree], value.raw);
             let mut image = [Elem::<ResidueRow<T>>::ZERO; COORDINATES];
-            for (j, coordinate) in coordinates[..degree].iter().enumerate() {
-                if *coordinate == 0 {
-                    continue;
-                }
-                let factor = Elem::<ResidueRow<T>>::from_residue(*coordinate)
-                    .expect("input coordinate below the characteristic");
-                for (o, slot) in image[..degree].iter_mut().enumerate() {
-                    *slot += entries[j * degree + o] * factor;
-                }
-            }
+            accumulate_residue_columns::<T>(entries, &coordinates[..degree], degree, &mut image);
             let mut residues = [0u64; COORDINATES];
             for (o, slot) in image[..degree].iter().enumerate() {
                 residues[o] = slot
@@ -970,47 +891,71 @@ fn apply_iso<S: Field, T: Field<Characteristic = S::Characteristic>>(
 
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
-    //! Unit coverage for the compilation helpers: the prefix helpers on
-    //! both outcomes, the identity-prefix detectors on length and entry
-    //! mismatches, and the trace-probe scaler on both outcomes.
-    //!
-    //! Behavior agreement lives in `tests/prepared_maps.rs`; these pin
-    //! the small helpers the gate counts line by line.
+    //! Compilation-arm behavior: the injection arm round-trips the full
+    //! word at the degree-64 mask edge, a permuted unit-column map takes
+    //! the column arm, and the normalizer reconstructs the identity on
+    //! the image. Row agreement lives in `tests/prepared_maps.rs`; these
+    //! pin the arm selection and the weighted-trace projection the gate
+    //! counts through this module.
 
-    use super::super::super::Elem;
-    use super::{is_identity_prefix, mask_prefix, scaled_probe};
-
+    use super::super::super::extension::Extension;
+    use super::super::super::finite_field::FiniteField;
+    use super::super::super::{Elem, FieldElem, Normal};
+    use super::super::{Embedding, Frobenius, Isomorphism};
+    use super::PreparedEmbedding;
     #[test]
-    fn prefix_mask_covers_both_arms() {
-        assert_eq!(mask_prefix(1), 1);
-        assert_eq!(mask_prefix(8), 0xFF);
-        assert_eq!(mask_prefix(63), u64::MAX >> 1);
-        assert_eq!(mask_prefix(64), u64::MAX);
-        assert_eq!(mask_prefix(80), u64::MAX);
+    fn injection_arm_round_trips_the_full_word() {
+        use super::super::super::{Rijndael32, Rijndael64};
+
+        // GF(2^64) over GF(2^32) through the tower inclusion: the prefix
+        // width is 32, and the degree-64 full-word mask edge keeps every
+        // bit through the round trip.
+        type Gf32 = FiniteField<2, 32, Extension<Rijndael32, 2>>;
+        type Gf64 = FiniteField<2, 64, Extension<Rijndael64, 2>>;
+        let compact = Embedding::<Gf32, Gf64>::new().unwrap();
+        let prepared = PreparedEmbedding::<Gf32, Gf64>::new(&compact);
+        let probe = Elem::<Gf32>::from_raw(0xDEAD_BEEF);
+        assert_eq!(prepared.restrict(prepared.embed(probe)), Some(probe));
+        // The full-word edge: nothing is masked away at degree 64.
+        let wide = Elem::<Gf64>::from_raw(0xFFFF_FFFF_FFFF_FFFF);
+        assert_eq!(compact.restrict(wide), prepared.restrict(wide));
     }
 
     #[test]
-    fn identity_prefix_rejects_length_and_entry_mismatches() {
-        // Length mismatch: fewer columns than inputs.
-        assert!(!is_identity_prefix(&[1, 2], 3));
-        // Entry mismatch at position one.
-        assert!(!is_identity_prefix(&[1, 4], 2));
-        // The exact prefix accepts.
-        assert!(is_identity_prefix(&[1, 2, 4], 3));
-        assert!(is_identity_prefix(&[], 0));
+    fn permuted_unit_columns_take_the_column_arm() {
+        // The normal-basis Frobenius at power one is a nonidentity
+        // automorphism: a permuted set of unit columns, not the exact
+        // identity prefix. Composed with the tower inclusion, the
+        // prepared map takes the column arm and still equals the
+        // compact map on every source element.
+        type Normal8 = FiniteField<2, 8, Normal<0x11B, 0x20>>;
+        type Gf16 = FiniteField<2, 16, Extension<super::super::super::Rijndael16, 2>>;
+        let power_one = Frobenius::<Normal8>::new(1);
+        let generator = Embedding::<Normal8, Normal8>::generator(0);
+        let image = generator.frobenius_with(&power_one);
+        assert_ne!(image, generator, "the power-one map moves a generator");
+        let auto = Isomorphism::<Normal8, Normal8>::from_images(&[image]).unwrap();
+        let inclusion = Embedding::<Normal8, Gf16>::new().unwrap();
+        let composite = auto.then_embedding(&inclusion);
+        let prepared = PreparedEmbedding::<Normal8, Gf16>::new(&composite);
+        for word in 0..256u32 {
+            let s = Elem::<Normal8>::from_index(u128::from(word)).unwrap();
+            assert_eq!(prepared.embed(s), composite.embed(s), "embed at {word}");
+        }
     }
 
     #[test]
-    fn trace_probe_scales_or_skips() {
-        use crate::field::{Mersenne31, QuadMersenne31};
+    fn normalizer_reconstructs_the_identity_on_the_image() {
+        use super::super::super::{Mersenne31, QuadMersenne31};
 
-        // The scaler returns `None` on a zero element's vanishing probe
-        // and scales a unit probe through the prime inclusion.
-        let compact = super::super::Embedding::<Mersenne31, QuadMersenne31>::new().unwrap();
+        // The weighted-trace projection inverts the forward map: every
+        // image element round-trips, and a vanishing trace probe (zero)
+        // contributes nothing to the normalizer search.
+        let compact = Embedding::<Mersenne31, QuadMersenne31>::new().unwrap();
+        let prepared = PreparedEmbedding::<Mersenne31, QuadMersenne31>::new(&compact);
         let probe = Elem::<QuadMersenne31>::ONE;
-        let scaled = scaled_probe(&compact, probe);
-        let expected = compact.embed(compact.trace(probe).inv());
-        assert_eq!(scaled, Some(expected));
-        assert_eq!(scaled_probe(&compact, Elem::<QuadMersenne31>::ZERO), None);
+        assert_eq!(prepared.restrict(prepared.embed(Elem::<Mersenne31>::ONE)), Some(Elem::<Mersenne31>::ONE));
+        assert_eq!(prepared.trace(probe), compact.trace(probe));
+        assert_eq!(prepared.restrict(Elem::<QuadMersenne31>::ZERO), Some(Elem::<Mersenne31>::ZERO));
     }
 }
