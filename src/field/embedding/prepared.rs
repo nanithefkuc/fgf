@@ -954,8 +954,14 @@ mod tests {
         let compact = Embedding::<Mersenne31, QuadMersenne31>::new().unwrap();
         let prepared = PreparedEmbedding::<Mersenne31, QuadMersenne31>::new(&compact);
         let probe = Elem::<QuadMersenne31>::ONE;
-        assert_eq!(prepared.restrict(prepared.embed(Elem::<Mersenne31>::ONE)), Some(Elem::<Mersenne31>::ONE));
+        assert_eq!(
+            prepared.restrict(prepared.embed(Elem::<Mersenne31>::ONE)),
+            Some(Elem::<Mersenne31>::ONE)
+        );
         assert_eq!(prepared.trace(probe), compact.trace(probe));
-        assert_eq!(prepared.restrict(Elem::<QuadMersenne31>::ZERO), Some(Elem::<Mersenne31>::ZERO));
+        assert_eq!(
+            prepared.restrict(Elem::<QuadMersenne31>::ZERO),
+            Some(Elem::<Mersenne31>::ZERO)
+        );
     }
 }

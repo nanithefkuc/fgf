@@ -583,7 +583,11 @@ fn prepared_agrees_over_the_normal_basis_tower() {
     let prepared = PreparedEmbedding::<Normal4, OverNormal16>::new(&compact);
     for i in 0..16u128 {
         let y = Elem::<OverNormal16>::from_index(i).unwrap();
-        assert_eq!(prepared.frobenius(y), compact.frobenius(y), "frobenius at {i}");
+        assert_eq!(
+            prepared.frobenius(y),
+            compact.frobenius(y),
+            "frobenius at {i}"
+        );
         assert_eq!(prepared.contains(y), compact.contains(y), "contains at {i}");
         assert_eq!(prepared.restrict(y), compact.restrict(y), "restrict at {i}");
         assert_eq!(prepared.trace(y), compact.trace(y), "trace at {i}");
