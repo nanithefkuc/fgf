@@ -16,8 +16,8 @@ use std::hint::black_box;
 use std::time::Instant;
 
 use fgf::{
-    BinaryField, Elem, Embedding, Field, FieldBuffer, FieldElem, FiniteField,
-    Polynomial, PreparedEmbedding, PrimeCharacteristic, PrimeField, backend, ops,
+    BinaryField, Elem, Embedding, Field, FieldBuffer, FieldElem, FiniteField, Polynomial,
+    PreparedEmbedding, PrimeCharacteristic, PrimeField, backend, ops,
 };
 
 type Gf1 = FiniteField<2, 1, Polynomial<3>>;
