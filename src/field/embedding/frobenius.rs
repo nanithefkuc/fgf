@@ -586,7 +586,10 @@ mod tests {
                 for &b in powers {
                     let first = Frobenius::<F>::new(a);
                     let second = Frobenius::<F>::new(b);
-                    let composed = Frobenius::<F>::new(((a as u64 + b as u64) % u64::from(degree)) as u32);
+                    let composed = Frobenius::<F>::new(
+                        u32::try_from((u64::from(a) + u64::from(b)) % u64::from(degree))
+                            .expect("reduced power fits in u32"),
+                    );
                     assert_eq!(
                         value.frobenius_with(&first).frobenius_with(&second),
                         value.frobenius_with(&composed)
