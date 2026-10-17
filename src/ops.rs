@@ -96,7 +96,10 @@ pub use coefficient::{CoeffMatrix, CoeffRef, CoeffVec, CoeffVecRef};
 #[cfg(feature = "alloc")]
 pub use gather::{mul_add_gather_with, mul_into_gather_with};
 #[cfg(feature = "alloc")]
-pub use map::{frobenius_assign_with, frobenius_into_with};
+pub use map::{
+    apply_into_with, contains_into_with, embed_into_with, frobenius_assign_with,
+    frobenius_into_with, norm_into_with, restrict_into_with, trace_into_with, unapply_into_with,
+};
 #[cfg(feature = "alloc")]
 pub use matrix::{mul_add_matrix_with, mul_into_matrix_with};
 #[cfg(feature = "alloc")]

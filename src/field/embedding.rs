@@ -48,7 +48,11 @@
 mod frobenius;
 mod ladder;
 #[cfg(feature = "alloc")]
+mod prepared;
+#[cfg(feature = "alloc")]
 pub use frobenius::Frobenius;
+#[cfg(feature = "alloc")]
+pub use prepared::{PreparedEmbedding, PreparedIsomorphism};
 
 use core::marker::PhantomData;
 

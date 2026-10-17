@@ -877,6 +877,87 @@ mod tests {
             .is_irreducible()
     }
 
+    /// The const proofs above evaluate at compile time; the same fixtures
+    /// re-run here exercise the identical checks at runtime.
+    #[test]
+    fn const_relation_fixtures_hold_at_runtime_too() {
+        assert!(
+            relation_over_prime(PrimePresentation::Residue, 7, 2, 2, &[4, 0]),
+            "GF(49)"
+        );
+        assert!(
+            relation_over_prime(
+                PrimePresentation::Residue,
+                GOLDILOCKS,
+                2,
+                2,
+                &[GOLDILOCKS - 7, 0]
+            ),
+            "goldilocks residue t^2 - 7"
+        );
+        assert!(
+            relation_over_prime(
+                PrimePresentation::GoldilocksFold,
+                GOLDILOCKS,
+                2,
+                2,
+                &[GOLDILOCKS - 7, 0]
+            ),
+            "goldilocks fold t^2 - 7"
+        );
+        assert!(
+            relation_over_prime(PrimePresentation::Residue, M31, 3, 3, &[M31 - 5, 0, 0]),
+            "mersenne31 residue t^3 - 5"
+        );
+        assert!(
+            relation_over_prime(PrimePresentation::MersenneFold, M31, 3, 3, &[M31 - 5, 0, 0]),
+            "mersenne31 fold t^3 - 5"
+        );
+        assert!(
+            relation_over_prime(
+                PrimePresentation::Residue,
+                BABY_BEAR,
+                4,
+                4,
+                &[BABY_BEAR - 11, 0, 0, 0]
+            ),
+            "babybear"
+        );
+        assert!(
+            relation_over_prime(
+                PrimePresentation::Residue,
+                KOALA_BEAR,
+                4,
+                4,
+                &[KOALA_BEAR - 3, 0, 0, 0]
+            ),
+            "koalabear"
+        );
+        assert!(
+            quad_over_quad_mersenne31(),
+            "t^2 - (2 + i) over QuadMersenne31"
+        );
+        assert!(aes_cubic(), "cubic over AES");
+        assert!(
+            relation_over_prime(
+                PrimePresentation::Residue,
+                2,
+                13,
+                13,
+                &[1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+            ),
+            "degree 13 over GF(2)"
+        );
+        assert!(cubic_over_gf49(), "cubic over GF(49)");
+        assert!(gf64_over_gf8(), "GF(64)");
+        assert!(normal_row_extension(), "normal row");
+        assert!(cantor_row_extension(), "cantor row");
+        assert!(
+            relation_over_prime(PrimePresentation::Residue, 2, 3, 3, &[1, 1, 0]),
+            "cubic over GF(2)"
+        );
+    }
+
     #[test]
     #[should_panic(expected = "not a relation node")]
     fn node_relation_irreducible_rejects_a_prime_root() {

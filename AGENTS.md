@@ -168,6 +168,13 @@ Tests must defend observable contracts, not implementation wiring.
   per-element scalar loop, alias lanes, and geometry failures.
 - `tests/frobenius_alloc.rs`: prepared Frobenius steady-state
   zero-allocation contracts.
+- `tests/prepared_maps.rs`: prepared embedding/isomorphism scalar
+  agreement against the compact maps, including the normal-basis tower
+  where raw 1 is not field one.
+- `tests/prepared_map_rows.rs`: prepared-map row acceptance (decode,
+  bitmap discipline, geometry) against the scalar surface.
+- `tests/prepared_maps_alloc.rs`: prepared-map steady-state
+  zero-allocation contracts.
 - `tests/binary_bases.rs`: ordered-basis and custom extension-spec arithmetic against
   base-field schoolbook oracles.
 - `tests/prime_fields.rs`: primality, prime-field bulk operations on raw

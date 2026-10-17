@@ -54,8 +54,9 @@ assert_eq!(
 ```
 
 `ops` scales and combines rows of packed elements, with prepared coefficients
-for repeated calls. Prepared Frobenius maps apply one compiled automorphism
-across scalar elements and byte rows alike. Byte lanes are fixed-width and
+for repeated calls. Prepared Frobenius, embedding, and isomorphism maps apply
+one compiled map across scalar elements and byte rows alike, with a validity
+bitmap for partial restriction. Byte lanes are fixed-width and
 little-endian; their size depends on the field representation. Bit-packed
 GF(2) vectors use `bits`.
 
