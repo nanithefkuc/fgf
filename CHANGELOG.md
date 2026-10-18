@@ -96,6 +96,39 @@ All notable changes to this project are documented here. The format follows
 
 - Wiki migration guide from the withdrawn v3 release candidate.
 
+### Fixed
+
+- Mersenne31 x86 multiplication accepts lanes already inside its redundant
+  residue range directly and normalizes wider raw lanes before multiplication,
+  preserving arbitrary raw inputs and canonical outputs.
+- Pinned extension scalar arithmetic exposes its instance bodies for
+  cross-crate inlining, removing runtime instance dispatch from specialized
+  QuadMersenne31 operator multiplication. Investigation and merge gates:
+  [Issue #47](https://github.com/nanithefkuc/fgf/issues/47).
+- QuadMersenne31 scalar products defer reduction across the real and imaginary
+  product sums instead of reducing each base-field product separately.
+- Mersenne31 multiply-accumulate accepts redundant destination zero, and
+  elementwise products share input-range checks across vector tiles while
+  retaining ISA-width remainders.
+- QuadMersenne31 vector products retain redundant zero internally; scalar
+  arithmetic consumes canonical element storage without repeating entry
+  reductions. Constructors and packed-buffer decodes retain normalization.
+- Mersenne31 AVX-512 products use explicit two-source word permutations,
+  and multiply-accumulate screens each register group for the high bit,
+  canonicalizing the group before any store when a lane carries it and
+  retaining ISA-width tails. Measurements:
+  [PR measurement record](https://github.com/nanithefkuc/fgf/pull/48#issuecomment-6163124505).
+- Mersenne31 and QuadMersenne31 AVX-512 multiplication screens operand
+  lanes for the high bit instead of canonicalizing every load: lanes
+  already inside the redundant range multiply as loaded. A lane outside it
+  triggers canonicalized recomputation of its register group for the
+  in-place entries and of the whole call for the out-of-place entries,
+  before any final store. Arbitrary raw inputs and canonical outputs are
+  preserved.
+- Goldilocks scalar multiplication feeds the operand product directly to
+  the wide reduction, which is total over `u128` and needs no canonical
+  operands.
+
 ## [3.0.1] - 2026-10-10
 
 ### Added

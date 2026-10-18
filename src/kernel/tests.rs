@@ -5650,6 +5650,164 @@ mod x86 {
             }
         }
     }
+    /// The AVX-512 Mersenne multiplies screen operand lanes for bit 31:
+    /// per register group for the in-place entries, per call for the
+    /// out-of-place entries. A single high-bit alias at every dword lane
+    /// of one complete screened group, swept across the group's registers
+    /// in each operand role, plus a lane past the last whole group, the
+    /// sub-lane tail, and raw-alias coefficients for the M31 scalar
+    /// multiplies, must leave every lane equal to the portable reference
+    /// and canonical.
+    #[cfg(feature = "simd512")]
+    #[test]
+    // Five m31 and three qm31 entries per alias placement: a table by nature.
+    #[allow(clippy::too_many_lines)]
+    fn mersenne_avx512_screen_reaches_every_lane() {
+        use crate::field::quad_mersenne31::QuadMersenne31;
+        const P: u32 = crate::field::mersenne31::MODULUS;
+        // Forty-nine 64-byte lanes and a sub-lane tail of one QM31 element.
+        const LEN: usize = 3 * 1024 + 72;
+        // Word positions: one complete screened group (64 dword lanes,
+        // registers 0-3) swept lane by lane, the lane past the last whole
+        // group, and the tail word; `None` is the all-canonical control.
+        // Positions 300 and 767 from the earlier spot sweep lie inside that
+        // group and stay covered by the sweep.
+        const GROUP_WORDS: usize = 64;
+        const AT_EXTRA: [Option<usize>; 3] = [None, Some(770), Some(784)];
+        // `p`, then patterns whose bit 31 breaks the doubled operand or,
+        // against a large partner, overflows the product split.
+        const ALIASES: [u32; 5] = [P, 0x8000_0000, 0xE000_0000, 0xFFFF_FFFE, u32::MAX];
+        const RAW_COEFFS: [u32; 5] = [P, 0x8000_0000, 0xE000_0000, 0xFFFF_FFFE, u32::MAX];
+        let Some(v4x) = X64V4xToken::summon() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        let token = v4x.v4();
+        let canonical = |seed: u64| -> Vec<u8> {
+            let mut out = noise(LEN, seed);
+            for lane in out.chunks_exact_mut(4) {
+                let word = u32::from_le_bytes(lane.try_into().unwrap());
+                lane.copy_from_slice(&Elem::<Mersenne31>::from_raw(word).to_raw().to_le_bytes());
+            }
+            out
+        };
+        // The alias lane meets the largest canonical word in the other
+        // operand, the partner that drives the product split highest.
+        let place = |mut buf: Vec<u8>, at: Option<usize>, word: u32| -> Vec<u8> {
+            if let Some(index) = at {
+                buf[4 * index..4 * index + 4].copy_from_slice(&word.to_le_bytes());
+            }
+            buf
+        };
+        let check = |label: &str, got: &[u8], want: &[u8]| {
+            assert_eq!(got, want, "{label}");
+            for (i, lane) in got.chunks_exact(4).enumerate() {
+                let word = u32::from_le_bytes(lane.try_into().unwrap());
+                assert!(word < P, "{label}: lane {i} holds {word:#x}");
+            }
+        };
+        let coeff = P - 1;
+        let m31 = Elem::<Mersenne31>::from_raw(coeff);
+        let qm31 = Elem::<QuadMersenne31>::from_raw([coeff, P - 2]);
+        for at in AT_EXTRA.into_iter().chain((0..GROUP_WORDS).map(Some)) {
+            for alias in ALIASES {
+                for (role, (x, y)) in [
+                    (
+                        "first",
+                        (
+                            place(canonical(0x51), at, alias),
+                            place(canonical(0x52), at, P - 1),
+                        ),
+                    ),
+                    (
+                        "second",
+                        (
+                            place(canonical(0x51), at, P - 1),
+                            place(canonical(0x52), at, alias),
+                        ),
+                    ),
+                ] {
+                    let label = |op: &str| format!("{op} alias {alias:#x} at {at:?} in {role}");
+
+                    let mut got = x.clone();
+                    let mut want = x.clone();
+                    x86::mersenne31::mul_add_avx512(token, &mut got, coeff, &y);
+                    prime::mul_add::<Mersenne31>(&mut want, m31, &y);
+                    check(&label("m31 mul_add"), &got, &want);
+
+                    let mut got = vec![0u8; LEN];
+                    let mut want = vec![0u8; LEN];
+                    x86::mersenne31::mul_into_avx512(token, &mut got, coeff, &y);
+                    prime::mul_add::<Mersenne31>(&mut want, m31, &y);
+                    check(&label("m31 mul_into"), &got, &want);
+
+                    let mut got = x.clone();
+                    let mut want = x.clone();
+                    x86::mersenne31::mul_assign_avx512(token, &mut got, coeff);
+                    prime::mul_assign::<Mersenne31>(&mut want, m31);
+                    check(&label("m31 mul_assign"), &got, &want);
+
+                    let mut got = vec![0u8; LEN];
+                    let mut want = vec![0u8; LEN];
+                    x86::mersenne31::mul_elementwise_avx512(token, &mut got, &x, &y);
+                    prime::mul_elementwise::<Mersenne31>(&mut want, &x, &y);
+                    check(&label("m31 mul_elementwise"), &got, &want);
+
+                    let mut got = x.clone();
+                    x86::mersenne31::mul_elementwise_assign_avx512(token, &mut got, &y);
+                    check(&label("m31 mul_elementwise_assign"), &got, &want);
+
+                    let mut got = x.clone();
+                    let mut want = x.clone();
+                    x86::quad_mersenne31::mul_add_avx512(token, &mut got, qm31, &y);
+                    prime::mul_add::<QuadMersenne31>(&mut want, qm31, &y);
+                    check(&label("qm31 mul_add"), &got, &want);
+
+                    let mut got = vec![0u8; LEN];
+                    let mut want = vec![0u8; LEN];
+                    x86::quad_mersenne31::mul_into_avx512(token, &mut got, qm31, &y);
+                    prime::mul_add::<QuadMersenne31>(&mut want, qm31, &y);
+                    check(&label("qm31 mul_into"), &got, &want);
+                    let mut got = vec![0u8; LEN];
+                    let mut want = vec![0u8; LEN];
+                    x86::quad_mersenne31::mul_elementwise_avx512(token, &mut got, &x, &y);
+                    prime::mul_elementwise::<QuadMersenne31>(&mut want, &x, &y);
+                    check(&label("qm31 mul_elementwise"), &got, &want);
+
+                    for raw in RAW_COEFFS {
+                        let rc = Elem::<Mersenne31>::from_raw(raw);
+                        // A zero- or unit-valued raw coefficient is a defined
+                        // no-op mirroring the portable reference (`mul_assign`
+                        // preserves the buffer byte for byte, `mul_into`
+                        // zeroes or copies it), so only equality applies.
+                        // Otherwise every stored lane must be canonical.
+                        let check_canonical = !rc.is_zero() && !rc.is_one();
+                        let run_coeff = |op: &str, got: &[u8], want: &[u8]| {
+                            let coined = label(&format!("{op} coeff {raw:#x}"));
+                            assert_eq!(got, want, "{coined}");
+                            if check_canonical {
+                                for (i, lane) in got.chunks_exact(4).enumerate() {
+                                    let word = u32::from_le_bytes(lane.try_into().unwrap());
+                                    assert!(word < P, "{coined}: lane {i} holds {word:#x}");
+                                }
+                            }
+                        };
+                        let mut got = x.clone();
+                        let mut want = x.clone();
+                        x86::mersenne31::mul_assign_avx512(token, &mut got, raw);
+                        prime::mul_assign::<Mersenne31>(&mut want, rc);
+                        run_coeff("m31 mul_assign", &got, &want);
+
+                        let mut got = vec![0u8; LEN];
+                        let mut want = vec![0u8; LEN];
+                        x86::mersenne31::mul_into_avx512(token, &mut got, raw, &y);
+                        prime::mul_add::<Mersenne31>(&mut want, rc, &y);
+                        run_coeff("m31 mul_into", &got, &want);
+                    }
+                }
+            }
+        }
+    }
     #[test]
     fn qm31_avx2_kernels_match_reference() {
         // Multiples of 8 (one complex element) straddling the 32-byte AVX2

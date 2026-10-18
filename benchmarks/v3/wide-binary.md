@@ -7,7 +7,7 @@ Paired-run snapshot for v3. Every result cell reports Willow Cove (i5-1135G7) / 
 | Setting | Value |
 | --- | --- |
 | Campaign | `just bench-paired` (family round `gf`) |
-| Revision | `f3cd58c39e6e3672216912dd3e6131da1c4b670a` |
+| Revision | `388cbb4a43d5d20e8a663e89c3b44380c7c4f8b7` |
 | Toolchain | 1.98.1 |
 | Resolved process backend | `v4x` / `v3_gfni_crypto` |
 | Resolved field backends | `gf32b`: `v4x` / `v3_gfni_crypto`; `gf64b`: `v4x` / `v3_gfni_crypto`; `fp16`: `v4x` / `v3_gfni_crypto`; `fp32`: `v4x` / `v3_gfni_crypto`; `fp64`: `v4x` / `v3_gfni_crypto` |
@@ -23,11 +23,11 @@ Paired-run snapshot for v3. Every result cell reports Willow Cove (i5-1135G7) / 
 
 | Field | Operation | mul_add (GiB/s) |
 | --- | --- | --- |
-| fp16 | mul_add | 9.97 / 16.5 |
-| fp32 | mul_add | 3.71 / 6.08 |
-| fp64 | mul_add | 1.36 / 1.82 |
-| gf32b | mul_add | 17.0 / 30.1 |
-| gf64b | mul_add | 9.09 / 16.3 |
+| fp16 | mul_add | 9.97 / 16.4 |
+| fp32 | mul_add | 3.71 / 6.07 |
+| fp64 | mul_add | 1.36 / 2.11 |
+| gf32b | mul_add | 17.1 / 29.5 |
+| gf64b | mul_add | 9.10 / 16.2 |
 
 ## Competitors
 

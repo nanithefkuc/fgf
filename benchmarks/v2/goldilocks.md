@@ -24,11 +24,11 @@ Paired-run snapshot for v2. Every result cell reports Willow Cove (i5-1135G7) / 
 
 | Operation | 4 KiB (GiB/s) | 256 KiB (GiB/s) | 8 MiB (GiB/s) |
 | --- | --- | --- | --- |
-| add_assign | 29.5 / 21.1 | 27.3 / 21.6 | 8.14 / 20.9 |
+| add_assign | 29.4 / 21.6 | 27.3 / 21.6 | 7.98 / 20.1 |
 | add_assign_scalar | 44.6 / 37.8 | 44.4 / 39.1 | 25.8 / 32.3 |
-| mul_elementwise | 10.8 / 10.2 | 11.3 / 10.8 | 5.25 / 10.1 |
-| mul_elementwise_assign | 11.0 / 10.7 | 11.3 / 10.8 | 7.13 / 9.46 |
-| sub_assign_scalar | 60.6 / 39.1 | 52.7 / 38.7 | 27.8 / 32.4 |
+| mul_elementwise | 10.8 / 10.2 | 11.3 / 10.8 | 5.23 / 10.1 |
+| mul_elementwise_assign | 10.9 / 10.7 | 11.3 / 10.8 | 7.13 / 9.39 |
+| sub_assign_scalar | 60.4 / 39.1 | 52.7 / 38.7 | 27.7 / 32.5 |
 
 ## Competitors
 
@@ -38,29 +38,29 @@ Page-aligned regions on each library's native layout; conversions are excluded. 
 
 | Field | Operation | `fgf` (ns/op) | Plonky3 (ns/op) |
 | --- | --- | --- | --- |
-| gld | scalar a * b | 3.742 / 1.712 | 2.570 / 1.161 |
-| m31 | scalar a * b | 4.201 / 1.605 | 2.098 / 0.831 |
-| qm31 | scalar a * b | 8.999 / 4.550 | 6.959 / 3.007 |
+| gld | scalar a * b | 3.740 / 1.696 | 2.574 / 1.157 |
+| m31 | scalar a * b | 4.210 / 1.615 | 2.104 / 0.837 |
+| qm31 | scalar a * b | 9.003 / 4.591 | 6.964 / 3.038 |
 
 ### Packed
 
 | Field | Operation | `fgf` (GiB/s) | Plonky3 (GiB/s) |
 | --- | --- | --- | --- |
-| gld | dst += c * src | 19.7 / 16.3 | 22.5 / 19.8 |
-| gld | dst += v | 97.5 / 78.2 | 103 / 141 |
-| gld | dst -= v | 103 / 78.3 | 103 / 142 |
-| gld | dst = a * b | 23.8 / 22.4 | 26.9 / 25.3 |
+| gld | dst += c * src | 19.7 / 16.3 | 22.5 / 19.6 |
+| gld | dst += v | 97.5 / 78.3 | 103 / 142 |
+| gld | dst -= v | 103 / 77.6 | 103 / 142 |
+| gld | dst = a * b | 23.8 / 22.4 | 26.9 / 25.4 |
 | gld | dst = c * src | 25.1 / 22.8 | 27.4 / 26.0 |
-| m31 | dst += c * src | 55.6 / 58.6 | 49.8 / 54.7 |
-| m31 | dst += v | 87.6 / 103 | 103 / 147 |
+| m31 | dst += c * src | 55.5 / 58.7 | 49.8 / 54.8 |
+| m31 | dst += v | 87.5 / 103 | 103 / 147 |
 | m31 | dst -= v | 70.3 / 82.9 | 103 / 147 |
-| m31 | dst = a * b | 59.5 / 65.5 | 59.9 / 66.4 |
-| m31 | dst = c * src | 73.1 / 73.7 | 65.4 / 69.7 |
-| qm31 | dst += c * src | 22.9 / 27.2 | 27.0 / 30.5 |
-| qm31 | dst += v | 62.5 / 103 | 103 / 146 |
-| qm31 | dst -= v | 49.9 / 82.8 | 103 / 146 |
-| qm31 | dst = a * b | 27.0 / 29.9 | 24.1 / 25.4 |
-| qm31 | dst = c * src | 32.1 / 35.9 | 30.6 / 34.7 |
+| m31 | dst = a * b | 59.5 / 65.4 | 59.9 / 66.5 |
+| m31 | dst = c * src | 73.2 / 73.7 | 65.4 / 69.9 |
+| qm31 | dst += c * src | 22.9 / 27.2 | 27.0 / 30.4 |
+| qm31 | dst += v | 62.5 / 103 | 103 / 147 |
+| qm31 | dst -= v | 49.9 / 82.9 | 103 / 147 |
+| qm31 | dst = a * b | 27.0 / 29.8 | 24.1 / 25.1 |
+| qm31 | dst = c * src | 32.1 / 36.1 | 30.6 / 34.6 |
 
 
 ## Caveats
