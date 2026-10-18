@@ -5142,3 +5142,189 @@ fn bulk_dot_product_rejects_length_mismatch() {
 fn bulk_dot_product_rejects_partial_trailing_element() {
     let _ = ops::dot_product::<Gf16>(&[0u8; 3], &[0u8; 3]);
 }
+
+// ---------------------------------------------------------------------------
+// inv/div rows: batch reciprocal and elementwise division against the
+// per-element scalar oracle
+// ---------------------------------------------------------------------------
+
+/// Per-element oracle straight from the scalar field: `inv` maps zero to
+/// zero, `div` maps a zero divisor to zero.
+fn oracle_inv_into<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
+    for (d, s) in dst
+        .chunks_exact_mut(F::BYTES)
+        .zip(src.chunks_exact(F::BYTES))
+    {
+        F::encode(d, F::decode(s).inv());
+    }
+}
+
+fn oracle_div_elementwise<F: FieldKernels>(dst: &mut [u8], a: &[u8], b: &[u8]) {
+    for ((d, x), y) in dst
+        .chunks_exact_mut(F::BYTES)
+        .zip(a.chunks_exact(F::BYTES))
+        .zip(b.chunks_exact(F::BYTES))
+    {
+        F::encode(d, F::decode(x).div(F::decode(y)));
+    }
+}
+
+/// Element counts covering the single-lane, sub-chunk, exact-chunk
+/// (64), cross-chunk, and multi-chunk Montgomery paths.
+const INV_DIV_ELEMS: [usize; 9] = [0, 1, 2, 3, 17, 63, 64, 65, 257];
+
+fn check_inv_div_rows<F: FieldKernels>(tag: &str, seed: u64) {
+    for &n in &INV_DIV_ELEMS {
+        let len = n * F::BYTES;
+        let src = noise(len, seed);
+        let num = noise(len, seed + 0x100);
+        // Interleave zeros so zero lanes are always in the mix: every
+        // seventh lane of the divisor is zero, every eleventh of the
+        // inversion source is zero.
+        let mut sparse_src = src.clone();
+        for (i, lane) in sparse_src.chunks_exact_mut(F::BYTES).enumerate() {
+            if i % 11 == 7 {
+                lane.fill(0);
+            }
+        }
+        let mut sparse_den = num.clone();
+        for (i, lane) in sparse_den.chunks_exact_mut(F::BYTES).enumerate() {
+            if i % 7 == 3 {
+                lane.fill(0);
+            }
+        }
+
+        // inv_into matches the per-element oracle.
+        {
+            let mut got = vec![0u8; len];
+            let mut want = vec![0u8; len];
+            ops::inv_into::<F>(&mut got, &sparse_src);
+            oracle_inv_into::<F>(&mut want, &sparse_src);
+            assert_eq!(got, want, "{tag}: inv_into at {n} elements");
+        }
+        // inv_assign matches the oracle on the same buffer.
+        {
+            let mut got = sparse_src.clone();
+            let mut want = vec![0u8; len];
+            ops::inv_assign::<F>(&mut got);
+            oracle_inv_into::<F>(&mut want, &sparse_src);
+            assert_eq!(got, want, "{tag}: inv_assign at {n} elements");
+        }
+        // div_elementwise matches the per-element oracle.
+        {
+            let mut got = vec![0u8; len];
+            let mut want = vec![0u8; len];
+            ops::div_elementwise::<F>(&mut got, &src, &sparse_den);
+            oracle_div_elementwise::<F>(&mut want, &src, &sparse_den);
+            assert_eq!(got, want, "{tag}: div_elementwise at {n} elements");
+        }
+        // div_elementwise_assign matches the oracle on the same buffer.
+        {
+            let mut got = src.clone();
+            let mut want = vec![0u8; len];
+            ops::div_elementwise_assign::<F>(&mut got, &sparse_den);
+            oracle_div_elementwise::<F>(&mut want, &src, &sparse_den);
+            assert_eq!(got, want, "{tag}: div_elementwise_assign at {n} elements");
+        }
+        // Involution up to canonicalization: inv(inv(x)) == x where
+        // x != 0, but raw alias lanes come back canonical. Compare
+        // against the scalar oracle's own round trip instead of the
+        // raw input bytes.
+        {
+            let mut once = vec![0u8; len];
+            let mut twice = vec![0u8; len];
+            ops::inv_into::<F>(&mut once, &sparse_src);
+            ops::inv_into::<F>(&mut twice, &once);
+            let mut oracle_once = vec![0u8; len];
+            let mut oracle_twice = vec![0u8; len];
+            oracle_inv_into::<F>(&mut oracle_once, &sparse_src);
+            oracle_inv_into::<F>(&mut oracle_twice, &oracle_once);
+            assert_eq!(twice, oracle_twice, "{tag}: inv involution at {n} elements");
+        }
+    }
+}
+
+#[test]
+fn inv_div_rows_match_scalar_oracle_on_every_family() {
+    check_inv_div_rows::<FiniteField<2, 8, Polynomial<AES>>>("gf8-aes", 0xe01);
+    check_inv_div_rows::<FiniteField<2, 8, Polynomial<RS>>>("gf8-rs", 0xe02);
+    check_inv_div_rows::<Gf16>("gf16", 0xe03);
+    check_inv_div_rows::<Gf32>("gf32", 0xe04);
+    check_inv_div_rows::<Gf64>("gf64", 0xe05);
+    check_inv_div_rows::<FanPaar8Field>("fan-paar8", 0xe06);
+    check_inv_div_rows::<FanPaar16Field>("fan-paar16", 0xe07);
+    check_inv_div_rows::<FanPaar32Field>("fan-paar32", 0xe08);
+    check_inv_div_rows::<FanPaar64Field>("fan-paar64", 0xe09);
+    check_inv_div_rows::<Mersenne31>("mersenne31", 0xe0a);
+    check_inv_div_rows::<Goldilocks>("goldilocks", 0xe0b);
+    check_inv_div_rows::<QuadMersenne31>("quad-mersenne31", 0xe0c);
+    check_inv_div_rows::<FiniteField<1_000_000_007, 1, Residue>>("residue-u32", 0xe0d);
+    check_inv_div_rows::<FiniteField<127, 1, Residue>>("residue-u8", 0xe0e);
+    check_inv_div_rows::<FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1, Residue>>("residue-u64", 0xe0f);
+}
+
+#[test]
+fn inv_div_all_zero_rows_stay_zero() {
+    // An all-zero batch inverts the identity internally but writes zero
+    // in every lane; division by an all-zero divisor is all zero.
+    for len in [0usize, 1, 64, 65, 128] {
+        let zeros = vec![0u8; len];
+        let ones = vec![1u8; len];
+        let mut got = vec![0xA5u8; len];
+        ops::inv_into::<FiniteField<2, 8, Polynomial<AES>>>(&mut got, &zeros);
+        assert_eq!(got, zeros, "all-zero inv_into at {len} bytes");
+        let mut got = vec![0xA5u8; len];
+        ops::div_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(&mut got, &ones, &zeros);
+        assert_eq!(got, zeros, "divide by all-zero at {len} bytes");
+    }
+    // Prime-field all-zero rows behave the same way.
+    let zeros31 = vec![0u8; 64];
+    let mut got = vec![0xA5u8; 64];
+    ops::inv_into::<Mersenne31>(&mut got, &zeros31);
+    assert_eq!(got, zeros31, "m31 all-zero inv_into");
+    let mut got = vec![0xA5u8; 64];
+    ops::div_elementwise::<Mersenne31>(&mut got, &zeros31, &zeros31);
+    assert_eq!(got, zeros31, "m31 zero over zero");
+}
+
+#[test]
+fn inv_div_accept_raw_prime_aliases() {
+    // Non-canonical lanes fold exactly as the scalar field does.
+    let alias = [0xFFu8, 0xFF, 0xFF, 0xFF]; // == 1 mod 2^31 - 1
+    let mut got = [0u8; 4];
+    let mut want = [0u8; 4];
+    ops::inv_into::<Mersenne31>(&mut got, &alias);
+    oracle_inv_into::<Mersenne31>(&mut want, &alias);
+    assert_eq!(got, want, "m31 alias inv folds like the scalar field");
+    assert_eq!(got, [0x01, 0x00, 0x00, 0x00], "inv(1) == 1");
+    let mut got = [0u8; 4];
+    let mut want = [0u8; 4];
+    ops::div_elementwise::<Mersenne31>(&mut got, &alias, &alias);
+    oracle_div_elementwise::<Mersenne31>(&mut want, &alias, &alias);
+    assert_eq!(got, want, "m31 alias div folds like the scalar field");
+    assert_eq!(got, [0x01, 0x00, 0x00, 0x00], "1 / 1 == 1");
+}
+
+#[test]
+#[should_panic(expected = "inv_into: dst is 4 bytes but src is 3 bytes")]
+fn inv_into_rejects_length_mismatch() {
+    ops::inv_into::<FiniteField<2, 8, Polynomial<AES>>>(&mut [0u8; 4], &[0u8; 3]);
+}
+
+#[test]
+#[should_panic(expected = "inv_assign: buffer of 3 bytes is not a whole number")]
+fn inv_assign_rejects_partial_trailing_element() {
+    ops::inv_assign::<Gf16>(&mut [0u8; 3]);
+}
+
+#[test]
+#[should_panic(expected = "div_elementwise: dst is 4 bytes but b is 3 bytes")]
+fn div_elementwise_rejects_divisor_mismatch() {
+    ops::div_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(&mut [0u8; 4], &[0u8; 4], &[0u8; 3]);
+}
+
+#[test]
+#[should_panic(expected = "div_elementwise_assign: dst is 4 bytes but src is 5 bytes")]
+fn div_elementwise_assign_rejects_length_mismatch() {
+    ops::div_elementwise_assign::<FiniteField<2, 8, Polynomial<AES>>>(&mut [0u8; 4], &[0u8; 5]);
+}

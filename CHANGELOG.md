@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Batch reciprocal and division rows `ops::inv_into` / `ops::inv_assign`
+  and `ops::div_elementwise` / `ops::div_elementwise_assign`: Montgomery
+  batch inversion with zero-preserving totality (`inv(0) == 0`,
+  `x / 0 == 0`), chunked 64-element stack scratch so steady state never
+  touches the heap. Names follow the `mul_elementwise` family spellings.
 - Byte-lane inner product `ops::dot_product`: folds two packed rows into
   one `Elem` as `sum(a[i] * b[i])`, empty rows returning zero. The name
   keeps the short scalar-noun spelling (`pack`, `mul_elementwise`) and

@@ -875,3 +875,48 @@ fn bulk_dot_product_steady_state_allocates_nothing() {
     });
     assert_eq!(allocations, 0, "byte-lane dot product allocated");
 }
+
+/// Batch reciprocal and division rows stage prefixes and reciprocals in
+/// fixed stack chunks, so steady state allocates nothing on any family.
+#[test]
+fn inv_div_rows_steady_state_allocate_nothing() {
+    use fgf::FiniteField;
+    use fgf::Polynomial;
+    use fgf::poly::AES;
+
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    type Gf8 = FiniteField<2, 8, Polynomial<AES>>;
+    // Cross the 64-element chunk boundary in both directions.
+    let src = noise(512, 0xe20);
+    let num = noise(512, 0xe21);
+    let den = noise(512, 0xe22);
+    let mut dst = noise(512, 0xe23);
+    let mut dst_assign = noise(512, 0xe24);
+    let mut dst_div = noise(512, 0xe25);
+    // Prime-field buffers sized outside the counted window.
+    let mut dst31 = noise(1020, 0xe26);
+    let src31 = noise(1020, 0xe27);
+    let num_g = noise(512, 0xe28);
+    let den_g = noise(512, 0xe29);
+    // Warm dispatch before counting.
+    ops::inv_into::<Gf8>(&mut dst, &src);
+    ops::inv_assign::<Gf8>(&mut dst_assign);
+    ops::div_elementwise::<Gf8>(&mut dst_div, &num, &den);
+    ops::div_elementwise_assign::<Gf8>(&mut dst_div, &den);
+    ops::inv_into::<Mersenne31>(&mut dst31, &src31);
+    ops::div_elementwise::<Goldilocks>(&mut dst_div, &num_g, &den_g);
+    ops::inv_assign::<ResiduePrime>(&mut dst);
+
+    let allocations = count_allocations(|| {
+        ops::inv_into::<Gf8>(&mut dst, &src);
+        ops::inv_assign::<Gf8>(&mut dst_assign);
+        ops::div_elementwise::<Gf8>(&mut dst_div, &num, &den);
+        ops::div_elementwise_assign::<Gf8>(&mut dst_div, &den);
+        ops::inv_into::<Mersenne31>(&mut dst31, &src31);
+        ops::div_elementwise::<Goldilocks>(&mut dst_div, &num_g, &den_g);
+        ops::inv_assign::<ResiduePrime>(&mut dst);
+    });
+    assert_eq!(allocations, 0, "batch reciprocal/division rows allocated");
+}
