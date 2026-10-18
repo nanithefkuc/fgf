@@ -102,7 +102,8 @@ field arithmetic, not the transform or evaluation schedule.
 ## Work with quadratic components
 
 `QuadMersenne31` represents `re + im*i`, with `i² = -1`. Conjugation negates
-the imaginary component; the norm returns `re² + im²` in `Mersenne31`:
+the imaginary component; the trace returns `2*re` and the norm `re² + im²`,
+both in `Mersenne31`:
 
 ```rust
 use fgf::{Elem, Mersenne31, QuadMersenne31};
@@ -110,16 +111,20 @@ use fgf::{Elem, Mersenne31, QuadMersenne31};
 let z = Elem::<QuadMersenne31>::from_components([
     Elem::<Mersenne31>::from_raw(7), Elem::<Mersenne31>::from_raw(11),
 ]);
+assert_eq!(z.trace().to_raw(), 14);
 assert_eq!(z.norm().to_raw(), 170);
+assert_eq!(z + z.conjugate(), Elem::<QuadMersenne31>::from_components([
+    z.trace(), Elem::<Mersenne31>::ZERO,
+]));
 assert_eq!(z * z.conjugate(), Elem::<QuadMersenne31>::from_components([
     z.norm(), Elem::<Mersenne31>::ZERO,
 ]));
 assert_eq!(z.to_bytes(), [7, 0, 0, 0, 11, 0, 0, 0]);
 ```
 
-`conjugate` and `norm` equal the relative Frobenius and norm of
-`Embedding<Mersenne31, QuadMersenne31>`;
-[embeddings](Embeddings-and-presentation-changes) define both relative maps.
+`conjugate`, `trace`, and `norm` equal the relative Frobenius, trace, and
+norm of `Embedding<Mersenne31, QuadMersenne31>`;
+[embeddings](Embeddings-and-presentation-changes) define the relative maps.
 
 For a custom relation or storage choice, continue with
 [custom fields and extensions](Downstream-scalar-fields). Exact contracts live in

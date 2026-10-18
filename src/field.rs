@@ -90,7 +90,7 @@ pub use embedding::{Embedding, EmbeddingError, Isomorphism, Postcompose};
 pub use embedding::{Frobenius, PreparedEmbedding, PreparedIsomorphism};
 pub use extension::{
     Components, Extension, ExtensionField, ExtensionSpec, ExtensionStorage, Packed, PackedPadded,
-    PackedWord, Relation,
+    PackedWord, QuadraticExtension, Relation,
 };
 pub use finite_field::{FiniteField, FiniteFieldRepr, Residue};
 pub use goldilocks::{Goldilocks, GoldilocksFold};

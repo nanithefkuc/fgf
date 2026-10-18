@@ -326,8 +326,14 @@ impl Elem<QuadMersenne31> {
 
     /// Conjugate `a − bi` over canonical storage: no re-reduction.
     ///
-    /// The result equals `Embedding<Mersenne31, QuadMersenne31>::frobenius`
-    /// at this element.
+    /// The single spelling of the quadratic conjugate on this row: the
+    /// defining relation is `t^2 + 1`, so `c1 = 0` and the generic
+    /// `(a - c1*b) - b*t` reduces to `a - b*t`, computed here by the
+    /// row's `const` body. Equals
+    /// `Embedding<Mersenne31, QuadMersenne31>::frobenius` at this element.
+    /// This row deliberately does not implement
+    /// [`QuadraticExtension`](super::extension::QuadraticExtension), whose
+    /// non-`const` blanket would be a second spelling.
     #[inline]
     #[must_use]
     pub const fn conjugate(self) -> Self {
@@ -336,12 +342,32 @@ impl Elem<QuadMersenne31> {
         }
     }
 
+    /// Trace `2a` as an element of the base field, over canonical storage:
+    /// no re-reduction of the input.
+    ///
+    /// The single spelling of the quadratic trace on this row: the
+    /// defining relation is `t^2 + 1`, so `c1 = 0` and the generic
+    /// `2*a - c1*b` reduces to `2a`. Equals
+    /// `Embedding<Mersenne31, QuadMersenne31>::trace` at this element.
+    #[inline]
+    #[must_use]
+    pub const fn trace(self) -> Elem<Mersenne31> {
+        Elem::<Mersenne31> {
+            raw: limb_add(self.raw[0], self.raw[0]),
+        }
+    }
+
     /// Norm `a² + b²` as an element of the base field, over canonical
     /// storage: no re-reduction of the inputs.
     ///
-    /// The norm lives in `GF(2^31 − 1)`, not in a raw lane; the returned
-    /// value is canonical. The result equals
-    /// `Embedding<Mersenne31, QuadMersenne31>::norm` at this element.
+    /// The single spelling of the quadratic norm on this row: the defining
+    /// relation is `t^2 + 1`, so `c0 = 1` and `c1 = 0` and the generic
+    /// `a^2 - c1*a*b + c0*b^2` reduces to `a² + b²`. The norm lives in
+    /// `GF(2^31 − 1)`, not in a raw lane; the returned value is canonical.
+    /// Equals `Embedding<Mersenne31, QuadMersenne31>::norm` at this
+    /// element. This row deliberately does not implement
+    /// [`QuadraticExtension`](super::extension::QuadraticExtension), whose
+    /// non-`const` blanket would be a second spelling.
     #[inline]
     #[must_use]
     pub const fn norm(self) -> Elem<Mersenne31> {

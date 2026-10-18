@@ -12,8 +12,9 @@
 
 use fgf::field::mersenne31::Mersenne31;
 use fgf::{
-    Elem, Extension, ExtensionField, ExtensionSpec, Field, FieldElem, FiniteField, Goldilocks,
-    PackedPadded, Polynomial, PrimeIdentity, Relation,
+    AES, Elem, Embedding, Extension, ExtensionField, ExtensionSpec, Field, FieldElem, FiniteField,
+    Goldilocks, PackedPadded, Polynomial, PrimeIdentity, QuadMersenne31, QuadraticExtension,
+    Relation,
 };
 
 // ---------------------------------------------------------------------------
@@ -812,5 +813,285 @@ fn mersenne_custom_tower_matches_the_reference_on_samples() {
             relation: vec![vec![0x7FFF_FFFD, 0x7FFF_FFFE], vec![0, 0]],
         },
         0x1300,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Quadratic conjugate/trace/norm against the embedding oracle
+// ---------------------------------------------------------------------------
+
+/// Check the closed-form quadratic conveniences of one row against the
+/// base-into-row embedding: conjugation is an involution equal to the
+/// Frobenius, `x + conjugate(x)` embeds the trace, `x * conjugate(x)`
+/// embeds the norm, and the trace and norm equal their embedding maps.
+fn check_quadratic<F>(embedding: &Embedding<F::Base, F>, value: Elem<F>)
+where
+    F: QuadraticExtension
+        + Field<Characteristic = <<F as ExtensionField<2>>::Base as Field>::Characteristic>,
+    F::Base: Field,
+{
+    let conjugate = F::conjugate(value);
+    let trace = F::trace(value);
+    let norm = F::norm(value);
+    assert_eq!(
+        F::conjugate(conjugate),
+        value,
+        "{}: conjugation is an involution",
+        <F as Field>::NAME
+    );
+    assert_eq!(
+        conjugate,
+        embedding.frobenius(value),
+        "{}: conjugate is the Frobenius",
+        <F as Field>::NAME
+    );
+    assert_eq!(
+        embedding.trace(value),
+        trace,
+        "{}: trace is the embedding trace",
+        <F as Field>::NAME
+    );
+    assert_eq!(
+        embedding.norm(value),
+        norm,
+        "{}: norm is the embedding norm",
+        <F as Field>::NAME
+    );
+    // `x + conjugate(x)` and `x * conjugate(x)` lie over the base: their
+    // high component vanishes and the low one names the trace and norm.
+    let sum_components = <F as ExtensionField<2>>::to_components(value + conjugate);
+    assert_eq!(
+        sum_components[1],
+        Elem::<F::Base>::ZERO,
+        "{}: x + conjugate(x) lies over the base",
+        <F as Field>::NAME
+    );
+    assert_eq!(
+        sum_components[0],
+        trace,
+        "{}: trace is x + conjugate(x)",
+        <F as Field>::NAME
+    );
+    let product_components = <F as ExtensionField<2>>::to_components(value * conjugate);
+    assert_eq!(
+        product_components[1],
+        Elem::<F::Base>::ZERO,
+        "{}: x * conjugate(x) lies over the base",
+        <F as Field>::NAME
+    );
+    assert_eq!(
+        product_components[0],
+        norm,
+        "{}: norm is x * conjugate(x)",
+        <F as Field>::NAME
+    );
+    assert_eq!(
+        embedding.embed(trace),
+        value + conjugate,
+        "{}: embedded trace",
+        <F as Field>::NAME
+    );
+    assert_eq!(
+        embedding.embed(norm),
+        value * conjugate,
+        "{}: embedded norm",
+        <F as Field>::NAME
+    );
+    // The norm is fixed under conjugation.
+    assert_eq!(
+        F::norm(conjugate),
+        norm,
+        "{}: norm is fixed under conjugation",
+        <F as Field>::NAME
+    );
+}
+
+/// Sweep one relative-degree-2 row exhaustively against the embedding
+/// oracle.
+fn sweep_quadratic<F>()
+where
+    F: QuadraticExtension
+        + Field<Characteristic = <<F as ExtensionField<2>>::Base as Field>::Characteristic>,
+    F::Base: Field,
+    Elem<F>: Coordinates,
+{
+    let embedding = Embedding::<F::Base, F>::new().expect("the base embeds in its row");
+    for value in every_element::<F>() {
+        check_quadratic::<F>(&embedding, value);
+    }
+}
+
+type Gf16Tower = FiniteField<2, 16, Extension<fgf::Rijndael16, 2>>;
+type FanPaar16Tower = FiniteField<2, 16, Extension<fgf::FanPaar16, 2>>;
+
+/// Check every element of a packed binary quadratic tower row against the
+/// embedding oracle by raw-word enumeration.
+fn sweep_packed_quadratic<Base, Row>()
+where
+    Base: fgf::BinaryField,
+    Row: QuadraticExtension<Base = Base>
+        + Field<Characteristic = <Base as Field>::Characteristic>
+        + fgf::FieldBuffer,
+    Elem<Row>: FieldElem<Field = Row>,
+    Elem<Base>: FieldElem<Field = Base>,
+{
+    let embedding = Embedding::<Base, Row>::new().expect("the base embeds in its row");
+    for index in 0..<Row as Field>::ORDER {
+        let value = <Elem<Row> as FieldElem>::from_index(index).expect("index below the order");
+        let conjugate = Row::conjugate(value);
+        assert_eq!(
+            Row::conjugate(conjugate),
+            value,
+            "conjugation is an involution"
+        );
+        assert_eq!(
+            conjugate,
+            embedding.frobenius(value),
+            "conjugate is the Frobenius"
+        );
+        assert_eq!(embedding.trace(value), Row::trace(value), "embedding trace");
+        assert_eq!(embedding.norm(value), Row::norm(value), "embedding norm");
+        // `x + conjugate(x)` and `x * conjugate(x)` lie over the base.
+        let sum = <Row as ExtensionField<2>>::to_components(value + conjugate);
+        assert_eq!(
+            sum[1],
+            Elem::<Base>::ZERO,
+            "x + conjugate(x) lies over the base"
+        );
+        assert_eq!(sum[0], Row::trace(value), "trace is x + conjugate(x)");
+        let product = <Row as ExtensionField<2>>::to_components(value * conjugate);
+        assert_eq!(
+            product[1],
+            Elem::<Base>::ZERO,
+            "x * conjugate(x) lies over the base"
+        );
+        assert_eq!(product[0], Row::norm(value), "norm is x * conjugate(x)");
+        assert_eq!(embedding.embed(Row::trace(value)), value + conjugate);
+        assert_eq!(embedding.embed(Row::norm(value)), value * conjugate);
+    }
+}
+
+/// Sample a packed binary quadratic tower row against the embedding oracle
+/// with the deterministic word generator.
+fn sample_packed_quadratic<Base, Row>(seed: u64)
+where
+    Base: fgf::BinaryField,
+    Row: QuadraticExtension<Base = Base>
+        + Field<Characteristic = <Base as Field>::Characteristic>
+        + fgf::FieldBuffer,
+    Elem<Row>: FieldElem<Field = Row>,
+    Elem<Base>: FieldElem<Field = Base>,
+{
+    let embedding = Embedding::<Base, Row>::new().expect("the base embeds in its row");
+    let mut rng = Sample { state: seed };
+    for _ in 0..64 {
+        let index = u128::from(rng.next()) % <Row as Field>::ORDER;
+        let value = <Elem<Row> as FieldElem>::from_index(index).expect("index below the order");
+        let conjugate = Row::conjugate(value);
+        assert_eq!(
+            Row::conjugate(conjugate),
+            value,
+            "conjugation is an involution"
+        );
+        assert_eq!(
+            conjugate,
+            embedding.frobenius(value),
+            "conjugate is the Frobenius"
+        );
+        assert_eq!(embedding.trace(value), Row::trace(value), "embedding trace");
+        assert_eq!(embedding.norm(value), Row::norm(value), "embedding norm");
+        let sum = <Row as ExtensionField<2>>::to_components(value + conjugate);
+        assert_eq!(sum[0], Row::trace(value), "trace is x + conjugate(x)");
+        let product = <Row as ExtensionField<2>>::to_components(value * conjugate);
+        assert_eq!(product[0], Row::norm(value), "norm is x * conjugate(x)");
+    }
+}
+
+#[test]
+fn quadratic_conveniences_match_the_embedding_oracle_exhaustively() {
+    sweep_quadratic::<Gf49>();
+    sweep_quadratic::<Gf4Row>();
+    sweep_quadratic::<Gf49Full>();
+    sweep_quadratic::<Gf9Row>();
+    sweep_quadratic::<BinaryComponents>();
+    sweep_packed_quadratic::<FiniteField<2, 8, Polynomial<AES>>, Gf16Tower>();
+    sweep_packed_quadratic::<FiniteField<2, 8, Extension<fgf::FanPaar8, 2>>, FanPaar16Tower>();
+}
+
+#[test]
+fn quadratic_tower_rows_match_the_embedding_oracle_exhaustively() {
+    sweep_quadratic::<Gf64Row>();
+    sweep_quadratic::<Gf81Row>();
+}
+
+/// Sample one relative-degree-2 row against the embedding oracle with the
+/// deterministic word generator.
+fn sample_quadratic<F>(seed: u64, characteristic: u64)
+where
+    F: QuadraticExtension
+        + Field<Characteristic = <<F as ExtensionField<2>>::Base as Field>::Characteristic>,
+    F::Base: Field,
+    Elem<F>: Coordinates,
+{
+    let embedding = Embedding::<F::Base, F>::new().expect("the base embeds in its row");
+    let mut rng = Sample { state: seed };
+    for _ in 0..64 {
+        let raw = rng.next();
+        let coordinates: Vec<u64> = (0..<Elem<F> as Coordinates>::WORDS)
+            .map(|i| (raw.wrapping_mul(2_654_435_761 + i as u64)) % characteristic)
+            .collect();
+        check_quadratic::<F>(&embedding, <Elem<F> as Coordinates>::element(&coordinates));
+    }
+}
+
+#[test]
+fn quad_mersenne31_matches_the_embedding_oracle_on_samples() {
+    let embedding =
+        Embedding::<Mersenne31, QuadMersenne31>::new().expect("Mersenne31 embeds in QM31");
+    let mut rng = Sample { state: 0xC01u64 };
+    for _ in 0..64 {
+        let re = Elem::<Mersenne31>::from_raw((rng.next() % Mersenne31::ORDER as u64) as u32);
+        let im = Elem::<Mersenne31>::from_raw((rng.next() % Mersenne31::ORDER as u64) as u32);
+        let value = Elem::<QuadMersenne31>::from_components([re, im]);
+        // The inherent `const` spelling agrees with the embedding oracle:
+        // involution, Frobenius, trace as `x + conjugate(x)`, norm as
+        // `x * conjugate(x)` embedded back.
+        let conjugate = value.conjugate();
+        assert_eq!(conjugate.conjugate(), value, "conjugation is an involution");
+        assert_eq!(conjugate, embedding.frobenius(value));
+        assert_eq!(embedding.trace(value), value.trace());
+        assert_eq!(embedding.norm(value), value.norm());
+        assert_eq!(
+            value + conjugate,
+            Elem::<QuadMersenne31>::from_components([value.trace(), Elem::<Mersenne31>::ZERO])
+        );
+        assert_eq!(
+            value * conjugate,
+            Elem::<QuadMersenne31>::from_components([value.norm(), Elem::<Mersenne31>::ZERO])
+        );
+        assert_eq!(conjugate.norm(), value.norm());
+    }
+}
+
+#[test]
+fn goldilocks_square_matches_the_embedding_oracle_on_samples() {
+    sample_quadratic::<GoldilocksSquare>(0x0B00, Goldilocks::ORDER as u64);
+}
+
+#[test]
+fn wide_prime_square_matches_the_embedding_oracle_on_samples() {
+    sample_quadratic::<WidePrimeSquare>(0x0D00, 0xFFFF_FFFF_FFFF_FFC5);
+}
+
+#[test]
+fn mersenne_custom_quadratic_matches_the_embedding_oracle_on_samples() {
+    sample_quadratic::<CustomComplex>(0x1100, Mersenne31::ORDER as u64);
+}
+
+#[test]
+fn quadratic_wide_towers_match_the_embedding_oracle_on_samples() {
+    sample_packed_quadratic::<Gf16Tower, FiniteField<2, 32, Extension<fgf::Rijndael32, 2>>>(0xBEEF);
+    sample_packed_quadratic::<FanPaar16Tower, FiniteField<2, 32, Extension<fgf::FanPaar32, 2>>>(
+        0xCAFE,
     );
 }

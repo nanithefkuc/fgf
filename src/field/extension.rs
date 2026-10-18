@@ -5,7 +5,7 @@
 //! [`ExtensionSpec`] is open and data-only: a base row, a storage
 //! selection, a name, and the relation. The defining relation is
 //! validated in const at first value use — the field metadata first
-//! (prime characteristic, total degree cap, cardinality bound), then
+//! (prime characteristic, binary degree cap, cardinality bound), then
 //! the base's validity, the characteristic agreement, the degree
 //! identity, the relation's length and coordinate range, storage
 //! admissibility, the descriptor capacity, and finally the
@@ -179,6 +179,12 @@ impl<S: ExtensionSpec<D>, const D: usize> core::fmt::Debug for Extension<S, D> {
 /// Component `i` is the coefficient of `t^i` over the row's base. The
 /// conversions are exact inverses over canonical elements and canonicalize
 /// every component on the way in.
+///
+/// At relative degree two the quadratic conveniences live on
+/// [`QuadraticExtension`]: the closed-form conjugate, trace, and norm of
+/// the row's defining relation, each equal to the corresponding
+/// [`Embedding`](super::embedding::Embedding) map of the base-into-row
+/// embedding.
 pub trait ExtensionField<const D: usize>: Field + private::Sealed {
     /// The base row this field extends.
     type Base: Field;
@@ -189,4 +195,39 @@ pub trait ExtensionField<const D: usize>: Field + private::Sealed {
 
     /// The components of an element, in component order.
     fn to_components(value: Elem<Self>) -> [Elem<Self::Base>; D];
+}
+
+/// The closed-form quadratic conveniences of a relative-degree-2 row.
+///
+/// The defining relation reads `t^2 + c1*t + c0` over the base, with `c0`
+/// the constant coefficient and `c1` the linear one. For `x = a + b*t`
+/// the Vieta formulas give the conjugate `(a - c1*b) - b*t`, the trace
+/// `2*a - c1*b`, and the norm `a^2 - c1*a*b + c0*b^2`.
+///
+/// Each equals the corresponding
+/// [`Embedding`](super::embedding::Embedding) map of the base-into-row
+/// embedding: [`conjugate`](QuadraticExtension::conjugate) is its
+/// Frobenius `x^|Base|`, [`trace`](QuadraticExtension::trace) is its
+/// trace, and [`norm`](QuadraticExtension::norm) is its norm. In
+/// characteristic two subtraction is addition, so the conjugate reads
+/// `(a + c1*b) + b*t` and the trace `c1*b`, since `2*a = 0` and `-b = b`.
+#[allow(private_bounds)]
+pub trait QuadraticExtension: ExtensionField<2> {
+    /// The nontrivial automorphism `x^|Base|`: `(a - c1*b) - b*t` for
+    /// `x = a + b*t`.
+    ///
+    /// Equals the Frobenius of the base-into-row embedding.
+    fn conjugate(value: Elem<Self>) -> Elem<Self>;
+
+    /// The sum `x + conjugate(x) = 2*a - c1*b` of the Galois conjugates,
+    /// in the base row.
+    ///
+    /// Equals the trace of the base-into-row embedding.
+    fn trace(value: Elem<Self>) -> Elem<Self::Base>;
+
+    /// The product `x * conjugate(x) = a^2 - c1*a*b + c0*b^2` of the
+    /// Galois conjugates, in the base row.
+    ///
+    /// Equals the norm of the base-into-row embedding.
+    fn norm(value: Elem<Self>) -> Elem<Self::Base>;
 }

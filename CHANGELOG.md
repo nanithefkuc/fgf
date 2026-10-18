@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Closed-form quadratic conjugate, trace, and norm for every
+  relative-degree-2 extension row through `QuadraticExtension`, each equal
+  to the corresponding `Embedding` map of the base-into-row embedding,
+  plus the missing `const` trace on `QuadMersenne31`, whose inherent
+  conjugate/trace/norm remain its single spelling.
 - Mixed embedding composition over a sealed `Postcompose` right-hand
   operand: `Embedding::then` accepts a proper inclusion or an
   isomorphism out of the middle row, and

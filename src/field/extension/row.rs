@@ -620,6 +620,61 @@ impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> ExtensionF
 }
 
 // ---------------------------------------------------------------------------
+// Quadratic conveniences
+// ---------------------------------------------------------------------------
+
+// QM31 keeps its inherent `const` conjugate/trace/norm as its single
+// spelling (the generic body is not `const`-capable), so the blanket below
+// must not also cover it. Rust forbids negative bounds, so the blanket
+// covers every relative-degree-2 row and QM31's inherent methods forward
+// to these exact closed forms; the spelling decision is documented on
+// `QuadMersenne31`'s inherent methods instead of a second trait impl.
+impl<const P: u64, const N: u32, S: ExtensionSpec<2>> super::QuadraticExtension
+    for FiniteField<P, N, Extension<S, 2>>
+{
+    fn conjugate(value: Elem<Self>) -> Elem<Self> {
+        let () = Validate::<Self>::OK;
+        let [a, b] = split::<S, 2>(value.raw).map(|raw| Elem::<S::Base> { raw });
+        let [_, c1] = relation_components::<S, 2>().map(|raw| Elem::<S::Base> { raw });
+        let real = Elem::<S::Base> {
+            raw: <S::Base as Field>::sub_raw(a.raw, <S::Base as Field>::mul_raw(c1.raw, b.raw)),
+        };
+        Elem {
+            raw: join::<S, 2>([real.raw, <S::Base as Field>::neg_raw(b.raw)]),
+        }
+    }
+
+    fn trace(value: Elem<Self>) -> Elem<S::Base> {
+        let () = Validate::<Self>::OK;
+        let [a, b] = split::<S, 2>(value.raw).map(|raw| Elem::<S::Base> { raw });
+        let [_, c1] = relation_components::<S, 2>().map(|raw| Elem::<S::Base> { raw });
+        let doubled = Elem::<S::Base> {
+            raw: <S::Base as Field>::add_raw(a.raw, a.raw),
+        };
+        Elem::<S::Base> {
+            raw: <S::Base as Field>::sub_raw(
+                doubled.raw,
+                <S::Base as Field>::mul_raw(c1.raw, b.raw),
+            ),
+        }
+    }
+
+    fn norm(value: Elem<Self>) -> Elem<S::Base> {
+        let () = Validate::<Self>::OK;
+        let [a, b] = split::<S, 2>(value.raw).map(|raw| Elem::<S::Base> { raw });
+        let [c0, c1] = relation_components::<S, 2>().map(|raw| Elem::<S::Base> { raw });
+        let a2 = <S::Base as Field>::mul_raw(a.raw, a.raw);
+        let b2 = <S::Base as Field>::mul_raw(b.raw, b.raw);
+        let ab = <S::Base as Field>::mul_raw(a.raw, b.raw);
+        let cross = <S::Base as Field>::mul_raw(c1.raw, ab);
+        let scaled = <S::Base as Field>::mul_raw(c0.raw, b2);
+        Elem::<S::Base> {
+            raw: <S::Base as Field>::add_raw(<S::Base as Field>::sub_raw(a2, cross), scaled),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Byte and display forms
 // ---------------------------------------------------------------------------
 

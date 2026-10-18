@@ -35,9 +35,10 @@ pub use field::{
     ExtensionSpec, ExtensionStorage, FanPaar2, FanPaar4, FanPaar8, FanPaar16, FanPaar32, FanPaar64,
     Field, FieldBuffer, FieldElem, FiniteField, FiniteFieldRepr, Goldilocks, GoldilocksFold,
     HasGenerator, Isomorphism, Mersenne31, MersenneFold, Normal, Packed, PackedPadded, PackedWord,
-    Polynomial, Postcompose, PrimeCharacteristic, PrimeField, PrimeIdentity, QuadMersenne31, RS,
-    RangeError, Relation, Residue, Rijndael16, Rijndael32, Rijndael64, cantor, description,
-    embedding, extension, goldilocks, mersenne31, normal, poly, quad_mersenne31, tower,
+    Polynomial, Postcompose, PrimeCharacteristic, PrimeField, PrimeIdentity, QuadMersenne31,
+    QuadraticExtension, RS, RangeError, Relation, Residue, Rijndael16, Rijndael32, Rijndael64,
+    cantor, description, embedding, extension, goldilocks, mersenne31, normal, poly,
+    quad_mersenne31, tower,
 };
 #[cfg(feature = "alloc")]
 pub use field::{Frobenius, PreparedEmbedding, PreparedIsomorphism};
