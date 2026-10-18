@@ -6969,6 +6969,7 @@ fn gf16_gfni_wrappers_tolerate_degenerate_geometry() {
 #[cfg(feature = "alloc")]
 mod gf1_bits {
     use super::Vec;
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     use super::vec;
 
     use crate::field::{Elem, FiniteField, Polynomial};
@@ -7172,16 +7173,19 @@ mod gf1_bits {
     /// Element counts around every vector and 64-lane unit the interop
     /// kernels step over: sub-unit, exact units, unit edges, the
     /// overlapping 64-lane seam, and multi-unit bodies with tails.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     const INTEROP_BITS: &[usize] = &[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 15, 16, 17, 31, 32, 33, 63, 64, 65, 66, 67, 68, 69, 70,
         100, 127, 128, 129, 200, 255, 256, 257, 511, 512, 513,
     ];
 
     /// Lane widths every interop entry is generic over.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     const INTEROP_BYTES: &[usize] = &[1, 2, 4, 8];
 
     /// Trace/one words worth testing: the degenerates, a byte mask, and
     /// sampled fixed-seed values.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     fn interop_words(seed: u64) -> Vec<u64> {
         let mut words = vec![0u64, 1, u64::MAX, 0xFF];
         let mut state = seed | 1;
@@ -7195,6 +7199,7 @@ mod gf1_bits {
     }
 
     /// Portable expand oracle: the dispatched seam's scalar body.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     fn oracle_expand(dst: &mut [u8], one_w: u64, src: &[u8], bits: usize, bytes: usize) {
         for i in 0..bits {
             let bit = (src[i / 8] >> (i % 8)) & 1;
@@ -7204,6 +7209,7 @@ mod gf1_bits {
         }
     }
 
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     fn oracle_lane_word(src: &[u8], i: usize, bytes: usize) -> u64 {
         let mut word = 0u64;
         for (shift, &byte) in src[i * bytes..(i + 1) * bytes].iter().enumerate() {
@@ -7213,6 +7219,7 @@ mod gf1_bits {
     }
 
     /// Portable compress oracle over the lane predicate.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     fn oracle_compress(dst: &mut [u8], src: &[u8], bits: usize, bytes: usize, test: &k::LaneTest) {
         dst.fill(0);
         for i in 0..bits {
@@ -7229,6 +7236,7 @@ mod gf1_bits {
     }
 
     /// Portable restrict oracle.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     fn oracle_restrict(
         dst: &mut [u8],
         valid: &mut [u8],
@@ -7252,6 +7260,7 @@ mod gf1_bits {
 
     /// Lane buffers whose every lane is exactly zero, `one`, or noise: the
     /// membership predicates need all three populations.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     fn lane_bytes(bits: usize, bytes: usize, one_w: u64, seed: u64) -> Vec<u8> {
         let mut state = seed | 1;
         let mut buf = vec![0u8; bits * bytes];
@@ -7279,6 +7288,7 @@ mod gf1_bits {
     /// Drive one tier's expand/compress/restrict entries against the
     /// portable oracles across widths, predicates, words, and boundary
     /// lengths.
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     fn check_interop_tier(
         name: &str,
         mut expand: impl FnMut(&mut [u8], u64, &[u8], usize, usize),
