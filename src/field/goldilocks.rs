@@ -226,6 +226,14 @@ impl super::private::RowAccess for Goldilocks {
         let () = Validate::<Self>::OK;
         Some(reduce(raw))
     }
+
+    fn coordinate_word(_raw: <Self as Field>::Raw) -> u64 {
+        panic!("coordinate word on a row of odd characteristic");
+    }
+
+    fn from_coordinate_word(_word: u64) -> <Self as Field>::Raw {
+        panic!("coordinate word on a row of odd characteristic");
+    }
 }
 
 impl HasGenerator for Goldilocks {

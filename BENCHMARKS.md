@@ -20,7 +20,7 @@ campaign; unavailable operations or competitor measurements remain `-`.
 | Mersenne specializations | [m31, qm31](benchmarks/v2/mersenne31.md) | [m31, qm31](benchmarks/v3/mersenne31.md) | [v3/v2](benchmarks/comparison/mersenne31.md) | Plonky3 |
 | Goldilocks specialization | [gld](benchmarks/v2/goldilocks.md) | [gld](benchmarks/v3/goldilocks.md) | [v3/v2](benchmarks/comparison/goldilocks.md) | Plonky3 |
 | Generic prime residues | - | [Residues](benchmarks/v3/residue.md) | [AVX2 and scalar](benchmarks/comparison/residue.md) | - |
-| Field maps (inclusions, isomorphisms, Frobenius) | - | [field maps](benchmarks/v3/field-maps.md) | - | - |
+| Field maps (inclusions, isomorphisms, Frobenius) | - | - | - | - |
 
 Absolute pages contain public-operation timings and competitor comparisons.
 The residue tables put row lengths in columns, with expandable operation panels

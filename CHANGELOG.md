@@ -13,6 +13,10 @@ All notable changes to this project are documented here. The format follows
   isomorphism out of the middle row, and
   `Isomorphism::then_embedding` composes an isomorphism into a proper
   inclusion.
+- Prepared Frobenius maps with byte-row forms: `Frobenius` compiles one
+  characteristic-power automorphism for repeated scalar and row use, and
+  `ops::frobenius_into_with` / `ops::frobenius_assign_with` apply it
+  across stable byte lanes.
 - Wiki reference for operation suffixes, destination behavior, prepared state,
 
 ### Changed
