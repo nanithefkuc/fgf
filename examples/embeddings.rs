@@ -124,6 +124,16 @@ fn main() {
         let absolute_frobenius = fgf::Frobenius::<Gf64>::new(1);
         let prepared_first = lifted.frobenius_with(&absolute_frobenius);
         assert_eq!(prepared_first, lifted.square());
+
+        // The prepared embedding compiles the same inclusion once and
+        // applies it across whole rows: one `new` call, then checked
+        // row functions over stable byte lanes.
+        let prepared = fgf::PreparedEmbedding::new(&tower);
+        let mut lane = [0u8; 1];
+        <Aes as fgf::FieldBuffer>::encode(&mut lane, lo);
+        let mut image = [0u8; 2];
+        fgf::ops::embed_into_with(&mut image, &prepared, &lane);
+        assert_eq!(<Gf16 as fgf::FieldBuffer>::decode(&image), tower.embed(lo));
     }
 
     // Embedding<Gf1, T> carries the absolute trace and norm.

@@ -85,9 +85,9 @@ pub use binary::{
     AES, BinaryDegree, BinaryDescription, BinaryField, BinaryRepr, ByteLogExp, Cantor, Normal,
     Polynomial, RS,
 };
-#[cfg(feature = "alloc")]
-pub use embedding::Frobenius;
 pub use embedding::{Embedding, EmbeddingError, Isomorphism, Postcompose};
+#[cfg(feature = "alloc")]
+pub use embedding::{Frobenius, PreparedEmbedding, PreparedIsomorphism};
 pub use extension::{
     Components, Extension, ExtensionField, ExtensionSpec, ExtensionStorage, Packed, PackedPadded,
     PackedWord, Relation,

@@ -76,6 +76,17 @@ pub struct Frobenius<F: Field> {
     map: CompiledMap<F>,
 }
 
+// A derive would bound on `F: Clone`; the manual impl needs only the
+// field contract the type already carries. Cloning copies the column
+// entries.
+impl<F: Field> Clone for Frobenius<F> {
+    fn clone(&self) -> Self {
+        Self {
+            power: self.power,
+            map: self.map.clone(),
+        }
+    }
+}
 impl<F: Field> Frobenius<F> {
     /// Prepare the Frobenius map `x |-> x^(p^k)`.
     ///
