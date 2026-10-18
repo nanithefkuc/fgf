@@ -31,7 +31,10 @@ All notable changes to this project are documented here. The format follows
   with caller-maintained zero padding; packed outputs are exactly
   `bits::bytes_for(bits)` bytes with cleared tail bits, lane sides hold
   whole target elements exactly, and empty rows are valid.
-- Wiki reference for operation suffixes, destination behavior, prepared state,
+- Wiki guides for operation suffixes and prepared coefficients:
+  `wiki/Operation-suffixes.md` covers destination, shape, `_with`, `_at`/`_offsets`,
+  and allocation suffixes, and `wiki/Prepared-coefficients.md` covers `Coeff`,
+  `CoeffVec`/`CoeffMatrix` ownership, gather views, and `alloc`-gated reuse.
 - Prepared and overwrite forms of the offset-addressed matrix operations:
   `ops::mul_add_matrix_at_with`, `ops::mul_into_matrix_at`, and
   `ops::mul_into_matrix_at_with` complete the `mul_add_matrix_at` family with
