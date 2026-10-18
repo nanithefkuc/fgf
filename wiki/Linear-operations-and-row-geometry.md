@@ -19,6 +19,7 @@ the same flow with their [lane encoding](Coordinates-and-packed-bytes).
 | `dst[i] = a[i] * b[i]` | Two varying operands | `mul_elementwise` |
 | `dst[i] = 1 / src[i]` | One row, reciprocal lanes | `inv_into` / `inv_assign` |
 | `dst[i] = a[i] / b[i]` | Two varying operands | `div_elementwise` / `div_elementwise_assign` |
+| `sum(a[i] * b[i])` | Two rows, one element | `dot_product` |
 
 Overwrite calls need no pre-zeroing. Accumulation needs a deliberate starting
 value; `_assign` uses the old destination as an operand. See

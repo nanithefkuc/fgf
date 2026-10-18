@@ -73,6 +73,7 @@ use crate::field::{Elem, FieldBuffer};
 use crate::kernel::{FieldKernels, KernelDispatch, RawDispatch};
 
 mod coefficient;
+mod dot;
 mod gather;
 #[cfg(feature = "alloc")]
 pub mod map;
@@ -85,6 +86,7 @@ mod scatter;
 mod single;
 
 pub use coefficient::Coeff;
+pub use dot::dot_product;
 pub use gather::{add_gather_offsets, mul_add_gather, mul_into_gather};
 pub use matrix::{mul_add_matrix, mul_add_matrix_at, mul_into_matrix, mul_into_matrix_at};
 pub use packing::{pack, unpack};

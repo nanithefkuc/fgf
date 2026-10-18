@@ -846,6 +846,36 @@ fn generic_extension_rows_steady_state_allocate_nothing() {
     assert_extension_packed_surface_zero_alloc::<Packed16Row>(binary_coeff);
 }
 
+/// Byte-lane dot products return by value and fold scalar lanes, so steady
+/// state allocates nothing on any family.
+#[test]
+fn bulk_dot_product_steady_state_allocates_nothing() {
+    use fgf::FiniteField;
+    use fgf::Polynomial;
+    use fgf::poly::AES;
+
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    type Gf8 = FiniteField<2, 8, Polynomial<AES>>;
+    let a = noise(1024, 0xd20);
+    let b = noise(1024, 0xd21);
+    let a31 = noise(1020, 0xd22);
+    let b31 = noise(1020, 0xd23);
+    // Warm dispatch before counting.
+    let _ = ops::dot_product::<Gf8>(&a, &b);
+    let _ = ops::dot_product::<Mersenne31>(&a31, &b31);
+    let _ = ops::dot_product::<Goldilocks>(&a, &b);
+
+    let allocations = count_allocations(|| {
+        let _ = ops::dot_product::<Gf8>(&a, &b);
+        let _ = ops::dot_product::<Mersenne31>(&a31, &b31);
+        let _ = ops::dot_product::<Goldilocks>(&a, &b);
+        let _ = ops::dot_product::<ResiduePrime>(&a31, &b31);
+    });
+    assert_eq!(allocations, 0, "byte-lane dot product allocated");
+}
+
 /// Batch reciprocal and division rows stage prefixes and reciprocals in
 /// fixed stack chunks, so steady state allocates nothing on any family.
 #[test]
