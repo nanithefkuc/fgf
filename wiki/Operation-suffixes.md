@@ -14,7 +14,9 @@ coefficients. Suffixes do not imply every combination exists.
 
 Start accumulation at zero for a new sum, or at an existing value for an update.
 Addition folds this into the verb: `add_assign` adds a source; `add_gather_offsets`
-adds sources addressed in one region.
+adds sources addressed in one region. Subtraction mirrors addition:
+`sub_assign` subtracts a source and `sub_assign_rows` subtracts pairwise rows
+(identical to addition in characteristic two).
 
 ```rust
 use fgf::{AES, Elem, FiniteField, Polynomial, ops};
@@ -65,10 +67,15 @@ sources. `mul_add_matrix_at` instead takes destination offsets and ordinary
 coefficient terms; `mul_add_matrix_at_with` takes offsets, prepared matrix,
 then sources. `mul_into_matrix_at` and `mul_into_matrix_at_with` are the
 overwrite counterparts: the named rows need no zeroing first.
+`mul_into_scatter` is the overwrite counterpart of `mul_add_scatter`: each
+row is `coeffs[j] * src` with prior contents ignored.
 
 ## Allocation
 
 `_to_vec` allocates output; `pack` instead fills caller-owned storage.
+`pack_to_vec` packs elements into a new byte vector and `unpack_to_vec`
+decodes bytes into a new element vector. `unpack` instead fills
+caller-owned element storage.
 `_with` means reusable state, not scratch workspace: `fgf` has no public
 `_scratch` operation.
 

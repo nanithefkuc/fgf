@@ -73,3 +73,25 @@ pub fn pack_to_vec<F: FieldBuffer>(elems: &[Elem<F>]) -> alloc::vec::Vec<u8> {
     pack::<F>(&mut bytes, elems);
     bytes
 }
+
+/// Decode packed little-endian bytes into a newly allocated element vector.
+///
+/// Like [`unpack`], this canonicalizes each lane into element storage.
+/// Buffers produced by [`pack`] or [`pack_to_vec`] round-trip exactly.
+///
+/// # Panics
+/// Panics unless `src.len()` is a whole number of field elements.
+#[cfg(feature = "alloc")]
+#[must_use]
+pub fn unpack_to_vec<F: FieldBuffer>(src: &[u8]) -> alloc::vec::Vec<Elem<F>> {
+    assert!(
+        src.len().is_multiple_of(F::BYTES),
+        "unpack_to_vec: src is {} bytes, not a whole number of {} elements",
+        src.len(),
+        F::NAME,
+    );
+    let len = src.len() / F::BYTES;
+    let mut elems = alloc::vec![Elem::<F>::ZERO; len];
+    unpack::<F>(&mut elems, src);
+    elems
+}

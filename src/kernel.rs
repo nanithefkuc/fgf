@@ -431,6 +431,18 @@ pub(crate) trait KernelDispatch: FieldBuffer {
         Self::add_assign(RawDispatch, dst, src);
     }
 
+    /// Pairwise row subtraction over two equal flat row buffers.
+    ///
+    /// The row-geometry counterpart of [`KernelDispatch::sub_assign`],
+    /// mirroring [`KernelDispatch::add_assign_rows`]: row boundaries do not
+    /// change elementwise subtraction, so running
+    /// [`KernelDispatch::sub_assign`] over the whole buffers is exact for
+    /// every field; that is the default. A backend overrides it only with a
+    /// kernel that exploits the row geometry.
+    fn sub_assign_rows(_proof: RawDispatch, dst: &mut [u8], src: &[u8], _row_len: usize) {
+        Self::sub_assign(RawDispatch, dst, src);
+    }
+
     /// `dst += coeff * src`. The workhorse AXPY.
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]);
 
@@ -462,6 +474,26 @@ pub(crate) trait KernelDispatch: FieldBuffer {
         coeffs: &[crate::field::Elem<Self>],
         src: &[u8],
     );
+
+    /// One source overwrites many rows: `rows[j] = coeffs[j] * src` for each `j`.
+    ///
+    /// The overwrite counterpart of [`KernelDispatch::mul_add_scatter`]: the
+    /// previous contents of the named rows are ignored, so callers need not
+    /// zero them. The default applies the fused single-row
+    /// [`KernelDispatch::mul_into`] per row without allocation;
+    /// register-blocked backends may override it to seed accumulators from
+    /// the source with no destination read.
+    fn mul_into_scatter(
+        _proof: RawDispatch,
+        rows: &mut [u8],
+        row_len: usize,
+        coeffs: &[crate::field::Elem<Self>],
+        src: &[u8],
+    ) {
+        for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
+            Self::mul_into(RawDispatch, row, &Self::prepare(RawDispatch, coeff), src);
+        }
+    }
 
     /// Many sources into one row: `dst += sum(coeffs[i] * srcs[i])`.
     ///

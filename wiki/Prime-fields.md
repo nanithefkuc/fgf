@@ -118,8 +118,9 @@ assert_eq!(z.to_bytes(), [7, 0, 0, 0, 11, 0, 0, 0]);
 ```
 
 `conjugate` and `norm` equal the relative Frobenius and norm of
-`Embedding<Mersenne31, QuadMersenne31>`;
-[embeddings](Embeddings-and-presentation-changes) define both relative maps.
+`Embedding<Mersenne31, QuadMersenne31>` (whose `trace` has no inherent
+spelling here);
+[embeddings](Embeddings-and-presentation-changes) define the relative maps.
 
 For a custom relation or storage choice, continue with
 [custom fields and extensions](Downstream-scalar-fields). Exact contracts live in

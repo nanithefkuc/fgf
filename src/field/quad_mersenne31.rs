@@ -326,8 +326,11 @@ impl Elem<QuadMersenne31> {
 
     /// Conjugate `a − bi` over canonical storage: no re-reduction.
     ///
-    /// The result equals `Embedding<Mersenne31, QuadMersenne31>::frobenius`
-    /// at this element.
+    /// The row's `const` conjugate: the defining relation is `t^2 + 1`,
+    /// so `c1 = 0` and the routed `(a - c1*b) - b*t` reduces to `a - b*t`.
+    /// Equals `Embedding<Mersenne31, QuadMersenne31>::frobenius` at this
+    /// element. The routed trace and norm have no inherent spelling here:
+    /// use the embedding maps.
     #[inline]
     #[must_use]
     pub const fn conjugate(self) -> Self {
@@ -339,9 +342,13 @@ impl Elem<QuadMersenne31> {
     /// Norm `a² + b²` as an element of the base field, over canonical
     /// storage: no re-reduction of the inputs.
     ///
-    /// The norm lives in `GF(2^31 − 1)`, not in a raw lane; the returned
-    /// value is canonical. The result equals
+    /// The row's `const` norm: the defining relation is `t^2 + 1`, so
+    /// `c0 = 1` and `c1 = 0` and the routed `a^2 - c1*a*b + c0*b^2`
+    /// reduces to `a² + b²`. The norm lives in `GF(2^31 − 1)`, not in a
+    /// raw lane; the returned value is canonical. Equals
     /// `Embedding<Mersenne31, QuadMersenne31>::norm` at this element.
+    /// The routed trace has no inherent spelling here: use the embedding
+    /// map.
     #[inline]
     #[must_use]
     pub const fn norm(self) -> Elem<Mersenne31> {

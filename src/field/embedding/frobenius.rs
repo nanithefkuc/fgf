@@ -15,27 +15,15 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use super::super::extension::arithmetic;
-use super::super::extension::descriptor::{COORDINATES, Node};
+use super::super::extension::descriptor::COORDINATES;
 use super::super::private::RowAccess;
 use super::super::{Elem, Field};
 use super::super::{FieldElem, PrimeIdentity, ResidueRow, Validate};
+use super::quadratic;
 
-/// The closed-form conjugation coefficient of a quadratic relation root.
-///
-/// The Vieta step sees only whether the linear coefficient vanishes, is
-/// one in characteristic two, or needs its stored value. The general case
-/// carries no payload: application re-reads the coefficient from the
-/// field descriptor, which already stores it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ConjugationCoefficient {
-    /// Odd characteristic with a vanishing linear coefficient.
-    Zero,
-    /// Characteristic two with unit linear coefficient.
-    One,
-    /// A general stored linear coefficient, read from the descriptor.
-    General,
-}
+/// The closed-form conjugation coefficient of a quadratic relation root,
+/// shared with the compact embedding arms.
+use super::quadratic::ConjugationCoefficient;
 
 /// A compiled Frobenius arm.
 ///
@@ -152,39 +140,7 @@ fn compile<F: Field>(power: u32) -> CompiledMap<F> {
 /// flat polynomial leaves, basis leaves, wider relations — reports none
 /// and compiles to columns.
 fn conjugation<F: Field>() -> Option<(u8, ConjugationCoefficient)> {
-    let descriptor = F::DESCRIPTOR;
-    let root = descriptor.root_index();
-    let Node::Extension {
-        base,
-        relative_degree: 2,
-        base_degree,
-        base_words,
-        coefficients,
-        ..
-    } = descriptor.node(root)
-    else {
-        return None;
-    };
-    // The base degree fits the tag width on every row the crate builds.
-    #[allow(clippy::cast_possible_truncation)]
-    let base_degree = *base_degree as u8;
-    let characteristic = arithmetic::characteristic_of(descriptor, root);
-    if characteristic == 2 {
-        if coefficients[1] == arithmetic::word_one(descriptor, *base) {
-            return Some((base_degree, ConjugationCoefficient::One));
-        }
-        return Some((base_degree, ConjugationCoefficient::General));
-    }
-    let mut linear = arithmetic::zero_element();
-    let mut k = 0;
-    while k < *base_words {
-        linear[k] = coefficients[*base_words + k];
-        k += 1;
-    }
-    if arithmetic::element_is_zero(descriptor, *base, &linear) {
-        return Some((base_degree, ConjugationCoefficient::Zero));
-    }
-    Some((base_degree, ConjugationCoefficient::General))
+    quadratic::conjugation_shape::<F>()
 }
 
 /// The scalar exponent of the `k`th Frobenius power: `p^k`.
@@ -220,116 +176,9 @@ fn apply_map<F: Field>(map: &CompiledMap<F>, value: Elem<F>) -> Elem<F> {
         CompiledMap::Conjugation {
             base_degree,
             coefficient,
-        } => apply_conjugation::<F>(value, *base_degree, *coefficient),
+        } => quadratic::apply_conjugation::<F>(value, *base_degree, *coefficient),
         CompiledMap::BinaryColumns { .. } => apply_binary::<F>(map, value),
         CompiledMap::ResidueColumns { .. } => apply_residue::<F>(map, value),
-    }
-}
-
-/// The stored linear coefficient of a quadratic relation root, as a base
-/// element in interpreter form.
-fn linear_coefficient<F: Field>() -> arithmetic::Element {
-    let descriptor = F::DESCRIPTOR;
-    let root = descriptor.root_index();
-    let Node::Extension {
-        base_words,
-        coefficients,
-        ..
-    } = descriptor.node(root)
-    else {
-        debug_assert!(false, "stored coefficient on a non-relation root");
-        return arithmetic::zero_element();
-    };
-    let characteristic = arithmetic::characteristic_of(descriptor, root);
-    let mut coefficient = arithmetic::zero_element();
-    if characteristic == 2 {
-        coefficient[0] = coefficients[1];
-        return coefficient;
-    }
-    let mut k = 0;
-    while k < *base_words {
-        coefficient[k] = coefficients[*base_words + k];
-        k += 1;
-    }
-    coefficient
-}
-
-/// Apply closed-form Vieta conjugation to one element.
-///
-/// The image of `a0 + a1*t` under the base-order power is
-/// `(a0 - c1*a1) - a1*t`: negation of the upper coordinate at a
-/// vanishing coefficient, an XOR shear at unit coefficient in
-/// characteristic two, and a stored-coefficient multiply otherwise.
-/// Reproduces the quadratic Mersenne conjugation and every
-/// characteristic-two tower step.
-fn apply_conjugation<F: Field>(
-    value: Elem<F>,
-    base_degree: u8,
-    coefficient: ConjugationCoefficient,
-) -> Elem<F> {
-    let descriptor = F::DESCRIPTOR;
-    let root = descriptor.root_index();
-    let Node::Extension { base, .. } = descriptor.node(root) else {
-        debug_assert!(false, "conjugation on a non-relation root");
-        return value;
-    };
-    let base = *base;
-    let characteristic = arithmetic::characteristic_of(descriptor, root);
-    if characteristic == 2 {
-        let word = F::coordinate_word(value.raw);
-        let half = u32::from(base_degree);
-        let mask = mask_of(half);
-        let (lo, hi) = (word & mask, (word >> half) & mask);
-        let c1 = linear_coefficient::<F>();
-        let sheared = match coefficient {
-            ConjugationCoefficient::One => lo ^ hi,
-            ConjugationCoefficient::General => {
-                lo ^ arithmetic::word_mul(descriptor, base, c1[0], hi)
-            }
-            ConjugationCoefficient::Zero => {
-                debug_assert!(false, "vanishing coefficient is inseparable here");
-                lo
-            }
-        };
-        return Elem {
-            raw: F::from_coordinate_word(sheared | (hi << half)),
-        };
-    }
-    let degree = F::DEGREE as usize;
-    let half = usize::from(base_degree);
-    debug_assert!(degree == 2 * half, "conjugation spans the whole root");
-    let mut coordinates = [0u64; COORDINATES];
-    F::prime_coordinates_into(&mut coordinates[..degree], value.raw);
-    let mut lower = arithmetic::zero_element();
-    let mut upper = arithmetic::zero_element();
-    let mut k = 0;
-    while k < half {
-        lower[k] = coordinates[k];
-        upper[k] = coordinates[half + k];
-        k += 1;
-    }
-    let image_upper = arithmetic::element_neg(descriptor, base, &upper);
-    let image_lower = match coefficient {
-        ConjugationCoefficient::Zero => lower,
-        ConjugationCoefficient::General => {
-            let product =
-                arithmetic::element_mul(descriptor, base, &linear_coefficient::<F>(), &upper);
-            arithmetic::element_sub(descriptor, base, &lower, &product)
-        }
-        ConjugationCoefficient::One => {
-            debug_assert!(false, "unit coefficient is inseparable here");
-            lower
-        }
-    };
-    let mut image = [0u64; COORDINATES];
-    let mut k = 0;
-    while k < half {
-        image[k] = image_lower[k];
-        image[half + k] = image_upper[k];
-        k += 1;
-    }
-    Elem {
-        raw: F::from_prime_coordinates(&image[..degree]),
     }
 }
 
@@ -470,15 +319,6 @@ fn apply_residue<F: Field>(map: &CompiledMap<F>, value: Elem<F>) -> Elem<F> {
     }
     Elem {
         raw: F::from_prime_coordinates(&residues[..degree]),
-    }
-}
-
-/// A mask of `bits` set low bits, without shifting by the word width.
-const fn mask_of(bits: u32) -> u64 {
-    if bits >= 64 {
-        u64::MAX
-    } else {
-        (1u64 << bits) - 1
     }
 }
 

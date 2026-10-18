@@ -6132,6 +6132,23 @@ mod x86 {
             }
         }
         assert_eq!(got, want, "rs16 dispatch matrix");
+
+        // The overwrite-scatter default routes per-row `mul_into` through
+        // dispatch: prior contents are ignored, zero fills, one copies.
+        let mut got = noise(row_len * nrows, 0x2e2);
+        let mut want = vec![0u8; row_len * nrows];
+        <RsExtField as KernelDispatch>::mul_into_scatter(
+            RawDispatch,
+            &mut got,
+            row_len,
+            &coeffs,
+            &src,
+        );
+        for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs) {
+            let prepared = <RsExtField as KernelDispatch>::prepare(RawDispatch, coeff);
+            <RsExtField as KernelDispatch>::mul_into(RawDispatch, row, &prepared, &src);
+        }
+        assert_eq!(got, want, "rs16 dispatch overwrite scatter");
     }
 
     /// The AES-base tower with a non-unit linear coefficient: the only

@@ -409,6 +409,14 @@ impl Elem<Goldilocks> {
         }
         result
     }
+
+    /// The canonical form of this element. Storage is canonical already, so
+    /// this preserves every constructed element.
+    #[inline]
+    #[must_use]
+    pub const fn canonical(self) -> Self {
+        Self::from_raw(self.raw)
+    }
 }
 
 impl core::fmt::Display for Elem<Goldilocks> {
