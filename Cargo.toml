@@ -23,10 +23,12 @@ include = [
 
 [features]
 default = ["std", "simd"]
-# Allocation. Required for the prepared coefficient collections (`CoeffVec`,
-# `CoeffMatrix`) and `pack_to_vec`, which own dynamically sized storage. This
-# is deliberately separate from `std`: a heap without an operating system is
-# enough for every prepared form in the crate.
+# Allocation. Required for the prepared maps (`Frobenius`,
+# `PreparedEmbedding`, `PreparedIsomorphism`), the `ops::map` and
+# `ops::map_bits` modules, the prepared coefficient collections (`CoeffVec`,
+# `CoeffMatrix`), the prepared scatter/gather/matrix `_with` forms, and
+# `pack_to_vec`. This is deliberately separate from `std`: a heap without an
+# operating system is enough for every prepared form in the crate.
 alloc = []
 # Standard library. Required for the lazily-built shared table banks and the
 # `simdispatch` runtime detection selected by `simd`.

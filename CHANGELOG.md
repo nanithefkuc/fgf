@@ -91,6 +91,10 @@ All notable changes to this project are documented here. The format follows
   `Backend` through `single_row_backend` and `delayed_matrix_backend`.
   Replace boolean selector calls with comparisons to `Backend::Scalar`;
   use `avx2_floor_op_len` for the AVX2-specific row floor.
+- The `alloc` feature documentation names the full prepared surface:
+  the prepared maps, the `ops::map` and `ops::map_bits` modules, the
+  prepared coefficient collections, the prepared scatter/gather/matrix
+  `_with` forms, and `pack_to_vec`.
 
 ### Removed
 
