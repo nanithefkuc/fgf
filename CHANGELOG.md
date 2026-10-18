@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Byte-lane inner product `ops::dot_product`: folds two packed rows into
+  one `Elem` as `sum(a[i] * b[i])`, empty rows returning zero. The name
+  keeps the short scalar-noun spelling (`pack`, `mul_elementwise`) and
+  stays distinct from bit-packed `bits::dot_product`, which folds an AND
+  parity over live bits; the old N-to-1 overwrite gather of the same
+  name (1.x) is now `ops::mul_into_gather` under the current grammar.
+
 - Mixed embedding composition over a sealed `Postcompose` right-hand
   operand: `Embedding::then` accepts a proper inclusion or an
   isomorphism out of the middle row, and

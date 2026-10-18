@@ -11,7 +11,7 @@ use fgf::field::{FieldBuffer, FieldElem};
 use fgf::poly::{AES, RS};
 use fgf::{
     Cantor, Elem, Extension, ExtensionSpec, FieldKernels, FiniteField, Goldilocks, Mersenne31,
-    Normal, Packed, Polynomial, QuadMersenne31, Relation, goldilocks, ops,
+    Normal, Packed, Polynomial, QuadMersenne31, Relation, Residue, goldilocks, ops,
 };
 
 type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
@@ -4716,4 +4716,132 @@ fn fallback_add_assign_rows_rejects_partial_row() {
     let mut dst = [0u8; 10];
     let src = [0u8; 10];
     ops::add_assign_rows::<FiniteField<2, 8, Normal<0x11B, 0x20>>>(&mut dst, 4, &src);
+}
+
+// ---------------------------------------------------------------------------
+// bulk_dot_product: byte-lane inner product over two packed rows
+// ---------------------------------------------------------------------------
+
+/// Scalar-fold oracle: the definitional `sum(a[i] * b[i])` from the field
+/// operations, independent of the `ops` under test.
+fn oracle_dot_product<F: FieldKernels>(a: &[u8], b: &[u8]) -> Elem<F> {
+    let mut acc = Elem::<F>::ZERO;
+    for (x, y) in a.chunks_exact(F::BYTES).zip(b.chunks_exact(F::BYTES)) {
+        acc = acc.add(F::decode(x).mul(F::decode(y)));
+    }
+    acc
+}
+
+/// Element counts straddling scalar unroll and vector lane boundaries:
+/// empty, one lane, sub-lane remainders, and multi-tile rows with odd
+/// tails. GF(2^16) rows stay even automatically since `BYTES == 2`.
+const BULK_DOT_ELEMS: [usize; 8] = [0, 1, 2, 3, 17, 33, 257, 1025];
+
+fn check_bulk_dot_product<F: FieldKernels>(tag: &str, seed: u64) {
+    for &n in &BULK_DOT_ELEMS {
+        let len = n * F::BYTES;
+        let a = noise(len, seed);
+        let b = noise(len, seed + 0x100);
+        let got = ops::dot_product::<F>(&a, &b);
+        let want = oracle_dot_product::<F>(&a, &b);
+        assert_eq!(got, want, "{tag}: dot at {n} elements");
+        // Commutativity and self-product (norm) come free from the same
+        // oracle on swapped and aliased inputs.
+        assert_eq!(
+            ops::dot_product::<F>(&b, &a),
+            want,
+            "{tag}: dot commutes at {n} elements"
+        );
+        assert_eq!(
+            ops::dot_product::<F>(&a, &a),
+            oracle_dot_product::<F>(&a, &a),
+            "{tag}: self dot at {n} elements"
+        );
+    }
+}
+
+#[test]
+fn bulk_dot_product_matches_scalar_fold_on_every_family() {
+    check_bulk_dot_product::<FiniteField<2, 8, Polynomial<AES>>>("gf8-aes", 0xd01);
+    check_bulk_dot_product::<FiniteField<2, 8, Polynomial<RS>>>("gf8-rs", 0xd02);
+    check_bulk_dot_product::<Gf16>("gf16", 0xd03);
+    check_bulk_dot_product::<Gf32>("gf32", 0xd04);
+    check_bulk_dot_product::<Gf64>("gf64", 0xd05);
+    check_bulk_dot_product::<FanPaar8Field>("fan-paar8", 0xd06);
+    check_bulk_dot_product::<FanPaar16Field>("fan-paar16", 0xd07);
+    check_bulk_dot_product::<FanPaar32Field>("fan-paar32", 0xd08);
+    check_bulk_dot_product::<FanPaar64Field>("fan-paar64", 0xd09);
+    check_bulk_dot_product::<Mersenne31>("mersenne31", 0xd0a);
+    check_bulk_dot_product::<Goldilocks>("goldilocks", 0xd0b);
+    check_bulk_dot_product::<QuadMersenne31>("quad-mersenne31", 0xd0c);
+    check_bulk_dot_product::<FiniteField<1_000_000_007, 1, Residue>>("residue-u32", 0xd0d);
+    check_bulk_dot_product::<FiniteField<127, 1, Residue>>("residue-u8", 0xd0e);
+    check_bulk_dot_product::<FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1, Residue>>("residue-u64", 0xd0f);
+}
+
+#[test]
+fn bulk_dot_product_empty_is_zero_and_orthogonal_rows_cancel() {
+    // Empty rows fold to the additive identity on every family.
+    assert_eq!(
+        ops::dot_product::<FiniteField<2, 8, Polynomial<AES>>>(&[], &[]),
+        Elem::<FiniteField<2, 8, Polynomial<AES>>>::ZERO
+    );
+    assert_eq!(
+        ops::dot_product::<Mersenne31>(&[], &[]),
+        Elem::<Mersenne31>::ZERO
+    );
+    assert_eq!(
+        ops::dot_product::<Goldilocks>(&[], &[]),
+        Elem::<Goldilocks>::ZERO
+    );
+    // A one-lane sanity case with hand-computed arithmetic: over AES,
+    // 0x53 * 0xca is 0x01 (the AES test-vector product), so the dot of
+    // single-lane rows is that product.
+    let a = [0x53u8];
+    let b = [0xcau8];
+    assert_eq!(
+        ops::dot_product::<FiniteField<2, 8, Polynomial<AES>>>(&a, &b),
+        Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x01)
+    );
+    // Orthogonal rows cancel in characteristic two: `a.b == 0` where the
+    // lane products XOR to zero.
+    let zero_row = [0u8; 4];
+    let some_row = noise(4, 0xd10);
+    assert_eq!(
+        ops::dot_product::<FiniteField<2, 8, Polynomial<AES>>>(&zero_row, &some_row),
+        Elem::<FiniteField<2, 8, Polynomial<AES>>>::ZERO
+    );
+}
+
+#[test]
+fn bulk_dot_product_accepts_raw_prime_aliases() {
+    // A non-canonical Mersenne31 lane (2^31 aliases zero) folds exactly as
+    // the scalar field does: the alias decodes to zero, so the lane
+    // product is zero and the dot is unaffected.
+    let alias = [0xFFu8, 0xFF, 0xFF, 0xFF]; // 0xFFFF_FFFF == 1 mod 2^31 - 1
+    let unit = [0x01u8, 0x00, 0x00, 0x00];
+    let got = ops::dot_product::<Mersenne31>(&alias, &unit);
+    let want = oracle_dot_product::<Mersenne31>(&alias, &unit);
+    assert_eq!(got, want, "m31 alias lane folds like the scalar field");
+    assert_eq!(got, m31(1), "0xFFFF_FFFF decodes to one");
+    // Non-canonical Goldilocks lanes fold the same way.
+    let g_alias = u64::MAX.to_le_bytes();
+    let g_unit = 1u64.to_le_bytes();
+    assert_eq!(
+        ops::dot_product::<Goldilocks>(&g_alias, &g_unit),
+        oracle_dot_product::<Goldilocks>(&g_alias, &g_unit),
+        "goldilocks alias lane folds like the scalar field"
+    );
+}
+
+#[test]
+#[should_panic(expected = "dot_product: a is 4 bytes but b is 3 bytes")]
+fn bulk_dot_product_rejects_length_mismatch() {
+    let _ = ops::dot_product::<FiniteField<2, 8, Polynomial<AES>>>(&[0u8; 4], &[0u8; 3]);
+}
+
+#[test]
+#[should_panic(expected = "dot_product: buffer of 3 bytes is not a whole number")]
+fn bulk_dot_product_rejects_partial_trailing_element() {
+    let _ = ops::dot_product::<Gf16>(&[0u8; 3], &[0u8; 3]);
 }

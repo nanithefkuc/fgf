@@ -17,6 +17,7 @@ the same flow with their [lane encoding](Coordinates-and-packed-bytes).
 | `dst = sum(c[s] * src[s])` | Many sources, one output | `mul_into_gather` |
 | `out[o] = sum(c[s,o] * src[s])` | Many sources, many outputs | `mul_into_matrix` |
 | `dst[i] = a[i] * b[i]` | Two varying operands | `mul_elementwise` |
+| `sum(a[i] * b[i])` | Two rows, one element | `dot_product` |
 
 Overwrite calls need no pre-zeroing. Accumulation needs a deliberate starting
 value; `_assign` uses the old destination as an operand. See
