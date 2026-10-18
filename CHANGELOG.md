@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Batch reciprocal and division rows `ops::inv_into` / `ops::inv_assign`
+  and `ops::div_elementwise` / `ops::div_elementwise_assign`: Montgomery
+  batch inversion with zero-preserving totality (`inv(0) == 0`,
+  `x / 0 == 0`), chunked 64-element stack scratch so steady state never
+  touches the heap. Names follow the `mul_elementwise` family spellings.
+
 - Mixed embedding composition over a sealed `Postcompose` right-hand
   operand: `Embedding::then` accepts a proper inclusion or an
   isomorphism out of the middle row, and
