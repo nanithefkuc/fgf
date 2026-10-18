@@ -32,6 +32,13 @@ All notable changes to this project are documented here. The format follows
   `bits::bytes_for(bits)` bytes with cleared tail bits, lane sides hold
   whole target elements exactly, and empty rows are valid.
 - Wiki reference for operation suffixes, destination behavior, prepared state,
+- Prepared and overwrite forms of the offset-addressed matrix operations:
+  `ops::mul_add_matrix_at_with`, `ops::mul_into_matrix_at`, and
+  `ops::mul_into_matrix_at_with` complete the `mul_add_matrix_at` family with
+  the same geometry checks and argument order as the contiguous forms. GF(2^8)
+  dispatches the register-blocked GFNI and AVX-512 scattered kernels with
+  overwrite seeded from zero in registers; every other field routes the
+  dispatched single-row kernels over the named rows.
 
 ### Changed
 

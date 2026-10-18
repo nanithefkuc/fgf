@@ -1149,6 +1149,187 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
         }
     }
 
+    #[cfg(feature = "alloc")]
+    fn mul_add_matrix_at_plan(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        values: &[Elem<FiniteField<2, 8, R>>],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
+            return crate::kernel::fallback::mul_add_matrix_at_plan::<Self>(
+                dst, row_len, row_starts, coeffs, srcs,
+            );
+        }
+        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        let _ = values;
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        {
+            // The prepared tables carry their affine maps, so the blocked
+            // scattered bodies read them directly.
+            match Self::backend() {
+                #[cfg(feature = "simd512")]
+                Backend::V4x => {
+                    let terms = crate::kernel::FlatMatrix {
+                        coefficients: coeffs,
+                        nrows: row_starts.len(),
+                        sources: srcs,
+                    };
+                    return x86::gf8::mul_add_matrix_at_avx512_with(
+                        crate::kernel::x86_v4x_token(),
+                        dst,
+                        row_len,
+                        row_starts,
+                        &terms,
+                    );
+                }
+                Backend::V3GfniCrypto => {
+                    let terms = FlatResolved {
+                        values,
+                        nrows: row_starts.len(),
+                        sources: srcs,
+                    };
+                    if R::AES_NATIVE {
+                        return x86::gf8::mul_add_matrix_at_gfni_with::<true, _>(
+                            crate::kernel::x86_v3_gfni_token(),
+                            dst,
+                            row_len,
+                            row_starts,
+                            &terms,
+                        );
+                    }
+                    return x86::gf8::mul_add_matrix_at_gfni_with::<false, _>(
+                        crate::kernel::x86_v3_gfni_token(),
+                        dst,
+                        row_len,
+                        row_starts,
+                        &terms,
+                    );
+                }
+                _ => {}
+            }
+        }
+        crate::kernel::fallback::mul_add_matrix_at_plan::<Self>(
+            dst, row_len, row_starts, coeffs, srcs,
+        );
+    }
+
+    fn mul_into_matrix_at(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        terms: &[(&[Elem<FiniteField<2, 8, R>>], &[u8])],
+    ) {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
+            for &start in row_starts {
+                dst[start..start + row_len].fill(0);
+            }
+            return Self::mul_add_matrix_at_rows(RawDispatch, dst, row_len, row_starts, terms);
+        }
+        // Overwrite seeds accumulators from zero in registers: one write pass,
+        // no destination read, no separate fill.
+        #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+        if Self::backend() == Backend::V4x {
+            return x86::gf8::mul_into_matrix_at_avx512_with(
+                crate::kernel::x86_v4x_token(),
+                dst,
+                row_len,
+                row_starts,
+                &TermsResolved(terms),
+            );
+        }
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if Self::backend() == Backend::V3GfniCrypto {
+            if R::AES_NATIVE {
+                return x86::gf8::mul_into_matrix_at_gfni_with::<true, _>(
+                    crate::kernel::x86_v3_gfni_token(),
+                    dst,
+                    row_len,
+                    row_starts,
+                    &TermsResolved(terms),
+                );
+            }
+            return x86::gf8::mul_into_matrix_at_gfni_with::<false, _>(
+                crate::kernel::x86_v3_gfni_token(),
+                dst,
+                row_len,
+                row_starts,
+                &TermsResolved(terms),
+            );
+        }
+        for &start in row_starts {
+            dst[start..start + row_len].fill(0);
+        }
+        Self::mul_add_matrix_at(RawDispatch, dst, row_len, row_starts, terms);
+    }
+
+    #[cfg(feature = "alloc")]
+    fn mul_into_matrix_at_plan(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        values: &[Elem<FiniteField<2, 8, R>>],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
+            for &start in row_starts {
+                dst[start..start + row_len].fill(0);
+            }
+            return crate::kernel::fallback::mul_add_matrix_at_plan::<Self>(
+                dst, row_len, row_starts, coeffs, srcs,
+            );
+        }
+        #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+        if Self::backend() == Backend::V4x {
+            let terms = crate::kernel::FlatMatrix {
+                coefficients: coeffs,
+                nrows: row_starts.len(),
+                sources: srcs,
+            };
+            return x86::gf8::mul_into_matrix_at_avx512_with(
+                crate::kernel::x86_v4x_token(),
+                dst,
+                row_len,
+                row_starts,
+                &terms,
+            );
+        }
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if Self::backend() == Backend::V3GfniCrypto {
+            let terms = FlatResolved {
+                values,
+                nrows: row_starts.len(),
+                sources: srcs,
+            };
+            if R::AES_NATIVE {
+                return x86::gf8::mul_into_matrix_at_gfni_with::<true, _>(
+                    crate::kernel::x86_v3_gfni_token(),
+                    dst,
+                    row_len,
+                    row_starts,
+                    &terms,
+                );
+            }
+            return x86::gf8::mul_into_matrix_at_gfni_with::<false, _>(
+                crate::kernel::x86_v3_gfni_token(),
+                dst,
+                row_len,
+                row_starts,
+                &terms,
+            );
+        }
+        for &start in row_starts {
+            dst[start..start + row_len].fill(0);
+        }
+        Self::mul_add_matrix_at_plan(RawDispatch, dst, row_len, row_starts, values, coeffs, srcs);
+    }
+
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
             return scalar::mul_elementwise::<FiniteField<2, 8, R>>(dst, a, b);

@@ -62,7 +62,9 @@ The shape words answer a different question:
 
 `mul_add_matrix_with` takes destination, row length, prepared matrix, then
 sources. `mul_add_matrix_at` instead takes destination offsets and ordinary
-coefficient terms. There is no prepared `_at_with` matrix form.
+coefficient terms; `mul_add_matrix_at_with` takes offsets, prepared matrix,
+then sources. `mul_into_matrix_at` and `mul_into_matrix_at_with` are the
+overwrite counterparts: the named rows need no zeroing first.
 
 ## Allocation
 

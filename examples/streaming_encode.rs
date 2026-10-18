@@ -61,19 +61,15 @@ fn main() {
     assert_eq!(parity, batch);
 
     // '_at' addresses destination rows. Headers and the unused row remain
-    // untouched. It accumulates, so the two output slots start at zero.
+    // untouched. The prepared form reuses the coding matrix directly; like
+    // the raw form it accumulates, so the output slots still start at zero.
     const HEADER: usize = 4;
     let offsets = [HEADER, HEADER + 2 * ROW_LEN];
     let mut frame = [0x5a; HEADER + 3 * ROW_LEN];
     for start in offsets {
         frame[start..start + ROW_LEN].fill(0);
     }
-    let terms = [
-        (&coefficients[0..2], sources[0]),
-        (&coefficients[2..4], sources[1]),
-        (&coefficients[4..6], sources[2]),
-    ];
-    ops::mul_add_matrix_at::<Gf16>(&mut frame, ROW_LEN, &offsets, &terms);
+    ops::mul_add_matrix_at_with(&mut frame, ROW_LEN, &offsets, &matrix, &sources);
     assert_eq!(&frame[..HEADER], &[0x5a; HEADER]);
     assert_eq!(
         &frame[HEADER + ROW_LEN..HEADER + 2 * ROW_LEN],
@@ -85,6 +81,11 @@ fn main() {
             &parity[output * ROW_LEN..(output + 1) * ROW_LEN]
         );
     }
+
+    // Overwrite writes the same rows without reading them first.
+    let mut direct = [0x5a; HEADER + 3 * ROW_LEN];
+    ops::mul_into_matrix_at_with(&mut direct, ROW_LEN, &offsets, &matrix, &sources);
+    assert_eq!(direct, frame);
 
     let mut elements = [Elem::ZERO; SYMBOLS];
     ops::unpack::<Gf16>(&mut elements, &parity[ROW_LEN..]);

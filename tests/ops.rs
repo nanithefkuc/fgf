@@ -715,6 +715,221 @@ fn matrix_scattered_matches_oracle_on_every_field() {
     check_matrix_scattered_oracle::<QuadMersenne31>("quad_mersenne31", 0x5d0c);
 }
 
+/// Scattered prepared accumulation matches the raw-term form, and scattered
+/// overwrite matches zeroed accumulation, across the blocked byte fields.
+#[cfg(feature = "alloc")]
+fn check_matrix_scattered_prepared_overwrite<F: fgf::FieldKernels>(tag: &str, seed: u64) {
+    let b = F::BYTES;
+    for &rl_elems in &RL_ELEMS {
+        let row_len = rl_elems * b;
+        for &nrows in &SCATTER_NROWS {
+            for &nterms in &SCATTER_NTERMS {
+                let sources: Vec<Vec<u8>> = (0..nterms)
+                    .map(|t| noise(row_len, seed + 0x100 + t as u64))
+                    .collect();
+                let src_refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+                let coeff_sets: Vec<Vec<Elem<F>>> = (0..nterms)
+                    .map(|t| {
+                        noise(nrows * b, seed + 0x200 + t as u64)
+                            .chunks_exact(b)
+                            .map(F::decode)
+                            .collect()
+                    })
+                    .collect();
+                let terms: Vec<(&[Elem<F>], &[u8])> = coeff_sets
+                    .iter()
+                    .zip(&sources)
+                    .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                    .collect();
+                let flat: Vec<Elem<F>> =
+                    coeff_sets.iter().flat_map(|c| c.iter().copied()).collect();
+                let matrix = ops::CoeffMatrix::<F>::from_source_major(nterms, nrows, &flat);
+
+                // Gapped scattered rows seeded with noise: accumulation must
+                // match the raw-term form exactly, gaps untouched.
+                let gap = b * 5;
+                let stride = row_len + gap;
+                let row_starts: Vec<usize> = (0..nrows).map(|j| j * stride).collect();
+                let init = noise(stride * nrows, seed + 0x300);
+                let mut raw = init.clone();
+                ops::mul_add_matrix_at::<F>(&mut raw, row_len, &row_starts, &terms);
+                let mut prepared = init.clone();
+                ops::mul_add_matrix_at_with::<F>(
+                    &mut prepared,
+                    row_len,
+                    &row_starts,
+                    &matrix,
+                    &src_refs,
+                );
+                assert_eq!(
+                    prepared, raw,
+                    "{tag}: prepared rl={row_len} nrows={nrows} nterms={nterms}"
+                );
+
+                // Overwrite from noise must equal zeroed accumulation, and the
+                // prepared overwrite must equal the raw overwrite.
+                let mut want = vec![0u8; stride * nrows];
+                ops::mul_add_matrix_at::<F>(&mut want, row_len, &row_starts, &terms);
+                let mut got = noise(stride * nrows, seed + 0x400);
+                let before = got.clone();
+                ops::mul_into_matrix_at::<F>(&mut got, row_len, &row_starts, &terms);
+                for j in 0..nrows {
+                    assert_eq!(
+                        &got[row_starts[j]..row_starts[j] + row_len],
+                        &want[row_starts[j]..row_starts[j] + row_len],
+                        "{tag}: overwrite rl={row_len} nrows={nrows} nterms={nterms} row {j}"
+                    );
+                    let g = row_starts[j] + row_len;
+                    assert_eq!(
+                        &got[g..g + gap],
+                        &before[g..g + gap],
+                        "{tag}: overwrite touched gap {j}"
+                    );
+                }
+                let mut planned = noise(stride * nrows, seed + 0x500);
+                ops::mul_into_matrix_at_with::<F>(
+                    &mut planned,
+                    row_len,
+                    &row_starts,
+                    &matrix,
+                    &src_refs,
+                );
+                for j in 0..nrows {
+                    assert_eq!(
+                        &planned[row_starts[j]..row_starts[j] + row_len],
+                        &got[row_starts[j]..row_starts[j] + row_len],
+                        "{tag}: prepared overwrite rl={row_len} nrows={nrows} nterms={nterms} row {j}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn gf8_matrix_scattered_prepared_matches_raw() {
+    check_matrix_scattered_prepared_overwrite::<FiniteField<2, 8, Polynomial<AES>>>(
+        "gf8-aes", 0x5e01,
+    );
+    check_matrix_scattered_prepared_overwrite::<FiniteField<2, 8, Polynomial<RS>>>(
+        "gf8-rs", 0x5e02,
+    );
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn gf16_matrix_scattered_prepared_matches_raw() {
+    check_matrix_scattered_prepared_overwrite::<Gf16>("gf16", 0x5e03);
+}
+
+/// Scattered prepared and overwrite forms on every field against the
+/// elementwise oracle, with zero and one coefficients in the mix.
+#[cfg(feature = "alloc")]
+fn check_matrix_scattered_at_with_oracle<F: FieldKernels>(tag: &str, seed: u64) {
+    let b = F::BYTES;
+    let special = [
+        <Elem<F> as fgf::field::FieldElem>::ZERO,
+        <Elem<F> as fgf::field::FieldElem>::ONE,
+    ];
+    for &rl_elems in &[1usize, 16, 33] {
+        let row_len = rl_elems * b;
+        for &nrows in &[1usize, 3] {
+            let nterms = 3;
+            let sources: Vec<Vec<u8>> = (0..nterms)
+                .map(|t| {
+                    let mut src = noise(row_len, seed + 0x100 + t as u64);
+                    canon::<F>(&mut src);
+                    src
+                })
+                .collect();
+            let src_refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+            let mut coefficient_bytes = noise(nterms * nrows * b, seed + 0x200);
+            canon::<F>(&mut coefficient_bytes);
+            let mut coefficients: Vec<Elem<F>> =
+                coefficient_bytes.chunks_exact(b).map(F::decode).collect();
+            coefficients[0] = special[1];
+            if coefficients.len() > 1 {
+                coefficients[1] = special[0];
+            }
+            let terms: Vec<(&[Elem<F>], &[u8])> = coefficients
+                .chunks_exact(nrows)
+                .zip(&sources)
+                .map(|(c, s)| (c, s.as_slice()))
+                .collect();
+            let matrix = ops::CoeffMatrix::<F>::from_source_major(nterms, nrows, &coefficients);
+
+            let stride = row_len + 3 * b;
+            let row_starts: Vec<usize> = (0..nrows).rev().map(|j| j * stride).collect();
+            let mut base = noise(stride * nrows, seed + 0x300);
+            canon::<F>(&mut base);
+            let mut want = base.clone();
+            for &(coeffs, src) in &terms {
+                for (&start, &coeff) in row_starts.iter().zip(coeffs) {
+                    oracle_mul_add::<F>(&mut want[start..start + row_len], coeff, src);
+                }
+            }
+            let mut prepared = base.clone();
+            ops::mul_add_matrix_at_with::<F>(
+                &mut prepared,
+                row_len,
+                &row_starts,
+                &matrix,
+                &src_refs,
+            );
+            assert_eq!(prepared, want, "{tag}: prepared rl={row_len} nrows={nrows}");
+
+            // Overwrite from a noisy base equals zeroed accumulation.
+            let mut zeroed = vec![0u8; stride * nrows];
+            canon::<F>(&mut zeroed);
+            ops::mul_add_matrix_at::<F>(&mut zeroed, row_len, &row_starts, &terms);
+            let mut overwrote = noise(stride * nrows, seed + 0x400);
+            canon::<F>(&mut overwrote);
+            ops::mul_into_matrix_at::<F>(&mut overwrote, row_len, &row_starts, &terms);
+            for &start in &row_starts {
+                assert_eq!(
+                    &overwrote[start..start + row_len],
+                    &zeroed[start..start + row_len],
+                    "{tag}: overwrite rl={row_len} nrows={nrows}"
+                );
+            }
+            let mut planned = noise(stride * nrows, seed + 0x500);
+            canon::<F>(&mut planned);
+            ops::mul_into_matrix_at_with::<F>(
+                &mut planned,
+                row_len,
+                &row_starts,
+                &matrix,
+                &src_refs,
+            );
+            for &start in &row_starts {
+                assert_eq!(
+                    &planned[start..start + row_len],
+                    &zeroed[start..start + row_len],
+                    "{tag}: prepared overwrite rl={row_len} nrows={nrows}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn matrix_scattered_with_matches_oracle_on_every_field() {
+    check_matrix_scattered_at_with_oracle::<FiniteField<2, 8, Polynomial<AES>>>("gf8-aes", 0x5e11);
+    check_matrix_scattered_at_with_oracle::<FiniteField<2, 8, Polynomial<RS>>>("gf8-rs", 0x5e12);
+    check_matrix_scattered_at_with_oracle::<Gf16>("gf16", 0x5e13);
+    check_matrix_scattered_at_with_oracle::<Gf32>("gf32", 0x5e14);
+    check_matrix_scattered_at_with_oracle::<Gf64>("gf64", 0x5e15);
+    check_matrix_scattered_at_with_oracle::<FanPaar8Field>("fan_paar8", 0x5e16);
+    check_matrix_scattered_at_with_oracle::<FanPaar16Field>("fan_paar16", 0x5e17);
+    check_matrix_scattered_at_with_oracle::<FanPaar32Field>("fan_paar32", 0x5e18);
+    check_matrix_scattered_at_with_oracle::<FanPaar64Field>("fan_paar64", 0x5e19);
+    check_matrix_scattered_at_with_oracle::<Mersenne31>("mersenne31", 0x5e1a);
+    check_matrix_scattered_at_with_oracle::<Goldilocks>("goldilocks", 0x5e1b);
+    check_matrix_scattered_at_with_oracle::<QuadMersenne31>("quad_mersenne31", 0x5e1c);
+}
+
 #[test]
 fn matrix_scattered_pairs_coefficients_to_out_of_order_rows() {
     // Row offsets need not be monotonic: coefficient `j` binds to
@@ -781,6 +996,102 @@ fn matrix_scattered_rejects_wrong_coefficient_count() {
         16,
         &[0, 16, 32],
         &[(&coeffs, &[0u8; 16])],
+    );
+}
+
+#[test]
+#[should_panic(expected = "overlap")]
+fn matrix_into_scattered_rejects_overlapping_rows() {
+    let mut dst = [0u8; 64];
+    let coeffs = [Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(1); 2];
+    ops::mul_into_matrix_at::<FiniteField<2, 8, Polynomial<AES>>>(
+        &mut dst,
+        16,
+        &[0, 8],
+        &[(&coeffs, &[0u8; 16])],
+    );
+}
+
+#[test]
+#[should_panic(expected = "but dst is")]
+fn matrix_into_scattered_rejects_out_of_bounds_row() {
+    let mut dst = [0u8; 32];
+    let coeffs = [Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(1); 2];
+    ops::mul_into_matrix_at::<FiniteField<2, 8, Polynomial<AES>>>(
+        &mut dst,
+        16,
+        &[0, 24],
+        &[(&coeffs, &[0u8; 16])],
+    );
+}
+
+#[test]
+#[should_panic(expected = "coefficients for")]
+fn matrix_into_scattered_rejects_wrong_coefficient_count() {
+    let mut dst = [0u8; 64];
+    let coeffs = [Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(1); 2];
+    ops::mul_into_matrix_at::<FiniteField<2, 8, Polynomial<AES>>>(
+        &mut dst,
+        16,
+        &[0, 16, 32],
+        &[(&coeffs, &[0u8; 16])],
+    );
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+#[should_panic(expected = "overlap")]
+fn matrix_scattered_with_rejects_overlapping_rows() {
+    let mut dst = [0u8; 64];
+    let matrix = ops::CoeffMatrix::<FiniteField<2, 8, Polynomial<AES>>>::from_source_major(
+        1,
+        2,
+        &[Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(1); 2],
+    );
+    ops::mul_add_matrix_at_with::<FiniteField<2, 8, Polynomial<AES>>>(
+        &mut dst,
+        16,
+        &[0, 8],
+        &matrix,
+        &[&[0u8; 16][..]],
+    );
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+#[should_panic(expected = "for 1 sources but there are 2")]
+fn matrix_scattered_with_rejects_source_count_mismatch() {
+    let mut dst = [0u8; 64];
+    let matrix = ops::CoeffMatrix::<FiniteField<2, 8, Polynomial<AES>>>::from_source_major(
+        1,
+        2,
+        &[Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(1); 2],
+    );
+    ops::mul_add_matrix_at_with::<FiniteField<2, 8, Polynomial<AES>>>(
+        &mut dst,
+        16,
+        &[0, 16],
+        &matrix,
+        &[&[0u8; 16][..], &[0u8; 16][..]],
+    );
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+#[should_panic(expected = "for 3 rows but there are 2")]
+fn matrix_scattered_with_rejects_output_count_mismatch() {
+    let mut dst = [0u8; 64];
+    let matrix = ops::CoeffMatrix::<FiniteField<2, 8, Polynomial<AES>>>::from_source_major(
+        1,
+        3,
+        &[Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(1); 3],
+    );
+    ops::mul_into_matrix_at_with::<FiniteField<2, 8, Polynomial<AES>>>(
+        &mut dst,
+        16,
+        &[0, 16],
+        &matrix,
+        &[&[0u8; 16][..]],
     );
 }
 
@@ -2559,6 +2870,47 @@ fn zero_and_empty_inputs_are_well_defined() {
         8,
         &[],
         &[(&[], &srcs[0])],
+    );
+    ops::mul_add_matrix_at_with(
+        &mut rows,
+        8,
+        &[0, 8],
+        &ops::CoeffMatrix::<FiniteField<2, 8, Polynomial<AES>>>::from_source_major(0, 2, &[]),
+        &[],
+    );
+    assert_eq!(rows, before, "empty-source scattered matrix is a no-op");
+
+    // Scattered overwrite with no terms zeros the named rows and leaves the
+    // gaps alone.
+    let mut frame = noise(24, 0x38);
+    let gap = frame[8..16].to_vec();
+    ops::mul_into_matrix_at::<FiniteField<2, 8, Polynomial<AES>>>(&mut frame, 8, &[0, 16], &[]);
+    assert_eq!(&frame[0..8], &[0; 8], "empty terms zero named row 0");
+    assert_eq!(&frame[16..24], &[0; 8], "empty terms zero named row 1");
+    assert_eq!(&frame[8..16], gap.as_slice(), "empty terms leave the gap");
+    let mut planned = noise(24, 0x39);
+    let frame_gap = planned[8..16].to_vec();
+    ops::mul_into_matrix_at_with(
+        &mut planned,
+        8,
+        &[0, 16],
+        &ops::CoeffMatrix::<FiniteField<2, 8, Polynomial<AES>>>::from_source_major(0, 2, &[]),
+        &[],
+    );
+    assert_eq!(
+        &planned[0..8],
+        &[0; 8],
+        "empty-source matrix zeros named row 0"
+    );
+    assert_eq!(
+        &planned[16..24],
+        &[0; 8],
+        "empty-source matrix zeros named row 1"
+    );
+    assert_eq!(
+        &planned[8..16],
+        frame_gap.as_slice(),
+        "empty-source matrix leaves the gap"
     );
 }
 

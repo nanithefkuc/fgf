@@ -25,7 +25,8 @@ pub use gather::mul_add_gather_avx512;
 #[cfg(test)]
 pub(crate) use matrix::MATRIX_PEEL_MIN;
 pub use matrix::{
-    mul_add_matrix_at_avx512_with, mul_add_matrix_avx512_with, mul_into_matrix_avx512_with,
+    mul_add_matrix_at_avx512_with, mul_add_matrix_avx512_with, mul_into_matrix_at_avx512_with,
+    mul_into_matrix_avx512_with,
 };
 #[cfg(test)]
 pub(crate) use scatter::SCATTER_PEEL_MIN;

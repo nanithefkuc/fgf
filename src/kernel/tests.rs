@@ -1702,6 +1702,33 @@ mod x86 {
                     }
                 }
                 assert_eq!(got, want, "gf8 rs avx512 scattered: {row_len}B x {nrows}");
+                // Overwrite from noise equals zeroed accumulation on the named
+                // rows; the gaps keep their backing bytes.
+                let mut overwrote = noise(span, 0xda1);
+                let mut zeroed = overwrote.clone();
+                for &start in &starts {
+                    zeroed[start..start + row_len].fill(0);
+                }
+                for &(coeffs, src) in &terms {
+                    for (j, &coeff) in coeffs.iter().enumerate() {
+                        scalar::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(
+                            &mut zeroed[starts[j]..starts[j] + row_len],
+                            coeff,
+                            src,
+                        );
+                    }
+                }
+                x86::gf8::mul_into_matrix_at_avx512_with(
+                    token,
+                    &mut overwrote,
+                    row_len,
+                    &starts,
+                    &prepared_matrix(&terms),
+                );
+                assert_eq!(
+                    overwrote, zeroed,
+                    "gf8 rs avx512 scattered overwrite: {row_len}B x {nrows}"
+                );
                 // Empty terms leave scattered rows unchanged; zero rows are a no-op.
                 let mut got = noise(span, 0xdb);
                 let want = got.clone();
@@ -1711,6 +1738,22 @@ mod x86 {
                     got, want,
                     "gf8 rs avx512 scattered empty: {row_len}B x {nrows}"
                 );
+                // Empty overwrite terms zero the named rows.
+                let mut zeroed = noise(span, 0xdb1);
+                x86::gf8::mul_into_matrix_at_avx512_with(
+                    token,
+                    &mut zeroed,
+                    row_len,
+                    &starts,
+                    empty,
+                );
+                for &start in &starts {
+                    assert_eq!(
+                        &zeroed[start..start + row_len],
+                        &vec![0u8; row_len],
+                        "gf8 rs avx512 scattered empty overwrite: {row_len}B x {nrows}"
+                    );
+                }
             }
         }
         {
@@ -2202,12 +2245,31 @@ mod x86 {
         );
         check_matrix_at_column_blocks(
             "gf8 rs avx512 matrix_at blocks",
+            false,
             16,
             gf8_coeff_at2::<RS>,
             gf8_reference::<RS>,
             |dst, row_len, starts, terms| {
                 prepared_pairs!(terms, |pairs| {
                     x86::gf8::mul_add_matrix_at_avx512_with(
+                        token,
+                        dst,
+                        row_len,
+                        starts,
+                        &pairs[..],
+                    );
+                });
+            },
+        );
+        check_matrix_at_column_blocks(
+            "gf8 rs avx512 matrix_at overwrite blocks",
+            true,
+            16,
+            gf8_coeff_at2::<RS>,
+            gf8_reference::<RS>,
+            |dst, row_len, starts, terms| {
+                prepared_pairs!(terms, |pairs| {
+                    x86::gf8::mul_into_matrix_at_avx512_with(
                         token,
                         dst,
                         row_len,
@@ -2556,6 +2618,43 @@ mod x86 {
                     got, want,
                     "{name} matrix_scattered: row_len {row_len}, nrows {nrows}"
                 );
+                // Overwrite from noise equals zeroed accumulation on the named
+                // rows; the gaps keep their backing bytes.
+                let mut overwrote = noise(span, 0xda3);
+                let mut zeroed = overwrote.clone();
+                for &start in &starts {
+                    zeroed[start..start + row_len].fill(0);
+                }
+                for &(coeffs, src) in &terms {
+                    for (j, &coeff) in coeffs.iter().enumerate() {
+                        scalar::mul_add::<FiniteField<2, 8, Polynomial<POLY>>>(
+                            &mut zeroed[starts[j]..starts[j] + row_len],
+                            coeff,
+                            src,
+                        );
+                    }
+                }
+                if POLY == AES {
+                    x86::gf8::mul_into_matrix_at_gfni_with::<true, _>(
+                        token,
+                        &mut overwrote,
+                        row_len,
+                        &starts,
+                        &prepared_matrix(&terms),
+                    );
+                } else {
+                    x86::gf8::mul_into_matrix_at_gfni_with::<false, _>(
+                        token,
+                        &mut overwrote,
+                        row_len,
+                        &starts,
+                        &prepared_matrix(&terms),
+                    );
+                }
+                assert_eq!(
+                    overwrote, zeroed,
+                    "{name} matrix_scattered overwrite: row_len {row_len}, nrows {nrows}"
+                );
             }
         }
     }
@@ -2651,6 +2750,7 @@ mod x86 {
     /// destination `offset` bytes past a 64-byte boundary.
     fn check_matrix_at_column_blocks<E: Copy>(
         name: &str,
+        overwrite: bool,
         offset: usize,
         coeff_at: impl Fn(usize, usize) -> E,
         reference: impl Fn(&mut [u8], E, &[u8]),
@@ -2670,7 +2770,14 @@ mod x86 {
             let span = (nrows - 1) * (row_len + 7) + row_len;
             let mut backing = noise(span + 128, 0xc20);
             let start = backing.as_ptr().align_offset(64) + offset;
+            // Accumulate starts from the destination bytes; overwrite zeroes
+            // only the named rows, leaving the gaps at their backing bytes.
             let mut want = backing[start..start + span].to_vec();
+            if overwrite {
+                for &row_start in &starts {
+                    want[row_start..row_start + row_len].fill(0);
+                }
+            }
             for &(coeffs, src) in &terms {
                 for (&row_start, &coeff) in starts.iter().zip(coeffs) {
                     reference(&mut want[row_start..row_start + row_len], coeff, src);
@@ -2769,12 +2876,31 @@ mod x86 {
         );
         check_matrix_at_column_blocks(
             "gf8 gfni matrix_at blocks",
+            false,
             0,
             gf8_coeff_at2::<AES>,
             gf8_reference::<AES>,
             |dst, row_len, starts, terms| {
                 prepared_pairs!(terms, |pairs| {
                     x86::gf8::mul_add_matrix_at_gfni_with::<true, _>(
+                        token,
+                        dst,
+                        row_len,
+                        starts,
+                        &pairs[..],
+                    );
+                });
+            },
+        );
+        check_matrix_at_column_blocks(
+            "gf8 gfni matrix_at overwrite blocks",
+            true,
+            0,
+            gf8_coeff_at2::<AES>,
+            gf8_reference::<AES>,
+            |dst, row_len, starts, terms| {
+                prepared_pairs!(terms, |pairs| {
+                    x86::gf8::mul_into_matrix_at_gfni_with::<true, _>(
                         token,
                         dst,
                         row_len,
@@ -2848,12 +2974,31 @@ mod x86 {
         );
         check_matrix_at_column_blocks(
             "gf8 rs gfni matrix_at blocks",
+            false,
             16,
             gf8_coeff_at2::<RS>,
             gf8_reference::<RS>,
             |dst, row_len, starts, terms| {
                 prepared_pairs!(terms, |pairs| {
                     x86::gf8::mul_add_matrix_at_gfni_with::<false, _>(
+                        token,
+                        dst,
+                        row_len,
+                        starts,
+                        &pairs[..],
+                    );
+                });
+            },
+        );
+        check_matrix_at_column_blocks(
+            "gf8 rs gfni matrix_at overwrite blocks",
+            true,
+            16,
+            gf8_coeff_at2::<RS>,
+            gf8_reference::<RS>,
+            |dst, row_len, starts, terms| {
+                prepared_pairs!(terms, |pairs| {
+                    x86::gf8::mul_into_matrix_at_gfni_with::<false, _>(
                         token,
                         dst,
                         row_len,

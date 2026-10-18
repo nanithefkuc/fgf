@@ -1034,31 +1034,68 @@ pub fn mul_add_matrix_at_avx512_with<M: Matrix<Prepared> + ?Sized>(
     if terms.len() == 0 || row_starts.is_empty() {
         return;
     }
-    mul_add_matrix_at_impl::<M>(dst, row_len, row_starts, terms);
+    mul_add_matrix_at_impl::<M, false>(dst, row_len, row_starts, terms);
+}
+
+/// [`mul_add_matrix_at_avx512_with`] with overwrite semantics: each named row
+/// `dst[row_starts[j]..][..row_len] = sum_t coeffs[t][j] * src[t]`.
+///
+/// # Panics
+/// As [`mul_add_matrix_at_avx512_with`], except an empty term list still
+/// writes the zeroed sum.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_into_matrix_at_avx512_with<M: Matrix<Prepared> + ?Sized>(
+    _token: archmage::X64V4xToken,
+    dst: &mut [u8],
+    row_len: usize,
+    row_starts: &[usize],
+    terms: &M,
+) {
+    check_scattered("mul_into_matrix_at_avx512", dst.len(), row_len, row_starts);
+    for term in 0..terms.len() {
+        assert_eq!(
+            terms.source(term).len(),
+            row_len,
+            "mul_into_matrix_at_avx512: term {term} source must span one row"
+        );
+    }
+    // Overwrite seeds accumulators from zero, so no destination bytes are
+    // read; an empty term list still writes the zeroed sum.
+    if row_starts.is_empty() || row_len == 0 {
+        return;
+    }
+    if terms.len() == 0 {
+        for &start in row_starts {
+            dst[start..start + row_len].fill(0);
+        }
+        return;
+    }
+    mul_add_matrix_at_impl::<M, true>(dst, row_len, row_starts, terms);
 }
 
 /// Scattered matrix walk: the same column blocking as
 /// [`mul_add_matrix_impl`], with each row starting at an arbitrary disjoint
 /// offset and the first block aligning the first row.
 #[archmage::rite(v4x, import_intrinsics)]
-fn mul_add_matrix_at_impl<M: Matrix<Prepared> + ?Sized>(
+fn mul_add_matrix_at_impl<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
     dst: &mut [u8],
     row_len: usize,
     row_starts: &[usize],
     terms: &M,
 ) {
     if row_len < MATRIX_RESOLVE_MIN {
-        matrix_at_block::<M, true>(dst, row_len, 0, row_len, row_starts, terms);
+        matrix_at_block::<M, OVERWRITE, true>(dst, row_len, 0, row_len, row_starts, terms);
         return;
     }
     if !column_blocked(row_starts.len(), row_len) {
-        matrix_at_block::<M, false>(dst, row_len, 0, row_len, row_starts, terms);
+        matrix_at_block::<M, OVERWRITE, false>(dst, row_len, 0, row_len, row_starts, terms);
         return;
     }
     let head = aligned_head(dst.as_ptr().wrapping_add(row_starts[0]), row_len);
     for (start, len) in column_blocks(row_len, head) {
         let window = ColumnWindow::new(terms, start, len);
-        matrix_at_block::<_, false>(dst, row_len, start, len, row_starts, &window);
+        matrix_at_block::<_, OVERWRITE, false>(dst, row_len, start, len, row_starts, &window);
     }
 }
 
@@ -1070,7 +1107,7 @@ fn mul_add_matrix_at_impl<M: Matrix<Prepared> + ?Sized>(
 /// in-bounds and pairwise disjoint, which no safe primitive expresses.
 #[allow(unsafe_code)]
 #[archmage::rite(v4x, import_intrinsics)]
-fn matrix_at_block<M: Matrix<Prepared> + ?Sized, const DIRECT: bool>(
+fn matrix_at_block<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool, const DIRECT: bool>(
     dst: &mut [u8],
     row_len: usize,
     block_start: usize,
@@ -1102,7 +1139,7 @@ fn matrix_at_block<M: Matrix<Prepared> + ?Sized, const DIRECT: bool>(
                 base.add(row_starts[g + 3] + block_start),
             ]
         };
-        matrix_rows4::<M, false, DIRECT>(ptrs, block_len, g, terms);
+        matrix_rows4::<M, OVERWRITE, DIRECT>(ptrs, block_len, g, terms);
         g += 4;
     }
     if g + 2 <= nrows {
@@ -1123,7 +1160,7 @@ fn matrix_at_block<M: Matrix<Prepared> + ?Sized, const DIRECT: bool>(
                 base.add(row_starts[g + 1] + block_start),
             ]
         };
-        matrix_rows2::<M, false, DIRECT>(ptrs, block_len, g, terms);
+        matrix_rows2::<M, OVERWRITE, DIRECT>(ptrs, block_len, g, terms);
         g += 2;
     }
     if g < nrows {
@@ -1133,6 +1170,6 @@ fn matrix_at_block<M: Matrix<Prepared> + ?Sized, const DIRECT: bool>(
         // THUS: the staged pointer addresses an in-bounds, whole block of its
         //       row.
         let ptr = unsafe { base.add(row_starts[g] + block_start) };
-        matrix_rows1::<M, false, DIRECT>(ptr, block_len, g, terms);
+        matrix_rows1::<M, OVERWRITE, DIRECT>(ptr, block_len, g, terms);
     }
 }
