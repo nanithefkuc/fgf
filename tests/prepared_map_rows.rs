@@ -12,7 +12,7 @@
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 
 use fgf::field::{BinaryField, FieldBuffer, PrimeCharacteristic, PrimeField};
-use fgf::poly::AES;
+use fgf::poly::{AES, RS};
 use fgf::{
     Components, Elem, Embedding, Extension, ExtensionSpec, Field, FieldElem, FiniteField,
     Isomorphism, Polynomial, PreparedEmbedding, PreparedIsomorphism, QuadMersenne31, Relation,
@@ -25,6 +25,7 @@ type Aes8 = FiniteField<2, 8, Polynomial<AES>>;
 type Gf16 = FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
 type Gf64 = FiniteField<2, 64, fgf::Extension<fgf::Rijndael64, 2>>;
 type Fp64 = FiniteField<2, 64, fgf::Extension<fgf::FanPaar64, 2>>;
+type Rs8 = FiniteField<2, 8, Polynomial<RS>>;
 type Normal8 = FiniteField<2, 8, fgf::Normal<0x11B, 0x20>>;
 
 struct G9AltSpec;
@@ -958,6 +959,80 @@ fn bit_rows_match_the_scalar_loop() {
     check_bit_rows::<Res2, Gf64>(0x10A);
 }
 
+/// Isomorphism bit rows against the per-bit scalar loop: the `S` endpoint
+/// rides as packed bits (bit `i` selects the image of zero or one) while
+/// the `T` endpoint rides as byte lanes. The AES/Reed-Solomon presentation
+/// pair exercises both bridge directions, the padding/tail discipline, and
+/// the round trip through the same `(one_w, kernels)` path the degree-one
+/// bridge uses.
+fn check_iso_bit_rows<S, T>(seed: u64)
+where
+    S: Field<Characteristic = PrimeCharacteristic<2>>,
+    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
+{
+    let compact = Isomorphism::<S, T>::new().expect("a validated pair constructs");
+    let map = PreparedIsomorphism::<S, T>::new(&compact);
+    let zero = Elem::<S>::ZERO;
+    let one = Elem::<S>::ONE;
+    let top = *BIT_COUNTS.iter().max().unwrap_or(&1);
+
+    // Packed source bits (garbage padding and surplus included) define the
+    // expected lanes through the scalar `apply`.
+    let source = noisy_packed(top, seed);
+    let noise_lanes = encode_all::<T>(&staged::<T>(top, seed ^ 0xCECE));
+
+    for &count in &BIT_COUNTS {
+        let packed = bits::bytes_for(count);
+        // apply: garbage-packed input with surplus, exact lane output.
+        {
+            let src = &source[..packed + 1];
+            let mut expected = vec![0u8; count * T::BYTES];
+            for (i, d) in expected.chunks_exact_mut(T::BYTES).enumerate() {
+                T::encode(d, map.apply(if bit_of(src, i) == 1 { one } else { zero }));
+            }
+            let mut dst = vec![0xA5u8; count * T::BYTES];
+            ops::map_bits::apply_into_with(&mut dst, &map, src, count);
+            assert_eq!(dst, expected, "iso bit apply count {count}");
+        }
+        // unapply: noise lanes in (aliases decode before the map runs),
+        // packed bits out.
+        {
+            let src = &noise_lanes[..count * T::BYTES];
+            let mut expected = vec![0u8; count];
+            for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
+                expected[i] = u8::from(map.unapply(T::decode(s)) == one);
+            }
+            let mut dst = vec![0xA5u8; packed];
+            ops::map_bits::unapply_into_with(&mut dst, &map, src, count);
+            assert_eq!(
+                dst,
+                pack_bits(&expected[..count]),
+                "iso bit unapply count {count}"
+            );
+        }
+    }
+    // Round trip over member lanes: apply then unapply recovers the bits.
+    let count = 65usize;
+    let packed = bits::bytes_for(count);
+    let src = &source[..packed + 1];
+    let mut lanes = vec![0u8; count * T::BYTES];
+    ops::map_bits::apply_into_with(&mut lanes, &map, src, count);
+    let mut back = vec![0u8; packed];
+    ops::map_bits::unapply_into_with(&mut back, &map, &lanes, count);
+    let mut expected = vec![0u8; packed];
+    for i in 0..count {
+        if bit_of(src, i) == 1 {
+            expected[i / 8] |= 1 << (i % 8);
+        }
+    }
+    assert_eq!(back, expected, "iso bit round trip");
+}
+
+#[test]
+fn iso_bit_rows_match_the_scalar_loop() {
+    check_iso_bit_rows::<Aes8, Rs8>(0x201);
+}
+
 #[test]
 fn bit_embed_known_answer() {
     // 0b0111_1001: bits 0, 3, 4, 5, 6 are set.
@@ -1264,5 +1339,74 @@ mod panics {
             "unexpected message: {message}"
         );
         assert_eq!(dst, before, "overflowing bit trace must not write dst");
+    }
+
+    #[test]
+    fn iso_bit_geometry_failures_name_the_operand_and_leave_outputs_unchanged() {
+        // Polynomial GF(2) beside itself: the only degree-one
+        // `BinaryField + FieldBuffer` pair, so the lane side is one byte
+        // per bit.
+        let map = PreparedIsomorphism::<Aes8, Rs8>::new(&Isomorphism::<Aes8, Rs8>::new().unwrap());
+
+        // apply: short packed coverage names `src`.
+        let mut dst = vec![0xA5u8; 16];
+        let before = dst.clone();
+        let (message, panicked) = catch(|| {
+            ops::map_bits::apply_into_with(&mut dst, &map, &[0u8; 1], 16);
+        });
+        assert!(panicked, "short packed src must panic");
+        assert!(
+            message.contains("apply_into_with"),
+            "unexpected message: {message}"
+        );
+        assert_eq!(dst, before, "failed iso bit apply must not write dst");
+
+        // apply: wrong lane count names `dst`.
+        let mut dst = vec![0xA5u8; 15];
+        let before = dst.clone();
+        let (message, panicked) = catch(|| {
+            ops::map_bits::apply_into_with(&mut dst, &map, &[0u8; 2], 16);
+        });
+        assert!(panicked, "wrong lane count must panic");
+        assert!(
+            message.contains("apply_into_with") && message.contains("dst"),
+            "unexpected message: {message}"
+        );
+        assert_eq!(dst, before, "failed iso bit apply must not write dst");
+
+        // unapply: oversized bitmap names `dst` (exact outputs, not coverage).
+        let mut dst = vec![0xA5u8; 3];
+        let before = dst.clone();
+        let (message, panicked) = catch(|| {
+            ops::map_bits::unapply_into_with(&mut dst, &map, &[0u8; 16], 16);
+        });
+        assert!(panicked, "oversized packed dst must panic");
+        assert!(
+            message.contains("unapply_into_with") && message.contains("dst"),
+            "unexpected message: {message}"
+        );
+        assert_eq!(dst, before, "failed iso bit unapply must not write dst");
+
+        // unapply: partial trailing lane names `src`, destination untouched.
+        let mut dst = vec![0xA5u8; bits::bytes_for(16)];
+        let before = dst.clone();
+        let (message, panicked) = catch(|| {
+            ops::map_bits::unapply_into_with(&mut dst, &map, &[0u8; 15], 16);
+        });
+        assert!(panicked, "partial lane src must panic");
+        assert!(
+            message.contains("unapply_into_with") && message.contains("src"),
+            "unexpected message: {message}"
+        );
+        assert_eq!(dst, before, "failed iso bit unapply must not write dst");
+
+        // unapply over the empty row: no lanes, no bits, no writes.
+        let mut dst = vec![0xA5u8; 0];
+        ops::map_bits::unapply_into_with(&mut dst, &map, &[], 0);
+        assert_eq!(
+            dst,
+            Vec::<u8>::new(),
+            "empty iso bit unapply writes nothing"
+        );
     }
 }

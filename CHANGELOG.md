@@ -27,7 +27,9 @@ All notable changes to this project are documented here. The format follows
 - Bit-packed GF(2) map rows in `ops::map_bits`: `embed_into_with`,
   `trace_into_with`, `norm_into_with`, `restrict_into_with`, and
   `contains_into_with` move one prepared GF(2)-sourced map across packed
-  bits and target lanes. Packed sides follow the `bits` LSB-first layout
+  bits and target lanes, and `apply_into_with` / `unapply_into_with` move
+  one prepared characteristic-two isomorphism across packed bits and
+  target lanes. Packed sides follow the `bits` LSB-first layout
   with caller-maintained zero padding; packed outputs are exactly
   `bits::bytes_for(bits)` bytes with cleared tail bits, lane sides hold
   whole target elements exactly, and empty rows are valid.

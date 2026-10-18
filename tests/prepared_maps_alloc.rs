@@ -10,7 +10,7 @@
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 
 use fgf::field::FieldBuffer;
-use fgf::poly::AES;
+use fgf::poly::{AES, RS};
 use fgf::{
     Components, Elem, Embedding, Extension, ExtensionSpec, Field, FieldElem, FiniteField,
     Isomorphism, Normal, PreparedEmbedding, PreparedIsomorphism, QuadMersenne31, Relation, Residue,
@@ -25,6 +25,7 @@ type Gf16 = FiniteField<2, 16, Extension<fgf::Rijndael16, 2>>;
 type Gf64 = FiniteField<2, 64, Extension<fgf::Rijndael64, 2>>;
 type Fp64 = FiniteField<2, 64, Extension<fgf::FanPaar64, 2>>;
 type Aes8 = FiniteField<2, 8, fgf::Polynomial<AES>>;
+type Rs8 = FiniteField<2, 8, fgf::Polynomial<RS>>;
 type Normal8 = FiniteField<2, 8, Normal<0x11B, 0x20>>;
 struct Normal16Spec;
 impl ExtensionSpec<2> for Normal16Spec {
@@ -104,6 +105,24 @@ fn bit_rows_application_allocates_nothing() {
         .expect("zero-allocation test lock poisoned");
     type Gf1 = FiniteField<2, 1, fgf::Polynomial<3>>;
 
+    fn exercise_iso<S, T>(
+        map: &PreparedIsomorphism<S, T>,
+        lanes_out: &mut [u8],
+        packed_out: &mut [u8],
+        packed_in: &[u8],
+        lanes: &[u8],
+        count: usize,
+    ) where
+        S: Field<Characteristic = fgf::field::PrimeCharacteristic<2>>,
+        T: fgf::field::BinaryField
+            + FieldBuffer<Characteristic = fgf::field::PrimeCharacteristic<2>>,
+    {
+        ops::map_bits::apply_into_with(lanes_out, map, packed_in, count);
+        ops::map_bits::unapply_into_with(packed_out, map, lanes, count);
+        let checksum = lanes_out.iter().sum::<u8>() ^ packed_out.iter().sum::<u8>();
+        core::hint::black_box(checksum);
+    }
+
     fn exercise<T>(
         map: &PreparedEmbedding<Gf1, T>,
         expand: &mut [u8],
@@ -129,15 +148,18 @@ fn bit_rows_application_allocates_nothing() {
 
     let gf64 = PreparedEmbedding::<Gf1, Gf64>::new(&Embedding::<Gf1, Gf64>::new().unwrap());
     let aes8 = PreparedEmbedding::<Gf1, Aes8>::new(&Embedding::<Gf1, Aes8>::new().unwrap());
+    let iso = PreparedIsomorphism::<Aes8, Rs8>::new(&Isomorphism::<Aes8, Rs8>::new().unwrap());
     let count = 64usize;
     let packed = bits::bytes_for(count);
     let mut expand64 = vec![0u8; count * Gf64::BYTES];
     let mut expand8 = vec![0u8; count * Aes8::BYTES];
+    let mut iso_lanes = vec![0u8; count * Rs8::BYTES];
     let mut packed_out = vec![0u8; packed];
     let mut packed_out_2 = vec![0u8; packed];
     let packed_in = noise(packed, 0xE8);
     let lanes64 = noise(count * Gf64::BYTES, 0xE9);
     let lanes8 = noise(count * Aes8::BYTES, 0xEA);
+    let iso_src = noise(count * Rs8::BYTES, 0xEB);
     // Warm every row on both maps before counting.
     exercise(
         &aes8,
@@ -157,6 +179,14 @@ fn bit_rows_application_allocates_nothing() {
         &lanes64,
         count,
     );
+    exercise_iso(
+        &iso,
+        &mut iso_lanes,
+        &mut packed_out,
+        &packed_in,
+        &iso_src,
+        count,
+    );
     let allocations = count_allocations(|| {
         exercise(
             &aes8,
@@ -174,6 +204,14 @@ fn bit_rows_application_allocates_nothing() {
             &mut packed_out_2,
             &packed_in,
             &lanes64,
+            count,
+        );
+        exercise_iso(
+            &iso,
+            &mut iso_lanes,
+            &mut packed_out,
+            &packed_in,
+            &iso_src,
             count,
         );
     });
