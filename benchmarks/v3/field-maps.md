@@ -7,7 +7,7 @@ Paired-run snapshot for v3. Every result cell reports Willow Cove (i5-1135G7) / 
 | Setting | Value |
 | --- | --- |
 | Campaign | `just bench-field-maps` (family round `maps`) |
-| Revision | `ea925b6ef0c78f27d2988b37ba0eb5b32f796923` |
+| Revision | `f10e59ddcf1a3c48f28116f3c49795e04a724a51` |
 | Toolchain | 1.98.1 |
 | Resolved process backend | `v4x` / `v3_gfni_crypto` |
 | Resolved field backends | `aes8`: `v4x` / `v3_gfni_crypto`; `rs8`: `v4x` / `v3_gfni_crypto`; `normal8`: `scalar` / `scalar`; `fp8`: `scalar` / `scalar`; `ref8`: `v4x` / `v3_gfni_crypto`; `gf16`: `v4x` / `v3_gfni_crypto`; `gf32`: `v4x` / `v3_gfni_crypto`; `gf64`: `v4x` / `v3_gfni_crypto`; `fp16`: `v4x` / `v3_gfni_crypto`; `fp64`: `v4x` / `v3_gfni_crypto`; `res2`: `scalar` / `scalar`; `res2q`: `scalar` / `scalar`; `aesq`: `scalar` / `scalar`; `r3`: `v4x` / `v3`; `g9`: `scalar` / `scalar`; `g81`: `scalar` / `scalar`; `g81q`: `scalar` / `scalar`; `r7`: `v4x` / `v3`; `g343`: `scalar` / `scalar`; `g340`: `scalar` / `scalar`; `m31`: `v4x` / `v3`; `qm31`: `v4x` / `v3`; `gld`: `v4x` / `v3`; `gld2`: `scalar` / `scalar` |
@@ -21,301 +21,691 @@ Frobenius scalar panels are dependent chains; every other scalar panel (embed, r
 
 | Pair | Operation | scalar chain (ns/op) |
 | --- | --- | --- |
-| aes8-aesq | contains | 57.39929 / 30.60394 |
-| aes8-aesq | embed | 93.16567 / 49.10051 |
-| aes8-aesq | frobenius | 114.9166 / 69.87671 |
-| aes8-aesq | norm | 1608.600 / 892.6161 |
-| aes8-aesq | restrict-member | 1531.531 / 849.2236 |
-| aes8-aesq | restrict-nonmember | 159.9081 / 84.56749 |
-| aes8-aesq | trace | 1138.939 / 592.3271 |
-| aes8-gf64 | contains | 560.9053 / 295.1587 |
-| aes8-gf64 | embed | 348.5966 / 186.8929 |
-| aes8-gf64 | frobenius | 918.7564 / 476.3955 |
-| aes8-gf64 | norm | 20180.32 / 11090.89 |
-| aes8-gf64 | restrict-member | 15543.34 / 8696.137 |
-| aes8-gf64 | restrict-nonmember | 761.4974 / 384.6097 |
-| aes8-gf64 | trace | 19014.31 / 10620.51 |
-| fp64-gf64-iso | apply | 5315.005 / 3166.398 |
-| fp64-gf64-iso | unapply | 235991.6 / 151815.0 |
-| fp8-fp16 | contains | 3233.242 / 2124.708 |
-| fp8-fp16 | embed | 4808.158 / 3014.719 |
-| fp8-fp16 | frobenius | 3233.832 / 2124.877 |
-| fp8-fp16 | norm | 94283.82 / 59471.24 |
-| fp8-fp16 | restrict-member | 90673.75 / 57991.33 |
-| fp8-fp16 | restrict-nonmember | 3340.853 / 2153.029 |
-| fp8-fp16 | trace | 93912.82 / 59308.88 |
-| g9-g81 | contains | 267.6252 / 117.8308 |
-| g9-g81 | embed | 134.3134 / 58.92933 |
-| g9-g81 | frobenius | 309.1876 / 139.2437 |
-| g9-g81 | norm | 2082.096 / 927.6670 |
-| g9-g81 | restrict-member | 1771.771 / 791.7312 |
-| g9-g81 | restrict-nonmember | 359.5507 / 162.3489 |
-| g9-g81 | trace | 2055.300 / 918.2344 |
-| gdl2 | contains | 1783.038 / 880.3724 |
-| gdl2 | embed | 18.71713 / 12.37121 |
-| gdl2 | frobenius | 2313.759 / 1173.161 |
-| gdl2 | norm | 3085.152 / 1495.297 |
-| gdl2 | restrict-member | 1276.070 / 600.0569 |
-| gdl2 | restrict-nonmember | 2324.317 / 1184.120 |
-| gdl2 | trace | 3066.167 / 1488.011 |
-| gf1-gf64 | contains | 134.2642 / 73.18186 |
-| gf1-gf64 | embed | 39.42860 / 24.09639 |
-| gf1-gf64 | frobenius | 229.8745 / 117.9563 |
-| gf1-gf64 | norm | 12460.20 / 6923.333 |
-| gf1-gf64 | restrict-member | 206.0655 / 108.2400 |
-| gf1-gf64 | restrict-mixed | 209.0113 / 113.1917 |
-| gf1-gf64 | restrict-nonmember | 199.6268 / 102.7033 |
-| gf1-gf64 | trace | 9253.905 / 4935.038 |
-| gf16-gf64 | contains | 1151.221 / 573.9126 |
-| gf16-gf64 | embed | 766.8995 / 418.5755 |
-| gf16-gf64 | frobenius | 1709.827 / 888.2805 |
-| gf16-gf64 | norm | 39482.90 / 21841.12 |
-| gf16-gf64 | restrict-member | 35511.13 / 19735.71 |
-| gf16-gf64 | restrict-nonmember | 1468.581 / 748.1271 |
-| gf16-gf64 | trace | 37400.69 / 21258.04 |
-| gf32-gf64 | contains | 2645.306 / 1335.335 |
-| gf32-gf64 | embed | 1593.229 / 874.2552 |
-| gf32-gf64 | frobenius | 3330.495 / 1731.381 |
-| gf32-gf64 | norm | 82105.50 / 46109.25 |
-| gf32-gf64 | restrict-member | 79585.71 / 44736.75 |
-| gf32-gf64 | restrict-nonmember | 3081.438 / 1577.996 |
-| gf32-gf64 | trace | 76452.50 / 43921.50 |
-| m31-qm31 | contains | 757.9145 / 295.0224 |
-| m31-qm31 | embed | 18.75622 / 12.36807 |
-| m31-qm31 | frobenius | 757.6697 / 296.0946 |
-| m31-qm31 | norm | 1539.875 / 605.6147 |
-| m31-qm31 | restrict-member | 775.4546 / 306.2377 |
-| m31-qm31 | restrict-nonmember | 775.3203 / 305.7376 |
-| m31-qm31 | trace | 1529.585 / 603.0549 |
-| normal8-aes8-iso | apply | 108.0440 / 59.55527 |
-| normal8-aes8-iso | unapply | 58.09827 / 21.28556 |
-| normal8-gf16 | contains | 114.4108 / 60.69899 |
-| normal8-gf16 | embed | 141.3124 / 78.41530 |
-| normal8-gf16 | frobenius | 128.2338 / 75.34125 |
-| normal8-gf16 | norm | 3754.136 / 2077.422 |
-| normal8-gf16 | restrict-member | 3608.433 / 1997.882 |
-| normal8-gf16 | restrict-nonmember | 175.8075 / 93.01286 |
-| normal8-gf16 | trace | 3421.684 / 1874.671 |
-| r3-g3-40 | contains | 18509.93 / 9436.757 |
-| r3-g3-40 | embed | 23.73104 / 14.92812 |
-| r3-g3-40 | frobenius | 33928.70 / 19554.51 |
-| r3-g3-40 | norm | 1134740 / 540565.0 |
-| r3-g3-40 | restrict-member | 11069.77 / 4913.770 |
-| r3-g3-40 | restrict-nonmember | 30136.55 / 12500.98 |
-| r3-g3-40 | trace | 743845.3 / 489363.0 |
-| r3-g81q | contains | 120.1511 / 53.98721 |
-| r3-g81q | embed | 20.38328 / 12.36822 |
-| r3-g81q | frobenius | 139.0454 / 61.17542 |
-| r3-g81q | norm | 591.5592 / 267.4335 |
-| r3-g81q | restrict-member | 137.3031 / 63.49297 |
-| r3-g81q | restrict-nonmember | 155.0666 / 69.08192 |
-| r3-g81q | trace | 514.9250 / 231.3277 |
-| r7-g343 | contains | 93.07401 / 43.90149 |
-| r7-g343 | embed | 20.05103 / 12.36822 |
-| r7-g343 | frobenius | 122.3072 / 57.97528 |
-| r7-g343 | norm | 590.8293 / 335.6697 |
-| r7-g343 | restrict-member | 187.8392 / 114.4659 |
-| r7-g343 | restrict-nonmember | 239.8842 / 121.9866 |
-| r7-g343 | trace | 536.0841 / 302.5942 |
-| ref2-ref8 | contains | 3.471301 / 1.767635 |
-| ref2-ref8 | embed | 44.46943 / 23.47426 |
-| ref2-ref8 | frobenius | 16.03939 / 10.23549 |
-| ref2-ref8 | norm | 206.3254 / 106.4728 |
-| ref2-ref8 | restrict-member | 164.6916 / 83.21514 |
-| ref2-ref8 | restrict-mixed | 111.7123 / 55.24613 |
-| ref2-ref8 | restrict-nonmember | 56.87262 / 26.41747 |
-| ref2-ref8 | trace | 175.0770 / 92.04696 |
-| res2-gf64 | contains | 134.2657 / 73.26057 |
-| res2-gf64 | embed | 32.07675 / 26.44169 |
-| res2-gf64 | frobenius | 229.3794 / 117.9132 |
-| res2-gf64 | norm | 12465.75 / 6981.888 |
-| res2-gf64 | restrict-member | 199.7412 / 107.3843 |
-| res2-gf64 | restrict-nonmember | 194.0213 / 100.9546 |
-| res2-gf64 | trace | 9280.255 / 4957.350 |
-| res2-res2q | contains | 2.112541 / 0.868695 |
-| res2-res2q | embed | 20.04924 / 11.94189 |
-| res2-res2q | frobenius | 2.700414 / 2.040348 |
-| res2-res2q | norm | 25.34800 / 13.22330 |
-| res2-res2q | restrict-member | 21.11104 / 12.15614 |
-| res2-res2q | restrict-nonmember | 22.36518 / 12.58402 |
-| res2-res2q | trace | 24.19951 / 13.44166 |
-| rs8-gf16 | contains | 114.2928 / 60.55330 |
-| rs8-gf16 | embed | 121.5263 / 63.05143 |
-| rs8-gf16 | frobenius | 128.2065 / 75.32833 |
-| rs8-gf16 | norm | 3714.710 / 2061.301 |
-| rs8-gf16 | restrict-member | 3564.580 / 1997.290 |
-| rs8-gf16 | restrict-nonmember | 174.7307 / 92.67395 |
-| rs8-gf16 | trace | 3392.296 / 1868.227 |
+| aes8-aesq | contains | 57.38584 / 30.61679 |
+| aes8-aesq | contains-prepared | 8.189686 / 4.264862 |
+| aes8-aesq | embed | 94.52832 / 49.20986 |
+| aes8-aesq | embed-prepared | 2.633484 / 1.173195 |
+| aes8-aesq | frobenius | 114.9324 / 69.93920 |
+| aes8-aesq | frobenius-prepared | 12.31470 / 6.449425 |
+| aes8-aesq | norm | 1608.550 / 891.9844 |
+| aes8-aesq | norm-prepared | 24.26973 / 11.35108 |
+| aes8-aesq | restrict-member | 1533.067 / 849.8676 |
+| aes8-aesq | restrict-member-prepared | 9.065791 / 4.691698 |
+| aes8-aesq | restrict-nonmember | 161.8207 / 83.86490 |
+| aes8-aesq | restrict-nonmember-prepared | 8.836903 / 4.493940 |
+| aes8-aesq | trace | 1140.594 / 591.6539 |
+| aes8-aesq | trace-prepared | 11.16856 / 7.028346 |
+| aes8-gf64 | contains | 561.0787 / 301.7707 |
+| aes8-gf64 | contains-prepared | 71.86333 / 38.89241 |
+| aes8-gf64 | embed | 353.1749 / 191.4305 |
+| aes8-gf64 | embed-prepared | 36.98182 / 19.00378 |
+| aes8-gf64 | frobenius | 919.2939 / 476.3700 |
+| aes8-gf64 | frobenius-prepared | 108.9476 / 56.58648 |
+| aes8-gf64 | norm | 20123.48 / 11340.20 |
+| aes8-gf64 | norm-prepared | 1268.833 / 706.1387 |
+| aes8-gf64 | restrict-member | 15352.68 / 8905.379 |
+| aes8-gf64 | restrict-member-prepared | 135.3580 / 71.38630 |
+| aes8-gf64 | restrict-nonmember | 767.2777 / 388.1063 |
+| aes8-gf64 | restrict-nonmember-prepared | 87.62808 / 48.45327 |
+| aes8-gf64 | trace | 18874.87 / 10645.89 |
+| aes8-gf64 | trace-prepared | 66.78463 / 36.21534 |
+| fp64-gf64-iso | apply | 5285.446 / 3218.211 |
+| fp64-gf64-iso | apply-prepared | 260.9380 / 158.9288 |
+| fp64-gf64-iso | unapply | 232726.6 / 147122.9 |
+| fp64-gf64-iso | unapply-prepared | 247.7001 / 148.3393 |
+| fp8-fp16 | contains | 3237.033 / 2056.109 |
+| fp8-fp16 | contains-prepared | 1147.563 / 508.8552 |
+| fp8-fp16 | embed | 4809.655 / 3025.667 |
+| fp8-fp16 | embed-prepared | 2.648840 / 1.173504 |
+| fp8-fp16 | frobenius | 3236.905 / 2061.778 |
+| fp8-fp16 | frobenius-prepared | 1145.688 / 510.6184 |
+| fp8-fp16 | norm | 94322.82 / 59813.35 |
+| fp8-fp16 | norm-prepared | 2619.614 / 1221.560 |
+| fp8-fp16 | restrict-member | 90794.83 / 57279.78 |
+| fp8-fp16 | restrict-member-prepared | 1148.630 / 509.5292 |
+| fp8-fp16 | restrict-nonmember | 3349.254 / 2150.331 |
+| fp8-fp16 | restrict-nonmember-prepared | 1147.207 / 510.2429 |
+| fp8-fp16 | trace | 94006.09 / 59558.06 |
+| fp8-fp16 | trace-prepared | 9.551449 / 6.117518 |
+| g9-g81 | contains | 267.7759 / 117.8302 |
+| g9-g81 | contains-prepared | 59.64973 / 39.51254 |
+| g9-g81 | embed | 133.2306 / 60.20025 |
+| g9-g81 | embed-prepared | 8.353979 / 5.117800 |
+| g9-g81 | frobenius | 309.9157 / 139.8842 |
+| g9-g81 | frobenius-prepared | 57.20346 / 33.47835 |
+| g9-g81 | norm | 2117.646 / 929.0179 |
+| g9-g81 | norm-prepared | 184.2425 / 112.2893 |
+| g9-g81 | restrict-member | 1809.097 / 792.7425 |
+| g9-g81 | restrict-member-prepared | 67.73580 / 39.23568 |
+| g9-g81 | restrict-nonmember | 361.0778 / 164.3990 |
+| g9-g81 | restrict-nonmember-prepared | 59.19165 / 34.47749 |
+| g9-g81 | trace | 2092.276 / 924.1493 |
+| g9-g81 | trace-prepared | 49.01368 / 23.85815 |
+| gdl2 | contains | 1782.351 / 881.6282 |
+| gdl2 | contains-prepared | 44.18004 / 31.55684 |
+| gdl2 | embed | 20.38682 / 11.51519 |
+| gdl2 | embed-prepared | 8.353753 / 5.117742 |
+| gdl2 | frobenius | 2315.017 / 1178.535 |
+| gdl2 | frobenius-prepared | 50.79103 / 32.20695 |
+| gdl2 | norm | 3084.111 / 1495.559 |
+| gdl2 | norm-prepared | 127.8665 / 78.21389 |
+| gdl2 | restrict-member | 1275.656 / 609.2082 |
+| gdl2 | restrict-member-prepared | 53.79727 / 33.91074 |
+| gdl2 | restrict-nonmember | 2325.003 / 1182.015 |
+| gdl2 | restrict-nonmember-prepared | 52.82226 / 33.52151 |
+| gdl2 | trace | 3067.576 / 1484.984 |
+| gdl2 | trace-prepared | 34.19446 / 15.55196 |
+| gf1-aes8 | contains | 1.779111 / 0.861197 |
+| gf1-aes8 | contains-prepared | 5.421320 / 3.275123 |
+| gf1-aes8 | embed | 41.10044 / 20.27744 |
+| gf1-aes8 | embed-prepared | 2.183644 / 1.066758 |
+| gf1-aes8 | frobenius | 9.690426 / 6.223600 |
+| gf1-aes8 | frobenius-prepared | 9.090520 / 5.465915 |
+| gf1-aes8 | norm | 103.5019 / 59.58687 |
+| gf1-aes8 | norm-prepared | 54.04576 / 32.91609 |
+| gf1-aes8 | restrict-member | 41.60837 / 26.95675 |
+| gf1-aes8 | restrict-member-prepared | 5.527549 / 3.211226 |
+| gf1-aes8 | restrict-mixed | 43.08749 / 26.89933 |
+| gf1-aes8 | restrict-mixed-prepared | 7.042218 / 4.376806 |
+| gf1-aes8 | restrict-nonmember | 46.82266 / 22.16932 |
+| gf1-aes8 | restrict-nonmember-prepared | 7.875115 / 4.246950 |
+| gf1-aes8 | trace | 91.81253 / 52.90226 |
+| gf1-aes8 | trace-prepared | 5.309383 / 3.119654 |
+| gf1-gf16 | contains | 21.37604 / 10.50314 |
+| gf1-gf16 | contains-prepared | 6.323760 / 4.098669 |
+| gf1-gf16 | embed | 42.12648 / 19.86091 |
+| gf1-gf16 | embed-prepared | 2.346853 / 1.173105 |
+| gf1-gf16 | frobenius | 27.37521 / 15.94336 |
+| gf1-gf16 | frobenius-prepared | 16.70842 / 9.622624 |
+| gf1-gf16 | norm | 468.9690 / 255.3627 |
+| gf1-gf16 | norm-prepared | 218.8257 / 125.6235 |
+| gf1-gf16 | restrict-member | 62.61915 / 30.85960 |
+| gf1-gf16 | restrict-member-prepared | 5.693541 / 3.251710 |
+| gf1-gf16 | restrict-mixed | 63.90612 / 31.00367 |
+| gf1-gf16 | restrict-mixed-prepared | 8.118624 / 4.975892 |
+| gf1-gf16 | restrict-nonmember | 66.73955 / 31.78828 |
+| gf1-gf16 | restrict-nonmember-prepared | 8.619483 / 5.688698 |
+| gf1-gf16 | trace | 403.1735 / 231.7395 |
+| gf1-gf16 | trace-prepared | 7.917180 / 5.153181 |
+| gf1-gf32 | contains | 46.94647 / 23.21234 |
+| gf1-gf32 | contains-prepared | 8.516942 / 5.808385 |
+| gf1-gf32 | embed | 18.72000 / 12.36797 |
+| gf1-gf32 | embed-prepared | 19.73424 / 10.60984 |
+| gf1-gf32 | frobenius | 65.43493 / 31.85755 |
+| gf1-gf32 | frobenius-prepared | 27.44502 / 17.21913 |
+| gf1-gf32 | norm | 1971.302 / 1005.505 |
+| gf1-gf32 | norm-prepared | 1555.013 / 904.9517 |
+| gf1-gf32 | restrict-member | 59.56621 / 30.67074 |
+| gf1-gf32 | restrict-member-prepared | 6.352712 / 3.680302 |
+| gf1-gf32 | restrict-mixed | 66.87553 / 32.51019 |
+| gf1-gf32 | restrict-mixed-prepared | 10.39048 / 6.806957 |
+| gf1-gf32 | restrict-nonmember | 74.26604 / 35.27377 |
+| gf1-gf32 | restrict-nonmember-prepared | 13.04430 / 9.399764 |
+| gf1-gf32 | trace | 1474.173 / 742.3471 |
+| gf1-gf32 | trace-prepared | 7.185258 / 5.204202 |
+| gf1-gf64 | contains | 134.7942 / 73.44799 |
+| gf1-gf64 | contains-prepared | 70.08563 / 36.99345 |
+| gf1-gf64 | embed | 38.77338 / 24.52299 |
+| gf1-gf64 | embed-prepared | 33.40375 / 17.84857 |
+| gf1-gf64 | frobenius | 229.8432 / 118.2117 |
+| gf1-gf64 | frobenius-prepared | 114.4638 / 65.14662 |
+| gf1-gf64 | norm | 12444.22 / 6945.170 |
+| gf1-gf64 | norm-prepared | 11934.59 / 6322.711 |
+| gf1-gf64 | restrict-member | 216.9609 / 107.4344 |
+| gf1-gf64 | restrict-member-prepared | 130.4379 / 68.74975 |
+| gf1-gf64 | restrict-mixed | 211.7077 / 108.8962 |
+| gf1-gf64 | restrict-mixed-prepared | 107.5123 / 57.80312 |
+| gf1-gf64 | restrict-nonmember | 200.8168 / 102.1379 |
+| gf1-gf64 | restrict-nonmember-prepared | 83.40073 / 45.02023 |
+| gf1-gf64 | trace | 9244.320 / 4926.331 |
+| gf1-gf64 | trace-prepared | 69.17859 / 34.13915 |
+| gf16-gf64 | contains | 1152.107 / 575.3658 |
+| gf16-gf64 | contains-prepared | 75.62009 / 40.79504 |
+| gf16-gf64 | embed | 768.2960 / 431.8687 |
+| gf16-gf64 | embed-prepared | 35.96073 / 19.38446 |
+| gf16-gf64 | frobenius | 1710.076 / 889.8700 |
+| gf16-gf64 | frobenius-prepared | 107.2610 / 52.68031 |
+| gf16-gf64 | norm | 39295.67 / 21975.33 |
+| gf16-gf64 | norm-prepared | 683.8631 / 385.0918 |
+| gf16-gf64 | restrict-member | 35552.47 / 20028.57 |
+| gf16-gf64 | restrict-member-prepared | 143.9461 / 76.08688 |
+| gf16-gf64 | restrict-nonmember | 1476.209 / 748.8765 |
+| gf16-gf64 | restrict-nonmember-prepared | 87.52397 / 48.38644 |
+| gf16-gf64 | trace | 37226.93 / 21347.24 |
+| gf16-gf64 | trace-prepared | 70.10819 / 37.52194 |
+| gf32-gf64 | contains | 2647.993 / 1334.677 |
+| gf32-gf64 | contains-prepared | 56.41872 / 28.66647 |
+| gf32-gf64 | embed | 1659.485 / 860.2366 |
+| gf32-gf64 | embed-prepared | 58.16753 / 21.61276 |
+| gf32-gf64 | frobenius | 3330.505 / 1735.255 |
+| gf32-gf64 | frobenius-prepared | 54.65527 / 28.21549 |
+| gf32-gf64 | norm | 82567.07 / 46346.21 |
+| gf32-gf64 | norm-prepared | 272.5795 / 141.5414 |
+| gf32-gf64 | restrict-member | 79279.00 / 44917.38 |
+| gf32-gf64 | restrict-member-prepared | 146.6334 / 78.50562 |
+| gf32-gf64 | restrict-nonmember | 3076.745 / 1580.993 |
+| gf32-gf64 | restrict-nonmember-prepared | 56.79823 / 28.46244 |
+| gf32-gf64 | trace | 76175.57 / 43862.88 |
+| gf32-gf64 | trace-prepared | 83.14132 / 42.03386 |
+| m31-qm31 | contains | 757.9112 / 297.2507 |
+| m31-qm31 | contains-prepared | 40.44922 / 25.37561 |
+| m31-qm31 | embed | 18.71272 / 12.74065 |
+| m31-qm31 | embed-prepared | 2.674000 / 1.386439 |
+| m31-qm31 | frobenius | 751.6143 / 296.5801 |
+| m31-qm31 | frobenius-prepared | 40.43351 / 25.58895 |
+| m31-qm31 | norm | 1545.863 / 607.0650 |
+| m31-qm31 | norm-prepared | 97.90764 / 51.38587 |
+| m31-qm31 | restrict-member | 776.6802 / 307.1883 |
+| m31-qm31 | restrict-member-prepared | 43.24812 / 26.23112 |
+| m31-qm31 | restrict-nonmember | 775.9438 / 305.1732 |
+| m31-qm31 | restrict-nonmember-prepared | 40.26577 / 25.37559 |
+| m31-qm31 | trace | 1538.336 / 604.5076 |
+| m31-qm31 | trace-prepared | 33.08169 / 17.04167 |
+| normal8-aes8-iso | apply | 97.62233 / 65.56924 |
+| normal8-aes8-iso | apply-prepared | 8.179084 / 4.951281 |
+| normal8-aes8-iso | unapply | 81.82789 / 42.49736 |
+| normal8-aes8-iso | unapply-prepared | 8.143073 / 5.292874 |
+| normal8-gf16 | contains | 114.3816 / 60.64011 |
+| normal8-gf16 | contains-prepared | 4.349755 / 2.346236 |
+| normal8-gf16 | embed | 143.2890 / 78.21535 |
+| normal8-gf16 | embed-prepared | 9.224893 / 5.500129 |
+| normal8-gf16 | frobenius | 128.1368 / 75.36887 |
+| normal8-gf16 | frobenius-prepared | 4.279767 / 2.145820 |
+| normal8-gf16 | norm | 3750.666 / 2083.351 |
+| normal8-gf16 | norm-prepared | 21.88086 / 12.33064 |
+| normal8-gf16 | restrict-member | 3613.839 / 2013.193 |
+| normal8-gf16 | restrict-member-prepared | 10.91221 / 6.765015 |
+| normal8-gf16 | restrict-nonmember | 173.7671 / 94.79437 |
+| normal8-gf16 | restrict-nonmember-prepared | 4.348802 / 2.350848 |
+| normal8-gf16 | trace | 3445.832 / 1935.076 |
+| normal8-gf16 | trace-prepared | 13.68312 / 8.980729 |
+| r3-g3-40 | contains | 18615.20 / 8805.393 |
+| r3-g3-40 | contains-prepared | 1178.555 / 512.2321 |
+| r3-g3-40 | embed | 25.06595 / 13.86155 |
+| r3-g3-40 | embed-prepared | 94.93422 / 47.82468 |
+| r3-g3-40 | frobenius | 33024.29 / 17209.54 |
+| r3-g3-40 | frobenius-prepared | 3497.662 / 1502.566 |
+| r3-g3-40 | norm | 1118954 / 506921.0 |
+| r3-g3-40 | norm-prepared | 316654.8 / 171756.7 |
+| r3-g3-40 | restrict-member | 11277.53 / 5049.515 |
+| r3-g3-40 | restrict-member-prepared | 317.0654 / 160.2378 |
+| r3-g3-40 | restrict-nonmember | 29435.03 / 12197.93 |
+| r3-g3-40 | restrict-nonmember-prepared | 2095.065 / 863.2042 |
+| r3-g3-40 | trace | 733702.7 / 452917.7 |
+| r3-g3-40 | trace-prepared | 157.5459 / 83.09371 |
+| r3-g81q | contains | 119.6894 / 54.06184 |
+| r3-g81q | contains-prepared | 21.13602 / 10.82661 |
+| r3-g81q | embed | 20.38425 / 11.94228 |
+| r3-g81q | embed-prepared | 8.687870 / 5.331040 |
+| r3-g81q | frobenius | 139.4594 / 61.30709 |
+| r3-g81q | frobenius-prepared | 41.55799 / 19.99233 |
+| r3-g81q | norm | 592.3304 / 267.9968 |
+| r3-g81q | norm-prepared | 203.1524 / 102.7817 |
+| r3-g81q | restrict-member | 135.1545 / 63.39608 |
+| r3-g81q | restrict-member-prepared | 20.89470 / 9.960631 |
+| r3-g81q | restrict-nonmember | 152.5808 / 68.98845 |
+| r3-g81q | restrict-nonmember-prepared | 29.18655 / 13.03299 |
+| r3-g81q | trace | 514.8487 / 232.5582 |
+| r3-g81q | trace-prepared | 34.18124 / 23.67410 |
+| r7-g343 | contains | 93.32441 / 43.83835 |
+| r7-g343 | contains-prepared | 28.84515 / 13.99789 |
+| r7-g343 | embed | 19.38133 / 12.58136 |
+| r7-g343 | embed-prepared | 8.354072 / 5.544240 |
+| r7-g343 | frobenius | 122.3507 / 58.07387 |
+| r7-g343 | frobenius-prepared | 54.56872 / 28.90273 |
+| r7-g343 | norm | 562.7587 / 317.7323 |
+| r7-g343 | norm-prepared | 167.8123 / 89.08503 |
+| r7-g343 | restrict-member | 184.3647 / 101.1019 |
+| r7-g343 | restrict-member-prepared | 24.21326 / 12.14756 |
+| r7-g343 | restrict-nonmember | 241.9348 / 122.0915 |
+| r7-g343 | restrict-nonmember-prepared | 37.78841 / 17.55540 |
+| r7-g343 | trace | 517.3783 / 287.9016 |
+| r7-g343 | trace-prepared | 22.10409 / 12.63043 |
+| ref2-ref8 | contains | 3.375988 / 1.671427 |
+| ref2-ref8 | contains-prepared | 7.183867 / 4.497270 |
+| ref2-ref8 | embed | 43.88714 / 26.43602 |
+| ref2-ref8 | embed-prepared | 1.742805 / 1.000918 |
+| ref2-ref8 | frobenius | 16.03974 / 10.23635 |
+| ref2-ref8 | frobenius-prepared | 9.213093 / 5.704072 |
+| ref2-ref8 | norm | 210.9115 / 106.6490 |
+| ref2-ref8 | norm-prepared | 39.20235 / 25.62698 |
+| ref2-ref8 | restrict-member | 165.6016 / 82.70337 |
+| ref2-ref8 | restrict-member-prepared | 11.78458 / 7.288988 |
+| ref2-ref8 | restrict-mixed | 110.7998 / 55.18313 |
+| ref2-ref8 | restrict-mixed-prepared | 10.56350 / 6.786615 |
+| ref2-ref8 | restrict-nonmember | 57.35240 / 27.68964 |
+| ref2-ref8 | restrict-nonmember-prepared | 8.396154 / 5.280647 |
+| ref2-ref8 | trace | 176.7742 / 91.70248 |
+| ref2-ref8 | trace-prepared | 7.357548 / 4.912604 |
+| res2-gf64 | contains | 134.5068 / 72.75316 |
+| res2-gf64 | contains-prepared | 70.48047 / 36.68944 |
+| res2-gf64 | embed | 39.09767 / 23.72350 |
+| res2-gf64 | embed-prepared | 33.73072 / 17.57535 |
+| res2-gf64 | frobenius | 229.9961 / 118.4969 |
+| res2-gf64 | frobenius-prepared | 114.6151 / 65.67638 |
+| res2-gf64 | norm | 12337.60 / 6979.508 |
+| res2-gf64 | norm-prepared | 11981.79 / 6326.374 |
+| res2-gf64 | restrict-member | 200.8198 / 107.8592 |
+| res2-gf64 | restrict-member-prepared | 131.0626 / 68.33493 |
+| res2-gf64 | restrict-nonmember | 199.8245 / 102.4357 |
+| res2-gf64 | restrict-nonmember-prepared | 82.94562 / 45.50563 |
+| res2-gf64 | trace | 9250.267 / 4962.384 |
+| res2-gf64 | trace-prepared | 69.33777 / 34.54204 |
+| res2-res2q | contains | 2.113615 / 0.868653 |
+| res2-res2q | contains-prepared | 4.852173 / 2.559828 |
+| res2-res2q | embed | 19.44543 / 12.36812 |
+| res2-res2q | embed-prepared | 8.354232 / 5.117878 |
+| res2-res2q | frobenius | 2.700250 / 2.040392 |
+| res2-res2q | frobenius-prepared | 10.92288 / 7.122022 |
+| res2-res2q | norm | 25.55404 / 14.07407 |
+| res2-res2q | norm-prepared | 21.40554 / 12.78888 |
+| res2-res2q | restrict-member | 20.80557 / 12.84622 |
+| res2-res2q | restrict-member-prepared | 11.36546 / 6.610496 |
+| res2-res2q | restrict-nonmember | 22.63816 / 12.58342 |
+| res2-res2q | restrict-nonmember-prepared | 10.74255 / 6.617304 |
+| res2-res2q | trace | 21.62142 / 12.58172 |
+| res2-res2q | trace-prepared | 3.109820 / 1.612593 |
+| rs8-gf16 | contains | 114.4629 / 60.60087 |
+| rs8-gf16 | contains-prepared | 4.346300 / 2.346282 |
+| rs8-gf16 | embed | 123.5718 / 62.88262 |
+| rs8-gf16 | embed-prepared | 9.225674 / 5.506486 |
+| rs8-gf16 | frobenius | 128.1201 / 75.39820 |
+| rs8-gf16 | frobenius-prepared | 4.278304 / 2.146519 |
+| rs8-gf16 | norm | 3740.270 / 2078.000 |
+| rs8-gf16 | norm-prepared | 21.81969 / 12.33539 |
+| rs8-gf16 | restrict-member | 3582.025 / 2007.700 |
+| rs8-gf16 | restrict-member-prepared | 10.97114 / 6.999456 |
+| rs8-gf16 | restrict-nonmember | 173.7595 / 94.49602 |
+| rs8-gf16 | restrict-nonmember-prepared | 4.348678 / 2.350786 |
+| rs8-gf16 | trace | 3425.586 / 1900.256 |
+| rs8-gf16 | trace-prepared | 13.88351 / 8.825451 |
 
-Compact-map control: a user loop of decode, map, encode over preallocated buffers. Numerator per row entry: one source plus one target element for embed, trace, norm, apply, unapply, and the construct amortization row; two target elements for frobenius; one target element plus the LSB-first validity bitmap for contains; one source plus one target element plus the validity bitmap for restrict-member, restrict-nonmember, and restrict-mixed. The construct row at row-16384 reports construction plus 16384 applications as one amortized call.
+Compact-map control: a user loop of decode, map, encode over preallocated buffers. Numerator per row entry: one source plus one target element for embed, trace, norm, apply, unapply, and the construct amortization row; two target elements for frobenius; one target element plus the LSB-first validity bitmap for contains; one restrict-member, restrict-nonmember, and restrict-mixed. Packed-bit rows (`gf1-*` pairs, `ops::map_bits`): N target lanes plus the packed bitmap for embed-bits, trace-bits, norm-bits, and contains-bits, with a second validity bitmap for restrict-bits-member and restrict-bits-mixed; each bits row is validated against a per-bit control loop before timing. The construct row at row-16384 reports construction plus 16384 applications as one amortized call.
 
 | Pair | Operation | row-1 (GiB/s) | row-8 (GiB/s) | row-64 (GiB/s) | row-1024 (GiB/s) | row-16384 (GiB/s) |
 | --- | --- | --- | --- | --- | --- | --- |
-| aes8-aesq | construct | - | - | - | - | 0.0294563 / 0.0546338 |
-| aes8-aesq | contains | 0.2981523 / 0.5689817 | 0.0362452 / 0.0658683 | 0.0348868 / 0.0636315 | 0.0346073 / 0.0633015 | 0.0346229 / 0.0633127 |
-| aes8-aesq | embed | 0.0531937 / 0.1007402 | 0.0361781 / 0.0693744 | 0.0309762 / 0.0592504 | 0.0293871 / 0.0559806 | 0.0294313 / 0.0557387 |
-| aes8-aesq | frobenius | 0.8551360 / 1.7437737 | 0.0698799 / 0.1321928 | 0.0669504 / 0.1257916 | 0.0663445 / 0.1242112 | 0.0663352 / 0.1238863 |
-| aes8-aesq | norm | 0.0040895 / 0.0084936 | 0.0018991 / 0.0035870 | 0.0017273 / 0.0031763 | 0.0017066 / 0.0030634 | 0.0017057 / 0.0030578 |
-| aes8-aesq | restrict-member | 0.0055302 / 0.0114461 | 0.0020871 / 0.0039395 | 0.0019180 / 0.0035239 | 0.0018978 / 0.0034099 | 0.0018958 / 0.0034095 |
-| aes8-aesq | restrict-mixed | 0.0055420 / 0.0115519 | 0.0040334 / 0.0077443 | 0.0035078 / 0.0064884 | 0.0034222 / 0.0061345 | 0.0034163 / 0.0061184 |
-| aes8-aesq | restrict-nonmember | 0.0228530 / 0.0444089 | 0.0181163 / 0.0347982 | 0.0178973 / 0.0345266 | 0.0179135 / 0.0345401 | 0.0178984 / 0.0345524 |
-| aes8-aesq | trace | 0.0040929 / 0.0085171 | 0.0024083 / 0.0046292 | 0.0023976 / 0.0046245 | 0.0023943 / 0.0046276 | 0.0023957 / 0.0046272 |
-| aes8-gf64 | construct | - | - | - | - | 0.0238709 / 0.0436451 |
-| aes8-gf64 | contains | 0.0220488 / 0.0398834 | 0.0107933 / 0.0204243 | 0.0116216 / 0.0223005 | 0.0125237 / 0.0242287 | 0.0125310 / 0.0242684 |
-| aes8-gf64 | embed | 0.0278895 / 0.0514868 | 0.0247666 / 0.0455593 | 0.0239473 / 0.0450589 | 0.0238334 / 0.0440992 | 0.0238692 / 0.0452700 |
-| aes8-gf64 | frobenius | 0.0396959 / 0.0648744 | 0.0212647 / 0.0398592 | 0.0228838 / 0.0438603 | 0.0247073 / 0.0475448 | 0.0247685 / 0.0476245 |
-| aes8-gf64 | norm | 0.0004896 / 0.0008228 | 0.0004078 / 0.0007299 | 0.0004140 / 0.0007404 | 0.0004218 / 0.0007574 | 0.0004237 / 0.0007597 |
-| aes8-gf64 | restrict-member | 0.0006373 / 0.0010997 | 0.0005514 / 0.0009867 | 0.0005443 / 0.0009816 | 0.0005450 / 0.0009708 | 0.0005403 / 0.0009863 |
-| aes8-gf64 | restrict-mixed | 0.0006379 / 0.0010956 | 0.0010345 / 0.0018277 | 0.0010334 / 0.0018208 | 0.0010394 / 0.0018002 | 0.0010306 / 0.0018315 |
-| aes8-gf64 | restrict-nonmember | 0.0090601 / 0.0177319 | 0.0083509 / 0.0162375 | 0.0102981 / 0.0204766 | 0.0105363 / 0.0210846 | 0.0105606 / 0.0211064 |
-| aes8-gf64 | trace | 0.0004917 / 0.0008355 | 0.0004244 / 0.0007500 | 0.0004405 / 0.0007695 | 0.0004507 / 0.0007830 | 0.0004506 / 0.0007858 |
-| fp64-gf64-iso | apply | 0.0029924 / 0.0052209 | 0.0027768 / 0.0045065 | 0.0027332 / 0.0044636 | 0.0027355 / 0.0046108 | 0.0027131 / 0.0046367 |
-| fp64-gf64-iso | construct | - | - | - | - | 0.0027188 / 0.0044733 |
-| fp64-gf64-iso | unapply | 0.0000631 / 0.0001002 | 0.0000631 / 0.0000990 | 0.0000631 / 0.0000998 | 0.0000631 / 0.0001001 | 0.0000631 / 0.0000997 |
-| fp8-fp16 | construct | - | - | - | - | 0.0005810 / 0.0009219 |
-| fp8-fp16 | contains | 0.0008630 / 0.0013332 | 0.0006101 / 0.0009460 | 0.0006098 / 0.0009458 | 0.0006099 / 0.0009360 | 0.0006104 / 0.0009571 |
-| fp8-fp16 | embed | 0.0005810 / 0.0009221 | 0.0005799 / 0.0009065 | 0.0005800 / 0.0009071 | 0.0005798 / 0.0009116 | 0.0005815 / 0.0009229 |
-| fp8-fp16 | frobenius | 0.0011503 / 0.0017494 | 0.0011499 / 0.0017504 | 0.0011514 / 0.0017387 | 0.0011512 / 0.0017831 | 0.0011522 / 0.0017855 |
-| fp8-fp16 | norm | 0.0000296 / 0.0000462 | 0.0000297 / 0.0000470 | 0.0000297 / 0.0000463 | 0.0000297 / 0.0000470 | 0.0000297 / 0.0000470 |
-| fp8-fp16 | restrict-member | 0.0000411 / 0.0000651 | 0.0000321 / 0.0000501 | 0.0000321 / 0.0000509 | 0.0000321 / 0.0000510 | 0.0000321 / 0.0000510 |
-| fp8-fp16 | restrict-mixed | 0.0000411 / 0.0000643 | 0.0000620 / 0.0000984 | 0.0000619 / 0.0000982 | 0.0000620 / 0.0000983 | 0.0000620 / 0.0000983 |
-| fp8-fp16 | restrict-nonmember | 0.0011131 / 0.0017291 | 0.0008684 / 0.0013528 | 0.0008706 / 0.0013564 | 0.0008677 / 0.0013650 | 0.0008683 / 0.0013741 |
-| fp8-fp16 | trace | 0.0000297 / 0.0000472 | 0.0000297 / 0.0000472 | 0.0000298 / 0.0000472 | 0.0000297 / 0.0000472 | 0.0000298 / 0.0000472 |
-| g9-g81 | construct | - | - | - | - | 0.0421745 / 0.0932499 |
-| g9-g81 | contains | 0.0187113 / 0.0430877 | 0.0137625 / 0.0310886 | 0.0140753 / 0.0319245 | 0.0138371 / 0.0312127 | 0.0135989 / 0.0304003 |
-| g9-g81 | embed | 0.0416851 / 0.0943236 | 0.0418136 / 0.0958314 | 0.0422302 / 0.0969666 | 0.0422684 / 0.0980035 | 0.0424143 / 0.0971566 |
-| g9-g81 | frobenius | 0.0307565 / 0.0695072 | 0.0270649 / 0.0606590 | 0.0276632 / 0.0622841 | 0.0271461 / 0.0606434 | 0.0267432 / 0.0592873 |
-| g9-g81 | norm | 0.0027272 / 0.0061744 | 0.0026500 / 0.0060078 | 0.0026611 / 0.0059905 | 0.0026596 / 0.0060002 | 0.0026596 / 0.0059863 |
-| g9-g81 | restrict-member | 0.0036610 / 0.0082169 | 0.0032071 / 0.0071830 | 0.0031964 / 0.0071798 | 0.0031923 / 0.0071908 | 0.0031888 / 0.0071673 |
-| g9-g81 | restrict-mixed | 0.0036947 / 0.0083130 | 0.0053808 / 0.0120013 | 0.0053192 / 0.0118730 | 0.0053069 / 0.0118340 | 0.0053162 / 0.0118257 |
-| g9-g81 | restrict-nonmember | 0.0172769 / 0.0381054 | 0.0160794 / 0.0357829 | 0.0157360 / 0.0350007 | 0.0156711 / 0.0347902 | 0.0156129 / 0.0346216 |
-| g9-g81 | trace | 0.0027581 / 0.0062317 | 0.0026995 / 0.0060469 | 0.0026979 / 0.0060566 | 0.0026972 / 0.0060675 | 0.0026938 / 0.0060378 |
-| gdl2 | construct | - | - | - | - | 1.0857928 / 1.7325969 |
-| gdl2 | contains | 0.0139176 / 0.0313270 | 0.0084528 / 0.0171413 | 0.0083975 / 0.0169908 | 0.0084151 / 0.0169644 | 0.0083906 / 0.0168971 |
-| gdl2 | embed | 1.0610913 / 1.8055538 | 1.1076286 / 1.8070839 | 1.1105448 / 1.8152566 | 1.1126010 / 1.8001993 | 1.0698155 / 1.6946980 |
-| gdl2 | frobenius | 0.0263359 / 0.0592104 | 0.0167942 / 0.0340689 | 0.0166969 / 0.0337390 | 0.0166656 / 0.0336255 | 0.0166410 / 0.0336211 |
-| gdl2 | norm | 0.0097725 / 0.0220009 | 0.0072964 / 0.0151439 | 0.0072388 / 0.0149376 | 0.0072261 / 0.0149384 | 0.0072150 / 0.0149120 |
-| gdl2 | restrict-member | 0.0202650 / 0.0457216 | 0.0177809 / 0.0381402 | 0.0175924 / 0.0375649 | 0.0175691 / 0.0374996 | 0.0175840 / 0.0374727 |
-| gdl2 | restrict-mixed | 0.0202191 / 0.0457872 | 0.0124925 / 0.0253856 | 0.0123916 / 0.0251142 | 0.0124032 / 0.0251583 | 0.0123777 / 0.0251263 |
-| gdl2 | restrict-nonmember | 0.0098817 / 0.0194780 | 0.0095546 / 0.0188329 | 0.0095662 / 0.0188988 | 0.0095731 / 0.0188947 | 0.0095610 / 0.0189338 |
-| gdl2 | trace | 0.0097417 / 0.0219936 | 0.0073321 / 0.0151833 | 0.0072684 / 0.0149595 | 0.0072646 / 0.0149645 | 0.0072517 / 0.0149214 |
-| gf16-gf64 | construct | - | - | - | - | 0.0122111 / 0.0222155 |
-| gf16-gf64 | contains | 0.0133507 / 0.0223627 | 0.0058210 / 0.0110397 | 0.0060971 / 0.0120847 | 0.0063365 / 0.0127381 | 0.0063402 / 0.0127889 |
-| gf16-gf64 | embed | 0.0142890 / 0.0248264 | 0.0124522 / 0.0227050 | 0.0122087 / 0.0223565 | 0.0121348 / 0.0222933 | 0.0120876 / 0.0222164 |
-| gf16-gf64 | frobenius | 0.0237578 / 0.0379293 | 0.0114244 / 0.0218506 | 0.0120073 / 0.0240300 | 0.0124378 / 0.0251349 | 0.0124727 / 0.0251472 |
-| gf16-gf64 | norm | 0.0002698 / 0.0004585 | 0.0002395 / 0.0004239 | 0.0002378 / 0.0004254 | 0.0002379 / 0.0004259 | 0.0002380 / 0.0004262 |
-| gf16-gf64 | restrict-member | 0.0003130 / 0.0005427 | 0.0002677 / 0.0004824 | 0.0002638 / 0.0004773 | 0.0002645 / 0.0004783 | 0.0002640 / 0.0004788 |
-| gf16-gf64 | restrict-mixed | 0.0003130 / 0.0005414 | 0.0005130 / 0.0009118 | 0.0005074 / 0.0009124 | 0.0005060 / 0.0009133 | 0.0005058 / 0.0009124 |
-| gf16-gf64 | restrict-nonmember | 0.0055747 / 0.0108205 | 0.0051545 / 0.0099757 | 0.0060868 / 0.0119893 | 0.0062249 / 0.0122817 | 0.0062262 / 0.0122798 |
-| gf16-gf64 | trace | 0.0002710 / 0.0004616 | 0.0002494 / 0.0004336 | 0.0002538 / 0.0004377 | 0.0002558 / 0.0004401 | 0.0002554 / 0.0004429 |
-| gf32-gf64 | construct | - | - | - | - | 0.0070012 / 0.0120720 |
-| gf32-gf64 | contains | 0.0073792 / 0.0132979 | 0.0029257 / 0.0056590 | 0.0028765 / 0.0057163 | 0.0027770 / 0.0055083 | 0.0027609 / 0.0054866 |
-| gf32-gf64 | embed | 0.0081578 / 0.0148376 | 0.0072346 / 0.0131323 | 0.0070497 / 0.0128619 | 0.0070133 / 0.0128350 | 0.0070191 / 0.0128193 |
-| gf32-gf64 | frobenius | 0.0130578 / 0.0214886 | 0.0057604 / 0.0110040 | 0.0056766 / 0.0112270 | 0.0054780 / 0.0108483 | 0.0054402 / 0.0108120 |
-| gf32-gf64 | norm | 0.0001546 / 0.0002672 | 0.0001371 / 0.0002449 | 0.0001357 / 0.0002440 | 0.0001337 / 0.0002421 | 0.0001336 / 0.0002423 |
-| gf32-gf64 | restrict-member | 0.0001695 / 0.0002970 | 0.0001431 / 0.0002558 | 0.0001398 / 0.0002532 | 0.0001390 / 0.0002528 | 0.0001395 / 0.0002532 |
-| gf32-gf64 | restrict-mixed | 0.0001673 / 0.0002935 | 0.0002755 / 0.0004898 | 0.0002698 / 0.0004859 | 0.0002685 / 0.0004833 | 0.0002682 / 0.0004864 |
-| gf32-gf64 | restrict-nonmember | 0.0035255 / 0.0068687 | 0.0032933 / 0.0064255 | 0.0037145 / 0.0072990 | 0.0035731 / 0.0070028 | 0.0035579 / 0.0069663 |
-| gf32-gf64 | trace | 0.0001539 / 0.0002652 | 0.0001462 / 0.0002540 | 0.0001469 / 0.0002552 | 0.0001467 / 0.0002542 | 0.0001468 / 0.0002550 |
-| m31-qm31 | construct | - | - | - | - | 0.5664519 / 0.8672128 |
-| m31-qm31 | contains | 0.0109171 / 0.0277757 | 0.0098972 / 0.0251921 | 0.0099195 / 0.0252954 | 0.0099207 / 0.0252757 | 0.0099322 / 0.0251664 |
-| m31-qm31 | embed | 0.5483960 / 0.8585495 | 0.5816594 / 0.8976306 | 0.5900720 / 0.9027397 | 0.5961231 / 0.9035441 | 0.5677660 / 0.8632243 |
-| m31-qm31 | frobenius | 0.0194881 / 0.0500024 | 0.0194981 / 0.0499087 | 0.0195817 / 0.0501394 | 0.0195528 / 0.0499984 | 0.0195119 / 0.0500195 |
-| m31-qm31 | norm | 0.0072099 / 0.0183073 | 0.0072352 / 0.0183788 | 0.0072564 / 0.0184221 | 0.0072510 / 0.0183609 | 0.0072406 / 0.0183467 |
-| m31-qm31 | restrict-member | 0.0154783 / 0.0389534 | 0.0145120 / 0.0366694 | 0.0145468 / 0.0367403 | 0.0145541 / 0.0367112 | 0.0145422 / 0.0367795 |
-| m31-qm31 | restrict-mixed | 0.0154820 / 0.0389939 | 0.0144619 / 0.0365051 | 0.0145142 / 0.0365576 | 0.0145271 / 0.0366258 | 0.0145079 / 0.0365680 |
-| m31-qm31 | restrict-nonmember | 0.0154428 / 0.0388719 | 0.0145352 / 0.0368090 | 0.0145728 / 0.0368243 | 0.0145900 / 0.0369272 | 0.0145775 / 0.0368823 |
-| m31-qm31 | trace | 0.0072514 / 0.0184460 | 0.0072761 / 0.0184833 | 0.0072818 / 0.0185153 | 0.0072765 / 0.0184874 | 0.0072824 / 0.0185266 |
-| normal8-aes8-iso | apply | 0.0275465 / 0.0528896 | 0.0201308 / 0.0372941 | 0.0177392 / 0.0324412 | 0.0170415 / 0.0309460 | 0.0169961 / 0.0308719 |
-| normal8-aes8-iso | construct | - | - | - | - | 0.0168629 / 0.0306253 |
-| normal8-aes8-iso | unapply | 0.0762424 / 0.1180085 | 0.0405132 / 0.0945018 | 0.0321573 / 0.0874590 | 0.0312697 / 0.0860067 | 0.0311528 / 0.0861949 |
-| normal8-gf16 | construct | - | - | - | - | 0.0199012 / 0.0333046 |
-| normal8-gf16 | contains | 0.0546102 / 0.0977439 | 0.0188024 / 0.0353552 | 0.0176373 / 0.0332035 | 0.0174651 / 0.0327734 | 0.0174748 / 0.0327623 |
-| normal8-gf16 | embed | 0.0312364 / 0.0559639 | 0.0233314 / 0.0401124 | 0.0203208 / 0.0347353 | 0.0197487 / 0.0335624 | 0.0198022 / 0.0334859 |
-| normal8-gf16 | frobenius | 0.0779309 / 0.1230262 | 0.0359928 / 0.0674137 | 0.0333289 / 0.0630862 | 0.0328330 / 0.0622502 | 0.0328068 / 0.0621072 |
-| normal8-gf16 | norm | 0.0009407 / 0.0017491 | 0.0007604 / 0.0013686 | 0.0007469 / 0.0013488 | 0.0007445 / 0.0013443 | 0.0007448 / 0.0013451 |
-| normal8-gf16 | restrict-member | 0.0012715 / 0.0022827 | 0.0008146 / 0.0014866 | 0.0008024 / 0.0014593 | 0.0008002 / 0.0014559 | 0.0008002 / 0.0014548 |
-| normal8-gf16 | restrict-mixed | 0.0012736 / 0.0022547 | 0.0015744 / 0.0028567 | 0.0015289 / 0.0027745 | 0.0015248 / 0.0027653 | 0.0015214 / 0.0027618 |
-| normal8-gf16 | restrict-nonmember | 0.0214134 / 0.0389960 | 0.0169942 / 0.0315537 | 0.0167647 / 0.0310139 | 0.0167674 / 0.0311596 | 0.0167564 / 0.0312086 |
-| normal8-gf16 | trace | 0.0009392 / 0.0017475 | 0.0008186 / 0.0014923 | 0.0008200 / 0.0014730 | 0.0008188 / 0.0014780 | 0.0008176 / 0.0014818 |
-| r3-g3-40 | construct | - | - | - | - | 1.6903320 / 2.8138257 |
-| r3-g3-40 | contains | 0.0035200 / 0.0079165 | 0.0021151 / 0.0046222 | 0.0017976 / 0.0033505 | 0.0022179 / 0.0042322 | 0.0022307 / 0.0044582 |
-| r3-g3-40 | embed | 1.8205293 / 2.8865175 | 1.9065082 / 2.9652973 | 1.9040781 / 2.9644759 | 1.8271464 / 2.7954804 | 1.7916970 / 2.6279993 |
-| r3-g3-40 | frobenius | 0.0068715 / 0.0154818 | 0.0042215 / 0.0094587 | 0.0035914 / 0.0066303 | 0.0044262 / 0.0084953 | 0.0044527 / 0.0087457 |
-| r3-g3-40 | norm | 0.0000711 / 0.0001596 | 0.0000333 / 0.0000612 | 0.0000337 / 0.0000619 | 0.0000421 / 0.0000799 | 0.0000424 / 0.0000852 |
-| r3-g3-40 | restrict-member | 0.0035840 / 0.0080417 | 0.0034646 / 0.0077466 | 0.0034671 / 0.0077669 | 0.0034642 / 0.0077704 | 0.0034616 / 0.0077807 |
-| r3-g3-40 | restrict-mixed | 0.0035854 / 0.0080611 | 0.0021764 / 0.0049602 | 0.0022971 / 0.0045074 | 0.0022801 / 0.0043516 | 0.0022883 / 0.0046176 |
-| r3-g3-40 | restrict-nonmember | 0.0016334 / 0.0037940 | 0.0012578 / 0.0023322 | 0.0016754 / 0.0030877 | 0.0016866 / 0.0030855 | 0.0017012 / 0.0032197 |
-| r3-g3-40 | trace | 0.0000875 / 0.0001961 | 0.0000423 / 0.0000778 | 0.0000428 / 0.0000787 | 0.0000530 / 0.0001005 | 0.0000533 / 0.0001015 |
-| r3-g81q | construct | - | - | - | - | 0.2203657 / 0.3814678 |
-| r3-g81q | contains | 0.0368342 / 0.0819708 | 0.0296143 / 0.0663078 | 0.0304746 / 0.0679015 | 0.0306356 / 0.0681679 | 0.0307227 / 0.0680371 |
-| r3-g81q | embed | 0.2176062 / 0.3698614 | 0.2270134 / 0.3785357 | 0.2275195 / 0.3844588 | 0.2283375 / 0.3864158 | 0.2239701 / 0.3766630 |
-| r3-g81q | frobenius | 0.0599656 / 0.1303953 | 0.0578889 / 0.1292111 | 0.0595523 / 0.1322080 | 0.0597774 / 0.1327263 | 0.0597787 / 0.1323947 |
-| r3-g81q | norm | 0.0083663 / 0.0186253 | 0.0076510 / 0.0169849 | 0.0077672 / 0.0172166 | 0.0077962 / 0.0172817 | 0.0077983 / 0.0172700 |
-| r3-g81q | restrict-member | 0.0379694 / 0.0818634 | 0.0336519 / 0.0720849 | 0.0340449 / 0.0727649 | 0.0341963 / 0.0731685 | 0.0341244 / 0.0730461 |
-| r3-g81q | restrict-mixed | 0.0382036 / 0.0822436 | 0.0317151 / 0.0693112 | 0.0318954 / 0.0696589 | 0.0320759 / 0.0696074 | 0.0319967 / 0.0694593 |
-| r3-g81q | restrict-nonmember | 0.0322909 / 0.0722411 | 0.0297144 / 0.0659999 | 0.0304691 / 0.0671482 | 0.0305794 / 0.0674316 | 0.0305577 / 0.0674528 |
-| r3-g81q | trace | 0.0096177 / 0.0212591 | 0.0088043 / 0.0196260 | 0.0089487 / 0.0198501 | 0.0089889 / 0.0199238 | 0.0089989 / 0.0199196 |
-| r7-g343 | construct | - | - | - | - | 0.1952889 / 0.2960351 |
-| r7-g343 | contains | 0.0507742 / 0.1113679 | 0.0336818 / 0.0716897 | 0.0354448 / 0.0758308 | 0.0355477 / 0.0759204 | 0.0355482 / 0.0758939 |
-| r7-g343 | embed | 0.1766708 / 0.2958433 | 0.1842012 / 0.3091150 | 0.1847603 / 0.3108613 | 0.1854972 / 0.3113959 | 0.1827675 / 0.3065222 |
-| r7-g343 | frobenius | 0.0801030 / 0.1826868 | 0.0669729 / 0.1440127 | 0.0706295 / 0.1525747 | 0.0708091 / 0.1521671 | 0.0708290 / 0.1516700 |
-| r7-g343 | norm | 0.0069807 / 0.0121466 | 0.0062051 / 0.0109955 | 0.0062123 / 0.0110105 | 0.0062768 / 0.0110784 | 0.0062790 / 0.0110287 |
-| r7-g343 | restrict-member | 0.0232987 / 0.0385579 | 0.0199126 / 0.0331827 | 0.0200565 / 0.0334972 | 0.0200148 / 0.0336406 | 0.0199850 / 0.0336120 |
-| r7-g343 | restrict-mixed | 0.0261678 / 0.0459145 | 0.0188623 / 0.0360887 | 0.0187285 / 0.0358177 | 0.0190206 / 0.0349973 | 0.0190261 / 0.0362610 |
-| r7-g343 | restrict-nonmember | 0.0181150 / 0.0351876 | 0.0158302 / 0.0302884 | 0.0156883 / 0.0293369 | 0.0158485 / 0.0293715 | 0.0158422 / 0.0292768 |
-| r7-g343 | trace | 0.0076132 / 0.0130335 | 0.0068664 / 0.0121251 | 0.0068507 / 0.0122253 | 0.0068940 / 0.0122861 | 0.0069054 / 0.0123046 |
-| res2-gf64 | construct | - | - | - | - | 0.3434770 / 0.7163222 |
-| res2-gf64 | contains | 0.0548680 / 0.1036433 | 0.0363376 / 0.0683054 | 0.0391768 / 0.0724043 | 0.0404697 / 0.0732111 | 0.0404456 / 0.0728264 |
-| res2-gf64 | embed | 0.3374011 / 0.6914004 | 0.3541133 / 0.7174744 | 0.3563302 / 0.7257019 | 0.3560687 / 0.7271392 | 0.3492028 / 0.7077023 |
-| res2-gf64 | frobenius | 0.1028513 / 0.1921378 | 0.0725270 / 0.1371448 | 0.0787272 / 0.1457452 | 0.0812922 / 0.1462312 | 0.0815597 / 0.1483952 |
-| res2-gf64 | norm | 0.0017271 / 0.0030161 | 0.0009866 / 0.0018312 | 0.0010718 / 0.0020059 | 0.0012005 / 0.0021999 | 0.0012097 / 0.0022199 |
-| res2-gf64 | restrict-member | 0.0650630 / 0.1218683 | 0.0598656 / 0.1125120 | 0.0605713 / 0.1118721 | 0.0609099 / 0.1107757 | 0.0606250 / 0.1093819 |
-| res2-gf64 | restrict-mixed | 0.0653084 / 0.1246493 | 0.0550116 / 0.1057714 | 0.0599443 / 0.1123195 | 0.0595037 / 0.1111208 | 0.0595719 / 0.1100691 |
-| res2-gf64 | restrict-nonmember | 0.0544178 / 0.1043627 | 0.0522890 / 0.1013570 | 0.0639245 / 0.1227338 | 0.0624053 / 0.1205018 | 0.0628674 / 0.1203572 |
-| res2-gf64 | trace | 0.0022559 / 0.0038515 | 0.0013585 / 0.0025445 | 0.0014676 / 0.0027402 | 0.0016348 / 0.0029833 | 0.0016509 / 0.0030463 |
-| res2-res2q | construct | - | - | - | - | 1.1433704 / 1.6470283 |
-| res2-res2q | contains | 1.8188173 / 3.7039531 | 7.9545952 / 18.095845 | 10.943040 / 21.943727 | 12.600955 / 26.893896 | 12.702651 / 27.107497 |
-| res2-res2q | embed | 1.0445564 / 1.7752863 | 1.1054640 / 1.8589115 | 1.1105896 / 1.8693484 | 1.1140072 / 1.8616083 | 1.0409499 / 1.7246655 |
-| res2-res2q | frobenius | 11.071449 / 21.308682 | 31.298385 / 61.932951 | 32.207090 / 88.483084 | 37.596173 / 90.935716 | 37.215850 / 91.530031 |
-| res2-res2q | norm | 0.8801569 / 1.5727221 | 0.9214001 / 1.6750938 | 0.9351535 / 1.6834794 | 0.9348913 / 1.6832138 | 0.8915166 / 1.6299474 |
-| res2-res2q | restrict-member | 0.8266975 / 1.5258840 | 0.9998499 / 1.7666296 | 1.0415927 / 1.8040700 | 1.0526056 / 1.8081754 | 1.0190120 / 1.7508076 |
-| res2-res2q | restrict-mixed | 0.8693858 / 1.5406146 | 1.0041401 / 1.7572713 | 1.0349665 / 1.8007833 | 1.0327362 / 1.8089884 | 0.9986659 / 1.7477517 |
-| res2-res2q | restrict-nonmember | 0.8433098 / 1.5570606 | 1.0059484 / 1.7636804 | 1.0334323 / 1.8070892 | 1.0488776 / 1.8088817 | 1.0103636 / 1.7367892 |
-| res2-res2q | trace | 0.8874586 / 1.5760674 | 0.9483863 / 1.6725644 | 0.9551950 / 1.6839452 | 0.9716885 / 1.6847587 | 0.9431908 / 1.6291802 |
-| rs8-gf16 | construct | - | - | - | - | 0.0227173 / 0.0435307 |
-| rs8-gf16 | contains | 0.0553143 / 0.0740175 | 0.0188048 / 0.0353584 | 0.0176587 / 0.0333236 | 0.0174778 / 0.0327811 | 0.0174728 / 0.0327865 |
-| rs8-gf16 | embed | 0.0375833 / 0.0749616 | 0.0281488 / 0.0543546 | 0.0240454 / 0.0456151 | 0.0231125 / 0.0437074 | 0.0228772 / 0.0436503 |
-| rs8-gf16 | frobenius | 0.0779278 / 0.1230127 | 0.0354547 / 0.0673060 | 0.0332346 / 0.0632515 | 0.0328466 / 0.0622496 | 0.0327876 / 0.0620662 |
-| rs8-gf16 | norm | 0.0009525 / 0.0017422 | 0.0007650 / 0.0013772 | 0.0007544 / 0.0013534 | 0.0007526 / 0.0013541 | 0.0007521 / 0.0013519 |
-| rs8-gf16 | restrict-member | 0.0012962 / 0.0023669 | 0.0008278 / 0.0014926 | 0.0008122 / 0.0014583 | 0.0008113 / 0.0014548 | 0.0008111 / 0.0014616 |
-| rs8-gf16 | restrict-mixed | 0.0012968 / 0.0023844 | 0.0016223 / 0.0029052 | 0.0015534 / 0.0027966 | 0.0015454 / 0.0027836 | 0.0015390 / 0.0027834 |
-| rs8-gf16 | restrict-nonmember | 0.0214403 / 0.0390024 | 0.0170178 / 0.0315857 | 0.0168036 / 0.0312357 | 0.0167665 / 0.0312641 | 0.0167989 / 0.0312325 |
-| rs8-gf16 | trace | 0.0009471 / 0.0017391 | 0.0008247 / 0.0014974 | 0.0008248 / 0.0014970 | 0.0008245 / 0.0014969 | 0.0008229 / 0.0014933 |
+| aes8-aesq | construct | - | - | - | - | 0.0292079 / 0.0553824 |
+| aes8-aesq | contains | 0.2879206 / 0.5690415 | 0.0362553 / 0.0658570 | 0.0348673 / 0.0636245 | 0.0347038 / 0.0632586 | 0.0346597 / 0.0633070 |
+| aes8-aesq | contains-prepared | 0.2177059 / 0.3964199 | 0.2254409 / 0.4034156 | 0.2344231 / 0.4299754 | 0.2408823 / 0.4405980 | 0.2416516 / 0.4416937 |
+| aes8-aesq | embed | 0.0527629 / 0.0947040 | 0.0357658 / 0.0672381 | 0.0307978 / 0.0580229 | 0.0292295 / 0.0541475 | 0.0292101 / 0.0541174 |
+| aes8-aesq | embed-prepared | 0.5542033 / 1.0424996 | 0.9971805 / 1.9059115 | 1.1593203 / 2.4958015 | 1.1891510 / 2.6165351 | 1.1986863 / 2.5642285 |
+| aes8-aesq | frobenius | 0.8553053 / 1.7430053 | 0.0699990 / 0.1316086 | 0.0669468 / 0.1254416 | 0.0663252 / 0.1237161 | 0.0662817 / 0.1233876 |
+| aes8-aesq | frobenius-prepared | 0.2928245 / 0.6123121 | 0.4390574 / 0.8266898 | 0.4691381 / 0.8516493 | 0.4832879 / 0.8719869 | 0.4843443 / 0.8734180 |
+| aes8-aesq | norm | 0.0040823 / 0.0084690 | 0.0018948 / 0.0035823 | 0.0017282 / 0.0031666 | 0.0017047 / 0.0030600 | 0.0017048 / 0.0030606 |
+| aes8-aesq | norm-prepared | 0.1240086 / 0.2337879 | 0.1273821 / 0.2454053 | 0.1205770 / 0.2388939 | 0.1185175 / 0.2487812 | 0.1198743 / 0.2431211 |
+| aes8-aesq | restrict-member | 0.0055246 / 0.0114597 | 0.0020853 / 0.0039285 | 0.0019177 / 0.0035161 | 0.0018992 / 0.0034098 | 0.0018985 / 0.0034078 |
+| aes8-aesq | restrict-member-prepared | 0.2026617 / 0.4222435 | 0.2767425 / 0.5437732 | 0.3016924 / 0.5840006 | 0.3093262 / 0.6026721 | 0.3101988 / 0.6027997 |
+| aes8-aesq | restrict-mixed | 0.0055306 / 0.0115353 | 0.0040355 / 0.0077359 | 0.0035087 / 0.0065148 | 0.0034195 / 0.0061691 | 0.0034145 / 0.0061428 |
+| aes8-aesq | restrict-mixed-prepared | 0.2015206 / 0.4180039 | 0.2905707 / 0.5403914 | 0.3127701 / 0.6005512 | 0.3261284 / 0.6181652 | 0.3247344 / 0.6197797 |
+| aes8-aesq | restrict-nonmember | 0.0228545 / 0.0443829 | 0.0180866 / 0.0348911 | 0.0178366 / 0.0348376 | 0.0179138 / 0.0348265 | 0.0178583 / 0.0348260 |
+| aes8-aesq | restrict-nonmember-prepared | 0.2179398 / 0.4484631 | 0.3029609 / 0.6118438 | 0.3368360 / 0.6650997 | 0.3467831 / 0.6854753 | 0.3481055 / 0.6874019 |
+| aes8-aesq | trace | 0.0040916 / 0.0084919 | 0.0024116 / 0.0046692 | 0.0023961 / 0.0046242 | 0.0023956 / 0.0046256 | 0.0023960 / 0.0046252 |
+| aes8-aesq | trace-prepared | 0.4256541 / 0.8178958 | 0.3428863 / 0.5398310 | 0.2897418 / 0.4393370 | 0.1154582 / 0.1743490 | 0.0719833 / 0.1097618 |
+| aes8-gf64 | construct | - | - | - | - | 0.0238264 / 0.0421896 |
+| aes8-gf64 | contains | 0.0207403 / 0.0381490 | 0.0107142 / 0.0202269 | 0.0115600 / 0.0216063 | 0.0125408 / 0.0239357 | 0.0125381 / 0.0239967 |
+| aes8-gf64 | contains-prepared | 0.0767604 / 0.1470355 | 0.0579334 / 0.1044305 | 0.0601163 / 0.1084183 | 0.0551122 / 0.0978101 | 0.0514452 / 0.0914145 |
+| aes8-gf64 | embed | 0.0284758 / 0.0516167 | 0.0251054 / 0.0466265 | 0.0241257 / 0.0463280 | 0.0238615 / 0.0455023 | 0.0240667 / 0.0455360 |
+| aes8-gf64 | embed-prepared | 0.2037212 / 0.3910371 | 0.2285316 / 0.4413250 | 0.2365548 / 0.4472863 | 0.2355977 / 0.4473909 | 0.2330224 / 0.4501098 |
+| aes8-gf64 | frobenius | 0.0403802 / 0.0669066 | 0.0213226 / 0.0398153 | 0.0229794 / 0.0435833 | 0.0247634 / 0.0469942 | 0.0247833 / 0.0470572 |
+| aes8-gf64 | frobenius-prepared | 0.1432566 / 0.2739021 | 0.1155609 / 0.2091443 | 0.1194674 / 0.2168612 | 0.1113005 / 0.2028122 | 0.1052934 / 0.1858378 |
+| aes8-gf64 | norm | 0.0004961 / 0.0008530 | 0.0004114 / 0.0007276 | 0.0004167 / 0.0007394 | 0.0004235 / 0.0007561 | 0.0004237 / 0.0007542 |
+| aes8-gf64 | norm-prepared | 0.0109891 / 0.0217259 | 0.0071135 / 0.0138094 | 0.0073056 / 0.0137909 | 0.0062737 / 0.0112569 | 0.0062338 / 0.0111877 |
+| aes8-gf64 | restrict-member | 0.0006442 / 0.0011205 | 0.0005512 / 0.0009666 | 0.0005449 / 0.0009579 | 0.0005465 / 0.0009663 | 0.0005461 / 0.0009655 |
+| aes8-gf64 | restrict-member-prepared | 0.0490790 / 0.0928910 | 0.0457962 / 0.0873519 | 0.0457172 / 0.0875957 | 0.0400044 / 0.0735974 | 0.0399204 / 0.0735797 |
+| aes8-gf64 | restrict-mixed | 0.0006443 / 0.0011339 | 0.0010416 / 0.0018247 | 0.0010399 / 0.0018294 | 0.0010393 / 0.0018210 | 0.0010382 / 0.0018271 |
+| aes8-gf64 | restrict-mixed-prepared | 0.0489436 / 0.0932914 | 0.0499641 / 0.0914842 | 0.0536162 / 0.0997407 | 0.0481704 / 0.0865370 | 0.0459808 / 0.0823791 |
+| aes8-gf64 | restrict-nonmember | 0.0090728 / 0.0176762 | 0.0083255 / 0.0162019 | 0.0102811 / 0.0205247 | 0.0105069 / 0.0210209 | 0.0105308 / 0.0210750 |
+| aes8-gf64 | restrict-nonmember-prepared | 0.0573528 / 0.0990678 | 0.0550194 / 0.0950630 | 0.0625197 / 0.1133722 | 0.0633243 / 0.1130372 | 0.0587042 / 0.1052473 |
+| aes8-gf64 | trace | 0.0005014 / 0.0008455 | 0.0004271 / 0.0007464 | 0.0004436 / 0.0007659 | 0.0004531 / 0.0007839 | 0.0004536 / 0.0007893 |
+| aes8-gf64 | trace-prepared | 0.0803452 / 0.1538702 | 0.0654344 / 0.1176889 | 0.0673280 / 0.1302923 | 0.0636012 / 0.1166782 | 0.0605719 / 0.1072078 |
+| fp64-gf64-iso | apply | 0.0030495 / 0.0052110 | 0.0027799 / 0.0047615 | 0.0027590 / 0.0046957 | 0.0027407 / 0.0046296 | 0.0027559 / 0.0045516 |
+| fp64-gf64-iso | apply-prepared | 0.1396017 / 0.2676038 | 0.1016470 / 0.1843046 | 0.0908791 / 0.1626459 | 0.0394983 / 0.0647774 | 0.0379236 / 0.0621346 |
+| fp64-gf64-iso | construct | - | - | - | - | 0.0027489 / 0.0045605 |
+| fp64-gf64-iso | unapply | 0.0000640 / 0.0001013 | 0.0000640 / 0.0001012 | 0.0000640 / 0.0001012 | 0.0000640 / 0.0001013 | 0.0000640 / 0.0001007 |
+| fp64-gf64-iso | unapply-prepared | 0.1425666 / 0.2744800 | 0.1140759 / 0.2144583 | 0.1075290 / 0.1957723 | 0.0411731 / 0.0685358 | 0.0393060 / 0.0651441 |
+| fp8-fp16 | construct | - | - | - | - | 0.0005815 / 0.0009252 |
+| fp8-fp16 | contains | 0.0008623 / 0.0013369 | 0.0006102 / 0.0009588 | 0.0006105 / 0.0009629 | 0.0006103 / 0.0009601 | 0.0006098 / 0.0009602 |
+| fp8-fp16 | contains-prepared | 0.0024172 / 0.0054465 | 0.0017010 / 0.0038114 | 0.0017019 / 0.0038095 | 0.0017033 / 0.0038041 | 0.0017047 / 0.0037891 |
+| fp8-fp16 | embed | 0.0005809 / 0.0009074 | 0.0005797 / 0.0008926 | 0.0005806 / 0.0009009 | 0.0005808 / 0.0009044 | 0.0005809 / 0.0009125 |
+| fp8-fp16 | embed-prepared | 0.5544030 / 1.0056860 | 1.0067150 / 2.1817900 | 1.1180854 / 2.5552908 | 1.1893618 / 2.6160467 | 1.2128690 / 2.5539236 |
+| fp8-fp16 | frobenius | 0.0011500 / 0.0018120 | 0.0011517 / 0.0018119 | 0.0011524 / 0.0017953 | 0.0011525 / 0.0018035 | 0.0011526 / 0.0018105 |
+| fp8-fp16 | frobenius-prepared | 0.0032274 / 0.0072865 | 0.0032456 / 0.0073142 | 0.0032503 / 0.0073199 | 0.0032508 / 0.0072976 | 0.0032476 / 0.0073083 |
+| fp8-fp16 | norm | 0.0000297 / 0.0000467 | 0.0000296 / 0.0000468 | 0.0000297 / 0.0000468 | 0.0000297 / 0.0000468 | 0.0000297 / 0.0000467 |
+| fp8-fp16 | norm-prepared | 0.0010636 / 0.0022808 | 0.0010660 / 0.0022803 | 0.0010669 / 0.0022595 | 0.0010664 / 0.0022870 | 0.0010664 / 0.0022888 |
+| fp8-fp16 | restrict-member | 0.0000410 / 0.0000648 | 0.0000321 / 0.0000507 | 0.0000321 / 0.0000507 | 0.0000321 / 0.0000508 | 0.0000321 / 0.0000507 |
+| fp8-fp16 | restrict-member-prepared | 0.0032116 / 0.0072286 | 0.0025247 / 0.0056787 | 0.0025282 / 0.0057003 | 0.0025281 / 0.0056936 | 0.0025298 / 0.0056851 |
+| fp8-fp16 | restrict-mixed | 0.0000410 / 0.0000648 | 0.0000618 / 0.0000975 | 0.0000619 / 0.0000978 | 0.0000619 / 0.0000978 | 0.0000619 / 0.0000979 |
+| fp8-fp16 | restrict-mixed-prepared | 0.0032103 / 0.0072565 | 0.0025059 / 0.0055989 | 0.0025121 / 0.0056127 | 0.0025121 / 0.0056101 | 0.0025112 / 0.0055951 |
+| fp8-fp16 | restrict-nonmember | 0.0011103 / 0.0017610 | 0.0008667 / 0.0013728 | 0.0008676 / 0.0013710 | 0.0008675 / 0.0013745 | 0.0008678 / 0.0013765 |
+| fp8-fp16 | restrict-nonmember-prepared | 0.0032190 / 0.0072658 | 0.0025337 / 0.0056973 | 0.0025361 / 0.0057070 | 0.0025405 / 0.0057150 | 0.0025374 / 0.0057011 |
+| fp8-fp16 | trace | 0.0000297 / 0.0000469 | 0.0000297 / 0.0000469 | 0.0000297 / 0.0000469 | 0.0000297 / 0.0000470 | 0.0000297 / 0.0000469 |
+| fp8-fp16 | trace-prepared | 0.4106014 / 0.7273563 | 0.3734679 / 0.4989867 | 0.2833696 / 0.4337233 | 0.1323665 / 0.2347211 | 0.0744012 / 0.1204914 |
+| g9-g81 | construct | - | - | - | - | 0.0433641 / 0.0952914 |
+| g9-g81 | contains | 0.0187229 / 0.0431179 | 0.0138497 / 0.0311694 | 0.0141661 / 0.0320127 | 0.0139155 / 0.0312304 | 0.0136683 / 0.0304773 |
+| g9-g81 | contains-prepared | 0.0742995 / 0.1307188 | 0.0669348 / 0.1179868 | 0.0670640 / 0.1189210 | 0.0673174 / 0.1191336 | 0.0670604 / 0.1189951 |
+| g9-g81 | embed | 0.0418248 / 0.0923077 | 0.0416898 / 0.0949040 | 0.0422062 / 0.0953507 | 0.0420501 / 0.0965014 | 0.0420636 / 0.0945240 |
+| g9-g81 | embed-prepared | 0.7241907 / 1.3744634 | 1.1009136 / 1.7471170 | 1.1448309 / 2.2758969 | 1.1822333 / 2.3749499 | 1.1789421 / 2.3817358 |
+| g9-g81 | frobenius | 0.0306464 / 0.0694672 | 0.0269856 / 0.0606200 | 0.0275515 / 0.0622759 | 0.0270085 / 0.0606437 | 0.0265907 / 0.0592514 |
+| g9-g81 | frobenius-prepared | 0.1330199 / 0.2305710 | 0.1471812 / 0.2525962 | 0.1476305 / 0.2553538 | 0.1471983 / 0.2559306 | 0.1468601 / 0.2537283 |
+| g9-g81 | norm | 0.0027300 / 0.0061460 | 0.0026595 / 0.0059858 | 0.0026620 / 0.0059930 | 0.0026601 / 0.0059703 | 0.0026556 / 0.0059782 |
+| g9-g81 | norm-prepared | 0.0366852 / 0.0604752 | 0.0349573 / 0.0580821 | 0.0340741 / 0.0566868 | 0.0335483 / 0.0512762 | 0.0333760 / 0.0511204 |
+| g9-g81 | restrict-member | 0.0036507 / 0.0081786 | 0.0031940 / 0.0071853 | 0.0031846 / 0.0071615 | 0.0031819 / 0.0071629 | 0.0031879 / 0.0071623 |
+| g9-g81 | restrict-member-prepared | 0.1026531 / 0.1608512 | 0.0991136 / 0.1548512 | 0.1007373 / 0.1569478 | 0.1015038 / 0.1572679 | 0.1006016 / 0.1565217 |
+| g9-g81 | restrict-mixed | 0.0036326 / 0.0082128 | 0.0052817 / 0.0118611 | 0.0052182 / 0.0116113 | 0.0052278 / 0.0115850 | 0.0052312 / 0.0116006 |
+| g9-g81 | restrict-mixed-prepared | 0.1025494 / 0.1608621 | 0.1004883 / 0.1583418 | 0.1032763 / 0.1603894 | 0.1035920 / 0.1609875 | 0.1034304 / 0.1601908 |
+| g9-g81 | restrict-nonmember | 0.0172260 / 0.0380298 | 0.0161216 / 0.0356017 | 0.0158188 / 0.0348141 | 0.0157426 / 0.0345481 | 0.0156747 / 0.0343852 |
+| g9-g81 | restrict-nonmember-prepared | 0.1078873 / 0.1678671 | 0.1041715 / 0.1612863 | 0.1043333 / 0.1629925 | 0.1054560 / 0.1634363 | 0.1051830 / 0.1632181 |
+| g9-g81 | trace | 0.0027605 / 0.0062265 | 0.0026831 / 0.0060691 | 0.0026890 / 0.0059978 | 0.0026793 / 0.0060337 | 0.0026877 / 0.0060350 |
+| g9-g81 | trace-prepared | 0.1459420 / 0.2700496 | 0.1151329 / 0.2440683 | 0.1196655 / 0.2515654 | 0.1095870 / 0.2198998 | 0.1033824 / 0.2009817 |
+| gdl2 | construct | - | - | - | - | 1.0739538 / 1.7359131 |
+| gdl2 | contains | 0.0138742 / 0.0313283 | 0.0084488 / 0.0171185 | 0.0083964 / 0.0169664 | 0.0083925 / 0.0169696 | 0.0083779 / 0.0169146 |
+| gdl2 | contains-prepared | 0.2694458 / 0.4607703 | 0.2727422 / 0.4651899 | 0.2745189 / 0.4684290 | 0.2750793 / 0.4689705 | 0.2747725 / 0.4681622 |
+| gdl2 | embed | 1.0609759 / 1.8060219 | 1.1076266 / 1.8923850 | 1.1116904 / 1.9013880 | 1.1128934 / 1.8963901 | 1.1046187 / 1.7655354 |
+| gdl2 | embed-prepared | 2.0242183 / 3.0819723 | 2.6613040 / 4.1508181 | 2.7705289 / 4.3389358 | 2.7860181 / 4.3656048 | 2.7411152 / 4.3064561 |
+| gdl2 | frobenius | 0.0261550 / 0.0592328 | 0.0167680 / 0.0340155 | 0.0166475 / 0.0337416 | 0.0166536 / 0.0336710 | 0.0166256 / 0.0336444 |
+| gdl2 | frobenius-prepared | 0.5244827 / 0.7677178 | 0.5686398 / 0.8217392 | 0.5775196 / 0.8294623 | 0.5734793 / 0.7850231 | 0.5606434 / 0.7664281 |
+| gdl2 | norm | 0.0098484 / 0.0221982 | 0.0072921 / 0.0151489 | 0.0072178 / 0.0149518 | 0.0072267 / 0.0149367 | 0.0072154 / 0.0149179 |
+| gdl2 | norm-prepared | 0.1785641 / 0.3038593 | 0.1696153 / 0.2949790 | 0.1696099 / 0.2989418 | 0.1707146 / 0.2952857 | 0.1690932 / 0.2965842 |
+| gdl2 | restrict-member | 0.0202317 / 0.0456862 | 0.0177574 / 0.0381195 | 0.0175755 / 0.0375263 | 0.0175565 / 0.0374567 | 0.0175564 / 0.0374404 |
+| gdl2 | restrict-member-prepared | 0.3752131 / 0.5596918 | 0.3935700 / 0.5885728 | 0.4029563 / 0.5987849 | 0.4067181 / 0.5688414 | 0.4025770 / 0.5613967 |
+| gdl2 | restrict-mixed | 0.0201909 / 0.0457364 | 0.0124792 / 0.0253470 | 0.0123963 / 0.0251720 | 0.0124032 / 0.0251291 | 0.0123798 / 0.0251270 |
+| gdl2 | restrict-mixed-prepared | 0.3753124 / 0.5596725 | 0.4065669 / 0.5986171 | 0.4167289 / 0.6067066 | 0.4157943 / 0.5778288 | 0.4131733 / 0.5683928 |
+| gdl2 | restrict-nonmember | 0.0098883 / 0.0194999 | 0.0095632 / 0.0188207 | 0.0095713 / 0.0188682 | 0.0095787 / 0.0189047 | 0.0095627 / 0.0188675 |
+| gdl2 | restrict-nonmember-prepared | 0.3898288 / 0.5744942 | 0.4181830 / 0.6064873 | 0.4267939 / 0.6141730 | 0.4288861 / 0.5846368 | 0.4229457 / 0.5787579 |
+| gdl2 | trace | 0.0099120 / 0.0222747 | 0.0073340 / 0.0152076 | 0.0072604 / 0.0149973 | 0.0072599 / 0.0149869 | 0.0072554 / 0.0149624 |
+| gdl2 | trace-prepared | 1.1246668 / 1.6888138 | 1.0033612 / 1.6588719 | 1.0435676 / 1.8877042 | 1.0482307 / 1.9025279 | 1.0437672 / 1.9021709 |
+| gf1-aes8 | contains-bits | 0.1236734 / 0.2787614 | 0.2716633 / 0.5526213 | 0.7914620 / 1.7794111 | 0.9696889 / 2.1999877 | 0.9981256 / 2.2670079 |
+| gf1-aes8 | contains-bits-control | 0.0980876 / 0.1990547 | 0.1083980 / 0.1794642 | 0.1387971 / 0.2376606 | 0.1418589 / 0.2248981 | 0.1423393 / 0.2254740 |
+| gf1-aes8 | embed-bits | 0.1708749 / 0.3354882 | 0.2454084 / 0.3742842 | 0.7297824 / 8.2242568 | 0.8159459 / 24.481086 | 0.8271990 / 33.339576 |
+| gf1-aes8 | embed-bits-control | 0.3705485 / 0.7266444 | 0.2835932 / 0.6452531 | 0.3147343 / 0.6505954 | 0.3221081 / 0.6983356 | 0.3234690 / 0.7016772 |
+| gf1-aes8 | norm-bits | 0.1544619 / 0.2908703 | 0.2593981 / 0.5037062 | 0.6981988 / 1.4907559 | 0.8582541 / 1.8128930 | 0.8763445 / 1.8606767 |
+| gf1-aes8 | norm-bits-control | 0.0638913 / 0.1195806 | 0.0176730 / 0.0286048 | 0.0182420 / 0.0294648 | 0.0183791 / 0.0298438 | 0.0184089 / 0.0295728 |
+| gf1-aes8 | restrict-bits-member | 0.1563582 / 0.3088196 | 0.2123857 / 0.4403459 | 0.4968036 / 0.8613778 | 0.5726047 / 0.9510796 | 0.5816661 / 0.9640956 |
+| gf1-aes8 | restrict-bits-member-control | 0.0989196 / 0.2033879 | 0.0625159 / 0.1230501 | 0.0881735 / 0.1637112 | 0.0938037 / 0.1866418 | 0.0941165 / 0.1796571 |
+| gf1-aes8 | restrict-bits-mixed | 0.1555221 / 0.3102640 | 0.2522123 / 0.5044745 | 0.6920085 / 1.0199107 | 0.8251037 / 1.0988157 | 0.8389608 / 1.1001211 |
+| gf1-aes8 | restrict-bits-mixed-control | 0.0992345 / 0.2037925 | 0.0880057 / 0.1426945 | 0.1176702 / 0.1977290 | 0.1204556 / 0.1967231 | 0.1200969 / 0.2019984 |
+| gf1-aes8 | trace-bits | 0.1497398 / 0.2859367 | 0.2467313 / 0.5155866 | 1.2863390 / 1.7883625 | 1.6235518 / 2.1129048 | 1.6947515 / 2.1867778 |
+| gf1-aes8 | trace-bits-control | 0.1458890 / 0.2918240 | 0.1400063 / 0.2441088 | 0.1700302 / 0.3022883 | 0.1732553 / 0.2994294 | 0.1739388 / 0.2965456 |
+| gf1-gf16 | contains-bits | 0.1739112 / 0.3846518 | 0.5762241 / 0.8334623 | 1.2921124 / 3.1123245 | 1.5797269 / 3.8755033 | 1.6452203 / 3.8886094 |
+| gf1-gf16 | contains-bits-control | 0.1450890 / 0.2895487 | 0.1811756 / 0.3212976 | 0.2344079 / 0.3924998 | 0.2421162 / 0.4033854 | 0.2435317 / 0.4049182 |
+| gf1-gf16 | embed-bits | 0.2291592 / 0.4932733 | 1.0836591 / 0.8248376 | 1.4812506 / 12.865711 | 1.7266195 / 31.039728 | 1.7540943 / 38.668383 |
+| gf1-gf16 | embed-bits-control | 0.5554330 / 1.0839804 | 0.5357955 / 1.1627006 | 0.5699861 / 1.1569971 | 0.5906825 / 1.2271633 | 0.5906415 / 1.2314398 |
+| gf1-gf16 | norm-bits | 0.2059075 / 0.4087266 | 0.5072100 / 0.7887976 | 1.2850550 / 2.6464272 | 1.5781833 / 3.2032338 | 1.6109338 / 3.2824462 |
+| gf1-gf16 | norm-bits-control | 0.0238804 / 0.0389980 | 0.0079958 / 0.0148806 | 0.0089305 / 0.0155931 | 0.0090618 / 0.0156227 | 0.0090928 / 0.0154006 |
+| gf1-gf16 | restrict-bits-member | 0.2021176 / 0.4112518 | 0.3919967 / 0.7009853 | 0.8838373 / 1.5191884 | 1.0193978 / 1.6386815 | 1.0337972 / 1.6594484 |
+| gf1-gf16 | restrict-bits-member-control | 0.1299462 / 0.2665880 | 0.1105391 / 0.2200124 | 0.1607578 / 0.3154704 | 0.1666648 / 0.3094643 | 0.1671363 / 0.3207315 |
+| gf1-gf16 | restrict-bits-mixed | 0.2012648 / 0.4052047 | 0.4727528 / 0.7992675 | 1.2201477 / 1.9947359 | 1.4602775 / 2.2502361 | 1.4772566 / 2.2960989 |
+| gf1-gf16 | restrict-bits-mixed-control | 0.1302176 / 0.2667559 | 0.1424097 / 0.2418297 | 0.1949032 / 0.3306233 | 0.2022103 / 0.3396192 | 0.2032463 / 0.3398644 |
+| gf1-gf16 | trace-bits | 0.1946074 / 0.3795592 | 0.6736119 / 0.8340963 | 2.5618554 / 3.2090688 | 3.1878439 / 3.7991887 | 3.1182124 / 3.5695898 |
+| gf1-gf16 | trace-bits-control | 0.2211443 / 0.4445046 | 0.2023534 / 0.2945885 | 0.2359630 / 0.3435099 | 0.2451642 / 0.3593765 | 0.2461606 / 0.3614411 |
+| gf1-gf32 | contains-bits | 0.3042641 / 0.6206074 | 1.0983587 / 2.1998001 | 3.0289535 / 4.4625169 | 3.8637830 / 6.4056446 | 3.9688510 / 6.5725358 |
+| gf1-gf32 | contains-bits-control | 0.2398789 / 0.4826607 | 0.2745061 / 0.4070681 | 0.3811788 / 0.5724000 | 0.3817647 / 0.5801046 | 0.3875056 / 0.5762134 |
+| gf1-gf32 | embed-bits | 0.3859493 / 0.7523332 | 2.0397778 / 4.3630418 | 8.9000458 / 11.496770 | 39.062129 / 51.566688 | 49.780640 / 49.537404 |
+| gf1-gf32 | embed-bits-control | 0.2114887 / 0.3864092 | 0.1877495 / 0.3343228 | 0.1877174 / 0.3365529 | 0.1903245 / 0.3401755 | 0.1903210 / 0.3339687 |
+| gf1-gf32 | norm-bits | 0.3299520 / 0.6415384 | 0.9719473 / 2.0138250 | 2.3881331 / 4.1860669 | 2.9356611 / 5.4097874 | 2.9949892 / 5.5115275 |
+| gf1-gf32 | norm-bits-control | 0.0126726 / 0.0212182 | 0.0039972 / 0.0076370 | 0.0026187 / 0.0045869 | 0.0024426 / 0.0041741 | 0.0024394 / 0.0041516 |
+| gf1-gf32 | restrict-bits-member | 0.2985424 / 0.5836764 | 0.7670653 / 1.5640634 | 1.6358101 / 2.7336663 | 1.8909827 / 2.9098696 | 1.9131620 / 2.9408781 |
+| gf1-gf32 | restrict-bits-member-control | 0.1954617 / 0.4003132 | 0.2062851 / 0.4041773 | 0.2995597 / 0.5144301 | 0.3107778 / 0.5400487 | 0.3114703 / 0.5765404 |
+| gf1-gf32 | restrict-bits-mixed | 0.3004695 / 0.5858603 | 0.9106735 / 1.8445872 | 2.1882940 / 3.5642222 | 2.6586392 / 3.9117116 | 2.6873006 / 3.9778246 |
+| gf1-gf32 | restrict-bits-mixed-control | 0.1958850 / 0.4003966 | 0.1878616 / 0.3366114 | 0.3123972 / 0.4777804 | 0.3149167 / 0.4919781 | 0.3220816 / 0.4889186 |
+| gf1-gf32 | trace-bits | 0.3051956 / 0.6042422 | 1.2468423 / 2.6592232 | 4.8009954 / 5.6231970 | 5.2815833 / 5.4365413 | 5.4346135 / 5.4660426 |
+| gf1-gf32 | trace-bits-control | 0.3647968 / 0.7526447 | 0.3561909 / 0.4828723 | 0.5304248 / 0.7141382 | 0.5391590 / 0.7292313 | 0.5504290 / 0.7328261 |
+| gf1-gf64 | contains-bits | 0.4975225 / 0.9550961 | 2.2051587 / 3.7809674 | 5.3727761 / 6.9291310 | 6.5574477 / 8.8147931 | 6.6993677 / 8.9583483 |
+| gf1-gf64 | contains-bits-control | 0.0684407 / 0.1340140 | 0.0550960 / 0.1020668 | 0.0627115 / 0.1215591 | 0.0630106 / 0.1172335 | 0.0619807 / 0.1176706 |
+| gf1-gf64 | embed-bits | 0.6853749 / 1.5090663 | 4.2411089 / 7.4162126 | 15.908325 / 18.111222 | 58.756507 / 41.826620 | 50.835090 / 46.334881 |
+| gf1-gf64 | embed-bits-control | 0.2353692 / 0.4316985 | 0.2237117 / 0.4051313 | 0.2230051 / 0.4046317 | 0.2247798 / 0.4064508 | 0.2238458 / 0.4078452 |
+| gf1-gf64 | norm-bits | 0.5197435 / 1.0325062 | 1.9169873 / 3.5476212 | 4.3275272 / 6.3961006 | 5.1745169 / 7.1492448 | 5.2702418 / 7.2469771 |
+| gf1-gf64 | norm-bits-control | 0.0016061 / 0.0031587 | 0.0005636 / 0.0010297 | 0.0006914 / 0.0012336 | 0.0006829 / 0.0012183 | 0.0006864 / 0.0012255 |
+| gf1-gf64 | restrict-bits-member | 0.4424449 / 0.8540731 | 1.5094995 / 2.9216288 | 3.0235173 / 4.4401166 | 3.4855656 / 4.7771538 | 3.5203020 / 4.8677079 |
+| gf1-gf64 | restrict-bits-member-control | 0.0458219 / 0.0866315 | 0.0395387 / 0.0747429 | 0.0407719 / 0.0762378 | 0.0409567 / 0.0761570 | 0.0407714 / 0.0760131 |
+| gf1-gf64 | restrict-bits-mixed | 0.4446073 / 0.8531056 | 1.8132372 / 3.0458802 | 3.9764453 / 5.1275842 | 4.7602545 / 5.7817789 | 4.4577338 / 5.8656544 |
+| gf1-gf64 | restrict-bits-mixed-control | 0.0456536 / 0.0870528 | 0.0437165 / 0.0796136 | 0.0482012 / 0.0892933 | 0.0482526 / 0.0879029 | 0.0481959 / 0.0881054 |
+| gf1-gf64 | trace-bits | 0.4833223 / 0.9582056 | 2.9844514 / 4.7295734 | 6.5058467 / 8.1396180 | 9.2557979 / 10.542427 | 9.4203252 / 10.762563 |
+| gf1-gf64 | trace-bits-control | 0.0731258 / 0.1409398 | 0.0573529 / 0.1052186 | 0.0651691 / 0.1263191 | 0.0653401 / 0.1234850 | 0.0642939 / 0.1237466 |
+| gf16-gf64 | construct | - | - | - | - | 0.0120426 / 0.0222080 |
+| gf16-gf64 | contains | 0.0135102 / 0.0238778 | 0.0058231 / 0.0109785 | 0.0061102 / 0.0121132 | 0.0063232 / 0.0126715 | 0.0063323 / 0.0127698 |
+| gf16-gf64 | contains-prepared | 0.0769525 / 0.1472421 | 0.0607397 / 0.1028695 | 0.0620208 / 0.1066038 | 0.0496051 / 0.0875595 | 0.0438616 / 0.0774790 |
+| gf16-gf64 | embed | 0.0142896 / 0.0260723 | 0.0127087 / 0.0231411 | 0.0123203 / 0.0222357 | 0.0122923 / 0.0223940 | 0.0122962 / 0.0221894 |
+| gf16-gf64 | embed-prepared | 0.2366199 / 0.4381193 | 0.2566938 / 0.4818637 | 0.2579171 / 0.4878222 | 0.2600665 / 0.4881844 | 0.2599504 / 0.4890313 |
+| gf16-gf64 | frobenius | 0.0241213 / 0.0394121 | 0.0114721 / 0.0219476 | 0.0120275 / 0.0240228 | 0.0124893 / 0.0250236 | 0.0124684 / 0.0250300 |
+| gf16-gf64 | frobenius-prepared | 0.1419452 / 0.2739430 | 0.1201737 / 0.2076948 | 0.1235429 / 0.2132203 | 0.1010737 / 0.1801343 | 0.0891796 / 0.1546034 |
+| gf16-gf64 | norm | 0.0002713 / 0.0004604 | 0.0002383 / 0.0004226 | 0.0002362 / 0.0004229 | 0.0002364 / 0.0004247 | 0.0002364 / 0.0004267 |
+| gf16-gf64 | norm-prepared | 0.0214992 / 0.0421122 | 0.0160058 / 0.0307060 | 0.0159609 / 0.0309447 | 0.0115440 / 0.0204264 | 0.0110136 / 0.0195127 |
+| gf16-gf64 | restrict-member | 0.0003154 / 0.0005388 | 0.0002677 / 0.0004728 | 0.0002645 / 0.0004716 | 0.0002638 / 0.0004733 | 0.0002626 / 0.0004752 |
+| gf16-gf64 | restrict-member-prepared | 0.0532923 / 0.1010585 | 0.0488573 / 0.0936587 | 0.0484920 / 0.0928698 | 0.0375320 / 0.0683167 | 0.0351849 / 0.0625892 |
+| gf16-gf64 | restrict-mixed | 0.0003153 / 0.0005430 | 0.0005148 / 0.0009060 | 0.0005105 / 0.0009032 | 0.0005083 / 0.0009049 | 0.0005085 / 0.0009037 |
+| gf16-gf64 | restrict-mixed-prepared | 0.0532153 / 0.1011287 | 0.0561181 / 0.1001832 | 0.0574961 / 0.1077691 | 0.0485022 / 0.0873931 | 0.0441192 / 0.0783172 |
+| gf16-gf64 | restrict-nonmember | 0.0055797 / 0.0108095 | 0.0051613 / 0.0099520 | 0.0060947 / 0.0119430 | 0.0062369 / 0.0122489 | 0.0062383 / 0.0122455 |
+| gf16-gf64 | restrict-nonmember-prepared | 0.0628373 / 0.1087480 | 0.0609291 / 0.1059587 | 0.0669251 / 0.1206157 | 0.0680892 / 0.1180770 | 0.0622519 / 0.1093146 |
+| gf16-gf64 | trace | 0.0002727 / 0.0004672 | 0.0002499 / 0.0004363 | 0.0002543 / 0.0004405 | 0.0002561 / 0.0004454 | 0.0002559 / 0.0004471 |
+| gf16-gf64 | trace-prepared | 0.0883541 / 0.1707405 | 0.0768035 / 0.1292731 | 0.0761520 / 0.1443386 | 0.0652992 / 0.1181359 | 0.0577350 / 0.1010002 |
+| gf32-gf64 | construct | - | - | - | - | 0.0070511 / 0.0122532 |
+| gf32-gf64 | contains | 0.0073574 / 0.0137237 | 0.0029290 / 0.0056113 | 0.0028824 / 0.0057043 | 0.0027787 / 0.0055064 | 0.0027633 / 0.0054742 |
+| gf32-gf64 | contains-prepared | 0.0763255 / 0.1439583 | 0.0717825 / 0.1386598 | 0.0723162 / 0.1381114 | 0.0724514 / 0.1381056 | 0.0710252 / 0.1376131 |
+| gf32-gf64 | embed | 0.0083939 / 0.0148030 | 0.0073621 / 0.0134715 | 0.0071169 / 0.0123354 | 0.0070798 / 0.0129189 | 0.0070784 / 0.0129441 |
+| gf32-gf64 | embed-prepared | 0.1791289 / 0.4711516 | 0.1881035 / 0.5150058 | 0.1938165 / 0.5167514 | 0.1943681 / 0.5199578 | 0.1899458 / 0.5193103 |
+| gf32-gf64 | frobenius | 0.0130430 / 0.0228464 | 0.0057616 / 0.0110317 | 0.0056774 / 0.0112566 | 0.0054744 / 0.0108536 | 0.0054512 / 0.0107956 |
+| gf32-gf64 | frobenius-prepared | 0.1387636 / 0.2685921 | 0.1457717 / 0.2772701 | 0.1441405 / 0.2776243 | 0.1444156 / 0.2784414 | 0.1429423 / 0.2761730 |
+| gf32-gf64 | norm | 0.0001552 / 0.0002620 | 0.0001379 / 0.0002426 | 0.0001356 / 0.0002419 | 0.0001335 / 0.0002394 | 0.0001336 / 0.0002394 |
+| gf32-gf64 | norm-prepared | 0.0381921 / 0.0731327 | 0.0367817 / 0.0698743 | 0.0362589 / 0.0677594 | 0.0338620 / 0.0640385 | 0.0338753 / 0.0642486 |
+| gf32-gf64 | restrict-member | 0.0001712 / 0.0002908 | 0.0001434 / 0.0002545 | 0.0001395 / 0.0002506 | 0.0001396 / 0.0002504 | 0.0001395 / 0.0002519 |
+| gf32-gf64 | restrict-member-prepared | 0.0589004 / 0.1116234 | 0.0563166 / 0.1058519 | 0.0570795 / 0.1091480 | 0.0572732 / 0.1057937 | 0.0562930 / 0.1057593 |
+| gf32-gf64 | restrict-mixed | 0.0001713 / 0.0002874 | 0.0002768 / 0.0004872 | 0.0002709 / 0.0004795 | 0.0002692 / 0.0004794 | 0.0002687 / 0.0004801 |
+| gf32-gf64 | restrict-mixed-prepared | 0.0580641 / 0.1101572 | 0.0723758 / 0.1370013 | 0.0748880 / 0.1387277 | 0.0748355 / 0.1357290 | 0.0744060 / 0.1377605 |
+| gf32-gf64 | restrict-nonmember | 0.0035130 / 0.0068170 | 0.0032885 / 0.0063726 | 0.0037136 / 0.0072905 | 0.0035753 / 0.0069845 | 0.0035607 / 0.0069436 |
+| gf32-gf64 | restrict-nonmember-prepared | 0.1067695 / 0.2047071 | 0.1071038 / 0.2058601 | 0.1081167 / 0.2071070 | 0.1084283 / 0.2059642 | 0.1059454 / 0.2048967 |
+| gf32-gf64 | trace | 0.0001554 / 0.0002627 | 0.0001470 / 0.0002530 | 0.0001482 / 0.0002539 | 0.0001477 / 0.0002535 | 0.0001477 / 0.0002539 |
+| gf32-gf64 | trace-prepared | 0.1062419 / 0.2055140 | 0.0832841 / 0.1679496 | 0.0844545 / 0.1682213 | 0.0600359 / 0.1081760 | 0.0554592 / 0.0959411 |
+| m31-qm31 | construct | - | - | - | - | 0.5336286 / 0.8894583 |
+| m31-qm31 | contains | 0.0108892 / 0.0277394 | 0.0098577 / 0.0251465 | 0.0099120 / 0.0251943 | 0.0098884 / 0.0251925 | 0.0098818 / 0.0250233 |
+| m31-qm31 | contains-prepared | 0.1721518 / 0.2888553 | 0.1632061 / 0.2853222 | 0.1674478 / 0.2885198 | 0.1659610 / 0.2894044 | 0.1660070 / 0.2894368 |
+| m31-qm31 | embed | 0.5450783 / 0.8587312 | 0.5804230 / 0.8976482 | 0.5834662 / 0.9026243 | 0.5864432 / 0.9035307 | 0.5604696 / 0.8631865 |
+| m31-qm31 | embed-prepared | 1.8013144 / 3.4905357 | 3.4678970 / 6.7890706 | 3.7729372 / 6.9893533 | 3.9860599 / 7.4509537 | 4.0014170 / 7.4771737 |
+| m31-qm31 | frobenius | 0.0194114 / 0.0497546 | 0.0194991 / 0.0497454 | 0.0195354 / 0.0498661 | 0.0195242 / 0.0499278 | 0.0195277 / 0.0498476 |
+| m31-qm31 | frobenius-prepared | 0.2917057 / 0.5025677 | 0.3276019 / 0.5589896 | 0.3372522 / 0.5669255 | 0.3399755 / 0.5674331 | 0.3327557 / 0.5563087 |
+| m31-qm31 | norm | 0.0071852 / 0.0182873 | 0.0071993 / 0.0183330 | 0.0072054 / 0.0183583 | 0.0072080 / 0.0183861 | 0.0072035 / 0.0183396 |
+| m31-qm31 | norm-prepared | 0.1107006 / 0.2043111 | 0.1137530 / 0.2153963 | 0.1148492 / 0.2174670 | 0.1154865 / 0.2178887 | 0.1148490 / 0.2160366 |
+| m31-qm31 | restrict-member | 0.0153877 / 0.0388305 | 0.0144467 / 0.0365147 | 0.0144959 / 0.0366448 | 0.0145034 / 0.0366725 | 0.0144736 / 0.0367177 |
+| m31-qm31 | restrict-member-prepared | 0.2266060 / 0.3996256 | 0.2420076 / 0.4268412 | 0.2499093 / 0.4353883 | 0.2502552 / 0.4373433 | 0.2451080 / 0.4309640 |
+| m31-qm31 | restrict-mixed | 0.0153996 / 0.0387799 | 0.0144312 / 0.0364201 | 0.0144337 / 0.0364727 | 0.0144702 / 0.0364936 | 0.0144678 / 0.0364762 |
+| m31-qm31 | restrict-mixed-prepared | 0.2273083 / 0.3995785 | 0.2380838 / 0.4340385 | 0.2521820 / 0.4427225 | 0.2522989 / 0.4446900 | 0.2469934 / 0.4385623 |
+| m31-qm31 | restrict-nonmember | 0.0154428 / 0.0389459 | 0.0144819 / 0.0366912 | 0.0145133 / 0.0368387 | 0.0145278 / 0.0368176 | 0.0145225 / 0.0367826 |
+| m31-qm31 | restrict-nonmember-prepared | 0.2410818 / 0.4112710 | 0.2448584 / 0.4416339 | 0.2565631 / 0.4506603 | 0.2544727 / 0.4523380 | 0.2484990 / 0.4459263 |
+| m31-qm31 | trace | 0.0072355 / 0.0183839 | 0.0072433 / 0.0184909 | 0.0072625 / 0.0184983 | 0.0072587 / 0.0184713 | 0.0072566 / 0.0184629 |
+| m31-qm31 | trace-prepared | 0.5098950 / 0.8579848 | 0.4804439 / 0.7915780 | 0.4908500 / 0.9681377 | 0.4927336 / 0.9739264 | 0.4894956 / 0.9617250 |
+| normal8-aes8-iso | apply | 0.0325546 / 0.0455502 | 0.0227387 / 0.0333230 | 0.0196351 / 0.0292028 | 0.0187479 / 0.0278044 | 0.0187595 / 0.0279441 |
+| normal8-aes8-iso | apply-prepared | 0.4618392 / 0.8685483 | 0.2939947 / 0.5168095 | 0.2302787 / 0.4036175 | 0.0968434 / 0.1527273 | 0.0933341 / 0.1503183 |
+| normal8-aes8-iso | construct | - | - | - | - | 0.0174365 / 0.0283545 |
+| normal8-aes8-iso | unapply | 0.0413488 / 0.0623543 | 0.0284172 / 0.0533992 | 0.0231396 / 0.0456988 | 0.0220940 / 0.0431503 | 0.0220916 / 0.0431145 |
+| normal8-aes8-iso | unapply-prepared | 0.3955703 / 0.6671086 | 0.2515197 / 0.4309278 | 0.2162139 / 0.3524182 | 0.1187635 / 0.3053621 | 0.1191489 / 0.3198875 |
+| normal8-gf16 | construct | - | - | - | - | 0.0199620 / 0.0340738 |
+| normal8-gf16 | contains | 0.0556941 / 0.0879178 | 0.0188328 / 0.0354664 | 0.0176367 / 0.0332176 | 0.0174518 / 0.0327627 | 0.0174639 / 0.0327419 |
+| normal8-gf16 | contains-prepared | 0.2761208 / 0.5416216 | 0.4007755 / 0.7860711 | 0.4324905 / 0.8248363 | 0.4529633 / 0.8796979 | 0.4552504 / 0.8810239 |
+| normal8-gf16 | embed | 0.0301496 / 0.0628127 | 0.0227511 / 0.0433682 | 0.0199760 / 0.0369804 | 0.0194691 / 0.0356828 | 0.0194858 / 0.0354391 |
+| normal8-gf16 | embed-prepared | 0.5126670 / 1.0065280 | 0.4573372 / 0.6756899 | 0.3154082 / 0.5412888 | 0.1310386 / 0.2208091 | 0.1328009 / 0.2100933 |
+| normal8-gf16 | frobenius | 0.0779346 / 0.1230143 | 0.0356226 / 0.0673624 | 0.0332656 / 0.0631118 | 0.0327946 / 0.0621944 | 0.0327258 / 0.0620601 |
+| normal8-gf16 | frobenius-prepared | 0.5247102 / 1.0234781 | 0.8991032 / 1.3010430 | 0.9664004 / 1.7993167 | 1.0100392 / 1.9292625 | 1.0130101 / 1.9369726 |
+| normal8-gf16 | norm | 0.0009231 / 0.0016901 | 0.0007572 / 0.0013677 | 0.0007459 / 0.0013440 | 0.0007426 / 0.0013401 | 0.0007451 / 0.0013428 |
+| normal8-gf16 | norm-prepared | 0.1540294 / 0.2975651 | 0.1417623 / 0.2495159 | 0.1339045 / 0.2351413 | 0.0608136 / 0.1021413 | 0.0485641 / 0.0807652 |
+| normal8-gf16 | restrict-member | 0.0012436 / 0.0022869 | 0.0008176 / 0.0014754 | 0.0008055 / 0.0014498 | 0.0008059 / 0.0014411 | 0.0008034 / 0.0014405 |
+| normal8-gf16 | restrict-member-prepared | 0.2466484 / 0.5012075 | 0.2654054 / 0.4606141 | 0.2526633 / 0.4088816 | 0.1022791 / 0.1740434 | 0.1018177 / 0.1726099 |
+| normal8-gf16 | restrict-mixed | 0.0012419 / 0.0022865 | 0.0015944 / 0.0028966 | 0.0015355 / 0.0027845 | 0.0015326 / 0.0027709 | 0.0015310 / 0.0027781 |
+| normal8-gf16 | restrict-mixed-prepared | 0.2438975 / 0.4994742 | 0.3958918 / 0.6905799 | 0.3788387 / 0.6327309 | 0.2483708 / 0.4035897 | 0.2631242 / 0.4322244 |
+| normal8-gf16 | restrict-nonmember | 0.0212477 / 0.0396082 | 0.0168021 / 0.0318310 | 0.0166394 / 0.0314079 | 0.0166613 / 0.0313972 | 0.0166319 / 0.0313633 |
+| normal8-gf16 | restrict-nonmember-prepared | 0.3040897 / 0.6065695 | 0.5834105 / 0.7443480 | 0.6833054 / 1.2691026 | 0.7520379 / 1.3580255 | 0.7253524 / 1.3634339 |
+| normal8-gf16 | trace | 0.0009220 / 0.0017023 | 0.0008132 / 0.0014699 | 0.0008132 / 0.0014600 | 0.0008120 / 0.0014627 | 0.0008101 / 0.0014655 |
+| normal8-gf16 | trace-prepared | 0.4167469 / 0.8180559 | 0.2674526 / 0.4175482 | 0.2273750 / 0.3337989 | 0.1689056 / 0.2744025 | 0.0718369 / 0.1111156 |
+| r3-g3-40 | construct | - | - | - | - | 1.7833409 / 2.6742860 |
+| r3-g3-40 | contains | 0.0034627 / 0.0077690 | 0.0020968 / 0.0045136 | 0.0018107 / 0.0035207 | 0.0022214 / 0.0043797 | 0.0022330 / 0.0045054 |
+| r3-g3-40 | contains-prepared | 0.1481304 / 0.3033227 | 0.0200447 / 0.0446503 | 0.0240244 / 0.0549247 | 0.0317976 / 0.0672344 | 0.0321652 / 0.0682021 |
+| r3-g3-40 | embed | 1.7833292 / 3.0850082 | 1.7643339 / 3.0280080 | 1.8406719 / 3.1737216 | 1.7357044 / 2.9923988 | 1.5931229 / 2.7680469 |
+| r3-g3-40 | embed-prepared | 0.3912345 / 0.7288256 | 0.4113231 / 0.8041440 | 0.4143971 / 0.8042392 | 0.4099614 / 0.7983135 | 0.4088887 / 0.7870031 |
+| r3-g3-40 | frobenius | 0.0067380 / 0.0151314 | 0.0041751 / 0.0092797 | 0.0036088 / 0.0070637 | 0.0044259 / 0.0088945 | 0.0044513 / 0.0085681 |
+| r3-g3-40 | frobenius-prepared | 0.3044554 / 0.5549612 | 0.0399366 / 0.0862418 | 0.0478295 / 0.0938443 | 0.0632087 / 0.1318167 | 0.0641833 / 0.1350431 |
+| r3-g3-40 | norm | 0.0000696 / 0.0001559 | 0.0000340 / 0.0000658 | 0.0000343 / 0.0000662 | 0.0000425 / 0.0000828 | 0.0000427 / 0.0000861 |
+| r3-g3-40 | norm-prepared | 0.0003279 / 0.0007234 | 0.0001124 / 0.0002114 | 0.0001136 / 0.0002097 | 0.0001465 / 0.0002754 | 0.0001473 / 0.0002831 |
+| r3-g3-40 | restrict-member | 0.0035177 / 0.0078406 | 0.0034042 / 0.0075313 | 0.0034083 / 0.0075766 | 0.0034044 / 0.0074936 | 0.0034009 / 0.0075635 |
+| r3-g3-40 | restrict-member-prepared | 0.1554861 / 0.3048166 | 0.1198011 / 0.2232310 | 0.1211216 / 0.2241942 | 0.1189747 / 0.2282537 | 0.1183746 / 0.2178878 |
+| r3-g3-40 | restrict-mixed | 0.0035083 / 0.0078851 | 0.0021469 / 0.0047072 | 0.0023140 / 0.0045663 | 0.0022765 / 0.0044783 | 0.0022822 / 0.0045987 |
+| r3-g3-40 | restrict-mixed-prepared | 0.1557080 / 0.2973750 | 0.0202639 / 0.0459524 | 0.0323711 / 0.0637229 | 0.0325537 / 0.0683268 | 0.0331197 / 0.0665529 |
+| r3-g3-40 | restrict-nonmember | 0.0016193 / 0.0037208 | 0.0014208 / 0.0030071 | 0.0016844 / 0.0033015 | 0.0016977 / 0.0033213 | 0.0017094 / 0.0034121 |
+| r3-g3-40 | restrict-nonmember-prepared | 0.0112528 / 0.0270052 | 0.0112061 / 0.0254016 | 0.0184249 / 0.0370793 | 0.0189294 / 0.0408178 | 0.0191361 / 0.0417773 |
+| r3-g3-40 | trace | 0.0000855 / 0.0001912 | 0.0000430 / 0.0000822 | 0.0000434 / 0.0000826 | 0.0000534 / 0.0001024 | 0.0000537 / 0.0001059 |
+| r3-g3-40 | trace-prepared | 0.2319869 / 0.4602811 | 0.2052004 / 0.3928947 | 0.2188839 / 0.4226480 | 0.2130764 / 0.3961603 | 0.2100390 / 0.3181567 |
+| r3-g81q | construct | - | - | - | - | 0.2237582 / 0.3814874 |
+| r3-g81q | contains | 0.0373525 / 0.0817644 | 0.0296865 / 0.0662689 | 0.0304306 / 0.0677046 | 0.0306526 / 0.0681064 | 0.0306578 / 0.0679786 |
+| r3-g81q | contains-prepared | 0.2483953 / 0.4153801 | 0.1382886 / 0.3065191 | 0.1457086 / 0.3204526 | 0.1466379 / 0.3216415 | 0.1304549 / 0.2799615 |
+| r3-g81q | embed | 0.2318482 / 0.3464608 | 0.2417846 / 0.3616248 | 0.2428753 / 0.3636079 | 0.2425588 / 0.3639284 | 0.2381695 / 0.3566790 |
+| r3-g81q | embed-prepared | 0.6945641 / 1.2128150 | 1.1481897 / 1.9846209 | 1.2104473 / 2.1564633 | 1.2628625 / 2.1818435 | 1.2594384 / 1.9831660 |
+| r3-g81q | frobenius | 0.0605747 / 0.1292593 | 0.0580289 / 0.1291580 | 0.0594523 / 0.1312076 | 0.0598119 / 0.1322185 | 0.0597994 / 0.1320523 |
+| r3-g81q | frobenius-prepared | 0.4896748 / 0.9802606 | 0.2747342 / 0.6397186 | 0.2946744 / 0.6926806 | 0.2957431 / 0.6894524 | 0.2624558 / 0.5803353 |
+| r3-g81q | norm | 0.0083600 / 0.0185916 | 0.0076046 / 0.0168789 | 0.0077453 / 0.0171074 | 0.0077858 / 0.0172226 | 0.0077924 / 0.0172002 |
+| r3-g81q | norm-prepared | 0.0302074 / 0.0537160 | 0.0223737 / 0.0450258 | 0.0228549 / 0.0456258 | 0.0227364 / 0.0454987 | 0.0227080 / 0.0454546 |
+| r3-g81q | restrict-member | 0.0373558 / 0.0823099 | 0.0336159 / 0.0723755 | 0.0341110 / 0.0730935 | 0.0342332 / 0.0732916 | 0.0341061 / 0.0731447 |
+| r3-g81q | restrict-member-prepared | 0.2395301 / 0.4360431 | 0.2158539 / 0.4389531 | 0.2296080 / 0.4526190 | 0.1760777 / 0.3715944 | 0.1754125 / 0.3650594 |
+| r3-g81q | restrict-mixed | 0.0382163 / 0.0825370 | 0.0317695 / 0.0695775 | 0.0319505 / 0.0697857 | 0.0320565 / 0.0697476 | 0.0320432 / 0.0697480 |
+| r3-g81q | restrict-mixed-prepared | 0.2397941 / 0.4348562 | 0.1598771 / 0.3655841 | 0.1708091 / 0.3835610 | 0.1722037 / 0.3882480 | 0.1519369 / 0.3228859 |
+| r3-g81q | restrict-nonmember | 0.0321509 / 0.0725350 | 0.0297858 / 0.0662819 | 0.0304980 / 0.0675570 | 0.0306833 / 0.0677391 | 0.0307081 / 0.0677434 |
+| r3-g81q | restrict-nonmember-prepared | 0.1216160 / 0.2727749 | 0.1277799 / 0.2829157 | 0.1410525 / 0.3130723 | 0.1413940 / 0.3123348 | 0.1387793 / 0.3006131 |
+| r3-g81q | trace | 0.0095741 / 0.0212485 | 0.0087009 / 0.0195641 | 0.0088734 / 0.0197559 | 0.0089393 / 0.0198339 | 0.0089447 / 0.0198348 |
+| r3-g81q | trace-prepared | 0.1278820 / 0.2269918 | 0.1147782 / 0.2406098 | 0.1231327 / 0.2354957 | 0.1199724 / 0.2313866 | 0.1183071 / 0.1954787 |
+| r7-g343 | construct | - | - | - | - | 0.1827146 / 0.3118951 |
+| r7-g343 | contains | 0.0510501 / 0.1128664 | 0.0337351 / 0.0718422 | 0.0355073 / 0.0759063 | 0.0356455 / 0.0758758 | 0.0356586 / 0.0758716 |
+| r7-g343 | contains-prepared | 0.1800925 / 0.3078012 | 0.0794407 / 0.1742686 | 0.0822884 / 0.1817760 | 0.0827255 / 0.1820872 | 0.0821659 / 0.1794082 |
+| r7-g343 | embed | 0.1739155 / 0.3062698 | 0.1815862 / 0.3212014 | 0.1819916 / 0.3224658 | 0.1825503 / 0.3231827 | 0.1798472 / 0.3176706 |
+| r7-g343 | embed-prepared | 0.4630520 / 0.8726770 | 0.7739111 / 1.5136323 | 0.8225905 / 1.5210481 | 0.8538236 / 1.5835992 | 0.8529314 / 1.5876367 |
+| r7-g343 | frobenius | 0.0803091 / 0.1775814 | 0.0670269 / 0.1436220 | 0.0706338 / 0.1523642 | 0.0709109 / 0.1520671 | 0.0708486 / 0.1515657 |
+| r7-g343 | frobenius-prepared | 0.2512111 / 0.6060187 | 0.1647781 / 0.3516575 | 0.1698911 / 0.3786367 | 0.1708472 / 0.3764790 | 0.1693175 / 0.3725647 |
+| r7-g343 | norm | 0.0074196 / 0.0132712 | 0.0064954 / 0.0117202 | 0.0065413 / 0.0116629 | 0.0065569 / 0.0117799 | 0.0065716 / 0.0117859 |
+| r7-g343 | norm-prepared | 0.0297421 / 0.0513880 | 0.0197761 / 0.0372214 | 0.0199309 / 0.0376474 | 0.0199804 / 0.0377698 | 0.0200543 / 0.0377255 |
+| r7-g343 | restrict-member | 0.0238237 / 0.0416614 | 0.0201490 / 0.0372553 | 0.0203182 / 0.0376834 | 0.0203181 / 0.0377807 | 0.0204257 / 0.0378389 |
+| r7-g343 | restrict-member-prepared | 0.1701221 / 0.3402690 | 0.1328870 / 0.2902886 | 0.1326992 / 0.2772059 | 0.1318285 / 0.2796792 | 0.1273198 / 0.2742113 |
+| r7-g343 | restrict-mixed | 0.0268033 / 0.0483359 | 0.0191622 / 0.0364376 | 0.0192621 / 0.0359064 | 0.0194275 / 0.0365681 | 0.0193461 / 0.0364339 |
+| r7-g343 | restrict-mixed-prepared | 0.1692383 / 0.3405475 | 0.1061262 / 0.2283146 | 0.1040653 / 0.2263497 | 0.1041718 / 0.2194212 | 0.1048206 / 0.2203608 |
+| r7-g343 | restrict-nonmember | 0.0182039 / 0.0351982 | 0.0158480 / 0.0302795 | 0.0157817 / 0.0297737 | 0.0159491 / 0.0301352 | 0.0159084 / 0.0296649 |
+| r7-g343 | restrict-nonmember-prepared | 0.0842591 / 0.1736769 | 0.0821958 / 0.1789711 | 0.0881453 / 0.1920113 | 0.0896870 / 0.1955006 | 0.0894949 / 0.1951810 |
+| r7-g343 | trace | 0.0080312 / 0.0144697 | 0.0070741 / 0.0128489 | 0.0070922 / 0.0129877 | 0.0071441 / 0.0130163 | 0.0071456 / 0.0130418 |
+| r7-g343 | trace-prepared | 0.1073230 / 0.1815541 | 0.0891102 / 0.1653424 | 0.0881104 / 0.1688301 | 0.0875427 / 0.1623904 | 0.0869158 / 0.1616047 |
+| res2-gf64 | construct | - | - | - | - | 0.4421294 / 0.4761558 |
+| res2-gf64 | contains | 0.0510191 / 0.1019288 | 0.0362937 / 0.0676802 | 0.0394576 / 0.0736913 | 0.0406058 / 0.0739310 | 0.0406355 / 0.0751880 |
+| res2-gf64 | contains-prepared | 0.0767053 / 0.1453970 | 0.0577760 / 0.1039753 | 0.0597895 / 0.1082737 | 0.0635732 / 0.1164503 | 0.0620863 / 0.1156819 |
+| res2-gf64 | embed | 0.3650522 / 0.5719211 | 0.3747839 / 0.6010103 | 0.3828941 / 0.6056113 | 0.3842241 / 0.6019795 | 0.3756109 / 0.5879652 |
+| res2-gf64 | embed-prepared | 0.3712626 / 0.7467710 | 0.4359295 / 0.8352597 | 0.4412508 / 0.8413920 | 0.4468837 / 0.8485723 | 0.4485172 / 0.8505145 |
+| res2-gf64 | frobenius | 0.1033979 / 0.1798187 | 0.0726635 / 0.1353328 | 0.0789790 / 0.1462053 | 0.0814864 / 0.1468532 | 0.0818636 / 0.1482507 |
+| res2-gf64 | frobenius-prepared | 0.1398472 / 0.2736998 | 0.1155506 / 0.2096478 | 0.1193912 / 0.2171374 | 0.1262620 / 0.2377158 | 0.1261946 / 0.2369278 |
+| res2-gf64 | norm | 0.0017650 / 0.0031345 | 0.0009820 / 0.0018062 | 0.0010758 / 0.0019965 | 0.0011972 / 0.0021892 | 0.0012089 / 0.0022264 |
+| res2-gf64 | norm-prepared | 0.0028856 / 0.0056395 | 0.0010843 / 0.0020042 | 0.0010849 / 0.0019060 | 0.0013455 / 0.0023970 | 0.0013592 / 0.0024220 |
+| res2-gf64 | restrict-member | 0.0657703 / 0.1232732 | 0.0603994 / 0.1126290 | 0.0611110 / 0.1130241 | 0.0610280 / 0.1130361 | 0.0612174 / 0.1126398 |
+| res2-gf64 | restrict-member-prepared | 0.0839084 / 0.1584034 | 0.0811820 / 0.1558355 | 0.0819480 / 0.1551030 | 0.0817624 / 0.1540561 | 0.0814078 / 0.1549786 |
+| res2-gf64 | restrict-mixed | 0.0655687 / 0.1245009 | 0.0544488 / 0.1049605 | 0.0587190 / 0.1114424 | 0.0583987 / 0.1081180 | 0.0583480 / 0.1089933 |
+| res2-gf64 | restrict-mixed-prepared | 0.0836097 / 0.1590491 | 0.0870940 / 0.1618300 | 0.0941172 / 0.1771618 | 0.0945620 / 0.1762324 | 0.0945746 / 0.1749186 |
+| res2-gf64 | restrict-nonmember | 0.0543006 / 0.1041443 | 0.0522691 / 0.1011345 | 0.0633100 / 0.1219155 | 0.0623806 / 0.1197946 | 0.0622869 / 0.1194939 |
+| res2-gf64 | restrict-nonmember-prepared | 0.0967730 / 0.1686025 | 0.0971206 / 0.1684243 | 0.1147496 / 0.2094182 | 0.1147620 / 0.2118775 | 0.1122192 / 0.2097514 |
+| res2-gf64 | trace | 0.0022935 / 0.0039604 | 0.0013574 / 0.0024998 | 0.0014759 / 0.0027363 | 0.0016336 / 0.0030084 | 0.0016434 / 0.0030260 |
+| res2-gf64 | trace-prepared | 0.1412962 / 0.2739978 | 0.1166745 / 0.2087752 | 0.1196205 / 0.2288567 | 0.1265923 / 0.2420682 | 0.1264943 / 0.2399690 |
+| res2-res2q | construct | - | - | - | - | 1.0814116 / 1.6483324 |
+| res2-res2q | contains | 2.3631616 / 3.7068752 | 9.8133821 / 19.235422 | 11.165360 / 22.268365 | 12.597371 / 26.865950 | 12.705008 / 27.109270 |
+| res2-res2q | contains-prepared | 1.0945033 / 1.7993797 | 1.3671828 / 2.2606618 | 1.4165067 / 2.3271295 | 1.4249071 / 2.3415746 | 1.4260651 / 2.3439858 |
+| res2-res2q | embed | 1.1046653 / 1.6897931 | 1.1509305 / 1.7650498 | 1.1529826 / 1.7746462 | 1.1495895 / 1.7694085 | 1.0954112 / 1.6527049 |
+| res2-res2q | embed-prepared | 2.0879615 / 3.2745007 | 2.6748787 / 4.3442897 | 2.7723091 / 4.5292453 | 2.7861241 / 4.5555423 | 2.7566602 / 4.4445654 |
+| res2-res2q | frobenius | 11.092782 / 21.810024 | 31.001456 / 62.008968 | 32.533622 / 88.473213 | 38.568536 / 91.524195 | 37.311205 / 86.472157 |
+| res2-res2q | frobenius-prepared | 2.1729267 / 3.5817344 | 3.1012851 / 4.3600132 | 3.2706975 / 5.3193622 | 3.3010154 / 5.3710696 | 3.2912634 / 5.3003510 |
+| res2-res2q | norm | 0.9050881 / 1.5180506 | 0.9259830 / 1.5787952 | 0.9408213 / 1.5833636 | 0.9440215 / 1.5815221 | 0.9008735 / 1.4122927 |
+| res2-res2q | norm-prepared | 0.8199688 / 1.4065362 | 1.0039677 / 1.5157436 | 1.0258940 / 1.7085972 | 1.0398639 / 1.7120181 | 1.0464226 / 1.6835802 |
+| res2-res2q | restrict-member | 0.8365960 / 1.4543572 | 1.0053051 / 1.6557600 | 1.0522529 / 1.6898691 | 1.0592463 / 1.6916229 | 1.0269737 / 1.6347936 |
+| res2-res2q | restrict-member-prepared | 1.2403979 / 2.0981865 | 1.7454680 / 2.6042975 | 1.8503492 / 3.1395590 | 1.8663849 / 3.1857922 | 1.8665537 / 3.0969419 |
+| res2-res2q | restrict-mixed | 0.8550604 / 1.4906244 | 0.9916194 / 1.6754247 | 1.0194443 / 1.7018852 | 1.0290812 / 1.7051987 | 1.0135478 / 1.6476160 |
+| res2-res2q | restrict-mixed-prepared | 1.2420416 / 2.0981998 | 1.8929541 / 3.1563662 | 2.0170059 / 3.3455665 | 2.0359399 / 3.3935616 | 2.0340341 / 3.3850755 |
+| res2-res2q | restrict-nonmember | 0.8500816 / 1.4666909 | 1.0104413 / 1.6820534 | 1.0291215 / 1.7188167 | 1.0301078 / 1.7203075 | 1.0378869 / 1.6556083 |
+| res2-res2q | restrict-nonmember-prepared | 1.3907810 / 2.2731039 | 2.0678795 / 2.9530610 | 2.2163881 / 3.5827652 | 2.2395301 / 3.6299820 | 2.2356937 / 3.6320458 |
+| res2-res2q | trace | 0.9190737 / 1.5793632 | 0.9495858 / 1.6699674 | 0.9595187 / 1.6840840 | 0.9615722 / 1.6831790 | 0.9377723 / 1.6140975 |
+| res2-res2q | trace-prepared | 3.9160400 / 7.4752440 | 6.2066718 / 12.893528 | 6.6466531 / 12.744652 | 7.1557020 / 14.502489 | 7.4140867 / 14.544409 |
+| rs8-gf16 | construct | - | - | - | - | 0.0231526 / 0.0437729 |
+| rs8-gf16 | contains | 0.0553328 / 0.0977308 | 0.0188275 / 0.0353225 | 0.0176378 / 0.0333096 | 0.0174803 / 0.0327824 | 0.0174720 / 0.0327481 |
+| rs8-gf16 | contains-prepared | 0.2771023 / 0.5432208 | 0.4008175 / 0.7871383 | 0.4357500 / 0.8275306 | 0.4530266 / 0.8796002 | 0.4552640 / 0.8821767 |
+| rs8-gf16 | embed | 0.0361204 / 0.0755099 | 0.0270413 / 0.0555137 | 0.0233522 / 0.0461798 | 0.0225543 / 0.0440028 | 0.0225732 / 0.0437811 |
+| rs8-gf16 | embed-prepared | 0.5197113 / 1.0056755 | 0.4766489 / 0.7586395 | 0.3269827 / 0.5352768 | 0.1270637 / 0.1967429 | 0.1273536 / 0.1582851 |
+| rs8-gf16 | frobenius | 0.0779284 / 0.1229802 | 0.0356433 / 0.0671818 | 0.0332662 / 0.0632793 | 0.0327719 / 0.0623060 | 0.0327249 / 0.0620635 |
+| rs8-gf16 | frobenius-prepared | 0.5216779 / 0.8499602 | 0.9004661 / 1.2932872 | 0.9647479 / 1.8206302 | 1.0101730 / 1.9300052 | 1.0130931 / 1.9361988 |
+| rs8-gf16 | norm | 0.0009320 / 0.0016365 | 0.0007617 / 0.0013649 | 0.0007513 / 0.0013460 | 0.0007496 / 0.0013445 | 0.0007497 / 0.0013431 |
+| rs8-gf16 | norm-prepared | 0.1538749 / 0.3030725 | 0.1427841 / 0.2426234 | 0.1321996 / 0.2356377 | 0.0615279 / 0.1027428 | 0.0501842 / 0.0810552 |
+| rs8-gf16 | restrict-member | 0.0012566 / 0.0022810 | 0.0008276 / 0.0014831 | 0.0008141 / 0.0014513 | 0.0008124 / 0.0014473 | 0.0008123 / 0.0014523 |
+| rs8-gf16 | restrict-member-prepared | 0.2408549 / 0.5006896 | 0.2785631 / 0.4761517 | 0.2571142 / 0.4197928 | 0.1078501 / 0.1816709 | 0.1070941 / 0.1820760 |
+| rs8-gf16 | restrict-mixed | 0.0012559 / 0.0022840 | 0.0016183 / 0.0029200 | 0.0015551 / 0.0027984 | 0.0015477 / 0.0027739 | 0.0015484 / 0.0027723 |
+| rs8-gf16 | restrict-mixed-prepared | 0.2433582 / 0.4999517 | 0.3699545 / 0.6237380 | 0.3826065 / 0.6059900 | 0.2395926 / 0.3940363 | 0.2530608 / 0.4186843 |
+| rs8-gf16 | restrict-nonmember | 0.0213348 / 0.0398677 | 0.0168524 / 0.0320183 | 0.0166696 / 0.0315788 | 0.0166490 / 0.0315444 | 0.0166699 / 0.0314785 |
+| rs8-gf16 | restrict-nonmember-prepared | 0.3022543 / 0.6226744 | 0.5871514 / 0.7388223 | 0.7099727 / 1.2702198 | 0.7511967 / 1.3581672 | 0.7254366 / 1.3632670 |
+| rs8-gf16 | trace | 0.0009339 / 0.0016373 | 0.0008191 / 0.0014798 | 0.0008176 / 0.0014855 | 0.0008194 / 0.0014878 | 0.0008185 / 0.0014843 |
+| rs8-gf16 | trace-prepared | 0.4165835 / 0.8179561 | 0.2774515 / 0.4403288 | 0.2329198 / 0.3537924 | 0.1682846 / 0.2186762 | 0.0714190 / 0.1102206 |
 
 Map construction latency per call, timed separately from application.
 
-| Pair | construct (ns/op) |
-| --- | --- |
-| aes8-aesq | 293.352 / 174.400 |
-| aes8-gf64 | 815.672 / 469.427 |
-| fp64-gf64-iso | 756317 / 430046 |
-| fp8-fp16 | 7917.62 / 4989.71 |
-| g9-g81 | 377.648 / 205.203 |
-| gdl2 | 21.7236 / 13.0085 |
-| gf1-gf64 | 20.0506 / 13.0080 |
-| gf16-gf64 | 1561.46 / 892.091 |
-| gf32-gf64 | 2959.47 / 1687.02 |
-| m31-qm31 | 20.0519 / 13.4347 |
-| normal8-aes8-iso | 2725.13 / 1514.86 |
-| normal8-gf16 | 1263.35 / 718.194 |
-| r3-g3-40 | 39.4328 / 23.8838 |
-| r3-g81q | 25.7298 / 14.5004 |
-| r7-g343 | 21.3877 / 13.8605 |
-| ref2-ref8 | 4865.25 / 2709.56 |
-| res2-gf64 | 21.3878 / 12.5812 |
-| res2-res2q | 20.7186 / 13.6477 |
-| rs8-gf16 | 2024.11 / 1096.48 |
+| Pair | Operation | construct (ns/op) |
+| --- | --- | --- |
+| aes8-aesq | construct | 285.79944 / 171.79576 |
+| aes8-aesq | construct-embedding | 19236.808 / 10027.900 |
+| aes8-aesq | frobenius-prepared | 0.6690206 / 0.3202642 |
+| aes8-gf64 | construct | 818.25936 / 489.09591 |
+| aes8-gf64 | construct-embedding | 1282549.0 / 730851.00 |
+| aes8-gf64 | frobenius-prepared | 47902.857 / 25028.850 |
+| fp64-gf64-iso | construct | 755482.50 / 432284.00 |
+| fp64-gf64-iso | construct-isomorphism | 15220204 / 9649891.0 |
+| fp8-fp16 | construct | 7950.0079 / 4963.0547 |
+| fp8-fp16 | construct-embedding | 1542690.0 / 978089.50 |
+| fp8-fp16 | frobenius-prepared | 0.5026520 / 0.3202642 |
+| g9-g81 | construct | 409.70682 / 201.42325 |
+| g9-g81 | construct-embedding | 8522.5043 / 3838.7160 |
+| g9-g81 | frobenius-prepared | 0.5027009 / 0.4267069 |
+| gdl2 | construct | 21.720572 / 13.008322 |
+| gdl2 | construct-embedding | 5000.7949 / 2332.1178 |
+| gdl2 | frobenius-prepared | 0.6719122 / 0.3219936 |
+| gf1-aes8 | construct | 20.050800 / 12.794472 |
+| gf1-aes8 | construct-embedding | 1090.6391 / 577.81747 |
+| gf1-aes8 | frobenius-prepared | 133.16440 / 67.372026 |
+| gf1-gf16 | construct | 21.386385 / 11.941789 |
+| gf1-gf16 | construct-embedding | 7860.3543 / 4302.4372 |
+| gf1-gf16 | frobenius-prepared | 598.63176 / 294.36811 |
+| gf1-gf32 | construct | 21.720615 / 12.155267 |
+| gf1-gf32 | construct-embedding | 59000.529 / 27932.056 |
+| gf1-gf32 | frobenius-prepared | 2275.2067 / 1173.7646 |
+| gf1-gf64 | construct | 20.385588 / 13.007503 |
+| gf1-gf64 | construct-embedding | 722517.50 / 370439.67 |
+| gf1-gf64 | frobenius-prepared | 15145.682 / 7884.7244 |
+| gf16-gf64 | construct | 1563.7002 / 862.12939 |
+| gf16-gf64 | construct-embedding | 2444823.0 / 1400367.0 |
+| gf16-gf64 | frobenius-prepared | 84342.917 / 43242.625 |
+| gf32-gf64 | construct | 2977.3084 / 1631.6912 |
+| gf32-gf64 | construct-embedding | 4877386.0 / 2801814.0 |
+| gf32-gf64 | frobenius-prepared | 0.6698866 / 0.4269149 |
+| m31-qm31 | construct | 21.722048 / 12.582035 |
+| m31-qm31 | construct-embedding | 3100.5323 / 1223.5117 |
+| m31-qm31 | frobenius-prepared | 0.5100950 / 0.3224779 |
+| normal8-aes8-iso | construct | 2714.4766 / 1529.8285 |
+| normal8-aes8-iso | construct-isomorphism | 1438.2157 / 894.37030 |
+| normal8-gf16 | construct | 1237.8265 / 725.32295 |
+| normal8-gf16 | construct-embedding | 147687.00 / 80783.846 |
+| normal8-gf16 | frobenius-prepared | 0.6698966 / 0.4268629 |
+| r3-g3-40 | construct | 39.764608 / 23.669268 |
+| r3-g3-40 | construct-embedding | 26421577 / 13038684 |
+| r3-g3-40 | frobenius-prepared | 514677.00 / 235103.40 |
+| r3-g81q | construct | 25.395998 / 14.500645 |
+| r3-g81q | construct-embedding | 2632.9428 / 1214.9212 |
+| r3-g81q | frobenius-prepared | 520.93096 / 247.26635 |
+| r7-g343 | construct | 22.409068 / 13.434523 |
+| r7-g343 | construct-embedding | 1473.5267 / 818.12783 |
+| r7-g343 | frobenius-prepared | 7.9310322 / 4.4172367 |
+| ref2-ref8 | construct | 5026.8148 / 2747.8658 |
+| ref2-ref8 | construct-embedding | 3988.7944 / 2035.4794 |
+| ref2-ref8 | frobenius-prepared | 160.10905 / 84.608983 |
+| res2-gf64 | construct | 20.052197 / 13.221101 |
+| res2-gf64 | construct-embedding | 720894.00 / 373553.00 |
+| res2-gf64 | frobenius-prepared | 15089.478 / 7865.9766 |
+| res2-res2q | construct | 21.385197 / 13.647671 |
+| res2-res2q | construct-embedding | 116.00050 / 65.832253 |
+| res2-res2q | frobenius-prepared | 0.5044238 / 0.4273226 |
+| rs8-gf16 | construct | 2013.1839 / 1099.2550 |
+| rs8-gf16 | construct-embedding | 145731.57 / 81474.385 |
+| rs8-gf16 | frobenius-prepared | 0.6798423 / 0.4268859 |
 
 ## Competitors
 

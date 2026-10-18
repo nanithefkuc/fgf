@@ -23,8 +23,10 @@
 //!
 //! Multiplying by a coefficient is masked out of the API on purpose: the
 //! coefficient of GF(2) is a bit — multiply by zero is "skip", by one is
-//! "XOR" — so there is no prepared-coefficient form and no [`crate::ops`]
-//! counterpart. What *is* prepared is geometry: a [`XorRange`] derives a
+//! "XOR" — so there is no prepared-coefficient form. Prepared-map rows over
+//! GF(2) endpoints live in `crate::ops::map_bits` (alloc): the bit-packed
+//! counterparts of the lane rows in `crate::ops::map`. What *is* prepared
+//! here is geometry: a [`XorRange`] derives a
 //! bit range's window and masks once for [`xor_range_with`] to apply to
 //! many buffer pairs. The scalar oracle for this surface is
 //! [`Elem`] over GF(2) as [`FiniteField<2, 1, Polynomial<3>>`](FiniteField).
@@ -81,7 +83,7 @@ fn check_range(name: &str, bits: usize, from: usize, to: usize) {
 }
 
 #[inline]
-fn check_holds(name: &str, operand: &str, len: usize, bits: usize) {
+pub(crate) fn check_holds(name: &str, operand: &str, len: usize, bits: usize) {
     assert!(
         bytes_for(bits) <= len,
         "{name}: {bits} bits need at least {} bytes but {operand} holds {len}",

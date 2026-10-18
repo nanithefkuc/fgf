@@ -17,7 +17,7 @@ MIRI := ''
 # field kernels require GFNI; QuadMersenne31 and residue AVX-512 kernels require
 # V4x. The GitHub-hosted coverage runner cannot select those tiers; AVX2
 # residue kernels and mixed-ISA prime dispatch modules remain included.
-COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/x86/residue/avx512(/|\.rs$)|kernel/(gf8|tower)\.rs$"'
+COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/x86/residue/avx512(/|\.rs$)|kernel/x86/gf1/avx512\.rs$|kernel/gf1/dispatch\.rs$|kernel/(gf8|tower)\.rs$"'
 
 # Export the existing merged profiles, including after a failed coverage gate.
 [group('cover')]
@@ -497,3 +497,18 @@ bench-prepare-v2 DESTINATION:
 [group('bench')]
 bench-publish RECORDS OUTPUT *ARGS:
     python3 benches/publish.py --records "{{RECORDS}}" --output "{{OUTPUT}}" {{ARGS}}
+
+# Publisher regression: feed real `field_maps` producer output through the
+# maps grammar (per-record checks plus the completeness inventory), so a
+# grammar change that wrongly requires lane-region or pow-control rows for
+# scalar-only or bits-only pairs fails here instead of in a campaign.
+# Builds the bench, captures its `--list-labels` inventory (label grammar
+# only, no timing), and validates the full producer inventory.
+[group('bench')]
+bench-maps-publisher:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build --release --bench field_maps
+    bin=$(ls -t target/release/deps/field_maps-* | grep -v '\.d$' | head -n 1)
+    "$bin" --list-labels > "$bin-maps-inventory.txt"
+    python3 benches/test_maps_publisher.py "$bin-maps-inventory.txt"

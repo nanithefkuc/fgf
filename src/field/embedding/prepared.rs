@@ -96,6 +96,7 @@ pub struct PreparedEmbedding<S: Field, T: Field<Characteristic = S::Characterist
     arm: PreparedArm<T>,
     frobenius_map: Frobenius<T>,
     trace: TraceColumns<T>,
+    bit_words: Option<(u64, u64)>,
 }
 
 // A derive would bound the impl on `S: Clone`; the manual impls need only
@@ -109,6 +110,7 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Clone for PreparedE
             arm: self.arm.clone(),
             frobenius_map: self.frobenius_map.clone(),
             trace: self.trace.clone(),
+            bit_words: self.bit_words,
         }
     }
 }
@@ -196,12 +198,14 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> PreparedEmbedding<S
         );
         let arm = compile::<S, T>(embedding);
         let trace = compile_trace::<S, T>(embedding);
+        let bit_words = compile_bit_words::<S, T>(embedding, &trace);
         Self {
             embedding: *embedding,
             relative_degree,
             arm,
             frobenius_map: Frobenius::<T>::new(S::DEGREE),
             trace,
+            bit_words,
         }
     }
 
@@ -212,6 +216,17 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> PreparedEmbedding<S
     #[must_use]
     pub fn embedding(&self) -> Embedding<S, T> {
         self.embedding
+    }
+
+    /// The precomputed bit-map words `(one_w, trace_word)` for GF(2) sources.
+    ///
+    /// `Some` exactly when `S::DEGREE == 1` and the characteristic is two:
+    /// `one_w` is the target coordinate word of the embedded source one and
+    /// the trace word folds the compiled binary trace entries. The bit rows
+    /// in `crate::ops::map_bits` read both through this accessor.
+    #[must_use]
+    pub(crate) fn bit_map_words(&self) -> Option<(u64, u64)> {
+        self.bit_words
     }
 
     /// The relative degree `T::DEGREE / S::DEGREE`.
@@ -709,6 +724,31 @@ fn compile_trace<S: Field, T: Field<Characteristic = S::Characteristic>>(
         outputs: u8::try_from(outputs).expect("a degree fits its byte"),
         entries: entries.into_boxed_slice(),
     }
+}
+
+/// Compile the bit-map words for a GF(2) source: `(one_w, trace_word)`.
+///
+/// `Some` exactly when `S::DEGREE == 1` and the characteristic is two.
+/// `one_w` is the target coordinate word of the embedded source one; the
+/// trace word folds the already-compiled binary trace entries (`entries[i]`
+/// is 0 or 1 for a GF(2) source). `None` otherwise; no public change.
+#[cfg(feature = "alloc")]
+fn compile_bit_words<S: Field, T: Field<Characteristic = S::Characteristic>>(
+    embedding: &Embedding<S, T>,
+    trace: &TraceColumns<T>,
+) -> Option<(u64, u64)> {
+    if <S::Characteristic as PrimeIdentity>::CHARACTERISTIC != 2 || S::DEGREE != 1 {
+        return None;
+    }
+    let one_w = T::coordinate_word(embedding.embed(Elem::<S>::ONE).raw);
+    let TraceColumns::Binary { entries, .. } = trace else {
+        return None;
+    };
+    let mut trace_word = 0u64;
+    for (i, entry) in entries.iter().enumerate() {
+        trace_word |= (entry & 1) << i;
+    }
+    Some((one_w, trace_word))
 }
 
 /// Apply the compiled trace columns: one linear evaluation, no
