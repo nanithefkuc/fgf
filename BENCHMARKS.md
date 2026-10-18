@@ -26,11 +26,30 @@ The residue tables put row lengths in columns, with expandable operation panels
 instead of appending separate tuning campaigns. Version and backend factors
 live only in the comparison pages; values below one remain visible.
 
+## Mersenne31 contract note
+
+v3 packed Mersenne31 operations accept every raw lane bit pattern and
+return canonical lanes; v2 kernels assume canonical inputs. The wider
+input contract costs a high-bit screen on the multiply paths: the
+AVX-512 entries screen lanes for bit 31, multiplying lanes already
+inside the redundant range as loaded. A lane outside it triggers
+canonicalized recomputation of its register group for the in-place
+entries and of the whole call for the out-of-place entries. The AVX2
+entries screen each input vector on load. M31 parity is not reached:
+the remaining native M31 gap is an accepted measured tradeoff,
+attributed by two independent assembly reviews to the raw-lane contract
+rather than to dispatch or bounds-check overhead. Golden Cove runs the
+v3/AVX2 route and never executes the AVX-512 screen; its M31 rows carry
+the AVX2 per-vector screen cost. A tile-amortized AVX2 screen remains an
+unevaluated follow-up. The snapshots below record the screened revision;
+the targeted factors for both hosts follow.
+
+
 ## Campaign
 
 | Setting | Willow Cove | Golden Cove |
 | --- | --- | --- |
-| Campaign date (UTC) | 2026-10-13 | 2026-10-13 |
+| Campaign date (UTC) | 2026-10-15 | 2026-10-15 |
 | CPU | Intel Core i5-1135G7 | Intel Core i7-12700K |
 | Availability | Measured | Measured |
 | OS | Arch Linux 7.2.7-arch1-1 | CachyOS Linux 7.2.6-1-cachyos |
@@ -39,14 +58,17 @@ live only in the comparison pages; values below one remain visible.
 | SMT | Siblings offline | Enabled; sibling 9 isolated and online |
 | Requested process backend | v4x | v3_gfni_crypto |
 | Rust | 1.98.1 | 1.98.1 |
+| Go | 1.27.1-X:nodwarf5 | 1.27.1-X:nodwarf5 |
+| GCC | 16.2.1 | 16.2.1 |
+| System ISA-L | 2.32.0 | 2.32.0 |
 | Execution | SCHED_IDLE, pinned CPU; RAYON_NUM_THREADS=1, GOMAXPROCS=1 | SCHED_IDLE, pinned CPU; RAYON_NUM_THREADS=1, GOMAXPROCS=1 |
 
 | Source and method | Value |
 | --- | --- |
 | Released baseline | v2.1.0, `c20465ba22d078e0fb115fb6a99fa77027992c90` |
-| Current library | Working tree based on v3.0.1, revision `f3cd58c39e6e3672216912dd3e6131da1c4b670a` |
-| Current source archive SHA-256 | `778804696da94a736b05ca29dd1c686c2c7d42813d6e166ad5441c77ef5e84f9` |
-| Baseline source archive SHA-256 | `9c36b80d2f5fb5c585f581854f6e4ba6a4e4fb564746077ac5903d2452aa6c42` |
+| Current library | v3.0.1 with PR #48 changes, revision `388cbb4a43d5d20e8a663e89c3b44380c7c4f8b7` |
+| Current source archive SHA-256 | `e175077850f4d870fd2b57989f20806e491a4b86f42cad014bf759b07f4ddd97` |
+| Baseline source archive SHA-256 | `9fcc1e026932a4e80f9faca6e1c0c272bc61971805fc26de7180495571a87ab2` |
 | Self build | Portable x86-64 target, all features, thin LTO, one codegen unit; published dependency pins |
 | Competitor build | Native host builds; versions and packing widths in family pages |
 | Sampling | Median of five per-run medians; no historical timing inputs |

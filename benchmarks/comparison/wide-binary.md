@@ -8,7 +8,7 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 | --- | --- |
 | Campaign | `just bench-paired` (family round `gf`) |
 | v2 | `c20465ba22d078e0fb115fb6a99fa77027992c90` |
-| v3 | `f3cd58c39e6e3672216912dd3e6131da1c4b670a` |
+| v3 | `388cbb4a43d5d20e8a663e89c3b44380c7c4f8b7` |
 | Toolchain | 1.98.1 |
 | Resolved process backend | v2: `v4x` / `v3_gfni_crypto`; v3: `v4x` / `v3_gfni_crypto` |
 | Resolved field backends | v2 `gf32b`: `v4x` / `v3_gfni_crypto`; v2 `gf64b`: `v4x` / `v3_gfni_crypto`; v2 `fp16`: `v4x` / `v3_gfni_crypto`; v2 `fp32`: `v4x` / `v3_gfni_crypto`; v2 `fp64`: `v4x` / `v3_gfni_crypto`; v3 `gf32b`: `v4x` / `v3_gfni_crypto`; v3 `gf64b`: `v4x` / `v3_gfni_crypto`; v3 `fp16`: `v4x` / `v3_gfni_crypto`; v3 `fp32`: `v4x` / `v3_gfni_crypto`; v3 `fp64`: `v4x` / `v3_gfni_crypto` |
@@ -24,7 +24,7 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 
 | Operation | v3 speed factor |
 | --- | --- |
-| mul_add | 0.9965 / 1.0204 |
+| mul_add | 0.9991 / 0.9997 |
 
 ## gf64b
 
@@ -34,7 +34,7 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 
 | Operation | v3 speed factor |
 | --- | --- |
-| mul_add | 0.9998 / 1.0036 |
+| mul_add | 1.0010 / 0.9992 |
 
 ## fp16
 
@@ -44,7 +44,7 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 
 | Operation | v3 speed factor |
 | --- | --- |
-| mul_add | 0.9998 / 0.9974 |
+| mul_add | 0.9999 / 1.0001 |
 
 ## fp32
 
@@ -54,7 +54,7 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 
 | Operation | v3 speed factor |
 | --- | --- |
-| mul_add | 0.9996 / 1.0013 |
+| mul_add | 0.9999 / 0.9993 |
 
 ## fp64
 
@@ -64,7 +64,7 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 
 | Operation | v3 speed factor |
 | --- | --- |
-| mul_add | 0.9943 / 0.8681 |
+| mul_add | 0.9944 / 0.9982 |
 
 ## Caveats
 

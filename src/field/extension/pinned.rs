@@ -91,12 +91,14 @@ pub const fn is_pinned(candidate: &Descriptor) -> bool {
 
 /// The two limbs of a prime-extension instance word.
 // Splitting the word into its two limbs: the truncation is the operation.
+#[inline]
 #[allow(clippy::cast_possible_truncation)]
 const fn limbs(word: u64) -> [u32; 2] {
     [word as u32, (word >> 32) as u32]
 }
 
 /// The instance word of two prime-extension limbs.
+#[inline]
 const fn limb_word(limbs: [u32; 2]) -> u64 {
     (limbs[0] as u64) | ((limbs[1] as u64) << 32)
 }
@@ -106,6 +108,7 @@ const fn limb_word(limbs: [u32; 2]) -> u64 {
 #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
 impl Instance {
     /// The canonical form of an instance word.
+    #[inline]
     pub const fn canonical(self, word: u64) -> u64 {
         match self {
             Self::FanPaar2 => word & 0x3,
@@ -116,6 +119,7 @@ impl Instance {
     }
 
     /// Field addition of two canonical instance words.
+    #[inline]
     pub const fn add(self, left: u64, right: u64) -> u64 {
         match self {
             Self::QuadMersenne31 => limb_word(quad_mersenne31::raw_add(limbs(left), limbs(right))),
@@ -124,6 +128,7 @@ impl Instance {
     }
 
     /// Field subtraction of two canonical instance words.
+    #[inline]
     pub const fn sub(self, left: u64, right: u64) -> u64 {
         match self {
             Self::QuadMersenne31 => limb_word(quad_mersenne31::raw_sub(limbs(left), limbs(right))),
@@ -132,6 +137,7 @@ impl Instance {
     }
 
     /// The additive inverse of a canonical instance word.
+    #[inline]
     pub const fn neg(self, value: u64) -> u64 {
         match self {
             Self::QuadMersenne31 => limb_word(quad_mersenne31::raw_neg(limbs(value))),
@@ -140,6 +146,7 @@ impl Instance {
     }
 
     /// Field multiplication of two canonical instance words.
+    #[inline]
     pub const fn mul(self, left: u64, right: u64) -> u64 {
         match self {
             Self::Rijndael16 => tower::rijndael16_mul(left as u16, right as u16) as u64,
@@ -157,6 +164,7 @@ impl Instance {
 
     /// The multiplicative inverse of a canonical instance word, zero to
     /// zero.
+    #[inline]
     pub const fn inv(self, value: u64) -> u64 {
         match self {
             Self::Rijndael16 => tower::rijndael16_inv(value as u16) as u64,

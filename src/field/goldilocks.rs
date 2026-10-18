@@ -174,7 +174,7 @@ impl Field for Goldilocks {
 
     #[inline]
     fn mul_raw(left: u64, right: u64) -> u64 {
-        reduce_wide(u128::from(reduce(left)) * u128::from(reduce(right)))
+        reduce_wide(u128::from(left) * u128::from(right))
     }
 
     #[inline]

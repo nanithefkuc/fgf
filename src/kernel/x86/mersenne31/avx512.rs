@@ -4,12 +4,20 @@
 //! vector: the same direct `vpminud` canonicalization, so every lane
 //! produces the bytes the AVX2 kernel produces. The multiply
 //! recombination differs from the AVX2 blend form: both `a` limb sets are
-//! doubled, the odd `b` limbs are gathered with `vmovehdup`, and masked
-//! `vmovsldup`/`vmovshdup` recombination pairs each doubled partial product
+//! doubled, the odd `b` limbs are gathered with `vmovehdup`, and two
+//! two-source dword permutes (`vpermt2d`) pair each doubled partial product
 //! for one right shift and one conditional subtract. Only AVX-512F
 //! instructions are used, so each entry takes `X64V4Token`. Complete 64-byte
 //! lanes run here; the remainder descends through the matching AVX2 entry,
 //! which carries its own scalar tail.
+//!
+//! The multiply entries screen operand lanes for bit 31 instead of
+//! canonicalizing every load: a lane with bit 31 clear lies in `0..=p`,
+//! which [`mulmod`] and the accumulate reduction accept as loaded. The
+//! out-of-place entries multiply optimistically and recompute every lane
+//! through [`min_chain`] when any source lane carries bit 31; the in-place
+//! entries load [`SCREEN_LANES`] lanes of each operand into registers and
+//! canonicalize them only when one carries it, before any store.
 
 use super::{
     P, add_assign_avx2, add_assign_scalar_avx2, mul_add_avx2, mul_assign_avx2,
@@ -25,8 +33,16 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-/// Odd 32-bit lanes of a 512-bit vector, as a blend mask.
-const ODD_LANES: __mmask16 = 0xAAAA;
+/// Lanes per register group of the in-place multiplies: every operand
+/// lane of a group is loaded and screened before the group's first store.
+const SCREEN_LANES: usize = 4;
+
+/// Whether any 32-bit lane of `seen` carries bit 31, the one bit outside
+/// the `0..=p` operand range of [`mulmod`].
+#[archmage::rite(v4)]
+fn any_bit31(seen: __m512i) -> bool {
+    _mm512_test_epi32_mask(seen, _mm512_set1_epi32(i32::MIN)) != 0
+}
 
 /// Canonicalize arbitrary raw `u32` lanes below `p` in two unconditional
 /// subtract-and-min steps; every lane value fits `0..=2p + 1`
@@ -45,16 +61,19 @@ fn mulmod(a: __m512i, b: __m512i, p: __m512i) -> __m512i {
     let b_odd = _mm512_castps_si512(_mm512_movehdup_ps(_mm512_castsi512_ps(b)));
     let even = _mm512_mul_epu32(a_even_dbl, b);
     let odd = _mm512_mul_epu32(a_odd_dbl, b_odd);
-    let lo_dbl = _mm512_castps_si512(_mm512_mask_moveldup_ps(
-        _mm512_castsi512_ps(even),
-        ODD_LANES,
-        _mm512_castsi512_ps(odd),
-    ));
-    let hi = _mm512_castps_si512(_mm512_mask_movehdup_ps(
-        _mm512_castsi512_ps(odd),
-        !ODD_LANES,
-        _mm512_castsi512_ps(even),
-    ));
+    // Lane `2i` takes a dword of the even product `i`, lane `2i + 1` the
+    // same dword of the odd product `i`: the low dwords hold `2 * lo`, the
+    // high dwords `hi`.
+    let lo_dbl = _mm512_permutex2var_epi32(
+        even,
+        _mm512_setr_epi32(0, 16, 2, 18, 4, 20, 6, 22, 8, 24, 10, 26, 12, 28, 14, 30),
+        odd,
+    );
+    let hi = _mm512_permutex2var_epi32(
+        even,
+        _mm512_setr_epi32(1, 17, 3, 19, 5, 21, 7, 23, 9, 25, 11, 27, 13, 29, 15, 31),
+        odd,
+    );
     let lo = _mm512_srli_epi32::<1>(lo_dbl);
     let t = _mm512_add_epi32(lo, hi);
     _mm512_min_epu32(t, _mm512_sub_epi32(t, p))
@@ -130,8 +149,10 @@ pub fn sub_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], src: &[u8]
 /// `dst += coeff * src (mod p)`, Mersenne31, AVX-512.
 ///
 /// A zero coefficient leaves `dst` untouched, mirroring the portable
-/// reference. Every other lane canonicalizes on load, so every input lane
-/// bit pattern is legal and every stored lane is canonical.
+/// reference. Every input lane bit pattern is legal: a register group whose
+/// lanes all have bit 31 clear multiplies as loaded, any other group and
+/// the lanes past the last whole group canonicalize first, and every stored
+/// lane is canonical.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial lane.
@@ -161,10 +182,36 @@ pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, s
     let cred = _mm512_set1_epi32(c as i32);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
-    for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
+    let (dst_groups, dst_rest) = dst_lanes.as_chunks_mut::<SCREEN_LANES>();
+    let (src_groups, src_rest) = src_lanes.as_chunks::<SCREEN_LANES>();
+    for (dst_group, src_group) in dst_groups.iter_mut().zip(src_groups) {
+        let mut d = [_mm512_setzero_si512(); SCREEN_LANES];
+        let mut s = [_mm512_setzero_si512(); SCREEN_LANES];
+        let mut seen = _mm512_setzero_si512();
+        for (((dv, sv), dst_lane), src_lane) in
+            d.iter_mut().zip(&mut s).zip(&*dst_group).zip(src_group)
+        {
+            *dv = _mm512_loadu_si512(dst_lane);
+            *sv = _mm512_loadu_si512(src_lane);
+            seen = _mm512_or_si512(seen, _mm512_or_si512(*dv, *sv));
+        }
+        if any_bit31(seen) {
+            for v in &mut d {
+                *v = min_chain(*v, p);
+            }
+            for v in &mut s {
+                *v = min_chain(*v, p);
+            }
+        }
+        for ((dst_lane, dv), sv) in dst_group.iter_mut().zip(&d).zip(&s) {
+            let sum = _mm512_add_epi32(*dv, mulmod(cred, *sv, p)); // <= 2p - 1
+            _mm512_storeu_si512(dst_lane, _mm512_min_epu32(sum, _mm512_sub_epi32(sum, p)));
+        }
+    }
+    for (dst_lane, src_lane) in dst_rest.iter_mut().zip(src_rest) {
         let prod = mulmod(cred, min_chain(_mm512_loadu_si512(src_lane), p), p);
         let d = min_chain(_mm512_loadu_si512(&*dst_lane), p);
-        let sum = _mm512_add_epi32(d, prod); // <= 2p - 2
+        let sum = _mm512_add_epi32(d, prod); // <= 2p - 1
         _mm512_storeu_si512(dst_lane, _mm512_min_epu32(sum, _mm512_sub_epi32(sum, p)));
     }
     if !dst_tail.is_empty() {
@@ -174,8 +221,10 @@ pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, s
 
 /// `dst *= coeff (mod p)`, Mersenne31, AVX-512.
 ///
-/// Every input lane bit pattern is legal: lanes canonicalize on load,
-/// and every stored lane is canonical.
+/// Every input lane bit pattern is legal: a register group whose lanes all
+/// have bit 31 clear multiplies as loaded, any other group and the lanes
+/// past the last whole group canonicalize first, and every stored lane is
+/// canonical.
 ///
 /// # Panics
 /// Panics on a partial trailing lane.
@@ -197,7 +246,24 @@ pub fn mul_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32
     let p = _mm512_set1_epi32(P);
     let cred = _mm512_set1_epi32(c as i32);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
-    for dst_lane in dst_lanes {
+    let (dst_groups, dst_rest) = dst_lanes.as_chunks_mut::<SCREEN_LANES>();
+    for dst_group in dst_groups.iter_mut() {
+        let mut d = [_mm512_setzero_si512(); SCREEN_LANES];
+        let mut seen = _mm512_setzero_si512();
+        for (dv, dst_lane) in d.iter_mut().zip(&*dst_group) {
+            *dv = _mm512_loadu_si512(dst_lane);
+            seen = _mm512_or_si512(seen, *dv);
+        }
+        if any_bit31(seen) {
+            for v in &mut d {
+                *v = min_chain(*v, p);
+            }
+        }
+        for (dst_lane, dv) in dst_group.iter_mut().zip(&d) {
+            _mm512_storeu_si512(dst_lane, mulmod(cred, *dv, p));
+        }
+    }
+    for dst_lane in dst_rest.iter_mut() {
         let d = min_chain(_mm512_loadu_si512(&*dst_lane), p);
         _mm512_storeu_si512(dst_lane, mulmod(cred, d, p));
     }
@@ -208,8 +274,10 @@ pub fn mul_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32
 
 /// `dst = coeff * src (mod p)`, Mersenne31, AVX-512.
 ///
-/// Every input lane bit pattern is legal: lanes canonicalize on load,
-/// and every stored lane is canonical.
+/// Every input lane bit pattern is legal: the first pass multiplies the
+/// lanes as loaded, a second pass recomputes every lane from
+/// canonicalized loads when any source lane has bit 31 set, and every
+/// stored lane is canonical.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial lane.
@@ -227,9 +295,19 @@ pub fn mul_into_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, 
     let cred = broadcast(coeff, p);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
+    let mut seen = _mm512_setzero_si512();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        let s = min_chain(_mm512_loadu_si512(src_lane), p);
+        let s = _mm512_loadu_si512(src_lane);
+        seen = _mm512_or_si512(seen, s);
         _mm512_storeu_si512(dst_lane, mulmod(cred, s, p));
+    }
+    // The destination is write-only and never aliases the source, so the
+    // recomputing pass reads the same source lanes.
+    if any_bit31(seen) {
+        for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
+            let s = min_chain(_mm512_loadu_si512(src_lane), p);
+            _mm512_storeu_si512(dst_lane, mulmod(cred, s, p));
+        }
     }
     if !dst_tail.is_empty() {
         mul_into_avx2(token.v3(), dst_tail, coeff, src_tail);
@@ -238,8 +316,10 @@ pub fn mul_into_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, 
 
 /// `dst[i] = a[i] * b[i] (mod p)`, Mersenne31, AVX-512.
 ///
-/// Every input lane bit pattern is legal: lanes canonicalize on load,
-/// and every stored lane is canonical.
+/// Every input lane bit pattern is legal: the first pass multiplies the
+/// lanes as loaded, a second pass recomputes every lane from
+/// canonicalized loads when any source lane has bit 31 set, and every
+/// stored lane is canonical.
 ///
 /// # Panics
 /// Panics unless all three buffers match in length (whole lanes).
@@ -264,10 +344,21 @@ pub fn mul_elementwise_avx512(token: archmage::X64V4Token, dst: &mut [u8], a: &[
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (a_lanes, a_tail) = a.as_chunks::<64>();
     let (b_lanes, b_tail) = b.as_chunks::<64>();
+    let mut seen = _mm512_setzero_si512();
     for ((dst_lane, a_lane), b_lane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
-        let va = min_chain(_mm512_loadu_si512(a_lane), p);
-        let vb = min_chain(_mm512_loadu_si512(b_lane), p);
+        let va = _mm512_loadu_si512(a_lane);
+        let vb = _mm512_loadu_si512(b_lane);
+        seen = _mm512_or_si512(seen, _mm512_or_si512(va, vb));
         _mm512_storeu_si512(dst_lane, mulmod(va, vb, p));
+    }
+    // The destination is write-only and never aliases a source, so the
+    // recomputing pass reads the same source lanes.
+    if any_bit31(seen) {
+        for ((dst_lane, a_lane), b_lane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
+            let va = min_chain(_mm512_loadu_si512(a_lane), p);
+            let vb = min_chain(_mm512_loadu_si512(b_lane), p);
+            _mm512_storeu_si512(dst_lane, mulmod(va, vb, p));
+        }
     }
     if !dst_tail.is_empty() {
         mul_elementwise_avx2(token.v3(), dst_tail, a_tail, b_tail);
@@ -276,8 +367,10 @@ pub fn mul_elementwise_avx512(token: archmage::X64V4Token, dst: &mut [u8], a: &[
 
 /// `dst[i] = dst[i] * src[i] (mod p)`, Mersenne31, AVX-512.
 ///
-/// Every input lane bit pattern is legal: lanes canonicalize on load,
-/// and every stored lane is canonical.
+/// Every input lane bit pattern is legal: a register group whose lanes all
+/// have bit 31 clear multiplies as loaded, any other group and the lanes
+/// past the last whole group canonicalize first, and every stored lane is
+/// canonical.
 ///
 /// # Panics
 /// Panics if the slices differ in length or hold a partial lane.
@@ -294,7 +387,32 @@ pub fn mul_elementwise_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8]
     let p = _mm512_set1_epi32(P);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src.as_chunks::<64>();
-    for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
+    let (dst_groups, dst_rest) = dst_lanes.as_chunks_mut::<SCREEN_LANES>();
+    let (src_groups, src_rest) = src_lanes.as_chunks::<SCREEN_LANES>();
+    for (dst_group, src_group) in dst_groups.iter_mut().zip(src_groups) {
+        let mut d = [_mm512_setzero_si512(); SCREEN_LANES];
+        let mut s = [_mm512_setzero_si512(); SCREEN_LANES];
+        let mut seen = _mm512_setzero_si512();
+        for (((dv, sv), dst_lane), src_lane) in
+            d.iter_mut().zip(&mut s).zip(&*dst_group).zip(src_group)
+        {
+            *dv = _mm512_loadu_si512(dst_lane);
+            *sv = _mm512_loadu_si512(src_lane);
+            seen = _mm512_or_si512(seen, _mm512_or_si512(*dv, *sv));
+        }
+        if any_bit31(seen) {
+            for v in &mut d {
+                *v = min_chain(*v, p);
+            }
+            for v in &mut s {
+                *v = min_chain(*v, p);
+            }
+        }
+        for ((dst_lane, dv), sv) in dst_group.iter_mut().zip(&d).zip(&s) {
+            _mm512_storeu_si512(dst_lane, mulmod(*dv, *sv, p));
+        }
+    }
+    for (dst_lane, src_lane) in dst_rest.iter_mut().zip(src_rest) {
         let vd = min_chain(_mm512_loadu_si512(&*dst_lane), p);
         let vs = min_chain(_mm512_loadu_si512(src_lane), p);
         _mm512_storeu_si512(dst_lane, mulmod(vd, vs, p));

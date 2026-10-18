@@ -8,7 +8,7 @@ Same-session comparison of the v2 line and v3. Every result cell reports Willow 
 | --- | --- |
 | Campaign | `just bench-paired` (canonical family `gf1`) |
 | v2 | `c20465ba22d078e0fb115fb6a99fa77027992c90` |
-| v3 | `f3cd58c39e6e3672216912dd3e6131da1c4b670a` |
+| v3 | `388cbb4a43d5d20e8a663e89c3b44380c7c4f8b7` |
 | Toolchain | 1.98.1 |
 | Resolved process backend | v2: `v4x` / `v3_gfni_crypto`; v3: `v4x` / `v3_gfni_crypto` |
 | Protocol | Five rounds per host; each round runs both versions in a shuffled order; competitor arms interleave inside their harness process. |
@@ -23,30 +23,30 @@ Ordinary `Vec<u8>` buffers. Range XOR updates bits [N/4, 7N/8); `bits::XorRange`
 
 | Operation | Case | v3 speed factor |
 | --- | --- | --- |
-| bits::XorRange 5/8 | 4 KiB | 0.9987 / 1.0003 |
-| bits::XorRange 5/8 | 256 KiB | 1.0000 / 1.0030 |
-| bits::XorRange 5/8 | 8 MiB | 1.0311 / 1.0002 |
-| bits::XorRange 5/8 | 64 MiB | 1.0010 / 1.0024 |
-| bits::and_into | 4 KiB | 0.9964 / 1.0227 |
-| bits::and_into | 256 KiB | 1.0000 / 0.9559 |
-| bits::and_into | 8 MiB | 1.0061 / 1.0154 |
-| bits::and_into | 64 MiB | 0.9974 / 1.0014 |
-| bits::dot_product | 4 KiB | 1.1218 / 1.0407 |
-| bits::dot_product | 256 KiB | 1.0047 / 0.9994 |
-| bits::dot_product | 8 MiB | 1.0120 / 1.1197 |
-| bits::dot_product | 64 MiB | 0.9843 / 0.9859 |
-| bits::weight | 4 KiB | 1.0363 / 1.0008 |
-| bits::weight | 256 KiB | 0.9944 / 1.0000 |
-| bits::weight | 8 MiB | 1.0004 / 0.9999 |
-| bits::weight | 64 MiB | 0.9940 / 0.9994 |
-| bits::xor_assign | 4 KiB | 1.0003 / 1.0019 |
-| bits::xor_assign | 256 KiB | 0.9998 / 1.0000 |
-| bits::xor_assign | 8 MiB | 1.0154 / 0.9906 |
-| bits::xor_assign | 64 MiB | 1.0017 / 1.0061 |
-| bits::xor_range 5/8 | 4 KiB | 1.0010 / 1.0077 |
-| bits::xor_range 5/8 | 256 KiB | 1.0003 / 0.9994 |
-| bits::xor_range 5/8 | 8 MiB | 1.0303 / 0.9992 |
-| bits::xor_range 5/8 | 64 MiB | 1.0000 / 1.0011 |
+| bits::XorRange 5/8 | 4 KiB | 1.0074 / 1.0023 |
+| bits::XorRange 5/8 | 256 KiB | 1.0000 / 1.0057 |
+| bits::XorRange 5/8 | 8 MiB | 1.0185 / 0.9996 |
+| bits::XorRange 5/8 | 64 MiB | 1.0025 / 0.9914 |
+| bits::and_into | 4 KiB | 1.0030 / 0.9944 |
+| bits::and_into | 256 KiB | 1.0004 / 1.0220 |
+| bits::and_into | 8 MiB | 1.0206 / 0.9929 |
+| bits::and_into | 64 MiB | 0.9985 / 0.9976 |
+| bits::dot_product | 4 KiB | 1.1229 / 1.0511 |
+| bits::dot_product | 256 KiB | 1.0047 / 0.9096 |
+| bits::dot_product | 8 MiB | 1.0213 / 1.0282 |
+| bits::dot_product | 64 MiB | 0.9947 / 1.0150 |
+| bits::weight | 4 KiB | 0.9759 / 0.9987 |
+| bits::weight | 256 KiB | 0.9997 / 1.0000 |
+| bits::weight | 8 MiB | 1.0850 / 0.9999 |
+| bits::weight | 64 MiB | 1.0010 / 1.0012 |
+| bits::xor_assign | 4 KiB | 0.9913 / 0.9896 |
+| bits::xor_assign | 256 KiB | 1.0001 / 1.0001 |
+| bits::xor_assign | 8 MiB | 1.0094 / 0.9998 |
+| bits::xor_assign | 64 MiB | 1.0030 / 1.0007 |
+| bits::xor_range 5/8 | 4 KiB | 0.9996 / 1.0010 |
+| bits::xor_range 5/8 | 256 KiB | 1.0002 / 1.0007 |
+| bits::xor_range 5/8 | 8 MiB | 1.0190 / 1.0003 |
+| bits::xor_range 5/8 | 64 MiB | 0.9997 / 0.9927 |
 
 ### Short ranges
 
@@ -54,8 +54,8 @@ Ordinary `Vec<u8>` buffers. Range XOR updates bits [N/4, 7N/8); `bits::XorRange`
 
 | Operation | v3 speed factor |
 | --- | --- |
-| bits::XorRange | 1.0778 / 1.0148 |
-| bits::xor_range | 1.0212 / 1.0392 |
+| bits::XorRange | 1.0760 / 1.0055 |
+| bits::xor_range | 1.0180 / 1.0356 |
 
 ## Caveats
 

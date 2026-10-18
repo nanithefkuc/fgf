@@ -22,10 +22,11 @@
 //! modulus. The tests validate every lane construction against an
 //! independent `u128 % p` limb model.
 //!
-//! Buffers meet the packed canonical-lane contract: every input limb is
-//! below the modulus and every stored limb is canonical, the same contract
-//! as [`crate::ops`]. Coefficients are total — any raw `Elem<QuadMersenne31>` limbs
-//! canonicalize once per call.
+//! Packed buffers accept arbitrary limb bit patterns, as specified by
+//! [`crate::ops`]. Multiplication keeps limbs in the redundant range
+//! `0..=p` internally; all arithmetic stores canonical limbs, except the
+//! documented byte-preserving coefficient shortcuts. Coefficients enter
+//! through canonical [`Elem`] storage.
 //!
 //! Reaching these entries directly is an `internals` surface, like the
 //! other direct x86 kernels: each is a safe capability-token function
@@ -53,6 +54,23 @@ fn dup_im(x: __m256i) -> __m256i {
     _mm256_castps_si256(_mm256_movehdup_ps(_mm256_castsi256_ps(x)))
 }
 
+/// Reduce complex-multiply inputs to `0..=p`, retaining redundant zero.
+/// Lanes without their high bit set are already below `2^31`, i.e. `0..=p`.
+/// That range keeps `cmul`'s and `cmul_vec`'s deferred 64-bit accumulators at
+/// most `2p^2`, which `reduce_pair` still folds to canonical limbs, and it
+/// keeps `cmul_vec`'s `XOR p` negation exact (`p` is all low 31 bits set, so
+/// the XOR flips only those bits). Vectors with any high bit set
+/// canonicalize before the product, including raw aliases.
+#[archmage::rite(v3)]
+#[must_use]
+fn mul_input(x: __m256i, p: __m256i) -> __m256i {
+    if _mm256_movemask_ps(_mm256_castsi256_ps(x)) == 0 {
+        x
+    } else {
+        min_chain_avx2(x, p)
+    }
+}
+
 /// `a + b (mod p)` over eight lanes (`0..=p` in, canonical out).
 #[archmage::rite(v3)]
 #[must_use]
@@ -60,9 +78,9 @@ fn addmod(a: __m256i, b: __m256i, p: __m256i) -> __m256i {
     min_chain_avx2(_mm256_add_epi32(a, b), p) // sum <= 2p
 }
 
-/// Multiply four canonical complex elements by a prepared coefficient:
-/// `cr` broadcast to all lanes, `ci_mixed` holding `p - ci` on the real
-/// lanes and `ci` on the imaginary lanes. The real lanes accumulate
+/// Multiply four complex elements by a prepared coefficient, each input lane
+/// `0..=p`: `cr` broadcast to all lanes, `ci_mixed` holding `p - ci` on the
+/// real lanes and `ci` on the imaginary lanes. The real lanes accumulate
 /// `cr*re + (p-ci)*im = cr*re - ci*im` and the imaginary lanes
 /// `cr*im + ci*re`, both deferred at 64 bits for [`reduce_pair`].
 #[archmage::rite(v3)]
@@ -75,9 +93,10 @@ fn cmul(x: __m256i, cr: __m256i, ci_mixed: __m256i, p: __m256i) -> __m256i {
     reduce_pair(re, im, p)
 }
 
-/// Complex multiply of two canonical vectors, `(ar*br - ai*bi, ar*bi + ai*br)`
-/// per element, negating the duplicated imaginary limbs of `b` with `p`
-/// and reducing the deferred 64-bit accumulators.
+/// Complex multiply of two vectors with each input lane `0..=p`,
+/// `(ar*br - ai*bi, ar*bi + ai*br)` per element, negating the duplicated
+/// imaginary limbs of `b` with `p` and reducing the deferred 64-bit
+/// accumulators.
 #[archmage::rite(v3)]
 #[must_use]
 fn cmul_vec(a: __m256i, b: __m256i, p: __m256i) -> __m256i {
@@ -224,10 +243,10 @@ pub fn mul_add_avx2(
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        // Canonical limbs keep `cmul`'s deferred reduction and the final
+        // `mul_input` keeps `cmul`'s deferred reduction and the final
         // `addmod` inside their proven ranges.
         let prod = cmul(
-            min_chain_avx2(_mm256_loadu_si256(src_lane), p),
+            mul_input(_mm256_loadu_si256(src_lane), p),
             cr_v,
             ci_mixed,
             p,
@@ -263,8 +282,8 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem
     let (cr_v, ci_mixed) = coeff_vectors(cr, ci);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     for dst_lane in dst_lanes {
-        // Canonical limbs, as above.
-        let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
+        // `mul_input` suffices for `cmul`, as above.
+        let d = mul_input(_mm256_loadu_si256(&*dst_lane), p);
         _mm256_storeu_si256(dst_lane, cmul(d, cr_v, ci_mixed, p));
     }
     prime::mul_assign::<QuadMersenne31>(dst_tail, coeff);
@@ -305,8 +324,8 @@ pub fn mul_into_avx2(
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        // Canonical limbs, as above.
-        let s = min_chain_avx2(_mm256_loadu_si256(src_lane), p);
+        // `mul_input` suffices for `cmul`, as above.
+        let s = mul_input(_mm256_loadu_si256(src_lane), p);
         _mm256_storeu_si256(dst_lane, cmul(s, cr_v, ci_mixed, p));
     }
     // Whole-element scalar tail.
@@ -346,10 +365,11 @@ pub fn mul_elementwise_avx2(_token: archmage::X64V3Token, dst: &mut [u8], a: &[u
     let (a_lanes, a_tail) = a.as_chunks::<32>();
     let (b_lanes, b_tail) = b.as_chunks::<32>();
     for ((dst_lane, a_lane), b_lane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
-        // The duplicated-imaginary negation below XORs with `p`, which is
-        // exact only for canonical limbs.
-        let va = min_chain_avx2(_mm256_loadu_si256(a_lane), p);
-        let vb = min_chain_avx2(_mm256_loadu_si256(b_lane), p);
+        // `mul_input` keeps every lane `0..=p`: the duplicated-imaginary
+        // `XOR p` negation below stays exact and the deferred accumulators
+        // stay inside `reduce_pair`'s proven range.
+        let va = mul_input(_mm256_loadu_si256(a_lane), p);
+        let vb = mul_input(_mm256_loadu_si256(b_lane), p);
         _mm256_storeu_si256(dst_lane, cmul_vec(va, vb, p));
     }
     prime::mul_elementwise::<QuadMersenne31>(dst_tail, a_tail, b_tail);
@@ -377,9 +397,9 @@ pub fn mul_elementwise_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8],
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
-        // As above: the negation needs canonical limbs.
-        let vd = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
-        let vs = min_chain_avx2(_mm256_loadu_si256(src_lane), p);
+        // As above: `mul_input` keeps the negation exact.
+        let vd = mul_input(_mm256_loadu_si256(&*dst_lane), p);
+        let vs = mul_input(_mm256_loadu_si256(src_lane), p);
         _mm256_storeu_si256(dst_lane, cmul_vec(vd, vs, p));
     }
     scalar::mul_elementwise_assign::<QuadMersenne31>(dst_tail, src_tail);
