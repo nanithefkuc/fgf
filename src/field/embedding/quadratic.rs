@@ -281,7 +281,7 @@ fn mul_raw<T: Field>(left: T::Raw, right: T::Raw) -> T::Raw {
 /// source: the conjugate sum and product do by the Vieta identities, so
 /// the upper coordinates vanish and the lower names the trace and norm.
 /// Uses the source row's coordinate hooks, never the embedding images.
-fn restrict_quad<S: Field, T: Field>(value: Elem<T>) -> Elem<S> {
+pub(super) fn restrict_quad<S: Field, T: Field>(value: Elem<T>) -> Elem<S> {
     let degree = T::DEGREE as usize;
     let span = S::DEGREE as usize;
     debug_assert!(degree == 2 * span, "quadratic restriction spans the row");

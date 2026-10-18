@@ -1362,20 +1362,30 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     ///
     /// Components recover level by level through the trace-dual basis,
     /// ending in the prime-subfield readout; a value outside the image
-    /// restricts to `None` without solving a linear system. The
-    /// membership pre-check routes through the degree-2 closed form
-    /// where [`contains`](Self::contains) does. The closed form applies
-    /// only to the structural base-into-row inclusion (see
-    /// the structural check); caller-supplied images
-    /// keep the transported-relation path.
-    #[must_use]
+    /// restricts to `None` without solving a linear system. At relative
+    /// degree two where the target row carries its own quadratic relation
+    /// over exactly this source, the membership pre-check runs the
+    /// closed-form conjugation, and members then read their base
+    /// coordinate back directly (the base coordinate is a component of
+    /// the closed form): no coordinate walk, no embedding-image reads,
+    /// no power on that path. Nonmembers keep the transported-relation
+    /// walk. The closed form applies only to the structural
+    /// base-into-row inclusion (see the structural check);
+    /// caller-supplied images keep the transported-relation path.
     pub fn restrict(&self, value: Elem<T>) -> Option<Elem<S>> {
         if Self::QUAD_RESTRICT
             && let Some((base_degree, coefficient)) = Self::QUAD
             && self.is_structural()
-            && quadratic::apply_conjugation::<T>(value, base_degree, coefficient) != value
         {
-            return None;
+            if quadratic::apply_conjugation::<T>(value, base_degree, coefficient) != value {
+                return None;
+            }
+            // Members lie in the image by the fixed-point test, so the
+            // base coordinate names the preimage directly: no level walk,
+            // no embedding-image reads, no power. Nonmembers keep the
+            // walk, which re-checks membership through the transported
+            // relations exactly as before.
+            return Some(quadratic::restrict_quad::<S, T>(value));
         }
         let descriptor = S::DESCRIPTOR;
         let (source_levels, source_count) = levels(descriptor);
