@@ -8,11 +8,6 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- Closed-form quadratic conjugate, trace, and norm for every
-  relative-degree-2 extension row through `QuadraticExtension`, each equal
-  to the corresponding `Embedding` map of the base-into-row embedding,
-  plus the missing `const` trace on `QuadMersenne31`, whose inherent
-  conjugate/trace/norm remain its single spelling.
 - Mixed embedding composition over a sealed `Postcompose` right-hand
   operand: `Embedding::then` accepts a proper inclusion or an
   isomorphism out of the middle row, and
@@ -115,6 +110,12 @@ All notable changes to this project are documented here. The format follows
   `_with` forms, and `pack_to_vec`.
 
 ### Removed
+
+- The `QuadraticExtension` public trait from the quadratic-conveniences
+  proposal: no new public API ships. Degree-2 `Embedding` maps route
+  internally through the Vieta closed forms with no public spelling
+  change; `QuadMersenne31` keeps its inherent `const` conjugate/norm and
+  drops the proposed inherent `trace` (use the embedding trace map).
 
 - NEON and `simd128` acceleration: the `aarch64` and `wasm32` kernel
   subtrees and their dispatch arms are gone, and `internals` no longer

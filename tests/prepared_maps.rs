@@ -4,7 +4,12 @@
 //! Every valid image tuple of the `tests/relations.rs` inventory runs
 //! through the prepared types: each method agrees with its compact
 //! counterpart, `None`-agreement holds on every non-member, and the
-//! generator-level counts match. The structural lift, the conjugate-image
+//! generator-level counts match. The structural degree-2 pairs among
+//! them additionally agree with the explicit pow reference of
+//! `tests/extension_reference.rs` (compact and prepared against
+//! `x.pow(|S|)`, trace as the restricted conjugate sum, norm as the
+//! restricted conjugate product), so the prepared-vs-compact checks are
+//! not tautological where routing applies. The structural lift, the conjugate-image
 //! pair, the normal-basis injection trap, the characteristic-divisible relative-degree case,
 //! the Frobenius equality with `Frobenius<F>`, and the QM31 anchors
 //! follow, with the GF(3^64) tower covering the at-cap odd row.
@@ -712,6 +717,18 @@ fn prepared_qm31_matches_conjugation_and_norm() {
         Elem::<Qm31>::ONE,
     ];
     for (i, &elem) in elems.iter().enumerate() {
+        // The pow reference first: neither prepared nor compact is the
+        // oracle here.
+        assert_eq!(
+            compact.frobenius(elem),
+            elem.pow(M31::ORDER),
+            "compact frobenius matches pow {i}"
+        );
+        assert_eq!(
+            prepared.frobenius(elem),
+            elem.pow(M31::ORDER),
+            "prepared frobenius matches pow {i}"
+        );
         assert_eq!(
             prepared.frobenius(elem),
             elem.conjugate(),

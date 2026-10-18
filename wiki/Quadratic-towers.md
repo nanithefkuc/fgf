@@ -39,11 +39,10 @@ norm(a+b*t)       = a^2 + A*a*b + B*b^2
 
 Every coefficient operation in these equations belongs to the base field. In particular, `A` and `B` are coordinates in the declared base, not ordinary integers added to a Rust word.
 
-`QuadraticExtension` supplies the closed-form `conjugate`, `trace`, and
-`norm` for every relative-degree-2 row. Each equals the corresponding
-`Embedding` map of the base-into-row embedding: `conjugate` is its
-Frobenius, `trace` its trace, `norm` its norm. `QuadMersenne31` instead
-spelling, since the generic body is not `const`-capable.
+The base-into-row `Embedding` of a relative-degree-2 row routes its
+`frobenius`, `trace`, and `norm` through these closed forms, each equal
+to the corresponding exponentiation spelling. `QuadMersenne31` keeps its
+`const` `conjugate`/`norm` alongside the routed maps.
 
 ## Shipped specifications
 `Rijndael16` starts at the AES byte field; `Rijndael32` and `Rijndael64`
