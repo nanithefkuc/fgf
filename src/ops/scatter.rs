@@ -46,6 +46,44 @@ pub fn mul_add_scatter<F: FieldKernels>(
     F::mul_add_scatter(RawDispatch, &mut rows[..used], row_len, coeffs, src);
 }
 
+/// Overwrite many rows from one source: `rows[j] = coeffs[j] * src`.
+///
+/// The overwrite counterpart of [`mul_add_scatter`]: the previous contents
+/// of the rows are ignored, so callers need not zero them. `rows` is a flat
+/// buffer of `coeffs.len()` contiguous rows, each `row_len` bytes and the
+/// same length as `src`. A zero coefficient fills its row with zero lanes
+/// and a unit coefficient copies the source bytes, matching
+/// [`mul_into`](crate::ops::mul_into).
+///
+/// A zero-length row with a zero-length source is a valid zero-work shape
+/// and a no-op; the structural checks above still apply.
+///
+/// # Panics
+/// Panics unless `rows` holds at least `coeffs.len()` rows of `row_len` bytes
+/// and `row_len == src.len()`, or on a partial trailing element.
+pub fn mul_into_scatter<F: FieldKernels>(
+    rows: &mut [u8],
+    row_len: usize,
+    coeffs: &[Elem<F>],
+    src: &[u8],
+) {
+    check_pair::<F>("mul_into_scatter", "row_len", row_len, "src", src.len());
+    let used = coeffs
+        .len()
+        .checked_mul(row_len)
+        .expect("mul_into_scatter: row geometry overflows");
+    assert!(
+        rows.len() >= used,
+        "mul_into_scatter: rows is {} bytes but {} rows of {row_len} bytes need {used}",
+        rows.len(),
+        coeffs.len(),
+    );
+    if row_len == 0 || coeffs.is_empty() {
+        return;
+    }
+    F::mul_into_scatter(RawDispatch, &mut rows[..used], row_len, coeffs, src);
+}
+
 /// Fan one source out to many rows using prepared coefficients.
 ///
 /// Unlike [`mul_add_scatter`], repeated calls do not rebuild backend-specific

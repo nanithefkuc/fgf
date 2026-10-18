@@ -39,6 +39,14 @@ All notable changes to this project are documented here. The format follows
   dispatches the register-blocked GFNI and AVX-512 scattered kernels with
   overwrite seeded from zero in registers; every other field routes the
   dispatched single-row kernels over the named rows.
+- Missing operation siblings: `ops::sub_assign_rows` subtracts pairwise rows
+  with the same geometry checks and argument order as `ops::add_assign_rows`
+  (identical to addition in characteristic two, canonicalizing subtraction
+  in the prime fields); `ops::mul_into_scatter` overwrites each row with
+  `coeffs[j] * src`, the overwrite counterpart of `ops::mul_add_scatter`
+  with zero-fill and source-copy fast paths; and the alloc-gated
+  `ops::unpack_to_vec` decodes packed bytes into a new element vector, the
+  counterpart of `ops::pack_to_vec`.
 
 ### Changed
 
