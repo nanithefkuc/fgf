@@ -1702,8 +1702,13 @@ mod x86 {
                     }
                 }
                 assert_eq!(got, want, "gf8 rs avx512 scattered: {row_len}B x {nrows}");
-                // Overwrite from noise equals zeroed accumulation.
-                let mut zeroed = vec![0u8; span];
+                // Overwrite from noise equals zeroed accumulation on the named
+                // rows; the gaps keep their backing bytes.
+                let mut overwrote = noise(span, 0xda1);
+                let mut zeroed = overwrote.clone();
+                for &start in &starts {
+                    zeroed[start..start + row_len].fill(0);
+                }
                 for &(coeffs, src) in &terms {
                     for (j, &coeff) in coeffs.iter().enumerate() {
                         scalar::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(
@@ -1713,7 +1718,6 @@ mod x86 {
                         );
                     }
                 }
-                let mut overwrote = noise(span, 0xda1);
                 x86::gf8::mul_into_matrix_at_avx512_with(
                     token,
                     &mut overwrote,
@@ -2608,8 +2612,13 @@ mod x86 {
                     got, want,
                     "{name} matrix_scattered: row_len {row_len}, nrows {nrows}"
                 );
-                // Overwrite from noise equals zeroed accumulation.
-                let mut zeroed = vec![0u8; span];
+                // Overwrite from noise equals zeroed accumulation on the named
+                // rows; the gaps keep their backing bytes.
+                let mut overwrote = noise(span, 0xda3);
+                let mut zeroed = overwrote.clone();
+                for &start in &starts {
+                    zeroed[start..start + row_len].fill(0);
+                }
                 for &(coeffs, src) in &terms {
                     for (j, &coeff) in coeffs.iter().enumerate() {
                         scalar::mul_add::<FiniteField<2, 8, Polynomial<POLY>>>(
@@ -2619,7 +2628,6 @@ mod x86 {
                         );
                     }
                 }
-                let mut overwrote = noise(span, 0xda3);
                 if POLY == AES {
                     x86::gf8::mul_into_matrix_at_gfni_with::<true, _>(
                         token,
