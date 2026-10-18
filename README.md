@@ -103,12 +103,7 @@ implementation.
 
 ## Platforms
 
-| Target | Accelerated backends |
-| --- | --- |
-| `x86` / `x86_64` | SSSE3/SSE4.2, AVX2, GFNI; AVX-512 with `simd512` |
-| `aarch64` | NEON, NEON with AES/PMULL |
-| `wasm32` | `simd128` |
-| any other | portable scalar |
+SIMD kernels are x86-64 only (`v2` SSSE3/SSE4.2, `v3` AVX2, `v3_gfni_crypto` GFNI, `v4x` AVX-512 with `simd512`); other targets compile and run the portable scalar bodies.
 
 The best available backend is selected once per process, with a portable
 fallback everywhere. `fgf::backend()` reports the selection, and setting

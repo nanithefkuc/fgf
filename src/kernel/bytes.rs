@@ -61,31 +61,9 @@ pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
         }
     }
     #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
-    match backend() {
-        #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-        Backend::Neon | Backend::NeonAes => {
-            for &start in offsets {
-                aarch64::xor_neon(
-                    neon_token(),
-                    dst,
-                    &region[start as usize..start as usize + live],
-                );
-            }
-        }
-        #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-        Backend::Wasm128 => {
-            for &start in offsets {
-                wasm32::xor_simd128(
-                    wasm128_token(),
-                    dst,
-                    &region[start as usize..start as usize + live],
-                );
-            }
-        }
-        _ => {
-            for &start in offsets {
-                scalar::xor(dst, &region[start as usize..start as usize + live]);
-            }
+    {
+        for &start in offsets {
+            scalar::xor(dst, &region[start as usize..start as usize + live]);
         }
     }
 }
@@ -126,13 +104,7 @@ pub fn xor(dst: &mut [u8], src: &[u8]) {
         X86Proof::Scalar => scalar::xor(dst, src),
     }
     #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
-    match backend() {
-        #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-        Backend::Neon | Backend::NeonAes => aarch64::xor_neon(neon_token(), dst, src),
-        #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-        Backend::Wasm128 => wasm32::xor_simd128(wasm128_token(), dst, src),
-        _ => scalar::xor(dst, src),
-    }
+    scalar::xor(dst, src);
 }
 
 /// `dst[i] ^= value_bytes[i % value_bytes.len()]` for every byte — one
@@ -168,15 +140,5 @@ pub fn xor_broadcast(dst: &mut [u8], value_bytes: &[u8]) {
         X86Proof::Scalar => scalar::xor_broadcast_bytes(dst, value_bytes),
     }
     #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
-    match backend() {
-        #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-        Backend::Neon | Backend::NeonAes => {
-            aarch64::bytes::xor_broadcast_neon(neon_token(), dst, value_bytes);
-        }
-        #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-        Backend::Wasm128 => {
-            wasm32::bytes::xor_broadcast_simd128(wasm128_token(), dst, value_bytes);
-        }
-        _ => scalar::xor_broadcast_bytes(dst, value_bytes),
-    }
+    scalar::xor_broadcast_bytes(dst, value_bytes);
 }

@@ -32,29 +32,13 @@ pub mod gf16 {
     use crate::field::binary::tower::Rijndael16Field;
     use crate::field::extension::Packed;
     use crate::field::extension::pinned::{self, Instance};
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     use crate::field::{AES, Polynomial};
     use crate::field::{BinaryField, Elem, Field};
     use crate::kernel::extension::{StorageKernels, StorageRow};
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     use crate::kernel::tables::AES_BANK;
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     use crate::kernel::tables::{ByteBanks, RIJNDAEL16_B};
     use crate::kernel::tables::{FpTowerTables, ScaleTable, TowerCoeff, TowerTables};
     // `Backend` is referenced only from the SIMD dispatch arms, which cfg
@@ -63,20 +47,8 @@ pub mod gf16 {
     #[allow(unused_imports)]
     use crate::kernel::{Backend, KernelDispatch, RawDispatch, backend, scalar};
 
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     use crate::kernel::Matrix;
-    #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-    use crate::kernel::aarch64;
-    #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-    use crate::kernel::wasm32;
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     use crate::kernel::x86;
 
@@ -150,22 +122,10 @@ pub mod gf16 {
     /// [`TowerTables`] values; the dispatch layer's raw-element operations
     /// resolve each element on access, which keeps those one-shot forms
     /// allocation-free without making any kernel body depend on the spec.
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     pub(crate) trait Coeffs {
         /// Number of coefficients.
         fn count(&self) -> usize;
-        /// The degenerate class of coefficient `index`: the cases the
-        /// blocked loops special-case before any table work.
-        #[cfg(all(feature = "simd", any(target_arch = "aarch64", target_arch = "wasm32")))]
-        fn kind(&self, index: usize) -> CoeffKind;
         /// The nibble-table form of coefficient `index`: the shuffle and
         /// scalar tails.
         fn resolved(&self, index: usize) -> TowerTables;
@@ -173,19 +133,6 @@ pub mod gf16 {
         /// building the nibble tables: the GFNI and AVX-512 blocked routes.
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         fn compact(&self, index: usize) -> TowerCoeff;
-    }
-
-    /// The degenerate coefficient classes the blocked loops special-case:
-    /// zero contributes nothing, one is a plain XOR.
-    #[cfg(all(feature = "simd", any(target_arch = "aarch64", target_arch = "wasm32")))]
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub(crate) enum CoeffKind {
-        /// The coefficient is zero: nothing to fold in.
-        Zero,
-        /// The coefficient is one: a plain XOR, no lookup.
-        One,
-        /// Anything else: the full tower multiply.
-        General,
     }
 
     /// Resolve one raw tower word into the Rijndael nibble tables.
@@ -203,27 +150,13 @@ pub mod gf16 {
         TowerCoeff::new(Elem::<Rijndael16Field> { raw })
     }
 
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     impl Coeffs for [TowerTables] {
         #[inline]
         fn count(&self) -> usize {
             self.len()
         }
 
-        #[cfg(all(feature = "simd", any(target_arch = "aarch64", target_arch = "wasm32")))]
-        #[inline]
-        fn kind(&self, index: usize) -> CoeffKind {
-            CoeffKind::of(&self[index])
-        }
-
         #[inline]
         fn resolved(&self, index: usize) -> TowerTables {
             self[index]
@@ -236,27 +169,13 @@ pub mod gf16 {
         }
     }
 
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     impl Coeffs for alloc::vec::Vec<TowerTables> {
         #[inline]
         fn count(&self) -> usize {
             self.len()
         }
 
-        #[cfg(all(feature = "simd", any(target_arch = "aarch64", target_arch = "wasm32")))]
-        #[inline]
-        fn kind(&self, index: usize) -> CoeffKind {
-            CoeffKind::of(&self[index])
-        }
-
         #[inline]
         fn resolved(&self, index: usize) -> TowerTables {
             self[index]
@@ -269,27 +188,13 @@ pub mod gf16 {
         }
     }
 
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     impl<const N: usize> Coeffs for [TowerTables; N] {
         #[inline]
         fn count(&self) -> usize {
             N
         }
 
-        #[cfg(all(feature = "simd", any(target_arch = "aarch64", target_arch = "wasm32")))]
-        #[inline]
-        fn kind(&self, index: usize) -> CoeffKind {
-            CoeffKind::of(&self[index])
-        }
-
         #[inline]
         fn resolved(&self, index: usize) -> TowerTables {
             self[index]
@@ -302,43 +207,14 @@ pub mod gf16 {
         }
     }
 
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     impl<F: Field<Raw = u16>> Coeffs for alloc::vec::Vec<Elem<F>> {
         #[inline]
         fn count(&self) -> usize {
             self.len()
         }
 
-        #[cfg(all(feature = "simd", any(target_arch = "aarch64", target_arch = "wasm32")))]
-        #[inline]
-        fn kind(&self, index: usize) -> CoeffKind {
-            let raw = self[index].to_raw();
-            if raw == 0 {
-                CoeffKind::Zero
-            } else if raw == Elem::<F>::ONE.to_raw() {
-                CoeffKind::One
-            } else {
-                CoeffKind::General
-            }
-        }
-
         #[inline]
         fn resolved(&self, index: usize) -> TowerTables {
             rijndael_tables(self[index].to_raw())
@@ -351,34 +227,13 @@ pub mod gf16 {
         }
     }
 
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     impl<F: Field<Raw = u16>, const N: usize> Coeffs for [Elem<F>; N] {
         #[inline]
         fn count(&self) -> usize {
             N
         }
 
-        #[cfg(all(feature = "simd", any(target_arch = "aarch64", target_arch = "wasm32")))]
-        #[inline]
-        fn kind(&self, index: usize) -> CoeffKind {
-            let raw = self[index].to_raw();
-            if raw == 0 {
-                CoeffKind::Zero
-            } else if raw == Elem::<F>::ONE.to_raw() {
-                CoeffKind::One
-            } else {
-                CoeffKind::General
-            }
-        }
-
         #[inline]
         fn resolved(&self, index: usize) -> TowerTables {
             rijndael_tables(self[index].to_raw())
@@ -391,34 +246,13 @@ pub mod gf16 {
         }
     }
 
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     impl<F: Field<Raw = u16>> Coeffs for [Elem<F>] {
         #[inline]
         fn count(&self) -> usize {
             self.len()
         }
 
-        #[cfg(all(feature = "simd", any(target_arch = "aarch64", target_arch = "wasm32")))]
-        #[inline]
-        fn kind(&self, index: usize) -> CoeffKind {
-            let raw = self[index].to_raw();
-            if raw == 0 {
-                CoeffKind::Zero
-            } else if raw == Elem::<F>::ONE.to_raw() {
-                CoeffKind::One
-            } else {
-                CoeffKind::General
-            }
-        }
-
         #[inline]
         fn resolved(&self, index: usize) -> TowerTables {
             rijndael_tables(self[index].to_raw())
@@ -431,24 +265,8 @@ pub mod gf16 {
         }
     }
 
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     impl<F: Field<Raw = u16>> Matrix<TowerTables> for [(&[Elem<F>], &[u8])] {
         #[inline]
         fn len(&self) -> usize {
@@ -552,21 +370,6 @@ pub mod gf16 {
         }
     }
 
-    #[cfg(all(feature = "simd", any(target_arch = "aarch64", target_arch = "wasm32")))]
-    impl CoeffKind {
-        /// The class of a resolved coefficient.
-        #[inline]
-        pub(crate) fn of(tables: &TowerTables) -> Self {
-            if tables.is_zero() {
-                Self::Zero
-            } else if tables.is_one() {
-                Self::One
-            } else {
-                Self::General
-            }
-        }
-    }
-
     /// The four nibble tables of a resolved coefficient.
     ///
     /// Deliberately borrowed, not copied: the tail handlers below run on as
@@ -581,15 +384,7 @@ pub mod gf16 {
         ]
     }
 
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     /// One base-field byte multiply of two varying bytes, by shift and reduce.
     ///
     /// The elementwise tails have no vector lane left and no fixed
@@ -613,15 +408,7 @@ pub mod gf16 {
         product
     }
 
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     /// The two components of one elementwise tail product under a unit
     /// linear coefficient: `constant = a*c ^ B*(b*d)` and
     /// `extension = a*d ^ b*c ^ b*d` for the interleaved bytes `[a, b]` and
@@ -748,7 +535,10 @@ pub mod gf16 {
         #[inline]
         fn backend<F: StorageRow<B, D, Self>>() -> Backend {
             if rijndael16::<F>() {
-                return backend();
+                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                {
+                    return backend();
+                }
             }
             if fanpaar16::<F>() {
                 return match backend() {
@@ -772,13 +562,7 @@ pub mod gf16 {
             }
             matches!(
                 backend(),
-                Backend::V4x
-                    | Backend::V3GfniCrypto
-                    | Backend::V3
-                    | Backend::V2
-                    | Backend::NeonAes
-                    | Backend::Neon
-                    | Backend::Wasm128
+                Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2
             )
         }
 
@@ -789,15 +573,8 @@ pub mod gf16 {
                     Backend::V4x | Backend::V3GfniCrypto => {
                         Prepared::Compact(rijndael_compact(raw))
                     }
-                    // Every other vector tier runs the four nibble tables: the
-                    // shuffle hosts by construction. PMULL measured far behind
-                    // these tables (see `aarch64::gf16`), so PMULL hosts
-                    // prepare and shuffle exactly like baseline NEON.
-                    Backend::V3
-                    | Backend::V2
-                    | Backend::NeonAes
-                    | Backend::Neon
-                    | Backend::Wasm128 => Prepared::Tables(rijndael_tables(raw)),
+                    // Every other vector tier runs the four nibble tables.
+                    Backend::V3 | Backend::V2 => Prepared::Tables(rijndael_tables(raw)),
                     // Portable fallback: Scalar and any future tier FGF does
                     // not vectorize. `Backend` is `#[non_exhaustive]`.
                     _ => Prepared::Plain(raw),
@@ -896,14 +673,6 @@ pub mod gf16 {
                         src,
                     ),
                 },
-                #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Prepared::Tables(tables) => {
-                    aarch64::gf16::mul_add_neon(crate::kernel::neon_token(), dst, tables, src)
-                }
-                #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Prepared::Tables(tables) => {
-                    wasm32::gf16::mul_add_simd128(crate::kernel::wasm128_token(), dst, tables, src)
-                }
                 other => {
                     let coeff = Elem::<F> { raw: other.coeff() };
                     if rijndael16::<F>() {
@@ -959,14 +728,6 @@ pub mod gf16 {
                         );
                     }
                 },
-                #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Prepared::Tables(tables) => {
-                    aarch64::gf16::mul_assign_neon(crate::kernel::neon_token(), dst, tables)
-                }
-                #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Prepared::Tables(tables) => {
-                    wasm32::gf16::mul_assign_simd128(crate::kernel::wasm128_token(), dst, tables)
-                }
                 other => {
                     let coeff = Elem::<F> { raw: other.coeff() };
                     if rijndael16::<F>() {
@@ -1027,14 +788,6 @@ pub mod gf16 {
                         src,
                     ),
                 },
-                #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Prepared::Tables(tables) => {
-                    aarch64::gf16::mul_into_neon(crate::kernel::neon_token(), dst, tables, src)
-                }
-                #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Prepared::Tables(tables) => {
-                    wasm32::gf16::mul_into_simd128(crate::kernel::wasm128_token(), dst, tables, src)
-                }
                 // Every other prepared form is a scalar coefficient: copying and
                 // scaling in place is one pass either way.
                 other => {
@@ -1082,24 +835,6 @@ pub mod gf16 {
                     // Multi-row shapes keep the nibble tables: they derive them once
                     // per coefficient and then amortize the cheaper byte loop over
                     // every row of the group, which is the trade PMULL loses.
-                    #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                    Backend::Neon | Backend::NeonAes => {
-                        aarch64::gf16::mul_add_scatter_neon(
-                            crate::kernel::neon_token(),
-                            rows,
-                            row_len,
-                            coeffs,
-                            src,
-                        );
-                    }
-                    #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                    Backend::Wasm128 => wasm32::gf16::mul_add_scatter_simd128(
-                        crate::kernel::wasm128_token(),
-                        rows,
-                        row_len,
-                        coeffs,
-                        src,
-                    ),
                     // Not `scalar::mul_add_scatter`: that would re-derive a full
                     // Karatsuba multiply per element. `mul_add_scalar` amortizes one
                     // table resolve over each row.
@@ -1170,20 +905,6 @@ pub mod gf16 {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V2 => x86::gf16::mul_add_gather_ssse3(
                         crate::kernel::x86_v2_token(),
-                        dst,
-                        coeffs,
-                        srcs,
-                    ),
-                    #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                    Backend::Neon | Backend::NeonAes => aarch64::gf16::mul_add_gather_neon(
-                        crate::kernel::neon_token(),
-                        dst,
-                        coeffs,
-                        srcs,
-                    ),
-                    #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                    Backend::Wasm128 => wasm32::gf16::mul_add_gather_simd128(
-                        crate::kernel::wasm128_token(),
                         dst,
                         coeffs,
                         srcs,
@@ -1280,24 +1001,6 @@ pub mod gf16 {
                     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
                     Backend::V2 => x86::gf16::mul_add_matrix_ssse3(
                         crate::kernel::x86_v2_token(),
-                        rows,
-                        row_len,
-                        nrows,
-                        terms,
-                    ),
-                    #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                    Backend::Neon | Backend::NeonAes => {
-                        aarch64::gf16::mul_add_matrix_neon(
-                            crate::kernel::neon_token(),
-                            rows,
-                            row_len,
-                            nrows,
-                            terms,
-                        );
-                    }
-                    #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                    Backend::Wasm128 => wasm32::gf16::mul_add_matrix_simd128(
-                        crate::kernel::wasm128_token(),
                         rows,
                         row_len,
                         nrows,
@@ -1409,25 +1112,9 @@ pub mod gf16 {
             if !rijndael16::<F>() {
                 return scalar::mul_elementwise::<F>(dst, a, b);
             }
-            #[cfg(all(
-                feature = "simd",
-                any(
-                    target_arch = "x86",
-                    target_arch = "x86_64",
-                    target_arch = "aarch64",
-                    target_arch = "wasm32"
-                )
-            ))]
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             let b_raw = RIJNDAEL16_B;
-            #[cfg(all(
-                feature = "simd",
-                any(
-                    target_arch = "x86",
-                    target_arch = "x86_64",
-                    target_arch = "aarch64",
-                    target_arch = "wasm32"
-                )
-            ))]
+            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
             let reduction = <Polynomial<AES> as ByteBanks>::REDUCTION_LOW;
             match backend() {
                 #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
@@ -1488,28 +1175,6 @@ pub mod gf16 {
                         a,
                         b,
                         &AES_BANK[RIJNDAEL16_B as usize],
-                        reduction,
-                    );
-                }
-                #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-                Backend::Neon | Backend::NeonAes => {
-                    aarch64::gf16::mul_elementwise_neon(
-                        crate::kernel::neon_token(),
-                        dst,
-                        a,
-                        b,
-                        b_raw,
-                        reduction,
-                    );
-                }
-                #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-                Backend::Wasm128 => {
-                    wasm32::gf16::mul_elementwise_simd128(
-                        crate::kernel::wasm128_token(),
-                        dst,
-                        a,
-                        b,
-                        b_raw,
                         reduction,
                     );
                 }

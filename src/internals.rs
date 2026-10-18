@@ -83,24 +83,8 @@ pub mod kernel {
         }
     }
 
-    /// Token-bearing AArch64 kernels.
-    #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-    pub mod aarch64 {
-        pub use crate::kernel::aarch64::*;
-    }
-
-    /// Token-bearing WebAssembly kernels.
-    #[cfg(all(feature = "simd", target_arch = "wasm32"))]
-    pub mod wasm32 {
-        pub use crate::kernel::wasm32::*;
-    }
-
     #[cfg(feature = "simd")]
     pub use archmage::SimdToken;
-    #[cfg(all(feature = "simd", target_arch = "wasm32", target_feature = "simd128"))]
-    pub use archmage::Wasm128Token;
-    #[cfg(all(feature = "simd", target_arch = "aarch64"))]
-    pub use archmage::{NeonAesToken, NeonToken};
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     pub use archmage::{
         X64V1Token, X64V2Token, X64V3GfniCryptoToken, X64V3Token, X64V4Token, X64V4xToken,

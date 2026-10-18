@@ -12,9 +12,10 @@
 //! - `scalar` — the portable fallback and tail implementation. Vector kernels
 //!   use it for sub-lane tails; tests compare the Fan–Paar family against the
 //!   independent Wiedemann recurrence and other families against this module.
-//! - `x86` / `aarch64` / `wasm32` — architecture-local intrinsics. Direct
-//!   entries take exact `archmage` capability tokens and validate geometry;
-//!   inner loops are `#[rite]` helpers inside the token-proven region.
+//! - `x86` — architecture-local intrinsics. Direct entries take exact
+//!   `archmage` capability tokens and validate geometry; inner loops are
+//!   `#[rite]` helpers inside the token-proven region. Other targets compile
+//!   and run the portable scalar bodies.
 //!
 //! Callers should use the safe, validated wrappers in [`crate::ops`] rather
 //! than this module directly.
@@ -37,22 +38,10 @@ pub(crate) mod residue;
 pub(crate) mod scalar;
 pub(crate) mod tables;
 
-#[cfg(all(feature = "simd", target_arch = "aarch64"))]
-pub(crate) mod aarch64;
-#[cfg(all(feature = "simd", target_arch = "wasm32"))]
-pub(crate) mod wasm32;
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 pub(crate) mod x86;
 
-#[cfg(all(
-    feature = "simd",
-    any(
-        target_arch = "x86",
-        target_arch = "x86_64",
-        target_arch = "aarch64",
-        target_arch = "wasm32"
-    )
-))]
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 pub(crate) mod matrix_provider;
 pub(crate) use bytes::{xor, xor_gather};
 // Used by the simd512-gated blocked kernels and by tests (`just lint`
@@ -61,15 +50,7 @@ pub(crate) use bytes::{xor, xor_gather};
 #[allow(unused_imports)]
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 pub(crate) use matrix_provider::FlatMatrix;
-#[cfg(all(
-    feature = "simd",
-    any(
-        target_arch = "x86",
-        target_arch = "x86_64",
-        target_arch = "aarch64",
-        target_arch = "wasm32"
-    )
-))]
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 pub(crate) use matrix_provider::Matrix;
 
 #[cfg(test)]
@@ -79,15 +60,7 @@ use crate::field::{FieldBuffer, PrimeIdentity, Residue};
 
 // Only the SIMD-enabled resolve path consults the environment; under a
 // std-less build `backend()` reports `Scalar` without touching `Selection`.
-#[cfg(all(
-    feature = "simd",
-    any(
-        target_arch = "x86",
-        target_arch = "x86_64",
-        target_arch = "aarch64",
-        target_arch = "wasm32"
-    )
-))]
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 use archmage::SimdToken;
 #[cfg(feature = "simd")]
 use simdispatch::Selection;
@@ -129,9 +102,6 @@ pub const FGF_TIERS: &[Backend] = &[
     Backend::V3GfniCrypto,
     Backend::V3,
     Backend::V2,
-    Backend::NeonAes,
-    Backend::Neon,
-    Backend::Wasm128,
     Backend::Scalar,
 ];
 /// The tiers FGF implements kernels for, with the 64-byte AVX-512 byte-field,
@@ -143,9 +113,6 @@ pub const FGF_TIERS: &[Backend] = &[
     Backend::V3GfniCrypto,
     Backend::V3,
     Backend::V2,
-    Backend::NeonAes,
-    Backend::Neon,
-    Backend::Wasm128,
     Backend::Scalar,
 ];
 
@@ -172,10 +139,7 @@ impl KernelBackend for Backend {
 
     #[inline]
     fn has_blocked_rows(self) -> bool {
-        matches!(
-            self,
-            Backend::V4x | Backend::V3GfniCrypto | Backend::Neon | Backend::NeonAes
-        )
+        matches!(self, Backend::V4x | Backend::V3GfniCrypto)
     }
 }
 
@@ -185,7 +149,7 @@ impl KernelBackend for Backend {
 /// kernels for, or [`Backend::Scalar`] when SIMD is compiled out — then
 /// adjusted by the downgrade-only `SIMD_BACKEND` override. May be downgraded
 /// at startup via `SIMD_BACKEND` (`v4x`, `v3_gfni_crypto`, `v3`, `v2`,
-/// `neon_aes`, `neon`, `wasm128`, `scalar`); requests for a backend the host
+/// `scalar`); requests for a backend the host
 /// cannot run are ignored. `v4x` resolves only with the `simd512` feature on
 /// an AVX-512+GFNI host; `SIMD_BACKEND=v4` is not a selected tier and behaves
 /// like any unsupported request. Detection itself is `simdispatch`'s
@@ -215,10 +179,6 @@ struct ResolvedBackend {
     backend: Backend,
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     x86: X86Proof,
-    #[cfg(target_arch = "aarch64")]
-    neon: NeonProof,
-    #[cfg(target_arch = "wasm32")]
-    wasm128: Option<archmage::Wasm128Token>,
 }
 
 #[cfg(feature = "simd")]
@@ -246,34 +206,10 @@ impl ResolvedBackend {
             ),
             _ => X86Proof::Scalar,
         };
-        #[cfg(target_arch = "aarch64")]
-        let neon = match backend {
-            Backend::NeonAes => NeonProof::NeonAes(
-                archmage::NeonAesToken::summon()
-                    .expect("selected NEON-AES backend must have its capability token"),
-            ),
-            Backend::Neon => NeonProof::Neon(
-                archmage::NeonToken::summon()
-                    .expect("selected NEON backend must have its capability token"),
-            ),
-            _ => NeonProof::Scalar,
-        };
-        #[cfg(target_arch = "wasm32")]
-        let wasm128 = match backend {
-            Backend::Wasm128 => Some(
-                archmage::Wasm128Token::summon()
-                    .expect("selected wasm128 backend must have its capability token"),
-            ),
-            _ => None,
-        };
         Self {
             backend,
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             x86,
-            #[cfg(target_arch = "aarch64")]
-            neon,
-            #[cfg(target_arch = "wasm32")]
-            wasm128,
         }
     }
 }
@@ -349,53 +285,15 @@ pub(crate) fn x86_v2_token() -> archmage::X64V2Token {
     }
 }
 
-#[cfg(all(feature = "simd", target_arch = "aarch64"))]
-#[derive(Clone, Copy)]
-pub(crate) enum NeonProof {
-    Neon(archmage::NeonToken),
-    NeonAes(archmage::NeonAesToken),
-    Scalar,
-}
-
-#[cfg(all(feature = "simd", target_arch = "aarch64"))]
-#[inline]
-pub(crate) fn neon_proof() -> NeonProof {
-    BACKEND.neon
-}
-
-#[cfg(all(feature = "simd", target_arch = "aarch64"))]
-#[inline]
-pub(crate) fn neon_token() -> archmage::NeonToken {
-    match neon_proof() {
-        NeonProof::NeonAes(token) => token.neon(),
-        NeonProof::Neon(token) => token,
-        NeonProof::Scalar => unreachable!("NEON kernel reached without a selected NEON proof"),
-    }
-}
-
-#[cfg(all(feature = "simd", target_arch = "aarch64"))]
-#[inline]
-pub(crate) fn neon_aes_token() -> archmage::NeonAesToken {
-    match neon_proof() {
-        NeonProof::NeonAes(token) => token,
-        _ => unreachable!("PMULL kernel reached without a selected NEON-AES proof"),
-    }
-}
-
-#[cfg(all(feature = "simd", target_arch = "wasm32"))]
-#[inline]
-pub(crate) fn wasm128_token() -> archmage::Wasm128Token {
-    BACKEND
-        .wasm128
-        .expect("Wasm kernel reached without a selected simd128 proof")
-}
-
 /// The backend used for a particular field's bulk operations.
 ///
 /// Presentations without a kernel strategy on the selected tier report
 /// [`Backend::Scalar`] and run the typed scalar fallback: ordered-basis byte
 /// fields, degree-eight towers, custom tower specs, and pinned towers on a
-/// tier their kernels do not serve.
+/// tier their kernels do not serve. SIMD kernels are x86-64 only, so on
+/// `AArch64` and `Wasm32` every field reports [`Backend::Scalar`] and runs the
+/// portable scalar bodies (`backend()` itself still reports `simdispatch`'s
+/// process selection).
 #[inline]
 #[must_use]
 pub fn backend_for<F: FieldKernels>() -> Backend {
@@ -952,19 +850,9 @@ pub(crate) struct RawDispatch;
 
 /// Shared runtime geometry validation for direct architecture kernel entries.
 ///
-/// Direct x86 entries own their validation; the `AArch64` and Wasm entries use
-/// these same helpers to apply the public geometry contract before entering
-/// their kernels.
-// Compiled wherever an architecture kernel entry can use it.
-#[cfg(all(
-    feature = "simd",
-    any(
-        target_arch = "x86",
-        target_arch = "x86_64",
-        target_arch = "aarch64",
-        target_arch = "wasm32"
-    )
-))]
+/// Direct x86 entries own their validation through these helpers, which apply
+/// the public geometry contract before entering the kernels.
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 pub(crate) mod proven_checks {
     /// Paired length equality.
     #[inline]
@@ -991,30 +879,8 @@ pub(crate) mod proven_checks {
         );
     }
 
-    /// A flat row buffer must hold at least `count` rows of `row_len` bytes.
-    #[cfg(any(target_arch = "aarch64", target_arch = "wasm32"))]
-    #[inline]
-    pub(crate) fn check_row_span(name: &str, buffer_len: usize, row_len: usize, count: usize) {
-        let used = count
-            .checked_mul(row_len)
-            .unwrap_or_else(|| panic!("{name}: row geometry overflows"));
-        assert!(
-            buffer_len >= used,
-            "{name}: rows is {buffer_len} bytes but {count} rows of {row_len} bytes need {used}"
-        );
-    }
-
     /// Flat term geometry shared by the matrix entries: every term supplies
     /// `nrows` coefficients and a `row_len`-byte source.
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
     #[inline]
     pub(crate) fn check_terms<E>(
         name: &str,

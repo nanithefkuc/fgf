@@ -193,10 +193,9 @@ pub fn mul_assign_with<F: FieldKernels>(dst: &mut [u8], coeff: &impl PreparedCoe
 /// Elementwise product: `dst[i] = a[i] * b[i]`.
 ///
 /// Both operands vary per lane, so there is no coefficient to broadcast and
-/// no nibble table to index. GFNI multiplies the vectors directly; `AArch64`
-/// uses PMULL when available and a lane-parallel shift/reduce sequence
-/// otherwise; Wasm `simd128` uses the same shift/reduce construction.
-/// Shuffle-only x86 backends fall back to the scalar reference path.
+/// no nibble table to index. GFNI multiplies the vectors directly; the AVX-512
+/// and AVX2 backends use a lane-parallel shift/reduce sequence. Shuffle-only
+/// x86 backends and non-x86 targets fall back to the scalar reference path.
 ///
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.
