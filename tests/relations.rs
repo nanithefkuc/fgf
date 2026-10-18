@@ -530,8 +530,10 @@ fn trace_and_norm_match_independent_conjugates() {
         assert_eq!(e.trace(t), expected_sum);
         assert_eq!(e.norm(t), expected_product);
     }
-    // QuadMersenne31 norm over Mersenne31 equals the inherent method, as
-    // does the conjugate against the relative Frobenius.
+    // QuadMersenne31 conjugate/norm over Mersenne31 equal the inherent
+    // `const` methods, as does the conjugate against the relative
+    // Frobenius. The routed trace has no inherent spelling: only the
+    // embedding map names it.
     let qm = Embedding::<Mersenne31, QuadMersenne31>::new().unwrap();
     for (re, im) in [(0u32, 0u32), (1, 0), (0, 1), (3, 4), (7, 11)] {
         let z = Elem::<QuadMersenne31>::from_raw([re, im]);

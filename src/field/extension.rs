@@ -5,7 +5,7 @@
 //! [`ExtensionSpec`] is open and data-only: a base row, a storage
 //! selection, a name, and the relation. The defining relation is
 //! validated in const at first value use — the field metadata first
-//! (prime characteristic, total degree cap, cardinality bound), then
+//! (prime characteristic, binary degree cap, cardinality bound), then
 //! the base's validity, the characteristic agreement, the degree
 //! identity, the relation's length and coordinate range, storage
 //! admissibility, the descriptor capacity, and finally the
@@ -179,6 +179,11 @@ impl<S: ExtensionSpec<D>, const D: usize> core::fmt::Debug for Extension<S, D> {
 /// Component `i` is the coefficient of `t^i` over the row's base. The
 /// conversions are exact inverses over canonical elements and canonicalize
 /// every component on the way in.
+///
+/// At relative degree two the closed-form conjugate, trace, and norm of
+/// the row's defining relation back the corresponding
+/// [`Embedding`](super::embedding::Embedding) map of the base-into-row
+/// embedding; see its `frobenius`, `trace`, and `norm` methods.
 pub trait ExtensionField<const D: usize>: Field + private::Sealed {
     /// The base row this field extends.
     type Base: Field;

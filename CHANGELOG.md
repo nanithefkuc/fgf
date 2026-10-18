@@ -125,6 +125,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Removed
 
+- The `QuadraticExtension` public trait from the quadratic-conveniences
+  proposal: no new public API ships. Degree-2 `Embedding` maps route
+  internally through the Vieta closed forms with no public spelling
+  change; `QuadMersenne31` keeps its inherent `const` conjugate/norm and
+  drops the proposed inherent `trace` (use the embedding trace map).
+
 - NEON and `simd128` acceleration: the `aarch64` and `wasm32` kernel
   subtrees and their dispatch arms are gone, and `internals` no longer
   exposes `kernel::{aarch64, wasm32}` or the `Neon`/`NeonAes`/`Wasm128`
