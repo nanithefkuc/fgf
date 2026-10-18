@@ -75,6 +75,37 @@ pub fn sub_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
     F::sub_assign(RawDispatch, dst, src);
 }
 
+/// Subtract pairwise rows: `dst_row[j] -= src_row[j]` for every row.
+///
+/// The row-geometry counterpart of [`sub_assign`], mirroring
+/// [`add_assign_rows`]: both buffers hold the same number of contiguous
+/// `row_len`-byte rows. In characteristic two subtraction is addition, so
+/// this coincides with [`add_assign_rows`] there; in the prime fields it
+/// subtracts with a canonicalizing fold per lane.
+///
+/// # Panics
+/// Panics if `row_len == 0`, if `row_len` is not a whole number of field
+/// elements, if the buffers differ in length, or if their length is not a
+/// whole number of rows.
+#[inline]
+pub fn sub_assign_rows<F: FieldKernels>(dst: &mut [u8], row_len: usize, src: &[u8]) {
+    assert_ne!(row_len, 0, "sub_assign_rows: row length must be nonzero");
+    check_width::<F>("sub_assign_rows", row_len);
+    assert_eq!(
+        dst.len(),
+        src.len(),
+        "sub_assign_rows: dst is {} bytes but src is {} bytes",
+        dst.len(),
+        src.len(),
+    );
+    assert_eq!(
+        dst.len() % row_len,
+        0,
+        "sub_assign_rows: partial trailing row",
+    );
+    F::sub_assign_rows(RawDispatch, dst, src, row_len);
+}
+
 /// `dst += coeff * src`.
 ///
 /// # Panics

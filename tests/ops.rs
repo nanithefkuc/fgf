@@ -325,6 +325,137 @@ fn gf16_scatter_matches_repeated_mul_add() {
     }
 }
 
+/// Independent overwrite-scatter oracle: per-row `coeff * src` through the
+/// field-value API. Deliberately never touches `mul_into` or
+/// `mul_into_scatter`.
+fn oracle_mul_into_scatter<F: FieldBuffer>(
+    rows: &mut [u8],
+    row_len: usize,
+    coeffs: &[Elem<F>],
+    src: &[u8],
+) {
+    for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
+        for (d, s) in row
+            .chunks_exact_mut(F::BYTES)
+            .zip(src.chunks_exact(F::BYTES))
+        {
+            F::encode(d, F::decode(s).mul(coeff));
+        }
+    }
+}
+
+fn check_mul_into_scatter_gf8<const POLY: u128>() {
+    for row_len in [1usize, 15, 16, 31, 32, 33, 64, 129, 512] {
+        for nrows in [1usize, 2, 3, 4, 5, 7, 8, 9] {
+            let src = noise(row_len, 0x661);
+            let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<POLY>>>> = (0..nrows)
+                .map(|j| {
+                    Elem::<FiniteField<2, 8, Polynomial<POLY>>>::from_raw(
+                        (j as u8).wrapping_mul(37).wrapping_add(1),
+                    )
+                })
+                .collect();
+            let mut got = noise(row_len * nrows, 0x771);
+            let mut want = got.clone();
+            ops::mul_into_scatter::<FiniteField<2, 8, Polynomial<POLY>>>(
+                &mut got, row_len, &coeffs, &src,
+            );
+            oracle_mul_into_scatter::<FiniteField<2, 8, Polynomial<POLY>>>(
+                &mut want, row_len, &coeffs, &src,
+            );
+            assert_eq!(got, want, "row_len {row_len}, nrows {nrows}");
+        }
+    }
+}
+
+#[test]
+fn gf8_mul_into_scatter_matches_oracle() {
+    every_gf8_field!(check_mul_into_scatter_gf8);
+}
+
+#[test]
+fn gf16_mul_into_scatter_matches_oracle() {
+    for row_len in [2usize, 16, 30, 32, 34, 64, 130, 512] {
+        for nrows in [1usize, 2, 3, 4, 5, 7, 8, 9] {
+            let src = noise(row_len, 0x881);
+            let coeffs: Vec<Elem<Gf16>> = (0..nrows)
+                .map(|j| Elem::<Gf16>::from_raw((j as u16).wrapping_mul(9871).wrapping_add(1)))
+                .collect();
+            let mut got = noise(row_len * nrows, 0x991);
+            let mut want = got.clone();
+            ops::mul_into_scatter::<Gf16>(&mut got, row_len, &coeffs, &src);
+            oracle_mul_into_scatter::<Gf16>(&mut want, row_len, &coeffs, &src);
+            assert_eq!(got, want, "row_len {row_len}, nrows {nrows}");
+        }
+    }
+}
+
+/// Mersenne31 overwrite scatter against the same oracle: canonical lanes out.
+#[test]
+fn mersenne31_mul_into_scatter_matches_oracle() {
+    for row_len in [4usize, 32, 64, 128] {
+        for nrows in [1usize, 2, 3, 5, 8] {
+            let src = noise(row_len, 0x8a81);
+            let coeffs: Vec<Elem<Mersenne31>> = (0..nrows)
+                .map(|j| {
+                    Elem::<Mersenne31>::from_raw((j as u32).wrapping_mul(7919).wrapping_add(3))
+                })
+                .collect();
+            let mut got = noise(row_len * nrows, 0x8a82);
+            let mut want = got.clone();
+            ops::mul_into_scatter::<Mersenne31>(&mut got, row_len, &coeffs, &src);
+            oracle_mul_into_scatter::<Mersenne31>(&mut want, row_len, &coeffs, &src);
+            assert_eq!(got, want, "row_len {row_len}, nrows {nrows}");
+        }
+    }
+}
+
+/// Overwrite ignores prior contents: seeding with `0xa5` still yields the
+/// oracle bytes, and zero/unit coefficients take the fill/copy path.
+#[test]
+fn mul_into_scatter_overwrites_and_handles_zero_one() {
+    type F = FiniteField<2, 8, Polynomial<AES>>;
+    let row_len = 32;
+    let src = noise(row_len, 0x1234);
+    let coeffs = [Elem::<F>::ZERO, Elem::<F>::ONE, Elem::<F>::from_raw(0x53)];
+    let mut got = vec![0xa5u8; row_len * coeffs.len()];
+    let mut want = vec![0xa5u8; row_len * coeffs.len()];
+    ops::mul_into_scatter::<F>(&mut got, row_len, &coeffs, &src);
+    oracle_mul_into_scatter::<F>(&mut want, row_len, &coeffs, &src);
+    assert_eq!(got, want);
+    assert_eq!(&got[..row_len], &vec![0u8; row_len]);
+    assert_eq!(&got[row_len..2 * row_len], &src);
+}
+
+/// A zero-length row with a zero-length source is a no-op; the structural
+/// checks still apply.
+#[test]
+fn mul_into_scatter_accepts_empty_inputs() {
+    type F = FiniteField<2, 8, Polynomial<AES>>;
+    let coeffs = [Elem::<F>::from_raw(0x53); 3];
+    let mut rows = [0xa5u8; 8];
+    ops::mul_into_scatter::<F>(&mut rows, 0, &coeffs, &[]);
+    assert_eq!(rows, [0xa5; 8]);
+    let mut empty: [u8; 0] = [];
+    ops::mul_into_scatter::<F>(&mut empty, 8, &[], &[0u8; 8]);
+}
+
+#[test]
+#[should_panic(expected = "rows is 30 bytes")]
+fn mul_into_scatter_rejects_wrong_row_count() {
+    let mut rows = [0u8; 30];
+    let coeffs = [Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(1); 4];
+    ops::mul_into_scatter::<FiniteField<2, 8, Polynomial<AES>>>(&mut rows, 8, &coeffs, &[0u8; 8]);
+}
+
+#[test]
+#[should_panic(expected = "row_len is 7 bytes but src is 8 bytes")]
+fn mul_into_scatter_rejects_source_length_mismatch() {
+    let mut rows = [0u8; 16];
+    let coeffs = [Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(1); 2];
+    ops::mul_into_scatter::<FiniteField<2, 8, Polynomial<AES>>>(&mut rows, 7, &coeffs, &[0u8; 8]);
+}
+
 // Term geometry nests the unified element spelling; the slices stay slices.
 #[allow(clippy::type_complexity)]
 fn gf8_matrix_matches_repeated_scatter_for<const POLY: u128>() {
@@ -1533,6 +1664,47 @@ fn packed_element_helpers_round_trip() {
     let mut repacked = [0u8; 8];
     ops::pack::<Gf16>(&mut repacked, &decoded);
     assert_eq!(repacked.as_slice(), bytes);
+}
+
+#[test]
+#[cfg(feature = "alloc")]
+fn unpack_to_vec_round_trips_pack_to_vec() {
+    let elems = [
+        Elem::<Gf16>::ZERO,
+        Elem::<Gf16>::ONE,
+        Elem::<Gf16>::from_raw(0x0108),
+        Elem::<Gf16>::from_raw(0xffff),
+    ];
+    let bytes = ops::pack_to_vec::<Gf16>(&elems);
+    let decoded = ops::unpack_to_vec::<Gf16>(&bytes);
+    assert_eq!(decoded, elems);
+    // Empty input decodes to an empty vector, not an error.
+    let empty: Vec<Elem<Gf16>> = ops::unpack_to_vec::<Gf16>(&[]);
+    assert!(empty.is_empty());
+}
+
+#[test]
+#[cfg(feature = "alloc")]
+fn unpack_to_vec_matches_unpack_on_every_field() {
+    fn check<F: FieldKernels>(seed: u64) {
+        for &elems in &[0usize, 1, 7, 64] {
+            let bytes = noise(elems * F::BYTES, seed ^ elems as u64);
+            let mut want = vec![Elem::<F>::ZERO; elems];
+            ops::unpack::<F>(&mut want, &bytes);
+            let got = ops::unpack_to_vec::<F>(&bytes);
+            assert_eq!(got, want, "{}: {elems} elements", F::NAME);
+        }
+    }
+    check::<FiniteField<2, 8, Polynomial<AES>>>(0x7701);
+    check::<Gf16>(0x7702);
+    check::<Mersenne31>(0x7703);
+}
+
+#[test]
+#[cfg(feature = "alloc")]
+#[should_panic(expected = "unpack_to_vec:")]
+fn unpack_to_vec_rejects_partial_trailing_element() {
+    let _ = ops::unpack_to_vec::<Gf16>(&[0u8; 3]);
 }
 
 fn elementwise_products_match_field_arithmetic_for_gf8<const POLY: u128>() {
@@ -3704,6 +3876,131 @@ fn add_assign_rows_accepts_empty_buffers() {
     ops::add_assign_rows::<Gf16>(&mut dst, 2, &src);
 }
 
+// ---------------------------------------------------------------------------
+// sub_assign_rows
+// ---------------------------------------------------------------------------
+
+/// Independent row-wise subtraction oracle: decode every element, subtract
+/// through the field-value API, and encode again. Deliberately never touches
+/// `sub_assign` or `sub_assign_rows`.
+fn oracle_sub_assign_rows<F: FieldBuffer>(dst: &mut [u8], row_len: usize, src: &[u8]) {
+    for (d, s) in dst.chunks_exact_mut(row_len).zip(src.chunks_exact(row_len)) {
+        for (de, se) in d.chunks_exact_mut(F::BYTES).zip(s.chunks_exact(F::BYTES)) {
+            let value = F::decode(de).sub(F::decode(se));
+            F::encode(de, value);
+        }
+    }
+}
+
+fn check_sub_assign_rows<F: FieldKernels>(seed: u64) {
+    for &elems in &ROW_LEN_ELEMS {
+        let row_len = elems * F::BYTES;
+        for &rows in &ROW_COUNTS {
+            let len = rows * row_len;
+            let src = noise(len, seed ^ row_len as u64);
+            let mut got = noise(len, seed.wrapping_add(0x515) ^ rows as u64);
+            let mut want = got.clone();
+            ops::sub_assign_rows::<F>(&mut got, row_len, &src);
+            oracle_sub_assign_rows::<F>(&mut want, row_len, &src);
+            assert_eq!(
+                got,
+                want,
+                "{}: row_len {row_len} ({elems} elements), rows {rows}",
+                F::NAME,
+            );
+        }
+    }
+}
+
+#[test]
+fn gf8_sub_assign_rows_matches_oracle() {
+    check_sub_assign_rows::<FiniteField<2, 8, Polynomial<AES>>>(0x1101);
+}
+
+#[test]
+fn gf16_sub_assign_rows_matches_oracle() {
+    check_sub_assign_rows::<Gf16>(0x2202);
+}
+
+/// In characteristic two subtraction is addition: both row forms coincide.
+#[test]
+fn sub_assign_rows_matches_add_assign_rows_in_characteristic_two() {
+    for &elems in &[1usize, 9, 33] {
+        let row_len = elems;
+        let len = 5 * row_len;
+        let src = noise(len, 0x5a5a);
+        let dst = noise(len, 0xa5a5);
+        let mut sub = dst.clone();
+        let mut add = dst.clone();
+        ops::sub_assign_rows::<FiniteField<2, 8, Polynomial<AES>>>(&mut sub, row_len, &src);
+        ops::add_assign_rows::<FiniteField<2, 8, Polynomial<AES>>>(&mut add, row_len, &src);
+        assert_eq!(sub, add, "row_len {row_len}");
+    }
+}
+
+/// The prime fields subtract with a canonicalizing fold per lane.
+#[test]
+fn mersenne31_sub_assign_rows_matches_oracle() {
+    check_sub_assign_rows::<Mersenne31>(0x5505);
+}
+
+#[test]
+fn sub_assign_rows_add_assign_rows_round_trip_restores() {
+    for &elems in &[1usize, 9, 33] {
+        let row_len = elems * Mersenne31::BYTES;
+        let len = 4 * row_len;
+        // Kernel arithmetic is contracted over canonical lanes; canonicalize
+        // the noise first so the sub-then-add round trip is exact.
+        let mut src = noise(len, 0x7171);
+        canon::<Mersenne31>(&mut src);
+        let mut dst0 = noise(len, 0x8181);
+        canon::<Mersenne31>(&mut dst0);
+        let mut buffer = dst0.clone();
+        ops::sub_assign_rows::<Mersenne31>(&mut buffer, row_len, &src);
+        ops::add_assign_rows::<Mersenne31>(&mut buffer, row_len, &src);
+        assert_eq!(buffer, dst0, "row_len {row_len}");
+    }
+}
+
+#[test]
+#[should_panic(expected = "sub_assign_rows: row length must be nonzero")]
+fn sub_assign_rows_rejects_zero_row_length() {
+    let mut dst = [0u8; 8];
+    let src = [0u8; 8];
+    ops::sub_assign_rows::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, 0, &src);
+}
+
+#[test]
+#[should_panic(expected = "sub_assign_rows: buffer of 3 bytes is not a whole number")]
+fn sub_assign_rows_rejects_row_length_with_partial_element() {
+    let mut dst = [0u8; 6];
+    let src = [0u8; 6];
+    ops::sub_assign_rows::<Gf16>(&mut dst, 3, &src);
+}
+
+#[test]
+#[should_panic(expected = "sub_assign_rows: dst is 6 bytes but src is 4 bytes")]
+fn sub_assign_rows_rejects_mismatched_buffers() {
+    let mut dst = [0u8; 6];
+    let src = [0u8; 4];
+    ops::sub_assign_rows::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, 2, &src);
+}
+
+#[test]
+#[should_panic(expected = "sub_assign_rows: partial trailing row")]
+fn sub_assign_rows_rejects_partial_trailing_row() {
+    let mut dst = [0u8; 10];
+    let src = [0u8; 10];
+    ops::sub_assign_rows::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, 4, &src);
+}
+
+#[test]
+fn sub_assign_rows_accepts_empty_buffers() {
+    let mut dst: [u8; 0] = [];
+    let src: [u8; 0] = [];
+    ops::sub_assign_rows::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, 16, &src);
+    ops::sub_assign_rows::<Mersenne31>(&mut dst, 4, &src);
+}
 // ---------------------------------------------------------------------------
 // add_gather_offsets
 // ---------------------------------------------------------------------------

@@ -49,6 +49,7 @@ mod frobenius;
 mod ladder;
 #[cfg(feature = "alloc")]
 mod prepared;
+pub(crate) mod quadratic;
 #[cfg(feature = "alloc")]
 pub use frobenius::Frobenius;
 #[cfg(feature = "alloc")]
@@ -874,6 +875,36 @@ fn structural_images<T: Field>(
     Some((images, source_count))
 }
 
+/// Whether stored images are the structural lift of their source
+/// generators: every entry equals the structural image at its level.
+/// Decided once at construction and cached on the map, so the routed
+/// arms read one bit alongside the compile-time shape.
+fn is_structural_images<S: Field, T: Field>(
+    source_descriptor: &Descriptor,
+    source_levels: &[Level; 8],
+    source_count: usize,
+    stored: &[Elem<T>; 8],
+) -> bool {
+    let Some((expected, _)) = structural_images::<T>(
+        source_descriptor,
+        source_levels,
+        source_count,
+        S::DEGREE as usize,
+        T::DESCRIPTOR,
+        T::DEGREE as usize,
+    ) else {
+        return false;
+    };
+    let mut l = 0;
+    while l < source_count {
+        if stored[l] != expected[l] {
+            return false;
+        }
+        l += 1;
+    }
+    true
+}
+
 /// Lift flattened coordinates one tower level outward: constant-component
 /// padding through an extension level, the inverse basis map through a
 /// basis leaf.
@@ -923,9 +954,19 @@ fn lift_coordinates(descriptor: &Descriptor, at: u8, coords: &mut [u64; 128], le
 ///
 /// The prepared state is fixed arrays; construction and every method are
 /// allocation-free. Repeated application never reruns image construction.
+///
+/// The cached structural bit is not observable: `Clone`/`Copy` preserve
+/// it, `Debug` prints only the row names, and no constructor is `const`,
+/// so the bit never constrains the public surface.
 pub struct Embedding<S: Field, T: Field<Characteristic = S::Characteristic>> {
     images: [Elem<T>; 8],
     count: u8,
+    /// Whether this map is the structural base-into-row inclusion, decided
+    /// once at construction: every stored image equals the structural lift
+    /// of its source generator. The degree-2 closed-form arms read this
+    /// bit alongside the compile-time shape, so routed
+    /// calls run no descriptor walk and no exponentiation.
+    structural: bool,
     phantom: PhantomData<fn() -> (S, T)>,
 }
 
@@ -1095,6 +1136,12 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
             images: stored,
             // Levels are capped at eight per presentation.
             count: u8::try_from(source_count).expect("a level count fits its byte"),
+            structural: is_structural_images::<S, T>(
+                source_descriptor,
+                &source_levels,
+                source_count,
+                &stored,
+            ),
             phantom: PhantomData,
         })
     }
@@ -1114,10 +1161,12 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
             relations_hold(descriptor, levels, level_count, &images),
             "a constructed image fails its transported relation"
         );
+        let structural = is_structural_images::<S, T>(descriptor, levels, level_count, &images);
         Self {
             images,
             // Levels are capped at eight per presentation.
             count: u8::try_from(count).expect("a level count fits its byte"),
+            structural,
             phantom: PhantomData,
         }
     }
@@ -1168,9 +1217,17 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
             images[l] = compose::Postcompose::postcompose(next, self.images[l]);
             l += 1;
         }
+        let (source_levels_then, source_count_then) = levels(S::DESCRIPTOR);
+        let structural = is_structural_images::<S, U>(
+            S::DESCRIPTOR,
+            &source_levels_then,
+            source_count_then,
+            &images,
+        );
         Embedding {
             images,
             count: self.count,
+            structural,
             phantom: PhantomData,
         }
     }
@@ -1200,10 +1257,104 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
         )
     }
 
+    /// The closed-form shape of the target row's own quadratic relation
+    /// over exactly this source, when one applies: `Some` at relative
+    /// degree two where the target root carries the relation directly
+    /// over the source row, `None` elsewhere. An associated const, so
+    /// each monomorphization resolves its arm at compile time and the
+    /// dead arm is eliminated: no per-call cost.
+    ///
+    /// The gate is per operation below: `QUAD_FROBENIUS`, `QUAD_TRACE`,
+    /// `QUAD_NORM`, `QUAD_CONTAINS`, and `QUAD_RESTRICT` each default to
+    /// the shape and each can exclude a pair the campaign rejects, so a
+    /// losing op keeps exponentiation while the winning ops on the same
+    /// pair stay routed. Measurement (two hosts, interleaved pinned
+    /// five-round same-session campaigns, median of per-run medians)
+    /// excludes the tiny GF(4)-shaped `res2-res2q` row from the
+    /// `frobenius`, `contains`, and `restrict` arms: a single square
+    /// already, the Vieta coordinate round-trip costs more than the
+    /// power there, while its `trace` and `norm` stay routed (roughly
+    /// five to eight times faster).
+    const QUAD: Option<(u8, quadratic::ConjugationCoefficient)> = {
+        match quadratic::conjugation_shape::<T>() {
+            Some(shape) => {
+                if T::DEGREE == 2 * S::DEGREE && quadratic::routes::<S, T>() {
+                    Some(shape)
+                } else {
+                    None
+                }
+            }
+            None => None,
+        }
+    };
+
+    /// Whether the relative-Frobenius arm routes through the closed form
+    /// on this pair. `false` on the tiny GF(4)-shaped row described on
+    /// [`QUAD`](Self::QUAD): the power there is a single square and the
+    /// coordinate round-trip costs more.
+    const QUAD_FROBENIUS: bool = {
+        match Self::QUAD {
+            Some(_) => !quadratic::is_tiny_gf4::<S, T>(),
+            None => false,
+        }
+    };
+
+    /// Whether the membership-test arm routes through the closed form on
+    /// this pair. Excluded on the same tiny row as
+    /// [`QUAD_FROBENIUS`](Self::QUAD_FROBENIUS): the test is one
+    /// Frobenius there, so the power spelling wins.
+    const QUAD_CONTAINS: bool = {
+        match Self::QUAD {
+            Some(_) => !quadratic::is_tiny_gf4::<S, T>(),
+            None => false,
+        }
+    };
+
+    /// Whether the membership pre-check inside [`restrict`](Self::restrict)
+    /// routes through the closed form on this pair. Excluded on the same
+    /// tiny row as [`QUAD_FROBENIUS`](Self::QUAD_FROBENIUS).
+    const QUAD_RESTRICT: bool = {
+        match Self::QUAD {
+            Some(_) => !quadratic::is_tiny_gf4::<S, T>(),
+            None => false,
+        }
+    };
+
+    /// Whether the trace arm routes through the closed form on this pair.
+    /// Every measured degree-2 row routes, including the tiny one.
+    const QUAD_TRACE: bool = Self::QUAD.is_some();
+
+    /// Whether the norm arm routes through the closed form on this pair.
+    /// Every measured degree-2 row routes, including the tiny one.
+    const QUAD_NORM: bool = Self::QUAD.is_some();
+
+    /// Whether this map is the structural base-into-row inclusion,
+    /// decided once at construction and cached on the map. The closed
+    /// form reads the target row's own relation, so it applies only here;
+    /// caller-supplied images keep the pow spelling even where the
+    /// shape resolves.
+    #[inline]
+    fn is_structural(&self) -> bool {
+        self.structural
+    }
+
     /// Whether `value` lies in the image of this embedding: the fixed
     /// field of the relative Frobenius.
+    ///
+    /// At relative degree two where the target row carries its own
+    /// quadratic relation over exactly this source, the fixed-point test
+    /// runs through the closed-form conjugation `(a - c1*b) - b*t` of
+    /// `x = a + b*t` under `t^2 + c1*t + c0`, which equals `x^|S|`;
+    /// every other pair keeps the power test. The arm resolves at compile
+    /// time through the degree-2 shape, with no per-call cost.
     #[must_use]
     pub fn contains(&self, value: Elem<T>) -> bool {
+        if Self::QUAD_CONTAINS
+            && let Some((base_degree, coefficient)) = Self::QUAD
+            && self.is_structural()
+        {
+            return quadratic::apply_conjugation::<T>(value, base_degree, coefficient) == value;
+        }
         value.pow(S::ORDER) == value
     }
 
@@ -1211,9 +1362,31 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     ///
     /// Components recover level by level through the trace-dual basis,
     /// ending in the prime-subfield readout; a value outside the image
-    /// restricts to `None` without solving a linear system.
-    #[must_use]
+    /// restricts to `None` without solving a linear system. At relative
+    /// degree two where the target row carries its own quadratic relation
+    /// over exactly this source, the membership pre-check runs the
+    /// closed-form conjugation, and members then read their base
+    /// coordinate back directly (the base coordinate is a component of
+    /// the closed form): no coordinate walk, no embedding-image reads,
+    /// no power on that path. Nonmembers keep the transported-relation
+    /// walk. The closed form applies only to the structural
+    /// base-into-row inclusion (see the structural check);
+    /// caller-supplied images keep the transported-relation path.
     pub fn restrict(&self, value: Elem<T>) -> Option<Elem<S>> {
+        if Self::QUAD_RESTRICT
+            && let Some((base_degree, coefficient)) = Self::QUAD
+            && self.is_structural()
+        {
+            if quadratic::apply_conjugation::<T>(value, base_degree, coefficient) != value {
+                return None;
+            }
+            // Members lie in the image by the fixed-point test, so the
+            // base coordinate names the preimage directly: no level walk,
+            // no embedding-image reads, no power. Nonmembers keep the
+            // walk, which re-checks membership through the transported
+            // relations exactly as before.
+            return Some(quadratic::restrict_quad::<S, T>(value));
+        }
         let descriptor = S::DESCRIPTOR;
         let (source_levels, source_count) = levels(descriptor);
         let mut coords = [0u64; 128];
@@ -1235,16 +1408,37 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
 
     /// The relative Frobenius `x^|S|` of the extension.
     ///
-    /// This pow-based spelling is the reference behaviour the prepared
+    /// At relative degree two where the target row carries its own
+    /// quadratic relation over exactly this source, this runs the
+    /// closed-form Vieta conjugation `(a - c1*b) - b*t` for `x = a + b*t`
+    /// under `t^2 + c1*t + c0`, which equals the power `x^|S|`; every
+    /// other pair keeps exponentiation. The arm resolves at compile time
+    /// through the degree-2 shape, with no per-call cost, and applies only to
+    /// the structural inclusion (see the structural check).
+    ///
+    /// This pow spelling remains the reference behaviour the prepared
     /// maps must match: `Frobenius`, `PreparedEmbedding`, and
     /// `PreparedIsomorphism` agree with it element by element.
     #[must_use]
     pub fn frobenius(&self, value: Elem<T>) -> Elem<T> {
+        if Self::QUAD_FROBENIUS
+            && let Some((base_degree, coefficient)) = Self::QUAD
+            && self.is_structural()
+        {
+            return quadratic::apply_conjugation::<T>(value, base_degree, coefficient);
+        }
         value.pow(S::ORDER)
     }
 
     /// The relative trace: the sum of the conjugates under the relative
     /// Frobenius, restricted to the source.
+    ///
+    /// At relative degree two where the target row carries its own
+    /// quadratic relation over exactly this source, this runs the
+    /// closed-form `2*a - c1*b`, which equals the conjugate sum
+    /// `x + x^|S|` restricted to the source; every other degree keeps
+    /// the Frobenius-sum spelling. The arm resolves at compile time
+    /// through the degree-2 shape.
     ///
     /// `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies the absolute
     /// trace.
@@ -1255,6 +1449,12 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     /// constructed embedding image.
     #[must_use]
     pub fn trace(&self, value: Elem<T>) -> Elem<S> {
+        if Self::QUAD_TRACE
+            && let Some((base_degree, coefficient)) = Self::QUAD
+            && self.is_structural()
+        {
+            return quadratic::apply_trace::<S, T>(value, base_degree, coefficient);
+        }
         let mut sum = value;
         let mut power = value;
         let mut k = 1;
@@ -1270,6 +1470,13 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     /// The relative norm: the product of the conjugates under the relative
     /// Frobenius, restricted to the source.
     ///
+    /// At relative degree two where the target row carries its own
+    /// quadratic relation over exactly this source, this runs the
+    /// closed-form `a^2 - c1*a*b + c0*b^2`, which equals the conjugate
+    /// product `x * x^|S|` restricted to the source; every other degree
+    /// keeps the Frobenius-product spelling. The arm resolves at compile
+    /// time through the degree-2 shape.
+    ///
     /// `Embedding<FiniteField<2, 1, Polynomial<3>>, T>` supplies the absolute
     /// norm.
     ///
@@ -1279,6 +1486,12 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     /// constructed embedding image.
     #[must_use]
     pub fn norm(&self, value: Elem<T>) -> Elem<S> {
+        if Self::QUAD_NORM
+            && let Some((base_degree, coefficient)) = Self::QUAD
+            && self.is_structural()
+        {
+            return quadratic::apply_norm::<S, T>(value, base_degree, coefficient);
+        }
         let mut product = value;
         let mut power = value;
         let mut k = 1;
@@ -1608,9 +1821,17 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Isomorphism<S, T> {
             images[l] = next.embed(self.forward[l]);
             l += 1;
         }
+        let (source_levels_then, source_count_then) = levels(S::DESCRIPTOR);
+        let structural = is_structural_images::<S, U>(
+            S::DESCRIPTOR,
+            &source_levels_then,
+            source_count_then,
+            &images,
+        );
         Embedding {
             images,
             count: self.forward_count,
+            structural,
             phantom: PhantomData,
         }
     }

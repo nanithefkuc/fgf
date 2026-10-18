@@ -366,7 +366,9 @@ fn assert_prime_steady_state_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
     ops::sub_assign::<F>(&mut dst, &src);
     ops::mul_add_gather::<F>(&mut dst, &coeffs, &refs);
     ops::mul_elementwise::<F>(&mut ew, &src, &b);
-
+    let mut scatter_rows = noise(4 * len, 0x444);
+    ops::mul_add_scatter::<F>(&mut scatter_rows, len, &coeffs, &src);
+    ops::mul_into_scatter::<F>(&mut scatter_rows, len, &coeffs, &src);
     let allocations = count_allocations(|| {
         ops::mul_add::<F>(&mut dst, coeff, &src);
         ops::mul_assign::<F>(&mut dst, coeff);
@@ -374,6 +376,7 @@ fn assert_prime_steady_state_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
         ops::sub_assign::<F>(&mut dst, &src);
         ops::mul_add_gather::<F>(&mut dst, &coeffs, &refs);
         ops::mul_elementwise::<F>(&mut ew, &src, &b);
+        ops::mul_into_scatter::<F>(&mut scatter_rows, len, &coeffs, &src);
     });
     assert_eq!(allocations, 0, "prime steady-state op allocated");
 }
@@ -602,14 +605,18 @@ fn add_assign_rows_steady_state_allocates_nothing() {
     // Resolve backend selection and warm every code path before counting.
     ops::add_assign_rows::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, row_len, &src);
     ops::add_assign_rows::<Mersenne31>(&mut dst_p, row_len, &src_p);
+    ops::sub_assign_rows::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, row_len, &src);
+    ops::sub_assign_rows::<Mersenne31>(&mut dst_p, row_len, &src_p);
 
     let binary = count_allocations(|| {
         ops::add_assign_rows::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, row_len, &src);
+        ops::sub_assign_rows::<FiniteField<2, 8, Polynomial<AES>>>(&mut dst, row_len, &src);
     });
     assert_eq!(binary, 0, "row-interleaved binary add allocated");
 
     let prime = count_allocations(|| {
         ops::add_assign_rows::<Mersenne31>(&mut dst_p, row_len, &src_p);
+        ops::sub_assign_rows::<Mersenne31>(&mut dst_p, row_len, &src_p);
     });
     assert_eq!(prime, 0, "prime-field row add allocated");
 }
@@ -759,10 +766,12 @@ fn assert_extension_packed_surface_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
     ops::add_assign_rows::<F>(&mut dst, row_len, &src);
     ops::add_gather_offsets::<F>(&mut dst, &region, &offsets);
     ops::sub_assign::<F>(&mut dst, &src);
+    ops::sub_assign_rows::<F>(&mut dst, row_len, &src);
     ops::mul_add::<F>(&mut dst, coeff, &src);
     ops::mul_into::<F>(&mut ew, coeff, &src);
     ops::mul_assign::<F>(&mut ew, coeff);
     ops::mul_add_scatter::<F>(&mut scatter_rows, row_len, &coeffs, &src);
+    ops::mul_into_scatter::<F>(&mut scatter_rows, row_len, &coeffs, &src);
     ops::mul_add_gather::<F>(&mut gather_dst, &coeffs, &refs);
     ops::mul_into_gather::<F>(&mut gather_dst, &coeffs, &refs);
     ops::mul_add_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);
@@ -787,10 +796,12 @@ fn assert_extension_packed_surface_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
         ops::add_assign_rows::<F>(&mut dst, row_len, &src);
         ops::add_gather_offsets::<F>(&mut dst, &region, &offsets);
         ops::sub_assign::<F>(&mut dst, &src);
+        ops::sub_assign_rows::<F>(&mut dst, row_len, &src);
         ops::mul_add::<F>(&mut dst, coeff, &src);
         ops::mul_into::<F>(&mut ew, coeff, &src);
         ops::mul_assign::<F>(&mut ew, coeff);
         ops::mul_add_scatter::<F>(&mut scatter_rows, row_len, &coeffs, &src);
+        ops::mul_into_scatter::<F>(&mut scatter_rows, row_len, &coeffs, &src);
         ops::mul_add_gather::<F>(&mut gather_dst, &coeffs, &refs);
         ops::mul_into_gather::<F>(&mut gather_dst, &coeffs, &refs);
         ops::mul_add_matrix::<F>(&mut matrix_rows, row_len, 4, &terms);

@@ -33,13 +33,18 @@ Characteristic two gives `t² = A*t + B`. Expanding a product and replacing `t²
 (a + b*t)(c + d*t) = (a*c + B*b*d) + (a*d + b*c + A*b*d)*t
 (a + b*t)^2       = (a^2 + B*b^2) + (A*b^2)*t
 conjugate(a+b*t)  = (a + A*b) + b*t
+trace(a+b*t)      = A*b
 norm(a+b*t)       = a^2 + A*a*b + B*b^2
 ```
 
 Every coefficient operation in these equations belongs to the base field. In particular, `A` and `B` are coordinates in the declared base, not ordinary integers added to a Rust word.
 
-## Shipped specifications
+The base-into-row `Embedding` of a relative-degree-2 row routes its
+`frobenius`, `trace`, and `norm` through these closed forms, each equal
+to the corresponding exponentiation spelling. `QuadMersenne31` keeps its
+`const` `conjugate`/`norm` alongside the routed maps.
 
+## Shipped specifications
 `Rijndael16` starts at the AES byte field; `Rijndael32` and `Rijndael64`
 continue its tower. `FanPaar2` through `FanPaar64` nest from GF(2).
 These names are specifications, not standalone field markers.

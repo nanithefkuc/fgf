@@ -12,8 +12,8 @@
 
 use fgf::field::mersenne31::Mersenne31;
 use fgf::{
-    Elem, Extension, ExtensionField, ExtensionSpec, Field, FieldElem, FiniteField, Goldilocks,
-    PackedPadded, Polynomial, PrimeIdentity, Relation,
+    AES, Elem, Embedding, Extension, ExtensionField, ExtensionSpec, Field, FieldElem, FiniteField,
+    Goldilocks, Normal, PackedPadded, Polynomial, PrimeIdentity, QuadMersenne31, Relation,
 };
 
 // ---------------------------------------------------------------------------
@@ -416,6 +416,21 @@ extension_coordinates!(Gf343, FiniteField<7, 1>, 3);
 extension_coordinates!(Gf625, FiniteField<5, 1>, 4);
 extension_coordinates!(Gf9Row, FiniteField<3, 1>, 2);
 extension_coordinates!(Gf81Row, Gf9Row, 2);
+extension_coordinates!(OverNormal16, Normal4, 2);
+
+/// The normal-basis GF(4): two index bits through the row's own
+/// presentation, not the polynomial basis.
+impl Coordinates for Elem<Normal4> {
+    const WORDS: usize = 2;
+    fn coordinates(self) -> Vec<u64> {
+        let index = self.to_index();
+        vec![(index & 1) as u64, ((index >> 1) & 1) as u64]
+    }
+    fn element(coordinates: &[u64]) -> Self {
+        FieldElem::from_index(u128::from(coordinates[0]) | (u128::from(coordinates[1]) << 1))
+            .expect("the reference stays below the order")
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Exhaustive sweeps
@@ -813,4 +828,315 @@ fn mersenne_custom_tower_matches_the_reference_on_samples() {
         },
         0x1300,
     );
+}
+
+// ---------------------------------------------------------------------------
+// Degree-2 routing against the pow-based reference
+// ---------------------------------------------------------------------------
+
+/// The explicit pow-based reference of one base-into-row embedding: the
+/// scalar oracle the routing must match. The Frobenius is `x^|Base|`,
+/// the trace the sum of the two conjugates restricted to the source, and
+/// the norm the product restricted to the source; membership is the
+/// Frobenius fixed-point test.
+fn pow_frobenius<S: Field, T: Field<Characteristic = S::Characteristic>>(
+    value: Elem<T>,
+) -> Elem<T> {
+    value.pow(S::ORDER)
+}
+
+/// The pow-based trace reference: `x + x^|S|` restricted to the source.
+fn pow_trace<S: Field, T: Field<Characteristic = S::Characteristic>>(
+    embedding: &Embedding<S, T>,
+    value: Elem<T>,
+) -> Elem<S> {
+    embedding
+        .restrict(value + pow_frobenius::<S, T>(value))
+        .expect("a conjugate sum lies in the embedding image")
+}
+
+/// The pow-based norm reference: `x * x^|S|` restricted to the source.
+fn pow_norm<S: Field, T: Field<Characteristic = S::Characteristic>>(
+    embedding: &Embedding<S, T>,
+    value: Elem<T>,
+) -> Elem<S> {
+    embedding
+        .restrict(value * pow_frobenius::<S, T>(value))
+        .expect("a conjugate product lies in the embedding image")
+}
+
+/// Check one routed degree-2 pair element by element: the compact
+/// `frobenius`, `trace`, `norm`, `contains`, and `restrict` agree with
+/// the pow reference, and the prepared embedding agrees with both.
+#[cfg(feature = "alloc")]
+fn check_routed<S: Field, T: Field<Characteristic = S::Characteristic>>(
+    embedding: &Embedding<S, T>,
+    value: Elem<T>,
+) {
+    use fgf::PreparedEmbedding;
+    let prepared = PreparedEmbedding::<S, T>::new(embedding);
+    let expected_frobenius = pow_frobenius::<S, T>(value);
+    assert_eq!(
+        embedding.frobenius(value),
+        expected_frobenius,
+        "{}: frobenius matches the pow reference",
+        <T as Field>::NAME
+    );
+    assert_eq!(
+        prepared.frobenius(value),
+        expected_frobenius,
+        "{}: prepared frobenius matches the pow reference",
+        <T as Field>::NAME
+    );
+    let expected_trace = pow_trace::<S, T>(embedding, value);
+    assert_eq!(
+        embedding.trace(value),
+        expected_trace,
+        "{}: trace matches the pow reference",
+        <T as Field>::NAME
+    );
+    assert_eq!(
+        prepared.trace(value),
+        expected_trace,
+        "{}: prepared trace matches the pow reference",
+        <T as Field>::NAME
+    );
+    let expected_norm = pow_norm::<S, T>(embedding, value);
+    assert_eq!(
+        embedding.norm(value),
+        expected_norm,
+        "{}: norm matches the pow reference",
+        <T as Field>::NAME
+    );
+    assert_eq!(
+        prepared.norm(value),
+        expected_norm,
+        "{}: prepared norm matches the pow reference",
+        <T as Field>::NAME
+    );
+    let expected_contains = expected_frobenius == value;
+    assert_eq!(
+        embedding.contains(value),
+        expected_contains,
+        "{}: contains matches the fixed-point test",
+        <T as Field>::NAME
+    );
+    assert_eq!(
+        prepared.contains(value),
+        expected_contains,
+        "{}: prepared contains matches the fixed-point test",
+        <T as Field>::NAME
+    );
+    assert_eq!(
+        embedding.restrict(value).is_some(),
+        expected_contains,
+        "{}: restrict agrees with contains",
+        <T as Field>::NAME
+    );
+    assert_eq!(
+        prepared.restrict(value),
+        embedding.restrict(value),
+        "{}: prepared restrict matches the compact map",
+        <T as Field>::NAME
+    );
+    assert_eq!(
+        embedding.frobenius(embedding.frobenius(value)),
+        value,
+        "{}: the routed Frobenius is an involution",
+        <T as Field>::NAME
+    );
+}
+
+/// Check one routed degree-2 pair without the prepared types (no-alloc
+/// builds): the compact maps agree with the pow reference alone.
+#[cfg(not(feature = "alloc"))]
+fn check_routed<S: Field, T: Field<Characteristic = S::Characteristic>>(
+    embedding: &Embedding<S, T>,
+    value: Elem<T>,
+) {
+    let expected_frobenius = pow_frobenius::<S, T>(value);
+    assert_eq!(
+        embedding.frobenius(value),
+        expected_frobenius,
+        "{}: frobenius matches the pow reference",
+        <T as Field>::NAME
+    );
+    assert_eq!(
+        embedding.trace(value),
+        pow_trace::<S, T>(embedding, value),
+        "{}: trace matches the pow reference",
+        <T as Field>::NAME
+    );
+    assert_eq!(
+        embedding.norm(value),
+        pow_norm::<S, T>(embedding, value),
+        "{}: norm matches the pow reference",
+        <T as Field>::NAME
+    );
+    let expected_contains = expected_frobenius == value;
+    assert_eq!(
+        embedding.contains(value),
+        expected_contains,
+        "{}: contains matches the fixed-point test",
+        <T as Field>::NAME
+    );
+    assert_eq!(
+        embedding.restrict(value).is_some(),
+        expected_contains,
+        "{}: restrict agrees with contains",
+        <T as Field>::NAME
+    );
+    assert_eq!(
+        embedding.frobenius(embedding.frobenius(value)),
+        value,
+        "{}: the routed Frobenius is an involution",
+        <T as Field>::NAME
+    );
+}
+
+/// Sweep the base-into-row pair `(Base, Row)` exhaustively: every target
+/// element through the routed check.
+fn sweep_pair<Base, Row>()
+where
+    Base: Field,
+    Row: Field<Characteristic = Base::Characteristic>,
+    Elem<Row>: Coordinates,
+{
+    let embedding = Embedding::<Base, Row>::new().expect("the base embeds in its row");
+    for value in every_element::<Row>() {
+        check_routed::<Base, Row>(&embedding, value);
+    }
+}
+
+/// Sweep the base-into-row pair `(Base, Row)` by index order: every
+/// target element through the routed check, for packed rows without a
+/// `Coordinates` spelling.
+fn sweep_indexed_pair<Base, Row>()
+where
+    Base: Field,
+    Row: Field<Characteristic = Base::Characteristic>,
+    Elem<Row>: FieldElem<Field = Row>,
+{
+    let embedding = Embedding::<Base, Row>::new().expect("the base embeds in its row");
+    for index in 0..<Row as Field>::ORDER {
+        let value = <Elem<Row> as FieldElem>::from_index(index).expect("index below the order");
+        check_routed::<Base, Row>(&embedding, value);
+    }
+}
+
+/// A quadratic extension of the normal-basis GF(4): the base word one is
+/// raw 3, so raw 1 is not field one anywhere on this tower. `t^2 + u*t +
+/// b` with `u` the base one (raw 3) and `b` the base element of raw 2 is
+/// irreducible by the Artin-Schreier criterion.
+type Normal4 = FiniteField<2, 2, Normal<7, 2>>;
+struct OverNormal4Spec;
+impl ExtensionSpec<2> for OverNormal4Spec {
+    type Base = Normal4;
+    type Storage = fgf::Components;
+    const NAME: &'static str = "GF(16) over normal-basis GF(4)";
+    const RELATION: Relation = Relation::from_binary_words::<Normal4>(&[2, 3]);
+}
+type OverNormal16 = FiniteField<2, 4, Extension<OverNormal4Spec, 2>>;
+
+type Gf16Tower = FiniteField<2, 16, Extension<fgf::Rijndael16, 2>>;
+type FanPaar16Tower = FiniteField<2, 16, Extension<fgf::FanPaar16, 2>>;
+
+#[test]
+fn routed_degree2_matches_the_pow_reference_exhaustively() {
+    // c1 = 0 (binomial), c1 = 1 in characteristic two, general c1 in odd
+    // characteristic, and the normal-basis tower whose raw one is not 1.
+    sweep_pair::<FiniteField<7, 1>, Gf49>();
+    sweep_pair::<FiniteField<2, 1>, Gf4Row>();
+    sweep_pair::<FiniteField<7, 1>, Gf49Full>();
+    sweep_pair::<FiniteField<3, 1>, Gf9Row>();
+    sweep_pair::<FlatGf4, BinaryComponents>();
+    sweep_pair::<Normal4, OverNormal16>();
+    sweep_pair::<Gf8Row, Gf64Row>();
+    sweep_pair::<Gf9Row, Gf81Row>();
+}
+
+#[test]
+fn routed_packed_towers_match_the_pow_reference_exhaustively() {
+    sweep_indexed_pair::<FiniteField<2, 8, Polynomial<AES>>, Gf16Tower>();
+    sweep_indexed_pair::<FiniteField<2, 8, Extension<fgf::FanPaar8, 2>>, FanPaar16Tower>();
+}
+
+/// Sample one relative-degree-2 row against the pow reference with the
+/// deterministic word generator.
+fn sample_pair<F>(seed: u64, characteristic: u64)
+where
+    F: ExtensionField<2> + Field<Characteristic = <F::Base as Field>::Characteristic>,
+    F::Base: Field,
+    Elem<F>: Coordinates,
+{
+    let embedding = Embedding::<F::Base, F>::new().expect("the base embeds in its row");
+    let mut rng = Sample { state: seed };
+    for _ in 0..64 {
+        let raw = rng.next();
+        let coordinates: Vec<u64> = (0..<Elem<F> as Coordinates>::WORDS)
+            .map(|i| (raw.wrapping_mul(2_654_435_761 + i as u64)) % characteristic)
+            .collect();
+        check_routed::<F::Base, F>(&embedding, <Elem<F> as Coordinates>::element(&coordinates));
+    }
+}
+
+/// Sample a packed binary quadratic tower row against the pow reference
+/// with the deterministic word generator.
+fn sample_packed_pair<Base, Row>(seed: u64)
+where
+    Base: fgf::BinaryField,
+    Row: Field<Characteristic = <Base as Field>::Characteristic> + fgf::FieldBuffer,
+    Elem<Row>: FieldElem<Field = Row>,
+    Elem<Base>: FieldElem<Field = Base>,
+{
+    let embedding = Embedding::<Base, Row>::new().expect("the base embeds in its row");
+    let mut rng = Sample { state: seed };
+    for _ in 0..64 {
+        let index = u128::from(rng.next()) % <Row as Field>::ORDER;
+        let value = <Elem<Row> as FieldElem>::from_index(index).expect("index below the order");
+        check_routed::<Base, Row>(&embedding, value);
+    }
+}
+
+#[test]
+fn quad_mersenne31_routing_matches_the_pow_reference_on_samples() {
+    let embedding =
+        Embedding::<Mersenne31, QuadMersenne31>::new().expect("Mersenne31 embeds in QM31");
+    let mut rng = Sample { state: 0xC01u64 };
+    for _ in 0..64 {
+        let re = Elem::<Mersenne31>::from_raw((rng.next() % Mersenne31::ORDER as u64) as u32);
+        let im = Elem::<Mersenne31>::from_raw((rng.next() % Mersenne31::ORDER as u64) as u32);
+        let value = Elem::<QuadMersenne31>::from_components([re, im]);
+        check_routed::<Mersenne31, QuadMersenne31>(&embedding, value);
+        // The inherent `const` conjugate/norm agree with the routed maps.
+        let conjugate = value.conjugate();
+        assert_eq!(conjugate.conjugate(), value, "conjugation is an involution");
+        assert_eq!(conjugate, embedding.frobenius(value));
+        assert_eq!(embedding.norm(value), value.norm());
+        assert_eq!(
+            value * conjugate,
+            Elem::<QuadMersenne31>::from_components([value.norm(), Elem::<Mersenne31>::ZERO])
+        );
+    }
+}
+
+#[test]
+fn goldilocks_square_routing_matches_the_pow_reference_on_samples() {
+    sample_pair::<GoldilocksSquare>(0x0B00, Goldilocks::ORDER as u64);
+}
+
+#[test]
+fn wide_prime_square_routing_matches_the_pow_reference_on_samples() {
+    sample_pair::<WidePrimeSquare>(0x0D00, 0xFFFF_FFFF_FFFF_FFC5);
+}
+
+#[test]
+fn mersenne_custom_quadratic_routing_matches_the_pow_reference_on_samples() {
+    sample_pair::<CustomComplex>(0x1100, Mersenne31::ORDER as u64);
+}
+
+#[test]
+fn routed_wide_towers_match_the_pow_reference_on_samples() {
+    sample_packed_pair::<Gf16Tower, FiniteField<2, 32, Extension<fgf::Rijndael32, 2>>>(0xBEEF);
+    sample_packed_pair::<FanPaar16Tower, FiniteField<2, 32, Extension<fgf::FanPaar32, 2>>>(0xCAFE);
 }

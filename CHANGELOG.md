@@ -13,7 +13,9 @@ All notable changes to this project are documented here. The format follows
   batch inversion with zero-preserving totality (`inv(0) == 0`,
   `x / 0 == 0`), chunked 64-element stack scratch so steady state never
   touches the heap. Names follow the `mul_elementwise` family spellings.
-
+- `Elem<Mersenne31>::canonical` and `Elem<Goldilocks>::canonical` return the
+  canonical form of a prime row element, matching the residue, binary, tower,
+  and quadratic-extension rows.
 - Mixed embedding composition over a sealed `Postcompose` right-hand
   operand: `Embedding::then` accepts a proper inclusion or an
   isomorphism out of the middle row, and
@@ -37,7 +39,10 @@ All notable changes to this project are documented here. The format follows
   with caller-maintained zero padding; packed outputs are exactly
   `bits::bytes_for(bits)` bytes with cleared tail bits, lane sides hold
   whole target elements exactly, and empty rows are valid.
-- Wiki reference for operation suffixes, destination behavior, prepared state,
+- Wiki guides for operation suffixes and prepared coefficients:
+  `wiki/Operation-suffixes.md` covers destination, shape, `_with`, `_at`/`_offsets`,
+  and allocation suffixes, and `wiki/Prepared-coefficients.md` covers `Coeff`,
+  `CoeffVec`/`CoeffMatrix` ownership, gather views, and `alloc`-gated reuse.
 - Prepared and overwrite forms of the offset-addressed matrix operations:
   `ops::mul_add_matrix_at_with`, `ops::mul_into_matrix_at`, and
   `ops::mul_into_matrix_at_with` complete the `mul_add_matrix_at` family with
@@ -45,6 +50,14 @@ All notable changes to this project are documented here. The format follows
   dispatches the register-blocked GFNI and AVX-512 scattered kernels with
   overwrite seeded from zero in registers; every other field routes the
   dispatched single-row kernels over the named rows.
+- Missing operation siblings: `ops::sub_assign_rows` subtracts pairwise rows
+  with the same geometry checks and argument order as `ops::add_assign_rows`
+  (identical to addition in characteristic two, canonicalizing subtraction
+  in the prime fields); `ops::mul_into_scatter` overwrites each row with
+  `coeffs[j] * src`, the overwrite counterpart of `ops::mul_add_scatter`
+  with zero-fill and source-copy fast paths; and the alloc-gated
+  `ops::unpack_to_vec` decodes packed bytes into a new element vector, the
+  counterpart of `ops::pack_to_vec`.
 
 ### Changed
 
@@ -116,6 +129,12 @@ All notable changes to this project are documented here. The format follows
   `_with` forms, and `pack_to_vec`.
 
 ### Removed
+
+- The `QuadraticExtension` public trait from the quadratic-conveniences
+  proposal: no new public API ships. Degree-2 `Embedding` maps route
+  internally through the Vieta closed forms with no public spelling
+  change; `QuadMersenne31` keeps its inherent `const` conjugate/norm and
+  drops the proposed inherent `trace` (use the embedding trace map).
 
 - NEON and `simd128` acceleration: the `aarch64` and `wasm32` kernel
   subtrees and their dispatch arms are gone, and `internals` no longer

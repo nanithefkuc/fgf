@@ -8,10 +8,9 @@
 //! over `u64` and multiplies by the schoolbook `(a+bi)(c+di)` expansion.
 
 use core::hint::black_box;
-
-use fgf::field::is_prime;
+use fgf::field::{goldilocks, is_prime, mersenne31};
 use fgf::kernel::vector_elementwise_min_bytes;
-use fgf::{Elem, QuadMersenne31, has_vector_elementwise, ops};
+use fgf::{Elem, Goldilocks, Mersenne31, QuadMersenne31, has_vector_elementwise, ops};
 
 /// Primality by trial division up to `√n`.
 fn trial_division_prime(n: u64) -> bool {
@@ -440,4 +439,68 @@ fn quad_scalar_operations_accept_raw_aliases() {
             );
         }
     }
+}
+
+/// `canonical` is the identity on canonical rows and re-applies the
+/// `from_raw` fold to non-canonical lanes, in `const` context too.
+#[test]
+fn prime_rows_canonical_matches_from_raw() {
+    const M31_RAW: [u32; 6] = [
+        0,
+        1,
+        mersenne31::MODULUS - 1,
+        mersenne31::MODULUS,
+        mersenne31::MODULUS + 1,
+        u32::MAX,
+    ];
+    for raw in M31_RAW {
+        let reduced = Elem::<Mersenne31>::from_raw(raw);
+        assert_eq!(reduced.canonical(), reduced, "m31 canonical {raw:#x}");
+        assert_eq!(
+            Elem::<Mersenne31>::from_raw(raw).canonical(),
+            Elem::<Mersenne31>::from_raw(raw),
+            "m31 from_raw {raw:#x}"
+        );
+    }
+    assert_eq!(
+        Elem::<Mersenne31>::from_raw(u32::MAX).to_raw(),
+        1,
+        "0xFFFF_FFFF folds to one"
+    );
+    assert_eq!(
+        Elem::<Mersenne31>::from_raw(mersenne31::MODULUS).to_raw(),
+        0,
+        "modulus folds to zero"
+    );
+    const GLD_RAW: [u64; 6] = [
+        0,
+        1,
+        goldilocks::MODULUS - 1,
+        goldilocks::MODULUS,
+        goldilocks::MODULUS + 1,
+        u64::MAX,
+    ];
+    for raw in GLD_RAW {
+        let reduced = Elem::<Goldilocks>::from_raw(raw);
+        assert_eq!(
+            reduced.canonical(),
+            reduced,
+            "goldilocks canonical {raw:#x}"
+        );
+        assert_eq!(
+            Elem::<Goldilocks>::from_raw(raw).canonical(),
+            Elem::<Goldilocks>::from_raw(raw),
+            "goldilocks from_raw {raw:#x}"
+        );
+    }
+    assert_eq!(
+        Elem::<Goldilocks>::from_raw(goldilocks::MODULUS).to_raw(),
+        0,
+        "modulus folds to zero"
+    );
+    const _: () = assert!(Elem::<Mersenne31>::from_raw(u32::MAX).canonical().to_raw() == 1);
+    const _: () = assert!(
+        Elem::<Goldilocks>::from_raw(u64::MAX).canonical().to_raw()
+            == Elem::<Goldilocks>::from_raw(u64::MAX).to_raw()
+    );
 }
