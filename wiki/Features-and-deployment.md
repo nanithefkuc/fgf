@@ -6,13 +6,18 @@ Rust 1.93 or later is required.
 
 ## Choose the dependency configuration
 
-| Configuration | Environment | Prepared collections | Routing |
+| Configuration | Environment | Prepared forms | Routing |
 | --- | --- | --- | --- |
 | Defaults | `std` and allocation | Available | Runtime SIMD where implemented |
 | No defaults | `no_std`, no allocator required | Unavailable | Portable scalar |
 | No defaults plus `alloc` | `no_std` with an application allocator | Available | Portable scalar |
 | `std` without `simd` | Standard library and allocation | Available | Scalar |
 | `simd512` | Implies `simd`, `std`, and `alloc` | Available | Adds AVX-512 on capable x86 hosts |
+
+`Prepared forms` covers the prepared maps (`Frobenius`, `PreparedEmbedding`,
+`PreparedIsomorphism`), the `ops::map` and `ops::map_bits` modules, the
+prepared coefficient collections (`CoeffVec`, `CoeffMatrix`), the prepared
+scatter/gather/matrix `_with` forms, and `pack_to_vec`.
 
 For portable prepared operations:
 
@@ -62,7 +67,8 @@ not prove that ISA executed.
 ## Reuse state and verify the target
 
 `Coeff` is inline preparation. `CoeffVec`, `CoeffMatrix`, and `pack_to_vec`
-require `alloc`; construct owned preparation outside a repeated application
+require `alloc`, as do the prepared maps and the `ops::map` / `ops::map_bits`
+modules; construct owned preparation outside a repeated application
 loop. Warmed steady-state behavior is distinct from first-use dispatch or shared
 table initialization. [Prepared coefficients](Prepared-coefficients) explains
 ownership and allocation evidence.
