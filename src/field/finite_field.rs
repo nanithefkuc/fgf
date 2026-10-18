@@ -31,8 +31,9 @@
 //!
 //! The shared metadata check reuses the crate's deterministic `u64`
 //! primality proof and validates, in order: the characteristic is prime, the
-//! degree is positive, the binary degree-64 cap holds at characteristic two,
-//! and `P^N` fits `u128` with overflow checking. Every value-producing
+//! degree is positive, the total degree cap of 64 holds at every
+//! characteristic, and `P^N` fits `u128` with overflow checking. Every
+//! value-producing
 //! constructor, identity, and raw method on the family's rows evaluates it
 //! before any remainder, exponent, or size arithmetic runs, so an invalid
 //! `P` or `N` fails const evaluation in const contexts and panics at first
@@ -48,8 +49,8 @@ pub use residue::Residue;
 
 /// Validated `characteristic^degree` in `u128`: the shared metadata check.
 ///
-/// Asserts the degree is positive, the binary degree cap of 64 holds at
-/// characteristic two, and the cardinality fits `u128` with overflow
+/// Asserts the degree is positive, the total degree cap of 64 holds at
+/// every characteristic, and the cardinality fits `u128` with overflow
 /// checking, then returns the order. The caller supplies a characteristic
 /// already read through the primality proof. Central field validation and
 /// the family rows' metadata items both run this one body.
@@ -60,6 +61,7 @@ pub(crate) const fn metadata_order(characteristic: u64, degree: u32) -> u128 {
         characteristic != 2 || degree <= 64,
         "binary field degree exceeds 64"
     );
+    assert!(degree <= 64, "field degree exceeds 64");
     let mut order: u128 = 1;
     let mut i = 0;
     while i < degree {

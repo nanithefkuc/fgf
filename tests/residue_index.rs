@@ -309,3 +309,90 @@ fn goldilocks_quadratic_indices_reach_the_order_edge() {
     }
     assert_eq!(Elem::<Row>::from_index(Row::ORDER), Err(RangeError));
 }
+
+// ---------------------------------------------------------------------------
+// Index conversions at the total degree cap: GF(3^64)
+// ---------------------------------------------------------------------------
+
+struct G3e4Spec;
+impl ExtensionSpec<4> for G3e4Spec {
+    type Base = FiniteField<3, 1, Residue>;
+    type Storage = Components;
+    const NAME: &'static str = "GF(3^4) as x^4 + 2x^2 + 2";
+    const RELATION: Relation = Relation::from_coordinates(&[2, 0, 2, 0]);
+}
+type G3e4 = FiniteField<3, 4, Extension<G3e4Spec, 4>>;
+
+struct G3e8Spec;
+impl ExtensionSpec<2> for G3e8Spec {
+    type Base = G3e4;
+    type Storage = Components;
+    const NAME: &'static str = "GF(3^8) as t^2 - x";
+    const RELATION: Relation = Relation::from_coordinates(&[0, 1, 0, 0, 0, 0, 0, 0]);
+}
+type G3e8 = FiniteField<3, 8, Extension<G3e8Spec, 2>>;
+
+struct G3e16Spec;
+impl ExtensionSpec<2> for G3e16Spec {
+    type Base = G3e8;
+    type Storage = Components;
+    const NAME: &'static str = "GF(3^16) as t^2 - s^4";
+    const RELATION: Relation =
+        Relation::from_coordinates(&[0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+}
+type G3e16 = FiniteField<3, 16, Extension<G3e16Spec, 2>>;
+
+struct G3e32Spec;
+impl ExtensionSpec<2> for G3e32Spec {
+    type Base = G3e16;
+    type Storage = Components;
+    const NAME: &'static str = "GF(3^32) as t^2 - s^8";
+    const RELATION: Relation = Relation::from_coordinates(&[
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0,
+    ]);
+}
+type G3e32 = FiniteField<3, 32, Extension<G3e32Spec, 2>>;
+
+struct G3e64Spec;
+impl ExtensionSpec<2> for G3e64Spec {
+    type Base = G3e32;
+    type Storage = Components;
+    const NAME: &'static str = "GF(3^64) as t^2 - s^16";
+    const RELATION: Relation = Relation::from_coordinates(&[
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0,
+    ]);
+}
+type G3e64 = FiniteField<3, 64, Extension<G3e64Spec, 2>>;
+
+#[test]
+fn degree_64_odd_row_round_trips_indices_at_the_cap() {
+    type Row = G3e64;
+    assert_eq!(Row::DEGREE, 64);
+    // The identities convert: zero and one fill the shared buffer exactly.
+    assert_eq!(Elem::<Row>::ZERO.to_index(), 0);
+    assert_eq!(Elem::<Row>::ONE.to_index(), 1);
+    assert_eq!(Elem::<Row>::from_index(0).unwrap(), Elem::<Row>::ZERO);
+    assert_eq!(Elem::<Row>::from_index(1).unwrap(), Elem::<Row>::ONE);
+    // Boundaries round-trip: the last index names all-`p - 1` coordinates,
+    // ruling out a transposed digit order.
+    for index in [0u128, 1, 2, Row::ORDER - 1, Row::ORDER - 2] {
+        let element = Elem::<Row>::from_index(index).unwrap();
+        assert_eq!(element.to_index(), index, "index {index}");
+    }
+    assert_eq!(Elem::<Row>::from_index(Row::ORDER), Err(RangeError));
+    assert_eq!(Elem::<Row>::from_index(u128::MAX), Err(RangeError));
+    // Deterministic samples across the full width: a fixed-seed stream
+    // reduced below the order, each round-tripping through the conversion.
+    let mut state = 0x243F_6A88_85A3_08D3u128;
+    for _ in 0..64 {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        let index = state % Row::ORDER;
+        let element = Elem::<Row>::from_index(index).unwrap();
+        assert_eq!(element.to_index(), index, "sampled index {index}");
+    }
+}
