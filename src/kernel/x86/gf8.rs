@@ -47,14 +47,14 @@ pub use avx512::{
     mul_add_avx512, mul_add_gather_avx512, mul_add_matrix_at_avx512_with,
     mul_add_matrix_avx512_with, mul_add_scatter_avx512, mul_assign_avx512,
     mul_elementwise_assign_avx512, mul_elementwise_avx512, mul_into_avx512,
-    mul_into_matrix_avx512_with,
+    mul_into_matrix_at_avx512_with, mul_into_matrix_avx512_with,
 };
 #[cfg(test)]
 pub(crate) use gfni::MATRIX_PREFETCH_MIN;
 pub use gfni::{
     mul_add_gather_gfni, mul_add_gfni, mul_add_matrix_at_gfni_with, mul_add_matrix_gfni_with,
     mul_add_scatter_gfni, mul_assign_gfni, mul_elementwise_assign_gfni, mul_elementwise_gfni,
-    mul_into_gfni, mul_into_matrix_gfni_with,
+    mul_into_gfni, mul_into_matrix_at_gfni_with, mul_into_matrix_gfni_with,
 };
 pub use ssse3::{
     mul_add_gather_ssse3, mul_add_matrix_ssse3_with, mul_add_scatter_ssse3, mul_add_ssse3,

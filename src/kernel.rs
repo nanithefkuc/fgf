@@ -735,6 +735,66 @@ pub(crate) trait KernelDispatch: FieldBuffer {
         }
     }
 
+    /// Prepared-plan scattered matrix using flat source-major coefficients
+    /// and source rows.
+    ///
+    /// The scattered counterpart of
+    /// [`KernelDispatch::mul_add_matrix_plan`]. The default is
+    /// allocation-free repeated prepared AXPY over the named rows.
+    /// Register-blocked backends may override it and consume the same flat
+    /// geometry directly.
+    #[cfg(feature = "alloc")]
+    fn mul_add_matrix_at_plan(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        _values: &[crate::field::Elem<Self>],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        fallback::mul_add_matrix_at_plan::<Self>(dst, row_len, row_starts, coeffs, srcs);
+    }
+
+    /// Many sources overwrite many disjoint rows scattered through `dst`:
+    /// for each output row `j`,
+    /// `dst[row_starts[j]..][..row_len] = sum_t coeffs[t][j] * src[t]`.
+    ///
+    /// The overwrite counterpart of [`KernelDispatch::mul_add_matrix_at`].
+    /// The default zeroes the named rows and accumulates; register-blocked
+    /// backends override it to seed accumulators from zero in registers,
+    /// writing each named row once with no destination read and no separate
+    /// fill.
+    fn mul_into_matrix_at(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        terms: &[(&[crate::field::Elem<Self>], &[u8])],
+    ) {
+        for &start in row_starts {
+            dst[start..start + row_len].fill(0);
+        }
+        Self::mul_add_matrix_at(RawDispatch, dst, row_len, row_starts, terms);
+    }
+
+    /// [`KernelDispatch::mul_add_matrix_at_plan`].
+    #[cfg(feature = "alloc")]
+    fn mul_into_matrix_at_plan(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        values: &[crate::field::Elem<Self>],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        for &start in row_starts {
+            dst[start..start + row_len].fill(0);
+        }
+        Self::mul_add_matrix_at_plan(RawDispatch, dst, row_len, row_starts, values, coeffs, srcs);
+    }
+
     /// `dst[i] = a[i] * b[i]`, elementwise over two full vectors.
     ///
     /// Both operands vary per lane, so there is no coefficient to broadcast
@@ -806,6 +866,24 @@ pub(crate) mod fallback {
                 .zip(&coeffs[start..start + nrows])
             {
                 F::mul_add(RawDispatch, row, coeff, src);
+            }
+        }
+    }
+
+    /// Allocation-free repeated prepared AXPY over the named scattered rows.
+    #[cfg(feature = "alloc")]
+    pub(crate) fn mul_add_matrix_at_plan<F: KernelDispatch>(
+        dst: &mut [u8],
+        row_len: usize,
+        row_starts: &[usize],
+        coeffs: &[F::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        let nrows = row_starts.len();
+        for (term, &src) in srcs.iter().enumerate() {
+            let start = term * nrows;
+            for (&at, coeff) in row_starts.iter().zip(&coeffs[start..start + nrows]) {
+                F::mul_add(RawDispatch, &mut dst[at..at + row_len], coeff, src);
             }
         }
     }

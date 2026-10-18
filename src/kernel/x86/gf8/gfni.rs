@@ -30,7 +30,8 @@ mod single;
 pub use elementwise::{mul_elementwise_assign_gfni, mul_elementwise_gfni};
 pub use gather::mul_add_gather_gfni;
 pub use matrix::{
-    mul_add_matrix_at_gfni_with, mul_add_matrix_gfni_with, mul_into_matrix_gfni_with,
+    mul_add_matrix_at_gfni_with, mul_add_matrix_gfni_with, mul_into_matrix_at_gfni_with,
+    mul_into_matrix_gfni_with,
 };
 #[cfg(test)]
 pub(crate) use rows::MATRIX_PREFETCH_MIN;
