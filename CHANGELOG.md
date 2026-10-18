@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `Elem<Mersenne31>::canonical` and `Elem<Goldilocks>::canonical` return the
+  canonical form of a prime row element, matching the residue, binary, tower,
+  and quadratic-extension rows.
 - Mixed embedding composition over a sealed `Postcompose` right-hand
   operand: `Embedding::then` accepts a proper inclusion or an
   isomorphism out of the middle row, and
