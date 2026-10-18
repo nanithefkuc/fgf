@@ -7,7 +7,7 @@
 //! generator-level counts match. The structural lift, the conjugate-image
 //! pair, the normal-basis injection trap, the characteristic-divisible relative-degree case,
 //! the Frobenius equality with `Frobenius<F>`, and the QM31 anchors
-//! follow, with the GF(3^66) tower covering the above-64 odd row.
+//! follow, with the GF(3^64) tower covering the at-cap odd row.
 //!
 //! Row-function equality (decode-method-encode at every lane count,
 //! bitmap discipline, geometry panics, zero allocation) lives in
@@ -148,43 +148,62 @@ type Cantor8 = FiniteField<2, 8, Cantor<0x11B, 0x20>>;
 type Aes8 = FiniteField<2, 8, Polynomial<AES>>;
 type Rs8 = FiniteField<2, 8, Polynomial<RS>>;
 
-// The above-64 odd tower: GF(3^11) by a Rabin-searched trinomial, GF(3^33)
-// by a root-free cubic (trace-of-one Artin-Schreier shape), GF(3^66) by
-// `t^2 + 1` (`-1` is a non-square: `3^33` is 3 mod 4). Relation lengths
-// are D blocks of base-degree coordinates: 11, 33, 66.
-struct G3e11Spec;
-impl ExtensionSpec<11> for G3e11Spec {
+// The at-cap odd tower: GF(3^4) by the `x^4 + 2x^2 + 2` quartic, then
+// quadratics `t^2 - n` with Euler-searched non-square constants (each
+// constant's sparsity noted below). Relation lengths are D blocks of
+// base-degree coordinates: 4, 8, 16, 32, 64.
+struct G3e4Spec;
+impl ExtensionSpec<4> for G3e4Spec {
     type Base = R3;
     type Storage = Components;
-    const NAME: &'static str = "GF(3^11) as x^11 + 2x^9 + 1";
-    const RELATION: Relation = Relation::from_coordinates(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0]);
+    const NAME: &'static str = "GF(3^4) as x^4 + 2x^2 + 2";
+    const RELATION: Relation = Relation::from_coordinates(&[2, 0, 2, 0]);
 }
-type G3e11 = FiniteField<3, 11, Extension<G3e11Spec, 11>>;
+type G3e4 = FiniteField<3, 4, Extension<G3e4Spec, 4>>;
 
-struct G3e33Spec;
-impl ExtensionSpec<3> for G3e33Spec {
-    type Base = G3e11;
+struct G3e8Spec;
+impl ExtensionSpec<2> for G3e8Spec {
+    type Base = G3e4;
     type Storage = Components;
-    const NAME: &'static str = "GF(3^33) as x^3 + 2x + 1";
+    const NAME: &'static str = "GF(3^8) as t^2 - x";
+    const RELATION: Relation = Relation::from_coordinates(&[0, 1, 0, 0, 0, 0, 0, 0]);
+}
+type G3e8 = FiniteField<3, 8, Extension<G3e8Spec, 2>>;
+
+struct G3e16Spec;
+impl ExtensionSpec<2> for G3e16Spec {
+    type Base = G3e8;
+    type Storage = Components;
+    const NAME: &'static str = "GF(3^16) as t^2 - s^4";
+    const RELATION: Relation =
+        Relation::from_coordinates(&[0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+}
+type G3e16 = FiniteField<3, 16, Extension<G3e16Spec, 2>>;
+
+struct G3e32Spec;
+impl ExtensionSpec<2> for G3e32Spec {
+    type Base = G3e16;
+    type Storage = Components;
+    const NAME: &'static str = "GF(3^32) as t^2 - s^8";
     const RELATION: Relation = Relation::from_coordinates(&[
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0,
     ]);
 }
-type G3e33 = FiniteField<3, 33, Extension<G3e33Spec, 3>>;
+type G3e32 = FiniteField<3, 32, Extension<G3e32Spec, 2>>;
 
-struct G3e66Spec;
-impl ExtensionSpec<2> for G3e66Spec {
-    type Base = G3e33;
+struct G3e64Spec;
+impl ExtensionSpec<2> for G3e64Spec {
+    type Base = G3e32;
     type Storage = Components;
-    const NAME: &'static str = "GF(3^66) as t^2 + 1";
+    const NAME: &'static str = "GF(3^64) as t^2 - s^16";
     const RELATION: Relation = Relation::from_coordinates(&[
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0,
     ]);
 }
-type G3e66 = FiniteField<3, 66, Extension<G3e66Spec, 2>>;
+type G3e64 = FiniteField<3, 64, Extension<G3e64Spec, 2>>;
 
 // ---------------------------------------------------------------------------
 // Enumeration helpers (mirroring `tests/relations.rs`)
@@ -713,16 +732,15 @@ fn prepared_qm31_matches_conjugation_and_norm() {
 }
 
 // ---------------------------------------------------------------------------
-// The above-64 odd row: GF(3^66) under `COORDINATES = 80`
+// The at-cap odd row: GF(3^64) fills the coordinate capacity exactly
 // ---------------------------------------------------------------------------
 
 #[test]
-fn prepared_above_64_odd_row_agrees() {
-    const { assert!(G3e66::DEGREE > 64) };
-    assert_eq!(G3e66::DEGREE, 66, "the tower lands on degree 66");
-    let compact = Embedding::<R3, G3e66>::new().expect("r3 embeds in g3e66");
-    let prepared = PreparedEmbedding::<R3, G3e66>::new(&compact);
-    assert_eq!(prepared.relative_degree(), 66);
+fn prepared_at_cap_odd_row_agrees() {
+    const { assert!(G3e64::DEGREE == 64) };
+    let compact = Embedding::<R3, G3e64>::new().expect("r3 embeds in g3e64");
+    let prepared = PreparedEmbedding::<R3, G3e64>::new(&compact);
+    assert_eq!(prepared.relative_degree(), 64);
     assert_eq!(prepared.embedding().to_images(), compact.to_images());
     // Every prime element round-trips; member arithmetic matches.
     for residue in 0..3u64 {
@@ -740,9 +758,9 @@ fn prepared_above_64_odd_row_agrees() {
     }
     // The mid-tower generator image sits outside the prime image and is
     // rejected by both maps; member combinations agree on every method.
-    let mid = Embedding::<G3e11, G3e66>::new().expect("g3e11 embeds in g3e66");
-    let g11: Elem<G3e11> = Embedding::<G3e11, G3e33>::generator(0);
-    let tower_gen = mid.embed(g11);
+    let mid = Embedding::<G3e4, G3e64>::new().expect("g3e4 embeds in g3e64");
+    let g4: Elem<G3e4> = Embedding::<G3e4, G3e8>::generator(0);
+    let tower_gen = mid.embed(g4);
     assert!(!compact.contains(tower_gen));
     assert!(!prepared.contains(tower_gen));
     assert_eq!(prepared.restrict(tower_gen), None);

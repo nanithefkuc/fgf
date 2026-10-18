@@ -40,11 +40,10 @@ const fn storage_eq(left: Storage, right: Storage) -> bool {
 
 /// Prime-coordinate capacity of one relation, and of one element.
 ///
-/// The cardinality check bounds every relation first: a characteristic-two
-/// root holds at most 64 coordinates, and an odd characteristic satisfies
-/// `p^degree < 2^128`, which caps `degree` at 80 because `3^81` exceeds
-/// `u128`. Coefficient packing therefore never writes past this capacity.
-pub const COORDINATES: usize = 80;
+/// Every field's total prime degree is at most 64, so both the flattened
+/// relation of an extension node and the prime coordinates of one element
+/// fit this capacity. Coefficient packing therefore never writes past it.
+pub const COORDINATES: usize = 64;
 
 /// The presentation of a prime-field leaf.
 ///
@@ -281,10 +280,10 @@ impl Descriptor {
 
     /// Append a defining relation over the root of `base`, checking the
     /// relation's geometry in this order: the base characteristic, the
-    /// relative degree, the degree identity, the field cardinality, the
-    /// coordinate count and range, the storage admissibility, and the node
-    /// capacity. Irreducibility is not checked here; callers run
-    /// [`Self::validate_relation`] last.
+    /// relative degree, the total degree cap of 64 with the degree identity,
+    /// the field cardinality, the coordinate count and range, the storage
+    /// admissibility, and the node capacity. Irreducibility is not checked
+    /// here; callers run [`Self::validate_relation`] last.
     ///
     /// `relation` holds the non-leading coefficients in flattened
     /// prime-subfield coordinates, constant term first, each coefficient's
@@ -348,8 +347,8 @@ impl Descriptor {
         }
         check_storage(storage, characteristic, degree);
         assert!(base.len < NODES as u8, "description capacity exhausted");
-        // The cardinality check above bounds `degree` by `COORDINATES`, so
-        // the packing below stays inside the coefficient array.
+        // The metadata check above bounds `degree` by the coordinate
+        // capacity, so the packing below stays inside the coefficient array.
         let base_words = super::arithmetic::element_words(base, base.root);
         let mut coefficients = [0u64; COORDINATES];
         if characteristic == 2 {
@@ -632,9 +631,28 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "field degree exceeds 64")]
+    fn extension_rejects_an_odd_degree_above_sixty_four() {
+        // The metadata check runs before the relation capacity check, so a
+        // sixty-five-coordinate relation still fails on the total degree.
+        let wide = build(&RESIDUE_SEVEN, 7, 65, 65, &[0; 65], Storage::Components);
+        let _ = wide;
+    }
+
+    #[test]
+    #[should_panic(expected = "binary field degree exceeds 64")]
+    fn extension_rejects_a_binary_degree_of_sixty_five() {
+        // Characteristic two keeps its own message at the same boundary.
+        let wide = build(&RESIDUE_TWO, 2, 65, 65, &[0; 65], Storage::Components);
+        let _ = wide;
+    }
+
+    #[test]
     #[should_panic(expected = "field order overflows u128")]
     fn extension_rejects_a_cardinality_overflow() {
-        build(&RESIDUE_SEVEN, 7, 81, 81, &[], Storage::Components);
+        // Sixty-four stays under the total cap, so the cardinality bound is
+        // the check that fails.
+        build(&RESIDUE_SEVEN, 7, 64, 64, &[], Storage::Components);
     }
 
     #[test]

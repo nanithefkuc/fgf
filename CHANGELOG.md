@@ -42,6 +42,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking:** the total extension degree cap is 64 at every
+  characteristic. Declaring or validating a field whose total prime
+  degree exceeds 64 is a build-time configuration error and panics:
+  odd-characteristic extensions above degree 64 are no longer accepted,
+  and index conversions share the same 64-coordinate capacity. Migrate
+  wider odd towers (for example GF(3^66)) to degrees at or below 64.
 - **Breaking:** `Embedding` names proper inclusions only: equal-degree
   construction reports `EmbeddingError::EqualDegree`, and
   `Isomorphism` is the only equal-degree map with `apply`/`unapply`.

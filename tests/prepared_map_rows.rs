@@ -491,63 +491,65 @@ fn qm31_prepared_rows_match_conjugation_and_norm() {
     }
 }
 
-/// Rows over a field above degree 64: the GF(3^66) tower exercises lane
-/// counts past the 64-coordinate mark. Targets are built by member
-/// arithmetic (embedding lifts and generator powers), never raw indices:
-/// the presentation index space is far wider than any row under test.
+/// Rows over the at-cap field GF(3^64): the tower fills the coordinate
+/// capacity exactly, so full-width lanes run through the row entry points.
+/// Targets are built by member arithmetic (embedding lifts and generator
+/// powers) with prime-coordinate unit vectors at the top coordinates.
 #[test]
-fn above_64_degree_rows_match_the_scalar_loop() {
-    let compact = Embedding::<R3, G3e66>::new().expect("r3 embeds in g3e66");
-    let map = PreparedEmbedding::<R3, G3e66>::new(&compact);
-    assert_eq!(G3e66::DEGREE, 66, "the tower clears degree 64");
+fn at_cap_degree_rows_match_the_scalar_loop() {
+    let compact = Embedding::<R3, G3e64>::new().expect("r3 embeds in g3e64");
+    let map = PreparedEmbedding::<R3, G3e64>::new(&compact);
+    assert_eq!(G3e64::DEGREE, 64, "the tower lands on degree 64");
     // No `HasGenerator` on custom rows: powers of the lifted prime
     // element supply non-image targets beside the embedded members.
     let step = map.embed(Elem::<R3>::from_raw(2));
-    let mut powers = vec![Elem::<G3e66>::ONE];
+    let mut powers = vec![Elem::<G3e64>::ONE];
     for _ in 1..128 {
         powers.push(*powers.last().expect("a nonempty row") * step);
     }
-    let lifts: Vec<Elem<G3e66>> = staged::<R3>(64, 0x66)
+    let lifts: Vec<Elem<G3e64>> = staged::<R3>(64, 0x66)
         .iter()
         .map(|x| map.embed(*x))
         .collect();
-    // Target basis vectors past coordinate 63: prime-coordinate unit
-    // vectors assembled from `from_prime_coordinates`, verified by
-    // round-tripping through `prime_coordinates_into`.
-    let mut basis: Vec<Elem<G3e66>> = Vec::new();
-    // Target basis vectors past coordinate 63, assembled structurally
-    // (`from_index` caps at 64 lanes): unit G3e11 coordinates lifted
-    // through `from_components` at each level. Each unit round-trips
-    // through encode/decode to prove the lane.
-    for j in [0usize, 1, 10, 11, 32, 33, 63, 64, 65] {
-        // Coordinate j lives in quadratic half j/33 with G3e33 coordinate
-        // k = j%33: cubic slot k/11, G3e11 coordinate k%11.
-        let k = j % 33;
-        let unit11 = Elem::<G3e11>::from_index(3u128.pow((k % 11) as u32))
-            .expect("a unit index sits below the G3e11 order");
-        let (c0, c1, c2) = match k / 11 {
-            0 => (unit11, Elem::<G3e11>::ZERO, Elem::<G3e11>::ZERO),
-            1 => (Elem::<G3e11>::ZERO, unit11, Elem::<G3e11>::ZERO),
-            _ => (Elem::<G3e11>::ZERO, Elem::<G3e11>::ZERO, unit11),
-        };
-        let unit33 = <G3e33 as fgf::ExtensionField<3>>::from_components([c0, c1, c2]);
-        let unit = if j < 33 {
-            <G3e66 as fgf::ExtensionField<2>>::from_components([unit33, Elem::<G3e33>::ZERO])
+    // Prime-coordinate unit vectors at sampled coordinates through the top
+    // of the tower: coordinate j lives in quadratic half j/32 with G3e32
+    // coordinate k = j%32, halved again down to a G3e4 coordinate. Each
+    // unit round-trips through encode/decode to prove the lane.
+    let mut basis: Vec<Elem<G3e64>> = Vec::new();
+    for j in [0usize, 1, 3, 4, 7, 8, 15, 16, 31, 32, 63] {
+        let unit4 = Elem::<G3e4>::from_index(3u128.pow((j % 4) as u32))
+            .expect("a unit index sits below the G3e4 order");
+        let pair = |c0, c1| <G3e8 as fgf::ExtensionField<2>>::from_components([c0, c1]);
+        let u8lo = pair(unit4, Elem::<G3e4>::ZERO);
+        let u8hi = pair(Elem::<G3e4>::ZERO, unit4);
+        let unit8 = if (j / 4) % 2 == 0 { u8lo } else { u8hi };
+        let unit16 = if (j / 8) % 2 == 0 {
+            <G3e16 as fgf::ExtensionField<2>>::from_components([unit8, Elem::<G3e8>::ZERO])
         } else {
-            <G3e66 as fgf::ExtensionField<2>>::from_components([Elem::<G3e33>::ZERO, unit33])
+            <G3e16 as fgf::ExtensionField<2>>::from_components([Elem::<G3e8>::ZERO, unit8])
         };
-        let mut lane = vec![0u8; G3e66::BYTES];
-        G3e66::encode(&mut lane, unit);
-        assert_eq!(G3e66::decode(&lane), unit, "basis vector {j} round-trips");
+        let unit32 = if (j / 16) % 2 == 0 {
+            <G3e32 as fgf::ExtensionField<2>>::from_components([unit16, Elem::<G3e16>::ZERO])
+        } else {
+            <G3e32 as fgf::ExtensionField<2>>::from_components([Elem::<G3e16>::ZERO, unit16])
+        };
+        let unit = if j < 32 {
+            <G3e64 as fgf::ExtensionField<2>>::from_components([unit32, Elem::<G3e32>::ZERO])
+        } else {
+            <G3e64 as fgf::ExtensionField<2>>::from_components([Elem::<G3e32>::ZERO, unit32])
+        };
+        let mut lane = vec![0u8; G3e64::BYTES];
+        G3e64::encode(&mut lane, unit);
+        assert_eq!(G3e64::decode(&lane), unit, "basis vector {j} round-trips");
         basis.push(unit);
     }
     // High-coordinate probes come first: trace/norm rows consume at
     // most 65 lanes, so a prime-field-first pool would never exercise
-    // coordinates past 63.
-    let pool: Vec<Elem<G3e66>> = basis.iter().copied().chain(lifts).chain(powers).collect();
+    // the top coordinates.
+    let pool: Vec<Elem<G3e64>> = basis.iter().copied().chain(lifts).chain(powers).collect();
     // Mixed outsiders: step-multiples that fall outside the image, with
     // compact-map expectations per lane.
-    let rejected: Vec<Elem<G3e66>> = {
+    let rejected: Vec<Elem<G3e64>> = {
         let mut out = Vec::new();
         // The image is a subfield, closed under multiplication: probe
         // basis-vector sums, which leave the image at once.
@@ -578,23 +580,23 @@ fn above_64_degree_rows_match_the_scalar_loop() {
     };
     assert!(!rejected.is_empty(), "the tower admits outsiders");
     for &count in &[0usize, 1, 7, 8, 9, 65] {
-        let elems: Vec<Elem<G3e66>> = (0..count).map(|i| pool[i % pool.len()]).collect();
-        let src = encode_all::<G3e66>(&elems);
+        let elems: Vec<Elem<G3e64>> = (0..count).map(|i| pool[i % pool.len()]).collect();
+        let src = encode_all::<G3e64>(&elems);
         let mut expected = vec![0u8; count * R3::BYTES];
         for (d, s) in expected
             .chunks_exact_mut(R3::BYTES)
-            .zip(src.chunks_exact(G3e66::BYTES))
+            .zip(src.chunks_exact(G3e64::BYTES))
         {
-            R3::encode(d, compact.trace(G3e66::decode(s)));
+            R3::encode(d, compact.trace(G3e64::decode(s)));
         }
         let mut dst = vec![0xA5u8; count * R3::BYTES];
         ops::trace_into_with(&mut dst, &map, &src);
-        assert_eq!(dst, expected, "above-64 trace count {count}");
+        assert_eq!(dst, expected, "at-cap trace count {count}");
 
         // Mixed outsiders restrict to canonical zero with cleared bits,
         // per the compact map's own answers.
         {
-            let mixed: Vec<Elem<G3e66>> = (0..count)
+            let mixed: Vec<Elem<G3e64>> = (0..count)
                 .map(|i| {
                     if i % 2 == 0 {
                         pool[i % pool.len()]
@@ -603,16 +605,16 @@ fn above_64_degree_rows_match_the_scalar_loop() {
                     }
                 })
                 .collect();
-            let msrc = encode_all::<G3e66>(&mixed);
+            let msrc = encode_all::<G3e64>(&mixed);
             let mut mdst = vec![0xA5u8; count * R3::BYTES];
             let mut mvalid = vec![0xA5u8; bits::bytes_for(count)];
             ops::restrict_into_with(&mut mdst, &mut mvalid, &map, &msrc);
             for (i, (d, y)) in mdst
                 .chunks_exact(R3::BYTES)
-                .zip(msrc.chunks_exact(G3e66::BYTES))
+                .zip(msrc.chunks_exact(G3e64::BYTES))
                 .enumerate()
             {
-                let expect_compact = compact.restrict(G3e66::decode(y));
+                let expect_compact = compact.restrict(G3e64::decode(y));
                 let mut lane = vec![0u8; R3::BYTES];
                 match expect_compact {
                     Some(preimage) => {
@@ -624,7 +626,7 @@ fn above_64_degree_rows_match_the_scalar_loop() {
                         assert_eq!(mvalid[i / 8] >> (i % 8) & 1, 0, "mixed bit {i}");
                     }
                 }
-                assert_eq!(map.restrict(G3e66::decode(y)), expect_compact);
+                assert_eq!(map.restrict(G3e64::decode(y)), expect_compact);
                 assert_eq!(d, lane.as_slice(), "mixed lane {i} count {count}");
             }
         }
@@ -633,9 +635,9 @@ fn above_64_degree_rows_match_the_scalar_loop() {
         ops::norm_into_with(&mut ndst, &map, &src);
         for (lane, s) in ndst
             .chunks_exact(R3::BYTES)
-            .zip(src.chunks_exact(G3e66::BYTES))
+            .zip(src.chunks_exact(G3e64::BYTES))
         {
-            assert_eq!(R3::decode(lane), compact.norm(G3e66::decode(s)));
+            assert_eq!(R3::decode(lane), compact.norm(G3e64::decode(s)));
         }
 
         let mut edst = vec![0xA5u8; count * R3::BYTES];
@@ -643,57 +645,74 @@ fn above_64_degree_rows_match_the_scalar_loop() {
         ops::restrict_into_with(&mut edst, &mut valid, &map, &src);
         for (i, (d, s)) in edst
             .chunks_exact(R3::BYTES)
-            .zip(src.chunks_exact(G3e66::BYTES))
+            .zip(src.chunks_exact(G3e64::BYTES))
             .enumerate()
         {
-            let expected = map.restrict(G3e66::decode(s));
+            let expected = map.restrict(G3e64::decode(s));
             let mut lane = vec![0u8; R3::BYTES];
             match expected {
                 Some(preimage) => {
                     R3::encode(&mut lane, preimage);
-                    assert_eq!(valid[i / 8] >> (i % 8) & 1, 1, "above-64 bit {i}");
+                    assert_eq!(valid[i / 8] >> (i % 8) & 1, 1, "at-cap bit {i}");
                 }
                 None => {
                     R3::encode(&mut lane, Elem::<R3>::ZERO);
-                    assert_eq!(valid[i / 8] >> (i % 8) & 1, 0, "above-64 bit {i}");
+                    assert_eq!(valid[i / 8] >> (i % 8) & 1, 0, "at-cap bit {i}");
                 }
             }
-            assert_eq!(d, lane.as_slice(), "above-64 lane {i} count {count}");
+            assert_eq!(d, lane.as_slice(), "at-cap lane {i} count {count}");
         }
     }
 }
 
-struct G3e11Spec;
-impl ExtensionSpec<11> for G3e11Spec {
+struct G3e4Spec;
+impl ExtensionSpec<4> for G3e4Spec {
     type Base = R3;
     type Storage = Components;
-    const NAME: &'static str = "GF(3^11) as x^11 + 2x^9 + 1";
-    const RELATION: Relation = Relation::from_coordinates(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0]);
+    const NAME: &'static str = "GF(3^4) as x^4 + 2x^2 + 2";
+    const RELATION: Relation = Relation::from_coordinates(&[2, 0, 2, 0]);
 }
-type G3e11 = FiniteField<3, 11, Extension<G3e11Spec, 11>>;
-struct G3e33Spec;
-impl ExtensionSpec<3> for G3e33Spec {
-    type Base = G3e11;
+type G3e4 = FiniteField<3, 4, Extension<G3e4Spec, 4>>;
+struct G3e8Spec;
+impl ExtensionSpec<2> for G3e8Spec {
+    type Base = G3e4;
     type Storage = Components;
-    const NAME: &'static str = "GF(3^33) as x^3 + 2x + 1";
+    const NAME: &'static str = "GF(3^8) as t^2 - x";
+    const RELATION: Relation = Relation::from_coordinates(&[0, 1, 0, 0, 0, 0, 0, 0]);
+}
+type G3e8 = FiniteField<3, 8, Extension<G3e8Spec, 2>>;
+struct G3e16Spec;
+impl ExtensionSpec<2> for G3e16Spec {
+    type Base = G3e8;
+    type Storage = Components;
+    const NAME: &'static str = "GF(3^16) as t^2 - s^4";
+    const RELATION: Relation =
+        Relation::from_coordinates(&[0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+}
+type G3e16 = FiniteField<3, 16, Extension<G3e16Spec, 2>>;
+struct G3e32Spec;
+impl ExtensionSpec<2> for G3e32Spec {
+    type Base = G3e16;
+    type Storage = Components;
+    const NAME: &'static str = "GF(3^32) as t^2 - s^8";
     const RELATION: Relation = Relation::from_coordinates(&[
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0,
     ]);
 }
-type G3e33 = FiniteField<3, 33, Extension<G3e33Spec, 3>>;
-struct G3e66Spec;
-impl ExtensionSpec<2> for G3e66Spec {
-    type Base = G3e33;
+type G3e32 = FiniteField<3, 32, Extension<G3e32Spec, 2>>;
+struct G3e64Spec;
+impl ExtensionSpec<2> for G3e64Spec {
+    type Base = G3e32;
     type Storage = Components;
-    const NAME: &'static str = "GF(3^66) as t^2 + 1";
+    const NAME: &'static str = "GF(3^64) as t^2 - s^16";
     const RELATION: Relation = Relation::from_coordinates(&[
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0,
     ]);
 }
-type G3e66 = FiniteField<3, 66, Extension<G3e66Spec, 2>>;
+type G3e64 = FiniteField<3, 64, Extension<G3e64Spec, 2>>;
 
 /// Random-byte rows decode before the map runs: prepared rows equal the
 /// per-element scalar loop on unstructured input.

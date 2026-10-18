@@ -5,7 +5,7 @@
 //! [`ExtensionSpec`] is open and data-only: a base row, a storage
 //! selection, a name, and the relation. The defining relation is
 //! validated in const at first value use — the field metadata first
-//! (prime characteristic, binary degree cap, cardinality bound), then
+//! (prime characteristic, total degree cap, cardinality bound), then
 //! the base's validity, the characteristic agreement, the degree
 //! identity, the relation's length and coordinate range, storage
 //! admissibility, the descriptor capacity, and finally the

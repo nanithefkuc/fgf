@@ -1,8 +1,9 @@
 // expect: relation exceeds the coordinate capacity
-//! Eighty-one flattened coordinates exceed the relation capacity of eighty.
+//! Sixty-five flattened coordinates exceed the relation capacity of
+//! sixty-four.
 use fgf::Relation;
 
-const OVER: [u64; 81] = [0; 81];
+const OVER: [u64; 65] = [0; 65];
 const BAD: Relation = Relation::from_coordinates(&OVER);
 const CHECK: usize = BAD.to_coordinates().len();
 

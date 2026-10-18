@@ -33,7 +33,7 @@
 //! always crate-owned. A custom prime field is the family's degree-one row
 //! [`FiniteField<P, 1>`](FiniteField) over any checked `u64` prime. The
 //! central validation block checks the characteristic identity, a positive
-//! degree, `ORDER == CHARACTERISTIC^DEGREE`, and the binary degree cap of 64
+//! degree, `ORDER == CHARACTERISTIC^DEGREE`, and the total degree cap of 64
 //! before evaluating `VALID`. It runs from every generic constructor, so a
 //! row that misdeclares its metadata fails at value use:
 //!
@@ -231,10 +231,16 @@ pub(crate) fn coordinates_index(coordinates: &[u64], characteristic: u64) -> u12
 /// Splits a presentation index into flattened prime-subfield coordinates.
 ///
 /// The inverse of [`coordinates_index`]: `degree` base-`characteristic`
-/// digits, least significant first. Shared by the [`FieldElem::from_index`]
-/// blanket implementation.
-pub(crate) fn index_coordinates(index: u128, degree: u32, characteristic: u64) -> [u64; 64] {
-    let mut coordinates = [0u64; 64];
+/// digits, least significant first. The buffer is the shared coordinate
+/// capacity, so every degree at or under the total cap fits. Shared by the
+/// [`FieldElem::from_index`] blanket implementation.
+pub(crate) fn index_coordinates(
+    index: u128,
+    degree: u32,
+    characteristic: u64,
+) -> [u64; super::extension::descriptor::COORDINATES] {
+    use super::extension::descriptor::COORDINATES;
+    let mut coordinates = [0u64; COORDINATES];
     let mut rest = index;
     let mut i = 0;
     while i < degree {
@@ -800,8 +806,9 @@ impl<F: Field> FieldElem for Elem<F> {
 
     #[inline]
     fn to_index(self) -> u128 {
+        use crate::field::extension::descriptor::COORDINATES;
         let characteristic = <F::Characteristic as PrimeIdentity>::CHARACTERISTIC;
-        let mut coordinates = [0u64; 64];
+        let mut coordinates = [0u64; COORDINATES];
         F::prime_coordinates_into(&mut coordinates[..F::DEGREE as usize], self.raw);
         coordinates_index(&coordinates[..F::DEGREE as usize], characteristic)
     }
