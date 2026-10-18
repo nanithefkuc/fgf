@@ -1740,7 +1740,13 @@ mod x86 {
                 );
                 // Empty overwrite terms zero the named rows.
                 let mut zeroed = noise(span, 0xdb1);
-                x86::gf8::mul_into_matrix_at_avx512_with(token, &mut zeroed, row_len, &starts, empty);
+                x86::gf8::mul_into_matrix_at_avx512_with(
+                    token,
+                    &mut zeroed,
+                    row_len,
+                    &starts,
+                    empty,
+                );
                 for &start in &starts {
                     assert_eq!(
                         &zeroed[start..start + row_len],

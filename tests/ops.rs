@@ -812,7 +812,9 @@ fn gf8_matrix_scattered_prepared_matches_raw() {
     check_matrix_scattered_prepared_overwrite::<FiniteField<2, 8, Polynomial<AES>>>(
         "gf8-aes", 0x5e01,
     );
-    check_matrix_scattered_prepared_overwrite::<FiniteField<2, 8, Polynomial<RS>>>("gf8-rs", 0x5e02);
+    check_matrix_scattered_prepared_overwrite::<FiniteField<2, 8, Polynomial<RS>>>(
+        "gf8-rs", 0x5e02,
+    );
 }
 
 #[cfg(feature = "alloc")]
@@ -868,7 +870,13 @@ fn check_matrix_scattered_at_with_oracle<F: FieldKernels>(tag: &str, seed: u64) 
                 }
             }
             let mut prepared = base.clone();
-            ops::mul_add_matrix_at_with::<F>(&mut prepared, row_len, &row_starts, &matrix, &src_refs);
+            ops::mul_add_matrix_at_with::<F>(
+                &mut prepared,
+                row_len,
+                &row_starts,
+                &matrix,
+                &src_refs,
+            );
             assert_eq!(prepared, want, "{tag}: prepared rl={row_len} nrows={nrows}");
 
             // Overwrite from a noisy base equals zeroed accumulation.
@@ -888,7 +896,11 @@ fn check_matrix_scattered_at_with_oracle<F: FieldKernels>(tag: &str, seed: u64) 
             let mut planned = noise(stride * nrows, seed + 0x500);
             canon::<F>(&mut planned);
             ops::mul_into_matrix_at_with::<F>(
-                &mut planned, row_len, &row_starts, &matrix, &src_refs,
+                &mut planned,
+                row_len,
+                &row_starts,
+                &matrix,
+                &src_refs,
             );
             for &start in &row_starts {
                 assert_eq!(
@@ -2885,9 +2897,21 @@ fn zero_and_empty_inputs_are_well_defined() {
         &ops::CoeffMatrix::<FiniteField<2, 8, Polynomial<AES>>>::from_source_major(0, 2, &[]),
         &[],
     );
-    assert_eq!(&planned[0..8], &[0; 8], "empty-source matrix zeros named row 0");
-    assert_eq!(&planned[16..24], &[0; 8], "empty-source matrix zeros named row 1");
-    assert_eq!(&planned[8..16], frame_gap.as_slice(), "empty-source matrix leaves the gap");
+    assert_eq!(
+        &planned[0..8],
+        &[0; 8],
+        "empty-source matrix zeros named row 0"
+    );
+    assert_eq!(
+        &planned[16..24],
+        &[0; 8],
+        "empty-source matrix zeros named row 1"
+    );
+    assert_eq!(
+        &planned[8..16],
+        frame_gap.as_slice(),
+        "empty-source matrix leaves the gap"
+    );
 }
 
 #[test]

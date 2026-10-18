@@ -104,7 +104,9 @@ pub use map::{
     frobenius_into_with, norm_into_with, restrict_into_with, trace_into_with, unapply_into_with,
 };
 #[cfg(feature = "alloc")]
-pub use matrix::{mul_add_matrix_with, mul_add_matrix_at_with, mul_into_matrix_at_with, mul_into_matrix_with};
+pub use matrix::{
+    mul_add_matrix_at_with, mul_add_matrix_with, mul_into_matrix_at_with, mul_into_matrix_with,
+};
 #[cfg(feature = "alloc")]
 pub use packing::pack_to_vec;
 #[cfg(feature = "alloc")]

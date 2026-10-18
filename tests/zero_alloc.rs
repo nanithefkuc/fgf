@@ -192,10 +192,17 @@ fn mul_into_matrix_steady_state_allocates_nothing() {
         &mut rows, ROW_LEN, &matrix, &refs,
     );
     ops::mul_into_matrix_at::<FiniteField<2, 8, Polynomial<AES>>>(
-        &mut frame, ROW_LEN, &row_starts, &terms,
+        &mut frame,
+        ROW_LEN,
+        &row_starts,
+        &terms,
     );
     ops::mul_into_matrix_at_with::<FiniteField<2, 8, Polynomial<AES>>>(
-        &mut frame, ROW_LEN, &row_starts, &matrix, &refs,
+        &mut frame,
+        ROW_LEN,
+        &row_starts,
+        &matrix,
+        &refs,
     );
 
     let one_shot = count_allocations(|| {
@@ -214,16 +221,30 @@ fn mul_into_matrix_steady_state_allocates_nothing() {
 
     let scattered = count_allocations(|| {
         ops::mul_into_matrix_at::<FiniteField<2, 8, Polynomial<AES>>>(
-            &mut frame, ROW_LEN, &row_starts, &terms,
+            &mut frame,
+            ROW_LEN,
+            &row_starts,
+            &terms,
         );
         ops::mul_add_matrix_at::<FiniteField<2, 8, Polynomial<AES>>>(
-            &mut frame, ROW_LEN, &row_starts, &terms,
+            &mut frame,
+            ROW_LEN,
+            &row_starts,
+            &terms,
         );
         ops::mul_into_matrix_at_with::<FiniteField<2, 8, Polynomial<AES>>>(
-            &mut frame, ROW_LEN, &row_starts, &matrix, &refs,
+            &mut frame,
+            ROW_LEN,
+            &row_starts,
+            &matrix,
+            &refs,
         );
         ops::mul_add_matrix_at_with::<FiniteField<2, 8, Polynomial<AES>>>(
-            &mut frame, ROW_LEN, &row_starts, &matrix, &refs,
+            &mut frame,
+            ROW_LEN,
+            &row_starts,
+            &matrix,
+            &refs,
         );
     });
     assert_eq!(scattered, 0, "scattered matrix steady state allocated");
@@ -787,7 +808,13 @@ fn assert_extension_packed_surface_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
         ops::mul_into_gather_with::<F>(&mut gather_dst, vector.as_ref(), &refs);
         ops::mul_add_matrix_with::<F>(&mut matrix_rows, row_len, &matrix, &matrix_refs);
         ops::mul_add_matrix_at_with::<F>(&mut at_rows, row_len, &row_starts, &matrix, &matrix_refs);
-        ops::mul_into_matrix_at_with::<F>(&mut at_rows, row_len, &row_starts, &matrix, &matrix_refs);
+        ops::mul_into_matrix_at_with::<F>(
+            &mut at_rows,
+            row_len,
+            &row_starts,
+            &matrix,
+            &matrix_refs,
+        );
     });
     assert_eq!(allocations, 0, "generic extension packed surface allocated");
 }

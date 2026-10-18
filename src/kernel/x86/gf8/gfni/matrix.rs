@@ -237,7 +237,11 @@ pub fn mul_into_matrix_at_gfni_with<const NATIVE: bool, M: Matrix<Prepared> + ?S
 /// [`mul_add_matrix_impl`], with each row starting at an arbitrary disjoint
 /// offset.
 #[archmage::rite(v3_gfni_crypto)]
-fn mul_add_matrix_at_impl<const NATIVE: bool, M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
+fn mul_add_matrix_at_impl<
+    const NATIVE: bool,
+    M: Matrix<Prepared> + ?Sized,
+    const OVERWRITE: bool,
+>(
     dst: &mut [u8],
     row_len: usize,
     row_starts: &[usize],
