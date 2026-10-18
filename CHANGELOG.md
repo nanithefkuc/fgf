@@ -94,6 +94,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Removed
 
+- NEON and `simd128` acceleration: the `aarch64` and `wasm32` kernel
+  subtrees and their dispatch arms are gone, and `internals` no longer
+  exposes `kernel::{aarch64, wasm32}` or the `Neon`/`NeonAes`/`Wasm128`
+  tokens. AArch64 and Wasm32 targets compile and run the portable scalar
+  bodies; `backend_for::<F>()` reports `Backend::Scalar` for every field
+  there (`backend()` still reports `simdispatch`'s process selection).
 - Wiki migration guide from the withdrawn v3 release candidate.
 
 ### Fixed

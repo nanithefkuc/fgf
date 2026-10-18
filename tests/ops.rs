@@ -3769,28 +3769,33 @@ fn backend_reports_match_family_routes() {
         NormalBase16Row,
     );
 
-    // Polynomial byte fields follow the process backend on every
-    // architecture their kernels serve.
-    assert_eq!(backend_for::<FiniteField<2, 8, Polynomial<AES>>>(), process);
+    // Fan–Paar towers and polynomial byte fields follow the process backend
+    // on the x86 tiers their kernels serve; other targets run the portable
+    // scalar bodies.
+    let tier_or_scalar = |served: bool| if served { process } else { Backend::Scalar };
+    assert_eq!(
+        backend_for::<FiniteField<2, 8, Polynomial<AES>>>(),
+        tier_or_scalar(x86_tier)
+    );
     assert_eq!(
         has_vector_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(),
-        x86_tier || matches!(process, Backend::NeonAes | Backend::Neon | Backend::Wasm128),
+        x86_tier,
     );
-    assert_eq!(backend_for::<FiniteField<2, 8, Polynomial<RS>>>(), process);
+    assert_eq!(
+        backend_for::<FiniteField<2, 8, Polynomial<RS>>>(),
+        tier_or_scalar(x86_tier)
+    );
     assert_eq!(
         has_vector_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(),
         x86_tier,
     );
 
     // Rijndael towers: byte-multiply kernels on GFNI x86, nibble kernels on
-    // the shuffle tiers and NEON/Wasm. GF(2^16) alone carries vector
-    // elementwise (the vector formulas fold the relation's linear term,
-    // which the Rijndael relation pins to the base identity).
-    assert_eq!(backend_for::<Gf16>(), process);
-    assert_eq!(
-        has_vector_elementwise::<Gf16>(),
-        x86_tier || matches!(process, Backend::NeonAes | Backend::Neon | Backend::Wasm128),
-    );
+    // the shuffle tiers. GF(2^16) alone carries vector elementwise (the
+    // vector formulas fold the relation's linear term, which the Rijndael
+    // relation pins to the base identity).
+    assert_eq!(backend_for::<Gf16>(), tier_or_scalar(x86_tier));
+    assert_eq!(has_vector_elementwise::<Gf16>(), x86_tier,);
     assert_eq!(
         backend_for::<Gf32>(),
         if gfni { process } else { Backend::Scalar },
@@ -3802,8 +3807,6 @@ fn backend_reports_match_family_routes() {
     assert!(!has_vector_elementwise::<Gf32>());
     assert!(!has_vector_elementwise::<Gf64>());
 
-    // Fan–Paar towers: nibble and lane kernels on the x86 tiers only.
-    let tier_or_scalar = |served: bool| if served { process } else { Backend::Scalar };
     assert_eq!(backend_for::<FanPaar16Field>(), tier_or_scalar(x86_tier));
     assert_eq!(
         backend_for::<FanPaar32Field>(),

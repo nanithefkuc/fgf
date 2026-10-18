@@ -74,10 +74,11 @@ depends on a field's implemented backend.
 Safe scalar behavior is the differential oracle. Add or change the scalar path
 before an optimized path when no independent oracle exists.
 
-Architecture kernels stay under `src/kernel/{x86,aarch64,wasm32}/`. A kernel
-must take the exact Archmage capability token required by its instructions.
-Dispatch resolves and caches that token once. Helpers use `#[archmage::rite]`
-only within a token-proven entry.
+Architecture kernels stay under `src/kernel/x86/`; other targets compile
+and run the portable scalar bodies. A kernel must take the exact Archmage
+capability token required by its instructions. Dispatch resolves and caches
+that token once. Helpers use `#[archmage::rite]` only within a token-proven
+entry.
 
 Do not introduce module-level `#![allow(unsafe_code)]`. Every remaining unsafe
 item needs a narrow `#[allow(unsafe_code)]`, and every unsafe operation needs an
@@ -131,8 +132,6 @@ initialization, alignment, or aliasing. Each listed item has a per-item
 
 | Where | Why unsafe remains |
 |---|---|
-| `kernel/aarch64/gf8.rs`: `mul_add_scatter_impl`, `scatter_quad`, `mul_add_matrix_impl`, `matrix_quad`, `matrix_single` | The kernels update multiple rows selected by runtime offsets into one uniquely borrowed flat buffer. The checked entry proves each span and the rows' disjointness; safe Rust cannot express those offset-addressed mutable windows together. |
-| `kernel/aarch64/gf16.rs`: `xor_row`, `scatter_group`, `mul_add_scatter_impl`, `matrix_group`, `mul_add_matrix_impl` | The scatter and matrix bodies operate on grouped, disjoint row windows addressed within one live allocation. The entry establishes row bounds and disjointness, but the borrow checker cannot split rows selected by runtime offsets. |
 | `kernel/x86.rs`: `store_avx2`, `store_sse2` | The store helpers expose raw-pointer vector stores. Their callers prove each writable window; streaming stores additionally require 32-byte or 16-byte alignment and a fence before another thread observes the writes. |
 | `kernel/x86/gf16/ssse3.rs`: `mul_add_scatter_ssse3`, `scatter_rows`, `mul_add_matrix_ssse3_with`, `matrix_rows` | Scatter and matrix groups write row windows selected by offsets into one destination allocation. The entry validates the row span, complete rows, and source bounds; the bodies rely on pairwise-disjoint windows that safe Rust cannot represent as simultaneous slices. |
 | `kernel/x86/gf16/avx2.rs`: `mul_into_impl`, `mul_add_scatter_avx2`, `scatter_rows` | The overwrite lane uses the aligned streaming-store primitive: checked slices bound every lane, the peel proves alignment, and the caller fences the stores. The scatter group updates offset-addressed disjoint rows within one borrowed flat buffer. |
@@ -148,10 +147,6 @@ initialization, alignment, or aliasing. Each listed item has a per-item
 | `kernel/x86/gf8/avx512/scatter.rs`: `mul_add_scatter_impl`, `scatter_rows4`, `scatter_rows2`, `scatter_span` | 64-byte byte-field scatter groups update disjoint rows by offsets into one destination allocation. The checked entry proves each row's bounds and disjointness; the grouped bodies keep those windows across 64-byte reference loads/stores. Dispatched on `V4x` under `simd512`. |
 | `kernel/x86/gf8/avx512/matrix.rs`: `matrix_block`, `matrix_rows1`, `rows_tile4`, `rows_lane4`, `rows_tile2`, `rows_lane2`, `rows_tile1`, `rows_lane1`, `rows_resolved`, `rows_body`, `matrix_tail`, `matrix_at_block` | 64-byte byte-field matrix groups address rows by checked offsets into one region (contiguous or scattered), advanced to the start of a column block that lies inside each row. The entries prove each row in-bounds and pairwise disjoint; the tile bodies and tails preserve disjointness across 64-byte reference loads/stores. Direct tile and lane bodies use checked indexing on each captured provider source. `rows_resolved` additionally stages only the occupied prefix of `MaybeUninit` map-word/source arrays; it reinterprets exactly the prefix written before reading it. Dispatched on `V4x` under `simd512`. |
 | `external/gf16-bench/src/native.rs`: foreign declarations, `Native::new`, `complete_mul`, `leopard_mul`, `complete_region`, `complete_assign`, `leopard_region`, `Drop` | Benchmark-only C ABI calls require a live uniquely owned GF-Complete context, initialized Leopard tables, a retained CPU capability token, and checked buffer geometry. Native contexts cannot cross threads. The declaration proof matches the bridge ABI; each wrapper proves its memory, aliasing and feature obligations. |
-
-The `wasm32` kernel subtree retains no unsafe code: reference-based
-`v128_load`/`v128_store` over 16-byte chunk arrays and `split_at_mut` row
-groups express its memory access safely.
 
 ## Tests
 

@@ -32,8 +32,9 @@ alloc = []
 # `simdispatch` runtime detection selected by `simd`.
 std = ["alloc", "simdispatch/std"]
 # Runtime-dispatched SIMD kernels: v3_gfni_crypto / v3 / v2 on x86 (the
-# 64-byte AVX-512 tier needs `simd512`), neon_aes / neon on AArch64, and
-# `wasm128` on Wasm. Enabling also resolves the backend via `simdispatch`.
+# 64-byte AVX-512 tier needs `simd512`). Other targets compile and run the
+# portable scalar bodies. Enabling also resolves the backend via
+# `simdispatch`.
 simd = ["std", "dep:archmage"]
 # AVX-512 kernels for flat byte fields, Gf16, Mersenne31, Goldilocks, generic
 # residue rows, byte XOR, and GF(2) popcount use safe 512-bit reference intrinsics

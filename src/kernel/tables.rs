@@ -88,18 +88,6 @@ impl ScaleTable {
             hi,
         }
     }
-
-    #[cfg(all(feature = "simd", any(target_arch = "aarch64", target_arch = "wasm32")))]
-    /// The zero coefficient's tables: every entry is zero.
-    #[inline]
-    #[must_use]
-    pub const fn zeroed() -> Self {
-        Self {
-            coeff: 0,
-            lo: [0; 16],
-            hi: [0; 16],
-        }
-    }
 }
 
 /// Build the `VGF2P8AFFINEQB` matrix qword that multiplies by `coeff`.
@@ -176,15 +164,7 @@ pub(crate) trait ByteBanks: BinaryRepr<8> {
     const SCALE: &'static [ScaleTable; 256];
     /// The reduction byte the shift-and-reduce elementwise kernels consume:
     /// the low byte of the reference polynomial.
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     const REDUCTION_LOW: u8;
 }
 
@@ -197,15 +177,7 @@ pub(crate) const RIJNDAEL16_B: u8 = 0x20;
 
 impl<const POLY: u128> ByteBanks for Polynomial<POLY> {
     const SCALE: &'static [ScaleTable; 256] = Bank::<POLY>::SCALE;
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     const REDUCTION_LOW: u8 = (POLY & 0xFF) as u8;
 }
 
@@ -289,15 +261,7 @@ pub(crate) trait Gf8Data: BinaryRepr<8> {
     /// Consumed only by the x86 elementwise kernels; other targets keep the
     /// contract without reading it.
     #[allow(dead_code)]
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     const REDUCTION_LOW: u8;
 }
 
@@ -329,15 +293,7 @@ impl<const POLY: u128> Gf8Data for Polynomial<POLY> {
     const AFFINE: &'static [u64; 256] = Bank::<POLY>::AFFINE;
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     const ISOMORPHISM: Isomorphism = isomorphism::<POLY>();
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     const REDUCTION_LOW: u8 = Polynomial::<POLY>::REDUCTION_LOW;
 }
 
@@ -350,15 +306,7 @@ impl<const P: u128, const E: u8> Gf8Data for Normal<P, E> {
         forward: 0x0102_0408_1020_4080,
         inverse: 0x0102_0408_1020_4080,
     };
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     const REDUCTION_LOW: u8 = 0;
 }
 
@@ -371,15 +319,7 @@ impl<const P: u128, const SEED: u8> Gf8Data for Cantor<P, SEED> {
         forward: 0x0102_0408_1020_4080,
         inverse: 0x0102_0408_1020_4080,
     };
-    #[cfg(all(
-        feature = "simd",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "aarch64",
-            target_arch = "wasm32"
-        )
-    ))]
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     const REDUCTION_LOW: u8 = 0;
 }
 
@@ -537,9 +477,9 @@ impl TowerCoeff {
 
 /// Nibble tables for the four base-field factors of a GF(2^16) coefficient.
 ///
-/// Used by the shuffle backends (AVX2, SSSE3, NEON, Wasm), which have no
-/// byte-wide field multiply instruction and must emulate one per factor, and
-/// by every scalar tail. The tables come from the base representation's
+/// Used by the shuffle backends (AVX2, SSSE3), which have no byte-wide
+/// field multiply instruction and must emulate one per factor, and by every
+/// scalar tail. The tables come from the base representation's
 /// bank, so the payload is raw data: no representation or spec type reaches
 /// the kernels that consume it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -569,18 +509,6 @@ impl TowerTables {
                 bank[f2 as usize],
                 bank[f3 as usize],
             ],
-        }
-    }
-
-    #[cfg(all(feature = "simd", any(target_arch = "aarch64", target_arch = "wasm32")))]
-    /// The zero coefficient's resolved form: all-zero tables. Group arrays
-    /// start here; every slot is overwritten before it is read.
-    #[inline]
-    #[must_use]
-    pub const fn zero() -> Self {
-        Self {
-            coeff: 0,
-            factors: [ScaleTable::zeroed(); 4],
         }
     }
 

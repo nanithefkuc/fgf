@@ -68,8 +68,8 @@ table initialization. [Prepared coefficients](Prepared-coefficients) explains
 ownership and allocation evidence.
 
 The [README](https://github.com/nanithefkuc/fgf/blob/main/README.md#platforms)
-lists targets. Wasm SIMD additionally needs `+simd128` at build time and an
-execution environment supporting it. Cross-compilation is not execution proof.
+lists targets: SIMD kernels are x86-64 only and every other target runs the
+portable scalar bodies. Cross-compilation is not execution proof.
 
 ```sh
 just doctor
