@@ -13,6 +13,14 @@ exported are gone, and `Field` is sealed. Code locked to that artifact follows
 the same guide: the 2.x steps below apply, and the 3.0.1 changelog entries
 cover the remaining differences.
 
+For 3.0.2, apply the 2.x-to-3.0.1 migration below, then use `Isomorphism`
+for every equal-degree map: replace `Embedding::new`/`from_images` with
+`Isomorphism::new`/`from_images`, `embed` with `apply`, and `restrict` with
+`unapply`. `Isomorphism::from_embedding` and `to_embedding` are removed.
+Total extension degrees must not exceed 64. AArch64 and Wasm32 use portable
+scalar kernels. The [3.0.2 changelog](https://github.com/nanithefkuc/fgf/blob/v3.0.2/CHANGELOG.md)
+lists the complete changes.
+
 ## Replace field and element spellings together
 
 | Released 2.x field | 3.0.1 field |

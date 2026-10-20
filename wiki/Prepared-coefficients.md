@@ -85,7 +85,7 @@ reuse that state. Source-slice arrays and destination buffers are also
 caller-owned. First-use dispatch and table initialization are separate from
 the warmed steady-state contract.
 
-The [counting-allocator tests](https://github.com/nanithefkuc/fgf/blob/v3.0.1/tests/zero_alloc.rs)
+The [counting-allocator tests](https://github.com/nanithefkuc/fgf/blob/v3.0.2/tests/zero_alloc.rs)
 defend allocation promises; these examples check arithmetic, not allocation.
 `CoeffVec` and `CoeffMatrix` require `alloc`, not `std`.
 
@@ -94,5 +94,5 @@ defend allocation promises; these examples check arithmetic, not allocation.
 Serialize scalar coefficients, matrix dimensions, and source-major ordering.
 Rebuild preparation after loading; its opaque backend state is not a wire
 format. See [deployment](Features-and-deployment) for feature choices and the
-[ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) for prepared contracts.
+[ops reference](https://docs.rs/fgf/3.0.2/fgf/ops/index.html) for prepared contracts.
 

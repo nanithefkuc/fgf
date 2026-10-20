@@ -156,10 +156,10 @@ assert_eq!(
 );
 ```
 
-Run the [complete example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/embeddings.rs)
+Run the [complete example](https://github.com/nanithefkuc/fgf/blob/v3.0.2/examples/embeddings.rs)
 with `just example embeddings`, and the
-[basis-maps example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/basis_maps.rs)
+[basis-maps example](https://github.com/nanithefkuc/fgf/blob/v3.0.2/examples/basis_maps.rs)
 with `just example basis_maps` for the ordered-basis presentations. The
-[embedding reference](https://docs.rs/fgf/3.0.1/fgf/field/embedding/index.html)
+[embedding reference](https://docs.rs/fgf/3.0.2/fgf/field/embedding/index.html)
 owns map construction and error contracts.
 

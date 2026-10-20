@@ -23,7 +23,7 @@ For portable prepared operations:
 
 ```toml
 [dependencies]
-fgf = { version = "=3.0.1", default-features = false, features = ["alloc"] }
+fgf = { version = "=3.0.2", default-features = false, features = ["alloc"] }
 ```
 
 Omit `features = ["alloc"]` for scalar arithmetic and caller-owned storage
@@ -94,6 +94,6 @@ Checked APIs can panic on invalid geometry. A multi-call workflow can have
 written output before a later call fails; it is not transactional. Arithmetic
 is variable-time and requires an independent audit before handling secrets.
 
-The [kernel reference](https://docs.rs/fgf/3.0.1/fgf/kernel/index.html) owns backend
+The [kernel reference](https://docs.rs/fgf/3.0.2/fgf/kernel/index.html) owns backend
 query contracts. [BENCHMARKS.md](https://github.com/nanithefkuc/fgf/blob/main/BENCHMARKS.md)
 owns measured results and reproduction, including per-operation residue routes.

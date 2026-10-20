@@ -1,7 +1,7 @@
 # fgf guides
 
 Define a field, compute with `Elem<F>`, then apply the same arithmetic to packed
-buffers. These guides use 3.0.1 as the base v3 release and require Rust 1.93 or later.
+buffers. These guides use 3.0.2 and require Rust 1.93 or later.
 
 > This library is AI-assisted and requires independent audit. Arithmetic is
 > variable-time; safe Rust does not make it suitable for secret data.
@@ -19,7 +19,7 @@ buffers. These guides use 3.0.1 as the base v3 release and require Rust 1.93 or 
 
 [Operation suffixes](Operation-suffixes) is the naming reference. Exact
 signatures, panics, and invariants belong to the
-[API reference](https://docs.rs/fgf/3.0.1/fgf/).
+[API reference](https://docs.rs/fgf/3.0.2/fgf/).
 
 ## A linear combination
 
@@ -53,7 +53,7 @@ The application supplies coefficients and recovery decisions; `fgf` is not a cod
 
 Rust blocks are self-contained unless marked as historical text; pages identify
 `alloc` requirements. Local type aliases are examples, not extra crate exports.
-The [example programs](https://github.com/nanithefkuc/fgf/tree/v3.0.1/examples)
+The [example programs](https://github.com/nanithefkuc/fgf/tree/v3.0.2/examples)
 run from a checkout with `just example NAME` or `just examples`.
 
 [Installation](https://github.com/nanithefkuc/fgf/blob/main/README.md),
