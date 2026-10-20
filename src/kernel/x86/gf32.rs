@@ -26,8 +26,6 @@ use crate::field::binary::tower::{Rijndael16Field, Rijndael32Field};
 use crate::kernel::scalar;
 use crate::kernel::tables::{Tower2Coeff, TowerCoeff};
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

@@ -11,9 +11,6 @@
 use super::super::check_gather;
 use super::{bmul_gfni, brem_gfni};
 use crate::kernel::gf8::Coeffs;
-
-#[cfg(target_arch = "x86")]
-use core::arch::x86::__m256i;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::__m256i;
 

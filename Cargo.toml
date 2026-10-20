@@ -7,14 +7,13 @@ description = "Faster Galois Fields: SIMD and portable finite-field arithmetic (
 license = "MIT"
 repository = "https://github.com/nanithefkuc/fgf"
 readme = "README.md"
-homepage = "https://github.com/nanithefkuc/fgf"
 # Intentional package allowlist: the library source, the declared bench and
 # example targets, and the public doc set. Local tooling state, planning
 # notes, CI definitions, contributor guides, the test suite, and
 # `external` never enter `cargo package`.
 include = [
     "src/**",
-    "benches/*.rs",
+    "benches/**/*.rs",
     "examples/**",
     "/README.md",
     "/CHANGELOG.md",
@@ -31,7 +30,7 @@ alloc = []
 # Standard library. Required for the lazily-built shared table banks and the
 # `simdispatch` runtime detection selected by `simd`.
 std = ["alloc", "simdispatch/std"]
-# Runtime-dispatched SIMD kernels: v3_gfni_crypto / v3 / v2 on x86 (the
+# Runtime-dispatched SIMD kernels: v3_gfni_crypto / v3 / v2 on x86_64 (the
 # 64-byte AVX-512 tier needs `simd512`), neon_aes / neon on AArch64, and
 # `wasm128` on Wasm. Enabling also resolves the backend via `simdispatch`.
 simd = ["std", "dep:archmage"]
@@ -53,7 +52,7 @@ archmage = { version = "=0.9.29", optional = true }
 # buildable.
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 # The QuadMersenne31 harness (`benches/prime_ntt.rs`) is the one statistical
-# measurement in the crate; x86-only, gated on `internals`.
+# measurement in the crate; x86_64-only, gated on `internals`.
 criterion = "0.8"
 
 [profile.bench]
@@ -75,6 +74,11 @@ required-features = ["std", "simd", "internals"]
 
 [[bench]]
 name = "compare"
+harness = false
+required-features = ["std", "simd", "internals"]
+
+[[bench]]
+name = "surfaces"
 harness = false
 required-features = ["std", "simd", "internals"]
 

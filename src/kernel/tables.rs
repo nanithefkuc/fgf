@@ -25,7 +25,7 @@
 //! whole buffer, or hoisted out entirely with `Coeff`/`CoeffVec`.
 
 use crate::field::FiniteField;
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::field::binary::tower::FanPaar8Field;
 use crate::field::binary::tower::{FanPaar16Field, Rijndael16Field};
 use crate::field::binary::{AES, BinaryRepr, Polynomial};
@@ -179,7 +179,6 @@ pub(crate) trait ByteBanks: BinaryRepr<8> {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -189,7 +188,7 @@ pub(crate) trait ByteBanks: BinaryRepr<8> {
 }
 
 /// The AES nibble bank, shared by the GF(2^16) elementwise dispatch arms.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(crate) const AES_BANK: &[ScaleTable; 256] = Bank::<AES>::SCALE;
 
 /// The Rijndael16 relation's constant byte, `t^2 + t + 0x20`.
@@ -200,7 +199,6 @@ impl<const POLY: u128> ByteBanks for Polynomial<POLY> {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -282,7 +280,7 @@ pub(crate) trait Gf8Data: BinaryRepr<8> {
     /// Affine map words per coefficient, or placeholders for basis roots.
     const AFFINE: &'static [u64; 256];
     /// Isomorphism onto AES, or the identity for basis roots.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const ISOMORPHISM: Isomorphism;
     /// Reduction byte for shift/reduce tails, or zero for basis roots.
     ///
@@ -292,7 +290,6 @@ pub(crate) trait Gf8Data: BinaryRepr<8> {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -327,12 +324,11 @@ impl<const POLY: u128> Gf8Data for Polynomial<POLY> {
     const AES_NATIVE: bool = POLY == AES;
     const SCALE: &'static [ScaleTable; 256] = Bank::<POLY>::SCALE;
     const AFFINE: &'static [u64; 256] = Bank::<POLY>::AFFINE;
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const ISOMORPHISM: Isomorphism = isomorphism::<POLY>();
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -345,7 +341,7 @@ impl<const P: u128, const E: u8> Gf8Data for Normal<P, E> {
     const AES_NATIVE: bool = false;
     const SCALE: &'static [ScaleTable; 256] = &DUMMY_SCALE;
     const AFFINE: &'static [u64; 256] = &DUMMY_AFFINE;
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const ISOMORPHISM: Isomorphism = Isomorphism {
         forward: 0x0102_0408_1020_4080,
         inverse: 0x0102_0408_1020_4080,
@@ -353,7 +349,6 @@ impl<const P: u128, const E: u8> Gf8Data for Normal<P, E> {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -366,7 +361,7 @@ impl<const P: u128, const SEED: u8> Gf8Data for Cantor<P, SEED> {
     const AES_NATIVE: bool = false;
     const SCALE: &'static [ScaleTable; 256] = &DUMMY_SCALE;
     const AFFINE: &'static [u64; 256] = &DUMMY_AFFINE;
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const ISOMORPHISM: Isomorphism = Isomorphism {
         forward: 0x0102_0408_1020_4080,
         inverse: 0x0102_0408_1020_4080,
@@ -374,7 +369,6 @@ impl<const P: u128, const SEED: u8> Gf8Data for Cantor<P, SEED> {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -584,7 +578,7 @@ impl TowerTables {
         }
     }
 
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     /// The broadcast-pair form of this coefficient, recovered from the four
     /// factor tables: the materialized-table provider's compact accessor.
     #[inline]
@@ -618,13 +612,13 @@ impl TowerTables {
     }
 
     /// The `same` broadcast's two factor bytes.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const fn same_bytes(&self) -> [u8; 2] {
         [self.factors[0].coeff, self.factors[1].coeff]
     }
 
     /// The `cross` broadcast's two factor bytes.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const fn cross_bytes(&self) -> [u8; 2] {
         [self.factors[2].coeff, self.factors[3].coeff]
     }
@@ -663,7 +657,7 @@ pub struct FpScaleTable {
     pub hi: [u8; 16],
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 impl FpScaleTable {
     /// Build the nibble tables for `coeff` in the Fan–Paar byte field.
     #[must_use]
@@ -689,10 +683,10 @@ impl FpScaleTable {
 /// A separate bank from the AES bank: the Fan–Paar byte field is a different
 /// field, so its products are different bytes. 8 KiB, resident in L1/L2,
 /// touched only by Fan–Paar kernels.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 static FP_SCALE_TABLE_BANK: [FpScaleTable; 256] = build_fp_bank();
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[allow(clippy::cast_possible_truncation)]
 const fn build_fp_bank() -> [FpScaleTable; 256] {
     let mut bank = [FpScaleTable::new(Elem::<FanPaar8Field>::from_raw(0)); 256];
@@ -705,7 +699,7 @@ const fn build_fp_bank() -> [FpScaleTable; 256] {
 }
 
 /// Return the shared nibble tables for a Fan–Paar byte coefficient.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[inline]
 #[must_use]
 pub fn fp_scale_table(coeff: Elem<FanPaar8Field>) -> &'static FpScaleTable {
@@ -721,7 +715,7 @@ pub fn fp_scale_table(coeff: Elem<FanPaar8Field>) -> &'static FpScaleTable {
 /// tables, not the field they encode, so this trait lets the two fields share
 /// that core. Entries 0 and 1 apply to the source's even and odd byte lanes;
 /// 2 and 3 to the swapped source's.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(crate) trait NibbleFactors {
     /// The low-nibble table of factor `i` (`0 <= i < 4`).
     fn lo(&self, i: usize) -> &[u8; 16];
@@ -729,7 +723,7 @@ pub(crate) trait NibbleFactors {
     fn hi(&self, i: usize) -> &[u8; 16];
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 impl NibbleFactors for TowerTables {
     #[inline]
     fn lo(&self, i: usize) -> &[u8; 16] {
@@ -769,7 +763,7 @@ pub struct FpTowerTables {
 
 impl FpTowerTables {
     /// Build the four byte nibble tables for `coeff`.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     #[inline]
     #[must_use]
     pub fn new(coeff: Elem<FanPaar16Field>) -> Self {
@@ -788,7 +782,7 @@ impl FpTowerTables {
         }
     }
 }
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 impl NibbleFactors for FpTowerTables {
     #[inline]
     fn lo(&self, i: usize) -> &[u8; 16] {
@@ -918,7 +912,7 @@ mod tests {
         check_bank::<0x187>();
     }
 
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     #[test]
     fn fan_paar_nibble_tables_match_the_tower_recurrence() {
         use crate::field::binary::tower::fp_multiply;

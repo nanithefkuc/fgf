@@ -16,8 +16,6 @@
 use super::super::gfni::{mul_elementwise_assign_gfni, mul_elementwise_gfni};
 use crate::kernel::tables::Isomorphism;
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

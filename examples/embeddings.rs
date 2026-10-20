@@ -4,7 +4,9 @@
 //! `--no-default-features`. `Embedding<S, T>` prepares one canonical
 //! inclusion through the frozen reference ladder; construction and
 //! application allocate nothing, and repeated application reuses the
-//! prepared columns without rebuilding them.
+//! prepared columns without rebuilding them. Stored images rebuild a map
+//! through `from_images`, and `then` composes inclusions by image
+//! transport.
 
 #![forbid(unsafe_code)]
 
@@ -113,6 +115,21 @@ fn main() {
     }
     assert_eq!(frobenius, lifted);
     println!("Gf16 z={z} lifts into GF(2^64) as {lifted}; four Frobenius steps return it.");
+
+    // Stored images rebuild the map: from_images accepts to_images's
+    // order, and the rebuilt embedding agrees with the prepared one.
+    let rebuilt = Embedding::<Aes, Gf16>::from_images(tower.to_images()).unwrap();
+    assert_eq!(rebuilt.embed(lo), tower.embed(lo));
+
+    // Composition chains by image transport: tower.then(&wide) is the
+    // AES-into-GF(2^64) inclusion, and it commutes with the steps.
+    let ladder = tower.then(&wide);
+    assert_eq!(ladder.embed(lo), wide.embed(tower.embed(lo)));
+    assert_eq!(
+        ladder.embed(lo),
+        Embedding::<Aes, Gf64>::new().unwrap().embed(lo)
+    );
+    println!("tower.then(&wide) composes into one AES-into-GF(2^64) inclusion.");
 
     // Embedding<Gf1, T> carries the absolute trace and norm.
     let absolute = Embedding::<Gf1, Gf16>::new().unwrap();

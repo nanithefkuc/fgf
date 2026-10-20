@@ -7,7 +7,7 @@ use crate::native::Native;
 
 type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
 
-fn polynomial_mul(mut a: u32, mut b: u32, polynomial: u32, bits: u32) -> u16 {
+pub(crate) fn polynomial_mul(mut a: u32, mut b: u32, polynomial: u32, bits: u32) -> u16 {
     let mut result = 0;
     for _ in 0..bits {
         if b & 1 != 0 {

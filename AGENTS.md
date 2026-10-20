@@ -17,18 +17,32 @@ just cross-check       # AArch64 and Wasm library compilation
 just compile-fail      # negative consumer snippets must fail to compile
 just msrv-accept       # compile-fail plus the consumer matrix on the MSRV
 just msrv-locked       # locked published dependencies, outside umbrella patches
+just package-check     # isolated archive build and portable example execution
 just lint              # rustfmt and clippy at both feature ends
 just doc               # rustdoc with warnings denied
 just unsafe-check-gfni # owned-unsafe GFNI Miri cases
 just cover             # merged per-tier coverage, 95% minimum
 just cover-lcov        # export merged coverage profiles to coverage.lcov
-just validate          # complete pull-request gate
+just validate          # shared correctness and coverage gate
+just release-accept    # crate-specific release checks, including native fixtures
+just test-gather-validation-32 # i686 release regression, overflow checks disabled
+just backend-report    # requested, resolved, and representative field backends
+just isa-accept TIER   # fail-closed native execution evidence and tier sweep
+just benchmark-check  # portable fixtures and compiler-derived API coverage
+just benchmark-check-native # native GF16 fixtures on capable hosts
 just example NAME [ARGS] # one educational example, with Cargo options
 just examples [ARGS]     # all educational examples, excluding timing probes
+just examples-portable   # examples with the library's alloc/std features disabled
 ```
 
-`just validate` does not run the GFNI Miri recipe; CI runs
-`just unsafe-check-gfni` as a separate job.
+`just validate` is the shared gate, not every crate-specific CI or release
+check. `just release-accept` includes the separate GFNI Miri, feature, MSRV,
+cross-target, packaged-archive, example, benchmark-fixture, and 32-bit checks.
+Publication dry-run and native tier acceptance remain explicit final steps.
+`test-gather-validation-32` needs a 32-bit linker (`gcc-multilib` on Linux).
+Native GF16 fixture execution requires the documented AVX2/GFNI/crypto host.
+`benchmark-check` uses nightly rustdoc JSON to derive the stable callable set
+independently of the benchmark's advertised inventory.
 
 Run `just validate` before submitting a change. Do not replace a recipe with a
 bare Cargo command; fix the recipe when its supported behavior is insufficient.
@@ -191,14 +205,17 @@ or exact panic prose.
 may resolve to another supported tier; inspect reported backends before treating
 a green run as ISA coverage.
 
-Coverage excludes the x86 binary-field kernel subtrees and the GFNI dispatch
-arms in `kernel/gf8.rs` and `kernel/tower.rs`, which require GFNI unavailable
-on the GitHub-hosted coverage runner. It also excludes
+Coverage excludes the complete x86 binary-field kernel subtrees
+(`gf8`, `gf16`, `gf32`, `gf64`) and the complete `kernel/gf8.rs` and
+`kernel/tower.rs` dispatch modules. These file-level exclusions also omit
+SSSE3/AVX2 kernels and portable dispatch branches; they are not a claim that
+every excluded line requires GFNI. The 95% gate applies to the remaining scope.
 `kernel/x86/quad_mersenne31/avx512.rs` and
-`kernel/x86/residue/avx512.rs` with its child subtree: their AVX-512
-instructions cannot execute on that runner. The AVX2 residue kernels and
-mixed-ISA prime dispatch modules remain included. Direct AVX-512
-differentials run on capable hosts.
+`kernel/x86/residue/avx512.rs` with its child subtree are also excluded because
+their AVX-512 instructions cannot execute on the hosted coverage runner.
+The AVX2 residue kernels and mixed-ISA prime dispatch modules remain included.
+Direct differentials, with positive execution markers and resolved-backend
+checks, provide separate acceptance evidence on capable hosts.
 Keep `COV_IGNORE` narrow and document every exclusion here.
 
 ## Benchmarks
@@ -239,6 +256,16 @@ kernels per row length; it measures the dispatch thresholds in
 `src/kernel/quad_mersenne31.rs` and is not part of the public benchmark
 record.
 
+`surfaces` covers the stable scalar, representation, packing, bit-buffer,
+prepared-coefficient, row-operation, capability-query, and map callables.
+Its inventory is checked against compiler-derived rustdoc JSON, not a second
+hand-maintained list of the same cases. `--check` exercises every fixture
+without timing; `--smoke` shortens sampling without removing cases.
+Metadata/query latencies include a timer-floor control. Representative
+presentations distinguish arithmetic, storage, and special routing classes;
+an infinite set of prime or relation parameters is not a finite case inventory.
+
+
 Every external competitor harness lives in `external/`, one separate
 unpublished package per harness with its own `build.rs`, outside `src/` and
 `benches/` because linking the competitor needs a build script and `fgf`
@@ -277,9 +304,11 @@ Its representation maps are bijective and preserve every basis product;
 independent scalar arithmetic validates every native scalar and timed region.
 Single-row cases cover fixed and cycling coefficients. Multi-row competitors
 compose native region operations; unsupported primitives remain absent.
-The duplicate fgf arm in every case measures bias. Each sampling cycle covers
-every arm permutation, and each arm warms immediately before its timed batch.
-Sampling stops only after a complete permutation cycle.
+The duplicate fgf arm in every case measures bias. Arm orders follow a
+Williams balanced Latin square: within one cycle every arm takes every
+position and directly follows every other arm equally often. Each arm warms
+immediately before its timed batch, and sampling stops only at a cycle
+boundary.
 `bench-gf16-comp` runs the targeted five-round campaign; `bench-gf-comp`
 includes the same harness in its shuffled binary-field rounds. `gf16-check`
 validates all geometries without timing, `gf16-smoke` exercises a short panel,
@@ -292,35 +321,42 @@ must stay outside the timed region. Record the CPU, OS, Rust version, selected
 backend, geometry, command, and aggregation rule in the benchmark record. Never
 reuse an old number or claim a performance change from an unpinned run.
 
-The benchmark record contains current snapshots and same-session comparisons,
-not an appended tuning ledger. `bench-paired` refreshes all four released-v2
-and current-v3 families, their competitors, and the v3-only generic residue
-family in one session. Five rounds interleave versions; residue rounds rotate
-one current artifact through the requested tier, AVX2, and scalar requests.
+The public benchmark record contains current snapshots, not an appended tuning
+ledger. `bench-paired` captures all four released-v2 and current-v3 families,
+their competitors, the v3-only residue family, and the current-only public,
+map, and GF16-presentation surfaces in one session.
+Five rounds interleave versions; residue rounds rotate one current artifact
+through the requested tier, AVX2, and scalar requests. New public surfaces
+have no artificial released-v2 counterpart.
 Every published case is the median of five per-run medians. Competitor arms
 interleave inside their harness. Direct-kernel timings and threshold
 investigations stay out of the public record.
 
-`BENCHMARKS.md` indexes six matched families under `benchmarks/v2/`,
-`benchmarks/v3/`, and `benchmarks/comparison/`, plus the v3 residue snapshot
-and its backend comparison. The residue comparison is not a released-v2
-comparison. Root metadata fixes Willow/Golden display order and explicitly
+`BENCHMARKS.md` indexes the current library's field families, public operations,
+maps, and GF16 presentations under `benchmarks/v3/`. Public results exclude
+released-v2 snapshots and version/backend-factor tables; raw samples remain.
+Root metadata fixes Willow/Golden display order and explicitly
 marks unavailable hosts with `available: false` and a reason; those hosts
 have no fabricated logs or reused historical cells. Available hosts must
 provide every round. Environment, source/build digests, original logs,
 completion markers, and generated cell evidence remain in `bench-records/`.
+Native acceptance runs on the identified Willow Cove/V4x and
+Golden Cove/V3GfniCrypto hosts. Backend requests must resolve as expected;
+positive differential markers establish execution instead of treating skips
+as evidence. A source or harness change after capture requires new evidence.
+
 `benchmarks/labels.md` defines canonical field labels, exact API mappings,
 recursive tower coefficients, and packing conventions.
 
-Snapshot pages contain setup, public self-timings, competitor panels, and
-caveats. Family pages without competitor measurements say so. Comparison
-pages use semantic operations and explicit geometry; missing version
-counterparts have no factor. Residue pages pivot lengths into columns and
-group operation panels with expandable details, without dropping public
-geometries or duplicating earlier campaigns. Backend factors use matched
-unrounded latency aggregates; regressions remain visible.
+Snapshot pages lead with operation navigation and keep setup/backend details
+expandable. Shared geometry is prose; varying counts occupy named columns.
+Public operations split into task pages with fields down the rows and exact
+callables in expandable details. Preserve every measured case and native arm.
+Family pages without competitor measurements say so. Wide size sweeps split
+without dropping geometries. SVG overviews under `benchmarks/charts/` use
+shared zero-based scales and explicitly label their workload and size.
 
-The publisher generates all snapshots and comparisons together and verifies
+The publisher generates all current pages and charts together and verifies
 their bytes and cell evidence with `--verify`. It rejects incomplete
 available-host runs, changed workload inventories, invalid timing values,
 missing controls or competitors, and backend mismatches.

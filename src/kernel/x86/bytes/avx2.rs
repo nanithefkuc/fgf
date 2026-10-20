@@ -72,7 +72,9 @@ fn xor_impl(dst: &mut [u8], src: &[u8]) {
 /// 64-byte rows.
 ///
 /// # Panics
-/// Panics if any offset plus `dst.len()` exceeds the region length.
+/// Panics if any offset plus `dst.len()` exceeds the region length. Every
+/// offset is checked, with overflow-safe arithmetic, before any destination
+/// byte is written — the wide and tail fallback included.
 #[archmage::arcane(import_intrinsics)]
 pub fn xor_gather_avx2(
     token: archmage::X64V3Token,
@@ -80,27 +82,29 @@ pub fn xor_gather_avx2(
     dst: &mut [u8],
     offsets: &[u32],
 ) {
+    // Every source is validated before the shape branch: a rejected later
+    // offset must leave the destination untouched in the per-source fallback
+    // too, and the wrap must be caught where overflow checks are off.
+    let live = dst.len();
+    for (index, &start) in offsets.iter().enumerate() {
+        let start = start as usize;
+        let end = start
+            .checked_add(live)
+            .expect("xor_gather_avx2: offset + length overflows");
+        assert!(
+            end <= region.len(),
+            "xor_gather_avx2: offset {index} ({start}) + {live} exceeds region of {} bytes",
+            region.len(),
+        );
+    }
     let whole = dst.len() & !31;
     let tail = dst.len() - whole;
     if whole == 0 || whole > 8 * 32 || tail != 0 {
         for &start in offsets {
             let start = start as usize;
-            assert!(
-                start + dst.len() <= region.len(),
-                "xor_gather_avx2: source out of region bounds",
-            );
-            xor_avx2(token, dst, &region[start..start + dst.len()]);
+            xor_avx2(token, dst, &region[start..start + live]);
         }
         return;
-    }
-    for (index, &start) in offsets.iter().enumerate() {
-        let start = start as usize;
-        assert!(
-            start + dst.len() <= region.len(),
-            "xor_gather_avx2: offset {index} ({start}) + {} exceeds region of {} bytes",
-            dst.len(),
-            region.len(),
-        );
     }
     let (dst_lanes, _) = dst.as_chunks_mut::<32>();
     for (lane, dst_lane) in dst_lanes.iter_mut().enumerate() {

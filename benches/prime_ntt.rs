@@ -16,11 +16,7 @@
 //! FEC_GOLDEN_CORE=3 just _bench-run prime_ntt mul_into/2048
 //! ```
 
-#[cfg(all(
-    feature = "internals",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
+#[cfg(all(feature = "internals", feature = "simd", target_arch = "x86_64"))]
 mod imp {
     use std::hint::black_box;
     use std::sync::Once;
@@ -266,18 +262,10 @@ mod imp {
     );
 }
 
-#[cfg(all(
-    feature = "internals",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
+#[cfg(all(feature = "internals", feature = "simd", target_arch = "x86_64"))]
 criterion::criterion_main!(imp::benches);
 
-#[cfg(not(all(
-    feature = "internals",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-)))]
+#[cfg(not(all(feature = "internals", feature = "simd", target_arch = "x86_64")))]
 fn main() {
-    eprintln!("skipping: QM31 AVX2 comparison is x86 SIMD-only");
+    eprintln!("skipping: QM31 AVX2 comparison is x86_64 SIMD-only");
 }

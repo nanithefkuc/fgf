@@ -1,4 +1,4 @@
-//! Generic residue-lane kernels for x86 / `x86_64`.
+//! Generic residue-lane kernels for `x86_64`.
 //!
 //! The field buffer owns little-endian lanes sized by the modulus. The
 //! `avx2` and `avx512` subtrees split by operation shape into `single`

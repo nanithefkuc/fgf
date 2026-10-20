@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 599" role="img" aria-labelledby="title description">
+<title id="title">gf8b: packed operations at 256 KiB</title>
+<desc id="description">Throughput in GiB/s; higher is better. Both hosts share a linear scale starting at zero. Exact measurements appear in the tables below.</desc>
+<rect width="960" height="599" fill="#fff"/>
+<g font-family="system-ui, sans-serif" fill="#172033">
+<text x="20" y="28" font-size="20" font-weight="600">gf8b: packed operations at 256 KiB</text>
+<rect x="20" y="45" width="12" height="12" fill="#2563eb"/>
+<text x="40" y="56" font-size="14">Willow Cove (i5-1135G7)</text>
+<rect x="480" y="45" width="12" height="12" fill="#b45309"/>
+<text x="500" y="56" font-size="14">Golden Cove (i7-12700K)</text>
+<path d="M260.00 85 V569" stroke="#d9dee7"/>
+<text x="260.00" y="78" text-anchor="middle" font-size="12">0.0</text>
+<path d="M405.00 85 V569" stroke="#d9dee7"/>
+<text x="405.00" y="78" text-anchor="middle" font-size="12">18.4</text>
+<path d="M550.00 85 V569" stroke="#d9dee7"/>
+<text x="550.00" y="78" text-anchor="middle" font-size="12">36.7</text>
+<path d="M695.00 85 V569" stroke="#d9dee7"/>
+<text x="695.00" y="78" text-anchor="middle" font-size="12">55.1</text>
+<path d="M840.00 85 V569" stroke="#d9dee7"/>
+<text x="840.00" y="78" text-anchor="middle" font-size="12">73.5</text>
+<text x="248" y="117" text-anchor="end" font-size="14">add_assign</text>
+<rect x="260" y="100" width="251.87" height="16" fill="#2563eb"><title>Willow Cove (i5-1135G7): 31.912 GiB/s</title></rect>
+<text x="517.87" y="113" font-size="12">31.9</text>
+<rect x="260" y="120" width="482.15" height="16" fill="#b45309"><title>Golden Cove (i7-12700K): 61.089 GiB/s</title></rect>
+<text x="748.15" y="133" font-size="12">61.1</text>
+<text x="248" y="175" text-anchor="end" font-size="14">add_assign_scalar</text>
+<rect x="260" y="158" width="328.64" height="16" fill="#2563eb"><title>Willow Cove (i5-1135G7): 41.638 GiB/s</title></rect>
+<text x="594.64" y="171" font-size="12">41.6</text>
+<rect x="260" y="178" width="511.60" height="16" fill="#b45309"><title>Golden Cove (i7-12700K): 64.820 GiB/s</title></rect>
+<text x="777.60" y="191" font-size="12">64.8</text>
+<text x="248" y="233" text-anchor="end" font-size="14">mul_add</text>
+<rect x="260" y="216" width="298.96" height="16" fill="#2563eb"><title>Willow Cove (i5-1135G7): 37.878 GiB/s</title></rect>
+<text x="564.96" y="229" font-size="12">37.9</text>
+<rect x="260" y="236" width="443.33" height="16" fill="#b45309"><title>Golden Cove (i7-12700K): 56.170 GiB/s</title></rect>
+<text x="709.33" y="249" font-size="12">56.2</text>
+<text x="248" y="291" text-anchor="end" font-size="14">mul_assign</text>
+<rect x="260" y="274" width="406.24" height="16" fill="#2563eb"><title>Willow Cove (i5-1135G7): 51.471 GiB/s</title></rect>
+<text x="672.24" y="287" font-size="12">51.5</text>
+<rect x="260" y="294" width="580.00" height="16" fill="#b45309"><title>Golden Cove (i7-12700K): 73.486 GiB/s</title></rect>
+<text x="846.00" y="307" font-size="12">73.5</text>
+<text x="248" y="349" text-anchor="end" font-size="14">mul_elementwise</text>
+<rect x="260" y="332" width="207.93" height="16" fill="#2563eb"><title>Willow Cove (i5-1135G7): 26.344 GiB/s</title></rect>
+<text x="473.93" y="345" font-size="12">26.3</text>
+<rect x="260" y="352" width="287.82" height="16" fill="#b45309"><title>Golden Cove (i7-12700K): 36.467 GiB/s</title></rect>
+<text x="553.82" y="365" font-size="12">36.5</text>
+<text x="248" y="407" text-anchor="end" font-size="14">mul_elementwise_assign</text>
+<rect x="260" y="390" width="221.42" height="16" fill="#2563eb"><title>Willow Cove (i5-1135G7): 28.053 GiB/s</title></rect>
+<text x="487.42" y="403" font-size="12">28.1</text>
+<rect x="260" y="410" width="376.82" height="16" fill="#b45309"><title>Golden Cove (i7-12700K): 47.743 GiB/s</title></rect>
+<text x="642.82" y="423" font-size="12">47.7</text>
+<text x="248" y="465" text-anchor="end" font-size="14">mul_into</text>
+<rect x="260" y="448" width="301.50" height="16" fill="#2563eb"><title>Willow Cove (i5-1135G7): 38.200 GiB/s</title></rect>
+<text x="567.50" y="461" font-size="12">38.2</text>
+<rect x="260" y="468" width="490.81" height="16" fill="#b45309"><title>Golden Cove (i7-12700K): 62.186 GiB/s</title></rect>
+<text x="756.81" y="481" font-size="12">62.2</text>
+<text x="248" y="523" text-anchor="end" font-size="14">sub_assign_scalar</text>
+<rect x="260" y="506" width="328.66" height="16" fill="#2563eb"><title>Willow Cove (i5-1135G7): 41.641 GiB/s</title></rect>
+<text x="594.66" y="519" font-size="12">41.6</text>
+<rect x="260" y="526" width="511.57" height="16" fill="#b45309"><title>Golden Cove (i7-12700K): 64.815 GiB/s</title></rect>
+<text x="777.57" y="539" font-size="12">64.8</text>
+<text x="260" y="591" font-size="12">GiB/s · higher is better · zero-based shared scale</text>
+</g></svg>

@@ -229,7 +229,7 @@ pub(crate) fn weight(buf: &[u8], bits: usize) -> u32 {
 
 /// Set bits in `words`, a whole number of 8-byte words.
 fn whole_word_weight(words: &[u8]) -> u32 {
-    #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
     if let super::X86Proof::V4x(token) = super::x86_proof() {
         // At most `u32::MAX` live bits reach this kernel, so the count fits.
         #[allow(clippy::cast_possible_truncation)]

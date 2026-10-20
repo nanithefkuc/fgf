@@ -1,4 +1,4 @@
-"""Render residue snapshots and matched backend comparisons from one campaign."""
+"""Render current residue snapshots from validated campaign measurements."""
 
 from __future__ import annotations
 
@@ -14,14 +14,12 @@ from publish import (
     RESIDUE_SINGLE_LANES,
     RESIDUE_SINGLE_ROWS,
     fmt_pair,
-    fmt_ratio_pair,
     gib_per_sec,
     render_markdown_table,
     table_digits,
 )
 
 SNAPSHOT_PAGE = "v3/residue.md"
-COMPARISON_PAGE = "comparison/residue.md"
 MATRIX_DISPLAY_ROWS = (
     "word65537", "word67m", "word268m", "word536m",
     "word858m", "word1e9p7", "word1280000003", "wordmax",
@@ -77,7 +75,7 @@ def _geometry_rows(panel):
              for sources in RESIDUE_MATRIX_SOURCES], RESIDUE_MATRIX_LANES)
 
 
-def _table(campaign, index, cells, page, panel, op, arm="v3", baseline=None):
+def _table(campaign, index, cells, page, panel, op):
     rows, lengths = _geometry_rows(panel)
     prepared = []
     values = []
@@ -91,28 +89,22 @@ def _table(campaign, index, cells, page, panel, op, arm="v3", baseline=None):
             key, rec = index[(panel, op, label, tuple(sorted(geometry.items())))]
             host_values = []
             for host in campaign.hosts:
-                current = campaign.residue_value(key, host, arm)
-                other = campaign.residue_value(key, host, baseline) if baseline else None
-                if current is None or (baseline and other is None):
-                    host_values.append(None)
-                elif baseline:
-                    host_values.append(other / current)
-                else:
-                    host_values.append(gib_per_sec(rec.logical_bytes, current))
+                current = campaign.residue_value(key, host, "v3")
+                host_values.append(
+                    gib_per_sec(rec.logical_bytes, current) if current is not None else None)
             rendered.append((key, host_values))
             values.extend(value for value in host_values if value is not None)
         prepared.append(([label] + ([str(sources)] if sources else []), rendered))
-    digits = table_digits(values) if values and baseline is None else 5
-    unit = "×" if baseline else "GiB/s"
+    digits = table_digits(values) if values else 3
     header = ["Field"] + (["Sources"] if panel == "matrix" else [])
-    header += [f"{lanes} lanes ({unit})" for lanes in lengths]
+    header += [f"{lanes} lanes (GiB/s)" for lanes in lengths]
     output = []
     for labels, rendered in prepared:
         line = list(labels)
         for lanes, (key, pair) in zip(lengths, rendered, strict=True):
-            line.append(fmt_ratio_pair(*pair) if baseline else fmt_pair(*pair, digits))
-            cells.record(page, f"residue-{op}-{baseline or arm}", " | ".join(labels),
-                         f"{lanes} lanes", key, f"{baseline}/{arm}" if baseline else arm)
+            line.append(fmt_pair(*pair, digits))
+            cells.record(page, f"residue-{op}", " | ".join(labels),
+                         f"{lanes} lanes", key, "v3")
         output.append(line)
     return render_markdown_table(header, output)
 
@@ -143,41 +135,26 @@ def _details(summary, body):
 
 def render_snapshot(campaign, renderer):
     index = _index(campaign)
-    lines = ["# Generic prime residues (v3)", "", _intro(campaign), "",
-             "Current public calls under the routed request. Backend factors live "
-             "in the [comparison](../comparison/residue.md); generic residues "
-             "have no released-v2 counterpart.", "", "## Setup", "", _setup(campaign),
-             "", "## Self-timings", ""]
+    lines = ["# Generic prime residues", "", _intro(campaign), "",
+             "Throughput: **higher is better**. A lane is one field element; "
+             "its byte width is listed in the field definitions.", "",
+             "## Find a result", ""]
+    lines += [f"- [{title}](#{title.lower().replace(' ', '-')})"
+              for title, _, _ in SECTIONS]
+    lines += ["- [Measurement details](#measurement-details)", "", "## Self-timings", ""]
     for title, panel, ops in SECTIONS:
         lines += [f"### {title}", "", NUMERATORS[panel], ""]
         for op in ops:
             table = _table(campaign, index, renderer.cells, SNAPSHOT_PAGE, panel, op)
-            lines += [_details(DISPLAY_OPERATION.get(op, op), table), ""]
+            lines += [f"#### {DISPLAY_OPERATION.get(op, op)}", "",
+                      _details("Show all fields and row lengths", table), ""]
     lines += ["## Competitors", "", "No matched competitor measurements are available.",
-              "", "## Caveats", "", *CAVEATS]
+              "", "## Measurement details", "",
+              _details("Setup, backend requests, and caveats",
+                       _setup(campaign) + "\n\n" + "\n".join(CAVEATS))]
     return "\n".join(lines).rstrip() + "\n"
 
 
-def render_comparison(campaign, renderer):
-    index = _index(campaign)
-    lines = ["# Generic prime residues: backend comparisons", "", _intro(campaign), "",
-             "Factors divide AVX2 or scalar latency by current routed latency on "
-             "the same workload. Above one means the routed call finished sooner; "
-             "below one remains a regression. These are backend comparisons, "
-             "not released-v2 comparisons. [Absolute values](../v3/residue.md).",
-             "", "## Setup", "", _setup(campaign), "", "## Factors", ""]
-    for title, panel, ops in SECTIONS:
-        lines += [f"### {title}", ""]
-        for op in ops:
-            body = []
-            for arm, name in (("avx2", "AVX2 / current routed"),
-                              ("scalar", "Scalar / current routed")):
-                body += [f"#### {name}", "", _table(
-                    campaign, index, renderer.cells, COMPARISON_PAGE, panel, op,
-                    baseline=arm), ""]
-            lines += [_details(DISPLAY_OPERATION.get(op, op), "\n".join(body).rstrip()), ""]
-    lines += ["## Caveats", "", *CAVEATS]
-    return "\n".join(lines).rstrip() + "\n"
 
 
 def residue_payload(campaign):

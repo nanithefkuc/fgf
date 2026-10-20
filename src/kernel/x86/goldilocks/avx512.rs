@@ -19,8 +19,6 @@ use crate::field::Elem;
 use crate::field::goldilocks::Goldilocks;
 use crate::kernel::proven_checks::{check_elem_multiple, check_equal};
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

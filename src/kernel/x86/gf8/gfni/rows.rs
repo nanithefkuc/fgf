@@ -16,8 +16,6 @@ use super::{bmul_gfni, brem_gfni, factor_word_gfni, wfactor_gfni};
 use crate::kernel::Matrix;
 use crate::kernel::gf8::Prepared;
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

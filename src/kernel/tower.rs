@@ -27,7 +27,7 @@ pub mod gf16 {
     //! boundary: no kernel body below sees the spec, the base
     //! representation, or an element.
 
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::field::binary::tower::FanPaar16Field;
     use crate::field::binary::tower::Rijndael16Field;
     use crate::field::extension::Packed;
@@ -35,7 +35,6 @@ pub mod gf16 {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -44,12 +43,11 @@ pub mod gf16 {
     use crate::field::{AES, Polynomial};
     use crate::field::{BinaryField, Elem, Field};
     use crate::kernel::extension::{StorageKernels, StorageRow};
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::kernel::tables::AES_BANK;
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -66,7 +64,6 @@ pub mod gf16 {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -77,7 +74,7 @@ pub mod gf16 {
     use crate::kernel::aarch64;
     #[cfg(all(feature = "simd", target_arch = "wasm32"))]
     use crate::kernel::wasm32;
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::kernel::x86;
 
     /// Whether the row is structurally equal to the shipped Rijndael16
@@ -153,7 +150,6 @@ pub mod gf16 {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -171,7 +167,7 @@ pub mod gf16 {
         fn resolved(&self, index: usize) -> TowerTables;
         /// The broadcast-pair form of coefficient `index`, derived without
         /// building the nibble tables: the GFNI and AVX-512 blocked routes.
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         fn compact(&self, index: usize) -> TowerCoeff;
     }
 
@@ -206,7 +202,6 @@ pub mod gf16 {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -229,7 +224,7 @@ pub mod gf16 {
             self[index]
         }
 
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         #[inline]
         fn compact(&self, index: usize) -> TowerCoeff {
             self[index].compact()
@@ -239,7 +234,6 @@ pub mod gf16 {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -262,7 +256,7 @@ pub mod gf16 {
             self[index]
         }
 
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         #[inline]
         fn compact(&self, index: usize) -> TowerCoeff {
             self[index].compact()
@@ -272,7 +266,6 @@ pub mod gf16 {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -295,7 +288,7 @@ pub mod gf16 {
             self[index]
         }
 
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         #[inline]
         fn compact(&self, index: usize) -> TowerCoeff {
             self[index].compact()
@@ -305,7 +298,6 @@ pub mod gf16 {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -314,7 +306,6 @@ pub mod gf16 {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -344,7 +335,7 @@ pub mod gf16 {
             rijndael_tables(self[index].to_raw())
         }
 
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         #[inline]
         fn compact(&self, index: usize) -> TowerCoeff {
             rijndael_compact(self[index].to_raw())
@@ -354,7 +345,6 @@ pub mod gf16 {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -384,7 +374,7 @@ pub mod gf16 {
             rijndael_tables(self[index].to_raw())
         }
 
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         #[inline]
         fn compact(&self, index: usize) -> TowerCoeff {
             rijndael_compact(self[index].to_raw())
@@ -394,7 +384,6 @@ pub mod gf16 {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -424,7 +413,7 @@ pub mod gf16 {
             rijndael_tables(self[index].to_raw())
         }
 
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         #[inline]
         fn compact(&self, index: usize) -> TowerCoeff {
             rijndael_compact(self[index].to_raw())
@@ -434,7 +423,6 @@ pub mod gf16 {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -443,7 +431,6 @@ pub mod gf16 {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -468,7 +455,7 @@ pub mod gf16 {
 
     /// Raw per-term tower elements as a [`Matrix`] of broadcast pairs: the
     /// GFNI and AVX-512 matrix routes, which read no nibble table.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     impl<F: Field<Raw = u16>> Matrix<TowerCoeff> for [(&[Elem<F>], &[u8])] {
         #[inline]
         fn len(&self) -> usize {
@@ -488,7 +475,7 @@ pub mod gf16 {
 
     /// Raw flat row-major tower elements as a [`Matrix`], resolved on
     /// access into nibble tables or broadcast pairs.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     #[allow(private_bounds)]
     pub struct FlatResolved<'a, F: Field<Raw = u16>> {
         values: &'a [Elem<F>],
@@ -496,7 +483,7 @@ pub mod gf16 {
         sources: &'a [&'a [u8]],
     }
 
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     #[allow(private_bounds)]
     impl<F: Field<Raw = u16>> FlatResolved<'_, F> {
         /// Wrap flat row-major coefficients (`terms * nrows` values) with
@@ -516,7 +503,7 @@ pub mod gf16 {
         }
     }
 
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     impl<F: Field<Raw = u16>> Matrix<TowerTables> for FlatResolved<'_, F> {
         #[inline]
         fn len(&self) -> usize {
@@ -534,7 +521,7 @@ pub mod gf16 {
         }
     }
 
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     impl<F: Field<Raw = u16>> Matrix<TowerCoeff> for FlatResolved<'_, F> {
         #[inline]
         fn len(&self) -> usize {
@@ -584,7 +571,6 @@ pub mod gf16 {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -616,7 +602,6 @@ pub mod gf16 {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"
@@ -705,7 +690,7 @@ pub mod gf16 {
     /// four-table coefficient sets, and a gather's coefficients are
     /// one-to-one with sources, so a source's nibble split feeds exactly one
     /// coefficient and blocking has nothing to share.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     fn gather_axpy_avx2(dst: &mut [u8], coeffs: &(impl Coeffs + ?Sized), srcs: &[&[u8]]) {
         let count = coeffs.count().min(srcs.len());
         for (index, src) in (0..count).zip(srcs) {
@@ -722,7 +707,7 @@ pub mod gf16 {
     ///
     /// With four nibble tables per coefficient, AVX2's register file holds
     /// too few destination accumulators for a blocked tile to repay itself.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     fn matrix_axpy_avx2(
         rows: &mut [u8],
         row_len: usize,
@@ -752,7 +737,7 @@ pub mod gf16 {
             }
             if fanpaar16::<F>() {
                 return match backend() {
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2 => backend(),
                     _ => Backend::Scalar,
                 };
@@ -805,7 +790,7 @@ pub mod gf16 {
             }
             if fanpaar16::<F>() {
                 return match backend() {
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2 => {
                         Prepared::Fp(FpTowerTables::new(Elem::<FanPaar16Field> { raw }))
                     }
@@ -852,7 +837,7 @@ pub mod gf16 {
             src: &[u8],
         ) {
             match coeff {
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Compact(compact) => match backend() {
                     // Rows shorter than one 64-byte lane go straight to the
                     // 32-byte kernel `mul_add_avx512` would hand them to.
@@ -872,14 +857,14 @@ pub mod gf16 {
                         src,
                     ),
                 },
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Tables(tables) => match backend() {
                     Backend::V2 => {
                         x86::gf16::mul_add_ssse3(crate::kernel::x86_v2_token(), dst, tables, src);
                     }
                     _ => x86::gf16::mul_add_avx2(crate::kernel::x86_v3_token(), dst, tables, src),
                 },
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Fp(tables) => match backend() {
                     Backend::V2 => {
                         x86::fan_paar::mul_add_ssse3_fp16(
@@ -923,7 +908,7 @@ pub mod gf16 {
             coeff: &Prepared,
         ) {
             match coeff {
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Compact(compact) => match backend() {
                     #[cfg(feature = "simd512")]
                     Backend::V4x => {
@@ -935,14 +920,14 @@ pub mod gf16 {
                         *compact,
                     ),
                 },
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Tables(tables) => match backend() {
                     Backend::V2 => {
                         x86::gf16::mul_assign_ssse3(crate::kernel::x86_v2_token(), dst, tables);
                     }
                     _ => x86::gf16::mul_assign_avx2(crate::kernel::x86_v3_token(), dst, tables),
                 },
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Fp(tables) => match backend() {
                     Backend::V2 => {
                         x86::fan_paar::mul_assign_ssse3_fp16(
@@ -985,7 +970,7 @@ pub mod gf16 {
             src: &[u8],
         ) {
             match coeff {
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Compact(compact) => match backend() {
                     #[cfg(feature = "simd512")]
                     Backend::V4x => {
@@ -1003,14 +988,14 @@ pub mod gf16 {
                         src,
                     ),
                 },
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Tables(tables) => match backend() {
                     Backend::V2 => {
                         x86::gf16::mul_into_ssse3(crate::kernel::x86_v2_token(), dst, tables, src);
                     }
                     _ => x86::gf16::mul_into_avx2(crate::kernel::x86_v3_token(), dst, tables, src),
                 },
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Fp(tables) => match backend() {
                     Backend::V2 => {
                         x86::fan_paar::mul_into_ssse3_fp16(
@@ -1053,7 +1038,7 @@ pub mod gf16 {
         ) {
             if rijndael16::<F>() {
                 match backend() {
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x | Backend::V3GfniCrypto => {
                         x86::gf16::mul_add_scatter_gfni(
                             crate::kernel::x86_v3_gfni_token(),
@@ -1063,7 +1048,7 @@ pub mod gf16 {
                             src,
                         );
                     }
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V3 => x86::gf16::mul_add_scatter_avx2(
                         crate::kernel::x86_v3_token(),
                         rows,
@@ -1071,7 +1056,7 @@ pub mod gf16 {
                         coeffs,
                         src,
                     ),
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V2 => x86::gf16::mul_add_scatter_ssse3(
                         crate::kernel::x86_v2_token(),
                         rows,
@@ -1129,9 +1114,9 @@ pub mod gf16 {
             coeffs: &[Prepared],
             src: &[u8],
         ) {
-            #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+            #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
             let _ = values;
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             if rijndael16::<F>()
                 && matches!(
                     backend(),
@@ -1153,7 +1138,7 @@ pub mod gf16 {
         ) {
             if rijndael16::<F>() {
                 match backend() {
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     // Blocked: the four-source group derives its broadcasts once and
                     // keeps them live, so it reads the destination once per group
                     // instead of once per source.
@@ -1165,9 +1150,9 @@ pub mod gf16 {
                             srcs,
                         );
                     }
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V3 => gather_axpy_avx2(dst, coeffs, srcs),
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V2 => x86::gf16::mul_add_gather_ssse3(
                         crate::kernel::x86_v2_token(),
                         dst,
@@ -1215,9 +1200,9 @@ pub mod gf16 {
             coeffs: &[Prepared],
             srcs: &[&[u8]],
         ) {
-            #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+            #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
             let _ = values;
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             if rijndael16::<F>() {
                 match backend() {
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => {
@@ -1246,10 +1231,7 @@ pub mod gf16 {
         ) {
             if rijndael16::<F>() {
                 match backend() {
-                    #[cfg(all(
-                        feature = "simd512",
-                        any(target_arch = "x86", target_arch = "x86_64")
-                    ))]
+                    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
                     Backend::V4x => x86::gf16::mul_add_matrix_avx512(
                         crate::kernel::x86_v4x_token(),
                         rows,
@@ -1257,7 +1239,7 @@ pub mod gf16 {
                         nrows,
                         terms,
                     ),
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V3GfniCrypto => {
                         x86::gf16::mul_add_matrix_gfni(
                             crate::kernel::x86_v3_gfni_token(),
@@ -1267,17 +1249,13 @@ pub mod gf16 {
                             terms,
                         );
                     }
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V3 => matrix_axpy_avx2(rows, row_len, nrows, terms),
                     // Without the 512-bit kernels the V4x tier cannot
                     // resolve; the arm keeps the match exhaustive anyway.
-                    #[cfg(all(
-                        not(feature = "simd512"),
-                        feature = "simd",
-                        any(target_arch = "x86", target_arch = "x86_64")
-                    ))]
+                    #[cfg(all(not(feature = "simd512"), feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x => matrix_axpy_avx2(rows, row_len, nrows, terms),
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V2 => x86::gf16::mul_add_matrix_ssse3(
                         crate::kernel::x86_v2_token(),
                         rows,
@@ -1337,11 +1315,11 @@ pub mod gf16 {
             coeffs: &[Prepared],
             srcs: &[&[u8]],
         ) {
-            #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+            #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
             {
                 let _ = (values, coeffs, srcs);
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             if rijndael16::<F>() {
                 match backend() {
                     #[cfg(feature = "simd512")]
@@ -1412,7 +1390,6 @@ pub mod gf16 {
             #[cfg(all(
                 feature = "simd",
                 any(
-                    target_arch = "x86",
                     target_arch = "x86_64",
                     target_arch = "aarch64",
                     target_arch = "wasm32"
@@ -1422,7 +1399,6 @@ pub mod gf16 {
             #[cfg(all(
                 feature = "simd",
                 any(
-                    target_arch = "x86",
                     target_arch = "x86_64",
                     target_arch = "aarch64",
                     target_arch = "wasm32"
@@ -1430,7 +1406,7 @@ pub mod gf16 {
             ))]
             let reduction = <Polynomial<AES> as ByteBanks>::REDUCTION_LOW;
             match backend() {
-                #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
                 Backend::V4x => {
                     x86::gf16::mul_elementwise_avx512(
                         crate::kernel::x86_v4x_token(),
@@ -1441,7 +1417,7 @@ pub mod gf16 {
                         reduction,
                     );
                 }
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Backend::V3GfniCrypto => {
                     x86::gf16::mul_elementwise_gfni(
                         crate::kernel::x86_v3_gfni_token(),
@@ -1452,7 +1428,7 @@ pub mod gf16 {
                         reduction,
                     );
                 }
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Backend::V3 => {
                     x86::gf16::mul_elementwise_avx2(
                         crate::kernel::x86_v3_token(),
@@ -1465,11 +1441,7 @@ pub mod gf16 {
                 }
                 // Without the 512-bit kernels the V4x tier cannot resolve;
                 // the arm keeps the match exhaustive anyway.
-                #[cfg(all(
-                    not(feature = "simd512"),
-                    feature = "simd",
-                    any(target_arch = "x86", target_arch = "x86_64")
-                ))]
+                #[cfg(all(not(feature = "simd512"), feature = "simd", target_arch = "x86_64"))]
                 Backend::V4x => {
                     x86::gf16::mul_elementwise_avx2(
                         crate::kernel::x86_v3_token(),
@@ -1480,7 +1452,7 @@ pub mod gf16 {
                         reduction,
                     );
                 }
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Backend::V2 => {
                     x86::gf16::mul_elementwise_ssse3(
                         crate::kernel::x86_v2_token(),
@@ -1530,12 +1502,12 @@ pub mod gf16 {
             }
             // The vector assign kernels are x86-only; the other tiers take
             // the scalar default.
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             let b_raw = RIJNDAEL16_B;
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             let reduction = <Polynomial<AES> as ByteBanks>::REDUCTION_LOW;
             match backend() {
-                #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
                 Backend::V4x => {
                     x86::gf16::mul_elementwise_assign_avx512(
                         crate::kernel::x86_v4x_token(),
@@ -1545,7 +1517,7 @@ pub mod gf16 {
                         reduction,
                     );
                 }
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Backend::V3GfniCrypto => {
                     x86::gf16::mul_elementwise_assign_gfni(
                         crate::kernel::x86_v3_gfni_token(),
@@ -1555,7 +1527,7 @@ pub mod gf16 {
                         reduction,
                     );
                 }
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Backend::V3 => {
                     x86::gf16::mul_elementwise_assign_avx2(
                         crate::kernel::x86_v3_token(),
@@ -1567,11 +1539,7 @@ pub mod gf16 {
                 }
                 // Without the 512-bit kernels the V4x tier cannot resolve;
                 // the arm keeps the match exhaustive anyway.
-                #[cfg(all(
-                    not(feature = "simd512"),
-                    feature = "simd",
-                    any(target_arch = "x86", target_arch = "x86_64")
-                ))]
+                #[cfg(all(not(feature = "simd512"), feature = "simd", target_arch = "x86_64"))]
                 Backend::V4x => {
                     x86::gf16::mul_elementwise_assign_avx2(
                         crate::kernel::x86_v3_token(),
@@ -1581,7 +1549,7 @@ pub mod gf16 {
                         reduction,
                     );
                 }
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Backend::V2 => {
                     x86::gf16::mul_elementwise_assign_ssse3(
                         crate::kernel::x86_v2_token(),
@@ -1607,7 +1575,7 @@ pub mod gf32 {
     //! AVX2 lane scales. Everywhere else, and for every other row, the
     //! portable scalar kernel applies.
 
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::field::binary::tower::{FanPaar32Field, Rijndael32Field};
     use crate::field::extension::Packed;
     use crate::field::extension::pinned::{self, Instance};
@@ -1616,7 +1584,7 @@ pub mod gf32 {
     #[allow(unused_imports)]
     use crate::kernel::{Backend, KernelDispatch, RawDispatch, backend, scalar};
 
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::kernel::x86;
 
     /// Whether the row is structurally equal to the shipped Rijndael32
@@ -1685,14 +1653,14 @@ pub mod gf32 {
         fn backend<F: StorageRow<B, D, Self>>() -> Backend {
             if rijndael32::<F>() {
                 return match backend() {
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x | Backend::V3GfniCrypto => backend(),
                     _ => Backend::Scalar,
                 };
             }
             if fanpaar32::<F>() {
                 return match backend() {
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => backend(),
                     _ => Backend::Scalar,
                 };
@@ -1704,7 +1672,7 @@ pub mod gf32 {
             let raw = coeff.to_raw();
             if rijndael32::<F>() {
                 return match backend() {
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x | Backend::V3GfniCrypto => Prepared::Compact {
                         coeff: raw,
                         tiles: x86::gf32::gf32_tiles(Elem::<Rijndael32Field> { raw }),
@@ -1714,7 +1682,7 @@ pub mod gf32 {
             }
             if fanpaar32::<F>() {
                 return match backend() {
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => Prepared::Fp(raw),
                     _ => Prepared::Plain(raw),
                 };
@@ -1759,7 +1727,7 @@ pub mod gf32 {
             src: &[u8],
         ) {
             match coeff {
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Compact { coeff, tiles } => {
                     x86::gf32::mul_add_gfni(
                         crate::kernel::x86_v3_gfni_token(),
@@ -1769,7 +1737,7 @@ pub mod gf32 {
                         src,
                     );
                 }
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Fp(coeff) => {
                     x86::fan_paar::mul_add_avx2_fp32(
                         crate::kernel::x86_v3_token(),
@@ -1788,7 +1756,7 @@ pub mod gf32 {
             coeff: &Prepared,
         ) {
             match coeff {
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Compact { coeff, tiles } => {
                     x86::gf32::mul_assign_gfni(
                         crate::kernel::x86_v3_gfni_token(),
@@ -1797,7 +1765,7 @@ pub mod gf32 {
                         *tiles,
                     );
                 }
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Fp(coeff) => {
                     x86::fan_paar::mul_assign_avx2_fp32(
                         crate::kernel::x86_v3_token(),
@@ -1816,7 +1784,7 @@ pub mod gf32 {
             src: &[u8],
         ) {
             match coeff {
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Compact { coeff, tiles } => {
                     x86::gf32::mul_into_gfni(
                         crate::kernel::x86_v3_gfni_token(),
@@ -1826,7 +1794,7 @@ pub mod gf32 {
                         src,
                     );
                 }
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Fp(coeff) => {
                     x86::fan_paar::mul_into_avx2_fp32(
                         crate::kernel::x86_v3_token(),
@@ -1908,7 +1876,7 @@ pub mod gf64 {
     //! lane. The Fan-Paar instance runs its AVX2 lane scales. Everywhere
     //! else, and for every other row, the portable scalar kernel applies.
 
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::field::binary::tower::{FanPaar64Field, Rijndael64Field};
     use crate::field::extension::Packed;
     use crate::field::extension::pinned::{self, Instance};
@@ -1917,7 +1885,7 @@ pub mod gf64 {
     #[allow(unused_imports)]
     use crate::kernel::{Backend, KernelDispatch, RawDispatch, backend, scalar};
 
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::kernel::x86;
 
     /// Whether the row is structurally equal to the shipped Rijndael64
@@ -1984,14 +1952,14 @@ pub mod gf64 {
         fn backend<F: StorageRow<B, D, Self>>() -> Backend {
             if rijndael64::<F>() {
                 return match backend() {
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x | Backend::V3GfniCrypto => backend(),
                     _ => Backend::Scalar,
                 };
             }
             if fanpaar64::<F>() {
                 return match backend() {
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => backend(),
                     _ => Backend::Scalar,
                 };
@@ -2003,7 +1971,7 @@ pub mod gf64 {
             let raw = coeff.to_raw();
             if rijndael64::<F>() {
                 return match backend() {
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x | Backend::V3GfniCrypto => Prepared::Compact {
                         coeff: raw,
                         tiles: x86::gf64::gf64_tiles(Elem::<Rijndael64Field> { raw }),
@@ -2013,7 +1981,7 @@ pub mod gf64 {
             }
             if fanpaar64::<F>() {
                 return match backend() {
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => Prepared::Fp(raw),
                     _ => Prepared::Plain(raw),
                 };
@@ -2058,7 +2026,7 @@ pub mod gf64 {
             src: &[u8],
         ) {
             match coeff {
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Compact { coeff, tiles } => {
                     x86::gf64::mul_add_gfni(
                         crate::kernel::x86_v3_gfni_token(),
@@ -2068,7 +2036,7 @@ pub mod gf64 {
                         src,
                     );
                 }
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Fp(coeff) => {
                     x86::fan_paar::mul_add_avx2_fp64(
                         crate::kernel::x86_v3_token(),
@@ -2087,7 +2055,7 @@ pub mod gf64 {
             coeff: &Prepared,
         ) {
             match coeff {
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Compact { coeff, tiles } => {
                     x86::gf64::mul_assign_gfni(
                         crate::kernel::x86_v3_gfni_token(),
@@ -2096,7 +2064,7 @@ pub mod gf64 {
                         *tiles,
                     );
                 }
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Fp(coeff) => {
                     x86::fan_paar::mul_assign_avx2_fp64(
                         crate::kernel::x86_v3_token(),
@@ -2115,7 +2083,7 @@ pub mod gf64 {
             src: &[u8],
         ) {
             match coeff {
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Compact { coeff, tiles } => {
                     x86::gf64::mul_into_gfni(
                         crate::kernel::x86_v3_gfni_token(),
@@ -2125,7 +2093,7 @@ pub mod gf64 {
                         src,
                     );
                 }
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 Prepared::Fp(coeff) => {
                     x86::fan_paar::mul_into_avx2_fp64(
                         crate::kernel::x86_v3_token(),

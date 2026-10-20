@@ -19,8 +19,7 @@ use crate::kernel::x86::{nt_split, peel_to_align, store_avx2};
 use super::ssse3::{
     mul_elementwise_assign_ssse3, mul_elementwise_ssse3, nibble_ssse3, scale_ssse3,
 };
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
+
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

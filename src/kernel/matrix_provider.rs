@@ -40,7 +40,7 @@ impl<C: Copy> Matrix<C> for [(&[C], &[u8])] {
 // A lib-only build without `simd512` constructs it nowhere else: the
 // simd512-gated blocked kernels, the test suite, and `internals` do.
 #[allow(dead_code)]
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(target_arch = "x86_64")]
 pub struct FlatMatrix<'a, C> {
     /// Flat row-major coefficients, `terms * nrows` entries.
     pub coefficients: &'a [C],
@@ -50,7 +50,7 @@ pub struct FlatMatrix<'a, C> {
     pub sources: &'a [&'a [u8]],
 }
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(target_arch = "x86_64")]
 impl<C: Copy> Matrix<C> for FlatMatrix<'_, C> {
     #[inline]
     fn len(&self) -> usize {

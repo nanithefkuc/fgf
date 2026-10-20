@@ -7,7 +7,7 @@
 /// Direct kernel implementations, preparation tables, and capability tokens.
 pub mod kernel {
     pub use crate::kernel::bytes::xor;
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     pub use crate::kernel::matrix_provider::{FlatMatrix, Matrix};
 
     /// Byte-field kernels and preparation.
@@ -49,7 +49,7 @@ pub mod kernel {
     /// runs, for benchmark routing reports that must not copy constants.
     /// Available only where the x86 SIMD dispatch exists; other targets
     /// route every residue shape through the portable path.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     pub mod residue {
         pub use crate::kernel::residue::{
             DELAYED_ADD_MIN_DEPTH, DELAYED_INTO_MIN_DEPTH, DELAYED_MIN_SOURCES, VectorOp,
@@ -63,7 +63,7 @@ pub mod kernel {
     }
 
     /// Token-bearing x86 kernels.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     pub mod x86 {
         pub use crate::kernel::x86::*;
 
@@ -101,7 +101,7 @@ pub mod kernel {
     pub use archmage::Wasm128Token;
     #[cfg(all(feature = "simd", target_arch = "aarch64"))]
     pub use archmage::{NeonAesToken, NeonToken};
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     pub use archmage::{
         X64V1Token, X64V2Token, X64V3GfniCryptoToken, X64V3Token, X64V4Token, X64V4xToken,
     };
