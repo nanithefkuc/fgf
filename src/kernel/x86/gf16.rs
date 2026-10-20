@@ -77,8 +77,6 @@ pub(crate) use ssse3::{nibble_ssse3, scale_ssse3};
 
 use crate::kernel::tables::TowerCoeff;
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

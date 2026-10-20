@@ -26,35 +26,26 @@ jobs:
       # collections without `std`. Neither end builds it.
       - run: cargo test --no-default-features --features alloc
 
-  # The dispatch layer picks one backend per process, so a single test run only
-  # ever exercises the host's best. Re-run the suite pinned to each weaker
-  # backend the host can still execute.
-  backends:
-    name: backend sweep
+  # Hosted runners must prove the AVX2 floor they execute. Stronger requests
+  # are reported as requests, not credited as executed ISA coverage.
+  isa-accept:
+    name: isa-accept v3 (backend floor)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      # Strongest declared tier first, matching crate.just TIERS. The
-      # request is downgrade-only: a runner without the crypto extensions
-      # resolves to the strongest tier it can prove instead, so a green run
-      # here is not by itself GFNI coverage.
-      - run: cargo test --all-features
-        env:
-          SIMD_BACKEND: v3_gfni_crypto
-      - run: cargo test --all-features
-        env:
-          SIMD_BACKEND: v3
-      - run: cargo test --all-features
-        env:
-          SIMD_BACKEND: v2
-      - run: cargo test --all-features
-        env:
-          SIMD_BACKEND: scalar
+      - uses: extractions/setup-just@v2
+      - name: requested vs resolved backend per tier
+        run: |
+          for tier in v4x v3_gfni_crypto v3 v2 scalar; do
+            echo "── SIMD_BACKEND=${tier}"
+            SIMD_BACKEND="${tier}" just backend-report
+          done
+      - name: fail closed, then tier differentials
+        run: just isa-accept v3
 
-  # The coverage recipe merges the declared backend tiers and the portable
-  # feature run. Its exclusions cover only ISA-specific code unavailable on
-  # the coverage runner; direct differentials exercise it on capable hosts.
+  # Coverage merges tiers and portable features. Its documented exclusions
+  # include binary kernels/dispatch; native differentials run on acceptance hosts.
   coverage:
     name: coverage >=95% (llvm-cov)
     runs-on: ubuntu-latest
@@ -77,22 +68,23 @@ jobs:
           path: coverage.lcov
 
   cross:
-    name: build ${{ matrix.target }}
+    name: cross-check aarch64 + wasm32
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [aarch64-unknown-linux-gnu, wasm32-unknown-unknown]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
-      - run: cargo build --target ${{ matrix.target }}
+          targets: aarch64-unknown-linux-gnu,wasm32-unknown-unknown
+      - uses: extractions/setup-just@v2
+      # The recipe checks the non-x86 library paths with --all-features,
+      # including Wasm's explicit `simd128` compile lane.
+      - run: just cross-check
+      # Default-feature link builds per target, mirroring the release matrix.
+      - run: cargo build --target aarch64-unknown-linux-gnu
+      - run: cargo build --target wasm32-unknown-unknown
       # Explicit compile validation of the wasm `simd128` lane: the
       # `wasm128` backend needs the target feature enabled at compile time.
       - run: cargo build --target wasm32-unknown-unknown --features simd
-        if: matrix.target == 'wasm32-unknown-unknown'
         env:
           RUSTFLAGS: -D warnings -C target-feature=+simd128
 
@@ -103,6 +95,86 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.93.0
       - run: cargo check --locked --all-features --all-targets
+
+  # The MSRV consumer matrix: every negative snippet rejects and the positive
+  # consumer tests run on 1.93.
+  msrv-accept:
+    name: msrv 1.93 accept
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93.0
+      - uses: extractions/setup-just@v2
+      - run: rustup toolchain install 1.93 --profile minimal
+      - run: just msrv-accept
+
+  # The internals exposure closure: SIMD-less compilation and every SIMD
+  # feature set compile the facade and the internals consumers together.
+  internals:
+    name: internals feature closure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: extractions/setup-just@v2
+      - run: just features-internals
+
+  # The gather regression executes as i686 release code with wrapping arithmetic
+  # under both feature ends. Default-feature i686 uses the portable backend;
+  # direct x64-kernel regressions execute in the native test matrix.
+  gather-32:
+    name: gather validation i686 (release)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-unknown-linux-gnu
+      - run: sudo apt-get update && sudo apt-get install -y gcc-multilib
+      - uses: extractions/setup-just@v2
+      - run: just test-gather-validation-32
+
+  # All educational examples under the default features, then the prepared
+  # surface under alloc-only (no std), then the library-noalloc examples
+  # with no features at all.
+  examples:
+    name: examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: extractions/setup-just@v2
+      - run: just examples
+      - run: just examples --no-default-features --features alloc
+      - run: just examples-portable
+
+  # Every standalone comparison package type-checks against the working
+  # copy. The native toolchains the build scripts require: Go and Intel
+  # ISA-L for the bench-trio c-archive, C/C++ compilers and Git for the
+  # gf16-bench native build. Native competitor work stays on Linux: macOS
+  # and Windows runners cannot be assumed to carry these toolchains.
+  external-check:
+    name: external packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y pkg-config libisal-dev golang-go gcc g++
+      - uses: extractions/setup-just@v2
+      - run: just external-check
+
+  # Portable benchmark fixtures plus a compiler-derived API inventory.
+  # Native GF16 execution belongs to benchmark-check-native on capable hosts.
+  benchmark-check:
+    name: benchmark surfaces check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config git
+      - run: rustup toolchain install nightly-2026-09-30 --profile minimal
+      - uses: extractions/setup-just@v2
+      - run: just benchmark-check
 
   lint:
     name: fmt + clippy + docs
@@ -148,3 +220,17 @@ jobs:
       - run: just unsafe-check-gfni
         env:
           MIRIFLAGS: -Zmiri-disable-isolation
+
+  # Packaging verification runs from a copy of the archive, outside the
+  # tree; the vendored recipe refuses a dirty working tree, which a fresh
+  # checkout satisfies. Publication itself stays a manual, tagged operation.
+  publish-dry:
+    name: publish dry-run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: extractions/setup-just@v2
+      - run: rustup toolchain install 1.93 --profile minimal
+      - run: just package-check
+      - run: just publish-dry

@@ -11,8 +11,6 @@
 use super::{bfactor_gfni, bfactor_half_gfni, bmul_gfni, bmul_half_gfni, brem_gfni};
 use crate::kernel::gf8::{Coeffs, Prepared, mul_add_nibble};
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

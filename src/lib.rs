@@ -4,9 +4,8 @@
 #![deny(missing_docs)]
 #![warn(clippy::pedantic)]
 #![allow(
-    // Arch intrinsics are imported wholesale by universal convention; naming
-    // each of the ~200 used here would be unmaintainable and would have to be
-    // duplicated across the x86 and x86_64 cfg arms.
+    // Architecture kernels conventionally import their intrinsic namespace;
+    // enumerating the hundreds of instruction names obscures the kernel body.
     clippy::wildcard_imports,
     clippy::inline_always,
     // `chunks_exact` → `as_chunks` is a toolchain-drift lint (not in the

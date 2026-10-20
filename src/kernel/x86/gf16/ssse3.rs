@@ -23,8 +23,6 @@ use crate::kernel::proven_checks::check_terms;
 use crate::kernel::tables::{NibbleFactors, ScaleTable, TowerTables};
 use crate::kernel::x86::gf8;
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

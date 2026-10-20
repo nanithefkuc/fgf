@@ -16,6 +16,20 @@ use super::{check_pair, check_width};
 /// of the widest 8-byte lanes without touching the heap.
 const CHUNK_ELEMS: usize = 64;
 
+/// Stack scratch per staged chunk: `CHUNK_ELEMS` lanes of 8-byte storage.
+/// Wider component elements stage fewer lanes per chunk; the 64-coordinate
+/// degree cap keeps every element within this many bytes.
+const SCRATCH_BYTES: usize = CHUNK_ELEMS * 8;
+
+/// Lanes per chunk that fit both the prefix array and the byte scratch.
+fn chunk_elems<F: FieldKernels>() -> usize {
+    assert!(
+        F::BYTES <= SCRATCH_BYTES,
+        "element width exceeds the batch scratch"
+    );
+    (SCRATCH_BYTES / F::BYTES).min(CHUNK_ELEMS)
+}
+
 /// `dst[i] = 1 / src[i]`, with `1 / 0 == 0`.
 ///
 /// # Panics
@@ -45,10 +59,10 @@ pub fn inv_assign<F: FieldKernels>(dst: &mut [u8]) {
     // cursor; an in-place run would clobber lanes it still needs. Work
     // chunk by chunk through stack scratch instead.
     let bytes = F::BYTES;
-    let mut scratch = [0u8; CHUNK_ELEMS * 8];
+    let mut scratch = [0u8; SCRATCH_BYTES];
     let mut offset = 0;
     while offset < dst.len() {
-        let len = (dst.len() - offset).min(CHUNK_ELEMS * bytes);
+        let len = (dst.len() - offset).min(chunk_elems::<F>() * bytes);
         scratch[..len].copy_from_slice(&dst[offset..offset + len]);
         batch_invert_into::<F>(&mut dst[offset..offset + len], &scratch[..len]);
         offset += len;
@@ -77,11 +91,11 @@ pub fn div_elementwise_assign<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
     // divisor: stage both chunks on the stack first so the kernel never
     // reads a lane it already overwrote, and never touches the heap.
     let bytes = F::BYTES;
-    let mut num = [0u8; CHUNK_ELEMS * 8];
-    let mut den = [0u8; CHUNK_ELEMS * 8];
+    let mut num = [0u8; SCRATCH_BYTES];
+    let mut den = [0u8; SCRATCH_BYTES];
     let mut offset = 0;
     while offset < dst.len() {
-        let len = (dst.len() - offset).min(CHUNK_ELEMS * bytes);
+        let len = (dst.len() - offset).min(chunk_elems::<F>() * bytes);
         num[..len].copy_from_slice(&dst[offset..offset + len]);
         den[..len].copy_from_slice(&src[offset..offset + len]);
         batch_divide_into::<F>(&mut dst[offset..offset + len], &num[..len], &den[..len]);
@@ -130,10 +144,10 @@ fn batch_invert_into<F: FieldKernels>(dst: &mut [u8], src: &[u8]) {
 fn batch_divide_into<F: FieldKernels>(dst: &mut [u8], num: &[u8], den: &[u8]) {
     let bytes = F::BYTES;
     let elems = dst.len() / bytes;
-    let mut recip = [0u8; CHUNK_ELEMS * 8];
+    let mut recip = [0u8; SCRATCH_BYTES];
     let mut offset = 0;
     while offset < elems {
-        let count = (elems - offset).min(CHUNK_ELEMS);
+        let count = (elems - offset).min(chunk_elems::<F>());
         let (rbuf, _) = recip.split_at_mut(count * bytes);
         batch_invert_into::<F>(rbuf, &den[offset * bytes..(offset + count) * bytes]);
         for index in 0..count {

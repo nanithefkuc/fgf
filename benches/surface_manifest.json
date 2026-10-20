@@ -1,0 +1,30 @@
+{
+  "items": [
+    "core::iter::Product for fgf::Elem",
+    "core::iter::Sum for fgf::Elem",
+    "core::str::FromStr for fgf::Backend",
+    "core::ops::Add for fgf::Elem",
+    "core::ops::AddAssign for fgf::Elem",
+    "core::ops::Div for fgf::Elem",
+    "core::ops::DivAssign for fgf::Elem",
+    "core::ops::Mul for fgf::Elem",
+    "core::ops::MulAssign for fgf::Elem",
+    "core::ops::Neg for fgf::Elem",
+    "core::ops::Sub for fgf::Elem",
+    "core::ops::SubAssign for fgf::Elem",
+    "fgf::EmbeddingError::IncompatibleDegree",
+    "fgf::EmbeddingError::EqualDegree",
+    "fgf::EmbeddingError::InvalidImages",
+    "fgf::Backend::name",
+    "fgf::FGF_TIERS",
+    "fgf::RangeError",
+    "fgf::ParseBackendError",
+    "fgf::BinaryField::DESCRIPTION",
+    "fgf::ops::PreparedCoefficient",
+    "gf-complete/gf16_complete_region",
+    "leopard/gf16_leopard_region",
+    "reed-solomon-erasure/galois_16::Field::mul_slice",
+    "reed-solomon-erasure/galois_16::Field::mul_slice_add",
+    "reed-solomon-simd/engine::Avx2::mul"
+  ]
+}

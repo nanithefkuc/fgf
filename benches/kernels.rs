@@ -474,7 +474,7 @@ fn bench_network_alignment() {
 /// each against repeated AXPY in one process through `internals`
 /// token-proven entries. Diagnostics only: run it explicitly with
 /// `--blocked-diagnostic`; the public panels never invoke it.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 fn bench_blocked_vs_axpy() {
     use fgf::internals::kernel::tables::{TowerCoeff, TowerTables};
     use fgf::internals::kernel::x86;
@@ -851,10 +851,12 @@ fn bench_gf16d_custom_tower() {
             ops::mul_add_with::<Gf16d>(black_box(&mut dst), &prepared, black_box(&src));
         });
     }
-    bench_scalar("gf16d scalar mul", || {
+    // Cycling coefficients stay nonzero: one zero product would collapse
+    // the rest of the chain to zero.
+    bench_scalar("gf16d scalar mul nonzero-cycle", || {
         let mut x = Elem::<Gf16d>::from_raw(0x1234);
         for i in 0..SCALAR_ITERS {
-            x = black_box(x).mul(Elem::<Gf16d>::from_raw((0x53a7u16).wrapping_add(i as u16)));
+            x = black_box(x).mul(Elem::<Gf16d>::from_raw((i % 65535) as u16 + 1));
         }
         black_box(x);
     });
@@ -1144,11 +1146,11 @@ fn prime_direct_elementwise<F>(
     // The direct column calls the kernel's own body wherever its
     // preconditions allow (four-byte rows at any length), independent of
     // the routing selector. `takes` below only selects the oracle path.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     let takes = F::BYTES == 4;
-    #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
-    let takes = false;
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
+    let _ = p;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     let params = fgf::internals::kernel::x86::residue::U32Params::new(p as u32);
     // Rows the kernel rejects print no direct cell.
     let kernel_accepts = F::BYTES == 4;
@@ -1164,7 +1166,7 @@ fn prime_direct_elementwise<F>(
         a.copy_from_slice(a0);
         b.copy_from_slice(b0);
         medians.push(bench(&format!("{label} place{off}"), len, || {
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             {
                 use fgf::internals::kernel::{SimdToken, X64V3Token};
                 if takes {
@@ -1236,14 +1238,14 @@ fn prime_direct_matrix<const P: u64>(
     // The direct column calls the delayed body wherever the kernel's own
     // preconditions allow (four-byte row, delay depth at least two, four
     // outputs), independent of the routing selector.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     let takes = {
         let k = ((1u128 << 32) / P as u128) as u64;
         k >= 2
     };
-    #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
-    let takes = false;
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
+    let _ = coeff_raw;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     let flat: Vec<fgf::internals::kernel::x86::residue::PreparedResidue> = coeff_raw
         .iter()
         .map(|&c| {
@@ -1253,12 +1255,12 @@ fn prime_direct_matrix<const P: u64>(
         .collect();
     // Rows the kernel rejects (delay depth below two) print no direct
     // cell; the production and gathers columns still time.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     let kernel_accepts = {
         let k = ((1u128 << 32) / P as u128) as u64;
         k >= 2
     };
-    #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+    #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
     let kernel_accepts = false;
     let mut medians = Vec::with_capacity(PRIME_PLACEMENTS.len());
     for &off in PRIME_PLACEMENTS {
@@ -1273,7 +1275,7 @@ fn prime_direct_matrix<const P: u64>(
         rows_area.copy_from_slice(dst0);
         let src_refs: Vec<&[u8]> = src_area.chunks_exact(row_len).collect();
         medians.push(bench(&format!("{label} place{off}"), traffic, || {
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             {
                 use fgf::internals::kernel::{FlatMatrix, SimdToken, X64V3Token};
                 if takes {
@@ -1404,25 +1406,27 @@ fn prime_direct_single<F>(
 ) where
     F: fgf::FieldKernels + FieldBuffer,
 {
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use fgf::internals::kernel::residue as selector;
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     let bytes = F::BYTES;
     // The direct column calls the vector body for every kernel-covered
     // class at every measured length, independent of the routing floors.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     let takes = selector::routes_vector(bytes, p);
-    #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
-    let takes = false;
     // Prepared word parts for the direct vector call, derived exactly as
     // dispatch derives them: Shoup pair halves on four-byte rows,
     // Montgomery word on eight-byte odd rows, canonical byte on byte rows.
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     let (c32, q32, c_mont, c8) = direct_coefficient_parts(c, p, bytes);
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
+    let _ = (c, p);
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     let params = direct_u32_params(p);
     // Rows the kernel rejects print no direct cell.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     let kernel_accepts = selector::routes_vector(F::BYTES, p);
-    #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+    #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
     let kernel_accepts = false;
     let mut medians = Vec::with_capacity(PRIME_PLACEMENTS.len());
     for &off in PRIME_PLACEMENTS {
@@ -1435,7 +1439,7 @@ fn prime_direct_single<F>(
         dst.copy_from_slice(dst0);
         src.copy_from_slice(src0);
         medians.push(bench(&format!("{label} place{off}"), len, || {
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             direct_single_body::<F>(
                 black_box(&mut *dst),
                 black_box(&*src),
@@ -1451,7 +1455,7 @@ fn prime_direct_single<F>(
                 takes,
                 op,
             );
-            #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+            #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
             {
                 use fgf::internals::kernel::prime as portable;
                 match op {
@@ -1479,12 +1483,13 @@ fn prime_direct_single<F>(
 
 /// The four-byte modulus parameters for the direct elementwise call,
 /// derived exactly as the row's monomorphized body derives them.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 fn direct_u32_params(p: u64) -> fgf::internals::kernel::x86::residue::U32Params {
     fgf::internals::kernel::x86::residue::U32Params::new(p as u32)
 }
 
 /// Split the reduced coefficient into the direct call's word parts.
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 fn direct_coefficient_parts(c: u64, p: u64, bytes: usize) -> (u32, u32, u64, u8) {
     if bytes == 4 {
         let q = ((c as u128 * (1u128 << 32)) / p as u128) as u64;
@@ -1497,7 +1502,7 @@ fn direct_coefficient_parts(c: u64, p: u64, bytes: usize) -> (u32, u32, u64, u8)
 }
 
 /// One timed direct call for the single-row direct column.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[allow(clippy::cast_possible_truncation, clippy::too_many_arguments)]
 fn direct_single_body<F>(
     dst: &mut [u8],
@@ -1517,7 +1522,7 @@ fn direct_single_body<F>(
     F: fgf::FieldKernels + FieldBuffer,
 {
     use fgf::internals::kernel::prime as portable;
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     {
         use fgf::internals::kernel::{SimdToken, X64V3Token};
         if takes {
@@ -1610,7 +1615,7 @@ where
     let bytes = F::BYTES;
     println!("prime row {row} — backend {}:", backend_for::<F>().name());
     println!("PRIME_ROW\t{row}\t{}", backend_for::<F>().name());
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     let _v3 = {
         use fgf::internals::kernel::{SimdToken, X64V3Token};
         X64V3Token::summon()
@@ -1672,7 +1677,7 @@ where
         // calls, checked against the same expectations before timing.
         // Below a floor the direct column runs the portable body, which
         // the production oracle above already covers.
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             use fgf::internals::kernel::residue as selector_oracle;
             if !selector_oracle::routes_vector(bytes, p) {
@@ -1755,9 +1760,9 @@ where
         );
         // Routing report from the library's own selector: whether the
         // production column takes the vector body for this geometry.
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             use fgf::internals::kernel::residue as selector;
             use fgf::internals::kernel::residue::VectorOp;
             let into_backend = selector::single_row_backend(bytes, p, len, VectorOp::Into);
@@ -1783,7 +1788,7 @@ where
                 into_backend.name()
             );
         }
-        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
         {
             println!(
                 "PRIME_ROUTES\tprime with {row} into {lanes}\tbackend={} takes_vector=false via=selector",
@@ -1960,7 +1965,7 @@ where
         );
         // Direct-column oracle for both elementwise forms, gated on
         // the selector like the timed column.
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             use fgf::internals::kernel::residue as selector_oracle;
             if !selector_oracle::routes_vector(bytes, p) || bytes != 4 {
@@ -1968,7 +1973,7 @@ where
             } else {
                 let params = direct_u32_params(p);
                 let mut direct = vec![0u8; len];
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 {
                     use fgf::internals::kernel::{SimdToken, X64V3Token};
                     if let Some(token) = X64V3Token::summon() {
@@ -2004,18 +2009,19 @@ where
             2 * len
         );
         {
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             use fgf::internals::kernel::residue as selector;
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             use fgf::internals::kernel::residue::VectorOp;
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             let operation_backend =
                 selector::single_row_backend(bytes, p, len, VectorOp::Elementwise);
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             let assign_backend =
                 selector::single_row_backend(bytes, p, len, VectorOp::ElementwiseAssign);
-            #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+            #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
             let operation_backend = fgf::Backend::Scalar;
-            #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+            #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
             let assign_backend = fgf::Backend::Scalar;
             let takes = operation_backend != fgf::Backend::Scalar;
             let takes_assign = assign_backend != fgf::Backend::Scalar;
@@ -2099,11 +2105,11 @@ where
 /// `u128` schoolbook.
 #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
 fn prime_matrix_panel<const P: u64>(row: &str, counts: &[usize], seed: u64) {
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use fgf::internals::kernel::residue as selector;
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     let k = selector::delay_depth::<P>();
-    #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+    #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
     let k = ((1u128 << 32) / P as u128) as u64;
     println!(
         "prime matrix {row} — backend {} K={k}:",
@@ -2118,24 +2124,18 @@ fn prime_matrix_panel<const P: u64>(row: &str, counts: &[usize], seed: u64) {
         for &nsources in counts {
             for &lanes in &[64usize, 4096] {
                 let row_len = lanes * 4;
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 let matrix_backend = selector::delayed_matrix_backend(4, k, row_len, nsources, add);
-                #[cfg(not(all(
-                    feature = "simd",
-                    any(target_arch = "x86", target_arch = "x86_64")
-                )))]
+                #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
                 let matrix_backend = fgf::Backend::Scalar;
                 let routes = matrix_backend != fgf::Backend::Scalar;
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 let operation_backend = if routes {
                     matrix_backend
                 } else {
                     selector::single_row_backend(4, P, row_len, selector::VectorOp::Add)
                 };
-                #[cfg(not(all(
-                    feature = "simd",
-                    any(target_arch = "x86", target_arch = "x86_64")
-                )))]
+                #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
                 let operation_backend = fgf::Backend::Scalar;
                 let geometry = format!("prime matrix {disposition} {row} s{nsources} o4 L{lanes}");
                 let once_geometry =
@@ -2267,7 +2267,7 @@ fn prime_matrix_panel<const P: u64>(row: &str, counts: &[usize], seed: u64) {
                 check_rows(&probe, &format!("prime oracle {once_geometry}"));
                 // Direct-column oracle: the same delayed-or-portable body
                 // the timed direct column calls.
-                #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                 {
                     let flat: Vec<fgf::internals::kernel::x86::residue::PreparedResidue> =
                         coeff_raw
@@ -2279,7 +2279,7 @@ fn prime_matrix_panel<const P: u64>(row: &str, counts: &[usize], seed: u64) {
                                 )
                             })
                             .collect();
-                    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+                    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     {
                         use fgf::internals::kernel::{FlatMatrix, SimdToken, X64V3Token};
                         // Oracle the delayed body wherever the kernel
@@ -2568,7 +2568,7 @@ fn run_panels() {
         bench_network_alignment();
         return;
     }
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     if has("--blocked-diagnostic") {
         bench_blocked_vs_axpy();
         return;

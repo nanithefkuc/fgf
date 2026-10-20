@@ -10,11 +10,7 @@
 //! operation so an accumulation-into-destination bug cannot agree with the
 //! overwrite oracle.
 
-#![cfg(all(
-    feature = "simd",
-    feature = "std",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
+#![cfg(all(feature = "simd", feature = "std", target_arch = "x86_64"))]
 #![allow(clippy::cast_possible_truncation)]
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
 

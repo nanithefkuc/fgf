@@ -678,11 +678,11 @@ fn run_panels() {
 
     // gf8b
     let c8 = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
-    bench_scalar("gf8b scalar mul", || {
+    bench_scalar("gf8b scalar mul nonzero-cycle", || {
         let mut x = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0xA5);
         for i in 0..SCALAR_ITERS {
             x = black_box(x).mul(Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(
-                (0x53u8).wrapping_add(i as u8),
+                (i % 255) as u8 + 1,
             ));
         }
         black_box(x);
@@ -704,11 +704,11 @@ fn run_panels() {
 
     // Bit-compatible GF(2^8)/0x11D used by ISA-L and klauspost/reedsolomon.
     let c8d = Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0x53);
-    bench_scalar("gf8d scalar mul", || {
+    bench_scalar("gf8d scalar mul nonzero-cycle", || {
         let mut x = Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0xA5);
         for i in 0..SCALAR_ITERS {
             x = black_box(x).mul(Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(
-                (0x53u8).wrapping_add(i as u8),
+                (i % 255) as u8 + 1,
             ));
         }
         black_box(x);
@@ -794,11 +794,13 @@ fn run_panels() {
     }
 
     // gf16b
+    // Cycling coefficients stay nonzero: one zero product would collapse
+    // the rest of the chain to zero.
     let c16 = Elem::<Gf16>::from_raw(0x53A7);
-    bench_scalar("gf16b scalar mul", || {
+    bench_scalar("gf16b scalar mul nonzero-cycle", || {
         let mut x = Elem::<Gf16>::from_raw(0x1234);
         for i in 0..SCALAR_ITERS {
-            x = black_box(x).mul(Elem::<Gf16>::from_raw((0x53A7u16).wrapping_add(i as u16)));
+            x = black_box(x).mul(Elem::<Gf16>::from_raw((i % 65535) as u16 + 1));
         }
         black_box(x);
     });

@@ -2,25 +2,33 @@
 //!
 //! Preparation and conversion are excluded. Multi-row competitor arms compose
 //! their native region primitives; unsupported primitives are not substituted.
+//!
+//! `--presentations` runs the separate registered-presentation campaign: every
+//! public GF16 presentation (shipped towers, the custom Reed–Solomon
+//! relation, transported basis-base relations, and flat competitor
+//! polynomials) interleaves the same native arms under validated exact maps
+//! and emits `SURFACE_INVENTORY` and `GF16_SURFACE` machine records. The
+//! default legacy output is unchanged.
 
 use std::collections::HashMap;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fgf::{Elem, ops};
+use fgf::{Elem, FieldElem, FieldKernels, ops};
 use reed_solomon_erasure::{Field, galois_16};
 use reed_solomon_simd::engine::{Avx2, Engine, tables};
 
 mod native;
+mod presentations;
 mod representation;
 
 use native::Native;
 use representation::{Layout, Representations, tower_mul};
 
-type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
+pub(crate) type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
 
 const ALIGN: usize = 4096;
-const NAMES: [&str; 6] = [
+pub(crate) const NAMES: [&str; 6] = [
     "fgf",
     "fgf-control",
     "gf-complete",
@@ -53,7 +61,7 @@ impl Buffer {
     }
 }
 
-fn noise(len: usize, seed: u64) -> Vec<u8> {
+pub(crate) fn noise(len: usize, seed: u64) -> Vec<u8> {
     let mut state = seed | 1;
     (0..len)
         .map(|_| {
@@ -66,23 +74,23 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Operation {
+pub(crate) enum Operation {
     Assign,
     Into,
     Add,
 }
 
 #[derive(Clone, Copy, Debug)]
-struct Shape {
-    operation: Operation,
-    sources: usize,
-    destinations: usize,
-    bytes: usize,
-    cycling: bool,
+pub(crate) struct Shape {
+    pub(crate) operation: Operation,
+    pub(crate) sources: usize,
+    pub(crate) destinations: usize,
+    pub(crate) bytes: usize,
+    pub(crate) cycling: bool,
 }
 
 impl Shape {
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match (self.operation, self.sources, self.destinations) {
             (Operation::Assign, _, _) => "mul_assign",
             (Operation::Into, 1, 1) => "mul_into",
@@ -93,27 +101,37 @@ impl Shape {
             (Operation::Add, _, _) => "mul_add_matrix_with",
         }
     }
-    fn schedule(self) -> &'static str {
+    pub(crate) fn schedule(self) -> &'static str {
         if self.cycling { "cycling16" } else { "fixed" }
     }
 }
 
-struct Bank {
-    canonical: Vec<Elem<Gf16>>,
+struct Bank<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>> {
+    /// Coefficient words in the canonical tower encoding: the oracle's
+    /// arithmetic and every native arm's layout map read these.
+    canonical: Vec<u16>,
+    /// The same coefficients as presentation words: the fgf arms multiply
+    /// by these, so every arm multiplies by one abstract field element.
+    presentation: Vec<u16>,
     complete: Vec<u16>,
     erasure: Vec<u16>,
     logs: Vec<u16>,
-    matrix: ops::CoeffMatrix<Gf16>,
-    gather: ops::CoeffVec<Gf16>,
+    matrix: ops::CoeffMatrix<F>,
+    gather: ops::CoeffVec<F>,
 }
 
-struct Plan {
+struct Plan<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>> {
     shape: Shape,
-    banks: Vec<Bank>,
+    banks: Vec<Bank<F>>,
 }
 
-impl Plan {
-    fn new(shape: Shape, maps: &Representations, special: Option<u16>) -> Self {
+impl<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>> Plan<F> {
+    fn new(
+        shape: Shape,
+        maps: &Representations,
+        map: Option<&[u16]>,
+        special: Option<u16>,
+    ) -> Self {
         let banks = (0..if shape.cycling { 16 } else { 1 })
             .map(|bank| {
                 let canonical: Vec<_> = (0..shape.sources * shape.destinations)
@@ -122,31 +140,40 @@ impl Plan {
                         if value >> 8 == 0 {
                             value |= 0x100;
                         }
-                        Elem::<Gf16>::from_raw(special.unwrap_or(value))
+                        special.unwrap_or(value)
                     })
                     .collect();
-                let map = |layout| {
+                let word = |value: u16| match map {
+                    Some(map) => map[usize::from(value)],
+                    None => value,
+                };
+                let presentation: Vec<Elem<F>> = canonical
+                    .iter()
+                    .map(|&value| Elem::<F>::from_raw(word(value)))
+                    .collect();
+                let layout_words = |layout| {
                     canonical
                         .iter()
-                        .map(|c| maps.element(c.to_raw(), layout))
+                        .map(|&value| maps.element(value, layout))
                         .collect::<Vec<_>>()
                 };
-                let logs = map(Layout::Cantor)
+                let logs = layout_words(Layout::Cantor)
                     .iter()
                     .map(|&c| tables::get_exp_log().log[usize::from(c)])
                     .collect();
                 let matrix = ops::CoeffMatrix::from_source_major(
                     shape.sources,
                     shape.destinations,
-                    &canonical,
+                    &presentation,
                 );
-                let gather = ops::CoeffVec::new(&canonical);
+                let gather = ops::CoeffVec::new(&presentation);
                 Bank {
-                    complete: map(Layout::Complete),
-                    erasure: map(Layout::Erasure),
+                    complete: layout_words(Layout::Complete),
+                    erasure: layout_words(Layout::Erasure),
                     logs,
                     matrix,
                     gather,
+                    presentation: canonical.iter().map(|&value| word(value)).collect(),
                     canonical,
                 }
             })
@@ -155,40 +182,46 @@ impl Plan {
     }
 }
 
-struct Arm<'a> {
-    kind: usize,
+pub(crate) struct Arm<'a> {
+    pub(crate) kind: usize,
     layout: Layout,
     source: Vec<&'a [u8]>,
     destination: Buffer,
 }
 
 impl Arm<'_> {
-    fn apply(&mut self, plan: &Plan, bank_index: usize, native: &Native, simd: &Avx2) {
+    fn apply<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>>(
+        &mut self,
+        plan: &Plan<F>,
+        bank_index: usize,
+        native: &Native,
+        simd: &Avx2,
+    ) {
         let shape = plan.shape;
         let bank = &plan.banks[bank_index % plan.banks.len()];
         let dst = black_box(self.destination.bytes_mut());
         let sources = black_box(self.source.as_slice());
         if self.kind <= 1 {
-            let coefficient = bank.canonical[0];
+            let coefficient = Elem::<F>::from_raw(bank.presentation[0]);
             match (shape.operation, shape.sources, shape.destinations) {
-                (Operation::Assign, _, _) => ops::mul_assign::<Gf16>(dst, black_box(coefficient)),
+                (Operation::Assign, _, _) => ops::mul_assign::<F>(dst, black_box(coefficient)),
                 (Operation::Into, 1, 1) => {
-                    ops::mul_into::<Gf16>(dst, black_box(coefficient), sources[0])
+                    ops::mul_into::<F>(dst, black_box(coefficient), sources[0])
                 }
                 (Operation::Add, 1, 1) => {
-                    ops::mul_add::<Gf16>(dst, black_box(coefficient), sources[0])
+                    ops::mul_add::<F>(dst, black_box(coefficient), sources[0])
                 }
                 (Operation::Into, _, 1) => {
-                    ops::mul_into_gather_with::<Gf16>(dst, bank.gather.as_ref(), sources)
+                    ops::mul_into_gather_with::<F>(dst, bank.gather.as_ref(), sources)
                 }
                 (Operation::Add, _, 1) => {
-                    ops::mul_add_gather_with::<Gf16>(dst, bank.gather.as_ref(), sources)
+                    ops::mul_add_gather_with::<F>(dst, bank.gather.as_ref(), sources)
                 }
                 (Operation::Into, _, _) => {
-                    ops::mul_into_matrix_with::<Gf16>(dst, shape.bytes, &bank.matrix, sources)
+                    ops::mul_into_matrix_with::<F>(dst, shape.bytes, &bank.matrix, sources)
                 }
                 (Operation::Add, _, _) => {
-                    ops::mul_add_matrix_with::<Gf16>(dst, shape.bytes, &bank.matrix, sources)
+                    ops::mul_add_matrix_with::<F>(dst, shape.bytes, &bank.matrix, sources)
                 }
             }
             return;
@@ -197,7 +230,7 @@ impl Arm<'_> {
             match self.kind {
                 2 => native.complete_assign(dst, bank.complete[0]),
                 4 => {
-                    if bank.canonical[0] == Elem::<Gf16>::ZERO {
+                    if bank.canonical[0] == 0 {
                         dst.fill(0);
                     } else {
                         simd.mul(dst.as_chunks_mut::<64>().0, black_box(bank.logs[0]));
@@ -230,7 +263,7 @@ impl Arm<'_> {
                         }
                     }
                     5 => {
-                        if bank.canonical[index] == Elem::<Gf16>::ZERO {
+                        if bank.canonical[index] == 0 {
                             if !add {
                                 output.fill(0);
                             }
@@ -250,9 +283,15 @@ struct Oracle {
 }
 
 impl Oracle {
+    pub(crate) fn new() -> Self {
+        Self {
+            products: HashMap::new(),
+        }
+    }
+
     fn result(
         &mut self,
-        plan: &Plan,
+        plan: &Plan<impl FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>>,
         bank_index: usize,
         source: &[Vec<u8>],
         initial: &[u8],
@@ -261,8 +300,8 @@ impl Oracle {
         let coefficients = &plan.banks[bank_index].canonical;
         for c in coefficients {
             self.products
-                .entry(c.to_raw())
-                .or_insert_with(|| (0..=u16::MAX).map(|x| tower_mul(x, c.to_raw())).collect());
+                .entry(*c)
+                .or_insert_with(|| (0..=u16::MAX).map(|x| tower_mul(x, *c)).collect());
         }
         let mut output = if shape.operation == Operation::Into {
             vec![0; initial.len()]
@@ -270,7 +309,7 @@ impl Oracle {
             initial.to_vec()
         };
         if shape.operation == Operation::Assign {
-            let table = &self.products[&coefficients[0].to_raw()];
+            let table = &self.products[&coefficients[0]];
             for pair in output.as_chunks_mut::<2>().0 {
                 *pair = table[usize::from(u16::from_le_bytes(*pair))].to_le_bytes();
             }
@@ -278,7 +317,7 @@ impl Oracle {
         }
         for (term, src) in source.iter().enumerate() {
             for row in 0..shape.destinations {
-                let table = &self.products[&coefficients[term * shape.destinations + row].to_raw()];
+                let table = &self.products[&coefficients[term * shape.destinations + row]];
                 for (dst, pair) in output[row * shape.bytes..(row + 1) * shape.bytes]
                     .as_chunks_mut::<2>()
                     .0
@@ -296,48 +335,62 @@ impl Oracle {
     }
 }
 
-fn quantile(samples: &[f64], q: f64) -> f64 {
+pub(crate) fn quantile(samples: &[f64], q: f64) -> f64 {
     samples[((samples.len() - 1) as f64 * q).round() as usize]
 }
 
+/// A Williams balanced Latin square: within one cycle every arm takes every
+/// position equally often and directly follows every other arm equally often.
+/// Even arm counts need `count` orders; odd counts add each order reversed.
 fn arm_orders(count: usize) -> Vec<Vec<usize>> {
-    fn visit(order: &mut [usize], position: usize, result: &mut Vec<Vec<usize>>) {
-        if position == order.len() {
-            result.push(order.to_vec());
-            return;
-        }
-        for index in position..order.len() {
-            order.swap(position, index);
-            visit(order, position + 1, result);
-            order.swap(position, index);
-        }
-    }
-    let mut result = Vec::new();
-    visit(&mut (0..count).collect::<Vec<_>>(), 0, &mut result);
-    let mut state = 0x9e37_79b9_7f4a_7c15u64;
-    for index in (1..result.len()).rev() {
-        state = state
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1);
-        result.swap(index, (state as usize) % (index + 1));
+    let first: Vec<usize> = (0..count)
+        .map(|j| {
+            if j % 2 == 1 {
+                j.div_ceil(2)
+            } else {
+                (count - j / 2) % count
+            }
+        })
+        .collect();
+    let mut result: Vec<Vec<usize>> = (0..count)
+        .map(|shift| first.iter().map(|&arm| (arm + shift) % count).collect())
+        .collect();
+    if !count.is_multiple_of(2) {
+        let reversed: Vec<Vec<usize>> = result
+            .iter()
+            .map(|order| order.iter().rev().copied().collect())
+            .collect();
+        result.extend(reversed);
     }
     result
 }
 
-struct RunOptions {
-    timing: bool,
-    smoke: bool,
-    offset: usize,
-    exhaustive: bool,
+pub(crate) struct RunOptions {
+    pub(crate) timing: bool,
+    pub(crate) smoke: bool,
+    pub(crate) offset: usize,
+    pub(crate) exhaustive: bool,
 }
 
-fn run_case(
-    plan: Plan,
+/// The native arms a shape interleaves: assign cases carry no region
+/// primitive for reed-solomon-erasure or Leopard, and those absences stay
+/// absent.
+pub(crate) fn arm_kinds(operation: Operation) -> &'static [usize] {
+    if operation == Operation::Assign {
+        &[0, 1, 2, 4]
+    } else {
+        &[0, 1, 2, 3, 5]
+    }
+}
+
+pub(crate) fn run_case<F: FieldKernels<Raw = u16, Characteristic = fgf::PrimeCharacteristic<2>>>(
+    plan: Plan<F>,
     maps: &Representations,
     native: &Native,
     simd: &Avx2,
     oracle: &mut Oracle,
     options: RunOptions,
+    presentation: Option<&presentations::Presentation>,
 ) {
     let RunOptions {
         timing,
@@ -362,7 +415,7 @@ fn run_case(
         Layout::Erasure,
         Layout::Cantor,
     ];
-    let fixtures: Vec<Vec<Buffer>> = layouts
+    let mut fixtures: Vec<Vec<Buffer>> = layouts
         .iter()
         .map(|&layout| {
             canonical_sources
@@ -375,36 +428,56 @@ fn run_case(
                 .collect()
         })
         .collect();
-    let kinds: Vec<_> = if shape.operation == Operation::Assign {
-        vec![0, 1, 2, 4]
-    } else {
-        vec![0, 1, 2, 3, 5]
-    };
-    let mut arms: Vec<_> = kinds
-        .into_iter()
+    // The fgf arms multiply presentation words, so their sources pack
+    // through the presentation's validated map, not the tower encoding.
+    if let Some(presentation) = presentation {
+        fixtures.push(
+            canonical_sources
+                .iter()
+                .map(|src| {
+                    let mut buffer = Buffer::new(shape.bytes, offset);
+                    presentation.pack(buffer.bytes_mut(), src);
+                    buffer
+                })
+                .collect(),
+        );
+    }
+    let mut arms: Vec<_> = arm_kinds(shape.operation)
+        .iter()
+        .copied()
         .map(|kind| {
-            let fixture = match kind {
-                0 | 1 => 0,
-                2 => 1,
-                3 => 2,
-                4 | 5 => 3,
+            // The fgf arms always carry the tower layout — their packing
+            // goes through the presentation map when one is present — and
+            // read the presentation-packed source fixture when it exists.
+            let (fixture, layout) = match kind {
+                0 | 1 => (if presentation.is_some() { 4 } else { 0 }, Layout::Tower),
+                2 => (1, Layout::Complete),
+                3 => (2, Layout::Erasure),
+                4 | 5 => (3, Layout::Cantor),
                 _ => unreachable!(),
             };
             Arm {
                 kind,
-                layout: layouts[fixture],
+                layout,
                 source: fixtures[fixture].iter().map(Buffer::bytes).collect(),
                 destination: Buffer::new(shape.bytes * shape.destinations, offset),
             }
         })
         .collect();
+    // Presentation arms pack canonical words through the presentation's
+    // validated map; every native arm keeps its own layout encoding.
+    let pack = |kind: usize, layout: Layout, dst: &mut [u8], canonical: &[u8]| match presentation {
+        Some(presentation) if kind <= 1 => presentation.pack(dst, canonical),
+        _ => maps.pack(dst, canonical, layout),
+    };
     for bank in 0..plan.banks.len() {
         let expected = oracle.result(&plan, bank, &canonical_sources, &initial);
         for arm in &mut arms {
-            maps.pack(arm.destination.bytes_mut(), &initial, arm.layout);
+            let destination = arm.destination.bytes_mut();
+            pack(arm.kind, arm.layout, destination, &initial);
             arm.apply(&plan, bank, native, simd);
             let mut packed = vec![0; expected.len()];
-            maps.pack(&mut packed, &expected, arm.layout);
+            pack(arm.kind, arm.layout, &mut packed, &expected);
             assert_eq!(
                 arm.destination.bytes(),
                 packed,
@@ -414,7 +487,7 @@ fn run_case(
             );
             let repeated = oracle.result(&plan, bank, &canonical_sources, &expected);
             arm.apply(&plan, bank, native, simd);
-            maps.pack(&mut packed, &repeated, arm.layout);
+            pack(arm.kind, arm.layout, &mut packed, &repeated);
             assert_eq!(
                 arm.destination.bytes(),
                 packed,
@@ -432,21 +505,46 @@ fn run_case(
             arm.apply(&plan, call, native, simd);
         }
     }
-    let reps = if shape.bytes >= 1024 * 1024 {
-        1
-    } else if shape.bytes >= 64 * 1024 {
-        8
-    } else {
-        32
-    };
+    // Calibrate each arm: generic presentations and native kernels can differ
+    // by orders of magnitude, but each timed batch must amortize the clock.
+    let target = Duration::from_micros(if smoke { 15 } else { 100 });
+    let mut reps = Vec::with_capacity(arms.len());
+    for arm in &mut arms {
+        if arm.kind == 1 {
+            reps.push(reps[0]);
+            continue;
+        }
+        let mut batch = plan.banks.len();
+        loop {
+            let begin = Instant::now();
+            for call in 0..batch {
+                arm.apply(&plan, call, native, simd);
+            }
+            black_box(arm.destination.bytes());
+            if begin.elapsed() >= target || batch == 1 << 20 {
+                break;
+            }
+            batch *= 2;
+        }
+        reps.push(batch);
+    }
     let orders = arm_orders(arms.len());
     let period = orders.len();
     let budget = Duration::from_millis(if smoke { 50 } else { 500 });
+    // At least 30 rounds (one cycle in smoke) and at most 1200, both rounded
+    // up to whole cycles, so every arm keeps its balanced positions.
+    let min_rounds = if smoke {
+        period
+    } else {
+        30usize.div_ceil(period) * period
+    };
+    let max_rounds = 1200usize.div_ceil(period) * period;
     let mut samples = vec![Vec::new(); arms.len()];
     let start = Instant::now();
     let mut round = 0;
     loop {
         for &index in &orders[round % period] {
+            let reps = reps[index];
             for call in 0..reps {
                 arms[index].apply(&plan, round * reps + call, native, simd);
             }
@@ -460,13 +558,17 @@ fn run_case(
         }
         round += 1;
         if round % period == 0
-            && ((round >= period * 3 && start.elapsed() >= budget) || round >= 1200)
+            && (round >= max_rounds || (round >= min_rounds && start.elapsed() >= budget))
         {
             break;
         }
     }
     for list in &mut samples {
         list.sort_unstable_by(f64::total_cmp);
+    }
+    if let Some(presentation) = presentation {
+        presentations::emit_case_records(presentation, shape, &arms, &samples, &reps);
+        return;
     }
     let control = quantile(&samples[1], 0.5) / quantile(&samples[0], 0.5);
     println!(
@@ -477,7 +579,17 @@ fn run_case(
         shape.bytes,
         shape.schedule()
     );
-    for (arm, samples) in arms.iter().zip(&samples) {
+    for ((arm, samples), &batch_reps) in arms.iter().zip(&samples).zip(&reps) {
+        println!(
+            "CALIBRATION\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            shape.label(),
+            shape.sources,
+            shape.destinations,
+            shape.bytes,
+            shape.schedule(),
+            NAMES[arm.kind],
+            batch_reps
+        );
         let ns = quantile(samples, 0.5);
         let gib = (shape.bytes * shape.sources) as f64 / ns * 1e9 / 1073741824.0;
         println!(
@@ -559,13 +671,17 @@ fn main() {
     assert!(
         arguments
             .iter()
-            .all(|arg| arg == "--check" || arg == "--smoke"),
-        "supported options: --check, --smoke"
+            .all(|arg| arg == "--check" || arg == "--smoke" || arg == "--presentations"),
+        "supported options: --check, --smoke, --presentations"
     );
     let check = arguments.iter().any(|arg| arg == "--check");
     let smoke = arguments.iter().any(|arg| arg == "--smoke");
     let native = Native::new();
     let simd = Avx2::new();
+    if arguments.iter().any(|arg| arg == "--presentations") {
+        presentations::run(check, smoke, &native, &simd);
+        return;
+    }
     let maps = Representations::new(&native);
     let mut oracle = Oracle {
         products: HashMap::new(),
@@ -578,6 +694,14 @@ fn main() {
         env!("COMPLETE_REVISION"),
         env!("LEOPARD_REVISION")
     );
+    let mode = if check {
+        "check"
+    } else if smoke {
+        "smoke"
+    } else {
+        "full"
+    };
+    println!("BENCHMARK_MODE\t{mode}");
     println!(
         "affinity={} scheduler={}",
         std::fs::read_to_string("/proc/self/status")
@@ -604,7 +728,7 @@ fn main() {
                 cycling: false,
             };
             run_case(
-                Plan::new(shape, &maps, Some(coefficient)),
+                Plan::<Gf16>::new(shape, &maps, None, Some(coefficient)),
                 &maps,
                 &native,
                 &simd,
@@ -615,6 +739,7 @@ fn main() {
                     offset: 0,
                     exhaustive: true,
                 },
+                None,
             );
         }
         for bytes in [64, 128, 192, 320] {
@@ -626,7 +751,7 @@ fn main() {
                 cycling: false,
             };
             run_case(
-                Plan::new(shape, &maps, None),
+                Plan::<Gf16>::new(shape, &maps, None, None),
                 &maps,
                 &native,
                 &simd,
@@ -637,6 +762,7 @@ fn main() {
                     offset: 16,
                     exhaustive: false,
                 },
+                None,
             );
         }
     }
@@ -645,7 +771,7 @@ fn main() {
     );
     for shape in shapes(smoke) {
         run_case(
-            Plan::new(shape, &maps, None),
+            Plan::<Gf16>::new(shape, &maps, None, None),
             &maps,
             &native,
             &simd,
@@ -656,6 +782,7 @@ fn main() {
                 offset: 0,
                 exhaustive: false,
             },
+            None,
         );
     }
     println!(

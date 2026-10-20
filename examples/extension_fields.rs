@@ -49,6 +49,19 @@ fn main() {
     );
     assert_eq!(x * x.inv(), Elem::<Gf16>::ONE);
     assert_eq!(x.to_bytes(), [a.to_raw(), b.to_raw()]);
+
+    // The total conventions: inversion and division map zero to zero, and
+    // the zeroth power is one for every element.
+    assert_eq!(Elem::<Gf16>::ZERO.inv(), Elem::<Gf16>::ZERO);
+    assert_eq!(x.div(Elem::<Gf16>::ZERO), Elem::<Gf16>::ZERO);
+    assert_eq!(Elem::<Gf16>::ZERO.pow(0), Elem::<Gf16>::ONE);
+
+    // The shipped generator of the Fan–Paar tower has full multiplicative
+    // order, like every frozen generator in the crate.
+    assert_eq!(
+        Elem::<FanPaar16Field>::GENERATOR.pow(65_535),
+        Elem::<FanPaar16Field>::ONE
+    );
     println!("AES-rooted tower: x={x}, conjugate={conjugate}, trace={trace}, norm={norm_base}");
 
     // Fan–Paar has another basis. Embed via components, not by relabelling

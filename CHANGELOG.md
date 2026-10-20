@@ -11,7 +11,8 @@ All notable changes to this project are documented here. The format follows
 - Batch reciprocal and division rows `ops::inv_into` / `ops::inv_assign`
   and `ops::div_elementwise` / `ops::div_elementwise_assign`: Montgomery
   batch inversion with zero-preserving totality (`inv(0) == 0`,
-  `x / 0 == 0`), chunked 64-element stack scratch so steady state never
+  `x / 0 == 0`), chunked through a 512-byte stack scratch (64 elements of
+  up to 8 bytes, fewer for wider component elements) so steady state never
   touches the heap. Names follow the `mul_elementwise` family spellings.
 - Byte-lane inner product `ops::dot_product`: folds two packed rows into
   one `Elem` as `sum(a[i] * b[i])`, empty rows returning zero. The name
@@ -45,10 +46,6 @@ All notable changes to this project are documented here. The format follows
   with caller-maintained zero padding; packed outputs are exactly
   `bits::bytes_for(bits)` bytes with cleared tail bits, lane sides hold
   whole target elements exactly, and empty rows are valid.
-- Wiki guides for operation suffixes and prepared coefficients:
-  `wiki/Operation-suffixes.md` covers destination, shape, `_with`, `_at`/`_offsets`,
-  and allocation suffixes, and `wiki/Prepared-coefficients.md` covers `Coeff`,
-  `CoeffVec`/`CoeffMatrix` ownership, gather views, and `alloc`-gated reuse.
 - Prepared and overwrite forms of the offset-addressed matrix operations:
   `ops::mul_add_matrix_at_with`, `ops::mul_into_matrix_at`, and
   `ops::mul_into_matrix_at_with` complete the `mul_add_matrix_at` family with
@@ -67,6 +64,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `wiki/Operation-suffixes.md` covers destination, shape, `_with`, `_at`/`_offsets`,
+  and allocation suffixes.
 - **Breaking:** the total extension degree cap is 64 at every
   characteristic. Declaring or validating a field whose total prime
   degree exceeds 64 is a build-time configuration error and panics:
@@ -83,52 +82,6 @@ All notable changes to this project are documented here. The format follows
 - The wiki embedding guide covers the proper-inclusion and isomorphism
   split, mixed composition through `then` and `then_embedding`, and the
   `EqualDegree` and `IncompatibleDegree` rejection pair.
-- The dependency lock records published sources for locked MSRV checks;
-  umbrella-local patch resolution is excluded from the publication lock.
-
-- Public documentation leads with `FiniteField`, its representations, and
-  `Elem<F>`; named prime families appear as specializations. Wiki guides
-  follow field selection, scalar arithmetic, packing, row operations,
-  preparation, and deployment, with task-oriented navigation and a custom
-  prime-base extension example.
-- Benchmark publication refreshes all families and competitors together.
-  Generic residue results use expandable, length-column tables with
-  separate AVX2/scalar comparisons; explicitly unavailable hosts show `-`
-  instead of historical measurements.
-
-- Wiki guides use 3.0.1 as the base v3 release and lead from field construction
-  and arithmetic through presentations, embeddings, and custom fields.
-  Migration guidance goes directly from 2.x to 3.0.1.
-- Wiki navigation groups the reading path in the home page and sidebar instead
-  of per-page `Next:` footers.
-- Four-byte generic residue rows vectorize elementwise multiplication on
-  AVX2-capable x86 hosts.
-- One-byte generic residue rows at moduli up to 127 vectorize prepared
-  fixed-coefficient scaling through nibble-table lookups, four-byte rows
-  through Shoup multiplication, and eight-byte rows at odd moduli through
-  doubleword Montgomery multiplication; those rows report the vector
-  backend, and vector-routed operations produce byte-identical output to
-  the portable path on every input, applying the documented zero/unit
-  shortcuts before vector dispatch.
-- Four-byte generic residue rows delay reduction across shared sources in
-  prepared overwrite/accumulate four-output matrices with enough shared
-  sources and modulus headroom, as recorded in
-  [the residue benchmark record](benchmarks/v3/residue.md), with delayed
-  accumulation falling back to the repeated single-row path when an output
-  row's coefficients are all zero.
-- Operation implementations move from `ops.rs` into the `ops/` coefficient,
-  single-row, scatter, gather, matrix, and packing modules, retaining public
-  `ops::*` paths. Byte dispatch moves into `kernel/bytes.rs`.
-- Generic residue single-row AVX2 kernels move from `residue/avx2/single.rs`
-  into `residue/avx2/single/{u8,u32,u64}.rs`.
-- **Breaking:** Unstable residue kernel entries use `u8`, `u32`, and `u64`
-  lane names instead of `byte`, `word`, and `doubleword`; `WordParams`
-  becomes `U32Params`. Migrate direct `internals` callers to the explicit
-  lane-width spellings.
-- **Breaking:** Unstable residue routing queries report an actual
-  `Backend` through `single_row_backend` and `delayed_matrix_backend`.
-  Replace boolean selector calls with comparisons to `Backend::Scalar`;
-  use `avx2_floor_op_len` for the AVX2-specific row floor.
 - The `alloc` feature documentation names the full prepared surface:
   the prepared maps, the `ops::map` and `ops::map_bits` modules, the
   prepared coefficient collections, the prepared scatter/gather/matrix
@@ -141,14 +94,12 @@ All notable changes to this project are documented here. The format follows
   internally through the Vieta closed forms with no public spelling
   change; `QuadMersenne31` keeps its inherent `const` conjugate/norm and
   drops the proposed inherent `trace` (use the embedding trace map).
-
 - NEON and `simd128` acceleration: the `aarch64` and `wasm32` kernel
   subtrees and their dispatch arms are gone, and `internals` no longer
   exposes `kernel::{aarch64, wasm32}` or the `Neon`/`NeonAes`/`Wasm128`
   tokens. AArch64 and Wasm32 targets compile and run the portable scalar
   bodies; `backend_for::<F>()` reports `Backend::Scalar` for every field
   there (`backend()` still reports `simdispatch`'s process selection).
-- Wiki migration guide from the withdrawn v3 release candidate.
 
 ### Fixed
 
@@ -183,7 +134,14 @@ All notable changes to this project are documented here. The format follows
   the wide reduction, which is total over `u128` and needs no canonical
   operands.
 
-## [3.0.1] - 2026-10-10
+## [3.0.1] - 2026-10-19
+
+3.0.1 is the first supported v3 release. The `3.0.0` published before it went
+out by accident and was yanked; 3.0.1 is not API-compatible with that artifact
+(see the 3.0.0 entry), and code locked to it must migrate. The supported
+upgrade path is from 2.x: follow
+[Migrating from 2.x](https://github.com/nanithefkuc/fgf/wiki/Migrating-from-2.x)
+and the breaking entries below.
 
 ### Added
 
@@ -199,9 +157,11 @@ All notable changes to this project are documented here. The format follows
   uses one, two, four, or eight bytes as its residues fit within `2^8`,
   `2^16`, `2^32`, and `u64` — with `FieldBuffer::decode`/`encode` as the
   byte API of these rows, the checked packed
-  operation surface with prepared coefficients, and `Scalar` routing on
-  every host. Broadcast add/sub take the modular path for every
-  characteristic, so packed lanes stay canonical at `P = 2`. Values live in
+  operation surface with prepared coefficients, and vector routing on
+  capable x86-64 hosts — AVX2 single-row kernels, AVX-512 under `simd512` —
+  with `Scalar` routing elsewhere. Broadcast add/sub take the modular path
+  for every characteristic, so packed lanes stay canonical at `P = 2`.
+  Values live in
   `field::finite_field`, re-exported at the root.
 - Sealed `PrimeField` marker for degree-one fields, the validated `const`
   integer reductions `field::prime::reduce` and `reduce_wide`, `RangeError`
@@ -253,11 +213,72 @@ All notable changes to this project are documented here. The format follows
   re-exported at the root: `Embedding<S, T>` over every pair of rows of
   equal characteristic whose degrees divide, with `from_images`,
   `to_images`, `generator_count`, `generator`, `then`, and
-  `relative_degree`; `Isomorphism<S, T>` with `apply`, a total `unapply`,
+  `Isomorphism<S, T>` with `apply`, a total `unapply`,
   `inverse`, and composition; and the `NoCanonicalMap` and `InvalidImages`
   variants of `EmbeddingError`. Maps come from structural inclusions, the
   frozen binary ladder, or validated caller images; every pre-cutover
   binary result is unchanged.
+- Wiki reference for operation suffixes, destination behavior, prepared state,
+  row addressing, and allocation.
+- One-time field migration verification is recorded in
+  [Issue #41](https://github.com/nanithefkuc/fgf/issues/41), rather than a
+  permanent expanded regression corpus.
+- Behavioral regressions cover irreducible and reducible extension relations,
+  relation-field arithmetic, ordered-basis subfield embeddings, rejected
+  restrictions and degree mismatches, and quadratic prime identity predicates.
+- Raw kernel dispatch is unreachable outside the crate: every `FieldKernels`
+  kernel entry takes the crate-private `RawDispatch` proof argument, so code
+  holding an `F: FieldKernels` bound — including under `internals` — cannot
+  call the raw entries. The negative consumer snippet
+  `tests/compile_fail/raw_dispatch_without_proof.rs` pins the rejection.
+- Three examples join the educational set, each running against the library
+  with `std` and `alloc` disabled: `custom_extensions` defines a custom
+  `ExtensionSpec` field, `basis_maps` moves values through `Embedding`
+  between basis presentations, and `packed_no_alloc` runs packed row
+  operations without an allocator. `just examples-portable` runs them in
+  that configuration.
+- `just release-accept` runs the crate-specific release acceptance, separate
+  from the shared pull-request gate `just validate`. Its pieces also stand
+  alone: `just test-gather-validation-32` runs the gather validation as a
+  release i686 build with overflow checks disabled — the configuration the
+  gather fix below required — and CI runs it as its own job;
+  `just benchmark-check` validates portable benchmark fixtures and compares
+  their inventory with compiler-derived public API declarations;
+  `just benchmark-check-native` validates the GF16 presentation comparisons
+  and existing native geometries on capable hosts. `just isa-accept EXPECTED`
+  requires the requested process backend and positive execution evidence
+  before running the full tier matrix. Native release acceptance uses
+  dedicated Willow Cove (`v4x`) and Golden Cove (`v3_gfni_crypto`) hosts.
+- The `surfaces` benchmark artifact measures the public API end to end:
+  scalar arithmetic, packed single-row and multi-row operations, prepared
+  coefficient forms, and `Embedding`/`Isomorphism` maps, over representative
+  fields including the AES byte field, the Rijndael sixteen tower, and the
+  `MersenneFold`/`GoldilocksFold` prime rows. `--inventory` prints every
+  registered measurement without timing, `--check` runs each fixture's
+  correctness check once, and `--smoke` shortens repetition without
+  dropping cases. Each timed record names its public callable paths, exact
+  registered field label, scope, logical byte numerator, lane and
+  source/destination counts, and the resolved backend; a byte-XOR control
+  identifies itself with `control` and `phase` fields, and zero-work APIs
+  report latency instead of throughput.
+- The native GF16 comparison gains `--presentations`, a separate output mode
+  beside the legacy format so existing parsing is unchanged. It covers
+  representative shipped Rijndael and Fan-Paar fields, custom RS-rooted
+  fields, normal and Cantor bases, and competitor-matched fields, with
+  duplicate `fgf` control arms, interleaved arms and fixed/cycling
+  coefficients, and every map and fixture validated outside timing;
+  `--presentations --check` validates every new geometry without timing,
+  and `--presentations --smoke` shortens the sampling budget without
+  dropping a registered case. Both output modes open with a
+  `BENCHMARK_MODE` banner (`full`, `smoke`, or `check`), and each
+  `GF16_SURFACE` record carries its sample count and calibrated batch size
+  as `samples` and `batch_reps`. Presentation conversions run public scalar
+  caller loops.
+- The capture family `surfaces` records the artifact and the GF16
+  `--presentations` mode for current v3 in five rounds per host, published
+  in the v3 record (`benchmarks/v3/public-api.md`, `benchmarks/v3/maps.md`,
+  and the GF16 presentation panels). No released-v2 counterpart is
+  fabricated for the new public APIs.
 
 ### Changed
 
@@ -365,6 +386,56 @@ All notable changes to this project are documented here. The format follows
   `EmbeddingError` under it. Import from the crate root or
   `field::embedding` instead; the struct bounds widen from `BinaryField`
   to `Field`, and `Embedding` keeps `Clone`, `Copy`, and `Debug`.
+- The dependency lock records published sources for locked MSRV checks;
+  umbrella-local patch resolution is excluded from the publication lock.
+- Public documentation leads with `FiniteField`, its representations, and
+  `Elem<F>`; named prime families appear as specializations. Wiki guides
+  follow field selection, scalar arithmetic, packing, row operations,
+  preparation, and deployment, with task-oriented navigation and a custom
+  prime-base extension example.
+- Benchmark publication preserves the complete public-operation, field-map,
+  GF16-presentation, size-sweep, and competitor inventory in task-oriented
+  pages. Shared geometry is prose; varying counts occupy named columns.
+  Exact callable paths, setup, resolved backends, and controls are expandable.
+  SVG overviews complement exact figures. Public v2 and comparison pages are
+  removed; their samples remain in raw campaign evidence.
+- Wiki guides use 3.0.1 as the base v3 release and lead from field construction
+  and arithmetic through presentations, embeddings, and custom fields.
+  Migration guidance goes directly from 2.x to 3.0.1.
+- Wiki navigation groups the reading path in the home page and sidebar instead
+  of per-page `Next:` footers.
+- AVX-512 generic residue kernels under `simd512`: nibble-table `u8`,
+  Shoup and Barrett `u32`, Montgomery `u64`, and delayed-reduction prepared
+  matrices. Capable residue rows report `V4x`; short rows retain narrower
+  or portable routes, and zero/unit coefficient byte behavior is unchanged.
+- Four-byte generic residue rows vectorize elementwise multiplication on
+  AVX2-capable x86 hosts.
+- One-byte generic residue rows at moduli up to 127 vectorize prepared
+  fixed-coefficient scaling through nibble-table lookups, four-byte rows
+  through Shoup multiplication, and eight-byte rows at odd moduli through
+  doubleword Montgomery multiplication; those rows report the vector
+  backend, and vector-routed operations produce byte-identical output to
+  the portable path on every input, applying the documented zero/unit
+  shortcuts before vector dispatch.
+- Four-byte generic residue rows delay reduction across shared sources in
+  prepared overwrite/accumulate four-output matrices with enough shared
+  sources and modulus headroom, as recorded in
+  [the residue benchmark record](benchmarks/v3/residue.md), with delayed
+  accumulation falling back to the repeated single-row path when an output
+  row's coefficients are all zero.
+- Operation implementations move from `ops.rs` into the `ops/` coefficient,
+  single-row, scatter, gather, matrix, and packing modules, retaining public
+  `ops::*` paths. Byte dispatch moves into `kernel/bytes.rs`.
+- Generic residue single-row AVX2 kernels move from `residue/avx2/single.rs`
+  into `residue/avx2/single/{u8,u32,u64}.rs`.
+- **Breaking:** Unstable residue kernel entries use `u8`, `u32`, and `u64`
+  lane names instead of `byte`, `word`, and `doubleword`; `WordParams`
+  becomes `U32Params`. Migrate direct `internals` callers to the explicit
+  lane-width spellings.
+- **Breaking:** Unstable residue routing queries report an actual
+  `Backend` through `single_row_backend` and `delayed_matrix_backend`.
+  Replace boolean selector calls with comparisons to `Backend::Scalar`;
+  use `avx2_floor_op_len` for the AVX2-specific row floor.
 
 ### Removed
 
@@ -387,8 +458,33 @@ All notable changes to this project are documented here. The format follows
   Use the `FieldElem` methods and operators, `FieldBuffer::decode` and
   `encode`, and `ExtensionField::from_components` and `to_components` at
   run time; `Elem::ZERO`, `Elem::ONE`, and `to_raw` stay `const`.
+- The wiki migration guide written for the withdrawn v3 release candidate.
 
-## [3.0.0-rc.1] - 2026-10-07
+### Fixed
+
+- `ops::add_gather_offsets` prevalidated its source spans with unchecked
+  addition: on 32-bit targets, `offset + dst.len()` wraps when overflow
+  checks are disabled, so a release build could admit a source row that
+  reaches past `region` and panic mid-fold with the destination already
+  partially mutated. The offset-plus-span check now uses checked arithmetic
+  on every target, and the direct AVX2 gather prevalidates every offset —
+  an invalid later offset included — before the first destination write.
+  Invalid geometry still panics before any mutation; the defect was a
+  partial write before the panic, never a memory-safety violation.
+- Default-feature 32-bit x86 builds use the portable backend. X64 capability
+  tokens and their architecture kernels compile only for `x86_64`; enabling
+  `simd` or `internals` on i686 no longer imports unavailable x64 entries.
+
+## [3.0.0] - 2026-10-07 [YANKED]
+
+This release was published to crates.io by accident and then yanked; it was
+never a supported release. It exported the `Binary<N, R>` field markers, the
+recursive tower surface (`Tower<S>`, the open `TowerSpec`, and
+`TowerGeneratorSpec`), and an open, downstream-implementable `Field` trait.
+3.0.1 removes and seals those items and is therefore not API-compatible with
+this artifact: do not build on the yanked version. Migrate locked code through
+[Migrating from 2.x](https://github.com/nanithefkuc/fgf/wiki/Migrating-from-2.x),
+using the 3.0.1 breaking entries for the remaining differences.
 
 ### Added
 
@@ -1430,7 +1526,7 @@ This release adds `QuadMersenne31`, the degree-2 extension of `Mersenne31` (`i²
 
 ### Added
 
-- `QuadMersenne31` (GF((2^31−1)²)). See Unreleased entry above.
+- `QuadMersenne31` (GF((2^31−1)²)). See the 0.7.0 entry above.
 
 ## [0.5.0] - 2026-08-23
 
@@ -1676,7 +1772,8 @@ behaviour.
 
 Initial public release.
 
-[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v3.0.1...HEAD
+[3.0.1]: https://github.com/nanithefkuc/fgf/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/nanithefkuc/fgf/compare/v2.1.0...v3.0.0
 [1.0.0]: https://github.com/nanithefkuc/fgf/compare/v0.7.1...v1.0.0
 [0.7.1]: https://github.com/nanithefkuc/fgf/compare/v0.7.0...v0.7.1

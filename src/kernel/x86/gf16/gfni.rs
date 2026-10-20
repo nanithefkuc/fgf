@@ -20,8 +20,6 @@ pub use matrix::{mul_add_matrix_gfni, mul_add_matrix_gfni_with};
 pub use scatter::mul_add_scatter_gfni;
 pub use single::{mul_add_gfni, mul_assign_gfni, mul_into_gfni};
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 /// `coeff * src` for one 32-byte lane, given the source and its

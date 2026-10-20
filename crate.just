@@ -4,6 +4,7 @@
 
 CRATE := 'fgf'
 MSRV := '1.93'
+API_NIGHTLY := 'nightly-2026-09-30'
 
 # Backend tiers this crate dispatches over, strongest first. `just test-tiers`
 # and `just cover` re-run once per tier, because dispatch resolves one backend
@@ -13,10 +14,11 @@ TIERS := 'v4x v3_gfni_crypto v3 v2 scalar'
 # Owned-unsafe coverage is provided by the promoted GFNI recipe below.
 MIRI := ''
 
-# Coverage exclusions for code that cannot execute on a CI host. The binary
-# field kernels require GFNI; QuadMersenne31 and residue AVX-512 kernels require
-# V4x. The GitHub-hosted coverage runner cannot select those tiers; AVX2
-# residue kernels and mixed-ISA prime dispatch modules remain included.
+# Coverage excludes the full x86 binary-field kernel subtrees and the complete
+# gf8/tower dispatch files, including their portable and narrower-ISA branches.
+# AVX-512 QuadMersenne31, residue, and GF(2) interop bodies and the GF(2)
+# interop dispatch are also excluded. AVX2 residue kernels and mixed-ISA prime
+# dispatch modules remain included.
 COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/x86/residue/avx512(/|\.rs$)|kernel/x86/gf1/avx512\.rs$|kernel/gf1/dispatch\.rs$|kernel/(gf8|tower)\.rs$"'
 
 # Export the existing merged profiles, including after a failed coverage gate.
@@ -35,8 +37,19 @@ example NAME *ARGS:
 examples *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    for name in field_arithmetic shard_recovery streaming_encode binary_syndrome extension_fields embeddings prime_vectors generic_prime; do
+    for name in field_arithmetic shard_recovery streaming_encode binary_syndrome extension_fields embeddings prime_vectors generic_prime custom_extensions basis_maps packed_no_alloc; do
         cargo run --example "${name}" {{ARGS}}
+    done
+
+# The library-noalloc examples: they run with every feature off, the
+# strongest portability claim an example can make. The prepared-collection
+# and timing-probe examples stay out because they need `alloc` or `std`.
+[group('examples')]
+examples-portable *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for name in field_arithmetic binary_syndrome extension_fields embeddings custom_extensions basis_maps packed_no_alloc; do
+        cargo run --example "${name}" --no-default-features {{ARGS}}
     done
 
 # The shared `features` recipe walks `--no-default-features`, default, and
@@ -61,6 +74,31 @@ features-internals:
     cargo check --all-targets --features simd512
     cargo check --all-targets --all-features
 
+# The gather validation regression executes as i686 release code with
+# overflow checks disabled, under no-default and default plus internals.
+# Default-feature i686 uses the portable backend; direct x64-kernel cases run
+# in the native test matrix. The listing guard rejects an empty target.
+# The i686 run needs `gcc-multilib` for the 32-bit link environment.
+[group('test')]
+test-gather-validation-32:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rustup target add i686-unknown-linux-gnu
+    export RUSTFLAGS="${RUSTFLAGS:-} -C overflow-checks=off"
+    export FGF_REQUIRE_WRAPPING=1
+    cargo check --release --target i686-unknown-linux-gnu --all-features --all-targets
+    cargo check --release --target i686-unknown-linux-gnu --all-targets
+    for args in "--no-default-features" "--features internals"; do
+        echo "── i686 release gather_validation ${args}"
+        listed=$(cargo test --release --target i686-unknown-linux-gnu ${args} --test gather_validation -- --list)
+        grep -Fxq 'overflowing_offset_rejects_before_mutation_on_32_bit: test' <<<"$listed" || {
+            printf 'i686_overflow_regression_missing features=%s\n' "$args" >&2
+            exit 1
+        }
+        cargo test --release --target i686-unknown-linux-gnu ${args} --test gather_validation
+        cargo run --release --target i686-unknown-linux-gnu ${args} --example backend_report -- scalar
+    done
+
 # Compile the non-x86 library paths, including Wasm's explicit SIMD feature.
 [group('test')]
 cross-check:
@@ -77,6 +115,66 @@ external-check:
     for manifest in external/*/Cargo.toml; do
         echo "external-check: ${manifest%/Cargo.toml}"
         cargo check --manifest-path "${manifest}" --all-targets
+    done
+
+# Print process and representative-field backends without inferring execution
+# coverage from a downgrade request.
+[group('test')]
+backend-report:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bin=$(cargo build --all-features --example backend_report --message-format=json-render-diagnostics | jq -rs '[.[] | select(.executable != null) | .executable] | last')
+    "${bin}"
+
+# Require an actual tier and positive direct-kernel execution evidence before
+# sweeping downgrade requests. Dedicated acceptance hosts supply their real tier.
+[group('gate')]
+isa-accept EXPECTED:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export SIMD_BACKEND="{{EXPECTED}}"
+    bin=$(cargo build --all-features --example backend_report --message-format=json-render-diagnostics | jq -rs '[.[] | select(.executable != null) | .executable] | last')
+    reported=$("${bin}" "{{EXPECTED}}")
+    printf '%s\n' "${reported}"
+    for field in gf8b gf8d gf16b; do
+        grep -Fxq "backend ${field}={{EXPECTED}}" <<<"${reported}" || {
+            printf 'isa_field_mismatch field=%s expected=%s\n' "${field}" "{{EXPECTED}}" >&2
+            exit 1
+        }
+    done
+    log=$(mktemp)
+    trap 'rm -f "$log"' EXIT
+    cargo test --all-features -- --nocapture 2>&1 | tee "$log"
+    case "{{EXPECTED}}" in
+        v4x) required=(v4x v3_gfni_crypto v3 v2) ;;
+        v3_gfni_crypto) required=(v3_gfni_crypto v3 v2) ;;
+        v3) required=(v3 v2) ;;
+        v2) required=(v2) ;;
+        scalar) required=() ;;
+        *) printf 'unsupported_acceptance_tier tier=%s\n' "{{EXPECTED}}" >&2; exit 2 ;;
+    esac
+    for tier in "${required[@]}"; do
+        grep -Fq "kernel_differential executing tier=${tier} " "$log" || {
+            printf 'isa_execution_missing expected=%s\n' "$tier" >&2
+            exit 1
+        }
+    done
+    if [[ "{{EXPECTED}}" == v4x ]]; then
+        grep -Fq 'executing kernel=avx512' "$log" || {
+            printf 'isa_execution_missing kernel=avx512\n' >&2
+            exit 1
+        }
+        for case in gf8_avx512_kernels_match_reference gf16_wide_kernels_match_reference prime_avx512_kernels_match_reference; do
+            grep -Fq "kernel_differential executing tier=v4x case=kernel::tests::x86::$case" "$log" || {
+                printf 'isa_execution_missing case=%s\n' "$case" >&2
+                exit 1
+            }
+        done
+    fi
+    for tier in {{TIERS}}; do
+        printf 'ISA_REQUEST\t%s\n' "${tier}"
+        SIMD_BACKEND="${tier}" "${bin}"
+        SIMD_BACKEND="${tier}" cargo test --all-features -- --nocapture
     done
 
 # Negative consumer snippets under `tests/compile_fail/`: each must fail to
@@ -140,10 +238,42 @@ msrv-accept:
 msrv-locked:
     cargo +{{MSRV}} check --locked --all-features --all-targets
 
+# Exercise the exact package allowlist outside umbrella patches without
+# requiring or modifying a commit in the developer's working tree.
+[group('test')]
+package-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    scratch=$(mktemp -d /tmp/fgf-package-check.XXXXXXXX)
+    trap 'rm -rf "$scratch"' EXIT
+    mkdir "$scratch/source" "$scratch/package"
+    tar --exclude=.git --exclude=target --exclude=bench-records --exclude=__pycache__ --exclude=.lucid -cf - . \
+        | tar -xf - -C "$scratch/source"
+    (
+        cd "$scratch/source"
+        cargo package --allow-dirty --no-verify
+    )
+    archives=("$scratch/source/target/package/"*.crate)
+    [[ "${#archives[@]}" -eq 1 ]] || { printf 'package_archive_count count=%s\n' "${#archives[@]}" >&2; exit 1; }
+    tar -xf "${archives[0]}" -C "$scratch/package"
+    (
+        cd "$scratch/package"/*
+        cargo +{{MSRV}} check --locked --all-features --all-targets
+        for name in custom_extensions basis_maps packed_no_alloc; do
+            cargo +{{MSRV}} run --locked --example "$name" --no-default-features
+        done
+    )
+
 # Build a portable benchmark artifact for interleaved remote comparisons.
 [group('bench')]
 bench-build NAME:
-    cargo bench --all-features --bench {{NAME}} --no-run
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p target/fgf-bench
+    cargo bench --all-features --bench "{{NAME}}" --no-run --message-format=json-render-diagnostics |
+        jq -ers --arg name "{{NAME}}" \
+            '[.[] | select(.reason == "compiler-artifact" and .target.name == $name and .target.kind == ["bench"] and .executable != null)] | if length == 1 then .[0].executable else error("expected one benchmark executable") end' \
+            >"target/fgf-bench/{{NAME}}.path"
 
 # Miri over the dispatched GFNI paths: the owned-unsafe residue that the
 # scalar configuration does not compile. Runtime detection reports nothing
@@ -342,12 +472,38 @@ gf16-build:
     cargo build --release --manifest-path external/gf16-bench/Cargo.toml
 
 [group('bench')]
-gf16-check: gf16-build
-    external/gf16-bench/target/release/fgf-gf16-bench --check
+gf16-check *ARGS: gf16-build
+    external/gf16-bench/target/release/fgf-gf16-bench --check {{ARGS}}
+
+# Validate the portable public benchmark inventory and fixture results. Native
+# competitors require capable acceptance hardware and have a separate recipe.
+[group('bench')]
+benchmark-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    python3 -m unittest discover -s benches -p 'test_surfaces.py'
+    bin=$(cargo build --profile test --all-features --bench surfaces --message-format=json-render-diagnostics | jq -rs '[.[] | select(.executable != null) | .executable] | last')
+    scratch=$(mktemp -d)
+    trap 'rm -rf "$scratch"' EXIT
+    "${bin}" --check | tee "$scratch/check.log"
+    just benchmark-api-json
+    python3 benches/check_surfaces.py --rustdoc target/doc/fgf.json --check-log "$scratch/check.log"
+
+# Compiler-derived stable callable set: no hand-maintained source-text manifest.
+[group('bench')]
+benchmark-api-json:
+    cargo +{{API_NIGHTLY}} rustdoc --all-features --lib -- -Z unstable-options --output-format json
+
+# Full exact native competitor differentials; never silently skipped on a host
+# lacking the required AVX2/GFNI/crypto capability.
+[group('bench')]
+benchmark-check-native: gf16-build
+    external/gf16-bench/target/release/fgf-gf16-bench --presentations --check
+    just gf16-check
 
 [group('bench')]
-gf16-smoke: gf16-build
-    external/gf16-bench/target/release/fgf-gf16-bench --smoke
+gf16-smoke *ARGS: gf16-build
+    external/gf16-bench/target/release/fgf-gf16-bench --smoke {{ARGS}}
 
 [group('bench')]
 gf16-fmt:
@@ -370,7 +526,7 @@ bench-gf16-comp *ARGS: gf16-build
 
 # Build all artifacts before the paired version campaign begins.
 [group('bench')]
-bench-refresh-build:
+bench-refresh-build SURFACES="yes":
     #!/usr/bin/env bash
     set -euo pipefail
     just bench-build kernels
@@ -379,20 +535,32 @@ bench-refresh-build:
     if [[ -f benches/field_maps.rs ]]; then
         just bench-build field_maps
     fi
+    case "{{SURFACES}}" in yes) just bench-build surfaces ;; no) ;; *) exit 2 ;; esac
     just _trio-build
     just gf16-build
     RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml --features fgf/simd512
 
-# Run one family round; the paired runner owns repetition and version order.
+# Run one prebuilt family round; the paired runner owns repetition and version order.
 [group('bench')]
 bench-refresh-round FAMILY:
     #!/usr/bin/env bash
     set -euo pipefail
     : "${FEC_GOLDEN_CORE:?set FEC_GOLDEN_CORE to an isolated core}"
+    run_self() {
+        local name="$1" bin
+        shift
+        if [[ -n "${FGF_SELF_ARTIFACTS:-}" ]]; then
+            bin="$FGF_SELF_ARTIFACTS/$name"
+        else
+            IFS= read -r bin <"target/fgf-bench/$name.path"
+        fi
+        taskset -c "$FEC_GOLDEN_CORE" "$bin" "$@"
+    }
     case "{{FAMILY}}" in
         gf) units=(self trio gf16) ;;
         gdl|m31) units=(self prime) ;;
         gf2|prime|maps) units=(self) ;;
+        surfaces) units=(surfaces presentations) ;;
         *) printf 'invalid_family family=%s\n' "{{FAMILY}}" >&2; exit 2 ;;
     esac
     printf '%s\n' "${units[@]}" | shuf | while read -r unit; do
@@ -400,26 +568,20 @@ bench-refresh-round FAMILY:
         case "$unit" in
             self)
                 if [[ "{{FAMILY}}" == maps ]]; then
-                    if [[ -n "${FGF_SELF_ARTIFACTS:-}" ]]; then
-                        taskset -c "$FEC_GOLDEN_CORE" "$FGF_SELF_ARTIFACTS/field_maps"
-                    else
-                        just bench field_maps
-                    fi
-                elif [[ -n "${FGF_SELF_ARTIFACTS:-}" ]]; then
-                    taskset -c "$FEC_GOLDEN_CORE" "$FGF_SELF_ARTIFACTS/kernels" --{{FAMILY}}
-                    if [[ "{{FAMILY}}" == gf ]]; then
-                        taskset -c "$FEC_GOLDEN_CORE" "$FGF_SELF_ARTIFACTS/compare"
-                    fi
+                    run_self field_maps
                 else
-                    just bench kernels --{{FAMILY}}
+                    run_self kernels --{{FAMILY}}
                     if [[ "{{FAMILY}}" == gf ]]; then
-                        just bench compare
+                        run_self compare
                     fi
                 fi
                 ;;
             trio) taskset -c "$FEC_GOLDEN_CORE" external/bench-trio/target/release/fgf-bench-trio ;;
             gf16) taskset -c "$FEC_GOLDEN_CORE" external/gf16-bench/target/release/fgf-gf16-bench ;;
             prime) taskset -c "$FEC_GOLDEN_CORE" external/prime-bench/target/release/fgf-bench-prime {{FAMILY}} ;;
+            surfaces) run_self surfaces ;;
+            presentations)
+                taskset -c "$FEC_GOLDEN_CORE" external/gf16-bench/target/release/fgf-gf16-bench --presentations ;;
         esac
     done
 
@@ -441,8 +603,9 @@ bench-paired V2_ROOT OUTPUT:
     }
     exec 9>"$HOME/.fgf-benchmark-campaign.lock"
     flock -n 9 || { printf 'campaign_host_busy\n' >&2; exit 2; }
+    just --justfile "$v2/justfile" --working-directory "$v2" bench-refresh-build no
+    just --justfile "$v3/justfile" --working-directory "$v3" bench-refresh-build yes
     for source in "$v2" "$v3"; do
-        just --justfile "$source/justfile" --working-directory "$source" bench-refresh-build
         chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" just --justfile "$source/justfile" --working-directory "$source" test
         chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" just --justfile "$source/justfile" --working-directory "$source" gf16-check
     done
@@ -485,6 +648,13 @@ bench-paired V2_ROOT OUTPUT:
                 just --justfile "$v3/justfile" --working-directory "$v3" bench-refresh-round prime \
                 >"$out/round-$round-$variant-prime.log" 2>&1
         done
+        # The public-API surface family is current-v3-only: it has no v2
+        # counterpart, so it never enters the version shuffle and each of
+        # its rounds completes after the legacy families.
+        printf '%s\tsurfaces\tv3\n' "$round" | tee -a "$out/order.tsv"
+        chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" \
+            just --justfile "$v3/justfile" --working-directory "$v3" bench-refresh-round surfaces \
+            >"$out/round-$round-v3-surfaces.log" 2>&1
     done
     printf 'CAMPAIGN_COMPLETE\n' >"$out/complete.txt"
 
@@ -512,3 +682,29 @@ bench-maps-publisher:
     bin=$(ls -t target/release/deps/field_maps-* | grep -v '\.d$' | head -n 1)
     "$bin" --list-labels > "$bin-maps-inventory.txt"
     python3 benches/test_maps_publisher.py "$bin-maps-inventory.txt"
+
+# The full release gate: the shared pull-request gate, the promoted GFNI
+# Miri residue that CI runs as a separate job, and every crate-specific
+# acceptance recipe. Cross-compilation needs the aarch64 and wasm32 targets
+# installed, `unsafe-check-gfni` needs nightly Miri, the gather validation
+# needs `gcc-multilib`, and the external packages need their native
+# toolchains (Go, Intel ISA-L, C/C++). Publication is gated separately by
+# `just publish-dry` from a clean tree; `isa-accept` needs the host's pinned
+# tier and stays a per-host call.
+[group('gate')]
+release-accept:
+    just validate
+    just unsafe-check-gfni
+    just features-internals
+    just features-alloc
+    just msrv-locked
+    just msrv-accept
+    just cross-check
+    just external-check
+    just test-gather-validation-32
+    just examples
+    just examples --no-default-features --features alloc
+    just examples-portable
+    just benchmark-check
+    just benchmark-check-native
+    just package-check

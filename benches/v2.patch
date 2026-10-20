@@ -401,10 +401,11 @@
 +    // gf8b
      let c8 = gf8b::Elem::from_raw(0x53);
 -    bench_scalar("w8 scalar mul", || {
-+    bench_scalar("gf8b scalar mul", || {
++    bench_scalar("gf8b scalar mul nonzero-cycle", || {
          let mut x = gf8b::Elem::from_raw(0xA5);
          for i in 0..SCALAR_ITERS {
-             x = black_box(x).mul(gf8b::Elem::from_raw((0x53u8).wrapping_add(i as u8)));
+-            x = black_box(x).mul(gf8b::Elem::from_raw((0x53u8).wrapping_add(i as u8)));
++            x = black_box(x).mul(gf8b::Elem::from_raw((i % 255) as u8 + 1));
          }
          black_box(x);
      });
@@ -426,10 +427,11 @@
      // Bit-compatible GF(2^8)/0x11D used by ISA-L and klauspost/reedsolomon.
      let c8d = gf8d::Elem::from_raw(0x53);
 -    bench_scalar("w8d scalar mul", || {
-+    bench_scalar("gf8d scalar mul", || {
++    bench_scalar("gf8d scalar mul nonzero-cycle", || {
          let mut x = gf8d::Elem::from_raw(0xA5);
          for i in 0..SCALAR_ITERS {
-             x = black_box(x).mul(gf8d::Elem::from_raw((0x53u8).wrapping_add(i as u8)));
+-            x = black_box(x).mul(gf8d::Elem::from_raw((0x53u8).wrapping_add(i as u8)));
++            x = black_box(x).mul(gf8d::Elem::from_raw((i % 255) as u8 + 1));
          }
          black_box(x);
      });
@@ -520,10 +522,11 @@
 +    // gf16b
      let c16 = gf16::Elem::from_raw(0x53A7);
 -    bench_scalar("w16 scalar mul", || {
-+    bench_scalar("gf16b scalar mul", || {
++    bench_scalar("gf16b scalar mul nonzero-cycle", || {
          let mut x = gf16::Elem::from_raw(0x1234);
          for i in 0..SCALAR_ITERS {
-             x = black_box(x).mul(gf16::Elem::from_raw((0x53A7u16).wrapping_add(i as u16)));
+-            x = black_box(x).mul(gf16::Elem::from_raw((0x53A7u16).wrapping_add(i as u16)));
++            x = black_box(x).mul(gf16::Elem::from_raw((i % 65535) as u16 + 1));
          }
          black_box(x);
      });
@@ -2019,7 +2022,7 @@
 +}
 --- /dev/null
 +++ b/external/gf16-bench/src/main.rs
-@@ -0,0 +1,662 @@
+@@ -0,0 +1,707 @@
 +//! Interleaved native GF16 field operations with exact representation validation.
 +//!
 +//! Preparation and conversion are excluded. Multi-row competitor arms compose
@@ -2320,26 +2323,28 @@
 +    samples[((samples.len() - 1) as f64 * q).round() as usize]
 +}
 +
++/// A Williams balanced Latin square: within one cycle every arm takes every
++/// position equally often and directly follows every other arm equally often.
++/// Even arm counts need `count` orders; odd counts add each order reversed.
 +fn arm_orders(count: usize) -> Vec<Vec<usize>> {
-+    fn visit(order: &mut [usize], position: usize, result: &mut Vec<Vec<usize>>) {
-+        if position == order.len() {
-+            result.push(order.to_vec());
-+            return;
-+        }
-+        for index in position..order.len() {
-+            order.swap(position, index);
-+            visit(order, position + 1, result);
-+            order.swap(position, index);
-+        }
-+    }
-+    let mut result = Vec::new();
-+    visit(&mut (0..count).collect::<Vec<_>>(), 0, &mut result);
-+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
-+    for index in (1..result.len()).rev() {
-+        state = state
-+            .wrapping_mul(6_364_136_223_846_793_005)
-+            .wrapping_add(1);
-+        result.swap(index, (state as usize) % (index + 1));
++    let first: Vec<usize> = (0..count)
++        .map(|j| {
++            if j % 2 == 1 {
++                j.div_ceil(2)
++            } else {
++                (count - j / 2) % count
++            }
++        })
++        .collect();
++    let mut result: Vec<Vec<usize>> = (0..count)
++        .map(|shift| first.iter().map(|&arm| (arm + shift) % count).collect())
++        .collect();
++    if !count.is_multiple_of(2) {
++        let reversed: Vec<Vec<usize>> = result
++            .iter()
++            .map(|order| order.iter().rev().copied().collect())
++            .collect();
++        result.extend(reversed);
 +    }
 +    result
 +}
@@ -2452,21 +2457,46 @@
 +            arm.apply(&plan, call, native, simd);
 +        }
 +    }
-+    let reps = if shape.bytes >= 1024 * 1024 {
-+        1
-+    } else if shape.bytes >= 64 * 1024 {
-+        8
-+    } else {
-+        32
-+    };
++    // Calibrate each arm: generic presentations and native kernels can differ
++    // by orders of magnitude, but each timed batch must amortize the clock.
++    let target = Duration::from_micros(if smoke { 15 } else { 100 });
++    let mut reps = Vec::with_capacity(arms.len());
++    for arm in &mut arms {
++        if arm.kind == 1 {
++            reps.push(reps[0]);
++            continue;
++        }
++        let mut batch = plan.banks.len();
++        loop {
++            let begin = Instant::now();
++            for call in 0..batch {
++                arm.apply(&plan, call, native, simd);
++            }
++            black_box(arm.destination.bytes());
++            if begin.elapsed() >= target || batch == 1 << 20 {
++                break;
++            }
++            batch *= 2;
++        }
++        reps.push(batch);
++    }
 +    let orders = arm_orders(arms.len());
 +    let period = orders.len();
 +    let budget = Duration::from_millis(if smoke { 50 } else { 500 });
++    // At least 30 rounds (one cycle in smoke) and at most 1200, both rounded
++    // up to whole cycles, so every arm keeps its balanced positions.
++    let min_rounds = if smoke {
++        period
++    } else {
++        30usize.div_ceil(period) * period
++    };
++    let max_rounds = 1200usize.div_ceil(period) * period;
 +    let mut samples = vec![Vec::new(); arms.len()];
 +    let start = Instant::now();
 +    let mut round = 0;
 +    loop {
 +        for &index in &orders[round % period] {
++            let reps = reps[index];
 +            for call in 0..reps {
 +                arms[index].apply(&plan, round * reps + call, native, simd);
 +            }
@@ -2480,7 +2510,7 @@
 +        }
 +        round += 1;
 +        if round % period == 0
-+            && ((round >= period * 3 && start.elapsed() >= budget) || round >= 1200)
++            && (round >= max_rounds || (round >= min_rounds && start.elapsed() >= budget))
 +        {
 +            break;
 +        }
@@ -2497,7 +2527,17 @@
 +        shape.bytes,
 +        shape.schedule()
 +    );
-+    for (arm, samples) in arms.iter().zip(&samples) {
++    for ((arm, samples), &batch_reps) in arms.iter().zip(&samples).zip(&reps) {
++        println!(
++            "CALIBRATION\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
++            shape.label(),
++            shape.sources,
++            shape.destinations,
++            shape.bytes,
++            shape.schedule(),
++            NAMES[arm.kind],
++            batch_reps
++        );
 +        let ns = quantile(samples, 0.5);
 +        let gib = (shape.bytes * shape.sources) as f64 / ns * 1e9 / 1073741824.0;
 +        println!(
@@ -2598,6 +2638,14 @@
 +        env!("COMPLETE_REVISION"),
 +        env!("LEOPARD_REVISION")
 +    );
++    let mode = if check {
++        "check"
++    } else if smoke {
++        "smoke"
++    } else {
++        "full"
++    };
++    println!("BENCHMARK_MODE\t{mode}");
 +    println!(
 +        "affinity={} scheduler={}",
 +        std::fs::read_to_string("/proc/self/status")

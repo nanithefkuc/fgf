@@ -14,8 +14,6 @@
 use super::super::ssse3::{mul_elementwise_assign_ssse3, mul_elementwise_ssse3};
 use crate::kernel::tables::Isomorphism;
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

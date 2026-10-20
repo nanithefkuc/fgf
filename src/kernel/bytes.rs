@@ -15,13 +15,18 @@ use super::*;
 /// only fields whose addition is XOR dispatch to it.
 ///
 /// # Panics
-/// Panics if any offset plus `dst.len()` falls outside `region`.
+/// Panics if any offset plus `dst.len()` falls outside `region`. Every
+/// offset is checked, with overflow-safe arithmetic, before any destination
+/// byte is written.
 pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
     let live = dst.len();
     for (index, &start) in offsets.iter().enumerate() {
         let start = start as usize;
+        let end = start
+            .checked_add(live)
+            .expect("xor_gather: offset + length overflows");
         assert!(
-            start + live <= region.len(),
+            end <= region.len(),
             "xor_gather: offset {index} ({start}) + {live} exceeds region of {} bytes",
             region.len(),
         );
@@ -35,7 +40,7 @@ pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
         }
         return;
     }
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     match x86_proof() {
         #[cfg(feature = "simd512")]
         X86Proof::V4x(token) => {
@@ -60,7 +65,7 @@ pub(crate) fn xor_gather(region: &[u8], dst: &mut [u8], offsets: &[u32]) {
             }
         }
     }
-    #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+    #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
     {
         for &start in offsets {
             scalar::xor(dst, &region[start as usize..start as usize + live]);
@@ -88,7 +93,7 @@ pub fn xor(dst: &mut [u8], src: &[u8]) {
         scalar::xor(dst, src);
         return;
     }
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     match x86_proof() {
         // The length guard sits on the `V4x` arm alone, so every narrower
         // tier reaches its body without testing it.
@@ -103,7 +108,7 @@ pub fn xor(dst: &mut [u8], src: &[u8]) {
         X86Proof::V2(token) => x86::xor_sse2(token.v1(), dst, src),
         X86Proof::Scalar => scalar::xor(dst, src),
     }
-    #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+    #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
     scalar::xor(dst, src);
 }
 
@@ -126,7 +131,7 @@ pub fn xor(dst: &mut [u8], src: &[u8]) {
 /// Panics before mutation if `value_bytes` is empty or longer than 16
 /// bytes.
 pub fn xor_broadcast(dst: &mut [u8], value_bytes: &[u8]) {
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     match x86_proof() {
         #[cfg(feature = "simd512")]
         X86Proof::V4x(token) => {
@@ -139,6 +144,6 @@ pub fn xor_broadcast(dst: &mut [u8], value_bytes: &[u8]) {
         X86Proof::V2(token) => x86::bytes::xor_broadcast_sse2(token.v1(), dst, value_bytes),
         X86Proof::Scalar => scalar::xor_broadcast_bytes(dst, value_bytes),
     }
-    #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+    #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
     scalar::xor_broadcast_bytes(dst, value_bytes);
 }
