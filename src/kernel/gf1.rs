@@ -229,7 +229,7 @@ pub(crate) fn weight(buf: &[u8], bits: usize) -> u32 {
 
 /// Set bits in `words`, a whole number of 8-byte words.
 fn whole_word_weight(words: &[u8]) -> u32 {
-    #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
     if let super::X86Proof::V4x(token) = super::x86_proof() {
         // At most `u32::MAX` live bits reach this kernel, so the count fits.
         #[allow(clippy::cast_possible_truncation)]
@@ -338,11 +338,7 @@ fn low_mask(n: usize) -> u64 {
 fn mask_between(lo: usize, hi: usize) -> u64 {
     (u64::MAX << lo) & low_mask(hi)
 }
-#[cfg(all(
-    feature = "alloc",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
+#[cfg(all(feature = "alloc", feature = "simd", target_arch = "x86_64"))]
 pub(crate) mod dispatch;
 
 /// The per-lane predicate one bit-packed interop row applies.
@@ -365,7 +361,7 @@ pub(crate) enum LaneTest {
 /// `[0, bits)`. The checked surface pairs the spans; only `debug_assert`s
 #[cfg(feature = "alloc")]
 pub(crate) fn expand(dst: &mut [u8], one_w: u64, src: &[u8], bits: usize, bytes: usize) {
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     if dispatch::expand(dst, one_w, src, bits, bytes) {
         return;
     }
@@ -387,7 +383,7 @@ pub(crate) fn expand(dst: &mut [u8], one_w: u64, src: &[u8], bits: usize, bytes:
 /// cleared tail bits, assembled from zero and written once. The checked
 #[cfg(feature = "alloc")]
 pub(crate) fn compress(dst: &mut [u8], src: &[u8], bits: usize, bytes: usize, test: &LaneTest) {
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     if dispatch::compress(dst, src, bits, bytes, test) {
         return;
     }
@@ -453,7 +449,7 @@ pub(crate) fn restrict(
     bits: usize,
     bytes: usize,
 ) {
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     if dispatch::restrict(dst, valid, one_w, src, bits, bytes) {
         return;
     }

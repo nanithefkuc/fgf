@@ -43,8 +43,6 @@ pub(super) use single::{mul_add_gfni_impl, mul_assign_gfni_impl, mul_into_gfni_i
 use super::PeelBody;
 use crate::kernel::gf8::Prepared;
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

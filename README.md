@@ -79,7 +79,8 @@ assert_eq!(dst, [0x03, 0x06, 0x05, 0x0c]);
 The [`examples/`](https://github.com/nanithefkuc/fgf/tree/main/examples)
 directory has self-contained programs covering field arithmetic, shard
 recovery, streaming encoding, GF(2) syndromes, extension fields, embeddings,
-and prime-field vectors:
+custom extensions and basis maps, prime-field vectors, and packed operations
+without an allocator:
 
 ```sh
 cargo run --example shard_recovery
@@ -105,7 +106,7 @@ implementation.
 
 ## Platforms
 
-SIMD kernels are x86-64 only (`v2` SSSE3/SSE4.2, `v3` AVX2, `v3_gfni_crypto` GFNI, `v4x` AVX-512 with `simd512`); other targets compile and run the portable scalar bodies.
+SIMD kernels are x86-64 only (`v2` SSSE3/SSE4.2, `v3` AVX2, `v3_gfni_crypto` GFNI, `v4x` AVX-512 with `simd512`); other targets, including 32-bit `x86`, compile and run the portable scalar bodies, including with default features.
 
 The best available backend is selected once per process, with a portable
 fallback everywhere. `fgf::backend()` reports the selection, and setting
@@ -114,7 +115,9 @@ a weaker backend; requests the host cannot support are ignored.
 
 Which operations accelerate depends on the field, the operation, and the
 buffer geometry; `backend_for::<F>()` reports the backend implemented for a
-field. Routing notes are in the
+field. Release acceptance runs the per-tier differentials on dedicated Willow
+Cove (`v4x`) and Golden Cove (`v3_gfni_crypto`) hosts; GitHub-hosted runners
+only cover tiers they can prove. Routing notes are in the
 [deployment guide](https://github.com/nanithefkuc/fgf/wiki/Features-and-deployment),
 and measured results live in
 [`BENCHMARKS.md`](https://github.com/nanithefkuc/fgf/blob/main/BENCHMARKS.md).
@@ -139,8 +142,9 @@ cargo build
 cargo test --all-features
 ```
 
-The repository uses [`just`](https://github.com/casey/just) for its full
-check suite; `just validate` runs it.
+The repository uses [`just`](https://github.com/casey/just) for its check
+suites: `just validate` runs the complete pull-request gate, and
+`just release-accept` runs the crate-specific release acceptance.
 
 ## License
 

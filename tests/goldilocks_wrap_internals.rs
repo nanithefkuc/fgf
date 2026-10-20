@@ -1,8 +1,4 @@
-#![cfg(all(
-    feature = "std",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
+#![cfg(all(feature = "std", feature = "simd", target_arch = "x86_64"))]
 #![allow(clippy::cast_possible_truncation)]
 
 #[path = "common/goldilocks_wrap.rs"]

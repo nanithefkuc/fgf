@@ -4,8 +4,7 @@
 //! lanes per 32-byte vector body and scalar `redc64_scalar` tails past
 //! the body. Entries are safe capability-token functions taking an
 //! `X64V3Token` and validating their own geometry.
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
+
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

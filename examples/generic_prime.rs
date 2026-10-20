@@ -30,6 +30,10 @@ fn main() {
     let a = [0, 1, 2, u64::MAX].map(Elem::<Prime>::from_raw);
     let b = [3, 5, 7, 1_000_000_007].map(Elem::<Prime>::from_raw);
     let challenge = Elem::<Prime>::from_residue(123_456_789).expect("in range");
+    // The checked constructor rejects out-of-range words instead of
+    // narrowing them; `from_raw` reduces the same word to zero.
+    assert!(Elem::<Prime>::from_residue(1_000_000_007).is_err());
+    assert_eq!(Elem::<Prime>::from_raw(1_000_000_007).to_raw(), 0);
 
     let packed_a = ops::pack_to_vec::<Prime>(&a);
     let packed_b = ops::pack_to_vec::<Prime>(&b);

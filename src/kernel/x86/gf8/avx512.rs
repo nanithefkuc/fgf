@@ -36,8 +36,6 @@ pub use single::{mul_add_avx512, mul_assign_avx512, mul_into_avx512};
 use super::PeelBody;
 use crate::kernel::gf8::Prepared;
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

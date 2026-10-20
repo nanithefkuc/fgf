@@ -38,8 +38,6 @@ pub mod residue;
 
 pub(crate) use bytes::{xor_avx2, xor_gather_avx2, xor_sse2};
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
@@ -100,7 +98,7 @@ pub(super) fn prefetch_tile(target: &[u8]) {
 /// path: the same threshold [`nt_split`] applies, without committing to a
 /// peel. Lets a wider entry defer to the AVX2 streaming body past the point
 /// where eviction pays.
-#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd512", target_arch = "x86_64"))]
 #[inline]
 pub(crate) fn wants_nt_store(len: usize) -> bool {
     len >= NT_STORE_MIN

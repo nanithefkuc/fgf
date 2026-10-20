@@ -51,12 +51,12 @@
 //! noncanonical lane words behind at `P = 2`.
 
 use crate::field::Elem;
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::field::FieldBuffer;
 use crate::field::finite_field::{FiniteField, Residue};
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::kernel::backend;
-#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd512", target_arch = "x86_64"))]
 use crate::kernel::x86::residue::avx512;
 use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, prime, scalar};
 
@@ -152,7 +152,7 @@ const fn redc64_word(t: u128, p: u64) -> u64 {
 impl<const P: u64> FieldKernels for FiniteField<P, 1, Residue> {
     #[inline]
     fn backend() -> Backend {
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             // Reports the implemented tier for nibble-table u8 rows,
             // every u32 row, and u64 rows at odd moduli.
@@ -162,7 +162,7 @@ impl<const P: u64> FieldKernels for FiniteField<P, 1, Residue> {
                 Backend::Scalar
             }
         }
-        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
         {
             Backend::Scalar
         }
@@ -170,11 +170,11 @@ impl<const P: u64> FieldKernels for FiniteField<P, 1, Residue> {
 
     #[inline]
     fn has_vector_elementwise() -> bool {
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             Self::BYTES == 4 && vector_backend()
         }
-        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
         {
             false
         }
@@ -186,7 +186,7 @@ impl<const P: u64> FieldKernels for FiniteField<P, 1, Residue> {
 /// This predicate only names the classes the kernels cover. The routing
 /// evidence is recorded under `benchmarks/v3/residue.md`. The benchmark
 /// routing report calls this instead of copying the class list.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 pub const fn routes_vector(bytes: usize, p: u64) -> bool {
     (bytes == 1 && p <= 127) || bytes == 4 || (bytes == 8 && p % 2 == 1)
@@ -194,7 +194,7 @@ pub const fn routes_vector(bytes: usize, p: u64) -> bool {
 
 /// Shortest AVX2 overwrite row, in lanes, for this width class.
 /// The paired measurement is recorded in `benchmarks/v3/residue.md`.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 #[allow(clippy::match_same_arms)]
 pub const fn vector_floor_into_lanes(bytes: usize) -> usize {
@@ -206,7 +206,7 @@ pub const fn vector_floor_into_lanes(bytes: usize) -> usize {
 }
 /// Shortest AVX2 in-place-scale row, in lanes, for this width class.
 /// The paired measurement is recorded in `benchmarks/v3/residue.md`.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 pub const fn vector_floor_assign_lanes(bytes: usize) -> usize {
     match bytes {
@@ -217,7 +217,7 @@ pub const fn vector_floor_assign_lanes(bytes: usize) -> usize {
 }
 /// Shortest AVX2 accumulation row, in lanes, for this width class.
 /// The paired measurement is recorded in `benchmarks/v3/residue.md`.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 #[allow(clippy::match_same_arms)]
 pub const fn vector_floor_add_lanes(bytes: usize) -> usize {
@@ -231,7 +231,7 @@ pub const fn vector_floor_add_lanes(bytes: usize) -> usize {
 /// `Assign` is the in-place scale; `Elementwise` and `ElementwiseAssign`
 /// are the raw-word element products. Dispatch matches on this instead of
 /// threading positional flags through every selector call.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VectorOp {
     /// Overwrite: `mul_into`.
@@ -247,7 +247,7 @@ pub enum VectorOp {
 }
 /// Shortest AVX2 elementwise row, in lanes, for this operation.
 /// The paired measurement is recorded in `benchmarks/v3/residue.md`.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 pub const fn vector_floor_elementwise_lanes(op: VectorOp) -> usize {
     match op {
@@ -260,7 +260,7 @@ pub const fn vector_floor_elementwise_lanes(op: VectorOp) -> usize {
 }
 /// Shortest AVX2 row, in bytes, for this width class and operation.
 /// The paired measurement is recorded in `benchmarks/v3/residue.md`.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 pub const fn avx2_floor_op_len(bytes: usize, op: VectorOp) -> usize {
     let lanes = match op {
@@ -274,13 +274,13 @@ pub const fn avx2_floor_op_len(bytes: usize, op: VectorOp) -> usize {
 /// Whether this host's process backend serves the residue vector bodies:
 /// one of the AVX2-capable x86 tiers. Dispatch and the benchmark routing
 /// report share this instead of repeating the tier list.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 pub fn vector_backend() -> bool {
     vector_tier() != Backend::Scalar
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 fn vector_tier() -> Backend {
     match backend() {
         #[cfg(feature = "simd512")]
@@ -295,7 +295,7 @@ fn vector_tier() -> Backend {
 /// retain their AVX2 or portable route. Elementwise vectors require u32
 /// lanes. Coefficient zero/unit shortcuts apply before this selector.
 /// Routing evidence is recorded in `benchmarks/v3/residue.md`.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 #[inline]
 pub fn single_row_backend(bytes: usize, p: u64, len: usize, op: VectorOp) -> Backend {
@@ -330,7 +330,7 @@ pub fn single_row_backend(bytes: usize, p: u64, len: usize, op: VectorOp) -> Bac
 /// whose 64-bit products stay below `2^32 * P`. Four-byte rows hold
 /// `P < 2^32`, so the quotient fits the delay depth. The benchmark
 /// routing report calls this instead of recomputing the depth.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[allow(clippy::cast_possible_truncation)]
 #[must_use]
 pub const fn delay_depth<const P: u64>() -> u64 {
@@ -356,7 +356,7 @@ pub const fn delay_depth<const P: u64>() -> u64 {
 /// same canonical sums without reading the destination.
 ///
 /// The caller has already required a nonempty row count.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 fn delayed_add_matches_composition<const P: u64>(
     nrows: usize,
     values: &[Elem<FiniteField<P, 1, Residue>>],
@@ -374,7 +374,7 @@ fn delayed_add_matches_composition<const P: u64>(
 /// other shape stay on the repeated single-row path. The routing evidence
 /// is recorded under `benchmarks/v3/residue.md`. The benchmark routing
 /// report calls this instead of copying the floors.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 pub const fn routes_delayed(
     nrows: usize,
@@ -393,16 +393,16 @@ pub const fn routes_delayed(
 
 /// Fewest sources routed into the delayed tile, set by the paired
 /// measurement recorded under `benchmarks/v3/residue.md`.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub const DELAYED_MIN_SOURCES: usize = 8;
 
 /// Smallest delay depth routed for overwrite, set by the paired measurement
 /// recorded under `benchmarks/v3/residue.md`.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub const DELAYED_INTO_MIN_DEPTH: u64 = 4;
 
 /// Smallest delay depth routed for accumulation, set by the same record.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub const DELAYED_ADD_MIN_DEPTH: u64 = 4;
 
 /// Select the delayed-matrix kernel tier for this geometry and disposition.
@@ -410,7 +410,7 @@ pub const DELAYED_ADD_MIN_DEPTH: u64 = 4;
 /// `Scalar` selects the repeated single-row composition instead of a delayed
 /// tile. Accumulation additionally checks byte-preserving zero coefficients
 /// at the call site. The benchmark report uses this same selector.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 pub fn delayed_matrix_backend(
     nrows: usize,
@@ -493,9 +493,9 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
         let _ = values;
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             let selected =
                 delayed_matrix_backend(nrows, delay_depth::<P>(), row_len, srcs.len(), true);
@@ -539,7 +539,7 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             let selected =
                 delayed_matrix_backend(nrows, delay_depth::<P>(), row_len, srcs.len(), false);
@@ -573,7 +573,7 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
     }
 
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         match single_row_backend(Self::BYTES, P, dst.len(), VectorOp::Elementwise) {
             #[cfg(feature = "simd512")]
             Backend::V4x => return avx512::single::mul_elementwise::<P>(dst, a, b),
@@ -593,7 +593,7 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
     }
 
     fn mul_elementwise_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         match single_row_backend(Self::BYTES, P, dst.len(), VectorOp::ElementwiseAssign) {
             #[cfg(feature = "simd512")]
             Backend::V4x => return avx512::single::mul_elementwise_assign::<P>(dst, src),
@@ -637,7 +637,7 @@ fn mul_into_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue, src: 
         dst.copy_from_slice(src);
         return;
     }
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     match single_row_backend(
         <Row<P> as crate::field::FieldBuffer>::BYTES,
         P,
@@ -691,7 +691,7 @@ fn mul_add_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue, src: &
         prime::add_assign::<Row<P>>(dst, src);
         return;
     }
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     match single_row_backend(
         <Row<P> as crate::field::FieldBuffer>::BYTES,
         P,
@@ -745,7 +745,7 @@ fn mul_assign_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue) {
         dst.fill(0);
         return;
     }
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     match single_row_backend(
         <Row<P> as crate::field::FieldBuffer>::BYTES,
         P,

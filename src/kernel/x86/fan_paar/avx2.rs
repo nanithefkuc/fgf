@@ -8,8 +8,6 @@ use crate::kernel::x86::gf16::{nibble_avx2, nibble_ssse3, scale_avx2, scale_ssse
 use crate::kernel::x86::gf32::{SWAP2, load_mask};
 use crate::kernel::x86::gf64::SWAP4;
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

@@ -24,11 +24,11 @@ use crate::field::binary::{AES, RS};
 use crate::field::{Elem, FieldElem as _, FiniteField, Polynomial};
 use crate::field::{Goldilocks, quad_mersenne31};
 use crate::field::{Packed, Relation};
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::kernel::gf8::Prepared;
 use crate::kernel::scalar;
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::kernel::tables::{FpTowerTables, TowerCoeff};
 use crate::kernel::tables::{ScaleTable, TowerTables, scale_table};
 use crate::kernel::{KernelDispatch, RawDispatch};
@@ -36,7 +36,7 @@ use crate::kernel::{KernelDispatch, RawDispatch};
 /// Row lengths whose GFNI scatter/gather/matrix tail is 17-30 bytes past
 /// the last 32-byte window: the regression geometry for the staged
 /// `mul_add_tail_gfni` chunking.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 const GFNI_TAIL_LENGTHS: &[usize] = &[50, 62, 94, 126, 158, 190, 222, 254, 350, 510, 1086];
 
 /// Lengths covering: empty, sub-lane, exact lanes, lane+1, several unroll
@@ -71,7 +71,7 @@ fn gf8_aes_coeffs() -> Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> {
 }
 
 /// The Reed–Solomon field coefficients, same byte spread under `0x11D`.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 fn gf8_rs_coeffs() -> Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>> {
     gf8_coeffs_of::<RS>()
 }
@@ -93,13 +93,13 @@ fn gf8_coeffs_of<const POLY: u128>() -> Vec<Elem<FiniteField<2, 8, Polynomial<PO
 
 /// The Rijndael extension's relation constant and base reduction byte: the raw
 /// facts the elementwise kernels receive as plain values.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 const DELTA_BYTE: u8 = 0x20;
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 fn delta_table() -> &'static ScaleTable {
     scale_table(Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x20))
 }
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 const AES_REDUCTION: u8 = Polynomial::<AES>::REDUCTION_LOW;
 
 /// A custom degree-16 extension over the Reed-Solomon base: the relation
@@ -185,10 +185,17 @@ const GATHER_LENGTHS: &[usize] = &[
 /// `SIMD_BACKEND=scalar` also skips the SIMD kernel tests.
 #[allow(dead_code)]
 fn host_supports(supported: &'static [crate::kernel::Backend]) -> bool {
-    simdispatch::Selection::new("SIMD_BACKEND")
+    let resolved = simdispatch::Selection::new("SIMD_BACKEND")
         .supports(supported)
-        .resolve()
-        != crate::kernel::Backend::Scalar
+        .resolve();
+    if resolved != crate::kernel::Backend::Scalar {
+        std::eprintln!(
+            "kernel_differential executing tier={} case={}",
+            resolved.name(),
+            std::thread::current().name().unwrap_or("unnamed"),
+        );
+    }
+    resolved != crate::kernel::Backend::Scalar
 }
 
 // ---------------------------------------------------------------------------
@@ -454,7 +461,7 @@ fn check_gather_aligned<E: Copy, F>(
 /// lane-boundary length, then against a source holding every byte value — so
 /// between the two sweeps the blocked kernels below see all 65 536 products
 /// outright.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 fn for_each_gf8_coeff<const POLY: u128>(
     case: impl FnMut(Elem<FiniteField<2, 8, Polynomial<POLY>>>, &[u8]),
 ) {
@@ -480,7 +487,7 @@ fn for_each_gf8_coeff<const POLY: u128>(
 /// Exhaustive `mul_add` sweep through `prepare`'s coefficient form — the raw
 /// element for the blocked single-buffer entries, [`Prepared`](crate::kernel::gf8::Prepared)
 /// for the form dispatch hands them.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 fn check_gf8_exhaustive_mul_add<C: Copy + core::fmt::Debug, const POLY: u128>(
     name: &str,
     prepare: impl Fn(Elem<FiniteField<2, 8, Polynomial<POLY>>>) -> C,
@@ -496,7 +503,7 @@ fn check_gf8_exhaustive_mul_add<C: Copy + core::fmt::Debug, const POLY: u128>(
 }
 
 /// Exhaustive `mul_assign` sweep through `prepare`'s coefficient form.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 fn check_gf8_exhaustive_mul_assign<C: Copy + core::fmt::Debug, const POLY: u128>(
     name: &str,
     prepare: impl Fn(Elem<FiniteField<2, 8, Polynomial<POLY>>>) -> C,
@@ -513,7 +520,7 @@ fn check_gf8_exhaustive_mul_assign<C: Copy + core::fmt::Debug, const POLY: u128>
 
 /// Exhaustive `mul_into` sweep through `prepare`'s coefficient form: the
 /// destination carries noise the fused kernel must overwrite.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 fn check_gf8_exhaustive_mul_into<C: Copy + core::fmt::Debug, const POLY: u128>(
     name: &str,
     prepare: impl Fn(Elem<FiniteField<2, 8, Polynomial<POLY>>>) -> C,
@@ -1025,7 +1032,7 @@ fn scalar_nibble_paths_match_the_generic_reference() {
 
 /// Resolve raw GF(2^8) coefficients into the prepared form the blocked
 /// entries take.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[allow(dead_code)]
 fn prepared_coeffs<const POLY: u128>(
     coeffs: &[Elem<FiniteField<2, 8, Polynomial<POLY>>>],
@@ -1036,14 +1043,14 @@ fn prepared_coeffs<const POLY: u128>(
 /// A [`Matrix`](crate::kernel::Matrix) of prepared coefficients over raw
 /// element terms, resolving each coefficient on construction: the provider
 /// shape the dispatch layer hands the blocked matrix entries.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[allow(dead_code)]
 struct PreparedMatrix<'a, const POLY: u128> {
     sets: Vec<Vec<Prepared>>,
     srcs: Vec<&'a [u8]>,
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[allow(dead_code)]
 impl<const POLY: u128> crate::kernel::Matrix<Prepared> for PreparedMatrix<'_, POLY> {
     fn len(&self) -> usize {
@@ -1059,7 +1066,7 @@ impl<const POLY: u128> crate::kernel::Matrix<Prepared> for PreparedMatrix<'_, PO
     }
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[allow(dead_code)]
 // Term geometry nests the unified element spelling; the slices stay slices.
 #[allow(clippy::type_complexity)]
@@ -1079,7 +1086,7 @@ fn prepared_matrix<'a, const POLY: u128>(
 // x86
 // ---------------------------------------------------------------------------
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 mod x86 {
     use super::*;
     use crate::field::Normal;
@@ -1111,11 +1118,19 @@ mod x86 {
     use archmage::X64V4xToken;
     use archmage::{SimdToken, X64V1Token, X64V2Token, X64V3GfniCryptoToken, X64V3Token};
 
+    #[cfg(feature = "simd512")]
+    fn v4x_token() -> Option<X64V4xToken> {
+        if !host_supports(&[Backend::V4x]) {
+            return None;
+        }
+        Some(X64V4xToken::summon().expect("the selected V4x tier must supply its token"))
+    }
+
     /// Checks the token-proven tower lanes directly against scalar arithmetic.
     #[cfg(feature = "simd512")]
     #[test]
     fn gf16_wide_kernels_match_reference() {
-        let Some(token) = X64V4xToken::summon() else {
+        let Some(token) = v4x_token() else {
             eprintln!("skipping: no V4x token on this host");
             return;
         };
@@ -1151,7 +1166,7 @@ mod x86 {
     #[cfg(feature = "simd512")]
     #[test]
     fn gf16_wide_mul_add_peels_misaligned_rows() {
-        let Some(token) = X64V4xToken::summon() else {
+        let Some(token) = v4x_token() else {
             eprintln!("skipping: no V4x token on this host");
             return;
         };
@@ -1183,7 +1198,7 @@ mod x86 {
     #[cfg(feature = "simd512")]
     #[test]
     fn gf16_wide_mul_into_peels_misaligned_rows() {
-        let Some(token) = X64V4xToken::summon() else {
+        let Some(token) = v4x_token() else {
             eprintln!("skipping: no V4x token on this host");
             return;
         };
@@ -1213,7 +1228,7 @@ mod x86 {
     #[cfg(feature = "simd512")]
     #[test]
     fn bytes512_kernels_match_scalar() {
-        let Some(token) = X64V4xToken::summon() else {
+        let Some(token) = v4x_token() else {
             eprintln!("skipping: no V4x token on this host");
             return;
         };
@@ -1263,7 +1278,7 @@ mod x86 {
     #[cfg(feature = "simd512")]
     #[test]
     fn gf16_wide_matrix_matches_reference() {
-        let Some(token) = X64V4xToken::summon() else {
+        let Some(token) = v4x_token() else {
             eprintln!("skipping: no V4x token on this host");
             return;
         };
@@ -1297,7 +1312,7 @@ mod x86 {
     // Exhaustive coefficient forms with all-byte-values sources.
     #[allow(clippy::too_many_lines)]
     fn gf8_avx512_kernels_match_reference() {
-        let Some(token) = X64V4xToken::summon() else {
+        let Some(token) = v4x_token() else {
             eprintln!("skipping: no AVX-512F+AVX-512BW+GFNI on this host");
             return;
         };
@@ -2010,7 +2025,7 @@ mod x86 {
     #[cfg(feature = "simd512")]
     #[test]
     fn gf8_avx512_matrix_straddles_resolve_chunk() {
-        let Some(token) = X64V4xToken::summon() else {
+        let Some(token) = v4x_token() else {
             eprintln!("skipping: no AVX-512F+AVX-512BW+GFNI on this host");
             return;
         };
@@ -2182,7 +2197,7 @@ mod x86 {
     #[cfg(feature = "simd512")]
     #[test]
     fn gf8_avx512_matrix_column_blocks_match_reference() {
-        let Some(token) = X64V4xToken::summon() else {
+        let Some(token) = v4x_token() else {
             eprintln!("skipping: no AVX-512F+AVX-512BW+GFNI on this host");
             return;
         };
@@ -4371,7 +4386,7 @@ mod x86 {
         name: &str,
         coeffs: &[Elem<FiniteField<2, 8, Polynomial<POLY>>>],
     ) {
-        let Some(token) = X64V4xToken::summon() else {
+        let Some(token) = v4x_token() else {
             eprintln!("skipping {name}: no V4x token on this host");
             return;
         };
@@ -4605,7 +4620,7 @@ mod x86 {
         // AVX2 and a scalar remainder.
         const M31_WIDE: &[usize] = &[0, 4, 60, 64, 68, 96, 128, 196, 260, 1020, 1028];
         const GLD_WIDE: &[usize] = &[0, 8, 56, 64, 72, 96, 128, 200, 264, 1024, 1032];
-        let Some(token) = X64V4xToken::summon() else {
+        let Some(token) = v4x_token() else {
             eprintln!("skipping: no V4x token on this host");
             return;
         };
@@ -4648,7 +4663,7 @@ mod x86 {
     #[cfg(feature = "simd512")]
     #[test]
     fn gld_avx512_lane_edges_match_u128_model() {
-        let Some(token) = X64V4xToken::summon() else {
+        let Some(token) = v4x_token() else {
             eprintln!("skipping: no V4x token on this host");
             return;
         };
@@ -5243,7 +5258,7 @@ mod x86 {
 
         #[cfg(feature = "simd512")]
         {
-            let Some(v4x) = X64V4xToken::summon() else {
+            let Some(v4x) = v4x_token() else {
                 eprintln!("skipping: no V4x token on this host");
                 return;
             };
@@ -5638,7 +5653,7 @@ mod x86 {
 
         #[cfg(feature = "simd512")]
         {
-            let Some(v4x) = X64V4xToken::summon() else {
+            let Some(v4x) = v4x_token() else {
                 eprintln!("skipping: no V4x token on this host");
                 return;
             };
@@ -6569,7 +6584,7 @@ fn binary_broadcast_dispatch_matches_reference_and_reports_backend() {
 /// `TableCoefficient::with_tables` builds tables for the `Plain` prepared
 /// form, which dispatch never produces on a shuffle host but direct callers
 /// may hold.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[test]
 fn gf16_scatter_accepts_plain_prepared_coefficients() {
     use crate::kernel::x86;
@@ -6602,7 +6617,7 @@ fn gf16_scatter_accepts_plain_prepared_coefficients() {
     }
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[test]
 fn x86_geometry_guards_accept_zero_length_rows() {
     type E16 = Elem<Rijndael16Field>;
@@ -6646,7 +6661,7 @@ fn x86_geometry_guards_accept_zero_length_rows() {
     }
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[test]
 fn scatter_gfni_rejects_short_rows_buffer() {
     use crate::kernel::x86;
@@ -6762,7 +6777,7 @@ fn quad_one() -> Elem<quad_mersenne31::QuadMersenne31> {
     Elem::<quad_mersenne31::QuadMersenne31>::from_raw([1, 0])
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[test]
 fn gfni_matrix_wrappers_accept_empty_terms() {
     use crate::kernel::FlatMatrix;
@@ -6794,7 +6809,7 @@ fn gfni_matrix_wrappers_accept_empty_terms() {
     assert_eq!(rows, [0; 8]);
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[test]
 fn scatter_gfni_rs_rejects_short_rows_buffer() {
     use crate::kernel::x86;
@@ -6823,7 +6838,7 @@ fn scatter_gfni_rs_rejects_short_rows_buffer() {
     );
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[test]
 fn gf16_gfni_wrappers_tolerate_degenerate_geometry() {
     use crate::kernel::x86;
@@ -6877,7 +6892,7 @@ fn gf16_gfni_wrappers_tolerate_degenerate_geometry() {
 #[cfg(feature = "alloc")]
 mod gf1_bits {
     use super::Vec;
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use super::vec;
 
     use crate::field::{Elem, FiniteField, Polynomial};
@@ -7081,19 +7096,19 @@ mod gf1_bits {
     /// Element counts around every vector and 64-lane unit the interop
     /// kernels step over: sub-unit, exact units, unit edges, the
     /// overlapping 64-lane seam, and multi-unit bodies with tails.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const INTEROP_BITS: &[usize] = &[
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 15, 16, 17, 31, 32, 33, 63, 64, 65, 66, 67, 68, 69, 70,
         100, 127, 128, 129, 200, 255, 256, 257, 511, 512, 513,
     ];
 
     /// Lane widths every interop entry is generic over.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const INTEROP_BYTES: &[usize] = &[1, 2, 4, 8];
 
     /// Trace/one words worth testing: the degenerates, a byte mask, and
     /// sampled fixed-seed values.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     fn interop_words(seed: u64) -> Vec<u64> {
         let mut words = vec![0u64, 1, u64::MAX, 0xFF];
         let mut state = seed | 1;
@@ -7107,7 +7122,7 @@ mod gf1_bits {
     }
 
     /// Portable expand oracle: the dispatched seam's scalar body.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     fn oracle_expand(dst: &mut [u8], one_w: u64, src: &[u8], bits: usize, bytes: usize) {
         for i in 0..bits {
             let bit = (src[i / 8] >> (i % 8)) & 1;
@@ -7117,7 +7132,7 @@ mod gf1_bits {
         }
     }
 
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     fn oracle_lane_word(src: &[u8], i: usize, bytes: usize) -> u64 {
         let mut word = 0u64;
         for (shift, &byte) in src[i * bytes..(i + 1) * bytes].iter().enumerate() {
@@ -7127,7 +7142,7 @@ mod gf1_bits {
     }
 
     /// Portable compress oracle over the lane predicate.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     fn oracle_compress(dst: &mut [u8], src: &[u8], bits: usize, bytes: usize, test: &k::LaneTest) {
         dst.fill(0);
         for i in 0..bits {
@@ -7144,7 +7159,7 @@ mod gf1_bits {
     }
 
     /// Portable restrict oracle.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     fn oracle_restrict(
         dst: &mut [u8],
         valid: &mut [u8],
@@ -7168,7 +7183,7 @@ mod gf1_bits {
 
     /// Lane buffers whose every lane is exactly zero, `one`, or noise: the
     /// membership predicates need all three populations.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     fn lane_bytes(bits: usize, bytes: usize, one_w: u64, seed: u64) -> Vec<u8> {
         let mut state = seed | 1;
         let mut buf = vec![0u8; bits * bytes];
@@ -7196,7 +7211,7 @@ mod gf1_bits {
     /// Drive one tier's expand/compress/restrict entries against the
     /// portable oracles across widths, predicates, words, and boundary
     /// lengths.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     fn check_interop_tier(
         name: &str,
         mut expand: impl FnMut(&mut [u8], u64, &[u8], usize, usize),
@@ -7257,7 +7272,7 @@ mod gf1_bits {
     }
 
     /// SSE4.2 interop entries against the portable oracles.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     #[test]
     fn gf1_sse42_matches_portable() {
         use crate::kernel::Backend;
@@ -7284,11 +7299,7 @@ mod gf1_bits {
     /// to the narrower vector tiers instead of the portable body, and
     /// every row still matches the portable oracle. The tier boundary
     /// assertions pin which tier handled each row width.
-    #[cfg(all(
-        feature = "simd512",
-        feature = "simd",
-        any(target_arch = "x86", target_arch = "x86_64")
-    ))]
+    #[cfg(all(feature = "simd512", feature = "simd", target_arch = "x86_64"))]
     #[test]
     fn gf1_v4x_short_rows_fall_through_to_narrower_tiers() {
         use crate::kernel::Backend;
@@ -7326,7 +7337,7 @@ mod gf1_bits {
     }
 
     /// AVX2 interop entries against the portable oracles.
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     #[test]
     fn gf1_avx2_matches_portable() {
         use crate::kernel::Backend;
@@ -7350,11 +7361,7 @@ mod gf1_bits {
     }
 
     /// AVX-512 interop entries against the portable oracles.
-    #[cfg(all(
-        feature = "simd512",
-        feature = "simd",
-        any(target_arch = "x86", target_arch = "x86_64")
-    ))]
+    #[cfg(all(feature = "simd512", feature = "simd", target_arch = "x86_64"))]
     #[test]
     fn gf1_avx512_matches_portable() {
         use crate::kernel::Backend;

@@ -10,8 +10,8 @@
 use fgf::field::{FieldBuffer, FieldElem};
 use fgf::poly::{AES, RS};
 use fgf::{
-    Cantor, Elem, Extension, ExtensionSpec, FieldKernels, FiniteField, Goldilocks, Mersenne31,
-    Normal, Packed, Polynomial, QuadMersenne31, Relation, Residue, goldilocks, ops,
+    Cantor, Components, Elem, Extension, ExtensionSpec, FieldKernels, FiniteField, Goldilocks,
+    Mersenne31, Normal, Packed, Polynomial, QuadMersenne31, Relation, Residue, goldilocks, ops,
 };
 
 type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
@@ -5244,6 +5244,18 @@ fn check_inv_div_rows<F: FieldKernels>(tag: &str, seed: u64) {
     }
 }
 
+/// `t^2 + 7` over Goldilocks: seven is a quadratic non-residue, and each
+/// 16-byte element is wider than the 8-byte lanes a full batch chunk holds.
+#[derive(Clone, Copy)]
+struct GoldilocksSquaredSpec;
+impl ExtensionSpec<2> for GoldilocksSquaredSpec {
+    type Base = Goldilocks;
+    type Storage = Components;
+    const NAME: &'static str = "GF(goldilocks^2)";
+    const RELATION: Relation = Relation::from_coordinates(&[7, 0]);
+}
+type GoldilocksSquared = FiniteField<0xFFFF_FFFF_0000_0001, 2, Extension<GoldilocksSquaredSpec, 2>>;
+
 #[test]
 fn inv_div_rows_match_scalar_oracle_on_every_family() {
     check_inv_div_rows::<FiniteField<2, 8, Polynomial<AES>>>("gf8-aes", 0xe01);
@@ -5261,6 +5273,7 @@ fn inv_div_rows_match_scalar_oracle_on_every_family() {
     check_inv_div_rows::<FiniteField<1_000_000_007, 1, Residue>>("residue-u32", 0xe0d);
     check_inv_div_rows::<FiniteField<127, 1, Residue>>("residue-u8", 0xe0e);
     check_inv_div_rows::<FiniteField<0xFFFF_FFFF_FFFF_FFC5, 1, Residue>>("residue-u64", 0xe0f);
+    check_inv_div_rows::<GoldilocksSquared>("goldilocks-squared", 0xe10);
 }
 
 #[test]
