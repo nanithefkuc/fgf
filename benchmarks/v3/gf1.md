@@ -1,18 +1,15 @@
-# Bit-packed GF(2): `gf1` (v3)
+# Bit-packed GF(2): `gf1`
 
-Paired-run snapshot for v3. Every result cell reports Willow Cove (i5-1135G7) / Golden Cove (i7-12700K); shared hosts, toolchain, sampling, and number format: [BENCHMARKS.md](../../BENCHMARKS.md). Canonical field labels: [labels.md](../labels.md). The paired comparison lives at [v2 versus v3](../comparison/gf1.md); the other snapshot at [v2](../v2/gf1.md).
+Every result cell reports **Willow Cove (i5-1135G7) / Golden Cove (i7-12700K)**. Throughput: higher is better. Latency: lower is better. A dash means no measurement.
 
-## Setup
+[All families](../../BENCHMARKS.md) · [Field definitions](../labels.md)
 
-| Setting | Value |
-| --- | --- |
-| Campaign | `just bench-paired` (canonical family `gf1`) |
-| Revision | `f3cd58c39e6e3672216912dd3e6131da1c4b670a` |
-| Toolchain | 1.98.1 |
-| Resolved process backend | `v4x` / `v3_gfni_crypto` |
-| Protocol | Five rounds per host; each round runs both versions in a shuffled order; competitor arms interleave inside their harness process. |
-| Aggregation | Median of five per-run medians. |
-| Throughput | Logical bytes divided by the aggregate latency per call; numerators are stated per panel. |
+## Find a result
+
+- [Buffer operations](#buffer-operations)
+- [Short ranges](#short-ranges)
+- [Competitors](#competitors)
+- [Measurement details](#measurement-details)
 
 ## Self-timings
 
@@ -22,12 +19,12 @@ Ordinary `Vec<u8>` buffers. Range XOR updates bits [N/4, 7N/8); `bits::XorRange`
 
 | Operation | 4 KiB (GiB/s) | 256 KiB (GiB/s) | 8 MiB (GiB/s) | 64 MiB (GiB/s) |
 | --- | --- | --- | --- | --- |
-| bits::XorRange 5/8 | 58.9 / 82.9 | 66.0 / 71.5 | 21.4 / 38.2 | 9.84 / 24.1 |
-| bits::and_into | 19.3 / 66.0 | 19.3 / 43.0 | 5.89 / 18.9 | 4.64 / 10.8 |
-| bits::dot_product | 20.3 / 38.2 | 18.3 / 41.7 | 11.4 / 37.9 | 8.71 / 18.2 |
-| bits::weight | 115 / 14.1 | 67.5 / 14.4 | 38.7 / 14.4 | 17.9 / 13.9 |
-| bits::xor_assign | 43.4 / 101 | 41.4 / 63.4 | 8.70 / 24.1 | 6.11 / 14.7 |
-| bits::xor_range 5/8 | 54.2 / 74.3 | 65.9 / 71.4 | 21.3 / 38.2 | 9.77 / 23.7 |
+| bits::XorRange 5/8 | 58.8 / 82.7 | 66.0 / 71.5 | 21.0 / 38.2 | 9.84 / 24.0 |
+| bits::and_into | 19.3 / 66.0 | 19.3 / 46.7 | 5.85 / 18.9 | 4.65 / 10.8 |
+| bits::dot_product | 20.3 / 38.2 | 18.3 / 41.7 | 10.7 / 36.4 | 8.79 / 18.6 |
+| bits::weight | 118 / 13.9 | 67.5 / 14.4 | 38.7 / 14.4 | 17.9 / 13.9 |
+| bits::xor_assign | 43.3 / 101 | 41.4 / 63.4 | 8.60 / 24.4 | 6.11 / 14.7 |
+| bits::xor_range 5/8 | 53.7 / 74.3 | 65.9 / 71.4 | 21.0 / 38.2 | 9.75 / 23.8 |
 
 ### Short ranges
 
@@ -35,13 +32,28 @@ Ordinary `Vec<u8>` buffers. Range XOR updates bits [N/4, 7N/8); `bits::XorRange`
 
 | Operation | Latency (ns/row pair) |
 | --- | --- |
-| bits::XorRange | 4.40 / 2.16 |
-| bits::xor_range | 11.7 / 5.57 |
+| bits::XorRange | 4.39 / 2.16 |
+| bits::xor_range | 11.8 / 5.61 |
 
 ## Competitors
 
 No matched competitor measurements are available.
 
-## Caveats
+## Measurement details
 
-- The unchanged byte-XOR control bracketed every self-suite process; its values are retained in the raw evidence.
+<details>
+<summary>Setup, resolved backends, versions, and caveats</summary>
+
+| Setting | Value |
+| --- | --- |
+| Campaign | `just bench-paired` |
+| Revision | `63b8d168a7e4b81043fafe4db1ffb9918dc1c231` plus the measured working-tree archive |
+| Toolchain | 1.98.1 |
+| Willow Cove (i5-1135G7) process | `v4x` |
+| Golden Cove (i7-12700K) process | `v3_gfni_crypto` |
+| Aggregation | Median of five per-run medians. |
+| Throughput | Logical bytes divided by aggregate latency per call; numerators are stated per panel. |
+
+- The unchanged byte-XOR control brackets every self-suite process; its values are retained in the raw evidence.
+
+</details>

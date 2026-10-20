@@ -41,13 +41,12 @@ pub(crate) mod tables;
 pub(crate) mod aarch64;
 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
 pub(crate) mod wasm32;
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(crate) mod x86;
 
 #[cfg(all(
     feature = "simd",
     any(
-        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         target_arch = "wasm32"
@@ -59,12 +58,11 @@ pub(crate) use bytes::{xor, xor_gather};
 // builds `--all-targets`, where tests use it); a lib-only build without
 // `simd512` has no other user.
 #[allow(unused_imports)]
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(crate) use matrix_provider::FlatMatrix;
 #[cfg(all(
     feature = "simd",
     any(
-        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         target_arch = "wasm32"
@@ -82,7 +80,6 @@ use crate::field::{FieldBuffer, PrimeIdentity, Residue};
 #[cfg(all(
     feature = "simd",
     any(
-        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         target_arch = "wasm32"
@@ -213,7 +210,7 @@ static BACKEND: std::sync::LazyLock<ResolvedBackend> =
 #[cfg(feature = "simd")]
 struct ResolvedBackend {
     backend: Backend,
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(target_arch = "x86_64")]
     x86: X86Proof,
     #[cfg(target_arch = "aarch64")]
     neon: NeonProof,
@@ -225,7 +222,7 @@ struct ResolvedBackend {
 impl ResolvedBackend {
     fn new() -> Self {
         let backend = Selection::new("SIMD_BACKEND").supports(FGF_TIERS).resolve();
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        #[cfg(target_arch = "x86_64")]
         let x86 = match backend {
             #[cfg(feature = "simd512")]
             Backend::V4x => X86Proof::V4x(
@@ -268,7 +265,7 @@ impl ResolvedBackend {
         };
         Self {
             backend,
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            #[cfg(target_arch = "x86_64")]
             x86,
             #[cfg(target_arch = "aarch64")]
             neon,
@@ -278,7 +275,7 @@ impl ResolvedBackend {
     }
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[derive(Clone, Copy)]
 pub(crate) enum X86Proof {
     #[cfg(feature = "simd512")]
@@ -289,13 +286,13 @@ pub(crate) enum X86Proof {
     Scalar,
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[inline]
 pub(crate) fn x86_proof() -> X86Proof {
     BACKEND.x86
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[inline]
 pub(crate) fn x86_v3_gfni_token() -> archmage::X64V3GfniCryptoToken {
     match x86_proof() {
@@ -307,7 +304,7 @@ pub(crate) fn x86_v3_gfni_token() -> archmage::X64V3GfniCryptoToken {
 }
 
 /// The selected V4x proof: the byte-field 512-bit kernels take it directly.
-#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd512", target_arch = "x86_64"))]
 #[inline]
 pub(crate) fn x86_v4x_token() -> archmage::X64V4xToken {
     match x86_proof() {
@@ -318,13 +315,13 @@ pub(crate) fn x86_v4x_token() -> archmage::X64V4xToken {
 
 /// The selected V4x proof narrowed to AVX-512F, the tier the prime-field
 /// and byte-XOR 64-byte kernels require.
-#[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd512", target_arch = "x86_64"))]
 #[inline]
 pub(crate) fn x86_v4_token() -> archmage::X64V4Token {
     x86_v4x_token().v4()
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[inline]
 pub(crate) fn x86_v3_token() -> archmage::X64V3Token {
     match x86_proof() {
@@ -336,7 +333,7 @@ pub(crate) fn x86_v3_token() -> archmage::X64V3Token {
     }
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[inline]
 pub(crate) fn x86_v2_token() -> archmage::X64V2Token {
     match x86_proof() {
@@ -959,7 +956,6 @@ pub(crate) struct RawDispatch;
 #[cfg(all(
     feature = "simd",
     any(
-        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         target_arch = "wasm32"
@@ -982,7 +978,7 @@ pub(crate) mod proven_checks {
     }
 
     /// Whole-element lengths; only the x86 prime-field kernels check them.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(target_arch = "x86_64")]
     #[inline]
     pub(crate) fn check_elem_multiple(name: &str, len: usize, elem_bytes: usize) {
         assert!(
@@ -1009,7 +1005,6 @@ pub(crate) mod proven_checks {
     #[cfg(all(
         feature = "simd",
         any(
-            target_arch = "x86",
             target_arch = "x86_64",
             target_arch = "aarch64",
             target_arch = "wasm32"

@@ -6,6 +6,13 @@ elements at construction. Historical snippets below are text; Rust snippets
 use 3.0.1. The [changelog](https://github.com/nanithefkuc/fgf/blob/v3.0.1/CHANGELOG.md)
 records the release changes.
 
+The `3.0.0` once published to crates.io went out by accident and was yanked;
+it was never a supported release and is not API-compatible with 3.0.1 — the
+`Binary<N, R>`, `Tower<S>`, `TowerSpec`, and `TowerGeneratorSpec` spellings it
+exported are gone, and `Field` is sealed. Code locked to that artifact follows
+the same guide: the 2.x steps below apply, and the 3.0.1 changelog entries
+cover the remaining differences.
+
 ## Replace field and element spellings together
 
 | Released 2.x field | 3.0.1 field |

@@ -40,17 +40,21 @@ use super::single::mul_into_with;
 ///
 /// # Panics
 /// Panics if `dst` is not a whole number of field elements, or if any
-/// offset plus `dst.len()` falls outside `region`. `region` and `dst`
-/// borrow disjoint memory by construction, as with every two-slice
-/// operation in this crate.
+/// offset plus `dst.len()` falls outside `region`. Every offset is checked,
+/// with overflow-safe arithmetic, before any destination byte is written.
+/// `region` and `dst` borrow disjoint memory by construction, as with every
+/// two-slice operation in this crate.
 #[inline]
 pub fn add_gather_offsets<F: FieldKernels>(dst: &mut [u8], region: &[u8], offsets: &[u32]) {
     check_width::<F>("add_gather_offsets", dst.len());
     let live = dst.len();
     for (index, &start) in offsets.iter().enumerate() {
         let start = start as usize;
+        let end = start
+            .checked_add(live)
+            .expect("add_gather_offsets: offset + length overflows");
         assert!(
-            start + live <= region.len(),
+            end <= region.len(),
             "add_gather_offsets: offset {index} ({start}) + {live} exceeds region of {} bytes",
             region.len(),
         );

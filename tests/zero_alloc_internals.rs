@@ -1,8 +1,4 @@
-#![cfg(all(
-    feature = "std",
-    feature = "simd",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
+#![cfg(all(feature = "std", feature = "simd", target_arch = "x86_64"))]
 
 #[path = "common/zero_alloc.rs"]
 mod common;
@@ -18,7 +14,7 @@ type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
 /// shapes. Tables, tokens, terms, and buffers are prepared before the
 /// counting window; observable output is asserted outside it.
 #[test]
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 fn proven_internals_gather_and_overwrite_allocate_nothing() {
     use fgf::internals::kernel::gf8::Prepared;
     use fgf::internals::kernel::tables::{TowerCoeff, TowerTables};

@@ -18,8 +18,6 @@
 //! validating their own geometry; reference loads/stores express every
 //! lane, and scalar `u64` tails handle the sub-vector remainders.
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

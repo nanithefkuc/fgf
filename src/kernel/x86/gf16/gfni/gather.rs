@@ -9,8 +9,7 @@ use crate::kernel::tables::TowerCoeff;
 
 use super::scale_gfni;
 use super::single::mul_add_gfni;
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
+
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

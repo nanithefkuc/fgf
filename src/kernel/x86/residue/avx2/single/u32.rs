@@ -7,8 +7,7 @@
 //! `widen_add_avx2`) live in the parent module. Entries are safe
 //! capability-token functions taking an `X64V3Token` and validating their
 //! own geometry.
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
+
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 

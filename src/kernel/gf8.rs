@@ -33,7 +33,7 @@ use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend,
 use crate::kernel::aarch64;
 #[cfg(all(feature = "simd", target_arch = "wasm32"))]
 use crate::kernel::wasm32;
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 use crate::kernel::x86;
 
 // --------------------------------------------------------------------------
@@ -144,7 +144,6 @@ impl Prepared {
 #[cfg(all(
     feature = "simd",
     any(
-        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         target_arch = "wasm32"
@@ -157,19 +156,19 @@ pub(crate) trait Coeffs {
     fn resolved(&self, index: usize) -> Prepared;
     /// The raw byte of coefficient `index`: the native AES multiplier and
     /// the zero test.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(target_arch = "x86_64")]
     #[inline]
     fn byte(&self, index: usize) -> u8 {
         self.resolved(index).byte()
     }
     /// The `VGF2P8AFFINEQB` matrix qword of coefficient `index`.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(target_arch = "x86_64")]
     #[inline]
     fn affine(&self, index: usize) -> u64 {
         self.resolved(index).affine
     }
     /// The nibble tables of coefficient `index`, for sub-lane scalar tails.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(target_arch = "x86_64")]
     #[inline]
     fn table(&self, index: usize) -> &'static ScaleTable {
         self.resolved(index).table
@@ -179,7 +178,6 @@ pub(crate) trait Coeffs {
 #[cfg(all(
     feature = "simd",
     any(
-        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         target_arch = "wasm32"
@@ -200,7 +198,6 @@ impl Coeffs for [Prepared] {
 #[cfg(all(
     feature = "simd",
     any(
-        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         target_arch = "wasm32"
@@ -221,7 +218,6 @@ impl Coeffs for alloc::vec::Vec<Prepared> {
 #[cfg(all(
     feature = "simd",
     any(
-        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         target_arch = "wasm32"
@@ -243,7 +239,6 @@ impl<const N: usize> Coeffs for [Prepared; N] {
 #[cfg(all(
     feature = "simd",
     any(
-        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         target_arch = "wasm32"
@@ -254,7 +249,6 @@ struct Resolved<'a, R: Gf8Data>(&'a [Elem<FiniteField<2, 8, R>>]);
 #[cfg(all(
     feature = "simd",
     any(
-        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         target_arch = "wasm32"
@@ -271,19 +265,19 @@ impl<R: Gf8Data> Coeffs for Resolved<'_, R> {
         Prepared::new(self.0[index])
     }
 
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(target_arch = "x86_64")]
     #[inline]
     fn byte(&self, index: usize) -> u8 {
         self.0[index].to_raw()
     }
 
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(target_arch = "x86_64")]
     #[inline]
     fn affine(&self, index: usize) -> u64 {
         R::AFFINE[self.0[index].to_raw() as usize]
     }
 
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(target_arch = "x86_64")]
     #[inline]
     fn table(&self, index: usize) -> &'static ScaleTable {
         &R::SCALE[self.0[index].to_raw() as usize]
@@ -299,7 +293,6 @@ impl<R: Gf8Data> Coeffs for Resolved<'_, R> {
 #[cfg(all(
     feature = "simd",
     any(
-        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         target_arch = "wasm32"
@@ -314,7 +307,6 @@ struct TermsResolved<'a, R: Gf8Data>(&'a [(&'a [Elem<FiniteField<2, 8, R>>], &'a
 #[cfg(all(
     feature = "simd",
     any(
-        target_arch = "x86",
         target_arch = "x86_64",
         target_arch = "aarch64",
         target_arch = "wasm32"
@@ -339,14 +331,14 @@ impl<R: Gf8Data> crate::kernel::Matrix<Prepared> for TermsResolved<'_, R> {
 
 /// Raw flat row-major elements as a [`Matrix`](crate::kernel::Matrix) of
 /// prepared coefficients, resolved on access.
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 struct FlatResolved<'a, R: Gf8Data> {
     values: &'a [Elem<FiniteField<2, 8, R>>],
     nrows: usize,
     sources: &'a [&'a [u8]],
 }
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 impl<R: Gf8Data> crate::kernel::Matrix<Prepared> for FlatResolved<'_, R> {
     #[inline]
     fn len(&self) -> usize {
@@ -384,10 +376,7 @@ impl<R: Gf8Data> FieldKernels for FiniteField<2, 8, R> {
         }
         match backend() {
             Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2 => {
-                cfg!(all(
-                    feature = "simd",
-                    any(target_arch = "x86", target_arch = "x86_64")
-                ))
+                cfg!(all(feature = "simd", target_arch = "x86_64"))
             }
             Backend::NeonAes | Backend::Neon | Backend::Wasm128 => R::AES_NATIVE,
             _ => false,
@@ -432,11 +421,11 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
             return scalar::mul_add::<FiniteField<2, 8, R>>(dst, coeff, src);
         }
         match Self::backend() {
-            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => {
                 x86::gf8::mul_add_avx512(crate::kernel::x86_v4x_token(), dst, *coeff, src);
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3GfniCrypto => {
                 if R::AES_NATIVE {
                     x86::gf8::mul_add_gfni::<true>(
@@ -454,11 +443,11 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                     );
                 }
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3 => {
                 x86::gf8::mul_add_avx2(crate::kernel::x86_v3_token(), dst, coeff.table, src);
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V2 => {
                 x86::gf8::mul_add_ssse3(crate::kernel::x86_v2_token(), dst, coeff.table, src);
             }
@@ -480,11 +469,11 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
             return scalar::mul_assign::<FiniteField<2, 8, R>>(dst, coeff);
         }
         match Self::backend() {
-            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => {
                 x86::gf8::mul_assign_avx512(crate::kernel::x86_v4x_token(), dst, *coeff);
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3GfniCrypto => {
                 // The affine in-place form selects the nibble shuffle for
                 // long buffers; the native AES multiply leads at every size.
@@ -504,11 +493,11 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                     x86::gf8::mul_assign_avx2(crate::kernel::x86_v3_token(), dst, coeff.table);
                 }
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3 => {
                 x86::gf8::mul_assign_avx2(crate::kernel::x86_v3_token(), dst, coeff.table);
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V2 => {
                 x86::gf8::mul_assign_ssse3(crate::kernel::x86_v2_token(), dst, coeff.table);
             }
@@ -531,7 +520,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
             return scalar::mul_assign::<FiniteField<2, 8, R>>(dst, coeff);
         }
         match Self::backend() {
-            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => {
                 // Past the streaming threshold the destination will not be
                 // read back soon: the AVX2 non-temporal body owns that shape.
@@ -556,7 +545,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                     x86::gf8::mul_into_avx512(crate::kernel::x86_v4x_token(), dst, *coeff, src);
                 }
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3GfniCrypto => {
                 if R::AES_NATIVE {
                     x86::gf8::mul_into_gfni::<true>(
@@ -574,11 +563,11 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                     );
                 }
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3 => {
                 x86::gf8::mul_into_avx2(crate::kernel::x86_v3_token(), dst, coeff.table, src);
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V2 => {
                 x86::gf8::mul_into_ssse3(crate::kernel::x86_v2_token(), dst, coeff.table, src);
             }
@@ -610,7 +599,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
             return scalar::mul_add_scatter::<FiniteField<2, 8, R>>(rows, row_len, coeffs, src);
         }
         match Self::backend() {
-            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => x86::gf8::mul_add_scatter_avx512(
                 crate::kernel::x86_v4x_token(),
                 rows,
@@ -618,7 +607,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                 &Resolved(coeffs),
                 src,
             ),
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3GfniCrypto => {
                 if R::AES_NATIVE {
                     x86::gf8::mul_add_scatter_gfni::<true>(
@@ -641,7 +630,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
             // The blocked shuffle scatter is measured for the AES encoding;
             // other representations compose the single-coefficient kernel
             // per row.
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3 if R::AES_NATIVE => x86::gf8::mul_add_scatter_avx2(
                 crate::kernel::x86_v3_token(),
                 rows,
@@ -649,7 +638,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                 &Resolved(coeffs),
                 src,
             ),
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V2 if R::AES_NATIVE => x86::gf8::mul_add_scatter_ssse3(
                 crate::kernel::x86_v2_token(),
                 rows,
@@ -699,7 +688,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
         let _ = (values, coeffs);
         // Prepared affine scatter: the grouped rows read stored maps instead
         // of re-deriving them per row.
-        #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
         if !R::AES_NATIVE && Self::backend() == Backend::V4x {
             return x86::gf8::mul_add_scatter_avx512(
                 crate::kernel::x86_v4x_token(),
@@ -722,7 +711,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
             return scalar::mul_add_gather::<FiniteField<2, 8, R>>(dst, coeffs, srcs);
         }
         match Self::backend() {
-            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => {
                 x86::gf8::mul_add_gather_avx512(
                     crate::kernel::x86_v4x_token(),
@@ -731,7 +720,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                     srcs,
                 );
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3GfniCrypto => {
                 if R::AES_NATIVE {
                     x86::gf8::mul_add_gather_gfni::<true>(
@@ -749,7 +738,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                     );
                 }
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3 if R::AES_NATIVE => {
                 x86::gf8::mul_add_gather_avx2(
                     crate::kernel::x86_v3_token(),
@@ -758,7 +747,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                     srcs,
                 );
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V2 if R::AES_NATIVE => {
                 x86::gf8::mul_add_gather_ssse3(
                     crate::kernel::x86_v2_token(),
@@ -804,7 +793,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
         let _ = (values, coeffs);
         // Prepared affine gather: the blocked tile reads stored maps instead
         // of re-deriving them per tile.
-        #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
         if !R::AES_NATIVE && Self::backend() == Backend::V4x {
             return x86::gf8::mul_add_gather_avx512(
                 crate::kernel::x86_v4x_token(),
@@ -836,7 +825,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
         }
         // One destination pass instead of the fill-then-accumulate pair: the
         // one-row overwrite matrix holds the tile in registers from zero.
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             let terms = FlatResolved {
                 values: coeffs,
@@ -899,7 +888,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
         // Prepared overwrite gather: one destination pass through the
         // one-row overwrite matrix instead of the trait default's
         // into-then-AXPY shape.
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         match Self::backend() {
             #[cfg(feature = "simd512")]
             Backend::V4x => {
@@ -946,7 +935,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
             return scalar::mul_add_matrix::<FiniteField<2, 8, R>>(rows, row_len, nrows, terms);
         }
         match Self::backend() {
-            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => {
                 x86::gf8::mul_add_matrix_avx512_with(
                     crate::kernel::x86_v4x_token(),
@@ -956,7 +945,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                     &TermsResolved(terms),
                 );
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3GfniCrypto => {
                 if R::AES_NATIVE {
                     x86::gf8::mul_add_matrix_gfni_with::<true, _>(
@@ -976,7 +965,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                     );
                 }
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3 if R::AES_NATIVE => {
                 x86::gf8::mul_add_matrix_avx2_with(
                     crate::kernel::x86_v3_token(),
@@ -986,7 +975,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                     &TermsResolved(terms),
                 );
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V2 if R::AES_NATIVE => {
                 x86::gf8::mul_add_matrix_ssse3_with(
                     crate::kernel::x86_v2_token(),
@@ -1050,9 +1039,9 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
             }
             return;
         }
-        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
         let _ = values;
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             let terms = FlatResolved {
                 values,
@@ -1143,7 +1132,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
         }
         // Overwrite seeds accumulators from zero in registers: one write pass,
         // no destination read, no separate fill.
-        #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
         if Self::backend() == Backend::V4x {
             return x86::gf8::mul_into_matrix_avx512_with(
                 crate::kernel::x86_v4x_token(),
@@ -1153,7 +1142,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                 &TermsResolved(terms),
             );
         }
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         if Self::backend() == Backend::V3GfniCrypto {
             if R::AES_NATIVE {
                 return x86::gf8::mul_into_matrix_gfni_with::<true, _>(
@@ -1204,7 +1193,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
             }
             return;
         }
-        #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
         if Self::backend() == Backend::V4x {
             let prepared = crate::kernel::FlatMatrix {
                 coefficients: coeffs,
@@ -1219,7 +1208,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                 &prepared,
             );
         }
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         if Self::backend() == Backend::V3GfniCrypto {
             let terms = FlatResolved {
                 values,
@@ -1260,7 +1249,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
             return Self::mul_add_matrix_at_rows(RawDispatch, dst, row_len, row_starts, terms);
         }
         match Self::backend() {
-            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => x86::gf8::mul_add_matrix_at_avx512_with(
                 crate::kernel::x86_v4x_token(),
                 dst,
@@ -1268,7 +1257,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                 row_starts,
                 &TermsResolved(terms),
             ),
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3GfniCrypto => {
                 if R::AES_NATIVE {
                     x86::gf8::mul_add_matrix_at_gfni_with::<true, _>(
@@ -1303,7 +1292,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
             // encoding; every other representation conjugates it by the
             // isomorphism onto `0x11B` (two affine maps around one native
             // multiply).
-            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => {
                 if R::AES_NATIVE {
                     x86::gf8::mul_elementwise_avx512::<true>(
@@ -1325,7 +1314,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                     );
                 }
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3GfniCrypto => {
                 if R::AES_NATIVE {
                     x86::gf8::mul_elementwise_gfni::<true>(
@@ -1350,7 +1339,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
             // No fixed coefficient means no nibble table, so the shuffle
             // backends use eight branchless shift/reduce rounds that thread
             // the representation's reduction byte.
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3 => {
                 x86::gf8::mul_elementwise_avx2(
                     crate::kernel::x86_v3_token(),
@@ -1360,7 +1349,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                     b,
                 );
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V2 => {
                 x86::gf8::mul_elementwise_ssse3(
                     crate::kernel::x86_v2_token(),
@@ -1395,7 +1384,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
             return scalar::mul_elementwise_assign::<FiniteField<2, 8, R>>(dst, src);
         }
         match Self::backend() {
-            #[cfg(all(feature = "simd512", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => {
                 if R::AES_NATIVE {
                     x86::gf8::mul_elementwise_assign_avx512::<true>(
@@ -1415,7 +1404,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                     );
                 }
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3GfniCrypto => {
                 if R::AES_NATIVE {
                     x86::gf8::mul_elementwise_assign_gfni::<true>(
@@ -1435,7 +1424,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                     );
                 }
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V3 => {
                 x86::gf8::mul_elementwise_assign_avx2(
                     crate::kernel::x86_v3_token(),
@@ -1444,7 +1433,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
                     src,
                 );
             }
-            #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+            #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             Backend::V2 => {
                 x86::gf8::mul_elementwise_assign_ssse3(
                     crate::kernel::x86_v2_token(),

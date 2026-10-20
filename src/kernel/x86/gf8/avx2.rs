@@ -18,8 +18,6 @@ use super::ssse3::{
 use crate::kernel::gf8::{Coeffs, Prepared};
 use crate::kernel::tables::ScaleTable;
 
-#[cfg(target_arch = "x86")]
-use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
