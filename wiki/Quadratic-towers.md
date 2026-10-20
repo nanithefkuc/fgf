@@ -117,6 +117,6 @@ its kernels; other custom rows use typed scalar fallback.
 
 For arbitrary relative degree and a prime base, continue with
 [custom extensions](Downstream-scalar-fields). The
-[tower reference](https://docs.rs/fgf/3.0.1/fgf/field/binary/tower/index.html) and
-[extension reference](https://docs.rs/fgf/3.0.1/fgf/field/extension/index.html)
+[tower reference](https://docs.rs/fgf/3.0.2/fgf/field/binary/tower/index.html) and
+[extension reference](https://docs.rs/fgf/3.0.2/fgf/field/extension/index.html)
 own the specification and storage contracts.

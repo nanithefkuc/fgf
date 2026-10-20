@@ -71,7 +71,7 @@ assert_eq!(outputs, [13, 18, 13, 16, 9, 30]);
 
 For a source replacement, scatter `new_source - old_source` into existing
 outputs. Subtraction is XOR only in binary fields. The
-[streaming example](https://github.com/nanithefkuc/fgf/blob/v3.0.1/examples/streaming_encode.rs)
+[streaming example](https://github.com/nanithefkuc/fgf/blob/v3.0.2/examples/streaming_encode.rs)
 uses this update with wider lanes.
 
 ## Offset destinations preserve unrelated frame bytes
@@ -108,5 +108,5 @@ transactional: validate it before writing if later failure must leave output
 unchanged.
 
 For repeated coefficients, continue with [preparation](Prepared-coefficients).
-The [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) owns each call's
+The [ops reference](https://docs.rs/fgf/3.0.2/fgf/ops/index.html) owns each call's
 exact validation and empty-input rules.

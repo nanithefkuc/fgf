@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-10-20
+
+Equal-degree maps use `Isomorphism`; `Embedding` accepts proper inclusions
+only. Consumers of 3.0.1 migrate equal-degree construction and application
+as described below. The release also caps extension degrees at 64 and uses
+portable scalar kernels on AArch64 and Wasm32.
+
 ### Added
 
 - Batch reciprocal and division rows `ops::inv_into` / `ops::inv_assign`
@@ -1772,7 +1779,8 @@ behaviour.
 
 Initial public release.
 
-[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v3.0.1...HEAD
+[Unreleased]: https://github.com/nanithefkuc/fgf/compare/v3.0.2...HEAD
+[3.0.2]: https://github.com/nanithefkuc/fgf/compare/v3.0.1...v3.0.2
 [3.0.1]: https://github.com/nanithefkuc/fgf/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/nanithefkuc/fgf/compare/v2.1.0...v3.0.0
 [1.0.0]: https://github.com/nanithefkuc/fgf/compare/v0.7.1...v1.0.0

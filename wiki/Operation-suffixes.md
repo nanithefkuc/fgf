@@ -80,6 +80,6 @@ caller-owned element storage.
 `_scratch` operation.
 
 Use [row geometry](Linear-operations-and-row-geometry) to select the call and
-the [ops reference](https://docs.rs/fgf/3.0.1/fgf/ops/index.html) for exact sizes,
+the [ops reference](https://docs.rs/fgf/3.0.2/fgf/ops/index.html) for exact sizes,
 empty-input behavior, and errors. Names are not a substitute for the contract:
 `pack` and `mul_elementwise` overwrite without an `_into` suffix.

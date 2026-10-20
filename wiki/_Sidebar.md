@@ -21,4 +21,4 @@
 
 - [Operation suffixes](Operation-suffixes)
 - [Migrating from 2.x](Migrating-from-2.x)
-- [API reference](https://docs.rs/fgf/3.0.1/fgf/)
+- [API reference](https://docs.rs/fgf/3.0.2/fgf/)
