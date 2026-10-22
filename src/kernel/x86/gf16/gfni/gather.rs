@@ -118,6 +118,15 @@ fn gather_group<const N: usize>(
         _mm256_storeu_si256(dst_lane, acc);
     }
 
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_add_gather",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
+
     if !dst_tail.is_empty() {
         for (k, coeff) in coeffs.iter().enumerate() {
             mul_add_gfni(token, dst_tail, *coeff, &srcs[k][tail_start..]);

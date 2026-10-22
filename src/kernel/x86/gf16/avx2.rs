@@ -390,6 +390,8 @@ unsafe fn scatter_rows(
 ) {
     let base = rows.as_mut_ptr();
     let src_ptr = src.as_ptr();
+    #[cfg(test)]
+    let mut total_work = 0usize;
     for group in (0..coeffs.count()).step_by(4) {
         let count = (coeffs.count() - group).min(4);
         let vectors: [NibbleAvx2; 4] =
@@ -444,6 +446,10 @@ unsafe fn scatter_rows(
             }
             offset += 32;
         }
+        #[cfg(test)]
+        {
+            total_work += ((offset - head) / 32) * count * 16;
+        }
         for slot in 0..count {
             // SAFETY:
             // MEMORY VALIDITY
@@ -462,6 +468,14 @@ unsafe fn scatter_rows(
             mul_add_scalar(tail, &coeffs.resolved(group + slot), &src[offset..]);
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx2.mul_add_scatter",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        total_work,
+        crate::kernel::Backend::V3,
+    );
 }
 
 /// `DELTA * v` for every byte lane, by split-nibble `PSHUFB`.

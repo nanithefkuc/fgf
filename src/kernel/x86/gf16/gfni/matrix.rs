@@ -204,6 +204,9 @@ unsafe fn matrix_group<const N: usize, M: Matrix<TowerCoeff> + ?Sized>(
         *row = unsafe { base.add(k * row_len) };
     }
 
+    #[cfg(test)]
+    let mut total_work = 0usize;
+
     for block_start in (0..terms.len()).step_by(TERM_BLOCK) {
         let block_len = (terms.len() - block_start).min(TERM_BLOCK);
         // Every coefficient of the block is derived exactly once, here,
@@ -253,6 +256,10 @@ unsafe fn matrix_group<const N: usize, M: Matrix<TowerCoeff> + ?Sized>(
                 }
             }
             offset += 32;
+            #[cfg(test)]
+            {
+                total_work += 16 * N * block_len;
+            }
         }
 
         if offset < span {
@@ -275,4 +282,12 @@ unsafe fn matrix_group<const N: usize, M: Matrix<TowerCoeff> + ?Sized>(
             }
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_add_matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        total_work,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
 }

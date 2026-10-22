@@ -2394,6 +2394,7 @@ mod x86 {
                 );
             },
         );
+        crate::kernel::trace::clear();
         check_scatter(
             "gf16 gfni scatter",
             gf16_coeff_at,
@@ -2402,6 +2403,7 @@ mod x86 {
                 x86::gf16::mul_add_scatter_gfni(token, rows, row_len, coeffs, src);
             },
         );
+        super::assert_vector_work(Backend::V3GfniCrypto);
         check_matrix(
             "gf8 gfni matrix",
             gf8_coeff_at2::<AES>,
@@ -2461,6 +2463,7 @@ mod x86 {
                 });
             },
         );
+        crate::kernel::trace::clear();
         check_matrix(
             "gf16 gfni matrix",
             gf16_coeff_at2,
@@ -2469,6 +2472,7 @@ mod x86 {
                 x86::gf16::mul_add_matrix_gfni(token, rows, row_len, nrows, terms);
             },
         );
+        super::assert_vector_work(Backend::V3GfniCrypto);
         check_gather(
             "gf8 gfni gather",
             gf8_coeff_at::<AES>,
@@ -2477,6 +2481,7 @@ mod x86 {
                 x86::gf8::mul_add_gather_gfni::<true>(token, dst, &prepared_coeffs(coeffs), srcs);
             },
         );
+        crate::kernel::trace::clear();
         check_gather_aligned(
             "gf16 gfni gather",
             2,
@@ -2484,6 +2489,7 @@ mod x86 {
             gf16_reference,
             |dst, coeffs, srcs| x86::gf16::mul_add_gather_gfni(token, dst, coeffs, srcs),
         );
+        super::assert_vector_work(Backend::V3GfniCrypto);
         check_gf8_elementwise::<AES>("gf8 gfni elementwise", |dst, a, b| {
             x86::gf8::mul_elementwise_gfni::<true>(
                 token,
@@ -3594,6 +3600,7 @@ mod x86 {
                 x86::gf8::mul_add_scatter_avx2(token, rows, row_len, &prepared_coeffs(coeffs), src);
             },
         );
+        crate::kernel::trace::clear();
         check_scatter(
             "gf16 avx2 scatter",
             gf16_coeff_at,
@@ -3602,6 +3609,7 @@ mod x86 {
                 x86::gf16::mul_add_scatter_avx2(token, rows, row_len, coeffs, src);
             },
         );
+        super::assert_vector_work(Backend::V3);
         check_gather(
             "gf8 avx2 gather",
             gf8_coeff_at::<AES>,
@@ -3835,6 +3843,7 @@ mod x86 {
                 );
             },
         );
+        crate::kernel::trace::clear();
         check_scatter(
             "gf16 ssse3 scatter",
             gf16_coeff_at,
@@ -3843,6 +3852,7 @@ mod x86 {
                 x86::gf16::mul_add_scatter_ssse3(token, rows, row_len, coeffs, src);
             },
         );
+        super::assert_vector_work(Backend::V2);
         check_gather(
             "gf8 ssse3 gather",
             gf8_coeff_at::<AES>,
@@ -3851,6 +3861,7 @@ mod x86 {
                 x86::gf8::mul_add_gather_ssse3(token, dst, &prepared_coeffs(coeffs), srcs);
             },
         );
+        crate::kernel::trace::clear();
         check_gather_aligned(
             "gf16 ssse3 gather",
             2,
@@ -3858,6 +3869,7 @@ mod x86 {
             gf16_reference,
             |dst, coeffs, srcs| x86::gf16::mul_add_gather_ssse3(token, dst, coeffs, srcs),
         );
+        super::assert_vector_work(Backend::V2);
         check_matrix(
             "gf8 ssse3 matrix",
             gf8_coeff_at2::<AES>,
@@ -3868,6 +3880,7 @@ mod x86 {
                 });
             },
         );
+        crate::kernel::trace::clear();
         check_matrix(
             "gf16 ssse3 matrix",
             gf16_coeff_at2,
@@ -3894,6 +3907,7 @@ mod x86 {
             );
             assert_vector_work(Backend::V2);
         }
+        super::assert_vector_work(Backend::V2);
         check_gf8_elementwise::<AES>("gf8 ssse3 elementwise", |dst, a, b| {
             x86::gf8::mul_elementwise_ssse3(token, Polynomial::<AES>::REDUCTION_LOW, dst, a, b);
         });
@@ -7547,6 +7561,7 @@ mod gf1_bits {
             return;
         }
         let token = X64V2Token::summon().expect("guard passed: SSE4.2 summons here");
+        crate::kernel::trace::clear();
         check_interop_tier(
             "sse42",
             |dst, one, src, bits, bytes| x86::gf1::expand_sse42(token, dst, one, src, bits, bytes),
@@ -7557,6 +7572,7 @@ mod gf1_bits {
                 x86::gf1::restrict_sse42(token, dst, valid, one, src, bits, bytes);
             },
         );
+        super::assert_vector_work(Backend::V2);
     }
 
     /// The V4x dispatch seam on short rows: 16-63 byte rows fall through
@@ -7612,6 +7628,7 @@ mod gf1_bits {
             return;
         }
         let token = X64V3Token::summon().expect("guard passed: AVX2 summons here");
+        crate::kernel::trace::clear();
         check_interop_tier(
             "avx2",
             |dst, one, src, bits, bytes| x86::gf1::expand_avx2(token, dst, one, src, bits, bytes),
@@ -7622,6 +7639,7 @@ mod gf1_bits {
                 x86::gf1::restrict_avx2(token, dst, valid, one, src, bits, bytes);
             },
         );
+        super::assert_vector_work(Backend::V3);
     }
 
     /// AVX-512 interop entries against the portable oracles.
@@ -7636,6 +7654,7 @@ mod gf1_bits {
             return;
         }
         let token = X64V4xToken::summon().expect("guard passed: V4x summons here");
+        crate::kernel::trace::clear();
         check_interop_tier(
             "avx512",
             |dst, one, src, bits, bytes| x86::gf1::expand_avx512(token, dst, one, src, bits, bytes),
@@ -7646,5 +7665,6 @@ mod gf1_bits {
                 x86::gf1::restrict_avx512(token, dst, valid, one, src, bits, bytes);
             },
         );
+        super::assert_vector_work(Backend::V4x);
     }
 }

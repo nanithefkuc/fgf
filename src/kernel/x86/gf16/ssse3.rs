@@ -287,6 +287,8 @@ unsafe fn scatter_rows(
 ) {
     let base = rows.as_mut_ptr();
     let src_ptr = src.as_ptr();
+    #[cfg(test)]
+    let mut total_work = 0usize;
     for group in (0..coeffs.count()).step_by(4) {
         let count = (coeffs.count() - group).min(4);
         let vectors: [NibbleSsse3; 4] =
@@ -317,6 +319,10 @@ unsafe fn scatter_rows(
             }
             offset += 16;
         }
+        #[cfg(test)]
+        {
+            total_work += (offset / 16) * count * 8;
+        }
         for slot in 0..count {
             // SAFETY:
             // MEMORY VALIDITY
@@ -335,11 +341,17 @@ unsafe fn scatter_rows(
             mul_add_scalar(tail, &coeffs.resolved(group + slot), &src[offset..]);
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.ssse3.mul_add_scatter",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        total_work,
+        crate::kernel::Backend::V2,
+    );
 }
 
-/// Many sources into one destination, eight coefficients prepared per pass.
-///
-/// # Panics
+/// Many sources into one destination
 /// Panics unless `coeffs.len() == srcs.len()` and every source matches `dst`
 /// in length.
 #[allow(clippy::used_underscore_binding)]
@@ -372,6 +384,8 @@ pub fn mul_add_gather_ssse3(
     }
     let tail_start = dst.len() & !15;
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
+    #[cfg(test)]
+    let mut total_work = 0usize;
     for block in (0..coeffs.count()).step_by(TERM_TILE) {
         let count = (coeffs.count() - block).min(TERM_TILE);
         let vectors: [NibbleSsse3; TERM_TILE] =
@@ -385,6 +399,10 @@ pub fn mul_add_gather_ssse3(
             }
             _mm_storeu_si128(dst_lane, acc);
         }
+        #[cfg(test)]
+        {
+            total_work += dst_lanes.len() * 8 * count;
+        }
         for i in 0..count {
             mul_add_scalar(
                 dst_tail,
@@ -393,6 +411,14 @@ pub fn mul_add_gather_ssse3(
             );
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.ssse3.mul_add_gather",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        total_work,
+        crate::kernel::Backend::V2,
+    );
 }
 
 /// Many sources into many rows using SSSE3 nibble shuffles.
@@ -504,6 +530,8 @@ unsafe fn matrix_rows<M: Matrix<TowerTables> + ?Sized>(
 ) {
     let vector_len = span & !15;
     let base = rows.as_mut_ptr();
+    #[cfg(test)]
+    let mut total_work = 0usize;
     for group in (0..nrows).step_by(4) {
         let row_count = (nrows - group).min(4);
         for block in (0..terms.len()).step_by(TERM_TILE) {
@@ -550,6 +578,10 @@ unsafe fn matrix_rows<M: Matrix<TowerTables> + ?Sized>(
                     }
                 }
                 offset += 16;
+                #[cfg(test)]
+                {
+                    total_work += 8 * row_count * term_count;
+                }
             }
             for r in 0..row_count {
                 // SAFETY:
@@ -578,6 +610,14 @@ unsafe fn matrix_rows<M: Matrix<TowerTables> + ?Sized>(
             }
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.ssse3.mul_add_matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        total_work,
+        crate::kernel::Backend::V2,
+    );
 }
 
 /// The 16-byte form of [`scale_delta`].

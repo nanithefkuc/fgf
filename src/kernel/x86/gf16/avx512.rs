@@ -437,6 +437,8 @@ fn matrix_group<const N: usize, M: Matrix<TowerCoeff> + ?Sized>(
 ) {
     const TERM_BLOCK: usize = 16;
     let full = span / 64 * 64;
+    #[cfg(test)]
+    let mut total_work = 0usize;
     for block in (0..terms.len()).step_by(TERM_BLOCK) {
         let count = (terms.len() - block).min(TERM_BLOCK);
         let mut factors: [[(__m512i, __m512i); N]; TERM_BLOCK] =
@@ -474,6 +476,10 @@ fn matrix_group<const N: usize, M: Matrix<TowerCoeff> + ?Sized>(
                 _mm512_storeu_si512(lane, value);
             }
         }
+        #[cfg(test)]
+        {
+            total_work += (full / 64) * N * count * 32;
+        }
         for (k, row) in rows.iter_mut().enumerate() {
             for term in block..block + count {
                 gfni::mul_add_gfni(
@@ -485,4 +491,12 @@ fn matrix_group<const N: usize, M: Matrix<TowerCoeff> + ?Sized>(
             }
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx512.mul_add_matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        total_work,
+        crate::kernel::Backend::V4x,
+    );
 }
