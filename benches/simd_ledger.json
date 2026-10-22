@@ -2839,7 +2839,7 @@
       "basis": "Source",
       "multiplicity": "ActiveRows",
       "iterations": "1",
-      "justification": "gather XOR; per-active-row budget",
+      "justification": "gather XOR; one budget per selected source row",
       "loss_bytes": "2*(lane-1)"
     },
     "bits-weight": {

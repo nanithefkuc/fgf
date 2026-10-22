@@ -349,6 +349,13 @@ def _validate_map_construction(rid: str, rule: dict, fix: dict) -> None:
             not isinstance(power, int) or isinstance(power, bool) or power < 0):
         _fail(f"rule {rid!r}: fixture {fix.get('id')!r} power must be a non-negative integer")
 
+    target_width = fix.get("target_elem_bytes", rule.get("target_elem_bytes"))
+    declared_width = rule.get("target_width_bytes")
+    if (rule.get("group") == "map_bits" and declared_width is not None
+            and declared_width != target_width):
+        _fail(f"rule {rid!r}: fixture {fix.get('id')!r} target_elem_bytes "
+              f"{target_width} differs from target_width_bytes {declared_width}")
+
     construction = rule.get("construction")
     images = fix.get("images", rule.get("images"))
     if images is None:
@@ -361,12 +368,6 @@ def _validate_map_construction(rid: str, rule: dict, fix: dict) -> None:
     if construction == "structural" and images:
         _fail(f"rule {rid!r}: fixture {fix.get('id')!r} is structural but "
               f"declares caller images")
-    target_width = fix.get("target_elem_bytes", rule.get("target_elem_bytes"))
-    declared_width = rule.get("target_width_bytes")
-    if (rule.get("group") == "map_bits" and declared_width is not None
-            and declared_width != target_width):
-        _fail(f"rule {rid!r}: fixture {fix.get('id')!r} target_elem_bytes "
-              f"{target_width} differs from target_width_bytes {declared_width}")
     for image in images:
         if not isinstance(image, list) or not image:
             _fail(f"rule {rid!r}: fixture {fix.get('id')!r} image {image!r} "
@@ -871,7 +872,15 @@ def _fixture_metadata(fixture: dict, rule: dict) -> dict[str, int]:
     return meta
 
 
-def _geometry_family(call_family: str) -> str:
+def _is_gather_shape(call_name: str, call_family: str) -> bool:
+    """Whether a callable folds several sources into one destination."""
+    return (call_family in ("ops/gather", "bits/gather")
+            or "gather" in call_name.split("::")[-1])
+
+
+def _geometry_family(call_family: str, call_name: str = "") -> str:
+    if call_family == "bits" and _is_gather_shape(call_name, call_family):
+        return "bits-gather"
     mapping = {
         "ops/row": "single-row",
         "ops/scatter": "scatter",
@@ -924,9 +933,10 @@ def _slot_count_for(call_name: str, call_family: str, geo: dict) -> int:
         return rows
     return rows * sources
 
-def _select_geometry_for_family(geos: dict, call_family: str) -> tuple[str, dict] | None:
-    """One vector-eligible geometry per callable family."""
-    want = _geometry_family(call_family)
+def _select_geometry_for_family(geos: dict, call_family: str,
+                                call_name: str = "") -> tuple[str, dict] | None:
+    """One vector-eligible geometry per callable family and shape."""
+    want = _geometry_family(call_family, call_name)
     for geo_id, geo in sorted(geos.items()):
         if geo.get("family", "") == want:
             return (geo_id, geo)
@@ -1031,7 +1041,7 @@ def cases(ledger: dict, expanded: dict | None = None) -> list[dict]:
             _fail(f"obligation {oid!r}: unknown rule {rule_id!r}")
         call_family = callable_families.get(call_name, "")
         takes = _callable_takes_coefficient(call_name, call_family)
-        geo_sel = _select_geometry_for_family(geos, call_family)
+        geo_sel = _select_geometry_for_family(geos, call_family, call_name)
         if geo_sel is None:
             if takes:
                 _fail(f"obligation {oid!r}: no geometry for family {call_family!r}")
@@ -1068,13 +1078,15 @@ def cases(ledger: dict, expanded: dict | None = None) -> list[dict]:
                     "pattern": cp,
                     "cells": cells,
                     "cell_work": _resolve_case_work(
-                        case_id, oid, cells, wrules, isa, meta, geo, cp),
+                        case_id, oid, cells, wrules, isa, meta, geo, cp,
+                        gather=_is_gather_shape(call_name, call_family)),
                 })
     return out
 
 
 def _resolve_case_work(case_id: str, oid: str, cells: dict, wrules: dict,
-                       isa: dict, meta: dict, geo: dict, pattern: dict) -> dict:
+                       isa: dict, meta: dict, geo: dict, pattern: dict,
+                       gather: bool = False) -> dict:
     """Resolve every referenced work rule for one case and validate its budget."""
     resolved: dict[str, list[dict]] = {}
     for key, cell in sorted(cells.items()):
@@ -1085,7 +1097,7 @@ def _resolve_case_work(case_id: str, oid: str, cells: dict, wrules: dict,
             if not isinstance(wr, dict):
                 continue
             try:
-                item = _resolve_work(wr, geo, meta, req, isa, pattern)
+                item = _resolve_work(wr, geo, meta, req, isa, pattern, gather)
             except ValueError as exc:
                 _fail(f"obligation {oid!r} cell {key!r} case {case_id!r}: "
                       f"work rule {wr_name!r}: {exc}")
@@ -1435,11 +1447,13 @@ def _check_full_references(ledger: dict, expanded: dict, case_list_derived: list
     for bid in refs.get("bench", []):
         if bid not in surface_ids:
             _fail(f"reference bench {bid!r} is not in the surface inventory")
-    _check_evidence_citations(ledger, expanded, case_list_derived, records)
+    _check_evidence_citations(ledger, expanded, case_list_derived, records,
+                              runner_case_ids)
 
 
 def _check_evidence_citations(ledger: dict, expanded: dict, case_list_derived: list[dict],
-                             records: Path | None) -> None:
+                             records: Path | None,
+                             runner_case_ids: set[str] | None = None) -> None:
     """Evidence entries cite complete, consistent record identities.
 
     Every receipt in a record, cited or not, must carry the same complete
@@ -1514,6 +1528,9 @@ def _check_evidence_citations(ledger: dict, expanded: dict, case_list_derived: l
             citation_identity = _evidence_identity(cited, "citation", ev_id)
             if rid not in by_case:
                 _fail(f"evidence {ev_id!r}: cited receipt {rid!r} is not a generated case")
+            if runner_case_ids is not None and rid not in runner_case_ids:
+                _fail(f"evidence {ev_id!r}: cited receipt {rid!r} is not in "
+                      f"the runner case list")
             rec = by_rid.get(rid)
             if rec is None:
                 _fail(f"evidence {ev_id!r}: cited receipt {rid} missing")
@@ -1627,10 +1644,20 @@ def _active_rows_count(geo: dict, coeff_pattern: dict) -> int:
     return count
 
 
-def _multiplicity_count(mult: str, geo: dict, coeff_pattern: dict) -> int:
+def _multiplicity_count(mult: str, geo: dict, coeff_pattern: dict,
+                        gather: bool = False) -> int:
     if mult == "Rows":
         return geo.get("rows", 1)
     if mult == "ActiveRows":
+        slots = coeff_pattern.get("slots", [])
+        if gather:
+            # A gather folds selected sources: coefficients name sources,
+            # and a coefficient-free callable selects every source.
+            if not slots:
+                return geo.get("sources", 1)
+            return sum(1 for slot in slots if slot in ("General", "One"))
+        if not slots:
+            return geo.get("rows", 1)
         return _active_rows_count(geo, coeff_pattern)
     if mult == "ActivePairs":
         return _count_active_pairs(coeff_pattern)
@@ -1695,7 +1722,8 @@ def _length_in_units(unit: str, elements: int, elem_bytes: int) -> int:
 
 def _resolve_work(work_rule: dict, geo: dict, meta: dict,
                   tier: str, isa: dict,
-                  coeff_pattern: dict | None = None) -> dict:
+                  coeff_pattern: dict | None = None,
+                  gather: bool = False) -> dict:
     """Resolve one Work item for a case: lane, loss, iterations, and budget.
 
     ``basis: Target`` converts the geometry length and the loss with the
@@ -1713,7 +1741,7 @@ def _resolve_work(work_rule: dict, geo: dict, meta: dict,
     loss = _loss_in_units(unit, loss_bytes, width_eb)
     length = _length_in_units(unit, geo.get("len", 0), width_eb)
     count = _multiplicity_count(work_rule["multiplicity"], geo,
-                                coeff_pattern or {"slots": []})
+                                coeff_pattern or {"slots": []}, gather)
     scope = work_rule.get("scope")
     return {
         "substage": work_rule["substage"],

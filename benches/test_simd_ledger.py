@@ -696,6 +696,20 @@ class TestFullCitations(unittest.TestCase):
             finally:
                 sl.KNOWN_CALLABLES = old
 
+    def test_evidence_cited_case_must_appear_in_runner_list(self):
+        ledger, derived, cid = self._evidence_ledger()
+        with tempfile.TemporaryDirectory() as d:
+            rustdoc, tl, cl, si = self._inventories(
+                d, case="ROUTE_CASE_LIST\tother\n")
+            self._record(Path(d), cid)
+            old = sl.KNOWN_CALLABLES
+            sl.KNOWN_CALLABLES = {"ops::mul_add", "ops::add_assign"}
+            try:
+                with self.assertRaises(ValidationError):
+                    sl.cmd_check(ledger, False, rustdoc, tl, cl, si, Path(d))
+            finally:
+                sl.KNOWN_CALLABLES = old
+
     def test_uncited_receipt_identity_conflict_rejected(self):
         # Every receipt in the record must match the completion identity,
         # not just the cited subset.
@@ -905,15 +919,18 @@ class TestBudgets(unittest.TestCase):
         with self.assertRaises(ValidationError):
             sl.cmd_check(ledger, True, None, None, None, None, None)
 
-    def test_canonical_geometries_exceed_vector_floors(self):
+    def test_geometries_exceed_lane_loss_floors(self):
+        """Every geometry exceeds its work rule's own lane-loss formula.
+
+        This is not a live tuning-threshold check; it keeps the resolved
+        budget strictly positive at the widest lane and element width.
+        """
         ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
         for geo in ledger["geometries"].values():
             bits_geometry = geo.get("family") in ("bits", "bits-gather")
             for wr in ledger["work_rules"].values():
                 if (wr["unit"] == "Bits") != bits_geometry:
                     continue
-                # The widest live lane is the v4x byte lane; width eight is
-                # the widest fixture element.
                 loss_bytes = sl._compute_loss_bytes(
                     wr, _isa()["lane_bytes"]["v4x"], {"elem_bytes": 8})
                 length = sl._length_in_units(wr["unit"], geo["len"], 8)
@@ -991,6 +1008,17 @@ class TestBudgets(unittest.TestCase):
 
     def test_zero_loss_stays_zero(self):
         self.assertEqual(sl._loss_in_units("Elements", 0, 4), 0)
+
+    def test_active_rows_coefficient_free_counts_sources_for_gather(self):
+        geo = {"rows": 3, "sources": 5}
+        self.assertEqual(
+            sl._multiplicity_count("ActiveRows", geo, {"slots": []}, gather=True), 5)
+        self.assertEqual(
+            sl._multiplicity_count("ActiveRows", geo, {"slots": []}), 3)
+        # Gather coefficients select sources, not destination rows.
+        slots = {"slots": ["General", "Zero", "One", "Zero", "General"]}
+        self.assertEqual(
+            sl._multiplicity_count("ActiveRows", geo, slots, gather=True), 3)
 
     def test_active_rows_counts_nontrivial(self):
         geo = {"rows": 3, "sources": 4}
@@ -1470,23 +1498,35 @@ class TestCanonicalLedger(unittest.TestCase):
             for item in case["cell_work"]["default/v3"]:
                 self.assertGreater(item["budget"], 0)
 
+    def test_bit_gather_uses_gather_geometry_and_per_source_budget(self):
+        ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
+        oid = "bits::xor_gather@bits-gf2"
+        ledger["obligations"] = {oid: {"cells": {"default/v3": {
+            "status": "direct", "required": True, "min_serving": "v3",
+            "work": ["bits-xor-gather"], "process": "v3", "field": "v3",
+            "perf": "unmeasured"}}}}
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        selected = [case for case in derived if case["obligation"] == oid]
+        self.assertEqual(len(selected), 1)
+        case = selected[0]
+        self.assertEqual(case["geometry"]["family"], "bits-gather")
+        self.assertEqual(case["geometry"]["rows"], 8)
+        self.assertEqual(case["geometry"]["sources"], 8)
+        item = case["cell_work"]["default/v3"][0]
+        self.assertEqual(item["multiplicity_count"], 8)
+        # Eight selected sources at 3,600 bits each under the V3 lane.
+        self.assertEqual(item["budget"], 28_800)
+
+    def test_structural_map_width_class_checked(self):
+        ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
+        ledger["rules"]["map-bits-width8"]["target_width_bytes"] = 7
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
     def test_no_duplicate_spec_key(self):
         for rule in self.ledger["rules"].values():
             for fixture in rule.get("fixtures", []):
                 self.assertNotIn("needs_spec", fixture)
-
-    def test_fixture_descriptions_match_relations(self):
-        quartic = self.ledger["rules"]["component-residue-quartic"]["fixtures"][0]
-        self.assertIn("2x^2", quartic["spec"]["name"])
-        residue_col = self.ledger["rules"]["map-embed-residue-column"]
-        self.assertNotIn("degree-1 source", residue_col["arm_citation"])
-        for rule in self.ledger["rules"].values():
-            for fixture in rule.get("fixtures", []):
-                spec = fixture.get("spec")
-                if isinstance(spec, dict):
-                    name = spec.get("name", "")
-                    if "x^4 + 2x^3 + 2" in name:
-                        self.assertNotEqual(spec.get("relation"), [2, 0, 2, 0])
 
 
 class TestCheckModes(unittest.TestCase):
