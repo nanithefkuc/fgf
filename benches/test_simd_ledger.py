@@ -1101,6 +1101,19 @@ class TestGenerate(unittest.TestCase):
         self.assertIn("zero-1", content)
         self.assertIn("one-1", content)
 
+    def test_cases_one_line_each(self):
+        """Each Case literal in generated table is on exactly one line."""
+        ledger = _tiny_ledger()
+        ledger["geometries"] = {"row-64": {"rows": 1, "sources": 1, "len": 64, "misalign": 1, "pitch_pad": 0}}
+        ledger["coefficient_patterns"] = {"gen-1": {"slots": ["General"]}}
+        content = sl._generate_cases(ledger)
+        lines = content.splitlines()
+        case_line_count = sum(1 for line in lines if line.strip().startswith("Case {"))
+        case_occurrences = content.count("Case {")
+        self.assertEqual(case_line_count, case_occurrences,
+                         f"Expected each Case on one line: {case_line_count} lines vs {case_occurrences} occurrences")
+        self.assertGreater(case_line_count, 0, "No Case entries found in generated table")
+
     def test_generator_parseable_structure(self):
         """Item 1: generated Rust can be parsed for basic structure checks."""
         ledger = _tiny_ledger()

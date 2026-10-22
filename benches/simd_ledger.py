@@ -1298,6 +1298,7 @@ def _generate_cases(ledger: dict) -> str:
         loss = _loss_in_units(unit, loss_bytes, rep_rule)
         iterations = _work_iterations(wr)
 
+        lines.append("#[rustfmt::skip]")
         lines.append(f"static WORK_{ident}: Work = Work {{")
         lines.append(f"    substage: Substage::{substage},")
         lines.append(f"    scope: {scope_expr},")
@@ -1493,6 +1494,7 @@ def _generate_cases(ledger: dict) -> str:
 
     # Emit run function consts
     for rf_str, rname in sorted(run_fns.items(), key=lambda x: x[1]):
+        lines.append("#[rustfmt::skip]")
         lines.append(f"const {rname}: fn(&Case, &Cell) -> crate::kernel::tests::routes::Outcome = {rf_str};")
 
     if run_fns:
@@ -1508,6 +1510,7 @@ def _generate_cases(ledger: dict) -> str:
     # Emit geometry consts
     for geo_key, gname in sorted(geos_map.items(), key=lambda x: x[1]):
         rows, sources, length, misalign, pitch_pad = geo_key
+        lines.append("#[rustfmt::skip]")
         lines.append(f"const {gname}: Geometry = Geometry {{ rows: {rows}, sources: {sources}, len: {length}, misalign: {misalign}, pitch_pad: {pitch_pad} }};")
 
     if geos_map:
@@ -1516,6 +1519,7 @@ def _generate_cases(ledger: dict) -> str:
     # Emit coefficient consts
     for coeff_key, cname in sorted(coeffs_map.items(), key=lambda x: x[1]):
         coeff_entries = ", ".join(f"Coeff::{s}" for s in coeff_key)
+        lines.append("#[rustfmt::skip]")
         lines.append(f"const {cname}: &[Coeff] = &[{coeff_entries}];")
 
     if coeffs_map:
@@ -1547,6 +1551,7 @@ def _generate_cases(ledger: dict) -> str:
                 f"work: {work_array} }},"
             )
 
+        lines.append("#[rustfmt::skip]")
         lines.append(f"const {cname}: &[Cell] = &[")
         lines.extend(cell_lines)
         lines.append("];")
@@ -1573,24 +1578,28 @@ def _generate_cases(ledger: dict) -> str:
     # Emit CASES table
     if cases_lines:
         lines.append("#[cfg(all(test, target_arch = \"x86_64\", feature = \"simd\"))]")
+        lines.append("#[rustfmt::skip]")
         lines.append("static CASES: &[Case] = &[")
         lines.extend(cases_lines)
         lines.append("];")
         lines.append("")
     else:
         lines.append("#[cfg(all(test, target_arch = \"x86_64\", feature = \"simd\"))]")
+        lines.append("#[rustfmt::skip]")
         lines.append("static CASES: &[Case] = &[];")
         lines.append("")
 
     # Emit CASES_SIMD512 table
     if cases_simd512_lines:
         lines.append("#[cfg(all(test, target_arch = \"x86_64\", feature = \"simd\", feature = \"simd512\"))]")
+        lines.append("#[rustfmt::skip]")
         lines.append("static CASES_SIMD512: &[Case] = &[")
         lines.extend(cases_simd512_lines)
         lines.append("];")
         lines.append("")
     else:
         lines.append("#[cfg(all(test, target_arch = \"x86_64\", feature = \"simd\", feature = \"simd512\"))]")
+        lines.append("#[rustfmt::skip]")
         lines.append("static CASES_SIMD512: &[Case] = &[];")
         lines.append("")
 
