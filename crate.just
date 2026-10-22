@@ -854,35 +854,6 @@ route-accept-negative REQUEST:
     json.dump(ledger, open(out, "w"), indent=1, sort_keys=False)
     PY
     python3 benches/simd_ledger.py --ledger "$ledger" generate --out "$cases"
-    # The generated map construction data carries caller images as target
-    # byte encodings. Until the canonical generator emits that spelling,
-    # reuse the canonical table's map constants, which the temporary ledger
-    # leaves unchanged.
-    python3 - "$cases" "$scratch/cases.rs" <<'PY'
-    import re
-    import sys
-
-    generated, canonical = sys.argv[1], sys.argv[2]
-    pattern = re.compile(r"const (MAP_\d+): MapSpec = MapSpec \{ .* \};")
-
-    def constants(path):
-        found = {}
-        for line in open(path):
-            match = pattern.match(line.rstrip("\n"))
-            if match:
-                found[match.group(1)] = match.group(0)
-        return found
-
-    wanted = constants(canonical)
-    lines = []
-    for line in open(generated):
-        match = pattern.match(line.rstrip("\n"))
-        if match and match.group(1) in wanted:
-            lines.append(wanted[match.group(1)] + "\n")
-        else:
-            lines.append(line)
-    open(generated, "w").writelines(lines)
-    PY
     run_negative() {
         local backend="$1" fault="$2" log="$3" source="$4" rc=0
         FGF_ROUTE_FAULT="$fault" SIMD_BACKEND="$backend" FGF_ROUTE_ACCEPT=1 \

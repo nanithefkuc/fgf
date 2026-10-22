@@ -1828,6 +1828,27 @@ def _adapter_for(call_name: str, fixture: dict, rule: dict,
     return (adapter, fn, type_args)
 
 
+_LONG_DECIMAL = re.compile(r"(?<![\w])(\d{5,})(?![\w])")
+
+
+def _readable_literals(text: str) -> str:
+    """Separate long decimal literals so generated Rust passes the lint.
+
+    Only standalone decimal runs are touched: a literal with a radix prefix
+    or an existing separator keeps its spelling.
+    """
+    def grouped(match: re.Match[str]) -> str:
+        digits = match.group(1)
+        parts: list[str] = []
+        while len(digits) > 3:
+            parts.insert(0, digits[-3:])
+            digits = digits[:-3]
+        parts.insert(0, digits)
+        return "_".join(parts)
+
+    return _LONG_DECIMAL.sub(grouped, text)
+
+
 def _work_const(name: str, key: tuple) -> list[str]:
     """Render one ``const Work`` value from a resolved work tuple."""
     substage, scope, unit, basis, mult, lane, loss, iterations = key
@@ -1975,7 +1996,7 @@ def _generate_cases(ledger: dict) -> str:
                 name = f"MAP_{len(map_defs)}"
                 map_defs[map_key] = name
                 images_expr = ", ".join(
-                    "&[" + ", ".join(str(byte) for byte in image) + "]"
+                    "&[" + ", ".join(_readable_literals(str(byte)) for byte in image) + "]"
                     for image in images)
                 map_lines.extend([
                     "#[rustfmt::skip]",
@@ -1987,7 +2008,7 @@ def _generate_cases(ledger: dict) -> str:
 
         family = callable_families.get(call_name, "")
         adapter, fn, type_args = _adapter_for(call_name, fixture, rule, family)
-        run_fn = f"super::{adapter}::{fn}::<{type_args}>"
+        run_fn = f"super::{adapter}::{fn}::<{_readable_literals(type_args)}>"
         if run_fn not in run_defs:
             name = f"RUN_{len(run_defs)}"
             run_defs[run_fn] = name

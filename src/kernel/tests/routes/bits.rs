@@ -62,8 +62,6 @@ fn pair<F>(case: &Case, call: impl Fn(&mut [u8], &[u8]), op: impl Fn(u8, u8) -> 
         );
     });
     let mut outcome = Outcome::new(backend(), backend()).with_trace(entries);
-    outcome.source_bits = 1;
-    outcome.target_bits = 1;
     outcome.checks.push(BufferCheck {
         name: "dst",
         actual: dst,
@@ -101,8 +99,6 @@ pub(super) fn bits_and_into<F>(case: &Case, _cell: &Cell) -> Outcome {
         );
     });
     let mut outcome = Outcome::new(backend(), backend()).with_trace(entries);
-    outcome.source_bits = 1;
-    outcome.target_bits = 1;
     outcome.checks.push(BufferCheck {
         name: "dst",
         actual: dst,
@@ -124,8 +120,6 @@ pub(super) fn bits_clear_range<F>(case: &Case, _cell: &Cell) -> Outcome {
         crate::bits::clear_range(&mut dst[start..start + bytes], bits, from, to);
     });
     let mut outcome = Outcome::new(backend(), backend()).with_trace(entries);
-    outcome.source_bits = 1;
-    outcome.target_bits = 1;
     outcome.checks.push(BufferCheck {
         name: "dst",
         actual: dst,
@@ -147,8 +141,6 @@ pub(super) fn bits_set_range<F>(case: &Case, _cell: &Cell) -> Outcome {
         crate::bits::set_range(&mut dst[start..start + bytes], bits, from, to);
     });
     let mut outcome = Outcome::new(backend(), backend()).with_trace(entries);
-    outcome.source_bits = 1;
-    outcome.target_bits = 1;
     outcome.checks.push(BufferCheck {
         name: "dst",
         actual: dst,
@@ -179,8 +171,6 @@ pub(super) fn bits_xor_range<F>(case: &Case, _cell: &Cell) -> Outcome {
         );
     });
     let mut outcome = Outcome::new(backend(), backend()).with_trace(entries);
-    outcome.source_bits = 1;
-    outcome.target_bits = 1;
     outcome.checks.push(BufferCheck {
         name: "dst",
         actual: dst,
@@ -210,8 +200,6 @@ pub(super) fn bits_xor_range_with<F>(case: &Case, _cell: &Cell) -> Outcome {
         );
     });
     let mut outcome = Outcome::new(backend(), backend()).with_trace(entries);
-    outcome.source_bits = 1;
-    outcome.target_bits = 1;
     outcome.checks.push(BufferCheck {
         name: "dst",
         actual: dst,
@@ -229,8 +217,6 @@ pub(super) fn bits_weight<F>(case: &Case, _cell: &Cell) -> Outcome {
         .count();
     let (actual, entries) = observe(|| crate::bits::weight(&buffer[start..start + bytes], bits));
     let mut outcome = Outcome::new(backend(), backend()).with_trace(entries);
-    outcome.source_bits = 1;
-    outcome.target_bits = 1;
     outcome
         .values
         .push(("weight", actual as u128, expected as u128));
@@ -256,8 +242,6 @@ pub(super) fn bits_dot_product<F>(case: &Case, _cell: &Cell) -> Outcome {
         )
     });
     let mut outcome = Outcome::new(backend(), backend()).with_trace(entries);
-    outcome.source_bits = 1;
-    outcome.target_bits = 1;
     outcome
         .values
         .push(("dot_product", actual.to_index(), parity as u128));
@@ -291,8 +275,6 @@ pub(super) fn bits_xor_gather<F>(case: &Case, _cell: &Cell) -> Outcome {
         crate::bits::xor_gather(&mut dst[start..start + bytes], bits, selector, &refs);
     });
     let mut outcome = Outcome::new(backend(), backend()).with_trace(entries);
-    outcome.source_bits = 1;
-    outcome.target_bits = 1;
     outcome.checks.push(BufferCheck {
         name: "dst",
         actual: dst,

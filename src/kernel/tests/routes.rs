@@ -213,8 +213,6 @@ pub(super) struct Outcome {
     pub field: Backend,
     pub source_bytes: usize,
     pub target_bytes: usize,
-    pub source_bits: usize,
-    pub target_bits: usize,
     /// Whether routing mismatches fail this case.
     pub enforce_routing: bool,
     /// Construction could not run; the receipt reports `skip`.
@@ -231,8 +229,6 @@ impl Outcome {
             field,
             source_bytes: 1,
             target_bytes: 1,
-            source_bits: 8,
-            target_bits: 8,
             enforce_routing: false,
             skip: None,
         }
@@ -275,8 +271,6 @@ pub(super) fn outcome<F: FieldKernels>(checks: Vec<BufferCheck>, trace: Vec<Entr
     let mut outcome = Outcome::new(backend(), backend_for::<F>()).with_trace(trace);
     outcome.source_bytes = F::BYTES;
     outcome.target_bytes = F::BYTES;
-    outcome.source_bits = F::BYTES * 8;
-    outcome.target_bits = F::BYTES * 8;
     outcome.checks = checks;
     outcome
 }
@@ -654,15 +648,15 @@ fn multiplicity(case: &Case, work: &Work) -> usize {
 /// Budget for one stage: `iterations × multiplicity × (length − loss)`.
 fn budget(case: &Case, work: &Work, outcome: &Outcome) -> usize {
     debug_assert!(work.lane > 0, "a work rule lane holds at least one unit");
-    let (width_bytes, width_bits) = match work.basis {
-        Basis::Source => (outcome.source_bytes, outcome.source_bits),
-        Basis::Target => (outcome.target_bytes, outcome.target_bits),
+    let width_bytes = match work.basis {
+        Basis::Source => outcome.source_bytes,
+        Basis::Target => outcome.target_bytes,
     };
     let elements = case.geometry.len;
     let length = match work.unit {
         Unit::Elements => elements,
         Unit::Bytes => elements.saturating_mul(width_bytes),
-        Unit::Bits => elements.saturating_mul(width_bits),
+        Unit::Bits => elements,
         Unit::Words => (elements.saturating_mul(width_bytes) / 8).max(1),
     };
     let count = multiplicity(case, work);

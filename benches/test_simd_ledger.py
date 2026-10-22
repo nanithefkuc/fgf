@@ -1273,6 +1273,17 @@ class TestGeneratedCompiles(unittest.TestCase):
                 self.assertEqual(proc.returncode, 0,
                                  f"{features}: {proc.stderr[-4000:]}")
 
+    def test_long_generated_literals_are_separated(self):
+        self.assertEqual(
+            sl._readable_literals("FiniteField<2013265921, 1, Residue>"),
+            "FiniteField<2_013_265_921, 1, Residue>",
+        )
+        self.assertEqual(
+            sl._readable_literals("FiniteField<0xFFFF_FFFF_0000_0001, 1, X>"),
+            "FiniteField<0xFFFF_FFFF_0000_0001, 1, X>",
+        )
+        self.assertEqual(sl._readable_literals("65536"), "65_536")
+
     def test_map_spec_uses_declared_construction_data(self):
         rule = {"group": "map", "power": 3, "images": [[17, 0], [18, 0]]}
         self.assertEqual(sl._map_spec(rule, {}), (3, [[17, 0], [18, 0]]))

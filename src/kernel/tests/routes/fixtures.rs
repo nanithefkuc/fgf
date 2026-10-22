@@ -183,6 +183,27 @@ impl ExtensionSpec<8> for Gf64OverAesSpec {
         Relation::from_binary_words::<Aes8>(&[107, 48, 249, 14, 199, 221, 1, 228]);
 }
 
+/// GF(p^2) as `t^2 + 3` over the widest residue row.
+pub(super) struct U64QuadraticSpec;
+impl ExtensionSpec<2> for U64QuadraticSpec {
+    type Base = FiniteField<18446744073709551557, 1, crate::field::Residue>;
+    type Storage = Components;
+    const NAME: &'static str = "GF(p^2) as t^2 + 3 over residue-u64";
+    const RELATION: Relation = Relation::from_coordinates(&[3, 0]);
+}
+
+/// GF(2^16) as `t^2 + t + 0x80` over the Cantor byte field.
+pub(super) struct CantorQuadraticSpec;
+impl ExtensionSpec<2> for CantorQuadraticSpec {
+    type Base = FiniteField<2, 8, crate::field::Cantor<0x11B, 0x20>>;
+    type Storage = Components;
+    const NAME: &'static str = "GF(2^16) as t^2 + t + 0x80 over Cantor";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 8, crate::field::Cantor<0x11B, 0x20>>>(
+            &[0x80, 0x1],
+        );
+}
+
 /// GF(2^24) as `t^3 + x` over the AES byte field.
 pub(super) struct D3AesSpec;
 impl ExtensionSpec<3> for D3AesSpec {

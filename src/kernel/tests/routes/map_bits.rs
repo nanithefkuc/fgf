@@ -52,8 +52,6 @@ fn map_bits_outcome<T: FieldBuffer>(checks: Vec<BufferCheck>, entries: Vec<Entry
     let mut outcome = Outcome::new(backend(), backend()).with_trace(entries);
     outcome.source_bytes = 1;
     outcome.target_bytes = T::BYTES;
-    outcome.source_bits = 1;
-    outcome.target_bits = T::BYTES * 8;
     outcome.checks = checks;
     outcome
 }

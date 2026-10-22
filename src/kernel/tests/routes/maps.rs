@@ -64,8 +64,6 @@ where
     let mut outcome = Outcome::new(backend(), backend()).with_trace(entries);
     outcome.source_bytes = S::BYTES;
     outcome.target_bytes = T::BYTES;
-    outcome.source_bits = S::BYTES * 8;
-    outcome.target_bits = T::BYTES * 8;
     outcome.checks = checks;
     outcome
 }
