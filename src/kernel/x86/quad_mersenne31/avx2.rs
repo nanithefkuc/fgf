@@ -39,6 +39,8 @@ use crate::field::Elem;
 use crate::field::quad_mersenne31::QuadMersenne31;
 use crate::field::{FieldBuffer, mersenne31};
 use crate::kernel::proven_checks::{check_elem_multiple, check_equal};
+#[cfg(test)]
+use crate::kernel::trace::{Substage, Unit, emit};
 use crate::kernel::x86::mersenne31::{P, min_chain_avx2};
 use crate::kernel::{prime, scalar};
 
@@ -168,6 +170,14 @@ pub fn add_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8])
         let sum = _mm256_add_epi32(d, s); // <= 2p - 2
         _mm256_storeu_si256(dst_lane, _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p)));
     }
+    #[cfg(test)]
+    emit(
+        "quad_mersenne31.avx2.add_assign",
+        Substage::Add,
+        Unit::Elements,
+        dst_lanes.len() * 4,
+        crate::kernel::Backend::V3,
+    );
     prime::add_assign::<QuadMersenne31>(dst_tail, src_tail);
 }
 
@@ -200,6 +210,14 @@ pub fn sub_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8])
         let diff = _mm256_sub_epi32(d, s); // wraps iff negative
         _mm256_storeu_si256(dst_lane, _mm256_min_epu32(diff, _mm256_add_epi32(diff, p)));
     }
+    #[cfg(test)]
+    emit(
+        "quad_mersenne31.avx2.sub_assign",
+        Substage::Sub,
+        Unit::Elements,
+        dst_lanes.len() * 4,
+        crate::kernel::Backend::V3,
+    );
     prime::sub_assign::<QuadMersenne31>(dst_tail, src_tail);
 }
 
@@ -252,6 +270,14 @@ pub fn mul_add_avx2(
         let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
         _mm256_storeu_si256(dst_lane, addmod(d, prod, p));
     }
+    #[cfg(test)]
+    emit(
+        "quad_mersenne31.avx2.mul_add",
+        Substage::MulAdd,
+        Unit::Elements,
+        dst_lanes.len() * 4,
+        crate::kernel::Backend::V3,
+    );
     prime::mul_add::<QuadMersenne31>(dst_tail, coeff, src_tail);
 }
 
@@ -279,11 +305,21 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: Elem
     let p = _mm256_set1_epi32(P);
     let (cr_v, ci_mixed) = coeff_vectors(cr, ci);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    #[cfg(test)]
+    let num_lanes = dst_lanes.len();
     for dst_lane in dst_lanes {
         // `mul_input` suffices for `cmul`, as above.
         let d = mul_input(_mm256_loadu_si256(&*dst_lane), p);
         _mm256_storeu_si256(dst_lane, cmul(d, cr_v, ci_mixed, p));
     }
+    #[cfg(test)]
+    emit(
+        "quad_mersenne31.avx2.mul_assign",
+        Substage::Mul,
+        Unit::Elements,
+        num_lanes * 4,
+        crate::kernel::Backend::V3,
+    );
     prime::mul_assign::<QuadMersenne31>(dst_tail, coeff);
 }
 
@@ -326,6 +362,14 @@ pub fn mul_into_avx2(
         let s = mul_input(_mm256_loadu_si256(src_lane), p);
         _mm256_storeu_si256(dst_lane, cmul(s, cr_v, ci_mixed, p));
     }
+    #[cfg(test)]
+    emit(
+        "quad_mersenne31.avx2.mul_into",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 4,
+        crate::kernel::Backend::V3,
+    );
     // Whole-element scalar tail.
     for (d, s) in dst_tail.chunks_exact_mut(8).zip(src_tail.chunks_exact(8)) {
         let v = coeff * QuadMersenne31::decode(s);
@@ -370,6 +414,14 @@ pub fn mul_elementwise_avx2(_token: archmage::X64V3Token, dst: &mut [u8], a: &[u
         let vb = mul_input(_mm256_loadu_si256(b_lane), p);
         _mm256_storeu_si256(dst_lane, cmul_vec(va, vb, p));
     }
+    #[cfg(test)]
+    emit(
+        "quad_mersenne31.avx2.mul_elementwise",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_lanes.len() * 4,
+        crate::kernel::Backend::V3,
+    );
     prime::mul_elementwise::<QuadMersenne31>(dst_tail, a_tail, b_tail);
 }
 
@@ -400,6 +452,14 @@ pub fn mul_elementwise_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8],
         let vs = mul_input(_mm256_loadu_si256(src_lane), p);
         _mm256_storeu_si256(dst_lane, cmul_vec(vd, vs, p));
     }
+    #[cfg(test)]
+    emit(
+        "quad_mersenne31.avx2.mul_elementwise_assign",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_lanes.len() * 4,
+        crate::kernel::Backend::V3,
+    );
     scalar::mul_elementwise_assign::<QuadMersenne31>(dst_tail, src_tail);
 }
 
@@ -428,11 +488,21 @@ pub fn add_assign_scalar_avx2(
     );
     let p = _mm256_set1_epi32(P);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    #[cfg(test)]
+    let num_lanes = dst_lanes.len();
     for dst_lane in dst_lanes {
         let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
         let sum = _mm256_add_epi32(d, svec); // <= 2p - 2
         _mm256_storeu_si256(dst_lane, _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p)));
     }
+    #[cfg(test)]
+    emit(
+        "quad_mersenne31.avx2.add_assign_scalar",
+        Substage::Add,
+        Unit::Elements,
+        num_lanes * 4,
+        crate::kernel::Backend::V3,
+    );
     prime::add_assign_scalar::<QuadMersenne31>(dst_tail, value);
 }
 
@@ -460,11 +530,21 @@ pub fn sub_assign_scalar_avx2(
     );
     let p = _mm256_set1_epi32(P);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    #[cfg(test)]
+    let num_lanes = dst_lanes.len();
     for dst_lane in dst_lanes {
         let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
         let diff = _mm256_sub_epi32(d, svec); // wraps iff negative
         _mm256_storeu_si256(dst_lane, _mm256_min_epu32(diff, _mm256_add_epi32(diff, p)));
     }
+    #[cfg(test)]
+    emit(
+        "quad_mersenne31.avx2.sub_assign_scalar",
+        Substage::Sub,
+        Unit::Elements,
+        num_lanes * 4,
+        crate::kernel::Backend::V3,
+    );
     prime::sub_assign_scalar::<QuadMersenne31>(dst_tail, value);
 }
 

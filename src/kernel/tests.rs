@@ -1112,6 +1112,7 @@ mod x86 {
     use super::*;
     use crate::field::Normal;
     use crate::kernel::tables::isomorphism_to_aes;
+    use crate::kernel::trace;
     use crate::kernel::{Backend, x86};
 
     /// Transport a polynomial-coordinate word of the test normal base
@@ -4507,6 +4508,18 @@ mod x86 {
         u64::MAX,
     ];
 
+    /// Assert that the trace recorded positive vector work at or above `min_tier`.
+    #[track_caller]
+    fn assert_vector_work(min_tier: Backend) {
+        let entries = trace::snapshot();
+        assert!(
+            entries
+                .iter()
+                .any(|e| trace::strength(e.tier) >= trace::strength(min_tier)),
+            "expected vector work >= {min_tier:?}, got {entries:?}"
+        );
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn drive_prime<F: crate::field::FieldBuffer, C: Copy + core::fmt::Debug>(
         lens: &[usize],
@@ -4617,6 +4630,15 @@ mod x86 {
             |dst, c| x86::mersenne31::sub_assign_scalar_avx2(token, dst, c),
             "m31 avx2",
         );
+        // Trace coverage: one vector-eligible call per entry.
+        {
+            trace::clear();
+            let mut dst = vec![0u8; 260];
+            let mut src = noise(260, 0xa1);
+            prime::add_assign::<Mersenne31>(&mut src, &vec![0u8; 260]); // canonicalize
+            x86::mersenne31::add_assign_avx2(token, &mut dst, &src);
+            assert_vector_work(Backend::V3);
+        }
         drive_prime::<Goldilocks, u64>(
             GLD_LENS,
             &GLD_COEFFS,
@@ -4632,6 +4654,15 @@ mod x86 {
             |dst, c| x86::goldilocks::sub_assign_scalar_avx2(token, dst, c),
             "gld avx2",
         );
+        // Trace coverage: one vector-eligible call per entry.
+        {
+            trace::clear();
+            let mut dst = vec![0u8; 264];
+            let mut src = noise(264, 0xa1);
+            prime::add_assign::<Goldilocks>(&mut src, &vec![0u8; 264]);
+            x86::goldilocks::add_assign_avx2(token, &mut dst, &src);
+            assert_vector_work(Backend::V3);
+        }
     }
 
     #[cfg(feature = "simd512")]
@@ -4777,6 +4808,16 @@ mod x86 {
             |dst, c| x86::goldilocks::sub_assign_scalar_sse42(token, dst, c),
             "gld sse4.2",
         );
+        // Trace coverage: one vector-eligible call.
+        {
+            trace::clear();
+            let token = X64V2Token::summon().expect("SSE4.2 available");
+            let mut dst = vec![0u8; 260];
+            let mut src = noise(260, 0xa1);
+            prime::add_assign::<Mersenne31>(&mut src, &vec![0u8; 260]);
+            x86::mersenne31::add_assign_sse42(token, &mut dst, &src);
+            assert_vector_work(Backend::V2);
+        }
     }
     /// Non-canonical lanes through every prime entry: buffers whose lanes
     /// hold `p`, wider aliases, and all-ones words must match the portable

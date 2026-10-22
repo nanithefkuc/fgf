@@ -18,6 +18,8 @@ use super::{
 use crate::field::Elem;
 use crate::field::goldilocks::Goldilocks;
 use crate::kernel::proven_checks::{check_elem_multiple, check_equal};
+#[cfg(test)]
+use crate::kernel::trace::{Substage, Unit, emit};
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
@@ -121,6 +123,14 @@ pub fn add_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], src: &[u8]
         let s = canon(_mm512_loadu_si512(src_lane), c);
         _mm512_storeu_si512(dst_lane, addmod(d, s, c));
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx512.add_assign",
+        Substage::Add,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         add_assign_avx2(token.v3(), dst_tail, src_tail);
     }
@@ -148,6 +158,14 @@ pub fn sub_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], src: &[u8]
         let s = canon(_mm512_loadu_si512(src_lane), c);
         _mm512_storeu_si512(dst_lane, submod(d, s, c));
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx512.sub_assign",
+        Substage::Sub,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         sub_assign_avx2(token.v3(), dst_tail, src_tail);
     }
@@ -193,6 +211,14 @@ pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u64, s
         let prod = mulmod(cvec, _mm512_loadu_si512(src_lane), c);
         _mm512_storeu_si512(dst_lane, addmod(d, prod, c));
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx512.mul_add",
+        Substage::MulAdd,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         mul_add_avx2(token.v3(), dst_tail, coeff, src_tail);
     }
@@ -221,10 +247,20 @@ pub fn mul_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u64
     let c = consts();
     let cvec = _mm512_set1_epi64(reduced.cast_signed());
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
+    #[cfg(test)]
+    let num_lanes = dst_lanes.len();
     for dst_lane in dst_lanes {
         let d = _mm512_loadu_si512(&*dst_lane);
         _mm512_storeu_si512(dst_lane, mulmod(cvec, d, c));
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx512.mul_assign",
+        Substage::Mul,
+        Unit::Elements,
+        num_lanes * 8,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         mul_assign_avx2(token.v3(), dst_tail, coeff);
     }
@@ -251,6 +287,14 @@ pub fn mul_into_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u64, 
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
         _mm512_storeu_si512(dst_lane, mulmod(cvec, _mm512_loadu_si512(src_lane), c));
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx512.mul_into",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         mul_into_avx2(token.v3(), dst_tail, coeff, src_tail);
     }
@@ -285,6 +329,14 @@ pub fn mul_elementwise_avx512(token: archmage::X64V4Token, dst: &mut [u8], a: &[
         let product = mulmod(_mm512_loadu_si512(a_lane), _mm512_loadu_si512(b_lane), c);
         _mm512_storeu_si512(dst_lane, product);
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx512.mul_elementwise",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         mul_elementwise_avx2(token.v3(), dst_tail, a_tail, b_tail);
     }
@@ -315,6 +367,14 @@ pub fn mul_elementwise_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8]
         );
         _mm512_storeu_si512(dst_lane, product);
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx512.mul_elementwise_assign",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         mul_elementwise_assign_avx2(token.v3(), dst_tail, src_tail);
     }
@@ -331,10 +391,20 @@ pub fn add_assign_scalar_avx512(token: archmage::X64V4Token, dst: &mut [u8], val
     let c = consts();
     let svec = _mm512_set1_epi64(Elem::<Goldilocks>::from_raw(value).to_raw().cast_signed());
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
+    #[cfg(test)]
+    let num_lanes = dst_lanes.len();
     for dst_lane in dst_lanes {
         let d = canon(_mm512_loadu_si512(&*dst_lane), c);
         _mm512_storeu_si512(dst_lane, addmod(d, svec, c));
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx512.add_assign_scalar",
+        Substage::Add,
+        Unit::Elements,
+        num_lanes * 8,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         add_assign_scalar_avx2(token.v3(), dst_tail, value);
     }
@@ -351,10 +421,20 @@ pub fn sub_assign_scalar_avx512(token: archmage::X64V4Token, dst: &mut [u8], val
     let c = consts();
     let svec = _mm512_set1_epi64(Elem::<Goldilocks>::from_raw(value).to_raw().cast_signed());
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
+    #[cfg(test)]
+    let num_lanes = dst_lanes.len();
     for dst_lane in dst_lanes {
         let d = canon(_mm512_loadu_si512(&*dst_lane), c);
         _mm512_storeu_si512(dst_lane, submod(d, svec, c));
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx512.sub_assign_scalar",
+        Substage::Sub,
+        Unit::Elements,
+        num_lanes * 8,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         sub_assign_scalar_avx2(token.v3(), dst_tail, value);
     }
