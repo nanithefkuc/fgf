@@ -92,6 +92,8 @@ pub fn xor_avx512(token: archmage::X64V4Token, dst: &mut [u8], src: &[u8]) {
 pub fn count_ones_avx512(_token: archmage::X64V4xToken, buf: &[u8]) -> u64 {
     let (tiles, rest) = buf.as_chunks::<256>();
     let mut acc = [_mm512_setzero_si512(); 4];
+    #[cfg(test)]
+    let ntiles = tiles.len();
     for tile in tiles {
         let (lanes, _) = tile.as_chunks::<64>();
         for (slot, lane) in acc.iter_mut().zip(lanes) {
@@ -102,11 +104,13 @@ pub fn count_ones_avx512(_token: archmage::X64V4xToken, buf: &[u8]) -> u64 {
     crate::kernel::trace::emit(
         "bytes.avx512.count_ones",
         crate::kernel::trace::Substage::BitWeight,
-        crate::kernel::trace::Unit::Bytes,
-        tiles.len() * 256,
+        crate::kernel::trace::Unit::Bits,
+        ntiles * 256 * 8,
         crate::kernel::Backend::V4x,
     );
     let (lanes, tail) = rest.as_chunks::<64>();
+    #[cfg(test)]
+    let nlanes = lanes.len();
     for lane in lanes {
         acc[0] = _mm512_add_epi64(acc[0], _mm512_popcnt_epi64(_mm512_loadu_si512(lane)));
     }
@@ -114,8 +118,8 @@ pub fn count_ones_avx512(_token: archmage::X64V4xToken, buf: &[u8]) -> u64 {
     crate::kernel::trace::emit(
         "bytes.avx512.count_ones",
         crate::kernel::trace::Substage::BitWeight,
-        crate::kernel::trace::Unit::Bytes,
-        lanes.len() * 64,
+        crate::kernel::trace::Unit::Bits,
+        nlanes * 64 * 8,
         crate::kernel::Backend::V4x,
     );
     let sum = _mm512_add_epi64(

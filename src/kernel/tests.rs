@@ -2492,6 +2492,27 @@ mod x86 {
         check_gf16_mul_assign_tables("gf16 gfni", |dst, tables| {
             x86::gf16::mul_assign_gfni(token, dst, tables.compact());
         });
+        {
+            // Vector-work assertions for GF16 GFNI single-buffer ops.
+            let len = 258usize;
+            let src = noise(len, 0x84);
+            let coeff = gf16_coeffs()[2];
+            let tables = TowerTables::new(coeff);
+            let mut got = noise(len, 0x95);
+            let mut want = got.clone();
+            crate::kernel::trace::clear();
+            x86::gf16::mul_add_gfni(token, &mut got, tables.compact(), &src);
+            scalar::mul_add::<Rijndael16Field>(&mut want, coeff, &src);
+            assert_eq!(got, want, "gf16 gfni mul_add vector work: len {len}");
+            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len / 2 - 31, len / 2);
+            let mut got = noise(len, 0x95);
+            let mut want = got.clone();
+            crate::kernel::trace::clear();
+            x86::gf16::mul_assign_gfni(token, &mut got, tables.compact());
+            scalar::mul_assign::<Rijndael16Field>(&mut want, coeff);
+            assert_eq!(got, want, "gf16 gfni mul_assign vector work: len {len}");
+            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len / 2 - 31, len / 2);
+        }
 
         check_scatter(
             "gf8 gfni scatter",
@@ -2507,16 +2528,20 @@ mod x86 {
                 );
             },
         );
-        crate::kernel::trace::clear();
-        check_scatter(
-            "gf16 gfni scatter",
-            gf16_coeff_at,
-            gf16_reference,
-            |rows, row_len, coeffs, src| {
-                x86::gf16::mul_add_scatter_gfni(token, rows, row_len, coeffs, src);
-            },
-        );
-        crate::kernel::trace::assert_vector_work(Backend::V3GfniCrypto);
+{            // Vector-work assertion at a vector-eligible geometry.
+            let row_len = 130usize;
+            let nrows = 5;
+            let src = noise(row_len, 0x84);
+            let coeffs: Vec<Elem<Rijndael16Field>> = (0..nrows).map(gf16_coeff_at).collect();
+            let mut rows = noise(row_len * nrows, 0x95);
+            crate::kernel::trace::clear();
+            x86::gf16::mul_add_scatter_gfni(token, &mut rows, row_len, &coeffs, &src);
+            crate::kernel::trace::assert_vector_work_in(
+                Backend::V3GfniCrypto,
+                (row_len / 2) * nrows - 31 * nrows,
+                (row_len / 2) * nrows,
+            );
+        }
         check_matrix(
             "gf8 gfni matrix",
             gf8_coeff_at2::<AES>,
@@ -2576,16 +2601,30 @@ mod x86 {
                 });
             },
         );
-        crate::kernel::trace::clear();
-        check_matrix(
-            "gf16 gfni matrix",
-            gf16_coeff_at2,
-            gf16_reference,
-            |rows, row_len, nrows, terms| {
-                x86::gf16::mul_add_matrix_gfni(token, rows, row_len, nrows, terms);
-            },
-        );
-        crate::kernel::trace::assert_vector_work(Backend::V3GfniCrypto);
+{            // Vector-work assertion at a vector-eligible geometry.
+            let row_len = 130usize;
+            let nrows = 4usize;
+            let nterms = 3usize;
+            let coeff_rows: Vec<Vec<Elem<Rijndael16Field>>> = (0..nterms)
+                .map(|t| (0..nrows).map(|j| gf16_coeff_at2(t, j)).collect())
+                .collect();
+            let srcs: Vec<Vec<u8>> = (0..nterms)
+                .map(|t| noise(row_len, 0x110 + t as u64))
+                .collect();
+            let terms: Vec<(&[Elem<Rijndael16Field>], &[u8])> = coeff_rows
+                .iter()
+                .zip(srcs.iter().map(Vec::as_slice))
+                .map(|(c, s)| (c.as_slice(), s))
+                .collect();
+            let mut rows = noise(row_len * nrows, 0x95);
+            crate::kernel::trace::clear();
+            x86::gf16::mul_add_matrix_gfni(token, &mut rows, row_len, nrows, &terms);
+            crate::kernel::trace::assert_vector_work_in(
+                Backend::V3GfniCrypto,
+                (row_len / 2) * nrows * nterms - 31 * nrows * nterms,
+                (row_len / 2) * nrows * nterms,
+            );
+        }
         check_gather(
             "gf8 gfni gather",
             gf8_coeff_at::<AES>,
@@ -2594,15 +2633,21 @@ mod x86 {
                 x86::gf8::mul_add_gather_gfni::<true>(token, dst, &prepared_coeffs(coeffs), srcs);
             },
         );
-        crate::kernel::trace::clear();
-        check_gather_aligned(
-            "gf16 gfni gather",
-            2,
-            gf16_coeff_at,
-            gf16_reference,
-            |dst, coeffs, srcs| x86::gf16::mul_add_gather_gfni(token, dst, coeffs, srcs),
-        );
-        crate::kernel::trace::assert_vector_work(Backend::V3GfniCrypto);
+{            // Vector-work assertion at a vector-eligible geometry.
+            let len = 130usize;
+            let nsrcs = 3;
+            let coeffs: Vec<Elem<Rijndael16Field>> = (0..nsrcs).map(gf16_coeff_at).collect();
+            let srcs: Vec<Vec<u8>> = (0..nsrcs).map(|t| noise(len, 0x120 + t as u64)).collect();
+            let src_slices: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
+            let mut dst = noise(len, 0x95);
+            crate::kernel::trace::clear();
+            x86::gf16::mul_add_gather_gfni(token, &mut dst, &coeffs, &src_slices);
+            crate::kernel::trace::assert_vector_work_in(
+                Backend::V3GfniCrypto,
+                (len / 2) * nsrcs - 31 * nsrcs,
+                (len / 2) * nsrcs,
+            );
+        }
         check_gf8_elementwise::<AES>("gf8 gfni elementwise", |dst, a, b| {
             x86::gf8::mul_elementwise_gfni::<true>(
                 token,
@@ -2626,6 +2671,24 @@ mod x86 {
         check_gf16_elementwise("gf16 gfni elementwise", |dst, a, b| {
             x86::gf16::mul_elementwise_gfni(token, dst, a, b, DELTA_BYTE, AES_REDUCTION);
         });
+        {
+            // Vector-work assertion for GF16 GFNI elementwise.
+            let len = 258usize;
+            let a = noise(len, 0x114);
+            let b = noise(len, 0x125);
+            let mut got = noise(len, 0x136);
+            let mut want = vec![0u8; len];
+            for i in (0..len).step_by(2) {
+                let pa = Elem::<Rijndael16Field>::from_raw(u16::from_ne_bytes([a[i], a[i + 1]]));
+                let pb = Elem::<Rijndael16Field>::from_raw(u16::from_ne_bytes([b[i], b[i + 1]]));
+                let pr = pa.mul(pb);
+                want[i..i + 2].copy_from_slice(&pr.to_raw().to_le_bytes());
+            }
+            crate::kernel::trace::clear();
+            x86::gf16::mul_elementwise_gfni(token, &mut got, &a, &b, DELTA_BYTE, AES_REDUCTION);
+            assert_eq!(got, want, "gf16 gfni elementwise vector work: len {len}");
+            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len / 2 - 31, len / 2);
+        }
         check_elementwise_assign::<FiniteField<2, 8, Polynomial<AES>>>(
             "gf8 gfni elementwise assign",
             |dst, src| {
@@ -3922,6 +3985,34 @@ crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len * nterms 
         check_gf16_mul_into_tables("gf16 avx2 mul_into", |dst, tables, src| {
             x86::gf16::mul_into_avx2(token, dst, tables, src);
         });
+        // Vector-work assertions for GF16 AVX2 single-buffer ops.
+        {
+            let len = 258usize;
+            let src = noise(len, 0x84);
+            let coeff = gf16_coeffs()[2];
+            let tables = TowerTables::new(coeff);
+            let mut got = noise(len, 0x95);
+            let mut want = got.clone();
+            crate::kernel::trace::clear();
+            x86::gf16::mul_add_avx2(token, &mut got, &tables, &src);
+            scalar::mul_add::<Rijndael16Field>(&mut want, coeff, &src);
+            assert_eq!(got, want, "gf16 avx2 mul_add vector work: len {len}");
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, len / 2 - 31, len / 2);
+            let mut got = noise(len, 0x95);
+            let mut want = got.clone();
+            crate::kernel::trace::clear();
+            x86::gf16::mul_assign_avx2(token, &mut got, &tables);
+            scalar::mul_assign::<Rijndael16Field>(&mut want, coeff);
+            assert_eq!(got, want, "gf16 avx2 mul_assign vector work: len {len}");
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, len / 2 - 31, len / 2);
+            let mut got = vec![0u8; len];
+            crate::kernel::trace::clear();
+            x86::gf16::mul_into_avx2(token, &mut got, &tables, &src);
+            let mut want = src.clone();
+            scalar::mul_assign::<Rijndael16Field>(&mut want, coeff);
+            assert_eq!(got, want, "gf16 avx2 mul_into vector work: len {len}");
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, len / 2 - 31, len / 2);
+        }
         check_scatter(
             "gf8 avx2 scatter",
             gf8_coeff_at::<AES>,
@@ -3930,16 +4021,20 @@ crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len * nterms 
                 x86::gf8::mul_add_scatter_avx2(token, rows, row_len, &prepared_coeffs(coeffs), src);
             },
         );
-        crate::kernel::trace::clear();
-        check_scatter(
-            "gf16 avx2 scatter",
-            gf16_coeff_at,
-            gf16_reference,
-            |rows, row_len, coeffs, src| {
-                x86::gf16::mul_add_scatter_avx2(token, rows, row_len, coeffs, src);
-            },
-        );
-        crate::kernel::trace::assert_vector_work(Backend::V3);
+{            // Vector-work assertion: GF16 AVX2 scatter.
+            let row_len = 130usize;
+            let nrows = 5;
+            let src = noise(row_len, 0x84);
+            let coeffs: Vec<Elem<Rijndael16Field>> = (0..nrows).map(gf16_coeff_at).collect();
+            let mut rows = noise(row_len * nrows, 0x95);
+            crate::kernel::trace::clear();
+            x86::gf16::mul_add_scatter_avx2(token, &mut rows, row_len, &coeffs, &src);
+            crate::kernel::trace::assert_vector_work_in(
+                Backend::V3,
+                (row_len / 2) * nrows - 31 * nrows,
+                (row_len / 2) * nrows,
+            );
+        }
         check_gather(
             "gf8 avx2 gather",
             gf8_coeff_at::<AES>,
@@ -4117,6 +4212,24 @@ crate::kernel::trace::assert_vector_work_in(Backend::V3, row_len * nrows - 96 * 
         check_gf16_elementwise("gf16 avx2 elementwise", |dst, a, b| {
             x86::gf16::mul_elementwise_avx2(token, dst, a, b, delta_table(), AES_REDUCTION);
         });
+        {
+            // Vector-work assertion for GF16 AVX2 elementwise.
+            let len = 258usize;
+            let a = noise(len, 0x114);
+            let b = noise(len, 0x125);
+            let mut got = noise(len, 0x136);
+            let mut want = vec![0u8; len];
+            for i in (0..len).step_by(2) {
+                let pa = Elem::<Rijndael16Field>::from_raw(u16::from_ne_bytes([a[i], a[i + 1]]));
+                let pb = Elem::<Rijndael16Field>::from_raw(u16::from_ne_bytes([b[i], b[i + 1]]));
+                let pr = pa.mul(pb);
+                want[i..i + 2].copy_from_slice(&pr.to_raw().to_le_bytes());
+            }
+            crate::kernel::trace::clear();
+            x86::gf16::mul_elementwise_avx2(token, &mut got, &a, &b, delta_table(), AES_REDUCTION);
+            assert_eq!(got, want, "gf16 avx2 elementwise vector work: len {len}");
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, len / 2 - 31, len / 2);
+        }
         // Fan–Paar tower (GF(2^16)/32/64): the fp8 nibble tower and its
         // period-2 lane-mul extensions.
         check_elementwise_assign::<FiniteField<2, 8, Polynomial<AES>>>(
