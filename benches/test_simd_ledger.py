@@ -3,14 +3,15 @@
 
 The only test suite for ``simd_ledger.py`` is this stdlib ``unittest`` file.
 Negative cases assert the exception type (``ValidationError``) or the stable
-reject code, never the wording of a message.
+reject code, never the wording of a message. Each rejection test fails for
+its named reason only: inputs are valid in every other respect.
 """
 
 from __future__ import annotations
 
 import json as json_mod
-import math
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -20,8 +21,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import simd_ledger as sl
 from simd_ledger import ValidationError
-
-CANONICAL_LEDGER_PATH = Path(__file__).resolve().parent / "simd_ledger.json"
 
 
 # ---------------------------------------------------------------------------
@@ -145,1087 +144,1055 @@ def _json(obj):
     return json_mod.dumps(obj)
 
 
-# ---------------------------------------------------------------------------
-# Expression evaluator
-# ---------------------------------------------------------------------------
-
-class TestExpressionEvaluator(unittest.TestCase):
-    """The safe expression evaluator for iterations and loss_bytes."""
-
-    def test_literal_integer(self):
-        self.assertEqual(sl._evaluate_expr("1", {}), 1)
-        self.assertEqual(sl._evaluate_expr("42", {}), 42)
-
-    def test_single_variable(self):
-        self.assertEqual(sl._evaluate_expr("lane", {"lane": 32}), 32)
-        self.assertEqual(sl._evaluate_expr("degree", {"degree": 8}), 8)
-
-    def test_simple_subtraction(self):
-        self.assertEqual(sl._evaluate_expr("lane - 1", {"lane": 32}), 31)
-        self.assertEqual(sl._evaluate_expr("degree - 1", {"degree": 12}), 11)
-
-    def test_multiplication(self):
-        self.assertEqual(sl._evaluate_expr("2 * (lane - 1)", {"lane": 32}), 62)
-        self.assertEqual(sl._evaluate_expr("2 * (lane - 1)", {"lane": 16}), 30)
-        self.assertEqual(sl._evaluate_expr("2 * (lane - 1)", {"lane": 64}), 126)
-
-    def test_integer_division(self):
-        self.assertEqual(sl._evaluate_expr("lane // 2", {"lane": 32}), 16)
-
-    def test_addition(self):
-        self.assertEqual(sl._evaluate_expr("lane + 1", {"lane": 31}), 32)
-        self.assertEqual(sl._evaluate_expr("(relative_degree + 3) * power", {"relative_degree": 2, "power": 3}), 15)
-
-    def test_precedence(self):
-        self.assertEqual(sl._evaluate_expr("2 + 3 * 4", {}), 14)
-        self.assertEqual(sl._evaluate_expr("(2 + 3) * 4", {}), 20)
-
-    def test_negative_result_raises(self):
-        with self.assertRaises(ValueError):
-            sl._evaluate_expr("1 - lane", {"lane": 32})
-
-    def test_division_by_zero_raises(self):
-        with self.assertRaises(ValueError):
-            sl._evaluate_expr("lane // 0", {"lane": 32})
-
-    def test_unknown_variable_raises(self):
-        with self.assertRaises(ValueError):
-            sl._evaluate_expr("unknown + 1", {"lane": 32})
-
-    def test_syntax_error_raises(self):
-        with self.assertRaises(ValueError):
-            sl._evaluate_expr("lane +", {"lane": 32})
-        with self.assertRaises(ValueError):
-            sl._evaluate_expr("2 * * 3", {})
-
-    def test_disallowed_operations_raise(self):
-        with self.assertRaises(ValueError):
-            sl._evaluate_expr("2 ** 3", {})
-        with self.assertRaises(ValueError):
-            sl._evaluate_expr("abs(-1)", {})
 
 
-# ---------------------------------------------------------------------------
-# Schema validation — ISA
-# ---------------------------------------------------------------------------
-
-class TestISAFacts(unittest.TestCase):
-    """ISA facts validation."""
-
-    def test_missing_isa_rejected(self):
-        ledger = _tiny_ledger()
-        del ledger["isa"]
-        with self.assertRaises(ValidationError):
-            sl._validate_isa(ledger)
-
-    def test_lane_resolution(self):
-        isa = _isa()
-        self.assertEqual(sl._lane_for_tier(isa, "v2"), 16)
-        self.assertEqual(sl._lane_for_tier(isa, "v3"), 32)
-        self.assertEqual(sl._lane_for_tier(isa, "v4x"), 64)
-        # scalar has no lane; must check before calling
-        with self.assertRaises(KeyError):
-            sl._lane_for_tier(isa, "scalar")
-
-    def test_process_resolution(self):
-        isa = _isa()
-        self.assertEqual(sl._process_for(isa, "default", "v3"), "v3")
-        self.assertEqual(sl._process_for(isa, "default", "v4x"), "v3_gfni_crypto")
-        self.assertEqual(sl._process_for(isa, "all", "v4x"), "v4x")
-        self.assertEqual(sl._process_for(isa, "all", "scalar"), "scalar")
-
-
-# ---------------------------------------------------------------------------
-# Schema validation — work rules (v2)
-# ---------------------------------------------------------------------------
-
-class TestWorkRulesV2(unittest.TestCase):
-    """Work rules under schema v2 use expressions, not per-tier dicts."""
-
-    def test_valid_v2_work_rule(self):
-        ledger = _tiny_ledger()
-        sl._validate_work_rules(ledger)  # must not raise
-
-    def test_missing_iterations_rejected(self):
-        ledger = _tiny_ledger()
-        del ledger["work_rules"]["row-add"]["iterations"]
-        with self.assertRaises(ValidationError):
-            sl._validate_work_rules(ledger)
-
-    def test_missing_loss_bytes_rejected(self):
-        ledger = _tiny_ledger()
-        del ledger["work_rules"]["row-add"]["loss_bytes"]
-        with self.assertRaises(ValidationError):
-            sl._validate_work_rules(ledger)
-
-    def test_invalid_iterations_expression_rejected(self):
-        ledger = _tiny_ledger()
-        ledger["work_rules"]["row-add"]["iterations"] = "bad + expr"
-        with self.assertRaises(ValidationError):
-            sl._validate_work_rules(ledger)
-
-    def test_loss_bytes_not_string_rejected(self):
-        ledger = _tiny_ledger()
-        ledger["work_rules"]["row-add"]["loss_bytes"] = 42
-        with self.assertRaises(ValidationError):
-            sl._validate_work_rules(ledger)
-        # But a string expression is fine
-        ledger["work_rules"]["row-add"]["loss_bytes"] = "42"
-        sl._validate_work_rules(ledger)
+def _full_tiny() -> dict:
+    """Tiny ledger with one vector-eligible geometry and single-slot patterns."""
+    import copy
+    ledger = {
+        "isa": {
+            "lane_bytes": {"v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64},
+            "process": {
+                "default": {"v4x": "v3_gfni_crypto", "v3_gfni_crypto": "v3_gfni_crypto",
+                            "v3": "v3", "v2": "v2", "scalar": "scalar"},
+                "all": {"v4x": "v4x", "v3_gfni_crypto": "v3_gfni_crypto",
+                        "v3": "v3", "v2": "v2", "scalar": "scalar"},
+            },
+        },
+        "_cell_default": {"status": "unverified", "required": False, "perf": "unmeasured"},
+        "callables": {
+            "ops::add_assign": {"kind": "bulk", "family": "ops/row"},
+            "ops::mul_add": {"kind": "bulk", "family": "ops/row"},
+        },
+        "rules": {
+            "gf8-aes": {
+                "group": "binary_flat", "characteristic": 2, "degree": 8,
+                "presentation": "Polynomial", "elem_bytes": 1,
+                "fixtures": [
+                    {"id": "aes",
+                     "type": "crate::field::FiniteField<2,8,crate::field::Polynomial<0x11B>>",
+                     "elem_bytes": 1, "reference": "elem-arith"},
+                ],
+            },
+            "mersenne31": {
+                "group": "specialized_prime", "elem_bytes": 4,
+                "fixtures": [
+                    {"id": "m31", "type": "crate::field::Mersenne31",
+                     "elem_bytes": 4, "reference": "elem-arith"},
+                ],
+            },
+        },
+        "applicability": {
+            "row": {"families": ["ops/row"], "rules": ["gf8-aes", "mersenne31"],
+                    "exclusions": {}},
+        },
+        "work_rules": {
+            "row-add": {
+                "substage": "Add", "unit": "Elements", "basis": "Source",
+                "multiplicity": "Rows", "iterations": "1",
+                "loss_bytes": "2 * (lane - 1)", "justification": "test",
+            },
+            "row-mul-add": {
+                "substage": "MulAdd", "unit": "Elements", "basis": "Source",
+                "multiplicity": "ActivePairs", "iterations": "1",
+                "loss_bytes": "2 * (lane - 1)", "justification": "test",
+            },
+        },
+        "geometries": {
+            "row-64": {"family": "single-row", "rows": 1, "sources": 1,
+                       "len": 64, "misalign": 1, "pitch_pad": 0},
+        },
+        "coefficient_patterns": {
+            "general-1": {"family": "single-general", "slots": ["General"]},
+            "zero-1": {"family": "single-zero", "slots": ["Zero"]},
+            "one-1": {"family": "single-one", "slots": ["One"]},
+        },
+        "evidence": {},
+    }
+    return ledger
 
 
-# ---------------------------------------------------------------------------
-# Expansion (Item 9: default/v4x cells)
-# ---------------------------------------------------------------------------
-
-class TestExpansion(unittest.TestCase):
-    """Expansion count, deviation checks, and default/v4x cells."""
-
-    def test_expansion_count(self):
-        ledger = _tiny_ledger()
-        rules = sl._validate_rules(ledger)
-        expanded = sl._expand_obligations(ledger, rules)
-        wrules = sl._validate_work_rules(ledger)
-        sl._validate_expanded_obligations(ledger, expanded, rules, wrules, {}, {})
-        # 2 families x 2 rules = 4 obligations; 1 excluded (packed-padded) in pack
-        # ops/row: add_assign@gf8-aes, add_assign@mersenne31, mul_add@gf8-aes, mul_add@mersenne31 (4)
-        # ops/pack: pack@gf8-aes, pack@mersenne31 (2; packed-padded excluded)
-        self.assertEqual(len(expanded), 6)
-        # Each obligation has 10 cells (default x 5 requests (including v4x) + all x 5)
-        self.assertEqual(sl._count_cells(expanded), 60)
-
-    def test_default_v4x_cell_present(self):
-        """Item 9: default features MUST produce a default/v4x cell."""
-        ledger = _tiny_ledger()
-        rules = sl._validate_rules(ledger)
-        expanded = sl._expand_obligations(ledger, rules)
-        first_oid = next(iter(sorted(expanded)))
-        cells = expanded[first_oid]["cells"]
-        self.assertIn("default/v4x", cells)
-        # process resolution for default/v4x is the downgrade
-        self.assertEqual(cells["default/v4x"].get("process"), "v3_gfni_crypto")
-
-    def test_all_v4x_cell_present(self):
-        """all features produce all/v4x with v4x resolution."""
-        ledger = _tiny_ledger()
-        rules = sl._validate_rules(ledger)
-        expanded = sl._expand_obligations(ledger, rules)
-        first_oid = next(iter(sorted(expanded)))
-        cells = expanded[first_oid]["cells"]
-        self.assertIn("all/v4x", cells)
-        self.assertEqual(cells["all/v4x"].get("process"), "v4x")
-
-    def test_deviation_outside_expansion_rejected(self):
-        ledger = _tiny_ledger()
-        ledger["obligations"] = {"ops::add_assign@nonexistent-rule": {"cells": {}}}
-        rules = sl._validate_rules(ledger)
-        expanded = sl._expand_obligations(ledger, rules)
-        with self.assertRaises(ValidationError):
-            sl._validate_explicit_obligations(ledger, expanded)
-
-    def test_duplicate_stage_key_rejected(self):
-        ledger = _tiny_ledger()
-        ledger["work_rules"]["wa"] = {
-            "substage": "MulAdd", "scope": None, "unit": "Elements",
-            "basis": "Source", "multiplicity": "Rows",
-            "iterations": "1", "loss_bytes": "2 * (lane - 1)", "justification": "t",
+def _required_tiny(features="default", request="v3", status="direct"):
+    ledger = _full_tiny()
+    ledger["obligations"] = {
+        "ops::mul_add@gf8-aes": {
+            "cells": {
+                f"{features}/{request}": {
+                    "status": status, "required": True, "min_serving": request,
+                    "work": ["row-mul-add"], "process": request, "field": request,
+                    "perf": "unmeasured",
+                }
+            }
         }
-        ledger["work_rules"]["wb"] = {
-            "substage": "MulAdd", "scope": None, "unit": "Elements",
-            "basis": "Source", "multiplicity": "Rows",
-            "iterations": "1", "loss_bytes": "2 * (lane - 1)", "justification": "t",
-        }
-        ledger["obligations"] = {"ops::add_assign@gf8-aes": {
-            "cells": {"default/v2": {"status": "unverified", "required": False, "min_serving": "v2",
-                                     "work": ["wa", "wb"], "process": "v2", "field": "v2", "perf": "unmeasured"}}}}
-        rules = sl._validate_rules(ledger)
-        wrules = sl._validate_work_rules(ledger)
-        expanded = sl._expanded_with_overrides(ledger)
-        with self.assertRaises(ValidationError):
-            sl._validate_expanded_obligations(ledger, expanded, rules, wrules, {}, {})
+    }
+    return ledger
 
 
 # ---------------------------------------------------------------------------
-# Schema validation — cell contents (Item 5)
+# Pipeline structure: one expansion shared by every consumer
 # ---------------------------------------------------------------------------
 
-class TestCellValidation(unittest.TestCase):
-    """Explicit cell contents are validated (not just obligation IDs)."""
-
-    def _make_ledger_with_cell(self, cell_overrides=None):
-        ledger = _tiny_ledger()
-        cell = {"status": "unverified", "required": False, "min_serving": "v3",
-                "work": [], "process": "v3", "field": "v3", "perf": "unmeasured"}
-        if cell_overrides:
-            cell.update(cell_overrides)
+class TestOnePipeline(unittest.TestCase):
+    def test_obligations_merges_overrides(self):
+        ledger = _full_tiny()
         ledger["obligations"] = {
-            "ops::add_assign@gf8-aes": {"cells": {"default/v3": cell}}
+            "ops::mul_add@gf8-aes": {
+                "cells": {
+                    "default/v3": {"status": "direct", "required": True,
+                                   "min_serving": "v3", "work": ["row-mul-add"],
+                                   "process": "v3", "field": "v3", "perf": "unmeasured"}
+                }
+            }
+        }
+        obs = sl.obligations(ledger)
+        self.assertTrue(obs["ops::mul_add@gf8-aes"]["cells"]["default/v3"]["required"])
+
+    def test_cases_derive_from_obligations(self):
+        ledger = _full_tiny()
+        obs = sl.obligations(ledger)
+        derived = sl.cases(ledger, obs)
+        self.assertGreater(len(derived), 0)
+        for case in derived:
+            self.assertIn(case["obligation"], obs)
+
+    def test_generate_and_accept_share_universe(self):
+        ledger = _required_tiny()
+        obs = sl.obligations(ledger)
+        derived = sl.cases(ledger, obs)
+        generated_ids = {c["id"] for c in derived}
+        required = {c["id"] for c in derived
+                    if c["cells"].get("default/v3", {}).get("required")}
+        self.assertEqual(required, {c for c in generated_ids if c.startswith("ops::mul_add@gf8-aes#")})
+        self.assertGreater(len(required), 0)
+
+    def test_no_second_expansion_path(self):
+        # Mutating the ledger between generate and accept changes both
+        # consumers identically: one pipeline, no divergent re-derivation.
+        ledger = _required_tiny()
+        before = {c["id"] for c in sl.cases(ledger, sl.obligations(ledger))}
+        ledger["geometries"]["row-64"]["len"] = 128
+        after = {c["id"] for c in sl.cases(ledger, sl.obligations(ledger))}
+        self.assertEqual(before, after)
+        text_before = sl._generate_cases(_required_tiny())
+        self.assertIn("len: 64", text_before)
+        text_after = sl._generate_cases(ledger)
+        self.assertIn("len: 128", text_after)
+
+
+# ---------------------------------------------------------------------------
+# Behavior 1: accept binds receipt to case obligation and case cell
+# ---------------------------------------------------------------------------
+
+class TestAcceptBindsCase(unittest.TestCase):
+    def _audit(self, receipts, done, ledger, request="v3", features="default"):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "log"
+            lines = []
+            for r in receipts:
+                lines.append(f"ROUTE_RECEIPT\t{json_mod.dumps(r)}")
+            for line in done:
+                lines.append(line)
+            p.write_text("\n".join(lines))
+            try:
+                sl.cmd_accept(p, features, request, "src-1", "host-1", ledger)
+            except ValidationError as e:
+                return e.code
+            return None
+
+    def _done(self, cases):
+        return [f"ROUTE_DONE\t{json_mod.dumps({'source_id': 'src-1', 'host_id': 'host-1', 'features': 'default', 'request': 'v3', 'cases': cases})}"]
+
+    def test_unknown_obligation_rejected(self):
+        # Review probe: a required case id carrying an unknown obligation.
+        ledger = _required_tiny()
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        cid = sorted(c["id"] for c in derived if c["id"].startswith("ops::mul_add@gf8-aes#"))[0]
+        rec = {"id": cid, "obligation": "unknown-obligation",
+               "source_id": "src-1", "host_id": "host-1", "features": "default",
+               "request_raw": "v3", "process": "v3", "field": "v3", "result": "pass"}
+        self.assertEqual(self._audit([rec], self._done(1), ledger),
+                         "receipt_obligation_mismatch")
+
+    def test_wrong_case_obligation_rejected(self):
+        ledger = _required_tiny()
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        cid = sorted(c["id"] for c in derived if c["id"].startswith("ops::mul_add@gf8-aes#"))[0]
+        rec = {"id": cid, "obligation": "ops::add_assign@gf8-aes",
+               "source_id": "src-1", "host_id": "host-1", "features": "default",
+               "request_raw": "v3", "process": "v3", "field": "v3", "result": "pass"}
+        code = self._audit([rec], self._done(1), ledger)
+        self.assertEqual(code, "receipt_obligation_mismatch")
+
+    def test_process_from_case_cell_not_receipt(self):
+        ledger = _required_tiny()
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        cid = sorted(c["id"] for c in derived if c["id"].startswith("ops::mul_add@gf8-aes#"))[0]
+        rec = {"id": cid, "obligation": "ops::mul_add@gf8-aes",
+               "source_id": "src-1", "host_id": "host-1", "features": "default",
+               "request_raw": "v3", "process": "v2", "field": "v3", "result": "pass"}
+        self.assertEqual(self._audit([rec], self._done(1), ledger), "receipt_process_mismatch")
+
+    def test_field_from_case_cell_not_receipt(self):
+        ledger = _required_tiny()
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        cid = sorted(c["id"] for c in derived if c["id"].startswith("ops::mul_add@gf8-aes#"))[0]
+        rec = {"id": cid, "obligation": "ops::mul_add@gf8-aes",
+               "source_id": "src-1", "host_id": "host-1", "features": "default",
+               "request_raw": "v3", "process": "v3", "field": "v2", "result": "pass"}
+        self.assertEqual(self._audit([rec], self._done(1), ledger), "receipt_field_mismatch")
+
+    def test_unknown_case_id_rejected(self):
+        ledger = _required_tiny()
+        rec = {"id": "no-such-case", "obligation": "ops::mul_add@gf8-aes",
+               "source_id": "src-1", "host_id": "host-1", "features": "default",
+               "request_raw": "v3", "process": "v3", "field": "v3", "result": "pass"}
+        self.assertEqual(self._audit([rec], self._done(1), ledger), "missing_required")
+
+
+# ---------------------------------------------------------------------------
+# Behavior 2: check validates the merged effective expansion
+# ---------------------------------------------------------------------------
+
+class TestEffectiveExpansion(unittest.TestCase):
+    def test_invalid_status_in_override_rejected(self):
+        ledger = _full_tiny()
+        ledger["obligations"] = {"ops::mul_add@gf8-aes": {"cells": {
+            "default/v3": {"status": "bogus", "required": False, "min_serving": "v3",
+                           "work": [], "process": "v3", "field": "v3"}}}}
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_string_required_rejected(self):
+        ledger = _full_tiny()
+        ledger["obligations"] = {"ops::mul_add@gf8-aes": {"cells": {
+            "default/v3": {"status": "direct", "required": "yes", "min_serving": "v3",
+                           "work": [], "process": "v3", "field": "v3"}}}}
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_unknown_work_rule_rejected(self):
+        ledger = _full_tiny()
+        ledger["obligations"] = {"ops::mul_add@gf8-aes": {"cells": {
+            "default/v3": {"status": "direct", "required": False, "min_serving": "v3",
+                           "work": ["no-such-rule"], "process": "v3", "field": "v3"}}}}
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_invalid_backend_rejected(self):
+        ledger = _full_tiny()
+        ledger["obligations"] = {"ops::mul_add@gf8-aes": {"cells": {
+            "default/v3": {"status": "direct", "required": False, "min_serving": "bogus",
+                           "work": [], "process": "v3", "field": "v3"}}}}
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_negative_geometry_rejected(self):
+        ledger = _full_tiny()
+        ledger["geometries"]["row-64"]["len"] = -4
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_zero_geometry_rejected(self):
+        ledger = _full_tiny()
+        ledger["geometries"]["row-64"]["len"] = 0
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_unknown_coefficient_variant_rejected(self):
+        ledger = _full_tiny()
+        ledger["coefficient_patterns"]["general-1"]["slots"] = ["Super"]
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_zero_fixture_width_rejected(self):
+        ledger = _full_tiny()
+        ledger["rules"]["gf8-aes"]["fixtures"][0]["elem_bytes"] = 0
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_unknown_reference_rejected(self):
+        ledger = _full_tiny()
+        ledger["rules"]["gf8-aes"]["fixtures"][0]["reference"] = "oracle-x"
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_unknown_callable_in_rule_rejected(self):
+        ledger = _full_tiny()
+        ledger["rules"]["gf8-aes"]["callables"] = ["ops::no_such_fn"]
+        ledger["applicability"]["row"]["rules"] = ["gf8-aes"]
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+
+# ---------------------------------------------------------------------------
+# Behavior 3: check --full resolves every citation
+# ---------------------------------------------------------------------------
+
+class TestFullCitations(unittest.TestCase):
+    def _inventories(self, d, *, test="t: test\n", case="ROUTE_CASE_LIST\tx\n",
+                     surface='SURFACE_INVENTORY\t{"case": "b"}\n'):
+        from pathlib import Path
+        p = Path(d)
+        (p / "t.txt").write_text(test)
+        (p / "c.txt").write_text(case)
+        (p / "s.txt").write_text(surface)
+        (p / "r.json").write_text("{}")
+        return p / "r.json", p / "t.txt", p / "c.txt", p / "s.txt"
+
+    def _ledger_with_refs(self, *, cases=None, tests=None, bench=None):
+        ledger = _full_tiny()
+        ledger["references"] = {
+            "cases": cases or [],
+            "tests": tests or [],
+            "bench": bench or [],
         }
         return ledger
 
-    def test_invalid_status_rejected(self):
-        ledger = self._make_ledger_with_cell({"status": "bogus"})
-        rules = sl._validate_rules(ledger)
-        wrules = sl._validate_work_rules(ledger)
-        expanded = sl._expanded_with_overrides(ledger)
-        with self.assertRaises(ValidationError):
-            sl._validate_expanded_obligations(ledger, expanded, rules, wrules, {}, {})
-
-    def test_string_required_rejected(self):
-        ledger = self._make_ledger_with_cell({"required": "yes"})
-        rules = sl._validate_rules(ledger)
-        wrules = sl._validate_work_rules(ledger)
-        expanded = sl._expanded_with_overrides(ledger)
-        with self.assertRaises(ValidationError):
-            sl._validate_expanded_obligations(ledger, expanded, rules, wrules, {}, {})
-
-    def test_nonexistent_work_rule_rejected(self):
-        ledger = self._make_ledger_with_cell({"work": ["nonexistent"]})
-        rules = sl._validate_rules(ledger)
-        wrules = sl._validate_work_rules(ledger)
-        expanded = sl._expanded_with_overrides(ledger)
-        with self.assertRaises(ValidationError):
-            sl._validate_expanded_obligations(ledger, expanded, rules, wrules, {}, {})
-
-    def test_invalid_min_serving_rejected(self):
-        ledger = self._make_ledger_with_cell({"min_serving": "bogus"})
-        rules = sl._validate_rules(ledger)
-        wrules = sl._validate_work_rules(ledger)
-        expanded = sl._expanded_with_overrides(ledger)
-        with self.assertRaises(ValidationError):
-            sl._validate_expanded_obligations(ledger, expanded, rules, wrules, {}, {})
-
-    def test_required_true_only_with_valid_status(self):
-        # required: true must only appear with direct/composition/zero-budget
-        ledger = self._make_ledger_with_cell({"required": True, "status": "missing"})
-        rules = sl._validate_rules(ledger)
-        wrules = sl._validate_work_rules(ledger)
-        expanded = sl._expanded_with_overrides(ledger)
-        with self.assertRaises(ValidationError):
-            sl._validate_expanded_obligations(ledger, expanded, rules, wrules, {}, {})
-
-    def test_orphan_bulk_family_rejected(self):
-        """Every bulk family must receive at least one obligation."""
-        ledger = _tiny_ledger()
-        rules = sl._validate_rules(ledger)
-        wrules = sl._validate_work_rules(ledger)
-        # Normally passes — all families have obligations
-        expanded = sl._expand_obligations(ledger, rules)
-        sl._validate_bulk_family_coverage(ledger, expanded)  # must not raise
-
-    def test_overlapping_applicability_rejected(self):
-        """Same (callable, rule) from two applicability entries is an error."""
-        ledger = _tiny_ledger()
-        # Add a second applicability entry with overlapping coverage
-        ledger["applicability"]["ops-row-second"] = {
-            "families": ["ops/row"], "rules": ["gf8-aes"], "exclusions": {},
-        }
-        rules = sl._validate_rules(ledger)
-        with self.assertRaises(ValidationError):
-            sl._expand_obligations(ledger, rules)
-
-
-# ---------------------------------------------------------------------------
-# Callable classification
-# ---------------------------------------------------------------------------
-
-class TestCallableClassification(unittest.TestCase):
-    """Unclassified and stale callables against a known callable set."""
-
-    def _check(self, known, callables, *args):
-        old = sl.KNOWN_CALLABLES
-        sl.KNOWN_CALLABLES = set(known)
-        try:
-            ledger = {"callables": callables}
-            sl._validate_callables(ledger, *args)
-        finally:
-            sl.KNOWN_CALLABLES = old
-
-    def test_unclassified_callable_rejected(self):
-        with self.assertRaises(ValidationError):
-            self._check(
-                ["ops::mul_add", "ops::add_assign"],
-                {"ops::mul_add": {"kind": "bulk", "family": "ops/row"}},
-                Path("dummy.json"),
-            )
-
-    def test_stale_callable_rejected(self):
-        with self.assertRaises(ValidationError):
-            self._check(
-                ["ops::mul_add"],
-                {"ops::mul_add": {"kind": "bulk", "family": "ops/row"},
-                 "ops::gone": {"kind": "bulk", "family": "ops/row"}},
-                Path("dummy.json"),
-            )
-
-
-# ---------------------------------------------------------------------------
-# Applicability
-# ---------------------------------------------------------------------------
-
-class TestApplicability(unittest.TestCase):
-    """Applicability rule-reference and exclusion validation."""
-
-    def test_undefined_rule_rejected(self):
-        ledger = _tiny_ledger()
-        apps = dict(ledger["applicability"])
-        apps["ops-row-add"] = {"families": ["ops/row"],
-                               "rules": ["gf8-aes", "nonexistent-rule"], "exclusions": {}}
-        bad = dict(ledger, applicability=apps)
-        with self.assertRaises(ValidationError):
-            sl._validate_applicability(bad, ledger["rules"])
-
-    def test_exclusion_without_reason_rejected(self):
-        ledger = _tiny_ledger()
-        apps = dict(ledger["applicability"])
-        apps["ops-row-add"] = {"families": ["ops/row"],
-                               "rules": ["gf8-aes"], "exclusions": {"gf8-aes": ""}}
-        bad = dict(ledger, applicability=apps)
-        with self.assertRaises(ValidationError):
-            sl._validate_applicability(bad, ledger["rules"])
-
-
-# ---------------------------------------------------------------------------
-# Budgets and coefficients (Item 7)
-# ---------------------------------------------------------------------------
-
-class TestBudgetAndCoefficients(unittest.TestCase):
-    """Generator rejections for non-positive budgets and General-on-GF(2)."""
-
-    def test_non_positive_budget_rejected(self):
-        ledger = _tiny_ledger()
-        ledger["geometries"] = {"row-60": {"rows": 1, "sources": 1, "len": 60, "misalign": 1, "pitch_pad": 0}}
-        ledger["obligations"] = {"ops::add_assign@gf8-aes": {
-            "cells": {"default/v3": {"status": "unverified", "required": False, "min_serving": "v3",
-                                     "work": ["row-add"], "process": "v3", "field": "v3", "perf": "unmeasured"}}}}
-        with self.assertRaises(ValidationError):
-            sl._validate_route_budgets(ledger)
-
-    def test_positive_budget_accepted(self):
-        ledger = _tiny_ledger()
-        ledger["geometries"] = {"row-64": {"rows": 1, "sources": 1, "len": 64, "misalign": 1, "pitch_pad": 0}}
-        ledger["obligations"] = {"ops::add_assign@gf8-aes": {
-            "cells": {"default/v3": {"status": "unverified", "required": False, "min_serving": "v3",
-                                     "work": ["row-add"], "process": "v3", "field": "v3", "perf": "unmeasured"}}}}
-        sl._validate_route_budgets(ledger)  # must not raise
-
-    def test_geometry_element_length_zero_rejected(self):
-        """len=0 geometry produces non-positive budget and is caught."""
-        ledger = _tiny_ledger()
-        ledger["geometries"] = {"row-0": {"rows": 1, "sources": 1, "len": 0, "misalign": 1, "pitch_pad": 0}}
-        ledger["obligations"] = {"ops::add_assign@gf8-aes": {
-            "cells": {"default/v3": {"status": "unverified", "required": False, "min_serving": "v3",
-                                     "work": ["row-add"], "process": "v3", "field": "v3", "perf": "unmeasured"}}}}
-        with self.assertRaises(ValidationError):
-            sl._validate_route_budgets(ledger)
-
-    def test_general_coefficient_on_gf2_rejected(self):
-        ledger = _tiny_ledger()
-        ledger["rules"]["residue-gf2"] = {
-            "group": "residue", "elem_bytes": 1,
-            "fixtures": [
-                {"id": "rgf2", "type": "crate::field::FiniteField<2, 1, crate::field::Residue>",
-                 "elem_bytes": 1, "reference": "elem-arith"},
-            ],
-        }
-        ledger["applicability"]["row-mul"] = {"families": ["ops/row"], "rules": ["residue-gf2"], "exclusions": {}}
-        ledger["coefficient_patterns"]["general-1"] = {"slots": ["General"]}
-        with self.assertRaises(ValidationError):
-            sl._validate_gf2_general(ledger)
-
-    def test_zero_one_coefficient_on_gf2_accepted(self):
-        ledger = _tiny_ledger()
-        ledger["rules"]["residue-gf2"] = {
-            "group": "residue", "elem_bytes": 1,
-            "fixtures": [
-                {"id": "rgf2", "type": "crate::field::FiniteField<2, 1, crate::field::Residue>",
-                 "elem_bytes": 1, "reference": "elem-arith"},
-            ],
-        }
-        ledger["applicability"]["row-mul"] = {"families": ["ops/row"], "rules": ["residue-gf2"], "exclusions": {}}
-        ledger["coefficient_patterns"]["zero-1"] = {"slots": ["Zero"]}
-        sl._validate_gf2_general(ledger)  # must not raise
-
-    def test_width_generic_lane_loss_conversion(self):
-        """2-byte and 8-byte fixtures get different lane/loss from the same rule."""
-        rule_2b = {"elem_bytes": 2, "group": "packed"}
-        rule_8b = {"elem_bytes": 8, "group": "packed"}
-        self.assertEqual(sl._lane_in_units("Elements", 16, rule_2b), 8)   # 16//2
-        self.assertEqual(sl._loss_in_units("Elements", 30, rule_2b), 15)  # ceil(30/2)
-        self.assertEqual(sl._lane_in_units("Elements", 16, rule_8b), 2)   # 16//8
-        self.assertEqual(sl._loss_in_units("Elements", 30, rule_8b), 4)   # ceil(30/8)
-
-    def test_gf2_fixture_detection(self):
-        self.assertTrue(sl._fixture_is_gf2({"type": "crate::field::FiniteField<2, 1, crate::field::Residue>"}))
-        self.assertFalse(sl._fixture_is_gf2({"type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>"}))
-
-    def test_iterations_from_expression(self):
-        """Item 7: iterations expression evaluator uses fixture metadata."""
-        wr_deg = {"iterations": "degree - 1", "unit": "Elements", "basis": "Source",
-                  "multiplicity": "One", "loss_bytes": "2 * (lane - 1)", "substage": "MulAdd"}
-        # Evaluate against fixture metadata
-        self.assertEqual(sl._work_iterations(wr_deg, {"degree": 8}), 7)
-        self.assertEqual(sl._work_iterations(wr_deg, {"degree": 16}), 15)
-        self.assertEqual(sl._work_iterations(wr_deg, {"degree": 2}), 1)
-
-    def test_basis_target_uses_target_width(self):
-        """Item 7: basis Target converts length with target fixture's width."""
-        wr = {"unit": "Elements", "basis": "Target", "multiplicity": "One",
-              "loss_bytes": "2 * (lane - 1)", "iterations": "1", "substage": "Linear"}
-        source_rule = {"elem_bytes": 1}
-        target_rule = {"elem_bytes": 2}
-        geo = {"len": 64}
-        # Source basis: 64 elements
-        b_src = sl._work_budget(wr, geo, source_rule, source_rule, "v3", _isa())
-        # Target basis: 64 * (1/2) = 32 target elements
-        b_tgt = sl._work_budget(wr, geo, source_rule, target_rule, "v3", _isa())
-        # Source: lane=32//1=32, loss=ceil(62/1)=62 → budget = 1*1*(64-62) = 2
-        # Target: length in target units = 64*1//2 = 32, lane=32//2=16, loss=ceil(62/2)=31 → budget = 1*1*(32-31) = 1
-        self.assertEqual(b_src, 2)
-        self.assertEqual(b_tgt, 1)
-        self.assertNotEqual(b_src, b_tgt)
-
-    def test_coefficient_pattern_affects_multiplicity(self):
-        """Item 7: ActivePairs count from actual coefficient pattern."""
-        # mixed-3x4 has 12 slots: [G,G,Z,O,G,O,G,Z,O,G,G,Z]
-        # General=7, Zero=4, One=3 (but One slots in accumulate are UnitAddPairs)
-        cp = {"slots": ["General", "General", "Zero", "One",
-                        "General", "One", "General", "Zero",
-                        "One", "General", "General", "Zero"]}
-        self.assertEqual(sl._count_active_pairs(cp), 6)   # 6 General slots
-        self.assertEqual(sl._count_unit_add_pairs(cp), 3)  # 3 One slots
-
-    def test_work_budget_v2_uses_isa_lane(self):
-        """Item 7: lane comes from ISA facts, loss from expression."""
-        ledger = _tiny_ledger()
-        ledger["geometries"] = {"row-64": {"rows": 1, "sources": 1, "len": 64, "misalign": 1, "pitch_pad": 0}}
-        # row-add: iterations="1", loss_bytes="2 * (lane - 1)"
-        # v3: lane=32, loss=2*(32-1)=62 → budget = 1 * 1 * (64-62) = 2
-        wr = ledger["work_rules"]["row-add"]
-        rule = ledger["rules"]["gf8-aes"]
-        geo = {"rows": 1, "sources": 1, "len": 64}
-        budget = sl._work_budget(wr, geo, rule, rule, "v3", ledger["isa"])
-        self.assertEqual(budget, 2)
-
-
-# ---------------------------------------------------------------------------
-# Check --full (Item 6)
-# ---------------------------------------------------------------------------
-
-class TestCheckFull(unittest.TestCase):
-    """Check --full inventory requirements and reference resolution."""
-
-    def _tmp_files(self, d, *, test="t", case="c", surface="s"):
-        def w(name, content):
-            p = d / name
-            p.write_text(content)
-            return p
-        return w("test.txt", test), w("case.txt", case), w("surface.txt", surface)
-
-    def test_missing_inventory_rejected(self):
-        ledger = _tiny_ledger()
-        with self.assertRaises(ValidationError):
-            sl.cmd_check(ledger, False, None, None, None, None, None)
-
-    def test_empty_rustdoc_rejected(self):
+    def test_dangling_case_reference_rejected(self):
+        ledger = self._ledger_with_refs(cases=["missing-case"])
         with tempfile.TemporaryDirectory() as d:
-            dpath = Path(d)
-            test_list, case_list, surface = self._tmp_files(dpath)
+            rustdoc, tl, cl, si = self._inventories(d)
             old = sl.KNOWN_CALLABLES
-            sl.KNOWN_CALLABLES = set()
+            sl.KNOWN_CALLABLES = {"ops::mul_add", "ops::add_assign"}
             try:
                 with self.assertRaises(ValidationError):
-                    sl.cmd_check(_tiny_ledger(), False, dpath / "rustdoc.json", test_list, case_list, surface, None)
+                    sl.cmd_check(ledger, False, rustdoc, tl, cl, si, None)
             finally:
                 sl.KNOWN_CALLABLES = old
 
-    def test_empty_test_list_rejected(self):
+    def test_dangling_test_reference_rejected(self):
+        ledger = self._ledger_with_refs(tests=["missing::test"])
         with tempfile.TemporaryDirectory() as d:
-            dpath = Path(d)
-            test_list, case_list, surface = self._tmp_files(dpath, test="")
+            rustdoc, tl, cl, si = self._inventories(d)
             old = sl.KNOWN_CALLABLES
-            sl.KNOWN_CALLABLES = {"ops::add_assign"}
+            sl.KNOWN_CALLABLES = {"ops::mul_add", "ops::add_assign"}
             try:
                 with self.assertRaises(ValidationError):
-                    sl.cmd_check(_tiny_ledger(), False, dpath / "rustdoc.json", test_list, case_list, surface, None)
+                    sl.cmd_check(ledger, False, rustdoc, tl, cl, si, None)
             finally:
                 sl.KNOWN_CALLABLES = old
 
-    def test_empty_case_list_rejected(self):
+    def test_dangling_bench_reference_rejected(self):
+        ledger = self._ledger_with_refs(bench=["missing-bench"])
         with tempfile.TemporaryDirectory() as d:
-            dpath = Path(d)
-            test_list, case_list, surface = self._tmp_files(dpath, case="")
+            rustdoc, tl, cl, si = self._inventories(d)
             old = sl.KNOWN_CALLABLES
-            sl.KNOWN_CALLABLES = {"ops::add_assign"}
+            sl.KNOWN_CALLABLES = {"ops::mul_add", "ops::add_assign"}
             try:
                 with self.assertRaises(ValidationError):
-                    sl.cmd_check(_tiny_ledger(), False, dpath / "rustdoc.json", test_list, case_list, surface, None)
+                    sl.cmd_check(ledger, False, rustdoc, tl, cl, si, None)
             finally:
                 sl.KNOWN_CALLABLES = old
 
-    def test_empty_surface_inventory_rejected(self):
+    def test_generated_case_reference_resolves(self):
+        ledger = self._ledger_with_refs()
+        obs = sl.obligations(ledger)
+        derived = sl.cases(ledger, obs)
+        ledger["references"]["cases"] = [derived[0]["id"]]
         with tempfile.TemporaryDirectory() as d:
-            dpath = Path(d)
-            test_list, case_list, surface = self._tmp_files(dpath, surface="")
+            from pathlib import Path
+            p = Path(d)
+            (p / "t.txt").write_text("t: test\n")
+            (p / "c.txt").write_text(f"ROUTE_CASE_LIST\t{derived[0]['id']}\n")
+            (p / "s.txt").write_text('SURFACE_INVENTORY\t{"case": "b"}\n')
+            (p / "r.json").write_text("{}")
             old = sl.KNOWN_CALLABLES
-            sl.KNOWN_CALLABLES = {"ops::add_assign"}
+            sl.KNOWN_CALLABLES = {"ops::mul_add", "ops::add_assign"}
             try:
-                with self.assertRaises(ValidationError):
-                    sl.cmd_check(_tiny_ledger(), False, dpath / "rustdoc.json", test_list, case_list, surface, None)
+                self.assertEqual(sl.cmd_check(ledger, False, p / "r.json", p / "t.txt",
+                                              p / "c.txt", p / "s.txt", None), 0)
             finally:
                 sl.KNOWN_CALLABLES = old
 
-    def test_garbage_test_list_rejected(self):
-        """Item 6: test list not in cargo test --lib -- --list format."""
-        ledger = _tiny_ledger()
-        with tempfile.TemporaryDirectory() as d:
-            dpath = Path(d)
-            test_list = dpath / "test.txt"
-            test_list.write_text("not a valid test list")
-            case_list, surface = dpath / "case.txt", dpath / "surface.txt"
-            case_list.write_text("ROUTE_CASE_LIST\tc1\n")
-            surface.write_text("SURFACE_INVENTORY\t{}\n")
-            old = sl.KNOWN_CALLABLES
-            sl.KNOWN_CALLABLES = {"ops::add_assign"}
-            try:
-                with self.assertRaises(ValidationError):
-                    sl.cmd_check(ledger, False, dpath / "rustdoc.json", test_list, case_list, surface, None)
-            finally:
-                sl.KNOWN_CALLABLES = old
-
-    def test_garbage_surface_inventory_rejected(self):
-        """Item 6: surface inventory lines must be valid JSON."""
-        ledger = _tiny_ledger()
-        with tempfile.TemporaryDirectory() as d:
-            dpath = Path(d)
-            test_list, case_list, surface = self._tmp_files(dpath, surface="not json")
-            old = sl.KNOWN_CALLABLES
-            sl.KNOWN_CALLABLES = {"ops::add_assign"}
-            try:
-                with self.assertRaises(ValidationError):
-                    sl.cmd_check(ledger, False, dpath / "rustdoc.json", test_list, case_list, surface, None)
-            finally:
-                sl.KNOWN_CALLABLES = old
-
-
-# ---------------------------------------------------------------------------
-# Evidence records
-# ---------------------------------------------------------------------------
-
-class TestEvidenceRecords(unittest.TestCase):
-    """Evidence record verification against cited receipts and completion."""
-
-    def _evidence_ledger(self, receipts=None, completion=None):
-        ledger = _tiny_ledger()
+    def _evidence_ledger(self, receipts=None, completion=None, ev_id="ev1"):
+        ledger = _full_tiny()
         ledger["evidence"] = {
-            "ev1": {
+            ev_id: {
                 "file": "route.log",
                 "receipts": receipts if receipts is not None else [
-                    {"id": "c1", "features": "default", "tier": "v3", "source_id": "src-1"},
+                    {"id": "c1", "features": "default", "request": "v3", "source_id": "src-1"},
                 ],
                 "completion": completion if completion is not None else {
-                    "source_id": "src-1", "host_id": "host-1", "features": "default", "cases": 1,
+                    "source_id": "src-1", "host_id": "host-1", "features": "default",
+                    "request": "v3", "cases": 1,
                 },
             }
         }
         return ledger
 
     def _record(self, d, receipts=None, done=True, done_body=None):
-        p = d / "route.log"
+        from pathlib import Path
+        p = Path(d) / "route.log"
         lines = []
         for r in receipts if receipts is not None else [
-            {"id": "c1", "obligation": "o", "features": "default", "request_raw": "v3", "source_id": "src-1"},
+            {"id": "c1", "obligation": "o", "features": "default", "request_raw": "v3",
+             "source_id": "src-1", "host_id": "host-1", "result": "pass"},
         ]:
-            lines.append(f"ROUTE_RECEIPT\t{r if isinstance(r, str) else _json(r)}")
+            lines.append(f"ROUTE_RECEIPT\t{r if isinstance(r, str) else json_mod.dumps(r)}")
         if done:
             body = done_body if done_body is not None else {
-                "source_id": "src-1", "host_id": "host-1", "features": "default", "request": "v3", "cases": 1,
+                "source_id": "src-1", "host_id": "host-1", "features": "default",
+                "request": "v3", "cases": 1,
             }
-            lines.append(f"ROUTE_DONE\t{body if isinstance(body, str) else _json(body)}")
+            lines.append(f"ROUTE_DONE\t{body if isinstance(body, str) else json_mod.dumps(body)}")
         p.write_text("\n".join(lines))
         return p
 
-    def test_records_missing_rejected(self):
+    def test_empty_completion_rejected(self):
+        # An empty completion object against a complete record: the cited
+        # source identity differs from the record, failing for that reason.
+        ledger = self._evidence_ledger(
+            receipts=[{"id": "c1", "features": "default", "request": "v3",
+                       "source_id": "other"}],
+            completion={"source_id": "other"})
+        with tempfile.TemporaryDirectory() as d:
+            from pathlib import Path
+            self._record(Path(d))
+            with self.assertRaises(ValidationError):
+                sl._check_evidence_citations(ledger, {}, [], Path(d))
+
+    def test_duplicate_receipt_ids_rejected(self):
+        ledger = self._evidence_ledger()
+        rec = {"id": "c1", "obligation": "o", "features": "default", "request_raw": "v3",
+               "source_id": "src-1", "host_id": "host-1", "result": "pass"}
+        with tempfile.TemporaryDirectory() as d:
+            from pathlib import Path
+            self._record(Path(d), receipts=[rec, rec],
+                         done_body={"source_id": "src-1", "host_id": "host-1",
+                                    "features": "default", "request": "v3", "cases": 2})
+            with self.assertRaises(ValidationError):
+                sl._check_evidence_citations(ledger, {}, [], Path(d))
+
+    def test_failed_receipt_rejected(self):
+        ledger = self._evidence_ledger()
+        rec = {"id": "c1", "obligation": "o", "features": "default", "request_raw": "v3",
+               "source_id": "src-1", "host_id": "host-1", "result": "fail"}
+        with tempfile.TemporaryDirectory() as d:
+            from pathlib import Path
+            self._record(Path(d), receipts=[rec])
+            with self.assertRaises(ValidationError):
+                sl._check_evidence_citations(ledger, {}, [], Path(d))
+
+    def test_host_mismatch_rejected(self):
+        ledger = self._evidence_ledger()
+        rec = {"id": "c1", "obligation": "o", "features": "default", "request_raw": "v3",
+               "source_id": "src-1", "host_id": "other", "result": "pass"}
+        with tempfile.TemporaryDirectory() as d:
+            from pathlib import Path
+            self._record(Path(d), receipts=[rec],
+                         done_body={"source_id": "src-1", "host_id": "host-1",
+                                    "features": "default", "request": "v3", "cases": 1})
+            with self.assertRaises(ValidationError):
+                sl._check_evidence_citations(ledger, {}, [], Path(d))
+
+    def test_request_mismatch_rejected(self):
+        ledger = self._evidence_ledger()
+        rec = {"id": "c1", "obligation": "o", "features": "default", "request_raw": "v2",
+               "source_id": "src-1", "host_id": "host-1", "result": "pass"}
+        with tempfile.TemporaryDirectory() as d:
+            from pathlib import Path
+            self._record(Path(d), receipts=[rec],
+                         done_body={"source_id": "src-1", "host_id": "host-1",
+                                    "features": "default", "request": "v3", "cases": 1})
+            with self.assertRaises(ValidationError):
+                sl._check_evidence_citations(ledger, {}, [], Path(d))
+
+    def test_count_mismatch_rejected(self):
+        ledger = self._evidence_ledger()
+        with tempfile.TemporaryDirectory() as d:
+            from pathlib import Path
+            self._record(Path(d), done_body={"source_id": "src-1", "host_id": "host-1",
+                                             "features": "default", "request": "v3", "cases": 2})
+            with self.assertRaises(ValidationError):
+                sl._check_evidence_citations(ledger, {}, [], Path(d))
+
+    def test_duplicate_done_rejected(self):
+        ledger = self._evidence_ledger()
+        with tempfile.TemporaryDirectory() as d:
+            from pathlib import Path
+            p = self._record(Path(d))
+            with open(p, "a") as f:
+                f.write("\nROUTE_DONE\t" + json_mod.dumps(
+                    {"source_id": "src-1", "host_id": "host-1",
+                     "features": "default", "request": "v3", "cases": 1}))
+            with self.assertRaises(ValidationError):
+                sl._check_evidence_citations(ledger, {}, [], Path(d))
+
+
+# ---------------------------------------------------------------------------
+# Behavior 5: pattern selection per actual fixture and callable shape
+# ---------------------------------------------------------------------------
+
+class TestPatternSelection(unittest.TestCase):
+    def test_gf2_drops_general_per_fixture(self):
+        ledger = _full_tiny()
+        ledger["rules"]["gf2"] = {
+            "group": "residue", "characteristic": 2, "degree": 1, "elem_bytes": 1,
+            "fixtures": [{"id": "g2",
+                          "type": "crate::field::FiniteField<2, 1, crate::field::Residue>",
+                          "elem_bytes": 1, "reference": "elem-arith"}],
+        }
+        ledger["applicability"]["row2"] = {"families": ["ops/row"], "rules": ["gf2"],
+                                           "exclusions": {}}
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        gf2_cases = [c for c in derived if c["rule_id"] == "gf2"]
+        self.assertGreater(len(gf2_cases), 0)
+        for case in gf2_cases:
+            self.assertNotIn("General", case["pattern"].get("slots", []))
+
+    def test_non_gf2_keeps_general(self):
+        ledger = _full_tiny()
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        aes_general = [c for c in derived
+                       if c["rule_id"] == "gf8-aes" and "General" in c["pattern"].get("slots", [])]
+        self.assertGreater(len(aes_general), 0)
+
+    def test_coefficient_free_case_has_empty_slots(self):
+        ledger = _full_tiny()
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        add_cases = [c for c in derived if c["callable"] == "ops::add_assign"]
+        self.assertGreater(len(add_cases), 0)
+        for case in add_cases:
+            self.assertEqual(case["pattern"].get("slots", []), [])
+
+    def test_gather_slots_equal_sources(self):
+        ledger = _full_tiny()
+        ledger["callables"]["ops::mul_add_gather"] = {"kind": "bulk", "family": "ops/gather"}
+        ledger["applicability"]["gather"] = {"families": ["ops/gather"],
+                                             "rules": ["gf8-aes"], "exclusions": {}}
+        ledger["geometries"]["gather-4"] = {"family": "gather", "rows": 4, "sources": 4,
+                                            "len": 64, "misalign": 1, "pitch_pad": 0}
+        ledger["coefficient_patterns"]["general-4"] = {"family": "multi-all-general",
+                                                       "slots": ["General"] * 4}
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        gather = [c for c in derived if c["callable"] == "ops::mul_add_gather"]
+        self.assertGreater(len(gather), 0)
+        for case in gather:
+            self.assertEqual(len(case["pattern"]["slots"]), 4)
+
+    def test_scatter_slots_equal_rows(self):
+        ledger = _full_tiny()
+        ledger["callables"]["ops::mul_add_scatter"] = {"kind": "bulk", "family": "ops/scatter"}
+        ledger["applicability"]["scatter"] = {"families": ["ops/scatter"],
+                                              "rules": ["gf8-aes"], "exclusions": {}}
+        ledger["geometries"]["scatter-4"] = {"family": "scatter", "rows": 4, "sources": 1,
+                                             "len": 64, "misalign": 1, "pitch_pad": 0}
+        ledger["coefficient_patterns"]["general-4"] = {"family": "multi-all-general",
+                                                       "slots": ["General"] * 4}
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        scatter = [c for c in derived if c["callable"] == "ops::mul_add_scatter"]
+        self.assertGreater(len(scatter), 0)
+        for case in scatter:
+            self.assertEqual(len(case["pattern"]["slots"]), 4)
+
+    def test_no_valid_pattern_fails_naming_obligation(self):
+        ledger = _full_tiny()
+        ledger["rules"]["gf2"] = {
+            "group": "residue", "characteristic": 2, "degree": 1, "elem_bytes": 1,
+            "fixtures": [{"id": "g2",
+                          "type": "crate::field::FiniteField<2, 1, crate::field::Residue>",
+                          "elem_bytes": 1, "reference": "elem-arith"}],
+        }
+        ledger["applicability"]["row2"] = {"families": ["ops/row"], "rules": ["gf2"],
+                                           "exclusions": {}}
+        ledger["coefficient_patterns"] = {"general-1": {"family": "single-general",
+                                                        "slots": ["General"]}}
         with self.assertRaises(ValidationError):
-            sl._verify_evidence_records(self._evidence_ledger(), None)
+            sl.cases(ledger, sl.obligations(ledger))
 
-    def test_cited_record_missing_rejected(self):
-        with tempfile.TemporaryDirectory() as d:
-            with self.assertRaises(ValidationError):
-                sl._verify_evidence_records(self._evidence_ledger(), Path(d))
-
-    def test_missing_route_done_rejected(self):
-        with tempfile.TemporaryDirectory() as d:
-            dpath = Path(d)
-            self._record(dpath, done=False)
-            with self.assertRaises(ValidationError):
-                sl._verify_evidence_records(self._evidence_ledger(), dpath)
-
-    def test_receipt_id_mismatch_rejected(self):
-        with tempfile.TemporaryDirectory() as d:
-            dpath = Path(d)
-            self._record(dpath, receipts=[{"id": "c1", "obligation": "o", "features": "default",
-                                           "request_raw": "v3", "source_id": "src-1"}])
-            ledger = self._evidence_ledger(receipts=[{"id": "c2", "features": "default", "tier": "v3", "source_id": "src-1"}])
-            with self.assertRaises(ValidationError):
-                sl._verify_evidence_records(ledger, dpath)
-
-    def test_receipt_features_mismatch_rejected(self):
-        with tempfile.TemporaryDirectory() as d:
-            dpath = Path(d)
-            self._record(dpath, receipts=[{"id": "c1", "obligation": "o", "features": "default",
-                                           "request_raw": "v3", "source_id": "src-1"}])
-            ledger = self._evidence_ledger(receipts=[{"id": "c1", "features": "all", "tier": "v3", "source_id": "src-1"}])
-            with self.assertRaises(ValidationError):
-                sl._verify_evidence_records(ledger, dpath)
-
-    def test_receipt_tier_mismatch_rejected(self):
-        with tempfile.TemporaryDirectory() as d:
-            dpath = Path(d)
-            self._record(dpath, receipts=[{"id": "c1", "obligation": "o", "features": "default",
-                                           "request_raw": "v3", "source_id": "src-1"}])
-            ledger = self._evidence_ledger(receipts=[{"id": "c1", "features": "default", "tier": "v2", "source_id": "src-1"}])
-            with self.assertRaises(ValidationError):
-                sl._verify_evidence_records(ledger, dpath)
-
-    def test_receipt_source_id_mismatch_rejected(self):
-        with tempfile.TemporaryDirectory() as d:
-            dpath = Path(d)
-            self._record(dpath, receipts=[{"id": "c1", "obligation": "o", "features": "default",
-                                           "request_raw": "v3", "source_id": "src-1"}])
-            ledger = self._evidence_ledger(receipts=[{"id": "c1", "features": "default", "tier": "v3", "source_id": "src-2"}])
-            with self.assertRaises(ValidationError):
-                sl._verify_evidence_records(ledger, dpath)
-
-    def test_evidence_verification_passes(self):
-        with tempfile.TemporaryDirectory() as d:
-            dpath = Path(d)
-            self._record(dpath)
-            sl._verify_evidence_records(self._evidence_ledger(), dpath)  # must not raise
-
-    def test_duplicate_route_done_rejected(self):
-        """Item 6: duplicate ROUTE_DONE fails."""
-        with tempfile.TemporaryDirectory() as d:
-            dpath = Path(d)
-            self._record(dpath, done_body={"source_id": "src-1", "host_id": "host-1",
-                                           "features": "default", "request": "v3", "cases": 1})
-            # Append a second ROUTE_DONE
-            with open(dpath / "route.log", "a") as f:
-                f.write("\nROUTE_DONE\t" + _json({"source_id": "src-1", "host_id": "host-1",
-                                                   "features": "default", "request": "v3", "cases": 1}))
-            with self.assertRaises(ValidationError):
-                sl._verify_evidence_records(self._evidence_ledger(), dpath)
-
-    def test_receipt_without_id_rejected(self):
-        """Item 6: receipt without identity (no id field) fails."""
-        with tempfile.TemporaryDirectory() as d:
-            dpath = Path(d)
-            self._record(dpath, receipts=[{"obligation": "o", "features": "default",
-                                           "request_raw": "v3", "source_id": "src-1"}])
-            with self.assertRaises(ValidationError):
-                sl._verify_evidence_records(self._evidence_ledger(), dpath)
+    def test_no_coefficient_case_never_empty_for_taker(self):
+        ledger = _full_tiny()
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        for case in derived:
+            if sl._callable_takes_coefficient(case["callable"]):
+                self.assertGreater(len(case["pattern"].get("slots", [])), 0)
 
 
 # ---------------------------------------------------------------------------
-# Accept (Item 8: receipt validation)
+# Behavior 7: budgets per fixture width
 # ---------------------------------------------------------------------------
 
-class TestAccept(unittest.TestCase):
-    """Every accept reject code, plus one passing audit."""
+class TestBudgets(unittest.TestCase):
+    def test_m31_lane_loss_at_v3(self):
+        wr = {"substage": "MulAdd", "unit": "Elements", "basis": "Source",
+              "multiplicity": "Rows", "iterations": "1",
+              "loss_bytes": "2 * (lane - 1)", "justification": "t"}
+        lane = sl._lane_in_units("Elements", 32, 4)
+        loss = sl._loss_in_units("Elements", 62, 4)
+        self.assertEqual(lane, 8)
+        self.assertEqual(loss, 16)
 
-    def _audit(self, receipts, done, ledger=None, request="v3", features="default",
-               source="src-1", host="host-1"):
-        ledger = ledger if ledger is not None else _accept_ledger()
+    def test_target_basis_uses_target_width(self):
+        wr = {"substage": "Linear", "unit": "Elements", "basis": "Target",
+              "multiplicity": "One", "iterations": "1",
+              "loss_bytes": "2 * (lane - 1)", "substage": "Linear", "justification": "t"}
+        geo = {"rows": 1, "sources": 1, "len": 64}
+        src_w, tgt_w = {"elem_bytes": 1}, {"elem_bytes": 2}
+        budget = sl._work_budget(wr, geo, src_w, tgt_w, "v3", _isa(),
+                                 {"slots": []}, {}, {})
+        self.assertEqual(budget, 1)
+
+    def test_iterations_degree_minus_one(self):
+        wr = {"iterations": "degree - 1", "unit": "Elements", "basis": "Source",
+              "multiplicity": "One", "loss_bytes": "1", "substage": "MulAdd"}
+        self.assertEqual(sl._work_iterations(wr, {"degree": 8, "relative_degree": 1,
+                                                  "power": 1, "words": 1,
+                                                  "elem_bytes": 1}), 7)
+
+    def test_unknown_iteration_name_rejected(self):
+        ledger = _full_tiny()
+        ledger["work_rules"]["row-add"]["iterations"] = "bogus + 1"
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_zero_iterations_rejected_not_clamped(self):
+        wr = {"iterations": "0", "unit": "Elements", "basis": "Source",
+              "multiplicity": "One", "loss_bytes": "1", "substage": "MulAdd"}
+        self.assertEqual(sl._work_iterations(wr, {"degree": 1, "relative_degree": 1,
+                                                  "power": 1, "words": 1,
+                                                  "elem_bytes": 1}), 0)
+        ledger = _full_tiny()
+        ledger["work_rules"]["row-add"]["iterations"] = "0"
+        ledger["obligations"] = {"ops::add_assign@gf8-aes": {"cells": {
+            "default/v3": {"status": "direct", "required": True, "min_serving": "v3",
+                           "work": ["row-add"], "process": "v3", "field": "v3"}}}}
+        with self.assertRaises(ValidationError):
+            sl.cases(ledger, sl.obligations(ledger))
+
+    def test_zero_loss_stays_zero(self):
+        self.assertEqual(sl._loss_in_units("Elements", 0, 4), 0)
+
+    def test_active_rows_counts_nontrivial(self):
+        geo = {"rows": 3, "sources": 4}
+        cp = {"slots": ["General", "General", "Zero", "One",
+                        "Zero", "Zero", "Zero", "Zero",
+                        "One", "General", "Zero", "Zero"]}
+        self.assertEqual(sl._active_rows_count(geo, cp), 2)
+
+    def test_all_zero_active_rows_not_required_failure(self):
+        ledger = _full_tiny()
+        ledger["work_rules"]["row-zero"] = {
+            "substage": "MulAdd", "unit": "Elements", "basis": "Source",
+            "multiplicity": "ActiveRows", "iterations": "1",
+            "loss_bytes": "1", "justification": "t",
+        }
+        ledger["callables"]["ops::mul_add_matrix"] = {"kind": "bulk", "family": "ops/matrix"}
+        ledger["applicability"]["matrix"] = {"families": ["ops/matrix"],
+                                             "rules": ["gf8-aes"], "exclusions": {}}
+        ledger["geometries"]["matrix-1x2"] = {"family": "matrix", "rows": 1, "sources": 2,
+                                              "len": 64, "misalign": 1, "pitch_pad": 0}
+        ledger["coefficient_patterns"]["zero-2"] = {"family": "mixed",
+                                                    "slots": ["Zero", "Zero"]}
+        ledger["obligations"] = {"ops::mul_add_matrix@gf8-aes": {"cells": {
+            "default/v3": {"status": "composition", "required": True, "min_serving": "v3",
+                           "work": ["row-zero"], "process": "v3", "field": "v3"}}}}
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        self.assertGreater(len(derived), 0)
+
+
+# ---------------------------------------------------------------------------
+# Behavior 6 is covered by test_generate_and_accept_share_universe above.
+# Behavior 4: generated code compiles against the declared interface
+# ---------------------------------------------------------------------------
+
+class TestGeneratedCompiles(unittest.TestCase):
+    def test_generated_case_count_matches_accept_universe(self):
+        ledger = _required_tiny()
+        text = sl._generate_cases(ledger)
+        generated_ids = set()
+        for line in text.splitlines():
+            line = line.strip()
+            if line.startswith("Case {"):
+                first = line.split('id: "')[1]
+                generated_ids.add(first.split('"')[0])
+        obs = sl.obligations(ledger)
+        required = {c["id"] for c in sl.cases(ledger, obs)
+                    if c["cells"].get("default/v3", {}).get("required")}
+        self.assertEqual(generated_ids & required, required)
+
+    @unittest.skipUnless(shutil.which("cargo"), "cargo not on PATH")
+    def test_generated_compiles_against_interface(self):
+        # The generated table references the declared interface: Case/Cell/Work
+        # shapes, Backend/Features/Request enums, run paths grouped in family
+        # adapter modules, and MapSpec for map cases. A temp crate wires stub
+        # adapters with the same shapes and checks the table type-resolves.
+        ledger = _required_tiny()
+        table = sl._generate_cases(ledger)
+        mods: dict[str, set[str]] = {}
+        types: set[str] = set()
+        for line in table.splitlines():
+            line = line.strip()
+            if line.startswith("const RUN_"):
+                path = line.split("=", 1)[1].strip().rstrip(";")
+                assert path.startswith("super::"), path
+                mod, _, rest = path[len("super::"):].partition("::")
+                fn, _, targs = rest.rpartition("::<")
+                mods.setdefault(mod, set()).add(fn)
+                types.add(targs)
+        self.assertIn("rows", mods)
+        self.assertIn("mul_add", mods["rows"])
+        for t in types:
+            self.assertIn("crate::field::", t)
         with tempfile.TemporaryDirectory() as d:
+            from pathlib import Path
+            crate = Path(d) / "gencheck"
+            (crate / "src").mkdir(parents=True)
+            (crate / "Cargo.toml").write_text(
+                '[package]\nname = "gencheck"\nversion = "0.0.0"\nedition = "2021"\n')
+            stub_lines = []
+            for mod, fns in sorted(mods.items()):
+                for fn in sorted(fns):
+                    stub_lines.append(
+                        f"fn {mod}_{fn}<T>(_: &Case, _: &Cell) -> Outcome "
+                        "{ unimplemented!() }")
+            norm = table
+            for mod, fns in sorted(mods.items()):
+                for fn in sorted(fns):
+                    norm = norm.replace(f"super::{mod}::{fn}::",
+                                        f"{mod}_{fn}::")
+            body_lines = []
+            skip_use = False
+            skip_mod = False
+            for line in norm.splitlines():
+                if line.startswith("mod rows") or line.startswith("mod maps"):
+                    skip_mod = True
+                    continue
+                if skip_mod:
+                    if line.strip() == "}":
+                        skip_mod = False
+                    continue
+                if line.startswith("use crate::kernel"):
+                    skip_use = not line.rstrip().endswith(";")
+                    continue
+                if skip_use:
+                    skip_use = not line.rstrip().endswith(";")
+                    continue
+                body_lines.append(line)
+            src_text = (
+                "pub enum Backend { Scalar, V2, V3, V3GfniCrypto, V4x, }\n"
+                "pub struct Case { pub id: &'static str, pub obligation: &'static str,\n"
+                " pub run: fn(&Case, &Cell) -> Outcome, pub geometry: Geometry,\n"
+                " pub coeffs: &'static [Coeff], pub map: Option<MapSpec>,\n"
+                " pub cells: &'static [Cell], }\n"
+                "pub struct MapSpec { pub power: u32, pub images: &'static [u64], }\n"
+                "pub struct Geometry { pub rows: usize, pub sources: usize,\n"
+                " pub len: usize, pub misalign: usize, pub pitch_pad: usize, }\n"
+                "#[derive(Clone, Copy)]\n"
+                "pub enum Coeff { General, Zero, One, }\n"
+                "#[derive(Clone, Copy)]\n"
+                "pub enum Features { Default, All, }\n"
+                "#[derive(Clone, Copy)]\n"
+                "pub enum Request { V4x, V3GfniCrypto, V3, V2, Scalar, }\n"
+                "pub struct Cell { pub features: Features, pub request: Request,\n"
+                " pub process: Backend, pub field: Backend, pub required: bool,\n"
+                " pub min_serving: Backend, pub work: &'static [Work], }\n"
+                "#[derive(Clone, Copy)]\n"
+                "pub struct Work { pub substage: Substage,\n"
+                " pub scope: Option<(Scope, Pass)>,\n"
+                " pub unit: Unit, pub basis: Basis, pub multiplicity: Multiplicity,\n"
+                " pub lane: usize, pub loss: usize, pub iterations: usize, }\n"
+                "#[derive(Clone, Copy)]\n"
+                "pub enum Basis { Source, Target, }\n"
+                "#[derive(Clone, Copy)]\n"
+                "pub enum Multiplicity { One, Rows, ActiveRows, ActivePairs, UnitAddPairs, }\n"
+                "#[derive(Clone, Copy)]\n"
+                "pub enum Scope { Inverse, Division, Frobenius, Norm, Trace,\n"
+                " Restriction, Membership, }\n"
+                "#[derive(Clone, Copy)]\n"
+                "pub enum Pass { Main, Prefix, Backward, Output, Conjugate,\n"
+                " Accumulate, Project, }\n"
+                "#[derive(Clone, Copy)]\n"
+                "pub enum Substage { Add, Sub, Mul, MulAdd, MulElementwise, Inverse, Dot,\n"
+                " Linear, Pack, Unpack, BitAnd, BitAndNot, BitXor, BitWeight, BitParity, }\n"
+                "#[derive(Clone, Copy)]\n"
+                "pub enum Unit { Elements, Bytes, Bits, Words, }\n"
+                "pub struct Outcome;\n"
+                "pub mod field {\n"
+                " pub struct Mersenne31;\n"
+                " pub struct Polynomial<const P: u64>;\n"
+                " pub struct FiniteField<const C: u64, const D: usize, R>(pub core::marker::PhantomData<R>);\n"
+                "}\n"
+                + "\n".join(stub_lines) + "\n"
+                + "\n".join(body_lines) + "\nfn main() {}\n")
+            (crate / "src" / "main.rs").write_text(src_text)
+            proc = subprocess.run(["cargo", "check", "--offline"],
+                                  cwd=str(crate), capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stderr[-4000:])
+
+    def test_adapter_paths_follow_family_grouping(self):
+        adapter, fn, _ = sl._adapter_for(
+            "ops::mul_add_gather",
+            {"type": "crate::field::Mersenne31"}, {})
+        self.assertEqual(adapter, "fans")
+        self.assertEqual(fn, "mul_add_gather")
+        adapter, fn, _ = sl._adapter_for(
+            "ops::mul_elementwise",
+            {"type": "crate::field::Mersenne31"}, {})
+        self.assertEqual(adapter, "elementwise")
+        adapter, fn, types = sl._adapter_for(
+            "map::embed_into_with",
+            {"source": "crate::field::A", "target": "crate::field::B"}, {})
+        self.assertEqual(adapter, "maps")
+        self.assertIn(",", types)
+
+    def test_map_cases_carry_map_spec(self):
+        ledger = _full_tiny()
+        ledger["callables"]["map::embed_into_with"] = {"kind": "bulk", "family": "map"}
+        ledger["rules"]["map-x"] = {
+            "group": "map", "kind": "embedding", "arm": "injection",
+            "arm_citation": "src/x.rs:1",
+            "callables": ["map::embed_into_with"],
+            "fixtures": [{"id": "mx",
+                          "source": "crate::field::A", "target": "crate::field::B"}],
+        }
+        ledger["applicability"]["mapx"] = {"families": ["map"], "rules": ["map-x"],
+                                           "exclusions": {}}
+        text = sl._generate_cases(ledger)
+        self.assertIn("map: Some(", text)
+        self.assertIn("MapSpec", text)
+
+
+# ---------------------------------------------------------------------------
+# Remaining regression coverage: expression, ISA, expansion, budgets
+# ---------------------------------------------------------------------------
+
+class TestExpressions(unittest.TestCase):
+    def test_arithmetic(self):
+        self.assertEqual(sl._evaluate_expr("2 * (lane - 1)", {"lane": 32}), 62)
+        self.assertEqual(sl._evaluate_expr("degree - 1", {"degree": 8}), 7)
+        self.assertEqual(sl._evaluate_expr("lane // 2", {"lane": 32}), 16)
+
+    def test_unknown_variable_rejected(self):
+        with self.assertRaises(ValueError):
+            sl._evaluate_expr("bogus + 1", {"lane": 32})
+
+    def test_negative_result_rejected(self):
+        with self.assertRaises(ValueError):
+            sl._evaluate_expr("1 - lane", {"lane": 32})
+
+
+class TestExpansion(unittest.TestCase):
+    def test_default_v4x_downgrade(self):
+        ledger = _full_tiny()
+        obs = sl.obligations(ledger)
+        first = next(iter(sorted(obs)))
+        self.assertIn("default/v4x", obs[first]["cells"])
+        self.assertEqual(obs[first]["cells"]["default/v4x"]["process"], "v3_gfni_crypto")
+        self.assertEqual(obs[first]["cells"]["all/v4x"]["process"], "v4x")
+
+    def test_callable_filter_honoured(self):
+        ledger = _full_tiny()
+        ledger["callables"]["map::embed_into_with"] = {"kind": "bulk", "family": "map"}
+        ledger["callables"]["map::trace_into_with"] = {"kind": "bulk", "family": "map"}
+        ledger["rules"]["map-x"] = {
+            "group": "map", "kind": "embedding", "arm": "injection",
+            "arm_citation": "src/x.rs:1",
+            "callables": ["map::embed_into_with", "map::trace_into_with"],
+            "fixtures": [{"id": "mx",
+                          "source": "crate::field::A", "target": "crate::field::B"}],
+        }
+        ledger["applicability"]["mapx"] = {
+            "families": ["map"], "rules": ["map-x"],
+            "callable_filter": ["map::embed_into_with"],
+            "exclusions": {},
+        }
+        obs = sl.obligations(ledger)
+        self.assertIn("map::embed_into_with@map-x", obs)
+        self.assertNotIn("map::trace_into_with@map-x", obs)
+
+    def test_rule_callables_honoured(self):
+        ledger = _full_tiny()
+        ledger["callables"]["map::embed_into_with"] = {"kind": "bulk", "family": "map"}
+        ledger["callables"]["map::trace_into_with"] = {"kind": "bulk", "family": "map"}
+        ledger["rules"]["map-x"] = {
+            "group": "map", "kind": "embedding", "arm": "injection",
+            "arm_citation": "src/x.rs:1",
+            "callables": ["map::embed_into_with"],
+            "fixtures": [{"id": "mx",
+                          "source": "crate::field::A", "target": "crate::field::B"}],
+        }
+        ledger["applicability"]["mapx"] = {"families": ["map"], "rules": ["map-x"],
+                                           "exclusions": {}}
+        obs = sl.obligations(ledger)
+        self.assertIn("map::embed_into_with@map-x", obs)
+        self.assertNotIn("map::trace_into_with@map-x", obs)
+
+    def test_overlapping_applicability_rejected(self):
+        ledger = _full_tiny()
+        ledger["applicability"]["row-second"] = {
+            "families": ["ops/row"], "rules": ["gf8-aes"], "exclusions": {},
+        }
+        with self.assertRaises(ValidationError):
+            sl.obligations(ledger)
+
+    def test_orphan_bulk_family_rejected(self):
+        ledger = _full_tiny()
+        ledger["applicability"] = {"row": {"families": ["ops/row"],
+                                           "rules": ["gf8-aes"], "exclusions": {}}}
+        ledger["callables"]["ops::pack"] = {"kind": "bulk", "family": "ops/pack"}
+        with self.assertRaises(ValidationError):
+            sl.obligations(ledger)
+
+
+class TestCheckModes(unittest.TestCase):
+    def test_schema_only_counts(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self.assertEqual(sl.cmd_check(_full_tiny(), True, None, None, None, None, None), 0)
+        self.assertIn("schema valid", buf.getvalue())
+
+    def test_full_requires_inventories(self):
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(_full_tiny(), False, None, None, None, None, None)
+
+    def test_malformed_surface_rejected(self):
+        ledger = _full_tiny()
+        with tempfile.TemporaryDirectory() as d:
+            from pathlib import Path
+            p = Path(d)
+            (p / "t.txt").write_text("t: test\n")
+            (p / "c.txt").write_text("ROUTE_CASE_LIST\tx\n")
+            (p / "s.txt").write_text("not json\n")
+            (p / "r.json").write_text("{}")
+            old = sl.KNOWN_CALLABLES
+            sl.KNOWN_CALLABLES = {"ops::mul_add", "ops::add_assign"}
+            try:
+                with self.assertRaises(ValidationError):
+                    sl.cmd_check(ledger, False, p / "r.json", p / "t.txt",
+                                 p / "c.txt", p / "s.txt", None)
+            finally:
+                sl.KNOWN_CALLABLES = old
+
+
+class TestAcceptRejects(unittest.TestCase):
+    def _audit(self, receipts, done, ledger, request="v3", features="default"):
+        with tempfile.TemporaryDirectory() as d:
+            from pathlib import Path
             p = Path(d) / "log"
             lines = []
             for r in receipts:
-                lines.append(f"ROUTE_RECEIPT\t{_json(r)}")
+                lines.append(f"ROUTE_RECEIPT\t{json_mod.dumps(r)}")
             for line in done:
                 lines.append(line)
             p.write_text("\n".join(lines))
             try:
-                sl.cmd_accept(p, features, request, source, host, ledger)
+                sl.cmd_accept(p, features, request, "src-1", "host-1", ledger)
             except ValidationError as e:
                 return e.code
             return None
 
+    def _good(self, ledger, mutate=None):
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        required = sorted(c["id"] for c in derived
+                          if c["cells"].get("default/v3", {}).get("required"))
+        recs = []
+        for cid in required:
+            rec = {"id": cid, "obligation": cid.split("#")[0],
+                   "source_id": "src-1", "host_id": "host-1", "features": "default",
+                   "request_raw": "v3", "process": "v3", "field": "v3", "result": "pass"}
+            recs.append(rec)
+        if mutate is not None:
+            mutate(recs)
+        done = [f"ROUTE_DONE\t{json_mod.dumps({'source_id': 'src-1', 'host_id': 'host-1', 'features': 'default', 'request': 'v3', 'cases': len(recs)})}"]
+        return recs, done
+
     def test_accept_passes(self):
-        self.assertIsNone(self._audit([_good_receipt()], [f"ROUTE_DONE\t{_json(_good_done())}"]))
-
-    def test_missing_log(self):
-        ledger = _accept_ledger()
-        with tempfile.TemporaryDirectory() as d:
-            with self.assertRaises(ValidationError) as ctx:
-                sl.cmd_accept(Path(d) / "nope", "default", "v3", "src-1", "host-1", ledger)
-            self.assertEqual(ctx.exception.code, "missing_log")
-
-    def _reject(self, receipts, done, code, ledger=None):
-        self.assertEqual(self._audit(receipts, done, ledger=ledger), code)
-
-    def _done_line(self, body=None):
-        body = body if body is not None else _good_done()
-        return f"ROUTE_DONE\t{_json(body)}"
-
-    def test_malformed_receipt(self):
-        self.assertEqual(self._audit([], ["ROUTE_RECEIPT\tnot json"]), "malformed_receipt")
-
-    def test_duplicate_done(self):
-        self._reject([_good_receipt()], [self._done_line(), self._done_line()], "duplicate_done")
-
-    def test_malformed_done(self):
-        self._reject([_good_receipt()], ["ROUTE_DONE\tnot json"], "malformed_done")
-
-    def test_missing_done(self):
-        self._reject([_good_receipt()], [], "missing_done")
-
-    def test_source_mismatch(self):
-        done = dict(_good_done(), source_id="other")
-        self._reject([_good_receipt()], [self._done_line(done)], "source_mismatch")
-
-    def test_host_mismatch(self):
-        done = dict(_good_done(), host_id="other")
-        self._reject([_good_receipt()], [self._done_line(done)], "host_mismatch")
-
-    def test_feature_mismatch(self):
-        done = dict(_good_done(), features="all")
-        self._reject([_good_receipt()], [self._done_line(done)], "feature_mismatch")
-
-    def test_request_mismatch(self):
-        done = dict(_good_done(), request="scalar")
-        self._reject([_good_receipt()], [self._done_line(done)], "request_mismatch")
+        ledger = _required_tiny()
+        recs, done = self._good(ledger)
+        self.assertIsNone(self._audit(recs, done, ledger))
 
     def test_empty_log(self):
-        self._reject([], [self._done_line()], "empty_log")
-
-    def test_count_mismatch(self):
-        done = dict(_good_done(), cases=2)
-        self._reject([_good_receipt()], [self._done_line(done)], "count_mismatch")
-
-    def test_no_required_obligations(self):
-        done = dict(_good_done(1), request="v2")
-        rec = dict(_good_receipt(), request_raw="v2", process="v2", field="v2")
-        self.assertEqual(self._audit([rec], [self._done_line(done)], request="v2"), "no_required_obligations")
-
-    def test_duplicate_receipt(self):
-        rec = _good_receipt()
-        done = dict(_good_done(), cases=2)
-        self._reject([rec, rec], [self._done_line(done)], "duplicate_receipt")
-
-    def test_receipt_source_mismatch(self):
-        self._reject([dict(_good_receipt(), source_id="other")], [self._done_line()], "receipt_source_mismatch")
-
-    def test_receipt_host_mismatch(self):
-        self._reject([dict(_good_receipt(), host_id="other")], [self._done_line()], "receipt_host_mismatch")
-
-    def test_receipt_feature_mismatch(self):
-        self._reject([dict(_good_receipt(), features="all")], [self._done_line()], "receipt_feature_mismatch")
-
-    def test_receipt_request_mismatch(self):
-        self._reject([dict(_good_receipt(), request_raw="v2")], [self._done_line()], "receipt_request_mismatch")
-
-    def test_receipt_no_result(self):
-        rec = _good_receipt()
-        del rec["result"]
-        self._reject([rec], [self._done_line()], "receipt_no_result")
+        ledger = _required_tiny()
+        done = [f"ROUTE_DONE\t{json_mod.dumps({'source_id': 'src-1', 'host_id': 'host-1', 'features': 'default', 'request': 'v3', 'cases': 0})}"]
+        self.assertEqual(self._audit([], done, ledger), "empty_log")
 
     def test_fail_receipt(self):
-        self._reject([dict(_good_receipt(), result="fail: output_mismatch")], [self._done_line()], "fail_receipt")
+        ledger = _required_tiny()
+        def mutate(recs):
+            recs[0]["result"] = "fail"
+        recs, done = self._good(ledger, mutate)
+        self.assertEqual(self._audit(recs, done, ledger), "fail_receipt")
 
     def test_skip_receipt(self):
-        self._reject([dict(_good_receipt(), result="skip: unsupported_tier")], [self._done_line()], "skip_receipt")
+        ledger = _required_tiny()
+        def mutate(recs):
+            recs[0]["result"] = "skip"
+        recs, done = self._good(ledger, mutate)
+        self.assertEqual(self._audit(recs, done, ledger), "skip_receipt")
 
-    def test_unknown_result(self):
-        self._reject([dict(_good_receipt(), result="weird")], [self._done_line()], "unknown_result")
+    def test_passing_prefix_rejected(self):
+        ledger = _required_tiny()
+        def mutate(recs):
+            recs[0]["result"] = "passing"
+        recs, done = self._good(ledger, mutate)
+        self.assertEqual(self._audit(recs, done, ledger), "unknown_result")
 
-    def test_missing_required(self):
-        rec = dict(_good_receipt(), obligation="ops::add_assign@gf8-aes")
-        self._reject([rec], [self._done_line()], "missing_required")
+    def test_non_string_result_rejected(self):
+        ledger = _required_tiny()
+        def mutate(recs):
+            recs[0]["result"] = True
+        recs, done = self._good(ledger, mutate)
+        self.assertEqual(self._audit(recs, done, ledger), "receipt_no_result")
 
-    def test_receipt_process_mismatch(self):
-        self._reject([dict(_good_receipt(), process="v2")], [self._done_line()], "receipt_process_mismatch")
+    def test_duplicate_receipt(self):
+        ledger = _required_tiny()
+        recs, done = self._good(ledger)
+        dup = recs + [recs[0]]
+        done = [f"ROUTE_DONE\t{json_mod.dumps({'source_id': 'src-1', 'host_id': 'host-1', 'features': 'default', 'request': 'v3', 'cases': len(dup)})}"]
+        self.assertEqual(self._audit(dup, done, ledger), "duplicate_receipt")
 
-    def test_receipt_field_mismatch(self):
-        self._reject([dict(_good_receipt(), field="v2")], [self._done_line()], "receipt_field_mismatch")
+    def test_count_mismatch(self):
+        ledger = _required_tiny()
+        recs, _done = self._good(ledger)
+        done = [f"ROUTE_DONE\t{json_mod.dumps({'source_id': 'src-1', 'host_id': 'host-1', 'features': 'default', 'request': 'v3', 'cases': len(recs) + 1})}"]
+        self.assertEqual(self._audit(recs, done, ledger), "count_mismatch")
 
-    # Item 8: request_raw must be a non-empty string
-    def test_request_raw_none_rejected(self):
-        """Item 8: request_raw=None is rejected."""
-        rec = dict(_good_receipt(), request_raw=None)
-        self._reject([rec], [self._done_line()], "receipt_request_mismatch")
+    def test_request_raw_empty(self):
+        ledger = _required_tiny()
+        def mutate(recs):
+            recs[0]["request_raw"] = ""
+        recs, done = self._good(ledger, mutate)
+        self.assertEqual(self._audit(recs, done, ledger), "receipt_request_mismatch")
 
-    def test_request_raw_empty_rejected(self):
-        """Item 8: request_raw="" is rejected."""
-        rec = dict(_good_receipt(), request_raw="")
-        self._reject([rec], [self._done_line()], "receipt_request_mismatch")
-
-    def test_result_exact_pass_fail_skip(self):
-        """Item 8: result must be exactly 'pass', 'fail', or 'skip' (not prefix match)."""
-        # "passing" is not accepted
-        rec = dict(_good_receipt(), result="passing")
-        self._reject([rec], [self._done_line()], "unknown_result")
-        # "passed" is not accepted
-        rec = dict(_good_receipt(), result="passed")
-        self._reject([rec], [self._done_line()], "unknown_result")
-
-    def test_result_non_string_rejected(self):
-        """Item 8: result must be a string."""
-        rec = dict(_good_receipt(), result=True)
-        self._reject([rec], [self._done_line()], "receipt_no_result")
-
-    # Item 8: required set keyed by case id, not obligation
-    def test_missing_case_id_rejected(self):
-        """Item 8: receipt without a case id that matches is rejected for missing_required."""
-        # Use a ledger with geometries so case-level expansion works
-        ledger = _accept_ledger()
-        ledger["geometries"] = {"row-64": {"rows": 1, "sources": 1, "len": 64, "misalign": 1, "pitch_pad": 0}}
-        ledger["coefficient_patterns"] = {"gen-1": {"slots": ["General"]}}
-        # Receipt has the right obligation but wrong case id
-        rec = dict(_good_receipt(obligation="ops::mul_add@gf8-aes", case_id="different-id"))
-        self._reject([rec], [self._done_line()], "missing_required", ledger=ledger)
-
-
-# ---------------------------------------------------------------------------
-# Generator (Item 1)
-# ---------------------------------------------------------------------------
 
 class TestGenerate(unittest.TestCase):
-    """Generator emit/byte-identity and case table generation."""
-
-    def test_generate_check_one_byte_difference(self):
-        ledger = _tiny_ledger()
+    def test_generate_roundtrip_byte_identity(self):
+        ledger = _full_tiny()
         content = sl._generate_cases(ledger)
         with tempfile.TemporaryDirectory() as d:
+            from pathlib import Path
             p = Path(d) / "cases.rs"
-            # Write raw content, then run generate to format and verify
             p.write_text(content)
-            # Generate first to write formatted output
             self.assertEqual(sl.cmd_generate(p, False, ledger), 0)
-            # Check should now pass
             self.assertEqual(sl.cmd_generate(p, True, ledger), 0)
-            # Corrupt the file: change a byte
-            formatted = p.read_text()
-            bad = formatted.replace("generated", "generatXd", 1)
-            self.assertNotEqual(bad, formatted)
+            bad = p.read_text().replace("generated", "generatXd", 1)
             p.write_text(bad)
             with self.assertRaises(ValidationError):
                 sl.cmd_generate(p, True, ledger)
 
     @unittest.skipUnless(shutil.which("rustfmt"), "rustfmt not on PATH")
-    def test_generate_output_rustfmt_clean(self):
-        ledger = _tiny_ledger()
+    def test_generate_rustfmt_clean(self):
+        ledger = _full_tiny()
         with tempfile.TemporaryDirectory() as d:
+            from pathlib import Path
             p = Path(d) / "cases.rs"
             self.assertEqual(sl.cmd_generate(p, False, ledger), 0)
-            self.assertTrue(p.is_file())
 
-    def test_generator_emits_case_table(self):
-        """Item 1: generator emits Case/Cell/Work tables."""
-        ledger = _tiny_ledger()
-        ledger["geometries"] = {"row-64": {"rows": 1, "sources": 1, "len": 64, "misalign": 1, "pitch_pad": 0}}
-        ledger["coefficient_patterns"] = {"gen-1": {"slots": ["General"]}}
-        ledger["obligations"] = {"ops::add_assign@gf8-aes": {
-            "cells": {"default/v3": {"status": "unverified", "required": False, "min_serving": "v3",
-                                     "work": ["row-add"], "process": "v3", "field": "v3", "perf": "unmeasured"}}}}
-        content = sl._generate_cases(ledger)
-        # Must contain CASES_SIMD512 or CASES table
-        self.assertTrue("CASES_SIMD512" in content or "static CASES" in content)
-        # Must contain Case struct instances
-        self.assertIn("Case {", content)
-        # Must contain Cell struct instances
-        self.assertIn("Cell {", content)
-        # Must contain Work struct instances
-        self.assertIn("Work {", content)
+    def test_first_line_marker(self):
+        self.assertTrue(sl._generate_cases(_full_tiny()).splitlines()[0].startswith("// @generated"))
 
-    def test_generator_emits_cases_simd512(self):
-        """Item 1: cases needing simd512 go in separate CASES_SIMD512 table."""
-        ledger = _tiny_ledger()
-        ledger["geometries"] = {"row-64": {"rows": 1, "sources": 1, "len": 64, "misalign": 1, "pitch_pad": 0}}
-        ledger["coefficient_patterns"] = {"gen-1": {"slots": ["General"]}}
-        # Add a rule whose all/v4x cell needs v4x
-        ledger["rules"]["gf16-v4x"] = {
-            "group": "binary_flat", "degree": 16, "presentation": "Polynomial", "elem_bytes": 2,
-            "fixtures": [
-                {"id": "gf16x", "type": "crate::field::FiniteField<2,16,crate::field::Polynomial<0x1002D>>",
-                 "elem_bytes": 2, "reference": "elem-arith"},
-            ],
-        }
-        ledger["rules"]["gf16-v4x"]["_needs_simd512"] = True  # marker for test
-        ledger["applicability"]["ops-row-gf16"] = {
-            "families": ["ops/row"], "rules": ["gf16-v4x"], "exclusions": {},
-        }
-        content = sl._generate_cases(ledger)
-        # gf8-aes cases go in CASES; gf16-v4x cases may go in CASES_SIMD512
-        self.assertIn("CASES_SIMD512", content)
-
-    def test_generator_work_lane_loss_in_rule_unit(self):
-        """Item 1: emitted Work uses lane/loss/iterations in the rule's unit."""
-        ledger = _tiny_ledger()
-        ledger["geometries"] = {"row-64": {"rows": 1, "sources": 1, "len": 64, "misalign": 1, "pitch_pad": 0}}
-        ledger["coefficient_patterns"] = {"gen-1": {"slots": ["General"]}}
-        ledger["obligations"] = {"ops::add_assign@gf8-aes": {
-            "cells": {"default/v3": {"status": "unverified", "required": False, "min_serving": "v3",
-                                     "work": ["row-add"], "process": "v3", "field": "v3", "perf": "unmeasured"}}}}
-        content = sl._generate_cases(ledger)
-        # Work struct should have lane, loss, iterations fields
-        self.assertIn("lane:", content)
-        self.assertIn("loss:", content)
-        self.assertIn("iterations:", content)
-        # Should NOT have raw lane_bytes/loss_bytes/loss_formula in generated output
-        self.assertNotIn("lane_bytes:", content)
-        self.assertNotIn("loss_bytes:", content)
-        self.assertNotIn("loss_formula", content)
-
-    def test_generator_gf2_filtering(self):
-        """GF(2) fixtures should exclude General coefficient patterns."""
-        ledger = _tiny_ledger()
-        ledger["geometries"] = {"row-64": {"rows": 1, "sources": 1, "len": 64, "misalign": 1, "pitch_pad": 0}}
-        ledger["rules"]["residue-gf2"] = {
-            "group": "residue", "elem_bytes": 1,
-            "fixtures": [
-                {"id": "rgf2", "type": "crate::field::FiniteField<2, 1, crate::field::Residue>",
-                 "elem_bytes": 1, "reference": "elem-arith"},
-            ],
-        }
-        ledger["applicability"]["row-gf2"] = {
-            "families": ["ops/row"], "rules": ["residue-gf2"], "exclusions": {},
-        }
-        ledger["coefficient_patterns"] = {
-            "gen-1": {"slots": ["General"]},
-            "zero-1": {"slots": ["Zero"]},
-            "one-1": {"slots": ["One"]},
-        }
-        content = sl._generate_cases(ledger)
-        # GF(2) fixtures: only Zero/One patterns; no General
-        # The generated case table for GF(2) should only reference non-General patterns
-        self.assertIn("zero-1", content)
-        self.assertIn("one-1", content)
-
-    def test_cases_one_line_each(self):
-        """Each Case literal in generated table is on exactly one line."""
-        ledger = _tiny_ledger()
-        ledger["geometries"] = {"row-64": {"rows": 1, "sources": 1, "len": 64, "misalign": 1, "pitch_pad": 0}}
-        ledger["coefficient_patterns"] = {"gen-1": {"slots": ["General"]}}
-        content = sl._generate_cases(ledger)
-        lines = content.splitlines()
-        case_line_count = sum(1 for line in lines if line.strip().startswith("Case {"))
-        case_occurrences = content.count("Case {")
-        self.assertEqual(case_line_count, case_occurrences,
-                         f"Expected each Case on one line: {case_line_count} lines vs {case_occurrences} occurrences")
-        self.assertGreater(case_line_count, 0, "No Case entries found in generated table")
-
-    def test_generator_parseable_structure(self):
-        """Item 1: generated Rust can be parsed for basic structure checks."""
-        ledger = _tiny_ledger()
-        ledger["geometries"] = {"row-64": {"rows": 1, "sources": 1, "len": 64, "misalign": 1, "pitch_pad": 0}}
-        ledger["coefficient_patterns"] = {"gen-1": {"slots": ["General"]}}
-        content = sl._generate_cases(ledger)
-        lines = content.splitlines()
-        # First line is the generated marker
-        self.assertTrue(lines[0].startswith("// @generated"))
-        # Find CASES array
-        cases_start = None
-        for i, line in enumerate(lines):
-            if line.strip().startswith("static CASES:"):
-                cases_start = i
-                break
-        self.assertIsNotNone(cases_start, "CASES table not found")
-        # After CASES, there should be case entries
-        found_case = False
-        for line in lines[cases_start:]:
-            if "Case {" in line:
-                found_case = True
-                break
-        self.assertTrue(found_case, "No Case entries in CASES table")
-
-
-# ---------------------------------------------------------------------------
-# Canonical ledger (schema-only validates the reconciled canonical JSON)
-# ---------------------------------------------------------------------------
-
-class TestCanonicalLedger(unittest.TestCase):
-    """The canonical ledger — schema-only validates the reconciled JSON."""
-
-    def test_ledger_default_is_next_to_script(self):
-        self.assertEqual(sl.Path(__file__).with_name("simd_ledger.json"), CANONICAL_LEDGER_PATH)
-
-    def test_schema_only_passes_against_canonical_ledger(self):
-        """Schema-only validates the reconciled canonical ledger."""
-        result = sl.main(["check", "--schema-only"])
-        self.assertEqual(result, 0, "Expected schema-only to pass against reconciled ledger")
-
-    def test_non_bulk_rule_skips_elem_bytes_check(self):
-        """Rules with a 'reason' field (non-bulk marker) skip fixture elem_bytes/reference."""
-        ledger = {
-            "_version": 2,
-            "isa": {
-                "lane_bytes": {"v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64},
-                "process": {
-                    "default": {"v4x": "v3_gfni_crypto", "v3_gfni_crypto": "v3_gfni_crypto", "v3": "v3", "v2": "v2", "scalar": "scalar"},
-                    "all": {"v4x": "v4x", "v3_gfni_crypto": "v3_gfni_crypto", "v3": "v3", "v2": "v2", "scalar": "scalar"},
-                },
-            },
-            "callables": {
-                "ops::add_assign": {"kind": "bulk", "family": "ops/row"},
-            },
-            "rules": {
-                "binary-flat-sub8": {
-                    "group": "binary_flat",
-                    "reason": "sub-8-degree BinaryRepr lacks FieldBuffer",
-                    "fixtures": [
-                        {"id": "gf1p", "type": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>"},
-                    ],
-                },
-                "gf8-poly-aes": {
-                    "group": "binary_flat",
-                    "elem_bytes": 1,
-                    "fixtures": [
-                        {"id": "gf8aes", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
-                         "elem_bytes": 1, "reference": "elem-arith"},
-                    ],
-                },
-            },
-            "applicability": {
-                "ops-row": {
-                    "families": ["ops/row"],
-                    "rules": ["gf8-poly-aes"],
-                    "exclusions": {"binary-flat-sub8": "no FieldBuffer"},
-                },
-            },
-            "work_rules": {
-                "row-add": {
-                    "substage": "Add",
-                    "scope": None,
-                    "unit": "Elements",
-                    "basis": "Source",
-                    "multiplicity": "One",
-                    "iterations": "1",
-                    "loss_bytes": "2*(lane-1)",
-                    "justification": "test",
-                },
-            },
-            "geometries": {
-                "row-4k-aligned": {"rows": 1, "sources": 1, "len": 4096, "misalign": 0, "pitch_pad": 0},
-            },
-            "coefficient_patterns": {
-                "one-1": {"slots": ["One"]},
-            },
-            "evidence": {},
-        }
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, delete_on_close=False) as f:
-            json_mod.dump(ledger, f)
-            tmp_path = Path(f.name)
-        try:
-            result = sl.main(["--ledger", str(tmp_path), "check", "--schema-only"])
-            self.assertEqual(result, 0,
-                             "Non-bulk rule with reason should skip elem_bytes check")
-        finally:
-            tmp_path.unlink(missing_ok=True)
-
-    def test_test_subcommand_removed(self):
-        self.assertFalse(hasattr(sl, "run_tests"))
-        with self.assertRaises(SystemExit):
-            sl.main(["test"])
+    def test_work_uses_lane_loss_iterations(self):
+        ledger = _required_tiny()
+        text = sl._generate_cases(ledger)
+        self.assertIn("lane:", text)
+        self.assertIn("loss:", text)
+        self.assertIn("iterations:", text)
+        self.assertNotIn("lane_bytes:", text)
+        self.assertNotIn("loss_bytes:", text)
 
 
 if __name__ == "__main__":
