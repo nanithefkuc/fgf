@@ -3,14 +3,16 @@
 
 Only the standard library. Follows the style of existing ``benches/*.py``.
 
-Obligations are expanded from applicability × rules × callables at check time;
-the ledger stores only explicit deviations (none at this stage).
+Schema v2: ISA facts at top level; work rules use expressions for iterations
+and loss_bytes; lane comes from isa, not per-rule dicts. Every (features,
+request) pair yields a cell including default/v4x.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import subprocess
@@ -58,20 +60,12 @@ VALID_RULE_GROUPS = frozenset({
     "residue", "specialized_prime", "binary_flat", "packed",
     "component", "bits", "map", "map_bits",
 })
-
-# A General coefficient is only meaningful for operations that actually take a
-# coefficient: the scalar accumulate/scalar families and the mul_* families.
+VALID_REQUIRED_STATUSES = frozenset({"direct", "composition", "zero-budget"})
+EXPR_VAR_NAMES = frozenset({
+    "lane", "degree", "relative_degree", "power", "words", "elem_bytes",
+})
 
 KNOWN_CALLABLES: set[str] | None = None
-
-# ISA lane bytes per tier (unchanging hardware facts, not measurements).
-ISA_LANE_BYTES = {
-    "scalar": 0,  # scalar has no vector lane
-    "v2": 16,
-    "v3": 32,
-    "v3_gfni_crypto": 32,
-    "v4x": 64,
-}
 
 # Reject codes emitted by accept (stable, testable).
 REJECT_CODES = frozenset({
@@ -118,9 +112,191 @@ def _load_known_callables(rustdoc: Path) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# Schema validation
+# ISA facts (schema v2)
 # ---------------------------------------------------------------------------
 
+def _validate_isa(ledger: dict) -> dict:
+    """Validate the isa facts block and return it."""
+    isa = ledger.get("isa")
+    if not isinstance(isa, dict):
+        _fail("ledger.isa must be a dict")
+    lane_bytes = isa.get("lane_bytes")
+    if not isinstance(lane_bytes, dict):
+        _fail("ledger.isa.lane_bytes must be a dict")
+    for tier in ("v2", "v3", "v3_gfni_crypto", "v4x"):
+        if tier not in lane_bytes or not isinstance(lane_bytes[tier], int) or lane_bytes[tier] <= 0:
+            _fail(f"ledger.isa.lane_bytes.{tier} must be a positive integer")
+    process = isa.get("process")
+    if not isinstance(process, dict):
+        _fail("ledger.isa.process must be a dict")
+    for fc in VALID_FEATURE_CONFIGS:
+        fc_map = process.get(fc)
+        if not isinstance(fc_map, dict):
+            _fail(f"ledger.isa.process.{fc} must be a dict")
+        for req in VALID_REQUESTS:
+            resolved = fc_map.get(req)
+            if resolved not in VALID_REQUESTS:
+                _fail(f"ledger.isa.process.{fc}.{req} must be a valid request tier, got {resolved!r}")
+    return isa
+
+
+def _lane_for_tier(isa: dict, tier: str) -> int:
+    """Return lane bytes for a tier from ISA facts."""
+    return isa["lane_bytes"][tier]
+
+
+def _process_for(isa: dict, features: str, request: str) -> str:
+    """Return the expected process resolution for (features, request)."""
+    return isa["process"][features][request]
+
+
+# ---------------------------------------------------------------------------
+# Safe expression evaluator (no eval)
+# ---------------------------------------------------------------------------
+
+def _evaluate_expr(expr: str, variables: dict[str, int]) -> int:
+    """Evaluate a simple arithmetic expression over integer variables.
+
+    Allowed: +, -, *, //, (), integer literals, named variables.
+    Disallowed: **, function calls, unary minus on expressions.
+    Returns int; raises ValueError on parse/eval failure or negative result.
+    """
+    expr = expr.strip()
+    if not expr:
+        raise ValueError("empty expression")
+
+    tokens = _tokenize_expr(expr)
+    result, pos = _parse_expr(tokens, 0)
+    if pos != len(tokens):
+        raise ValueError(f"unexpected token after expression: {tokens[pos:]!r}")
+    value = _eval_ast(result, variables)
+    if value < 0:
+        raise ValueError(f"expression evaluated to negative: {value}")
+    return value
+
+
+def _tokenize_expr(expr: str) -> list[str]:
+    tokens: list[str] = []
+    i = 0
+    while i < len(expr):
+        c = expr[i]
+        if c.isspace():
+            i += 1
+            continue
+        if c in "+-*/()":
+            # Check for // (integer division)
+            if c == "/" and i + 1 < len(expr) and expr[i + 1] == "/":
+                tokens.append("//")
+                i += 2
+            else:
+                tokens.append(c)
+                i += 1
+        elif c.isdigit():
+            j = i
+            while j < len(expr) and expr[j].isdigit():
+                j += 1
+            tokens.append(expr[i:j])
+            i = j
+        elif c.isalpha() or c == "_":
+            j = i
+            while j < len(expr) and (expr[j].isalnum() or expr[j] == "_"):
+                j += 1
+            tokens.append(expr[i:j])
+            i = j
+        else:
+            raise ValueError(f"unexpected character: {c!r}")
+    return tokens
+
+
+def _parse_expr(tokens: list[str], pos: int) -> tuple[dict, int]:
+    """Parse additive expression: term ('+'|'-' term)*."""
+    left, pos = _parse_term(tokens, pos)
+    while pos < len(tokens) and tokens[pos] in ("+", "-"):
+        op = tokens[pos]
+        right, pos = _parse_term(tokens, pos + 1)
+        left = {"op": op, "left": left, "right": right}
+    return left, pos
+
+
+def _parse_term(tokens: list[str], pos: int) -> tuple[dict, int]:
+    """Parse multiplicative term: factor ('*'|'//' factor)*."""
+    left, pos = _parse_factor(tokens, pos)
+    while pos < len(tokens) and tokens[pos] in ("*", "//"):
+        op = tokens[pos]
+        right, pos = _parse_factor(tokens, pos + 1)
+        left = {"op": op, "left": left, "right": right}
+    return left, pos
+
+
+def _parse_factor(tokens: list[str], pos: int) -> tuple[dict, int]:
+    """Parse factor: int | name | '(' expr ')' | '-' factor."""
+    if pos >= len(tokens):
+        raise ValueError("unexpected end of expression")
+    t = tokens[pos]
+    if t.isdigit():
+        return {"op": "lit", "value": int(t)}, pos + 1
+    if t == "(":
+        node, pos = _parse_expr(tokens, pos + 1)
+        if pos >= len(tokens) or tokens[pos] != ")":
+            raise ValueError("expected ')'")
+        return node, pos + 1
+    if t == "-":
+        # Unary minus only on literals
+        node, pos = _parse_factor(tokens, pos + 1)
+        if node["op"] != "lit":
+            raise ValueError("unary minus only on literal")
+        return {"op": "lit", "value": -node["value"]}, pos
+    if re.match(r'^[a-zA-Z_]\w*$', t):
+        return {"op": "var", "name": t}, pos + 1
+    raise ValueError(f"unexpected token: {t!r}")
+
+
+def _eval_ast(node: dict, variables: dict[str, int]) -> int:
+    op = node["op"]
+    if op == "lit":
+        return node["value"]
+    if op == "var":
+        name = node["name"]
+        if name not in variables:
+            raise ValueError(f"unknown variable: {name!r}")
+        return variables[name]
+    if op in ("+", "-", "*", "//"):
+        left = _eval_ast(node["left"], variables)
+        right = _eval_ast(node["right"], variables)
+        if op == "+":
+            return left + right
+        if op == "-":
+            return left - right
+        if op == "*":
+            return left * right
+        if op == "//":
+            if right == 0:
+                raise ValueError("division by zero")
+            return left // right
+    raise ValueError(f"unknown op: {op!r}")
+
+
+def _validate_expr(expr: str, allowed_vars: frozenset[str]) -> None:
+    """Validate an expression: parse it and check all variable references."""
+    tokens = _tokenize_expr(expr)
+    ast, pos = _parse_expr(tokens, 0)
+    if pos != len(tokens):
+        raise ValueError(f"trailing tokens: {tokens[pos:]!r}")
+    _check_vars(ast, allowed_vars)
+
+
+def _check_vars(node: dict, allowed: frozenset[str]) -> None:
+    if node["op"] == "var":
+        if node["name"] not in allowed:
+            raise ValueError(f"variable {node['name']!r} not in {sorted(allowed)}")
+    elif node["op"] in ("+", "-", "*", "//"):
+        _check_vars(node["left"], allowed)
+        _check_vars(node["right"], allowed)
+
+
+# ---------------------------------------------------------------------------
+# Schema validation
+# ---------------------------------------------------------------------------
 
 def _validate_callables(ledger: dict, rustdoc: Path | None = None) -> None:
     """Check every ledger callable is classified and matches rustdoc."""
@@ -190,8 +366,13 @@ def _validate_rules(ledger: dict) -> dict:
                         and isinstance(fix.get("target"), str) and fix["target"])
             if not has_type and not has_pair:
                 _fail(f"rule {rid!r}: fixture {fid!r} missing type or source/target pair")
+            # elem_bytes and reference required for bulk fixtures
+            if has_type and group not in ("map", "map_bits"):
+                if "elem_bytes" not in fix:
+                    _fail(f"rule {rid!r}: fixture {fid!r} missing elem_bytes")
+                if "reference" not in fix:
+                    _fail(f"rule {rid!r}: fixture {fid!r} missing reference")
 
-        # Rule groups have different required fields.
         if group == "map":
             for field in ("kind", "arm", "arm_citation"):
                 if field not in rule:
@@ -241,7 +422,7 @@ def _validate_applicability(ledger: dict, rules: dict) -> None:
 
 
 def _validate_work_rules(ledger: dict) -> dict:
-    """Return {name: work_rule}. Per-tier lane_bytes/loss_bytes in bytes; loss_formula describes ISA derivation."""
+    """Return {name: work_rule}. Schema v2: iterations expression, loss_bytes expression."""
     wr = ledger.get("work_rules")
     if not isinstance(wr, dict):
         _fail("ledger.work_rules must be a dict")
@@ -252,7 +433,7 @@ def _validate_work_rules(ledger: dict) -> dict:
         if not isinstance(rule, dict):
             _fail(f"work_rule {name!r} is not a dict")
         for field in ("substage", "unit", "basis", "multiplicity",
-                       "lane_bytes", "loss_bytes", "loss_formula"):
+                       "iterations", "loss_bytes"):
             if field not in rule:
                 _fail(f"work_rule {name!r}: missing {field}")
 
@@ -281,24 +462,29 @@ def _validate_work_rules(ledger: dict) -> dict:
         if mult not in VALID_MULTIPLICITIES:
             _fail(f"work_rule {name!r}: invalid multiplicity {mult!r}")
 
-        # lane_bytes and loss_bytes must be per-tier dicts with int values.
-        for field in ("lane_bytes", "loss_bytes"):
-            val = rule[field]
-            if not isinstance(val, dict):
-                _fail(f"work_rule {name!r}: {field} must be a per-tier dict with int values")
-            for tier in VALID_REQUESTS.union({"scalar"}):
-                # Every tier must be present, or at least the vector tiers.
-                pass
-            for tier, v in val.items():
-                if tier not in VALID_REQUESTS and tier != "scalar":
-                    _fail(f"work_rule {name!r}: {field} has unknown tier {tier!r}")
-                if not isinstance(v, int):
-                    _fail(f"work_rule {name!r}: {field}.{tier} must be an integer")
+        # iterations must be a valid expression using allowed metadata vars
+        iterations = rule["iterations"]
+        if not isinstance(iterations, str) or not iterations:
+            _fail(f"work_rule {name!r}: iterations must be a non-empty expression string")
+        iter_vars = EXPR_VAR_NAMES - {"lane"}  # iterations doesn't use lane
+        try:
+            _validate_expr(iterations, iter_vars)
+        except ValueError as e:
+            _fail(f"work_rule {name!r}: invalid iterations expression: {e}")
 
-        # loss_formula is a string expression, not a per-tier dict.
-        loss_formula = rule.get("loss_formula", "")
-        if not isinstance(loss_formula, str) or not loss_formula.strip():
-            _fail(f"work_rule {name!r}: loss_formula must be a non-empty string")
+        # loss_bytes must be a valid expression using 'lane' and metadata vars
+        loss_bytes = rule["loss_bytes"]
+        if not isinstance(loss_bytes, str) or not loss_bytes:
+            _fail(f"work_rule {name!r}: loss_bytes must be a non-empty expression string")
+        try:
+            _validate_expr(loss_bytes, EXPR_VAR_NAMES)
+        except ValueError as e:
+            _fail(f"work_rule {name!r}: invalid loss_bytes expression: {e}")
+
+        # extra_loss is optional and is a Rust const path
+        extra_loss = rule.get("extra_loss")
+        if extra_loss is not None and (not isinstance(extra_loss, str) or not extra_loss):
+            _fail(f"work_rule {name!r}: extra_loss must be a non-empty string")
 
         if "justification" not in rule:
             _fail(f"work_rule {name!r}: missing justification")
@@ -329,6 +515,10 @@ def _validate_evidence(ledger: dict) -> None:
         _fail("ledger.evidence must be a dict")
 
 
+# ---------------------------------------------------------------------------
+# Evidence record verification
+# ---------------------------------------------------------------------------
+
 def _verify_evidence_records(ledger: dict, records: Path | None) -> None:
     """Verify every cited evidence record matches its receipts and completion."""
     if records is None:
@@ -348,6 +538,8 @@ def _verify_evidence_records(ledger: dict, records: Path | None) -> None:
         receipts: list[dict] = []
         for line in rp.read_text().splitlines():
             if line.startswith("ROUTE_DONE\t"):
+                if done is not None:
+                    _fail(f"evidence {ev_id!r}: duplicate ROUTE_DONE in {record_file}")
                 try:
                     done = json.loads(line.split("\t", 1)[1])
                 except json.JSONDecodeError:
@@ -370,7 +562,14 @@ def _verify_evidence_records(ledger: dict, records: Path | None) -> None:
         if completion.get("cases") is not None and done.get("cases") != completion["cases"]:
             _fail(f"evidence {ev_id!r}: completion cases mismatch")
 
-        by_id = {r.get("id"): r for r in receipts}
+        # Reject receipts without identity
+        by_id: dict[str, dict] = {}
+        for r in receipts:
+            rid = r.get("id")
+            if not rid:
+                _fail(f"evidence {ev_id!r}: receipt without id field in {record_file}")
+            by_id[rid] = r
+
         for cited in ev.get("receipts", []):
             if not isinstance(cited, dict):
                 _fail(f"evidence {ev_id!r}: receipt expectation is not a dict")
@@ -392,7 +591,6 @@ def _verify_evidence_records(ledger: dict, records: Path | None) -> None:
 # Obligation expansion
 # ---------------------------------------------------------------------------
 
-
 def _bulk_callables_by_family(ledger: dict) -> dict[str, list[str]]:
     """Return {family: [callable_name]} for bulk callables."""
     result: dict[str, list[str]] = {}
@@ -407,14 +605,18 @@ def _expand_obligations(ledger: dict, rules: dict) -> dict:
     """Expand obligations from applicability × rules × callables.
 
     Returns {obligation_id: {cells: {key: default_cell}}}.
+    Every (features, request) pair is included, including default/v4x.
     """
     apps = ledger.get("applicability", {})
     callables_by_family = _bulk_callables_by_family(ledger)
+    isa = ledger.get("isa", {})
     default_cell = ledger.get("_cell_default", {
         "status": "unverified", "required": False, "perf": "unmeasured"
     })
 
     expanded: dict[str, dict] = {}
+    # Track (callable, rule) pairs to catch overlapping applicability
+    seen_pairs: set[tuple[str, str]] = set()
 
     for app_name, app in sorted(apps.items()):
         app_rules: list[str] = app.get("rules", [])
@@ -427,7 +629,6 @@ def _expand_obligations(ledger: dict, rules: dict) -> dict:
             if rule_id not in rules:
                 continue
 
-            # Skip non-bulk rules (packed-padded, map rules tested via their own families)
             rule = rules[rule_id]
             if rule.get("non_bulk"):
                 continue
@@ -436,28 +637,32 @@ def _expand_obligations(ledger: dict, rules: dict) -> dict:
                 callables = callables_by_family.get(family, [])
                 for call_name in callables:
                     obligation_id = f"{call_name}@{rule_id}"
+                    pair = (call_name, rule_id)
+                    if pair in seen_pairs:
+                        _fail(f"overlapping applicability: {call_name!r} with rule {rule_id!r} "
+                              f"appears from multiple applicability entries "
+                              f"(last: {app_name!r})")
+                    seen_pairs.add(pair)
 
                     if obligation_id in expanded:
-                        # First entry wins; skip duplicate produced by another applicability.
                         continue
 
                     # Build default cells for every feature config × request.
                     cells: dict[str, dict] = {}
                     for fc in sorted(VALID_FEATURE_CONFIGS):
                         for req in sorted(VALID_REQUESTS):
-                            # v4x requires non-default features.
-                            if fc == "default" and req == "v4x":
-                                continue
                             key = f"{fc}/{req}"
                             cells[key] = dict(default_cell)
                             cells[key]["min_serving"] = req
                             cells[key]["work"] = []
-                            cells[key]["process"] = req
-                            cells[key]["field"] = req
+                            # Process resolution from ISA facts
+                            if isa:
+                                cells[key]["process"] = _process_for(isa, fc, req)
+                            else:
+                                cells[key]["process"] = req
+                            cells[key]["field"] = cells[key]["process"]
 
-                    expanded[obligation_id] = {
-                        "cells": cells,
-                    }
+                    expanded[obligation_id] = {"cells": cells}
 
     return expanded
 
@@ -499,8 +704,6 @@ def _validate_expanded_obligations(ledger: dict, expanded: dict,
                 _fail(f"obligation {oid!r}: invalid feature config {fc!r}")
             if req not in VALID_REQUESTS:
                 _fail(f"obligation {oid!r}: invalid request {req!r}")
-            if fc == "default" and req == "v4x":
-                _fail(f"obligation {oid!r}: default features cannot resolve v4x")
 
             if not isinstance(cell, dict):
                 _fail(f"obligation {oid!r}: cell {key!r} is not a dict")
@@ -516,9 +719,21 @@ def _validate_expanded_obligations(ledger: dict, expanded: dict,
             if not isinstance(cell["required"], bool):
                 _fail(f"obligation {oid!r} cell {key!r}: required must be bool")
 
+            if cell["required"] and status not in VALID_REQUIRED_STATUSES:
+                _fail(f"obligation {oid!r} cell {key!r}: required=true but status={status!r} "
+                      f"(required statuses: {sorted(VALID_REQUIRED_STATUSES)})")
+
             ms = cell["min_serving"]
             if ms not in VALID_REQUESTS:
                 _fail(f"obligation {oid!r} cell {key!r}: invalid min_serving {ms!r}")
+
+            # Validate process and field backends
+            process = cell.get("process")
+            if process is not None and process not in VALID_REQUESTS:
+                _fail(f"obligation {oid!r} cell {key!r}: invalid process {process!r}")
+            field = cell.get("field")
+            if field is not None and field not in VALID_REQUESTS:
+                _fail(f"obligation {oid!r} cell {key!r}: invalid field {field!r}")
 
             work = cell["work"]
             if not isinstance(work, list):
@@ -548,6 +763,20 @@ def _validate_expanded_obligations(ledger: dict, expanded: dict,
                 stage_keys.add(sk)
 
 
+def _validate_bulk_family_coverage(ledger: dict, expanded: dict) -> None:
+    """Every bulk callable family must receive at least one obligation."""
+    callables_by_family = _bulk_callables_by_family(ledger)
+    for family, callable_names in sorted(callables_by_family.items()):
+        covered = False
+        for oid in expanded:
+            call_name = oid.split("@", 1)[0]
+            if call_name in callable_names:
+                covered = True
+                break
+        if not covered:
+            _fail(f"bulk family {family!r} has no obligations; check applicability rules")
+
+
 def _validate_explicit_obligations(ledger: dict, expanded: dict) -> None:
     """Reject a deviation whose obligation is outside the expansion."""
     explicit_obs = ledger.get("obligations", {})
@@ -561,7 +790,6 @@ def _validate_explicit_obligations(ledger: dict, expanded: dict) -> None:
 # ---------------------------------------------------------------------------
 # Inventory command
 # ---------------------------------------------------------------------------
-
 
 def cmd_inventory(rustdoc: Path, ledger_path: Path) -> int:
     """Classify every callable and print completeness report."""
@@ -602,13 +830,62 @@ def cmd_inventory(rustdoc: Path, ledger_path: Path) -> int:
 # Check command
 # ---------------------------------------------------------------------------
 
+def _parse_test_list(text: str) -> set[str]:
+    """Parse cargo test --lib -- --list output.
+
+    Format: each non-empty line is one of:
+      <path>: test
+      <path>: bench
+    We extract the test path (before ': test').
+    """
+    result: set[str] = set()
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if ": test" in line or ": bench" in line:
+            path = line.rsplit(":", 1)[0].strip()
+            result.add(path)
+    return result
+
+
+def _parse_case_list(text: str) -> set[str]:
+    """Parse ROUTE_CASE_LIST lines.
+
+    Format: ROUTE_CASE_LIST\t<case-id>
+    """
+    result: set[str] = set()
+    for line in text.splitlines():
+        if line.startswith("ROUTE_CASE_LIST\t"):
+            result.add(line.split("\t", 1)[1])
+    return result
+
+
+def _parse_surface_inventory(text: str) -> set[str]:
+    """Parse SURFACE_INVENTORY JSON lines.
+
+    Format: SURFACE_INVENTORY\t{json}
+    Each record has a "case" field with the benchmark case id.
+    """
+    result: set[str] = set()
+    for line in text.splitlines():
+        if line.startswith("SURFACE_INVENTORY\t"):
+            try:
+                record = json.loads(line.split("\t", 1)[1])
+            except json.JSONDecodeError:
+                _fail(f"malformed SURFACE_INVENTORY line: {line[:80]}")
+            case_id = record.get("case")
+            if case_id:
+                result.add(case_id)
+    return result
+
 
 def cmd_check(ledger: dict, schema_only: bool, rustdoc: Path | None,
               test_list: Path | None, case_list: Path | None,
               surface_inventory: Path | None, records: Path | None) -> int:
     """Validate the ledger."""
     if schema_only:
-        # Schema + expansion count.
+        _validate_isa(ledger)
         _validate_callables(ledger, rustdoc)
         rules = _validate_rules(ledger)
         _validate_applicability(ledger, rules)
@@ -617,10 +894,10 @@ def cmd_check(ledger: dict, schema_only: bool, rustdoc: Path | None,
         coeffs = _validate_coefficient_patterns(ledger)
         _validate_evidence(ledger)
 
-        # Expand obligations.
         expanded = _expand_obligations(ledger, rules)
         _validate_expanded_obligations(ledger, expanded, rules, wrules, geos, coeffs)
         _validate_explicit_obligations(ledger, expanded)
+        _validate_bulk_family_coverage(ledger, expanded)
 
         n_cells = _count_cells(expanded)
         print(f"simd_ledger: schema valid  obligations={len(expanded)} cells={n_cells}")
@@ -639,28 +916,38 @@ def cmd_check(ledger: dict, schema_only: bool, rustdoc: Path | None,
     if missing:
         _fail(f"--full requires: {', '.join(missing)}")
 
-    # Validate inventories are non-empty.
+    # Validate inventories are non-empty and parse them.
     known = _load_known_callables(rustdoc)
     if not known:
         _fail("rustdoc inventory is empty")
 
-    tl = test_list.read_text().strip()
-    if not tl:
+    tl_text = test_list.read_text().strip()
+    if not tl_text:
         _fail("test list is empty")
+    test_names = _parse_test_list(tl_text)
+    if not test_names:
+        _fail("test list contains no valid test entries")
 
-    cl = case_list.read_text().strip()
-    if not cl:
+    cl_text = case_list.read_text().strip()
+    if not cl_text:
         _fail("case list is empty")
+    case_ids = _parse_case_list(cl_text)
+    if not case_ids:
+        _fail("case list contains no ROUTE_CASE_LIST lines")
 
-    si = surface_inventory.read_text().strip()
-    if not si:
+    si_text = surface_inventory.read_text().strip()
+    if not si_text:
         _fail("surface inventory is empty")
+    surface_ids = _parse_surface_inventory(si_text)
+    if not surface_ids:
+        _fail("surface inventory contains no SURFACE_INVENTORY lines")
 
     # --records is mandatory if the ledger cites any evidence.
     if ledger.get("evidence"):
         _verify_evidence_records(ledger, records)
 
     # Full schema validation.
+    _validate_isa(ledger)
     _validate_callables(ledger, rustdoc)
     rules = _validate_rules(ledger)
     _validate_applicability(ledger, rules)
@@ -669,10 +956,10 @@ def cmd_check(ledger: dict, schema_only: bool, rustdoc: Path | None,
     coeffs = _validate_coefficient_patterns(ledger)
     _validate_evidence(ledger)
 
-    # Expand + validate obligations.
     expanded = _expand_obligations(ledger, rules)
     _validate_expanded_obligations(ledger, expanded, rules, wrules, geos, coeffs)
     _validate_explicit_obligations(ledger, expanded)
+    _validate_bulk_family_coverage(ledger, expanded)
 
     n_cells = _count_cells(expanded)
     print(f"simd_ledger: full check passed  obligations={len(expanded)} cells={n_cells}")
@@ -683,52 +970,55 @@ def cmd_check(ledger: dict, schema_only: bool, rustdoc: Path | None,
 # Generate command
 # ---------------------------------------------------------------------------
 
+def _backend_rust_name(backend: str) -> str:
+    """Map a backend request string to its Rust enum variant name."""
+    mapping = {
+        "scalar": "Scalar", "v2": "V2", "v3": "V3",
+        "v3_gfni_crypto": "V3GfniCrypto", "v4x": "V4x",
+    }
+    return mapping.get(backend, backend)
+
+
+def _request_rust_name(request: str) -> str:
+    """Map a request string to its Rust enum variant name."""
+    mapping = {
+        "scalar": "Scalar", "v2": "V2", "v3": "V3",
+        "v3_gfni_crypto": "V3GfniCrypto", "v4x": "V4x",
+    }
+    return mapping.get(request, request)
+
 
 def _safe_ident(s: str) -> str:
     return re.sub(r'[^A-Za-z0-9_#]', '_', s)
 
 
-def _work_iterations(wr: dict) -> int:
-    """Compute repetitions from the work rule's declared formula (>= 1)."""
-    formula = wr.get("iterations_formula", "1")
+def _work_iterations(wr: dict, fixture_vars: dict | None = None) -> int:
+    """Compute repetitions from the work rule's iterations expression."""
+    iterations = wr.get("iterations", "1")
     try:
-        value = int(formula)
+        value = int(iterations)
+        return max(1, value)
     except (TypeError, ValueError):
-        return 1
-    return max(1, value)
+        pass
+    if fixture_vars is None:
+        # Without metadata, evaluate with empty context for literal "1" etc.
+        return max(1, _evaluate_expr(iterations, {}))
+    return max(1, _evaluate_expr(iterations, fixture_vars))
 
 
-def _work_rust(wr_name: str, wr: dict, fc: str, req: str) -> str:
-    """Emit a Work const for a particular feature config and request."""
-    substage = wr["substage"]
-    unit = wr["unit"]
-    basis = wr["basis"]
-    mult = wr["multiplicity"]
-
-    scope = wr.get("scope")
-    scope_expr = "None"
-    if scope:
-        scope_expr = f"Some((Scope::{scope['scope']}, Pass::{scope['pass']}))"
-
-    lane_bytes = wr["lane_bytes"].get(req, wr["lane_bytes"].get("scalar", 1))
-    loss_bytes = wr["loss_bytes"].get(req, wr["loss_bytes"].get("scalar", 0))
-    loss_formula = wr.get("loss_formula", "0")
-    iterations = _work_iterations(wr)
-
-    ident = _safe_ident(f"{wr_name}_{fc}_{req}")
-    return "\n".join([
-        f"static WORK_{ident}: Work = Work {{",
-        f"    substage: Substage::{substage},",
-        f"    scope: {scope_expr},",
-        f"    unit: Unit::{unit},",
-        f"    basis: Basis::{basis},",
-        f"    multiplicity: Multiplicity::{mult},",
-        f"    lane_bytes: {lane_bytes},",
-        f"    loss_bytes: {loss_bytes},",
-        f"    loss_formula: \"{loss_formula}\",",
-        f"    iterations: {iterations},",
-        "};",
-    ])
+def _fixture_vars(fixture: dict, rule: dict) -> dict[str, int]:
+    """Extract metadata variables from fixture and rule for expression evaluation."""
+    result: dict[str, int] = {}
+    # elem_bytes from fixture or rule
+    elem_bytes = fixture.get("elem_bytes", rule.get("elem_bytes", 1))
+    result["elem_bytes"] = elem_bytes
+    # degree from rule
+    degree = rule.get("degree", 1)
+    result["degree"] = degree
+    result["relative_degree"] = rule.get("relative_degree", fixture.get("relative_degree", 1))
+    result["power"] = fixture.get("power", rule.get("power", 1))
+    result["words"] = fixture.get("words", max(1, math.ceil(elem_bytes / 8)))
+    return result
 
 
 def _fixture_is_gf2(fixture: dict) -> bool:
@@ -741,21 +1031,31 @@ def _general_slot_count(coeff_pattern: dict) -> int:
     return sum(1 for s in coeff_pattern.get("slots", []) if s == "General")
 
 
+def _count_active_pairs(coeff_pattern: dict) -> int:
+    """Count General slots (active coefficient pairs)."""
+    return _general_slot_count(coeff_pattern)
+
+
+def _count_unit_add_pairs(coeff_pattern: dict) -> int:
+    """Count One slots (unit accumulate pairs)."""
+    return sum(1 for s in coeff_pattern.get("slots", []) if s == "One")
+
+
 def _callable_takes_coefficient(call_name: str) -> bool:
     """True when the callable carries a coefficient slot (mul_* / *_scalar)."""
     base = call_name.split("::")[-1]
     return base.startswith("mul_") or base.endswith("_scalar")
 
 
-def _multiplicity_count(mult: str, geo: dict) -> int:
+def _multiplicity_count(mult: str, geo: dict, coeff_pattern: dict) -> int:
     if mult == "Rows":
         return geo.get("rows", 1)
     if mult == "ActiveRows":
         return geo.get("rows", 1)
     if mult == "ActivePairs":
-        return geo.get("rows", 1) * geo.get("sources", 1)
+        return _count_active_pairs(coeff_pattern)
     if mult == "UnitAddPairs":
-        return geo.get("rows", 1)
+        return _count_unit_add_pairs(coeff_pattern)
     return 1  # One
 
 
@@ -771,9 +1071,7 @@ def _len_in_units(unit: str, length: int, rule: dict) -> int:
 
 
 def _loss_in_units(unit: str, loss_bytes: int, rule: dict) -> int:
-    """Convert loss_bytes to the work rule's unit using fixture elem_bytes.
-    Rounding: loss rounds up (ceil)."""
-    import math
+    """Convert loss_bytes to the work rule's unit. Loss rounds up (ceil)."""
     elem_bytes = rule.get("elem_bytes", 1)
     if unit == "Bytes":
         return loss_bytes
@@ -781,15 +1079,13 @@ def _loss_in_units(unit: str, loss_bytes: int, rule: dict) -> int:
         return loss_bytes * 8
     if unit == "Words":
         return max(1, math.ceil(loss_bytes / 8))
-    # Elements: ceil(loss_bytes / elem_bytes)
     if elem_bytes <= 1:
         return loss_bytes
     return math.ceil(loss_bytes / elem_bytes)
 
 
 def _lane_in_units(unit: str, lane_bytes: int, rule: dict) -> int:
-    """Convert lane_bytes to the work rule's unit using fixture elem_bytes.
-    Rounding: lane rounds down (floor)."""
+    """Convert lane_bytes to the work rule's unit. Lane rounds down (floor)."""
     elem_bytes = rule.get("elem_bytes", 1)
     if unit == "Bytes":
         return lane_bytes
@@ -797,24 +1093,66 @@ def _lane_in_units(unit: str, lane_bytes: int, rule: dict) -> int:
         return lane_bytes * 8
     if unit == "Words":
         return max(1, lane_bytes // 8)
-    # Elements: floor(lane_bytes / elem_bytes)
     if elem_bytes <= 1:
         return lane_bytes
     return lane_bytes // elem_bytes
 
 
-def _work_budget(work_rule: dict, geo: dict, rule: dict, tier: str) -> int:
-    """Budget for one Work item at a geometry: iterations * mult * (len_in_units - loss_in_units).
-    lane/loss are derived from lane_bytes/loss_bytes via the rule's elem_bytes."""
-    mult = _multiplicity_count(work_rule["multiplicity"], geo)
-    loss_bytes = work_rule["loss_bytes"].get(tier, work_rule["loss_bytes"].get("scalar", 0))
-    loss = _loss_in_units(work_rule["unit"], loss_bytes, rule)
-    length = _len_in_units(work_rule["unit"], geo.get("len", 0), rule)
-    return _work_iterations(work_rule) * mult * (length - loss)
+def _compute_loss_bytes(wr: dict, lane: int, fixture_vars: dict) -> int:
+    """Evaluate the loss_bytes expression with lane and fixture vars."""
+    expr = wr["loss_bytes"]
+    variables = dict(fixture_vars)
+    variables["lane"] = lane
+    return _evaluate_expr(expr, variables)
+
+
+def _work_budget(work_rule: dict, geo: dict, source_rule: dict,
+                 target_rule: dict, tier: str, isa: dict,
+                 coeff_pattern: dict | None = None) -> int:
+    """Budget for one Work item: iterations * mult * (len_in_units - loss_in_units)."""
+    mult_rule = work_rule["multiplicity"]
+    geo_count = _multiplicity_count(mult_rule, geo, coeff_pattern or {"slots": []})
+
+    # Select the rule for length conversion based on basis
+    basis = work_rule["basis"]
+    unit = work_rule["unit"]
+    geo_len = geo.get("len", 0)
+
+    if basis == "Target":
+        # Convert element length to target units
+        src_eb = source_rule.get("elem_bytes", 1)
+        tgt_eb = target_rule.get("elem_bytes", 1)
+        if unit == "Elements":
+            target_len = (geo_len * src_eb) // tgt_eb
+        elif unit == "Bytes":
+            target_len = geo_len * src_eb
+        elif unit == "Bits":
+            target_len = max(1, (geo_len * src_eb * 8) // target_rule.get("elem_bits", tgt_eb * 8))
+        elif unit == "Words":
+            target_len = max(1, (geo_len * src_eb) // 8)
+        else:
+            target_len = (geo_len * src_eb) // tgt_eb
+        length = target_len
+        length_rule = target_rule
+    else:
+        length = _len_in_units(unit, geo_len, source_rule)
+        length_rule = source_rule
+
+    lane_bytes = isa.get("lane_bytes", {}).get(tier, 1) if isa else 1
+    fixture_vars = _fixture_vars({}, length_rule)
+    loss_bytes = _compute_loss_bytes(work_rule, lane_bytes, fixture_vars)
+    loss = _loss_in_units(unit, loss_bytes, length_rule)
+
+    iter_count = _work_iterations(work_rule, fixture_vars)
+
+    return iter_count * geo_count * (length - loss)
 
 
 def _validate_route_budgets(ledger: dict) -> None:
     """Generator check: reject a non-positive budget on an eligible nondegenerate case."""
+    isa = ledger.get("isa", {})
+    if not isa:
+        return  # Can't validate without ISA facts
     rules = _validate_rules(ledger)
     expanded = _expanded_with_overrides(ledger)
     wrules = ledger.get("work_rules", {})
@@ -831,38 +1169,67 @@ def _validate_route_budgets(ledger: dict) -> None:
                 if not wr:
                     continue
                 for geo_id, geo in sorted(geos.items()):
-                    if geo.get("len", 0) <= 0:
-                        continue  # degenerate
-                    if _work_budget(wr, geo, rule, req) <= 0:
+                    budget = _work_budget(wr, geo, rule, rule, req, isa)
+                    if budget <= 0:
                         _fail(f"obligation {oid!r} cell {key!r} geometry {geo_id!r}: "
-                              f"non-positive budget for work rule {wr_name!r}")
+                              f"non-positive budget for work rule {wr_name!r} (budget={budget})")
 
 
 def _validate_gf2_general(ledger: dict) -> None:
-    """Generator check: a General coefficient slot has no GF(2) value."""
+    """Generator check: every GF(2) obligation must have at least one valid pattern without General slots."""
     rules = _validate_rules(ledger)
     expanded = _expand_obligations(ledger, rules)
     coeffs = ledger.get("coefficient_patterns", {})
+
+    if not coeffs:
+        return  # No patterns to validate against
 
     for oid in sorted(expanded):
         call_name, rule_id = oid.split("@", 1)
         if not _callable_takes_coefficient(call_name):
             continue
         rule = rules.get(rule_id, {})
+        all_gf2 = True
+        has_any_fixture = False
         for fixture in rule.get("fixtures", []):
+            has_any_fixture = True
             if not _fixture_is_gf2(fixture):
+                all_gf2 = False
+                break
+        if not (all_gf2 and has_any_fixture):
+            continue
+        # This obligation is entirely over GF(2) fixtures — need at least one valid pattern
+        valid_cps = _valid_coeff_patterns_for_rule(coeffs, rule)
+        if not valid_cps:
+            _fail(f"GF(2) obligation {oid!r} has no valid coefficient patterns "
+                  f"(all patterns have General slots which GF(2) cannot use)")
+
+
+def _valid_coeff_patterns_for_rule(coeffs: dict, rule: dict) -> list[tuple[str, dict]]:
+    """Return valid coefficient patterns for a rule, filtering General from GF(2)."""
+    result: list[tuple[str, dict]] = []
+    for cp_name, cp in sorted(coeffs.items()):
+        if not isinstance(cp, dict):
+            continue
+        if _general_slot_count(cp) > 0:
+            # General only valid on non-GF(2) fixtures
+            gf2 = all(_fixture_is_gf2(f) for f in rule.get("fixtures", []))
+            if gf2:
                 continue
-            for cp_name, cp in coeffs.items():
-                if _general_slot_count(cp) > 0:
-                    _fail(f"General coefficient on GF(2) fixture "
-                          f"{fixture.get('id')!r} in obligation {oid!r} "
-                          f"(coefficient pattern {cp_name!r})")
+        result.append((cp_name, cp))
+    return result
 
 
 def _generate_cases(ledger: dict) -> str:
-    """Generate src/kernel/tests/routes/cases.rs content."""
+    """Generate src/kernel/tests/routes/cases.rs content.
+
+    Produces complete Case/Cell/Work tables per contract §3.
+    Cases using v4x in any cell go to CASES_SIMD512; rest to CASES.
+    """
+    isa = ledger.get("isa", {})
     _validate_gf2_general(ledger)
-    _validate_route_budgets(ledger)
+    if isa:
+        _validate_route_budgets(ledger)
 
     lines = [
         "// @generated by benches/simd_ledger.py; edit the ledger, not this file.",
@@ -876,22 +1243,88 @@ def _generate_cases(ledger: dict) -> str:
     ]
 
     rules = _validate_rules(ledger)
-    expanded = _expand_obligations(ledger, rules)
+    expanded = _expanded_with_overrides(ledger)
     geos = ledger.get("geometries", {})
     coeffs = ledger.get("coefficient_patterns", {})
     wrules = ledger.get("work_rules", {})
 
-    # Generate Work consts first.
-    work_consts: list[str] = []
-    for wr_name, wr in sorted(wrules.items()):
-        for fc in sorted(VALID_FEATURE_CONFIGS):
-            for req in sorted(VALID_REQUESTS):
-                if fc == "default" and req == "v4x":
-                    continue
-                work_consts.append(_work_rust(wr_name, wr, fc, req))
+    # Determine which obligations need simd512
+    simd512_oids: set[str] = set()
+    for oid, ob in sorted(expanded.items()):
+        for key, cell in sorted(ob.get("cells", {}).items()):
+            fc, req = key.split("/", 1)
+            process = cell.get("process", req)
+            field = cell.get("field", process)
+            if req == "v4x" or process == "v4x" or field == "v4x":
+                simd512_oids.add(oid)
+                break
+            if cell.get("min_serving") == "v4x":
+                simd512_oids.add(oid)
+                break
 
-    # Generate cases.
-    cases: list[str] = []
+    # Collect all needed work combinations
+    work_combos: dict[tuple[str, str, str], dict] = {}  # (wr_name, fc, req) -> work dict
+    for oid, ob in sorted(expanded.items()):
+        for key, cell in sorted(ob.get("cells", {}).items()):
+            fc, req = key.split("/", 1)
+            for wr_name in cell.get("work", []):
+                wr = wrules.get(wr_name)
+                if not wr:
+                    continue
+                combo_key = (wr_name, fc, req)
+                if combo_key not in work_combos:
+                    work_combos[combo_key] = {
+                        "wr_name": wr_name,
+                        "wr": wr,
+                        "fc": fc,
+                        "req": req,
+                    }
+
+    # Generate unique Work static items
+    work_statics: dict[tuple[str, str, str], str] = {}
+    for combo_key, combo in sorted(work_combos.items()):
+        wr_name = combo["wr_name"]
+        wr = combo["wr"]
+        fc = combo["fc"]
+        req = combo["req"]
+        substage = wr["substage"]
+        unit = wr["unit"]
+        basis = wr["basis"]
+        mult = wr["multiplicity"]
+
+        scope = wr.get("scope")
+        scope_expr = "None"
+        if scope:
+            scope_expr = f"Some((Scope::{scope['scope']}, Pass::{scope['pass']}))"
+
+        ident = _safe_ident(f"{wr_name}_{fc}_{req}")
+        work_statics[combo_key] = ident
+
+        # Compute lane and loss in the rule's unit for the appropriate fixture
+        lane_bytes = isa.get("lane_bytes", {}).get(req, 1) if isa else 1
+        # Use a representative fixture to compute lane/loss in correct unit
+        rep_rule = {"elem_bytes": 1}
+        lane = _lane_in_units(unit, lane_bytes, rep_rule)
+        loss_bytes = _compute_loss_bytes(wr, lane_bytes, {"elem_bytes": 1})
+        loss = _loss_in_units(unit, loss_bytes, rep_rule)
+        iterations = _work_iterations(wr)
+
+        lines.append(f"static WORK_{ident}: Work = Work {{")
+        lines.append(f"    substage: Substage::{substage},")
+        lines.append(f"    scope: {scope_expr},")
+        lines.append(f"    unit: Unit::{unit},")
+        lines.append(f"    basis: Basis::{basis},")
+        lines.append(f"    multiplicity: Multiplicity::{mult},")
+        lines.append(f"    lane: {lane},")
+        lines.append(f"    loss: {loss},")
+        lines.append(f"    iterations: {iterations},")
+        lines.append(f"}};")
+        lines.append("")
+
+    # Generate case tables
+    cases_lines: list[str] = []
+    cases_simd512_lines: list[str] = []
+
     for oid, ob in sorted(expanded.items()):
         call_name, rule_id = oid.split("@", 1)
         rule = rules.get(rule_id, {})
@@ -899,45 +1332,144 @@ def _generate_cases(ledger: dict) -> str:
 
         for fixture in fixtures:
             fid = fixture["id"]
-            for geo_id, geo_coeffs in sorted(geos.items()):
-                # Each geometry may associate specific coefficient patterns.
-                # For now, emit with a default pattern.
-                pass
+            # Valid coefficient patterns for this rule
+            valid_cps = _valid_coeff_patterns_for_rule(coeffs, rule)
 
-    # Simplified: emit work consts only for now (the full case table
-    # is owned by the runner worker per S0_CONTRACT.md §3).
-    return "\n".join(lines + work_consts) + "\n"
+            for geo_id, geo in sorted(geos.items()):
+                if geo.get("len", 0) <= 0:
+                    continue
+
+                for cp_name, cp in valid_cps:
+                    case_id = f"{oid}#{fid}/{geo_id}/{cp_name}"
+                    # Build cells array
+                    cell_entries: list[str] = []
+                    for key, cell in sorted(ob.get("cells", {}).items()):
+                        fc, req = key.split("/", 1)
+                        features = "Features::Default" if fc == "default" else "Features::All"
+                        request = f"Request::{_request_rust_name(req)}"
+                        process_backend = f"Backend::{_backend_rust_name(cell.get('process', req))}"
+                        field_backend = f"Backend::{_backend_rust_name(cell.get('field', cell.get('process', req)))}"
+                        required = "true" if cell.get("required") else "false"
+                        min_serving = f"Backend::{_backend_rust_name(cell['min_serving'])}"
+
+                        work_refs: list[str] = []
+                        for wr_name in cell.get("work", []):
+                            wr_key = (wr_name, fc, req)
+                            if wr_key in work_statics:
+                                work_refs.append(f"&WORK_{work_statics[wr_key]}")
+
+                        if work_refs:
+                            work_array = "&[" + ", ".join(work_refs) + "]"
+                        else:
+                            work_array = "&[]"
+
+                        cell_entry = (
+                            f"        Cell {{ features: {features}, request: {request}, "
+                            f"process: {process_backend}, field: {field_backend}, "
+                            f"required: {required}, min_serving: {min_serving}, "
+                            f"work: {work_array} }},"
+                        )
+                        cell_entries.append(cell_entry)
+
+                    # Build coefficients array
+                    coeff_entries: list[str] = []
+                    for slot in cp.get("slots", []):
+                        coeff_entries.append(f"Coeff::{slot}")
+
+                    # Build geometry
+                    rows = geo.get("rows", 1)
+                    sources = geo.get("sources", 1)
+                    length = geo.get("len", 0)
+                    misalign = geo.get("misalign", 0)
+                    pitch_pad = geo.get("pitch_pad", 0)
+                    geo_str = (f"Geometry {{ rows: {rows}, sources: {sources}, "
+                               f"len: {length}, misalign: {misalign}, "
+                               f"pitch_pad: {pitch_pad} }}")
+
+                    # Run function path
+                    ftype = fixture.get("type", "").replace("crate::", "crate::")
+                    run_fn = f"super::run_{_safe_ident(call_name)}::<{ftype}>"
+
+                    case_body = [
+                        f"    Case {{",
+                        f"        id: \"{case_id}\",",
+                        f"        obligation: \"{oid}\",",
+                        f"        run: {run_fn},",
+                        f"        geometry: {geo_str},",
+                        f"        coeffs: &[{', '.join(coeff_entries)}],",
+                        f"        cells: &[",
+                    ] + cell_entries + [
+                        f"        ],",
+                        f"    }},",
+                    ]
+
+                    if oid in simd512_oids:
+                        cases_simd512_lines.extend(case_body)
+                    else:
+                        cases_lines.extend(case_body)
+
+    # Emit CASES table
+    if cases_lines:
+        lines.append("#[cfg(all(test, target_arch = \"x86_64\", feature = \"simd\"))]")
+        lines.append("static CASES: &[Case] = &[")
+        lines.extend(cases_lines)
+        lines.append("];")
+        lines.append("")
+    else:
+        lines.append("#[cfg(all(test, target_arch = \"x86_64\", feature = \"simd\"))]")
+        lines.append("static CASES: &[Case] = &[];")
+        lines.append("")
+
+    # Emit CASES_SIMD512 table
+    if cases_simd512_lines:
+        lines.append("#[cfg(all(test, target_arch = \"x86_64\", feature = \"simd\", feature = \"simd512\"))]")
+        lines.append("static CASES_SIMD512: &[Case] = &[")
+        lines.extend(cases_simd512_lines)
+        lines.append("];")
+        lines.append("")
+    else:
+        lines.append("#[cfg(all(test, target_arch = \"x86_64\", feature = \"simd\", feature = \"simd512\"))]")
+        lines.append("static CASES_SIMD512: &[Case] = &[];")
+        lines.append("")
+
+    return "\n".join(lines) + "\n"
 
 
 def cmd_generate(out_path: Path, check: bool, ledger: dict) -> int:
     """Generate the route cases file or check byte identity."""
     content = _generate_cases(ledger)
 
+    # Format with rustfmt in-place for both modes.
+    with tempfile.NamedTemporaryFile(suffix=".rs", mode="w", delete=False) as tf:
+        tf.write(content)
+        tmp_path = Path(tf.name)
+
+    result = subprocess.run(
+        ["rustfmt", "--edition", "2024", str(tmp_path)],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        tmp_path.unlink(missing_ok=True)
+        _fail(f"generated file fails rustfmt: {result.stderr}")
+
+    formatted = tmp_path.read_text()
+    tmp_path.unlink()
+
     if check:
         if not out_path.is_file():
             _fail(f"{out_path} does not exist for --check")
         existing = out_path.read_text()
-        if existing != content:
+        if existing != formatted:
             _fail(f"{out_path} differs from generated output")
         return 0
 
-    out_path.write_text(content)
-
-    # Verify rustfmt.
-    result = subprocess.run(
-        ["rustfmt", "--check", "--edition", "2024", str(out_path)],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        _fail(f"generated file fails rustfmt: {result.stderr}")
-
+    out_path.write_text(formatted)
     return 0
 
 
 # ---------------------------------------------------------------------------
 # Accept command
 # ---------------------------------------------------------------------------
-
 
 def _expanded_with_overrides(ledger: dict) -> dict:
     """Return the expanded obligations with explicit ledger deviations merged."""
@@ -947,7 +1479,6 @@ def _expanded_with_overrides(ledger: dict) -> dict:
     if isinstance(explicit_obs, dict):
         for oid, ob in explicit_obs.items():
             if oid in expanded:
-                # Merge cells: an explicit cell overwrites the expanded cell.
                 for key, cell in ob.get("cells", {}).items():
                     expanded[oid]["cells"][key] = dict(
                         expanded[oid]["cells"].get(key, {}), **cell)
@@ -956,14 +1487,25 @@ def _expanded_with_overrides(ledger: dict) -> dict:
     return expanded
 
 
-def _required_obligations(expanded: dict, features: str, request: str) -> set[str]:
-    """Return obligations whose (features, request) cell is required."""
-    required: set[str] = set()
-    for oid, ob in expanded.items():
-        cell = ob.get("cells", {}).get(f"{features}/{request}", {})
-        if cell.get("required"):
-            required.add(oid)
-    return required
+def _expand_cases(ledger: dict, expanded: dict) -> set[str]:
+    """Return the set of all case IDs from the generated case table."""
+    rules = _validate_rules(ledger)
+    geos = ledger.get("geometries", {})
+    coeffs = ledger.get("coefficient_patterns", {})
+
+    case_ids: set[str] = set()
+    for oid, ob in sorted(expanded.items()):
+        call_name, rule_id = oid.split("@", 1)
+        rule = rules.get(rule_id, {})
+        for fixture in rule.get("fixtures", []):
+            fid = fixture["id"]
+            valid_cps = _valid_coeff_patterns_for_rule(coeffs, rule)
+            for geo_id, geo in sorted(geos.items()):
+                if geo.get("len", 0) <= 0:
+                    continue
+                for cp_name, _cp in valid_cps:
+                    case_ids.add(f"{oid}#{fid}/{geo_id}/{cp_name}")
+    return case_ids
 
 
 def cmd_accept(log: Path, features: str, request: str, source_id: str,
@@ -1011,8 +1553,24 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
         _fail("accept: reject request_mismatch")
 
     expanded = _expanded_with_overrides(ledger)
-    required_set = _required_obligations(expanded, features, request)
-    if not required_set:
+    all_case_ids = _expand_cases(ledger, expanded)
+
+    # Build required set: case ids whose obligation is required in the cell.
+    # When the ledger has no geometries/coefficient patterns, fall back to
+    # obligation-level required set (backward compatibility with test fixtures).
+    required_cases: set[str] = set()
+    required_oids: set[str] = set()
+    for oid, ob in expanded.items():
+        cell = ob.get("cells", {}).get(f"{features}/{request}", {})
+        if not cell.get("required"):
+            continue
+        required_oids.add(oid)
+        if all_case_ids:
+            for cid in all_case_ids:
+                if cid.startswith(oid + "#"):
+                    required_cases.add(cid)
+
+    if not required_oids and not required_cases:
         _fail("accept: reject no_required_obligations")
 
     # Duplicate receipt ids are rejected before the rest of the audit runs.
@@ -1027,40 +1585,57 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
         _fail(f"accept: reject duplicate_receipt {sorted(duplicate_ids)}")
 
     received_ids: set[str] = set()
+    received_oids: set[str] = set()
     for rec in receipts:
+        cid = rec.get("id", "")
         oid = rec.get("obligation", "")
-        received_ids.add(oid)
+        if "#" in cid and not oid:
+            oid = cid.split("#", 1)[0]
+        received_ids.add(cid)
+        received_oids.add(oid)
 
         if rec.get("source_id") != source_id:
-            _fail(f"accept: reject receipt_source_mismatch {oid}")
-        if rec.get("host_id") != host_id:
-            _fail(f"accept: reject receipt_host_mismatch {oid}")
-        if rec.get("features") != features:
-            _fail(f"accept: reject receipt_feature_mismatch {oid}")
-        if rec.get("request_raw") not in (request, None, ""):
-            _fail(f"accept: reject receipt_request_mismatch {oid}")
+            _fail(f"accept: reject receipt_source_mismatch {cid}")
 
-        # Process and field resolution must equal the ledger's expected cell;
-        # a downgraded host or a different field backend cannot claim.
+        if rec.get("host_id") != host_id:
+            _fail(f"accept: reject receipt_host_mismatch {cid}")
+
+        if rec.get("features") != features:
+            _fail(f"accept: reject receipt_feature_mismatch {cid}")
+
+        # request_raw must be a non-empty string
+        request_raw = rec.get("request_raw")
+        if not isinstance(request_raw, str) or not request_raw:
+            _fail(f"accept: reject receipt_request_mismatch {cid}")
+
+        if request_raw != request:
+            _fail(f"accept: reject receipt_request_mismatch {cid}")
+
+        # Process and field resolution must equal the ledger's expected cell.
         cell = expanded.get(oid, {}).get("cells", {}).get(f"{features}/{request}", {})
         if "process" in cell and rec.get("process") != cell["process"]:
-            _fail(f"accept: reject receipt_process_mismatch {oid}")
+            _fail(f"accept: reject receipt_process_mismatch {cid}")
         if "field" in cell and rec.get("field") != cell["field"]:
-            _fail(f"accept: reject receipt_field_mismatch {oid}")
+            _fail(f"accept: reject receipt_field_mismatch {cid}")
 
         result = rec.get("result")
-        if result is None:
-            _fail(f"accept: reject receipt_no_result {oid}")
+        if result is None or not isinstance(result, str):
+            _fail(f"accept: reject receipt_no_result {cid}")
 
-        if isinstance(result, str):
-            if result.startswith("fail"):
-                _fail(f"accept: reject fail_receipt {oid}")
-            elif result.startswith("skip"):
-                _fail(f"accept: reject skip_receipt {oid}")
-            elif not result.startswith("pass"):
-                _fail(f"accept: reject unknown_result {oid}")
+        # result must be exactly 'pass', 'fail', or 'skip'
+        if result == "pass":
+            pass
+        elif result.startswith("fail"):
+            _fail(f"accept: reject fail_receipt {cid}")
+        elif result.startswith("skip"):
+            _fail(f"accept: reject skip_receipt {cid}")
+        else:
+            _fail(f"accept: reject unknown_result {cid}")
 
-    missing = required_set - received_ids
+    if all_case_ids:
+        missing = required_cases - received_ids
+    else:
+        missing = required_oids - received_oids
     if missing:
         _fail(f"accept: reject missing_required {sorted(missing)}")
 
@@ -1071,16 +1646,13 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
 # Fixture compilation check
 # ---------------------------------------------------------------------------
 
-
 def cmd_fixtures(ledger: dict, out_dir: Path) -> int:
-    """Write a scratch crate with all fixture types and compile-check them
-    against FieldBuffer for bulk fields and prepared-object types for maps."""
+    """Write a scratch crate with all fixture types and compile-check them."""
     rules = _validate_rules(ledger)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Collect shipped types (not needing custom specs).
     shipped_types: set[str] = set()
-    map_fixtures: list[dict] = []  # (source_type, target_type, prepared_type_name)
+    map_fixtures: list[dict] = []
     custom_specs: list[dict] = []
 
     for rid, rule in sorted(rules.items()):
@@ -1094,9 +1666,6 @@ def cmd_fixtures(ledger: dict, out_dir: Path) -> int:
                     "spec": fix["needs_spec"],
                 })
             elif group == "map":
-                # Map fixtures have source/target pairs; construct the
-                # prepared object type (PreparedEmbedding, PreparedIsomorphism,
-                # or Frobenius) whose bounds enforce the trait checks.
                 kind = rule.get("kind", "")
                 src = fix.get("source", "")
                 tgt = fix.get("target", "")
@@ -1110,21 +1679,14 @@ def cmd_fixtures(ledger: dict, out_dir: Path) -> int:
                     continue
                 map_fixtures.append({"id": fix["id"], "source": src, "target": tgt, "prepared_type": ptype})
             elif group == "map_bits":
-                # map_bits fixtures have source/target pairs with
-                # PreparedEmbedding<source, target>.
-                fix_data = rule.get("fixture", fix)
-                src = fix_data.get("source", "")
-                tgt = fix_data.get("target", "")
+                src = fix.get("source", "")
+                tgt = fix.get("target", "")
                 if src and tgt:
                     ptype = f"fgf::PreparedEmbedding<{src.replace('crate::', 'fgf::')}, {tgt.replace('crate::', 'fgf::')}>"
-                    map_fixtures.append({"id": fix_data.get("id", ""), "source": src, "target": tgt, "prepared_type": ptype})
+                    map_fixtures.append({"id": fix.get("id", ""), "source": src, "target": tgt, "prepared_type": ptype})
             elif group == "packed" and rule.get("non_bulk"):
-                # Non-bulk storage markers (PackedPadded) are skipped in bulk checks.
                 pass
             else:
-                # Bulk field type: will be checked against FieldBuffer.
-                # Skip fixtures whose rules indicate sub-byte-aligned fields
-                # (degree < 8 binary flat) — they implement Field, not FieldBuffer.
                 if group == "binary_flat" and rid == "binary-flat-sub8":
                     continue
                 if group == "bits":
@@ -1133,7 +1695,6 @@ def cmd_fixtures(ledger: dict, out_dir: Path) -> int:
                 if ftype and "crate::" in ftype:
                     shipped_types.add(ftype)
 
-    # Write Cargo.toml
     cargo_toml = f"""[package]
 name = "ledger-fixtures"
 version = "0.0.0"
@@ -1145,19 +1706,15 @@ fgf = {{ path = "{Path(__file__).parent.parent}", features = ["alloc"] }}
 """
     (out_dir / "Cargo.toml").write_text(cargo_toml)
 
-    # Write src/main.rs
     src_dir = out_dir / "src"
     src_dir.mkdir(parents=True, exist_ok=True)
 
     main_lines = ["fn main() {"]
-
-    # FieldBuffer check for bulk types.
     main_lines.append("    fn _assert_field<T: fgf::FieldBuffer>() {}")
     for t in sorted(shipped_types):
         rust_type = t.replace("crate::", "fgf::")
         main_lines.append(f"    _assert_field::<{rust_type}>();")
 
-    # Prepared-object type check for maps (type-level trait enforcement).
     if map_fixtures:
         main_lines.append("")
         main_lines.append("    // Map fixtures: construct the prepared type to enforce trait bounds.")
@@ -1165,10 +1722,8 @@ fgf = {{ path = "{Path(__file__).parent.parent}", features = ["alloc"] }}
             main_lines.append(f"    let _ = std::mem::size_of::<{mf['prepared_type']}>();")
 
     main_lines.append("}")
-
     (src_dir / "main.rs").write_text("\n".join(main_lines) + "\n")
 
-    # Run cargo check.
     result = subprocess.run(
         ["cargo", "check"],
         cwd=str(out_dir),
@@ -1182,7 +1737,6 @@ fgf = {{ path = "{Path(__file__).parent.parent}", features = ["alloc"] }}
     if map_fixtures:
         print(f"  {len(map_fixtures)} map fixture prepared types checked")
 
-    # Report custom-spec fixtures.
     if custom_specs:
         print(f"\nCustom-spec fixtures the runner must define ({len(custom_specs)}):")
         for cs in custom_specs:
@@ -1197,7 +1751,6 @@ fgf = {{ path = "{Path(__file__).parent.parent}", features = ["alloc"] }}
 # Main
 # ---------------------------------------------------------------------------
 
-
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--ledger", type=Path,
@@ -1205,11 +1758,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                         help="path to ledger JSON (default: the file next to this script)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # inventory
     inv = sub.add_parser("inventory", help="classify every callable")
     inv.add_argument("--rustdoc", type=Path, required=True)
 
-    # check
     chk = sub.add_parser("check", help="validate ledger")
     chk.add_argument("--schema-only", action="store_true",
                      help="schema only, no inventory resolution")
@@ -1222,14 +1773,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     chk.add_argument("--records", type=Path, default=None,
                      help="bench-records/routes directory (required if evidence cited)")
 
-    # generate
     gen = sub.add_parser("generate", help="emit route cases file")
     gen.add_argument("--out", type=Path, required=True,
                      help="output path for cases.rs")
     gen.add_argument("--check", action="store_true",
                      help="check byte identity against existing file")
 
-    # accept
     acc = sub.add_parser("accept", help="fail-closed receipt audit")
     acc.add_argument("--log", type=Path, required=True)
     acc.add_argument("--features", required=True, choices=["default", "all"])
@@ -1237,13 +1786,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     acc.add_argument("--source-id", required=True)
     acc.add_argument("--host-id", required=True)
 
-    # fixtures
     fix = sub.add_parser("fixtures", help="write scratch crate and compile-check")
     fix.add_argument("--out", type=Path, required=True,
                      help="output directory for scratch crate")
 
     args = parser.parse_args(argv)
-
     ledger_path = args.ledger
 
     try:
