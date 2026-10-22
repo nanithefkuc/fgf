@@ -198,6 +198,46 @@ fn assert_vector_work(tier: crate::kernel::Backend) {
     );
 }
 
+/// Assert the summed work of trace entries at exactly `tier` lies in
+/// `[min, max]`, and the summed work of all entries (any tier) is at most
+/// `max` — catching double counting and overcounting.
+///
+/// # Panics
+///
+/// Panics if `min` is zero, or if either bound is violated.
+#[allow(dead_code)]
+#[track_caller]
+fn assert_vector_work_in(tier: crate::kernel::Backend, min: usize, max: usize) {
+    assert!(min > 0, "min must be > 0 to prove positive work");
+    let entries = crate::kernel::trace::snapshot();
+    let tier_work: usize = entries
+        .iter()
+        .filter(|e| e.tier == tier)
+        .map(|e| e.work)
+        .sum();
+    let total_work: usize = entries.iter().map(|e| e.work).sum();
+    assert!(
+        tier_work >= min,
+        "expected at least {min} units of work at tier {}, got {tier_work} \
+         ({} entries, total work {total_work})",
+        tier.name(),
+        entries.len(),
+    );
+    assert!(
+        tier_work <= max,
+        "work at tier {} exceeded upper bound: {tier_work} > {max} \
+         ({} entries, total work {total_work})",
+        tier.name(),
+        entries.len(),
+    );
+    assert!(
+        total_work <= max,
+        "total work over all tiers exceeded upper bound: {total_work} > {max} \
+         ({} entries)",
+        entries.len(),
+    );
+}
+
 /// Whether the host resolves to one of the tiers in `supported` — the shared
 /// substitute for the crate's old `std::is_*_feature_detected!` test gates.
 ///
@@ -3288,6 +3328,7 @@ mod x86 {
             let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>>> = (0..nterms)
                 .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<RS>(t, j)).collect())
                 .collect();
+            #[allow(clippy::type_complexity)]
             let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<RS>>>], &[u8])> = coeff_sets
                 .iter()
                 .zip(&sources)
