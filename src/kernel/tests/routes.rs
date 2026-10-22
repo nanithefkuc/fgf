@@ -1451,6 +1451,16 @@ mod tests {
     }
 
     const EMPTY: &[Coeff] = &[];
+    const GATHER_STAGE: &[Work] = &[Work {
+        substage: Substage::BitXor,
+        scope: None,
+        unit: Unit::Bits,
+        basis: Basis::Source,
+        multiplicity: Multiplicity::ActiveRows,
+        lane: 1,
+        loss: 0,
+        iterations: 1,
+    }];
     const GATHER_GEO: Geometry = Geometry {
         rows: 8,
         sources: 8,
@@ -1509,7 +1519,7 @@ mod tests {
             field: Backend::Scalar,
             required: true,
             min_serving: Backend::Scalar,
-            work: WORK,
+            work: GATHER_STAGE,
         };
         assert!(!judge(&GATHER_CASE, &cell, &outcome).detail.is_empty());
     }
