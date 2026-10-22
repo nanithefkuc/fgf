@@ -2,9 +2,12 @@
 //!
 //! Emission sites are `#[cfg(test)]` statements placed after the vector loop
 //! they describe. Zero vector work emits nothing. Every entry records the
-//! instruction tier of the loop that ran, semantic substage, unit kind, and
-//! innermost enclosing scope. The trace does not influence dispatch or control
-//! flow and carries no production counters.
+//! instruction tier of the loop that ran, the semantic substage, the unit
+//! kind, and the innermost active `(scope, pass)` pair. Each independently
+//! required pass of a composed operation opens its own `scope(…, pass)` guard
+//! so that emissions from different passes carry different keys. The trace
+//! does not influence dispatch or control flow and carries no production
+//! counters.
 
 extern crate std;
 
@@ -61,6 +64,19 @@ pub(crate) enum Scope {
     Membership,
 }
 
+/// Independently required pass inside a semantic scope.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[allow(dead_code)]
+pub(crate) enum Pass {
+    Main,
+    Prefix,
+    Backward,
+    Output,
+    Conjugate,
+    Accumulate,
+    Project,
+}
+
 /// One recorded stretch of vector work.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Entry {
@@ -68,8 +84,8 @@ pub(crate) struct Entry {
     pub kernel: &'static str,
     /// Semantic substage of the arithmetic.
     pub substage: Substage,
-    /// Innermost enclosing scope at emission, if any.
-    pub scope: Option<Scope>,
+    /// Innermost active scope and pass at emission, if any.
+    pub scope: Option<(Scope, Pass)>,
     /// Meaning of `work`.
     pub unit: Unit,
     /// Work the vector loop processed; always positive.
@@ -80,7 +96,7 @@ pub(crate) struct Entry {
 
 std::thread_local! {
     static ENTRIES: RefCell<Vec<Entry>> = const { RefCell::new(Vec::new()) };
-    static SCOPE: RefCell<Vec<Scope>> = const { RefCell::new(Vec::new()) };
+    static SCOPE: RefCell<Vec<(Scope, Pass)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Discard this thread's recorded entries and scope path.
@@ -118,12 +134,12 @@ pub(crate) fn snapshot() -> Vec<Entry> {
     ENTRIES.with(|entries| entries.borrow().clone())
 }
 
-/// Push a semantic enclosing-operation scope until the returned guard drops.
+/// Push a semantic scope and pass until the returned guard drops.
 ///
-/// The guard pops the scope on drop, including during unwind.
+/// The guard pops the `(scope, pass)` pair on drop, including during unwind.
 #[must_use]
-pub(crate) fn scope(scope: Scope) -> ScopeGuard {
-    SCOPE.with(|scopes| scopes.borrow_mut().push(scope));
+pub(crate) fn scope(scope: Scope, pass: Pass) -> ScopeGuard {
+    SCOPE.with(|scopes| scopes.borrow_mut().push((scope, pass)));
     ScopeGuard {}
 }
 
@@ -156,6 +172,7 @@ pub(crate) fn strength(tier: Backend) -> u8 {
 mod tests {
     extern crate std;
 
+    use super::Pass;
     use super::Scope;
     use super::{Backend, Unit, clear, emit, scope, snapshot, strength};
 
@@ -198,10 +215,10 @@ mod tests {
     #[test]
     fn scope_attaches_innermost_and_pops_on_drop() {
         clear();
-        let _outer = scope(Scope::Inverse);
+        let _outer = scope(Scope::Inverse, Pass::Main);
         emit("k", super::Substage::Mul, Unit::Elements, 4, Backend::V3);
         {
-            let _inner = scope(Scope::Frobenius);
+            let _inner = scope(Scope::Frobenius, Pass::Prefix);
             emit(
                 "k",
                 super::Substage::MulAdd,
@@ -213,24 +230,24 @@ mod tests {
         emit("k", super::Substage::Add, Unit::Elements, 2, Backend::V2);
         let entries = snapshot();
         assert_eq!(entries.len(), 3);
-        assert_eq!(entries[0].scope, Some(Scope::Inverse));
-        assert_eq!(entries[1].scope, Some(Scope::Frobenius));
-        assert_eq!(entries[2].scope, Some(Scope::Inverse));
+        assert_eq!(entries[0].scope, Some((Scope::Inverse, Pass::Main)));
+        assert_eq!(entries[1].scope, Some((Scope::Frobenius, Pass::Prefix)));
+        assert_eq!(entries[2].scope, Some((Scope::Inverse, Pass::Main)));
     }
 
     #[test]
     fn scope_pops_on_unwind() {
         clear();
         let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _guard = scope(Scope::Inverse);
+            let _guard = scope(Scope::Inverse, Pass::Main);
             emit("k", super::Substage::Mul, Unit::Elements, 4, Backend::V3);
             panic!("unwind through active scope guard");
         }));
         assert!(caught.is_err());
-        // Emission inside the guarded body was recorded with the scope.
+        // Emission inside the guarded body was recorded with the scope/pass.
         let entries = snapshot();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].scope, Some(Scope::Inverse));
+        assert_eq!(entries[0].scope, Some((Scope::Inverse, Pass::Main)));
         // Post-unwind emission has no scope: the guard dropped during unwind.
         emit("k", super::Substage::Add, Unit::Elements, 2, Backend::V2);
         let entries = snapshot();
