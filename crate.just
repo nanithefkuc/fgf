@@ -925,12 +925,10 @@ route-accept-negative REQUEST:
         }
         expect_reject fail_receipt "$log" "$scratch/fault-$fault.err"
     done
+    # Omitting a receipt leaves the runner's verdict untouched; the audit
+    # must reject the shortened log.
     drop="$scratch/fault-drop-receipt.log"
-    rc=$(run_negative "{{REQUEST}}" drop-receipt "$drop" negative)
-    [[ "$rc" -ne 0 ]] || {
-        printf 'route_accept_negative: drop-receipt was not rejected\n' >&2
-        exit 1
-    }
+    run_negative "{{REQUEST}}" drop-receipt "$drop" negative >/dev/null
     expect_reject count_mismatch "$drop" "$scratch/fault-drop-receipt.err"
     case "{{REQUEST}}" in
         v4x) lower=v3_gfni_crypto ;;
