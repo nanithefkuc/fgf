@@ -55,6 +55,14 @@ pub fn xor_avx512(token: archmage::X64V4Token, dst: &mut [u8], src: &[u8]) {
             _mm512_storeu_si512(dst_lane, _mm512_xor_si512(d, s));
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "bytes.avx512.xor",
+        crate::kernel::trace::Substage::Add,
+        crate::kernel::trace::Unit::Bytes,
+        dst_tiles.len() * 256,
+        crate::kernel::Backend::V4x,
+    );
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<64>();
     let (src_lanes, src_tail) = src_rest.as_chunks::<64>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
@@ -62,6 +70,14 @@ pub fn xor_avx512(token: archmage::X64V4Token, dst: &mut [u8], src: &[u8]) {
         let s = _mm512_loadu_si512(src_lane);
         _mm512_storeu_si512(dst_lane, _mm512_xor_si512(d, s));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "bytes.avx512.xor",
+        crate::kernel::trace::Substage::Add,
+        crate::kernel::trace::Unit::Bytes,
+        dst_lanes.len() * 64,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         xor_avx2(token.v3(), dst_tail, src_tail);
     }
@@ -82,10 +98,26 @@ pub fn count_ones_avx512(_token: archmage::X64V4xToken, buf: &[u8]) -> u64 {
             *slot = _mm512_add_epi64(*slot, _mm512_popcnt_epi64(_mm512_loadu_si512(lane)));
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "bytes.avx512.count_ones",
+        crate::kernel::trace::Substage::BitWeight,
+        crate::kernel::trace::Unit::Bytes,
+        tiles.len() * 256,
+        crate::kernel::Backend::V4x,
+    );
     let (lanes, tail) = rest.as_chunks::<64>();
     for lane in lanes {
         acc[0] = _mm512_add_epi64(acc[0], _mm512_popcnt_epi64(_mm512_loadu_si512(lane)));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "bytes.avx512.count_ones",
+        crate::kernel::trace::Substage::BitWeight,
+        crate::kernel::trace::Unit::Bytes,
+        lanes.len() * 64,
+        crate::kernel::Backend::V4x,
+    );
     let sum = _mm512_add_epi64(
         _mm512_add_epi64(acc[0], acc[1]),
         _mm512_add_epi64(acc[2], acc[3]),

@@ -107,6 +107,14 @@ pub fn mul_add_avx512(token: archmage::X64V4xToken, dst: &mut [u8], coeff: Tower
             _mm512_storeu_si512(dlane, _mm512_xor_si512(old, product));
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx512.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dtiles.len() * 32,
+        crate::kernel::Backend::V4x,
+    );
     let (dlanes, drest) = dmid.as_chunks_mut::<64>();
     let (slanes, srest) = smid.as_chunks::<64>();
     for (d, s) in dlanes.iter_mut().zip(slanes) {
@@ -117,6 +125,14 @@ pub fn mul_add_avx512(token: archmage::X64V4xToken, dst: &mut [u8], coeff: Tower
             _mm512_xor_si512(old, scale(x, _mm512_shuffle_epi8(x, swap), same, cross)),
         );
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx512.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dlanes.len() * 32,
+        crate::kernel::Backend::V4x,
+    );
     if !drest.is_empty() {
         gfni::mul_add_gfni(token.v3_gfni_crypto(), drest, coeff, srest);
     }
@@ -135,10 +151,20 @@ pub fn mul_assign_avx512(token: archmage::X64V4xToken, dst: &mut [u8], coeff: To
     let (same, cross) = factors(coeff);
     let swap = swap_mask();
     let (lanes, rest) = dst.as_chunks_mut::<64>();
+    #[cfg(test)]
+    let __nlanes = lanes.len() * 32;
     for lane in lanes {
         let x = _mm512_loadu_si512(&*lane);
         _mm512_storeu_si512(lane, scale(x, _mm512_shuffle_epi8(x, swap), same, cross));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx512.mul_assign",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        __nlanes,
+        crate::kernel::Backend::V4x,
+    );
     gfni::mul_assign_gfni(token.v3_gfni_crypto(), rest, coeff);
 }
 
@@ -178,6 +204,14 @@ pub fn mul_into_avx512(
         let x = _mm512_loadu_si512(s);
         _mm512_storeu_si512(d, scale(x, _mm512_shuffle_epi8(x, swap), same, cross));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx512.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        dlanes.len() * 32,
+        crate::kernel::Backend::V4x,
+    );
     gfni::mul_into_gfni(token.v3_gfni_crypto(), drest, coeff, srest);
 }
 
@@ -242,6 +276,14 @@ pub fn mul_elementwise_avx512(
             ),
         );
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx512.mul_elementwise",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dlanes.len() * 32,
+        crate::kernel::Backend::V4x,
+    );
     gfni::mul_elementwise_gfni(
         token.v3_gfni_crypto(),
         drest,
@@ -288,6 +330,14 @@ pub fn mul_elementwise_assign_avx512(
         let x = _mm512_loadu_si512(&*d);
         _mm512_storeu_si512(d, multiply(x, _mm512_loadu_si512(s), swap, even, delta));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx512.mul_elementwise_assign",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dlanes.len() * 32,
+        crate::kernel::Backend::V4x,
+    );
     gfni::mul_elementwise_assign_gfni(token.v3_gfni_crypto(), drest, srest, b_raw, reduction);
 }
 

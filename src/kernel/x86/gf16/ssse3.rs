@@ -122,6 +122,22 @@ pub fn mul_add_ssse3(
         let d = _mm_loadu_si128(&*dst_lane);
         _mm_storeu_si128(dst_lane, _mm_xor_si128(d, scale_ssse3(x, &vectors)));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.ssse3.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V2,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.ssse3.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V2,
+    );
     mul_add_scalar(dst_tail, tables, src_tail);
 }
 
@@ -177,6 +193,22 @@ pub fn mul_into_ssse3(
         let x = _mm_loadu_si128(src_lane);
         _mm_storeu_si128(dst_lane, scale_ssse3(x, &vectors));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.ssse3.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V2,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.ssse3.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V2,
+    );
     mul_into_scalar(dst_tail, tables, src_tail);
 }
 
@@ -608,6 +640,22 @@ pub fn mul_elementwise_ssse3(
         );
         _mm_storeu_si128(dst_lane, product);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.ssse3.mul_elementwise",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V2,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.ssse3.mul_elementwise",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V2,
+    );
     for (d, (x, y)) in dst_rest
         .chunks_exact_mut(2)
         .zip(a_rest.chunks_exact(2).zip(b_rest.chunks_exact(2)))
@@ -663,6 +711,22 @@ pub fn mul_elementwise_assign_ssse3(
         );
         _mm_storeu_si128(dst_lane, product);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.ssse3.mul_elementwise_assign",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V2,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.ssse3.mul_elementwise_assign",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V2,
+    );
     for (d, y) in dst_rest.chunks_exact_mut(2).zip(src_rest.chunks_exact(2)) {
         let product = tail_product([d[0], d[1]], [y[0], y[1]], delta.coeff, reduction);
         d.copy_from_slice(&product);

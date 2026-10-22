@@ -92,6 +92,14 @@ pub(in crate::kernel::x86::gf8) fn mul_add_gfni_impl<const NATIVE: bool, S: Body
         _mm256_storeu_si256(&mut d[2], r2);
         _mm256_storeu_si256(&mut d[3], r3);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_tiles.len() * 32,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
 
     let (dst_lanes, dst_rest) = dst_mid.as_chunks_mut::<32>();
     let (src_lanes, src_rest) = src_mid.as_chunks::<32>();
@@ -101,6 +109,14 @@ pub(in crate::kernel::x86::gf8) fn mul_add_gfni_impl<const NATIVE: bool, S: Body
         let r = _mm256_xor_si256(d, bmul_gfni::<NATIVE>(x, factor));
         _mm256_storeu_si256(dlane, r);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 32,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     let (dst16, dst_tail) = dst_rest.as_chunks_mut::<16>();
     let (src16, src_tail) = src_rest.as_chunks::<16>();
     for (d16, s16) in dst16.iter_mut().zip(src16) {
@@ -109,6 +125,14 @@ pub(in crate::kernel::x86::gf8) fn mul_add_gfni_impl<const NATIVE: bool, S: Body
         let r = _mm_xor_si128(d, bmul_half_gfni::<NATIVE>(x, factor_half));
         _mm_storeu_si128(d16, r);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst16.len() * 32,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
 
     mul_add_nibble(dst_tail, coeff.table, src_tail);
 }
@@ -150,10 +174,20 @@ pub(in crate::kernel::x86::gf8) fn mul_assign_gfni_impl<const NATIVE: bool, S: B
     // In-place scaling is store-bound and rare next to the AXPY shapes, so
     // one accumulator is enough; the loads have no dependency to cover.
     let (lanes, rest) = dst.as_chunks_mut::<32>();
+    #[cfg(test)]
+    let __nlanes = lanes.len() * 32;
     for lane in lanes {
         let d = _mm256_loadu_si256(&*lane);
         _mm256_storeu_si256(lane, bmul_gfni::<NATIVE>(d, factor));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.mul_assign",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        __nlanes,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     let (sixteens, tail) = rest.as_chunks_mut::<16>();
     for s16 in sixteens {
         let d = _mm_loadu_si128(&*s16);
@@ -275,12 +309,28 @@ pub(in crate::kernel::x86::gf8) fn mul_into_gfni_impl<
         let x = _mm256_loadu_si256(slane);
         _mm256_storeu_si256(dlane, bmul_gfni::<NATIVE>(x, factor));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 32,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     let (dst16, dst_tail) = dst_mid2.as_chunks_mut::<16>();
     let (src16, src_tail) = src_mid2.as_chunks::<16>();
     for (d16, s16) in dst16.iter_mut().zip(src16) {
         let x = _mm_loadu_si128(s16);
         _mm_storeu_si128(d16, bmul_half_gfni::<NATIVE>(x, factor_half));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        dst16.len() * 32,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
 
     mul_into_nibble(dst_tail, coeff.table, src_tail);
 }

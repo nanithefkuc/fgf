@@ -85,6 +85,14 @@ pub(super) fn mul_add_avx512_impl<S: BodySite>(dst: &mut [u8], coeff: Prepared, 
         _mm512_storeu_si512(&mut d[2], r2);
         _mm512_storeu_si512(&mut d[3], r3);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_tiles.len() * 64,
+        crate::kernel::Backend::V4x,
+    );
 
     let (dst_lanes, dst_rest) = dst_mid.as_chunks_mut::<64>();
     let (src_lanes, src_rest) = src_mid.as_chunks::<64>();
@@ -94,6 +102,14 @@ pub(super) fn mul_add_avx512_impl<S: BodySite>(dst: &mut [u8], coeff: Prepared, 
         let r = _mm512_xor_si512(d, bmul_avx512(x, factor));
         _mm512_storeu_si512(dlane, r);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 64,
+        crate::kernel::Backend::V4x,
+    );
 
     mul_add_gfni_impl::<false, PeelBody>(dst_rest, coeff, src_rest);
 }
@@ -124,10 +140,20 @@ pub fn mul_assign_avx512(_token: archmage::X64V4xToken, dst: &mut [u8], coeff: P
         _mm512_storeu_si512(&mut d[3], bmul_avx512(d3, factor));
     }
     let (lanes, tail) = rest.as_chunks_mut::<64>();
+    #[cfg(test)]
+    let __nlanes = lanes.len() * 64;
     for lane in lanes {
         let d = _mm512_loadu_si512(&*lane);
         _mm512_storeu_si512(lane, bmul_avx512(d, factor));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.mul_assign",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        __nlanes,
+        crate::kernel::Backend::V4x,
+    );
 
     // The 32/16-byte and sub-lane tail: the AVX2 ladder below 64 bytes. The
     // tail is shorter than one half-lane peel, so that body takes no head.
@@ -192,6 +218,14 @@ pub fn mul_into_avx512(_token: archmage::X64V4xToken, dst: &mut [u8], coeff: Pre
         let x = _mm512_loadu_si512(slane);
         _mm512_storeu_si512(dlane, bmul_avx512(x, factor));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 64,
+        crate::kernel::Backend::V4x,
+    );
 
     // The temporal AVX2 descent below 64 bytes: no prefetch and no streaming
     // stores, which route past the streaming threshold to the AVX2 body.

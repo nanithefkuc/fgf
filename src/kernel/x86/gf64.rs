@@ -207,6 +207,14 @@ pub fn mul_add_gfni(
         let d = _mm256_loadu_si256(&*dst_lane);
         _mm256_storeu_si256(dst_lane, _mm256_xor_si256(d, r));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf64.gfni.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        lanes.len() * 4,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     // Every 32-byte lane is a whole number of 8-byte elements, so the tail
     // starts on an element boundary.
     scalar::mul_add::<Rijndael64Field>(dst_tail, coeff, src_tail);
@@ -236,6 +244,14 @@ pub fn mul_assign_gfni(
         let r = scale64(x, &l);
         _mm256_storeu_si256(dst_lane, r);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf64.gfni.mul_assign",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        lanes.len() * 4,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     scalar::mul_assign::<Rijndael64Field>(dst_tail, coeff);
 }
 
@@ -275,6 +291,14 @@ pub fn mul_into_gfni(
         let r = scale64(x, &l);
         _mm256_storeu_si256(dst_lane, r);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf64.gfni.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        lanes.len() * 4,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its
     // own source, so seeding it with `src` first matches the fused body.
     dst_tail.copy_from_slice(src_tail);

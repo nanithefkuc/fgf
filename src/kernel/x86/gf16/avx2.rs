@@ -128,6 +128,22 @@ pub fn mul_add_avx2(
         let d = _mm256_loadu_si256(&*dst_lane);
         _mm256_storeu_si256(dst_lane, _mm256_xor_si256(d, scale_avx2(x, &vectors)));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx2.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx2.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3,
+    );
     // One 128-bit step down before the scalar tail. SSSE3 is implied by AVX2,
     // so the 16-byte helpers are callable here; their tables are narrowed
     // only when the step is actually taken.
@@ -140,6 +156,22 @@ pub fn mul_add_avx2(
             let d = _mm_loadu_si128(&*dst_lane);
             _mm_storeu_si128(dst_lane, _mm_xor_si128(d, scale_ssse3(x, &narrow)));
         }
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf16.avx2.mul_add",
+            crate::kernel::trace::Substage::MulAdd,
+            crate::kernel::trace::Unit::Elements,
+            dst_lanes.len() * 16,
+            crate::kernel::Backend::V3,
+        );
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf16.avx2.mul_add",
+            crate::kernel::trace::Substage::MulAdd,
+            crate::kernel::trace::Unit::Elements,
+            dst_lanes.len() * 16,
+            crate::kernel::Backend::V3,
+        );
     }
     // Both steps above are a whole number of elements, so the tail starts on
     // an element boundary.
@@ -237,6 +269,22 @@ fn mul_into_impl<const NT: bool>(dst: &mut [u8], tables: &TowerTables, src: &[u8
         //       when `NT`.
         unsafe { store_avx2::<NT>(dst_lane.as_mut_ptr(), scale_avx2(x, &vectors)) };
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx2.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx2.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3,
+    );
     // One 128-bit step down before the scalar tail. SSSE3 is implied by AVX2,
     // so the 16-byte helpers are callable here; their tables are narrowed
     // only when the step is actually taken.
@@ -248,6 +296,22 @@ fn mul_into_impl<const NT: bool>(dst: &mut [u8], tables: &TowerTables, src: &[u8
             let x = _mm_loadu_si128(src_lane);
             _mm_storeu_si128(dst_lane, scale_ssse3(x, &narrow));
         }
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf16.avx2.mul_into",
+            crate::kernel::trace::Substage::Mul,
+            crate::kernel::trace::Unit::Elements,
+            dst_lanes.len() * 16,
+            crate::kernel::Backend::V3,
+        );
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf16.avx2.mul_into",
+            crate::kernel::trace::Substage::Mul,
+            crate::kernel::trace::Unit::Elements,
+            dst_lanes.len() * 16,
+            crate::kernel::Backend::V3,
+        );
     }
     // Both steps above are a whole number of elements, so the tail starts on
     // an element boundary.
@@ -478,6 +542,22 @@ pub fn mul_elementwise_avx2(
         );
         _mm256_storeu_si256(dst_lane, product);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx2.mul_elementwise",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx2.mul_elementwise",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3,
+    );
     // AVX2 implies SSSE3, and the remainders keep equal lengths.
     mul_elementwise_ssse3(token.v2(), dst_rest, a_rest, b_rest, delta, reduction);
 }
@@ -532,6 +612,22 @@ pub fn mul_elementwise_assign_avx2(
         );
         _mm256_storeu_si256(dst_lane, product);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx2.mul_elementwise_assign",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.avx2.mul_elementwise_assign",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3,
+    );
     // AVX2 implies SSSE3, and the remainders keep equal lengths.
     mul_elementwise_assign_ssse3(token.v2(), dst_rest, src_rest, delta, reduction);
 }

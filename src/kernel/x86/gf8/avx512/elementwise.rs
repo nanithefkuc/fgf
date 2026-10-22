@@ -50,6 +50,22 @@ pub fn mul_elementwise_avx512<const NATIVE: bool>(
         let y = _mm512_loadu_si512(blane);
         _mm512_storeu_si512(dlane, multiply_vectors::<NATIVE>(x, y, iso));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.mul_elementwise",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 64,
+        crate::kernel::Backend::V4x,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.mul_elementwise",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 64,
+        crate::kernel::Backend::V4x,
+    );
     mul_elementwise_gfni::<NATIVE>(
         token.v3_gfni_crypto(),
         iso,
@@ -84,6 +100,22 @@ pub fn mul_elementwise_assign_avx512<const NATIVE: bool>(
         let y = _mm512_loadu_si512(slane);
         _mm512_storeu_si512(dlane, multiply_vectors::<NATIVE>(x, y, iso));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.mul_elementwise_assign",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 64,
+        crate::kernel::Backend::V4x,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.mul_elementwise_assign",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 64,
+        crate::kernel::Backend::V4x,
+    );
     mul_elementwise_assign_gfni::<NATIVE>(
         token.v3_gfni_crypto(),
         iso,

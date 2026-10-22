@@ -71,6 +71,22 @@ fn mul_add_tail(dst: &mut [u8], coeff: TowerCoeff, src: &[u8]) {
     for (d, &s) in dst.iter_mut().zip(&scaled[..src.len()]) {
         *d ^= s;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_add_tail",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_add_tail",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
 }
 
 /// `dst = coeff * dst` for the sub-lane remainder of [`mul_assign_gfni`].
@@ -178,6 +194,22 @@ fn mul_add_impl(dst: &mut [u8], coeff: TowerCoeff, src: &[u8]) {
             _mm256_storeu_si256(dst_lane, _mm256_xor_si256(d, p));
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_tiles.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_tiles.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     let (dst_lanes, dst_rest) = dst_rest.as_chunks_mut::<32>();
     let (src_lanes, src_rest) = src_rest.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
@@ -186,6 +218,22 @@ fn mul_add_impl(dst: &mut [u8], coeff: TowerCoeff, src: &[u8]) {
         let d = _mm256_loadu_si256(&*dst_lane);
         _mm256_storeu_si256(dst_lane, _mm256_xor_si256(d, p));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     // One 128-bit step down before the scalar tail. The casts are register
     // aliases, not instructions: the low half of a broadcast is the same
     // broadcast.
@@ -197,6 +245,22 @@ fn mul_add_impl(dst: &mut [u8], coeff: TowerCoeff, src: &[u8]) {
         let d = _mm_loadu_si128(&*dst_lane);
         _mm_storeu_si128(dst_lane, _mm_xor_si128(d, p));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     // Every step above is a whole number of elements, so the tail starts on
     // an element boundary. The `black_box`ed function pointer keeps the tail
     // out of line, so this body carries no staging arrays.
@@ -370,6 +434,22 @@ fn mul_into_impl<const NT: bool>(dst: &mut [u8], coeff: TowerCoeff, src: &[u8]) 
             //        requirement when `NT`.
             unsafe { store_avx2::<NT>(dst_lane.as_mut_ptr(), p) };
         }
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf16.gfni.mul_into",
+            crate::kernel::trace::Substage::Mul,
+            crate::kernel::trace::Unit::Elements,
+            dst_lanes.len() * 16,
+            crate::kernel::Backend::V3GfniCrypto,
+        );
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf16.gfni.mul_into",
+            crate::kernel::trace::Substage::Mul,
+            crate::kernel::trace::Unit::Elements,
+            dst_lanes.len() * 16,
+            crate::kernel::Backend::V3GfniCrypto,
+        );
         dst_rest_tiles = dst_next;
         src_rest_tiles = src_next;
     }
@@ -380,6 +460,22 @@ fn mul_into_impl<const NT: bool>(dst: &mut [u8], coeff: TowerCoeff, src: &[u8]) 
         let p = scale_gfni(x, _mm256_shuffle_epi8(x, swap), same, cross);
         _mm256_storeu_si256(dst_lane, p);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     // One 128-bit step down before the scalar tail; the casts are register
     // aliases, not instructions.
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<16>();
@@ -394,6 +490,22 @@ fn mul_into_impl<const NT: bool>(dst: &mut [u8], coeff: TowerCoeff, src: &[u8]) 
         let p = scale_half(x, _mm_shuffle_epi8(x, swap_half), same_half, cross_half);
         _mm_storeu_si128(dst_lane, p);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     // Every step above is a whole number of elements, so the tail starts on
     // an element boundary. The `black_box`ed function pointer keeps the tail
     // out of line, so this body carries no staging arrays.

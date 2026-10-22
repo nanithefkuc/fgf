@@ -91,6 +91,14 @@ fn gather_tiles(dst: &mut [u8], coeffs: &(impl Coeffs + ?Sized), srcs: &[&[u8]],
         _mm512_storeu_si512(&mut dl[3], acc[3]);
         offset += 256;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.gather",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        offset * coeffs.count(),
+        crate::kernel::Backend::V4x,
+    );
 }
 
 /// The single-source AXPY remainder over what no tile covered.
