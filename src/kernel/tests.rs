@@ -4521,6 +4521,7 @@ mod x86 {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_lines)]
     fn drive_prime<F: crate::field::FieldBuffer, C: Copy + core::fmt::Debug>(
         lens: &[usize],
         coeffs: &[C],
@@ -4535,6 +4536,7 @@ mod x86 {
         addscalar: impl Fn(&mut [u8], C),
         subscalar: impl Fn(&mut [u8], C),
         label: &str,
+        tier: Backend,
     ) {
         // Canonicalize a buffer through the portable field so both sides start
         // from the canonical bytes the kernels are contracted to produce.
@@ -4606,6 +4608,71 @@ mod x86 {
                 assert_eq!(got, want, "{label} sub_assign_scalar len {len} coeff {c:?}");
             }
         }
+        // Trace coverage: one vector-eligible call per entry.
+        {
+            let vlen = lens[lens.len() - 2]; // largest sub-1k length
+            let mut src = noise(vlen, 0xa1);
+            canon(&mut src);
+            let mut base = noise(vlen, 0xb2);
+            canon(&mut base);
+            let mut b2 = noise(vlen, 0xc3);
+            canon(&mut b2);
+            let c = coeffs[2]; // nonzero general coefficient, not unit (unit shortcuts skip emit)
+
+            trace::clear();
+            let mut got = base.clone();
+            add(&mut got, &src);
+            drop(got);
+            assert_vector_work(tier);
+
+            trace::clear();
+            let mut got = base.clone();
+            sub(&mut got, &src);
+            drop(got);
+            assert_vector_work(tier);
+
+            trace::clear();
+            let mut got = vec![0u8; vlen];
+            elemwise(&mut got, &src, &b2);
+            drop(got);
+            assert_vector_work(tier);
+
+            trace::clear();
+            let mut got = base.clone();
+            elemwise_assign(&mut got, &src);
+            drop(got);
+            assert_vector_work(tier);
+
+            trace::clear();
+            let mut got = base.clone();
+            muladd(&mut got, c, &src);
+            drop(got);
+            assert_vector_work(tier);
+
+            trace::clear();
+            let mut got = base.clone();
+            mulinto(&mut got, c, &src);
+            drop(got);
+            assert_vector_work(tier);
+
+            trace::clear();
+            let mut got = base.clone();
+            mulassign(&mut got, c);
+            drop(got);
+            assert_vector_work(tier);
+
+            trace::clear();
+            let mut got = base.clone();
+            addscalar(&mut got, c);
+            drop(got);
+            assert_vector_work(tier);
+
+            trace::clear();
+            let mut got = base.clone();
+            subscalar(&mut got, c);
+            drop(got);
+            assert_vector_work(tier);
+        }
     }
 
     #[test]
@@ -4629,6 +4696,7 @@ mod x86 {
             |dst, c| x86::mersenne31::add_assign_scalar_avx2(token, dst, c),
             |dst, c| x86::mersenne31::sub_assign_scalar_avx2(token, dst, c),
             "m31 avx2",
+            Backend::V3,
         );
         // Trace coverage: one vector-eligible call per entry.
         {
@@ -4653,6 +4721,7 @@ mod x86 {
             |dst, c| x86::goldilocks::add_assign_scalar_avx2(token, dst, c),
             |dst, c| x86::goldilocks::sub_assign_scalar_avx2(token, dst, c),
             "gld avx2",
+            Backend::V3,
         );
         // Trace coverage: one vector-eligible call per entry.
         {
@@ -4691,6 +4760,7 @@ mod x86 {
             |dst, c| x86::mersenne31::add_assign_scalar_avx512(token, dst, c),
             |dst, c| x86::mersenne31::sub_assign_scalar_avx512(token, dst, c),
             "m31 avx512",
+            Backend::V4x,
         );
         drive_prime::<Goldilocks, u64>(
             GLD_WIDE,
@@ -4706,6 +4776,7 @@ mod x86 {
             |dst, c| x86::goldilocks::add_assign_scalar_avx512(token, dst, c),
             |dst, c| x86::goldilocks::sub_assign_scalar_avx512(token, dst, c),
             "gld avx512",
+            Backend::V4x,
         );
     }
 
@@ -4792,6 +4863,7 @@ mod x86 {
             |dst, c| x86::mersenne31::add_assign_scalar_sse42(token, dst, c),
             |dst, c| x86::mersenne31::sub_assign_scalar_sse42(token, dst, c),
             "m31 sse4.2",
+            Backend::V2,
         );
         drive_prime::<Goldilocks, u64>(
             GLD_LENS,
@@ -4807,6 +4879,7 @@ mod x86 {
             |dst, c| x86::goldilocks::add_assign_scalar_sse42(token, dst, c),
             |dst, c| x86::goldilocks::sub_assign_scalar_sse42(token, dst, c),
             "gld sse4.2",
+            Backend::V2,
         );
         // Trace coverage: one vector-eligible call.
         {
@@ -5720,6 +5793,31 @@ mod x86 {
                 return;
             };
             let token = v4x.v4();
+            // Trace coverage: one vector-eligible call for each AVX-512 multiply shape.
+            {
+                let vlen = LENS[LENS.len() - 2]; // largest sub-1k length
+                let src = fill(vlen);
+                let base = fill(vlen);
+                let other = fill(vlen);
+                let coeff = Qm::from_raw([COEFFS[1].0, COEFFS[1].1]); // nonzero general
+                trace::clear();
+                let mut got = base.clone();
+                x86::quad_mersenne31::mul_add_avx512(token, &mut got, coeff, &src);
+                drop(got);
+                assert_vector_work(Backend::V4x);
+
+                trace::clear();
+                let mut got = vec![0u8; vlen];
+                x86::quad_mersenne31::mul_into_avx512(token, &mut got, coeff, &src);
+                drop(got);
+                assert_vector_work(Backend::V4x);
+
+                trace::clear();
+                let mut got = vec![0u8; vlen];
+                x86::quad_mersenne31::mul_elementwise_avx512(token, &mut got, &src, &other);
+                drop(got);
+                assert_vector_work(Backend::V4x);
+            }
             // The AVX-512 QM31 family covers the multiply shapes; the
             // remaining operations run the AVX2 entries above.
             for &len in LENS {
@@ -6032,6 +6130,7 @@ mod x86 {
             |dst, c| x86::quad_mersenne31::add_assign_scalar_avx2(token, dst, c),
             |dst, c| x86::quad_mersenne31::sub_assign_scalar_avx2(token, dst, c),
             "qm31 avx2",
+            Backend::V3,
         );
     }
 

@@ -22,9 +22,13 @@
 use core::arch::x86_64::*;
 
 use super::{combine_halves_avx512, narrow_avx512, normalize_avx512, widen_add_avx512};
+#[cfg(test)]
+use crate::kernel::Backend;
 use crate::kernel::Matrix;
 use crate::kernel::proven_checks::check_equal;
 use crate::kernel::residue::PreparedResidue;
+#[cfg(test)]
+use crate::kernel::trace::{Substage, Unit, emit};
 use crate::kernel::x86::residue::SourceGroup;
 
 /// Up to four outputs per delayed tile.
@@ -334,6 +338,18 @@ fn run_delayed<M: Matrix<PreparedResidue> + ?Sized, const ADD: bool>(
             }
             offset += 64;
         }
+        #[cfg(test)]
+        emit(
+            if ADD {
+                "residue.avx512.mul_add_matrix"
+            } else {
+                "residue.avx512.mul_into_matrix"
+            },
+            if ADD { Substage::MulAdd } else { Substage::Mul },
+            Unit::Elements,
+            count * (vector_len / 4),
+            Backend::V4x,
+        );
         // Scalar tails: whole lanes past the vector body, reduced per
         // group of `K` sources so the `u64` running sum keeps the same
         // delay bound as the vector lanes.

@@ -10,6 +10,10 @@
 use core::arch::x86_64::*;
 
 use super::src_tail_avx512;
+#[cfg(test)]
+use crate::kernel::Backend;
+#[cfg(test)]
+use crate::kernel::trace::{Substage, Unit, emit};
 
 // ---------------------------------------------------------------------------
 // Byte fixed-coefficient (nibble-table lookups)
@@ -59,6 +63,14 @@ pub fn mul_into_u8_avx512(_token: archmage::X64V4Token, dst: &mut [u8], src: &[u
         let sub = _mm512_sub_epi8(sum, cp);
         _mm512_storeu_si512(d, _mm512_min_epu8(sum, sub));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx512.mul_into",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 64,
+        Backend::V4x,
+    );
     for (d, s) in dst_tail.iter_mut().zip(src_tail_avx512(src)) {
         let t = lo[*s as usize & 15].wrapping_add(hi[*s as usize >> 4]);
         *d = if t >= p { t - p } else { t };
@@ -126,6 +138,14 @@ pub fn mul_add_u8_avx512(_token: archmage::X64V4Token, dst: &mut [u8], src: &[u8
         let sum = _mm512_add_epi8(normed, prod);
         _mm512_storeu_si512(d, _mm512_min_epu8(sum, _mm512_sub_epi8(sum, cp)));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx512.mul_add",
+        Substage::MulAdd,
+        Unit::Elements,
+        dst_lanes.len() * 64,
+        Backend::V4x,
+    );
     for (d, s) in dst_tail.iter_mut().zip(src_tail_avx512(src)) {
         let acc = *d % p;
         let t = lo[*s as usize & 15].wrapping_add(hi[*s as usize >> 4]);
@@ -165,6 +185,14 @@ pub fn mul_assign_u8_avx512(_token: archmage::X64V4Token, dst: &mut [u8], c: u8,
         let sum = _mm512_add_epi8(rlo, rhi);
         _mm512_storeu_si512(d, _mm512_min_epu8(sum, _mm512_sub_epi8(sum, cp)));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx512.mul_assign",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 64,
+        Backend::V4x,
+    );
     for d in dst_tail.iter_mut() {
         let t = lo[*d as usize & 15].wrapping_add(hi[*d as usize >> 4]);
         *d = if t >= p { t - p } else { t };

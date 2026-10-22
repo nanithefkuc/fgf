@@ -12,7 +12,11 @@
 use core::arch::x86_64::*;
 
 use super::super::{combine_halves_avx2, narrow_avx2, normalize_avx2, widen_add_avx2};
+#[cfg(test)]
+use crate::kernel::Backend;
 use crate::kernel::proven_checks::check_equal;
+#[cfg(test)]
+use crate::kernel::trace::{Substage, Unit, emit};
 use crate::kernel::x86::residue::U32Params;
 
 /// Whole-lane geometry: paired equality plus the four-byte lane width.
@@ -142,6 +146,14 @@ pub fn mul_elementwise_u32_avx2(
         let vb = normalize_avx2(_mm256_loadu_si256(b_lane), norm_mu, p32);
         _mm256_storeu_si256(dst_lane, multiply(va, vb, mu, p, shift));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx2.mul_elementwise",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        Backend::V3,
+    );
     tail_mul(dst_tail, a_tail, b_tail, params.p);
 }
 
@@ -185,6 +197,14 @@ pub fn mul_elementwise_assign_u32_avx2(
         let vs = normalize_avx2(_mm256_loadu_si256(src_lane), norm_mu, p32);
         _mm256_storeu_si256(dst_lane, multiply(vd, vs, mu, p, shift));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx2.mul_elementwise_assign",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        Backend::V3,
+    );
     tail_mul_assign(dst_tail, src_tail, params.p);
 }
 
@@ -232,6 +252,14 @@ pub fn mul_into_u32_avx2(
         );
         _mm256_storeu_si256(d, combine_halves_avx2(re, ro));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx2.mul_into",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        Backend::V3,
+    );
     for (d, s) in dst_tail.chunks_exact_mut(4).zip(src_tail_u32(src)) {
         let x = u32::from_le_bytes(s.as_ref().try_into().unwrap());
         d.copy_from_slice(&scalar_shoup32(x, c, q, p).to_le_bytes());
@@ -284,6 +312,14 @@ pub fn mul_add_u32_avx2(
         // below `2P < 2^33` and one unsigned comparison canonicalizes it.
         _mm256_storeu_si256(d, widen_add_avx2(normed, prod, p64, p_m1));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx2.mul_add",
+        Substage::MulAdd,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        Backend::V3,
+    );
     let wide = u64::from(p);
     for (d, s) in dst_tail.chunks_exact_mut(4).zip(src_tail_u32(src)) {
         let acc = u64::from(u32::from_le_bytes(d.as_ref().try_into().unwrap())) % wide;
@@ -330,6 +366,14 @@ pub fn mul_assign_u32_avx2(_token: archmage::X64V3Token, dst: &mut [u8], c: u32,
         );
         _mm256_storeu_si256(d, combine_halves_avx2(re, ro));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx2.mul_assign",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        Backend::V3,
+    );
     for d in dst_tail.chunks_exact_mut(4) {
         let x = u32::from_le_bytes(d.as_ref().try_into().unwrap());
         d.copy_from_slice(&scalar_shoup32(x, c, q, p).to_le_bytes());
