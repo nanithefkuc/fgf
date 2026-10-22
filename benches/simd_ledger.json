@@ -867,8 +867,17 @@
         {
           "id": "r3",
           "type": "crate::field::FiniteField<3, 1, crate::field::Residue>",
-          "reference": "elem-arith",
-          "elem_bytes": 1
+          "reference": "elem-arith"
+        },
+        {
+          "id": "r101",
+          "type": "crate::field::FiniteField<101, 1, crate::field::Residue>",
+          "reference": "elem-arith"
+        },
+        {
+          "id": "r127",
+          "type": "crate::field::FiniteField<127, 1, crate::field::Residue>",
+          "reference": "elem-arith"
         }
       ]
     },
@@ -883,8 +892,12 @@
         {
           "id": "r131",
           "type": "crate::field::FiniteField<131, 1, crate::field::Residue>",
-          "reference": "elem-arith",
-          "elem_bytes": 1
+          "reference": "elem-arith"
+        },
+        {
+          "id": "r251",
+          "type": "crate::field::FiniteField<251, 1, crate::field::Residue>",
+          "reference": "elem-arith"
         }
       ]
     },
@@ -898,8 +911,12 @@
         {
           "id": "r257",
           "type": "crate::field::FiniteField<257, 1, crate::field::Residue>",
-          "reference": "elem-arith",
-          "elem_bytes": 2
+          "reference": "elem-arith"
+        },
+        {
+          "id": "r65521",
+          "type": "crate::field::FiniteField<65521, 1, crate::field::Residue>",
+          "reference": "elem-arith"
         }
       ]
     },
@@ -913,8 +930,22 @@
         {
           "id": "r65537",
           "type": "crate::field::FiniteField<65537, 1, crate::field::Residue>",
-          "reference": "elem-arith",
-          "elem_bytes": 4
+          "reference": "elem-arith"
+        },
+        {
+          "id": "r2013265921",
+          "type": "crate::field::FiniteField<2013265921, 1, crate::field::Residue>",
+          "reference": "elem-arith"
+        },
+        {
+          "id": "r536870909",
+          "type": "crate::field::FiniteField<536870909, 1, crate::field::Residue>",
+          "reference": "elem-arith"
+        },
+        {
+          "id": "r4294967291",
+          "type": "crate::field::FiniteField<4294967291, 1, crate::field::Residue>",
+          "reference": "elem-arith"
         }
       ]
     },
@@ -928,8 +959,12 @@
         {
           "id": "r4294967311",
           "type": "crate::field::FiniteField<4294967311, 1, crate::field::Residue>",
-          "reference": "elem-arith",
-          "elem_bytes": 8
+          "reference": "elem-arith"
+        },
+        {
+          "id": "r18446744073709551557",
+          "type": "crate::field::FiniteField<18446744073709551557, 1, crate::field::Residue>",
+          "reference": "elem-arith"
         }
       ]
     },
@@ -943,8 +978,7 @@
         {
           "id": "rm31",
           "type": "crate::field::FiniteField<0x7FFF_FFFF, 1, crate::field::Residue>",
-          "reference": "elem-arith",
-          "elem_bytes": 4
+          "reference": "elem-arith"
         }
       ]
     },
@@ -958,8 +992,7 @@
         {
           "id": "rgld",
           "type": "crate::field::FiniteField<0xFFFF_FFFF_0000_0001, 1, crate::field::Residue>",
-          "reference": "elem-arith",
-          "elem_bytes": 8
+          "reference": "elem-arith"
         }
       ]
     },
@@ -974,8 +1007,7 @@
         {
           "id": "rgf2",
           "type": "crate::field::FiniteField<2, 1, crate::field::Residue>",
-          "reference": "elem-arith",
-          "elem_bytes": 8
+          "reference": "elem-arith"
         }
       ]
     },
@@ -988,8 +1020,7 @@
         {
           "id": "m31",
           "type": "crate::field::Mersenne31",
-          "reference": "elem-arith",
-          "elem_bytes": 4
+          "reference": "elem-arith"
         }
       ]
     },
@@ -1002,8 +1033,7 @@
         {
           "id": "gld",
           "type": "crate::field::Goldilocks",
-          "reference": "elem-arith",
-          "elem_bytes": 8
+          "reference": "elem-arith"
         }
       ]
     },
@@ -1018,8 +1048,7 @@
         {
           "id": "gf8aes",
           "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
-          "reference": "elem-arith",
-          "elem_bytes": 1
+          "reference": "elem-arith"
         }
       ]
     },
@@ -1034,8 +1063,7 @@
         {
           "id": "gf8rs",
           "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>",
-          "reference": "elem-arith",
-          "elem_bytes": 1
+          "reference": "elem-arith"
         }
       ]
     },
@@ -1049,8 +1077,7 @@
         {
           "id": "gf8n",
           "type": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>",
-          "reference": "elem-arith",
-          "elem_bytes": 1
+          "reference": "elem-arith"
         }
       ]
     },
@@ -1064,8 +1091,7 @@
         {
           "id": "gf8c",
           "type": "crate::field::FiniteField<2, 8, crate::field::Cantor<0x11B, 0x20>>",
-          "reference": "elem-arith",
-          "elem_bytes": 1
+          "reference": "elem-arith"
         }
       ]
     },
@@ -1079,11 +1105,19 @@
         {
           "id": "gf1p",
           "type": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
-          "reference": "elem-arith",
-          "elem_bytes": 1
+          "reference": "elem-arith"
+        },
+        {
+          "id": "gf4p",
+          "type": "crate::field::FiniteField<2, 4, crate::field::Polynomial<0x13>>",
+          "reference": "elem-arith"
+        },
+        {
+          "id": "gf2n",
+          "type": "crate::field::FiniteField<2, 2, crate::field::Normal<7, 2>>",
+          "reference": "elem-arith"
         }
-      ],
-      "reason": "sub-8-degree BinaryRepr lacks FieldBuffer; excluded from byte-buffer bulk operations"
+      ]
     },
     "packed-u8-shipped": {
       "group": "packed",
@@ -1095,8 +1129,7 @@
         {
           "id": "fp8s",
           "type": "crate::field::FiniteField<2, 8, crate::field::Extension<crate::field::FanPaar8, 2>>",
-          "reference": "elem-arith",
-          "elem_bytes": 1
+          "reference": "elem-arith"
         }
       ]
     },
@@ -1122,8 +1155,7 @@
             ],
             "storage": "Packed<u8>",
             "_note": "t^2 + t + 1 over GF(2^4); relation encoded as from_binary_words([1, 1])"
-          },
-          "elem_bytes": 1
+          }
         }
       ]
     },
@@ -1137,8 +1169,12 @@
         {
           "id": "fp16r",
           "type": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
-          "reference": "elem-arith",
-          "elem_bytes": 2
+          "reference": "elem-arith"
+        },
+        {
+          "id": "fp16f",
+          "type": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::FanPaar16, 2>>",
+          "reference": "elem-arith"
         }
       ]
     },
@@ -1164,8 +1200,7 @@
             ],
             "storage": "Packed<u16>",
             "_note": "t^2 + 0x53*t + 1 over AES8; relation encoded as from_binary_words([1, 0x53])"
-          },
-          "elem_bytes": 2
+          }
         }
       ]
     },
@@ -1179,8 +1214,12 @@
         {
           "id": "fp32r",
           "type": "crate::field::FiniteField<2, 32, crate::field::Extension<crate::field::Rijndael32, 2>>",
-          "reference": "elem-arith",
-          "elem_bytes": 4
+          "reference": "elem-arith"
+        },
+        {
+          "id": "fp32f",
+          "type": "crate::field::FiniteField<2, 32, crate::field::Extension<crate::field::FanPaar32, 2>>",
+          "reference": "elem-arith"
         }
       ]
     },
@@ -1205,8 +1244,7 @@
             ],
             "storage": "Packed<u32>",
             "_note": "t^2 + t + 1 over GF(2^16); relation encoded as from_binary_words([1, 1])"
-          },
-          "elem_bytes": 4
+          }
         }
       ]
     },
@@ -1220,8 +1258,12 @@
         {
           "id": "fp64r",
           "type": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::field::Rijndael64, 2>>",
-          "reference": "elem-arith",
-          "elem_bytes": 8
+          "reference": "elem-arith"
+        },
+        {
+          "id": "fp64f",
+          "type": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::field::FanPaar64, 2>>",
+          "reference": "elem-arith"
         }
       ]
     },
@@ -1246,8 +1288,7 @@
             ],
             "storage": "Packed<u64>",
             "_note": "t^2 + t + 1 over GF(2^32)"
-          },
-          "elem_bytes": 8
+          }
         }
       ]
     },
@@ -1260,12 +1301,14 @@
         {
           "id": "fp2",
           "type": "crate::field::FiniteField<2, 2, crate::field::Extension<crate::field::FanPaar2, 2>>",
-          "reference": "elem-arith",
-          "elem_bytes": 1
+          "reference": "elem-arith"
+        },
+        {
+          "id": "fp4",
+          "type": "crate::field::FiniteField<2, 4, crate::field::Extension<crate::field::FanPaar4, 2>>",
+          "reference": "elem-arith"
         }
-      ],
-      "elem_bytes": 1,
-      "reason": "PackedPadded presentation is non-bulk; no FieldKernels dispatch path"
+      ]
     },
     "component-quad-mersenne31": {
       "group": "component",
@@ -1278,8 +1321,7 @@
         {
           "id": "qm31",
           "type": "crate::field::QuadMersenne31",
-          "reference": "elem-arith",
-          "elem_bytes": 8
+          "reference": "elem-arith"
         }
       ]
     },
@@ -1306,8 +1348,7 @@
             ],
             "storage": "Components",
             "_note": "t^2 + 2 over Mersenne31; distinct from QM31 t^2+1"
-          },
-          "elem_bytes": 8
+          }
         }
       ]
     },
@@ -1334,8 +1375,7 @@
             ],
             "storage": "Components",
             "_note": "t^2 + 2t + 2 over GF(3); irreducible (no roots)"
-          },
-          "elem_bytes": 2
+          }
         }
       ]
     },
@@ -1361,9 +1401,8 @@
               0
             ],
             "storage": "Components",
-            "_note": "t^2 + 2 over GF(131); 131 mod 4 \u2261 3 so t^2+2 is irreducible"
-          },
-          "elem_bytes": 2
+            "_note": "t^2 + 2 over GF(131); 131 mod 4 ≡ 3 so t^2+2 is irreducible"
+          }
         }
       ]
     },
@@ -1389,9 +1428,8 @@
               0
             ],
             "storage": "Components",
-            "_note": "t^2 + 3 over GF(257); 257 mod 3 \u2261 2 so 3 is a quadratic nonresidue"
-          },
-          "elem_bytes": 4
+            "_note": "t^2 + 3 over GF(257); 257 mod 3 ≡ 2 so 3 is a quadratic nonresidue"
+          }
         }
       ]
     },
@@ -1418,8 +1456,7 @@
             ],
             "storage": "Components",
             "_note": "t^2 + 3 over GF(65537)"
-          },
-          "elem_bytes": 8
+          }
         }
       ]
     },
@@ -1447,8 +1484,7 @@
             ],
             "storage": "Components",
             "_note": "t^3 + 3 over GF(7); relation=from_coordinates([3,0,0])"
-          },
-          "elem_bytes": 3
+          }
         }
       ]
     },
@@ -1477,8 +1513,7 @@
             ],
             "storage": "Components",
             "_note": "t^4 + t + 2 over GF(3); irreducible"
-          },
-          "elem_bytes": 4
+          }
         }
       ]
     },
@@ -1512,8 +1547,7 @@
             ],
             "storage": "Components",
             "_note": "t^8 + 2 over GF(3); x^8+2 irreducible over GF(3)"
-          },
-          "elem_bytes": 8
+          }
         }
       ]
     },
@@ -1539,8 +1573,7 @@
             ],
             "storage": "Components",
             "_note": "t^2 + 7 over Goldilocks"
-          },
-          "elem_bytes": 16
+          }
         }
       ]
     },
@@ -1568,8 +1601,7 @@
             ],
             "storage": "Components",
             "_note": "t^2 + 0x53*t + 1 over AES8; mirrors tests/prepared_map_rows.rs OverAesSpec"
-          },
-          "elem_bytes": 2
+          }
         }
       ]
     },
@@ -1597,8 +1629,7 @@
             ],
             "storage": "Components",
             "_note": "t^2 + 0x35*t + 1 over Normal<0x11B,0x20>"
-          },
-          "elem_bytes": 2
+          }
         }
       ]
     },
@@ -1632,8 +1663,7 @@
             ],
             "storage": "Components",
             "_note": "t^8 + 2 over GF(2^8)"
-          },
-          "elem_bytes": 8
+          }
         }
       ]
     },
@@ -1645,8 +1675,7 @@
         {
           "id": "gf2",
           "type": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
-          "reference": "bits-scalar",
-          "elem_bytes": 1
+          "reference": "bits-scalar"
         }
       ]
     },
@@ -1655,7 +1684,7 @@
       "kind": "frobenius",
       "construction": "structural",
       "arm": "identity",
-      "arm_citation": "src/field/embedding/frobenius.rs:109 \u2014 power == 0 -> CompiledMap::Identity",
+      "arm_citation": "src/field/embedding/frobenius.rs:109 — power == 0 -> CompiledMap::Identity",
       "callables": [
         "map::frobenius_into_with",
         "map::frobenius_assign_with"
@@ -1674,7 +1703,7 @@
       "kind": "frobenius",
       "construction": "structural",
       "arm": "quadratic",
-      "arm_citation": "src/field/embedding/frobenius.rs:122 \u2014 Vieta conjugation via quadratic::conjugation_shape; power=8 mod 16=8, base_degree=8, 8/8=1 odd \u2192 Conjugation",
+      "arm_citation": "src/field/embedding/frobenius.rs:122 — Vieta conjugation via quadratic::conjugation_shape; power=8 mod 16=8, base_degree=8, 8/8=1 odd → Conjugation",
       "callables": [
         "map::frobenius_into_with",
         "map::frobenius_assign_with"
@@ -1693,7 +1722,7 @@
       "kind": "frobenius",
       "construction": "structural",
       "arm": "binary-column",
-      "arm_citation": "src/field/embedding/frobenius.rs:203 \u2014 CompiledMap::BinaryColumns for char 2 non-Vieta; degree 8 flat, no quadratic extension \u2192 compile_columns",
+      "arm_citation": "src/field/embedding/frobenius.rs:203 — CompiledMap::BinaryColumns for char 2 non-Vieta; degree 8 flat, no quadratic extension → compile_columns",
       "callables": [
         "map::frobenius_into_with",
         "map::frobenius_assign_with"
@@ -1712,7 +1741,7 @@
       "kind": "frobenius",
       "construction": "structural",
       "arm": "residue-column",
-      "arm_citation": "src/field/embedding/frobenius.rs:221 \u2014 CompiledMap::ResidueColumns for odd characteristic; cubic extension degree>1, power=1 normalizes to 1\u22600, no quadratic conjugation \u2192 compile_columns",
+      "arm_citation": "src/field/embedding/frobenius.rs:221 — CompiledMap::ResidueColumns for odd characteristic; cubic extension degree>1, power=1 normalizes to 1≠0, no quadratic conjugation → compile_columns",
       "callables": [
         "map::frobenius_into_with",
         "map::frobenius_assign_with"
@@ -1744,7 +1773,7 @@
       "kind": "embedding",
       "construction": "structural",
       "arm": "injection",
-      "arm_citation": "src/field/embedding/prepared.rs:395 \u2014 is_identity_prefix \u2192 PreparedArm::Injection; AES8 is tower base of Rijndael16, structural inclusion maps generator to low component",
+      "arm_citation": "src/field/embedding/prepared.rs:395 — is_identity_prefix → PreparedArm::Injection; AES8 is tower base of Rijndael16, structural inclusion maps generator to low component",
       "callables": [
         "map::embed_into_with",
         "map::contains_into_with",
@@ -1765,7 +1794,7 @@
       "kind": "embedding",
       "construction": "images",
       "arm": "injection",
-      "arm_citation": "src/field/embedding/prepared.rs:395 \u2014 PreparedEmbedding::new from Embedding::from_images with structural images; is_structural_images=true \u2192 Injection",
+      "arm_citation": "src/field/embedding/prepared.rs:395 — PreparedEmbedding::new from Embedding::from_images with structural images; is_structural_images=true → Injection",
       "callables": [
         "map::embed_into_with",
         "map::contains_into_with",
@@ -1785,7 +1814,7 @@
       "kind": "embedding",
       "construction": "images",
       "arm": "binary-column",
-      "arm_citation": "src/field/embedding/prepared.rs:398 \u2014 PreparedArm::BinaryColumns for char 2 non-injection; Embedding::from_images with non-structural images (distinct tower base \u2192 distinct presentation) skips is_identity_prefix",
+      "arm_citation": "src/field/embedding/prepared.rs:398 — PreparedArm::BinaryColumns for char 2 non-injection; Embedding::from_images with non-structural images (distinct tower base → distinct presentation) skips is_identity_prefix",
       "callables": [
         "map::embed_into_with",
         "map::contains_into_with",
@@ -1805,13 +1834,13 @@
       "kind": "embedding",
       "construction": "images",
       "arm": "residue-column",
-      "arm_citation": "src/field/embedding/prepared.rs:420 \u2014 PreparedArm::ResidueColumns for odd char non-injection; degree-1 source into degree-2 target over odd prime with non-structural image",
+      "arm_citation": "src/field/embedding/prepared.rs:420 — PreparedArm::ResidueColumns for odd char non-injection; degree-1 source into degree-2 target over odd prime with non-structural image",
       "callables": [
         "map::embed_into_with",
         "map::contains_into_with",
         "map::restrict_into_with"
       ],
-      "_note": "GF(3) into GF(3^2) with non-structural image; from_images provides conjugate of structural image \u2192 ResidueColumns",
+      "_note": "GF(3) into GF(3^2) with non-structural image; from_images provides conjugate of structural image → ResidueColumns",
       "fixtures": [
         {
           "id": "emb_rc",
@@ -1836,7 +1865,7 @@
       "kind": "isomorphism",
       "construction": "structural",
       "arm": "binary-column",
-      "arm_citation": "src/field/embedding/prepared.rs:398 \u2014 compile_iso then compile; BinaryColumns for char 2 non-injection; distinct presentations of same degree, no structural match \u2192 compiled columns",
+      "arm_citation": "src/field/embedding/prepared.rs:398 — compile_iso then compile; BinaryColumns for char 2 non-injection; distinct presentations of same degree, no structural match → compiled columns",
       "callables": [
         "map::apply_into_with",
         "map::unapply_into_with"
@@ -1855,7 +1884,7 @@
       "kind": "isomorphism",
       "construction": "images",
       "arm": "binary-column",
-      "arm_citation": "src/field/embedding/prepared.rs:398 \u2014 PreparedIsomorphism::new from Isomorphism::from_images with non-structural images; same-degree char 2, non-injection \u2192 BinaryColumns",
+      "arm_citation": "src/field/embedding/prepared.rs:398 — PreparedIsomorphism::new from Isomorphism::from_images with non-structural images; same-degree char 2, non-injection → BinaryColumns",
       "callables": [
         "map::apply_into_with",
         "map::unapply_into_with"
@@ -1874,12 +1903,12 @@
       "kind": "isomorphism",
       "construction": "images",
       "arm": "residue-column",
-      "arm_citation": "src/field/embedding/prepared.rs:420 \u2014 PreparedIsomorphism::new from Isomorphism::from_images; odd char same-degree non-injection \u2192 ResidueColumns",
+      "arm_citation": "src/field/embedding/prepared.rs:420 — PreparedIsomorphism::new from Isomorphism::from_images; odd char same-degree non-injection → ResidueColumns",
       "callables": [
         "map::apply_into_with",
         "map::unapply_into_with"
       ],
-      "_note": "GF(3^2) to itself via non-identity automorphism; needs at least two valid from_images tuples (conjugates) so the non-identity one can be selected; see tests/prepared_maps.rs valid_tuples for G9Alt\u2192G9Alt",
+      "_note": "GF(3^2) to itself via non-identity automorphism; needs at least two valid from_images tuples (conjugates) so the non-identity one can be selected; see tests/prepared_maps.rs valid_tuples for G9Alt→G9Alt",
       "fixtures": [
         {
           "id": "iso_rc",
@@ -1895,7 +1924,7 @@
               0
             ],
             "storage": "Components",
-            "_note": "GF(9) as t^2+1 (G9Alt); from_images with non-identity automorphism \u2192 ResidueColumns"
+            "_note": "GF(9) as t^2+1 (G9Alt); from_images with non-identity automorphism → ResidueColumns"
           }
         }
       ]
@@ -1975,6 +2004,69 @@
     }
   },
   "applicability": {
+    "ops-row-add": {
+      "families": [
+        "ops/row"
+      ],
+      "rules": [
+        "residue-u8-low",
+        "residue-u8-high",
+        "residue-u16",
+        "residue-u32",
+        "residue-u64",
+        "residue-mersenne31-modulus",
+        "residue-goldilocks-modulus",
+        "residue-gf2",
+        "mersenne31",
+        "goldilocks",
+        "gf8-poly-aes",
+        "gf8-poly-other",
+        "gf8-normal",
+        "gf8-cantor",
+        "packed-u8-shipped",
+        "packed-u8-custom",
+        "packed-u16-shipped",
+        "packed-u16-custom",
+        "packed-u32-shipped",
+        "packed-u32-custom",
+        "packed-u64-shipped",
+        "packed-u64-custom"
+      ],
+      "exclusions": {
+        "binary-flat-sub8": "no FieldBuffer: only BinaryRepr<8> gets FieldBuffer (src/field/binary.rs:499); sub-8-degree rows lack FieldBuffer and FieldKernels",
+        "packed-padded": "PackedPadded is non-bulk",
+        "bits-gf2": "GF(2) field ops use bits family",
+        "component-quad-mersenne31": "component ops use component-specific arithmetic; covered by component base kernels",
+        "component-mersenne31-custom": "component ops only",
+        "component-residue-quadratic": "component ops only",
+        "component-residue-u8-high": "component ops only",
+        "component-residue-u16": "component ops only",
+        "component-residue-u32": "component ops only",
+        "component-residue-odd": "component ops only",
+        "component-residue-quartic": "component ops only",
+        "component-residue-degree8": "component ops only",
+        "component-goldilocks": "component ops only",
+        "component-binary-aes": "component ops only",
+        "component-binary-normal": "component ops only",
+        "component-degree64": "component ops only",
+        "map-frobenius-identity": "map callables only",
+        "map-frobenius-quadratic": "map callables only",
+        "map-frobenius-binary-column": "map callables only",
+        "map-frobenius-residue-column": "map callables only",
+        "map-embed-injection": "map callables only",
+        "map-embed-injection-images": "map callables only",
+        "map-embed-binary-column": "map callables only",
+        "map-embed-residue-column": "map callables only",
+        "map-iso-binary-column": "map callables only",
+        "map-iso-binary-column-images": "map callables only",
+        "map-iso-residue-column": "map callables only",
+        "map-bits-width1": "map_bits callables only",
+        "map-bits-width2": "map_bits callables only",
+        "map-bits-width3": "map_bits callables only",
+        "map-bits-width4": "map_bits callables only",
+        "map-bits-width8": "map_bits callables only"
+      }
+    },
     "ops-row-mul": {
       "families": [
         "ops/row",
@@ -1985,9 +2077,63 @@
         "ops/reduction"
       ],
       "rules": [
-        "gf8-poly-aes"
+        "residue-u8-low",
+        "residue-u8-high",
+        "residue-u16",
+        "residue-u32",
+        "residue-u64",
+        "residue-mersenne31-modulus",
+        "residue-goldilocks-modulus",
+        "residue-gf2",
+        "mersenne31",
+        "goldilocks",
+        "gf8-poly-aes",
+        "gf8-poly-other",
+        "gf8-normal",
+        "gf8-cantor",
+        "packed-u8-shipped",
+        "packed-u8-custom",
+        "packed-u16-shipped",
+        "packed-u16-custom",
+        "packed-u32-shipped",
+        "packed-u32-custom",
+        "packed-u64-shipped",
+        "packed-u64-custom"
       ],
-      "exclusions": {}
+      "exclusions": {
+        "binary-flat-sub8": "no FieldBuffer: only BinaryRepr<8> gets FieldBuffer (src/field/binary.rs:499)",
+        "packed-padded": "PackedPadded is non-bulk",
+        "bits-gf2": "GF(2) field ops use bits family",
+        "component-quad-mersenne31": "component ops use component-specific arithmetic",
+        "component-mersenne31-custom": "component ops only",
+        "component-residue-quadratic": "component ops only",
+        "component-residue-u8-high": "component ops only",
+        "component-residue-u16": "component ops only",
+        "component-residue-u32": "component ops only",
+        "component-residue-odd": "component ops only",
+        "component-residue-quartic": "component ops only",
+        "component-residue-degree8": "component ops only",
+        "component-goldilocks": "component ops only",
+        "component-binary-aes": "component ops only",
+        "component-binary-normal": "component ops only",
+        "component-degree64": "component ops only",
+        "map-frobenius-identity": "map callables only",
+        "map-frobenius-quadratic": "map callables only",
+        "map-frobenius-binary-column": "map callables only",
+        "map-frobenius-residue-column": "map callables only",
+        "map-embed-injection": "map callables only",
+        "map-embed-injection-images": "map callables only",
+        "map-embed-binary-column": "map callables only",
+        "map-embed-residue-column": "map callables only",
+        "map-iso-binary-column": "map callables only",
+        "map-iso-binary-column-images": "map callables only",
+        "map-iso-residue-column": "map callables only",
+        "map-bits-width1": "map_bits callables only",
+        "map-bits-width2": "map_bits callables only",
+        "map-bits-width3": "map_bits callables only",
+        "map-bits-width4": "map_bits callables only",
+        "map-bits-width8": "map_bits callables only"
+      }
     },
     "ops-rows-addsub": {
       "families": [
@@ -1995,27 +2141,189 @@
         "ops/scalar"
       ],
       "rules": [
-        "gf8-poly-aes"
+        "residue-u8-low",
+        "residue-u8-high",
+        "residue-u16",
+        "residue-u32",
+        "residue-u64",
+        "residue-mersenne31-modulus",
+        "residue-goldilocks-modulus",
+        "residue-gf2",
+        "mersenne31",
+        "goldilocks",
+        "gf8-poly-aes",
+        "gf8-poly-other",
+        "gf8-normal",
+        "gf8-cantor",
+        "packed-u8-shipped",
+        "packed-u8-custom",
+        "packed-u16-shipped",
+        "packed-u16-custom",
+        "packed-u32-shipped",
+        "packed-u32-custom",
+        "packed-u64-shipped",
+        "packed-u64-custom"
       ],
-      "exclusions": {}
+      "exclusions": {
+        "binary-flat-sub8": "no FieldBuffer: only BinaryRepr<8> gets FieldBuffer (src/field/binary.rs:499)",
+        "packed-padded": "PackedPadded is non-bulk",
+        "bits-gf2": "GF(2) field ops use bits family",
+        "component-quad-mersenne31": "component add/sub uses component ops",
+        "component-mersenne31-custom": "component ops only",
+        "component-residue-quadratic": "component ops only",
+        "component-residue-u8-high": "component ops only",
+        "component-residue-u16": "component ops only",
+        "component-residue-u32": "component ops only",
+        "component-residue-odd": "component ops only",
+        "component-residue-quartic": "component ops only",
+        "component-residue-degree8": "component ops only",
+        "component-goldilocks": "component ops only",
+        "component-binary-aes": "component ops only",
+        "component-binary-normal": "component ops only",
+        "component-degree64": "component ops only",
+        "map-frobenius-identity": "map callables only",
+        "map-frobenius-quadratic": "map callables only",
+        "map-frobenius-binary-column": "map callables only",
+        "map-frobenius-residue-column": "map callables only",
+        "map-embed-injection": "map callables only",
+        "map-embed-injection-images": "map callables only",
+        "map-embed-binary-column": "map callables only",
+        "map-embed-residue-column": "map callables only",
+        "map-iso-binary-column": "map callables only",
+        "map-iso-binary-column-images": "map callables only",
+        "map-iso-residue-column": "map callables only",
+        "map-bits-width1": "map_bits callables only",
+        "map-bits-width2": "map_bits callables only",
+        "map-bits-width3": "map_bits callables only",
+        "map-bits-width4": "map_bits callables only",
+        "map-bits-width8": "map_bits callables only"
+      }
     },
     "ops-elementwise": {
       "families": [
         "ops/elementwise"
       ],
       "rules": [
-        "gf8-poly-aes"
+        "residue-u8-low",
+        "residue-u8-high",
+        "residue-u16",
+        "residue-u32",
+        "residue-u64",
+        "residue-mersenne31-modulus",
+        "residue-goldilocks-modulus",
+        "residue-gf2",
+        "mersenne31",
+        "goldilocks",
+        "gf8-poly-aes",
+        "gf8-poly-other",
+        "gf8-normal",
+        "gf8-cantor",
+        "packed-u8-shipped",
+        "packed-u8-custom",
+        "packed-u16-shipped",
+        "packed-u16-custom",
+        "packed-u32-shipped",
+        "packed-u32-custom",
+        "packed-u64-shipped",
+        "packed-u64-custom"
       ],
-      "exclusions": {}
+      "exclusions": {
+        "binary-flat-sub8": "no FieldBuffer: only BinaryRepr<8> gets FieldBuffer (src/field/binary.rs:499)",
+        "packed-padded": "PackedPadded is non-bulk",
+        "bits-gf2": "GF(2) field ops use bits family",
+        "component-quad-mersenne31": "component elementwise uses component ops",
+        "component-mersenne31-custom": "component ops only",
+        "component-residue-quadratic": "component ops only",
+        "component-residue-u8-high": "component ops only",
+        "component-residue-u16": "component ops only",
+        "component-residue-u32": "component ops only",
+        "component-residue-odd": "component ops only",
+        "component-residue-quartic": "component ops only",
+        "component-residue-degree8": "component ops only",
+        "component-goldilocks": "component ops only",
+        "component-binary-aes": "component ops only",
+        "component-binary-normal": "component ops only",
+        "component-degree64": "component ops only",
+        "map-frobenius-identity": "map callables only",
+        "map-frobenius-quadratic": "map callables only",
+        "map-frobenius-binary-column": "map callables only",
+        "map-frobenius-residue-column": "map callables only",
+        "map-embed-injection": "map callables only",
+        "map-embed-injection-images": "map callables only",
+        "map-embed-binary-column": "map callables only",
+        "map-embed-residue-column": "map callables only",
+        "map-iso-binary-column": "map callables only",
+        "map-iso-binary-column-images": "map callables only",
+        "map-iso-residue-column": "map callables only",
+        "map-bits-width1": "map_bits callables only",
+        "map-bits-width2": "map_bits callables only",
+        "map-bits-width3": "map_bits callables only",
+        "map-bits-width4": "map_bits callables only",
+        "map-bits-width8": "map_bits callables only"
+      }
     },
     "ops-pack": {
       "families": [
         "ops/pack"
       ],
       "rules": [
-        "gf8-poly-aes"
+        "residue-u8-low",
+        "residue-u8-high",
+        "residue-u16",
+        "residue-u32",
+        "residue-u64",
+        "residue-mersenne31-modulus",
+        "residue-goldilocks-modulus",
+        "residue-gf2",
+        "mersenne31",
+        "goldilocks",
+        "gf8-poly-aes",
+        "gf8-poly-other",
+        "gf8-normal",
+        "gf8-cantor",
+        "packed-u8-shipped",
+        "packed-u8-custom",
+        "packed-u16-shipped",
+        "packed-u16-custom",
+        "packed-u32-shipped",
+        "packed-u32-custom",
+        "packed-u64-shipped",
+        "packed-u64-custom"
       ],
-      "exclusions": {}
+      "exclusions": {
+        "binary-flat-sub8": "no FieldBuffer: only BinaryRepr<8> gets FieldBuffer (src/field/binary.rs:499)",
+        "packed-padded": "PackedPadded is non-bulk",
+        "bits-gf2": "GF(2) packing uses bits family",
+        "component-quad-mersenne31": "component pack/unpack uses component ops",
+        "component-mersenne31-custom": "component ops only",
+        "component-residue-quadratic": "component ops only",
+        "component-residue-u8-high": "component ops only",
+        "component-residue-u16": "component ops only",
+        "component-residue-u32": "component ops only",
+        "component-residue-odd": "component ops only",
+        "component-residue-quartic": "component ops only",
+        "component-residue-degree8": "component ops only",
+        "component-goldilocks": "component ops only",
+        "component-binary-aes": "component ops only",
+        "component-binary-normal": "component ops only",
+        "component-degree64": "component ops only",
+        "map-frobenius-identity": "map callables only",
+        "map-frobenius-quadratic": "map callables only",
+        "map-frobenius-binary-column": "map callables only",
+        "map-frobenius-residue-column": "map callables only",
+        "map-embed-injection": "map callables only",
+        "map-embed-injection-images": "map callables only",
+        "map-embed-binary-column": "map callables only",
+        "map-embed-residue-column": "map callables only",
+        "map-iso-binary-column": "map callables only",
+        "map-iso-binary-column-images": "map callables only",
+        "map-iso-residue-column": "map callables only",
+        "map-bits-width1": "map_bits callables only",
+        "map-bits-width2": "map_bits callables only",
+        "map-bits-width3": "map_bits callables only",
+        "map-bits-width4": "map_bits callables only",
+        "map-bits-width8": "map_bits callables only"
+      }
     },
     "ops-component": {
       "families": [
@@ -2029,9 +2337,63 @@
         "ops/reduction"
       ],
       "rules": [
-        "component-binary-aes"
+        "component-quad-mersenne31",
+        "component-mersenne31-custom",
+        "component-residue-quadratic",
+        "component-residue-u8-high",
+        "component-residue-u16",
+        "component-residue-u32",
+        "component-residue-odd",
+        "component-residue-quartic",
+        "component-residue-degree8",
+        "component-goldilocks",
+        "component-binary-aes",
+        "component-binary-normal",
+        "component-degree64"
       ],
-      "exclusions": {}
+      "exclusions": {
+        "residue-u8-low": "prime-only rules",
+        "residue-u8-high": "prime-only rules",
+        "residue-u16": "prime-only rules",
+        "residue-u32": "prime-only rules",
+        "residue-u64": "prime-only rules",
+        "residue-mersenne31-modulus": "prime-only rules",
+        "residue-goldilocks-modulus": "prime-only rules",
+        "residue-gf2": "prime-only rules",
+        "mersenne31": "specialized prime",
+        "goldilocks": "specialized prime",
+        "gf8-poly-aes": "flat rules",
+        "gf8-poly-other": "flat rules",
+        "gf8-normal": "flat rules",
+        "gf8-cantor": "flat rules",
+        "binary-flat-sub8": "flat rules",
+        "packed-u8-shipped": "packed rules",
+        "packed-u8-custom": "packed rules",
+        "packed-u16-shipped": "packed rules",
+        "packed-u16-custom": "packed rules",
+        "packed-u32-shipped": "packed rules",
+        "packed-u32-custom": "packed rules",
+        "packed-u64-shipped": "packed rules",
+        "packed-u64-custom": "packed rules",
+        "packed-padded": "packed rules, non-bulk",
+        "bits-gf2": "bits rules",
+        "map-frobenius-identity": "map rules",
+        "map-frobenius-quadratic": "map rules",
+        "map-frobenius-binary-column": "map rules",
+        "map-frobenius-residue-column": "map rules",
+        "map-embed-injection": "map rules",
+        "map-embed-injection-images": "map rules",
+        "map-embed-binary-column": "map rules",
+        "map-embed-residue-column": "map rules",
+        "map-iso-binary-column": "map rules",
+        "map-iso-binary-column-images": "map rules",
+        "map-iso-residue-column": "map rules",
+        "map-bits-width1": "map_bits rules",
+        "map-bits-width2": "map_bits rules",
+        "map-bits-width3": "map_bits rules",
+        "map-bits-width4": "map_bits rules",
+        "map-bits-width8": "map_bits rules"
+      }
     },
     "bits": {
       "families": [
@@ -2114,8 +2476,23 @@
       "basis": "Source",
       "multiplicity": "ActivePairs",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "two-element streaming window: 2 source lanes minus 2 boundary elements; floor/ceil per unit width handled by generator",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "row-mul-into": {
       "substage": "MulAdd",
@@ -2124,8 +2501,23 @@
       "basis": "Source",
       "multiplicity": "ActivePairs",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "same streaming window as mul_add",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "row-mul-assign": {
       "substage": "Mul",
@@ -2134,8 +2526,23 @@
       "basis": "Source",
       "multiplicity": "ActivePairs",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "in-place scale; one lane of streaming overhead per direction",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "row-add": {
       "substage": "Add",
@@ -2144,8 +2551,23 @@
       "basis": "Source",
       "multiplicity": "Rows",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "byte-level add; one streaming lane boundary each end",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "row-sub": {
       "substage": "Sub",
@@ -2154,8 +2576,23 @@
       "basis": "Source",
       "multiplicity": "Rows",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "byte-level sub; same streaming shape as add",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "matrix-mul-add": {
       "substage": "MulAdd",
@@ -2164,8 +2601,23 @@
       "basis": "Source",
       "multiplicity": "ActivePairs",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "matrix apply; per-row streaming same as single row",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "scatter-mul-add": {
       "substage": "MulAdd",
@@ -2174,8 +2626,23 @@
       "basis": "Source",
       "multiplicity": "ActivePairs",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "scatter; per-row streaming window",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "gather-mul-add": {
       "substage": "MulAdd",
@@ -2184,8 +2651,23 @@
       "basis": "Source",
       "multiplicity": "ActivePairs",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "gather; per-row streaming window",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "elementwise-mul": {
       "substage": "MulElementwise",
@@ -2194,8 +2676,23 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "elementwise multiply; one lane boundary each direction",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "elementwise-div": {
       "substage": "MulElementwise",
@@ -2207,8 +2704,23 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "division uses multiplication substage with Division scope",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "elementwise-inv": {
       "substage": "Inverse",
@@ -2217,8 +2729,23 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "elementwise inverse; same lane boundary shape",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "dot-product": {
       "substage": "Dot",
@@ -2227,8 +2754,23 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "dot product; single reduction pass",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "pack": {
       "substage": "Pack",
@@ -2237,8 +2779,23 @@
       "basis": "Target",
       "multiplicity": "One",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "canonicalizing pack; output units are bytes, basis Target for width-changing",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "unpack": {
       "substage": "Unpack",
@@ -2247,8 +2804,23 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "canonicalizing unpack; input units are bytes",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "unit-accumulate": {
       "substage": "Add",
@@ -2257,8 +2829,23 @@
       "basis": "Source",
       "multiplicity": "UnitAddPairs",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "unit-coefficient accumulate; one add per One slot",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "bits-and": {
       "substage": "BitAnd",
@@ -2267,8 +2854,23 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "bitwise AND; lane width in bytes, generator converts to bits (*8)",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "bits-andnot": {
       "substage": "BitAndNot",
@@ -2277,8 +2879,23 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "bitwise AND-NOT; same lane shape as AND",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "bits-xor": {
       "substage": "BitXor",
@@ -2287,8 +2904,23 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "bitwise XOR; generator converts lane bytes to bits",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "bits-xor-gather": {
       "substage": "BitXor",
@@ -2297,8 +2929,23 @@
       "basis": "Source",
       "multiplicity": "ActiveRows",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "gather XOR; per-active-row budget",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "bits-weight": {
       "substage": "BitWeight",
@@ -2307,8 +2954,23 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "population count; same lane geometry",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "bits-dot": {
       "substage": "Dot",
@@ -2317,8 +2979,23 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "bit dot product; same as xor",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "bits-set-range": {
       "substage": "BitParity",
@@ -2327,8 +3004,23 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "set/clear range; contiguous bit operations",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     },
     "map-words": {
       "substage": "Linear",
@@ -2337,23 +3029,147 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations": "1",
+      "lane_tier": null,
+      "loss_formula": "2*(L-1)",
       "justification": "map column fold; generator converts lane bytes to words (/8)",
-      "loss_bytes": "2*(lane-1)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      }
     }
   },
   "geometries": {
+    "row-4k": {
+      "rows": 1,
+      "sources": 1,
+      "len": 4128,
+      "misalign": 1,
+      "pitch_pad": 0
+    },
     "row-4k-aligned": {
       "rows": 1,
       "sources": 1,
       "len": 4096,
       "misalign": 0,
       "pitch_pad": 0
+    },
+    "row-256": {
+      "rows": 1,
+      "sources": 1,
+      "len": 256,
+      "misalign": 1,
+      "pitch_pad": 0
+    },
+    "rows-3x5": {
+      "rows": 3,
+      "sources": 1,
+      "len": 5,
+      "misalign": 1,
+      "pitch_pad": 0
+    },
+    "matrix-3x4": {
+      "rows": 3,
+      "sources": 4,
+      "len": 4128,
+      "misalign": 1,
+      "pitch_pad": 0
+    },
+    "scatter-4": {
+      "rows": 4,
+      "sources": 1,
+      "len": 4128,
+      "misalign": 1,
+      "pitch_pad": 0
+    },
+    "gather-4x1": {
+      "rows": 4,
+      "sources": 4,
+      "len": 4128,
+      "misalign": 1,
+      "pitch_pad": 0
+    },
+    "elementwise-4k": {
+      "rows": 1,
+      "sources": 1,
+      "len": 4128,
+      "misalign": 1,
+      "pitch_pad": 0
+    },
+    "bits-4k": {
+      "rows": 1,
+      "sources": 1,
+      "len": 4096,
+      "misalign": 0,
+      "pitch_pad": 0
+    },
+    "bits-gather-8x512": {
+      "rows": 8,
+      "sources": 8,
+      "len": 512,
+      "misalign": 0,
+      "pitch_pad": 0
     }
   },
   "coefficient_patterns": {
+    "general-1": {
+      "slots": [
+        "General"
+      ]
+    },
+    "zero-1": {
+      "slots": [
+        "Zero"
+      ]
+    },
     "one-1": {
       "slots": [
         "One"
+      ]
+    },
+    "general-4": {
+      "slots": [
+        "General",
+        "General",
+        "General",
+        "General"
+      ]
+    },
+    "mixed-3x4": {
+      "slots": [
+        "General",
+        "General",
+        "Zero",
+        "One",
+        "General",
+        "One",
+        "General",
+        "Zero",
+        "One",
+        "General",
+        "General",
+        "Zero"
+      ]
+    },
+    "general-8": {
+      "slots": [
+        "General",
+        "General",
+        "General",
+        "General",
+        "General",
+        "General",
+        "General",
+        "General"
       ]
     }
   },
