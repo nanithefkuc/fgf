@@ -367,7 +367,8 @@ def _validate_rules(ledger: dict) -> dict:
             if not has_type and not has_pair:
                 _fail(f"rule {rid!r}: fixture {fid!r} missing type or source/target pair")
             # elem_bytes and reference required for bulk fixtures
-            if has_type and group not in ("map", "map_bits"):
+            # skip when the rule declares a 'reason' (non-bulk marker)
+            if has_type and group not in ("map", "map_bits") and "reason" not in rule:
                 if "elem_bytes" not in fix:
                     _fail(f"rule {rid!r}: fixture {fid!r} missing elem_bytes")
                 if "reference" not in fix:
