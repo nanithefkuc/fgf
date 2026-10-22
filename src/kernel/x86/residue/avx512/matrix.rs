@@ -88,6 +88,8 @@ fn tile_group<M: Matrix<PreparedResidue> + ?Sized>(
     p64: __m512i,
     p64_m1: __m512i,
     shift: i32,
+    #[cfg(test)] id: &'static str,
+    #[cfg(test)] substage: Substage,
 ) {
     // One even/odd pair of 64-bit accumulator vectors per output.
     let mut acc_e = [_mm512_setzero_si512(); TILE];
@@ -120,6 +122,14 @@ fn tile_group<M: Matrix<PreparedResidue> + ?Sized>(
         );
         *sum = widen_add_avx512(*sum, reduced, p64, p64_m1);
     }
+    #[cfg(test)]
+    emit(
+        id,
+        substage,
+        Unit::Elements,
+        count * 16 * terms.len(),
+        Backend::V4x,
+    );
 }
 
 /// Many sources overwrite many four-byte rows with delayed reduction:
@@ -326,6 +336,14 @@ fn run_delayed<M: Matrix<PreparedResidue> + ?Sized, const ADD: bool>(
                     p64,
                     p64_m1,
                     shift as i32,
+                    #[cfg(test)]
+                    if ADD {
+                        "residue.avx512.mul_add_matrix"
+                    } else {
+                        "residue.avx512.mul_into_matrix"
+                    },
+                    #[cfg(test)]
+                    if ADD { Substage::MulAdd } else { Substage::Mul },
                 );
                 base += len;
             }
@@ -338,18 +356,6 @@ fn run_delayed<M: Matrix<PreparedResidue> + ?Sized, const ADD: bool>(
             }
             offset += 64;
         }
-        #[cfg(test)]
-        emit(
-            if ADD {
-                "residue.avx512.mul_add_matrix"
-            } else {
-                "residue.avx512.mul_into_matrix"
-            },
-            if ADD { Substage::MulAdd } else { Substage::Mul },
-            Unit::Elements,
-            count * (vector_len / 4),
-            Backend::V4x,
-        );
         // Scalar tails: whole lanes past the vector body, reduced per
         // group of `K` sources so the `u64` running sum keeps the same
         // delay bound as the vector lanes.

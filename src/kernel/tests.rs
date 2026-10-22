@@ -4619,59 +4619,59 @@ mod x86 {
             canon(&mut b2);
             let c = coeffs[2]; // nonzero general coefficient, not unit (unit shortcuts skip emit)
 
+            let mut got1 = base.clone();
             trace::clear();
-            let mut got = base.clone();
-            add(&mut got, &src);
-            drop(got);
+            add(&mut got1, &src);
             assert_vector_work(tier);
+            drop(got1);
 
+            let mut got2 = base.clone();
             trace::clear();
-            let mut got = base.clone();
-            sub(&mut got, &src);
-            drop(got);
+            sub(&mut got2, &src);
             assert_vector_work(tier);
+            drop(got2);
 
+            let mut got3 = vec![0u8; vlen];
             trace::clear();
-            let mut got = vec![0u8; vlen];
-            elemwise(&mut got, &src, &b2);
-            drop(got);
+            elemwise(&mut got3, &src, &b2);
             assert_vector_work(tier);
+            drop(got3);
 
+            let mut got4 = base.clone();
             trace::clear();
-            let mut got = base.clone();
-            elemwise_assign(&mut got, &src);
-            drop(got);
+            elemwise_assign(&mut got4, &src);
             assert_vector_work(tier);
+            drop(got4);
 
+            let mut got5 = base.clone();
             trace::clear();
-            let mut got = base.clone();
-            muladd(&mut got, c, &src);
-            drop(got);
+            muladd(&mut got5, c, &src);
             assert_vector_work(tier);
+            drop(got5);
 
+            let mut got6 = base.clone();
             trace::clear();
-            let mut got = base.clone();
-            mulinto(&mut got, c, &src);
-            drop(got);
+            mulinto(&mut got6, c, &src);
             assert_vector_work(tier);
+            drop(got6);
 
+            let mut got7 = base.clone();
             trace::clear();
-            let mut got = base.clone();
-            mulassign(&mut got, c);
-            drop(got);
+            mulassign(&mut got7, c);
             assert_vector_work(tier);
+            drop(got7);
 
+            let mut got8 = base.clone();
             trace::clear();
-            let mut got = base.clone();
-            addscalar(&mut got, c);
-            drop(got);
+            addscalar(&mut got8, c);
             assert_vector_work(tier);
+            drop(got8);
 
+            let mut got9 = base.clone();
             trace::clear();
-            let mut got = base.clone();
-            subscalar(&mut got, c);
-            drop(got);
+            subscalar(&mut got9, c);
             assert_vector_work(tier);
+            drop(got9);
         }
     }
 
@@ -4700,10 +4700,10 @@ mod x86 {
         );
         // Trace coverage: one vector-eligible call per entry.
         {
-            trace::clear();
             let mut dst = vec![0u8; 260];
             let mut src = noise(260, 0xa1);
             prime::add_assign::<Mersenne31>(&mut src, &vec![0u8; 260]); // canonicalize
+            trace::clear();
             x86::mersenne31::add_assign_avx2(token, &mut dst, &src);
             assert_vector_work(Backend::V3);
         }
@@ -4725,10 +4725,10 @@ mod x86 {
         );
         // Trace coverage: one vector-eligible call per entry.
         {
-            trace::clear();
             let mut dst = vec![0u8; 264];
             let mut src = noise(264, 0xa1);
             prime::add_assign::<Goldilocks>(&mut src, &vec![0u8; 264]);
+            trace::clear();
             x86::goldilocks::add_assign_avx2(token, &mut dst, &src);
             assert_vector_work(Backend::V3);
         }
@@ -5799,24 +5799,24 @@ mod x86 {
                 let src = fill(vlen);
                 let base = fill(vlen);
                 let other = fill(vlen);
-                let coeff = Qm::from_raw([COEFFS[1].0, COEFFS[1].1]); // nonzero general
+                let coeff = Qm::from_raw([COEFFS[3].0, COEFFS[3].1]); // nonzero, non-unit
+                let mut got1 = base.clone();
                 trace::clear();
-                let mut got = base.clone();
-                x86::quad_mersenne31::mul_add_avx512(token, &mut got, coeff, &src);
-                drop(got);
+                x86::quad_mersenne31::mul_add_avx512(token, &mut got1, coeff, &src);
                 assert_vector_work(Backend::V4x);
+                drop(got1);
 
+                let mut got2 = vec![0u8; vlen];
                 trace::clear();
-                let mut got = vec![0u8; vlen];
-                x86::quad_mersenne31::mul_into_avx512(token, &mut got, coeff, &src);
-                drop(got);
+                x86::quad_mersenne31::mul_into_avx512(token, &mut got2, coeff, &src);
                 assert_vector_work(Backend::V4x);
+                drop(got2);
 
+                let mut got3 = vec![0u8; vlen];
                 trace::clear();
-                let mut got = vec![0u8; vlen];
-                x86::quad_mersenne31::mul_elementwise_avx512(token, &mut got, &src, &other);
-                drop(got);
+                x86::quad_mersenne31::mul_elementwise_avx512(token, &mut got3, &src, &other);
                 assert_vector_work(Backend::V4x);
+                drop(got3);
             }
             // The AVX-512 QM31 family covers the multiply shapes; the
             // remaining operations run the AVX2 entries above.
