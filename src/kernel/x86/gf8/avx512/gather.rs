@@ -4,7 +4,7 @@
 //! destination tile stays in registers across every source.
 
 use super::super::check_gather;
-use super::{bfactor_avx512, bmul_avx512, brem_avx512};
+use super::{bfactor_avx512, bmul_avx512, brem_avx512, brem_nopeel_avx512};
 use crate::kernel::gf8::Coeffs;
 
 /// Shortest gather destination that peels its head to a 64-byte boundary.
@@ -108,6 +108,6 @@ fn gather_remainder(dst: &mut [u8], coeffs: &(impl Coeffs + ?Sized), srcs: &[&[u
         return;
     }
     for (k, &src) in (0..coeffs.count()).zip(srcs) {
-        brem_avx512(dst, coeffs.resolved(k), &src[tail..]);
+        brem_nopeel_avx512(dst, coeffs.resolved(k), &src[tail..]);
     }
 }

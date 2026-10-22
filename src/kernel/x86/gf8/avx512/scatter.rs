@@ -4,7 +4,7 @@
 //! immediate is the XOR constant, so `<0>` selects the pure linear map, and
 //! each factor replicates one 64-bit map qword to all eight 64-bit lanes.
 
-use super::{bfactor_avx512, bmul_avx512, brem_avx512, brem_half_avx512};
+use super::{bfactor_avx512, bmul_avx512, brem_half_avx512, brem_nopeel_avx512};
 use crate::kernel::gf8::{Coeffs, Prepared};
 
 /// Shortest scatter row that peels its head to a 64-byte boundary.
@@ -131,7 +131,7 @@ fn mul_add_scatter_impl(rows: &mut [u8], coeffs: &(impl Coeffs + ?Sized), src: &
             table: coeffs.table(group.picks[last]),
             affine: group.maps[last],
         };
-        brem_avx512(row, coeff, src);
+        brem_nopeel_avx512(row, coeff, src);
     }
 }
 
