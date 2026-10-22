@@ -145,7 +145,7 @@ pub fn xor_gather_avx2(
         "bytes.avx2.xor_gather",
         crate::kernel::trace::Substage::Add,
         crate::kernel::trace::Unit::Bytes,
-        dst_lanes.len() * 32,
+        dst_lanes.len() * 32 * offsets.len(),
         crate::kernel::Backend::V3,
     );
 }

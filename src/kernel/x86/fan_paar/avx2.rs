@@ -62,6 +62,16 @@ pub fn mul_add_avx2_fp16(
         let scaled = scale_ssse3(x, &table);
         _mm_storeu_si128(dst_lane, _mm_xor_si128(d, scaled));
     }
+    #[cfg(test)]
+    if !narrow.is_empty() {
+        crate::kernel::trace::emit(
+            "fan_paar.ssse3.mul_add_fp16",
+            crate::kernel::trace::Substage::MulAdd,
+            crate::kernel::trace::Unit::Elements,
+            narrow.len().min(1) * 8,
+            crate::kernel::Backend::V2,
+        );
+    }
     // Both steps above are a whole number of 2-byte elements, so the tail
     // starts on an element boundary. Recover the coefficient from the tables
     // it was built from for the portable fallback.
@@ -100,6 +110,16 @@ pub fn mul_assign_avx2_fp16(_token: archmage::X64V3Token, dst: &mut [u8], tables
         let table = nibble_ssse3(tables);
         let x = _mm_loadu_si128(&*dst_lane);
         _mm_storeu_si128(dst_lane, scale_ssse3(x, &table));
+    }
+    #[cfg(test)]
+    if !narrow.is_empty() {
+        crate::kernel::trace::emit(
+            "fan_paar.ssse3.mul_assign_fp16",
+            crate::kernel::trace::Substage::Mul,
+            crate::kernel::trace::Unit::Elements,
+            narrow.len().min(1) * 8,
+            crate::kernel::Backend::V2,
+        );
     }
     scalar::mul_assign::<FanPaar16Field>(dst_tail, tables.coeff);
 }
@@ -150,6 +170,16 @@ pub fn mul_into_avx2_fp16(
         let table = nibble_ssse3(tables);
         let x = _mm_loadu_si128(&src_narrow[0]);
         _mm_storeu_si128(dst_lane, scale_ssse3(x, &table));
+    }
+    #[cfg(test)]
+    if !narrow.is_empty() {
+        crate::kernel::trace::emit(
+            "fan_paar.ssse3.mul_into_fp16",
+            crate::kernel::trace::Substage::Mul,
+            crate::kernel::trace::Unit::Elements,
+            narrow.len().min(1) * 8,
+            crate::kernel::Backend::V2,
+        );
     }
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its
     // own source, so seeding it with `src` first matches the fused body.

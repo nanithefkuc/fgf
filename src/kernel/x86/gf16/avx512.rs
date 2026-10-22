@@ -112,7 +112,7 @@ pub fn mul_add_avx512(token: archmage::X64V4xToken, dst: &mut [u8], coeff: Tower
         "gf16.avx512.mul_add",
         crate::kernel::trace::Substage::MulAdd,
         crate::kernel::trace::Unit::Elements,
-        dtiles.len() * 32,
+        dtiles.len() * 128,
         crate::kernel::Backend::V4x,
     );
     let (dlanes, drest) = dmid.as_chunks_mut::<64>();

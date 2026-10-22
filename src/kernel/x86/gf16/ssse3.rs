@@ -130,14 +130,6 @@ pub fn mul_add_ssse3(
         dst_lanes.len() * 8,
         crate::kernel::Backend::V2,
     );
-    #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf16.ssse3.mul_add",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        dst_lanes.len() * 8,
-        crate::kernel::Backend::V2,
-    );
     mul_add_scalar(dst_tail, tables, src_tail);
 }
 
@@ -149,10 +141,20 @@ pub fn mul_assign_ssse3(_token: archmage::X64V2Token, dst: &mut [u8], tables: &T
     check_elements("gf16::mul_assign_ssse3", dst.len());
     let vectors = nibble_ssse3(tables);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
+    #[cfg(test)]
+    let nlanes = dst_lanes.len();
     for dst_lane in dst_lanes {
         let x = _mm_loadu_si128(&*dst_lane);
         _mm_storeu_si128(dst_lane, scale_ssse3(x, &vectors));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.ssse3.mul_assign",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        nlanes * 8,
+        crate::kernel::Backend::V2,
+    );
     mul_assign_scalar(dst_tail, tables);
 }
 
@@ -193,14 +195,6 @@ pub fn mul_into_ssse3(
         let x = _mm_loadu_si128(src_lane);
         _mm_storeu_si128(dst_lane, scale_ssse3(x, &vectors));
     }
-    #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf16.ssse3.mul_into",
-        crate::kernel::trace::Substage::Mul,
-        crate::kernel::trace::Unit::Elements,
-        dst_lanes.len() * 8,
-        crate::kernel::Backend::V2,
-    );
     #[cfg(test)]
     crate::kernel::trace::emit(
         "gf16.ssse3.mul_into",
@@ -688,14 +682,6 @@ pub fn mul_elementwise_ssse3(
         dst_lanes.len() * 8,
         crate::kernel::Backend::V2,
     );
-    #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf16.ssse3.mul_elementwise",
-        crate::kernel::trace::Substage::MulElementwise,
-        crate::kernel::trace::Unit::Elements,
-        dst_lanes.len() * 8,
-        crate::kernel::Backend::V2,
-    );
     for (d, (x, y)) in dst_rest
         .chunks_exact_mut(2)
         .zip(a_rest.chunks_exact(2).zip(b_rest.chunks_exact(2)))
@@ -751,14 +737,6 @@ pub fn mul_elementwise_assign_ssse3(
         );
         _mm_storeu_si128(dst_lane, product);
     }
-    #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf16.ssse3.mul_elementwise_assign",
-        crate::kernel::trace::Substage::MulElementwise,
-        crate::kernel::trace::Unit::Elements,
-        dst_lanes.len() * 8,
-        crate::kernel::Backend::V2,
-    );
     #[cfg(test)]
     crate::kernel::trace::emit(
         "gf16.ssse3.mul_elementwise_assign",
