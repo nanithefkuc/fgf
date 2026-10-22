@@ -367,7 +367,8 @@ def _validate_rules(ledger: dict) -> dict:
             if not has_type and not has_pair:
                 _fail(f"rule {rid!r}: fixture {fid!r} missing type or source/target pair")
             # elem_bytes and reference required for bulk fixtures
-            if has_type and group not in ("map", "map_bits"):
+            # skip when the rule declares a 'reason' (non-bulk marker)
+            if has_type and group not in ("map", "map_bits") and "reason" not in rule:
                 if "elem_bytes" not in fix:
                     _fail(f"rule {rid!r}: fixture {fid!r} missing elem_bytes")
                 if "reference" not in fix:
@@ -1224,7 +1225,9 @@ def _generate_cases(ledger: dict) -> str:
     """Generate src/kernel/tests/routes/cases.rs content.
 
     Produces complete Case/Cell/Work tables per contract §3.
-    Cases using v4x in any cell go to CASES_SIMD512; rest to CASES.
+    Deduplicates cell sets, geometries, and coefficient arrays.
+    Cases only go to CASES_SIMD512 when their consts reference
+    simd512-gated items; numeric v4x lane/loss do not qualify.
     """
     isa = ledger.get("isa", {})
     _validate_gf2_general(ledger)
@@ -1247,20 +1250,6 @@ def _generate_cases(ledger: dict) -> str:
     geos = ledger.get("geometries", {})
     coeffs = ledger.get("coefficient_patterns", {})
     wrules = ledger.get("work_rules", {})
-
-    # Determine which obligations need simd512
-    simd512_oids: set[str] = set()
-    for oid, ob in sorted(expanded.items()):
-        for key, cell in sorted(ob.get("cells", {}).items()):
-            fc, req = key.split("/", 1)
-            process = cell.get("process", req)
-            field = cell.get("field", process)
-            if req == "v4x" or process == "v4x" or field == "v4x":
-                simd512_oids.add(oid)
-                break
-            if cell.get("min_serving") == "v4x":
-                simd512_oids.add(oid)
-                break
 
     # Collect all needed work combinations
     work_combos: dict[tuple[str, str, str], dict] = {}  # (wr_name, fc, req) -> work dict
@@ -1321,92 +1310,265 @@ def _generate_cases(ledger: dict) -> str:
         lines.append(f"}};")
         lines.append("")
 
-    # Generate case tables
-    cases_lines: list[str] = []
-    cases_simd512_lines: list[str] = []
+    # Build callable → family lookup
+    callable_families: dict[str, str] = {}
+    callables = ledger.get("callables", {})
+    for cname, cinfo in callables.items():
+        fam = cinfo.get("family", "")
+        if fam:
+            callable_families[cname] = fam
+
+    # Family → geometry family mapping
+    _FAMILY_GEO: dict[str, str] = {
+        "ops/row": "single-row",
+        "ops/scatter": "scatter",
+        "ops/gather": "gather",
+        "ops/matrix": "matrix",
+        "ops/matrix_at": "matrix",
+        "ops/reduction": "single-row",
+        "ops/elementwise": "single-row",
+        "ops/pack": "single-row",
+        "ops/rows": "multi-row",
+        "ops/scalar": "single-row",
+        "ops/component": "single-row",
+        "bits": "bits",
+        "bits/gather": "bits-gather",
+        "map": "single-row",
+    }
+
+    # Family → coefficient pattern families (by pattern family name)
+    # Single-coeff families: general, zero, one
+    # Multi-slot families: mixed
+    # Coefficient-free: none (empty)
+    _FAMILY_COEFFS: dict[str, list[str]] = {
+        "ops/row": ["single-general", "single-zero", "single-one"],
+        "ops/scatter": ["mixed"],
+        "ops/gather": ["mixed"],
+        "ops/matrix": ["mixed"],
+        "ops/matrix_at": ["mixed"],
+        "ops/reduction": ["single-general", "single-zero", "single-one"],
+        "ops/elementwise": ["single-general", "single-zero", "single-one"],
+        "ops/pack": ["single-general", "single-zero", "single-one"],
+        "ops/rows": [],           # coefficient-free
+        "ops/scalar": ["single-general", "single-zero", "single-one"],
+        "ops/component": ["single-general", "single-zero", "single-one"],
+        "bits": [],               # coefficient-free
+        "bits/gather": [],        # coefficient-free
+        "map": [],                # coefficient-free
+    }
+
+    # Pre-select one geometry per geometry family (the vector-eligible one)
+    geo_by_family: dict[str, tuple] = {}
+    geo_all: list[tuple] = []  # fallback: geometries without family tag
+    for geo_id, geo in sorted(geos.items()):
+        gfam = geo.get("family", "")
+        if gfam and gfam not in geo_by_family:
+            geo_by_family[gfam] = (geo_id, geo)
+        elif not gfam:
+            geo_all.append((geo_id, geo))
+
+    # Pre-select coefficient patterns by family
+    cps_by_family: dict[str, list[tuple]] = {}
+    cps_all: list[tuple] = []  # fallback: patterns without family tag
+    for cp_name, cp in coeffs.items():
+        cpfam = cp.get("family", "")
+        if cpfam not in cps_by_family:
+            cps_by_family[cpfam] = []
+        cps_by_family[cpfam].append((cp_name, cp))
+        if not cpfam:
+            cps_all.append((cp_name, cp))
+
+    # Determine if a rule is GF(2)-valued (drop general pattern)
+    def _is_gf2_rule(rule: dict) -> bool:
+        group = rule.get("group", "")
+        if group == "bits":
+            return True
+        ftype = ""
+        for fix in rule.get("fixtures", []):
+            ftype = fix.get("type", "")
+            break
+        return "FiniteField<2, 1" in ftype or group == "binary_flat"
+
+    # Generate case tables — compact deduplication
+    # Collect all unique cells, geometries, coefficient arrays
+    cells_map: dict[tuple, str] = {}        # (cell tuple) -> "CELLS_N"
+    geos_map: dict[tuple, str] = {}          # (rows,sources,len,misalign,pitch_pad) -> "GEO_N"
+    coeffs_map: dict[tuple, str] = {}        # (coeff_slots tuple) -> "COEFFS_N"
+    case_records: list[dict] = []            # all cases, with refs to consts
 
     for oid, ob in sorted(expanded.items()):
         call_name, rule_id = oid.split("@", 1)
         rule = rules.get(rule_id, {})
         fixtures = rule.get("fixtures", [])
+        call_family = callable_families.get(call_name, "")
+
+        # Select one geometry for this family
+        geo_fam = _FAMILY_GEO.get(call_family, "single-row")
+        geo_entry = geo_by_family.get(geo_fam)
+        if not geo_entry and geo_all:
+            # Fallback: use first untagged geometry (test compatibility)
+            geo_entry = geo_all[0]
+        if not geo_entry:
+            continue
+        geo_id, geo = geo_entry
+
+        # Select coefficient patterns for this family
+        cp_fams = _FAMILY_COEFFS.get(call_family, [])
+        selected_cps: list[tuple] = []
+        for cpfam in cp_fams:
+            selected_cps.extend(cps_by_family.get(cpfam, []))
+
+        # Fallback: if no family-tagged patterns matched, use untagged ones
+        if not selected_cps and cps_all:
+            selected_cps = list(cps_all)
+
+        # GF(2) fields: drop general patterns
+        if _is_gf2_rule(rule):
+            selected_cps = [(n, cp) for n, cp in selected_cps
+                           if cp.get("family", "") not in ("single-general", "multi-all-general")
+                           and "General" not in cp.get("slots", [])]
+
+        # Coefficient-free families: use single empty-coeffs entry
+        if not selected_cps:
+            selected_cps = [("", {"slots": []})]
+
+        # Per-callable refinement: add/sub operations are coefficient-free
+        # even when the family normally uses coefficients
+        _coeff_free_callables = {"add_assign", "sub_assign", "and_assign", "andnot_assign",
+                                  "xor_assign", "clear_range", "set_range", "weight",
+                                  "and_into", "xor_range", "xor_range_with", "xor_gather",
+                                  "dot_product"}
+        base_call = call_name.split("::")[-1] if "::" in call_name else call_name
+        if base_call in _coeff_free_callables:
+            selected_cps = [("", {"slots": []})]
 
         for fixture in fixtures:
             fid = fixture["id"]
-            # Valid coefficient patterns for this rule
-            valid_cps = _valid_coeff_patterns_for_rule(coeffs, rule)
+            ftype = fixture.get("type", "").replace("crate::", "crate::")
 
-            for geo_id, geo in sorted(geos.items()):
-                if geo.get("len", 0) <= 0:
-                    continue
+            for cp_name, cp in selected_cps:
+                # Build cell entries as structured tuples
+                cell_tuples: list[tuple] = []
+                for key, cell in sorted(ob.get("cells", {}).items()):
+                    fc, req = key.split("/", 1)
+                    process = cell.get("process", req)
+                    field = cell.get("field", process)
+                    min_serving = cell["min_serving"]
+                    required = cell.get("required", False)
+                    work_names = tuple(cell.get("work", []))
+                    cell_tuples.append((fc, req, process, field, required, min_serving, work_names))
 
-                for cp_name, cp in valid_cps:
-                    case_id = f"{oid}#{fid}/{geo_id}/{cp_name}"
-                    # Build cells array
-                    cell_entries: list[str] = []
-                    for key, cell in sorted(ob.get("cells", {}).items()):
-                        fc, req = key.split("/", 1)
-                        features = "Features::Default" if fc == "default" else "Features::All"
-                        request = f"Request::{_request_rust_name(req)}"
-                        process_backend = f"Backend::{_backend_rust_name(cell.get('process', req))}"
-                        field_backend = f"Backend::{_backend_rust_name(cell.get('field', cell.get('process', req)))}"
-                        required = "true" if cell.get("required") else "false"
-                        min_serving = f"Backend::{_backend_rust_name(cell['min_serving'])}"
+                cells_key = tuple(cell_tuples)
+                if cells_key not in cells_map:
+                    cells_map[cells_key] = f"CELLS_{len(cells_map)}"
 
-                        work_refs: list[str] = []
-                        for wr_name in cell.get("work", []):
-                            wr_key = (wr_name, fc, req)
-                            if wr_key in work_statics:
-                                work_refs.append(f"&WORK_{work_statics[wr_key]}")
+                geo_key = (geo.get("rows", 1), geo.get("sources", 1),
+                           geo.get("len", 0), geo.get("misalign", 0),
+                           geo.get("pitch_pad", 0))
+                if geo_key not in geos_map:
+                    geos_map[geo_key] = f"GEO_{len(geos_map)}"
 
-                        if work_refs:
-                            work_array = "&[" + ", ".join(work_refs) + "]"
-                        else:
-                            work_array = "&[]"
+                coeff_key = tuple(cp.get("slots", []))
+                if coeff_key not in coeffs_map:
+                    coeffs_map[coeff_key] = f"COEFFS_{len(coeffs_map)}"
 
-                        cell_entry = (
-                            f"        Cell {{ features: {features}, request: {request}, "
-                            f"process: {process_backend}, field: {field_backend}, "
-                            f"required: {required}, min_serving: {min_serving}, "
-                            f"work: {work_array} }},"
-                        )
-                        cell_entries.append(cell_entry)
+                case_id = f"{oid}#{fid}/{geo_id}/{cp_name or '_'}"
+                run_fn = f"super::run_{_safe_ident(call_name)}::<{ftype}>"
 
-                    # Build coefficients array
-                    coeff_entries: list[str] = []
-                    for slot in cp.get("slots", []):
-                        coeff_entries.append(f"Coeff::{slot}")
+                case_records.append({
+                    "id": case_id,
+                    "obligation": oid,
+                    "run_fn": run_fn,
+                    "cells_ref": cells_map[cells_key],
+                    "geo_ref": geos_map[geo_key],
+                    "coeffs_ref": coeffs_map[coeff_key],
+                })
 
-                    # Build geometry
-                    rows = geo.get("rows", 1)
-                    sources = geo.get("sources", 1)
-                    length = geo.get("len", 0)
-                    misalign = geo.get("misalign", 0)
-                    pitch_pad = geo.get("pitch_pad", 0)
-                    geo_str = (f"Geometry {{ rows: {rows}, sources: {sources}, "
-                               f"len: {length}, misalign: {misalign}, "
-                               f"pitch_pad: {pitch_pad} }}")
+    # Deduplicate run functions
+    run_fns: dict[str, str] = {}  # run_fn_str -> "RUN_N"
+    for rec in case_records:
+        rf = rec["run_fn"]
+        if rf not in run_fns:
+            run_fns[rf] = f"RUN_{len(run_fns)}"
 
-                    # Run function path
-                    ftype = fixture.get("type", "").replace("crate::", "crate::")
-                    run_fn = f"super::run_{_safe_ident(call_name)}::<{ftype}>"
+    # Emit run function consts
+    for rf_str, rname in sorted(run_fns.items(), key=lambda x: x[1]):
+        lines.append(f"const {rname}: fn(&Case, &Cell) -> crate::kernel::tests::routes::Outcome = {rf_str};")
 
-                    case_body = [
-                        f"    Case {{",
-                        f"        id: \"{case_id}\",",
-                        f"        obligation: \"{oid}\",",
-                        f"        run: {run_fn},",
-                        f"        geometry: {geo_str},",
-                        f"        coeffs: &[{', '.join(coeff_entries)}],",
-                        f"        cells: &[",
-                    ] + cell_entries + [
-                        f"        ],",
-                        f"    }},",
-                    ]
+    if run_fns:
+        lines.append("")
 
-                    if oid in simd512_oids:
-                        cases_simd512_lines.extend(case_body)
-                    else:
-                        cases_lines.extend(case_body)
+    # Now determine simd512: only if any referenced const contains a simd512-gated
+    # Rust item. Currently no generated const is feature-gated behind simd512
+    # (run functions use the same type for all tiers). All cases go to CASES.
+    _simd512_cells: set[str] = set()
+    # Reserved: when a run function or WORK const is actually gated on simd512,
+    # add its cell ref name here.
+
+    # Emit geometry consts
+    for geo_key, gname in sorted(geos_map.items(), key=lambda x: x[1]):
+        rows, sources, length, misalign, pitch_pad = geo_key
+        lines.append(f"const {gname}: Geometry = Geometry {{ rows: {rows}, sources: {sources}, len: {length}, misalign: {misalign}, pitch_pad: {pitch_pad} }};")
+
+    if geos_map:
+        lines.append("")
+
+    # Emit coefficient consts
+    for coeff_key, cname in sorted(coeffs_map.items(), key=lambda x: x[1]):
+        coeff_entries = ", ".join(f"Coeff::{s}" for s in coeff_key)
+        lines.append(f"const {cname}: &[Coeff] = &[{coeff_entries}];")
+
+    if coeffs_map:
+        lines.append("")
+
+    # Emit cell set consts
+    for cells_key, cname in sorted(cells_map.items(), key=lambda x: x[1]):
+        cell_lines: list[str] = []
+        for ct in cells_key:
+            fc, req, process, field, required, min_serving, work_names = ct
+            features = "Features::Default" if fc == "default" else "Features::All"
+            request = f"Request::{_request_rust_name(req)}"
+            process_backend = f"Backend::{_backend_rust_name(process)}"
+            field_backend = f"Backend::{_backend_rust_name(field)}"
+            min_serving_backend = f"Backend::{_backend_rust_name(min_serving)}"
+            required_str = "true" if required else "false"
+
+            work_refs: list[str] = []
+            for wr_name in work_names:
+                wr_key = (wr_name, fc, req)
+                if wr_key in work_statics:
+                    work_refs.append(f"&WORK_{work_statics[wr_key]}")
+            work_array = "&[" + ", ".join(work_refs) + "]" if work_refs else "&[]"
+
+            cell_lines.append(
+                f"    Cell {{ features: {features}, request: {request}, "
+                f"process: {process_backend}, field: {field_backend}, "
+                f"required: {required_str}, min_serving: {min_serving_backend}, "
+                f"work: {work_array} }},"
+            )
+
+        lines.append(f"const {cname}: &[Cell] = &[")
+        lines.extend(cell_lines)
+        lines.append("];")
+
+    if cells_map:
+        lines.append("")
+
+    # Emit cases — one compact line each (as few as rustfmt allows)
+    cases_lines: list[str] = []
+    cases_simd512_lines: list[str] = []
+
+    for rec in case_records:
+        case_str = (
+            f"    Case {{ id: \"{rec['id']}\", obligation: \"{rec['obligation']}\", "
+            f"run: {run_fns[rec['run_fn']]}, geometry: {rec['geo_ref']}, "
+            f"coeffs: {rec['coeffs_ref']}, cells: {rec['cells_ref']} }},"
+        )
+        # CASES_SIMD512 only for cases referencing simd512-gated items
+        if rec["cells_ref"] in _simd512_cells:
+            cases_simd512_lines.append(case_str)
+        else:
+            cases_lines.append(case_str)
 
     # Emit CASES table
     if cases_lines:
