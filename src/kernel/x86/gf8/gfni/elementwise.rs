@@ -98,14 +98,6 @@ pub fn mul_elementwise_gfni<const NATIVE: bool>(
         dst_lanes.len() * 32,
         crate::kernel::Backend::V3GfniCrypto,
     );
-    #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.gfni.mul_elementwise",
-        crate::kernel::trace::Substage::MulElementwise,
-        crate::kernel::trace::Unit::Elements,
-        dst_lanes.len() * 32,
-        crate::kernel::Backend::V3GfniCrypto,
-    );
     if NATIVE {
         let (dst16, dst_tail) = dst_rest.as_chunks_mut::<16>();
         let (a16, a_tail) = a_rest.as_chunks::<16>();
@@ -120,15 +112,7 @@ pub fn mul_elementwise_gfni<const NATIVE: bool>(
             "gf8.gfni.mul_elementwise",
             crate::kernel::trace::Substage::MulElementwise,
             crate::kernel::trace::Unit::Elements,
-            dst16.len() * 32,
-            crate::kernel::Backend::V3GfniCrypto,
-        );
-        #[cfg(test)]
-        crate::kernel::trace::emit(
-            "gf8.gfni.mul_elementwise",
-            crate::kernel::trace::Substage::MulElementwise,
-            crate::kernel::trace::Unit::Elements,
-            dst16.len() * 32,
+            dst16.len() * 16,
             crate::kernel::Backend::V3GfniCrypto,
         );
         for ((d, &x), &y) in dst_tail.iter_mut().zip(a_tail).zip(b_tail) {
@@ -136,22 +120,6 @@ pub fn mul_elementwise_gfni<const NATIVE: bool>(
             // caller's reduction byte is 0x1b by construction.
             *d = super::super::ssse3::gf_mul_ref(x, y, reduction);
         }
-        #[cfg(test)]
-        crate::kernel::trace::emit(
-            "gf8.gfni.mul_elementwise",
-            crate::kernel::trace::Substage::MulElementwise,
-            crate::kernel::trace::Unit::Elements,
-            dst_tail.len() * 32,
-            crate::kernel::Backend::V3GfniCrypto,
-        );
-        #[cfg(test)]
-        crate::kernel::trace::emit(
-            "gf8.gfni.mul_elementwise",
-            crate::kernel::trace::Substage::MulElementwise,
-            crate::kernel::trace::Unit::Elements,
-            dst_tail.len() * 32,
-            crate::kernel::Backend::V3GfniCrypto,
-        );
     } else {
         // GFNI implies AVX2 and SSSE3; the remainder keeps the shift/reduce
         // seam at 128-bit lanes and scalar.
@@ -192,14 +160,6 @@ pub fn mul_elementwise_assign_gfni<const NATIVE: bool>(
         dst_lanes.len() * 32,
         crate::kernel::Backend::V3GfniCrypto,
     );
-    #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.gfni.mul_elementwise_assign",
-        crate::kernel::trace::Substage::MulElementwise,
-        crate::kernel::trace::Unit::Elements,
-        dst_lanes.len() * 32,
-        crate::kernel::Backend::V3GfniCrypto,
-    );
     if NATIVE {
         let (dst16, dst_tail) = dst_rest.as_chunks_mut::<16>();
         let (src16, src_tail) = src_rest.as_chunks::<16>();
@@ -213,36 +173,12 @@ pub fn mul_elementwise_assign_gfni<const NATIVE: bool>(
             "gf8.gfni.mul_elementwise_assign",
             crate::kernel::trace::Substage::MulElementwise,
             crate::kernel::trace::Unit::Elements,
-            dst16.len() * 32,
-            crate::kernel::Backend::V3GfniCrypto,
-        );
-        #[cfg(test)]
-        crate::kernel::trace::emit(
-            "gf8.gfni.mul_elementwise_assign",
-            crate::kernel::trace::Substage::MulElementwise,
-            crate::kernel::trace::Unit::Elements,
-            dst16.len() * 32,
+            dst16.len() * 16,
             crate::kernel::Backend::V3GfniCrypto,
         );
         for (d, &s) in dst_tail.iter_mut().zip(src_tail) {
             *d = super::super::ssse3::gf_mul_ref(*d, s, reduction);
         }
-        #[cfg(test)]
-        crate::kernel::trace::emit(
-            "gf8.gfni.mul_elementwise_assign",
-            crate::kernel::trace::Substage::MulElementwise,
-            crate::kernel::trace::Unit::Elements,
-            dst_tail.len() * 32,
-            crate::kernel::Backend::V3GfniCrypto,
-        );
-        #[cfg(test)]
-        crate::kernel::trace::emit(
-            "gf8.gfni.mul_elementwise_assign",
-            crate::kernel::trace::Substage::MulElementwise,
-            crate::kernel::trace::Unit::Elements,
-            dst_tail.len() * 32,
-            crate::kernel::Backend::V3GfniCrypto,
-        );
     } else {
         // As in `mul_elementwise_gfni`: the shift/reduce seam finishes the
         // 128-bit lanes and the scalar tail.

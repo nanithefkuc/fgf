@@ -55,6 +55,14 @@ fn fold_term<const NATIVE: bool, const ROWS: usize, const LANES: usize>(
             };
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        ROWS * LANES * 32,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
 }
 
 /// Fold one chunk of resolved terms into `ROWS` rows, `LANES` 32-byte lanes
@@ -175,14 +183,6 @@ fn rows_body<
         tile += step;
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.gfni.matrix",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        tile * ROWS,
-        crate::kernel::Backend::V3GfniCrypto,
-    );
-    #[cfg(test)]
     let lane_start = tile;
     while tile + 32 <= vector_len {
         let mut acc = [_mm256_setzero_si256(); ROWS];
@@ -232,7 +232,7 @@ fn rows_body<
         "gf8.gfni.matrix",
         crate::kernel::trace::Substage::MulAdd,
         crate::kernel::trace::Unit::Elements,
-        (tile - lane_start) * ROWS,
+        (tile - lane_start) * ROWS * maps.len(),
         crate::kernel::Backend::V3GfniCrypto,
     );
 }

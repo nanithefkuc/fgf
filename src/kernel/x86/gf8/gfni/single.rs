@@ -97,7 +97,7 @@ pub(in crate::kernel::x86::gf8) fn mul_add_gfni_impl<const NATIVE: bool, S: Body
         "gf8.gfni.mul_add",
         crate::kernel::trace::Substage::MulAdd,
         crate::kernel::trace::Unit::Elements,
-        dst_tiles.len() * 32,
+        dst_tiles.len() * 128,
         crate::kernel::Backend::V3GfniCrypto,
     );
 
@@ -130,7 +130,7 @@ pub(in crate::kernel::x86::gf8) fn mul_add_gfni_impl<const NATIVE: bool, S: Body
         "gf8.gfni.mul_add",
         crate::kernel::trace::Substage::MulAdd,
         crate::kernel::trace::Unit::Elements,
-        dst16.len() * 32,
+        dst16.len() * 16,
         crate::kernel::Backend::V3GfniCrypto,
     );
 
@@ -189,10 +189,20 @@ pub(in crate::kernel::x86::gf8) fn mul_assign_gfni_impl<const NATIVE: bool, S: B
         crate::kernel::Backend::V3GfniCrypto,
     );
     let (sixteens, tail) = rest.as_chunks_mut::<16>();
+    #[cfg(test)]
+    let __nsixteens = sixteens.len() * 16;
     for s16 in sixteens {
         let d = _mm_loadu_si128(&*s16);
         _mm_storeu_si128(s16, bmul_half_gfni::<NATIVE>(d, factor_half));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.mul_assign",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        __nsixteens,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
 
     mul_assign_nibble(tail, coeff.table);
 }
@@ -303,6 +313,14 @@ pub(in crate::kernel::x86::gf8) fn mul_into_gfni_impl<
         drest = dnext;
         srest = snext;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        tiles,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     let (dst_lanes, dst_mid2) = dst_mid.as_chunks_mut::<32>();
     let (src_lanes, src_mid2) = src_mid.as_chunks::<32>();
     for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
@@ -328,7 +346,7 @@ pub(in crate::kernel::x86::gf8) fn mul_into_gfni_impl<
         "gf8.gfni.mul_into",
         crate::kernel::trace::Substage::Mul,
         crate::kernel::trace::Unit::Elements,
-        dst16.len() * 32,
+        dst16.len() * 16,
         crate::kernel::Backend::V3GfniCrypto,
     );
 

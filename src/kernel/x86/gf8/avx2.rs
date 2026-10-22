@@ -685,6 +685,14 @@ pub fn multiply_vectors_avx2(mut a: __m256i, mut b: __m256i, reduction: u8) -> _
         a = _mm256_xor_si256(_mm256_add_epi8(a, a), _mm256_and_si256(reduction, carry));
         b = _mm256_and_si256(_mm256_srli_epi16::<1>(b), low7);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx2.elementwise_product",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        32,
+        crate::kernel::Backend::V3,
+    );
     product
 }
 
@@ -719,14 +727,6 @@ pub fn mul_elementwise_avx2(
         let y = _mm256_loadu_si256(blane);
         _mm256_storeu_si256(dlane, multiply_vectors_avx2(x, y, reduction));
     }
-    #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.avx2.mul_elementwise",
-        crate::kernel::trace::Substage::MulElementwise,
-        crate::kernel::trace::Unit::Elements,
-        dst_lanes.len() * 32,
-        crate::kernel::Backend::V3,
-    );
 
     // AVX2 implies SSSE3; the remainders keep equal lengths.
     mul_elementwise_ssse3(_token.v2(), reduction, dst_rest, a_rest, b_rest);
@@ -756,14 +756,6 @@ pub fn mul_elementwise_assign_avx2(
         let y = _mm256_loadu_si256(slane);
         _mm256_storeu_si256(dlane, multiply_vectors_avx2(x, y, reduction));
     }
-    #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.avx2.mul_elementwise_assign",
-        crate::kernel::trace::Substage::MulElementwise,
-        crate::kernel::trace::Unit::Elements,
-        dst_lanes.len() * 32,
-        crate::kernel::Backend::V3,
-    );
 
     // AVX2 implies SSSE3; the remainders keep equal lengths.
     mul_elementwise_assign_ssse3(_token.v2(), reduction, dst_rest, src_rest);
