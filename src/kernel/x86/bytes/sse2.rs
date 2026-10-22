@@ -21,6 +21,14 @@ pub fn xor_sse2(_token: archmage::X64V1Token, dst: &mut [u8], src: &[u8]) {
             _mm_storeu_si128(dst_lane, _mm_xor_si128(d, s));
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "bytes.sse2.xor",
+        crate::kernel::trace::Substage::Add,
+        crate::kernel::trace::Unit::Bytes,
+        dst_tiles.len() * 64,
+        crate::kernel::Backend::V2,
+    );
 
     let (dst_lanes, dst_tail) = dst_tail.as_chunks_mut::<16>();
     let (src_lanes, src_tail) = src_tail.as_chunks::<16>();
@@ -29,6 +37,14 @@ pub fn xor_sse2(_token: archmage::X64V1Token, dst: &mut [u8], src: &[u8]) {
         let s = _mm_loadu_si128(src_lane);
         _mm_storeu_si128(dst_lane, _mm_xor_si128(d, s));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "bytes.sse2.xor",
+        crate::kernel::trace::Substage::Add,
+        crate::kernel::trace::Unit::Bytes,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V2,
+    );
     scalar::xor(dst_tail, src_tail);
 }
 
@@ -57,9 +73,19 @@ pub fn xor_broadcast_sse2(_token: archmage::X64V1Token, dst: &mut [u8], value_by
     let broadcast = _mm_loadu_si128(&pattern);
 
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<16>();
+    #[cfg(test)]
+    let sse2_broadcast16 = dst_lanes.len() * 16;
     for lane in dst_lanes {
         let d = _mm_loadu_si128(&*lane);
         _mm_storeu_si128(lane, _mm_xor_si128(d, broadcast));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "bytes.sse2.xor_broadcast",
+        crate::kernel::trace::Substage::Add,
+        crate::kernel::trace::Unit::Bytes,
+        sse2_broadcast16,
+        crate::kernel::Backend::V2,
+    );
     scalar::xor_broadcast_bytes(dst_tail, value_bytes);
 }

@@ -42,6 +42,14 @@ fn xor_impl(dst: &mut [u8], src: &[u8]) {
             _mm256_storeu_si256(dst_lane, _mm256_xor_si256(d, s));
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "bytes.avx2.xor",
+        crate::kernel::trace::Substage::Add,
+        crate::kernel::trace::Unit::Bytes,
+        dst_tiles.len() * 128,
+        crate::kernel::Backend::V3,
+    );
 
     let (dst_lanes, dst_tail) = dst_tail.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src_tail.as_chunks::<32>();
@@ -50,6 +58,14 @@ fn xor_impl(dst: &mut [u8], src: &[u8]) {
         let s = _mm256_loadu_si256(src_lane);
         _mm256_storeu_si256(dst_lane, _mm256_xor_si256(d, s));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "bytes.avx2.xor",
+        crate::kernel::trace::Substage::Add,
+        crate::kernel::trace::Unit::Bytes,
+        dst_lanes.len() * 32,
+        crate::kernel::Backend::V3,
+    );
 
     let (dst_lanes, dst_tail) = dst_tail.as_chunks_mut::<16>();
     let (src_lanes, src_tail) = src_tail.as_chunks::<16>();
@@ -58,6 +74,14 @@ fn xor_impl(dst: &mut [u8], src: &[u8]) {
         let s = _mm_loadu_si128(src_lane);
         _mm_storeu_si128(dst_lane, _mm_xor_si128(d, s));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "bytes.avx2.xor",
+        crate::kernel::trace::Substage::Add,
+        crate::kernel::trace::Unit::Bytes,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V2,
+    );
     scalar::xor(dst_tail, src_tail);
 }
 
@@ -116,6 +140,14 @@ pub fn xor_gather_avx2(
         }
         _mm256_storeu_si256(dst_lane, acc);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "bytes.avx2.xor_gather",
+        crate::kernel::trace::Substage::Add,
+        crate::kernel::trace::Unit::Bytes,
+        dst_lanes.len() * 32,
+        crate::kernel::Backend::V3,
+    );
 }
 
 /// `dst[i] ^= value_bytes[i % value_bytes.len()]` for every byte — one
@@ -156,14 +188,34 @@ pub fn xor_broadcast_avx2(_token: archmage::X64V3Token, dst: &mut [u8], value_by
     let broadcast16 = _mm256_castsi256_si128(broadcast);
 
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    #[cfg(test)]
+    let avx2_broadcast32 = dst_lanes.len() * 32;
     for lane in dst_lanes {
         let d = _mm256_loadu_si256(&*lane);
         _mm256_storeu_si256(lane, _mm256_xor_si256(d, broadcast));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "bytes.avx2.xor_broadcast",
+        crate::kernel::trace::Substage::Add,
+        crate::kernel::trace::Unit::Bytes,
+        avx2_broadcast32,
+        crate::kernel::Backend::V3,
+    );
     let (dst_lanes, dst_tail) = dst_tail.as_chunks_mut::<16>();
+    #[cfg(test)]
+    let avx2_broadcast16 = dst_lanes.len() * 16;
     for lane in dst_lanes {
         let d = _mm_loadu_si128(&*lane);
         _mm_storeu_si128(lane, _mm_xor_si128(d, broadcast16));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "bytes.avx2.xor_broadcast",
+        crate::kernel::trace::Substage::Add,
+        crate::kernel::trace::Unit::Bytes,
+        avx2_broadcast16,
+        crate::kernel::Backend::V2,
+    );
     scalar::xor_broadcast_bytes(dst_tail, value_bytes);
 }

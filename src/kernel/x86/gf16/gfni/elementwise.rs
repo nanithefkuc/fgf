@@ -59,6 +59,22 @@ pub fn mul_elementwise_gfni(
         );
         _mm256_storeu_si256(dst_lane, product);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_elementwise",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_elementwise",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     for (d, (x, y)) in dst_rest
         .chunks_exact_mut(2)
         .zip(a_rest.chunks_exact(2).zip(b_rest.chunks_exact(2)))
@@ -108,6 +124,22 @@ pub fn mul_elementwise_assign_gfni(
         );
         _mm256_storeu_si256(dst_lane, product);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_elementwise_assign",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_elementwise_assign",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     for (d, y) in dst_rest.chunks_exact_mut(2).zip(src_rest.chunks_exact(2)) {
         let product = tail_product([d[0], d[1]], [y[0], y[1]], b_raw, reduction);
         d.copy_from_slice(&product);
