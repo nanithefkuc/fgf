@@ -89,6 +89,11 @@ pub mod kernel {
     pub use archmage::{
         X64V1Token, X64V2Token, X64V3GfniCryptoToken, X64V3Token, X64V4Token, X64V4xToken,
     };
+
+    /// Test-only vector-work trace: snapshot, clear, and bounded-digest assertions.
+    pub mod trace {
+        pub use crate::kernel::trace::{assert_vector_work, assert_vector_work_in, clear};
+    }
 }
 
 /// Independent scalar field oracles.

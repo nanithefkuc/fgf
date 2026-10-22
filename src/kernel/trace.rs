@@ -100,12 +100,13 @@ std::thread_local! {
 }
 
 /// Discard this thread's recorded entries and scope path.
-pub(crate) fn clear() {
+pub fn clear() {
     ENTRIES.with(|entries| entries.borrow_mut().clear());
     SCOPE.with(|scope| scope.borrow_mut().clear());
 }
 
 /// Record one stretch of vector work. Zero work records nothing.
+#[allow(dead_code)]
 pub(crate) fn emit(
     kernel: &'static str,
     substage: Substage,
@@ -138,12 +139,14 @@ pub(crate) fn snapshot() -> Vec<Entry> {
 ///
 /// The guard pops the `(scope, pass)` pair on drop, including during unwind.
 #[must_use]
+#[allow(dead_code)]
 pub(crate) fn scope(scope: Scope, pass: Pass) -> ScopeGuard {
     SCOPE.with(|scopes| scopes.borrow_mut().push((scope, pass)));
     ScopeGuard {}
 }
 
 /// Guard returned by [`scope`]; pops the scope path on drop.
+#[allow(dead_code)]
 pub(crate) struct ScopeGuard {}
 
 impl Drop for ScopeGuard {
@@ -158,6 +161,7 @@ impl Drop for ScopeGuard {
 ///
 /// Scalar reports 0; other x86 tiers order by capability. Non-x86 variants
 /// report scalar strength.
+#[allow(dead_code)]
 pub(crate) fn strength(tier: Backend) -> u8 {
     match tier {
         Backend::V4x => 4,
@@ -166,6 +170,71 @@ pub(crate) fn strength(tier: Backend) -> u8 {
         Backend::V2 => 1,
         _ => 0,
     }
+}
+
+/// Assert the trace holds at least one entry at exactly `tier` with work > 0.
+///
+/// # Panics
+///
+/// Panics if no trace entry at `tier` with positive work is found.
+#[allow(dead_code)]
+pub fn assert_vector_work(tier: Backend) {
+    let entries = snapshot();
+    let mut found = false;
+    for e in &entries {
+        if e.tier == tier && e.work > 0 {
+            found = true;
+            break;
+        }
+    }
+    assert!(
+        found,
+        "expected at least one trace entry at tier {} with positive work, \
+         but snapshot has {} entries with tiers {:?}",
+        tier.name(),
+        entries.len(),
+        entries.iter().map(|e| e.tier.name()).collect::<Vec<_>>(),
+    );
+}
+
+/// Assert the summed work of trace entries at exactly `tier` lies in
+/// `[min, max]`, and the summed work of all entries (any tier) is at most
+/// `max` — catching double counting and overcounting.
+///
+/// # Panics
+///
+/// Panics if `min` is zero, or if either bound is violated.
+#[track_caller]
+#[allow(dead_code)]
+pub fn assert_vector_work_in(tier: Backend, min: usize, max: usize) {
+    assert!(min > 0, "min must be > 0 to prove positive work");
+    let entries = snapshot();
+    let tier_work: usize = entries
+        .iter()
+        .filter(|e| e.tier == tier)
+        .map(|e| e.work)
+        .sum();
+    let total_work: usize = entries.iter().map(|e| e.work).sum();
+    assert!(
+        tier_work >= min,
+        "expected at least {min} units of work at tier {}, got {tier_work} \
+         ({} entries, total work {total_work})",
+        tier.name(),
+        entries.len(),
+    );
+    assert!(
+        tier_work <= max,
+        "work at tier {} exceeded upper bound: {tier_work} > {max} \
+         ({} entries, total work {total_work})",
+        tier.name(),
+        entries.len(),
+    );
+    assert!(
+        total_work <= max,
+        "total work over all tiers exceeded upper bound: {total_work} > {max} \
+         ({} entries)",
+        entries.len(),
+    );
 }
 
 #[cfg(test)]

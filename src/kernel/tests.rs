@@ -177,67 +177,6 @@ const GATHER_LENGTHS: &[usize] = &[
     127, 128, 129, 143, 144, 145, 255, 256, 257, 300,
 ];
 
-/// Assert the trace holds at least one entry at exactly `tier` with work > 0.
-#[allow(dead_code)]
-fn assert_vector_work(tier: crate::kernel::Backend) {
-    let entries = crate::kernel::trace::snapshot();
-    let mut found = false;
-    for e in &entries {
-        if e.tier == tier && e.work > 0 {
-            found = true;
-            break;
-        }
-    }
-    assert!(
-        found,
-        "expected at least one trace entry at tier {} with positive work, \
-         but snapshot has {} entries with tiers {:?}",
-        tier.name(),
-        entries.len(),
-        entries.iter().map(|e| e.tier.name()).collect::<Vec<_>>(),
-    );
-}
-
-/// Assert the summed work of trace entries at exactly `tier` lies in
-/// `[min, max]`, and the summed work of all entries (any tier) is at most
-/// `max` — catching double counting and overcounting.
-///
-/// # Panics
-///
-/// Panics if `min` is zero, or if either bound is violated.
-#[allow(dead_code)]
-#[track_caller]
-fn assert_vector_work_in(tier: crate::kernel::Backend, min: usize, max: usize) {
-    assert!(min > 0, "min must be > 0 to prove positive work");
-    let entries = crate::kernel::trace::snapshot();
-    let tier_work: usize = entries
-        .iter()
-        .filter(|e| e.tier == tier)
-        .map(|e| e.work)
-        .sum();
-    let total_work: usize = entries.iter().map(|e| e.work).sum();
-    assert!(
-        tier_work >= min,
-        "expected at least {min} units of work at tier {}, got {tier_work} \
-         ({} entries, total work {total_work})",
-        tier.name(),
-        entries.len(),
-    );
-    assert!(
-        tier_work <= max,
-        "work at tier {} exceeded upper bound: {tier_work} > {max} \
-         ({} entries, total work {total_work})",
-        tier.name(),
-        entries.len(),
-    );
-    assert!(
-        total_work <= max,
-        "total work over all tiers exceeded upper bound: {total_work} > {max} \
-         ({} entries)",
-        entries.len(),
-    );
-}
-
 /// Whether the host resolves to one of the tiers in `supported` — the shared
 /// substitute for the crate's old `std::is_*_feature_detected!` test gates.
 ///
@@ -2443,7 +2382,7 @@ mod x86 {
                 x86::gf16::mul_add_scatter_gfni(token, rows, row_len, coeffs, src);
             },
         );
-        super::assert_vector_work(Backend::V3GfniCrypto);
+        crate::kernel::trace::assert_vector_work(Backend::V3GfniCrypto);
         check_matrix(
             "gf8 gfni matrix",
             gf8_coeff_at2::<AES>,
@@ -2512,7 +2451,7 @@ mod x86 {
                 x86::gf16::mul_add_matrix_gfni(token, rows, row_len, nrows, terms);
             },
         );
-        super::assert_vector_work(Backend::V3GfniCrypto);
+        crate::kernel::trace::assert_vector_work(Backend::V3GfniCrypto);
         check_gather(
             "gf8 gfni gather",
             gf8_coeff_at::<AES>,
@@ -2529,7 +2468,7 @@ mod x86 {
             gf16_reference,
             |dst, coeffs, srcs| x86::gf16::mul_add_gather_gfni(token, dst, coeffs, srcs),
         );
-        super::assert_vector_work(Backend::V3GfniCrypto);
+        crate::kernel::trace::assert_vector_work(Backend::V3GfniCrypto);
         check_gf8_elementwise::<AES>("gf8 gfni elementwise", |dst, a, b| {
             x86::gf8::mul_elementwise_gfni::<true>(
                 token,
@@ -3315,7 +3254,7 @@ mod x86 {
                 &prepared_coeffs(&coeffs),
                 &src,
             );
-            assert_vector_work(Backend::V3GfniCrypto);
+            crate::kernel::trace::assert_vector_work(Backend::V3GfniCrypto);
         }
         {
             // Matrix: 4 rows × 300 bytes × 3 terms.
@@ -3344,7 +3283,7 @@ mod x86 {
                     nrows,
                     &pairs[..],
                 );
-                assert_vector_work(Backend::V3GfniCrypto);
+                crate::kernel::trace::assert_vector_work(Backend::V3GfniCrypto);
             });
         }
         {
@@ -3363,7 +3302,7 @@ mod x86 {
                 &prepared_coeffs(&coeffs),
                 &srcs,
             );
-            assert_vector_work(Backend::V3GfniCrypto);
+            crate::kernel::trace::assert_vector_work(Backend::V3GfniCrypto);
         }
         check_gf8_scattered_gfni_rows::<RS>("gf8 rs gfni", token);
     }
@@ -3650,7 +3589,7 @@ mod x86 {
                 x86::gf16::mul_add_scatter_avx2(token, rows, row_len, coeffs, src);
             },
         );
-        super::assert_vector_work(Backend::V3);
+        crate::kernel::trace::assert_vector_work(Backend::V3);
         check_gather(
             "gf8 avx2 gather",
             gf8_coeff_at::<AES>,
@@ -3688,7 +3627,7 @@ mod x86 {
                 &prepared_coeffs(&coeffs),
                 &src,
             );
-            assert_vector_work(Backend::V3);
+            crate::kernel::trace::assert_vector_work(Backend::V3);
         }
         check_gf8_elementwise::<RS>("gf8 rs avx2 elementwise", |dst, a, b| {
             x86::gf8::mul_elementwise_avx2(token, Polynomial::<RS>::REDUCTION_LOW, dst, a, b);
@@ -3893,7 +3832,7 @@ mod x86 {
                 x86::gf16::mul_add_scatter_ssse3(token, rows, row_len, coeffs, src);
             },
         );
-        super::assert_vector_work(Backend::V2);
+        crate::kernel::trace::assert_vector_work(Backend::V2);
         check_gather(
             "gf8 ssse3 gather",
             gf8_coeff_at::<AES>,
@@ -3910,7 +3849,7 @@ mod x86 {
             gf16_reference,
             |dst, coeffs, srcs| x86::gf16::mul_add_gather_ssse3(token, dst, coeffs, srcs),
         );
-        super::assert_vector_work(Backend::V2);
+        crate::kernel::trace::assert_vector_work(Backend::V2);
         check_matrix(
             "gf8 ssse3 matrix",
             gf8_coeff_at2::<AES>,
@@ -3946,9 +3885,9 @@ mod x86 {
                 &prepared_coeffs(&coeffs),
                 &src,
             );
-            assert_vector_work(Backend::V2);
+            crate::kernel::trace::assert_vector_work(Backend::V2);
         }
-        super::assert_vector_work(Backend::V2);
+        crate::kernel::trace::assert_vector_work(Backend::V2);
         check_gf8_elementwise::<AES>("gf8 ssse3 elementwise", |dst, a, b| {
             x86::gf8::mul_elementwise_ssse3(token, Polynomial::<AES>::REDUCTION_LOW, dst, a, b);
         });
@@ -4779,55 +4718,55 @@ mod x86 {
             let mut got1 = base.clone();
             trace::clear();
             add(&mut got1, &src);
-            super::assert_vector_work_in(tier, min, max);
+            crate::kernel::trace::assert_vector_work_in(tier, min, max);
             drop(got1);
 
             let mut got2 = base.clone();
             trace::clear();
             sub(&mut got2, &src);
-            super::assert_vector_work_in(tier, min, max);
+            crate::kernel::trace::assert_vector_work_in(tier, min, max);
             drop(got2);
 
             let mut got3 = vec![0u8; vlen];
             trace::clear();
             elemwise(&mut got3, &src, &b2);
-            super::assert_vector_work_in(tier, min, max);
+            crate::kernel::trace::assert_vector_work_in(tier, min, max);
             drop(got3);
 
             let mut got4 = base.clone();
             trace::clear();
             elemwise_assign(&mut got4, &src);
-            super::assert_vector_work_in(tier, min, max);
+            crate::kernel::trace::assert_vector_work_in(tier, min, max);
             drop(got4);
 
             let mut got5 = base.clone();
             trace::clear();
             muladd(&mut got5, c, &src);
-            super::assert_vector_work_in(tier, min, max);
+            crate::kernel::trace::assert_vector_work_in(tier, min, max);
             drop(got5);
 
             let mut got6 = base.clone();
             trace::clear();
             mulinto(&mut got6, c, &src);
-            super::assert_vector_work_in(tier, min, max);
+            crate::kernel::trace::assert_vector_work_in(tier, min, max);
             drop(got6);
 
             let mut got7 = base.clone();
             trace::clear();
             mulassign(&mut got7, c);
-            super::assert_vector_work_in(tier, min, max);
+            crate::kernel::trace::assert_vector_work_in(tier, min, max);
             drop(got7);
 
             let mut got8 = base.clone();
             trace::clear();
             addscalar(&mut got8, c);
-            super::assert_vector_work_in(tier, min, max);
+            crate::kernel::trace::assert_vector_work_in(tier, min, max);
             drop(got8);
 
             let mut got9 = base.clone();
             trace::clear();
             subscalar(&mut got9, c);
-            super::assert_vector_work_in(tier, min, max);
+            crate::kernel::trace::assert_vector_work_in(tier, min, max);
             drop(got9);
         }
     }
@@ -4862,7 +4801,7 @@ mod x86 {
             prime::add_assign::<Mersenne31>(&mut src, &vec![0u8; 260]); // canonicalize
             trace::clear();
             x86::mersenne31::add_assign_avx2(token, &mut dst, &src);
-            assert_vector_work_in(Backend::V3, 49, 65);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, 49, 65);
         }
         drive_prime::<Goldilocks, u64>(
             GLD_LENS,
@@ -4887,7 +4826,7 @@ mod x86 {
             prime::add_assign::<Goldilocks>(&mut src, &vec![0u8; 264]);
             trace::clear();
             x86::goldilocks::add_assign_avx2(token, &mut dst, &src);
-            assert_vector_work_in(Backend::V3, 25, 33);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, 25, 33);
         }
     }
 
@@ -5046,7 +4985,7 @@ mod x86 {
             let mut src = noise(260, 0xa1);
             prime::add_assign::<Mersenne31>(&mut src, &vec![0u8; 260]);
             x86::mersenne31::add_assign_sse42(token, &mut dst, &src);
-            assert_vector_work_in(Backend::V2, 57, 65);
+            crate::kernel::trace::assert_vector_work_in(Backend::V2, 57, 65);
         }
     }
     /// Non-canonical lanes through every prime entry: buffers whose lanes
@@ -5960,19 +5899,19 @@ mod x86 {
                 let mut got1 = base.clone();
                 trace::clear();
                 x86::quad_mersenne31::mul_add_avx512(token, &mut got1, coeff, &src);
-                assert_vector_work_in(Backend::V4x, 17, 33);
+                crate::kernel::trace::assert_vector_work_in(Backend::V4x, 17, 33);
                 drop(got1);
 
                 let mut got2 = vec![0u8; vlen];
                 trace::clear();
                 x86::quad_mersenne31::mul_into_avx512(token, &mut got2, coeff, &src);
-                assert_vector_work_in(Backend::V4x, 17, 33);
+                crate::kernel::trace::assert_vector_work_in(Backend::V4x, 17, 33);
                 drop(got2);
 
                 let mut got3 = vec![0u8; vlen];
                 trace::clear();
                 x86::quad_mersenne31::mul_elementwise_avx512(token, &mut got3, &src, &other);
-                assert_vector_work_in(Backend::V4x, 17, 33);
+                crate::kernel::trace::assert_vector_work_in(Backend::V4x, 17, 33);
                 drop(got3);
             }
             // The AVX-512 QM31 family covers the multiply shapes; the
@@ -6784,6 +6723,306 @@ mod x86 {
                 }
             }
             assert_eq!(got, want, "aes16 dispatch matrix plan");
+        }
+    }
+
+    /// Vector-work bounds over every residue width class and
+    /// multi-row shape: u8/u32/u64 single-row and elementwise entries,
+    /// and the delayed-reduction matrix — each at a vector-eligible
+    /// length.
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        clippy::items_after_statements,
+        clippy::similar_names,
+        clippy::cast_lossless
+    )]
+    fn residue_kernel_vector_work_bounds() {
+        let Some(v3) = archmage::X64V3Token::summon() else {
+            eprintln!("skipping: no V3 token on this host");
+            return;
+        };
+        // ----- u8 nibble-lookup, 256 bytes = 8 full AVX2 vectors --------------
+        let src8 = noise(256, 0xb1);
+        let mut dst8 = vec![0u8; 256];
+        trace::clear();
+        x86::residue::mul_into_u8_avx2(v3, &mut dst8, &src8, 7, 113);
+        crate::kernel::trace::assert_vector_work_in(Backend::V3, 256 - 62, 256);
+        {
+            let mut acc8 = src8.clone();
+            trace::clear();
+            x86::residue::mul_add_u8_avx2(v3, &mut acc8, &src8, 7, 113);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, 256 - 62, 256);
+        }
+        {
+            let mut assign8 = src8.clone();
+            trace::clear();
+            x86::residue::mul_assign_u8_avx2(v3, &mut assign8, 7, 113);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, 256 - 62, 256);
+        }
+
+        // ----- u32 Shoup / Barrett, 520 bytes = 130 lanes ----------------------
+        const P32: u32 = 1_000_000_007;
+        let c32: u32 = 123_456;
+        let q32 = ((c32 as u128 * (1u128 << 32) / P32 as u128) as u64) as u32;
+        let src32 = noise(520, 0xb2);
+        let params = x86::residue::U32Params::new(P32);
+        let mut dst32 = vec![0u8; 520];
+        trace::clear();
+        x86::residue::mul_into_u32_avx2(v3, &mut dst32, &src32, c32, q32, P32);
+        crate::kernel::trace::assert_vector_work_in(Backend::V3, 130 - 16, 130);
+        {
+            let mut acc32 = src32.clone();
+            trace::clear();
+            x86::residue::mul_add_u32_avx2(v3, &mut acc32, &src32, c32, q32, P32);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, 130 - 16, 130);
+        }
+        {
+            let mut assign32 = src32.clone();
+            trace::clear();
+            x86::residue::mul_assign_u32_avx2(v3, &mut assign32, c32, q32, P32);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, 130 - 16, 130);
+        }
+        trace::clear();
+        x86::residue::mul_elementwise_u32_avx2(v3, &mut dst32, &src32, &src32, params);
+        crate::kernel::trace::assert_vector_work_in(Backend::V3, 130 - 16, 130);
+        {
+            let mut ea32 = src32.clone();
+            trace::clear();
+            x86::residue::mul_elementwise_assign_u32_avx2(v3, &mut ea32, &src32, params);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, 130 - 16, 130);
+        }
+
+        // ----- u64 Montgomery REDC, 520 bytes = 65 lanes -----------------------
+        const P64: u64 = 4_294_967_311;
+        let c64: u64 = 123_456_789;
+        let c_mont = (c64 as u128 * (1u128 << 64) % P64 as u128) as u64;
+        let src64 = noise(520, 0xb3);
+        let mut dst64 = vec![0u8; 520];
+        trace::clear();
+        x86::residue::mul_into_u64_avx2(v3, &mut dst64, &src64, c_mont, P64);
+        crate::kernel::trace::assert_vector_work_in(Backend::V3, 65 - 8, 65);
+        {
+            let mut acc64 = src64.clone();
+            trace::clear();
+            x86::residue::mul_add_u64_avx2(v3, &mut acc64, &src64, c_mont, P64);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, 65 - 8, 65);
+        }
+        {
+            let mut assign64 = src64.clone();
+            trace::clear();
+            x86::residue::mul_assign_u64_avx2(v3, &mut assign64, c_mont, P64);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, 65 - 8, 65);
+        }
+
+        // ----- u32 delayed matrix, 4 rows × 1024 bytes, 8 sources -------------
+        const DP: u32 = 65_537;
+        let drow_len: usize = 1024;
+        let dnrows: usize = 4;
+        let dnterms: usize = 8;
+        let dsrc = noise(drow_len, 0xb4);
+        let coeffs: Vec<u64> = (0..dnrows * dnterms)
+            .map(|i| (i as u64 * 7919 + 613) % DP as u64)
+            .collect();
+        let prepared: Vec<x86::residue::PreparedResidue> = coeffs
+            .iter()
+            .map(|&c| {
+                let q = (c as u128 * (1u128 << 32) / DP as u128) as u64;
+                x86::residue::PreparedResidue::from_word(c | (q << 32))
+            })
+            .collect();
+        let srcs: Vec<&[u8]> = (0..dnterms).map(|_| dsrc.as_slice()).collect();
+        let terms = crate::kernel::FlatMatrix {
+            coefficients: &prepared,
+            nrows: dnrows,
+            sources: &srcs,
+        };
+        {
+            let mut rows = vec![0u8; dnrows * drow_len];
+            trace::clear();
+            x86::residue::mul_into_matrix_u32_avx2_with(
+                v3, &mut rows, drow_len, dnrows, &terms, DP,
+            );
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, 8192, 8192);
+        }
+        {
+            let mut add_rows = noise(dnrows * drow_len, 0xb5);
+            trace::clear();
+            x86::residue::mul_add_matrix_u32_avx2_with(
+                v3,
+                &mut add_rows,
+                drow_len,
+                dnrows,
+                &terms,
+                DP,
+            );
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, 8192, 8192);
+        }
+    }
+
+    /// AVX-512 residue vector-work bounds: same width classes on a
+    /// wider lane, skipped when the host cannot prove V4x.
+    #[cfg(feature = "simd512")]
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        clippy::items_after_statements,
+        clippy::similar_names,
+        clippy::cast_lossless
+    )]
+    fn residue_kernel_vector_work_bounds_avx512() {
+        let Some(v4x) = v4x_token() else {
+            eprintln!("skipping: no V4x token on this host");
+            return;
+        };
+        let v4 = v4x.v4();
+        // ----- u8 nibble-lookup, 256 bytes -------------------------------------
+        let src8 = noise(256, 0xc1);
+        let mut dst8 = vec![0u8; 256];
+        trace::clear();
+        crate::kernel::x86::residue::avx512::single::mul_into_u8_avx512(
+            v4, &mut dst8, &src8, 7, 113,
+        );
+        crate::kernel::trace::assert_vector_work_in(Backend::V4x, 256 - 126, 256);
+        {
+            let mut acc8 = src8.clone();
+            trace::clear();
+            crate::kernel::x86::residue::avx512::single::mul_add_u8_avx512(
+                v4, &mut acc8, &src8, 7, 113,
+            );
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, 256 - 126, 256);
+        }
+        {
+            let mut assign8 = src8.clone();
+            trace::clear();
+            crate::kernel::x86::residue::avx512::single::mul_assign_u8_avx512(
+                v4,
+                &mut assign8,
+                7,
+                113,
+            );
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, 256 - 126, 256);
+        }
+
+        // ----- u32 Shoup / Barrett, 520 bytes = 130 lanes ----------------------
+        const P32: u32 = 1_000_000_007;
+        let c32: u32 = 123_456;
+        let q32 = ((c32 as u128 * (1u128 << 32) / P32 as u128) as u64) as u32;
+        let src32 = noise(520, 0xc2);
+        let params = x86::residue::U32Params::new(P32);
+        let mut dst32 = vec![0u8; 520];
+        trace::clear();
+        crate::kernel::x86::residue::avx512::single::mul_into_u32_avx512(
+            v4, &mut dst32, &src32, c32, q32, P32,
+        );
+        crate::kernel::trace::assert_vector_work_in(Backend::V4x, 130 - 32, 130);
+        {
+            let mut acc32 = src32.clone();
+            trace::clear();
+            crate::kernel::x86::residue::avx512::single::mul_add_u32_avx512(
+                v4, &mut acc32, &src32, c32, q32, P32,
+            );
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, 130 - 32, 130);
+        }
+        {
+            let mut assign32 = src32.clone();
+            trace::clear();
+            crate::kernel::x86::residue::avx512::single::mul_assign_u32_avx512(
+                v4,
+                &mut assign32,
+                c32,
+                q32,
+                P32,
+            );
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, 130 - 32, 130);
+        }
+        trace::clear();
+        crate::kernel::x86::residue::avx512::single::mul_elementwise_u32_avx512(
+            v4, &mut dst32, &src32, &src32, params,
+        );
+        crate::kernel::trace::assert_vector_work_in(Backend::V4x, 130 - 32, 130);
+        {
+            let mut ea32 = src32.clone();
+            trace::clear();
+            crate::kernel::x86::residue::avx512::single::mul_elementwise_assign_u32_avx512(
+                v4, &mut ea32, &src32, params,
+            );
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, 130 - 32, 130);
+        }
+
+        // ----- u64 Montgomery REDC, 520 bytes = 65 lanes -----------------------
+        const P64: u64 = 4_294_967_311;
+        let c64: u64 = 123_456_789;
+        let c_mont = (c64 as u128 * (1u128 << 64) % P64 as u128) as u64;
+        let src64 = noise(520, 0xc3);
+        let mut dst64 = vec![0u8; 520];
+        trace::clear();
+        crate::kernel::x86::residue::avx512::single::mul_into_u64_avx512(
+            v4, &mut dst64, &src64, c_mont, P64,
+        );
+        crate::kernel::trace::assert_vector_work_in(Backend::V4x, 65 - 16, 65);
+        {
+            let mut acc64 = src64.clone();
+            trace::clear();
+            crate::kernel::x86::residue::avx512::single::mul_add_u64_avx512(
+                v4, &mut acc64, &src64, c_mont, P64,
+            );
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, 65 - 16, 65);
+        }
+        {
+            let mut assign64 = src64.clone();
+            trace::clear();
+            crate::kernel::x86::residue::avx512::single::mul_assign_u64_avx512(
+                v4,
+                &mut assign64,
+                c_mont,
+                P64,
+            );
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, 65 - 16, 65);
+        }
+
+        // ----- u32 delayed matrix, 4 rows × 1024 bytes, 8 sources -------------
+        const DP: u32 = 65_537;
+        let drow_len: usize = 1024;
+        let dnrows: usize = 4;
+        let dnterms: usize = 8;
+        let dsrc = noise(drow_len, 0xc4);
+        let coeffs: Vec<u64> = (0..dnrows * dnterms)
+            .map(|i| (i as u64 * 7919 + 613) % DP as u64)
+            .collect();
+        let prepared: Vec<x86::residue::PreparedResidue> = coeffs
+            .iter()
+            .map(|&c| {
+                let q = (c as u128 * (1u128 << 32) / DP as u128) as u64;
+                x86::residue::PreparedResidue::from_word(c | (q << 32))
+            })
+            .collect();
+        let srcs: Vec<&[u8]> = (0..dnterms).map(|_| dsrc.as_slice()).collect();
+        let terms = crate::kernel::FlatMatrix {
+            coefficients: &prepared,
+            nrows: dnrows,
+            sources: &srcs,
+        };
+        {
+            let mut rows = vec![0u8; dnrows * drow_len];
+            trace::clear();
+            crate::kernel::x86::residue::avx512::matrix::mul_into_matrix_u32_avx512_with(
+                v4, &mut rows, drow_len, dnrows, &terms, DP,
+            );
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, 8192, 8192);
+        }
+        {
+            let mut add_rows = noise(dnrows * drow_len, 0xc5);
+            trace::clear();
+            crate::kernel::x86::residue::avx512::matrix::mul_add_matrix_u32_avx512_with(
+                v4,
+                &mut add_rows,
+                drow_len,
+                dnrows,
+                &terms,
+                DP,
+            );
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, 8192, 8192);
         }
     }
 }
@@ -7612,7 +7851,7 @@ mod gf1_bits {
                 x86::gf1::restrict_sse42(token, dst, valid, one, src, bits, bytes);
             },
         );
-        super::assert_vector_work(Backend::V2);
+        crate::kernel::trace::assert_vector_work(Backend::V2);
     }
 
     /// The V4x dispatch seam on short rows: 16-63 byte rows fall through
@@ -7679,7 +7918,7 @@ mod gf1_bits {
                 x86::gf1::restrict_avx2(token, dst, valid, one, src, bits, bytes);
             },
         );
-        super::assert_vector_work(Backend::V3);
+        crate::kernel::trace::assert_vector_work(Backend::V3);
     }
 
     /// AVX-512 interop entries against the portable oracles.
@@ -7705,6 +7944,6 @@ mod gf1_bits {
                 x86::gf1::restrict_avx512(token, dst, valid, one, src, bits, bytes);
             },
         );
-        super::assert_vector_work(Backend::V4x);
+        crate::kernel::trace::assert_vector_work(Backend::V4x);
     }
 }
