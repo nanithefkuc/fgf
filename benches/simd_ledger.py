@@ -2,10 +2,12 @@
 """Canonical SIMD route ledger: inventory, check, generate, and accept.
 
 Only the standard library. Follows the style of existing ``benches/*.py``.
-
-Schema v2: ISA facts at top level; work rules use expressions for iterations
-and loss_bytes; lane comes from isa, not per-rule dicts. Every (features,
-request) pair yields a cell including default/v4x.
+One pipeline: ``load`` parses and raw-validates the ledger; ``obligations``
+expands applicability with overrides merged and validated; ``cases`` expands
+fixtures, geometries, and valid coefficient patterns with budgets resolved
+per fixture width; ``check``, ``generate``, and ``accept`` all derive from
+the same ``obligations()`` and ``cases()``. No other function re-derives
+obligations, cases, or budgets.
 """
 
 from __future__ import annotations
@@ -13,7 +15,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import re
 import subprocess
 import sys
@@ -78,6 +79,7 @@ REJECT_CODES = frozenset({
     "receipt_no_result", "fail_receipt", "skip_receipt",
     "unknown_result", "missing_required",
     "receipt_process_mismatch", "receipt_field_mismatch",
+    "receipt_obligation_mismatch",
 })
 
 
@@ -369,10 +371,12 @@ def _validate_rules(ledger: dict) -> dict:
             # elem_bytes and reference required for bulk fixtures
             # skip when the rule declares a 'reason' (non-bulk marker)
             if has_type and group not in ("map", "map_bits") and "reason" not in rule:
-                if "elem_bytes" not in fix:
-                    _fail(f"rule {rid!r}: fixture {fid!r} missing elem_bytes")
-                if "reference" not in fix:
-                    _fail(f"rule {rid!r}: fixture {fid!r} missing reference")
+                eb = fix.get("elem_bytes")
+                if not isinstance(eb, int) or isinstance(eb, bool) or eb <= 0:
+                    _fail(f"rule {rid!r}: fixture {fid!r} elem_bytes must be positive")
+                ref = fix.get("reference")
+                if ref not in VALID_REFERENCES:
+                    _fail(f"rule {rid!r}: fixture {fid!r} has unknown reference {ref!r}")
 
         if group == "map":
             for field in ("kind", "arm", "arm_citation"):
@@ -423,7 +427,7 @@ def _validate_applicability(ledger: dict, rules: dict) -> None:
 
 
 def _validate_work_rules(ledger: dict) -> dict:
-    """Return {name: work_rule}. Schema v2: iterations expression, loss_bytes expression."""
+    """Return {name: work_rule}. Iterations and loss_bytes are expression strings."""
     wr = ledger.get("work_rules")
     if not isinstance(wr, dict):
         _fail("ledger.work_rules must be a dict")
@@ -497,16 +501,38 @@ def _validate_work_rules(ledger: dict) -> dict:
 
 
 def _validate_geometries(ledger: dict) -> dict:
+    """Raw shape plus strict field checks: positive integers, GF(2^16) even lengths."""
     geo = ledger.get("geometries")
     if not isinstance(geo, dict):
         _fail("ledger.geometries must be a dict")
+    for gid, g in sorted(geo.items()):
+        if not isinstance(g, dict):
+            _fail(f"geometry {gid!r} is not a dict")
+        for field in ("rows", "sources", "len", "misalign", "pitch_pad"):
+            value = g.get(field)
+            if not isinstance(value, int) or isinstance(value, bool):
+                _fail(f"geometry {gid!r}: {field} must be an integer")
+            if field in ("rows", "sources", "len") and value <= 0:
+                _fail(f"geometry {gid!r}: {field} must be positive")
+            if field in ("misalign", "pitch_pad") and value < 0:
+                _fail(f"geometry {gid!r}: {field} must be non-negative")
     return geo
 
 
 def _validate_coefficient_patterns(ledger: dict) -> dict:
+    """Raw shape plus closed coefficient-variant vocabulary."""
     cp = ledger.get("coefficient_patterns")
     if not isinstance(cp, dict):
         _fail("ledger.coefficient_patterns must be a dict")
+    for name, pattern in sorted(cp.items()):
+        if not isinstance(pattern, dict):
+            _fail(f"coefficient pattern {name!r} is not a dict")
+        slots = pattern.get("slots")
+        if not isinstance(slots, list) or not slots:
+            _fail(f"coefficient pattern {name!r}: slots must be a non-empty list")
+        for slot in slots:
+            if slot not in VALID_COEFF_VARIANTS:
+                _fail(f"coefficient pattern {name!r}: unknown variant {slot!r}")
     return cp
 
 
@@ -588,6 +614,16 @@ def _verify_evidence_records(ledger: dict, records: Path | None) -> None:
                 _fail(f"evidence {ev_id!r}: receipt {rid} source_id mismatch")
 
 
+
+# ---------------------------------------------------------------------------
+# One pipeline: load / obligations / cases
+#
+# ``load`` parses and raw-validates the ledger. ``obligations`` expands
+# applicability with overrides merged and validated. ``cases`` expands
+# fixtures, geometries, and valid coefficient patterns with budgets resolved
+# per fixture width. ``check``, ``generate``, and ``accept`` all derive from
+# the same ``obligations()`` and ``cases()``.
+# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Obligation expansion
 # ---------------------------------------------------------------------------
@@ -623,6 +659,9 @@ def _expand_obligations(ledger: dict, rules: dict) -> dict:
         app_rules: list[str] = app.get("rules", [])
         exclusions: dict[str, str] = app.get("exclusions", {})
         families: list[str] = app.get("families", [])
+        callable_filter = app.get("callable_filter")
+        if callable_filter is not None and not isinstance(callable_filter, list):
+            _fail(f"applicability {app_name!r}: callable_filter must be a list")
 
         for rule_id in app_rules:
             if rule_id in exclusions:
@@ -633,10 +672,17 @@ def _expand_obligations(ledger: dict, rules: dict) -> dict:
             rule = rules[rule_id]
             if rule.get("non_bulk"):
                 continue
+            rule_callables = rule.get("callables")
+            if rule_callables is not None and not isinstance(rule_callables, list):
+                _fail(f"rule {rule_id!r}: callables must be a list")
 
             for family in families:
                 callables = callables_by_family.get(family, [])
                 for call_name in callables:
+                    if callable_filter is not None and call_name not in callable_filter:
+                        continue
+                    if rule_callables is not None and call_name not in rule_callables:
+                        continue
                     obligation_id = f"{call_name}@{rule_id}"
                     pair = (call_name, rule_id)
                     if pair in seen_pairs:
@@ -674,6 +720,254 @@ def _count_cells(obligations: dict) -> int:
     for ob in obligations.values():
         total += len(ob.get("cells", {}))
     return total
+
+# ---------------------------------------------------------------------------
+# Pipeline dataclasses: Obligation / Cell / WorkSpec / Case
+# ---------------------------------------------------------------------------
+
+VALID_COEFF_VARIANTS = frozenset({"General", "Zero", "One"})
+VALID_REFERENCES = frozenset({"elem-arith", "map-compact", "bits-scalar"})
+
+
+def _fixture_width(fixture: dict, rule: dict) -> dict:
+    """Width facts for budget conversion: elem_bytes from fixture, rule fallback."""
+    return {"elem_bytes": fixture.get("elem_bytes", rule.get("elem_bytes", 1))}
+
+
+def _rule_target_width(rule: dict, fixture: dict) -> dict:
+    """Width facts for the target side of width-changing maps."""
+    target_eb = fixture.get("target_elem_bytes", fixture.get("elem_bytes", rule.get("elem_bytes", 1)))
+    return {"elem_bytes": target_eb}
+
+
+def _geometry_family(call_family: str) -> str:
+    mapping = {
+        "ops/row": "single-row",
+        "ops/scatter": "scatter",
+        "ops/gather": "gather",
+        "ops/matrix": "matrix",
+        "ops/matrix_at": "matrix",
+        "ops/reduction": "single-row",
+        "ops/elementwise": "single-row",
+        "ops/pack": "single-row",
+        "ops/rows": "multi-row",
+        "ops/scalar": "single-row",
+        "ops/component": "single-row",
+        "bits": "bits",
+        "bits/gather": "bits-gather",
+        "map": "single-row",
+        "map_bits": "single-row",
+    }
+    return mapping.get(call_family, "single-row")
+
+
+def _pattern_families_for(call_family: str) -> list[str]:
+    mapping = {
+        "ops/row": ["single-general", "single-zero", "single-one"],
+        "ops/scatter": ["mixed", "multi-all-general"],
+        "ops/gather": ["mixed", "multi-all-general"],
+        "ops/matrix": ["mixed"],  # 3x4 mixed only; matrix_at shares it
+        "ops/matrix_at": ["mixed"],
+        "ops/reduction": ["single-general", "single-zero", "single-one"],
+        "ops/elementwise": ["single-general", "single-zero", "single-one"],
+        "ops/pack": ["single-general", "single-zero", "single-one"],
+        "ops/rows": [],
+        "ops/scalar": ["single-general", "single-zero", "single-one"],
+        "ops/component": ["single-general", "single-zero", "single-one"],
+        "bits": [],
+        "bits/gather": [],
+        "map": [],
+        "map_bits": [],
+    }
+    return mapping.get(call_family, [])
+
+
+
+def _slot_count_for(call_name: str, call_family: str, geo: dict) -> int:
+    """Coefficient slots for one case: gather folds sources, scatter fans rows."""
+    rows = geo.get("rows", 1)
+    sources = geo.get("sources", 1)
+    if call_family == "ops/gather":
+        return sources
+    if call_family == "ops/scatter":
+        return rows
+    return rows * sources
+
+def _select_geometry_for_family(geos: dict, call_family: str) -> tuple[str, dict] | None:
+    """One vector-eligible geometry per callable family."""
+    want = _geometry_family(call_family)
+    for geo_id, geo in sorted(geos.items()):
+        if geo.get("family", "") == want:
+            return (geo_id, geo)
+    for geo_id, geo in sorted(geos.items()):
+        if not geo.get("family", ""):
+            return (geo_id, geo)
+    return None
+
+
+def _select_patterns_for(cps_by_family: dict, cps_all: list,
+                         call_name: str, call_family: str,
+                         fixture: dict, rule: dict) -> list[tuple[str, dict]]:
+    """Valid coefficient patterns for one fixture and callable shape."""
+    takes = _callable_takes_coefficient(call_name, call_family)
+    if not takes:
+        return [("", {"slots": []})]
+    selected: list[tuple[str, dict]] = []
+    for cpfam in _pattern_families_for(call_family):
+        selected.extend(cps_by_family.get(cpfam, []))
+    if not selected:
+        selected = list(cps_all)
+    is_gf2 = _fixture_is_gf2_value(fixture, rule)
+    out: list[tuple[str, dict]] = []
+    slot_need: int | None = None
+    for cp_name, cp in selected:
+        slots = cp.get("slots", []) if isinstance(cp, dict) else []
+        if is_gf2 and "General" in slots:
+            continue
+        if slot_need is None:
+            slot_need = len(slots)
+        out.append((cp_name, cp))
+    return out
+
+
+def load(path: Path) -> dict:
+    """Parse the ledger JSON and raw-validate its top-level shape."""
+    ledger = json.loads(path.read_text())
+    if not isinstance(ledger, dict):
+        _fail("ledger root must be a dict")
+    _validate_isa(ledger)
+    _validate_callables(ledger, None)
+    rules = _validate_rules(ledger)
+    _validate_applicability(ledger, rules)
+    _validate_work_rules(ledger)
+    _validate_geometries(ledger)
+    _validate_coefficient_patterns(ledger)
+    _validate_evidence(ledger)
+    return ledger
+
+
+def obligations(ledger: dict) -> dict:
+    """Expand applicability into obligations with overrides merged and validated."""
+    rules = _validate_rules(ledger)
+    wrules = _validate_work_rules(ledger)
+    geos = ledger.get("geometries", {})
+    coeffs = ledger.get("coefficient_patterns", {})
+    expanded = _expand_obligations(ledger, rules)
+    explicit_obs = ledger.get("obligations", {})
+    if isinstance(explicit_obs, dict):
+        for oid, ob in explicit_obs.items():
+            if oid in expanded:
+                for key, cell in (ob.get("cells", {}) or {}).items():
+                    if not isinstance(cell, dict):
+                        _fail(f"explicit obligation {oid!r} cell {key!r} is not a dict")
+                    base = expanded[oid]["cells"].get(key, {})
+                    expanded[oid]["cells"][key] = dict(base, **cell)
+            elif isinstance(ob, dict) and "cells" in ob:
+                expanded[oid] = {"cells": dict(ob.get("cells", {}))}
+            else:
+                expanded[oid] = ob if isinstance(ob, dict) else {"cells": {}}
+    _validate_expanded_obligations(ledger, expanded, rules, wrules, geos, coeffs)
+    _validate_explicit_obligations(ledger, expanded)
+    _validate_bulk_family_coverage(ledger, expanded)
+    return expanded
+
+
+def cases(ledger: dict, expanded: dict | None = None) -> list[dict]:
+    """Expand fixtures, geometries, and valid patterns into case records."""
+    rules = _validate_rules(ledger)
+    wrules = ledger.get("work_rules", {})
+    isa = ledger.get("isa", {})
+    if expanded is None:
+        expanded = obligations(ledger)
+    geos = ledger.get("geometries", {})
+    coeffs = ledger.get("coefficient_patterns", {})
+    callables = ledger.get("callables", {})
+    callable_families = {n: e.get("family", "") for n, e in callables.items() if e.get("family")}
+    cps_by_family: dict[str, list[tuple]] = {}
+    cps_all: list[tuple] = []
+    for cp_name, cp in (coeffs or {}).items():
+        cpfam = cp.get("family", "") if isinstance(cp, dict) else ""
+        cps_by_family.setdefault(cpfam, []).append((cp_name, cp))
+        if not cpfam:
+            cps_all.append((cp_name, cp))
+    out: list[dict] = []
+    for oid, ob in sorted(expanded.items()):
+        if "@" not in oid:
+            _fail(f"obligation {oid!r}: missing @ separator")
+        call_name, rule_id = oid.split("@", 1)
+        rule = rules.get(rule_id, {})
+        if not isinstance(rule, dict):
+            _fail(f"obligation {oid!r}: unknown rule {rule_id!r}")
+        call_family = callable_families.get(call_name, "")
+        takes = _callable_takes_coefficient(call_name, call_family)
+        geo_sel = _select_geometry_for_family(geos, call_family)
+        if geo_sel is None:
+            if takes:
+                _fail(f"obligation {oid!r}: no geometry for family {call_family!r}")
+            continue
+        geo_id, geo = geo_sel
+        for fixture in rule.get("fixtures", []):
+            fid = fixture.get("id", "")
+            patterns = _select_patterns_for(cps_by_family, cps_all, call_name, call_family, fixture, rule)
+            patterns = [p for p in patterns if isinstance(p[1], dict)]
+            if takes:
+                patterns = [p for p in patterns if p[1].get("slots")]
+                if not patterns:
+                    _fail(f"no_valid_pattern obligation {oid!r} fixture {fid!r}")
+                need = _slot_count_for(call_name, call_family, geo)
+                sized = [p for p in patterns if len(p[1].get("slots", [])) == need]
+                if not sized:
+                    _fail(f"no_sized_pattern obligation {oid!r} fixture {fid!r} "
+                          f"geometry {geo_id!r} need {need}")
+                patterns = sized
+            for cp_name, cp in patterns:
+                out.append({
+                    "id": f"{oid}#{fid}/{geo_id}/{cp_name or '_'}",
+                    "obligation": oid,
+                    "callable": call_name,
+                    "rule_id": rule_id,
+                    "fixture": fixture,
+                    "geometry_id": geo_id,
+                    "geometry": geo,
+                    "pattern_id": cp_name,
+                    "pattern": cp,
+                    "cells": ob.get("cells", {}),
+                })
+    _validate_case_budgets(ledger, out, wrules, isa, rules)
+    return out
+
+
+def _validate_case_budgets(ledger: dict, case_list: list[dict], wrules: dict, isa: dict, rules: dict) -> None:
+    """Per-(case, cell) budget validation with that case's own geometry and pattern."""
+    for case in case_list:
+        oid = case["obligation"]
+        rule = rules.get(case["rule_id"], {})
+        geo = case["geometry"]
+        cp = case["pattern"]
+        fixture = case["fixture"]
+        for key, cell in sorted(case["cells"].items()):
+            if cell.get("status", "unverified") in ("missing", "bypass", "zero-budget"):
+                continue
+            fc, req = key.split("/", 1)
+            for wr_name in cell.get("work", []):
+                wr = wrules.get(wr_name)
+                if not wr:
+                    continue
+                src_w = _fixture_width(fixture, rule)
+                tgt_w = _rule_target_width(rule, fixture)
+                budget = _work_budget(wr, geo, src_w, tgt_w, req, isa, cp, fixture, rule)
+                iters = _work_iterations(wr, _fixture_vars(fixture, rule))
+                if iters <= 0:
+                    _fail(f"obligation {oid!r} cell {key!r}: work rule {wr_name!r} "
+                          f"has non-positive iterations ({iters})")
+                mult = _multiplicity_count(wr["multiplicity"], geo, cp)
+                if mult == 0 and cell.get("required"):
+                    continue
+                if budget <= 0:
+                    _fail(f"obligation {oid!r} cell {key!r} case {case['id']!r}: "
+                          f"non-positive budget for work rule {wr_name!r} (budget={budget})")
+
+
 
 
 def _validate_expanded_obligations(ledger: dict, expanded: dict,
@@ -884,21 +1178,14 @@ def _parse_surface_inventory(text: str) -> set[str]:
 def cmd_check(ledger: dict, schema_only: bool, rustdoc: Path | None,
               test_list: Path | None, case_list: Path | None,
               surface_inventory: Path | None, records: Path | None) -> int:
-    """Validate the ledger."""
+    """Validate the ledger. Both modes derive from obligations() and cases()."""
     if schema_only:
-        _validate_isa(ledger)
         _validate_callables(ledger, rustdoc)
-        rules = _validate_rules(ledger)
-        _validate_applicability(ledger, rules)
-        wrules = _validate_work_rules(ledger)
-        geos = _validate_geometries(ledger)
-        coeffs = _validate_coefficient_patterns(ledger)
-        _validate_evidence(ledger)
-
-        expanded = _expand_obligations(ledger, rules)
-        _validate_expanded_obligations(ledger, expanded, rules, wrules, geos, coeffs)
-        _validate_explicit_obligations(ledger, expanded)
-        _validate_bulk_family_coverage(ledger, expanded)
+        expanded = obligations(ledger)
+        _validate_geometries(ledger)
+        _validate_coefficient_patterns(ledger)
+        _validate_rule_references(ledger)
+        cases(ledger, expanded)
 
         n_cells = _count_cells(expanded)
         print(f"simd_ledger: schema valid  obligations={len(expanded)} cells={n_cells}")
@@ -947,24 +1234,150 @@ def cmd_check(ledger: dict, schema_only: bool, rustdoc: Path | None,
     if ledger.get("evidence"):
         _verify_evidence_records(ledger, records)
 
-    # Full schema validation.
-    _validate_isa(ledger)
+    # Full schema validation derives from the same pipeline as schema-only.
     _validate_callables(ledger, rustdoc)
-    rules = _validate_rules(ledger)
-    _validate_applicability(ledger, rules)
-    wrules = _validate_work_rules(ledger)
-    geos = _validate_geometries(ledger)
-    coeffs = _validate_coefficient_patterns(ledger)
-    _validate_evidence(ledger)
+    expanded = obligations(ledger)
+    _validate_geometries(ledger)
+    _validate_coefficient_patterns(ledger)
+    _validate_rule_references(ledger)
+    case_list_derived = cases(ledger, expanded)
 
-    expanded = _expand_obligations(ledger, rules)
-    _validate_expanded_obligations(ledger, expanded, rules, wrules, geos, coeffs)
-    _validate_explicit_obligations(ledger, expanded)
-    _validate_bulk_family_coverage(ledger, expanded)
+    _check_full_references(ledger, expanded, case_list_derived,
+                           test_names, case_ids, surface_ids, records)
 
     n_cells = _count_cells(expanded)
     print(f"simd_ledger: full check passed  obligations={len(expanded)} cells={n_cells}")
     return 0
+
+
+def _ledger_references(ledger: dict) -> dict:
+    """Ledger-level citation sets: cases, tests, and benchmark ids."""
+    refs = ledger.get("references", {})
+    if not isinstance(refs, dict):
+        _fail("ledger.references must be a dict")
+    for key in ("cases", "tests", "bench"):
+        value = refs.get(key, [])
+        if not isinstance(value, list):
+            _fail(f"ledger.references.{key} must be a list")
+        for entry in value:
+            if not isinstance(entry, str) or not entry:
+                _fail(f"ledger.references.{key} entries must be non-empty strings")
+    return refs
+
+
+def _validate_rule_references(ledger: dict) -> None:
+    """Every rule-declared callable and reference identity resolves."""
+    callables = ledger.get("callables", {})
+    rules = ledger.get("rules", {})
+    for rid, rule in sorted(rules.items()):
+        for name in rule.get("callables", []) or []:
+            if name not in callables:
+                _fail(f"rule {rid!r}: callable {name!r} is not a classified callable")
+        for fix in rule.get("fixtures", []):
+            ref = fix.get("reference")
+            if ref is not None and ref not in VALID_REFERENCES:
+                _fail(f"rule {rid!r}: fixture {fix.get('id')!r} has unknown reference {ref!r}")
+
+
+def _check_full_references(ledger: dict, expanded: dict, case_list_derived: list[dict],
+                           test_names: set[str], runner_case_ids: set[str],
+                           surface_ids: set[str], records: Path | None) -> None:
+    """Resolve every citation against runner, test, and benchmark inventories."""
+    refs = _ledger_references(ledger)
+    generated_ids = {c["id"] for c in case_list_derived}
+    cited_cases = refs.get("cases", [])
+    for cid in cited_cases:
+        if cid not in runner_case_ids and cid not in generated_ids:
+            _fail(f"reference case {cid!r} is in neither the runner case list nor generated cases")
+    for tid in refs.get("tests", []):
+        if tid not in test_names:
+            _fail(f"reference test {tid!r} is not in the test list")
+    for bid in refs.get("bench", []):
+        if bid not in surface_ids:
+            _fail(f"reference bench {bid!r} is not in the surface inventory")
+    _check_evidence_citations(ledger, expanded, case_list_derived, records)
+
+
+def _check_evidence_citations(ledger: dict, expanded: dict, case_list_derived: list[dict],
+                             records: Path | None) -> None:
+    """Evidence entries cite complete, consistent record identities."""
+    evidence = ledger.get("evidence", {})
+    if not evidence:
+        return
+    if records is None:
+        _fail("--records is required when ledger cites evidence")
+    if not records.is_dir():
+        _fail(f"--records {records} is not a directory")
+    generated_ids = {c["id"] for c in case_list_derived}
+    by_id = {c["id"]: c for c in case_list_derived}
+    for ev_id, ev in sorted(evidence.items()):
+        if not isinstance(ev, dict):
+            _fail(f"evidence {ev_id!r} is not a dict")
+        record_file = ev.get("file", "")
+        if not record_file:
+            _fail(f"evidence {ev_id!r}: missing file")
+        rp = records / record_file
+        if not rp.is_file():
+            _fail(f"evidence {ev_id!r}: record file {record_file} not found")
+        done: dict | None = None
+        receipts: list[dict] = []
+        for line in rp.read_text().splitlines():
+            if line.startswith("ROUTE_DONE\t"):
+                if done is not None:
+                    _fail(f"evidence {ev_id!r}: duplicate ROUTE_DONE in {record_file}")
+                try:
+                    done = json.loads(line.split("\t", 1)[1])
+                except json.JSONDecodeError:
+                    _fail(f"evidence {ev_id!r}: malformed ROUTE_DONE")
+            elif line.startswith("ROUTE_RECEIPT\t"):
+                try:
+                    receipts.append(json.loads(line.split("\t", 1)[1]))
+                except json.JSONDecodeError:
+                    _fail(f"evidence {ev_id!r}: malformed ROUTE_RECEIPT")
+        if done is None:
+            _fail(f"evidence {ev_id!r}: record {record_file} missing ROUTE_DONE")
+        if done.get("cases", 0) != len(receipts):
+            _fail(f"evidence {ev_id!r}: ROUTE_DONE count {done.get('cases')} "
+                  f"does not match {len(receipts)} receipts")
+        seen: set[str] = set()
+        for rec in receipts:
+            rid = rec.get("id", "")
+            if not rid:
+                _fail(f"evidence {ev_id!r}: receipt without id field in {record_file}")
+            if rid in seen:
+                _fail(f"evidence {ev_id!r}: duplicate receipt {rid!r}")
+            seen.add(rid)
+        by_rid = {r.get("id"): r for r in receipts}
+        for cited in ev.get("receipts", []):
+            if not isinstance(cited, dict):
+                _fail(f"evidence {ev_id!r}: receipt expectation is not a dict")
+            rid = cited.get("id")
+            if not rid:
+                _fail(f"evidence {ev_id!r}: receipt expectation missing id")
+            if rid not in generated_ids:
+                _fail(f"evidence {ev_id!r}: cited receipt {rid!r} is not a generated case")
+            rec = by_rid.get(rid)
+            if rec is None:
+                _fail(f"evidence {ev_id!r}: cited receipt {rid} missing")
+            if rec.get("result") != "pass":
+                _fail(f"evidence {ev_id!r}: cited receipt {rid} result is not pass")
+            for field in ("features", "request"):
+                if cited.get(field) is not None and rec.get("request_raw" if field == "request" else field) != cited[field]:
+                    _fail(f"evidence {ev_id!r}: receipt {rid} {field} mismatch")
+                if rec.get("request_raw" if field == "request" else field) != done.get(field):
+                    _fail(f"evidence {ev_id!r}: receipt {rid} {field} differs from ROUTE_DONE")
+            for field in ("source_id", "host_id"):
+                if cited.get(field) is not None and rec.get(field) != cited[field]:
+                    _fail(f"evidence {ev_id!r}: receipt {rid} {field} mismatch")
+                if rec.get(field) != done.get(field):
+                    _fail(f"evidence {ev_id!r}: receipt {rid} {field} differs from ROUTE_DONE")
+        completion = ev.get("completion", {})
+        if isinstance(completion, dict):
+            for field in ("source_id", "host_id", "features", "request"):
+                if completion.get(field) is not None and done.get(field) != completion[field]:
+                    _fail(f"evidence {ev_id!r}: completion {field} mismatch")
+            if completion.get("cases") is not None and done.get("cases") != completion["cases"]:
+                _fail(f"evidence {ev_id!r}: completion cases mismatch")
 
 
 # ---------------------------------------------------------------------------
@@ -994,32 +1407,80 @@ def _safe_ident(s: str) -> str:
 
 
 def _work_iterations(wr: dict, fixture_vars: dict | None = None) -> int:
-    """Compute repetitions from the work rule's iterations expression."""
+    """Repetitions from the work rule's iterations expression.
+
+    Zero or negative results are rejected, never clamped: a rule that asks
+    for no repetitions has no budget to cover any work.
+    """
     iterations = wr.get("iterations", "1")
     try:
-        value = int(iterations)
-        return max(1, value)
+        return int(iterations)
     except (TypeError, ValueError):
         pass
     if fixture_vars is None:
-        # Without metadata, evaluate with empty context for literal "1" etc.
-        return max(1, _evaluate_expr(iterations, {}))
-    return max(1, _evaluate_expr(iterations, fixture_vars))
+        return _evaluate_expr(iterations, {})
+    return _evaluate_expr(iterations, fixture_vars)
 
 
 def _fixture_vars(fixture: dict, rule: dict) -> dict[str, int]:
-    """Extract metadata variables from fixture and rule for expression evaluation."""
+    """Metadata variables from fixture and rule for expression evaluation.
+
+    Degree chains through the fixture spec: rule ``degree`` times the spec
+    ``degree`` when the fixture carries one. Power comes from the fixture
+    (Frobenius) or rule; words defaults to ``ceil(elem_bytes / 8)`` with a
+    floor of one.
+    """
     result: dict[str, int] = {}
-    # elem_bytes from fixture or rule
     elem_bytes = fixture.get("elem_bytes", rule.get("elem_bytes", 1))
     result["elem_bytes"] = elem_bytes
-    # degree from rule
     degree = rule.get("degree", 1)
+    spec = fixture.get("spec")
+    if isinstance(spec, dict) and isinstance(spec.get("degree"), int):
+        degree = degree * spec["degree"]
     result["degree"] = degree
     result["relative_degree"] = rule.get("relative_degree", fixture.get("relative_degree", 1))
     result["power"] = fixture.get("power", rule.get("power", 1))
     result["words"] = fixture.get("words", max(1, math.ceil(elem_bytes / 8)))
     return result
+
+
+def _fixture_field_shape(fixture: dict, rule: dict) -> tuple[int | None, int | None]:
+    """Return (characteristic, total degree) for a bulk fixture.
+
+    Characteristic and degree come from fixture metadata: the ``type`` text
+    ``FiniteField<C, D, ...>`` and the rule ``characteristic``/``degree``
+    fields, chained through the fixture ``spec`` degree. ``None`` marks an
+    unknown component. Only a fully known ``(2, 1)`` shape is GF(2)-valued;
+    unknown shapes are never assumed either way.
+    """
+    char: int | None = None
+    degree: int | None = None
+    ftype = fixture.get("type", "") if isinstance(fixture.get("type"), str) else ""
+    m = re.match(r"\s*crate::field::FiniteField\s*<\s*(\d+)\s*,\s*(\d+)", ftype)
+    if m:
+        char = int(m.group(1))
+        degree = int(m.group(2))
+    rc = rule.get("characteristic")
+    if isinstance(rc, int):
+        char = rc
+    elif rc == "odd" and char is None:
+        char = 3
+    rd = rule.get("degree")
+    if isinstance(rd, int):
+        degree = rd if degree is None else degree
+    spec = fixture.get("spec")
+    if isinstance(spec, dict) and isinstance(spec.get("degree"), int):
+        if degree is not None:
+            degree = degree * spec["degree"]
+        else:
+            degree = spec["degree"]
+    return (char, degree)
+
+
+def _fixture_is_gf2_value(fixture: dict, rule: dict) -> bool:
+    """True only for a fully known degree-1 GF(2) fixture shape."""
+    char, degree = _fixture_field_shape(fixture, rule)
+    return char == 2 and degree == 1
 
 
 def _fixture_is_gf2(fixture: dict) -> bool:
@@ -1042,17 +1503,48 @@ def _count_unit_add_pairs(coeff_pattern: dict) -> int:
     return sum(1 for s in coeff_pattern.get("slots", []) if s == "One")
 
 
-def _callable_takes_coefficient(call_name: str) -> bool:
-    """True when the callable carries a coefficient slot (mul_* / *_scalar)."""
+def _callable_takes_coefficient(call_name: str, family: str = "") -> bool:
+    """True when the callable carries a coefficient slot.
+
+    Coefficient forms are ``mul_*`` row/fan shapes, ``mul_*_with``
+    prepared-coefficient forms, ``*_scalar`` row forms, the elementwise
+    multiply/divide pair, ``pack``/``unpack`` (element slots), and the single
+    ``dot_product`` reduction. In-place add/sub, row copies, bit-range and
+    weight queries, and map runners carry no coefficient slots.
+    """
     base = call_name.split("::")[-1]
-    return base.startswith("mul_") or base.endswith("_scalar")
+    if call_name.startswith("bits::") or call_name.startswith("map"):
+        return False
+    if base in ("pack", "pack_to_vec", "unpack", "unpack_to_vec",
+                "mul_elementwise", "mul_elementwise_assign",
+                "div_elementwise", "div_elementwise_assign"):
+        return True
+    if base in ("dot_product", "add_assign_rows", "sub_assign_rows",
+                "add_assign_scalar", "sub_assign_scalar", "add_gather_offsets"):
+        return False
+    return base.startswith("mul_") or base.endswith("_with") or base.endswith("_scalar")
+
+
+def _active_rows_count(geo: dict, coeff_pattern: dict) -> int:
+    """Count rows with >= 1 nontrivial (General or One) coefficient slot."""
+    rows = geo.get("rows", 1)
+    sources = geo.get("sources", 1)
+    slots = coeff_pattern.get("slots", [])
+    if len(slots) != rows * sources:
+        return 0
+    count = 0
+    for r in range(rows):
+        row_slots = slots[r * sources:(r + 1) * sources]
+        if any(s in ("General", "One") for s in row_slots):
+            count += 1
+    return count
 
 
 def _multiplicity_count(mult: str, geo: dict, coeff_pattern: dict) -> int:
     if mult == "Rows":
         return geo.get("rows", 1)
     if mult == "ActiveRows":
-        return geo.get("rows", 1)
+        return _active_rows_count(geo, coeff_pattern)
     if mult == "ActivePairs":
         return _count_active_pairs(coeff_pattern)
     if mult == "UnitAddPairs":
@@ -1060,34 +1552,23 @@ def _multiplicity_count(mult: str, geo: dict, coeff_pattern: dict) -> int:
     return 1  # One
 
 
-def _len_in_units(unit: str, length: int, rule: dict) -> int:
-    if unit == "Bytes":
-        return length * rule.get("elem_bytes", 1)
-    if unit == "Bits":
-        elem_bytes = rule.get("elem_bytes", 1)
-        return length * rule.get("elem_bits", elem_bytes * 8)
-    if unit == "Words":
-        return max(1, (length * rule.get("elem_bytes", 1)) // 8)
-    return length  # Elements
-
-
-def _loss_in_units(unit: str, loss_bytes: int, rule: dict) -> int:
+def _loss_in_units(unit: str, loss_bytes: int, elem_bytes: int) -> int:
     """Convert loss_bytes to the work rule's unit. Loss rounds up (ceil)."""
-    elem_bytes = rule.get("elem_bytes", 1)
+    if loss_bytes <= 0:
+        return 0
     if unit == "Bytes":
         return loss_bytes
     if unit == "Bits":
         return loss_bytes * 8
     if unit == "Words":
-        return max(1, math.ceil(loss_bytes / 8))
+        return math.ceil(loss_bytes / 8)
     if elem_bytes <= 1:
         return loss_bytes
     return math.ceil(loss_bytes / elem_bytes)
 
 
-def _lane_in_units(unit: str, lane_bytes: int, rule: dict) -> int:
+def _lane_in_units(unit: str, lane_bytes: int, elem_bytes: int) -> int:
     """Convert lane_bytes to the work rule's unit. Lane rounds down (floor)."""
-    elem_bytes = rule.get("elem_bytes", 1)
     if unit == "Bytes":
         return lane_bytes
     if unit == "Bits":
@@ -1107,200 +1588,159 @@ def _compute_loss_bytes(wr: dict, lane: int, fixture_vars: dict) -> int:
     return _evaluate_expr(expr, variables)
 
 
-def _work_budget(work_rule: dict, geo: dict, source_rule: dict,
-                 target_rule: dict, tier: str, isa: dict,
-                 coeff_pattern: dict | None = None) -> int:
-    """Budget for one Work item: iterations * mult * (len_in_units - loss_in_units)."""
+def _work_budget(work_rule: dict, geo: dict, source_width: dict,
+                 target_width: dict, tier: str, isa: dict,
+                 coeff_pattern: dict | None = None,
+                 fixture: dict | None = None, rule: dict | None = None) -> int:
+    """Budget for one Work item: iterations * mult * (len_in_units - loss)."""
     mult_rule = work_rule["multiplicity"]
     geo_count = _multiplicity_count(mult_rule, geo, coeff_pattern or {"slots": []})
-
-    # Select the rule for length conversion based on basis
     basis = work_rule["basis"]
     unit = work_rule["unit"]
     geo_len = geo.get("len", 0)
-
+    src_eb = source_width.get("elem_bytes", 1)
+    tgt_eb = target_width.get("elem_bytes", 1)
     if basis == "Target":
-        # Convert element length to target units
-        src_eb = source_rule.get("elem_bytes", 1)
-        tgt_eb = target_rule.get("elem_bytes", 1)
+        width_eb = tgt_eb
         if unit == "Elements":
-            target_len = (geo_len * src_eb) // tgt_eb
+            length = (geo_len * src_eb) // tgt_eb
         elif unit == "Bytes":
-            target_len = geo_len * src_eb
+            length = geo_len * src_eb
         elif unit == "Bits":
-            target_len = max(1, (geo_len * src_eb * 8) // target_rule.get("elem_bits", tgt_eb * 8))
+            length = geo_len * src_eb * 8
         elif unit == "Words":
-            target_len = max(1, (geo_len * src_eb) // 8)
+            length = max(1, (geo_len * src_eb) // 8)
         else:
-            target_len = (geo_len * src_eb) // tgt_eb
-        length = target_len
-        length_rule = target_rule
+            length = (geo_len * src_eb) // tgt_eb
     else:
-        length = _len_in_units(unit, geo_len, source_rule)
-        length_rule = source_rule
-
+        width_eb = src_eb
+        if unit == "Elements":
+            length = geo_len
+        elif unit == "Bytes":
+            length = geo_len * src_eb
+        elif unit == "Bits":
+            length = geo_len * src_eb * 8
+        elif unit == "Words":
+            length = max(1, (geo_len * src_eb) // 8)
+        else:
+            length = geo_len
     lane_bytes = isa.get("lane_bytes", {}).get(tier, 1) if isa else 1
-    fixture_vars = _fixture_vars({}, length_rule)
+    fixture_vars = _fixture_vars(fixture or {}, rule or {})
     loss_bytes = _compute_loss_bytes(work_rule, lane_bytes, fixture_vars)
-    loss = _loss_in_units(unit, loss_bytes, length_rule)
-
+    loss = _loss_in_units(unit, loss_bytes, width_eb)
     iter_count = _work_iterations(work_rule, fixture_vars)
-
     return iter_count * geo_count * (length - loss)
 
 
-def _validate_route_budgets(ledger: dict) -> None:
-    """Generator check: reject a non-positive budget on an eligible nondegenerate case."""
-    isa = ledger.get("isa", {})
-    if not isa:
-        return  # Can't validate without ISA facts
-    rules = _validate_rules(ledger)
-    expanded = _expanded_with_overrides(ledger)
-    wrules = ledger.get("work_rules", {})
-    geos = ledger.get("geometries", {})
+def _adapter_for(call_name: str, fixture: dict, rule: dict) -> tuple[str, str, str]:
+    """Adapter module, runner function, and type arguments for one case.
 
-    for oid, ob in sorted(expanded.items()):
-        rule = rules.get(oid.split("@", 1)[1], {})
-        for key, cell in sorted(ob.get("cells", {}).items()):
-            fc, req = key.split("/", 1)
-            if cell.get("status", "unverified") in ("missing", "bypass", "zero-budget"):
-                continue
-            for wr_name in cell.get("work", []):
-                wr = wrules.get(wr_name)
-                if not wr:
-                    continue
-                for geo_id, geo in sorted(geos.items()):
-                    budget = _work_budget(wr, geo, rule, rule, req, isa)
-                    if budget <= 0:
-                        _fail(f"obligation {oid!r} cell {key!r} geometry {geo_id!r}: "
-                              f"non-positive budget for work rule {wr_name!r} (budget={budget})")
-
-
-def _validate_gf2_general(ledger: dict) -> None:
-    """Generator check: every GF(2) obligation must have at least one valid pattern without General slots."""
-    rules = _validate_rules(ledger)
-    expanded = _expand_obligations(ledger, rules)
-    coeffs = ledger.get("coefficient_patterns", {})
-
-    if not coeffs:
-        return  # No patterns to validate against
-
-    for oid in sorted(expanded):
-        call_name, rule_id = oid.split("@", 1)
-        if not _callable_takes_coefficient(call_name):
-            continue
-        rule = rules.get(rule_id, {})
-        all_gf2 = True
-        has_any_fixture = False
-        for fixture in rule.get("fixtures", []):
-            has_any_fixture = True
-            if not _fixture_is_gf2(fixture):
-                all_gf2 = False
-                break
-        if not (all_gf2 and has_any_fixture):
-            continue
-        # This obligation is entirely over GF(2) fixtures — need at least one valid pattern
-        valid_cps = _valid_coeff_patterns_for_rule(coeffs, rule)
-        if not valid_cps:
-            _fail(f"GF(2) obligation {oid!r} has no valid coefficient patterns "
-                  f"(all patterns have General slots which GF(2) cannot use)")
-
-
-def _valid_coeff_patterns_for_rule(coeffs: dict, rule: dict) -> list[tuple[str, dict]]:
-    """Return valid coefficient patterns for a rule, filtering General from GF(2)."""
-    result: list[tuple[str, dict]] = []
-    for cp_name, cp in sorted(coeffs.items()):
-        if not isinstance(cp, dict):
-            continue
-        if _general_slot_count(cp) > 0:
-            # General only valid on non-GF(2) fixtures
-            gf2 = all(_fixture_is_gf2(f) for f in rule.get("fixtures", []))
-            if gf2:
-                continue
-        result.append((cp_name, cp))
-    return result
+    Adapters are named ``<module>_<callable>`` and grouped in modules named
+    for the operation family they run: rows, fans, elementwise, scalars,
+    reductions, packing, bits, maps, map_bits. Map cases carry ``S, T``
+    (or ``F``) type arguments from the fixture's source/target types.
+    """
+    module, _, base = call_name.partition("::")
+    if module == "ops":
+        if base.startswith("mul_add_scatter") or base.startswith("mul_into_scatter"):
+            adapter = "fans"
+        elif base.startswith("mul_add_gather") or base.startswith("mul_into_gather"):
+            adapter = "fans"
+        elif base.startswith("mul_add_matrix") or base.startswith("mul_into_matrix"):
+            adapter = "fans"
+        elif base.startswith("mul_add") or base.startswith("mul_into") or base.startswith("mul_assign"):
+            adapter = "rows"
+        elif base.startswith("add_assign") or base.startswith("sub_assign"):
+            adapter = "rows"
+        elif "elementwise" in base or "inv_" in base or "div_" in base:
+            adapter = "elementwise"
+        elif base in ("pack", "pack_to_vec", "unpack", "unpack_to_vec"):
+            adapter = "packing"
+        elif base == "dot_product":
+            adapter = "reductions"
+        else:
+            adapter = "rows"
+    elif module == "bits":
+        adapter = "bits"
+    elif module in ("map", "map_bits"):
+        adapter = "maps" if module == "map" else "map_bits"
+    else:
+        adapter = module
+    if module in ("map", "map_bits"):
+        src_t = fixture.get("source", fixture.get("type", ""))
+        tgt_t = fixture.get("target", fixture.get("type", ""))
+        if base.startswith("frobenius"):
+            type_args = f"{src_t}"
+        else:
+            type_args = f"{src_t}, {tgt_t}"
+    else:
+        type_args = fixture.get("type", fixture.get("source", ""))
+    return (adapter, base, type_args)
 
 
 def _generate_cases(ledger: dict) -> str:
-    """Generate src/kernel/tests/routes/cases.rs content.
+    """Emit the generated route case table from the pipeline.
 
-    Produces complete Case/Cell/Work tables per contract §3.
-    Deduplicates cell sets, geometries, and coefficient arrays.
-    Cases only go to CASES_SIMD512 when their consts reference
-    simd512-gated items; numeric v4x lane/loss do not qualify.
+    Renders the cases() expansion: one case per fixture, geometry, and
+    valid coefficient pattern. Deduplicates cell sets, geometries, and
+    coefficient arrays. Cases only go to CASES_SIMD512 when their consts
+    reference simd512-gated items; numeric v4x lane/loss do not qualify.
     """
     isa = ledger.get("isa", {})
-    _validate_gf2_general(ledger)
-    if isa:
-        _validate_route_budgets(ledger)
+    wrules = ledger.get("work_rules", {})
+    expanded = obligations(ledger)
+    derived = cases(ledger, expanded)
 
     lines = [
         "// @generated by benches/simd_ledger.py; edit the ledger, not this file.",
         "",
         "use crate::kernel::Backend;",
         "use crate::kernel::tests::routes::{",
-        "    Basis, Case, Cell, Coeff, Features, Geometry, Multiplicity, Pass, Request, Scope, Substage,",
-        "    Unit, Work,",
+        "    Basis, Case, Cell, Coeff, Features, Geometry, MapSpec, Multiplicity, Outcome, Pass,",
+        "    Request, Scope, Substage, Unit, Work,",
         "};",
         "",
     ]
 
+    # Budgets resolve per fixture width: one Work static per
+    # (work rule, fixture width, tier). Lane comes from ISA lane bytes
+    # converted with the fixture's (or, for basis Target, the target's)
+    # width, rounded down; loss from loss_bytes rounded up.
     rules = _validate_rules(ledger)
-    expanded = _expanded_with_overrides(ledger)
-    geos = ledger.get("geometries", {})
-    coeffs = ledger.get("coefficient_patterns", {})
-    wrules = ledger.get("work_rules", {})
-
-    # Collect all needed work combinations
-    work_combos: dict[tuple[str, str, str], dict] = {}  # (wr_name, fc, req) -> work dict
-    for oid, ob in sorted(expanded.items()):
-        for key, cell in sorted(ob.get("cells", {}).items()):
+    work_statics: dict[tuple, str] = {}
+    for case in derived:
+        rule = rules.get(case["rule_id"], {})
+        fixture = case["fixture"]
+        for key in sorted(case["cells"]):
             fc, req = key.split("/", 1)
-            for wr_name in cell.get("work", []):
+            for wr_name in case["cells"][key].get("work", []):
                 wr = wrules.get(wr_name)
                 if not wr:
                     continue
-                combo_key = (wr_name, fc, req)
-                if combo_key not in work_combos:
-                    work_combos[combo_key] = {
-                        "wr_name": wr_name,
-                        "wr": wr,
-                        "fc": fc,
-                        "req": req,
-                    }
+                src_w = _fixture_width(fixture, rule)
+                tgt_w = _rule_target_width(rule, fixture)
+                width_eb = tgt_w["elem_bytes"] if wr["basis"] == "Target" else src_w["elem_bytes"]
+                lane_bytes = isa.get("lane_bytes", {}).get(req, 1) if isa else 1
+                fvars = _fixture_vars(fixture, rule)
+                lane = _lane_in_units(wr["unit"], lane_bytes, width_eb)
+                loss = _loss_in_units(wr["unit"], _compute_loss_bytes(wr, lane_bytes, fvars), width_eb)
+                iterations = _work_iterations(wr, fvars)
+                combo_key = (wr_name, width_eb, req, lane, loss, iterations,
+                             wr["unit"], wr["basis"], wr["multiplicity"])
+                if combo_key not in work_statics:
+                    work_statics[combo_key] = _safe_ident(
+                        f"{wr_name}_w{width_eb}_{fc}_{req}_{len(work_statics)}")
 
-    # Generate unique Work static items
-    work_statics: dict[tuple[str, str, str], str] = {}
-    for combo_key, combo in sorted(work_combos.items()):
-        wr_name = combo["wr_name"]
-        wr = combo["wr"]
-        fc = combo["fc"]
-        req = combo["req"]
-        substage = wr["substage"]
-        unit = wr["unit"]
-        basis = wr["basis"]
-        mult = wr["multiplicity"]
-
+    for combo_key, ident in sorted(work_statics.items(), key=lambda x: x[1]):
+        wr_name, width_eb, req, lane, loss, iterations, unit, basis, mult = combo_key
+        wr = wrules[wr_name]
         scope = wr.get("scope")
         scope_expr = "None"
         if scope:
             scope_expr = f"Some((Scope::{scope['scope']}, Pass::{scope['pass']}))"
-
-        ident = _safe_ident(f"{wr_name}_{fc}_{req}")
-        work_statics[combo_key] = ident
-
-        # Compute lane and loss in the rule's unit for the appropriate fixture
-        lane_bytes = isa.get("lane_bytes", {}).get(req, 1) if isa else 1
-        # Use a representative fixture to compute lane/loss in correct unit
-        rep_rule = {"elem_bytes": 1}
-        lane = _lane_in_units(unit, lane_bytes, rep_rule)
-        loss_bytes = _compute_loss_bytes(wr, lane_bytes, {"elem_bytes": 1})
-        loss = _loss_in_units(unit, loss_bytes, rep_rule)
-        iterations = _work_iterations(wr)
-
         lines.append("#[rustfmt::skip]")
         lines.append(f"static WORK_{ident}: Work = Work {{")
-        lines.append(f"    substage: Substage::{substage},")
+        lines.append(f"    substage: Substage::{wr['substage']},")
         lines.append(f"    scope: {scope_expr},")
         lines.append(f"    unit: Unit::{unit},")
         lines.append(f"    basis: Basis::{basis},")
@@ -1311,179 +1751,89 @@ def _generate_cases(ledger: dict) -> str:
         lines.append(f"}};")
         lines.append("")
 
-    # Build callable → family lookup
-    callable_families: dict[str, str] = {}
-    callables = ledger.get("callables", {})
-    for cname, cinfo in callables.items():
-        fam = cinfo.get("family", "")
-        if fam:
-            callable_families[cname] = fam
+    # Render the cases() expansion with compact deduplication.
+    cells_map: dict[tuple, str] = {}
+    geos_map: dict[tuple, str] = {}
+    coeffs_map: dict[tuple, str] = {}
+    maps_map: dict[tuple, str] = {}
+    case_records: list[dict] = []
 
-    # Family → geometry family mapping
-    _FAMILY_GEO: dict[str, str] = {
-        "ops/row": "single-row",
-        "ops/scatter": "scatter",
-        "ops/gather": "gather",
-        "ops/matrix": "matrix",
-        "ops/matrix_at": "matrix",
-        "ops/reduction": "single-row",
-        "ops/elementwise": "single-row",
-        "ops/pack": "single-row",
-        "ops/rows": "multi-row",
-        "ops/scalar": "single-row",
-        "ops/component": "single-row",
-        "bits": "bits",
-        "bits/gather": "bits-gather",
-        "map": "single-row",
-    }
+    for case in derived:
+        oid = case["obligation"]
+        call_name = case["callable"]
+        rule = rules.get(case["rule_id"], {})
+        fixture = case["fixture"]
+        geo = case["geometry"]
+        cp = case["pattern"]
+        cp_name = case["pattern_id"]
 
-    # Family → coefficient pattern families (by pattern family name)
-    # Single-coeff families: general, zero, one
-    # Multi-slot families: mixed
-    # Coefficient-free: none (empty)
-    _FAMILY_COEFFS: dict[str, list[str]] = {
-        "ops/row": ["single-general", "single-zero", "single-one"],
-        "ops/scatter": ["mixed"],
-        "ops/gather": ["mixed"],
-        "ops/matrix": ["mixed"],
-        "ops/matrix_at": ["mixed"],
-        "ops/reduction": ["single-general", "single-zero", "single-one"],
-        "ops/elementwise": ["single-general", "single-zero", "single-one"],
-        "ops/pack": ["single-general", "single-zero", "single-one"],
-        "ops/rows": [],           # coefficient-free
-        "ops/scalar": ["single-general", "single-zero", "single-one"],
-        "ops/component": ["single-general", "single-zero", "single-one"],
-        "bits": [],               # coefficient-free
-        "bits/gather": [],        # coefficient-free
-        "map": [],                # coefficient-free
-    }
+        cell_tuples: list[tuple] = []
+        for key, cell in sorted(case["cells"].items()):
+            fc, req = key.split("/", 1)
+            process = cell.get("process", req)
+            field = cell.get("field", process)
+            min_serving = cell["min_serving"]
+            required = cell.get("required", False)
+            work_refs: list[str] = []
+            rule = rules.get(case["rule_id"], {})
+            fixture = case["fixture"]
+            src_w = _fixture_width(fixture, rule)
+            tgt_w = _rule_target_width(rule, fixture)
+            for wr_name in cell.get("work", []):
+                wr = wrules.get(wr_name)
+                if not wr:
+                    continue
+                w = tgt_w["elem_bytes"] if wr["basis"] == "Target" else src_w["elem_bytes"]
+                lane_bytes = isa.get("lane_bytes", {}).get(req, 1) if isa else 1
+                fvars = _fixture_vars(fixture, rule)
+                lane = _lane_in_units(wr["unit"], lane_bytes, w)
+                loss = _loss_in_units(wr["unit"], _compute_loss_bytes(wr, lane_bytes, fvars), w)
+                iterations = _work_iterations(wr, fvars)
+                combo_key = (wr_name, w, req, lane, loss, iterations,
+                             wr["unit"], wr["basis"], wr["multiplicity"])
+                work_refs.append(f"&WORK_{work_statics[combo_key]}")
+            cell_tuples.append((fc, req, process, field, required, min_serving, tuple(work_refs)))
 
-    # Pre-select one geometry per geometry family (the vector-eligible one)
-    geo_by_family: dict[str, tuple] = {}
-    geo_all: list[tuple] = []  # fallback: geometries without family tag
-    for geo_id, geo in sorted(geos.items()):
-        gfam = geo.get("family", "")
-        if gfam and gfam not in geo_by_family:
-            geo_by_family[gfam] = (geo_id, geo)
-        elif not gfam:
-            geo_all.append((geo_id, geo))
+        cells_key = tuple(cell_tuples)
+        if cells_key not in cells_map:
+            cells_map[cells_key] = f"CELLS_{len(cells_map)}"
 
-    # Pre-select coefficient patterns by family
-    cps_by_family: dict[str, list[tuple]] = {}
-    cps_all: list[tuple] = []  # fallback: patterns without family tag
-    for cp_name, cp in coeffs.items():
-        cpfam = cp.get("family", "")
-        if cpfam not in cps_by_family:
-            cps_by_family[cpfam] = []
-        cps_by_family[cpfam].append((cp_name, cp))
-        if not cpfam:
-            cps_all.append((cp_name, cp))
+        geo_key = (geo.get("rows", 1), geo.get("sources", 1),
+                   geo.get("len", 0), geo.get("misalign", 0),
+                   geo.get("pitch_pad", 0))
+        if geo_key not in geos_map:
+            geos_map[geo_key] = f"GEO_{len(geos_map)}"
 
-    # Determine if a rule is GF(2)-valued (drop general pattern)
-    def _is_gf2_rule(rule: dict) -> bool:
-        group = rule.get("group", "")
-        if group == "bits":
-            return True
-        ftype = ""
-        for fix in rule.get("fixtures", []):
-            ftype = fix.get("type", "")
-            break
-        return "FiniteField<2, 1" in ftype or group == "binary_flat"
+        coeff_key = tuple(cp.get("slots", []))
+        if coeff_key not in coeffs_map:
+            coeffs_map[coeff_key] = f"COEFFS_{len(coeffs_map)}"
 
-    # Generate case tables — compact deduplication
-    # Collect all unique cells, geometries, coefficient arrays
-    cells_map: dict[tuple, str] = {}        # (cell tuple) -> "CELLS_N"
-    geos_map: dict[tuple, str] = {}          # (rows,sources,len,misalign,pitch_pad) -> "GEO_N"
-    coeffs_map: dict[tuple, str] = {}        # (coeff_slots tuple) -> "COEFFS_N"
-    case_records: list[dict] = []            # all cases, with refs to consts
+        map_expr = "None"
+        if rule.get("group") in ("map", "map_bits"):
+            power = fixture.get("power", rule.get("power", 0))
+            images = fixture.get("images", [])
+            images_expr = ", ".join(str(v) for v in images)
+            map_key = (power, tuple(images))
+            if map_key not in maps_map:
+                maps_map[map_key] = f"MAP_{len(maps_map)}"
+                lines.append("#[rustfmt::skip]")
+                lines.append(f"const {maps_map[map_key]}: MapSpec = MapSpec {{ "
+                             f"power: {power}, images: &[{images_expr}] }};")
+                lines.append("")
+            map_expr = f"Some({maps_map[map_key]})"
 
-    for oid, ob in sorted(expanded.items()):
-        call_name, rule_id = oid.split("@", 1)
-        rule = rules.get(rule_id, {})
-        fixtures = rule.get("fixtures", [])
-        call_family = callable_families.get(call_name, "")
+        adapter, call_fn, type_args = _adapter_for(call_name, fixture, rule)
+        run_fn = f"super::{adapter}::{call_fn}::<{type_args}>"
 
-        # Select one geometry for this family
-        geo_fam = _FAMILY_GEO.get(call_family, "single-row")
-        geo_entry = geo_by_family.get(geo_fam)
-        if not geo_entry and geo_all:
-            # Fallback: use first untagged geometry (test compatibility)
-            geo_entry = geo_all[0]
-        if not geo_entry:
-            continue
-        geo_id, geo = geo_entry
-
-        # Select coefficient patterns for this family
-        cp_fams = _FAMILY_COEFFS.get(call_family, [])
-        selected_cps: list[tuple] = []
-        for cpfam in cp_fams:
-            selected_cps.extend(cps_by_family.get(cpfam, []))
-
-        # Fallback: if no family-tagged patterns matched, use untagged ones
-        if not selected_cps and cps_all:
-            selected_cps = list(cps_all)
-
-        # GF(2) fields: drop general patterns
-        if _is_gf2_rule(rule):
-            selected_cps = [(n, cp) for n, cp in selected_cps
-                           if cp.get("family", "") not in ("single-general", "multi-all-general")
-                           and "General" not in cp.get("slots", [])]
-
-        # Coefficient-free families: use single empty-coeffs entry
-        if not selected_cps:
-            selected_cps = [("", {"slots": []})]
-
-        # Per-callable refinement: add/sub operations are coefficient-free
-        # even when the family normally uses coefficients
-        _coeff_free_callables = {"add_assign", "sub_assign", "and_assign", "andnot_assign",
-                                  "xor_assign", "clear_range", "set_range", "weight",
-                                  "and_into", "xor_range", "xor_range_with", "xor_gather",
-                                  "dot_product"}
-        base_call = call_name.split("::")[-1] if "::" in call_name else call_name
-        if base_call in _coeff_free_callables:
-            selected_cps = [("", {"slots": []})]
-
-        for fixture in fixtures:
-            fid = fixture["id"]
-            ftype = fixture.get("type", "").replace("crate::", "crate::")
-
-            for cp_name, cp in selected_cps:
-                # Build cell entries as structured tuples
-                cell_tuples: list[tuple] = []
-                for key, cell in sorted(ob.get("cells", {}).items()):
-                    fc, req = key.split("/", 1)
-                    process = cell.get("process", req)
-                    field = cell.get("field", process)
-                    min_serving = cell["min_serving"]
-                    required = cell.get("required", False)
-                    work_names = tuple(cell.get("work", []))
-                    cell_tuples.append((fc, req, process, field, required, min_serving, work_names))
-
-                cells_key = tuple(cell_tuples)
-                if cells_key not in cells_map:
-                    cells_map[cells_key] = f"CELLS_{len(cells_map)}"
-
-                geo_key = (geo.get("rows", 1), geo.get("sources", 1),
-                           geo.get("len", 0), geo.get("misalign", 0),
-                           geo.get("pitch_pad", 0))
-                if geo_key not in geos_map:
-                    geos_map[geo_key] = f"GEO_{len(geos_map)}"
-
-                coeff_key = tuple(cp.get("slots", []))
-                if coeff_key not in coeffs_map:
-                    coeffs_map[coeff_key] = f"COEFFS_{len(coeffs_map)}"
-
-                case_id = f"{oid}#{fid}/{geo_id}/{cp_name or '_'}"
-                run_fn = f"super::run_{_safe_ident(call_name)}::<{ftype}>"
-
-                case_records.append({
-                    "id": case_id,
-                    "obligation": oid,
-                    "run_fn": run_fn,
-                    "cells_ref": cells_map[cells_key],
-                    "geo_ref": geos_map[geo_key],
-                    "coeffs_ref": coeffs_map[coeff_key],
-                })
+        case_records.append({
+            "id": case["id"],
+            "obligation": oid,
+            "run_fn": run_fn,
+            "cells_ref": cells_map[cells_key],
+            "geo_ref": geos_map[geo_key],
+            "coeffs_ref": coeffs_map[coeff_key],
+            "map_expr": map_expr,
+        })
 
     # Deduplicate run functions
     run_fns: dict[str, str] = {}  # run_fn_str -> "RUN_N"
@@ -1492,10 +1842,26 @@ def _generate_cases(ledger: dict) -> str:
         if rf not in run_fns:
             run_fns[rf] = f"RUN_{len(run_fns)}"
 
-    # Emit run function consts
+    # Emit run function stubs: each distinct adapter path gets a stub module
+    # so the generated table compiles against the declared interface. Each
+    # stub has the shape `fn x<T...>(_: &Case, _: &Cell) -> Outcome`.
+    stub_mods: dict[str, list[str]] = {}
+    for rf_str in sorted(run_fns):
+        path = rf_str[len("super::"):]
+        mod, _, rest = path.partition("::")
+        fn = rest.split("::<")[0]
+        stub_mods.setdefault(mod, []).append(fn)
+    for mod in sorted(stub_mods):
+        lines.append(f"mod {mod} {{")
+        lines.append("    use super::{Case, Cell, Outcome};")
+        for fn in sorted(set(stub_mods[mod])):
+            lines.append("    #[allow(dead_code)]")
+            lines.append(f"    pub fn {fn}<T>(_: &Case, _: &Cell) -> Outcome {{ unimplemented!() }}")
+        lines.append("}")
+        lines.append("")
     for rf_str, rname in sorted(run_fns.items(), key=lambda x: x[1]):
         lines.append("#[rustfmt::skip]")
-        lines.append(f"const {rname}: fn(&Case, &Cell) -> crate::kernel::tests::routes::Outcome = {rf_str};")
+        lines.append(f"const {rname}: fn(&Case, &Cell) -> Outcome = {rf_str};")
 
     if run_fns:
         lines.append("")
@@ -1537,12 +1903,8 @@ def _generate_cases(ledger: dict) -> str:
             min_serving_backend = f"Backend::{_backend_rust_name(min_serving)}"
             required_str = "true" if required else "false"
 
-            work_refs: list[str] = []
-            for wr_name in work_names:
-                wr_key = (wr_name, fc, req)
-                if wr_key in work_statics:
-                    work_refs.append(f"&WORK_{work_statics[wr_key]}")
-            work_array = "&[" + ", ".join(work_refs) + "]" if work_refs else "&[]"
+            refs = [w[1:] if w.startswith("&") else w for w in work_names]
+            work_array = "&[" + ", ".join(refs) + "]" if refs else "&[]"
 
             cell_lines.append(
                 f"    Cell {{ features: {features}, request: {request}, "
@@ -1567,7 +1929,7 @@ def _generate_cases(ledger: dict) -> str:
         case_str = (
             f"    Case {{ id: \"{rec['id']}\", obligation: \"{rec['obligation']}\", "
             f"run: {run_fns[rec['run_fn']]}, geometry: {rec['geo_ref']}, "
-            f"coeffs: {rec['coeffs_ref']}, cells: {rec['cells_ref']} }},"
+            f"coeffs: {rec['coeffs_ref']}, map: {rec['map_expr']}, cells: {rec['cells_ref']} }},"
         )
         # CASES_SIMD512 only for cases referencing simd512-gated items
         if rec["cells_ref"] in _simd512_cells:
@@ -1642,43 +2004,6 @@ def cmd_generate(out_path: Path, check: bool, ledger: dict) -> int:
 # Accept command
 # ---------------------------------------------------------------------------
 
-def _expanded_with_overrides(ledger: dict) -> dict:
-    """Return the expanded obligations with explicit ledger deviations merged."""
-    rules = _validate_rules(ledger)
-    expanded = _expand_obligations(ledger, rules)
-    explicit_obs = ledger.get("obligations", {})
-    if isinstance(explicit_obs, dict):
-        for oid, ob in explicit_obs.items():
-            if oid in expanded:
-                for key, cell in ob.get("cells", {}).items():
-                    expanded[oid]["cells"][key] = dict(
-                        expanded[oid]["cells"].get(key, {}), **cell)
-            else:
-                expanded[oid] = ob
-    return expanded
-
-
-def _expand_cases(ledger: dict, expanded: dict) -> set[str]:
-    """Return the set of all case IDs from the generated case table."""
-    rules = _validate_rules(ledger)
-    geos = ledger.get("geometries", {})
-    coeffs = ledger.get("coefficient_patterns", {})
-
-    case_ids: set[str] = set()
-    for oid, ob in sorted(expanded.items()):
-        call_name, rule_id = oid.split("@", 1)
-        rule = rules.get(rule_id, {})
-        for fixture in rule.get("fixtures", []):
-            fid = fixture["id"]
-            valid_cps = _valid_coeff_patterns_for_rule(coeffs, rule)
-            for geo_id, geo in sorted(geos.items()):
-                if geo.get("len", 0) <= 0:
-                    continue
-                for cp_name, _cp in valid_cps:
-                    case_ids.add(f"{oid}#{fid}/{geo_id}/{cp_name}")
-    return case_ids
-
-
 def cmd_accept(log: Path, features: str, request: str, source_id: str,
                host_id: str, ledger: dict) -> int:
     """Fail-closed receipt audit."""
@@ -1723,25 +2048,19 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
     if done.get("request") != request:
         _fail("accept: reject request_mismatch")
 
-    expanded = _expanded_with_overrides(ledger)
-    all_case_ids = _expand_cases(ledger, expanded)
+    expanded = obligations(ledger)
+    derived = cases(ledger, expanded)
 
-    # Build required set: case ids whose obligation is required in the cell.
-    # When the ledger has no geometries/coefficient patterns, fall back to
-    # obligation-level required set (backward compatibility with test fixtures).
+    # Required set: cases() filtered to the requested cell's required flag.
+    # Generation and acceptance share the same universe.
+    by_id = {c["id"]: c for c in derived}
     required_cases: set[str] = set()
-    required_oids: set[str] = set()
-    for oid, ob in expanded.items():
-        cell = ob.get("cells", {}).get(f"{features}/{request}", {})
-        if not cell.get("required"):
-            continue
-        required_oids.add(oid)
-        if all_case_ids:
-            for cid in all_case_ids:
-                if cid.startswith(oid + "#"):
-                    required_cases.add(cid)
+    for case in derived:
+        cell = case["cells"].get(f"{features}/{request}", {})
+        if cell.get("required"):
+            required_cases.add(case["id"])
 
-    if not required_oids and not required_cases:
+    if not required_cases:
         _fail("accept: reject no_required_obligations")
 
     # Duplicate receipt ids are rejected before the rest of the audit runs.
@@ -1756,14 +2075,17 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
         _fail(f"accept: reject duplicate_receipt {sorted(duplicate_ids)}")
 
     received_ids: set[str] = set()
-    received_oids: set[str] = set()
     for rec in receipts:
         cid = rec.get("id", "")
-        oid = rec.get("obligation", "")
-        if "#" in cid and not oid:
-            oid = cid.split("#", 1)[0]
         received_ids.add(cid)
-        received_oids.add(oid)
+        # A receipt counts only if its case id is known and its obligation
+        # equals that case's obligation.
+        case = by_id.get(cid)
+        if case is None:
+            _fail(f"accept: reject missing_required {sorted(required_cases - received_ids)}")
+        if rec.get("obligation") != case["obligation"]:
+            _fail(f"accept: reject receipt_obligation_mismatch {cid}")
+        oid = case["obligation"]
 
         if rec.get("source_id") != source_id:
             _fail(f"accept: reject receipt_source_mismatch {cid}")
@@ -1782,31 +2104,29 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
         if request_raw != request:
             _fail(f"accept: reject receipt_request_mismatch {cid}")
 
-        # Process and field resolution must equal the ledger's expected cell.
-        cell = expanded.get(oid, {}).get("cells", {}).get(f"{features}/{request}", {})
+        # Process, field, and required expectations come from the case's
+        # cell, never from the receipt.
+        cell = case["cells"].get(f"{features}/{request}", {})
         if "process" in cell and rec.get("process") != cell["process"]:
             _fail(f"accept: reject receipt_process_mismatch {cid}")
         if "field" in cell and rec.get("field") != cell["field"]:
             _fail(f"accept: reject receipt_field_mismatch {cid}")
 
         result = rec.get("result")
-        if result is None or not isinstance(result, str):
+        if not isinstance(result, str):
             _fail(f"accept: reject receipt_no_result {cid}")
 
         # result must be exactly 'pass', 'fail', or 'skip'
         if result == "pass":
             pass
-        elif result.startswith("fail"):
+        elif result == "fail":
             _fail(f"accept: reject fail_receipt {cid}")
-        elif result.startswith("skip"):
+        elif result == "skip":
             _fail(f"accept: reject skip_receipt {cid}")
         else:
             _fail(f"accept: reject unknown_result {cid}")
 
-    if all_case_ids:
-        missing = required_cases - received_ids
-    else:
-        missing = required_oids - received_oids
+    missing = required_cases - received_ids
     if missing:
         _fail(f"accept: reject missing_required {sorted(missing)}")
 
@@ -1975,7 +2295,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _fail("cannot use both --full and --schema-only")
             if not ledger_path.is_file():
                 _fail(f"{ledger_path} not found")
-            ledger = json.loads(ledger_path.read_text())
+            ledger = load(ledger_path)
             if args.full:
                 return cmd_check(ledger, False, args.rustdoc, args.test_list,
                                  args.case_list, args.surface_inventory, args.records)
@@ -1984,20 +2304,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "generate":
             if not ledger_path.is_file():
                 _fail(f"{ledger_path} not found")
-            ledger = json.loads(ledger_path.read_text())
+            ledger = load(ledger_path)
             return cmd_generate(args.out, args.check, ledger)
 
         if args.command == "accept":
             if not ledger_path.is_file():
                 _fail(f"{ledger_path} not found")
-            ledger = json.loads(ledger_path.read_text())
+            ledger = load(ledger_path)
             return cmd_accept(args.log, args.features, args.request,
                               args.source_id, args.host_id, ledger)
 
         if args.command == "fixtures":
             if not ledger_path.is_file():
                 _fail(f"{ledger_path} not found")
-            ledger = json.loads(ledger_path.read_text())
+            ledger = load(ledger_path)
             return cmd_fixtures(ledger, args.out)
 
         return 0
