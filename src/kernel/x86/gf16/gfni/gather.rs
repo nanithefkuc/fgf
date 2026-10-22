@@ -123,7 +123,7 @@ fn gather_group<const N: usize>(
         "gf16.gfni.mul_add_gather",
         crate::kernel::trace::Substage::MulAdd,
         crate::kernel::trace::Unit::Elements,
-        dst_lanes.len() * 16,
+        dst_lanes.len() * 16 * N,
         crate::kernel::Backend::V3GfniCrypto,
     );
 
