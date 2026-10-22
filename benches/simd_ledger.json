@@ -1,6 +1,6 @@
 {
-  "_version": 1,
-  "_description": "Canonical SIMD route ledger for fgf 3.0.2. Edited by hand; checked by benches/simd_ledger.py. Cell default: status=unverified, required=false, perf=unmeasured.",
+  "_version": 2,
+  "_description": "Canonical SIMD route ledger for fgf 3.0.2. Edited by hand; checked by benches/simd_ledger.py. Obligations are expanded from applicability × rules × callables. Cell default: status=unverified, required=false, perf=unmeasured.",
   "_cell_default": { "status": "unverified", "required": false, "perf": "unmeasured" },
 
   "callables": {
@@ -82,8 +82,8 @@
     "Field::mul_raw":                     { "kind": "non-bulk", "reason": "single-element" },
     "Field::neg_raw":                     { "kind": "non-bulk", "reason": "single-element" },
     "Field::sub_raw":                     { "kind": "non-bulk", "reason": "single-element" },
-    "FieldBuffer::decode":                { "kind": "bulk", "family": "encode" },
-    "FieldBuffer::encode":                { "kind": "bulk", "family": "encode" },
+    "FieldBuffer::decode":                { "kind": "non-bulk", "reason": "single-element" },
+    "FieldBuffer::encode":                { "kind": "non-bulk", "reason": "single-element" },
     "FieldElem::add":                     { "kind": "non-bulk", "reason": "single-element" },
     "FieldElem::div":                     { "kind": "non-bulk", "reason": "single-element" },
     "FieldElem::from_index":              { "kind": "non-bulk", "reason": "construction" },
@@ -214,69 +214,102 @@
   },
 
   "rules": {
-    "residue-1byte-le127": {
+    "residue-u8-low": {
       "group": "residue",
       "storage_width": 1,
       "modulus_class": "odd_prime",
       "modulus_range": "<=127",
       "presentation": "Residue",
+      "elem_bytes": 1,
       "fixtures": [
-        { "id": "r3", "type": "crate::field::FiniteField<crate::field::prime::PrimeCharacteristic<3>, 1>" },
-        { "id": "r7", "type": "crate::field::FiniteField<crate::field::prime::PrimeCharacteristic<7>, 1>" },
-        { "id": "r127", "type": "crate::field::FiniteField<crate::field::prime::PrimeCharacteristic<127>, 1>" }
+        { "id": "r3",   "type": "crate::field::FiniteField<3, 1, crate::field::Residue>" },
+        { "id": "r101", "type": "crate::field::FiniteField<101, 1, crate::field::Residue>" },
+        { "id": "r127", "type": "crate::field::FiniteField<127, 1, crate::field::Residue>" }
       ]
     },
-    "residue-1byte-gt127": {
+    "residue-u8-high": {
       "group": "residue",
       "storage_width": 1,
       "modulus_class": "odd_prime",
-      "modulus_range": ">127",
+      "modulus_range": "128..256",
       "presentation": "Residue",
+      "elem_bytes": 1,
       "fixtures": [
-        { "id": "r251", "type": "crate::field::FiniteField<crate::field::prime::PrimeCharacteristic<251>, 1>" }
+        { "id": "r131", "type": "crate::field::FiniteField<131, 1, crate::field::Residue>" },
+        { "id": "r251", "type": "crate::field::FiniteField<251, 1, crate::field::Residue>" }
       ]
     },
-    "residue-2byte": {
+    "residue-u16": {
       "group": "residue",
       "storage_width": 2,
       "modulus_class": "odd_prime",
       "presentation": "Residue",
+      "elem_bytes": 2,
       "fixtures": [
-        { "id": "r65521", "type": "crate::field::FiniteField<crate::field::prime::PrimeCharacteristic<65521>, 1>" }
+        { "id": "r257",   "type": "crate::field::FiniteField<257, 1, crate::field::Residue>" },
+        { "id": "r65521", "type": "crate::field::FiniteField<65521, 1, crate::field::Residue>" }
       ]
     },
-    "residue-4byte": {
+    "residue-u32": {
       "group": "residue",
       "storage_width": 4,
       "modulus_class": "odd_prime",
       "presentation": "Residue",
+      "elem_bytes": 4,
       "fixtures": [
-        { "id": "r4294967291", "type": "crate::field::FiniteField<crate::field::prime::PrimeCharacteristic<4294967291>, 1>" }
+        { "id": "r65537",      "type": "crate::field::FiniteField<65537, 1, crate::field::Residue>" },
+        { "id": "r2013265921", "type": "crate::field::FiniteField<2013265921, 1, crate::field::Residue>" },
+        { "id": "r536870909",  "type": "crate::field::FiniteField<536870909, 1, crate::field::Residue>" },
+        { "id": "r4294967291", "type": "crate::field::FiniteField<4294967291, 1, crate::field::Residue>" }
       ]
     },
-    "residue-8byte": {
+    "residue-u64": {
       "group": "residue",
       "storage_width": 8,
       "modulus_class": "odd_prime",
       "presentation": "Residue",
+      "elem_bytes": 8,
       "fixtures": [
-        { "id": "r8byte", "type": "crate::field::FiniteField<crate::field::prime::PrimeCharacteristic<18446744073709551557>, 1>" }
+        { "id": "r4294967311",             "type": "crate::field::FiniteField<4294967311, 1, crate::field::Residue>" },
+        { "id": "r18446744073709551557",   "type": "crate::field::FiniteField<18446744073709551557, 1, crate::field::Residue>" }
       ]
     },
-    "residue-gf2-8": {
+    "residue-mersenne31-modulus": {
+      "group": "residue",
+      "storage_width": 4,
+      "modulus_class": "mersenne_prime",
+      "presentation": "Residue",
+      "elem_bytes": 4,
+      "fixtures": [
+        { "id": "rm31", "type": "crate::field::FiniteField<0x7FFF_FFFF, 1, crate::field::Residue>" }
+      ]
+    },
+    "residue-goldilocks-modulus": {
       "group": "residue",
       "storage_width": 8,
-      "modulus_class": "gf2_residue",
+      "modulus_class": "goldilocks_prime",
       "presentation": "Residue",
-      "degree": 8,
+      "elem_bytes": 8,
       "fixtures": [
-        { "id": "rgf28", "type": "crate::field::FiniteField<2, 8>" }
+        { "id": "rgld", "type": "crate::field::FiniteField<0xFFFF_FFFF_0000_0001, 1, crate::field::Residue>" }
+      ]
+    },
+    "residue-gf2": {
+      "group": "residue",
+      "storage_width": 8,
+      "modulus_class": "gf2_characteristic",
+      "presentation": "Residue",
+      "degree": 1,
+      "elem_bytes": 8,
+      "fixtures": [
+        { "id": "rgf2", "type": "crate::field::FiniteField<2, 1, crate::field::Residue>" }
       ]
     },
     "mersenne31": {
       "group": "specialized_prime",
       "modulus_name": "Mersenne31",
       "presentation": "MersenneFold",
+      "elem_bytes": 4,
       "fixtures": [
         { "id": "m31", "type": "crate::field::Mersenne31" }
       ]
@@ -285,153 +318,439 @@
       "group": "specialized_prime",
       "modulus_name": "Goldilocks",
       "presentation": "GoldilocksFold",
+      "elem_bytes": 8,
       "fixtures": [
-        { "id": "gl", "type": "crate::field::Goldilocks" }
+        { "id": "gld", "type": "crate::field::Goldilocks" }
       ]
     },
-    "gf8-aes": {
-      "group": "gf8_presentation",
+    "gf8-poly-aes": {
+      "group": "binary_flat",
       "characteristic": 2,
       "degree": 8,
       "presentation": "Polynomial",
       "poly": "0x11B",
+      "elem_bytes": 1,
       "fixtures": [
-        { "id": "gf8aes", "type": "crate::field::FiniteField<2, 8, crate::field::binary::Polynomial<0x11B>>" }
+        { "id": "gf8aes", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
       ]
     },
-    "gf8-rs": {
-      "group": "gf8_presentation",
+    "gf8-poly-other": {
+      "group": "binary_flat",
       "characteristic": 2,
       "degree": 8,
-      "presentation": "RS",
+      "presentation": "Polynomial",
+      "poly": "0x11D",
+      "elem_bytes": 1,
       "fixtures": [
-        { "id": "gf8rs", "type": "crate::field::FiniteField<2, 8, crate::field::binary::RS>" }
+        { "id": "gf8rs", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>" }
       ]
     },
     "gf8-normal": {
-      "group": "gf8_presentation",
+      "group": "binary_flat",
       "characteristic": 2,
       "degree": 8,
       "presentation": "Normal",
+      "elem_bytes": 1,
       "fixtures": [
-        { "id": "gf8normal", "type": "crate::field::FiniteField<2, 8, crate::field::binary::Normal>" }
+        { "id": "gf8n", "type": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>" }
       ]
     },
     "gf8-cantor": {
-      "group": "gf8_presentation",
+      "group": "binary_flat",
       "characteristic": 2,
       "degree": 8,
       "presentation": "Cantor",
+      "elem_bytes": 1,
       "fixtures": [
-        { "id": "gf8cantor", "type": "crate::field::FiniteField<2, 8, crate::field::binary::Cantor>" }
+        { "id": "gf8c", "type": "crate::field::FiniteField<2, 8, crate::field::Cantor<0x11B, 0x20>>" }
       ]
     },
-    "packed-u8": {
+    "binary-flat-sub8": {
+      "group": "binary_flat",
+      "characteristic": 2,
+      "degree_range": "<8",
+      "elem_bytes": 1,
+      "fixtures": [
+        { "id": "gf1p", "type": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>" },
+        { "id": "gf4p", "type": "crate::field::FiniteField<2, 4, crate::field::Polynomial<0x13>>" },
+        { "id": "gf2n", "type": "crate::field::FiniteField<2, 2, crate::field::Normal<7, 2>>" }
+      ]
+    },
+    "packed-u8-shipped": {
       "group": "packed",
       "word_width": "u8",
       "presentation": "Packed",
+      "shipped": true,
+      "elem_bytes": 1,
       "fixtures": [
-        { "id": "pu8", "type": "crate::field::Packed<crate::field::FiniteField<2, 8, crate::field::binary::Polynomial<0x11B>>>" }
+        { "id": "pu8s", "type": "crate::field::Packed<u8>" }
       ]
     },
-    "packed-u16": {
+    "packed-u8-custom": {
+      "group": "packed",
+      "word_width": "u8",
+      "presentation": "Packed",
+      "shipped": false,
+      "elem_bytes": 1,
+      "fixtures": [
+        { "id": "pu8c", "type": "crate::kernel::tests::routes::fixtures::PackedU8Custom",
+          "needs_spec": { "base": "gf8-poly-aes", "degree": 8, "storage": "Packed<u8>" } }
+      ]
+    },
+    "packed-u16-shipped": {
       "group": "packed",
       "word_width": "u16",
       "presentation": "Packed",
+      "shipped": true,
+      "elem_bytes": 2,
       "fixtures": [
-        { "id": "pu16", "type": "crate::field::Packed<crate::field::FiniteField<2, 16, crate::field::binary::Polynomial<0x1002D>>>" }
+        { "id": "pu16s", "type": "crate::field::Packed<u16>" }
       ]
     },
-    "packed-u32": {
+    "packed-u16-custom": {
+      "group": "packed",
+      "word_width": "u16",
+      "presentation": "Packed",
+      "shipped": false,
+      "elem_bytes": 2,
+      "fixtures": [
+        { "id": "pu16c", "type": "crate::kernel::tests::routes::fixtures::PackedU16Custom",
+          "needs_spec": { "base": "gf8-poly-aes", "degree": 16, "storage": "Packed<u16>" } }
+      ]
+    },
+    "packed-u32-shipped": {
       "group": "packed",
       "word_width": "u32",
       "presentation": "Packed",
+      "shipped": true,
+      "elem_bytes": 4,
       "fixtures": [
-        { "id": "pu32", "type": "crate::field::Packed<crate::field::FiniteField<2, 32, crate::field::binary::tower::FanPaar32<crate::field::binary::tower::Rijndael32>>>>" }
+        { "id": "pu32s", "type": "crate::field::Packed<u32>" }
       ]
     },
-    "packed-u64": {
+    "packed-u32-custom": {
+      "group": "packed",
+      "word_width": "u32",
+      "presentation": "Packed",
+      "shipped": false,
+      "elem_bytes": 4,
+      "fixtures": [
+        { "id": "pu32c", "type": "crate::kernel::tests::routes::fixtures::PackedU32Custom",
+          "needs_spec": { "base": "gf8-poly-aes", "degree": 32, "storage": "Packed<u32>" } }
+      ]
+    },
+    "packed-u64-shipped": {
       "group": "packed",
       "word_width": "u64",
       "presentation": "Packed",
+      "shipped": true,
+      "elem_bytes": 8,
       "fixtures": [
-        { "id": "pu64", "type": "crate::field::Packed<crate::field::FiniteField<2, 64, crate::field::binary::tower::FanPaar64<crate::field::binary::tower::Rijndael64>>>>" }
+        { "id": "pu64s", "type": "crate::field::Packed<u64>" }
+      ]
+    },
+    "packed-u64-custom": {
+      "group": "packed",
+      "word_width": "u64",
+      "presentation": "Packed",
+      "shipped": false,
+      "elem_bytes": 8,
+      "fixtures": [
+        { "id": "pu64c", "type": "crate::kernel::tests::routes::fixtures::PackedU64Custom",
+          "needs_spec": { "base": "gf8-poly-aes", "degree": 64, "storage": "Packed<u64>" } }
       ]
     },
     "packed-padded": {
       "group": "packed",
       "word_width": "PackedPadded",
       "presentation": "PackedPadded",
-      "non_bulk_reason": "PackedPadded has no FieldBuffer byte form and no bulk operands",
+      "non_bulk": true,
       "fixtures": [
-        { "id": "ppu8", "type": "crate::field::PackedPadded<crate::field::FiniteField<2, 8, crate::field::binary::Polynomial<0x11B>>>" }
+        { "id": "ppu8", "type": "crate::field::PackedPadded<u8>" }
       ]
     },
-    "component-mersenne31-quad": {
+    "component-quad-mersenne31": {
       "group": "component",
-      "base": "Mersenne31",
+      "base_rule": "mersenne31",
       "degree": 2,
-      "relation": "quadratic",
-      "specialized": "QuadMersenne31",
+      "relation_shape": "quadratic",
+      "specialized": true,
+      "elem_bytes": 8,
       "fixtures": [
         { "id": "qm31", "type": "crate::field::QuadMersenne31" }
       ]
     },
-    "component-binary-tower": {
+    "component-mersenne31-custom": {
       "group": "component",
-      "base_class": "binary",
-      "degree_variants": [2, 4, 8, 16, 32, 64],
-      "relation": "tower_step",
+      "base_rule": "mersenne31",
+      "degree": 2,
+      "relation_shape": "quadratic",
+      "specialized": false,
+      "elem_bytes": 8,
       "fixtures": [
-        { "id": "tower16", "type": "crate::field::FiniteField<2, 16, crate::field::binary::tower::FanPaar16<crate::field::binary::tower::Rijndael16>>" },
-        { "id": "tower32", "type": "crate::field::FiniteField<2, 32, crate::field::binary::tower::FanPaar32<crate::field::binary::tower::Rijndael32>>" },
-        { "id": "tower64", "type": "crate::field::FiniteField<2, 64, crate::field::binary::tower::FanPaar64<crate::field::binary::tower::Rijndael64>>" }
+        { "id": "m31c2", "type": "crate::kernel::tests::routes::fixtures::Mersenne31CustomQuad",
+          "needs_spec": { "base_field": "crate::field::Mersenne31", "degree": 2, "storage": "Components" } }
       ]
     },
-    "gf1": {
-      "group": "gf1",
-      "description": "Bit-packed GF(2)",
+    "component-residue-quadratic": {
+      "group": "component",
+      "base_rule": "residue-u8-low",
+      "characteristic": "odd",
+      "degree": 2,
+      "relation_shape": "quadratic",
+      "elem_bytes": 2,
       "fixtures": [
-        { "id": "gf1", "type": "crate::field::finite_field::BitField" }
+        { "id": "r3q", "type": "crate::kernel::tests::routes::fixtures::ResidueQuadratic",
+          "needs_spec": { "base_field": "crate::field::FiniteField<3, 1, crate::field::Residue>", "degree": 2 } }
       ]
     },
-    "map-binary-frob-identity": {
-      "group": "map",
-      "source": "gf8-aes",
-      "target": "gf8-aes",
+    "component-residue-odd": {
+      "group": "component",
+      "base_rule": "residue-u8-low",
+      "characteristic": "odd",
+      "degree": 3,
+      "relation_shape": "cubic",
+      "elem_bytes": 3,
+      "fixtures": [
+        { "id": "r3c", "type": "crate::kernel::tests::routes::fixtures::ResidueCubic",
+          "needs_spec": { "base_field": "crate::field::FiniteField<3, 1, crate::field::Residue>", "degree": 3 } }
+      ]
+    },
+    "component-residue-quartic": {
+      "group": "component",
+      "base_rule": "residue-u8-low",
+      "characteristic": "odd",
+      "degree": 4,
+      "relation_shape": "quartic",
+      "elem_bytes": 4,
+      "fixtures": [
+        { "id": "r3q4", "type": "crate::kernel::tests::routes::fixtures::ResidueQuartic",
+          "needs_spec": { "base_field": "crate::field::FiniteField<3, 1, crate::field::Residue>", "degree": 4 } }
+      ]
+    },
+    "component-goldilocks": {
+      "group": "component",
+      "base_rule": "goldilocks",
+      "characteristic": "odd",
+      "degree": 2,
+      "relation_shape": "quadratic",
+      "elem_bytes": 16,
+      "fixtures": [
+        { "id": "gld2", "type": "crate::kernel::tests::routes::fixtures::GoldilocksQuadratic",
+          "needs_spec": { "base_field": "crate::field::Goldilocks", "degree": 2 } }
+      ]
+    },
+    "component-binary": {
+      "group": "component",
+      "base_rule": "gf8-poly-aes",
       "characteristic": 2,
+      "degree": 2,
+      "relation_shape": "binary_quadratic",
+      "storage": "Components",
+      "elem_bytes": 2,
+      "fixtures": [
+        { "id": "binc", "type": "crate::kernel::tests::routes::fixtures::BinaryComponents",
+          "needs_spec": { "base_field": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>", "degree": 2 } }
+      ]
+    },
+    "component-degree64": {
+      "group": "component",
+      "base_rule": "gf8-poly-aes",
+      "characteristic": 2,
+      "degree": 8,
+      "total_degree": 64,
+      "relation_shape": "tower_step",
+      "elem_bytes": 8,
+      "fixtures": [
+        { "id": "cmp64", "type": "crate::kernel::tests::routes::fixtures::ComponentDegree64",
+          "needs_spec": { "base_field": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>", "degree": 8, "storage": "Components" } }
+      ]
+    },
+    "bits-gf2": {
+      "group": "bits",
+      "description": "Bit-packed GF(2) buffers",
+      "elem_bits": 1,
+      "fixtures": [
+        { "id": "gf2", "type": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>" }
+      ]
+    },
+    "map-frobenius-identity": {
+      "group": "map",
+      "source_rule": "gf8-poly-aes",
+      "target_rule": "gf8-poly-aes",
       "kind": "frobenius",
-      "direction": "identity",
-      "valid": true,
-      "fixtures": [
-        { "id": "frob_id", "type": "crate::field::FiniteField<2, 8, crate::field::binary::Polynomial<0x11B>>",
-          "source_ref": "gf8aes", "target_ref": "gf8aes" }
-      ]
-    },
-    "map-embedding-binary-column": {
-      "group": "map",
-      "source": "gf8-aes",
-      "target": "packed-u16",
-      "characteristic": 2,
-      "kind": "embedding",
       "construction": "structural",
       "valid": true,
       "fixtures": [
-        { "id": "embed_bin", "type": "crate::field::Packed<crate::field::FiniteField<2, 16, crate::field::binary::Polynomial<0x1002D>>>",
-          "source_ref": "gf8aes", "target_ref": "pu16" }
+        { "id": "frob_id", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
       ]
     },
-    "map-isomorphism-binary-column": {
+    "map-frobenius-quadratic": {
       "group": "map",
-      "source": "gf8-aes",
-      "target": "gf8-normal",
-      "characteristic": 2,
-      "kind": "isomorphism",
-      "construction": "caller_images",
+      "source_rule": "gf8-poly-aes",
+      "target_rule": "gf8-poly-aes",
+      "kind": "frobenius",
+      "construction": "structural",
+      "relative_degree": 2,
       "valid": true,
       "fixtures": [
-        { "id": "iso_bin", "type": "crate::field::FiniteField<2, 8, crate::field::binary::Normal>",
-          "source_ref": "gf8aes", "target_ref": "gf8normal" }
+        { "id": "frob_q2", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
+      ]
+    },
+    "map-frobenius-binary-column": {
+      "group": "map",
+      "source_rule": "packed-u16-shipped",
+      "target_rule": "packed-u16-shipped",
+      "kind": "frobenius",
+      "construction": "structural",
+      "characteristic": 2,
+      "valid": true,
+      "fixtures": [
+        { "id": "frob_bc", "type": "crate::field::Packed<u16>" }
+      ]
+    },
+    "map-frobenius-residue-column": {
+      "group": "map",
+      "source_rule": "residue-u32",
+      "target_rule": "residue-u32",
+      "kind": "frobenius",
+      "construction": "structural",
+      "characteristic": "odd",
+      "valid": true,
+      "fixtures": [
+        { "id": "frob_rc", "type": "crate::field::FiniteField<65537, 1, crate::field::Residue>" }
+      ]
+    },
+    "map-embed-injection": {
+      "group": "map",
+      "source_rule": "gf8-poly-aes",
+      "target_rule": "packed-u16-shipped",
+      "kind": "embedding",
+      "construction": "structural",
+      "valid_degree": true,
+      "fixtures": [
+        { "id": "emb_inj", "type": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>" }
+      ]
+    },
+    "map-embed-injection-images": {
+      "group": "map",
+      "source_rule": "gf8-poly-aes",
+      "target_rule": "packed-u16-shipped",
+      "kind": "embedding",
+      "construction": "from_images",
+      "valid_degree": true,
+      "fixtures": [
+        { "id": "emb_inj_i", "type": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>" }
+      ]
+    },
+    "map-embed-binary-column": {
+      "group": "map",
+      "source_rule": "gf8-poly-aes",
+      "target_rule": "gf8-poly-other",
+      "kind": "embedding",
+      "construction": "from_images",
+      "characteristic": 2,
+      "valid_degree": true,
+      "fixtures": [
+        { "id": "emb_bc", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>" }
+      ]
+    },
+    "map-embed-residue-column": {
+      "group": "map",
+      "source_rule": "residue-u8-low",
+      "target_rule": "residue-u32",
+      "kind": "embedding",
+      "construction": "from_images",
+      "characteristic": "odd",
+      "valid_degree": true,
+      "fixtures": [
+        { "id": "emb_rc", "type": "crate::field::FiniteField<65537, 1, crate::field::Residue>" }
+      ]
+    },
+    "map-iso-binary-column": {
+      "group": "map",
+      "source_rule": "gf8-poly-aes",
+      "target_rule": "gf8-normal",
+      "kind": "isomorphism",
+      "construction": "structural",
+      "characteristic": 2,
+      "valid": true,
+      "fixtures": [
+        { "id": "iso_bc", "type": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>" }
+      ]
+    },
+    "map-iso-binary-column-images": {
+      "group": "map",
+      "source_rule": "gf8-poly-aes",
+      "target_rule": "gf8-normal",
+      "kind": "isomorphism",
+      "construction": "from_images",
+      "characteristic": 2,
+      "valid": true,
+      "fixtures": [
+        { "id": "iso_bc_i", "type": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>" }
+      ]
+    },
+    "map-iso-residue-column": {
+      "group": "map",
+      "source_rule": "residue-u8-low",
+      "target_rule": "residue-u8-low",
+      "kind": "isomorphism",
+      "construction": "from_images",
+      "characteristic": "odd",
+      "valid": true,
+      "fixtures": [
+        { "id": "iso_rc", "type": "crate::field::FiniteField<3, 1, crate::field::Residue>" }
+      ]
+    },
+    "map-bits-embed": {
+      "group": "map_bits",
+      "source_rule": "bits-gf2",
+      "target_rule": "gf8-poly-aes",
+      "kind": "embedding",
+      "valid": true,
+      "fixtures": [
+        { "id": "mb_emb", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
+      ]
+    },
+    "map-bits-trace": {
+      "group": "map_bits",
+      "source_rule": "bits-gf2",
+      "target_rule": "gf8-poly-aes",
+      "kind": "trace",
+      "valid": true,
+      "fixtures": [
+        { "id": "mb_tr", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
+      ]
+    },
+    "map-bits-norm": {
+      "group": "map_bits",
+      "source_rule": "bits-gf2",
+      "target_rule": "gf8-poly-aes",
+      "kind": "norm",
+      "valid": true,
+      "fixtures": [
+        { "id": "mb_nm", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
+      ]
+    },
+    "map-bits-restrict": {
+      "group": "map_bits",
+      "source_rule": "bits-gf2",
+      "target_rule": "gf8-poly-aes",
+      "kind": "restrict",
+      "valid": true,
+      "fixtures": [
+        { "id": "mb_rs", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
+      ]
+    },
+    "map-bits-contains": {
+      "group": "map_bits",
+      "source_rule": "bits-gf2",
+      "target_rule": "gf8-poly-aes",
+      "kind": "contains",
+      "valid": true,
+      "fixtures": [
+        { "id": "mb_ct", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
       ]
     }
   },
@@ -439,85 +758,214 @@
   "applicability": {
     "ops-row-add": {
       "families": ["ops/row"],
-      "rules": ["residue-1byte-le127", "residue-1byte-gt127", "residue-2byte", "residue-4byte", "residue-8byte", "mersenne31", "goldilocks", "gf8-aes", "gf8-rs", "gf8-normal", "gf8-cantor", "packed-u8", "packed-u16", "packed-u32", "packed-u64"],
+      "rules": ["residue-u8-low", "residue-u8-high", "residue-u16", "residue-u32", "residue-u64",
+                "residue-mersenne31-modulus", "residue-goldilocks-modulus",
+                "mersenne31", "goldilocks",
+                "gf8-poly-aes", "gf8-poly-other", "gf8-normal", "gf8-cantor",
+                "packed-u8-shipped", "packed-u8-custom", "packed-u16-shipped", "packed-u16-custom",
+                "packed-u32-shipped", "packed-u32-custom", "packed-u64-shipped", "packed-u64-custom",
+                "binary-flat-sub8"],
       "exclusions": {
-        "residue-gf2-8": "Residue GF(2^8) has no add operation distinct from XOR",
         "packed-padded": "PackedPadded is non-bulk",
-        "gf1": "GF(2) rows use bits family"
+        "residue-gf2": "GF(2) residue add is XOR; use bits family",
+        "bits-gf2": "GF(2) uses bits family",
+        "component-quad-mersenne31": "QuadMersenne31 add uses specialized ops",
+        "component-mersenne31-custom": "component add uses component ops",
+        "component-residue-quadratic": "component ops only",
+        "component-residue-odd": "component ops only",
+        "component-residue-quartic": "component ops only",
+        "component-goldilocks": "component ops only",
+        "component-binary": "component ops only",
+        "component-degree64": "component ops only",
+        "map-frobenius-identity": "maps are non-bulk callables",
+        "map-frobenius-quadratic": "maps are non-bulk callables",
+        "map-frobenius-binary-column": "maps are non-bulk callables",
+        "map-frobenius-residue-column": "maps are non-bulk callables",
+        "map-embed-injection": "maps are non-bulk callables",
+        "map-embed-injection-images": "maps are non-bulk callables",
+        "map-embed-binary-column": "maps are non-bulk callables",
+        "map-embed-residue-column": "maps are non-bulk callables",
+        "map-iso-binary-column": "maps are non-bulk callables",
+        "map-iso-binary-column-images": "maps are non-bulk callables",
+        "map-iso-residue-column": "maps are non-bulk callables",
+        "map-bits-embed": "map_bits family only",
+        "map-bits-trace": "map_bits family only",
+        "map-bits-norm": "map_bits family only",
+        "map-bits-restrict": "map_bits family only",
+        "map-bits-contains": "map_bits family only"
       }
     },
     "ops-row-mul": {
       "families": ["ops/row", "ops/scatter", "ops/gather", "ops/matrix", "ops/matrix_at", "ops/reduction"],
-      "rules": ["residue-1byte-le127", "residue-1byte-gt127", "residue-2byte", "residue-4byte", "residue-8byte", "residue-gf2-8", "mersenne31", "goldilocks", "gf8-aes", "gf8-rs", "gf8-normal", "gf8-cantor", "packed-u8", "packed-u16", "packed-u32", "packed-u64", "component-mersenne31-quad", "component-binary-tower"],
+      "rules": ["residue-u8-low", "residue-u8-high", "residue-u16", "residue-u32", "residue-u64",
+                "residue-mersenne31-modulus", "residue-goldilocks-modulus", "residue-gf2",
+                "mersenne31", "goldilocks",
+                "gf8-poly-aes", "gf8-poly-other", "gf8-normal", "gf8-cantor",
+                "packed-u8-shipped", "packed-u8-custom", "packed-u16-shipped", "packed-u16-custom",
+                "packed-u32-shipped", "packed-u32-custom", "packed-u64-shipped", "packed-u64-custom",
+                "binary-flat-sub8",
+                "component-quad-mersenne31", "component-mersenne31-custom",
+                "component-residue-quadratic", "component-residue-odd", "component-residue-quartic",
+                "component-goldilocks", "component-binary", "component-degree64"],
       "exclusions": {
         "packed-padded": "PackedPadded is non-bulk",
-        "gf1": "GF(2) dot products use bits family"
+        "bits-gf2": "GF(2) uses bits family",
+        "map-frobenius-identity": "maps are non-bulk callables",
+        "map-frobenius-quadratic": "maps are non-bulk callables",
+        "map-frobenius-binary-column": "maps are non-bulk callables",
+        "map-frobenius-residue-column": "maps are non-bulk callables",
+        "map-embed-injection": "maps are non-bulk callables",
+        "map-embed-injection-images": "maps are non-bulk callables",
+        "map-embed-binary-column": "maps are non-bulk callables",
+        "map-embed-residue-column": "maps are non-bulk callables",
+        "map-iso-binary-column": "maps are non-bulk callables",
+        "map-iso-binary-column-images": "maps are non-bulk callables",
+        "map-iso-residue-column": "maps are non-bulk callables",
+        "map-bits-embed": "map_bits family only",
+        "map-bits-trace": "map_bits family only",
+        "map-bits-norm": "map_bits family only",
+        "map-bits-restrict": "map_bits family only",
+        "map-bits-contains": "map_bits family only"
       }
     },
     "ops-rows-addsub": {
       "families": ["ops/rows", "ops/scalar"],
-      "rules": ["residue-1byte-le127", "residue-1byte-gt127", "residue-2byte", "residue-4byte", "residue-8byte", "mersenne31", "goldilocks", "gf8-aes", "gf8-rs", "gf8-normal", "gf8-cantor", "packed-u8", "packed-u16", "packed-u32", "packed-u64"],
+      "rules": ["residue-u8-low", "residue-u8-high", "residue-u16", "residue-u32", "residue-u64",
+                "residue-mersenne31-modulus", "residue-goldilocks-modulus",
+                "mersenne31", "goldilocks",
+                "gf8-poly-aes", "gf8-poly-other", "gf8-normal", "gf8-cantor",
+                "packed-u8-shipped", "packed-u8-custom", "packed-u16-shipped", "packed-u16-custom",
+                "packed-u32-shipped", "packed-u32-custom", "packed-u64-shipped", "packed-u64-custom",
+                "binary-flat-sub8"],
       "exclusions": {
-        "residue-gf2-8": "Add/sub on GF(2^8) residue is XOR, handled separately",
         "packed-padded": "PackedPadded is non-bulk",
-        "gf1": "GF(2) uses bits family"
+        "residue-gf2": "GF(2) residue add is XOR",
+        "bits-gf2": "GF(2) uses bits family",
+        "component-quad-mersenne31": "QuadMersenne31 uses specialized scalar ops",
+        "component-mersenne31-custom": "component ops only",
+        "component-residue-quadratic": "component ops only",
+        "component-residue-odd": "component ops only",
+        "component-residue-quartic": "component ops only",
+        "component-goldilocks": "component ops only",
+        "component-binary": "component ops only",
+        "component-degree64": "component ops only",
+        "map-frobenius-identity": "maps are non-bulk callables",
+        "map-frobenius-quadratic": "maps are non-bulk callables",
+        "map-frobenius-binary-column": "maps are non-bulk callables",
+        "map-frobenius-residue-column": "maps are non-bulk callables",
+        "map-embed-injection": "maps are non-bulk callables",
+        "map-embed-injection-images": "maps are non-bulk callables",
+        "map-embed-binary-column": "maps are non-bulk callables",
+        "map-embed-residue-column": "maps are non-bulk callables",
+        "map-iso-binary-column": "maps are non-bulk callables",
+        "map-iso-binary-column-images": "maps are non-bulk callables",
+        "map-iso-residue-column": "maps are non-bulk callables",
+        "map-bits-embed": "map_bits family only",
+        "map-bits-trace": "map_bits family only",
+        "map-bits-norm": "map_bits family only",
+        "map-bits-restrict": "map_bits family only",
+        "map-bits-contains": "map_bits family only"
       }
     },
     "ops-elementwise": {
       "families": ["ops/elementwise"],
-      "rules": ["residue-1byte-le127", "residue-1byte-gt127", "residue-2byte", "residue-4byte", "residue-8byte", "residue-gf2-8", "mersenne31", "goldilocks", "gf8-aes", "gf8-rs", "gf8-normal", "gf8-cantor", "packed-u8", "packed-u16", "packed-u32", "packed-u64", "component-mersenne31-quad", "component-binary-tower"],
+      "rules": ["residue-u8-low", "residue-u8-high", "residue-u16", "residue-u32", "residue-u64",
+                "residue-mersenne31-modulus", "residue-goldilocks-modulus", "residue-gf2",
+                "mersenne31", "goldilocks",
+                "gf8-poly-aes", "gf8-poly-other", "gf8-normal", "gf8-cantor",
+                "packed-u8-shipped", "packed-u8-custom", "packed-u16-shipped", "packed-u16-custom",
+                "packed-u32-shipped", "packed-u32-custom", "packed-u64-shipped", "packed-u64-custom",
+                "binary-flat-sub8",
+                "component-quad-mersenne31", "component-mersenne31-custom",
+                "component-residue-quadratic", "component-residue-odd", "component-residue-quartic",
+                "component-goldilocks", "component-binary", "component-degree64"],
       "exclusions": {
         "packed-padded": "PackedPadded is non-bulk",
-        "gf1": "GF(2) elementwise uses bits family"
+        "bits-gf2": "GF(2) uses bits family",
+        "map-frobenius-identity": "maps are non-bulk callables",
+        "map-frobenius-quadratic": "maps are non-bulk callables",
+        "map-frobenius-binary-column": "maps are non-bulk callables",
+        "map-frobenius-residue-column": "maps are non-bulk callables",
+        "map-embed-injection": "maps are non-bulk callables",
+        "map-embed-injection-images": "maps are non-bulk callables",
+        "map-embed-binary-column": "maps are non-bulk callables",
+        "map-embed-residue-column": "maps are non-bulk callables",
+        "map-iso-binary-column": "maps are non-bulk callables",
+        "map-iso-binary-column-images": "maps are non-bulk callables",
+        "map-iso-residue-column": "maps are non-bulk callables",
+        "map-bits-embed": "map_bits family only",
+        "map-bits-trace": "map_bits family only",
+        "map-bits-norm": "map_bits family only",
+        "map-bits-restrict": "map_bits family only",
+        "map-bits-contains": "map_bits family only"
       }
     },
     "ops-pack": {
       "families": ["ops/pack"],
-      "rules": ["gf8-aes", "gf8-rs", "gf8-normal", "gf8-cantor", "packed-u8", "packed-u16", "packed-u32", "packed-u64", "mersenne31", "goldilocks"],
+      "rules": ["gf8-poly-aes", "gf8-poly-other", "gf8-normal", "gf8-cantor",
+                "packed-u8-shipped", "packed-u8-custom", "packed-u16-shipped", "packed-u16-custom",
+                "packed-u32-shipped", "packed-u32-custom", "packed-u64-shipped", "packed-u64-custom",
+                "mersenne31", "goldilocks", "binary-flat-sub8"],
       "exclusions": {
-        "residue-1byte-le127": "Residue packing uses prime reduce not pack/unpack",
-        "residue-1byte-gt127": "Residue packing uses prime reduce not pack/unpack",
-        "residue-2byte": "Residue packing uses prime reduce not pack/unpack",
-        "residue-4byte": "Residue packing uses prime reduce not pack/unpack",
-        "residue-8byte": "Residue packing uses prime reduce not pack/unpack",
-        "residue-gf2-8": "Residue GF(2^8) packing is an identity, no separate ops",
+        "residue-u8-low": "Residue packing uses identity encode or prime reduce",
+        "residue-u8-high": "Residue packing uses identity encode or prime reduce",
+        "residue-u16": "Residue packing uses identity encode",
+        "residue-u32": "Residue packing uses identity encode",
+        "residue-u64": "Residue packing uses identity encode",
+        "residue-mersenne31-modulus": "Residue packing uses identity encode",
+        "residue-goldilocks-modulus": "Residue packing uses identity encode",
+        "residue-gf2": "Residue GF(2) packing uses identity encode",
         "packed-padded": "PackedPadded is non-bulk",
-        "gf1": "GF(2) packing uses bits family"
+        "bits-gf2": "GF(2) uses bits family",
+        "component-quad-mersenne31": "Component pack uses component ops",
+        "component-mersenne31-custom": "component ops only",
+        "component-residue-quadratic": "component ops only",
+        "component-residue-odd": "component ops only",
+        "component-residue-quartic": "component ops only",
+        "component-goldilocks": "component ops only",
+        "component-binary": "component ops only",
+        "component-degree64": "component ops only",
+        "map-frobenius-identity": "maps are non-bulk callables",
+        "map-frobenius-quadratic": "maps are non-bulk callables",
+        "map-frobenius-binary-column": "maps are non-bulk callables",
+        "map-frobenius-residue-column": "maps are non-bulk callables",
+        "map-embed-injection": "maps are non-bulk callables",
+        "map-embed-injection-images": "maps are non-bulk callables",
+        "map-embed-binary-column": "maps are non-bulk callables",
+        "map-embed-residue-column": "maps are non-bulk callables",
+        "map-iso-binary-column": "maps are non-bulk callables",
+        "map-iso-binary-column-images": "maps are non-bulk callables",
+        "map-iso-residue-column": "maps are non-bulk callables",
+        "map-bits-embed": "map_bits family only",
+        "map-bits-trace": "map_bits family only",
+        "map-bits-norm": "map_bits family only",
+        "map-bits-restrict": "map_bits family only",
+        "map-bits-contains": "map_bits family only"
       }
     },
     "bits": {
       "families": ["bits"],
-      "rules": ["gf1"],
+      "rules": ["bits-gf2"],
       "exclusions": {}
     },
-    "encode": {
-      "families": ["encode"],
-      "rules": ["gf8-aes", "gf8-rs", "gf8-normal", "gf8-cantor"],
-      "exclusions": {
-        "residue-1byte-le127": "Residue encode is an identity byte copy",
-        "residue-1byte-gt127": "Residue encode is an identity byte copy",
-        "residue-2byte": "Residue one/two-byte encodes are identities",
-        "residue-4byte": "Residue encodes are identities",
-        "residue-8byte": "Residue encodes are identities",
-        "residue-gf2-8": "Residue GF(2^8) encode is an identity",
-        "mersenne31": "Mersenne31 encode uses pack",
-        "goldilocks": "Goldilocks encode uses pack",
-        "packed-u8": "Packed encode uses pack",
-        "packed-u16": "Packed encode uses pack",
-        "packed-u32": "Packed encode uses pack",
-        "packed-u64": "Packed encode uses pack",
-        "packed-padded": "PackedPadded is non-bulk",
-        "gf1": "GF(2) encodes use bits family"
-      }
-    },
-    "map-byte-lane": {
+    "map-lane": {
       "families": ["map"],
-      "rules": ["map-binary-frob-identity", "map-embedding-binary-column", "map-isomorphism-binary-column"],
+      "rules": [
+        "map-frobenius-identity", "map-frobenius-quadratic",
+        "map-frobenius-binary-column", "map-frobenius-residue-column",
+        "map-embed-injection", "map-embed-injection-images",
+        "map-embed-binary-column", "map-embed-residue-column",
+        "map-iso-binary-column", "map-iso-binary-column-images",
+        "map-iso-residue-column"
+      ],
       "exclusions": {}
     },
     "map-bits": {
       "families": ["map_bits"],
-      "rules": ["gf1"],
+      "rules": [
+        "map-bits-embed", "map-bits-trace", "map-bits-norm",
+        "map-bits-restrict", "map-bits-contains"
+      ],
       "exclusions": {}
     }
   },
@@ -529,9 +977,10 @@
       "unit": "Elements",
       "basis": "Source",
       "multiplicity": "ActivePairs",
-      "lane": "16",
-      "loss": "0",
-      "justification": "16 GF(2^8) elements per 128-bit vector; integer literal per ISA lane width"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
+      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
+      "justification": "lane = vector_bytes / 1B; loss = ceil(2*(vec_bytes-1)/1B)"
     },
     "row-mul-into": {
       "substage": "MulAdd",
@@ -539,9 +988,10 @@
       "unit": "Elements",
       "basis": "Source",
       "multiplicity": "ActivePairs",
-      "lane": "16",
-      "loss": "0",
-      "justification": "Overwrite is an accumulate with write-only destination; same lane budget"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
+      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
+      "justification": "Same lane/loss as accumulate; write-only destination"
     },
     "row-mul-assign": {
       "substage": "Mul",
@@ -549,9 +999,10 @@
       "unit": "Elements",
       "basis": "Source",
       "multiplicity": "ActivePairs",
-      "lane": "16",
-      "loss": "0",
-      "justification": "In-place scale shares lane width with mul_add"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
+      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
+      "justification": "Same lane/loss as mul_add"
     },
     "row-add": {
       "substage": "Add",
@@ -559,9 +1010,10 @@
       "unit": "Elements",
       "basis": "Source",
       "multiplicity": "Rows",
-      "lane": "16",
-      "loss": "0",
-      "justification": "Row add processes one row at a time; 16 elements per 128-bit vector"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
+      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
+      "justification": "lane = vector_bytes / 1B; loss = ceil(2*(vec_bytes-1)/1B)"
     },
     "row-sub": {
       "substage": "Sub",
@@ -569,9 +1021,10 @@
       "unit": "Elements",
       "basis": "Source",
       "multiplicity": "Rows",
-      "lane": "16",
-      "loss": "0",
-      "justification": "Same lane budget as add"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
+      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
+      "justification": "Same lane/loss as add"
     },
     "matrix-mul-add": {
       "substage": "MulAdd",
@@ -579,9 +1032,10 @@
       "unit": "Elements",
       "basis": "Source",
       "multiplicity": "ActivePairs",
-      "lane": "16",
-      "loss": "0",
-      "justification": "Matrix AXPY uses same vector width as row ops"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
+      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
+      "justification": "Matrix AXPY uses same vector geometry as row AXPY"
     },
     "scatter-mul-add": {
       "substage": "MulAdd",
@@ -589,9 +1043,10 @@
       "unit": "Elements",
       "basis": "Source",
       "multiplicity": "ActivePairs",
-      "lane": "16",
-      "loss": "0",
-      "justification": "Scatter AXPY resolves to row AXPY per destination row"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
+      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
+      "justification": "Scatter resolves to per-row AXPY; same lane/loss"
     },
     "gather-mul-add": {
       "substage": "MulAdd",
@@ -599,9 +1054,10 @@
       "unit": "Elements",
       "basis": "Source",
       "multiplicity": "ActivePairs",
-      "lane": "16",
-      "loss": "0",
-      "justification": "Gather transpose-resolved AXPY per destination row"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
+      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
+      "justification": "Gather transpose-resolves to per-row AXPY; same lane/loss"
     },
     "elementwise-mul": {
       "substage": "MulElementwise",
@@ -609,19 +1065,21 @@
       "unit": "Elements",
       "basis": "Source",
       "multiplicity": "One",
-      "lane": "16",
-      "loss": "0",
-      "justification": "Element-wise multiplication, one row processed as one call"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
+      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
+      "justification": "Elementwise multiplication; one row per call"
     },
     "elementwise-div": {
       "substage": "MulElementwise",
-      "scope": "Division",
+      "scope": { "scope": "Division", "pass": "Main" },
       "unit": "Elements",
       "basis": "Source",
       "multiplicity": "One",
-      "lane": "16",
-      "loss": "0",
-      "justification": "Division = elementwise mul by inverse; composite scope"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
+      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
+      "justification": "Division scope: mul elementwise by inverse"
     },
     "elementwise-inv": {
       "substage": "Inverse",
@@ -629,9 +1087,10 @@
       "unit": "Elements",
       "basis": "Source",
       "multiplicity": "One",
-      "lane": "16",
-      "loss": "0",
-      "justification": "Batch inversion; same vector width"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
+      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
+      "justification": "Batch inversion; same vector width as elements"
     },
     "dot-product": {
       "substage": "Dot",
@@ -639,9 +1098,10 @@
       "unit": "Elements",
       "basis": "Source",
       "multiplicity": "One",
-      "lane": "16",
-      "loss": "0",
-      "justification": "Dot product over one row pair; accumulates products"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
+      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
+      "justification": "Dot product over row pair; one accumulation pass"
     },
     "pack": {
       "substage": "Pack",
@@ -649,9 +1109,10 @@
       "unit": "Bytes",
       "basis": "Target",
       "multiplicity": "One",
-      "lane": "16",
-      "loss": "0",
-      "justification": "Pack canonical elements to bytes; target-basis counting"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
+      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
+      "justification": "Pack canonical elements to bytes; target-basis bytes"
     },
     "unpack": {
       "substage": "Unpack",
@@ -659,9 +1120,10 @@
       "unit": "Bytes",
       "basis": "Source",
       "multiplicity": "One",
-      "lane": "16",
-      "loss": "0",
-      "justification": "Unpack bytes to canonical elements"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
+      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
+      "justification": "Unpack bytes to canonical elements; source-basis bytes"
     },
     "unit-accumulate": {
       "substage": "Add",
@@ -669,9 +1131,10 @@
       "unit": "Elements",
       "basis": "Source",
       "multiplicity": "UnitAddPairs",
-      "lane": "16",
-      "loss": "0",
-      "justification": "One-coefficient accumulate pairs; separate from general MulAdd"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
+      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
+      "justification": "One-coefficient accumulate pairs; same vector geometry"
     },
     "bits-and": {
       "substage": "BitAnd",
@@ -679,9 +1142,10 @@
       "unit": "Bits",
       "basis": "Source",
       "multiplicity": "One",
-      "lane": "128",
-      "loss": "0",
-      "justification": "128 bits per SSE vector for GF(2) bit operations"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 128, "v3": 256, "v3_gfni_crypto": 256, "v4x": 512 },
+      "loss":  { "scalar": 0, "v2": 240, "v3": 496, "v3_gfni_crypto": 496, "v4x": 1008 },
+      "justification": "GF(2) bits: lane = vec_bytes*8 bits; loss = 2*(vec_bytes-1)*8 bits"
     },
     "bits-andnot": {
       "substage": "BitAndNot",
@@ -689,9 +1153,10 @@
       "unit": "Bits",
       "basis": "Source",
       "multiplicity": "One",
-      "lane": "128",
-      "loss": "0",
-      "justification": "128 bits per SSE AND-NOT vector"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 128, "v3": 256, "v3_gfni_crypto": 256, "v4x": 512 },
+      "loss":  { "scalar": 0, "v2": 240, "v3": 496, "v3_gfni_crypto": 496, "v4x": 1008 },
+      "justification": "Same as bits-and"
     },
     "bits-xor": {
       "substage": "BitXor",
@@ -699,9 +1164,10 @@
       "unit": "Bits",
       "basis": "Source",
       "multiplicity": "One",
-      "lane": "128",
-      "loss": "0",
-      "justification": "128 bits per SSE XOR vector"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 128, "v3": 256, "v3_gfni_crypto": 256, "v4x": 512 },
+      "loss":  { "scalar": 0, "v2": 240, "v3": 496, "v3_gfni_crypto": 496, "v4x": 1008 },
+      "justification": "GF(2) XOR: lane = vec_bytes*8 bits; loss = 2*(vec_bytes-1)*8 bits"
     },
     "bits-xor-gather": {
       "substage": "BitXor",
@@ -709,8 +1175,9 @@
       "unit": "Bits",
       "basis": "Source",
       "multiplicity": "ActiveRows",
-      "lane": "128",
-      "loss": "0",
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 128, "v3": 256, "v3_gfni_crypto": 256, "v4x": 512 },
+      "loss":  { "scalar": 0, "v2": 240, "v3": 496, "v3_gfni_crypto": 496, "v4x": 1008 },
       "justification": "Gather XOR: per-active-row budget"
     },
     "bits-weight": {
@@ -719,9 +1186,10 @@
       "unit": "Bits",
       "basis": "Source",
       "multiplicity": "One",
-      "lane": "128",
-      "loss": "0",
-      "justification": "Population count over 128-bit lanes"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 128, "v3": 256, "v3_gfni_crypto": 256, "v4x": 512 },
+      "loss":  { "scalar": 0, "v2": 240, "v3": 496, "v3_gfni_crypto": 496, "v4x": 1008 },
+      "justification": "Population count; same lane geometry"
     },
     "bits-dot": {
       "substage": "Dot",
@@ -729,9 +1197,10 @@
       "unit": "Bits",
       "basis": "Source",
       "multiplicity": "One",
-      "lane": "128",
-      "loss": "0",
-      "justification": "Bit dot product = AND then popcount"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 128, "v3": 256, "v3_gfni_crypto": 256, "v4x": 512 },
+      "loss":  { "scalar": 0, "v2": 240, "v3": 496, "v3_gfni_crypto": 496, "v4x": 1008 },
+      "justification": "Bit dot product; same as xor"
     },
     "bits-set-range": {
       "substage": "BitParity",
@@ -739,9 +1208,10 @@
       "unit": "Bits",
       "basis": "Source",
       "multiplicity": "One",
-      "lane": "128",
-      "loss": "0",
-      "justification": "Set/clear ranges fill contiguous bits"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 128, "v3": 256, "v3_gfni_crypto": 256, "v4x": 512 },
+      "loss":  { "scalar": 0, "v2": 240, "v3": 496, "v3_gfni_crypto": 496, "v4x": 1008 },
+      "justification": "Set/clear ranges operate on contiguous bits"
     },
     "map-words": {
       "substage": "Linear",
@@ -749,29 +1219,10 @@
       "unit": "Words",
       "basis": "Source",
       "multiplicity": "One",
-      "lane": "2",
-      "loss": "0",
-      "justification": "Map word strides; two 64-bit words per 128-bit vector for GF(2^8) linear transforms"
-    },
-    "encode": {
-      "substage": "Pack",
-      "scope": null,
-      "unit": "Bytes",
-      "basis": "Target",
-      "multiplicity": "One",
-      "lane": "16",
-      "loss": "0",
-      "justification": "FieldBuffer encode is byte packing to wire format"
-    },
-    "decode": {
-      "substage": "Unpack",
-      "scope": null,
-      "unit": "Bytes",
-      "basis": "Source",
-      "multiplicity": "One",
-      "lane": "16",
-      "loss": "0",
-      "justification": "FieldBuffer decode is byte unpacking to canonical"
+      "iterations_formula": "1",
+      "lane":  { "scalar": 1, "v2": 2, "v3": 4, "v3_gfni_crypto": 4, "v4x": 8 },
+      "loss":  { "scalar": 0, "v2": 2, "v3": 4, "v3_gfni_crypto": 4, "v4x": 8 },
+      "justification": "Map word strides: vec_bytes / 8B words; loss = 2*(vec_bytes-1)/8B rounded up"
     }
   },
 
@@ -795,82 +1246,6 @@
     "general-4":  { "slots": ["General", "General", "General", "General"] },
     "mixed-3x4":  { "slots": ["General", "General", "Zero", "One", "General", "One", "General", "Zero", "One", "General", "General", "Zero"] },
     "general-8":  { "slots": ["General", "General", "General", "General", "General", "General", "General", "General"] }
-  },
-
-  "obligations": {
-    "ops::add_assign@residue-1byte-le127": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" } } },
-    "ops::add_assign@residue-1byte-gt127": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" } } },
-    "ops::add_assign@residue-2byte": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" } } },
-    "ops::add_assign@residue-4byte": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" } } },
-    "ops::add_assign@residue-8byte": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" } } },
-    "ops::add_assign@mersenne31": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" } } },
-    "ops::add_assign@goldilocks": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" } } },
-    "ops::add_assign@gf8-aes": { "cells": { "default/v3": { "status": "unverified", "required": true, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" }, "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" } } },
-    "ops::add_assign@gf8-rs": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" } } },
-    "ops::add_assign@gf8-normal": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" } } },
-    "ops::add_assign@gf8-cantor": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" } } },
-    "ops::add_assign@packed-u8": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" } } },
-    "ops::add_assign@packed-u16": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" } } },
-    "ops::add_assign@packed-u32": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" } } },
-    "ops::add_assign@packed-u64": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-add"], "perf": "unmeasured" } } },
-
-    "ops::mul_add@gf8-aes": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@gf8-rs": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@gf8-normal": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@gf8-cantor": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@packed-u8": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@packed-u16": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@packed-u32": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@packed-u64": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@component-binary-tower": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@component-mersenne31-quad": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@mersenne31": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@goldilocks": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@residue-1byte-le127": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@residue-1byte-gt127": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@residue-2byte": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@residue-4byte": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@residue-8byte": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add@residue-gf2-8": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["row-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-
-    "ops::mul_add_matrix@gf8-aes": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["matrix-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add_scatter@gf8-aes": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["scatter-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add_gather@gf8-aes": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["gather-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-    "ops::mul_add_matrix_at@gf8-aes": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["matrix-mul-add", "unit-accumulate"], "perf": "unmeasured" } } },
-
-    "ops::dot_product@gf8-aes": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["dot-product"], "perf": "unmeasured" } } },
-    "ops::mul_elementwise@gf8-aes": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["elementwise-mul"], "perf": "unmeasured" } } },
-    "ops::div_elementwise@gf8-aes": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["elementwise-div"], "perf": "unmeasured" } } },
-    "ops::inv_assign@gf8-aes": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["elementwise-inv"], "perf": "unmeasured" } } },
-
-    "ops::pack@packed-u8": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["pack"], "perf": "unmeasured" } } },
-    "ops::pack@gf8-aes": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["pack"], "perf": "unmeasured" } } },
-    "ops::unpack@gf8-aes": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["unpack"], "perf": "unmeasured" } } },
-
-    "FieldBuffer::encode@gf8-aes": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["encode"], "perf": "unmeasured" } } },
-    "FieldBuffer::decode@gf8-aes": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["decode"], "perf": "unmeasured" } } },
-
-    "bits::xor_assign@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["bits-xor"], "perf": "unmeasured" } } },
-    "bits::xor_range@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["bits-xor"], "perf": "unmeasured" } } },
-    "bits::xor_range_with@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["bits-xor"], "perf": "unmeasured" } } },
-    "bits::xor_gather@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["bits-xor-gather"], "perf": "unmeasured" } } },
-    "bits::and_assign@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["bits-and"], "perf": "unmeasured" } } },
-    "bits::and_into@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["bits-and"], "perf": "unmeasured" } } },
-    "bits::andnot_assign@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["bits-andnot"], "perf": "unmeasured" } } },
-    "bits::dot_product@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["bits-dot"], "perf": "unmeasured" } } },
-    "bits::weight@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["bits-weight"], "perf": "unmeasured" } } },
-    "bits::set_range@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["bits-set-range"], "perf": "unmeasured" } } },
-    "bits::clear_range@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["bits-set-range"], "perf": "unmeasured" } } },
-
-    "map::apply_into_with@map-isomorphism-binary-column": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["map-words"], "perf": "unmeasured" } } },
-    "map::embed_into_with@map-embedding-binary-column": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["map-words"], "perf": "unmeasured" } } },
-    "map::frobenius_into_with@map-binary-frob-identity": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["map-words"], "perf": "unmeasured" } } },
-
-    "map_bits::embed_into_with@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["map-words"], "perf": "unmeasured" } } },
-    "map_bits::trace_into_with@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["map-words"], "perf": "unmeasured" } } },
-    "map_bits::restrict_into_with@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["map-words"], "perf": "unmeasured" } } },
-    "map_bits::contains_into_with@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["map-words"], "perf": "unmeasured" } } },
-    "map_bits::norm_into_with@gf1": { "cells": { "default/scalar": { "status": "unverified", "required": false, "min_serving": "scalar", "work": ["map-words"], "perf": "unmeasured" } } }
   },
 
   "evidence": {}
