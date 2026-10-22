@@ -59,6 +59,9 @@ VALID_RULE_GROUPS = frozenset({
     "component", "bits", "map", "map_bits",
 })
 
+# A General coefficient is only meaningful for operations that actually take a
+# coefficient: the scalar accumulate/scalar families and the mul_* families.
+
 KNOWN_CALLABLES: set[str] | None = None
 
 # ISA lane bytes per tier (unchanging hardware facts, not measurements).
@@ -72,7 +75,7 @@ ISA_LANE_BYTES = {
 
 # Reject codes emitted by accept (stable, testable).
 REJECT_CODES = frozenset({
-    "malformed_receipt", "duplicate_done", "malformed_done",
+    "missing_log", "malformed_receipt", "duplicate_done", "malformed_done",
     "missing_done", "source_mismatch", "host_mismatch",
     "feature_mismatch", "request_mismatch", "empty_log",
     "count_mismatch", "no_required_obligations", "duplicate_receipt",
@@ -80,6 +83,7 @@ REJECT_CODES = frozenset({
     "receipt_feature_mismatch", "receipt_request_mismatch",
     "receipt_no_result", "fail_receipt", "skip_receipt",
     "unknown_result", "missing_required",
+    "receipt_process_mismatch", "receipt_field_mismatch",
 })
 
 
@@ -91,16 +95,16 @@ class ValidationError(Exception):
 
 
 def _fail(msg: str) -> None:
-    printed = f"simd_ledger: {msg}"
     if msg.startswith("accept: "):
-        printed = msg.replace("accept: ", "simd_ledger: reject ")
+        reason = msg[len("accept: "):]
+        if reason.startswith("reject "):
+            reason = reason[len("reject "):]
+        printed = f"simd_ledger: reject {reason}"
+        code = reason.split(" ", 1)[0]
+    else:
+        printed = f"simd_ledger: {msg}"
+        code = msg.split(" ", 1)[0]
     print(printed, file=sys.stderr)
-    code = msg
-    for prefix in ("reject ", "accept: reject "):
-        if code.startswith(prefix):
-            code = code[len(prefix):]
-            break
-    code = code.split(" ", 1)[0].split("\n", 1)[0]
     raise ValidationError(code)
 
 
@@ -323,6 +327,65 @@ def _validate_evidence(ledger: dict) -> None:
         _fail("ledger.evidence must be a dict")
 
 
+def _verify_evidence_records(ledger: dict, records: Path | None) -> None:
+    """Verify every cited evidence record matches its receipts and completion."""
+    if records is None:
+        _fail("--records is required when ledger cites evidence")
+    if not records.is_dir():
+        _fail(f"--records {records} is not a directory")
+
+    for ev_id, ev in ledger.get("evidence", {}).items():
+        record_file = ev.get("file", "")
+        if not record_file:
+            _fail(f"evidence {ev_id!r}: missing file")
+        rp = records / record_file
+        if not rp.is_file():
+            _fail(f"evidence {ev_id!r}: record file {record_file} not found")
+
+        done: dict | None = None
+        receipts: list[dict] = []
+        for line in rp.read_text().splitlines():
+            if line.startswith("ROUTE_DONE\t"):
+                try:
+                    done = json.loads(line.split("\t", 1)[1])
+                except json.JSONDecodeError:
+                    _fail(f"evidence {ev_id!r}: malformed ROUTE_DONE")
+            elif line.startswith("ROUTE_RECEIPT\t"):
+                try:
+                    receipts.append(json.loads(line.split("\t", 1)[1]))
+                except json.JSONDecodeError:
+                    _fail(f"evidence {ev_id!r}: malformed ROUTE_RECEIPT")
+
+        if done is None:
+            _fail(f"evidence {ev_id!r}: record {record_file} missing ROUTE_DONE")
+
+        completion = ev.get("completion", {})
+        if not isinstance(completion, dict):
+            _fail(f"evidence {ev_id!r}: completion must be a dict")
+        for field in ("source_id", "host_id", "features"):
+            if completion.get(field) is not None and done.get(field) != completion[field]:
+                _fail(f"evidence {ev_id!r}: completion {field} mismatch")
+        if completion.get("cases") is not None and done.get("cases") != completion["cases"]:
+            _fail(f"evidence {ev_id!r}: completion cases mismatch")
+
+        by_id = {r.get("id"): r for r in receipts}
+        for cited in ev.get("receipts", []):
+            if not isinstance(cited, dict):
+                _fail(f"evidence {ev_id!r}: receipt expectation is not a dict")
+            rid = cited.get("id")
+            if not rid:
+                _fail(f"evidence {ev_id!r}: receipt expectation missing id")
+            rec = by_id.get(rid)
+            if rec is None:
+                _fail(f"evidence {ev_id!r}: cited receipt {rid} missing")
+            if cited.get("features") is not None and rec.get("features") != cited["features"]:
+                _fail(f"evidence {ev_id!r}: receipt {rid} features mismatch")
+            if cited.get("tier") is not None and rec.get("request_raw") != cited["tier"]:
+                _fail(f"evidence {ev_id!r}: receipt {rid} tier mismatch")
+            if cited.get("source_id") is not None and rec.get("source_id") != cited["source_id"]:
+                _fail(f"evidence {ev_id!r}: receipt {rid} source_id mismatch")
+
+
 # ---------------------------------------------------------------------------
 # Obligation expansion
 # ---------------------------------------------------------------------------
@@ -483,15 +546,24 @@ def _validate_expanded_obligations(ledger: dict, expanded: dict,
                 stage_keys.add(sk)
 
 
+def _validate_explicit_obligations(ledger: dict, expanded: dict) -> None:
+    """Reject a deviation whose obligation is outside the expansion."""
+    explicit_obs = ledger.get("obligations", {})
+    if isinstance(explicit_obs, dict):
+        for oid in explicit_obs:
+            if oid not in expanded:
+                _fail(f"explicit obligation {oid!r} is not in the expansion; "
+                      f"check applicability rules")
+
+
 # ---------------------------------------------------------------------------
 # Inventory command
 # ---------------------------------------------------------------------------
 
 
-def cmd_inventory(rustdoc: Path) -> int:
+def cmd_inventory(rustdoc: Path, ledger_path: Path) -> int:
     """Classify every callable and print completeness report."""
     known = _load_known_callables(rustdoc)
-    ledger_path = Path(__file__).parent / "simd_ledger.json"
     if not ledger_path.is_file():
         _fail("simd_ledger.json not found")
     ledger = json.loads(ledger_path.read_text())
@@ -546,6 +618,7 @@ def cmd_check(ledger: dict, schema_only: bool, rustdoc: Path | None,
         # Expand obligations.
         expanded = _expand_obligations(ledger, rules)
         _validate_expanded_obligations(ledger, expanded, rules, wrules, geos, coeffs)
+        _validate_explicit_obligations(ledger, expanded)
 
         n_cells = _count_cells(expanded)
         print(f"simd_ledger: schema valid  obligations={len(expanded)} cells={n_cells}")
@@ -582,23 +655,8 @@ def cmd_check(ledger: dict, schema_only: bool, rustdoc: Path | None,
         _fail("surface inventory is empty")
 
     # --records is mandatory if the ledger cites any evidence.
-    evidence = ledger.get("evidence", {})
-    if evidence:
-        if records is None:
-            _fail("--records is required when ledger cites evidence")
-        if not records.is_dir():
-            _fail(f"--records {records} is not a directory")
-        # Check each cited record file exists.
-        for ev_id, ev_entry in evidence.items():
-            record_file = ev_entry.get("file", "")
-            if record_file:
-                rp = records / record_file
-                if not rp.is_file():
-                    _fail(f"evidence {ev_id!r}: record file {record_file} not found")
-                # Verify the record contains ROUTE_DONE.
-                rtext = rp.read_text()
-                if "ROUTE_DONE\t" not in rtext:
-                    _fail(f"evidence {ev_id!r}: record {record_file} missing ROUTE_DONE")
+    if ledger.get("evidence"):
+        _verify_evidence_records(ledger, records)
 
     # Full schema validation.
     _validate_callables(ledger, rustdoc)
@@ -612,14 +670,7 @@ def cmd_check(ledger: dict, schema_only: bool, rustdoc: Path | None,
     # Expand + validate obligations.
     expanded = _expand_obligations(ledger, rules)
     _validate_expanded_obligations(ledger, expanded, rules, wrules, geos, coeffs)
-
-    # Check for deviations (explicit obligations in ledger that override expansion).
-    explicit_obs = ledger.get("obligations", {})
-    if isinstance(explicit_obs, dict):
-        for oid in explicit_obs:
-            if oid not in expanded:
-                _fail(f"explicit obligation {oid!r} is not in the expansion; "
-                      f"check applicability rules")
+    _validate_explicit_obligations(ledger, expanded)
 
     n_cells = _count_cells(expanded)
     print(f"simd_ledger: full check passed  obligations={len(expanded)} cells={n_cells}")
@@ -633,6 +684,16 @@ def cmd_check(ledger: dict, schema_only: bool, rustdoc: Path | None,
 
 def _safe_ident(s: str) -> str:
     return re.sub(r'[^A-Za-z0-9_#]', '_', s)
+
+
+def _work_iterations(wr: dict) -> int:
+    """Compute repetitions from the work rule's declared formula (>= 1)."""
+    formula = wr.get("iterations_formula", "1")
+    try:
+        value = int(formula)
+    except (TypeError, ValueError):
+        return 1
+    return max(1, value)
 
 
 def _work_rust(wr_name: str, wr: dict, fc: str, req: str) -> str:
@@ -649,35 +710,129 @@ def _work_rust(wr_name: str, wr: dict, fc: str, req: str) -> str:
 
     lane = wr["lane"].get(req, wr["lane"].get("scalar", 1))
     loss = wr["loss"].get(req, wr["loss"].get("scalar", 0))
-    iterations = 1  # default; expanded by iterations_formula if present
+    iterations = _work_iterations(wr)
 
     ident = _safe_ident(f"{wr_name}_{fc}_{req}")
-    return (
-        f"static WORK_{ident}: Work = Work {{ "
-        f"substage: Substage::{substage}, "
-        f"scope: {scope_expr}, "
-        f"unit: Unit::{unit}, "
-        f"basis: Basis::{basis}, "
-        f"multiplicity: Multiplicity::{mult}, "
-        f"lane: {lane}, "
-        f"loss: {loss}, "
-        f"iterations: {iterations} }};"
-    )
+    return "\n".join([
+        f"static WORK_{ident}: Work = Work {{",
+        f"    substage: Substage::{substage},",
+        f"    scope: {scope_expr},",
+        f"    unit: Unit::{unit},",
+        f"    basis: Basis::{basis},",
+        f"    multiplicity: Multiplicity::{mult},",
+        f"    lane: {lane},",
+        f"    loss: {loss},",
+        f"    iterations: {iterations},",
+        "};",
+    ])
+
+
+def _fixture_is_gf2(fixture: dict) -> bool:
+    """True when the fixture type is a degree-1 GF(2) presentation."""
+    ftype = fixture.get("type", "")
+    return bool(re.search(r"FiniteField\s*<\s*2\s*,\s*1\s*,", ftype))
+
+
+def _general_slot_count(coeff_pattern: dict) -> int:
+    return sum(1 for s in coeff_pattern.get("slots", []) if s == "General")
+
+
+def _callable_takes_coefficient(call_name: str) -> bool:
+    """True when the callable carries a coefficient slot (mul_* / *_scalar)."""
+    base = call_name.split("::")[-1]
+    return base.startswith("mul_") or base.endswith("_scalar")
+
+
+def _multiplicity_count(mult: str, geo: dict) -> int:
+    if mult == "Rows":
+        return geo.get("rows", 1)
+    if mult == "ActiveRows":
+        return geo.get("rows", 1)
+    if mult == "ActivePairs":
+        return geo.get("rows", 1) * geo.get("sources", 1)
+    if mult == "UnitAddPairs":
+        return geo.get("rows", 1)
+    return 1  # One
+
+
+def _len_in_units(unit: str, length: int, rule: dict) -> int:
+    if unit == "Bytes":
+        return length * rule.get("elem_bytes", 1)
+    if unit == "Bits":
+        elem_bytes = rule.get("elem_bytes", 1)
+        return length * rule.get("elem_bits", elem_bytes * 8)
+    if unit == "Words":
+        return max(1, (length * rule.get("elem_bytes", 1)) // 8)
+    return length  # Elements
+
+
+def _work_budget(work_rule: dict, geo: dict, rule: dict, tier: str) -> int:
+    """Budget for one Work item at a geometry: iterations * mult * (len - loss)."""
+    mult = _multiplicity_count(work_rule["multiplicity"], geo)
+    loss = work_rule["loss"].get(tier, work_rule["loss"].get("scalar", 0))
+    length = _len_in_units(work_rule["unit"], geo.get("len", 0), rule)
+    return _work_iterations(work_rule) * mult * (length - loss)
+
+
+def _validate_route_budgets(ledger: dict) -> None:
+    """Generator check: reject a non-positive budget on an eligible nondegenerate case."""
+    rules = _validate_rules(ledger)
+    expanded = _expanded_with_overrides(ledger)
+    wrules = ledger.get("work_rules", {})
+    geos = ledger.get("geometries", {})
+
+    for oid, ob in sorted(expanded.items()):
+        rule = rules.get(oid.split("@", 1)[1], {})
+        for key, cell in sorted(ob.get("cells", {}).items()):
+            fc, req = key.split("/", 1)
+            if cell.get("status", "unverified") in ("missing", "bypass", "zero-budget"):
+                continue
+            for wr_name in cell.get("work", []):
+                wr = wrules.get(wr_name)
+                if not wr:
+                    continue
+                for geo_id, geo in sorted(geos.items()):
+                    if geo.get("len", 0) <= 0:
+                        continue  # degenerate
+                    if _work_budget(wr, geo, rule, req) <= 0:
+                        _fail(f"obligation {oid!r} cell {key!r} geometry {geo_id!r}: "
+                              f"non-positive budget for work rule {wr_name!r}")
+
+
+def _validate_gf2_general(ledger: dict) -> None:
+    """Generator check: a General coefficient slot has no GF(2) value."""
+    rules = _validate_rules(ledger)
+    expanded = _expand_obligations(ledger, rules)
+    coeffs = ledger.get("coefficient_patterns", {})
+
+    for oid in sorted(expanded):
+        call_name, rule_id = oid.split("@", 1)
+        if not _callable_takes_coefficient(call_name):
+            continue
+        rule = rules.get(rule_id, {})
+        for fixture in rule.get("fixtures", []):
+            if not _fixture_is_gf2(fixture):
+                continue
+            for cp_name, cp in coeffs.items():
+                if _general_slot_count(cp) > 0:
+                    _fail(f"General coefficient on GF(2) fixture "
+                          f"{fixture.get('id')!r} in obligation {oid!r} "
+                          f"(coefficient pattern {cp_name!r})")
 
 
 def _generate_cases(ledger: dict) -> str:
     """Generate src/kernel/tests/routes/cases.rs content."""
+    _validate_gf2_general(ledger)
+    _validate_route_budgets(ledger)
+
     lines = [
         "// @generated by benches/simd_ledger.py; edit the ledger, not this file.",
         "",
-        "use crate::kernel::tests::routes::{",
-        "    Case, Cell, Geometry, Coeff,",
-        "    Features, Request,",
-        "    Substage, Scope, Pass, Unit,",
-        "    Basis, Multiplicity,",
-        "    Work,",
-        "};",
         "use crate::kernel::Backend;",
+        "use crate::kernel::tests::routes::{",
+        "    Basis, Case, Cell, Coeff, Features, Geometry, Multiplicity, Pass, Request, Scope, Substage,",
+        "    Unit, Work,",
+        "};",
         "",
     ]
 
@@ -712,7 +867,7 @@ def _generate_cases(ledger: dict) -> str:
 
     # Simplified: emit work consts only for now (the full case table
     # is owned by the runner worker per S0_CONTRACT.md §3).
-    return "\n".join(lines + work_consts)
+    return "\n".join(lines + work_consts) + "\n"
 
 
 def cmd_generate(out_path: Path, check: bool, ledger: dict) -> int:
@@ -745,18 +900,28 @@ def cmd_generate(out_path: Path, check: bool, ledger: dict) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _derive_required_set(ledger: dict, features: str, request: str) -> set[str]:
-    """Derive required obligation set from expanded obligations.
-
-    An obligation is required when any cell for (features, request) has
-    required=true.
-    """
+def _expanded_with_overrides(ledger: dict) -> dict:
+    """Return the expanded obligations with explicit ledger deviations merged."""
     rules = _validate_rules(ledger)
     expanded = _expand_obligations(ledger, rules)
+    explicit_obs = ledger.get("obligations", {})
+    if isinstance(explicit_obs, dict):
+        for oid, ob in explicit_obs.items():
+            if oid in expanded:
+                # Merge cells: an explicit cell overwrites the expanded cell.
+                for key, cell in ob.get("cells", {}).items():
+                    expanded[oid]["cells"][key] = dict(
+                        expanded[oid]["cells"].get(key, {}), **cell)
+            else:
+                expanded[oid] = ob
+    return expanded
+
+
+def _required_obligations(expanded: dict, features: str, request: str) -> set[str]:
+    """Return obligations whose (features, request) cell is required."""
     required: set[str] = set()
     for oid, ob in expanded.items():
-        key = f"{features}/{request}"
-        cell = ob.get("cells", {}).get(key, {})
+        cell = ob.get("cells", {}).get(f"{features}/{request}", {})
         if cell.get("required"):
             required.add(oid)
     return required
@@ -766,11 +931,10 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
                host_id: str, ledger: dict) -> int:
     """Fail-closed receipt audit."""
     if not log.is_file():
-        _fail(f"accept: reject missing_log")
+        _fail("accept: reject missing_log")
 
     text = log.read_text()
 
-    # Extract receipts and DONE marker.
     receipts: list[dict] = []
     done: dict | None = None
 
@@ -794,11 +958,10 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
     if not receipts:
         _fail("accept: reject empty_log")
 
-    rcount = done.get("cases", 0)
-    if rcount != len(receipts):
+    if done.get("cases", 0) != len(receipts):
         _fail("accept: reject count_mismatch")
 
-    # Verify DONE matches expectations.
+    # The DONE marker must match the expected run identity.
     if done.get("source_id") != source_id:
         _fail("accept: reject source_mismatch")
     if done.get("host_id") != host_id:
@@ -808,45 +971,27 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
     if done.get("request") != request:
         _fail("accept: reject request_mismatch")
 
-    # Build required receipt set: merge expanded base with explicit ledger obligations.
-    rules = _validate_rules(ledger)
-    expanded = _expand_obligations(ledger, rules)
-    # Apply explicit overrides.
-    explicit_obs = ledger.get("obligations", {})
-    if isinstance(explicit_obs, dict):
-        for oid, ob in explicit_obs.items():
-            if oid in expanded:
-                # Merge cells: explicit cell overwrites expanded cell.
-                for key, cell in ob.get("cells", {}).items():
-                    expanded[oid]["cells"][key] = dict(expanded[oid]["cells"].get(key, {}), **cell)
-            else:
-                expanded[oid] = ob
-
-    required_set: set[str] = set()
-    for oid, ob in expanded.items():
-        key = f"{features}/{request}"
-        cell = ob.get("cells", {}).get(key, {})
-        if cell.get("required"):
-            required_set.add(oid)
-
+    expanded = _expanded_with_overrides(ledger)
+    required_set = _required_obligations(expanded, features, request)
     if not required_set:
         _fail("accept: reject no_required_obligations")
 
-    # Check for duplicate receipt IDs.
+    # Duplicate receipt ids are rejected before the rest of the audit runs.
     seen_ids: set[str] = set()
+    duplicate_ids: set[str] = set()
     for rec in receipts:
         rid = rec.get("id", "")
         if rid in seen_ids:
-            _fail("accept: reject duplicate_receipt")
+            duplicate_ids.add(rid)
         seen_ids.add(rid)
+    if duplicate_ids:
+        _fail(f"accept: reject duplicate_receipt {sorted(duplicate_ids)}")
 
-    # Check each required obligation has a passing receipt.
     received_ids: set[str] = set()
     for rec in receipts:
         oid = rec.get("obligation", "")
         received_ids.add(oid)
 
-        # Verify receipt metadata matches expectations.
         if rec.get("source_id") != source_id:
             _fail(f"accept: reject receipt_source_mismatch {oid}")
         if rec.get("host_id") != host_id:
@@ -855,6 +1000,14 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
             _fail(f"accept: reject receipt_feature_mismatch {oid}")
         if rec.get("request_raw") not in (request, None, ""):
             _fail(f"accept: reject receipt_request_mismatch {oid}")
+
+        # Process and field resolution must equal the ledger's expected cell;
+        # a downgraded host or a different field backend cannot claim.
+        cell = expanded.get(oid, {}).get("cells", {}).get(f"{features}/{request}", {})
+        if "process" in cell and rec.get("process") != cell["process"]:
+            _fail(f"accept: reject receipt_process_mismatch {oid}")
+        if "field" in cell and rec.get("field") != cell["field"]:
+            _fail(f"accept: reject receipt_field_mismatch {oid}")
 
         result = rec.get("result")
         if result is None:
@@ -951,218 +1104,15 @@ fgf = {{ path = "{Path(__file__).parent.parent}" }}
 
 
 # ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
-
-def run_tests() -> int:
-    """Run the built-in unit tests. Returns 0 on success, 1 on failure."""
-    failures: list[str] = []
-
-    # Test 1: expansion count with a tiny synthetic ledger.
-    tiny_ledger = {
-        "_version": 2,
-        "callables": {
-            "ops::add_assign": {"kind": "bulk", "family": "ops/row"},
-            "ops::mul_add": {"kind": "bulk", "family": "ops/row"},
-            "ops::pack": {"kind": "bulk", "family": "ops/pack"},
-        },
-        "rules": {
-            "gf8-aes": {
-                "group": "binary_flat",
-                "fixtures": [{"id": "aes", "type": "crate::field::FiniteField<2,8,crate::field::Polynomial<0x11B>>"}],
-            },
-            "mersenne31": {
-                "group": "specialized_prime",
-                "fixtures": [{"id": "m31", "type": "crate::field::Mersenne31"}],
-            },
-            "packed-padded": {
-                "group": "packed",
-                "non_bulk": True,
-                "fixtures": [{"id": "ppad", "type": "crate::field::PackedPadded<...>"}],
-            },
-        },
-        "applicability": {
-            "ops-row-add": {
-                "families": ["ops/row"],
-                "rules": ["gf8-aes", "mersenne31"],
-                "exclusions": {},
-            },
-            "ops-pack": {
-                "families": ["ops/pack"],
-                "rules": ["gf8-aes", "mersenne31", "packed-padded"],
-                "exclusions": {"packed-padded": "non-bulk"},
-            },
-        },
-        "work_rules": {
-            "row-add": {
-                "substage": "Add", "unit": "Elements", "basis": "Source",
-                "multiplicity": "Rows",
-                "lane": {"scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64},
-                "loss": {"scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126},
-                "justification": "test",
-            },
-        },
-        "geometries": {},
-        "coefficient_patterns": {},
-        "evidence": {},
-    }
-
-    try:
-        rules = _validate_rules(tiny_ledger)
-        expanded = _expand_obligations(tiny_ledger, rules)
-        wrules = _validate_work_rules(tiny_ledger)
-        _validate_expanded_obligations(tiny_ledger, expanded, rules, wrules, {}, {})
-
-        # Expected: ops/row × (gf8-aes + mersenne31) = 2 callables × 2 rules = 4 obligations
-        # + ops/pack × (gf8-aes + mersenne31) = 1 callable × 2 rules = 2 obligations
-        # Total = 6 obligations
-        if len(expanded) != 6:
-            failures.append(f"expansion count: expected 6, got {len(expanded)}")
-
-        # Each obligation has 9 cells (2 features × 5 requests - 1 default/v4x)
-        n_cells = _count_cells(expanded)
-        if n_cells != 6 * 9:
-            failures.append(f"cell count: expected {6 * 9}, got {n_cells}")
-
-        # Test that a deviation for a nonexistent obligation is rejected.
-        tiny_ledger["obligations"] = {
-            "ops::add_assign@nonexistent-rule": {"cells": {}}
-        }
-        try:
-            _validate_expanded_obligations(tiny_ledger, {"ops::add_assign@nonexistent-rule": {"cells": {}}}, rules, wrules, {}, {})
-        except ValidationError:
-            pass
-        else:
-            failures.append("nonexistent rule should have been rejected")
-
-        print("  expansion count ... ok")
-    except ValidationError as e:
-        failures.append(f"expansion test failed: {e.code}")
-
-    # Test 2: reject code coverage.
-    for code in sorted(REJECT_CODES):
-        if code not in REJECT_CODES:
-            failures.append(f"reject code {code} not recognized")
-
-    # Test each reject code is emitted by accept's _fail path.
-    # We test a few key codes via simulated accept input.
-    import io, tempfile
-
-    # missing_done
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
-        f.write("ROUTE_RECEIPT\t{}\n")
-        log_path = Path(f.name)
-    try:
-        try:
-            cmd_accept(log_path, "default", "scalar", "src1", "host1",
-                       tiny_ledger)
-            failures.append("missing_done: should have failed")
-        except ValidationError as e:
-            if e.code != "missing_done":
-                failures.append(f"missing_done: got code {e.code!r}")
-            else:
-                print("  reject missing_done ... ok")
-    finally:
-        log_path.unlink(missing_ok=True)
-
-    # Build a ledger with an explicit required obligation for accept tests.
-    accept_ledger = dict(tiny_ledger)
-    accept_ledger["obligations"] = {
-        "ops::add_assign@gf8-aes": {
-            "cells": {
-                "default/scalar": {"status": "unverified", "required": True,
-                                   "min_serving": "scalar", "work": [], "perf": "unmeasured"}
-            }
-        }
-    }
-
-    # empty_log
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
-        f.write("ROUTE_DONE\t{}\n")
-        log_path = Path(f.name)
-    try:
-        try:
-            cmd_accept(log_path, "default", "scalar", "src1", "host1", accept_ledger)
-            failures.append("empty_log: should have failed")
-        except ValidationError as e:
-            if e.code != "empty_log":
-                failures.append(f"empty_log: got code {e.code!r}")
-            else:
-                print("  reject empty_log ... ok")
-    finally:
-        log_path.unlink(missing_ok=True)
-
-    # source_mismatch: valid receipt, DONE with wrong source_id.
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
-        f.write('ROUTE_RECEIPT\t{"id":"c1","obligation":"ops::add_assign@gf8-aes","source_id":"other","host_id":"host1","features":"default","request_raw":"scalar","result":"pass"}\n')
-        f.write('ROUTE_DONE\t{"source_id": "other", "host_id": "host1", "features": "default", "request": "scalar", "cases": 1}\n')
-        log_path = Path(f.name)
-    try:
-        try:
-            cmd_accept(log_path, "default", "scalar", "src1", "host1", accept_ledger)
-            failures.append("source_mismatch: should have failed")
-        except ValidationError as e:
-            if e.code != "source_mismatch":
-                failures.append(f"source_mismatch: got code {e.code!r}")
-            else:
-                print("  reject source_mismatch ... ok")
-    finally:
-        log_path.unlink(missing_ok=True)
-
-    # count_mismatch: DONE claims 2 cases but only 1 receipt.
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
-        f.write('ROUTE_RECEIPT\t{"id":"c1","obligation":"ops::add_assign@gf8-aes","source_id":"src1","host_id":"host1","features":"default","request_raw":"scalar","result":"pass"}\n')
-        f.write('ROUTE_DONE\t{"source_id": "src1", "host_id": "host1", "features": "default", "request": "scalar", "cases": 2}\n')
-        log_path = Path(f.name)
-    try:
-        try:
-            cmd_accept(log_path, "default", "scalar", "src1", "host1", accept_ledger)
-            failures.append("count_mismatch: should have failed")
-        except ValidationError as e:
-            if e.code != "count_mismatch":
-                failures.append(f"count_mismatch: got code {e.code!r}")
-            else:
-                print("  reject count_mismatch ... ok")
-    finally:
-        log_path.unlink(missing_ok=True)
-
-    # malformed_receipt
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
-        f.write('ROUTE_RECEIPT\tnot json\n')
-        f.write('ROUTE_DONE\t{"source_id": "src1", "host_id": "host1", "features": "default", "request": "scalar", "cases": 0}\n')
-        log_path = Path(f.name)
-    try:
-        try:
-            cmd_accept(log_path, "default", "scalar", "src1", "host1", accept_ledger)
-            failures.append("malformed_receipt: should have failed")
-        except ValidationError as e:
-            if e.code != "malformed_receipt":
-                failures.append(f"malformed_receipt: got code {e.code!r}")
-            else:
-                print("  reject malformed_receipt ... ok")
-    finally:
-        log_path.unlink(missing_ok=True)
-
-    if failures:
-        print(f"\n{len(failures)} test failure(s):")
-        for f in failures:
-            print(f"  FAIL: {f}")
-        return 1
-
-    print("All tests passed.")
-    return 0
-
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--ledger", type=Path, default=None,
-                        help="path to ledger JSON (default: ./simd_ledger.json)")
+    parser.add_argument("--ledger", type=Path,
+                        default=Path(__file__).with_name("simd_ledger.json"),
+                        help="path to ledger JSON (default: the file next to this script)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # inventory
@@ -1202,23 +1152,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     fix.add_argument("--out", type=Path, required=True,
                      help="output directory for scratch crate")
 
-    # test
-    sub.add_parser("test", help="run built-in unit tests")
-
     args = parser.parse_args(argv)
 
-    # Determine ledger path.
-    ledger_path = args.ledger if hasattr(args, 'ledger') and args.ledger is not None \
-        else Path(__file__).parent / "simd_ledger.json"
+    ledger_path = args.ledger
 
     try:
-        if args.command == "test":
-            return run_tests()
-
         if args.command == "inventory":
             if not ledger_path.is_file():
                 _fail(f"{ledger_path} not found")
-            return cmd_inventory(args.rustdoc)
+            return cmd_inventory(args.rustdoc, ledger_path)
 
         if args.command == "check":
             if args.full and args.schema_only:

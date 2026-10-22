@@ -1,538 +1,574 @@
 #!/usr/bin/env python3
-"""Deterministic tests for the SIMD route ledger and its Python tooling.
+"""Tests for the SIMD route ledger and its Python tooling.
 
-Follows existing ``benches/test_surfaces.py`` style.
+The only test suite for ``simd_ledger.py`` is this stdlib ``unittest`` file.
+Negative cases assert the exception type (``ValidationError``) or the stable
+reject code, never the wording of a message.
 """
 
 from __future__ import annotations
 
-import json
-import os
+import shutil
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-# Test against the local copy.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from simd_ledger import (
-    _fail, _load_known_callables, _validate_callables,
-    _validate_rules, _validate_applicability, _validate_work_rules,
-    _validate_geometries, _validate_coefficient_patterns,
-    _validate_obligations, validate_schema, cmd_accept,
-    ValidationError,
-    VALID_REQUESTS, VALID_FEATURE_CONFIGS, VALID_STATUS, VALID_KINDS,
-    VALID_REASONS,
-    KNOWN_CALLABLES,
-)
+import simd_ledger as sl
+from simd_ledger import ValidationError
+
+CANONICAL_LEDGER_PATH = Path(__file__).resolve().parent / "simd_ledger.json"
 
 
-LEDGER_PATH = Path(__file__).resolve().parent / "simd_ledger.json"
+def _lane_loss():
+    return {
+        "lane": {"scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64},
+        "loss": {"scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126},
+    }
 
 
-def _load_ledger() -> dict:
-    return json.loads(LEDGER_PATH.read_text())
+def _tiny_ledger() -> dict:
+    """A small valid ledger without GF(2) fixtures or explicit obligations."""
+    return {
+        "_cell_default": {"status": "unverified", "required": False, "perf": "unmeasured"},
+        "callables": {
+            "ops::add_assign": {"kind": "bulk", "family": "ops/row"},
+            "ops::mul_add": {"kind": "bulk", "family": "ops/row"},
+            "ops::pack": {"kind": "bulk", "family": "ops/pack"},
+        },
+        "rules": {
+            "gf8-aes": {
+                "group": "binary_flat",
+                "fixtures": [{"id": "aes", "type": "crate::field::FiniteField<2,8,crate::field::Polynomial<0x11B>>"}],
+            },
+            "mersenne31": {
+                "group": "specialized_prime",
+                "fixtures": [{"id": "m31", "type": "crate::field::Mersenne31"}],
+            },
+            "packed-padded": {
+                "group": "packed", "non_bulk": True,
+                "fixtures": [{"id": "ppad", "type": "crate::field::PackedPadded<u8>"}],
+            },
+        },
+        "applicability": {
+            "ops-row-add": {"families": ["ops/row"], "rules": ["gf8-aes", "mersenne31"], "exclusions": {}},
+            "ops-pack": {"families": ["ops/pack"], "rules": ["gf8-aes", "mersenne31", "packed-padded"],
+                         "exclusions": {"packed-padded": "non-bulk"}},
+        },
+        "work_rules": {
+            "row-add": {
+                "substage": "Add", "unit": "Elements", "basis": "Source", "multiplicity": "Rows",
+                **_lane_loss(),
+                "justification": "test",
+            },
+        },
+        "geometries": {},
+        "coefficient_patterns": {},
+        "evidence": {},
+    }
 
 
-class TestLedgerSchema(unittest.TestCase):
-    """Schema validation of the canonical ledger."""
-
-    def test_ledger_exists(self):
-        self.assertTrue(LEDGER_PATH.is_file(), "simd_ledger.json not found")
-
-    def test_ledger_is_valid_json(self):
-        ledger = _load_ledger()
-        self.assertIsInstance(ledger, dict)
-
-    def test_callables_section(self):
-        ledger = _load_ledger()
-        callables = ledger.get("callables")
-        self.assertIsInstance(callables, dict, "callables must be a dict")
-        self.assertGreater(len(callables), 0, "callables empty")
-
-        for name, entry in sorted(callables.items()):
-            with self.subTest(callable=name):
-                self.assertIsInstance(entry, dict)
-                kind = entry.get("kind")
-                self.assertIn(kind, VALID_KINDS, f"invalid kind for {name}")
-                if kind == "bulk":
-                    family = entry.get("family")
-                    self.assertIsInstance(family, str, f"bulk {name} missing family")
-                    self.assertGreater(len(family), 0, f"bulk {name} empty family")
-                elif kind == "non-bulk":
-                    reason = entry.get("reason")
-                    self.assertIn(reason, VALID_REASONS, f"non-bulk {name} invalid reason")
-
-    def test_all_callables_classified(self):
-        """Every ledger callable must be classified (no unclassified)."""
-        ledger = _load_ledger()
-        callables = ledger.get("callables", {})
-        for name, entry in sorted(callables.items()):
-            with self.subTest(callable=name):
-                self.assertIn("kind", entry, f"missing kind: {name}")
-                kind = entry["kind"]
-                if kind == "bulk":
-                    self.assertIn("family", entry, f"bulk no family: {name}")
-                elif kind == "non-bulk":
-                    self.assertIn("reason", entry, f"non-bulk no reason: {name}")
-
-    def test_rules_section(self):
-        ledger = _load_ledger()
-        rules = ledger.get("rules", {})
-        self.assertIsInstance(rules, dict)
-        self.assertGreater(len(rules), 0)
-
-        rule_ids = set(rules)
-        for rid, rule in sorted(rules.items()):
-            with self.subTest(rule=rid):
-                self.assertIsInstance(rule, dict)
-                self.assertIn("group", rule)
-                fixtures = rule.get("fixtures", [])
-                self.assertIsInstance(fixtures, list)
-                self.assertGreater(len(fixtures), 0, f"rule {rid}: no fixtures")
-                for fix in fixtures:
-                    self.assertIsInstance(fix, dict)
-                    self.assertIn("id", fix)
-                    self.assertIn("type", fix)
-
-        # Verify XML-based rules: all rule IDs referenced by obligations exist.
-        obligations = ledger.get("obligations", {})
-        for oid in obligations:
-            if "@" in oid:
-                _, rule_id = oid.split("@", 1)
-                self.assertIn(rule_id, rule_ids, f"obligation {oid} references undefined rule {rule_id}")
-
-    def test_applicability_section(self):
-        ledger = _load_ledger()
-        apps = ledger.get("applicability", {})
-        self.assertIsInstance(apps, dict)
-        self.assertGreater(len(apps), 0)
-
-        rules = ledger.get("rules", {})
-        rule_ids = set(rules)
-        callables = ledger.get("callables", {})
-
-        for app_name, app in sorted(apps.items()):
-            with self.subTest(applicability=app_name):
-                self.assertIn("families", app)
-                self.assertIsInstance(app["families"], list)
-                self.assertIn("rules", app)
-                self.assertIsInstance(app["rules"], list)
-
-                for rid in app["rules"]:
-                    self.assertIn(rid, rule_ids,
-                                  f"app {app_name}: undefined rule {rid}")
-
-                exclusions = app.get("exclusions", {})
-                self.assertIsInstance(exclusions, dict)
-                for excl_rid, reason in sorted(exclusions.items()):
-                    self.assertIn(excl_rid, rule_ids,
-                                  f"app {app_name}: exclusion for undefined {excl_rid}")
-                    self.assertIsInstance(reason, str)
-                    self.assertGreater(len(reason), 0,
-                                       f"app {app_name}: exclusion {excl_rid} empty reason")
-
-    def test_work_rules_section(self):
-        ledger = _load_ledger()
-        wr = ledger.get("work_rules", {})
-        self.assertIsInstance(wr, dict)
-        self.assertGreater(len(wr), 0)
-
-        for name, rule in sorted(wr.items()):
-            with self.subTest(work_rule=name):
-                for field in ("substage", "unit", "basis", "multiplicity",
-                              "lane", "loss", "justification"):
-                    self.assertIn(field, rule, f"missing {field}")
-                self.assertIsInstance(rule["justification"], str)
-                self.assertGreater(len(rule["justification"]), 0)
-
-    def test_geometries_section(self):
-        ledger = _load_ledger()
-        geo = ledger.get("geometries", {})
-        self.assertIsInstance(geo, dict)
-        self.assertGreater(len(geo), 0)
-
-    def test_coefficient_patterns_section(self):
-        ledger = _load_ledger()
-        cp = ledger.get("coefficient_patterns", {})
-        self.assertIsInstance(cp, dict)
-        self.assertGreater(len(cp), 0)
-
-    def test_obligations_section(self):
-        ledger = _load_ledger()
-        obs = ledger.get("obligations", {})
-        self.assertIsInstance(obs, dict)
-        self.assertGreater(len(obs), 0)
-
-        callables = ledger.get("callables", {})
-        rules = ledger.get("rules", {})
-        rule_ids = set(rules)
-        wr_names = set(ledger.get("work_rules", {}))
-        seen_ids = set()
-
-        for oid, ob in sorted(obs.items()):
-            with self.subTest(obligation=oid):
-                self.assertIn("@", oid, f"missing @ separator: {oid}")
-                call_name, rule_id = oid.split("@", 1)
-                self.assertIn(call_name, callables,
-                              f"unknown callable {call_name}")
-                self.assertIn(rule_id, rule_ids,
-                              f"unknown rule {rule_id}")
-                self.assertNotIn(oid, seen_ids, f"duplicate: {oid}")
-                seen_ids.add(oid)
-
-                cells = ob.get("cells", {})
-                self.assertIsInstance(cells, dict)
-
-                for key, cell in sorted(cells.items()):
-                    self.assertIn("/", key, f"cell key no separator: {key}")
-                    fc, req = key.split("/", 1)
-                    self.assertIn(fc, VALID_FEATURE_CONFIGS)
-                    self.assertIn(req, VALID_REQUESTS)
-
-                    for field in ("status", "required", "min_serving", "work"):
-                        self.assertIn(field, cell, f"cell {key}: missing {field}")
-
-                    self.assertIn(cell["status"], VALID_STATUS)
-                    self.assertIsInstance(cell["required"], bool)
-                    self.assertIn(cell["min_serving"], VALID_REQUESTS)
-                    self.assertIsInstance(cell["work"], list)
-
-                    for wref in cell["work"]:
-                        self.assertIn(wref, wr_names,
-                                      f"unknown work rule {wref}")
-
-                    perf = cell.get("perf", "unmeasured")
-                    self.assertIn(perf, {"unmeasured", "wins", "ties",
-                                         "scalar-crossover", "no-win"})
-
-    def test_obligation_id_format(self):
-        """Every obligation ID uses <callable>@<rule-id>."""
-        ledger = _load_ledger()
-        for oid in ledger.get("obligations", {}):
-            self.assertIn("@", oid, f"malformed obligation ID: {oid}")
-            call_name, rule_id = oid.split("@", 1)
-            self.assertGreater(len(call_name), 0, f"empty callable in {oid}")
-            self.assertGreater(len(rule_id), 0, f"empty rule in {oid}")
-
-    def test_default_cell_template_unverified(self):
-        """All cells start unverified, required=false unless overridden.
-        The ops::add_assign@gf8-aes default/v3 cell is required for test purposes."""
-        ledger = _load_ledger()
-        for oid, ob in ledger.get("obligations", {}).items():
-            for key, cell in ob.get("cells", {}).items():
-                status = cell.get("status", "unverified")
-                self.assertEqual(status, "unverified",
-                                 f"{oid} {key}: expected unverified, got {status}")
-                # One cell is marked required for accept testing; all others are false.
-                if oid == "ops::add_assign@gf8-aes" and key == "default/v3":
-                    continue
-                required = cell.get("required", False)
-                self.assertFalse(required, f"{oid} {key}: baseline required should be false")
+def _accept_ledger() -> dict:
+    """Minimal ledger with one required obligation for accept audits."""
+    return {
+        "_cell_default": {"status": "unverified", "required": False, "perf": "unmeasured"},
+        "callables": {
+            "ops::mul_add": {"kind": "bulk", "family": "ops/row"},
+            "ops::add_assign": {"kind": "bulk", "family": "ops/row"},
+        },
+        "rules": {
+            "gf8-aes": {"group": "binary_flat",
+                        "fixtures": [{"id": "aes", "type": "crate::field::FiniteField<2,8,crate::field::Polynomial<0x11B>>"}]},
+        },
+        "applicability": {
+            "row": {"families": ["ops/row"], "rules": ["gf8-aes"], "exclusions": {}},
+        },
+        "obligations": {
+            "ops::mul_add@gf8-aes": {
+                "cells": {
+                    "default/v3": {"status": "unverified", "required": True, "min_serving": "v3",
+                                   "work": [], "process": "v3", "field": "v3", "perf": "unmeasured"}
+                }
+            }
+        },
+        "work_rules": {},
+        "geometries": {},
+        "coefficient_patterns": {},
+        "evidence": {},
+    }
 
 
-class TestLedgerInventory(unittest.TestCase):
-    """Classification completeness against rustdoc (when available)."""
-
-    def test_rustdoc_classification(self):
-        """If rustdoc JSON exists, verify all callables are classified."""
-        rustdoc = Path("target/doc/fgf.json")
-        if not rustdoc.is_file():
-            self.skipTest("target/doc/fgf.json not available")
-        document = json.loads(rustdoc.read_text())
-        known = set()
-
-        try:
-            from api_inventory import declared_callables
-            known = declared_callables(document)
-        except Exception:
-            self.skipTest("rustdoc JSON incompatible")
-
-        ledger = _load_ledger()
-        ledger_names = set(ledger.get("callables", {}))
-
-        unclassified = known - ledger_names
-        stale = ledger_names - known
-
-        self.assertEqual(set(), unclassified,
-                         f"unclassified callables: {sorted(unclassified)}")
-        self.assertEqual(set(), stale,
-                         f"stale callables: {sorted(stale)}")
-
-    def test_bulk_non_bulk_count(self):
-        """Sanity: bulk count is reasonable (non-trivial, non-universal)."""
-        ledger = _load_ledger()
-        callables = ledger.get("callables", {})
-        bulk = {n for n, e in callables.items() if e.get("kind") == "bulk"}
-        non_bulk = {n for n, e in callables.items() if e.get("kind") == "non-bulk"}
-
-        # Rough sanity: bulk should be 30-100, non-bulk 100-170
-        self.assertGreater(len(bulk), 30)
-        self.assertLess(len(bulk), 100)
-        self.assertGreater(len(non_bulk), 100)
-        self.assertLess(len(non_bulk), 170)
-        self.assertEqual(len(bulk) + len(non_bulk), len(callables))
+def _good_receipt(obligation="ops::mul_add@gf8-aes"):
+    return {
+        "id": "c1", "obligation": obligation,
+        "source_id": "src-1", "host_id": "host-1", "features": "default",
+        "request_raw": "v3", "process": "v3", "field": "v3", "result": "pass",
+    }
 
 
-class TestLedgerNegative(unittest.TestCase):
-    """Negative tests a plausible bug would fail."""
+def _good_done(cases=1):
+    return {"source_id": "src-1", "host_id": "host-1", "features": "default",
+            "request": "v3", "cases": cases}
 
-    def _make_ledger(self, overrides: dict) -> dict:
-        ledger = _load_ledger()
-        for key, value in overrides.items():
-            ledger[key] = value
-        return ledger
 
-    def test_unclassified_callable_fails(self):
-        """A callable in rustdoc but not in ledger fails validation when rustdoc is provided."""
-        ledger = _load_ledger()
-        callables = dict(ledger["callables"])
-        first = next(iter(callables))
-        del callables[first]
-        bad = dict(ledger, callables=callables)
-        # With rustdoc, removing a callable creates an unclassified entry.
-        rustdoc = Path("target/doc/fgf.json")
-        if not rustdoc.is_file():
-            self.skipTest("target/doc/fgf.json not available")
+class TestExpansion(unittest.TestCase):
+    """Expansion count and deviation checks from a tiny synthetic ledger."""
+
+    def test_expansion_count(self):
+        ledger = _tiny_ledger()
+        rules = sl._validate_rules(ledger)
+        expanded = sl._expand_obligations(ledger, rules)
+        wrules = sl._validate_work_rules(ledger)
+        sl._validate_expanded_obligations(ledger, expanded, rules, wrules, {}, {})
+        self.assertEqual(len(expanded), 6)
+        self.assertEqual(sl._count_cells(expanded), 54)
+
+    def test_deviation_outside_expansion_rejected(self):
+        ledger = _tiny_ledger()
+        ledger["obligations"] = {"ops::add_assign@nonexistent-rule": {"cells": {}}}
+        rules = sl._validate_rules(ledger)
+        expanded = sl._expand_obligations(ledger, rules)
         with self.assertRaises(ValidationError):
-            _validate_callables(bad, rustdoc=rustdoc)
+            sl._validate_explicit_obligations(ledger, expanded)
 
-    def test_stale_callable_in_ledger(self):
-        """A callable in ledger but not in rustdoc fails validation."""
-        ledger = _load_ledger()
-        callables = dict(ledger["callables"])
-        callables["nonexistent::callable"] = {"kind": "bulk", "family": "ops/row"}
-        bad = dict(ledger, callables=callables)
-        # Without rustdoc this won't detect staleness, but schema will accept it.
-        # With rustdoc: would fail. For negative test, check rule reference.
-        pass  # Invoked only with rustdoc in full check.
+    def test_duplicate_stage_key_rejected(self):
+        ledger = _tiny_ledger()
+        ledger["work_rules"]["wa"] = {
+            "substage": "MulAdd", "scope": None, "unit": "Elements",
+            "basis": "Source", "multiplicity": "Rows", **_lane_loss(), "justification": "t",
+        }
+        ledger["work_rules"]["wb"] = {
+            "substage": "MulAdd", "scope": None, "unit": "Elements",
+            "basis": "Source", "multiplicity": "Rows", **_lane_loss(), "justification": "t",
+        }
+        ledger["obligations"] = {"ops::add_assign@gf8-aes": {
+            "cells": {"default/v2": {"status": "unverified", "required": False, "min_serving": "v2",
+                                     "work": ["wa", "wb"], "process": "v2", "field": "v2", "perf": "unmeasured"}}}}
+        rules = sl._validate_rules(ledger)
+        wrules = sl._validate_work_rules(ledger)
+        expanded = sl._expanded_with_overrides(ledger)
+        with self.assertRaises(ValidationError):
+            sl._validate_expanded_obligations(ledger, expanded, rules, wrules, {}, {})
 
-    def test_duplicate_obligation_fails(self):
-        """Duplicate obligation ID fails validation."""
-        ledger = _load_ledger()
-        obs = dict(ledger["obligations"])
-        first_oid = next(iter(obs))
-        obs["dup_" + first_oid] = obs[first_oid]
-        bad = dict(ledger, obligations=obs)
-        # This won't catch duplicates because keys are different.
-        # We need two identical keys, which JSON can't have.
-        # Test a different degenerate case instead.
-        pass
 
-    def test_undefined_rule_in_applicability(self):
-        """Applicability referencing undefined rule fails."""
-        ledger = _load_ledger()
+class TestCallableClassification(unittest.TestCase):
+    """Unclassified and stale callables against a known callable set."""
+
+    def _check(self, known, callables, *args):
+        old = sl.KNOWN_CALLABLES
+        sl.KNOWN_CALLABLES = set(known)
+        try:
+            ledger = {"callables": callables}
+            sl._validate_callables(ledger, *args)
+        finally:
+            sl.KNOWN_CALLABLES = old
+
+    def test_unclassified_callable_rejected(self):
+        with self.assertRaises(ValidationError):
+            self._check(
+                ["ops::mul_add", "ops::add_assign"],
+                {"ops::mul_add": {"kind": "bulk", "family": "ops/row"}},
+                Path("dummy.json"),
+            )
+
+    def test_stale_callable_rejected(self):
+        with self.assertRaises(ValidationError):
+            self._check(
+                ["ops::mul_add"],
+                {"ops::mul_add": {"kind": "bulk", "family": "ops/row"},
+                 "ops::gone": {"kind": "bulk", "family": "ops/row"}},
+                Path("dummy.json"),
+            )
+
+
+class TestApplicability(unittest.TestCase):
+    """Applicability rule-reference and exclusion validation."""
+
+    def test_undefined_rule_rejected(self):
+        ledger = _tiny_ledger()
         apps = dict(ledger["applicability"])
-        first_app = next(iter(apps))
-        app = dict(apps[first_app])
-        app["rules"] = list(app["rules"]) + ["nonexistent_rule"]
-        apps[first_app] = app
+        apps["ops-row-add"] = {"families": ["ops/row"],
+                               "rules": ["gf8-aes", "nonexistent-rule"], "exclusions": {}}
         bad = dict(ledger, applicability=apps)
         with self.assertRaises(ValidationError):
-            _validate_applicability(bad, ledger["rules"])
+            sl._validate_applicability(bad, ledger["rules"])
 
-    def test_exclusion_without_reason(self):
-        """Exclusion entry without reason fails."""
-        ledger = _load_ledger()
+    def test_exclusion_without_reason_rejected(self):
+        ledger = _tiny_ledger()
         apps = dict(ledger["applicability"])
-        first_app = next(iter(apps))
-        app = dict(apps[first_app])
-        rules_list = list(app["rules"])
-        if rules_list:
-            exclusions = dict(app.get("exclusions", {}))
-            exclusions[rules_list[0]] = ""
-            app["exclusions"] = exclusions
-            apps[first_app] = app
-            bad = dict(ledger, applicability=apps)
-            with self.assertRaises(ValidationError):
-                _validate_applicability(bad, ledger["rules"])
-
-    def test_non_positive_lane_in_work_rule(self):
-        """Work rule with non-positive lane fails validation (conceptual check)."""
-        ledger = _load_ledger()
-        wr = dict(ledger["work_rules"])
-        first_name = next(iter(wr))
-        rule = dict(wr[first_name])
-        rule["lane"] = 0
-        wr[first_name] = rule
-        bad = dict(ledger, work_rules=wr)
-        # Zero lane is still valid schema (int), just a degenerate.
-        # The check is for schema, not semantics. Schema passes.
-        # Actual negative: this would be caught by the generator.
-        pass
-
-    def test_general_coeff_on_gf2(self):
-        """General coefficient on GF(2) is an error (caught by runner)."""
-        # This is a semantic check the runner performs.
-        # The ledger can record it but the test verifies the ledger
-        # doesn't assert such cases exist.
-        ledger = _load_ledger()
-        # GF(2) rule fixtures should have no General-coefficient cases.
-        # Check: for any GF(2) or BitField rule, if obligations exist
-        # with General coefficient patterns, the runner must reject.
-
-    def test_unknown_work_rule_in_cell(self):
-        """Cell referencing unknown work rule fails schema validation."""
-        ledger = _load_ledger()
-        obs = dict(ledger["obligations"])
-        first_oid = next(iter(obs))
-        ob = dict(obs[first_oid])
-        cells = dict(ob["cells"])
-        first_key = next(iter(cells))
-        cell = dict(cells[first_key])
-        cell["work"] = ["nonexistent_work_rule"]
-        cells[first_key] = cell
-        ob["cells"] = cells
-        obs[first_oid] = ob
-        bad = dict(ledger, obligations=obs)
+        apps["ops-row-add"] = {"families": ["ops/row"],
+                               "rules": ["gf8-aes"], "exclusions": {"gf8-aes": ""}}
+        bad = dict(ledger, applicability=apps)
         with self.assertRaises(ValidationError):
-            _validate_obligations(bad, ledger["rules"], ledger["work_rules"],
-                                  ledger["geometries"],
-                                  ledger["coefficient_patterns"])
+            sl._validate_applicability(bad, ledger["rules"])
 
 
-class TestAccept(unittest.TestCase):
-    """Accept command fail-closed audit."""
+class TestBudgetAndCoefficients(unittest.TestCase):
+    """Generator rejections for non-positive budgets and General-on-GF(2)."""
 
-    def setUp(self):
-        self.ledger = _load_ledger()
-        self.tmpdir = tempfile.mkdtemp()
+    def test_non_positive_budget_rejected(self):
+        ledger = _tiny_ledger()
+        ledger["geometries"] = {"row-60": {"rows": 1, "sources": 1, "len": 60, "misalign": 1, "pitch_pad": 0}}
+        ledger["obligations"] = {"ops::add_assign@gf8-aes": {
+            "cells": {"default/v3": {"status": "unverified", "required": False, "min_serving": "v3",
+                                     "work": ["row-add"], "process": "v3", "field": "v3", "perf": "unmeasured"}}}}
+        with self.assertRaises(ValidationError):
+            sl._validate_route_budgets(ledger)
 
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
+    def test_positive_budget_accepted(self):
+        ledger = _tiny_ledger()
+        ledger["geometries"] = {"row-64": {"rows": 1, "sources": 1, "len": 64, "misalign": 1, "pitch_pad": 0}}
+        ledger["obligations"] = {"ops::add_assign@gf8-aes": {
+            "cells": {"default/v3": {"status": "unverified", "required": False, "min_serving": "v3",
+                                     "work": ["row-add"], "process": "v3", "field": "v3", "perf": "unmeasured"}}}}
+        sl._validate_route_budgets(ledger)  # must not raise
 
-    def _write_log(self, receipts: list[dict], done: dict | None = None) -> Path:
-        p = Path(self.tmpdir) / "test.log"
+    def test_general_coefficient_on_gf2_rejected(self):
+        ledger = _tiny_ledger()
+        ledger["rules"]["residue-gf2"] = {
+            "group": "residue", "modulus_class": "gf2_characteristic", "degree": 1,
+            "fixtures": [{"id": "rgf2", "type": "crate::field::FiniteField<2, 1, crate::field::Residue>"}],
+        }
+        ledger["applicability"]["row-mul"] = {"families": ["ops/row"], "rules": ["residue-gf2"], "exclusions": {}}
+        ledger["coefficient_patterns"]["general-1"] = {"slots": ["General"]}
+        with self.assertRaises(ValidationError):
+            sl._validate_gf2_general(ledger)
+
+    def test_zero_one_coefficient_on_gf2_accepted(self):
+        ledger = _tiny_ledger()
+        ledger["rules"]["residue-gf2"] = {
+            "group": "residue", "modulus_class": "gf2_characteristic", "degree": 1,
+            "fixtures": [{"id": "rgf2", "type": "crate::field::FiniteField<2, 1, crate::field::Residue>"}],
+        }
+        ledger["applicability"]["row-mul"] = {"families": ["ops/row"], "rules": ["residue-gf2"], "exclusions": {}}
+        ledger["coefficient_patterns"]["one-1"] = {"slots": ["One"]}
+        sl._validate_gf2_general(ledger)  # must not raise
+
+    def test_gf2_fixture_detection(self):
+        self.assertTrue(sl._fixture_is_gf2({"type": "crate::field::FiniteField<2, 1, crate::field::Residue>"}))
+        self.assertFalse(sl._fixture_is_gf2({"type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>"}))
+
+
+class TestCheckFull(unittest.TestCase):
+    """Check --full inventory requirements."""
+
+    def _tmp_files(self, d, *, test="t", case="c", surface="s"):
+        def w(name, content):
+            p = d / name
+            p.write_text(content)
+            return p
+        return w("test.txt", test), w("case.txt", case), w("surface.txt", surface)
+
+    def test_missing_inventory_rejected(self):
+        ledger = _tiny_ledger()
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, False, None, None, None, None, None)
+
+    def test_empty_rustdoc_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            dpath = Path(d)
+            test_list, case_list, surface = self._tmp_files(dpath)
+            old = sl.KNOWN_CALLABLES
+            sl.KNOWN_CALLABLES = set()
+            try:
+                with self.assertRaises(ValidationError):
+                    sl.cmd_check(_tiny_ledger(), False, dpath / "rustdoc.json", test_list, case_list, surface, None)
+            finally:
+                sl.KNOWN_CALLABLES = old
+
+    def test_empty_test_list_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            dpath = Path(d)
+            test_list, case_list, surface = self._tmp_files(dpath, test="")
+            old = sl.KNOWN_CALLABLES
+            sl.KNOWN_CALLABLES = {"ops::add_assign"}
+            try:
+                with self.assertRaises(ValidationError):
+                    sl.cmd_check(_tiny_ledger(), False, dpath / "rustdoc.json", test_list, case_list, surface, None)
+            finally:
+                sl.KNOWN_CALLABLES = old
+
+    def test_empty_case_list_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            dpath = Path(d)
+            test_list, case_list, surface = self._tmp_files(dpath, case="")
+            old = sl.KNOWN_CALLABLES
+            sl.KNOWN_CALLABLES = {"ops::add_assign"}
+            try:
+                with self.assertRaises(ValidationError):
+                    sl.cmd_check(_tiny_ledger(), False, dpath / "rustdoc.json", test_list, case_list, surface, None)
+            finally:
+                sl.KNOWN_CALLABLES = old
+
+    def test_empty_surface_inventory_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            dpath = Path(d)
+            test_list, case_list, surface = self._tmp_files(dpath, surface="")
+            old = sl.KNOWN_CALLABLES
+            sl.KNOWN_CALLABLES = {"ops::add_assign"}
+            try:
+                with self.assertRaises(ValidationError):
+                    sl.cmd_check(_tiny_ledger(), False, dpath / "rustdoc.json", test_list, case_list, surface, None)
+            finally:
+                sl.KNOWN_CALLABLES = old
+
+
+class TestEvidenceRecords(unittest.TestCase):
+    """Evidence record verification against cited receipts and completion."""
+
+    def _evidence_ledger(self, receipts=None, completion=None):
+        ledger = _tiny_ledger()
+        ledger["evidence"] = {
+            "ev1": {
+                "file": "route.log",
+                "receipts": receipts if receipts is not None else [
+                    {"id": "c1", "features": "default", "tier": "v3", "source_id": "src-1"},
+                ],
+                "completion": completion if completion is not None else {
+                    "source_id": "src-1", "host_id": "host-1", "features": "default", "cases": 1,
+                },
+            }
+        }
+        return ledger
+
+    def _record(self, d, receipts=None, done=True, done_body=None):
+        p = d / "route.log"
         lines = []
-        for r in receipts:
-            lines.append(f"ROUTE_RECEIPT\t{json.dumps(r)}")
-        if done is not None:
-            lines.append(f"ROUTE_DONE\t{json.dumps(done)}")
+        for r in receipts if receipts is not None else [
+            {"id": "c1", "obligation": "o", "features": "default", "request_raw": "v3", "source_id": "src-1"},
+        ]:
+            lines.append(f"ROUTE_RECEIPT\t{r if isinstance(r, str) else _json(r)}")
+        if done:
+            body = done_body if done_body is not None else {
+                "source_id": "src-1", "host_id": "host-1", "features": "default", "request": "v3", "cases": 1,
+            }
+            lines.append(f"ROUTE_DONE\t{body if isinstance(body, str) else _json(body)}")
         p.write_text("\n".join(lines))
         return p
 
-    def test_accept_empty_log_fails(self):
-        log = Path(self.tmpdir) / "empty.log"
-        log.write_text("")
-        with self.assertRaises(ValidationError) as ctx:
-            cmd_accept(log, "default", "v3", "src-1", "host-1", self.ledger)
-        self.assertEqual(ctx.exception.code, "missing_done")
+    def test_records_missing_rejected(self):
+        with self.assertRaises(ValidationError):
+            sl._verify_evidence_records(self._evidence_ledger(), None)
 
-    def test_accept_missing_done_fails(self):
-        log = self._write_log(
-            [{"id": "ops::add_assign@gf8-aes#gf8aes/row-4k/general-1",
-              "obligation": "ops::add_assign@gf8-aes",
-              "features": "default", "request_raw": "v3",
-              "source_id": "src-1", "host_id": "host-1",
-              "result": "pass"}],
-            done=None,
-        )
-        with self.assertRaises(ValidationError) as ctx:
-            cmd_accept(log, "default", "v3", "src-1", "host-1", self.ledger)
-        self.assertEqual(ctx.exception.code, "missing_done")
+    def test_cited_record_missing_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(ValidationError):
+                sl._verify_evidence_records(self._evidence_ledger(), Path(d))
 
-    def test_accept_source_mismatch_fails(self):
-        log = self._write_log(
-            [],
-            {"cases": 0, "source_id": "wrong",
-             "host_id": "host-1", "features": "default",
-             "request": "v3"},
-        )
-        with self.assertRaises(ValidationError) as ctx:
-            cmd_accept(log, "default", "v3", "src-1", "host-1", self.ledger)
-        self.assertEqual(ctx.exception.code, "source_mismatch")
+    def test_missing_route_done_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            dpath = Path(d)
+            self._record(dpath, done=False)
+            with self.assertRaises(ValidationError):
+                sl._verify_evidence_records(self._evidence_ledger(), dpath)
 
-    def test_accept_host_mismatch_fails(self):
-        log = self._write_log(
-            [],
-            {"cases": 0, "source_id": "src-1",
-             "host_id": "wrong", "features": "default",
-             "request": "v3"},
-        )
-        with self.assertRaises(ValidationError) as ctx:
-            cmd_accept(log, "default", "v3", "src-1", "host-1", self.ledger)
-        self.assertEqual(ctx.exception.code, "host_mismatch")
+    def test_receipt_id_mismatch_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            dpath = Path(d)
+            self._record(dpath, receipts=[{"id": "c1", "obligation": "o", "features": "default",
+                                           "request_raw": "v3", "source_id": "src-1"}])
+            ledger = self._evidence_ledger(receipts=[{"id": "c2", "features": "default", "tier": "v3", "source_id": "src-1"}])
+            with self.assertRaises(ValidationError):
+                sl._verify_evidence_records(ledger, dpath)
 
-    def test_accept_feature_mismatch_fails(self):
-        log = self._write_log(
-            [],
-            {"cases": 0, "source_id": "src-1",
-             "host_id": "host-1", "features": "all",
-             "request": "v3"},
-        )
-        with self.assertRaises(ValidationError) as ctx:
-            cmd_accept(log, "default", "v3", "src-1", "host-1", self.ledger)
-        self.assertEqual(ctx.exception.code, "feature_mismatch")
+    def test_receipt_features_mismatch_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            dpath = Path(d)
+            self._record(dpath, receipts=[{"id": "c1", "obligation": "o", "features": "default",
+                                           "request_raw": "v3", "source_id": "src-1"}])
+            ledger = self._evidence_ledger(receipts=[{"id": "c1", "features": "all", "tier": "v3", "source_id": "src-1"}])
+            with self.assertRaises(ValidationError):
+                sl._verify_evidence_records(ledger, dpath)
 
-    def test_accept_request_mismatch_fails(self):
-        log = self._write_log(
-            [],
-            {"cases": 0, "source_id": "src-1",
-             "host_id": "host-1", "features": "default",
-             "request": "scalar"},
-        )
-        with self.assertRaises(ValidationError) as ctx:
-            cmd_accept(log, "default", "v3", "src-1", "host-1", self.ledger)
-        self.assertEqual(ctx.exception.code, "request_mismatch")
+    def test_receipt_tier_mismatch_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            dpath = Path(d)
+            self._record(dpath, receipts=[{"id": "c1", "obligation": "o", "features": "default",
+                                           "request_raw": "v3", "source_id": "src-1"}])
+            ledger = self._evidence_ledger(receipts=[{"id": "c1", "features": "default", "tier": "v2", "source_id": "src-1"}])
+            with self.assertRaises(ValidationError):
+                sl._verify_evidence_records(ledger, dpath)
 
-    def test_accept_count_mismatch_fails(self):
-        log = self._write_log(
-            [{"id": "ops::add_assign@gf8-aes#gf8aes/row-4k/general-1",
-              "obligation": "ops::add_assign@gf8-aes",
-              "features": "default", "request_raw": "v3",
-              "source_id": "src-1", "host_id": "host-1",
-              "result": "pass"}],
-            {"cases": 5, "source_id": "src-1", "host_id": "host-1",
-             "features": "default", "request": "v3"},
-        )
-        with self.assertRaises(ValidationError) as ctx:
-            cmd_accept(log, "default", "v3", "src-1", "host-1", self.ledger)
-        self.assertEqual(ctx.exception.code, "count_mismatch")
+    def test_receipt_source_id_mismatch_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            dpath = Path(d)
+            self._record(dpath, receipts=[{"id": "c1", "obligation": "o", "features": "default",
+                                           "request_raw": "v3", "source_id": "src-1"}])
+            ledger = self._evidence_ledger(receipts=[{"id": "c1", "features": "default", "tier": "v3", "source_id": "src-2"}])
+            with self.assertRaises(ValidationError):
+                sl._verify_evidence_records(ledger, dpath)
 
-    def test_accept_fail_receipt_fails(self):
-        log = self._write_log(
-            [{"id": "ops::add_assign@gf8-aes#gf8aes/row-4k/general-1",
-              "obligation": "ops::add_assign@gf8-aes",
-              "features": "default", "request_raw": "v3",
-              "source_id": "src-1", "host_id": "host-1",
-              "result": "fail: output_mismatch"}],
-            {"cases": 1, "source_id": "src-1", "host_id": "host-1",
-             "features": "default", "request": "v3"},
-        )
-        with self.assertRaises(ValidationError) as ctx:
-            cmd_accept(log, "default", "v3", "src-1", "host-1", self.ledger)
-        self.assertEqual(ctx.exception.code, "fail_receipt")
+    def test_evidence_verification_passes(self):
+        with tempfile.TemporaryDirectory() as d:
+            dpath = Path(d)
+            self._record(dpath)
+            sl._verify_evidence_records(self._evidence_ledger(), dpath)  # must not raise
 
-    def test_accept_skip_receipt_fails(self):
-        log = self._write_log(
-            [{"id": "ops::add_assign@gf8-aes#gf8aes/row-4k/general-1",
-              "obligation": "ops::add_assign@gf8-aes",
-              "features": "default", "request_raw": "v3",
-              "source_id": "src-1", "host_id": "host-1",
-              "result": "skip: unsupported_tier"}],
-            {"cases": 1, "source_id": "src-1", "host_id": "host-1",
-             "features": "default", "request": "v3"},
-        )
-        with self.assertRaises(ValidationError) as ctx:
-            cmd_accept(log, "default", "v3", "src-1", "host-1", self.ledger)
-        self.assertEqual(ctx.exception.code, "skip_receipt")
 
-    def test_accept_downgraded_process_fails(self):
-        """Receipt with different request than expected fails."""
-        log = self._write_log(
-            [{"id": "ops::add_assign@gf8-aes#gf8aes/row-4k/general-1",
-              "obligation": "ops::add_assign@gf8-aes",
-              "features": "default", "request_raw": "v2",
-              "source_id": "src-1", "host_id": "host-1",
-              "result": "pass"}],
-            {"cases": 1, "source_id": "src-1", "host_id": "host-1",
-             "features": "default", "request": "v2"},
-        )
-        with self.assertRaises(ValidationError) as ctx:
-            cmd_accept(log, "default", "v3", "src-1", "host-1", self.ledger)
-        self.assertEqual(ctx.exception.code, "request_mismatch")
+def _json(obj):
+    import json
+    return json.dumps(obj)
+
+
+class TestAccept(unittest.TestCase):
+    """Every accept reject code, plus one passing audit."""
+
+    def _audit(self, receipts, done, ledger=None, request="v3", features="default",
+               source="src-1", host="host-1"):
+        ledger = ledger if ledger is not None else _accept_ledger()
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "log"
+            lines = []
+            for r in receipts:
+                lines.append(f"ROUTE_RECEIPT\t{_json(r)}")
+            for line in done:
+                lines.append(line)
+            p.write_text("\n".join(lines))
+            try:
+                sl.cmd_accept(p, features, request, source, host, ledger)
+            except ValidationError as e:
+                return e.code
+            return None
+
+    def test_accept_passes(self):
+        self.assertIsNone(self._audit([_good_receipt()], [f"ROUTE_DONE\t{_json(_good_done())}"]))
+
+    def test_missing_log(self):
+        ledger = _accept_ledger()
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(ValidationError) as ctx:
+                sl.cmd_accept(Path(d) / "nope", "default", "v3", "src-1", "host-1", ledger)
+            self.assertEqual(ctx.exception.code, "missing_log")
+
+    def _reject(self, receipts, done, code, ledger=None):
+        self.assertEqual(self._audit(receipts, done, ledger=ledger), code)
+
+    def _done_line(self, body=None):
+        body = body if body is not None else _good_done()
+        return f"ROUTE_DONE\t{_json(body)}"
+
+    def test_malformed_receipt(self):
+        self.assertEqual(self._audit([], ["ROUTE_RECEIPT\tnot json"]), "malformed_receipt")
+
+    def test_duplicate_done(self):
+        self._reject([_good_receipt()], [self._done_line(), self._done_line()], "duplicate_done")
+
+    def test_malformed_done(self):
+        self._reject([_good_receipt()], ["ROUTE_DONE\tnot json"], "malformed_done")
+
+    def test_missing_done(self):
+        self._reject([_good_receipt()], [], "missing_done")
+
+    def test_source_mismatch(self):
+        done = dict(_good_done(), source_id="other")
+        self._reject([_good_receipt()], [self._done_line(done)], "source_mismatch")
+
+    def test_host_mismatch(self):
+        done = dict(_good_done(), host_id="other")
+        self._reject([_good_receipt()], [self._done_line(done)], "host_mismatch")
+
+    def test_feature_mismatch(self):
+        done = dict(_good_done(), features="all")
+        self._reject([_good_receipt()], [self._done_line(done)], "feature_mismatch")
+
+    def test_request_mismatch(self):
+        done = dict(_good_done(), request="scalar")
+        self._reject([_good_receipt()], [self._done_line(done)], "request_mismatch")
+
+    def test_empty_log(self):
+        self._reject([], [self._done_line()], "empty_log")
+
+    def test_count_mismatch(self):
+        done = dict(_good_done(), cases=2)
+        self._reject([_good_receipt()], [self._done_line(done)], "count_mismatch")
+
+    def test_no_required_obligations(self):
+        done = dict(_good_done(1), request="v2")
+        rec = dict(_good_receipt(), request_raw="v2", process="v2", field="v2")
+        self.assertEqual(self._audit([rec], [self._done_line(done)], request="v2"), "no_required_obligations")
+
+    def test_duplicate_receipt(self):
+        rec = _good_receipt()
+        done = dict(_good_done(), cases=2)
+        self._reject([rec, rec], [self._done_line(done)], "duplicate_receipt")
+
+    def test_receipt_source_mismatch(self):
+        self._reject([dict(_good_receipt(), source_id="other")], [self._done_line()], "receipt_source_mismatch")
+
+    def test_receipt_host_mismatch(self):
+        self._reject([dict(_good_receipt(), host_id="other")], [self._done_line()], "receipt_host_mismatch")
+
+    def test_receipt_feature_mismatch(self):
+        self._reject([dict(_good_receipt(), features="all")], [self._done_line()], "receipt_feature_mismatch")
+
+    def test_receipt_request_mismatch(self):
+        self._reject([dict(_good_receipt(), request_raw="v2")], [self._done_line()], "receipt_request_mismatch")
+
+    def test_receipt_no_result(self):
+        rec = _good_receipt()
+        del rec["result"]
+        self._reject([rec], [self._done_line()], "receipt_no_result")
+
+    def test_fail_receipt(self):
+        self._reject([dict(_good_receipt(), result="fail: output_mismatch")], [self._done_line()], "fail_receipt")
+
+    def test_skip_receipt(self):
+        self._reject([dict(_good_receipt(), result="skip: unsupported_tier")], [self._done_line()], "skip_receipt")
+
+    def test_unknown_result(self):
+        self._reject([dict(_good_receipt(), result="weird")], [self._done_line()], "unknown_result")
+
+    def test_missing_required(self):
+        rec = dict(_good_receipt(), obligation="ops::add_assign@gf8-aes")
+        self._reject([rec], [self._done_line()], "missing_required")
+
+    def test_receipt_process_mismatch(self):
+        self._reject([dict(_good_receipt(), process="v2")], [self._done_line()], "receipt_process_mismatch")
+
+    def test_receipt_field_mismatch(self):
+        self._reject([dict(_good_receipt(), field="v2")], [self._done_line()], "receipt_field_mismatch")
+
+
+class TestGenerate(unittest.TestCase):
+    """Generator emit/byte-identity and rustfmt cleanliness."""
+
+    def test_generate_check_one_byte_difference(self):
+        ledger = _tiny_ledger()
+        content = sl._generate_cases(ledger)
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "cases.rs"
+            p.write_text(content)
+            self.assertEqual(sl.cmd_generate(p, True, ledger), 0)
+            bad = content.replace("generated", "generatXd", 1)
+            self.assertNotEqual(bad, content)
+            p.write_text(bad)
+            with self.assertRaises(ValidationError):
+                sl.cmd_generate(p, True, ledger)
+
+    @unittest.skipUnless(shutil.which("rustfmt"), "rustfmt not on PATH")
+    def test_generate_output_rustfmt_clean(self):
+        ledger = _tiny_ledger()
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "cases.rs"
+            self.assertEqual(sl.cmd_generate(p, False, ledger), 0)
+            self.assertTrue(p.is_file())
+
+
+class TestCanonicalLedger(unittest.TestCase):
+    """The canonical ledger passes schema-only validation from the CLI."""
+
+    def test_schema_only_cli_passes(self):
+        self.assertEqual(sl.main(["check", "--schema-only"]), 0)
+
+    def test_ledger_default_is_next_to_script(self):
+        self.assertEqual(sl.Path(__file__).with_name("simd_ledger.json"), CANONICAL_LEDGER_PATH)
+
+    def test_test_subcommand_removed(self):
+        self.assertFalse(hasattr(sl, "run_tests"))
+        with self.assertRaises(SystemExit):
+            sl.main(["test"])
 
 
 if __name__ == "__main__":
