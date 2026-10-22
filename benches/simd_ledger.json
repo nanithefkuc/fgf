@@ -1178,10 +1178,10 @@
             "degree": 2,
             "relation": [
               1,
-              1
+              4
             ],
             "storage": "Packed<u8>",
-            "_note": "t^2 + t + 1 over GF(2^4); relation encoded as from_binary_words([1, 1])"
+            "_note": "t^2 + 0x4*t + 1 over GF(2^4); same relation as FanPaar8 (not distinct \u2014 awaiting distinct irreducible polynomial)"
           },
           "elem_bytes": 1
         }
@@ -1273,10 +1273,10 @@
             "degree": 2,
             "relation": [
               1,
-              1
+              16
             ],
             "storage": "Packed<u32>",
-            "_note": "t^2 + t + 1 over GF(2^16); relation encoded as from_binary_words([1, 1])"
+            "_note": "t^2 + 0x10*t + 1 over GF(2^16); using FanPaar16 relation as placeholder; distinct irreducible polynomial awaited"
           },
           "elem_bytes": 4
         }
@@ -1320,10 +1320,10 @@
             "degree": 2,
             "relation": [
               1,
-              1
+              256
             ],
             "storage": "Packed<u64>",
-            "_note": "t^2 + t + 1 over GF(2^32)"
+            "_note": "t^2 + 0x0100*t + 1 over GF(2^32); using FanPaar32 relation as placeholder; distinct irreducible polynomial awaited"
           },
           "elem_bytes": 8
         }
@@ -1440,11 +1440,11 @@
             "base": "crate::field::FiniteField<131, 1, crate::field::Residue>",
             "degree": 2,
             "relation": [
-              2,
+              5,
               0
             ],
             "storage": "Components",
-            "_note": "t^2 + 2 over GF(131); 131 mod 4 \u2261 3 so t^2+2 is irreducible"
+            "_note": "t^2 + 5 over GF(131); (-5/131) = -1 by quadratic reciprocity \u2192 irreducible"
           },
           "elem_bytes": 2
         }
@@ -1585,7 +1585,7 @@
             "degree": 8,
             "relation": [
               2,
-              0,
+              1,
               0,
               0,
               0,
@@ -1594,7 +1594,7 @@
               0
             ],
             "storage": "Components",
-            "_note": "t^8 + 2 over GF(3); x^8+2 irreducible over GF(3)"
+            "_note": "t^8 + t + 2 over GF(3); original t^8+2 = t^8-1 reducible (root 1); t^8+t+2 may also be reducible \u2014 verified irreducible polynomial needed"
           },
           "elem_bytes": 8
         }
@@ -1704,7 +1704,7 @@
             "base": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
             "degree": 8,
             "relation": [
-              2,
+              141,
               0,
               0,
               0,
@@ -1714,7 +1714,7 @@
               0
             ],
             "storage": "Components",
-            "_note": "t^8 + 2 over GF(2^8)"
+            "_note": "t^8 + t^4 + t^3 + t + 1 over GF(2^8); original t^8+2 = t^8 reducible in char 2; this may also be reducible \u2014 verified irreducible polynomial needed"
           },
           "elem_bytes": 8
         }
@@ -1879,7 +1879,8 @@
         {
           "id": "emb_bc",
           "source": "crate::field::FiniteField<2, 2, crate::field::Polynomial<7>>",
-          "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>"
+          "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>",
+          "_fieldbuffer_issue": "source GF(4)=FiniteField<2,2,Polynomial<7>> lacks FieldBuffer; byte-row map operations require S: FieldBuffer"
         }
       ]
     },
@@ -2022,12 +2023,12 @@
             "base": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
             "degree": 3,
             "relation": [
-              2,
-              0,
+              1,
+              1,
               0
             ],
             "storage": "Components",
-            "_note": "t^3 + 2 over AES8; from_binary_words([2,0,0]); mirrors tests/prepared_map_rows.rs D3AesSpec"
+            "_note": "t^3 + t + 1 over AES8; from_binary_words([1,1,0]); replaced reducible t^3+2"
           }
         }
       ]
