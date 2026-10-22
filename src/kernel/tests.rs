@@ -177,6 +177,27 @@ const GATHER_LENGTHS: &[usize] = &[
     127, 128, 129, 143, 144, 145, 255, 256, 257, 300,
 ];
 
+/// Assert the trace holds at least one entry at exactly `tier` with work > 0.
+#[allow(dead_code)]
+fn assert_vector_work(tier: crate::kernel::Backend) {
+    let entries = crate::kernel::trace::snapshot();
+    let mut found = false;
+    for e in &entries {
+        if e.tier == tier && e.work > 0 {
+            found = true;
+            break;
+        }
+    }
+    assert!(
+        found,
+        "expected at least one trace entry at tier {} with positive work, \
+         but snapshot has {} entries with tiers {:?}",
+        tier.name(),
+        entries.len(),
+        entries.iter().map(|e| e.tier.name()).collect::<Vec<_>>(),
+    );
+}
+
 /// Whether the host resolves to one of the tiers in `supported` — the shared
 /// substitute for the crate's old `std::is_*_feature_detected!` test gates.
 ///
