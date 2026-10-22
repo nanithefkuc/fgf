@@ -762,7 +762,8 @@ route-accept REQUEST FEATURES:
         } | sha256sum | cut -d' ' -f1
     )
     cpu=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')
-    host_id="$(hostname)|${cpu}"
+    node=$(cat /proc/sys/kernel/hostname 2>/dev/null || uname -n)
+    host_id="${node}|${cpu}"
     log="$scratch/route.log"
     SIMD_BACKEND="{{REQUEST}}" FGF_ROUTE_ACCEPT=1 \
         FGF_SOURCE_ID="$source_id" FGF_HOST_ID="$host_id" \
