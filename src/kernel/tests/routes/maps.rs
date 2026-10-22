@@ -24,7 +24,7 @@ fn images<T: FieldBuffer>(spec: &MapSpec) -> Vec<Elem<T>> {
 
 fn embedding<S, T>(case: &Case) -> Result<EmbeddingPair<S, T>, EmbeddingError>
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer<Characteristic = S::Characteristic>,
 {
     let compact = match case.map.as_ref() {
@@ -37,7 +37,7 @@ where
 
 fn isomorphism<S, T>(case: &Case) -> Result<IsomorphismPair<S, T>, EmbeddingError>
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer<Characteristic = S::Characteristic>,
 {
     let compact = match case.map.as_ref() {
@@ -56,19 +56,38 @@ fn destination<T: FieldBuffer>(case: &Case) -> (Vec<u8>, Layout) {
     guarded(case, T::BYTES)
 }
 
+/// Report the fixture source side's kernel backend.
+///
+/// A width-changing map's receipt names the source row's
+/// [`backend_for`](crate::kernel::backend_for); the source is the fixture
+/// side the ledger rule and its work basis describe.
 fn map_outcome<S, T>(checks: Vec<BufferCheck>, entries: Vec<Entry>) -> Outcome
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer,
 {
-    let mut outcome = Outcome::new(backend(), backend()).with_trace(entries);
+    let mut outcome = Outcome::new(backend(), backend_for::<S>()).with_trace(entries);
     outcome.source_bytes = S::BYTES;
     outcome.target_bytes = T::BYTES;
     outcome.checks = checks;
     outcome
 }
 
-fn frobenius<F: FieldBuffer>(case: &Case, in_place: bool) -> Outcome {
+/// The independent Frobenius image: `x^(p^k)` with `k` normalized modulo
+/// the field degree, computed by repeated `pow(p)` rather than the prepared
+/// map under test.
+pub(super) fn frobenius_oracle<F: FieldKernels>(value: Elem<F>, power: u32) -> Elem<F> {
+    use crate::field::PrimeIdentity;
+    let characteristic =
+        u128::from(<<F as crate::field::Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC);
+    let mut image = value;
+    for _ in 0..(power % F::DEGREE) {
+        image = image.pow(characteristic);
+    }
+    image
+}
+
+fn frobenius<F: FieldKernels>(case: &Case, in_place: bool) -> Outcome {
     let spec = case
         .map
         .as_ref()
@@ -81,7 +100,9 @@ fn frobenius<F: FieldBuffer>(case: &Case, in_place: bool) -> Outcome {
     if in_place {
         payload.copy_from_slice(&source);
     }
-    unary::<F>(payload, &source, |value| value.frobenius_with(&map));
+    unary::<F>(payload, &source, |value| {
+        frobenius_oracle::<F>(value, spec.power)
+    });
     let dst_payload = &mut dst[layout.start..layout.start + layout.row_bytes];
     let entries = observe_unit(|| {
         if in_place {
@@ -101,17 +122,17 @@ fn frobenius<F: FieldBuffer>(case: &Case, in_place: bool) -> Outcome {
     )
 }
 
-pub(super) fn map_frobenius_into_with<F: FieldBuffer>(case: &Case, _cell: &Cell) -> Outcome {
+pub(super) fn map_frobenius_into_with<F: FieldKernels>(case: &Case, _cell: &Cell) -> Outcome {
     frobenius::<F>(case, false)
 }
 
-pub(super) fn map_frobenius_assign_with<F: FieldBuffer>(case: &Case, _cell: &Cell) -> Outcome {
+pub(super) fn map_frobenius_assign_with<F: FieldKernels>(case: &Case, _cell: &Cell) -> Outcome {
     frobenius::<F>(case, true)
 }
 
 fn embed<S, T>(case: &Case) -> Outcome
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer<Characteristic = S::Characteristic>,
 {
     let (compact, prepared) = match embedding::<S, T>(case) {
@@ -145,7 +166,7 @@ where
 
 pub(super) fn map_embed_into_with<S, T>(case: &Case, _cell: &Cell) -> Outcome
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer<Characteristic = S::Characteristic>,
 {
     embed::<S, T>(case)
@@ -153,7 +174,7 @@ where
 
 fn trace<S, T>(case: &Case) -> Outcome
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer<Characteristic = S::Characteristic>,
 {
     let (compact, prepared) = match embedding::<S, T>(case) {
@@ -175,7 +196,7 @@ where
             &source,
         );
     });
-    map_outcome::<T, S>(
+    map_outcome::<S, T>(
         vec![BufferCheck {
             name: "dst",
             actual: dst,
@@ -187,7 +208,7 @@ where
 
 pub(super) fn map_trace_into_with<S, T>(case: &Case, _cell: &Cell) -> Outcome
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer<Characteristic = S::Characteristic>,
 {
     trace::<S, T>(case)
@@ -195,7 +216,7 @@ where
 
 fn norm<S, T>(case: &Case) -> Outcome
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer<Characteristic = S::Characteristic>,
 {
     let (compact, prepared) = match embedding::<S, T>(case) {
@@ -217,7 +238,7 @@ where
             &source,
         );
     });
-    map_outcome::<T, S>(
+    map_outcome::<S, T>(
         vec![BufferCheck {
             name: "dst",
             actual: dst,
@@ -229,7 +250,7 @@ where
 
 pub(super) fn map_norm_into_with<S, T>(case: &Case, _cell: &Cell) -> Outcome
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer<Characteristic = S::Characteristic>,
 {
     norm::<S, T>(case)
@@ -237,7 +258,7 @@ where
 
 fn restrict<S, T>(case: &Case) -> Outcome
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer<Characteristic = S::Characteristic>,
 {
     let (compact, prepared) = match embedding::<S, T>(case) {
@@ -251,7 +272,9 @@ where
         case.geometry.misalign,
     );
     let mut expected = dst.clone();
+    let bytes = crate::bits::bytes_for(case.geometry.len);
     let mut expected_valid = valid.clone();
+    expected_valid[valid_start..valid_start + bytes].fill(0);
     for (index, lane) in source.chunks_exact(T::BYTES).enumerate() {
         let value = compact.restrict(T::decode(lane));
         let at = layout.start + index * S::BYTES;
@@ -269,7 +292,7 @@ where
             &source,
         );
     });
-    map_outcome::<T, S>(
+    map_outcome::<S, T>(
         vec![
             BufferCheck {
                 name: "dst",
@@ -288,7 +311,7 @@ where
 
 pub(super) fn map_restrict_into_with<S, T>(case: &Case, _cell: &Cell) -> Outcome
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer<Characteristic = S::Characteristic>,
 {
     restrict::<S, T>(case)
@@ -296,7 +319,7 @@ where
 
 fn contains<S, T>(case: &Case) -> Outcome
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer<Characteristic = S::Characteristic>,
 {
     let (compact, prepared) = match embedding::<S, T>(case) {
@@ -307,6 +330,7 @@ where
     let bytes = crate::bits::bytes_for(case.geometry.len);
     let (mut valid, start) = guarded_bytes(bytes, case.geometry.misalign);
     let mut expected = valid.clone();
+    expected[start..start + bytes].fill(0);
     for (index, lane) in source.chunks_exact(T::BYTES).enumerate() {
         if compact.contains(T::decode(lane)) {
             expected[start + index / 8] |= 1 << (index % 8);
@@ -319,7 +343,7 @@ where
             &source,
         );
     });
-    map_outcome::<T, S>(
+    map_outcome::<S, T>(
         vec![BufferCheck {
             name: "valid",
             actual: valid,
@@ -331,7 +355,7 @@ where
 
 pub(super) fn map_contains_into_with<S, T>(case: &Case, _cell: &Cell) -> Outcome
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer<Characteristic = S::Characteristic>,
 {
     contains::<S, T>(case)
@@ -339,7 +363,7 @@ where
 
 fn apply<S, T>(case: &Case, forward: bool) -> Outcome
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer<Characteristic = S::Characteristic>,
 {
     let (compact, prepared) = match isomorphism::<S, T>(case) {
@@ -386,7 +410,7 @@ where
                 &source,
             );
         });
-        map_outcome::<T, S>(
+        map_outcome::<S, T>(
             vec![BufferCheck {
                 name: "dst",
                 actual: dst,
@@ -399,7 +423,7 @@ where
 
 pub(super) fn map_apply_into_with<S, T>(case: &Case, _cell: &Cell) -> Outcome
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer<Characteristic = S::Characteristic>,
 {
     apply::<S, T>(case, true)
@@ -407,7 +431,7 @@ where
 
 pub(super) fn map_unapply_into_with<S, T>(case: &Case, _cell: &Cell) -> Outcome
 where
-    S: FieldBuffer,
+    S: FieldKernels,
     T: FieldBuffer<Characteristic = S::Characteristic>,
 {
     apply::<S, T>(case, false)

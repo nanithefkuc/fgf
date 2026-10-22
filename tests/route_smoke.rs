@@ -21,7 +21,11 @@ const LEN: usize = 512;
 
 /// Deterministic, canonical element pattern.
 fn pattern<F: FieldBuffer>(len: usize, salt: u64) -> Vec<u8> {
-    let mut state = salt | 1;
+    // An odd, bijective mixer: distinct salts stay distinct, including
+    // adjacent ones used for consecutive source rows.
+    let mut state = salt
+        .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        .wrapping_add(0x1234_5678);
     let order = <F as fgf::field::Field>::ORDER;
     let mut out = vec![0u8; len * F::BYTES];
     for lane in out.chunks_exact_mut(F::BYTES) {
@@ -35,6 +39,14 @@ fn pattern<F: FieldBuffer>(len: usize, salt: u64) -> Vec<u8> {
         );
     }
     out
+}
+
+#[test]
+fn smoke_sources_are_distinct() {
+    type F = Aes;
+    assert_ne!(pattern::<F>(LEN, 0xc0), pattern::<F>(LEN, 0xc1));
+    assert_ne!(pattern::<F>(LEN, 0x11), pattern::<F>(LEN, 0x22));
+    assert_ne!(pattern::<F>(LEN, 0), pattern::<F>(LEN, 1));
 }
 
 fn element<F: FieldBuffer>(bytes: &[u8], index: usize) -> Elem<F> {

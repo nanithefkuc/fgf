@@ -815,11 +815,11 @@ route-accept-negative REQUEST:
     FGF_ROUTE_SURVEY=1 SIMD_BACKEND="{{REQUEST}}" \
         cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture \
         >"$survey" 2>&1
-    python3 - "$ledger" "$survey" "{{REQUEST}}" "$obligation" "$serving" "$field" <<'PY'
+    python3 - "$ledger" "$survey" "{{REQUEST}}" "$obligation" "$serving" "$field" "$features" <<'PY'
     import json
     import sys
 
-    out, survey_path, request, obligation, serving, field = sys.argv[1:7]
+    out, survey_path, request, obligation, serving, field, features = sys.argv[1:8]
     ledger = json.load(open("benches/simd_ledger.json"))
     seen = {}
     for line in open(survey_path):
@@ -843,7 +843,7 @@ route-accept-negative REQUEST:
             "process": process,
             "field": field_backend,
         }
-    obligations.setdefault(obligation, {}).setdefault("cells", {})[f"default/{request}"] = {
+    obligations.setdefault(obligation, {}).setdefault("cells", {})[f"{features}/{request}"] = {
         "status": "direct",
         "required": True,
         "min_serving": serving,
@@ -852,6 +852,8 @@ route-accept-negative REQUEST:
         "field": field,
     }
     json.dump(ledger, open(out, "w"), indent=1, sort_keys=False)
+    selected = ledger["obligations"][obligation]["cells"][f"{features}/{request}"]
+    assert selected["required"] is True, f"required cell missing for {features}/{request}"
     PY
     python3 benches/simd_ledger.py --ledger "$ledger" generate --out "$cases"
     run_negative() {

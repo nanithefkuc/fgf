@@ -413,9 +413,8 @@ pub(super) fn guarded(case: &Case, elem_bytes: usize) -> (Vec<u8>, Layout) {
 pub(super) fn guarded_bytes(len: usize, misalign: usize) -> (Vec<u8>, usize) {
     let start = GUARD_BYTES + misalign;
     let mut buffer = vec![GUARD; start + len + GUARD_BYTES];
-    for byte in &mut buffer[start..start + len] {
-        *byte = 0;
-    }
+    let noise = super::noise(len, 0x5a17_0001 ^ (len as u64));
+    buffer[start..start + len].copy_from_slice(&noise);
     (buffer, start)
 }
 
@@ -613,6 +612,15 @@ fn scope_names(scope: Option<(Scope, Pass)>) -> Option<(&'static str, &'static s
     scope.map(|(scope, pass)| (scope_name(scope), pass_name(pass)))
 }
 
+/// Whether the case's callable is a gather shape, from its obligation name.
+fn is_gather_case(case: &Case) -> bool {
+    let callable = case.obligation.split('@').next().unwrap_or("");
+    callable
+        .rsplit("::")
+        .next()
+        .is_some_and(|base| base.contains("gather"))
+}
+
 fn multiplicity(case: &Case, work: &Work) -> usize {
     let geometry = &case.geometry;
     match work.multiplicity {
@@ -621,6 +629,15 @@ fn multiplicity(case: &Case, work: &Work) -> usize {
         Multiplicity::ActiveRows => {
             let slots = case.coeffs;
             let sources = geometry.sources;
+            if slots.is_empty() {
+                // A coefficient-free gather folds every declared source; a
+                // coefficient-free row shape runs once per destination row.
+                return if is_gather_case(case) {
+                    sources
+                } else {
+                    geometry.rows
+                };
+            }
             if sources == 0 || slots.len() != geometry.rows * sources {
                 return 0;
             }
@@ -973,7 +990,7 @@ impl Env {
             assert_ne!(source_id, "unset", "acceptance mode requires FGF_SOURCE_ID");
             assert_ne!(host_id, "unset", "acceptance mode requires FGF_HOST_ID");
         }
-        let enforce = accepting || (request.is_some() && !survey);
+        let enforce = enforces(accepting, request.is_some(), survey, fingerprint);
         Self {
             fingerprint,
             request,
@@ -985,6 +1002,11 @@ impl Env {
             list: env_string("FGF_ROUTE_LIST").as_deref() == Some("1"),
         }
     }
+}
+
+/// Whether routing mismatches fail the run for this configuration.
+fn enforces(accepting: bool, requested: bool, survey: bool, fingerprint: Fingerprint) -> bool {
+    accepting || (requested && !survey && !matches!(fingerprint, Fingerprint::Other))
 }
 
 fn escape(text: &str) -> String {
@@ -1040,6 +1062,7 @@ struct Receipt<'a> {
     cell: &'a Cell,
     env: &'a Env,
     verdict: &'a Verdict,
+    features: &'static str,
     process: Backend,
     field: Backend,
 }
@@ -1057,7 +1080,7 @@ fn receipt_json(receipt: &Receipt<'_>) -> String {
          \"source_id\":{},\"host_id\":{}}}",
         quote(receipt.case.id),
         quote(receipt.case.obligation),
-        quote(receipt.cell.features.name()),
+        quote(receipt.features),
         quote(&receipt.env.request_raw),
         quote(receipt.process.name()),
         quote(receipt.field.name()),
@@ -1159,6 +1182,7 @@ fn accept() {
             cell,
             env: &env,
             verdict: &verdict,
+            features: fingerprint_name(env.fingerprint),
             process: outcome.process,
             field: outcome.field,
         };
@@ -1169,7 +1193,7 @@ fn accept() {
         cases_run,
         quote(&env.source_id),
         quote(&env.host_id),
-        quote(lookup_name(env.fingerprint, lookup)),
+        quote(fingerprint_name(env.fingerprint)),
         quote(&env.request_raw),
     );
     assert!(
@@ -1178,13 +1202,6 @@ fn accept() {
         failures.len(),
         failures.join("\n")
     );
-}
-
-fn lookup_name(fingerprint: Fingerprint, lookup: Features) -> &'static str {
-    match fingerprint {
-        Fingerprint::Default | Fingerprint::All => fingerprint_name(fingerprint),
-        Fingerprint::Other => lookup.name(),
-    }
 }
 
 /// One field element repeated across a row.
@@ -1431,6 +1448,116 @@ mod tests {
         outcome.target_bytes = 4;
         let work = work(Multiplicity::One, Basis::Target, Unit::Bytes);
         assert_eq!(budget(&CASE_MIX, &work, &outcome), GEO_MIX.len * 4);
+    }
+
+    const EMPTY: &[Coeff] = &[];
+    const GATHER_GEO: Geometry = Geometry {
+        rows: 8,
+        sources: 8,
+        len: 4096,
+        misalign: 0,
+        pitch_pad: 0,
+    };
+    const GATHER_CASE: Case = Case {
+        id: "bits::xor_gather@bits-gf2#gf2/bits-gather-8x4096/_",
+        obligation: "bits::xor_gather@bits-gf2",
+        run: RUN,
+        geometry: GATHER_GEO,
+        coeffs: EMPTY,
+        map: None,
+        cells: CELLS,
+    };
+    const MAP: MapSpec = MapSpec {
+        power: 1,
+        images: &[],
+    };
+    const MAP_GEO: Geometry = Geometry {
+        rows: 1,
+        sources: 1,
+        len: 16,
+        misalign: 0,
+        pitch_pad: 0,
+    };
+    const MAP_CASE: Case = Case {
+        id: "map::frobenius_into_with@map-frobenius-residue-column#frob_rc/_",
+        obligation: "map::frobenius_into_with@map-frobenius-residue-column",
+        run: RUN,
+        geometry: MAP_GEO,
+        coeffs: EMPTY,
+        map: Some(MAP),
+        cells: CELLS,
+    };
+
+    /// A coefficient-free gather's `ActiveRows` budget counts every source,
+    /// so suppressed work cannot satisfy it.
+    #[test]
+    fn judge_counts_sources_for_a_coefficient_free_gather() {
+        let stage = work(Multiplicity::ActiveRows, Basis::Source, Unit::Bits);
+        assert_eq!(multiplicity(&GATHER_CASE, &stage), GATHER_GEO.sources);
+        let mut outcome = Outcome::new(Backend::Scalar, Backend::Scalar);
+        outcome.source_bytes = 1;
+        outcome.target_bytes = 1;
+        assert_eq!(
+            budget(&GATHER_CASE, &stage, &outcome),
+            GATHER_GEO.sources * GATHER_GEO.len
+        );
+        outcome.enforce_routing = true;
+        let cell = Cell {
+            features: Features::Default,
+            request: Request::Scalar,
+            process: Backend::Scalar,
+            field: Backend::Scalar,
+            required: true,
+            min_serving: Backend::Scalar,
+            work: WORK,
+        };
+        assert!(!judge(&GATHER_CASE, &cell, &outcome).detail.is_empty());
+    }
+
+    /// The Frobenius oracle is `x^(p^k)`, independent of the prepared map.
+    #[test]
+    fn frobenius_oracle_matches_element_pow() {
+        type F = crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>;
+        let value = Elem::<F>::from_index(7).expect("index below the order");
+        assert_eq!(super::maps::frobenius_oracle::<F>(value, 0), value);
+        assert_eq!(super::maps::frobenius_oracle::<F>(value, 1), value.pow(2));
+        assert_eq!(super::maps::frobenius_oracle::<F>(value, 2), value.pow(4));
+        assert_ne!(super::maps::frobenius_oracle::<F>(value, 1), value);
+    }
+
+    /// A map receipt reports the fixture source's field backend, which for
+    /// this custom cubic is the scalar row rather than the process tier.
+    #[test]
+    fn map_receipt_reports_the_fixture_field_backend() {
+        type G343 =
+            crate::field::FiniteField<7, 3, crate::field::Extension<super::fixtures::G343Spec, 3>>;
+        let outcome = super::maps::map_frobenius_into_with::<G343>(&MAP_CASE, &CELLS[0]);
+        assert_eq!(outcome.process, backend());
+        assert_eq!(outcome.field, backend_for::<G343>());
+        assert_eq!(outcome.field, Backend::Scalar);
+    }
+
+    /// Every guarded destination starts with nonzero bytes.
+    #[test]
+    fn guarded_destinations_start_nonzero() {
+        let (buffer, start) = guarded_bytes(32, 1);
+        assert!(buffer[start..start + 32].iter().any(|&byte| byte != 0));
+    }
+
+    /// Bit-range cases exercise the full declared geometry.
+    #[test]
+    fn bit_range_matches_the_declared_geometry() {
+        assert_eq!(super::bits::range(&GATHER_CASE), (0, GATHER_GEO.len));
+    }
+
+    /// A unknown feature set is survey-only, even with a request set.
+    #[test]
+    fn other_feature_sets_never_enforce_routing() {
+        assert_eq!(fingerprint_name(Fingerprint::Other), "other");
+        assert!(!enforces(false, true, false, Fingerprint::Other));
+        assert!(enforces(false, true, false, Fingerprint::Default));
+        assert!(!enforces(false, true, true, Fingerprint::Default));
+        assert!(enforces(true, true, false, Fingerprint::Other));
     }
 
     /// A field mismatch fails only when routing is enforced.

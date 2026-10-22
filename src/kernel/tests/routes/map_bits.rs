@@ -10,7 +10,7 @@ type EmbeddingPair<S, T> = (Embedding<S, T>, PreparedEmbedding<S, T>);
 fn embedding<S, T>(_case: &Case) -> Result<EmbeddingPair<S, T>, EmbeddingError>
 where
     S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
-    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
+    T: BinaryField + FieldKernels<Characteristic = S::Characteristic>,
 {
     let compact = Embedding::<S, T>::new()?;
     let prepared = PreparedEmbedding::new(&compact);
@@ -48,8 +48,13 @@ fn write_bit(buffer: &mut [u8], index: usize, value: bool) {
     }
 }
 
-fn map_bits_outcome<T: FieldBuffer>(checks: Vec<BufferCheck>, entries: Vec<Entry>) -> Outcome {
-    let mut outcome = Outcome::new(backend(), backend()).with_trace(entries);
+/// Report the target lane field's kernel backend.
+///
+/// The bit-packed GF(2) source has no field-kernel row, so the fixture's
+/// target side is the one [`backend_for`](crate::kernel::backend_for) can
+/// answer for.
+fn map_bits_outcome<T: FieldKernels>(checks: Vec<BufferCheck>, entries: Vec<Entry>) -> Outcome {
+    let mut outcome = Outcome::new(backend(), backend_for::<T>()).with_trace(entries);
     outcome.source_bytes = 1;
     outcome.target_bytes = T::BYTES;
     outcome.checks = checks;
@@ -59,7 +64,7 @@ fn map_bits_outcome<T: FieldBuffer>(checks: Vec<BufferCheck>, entries: Vec<Entry
 fn embed<S, T>(case: &Case) -> Outcome
 where
     S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
-    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
+    T: BinaryField + FieldKernels<Characteristic = S::Characteristic>,
 {
     let (compact, prepared) = match embedding::<S, T>(case) {
         Ok(pair) => pair,
@@ -98,7 +103,7 @@ where
 pub(super) fn map_bits_embed_into_with<S, T>(case: &Case, _cell: &Cell) -> Outcome
 where
     S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
-    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
+    T: BinaryField + FieldKernels<Characteristic = S::Characteristic>,
 {
     embed::<S, T>(case)
 }
@@ -106,7 +111,7 @@ where
 fn compress<S, T>(case: &Case, kind: Compress) -> Outcome
 where
     S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
-    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
+    T: BinaryField + FieldKernels<Characteristic = S::Characteristic>,
 {
     let (compact, prepared) = match embedding::<S, T>(case) {
         Ok(pair) => pair,
@@ -117,6 +122,7 @@ where
     let src = lanes::<T>(case, 0x51ed_2701);
     let (mut dst, start) = guarded_bytes(bytes, case.geometry.misalign);
     let mut expected = dst.clone();
+    expected[start..start + bytes].fill(0);
     for (index, lane) in src.chunks_exact(T::BYTES).enumerate() {
         let value = T::decode(lane);
         let set = match kind {
@@ -162,7 +168,7 @@ enum Compress {
 pub(super) fn map_bits_trace_into_with<S, T>(case: &Case, _cell: &Cell) -> Outcome
 where
     S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
-    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
+    T: BinaryField + FieldKernels<Characteristic = S::Characteristic>,
 {
     compress::<S, T>(case, Compress::Trace)
 }
@@ -170,7 +176,7 @@ where
 pub(super) fn map_bits_norm_into_with<S, T>(case: &Case, _cell: &Cell) -> Outcome
 where
     S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
-    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
+    T: BinaryField + FieldKernels<Characteristic = S::Characteristic>,
 {
     compress::<S, T>(case, Compress::Norm)
 }
@@ -178,7 +184,7 @@ where
 pub(super) fn map_bits_restrict_into_with<S, T>(case: &Case, _cell: &Cell) -> Outcome
 where
     S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
-    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
+    T: BinaryField + FieldKernels<Characteristic = S::Characteristic>,
 {
     let (compact, prepared) = match embedding::<S, T>(case) {
         Ok(pair) => pair,
@@ -190,7 +196,9 @@ where
     let (mut dst, start) = guarded_bytes(bytes, case.geometry.misalign);
     let (mut valid, valid_start) = guarded_bytes(bytes, case.geometry.misalign);
     let mut expected = dst.clone();
+    expected[start..start + bytes].fill(0);
     let mut expected_valid = valid.clone();
+    expected_valid[valid_start..valid_start + bytes].fill(0);
     for (index, lane) in src.chunks_exact(T::BYTES).enumerate() {
         let preimage = compact.restrict(T::decode(lane));
         let set = preimage.is_some_and(|value| !value.is_zero());
@@ -230,7 +238,7 @@ where
 pub(super) fn map_bits_contains_into_with<S, T>(case: &Case, _cell: &Cell) -> Outcome
 where
     S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
-    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
+    T: BinaryField + FieldKernels<Characteristic = S::Characteristic>,
 {
     let (compact, prepared) = match embedding::<S, T>(case) {
         Ok(pair) => pair,
@@ -241,6 +249,7 @@ where
     let src = lanes::<T>(case, 0x51ed_2701);
     let (mut valid, start) = guarded_bytes(bytes, case.geometry.misalign);
     let mut expected = valid.clone();
+    expected[start..start + bytes].fill(0);
     for (index, lane) in src.chunks_exact(T::BYTES).enumerate() {
         write_bit(
             &mut expected[start..start + bytes],

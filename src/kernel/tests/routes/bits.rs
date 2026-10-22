@@ -38,13 +38,12 @@ fn write_bit(buffer: &mut [u8], index: usize, value: bool) {
     }
 }
 
-/// A nonempty bit range derived from the case identity.
-fn range(case: &Case, salt: u64) -> (usize, usize) {
-    let bits = case.geometry.len;
-    let seed = seed(case, salt);
-    let from = (seed as usize) % bits;
-    let width = 1 + ((seed >> 32) as usize) % (bits - from);
-    (from, from + width)
+/// The declared geometry's full bit range.
+///
+/// The exercised extent equals the geometry the work budget measures, so a
+/// vectorized range can satisfy its cell.
+pub(super) fn range(case: &Case) -> (usize, usize) {
+    (0, case.geometry.len)
 }
 
 fn pair<F>(case: &Case, call: impl Fn(&mut [u8], &[u8]), op: impl Fn(u8, u8) -> u8) -> Outcome {
@@ -109,7 +108,7 @@ pub(super) fn bits_and_into<F>(case: &Case, _cell: &Cell) -> Outcome {
 
 pub(super) fn bits_clear_range<F>(case: &Case, _cell: &Cell) -> Outcome {
     let bits = case.geometry.len;
-    let (from, to) = range(case, 0xfeed);
+    let (from, to) = range(case);
     let (mut dst, start) = packed::<F>(case, 0);
     let bytes = crate::bits::bytes_for(bits);
     let mut expected = dst.clone();
@@ -132,7 +131,7 @@ pub(super) fn bits_set_range<F>(case: &Case, _cell: &Cell) -> Outcome {
     let bits = case.geometry.len;
     let bytes = crate::bits::bytes_for(bits);
     let (mut dst, start) = packed::<F>(case, 0);
-    let (from, to) = range(case, 0xfeed);
+    let (from, to) = range(case);
     let mut expected = dst.clone();
     for index in from..to {
         write_bit(&mut expected[start..start + bytes], index, true);
@@ -154,7 +153,7 @@ pub(super) fn bits_xor_range<F>(case: &Case, _cell: &Cell) -> Outcome {
     let bytes = crate::bits::bytes_for(bits);
     let (mut dst, start) = packed::<F>(case, 0);
     let (src, src_start) = packed::<F>(case, 0x51ed_2701);
-    let (from, to) = range(case, 0xfeed);
+    let (from, to) = range(case);
     let mut expected = dst.clone();
     for index in from..to {
         let value = bit(&expected[start..start + bytes], index)
@@ -184,7 +183,7 @@ pub(super) fn bits_xor_range_with<F>(case: &Case, _cell: &Cell) -> Outcome {
     let bytes = crate::bits::bytes_for(bits);
     let (mut dst, start) = packed::<F>(case, 0);
     let (src, src_start) = packed::<F>(case, 0x51ed_2701);
-    let (from, to) = range(case, 0xfeed);
+    let (from, to) = range(case);
     let prepared = crate::bits::XorRange::new(bits, from, to);
     let mut expected = dst.clone();
     for index in from..to {
@@ -255,9 +254,12 @@ pub(super) fn bits_xor_gather<F>(case: &Case, _cell: &Cell) -> Outcome {
     let srcs: Vec<(Vec<u8>, usize)> = (0..case.geometry.sources)
         .map(|index| packed::<F>(case, 0x51ed_2701 + index as u64))
         .collect();
-    let raw_selector = seed(case, 0xc0_ffee);
-    let selector = (raw_selector & ((1u64 << case.geometry.sources) - 1))
-        | (1u64 << (raw_selector as usize % case.geometry.sources));
+    let sources = case.geometry.sources;
+    assert!(
+        sources > 0 && sources < 64,
+        "gather source count fits a selector"
+    );
+    let selector = (1u64 << sources) - 1;
     let mut expected = dst.clone();
     for (index, (source, source_start)) in srcs.iter().enumerate() {
         if selector & (1u64 << index) == 0 {

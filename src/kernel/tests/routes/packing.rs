@@ -40,18 +40,28 @@ pub(super) fn ops_pack<F: FieldKernels>(case: &Case, _cell: &Cell) -> Outcome {
     )
 }
 
+/// A nonzero sentinel element, distinct from zero and one where possible.
+fn sentinel<F: FieldKernels>() -> Elem<F> {
+    let order = <F as crate::field::Field>::ORDER;
+    let index = if order > 3 { 3 } else { order - 1 };
+    Elem::<F>::from_index(index).expect("index below the field order")
+}
+
 pub(super) fn ops_unpack<F: FieldKernels>(case: &Case, _cell: &Cell) -> Outcome {
     let values = pattern::<F>(case);
     let src = encode_all::<F>(&values);
-    let mut dst = vec![Elem::<F>::ZERO; values.len()];
+    let guard = sentinel::<F>();
+    let mut dst = vec![guard; values.len() + 2];
+    let mut expected = vec![guard; values.len() + 2];
+    expected[1..=values.len()].copy_from_slice(&values);
     let entries = observe_unit(|| {
-        crate::ops::unpack::<F>(&mut dst, &src);
+        crate::ops::unpack::<F>(&mut dst[1..=values.len()], &src);
     });
     outcome::<F>(
         vec![BufferCheck {
             name: "dst",
             actual: encode_all::<F>(&dst),
-            expected: encode_all::<F>(&values),
+            expected: encode_all::<F>(&expected),
         }],
         entries,
     )
