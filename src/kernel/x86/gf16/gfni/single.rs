@@ -144,6 +144,14 @@ pub fn mul_add_gfni(
         let d16 = &mut dst[..16].as_chunks_mut::<16>().0[0];
         let d = _mm_loadu_si128(d16);
         _mm_storeu_si128(d16, _mm_xor_si128(d, p));
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf16.gfni.mul_add",
+            crate::kernel::trace::Substage::MulAdd,
+            crate::kernel::trace::Unit::Elements,
+            8,
+            crate::kernel::Backend::V3GfniCrypto,
+        );
         mul_add_impl(&mut dst[16..], coeff, &src[16..]);
     } else {
         mul_add_impl(dst, coeff, src);
@@ -250,6 +258,14 @@ pub fn mul_assign_gfni(_token: archmage::X64V3GfniCryptoToken, dst: &mut [u8], c
         let x = _mm_loadu_si128(d16);
         let p = scale_half(x, _mm_shuffle_epi8(x, swap_half), same_half, cross_half);
         _mm_storeu_si128(d16, p);
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf16.gfni.mul_assign",
+            crate::kernel::trace::Substage::Mul,
+            crate::kernel::trace::Unit::Elements,
+            8,
+            crate::kernel::Backend::V3GfniCrypto,
+        );
         mul_assign_impl(&mut dst[16..], coeff);
     } else {
         mul_assign_impl(dst, coeff);
@@ -419,7 +435,7 @@ fn mul_into_impl<const NT: bool>(dst: &mut [u8], coeff: TowerCoeff, src: &[u8]) 
             "gf16.gfni.mul_into",
             crate::kernel::trace::Substage::Mul,
             crate::kernel::trace::Unit::Elements,
-            dst_lanes.len() * 64,
+            dst_lanes.len() * 16,
             crate::kernel::Backend::V3GfniCrypto,
         );
         dst_rest_tiles = dst_next;

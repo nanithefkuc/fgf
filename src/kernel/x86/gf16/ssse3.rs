@@ -345,7 +345,9 @@ unsafe fn scatter_rows(
     );
 }
 
-/// Many sources into one destination
+/// Many sources into one destination, eight coefficients prepared per pass.
+///
+/// # Panics
 /// Panics unless `coeffs.len() == srcs.len()` and every source matches `dst`
 /// in length.
 #[allow(clippy::used_underscore_binding)]
