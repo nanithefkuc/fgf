@@ -555,6 +555,14 @@ fn rows_tile2<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
             }
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        2 * 256 * terms.len(),
+        crate::kernel::Backend::V4x,
+    );
 }
 
 /// Provider-generic two-row lane.

@@ -96,7 +96,7 @@ fn gather_tiles(dst: &mut [u8], coeffs: &(impl Coeffs + ?Sized), srcs: &[&[u8]],
         "gf8.avx512.gather",
         crate::kernel::trace::Substage::MulAdd,
         crate::kernel::trace::Unit::Elements,
-        offset * coeffs.count(),
+        (offset - base) * coeffs.count(),
         crate::kernel::Backend::V4x,
     );
 }

@@ -495,6 +495,14 @@ pub fn multiply_vectors_ssse3(mut a: __m128i, mut b: __m128i, reduction: u8) -> 
         a = _mm_xor_si128(_mm_add_epi8(a, a), _mm_and_si128(reduction, carry));
         b = _mm_and_si128(_mm_srli_epi16::<1>(b), low7);
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.ssse3.elementwise_product",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        16,
+        crate::kernel::Backend::V2,
+    );
     product
 }
 
@@ -529,25 +537,9 @@ pub fn mul_elementwise_ssse3(
         let y = _mm_loadu_si128(blane);
         _mm_storeu_si128(dlane, multiply_vectors_ssse3(x, y, reduction));
     }
-    #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.ssse3.mul_elementwise",
-        crate::kernel::trace::Substage::MulElementwise,
-        crate::kernel::trace::Unit::Elements,
-        dst_lanes.len() * 16,
-        crate::kernel::Backend::V2,
-    );
     for ((d, &x), &y) in dst_rest.iter_mut().zip(a_rest).zip(b_rest) {
         *d = gf_mul_ref(x, y, reduction);
     }
-    #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.ssse3.mul_elementwise",
-        crate::kernel::trace::Substage::MulElementwise,
-        crate::kernel::trace::Unit::Elements,
-        dst_rest.len() * 16,
-        crate::kernel::Backend::V2,
-    );
 }
 
 /// `dst[i] = dst[i] * src[i]` by branchless shift/reduce over 16-byte lanes.
@@ -574,23 +566,7 @@ pub fn mul_elementwise_assign_ssse3(
         let y = _mm_loadu_si128(slane);
         _mm_storeu_si128(dlane, multiply_vectors_ssse3(x, y, reduction));
     }
-    #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.ssse3.mul_elementwise_assign",
-        crate::kernel::trace::Substage::MulElementwise,
-        crate::kernel::trace::Unit::Elements,
-        dst_lanes.len() * 16,
-        crate::kernel::Backend::V2,
-    );
     for (d, &s) in dst_rest.iter_mut().zip(src_rest) {
         *d = gf_mul_ref(*d, s, reduction);
     }
-    #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.ssse3.mul_elementwise_assign",
-        crate::kernel::trace::Substage::MulElementwise,
-        crate::kernel::trace::Unit::Elements,
-        dst_rest.len() * 16,
-        crate::kernel::Backend::V2,
-    );
 }
