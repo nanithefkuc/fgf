@@ -1183,17 +1183,6 @@
             "storage": "Packed<u8>",
             "_note": "t^2 + t + 8 over GF(2^4); Relation::from_binary_words(&[0x8, 0x1])"
           },
-          "needs_spec": {
-            "name": "custom GF(2^8) via Packed<u8>",
-            "base": "crate::field::FiniteField<2, 4, crate::field::Polynomial<0x13>>",
-            "degree": 2,
-            "relation": [
-              8,
-              1
-            ],
-            "storage": "Packed<u8>",
-            "_citation": "tests/ops.rs:4322-4333 Custom8Spec"
-          },
           "elem_bytes": 1
         }
       ]
@@ -1242,17 +1231,6 @@
             "storage": "Packed<u16>",
             "_note": "t^2 + 2*t + 0x80 over the Reed-Solomon byte field; Relation::from_binary_words(&[0x80, 0x2])"
           },
-          "needs_spec": {
-            "name": "custom GF(2^16) via Packed<u16>",
-            "base": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>",
-            "degree": 2,
-            "relation": [
-              128,
-              2
-            ],
-            "storage": "Packed<u16>",
-            "_citation": "tests/ops.rs:4335-4347 Custom16Spec"
-          },
           "elem_bytes": 2
         }
       ]
@@ -1300,17 +1278,6 @@
             "storage": "Packed<u32>",
             "_note": "t^2 + t + 0x2001 over the Rijndael GF(2^16) row; Relation::from_binary_words(&[0x2001, 0x0001])"
           },
-          "needs_spec": {
-            "name": "custom GF(2^32) via Packed<u32>",
-            "base": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
-            "degree": 2,
-            "relation": [
-              8193,
-              1
-            ],
-            "storage": "Packed<u32>",
-            "_citation": "tests/ops.rs:4349-4358 Custom32Spec"
-          },
           "elem_bytes": 4
         }
       ]
@@ -1357,17 +1324,6 @@
             ],
             "storage": "Packed<u64>",
             "_note": "t^2 + t + 0x2ada_7f36 over the Rijndael GF(2^32) row; Relation::from_binary_words(&[0x2ada_7f36, 0x0000_0001])"
-          },
-          "needs_spec": {
-            "name": "custom GF(2^64) via Packed<u64>",
-            "base": "crate::field::FiniteField<2, 32, crate::field::Extension<crate::field::Rijndael32, 2>>",
-            "degree": 2,
-            "relation": [
-              718962486,
-              1
-            ],
-            "storage": "Packed<u64>",
-            "_citation": "tests/ops.rs:4360-4371 Custom64Spec"
           },
           "elem_bytes": 8
         }
@@ -1434,16 +1390,6 @@
             "storage": "Components",
             "_note": "t^2 + 2 over Mersenne31; distinct from QM31 t^2+1"
           },
-          "needs_spec": {
-            "name": "custom quadratic M31",
-            "base": "crate::field::Mersenne31",
-            "degree": 2,
-            "relation": [
-              2,
-              0
-            ],
-            "storage": "Components"
-          },
           "elem_bytes": 8
         }
       ]
@@ -1471,16 +1417,6 @@
             ],
             "storage": "Components",
             "_note": "t^2 + 2t + 2 over GF(3); irreducible (no roots)"
-          },
-          "needs_spec": {
-            "name": "GF(9) as t^2 + 2t + 2",
-            "base": "crate::field::FiniteField<3, 1, crate::field::Residue>",
-            "degree": 2,
-            "relation": [
-              2,
-              2
-            ],
-            "storage": "Components"
           },
           "elem_bytes": 2
         }
@@ -1510,16 +1446,6 @@
             "storage": "Components",
             "_note": "t^2 + 5 over GF(131); (-5/131) = -1 by quadratic reciprocity \u2192 irreducible"
           },
-          "needs_spec": {
-            "name": "GF(131^2) as t^2 + 5",
-            "base": "crate::field::FiniteField<131, 1, crate::field::Residue>",
-            "degree": 2,
-            "relation": [
-              5,
-              0
-            ],
-            "storage": "Components"
-          },
           "elem_bytes": 2
         }
       ]
@@ -1548,16 +1474,6 @@
             "storage": "Components",
             "_note": "t^2 + 3 over GF(257); 257 mod 3 \u2261 2 so 3 is a quadratic nonresidue"
           },
-          "needs_spec": {
-            "name": "GF(257^2) as t^2 + 3",
-            "base": "crate::field::FiniteField<257, 1, crate::field::Residue>",
-            "degree": 2,
-            "relation": [
-              3,
-              0
-            ],
-            "storage": "Components"
-          },
           "elem_bytes": 4
         }
       ]
@@ -1585,16 +1501,6 @@
             ],
             "storage": "Components",
             "_note": "t^2 + 3 over GF(65537); 65537 mod 12 = 5 so 3 is a quadratic nonresidue"
-          },
-          "needs_spec": {
-            "name": "GF(65537^2) as t^2 + 3",
-            "base": "crate::field::FiniteField<65537, 1, crate::field::Residue>",
-            "degree": 2,
-            "relation": [
-              3,
-              0
-            ],
-            "storage": "Components"
           },
           "elem_bytes": 8
         }
@@ -1625,17 +1531,6 @@
             "storage": "Components",
             "_note": "x^3 - 2 over GF(7); Relation::from_coordinates(&[5, 0, 0])"
           },
-          "needs_spec": {
-            "name": "GF(7^3) as t^3 - 2",
-            "base": "crate::field::FiniteField<7, 1, crate::field::Residue>",
-            "degree": 3,
-            "relation": [
-              5,
-              0,
-              0
-            ],
-            "storage": "Components"
-          },
           "elem_bytes": 3
         }
       ]
@@ -1654,7 +1549,7 @@
           "type": "crate::field::FiniteField<3, 4, crate::field::Extension<crate::kernel::tests::routes::fixtures::G81QuarticSpec, 4>>",
           "reference": "elem-arith",
           "spec": {
-            "name": "GF(3^4) as x^4 + 2x^3 + 2",
+            "name": "GF(3^4) as x^4 + 2x^2 + 2",
             "base": "crate::field::FiniteField<3, 1, crate::field::Residue>",
             "degree": 4,
             "relation": [
@@ -1664,19 +1559,7 @@
               0
             ],
             "storage": "Components",
-            "_note": "x^4 + 2x^3 + 2 over GF(3); Relation::from_coordinates(&[2, 0, 2, 0])"
-          },
-          "needs_spec": {
-            "name": "GF(3^4) as x^4 + 2x^3 + 2",
-            "base": "crate::field::FiniteField<3, 1, crate::field::Residue>",
-            "degree": 4,
-            "relation": [
-              2,
-              0,
-              2,
-              0
-            ],
-            "storage": "Components"
+            "_note": "x^4 + 2x^2 + 2 over GF(3); Relation::from_coordinates(&[2, 0, 2, 0])"
           },
           "elem_bytes": 4
         }
@@ -1691,7 +1574,7 @@
       "relation_shape": "tower_step",
       "total_degree": 8,
       "elem_bytes": 8,
-      "_citation": "tests/prepared_map_rows.rs:668-683 G3e4Spec/G3e8Spec tower; boundary for total-degree-64 path",
+      "_citation": "tests/prepared_map_rows.rs:668-683 G3e8Spec tower over x^4 + 2x^2 + 2; boundary for total-degree-64 path",
       "fixtures": [
         {
           "id": "r3d8",
@@ -1699,7 +1582,7 @@
           "reference": "elem-arith",
           "spec": {
             "name": "GF(3^8) as a degree-2 extension of GF(3^4)",
-            "base": "crate::field::FiniteField<3, 4, crate::field::Extension<crate::kernel::tests::routes::fixtures::G3e4Spec, 4>>",
+            "base": "crate::field::FiniteField<3, 4, crate::field::Extension<crate::kernel::tests::routes::fixtures::G81QuarticSpec, 4>>",
             "degree": 2,
             "relation": [
               0,
@@ -1713,22 +1596,6 @@
             ],
             "storage": "Components",
             "_note": "t^2 - x over GF(3^4) as x^4 + 2x^2 + 2; Relation::from_coordinates(&[0, 1, 0, 0, 0, 0, 0, 0])"
-          },
-          "needs_spec": {
-            "name": "GF(3^8) as a degree-2 extension of GF(3^4)",
-            "base": "crate::field::FiniteField<3, 4, crate::field::Extension<crate::kernel::tests::routes::fixtures::G3e4Spec, 4>>",
-            "degree": 2,
-            "relation": [
-              0,
-              1,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "storage": "Components"
           },
           "elem_bytes": 8
         }
@@ -1756,16 +1623,6 @@
             ],
             "storage": "Components",
             "_note": "t^2 + 7 over Goldilocks; Relation::from_coordinates(&[7, 0])"
-          },
-          "needs_spec": {
-            "name": "Goldilocks quadratic",
-            "base": "crate::field::Goldilocks",
-            "degree": 2,
-            "relation": [
-              7,
-              0
-            ],
-            "storage": "Components"
           },
           "elem_bytes": 16
         }
@@ -1796,16 +1653,6 @@
             "storage": "Components",
             "_note": "t^2 + 0x53*t + 1 over AES8; Relation::from_binary_words(&[1, 0x53])"
           },
-          "needs_spec": {
-            "name": "GF(2^16) Components over AES",
-            "base": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
-            "degree": 2,
-            "relation": [
-              1,
-              83
-            ],
-            "storage": "Components"
-          },
           "elem_bytes": 2
         }
       ]
@@ -1834,16 +1681,6 @@
             ],
             "storage": "Components",
             "_note": "t^2 + 0x35*t + 1 over Normal<0x11B,0x20>; Relation::from_binary_words(&[1, 0x35])"
-          },
-          "needs_spec": {
-            "name": "GF(2^16) Components over Normal",
-            "base": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>",
-            "degree": 2,
-            "relation": [
-              1,
-              53
-            ],
-            "storage": "Components"
           },
           "elem_bytes": 2
         }
@@ -1880,23 +1717,64 @@
             "storage": "Components",
             "_note": "t^8 + 0xE4*t^7 + t^6 + 0xDD*t^5 + 0xC7*t^4 + 0x0E*t^3 + 0xF9*t^2 + 0x30*t + 0x6B over AES8; Rabin test: x^(q^8) = x and gcd(x^(q^4) - x, f) = 1"
           },
-          "needs_spec": {
-            "name": "GF(2^64) Components over AES",
-            "base": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
-            "degree": 8,
-            "relation": [
-              107,
-              48,
-              249,
-              14,
-              199,
-              221,
-              1,
-              228
-            ],
-            "storage": "Components"
-          },
           "elem_bytes": 8
+        }
+      ]
+    },
+    "component-residue-u64": {
+      "group": "component",
+      "base_rule": "residue-u64",
+      "characteristic": "odd",
+      "degree": 2,
+      "relation_shape": "quadratic",
+      "elem_bytes": 16,
+      "_citation": "residue-u64 base class: quadratic over the largest 64-bit prime",
+      "fixtures": [
+        {
+          "id": "ru64q",
+          "type": "crate::field::FiniteField<18446744073709551557, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::U64QuadraticSpec, 2>>",
+          "reference": "elem-arith",
+          "spec": {
+            "name": "GF(p^2) as t^2 + 3 over residue-u64",
+            "base": "crate::field::FiniteField<18446744073709551557, 1, crate::field::Residue>",
+            "degree": 2,
+            "relation": [
+              3,
+              0
+            ],
+            "storage": "Components",
+            "_note": "t^2 + 3 over GF(18446744073709551557); the relation is irreducible, proven by the extension's const validity check"
+          },
+          "elem_bytes": 16
+        }
+      ]
+    },
+    "component-cantor": {
+      "group": "component",
+      "base_rule": "gf8-cantor",
+      "characteristic": 2,
+      "degree": 2,
+      "relation_shape": "binary_quadratic",
+      "storage": "Components",
+      "elem_bytes": 2,
+      "_citation": "Cantor base class: quadratic over Cantor<0x11B, 0x20>",
+      "fixtures": [
+        {
+          "id": "cantor2",
+          "type": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::kernel::tests::routes::fixtures::CantorQuadraticSpec, 2>>",
+          "reference": "elem-arith",
+          "spec": {
+            "name": "GF(2^16) as t^2 + t + 0x80 over Cantor",
+            "base": "crate::field::FiniteField<2, 8, crate::field::Cantor<0x11B, 0x20>>",
+            "degree": 2,
+            "relation": [
+              128,
+              1
+            ],
+            "storage": "Components",
+            "_note": "t^2 + t + 0x80 over Cantor<0x11B, 0x20>; 0x80 has trace one in that basis, so the quadratic is irreducible"
+          },
+          "elem_bytes": 2
         }
       ]
     },
@@ -1929,6 +1807,8 @@
           "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "power": 0,
+          "elem_bytes": 1,
+          "target_elem_bytes": 1,
           "reference": "map-compact"
         }
       ]
@@ -1949,6 +1829,8 @@
           "source": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
           "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
           "power": 8,
+          "elem_bytes": 2,
+          "target_elem_bytes": 2,
           "reference": "map-compact"
         }
       ]
@@ -1969,6 +1851,8 @@
           "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>",
           "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>",
           "power": 1,
+          "elem_bytes": 1,
+          "target_elem_bytes": 1,
           "reference": "map-compact"
         }
       ]
@@ -1990,6 +1874,8 @@
           "source": "crate::field::FiniteField<7, 3, crate::field::Extension<crate::kernel::tests::routes::fixtures::G343Spec, 3>>",
           "target": "crate::field::FiniteField<7, 3, crate::field::Extension<crate::kernel::tests::routes::fixtures::G343Spec, 3>>",
           "power": 1,
+          "elem_bytes": 3,
+          "target_elem_bytes": 3,
           "reference": "map-compact",
           "spec": {
             "name": "frob-residue-col",
@@ -2001,18 +1887,7 @@
               0
             ],
             "storage": "Components",
-            "_note": "GF(7^3) as x^3 - 2; Relation::from_coordinates(&[5, 0, 0])"
-          },
-          "needs_spec": {
-            "name": "frob-residue-col",
-            "base": "crate::field::FiniteField<7, 1, crate::field::Residue>",
-            "degree": 3,
-            "relation": [
-              5,
-              0,
-              0
-            ],
-            "storage": "Components",
+            "_note": "GF(7^3) as x^3 - 2; Relation::from_coordinates(&[5, 0, 0])",
             "_citation": "tests/prepared_map_rows.rs:47-55 G343Spec"
           }
         }
@@ -2036,6 +1911,8 @@
           "id": "emb_inj",
           "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
+          "elem_bytes": 1,
+          "target_elem_bytes": 2,
           "reference": "map-compact"
         }
       ]
@@ -2057,8 +1934,13 @@
           "id": "emb_inj_i",
           "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
+          "elem_bytes": 1,
+          "target_elem_bytes": 2,
           "images": [
-            2
+            [
+              2,
+              0
+            ]
           ],
           "reference": "map-compact"
         }
@@ -2081,8 +1963,13 @@
           "id": "emb_bc",
           "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
+          "elem_bytes": 1,
+          "target_elem_bytes": 2,
           "images": [
-            4
+            [
+              4,
+              0
+            ]
           ],
           "reference": "map-compact"
         }
@@ -2093,20 +1980,27 @@
       "kind": "embedding",
       "construction": "images",
       "arm": "residue-column",
-      "arm_citation": "src/field/embedding/prepared.rs:420 \u2014 PreparedArm::ResidueColumns for odd char non-injection; degree-1 source into degree-2 target over odd prime with non-structural image",
+      "arm_citation": "src/field/embedding/prepared.rs:420 \u2014 PreparedArm::ResidueColumns for odd char non-injection; the degree-2 source GF(9) injects into the degree-4 GF(81) target through a non-structural image",
       "callables": [
         "map::embed_into_with",
         "map::contains_into_with",
         "map::restrict_into_with"
       ],
-      "_note": "GF(9) as t^2 + 2t + 2 embeds in the GF(81) quartic through a root of that quadratic; a degree-1 prime source admits only the identity-prefix injection",
+      "_note": "GF(9) as t^2 + 2t + 2 embeds in GF(81) as x^4 + 2x^2 + 2 through an element of trace-zero order; the caller image is not the structural image, so the compiled columns are ResidueColumns",
       "fixtures": [
         {
           "id": "emb_rc",
           "source": "crate::field::FiniteField<3, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::G9Spec, 2>>",
           "target": "crate::field::FiniteField<3, 4, crate::field::Extension<crate::kernel::tests::routes::fixtures::G81QuarticSpec, 4>>",
+          "elem_bytes": 2,
+          "target_elem_bytes": 4,
           "images": [
-            65536
+            [
+              0,
+              0,
+              1,
+              0
+            ]
           ],
           "reference": "map-compact",
           "spec": {
@@ -2120,19 +2014,7 @@
               0
             ],
             "storage": "Components",
-            "_note": "GF(81) as x^4 + 2x^3 + 2; the image is the element with prime coordinates [0, 0, 1, 0], a root of t^2 + 2t + 2"
-          },
-          "needs_spec": {
-            "name": "emb-residue-col-target",
-            "base": "crate::field::FiniteField<3, 1, crate::field::Residue>",
-            "degree": 4,
-            "relation": [
-              2,
-              0,
-              2,
-              0
-            ],
-            "storage": "Components"
+            "_note": "GF(81) as x^4 + 2x^2 + 2; the image is the element with prime coordinates [0, 0, 1, 0], a root of t^2 + 2t + 2"
           }
         }
       ]
@@ -2153,6 +2035,8 @@
           "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "target": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>",
           "direction": "forward",
+          "elem_bytes": 1,
+          "target_elem_bytes": 1,
           "reference": "map-compact"
         }
       ]
@@ -2173,8 +2057,12 @@
           "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "target": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>",
           "direction": "forward",
+          "elem_bytes": 1,
+          "target_elem_bytes": 1,
           "images": [
-            231
+            [
+              231
+            ]
           ],
           "reference": "map-compact"
         }
@@ -2197,8 +2085,13 @@
           "source": "crate::field::FiniteField<3, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::G9AltSpec, 2>>",
           "target": "crate::field::FiniteField<3, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::G9AltSpec, 2>>",
           "direction": "forward",
+          "elem_bytes": 2,
+          "target_elem_bytes": 2,
           "images": [
-            512
+            [
+              0,
+              2
+            ]
           ],
           "reference": "map-compact",
           "spec": {
@@ -2211,17 +2104,29 @@
             ],
             "storage": "Components",
             "_note": "GF(9) as a^2 + 1; Relation::from_coordinates(&[1, 0])"
-          },
-          "needs_spec": {
-            "name": "iso-residue-col-field",
-            "base": "crate::field::FiniteField<3, 1, crate::field::Residue>",
-            "degree": 2,
-            "relation": [
-              1,
-              0
-            ],
-            "storage": "Components"
           }
+        }
+      ]
+    },
+    "map-iso-injection": {
+      "group": "map",
+      "kind": "isomorphism",
+      "construction": "structural",
+      "arm": "injection",
+      "arm_citation": "src/field/embedding/prepared.rs:865 \u2014 compile_iso returns Injection when the compiled columns are the identity prefix; an identity presentation supplies that prefix",
+      "callables": [
+        "map::apply_into_with",
+        "map::unapply_into_with"
+      ],
+      "fixtures": [
+        {
+          "id": "iso_inj",
+          "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+          "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+          "direction": "forward",
+          "elem_bytes": 1,
+          "target_elem_bytes": 1,
+          "reference": "map-compact"
         }
       ]
     },
@@ -2234,6 +2139,8 @@
           "id": "mb_w1",
           "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
           "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+          "elem_bytes": 1,
+          "target_elem_bytes": 1,
           "reference": "map-compact"
         }
       ]
@@ -2247,6 +2154,8 @@
           "id": "mb_w2",
           "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
           "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
+          "elem_bytes": 1,
+          "target_elem_bytes": 2,
           "reference": "map-compact"
         }
       ]
@@ -2261,6 +2170,8 @@
           "id": "mb_w3",
           "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
           "target": "crate::field::FiniteField<2, 24, crate::field::Extension<crate::kernel::tests::routes::fixtures::D3AesSpec, 3>>",
+          "elem_bytes": 1,
+          "target_elem_bytes": 3,
           "reference": "map-compact",
           "spec": {
             "name": "GF(2^24) Components over AES",
@@ -2273,17 +2184,6 @@
             ],
             "storage": "Components",
             "_note": "t^3 + x over AES8; Relation::from_binary_words(&[2, 0, 0]); no root in GF(2^8), so the cubic is irreducible"
-          },
-          "needs_spec": {
-            "name": "GF(2^24) Components over AES",
-            "base": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
-            "degree": 3,
-            "relation": [
-              2,
-              0,
-              0
-            ],
-            "storage": "Components"
           }
         }
       ]
@@ -2297,6 +2197,8 @@
           "id": "mb_w4",
           "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
           "target": "crate::field::FiniteField<2, 32, crate::field::Extension<crate::field::Rijndael32, 2>>",
+          "elem_bytes": 1,
+          "target_elem_bytes": 4,
           "reference": "map-compact"
         }
       ]
@@ -2310,6 +2212,8 @@
           "id": "mb_w8",
           "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
           "target": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::field::Rijndael64, 2>>",
+          "elem_bytes": 1,
+          "target_elem_bytes": 8,
           "reference": "map-compact"
         }
       ]
@@ -2598,7 +2502,9 @@
         "component-goldilocks",
         "component-binary-aes",
         "component-binary-normal",
-        "component-degree64"
+        "component-degree64",
+        "component-residue-u64",
+        "component-cantor"
       ],
       "exclusions": {
         "residue-u8-low": "prime-only rules",
@@ -2643,6 +2549,30 @@
         "map-bits-width4": "map_bits rules",
         "map-bits-width8": "map_bits rules"
       }
+    },
+    "ops-component-elementwise-pack": {
+      "families": [
+        "ops/elementwise",
+        "ops/pack"
+      ],
+      "rules": [
+        "component-quad-mersenne31",
+        "component-mersenne31-custom",
+        "component-residue-quadratic",
+        "component-residue-u8-high",
+        "component-residue-u16",
+        "component-residue-u32",
+        "component-residue-odd",
+        "component-residue-quartic",
+        "component-residue-degree8",
+        "component-goldilocks",
+        "component-binary-aes",
+        "component-binary-normal",
+        "component-degree64",
+        "component-residue-u64",
+        "component-cantor"
+      ],
+      "exclusions": {}
     },
     "bits": {
       "families": [
@@ -2699,7 +2629,8 @@
       "rules": [
         "map-iso-binary-column",
         "map-iso-binary-column-images",
-        "map-iso-residue-column"
+        "map-iso-residue-column",
+        "map-iso-injection"
       ],
       "exclusions": {}
     },
@@ -2977,10 +2908,10 @@
       "pitch_pad": 0,
       "family": "single-row-small"
     },
-    "rows-3x5": {
+    "rows-3x4128": {
       "rows": 3,
       "sources": 1,
-      "len": 5,
+      "len": 4128,
       "misalign": 1,
       "pitch_pad": 0,
       "family": "multi-row"
@@ -3025,10 +2956,10 @@
       "pitch_pad": 0,
       "family": "bits"
     },
-    "bits-gather-8x512": {
+    "bits-gather-8x4096": {
       "rows": 8,
       "sources": 8,
-      "len": 512,
+      "len": 4096,
       "misalign": 0,
       "pitch_pad": 0,
       "family": "bits-gather"
