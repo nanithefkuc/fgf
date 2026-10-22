@@ -3122,7 +3122,15 @@ mod x86 {
         );
         {
             // Vector-work assertion at a vector-eligible geometry.
-            let len = 130usize;
+            // Arithmetic: 258 bytes / 2 bytes/elem = 129 elements.
+            // row_loss(32, 2) = ⌈2×31/2⌉ = 31.
+            // Upper bound: 129 × 3 sources = 387.
+            // Lower bound: 387 − 31 × 3 = 294.
+            // Actual emission: gather_group<2> = 8×16×2 = 256, plus
+            // mul_add_gfni for the last source ≈ 128 → ~384 total.
+            // Without the source multiplier N: gather_group<2> emits 128,
+            // total ~256, which falls below the lower bound of 294.
+            let len = 258usize;
             let nsrcs = 3;
             let coeffs: Vec<Elem<Rijndael16Field>> = (0..nsrcs).map(gf16_coeff_at).collect();
             let srcs: Vec<Vec<u8>> = (0..nsrcs).map(|t| noise(len, 0x120 + t as u64)).collect();
@@ -3180,12 +3188,12 @@ mod x86 {
             }
             crate::kernel::trace::clear();
             x86::gf16::mul_elementwise_gfni(token, &mut got, &a, &b, DELTA_BYTE, AES_REDUCTION);
-            assert_eq!(got, want, "gf16 gfni elementwise vector work: len {len}");
             crate::kernel::trace::assert_vector_work_in(
                 Backend::V3GfniCrypto,
-                len / 2 - 31,
+                len / 2 - crate::kernel::trace::row_loss(32, 2),
                 len / 2,
             );
+            assert_eq!(got, want, "gf16 gfni elementwise vector work: len {len}");
         }
         check_elementwise_assign::<FiniteField<2, 8, Polynomial<AES>>>(
             "gf8 gfni elementwise assign",
@@ -4945,23 +4953,35 @@ mod x86 {
             let mut want = got.clone();
             crate::kernel::trace::clear();
             x86::gf16::mul_add_avx2(token, &mut got, &tables, &src);
+            crate::kernel::trace::assert_vector_work_in(
+                Backend::V3,
+                len / 2 - crate::kernel::trace::row_loss(32, 2),
+                len / 2,
+            );
             scalar::mul_add::<Rijndael16Field>(&mut want, coeff, &src);
             assert_eq!(got, want, "gf16 avx2 mul_add vector work: len {len}");
-            crate::kernel::trace::assert_vector_work_in(Backend::V3, len / 2 - 31, len / 2);
             let mut got = noise(len, 0x95);
             let mut want = got.clone();
             crate::kernel::trace::clear();
             x86::gf16::mul_assign_avx2(token, &mut got, &tables);
+            crate::kernel::trace::assert_vector_work_in(
+                Backend::V3,
+                len / 2 - crate::kernel::trace::row_loss(32, 2),
+                len / 2,
+            );
             scalar::mul_assign::<Rijndael16Field>(&mut want, coeff);
             assert_eq!(got, want, "gf16 avx2 mul_assign vector work: len {len}");
-            crate::kernel::trace::assert_vector_work_in(Backend::V3, len / 2 - 31, len / 2);
             let mut got = vec![0u8; len];
             crate::kernel::trace::clear();
             x86::gf16::mul_into_avx2(token, &mut got, &tables, &src);
+            crate::kernel::trace::assert_vector_work_in(
+                Backend::V3,
+                len / 2 - crate::kernel::trace::row_loss(32, 2),
+                len / 2,
+            );
             let mut want = src.clone();
             scalar::mul_assign::<Rijndael16Field>(&mut want, coeff);
             assert_eq!(got, want, "gf16 avx2 mul_into vector work: len {len}");
-            crate::kernel::trace::assert_vector_work_in(Backend::V3, len / 2 - 31, len / 2);
         }
         check_scatter(
             "gf8 avx2 scatter",
@@ -5229,8 +5249,12 @@ mod x86 {
             }
             crate::kernel::trace::clear();
             x86::gf16::mul_elementwise_avx2(token, &mut got, &a, &b, delta_table(), AES_REDUCTION);
+            crate::kernel::trace::assert_vector_work_in(
+                Backend::V3,
+                len / 2 - crate::kernel::trace::row_loss(32, 2),
+                len / 2,
+            );
             assert_eq!(got, want, "gf16 avx2 elementwise vector work: len {len}");
-            crate::kernel::trace::assert_vector_work_in(Backend::V3, len / 2 - 31, len / 2);
         }
         // Fan–Paar tower (GF(2^16)/32/64): the fp8 nibble tower and its
         // period-2 lane-mul extensions.
@@ -6263,6 +6287,34 @@ mod x86 {
                     scalar::xor(&mut want, &region[start..start + len]);
                 }
                 assert_eq!(dst, want, "xor_gather_avx2 vector work: len {len}");
+            }
+            {
+                // Fused gather loop: whole-vector span is a multiple of 32
+                // and at most 8×32=256 with no tail (avx2.rs:125-150).
+                // Arithmetic: 256 bytes / 32 = 8 lanes; row_loss(32, 1) = ⌈2×31/1⌉ = 62.
+                // Upper bound: 8×32×3 offsets = 768 bytes of work.
+                // Lower bound: 768 − 62 × 3 = 582.
+                // The emission comes from one fused lane loop, not per-offset
+                // fallback calls; without a source multiplier the test would
+                // undercount.
+                let len = 256usize;
+                let region = noise(1024, 0x91);
+                let offsets: [u32; 3] = [0, 256, 512];
+                let loss = crate::kernel::trace::row_loss(32, 1);
+                let mut dst = noise(len, 0x92);
+                let mut want = dst.clone();
+                crate::kernel::trace::clear();
+                x86::bytes::xor_gather_avx2(token, &region, &mut dst, &offsets);
+                crate::kernel::trace::assert_vector_work_in(
+                    Backend::V3,
+                    len * offsets.len() - loss * offsets.len(),
+                    len * offsets.len(),
+                );
+                for &start in &offsets {
+                    let start = start as usize;
+                    scalar::xor(&mut want, &region[start..start + len]);
+                }
+                assert_eq!(dst, want, "xor_gather_avx2 fused gather: len {len}");
             }
         } else {
             eprintln!("skipping: no AVX2 on this host");
