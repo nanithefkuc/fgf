@@ -708,3 +708,13 @@ release-accept:
     just benchmark-check
     just benchmark-check-native
     just package-check
+
+# Route ledger and tooling: schema-only validation plus the Python unit tests.
+# `just benchmark-api-json` must have already run (or package-check/validate
+# will have produced target/doc/fgf.json).
+[group('bench')]
+simd-ledger:
+    just benchmark-api-json
+    python3 benches/simd_ledger.py inventory --rustdoc target/doc/fgf.json
+    python3 benches/simd_ledger.py check --schema-only
+    python3 -m unittest discover -s benches -p 'test_simd_ledger.py'
