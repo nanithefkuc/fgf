@@ -43,6 +43,24 @@ the field, operations, and backends it targets, and carries differential
 correctness against the scalar path and interleaved before/after
 measurements against an unchanged control.
 
+PRs adding public-API SIMD kernels, changing their routing or tuning, or
+changing the route ledger, trace, or acceptance tooling reference the
+tracking issue with `Refs #68`. Each applicable PR identifies:
+
+- Obligation IDs and before/after route and performance state.
+- Independent correctness references (differential, public-route, and
+  production-smoke case IDs).
+- Direct and public-route native execution evidence under default and all
+  features.
+- Pinned interleaved before/after measurements with unchanged controls.
+- Exercised dispatch gates (tier requests and feature configurations).
+- Applicable docs, CHANGELOG, residue-ledger, and unsafe-code updates.
+
+The canonical SIMD route ledger is `benches/simd_ledger.json`, validated by
+`benches/simd_ledger.py`. `just simd-ledger` runs schema-only validation and
+the Python unit test suite. The ledger is distinct from the unsafe residue
+ledger in `AGENTS.md`.
+
 ## Before opening a PR
 
 ```sh

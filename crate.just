@@ -708,3 +708,12 @@ release-accept:
     just benchmark-check
     just benchmark-check-native
     just package-check
+
+# Route ledger and tooling: schema-only validation plus the Python unit tests.
+# The recipe builds the rustdoc JSON it consumes.
+[group('bench')]
+simd-ledger:
+    just benchmark-api-json
+    python3 benches/simd_ledger.py inventory --rustdoc target/doc/fgf.json
+    python3 benches/simd_ledger.py check --schema-only
+    python3 -m unittest discover -s benches -p 'test_simd_ledger.py'
