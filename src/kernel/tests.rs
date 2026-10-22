@@ -4666,18 +4666,6 @@ mod x86 {
         u64::MAX,
     ];
 
-    /// Assert that the trace recorded positive vector work at or above `min_tier`.
-    #[track_caller]
-    fn assert_vector_work(min_tier: Backend) {
-        let entries = trace::snapshot();
-        assert!(
-            entries
-                .iter()
-                .any(|e| trace::strength(e.tier) >= trace::strength(min_tier)),
-            "expected vector work >= {min_tier:?}, got {entries:?}"
-        );
-    }
-
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::too_many_lines)]
     fn drive_prime<F: crate::field::FieldBuffer, C: Copy + core::fmt::Debug>(
@@ -4769,6 +4757,17 @@ mod x86 {
         // Trace coverage: one vector-eligible call per entry.
         {
             let vlen = lens[lens.len() - 2]; // largest sub-1k length
+            let elem_bytes = <F as crate::field::FieldBuffer>::BYTES;
+            let vector_bytes = match tier {
+                Backend::V2 => 16,
+                Backend::V3 | Backend::V3GfniCrypto => 32,
+                Backend::V4x => 64,
+                _ => 0,
+            };
+            let len_elems = vlen / elem_bytes;
+            let loss = (2usize * (vector_bytes - 1)).div_ceil(elem_bytes);
+            let max = len_elems;
+            let min = len_elems.saturating_sub(loss);
             let mut src = noise(vlen, 0xa1);
             canon(&mut src);
             let mut base = noise(vlen, 0xb2);
@@ -4780,55 +4779,55 @@ mod x86 {
             let mut got1 = base.clone();
             trace::clear();
             add(&mut got1, &src);
-            assert_vector_work(tier);
+            super::assert_vector_work_in(tier, min, max);
             drop(got1);
 
             let mut got2 = base.clone();
             trace::clear();
             sub(&mut got2, &src);
-            assert_vector_work(tier);
+            super::assert_vector_work_in(tier, min, max);
             drop(got2);
 
             let mut got3 = vec![0u8; vlen];
             trace::clear();
             elemwise(&mut got3, &src, &b2);
-            assert_vector_work(tier);
+            super::assert_vector_work_in(tier, min, max);
             drop(got3);
 
             let mut got4 = base.clone();
             trace::clear();
             elemwise_assign(&mut got4, &src);
-            assert_vector_work(tier);
+            super::assert_vector_work_in(tier, min, max);
             drop(got4);
 
             let mut got5 = base.clone();
             trace::clear();
             muladd(&mut got5, c, &src);
-            assert_vector_work(tier);
+            super::assert_vector_work_in(tier, min, max);
             drop(got5);
 
             let mut got6 = base.clone();
             trace::clear();
             mulinto(&mut got6, c, &src);
-            assert_vector_work(tier);
+            super::assert_vector_work_in(tier, min, max);
             drop(got6);
 
             let mut got7 = base.clone();
             trace::clear();
             mulassign(&mut got7, c);
-            assert_vector_work(tier);
+            super::assert_vector_work_in(tier, min, max);
             drop(got7);
 
             let mut got8 = base.clone();
             trace::clear();
             addscalar(&mut got8, c);
-            assert_vector_work(tier);
+            super::assert_vector_work_in(tier, min, max);
             drop(got8);
 
             let mut got9 = base.clone();
             trace::clear();
             subscalar(&mut got9, c);
-            assert_vector_work(tier);
+            super::assert_vector_work_in(tier, min, max);
             drop(got9);
         }
     }
@@ -4863,7 +4862,7 @@ mod x86 {
             prime::add_assign::<Mersenne31>(&mut src, &vec![0u8; 260]); // canonicalize
             trace::clear();
             x86::mersenne31::add_assign_avx2(token, &mut dst, &src);
-            assert_vector_work(Backend::V3);
+            assert_vector_work_in(Backend::V3, 49, 65);
         }
         drive_prime::<Goldilocks, u64>(
             GLD_LENS,
@@ -4888,7 +4887,7 @@ mod x86 {
             prime::add_assign::<Goldilocks>(&mut src, &vec![0u8; 264]);
             trace::clear();
             x86::goldilocks::add_assign_avx2(token, &mut dst, &src);
-            assert_vector_work(Backend::V3);
+            assert_vector_work_in(Backend::V3, 25, 33);
         }
     }
 
@@ -5047,7 +5046,7 @@ mod x86 {
             let mut src = noise(260, 0xa1);
             prime::add_assign::<Mersenne31>(&mut src, &vec![0u8; 260]);
             x86::mersenne31::add_assign_sse42(token, &mut dst, &src);
-            assert_vector_work(Backend::V2);
+            assert_vector_work_in(Backend::V2, 57, 65);
         }
     }
     /// Non-canonical lanes through every prime entry: buffers whose lanes
@@ -5961,19 +5960,19 @@ mod x86 {
                 let mut got1 = base.clone();
                 trace::clear();
                 x86::quad_mersenne31::mul_add_avx512(token, &mut got1, coeff, &src);
-                assert_vector_work(Backend::V4x);
+                assert_vector_work_in(Backend::V4x, 17, 33);
                 drop(got1);
 
                 let mut got2 = vec![0u8; vlen];
                 trace::clear();
                 x86::quad_mersenne31::mul_into_avx512(token, &mut got2, coeff, &src);
-                assert_vector_work(Backend::V4x);
+                assert_vector_work_in(Backend::V4x, 17, 33);
                 drop(got2);
 
                 let mut got3 = vec![0u8; vlen];
                 trace::clear();
                 x86::quad_mersenne31::mul_elementwise_avx512(token, &mut got3, &src, &other);
-                assert_vector_work(Backend::V4x);
+                assert_vector_work_in(Backend::V4x, 17, 33);
                 drop(got3);
             }
             // The AVX-512 QM31 family covers the multiply shapes; the
