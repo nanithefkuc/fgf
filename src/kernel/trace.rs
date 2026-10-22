@@ -19,6 +19,8 @@ use crate::kernel::Backend;
 /// What one counted [`Entry::work`] unit means.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[allow(dead_code)]
+/// The vocabulary is closed; variants without a current emission site still
+/// appear in ledger work rules, so the enum is not dead.
 pub(crate) enum Unit {
     /// Field elements processed through vector lanes.
     Elements,
@@ -33,6 +35,8 @@ pub(crate) enum Unit {
 /// Semantic substage of the arithmetic.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[allow(dead_code)]
+/// Closed vocabulary consumed by the route ledger; not every substage has a
+/// current emission site.
 pub(crate) enum Substage {
     Add,
     Sub,
@@ -54,6 +58,7 @@ pub(crate) enum Substage {
 /// Semantic enclosing operation for composed bodies.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[allow(dead_code)]
+/// Closed vocabulary consumed by the route ledger.
 pub(crate) enum Scope {
     Inverse,
     Division,
@@ -67,6 +72,7 @@ pub(crate) enum Scope {
 /// Independently required pass inside a semantic scope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[allow(dead_code)]
+/// Closed vocabulary consumed by the route ledger.
 pub(crate) enum Pass {
     Main,
     Prefix,
@@ -161,7 +167,6 @@ impl Drop for ScopeGuard {
 ///
 /// Scalar reports 0; other x86 tiers order by capability. Non-x86 variants
 /// report scalar strength.
-#[allow(dead_code)]
 pub(crate) fn strength(tier: Backend) -> u8 {
     match tier {
         Backend::V4x => 4,
