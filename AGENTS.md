@@ -147,9 +147,7 @@ in kernel tests.
 The canonical machine-readable SIMD route ledger is `benches/simd_ledger.json`,
 validated by `benches/simd_ledger.py`. It is distinct from the unsafe residue
 ledger below. SIMD kernel, routing, and ledger PRs follow the contributor policy
-in `CONTRIBUTING.md`. A coverage-acceptance trace records vector execution under
-`cfg(test)` without changing production dispatch; this is a narrow exception to
-the prohibition on implementation-wiring tests.
+in `CONTRIBUTING.md`.
 
 ## Residue ledger
 

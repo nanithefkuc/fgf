@@ -84,7 +84,8 @@ REJECT_CODES = frozenset({
     "receipt_no_result", "fail_receipt", "skip_receipt",
     "unknown_result", "missing_required",
     "receipt_process_mismatch", "receipt_field_mismatch",
-    "receipt_obligation_mismatch",
+    "receipt_required_mismatch", "receipt_min_serving_mismatch",
+    "receipt_cell_missing", "receipt_obligation_mismatch",
 })
 
 
@@ -340,23 +341,46 @@ def _validate_callables(ledger: dict, rustdoc: Path | None = None) -> None:
 
 
 def _validate_map_construction(rid: str, rule: dict, fix: dict) -> None:
-    """Validate map power and caller-image data declared on a rule or fixture."""
+    """Validate map power and caller-image byte encodings."""
     if rule.get("group") not in ("map", "map_bits"):
         return
     power = fix.get("power", rule.get("power"))
     if power is not None and (
             not isinstance(power, int) or isinstance(power, bool) or power < 0):
         _fail(f"rule {rid!r}: fixture {fix.get('id')!r} power must be a non-negative integer")
+
+    target_width = fix.get("target_elem_bytes", rule.get("target_elem_bytes"))
+    declared_width = rule.get("target_width_bytes")
+    if (rule.get("group") == "map_bits" and declared_width is not None
+            and declared_width != target_width):
+        _fail(f"rule {rid!r}: fixture {fix.get('id')!r} target_elem_bytes "
+              f"{target_width} differs from target_width_bytes {declared_width}")
+
+    construction = rule.get("construction")
     images = fix.get("images", rule.get("images"))
     if images is None:
+        if construction == "images":
+            _fail(f"rule {rid!r}: fixture {fix.get('id')!r} declares image "
+                  f"construction without image encodings")
         return
     if not isinstance(images, list):
         _fail(f"rule {rid!r}: fixture {fix.get('id')!r} images must be a list")
+    if construction == "structural" and images:
+        _fail(f"rule {rid!r}: fixture {fix.get('id')!r} is structural but "
+              f"declares caller images")
     for image in images:
-        if (not isinstance(image, int) or isinstance(image, bool)
-                or image < 0 or image > (1 << 64) - 1):
+        if not isinstance(image, list) or not image:
             _fail(f"rule {rid!r}: fixture {fix.get('id')!r} image {image!r} "
-                  f"is not a u64 raw value")
+                  f"is not a non-empty byte list")
+        for byte in image:
+            if (not isinstance(byte, int) or isinstance(byte, bool)
+                    or byte < 0 or byte > 0xFF):
+                _fail(f"rule {rid!r}: fixture {fix.get('id')!r} image byte "
+                      f"{byte!r} is not in 0..=255")
+        if (isinstance(target_width, int) and not isinstance(target_width, bool)
+                and target_width > 0 and len(image) != target_width):
+            _fail(f"rule {rid!r}: fixture {fix.get('id')!r} image has "
+                  f"{len(image)} bytes, target_elem_bytes is {target_width}")
 
 
 def _validate_rules(ledger: dict) -> dict:
@@ -398,8 +422,25 @@ def _validate_rules(ledger: dict) -> dict:
                         and isinstance(fix.get("target"), str) and fix["target"])
             if not has_type and not has_pair:
                 _fail(f"rule {rid!r}: fixture {fid!r} missing type or source/target pair")
+            if "needs_spec" in fix:
+                _fail(f"rule {rid!r}: fixture {fid!r} uses the removed "
+                      f"needs_spec key; declare spec only")
+            for degree_key in ("degree", "relative_degree"):
+                value = fix.get(degree_key)
+                if (not isinstance(value, int) or isinstance(value, bool)
+                        or value <= 0):
+                    _fail(f"rule {rid!r}: fixture {fid!r} {degree_key} "
+                          f"must be a positive integer")
             # Widths feed budget conversion directly, so a declared width is
-            # validated on both sides of a width-changing map.
+            # validated on both sides of a width-changing map. Map fixtures
+            # carry no width default.
+            if group in ("map", "map_bits"):
+                for width_key in ("elem_bytes", "target_elem_bytes"):
+                    value = fix.get(width_key)
+                    if (not isinstance(value, int) or isinstance(value, bool)
+                            or value <= 0):
+                        _fail(f"rule {rid!r}: fixture {fid!r} {width_key} "
+                              f"must be a positive integer")
             for width_key in ("elem_bytes", "target_elem_bytes"):
                 if width_key not in fix:
                     continue
@@ -526,10 +567,9 @@ def _validate_work_rules(ledger: dict) -> dict:
         except ValueError as e:
             _fail(f"work_rule {name!r}: invalid loss_bytes expression: {e}")
 
-        # extra_loss is optional and is a Rust const path
-        extra_loss = rule.get("extra_loss")
-        if extra_loss is not None and (not isinstance(extra_loss, str) or not extra_loss):
-            _fail(f"work_rule {name!r}: extra_loss must be a non-empty string")
+        if "extra_loss" in rule:
+            _fail(f"work_rule {name!r}: extra_loss is not part of the schema; "
+                  f"route geometries must exceed the live crossover floor")
 
         if "justification" not in rule:
             _fail(f"work_rule {name!r}: missing justification")
@@ -755,75 +795,64 @@ VALID_COEFF_VARIANTS = frozenset({"General", "Zero", "One"})
 VALID_REFERENCES = frozenset({"elem-arith", "map-compact", "bits-scalar"})
 
 
-_FIELD_TYPE_SHAPE = re.compile(r"FiniteField\s*<\s*(\d+)\s*,\s*(\d+)")
+_TYPE_CHARACTERISTIC = re.compile(
+    r"FiniteField\s*<\s*(0[xX][0-9A-Fa-f_]+|\d[\d_]*)")
 
 
-def _field_type_shape(text: str | None) -> tuple[int | None, int | None]:
-    """Characteristic and degree carried by a ``FiniteField`` type expression."""
-    match = _FIELD_TYPE_SHAPE.search(text or "")
+def _type_characteristic(text: str | None) -> int | None:
+    """Characteristic named by a ``FiniteField`` type expression."""
+    match = _TYPE_CHARACTERISTIC.search(text or "")
     if not match:
-        return (None, None)
-    return (int(match.group(1)), int(match.group(2)))
+        return None
+    return int(match.group(1).replace("_", ""), 0)
 
 
 def _fixture_metadata(fixture: dict, rule: dict) -> dict[str, int]:
     """Resolve one fixture's width and arithmetic metadata once.
 
-    Fixture-declared values win, then the fixture's own type expression, then
-    rule fallbacks. Unknown degree or characteristic values are omitted so an
-    expression naming them fails evaluation instead of reading a guess.
+    Degree and relative degree come from the fixture's explicit metadata;
+    type text only supplies the characteristic when no fixture or rule field
+    declares it.
     """
     fixture = fixture or {}
     rule = rule or {}
     ftype = fixture.get("type") or fixture.get("source")
-    type_char, type_degree = _field_type_shape(ftype if isinstance(ftype, str) else None)
 
     characteristic = fixture.get("characteristic")
     if not isinstance(characteristic, int) or isinstance(characteristic, bool):
-        characteristic = type_char
-    if characteristic is None:
         rule_char = rule.get("characteristic")
-        if isinstance(rule_char, int) and not isinstance(rule_char, bool):
-            characteristic = rule_char
+        characteristic = (rule_char if isinstance(rule_char, int)
+                          and not isinstance(rule_char, bool) else None)
+    if characteristic is None:
+        characteristic = _type_characteristic(
+            ftype if isinstance(ftype, str) else None)
 
     degree = fixture.get("degree")
-    if not isinstance(degree, int) or isinstance(degree, bool):
-        degree = type_degree
-    if degree is None:
-        spec = fixture.get("spec")
-        spec_degree = spec.get("degree") if isinstance(spec, dict) else None
-        rule_degree = rule.get("degree")
-        if isinstance(spec_degree, int) and not isinstance(spec_degree, bool):
-            if isinstance(rule_degree, int) and not isinstance(rule_degree, bool):
-                degree = rule_degree * spec_degree
-            else:
-                degree = spec_degree
-        elif isinstance(rule_degree, int) and not isinstance(rule_degree, bool):
-            degree = rule_degree
+    relative_degree = fixture.get("relative_degree")
+    for key, value in (("degree", degree),
+                       ("relative_degree", relative_degree)):
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            _fail(f"fixture {fixture.get('id')!r}: {key} must be a "
+                  f"positive integer")
 
-    elem_bytes = fixture.get("elem_bytes", rule.get("elem_bytes", 1))
-    target_elem_bytes = fixture.get(
-        "target_elem_bytes",
-        rule.get("target_elem_bytes",
-                 rule.get("target_width_bytes",
-                          fixture.get("elem_bytes", rule.get("elem_bytes", 1)))))
-    # Bit-packed rows name one element per bit; every other row counts one
-    # element every eight storage bits. The declaration wins, so a rule can
-    # state the element width without implying a byte per element.
     group = rule.get("group")
-    source_bits = 1 if group in ("bits", "map_bits") else 8 * elem_bytes
-    elem_bits = fixture.get("elem_bits", rule.get("elem_bits", source_bits))
-    target_elem_bits = fixture.get(
-        "target_elem_bits",
-        rule.get("target_elem_bits", 8 * target_elem_bytes))
+    if group in ("map", "map_bits"):
+        elem_bytes = fixture.get("elem_bytes")
+        target_elem_bytes = fixture.get("target_elem_bytes")
+        if elem_bytes is None or target_elem_bytes is None:
+            _fail(f"fixture {fixture.get('id')!r}: map fixtures declare "
+                  f"elem_bytes and target_elem_bytes")
+    else:
+        elem_bytes = fixture.get("elem_bytes", rule.get("elem_bytes", 1))
+        target_elem_bytes = fixture.get(
+            "target_elem_bytes",
+            rule.get("target_elem_bytes",
+                     fixture.get("elem_bytes", rule.get("elem_bytes", 1))))
 
     meta: dict[str, int] = {
         "elem_bytes": elem_bytes,
         "target_elem_bytes": target_elem_bytes,
-        "elem_bits": elem_bits,
-        "target_elem_bits": target_elem_bits,
-        "relative_degree": fixture.get("relative_degree",
-                                       rule.get("relative_degree", 1)),
+        "relative_degree": relative_degree,
         "power": fixture.get("power", rule.get("power", 1)),
         "words": fixture.get("words", max(1, math.ceil(elem_bytes / 8))),
     }
@@ -834,7 +863,15 @@ def _fixture_metadata(fixture: dict, rule: dict) -> dict[str, int]:
     return meta
 
 
-def _geometry_family(call_family: str) -> str:
+def _is_gather_shape(call_name: str, call_family: str) -> bool:
+    """Whether a callable folds several sources into one destination."""
+    return (call_family in ("ops/gather", "bits/gather")
+            or "gather" in call_name.split("::")[-1])
+
+
+def _geometry_family(call_family: str, call_name: str = "") -> str:
+    if call_family == "bits" and _is_gather_shape(call_name, call_family):
+        return "bits-gather"
     mapping = {
         "ops/row": "single-row",
         "ops/scatter": "scatter",
@@ -887,9 +924,10 @@ def _slot_count_for(call_name: str, call_family: str, geo: dict) -> int:
         return rows
     return rows * sources
 
-def _select_geometry_for_family(geos: dict, call_family: str) -> tuple[str, dict] | None:
-    """One vector-eligible geometry per callable family."""
-    want = _geometry_family(call_family)
+def _select_geometry_for_family(geos: dict, call_family: str,
+                                call_name: str = "") -> tuple[str, dict] | None:
+    """One vector-eligible geometry per callable family and shape."""
+    want = _geometry_family(call_family, call_name)
     for geo_id, geo in sorted(geos.items()):
         if geo.get("family", "") == want:
             return (geo_id, geo)
@@ -994,7 +1032,7 @@ def cases(ledger: dict, expanded: dict | None = None) -> list[dict]:
             _fail(f"obligation {oid!r}: unknown rule {rule_id!r}")
         call_family = callable_families.get(call_name, "")
         takes = _callable_takes_coefficient(call_name, call_family)
-        geo_sel = _select_geometry_for_family(geos, call_family)
+        geo_sel = _select_geometry_for_family(geos, call_family, call_name)
         if geo_sel is None:
             if takes:
                 _fail(f"obligation {oid!r}: no geometry for family {call_family!r}")
@@ -1031,13 +1069,15 @@ def cases(ledger: dict, expanded: dict | None = None) -> list[dict]:
                     "pattern": cp,
                     "cells": cells,
                     "cell_work": _resolve_case_work(
-                        case_id, oid, cells, wrules, isa, meta, geo, cp),
+                        case_id, oid, cells, wrules, isa, meta, geo, cp,
+                        gather=_is_gather_shape(call_name, call_family)),
                 })
     return out
 
 
 def _resolve_case_work(case_id: str, oid: str, cells: dict, wrules: dict,
-                       isa: dict, meta: dict, geo: dict, pattern: dict) -> dict:
+                       isa: dict, meta: dict, geo: dict, pattern: dict,
+                       gather: bool = False) -> dict:
     """Resolve every referenced work rule for one case and validate its budget."""
     resolved: dict[str, list[dict]] = {}
     for key, cell in sorted(cells.items()):
@@ -1048,7 +1088,7 @@ def _resolve_case_work(case_id: str, oid: str, cells: dict, wrules: dict,
             if not isinstance(wr, dict):
                 continue
             try:
-                item = _resolve_work(wr, geo, meta, req, isa, pattern)
+                item = _resolve_work(wr, geo, meta, req, isa, pattern, gather)
             except ValueError as exc:
                 _fail(f"obligation {oid!r} cell {key!r} case {case_id!r}: "
                       f"work rule {wr_name!r}: {exc}")
@@ -1366,27 +1406,45 @@ def _validate_rule_references(ledger: dict) -> None:
                 _fail(f"rule {rid!r}: fixture {fix.get('id')!r} has unknown reference {ref!r}")
 
 
+def _route_claim_mismatch(rec: dict, case: dict, features: str,
+                          request: str) -> str | None:
+    """Compare one receipt's route claims with the case's cell."""
+    cell = case.get("cells", {}).get(f"{features}/{request}")
+    if not isinstance(cell, dict):
+        return "receipt_cell_missing"
+    if rec.get("process") != cell.get("process"):
+        return "receipt_process_mismatch"
+    if rec.get("field") != cell.get("field"):
+        return "receipt_field_mismatch"
+    if rec.get("required") != cell.get("required"):
+        return "receipt_required_mismatch"
+    if "min_serving" in rec and rec["min_serving"] != cell.get("min_serving"):
+        return "receipt_min_serving_mismatch"
+    return None
+
+
 def _check_full_references(ledger: dict, expanded: dict, case_list_derived: list[dict],
                            test_names: set[str], runner_case_ids: set[str],
                            surface_ids: set[str], records: Path | None) -> None:
     """Resolve every citation against runner, test, and benchmark inventories."""
     refs = _ledger_references(ledger)
-    generated_ids = {c["id"] for c in case_list_derived}
-    cited_cases = refs.get("cases", [])
-    for cid in cited_cases:
-        if cid not in runner_case_ids and cid not in generated_ids:
-            _fail(f"reference case {cid!r} is in neither the runner case list nor generated cases")
+    for cid in refs.get("cases", []):
+        # A generated case is only resolved when the runner also printed it.
+        if cid not in runner_case_ids:
+            _fail(f"reference case {cid!r} is not in the runner case list")
     for tid in refs.get("tests", []):
         if tid not in test_names:
             _fail(f"reference test {tid!r} is not in the test list")
     for bid in refs.get("bench", []):
         if bid not in surface_ids:
             _fail(f"reference bench {bid!r} is not in the surface inventory")
-    _check_evidence_citations(ledger, expanded, case_list_derived, records)
+    _check_evidence_citations(ledger, expanded, case_list_derived, records,
+                              runner_case_ids)
 
 
 def _check_evidence_citations(ledger: dict, expanded: dict, case_list_derived: list[dict],
-                             records: Path | None) -> None:
+                             records: Path | None,
+                             runner_case_ids: set[str] | None = None) -> None:
     """Evidence entries cite complete, consistent record identities.
 
     Every receipt in a record, cited or not, must carry the same complete
@@ -1461,6 +1519,9 @@ def _check_evidence_citations(ledger: dict, expanded: dict, case_list_derived: l
             citation_identity = _evidence_identity(cited, "citation", ev_id)
             if rid not in by_case:
                 _fail(f"evidence {ev_id!r}: cited receipt {rid!r} is not a generated case")
+            if runner_case_ids is not None and rid not in runner_case_ids:
+                _fail(f"evidence {ev_id!r}: cited receipt {rid!r} is not in "
+                      f"the runner case list")
             rec = by_rid.get(rid)
             if rec is None:
                 _fail(f"evidence {ev_id!r}: cited receipt {rid} missing")
@@ -1474,6 +1535,10 @@ def _check_evidence_citations(ledger: dict, expanded: dict, case_list_derived: l
                 if receipt_identity[field] != citation_identity[field]:
                     _fail(f"evidence {ev_id!r}: receipt {rid} {field} "
                           f"differs from its citation")
+            code = _route_claim_mismatch(rec, case, receipt_identity["features"],
+                                         receipt_identity["request"])
+            if code is not None:
+                _fail(f"evidence {ev_id!r}: cited receipt {rid} {code}")
 
 
 # ---------------------------------------------------------------------------
@@ -1570,10 +1635,20 @@ def _active_rows_count(geo: dict, coeff_pattern: dict) -> int:
     return count
 
 
-def _multiplicity_count(mult: str, geo: dict, coeff_pattern: dict) -> int:
+def _multiplicity_count(mult: str, geo: dict, coeff_pattern: dict,
+                        gather: bool = False) -> int:
     if mult == "Rows":
         return geo.get("rows", 1)
     if mult == "ActiveRows":
+        slots = coeff_pattern.get("slots", [])
+        if gather:
+            # A gather folds selected sources: coefficients name sources,
+            # and a coefficient-free callable selects every source.
+            if not slots:
+                return geo.get("sources", 1)
+            return sum(1 for slot in slots if slot in ("General", "One"))
+        if not slots:
+            return geo.get("rows", 1)
         return _active_rows_count(geo, coeff_pattern)
     if mult == "ActivePairs":
         return _count_active_pairs(coeff_pattern)
@@ -1582,16 +1657,14 @@ def _multiplicity_count(mult: str, geo: dict, coeff_pattern: dict) -> int:
     return 1  # One
 
 
-def _loss_in_units(unit: str, loss_bytes: int, elem_bytes: int,
-                   elem_bits: int | None = None) -> int:
+def _loss_in_units(unit: str, loss_bytes: int, elem_bytes: int) -> int:
     """Convert loss_bytes to the work rule's unit. Loss rounds up (ceil)."""
     if loss_bytes <= 0:
         return 0
     if unit == "Bytes":
         return loss_bytes
     if unit == "Bits":
-        bits = elem_bits if elem_bits is not None else 8 * elem_bytes
-        return math.ceil(loss_bytes * 8 / max(1, bits))
+        return loss_bytes * 8
     if unit == "Words":
         return math.ceil(loss_bytes / 8)
     if elem_bytes <= 1:
@@ -1599,14 +1672,12 @@ def _loss_in_units(unit: str, loss_bytes: int, elem_bytes: int,
     return math.ceil(loss_bytes / elem_bytes)
 
 
-def _lane_in_units(unit: str, lane_bytes: int, elem_bytes: int,
-                   elem_bits: int | None = None) -> int:
+def _lane_in_units(unit: str, lane_bytes: int, elem_bytes: int) -> int:
     """Convert lane_bytes to the work rule's unit. Lane rounds down (floor)."""
     if unit == "Bytes":
         return lane_bytes
     if unit == "Bits":
-        bits = elem_bits if elem_bits is not None else 8 * elem_bytes
-        return max(1, lane_bytes * 8 // max(1, bits))
+        return lane_bytes * 8
     if unit == "Words":
         return max(1, lane_bytes // 8)
     if elem_bytes <= 1:
@@ -1622,16 +1693,19 @@ def _compute_loss_bytes(wr: dict, lane: int, fixture_vars: dict) -> int:
     return _evaluate_expr(expr, variables)
 
 
-def _length_in_units(unit: str, elements: int, elem_bytes: int,
-                     elem_bits: int | None = None) -> int:
-    """Convert a geometry's element length to the work rule's unit."""
+def _length_in_units(unit: str, elements: int, elem_bytes: int) -> int:
+    """Convert a geometry's length to the work rule's unit.
+
+    A ``Bits`` geometry is already measured in bits; the element width only
+    converts lane and loss for the byte-based work rules. Other units measure
+    the geometry's element count.
+    """
     if unit == "Elements":
+        return elements
+    if unit == "Bits":
         return elements
     if unit == "Bytes":
         return elements * elem_bytes
-    if unit == "Bits":
-        bits = elem_bits if elem_bits is not None else 8 * elem_bytes
-        return elements * bits
     if unit == "Words":
         return max(1, elements * elem_bytes // 8)
     raise ValueError(f"unknown work unit: {unit!r}")
@@ -1639,7 +1713,8 @@ def _length_in_units(unit: str, elements: int, elem_bytes: int,
 
 def _resolve_work(work_rule: dict, geo: dict, meta: dict,
                   tier: str, isa: dict,
-                  coeff_pattern: dict | None = None) -> dict:
+                  coeff_pattern: dict | None = None,
+                  gather: bool = False) -> dict:
     """Resolve one Work item for a case: lane, loss, iterations, and budget.
 
     ``basis: Target`` converts the geometry length and the loss with the
@@ -1648,18 +1723,16 @@ def _resolve_work(work_rule: dict, geo: dict, meta: dict,
     basis = work_rule["basis"]
     unit = work_rule["unit"]
     width_eb = meta["target_elem_bytes"] if basis == "Target" else meta["elem_bytes"]
-    width_bits = (meta["target_elem_bits"] if basis == "Target"
-                  else meta["elem_bits"])
     lane_bytes = (isa.get("lane_bytes", {}) or {}).get(tier) if isa else None
     if not isinstance(lane_bytes, int) or lane_bytes <= 0:
         raise ValueError(f"no lane width for tier {tier!r}")
     loss_bytes = _compute_loss_bytes(work_rule, lane_bytes, meta)
     iterations = _work_iterations(work_rule, meta)
-    lane = _lane_in_units(unit, lane_bytes, width_eb, width_bits)
-    loss = _loss_in_units(unit, loss_bytes, width_eb, width_bits)
-    length = _length_in_units(unit, geo.get("len", 0), width_eb, width_bits)
+    lane = _lane_in_units(unit, lane_bytes, width_eb)
+    loss = _loss_in_units(unit, loss_bytes, width_eb)
+    length = _length_in_units(unit, geo.get("len", 0), width_eb)
     count = _multiplicity_count(work_rule["multiplicity"], geo,
-                                coeff_pattern or {"slots": []})
+                                coeff_pattern or {"slots": []}, gather)
     scope = work_rule.get("scope")
     return {
         "substage": work_rule["substage"],
@@ -1755,27 +1828,6 @@ def _adapter_for(call_name: str, fixture: dict, rule: dict,
     return (adapter, fn, type_args)
 
 
-_LONG_DECIMAL = re.compile(r"(?<![\w])(\d{5,})(?![\w])")
-
-
-def _readable_literals(text: str) -> str:
-    """Separate long decimal literals so generated Rust passes the lint.
-
-    Only standalone decimal runs are touched: a literal with a radix prefix
-    or an existing separator keeps its spelling.
-    """
-    def grouped(match: re.Match[str]) -> str:
-        digits = match.group(1)
-        parts: list[str] = []
-        while len(digits) > 3:
-            parts.insert(0, digits[-3:])
-            digits = digits[:-3]
-        parts.insert(0, digits)
-        return "_".join(parts)
-
-    return _LONG_DECIMAL.sub(grouped, text)
-
-
 def _work_const(name: str, key: tuple) -> list[str]:
     """Render one ``const Work`` value from a resolved work tuple."""
     substage, scope, unit, basis, mult, lane, loss, iterations = key
@@ -1819,11 +1871,11 @@ def _cells_const(name: str, cells_key: tuple) -> list[str]:
     return lines
 
 
-def _map_spec(rule: dict, fixture: dict) -> tuple[int, list[int]]:
+def _map_spec(rule: dict, fixture: dict) -> tuple[int, list[list[int]]]:
     """Resolve a map case's construction data from the fixture, then the rule."""
     power = fixture.get("power", rule.get("power", 0))
     images = fixture.get("images", rule.get("images", []))
-    return (int(power), [int(value) for value in images])
+    return (int(power), [[int(byte) for byte in image] for image in images])
 
 
 def _generate_cases(ledger: dict) -> str:
@@ -1918,11 +1970,13 @@ def _generate_cases(ledger: dict) -> str:
         map_expr = "None"
         if rule.get("group") in ("map", "map_bits"):
             power, images = _map_spec(rule, fixture)
-            map_key = (power, tuple(images))
+            map_key = (power, tuple(tuple(image) for image in images))
             if map_key not in map_defs:
                 name = f"MAP_{len(map_defs)}"
                 map_defs[map_key] = name
-                images_expr = ", ".join(_readable_literals(str(value)) for value in images)
+                images_expr = ", ".join(
+                    "&[" + ", ".join(str(byte) for byte in image) + "]"
+                    for image in images)
                 map_lines.extend([
                     "#[rustfmt::skip]",
                     f"const {name}: MapSpec = MapSpec {{ power: {power}, "
@@ -1933,7 +1987,7 @@ def _generate_cases(ledger: dict) -> str:
 
         family = callable_families.get(call_name, "")
         adapter, fn, type_args = _adapter_for(call_name, fixture, rule, family)
-        run_fn = f"super::{adapter}::{fn}::<{_readable_literals(type_args)}>"
+        run_fn = f"super::{adapter}::{fn}::<{type_args}>"
         if run_fn not in run_defs:
             name = f"RUN_{len(run_defs)}"
             run_defs[run_fn] = name
@@ -2135,13 +2189,11 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
         if request_raw != request:
             _fail(f"accept: reject receipt_request_mismatch {cid}")
 
-        # Process, field, and required expectations come from the case's
-        # cell, never from the receipt.
-        cell = case["cells"].get(f"{features}/{request}", {})
-        if "process" in cell and rec.get("process") != cell["process"]:
-            _fail(f"accept: reject receipt_process_mismatch {cid}")
-        if "field" in cell and rec.get("field") != cell["field"]:
-            _fail(f"accept: reject receipt_field_mismatch {cid}")
+        # Process, field, required, and min-serving expectations come from
+        # the case's cell, never from the receipt.
+        code = _route_claim_mismatch(rec, case, features, request)
+        if code is not None:
+            _fail(f"accept: reject {code} {cid}")
 
         result = rec.get("result")
         if not isinstance(result, str):
@@ -2168,54 +2220,129 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
 # Fixture compilation check
 # ---------------------------------------------------------------------------
 
+FIXTURE_MARKER = re.compile(
+    r"crate::kernel::tests::routes::fixtures::(\w+)")
+
+
+def _scratch_type(text: str) -> str:
+    """A ledger type expression rooted in the scratch crate."""
+    text = FIXTURE_MARKER.sub(r"crate::\1", text)
+    return text.replace("crate::field::", "fgf::field::")
+
+
+def _spec_marker(text: str) -> str | None:
+    """The first route-fixture marker named by a type expression."""
+    found = FIXTURE_MARKER.findall(text or "")
+    return found[0] if found else None
+
+
+def _spec_relation(spec: dict) -> str:
+    """A const relation constructor appropriate to the spec's base field."""
+    base = _scratch_type(spec["base"])
+    values = ", ".join(str(value) for value in spec["relation"])
+    characteristic = _type_characteristic(spec["base"])
+    if characteristic == 2:
+        return (f"fgf::Relation::from_binary_words::<{base}>"
+                f"(&[{values}])")
+    return f"fgf::Relation::from_coordinates(&[{values}])"
+
+
 def cmd_fixtures(ledger: dict, out_dir: Path) -> int:
     """Write a scratch crate with all fixture types and compile-check them."""
     rules = _validate_rules(ledger)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    shipped_types: set[str] = set()
+    type_widths: dict[str, set[int]] = {}
     map_fixtures: list[dict] = []
-    custom_specs: list[dict] = []
+    specs: dict[str, dict] = {}
+    used_types: list[str] = []
+    valid_types: set[str] = set()
+
+    def want(text: str, width: int | None, buffer: bool = True) -> str:
+        scratch = _scratch_type(text)
+        used_types.append(text)
+        valid_types.add(scratch)
+        if buffer and isinstance(width, int) and width > 0:
+            type_widths.setdefault(scratch, set()).add(width)
+        return scratch
 
     for rid, rule in sorted(rules.items()):
         group = rule.get("group", "")
         for fix in rule.get("fixtures", []):
-            if fix.get("needs_spec"):
-                custom_specs.append({
-                    "id": fix["id"],
-                    "rule": rid,
-                    "type": fix.get("type", ""),
-                    "spec": fix["needs_spec"],
-                })
-            elif group == "map":
+            if "spec" in fix:
+                own = fix.get("target") if group in ("map", "map_bits") else fix.get("type")
+                marker = (_spec_marker(own or "")
+                          or _spec_marker(fix.get("type") or fix.get("source") or ""))
+                if marker is None:
+                    _fail(f"rule {rid!r}: fixture {fix.get('id')!r} declares a "
+                          f"spec but no route-fixture marker")
+                structural = {key: fix["spec"].get(key)
+                              for key in ("base", "degree", "relation", "storage")}
+                structural["name"] = marker
+                if marker in specs and specs[marker] != structural:
+                    _fail(f"fixture marker {marker} has conflicting spec data")
+                specs[marker] = structural
+
+            if group in ("map", "map_bits"):
+                src = fix["source"]
+                tgt = fix["target"]
+                # A degree-one binary source has no FieldBuffer; its width is
+                # still a declared fixture fact and its field validity holds.
+                src_buffer = not re.search(r"FiniteField<\s*2\s*,\s*1\s*,",
+                                           src)
+                src_t = want(src, fix["elem_bytes"], buffer=src_buffer)
+                tgt_t = want(tgt, fix["target_elem_bytes"])
                 kind = rule.get("kind", "")
-                src = fix.get("source", "")
-                tgt = fix.get("target", "")
-                if kind == "frobenius":
-                    ptype = f"fgf::Frobenius<{src.replace('crate::', 'fgf::')}>"
-                elif kind == "embedding":
-                    ptype = f"fgf::PreparedEmbedding<{src.replace('crate::', 'fgf::')}, {tgt.replace('crate::', 'fgf::')}>"
+                if group == "map_bits" or kind == "embedding":
+                    ptype = f"fgf::PreparedEmbedding<{src_t}, {tgt_t}>"
                 elif kind == "isomorphism":
-                    ptype = f"fgf::PreparedIsomorphism<{src.replace('crate::', 'fgf::')}, {tgt.replace('crate::', 'fgf::')}>"
+                    ptype = f"fgf::PreparedIsomorphism<{src_t}, {tgt_t}>"
+                elif kind == "frobenius":
+                    ptype = f"fgf::Frobenius<{src_t}>"
                 else:
-                    continue
-                map_fixtures.append({"id": fix["id"], "source": src, "target": tgt, "prepared_type": ptype})
-            elif group == "map_bits":
-                src = fix.get("source", "")
-                tgt = fix.get("target", "")
-                if src and tgt:
-                    ptype = f"fgf::PreparedEmbedding<{src.replace('crate::', 'fgf::')}, {tgt.replace('crate::', 'fgf::')}>"
-                    map_fixtures.append({"id": fix.get("id", ""), "source": src, "target": tgt, "prepared_type": ptype})
+                    ptype = None
+                if ptype is not None:
+                    map_fixtures.append({"id": fix.get("id", ""),
+                                         "prepared_type": ptype})
+            elif group == "bits":
+                continue
             elif group == "packed" and rule.get("non_bulk"):
-                pass
+                continue
+            elif group == "binary_flat" and rid == "binary-flat-sub8":
+                continue
             else:
-                if group == "binary_flat" and rid == "binary-flat-sub8":
-                    continue
-                if group == "bits":
-                    continue
-                ftype = fix.get("type", fix.get("source", ""))
-                if ftype and "crate::" in ftype:
-                    shipped_types.add(ftype)
+                ftype = fix.get("type") or fix.get("source")
+                if isinstance(ftype, str) and ftype:
+                    want(ftype, fix.get("elem_bytes"))
+
+    referenced: set[str] = set()
+    for text in used_types:
+        referenced |= set(FIXTURE_MARKER.findall(text))
+    for spec in specs.values():
+        referenced |= set(FIXTURE_MARKER.findall(spec["base"]))
+    missing = referenced - set(specs)
+    if missing:
+        _fail(f"fixtures reference undefined custom specs: {sorted(missing)}")
+
+    spec_lines: list[str] = []
+    for marker in sorted(specs):
+        spec = specs[marker]
+        storage = spec["storage"]
+        if "<" not in storage:
+            storage = f"fgf::{storage}"
+        else:
+            head, _, tail = storage.partition("<")
+            storage = f"fgf::{head}<{tail}"
+        spec_lines.extend([
+            f"struct {marker};",
+            f"impl fgf::ExtensionSpec<{spec['degree']}> for {marker} {{",
+            f"    type Base = {_scratch_type(spec['base'])};",
+            f"    type Storage = {storage};",
+            f"    const NAME: &'static str = {json.dumps(spec.get('name', ''))};",
+            f"    const RELATION: fgf::Relation = {_spec_relation(spec)};",
+            "}",
+            "",
+        ])
 
     cargo_toml = f"""[package]
 name = "ledger-fixtures"
@@ -2231,20 +2358,28 @@ fgf = {{ path = "{Path(__file__).parent.parent}", features = ["alloc"] }}
     src_dir = out_dir / "src"
     src_dir.mkdir(parents=True, exist_ok=True)
 
-    main_lines = ["fn main() {"]
-    main_lines.append("    fn _assert_field<T: fgf::FieldBuffer>() {}")
-    for t in sorted(shipped_types):
-        rust_type = t.replace("crate::", "fgf::")
-        main_lines.append(f"    _assert_field::<{rust_type}>();")
+    item_lines = ["fn _assert_field_buffer<T: fgf::FieldBuffer>() {}"]
+    for rust_type in sorted(valid_types):
+        item_lines.append(
+            f"const _: () = <{rust_type} as fgf::Field>::VALID;")
+    item_lines.extend(spec_lines)
 
+    main_lines = ["fn main() {"]
+    for rust_type, widths in sorted(type_widths.items()):
+        main_lines.append(f"    _assert_field_buffer::<{rust_type}>();")
+        for width in sorted(widths):
+            main_lines.append(
+                f"    assert_eq!(<{rust_type} as fgf::FieldBuffer>::BYTES, {width});")
     if map_fixtures:
         main_lines.append("")
-        main_lines.append("    // Map fixtures: construct the prepared type to enforce trait bounds.")
+        main_lines.append("    // Map fixtures: type-check the prepared forms.")
         for mf in map_fixtures:
-            main_lines.append(f"    let _ = std::mem::size_of::<{mf['prepared_type']}>();")
-
+            main_lines.append(
+                f"    let _ = core::mem::size_of::<{mf['prepared_type']}>();")
     main_lines.append("}")
-    (src_dir / "main.rs").write_text("\n".join(main_lines) + "\n")
+
+    (src_dir / "main.rs").write_text(
+        "\n".join(item_lines + [""] + main_lines) + "\n")
 
     result = subprocess.run(
         ["cargo", "check"],
@@ -2255,16 +2390,10 @@ fgf = {{ path = "{Path(__file__).parent.parent}", features = ["alloc"] }}
         print(f"Fixture compilation FAILED:\n{result.stderr}")
         return 1
 
-    print(f"Fixture compilation OK: {len(shipped_types)} bulk field types checked via FieldBuffer")
+    print(f"Fixture compilation OK: {len(type_widths)} field types, "
+          f"{len(specs)} custom specs")
     if map_fixtures:
         print(f"  {len(map_fixtures)} map fixture prepared types checked")
-
-    if custom_specs:
-        print(f"\nCustom-spec fixtures the runner must define ({len(custom_specs)}):")
-        for cs in custom_specs:
-            print(f"  {cs['id']} ({cs['rule']}): {cs['type']}")
-            for k, v in cs["spec"].items():
-                print(f"    {k}: {v}")
 
     return 0
 

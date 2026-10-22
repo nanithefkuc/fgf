@@ -10,6 +10,7 @@ its named reason only: inputs are valid in every other respect.
 from __future__ import annotations
 
 import json as json_mod
+import re
 import shutil
 import subprocess
 import sys
@@ -131,7 +132,8 @@ def _good_receipt(obligation="ops::mul_add@gf8-aes", case_id="c1"):
     return {
         "id": case_id, "obligation": obligation,
         "source_id": "src-1", "host_id": "host-1", "features": "default",
-        "request_raw": "v3", "process": "v3", "field": "v3", "result": "pass",
+        "request_raw": "v3", "process": "v3", "field": "v3",
+        "required": True, "result": "pass",
     }
 
 
@@ -146,8 +148,24 @@ def _json(obj):
 
 def _case_ids_from_table(text):
     """Case ids present in a rendered route table."""
-    import re
     return set(re.findall(r'Case \{ id: "([^"]+)"', text))
+
+
+_TOTAL_DEGREE = re.compile(
+    r"FiniteField\s*<\s*(?:0[xX][0-9A-Fa-f_]+|\d+)\s*,\s*(\d+)")
+_EXTENSION_STEP = re.compile(r"Extension\s*<[^,]+,\s*(\d+)\s*>")
+
+
+def _degree_from_type(text):
+    """Total degree named by a FiniteField type expression (hex-safe)."""
+    match = _TOTAL_DEGREE.search(text or "")
+    return int(match.group(1)) if match else None
+
+
+def _step_from_type(text):
+    """Extension step degree named by an Extension type expression."""
+    match = _EXTENSION_STEP.search(text or "")
+    return int(match.group(1)) if match else None
 
 
 
@@ -175,7 +193,7 @@ def _full_tiny() -> dict:
                 "group": "binary_flat", "characteristic": 2, "degree": 8,
                 "presentation": "Polynomial", "elem_bytes": 1,
                 "fixtures": [
-                    {"id": "aes",
+                    {"id": "aes", "degree": 8, "relative_degree": 1,
                      "type": "crate::field::FiniteField<2,8,crate::field::Polynomial<0x11B>>",
                      "elem_bytes": 1, "reference": "elem-arith"},
                 ],
@@ -183,7 +201,8 @@ def _full_tiny() -> dict:
             "mersenne31": {
                 "group": "specialized_prime", "elem_bytes": 4,
                 "fixtures": [
-                    {"id": "m31", "type": "crate::field::Mersenne31",
+                    {"id": "m31", "degree": 1, "relative_degree": 1,
+                     "type": "crate::field::Mersenne31",
                      "elem_bytes": 4, "reference": "elem-arith"},
                 ],
             },
@@ -281,7 +300,8 @@ class TestOnePipeline(unittest.TestCase):
         recs = [{"id": cid, "obligation": cid.split("#")[0],
                  "source_id": "src-1", "host_id": "host-1", "features": "default",
                  "request_raw": "v3", "process": "v3", "field": "v3",
-                 "result": "pass"} for cid in sorted(required)]
+                 "required": True, "result": "pass"}
+                for cid in sorted(required)]
         done = [f"ROUTE_DONE\t{json_mod.dumps(_good_done(len(recs)))}"]
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "log"
@@ -335,7 +355,8 @@ class TestAcceptBindsCase(unittest.TestCase):
         cid = sorted(c["id"] for c in derived if c["id"].startswith("ops::mul_add@gf8-aes#"))[0]
         rec = {"id": cid, "obligation": "unknown-obligation",
                "source_id": "src-1", "host_id": "host-1", "features": "default",
-               "request_raw": "v3", "process": "v3", "field": "v3", "result": "pass"}
+               "request_raw": "v3", "process": "v3", "field": "v3",
+               "required": True, "result": "pass"}
         self.assertEqual(self._audit([rec], self._done(1), ledger),
                          "receipt_obligation_mismatch")
 
@@ -345,7 +366,8 @@ class TestAcceptBindsCase(unittest.TestCase):
         cid = sorted(c["id"] for c in derived if c["id"].startswith("ops::mul_add@gf8-aes#"))[0]
         rec = {"id": cid, "obligation": "ops::add_assign@gf8-aes",
                "source_id": "src-1", "host_id": "host-1", "features": "default",
-               "request_raw": "v3", "process": "v3", "field": "v3", "result": "pass"}
+               "request_raw": "v3", "process": "v3", "field": "v3",
+               "required": True, "result": "pass"}
         code = self._audit([rec], self._done(1), ledger)
         self.assertEqual(code, "receipt_obligation_mismatch")
 
@@ -355,7 +377,8 @@ class TestAcceptBindsCase(unittest.TestCase):
         cid = sorted(c["id"] for c in derived if c["id"].startswith("ops::mul_add@gf8-aes#"))[0]
         rec = {"id": cid, "obligation": "ops::mul_add@gf8-aes",
                "source_id": "src-1", "host_id": "host-1", "features": "default",
-               "request_raw": "v3", "process": "v2", "field": "v3", "result": "pass"}
+               "request_raw": "v3", "process": "v2", "field": "v3",
+               "required": True, "result": "pass"}
         self.assertEqual(self._audit([rec], self._done(1), ledger), "receipt_process_mismatch")
 
     def test_field_from_case_cell_not_receipt(self):
@@ -364,14 +387,16 @@ class TestAcceptBindsCase(unittest.TestCase):
         cid = sorted(c["id"] for c in derived if c["id"].startswith("ops::mul_add@gf8-aes#"))[0]
         rec = {"id": cid, "obligation": "ops::mul_add@gf8-aes",
                "source_id": "src-1", "host_id": "host-1", "features": "default",
-               "request_raw": "v3", "process": "v3", "field": "v2", "result": "pass"}
+               "request_raw": "v3", "process": "v3", "field": "v2",
+               "required": True, "result": "pass"}
         self.assertEqual(self._audit([rec], self._done(1), ledger), "receipt_field_mismatch")
 
     def test_unknown_case_id_rejected(self):
         ledger = _required_tiny()
         rec = {"id": "no-such-case", "obligation": "ops::mul_add@gf8-aes",
                "source_id": "src-1", "host_id": "host-1", "features": "default",
-               "request_raw": "v3", "process": "v3", "field": "v3", "result": "pass"}
+               "request_raw": "v3", "process": "v3", "field": "v3",
+               "required": True, "result": "pass"}
         self.assertEqual(self._audit([rec], self._done(1), ledger), "missing_required")
 
 
@@ -561,6 +586,7 @@ class TestFullCitations(unittest.TestCase):
         for r in receipts if receipts is not None else [
             {"id": case_id, "obligation": case_id.split("#")[0],
              "features": "default", "request_raw": "v3",
+             "process": "v3", "field": "v3", "required": True,
              "source_id": "src-1", "host_id": "host-1", "result": "pass"},
         ]:
             lines.append(f"ROUTE_RECEIPT\t{r if isinstance(r, str) else json_mod.dumps(r)}")
@@ -639,6 +665,69 @@ class TestFullCitations(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 sl._check_evidence_citations(ledger, {}, derived, Path(d))
 
+    def test_evidence_process_mismatch_rejected(self):
+        ledger, derived, cid = self._evidence_ledger()
+        rec = {"id": cid, "obligation": cid.split("#")[0], "features": "default",
+               "request_raw": "v3", "process": "scalar", "field": "v3",
+               "required": True, "source_id": "src-1", "host_id": "host-1",
+               "result": "pass"}
+        with tempfile.TemporaryDirectory() as d:
+            self._record(Path(d), cid, receipts=[rec])
+            with self.assertRaises(ValidationError):
+                sl._check_evidence_citations(ledger, {}, derived, Path(d))
+
+    def test_evidence_field_mismatch_rejected(self):
+        ledger, derived, cid = self._evidence_ledger()
+        rec = {"id": cid, "obligation": cid.split("#")[0], "features": "default",
+               "request_raw": "v3", "process": "v3", "field": "scalar",
+               "required": True, "source_id": "src-1", "host_id": "host-1",
+               "result": "pass"}
+        with tempfile.TemporaryDirectory() as d:
+            self._record(Path(d), cid, receipts=[rec])
+            with self.assertRaises(ValidationError):
+                sl._check_evidence_citations(ledger, {}, derived, Path(d))
+
+    def test_evidence_required_mismatch_rejected(self):
+        ledger, derived, cid = self._evidence_ledger()
+        rec = {"id": cid, "obligation": cid.split("#")[0], "features": "default",
+               "request_raw": "v3", "process": "v3", "field": "v3",
+               "required": False, "source_id": "src-1", "host_id": "host-1",
+               "result": "pass"}
+        with tempfile.TemporaryDirectory() as d:
+            self._record(Path(d), cid, receipts=[rec])
+            with self.assertRaises(ValidationError):
+                sl._check_evidence_citations(ledger, {}, derived, Path(d))
+
+    def test_generated_case_must_appear_in_runner_list(self):
+        ledger = self._ledger_with_refs()
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        cid = derived[0]["id"]
+        ledger["references"]["cases"] = [cid]
+        with tempfile.TemporaryDirectory() as d:
+            rustdoc, tl, cl, si = self._inventories(d,
+                                                     case="ROUTE_CASE_LIST\tother\n")
+            old = sl.KNOWN_CALLABLES
+            sl.KNOWN_CALLABLES = {"ops::mul_add", "ops::add_assign"}
+            try:
+                with self.assertRaises(ValidationError):
+                    sl.cmd_check(ledger, False, rustdoc, tl, cl, si, None)
+            finally:
+                sl.KNOWN_CALLABLES = old
+
+    def test_evidence_cited_case_must_appear_in_runner_list(self):
+        ledger, derived, cid = self._evidence_ledger()
+        with tempfile.TemporaryDirectory() as d:
+            rustdoc, tl, cl, si = self._inventories(
+                d, case="ROUTE_CASE_LIST\tother\n")
+            self._record(Path(d), cid)
+            old = sl.KNOWN_CALLABLES
+            sl.KNOWN_CALLABLES = {"ops::mul_add", "ops::add_assign"}
+            try:
+                with self.assertRaises(ValidationError):
+                    sl.cmd_check(ledger, False, rustdoc, tl, cl, si, Path(d))
+            finally:
+                sl.KNOWN_CALLABLES = old
+
     def test_uncited_receipt_identity_conflict_rejected(self):
         # Every receipt in the record must match the completion identity,
         # not just the cited subset.
@@ -706,7 +795,7 @@ class TestPatternSelection(unittest.TestCase):
         ledger = _full_tiny()
         ledger["rules"]["gf2"] = {
             "group": "residue", "characteristic": 2, "degree": 1, "elem_bytes": 1,
-            "fixtures": [{"id": "g2",
+            "fixtures": [{"id": "g2", "degree": 1, "relative_degree": 1,
                           "type": "crate::field::FiniteField<2, 1, crate::field::Residue>",
                           "elem_bytes": 1, "reference": "elem-arith"}],
         }
@@ -718,14 +807,15 @@ class TestPatternSelection(unittest.TestCase):
         for case in gf2_cases:
             self.assertNotIn("General", case["pattern"].get("slots", []))
 
-    def test_fixture_metadata_overrides_type_text(self):
-        # A fixture that declares its shape wins over an unparseable alias
-        # type and over the rule fallback.
+    def test_fixture_metadata_uses_declared_shape(self):
+        # A fixture's declared shape wins over its rule fallback, even when
+        # its type text carries no parseable shape.
         ledger = _full_tiny()
         ledger["rules"]["gf2-alias"] = {
             "group": "residue", "characteristic": 3, "degree": 8, "elem_bytes": 1,
             "fixtures": [{"id": "g2alias", "type": "crate::field::Alias",
-                          "characteristic": 2, "degree": 1, "elem_bytes": 1,
+                          "characteristic": 2, "degree": 1,
+                          "relative_degree": 1, "elem_bytes": 1,
                           "reference": "elem-arith"}],
         }
         ledger["applicability"]["row-alias"] = {
@@ -785,7 +875,7 @@ class TestPatternSelection(unittest.TestCase):
         ledger = _full_tiny()
         ledger["rules"]["gf2"] = {
             "group": "residue", "characteristic": 2, "degree": 1, "elem_bytes": 1,
-            "fixtures": [{"id": "g2",
+            "fixtures": [{"id": "g2", "degree": 1, "relative_degree": 1,
                           "type": "crate::field::FiniteField<2, 1, crate::field::Residue>",
                           "elem_bytes": 1, "reference": "elem-arith"}],
         }
@@ -827,11 +917,83 @@ class TestBudgets(unittest.TestCase):
         geo = {"rows": 1, "sources": 1, "len": 100}
         src_w, tgt_w = {"elem_bytes": 1}, {"elem_bytes": 8}
         budget = sl._work_budget(wr, geo, src_w, tgt_w, "v3", _isa(),
-                                 {"slots": []}, {}, {})
+                                 {"slots": []},
+                                 {"degree": 1, "relative_degree": 1}, {})
         self.assertEqual(budget, 800)
 
+    def test_bits_units_do_not_inflate_length(self):
+        # A bits geometry is already in bits; only lane and loss convert.
+        self.assertEqual(sl._length_in_units("Bits", 4096, 8), 4096)
+        wr = {"substage": "BitXor", "unit": "Bits", "basis": "Source",
+              "multiplicity": "One", "iterations": "1",
+              "loss_bytes": "2*(lane-1)", "justification": "t"}
+        geo = {"rows": 1, "sources": 1, "len": 4096}
+        width = {"elem_bytes": 1}
+        self.assertEqual(
+            sl._work_budget(wr, geo, width, width, "v3", _isa(),
+                            {"slots": []},
+                            {"degree": 1, "relative_degree": 1}, {}), 3600)
+
+    def test_extra_loss_rejected(self):
+        ledger = _full_tiny()
+        ledger["work_rules"]["row-add"]["extra_loss"] = "crate::kernel::NONEXISTENT"
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_geometries_exceed_lane_loss_floors(self):
+        """Every geometry exceeds its work rule's own lane-loss formula.
+
+        This is not a live tuning-threshold check; it keeps the resolved
+        budget strictly positive at the widest lane and element width.
+        """
+        ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
+        for geo in ledger["geometries"].values():
+            bits_geometry = geo.get("family") in ("bits", "bits-gather")
+            for wr in ledger["work_rules"].values():
+                if (wr["unit"] == "Bits") != bits_geometry:
+                    continue
+                loss_bytes = sl._compute_loss_bytes(
+                    wr, _isa()["lane_bytes"]["v4x"], {"elem_bytes": 8})
+                length = sl._length_in_units(wr["unit"], geo["len"], 8)
+                loss = sl._loss_in_units(wr["unit"], loss_bytes, 8)
+                self.assertGreater(length, loss, (geo, wr))
+
+    def test_canonical_multirow_geometry_is_vector_eligible(self):
+        ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
+        multirow = [geo for geo in ledger["geometries"].values()
+                    if geo.get("family") == "multi-row"]
+        self.assertTrue(multirow)
+        for geo in multirow:
+            self.assertGreaterEqual(geo["len"], 4096)
+
+    def test_map_relative_degree_derived_from_endpoints(self):
+        fixture = {
+            "id": "mx", "degree": 2, "relative_degree": 4,
+            "source": "crate::field::FiniteField<2, 2, crate::field::Polynomial<7>>",
+            "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>",
+            "elem_bytes": 1, "target_elem_bytes": 1,
+        }
+        meta = sl._fixture_metadata(fixture, {"group": "map"})
+        self.assertEqual(meta["relative_degree"], 4)
+
+    def test_map_target_budget_uses_declared_target_width(self):
+        fixture = {
+            "id": "mx", "degree": 1, "relative_degree": 64,
+            "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
+            "target": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::field::Rijndael64, 2>>",
+            "elem_bytes": 1, "target_elem_bytes": 8,
+        }
+        meta = sl._fixture_metadata(fixture, {"group": "map_bits"})
+        wr = {"substage": "Pack", "unit": "Bytes", "basis": "Target",
+              "multiplicity": "One", "iterations": "1",
+              "loss_bytes": "0", "justification": "t"}
+        geo = {"rows": 1, "sources": 1, "len": 100}
+        self.assertEqual(
+            sl._resolve_work(wr, geo, meta, "v3", _isa(), {"slots": []})["budget"],
+            800)
+
     def test_fixture_degree_controls_iterations(self):
-        fixture = {"id": "d16", "degree": 16, "elem_bytes": 1,
+        fixture = {"id": "d16", "degree": 16, "relative_degree": 1, "elem_bytes": 1,
                    "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
                    "reference": "elem-arith"}
         rule = {"degree": 8}
@@ -870,25 +1032,16 @@ class TestBudgets(unittest.TestCase):
     def test_zero_loss_stays_zero(self):
         self.assertEqual(sl._loss_in_units("Elements", 0, 4), 0)
 
-    def test_long_generated_literals_are_separated(self):
+    def test_active_rows_coefficient_free_counts_sources_for_gather(self):
+        geo = {"rows": 3, "sources": 5}
         self.assertEqual(
-            sl._readable_literals("FiniteField<2013265921, 1, Residue>"),
-            "FiniteField<2_013_265_921, 1, Residue>",
-        )
+            sl._multiplicity_count("ActiveRows", geo, {"slots": []}, gather=True), 5)
         self.assertEqual(
-            sl._readable_literals("FiniteField<0xFFFF_FFFF_0000_0001, 1, X>"),
-            "FiniteField<0xFFFF_FFFF_0000_0001, 1, X>",
-        )
-        self.assertEqual(sl._readable_literals("65536"), "65_536")
-
-    def test_bits_count_one_element_per_bit(self):
-        # A bit-packed fixture declares one element per bit; the geometry
-        # length is therefore already a bit count and must not be multiplied
-        # by the eight bits of a storage byte.
-        self.assertEqual(sl._length_in_units("Bits", 4096, 1, 1), 4096)
-        self.assertEqual(sl._lane_in_units("Bits", 32, 1, 1), 256)
-        self.assertEqual(sl._loss_in_units("Bits", 62, 1, 1), 496)
-        self.assertEqual(sl._length_in_units("Bits", 100, 1, 8), 800)
+            sl._multiplicity_count("ActiveRows", geo, {"slots": []}), 3)
+        # Gather coefficients select sources, not destination rows.
+        slots = {"slots": ["General", "Zero", "One", "Zero", "General"]}
+        self.assertEqual(
+            sl._multiplicity_count("ActiveRows", geo, slots, gather=True), 3)
 
     def test_active_rows_counts_nontrivial(self):
         geo = {"rows": 3, "sources": 4}
@@ -970,7 +1123,7 @@ class TestBudgets(unittest.TestCase):
 # Behavior 4: generated code compiles against the declared interface
 # ---------------------------------------------------------------------------
 
-_CONTRACT_TYPES = """\
+_ROUTE_TYPES = """\
 use crate::kernel::Backend;
 
 pub(super) struct Case {
@@ -982,9 +1135,10 @@ pub(super) struct Case {
     pub map: Option<MapSpec>,
     pub cells: &'static [Cell],
 }
-/// Construction data for prepared maps; raw `to_raw()` values of the
-/// caller images (empty for structural construction).
-pub(super) struct MapSpec { pub power: u32, pub images: &'static [u64] }
+/// Construction data for prepared maps: each caller image is the target
+/// element's `FieldBuffer` little-endian byte encoding (empty slice list for
+/// structural construction).
+pub(super) struct MapSpec { pub power: u32, pub images: &'static [&'static [u8]] }
 pub(super) struct Geometry { pub rows: usize, pub sources: usize, pub len: usize /* elements */, pub misalign: usize /* bytes */, pub pitch_pad: usize /* elements */ }
 pub(super) enum Coeff { General, Zero, One }
 pub(super) enum Features { Default, All }
@@ -1028,27 +1182,6 @@ pub struct FiniteField<const C: u64, const D: usize, R>(pub core::marker::Phanto
 """
 
 
-def _run_paths(table):
-    """Distinct ``(adapter module, runner function, arity)`` paths."""
-    import re
-    paths = set()
-    for match in re.finditer(
-            r'const RUN_\w+: fn\(&Case, &Cell\) -> Outcome = '
-            r'super::(\w+)::(\w+)::<([^;]*)>;', table):
-        module, fn, args = match.groups()
-        depth = 0
-        arity = 1
-        for ch in args:
-            if ch in "<([":
-                depth += 1
-            elif ch in ">)]":
-                depth -= 1
-            elif ch == "," and depth == 0:
-                arity += 1
-        paths.add((module, fn, arity))
-    return paths
-
-
 class TestGeneratedCompiles(unittest.TestCase):
     def _compile_ledger(self):
         ledger = _required_tiny()
@@ -1056,62 +1189,65 @@ class TestGeneratedCompiles(unittest.TestCase):
         ledger["rules"]["map-x"] = {
             "group": "map", "kind": "embedding", "construction": "images",
             "arm": "injection", "arm_citation": "src/x.rs:1", "power": 3,
-            "images": [17, 18],
+            "images": [[2, 0]],
             "callables": ["map::embed_into_with"],
             "fixtures": [{
                 "id": "mx",
+                "degree": 8,
+                "relative_degree": 2,
                 "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
                 "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
+                "elem_bytes": 1,
+                "target_elem_bytes": 2,
             }],
         }
         ledger["applicability"]["mapx"] = {
             "families": ["map"], "rules": ["map-x"], "exclusions": {}}
         return ledger
 
-    def test_run_paths_follow_contract_names(self):
-        table = sl._generate_cases(self._compile_ledger())
-        paths = _run_paths(table)
-        self.assertIn(("rows", "ops_mul_add", 1), paths)
-        self.assertIn(("rows", "ops_add_assign", 1), paths)
-        self.assertIn(("maps", "map_embed_into_with", 2), paths)
-        self.assertNotIn("unimplemented!", table)
-
     @unittest.skipUnless(shutil.which("cargo"), "cargo not on PATH")
-    def test_generated_compiles_against_contract_types(self):
-        # Unmodified generated table, contract §3 types verbatim, test-owned
-        # stubs named exactly as the contract requires. Work is not Copy:
-        # the table must build &'static [Work] from const values.
+    def test_generated_compiles_and_parent_reads_cases(self):
+        # The unmodified generated table is compiled under cfg(test) with the
+        # simd table feature enabled, and the parent module reads both tables.
+        # Work is not Copy: the table must build &'static [Work] from consts.
         ledger = self._compile_ledger()
         table = sl._generate_cases(ledger)
-        paths = _run_paths(table)
-        self.assertIn(("rows", "ops_mul_add", 1), paths)
-        self.assertIn(("maps", "map_embed_into_with", 2), paths)
 
-        stubs: dict[str, list[str]] = {}
-        for module, fn, arity in sorted(paths):
-            generics = ", ".join(chr(ord("T") + i) for i in range(arity))
-            stubs.setdefault(module, []).append(
-                f"    pub fn {fn}<{generics}>(_: &super::Case, _: &super::Cell)"
-                " -> super::Outcome { unimplemented!() }")
+        # Adapter modules and runner names come from the route interface,
+        # never from the generated text.
+        modules = (
+            "pub mod rows {\n"
+            "    pub fn ops_mul_add<T>(_: &super::Case, _: &super::Cell)"
+            " -> super::Outcome { unimplemented!() }\n"
+            "    pub fn ops_add_assign<T>(_: &super::Case, _: &super::Cell)"
+            " -> super::Outcome { unimplemented!() }\n"
+            "}\n"
+            "pub mod maps {\n"
+            "    pub fn map_embed_into_with<T, U>(_: &super::Case, _: &super::Cell)"
+            " -> super::Outcome { unimplemented!() }\n"
+            "}"
+        )
 
-        modules = "\n".join(
-            "\n".join([f"pub mod {module} {{"]
-                      + sorted(fns)
-                      + ["}"])
-            for module, fns in sorted(stubs.items()))
-
+        gate = "#[cfg(all(test, target_arch = \"x86_64\", feature = \"simd\"))]"
         src = (
             "pub mod kernel {\n"
             "    pub enum Backend { Scalar, V2, V3, V3GfniCrypto, V4x }\n"
             "    pub mod tests {\n"
             "        pub mod routes {\n"
             + "\n".join("            " + line if line else ""
-                        for line in _CONTRACT_TYPES.splitlines()) + "\n"
+                        for line in _ROUTE_TYPES.splitlines()) + "\n"
             + "\n".join("            " + line if line else ""
                         for line in modules.splitlines()) + "\n"
             "            pub mod cases {\n"
             + "\n".join("                " + line if line else ""
                         for line in table.splitlines()) + "\n"
+            "            }\n"
+            f"            {gate}\n"
+            "            #[test]\n"
+            "            fn parent_reads_cases() {\n"
+            "                assert!(!cases::CASES.is_empty());\n"
+            "                #[cfg(feature = \"simd512\")]\n"
+            "                let _ = cases::CASES_SIMD512.len();\n"
             "            }\n"
             "        }\n"
             "    }\n"
@@ -1126,36 +1262,22 @@ class TestGeneratedCompiles(unittest.TestCase):
             crate = Path(d) / "gencheck"
             (crate / "src").mkdir(parents=True)
             (crate / "Cargo.toml").write_text(
-                '[package]\nname = "gencheck"\nversion = "0.0.0"\nedition = "2021"\n')
+                '[package]\nname = "gencheck"\nversion = "0.0.0"\nedition = "2021"\n'
+                "[features]\nsimd = []\nsimd512 = []\n")
             (crate / "src" / "main.rs").write_text(src)
-            proc = subprocess.run(["cargo", "check", "--offline"],
-                                  cwd=str(crate), capture_output=True, text=True)
-            self.assertEqual(proc.returncode, 0, proc.stderr[-4000:])
-
-    def test_adapter_paths_follow_family_grouping(self):
-        adapter, fn, _ = sl._adapter_for(
-            "ops::mul_add_gather",
-            {"type": "crate::field::Mersenne31"}, {})
-        self.assertEqual(adapter, "fans")
-        self.assertEqual(fn, "ops_mul_add_gather")
-        adapter, fn, _ = sl._adapter_for(
-            "ops::mul_elementwise",
-            {"type": "crate::field::Mersenne31"}, {})
-        self.assertEqual(adapter, "elementwise")
-        self.assertEqual(fn, "ops_mul_elementwise")
-        adapter, fn, types = sl._adapter_for(
-            "map::embed_into_with",
-            {"source": "crate::field::A", "target": "crate::field::B"}, {})
-        self.assertEqual(adapter, "maps")
-        self.assertEqual(fn, "map_embed_into_with")
-        self.assertIn(",", types)
+            for features in ("simd", "simd,simd512"):
+                proc = subprocess.run(
+                    ["cargo", "test", "--offline", "--no-run",
+                     "--features", features],
+                    cwd=str(crate), capture_output=True, text=True)
+                self.assertEqual(proc.returncode, 0,
+                                 f"{features}: {proc.stderr[-4000:]}")
 
     def test_map_spec_uses_declared_construction_data(self):
-        rule = {"group": "map", "power": 3, "images": [17, 18]}
-        self.assertEqual(sl._map_spec(rule, {}), (3, [17, 18]))
-        self.assertEqual(sl._map_spec(rule, {"images": [19]}), (3, [19]))
-        table = sl._generate_cases(self._compile_ledger())
-        self.assertIn("images: &[17, 18]", table)
+        rule = {"group": "map", "power": 3, "images": [[17, 0], [18, 0]]}
+        self.assertEqual(sl._map_spec(rule, {}), (3, [[17, 0], [18, 0]]))
+        self.assertEqual(sl._map_spec(rule, {"images": [[19, 0]]}),
+                         (3, [[19, 0]]))
 
 
 # ---------------------------------------------------------------------------
@@ -1194,8 +1316,9 @@ class TestExpansion(unittest.TestCase):
             "group": "map", "kind": "embedding", "arm": "injection",
             "arm_citation": "src/x.rs:1",
             "callables": ["map::embed_into_with", "map::trace_into_with"],
-            "fixtures": [{"id": "mx",
-                          "source": "crate::field::A", "target": "crate::field::B"}],
+            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
+                          "source": "crate::field::A", "target": "crate::field::B",
+                          "elem_bytes": 1, "target_elem_bytes": 1}],
         }
         ledger["applicability"]["mapx"] = {
             "families": ["map"], "rules": ["map-x"],
@@ -1214,8 +1337,9 @@ class TestExpansion(unittest.TestCase):
             "group": "map", "kind": "embedding", "arm": "injection",
             "arm_citation": "src/x.rs:1",
             "callables": ["map::embed_into_with"],
-            "fixtures": [{"id": "mx",
-                          "source": "crate::field::A", "target": "crate::field::B"}],
+            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
+                          "source": "crate::field::A", "target": "crate::field::B",
+                          "elem_bytes": 1, "target_elem_bytes": 1}],
         }
         ledger["applicability"]["mapx"] = {"families": ["map"], "rules": ["map-x"],
                                            "exclusions": {}}
@@ -1256,7 +1380,8 @@ class TestExpansion(unittest.TestCase):
             "group": "map", "kind": "embedding", "arm": "injection",
             "arm_citation": "src/x.rs:1",
             "callables": ["map::embed_into_with"],
-            "fixtures": [{"id": "mx", "source": "crate::field::A",
+            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
+                          "source": "crate::field::A",
                           "target": "crate::field::B",
                           "elem_bytes": -1, "target_elem_bytes": 2}],
         }
@@ -1272,7 +1397,8 @@ class TestExpansion(unittest.TestCase):
             "group": "map", "kind": "embedding", "arm": "injection",
             "arm_citation": "src/x.rs:1",
             "callables": ["map::embed_into_with"],
-            "fixtures": [{"id": "mx", "source": "crate::field::A",
+            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
+                          "source": "crate::field::A",
                           "target": "crate::field::B",
                           "elem_bytes": 1, "target_elem_bytes": 0}],
         }
@@ -1280,6 +1406,187 @@ class TestExpansion(unittest.TestCase):
                                            "exclusions": {}}
         with self.assertRaises(ValidationError):
             sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_map_fixture_requires_explicit_widths(self):
+        ledger = _full_tiny()
+        ledger["callables"]["map::embed_into_with"] = {"kind": "bulk", "family": "map"}
+        ledger["rules"]["map-x"] = {
+            "group": "map", "kind": "embedding", "arm": "injection",
+            "arm_citation": "src/x.rs:1",
+            "callables": ["map::embed_into_with"],
+            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
+                          "source": "crate::field::A",
+                          "target": "crate::field::B"}],
+        }
+        ledger["applicability"]["mapx"] = {"families": ["map"], "rules": ["map-x"],
+                                           "exclusions": {}}
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_map_images_must_be_byte_encodings(self):
+        ledger = _full_tiny()
+        ledger["callables"]["map::embed_into_with"] = {"kind": "bulk", "family": "map"}
+        ledger["rules"]["map-x"] = {
+            "group": "map", "kind": "embedding", "construction": "images",
+            "arm": "injection", "arm_citation": "src/x.rs:1",
+            "images": [65536],
+            "callables": ["map::embed_into_with"],
+            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
+                          "source": "crate::field::A",
+                          "target": "crate::field::B",
+                          "elem_bytes": 2, "target_elem_bytes": 4}],
+        }
+        ledger["applicability"]["mapx"] = {"families": ["map"], "rules": ["map-x"],
+                                           "exclusions": {}}
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_map_image_width_must_match_target(self):
+        ledger = _full_tiny()
+        ledger["callables"]["map::embed_into_with"] = {"kind": "bulk", "family": "map"}
+        ledger["rules"]["map-x"] = {
+            "group": "map", "kind": "embedding", "construction": "images",
+            "arm": "injection", "arm_citation": "src/x.rs:1",
+            "images": [[1, 2]],
+            "callables": ["map::embed_into_with"],
+            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
+                          "source": "crate::field::A",
+                          "target": "crate::field::B",
+                          "elem_bytes": 2, "target_elem_bytes": 4}],
+        }
+        ledger["applicability"]["mapx"] = {"families": ["map"], "rules": ["map-x"],
+                                           "exclusions": {}}
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_needs_spec_key_rejected(self):
+        ledger = _full_tiny()
+        ledger["rules"]["gf8-aes"]["fixtures"][0]["needs_spec"] = {"degree": 2}
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+
+class TestCanonicalLedger(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
+
+    def test_schema_check_passes(self):
+        import io
+        from contextlib import redirect_stdout
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(sl.cmd_check(self.ledger, True, None, None, None,
+                                          None, None), 0)
+
+    def test_component_elementwise_and_pack_obligations(self):
+        obs = sl.obligations(self.ledger)
+        self.assertIn("ops::mul_elementwise@component-quad-mersenne31", obs)
+        self.assertIn("ops::unpack@component-quad-mersenne31", obs)
+
+    def test_component_base_classes_cover_u64_and_cantor(self):
+        by_base = {rule.get("base_rule") for rule in self.ledger["rules"].values()
+                   if rule.get("group") == "component"}
+        self.assertIn("residue-u64", by_base)
+        self.assertIn("gf8-cantor", by_base)
+
+    def test_isomorphism_injection_rule_present(self):
+        rules = [rule for rule in self.ledger["rules"].values()
+                 if rule.get("group") == "map"
+                 and rule.get("kind") == "isomorphism"
+                 and rule.get("arm") == "injection"]
+        self.assertTrue(rules)
+        for rule in rules:
+            for fixture in rule["fixtures"]:
+                self.assertEqual(fixture["source"], fixture["target"])
+
+    def test_map_fixtures_declare_both_widths(self):
+        for rule in self.ledger["rules"].values():
+            if rule.get("group") not in ("map", "map_bits"):
+                continue
+            for fixture in rule["fixtures"]:
+                self.assertIsInstance(fixture.get("elem_bytes"), int)
+                self.assertIsInstance(fixture.get("target_elem_bytes"), int)
+                meta = sl._fixture_metadata(fixture, rule)
+                self.assertEqual(meta["target_elem_bytes"],
+                                 fixture["target_elem_bytes"])
+                source_degree = _degree_from_type(fixture["source"])
+                target_degree = _degree_from_type(fixture["target"])
+                self.assertEqual(meta["degree"], source_degree)
+                self.assertEqual(meta["relative_degree"],
+                                 target_degree // source_degree)
+
+    def test_multirow_row_add_budget_positive(self):
+        ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
+        oid = "ops::add_assign_rows@gf8-poly-aes"
+        ledger["obligations"] = {oid: {"cells": {"default/v3": {
+            "status": "direct", "required": True, "min_serving": "v3",
+            "work": ["row-add"], "process": "v3", "field": "v3",
+            "perf": "unmeasured"}}}}
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        cases = [case for case in derived if case["obligation"] == oid]
+        self.assertTrue(cases)
+        for case in cases:
+            for item in case["cell_work"]["default/v3"]:
+                self.assertGreater(item["budget"], 0)
+
+    def test_bit_gather_uses_gather_geometry_and_per_source_budget(self):
+        ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
+        oid = "bits::xor_gather@bits-gf2"
+        ledger["obligations"] = {oid: {"cells": {"default/v3": {
+            "status": "direct", "required": True, "min_serving": "v3",
+            "work": ["bits-xor-gather"], "process": "v3", "field": "v3",
+            "perf": "unmeasured"}}}}
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        selected = [case for case in derived if case["obligation"] == oid]
+        self.assertEqual(len(selected), 1)
+        case = selected[0]
+        self.assertEqual(case["geometry"]["family"], "bits-gather")
+        self.assertEqual(case["geometry"]["rows"], 8)
+        self.assertEqual(case["geometry"]["sources"], 8)
+        item = case["cell_work"]["default/v3"][0]
+        self.assertEqual(item["multiplicity_count"], 8)
+        # Eight selected sources at 3,600 bits each under the V3 lane.
+        self.assertEqual(item["budget"], 28_800)
+
+    def test_structural_map_width_class_checked(self):
+        ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
+        ledger["rules"]["map-bits-width8"]["target_width_bytes"] = 7
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_every_fixture_declares_degree_metadata(self):
+        for rid, rule in self.ledger["rules"].items():
+            for fixture in rule["fixtures"]:
+                for key in ("degree", "relative_degree"):
+                    value = fixture.get(key)
+                    self.assertIsInstance(value, int, (rid, fixture["id"], key))
+                    self.assertGreater(value, 0, (rid, fixture["id"], key))
+
+    def test_component_fixture_degrees_match_declared_data(self):
+        for rid, rule in self.ledger["rules"].items():
+            if rule.get("group") != "component":
+                continue
+            for fixture in rule["fixtures"]:
+                meta = sl._fixture_metadata(fixture, rule)
+                text = fixture.get("type") or fixture.get("source") or ""
+                expected = _degree_from_type(text)
+                if expected is None:
+                    expected = rule["degree"]
+                self.assertEqual(meta["degree"], expected, fixture["id"])
+                step = _step_from_type(text)
+                if step is None:
+                    step = rule["degree"]
+                self.assertEqual(meta["relative_degree"], step, fixture["id"])
+        for rid in ("component-mersenne31-custom", "component-goldilocks"):
+            fixture = self.ledger["rules"][rid]["fixtures"][0]
+            self.assertEqual(
+                sl._fixture_metadata(fixture, self.ledger["rules"][rid])["degree"],
+                2, rid)
+
+    def test_no_duplicate_spec_key(self):
+        for rule in self.ledger["rules"].values():
+            for fixture in rule.get("fixtures", []):
+                self.assertNotIn("needs_spec", fixture)
 
 
 class TestCheckModes(unittest.TestCase):
@@ -1355,7 +1662,8 @@ class TestAcceptRejects(unittest.TestCase):
         for cid in required:
             rec = {"id": cid, "obligation": cid.split("#")[0],
                    "source_id": "src-1", "host_id": "host-1", "features": "default",
-                   "request_raw": "v3", "process": "v3", "field": "v3", "result": "pass"}
+                   "request_raw": "v3", "process": "v3", "field": "v3",
+                   "required": True, "result": "pass"}
             recs.append(rec)
         if mutate is not None:
             mutate(recs)
