@@ -654,9 +654,8 @@ fn budget(case: &Case, work: &Work, outcome: &Outcome) -> usize {
     };
     let elements = case.geometry.len;
     let length = match work.unit {
-        Unit::Elements => elements,
+        Unit::Elements | Unit::Bits => elements,
         Unit::Bytes => elements.saturating_mul(width_bytes),
-        Unit::Bits => elements,
         Unit::Words => (elements.saturating_mul(width_bytes) / 8).max(1),
     };
     let count = multiplicity(case, work);
