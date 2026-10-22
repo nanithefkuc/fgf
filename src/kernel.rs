@@ -53,7 +53,7 @@ pub(crate) use matrix_provider::FlatMatrix;
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub(crate) use matrix_provider::Matrix;
 
-#[cfg(any(test, feature = "internals"))]
+#[cfg(test)]
 pub(crate) mod trace;
 
 #[cfg(test)]

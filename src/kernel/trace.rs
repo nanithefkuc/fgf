@@ -172,6 +172,14 @@ pub(crate) fn strength(tier: Backend) -> u8 {
     }
 }
 
+/// Maximum non-vector elements a single row can lose to alignment peel and
+/// scalar tail: ⌈2 × (`vector_bytes` − 1) / `elem_bytes`⌉, the per-row allowance
+/// for `assert_vector_work_in` lower bounds.
+#[allow(dead_code)]
+pub(crate) fn row_loss(vector_bytes: usize, elem_bytes: usize) -> usize {
+    (2usize * (vector_bytes - 1)).div_ceil(elem_bytes)
+}
+
 /// Assert the trace holds at least one entry at exactly `tier` with work > 0.
 ///
 /// # Panics
