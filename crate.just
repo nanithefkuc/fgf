@@ -710,8 +710,7 @@ release-accept:
     just package-check
 
 # Route ledger and tooling: schema-only validation plus the Python unit tests.
-# `just benchmark-api-json` must have already run (or package-check/validate
-# will have produced target/doc/fgf.json).
+# The recipe builds the rustdoc JSON it consumes.
 [group('bench')]
 simd-ledger:
     just benchmark-api-json

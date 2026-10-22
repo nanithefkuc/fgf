@@ -10,6 +10,7 @@ its named reason only: inputs are valid in every other respect.
 from __future__ import annotations
 
 import json as json_mod
+import re
 import shutil
 import subprocess
 import sys
@@ -147,8 +148,24 @@ def _json(obj):
 
 def _case_ids_from_table(text):
     """Case ids present in a rendered route table."""
-    import re
     return set(re.findall(r'Case \{ id: "([^"]+)"', text))
+
+
+_TOTAL_DEGREE = re.compile(
+    r"FiniteField\s*<\s*(?:0[xX][0-9A-Fa-f_]+|\d+)\s*,\s*(\d+)")
+_EXTENSION_STEP = re.compile(r"Extension\s*<[^,]+,\s*(\d+)\s*>")
+
+
+def _degree_from_type(text):
+    """Total degree named by a FiniteField type expression (hex-safe)."""
+    match = _TOTAL_DEGREE.search(text or "")
+    return int(match.group(1)) if match else None
+
+
+def _step_from_type(text):
+    """Extension step degree named by an Extension type expression."""
+    match = _EXTENSION_STEP.search(text or "")
+    return int(match.group(1)) if match else None
 
 
 
@@ -176,7 +193,7 @@ def _full_tiny() -> dict:
                 "group": "binary_flat", "characteristic": 2, "degree": 8,
                 "presentation": "Polynomial", "elem_bytes": 1,
                 "fixtures": [
-                    {"id": "aes",
+                    {"id": "aes", "degree": 8, "relative_degree": 1,
                      "type": "crate::field::FiniteField<2,8,crate::field::Polynomial<0x11B>>",
                      "elem_bytes": 1, "reference": "elem-arith"},
                 ],
@@ -184,7 +201,8 @@ def _full_tiny() -> dict:
             "mersenne31": {
                 "group": "specialized_prime", "elem_bytes": 4,
                 "fixtures": [
-                    {"id": "m31", "type": "crate::field::Mersenne31",
+                    {"id": "m31", "degree": 1, "relative_degree": 1,
+                     "type": "crate::field::Mersenne31",
                      "elem_bytes": 4, "reference": "elem-arith"},
                 ],
             },
@@ -777,7 +795,7 @@ class TestPatternSelection(unittest.TestCase):
         ledger = _full_tiny()
         ledger["rules"]["gf2"] = {
             "group": "residue", "characteristic": 2, "degree": 1, "elem_bytes": 1,
-            "fixtures": [{"id": "g2",
+            "fixtures": [{"id": "g2", "degree": 1, "relative_degree": 1,
                           "type": "crate::field::FiniteField<2, 1, crate::field::Residue>",
                           "elem_bytes": 1, "reference": "elem-arith"}],
         }
@@ -789,14 +807,15 @@ class TestPatternSelection(unittest.TestCase):
         for case in gf2_cases:
             self.assertNotIn("General", case["pattern"].get("slots", []))
 
-    def test_fixture_metadata_overrides_type_text(self):
-        # A fixture that declares its shape wins over an unparseable alias
-        # type and over the rule fallback.
+    def test_fixture_metadata_uses_declared_shape(self):
+        # A fixture's declared shape wins over its rule fallback, even when
+        # its type text carries no parseable shape.
         ledger = _full_tiny()
         ledger["rules"]["gf2-alias"] = {
             "group": "residue", "characteristic": 3, "degree": 8, "elem_bytes": 1,
             "fixtures": [{"id": "g2alias", "type": "crate::field::Alias",
-                          "characteristic": 2, "degree": 1, "elem_bytes": 1,
+                          "characteristic": 2, "degree": 1,
+                          "relative_degree": 1, "elem_bytes": 1,
                           "reference": "elem-arith"}],
         }
         ledger["applicability"]["row-alias"] = {
@@ -856,7 +875,7 @@ class TestPatternSelection(unittest.TestCase):
         ledger = _full_tiny()
         ledger["rules"]["gf2"] = {
             "group": "residue", "characteristic": 2, "degree": 1, "elem_bytes": 1,
-            "fixtures": [{"id": "g2",
+            "fixtures": [{"id": "g2", "degree": 1, "relative_degree": 1,
                           "type": "crate::field::FiniteField<2, 1, crate::field::Residue>",
                           "elem_bytes": 1, "reference": "elem-arith"}],
         }
@@ -898,7 +917,8 @@ class TestBudgets(unittest.TestCase):
         geo = {"rows": 1, "sources": 1, "len": 100}
         src_w, tgt_w = {"elem_bytes": 1}, {"elem_bytes": 8}
         budget = sl._work_budget(wr, geo, src_w, tgt_w, "v3", _isa(),
-                                 {"slots": []}, {}, {})
+                                 {"slots": []},
+                                 {"degree": 1, "relative_degree": 1}, {})
         self.assertEqual(budget, 800)
 
     def test_bits_units_do_not_inflate_length(self):
@@ -911,7 +931,8 @@ class TestBudgets(unittest.TestCase):
         width = {"elem_bytes": 1}
         self.assertEqual(
             sl._work_budget(wr, geo, width, width, "v3", _isa(),
-                            {"slots": []}, {}, {}), 3600)
+                            {"slots": []},
+                            {"degree": 1, "relative_degree": 1}, {}), 3600)
 
     def test_extra_loss_rejected(self):
         ledger = _full_tiny()
@@ -947,6 +968,7 @@ class TestBudgets(unittest.TestCase):
 
     def test_map_relative_degree_derived_from_endpoints(self):
         fixture = {
+            "id": "mx", "degree": 2, "relative_degree": 4,
             "source": "crate::field::FiniteField<2, 2, crate::field::Polynomial<7>>",
             "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>",
             "elem_bytes": 1, "target_elem_bytes": 1,
@@ -956,6 +978,7 @@ class TestBudgets(unittest.TestCase):
 
     def test_map_target_budget_uses_declared_target_width(self):
         fixture = {
+            "id": "mx", "degree": 1, "relative_degree": 64,
             "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
             "target": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::field::Rijndael64, 2>>",
             "elem_bytes": 1, "target_elem_bytes": 8,
@@ -970,7 +993,7 @@ class TestBudgets(unittest.TestCase):
             800)
 
     def test_fixture_degree_controls_iterations(self):
-        fixture = {"id": "d16", "degree": 16, "elem_bytes": 1,
+        fixture = {"id": "d16", "degree": 16, "relative_degree": 1, "elem_bytes": 1,
                    "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
                    "reference": "elem-arith"}
         rule = {"degree": 8}
@@ -1170,6 +1193,8 @@ class TestGeneratedCompiles(unittest.TestCase):
             "callables": ["map::embed_into_with"],
             "fixtures": [{
                 "id": "mx",
+                "degree": 8,
+                "relative_degree": 2,
                 "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
                 "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
                 "elem_bytes": 1,
@@ -1291,7 +1316,7 @@ class TestExpansion(unittest.TestCase):
             "group": "map", "kind": "embedding", "arm": "injection",
             "arm_citation": "src/x.rs:1",
             "callables": ["map::embed_into_with", "map::trace_into_with"],
-            "fixtures": [{"id": "mx",
+            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
                           "source": "crate::field::A", "target": "crate::field::B",
                           "elem_bytes": 1, "target_elem_bytes": 1}],
         }
@@ -1312,7 +1337,7 @@ class TestExpansion(unittest.TestCase):
             "group": "map", "kind": "embedding", "arm": "injection",
             "arm_citation": "src/x.rs:1",
             "callables": ["map::embed_into_with"],
-            "fixtures": [{"id": "mx",
+            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
                           "source": "crate::field::A", "target": "crate::field::B",
                           "elem_bytes": 1, "target_elem_bytes": 1}],
         }
@@ -1355,7 +1380,8 @@ class TestExpansion(unittest.TestCase):
             "group": "map", "kind": "embedding", "arm": "injection",
             "arm_citation": "src/x.rs:1",
             "callables": ["map::embed_into_with"],
-            "fixtures": [{"id": "mx", "source": "crate::field::A",
+            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
+                          "source": "crate::field::A",
                           "target": "crate::field::B",
                           "elem_bytes": -1, "target_elem_bytes": 2}],
         }
@@ -1371,7 +1397,8 @@ class TestExpansion(unittest.TestCase):
             "group": "map", "kind": "embedding", "arm": "injection",
             "arm_citation": "src/x.rs:1",
             "callables": ["map::embed_into_with"],
-            "fixtures": [{"id": "mx", "source": "crate::field::A",
+            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
+                          "source": "crate::field::A",
                           "target": "crate::field::B",
                           "elem_bytes": 1, "target_elem_bytes": 0}],
         }
@@ -1387,7 +1414,8 @@ class TestExpansion(unittest.TestCase):
             "group": "map", "kind": "embedding", "arm": "injection",
             "arm_citation": "src/x.rs:1",
             "callables": ["map::embed_into_with"],
-            "fixtures": [{"id": "mx", "source": "crate::field::A",
+            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
+                          "source": "crate::field::A",
                           "target": "crate::field::B"}],
         }
         ledger["applicability"]["mapx"] = {"families": ["map"], "rules": ["map-x"],
@@ -1403,7 +1431,8 @@ class TestExpansion(unittest.TestCase):
             "arm": "injection", "arm_citation": "src/x.rs:1",
             "images": [65536],
             "callables": ["map::embed_into_with"],
-            "fixtures": [{"id": "mx", "source": "crate::field::A",
+            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
+                          "source": "crate::field::A",
                           "target": "crate::field::B",
                           "elem_bytes": 2, "target_elem_bytes": 4}],
         }
@@ -1420,7 +1449,8 @@ class TestExpansion(unittest.TestCase):
             "arm": "injection", "arm_citation": "src/x.rs:1",
             "images": [[1, 2]],
             "callables": ["map::embed_into_with"],
-            "fixtures": [{"id": "mx", "source": "crate::field::A",
+            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
+                          "source": "crate::field::A",
                           "target": "crate::field::B",
                           "elem_bytes": 2, "target_elem_bytes": 4}],
         }
@@ -1479,8 +1509,9 @@ class TestCanonicalLedger(unittest.TestCase):
                 meta = sl._fixture_metadata(fixture, rule)
                 self.assertEqual(meta["target_elem_bytes"],
                                  fixture["target_elem_bytes"])
-                source_degree = sl._field_type_shape(fixture["source"])[1]
-                target_degree = sl._field_type_shape(fixture["target"])[1]
+                source_degree = _degree_from_type(fixture["source"])
+                target_degree = _degree_from_type(fixture["target"])
+                self.assertEqual(meta["degree"], source_degree)
                 self.assertEqual(meta["relative_degree"],
                                  target_degree // source_degree)
 
@@ -1522,6 +1553,35 @@ class TestCanonicalLedger(unittest.TestCase):
         ledger["rules"]["map-bits-width8"]["target_width_bytes"] = 7
         with self.assertRaises(ValidationError):
             sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_every_fixture_declares_degree_metadata(self):
+        for rid, rule in self.ledger["rules"].items():
+            for fixture in rule["fixtures"]:
+                for key in ("degree", "relative_degree"):
+                    value = fixture.get(key)
+                    self.assertIsInstance(value, int, (rid, fixture["id"], key))
+                    self.assertGreater(value, 0, (rid, fixture["id"], key))
+
+    def test_component_fixture_degrees_match_declared_data(self):
+        for rid, rule in self.ledger["rules"].items():
+            if rule.get("group") != "component":
+                continue
+            for fixture in rule["fixtures"]:
+                meta = sl._fixture_metadata(fixture, rule)
+                text = fixture.get("type") or fixture.get("source") or ""
+                expected = _degree_from_type(text)
+                if expected is None:
+                    expected = rule["degree"]
+                self.assertEqual(meta["degree"], expected, fixture["id"])
+                step = _step_from_type(text)
+                if step is None:
+                    step = rule["degree"]
+                self.assertEqual(meta["relative_degree"], step, fixture["id"])
+        for rid in ("component-mersenne31-custom", "component-goldilocks"):
+            fixture = self.ledger["rules"][rid]["fixtures"][0]
+            self.assertEqual(
+                sl._fixture_metadata(fixture, self.ledger["rules"][rid])["degree"],
+                2, rid)
 
     def test_no_duplicate_spec_key(self):
         for rule in self.ledger["rules"].values():

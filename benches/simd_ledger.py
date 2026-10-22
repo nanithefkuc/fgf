@@ -425,6 +425,12 @@ def _validate_rules(ledger: dict) -> dict:
             if "needs_spec" in fix:
                 _fail(f"rule {rid!r}: fixture {fid!r} uses the removed "
                       f"needs_spec key; declare spec only")
+            for degree_key in ("degree", "relative_degree"):
+                value = fix.get(degree_key)
+                if (not isinstance(value, int) or isinstance(value, bool)
+                        or value <= 0):
+                    _fail(f"rule {rid!r}: fixture {fid!r} {degree_key} "
+                          f"must be a positive integer")
             # Widths feed budget conversion directly, so a declared width is
             # validated on both sides of a width-changing map. Map fixtures
             # carry no width default.
@@ -789,69 +795,54 @@ VALID_COEFF_VARIANTS = frozenset({"General", "Zero", "One"})
 VALID_REFERENCES = frozenset({"elem-arith", "map-compact", "bits-scalar"})
 
 
-_FIELD_TYPE_SHAPE = re.compile(r"FiniteField\s*<\s*(\d+)\s*,\s*(\d+)")
+_TYPE_CHARACTERISTIC = re.compile(
+    r"FiniteField\s*<\s*(0[xX][0-9A-Fa-f_]+|\d[\d_]*)")
 
 
-def _field_type_shape(text: str | None) -> tuple[int | None, int | None]:
-    """Characteristic and degree carried by a ``FiniteField`` type expression."""
-    match = _FIELD_TYPE_SHAPE.search(text or "")
+def _type_characteristic(text: str | None) -> int | None:
+    """Characteristic named by a ``FiniteField`` type expression."""
+    match = _TYPE_CHARACTERISTIC.search(text or "")
     if not match:
-        return (None, None)
-    return (int(match.group(1)), int(match.group(2)))
+        return None
+    return int(match.group(1).replace("_", ""), 0)
 
 
 def _fixture_metadata(fixture: dict, rule: dict) -> dict[str, int]:
     """Resolve one fixture's width and arithmetic metadata once.
 
-    Fixture-declared values win, then the fixture's own type expression, then
-    rule fallbacks. Unknown degree or characteristic values are omitted so an
-    expression naming them fails evaluation instead of reading a guess.
+    Degree and relative degree come from the fixture's explicit metadata;
+    type text only supplies the characteristic when no fixture or rule field
+    declares it.
     """
     fixture = fixture or {}
     rule = rule or {}
     ftype = fixture.get("type") or fixture.get("source")
-    type_char, type_degree = _field_type_shape(ftype if isinstance(ftype, str) else None)
 
     characteristic = fixture.get("characteristic")
     if not isinstance(characteristic, int) or isinstance(characteristic, bool):
-        characteristic = type_char
-    if characteristic is None:
         rule_char = rule.get("characteristic")
-        if isinstance(rule_char, int) and not isinstance(rule_char, bool):
-            characteristic = rule_char
+        characteristic = (rule_char if isinstance(rule_char, int)
+                          and not isinstance(rule_char, bool) else None)
+    if characteristic is None:
+        characteristic = _type_characteristic(
+            ftype if isinstance(ftype, str) else None)
 
     degree = fixture.get("degree")
-    if not isinstance(degree, int) or isinstance(degree, bool):
-        degree = type_degree
-    if degree is None:
-        spec = fixture.get("spec")
-        spec_degree = spec.get("degree") if isinstance(spec, dict) else None
-        rule_degree = rule.get("degree")
-        if isinstance(spec_degree, int) and not isinstance(spec_degree, bool):
-            if isinstance(rule_degree, int) and not isinstance(rule_degree, bool):
-                degree = rule_degree * spec_degree
-            else:
-                degree = spec_degree
-        elif isinstance(rule_degree, int) and not isinstance(rule_degree, bool):
-            degree = rule_degree
+    relative_degree = fixture.get("relative_degree")
+    for key, value in (("degree", degree),
+                       ("relative_degree", relative_degree)):
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            _fail(f"fixture {fixture.get('id')!r}: {key} must be a "
+                  f"positive integer")
 
     group = rule.get("group")
     if group in ("map", "map_bits"):
-        source_degree = _field_type_shape(fixture.get("source") or fixture.get("type"))[1]
-        target_degree = _field_type_shape(fixture.get("target") or fixture.get("type"))[1]
-        if (source_degree is None or target_degree is None
-                or source_degree <= 0 or target_degree % source_degree != 0):
-            _fail(f"fixture {fixture.get('id')!r}: endpoint degrees are "
-                  f"missing or do not divide")
-        relative_degree = target_degree // source_degree
         elem_bytes = fixture.get("elem_bytes")
         target_elem_bytes = fixture.get("target_elem_bytes")
         if elem_bytes is None or target_elem_bytes is None:
             _fail(f"fixture {fixture.get('id')!r}: map fixtures declare "
                   f"elem_bytes and target_elem_bytes")
     else:
-        relative_degree = fixture.get("relative_degree",
-                                      rule.get("relative_degree", 1))
         elem_bytes = fixture.get("elem_bytes", rule.get("elem_bytes", 1))
         target_elem_bytes = fixture.get(
             "target_elem_bytes",
@@ -2249,7 +2240,7 @@ def _spec_relation(spec: dict) -> str:
     """A const relation constructor appropriate to the spec's base field."""
     base = _scratch_type(spec["base"])
     values = ", ".join(str(value) for value in spec["relation"])
-    characteristic, _ = _field_type_shape(spec["base"])
+    characteristic = _type_characteristic(spec["base"])
     if characteristic == 2:
         return (f"fgf::Relation::from_binary_words::<{base}>"
                 f"(&[{values}])")

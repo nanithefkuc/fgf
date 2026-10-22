@@ -866,18 +866,24 @@
       "fixtures": [
         {
           "id": "r3",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<3, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 1
         },
         {
           "id": "r101",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<101, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 1
         },
         {
           "id": "r127",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<127, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 1
@@ -894,12 +900,16 @@
       "fixtures": [
         {
           "id": "r131",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<131, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 1
         },
         {
           "id": "r251",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<251, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 1
@@ -915,12 +925,16 @@
       "fixtures": [
         {
           "id": "r257",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<257, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 2
         },
         {
           "id": "r65521",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<65521, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 2
@@ -936,24 +950,32 @@
       "fixtures": [
         {
           "id": "r65537",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<65537, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 4
         },
         {
           "id": "r2013265921",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<2013265921, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 4
         },
         {
           "id": "r536870909",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<536870909, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 4
         },
         {
           "id": "r4294967291",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<4294967291, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 4
@@ -969,12 +991,16 @@
       "fixtures": [
         {
           "id": "r4294967311",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<4294967311, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 8
         },
         {
           "id": "r18446744073709551557",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<18446744073709551557, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 8
@@ -990,6 +1016,8 @@
       "fixtures": [
         {
           "id": "rm31",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<0x7FFF_FFFF, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 4
@@ -1005,6 +1033,8 @@
       "fixtures": [
         {
           "id": "rgld",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<0xFFFF_FFFF_0000_0001, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 8
@@ -1021,6 +1051,8 @@
       "fixtures": [
         {
           "id": "rgf2",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<2, 1, crate::field::Residue>",
           "reference": "elem-arith",
           "elem_bytes": 8
@@ -1035,6 +1067,8 @@
       "fixtures": [
         {
           "id": "m31",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::Mersenne31",
           "reference": "elem-arith",
           "elem_bytes": 4
@@ -1049,6 +1083,8 @@
       "fixtures": [
         {
           "id": "gld",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::Goldilocks",
           "reference": "elem-arith",
           "elem_bytes": 8
@@ -1065,6 +1101,8 @@
       "fixtures": [
         {
           "id": "gf8aes",
+          "degree": 8,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "reference": "elem-arith",
           "elem_bytes": 1
@@ -1081,6 +1119,8 @@
       "fixtures": [
         {
           "id": "gf8rs",
+          "degree": 8,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>",
           "reference": "elem-arith",
           "elem_bytes": 1
@@ -1096,6 +1136,8 @@
       "fixtures": [
         {
           "id": "gf8n",
+          "degree": 8,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>",
           "reference": "elem-arith",
           "elem_bytes": 1
@@ -1111,6 +1153,8 @@
       "fixtures": [
         {
           "id": "gf8c",
+          "degree": 8,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<2, 8, crate::field::Cantor<0x11B, 0x20>>",
           "reference": "elem-arith",
           "elem_bytes": 1
@@ -1126,18 +1170,24 @@
       "fixtures": [
         {
           "id": "gf1p",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
           "reference": "elem-arith",
           "elem_bytes": 1
         },
         {
           "id": "gf4p",
+          "degree": 4,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<2, 4, crate::field::Polynomial<0x13>>",
           "reference": "elem-arith",
           "elem_bytes": 1
         },
         {
           "id": "gf2n",
+          "degree": 2,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<2, 2, crate::field::Normal<7, 2>>",
           "reference": "elem-arith",
           "elem_bytes": 1
@@ -1154,6 +1204,8 @@
       "fixtures": [
         {
           "id": "fp8s",
+          "degree": 8,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 8, crate::field::Extension<crate::field::FanPaar8, 2>>",
           "reference": "elem-arith",
           "elem_bytes": 1
@@ -1170,6 +1222,8 @@
       "fixtures": [
         {
           "id": "pu8c",
+          "degree": 8,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 8, crate::field::Extension<crate::kernel::tests::routes::fixtures::Custom8Spec, 2>>",
           "reference": "elem-arith",
           "spec": {
@@ -1196,12 +1250,16 @@
       "fixtures": [
         {
           "id": "fp16r",
+          "degree": 16,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
           "reference": "elem-arith",
           "elem_bytes": 2
         },
         {
           "id": "fp16f",
+          "degree": 16,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::FanPaar16, 2>>",
           "reference": "elem-arith",
           "elem_bytes": 2
@@ -1218,6 +1276,8 @@
       "fixtures": [
         {
           "id": "pu16c",
+          "degree": 16,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::kernel::tests::routes::fixtures::Custom16Spec, 2>>",
           "reference": "elem-arith",
           "spec": {
@@ -1244,12 +1304,16 @@
       "fixtures": [
         {
           "id": "fp32r",
+          "degree": 32,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 32, crate::field::Extension<crate::field::Rijndael32, 2>>",
           "reference": "elem-arith",
           "elem_bytes": 4
         },
         {
           "id": "fp32f",
+          "degree": 32,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 32, crate::field::Extension<crate::field::FanPaar32, 2>>",
           "reference": "elem-arith",
           "elem_bytes": 4
@@ -1265,6 +1329,8 @@
       "fixtures": [
         {
           "id": "pu32c",
+          "degree": 32,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 32, crate::field::Extension<crate::kernel::tests::routes::fixtures::Custom32Spec, 2>>",
           "reference": "elem-arith",
           "spec": {
@@ -1291,12 +1357,16 @@
       "fixtures": [
         {
           "id": "fp64r",
+          "degree": 64,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::field::Rijndael64, 2>>",
           "reference": "elem-arith",
           "elem_bytes": 8
         },
         {
           "id": "fp64f",
+          "degree": 64,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::field::FanPaar64, 2>>",
           "reference": "elem-arith",
           "elem_bytes": 8
@@ -1312,6 +1382,8 @@
       "fixtures": [
         {
           "id": "pu64c",
+          "degree": 64,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::kernel::tests::routes::fixtures::Custom64Spec, 2>>",
           "reference": "elem-arith",
           "spec": {
@@ -1337,12 +1409,16 @@
       "fixtures": [
         {
           "id": "fp2",
+          "degree": 2,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 2, crate::field::Extension<crate::field::FanPaar2, 2>>",
           "reference": "elem-arith",
           "elem_bytes": 1
         },
         {
           "id": "fp4",
+          "degree": 4,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 4, crate::field::Extension<crate::field::FanPaar4, 2>>",
           "reference": "elem-arith",
           "elem_bytes": 1
@@ -1360,6 +1436,8 @@
       "fixtures": [
         {
           "id": "qm31",
+          "degree": 2,
+          "relative_degree": 2,
           "type": "crate::field::QuadMersenne31",
           "reference": "elem-arith",
           "elem_bytes": 8
@@ -1377,6 +1455,8 @@
       "fixtures": [
         {
           "id": "m31c2",
+          "degree": 2,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<0x7FFF_FFFF, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::MersenneQuadraticSpec, 2>>",
           "reference": "elem-arith",
           "spec": {
@@ -1405,6 +1485,8 @@
       "fixtures": [
         {
           "id": "r3q",
+          "degree": 2,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<3, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::G9Spec, 2>>",
           "reference": "elem-arith",
           "spec": {
@@ -1433,6 +1515,8 @@
       "fixtures": [
         {
           "id": "r131q",
+          "degree": 2,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<131, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::Gf131QuadraticSpec, 2>>",
           "reference": "elem-arith",
           "spec": {
@@ -1461,6 +1545,8 @@
       "fixtures": [
         {
           "id": "r257q",
+          "degree": 2,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<257, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::Gf257QuadraticSpec, 2>>",
           "reference": "elem-arith",
           "spec": {
@@ -1489,6 +1575,8 @@
       "fixtures": [
         {
           "id": "r65537q",
+          "degree": 2,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<65537, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::Gf65537QuadraticSpec, 2>>",
           "reference": "elem-arith",
           "spec": {
@@ -1517,6 +1605,8 @@
       "fixtures": [
         {
           "id": "r7c",
+          "degree": 3,
+          "relative_degree": 3,
           "type": "crate::field::FiniteField<7, 3, crate::field::Extension<crate::kernel::tests::routes::fixtures::G343Spec, 3>>",
           "reference": "elem-arith",
           "spec": {
@@ -1546,6 +1636,8 @@
       "fixtures": [
         {
           "id": "r3q4",
+          "degree": 4,
+          "relative_degree": 4,
           "type": "crate::field::FiniteField<3, 4, crate::field::Extension<crate::kernel::tests::routes::fixtures::G81QuarticSpec, 4>>",
           "reference": "elem-arith",
           "spec": {
@@ -1578,6 +1670,8 @@
       "fixtures": [
         {
           "id": "r3d8",
+          "degree": 8,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<3, 8, crate::field::Extension<crate::kernel::tests::routes::fixtures::G3e8Spec, 2>>",
           "reference": "elem-arith",
           "spec": {
@@ -1611,6 +1705,8 @@
       "fixtures": [
         {
           "id": "gld2",
+          "degree": 2,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<0xFFFF_FFFF_0000_0001, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::GoldilocksSquaredSpec, 2>>",
           "reference": "elem-arith",
           "spec": {
@@ -1640,6 +1736,8 @@
       "fixtures": [
         {
           "id": "binc_aes",
+          "degree": 16,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::kernel::tests::routes::fixtures::OverAesSpec, 2>>",
           "reference": "elem-arith",
           "spec": {
@@ -1669,6 +1767,8 @@
       "fixtures": [
         {
           "id": "binc_n",
+          "degree": 16,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::kernel::tests::routes::fixtures::NormalQuadraticSpec, 2>>",
           "reference": "elem-arith",
           "spec": {
@@ -1698,6 +1798,8 @@
       "fixtures": [
         {
           "id": "cmp64",
+          "degree": 64,
+          "relative_degree": 8,
           "type": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::kernel::tests::routes::fixtures::Gf64OverAesSpec, 8>>",
           "reference": "elem-arith",
           "spec": {
@@ -1732,6 +1834,8 @@
       "fixtures": [
         {
           "id": "ru64q",
+          "degree": 2,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<18446744073709551557, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::U64QuadraticSpec, 2>>",
           "reference": "elem-arith",
           "spec": {
@@ -1761,6 +1865,8 @@
       "fixtures": [
         {
           "id": "cantor2",
+          "degree": 16,
+          "relative_degree": 2,
           "type": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::kernel::tests::routes::fixtures::CantorQuadraticSpec, 2>>",
           "reference": "elem-arith",
           "spec": {
@@ -1785,6 +1891,8 @@
       "fixtures": [
         {
           "id": "gf2",
+          "degree": 1,
+          "relative_degree": 1,
           "type": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
           "reference": "bits-scalar",
           "elem_bytes": 1
@@ -1804,6 +1912,8 @@
       "fixtures": [
         {
           "id": "frob_id",
+          "degree": 8,
+          "relative_degree": 1,
           "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "power": 0,
@@ -1826,6 +1936,8 @@
       "fixtures": [
         {
           "id": "frob_q2",
+          "degree": 16,
+          "relative_degree": 1,
           "source": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
           "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
           "power": 8,
@@ -1848,6 +1960,8 @@
       "fixtures": [
         {
           "id": "frob_bc",
+          "degree": 8,
+          "relative_degree": 1,
           "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>",
           "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>",
           "power": 1,
@@ -1871,6 +1985,8 @@
       "fixtures": [
         {
           "id": "frob_rc",
+          "degree": 3,
+          "relative_degree": 1,
           "source": "crate::field::FiniteField<7, 3, crate::field::Extension<crate::kernel::tests::routes::fixtures::G343Spec, 3>>",
           "target": "crate::field::FiniteField<7, 3, crate::field::Extension<crate::kernel::tests::routes::fixtures::G343Spec, 3>>",
           "power": 1,
@@ -1909,6 +2025,8 @@
       "fixtures": [
         {
           "id": "emb_inj",
+          "degree": 8,
+          "relative_degree": 2,
           "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
           "elem_bytes": 1,
@@ -1932,6 +2050,8 @@
       "fixtures": [
         {
           "id": "emb_inj_i",
+          "degree": 8,
+          "relative_degree": 2,
           "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
           "elem_bytes": 1,
@@ -1961,6 +2081,8 @@
       "fixtures": [
         {
           "id": "emb_bc",
+          "degree": 8,
+          "relative_degree": 2,
           "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
           "elem_bytes": 1,
@@ -1990,6 +2112,8 @@
       "fixtures": [
         {
           "id": "emb_rc",
+          "degree": 2,
+          "relative_degree": 2,
           "source": "crate::field::FiniteField<3, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::G9Spec, 2>>",
           "target": "crate::field::FiniteField<3, 4, crate::field::Extension<crate::kernel::tests::routes::fixtures::G81QuarticSpec, 4>>",
           "elem_bytes": 2,
@@ -2032,6 +2156,8 @@
       "fixtures": [
         {
           "id": "iso_bc",
+          "degree": 8,
+          "relative_degree": 1,
           "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "target": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>",
           "direction": "forward",
@@ -2054,6 +2180,8 @@
       "fixtures": [
         {
           "id": "iso_bc_i",
+          "degree": 8,
+          "relative_degree": 1,
           "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "target": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>",
           "direction": "forward",
@@ -2082,6 +2210,8 @@
       "fixtures": [
         {
           "id": "iso_rc",
+          "degree": 2,
+          "relative_degree": 1,
           "source": "crate::field::FiniteField<3, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::G9AltSpec, 2>>",
           "target": "crate::field::FiniteField<3, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::G9AltSpec, 2>>",
           "direction": "forward",
@@ -2121,6 +2251,8 @@
       "fixtures": [
         {
           "id": "iso_inj",
+          "degree": 8,
+          "relative_degree": 1,
           "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "direction": "forward",
@@ -2137,6 +2269,8 @@
       "fixtures": [
         {
           "id": "mb_w1",
+          "degree": 1,
+          "relative_degree": 8,
           "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
           "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
           "elem_bytes": 1,
@@ -2152,6 +2286,8 @@
       "fixtures": [
         {
           "id": "mb_w2",
+          "degree": 1,
+          "relative_degree": 16,
           "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
           "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
           "elem_bytes": 1,
@@ -2168,6 +2304,8 @@
       "fixtures": [
         {
           "id": "mb_w3",
+          "degree": 1,
+          "relative_degree": 24,
           "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
           "target": "crate::field::FiniteField<2, 24, crate::field::Extension<crate::kernel::tests::routes::fixtures::D3AesSpec, 3>>",
           "elem_bytes": 1,
@@ -2195,6 +2333,8 @@
       "fixtures": [
         {
           "id": "mb_w4",
+          "degree": 1,
+          "relative_degree": 32,
           "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
           "target": "crate::field::FiniteField<2, 32, crate::field::Extension<crate::field::Rijndael32, 2>>",
           "elem_bytes": 1,
@@ -2210,6 +2350,8 @@
       "fixtures": [
         {
           "id": "mb_w8",
+          "degree": 1,
+          "relative_degree": 64,
           "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
           "target": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::field::Rijndael64, 2>>",
           "elem_bytes": 1,
