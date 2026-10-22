@@ -49,6 +49,14 @@ pub fn mul_add_gfni<const NATIVE: bool>(
             &mut d[0],
             _mm_xor_si128(d0, bmul_half_gfni::<NATIVE>(x, factor_half)),
         );
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf8.gfni.mul_add",
+            crate::kernel::trace::Substage::MulAdd,
+            crate::kernel::trace::Unit::Elements,
+            16,
+            crate::kernel::Backend::V3GfniCrypto,
+        );
         mul_add_gfni_impl::<NATIVE, EntryBody>(&mut dst[16..], coeff, &src[16..]);
     } else {
         mul_add_gfni_impl::<NATIVE, EntryBody>(dst, coeff, src);
@@ -169,6 +177,14 @@ pub(in crate::kernel::x86::gf8) fn mul_assign_gfni_impl<const NATIVE: bool, S: B
         let (d, _) = dst[..head].as_chunks_mut::<16>();
         let value = bmul_half_gfni::<NATIVE>(_mm_loadu_si128(&d[0]), factor_half);
         _mm_storeu_si128(&mut d[0], value);
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf8.gfni.mul_assign",
+            crate::kernel::trace::Substage::Mul,
+            crate::kernel::trace::Unit::Elements,
+            16,
+            crate::kernel::Backend::V3GfniCrypto,
+        );
     }
     let dst = &mut dst[head..];
     // In-place scaling is store-bound and rare next to the AXPY shapes, so

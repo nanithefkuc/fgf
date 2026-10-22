@@ -1317,6 +1317,7 @@ mod x86 {
             eprintln!("skipping: no AVX-512F+AVX-512BW+GFNI on this host");
             return;
         };
+        let loss64 = crate::kernel::trace::row_loss(64, 1);
 
         // The blocked entries take the coefficient form directly: raw here,
         // and the dispatch-shaped `Prepared` twin in the resolve test below.
@@ -1912,9 +1913,12 @@ mod x86 {
             let coeff = Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0x53);
             let src = noise(len, 0xf81);
             let mut dst = noise(len, 0xf82);
+            let mut want = dst.clone();
+            scalar::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(&mut want, coeff, &src);
             crate::kernel::trace::clear();
             x86::gf8::mul_add_avx512(token, &mut dst, Prepared::new(coeff), &src);
-            crate::kernel::trace::assert_vector_work_in(Backend::V4x, len - 126, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, len - loss64, len);
+            assert_eq!(dst, want, "gf8 rs avx512 mul_add vector work fixture");
         }
         {
             // mul_assign_avx512.
@@ -1928,8 +1932,8 @@ mod x86 {
             };
             crate::kernel::trace::clear();
             x86::gf8::mul_assign_avx512(token, &mut dst, Prepared::new(coeff));
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, len - loss64, len);
             assert_eq!(dst, want, "gf8 rs avx512 mul_assign vector work fixture");
-            crate::kernel::trace::assert_vector_work_in(Backend::V4x, len - 126, len);
         }
         {
             // mul_into_avx512.
@@ -1937,9 +1941,12 @@ mod x86 {
             let coeff = Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0x53);
             let src = noise(len, 0xf84);
             let mut dst = vec![0u8; len];
+            let mut want = src.clone();
+            scalar::mul_assign::<FiniteField<2, 8, Polynomial<RS>>>(&mut want, coeff);
             crate::kernel::trace::clear();
             x86::gf8::mul_into_avx512(token, &mut dst, Prepared::new(coeff), &src);
-            crate::kernel::trace::assert_vector_work_in(Backend::V4x, len - 126, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, len - loss64, len);
+            assert_eq!(dst, want, "gf8 rs avx512 mul_into vector work fixture");
         }
         {
             // scatter: 4 rows × 400 bytes.
@@ -1947,8 +1954,12 @@ mod x86 {
             let nrows = 4;
             let src = noise(row_len, 0xf85);
             let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>> =
-                (0..nrows).map(gf8_coeff_at::<RS>).collect();
+                (0..nrows).map(|j| gf8_coeff_at::<RS>(j + 1)).collect();
             let mut rows = noise(row_len * nrows, 0xf86);
+            let mut want = rows.clone();
+            for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs) {
+                gf8_reference::<RS>(row, coeff, &src);
+            }
             crate::kernel::trace::clear();
             x86::gf8::mul_add_scatter_avx512(
                 token,
@@ -1959,9 +1970,10 @@ mod x86 {
             );
             crate::kernel::trace::assert_vector_work_in(
                 Backend::V4x,
-                row_len * nrows - 128 * nrows,
+                row_len * nrows - loss64 * nrows,
                 row_len * nrows,
             );
+            assert_eq!(rows, want, "gf8 rs avx512 scatter vector work fixture");
         }
         {
             // gather: 400 bytes × 4 sources.
@@ -1972,13 +1984,18 @@ mod x86 {
             let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>> =
                 (0..nterms).map(gf8_coeff_at::<RS>).collect();
             let mut dst = noise(len, 0xf88);
+            let mut want = dst.clone();
+            for (&coeff, &src) in coeffs.iter().zip(&srcs) {
+                gf8_reference::<RS>(&mut want, coeff, src);
+            }
             crate::kernel::trace::clear();
             x86::gf8::mul_add_gather_avx512(token, &mut dst, &prepared_coeffs(&coeffs), &srcs);
             crate::kernel::trace::assert_vector_work_in(
                 Backend::V4x,
-                len * nterms - 126,
+                len * nterms - loss64 * nterms,
                 len * nterms,
             );
+            assert_eq!(dst, want, "gf8 rs avx512 gather vector work fixture");
         }
         {
             // matrix: 4 rows × 400 bytes × 3 terms.
@@ -1998,6 +2015,12 @@ mod x86 {
                 .map(|(c, s)| (c.as_slice(), s.as_slice()))
                 .collect();
             let mut rows = noise(row_len * nrows, 0xf8a);
+            let mut want = rows.clone();
+            for &(coeffs, src) in &terms {
+                for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                    gf8_reference::<RS>(row, coeff, src);
+                }
+            }
             let sets: Vec<Vec<Prepared>> = terms
                 .iter()
                 .map(|(coeffs, _)| prepared_coeffs(coeffs))
@@ -2011,8 +2034,134 @@ mod x86 {
             x86::gf8::mul_add_matrix_avx512_with(token, &mut rows, row_len, nrows, &pairs[..]);
             crate::kernel::trace::assert_vector_work_in(
                 Backend::V4x,
-                row_len * nrows * nterms - 192 * nrows,
+                row_len * nrows * nterms - loss64 * nrows * nterms,
                 row_len * nrows * nterms,
+            );
+            assert_eq!(rows, want, "gf8 rs avx512 matrix vector work fixture");
+        }
+        {
+            // matrix overwrite: 4 rows × 400 bytes × 3 terms.
+            let row_len = 400;
+            let nrows = 4;
+            let nterms = 3;
+            let sources: Vec<Vec<u8>> = (0..nterms)
+                .map(|t| noise(row_len, 0xf93 + t as u64))
+                .collect();
+            let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>>> = (0..nterms)
+                .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<RS>(t, j)).collect())
+                .collect();
+            #[allow(clippy::type_complexity)]
+            let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<RS>>>], &[u8])> = coeff_sets
+                .iter()
+                .zip(&sources)
+                .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                .collect();
+            let mut rows = noise(row_len * nrows, 0xf94);
+            let mut want = vec![0u8; row_len * nrows];
+            for &(coeffs, src) in &terms {
+                for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                    gf8_reference::<RS>(row, coeff, src);
+                }
+            }
+            let sets: Vec<Vec<Prepared>> = terms
+                .iter()
+                .map(|(coeffs, _)| prepared_coeffs(coeffs))
+                .collect();
+            let pairs: Vec<(&[Prepared], &[u8])> = sets
+                .iter()
+                .zip(terms.iter().map(|&(_, src)| src))
+                .map(|(set, src)| (set.as_slice(), src))
+                .collect();
+            crate::kernel::trace::clear();
+            x86::gf8::mul_into_matrix_avx512_with(token, &mut rows, row_len, nrows, &pairs[..]);
+            crate::kernel::trace::assert_vector_work_in(
+                Backend::V4x,
+                row_len * nrows * nterms - loss64 * nrows * nterms,
+                row_len * nrows * nterms,
+            );
+            assert_eq!(
+                rows, want,
+                "gf8 rs avx512 matrix overwrite vector work fixture"
+            );
+        }
+        {
+            // matrix_at: 4 scattered rows × 400 bytes × 3 terms.
+            let row_len = 400;
+            let nrows = 4;
+            let nterms = 3;
+            let starts: Vec<usize> = (0..nrows).map(|j| j * (row_len + 7)).collect();
+            let span = starts.iter().map(|&x| x + row_len).max().unwrap_or(0);
+            let sources: Vec<Vec<u8>> = (0..nterms)
+                .map(|t| noise(row_len, 0xf95 + t as u64))
+                .collect();
+            let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>>> = (0..nterms)
+                .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<RS>(t, j)).collect())
+                .collect();
+            #[allow(clippy::type_complexity)]
+            let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<RS>>>], &[u8])> = coeff_sets
+                .iter()
+                .zip(&sources)
+                .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                .collect();
+            let mut got = noise(span, 0xf96);
+            let mut want = got.clone();
+            for &(coeffs, src) in &terms {
+                for (j, &coeff) in coeffs.iter().enumerate() {
+                    scalar::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(
+                        &mut want[starts[j]..starts[j] + row_len],
+                        coeff,
+                        src,
+                    );
+                }
+            }
+            let sets: Vec<Vec<Prepared>> = terms
+                .iter()
+                .map(|(coeffs, _)| prepared_coeffs(coeffs))
+                .collect();
+            let pairs: Vec<(&[Prepared], &[u8])> = sets
+                .iter()
+                .zip(terms.iter().map(|&(_, src)| src))
+                .map(|(set, src)| (set.as_slice(), src))
+                .collect();
+            crate::kernel::trace::clear();
+            x86::gf8::mul_add_matrix_at_avx512_with(token, &mut got, row_len, &starts, &pairs[..]);
+            crate::kernel::trace::assert_vector_work_in(
+                Backend::V4x,
+                row_len * nrows * nterms - loss64 * nrows * nterms,
+                row_len * nrows * nterms,
+            );
+            assert_eq!(got, want, "gf8 rs avx512 matrix_at vector work fixture");
+            // Overwrite from noise equals zeroed accumulation on the named rows.
+            let mut overwrote = noise(span, 0xf97);
+            let mut want = overwrote.clone();
+            for &start in &starts {
+                want[start..start + row_len].fill(0);
+            }
+            for &(coeffs, src) in &terms {
+                for (j, &coeff) in coeffs.iter().enumerate() {
+                    scalar::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(
+                        &mut want[starts[j]..starts[j] + row_len],
+                        coeff,
+                        src,
+                    );
+                }
+            }
+            crate::kernel::trace::clear();
+            x86::gf8::mul_into_matrix_at_avx512_with(
+                token,
+                &mut overwrote,
+                row_len,
+                &starts,
+                &pairs[..],
+            );
+            crate::kernel::trace::assert_vector_work_in(
+                Backend::V4x,
+                row_len * nrows * nterms - loss64 * nrows * nterms,
+                row_len * nrows * nterms,
+            );
+            assert_eq!(
+                overwrote, want,
+                "gf8 rs avx512 matrix_at overwrite vector work fixture"
             );
         }
         {
@@ -2021,6 +2170,8 @@ mod x86 {
             let a = noise(len, 0xf8b);
             let b = noise(len, 0xf8c);
             let mut dst = vec![0u8; len];
+            let mut want = vec![0u8; len];
+            scalar::mul_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(&mut want, &a, &b);
             crate::kernel::trace::clear();
             x86::gf8::mul_elementwise_avx512::<false>(
                 token,
@@ -2030,13 +2181,16 @@ mod x86 {
                 &a,
                 &b,
             );
-            crate::kernel::trace::assert_vector_work_in(Backend::V4x, len - 126, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, len - loss64, len);
+            assert_eq!(dst, want, "gf8 rs avx512 elementwise vector work fixture");
         }
         {
             // elementwise_assign::<false>: 400 bytes.
             let len = 400;
             let src = noise(len, 0xf8d);
             let mut dst = noise(len, 0xf8e);
+            let mut want = dst.clone();
+            scalar::mul_elementwise_assign::<FiniteField<2, 8, Polynomial<RS>>>(&mut want, &src);
             crate::kernel::trace::clear();
             x86::gf8::mul_elementwise_assign_avx512::<false>(
                 token,
@@ -2045,7 +2199,52 @@ mod x86 {
                 &mut dst,
                 &src,
             );
-            crate::kernel::trace::assert_vector_work_in(Backend::V4x, len - 126, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, len - loss64, len);
+            assert_eq!(
+                dst, want,
+                "gf8 rs avx512 elementwise assign vector work fixture"
+            );
+        }
+        {
+            // elementwise::<true> (native AES): 400 bytes.
+            let len = 400;
+            let a = noise(len, 0xf8f);
+            let b = noise(len, 0xf90);
+            let mut dst = vec![0u8; len];
+            let mut want = vec![0u8; len];
+            scalar::mul_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, &a, &b);
+            crate::kernel::trace::clear();
+            x86::gf8::mul_elementwise_avx512::<true>(
+                token,
+                isomorphism_to_aes::<AES>(),
+                Polynomial::<AES>::REDUCTION_LOW,
+                &mut dst,
+                &a,
+                &b,
+            );
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, len - loss64, len);
+            assert_eq!(dst, want, "gf8 aes avx512 elementwise vector work fixture");
+        }
+        {
+            // elementwise_assign::<true> (native AES): 400 bytes.
+            let len = 400;
+            let src = noise(len, 0xf91);
+            let mut dst = noise(len, 0xf92);
+            let mut want = dst.clone();
+            scalar::mul_elementwise_assign::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, &src);
+            crate::kernel::trace::clear();
+            x86::gf8::mul_elementwise_assign_avx512::<true>(
+                token,
+                isomorphism_to_aes::<AES>(),
+                Polynomial::<AES>::REDUCTION_LOW,
+                &mut dst,
+                &src,
+            );
+            crate::kernel::trace::assert_vector_work_in(Backend::V4x, len - loss64, len);
+            assert_eq!(
+                dst, want,
+                "gf8 aes avx512 elementwise assign vector work fixture"
+            );
         }
     }
 
@@ -2448,6 +2647,7 @@ mod x86 {
         }
 
         let token = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
+        let loss32 = crate::kernel::trace::row_loss(32, 1);
         // The single-buffer entries take the prepared coefficient: the AES
         // field runs the native multiply, the affine form follows.
         check_gf8_exhaustive_mul_add(
@@ -2746,9 +2946,12 @@ mod x86 {
             let src = noise(len, 0xf61);
             let coeff = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
             let mut dst = noise(len, 0xf62);
+            let mut want = dst.clone();
+            scalar::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, coeff, &src);
             crate::kernel::trace::clear();
             x86::gf8::mul_add_gfni::<true>(token, &mut dst, Prepared::new(coeff), &src);
-            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - 96, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - loss32, len);
+            assert_eq!(dst, want, "gf8 gfni mul_add vector work fixture");
         }
         {
             // mul_assign_gfni::<true>.
@@ -2762,8 +2965,8 @@ mod x86 {
             };
             crate::kernel::trace::clear();
             x86::gf8::mul_assign_gfni::<true>(token, &mut dst, Prepared::new(coeff));
+            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - loss32, len);
             assert_eq!(dst, want, "gf8 gfni mul_assign vector work fixture");
-            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - 96, len);
         }
         {
             // mul_into_gfni::<true>.
@@ -2771,9 +2974,12 @@ mod x86 {
             let coeff = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
             let src = noise(len, 0xf64);
             let mut dst = vec![0u8; len];
+            let mut want = src.clone();
+            scalar::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, coeff);
             crate::kernel::trace::clear();
             x86::gf8::mul_into_gfni::<true>(token, &mut dst, Prepared::new(coeff), &src);
-            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - 96, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - loss32, len);
+            assert_eq!(dst, want, "gf8 gfni mul_into vector work fixture");
         }
         {
             // scatter::<true>: 5 rows × 300 bytes.
@@ -2781,8 +2987,12 @@ mod x86 {
             let nrows = 5;
             let src = noise(row_len, 0xf65);
             let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> =
-                (0..nrows).map(gf8_coeff_at::<AES>).collect();
+                (0..nrows).map(|j| gf8_coeff_at::<AES>(j + 1)).collect();
             let mut rows = noise(row_len * nrows, 0xf66);
+            let mut want = rows.clone();
+            for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs) {
+                gf8_reference::<AES>(row, coeff, &src);
+            }
             crate::kernel::trace::clear();
             x86::gf8::mul_add_scatter_gfni::<true>(
                 token,
@@ -2793,9 +3003,10 @@ mod x86 {
             );
             crate::kernel::trace::assert_vector_work_in(
                 Backend::V3GfniCrypto,
-                row_len * nrows - 96 * nrows,
+                row_len * nrows - loss32 * nrows,
                 row_len * nrows,
             );
+            assert_eq!(rows, want, "gf8 gfni scatter vector work fixture");
         }
         {
             // matrix_with::<true>: 4 rows × 300 bytes × 3 terms.
@@ -2815,6 +3026,12 @@ mod x86 {
                 .map(|(c, s)| (c.as_slice(), s.as_slice()))
                 .collect();
             let mut rows = noise(row_len * nrows, 0xf68);
+            let mut want = rows.clone();
+            for &(coeffs, src) in &terms {
+                for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                    gf8_reference::<AES>(row, coeff, src);
+                }
+            }
             prepared_pairs!(terms, |pairs| {
                 crate::kernel::trace::clear();
                 x86::gf8::mul_add_matrix_gfni_with::<true, _>(
@@ -2826,10 +3043,133 @@ mod x86 {
                 );
                 crate::kernel::trace::assert_vector_work_in(
                     Backend::V3GfniCrypto,
-                    row_len * nrows * nterms - 96 * nrows,
+                    row_len * nrows * nterms - loss32 * nrows * nterms,
                     row_len * nrows * nterms,
                 );
             });
+            assert_eq!(rows, want, "gf8 gfni matrix vector work fixture");
+        }
+        {
+            // matrix overwrite::<true>: 4 rows × 300 bytes × 3 terms.
+            let row_len = 300;
+            let nrows = 4;
+            let nterms = 3;
+            let sources: Vec<Vec<u8>> = (0..nterms)
+                .map(|t| noise(row_len, 0xf91 + t as u64))
+                .collect();
+            let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>>> = (0..nterms)
+                .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<AES>(t, j)).collect())
+                .collect();
+            #[allow(clippy::type_complexity)]
+            let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<AES>>>], &[u8])> = coeff_sets
+                .iter()
+                .zip(&sources)
+                .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                .collect();
+            let mut rows = noise(row_len * nrows, 0xf92);
+            let mut want = vec![0u8; row_len * nrows];
+            for &(coeffs, src) in &terms {
+                for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                    gf8_reference::<AES>(row, coeff, src);
+                }
+            }
+            prepared_pairs!(terms, |pairs| {
+                crate::kernel::trace::clear();
+                x86::gf8::mul_into_matrix_gfni_with::<true, _>(
+                    token,
+                    &mut rows,
+                    row_len,
+                    nrows,
+                    &pairs[..],
+                );
+                crate::kernel::trace::assert_vector_work_in(
+                    Backend::V3GfniCrypto,
+                    row_len * nrows * nterms - loss32 * nrows * nterms,
+                    row_len * nrows * nterms,
+                );
+            });
+            assert_eq!(rows, want, "gf8 gfni matrix overwrite vector work fixture");
+        }
+        {
+            // matrix_at::<true>: 4 scattered rows × 300 bytes × 3 terms.
+            let row_len = 300;
+            let nrows = 4;
+            let nterms = 3;
+            let starts: Vec<usize> = (0..nrows).map(|j| j * (row_len + 7)).collect();
+            let span = starts.iter().map(|&x| x + row_len).max().unwrap_or(0);
+            let sources: Vec<Vec<u8>> = (0..nterms)
+                .map(|t| noise(row_len, 0xf93 + t as u64))
+                .collect();
+            let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>>> = (0..nterms)
+                .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<AES>(t, j)).collect())
+                .collect();
+            #[allow(clippy::type_complexity)]
+            let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<AES>>>], &[u8])> = coeff_sets
+                .iter()
+                .zip(&sources)
+                .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                .collect();
+            let mut got = noise(span, 0xf94);
+            let mut want = got.clone();
+            for &(coeffs, src) in &terms {
+                for (j, &coeff) in coeffs.iter().enumerate() {
+                    scalar::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(
+                        &mut want[starts[j]..starts[j] + row_len],
+                        coeff,
+                        src,
+                    );
+                }
+            }
+            prepared_pairs!(terms, |pairs| {
+                crate::kernel::trace::clear();
+                x86::gf8::mul_add_matrix_at_gfni_with::<true, _>(
+                    token,
+                    &mut got,
+                    row_len,
+                    &starts,
+                    &pairs[..],
+                );
+                crate::kernel::trace::assert_vector_work_in(
+                    Backend::V3GfniCrypto,
+                    row_len * nrows * nterms - loss32 * nrows * nterms,
+                    row_len * nrows * nterms,
+                );
+            });
+            assert_eq!(got, want, "gf8 gfni matrix_at vector work fixture");
+            // Overwrite from noise equals zeroed accumulation on the named rows.
+            let mut overwrote = noise(span, 0xf95);
+            let mut want = overwrote.clone();
+            for &start in &starts {
+                want[start..start + row_len].fill(0);
+            }
+            for &(coeffs, src) in &terms {
+                for (j, &coeff) in coeffs.iter().enumerate() {
+                    scalar::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(
+                        &mut want[starts[j]..starts[j] + row_len],
+                        coeff,
+                        src,
+                    );
+                }
+            }
+            prepared_pairs!(terms, |pairs| {
+                crate::kernel::trace::clear();
+                x86::gf8::mul_into_matrix_at_gfni_with::<true, _>(
+                    token,
+                    &mut overwrote,
+                    row_len,
+                    &starts,
+                    &pairs[..],
+                );
+                crate::kernel::trace::assert_vector_work_in(
+                    Backend::V3GfniCrypto,
+                    row_len * nrows * nterms - loss32 * nrows * nterms,
+                    row_len * nrows * nterms,
+                );
+            });
+            assert_eq!(
+                overwrote, want,
+                "gf8 gfni matrix_at overwrite vector work fixture"
+            );
         }
         {
             // gather::<true>: 300 bytes × 4 sources.
@@ -2840,6 +3180,10 @@ mod x86 {
             let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> =
                 (0..nterms).map(gf8_coeff_at::<AES>).collect();
             let mut dst = noise(len, 0xf6a);
+            let mut want = dst.clone();
+            for (&coeff, &src) in coeffs.iter().zip(&srcs) {
+                gf8_reference::<AES>(&mut want, coeff, src);
+            }
             crate::kernel::trace::clear();
             x86::gf8::mul_add_gather_gfni::<true>(
                 token,
@@ -2849,9 +3193,10 @@ mod x86 {
             );
             crate::kernel::trace::assert_vector_work_in(
                 Backend::V3GfniCrypto,
-                len * nterms - 96,
+                len * nterms - loss32 * nterms,
                 len * nterms,
             );
+            assert_eq!(dst, want, "gf8 gfni gather vector work fixture");
         }
         {
             // elementwise::<true>: 300 bytes.
@@ -2859,6 +3204,8 @@ mod x86 {
             let a = noise(len, 0xf6b);
             let b = noise(len, 0xf6c);
             let mut dst = vec![0u8; len];
+            let mut want = vec![0u8; len];
+            scalar::mul_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, &a, &b);
             crate::kernel::trace::clear();
             x86::gf8::mul_elementwise_gfni::<true>(
                 token,
@@ -2868,13 +3215,16 @@ mod x86 {
                 &a,
                 &b,
             );
-            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - 96, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - loss32, len);
+            assert_eq!(dst, want, "gf8 gfni elementwise vector work fixture");
         }
         {
             // elementwise_assign::<true>: 300 bytes.
             let len = 300;
             let src = noise(len, 0xf6d);
             let mut dst = noise(len, 0xf6e);
+            let mut want = dst.clone();
+            scalar::mul_elementwise_assign::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, &src);
             crate::kernel::trace::clear();
             x86::gf8::mul_elementwise_assign_gfni::<true>(
                 token,
@@ -2883,7 +3233,8 @@ mod x86 {
                 &mut dst,
                 &src,
             );
-            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - 96, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - loss32, len);
+            assert_eq!(dst, want, "gf8 gfni elementwise assign vector work fixture");
         }
         // Level-2/3 tower kernels: the period-2 lane multiply one and two
         // levels up from the GF(2^16) kernel.
@@ -3477,6 +3828,7 @@ mod x86 {
             return;
         }
         let token = X64V3GfniCryptoToken::summon().expect("guard passed: GFNI summons here");
+        let loss32 = crate::kernel::trace::row_loss(32, 1);
 
         check_gf8_exhaustive_mul_add(
             "gf8 rs gfni",
@@ -3609,9 +3961,12 @@ mod x86 {
             let src = noise(len, 0xf71);
             let coeff = Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0x53);
             let mut dst = noise(len, 0xf72);
+            let mut want = dst.clone();
+            scalar::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(&mut want, coeff, &src);
             crate::kernel::trace::clear();
             x86::gf8::mul_add_gfni::<false>(token, &mut dst, Prepared::new(coeff), &src);
-            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - 96, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - loss32, len);
+            assert_eq!(dst, want, "gf8 rs gfni mul_add vector work fixture");
         }
         {
             // mul_assign::<false>.
@@ -3625,8 +3980,8 @@ mod x86 {
             };
             crate::kernel::trace::clear();
             x86::gf8::mul_assign_gfni::<false>(token, &mut dst, Prepared::new(coeff));
+            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - loss32, len);
             assert_eq!(dst, want, "gf8 rs gfni mul_assign vector work fixture");
-            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - 96, len);
         }
         {
             // mul_into::<false>.
@@ -3634,9 +3989,12 @@ mod x86 {
             let coeff = Elem::<FiniteField<2, 8, Polynomial<RS>>>::from_raw(0x53);
             let src = noise(len, 0xf74);
             let mut dst = vec![0u8; len];
+            let mut want = src.clone();
+            scalar::mul_assign::<FiniteField<2, 8, Polynomial<RS>>>(&mut want, coeff);
             crate::kernel::trace::clear();
             x86::gf8::mul_into_gfni::<false>(token, &mut dst, Prepared::new(coeff), &src);
-            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - 96, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - loss32, len);
+            assert_eq!(dst, want, "gf8 rs gfni mul_into vector work fixture");
         }
         {
             // Scatter: 5 rows × 300 bytes, 4-row groups with pair remainder.
@@ -3644,8 +4002,12 @@ mod x86 {
             let nrows = 5;
             let src = noise(row_len, 0xf01);
             let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>> =
-                (0..nrows).map(gf8_coeff_at::<RS>).collect();
+                (0..nrows).map(|j| gf8_coeff_at::<RS>(j + 1)).collect();
             let mut rows = noise(row_len * nrows, 0xf02);
+            let mut want = rows.clone();
+            for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs) {
+                gf8_reference::<RS>(row, coeff, &src);
+            }
             crate::kernel::trace::clear();
             x86::gf8::mul_add_scatter_gfni::<false>(
                 token,
@@ -3656,9 +4018,10 @@ mod x86 {
             );
             crate::kernel::trace::assert_vector_work_in(
                 Backend::V3GfniCrypto,
-                row_len * nrows - 96 * nrows,
+                row_len * nrows - loss32 * nrows,
                 row_len * nrows,
             );
+            assert_eq!(rows, want, "gf8 rs gfni scatter vector work fixture");
         }
         {
             // Matrix: 4 rows × 300 bytes × 3 terms.
@@ -3678,6 +4041,12 @@ mod x86 {
                 .map(|(c, s)| (c.as_slice(), s.as_slice()))
                 .collect();
             let mut rows = noise(row_len * nrows, 0xf04);
+            let mut want = rows.clone();
+            for &(coeffs, src) in &terms {
+                for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                    gf8_reference::<RS>(row, coeff, src);
+                }
+            }
             prepared_pairs!(terms, |pairs| {
                 crate::kernel::trace::clear();
                 x86::gf8::mul_add_matrix_gfni_with::<false, _>(
@@ -3689,10 +4058,136 @@ mod x86 {
                 );
                 crate::kernel::trace::assert_vector_work_in(
                     Backend::V3GfniCrypto,
-                    row_len * nrows * nterms - 96 * nrows,
+                    row_len * nrows * nterms - loss32 * nrows * nterms,
                     row_len * nrows * nterms,
                 );
             });
+            assert_eq!(rows, want, "gf8 rs gfni matrix vector work fixture");
+        }
+        {
+            // matrix overwrite::<false>: 4 rows × 300 bytes × 3 terms.
+            let row_len = 300;
+            let nrows = 4;
+            let nterms = 3;
+            let sources: Vec<Vec<u8>> = (0..nterms)
+                .map(|t| noise(row_len, 0xf91 + t as u64))
+                .collect();
+            let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>>> = (0..nterms)
+                .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<RS>(t, j)).collect())
+                .collect();
+            #[allow(clippy::type_complexity)]
+            let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<RS>>>], &[u8])> = coeff_sets
+                .iter()
+                .zip(&sources)
+                .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                .collect();
+            let mut rows = noise(row_len * nrows, 0xf92);
+            let mut want = vec![0u8; row_len * nrows];
+            for &(coeffs, src) in &terms {
+                for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                    gf8_reference::<RS>(row, coeff, src);
+                }
+            }
+            prepared_pairs!(terms, |pairs| {
+                crate::kernel::trace::clear();
+                x86::gf8::mul_into_matrix_gfni_with::<false, _>(
+                    token,
+                    &mut rows,
+                    row_len,
+                    nrows,
+                    &pairs[..],
+                );
+                crate::kernel::trace::assert_vector_work_in(
+                    Backend::V3GfniCrypto,
+                    row_len * nrows * nterms - loss32 * nrows * nterms,
+                    row_len * nrows * nterms,
+                );
+            });
+            assert_eq!(
+                rows, want,
+                "gf8 rs gfni matrix overwrite vector work fixture"
+            );
+        }
+        {
+            // matrix_at::<false>: 4 scattered rows × 300 bytes × 3 terms.
+            let row_len = 300;
+            let nrows = 4;
+            let nterms = 3;
+            let starts: Vec<usize> = (0..nrows).map(|j| j * (row_len + 7)).collect();
+            let span = starts.iter().map(|&x| x + row_len).max().unwrap_or(0);
+            let sources: Vec<Vec<u8>> = (0..nterms)
+                .map(|t| noise(row_len, 0xf93 + t as u64))
+                .collect();
+            let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>>> = (0..nterms)
+                .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<RS>(t, j)).collect())
+                .collect();
+            #[allow(clippy::type_complexity)]
+            let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<RS>>>], &[u8])> = coeff_sets
+                .iter()
+                .zip(&sources)
+                .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                .collect();
+            let mut got = noise(span, 0xf94);
+            let mut want = got.clone();
+            for &(coeffs, src) in &terms {
+                for (j, &coeff) in coeffs.iter().enumerate() {
+                    scalar::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(
+                        &mut want[starts[j]..starts[j] + row_len],
+                        coeff,
+                        src,
+                    );
+                }
+            }
+            prepared_pairs!(terms, |pairs| {
+                crate::kernel::trace::clear();
+                x86::gf8::mul_add_matrix_at_gfni_with::<false, _>(
+                    token,
+                    &mut got,
+                    row_len,
+                    &starts,
+                    &pairs[..],
+                );
+                crate::kernel::trace::assert_vector_work_in(
+                    Backend::V3GfniCrypto,
+                    row_len * nrows * nterms - loss32 * nrows * nterms,
+                    row_len * nrows * nterms,
+                );
+            });
+            assert_eq!(got, want, "gf8 rs gfni matrix_at vector work fixture");
+            // Overwrite from noise equals zeroed accumulation on the named rows.
+            let mut overwrote = noise(span, 0xf95);
+            let mut want = overwrote.clone();
+            for &start in &starts {
+                want[start..start + row_len].fill(0);
+            }
+            for &(coeffs, src) in &terms {
+                for (j, &coeff) in coeffs.iter().enumerate() {
+                    scalar::mul_add::<FiniteField<2, 8, Polynomial<RS>>>(
+                        &mut want[starts[j]..starts[j] + row_len],
+                        coeff,
+                        src,
+                    );
+                }
+            }
+            prepared_pairs!(terms, |pairs| {
+                crate::kernel::trace::clear();
+                x86::gf8::mul_into_matrix_at_gfni_with::<false, _>(
+                    token,
+                    &mut overwrote,
+                    row_len,
+                    &starts,
+                    &pairs[..],
+                );
+                crate::kernel::trace::assert_vector_work_in(
+                    Backend::V3GfniCrypto,
+                    row_len * nrows * nterms - loss32 * nrows * nterms,
+                    row_len * nrows * nterms,
+                );
+            });
+            assert_eq!(
+                overwrote, want,
+                "gf8 rs gfni matrix_at overwrite vector work fixture"
+            );
         }
         {
             // Gather: 300 bytes × 5 sources.
@@ -3703,6 +4198,10 @@ mod x86 {
             let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>> =
                 (0..nterms).map(gf8_coeff_at::<RS>).collect();
             let mut dst = noise(len, 0xf06);
+            let mut want = dst.clone();
+            for (&coeff, &src) in coeffs.iter().zip(&srcs) {
+                gf8_reference::<RS>(&mut want, coeff, src);
+            }
             crate::kernel::trace::clear();
             x86::gf8::mul_add_gather_gfni::<false>(
                 token,
@@ -3712,9 +4211,10 @@ mod x86 {
             );
             crate::kernel::trace::assert_vector_work_in(
                 Backend::V3GfniCrypto,
-                len * nterms - 96,
+                len * nterms - loss32 * nterms,
                 len * nterms,
             );
+            assert_eq!(dst, want, "gf8 rs gfni gather vector work fixture");
         }
         {
             // elementwise::<false>: 300 bytes.
@@ -3722,6 +4222,8 @@ mod x86 {
             let a = noise(len, 0xf75);
             let b = noise(len, 0xf76);
             let mut dst = vec![0u8; len];
+            let mut want = vec![0u8; len];
+            scalar::mul_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(&mut want, &a, &b);
             crate::kernel::trace::clear();
             x86::gf8::mul_elementwise_gfni::<false>(
                 token,
@@ -3731,13 +4233,16 @@ mod x86 {
                 &a,
                 &b,
             );
-            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - 96, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - loss32, len);
+            assert_eq!(dst, want, "gf8 rs gfni elementwise vector work fixture");
         }
         {
             // elementwise_assign::<false>: 300 bytes.
             let len = 300;
             let src = noise(len, 0xf77);
             let mut dst = noise(len, 0xf78);
+            let mut want = dst.clone();
+            scalar::mul_elementwise_assign::<FiniteField<2, 8, Polynomial<RS>>>(&mut want, &src);
             crate::kernel::trace::clear();
             x86::gf8::mul_elementwise_assign_gfni::<false>(
                 token,
@@ -3746,7 +4251,11 @@ mod x86 {
                 &mut dst,
                 &src,
             );
-            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - 96, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3GfniCrypto, len - loss32, len);
+            assert_eq!(
+                dst, want,
+                "gf8 rs gfni elementwise assign vector work fixture"
+            );
         }
         check_gf8_scattered_gfni_rows::<RS>("gf8 rs gfni", token);
     }
@@ -3983,6 +4492,7 @@ mod x86 {
             return;
         }
         let token = X64V3Token::summon().expect("guard passed: AVX2 summons here");
+        let loss32 = crate::kernel::trace::row_loss(32, 1);
         check_gf8_mul_add("gf8 aes avx2", &gf8_aes_coeffs(), |dst, table, src| {
             x86::gf8::mul_add_avx2(token, dst, table, src);
         });
@@ -4096,9 +4606,12 @@ mod x86 {
             let coeff = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
             let table = scale_table(coeff);
             let mut dst = noise(len, 0xf52);
+            let mut want = dst.clone();
+            scalar::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, coeff, &src);
             crate::kernel::trace::clear();
             x86::gf8::mul_add_avx2(token, &mut dst, table, &src);
-            crate::kernel::trace::assert_vector_work_in(Backend::V3, len - 96, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, len - loss32, len);
+            assert_eq!(dst, want, "gf8 avx2 mul_add vector work fixture");
         }
         {
             // mul_assign: same geometry.
@@ -4113,8 +4626,8 @@ mod x86 {
             };
             crate::kernel::trace::clear();
             x86::gf8::mul_assign_avx2(token, &mut dst, table);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, len - loss32, len);
             assert_eq!(dst, want, "gf8 avx2 mul_assign vector work fixture");
-            crate::kernel::trace::assert_vector_work_in(Backend::V3, len - 96, len);
         }
         {
             // mul_into: same geometry.
@@ -4123,9 +4636,12 @@ mod x86 {
             let table = scale_table(coeff);
             let src = noise(len, 0xf54);
             let mut dst = vec![0u8; len];
+            let mut want = src.clone();
+            scalar::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, coeff);
             crate::kernel::trace::clear();
             x86::gf8::mul_into_avx2(token, &mut dst, table, &src);
-            crate::kernel::trace::assert_vector_work_in(Backend::V3, len - 96, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, len - loss32, len);
+            assert_eq!(dst, want, "gf8 avx2 mul_into vector work fixture");
         }
         {
             // scatter: 5 rows × 300 bytes.
@@ -4133,8 +4649,12 @@ mod x86 {
             let nrows = 5;
             let src = noise(row_len, 0xf11);
             let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> =
-                (0..nrows).map(gf8_coeff_at::<AES>).collect();
+                (0..nrows).map(|j| gf8_coeff_at::<AES>(j + 1)).collect();
             let mut rows = noise(row_len * nrows, 0xf12);
+            let mut want = rows.clone();
+            for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs) {
+                gf8_reference::<AES>(row, coeff, &src);
+            }
             crate::kernel::trace::clear();
             x86::gf8::mul_add_scatter_avx2(
                 token,
@@ -4145,9 +4665,10 @@ mod x86 {
             );
             crate::kernel::trace::assert_vector_work_in(
                 Backend::V3,
-                row_len * nrows - 96 * nrows,
+                row_len * nrows - loss32 * nrows,
                 row_len * nrows,
             );
+            assert_eq!(rows, want, "gf8 avx2 scatter vector work fixture");
         }
         {
             // matrix: 4 rows × 300 bytes × 3 terms.
@@ -4167,6 +4688,12 @@ mod x86 {
                 .map(|(c, s)| (c.as_slice(), s.as_slice()))
                 .collect();
             let mut rows = noise(row_len * nrows, 0xf56);
+            let mut want = rows.clone();
+            for &(coeffs, src) in &terms {
+                for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                    gf8_reference::<AES>(row, coeff, src);
+                }
+            }
             let sets: Vec<Vec<Prepared>> = terms
                 .iter()
                 .map(|(coeffs, _)| prepared_coeffs(coeffs))
@@ -4180,9 +4707,10 @@ mod x86 {
             x86::gf8::mul_add_matrix_avx2_with(token, &mut rows, row_len, nrows, &pairs[..]);
             crate::kernel::trace::assert_vector_work_in(
                 Backend::V3,
-                row_len * nrows * nterms - 96 * nrows,
+                row_len * nrows * nterms - loss32 * nrows * nterms,
                 row_len * nrows * nterms,
             );
+            assert_eq!(rows, want, "gf8 avx2 matrix vector work fixture");
         }
         {
             // gather: 300 bytes × 4 sources.
@@ -4193,13 +4721,18 @@ mod x86 {
             let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> =
                 (0..nterms).map(gf8_coeff_at::<AES>).collect();
             let mut dst = noise(len, 0xf58);
+            let mut want = dst.clone();
+            for (&coeff, &src) in coeffs.iter().zip(&srcs) {
+                gf8_reference::<AES>(&mut want, coeff, src);
+            }
             crate::kernel::trace::clear();
             x86::gf8::mul_add_gather_avx2(token, &mut dst, &prepared_coeffs(&coeffs), &srcs);
             crate::kernel::trace::assert_vector_work_in(
                 Backend::V3,
-                len * nterms - 96,
+                len * nterms - loss32 * nterms,
                 len * nterms,
             );
+            assert_eq!(dst, want, "gf8 avx2 gather vector work fixture");
         }
         {
             // elementwise: 300-byte buffers, emission via multiply_vectors_avx2.
@@ -4207,6 +4740,8 @@ mod x86 {
             let a = noise(len, 0xf59);
             let b = noise(len, 0xf5a);
             let mut dst = vec![0u8; len];
+            let mut want = vec![0u8; len];
+            scalar::mul_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, &a, &b);
             crate::kernel::trace::clear();
             x86::gf8::mul_elementwise_avx2(
                 token,
@@ -4215,13 +4750,16 @@ mod x86 {
                 &a,
                 &b,
             );
-            crate::kernel::trace::assert_vector_work_in(Backend::V3, len - 96, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, len - loss32, len);
+            assert_eq!(dst, want, "gf8 avx2 elementwise vector work fixture");
         }
         {
             // elementwise assign: same geometry.
             let len = 300;
             let src = noise(len, 0xf5b);
             let mut dst = noise(len, 0xf5c);
+            let mut want = dst.clone();
+            scalar::mul_elementwise_assign::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, &src);
             crate::kernel::trace::clear();
             x86::gf8::mul_elementwise_assign_avx2(
                 token,
@@ -4229,7 +4767,8 @@ mod x86 {
                 &mut dst,
                 &src,
             );
-            crate::kernel::trace::assert_vector_work_in(Backend::V3, len - 96, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V3, len - loss32, len);
+            assert_eq!(dst, want, "gf8 avx2 elementwise assign vector work fixture");
         }
         check_fan_paar_avx2_kernels(token);
         check_gf8_elementwise::<RS>("gf8 rs avx2 elementwise", |dst, a, b| {
@@ -4395,6 +4934,7 @@ mod x86 {
             return;
         }
         let token = X64V2Token::summon().expect("guard passed: SSSE3 summons here");
+        let loss16 = crate::kernel::trace::row_loss(16, 1);
         check_gf8_mul_add("gf8 aes ssse3", &gf8_aes_coeffs(), |dst, table, src| {
             x86::gf8::mul_add_ssse3(token, dst, table, src);
         });
@@ -4498,9 +5038,12 @@ mod x86 {
             let coeff = Elem::<FiniteField<2, 8, Polynomial<AES>>>::from_raw(0x53);
             let table = scale_table(coeff);
             let mut dst = noise(len, 0xf32);
+            let mut want = dst.clone();
+            scalar::mul_add::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, coeff, &src);
             crate::kernel::trace::clear();
             x86::gf8::mul_add_ssse3(token, &mut dst, table, &src);
-            crate::kernel::trace::assert_vector_work_in(Backend::V2, len - 48, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V2, len - loss16, len);
+            assert_eq!(dst, want, "gf8 ssse3 mul_add vector work fixture");
         }
         {
             // mul_assign: same geometry.
@@ -4515,8 +5058,8 @@ mod x86 {
             };
             crate::kernel::trace::clear();
             x86::gf8::mul_assign_ssse3(token, &mut dst, table);
+            crate::kernel::trace::assert_vector_work_in(Backend::V2, len - loss16, len);
             assert_eq!(dst, want, "gf8 ssse3 mul_assign vector work fixture");
-            crate::kernel::trace::assert_vector_work_in(Backend::V2, len - 48, len);
         }
         {
             // mul_into: same geometry.
@@ -4525,9 +5068,12 @@ mod x86 {
             let table = scale_table(coeff);
             let src = noise(len, 0xf34);
             let mut dst = vec![0u8; len];
+            let mut want = src.clone();
+            scalar::mul_assign::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, coeff);
             crate::kernel::trace::clear();
             x86::gf8::mul_into_ssse3(token, &mut dst, table, &src);
-            crate::kernel::trace::assert_vector_work_in(Backend::V2, len - 48, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V2, len - loss16, len);
+            assert_eq!(dst, want, "gf8 ssse3 mul_into vector work fixture");
         }
         {
             // scatter: 5 rows × 300 bytes.
@@ -4535,8 +5081,12 @@ mod x86 {
             let nrows = 5;
             let src = noise(row_len, 0xf21);
             let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> =
-                (0..nrows).map(gf8_coeff_at::<AES>).collect();
+                (0..nrows).map(|j| gf8_coeff_at::<AES>(j + 1)).collect();
             let mut rows = noise(row_len * nrows, 0xf22);
+            let mut want = rows.clone();
+            for (row, &coeff) in want.chunks_exact_mut(row_len).zip(&coeffs) {
+                gf8_reference::<AES>(row, coeff, &src);
+            }
             crate::kernel::trace::clear();
             x86::gf8::mul_add_scatter_ssse3(
                 token,
@@ -4547,9 +5097,10 @@ mod x86 {
             );
             crate::kernel::trace::assert_vector_work_in(
                 Backend::V2,
-                row_len * nrows - 48 * nrows,
+                row_len * nrows - loss16 * nrows,
                 row_len * nrows,
             );
+            assert_eq!(rows, want, "gf8 ssse3 scatter vector work fixture");
         }
         {
             // matrix: 4 rows × 300 bytes × 3 terms.
@@ -4569,6 +5120,12 @@ mod x86 {
                 .map(|(c, s)| (c.as_slice(), s.as_slice()))
                 .collect();
             let mut rows = noise(row_len * nrows, 0xf42);
+            let mut want = rows.clone();
+            for &(coeffs, src) in &terms {
+                for (row, &coeff) in want.chunks_exact_mut(row_len).zip(coeffs) {
+                    gf8_reference::<AES>(row, coeff, src);
+                }
+            }
             let sets: Vec<Vec<Prepared>> = terms
                 .iter()
                 .map(|(coeffs, _)| prepared_coeffs(coeffs))
@@ -4582,9 +5139,10 @@ mod x86 {
             x86::gf8::mul_add_matrix_ssse3_with(token, &mut rows, row_len, nrows, &pairs[..]);
             crate::kernel::trace::assert_vector_work_in(
                 Backend::V2,
-                row_len * nrows * nterms - 48 * nrows,
+                row_len * nrows * nterms - loss16 * nrows * nterms,
                 row_len * nrows * nterms,
             );
+            assert_eq!(rows, want, "gf8 ssse3 matrix vector work fixture");
         }
         {
             // gather: 300 bytes × 4 sources.
@@ -4595,13 +5153,18 @@ mod x86 {
             let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> =
                 (0..nterms).map(gf8_coeff_at::<AES>).collect();
             let mut dst = noise(len, 0xf44);
+            let mut want = dst.clone();
+            for (&coeff, &src) in coeffs.iter().zip(&srcs) {
+                gf8_reference::<AES>(&mut want, coeff, src);
+            }
             crate::kernel::trace::clear();
             x86::gf8::mul_add_gather_ssse3(token, &mut dst, &prepared_coeffs(&coeffs), &srcs);
             crate::kernel::trace::assert_vector_work_in(
                 Backend::V2,
-                len * nterms - 48,
+                len * nterms - loss16 * nterms,
                 len * nterms,
             );
+            assert_eq!(dst, want, "gf8 ssse3 gather vector work fixture");
         }
         {
             // elementwise: 300-byte buffers, emission via multiply_vectors_ssse3.
@@ -4609,6 +5172,8 @@ mod x86 {
             let a = noise(len, 0xf45);
             let b = noise(len, 0xf46);
             let mut dst = vec![0u8; len];
+            let mut want = vec![0u8; len];
+            scalar::mul_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, &a, &b);
             crate::kernel::trace::clear();
             x86::gf8::mul_elementwise_ssse3(
                 token,
@@ -4617,13 +5182,16 @@ mod x86 {
                 &a,
                 &b,
             );
-            crate::kernel::trace::assert_vector_work_in(Backend::V2, len - 48, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V2, len - loss16, len);
+            assert_eq!(dst, want, "gf8 ssse3 elementwise vector work fixture");
         }
         {
             // elementwise assign: same geometry.
             let len = 300;
             let src = noise(len, 0xf47);
             let mut dst = noise(len, 0xf48);
+            let mut want = dst.clone();
+            scalar::mul_elementwise_assign::<FiniteField<2, 8, Polynomial<AES>>>(&mut want, &src);
             crate::kernel::trace::clear();
             x86::gf8::mul_elementwise_assign_ssse3(
                 token,
@@ -4631,7 +5199,11 @@ mod x86 {
                 &mut dst,
                 &src,
             );
-            crate::kernel::trace::assert_vector_work_in(Backend::V2, len - 48, len);
+            crate::kernel::trace::assert_vector_work_in(Backend::V2, len - loss16, len);
+            assert_eq!(
+                dst, want,
+                "gf8 ssse3 elementwise assign vector work fixture"
+            );
         }
         crate::kernel::trace::assert_vector_work(Backend::V2);
         check_gf8_elementwise::<AES>("gf8 ssse3 elementwise", |dst, a, b| {

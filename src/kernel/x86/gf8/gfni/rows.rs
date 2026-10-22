@@ -58,7 +58,11 @@ fn fold_term<const NATIVE: bool, const ROWS: usize, const LANES: usize>(
     #[cfg(test)]
     crate::kernel::trace::emit(
         "gf8.gfni.matrix",
-        crate::kernel::trace::Substage::MulAdd,
+        if first {
+            crate::kernel::trace::Substage::Mul
+        } else {
+            crate::kernel::trace::Substage::MulAdd
+        },
         crate::kernel::trace::Unit::Elements,
         ROWS * LANES * 32,
         crate::kernel::Backend::V3GfniCrypto,
