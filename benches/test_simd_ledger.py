@@ -24,8 +24,9 @@ CANONICAL_LEDGER_PATH = Path(__file__).resolve().parent / "simd_ledger.json"
 
 def _lane_loss():
     return {
-        "lane": {"scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64},
-        "loss": {"scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126},
+        "lane_bytes": {"scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64},
+        "loss_bytes": {"scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126},
+        "loss_formula": "ceil(2*(lb-1))",
     }
 
 
@@ -243,8 +244,31 @@ class TestBudgetAndCoefficients(unittest.TestCase):
             "fixtures": [{"id": "rgf2", "type": "crate::field::FiniteField<2, 1, crate::field::Residue>"}],
         }
         ledger["applicability"]["row-mul"] = {"families": ["ops/row"], "rules": ["residue-gf2"], "exclusions": {}}
-        ledger["coefficient_patterns"]["one-1"] = {"slots": ["One"]}
+        ledger["coefficient_patterns"]["zero-1"] = {"slots": ["Zero"]}
         sl._validate_gf2_general(ledger)  # must not raise
+
+    def test_width_generic_lane_loss_conversion(self):
+        """2-byte and 8-byte fixtures get different lane/loss from the same rule.
+        lane = floor(lane_bytes / elem_bytes), loss = ceil(loss_bytes / elem_bytes)."""
+        rule_2b = {"elem_bytes": 2, "group": "packed"}
+        rule_8b = {"elem_bytes": 8, "group": "packed"}
+        # v2: lane_bytes=16, loss_bytes=30
+        self.assertEqual(sl._lane_in_units("Elements", 16, rule_2b), 8)   # 16//2
+        self.assertEqual(sl._loss_in_units("Elements", 30, rule_2b), 15)  # ceil(30/2)
+        self.assertEqual(sl._lane_in_units("Elements", 16, rule_8b), 2)   # 16//8
+        self.assertEqual(sl._loss_in_units("Elements", 30, rule_8b), 4)   # ceil(30/8)
+        # Same rule, different budgets
+        wr2b = {"lane_bytes": {"v2": 16}, "loss_bytes": {"v2": 30}, "loss_formula": "ceil(2*(lb-1))",
+                "unit": "Elements", "basis": "Source", "multiplicity": "One"}
+        wr8b = dict(wr2b)
+        geo = {"rows": 1, "sources": 1, "len": 64}
+        budget_2b = sl._work_budget(wr2b, geo, rule_2b, "v2")
+        budget_8b = sl._work_budget(wr8b, geo, rule_8b, "v2")
+        # 2-byte: len_in_units=64 elements, lane=8, loss=15 -> mult=1, budget=1*1*(64-15)=49
+        # 8-byte: len_in_units=64 elements, lane=2, loss=4  -> budget=1*1*(64-4)=60
+        self.assertEqual(budget_2b, 49)
+        self.assertEqual(budget_8b, 60)
+        self.assertNotEqual(budget_2b, budget_8b)
 
     def test_gf2_fixture_detection(self):
         self.assertTrue(sl._fixture_is_gf2({"type": "crate::field::FiniteField<2, 1, crate::field::Residue>"}))

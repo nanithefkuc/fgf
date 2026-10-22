@@ -1,218 +1,841 @@
 {
   "_version": 2,
-  "_description": "Canonical SIMD route ledger for fgf 3.0.2. Edited by hand; checked by benches/simd_ledger.py. Obligations are expanded from applicability × rules × callables. Cell default: status=unverified, required=false, perf=unmeasured.",
-  "_cell_default": { "status": "unverified", "required": false, "perf": "unmeasured" },
-
-  "callables": {
-    "BinaryDescription::degree":          { "kind": "non-bulk", "reason": "query" },
-    "BinaryDescription::inv":             { "kind": "non-bulk", "reason": "single-element" },
-    "BinaryDescription::is_basis_root":   { "kind": "non-bulk", "reason": "query" },
-    "BinaryDescription::is_generator":    { "kind": "non-bulk", "reason": "query" },
-    "BinaryDescription::is_polynomial_root": { "kind": "non-bulk", "reason": "query" },
-    "BinaryDescription::mul":             { "kind": "non-bulk", "reason": "single-element" },
-    "BinaryDescription::one":             { "kind": "non-bulk", "reason": "construction" },
-    "BinaryDescription::pow":             { "kind": "non-bulk", "reason": "single-element" },
-    "BinaryDescription::same_structure":  { "kind": "non-bulk", "reason": "query" },
-    "BinaryDescription::trace":           { "kind": "non-bulk", "reason": "single-element" },
-    "ByteLogExp::build":                  { "kind": "non-bulk", "reason": "construction" },
-    "Coeff::new":                         { "kind": "non-bulk", "reason": "construction" },
-    "Coeff::value":                       { "kind": "non-bulk", "reason": "query" },
-    "CoeffMatrix::from_source_major":     { "kind": "non-bulk", "reason": "construction" },
-    "CoeffMatrix::get_at":                { "kind": "non-bulk", "reason": "query" },
-    "CoeffMatrix::is_empty":              { "kind": "non-bulk", "reason": "query" },
-    "CoeffMatrix::len":                   { "kind": "non-bulk", "reason": "query" },
-    "CoeffMatrix::output_count":          { "kind": "non-bulk", "reason": "query" },
-    "CoeffMatrix::source":                { "kind": "non-bulk", "reason": "query" },
-    "CoeffMatrix::source_count":          { "kind": "non-bulk", "reason": "query" },
-    "CoeffMatrix::values":                { "kind": "non-bulk", "reason": "query" },
-    "CoeffRef::value":                    { "kind": "non-bulk", "reason": "query" },
-    "CoeffVec::as_ref":                   { "kind": "non-bulk", "reason": "query" },
-    "CoeffVec::coeffs":                   { "kind": "non-bulk", "reason": "query" },
-    "CoeffVec::get":                      { "kind": "non-bulk", "reason": "query" },
-    "CoeffVec::is_empty":                 { "kind": "non-bulk", "reason": "query" },
-    "CoeffVec::len":                      { "kind": "non-bulk", "reason": "query" },
-    "CoeffVec::new":                      { "kind": "non-bulk", "reason": "construction" },
-    "CoeffVec::values":                   { "kind": "non-bulk", "reason": "query" },
-    "CoeffVecRef::get":                   { "kind": "non-bulk", "reason": "query" },
-    "CoeffVecRef::into_coeffs":           { "kind": "non-bulk", "reason": "query" },
-    "CoeffVecRef::is_empty":              { "kind": "non-bulk", "reason": "query" },
-    "CoeffVecRef::len":                   { "kind": "non-bulk", "reason": "query" },
-    "CoeffVecRef::values":                { "kind": "non-bulk", "reason": "query" },
-    "Elem::add":                          { "kind": "non-bulk", "reason": "single-element" },
-    "Elem::canonical":                    { "kind": "non-bulk", "reason": "single-element" },
-    "Elem::conjugate":                    { "kind": "non-bulk", "reason": "single-element" },
-    "Elem::div":                          { "kind": "non-bulk", "reason": "single-element" },
-    "Elem::frobenius_with":               { "kind": "non-bulk", "reason": "single-element" },
-    "Elem::from_bytes":                   { "kind": "non-bulk", "reason": "construction" },
-    "Elem::from_components":              { "kind": "non-bulk", "reason": "construction" },
-    "Elem::from_raw":                     { "kind": "non-bulk", "reason": "construction" },
-    "Elem::from_residue":                 { "kind": "non-bulk", "reason": "construction" },
-    "Elem::inv":                          { "kind": "non-bulk", "reason": "single-element" },
-    "Elem::is_one":                       { "kind": "non-bulk", "reason": "query" },
-    "Elem::is_zero":                      { "kind": "non-bulk", "reason": "query" },
-    "Elem::mul":                          { "kind": "non-bulk", "reason": "single-element" },
-    "Elem::mul_alpha":                    { "kind": "non-bulk", "reason": "single-element" },
-    "Elem::neg":                          { "kind": "non-bulk", "reason": "single-element" },
-    "Elem::norm":                         { "kind": "non-bulk", "reason": "single-element" },
-    "Elem::pow":                          { "kind": "non-bulk", "reason": "single-element" },
-    "Elem::square":                       { "kind": "non-bulk", "reason": "single-element" },
-    "Elem::sub":                          { "kind": "non-bulk", "reason": "single-element" },
-    "Elem::to_bytes":                     { "kind": "non-bulk", "reason": "query" },
-    "Elem::to_components":                { "kind": "non-bulk", "reason": "query" },
-    "Elem::to_raw":                       { "kind": "non-bulk", "reason": "query" },
-    "Elem::to_residue":                   { "kind": "non-bulk", "reason": "query" },
-    "Embedding::contains":                { "kind": "non-bulk", "reason": "query" },
-    "Embedding::embed":                   { "kind": "non-bulk", "reason": "single-element" },
-    "Embedding::frobenius":               { "kind": "non-bulk", "reason": "query" },
-    "Embedding::from_images":             { "kind": "non-bulk", "reason": "construction" },
-    "Embedding::generator":               { "kind": "non-bulk", "reason": "query" },
-    "Embedding::generator_count":         { "kind": "non-bulk", "reason": "query" },
-    "Embedding::new":                     { "kind": "non-bulk", "reason": "construction" },
-    "Embedding::norm":                    { "kind": "non-bulk", "reason": "query" },
-    "Embedding::relative_degree":         { "kind": "non-bulk", "reason": "query" },
-    "Embedding::restrict":                { "kind": "non-bulk", "reason": "single-element" },
-    "Embedding::then":                    { "kind": "non-bulk", "reason": "composition" },
-    "Embedding::to_images":               { "kind": "non-bulk", "reason": "query" },
-    "Embedding::trace":                   { "kind": "non-bulk", "reason": "query" },
-    "ExtensionField::from_components":    { "kind": "non-bulk", "reason": "construction" },
-    "ExtensionField::to_components":      { "kind": "non-bulk", "reason": "query" },
-    "Field::add_raw":                     { "kind": "non-bulk", "reason": "single-element" },
-    "Field::canonical_raw":               { "kind": "non-bulk", "reason": "single-element" },
-    "Field::inv_raw":                     { "kind": "non-bulk", "reason": "single-element" },
-    "Field::mul_raw":                     { "kind": "non-bulk", "reason": "single-element" },
-    "Field::neg_raw":                     { "kind": "non-bulk", "reason": "single-element" },
-    "Field::sub_raw":                     { "kind": "non-bulk", "reason": "single-element" },
-    "FieldBuffer::decode":                { "kind": "non-bulk", "reason": "single-element" },
-    "FieldBuffer::encode":                { "kind": "non-bulk", "reason": "single-element" },
-    "FieldElem::add":                     { "kind": "non-bulk", "reason": "single-element" },
-    "FieldElem::div":                     { "kind": "non-bulk", "reason": "single-element" },
-    "FieldElem::from_index":              { "kind": "non-bulk", "reason": "construction" },
-    "FieldElem::from_raw":                { "kind": "non-bulk", "reason": "construction" },
-    "FieldElem::from_residue":            { "kind": "non-bulk", "reason": "construction" },
-    "FieldElem::inv":                     { "kind": "non-bulk", "reason": "single-element" },
-    "FieldElem::is_one":                  { "kind": "non-bulk", "reason": "query" },
-    "FieldElem::is_zero":                 { "kind": "non-bulk", "reason": "query" },
-    "FieldElem::mul":                     { "kind": "non-bulk", "reason": "single-element" },
-    "FieldElem::neg":                     { "kind": "non-bulk", "reason": "single-element" },
-    "FieldElem::pow":                     { "kind": "non-bulk", "reason": "single-element" },
-    "FieldElem::square":                  { "kind": "non-bulk", "reason": "single-element" },
-    "FieldElem::sub":                     { "kind": "non-bulk", "reason": "single-element" },
-    "FieldElem::to_index":                { "kind": "non-bulk", "reason": "query" },
-    "FieldElem::to_residue":              { "kind": "non-bulk", "reason": "query" },
-    "FieldKernels::backend":              { "kind": "non-bulk", "reason": "query" },
-    "FieldKernels::has_vector_elementwise": { "kind": "non-bulk", "reason": "query" },
-    "FieldKernels::vector_elementwise_min_bytes": { "kind": "non-bulk", "reason": "query" },
-    "Frobenius::new":                     { "kind": "non-bulk", "reason": "construction" },
-    "Frobenius::power":                   { "kind": "non-bulk", "reason": "query" },
-    "Isomorphism::apply":                 { "kind": "non-bulk", "reason": "single-element" },
-    "Isomorphism::from_images":           { "kind": "non-bulk", "reason": "construction" },
-    "Isomorphism::inverse":               { "kind": "non-bulk", "reason": "composition" },
-    "Isomorphism::new":                   { "kind": "non-bulk", "reason": "construction" },
-    "Isomorphism::then":                  { "kind": "non-bulk", "reason": "composition" },
-    "Isomorphism::then_embedding":        { "kind": "non-bulk", "reason": "composition" },
-    "Isomorphism::to_images":             { "kind": "non-bulk", "reason": "query" },
-    "Isomorphism::unapply":               { "kind": "non-bulk", "reason": "single-element" },
-    "KernelBackend::has_blocked_rows":    { "kind": "non-bulk", "reason": "query" },
-    "KernelBackend::has_native_mul":      { "kind": "non-bulk", "reason": "query" },
-    "PreparedCoefficient::value":         { "kind": "non-bulk", "reason": "query" },
-    "PreparedEmbedding::contains":        { "kind": "non-bulk", "reason": "query" },
-    "PreparedEmbedding::embed":           { "kind": "non-bulk", "reason": "single-element" },
-    "PreparedEmbedding::embedding":       { "kind": "non-bulk", "reason": "query" },
-    "PreparedEmbedding::frobenius":       { "kind": "non-bulk", "reason": "query" },
-    "PreparedEmbedding::new":             { "kind": "non-bulk", "reason": "construction" },
-    "PreparedEmbedding::norm":            { "kind": "non-bulk", "reason": "query" },
-    "PreparedEmbedding::relative_degree": { "kind": "non-bulk", "reason": "query" },
-    "PreparedEmbedding::restrict":        { "kind": "non-bulk", "reason": "single-element" },
-    "PreparedEmbedding::trace":           { "kind": "non-bulk", "reason": "query" },
-    "PreparedIsomorphism::apply":         { "kind": "non-bulk", "reason": "single-element" },
-    "PreparedIsomorphism::isomorphism":   { "kind": "non-bulk", "reason": "query" },
-    "PreparedIsomorphism::new":           { "kind": "non-bulk", "reason": "construction" },
-    "PreparedIsomorphism::unapply":       { "kind": "non-bulk", "reason": "single-element" },
-    "Relation::from_binary_words":        { "kind": "non-bulk", "reason": "construction" },
-    "Relation::from_coordinates":         { "kind": "non-bulk", "reason": "construction" },
-    "Relation::to_coordinates":           { "kind": "non-bulk", "reason": "query" },
-    "XorRange::new":                      { "kind": "non-bulk", "reason": "construction" },
-    "bits::and_assign":                   { "kind": "bulk", "family": "bits" },
-    "bits::and_into":                     { "kind": "bulk", "family": "bits" },
-    "bits::andnot_assign":                { "kind": "bulk", "family": "bits" },
-    "bits::bytes_for":                    { "kind": "non-bulk", "reason": "query" },
-    "bits::clear_range":                  { "kind": "bulk", "family": "bits" },
-    "bits::dot_product":                  { "kind": "bulk", "family": "bits" },
-    "bits::set_range":                    { "kind": "bulk", "family": "bits" },
-    "bits::weight":                       { "kind": "bulk", "family": "bits" },
-    "bits::xor_assign":                   { "kind": "bulk", "family": "bits" },
-    "bits::xor_gather":                   { "kind": "bulk", "family": "bits" },
-    "bits::xor_range":                    { "kind": "bulk", "family": "bits" },
-    "bits::xor_range_with":               { "kind": "bulk", "family": "bits" },
-    "field::is_prime":                    { "kind": "non-bulk", "reason": "validation" },
-    "goldilocks::reduce":                 { "kind": "non-bulk", "reason": "single-element" },
-    "goldilocks::reduce_wide":            { "kind": "non-bulk", "reason": "single-element" },
-    "kernel::backend":                    { "kind": "non-bulk", "reason": "query" },
-    "kernel::backend_for":                { "kind": "non-bulk", "reason": "query" },
-    "kernel::has_vector_elementwise":     { "kind": "non-bulk", "reason": "query" },
-    "kernel::vector_elementwise_min_bytes": { "kind": "non-bulk", "reason": "query" },
-    "map::apply_into_with":               { "kind": "bulk", "family": "map" },
-    "map::contains_into_with":            { "kind": "bulk", "family": "map" },
-    "map::embed_into_with":               { "kind": "bulk", "family": "map" },
-    "map::frobenius_assign_with":         { "kind": "bulk", "family": "map" },
-    "map::frobenius_into_with":           { "kind": "bulk", "family": "map" },
-    "map::norm_into_with":                { "kind": "bulk", "family": "map" },
-    "map::restrict_into_with":            { "kind": "bulk", "family": "map" },
-    "map::trace_into_with":               { "kind": "bulk", "family": "map" },
-    "map::unapply_into_with":             { "kind": "bulk", "family": "map" },
-    "map_bits::contains_into_with":       { "kind": "bulk", "family": "map_bits" },
-    "map_bits::embed_into_with":          { "kind": "bulk", "family": "map_bits" },
-    "map_bits::norm_into_with":           { "kind": "bulk", "family": "map_bits" },
-    "map_bits::restrict_into_with":       { "kind": "bulk", "family": "map_bits" },
-    "map_bits::trace_into_with":          { "kind": "bulk", "family": "map_bits" },
-    "mersenne31::reduce":                 { "kind": "non-bulk", "reason": "single-element" },
-    "ops::add_assign":                    { "kind": "bulk", "family": "ops/row" },
-    "ops::add_assign_rows":               { "kind": "bulk", "family": "ops/rows" },
-    "ops::add_assign_scalar":             { "kind": "bulk", "family": "ops/scalar" },
-    "ops::add_gather_offsets":            { "kind": "bulk", "family": "ops/gather" },
-    "ops::div_elementwise":               { "kind": "bulk", "family": "ops/elementwise" },
-    "ops::div_elementwise_assign":        { "kind": "bulk", "family": "ops/elementwise" },
-    "ops::dot_product":                   { "kind": "bulk", "family": "ops/reduction" },
-    "ops::inv_assign":                    { "kind": "bulk", "family": "ops/elementwise" },
-    "ops::inv_into":                      { "kind": "bulk", "family": "ops/elementwise" },
-    "ops::mul_add":                       { "kind": "bulk", "family": "ops/row" },
-    "ops::mul_add_gather":                { "kind": "bulk", "family": "ops/gather" },
-    "ops::mul_add_gather_with":           { "kind": "bulk", "family": "ops/gather" },
-    "ops::mul_add_matrix":                { "kind": "bulk", "family": "ops/matrix" },
-    "ops::mul_add_matrix_at":             { "kind": "bulk", "family": "ops/matrix_at" },
-    "ops::mul_add_matrix_at_with":        { "kind": "bulk", "family": "ops/matrix_at" },
-    "ops::mul_add_matrix_with":           { "kind": "bulk", "family": "ops/matrix" },
-    "ops::mul_add_scatter":               { "kind": "bulk", "family": "ops/scatter" },
-    "ops::mul_add_scatter_with":          { "kind": "bulk", "family": "ops/scatter" },
-    "ops::mul_add_with":                  { "kind": "bulk", "family": "ops/row" },
-    "ops::mul_assign":                    { "kind": "bulk", "family": "ops/row" },
-    "ops::mul_assign_with":               { "kind": "bulk", "family": "ops/row" },
-    "ops::mul_elementwise":               { "kind": "bulk", "family": "ops/elementwise" },
-    "ops::mul_elementwise_assign":        { "kind": "bulk", "family": "ops/elementwise" },
-    "ops::mul_into":                      { "kind": "bulk", "family": "ops/row" },
-    "ops::mul_into_gather":               { "kind": "bulk", "family": "ops/gather" },
-    "ops::mul_into_gather_with":          { "kind": "bulk", "family": "ops/gather" },
-    "ops::mul_into_matrix":               { "kind": "bulk", "family": "ops/matrix" },
-    "ops::mul_into_matrix_at":            { "kind": "bulk", "family": "ops/matrix_at" },
-    "ops::mul_into_matrix_at_with":       { "kind": "bulk", "family": "ops/matrix_at" },
-    "ops::mul_into_matrix_with":          { "kind": "bulk", "family": "ops/matrix" },
-    "ops::mul_into_scatter":              { "kind": "bulk", "family": "ops/scatter" },
-    "ops::mul_into_with":                 { "kind": "bulk", "family": "ops/row" },
-    "ops::pack":                          { "kind": "bulk", "family": "ops/pack" },
-    "ops::pack_to_vec":                   { "kind": "bulk", "family": "ops/pack" },
-    "ops::sub_assign":                    { "kind": "bulk", "family": "ops/row" },
-    "ops::sub_assign_rows":               { "kind": "bulk", "family": "ops/rows" },
-    "ops::sub_assign_scalar":             { "kind": "bulk", "family": "ops/scalar" },
-    "ops::unpack":                        { "kind": "bulk", "family": "ops/pack" },
-    "ops::unpack_to_vec":                 { "kind": "bulk", "family": "ops/pack" },
-    "prime::reduce":                      { "kind": "non-bulk", "reason": "single-element" },
-    "prime::reduce_wide":                 { "kind": "non-bulk", "reason": "single-element" },
-    "tower::fp_invert":                   { "kind": "non-bulk", "reason": "single-element" },
-    "tower::fp_mul_alpha":                { "kind": "non-bulk", "reason": "single-element" },
-    "tower::fp_multiply":                 { "kind": "non-bulk", "reason": "single-element" },
-    "tower::fp_square":                   { "kind": "non-bulk", "reason": "single-element" }
+  "_description": "Canonical SIMD route ledger for fgf 3.0.2. Edited by hand; checked by benches/simd_ledger.py. Obligations are expanded from applicability \u00d7 rules \u00d7 callables. Cell default: status=unverified, required=false, perf=unmeasured.",
+  "_cell_default": {
+    "status": "unverified",
+    "required": false,
+    "perf": "unmeasured"
   },
-
+  "callables": {
+    "BinaryDescription::degree": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "BinaryDescription::inv": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "BinaryDescription::is_basis_root": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "BinaryDescription::is_generator": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "BinaryDescription::is_polynomial_root": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "BinaryDescription::mul": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "BinaryDescription::one": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "BinaryDescription::pow": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "BinaryDescription::same_structure": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "BinaryDescription::trace": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "ByteLogExp::build": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "Coeff::new": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "Coeff::value": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffMatrix::from_source_major": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "CoeffMatrix::get_at": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffMatrix::is_empty": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffMatrix::len": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffMatrix::output_count": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffMatrix::source": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffMatrix::source_count": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffMatrix::values": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffRef::value": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffVec::as_ref": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffVec::coeffs": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffVec::get": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffVec::is_empty": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffVec::len": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffVec::new": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "CoeffVec::values": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffVecRef::get": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffVecRef::into_coeffs": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffVecRef::is_empty": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffVecRef::len": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "CoeffVecRef::values": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Elem::add": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Elem::canonical": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Elem::conjugate": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Elem::div": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Elem::frobenius_with": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Elem::from_bytes": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "Elem::from_components": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "Elem::from_raw": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "Elem::from_residue": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "Elem::inv": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Elem::is_one": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Elem::is_zero": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Elem::mul": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Elem::mul_alpha": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Elem::neg": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Elem::norm": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Elem::pow": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Elem::square": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Elem::sub": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Elem::to_bytes": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Elem::to_components": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Elem::to_raw": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Elem::to_residue": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Embedding::contains": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Embedding::embed": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Embedding::frobenius": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Embedding::from_images": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "Embedding::generator": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Embedding::generator_count": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Embedding::new": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "Embedding::norm": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Embedding::relative_degree": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Embedding::restrict": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Embedding::then": {
+      "kind": "non-bulk",
+      "reason": "composition"
+    },
+    "Embedding::to_images": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Embedding::trace": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "ExtensionField::from_components": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "ExtensionField::to_components": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Field::add_raw": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Field::canonical_raw": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Field::inv_raw": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Field::mul_raw": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Field::neg_raw": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Field::sub_raw": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "FieldBuffer::decode": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "FieldBuffer::encode": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "FieldElem::add": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "FieldElem::div": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "FieldElem::from_index": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "FieldElem::from_raw": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "FieldElem::from_residue": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "FieldElem::inv": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "FieldElem::is_one": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "FieldElem::is_zero": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "FieldElem::mul": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "FieldElem::neg": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "FieldElem::pow": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "FieldElem::square": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "FieldElem::sub": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "FieldElem::to_index": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "FieldElem::to_residue": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "FieldKernels::backend": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "FieldKernels::has_vector_elementwise": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "FieldKernels::vector_elementwise_min_bytes": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Frobenius::new": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "Frobenius::power": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Isomorphism::apply": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Isomorphism::from_images": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "Isomorphism::inverse": {
+      "kind": "non-bulk",
+      "reason": "composition"
+    },
+    "Isomorphism::new": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "Isomorphism::then": {
+      "kind": "non-bulk",
+      "reason": "composition"
+    },
+    "Isomorphism::then_embedding": {
+      "kind": "non-bulk",
+      "reason": "composition"
+    },
+    "Isomorphism::to_images": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "Isomorphism::unapply": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "KernelBackend::has_blocked_rows": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "KernelBackend::has_native_mul": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "PreparedCoefficient::value": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "PreparedEmbedding::contains": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "PreparedEmbedding::embed": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "PreparedEmbedding::embedding": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "PreparedEmbedding::frobenius": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "PreparedEmbedding::new": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "PreparedEmbedding::norm": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "PreparedEmbedding::relative_degree": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "PreparedEmbedding::restrict": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "PreparedEmbedding::trace": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "PreparedIsomorphism::apply": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "PreparedIsomorphism::isomorphism": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "PreparedIsomorphism::new": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "PreparedIsomorphism::unapply": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "Relation::from_binary_words": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "Relation::from_coordinates": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "Relation::to_coordinates": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "XorRange::new": {
+      "kind": "non-bulk",
+      "reason": "construction"
+    },
+    "bits::and_assign": {
+      "kind": "bulk",
+      "family": "bits"
+    },
+    "bits::and_into": {
+      "kind": "bulk",
+      "family": "bits"
+    },
+    "bits::andnot_assign": {
+      "kind": "bulk",
+      "family": "bits"
+    },
+    "bits::bytes_for": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "bits::clear_range": {
+      "kind": "bulk",
+      "family": "bits"
+    },
+    "bits::dot_product": {
+      "kind": "bulk",
+      "family": "bits"
+    },
+    "bits::set_range": {
+      "kind": "bulk",
+      "family": "bits"
+    },
+    "bits::weight": {
+      "kind": "bulk",
+      "family": "bits"
+    },
+    "bits::xor_assign": {
+      "kind": "bulk",
+      "family": "bits"
+    },
+    "bits::xor_gather": {
+      "kind": "bulk",
+      "family": "bits"
+    },
+    "bits::xor_range": {
+      "kind": "bulk",
+      "family": "bits"
+    },
+    "bits::xor_range_with": {
+      "kind": "bulk",
+      "family": "bits"
+    },
+    "field::is_prime": {
+      "kind": "non-bulk",
+      "reason": "validation"
+    },
+    "goldilocks::reduce": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "goldilocks::reduce_wide": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "kernel::backend": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "kernel::backend_for": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "kernel::has_vector_elementwise": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "kernel::vector_elementwise_min_bytes": {
+      "kind": "non-bulk",
+      "reason": "query"
+    },
+    "map::apply_into_with": {
+      "kind": "bulk",
+      "family": "map"
+    },
+    "map::contains_into_with": {
+      "kind": "bulk",
+      "family": "map"
+    },
+    "map::embed_into_with": {
+      "kind": "bulk",
+      "family": "map"
+    },
+    "map::frobenius_assign_with": {
+      "kind": "bulk",
+      "family": "map"
+    },
+    "map::frobenius_into_with": {
+      "kind": "bulk",
+      "family": "map"
+    },
+    "map::norm_into_with": {
+      "kind": "bulk",
+      "family": "map"
+    },
+    "map::restrict_into_with": {
+      "kind": "bulk",
+      "family": "map"
+    },
+    "map::trace_into_with": {
+      "kind": "bulk",
+      "family": "map"
+    },
+    "map::unapply_into_with": {
+      "kind": "bulk",
+      "family": "map"
+    },
+    "map_bits::contains_into_with": {
+      "kind": "bulk",
+      "family": "map_bits"
+    },
+    "map_bits::embed_into_with": {
+      "kind": "bulk",
+      "family": "map_bits"
+    },
+    "map_bits::norm_into_with": {
+      "kind": "bulk",
+      "family": "map_bits"
+    },
+    "map_bits::restrict_into_with": {
+      "kind": "bulk",
+      "family": "map_bits"
+    },
+    "map_bits::trace_into_with": {
+      "kind": "bulk",
+      "family": "map_bits"
+    },
+    "mersenne31::reduce": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "ops::add_assign": {
+      "kind": "bulk",
+      "family": "ops/row"
+    },
+    "ops::add_assign_rows": {
+      "kind": "bulk",
+      "family": "ops/rows"
+    },
+    "ops::add_assign_scalar": {
+      "kind": "bulk",
+      "family": "ops/scalar"
+    },
+    "ops::add_gather_offsets": {
+      "kind": "bulk",
+      "family": "ops/gather"
+    },
+    "ops::div_elementwise": {
+      "kind": "bulk",
+      "family": "ops/elementwise"
+    },
+    "ops::div_elementwise_assign": {
+      "kind": "bulk",
+      "family": "ops/elementwise"
+    },
+    "ops::dot_product": {
+      "kind": "bulk",
+      "family": "ops/reduction"
+    },
+    "ops::inv_assign": {
+      "kind": "bulk",
+      "family": "ops/elementwise"
+    },
+    "ops::inv_into": {
+      "kind": "bulk",
+      "family": "ops/elementwise"
+    },
+    "ops::mul_add": {
+      "kind": "bulk",
+      "family": "ops/row"
+    },
+    "ops::mul_add_gather": {
+      "kind": "bulk",
+      "family": "ops/gather"
+    },
+    "ops::mul_add_gather_with": {
+      "kind": "bulk",
+      "family": "ops/gather"
+    },
+    "ops::mul_add_matrix": {
+      "kind": "bulk",
+      "family": "ops/matrix"
+    },
+    "ops::mul_add_matrix_at": {
+      "kind": "bulk",
+      "family": "ops/matrix_at"
+    },
+    "ops::mul_add_matrix_at_with": {
+      "kind": "bulk",
+      "family": "ops/matrix_at"
+    },
+    "ops::mul_add_matrix_with": {
+      "kind": "bulk",
+      "family": "ops/matrix"
+    },
+    "ops::mul_add_scatter": {
+      "kind": "bulk",
+      "family": "ops/scatter"
+    },
+    "ops::mul_add_scatter_with": {
+      "kind": "bulk",
+      "family": "ops/scatter"
+    },
+    "ops::mul_add_with": {
+      "kind": "bulk",
+      "family": "ops/row"
+    },
+    "ops::mul_assign": {
+      "kind": "bulk",
+      "family": "ops/row"
+    },
+    "ops::mul_assign_with": {
+      "kind": "bulk",
+      "family": "ops/row"
+    },
+    "ops::mul_elementwise": {
+      "kind": "bulk",
+      "family": "ops/elementwise"
+    },
+    "ops::mul_elementwise_assign": {
+      "kind": "bulk",
+      "family": "ops/elementwise"
+    },
+    "ops::mul_into": {
+      "kind": "bulk",
+      "family": "ops/row"
+    },
+    "ops::mul_into_gather": {
+      "kind": "bulk",
+      "family": "ops/gather"
+    },
+    "ops::mul_into_gather_with": {
+      "kind": "bulk",
+      "family": "ops/gather"
+    },
+    "ops::mul_into_matrix": {
+      "kind": "bulk",
+      "family": "ops/matrix"
+    },
+    "ops::mul_into_matrix_at": {
+      "kind": "bulk",
+      "family": "ops/matrix_at"
+    },
+    "ops::mul_into_matrix_at_with": {
+      "kind": "bulk",
+      "family": "ops/matrix_at"
+    },
+    "ops::mul_into_matrix_with": {
+      "kind": "bulk",
+      "family": "ops/matrix"
+    },
+    "ops::mul_into_scatter": {
+      "kind": "bulk",
+      "family": "ops/scatter"
+    },
+    "ops::mul_into_with": {
+      "kind": "bulk",
+      "family": "ops/row"
+    },
+    "ops::pack": {
+      "kind": "bulk",
+      "family": "ops/pack"
+    },
+    "ops::pack_to_vec": {
+      "kind": "bulk",
+      "family": "ops/pack"
+    },
+    "ops::sub_assign": {
+      "kind": "bulk",
+      "family": "ops/row"
+    },
+    "ops::sub_assign_rows": {
+      "kind": "bulk",
+      "family": "ops/rows"
+    },
+    "ops::sub_assign_scalar": {
+      "kind": "bulk",
+      "family": "ops/scalar"
+    },
+    "ops::unpack": {
+      "kind": "bulk",
+      "family": "ops/pack"
+    },
+    "ops::unpack_to_vec": {
+      "kind": "bulk",
+      "family": "ops/pack"
+    },
+    "prime::reduce": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "prime::reduce_wide": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "tower::fp_invert": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "tower::fp_mul_alpha": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "tower::fp_multiply": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    },
+    "tower::fp_square": {
+      "kind": "non-bulk",
+      "reason": "single-element"
+    }
+  },
   "rules": {
     "residue-u8-low": {
       "group": "residue",
@@ -222,9 +845,18 @@
       "presentation": "Residue",
       "elem_bytes": 1,
       "fixtures": [
-        { "id": "r3",   "type": "crate::field::FiniteField<3, 1, crate::field::Residue>" },
-        { "id": "r101", "type": "crate::field::FiniteField<101, 1, crate::field::Residue>" },
-        { "id": "r127", "type": "crate::field::FiniteField<127, 1, crate::field::Residue>" }
+        {
+          "id": "r3",
+          "type": "crate::field::FiniteField<3, 1, crate::field::Residue>"
+        },
+        {
+          "id": "r101",
+          "type": "crate::field::FiniteField<101, 1, crate::field::Residue>"
+        },
+        {
+          "id": "r127",
+          "type": "crate::field::FiniteField<127, 1, crate::field::Residue>"
+        }
       ]
     },
     "residue-u8-high": {
@@ -235,8 +867,14 @@
       "presentation": "Residue",
       "elem_bytes": 1,
       "fixtures": [
-        { "id": "r131", "type": "crate::field::FiniteField<131, 1, crate::field::Residue>" },
-        { "id": "r251", "type": "crate::field::FiniteField<251, 1, crate::field::Residue>" }
+        {
+          "id": "r131",
+          "type": "crate::field::FiniteField<131, 1, crate::field::Residue>"
+        },
+        {
+          "id": "r251",
+          "type": "crate::field::FiniteField<251, 1, crate::field::Residue>"
+        }
       ]
     },
     "residue-u16": {
@@ -246,8 +884,14 @@
       "presentation": "Residue",
       "elem_bytes": 2,
       "fixtures": [
-        { "id": "r257",   "type": "crate::field::FiniteField<257, 1, crate::field::Residue>" },
-        { "id": "r65521", "type": "crate::field::FiniteField<65521, 1, crate::field::Residue>" }
+        {
+          "id": "r257",
+          "type": "crate::field::FiniteField<257, 1, crate::field::Residue>"
+        },
+        {
+          "id": "r65521",
+          "type": "crate::field::FiniteField<65521, 1, crate::field::Residue>"
+        }
       ]
     },
     "residue-u32": {
@@ -257,10 +901,22 @@
       "presentation": "Residue",
       "elem_bytes": 4,
       "fixtures": [
-        { "id": "r65537",      "type": "crate::field::FiniteField<65537, 1, crate::field::Residue>" },
-        { "id": "r2013265921", "type": "crate::field::FiniteField<2013265921, 1, crate::field::Residue>" },
-        { "id": "r536870909",  "type": "crate::field::FiniteField<536870909, 1, crate::field::Residue>" },
-        { "id": "r4294967291", "type": "crate::field::FiniteField<4294967291, 1, crate::field::Residue>" }
+        {
+          "id": "r65537",
+          "type": "crate::field::FiniteField<65537, 1, crate::field::Residue>"
+        },
+        {
+          "id": "r2013265921",
+          "type": "crate::field::FiniteField<2013265921, 1, crate::field::Residue>"
+        },
+        {
+          "id": "r536870909",
+          "type": "crate::field::FiniteField<536870909, 1, crate::field::Residue>"
+        },
+        {
+          "id": "r4294967291",
+          "type": "crate::field::FiniteField<4294967291, 1, crate::field::Residue>"
+        }
       ]
     },
     "residue-u64": {
@@ -270,8 +926,14 @@
       "presentation": "Residue",
       "elem_bytes": 8,
       "fixtures": [
-        { "id": "r4294967311",             "type": "crate::field::FiniteField<4294967311, 1, crate::field::Residue>" },
-        { "id": "r18446744073709551557",   "type": "crate::field::FiniteField<18446744073709551557, 1, crate::field::Residue>" }
+        {
+          "id": "r4294967311",
+          "type": "crate::field::FiniteField<4294967311, 1, crate::field::Residue>"
+        },
+        {
+          "id": "r18446744073709551557",
+          "type": "crate::field::FiniteField<18446744073709551557, 1, crate::field::Residue>"
+        }
       ]
     },
     "residue-mersenne31-modulus": {
@@ -281,7 +943,10 @@
       "presentation": "Residue",
       "elem_bytes": 4,
       "fixtures": [
-        { "id": "rm31", "type": "crate::field::FiniteField<0x7FFF_FFFF, 1, crate::field::Residue>" }
+        {
+          "id": "rm31",
+          "type": "crate::field::FiniteField<0x7FFF_FFFF, 1, crate::field::Residue>"
+        }
       ]
     },
     "residue-goldilocks-modulus": {
@@ -291,7 +956,10 @@
       "presentation": "Residue",
       "elem_bytes": 8,
       "fixtures": [
-        { "id": "rgld", "type": "crate::field::FiniteField<0xFFFF_FFFF_0000_0001, 1, crate::field::Residue>" }
+        {
+          "id": "rgld",
+          "type": "crate::field::FiniteField<0xFFFF_FFFF_0000_0001, 1, crate::field::Residue>"
+        }
       ]
     },
     "residue-gf2": {
@@ -302,7 +970,10 @@
       "degree": 1,
       "elem_bytes": 8,
       "fixtures": [
-        { "id": "rgf2", "type": "crate::field::FiniteField<2, 1, crate::field::Residue>" }
+        {
+          "id": "rgf2",
+          "type": "crate::field::FiniteField<2, 1, crate::field::Residue>"
+        }
       ]
     },
     "mersenne31": {
@@ -311,7 +982,10 @@
       "presentation": "MersenneFold",
       "elem_bytes": 4,
       "fixtures": [
-        { "id": "m31", "type": "crate::field::Mersenne31" }
+        {
+          "id": "m31",
+          "type": "crate::field::Mersenne31"
+        }
       ]
     },
     "goldilocks": {
@@ -320,7 +994,10 @@
       "presentation": "GoldilocksFold",
       "elem_bytes": 8,
       "fixtures": [
-        { "id": "gld", "type": "crate::field::Goldilocks" }
+        {
+          "id": "gld",
+          "type": "crate::field::Goldilocks"
+        }
       ]
     },
     "gf8-poly-aes": {
@@ -331,7 +1008,10 @@
       "poly": "0x11B",
       "elem_bytes": 1,
       "fixtures": [
-        { "id": "gf8aes", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
+        {
+          "id": "gf8aes",
+          "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>"
+        }
       ]
     },
     "gf8-poly-other": {
@@ -342,7 +1022,10 @@
       "poly": "0x11D",
       "elem_bytes": 1,
       "fixtures": [
-        { "id": "gf8rs", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>" }
+        {
+          "id": "gf8rs",
+          "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>"
+        }
       ]
     },
     "gf8-normal": {
@@ -352,7 +1035,10 @@
       "presentation": "Normal",
       "elem_bytes": 1,
       "fixtures": [
-        { "id": "gf8n", "type": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>" }
+        {
+          "id": "gf8n",
+          "type": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>"
+        }
       ]
     },
     "gf8-cantor": {
@@ -362,7 +1048,10 @@
       "presentation": "Cantor",
       "elem_bytes": 1,
       "fixtures": [
-        { "id": "gf8c", "type": "crate::field::FiniteField<2, 8, crate::field::Cantor<0x11B, 0x20>>" }
+        {
+          "id": "gf8c",
+          "type": "crate::field::FiniteField<2, 8, crate::field::Cantor<0x11B, 0x20>>"
+        }
       ]
     },
     "binary-flat-sub8": {
@@ -371,9 +1060,18 @@
       "degree_range": "<8",
       "elem_bytes": 1,
       "fixtures": [
-        { "id": "gf1p", "type": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>" },
-        { "id": "gf4p", "type": "crate::field::FiniteField<2, 4, crate::field::Polynomial<0x13>>" },
-        { "id": "gf2n", "type": "crate::field::FiniteField<2, 2, crate::field::Normal<7, 2>>" }
+        {
+          "id": "gf1p",
+          "type": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>"
+        },
+        {
+          "id": "gf4p",
+          "type": "crate::field::FiniteField<2, 4, crate::field::Polynomial<0x13>>"
+        },
+        {
+          "id": "gf2n",
+          "type": "crate::field::FiniteField<2, 2, crate::field::Normal<7, 2>>"
+        }
       ]
     },
     "packed-u8-shipped": {
@@ -383,7 +1081,10 @@
       "shipped": true,
       "elem_bytes": 1,
       "fixtures": [
-        { "id": "pu8s", "type": "crate::field::Packed<u8>" }
+        {
+          "id": "fp8s",
+          "type": "crate::field::FiniteField<2, 8, crate::field::Extension<crate::field::FanPaar8, 2>>"
+        }
       ]
     },
     "packed-u8-custom": {
@@ -393,8 +1094,15 @@
       "shipped": false,
       "elem_bytes": 1,
       "fixtures": [
-        { "id": "pu8c", "type": "crate::kernel::tests::routes::fixtures::PackedU8Custom",
-          "needs_spec": { "base": "gf8-poly-aes", "degree": 8, "storage": "Packed<u8>" } }
+        {
+          "id": "pu8c",
+          "type": "crate::kernel::tests::routes::fixtures::PackedU8Custom",
+          "needs_spec": {
+            "base": "gf8-poly-aes",
+            "degree": 8,
+            "storage": "Packed<u8>"
+          }
+        }
       ]
     },
     "packed-u16-shipped": {
@@ -404,7 +1112,14 @@
       "shipped": true,
       "elem_bytes": 2,
       "fixtures": [
-        { "id": "pu16s", "type": "crate::field::Packed<u16>" }
+        {
+          "id": "fp16r",
+          "type": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>"
+        },
+        {
+          "id": "fp16f",
+          "type": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::FanPaar16, 2>>"
+        }
       ]
     },
     "packed-u16-custom": {
@@ -414,8 +1129,15 @@
       "shipped": false,
       "elem_bytes": 2,
       "fixtures": [
-        { "id": "pu16c", "type": "crate::kernel::tests::routes::fixtures::PackedU16Custom",
-          "needs_spec": { "base": "gf8-poly-aes", "degree": 16, "storage": "Packed<u16>" } }
+        {
+          "id": "pu16c",
+          "type": "crate::kernel::tests::routes::fixtures::PackedU16Custom",
+          "needs_spec": {
+            "base": "gf8-poly-aes",
+            "degree": 16,
+            "storage": "Packed<u16>"
+          }
+        }
       ]
     },
     "packed-u32-shipped": {
@@ -425,7 +1147,14 @@
       "shipped": true,
       "elem_bytes": 4,
       "fixtures": [
-        { "id": "pu32s", "type": "crate::field::Packed<u32>" }
+        {
+          "id": "fp32r",
+          "type": "crate::field::FiniteField<2, 32, crate::field::Extension<crate::field::Rijndael32, 2>>"
+        },
+        {
+          "id": "fp32f",
+          "type": "crate::field::FiniteField<2, 32, crate::field::Extension<crate::field::FanPaar32, 2>>"
+        }
       ]
     },
     "packed-u32-custom": {
@@ -435,8 +1164,15 @@
       "shipped": false,
       "elem_bytes": 4,
       "fixtures": [
-        { "id": "pu32c", "type": "crate::kernel::tests::routes::fixtures::PackedU32Custom",
-          "needs_spec": { "base": "gf8-poly-aes", "degree": 32, "storage": "Packed<u32>" } }
+        {
+          "id": "pu32c",
+          "type": "crate::kernel::tests::routes::fixtures::PackedU32Custom",
+          "needs_spec": {
+            "base": "gf8-poly-aes",
+            "degree": 32,
+            "storage": "Packed<u32>"
+          }
+        }
       ]
     },
     "packed-u64-shipped": {
@@ -446,7 +1182,14 @@
       "shipped": true,
       "elem_bytes": 8,
       "fixtures": [
-        { "id": "pu64s", "type": "crate::field::Packed<u64>" }
+        {
+          "id": "fp64r",
+          "type": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::field::Rijndael64, 2>>"
+        },
+        {
+          "id": "fp64f",
+          "type": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::field::FanPaar64, 2>>"
+        }
       ]
     },
     "packed-u64-custom": {
@@ -456,8 +1199,15 @@
       "shipped": false,
       "elem_bytes": 8,
       "fixtures": [
-        { "id": "pu64c", "type": "crate::kernel::tests::routes::fixtures::PackedU64Custom",
-          "needs_spec": { "base": "gf8-poly-aes", "degree": 64, "storage": "Packed<u64>" } }
+        {
+          "id": "pu64c",
+          "type": "crate::kernel::tests::routes::fixtures::PackedU64Custom",
+          "needs_spec": {
+            "base": "gf8-poly-aes",
+            "degree": 64,
+            "storage": "Packed<u64>"
+          }
+        }
       ]
     },
     "packed-padded": {
@@ -466,7 +1216,14 @@
       "presentation": "PackedPadded",
       "non_bulk": true,
       "fixtures": [
-        { "id": "ppu8", "type": "crate::field::PackedPadded<u8>" }
+        {
+          "id": "fp2",
+          "type": "crate::field::FiniteField<2, 2, crate::field::Extension<crate::field::FanPaar2, 2>>"
+        },
+        {
+          "id": "fp4",
+          "type": "crate::field::FiniteField<2, 4, crate::field::Extension<crate::field::FanPaar4, 2>>"
+        }
       ]
     },
     "component-quad-mersenne31": {
@@ -477,7 +1234,10 @@
       "specialized": true,
       "elem_bytes": 8,
       "fixtures": [
-        { "id": "qm31", "type": "crate::field::QuadMersenne31" }
+        {
+          "id": "qm31",
+          "type": "crate::field::QuadMersenne31"
+        }
       ]
     },
     "component-mersenne31-custom": {
@@ -488,8 +1248,15 @@
       "specialized": false,
       "elem_bytes": 8,
       "fixtures": [
-        { "id": "m31c2", "type": "crate::kernel::tests::routes::fixtures::Mersenne31CustomQuad",
-          "needs_spec": { "base_field": "crate::field::Mersenne31", "degree": 2, "storage": "Components" } }
+        {
+          "id": "m31c2",
+          "type": "crate::kernel::tests::routes::fixtures::Mersenne31CustomQuad",
+          "needs_spec": {
+            "base_field": "crate::field::Mersenne31",
+            "degree": 2,
+            "storage": "Components"
+          }
+        }
       ]
     },
     "component-residue-quadratic": {
@@ -500,8 +1267,14 @@
       "relation_shape": "quadratic",
       "elem_bytes": 2,
       "fixtures": [
-        { "id": "r3q", "type": "crate::kernel::tests::routes::fixtures::ResidueQuadratic",
-          "needs_spec": { "base_field": "crate::field::FiniteField<3, 1, crate::field::Residue>", "degree": 2 } }
+        {
+          "id": "r3q",
+          "type": "crate::kernel::tests::routes::fixtures::ResidueQuadratic",
+          "needs_spec": {
+            "base_field": "crate::field::FiniteField<3, 1, crate::field::Residue>",
+            "degree": 2
+          }
+        }
       ]
     },
     "component-residue-odd": {
@@ -512,8 +1285,14 @@
       "relation_shape": "cubic",
       "elem_bytes": 3,
       "fixtures": [
-        { "id": "r3c", "type": "crate::kernel::tests::routes::fixtures::ResidueCubic",
-          "needs_spec": { "base_field": "crate::field::FiniteField<3, 1, crate::field::Residue>", "degree": 3 } }
+        {
+          "id": "r3c",
+          "type": "crate::kernel::tests::routes::fixtures::ResidueCubic",
+          "needs_spec": {
+            "base_field": "crate::field::FiniteField<3, 1, crate::field::Residue>",
+            "degree": 3
+          }
+        }
       ]
     },
     "component-residue-quartic": {
@@ -524,8 +1303,14 @@
       "relation_shape": "quartic",
       "elem_bytes": 4,
       "fixtures": [
-        { "id": "r3q4", "type": "crate::kernel::tests::routes::fixtures::ResidueQuartic",
-          "needs_spec": { "base_field": "crate::field::FiniteField<3, 1, crate::field::Residue>", "degree": 4 } }
+        {
+          "id": "r3q4",
+          "type": "crate::kernel::tests::routes::fixtures::ResidueQuartic",
+          "needs_spec": {
+            "base_field": "crate::field::FiniteField<3, 1, crate::field::Residue>",
+            "degree": 4
+          }
+        }
       ]
     },
     "component-goldilocks": {
@@ -536,8 +1321,14 @@
       "relation_shape": "quadratic",
       "elem_bytes": 16,
       "fixtures": [
-        { "id": "gld2", "type": "crate::kernel::tests::routes::fixtures::GoldilocksQuadratic",
-          "needs_spec": { "base_field": "crate::field::Goldilocks", "degree": 2 } }
+        {
+          "id": "gld2",
+          "type": "crate::kernel::tests::routes::fixtures::GoldilocksQuadratic",
+          "needs_spec": {
+            "base_field": "crate::field::Goldilocks",
+            "degree": 2
+          }
+        }
       ]
     },
     "component-binary": {
@@ -549,8 +1340,14 @@
       "storage": "Components",
       "elem_bytes": 2,
       "fixtures": [
-        { "id": "binc", "type": "crate::kernel::tests::routes::fixtures::BinaryComponents",
-          "needs_spec": { "base_field": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>", "degree": 2 } }
+        {
+          "id": "binc",
+          "type": "crate::kernel::tests::routes::fixtures::BinaryComponents",
+          "needs_spec": {
+            "base_field": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+            "degree": 2
+          }
+        }
       ]
     },
     "component-degree64": {
@@ -562,8 +1359,15 @@
       "relation_shape": "tower_step",
       "elem_bytes": 8,
       "fixtures": [
-        { "id": "cmp64", "type": "crate::kernel::tests::routes::fixtures::ComponentDegree64",
-          "needs_spec": { "base_field": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>", "degree": 8, "storage": "Components" } }
+        {
+          "id": "cmp64",
+          "type": "crate::kernel::tests::routes::fixtures::ComponentDegree64",
+          "needs_spec": {
+            "base_field": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+            "degree": 8,
+            "storage": "Components"
+          }
+        }
       ]
     },
     "bits-gf2": {
@@ -571,200 +1375,247 @@
       "description": "Bit-packed GF(2) buffers",
       "elem_bits": 1,
       "fixtures": [
-        { "id": "gf2", "type": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>" }
+        {
+          "id": "gf2",
+          "type": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>"
+        }
       ]
     },
     "map-frobenius-identity": {
       "group": "map",
-      "source_rule": "gf8-poly-aes",
-      "target_rule": "gf8-poly-aes",
       "kind": "frobenius",
       "construction": "structural",
-      "valid": true,
+      "arm": "identity",
+      "arm_citation": "src/field/embedding/frobenius.rs:109 \u2014 power == 0 -> CompiledMap::Identity",
       "fixtures": [
-        { "id": "frob_id", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
+        {
+          "id": "frob_id",
+          "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+          "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>"
+        }
       ]
     },
     "map-frobenius-quadratic": {
       "group": "map",
-      "source_rule": "gf8-poly-aes",
-      "target_rule": "gf8-poly-aes",
       "kind": "frobenius",
       "construction": "structural",
-      "relative_degree": 2,
-      "valid": true,
+      "arm": "quadratic",
+      "arm_citation": "src/field/embedding/frobenius.rs:122 \u2014 Vieta conjugation via quadratic::conjugation_shape",
       "fixtures": [
-        { "id": "frob_q2", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
+        {
+          "id": "frob_q2",
+          "source": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>",
+          "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>"
+        }
       ]
     },
     "map-frobenius-binary-column": {
       "group": "map",
-      "source_rule": "packed-u16-shipped",
-      "target_rule": "packed-u16-shipped",
       "kind": "frobenius",
       "construction": "structural",
-      "characteristic": 2,
-      "valid": true,
+      "arm": "binary-column",
+      "arm_citation": "src/field/embedding/frobenius.rs:203 \u2014 CompiledMap::BinaryColumns for char 2 non-Vieta",
       "fixtures": [
-        { "id": "frob_bc", "type": "crate::field::Packed<u16>" }
+        {
+          "id": "frob_bc",
+          "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>",
+          "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>"
+        }
       ]
     },
     "map-frobenius-residue-column": {
       "group": "map",
-      "source_rule": "residue-u32",
-      "target_rule": "residue-u32",
       "kind": "frobenius",
       "construction": "structural",
-      "characteristic": "odd",
-      "valid": true,
+      "arm": "residue-column",
+      "arm_citation": "src/field/embedding/frobenius.rs:221 \u2014 CompiledMap::ResidueColumns for odd characteristic",
       "fixtures": [
-        { "id": "frob_rc", "type": "crate::field::FiniteField<65537, 1, crate::field::Residue>" }
+        {
+          "id": "frob_rc",
+          "source": "crate::field::FiniteField<65537, 1, crate::field::Residue>",
+          "target": "crate::field::FiniteField<65537, 1, crate::field::Residue>"
+        }
       ]
     },
     "map-embed-injection": {
       "group": "map",
-      "source_rule": "gf8-poly-aes",
-      "target_rule": "packed-u16-shipped",
       "kind": "embedding",
       "construction": "structural",
-      "valid_degree": true,
+      "arm": "injection",
+      "arm_citation": "src/field/embedding/prepared.rs:395 \u2014 is_identity_prefix \u2192 PreparedArm::Injection",
       "fixtures": [
-        { "id": "emb_inj", "type": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>" }
+        {
+          "id": "emb_inj",
+          "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+          "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>"
+        }
       ]
     },
     "map-embed-injection-images": {
       "group": "map",
-      "source_rule": "gf8-poly-aes",
-      "target_rule": "packed-u16-shipped",
       "kind": "embedding",
       "construction": "from_images",
-      "valid_degree": true,
+      "arm": "injection",
+      "arm_citation": "src/field/embedding/prepared.rs:395 \u2014 caller-supplied images, still identity prefix when images match structural",
       "fixtures": [
-        { "id": "emb_inj_i", "type": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>" }
+        {
+          "id": "emb_inj_i",
+          "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+          "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>"
+        }
       ]
     },
     "map-embed-binary-column": {
       "group": "map",
-      "source_rule": "gf8-poly-aes",
-      "target_rule": "gf8-poly-other",
       "kind": "embedding",
       "construction": "from_images",
-      "characteristic": 2,
-      "valid_degree": true,
+      "arm": "binary-column",
+      "arm_citation": "src/field/embedding/prepared.rs:398 \u2014 PreparedArm::BinaryColumns for char 2 non-injection",
       "fixtures": [
-        { "id": "emb_bc", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>" }
+        {
+          "id": "emb_bc",
+          "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+          "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11D>>"
+        }
       ]
     },
     "map-embed-residue-column": {
       "group": "map",
-      "source_rule": "residue-u8-low",
-      "target_rule": "residue-u32",
       "kind": "embedding",
       "construction": "from_images",
-      "characteristic": "odd",
-      "valid_degree": true,
+      "arm": "residue-column",
+      "arm_citation": "src/field/embedding/prepared.rs:420 \u2014 PreparedArm::ResidueColumns for odd char non-injection",
       "fixtures": [
-        { "id": "emb_rc", "type": "crate::field::FiniteField<65537, 1, crate::field::Residue>" }
+        {
+          "id": "emb_rc",
+          "source": "crate::field::FiniteField<101, 1, crate::field::Residue>",
+          "target": "crate::field::FiniteField<101, 1, crate::field::Residue>",
+          "needs_spec": {
+            "note": "Odd-char embedding not representable as PreparedEmbedding with shipped fixtures; reserved for fixture-backed route tests"
+          }
+        }
       ]
     },
     "map-iso-binary-column": {
       "group": "map",
-      "source_rule": "gf8-poly-aes",
-      "target_rule": "gf8-normal",
       "kind": "isomorphism",
       "construction": "structural",
-      "characteristic": 2,
-      "valid": true,
+      "arm": "binary-column",
+      "arm_citation": "src/field/embedding/prepared.rs:398 \u2014 compile_iso then compile; BinaryColumns for char 2 non-injection",
       "fixtures": [
-        { "id": "iso_bc", "type": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>" }
+        {
+          "id": "iso_bc",
+          "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+          "target": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>"
+        }
       ]
     },
     "map-iso-binary-column-images": {
       "group": "map",
-      "source_rule": "gf8-poly-aes",
-      "target_rule": "gf8-normal",
       "kind": "isomorphism",
       "construction": "from_images",
-      "characteristic": 2,
-      "valid": true,
+      "arm": "binary-column",
+      "arm_citation": "src/field/embedding/prepared.rs:398 \u2014 caller-supplied images, char 2 non-injection",
       "fixtures": [
-        { "id": "iso_bc_i", "type": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>" }
+        {
+          "id": "iso_bc_i",
+          "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+          "target": "crate::field::FiniteField<2, 8, crate::field::Normal<0x11B, 0x20>>"
+        }
       ]
     },
     "map-iso-residue-column": {
       "group": "map",
-      "source_rule": "residue-u8-low",
-      "target_rule": "residue-u8-low",
       "kind": "isomorphism",
       "construction": "from_images",
-      "characteristic": "odd",
-      "valid": true,
+      "arm": "residue-column",
+      "arm_citation": "src/field/embedding/prepared.rs:420 \u2014 caller-supplied images, odd char non-injection",
       "fixtures": [
-        { "id": "iso_rc", "type": "crate::field::FiniteField<3, 1, crate::field::Residue>" }
+        {
+          "id": "iso_rc",
+          "source": "crate::field::FiniteField<3, 1, crate::field::Residue>",
+          "target": "crate::field::FiniteField<3, 1, crate::field::Residue>"
+        }
       ]
     },
-    "map-bits-embed": {
+    "map-bits-width1": {
       "group": "map_bits",
-      "source_rule": "bits-gf2",
-      "target_rule": "gf8-poly-aes",
-      "kind": "embedding",
-      "valid": true,
+      "target_width_bytes": 1,
+      "target_degree_range": "<=8",
       "fixtures": [
-        { "id": "mb_emb", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
+        {
+          "id": "mb_w1",
+          "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
+          "target": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>"
+        }
       ]
     },
-    "map-bits-trace": {
+    "map-bits-width2": {
       "group": "map_bits",
-      "source_rule": "bits-gf2",
-      "target_rule": "gf8-poly-aes",
-      "kind": "trace",
-      "valid": true,
+      "target_width_bytes": 2,
+      "target_degree_range": "9..16",
       "fixtures": [
-        { "id": "mb_tr", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
+        {
+          "id": "mb_w2",
+          "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
+          "target": "crate::field::FiniteField<2, 16, crate::field::Extension<crate::field::Rijndael16, 2>>"
+        }
       ]
     },
-    "map-bits-norm": {
+    "map-bits-width4": {
       "group": "map_bits",
-      "source_rule": "bits-gf2",
-      "target_rule": "gf8-poly-aes",
-      "kind": "norm",
-      "valid": true,
+      "target_width_bytes": 4,
+      "target_degree_range": "17..32",
       "fixtures": [
-        { "id": "mb_nm", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
+        {
+          "id": "mb_w4",
+          "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
+          "target": "crate::field::FiniteField<2, 32, crate::field::Extension<crate::field::Rijndael32, 2>>"
+        }
       ]
     },
-    "map-bits-restrict": {
+    "map-bits-width8": {
       "group": "map_bits",
-      "source_rule": "bits-gf2",
-      "target_rule": "gf8-poly-aes",
-      "kind": "restrict",
-      "valid": true,
+      "target_width_bytes": 8,
+      "target_degree_range": "33..64",
       "fixtures": [
-        { "id": "mb_rs", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
-      ]
-    },
-    "map-bits-contains": {
-      "group": "map_bits",
-      "source_rule": "bits-gf2",
-      "target_rule": "gf8-poly-aes",
-      "kind": "contains",
-      "valid": true,
-      "fixtures": [
-        { "id": "mb_ct", "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>" }
+        {
+          "id": "mb_w8",
+          "source": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
+          "target": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::field::Rijndael64, 2>>"
+        }
       ]
     }
   },
-
   "applicability": {
     "ops-row-add": {
-      "families": ["ops/row"],
-      "rules": ["residue-u8-low", "residue-u8-high", "residue-u16", "residue-u32", "residue-u64",
-                "residue-mersenne31-modulus", "residue-goldilocks-modulus",
-                "mersenne31", "goldilocks",
-                "gf8-poly-aes", "gf8-poly-other", "gf8-normal", "gf8-cantor",
-                "packed-u8-shipped", "packed-u8-custom", "packed-u16-shipped", "packed-u16-custom",
-                "packed-u32-shipped", "packed-u32-custom", "packed-u64-shipped", "packed-u64-custom",
-                "binary-flat-sub8"],
+      "families": [
+        "ops/row"
+      ],
+      "rules": [
+        "residue-u8-low",
+        "residue-u8-high",
+        "residue-u16",
+        "residue-u32",
+        "residue-u64",
+        "residue-mersenne31-modulus",
+        "residue-goldilocks-modulus",
+        "mersenne31",
+        "goldilocks",
+        "gf8-poly-aes",
+        "gf8-poly-other",
+        "gf8-normal",
+        "gf8-cantor",
+        "packed-u8-shipped",
+        "packed-u8-custom",
+        "packed-u16-shipped",
+        "packed-u16-custom",
+        "packed-u32-shipped",
+        "packed-u32-custom",
+        "packed-u64-shipped",
+        "packed-u64-custom",
+        "binary-flat-sub8"
+      ],
       "exclusions": {
         "packed-padded": "PackedPadded is non-bulk",
         "residue-gf2": "GF(2) residue add is XOR; use bits family",
@@ -788,25 +1639,54 @@
         "map-iso-binary-column": "maps are non-bulk callables",
         "map-iso-binary-column-images": "maps are non-bulk callables",
         "map-iso-residue-column": "maps are non-bulk callables",
-        "map-bits-embed": "map_bits family only",
-        "map-bits-trace": "map_bits family only",
-        "map-bits-norm": "map_bits family only",
-        "map-bits-restrict": "map_bits family only",
-        "map-bits-contains": "map_bits family only"
+        "map-bits-width1": "map_bits family only",
+        "map-bits-width2": "map_bits family only",
+        "map-bits-width4": "map_bits family only",
+        "map-bits-width8": "map_bits family only"
       }
     },
     "ops-row-mul": {
-      "families": ["ops/row", "ops/scatter", "ops/gather", "ops/matrix", "ops/matrix_at", "ops/reduction"],
-      "rules": ["residue-u8-low", "residue-u8-high", "residue-u16", "residue-u32", "residue-u64",
-                "residue-mersenne31-modulus", "residue-goldilocks-modulus", "residue-gf2",
-                "mersenne31", "goldilocks",
-                "gf8-poly-aes", "gf8-poly-other", "gf8-normal", "gf8-cantor",
-                "packed-u8-shipped", "packed-u8-custom", "packed-u16-shipped", "packed-u16-custom",
-                "packed-u32-shipped", "packed-u32-custom", "packed-u64-shipped", "packed-u64-custom",
-                "binary-flat-sub8",
-                "component-quad-mersenne31", "component-mersenne31-custom",
-                "component-residue-quadratic", "component-residue-odd", "component-residue-quartic",
-                "component-goldilocks", "component-binary", "component-degree64"],
+      "families": [
+        "ops/row",
+        "ops/scatter",
+        "ops/gather",
+        "ops/matrix",
+        "ops/matrix_at",
+        "ops/reduction"
+      ],
+      "rules": [
+        "residue-u8-low",
+        "residue-u8-high",
+        "residue-u16",
+        "residue-u32",
+        "residue-u64",
+        "residue-mersenne31-modulus",
+        "residue-goldilocks-modulus",
+        "residue-gf2",
+        "mersenne31",
+        "goldilocks",
+        "gf8-poly-aes",
+        "gf8-poly-other",
+        "gf8-normal",
+        "gf8-cantor",
+        "packed-u8-shipped",
+        "packed-u8-custom",
+        "packed-u16-shipped",
+        "packed-u16-custom",
+        "packed-u32-shipped",
+        "packed-u32-custom",
+        "packed-u64-shipped",
+        "packed-u64-custom",
+        "binary-flat-sub8",
+        "component-quad-mersenne31",
+        "component-mersenne31-custom",
+        "component-residue-quadratic",
+        "component-residue-odd",
+        "component-residue-quartic",
+        "component-goldilocks",
+        "component-binary",
+        "component-degree64"
+      ],
       "exclusions": {
         "packed-padded": "PackedPadded is non-bulk",
         "bits-gf2": "GF(2) uses bits family",
@@ -821,22 +1701,41 @@
         "map-iso-binary-column": "maps are non-bulk callables",
         "map-iso-binary-column-images": "maps are non-bulk callables",
         "map-iso-residue-column": "maps are non-bulk callables",
-        "map-bits-embed": "map_bits family only",
-        "map-bits-trace": "map_bits family only",
-        "map-bits-norm": "map_bits family only",
-        "map-bits-restrict": "map_bits family only",
-        "map-bits-contains": "map_bits family only"
+        "map-bits-width1": "map_bits family only",
+        "map-bits-width2": "map_bits family only",
+        "map-bits-width4": "map_bits family only",
+        "map-bits-width8": "map_bits family only"
       }
     },
     "ops-rows-addsub": {
-      "families": ["ops/rows", "ops/scalar"],
-      "rules": ["residue-u8-low", "residue-u8-high", "residue-u16", "residue-u32", "residue-u64",
-                "residue-mersenne31-modulus", "residue-goldilocks-modulus",
-                "mersenne31", "goldilocks",
-                "gf8-poly-aes", "gf8-poly-other", "gf8-normal", "gf8-cantor",
-                "packed-u8-shipped", "packed-u8-custom", "packed-u16-shipped", "packed-u16-custom",
-                "packed-u32-shipped", "packed-u32-custom", "packed-u64-shipped", "packed-u64-custom",
-                "binary-flat-sub8"],
+      "families": [
+        "ops/rows",
+        "ops/scalar"
+      ],
+      "rules": [
+        "residue-u8-low",
+        "residue-u8-high",
+        "residue-u16",
+        "residue-u32",
+        "residue-u64",
+        "residue-mersenne31-modulus",
+        "residue-goldilocks-modulus",
+        "mersenne31",
+        "goldilocks",
+        "gf8-poly-aes",
+        "gf8-poly-other",
+        "gf8-normal",
+        "gf8-cantor",
+        "packed-u8-shipped",
+        "packed-u8-custom",
+        "packed-u16-shipped",
+        "packed-u16-custom",
+        "packed-u32-shipped",
+        "packed-u32-custom",
+        "packed-u64-shipped",
+        "packed-u64-custom",
+        "binary-flat-sub8"
+      ],
       "exclusions": {
         "packed-padded": "PackedPadded is non-bulk",
         "residue-gf2": "GF(2) residue add is XOR",
@@ -860,25 +1759,49 @@
         "map-iso-binary-column": "maps are non-bulk callables",
         "map-iso-binary-column-images": "maps are non-bulk callables",
         "map-iso-residue-column": "maps are non-bulk callables",
-        "map-bits-embed": "map_bits family only",
-        "map-bits-trace": "map_bits family only",
-        "map-bits-norm": "map_bits family only",
-        "map-bits-restrict": "map_bits family only",
-        "map-bits-contains": "map_bits family only"
+        "map-bits-width1": "map_bits family only",
+        "map-bits-width2": "map_bits family only",
+        "map-bits-width4": "map_bits family only",
+        "map-bits-width8": "map_bits family only"
       }
     },
     "ops-elementwise": {
-      "families": ["ops/elementwise"],
-      "rules": ["residue-u8-low", "residue-u8-high", "residue-u16", "residue-u32", "residue-u64",
-                "residue-mersenne31-modulus", "residue-goldilocks-modulus", "residue-gf2",
-                "mersenne31", "goldilocks",
-                "gf8-poly-aes", "gf8-poly-other", "gf8-normal", "gf8-cantor",
-                "packed-u8-shipped", "packed-u8-custom", "packed-u16-shipped", "packed-u16-custom",
-                "packed-u32-shipped", "packed-u32-custom", "packed-u64-shipped", "packed-u64-custom",
-                "binary-flat-sub8",
-                "component-quad-mersenne31", "component-mersenne31-custom",
-                "component-residue-quadratic", "component-residue-odd", "component-residue-quartic",
-                "component-goldilocks", "component-binary", "component-degree64"],
+      "families": [
+        "ops/elementwise"
+      ],
+      "rules": [
+        "residue-u8-low",
+        "residue-u8-high",
+        "residue-u16",
+        "residue-u32",
+        "residue-u64",
+        "residue-mersenne31-modulus",
+        "residue-goldilocks-modulus",
+        "residue-gf2",
+        "mersenne31",
+        "goldilocks",
+        "gf8-poly-aes",
+        "gf8-poly-other",
+        "gf8-normal",
+        "gf8-cantor",
+        "packed-u8-shipped",
+        "packed-u8-custom",
+        "packed-u16-shipped",
+        "packed-u16-custom",
+        "packed-u32-shipped",
+        "packed-u32-custom",
+        "packed-u64-shipped",
+        "packed-u64-custom",
+        "binary-flat-sub8",
+        "component-quad-mersenne31",
+        "component-mersenne31-custom",
+        "component-residue-quadratic",
+        "component-residue-odd",
+        "component-residue-quartic",
+        "component-goldilocks",
+        "component-binary",
+        "component-degree64"
+      ],
       "exclusions": {
         "packed-padded": "PackedPadded is non-bulk",
         "bits-gf2": "GF(2) uses bits family",
@@ -893,19 +1816,33 @@
         "map-iso-binary-column": "maps are non-bulk callables",
         "map-iso-binary-column-images": "maps are non-bulk callables",
         "map-iso-residue-column": "maps are non-bulk callables",
-        "map-bits-embed": "map_bits family only",
-        "map-bits-trace": "map_bits family only",
-        "map-bits-norm": "map_bits family only",
-        "map-bits-restrict": "map_bits family only",
-        "map-bits-contains": "map_bits family only"
+        "map-bits-width1": "map_bits family only",
+        "map-bits-width2": "map_bits family only",
+        "map-bits-width4": "map_bits family only",
+        "map-bits-width8": "map_bits family only"
       }
     },
     "ops-pack": {
-      "families": ["ops/pack"],
-      "rules": ["gf8-poly-aes", "gf8-poly-other", "gf8-normal", "gf8-cantor",
-                "packed-u8-shipped", "packed-u8-custom", "packed-u16-shipped", "packed-u16-custom",
-                "packed-u32-shipped", "packed-u32-custom", "packed-u64-shipped", "packed-u64-custom",
-                "mersenne31", "goldilocks", "binary-flat-sub8"],
+      "families": [
+        "ops/pack"
+      ],
+      "rules": [
+        "gf8-poly-aes",
+        "gf8-poly-other",
+        "gf8-normal",
+        "gf8-cantor",
+        "packed-u8-shipped",
+        "packed-u8-custom",
+        "packed-u16-shipped",
+        "packed-u16-custom",
+        "packed-u32-shipped",
+        "packed-u32-custom",
+        "packed-u64-shipped",
+        "packed-u64-custom",
+        "mersenne31",
+        "goldilocks",
+        "binary-flat-sub8"
+      ],
       "exclusions": {
         "residue-u8-low": "Residue packing uses identity encode or prime reduce",
         "residue-u8-high": "Residue packing uses identity encode or prime reduce",
@@ -936,40 +1873,53 @@
         "map-iso-binary-column": "maps are non-bulk callables",
         "map-iso-binary-column-images": "maps are non-bulk callables",
         "map-iso-residue-column": "maps are non-bulk callables",
-        "map-bits-embed": "map_bits family only",
-        "map-bits-trace": "map_bits family only",
-        "map-bits-norm": "map_bits family only",
-        "map-bits-restrict": "map_bits family only",
-        "map-bits-contains": "map_bits family only"
+        "map-bits-width1": "map_bits family only",
+        "map-bits-width2": "map_bits family only",
+        "map-bits-width4": "map_bits family only",
+        "map-bits-width8": "map_bits family only"
       }
     },
     "bits": {
-      "families": ["bits"],
-      "rules": ["bits-gf2"],
+      "families": [
+        "bits"
+      ],
+      "rules": [
+        "bits-gf2"
+      ],
       "exclusions": {}
     },
     "map-lane": {
-      "families": ["map"],
+      "families": [
+        "map"
+      ],
       "rules": [
-        "map-frobenius-identity", "map-frobenius-quadratic",
-        "map-frobenius-binary-column", "map-frobenius-residue-column",
-        "map-embed-injection", "map-embed-injection-images",
-        "map-embed-binary-column", "map-embed-residue-column",
-        "map-iso-binary-column", "map-iso-binary-column-images",
+        "map-frobenius-identity",
+        "map-frobenius-quadratic",
+        "map-frobenius-binary-column",
+        "map-frobenius-residue-column",
+        "map-embed-injection",
+        "map-embed-injection-images",
+        "map-embed-binary-column",
+        "map-embed-residue-column",
+        "map-iso-binary-column",
+        "map-iso-binary-column-images",
         "map-iso-residue-column"
       ],
       "exclusions": {}
     },
     "map-bits": {
-      "families": ["map_bits"],
+      "families": [
+        "map_bits"
+      ],
       "rules": [
-        "map-bits-embed", "map-bits-trace", "map-bits-norm",
-        "map-bits-restrict", "map-bits-contains"
+        "map-bits-width1",
+        "map-bits-width2",
+        "map-bits-width4",
+        "map-bits-width8"
       ],
       "exclusions": {}
     }
   },
-
   "work_rules": {
     "row-mul-add": {
       "substage": "MulAdd",
@@ -978,9 +1928,22 @@
       "basis": "Source",
       "multiplicity": "ActivePairs",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
-      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
-      "justification": "lane = vector_bytes / 1B; loss = ceil(2*(vec_bytes-1)/1B)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "justification": "ISA lane width in bytes; generator converts to unit via elem_bytes",
+      "loss_formula": "ceil(2*(lb-1))"
     },
     "row-mul-into": {
       "substage": "MulAdd",
@@ -989,9 +1952,22 @@
       "basis": "Source",
       "multiplicity": "ActivePairs",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
-      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
-      "justification": "Same lane/loss as accumulate; write-only destination"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "justification": "ISA lane width in bytes; generator converts to unit via elem_bytes",
+      "loss_formula": "ceil(2*(lb-1))"
     },
     "row-mul-assign": {
       "substage": "Mul",
@@ -1000,9 +1976,22 @@
       "basis": "Source",
       "multiplicity": "ActivePairs",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
-      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
-      "justification": "Same lane/loss as mul_add"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "justification": "ISA lane width in bytes; generator converts to unit via elem_bytes",
+      "loss_formula": "ceil(2*(lb-1))"
     },
     "row-add": {
       "substage": "Add",
@@ -1011,9 +2000,22 @@
       "basis": "Source",
       "multiplicity": "Rows",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
-      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
-      "justification": "lane = vector_bytes / 1B; loss = ceil(2*(vec_bytes-1)/1B)"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "justification": "ISA lane width in bytes; generator converts to unit via elem_bytes",
+      "loss_formula": "ceil(2*(lb-1))"
     },
     "row-sub": {
       "substage": "Sub",
@@ -1022,9 +2024,22 @@
       "basis": "Source",
       "multiplicity": "Rows",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
-      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
-      "justification": "Same lane/loss as add"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "justification": "ISA lane width in bytes; generator converts to unit via elem_bytes",
+      "loss_formula": "ceil(2*(lb-1))"
     },
     "matrix-mul-add": {
       "substage": "MulAdd",
@@ -1033,9 +2048,22 @@
       "basis": "Source",
       "multiplicity": "ActivePairs",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
-      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
-      "justification": "Matrix AXPY uses same vector geometry as row AXPY"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "justification": "ISA lane width in bytes; generator converts to unit via elem_bytes",
+      "loss_formula": "ceil(2*(lb-1))"
     },
     "scatter-mul-add": {
       "substage": "MulAdd",
@@ -1044,9 +2072,22 @@
       "basis": "Source",
       "multiplicity": "ActivePairs",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
-      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
-      "justification": "Scatter resolves to per-row AXPY; same lane/loss"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "justification": "ISA lane width in bytes; generator converts to unit via elem_bytes",
+      "loss_formula": "ceil(2*(lb-1))"
     },
     "gather-mul-add": {
       "substage": "MulAdd",
@@ -1055,9 +2096,22 @@
       "basis": "Source",
       "multiplicity": "ActivePairs",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
-      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
-      "justification": "Gather transpose-resolves to per-row AXPY; same lane/loss"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "justification": "ISA lane width in bytes; generator converts to unit via elem_bytes",
+      "loss_formula": "ceil(2*(lb-1))"
     },
     "elementwise-mul": {
       "substage": "MulElementwise",
@@ -1066,20 +2120,49 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
-      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
-      "justification": "Elementwise multiplication; one row per call"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "justification": "ISA lane width in bytes; generator converts to unit via elem_bytes",
+      "loss_formula": "ceil(2*(lb-1))"
     },
     "elementwise-div": {
       "substage": "MulElementwise",
-      "scope": { "scope": "Division", "pass": "Main" },
+      "scope": {
+        "scope": "Division",
+        "pass": "Main"
+      },
       "unit": "Elements",
       "basis": "Source",
       "multiplicity": "One",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
-      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
-      "justification": "Division scope: mul elementwise by inverse"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "justification": "ISA lane width in bytes; generator converts to unit via elem_bytes",
+      "loss_formula": "ceil(2*(lb-1))"
     },
     "elementwise-inv": {
       "substage": "Inverse",
@@ -1088,9 +2171,22 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
-      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
-      "justification": "Batch inversion; same vector width as elements"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "justification": "ISA lane width in bytes; generator converts to unit via elem_bytes",
+      "loss_formula": "ceil(2*(lb-1))"
     },
     "dot-product": {
       "substage": "Dot",
@@ -1099,9 +2195,22 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
-      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
-      "justification": "Dot product over row pair; one accumulation pass"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "justification": "ISA lane width in bytes; generator converts to unit via elem_bytes",
+      "loss_formula": "ceil(2*(lb-1))"
     },
     "pack": {
       "substage": "Pack",
@@ -1110,9 +2219,22 @@
       "basis": "Target",
       "multiplicity": "One",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
-      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
-      "justification": "Pack canonical elements to bytes; target-basis bytes"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "justification": "ISA lane width in bytes; generator converts to unit via elem_bytes",
+      "loss_formula": "ceil(2*(lb-1))"
     },
     "unpack": {
       "substage": "Unpack",
@@ -1121,9 +2243,22 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
-      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
-      "justification": "Unpack bytes to canonical elements; source-basis bytes"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "justification": "ISA lane width in bytes; generator converts to unit via elem_bytes",
+      "loss_formula": "ceil(2*(lb-1))"
     },
     "unit-accumulate": {
       "substage": "Add",
@@ -1132,9 +2267,22 @@
       "basis": "Source",
       "multiplicity": "UnitAddPairs",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 16, "v3": 32, "v3_gfni_crypto": 32, "v4x": 64 },
-      "loss":  { "scalar": 0, "v2": 30, "v3": 62, "v3_gfni_crypto": 62, "v4x": 126 },
-      "justification": "One-coefficient accumulate pairs; same vector geometry"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "justification": "ISA lane width in bytes; generator converts to unit via elem_bytes",
+      "loss_formula": "ceil(2*(lb-1))"
     },
     "bits-and": {
       "substage": "BitAnd",
@@ -1143,9 +2291,22 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 128, "v3": 256, "v3_gfni_crypto": 256, "v4x": 512 },
-      "loss":  { "scalar": 0, "v2": 240, "v3": 496, "v3_gfni_crypto": 496, "v4x": 1008 },
-      "justification": "GF(2) bits: lane = vec_bytes*8 bits; loss = 2*(vec_bytes-1)*8 bits"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "loss_formula": "ceil(2*(lb-1))",
+      "justification": "ISA lane width in bytes; generator converts to Bits (\u00d78)"
     },
     "bits-andnot": {
       "substage": "BitAndNot",
@@ -1154,8 +2315,21 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 128, "v3": 256, "v3_gfni_crypto": 256, "v4x": 512 },
-      "loss":  { "scalar": 0, "v2": 240, "v3": 496, "v3_gfni_crypto": 496, "v4x": 1008 },
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "loss_formula": "ceil(2*(lb-1))",
       "justification": "Same as bits-and"
     },
     "bits-xor": {
@@ -1165,9 +2339,22 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 128, "v3": 256, "v3_gfni_crypto": 256, "v4x": 512 },
-      "loss":  { "scalar": 0, "v2": 240, "v3": 496, "v3_gfni_crypto": 496, "v4x": 1008 },
-      "justification": "GF(2) XOR: lane = vec_bytes*8 bits; loss = 2*(vec_bytes-1)*8 bits"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "loss_formula": "ceil(2*(lb-1))",
+      "justification": "ISA lane width in bytes; generator converts to Bits (\u00d78)"
     },
     "bits-xor-gather": {
       "substage": "BitXor",
@@ -1176,9 +2363,22 @@
       "basis": "Source",
       "multiplicity": "ActiveRows",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 128, "v3": 256, "v3_gfni_crypto": 256, "v4x": 512 },
-      "loss":  { "scalar": 0, "v2": 240, "v3": 496, "v3_gfni_crypto": 496, "v4x": 1008 },
-      "justification": "Gather XOR: per-active-row budget"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "loss_formula": "ceil(2*(lb-1))",
+      "justification": "Gather XOR: per-active-row budget; generator converts to Bits"
     },
     "bits-weight": {
       "substage": "BitWeight",
@@ -1187,8 +2387,21 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 128, "v3": 256, "v3_gfni_crypto": 256, "v4x": 512 },
-      "loss":  { "scalar": 0, "v2": 240, "v3": 496, "v3_gfni_crypto": 496, "v4x": 1008 },
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "loss_formula": "ceil(2*(lb-1))",
       "justification": "Population count; same lane geometry"
     },
     "bits-dot": {
@@ -1198,8 +2411,21 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 128, "v3": 256, "v3_gfni_crypto": 256, "v4x": 512 },
-      "loss":  { "scalar": 0, "v2": 240, "v3": 496, "v3_gfni_crypto": 496, "v4x": 1008 },
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "loss_formula": "ceil(2*(lb-1))",
       "justification": "Bit dot product; same as xor"
     },
     "bits-set-range": {
@@ -1209,9 +2435,22 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 128, "v3": 256, "v3_gfni_crypto": 256, "v4x": 512 },
-      "loss":  { "scalar": 0, "v2": 240, "v3": 496, "v3_gfni_crypto": 496, "v4x": 1008 },
-      "justification": "Set/clear ranges operate on contiguous bits"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "loss_formula": "ceil(2*(lb-1))",
+      "justification": "Set/clear ranges operate on contiguous bits; generator converts to Bits"
     },
     "map-words": {
       "substage": "Linear",
@@ -1220,33 +2459,148 @@
       "basis": "Source",
       "multiplicity": "One",
       "iterations_formula": "1",
-      "lane":  { "scalar": 1, "v2": 2, "v3": 4, "v3_gfni_crypto": 4, "v4x": 8 },
-      "loss":  { "scalar": 0, "v2": 2, "v3": 4, "v3_gfni_crypto": 4, "v4x": 8 },
-      "justification": "Map word strides: vec_bytes / 8B words; loss = 2*(vec_bytes-1)/8B rounded up"
+      "lane_bytes": {
+        "scalar": 1,
+        "v2": 16,
+        "v3": 32,
+        "v3_gfni_crypto": 32,
+        "v4x": 64
+      },
+      "loss_bytes": {
+        "scalar": 0,
+        "v2": 30,
+        "v3": 62,
+        "v3_gfni_crypto": 62,
+        "v4x": 126
+      },
+      "loss_formula": "ceil(2*(lb-1))",
+      "justification": "ISA lane width in bytes; generator converts to Words (/8, rounding down/up)"
     }
   },
-
   "geometries": {
-    "row-4k":       { "rows": 1,  "sources": 1, "len": 4128, "misalign": 1, "pitch_pad": 0 },
-    "row-4k-aligned": { "rows": 1, "sources": 1, "len": 4096, "misalign": 0, "pitch_pad": 0 },
-    "row-256":      { "rows": 1,  "sources": 1, "len": 256,  "misalign": 1, "pitch_pad": 0 },
-    "rows-3x5":     { "rows": 3,  "sources": 1, "len": 5,    "misalign": 1, "pitch_pad": 0 },
-    "matrix-3x4":   { "rows": 3,  "sources": 4, "len": 4128, "misalign": 1, "pitch_pad": 0 },
-    "scatter-4":    { "rows": 4,  "sources": 1, "len": 4128, "misalign": 1, "pitch_pad": 0 },
-    "gather-4x1":   { "rows": 4,  "sources": 4, "len": 4128, "misalign": 1, "pitch_pad": 0 },
-    "elementwise-4k": { "rows": 1, "sources": 1, "len": 4128, "misalign": 1, "pitch_pad": 0 },
-    "bits-4k":      { "rows": 1,  "sources": 1, "len": 4096, "misalign": 0, "pitch_pad": 0 },
-    "bits-gather-8x512": { "rows": 8, "sources": 8, "len": 512, "misalign": 0, "pitch_pad": 0 }
+    "row-4k": {
+      "rows": 1,
+      "sources": 1,
+      "len": 4128,
+      "misalign": 1,
+      "pitch_pad": 0
+    },
+    "row-4k-aligned": {
+      "rows": 1,
+      "sources": 1,
+      "len": 4096,
+      "misalign": 0,
+      "pitch_pad": 0
+    },
+    "row-256": {
+      "rows": 1,
+      "sources": 1,
+      "len": 256,
+      "misalign": 1,
+      "pitch_pad": 0
+    },
+    "rows-3x5": {
+      "rows": 3,
+      "sources": 1,
+      "len": 5,
+      "misalign": 1,
+      "pitch_pad": 0
+    },
+    "matrix-3x4": {
+      "rows": 3,
+      "sources": 4,
+      "len": 4128,
+      "misalign": 1,
+      "pitch_pad": 0
+    },
+    "scatter-4": {
+      "rows": 4,
+      "sources": 1,
+      "len": 4128,
+      "misalign": 1,
+      "pitch_pad": 0
+    },
+    "gather-4x1": {
+      "rows": 4,
+      "sources": 4,
+      "len": 4128,
+      "misalign": 1,
+      "pitch_pad": 0
+    },
+    "elementwise-4k": {
+      "rows": 1,
+      "sources": 1,
+      "len": 4128,
+      "misalign": 1,
+      "pitch_pad": 0
+    },
+    "bits-4k": {
+      "rows": 1,
+      "sources": 1,
+      "len": 4096,
+      "misalign": 0,
+      "pitch_pad": 0
+    },
+    "bits-gather-8x512": {
+      "rows": 8,
+      "sources": 8,
+      "len": 512,
+      "misalign": 0,
+      "pitch_pad": 0
+    }
   },
-
   "coefficient_patterns": {
-    "general-1":  { "slots": ["General"] },
-    "zero-1":     { "slots": ["Zero"] },
-    "one-1":      { "slots": ["One"] },
-    "general-4":  { "slots": ["General", "General", "General", "General"] },
-    "mixed-3x4":  { "slots": ["General", "General", "Zero", "One", "General", "One", "General", "Zero", "One", "General", "General", "Zero"] },
-    "general-8":  { "slots": ["General", "General", "General", "General", "General", "General", "General", "General"] }
+    "general-1": {
+      "slots": [
+        "General"
+      ]
+    },
+    "zero-1": {
+      "slots": [
+        "Zero"
+      ]
+    },
+    "one-1": {
+      "slots": [
+        "One"
+      ]
+    },
+    "general-4": {
+      "slots": [
+        "General",
+        "General",
+        "General",
+        "General"
+      ]
+    },
+    "mixed-3x4": {
+      "slots": [
+        "General",
+        "General",
+        "Zero",
+        "One",
+        "General",
+        "One",
+        "General",
+        "Zero",
+        "One",
+        "General",
+        "General",
+        "Zero"
+      ]
+    },
+    "general-8": {
+      "slots": [
+        "General",
+        "General",
+        "General",
+        "General",
+        "General",
+        "General",
+        "General",
+        "General"
+      ]
+    }
   },
-
   "evidence": {}
 }

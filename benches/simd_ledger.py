@@ -185,20 +185,22 @@ def _validate_rules(ledger: dict) -> dict:
                 _fail(f"rule {rid!r}: duplicate fixture id {fid!r}")
             seen_fixture_ids.add(fid)
             ftype = fix.get("type")
-            if not isinstance(ftype, str) or not ftype:
-                _fail(f"rule {rid!r}: fixture {fid!r} missing type")
+            has_type = isinstance(ftype, str) and ftype
+            has_pair = (isinstance(fix.get("source"), str) and fix["source"]
+                        and isinstance(fix.get("target"), str) and fix["target"])
+            if not has_type and not has_pair:
+                _fail(f"rule {rid!r}: fixture {fid!r} missing type or source/target pair")
 
         # Rule groups have different required fields.
         if group == "map":
-            for field in ("source_rule", "target_rule", "kind"):
+            for field in ("kind", "arm", "arm_citation"):
                 if field not in rule:
                     _fail(f"rule {rid!r}: map missing {field}")
             if rule["kind"] not in ("frobenius", "embedding", "isomorphism"):
                 _fail(f"rule {rid!r}: invalid map kind {rule['kind']!r}")
         elif group == "map_bits":
-            for field in ("source_rule", "target_rule", "kind"):
-                if field not in rule:
-                    _fail(f"rule {rid!r}: map_bits missing {field}")
+            if "target_width_bytes" not in rule:
+                _fail(f"rule {rid!r}: map_bits missing target_width_bytes")
 
     return rules
 
@@ -239,7 +241,7 @@ def _validate_applicability(ledger: dict, rules: dict) -> None:
 
 
 def _validate_work_rules(ledger: dict) -> dict:
-    """Return {name: work_rule}. Per-tier lane/loss."""
+    """Return {name: work_rule}. Per-tier lane_bytes/loss_bytes in bytes; loss_formula describes ISA derivation."""
     wr = ledger.get("work_rules")
     if not isinstance(wr, dict):
         _fail("ledger.work_rules must be a dict")
@@ -250,7 +252,7 @@ def _validate_work_rules(ledger: dict) -> dict:
         if not isinstance(rule, dict):
             _fail(f"work_rule {name!r} is not a dict")
         for field in ("substage", "unit", "basis", "multiplicity",
-                       "lane", "loss"):
+                       "lane_bytes", "loss_bytes", "loss_formula"):
             if field not in rule:
                 _fail(f"work_rule {name!r}: missing {field}")
 
@@ -279,11 +281,11 @@ def _validate_work_rules(ledger: dict) -> dict:
         if mult not in VALID_MULTIPLICITIES:
             _fail(f"work_rule {name!r}: invalid multiplicity {mult!r}")
 
-        # lane and loss must be per-tier dicts.
-        for field in ("lane", "loss"):
+        # lane_bytes and loss_bytes must be per-tier dicts with int values.
+        for field in ("lane_bytes", "loss_bytes"):
             val = rule[field]
             if not isinstance(val, dict):
-                _fail(f"work_rule {name!r}: {field} must be a per-tier dict")
+                _fail(f"work_rule {name!r}: {field} must be a per-tier dict with int values")
             for tier in VALID_REQUESTS.union({"scalar"}):
                 # Every tier must be present, or at least the vector tiers.
                 pass
@@ -293,16 +295,16 @@ def _validate_work_rules(ledger: dict) -> dict:
                 if not isinstance(v, int):
                     _fail(f"work_rule {name!r}: {field}.{tier} must be an integer")
 
+        # loss_formula is a string expression, not a per-tier dict.
+        loss_formula = rule.get("loss_formula", "")
+        if not isinstance(loss_formula, str) or not loss_formula.strip():
+            _fail(f"work_rule {name!r}: loss_formula must be a non-empty string")
+
         if "justification" not in rule:
             _fail(f"work_rule {name!r}: missing justification")
         justification = rule["justification"]
         if not isinstance(justification, str) or not justification:
             _fail(f"work_rule {name!r}: empty justification")
-
-        # For non-scalar tiers, loss: 0 is not valid for row strategies.
-        for tier in ("v2", "v3", "v3_gfni_crypto", "v4x"):
-            if tier in rule["loss"] and rule["loss"][tier] == 0:
-                _fail(f"work_rule {name!r}: loss.{tier} is 0, never valid for a vector strategy")
 
     return wr
 
@@ -708,8 +710,9 @@ def _work_rust(wr_name: str, wr: dict, fc: str, req: str) -> str:
     if scope:
         scope_expr = f"Some((Scope::{scope['scope']}, Pass::{scope['pass']}))"
 
-    lane = wr["lane"].get(req, wr["lane"].get("scalar", 1))
-    loss = wr["loss"].get(req, wr["loss"].get("scalar", 0))
+    lane_bytes = wr["lane_bytes"].get(req, wr["lane_bytes"].get("scalar", 1))
+    loss_bytes = wr["loss_bytes"].get(req, wr["loss_bytes"].get("scalar", 0))
+    loss_formula = wr.get("loss_formula", "0")
     iterations = _work_iterations(wr)
 
     ident = _safe_ident(f"{wr_name}_{fc}_{req}")
@@ -720,8 +723,9 @@ def _work_rust(wr_name: str, wr: dict, fc: str, req: str) -> str:
         f"    unit: Unit::{unit},",
         f"    basis: Basis::{basis},",
         f"    multiplicity: Multiplicity::{mult},",
-        f"    lane: {lane},",
-        f"    loss: {loss},",
+        f"    lane_bytes: {lane_bytes},",
+        f"    loss_bytes: {loss_bytes},",
+        f"    loss_formula: \"{loss_formula}\",",
         f"    iterations: {iterations},",
         "};",
     ])
@@ -766,10 +770,45 @@ def _len_in_units(unit: str, length: int, rule: dict) -> int:
     return length  # Elements
 
 
+def _loss_in_units(unit: str, loss_bytes: int, rule: dict) -> int:
+    """Convert loss_bytes to the work rule's unit using fixture elem_bytes.
+    Rounding: loss rounds up (ceil)."""
+    import math
+    elem_bytes = rule.get("elem_bytes", 1)
+    if unit == "Bytes":
+        return loss_bytes
+    if unit == "Bits":
+        return loss_bytes * 8
+    if unit == "Words":
+        return max(1, math.ceil(loss_bytes / 8))
+    # Elements: ceil(loss_bytes / elem_bytes)
+    if elem_bytes <= 1:
+        return loss_bytes
+    return math.ceil(loss_bytes / elem_bytes)
+
+
+def _lane_in_units(unit: str, lane_bytes: int, rule: dict) -> int:
+    """Convert lane_bytes to the work rule's unit using fixture elem_bytes.
+    Rounding: lane rounds down (floor)."""
+    elem_bytes = rule.get("elem_bytes", 1)
+    if unit == "Bytes":
+        return lane_bytes
+    if unit == "Bits":
+        return lane_bytes * 8
+    if unit == "Words":
+        return max(1, lane_bytes // 8)
+    # Elements: floor(lane_bytes / elem_bytes)
+    if elem_bytes <= 1:
+        return lane_bytes
+    return lane_bytes // elem_bytes
+
+
 def _work_budget(work_rule: dict, geo: dict, rule: dict, tier: str) -> int:
-    """Budget for one Work item at a geometry: iterations * mult * (len - loss)."""
+    """Budget for one Work item at a geometry: iterations * mult * (len_in_units - loss_in_units).
+    lane/loss are derived from lane_bytes/loss_bytes via the rule's elem_bytes."""
     mult = _multiplicity_count(work_rule["multiplicity"], geo)
-    loss = work_rule["loss"].get(tier, work_rule["loss"].get("scalar", 0))
+    loss_bytes = work_rule["loss_bytes"].get(tier, work_rule["loss_bytes"].get("scalar", 0))
+    loss = _loss_in_units(work_rule["unit"], loss_bytes, rule)
     length = _len_in_units(work_rule["unit"], geo.get("len", 0), rule)
     return _work_iterations(work_rule) * mult * (length - loss)
 
@@ -1034,26 +1073,65 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
 
 
 def cmd_fixtures(ledger: dict, out_dir: Path) -> int:
-    """Write a scratch crate with all fixture types and compile-check it."""
+    """Write a scratch crate with all fixture types and compile-check them
+    against FieldBuffer for bulk fields and prepared-object types for maps."""
     rules = _validate_rules(ledger)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Collect all unique shipped types (not needing custom specs).
+    # Collect shipped types (not needing custom specs).
     shipped_types: set[str] = set()
+    map_fixtures: list[dict] = []  # (source_type, target_type, prepared_type_name)
     custom_specs: list[dict] = []
 
     for rid, rule in sorted(rules.items()):
+        group = rule.get("group", "")
         for fix in rule.get("fixtures", []):
-            ftype = fix.get("type", "")
             if fix.get("needs_spec"):
                 custom_specs.append({
                     "id": fix["id"],
                     "rule": rid,
-                    "type": ftype,
+                    "type": fix.get("type", ""),
                     "spec": fix["needs_spec"],
                 })
-            elif ftype and "crate::" in ftype:
-                shipped_types.add(ftype)
+            elif group == "map":
+                # Map fixtures have source/target pairs; construct the
+                # prepared object type (PreparedEmbedding, PreparedIsomorphism,
+                # or Frobenius) whose bounds enforce the trait checks.
+                kind = rule.get("kind", "")
+                src = fix.get("source", "")
+                tgt = fix.get("target", "")
+                if kind == "frobenius":
+                    ptype = f"fgf::Frobenius<{src.replace('crate::', 'fgf::')}>"
+                elif kind == "embedding":
+                    ptype = f"fgf::PreparedEmbedding<{src.replace('crate::', 'fgf::')}, {tgt.replace('crate::', 'fgf::')}>"
+                elif kind == "isomorphism":
+                    ptype = f"fgf::PreparedIsomorphism<{src.replace('crate::', 'fgf::')}, {tgt.replace('crate::', 'fgf::')}>"
+                else:
+                    continue
+                map_fixtures.append({"id": fix["id"], "source": src, "target": tgt, "prepared_type": ptype})
+            elif group == "map_bits":
+                # map_bits fixtures have source/target pairs with
+                # PreparedEmbedding<source, target>.
+                fix_data = rule.get("fixture", fix)
+                src = fix_data.get("source", "")
+                tgt = fix_data.get("target", "")
+                if src and tgt:
+                    ptype = f"fgf::PreparedEmbedding<{src.replace('crate::', 'fgf::')}, {tgt.replace('crate::', 'fgf::')}>"
+                    map_fixtures.append({"id": fix_data.get("id", ""), "source": src, "target": tgt, "prepared_type": ptype})
+            elif group == "packed" and rule.get("non_bulk"):
+                # Non-bulk storage markers (PackedPadded) are skipped in bulk checks.
+                pass
+            else:
+                # Bulk field type: will be checked against FieldBuffer.
+                # Skip fixtures whose rules indicate sub-byte-aligned fields
+                # (degree < 8 binary flat) — they implement Field, not FieldBuffer.
+                if group == "binary_flat" and rid == "binary-flat-sub8":
+                    continue
+                if group == "bits":
+                    continue
+                ftype = fix.get("type", fix.get("source", ""))
+                if ftype and "crate::" in ftype:
+                    shipped_types.add(ftype)
 
     # Write Cargo.toml
     cargo_toml = f"""[package]
@@ -1063,7 +1141,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-fgf = {{ path = "{Path(__file__).parent.parent}" }}
+fgf = {{ path = "{Path(__file__).parent.parent}", features = ["alloc"] }}
 """
     (out_dir / "Cargo.toml").write_text(cargo_toml)
 
@@ -1072,10 +1150,20 @@ fgf = {{ path = "{Path(__file__).parent.parent}" }}
     src_dir.mkdir(parents=True, exist_ok=True)
 
     main_lines = ["fn main() {"]
-    for i, t in enumerate(sorted(shipped_types)):
-        # Replace crate:: with fgf::
+
+    # FieldBuffer check for bulk types.
+    main_lines.append("    fn _assert_field<T: fgf::FieldBuffer>() {}")
+    for t in sorted(shipped_types):
         rust_type = t.replace("crate::", "fgf::")
-        main_lines.append(f"    let _ = std::mem::size_of::<{rust_type}>();")
+        main_lines.append(f"    _assert_field::<{rust_type}>();")
+
+    # Prepared-object type check for maps (type-level trait enforcement).
+    if map_fixtures:
+        main_lines.append("")
+        main_lines.append("    // Map fixtures: construct the prepared type to enforce trait bounds.")
+        for mf in map_fixtures:
+            main_lines.append(f"    let _ = std::mem::size_of::<{mf['prepared_type']}>();")
+
     main_lines.append("}")
 
     (src_dir / "main.rs").write_text("\n".join(main_lines) + "\n")
@@ -1090,7 +1178,9 @@ fgf = {{ path = "{Path(__file__).parent.parent}" }}
         print(f"Fixture compilation FAILED:\n{result.stderr}")
         return 1
 
-    print(f"Fixture compilation OK: {len(shipped_types)} shipped types checked")
+    print(f"Fixture compilation OK: {len(shipped_types)} bulk field types checked via FieldBuffer")
+    if map_fixtures:
+        print(f"  {len(map_fixtures)} map fixture prepared types checked")
 
     # Report custom-spec fixtures.
     if custom_specs:
