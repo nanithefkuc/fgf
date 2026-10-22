@@ -9,13 +9,16 @@ type EmbeddingPair<S, T> = (Embedding<S, T>, PreparedEmbedding<S, T>);
 type IsomorphismPair<S, T> = (Isomorphism<S, T>, PreparedIsomorphism<S, T>);
 
 fn images<T: FieldBuffer>(spec: &MapSpec) -> Vec<Elem<T>> {
-    assert!(
-        T::BYTES <= 8,
-        "a ledger image word holds at most eight lane bytes"
-    );
     spec.images
         .iter()
-        .map(|&raw| T::decode(&raw.to_le_bytes()[..T::BYTES]))
+        .map(|image| {
+            assert_eq!(
+                image.len(),
+                T::BYTES,
+                "a caller image is one target element encoding"
+            );
+            T::decode(image)
+        })
         .collect()
 }
 

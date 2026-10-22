@@ -9,19 +9,19 @@ use crate::kernel::tests::routes::{
 const MAP_0: MapSpec = MapSpec { power: 0, images: &[] };
 
 #[rustfmt::skip]
-const MAP_1: MapSpec = MapSpec { power: 0, images: &[231] };
+const MAP_1: MapSpec = MapSpec { power: 0, images: &[&[231]] };
 
 #[rustfmt::skip]
-const MAP_2: MapSpec = MapSpec { power: 0, images: &[512] };
+const MAP_2: MapSpec = MapSpec { power: 0, images: &[&[0, 2]] };
 
 #[rustfmt::skip]
-const MAP_3: MapSpec = MapSpec { power: 0, images: &[4] };
+const MAP_3: MapSpec = MapSpec { power: 0, images: &[&[4, 0]] };
 
 #[rustfmt::skip]
-const MAP_4: MapSpec = MapSpec { power: 0, images: &[2] };
+const MAP_4: MapSpec = MapSpec { power: 0, images: &[&[2, 0]] };
 
 #[rustfmt::skip]
-const MAP_5: MapSpec = MapSpec { power: 0, images: &[65_536] };
+const MAP_5: MapSpec = MapSpec { power: 0, images: &[&[0, 0, 1, 0]] };
 
 #[rustfmt::skip]
 const MAP_6: MapSpec = MapSpec { power: 1, images: &[] };

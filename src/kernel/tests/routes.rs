@@ -64,11 +64,11 @@ pub(super) struct Case {
 
 /// Construction data for a prepared map.
 ///
-/// `images` holds the little-endian byte encoding of each caller image
-/// widened to a word; an empty list selects structural construction.
+/// Each image is the target element's `FieldBuffer` little-endian byte
+/// encoding; an empty list selects structural construction.
 pub(super) struct MapSpec {
     pub power: u32,
-    pub images: &'static [u64],
+    pub images: &'static [&'static [u8]],
 }
 
 /// Buffer geometry shared by every case of one shape.
