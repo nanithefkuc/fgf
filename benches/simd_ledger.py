@@ -617,9 +617,27 @@ def _validate_coefficient_patterns(ledger: dict) -> dict:
 
 
 def _validate_evidence(ledger: dict) -> None:
-    ev = ledger.get("evidence")
+    """Validate run-keyed evidence entries."""
+    ev = ledger.get("evidence", {})
     if not isinstance(ev, dict):
         _fail("ledger.evidence must be a dict")
+    for key, entry in sorted(ev.items()):
+        if not isinstance(key, str) or "/" not in key:
+            _fail(f"evidence key {key!r} must be <features>/<request>")
+        features, request = key.split("/", 1)
+        if features not in VALID_FEATURE_CONFIGS:
+            _fail(f"evidence key {key!r}: invalid features {features!r}")
+        if request not in VALID_REQUESTS:
+            _fail(f"evidence key {key!r}: invalid request {request!r}")
+        if not isinstance(entry, dict):
+            _fail(f"evidence {key!r} must be a dict")
+        for field in ("record", "source_id", "host_id"):
+            value = entry.get(field)
+            if not isinstance(value, str) or not value:
+                _fail(f"evidence {key!r}: missing {field}")
+        extra = set(entry) - {"record", "source_id", "host_id"}
+        if extra:
+            _fail(f"evidence {key!r}: unknown fields {sorted(extra)}")
 
 
 # ---------------------------------------------------------------------------
@@ -651,32 +669,38 @@ def _receipt_identity(record: dict, ev_id: str) -> dict[str, str]:
     return _evidence_identity(normalised, "receipt", ev_id)
 
 
-def _read_evidence_record(ev_id: str, ev: dict, records: Path):
-    """Parse one evidence record into its completion marker and receipts."""
-    record_file = ev.get("file")
-    if not isinstance(record_file, str) or not record_file:
-        _fail(f"evidence {ev_id!r}: missing file")
+def _evidence_path(records: Path, record_file: str) -> Path:
+    """Resolve a record path relative to the records directory or the root."""
     path = records / record_file
+    if not path.is_file() and Path(record_file).is_file():
+        path = Path(record_file)
+    return path
+
+
+def _read_evidence_record(key: str, entry: dict, records: Path):
+    """Parse one run record into its completion marker and receipts."""
+    record_file = entry["record"]
+    path = _evidence_path(records, record_file)
     if not path.is_file():
-        _fail(f"evidence {ev_id!r}: record file {record_file} not found")
+        _fail(f"evidence {key!r}: record file {record_file} not found")
 
     done: dict | None = None
     receipts: list[dict] = []
     for line in path.read_text().splitlines():
         if line.startswith("ROUTE_DONE\t"):
             if done is not None:
-                _fail(f"evidence {ev_id!r}: duplicate ROUTE_DONE in {record_file}")
+                _fail(f"evidence {key!r}: duplicate ROUTE_DONE in {record_file}")
             try:
                 done = json.loads(line.split("\t", 1)[1])
             except json.JSONDecodeError:
-                _fail(f"evidence {ev_id!r}: malformed ROUTE_DONE")
+                _fail(f"evidence {key!r}: malformed ROUTE_DONE")
         elif line.startswith("ROUTE_RECEIPT\t"):
             try:
                 receipts.append(json.loads(line.split("\t", 1)[1]))
             except json.JSONDecodeError:
-                _fail(f"evidence {ev_id!r}: malformed ROUTE_RECEIPT")
+                _fail(f"evidence {key!r}: malformed ROUTE_RECEIPT")
     if done is None:
-        _fail(f"evidence {ev_id!r}: record {record_file} missing ROUTE_DONE")
+        _fail(f"evidence {key!r}: record {record_file} missing ROUTE_DONE")
     return done, receipts
 
 
@@ -982,26 +1006,89 @@ def obligations(ledger: dict) -> dict:
     geos = ledger.get("geometries", {})
     coeffs = ledger.get("coefficient_patterns", {})
     base = _expand_obligations(ledger, rules)
+    if "obligations" in ledger:
+        _fail("ledger.obligations is removed; record cell statuses in routes")
     expanded = {oid: {"cells": dict(ob["cells"])} for oid, ob in base.items()}
-    explicit_obs = ledger.get("obligations", {})
-    if explicit_obs and not isinstance(explicit_obs, dict):
-        _fail("ledger.obligations must be a dict")
-    for oid, ob in (explicit_obs or {}).items():
-        # Applicability decides membership; an override only annotates a
-        # (callable, rule) pair the expansion already produced.
-        if oid not in base:
-            _fail(f"explicit obligation {oid!r} is not in the expansion; "
-                  f"check applicability rules")
-        if not isinstance(ob, dict) or not isinstance(ob.get("cells", {}), dict):
-            _fail(f"explicit obligation {oid!r}: cells must be a dict")
-        for key, cell in (ob.get("cells", {}) or {}).items():
-            if not isinstance(cell, dict):
-                _fail(f"explicit obligation {oid!r} cell {key!r} is not a dict")
-            merged = dict(expanded[oid]["cells"].get(key, {}), **cell)
-            expanded[oid]["cells"][key] = merged
+    _apply_routes(ledger, expanded)
     _validate_expanded_obligations(ledger, expanded, rules, wrules, geos, coeffs)
     _validate_bulk_family_coverage(ledger, expanded)
     return expanded
+
+
+ROUTE_STATUSES = frozenset({
+    "direct", "composition", "zero-budget", "missing", "bypass",
+})
+PESSIMISTIC_STATUSES = frozenset({"missing", "bypass"})
+
+
+def _apply_routes(ledger: dict, expanded: dict) -> None:
+    """Parse the status table and apply it to the expanded cells."""
+    routes = ledger.get("routes", {})
+    if not isinstance(routes, dict):
+        _fail("ledger.routes must be a dict")
+    notes = ledger.get("route_notes", {})
+    if not isinstance(notes, dict):
+        _fail("ledger.route_notes must be a dict")
+
+    assignments: dict[str, list[tuple[str, str, str | None]]] = {}
+    for oid, text in sorted(routes.items()):
+        if oid not in expanded:
+            _fail(f"route obligation {oid!r} is not in the expansion")
+        if not isinstance(text, str) or not text.strip():
+            _fail(f"route {oid!r} must be a non-empty string")
+        seen: set[str] = set()
+        parsed: list[tuple[str, str, str | None]] = []
+        for token in text.split():
+            if "=" not in token:
+                _fail(f"route {oid!r}: token {token!r} is not <cell>=<status>")
+            cell, spec = token.split("=", 1)
+            if "/" not in cell:
+                _fail(f"route {oid!r}: cell {cell!r} is not <features>/<request>")
+            features, request = cell.split("/", 1)
+            if features not in VALID_FEATURE_CONFIGS:
+                _fail(f"route {oid!r}: invalid features {features!r}")
+            if request not in VALID_REQUESTS:
+                _fail(f"route {oid!r}: invalid request {request!r}")
+            if cell in seen:
+                _fail(f"route {oid!r}: duplicate cell {cell!r}")
+            seen.add(cell)
+            if cell not in expanded[oid]["cells"]:
+                _fail(f"route {oid!r}: unknown cell {cell!r}")
+            status, at, tier = spec.partition("@")
+            if status not in ROUTE_STATUSES:
+                _fail(f"route {oid!r}: invalid status {status!r}")
+            if status in ("direct", "composition"):
+                if not at or not tier:
+                    _fail(f"route {oid!r} cell {cell}: {status} requires @min_serving")
+                if tier not in VALID_REQUESTS:
+                    _fail(f"route {oid!r} cell {cell}: invalid min_serving {tier!r}")
+                parsed.append((cell, status, tier))
+            else:
+                if at:
+                    _fail(f"route {oid!r} cell {cell}: {status} takes no min_serving")
+                parsed.append((cell, status, None))
+        assignments[oid] = parsed
+
+    for oid, parsed in assignments.items():
+        for cell, status, tier in parsed:
+            target = expanded[oid]["cells"][cell]
+            target["status"] = status
+            target["required"] = status in VALID_REQUIRED_STATUSES
+            if tier is not None:
+                target["min_serving"] = tier
+
+    for oid, note in sorted(notes.items()):
+        if oid not in expanded:
+            _fail(f"route_notes obligation {oid!r} is not in the expansion")
+        if oid not in assignments:
+            _fail(f"route_notes obligation {oid!r} has no routes entry")
+        if not isinstance(note, str) or not note.strip():
+            _fail(f"route_notes {oid!r} must be a non-empty string")
+
+    for oid, parsed in assignments.items():
+        if any(status in PESSIMISTIC_STATUSES for _, status, _ in parsed):
+            if oid not in notes:
+                _fail(f"route {oid!r}: bypass/missing requires a route_notes entry")
 
 
 def cases(ledger: dict, expanded: dict | None = None) -> list[dict]:
@@ -1438,107 +1525,133 @@ def _check_full_references(ledger: dict, expanded: dict, case_list_derived: list
     for bid in refs.get("bench", []):
         if bid not in surface_ids:
             _fail(f"reference bench {bid!r} is not in the surface inventory")
-    _check_evidence_citations(ledger, expanded, case_list_derived, records,
-                              runner_case_ids)
+    _check_evidence(ledger, expanded, case_list_derived, records,
+                    runner_case_ids)
 
 
-def _check_evidence_citations(ledger: dict, expanded: dict, case_list_derived: list[dict],
-                             records: Path | None,
-                             runner_case_ids: set[str] | None = None) -> None:
-    """Evidence entries cite complete, consistent record identities.
+_TIER_STRENGTH = {
+    "scalar": 0, "v2": 1, "v3": 2, "v3_gfni_crypto": 3, "v4x": 4,
+}
 
-    Every receipt in a record, cited or not, must carry the same complete
-    identity as the completion marker; the citation repeats that identity.
-    """
+
+def _strength(tier: object) -> int:
+    return _TIER_STRENGTH.get(tier, -1) if isinstance(tier, str) else -1
+
+
+def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
+                    records: Path | None,
+                    runner_case_ids: set[str] | None = None) -> None:
+    """Audit every non-unverified cell against its run-keyed record."""
     evidence = ledger.get("evidence", {})
+    required_keys = sorted({
+        key
+        for ob in expanded.values()
+        for key, cell in ob["cells"].items()
+        if cell.get("status") != "unverified"
+    })
+    if required_keys:
+        if records is None:
+            _fail("--records is required for audited route cells")
+        if not records.is_dir():
+            _fail(f"--records {records} is not a directory")
     if not evidence:
+        if required_keys:
+            _fail(f"evidence missing for {required_keys[0]!r}")
         return
-    if records is None:
-        _fail("--records is required when ledger cites evidence")
-    if not records.is_dir():
-        _fail(f"--records {records} is not a directory")
-    by_case = {c["id"]: c for c in case_list_derived}
-    for ev_id, ev in sorted(evidence.items()):
-        if not isinstance(ev, dict):
-            _fail(f"evidence {ev_id!r} is not a dict")
-        citations = ev.get("receipts")
-        if not isinstance(citations, list) or not citations:
-            _fail(f"evidence {ev_id!r}: receipts must be a non-empty list")
-        completion = ev.get("completion")
-        if not isinstance(completion, dict):
-            _fail(f"evidence {ev_id!r}: completion must be a dict")
-        completion_identity = _evidence_identity(completion, "completion", ev_id)
-        completion_cases = completion.get("cases")
-        if (not isinstance(completion_cases, int) or isinstance(completion_cases, bool)
-                or completion_cases < 0):
-            _fail(f"evidence {ev_id!r}: completion missing cases")
 
-        done, receipts = _read_evidence_record(ev_id, ev, records)
-        done_identity = _evidence_identity(done, "ROUTE_DONE", ev_id)
-        done_cases = done.get("cases")
-        if (not isinstance(done_cases, int) or isinstance(done_cases, bool)
-                or done_cases < 0):
-            _fail(f"evidence {ev_id!r}: ROUTE_DONE missing cases")
-        if done_cases != len(receipts):
-            _fail(f"evidence {ev_id!r}: ROUTE_DONE count {done_cases} "
-                  f"does not match {len(receipts)} receipts")
-        if completion_cases != done_cases:
-            _fail(f"evidence {ev_id!r}: completion cases mismatch")
-        for field in EVIDENCE_IDENTITY_FIELDS:
-            if completion_identity[field] != done_identity[field]:
-                _fail(f"evidence {ev_id!r}: completion {field} mismatch")
-
-        # Record-wide identity and uniqueness.
-        seen: set[str] = set()
-        by_rid: dict[str, dict] = {}
+    parsed: dict[str, tuple[dict[str, str], dict[str, dict]]] = {}
+    for key, entry in sorted(evidence.items()):
+        done, receipts = _read_evidence_record(key, entry, records)
+        identity = _evidence_identity(done, "ROUTE_DONE", key)
+        features, request = key.split("/", 1)
+        if identity["features"] != features or identity["request"] != request:
+            _fail(f"evidence {key!r}: ROUTE_DONE names "
+                  f"{identity['features']}/{identity['request']}")
+        if (identity["source_id"] != entry["source_id"]
+                or identity["host_id"] != entry["host_id"]):
+            _fail(f"evidence {key!r}: record identity differs from its entry")
+        count = done.get("cases")
+        if (not isinstance(count, int) or isinstance(count, bool)
+                or count != len(receipts)):
+            _fail(f"evidence {key!r}: ROUTE_DONE count does not match receipts")
+        by_id: dict[str, dict] = {}
         for rec in receipts:
             if not isinstance(rec, dict):
-                _fail(f"evidence {ev_id!r}: receipt is not a dict")
+                _fail(f"evidence {key!r}: receipt is not a dict")
             rid = rec.get("id")
             if not isinstance(rid, str) or not rid:
-                _fail(f"evidence {ev_id!r}: receipt without id field")
-            if rid in seen:
-                _fail(f"evidence {ev_id!r}: duplicate receipt {rid!r}")
-            seen.add(rid)
-            receipt_identity = _receipt_identity(rec, ev_id)
+                _fail(f"evidence {key!r}: receipt without id")
+            if rid in by_id:
+                _fail(f"evidence {key!r}: duplicate receipt {rid!r}")
+            receipt_identity = _receipt_identity(rec, key)
+            if receipt_identity != identity:
+                _fail(f"evidence {key!r}: receipt {rid} identity differs "
+                      f"from ROUTE_DONE")
             result = rec.get("result")
             if not isinstance(result, str) or not result:
-                _fail(f"evidence {ev_id!r}: receipt {rid} missing result")
-            for field in EVIDENCE_IDENTITY_FIELDS:
-                if receipt_identity[field] != done_identity[field]:
-                    _fail(f"evidence {ev_id!r}: receipt {rid} {field} "
-                          f"differs from ROUTE_DONE")
-            by_rid[rid] = rec
+                _fail(f"evidence {key!r}: receipt {rid} missing result")
+            by_id[rid] = rec
+        parsed[key] = (identity, by_id)
 
-        for cited in citations:
-            if not isinstance(cited, dict):
-                _fail(f"evidence {ev_id!r}: receipt expectation is not a dict")
-            rid = cited.get("id")
-            if not isinstance(rid, str) or not rid:
-                _fail(f"evidence {ev_id!r}: receipt expectation missing id")
-            citation_identity = _evidence_identity(cited, "citation", ev_id)
-            if rid not in by_case:
-                _fail(f"evidence {ev_id!r}: cited receipt {rid!r} is not a generated case")
-            if runner_case_ids is not None and rid not in runner_case_ids:
-                _fail(f"evidence {ev_id!r}: cited receipt {rid!r} is not in "
-                      f"the runner case list")
-            rec = by_rid.get(rid)
-            if rec is None:
-                _fail(f"evidence {ev_id!r}: cited receipt {rid} missing")
-            if rec.get("result") != "pass":
-                _fail(f"evidence {ev_id!r}: cited receipt {rid} result is not pass")
-            case = by_case[rid]
-            if rec.get("obligation") != case["obligation"]:
-                _fail(f"evidence {ev_id!r}: cited receipt {rid} obligation mismatch")
-            receipt_identity = _receipt_identity(rec, ev_id)
-            for field in EVIDENCE_IDENTITY_FIELDS:
-                if receipt_identity[field] != citation_identity[field]:
-                    _fail(f"evidence {ev_id!r}: receipt {rid} {field} "
-                          f"differs from its citation")
-            code = _route_claim_mismatch(rec, case, receipt_identity["features"],
-                                         receipt_identity["request"])
-            if code is not None:
-                _fail(f"evidence {ev_id!r}: cited receipt {rid} {code}")
+    cases_by_ob: dict[str, list[dict]] = {}
+    for case in case_list_derived:
+        cases_by_ob.setdefault(case["obligation"], []).append(case)
+
+    for oid, ob in sorted(expanded.items()):
+        for key, cell in sorted(ob["cells"].items()):
+            status = cell.get("status")
+            if status == "unverified":
+                continue
+            if key not in parsed:
+                _fail(f"evidence missing for {key!r}")
+            _, receipts = parsed[key]
+            features, request = key.split("/", 1)
+            cases = cases_by_ob.get(oid, [])
+            if not cases:
+                _fail(f"obligation {oid!r} has no generated cases")
+            for case in cases:
+                cid = case["id"]
+                if runner_case_ids is not None and cid not in runner_case_ids:
+                    _fail(f"evidence {key!r}: case {cid!r} is not in the "
+                          f"runner case list")
+                rec = receipts.get(cid)
+                if rec is None:
+                    _fail(f"evidence {key!r}: missing receipt for case {cid!r}")
+                if rec.get("obligation") != oid:
+                    _fail(f"evidence {key!r}: receipt {cid} obligation mismatch")
+                if rec.get("result") != "pass":
+                    _fail(f"evidence {key!r}: receipt {cid} result is not pass")
+                code = _route_claim_mismatch(rec, case, features, request)
+                if code is not None:
+                    _fail(f"evidence {key!r}: receipt {cid} {code}")
+
+            if status in ("direct", "composition"):
+                minimum = _strength(cell["min_serving"])
+                for case in cases:
+                    cid = case["id"]
+                    stages = receipts[cid].get("stages")
+                    if not isinstance(stages, list) or not stages:
+                        _fail(f"evidence {key!r}: receipt {cid} has no served stages")
+                    for stage in stages:
+                        if stage.get("met") is not True:
+                            _fail(f"evidence {key!r}: receipt {cid} stage "
+                                  f"did not meet its budget")
+                        if _strength(stage.get("tier")) < minimum:
+                            _fail(f"evidence {key!r}: receipt {cid} served "
+                                  f"below {cell['min_serving']}")
+            elif status in PESSIMISTIC_STATUSES:
+                stale = True
+                for case in cases:
+                    stages = receipts[case["id"]].get("stages")
+                    if not isinstance(stages, list) or not stages:
+                        stale = False
+                        break
+                    if not all(stage.get("met") is True for stage in stages):
+                        stale = False
+                        break
+                if stale:
+                    _fail(f"evidence {key!r}: stale pessimistic status "
+                          f"for {oid!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -1899,7 +2012,7 @@ def _map_spec(rule: dict, fixture: dict) -> tuple[int, list[list[int]]]:
     return (int(power), [[int(byte) for byte in image] for image in images])
 
 
-def _generate_cases(ledger: dict) -> str:
+def _generate_cases(ledger: dict, expanded: dict | None = None) -> str:
     """Emit the generated route case table from the pipeline.
 
     Renders the cases() expansion: one case per fixture, geometry, and
@@ -1908,7 +2021,8 @@ def _generate_cases(ledger: dict) -> str:
     reference simd512-gated items; numeric v4x lane/loss do not qualify.
     """
     rules = _validate_rules(ledger)
-    expanded = obligations(ledger)
+    if expanded is None:
+        expanded = obligations(ledger)
     derived = cases(ledger, expanded)
     callable_families = {name: entry.get("family", "")
                          for name, entry in ledger.get("callables", {}).items()
