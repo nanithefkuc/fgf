@@ -142,6 +142,9 @@ isa-accept EXPECTED:
             exit 1
         }
     done
+    for features in default all; do
+        just route-accept "{{EXPECTED}}" "$features"
+    done
     log=$(mktemp)
     trap 'rm -f "$log"' EXIT
     cargo test --all-features -- --nocapture 2>&1 | tee "$log"
@@ -682,6 +685,261 @@ bench-maps-publisher:
     bin=$(ls -t target/release/deps/field_maps-* | grep -v '\.d$' | head -n 1)
     "$bin" --list-labels > "$bin-maps-inventory.txt"
     python3 benches/test_maps_publisher.py "$bin-maps-inventory.txt"
+
+# ── Public-route acceptance ───────────────────────────────────────────────
+#
+# `src/kernel/tests/routes.rs` runs every generated ledger case through the
+# public operation surface, judges the output against an element-wise
+# reference, and judges the test-only trace against the cell's work budget.
+# The recipes below drive that runner, audit its receipts with
+# `benches/simd_ledger.py accept`, and prove the audit can fail.
+
+# The rustdoc callable set, the test list, the runner's case list, and the
+# public benchmark surface stream, all produced from one source tree.
+# Inventories every ledger check resolves against.
+[private]
+_route-inventories FEATURES DIR:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p "{{DIR}}"
+    case "{{FEATURES}}" in
+        default) flags=() ;;
+        all) flags=(--all-features) ;;
+        *) printf 'route_inventory: unsupported features %s\n' "{{FEATURES}}" >&2; exit 2 ;;
+    esac
+    cargo +{{API_NIGHTLY}} rustdoc --all-features --lib -- -Z unstable-options --output-format json
+    cargo test --lib "${flags[@]}" -- --list >"{{DIR}}/tests.txt"
+    FGF_ROUTE_LIST=1 cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture >"{{DIR}}/cases.txt"
+    bin=$(cargo build --profile test --all-features --bench surfaces --message-format=json-render-diagnostics | jq -rs '[.[] | select(.executable != null) | .executable] | last')
+    "${bin}" --check >"{{DIR}}/surfaces.txt"
+
+# Run every case and print receipts with the observed served tier and work.
+# Routing mismatches never fail the run; a wrong output still does. An
+# ambient `SIMD_BACKEND` selects the request cell.
+# Survey one feature configuration.
+[group('gate')]
+route-survey FEATURES LOG:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{FEATURES}}" in
+        default) flags=() ;;
+        all) flags=(--all-features) ;;
+        *) printf 'route_survey: unsupported features %s\n' "{{FEATURES}}" >&2; exit 2 ;;
+    esac
+    export FGF_ROUTE_SURVEY=1
+    mkdir -p "$(dirname "{{LOG}}")"
+    cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture 2>&1 | tee "{{LOG}}"
+
+# Validate every ledger reference, run the required cases, then audit the
+# log with the expectations passed as arguments rather than read from it.
+# Fail-closed acceptance for one request and feature configuration.
+[group('gate')]
+route-accept REQUEST FEATURES:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{FEATURES}}" in
+        default) flags=() ;;
+        all) flags=(--all-features) ;;
+        *) printf 'route_accept: unsupported features %s\n' "{{FEATURES}}" >&2; exit 2 ;;
+    esac
+    case "{{REQUEST}}" in
+        v4x|v3_gfni_crypto|v3|v2|scalar) ;;
+        *) printf 'route_accept: unsupported request %s\n' "{{REQUEST}}" >&2; exit 2 ;;
+    esac
+    scratch=$(mktemp -d)
+    trap 'rm -rf "$scratch"' EXIT
+    just _route-inventories {{FEATURES}} "$scratch"
+    python3 benches/simd_ledger.py check --full \
+        --rustdoc target/doc/fgf.json \
+        --test-list "$scratch/tests.txt" \
+        --case-list "$scratch/cases.txt" \
+        --surface-inventory "$scratch/surfaces.txt"
+    source_id=$(
+        {
+            git rev-parse HEAD
+            git diff HEAD
+            git ls-files --others --exclude-standard -z | xargs -0 -r sha256sum
+        } | sha256sum | cut -d' ' -f1
+    )
+    cpu=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')
+    host_id="$(hostname)|${cpu}"
+    log="$scratch/route.log"
+    SIMD_BACKEND="{{REQUEST}}" FGF_ROUTE_ACCEPT=1 \
+        FGF_SOURCE_ID="$source_id" FGF_HOST_ID="$host_id" \
+        FGF_FEATURES="{{FEATURES}}" \
+        cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture | tee "$log"
+    python3 benches/simd_ledger.py accept --log "$log" \
+        --features "{{FEATURES}}" --request "{{REQUEST}}" \
+        --source-id "$source_id" --host-id "$host_id"
+
+# Compile against a temporary ledger copy with one required cell, run each
+# injected fault and a downgraded request, and assert the audit rejects
+# every one with its reason code. The canonical ledger and generated case
+# table are restored on exit.
+# Prove the acceptance pipeline can fail.
+[group('gate')]
+route-accept-negative REQUEST:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{REQUEST}}" in
+        v4x)
+            obligation='ops::mul_add@residue-u32'
+            features=all
+            flags=(--all-features)
+            serving=v4x
+            field=v4x
+            ;;
+        v3_gfni_crypto|v3)
+            obligation='ops::mul_add@residue-u32'
+            features=default
+            flags=()
+            serving=v3
+            field=v3
+            ;;
+        v2)
+            obligation='ops::mul_add@gf8-poly-aes'
+            features=default
+            flags=()
+            serving=v2
+            field=v2
+            ;;
+        *) printf 'route_accept_negative: no vector budget for request %s\n' "{{REQUEST}}" >&2; exit 2 ;;
+    esac
+    scratch=$(mktemp -d)
+    cases=src/kernel/tests/routes/cases.rs
+    cp "$cases" "$scratch/cases.rs"
+    trap 'cp "$scratch/cases.rs" "$cases"; rm -rf "$scratch"' EXIT
+    ledger="$scratch/ledger.json"
+    survey="$scratch/survey.log"
+    FGF_ROUTE_SURVEY=1 SIMD_BACKEND="{{REQUEST}}" \
+        cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture \
+        >"$survey" 2>&1
+    python3 - "$ledger" "$survey" "{{REQUEST}}" "$obligation" "$serving" "$field" <<'PY'
+    import json
+    import sys
+
+    out, survey_path, request, obligation, serving, field = sys.argv[1:7]
+    ledger = json.load(open("benches/simd_ledger.json"))
+    seen = {}
+    for line in open(survey_path):
+        if not line.startswith("ROUTE_RECEIPT\t"):
+            continue
+        receipt = json.loads(line.split("\t", 1)[1])
+        key = (receipt["obligation"], receipt["features"], receipt["request_raw"])
+        identity = (receipt["process"], receipt["field"])
+        if key in seen and seen[key] != identity:
+            sys.exit(f"route_accept_negative: obligation {key[0]!r} resolves "
+                     f"two field backends {seen[key]!r} and {identity!r}")
+        seen[key] = identity
+    obligations = ledger.setdefault("obligations", {})
+    for (name, features, requested), (process, field_backend) in seen.items():
+        cells = obligations.setdefault(name, {}).setdefault("cells", {})
+        cells[f"{features}/{requested}"] = {
+            "status": "direct",
+            "required": False,
+            "min_serving": requested,
+            "work": [],
+            "process": process,
+            "field": field_backend,
+        }
+    obligations.setdefault(obligation, {}).setdefault("cells", {})[f"default/{request}"] = {
+        "status": "direct",
+        "required": True,
+        "min_serving": serving,
+        "work": ["row-mul-add"],
+        "process": request,
+        "field": field,
+    }
+    json.dump(ledger, open(out, "w"), indent=1, sort_keys=False)
+    PY
+    python3 benches/simd_ledger.py --ledger "$ledger" generate --out "$cases"
+    run_negative() {
+        local backend="$1" fault="$2" log="$3" source="$4" rc=0
+        FGF_ROUTE_FAULT="$fault" SIMD_BACKEND="$backend" FGF_ROUTE_ACCEPT=1 \
+            FGF_SOURCE_ID="$source" FGF_HOST_ID=negative FGF_FEATURES="$features" \
+            cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture \
+            >"$log" 2>&1 || rc=$?
+        printf '%s' "$rc"
+    }
+    expect_reject() {
+        local code="$1" log="$2" err="$3" rc=0
+        python3 benches/simd_ledger.py --ledger "$ledger" accept --log "$log" \
+            --features "$features" --request "{{REQUEST}}" \
+            --source-id negative --host-id negative 2>"$err" || rc=$?
+        if [[ "$rc" -eq 0 ]]; then
+            printf 'route_accept_negative: audit accepted %s\n' "$code" >&2
+            return 1
+        fi
+        grep -Fq "simd_ledger: reject $code" "$err" || {
+            printf 'route_accept_negative: expected reject %s, got:\n' "$code" >&2
+            cat "$err" >&2
+            return 1
+        }
+        printf 'ROUTE_NEGATIVE\tcode=%s\n' "$code"
+    }
+    base="$scratch/base.log"
+    rc=$(run_negative "{{REQUEST}}" "" "$base" negative)
+    [[ "$rc" -eq 0 ]] || {
+        printf 'route_accept_negative: baseline run failed rc=%s\n' "$rc" >&2
+        tail -40 "$base" >&2
+        exit 1
+    }
+    python3 benches/simd_ledger.py --ledger "$ledger" accept --log "$base" \
+        --features "$features" --request "{{REQUEST}}" \
+        --source-id negative --host-id negative
+    for fault in corrupt-output suppress-trace halve-work lower-tier; do
+        log="$scratch/fault-$fault.log"
+        rc=$(run_negative "{{REQUEST}}" "$fault" "$log" negative)
+        [[ "$rc" -ne 0 ]] || {
+            printf 'route_accept_negative: fault %s was not rejected\n' "$fault" >&2
+            exit 1
+        }
+        expect_reject fail_receipt "$log" "$scratch/fault-$fault.err"
+    done
+    drop="$scratch/fault-drop-receipt.log"
+    rc=$(run_negative "{{REQUEST}}" drop-receipt "$drop" negative)
+    [[ "$rc" -ne 0 ]] || {
+        printf 'route_accept_negative: drop-receipt was not rejected\n' >&2
+        exit 1
+    }
+    expect_reject count_mismatch "$drop" "$scratch/fault-drop-receipt.err"
+    case "{{REQUEST}}" in
+        v4x) lower=v3_gfni_crypto ;;
+        v3_gfni_crypto) lower=v3 ;;
+        v3) lower=v2 ;;
+        v2) lower=scalar ;;
+        *) lower='' ;;
+    esac
+    if [[ -n "$lower" ]]; then
+        forced="$scratch/forced-$lower.log"
+        rc=$(run_negative "$lower" "" "$forced" negative)
+        [[ "$rc" -eq 0 ]] || {
+            printf 'route_accept_negative: downgraded run failed rc=%s\n' "$rc" >&2
+            exit 1
+        }
+        expect_reject request_mismatch "$forced" "$scratch/forced-$lower.err"
+    fi
+    printf 'ROUTE_NEGATIVE_DONE\trequest=%s\n' "{{REQUEST}}"
+
+# Full ledger resolution, byte-identical case generation, and the ledger
+# unit tests. Run on the machine that holds the collected evidence records.
+# The rerunnable route gate.
+[group('gate')]
+route-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p bench-records/routes
+    scratch=$(mktemp -d)
+    trap 'rm -rf "$scratch"' EXIT
+    just _route-inventories default "$scratch"
+    python3 benches/simd_ledger.py check --full \
+        --rustdoc target/doc/fgf.json \
+        --test-list "$scratch/tests.txt" \
+        --case-list "$scratch/cases.txt" \
+        --surface-inventory "$scratch/surfaces.txt" \
+        --records bench-records/routes
+    python3 benches/simd_ledger.py generate --check --out src/kernel/tests/routes/cases.rs
+    python3 -m unittest discover -s benches -p 'test_simd_ledger.py'
 
 # The full release gate: the shared pull-request gate, the promoted GFNI
 # Miri residue that CI runs as a separate job, and every crate-specific
