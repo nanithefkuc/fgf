@@ -275,6 +275,14 @@ pub fn mul_add_scatter_avx2(
                 }
             }
         }
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf8.avx2.scatter",
+            crate::kernel::trace::Substage::MulAdd,
+            crate::kernel::trace::Unit::Elements,
+            src_lanes.len() * 32 * count,
+            crate::kernel::Backend::V3,
+        );
         for slot in 0..count {
             // SAFETY:
             // MEMORY VALIDITY
@@ -487,6 +495,14 @@ fn matrix_tiles<M: crate::kernel::Matrix<Prepared> + ?Sized>(
         }
         offset += 64;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx2.matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        tile_len * count * terms.len(),
+        crate::kernel::Backend::V3,
+    );
 }
 
 /// Fold every term into one 32-byte window of a group of up to four rows.
@@ -560,6 +576,14 @@ fn matrix_vector<M: crate::kernel::Matrix<Prepared> + ?Sized>(
             );
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx2.matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        count * 32 * terms.len(),
+        crate::kernel::Backend::V3,
+    );
 }
 
 /// Many sources into one destination using AVX2 nibble shuffles.
@@ -617,6 +641,14 @@ pub fn mul_add_gather_avx2(
             _mm256_storeu_si256(&mut d2[0], acc0);
             _mm256_storeu_si256(&mut d2[1], acc1);
         }
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf8.avx2.gather",
+            crate::kernel::trace::Substage::MulAdd,
+            crate::kernel::trace::Unit::Elements,
+            tiles.len() * 64 * count,
+            crate::kernel::Backend::V3,
+        );
         for slot in 0..count {
             // The destination and source remainders keep equal lengths.
             mul_add_avx2(

@@ -228,6 +228,14 @@ pub fn mul_add_scatter_ssse3(
                 }
             }
         }
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf8.ssse3.scatter",
+            crate::kernel::trace::Substage::MulAdd,
+            crate::kernel::trace::Unit::Elements,
+            src_lanes.len() * 16 * count,
+            crate::kernel::Backend::V2,
+        );
         for slot in 0..count {
             // SAFETY:
             // MEMORY VALIDITY
@@ -344,6 +352,14 @@ pub fn mul_add_matrix_ssse3_with<M: Matrix<Prepared> + ?Sized>(
             }
             offset += 16;
         }
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf8.ssse3.matrix",
+            crate::kernel::trace::Substage::MulAdd,
+            crate::kernel::trace::Unit::Elements,
+            vector_len * count * terms.len(),
+            crate::kernel::Backend::V2,
+        );
         for slot in 0..count {
             // SAFETY:
             // MEMORY VALIDITY
@@ -422,6 +438,14 @@ pub fn mul_add_gather_ssse3(
                 _mm_storeu_si128(&mut d4[lane], value);
             }
         }
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf8.ssse3.gather",
+            crate::kernel::trace::Substage::MulAdd,
+            crate::kernel::trace::Unit::Elements,
+            tiles.len() * 64 * count,
+            crate::kernel::Backend::V2,
+        );
         for slot in 0..count {
             // The destination and source remainders keep equal lengths.
             mul_add_ssse3(

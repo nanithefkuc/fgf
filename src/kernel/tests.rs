@@ -3250,6 +3250,73 @@ mod x86 {
                 x86::gf8::mul_add_gather_gfni::<false>(token, dst, &prepared_coeffs(coeffs), srcs);
             },
         );
+        // Vector-work assertions: one length of several vector widths plus a
+        // tail, with clear before and assert after.
+        {
+            // Scatter: 5 rows × 300 bytes, 4-row groups with pair remainder.
+            let row_len = 300;
+            let nrows = 5;
+            let src = noise(row_len, 0xf01);
+            let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>> =
+                (0..nrows).map(gf8_coeff_at::<RS>).collect();
+            let mut rows = noise(row_len * nrows, 0xf02);
+            crate::kernel::trace::clear();
+            x86::gf8::mul_add_scatter_gfni::<false>(
+                token,
+                &mut rows,
+                row_len,
+                &prepared_coeffs(&coeffs),
+                &src,
+            );
+            assert_vector_work(Backend::V3GfniCrypto);
+        }
+        {
+            // Matrix: 4 rows × 300 bytes × 3 terms.
+            let row_len = 300;
+            let nrows = 4;
+            let nterms = 3;
+            let sources: Vec<Vec<u8>> = (0..nterms)
+                .map(|t| noise(row_len, 0xf03 + t as u64))
+                .collect();
+            let coeff_sets: Vec<Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>>> = (0..nterms)
+                .map(|t| (0..nrows).map(|j| gf8_coeff_at2::<RS>(t, j)).collect())
+                .collect();
+            let terms: Vec<(&[Elem<FiniteField<2, 8, Polynomial<RS>>>], &[u8])> = coeff_sets
+                .iter()
+                .zip(&sources)
+                .map(|(c, s)| (c.as_slice(), s.as_slice()))
+                .collect();
+            let mut rows = noise(row_len * nrows, 0xf04);
+            prepared_pairs!(terms, |pairs| {
+                crate::kernel::trace::clear();
+                x86::gf8::mul_add_matrix_gfni_with::<false, _>(
+                    token,
+                    &mut rows,
+                    row_len,
+                    nrows,
+                    &pairs[..],
+                );
+                assert_vector_work(Backend::V3GfniCrypto);
+            });
+        }
+        {
+            // Gather: 300 bytes × 5 sources.
+            let len = 300;
+            let nterms = 5;
+            let sources: Vec<Vec<u8>> = (0..nterms).map(|t| noise(len, 0xf05 + t as u64)).collect();
+            let srcs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+            let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<RS>>>> =
+                (0..nterms).map(gf8_coeff_at::<RS>).collect();
+            let mut dst = noise(len, 0xf06);
+            crate::kernel::trace::clear();
+            x86::gf8::mul_add_gather_gfni::<false>(
+                token,
+                &mut dst,
+                &prepared_coeffs(&coeffs),
+                &srcs,
+            );
+            assert_vector_work(Backend::V3GfniCrypto);
+        }
         check_gf8_scattered_gfni_rows::<RS>("gf8 rs gfni", token);
     }
 
@@ -3555,6 +3622,24 @@ mod x86 {
         check_gf8_elementwise::<AES>("gf8 avx2 elementwise", |dst, a, b| {
             x86::gf8::mul_elementwise_avx2(token, Polynomial::<AES>::REDUCTION_LOW, dst, a, b);
         });
+        // Vector-work assertion: scatter at several vector widths.
+        {
+            let row_len = 130usize;
+            let nrows = 5;
+            let src = noise(row_len, 0xf11);
+            let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> =
+                (0..nrows).map(gf8_coeff_at::<AES>).collect();
+            let mut rows = noise(row_len * nrows, 0xf12);
+            crate::kernel::trace::clear();
+            x86::gf8::mul_add_scatter_avx2(
+                token,
+                &mut rows,
+                row_len,
+                &prepared_coeffs(&coeffs),
+                &src,
+            );
+            assert_vector_work(Backend::V3);
+        }
         check_gf8_elementwise::<RS>("gf8 rs avx2 elementwise", |dst, a, b| {
             x86::gf8::mul_elementwise_avx2(token, Polynomial::<RS>::REDUCTION_LOW, dst, a, b);
         });
@@ -3790,6 +3875,24 @@ mod x86 {
                 x86::gf16::mul_add_matrix_ssse3(token, rows, row_len, nrows, terms);
             },
         );
+        // Vector-work assertion: scatter at several vector widths.
+        {
+            let row_len = 130usize;
+            let nrows = 4;
+            let src = noise(row_len, 0xf21);
+            let coeffs: Vec<Elem<FiniteField<2, 8, Polynomial<AES>>>> =
+                (0..nrows).map(gf8_coeff_at::<AES>).collect();
+            let mut rows = noise(row_len * nrows, 0xf22);
+            crate::kernel::trace::clear();
+            x86::gf8::mul_add_scatter_ssse3(
+                token,
+                &mut rows,
+                row_len,
+                &prepared_coeffs(&coeffs),
+                &src,
+            );
+            assert_vector_work(Backend::V2);
+        }
         check_gf8_elementwise::<AES>("gf8 ssse3 elementwise", |dst, a, b| {
             x86::gf8::mul_elementwise_ssse3(token, Polynomial::<AES>::REDUCTION_LOW, dst, a, b);
         });
