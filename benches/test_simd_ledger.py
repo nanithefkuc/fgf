@@ -870,6 +870,26 @@ class TestBudgets(unittest.TestCase):
     def test_zero_loss_stays_zero(self):
         self.assertEqual(sl._loss_in_units("Elements", 0, 4), 0)
 
+    def test_long_generated_literals_are_separated(self):
+        self.assertEqual(
+            sl._readable_literals("FiniteField<2013265921, 1, Residue>"),
+            "FiniteField<2_013_265_921, 1, Residue>",
+        )
+        self.assertEqual(
+            sl._readable_literals("FiniteField<0xFFFF_FFFF_0000_0001, 1, X>"),
+            "FiniteField<0xFFFF_FFFF_0000_0001, 1, X>",
+        )
+        self.assertEqual(sl._readable_literals("65536"), "65_536")
+
+    def test_bits_count_one_element_per_bit(self):
+        # A bit-packed fixture declares one element per bit; the geometry
+        # length is therefore already a bit count and must not be multiplied
+        # by the eight bits of a storage byte.
+        self.assertEqual(sl._length_in_units("Bits", 4096, 1, 1), 4096)
+        self.assertEqual(sl._lane_in_units("Bits", 32, 1, 1), 256)
+        self.assertEqual(sl._loss_in_units("Bits", 62, 1, 1), 496)
+        self.assertEqual(sl._length_in_units("Bits", 100, 1, 8), 800)
+
     def test_active_rows_counts_nontrivial(self):
         geo = {"rows": 3, "sources": 4}
         cp = {"slots": ["General", "General", "Zero", "One",

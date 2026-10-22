@@ -33,6 +33,9 @@ use crate::kernel::tables::{FpTowerTables, TowerCoeff};
 use crate::kernel::tables::{ScaleTable, TowerTables, scale_table};
 use crate::kernel::{KernelDispatch, RawDispatch};
 
+#[cfg(all(target_arch = "x86_64", feature = "simd"))]
+mod routes;
+
 /// Row lengths whose GFNI scatter/gather/matrix tail is 17-30 bytes past
 /// the last 32-byte window: the regression geometry for the staged
 /// `mul_add_tail_gfni` chunking.

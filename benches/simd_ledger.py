@@ -805,11 +805,23 @@ def _fixture_metadata(fixture: dict, rule: dict) -> dict[str, int]:
     target_elem_bytes = fixture.get(
         "target_elem_bytes",
         rule.get("target_elem_bytes",
-                 fixture.get("elem_bytes", rule.get("elem_bytes", 1))))
+                 rule.get("target_width_bytes",
+                          fixture.get("elem_bytes", rule.get("elem_bytes", 1)))))
+    # Bit-packed rows name one element per bit; every other row counts one
+    # element every eight storage bits. The declaration wins, so a rule can
+    # state the element width without implying a byte per element.
+    group = rule.get("group")
+    source_bits = 1 if group in ("bits", "map_bits") else 8 * elem_bytes
+    elem_bits = fixture.get("elem_bits", rule.get("elem_bits", source_bits))
+    target_elem_bits = fixture.get(
+        "target_elem_bits",
+        rule.get("target_elem_bits", 8 * target_elem_bytes))
 
     meta: dict[str, int] = {
         "elem_bytes": elem_bytes,
         "target_elem_bytes": target_elem_bytes,
+        "elem_bits": elem_bits,
+        "target_elem_bits": target_elem_bits,
         "relative_degree": fixture.get("relative_degree",
                                        rule.get("relative_degree", 1)),
         "power": fixture.get("power", rule.get("power", 1)),
@@ -1570,14 +1582,16 @@ def _multiplicity_count(mult: str, geo: dict, coeff_pattern: dict) -> int:
     return 1  # One
 
 
-def _loss_in_units(unit: str, loss_bytes: int, elem_bytes: int) -> int:
+def _loss_in_units(unit: str, loss_bytes: int, elem_bytes: int,
+                   elem_bits: int | None = None) -> int:
     """Convert loss_bytes to the work rule's unit. Loss rounds up (ceil)."""
     if loss_bytes <= 0:
         return 0
     if unit == "Bytes":
         return loss_bytes
     if unit == "Bits":
-        return loss_bytes * 8
+        bits = elem_bits if elem_bits is not None else 8 * elem_bytes
+        return math.ceil(loss_bytes * 8 / max(1, bits))
     if unit == "Words":
         return math.ceil(loss_bytes / 8)
     if elem_bytes <= 1:
@@ -1585,12 +1599,14 @@ def _loss_in_units(unit: str, loss_bytes: int, elem_bytes: int) -> int:
     return math.ceil(loss_bytes / elem_bytes)
 
 
-def _lane_in_units(unit: str, lane_bytes: int, elem_bytes: int) -> int:
+def _lane_in_units(unit: str, lane_bytes: int, elem_bytes: int,
+                   elem_bits: int | None = None) -> int:
     """Convert lane_bytes to the work rule's unit. Lane rounds down (floor)."""
     if unit == "Bytes":
         return lane_bytes
     if unit == "Bits":
-        return lane_bytes * 8
+        bits = elem_bits if elem_bits is not None else 8 * elem_bytes
+        return max(1, lane_bytes * 8 // max(1, bits))
     if unit == "Words":
         return max(1, lane_bytes // 8)
     if elem_bytes <= 1:
@@ -1606,14 +1622,16 @@ def _compute_loss_bytes(wr: dict, lane: int, fixture_vars: dict) -> int:
     return _evaluate_expr(expr, variables)
 
 
-def _length_in_units(unit: str, elements: int, elem_bytes: int) -> int:
+def _length_in_units(unit: str, elements: int, elem_bytes: int,
+                     elem_bits: int | None = None) -> int:
     """Convert a geometry's element length to the work rule's unit."""
     if unit == "Elements":
         return elements
     if unit == "Bytes":
         return elements * elem_bytes
     if unit == "Bits":
-        return elements * elem_bytes * 8
+        bits = elem_bits if elem_bits is not None else 8 * elem_bytes
+        return elements * bits
     if unit == "Words":
         return max(1, elements * elem_bytes // 8)
     raise ValueError(f"unknown work unit: {unit!r}")
@@ -1630,14 +1648,16 @@ def _resolve_work(work_rule: dict, geo: dict, meta: dict,
     basis = work_rule["basis"]
     unit = work_rule["unit"]
     width_eb = meta["target_elem_bytes"] if basis == "Target" else meta["elem_bytes"]
+    width_bits = (meta["target_elem_bits"] if basis == "Target"
+                  else meta["elem_bits"])
     lane_bytes = (isa.get("lane_bytes", {}) or {}).get(tier) if isa else None
     if not isinstance(lane_bytes, int) or lane_bytes <= 0:
         raise ValueError(f"no lane width for tier {tier!r}")
     loss_bytes = _compute_loss_bytes(work_rule, lane_bytes, meta)
     iterations = _work_iterations(work_rule, meta)
-    lane = _lane_in_units(unit, lane_bytes, width_eb)
-    loss = _loss_in_units(unit, loss_bytes, width_eb)
-    length = _length_in_units(unit, geo.get("len", 0), width_eb)
+    lane = _lane_in_units(unit, lane_bytes, width_eb, width_bits)
+    loss = _loss_in_units(unit, loss_bytes, width_eb, width_bits)
+    length = _length_in_units(unit, geo.get("len", 0), width_eb, width_bits)
     count = _multiplicity_count(work_rule["multiplicity"], geo,
                                 coeff_pattern or {"slots": []})
     scope = work_rule.get("scope")
@@ -1733,6 +1753,27 @@ def _adapter_for(call_name: str, fixture: dict, rule: dict,
     else:
         type_args = fixture.get("type", fixture.get("source", ""))
     return (adapter, fn, type_args)
+
+
+_LONG_DECIMAL = re.compile(r"(?<![\w])(\d{5,})(?![\w])")
+
+
+def _readable_literals(text: str) -> str:
+    """Separate long decimal literals so generated Rust passes the lint.
+
+    Only standalone decimal runs are touched: a literal with a radix prefix
+    or an existing separator keeps its spelling.
+    """
+    def grouped(match: re.Match[str]) -> str:
+        digits = match.group(1)
+        parts: list[str] = []
+        while len(digits) > 3:
+            parts.insert(0, digits[-3:])
+            digits = digits[:-3]
+        parts.insert(0, digits)
+        return "_".join(parts)
+
+    return _LONG_DECIMAL.sub(grouped, text)
 
 
 def _work_const(name: str, key: tuple) -> list[str]:
@@ -1881,7 +1922,7 @@ def _generate_cases(ledger: dict) -> str:
             if map_key not in map_defs:
                 name = f"MAP_{len(map_defs)}"
                 map_defs[map_key] = name
-                images_expr = ", ".join(str(value) for value in images)
+                images_expr = ", ".join(_readable_literals(str(value)) for value in images)
                 map_lines.extend([
                     "#[rustfmt::skip]",
                     f"const {name}: MapSpec = MapSpec {{ power: {power}, "
@@ -1892,7 +1933,7 @@ def _generate_cases(ledger: dict) -> str:
 
         family = callable_families.get(call_name, "")
         adapter, fn, type_args = _adapter_for(call_name, fixture, rule, family)
-        run_fn = f"super::{adapter}::{fn}::<{type_args}>"
+        run_fn = f"super::{adapter}::{fn}::<{_readable_literals(type_args)}>"
         if run_fn not in run_defs:
             name = f"RUN_{len(run_defs)}"
             run_defs[run_fn] = name
@@ -1947,13 +1988,13 @@ def _generate_cases(ledger: dict) -> str:
     lines.extend(cells_lines)
     lines.append("#[cfg(all(test, target_arch = \"x86_64\", feature = \"simd\"))]")
     lines.append("#[rustfmt::skip]")
-    lines.append("static CASES: &[Case] = &[")
+    lines.append("pub(super) static CASES: &[Case] = &[")
     lines.extend(case_lines)
     lines.extend(["];", ""])
     # Cases whose const paths or kernels need a wider target live here.
     lines.append("#[cfg(all(test, target_arch = \"x86_64\", feature = \"simd\", feature = \"simd512\"))]")
     lines.append("#[rustfmt::skip]")
-    lines.append("static CASES_SIMD512: &[Case] = &[];")
+    lines.append("pub(super) static CASES_SIMD512: &[Case] = &[];")
     lines.append("")
     return "\n".join(lines) + "\n"
 
