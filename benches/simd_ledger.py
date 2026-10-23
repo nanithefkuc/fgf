@@ -55,7 +55,7 @@ VALID_PASSES = frozenset({
 VALID_UNITS = frozenset({"Elements", "Bytes", "Bits", "Words"})
 VALID_BASES = frozenset({"Source", "Target"})
 VALID_MULTIPLICITIES = frozenset({
-    "One", "Rows", "ActiveRows", "ActivePairs", "UnitAddPairs",
+    "One", "Rows", "ActiveRows", "ActivePairs", "UnitAddPairs", "UnitAdds",
 })
 VALID_RULE_GROUPS = frozenset({
     "residue", "specialized_prime", "binary_flat", "packed",
@@ -1185,8 +1185,44 @@ def _apply_work_defaults(ledger: dict, expanded: dict, wrules: dict) -> None:
                 cell["work"] = list(names)
 
 
+OVERWRITE_FORMS = (
+    "mul_into", "mul_into_with", "mul_into_scatter", "mul_into_scatter_with",
+    "mul_into_gather", "mul_into_gather_with", "mul_into_matrix",
+    "mul_into_matrix_with", "mul_into_matrix_at", "mul_into_matrix_at_with",
+)
+
+
+def _row_terms(slots: list, rows: int, sources: int) -> list[list[str]]:
+    """Nonzero coefficient terms grouped by destination row."""
+    if len(slots) != rows * sources:
+        return [list(slots)]
+    return [slots[row * sources:(row + 1) * sources] for row in range(rows)]
+
+
+def _overwrite_degenerate(callable_name: str, pattern: dict, geo: dict) -> bool:
+    """A row is a copy/fill only with at most one unit term and no general."""
+    base = callable_name.split("::")[-1]
+    slots = list(pattern.get("slots", []))
+    if base in ("mul_into_scatter", "mul_into_scatter_with"):
+        # One coefficient per destination row.
+        groups = [[slot] for slot in slots]
+    elif "gather" in base:
+        # Every coefficient selects a source for the single destination row.
+        groups = [slots]
+    else:
+        groups = _row_terms(slots, geo.get("rows", 1), geo.get("sources", 1))
+    for group in groups:
+        terms = [slot for slot in group if slot != "Zero"]
+        if not terms:
+            continue
+        if len(terms) == 1 and terms[0] == "One":
+            continue
+        return False
+    return True
+
+
 def _case_semantic_degenerate(callable_name: str, fixture: dict, rule: dict,
-                              pattern: dict) -> bool:
+                              pattern: dict, geo: dict) -> bool:
     """Whether a case performs no arithmetic by construction.
 
     The exemption is an input fact, independent of any configured work rule:
@@ -1208,10 +1244,10 @@ def _case_semantic_degenerate(callable_name: str, fixture: dict, rule: dict,
         return False
     if base.startswith("mul_add") and all(slot == "Zero" for slot in slots):
         return True
-    if base.startswith("mul_into") and all(slot in ("Zero", "One") for slot in slots):
-        return True
-    if base.startswith("mul_assign") and all(slot in ("Zero", "One") for slot in slots):
-        return True
+    if base in OVERWRITE_FORMS:
+        return _overwrite_degenerate(callable_name, pattern, geo)
+    if base.startswith("mul_assign"):
+        return _overwrite_degenerate(callable_name, pattern, geo)
     return False
 
 
@@ -1305,7 +1341,7 @@ def cases(ledger: dict, expanded: dict | None = None) -> list[dict]:
                 cells = ob.get("cells", {})
             for cp_name, cp in patterns:
                 case_id = f"{oid}#{fid}/{geo_id}/{cp_name or '_'}"
-                semantic = _case_semantic_degenerate(call_name, fixture, rule, cp)
+                semantic = _case_semantic_degenerate(call_name, fixture, rule, cp, geo)
                 out.append({
                     "id": case_id,
                     "obligation": oid,
@@ -2065,6 +2101,28 @@ def _count_unit_add_pairs(coeff_pattern: dict) -> int:
     return sum(1 for s in coeff_pattern.get("slots", []) if s == "One")
 
 
+def _unit_adds_count(geo: dict, coeff_pattern: dict, gather: bool = False) -> int:
+    """Unit additions for an overwrite: (selected unit terms - 1) per row.
+
+    A gather folds its coefficients into one destination row; every other
+    shape lays slots out row-major over ``rows x sources``. The first selected
+    unit term is the copy or fill base, so only terms beyond it add.
+    """
+    slots = coeff_pattern.get("slots", [])
+    if gather:
+        return max(0, sum(1 for slot in slots if slot == "One") - 1)
+    rows = geo.get("rows", 1)
+    sources = geo.get("sources", 1)
+    if len(slots) != rows * sources:
+        return 0
+    total = 0
+    for row in range(rows):
+        ones = sum(1 for slot in slots[row * sources:(row + 1) * sources]
+                   if slot == "One")
+        total += max(0, ones - 1)
+    return total
+
+
 def _callable_takes_coefficient(call_name: str, family: str = "") -> bool:
     """True when the callable carries a coefficient slot.
 
@@ -2121,6 +2179,8 @@ def _multiplicity_count(mult: str, geo: dict, coeff_pattern: dict,
         return _count_active_pairs(coeff_pattern)
     if mult == "UnitAddPairs":
         return _count_unit_add_pairs(coeff_pattern)
+    if mult == "UnitAdds":
+        return _unit_adds_count(geo, coeff_pattern, gather)
     return 1  # One
 
 
@@ -2659,6 +2719,7 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
         _fail(f"accept: reject duplicate_receipt {sorted(duplicate_ids)}")
 
     received_ids: set[str] = set()
+    served_by_ob: dict[tuple[str, str], list[int]] = {}
     for rec in receipts:
         cid = rec.get("id", "")
         received_ids.add(cid)
@@ -2707,6 +2768,41 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
             _fail(f"accept: reject skip_receipt {cid}")
         else:
             _fail(f"accept: reject unknown_result {cid}")
+
+        # Fresh acceptance applies the same budget audit as check --full:
+        # the recorded stage budgets must equal the derived ones, and a
+        # required cell must have served every derived budget.
+        try:
+            _check_budget_parity(case, f"{features}/{request}", rec, cid)
+        except ValidationError as exc:
+            _fail(f"accept: reject {exc.code} {cid}")
+        cell = case["cells"].get(f"{features}/{request}", {})
+        if cell.get("required"):
+            stages = rec.get("stages")
+            if not isinstance(stages, list):
+                _fail(f"accept: reject budget_coverage {cid}: no stages")
+            for stage in stages:
+                if stage.get("met") is not True:
+                    _fail(f"accept: reject unmet_stage {cid}")
+            required_items = _case_required(case, f"{features}/{request}")
+            if required_items:
+                if not stages:
+                    _fail(f"accept: reject budget_coverage {cid}: empty stages")
+                minimum = _strength(cell.get("min_serving"))
+                problem = _coverage_error(required_items, stages, minimum)
+                if problem is not None:
+                    _fail(f"accept: reject budget_coverage {cid}: {problem}")
+                served = _served_tier(required_items, stages)
+                if served >= 0:
+                    served_by_ob.setdefault((oid, f"{features}/{request}"),
+                                            []).append(served)
+
+    # As in check --full, the cell's minimum is the weakest tier across its
+    # required cases; an individual case may be served higher.
+    for (oid, key), tiers in served_by_ob.items():
+        cell = expanded[oid]["cells"][key]
+        if min(tiers) != _strength(cell.get("min_serving")):
+            _fail(f"accept: reject budget_coverage {oid}: served tier")
 
     missing = required_cases - received_ids
     if missing:

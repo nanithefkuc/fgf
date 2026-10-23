@@ -864,6 +864,42 @@ route-accept-negative REQUEST:
     python3 benches/simd_ledger.py --ledger "$ledger" accept --log "$base" \
         --features "$features" --request "{{REQUEST}}" \
         --source-id negative --host-id negative
+    # The audit applies the same budget checks as check --full. Mutations that
+    # leave the runner's verdict alone must still be rejected.
+    mutate_receipt() {
+        local mode="$1" out="$2"
+        python3 - "$base" "$out" "$mode" <<'PY'
+    import json
+    import sys
+
+    source, target, mode = sys.argv[1:4]
+    lines = []
+    changed = False
+    for line in open(source).read().splitlines():
+        if line.startswith("ROUTE_RECEIPT\t") and not changed:
+            rec = json.loads(line.split("\t", 1)[1])
+            if rec.get("required"):
+                stages = rec.setdefault("stages", [])
+                if mode == "strip-stages":
+                    rec["stages"] = []
+                elif stages and mode == "negative-budget":
+                    stages[0]["budget"] = -1
+                elif stages and mode == "unmet-stage":
+                    stages[0]["met"] = False
+                changed = True
+                line = "ROUTE_RECEIPT\t" + json.dumps(rec)
+        lines.append(line)
+    open(target, "w").write("\n".join(lines) + "\n")
+    PY
+    }
+    for mode in strip-stages negative-budget; do
+        log="$scratch/accept-$mode.log"
+        mutate_receipt "$mode" "$log"
+        expect_reject budget_parity "$log" "$scratch/accept-$mode.err"
+    done
+    mutate_receipt unmet-stage "$scratch/accept-unmet.log"
+    expect_reject unmet_stage "$scratch/accept-unmet.log" \
+        "$scratch/accept-unmet.err"
     for fault in corrupt-output suppress-trace halve-work lower-tier; do
         log="$scratch/fault-$fault.log"
         rc=$(run_negative "{{REQUEST}}" "$fault" "$log" negative)

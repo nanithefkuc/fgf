@@ -137,6 +137,19 @@ def _good_receipt(obligation="ops::mul_add@gf8-aes", case_id="c1"):
     }
 
 
+def _budget_stages(case, key="default/v3"):
+    """Receipt stages carrying the tool-derived budget for one case."""
+    return [{
+        "substage": item["substage"],
+        "scope": list(item["scope"]) if item["scope"] else None,
+        "unit": item["unit"],
+        "tier": "v3",
+        "work": item["budget"],
+        "budget": item["budget"],
+        "met": True,
+    } for item in case["cell_work"].get(key, [])]
+
+
 def _good_done(cases=1):
     return {"source_id": "src-1", "host_id": "host-1", "features": "default",
             "request": "v3", "cases": cases}
@@ -306,10 +319,12 @@ class TestOnePipeline(unittest.TestCase):
             self.assertEqual(sl.cmd_generate(p, False, ledger), 0)
             generated_ids = _case_ids_from_table(p.read_text())
         self.assertEqual(generated_ids, universe)
+        by_id = {c["id"]: c for c in derived}
         recs = [{"id": cid, "obligation": cid.split("#")[0],
                  "source_id": "src-1", "host_id": "host-1", "features": "default",
                  "request_raw": "v3", "process": "v3", "field": "v3",
-                 "required": True, "result": "pass"}
+                 "required": True, "result": "pass",
+                 "stages": _budget_stages(by_id[cid])}
                 for cid in sorted(required)]
         done = [f"ROUTE_DONE\t{json_mod.dumps(_good_done(len(recs)))}"]
         with tempfile.TemporaryDirectory() as d:
@@ -621,15 +636,7 @@ class TestFullCitations(unittest.TestCase):
     @staticmethod
     def _derived_stages(case, key="default/v3"):
         """Receipt stages carrying the tool-derived budget for one case."""
-        return [{
-            "substage": item["substage"],
-            "scope": list(item["scope"]) if item["scope"] else None,
-            "unit": item["unit"],
-            "tier": "v3",
-            "work": item["budget"],
-            "budget": item["budget"],
-            "met": True,
-        } for item in case["cell_work"].get(key, [])]
+        return _budget_stages(case, key)
 
     def _record(self, d, derived, receipts=None, done_body=None):
         cases = [c for c in derived if c["obligation"] == "ops::mul_add@gf8-aes"]
@@ -1263,6 +1270,42 @@ class TestBudgets(unittest.TestCase):
         with self.assertRaises(ValidationError):
             sl.cmd_check(ledger, True, None, None, None, None, None)
 
+    def test_unit_adds_counts_selected_terms_minus_one(self):
+        gather = {"rows": 4, "sources": 4}
+        self.assertEqual(sl._unit_adds_count(
+            gather, {"slots": ["One", "Zero", "One", "Zero"]}, gather=True), 1)
+        self.assertEqual(sl._unit_adds_count(
+            gather, {"slots": ["One", "Zero", "Zero", "Zero"]}, gather=True), 0)
+        matrix = {"rows": 2, "sources": 2}
+        self.assertEqual(sl._unit_adds_count(
+            matrix, {"slots": ["One", "Zero", "Zero", "One"]}), 0)
+        self.assertEqual(sl._unit_adds_count(
+            matrix, {"slots": ["One", "One", "Zero", "One"]}), 1)
+        scatter = {"rows": 4, "sources": 1}
+        self.assertEqual(sl._unit_adds_count(
+            scatter, {"slots": ["One", "Zero", "One", "Zero"]}), 0)
+
+    def test_overwrite_copy_exemption_is_per_row(self):
+        fixture = {"id": "f", "degree": 8, "relative_degree": 1,
+                   "type": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+                   "elem_bytes": 1}
+        rule = {"group": "binary_flat", "characteristic": 2, "elem_bytes": 1}
+        gather = {"rows": 4, "sources": 4}
+        self.assertFalse(sl._case_semantic_degenerate(
+            "ops::mul_into_gather", fixture, rule,
+            {"slots": ["One", "Zero", "One", "Zero"]}, gather))
+        self.assertTrue(sl._case_semantic_degenerate(
+            "ops::mul_into_gather", fixture, rule,
+            {"slots": ["One", "Zero", "Zero", "Zero"]}, gather))
+        scatter = {"rows": 4, "sources": 1}
+        self.assertTrue(sl._case_semantic_degenerate(
+            "ops::mul_into_scatter", fixture, rule,
+            {"slots": ["One", "Zero", "One", "Zero"]}, scatter))
+        matrix = {"rows": 2, "sources": 2}
+        self.assertFalse(sl._case_semantic_degenerate(
+            "ops::mul_into_matrix", fixture, rule,
+            {"slots": ["One", "One", "Zero", "Zero"]}, matrix))
+
     def test_characteristic_two_subtraction_traces_add(self):
         wr = {"substage": "Sub", "unit": "Elements", "basis": "Source",
               "multiplicity": "One", "iterations": "1", "loss_bytes": "0"}
@@ -1419,7 +1462,7 @@ pub(super) struct Work {
 }
 pub(super) enum Basis { Source, Target }
 pub(super) enum Multiplicity {
-    One, Rows, ActiveRows, ActivePairs, UnitAddPairs,
+    One, Rows, ActiveRows, ActivePairs, UnitAddPairs, UnitAdds,
 }
 pub(super) enum Scope { Inverse, Division, Frobenius, Norm, Trace, Restriction, Membership }
 pub(super) enum Pass { Main, Prefix, Backward, Output, Conjugate, Accumulate, Project }
@@ -1841,6 +1884,22 @@ class TestCanonicalLedger(unittest.TestCase):
         self.assertEqual(trace["cell_work"]["default/v3"][0]["substage"],
                          "BitParity")
 
+    def test_overwrite_gather_unit_sum_is_not_zero_budget(self):
+        expanded = sl.obligations(self.ledger)
+        derived = sl.cases(self.ledger, expanded)
+        by_ob: dict[str, list[dict]] = {}
+        for case in derived:
+            by_ob.setdefault(case["obligation"], []).append(case)
+        oid = "ops::mul_into_gather@residue-gf2"
+        fan = [case for case in by_ob[oid]
+               if case["pattern_id"] == "gf2-fan-4"]
+        self.assertTrue(fan)
+        self.assertFalse(fan[0]["semantic_degenerate"])
+        self.assertTrue(all(item["budget"] > 0
+                            for item in fan[0]["cell_work"]["default/v3"]
+                            if item["substage"] == "Add"))
+        self.assertNotIn("zero-budget", self.ledger["routes"][oid])
+
     def test_residue_pack_exempt_rejected(self):
         ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
         ledger["rules"]["residue-u8-low"]["pack_exempt"] = True
@@ -1852,11 +1911,11 @@ class TestCanonicalLedger(unittest.TestCase):
                    "type": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
                    "elem_bytes": 1}
         self.assertTrue(sl._case_semantic_degenerate(
-            "bits::set_range", fixture, {"group": "bits"}, {"slots": []}))
+            "bits::set_range", fixture, {"group": "bits"}, {"slots": []}, {}))
         self.assertTrue(sl._case_semantic_degenerate(
-            "bits::clear_range", fixture, {"group": "bits"}, {"slots": []}))
+            "bits::clear_range", fixture, {"group": "bits"}, {"slots": []}, {}))
         self.assertFalse(sl._case_semantic_degenerate(
-            "bits::xor_assign", fixture, {"group": "bits"}, {"slots": []}))
+            "bits::xor_assign", fixture, {"group": "bits"}, {"slots": []}, {}))
 
     def test_structural_map_width_class_checked(self):
         ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
@@ -1950,12 +2009,15 @@ class TestAcceptRejects(unittest.TestCase):
         derived = sl.cases(ledger, sl.obligations(ledger))
         required = sorted(c["id"] for c in derived
                           if c["cells"].get("default/v3", {}).get("required"))
+        by_id = {c["id"]: c for c in derived}
         recs = []
         for cid in required:
+            case = by_id[cid]
             rec = {"id": cid, "obligation": cid.split("#")[0],
                    "source_id": "src-1", "host_id": "host-1", "features": "default",
                    "request_raw": "v3", "process": "v3", "field": "v3",
-                   "required": True, "result": "pass"}
+                   "required": True, "result": "pass",
+                   "stages": _budget_stages(case)}
             recs.append(rec)
         if mutate is not None:
             mutate(recs)
@@ -2012,6 +2074,24 @@ class TestAcceptRejects(unittest.TestCase):
         recs, _done = self._good(ledger)
         done = [f"ROUTE_DONE\t{json_mod.dumps({'source_id': 'src-1', 'host_id': 'host-1', 'features': 'default', 'request': 'v3', 'cases': len(recs) + 1})}"]
         self.assertEqual(self._audit(recs, done, ledger), "count_mismatch")
+
+    def test_accept_rejects_empty_stages(self):
+        ledger = _required_tiny()
+        recs, done = self._good(ledger)
+        recs[0]["stages"] = []
+        self.assertEqual(self._audit(recs, done, ledger), "budget_parity")
+
+    def test_accept_rejects_negative_stage_budget(self):
+        ledger = _required_tiny()
+        recs, done = self._good(ledger)
+        recs[0]["stages"][0]["budget"] = -1
+        self.assertEqual(self._audit(recs, done, ledger), "budget_parity")
+
+    def test_accept_rejects_unmet_stage(self):
+        ledger = _required_tiny()
+        recs, done = self._good(ledger)
+        recs[0]["stages"][0]["met"] = False
+        self.assertEqual(self._audit(recs, done, ledger), "unmet_stage")
 
     def test_request_raw_empty(self):
         ledger = _required_tiny()

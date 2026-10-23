@@ -189,6 +189,7 @@ pub(super) enum Multiplicity {
     ActiveRows,
     ActivePairs,
     UnitAddPairs,
+    UnitAdds,
 }
 
 // ---------------------------------------------------------------------------
@@ -660,7 +661,35 @@ fn multiplicity(case: &Case, work: &Work) -> usize {
             .iter()
             .filter(|slot| matches!(slot, Coeff::One))
             .count(),
+        Multiplicity::UnitAdds => unit_adds(case),
     }
+}
+
+/// Unit additions for an overwrite: selected unit terms minus the copy base,
+/// counted per destination row. A gather folds every coefficient into one row.
+fn unit_adds(case: &Case) -> usize {
+    let geometry = &case.geometry;
+    let ones = case
+        .coeffs
+        .iter()
+        .filter(|slot| matches!(slot, Coeff::One))
+        .count();
+    if is_gather_case(case) {
+        return ones.saturating_sub(1);
+    }
+    let (rows, sources) = (geometry.rows, geometry.sources);
+    if sources == 0 || case.coeffs.len() != rows * sources {
+        return 0;
+    }
+    (0..rows)
+        .map(|row| {
+            case.coeffs[row * sources..(row + 1) * sources]
+                .iter()
+                .filter(|slot| matches!(slot, Coeff::One))
+                .count()
+                .saturating_sub(1)
+        })
+        .sum()
 }
 
 /// Whether a case performs no arithmetic by construction.
@@ -743,6 +772,15 @@ fn work_key(work: &Work) -> (Substage, Option<(Scope, Pass)>) {
     (work.substage, work.scope)
 }
 
+/// Unit-accumulate and overwrite-unit stages may be served by fused MulAdd
+/// work that the general-coefficient stages leave unclaimed.
+fn is_unit_add(work: &Work) -> bool {
+    matches!(
+        work.multiplicity,
+        Multiplicity::UnitAddPairs | Multiplicity::UnitAdds
+    )
+}
+
 /// Decide one case: output equality always, routing when enforced.
 #[allow(clippy::too_many_lines)]
 pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
@@ -803,6 +841,35 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
         }
     }
 
+    // A fused MulAdd loop may perform the unit additions itself. Only the
+    // work beyond the general-coefficient MulAdd requirement is attributable
+    // to unit-accumulate stages, so the sum of both requirements never
+    // exceeds the total MulAdd work.
+    let mut muladd_required = 0usize;
+    let mut muladd_served = 0usize;
+    let mut muladd_tier = Backend::Scalar;
+    for work in cell
+        .work
+        .iter()
+        .filter(|work| work.substage == Substage::MulAdd)
+    {
+        muladd_required = muladd_required.saturating_add(budget(case, work, outcome));
+        let width_bytes = match work.basis {
+            Basis::Source => outcome.source_bytes,
+            Basis::Target => outcome.target_bytes,
+        };
+        for entry in &outcome.trace {
+            if entry_key(entry) != work_key(work) {
+                continue;
+            }
+            if let Some(units) = served_in_units(entry, work, width_bytes) {
+                muladd_served = muladd_served.saturating_add(units);
+                muladd_tier = strongest(muladd_tier, entry.tier);
+            }
+        }
+    }
+    let mut fused_surplus = muladd_served.saturating_sub(muladd_required);
+
     for work in cell.work {
         let key = work_key(work);
         let mut served = 0usize;
@@ -830,6 +897,12 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
             }
         }
         let required = budget(case, work, outcome);
+        if is_unit_add(work) && served < required && fused_surplus > 0 {
+            let credit = fused_surplus.min(required - served);
+            served = served.saturating_add(credit);
+            fused_surplus -= credit;
+            tier = strongest(tier, muladd_tier);
+        }
         let mut met = served >= required;
         if required > 0 && trace::strength(tier) < trace::strength(cell.min_serving) {
             met = false;
@@ -1430,14 +1503,90 @@ mod tests {
         assert!(!verdict.stages[0].met);
     }
 
-    /// A wrong unit on the matching stage key fails the stage.
+    /// A genuinely incompatible unit on the matching stage fails the stage.
     #[test]
     fn judge_rejects_wrong_unit() {
         let mut outcome = outcome_with(7, 7, 64);
-        outcome.trace[0].unit = Unit::Bytes;
+        outcome.trace[0].unit = Unit::Bits;
         outcome.enforce_routing = true;
         let verdict = judge(&CASE, &CELLS[1], &outcome);
         assert!(!verdict.detail.is_empty());
+    }
+
+    /// A byte lane covers the same element count on a multi-byte field.
+    #[test]
+    fn judge_accepts_byte_element_conversion() {
+        let mut outcome = outcome_with(7, 7, 128);
+        outcome.trace[0].unit = Unit::Bytes;
+        outcome.source_bytes = 2;
+        outcome.enforce_routing = true;
+        let verdict = judge(&CASE, &CELLS[1], &outcome);
+        assert!(verdict.detail.is_empty(), "{}", verdict.detail);
+        assert!(verdict.stages[0].met);
+    }
+
+    const FUSED_WORK: &[Work] = &[
+        Work {
+            substage: Substage::MulAdd,
+            scope: None,
+            unit: Unit::Elements,
+            basis: Basis::Source,
+            multiplicity: Multiplicity::ActivePairs,
+            lane: 1,
+            loss: 0,
+            iterations: 1,
+        },
+        Work {
+            substage: Substage::Add,
+            scope: None,
+            unit: Unit::Elements,
+            basis: Basis::Source,
+            multiplicity: Multiplicity::UnitAdds,
+            lane: 1,
+            loss: 0,
+            iterations: 1,
+        },
+    ];
+    const FUSED_CELL: Cell = Cell {
+        features: Features::Default,
+        request: Request::Scalar,
+        process: Backend::Scalar,
+        field: Backend::Scalar,
+        required: true,
+        min_serving: Backend::Scalar,
+        work: FUSED_WORK,
+    };
+    const FUSED_COEFFS: &[Coeff] = &[Coeff::One, Coeff::Zero, Coeff::One, Coeff::Zero];
+    const FUSED_CASE: Case = Case {
+        id: "ops::mul_into_gather@test#fixture/gather/_",
+        obligation: "ops::mul_into_gather@test",
+        run: RUN,
+        geometry: Geometry {
+            rows: 4,
+            sources: 4,
+            len: 64,
+            misalign: 0,
+            pitch_pad: 0,
+        },
+        coeffs: FUSED_COEFFS,
+        map: None,
+        cells: &[FUSED_CELL],
+    };
+
+    /// A fused MulAdd entry covers the unclaimed unit additions.
+    #[test]
+    fn judge_attributes_fused_unit_work() {
+        let mut outcome = outcome_with(7, 7, 256);
+        outcome.enforce_routing = true;
+        let verdict = judge(&FUSED_CASE, &FUSED_CELL, &outcome);
+        assert!(verdict.detail.is_empty(), "{}", verdict.detail);
+        let add = verdict
+            .stages
+            .iter()
+            .find(|stage| stage.substage == "Add")
+            .expect("unit-add stage");
+        assert!(add.met);
+        assert!(add.work >= add.budget);
     }
 
     /// A tier below `min_serving` contributes no work.
