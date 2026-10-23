@@ -749,12 +749,13 @@ route-accept REQUEST FEATURES:
     scratch=$(mktemp -d)
     trap 'rm -rf "$scratch"' EXIT
     just _route-inventories {{FEATURES}} "$scratch"
+    # Fresh acceptance audits the ledger's own shape and the run it is about
+    # to make; the historical record replay belongs to `route-gate`.
     python3 benches/simd_ledger.py check --full \
         --rustdoc target/doc/fgf.json \
         --test-list "$scratch/tests.txt" \
         --case-list "$scratch/cases.txt" \
-        --surface-inventory "$scratch/surfaces.txt" \
-        --records bench-records/routes
+        --surface-inventory "$scratch/surfaces.txt"
     source_id=$(
         {
             git rev-parse HEAD
@@ -893,6 +894,19 @@ route-accept-negative REQUEST:
         }
         expect_reject request_mismatch "$forced" "$scratch/forced-$lower.err"
     fi
+    # The canonical table and ledger must reject a run that drops trace
+    # entries: work budgets are what make suppression visible.
+    canonical="$scratch/canonical-suppress.log"
+    rc=0
+    FGF_ROUTE_FAULT=suppress-trace SIMD_BACKEND="{{REQUEST}}" FGF_ROUTE_ACCEPT=1 \
+        FGF_SOURCE_ID=negative FGF_HOST_ID=negative FGF_FEATURES="$features" \
+        cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture \
+        >"$canonical" 2>&1 || rc=$?
+    [[ "$rc" -ne 0 ]] || {
+        printf 'route_accept_negative: canonical suppress-trace run passed\n' >&2
+        exit 1
+    }
+    printf 'ROUTE_NEGATIVE\tcode=canonical-suppress-trace\n'
     printf 'ROUTE_NEGATIVE_DONE\trequest=%s\n' "{{REQUEST}}"
 
 # Full ledger resolution, byte-identical case generation, and the ledger

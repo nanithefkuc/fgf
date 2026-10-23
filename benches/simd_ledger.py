@@ -1009,6 +1009,7 @@ def obligations(ledger: dict) -> dict:
     expanded = {oid: {"cells": dict(ob["cells"])} for oid, ob in base.items()}
     _apply_routes(ledger, expanded)
     _apply_fields(ledger, expanded, rules)
+    _apply_work_defaults(ledger, expanded, wrules)
     _apply_work(ledger, expanded, wrules)
     _validate_expanded_obligations(ledger, expanded, rules, wrules, geos, coeffs)
     _validate_bulk_family_coverage(ledger, expanded)
@@ -1135,6 +1136,51 @@ def _apply_fields(ledger: dict, expanded: dict, rules: dict) -> None:
                 expanded[oid]["cells"][cell]["field"] = backend
 
 
+def _apply_work_defaults(ledger: dict, expanded: dict, wrules: dict) -> None:
+    """Attach each bulk callable's default work rules to non-scalar cells."""
+    defaults = ledger.get("work", {})
+    if not isinstance(defaults, dict):
+        _fail("ledger.work must be a dict")
+    for callable_name, names in sorted(defaults.items()):
+        if not isinstance(names, list):
+            _fail(f"work default {callable_name!r} must be a list")
+        for name in names:
+            if not isinstance(name, str) or not name:
+                _fail(f"work default {callable_name!r}: invalid rule name")
+            if name not in wrules:
+                _fail(f"work default {callable_name!r}: unknown work rule {name!r}")
+    for oid, ob in expanded.items():
+        callable_name = oid.split("@", 1)[0]
+        names = defaults.get(callable_name)
+        if not names:
+            continue
+        for key, cell in ob["cells"].items():
+            request = key.split("/", 1)[1]
+            if request == "scalar":
+                continue
+            if not cell.get("work"):
+                cell["work"] = list(names)
+
+
+def _case_degenerate(callable_name: str, fixture: dict, rule: dict) -> bool:
+    """Whether a case has no required vector work by construction.
+
+    Mirrors the runner's pre-execution predicates: a Frobenius power-zero map
+    is the identity, and a same-width canonical pack or unpack is a copy.
+    Coefficient degeneracy (zero or unit slots) is expressed by the work
+    rule's multiplicity and stays visible in the derived budget.
+    """
+    base = callable_name.split("::")[-1]
+    if base in ("frobenius_into_with", "frobenius_assign_with"):
+        power = fixture.get("power", rule.get("power", 0))
+        return power == 0
+    if base in ("pack", "pack_to_vec", "unpack", "unpack_to_vec"):
+        source = fixture.get("elem_bytes", rule.get("elem_bytes", 1))
+        target = fixture.get("target_elem_bytes", source)
+        return source == target
+    return False
+
+
 def _apply_work(ledger: dict, expanded: dict, wrules: dict) -> None:
     """Attach work rules to cells that the audit never assigns a budget."""
     overrides = ledger.get("obligations", {})
@@ -1238,14 +1284,15 @@ def cases(ledger: dict, expanded: dict | None = None) -> list[dict]:
                     "cells": cells,
                     "cell_work": _resolve_case_work(
                         case_id, oid, cells, wrules, isa, meta, geo, cp,
-                        gather=_is_gather_shape(call_name, call_family)),
+                        gather=_is_gather_shape(call_name, call_family),
+                        degenerate=_case_degenerate(call_name, fixture, rule)),
                 })
     return out
 
 
 def _resolve_case_work(case_id: str, oid: str, cells: dict, wrules: dict,
                        isa: dict, meta: dict, geo: dict, pattern: dict,
-                       gather: bool = False) -> dict:
+                       gather: bool = False, degenerate: bool = False) -> dict:
     """Resolve every referenced work rule for one case and validate its budget."""
     resolved: dict[str, list[dict]] = {}
     for key, cell in sorted(cells.items()):
@@ -1264,14 +1311,12 @@ def _resolve_case_work(case_id: str, oid: str, cells: dict, wrules: dict,
                 _fail(f"obligation {oid!r} cell {key!r} case {case_id!r}: "
                       f"work rule {wr_name!r} has non-positive iterations "
                       f"({item['iterations']})")
-            status = cell.get("status", "unverified")
-            # A zero-multiplicity composition requires no vector work, and a
-            # cell that claims no route need not cover one.
-            if item["multiplicity_count"] > 0 and status not in (
-                    "missing", "bypass", "zero-budget") and item["budget"] <= 0:
-                _fail(f"obligation {oid!r} cell {key!r} case {case_id!r}: "
-                      f"non-positive budget for work rule {wr_name!r} "
-                      f"(budget={item['budget']})")
+            # A zero-multiplicity case (all-zero or unit pattern) is
+            # degenerate: it resolves to a zero budget and is exempt from
+            # coverage, never an error.
+            if degenerate:
+                item["budget"] = 0
+                item["degenerate"] = True
             items.append({"rule": wr_name, **item})
         resolved[key] = items
     return resolved
@@ -1619,23 +1664,68 @@ def _strength(tier: object) -> int:
     return _TIER_STRENGTH.get(tier, -1) if isinstance(tier, str) else -1
 
 
-def _case_zero_budget(case: dict) -> bool:
-    """Whether a case is a byte-identity no-op with no required vector work."""
-    slots = case["pattern"].get("slots", [])
-    if not slots:
+def _case_required(case: dict, key: str) -> list[dict]:
+    """Work items with a positive derived budget for one case and cell."""
+    items = (case.get("cell_work") or {}).get(key, [])
+    return [item for item in items if item.get("budget", 0) > 0]
+
+
+def _item_matches(item: dict, stage: dict) -> bool:
+    """Whether a served stage covers one derived work item's operation."""
+    if stage.get("substage") != item.get("substage"):
         return False
-    base = case["callable"].split("::")[-1]
-    if all(slot == "Zero" for slot in slots) and "mul_add" in base:
-        return True
-    if all(slot == "One" for slot in slots) and base.startswith("mul_assign"):
-        return True
-    return False
+    if stage.get("unit") != item.get("unit"):
+        return False
+    scope = item.get("scope")
+    stage_scope = stage.get("scope")
+    if scope is None:
+        if stage_scope not in (None, "", "None"):
+            return False
+    elif stage_scope != scope:
+        return False
+    return True
+
+
+def _served_tier(items: list[dict], stages: list) -> int:
+    """Weakest tier that served any of the required items."""
+    weakest = None
+    for stage in stages:
+        if not any(_item_matches(item, stage) for item in items):
+            continue
+        tier = stage.get("tier")
+        strength = _strength(tier)
+        if strength < 0:
+            continue
+        if weakest is None or strength < weakest:
+            weakest = strength
+    return -1 if weakest is None else weakest
+
+
+def _coverage_error(items: list[dict], stages: list, minimum: int) -> str | None:
+    """Return the first uncovered derived budget, or None when covered."""
+    for item in items:
+        served = 0
+        for stage in stages:
+            if _strength(stage.get("tier")) < minimum:
+                continue
+            if _item_matches(item, stage):
+                served += max(0, int(stage.get("work", 0) or 0))
+        if served < item["budget"]:
+            return (f"needs {item['substage']}/{item['unit']} "
+                    f"budget={item['budget']} served={served}")
+    return None
 
 
 def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
                     records: Path | None,
                     runner_case_ids: set[str] | None = None) -> None:
-    """Audit every non-unverified cell against its run-keyed record."""
+    """Audit every non-unverified cell against derived case budgets.
+
+    Process and field claims come from the case's own cell, the served work is
+    compared against the budget derived from the attached work rules, and the
+    served tier is compared against the declared minimum. A receipt's ``met``
+    flag is never trusted as coverage.
+    """
     evidence = ledger.get("evidence", {})
     required_keys = sorted({
         key
@@ -1643,14 +1733,15 @@ def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
         for key, cell in ob["cells"].items()
         if cell.get("status") != "unverified"
     })
-    if required_keys:
-        if records is None:
-            _fail("--records is required for audited route cells")
-        if not records.is_dir():
-            _fail(f"--records {records} is not a directory")
+    if records is not None and not records.is_dir():
+        _fail(f"--records {records} is not a directory")
     if not evidence:
         if required_keys:
             _fail(f"evidence missing for {required_keys[0]!r}")
+        return
+    if records is None:
+        # Fresh acceptance does not audit historical records; the route gate
+        # replays them. Only the ledger's own status/evidence shape is checked.
         return
 
     parsed: dict[str, tuple[dict[str, str], dict[str, dict]]] = {}
@@ -1703,6 +1794,19 @@ def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
             cases = cases_by_ob.get(oid, [])
             if not cases:
                 _fail(f"obligation {oid!r} has no generated cases")
+            minimum = _strength(cell["min_serving"])
+            required_cases = [case for case in cases if _case_required(case, key)]
+            direct = status in ("direct", "composition")
+            if direct and cell["min_serving"] == "scalar":
+                _fail(f"evidence {key!r}: {status} requires a SIMD min_serving")
+            if direct and not required_cases:
+                _fail(f"evidence {key!r}: {status} cell has no required work "
+                      f"for {oid!r}; declare zero-budget when every case is "
+                      f"degenerate")
+            if status == "zero-budget" and required_cases:
+                _fail(f"evidence {key!r}: zero-budget denied for "
+                      f"non-degenerate case {required_cases[0]['id']!r}")
+            served_cases: list[int] = []
             for case in cases:
                 cid = case["id"]
                 if runner_case_ids is not None and cid not in runner_case_ids:
@@ -1715,38 +1819,31 @@ def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
                     _fail(f"evidence {key!r}: receipt {cid} obligation mismatch")
                 if rec.get("result") != "pass":
                     _fail(f"evidence {key!r}: receipt {cid} result is not pass")
-                cell = case["cells"].get(key, {})
-                if rec.get("process") != cell.get("process"):
-                    _fail(f"evidence {key!r}: receipt {cid} process mismatch")
-
-            if status in ("direct", "composition"):
-                minimum = _strength(cell["min_serving"])
-                for case in cases:
-                    if _case_zero_budget(case):
-                        continue
-                    cid = case["id"]
-                    stages = receipts[cid].get("stages")
-                    if not isinstance(stages, list) or not stages:
-                        _fail(f"evidence {key!r}: receipt {cid} has no served stages")
-                    if not any(stage.get("work", 0) > 0 for stage in stages):
-                        _fail(f"evidence {key!r}: receipt {cid} served no work")
-                    for stage in stages:
-                        if stage.get("met") is not True:
-                            _fail(f"evidence {key!r}: receipt {cid} stage "
-                                  f"did not meet its budget")
-                        if _strength(stage.get("tier")) < minimum:
-                            _fail(f"evidence {key!r}: receipt {cid} served "
-                                  f"below {cell['min_serving']}")
-            elif status in PESSIMISTIC_STATUSES:
+                mismatch = _route_claim_mismatch(rec, case, features, request)
+                if mismatch is not None:
+                    _fail(f"evidence {key!r}: receipt {cid} {mismatch}")
+                required = _case_required(case, key)
+                if not required:
+                    continue
+                stages = rec.get("stages")
+                if not isinstance(stages, list):
+                    stages = []
+                if status in ("direct", "composition"):
+                    problem = _coverage_error(required, stages, minimum)
+                    if problem is not None:
+                        _fail(f"evidence {key!r}: receipt {cid} {problem}")
+                    served_cases.append(_served_tier(required, stages))
+            if direct and served_cases and min(served_cases) != minimum:
+                _fail(f"evidence {key!r}: served tier "
+                      f"{min(served_cases)} differs from min_serving "
+                      f"{cell['min_serving']}")
+            if status in PESSIMISTIC_STATUSES and required_cases:
                 stale = True
-                for case in cases:
-                    if _case_zero_budget(case):
-                        continue
+                for case in required_cases:
                     stages = receipts[case["id"]].get("stages")
-                    if not isinstance(stages, list) or not stages:
-                        stale = False
-                        break
-                    if not all(stage.get("met") is True for stage in stages):
+                    if (not isinstance(stages, list)
+                            or _coverage_error(_case_required(case, key),
+                                               stages, minimum) is not None):
                         stale = False
                         break
                 if stale:
@@ -1906,21 +2003,22 @@ def _compute_loss_bytes(wr: dict, lane: int, fixture_vars: dict) -> int:
     return _evaluate_expr(expr, variables)
 
 
-def _length_in_units(unit: str, elements: int, elem_bytes: int) -> int:
+def _length_in_units(unit: str, elements: int, elem_bytes: int,
+                     bit_geometry: bool = False) -> int:
     """Convert a geometry's length to the work rule's unit.
 
-    A ``Bits`` geometry is already measured in bits; the element width only
-    converts lane and loss for the byte-based work rules. Other units measure
-    the geometry's element count.
+    A ``Bits`` geometry is already measured in bits, so byte and word units
+    divide by eight; every other geometry counts elements.
     """
     if unit == "Elements":
         return elements
     if unit == "Bits":
         return elements
+    byte_length = elements // 8 if bit_geometry else elements * elem_bytes
     if unit == "Bytes":
-        return elements * elem_bytes
+        return byte_length
     if unit == "Words":
-        return max(1, elements * elem_bytes // 8)
+        return max(1, byte_length // 8)
     raise ValueError(f"unknown work unit: {unit!r}")
 
 
@@ -1943,7 +2041,8 @@ def _resolve_work(work_rule: dict, geo: dict, meta: dict,
     iterations = _work_iterations(work_rule, meta)
     lane = _lane_in_units(unit, lane_bytes, width_eb)
     loss = _loss_in_units(unit, loss_bytes, width_eb)
-    length = _length_in_units(unit, geo.get("len", 0), width_eb)
+    length = _length_in_units(unit, geo.get("len", 0), width_eb,
+                              bit_geometry=str(geo.get("family", "")).startswith("bits"))
     count = _multiplicity_count(work_rule["multiplicity"], geo,
                                 coeff_pattern or {"slots": []}, gather)
     scope = work_rule.get("scope")

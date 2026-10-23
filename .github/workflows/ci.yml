@@ -34,6 +34,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-09-30
       - uses: extractions/setup-just@v2
       - name: requested vs resolved backend per tier
         run: |

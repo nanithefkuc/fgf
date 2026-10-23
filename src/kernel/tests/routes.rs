@@ -663,18 +663,49 @@ fn multiplicity(case: &Case, work: &Work) -> usize {
     }
 }
 
+/// Whether a case performs no vector work by construction.
+///
+/// A Frobenius power-zero map is the identity, and a same-width canonical
+/// pack or unpack is a byte copy. Both are predicates on the actual inputs,
+/// evaluated before execution, so their stages carry no required work.
+fn degenerate(case: &Case, outcome: &Outcome) -> bool {
+    if let Some(map) = &case.map
+        && map.power == 0
+    {
+        return true;
+    }
+    let call = case.obligation.split('@').next().unwrap_or("");
+    let base = call.rsplit("::").next().unwrap_or(call);
+    if matches!(base, "pack" | "pack_to_vec" | "unpack" | "unpack_to_vec")
+        && outcome.source_bytes == outcome.target_bytes
+    {
+        return true;
+    }
+    false
+}
+
 /// Budget for one stage: `iterations × multiplicity × (length − loss)`.
 fn budget(case: &Case, work: &Work, outcome: &Outcome) -> usize {
     debug_assert!(work.lane > 0, "a work rule lane holds at least one unit");
+    if degenerate(case, outcome) {
+        return 0;
+    }
     let width_bytes = match work.basis {
         Basis::Source => outcome.source_bytes,
         Basis::Target => outcome.target_bytes,
     };
     let elements = case.geometry.len;
+    let call = case.obligation.split('@').next().unwrap_or("");
+    let bit_geometry = call.starts_with("bits::");
+    let byte_length = if bit_geometry {
+        elements / 8
+    } else {
+        elements.saturating_mul(width_bytes)
+    };
     let length = match work.unit {
         Unit::Elements | Unit::Bits => elements,
-        Unit::Bytes => elements.saturating_mul(width_bytes),
-        Unit::Words => (elements.saturating_mul(width_bytes) / 8).max(1),
+        Unit::Bytes => byte_length,
+        Unit::Words => (byte_length / 8).max(1),
     };
     let count = multiplicity(case, work);
     work.iterations

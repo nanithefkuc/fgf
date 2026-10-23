@@ -232,6 +232,10 @@ def _full_tiny() -> dict:
             "zero-1": {"family": "single-zero", "slots": ["Zero"]},
             "one-1": {"family": "single-one", "slots": ["One"]},
         },
+        "work": {
+            "ops::add_assign": ["row-add"],
+            "ops::mul_add": ["row-mul-add"],
+        },
         "evidence": {},
     }
     return ledger
@@ -682,11 +686,13 @@ class TestFullCitations(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 self._check(ledger, derived, d)
 
-    def test_unmet_stage_rejected(self):
+    def test_underbudget_stage_rejected_even_when_met(self):
+        # Coverage is computed from the derived budget; a stage's own `met`
+        # flag is never trusted.
         ledger, derived = self._evidence_ledger()
         with tempfile.TemporaryDirectory() as d:
             p = self._record(d, derived)
-            text = p.read_text().replace('"met": true', '"met": false', 1)
+            text = p.read_text().replace('"work": 64', '"work": 1', 1)
             p.write_text(text)
             with self.assertRaises(ValidationError):
                 self._check(ledger, derived, d)
@@ -731,6 +737,52 @@ class TestFullCitations(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self._record(d, derived, receipts=receipts)
             self._check(ledger, derived, d)
+
+    def test_zero_budget_denied_for_non_degenerate_case(self):
+        # A zero-budget claim is valid only when every case is degenerate.
+        ledger = _required_tiny(status="zero-budget")
+        ledger["evidence"] = {"default/v3": {
+            "record": "route.log", "source_id": "src-1", "host_id": "host-1"}}
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        with tempfile.TemporaryDirectory() as d:
+            self._record(d, derived)
+            with self.assertRaises(ValidationError):
+                self._check(ledger, derived, d)
+
+    def test_zero_budget_accepted_for_degenerate_cases(self):
+        # Every case degenerates when the only pattern is an all-zero
+        # coefficient row: budget resolves to zero, so the claim holds.
+        ledger = _full_tiny()
+        ledger["routes"] = {"ops::mul_add@gf8-aes": "default/v3=zero-budget"}
+        ledger["coefficient_patterns"] = {
+            "zero-1": {"family": "single-zero", "slots": ["Zero"]}}
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        ledger["evidence"] = {"default/v3": {
+            "record": "route.log", "source_id": "src-1", "host_id": "host-1"}}
+        with tempfile.TemporaryDirectory() as d:
+            self._record(d, derived)
+            self._check(ledger, derived, d)
+
+    def test_direct_cell_without_work_rejected(self):
+        # Direct/composition may not pass on an empty work list.
+        ledger = _required_tiny()
+        del ledger["work"]
+        ledger["evidence"] = {"default/v3": {
+            "record": "route.log", "source_id": "src-1", "host_id": "host-1"}}
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        with tempfile.TemporaryDirectory() as d:
+            self._record(d, derived)
+            with self.assertRaises(ValidationError):
+                self._check(ledger, derived, d)
+
+    def test_field_mismatch_rejected_per_fixture(self):
+        ledger, derived = self._evidence_ledger()
+        with tempfile.TemporaryDirectory() as d:
+            p = self._record(d, derived)
+            text = p.read_text().replace('"field": "v3"', '"field": "v2"', 1)
+            p.write_text(text)
+            with self.assertRaises(ValidationError):
+                self._check(ledger, derived, d)
 
     def test_count_mismatch_rejected(self):
         ledger, derived = self._evidence_ledger()
@@ -997,6 +1049,65 @@ class TestBudgets(unittest.TestCase):
         meta = sl._fixture_metadata(fixture, {"group": "map"})
         self.assertEqual(meta["relative_degree"], 4)
 
+    def test_same_width_pack_case_is_degenerate(self):
+        # A same-width canonical pack is a copy: every attached work item's
+        # budget collapses to zero without an empty work list.
+        ledger = _full_tiny()
+        ledger["callables"]["ops::pack"] = {"kind": "bulk", "family": "ops/pack"}
+        ledger["work"]["ops::pack"] = ["pack"]
+        ledger["work_rules"]["pack"] = {
+            "substage": "Pack", "unit": "Bytes", "basis": "Target",
+            "multiplicity": "One", "iterations": "1",
+            "loss_bytes": "0", "justification": "t",
+        }
+        ledger["geometries"]["pack-1x1"] = {"family": "single-row", "rows": 1,
+                                            "sources": 1, "len": 64,
+                                            "misalign": 0, "pitch_pad": 0}
+        ledger["coefficient_patterns"]["elem-1"] = {"family": "single-general",
+                                                    "slots": ["General"]}
+        ledger["applicability"]["pack"] = {"families": ["ops/pack"],
+                                           "rules": ["gf8-aes"], "exclusions": {}}
+        expanded = sl.obligations(ledger)
+        cell = expanded["ops::pack@gf8-aes"]["cells"]["default/v3"]
+        self.assertEqual(cell["work"], ["pack"])
+        derived = sl.cases(ledger, expanded)
+        pack_cases = [c for c in derived if c["callable"] == "ops::pack"]
+        self.assertTrue(pack_cases)
+        for case in pack_cases:
+            for item in case["cell_work"]["default/v3"]:
+                self.assertEqual(item["budget"], 0)
+                self.assertTrue(item.get("degenerate"))
+
+    def test_frobenius_power_zero_case_is_degenerate(self):
+        ledger = _full_tiny()
+        ledger["callables"]["map::frobenius_into_with"] = {"kind": "bulk",
+                                                           "family": "map"}
+        ledger["work"]["map::frobenius_into_with"] = ["map-words"]
+        ledger["work_rules"]["map-words"] = {
+            "substage": "Linear", "unit": "Words", "basis": "Source",
+            "multiplicity": "One", "iterations": "1",
+            "loss_bytes": "0", "justification": "t",
+        }
+        ledger["rules"]["frob-1"] = {
+            "group": "map", "kind": "frobenius", "arm": "injection",
+            "arm_citation": "src/x.rs:1", "power": 0,
+            "callables": ["map::frobenius_into_with"],
+            "fixtures": [{"id": "fx", "degree": 1, "relative_degree": 1,
+                          "source": "crate::field::A",
+                          "target": "crate::field::A",
+                          "elem_bytes": 1, "target_elem_bytes": 1}],
+        }
+        ledger["applicability"]["frob"] = {"families": ["map"],
+                                           "rules": ["frob-1"], "exclusions": {}}
+        expanded = sl.obligations(ledger)
+        derived = sl.cases(ledger, expanded)
+        cases = [c for c in derived if c["callable"] == "map::frobenius_into_with"]
+        self.assertTrue(cases)
+        for case in cases:
+            for item in case["cell_work"]["default/v3"]:
+                self.assertEqual(item["budget"], 0)
+                self.assertTrue(item.get("degenerate"))
+
     def test_map_target_budget_uses_declared_target_width(self):
         fixture = {
             "id": "mx", "degree": 1, "relative_degree": 64,
@@ -1052,6 +1163,12 @@ class TestBudgets(unittest.TestCase):
 
     def test_zero_loss_stays_zero(self):
         self.assertEqual(sl._loss_in_units("Elements", 0, 4), 0)
+
+    def test_bit_geometry_length_converts_to_bytes(self):
+        self.assertEqual(sl._length_in_units("Bytes", 4096, 1, bit_geometry=True), 512)
+        self.assertEqual(sl._length_in_units("Words", 4096, 1, bit_geometry=True), 64)
+        self.assertEqual(sl._length_in_units("Bits", 4096, 1, bit_geometry=True), 4096)
+        self.assertEqual(sl._length_in_units("Bytes", 4096, 1), 4096)
 
     def test_active_rows_coefficient_free_counts_sources_for_gather(self):
         geo = {"rows": 3, "sources": 5}
@@ -1558,8 +1675,10 @@ class TestCanonicalLedger(unittest.TestCase):
         self.assertEqual(case["geometry"]["sources"], 8)
         item = case["cell_work"]["default/v3"][0]
         self.assertEqual(item["multiplicity_count"], 8)
-        # Eight selected sources at 3,600 bits each under the V3 lane.
-        self.assertEqual(item["budget"], 28_800)
+        # The gather XOR composes byte-field Add stages: eight selected
+        # sources at 512 bytes each, minus the V3 lane loss.
+        self.assertEqual(item["unit"], "Bytes")
+        self.assertEqual(item["budget"], 8 * (512 - 2 * (32 - 1)))
 
     def test_structural_map_width_class_checked(self):
         ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
