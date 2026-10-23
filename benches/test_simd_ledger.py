@@ -1505,6 +1505,36 @@ class TestBudgets(unittest.TestCase):
                 case, "default/v3", stages, sl._strength(minimum)) is None
             self.assertEqual(tool, bool(passed), f"row {index}")
 
+    def _tier_case(self, budget, tiers):
+        case = {
+            "callable": "ops::mul_add_gather",
+            "geometry": {"rows": 1, "sources": 1},
+            "pattern": {"slots": ["General"]},
+            "cell_work": {"default/v3": [
+                {"substage": "MulAdd", "scope": None, "unit": "Elements",
+                 "elem_size": 1, "multiplicity": "ActivePairs",
+                 "budget": budget, "per_term": 64, "per_term_max": 64},
+            ]},
+        }
+        stages = [{"substage": "MulAdd", "scope": None, "unit": "Elements",
+                   "tiers": tiers, "work": sum(tiers.values()),
+                   "budget": budget}]
+        return case, stages
+
+    def test_strongest_sufficient_tier_prefers_stronger_work(self):
+        case, stages = self._tier_case(450, {"v2": 16, "v3": 480})
+        self.assertEqual(sl._strongest_case_tier(case, "default/v3", stages),
+                         "v3")
+
+    def test_strongest_sufficient_tier_drops_for_short_stronger_work(self):
+        case, stages = self._tier_case(3841, {"v2": 128, "v3": 3840})
+        self.assertEqual(sl._strongest_case_tier(case, "default/v3", stages),
+                         "v2")
+
+    def test_no_sufficient_tier_is_none(self):
+        case, stages = self._tier_case(3969, {"v2": 128, "v3": 3840})
+        self.assertIsNone(sl._strongest_case_tier(case, "default/v3", stages))
+
     def test_full_length_general_slack_cannot_fund_unit_adds(self):
         # Two general terms at full length (2 x 64 = 128); unit work is
         # short by 8, less than the two-term loss of 16.

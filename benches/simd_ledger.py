@@ -1920,30 +1920,29 @@ def _case_coverage_error(case: dict, key: str, stages: list,
     return None
 
 
-def _case_served_tier(case: dict, key: str, stages: list,
-                      minimum: int = -1) -> int:
-    """Weakest tier with eligible work for any item of the cell.
+TIER_ORDER = ("v4x", "v3_gfni_crypto", "v3", "v2", "scalar")
 
-    Fused credit comes from MulAdd stages, so their tiers count even when the
-    Add item itself has no direct stage work.
-    """
-    items = case.get("cell_work", {}).get(key, [])
-    weakest = None
-    for stage in stages:
-        if not any(_item_matches(item, stage) for item in items):
-            continue
-        tiers = stage.get("tiers")
-        if not isinstance(tiers, dict):
-            continue
-        for tier, value in tiers.items():
-            if not isinstance(value, int) or value <= 0:
-                continue
-            strength = _strength(tier)
-            if strength < 0 or strength < minimum:
-                continue
-            if weakest is None or strength < weakest:
-                weakest = strength
-    return -1 if weakest is None else weakest
+
+def _strongest_case_tier(case: dict, key: str, stages: list) -> str | None:
+    """Strongest tier at which the required stages still meet their budgets."""
+    for tier in TIER_ORDER:
+        if _case_coverage_error(case, key, stages, _strength(tier)) is None:
+            return tier
+    return None
+
+
+def _strongest_cell_tier(cases: list[dict], key: str,
+                         stages_by_case: dict[str, list]) -> str | None:
+    """Strongest tier meeting every required case's budgets."""
+    required = [case for case in cases
+                if not case.get("semantic_degenerate")]
+    for tier in TIER_ORDER:
+        if all(_case_coverage_error(case, key,
+                                    stages_by_case.get(case["id"], []),
+                                    _strength(tier)) is None
+               for case in required):
+            return tier
+    return None
 
 
 def _coverage_error(items: list[dict], stages: list, minimum: int) -> str | None:
@@ -2119,7 +2118,6 @@ def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
                     if not case.get("semantic_degenerate"):
                         _fail(f"evidence {key!r}: zero-budget denied for "
                               f"non-degenerate case {case['id']!r}")
-            served_cases: list[int] = []
             for case in cases:
                 cid = case["id"]
                 if runner_case_ids is not None and cid not in runner_case_ids:
@@ -2146,11 +2144,17 @@ def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
                     problem = _case_coverage_error(case, key, stages, minimum)
                     if problem is not None:
                         _fail(f"evidence {key!r}: receipt {cid} {problem}")
-                    served_cases.append(_case_served_tier(case, key, stages, minimum))
-            if direct and served_cases and min(served_cases) < minimum:
-                _fail(f"evidence {key!r}: served tier "
-                      f"{min(served_cases)} is below min_serving "
-                      f"{cell['min_serving']}")
+            if direct:
+                stages_by_case = {
+                    case["id"]: receipts[case["id"]].get("stages", [])
+                    for case in required_cases
+                }
+                strongest = _strongest_cell_tier(
+                    required_cases, key, stages_by_case)
+                if strongest != cell["min_serving"]:
+                    _fail(f"evidence {key!r}: min_serving "
+                          f"{cell['min_serving']} is not the strongest "
+                          f"sufficient tier ({strongest})")
             if status in PESSIMISTIC_STATUSES:
                 active = [case for case in cases
                           if not case.get("semantic_degenerate")]
@@ -2845,7 +2849,7 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
         _fail(f"accept: reject duplicate_receipt {sorted(duplicate_ids)}")
 
     received_ids: set[str] = set()
-    served_by_ob: dict[tuple[str, str], list[int]] = {}
+    stages_by_ob: dict[tuple[str, str], dict[str, list]] = {}
     for rec in receipts:
         cid = rec.get("id", "")
         received_ids.add(cid)
@@ -2918,17 +2922,19 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
                 problem = _case_coverage_error(case, f"{features}/{request}", stages, minimum)
                 if problem is not None:
                     _fail(f"accept: reject budget_coverage {cid}: {problem}")
-                served = _case_served_tier(case, f"{features}/{request}", stages, minimum)
-                if served >= 0:
-                    served_by_ob.setdefault((oid, f"{features}/{request}"),
-                                            []).append(served)
+                stages_by_ob.setdefault((oid, f"{features}/{request}"),
+                                        {})[cid] = stages
 
-    # As in check --full, the cell's minimum is the weakest tier across its
-    # required cases; an individual case may be served higher.
-    for (oid, key), tiers in served_by_ob.items():
+    # The cell's minimum is the strongest tier meeting every required case.
+    cases_by_ob: dict[str, list[dict]] = {}
+    for case in derived:
+        cases_by_ob.setdefault(case["obligation"], []).append(case)
+    for (oid, key), stages_by_case in stages_by_ob.items():
         cell = expanded[oid]["cells"][key]
-        if min(tiers) < _strength(cell.get("min_serving")):
-            _fail(f"accept: reject budget_coverage {oid}: served tier")
+        strongest = _strongest_cell_tier(
+            cases_by_ob.get(oid, []), key, stages_by_case)
+        if strongest != cell.get("min_serving"):
+            _fail(f"accept: reject budget_coverage {oid}: min_serving")
 
     missing = required_cases - received_ids
     if missing:
