@@ -525,6 +525,7 @@ pub(super) struct StageReport {
     pub scope: Option<(&'static str, &'static str)>,
     pub unit: &'static str,
     pub tier: Backend,
+    pub kernels: Vec<&'static str>,
     pub work: usize,
     pub budget: usize,
     pub met: bool,
@@ -761,6 +762,7 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
         let key = work_key(work);
         let mut served = 0usize;
         let mut tier = Backend::Scalar;
+        let mut kernels: Vec<&'static str> = Vec::new();
         let mut wrong_unit = false;
         for entry in &outcome.trace {
             if entry_key(entry) != key {
@@ -773,6 +775,9 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
             if trace::strength(entry.tier) >= trace::strength(cell.min_serving) {
                 served = served.saturating_add(entry.work);
                 tier = strongest(tier, entry.tier);
+                if !kernels.contains(&entry.kernel) {
+                    kernels.push(entry.kernel);
+                }
             }
         }
         let required = budget(case, work, outcome);
@@ -805,6 +810,7 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
             scope: scope_names(work.scope),
             unit: unit_name(work.unit),
             tier,
+            kernels,
             work: served,
             budget: required,
             met,
@@ -827,12 +833,16 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
             Some(stage) => {
                 stage.work = stage.work.saturating_add(entry.work);
                 stage.tier = strongest(stage.tier, entry.tier);
+                if !stage.kernels.contains(&entry.kernel) {
+                    stage.kernels.push(entry.kernel);
+                }
             }
             None => stages.push(StageReport {
                 substage: substage_name(entry.substage),
                 scope: scope_names(entry.scope),
                 unit: unit_name(entry.unit),
                 tier: entry.tier,
+                kernels: vec![entry.kernel],
                 work: entry.work,
                 budget: 0,
                 met: true,
@@ -1041,13 +1051,20 @@ fn stages_json(stages: &[StageReport]) -> String {
             None => "null".to_string(),
             Some((scope, pass)) => format!("[{},{}]", quote(scope), quote(pass)),
         };
+        let kernels = stage
+            .kernels
+            .iter()
+            .map(|kernel| quote(kernel))
+            .collect::<Vec<_>>()
+            .join(",");
         let _ = write!(
             out,
-            "{{\"substage\":{},\"scope\":{},\"unit\":{},\"tier\":{},\"work\":{},\"budget\":{},\"met\":{}}}",
+            "{{\"substage\":{},\"scope\":{},\"unit\":{},\"tier\":{},\"kernels\":[{}],\"work\":{},\"budget\":{},\"met\":{}}}",
             quote(stage.substage),
             scope,
             quote(stage.unit),
             quote(stage.tier.name()),
+            kernels,
             stage.work,
             stage.budget,
             stage.met,

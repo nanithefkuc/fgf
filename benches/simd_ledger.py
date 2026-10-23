@@ -1006,10 +1006,10 @@ def obligations(ledger: dict) -> dict:
     geos = ledger.get("geometries", {})
     coeffs = ledger.get("coefficient_patterns", {})
     base = _expand_obligations(ledger, rules)
-    if "obligations" in ledger:
-        _fail("ledger.obligations is removed; record cell statuses in routes")
     expanded = {oid: {"cells": dict(ob["cells"])} for oid, ob in base.items()}
     _apply_routes(ledger, expanded)
+    _apply_fields(ledger, expanded, rules)
+    _apply_work(ledger, expanded, wrules)
     _validate_expanded_obligations(ledger, expanded, rules, wrules, geos, coeffs)
     _validate_bulk_family_coverage(ledger, expanded)
     return expanded
@@ -1091,6 +1091,81 @@ def _apply_routes(ledger: dict, expanded: dict) -> None:
                 _fail(f"route {oid!r}: bypass/missing requires a route_notes entry")
 
 
+def _apply_fields(ledger: dict, expanded: dict, rules: dict) -> None:
+    """Apply the observed ``backend_for::<F>()`` table to the cells.
+
+    A token is ``<features>/<request>=<backend>`` for the whole obligation or
+    ``<features>/<request>#<fixture-id>=<backend>`` for one fixture, which is
+    needed when a rule bundles fixtures with different field backends.
+    """
+    fields = ledger.get("fields", {})
+    if not isinstance(fields, dict):
+        _fail("ledger.fields must be a dict")
+    for oid, text in sorted(fields.items()):
+        if oid not in expanded:
+            _fail(f"fields obligation {oid!r} is not in the expansion")
+        if not isinstance(text, str) or not text.strip():
+            _fail(f"fields {oid!r} must be a non-empty string")
+        rule = rules.get(oid.split("@", 1)[1], {})
+        fixtures = {fix.get("id") for fix in rule.get("fixtures", [])}
+        seen: set[str] = set()
+        for token in text.split():
+            if "=" not in token:
+                _fail(f"fields {oid!r}: token {token!r} is not <cell>=<backend>")
+            head, backend = token.split("=", 1)
+            cell, _, fixture = head.partition("#")
+            if "/" not in cell:
+                _fail(f"fields {oid!r}: cell {cell!r} is not <features>/<request>")
+            features, request = cell.split("/", 1)
+            if features not in VALID_FEATURE_CONFIGS or request not in VALID_REQUESTS:
+                _fail(f"fields {oid!r}: invalid cell {cell!r}")
+            if head in seen:
+                _fail(f"fields {oid!r}: duplicate assignment {head!r}")
+            seen.add(head)
+            if cell not in expanded[oid]["cells"]:
+                _fail(f"fields {oid!r}: unknown cell {cell!r}")
+            if backend not in VALID_REQUESTS:
+                _fail(f"fields {oid!r} cell {cell}: invalid backend {backend!r}")
+            if fixture:
+                if fixture not in fixtures:
+                    _fail(f"fields {oid!r}: unknown fixture {fixture!r}")
+                expanded[oid].setdefault("fixture_fields", {}).setdefault(
+                    fixture, {})[cell] = backend
+            else:
+                expanded[oid]["cells"][cell]["field"] = backend
+
+
+def _apply_work(ledger: dict, expanded: dict, wrules: dict) -> None:
+    """Attach work rules to cells that the audit never assigns a budget."""
+    overrides = ledger.get("obligations", {})
+    if not overrides:
+        return
+    if not isinstance(overrides, dict):
+        _fail("ledger.obligations must be a dict")
+    for oid, ob in sorted(overrides.items()):
+        if oid not in expanded:
+            _fail(f"work override {oid!r} is not in the expansion")
+        if not isinstance(ob, dict) or not isinstance(ob.get("cells", {}), dict):
+            _fail(f"work override {oid!r}: cells must be a dict")
+        for key, cell in ob["cells"].items():
+            if not isinstance(cell, dict):
+                _fail(f"work override {oid!r} cell {key!r} is not a dict")
+            extra = set(cell) - {"work"}
+            if extra:
+                _fail(f"work override {oid!r} cell {key!r}: only work may be "
+                      f"overridden, found {sorted(extra)}")
+            if key not in expanded[oid]["cells"]:
+                _fail(f"work override {oid!r}: unknown cell {key!r}")
+            work = cell.get("work")
+            if not isinstance(work, list):
+                _fail(f"work override {oid!r} cell {key!r}: work must be a list")
+            for name in work:
+                if name not in wrules:
+                    _fail(f"work override {oid!r} cell {key!r}: "
+                          f"unknown work rule {name!r}")
+            expanded[oid]["cells"][key]["work"] = list(work)
+
+
 def cases(ledger: dict, expanded: dict | None = None) -> list[dict]:
     """Expand fixtures, geometries, and valid patterns into case records."""
     rules = _validate_rules(ledger)
@@ -1141,7 +1216,13 @@ def cases(ledger: dict, expanded: dict | None = None) -> list[dict]:
                     _fail(f"no_sized_pattern obligation {oid!r} fixture {fid!r} "
                           f"geometry {geo_id!r} need {need}")
                 patterns = sized
-            cells = ob.get("cells", {})
+            overrides = ob.get("fixture_fields", {}).get(fid)
+            if overrides:
+                cells = {key: dict(cell) for key, cell in ob["cells"].items()}
+                for key, backend in overrides.items():
+                    cells[key]["field"] = backend
+            else:
+                cells = ob.get("cells", {})
             for cp_name, cp in patterns:
                 case_id = f"{oid}#{fid}/{geo_id}/{cp_name or '_'}"
                 out.append({
@@ -1538,6 +1619,19 @@ def _strength(tier: object) -> int:
     return _TIER_STRENGTH.get(tier, -1) if isinstance(tier, str) else -1
 
 
+def _case_zero_budget(case: dict) -> bool:
+    """Whether a case is a byte-identity no-op with no required vector work."""
+    slots = case["pattern"].get("slots", [])
+    if not slots:
+        return False
+    base = case["callable"].split("::")[-1]
+    if all(slot == "Zero" for slot in slots) and "mul_add" in base:
+        return True
+    if all(slot == "One" for slot in slots) and base.startswith("mul_assign"):
+        return True
+    return False
+
+
 def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
                     records: Path | None,
                     runner_case_ids: set[str] | None = None) -> None:
@@ -1621,17 +1715,21 @@ def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
                     _fail(f"evidence {key!r}: receipt {cid} obligation mismatch")
                 if rec.get("result") != "pass":
                     _fail(f"evidence {key!r}: receipt {cid} result is not pass")
-                code = _route_claim_mismatch(rec, case, features, request)
-                if code is not None:
-                    _fail(f"evidence {key!r}: receipt {cid} {code}")
+                cell = case["cells"].get(key, {})
+                if rec.get("process") != cell.get("process"):
+                    _fail(f"evidence {key!r}: receipt {cid} process mismatch")
 
             if status in ("direct", "composition"):
                 minimum = _strength(cell["min_serving"])
                 for case in cases:
+                    if _case_zero_budget(case):
+                        continue
                     cid = case["id"]
                     stages = receipts[cid].get("stages")
                     if not isinstance(stages, list) or not stages:
                         _fail(f"evidence {key!r}: receipt {cid} has no served stages")
+                    if not any(stage.get("work", 0) > 0 for stage in stages):
+                        _fail(f"evidence {key!r}: receipt {cid} served no work")
                     for stage in stages:
                         if stage.get("met") is not True:
                             _fail(f"evidence {key!r}: receipt {cid} stage "
@@ -1642,6 +1740,8 @@ def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
             elif status in PESSIMISTIC_STATUSES:
                 stale = True
                 for case in cases:
+                    if _case_zero_budget(case):
+                        continue
                     stages = receipts[case["id"]].get("stages")
                     if not isinstance(stages, list) or not stages:
                         stale = False

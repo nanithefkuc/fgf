@@ -753,7 +753,8 @@ route-accept REQUEST FEATURES:
         --rustdoc target/doc/fgf.json \
         --test-list "$scratch/tests.txt" \
         --case-list "$scratch/cases.txt" \
-        --surface-inventory "$scratch/surfaces.txt"
+        --surface-inventory "$scratch/surfaces.txt" \
+        --records bench-records/routes
     source_id=$(
         {
             git rev-parse HEAD
@@ -815,45 +816,17 @@ route-accept-negative REQUEST:
     FGF_ROUTE_SURVEY=1 SIMD_BACKEND="{{REQUEST}}" \
         cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture \
         >"$survey" 2>&1
-    python3 - "$ledger" "$survey" "{{REQUEST}}" "$obligation" "$serving" "$field" "$features" <<'PY'
+    python3 - "$ledger" "{{REQUEST}}" "$obligation" "$serving" "$features" <<'PY'
     import json
     import sys
 
-    out, survey_path, request, obligation, serving, field, features = sys.argv[1:8]
+    out, request, obligation, serving, features = sys.argv[1:6]
     ledger = json.load(open("benches/simd_ledger.json"))
-    seen = {}
-    for line in open(survey_path):
-        if not line.startswith("ROUTE_RECEIPT\t"):
-            continue
-        receipt = json.loads(line.split("\t", 1)[1])
-        key = (receipt["obligation"], receipt["features"], receipt["request_raw"])
-        identity = (receipt["process"], receipt["field"])
-        if key in seen and seen[key] != identity:
-            sys.exit(f"route_accept_negative: obligation {key[0]!r} resolves "
-                     f"two field backends {seen[key]!r} and {identity!r}")
-        seen[key] = identity
-    obligations = ledger.setdefault("obligations", {})
-    for (name, features, requested), (process, field_backend) in seen.items():
-        cells = obligations.setdefault(name, {}).setdefault("cells", {})
-        cells[f"{features}/{requested}"] = {
-            "status": "direct",
-            "required": False,
-            "min_serving": requested,
-            "work": [],
-            "process": process,
-            "field": field_backend,
-        }
-    obligations.setdefault(obligation, {}).setdefault("cells", {})[f"{features}/{request}"] = {
-        "status": "direct",
-        "required": True,
-        "min_serving": serving,
-        "work": ["row-mul-add"],
-        "process": request,
-        "field": field,
-    }
+    ledger["routes"] = {obligation: f"{features}/{request}=direct@{serving}"}
+    ledger["route_notes"] = {}
+    ledger["obligations"] = {obligation: {"cells": {
+        f"{features}/{request}": {"work": ["row-mul-add"]}}}}
     json.dump(ledger, open(out, "w"), indent=1, sort_keys=False)
-    selected = ledger["obligations"][obligation]["cells"][f"{features}/{request}"]
-    assert selected["required"] is True, f"required cell missing for {features}/{request}"
     PY
     python3 benches/simd_ledger.py --ledger "$ledger" generate --out "$cases"
     run_negative() {

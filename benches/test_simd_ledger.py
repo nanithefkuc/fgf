@@ -445,11 +445,58 @@ class TestEffectiveExpansion(unittest.TestCase):
         with self.assertRaises(ValidationError):
             sl.cmd_check(ledger, True, None, None, None, None, None)
 
-    def test_removed_obligation_override_rejected(self):
+    def test_fields_apply_observed_backend(self):
         ledger = _full_tiny()
-        ledger["obligations"] = {"ops::mul_add@gf8-aes": {"cells": {}}}
+        ledger["fields"] = {"ops::mul_add@gf8-aes": "default/v3=v2"}
+        cell = sl.obligations(ledger)["ops::mul_add@gf8-aes"]["cells"]["default/v3"]
+        self.assertEqual(cell["field"], "v2")
+
+    def test_fixture_field_override_applies_per_fixture(self):
+        ledger = _full_tiny()
+        ledger["rules"]["mersenne31"]["fixtures"].append(
+            {"id": "m31b", "degree": 1, "relative_degree": 1,
+             "type": "crate::field::Mersenne31",
+             "elem_bytes": 4, "reference": "elem-arith"})
+        ledger["fields"] = {"ops::mul_add@mersenne31":
+                            "default/v3#m31=v2 default/v3#m31b=v3"}
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        fields = {case["fixture"]["id"]:
+                  case["cells"]["default/v3"]["field"]
+                  for case in derived
+                  if case["obligation"] == "ops::mul_add@mersenne31"}
+        self.assertEqual(fields["m31"], "v2")
+        self.assertEqual(fields["m31b"], "v3")
+
+    def test_unknown_field_cell_rejected(self):
+        ledger = _full_tiny()
+        ledger["fields"] = {"ops::mul_add@gf8-aes": "default/v9=v2"}
         with self.assertRaises(ValidationError):
             sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_status_override_in_obligations_rejected(self):
+        ledger = _full_tiny()
+        ledger["obligations"] = {"ops::mul_add@gf8-aes": {"cells": {
+            "default/v3": {"status": "direct"}}}}
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_work_override_attaches_budget(self):
+        ledger = _full_tiny()
+        ledger["obligations"] = {"ops::mul_add@gf8-aes": {"cells": {
+            "default/v3": {"work": ["row-mul-add"]}}}}
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        budgets = [case["cell_work"]["default/v3"]
+                   for case in derived
+                   if case["obligation"] == "ops::mul_add@gf8-aes"]
+        self.assertTrue(any(item["budget"] > 0
+                            for items in budgets for item in items))
+
+    def test_unknown_work_override_rule_rejected(self):
+        ledger = _full_tiny()
+        ledger["obligations"] = {"ops::mul_add@gf8-aes": {"cells": {
+            "default/v3": {"work": ["no-such-rule"]}}}}
+        with self.assertRaises(ValidationError):
+            sl.obligations(ledger)
 
     def test_negative_geometry_rejected(self):
         ledger = _full_tiny()
