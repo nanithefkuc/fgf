@@ -1022,6 +1022,15 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
         }
         let required = budget(case, work, outcome);
         let direct = served;
+        // General-coefficient coverage may only use work left after the
+        // maximal zero and unit terms: those never fund ActivePairs.
+        if matches!(work.multiplicity, Multiplicity::ActivePairs) {
+            let maximum = per_term_max(case, work, outcome);
+            let reserved = zero_terms
+                .saturating_add(unit_terms)
+                .saturating_mul(maximum);
+            served = served.saturating_sub(reserved);
+        }
         if is_unit_add(work) && served < required {
             let slot = unit_slot(work.unit);
             let credit = fused_credit[slot].min(required - served);
@@ -1922,7 +1931,23 @@ mod tests {
     #[test]
     fn fused_parity_matrix() {
         const PATTERN_ONE: &[Coeff] = &[Coeff::One, Coeff::Zero, Coeff::One, Coeff::Zero];
-        const PATTERN_GENERAL: &[Coeff] = &[Coeff::General, Coeff::General, Coeff::One, Coeff::One];
+        const PATTERN_SCATTER: &[Coeff] = &[Coeff::General, Coeff::Zero, Coeff::One, Coeff::Zero];
+        const PATTERN_GATHER_MIXED: &[Coeff] =
+            &[Coeff::General, Coeff::General, Coeff::One, Coeff::Zero];
+        const PATTERN_MATRIX: &[Coeff] = &[
+            Coeff::General,
+            Coeff::General,
+            Coeff::Zero,
+            Coeff::One,
+            Coeff::General,
+            Coeff::One,
+            Coeff::General,
+            Coeff::Zero,
+            Coeff::One,
+            Coeff::General,
+            Coeff::General,
+            Coeff::Zero,
+        ];
         const TIERS: [Backend; 4] = [
             Backend::Scalar,
             Backend::V2,
@@ -1930,29 +1955,51 @@ mod tests {
             Backend::V3GfniCrypto,
         ];
         for index in 0..47usize {
-            let (obligation, coeffs, add_multiplicity) = match index % 4 {
+            let (obligation, coeffs, rows, sources, add_multiplicity) = match index % 6 {
                 0 => (
                     "ops::mul_add_gather@test",
                     PATTERN_ONE,
+                    4,
+                    4,
                     Multiplicity::UnitAddPairs,
                 ),
                 1 => (
                     "ops::mul_into_gather@test",
                     PATTERN_ONE,
+                    4,
+                    4,
                     Multiplicity::UnitAdds,
                 ),
                 2 => (
-                    "ops::mul_add_gather@test",
-                    PATTERN_GENERAL,
+                    "ops::mul_into_scatter@test",
+                    PATTERN_SCATTER,
+                    4,
+                    1,
+                    Multiplicity::UnitAdds,
+                ),
+                3 => (
+                    "ops::mul_into_matrix@test",
+                    PATTERN_MATRIX,
+                    3,
+                    4,
+                    Multiplicity::UnitAdds,
+                ),
+                4 => (
+                    "ops::mul_add_matrix@test",
+                    PATTERN_MATRIX,
+                    3,
+                    4,
                     Multiplicity::UnitAddPairs,
                 ),
                 _ => (
-                    "ops::mul_into_gather@test",
-                    PATTERN_GENERAL,
-                    Multiplicity::UnitAdds,
+                    "ops::mul_add_gather@test",
+                    PATTERN_GATHER_MIXED,
+                    4,
+                    4,
+                    Multiplicity::UnitAddPairs,
                 ),
             };
-            let minimum = TIERS[(index / 4) % 4];
+            let minimum = TIERS[(index / 6) % 4];
             let total = (index % 8) * 64 + (index % 3) * 16;
             let split: Vec<(Backend, usize)> = match index % 4 {
                 0 => vec![(minimum, total)],
@@ -2013,12 +2060,12 @@ mod tests {
                 .into_boxed_slice(),
             );
             let case = Case {
-                id: "parity@test#fixture/gather/_",
+                id: "parity@test#fixture/shape/_",
                 obligation,
                 run: RUN,
                 geometry: Geometry {
-                    rows: 4,
-                    sources: 4,
+                    rows,
+                    sources,
                     len: 64,
                     misalign: 0,
                     pitch_pad: 0,
@@ -2042,6 +2089,78 @@ mod tests {
                 u8::from(verdict.detail.is_empty())
             );
         }
+    }
+
+    const MIXED_COEFFS: &[Coeff] = &[
+        Coeff::General,
+        Coeff::General,
+        Coeff::Zero,
+        Coeff::One,
+        Coeff::General,
+        Coeff::One,
+        Coeff::General,
+        Coeff::Zero,
+        Coeff::One,
+        Coeff::General,
+        Coeff::General,
+        Coeff::Zero,
+    ];
+    const MIXED_WORK: &[Work] = &[
+        Work {
+            substage: Substage::MulAdd,
+            scope: None,
+            unit: Unit::Elements,
+            basis: Basis::Source,
+            multiplicity: Multiplicity::ActivePairs,
+            lane: 1,
+            loss: 0,
+            iterations: 1,
+        },
+        Work {
+            substage: Substage::Add,
+            scope: None,
+            unit: Unit::Elements,
+            basis: Basis::Source,
+            multiplicity: Multiplicity::UnitAdds,
+            lane: 1,
+            loss: 0,
+            iterations: 1,
+        },
+    ];
+    const MIXED_CELL: Cell = Cell {
+        features: Features::Default,
+        request: Request::Scalar,
+        process: Backend::Scalar,
+        field: Backend::Scalar,
+        required: true,
+        min_serving: Backend::Scalar,
+        work: MIXED_WORK,
+    };
+    const MIXED_CASE: Case = Case {
+        id: "ops::mul_into_matrix@test#fixture/mixed/_",
+        obligation: "ops::mul_into_matrix@test",
+        run: RUN,
+        geometry: Geometry {
+            rows: 3,
+            sources: 4,
+            len: 64,
+            misalign: 0,
+            pitch_pad: 0,
+        },
+        coeffs: MIXED_COEFFS,
+        map: None,
+        cells: &[MIXED_CELL],
+    };
+
+    /// Zero and exempt unit terms never fund the general-coefficient budget.
+    #[test]
+    fn judge_rejects_exempt_terms_funding_general_coverage() {
+        // Six general terms require 384; the three zero plus three copy-base
+        // terms also supply 384, leaving nothing for the general terms.
+        let mut outcome = outcome_with(7, 7, 384);
+        outcome.enforce_routing = true;
+        let verdict = judge(&MIXED_CASE, &MIXED_CELL, &outcome);
+        assert!(!verdict.detail.is_empty());
     }
 
     /// Exempt copy-base work cannot fund the only required addition.

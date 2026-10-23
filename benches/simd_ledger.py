@@ -1900,6 +1900,10 @@ def _case_coverage_error(case: dict, key: str, stages: list,
             credit = min(pools.get(unit, 0), max(0, budget - served))
             pools[unit] = pools.get(unit, 0) - credit
             served += credit
+        elif item.get("multiplicity") == "ActivePairs":
+            maximum = max(0, int(item.get("per_term_max", 0)))
+            reserved = (zero + ones) * maximum
+            served = max(0, served - reserved)
         if served < budget:
             return (f"needs {item['substage']}/{item['unit']} "
                     f"budget={budget} served={served}")

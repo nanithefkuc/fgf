@@ -930,6 +930,45 @@ route-accept-negative REQUEST:
         }
         expect_reject request_mismatch "$forced" "$scratch/forced-$lower.err"
     fi
+    # A canonical GF16 mixed overwrite matrix must pass with its real work
+    # and fail when halved: exempt terms cannot fund general coverage.
+    gf16_ledger="$scratch/gf16-ledger.json"
+    python3 - "$gf16_ledger" "{{REQUEST}}" "$features" "$serving" <<'PY'
+    import json
+    import sys
+
+    out, request, features, serving = sys.argv[1:5]
+    ledger = json.load(open("benches/simd_ledger.json"))
+    obligation = "ops::mul_into_matrix@packed-u16-shipped"
+    ledger["routes"] = {obligation: f"{features}/{request}=direct@{serving}"}
+    ledger["route_notes"] = {}
+    ledger["obligations"] = {obligation: {"cells": {
+        f"{features}/{request}": {
+            "work": ["matrix-mul-add", "unit-adds"]}}}}
+    json.dump(ledger, open(out, "w"), indent=1, sort_keys=False)
+    PY
+    python3 benches/simd_ledger.py --ledger "$gf16_ledger" generate --out "$cases"
+    saved_ledger="$ledger"
+    ledger="$gf16_ledger"
+    gf16_base="$scratch/gf16-base.log"
+    rc=$(run_negative "{{REQUEST}}" "" "$gf16_base" negative)
+    [[ "$rc" -eq 0 ]] || {
+        printf 'route_accept_negative: gf16 baseline failed rc=%s\n' "$rc" >&2
+        tail -40 "$gf16_base" >&2
+        exit 1
+    }
+    python3 benches/simd_ledger.py --ledger "$ledger" accept --log "$gf16_base" \
+        --features "$features" --request "{{REQUEST}}" \
+        --source-id negative --host-id negative
+    gf16_halve="$scratch/gf16-halve.log"
+    rc=$(run_negative "{{REQUEST}}" halve-work "$gf16_halve" negative)
+    [[ "$rc" -ne 0 ]] || {
+        printf 'route_accept_negative: gf16 halve-work was not rejected\n' >&2
+        exit 1
+    }
+    expect_reject fail_receipt "$gf16_halve" "$scratch/gf16-halve.err"
+    ledger="$saved_ledger"
+
     # A fused gather must pass with its real work and fail when the work is
     # halved: zero-term work cannot cover the unit additions.
     fused_ledger="$scratch/fused-ledger.json"

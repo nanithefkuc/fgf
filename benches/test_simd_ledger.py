@@ -1374,6 +1374,33 @@ class TestBudgets(unittest.TestCase):
         self.assertIsNone(sl._case_coverage_error(
             case, "default/v3", stages, sl._strength("v2")))
 
+    def test_exempt_terms_cannot_fund_general_coverage(self):
+        slots = ["General", "General", "Zero", "One",
+                 "General", "One", "General", "Zero",
+                 "One", "General", "General", "Zero"]
+        case = {
+            "callable": "ops::mul_into_matrix",
+            "geometry": {"rows": 3, "sources": 4},
+            "pattern": {"slots": slots},
+            "cell_work": {"default/v3": [
+                {"substage": "MulAdd", "scope": None, "unit": "Elements",
+                 "elem_size": 1, "multiplicity": "ActivePairs",
+                 "budget": 384, "per_term": 64, "per_term_max": 64},
+                {"substage": "Add", "scope": None, "unit": "Elements",
+                 "elem_size": 1, "multiplicity": "UnitAdds",
+                 "budget": 0, "per_term": 64, "per_term_max": 64},
+            ]},
+        }
+        stages = [
+            {"substage": "MulAdd", "scope": None, "unit": "Elements",
+             "tier": "v3", "tiers": {"v3": 384},
+             "work": 384, "budget": 384},
+            {"substage": "Add", "scope": None, "unit": "Elements",
+             "tier": "v3", "tiers": {}, "work": 0, "budget": 0},
+        ]
+        self.assertIsNotNone(sl._case_coverage_error(
+            case, "default/v3", stages, 0))
+
     def test_copy_base_work_cannot_fund_the_addition(self):
         case = self._fused_case(["One", "Zero", "One", "Zero"],
                                 add_budget=64, per_term=64,
@@ -1387,20 +1414,21 @@ class TestBudgets(unittest.TestCase):
     def _parity_row(index):
         tiers = ["scalar", "v2", "v3", "v3_gfni_crypto"]
         one = ["One", "Zero", "One", "Zero"]
-        general = ["General", "General", "One", "One"]
-        if index % 4 == 0:
-            callable, slots, multiplicity = (
-                "ops::mul_add_gather", one, "UnitAddPairs")
-        elif index % 4 == 1:
-            callable, slots, multiplicity = (
-                "ops::mul_into_gather", one, "UnitAdds")
-        elif index % 4 == 2:
-            callable, slots, multiplicity = (
-                "ops::mul_add_gather", general, "UnitAddPairs")
-        else:
-            callable, slots, multiplicity = (
-                "ops::mul_into_gather", general, "UnitAdds")
-        minimum = tiers[(index // 4) % 4]
+        scatter = ["General", "Zero", "One", "Zero"]
+        gather_mixed = ["General", "General", "One", "Zero"]
+        matrix = ["General", "General", "Zero", "One",
+                  "General", "One", "General", "Zero",
+                  "One", "General", "General", "Zero"]
+        configs = [
+            ("ops::mul_add_gather", one, 4, 4, "UnitAddPairs"),
+            ("ops::mul_into_gather", one, 4, 4, "UnitAdds"),
+            ("ops::mul_into_scatter", scatter, 4, 1, "UnitAdds"),
+            ("ops::mul_into_matrix", matrix, 3, 4, "UnitAdds"),
+            ("ops::mul_add_matrix", matrix, 3, 4, "UnitAddPairs"),
+            ("ops::mul_add_gather", gather_mixed, 4, 4, "UnitAddPairs"),
+        ]
+        callable, slots, rows, sources, multiplicity = configs[index % 6]
+        minimum = tiers[(index // 6) % 4]
         total = (index % 8) * 64 + (index % 3) * 16
         mode = index % 4
         split = {}
@@ -1421,12 +1449,19 @@ class TestBudgets(unittest.TestCase):
         split = {tier: work for tier, work in split.items() if work > 0}
         generals = slots.count("General")
         ones = slots.count("One")
-        copy_base = 1 if callable.startswith("ops::mul_into") and "One" in slots else 0
+        if "gather" in callable:
+            copy_base = 1 if "One" in slots else 0
+        elif "scatter" in callable:
+            copy_base = ones
+        else:
+            copy_base = sum(
+                1 for row in range(rows)
+                if "One" in slots[row * sources:(row + 1) * sources])
         add_budget = ones * 64 if multiplicity == "UnitAddPairs" \
             else max(0, ones - copy_base) * 64
         case = {
             "callable": callable,
-            "geometry": {"rows": 4, "sources": 4},
+            "geometry": {"rows": rows, "sources": sources},
             "pattern": {"slots": slots},
             "cell_work": {"default/v3": [
                 {"substage": "MulAdd", "scope": None, "unit": "Elements",
