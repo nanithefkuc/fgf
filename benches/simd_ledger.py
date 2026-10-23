@@ -2147,9 +2147,9 @@ def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
                     if problem is not None:
                         _fail(f"evidence {key!r}: receipt {cid} {problem}")
                     served_cases.append(_case_served_tier(case, key, stages, minimum))
-            if direct and served_cases and min(served_cases) != minimum:
+            if direct and served_cases and min(served_cases) < minimum:
                 _fail(f"evidence {key!r}: served tier "
-                      f"{min(served_cases)} differs from min_serving "
+                      f"{min(served_cases)} is below min_serving "
                       f"{cell['min_serving']}")
             if status in PESSIMISTIC_STATUSES:
                 active = [case for case in cases
@@ -2927,7 +2927,7 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
     # required cases; an individual case may be served higher.
     for (oid, key), tiers in served_by_ob.items():
         cell = expanded[oid]["cells"][key]
-        if min(tiers) != _strength(cell.get("min_serving")):
+        if min(tiers) < _strength(cell.get("min_serving")):
             _fail(f"accept: reject budget_coverage {oid}: served tier")
 
     missing = required_cases - received_ids
