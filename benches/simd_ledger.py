@@ -1832,9 +1832,9 @@ def _case_coverage_error(case: dict, key: str, stages: list,
         for stage in stages:
             if _item_matches(item, stage):
                 served += _stage_work_in_units(stage, item)
-        per_term = max(0, int(item.get("per_term", 0)))
-        bound = (general + zero) * per_term
-        cap = ones * per_term
+        per_term_max = max(0, int(item.get("per_term_max", 0)))
+        bound = (general + zero) * per_term_max
+        cap = ones * per_term_max
         credit = min(max(0, served - bound), cap)
         unit = item.get("unit")
         pools[unit] = max(pools.get(unit, 0), credit)
@@ -2331,9 +2331,10 @@ def _resolve_work(work_rule: dict, geo: dict, meta: dict,
         "loss": loss,
         "iterations": iterations,
         "multiplicity_count": count,
-        # Maximum work one coefficient term can account for, and the derived
-        # stage budget; both saturate like the runner.
+        # Streaming per-term budget and the full-length maximum one term can
+        # perform; both saturate like the runner.
         "per_term": max(0, iterations) * max(0, length - loss),
+        "per_term_max": max(0, iterations) * max(0, length),
         "budget": max(0, iterations) * max(0, count) * max(0, length - loss),
     }
 

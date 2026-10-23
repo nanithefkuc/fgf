@@ -1306,16 +1306,21 @@ class TestBudgets(unittest.TestCase):
             "ops::mul_into_matrix", fixture, rule,
             {"slots": ["One", "One", "Zero", "Zero"]}, matrix))
 
-    def _fused_case(self, slots, add_budget=64, per_term=64):
+    def _fused_case(self, slots, add_budget=64, per_term=64,
+                    per_term_max=None):
+        if per_term_max is None:
+            per_term_max = per_term
         return {
             "pattern": {"slots": slots},
             "cell_work": {"default/v3": [
                 {"substage": "MulAdd", "scope": None, "unit": "Elements",
                  "elem_size": 1, "multiplicity": "ActivePairs",
-                 "budget": 0, "per_term": per_term},
+                 "budget": 0, "per_term": per_term,
+                 "per_term_max": per_term_max},
                 {"substage": "Add", "scope": None, "unit": "Elements",
                  "elem_size": 1, "multiplicity": "UnitAdds",
-                 "budget": add_budget, "per_term": per_term},
+                 "budget": add_budget, "per_term": per_term,
+                 "per_term_max": per_term_max},
             ]},
         }
 
@@ -1343,6 +1348,14 @@ class TestBudgets(unittest.TestCase):
             case, "default/v3", self._fused_stages(132), 0))
         self.assertIsNotNone(sl._case_coverage_error(
             case, "default/v3", self._fused_stages(128), 0))
+
+    def test_full_length_general_slack_cannot_fund_unit_adds(self):
+        # Two general terms at full length (2 x 64 = 128); unit work is
+        # short by 8, less than the two-term loss of 16.
+        case = self._fused_case(["General", "General", "One", "One"],
+                                add_budget=56, per_term=56, per_term_max=64)
+        self.assertIsNotNone(sl._case_coverage_error(
+            case, "default/v3", self._fused_stages(176), 0))
 
     def test_honest_fused_unit_work_passes(self):
         case = self._fused_case(["One", "Zero", "One", "Zero"],

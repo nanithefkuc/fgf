@@ -758,10 +758,16 @@ fn length_in_units(case: &Case, work: &Work, outcome: &Outcome) -> usize {
     }
 }
 
-/// Maximum work one coefficient term can account for.
+/// Work one coefficient term must account for at the streaming budget.
 fn per_term_budget(case: &Case, work: &Work, outcome: &Outcome) -> usize {
     work.iterations
         .saturating_mul(length_in_units(case, work, outcome).saturating_sub(work.loss))
+}
+
+/// Maximum work one coefficient term can perform: a full pass, no loss.
+fn per_term_max(case: &Case, work: &Work, outcome: &Outcome) -> usize {
+    work.iterations
+        .saturating_mul(length_in_units(case, work, outcome))
 }
 
 /// Budget for one stage: `iterations × multiplicity × (length − loss)`.
@@ -886,7 +892,7 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
         .iter()
         .filter(|work| work.substage == Substage::MulAdd)
     {
-        let per_term = per_term_budget(case, work, outcome);
+        let maximum = per_term_max(case, work, outcome);
         let width_bytes = match work.basis {
             Basis::Source => outcome.source_bytes,
             Basis::Target => outcome.target_bytes,
@@ -904,9 +910,9 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
         }
         let bound = general_terms
             .saturating_add(zero_terms)
-            .saturating_mul(per_term);
+            .saturating_mul(maximum);
         let remainder = served.saturating_sub(bound);
-        let cap = unit_terms.saturating_mul(per_term);
+        let cap = unit_terms.saturating_mul(maximum);
         fused_credit[unit_slot(work.unit)] =
             fused_credit[unit_slot(work.unit)].max(remainder.min(cap));
     }
@@ -1648,6 +1654,64 @@ mod tests {
             .expect("unit-add stage");
         assert!(add.met);
         assert_eq!(add.work, 0, "credit is not reported as direct work");
+    }
+
+    const FUSED_LOSS_WORK: &[Work] = &[
+        Work {
+            substage: Substage::MulAdd,
+            scope: None,
+            unit: Unit::Elements,
+            basis: Basis::Source,
+            multiplicity: Multiplicity::ActivePairs,
+            lane: 1,
+            loss: 8,
+            iterations: 1,
+        },
+        Work {
+            substage: Substage::Add,
+            scope: None,
+            unit: Unit::Elements,
+            basis: Basis::Source,
+            multiplicity: Multiplicity::UnitAdds,
+            lane: 1,
+            loss: 8,
+            iterations: 1,
+        },
+    ];
+    const FUSED_LOSS_CELL: Cell = Cell {
+        features: Features::Default,
+        request: Request::Scalar,
+        process: Backend::Scalar,
+        field: Backend::Scalar,
+        required: true,
+        min_serving: Backend::Scalar,
+        work: FUSED_LOSS_WORK,
+    };
+    const FUSED_LOSS_CASE: Case = Case {
+        id: "ops::mul_into_gather@test#fixture/gather-loss/_",
+        obligation: "ops::mul_into_gather@test",
+        run: RUN,
+        geometry: Geometry {
+            rows: 4,
+            sources: 4,
+            len: 64,
+            misalign: 0,
+            pitch_pad: 0,
+        },
+        coeffs: FUSED_GENERAL_COEFFS,
+        map: None,
+        cells: &[FUSED_LOSS_CELL],
+    };
+
+    /// Full-length general work leaves no slack that funds short unit work.
+    #[test]
+    fn judge_rejects_full_length_general_slack() {
+        // Two general terms run at their maximum (128); the unit work is
+        // short by 8, below the two-term loss of 16.
+        let mut outcome = outcome_with(7, 7, 176);
+        outcome.enforce_routing = true;
+        let verdict = judge(&FUSED_LOSS_CASE, &FUSED_LOSS_CELL, &outcome);
+        assert!(!verdict.detail.is_empty());
     }
 
     /// Zero-term work cannot fund unit additions.
