@@ -663,31 +663,45 @@ fn multiplicity(case: &Case, work: &Work) -> usize {
     }
 }
 
-/// Whether a case performs no vector work by construction.
+/// Whether a case performs no arithmetic by construction.
 ///
-/// A Frobenius power-zero map is the identity, and a same-width canonical
-/// pack or unpack is a byte copy. Both are predicates on the actual inputs,
-/// evaluated before execution, so their stages carry no required work.
-fn degenerate(case: &Case, outcome: &Outcome) -> bool {
-    if let Some(map) = &case.map
-        && map.power == 0
-    {
-        return true;
-    }
+/// A Frobenius power-zero map is the identity, and a whole-range bit set or
+/// clear is a byte fill. Canonical pack/unpack exemptions are decided from
+/// the field's raw storage and wire width when the work is attached, so the
+/// runner sees no conversion work there.
+fn degenerate(case: &Case) -> bool {
     let call = case.obligation.split('@').next().unwrap_or("");
     let base = call.rsplit("::").next().unwrap_or(call);
-    if matches!(base, "pack" | "pack_to_vec" | "unpack" | "unpack_to_vec")
-        && outcome.source_bytes == outcome.target_bytes
+    if matches!(base, "frobenius_into_with" | "frobenius_assign_with")
+        && case.map.as_ref().is_some_and(|map| map.power == 0)
     {
         return true;
     }
-    false
+    call.starts_with("bits::") && matches!(base, "set_range" | "clear_range")
+}
+
+/// Work served by one trace entry, expressed in the work rule's unit.
+///
+/// Element and byte units describe the same work when the lane width
+/// converts them; any other unit pair is a routing mismatch.
+fn served_in_units(entry: &Entry, work: &Work, width_bytes: usize) -> Option<usize> {
+    if entry.unit == work.unit {
+        return Some(entry.work);
+    }
+    if width_bytes == 0 {
+        return None;
+    }
+    match (work.unit, entry.unit) {
+        (Unit::Elements, Unit::Bytes) => Some(entry.work / width_bytes),
+        (Unit::Bytes, Unit::Elements) => Some(entry.work.saturating_mul(width_bytes)),
+        _ => None,
+    }
 }
 
 /// Budget for one stage: `iterations × multiplicity × (length − loss)`.
 fn budget(case: &Case, work: &Work, outcome: &Outcome) -> usize {
     debug_assert!(work.lane > 0, "a work rule lane holds at least one unit");
-    if degenerate(case, outcome) {
+    if degenerate(case) {
         return 0;
     }
     let width_bytes = match work.basis {
@@ -795,24 +809,42 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
         let mut tier = Backend::Scalar;
         let mut kernels: Vec<&'static str> = Vec::new();
         let mut wrong_unit = false;
+        let width_bytes = match work.basis {
+            Basis::Source => outcome.source_bytes,
+            Basis::Target => outcome.target_bytes,
+        };
         for entry in &outcome.trace {
             if entry_key(entry) != key {
                 continue;
             }
-            if entry.unit != work.unit {
+            let Some(units) = served_in_units(entry, work, width_bytes) else {
                 wrong_unit = true;
                 continue;
-            }
-            if trace::strength(entry.tier) >= trace::strength(cell.min_serving) {
-                served = served.saturating_add(entry.work);
-                tier = strongest(tier, entry.tier);
-                if !kernels.contains(&entry.kernel) {
-                    kernels.push(entry.kernel);
-                }
+            };
+            // Lower-tier work stays visible: the audit derives the served
+            // tier and rejects a cell whose minimum exceeds it.
+            served = served.saturating_add(units);
+            tier = strongest(tier, entry.tier);
+            if !kernels.contains(&entry.kernel) {
+                kernels.push(entry.kernel);
             }
         }
         let required = budget(case, work, outcome);
         let mut met = served >= required;
+        if required > 0 && trace::strength(tier) < trace::strength(cell.min_serving) {
+            met = false;
+            if enforce {
+                routing_ok = false;
+                let _ = write!(
+                    routing_detail,
+                    "stage {} ({:?}) served at {} below min_serving {}; ",
+                    substage_name(work.substage),
+                    scope_names(work.scope),
+                    tier.name(),
+                    cell.min_serving.name(),
+                );
+            }
+        }
         if wrong_unit {
             met = false;
             let _ = write!(

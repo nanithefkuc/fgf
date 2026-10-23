@@ -222,6 +222,11 @@ def _full_tiny() -> dict:
                 "multiplicity": "ActivePairs", "iterations": "1",
                 "loss_bytes": "2 * (lane - 1)", "justification": "test",
             },
+            "unit-accumulate": {
+                "substage": "Add", "unit": "Elements", "basis": "Source",
+                "multiplicity": "UnitAddPairs", "iterations": "1",
+                "loss_bytes": "2 * (lane - 1)", "justification": "test",
+            },
         },
         "geometries": {
             "row-64": {"family": "single-row", "rows": 1, "sources": 1,
@@ -234,7 +239,7 @@ def _full_tiny() -> dict:
         },
         "work": {
             "ops::add_assign": ["row-add"],
-            "ops::mul_add": ["row-mul-add"],
+            "ops::mul_add": ["row-mul-add", "unit-accumulate"],
         },
         "evidence": {},
     }
@@ -613,6 +618,19 @@ class TestFullCitations(unittest.TestCase):
             "record": "route.log", "source_id": "src-1", "host_id": "host-1"}}
         return ledger, derived
 
+    @staticmethod
+    def _derived_stages(case, key="default/v3"):
+        """Receipt stages carrying the tool-derived budget for one case."""
+        return [{
+            "substage": item["substage"],
+            "scope": list(item["scope"]) if item["scope"] else None,
+            "unit": item["unit"],
+            "tier": "v3",
+            "work": item["budget"],
+            "budget": item["budget"],
+            "met": True,
+        } for item in case["cell_work"].get(key, [])]
+
     def _record(self, d, derived, receipts=None, done_body=None):
         cases = [c for c in derived if c["obligation"] == "ops::mul_add@gf8-aes"]
         lines = []
@@ -620,8 +638,7 @@ class TestFullCitations(unittest.TestCase):
             {"id": c["id"], "obligation": c["obligation"],
              "features": "default", "request_raw": "v3",
              "process": "v3", "field": "v3", "required": True,
-             "stages": [{"substage": "MulAdd", "scope": None, "unit": "Elements",
-                         "tier": "v3", "work": 64, "budget": 64, "met": True}],
+             "stages": self._derived_stages(c),
              "result": "pass", "source_id": "src-1", "host_id": "host-1"}
             for c in cases
         ]
@@ -690,10 +707,18 @@ class TestFullCitations(unittest.TestCase):
         # Coverage is computed from the derived budget; a stage's own `met`
         # flag is never trusted.
         ledger, derived = self._evidence_ledger()
+        cases = [c for c in derived if c["obligation"] == "ops::mul_add@gf8-aes"]
+        receipts = [
+            {"id": c["id"], "obligation": c["obligation"],
+             "features": "default", "request_raw": "v3",
+             "process": "v3", "field": "v3", "required": True,
+             "stages": [{**stage, "work": max(0, stage["budget"] - 1)}
+                        for stage in self._derived_stages(c)],
+             "result": "pass", "source_id": "src-1", "host_id": "host-1"}
+            for c in cases
+        ]
         with tempfile.TemporaryDirectory() as d:
-            p = self._record(d, derived)
-            text = p.read_text().replace('"work": 64', '"work": 1', 1)
-            p.write_text(text)
+            self._record(d, derived, receipts=receipts)
             with self.assertRaises(ValidationError):
                 self._check(ledger, derived, d)
 
@@ -730,7 +755,9 @@ class TestFullCitations(unittest.TestCase):
             {"id": c["id"], "obligation": c["obligation"],
              "features": "default", "request_raw": "v3",
              "process": "v3", "field": "v3", "required": False,
-             "stages": [], "result": "pass",
+             "stages": [{**stage, "work": 0}
+                        for stage in self._derived_stages(c)],
+             "result": "pass",
              "source_id": "src-1", "host_id": "host-1"}
             for c in cases
         ]
@@ -762,6 +789,54 @@ class TestFullCitations(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self._record(d, derived)
             self._check(ledger, derived, d)
+
+    def test_negative_stage_budget_rejected(self):
+        ledger, derived = self._evidence_ledger()
+        cases = [c for c in derived if c["obligation"] == "ops::mul_add@gf8-aes"]
+        receipts = []
+        for case in cases:
+            stages = self._derived_stages(case)
+            if stages:
+                stages[0]["budget"] = -1
+            receipts.append({
+                "id": case["id"], "obligation": case["obligation"],
+                "features": "default", "request_raw": "v3",
+                "process": "v3", "field": "v3", "required": True,
+                "stages": stages, "result": "pass",
+                "source_id": "src-1", "host_id": "host-1"})
+        with tempfile.TemporaryDirectory() as d:
+            self._record(d, derived, receipts=receipts)
+            with self.assertRaises(ValidationError):
+                self._check(ledger, derived, d)
+
+    def test_budget_parity_mismatch_rejected(self):
+        ledger, derived = self._evidence_ledger()
+        cases = [c for c in derived if c["obligation"] == "ops::mul_add@gf8-aes"]
+        receipts = []
+        for case in cases:
+            stages = self._derived_stages(case)
+            if stages:
+                stages[0]["budget"] += 1
+                stages[0]["work"] = stages[0]["budget"]
+            receipts.append({
+                "id": case["id"], "obligation": case["obligation"],
+                "features": "default", "request_raw": "v3",
+                "process": "v3", "field": "v3", "required": True,
+                "stages": stages, "result": "pass",
+                "source_id": "src-1", "host_id": "host-1"})
+        with tempfile.TemporaryDirectory() as d:
+            self._record(d, derived, receipts=receipts)
+            with self.assertRaises(ValidationError):
+                self._check(ledger, derived, d)
+
+    def test_zero_budget_with_empty_work_override_rejected(self):
+        # The exemption is an input fact: removing the work list cannot make
+        # a general multiplication claim zero-budget.
+        ledger = _required_tiny(status="zero-budget")
+        ledger["obligations"] = {"ops::mul_add@gf8-aes": {"cells": {
+            "default/v3": {"work": []}}}}
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
 
     def test_direct_cell_without_work_rejected(self):
         # Direct/composition may not pass on an empty work list.
@@ -1060,6 +1135,7 @@ class TestBudgets(unittest.TestCase):
             "multiplicity": "One", "iterations": "1",
             "loss_bytes": "0", "justification": "t",
         }
+        ledger["rules"]["gf8-aes"]["pack_exempt"] = True
         ledger["geometries"]["pack-1x1"] = {"family": "single-row", "rows": 1,
                                             "sources": 1, "len": 64,
                                             "misalign": 0, "pitch_pad": 0}
@@ -1163,6 +1239,60 @@ class TestBudgets(unittest.TestCase):
 
     def test_zero_loss_stays_zero(self):
         self.assertEqual(sl._loss_in_units("Elements", 0, 4), 0)
+
+    def test_unit_accumulation_keeps_add_budget(self):
+        ledger = _full_tiny()
+        expanded = sl.obligations(ledger)
+        derived = sl.cases(ledger, expanded)
+        cases = [c for c in derived
+                 if c["obligation"] == "ops::mul_add@gf8-aes"
+                 and c["pattern_id"] == "one-1"]
+        self.assertTrue(cases)
+        for case in cases:
+            add = [item for item in case["cell_work"]["default/v3"]
+                   if item["substage"] == "Add"]
+            self.assertTrue(add)
+            self.assertGreater(add[0]["budget"], 0)
+            self.assertFalse(case["semantic_degenerate"])
+
+    def test_unit_accumulation_only_obligation_cannot_be_zero_budget(self):
+        ledger = _full_tiny()
+        ledger["routes"] = {"ops::mul_add@gf8-aes": "default/v3=zero-budget"}
+        ledger["coefficient_patterns"] = {
+            "one-1": {"family": "single-one", "slots": ["One"]}}
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_characteristic_two_subtraction_traces_add(self):
+        wr = {"substage": "Sub", "unit": "Elements", "basis": "Source",
+              "multiplicity": "One", "iterations": "1", "loss_bytes": "0"}
+        geo = {"rows": 1, "sources": 1, "len": 64, "family": "single-row"}
+        binary = {"characteristic": 2, "elem_bytes": 1,
+                  "target_elem_bytes": 1}
+        odd = {"characteristic": 7, "elem_bytes": 1,
+               "target_elem_bytes": 1}
+        self.assertEqual(
+            sl._resolve_work(wr, geo, binary, "v3", _isa(), {"slots": []})["substage"],
+            "Add")
+        self.assertEqual(
+            sl._resolve_work(wr, geo, odd, "v3", _isa(), {"slots": []})["substage"],
+            "Sub")
+
+    def test_scope_lists_match_derived_tuples(self):
+        item = {"substage": "MulElementwise", "scope": ("Division", "Main"),
+                "unit": "Elements", "elem_size": 1, "budget": 10}
+        stage = {"substage": "MulElementwise", "scope": ["Division", "Main"],
+                 "unit": "Elements", "work": 10, "tier": "v3"}
+        self.assertTrue(sl._item_matches(item, stage))
+        self.assertIsNone(sl._coverage_error([item], [stage], 1))
+
+    def test_element_and_byte_units_convert_by_width(self):
+        item = {"substage": "Add", "scope": None, "unit": "Elements",
+                "elem_size": 2, "budget": 4097}
+        stage = {"substage": "Add", "scope": None, "unit": "Bytes",
+                 "work": 8256, "tier": "v3"}
+        self.assertTrue(sl._item_matches(item, stage))
+        self.assertIsNone(sl._coverage_error([item], [stage], 2))
 
     def test_bit_geometry_length_converts_to_bytes(self):
         self.assertEqual(sl._length_in_units("Bytes", 4096, 1, bit_geometry=True), 512)
@@ -1679,6 +1809,54 @@ class TestCanonicalLedger(unittest.TestCase):
         # sources at 512 bytes each, minus the V3 lane loss.
         self.assertEqual(item["unit"], "Bytes")
         self.assertEqual(item["budget"], 8 * (512 - 2 * (32 - 1)))
+
+    def test_pack_exemption_is_canonical_only(self):
+        expanded = sl.obligations(self.ledger)
+        derived = sl.cases(self.ledger, expanded)
+        by_ob: dict[str, list[dict]] = {}
+        for case in derived:
+            by_ob.setdefault(case["obligation"], []).append(case)
+        gf8 = by_ob["ops::pack@gf8-poly-aes"]
+        self.assertTrue(all(case["semantic_degenerate"] for case in gf8))
+        self.assertTrue(all(not case["cell_work"]["default/v3"]
+                            for case in gf8))
+        residue = by_ob["ops::pack@residue-u8-low"]
+        self.assertTrue(all(not case["semantic_degenerate"]
+                            for case in residue))
+        self.assertTrue(all(item["budget"] > 0
+                            for case in residue
+                            for item in case["cell_work"]["default/v3"]))
+
+    def test_map_bits_work_matches_traced_stage(self):
+        expanded = sl.obligations(self.ledger)
+        derived = sl.cases(self.ledger, expanded)
+        by_ob: dict[str, list[dict]] = {}
+        for case in derived:
+            by_ob.setdefault(case["obligation"], []).append(case)
+        embed = by_ob["map_bits::embed_into_with@map-bits-width1"][0]
+        item = embed["cell_work"]["default/v3"][0]
+        self.assertEqual((item["substage"], item["unit"]), ("Unpack", "Bits"))
+        self.assertGreater(item["budget"], 0)
+        trace = by_ob["map_bits::trace_into_with@map-bits-width1"][0]
+        self.assertEqual(trace["cell_work"]["default/v3"][0]["substage"],
+                         "BitParity")
+
+    def test_residue_pack_exempt_rejected(self):
+        ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
+        ledger["rules"]["residue-u8-low"]["pack_exempt"] = True
+        with self.assertRaises(ValidationError):
+            sl.cmd_check(ledger, True, None, None, None, None, None)
+
+    def test_bit_fill_is_semantic_zero_budget(self):
+        fixture = {"id": "b", "degree": 1, "relative_degree": 1,
+                   "type": "crate::field::FiniteField<2, 1, crate::field::Polynomial<3>>",
+                   "elem_bytes": 1}
+        self.assertTrue(sl._case_semantic_degenerate(
+            "bits::set_range", fixture, {"group": "bits"}, {"slots": []}))
+        self.assertTrue(sl._case_semantic_degenerate(
+            "bits::clear_range", fixture, {"group": "bits"}, {"slots": []}))
+        self.assertFalse(sl._case_semantic_degenerate(
+            "bits::xor_assign", fixture, {"group": "bits"}, {"slots": []}))
 
     def test_structural_map_width_class_checked(self):
         ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
