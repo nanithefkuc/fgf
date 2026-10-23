@@ -929,6 +929,23 @@ class TestFullCitations(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 self._check(ledger, derived, d)
 
+    def test_entry_free_all_features_inventory_rejected(self):
+        ledger = self._ledger_with_refs()
+        with tempfile.TemporaryDirectory() as d:
+            rustdoc, tl, cl, si = self._inventories(d)
+            all_list = Path(d) / "cases-all.txt"
+            all_list.write_text("Linux version 7.2.9 (build user)\n")
+            old = sl.KNOWN_CALLABLES
+            sl.KNOWN_CALLABLES = {"ops::mul_add", "ops::add_assign"}
+            try:
+                with self.assertRaisesRegex(
+                        ValidationError,
+                        "all-features"):
+                    sl.cmd_check(ledger, False, rustdoc, tl, cl, si, None,
+                                 all_list)
+            finally:
+                sl.KNOWN_CALLABLES = old
+
     def test_generated_case_must_appear_in_runner_list(self):
         ledger = self._ledger_with_refs()
         derived = sl.cases(ledger, sl.obligations(ledger))

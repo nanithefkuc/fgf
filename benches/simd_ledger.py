@@ -1573,15 +1573,25 @@ def _parse_test_list(text: str) -> set[str]:
     return result
 
 
-def _parse_case_list(text: str) -> set[str]:
-    """Parse ROUTE_CASE_LIST lines.
+def _parse_case_list(text: str, label: str) -> set[str]:
+    """Parse and validate one ROUTE_CASE_LIST inventory.
 
-    Format: ROUTE_CASE_LIST\t<case-id>
+    Format: ROUTE_CASE_LIST\t<case-id>. Lines from the test harness are
+    ignored; every ROUTE_CASE_LIST line must carry a non-empty id, and the
+    inventory must contain at least one entry.
     """
     result: set[str] = set()
-    for line in text.splitlines():
-        if line.startswith("ROUTE_CASE_LIST\t"):
-            result.add(line.split("\t", 1)[1])
+    for number, line in enumerate(text.splitlines(), 1):
+        if not line.startswith("ROUTE_CASE_LIST"):
+            continue
+        if not line.startswith("ROUTE_CASE_LIST\t"):
+            _fail(f"{label}: line {number} is not a ROUTE_CASE_LIST entry")
+        case_id = line.split("\t", 1)[1]
+        if not case_id or any(ch.isspace() for ch in case_id):
+            _fail(f"{label}: line {number} has an empty or malformed case id")
+        result.add(case_id)
+    if not result:
+        _fail(f"{label} contains no ROUTE_CASE_LIST entries")
     return result
 
 
@@ -1649,18 +1659,16 @@ def cmd_check(ledger: dict, schema_only: bool, rustdoc: Path | None,
     cl_text = case_list.read_text().strip()
     if not cl_text:
         _fail("case list is empty")
-    case_ids = _parse_case_list(cl_text)
-    if not case_ids:
-        _fail("case list contains no ROUTE_CASE_LIST lines")
+    case_ids = _parse_case_list(cl_text, "case list")
     if case_list_all is not None:
         # v4x cases exist only in the simd512 build; the all-features list
-        # supplies them for the run-keyed evidence audit.
+        # supplies them for the run-keyed evidence audit. Validate it before
+        # merging so a nonempty but entry-free file cannot hide behind the
+        # default inventory.
         all_text = case_list_all.read_text().strip()
         if not all_text:
             _fail("all-features case list is empty")
-        case_ids |= _parse_case_list(all_text)
-        if not case_ids:
-            _fail("all-features case list contains no ROUTE_CASE_LIST lines")
+        case_ids |= _parse_case_list(all_text, "all-features case list")
 
     si_text = surface_inventory.read_text().strip()
     if not si_text:
