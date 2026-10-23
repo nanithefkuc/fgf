@@ -1807,6 +1807,58 @@ def _stage_work_in_units(stage: dict, item: dict) -> int:
     return 0
 
 
+UNIT_ADD_MULTIPLICITIES = frozenset({"UnitAddPairs", "UnitAdds"})
+
+
+def _case_coverage_error(case: dict, key: str, stages: list,
+                         minimum: int) -> str | None:
+    """Derived-budget coverage with coefficient-aware fused credit.
+
+    A fused MulAdd loop can perform unit additions, but only work beyond the
+    maximum possible general-coefficient and zero-coefficient work funds them;
+    the remainder is capped by the maximum possible unit work. Zero terms and
+    general slack never fund an Add requirement.
+    """
+    items = case.get("cell_work", {}).get(key, [])
+    slots = case.get("pattern", {}).get("slots", [])
+    general = slots.count("General")
+    zero = slots.count("Zero")
+    ones = slots.count("One")
+    pools: dict[object, int] = {}
+    for item in items:
+        if item.get("substage") != "MulAdd":
+            continue
+        served = 0
+        for stage in stages:
+            if _item_matches(item, stage):
+                served += _stage_work_in_units(stage, item)
+        per_term = max(0, int(item.get("per_term", 0)))
+        bound = (general + zero) * per_term
+        cap = ones * per_term
+        credit = min(max(0, served - bound), cap)
+        unit = item.get("unit")
+        pools[unit] = max(pools.get(unit, 0), credit)
+    for item in items:
+        budget = item.get("budget", 0)
+        if not isinstance(budget, int) or budget <= 0:
+            continue
+        served = 0
+        for stage in stages:
+            if _strength(stage.get("tier")) < minimum:
+                continue
+            if _item_matches(item, stage):
+                served += _stage_work_in_units(stage, item)
+        if item.get("multiplicity") in UNIT_ADD_MULTIPLICITIES:
+            unit = item.get("unit")
+            credit = min(pools.get(unit, 0), max(0, budget - served))
+            pools[unit] = pools.get(unit, 0) - credit
+            served += credit
+        if served < budget:
+            return (f"needs {item['substage']}/{item['unit']} "
+                    f"budget={budget} served={served}")
+    return None
+
+
 def _served_tier(items: list[dict], stages: list) -> int:
     """Weakest tier that served any of the required items."""
     weakest = None
@@ -2019,7 +2071,7 @@ def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
                 if not isinstance(stages, list):
                     stages = []
                 if status in ("direct", "composition"):
-                    problem = _coverage_error(required, stages, minimum)
+                    problem = _case_coverage_error(case, key, stages, minimum)
                     if problem is not None:
                         _fail(f"evidence {key!r}: receipt {cid} {problem}")
                     served_cases.append(_served_tier(required, stages))
@@ -2035,8 +2087,8 @@ def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
                     required = _case_required(case, key)
                     stages = receipts[case["id"]].get("stages")
                     if (not required or not isinstance(stages, list)
-                            or _coverage_error(required, stages,
-                                               minimum) is not None):
+                            or _case_coverage_error(case, key, stages,
+                                                    minimum) is not None):
                         stale = False
                         break
                 if stale:
@@ -2279,8 +2331,9 @@ def _resolve_work(work_rule: dict, geo: dict, meta: dict,
         "loss": loss,
         "iterations": iterations,
         "multiplicity_count": count,
-        # Saturating like the runner: a loss larger than the geometry
-        # leaves no budget, never a negative one.
+        # Maximum work one coefficient term can account for, and the derived
+        # stage budget; both saturate like the runner.
+        "per_term": max(0, iterations) * max(0, length - loss),
         "budget": max(0, iterations) * max(0, count) * max(0, length - loss),
     }
 
@@ -2789,7 +2842,7 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
                 if not stages:
                     _fail(f"accept: reject budget_coverage {cid}: empty stages")
                 minimum = _strength(cell.get("min_serving"))
-                problem = _coverage_error(required_items, stages, minimum)
+                problem = _case_coverage_error(case, f"{features}/{request}", stages, minimum)
                 if problem is not None:
                     _fail(f"accept: reject budget_coverage {cid}: {problem}")
                 served = _served_tier(required_items, stages)

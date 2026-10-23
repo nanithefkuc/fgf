@@ -930,6 +930,45 @@ route-accept-negative REQUEST:
         }
         expect_reject request_mismatch "$forced" "$scratch/forced-$lower.err"
     fi
+    # A fused gather must pass with its real work and fail when the work is
+    # halved: zero-term work cannot cover the unit additions.
+    fused_ledger="$scratch/fused-ledger.json"
+    python3 - "$fused_ledger" "{{REQUEST}}" "$features" <<'PY'
+    import json
+    import sys
+
+    out, request, features = sys.argv[1:4]
+    ledger = json.load(open("benches/simd_ledger.json"))
+    obligation = "ops::mul_add_gather@gf8-poly-aes"
+    ledger["routes"] = {obligation: f"{features}/{request}=direct@{request}"}
+    ledger["route_notes"] = {}
+    ledger["obligations"] = {obligation: {"cells": {
+        f"{features}/{request}": {
+            "work": ["gather-mul-add", "unit-accumulate"]}}}}
+    json.dump(ledger, open(out, "w"), indent=1, sort_keys=False)
+    PY
+    python3 benches/simd_ledger.py --ledger "$fused_ledger" generate --out "$cases"
+    saved_ledger="$ledger"
+    ledger="$fused_ledger"
+    fused_base="$scratch/fused-base.log"
+    rc=$(run_negative "{{REQUEST}}" "" "$fused_base" negative)
+    [[ "$rc" -eq 0 ]] || {
+        printf 'route_accept_negative: fused baseline failed rc=%s\n' "$rc" >&2
+        tail -40 "$fused_base" >&2
+        exit 1
+    }
+    python3 benches/simd_ledger.py --ledger "$ledger" accept --log "$fused_base" \
+        --features "$features" --request "{{REQUEST}}" \
+        --source-id negative --host-id negative
+    fused_halve="$scratch/fused-halve.log"
+    rc=$(run_negative "{{REQUEST}}" halve-work "$fused_halve" negative)
+    [[ "$rc" -ne 0 ]] || {
+        printf 'route_accept_negative: fused halve-work was not rejected\n' >&2
+        exit 1
+    }
+    expect_reject fail_receipt "$fused_halve" "$scratch/fused-halve.err"
+    ledger="$saved_ledger"
+
     # The canonical table and ledger must reject a run that drops trace
     # entries: work budgets are what make suppression visible.
     canonical="$scratch/canonical-suppress.log"

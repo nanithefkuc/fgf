@@ -1306,6 +1306,52 @@ class TestBudgets(unittest.TestCase):
             "ops::mul_into_matrix", fixture, rule,
             {"slots": ["One", "One", "Zero", "Zero"]}, matrix))
 
+    def _fused_case(self, slots, add_budget=64, per_term=64):
+        return {
+            "pattern": {"slots": slots},
+            "cell_work": {"default/v3": [
+                {"substage": "MulAdd", "scope": None, "unit": "Elements",
+                 "elem_size": 1, "multiplicity": "ActivePairs",
+                 "budget": 0, "per_term": per_term},
+                {"substage": "Add", "scope": None, "unit": "Elements",
+                 "elem_size": 1, "multiplicity": "UnitAdds",
+                 "budget": add_budget, "per_term": per_term},
+            ]},
+        }
+
+    def _fused_stages(self, muladd_work):
+        return [
+            {"substage": "MulAdd", "scope": None, "unit": "Elements",
+             "tier": "v3", "work": muladd_work, "budget": 0},
+            {"substage": "Add", "scope": None, "unit": "Elements",
+             "tier": "v3", "work": 0, "budget": 64},
+        ]
+
+    def test_zero_term_work_cannot_fund_unit_adds(self):
+        case = self._fused_case(["One", "Zero", "One", "Zero"],
+                                add_budget=64, per_term=64)
+        # 128 is exactly the zero-term bound; nothing remains for the Add.
+        self.assertIsNotNone(sl._case_coverage_error(
+            case, "default/v3", self._fused_stages(128), 0))
+        self.assertIsNotNone(sl._case_coverage_error(
+            case, "default/v3", self._fused_stages(132), 0))
+
+    def test_general_slack_cannot_fund_unit_adds(self):
+        case = self._fused_case(["General", "General", "One", "One"],
+                                add_budget=64, per_term=64)
+        self.assertIsNotNone(sl._case_coverage_error(
+            case, "default/v3", self._fused_stages(132), 0))
+        self.assertIsNotNone(sl._case_coverage_error(
+            case, "default/v3", self._fused_stages(128), 0))
+
+    def test_honest_fused_unit_work_passes(self):
+        case = self._fused_case(["One", "Zero", "One", "Zero"],
+                                add_budget=64, per_term=64)
+        # Four terms of real work: 2 zero terms are bounded out, leaving the
+        # two unit terms to fund the Add requirement.
+        self.assertIsNone(sl._case_coverage_error(
+            case, "default/v3", self._fused_stages(256), 0))
+
     def test_characteristic_two_subtraction_traces_add(self):
         wr = {"substage": "Sub", "unit": "Elements", "basis": "Source",
               "multiplicity": "One", "iterations": "1", "loss_bytes": "0"}

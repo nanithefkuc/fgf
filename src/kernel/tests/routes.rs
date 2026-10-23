@@ -727,12 +727,18 @@ fn served_in_units(entry: &Entry, work: &Work, width_bytes: usize) -> Option<usi
     }
 }
 
-/// Budget for one stage: `iterations × multiplicity × (length − loss)`.
-fn budget(case: &Case, work: &Work, outcome: &Outcome) -> usize {
-    debug_assert!(work.lane > 0, "a work rule lane holds at least one unit");
-    if degenerate(case) {
-        return 0;
+/// Index of a work unit in the per-unit fused-credit table.
+fn unit_slot(unit: Unit) -> usize {
+    match unit {
+        Unit::Elements => 0,
+        Unit::Bytes => 1,
+        Unit::Bits => 2,
+        Unit::Words => 3,
     }
+}
+
+/// Geometry length in the work rule's unit.
+fn length_in_units(case: &Case, work: &Work, outcome: &Outcome) -> usize {
     let width_bytes = match work.basis {
         Basis::Source => outcome.source_bytes,
         Basis::Target => outcome.target_bytes,
@@ -745,15 +751,27 @@ fn budget(case: &Case, work: &Work, outcome: &Outcome) -> usize {
     } else {
         elements.saturating_mul(width_bytes)
     };
-    let length = match work.unit {
+    match work.unit {
         Unit::Elements | Unit::Bits => elements,
         Unit::Bytes => byte_length,
         Unit::Words => (byte_length / 8).max(1),
-    };
-    let count = multiplicity(case, work);
+    }
+}
+
+/// Maximum work one coefficient term can account for.
+fn per_term_budget(case: &Case, work: &Work, outcome: &Outcome) -> usize {
     work.iterations
-        .saturating_mul(count)
-        .saturating_mul(length.saturating_sub(work.loss))
+        .saturating_mul(length_in_units(case, work, outcome).saturating_sub(work.loss))
+}
+
+/// Budget for one stage: `iterations × multiplicity × (length − loss)`.
+fn budget(case: &Case, work: &Work, outcome: &Outcome) -> usize {
+    debug_assert!(work.lane > 0, "a work rule lane holds at least one unit");
+    if degenerate(case) {
+        return 0;
+    }
+    let count = multiplicity(case, work);
+    per_term_budget(case, work, outcome).saturating_mul(count)
 }
 
 fn strongest(tier: Backend, candidate: Backend) -> Backend {
@@ -841,34 +859,57 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
         }
     }
 
-    // A fused MulAdd loop may perform the unit additions itself. Only the
-    // work beyond the general-coefficient MulAdd requirement is attributable
-    // to unit-accumulate stages, so the sum of both requirements never
-    // exceeds the total MulAdd work.
-    let mut muladd_required = 0usize;
-    let mut muladd_served = 0usize;
-    let mut muladd_tier = Backend::Scalar;
+    // A fused MulAdd loop may perform unit additions, but zero-term work and
+    // general-coefficient slack cannot fund them. The credit is what remains
+    // after the maximum possible general and zero work, capped by the maximum
+    // possible unit work. The maximum per term is the work's own per-term
+    // length bound, never its multiplicity budget.
+    let general_terms = case
+        .coeffs
+        .iter()
+        .filter(|slot| matches!(slot, Coeff::General))
+        .count();
+    let zero_terms = case
+        .coeffs
+        .iter()
+        .filter(|slot| matches!(slot, Coeff::Zero))
+        .count();
+    let unit_terms = case
+        .coeffs
+        .iter()
+        .filter(|slot| matches!(slot, Coeff::One))
+        .count();
+    let mut fused_credit = [0usize; 4];
+    let mut muladd_tier = [Backend::Scalar; 4];
     for work in cell
         .work
         .iter()
         .filter(|work| work.substage == Substage::MulAdd)
     {
-        muladd_required = muladd_required.saturating_add(budget(case, work, outcome));
+        let per_term = per_term_budget(case, work, outcome);
         let width_bytes = match work.basis {
             Basis::Source => outcome.source_bytes,
             Basis::Target => outcome.target_bytes,
         };
+        let mut served = 0usize;
         for entry in &outcome.trace {
             if entry_key(entry) != work_key(work) {
                 continue;
             }
             if let Some(units) = served_in_units(entry, work, width_bytes) {
-                muladd_served = muladd_served.saturating_add(units);
-                muladd_tier = strongest(muladd_tier, entry.tier);
+                served = served.saturating_add(units);
+                muladd_tier[unit_slot(work.unit)] =
+                    strongest(muladd_tier[unit_slot(work.unit)], entry.tier);
             }
         }
+        let bound = general_terms
+            .saturating_add(zero_terms)
+            .saturating_mul(per_term);
+        let remainder = served.saturating_sub(bound);
+        let cap = unit_terms.saturating_mul(per_term);
+        fused_credit[unit_slot(work.unit)] =
+            fused_credit[unit_slot(work.unit)].max(remainder.min(cap));
     }
-    let mut fused_surplus = muladd_served.saturating_sub(muladd_required);
 
     for work in cell.work {
         let key = work_key(work);
@@ -897,11 +938,13 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
             }
         }
         let required = budget(case, work, outcome);
-        if is_unit_add(work) && served < required && fused_surplus > 0 {
-            let credit = fused_surplus.min(required - served);
+        let direct = served;
+        if is_unit_add(work) && served < required {
+            let slot = unit_slot(work.unit);
+            let credit = fused_credit[slot].min(required - served);
+            fused_credit[slot] -= credit;
             served = served.saturating_add(credit);
-            fused_surplus -= credit;
-            tier = strongest(tier, muladd_tier);
+            tier = strongest(tier, muladd_tier[slot]);
         }
         let mut met = served >= required;
         if required > 0 && trace::strength(tier) < trace::strength(cell.min_serving) {
@@ -947,7 +990,7 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
             unit: unit_name(work.unit),
             tier,
             kernels,
-            work: served,
+            work: direct,
             budget: required,
             met,
         });
@@ -1573,6 +1616,24 @@ mod tests {
         cells: &[FUSED_CELL],
     };
 
+    const FUSED_GENERAL_COEFFS: &[Coeff] =
+        &[Coeff::General, Coeff::General, Coeff::One, Coeff::One];
+    const FUSED_GENERAL_CASE: Case = Case {
+        id: "ops::mul_into_gather@test#fixture/gather-general/_",
+        obligation: "ops::mul_into_gather@test",
+        run: RUN,
+        geometry: Geometry {
+            rows: 4,
+            sources: 4,
+            len: 64,
+            misalign: 0,
+            pitch_pad: 0,
+        },
+        coeffs: FUSED_GENERAL_COEFFS,
+        map: None,
+        cells: &[FUSED_CELL],
+    };
+
     /// A fused MulAdd entry covers the unclaimed unit additions.
     #[test]
     fn judge_attributes_fused_unit_work() {
@@ -1586,7 +1647,25 @@ mod tests {
             .find(|stage| stage.substage == "Add")
             .expect("unit-add stage");
         assert!(add.met);
-        assert!(add.work >= add.budget);
+        assert_eq!(add.work, 0, "credit is not reported as direct work");
+    }
+
+    /// Zero-term work cannot fund unit additions.
+    #[test]
+    fn judge_rejects_zero_term_funded_unit_work() {
+        let mut outcome = outcome_with(7, 7, 128);
+        outcome.enforce_routing = true;
+        let verdict = judge(&FUSED_CASE, &FUSED_CELL, &outcome);
+        assert!(!verdict.detail.is_empty());
+    }
+
+    /// General-coefficient slack cannot fund unit additions.
+    #[test]
+    fn judge_rejects_general_slack_funded_unit_work() {
+        let mut outcome = outcome_with(7, 7, 132);
+        outcome.enforce_routing = true;
+        let verdict = judge(&FUSED_GENERAL_CASE, &FUSED_CELL, &outcome);
+        assert!(!verdict.detail.is_empty());
     }
 
     /// A tier below `min_serving` contributes no work.
