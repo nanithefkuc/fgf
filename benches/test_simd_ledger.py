@@ -144,6 +144,7 @@ def _budget_stages(case, key="default/v3"):
         "scope": list(item["scope"]) if item["scope"] else None,
         "unit": item["unit"],
         "tier": "v3",
+        "tiers": {"v3": item["budget"]},
         "work": item["budget"],
         "budget": item["budget"],
         "met": True,
@@ -719,7 +720,9 @@ class TestFullCitations(unittest.TestCase):
             {"id": c["id"], "obligation": c["obligation"],
              "features": "default", "request_raw": "v3",
              "process": "v3", "field": "v3", "required": True,
-             "stages": [{**stage, "work": max(0, stage["budget"] - 1)}
+             "stages": [{**stage,
+                         "work": max(0, stage["budget"] - 1),
+                         "tiers": {"v3": max(0, stage["budget"] - 1)}}
                         for stage in self._derived_stages(c)],
              "result": "pass", "source_id": "src-1", "host_id": "host-1"}
             for c in cases
@@ -734,6 +737,7 @@ class TestFullCitations(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = self._record(d, derived)
             text = p.read_text().replace('"tier": "v3"', '"tier": "v2"', 1)
+            text = text.replace('"tiers": {"v3":', '"tiers": {"v2":', 1)
             p.write_text(text)
             with self.assertRaises(ValidationError):
                 self._check(ledger, derived, d)
@@ -762,7 +766,7 @@ class TestFullCitations(unittest.TestCase):
             {"id": c["id"], "obligation": c["obligation"],
              "features": "default", "request_raw": "v3",
              "process": "v3", "field": "v3", "required": False,
-             "stages": [{**stage, "work": 0}
+             "stages": [{**stage, "work": 0, "tiers": {}}
                         for stage in self._derived_stages(c)],
              "result": "pass",
              "source_id": "src-1", "host_id": "host-1"}
@@ -1307,10 +1311,13 @@ class TestBudgets(unittest.TestCase):
             {"slots": ["One", "One", "Zero", "Zero"]}, matrix))
 
     def _fused_case(self, slots, add_budget=64, per_term=64,
-                    per_term_max=None):
+                    per_term_max=None, callable="ops::mul_into_gather",
+                    multiplicity="UnitAdds"):
         if per_term_max is None:
             per_term_max = per_term
         return {
+            "callable": callable,
+            "geometry": {"rows": 4, "sources": 4},
             "pattern": {"slots": slots},
             "cell_work": {"default/v3": [
                 {"substage": "MulAdd", "scope": None, "unit": "Elements",
@@ -1318,7 +1325,7 @@ class TestBudgets(unittest.TestCase):
                  "budget": 0, "per_term": per_term,
                  "per_term_max": per_term_max},
                 {"substage": "Add", "scope": None, "unit": "Elements",
-                 "elem_size": 1, "multiplicity": "UnitAdds",
+                 "elem_size": 1, "multiplicity": multiplicity,
                  "budget": add_budget, "per_term": per_term,
                  "per_term_max": per_term_max},
             ]},
@@ -1327,9 +1334,10 @@ class TestBudgets(unittest.TestCase):
     def _fused_stages(self, muladd_work):
         return [
             {"substage": "MulAdd", "scope": None, "unit": "Elements",
-             "tier": "v3", "work": muladd_work, "budget": 0},
+             "tier": "v3", "tiers": {"v3": muladd_work},
+             "work": muladd_work, "budget": 0},
             {"substage": "Add", "scope": None, "unit": "Elements",
-             "tier": "v3", "work": 0, "budget": 64},
+             "tier": "v3", "tiers": {}, "work": 0, "budget": 64},
         ]
 
     def test_zero_term_work_cannot_fund_unit_adds(self):
@@ -1348,6 +1356,119 @@ class TestBudgets(unittest.TestCase):
             case, "default/v3", self._fused_stages(132), 0))
         self.assertIsNotNone(sl._case_coverage_error(
             case, "default/v3", self._fused_stages(128), 0))
+
+    def test_cross_tier_work_is_not_promoted(self):
+        case = self._fused_case(["One", "Zero", "One", "Zero"],
+                                add_budget=128, per_term=64,
+                                callable="ops::mul_add_gather",
+                                multiplicity="UnitAddPairs")
+        stages = self._fused_stages(0)
+        stages[0]["tiers"] = {"v2": 16_384, "v3_gfni_crypto": 128}
+        stages[1]["tiers"] = {}
+        stages[1]["budget"] = 128
+        # Under a GFNI minimum only the 128 GFNI units count; the zero terms
+        # bound 128, leaving no credit. Under a V2 minimum the V2 work is
+        # genuinely eligible.
+        self.assertIsNotNone(sl._case_coverage_error(
+            case, "default/v3", stages, sl._strength("v3_gfni_crypto")))
+        self.assertIsNone(sl._case_coverage_error(
+            case, "default/v3", stages, sl._strength("v2")))
+
+    def test_copy_base_work_cannot_fund_the_addition(self):
+        case = self._fused_case(["One", "Zero", "One", "Zero"],
+                                add_budget=64, per_term=64,
+                                callable="ops::mul_into_gather",
+                                multiplicity="UnitAdds")
+        stages = self._fused_stages(192)
+        self.assertIsNotNone(sl._case_coverage_error(
+            case, "default/v3", stages, 0))
+
+    @staticmethod
+    def _parity_row(index):
+        tiers = ["scalar", "v2", "v3", "v3_gfni_crypto"]
+        one = ["One", "Zero", "One", "Zero"]
+        general = ["General", "General", "One", "One"]
+        if index % 4 == 0:
+            callable, slots, multiplicity = (
+                "ops::mul_add_gather", one, "UnitAddPairs")
+        elif index % 4 == 1:
+            callable, slots, multiplicity = (
+                "ops::mul_into_gather", one, "UnitAdds")
+        elif index % 4 == 2:
+            callable, slots, multiplicity = (
+                "ops::mul_add_gather", general, "UnitAddPairs")
+        else:
+            callable, slots, multiplicity = (
+                "ops::mul_into_gather", general, "UnitAdds")
+        minimum = tiers[(index // 4) % 4]
+        total = (index % 8) * 64 + (index % 3) * 16
+        mode = index % 4
+        split = {}
+
+        def add_split(tier, work):
+            split[tier] = split.get(tier, 0) + work
+
+        if mode == 0:
+            add_split(minimum, total)
+        elif mode == 1:
+            add_split("scalar", total)
+        elif mode == 2:
+            add_split("v2", total // 2)
+            add_split("v3", total - total // 2)
+        else:
+            add_split("v2", total * 3 // 4)
+            add_split(minimum, total - total * 3 // 4)
+        split = {tier: work for tier, work in split.items() if work > 0}
+        generals = slots.count("General")
+        ones = slots.count("One")
+        copy_base = 1 if callable.startswith("ops::mul_into") and "One" in slots else 0
+        add_budget = ones * 64 if multiplicity == "UnitAddPairs" \
+            else max(0, ones - copy_base) * 64
+        case = {
+            "callable": callable,
+            "geometry": {"rows": 4, "sources": 4},
+            "pattern": {"slots": slots},
+            "cell_work": {"default/v3": [
+                {"substage": "MulAdd", "scope": None, "unit": "Elements",
+                 "elem_size": 1, "multiplicity": "ActivePairs",
+                 "budget": generals * 64, "per_term": 64,
+                 "per_term_max": 64},
+                {"substage": "Add", "scope": None, "unit": "Elements",
+                 "elem_size": 1, "multiplicity": multiplicity,
+                 "budget": add_budget, "per_term": 64,
+                 "per_term_max": 64},
+            ]},
+        }
+        stages = [
+            {"substage": "MulAdd", "scope": None, "unit": "Elements",
+             "tier": minimum, "tiers": split,
+             "work": sum(split.values()), "budget": generals * 64},
+            {"substage": "Add", "scope": None, "unit": "Elements",
+             "tier": minimum, "tiers": {}, "work": 0,
+             "budget": add_budget},
+        ]
+        return case, stages, minimum
+
+    @unittest.skipUnless(shutil.which("cargo"), "cargo not on PATH")
+    def test_fused_parity_matrix_matches_runner(self):
+        root = Path(__file__).resolve().parent.parent
+        proc = subprocess.run(
+            ["cargo", "test", "--lib",
+             "kernel::tests::routes::tests::fused_parity_matrix",
+             "--", "--nocapture"],
+            cwd=root, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
+        rows = {}
+        for line in proc.stdout.splitlines():
+            if line.startswith("FUSED_PARITY\t"):
+                _, index, passed = line.split("\t")
+                rows[int(index)] = int(passed)
+        self.assertEqual(len(rows), 47)
+        for index, passed in sorted(rows.items()):
+            case, stages, minimum = self._parity_row(index)
+            tool = sl._case_coverage_error(
+                case, "default/v3", stages, sl._strength(minimum)) is None
+            self.assertEqual(tool, bool(passed), f"row {index}")
 
     def test_full_length_general_slack_cannot_fund_unit_adds(self):
         # Two general terms at full length (2 x 64 = 128); unit work is

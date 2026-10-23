@@ -3277,9 +3277,9 @@
     "bits::set_range@bits-gf2": "default/v3_gfni_crypto=zero-budget default/v3=zero-budget default/v2=zero-budget all/v3_gfni_crypto=zero-budget all/v3=zero-budget all/v2=zero-budget",
     "bits::weight@bits-gf2": "default/v3_gfni_crypto=missing default/v3=missing default/v2=missing all/v3_gfni_crypto=missing all/v3=missing all/v2=missing",
     "bits::xor_assign@bits-gf2": "default/v3_gfni_crypto=direct@v3 default/v3=direct@v3 default/v2=direct@v2 all/v3_gfni_crypto=direct@v3 all/v3=direct@v3 all/v2=direct@v2",
-    "bits::xor_gather@bits-gf2": "default/v3_gfni_crypto=composition@v3 default/v3=composition@v3 default/v2=composition@v2 all/v3_gfni_crypto=composition@v3 all/v3=composition@v3 all/v2=composition@v2",
-    "bits::xor_range@bits-gf2": "default/v3_gfni_crypto=direct@v3 default/v3=direct@v3 default/v2=direct@v2 all/v3_gfni_crypto=direct@v3 all/v3=direct@v3 all/v2=direct@v2",
-    "bits::xor_range_with@bits-gf2": "default/v3_gfni_crypto=direct@v3 default/v3=direct@v3 default/v2=direct@v2 all/v3_gfni_crypto=direct@v3 all/v3=direct@v3 all/v2=direct@v2",
+    "bits::xor_gather@bits-gf2": "default/v3_gfni_crypto=composition@v2 default/v3=composition@v2 default/v2=composition@v2 all/v3_gfni_crypto=composition@v2 all/v3=composition@v2 all/v2=composition@v2",
+    "bits::xor_range@bits-gf2": "default/v3_gfni_crypto=direct@v2 default/v3=direct@v2 default/v2=direct@v2 all/v3_gfni_crypto=direct@v2 all/v3=direct@v2 all/v2=direct@v2",
+    "bits::xor_range_with@bits-gf2": "default/v3_gfni_crypto=direct@v2 default/v3=direct@v2 default/v2=direct@v2 all/v3_gfni_crypto=direct@v2 all/v3=direct@v2 all/v2=direct@v2",
     "map::apply_into_with@map-iso-binary-column": "default/v3_gfni_crypto=missing default/v3=missing default/v2=missing all/v3_gfni_crypto=missing all/v3=missing all/v2=missing",
     "map::apply_into_with@map-iso-binary-column-images": "default/v3_gfni_crypto=missing default/v3=missing default/v2=missing all/v3_gfni_crypto=missing all/v3=missing all/v2=missing",
     "map::apply_into_with@map-iso-injection": "default/v3_gfni_crypto=missing default/v3=missing default/v2=missing all/v3_gfni_crypto=missing all/v3=missing all/v2=missing",
@@ -5615,15 +5615,15 @@
     "ops::mul_into_gather@component-residue-u8-high": "ops::mul_into_gather has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:148; uncovered: r131q/gather-4x1/general-4, r131q/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather@gf8-cantor": "ops::mul_into_gather has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:148; uncovered: gf8c/gather-4x1/general-4, gf8c/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather@gf8-normal": "ops::mul_into_gather has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:148; uncovered: gf8n/gather-4x1/general-4, gf8n/gather-4x1/gf2-fan-4",
-    "ops::mul_into_gather@gf8-poly-other": "ops::mul_add is direct@v3 for this rule; ops::mul_into_gather (src/ops/gather.rs:148) does not reach its own SIMD arm; uncovered: gf8rs/gather-4x1/general-4",
+    "ops::mul_into_gather@gf8-poly-other": "ops::mul_add is direct@v3 for this rule; ops::mul_into_gather (src/ops/gather.rs:148) does not reach its own SIMD arm; uncovered: gf8rs/gather-4x1/general-4, gf8rs/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather@goldilocks": "ops::mul_add is direct@v3 for this rule; ops::mul_into_gather (src/ops/gather.rs:148) does not reach its own SIMD arm; uncovered: gld/gather-4x1/general-4, gld/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather@mersenne31": "ops::mul_add is direct@v3 for this rule; ops::mul_into_gather (src/ops/gather.rs:148) does not reach its own SIMD arm; uncovered: m31/gather-4x1/general-4, m31/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather@packed-u16-custom": "ops::mul_into_gather has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:148; uncovered: pu16c/gather-4x1/general-4, pu16c/gather-4x1/gf2-fan-4",
-    "ops::mul_into_gather@packed-u16-shipped": "ops::mul_add is direct@v3 for this rule; ops::mul_into_gather (src/ops/gather.rs:148) does not reach its own SIMD arm; uncovered: fp16r/gather-4x1/general-4, fp16f/gather-4x1/general-4",
+    "ops::mul_into_gather@packed-u16-shipped": "ops::mul_add is direct@v3 for this rule; ops::mul_into_gather (src/ops/gather.rs:148) does not reach its own SIMD arm; uncovered: fp16r/gather-4x1/general-4, fp16r/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather@packed-u32-custom": "ops::mul_into_gather has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:148; uncovered: pu32c/gather-4x1/general-4, pu32c/gather-4x1/gf2-fan-4",
-    "ops::mul_into_gather@packed-u32-shipped": "ops::mul_add is direct@v3 for this rule; ops::mul_into_gather (src/ops/gather.rs:148) does not reach its own SIMD arm; uncovered: fp32r/gather-4x1/general-4, fp32f/gather-4x1/general-4",
+    "ops::mul_into_gather@packed-u32-shipped": "ops::mul_add is direct@v3 for this rule; ops::mul_into_gather (src/ops/gather.rs:148) does not reach its own SIMD arm; uncovered: fp32r/gather-4x1/general-4, fp32r/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather@packed-u64-custom": "ops::mul_into_gather has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:148; uncovered: pu64c/gather-4x1/general-4, pu64c/gather-4x1/gf2-fan-4",
-    "ops::mul_into_gather@packed-u64-shipped": "ops::mul_add is direct@v3 for this rule; ops::mul_into_gather (src/ops/gather.rs:148) does not reach its own SIMD arm; uncovered: fp64r/gather-4x1/general-4, fp64f/gather-4x1/general-4",
+    "ops::mul_into_gather@packed-u64-shipped": "ops::mul_add is direct@v3 for this rule; ops::mul_into_gather (src/ops/gather.rs:148) does not reach its own SIMD arm; uncovered: fp64r/gather-4x1/general-4, fp64r/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather@packed-u8-custom": "ops::mul_into_gather has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:148; uncovered: pu8c/gather-4x1/general-4, pu8c/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather@packed-u8-shipped": "ops::mul_into_gather has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:148; uncovered: fp8s/gather-4x1/general-4, fp8s/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather@residue-gf2": "ops::mul_into_gather has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:148; uncovered: rgf2/gather-4x1/gf2-fan-4",
@@ -5651,15 +5651,15 @@
     "ops::mul_into_gather_with@component-residue-u8-high": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: r131q/gather-4x1/general-4, r131q/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather_with@gf8-cantor": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: gf8c/gather-4x1/general-4, gf8c/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather_with@gf8-normal": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: gf8n/gather-4x1/general-4, gf8n/gather-4x1/gf2-fan-4",
-    "ops::mul_into_gather_with@gf8-poly-other": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: gf8rs/gather-4x1/general-4",
+    "ops::mul_into_gather_with@gf8-poly-other": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: gf8rs/gather-4x1/general-4, gf8rs/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather_with@goldilocks": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: gld/gather-4x1/general-4, gld/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather_with@mersenne31": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: m31/gather-4x1/general-4, m31/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather_with@packed-u16-custom": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: pu16c/gather-4x1/general-4, pu16c/gather-4x1/gf2-fan-4",
-    "ops::mul_into_gather_with@packed-u16-shipped": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: fp16r/gather-4x1/general-4, fp16f/gather-4x1/general-4",
+    "ops::mul_into_gather_with@packed-u16-shipped": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: fp16r/gather-4x1/general-4, fp16r/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather_with@packed-u32-custom": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: pu32c/gather-4x1/general-4, pu32c/gather-4x1/gf2-fan-4",
-    "ops::mul_into_gather_with@packed-u32-shipped": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: fp32r/gather-4x1/general-4, fp32f/gather-4x1/general-4",
+    "ops::mul_into_gather_with@packed-u32-shipped": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: fp32r/gather-4x1/general-4, fp32r/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather_with@packed-u64-custom": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: pu64c/gather-4x1/general-4, pu64c/gather-4x1/gf2-fan-4",
-    "ops::mul_into_gather_with@packed-u64-shipped": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: fp64r/gather-4x1/general-4, fp64f/gather-4x1/general-4",
+    "ops::mul_into_gather_with@packed-u64-shipped": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: fp64r/gather-4x1/general-4, fp64r/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather_with@packed-u8-custom": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: pu8c/gather-4x1/general-4, pu8c/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather_with@packed-u8-shipped": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: fp8s/gather-4x1/general-4, fp8s/gather-4x1/gf2-fan-4",
     "ops::mul_into_gather_with@residue-gf2": "ops::mul_into_gather_with has no SIMD arm for this rule; scalar dispatch at src/ops/gather.rs:186; uncovered: rgf2/gather-4x1/gf2-fan-4",
@@ -6015,42 +6015,42 @@
   "evidence": {
     "all/scalar": {
       "record": "bench-records/routes/all-scalar.log",
-      "source_id": "00a401bbb309e9edb4c8dcf341d081afd73e66a4df36e2f3d7a35e9b34421ea1",
+      "source_id": "1eb47e899f05d1a9cb63e5e4878988ae3b7c7bc3b2c7cf0e23d1b36635fc4e01",
       "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
     },
     "all/v2": {
       "record": "bench-records/routes/all-v2.log",
-      "source_id": "00a401bbb309e9edb4c8dcf341d081afd73e66a4df36e2f3d7a35e9b34421ea1",
+      "source_id": "1eb47e899f05d1a9cb63e5e4878988ae3b7c7bc3b2c7cf0e23d1b36635fc4e01",
       "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
     },
     "all/v3": {
       "record": "bench-records/routes/all-v3.log",
-      "source_id": "00a401bbb309e9edb4c8dcf341d081afd73e66a4df36e2f3d7a35e9b34421ea1",
+      "source_id": "1eb47e899f05d1a9cb63e5e4878988ae3b7c7bc3b2c7cf0e23d1b36635fc4e01",
       "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
     },
     "all/v3_gfni_crypto": {
       "record": "bench-records/routes/all-v3_gfni_crypto.log",
-      "source_id": "00a401bbb309e9edb4c8dcf341d081afd73e66a4df36e2f3d7a35e9b34421ea1",
+      "source_id": "1eb47e899f05d1a9cb63e5e4878988ae3b7c7bc3b2c7cf0e23d1b36635fc4e01",
       "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
     },
     "default/scalar": {
       "record": "bench-records/routes/default-scalar.log",
-      "source_id": "00a401bbb309e9edb4c8dcf341d081afd73e66a4df36e2f3d7a35e9b34421ea1",
+      "source_id": "1eb47e899f05d1a9cb63e5e4878988ae3b7c7bc3b2c7cf0e23d1b36635fc4e01",
       "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
     },
     "default/v2": {
       "record": "bench-records/routes/default-v2.log",
-      "source_id": "00a401bbb309e9edb4c8dcf341d081afd73e66a4df36e2f3d7a35e9b34421ea1",
+      "source_id": "1eb47e899f05d1a9cb63e5e4878988ae3b7c7bc3b2c7cf0e23d1b36635fc4e01",
       "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
     },
     "default/v3": {
       "record": "bench-records/routes/default-v3.log",
-      "source_id": "00a401bbb309e9edb4c8dcf341d081afd73e66a4df36e2f3d7a35e9b34421ea1",
+      "source_id": "1eb47e899f05d1a9cb63e5e4878988ae3b7c7bc3b2c7cf0e23d1b36635fc4e01",
       "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
     },
     "default/v3_gfni_crypto": {
       "record": "bench-records/routes/default-v3_gfni_crypto.log",
-      "source_id": "00a401bbb309e9edb4c8dcf341d081afd73e66a4df36e2f3d7a35e9b34421ea1",
+      "source_id": "1eb47e899f05d1a9cb63e5e4878988ae3b7c7bc3b2c7cf0e23d1b36635fc4e01",
       "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
     }
   },

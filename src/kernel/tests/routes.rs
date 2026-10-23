@@ -526,6 +526,7 @@ pub(super) struct StageReport {
     pub scope: Option<(&'static str, &'static str)>,
     pub unit: &'static str,
     pub tier: Backend,
+    pub tiers: Vec<(Backend, usize)>,
     pub kernels: Vec<&'static str>,
     pub work: usize,
     pub budget: usize,
@@ -663,6 +664,36 @@ fn multiplicity(case: &Case, work: &Work) -> usize {
             .count(),
         Multiplicity::UnitAdds => unit_adds(case),
     }
+}
+
+/// Destination rows whose overwrite starts from an exempt unit copy.
+fn overwrite_copy_bases(case: &Case) -> usize {
+    let base = case
+        .obligation
+        .split('@')
+        .next()
+        .unwrap_or("")
+        .rsplit("::")
+        .next()
+        .unwrap_or("");
+    let has_one = |slots: &[Coeff]| slots.iter().any(|slot| matches!(slot, Coeff::One));
+    if is_gather_case(case) {
+        return usize::from(has_one(case.coeffs));
+    }
+    if base.contains("scatter") {
+        return case
+            .coeffs
+            .iter()
+            .filter(|slot| matches!(slot, Coeff::One))
+            .count();
+    }
+    let (rows, sources) = (case.geometry.rows, case.geometry.sources);
+    if sources == 0 || case.coeffs.len() != rows * sources {
+        return 0;
+    }
+    (0..rows)
+        .filter(|row| has_one(&case.coeffs[row * sources..(row + 1) * sources]))
+        .count()
 }
 
 /// Unit additions for an overwrite: selected unit terms minus the copy base,
@@ -805,6 +836,27 @@ fn is_unit_add(work: &Work) -> bool {
     )
 }
 
+/// Add work to a per-tier count, preserving the strongest-order names.
+fn add_tier(tiers: &mut Vec<(Backend, usize)>, tier: Backend, work: usize) {
+    if let Some(entry) = tiers.iter_mut().find(|(known, _)| *known == tier) {
+        entry.1 = entry.1.saturating_add(work);
+    } else {
+        tiers.push((tier, work));
+    }
+}
+
+/// Surviving work for one entry and work rule, with its tier.
+fn entry_work(
+    entry: &Entry,
+    work: &Work,
+    width_bytes: usize,
+    minimum: Backend,
+) -> Option<(usize, bool)> {
+    let units = served_in_units(entry, work, width_bytes)?;
+    let eligible = trace::strength(entry.tier) >= trace::strength(minimum);
+    Some((units, eligible))
+}
+
 /// Decide one case: output equality always, routing when enforced.
 #[allow(clippy::too_many_lines)]
 pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
@@ -885,6 +937,20 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
         .iter()
         .filter(|slot| matches!(slot, Coeff::One))
         .count();
+    let overwrite = case
+        .obligation
+        .split('@')
+        .next()
+        .unwrap_or("")
+        .rsplit("::")
+        .next()
+        .unwrap_or("")
+        .starts_with("mul_into");
+    let copy_base_terms = if overwrite {
+        overwrite_copy_bases(case)
+    } else {
+        0
+    };
     let mut fused_credit = [0usize; 4];
     let mut muladd_tier = [Backend::Scalar; 4];
     for work in cell
@@ -902,17 +968,25 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
             if entry_key(entry) != work_key(work) {
                 continue;
             }
-            if let Some(units) = served_in_units(entry, work, width_bytes) {
-                served = served.saturating_add(units);
-                muladd_tier[unit_slot(work.unit)] =
-                    strongest(muladd_tier[unit_slot(work.unit)], entry.tier);
+            let Some((units, eligible)) = entry_work(entry, work, width_bytes, cell.min_serving)
+            else {
+                continue;
+            };
+            if !eligible {
+                continue;
             }
+            served = served.saturating_add(units);
+            muladd_tier[unit_slot(work.unit)] =
+                strongest(muladd_tier[unit_slot(work.unit)], entry.tier);
         }
         let bound = general_terms
             .saturating_add(zero_terms)
+            .saturating_add(copy_base_terms)
             .saturating_mul(maximum);
         let remainder = served.saturating_sub(bound);
-        let cap = unit_terms.saturating_mul(maximum);
+        let cap = unit_terms
+            .saturating_sub(copy_base_terms)
+            .saturating_mul(maximum);
         fused_credit[unit_slot(work.unit)] =
             fused_credit[unit_slot(work.unit)].max(remainder.min(cap));
     }
@@ -921,6 +995,7 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
         let key = work_key(work);
         let mut served = 0usize;
         let mut tier = Backend::Scalar;
+        let mut tiers: Vec<(Backend, usize)> = Vec::new();
         let mut kernels: Vec<&'static str> = Vec::new();
         let mut wrong_unit = false;
         let width_bytes = match work.basis {
@@ -931,16 +1006,18 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
             if entry_key(entry) != key {
                 continue;
             }
-            let Some(units) = served_in_units(entry, work, width_bytes) else {
+            let Some((units, eligible)) = entry_work(entry, work, width_bytes, cell.min_serving)
+            else {
                 wrong_unit = true;
                 continue;
             };
-            // Lower-tier work stays visible: the audit derives the served
-            // tier and rejects a cell whose minimum exceeds it.
-            served = served.saturating_add(units);
-            tier = strongest(tier, entry.tier);
-            if !kernels.contains(&entry.kernel) {
-                kernels.push(entry.kernel);
+            add_tier(&mut tiers, entry.tier, units);
+            if eligible {
+                served = served.saturating_add(units);
+                tier = strongest(tier, entry.tier);
+                if !kernels.contains(&entry.kernel) {
+                    kernels.push(entry.kernel);
+                }
             }
         }
         let required = budget(case, work, outcome);
@@ -995,6 +1072,7 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
             scope: scope_names(work.scope),
             unit: unit_name(work.unit),
             tier,
+            tiers,
             kernels,
             work: direct,
             budget: required,
@@ -1018,20 +1096,26 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
             Some(stage) => {
                 stage.work = stage.work.saturating_add(entry.work);
                 stage.tier = strongest(stage.tier, entry.tier);
+                add_tier(&mut stage.tiers, entry.tier, entry.work);
                 if !stage.kernels.contains(&entry.kernel) {
                     stage.kernels.push(entry.kernel);
                 }
             }
-            None => stages.push(StageReport {
-                substage: substage_name(entry.substage),
-                scope: scope_names(entry.scope),
-                unit: unit_name(entry.unit),
-                tier: entry.tier,
-                kernels: vec![entry.kernel],
-                work: entry.work,
-                budget: 0,
-                met: true,
-            }),
+            None => {
+                let mut tiers = Vec::new();
+                add_tier(&mut tiers, entry.tier, entry.work);
+                stages.push(StageReport {
+                    substage: substage_name(entry.substage),
+                    scope: scope_names(entry.scope),
+                    unit: unit_name(entry.unit),
+                    tier: entry.tier,
+                    tiers,
+                    kernels: vec![entry.kernel],
+                    work: entry.work,
+                    budget: 0,
+                    met: true,
+                });
+            }
         }
     }
 
@@ -1242,13 +1326,20 @@ fn stages_json(stages: &[StageReport]) -> String {
             .map(|kernel| quote(kernel))
             .collect::<Vec<_>>()
             .join(",");
+        let tiers = stage
+            .tiers
+            .iter()
+            .map(|(tier, work)| format!("{}:{}", quote(tier.name()), work))
+            .collect::<Vec<_>>()
+            .join(",");
         let _ = write!(
             out,
-            "{{\"substage\":{},\"scope\":{},\"unit\":{},\"tier\":{},\"kernels\":[{}],\"work\":{},\"budget\":{},\"met\":{}}}",
+            "{{\"substage\":{},\"scope\":{},\"unit\":{},\"tier\":{},\"tiers\":{{{}}},\"kernels\":[{}],\"work\":{},\"budget\":{},\"met\":{}}}",
             quote(stage.substage),
             scope,
             quote(stage.unit),
             quote(stage.tier.name()),
+            tiers,
             kernels,
             stage.work,
             stage.budget,
@@ -1702,6 +1793,265 @@ mod tests {
         map: None,
         cells: &[FUSED_LOSS_CELL],
     };
+
+    const TIER_WORK: &[Work] = &[
+        Work {
+            substage: Substage::MulAdd,
+            scope: None,
+            unit: Unit::Elements,
+            basis: Basis::Source,
+            multiplicity: Multiplicity::ActivePairs,
+            lane: 1,
+            loss: 0,
+            iterations: 1,
+        },
+        Work {
+            substage: Substage::Add,
+            scope: None,
+            unit: Unit::Elements,
+            basis: Basis::Source,
+            multiplicity: Multiplicity::UnitAddPairs,
+            lane: 1,
+            loss: 0,
+            iterations: 1,
+        },
+    ];
+    const TIER_CELL: Cell = Cell {
+        features: Features::Default,
+        request: Request::V3,
+        process: Backend::V3,
+        field: Backend::V3,
+        required: true,
+        min_serving: Backend::V3,
+        work: TIER_WORK,
+    };
+    const TIER_CASE: Case = Case {
+        id: "ops::mul_add_gather@test#fixture/gather-tier/_",
+        obligation: "ops::mul_add_gather@test",
+        run: RUN,
+        geometry: Geometry {
+            rows: 4,
+            sources: 4,
+            len: 64,
+            misalign: 0,
+            pitch_pad: 0,
+        },
+        coeffs: FUSED_COEFFS,
+        map: None,
+        cells: &[TIER_CELL],
+    };
+    const COPY_WORK: &[Work] = &[
+        Work {
+            substage: Substage::MulAdd,
+            scope: None,
+            unit: Unit::Elements,
+            basis: Basis::Source,
+            multiplicity: Multiplicity::ActivePairs,
+            lane: 1,
+            loss: 0,
+            iterations: 1,
+        },
+        Work {
+            substage: Substage::Add,
+            scope: None,
+            unit: Unit::Elements,
+            basis: Basis::Source,
+            multiplicity: Multiplicity::UnitAdds,
+            lane: 1,
+            loss: 0,
+            iterations: 1,
+        },
+    ];
+    const COPY_CELL: Cell = Cell {
+        features: Features::Default,
+        request: Request::Scalar,
+        process: Backend::Scalar,
+        field: Backend::Scalar,
+        required: true,
+        min_serving: Backend::Scalar,
+        work: COPY_WORK,
+    };
+    const COPY_CASE: Case = Case {
+        id: "ops::mul_into_gather@test#fixture/gather-copy/_",
+        obligation: "ops::mul_into_gather@test",
+        run: RUN,
+        geometry: Geometry {
+            rows: 4,
+            sources: 4,
+            len: 64,
+            misalign: 0,
+            pitch_pad: 0,
+        },
+        coeffs: FUSED_COEFFS,
+        map: None,
+        cells: &[COPY_CELL],
+    };
+
+    fn tiered_entries() -> Vec<Entry> {
+        vec![
+            Entry {
+                kernel: "test-v2",
+                substage: Substage::MulAdd,
+                scope: None,
+                unit: Unit::Elements,
+                work: 16_384,
+                tier: Backend::V2,
+            },
+            Entry {
+                kernel: "test-v3",
+                substage: Substage::MulAdd,
+                scope: None,
+                unit: Unit::Elements,
+                work: 128,
+                tier: Backend::V3,
+            },
+        ]
+    }
+
+    /// Weaker-tier work never counts toward a stronger minimum.
+    #[test]
+    fn judge_rejects_cross_tier_promotion() {
+        let mut outcome = outcome_with(7, 7, 0);
+        outcome.trace = tiered_entries();
+        outcome.enforce_routing = true;
+        let verdict = judge(&TIER_CASE, &TIER_CELL, &outcome);
+        assert!(!verdict.detail.is_empty());
+    }
+
+    /// Deterministic 47-row matrix compared with the Python coverage helper.
+    #[test]
+    fn fused_parity_matrix() {
+        const PATTERN_ONE: &[Coeff] = &[Coeff::One, Coeff::Zero, Coeff::One, Coeff::Zero];
+        const PATTERN_GENERAL: &[Coeff] = &[Coeff::General, Coeff::General, Coeff::One, Coeff::One];
+        const TIERS: [Backend; 4] = [
+            Backend::Scalar,
+            Backend::V2,
+            Backend::V3,
+            Backend::V3GfniCrypto,
+        ];
+        for index in 0..47usize {
+            let (obligation, coeffs, add_multiplicity) = match index % 4 {
+                0 => (
+                    "ops::mul_add_gather@test",
+                    PATTERN_ONE,
+                    Multiplicity::UnitAddPairs,
+                ),
+                1 => (
+                    "ops::mul_into_gather@test",
+                    PATTERN_ONE,
+                    Multiplicity::UnitAdds,
+                ),
+                2 => (
+                    "ops::mul_add_gather@test",
+                    PATTERN_GENERAL,
+                    Multiplicity::UnitAddPairs,
+                ),
+                _ => (
+                    "ops::mul_into_gather@test",
+                    PATTERN_GENERAL,
+                    Multiplicity::UnitAdds,
+                ),
+            };
+            let minimum = TIERS[(index / 4) % 4];
+            let total = (index % 8) * 64 + (index % 3) * 16;
+            let split: Vec<(Backend, usize)> = match index % 4 {
+                0 => vec![(minimum, total)],
+                1 => vec![(Backend::Scalar, total)],
+                2 => vec![(Backend::V2, total / 2), (Backend::V3, total - total / 2)],
+                _ => vec![
+                    (Backend::V2, total * 3 / 4),
+                    (minimum, total - total * 3 / 4),
+                ],
+            };
+            let entries: Vec<Entry> = split
+                .into_iter()
+                .filter(|(_, work)| *work > 0)
+                .map(|(tier, work)| Entry {
+                    kernel: "parity",
+                    substage: Substage::MulAdd,
+                    scope: None,
+                    unit: Unit::Elements,
+                    work,
+                    tier,
+                })
+                .collect();
+            let work: &'static [Work] = Box::leak(
+                vec![
+                    Work {
+                        substage: Substage::MulAdd,
+                        scope: None,
+                        unit: Unit::Elements,
+                        basis: Basis::Source,
+                        multiplicity: Multiplicity::ActivePairs,
+                        lane: 1,
+                        loss: 0,
+                        iterations: 1,
+                    },
+                    Work {
+                        substage: Substage::Add,
+                        scope: None,
+                        unit: Unit::Elements,
+                        basis: Basis::Source,
+                        multiplicity: add_multiplicity,
+                        lane: 1,
+                        loss: 0,
+                        iterations: 1,
+                    },
+                ]
+                .into_boxed_slice(),
+            );
+            let cells: &'static [Cell] = Box::leak(
+                vec![Cell {
+                    features: Features::Default,
+                    request: Request::Scalar,
+                    process: minimum,
+                    field: minimum,
+                    required: true,
+                    min_serving: minimum,
+                    work,
+                }]
+                .into_boxed_slice(),
+            );
+            let case = Case {
+                id: "parity@test#fixture/gather/_",
+                obligation,
+                run: RUN,
+                geometry: Geometry {
+                    rows: 4,
+                    sources: 4,
+                    len: 64,
+                    misalign: 0,
+                    pitch_pad: 0,
+                },
+                coeffs,
+                map: None,
+                cells,
+            };
+            let cell = &cells[0];
+            let mut outcome = Outcome::new(minimum, minimum);
+            outcome.trace = entries;
+            outcome.enforce_routing = true;
+            outcome.checks.push(BufferCheck {
+                name: "dst",
+                actual: vec![7],
+                expected: vec![7],
+            });
+            let verdict = judge(&case, cell, &outcome);
+            println!(
+                "FUSED_PARITY\t{index}\t{}",
+                u8::from(verdict.detail.is_empty())
+            );
+        }
+    }
+
+    /// Exempt copy-base work cannot fund the only required addition.
+    #[test]
+    fn judge_rejects_copy_base_funded_unit_add() {
+        let mut outcome = outcome_with(7, 7, 192);
+        outcome.enforce_routing = true;
+        let verdict = judge(&COPY_CASE, &COPY_CELL, &outcome);
+        assert!(!verdict.detail.is_empty());
+    }
 
     /// Full-length general work leaves no slack that funds short unit work.
     #[test]

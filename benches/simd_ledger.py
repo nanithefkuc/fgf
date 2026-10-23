@@ -1810,20 +1810,69 @@ def _stage_work_in_units(stage: dict, item: dict) -> int:
 UNIT_ADD_MULTIPLICITIES = frozenset({"UnitAddPairs", "UnitAdds"})
 
 
+def _convert_work(value: int, item: dict, stage: dict) -> int:
+    """A work count in the item's unit, from the stage's unit."""
+    if stage.get("unit") == item.get("unit"):
+        return max(0, value)
+    width = item.get("elem_size", 0)
+    if not isinstance(width, int) or width <= 0:
+        return 0
+    if item.get("unit") == "Elements" and stage.get("unit") == "Bytes":
+        return max(0, value) // width
+    if item.get("unit") == "Bytes" and stage.get("unit") == "Elements":
+        return max(0, value) * width
+    return 0
+
+
+def _stage_eligible_work(stage: dict, item: dict, minimum: int) -> int:
+    """Eligible work from the stage's per-tier counts, never its label."""
+    tiers = stage.get("tiers")
+    if not isinstance(tiers, dict):
+        return 0
+    total = 0
+    for tier, value in tiers.items():
+        if _strength(tier) < minimum:
+            continue
+        if not isinstance(value, int) or isinstance(value, bool):
+            continue
+        total += _convert_work(value, item, stage)
+    return total
+
+
+def _overwrite_copy_bases(case: dict) -> int:
+    """Destination rows whose overwrite starts from an exempt unit copy."""
+    base = case.get("callable", "").split("::")[-1]
+    if not base.startswith("mul_into"):
+        return 0
+    slots = case.get("pattern", {}).get("slots", [])
+    if "gather" in base:
+        return int("One" in slots)
+    if "scatter" in base:
+        return sum(1 for slot in slots if slot == "One")
+    geometry = case.get("geometry", {})
+    rows = geometry.get("rows", 1)
+    sources = geometry.get("sources", 1)
+    if sources <= 0 or len(slots) != rows * sources:
+        return 0
+    return sum(
+        1 for row in range(rows)
+        if "One" in slots[row * sources:(row + 1) * sources])
+
+
 def _case_coverage_error(case: dict, key: str, stages: list,
                          minimum: int) -> str | None:
-    """Derived-budget coverage with coefficient-aware fused credit.
+    """Derived-budget coverage with tier- and coefficient-aware fused credit.
 
-    A fused MulAdd loop can perform unit additions, but only work beyond the
-    maximum possible general-coefficient and zero-coefficient work funds them;
-    the remainder is capped by the maximum possible unit work. Zero terms and
-    general slack never fund an Add requirement.
+    Only work at or above the minimum tier counts. General, zero, and the
+    overwrite copy-base term are subtracted at their full-length maximum; the
+    remainder, capped by the non-copy unit terms, may fund Add.
     """
     items = case.get("cell_work", {}).get(key, [])
     slots = case.get("pattern", {}).get("slots", [])
     general = slots.count("General")
     zero = slots.count("Zero")
     ones = slots.count("One")
+    copy_base = _overwrite_copy_bases(case)
     pools: dict[object, int] = {}
     for item in items:
         if item.get("substage") != "MulAdd":
@@ -1831,10 +1880,10 @@ def _case_coverage_error(case: dict, key: str, stages: list,
         served = 0
         for stage in stages:
             if _item_matches(item, stage):
-                served += _stage_work_in_units(stage, item)
-        per_term_max = max(0, int(item.get("per_term_max", 0)))
-        bound = (general + zero) * per_term_max
-        cap = ones * per_term_max
+                served += _stage_eligible_work(stage, item, minimum)
+        maximum = max(0, int(item.get("per_term_max", 0)))
+        bound = (general + zero + copy_base) * maximum
+        cap = max(0, ones - copy_base) * maximum
         credit = min(max(0, served - bound), cap)
         unit = item.get("unit")
         pools[unit] = max(pools.get(unit, 0), credit)
@@ -1844,10 +1893,8 @@ def _case_coverage_error(case: dict, key: str, stages: list,
             continue
         served = 0
         for stage in stages:
-            if _strength(stage.get("tier")) < minimum:
-                continue
             if _item_matches(item, stage):
-                served += _stage_work_in_units(stage, item)
+                served += _stage_eligible_work(stage, item, minimum)
         if item.get("multiplicity") in UNIT_ADD_MULTIPLICITIES:
             unit = item.get("unit")
             credit = min(pools.get(unit, 0), max(0, budget - served))
@@ -1859,18 +1906,29 @@ def _case_coverage_error(case: dict, key: str, stages: list,
     return None
 
 
-def _served_tier(items: list[dict], stages: list) -> int:
-    """Weakest tier that served any of the required items."""
+def _case_served_tier(case: dict, key: str, stages: list,
+                      minimum: int = -1) -> int:
+    """Weakest tier with eligible work for any item of the cell.
+
+    Fused credit comes from MulAdd stages, so their tiers count even when the
+    Add item itself has no direct stage work.
+    """
+    items = case.get("cell_work", {}).get(key, [])
     weakest = None
     for stage in stages:
         if not any(_item_matches(item, stage) for item in items):
             continue
-        tier = stage.get("tier")
-        strength = _strength(tier)
-        if strength < 0:
+        tiers = stage.get("tiers")
+        if not isinstance(tiers, dict):
             continue
-        if weakest is None or strength < weakest:
-            weakest = strength
+        for tier, value in tiers.items():
+            if not isinstance(value, int) or value <= 0:
+                continue
+            strength = _strength(tier)
+            if strength < 0 or strength < minimum:
+                continue
+            if weakest is None or strength < weakest:
+                weakest = strength
     return -1 if weakest is None else weakest
 
 
@@ -2074,7 +2132,7 @@ def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
                     problem = _case_coverage_error(case, key, stages, minimum)
                     if problem is not None:
                         _fail(f"evidence {key!r}: receipt {cid} {problem}")
-                    served_cases.append(_served_tier(required, stages))
+                    served_cases.append(_case_served_tier(case, key, stages, minimum))
             if direct and served_cases and min(served_cases) != minimum:
                 _fail(f"evidence {key!r}: served tier "
                       f"{min(served_cases)} differs from min_serving "
@@ -2846,7 +2904,7 @@ def cmd_accept(log: Path, features: str, request: str, source_id: str,
                 problem = _case_coverage_error(case, f"{features}/{request}", stages, minimum)
                 if problem is not None:
                     _fail(f"accept: reject budget_coverage {cid}: {problem}")
-                served = _served_tier(required_items, stages)
+                served = _case_served_tier(case, f"{features}/{request}", stages, minimum)
                 if served >= 0:
                     served_by_ob.setdefault((oid, f"{features}/{request}"),
                                             []).append(served)
