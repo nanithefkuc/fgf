@@ -1606,7 +1606,8 @@ def _parse_surface_inventory(text: str) -> set[str]:
 
 def cmd_check(ledger: dict, schema_only: bool, rustdoc: Path | None,
               test_list: Path | None, case_list: Path | None,
-              surface_inventory: Path | None, records: Path | None) -> int:
+              surface_inventory: Path | None, records: Path | None,
+              case_list_all: Path | None = None) -> int:
     """Validate the ledger. Both modes derive from obligations() and cases()."""
     if schema_only:
         _validate_callables(ledger, rustdoc)
@@ -1651,6 +1652,15 @@ def cmd_check(ledger: dict, schema_only: bool, rustdoc: Path | None,
     case_ids = _parse_case_list(cl_text)
     if not case_ids:
         _fail("case list contains no ROUTE_CASE_LIST lines")
+    if case_list_all is not None:
+        # v4x cases exist only in the simd512 build; the all-features list
+        # supplies them for the run-keyed evidence audit.
+        all_text = case_list_all.read_text().strip()
+        if not all_text:
+            _fail("all-features case list is empty")
+        case_ids |= _parse_case_list(all_text)
+        if not case_ids:
+            _fail("all-features case list contains no ROUTE_CASE_LIST lines")
 
     si_text = surface_inventory.read_text().strip()
     if not si_text:
@@ -3131,6 +3141,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     chk.add_argument("--rustdoc", type=Path, default=None)
     chk.add_argument("--test-list", type=Path, default=None)
     chk.add_argument("--case-list", type=Path, default=None)
+    chk.add_argument("--case-list-all", type=Path, default=None)
     chk.add_argument("--surface-inventory", type=Path, default=None)
     chk.add_argument("--records", type=Path, default=None,
                      help="bench-records/routes directory (required if evidence cited)")
@@ -3169,7 +3180,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             ledger = load(ledger_path)
             if args.full:
                 return cmd_check(ledger, False, args.rustdoc, args.test_list,
-                                 args.case_list, args.surface_inventory, args.records)
+                                 args.case_list, args.surface_inventory,
+                                 args.records, args.case_list_all)
             return cmd_check(ledger, True, args.rustdoc, None, None, None, None)
 
         if args.command == "generate":

@@ -710,6 +710,7 @@ _route-inventories FEATURES DIR:
     cargo +{{API_NIGHTLY}} rustdoc --all-features --lib -- -Z unstable-options --output-format json
     cargo test --lib "${flags[@]}" -- --list >"{{DIR}}/tests.txt"
     FGF_ROUTE_LIST=1 cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture >"{{DIR}}/cases.txt"
+    FGF_ROUTE_LIST=1 cargo test --lib --all-features kernel::tests::routes::accept -- --nocapture >"{{DIR}}/cases-all.txt"
     bin=$(cargo build --profile test --all-features --bench surfaces --message-format=json-render-diagnostics | jq -rs '[.[] | select(.executable != null) | .executable] | last')
     "${bin}" --check >"{{DIR}}/surfaces.txt"
 
@@ -1038,6 +1039,7 @@ route-gate:
         --rustdoc target/doc/fgf.json \
         --test-list "$scratch/tests.txt" \
         --case-list "$scratch/cases.txt" \
+        --case-list-all "$scratch/cases-all.txt" \
         --surface-inventory "$scratch/surfaces.txt" \
         --records bench-records/routes
     python3 benches/simd_ledger.py generate --check --out src/kernel/tests/routes/cases.rs
