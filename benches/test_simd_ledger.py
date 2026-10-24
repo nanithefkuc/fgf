@@ -1731,6 +1731,13 @@ class TestMapCompleteness(unittest.TestCase):
     def ledger(self):
         return sl.load(Path(__file__).with_name("simd_ledger.json"))
 
+    def test_callable_cannot_disappear_inside_a_covered_family(self):
+        ledger = self.ledger()
+        ledger["applicability"]["map-lane-embedding"]["callable_filter"].remove(
+            "map::trace_into_with")
+        with self.assertRaises(ValidationError):
+            sl.obligations(ledger)
+
     def test_omitted_callable_requires_reason(self):
         ledger = self.ledger()
         ledger["rules"]["map-embed-residue-column"]["callables"].remove(

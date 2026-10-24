@@ -1241,17 +1241,12 @@ def _validate_expanded_obligations(ledger: dict, expanded: dict,
 
 
 def _validate_bulk_family_coverage(ledger: dict, expanded: dict) -> None:
-    """Every bulk callable family must receive at least one obligation."""
-    callables_by_family = _bulk_callables_by_family(ledger)
-    for family, callable_names in sorted(callables_by_family.items()):
-        covered = False
-        for oid in expanded:
-            call_name = oid.split("@", 1)[0]
-            if call_name in callable_names:
-                covered = True
-                break
-        if not covered:
-            _fail(f"bulk family {family!r} has no obligations; check applicability rules")
+    """Every bulk callable must receive at least one obligation."""
+    covered = {oid.split("@", 1)[0] for oid in expanded}
+    for family, callable_names in sorted(_bulk_callables_by_family(ledger).items()):
+        for name in callable_names:
+            if name not in covered:
+                _fail(f"bulk callable {name!r} in {family!r} has no obligations; check applicability rules")
 
 
 # ---------------------------------------------------------------------------
