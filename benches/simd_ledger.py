@@ -506,6 +506,44 @@ def _validate_applicability(ledger: dict, rules: dict) -> None:
             if not isinstance(reason, str) or not reason:
                 _fail(f"applicability {app_name!r}: exclusion {excl_rule_id!r} missing reason")
 
+        selected = app.get("callable_filter", [])
+        required_characteristics = app.get("required_characteristics", [])
+        if (not isinstance(required_characteristics, list)
+                or any(c not in (2, "odd") for c in required_characteristics)):
+            _fail(f"applicability {app_name!r}: invalid required_characteristics")
+        covered = {name: set() for name in selected}
+        for rid in app_rules:
+            if rid in exclusions:
+                continue
+            rule = rules[rid]
+            declared = rule.get("callables", selected)
+            omitted = rule.get("callable_exclusions", {})
+            if not isinstance(omitted, dict):
+                _fail(f"rule {rid!r}: callable_exclusions must be a dict")
+            for name, reason in omitted.items():
+                if name not in selected or name in declared or not isinstance(reason, str) or not reason.strip():
+                    _fail(f"rule {rid!r}: invalid callable exclusion {name!r}")
+            for name in selected:
+                if name not in declared:
+                    if name not in omitted:
+                        _fail(f"rule {rid!r}: omitted callable {name!r} requires an exclusion reason")
+                    continue
+                for fixture in rule["fixtures"]:
+                    characteristic = _type_characteristic(fixture.get("source", fixture.get("type")))
+                    if characteristic is not None:
+                        covered[name].add(2 if characteristic == 2 else "odd")
+            # Named prime presentations do not carry a FiniteField expression.
+            for name in declared:
+                if name in covered:
+                    for fixture in rule["fixtures"]:
+                        source = fixture.get("source", "")
+                        if source in ("crate::field::Mersenne31", "crate::field::Goldilocks"):
+                            covered[name].add("odd")
+        for name, characteristics in covered.items():
+            missing = set(required_characteristics) - characteristics
+            if missing:
+                _fail(f"applicability {app_name!r}: callable {name!r} missing characteristic coverage {sorted(missing, key=str)}")
+
 
 def _validate_work_rules(ledger: dict) -> dict:
     """Return {name: work_rule}. Iterations and loss_bytes are expression strings."""
@@ -767,7 +805,10 @@ def _expand_obligations(ledger: dict, rules: dict) -> dict:
                             key = f"{fc}/{req}"
                             cells[key] = dict(default_cell)
                             cells[key]["min_serving"] = req
-                            cells[key]["work"] = []
+                            cells[key]["work"] = (
+                                list(ledger.get("work", {}).get(call_name, []))
+                                if req != "scalar" else []
+                            )
                             # Process resolution from ISA facts
                             if isa:
                                 cells[key]["process"] = _process_for(isa, fc, req)

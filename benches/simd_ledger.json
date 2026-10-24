@@ -1920,6 +1920,17 @@
           "elem_bytes": 1,
           "target_elem_bytes": 1,
           "reference": "map-compact"
+        },
+        {
+          "id": "frob_id_odd",
+          "degree": 1,
+          "relative_degree": 1,
+          "source": "crate::field::FiniteField<3, 1, crate::field::Residue>",
+          "target": "crate::field::FiniteField<3, 1, crate::field::Residue>",
+          "elem_bytes": 1,
+          "target_elem_bytes": 1,
+          "reference": "map-compact",
+          "power": 0
         }
       ]
     },
@@ -1968,6 +1979,34 @@
           "elem_bytes": 1,
           "target_elem_bytes": 1,
           "reference": "map-compact"
+        },
+        {
+          "id": "frob_bc64",
+          "degree": 64,
+          "relative_degree": 1,
+          "source": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::kernel::tests::routes::fixtures::Gf64OverAesSpec, 8>>",
+          "target": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::kernel::tests::routes::fixtures::Gf64OverAesSpec, 8>>",
+          "elem_bytes": 8,
+          "target_elem_bytes": 8,
+          "reference": "map-compact",
+          "spec": {
+            "name": "GF(2^64) Components over AES",
+            "base": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+            "degree": 8,
+            "relation": [
+              107,
+              48,
+              249,
+              14,
+              199,
+              221,
+              1,
+              228
+            ],
+            "storage": "Components",
+            "_note": "t^8 + 0xE4*t^7 + t^6 + 0xDD*t^5 + 0xC7*t^4 + 0x0E*t^3 + 0xF9*t^2 + 0x30*t + 0x6B over AES8; Rabin test: x^(q^8) = x and gcd(x^(q^4) - x, f) = 1"
+          },
+          "power": 1
         }
       ]
     },
@@ -2006,6 +2045,108 @@
             "_note": "GF(7^3) as x^3 - 2; Relation::from_coordinates(&[5, 0, 0])",
             "_citation": "tests/prepared_map_rows.rs:47-55 G343Spec"
           }
+        },
+        {
+          "id": "frob_rc8",
+          "degree": 8,
+          "relative_degree": 1,
+          "source": "crate::field::FiniteField<3, 8, crate::field::Extension<crate::kernel::tests::routes::fixtures::G3e8Spec, 2>>",
+          "target": "crate::field::FiniteField<3, 8, crate::field::Extension<crate::kernel::tests::routes::fixtures::G3e8Spec, 2>>",
+          "elem_bytes": 8,
+          "target_elem_bytes": 8,
+          "reference": "map-compact",
+          "spec": {
+            "name": "GF(3^8) as a degree-2 extension of GF(3^4)",
+            "base": "crate::field::FiniteField<3, 4, crate::field::Extension<crate::kernel::tests::routes::fixtures::G81QuarticSpec, 4>>",
+            "degree": 2,
+            "relation": [
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "storage": "Components",
+            "_note": "t^2 - x over GF(3^4) as x^4 + 2x^2 + 2; Relation::from_coordinates(&[0, 1, 0, 0, 0, 0, 0, 0])"
+          },
+          "power": 1
+        }
+      ]
+    },
+    "map-frobenius-conjugation-odd-zero": {
+      "group": "map",
+      "kind": "frobenius",
+      "construction": "structural",
+      "arm": "conjugation",
+      "arm_citation": "src/field/embedding/frobenius.rs:109-133 \u2014 power 1 nonzero on a quadratic relation root with vanishing linear coefficient (GF(9) as a^2 + 1, relation [1, 0]) normalizes to an odd multiple of the base degree \u2192 CompiledMap::Conjugation with a Zero coefficient",
+      "callables": [
+        "map::frobenius_into_with",
+        "map::frobenius_assign_with"
+      ],
+      "_note": "odd-characteristic Zero case: GF(9) as a^2 + 1 has no linear term, so the Vieta step needs no stored coefficient",
+      "fixtures": [
+        {
+          "id": "frob_c0",
+          "degree": 2,
+          "relative_degree": 1,
+          "source": "crate::field::FiniteField<3, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::G9AltSpec, 2>>",
+          "target": "crate::field::FiniteField<3, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::G9AltSpec, 2>>",
+          "power": 1,
+          "elem_bytes": 2,
+          "target_elem_bytes": 2,
+          "reference": "map-compact",
+          "spec": {
+            "name": "frob-conjugation-odd-zero-field",
+            "base": "crate::field::FiniteField<3, 1, crate::field::Residue>",
+            "degree": 2,
+            "relation": [
+              1,
+              0
+            ],
+            "storage": "Components",
+            "_note": "GF(9) as a^2 + 1; Relation::from_coordinates(&[1, 0])",
+            "_citation": "tests/prepared_map_rows.rs:30-37 G9AltSpec; src/field/embedding/frobenius.rs:369-374 G9AltSpec"
+          }
+        }
+      ]
+    },
+    "map-frobenius-conjugation-odd-general": {
+      "group": "map",
+      "kind": "frobenius",
+      "construction": "structural",
+      "arm": "conjugation",
+      "arm_citation": "src/field/embedding/frobenius.rs:109-133 \u2014 power 1 nonzero on a quadratic relation root with a general stored linear coefficient (GF(9) as x^2 + 2x + 2, relation [2, 2]) normalizes to an odd multiple of the base degree \u2192 CompiledMap::Conjugation with a General coefficient",
+      "callables": [
+        "map::frobenius_into_with",
+        "map::frobenius_assign_with"
+      ],
+      "_note": "odd-characteristic General case: GF(9) as x^2 + 2x + 2 carries a nonzero linear term, so the Vieta step re-reads the stored coefficient",
+      "fixtures": [
+        {
+          "id": "frob_cg",
+          "degree": 2,
+          "relative_degree": 1,
+          "source": "crate::field::FiniteField<3, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::G9Spec, 2>>",
+          "target": "crate::field::FiniteField<3, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::G9Spec, 2>>",
+          "power": 1,
+          "elem_bytes": 2,
+          "target_elem_bytes": 2,
+          "reference": "map-compact",
+          "spec": {
+            "name": "frob-conjugation-odd-general-field",
+            "base": "crate::field::FiniteField<3, 1, crate::field::Residue>",
+            "degree": 2,
+            "relation": [
+              2,
+              2
+            ],
+            "storage": "Components",
+            "_note": "GF(9) as x^2 + 2x + 2; Relation::from_coordinates(&[2, 2])",
+            "_citation": "src/field/embedding/frobenius.rs:369-374 G9Spec"
+          }
         }
       ]
     },
@@ -2032,6 +2173,115 @@
           "elem_bytes": 1,
           "target_elem_bytes": 2,
           "reference": "map-compact"
+        },
+        {
+          "id": "emb_m31",
+          "degree": 1,
+          "relative_degree": 2,
+          "source": "crate::field::Mersenne31",
+          "target": "crate::field::QuadMersenne31",
+          "elem_bytes": 4,
+          "target_elem_bytes": 8,
+          "reference": "map-compact"
+        },
+        {
+          "id": "emb_r3d8",
+          "degree": 1,
+          "relative_degree": 8,
+          "source": "crate::field::FiniteField<3, 1, crate::field::Residue>",
+          "target": "crate::field::FiniteField<3, 8, crate::field::Extension<crate::kernel::tests::routes::fixtures::G3e8Spec, 2>>",
+          "elem_bytes": 1,
+          "target_elem_bytes": 8,
+          "reference": "map-compact",
+          "spec": {
+            "name": "GF(3^8) as a degree-2 extension of GF(3^4)",
+            "base": "crate::field::FiniteField<3, 4, crate::field::Extension<crate::kernel::tests::routes::fixtures::G81QuarticSpec, 4>>",
+            "degree": 2,
+            "relation": [
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "storage": "Components",
+            "_note": "t^2 - x over GF(3^4) as x^4 + 2x^2 + 2; Relation::from_coordinates(&[0, 1, 0, 0, 0, 0, 0, 0])"
+          }
+        },
+        {
+          "id": "emb_bin64",
+          "degree": 8,
+          "relative_degree": 8,
+          "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+          "target": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::kernel::tests::routes::fixtures::Gf64OverAesSpec, 8>>",
+          "elem_bytes": 1,
+          "target_elem_bytes": 8,
+          "reference": "map-compact",
+          "spec": {
+            "name": "GF(2^64) Components over AES",
+            "base": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+            "degree": 8,
+            "relation": [
+              107,
+              48,
+              249,
+              14,
+              199,
+              221,
+              1,
+              228
+            ],
+            "storage": "Components",
+            "_note": "t^8 + 0xE4*t^7 + t^6 + 0xDD*t^5 + 0xC7*t^4 + 0x0E*t^3 + 0xF9*t^2 + 0x30*t + 0x6B over AES8; Rabin test: x^(q^8) = x and gcd(x^(q^4) - x, f) = 1"
+          }
+        },
+        {
+          "id": "emb_r7d3",
+          "degree": 1,
+          "relative_degree": 3,
+          "source": "crate::field::FiniteField<7, 1, crate::field::Residue>",
+          "target": "crate::field::FiniteField<7, 3, crate::field::Extension<crate::kernel::tests::routes::fixtures::G343Spec, 3>>",
+          "elem_bytes": 1,
+          "target_elem_bytes": 3,
+          "reference": "map-compact",
+          "spec": {
+            "name": "frob-residue-col",
+            "base": "crate::field::FiniteField<7, 1, crate::field::Residue>",
+            "degree": 3,
+            "relation": [
+              5,
+              0,
+              0
+            ],
+            "storage": "Components",
+            "_note": "GF(7^3) as x^3 - 2; Relation::from_coordinates(&[5, 0, 0])",
+            "_citation": "tests/prepared_map_rows.rs:47-55 G343Spec"
+          }
+        },
+        {
+          "id": "emb_r3d2",
+          "degree": 1,
+          "relative_degree": 2,
+          "source": "crate::field::FiniteField<3, 1, crate::field::Residue>",
+          "target": "crate::field::FiniteField<3, 2, crate::field::Extension<crate::kernel::tests::routes::fixtures::G9Spec, 2>>",
+          "elem_bytes": 1,
+          "target_elem_bytes": 2,
+          "reference": "map-compact",
+          "spec": {
+            "name": "frob-conjugation-odd-general-field",
+            "base": "crate::field::FiniteField<3, 1, crate::field::Residue>",
+            "degree": 2,
+            "relation": [
+              2,
+              2
+            ],
+            "storage": "Components",
+            "_note": "GF(9) as x^2 + 2x + 2; Relation::from_coordinates(&[2, 2])",
+            "_citation": "src/field/embedding/frobenius.rs:369-374 G9Spec"
+          }
         }
       ]
     },
@@ -2064,7 +2314,11 @@
           ],
           "reference": "map-compact"
         }
-      ]
+      ],
+      "callable_exclusions": {
+        "map::trace_into_with": "Caller images compile to the same injection arm; trace and norm use the structural injection rule.",
+        "map::norm_into_with": "Caller images compile to the same injection arm; trace and norm use the structural injection rule."
+      }
     },
     "map-embed-binary-column": {
       "group": "map",
@@ -2075,7 +2329,9 @@
       "callables": [
         "map::embed_into_with",
         "map::contains_into_with",
-        "map::restrict_into_with"
+        "map::restrict_into_with",
+        "map::trace_into_with",
+        "map::norm_into_with"
       ],
       "_note": "AES8 and the Rijndael16 row both implement FieldBuffer; the caller image is the squared tower-base generator, a non-structural root of 0x11B that fails the identity prefix",
       "fixtures": [
@@ -2094,6 +2350,45 @@
             ]
           ],
           "reference": "map-compact"
+        },
+        {
+          "id": "emb_bc64",
+          "degree": 8,
+          "relative_degree": 8,
+          "source": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+          "target": "crate::field::FiniteField<2, 64, crate::field::Extension<crate::kernel::tests::routes::fixtures::Gf64OverAesSpec, 8>>",
+          "elem_bytes": 1,
+          "target_elem_bytes": 8,
+          "reference": "map-compact",
+          "spec": {
+            "name": "GF(2^64) Components over AES",
+            "base": "crate::field::FiniteField<2, 8, crate::field::Polynomial<0x11B>>",
+            "degree": 8,
+            "relation": [
+              107,
+              48,
+              249,
+              14,
+              199,
+              221,
+              1,
+              228
+            ],
+            "storage": "Components",
+            "_note": "t^8 + 0xE4*t^7 + t^6 + 0xDD*t^5 + 0xC7*t^4 + 0x0E*t^3 + 0xF9*t^2 + 0x30*t + 0x6B over AES8; Rabin test: x^(q^8) = x and gcd(x^(q^4) - x, f) = 1"
+          },
+          "images": [
+            [
+              4,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
         }
       ]
     },
@@ -2106,7 +2401,9 @@
       "callables": [
         "map::embed_into_with",
         "map::contains_into_with",
-        "map::restrict_into_with"
+        "map::restrict_into_with",
+        "map::trace_into_with",
+        "map::norm_into_with"
       ],
       "_note": "GF(9) as t^2 + 2t + 2 embeds in GF(81) as x^4 + 2x^2 + 2 through an element of trace-zero order; the caller image is not the structural image, so the compiled columns are ResidueColumns",
       "fixtures": [
@@ -2258,6 +2555,26 @@
           "direction": "forward",
           "elem_bytes": 1,
           "target_elem_bytes": 1,
+          "reference": "map-compact"
+        },
+        {
+          "id": "iso_id_odd",
+          "degree": 1,
+          "relative_degree": 1,
+          "source": "crate::field::Mersenne31",
+          "target": "crate::field::Mersenne31",
+          "elem_bytes": 4,
+          "target_elem_bytes": 4,
+          "reference": "map-compact"
+        },
+        {
+          "id": "iso_id_gld",
+          "degree": 1,
+          "relative_degree": 1,
+          "source": "crate::field::Goldilocks",
+          "target": "crate::field::Goldilocks",
+          "elem_bytes": 8,
+          "target_elem_bytes": 8,
           "reference": "map-compact"
         }
       ]
@@ -2737,9 +3054,15 @@
         "map-frobenius-identity",
         "map-frobenius-quadratic",
         "map-frobenius-binary-column",
-        "map-frobenius-residue-column"
+        "map-frobenius-residue-column",
+        "map-frobenius-conjugation-odd-zero",
+        "map-frobenius-conjugation-odd-general"
       ],
-      "exclusions": {}
+      "exclusions": {},
+      "required_characteristics": [
+        2,
+        "odd"
+      ]
     },
     "map-lane-embedding": {
       "families": [
@@ -2758,7 +3081,11 @@
         "map-embed-binary-column",
         "map-embed-residue-column"
       ],
-      "exclusions": {}
+      "exclusions": {},
+      "required_characteristics": [
+        2,
+        "odd"
+      ]
     },
     "map-lane-isomorphism": {
       "families": [
@@ -2774,7 +3101,11 @@
         "map-iso-residue-column",
         "map-iso-injection"
       ],
-      "exclusions": {}
+      "exclusions": {},
+      "required_characteristics": [
+        2,
+        "odd"
+      ]
     },
     "map-bits": {
       "families": [
@@ -3023,6 +3354,45 @@
       "iterations": "1",
       "justification": "map column fold; generator converts lane bytes to words (/8)",
       "loss_bytes": "2*(lane-1)"
+    },
+    "norm-frobenius": {
+      "substage": "Linear",
+      "scope": {
+        "scope": "Norm",
+        "pass": "Conjugate"
+      },
+      "unit": "Elements",
+      "basis": "Target",
+      "multiplicity": "One",
+      "iterations": "relative_degree-1",
+      "justification": "Relative norm requires conjugate images, target-field products, and projection into the source field.",
+      "loss_bytes": "2*(lane-1)"
+    },
+    "norm-products": {
+      "substage": "Mul",
+      "scope": {
+        "scope": "Norm",
+        "pass": "Accumulate"
+      },
+      "unit": "Elements",
+      "basis": "Target",
+      "multiplicity": "One",
+      "iterations": "relative_degree-1",
+      "justification": "Relative norm requires conjugate images, target-field products, and projection into the source field.",
+      "loss_bytes": "2*(lane-1)"
+    },
+    "norm-project": {
+      "substage": "Linear",
+      "scope": {
+        "scope": "Norm",
+        "pass": "Project"
+      },
+      "unit": "Elements",
+      "basis": "Source",
+      "multiplicity": "One",
+      "iterations": "1",
+      "justification": "Relative norm requires conjugate images, target-field products, and projection into the source field.",
+      "loss_bytes": "2*(lane-1)"
     }
   },
   "geometries": {
@@ -3192,5 +3562,12 @@
       "family": "mixed"
     }
   },
-  "evidence": {}
+  "evidence": {},
+  "work": {
+    "map::norm_into_with": [
+      "norm-frobenius",
+      "norm-products",
+      "norm-project"
+    ]
+  }
 }
