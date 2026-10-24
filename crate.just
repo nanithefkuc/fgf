@@ -142,9 +142,14 @@ isa-accept EXPECTED:
             exit 1
         }
     done
-    for features in default all; do
-        just route-accept "{{EXPECTED}}" "$features"
-    done
+    # Route acceptance records a primary-host identity, so it runs only when
+    # the caller supplied the microarchitecture. A hosted runner sweeps the
+    # backend floor in survey mode through the full test below.
+    if [[ -n ${FGF_HOST_ARCH:-} ]]; then
+        for features in default all; do
+            just route-accept "{{EXPECTED}}" "$features"
+        done
+    fi
     log=$(mktemp)
     trap 'rm -f "$log"' EXIT
     cargo test --all-features -- --nocapture 2>&1 | tee "$log"
