@@ -823,10 +823,6 @@ route-accept-negative REQUEST:
     cp "$cases" "$scratch/cases.rs"
     trap 'cp "$scratch/cases.rs" "$cases"; rm -rf "$scratch"' EXIT
     ledger="$scratch/ledger.json"
-    survey="$scratch/survey.log"
-    FGF_ROUTE_SURVEY=1 SIMD_BACKEND="{{REQUEST}}" \
-        cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture \
-        >"$survey" 2>&1
     python3 - "$ledger" "{{REQUEST}}" "$obligation" "$serving" "$features" <<'PY'
     import json
     import sys
@@ -1017,6 +1013,9 @@ route-accept-negative REQUEST:
     }
     expect_reject fail_receipt "$fused_halve" "$scratch/fused-halve.err"
     ledger="$saved_ledger"
+    python3 benches/simd_ledger.py generate --out "$cases"
+    python3 benches/simd_ledger.py generate --check --out "$cases"
+    ledger=benches/simd_ledger.json
 
     # The canonical table and ledger must reject a run that drops trace
     # entries: work budgets are what make suppression visible.
@@ -1030,8 +1029,29 @@ route-accept-negative REQUEST:
         printf 'route_accept_negative: canonical suppress-trace run passed\n' >&2
         exit 1
     }
+    expect_reject fail_receipt "$canonical" "$scratch/canonical-suppress.err"
     printf 'ROUTE_NEGATIVE\tcode=canonical-suppress-trace\n'
     printf 'ROUTE_NEGATIVE_DONE\trequest=%s\n' "{{REQUEST}}"
+
+# Full ledger cross-inventory checks without evidence records, plus
+# byte-identical generation and the ledger unit tests. Portable: runs
+# anywhere the inventories build.
+[group('gate')]
+route-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    scratch=$(mktemp -d)
+    trap 'rm -rf "$scratch"' EXIT
+    just _route-inventories default "$scratch"
+    python3 benches/simd_ledger.py check --full \
+        --rustdoc target/doc/fgf.json \
+        --test-list "$scratch/tests.txt" \
+        --case-list "$scratch/cases.txt" \
+        --case-list-all "$scratch/cases-all.txt" \
+        --surface-inventory "$scratch/surfaces.txt"
+    python3 benches/simd_ledger.py generate --check --out src/kernel/tests/routes/cases.rs
+    python3 -m unittest discover -s benches -p 'test_simd_ledger.py'
+
 
 # Full ledger resolution, byte-identical case generation, and the ledger
 # unit tests. Run on the machine that holds the collected evidence records.
@@ -1078,6 +1098,8 @@ release-accept:
     just examples-portable
     just benchmark-check
     just benchmark-check-native
+    just simd-ledger
+    just route-check
     just package-check
 
 # Route ledger and tooling: schema-only validation plus the Python unit tests.

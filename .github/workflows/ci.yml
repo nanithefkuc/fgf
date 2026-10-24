@@ -34,9 +34,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly-2026-09-30
       - uses: extractions/setup-just@v2
       - name: requested vs resolved backend per tier
         run: |
@@ -178,6 +175,8 @@ jobs:
       - run: rustup toolchain install nightly-2026-09-30 --profile minimal
       - uses: extractions/setup-just@v2
       - run: just benchmark-check
+      - run: just simd-ledger
+      - run: just route-check
 
   lint:
     name: fmt + clippy + docs
