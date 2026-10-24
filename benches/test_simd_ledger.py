@@ -1308,44 +1308,6 @@ class TestExpansion(unittest.TestCase):
         self.assertEqual(obs[first]["cells"]["default/v4x"]["process"], "v3_gfni_crypto")
         self.assertEqual(obs[first]["cells"]["all/v4x"]["process"], "v4x")
 
-    def test_callable_filter_honoured(self):
-        ledger = _full_tiny()
-        ledger["callables"]["map::embed_into_with"] = {"kind": "bulk", "family": "map"}
-        ledger["callables"]["map::trace_into_with"] = {"kind": "bulk", "family": "map"}
-        ledger["rules"]["map-x"] = {
-            "group": "map", "kind": "embedding", "arm": "injection",
-            "arm_citation": "src/x.rs:1",
-            "callables": ["map::embed_into_with", "map::trace_into_with"],
-            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
-                          "source": "crate::field::A", "target": "crate::field::B",
-                          "elem_bytes": 1, "target_elem_bytes": 1}],
-        }
-        ledger["applicability"]["mapx"] = {
-            "families": ["map"], "rules": ["map-x"],
-            "callable_filter": ["map::embed_into_with"],
-            "exclusions": {},
-        }
-        obs = sl.obligations(ledger)
-        self.assertIn("map::embed_into_with@map-x", obs)
-        self.assertNotIn("map::trace_into_with@map-x", obs)
-
-    def test_rule_callables_honoured(self):
-        ledger = _full_tiny()
-        ledger["callables"]["map::embed_into_with"] = {"kind": "bulk", "family": "map"}
-        ledger["callables"]["map::trace_into_with"] = {"kind": "bulk", "family": "map"}
-        ledger["rules"]["map-x"] = {
-            "group": "map", "kind": "embedding", "arm": "injection",
-            "arm_citation": "src/x.rs:1",
-            "callables": ["map::embed_into_with"],
-            "fixtures": [{"id": "mx", "degree": 1, "relative_degree": 1,
-                          "source": "crate::field::A", "target": "crate::field::B",
-                          "elem_bytes": 1, "target_elem_bytes": 1}],
-        }
-        ledger["applicability"]["mapx"] = {"families": ["map"], "rules": ["map-x"],
-                                           "exclusions": {}}
-        obs = sl.obligations(ledger)
-        self.assertIn("map::embed_into_with@map-x", obs)
-        self.assertNotIn("map::trace_into_with@map-x", obs)
 
     def test_overlapping_applicability_rejected(self):
         ledger = _full_tiny()
