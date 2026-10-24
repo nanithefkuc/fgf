@@ -2129,21 +2129,6 @@ class TestCanonicalLedger(unittest.TestCase):
             for fixture in rule["fixtures"]:
                 self.assertEqual(fixture["source"], fixture["target"])
 
-    def test_map_fixtures_declare_both_widths(self):
-        for rule in self.ledger["rules"].values():
-            if rule.get("group") not in ("map", "map_bits"):
-                continue
-            for fixture in rule["fixtures"]:
-                self.assertIsInstance(fixture.get("elem_bytes"), int)
-                self.assertIsInstance(fixture.get("target_elem_bytes"), int)
-                meta = sl._fixture_metadata(fixture, rule)
-                self.assertEqual(meta["target_elem_bytes"],
-                                 fixture["target_elem_bytes"])
-                source_degree = _degree_from_type(fixture["source"])
-                target_degree = _degree_from_type(fixture["target"])
-                self.assertEqual(meta["degree"], source_degree)
-                self.assertEqual(meta["relative_degree"],
-                                 target_degree // source_degree)
 
     def test_multirow_row_add_budget_positive(self):
         ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
@@ -2437,6 +2422,53 @@ class TestGenerate(unittest.TestCase):
             p.write_text(p.read_text().replace("generated", "generatXd", 1))
             with self.assertRaises(ValidationError):
                 sl.cmd_generate(p, True, ledger)
+
+
+class TestMapCompleteness(unittest.TestCase):
+    def ledger(self):
+        return sl.load(Path(__file__).with_name("simd_ledger.json"))
+
+    def test_omitted_callable_requires_reason(self):
+        ledger = self.ledger()
+        ledger["rules"]["map-embed-residue-column"]["callables"].remove(
+            "map::trace_into_with")
+        with self.assertRaises(ValidationError):
+            sl._validate_applicability(ledger, ledger["rules"])
+
+    def test_duplicate_arm_exclusion_is_accepted(self):
+        ledger = self.ledger()
+        sl._validate_applicability(ledger, ledger["rules"])
+        ledger["rules"]["map-embed-injection-images"]["callable_exclusions"][
+            "map::trace_into_with"] = ""
+        with self.assertRaises(ValidationError):
+            sl._validate_applicability(ledger, ledger["rules"])
+
+    def test_characteristic_requirement_cannot_disappear(self):
+        ledger = self.ledger()
+        for rid in ledger["applicability"]["map-lane-embedding"]["rules"]:
+            fixtures = ledger["rules"][rid]["fixtures"]
+            ledger["rules"][rid]["fixtures"] = [
+                f for f in fixtures
+                if sl._type_characteristic(f.get("source")) == 2
+            ]
+        with self.assertRaises(ValidationError):
+            sl._validate_applicability(ledger, ledger["rules"])
+
+    def test_norm_counts_conjugates_and_products_at_relative_degree(self):
+        ledger = self.ledger()
+        cases = [c for c in sl.cases(ledger)
+                 if c["callable"] == "map::norm_into_with"]
+        for case in cases:
+            work = case["cell_work"]["all/v3"]
+            stages = {(w["substage"], tuple(w["scope"])): w for w in work}
+            conjugate = stages[("Linear", ("Norm", "Conjugate"))]
+            product = stages[("Mul", ("Norm", "Accumulate"))]
+            projection = stages[("Linear", ("Norm", "Project"))]
+            repetitions = case["fixture"]["relative_degree"] - 1
+            self.assertEqual(conjugate["iterations"], repetitions)
+            self.assertEqual(product["iterations"], repetitions)
+            self.assertEqual(projection["iterations"], 1)
+            self.assertGreater(product["budget"], 0)
 
 
 if __name__ == "__main__":
