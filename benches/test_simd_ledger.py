@@ -2428,6 +2428,13 @@ class TestMapCompleteness(unittest.TestCase):
     def ledger(self):
         return sl.load(Path(__file__).with_name("simd_ledger.json"))
 
+    def test_callable_cannot_disappear_inside_a_covered_family(self):
+        ledger = self.ledger()
+        ledger["applicability"]["map-lane-embedding"]["callable_filter"].remove(
+            "map::trace_into_with")
+        with self.assertRaises(ValidationError):
+            sl.obligations(ledger)
+
     def test_omitted_callable_requires_reason(self):
         ledger = self.ledger()
         ledger["rules"]["map-embed-residue-column"]["callables"].remove(
@@ -2469,6 +2476,26 @@ class TestMapCompleteness(unittest.TestCase):
             self.assertEqual(product["iterations"], repetitions)
             self.assertEqual(projection["iterations"], 1)
             self.assertGreater(product["budget"], 0)
+
+
+class TestNormCoverage(unittest.TestCase):
+    def test_projection_cannot_substitute_for_conjugates_or_products(self):
+        ledger = sl.load(Path(__file__).with_name("simd_ledger.json"))
+        cases = [c for c in sl.cases(ledger)
+                 if c["callable"] == "map::norm_into_with"]
+        key = "all/v3"
+        for case in cases:
+            stages = [
+                {"substage": item["substage"], "scope": item["scope"],
+                 "unit": item["unit"], "work": item["budget"],
+                 "tiers": {"v3": item["budget"]}}
+                for item in case["cell_work"][key]
+            ]
+            self.assertIsNone(sl._case_coverage_error(case, key, stages, 2))
+            for missing in ("Conjugate", "Accumulate"):
+                incomplete = [s for s in stages if s["scope"][1] != missing]
+                self.assertIsNotNone(
+                    sl._case_coverage_error(case, key, incomplete, 2))
 
 
 if __name__ == "__main__":
