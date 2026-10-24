@@ -57,9 +57,9 @@ tracking issue with `Refs #68`. Each applicable PR identifies:
 - Applicable docs, CHANGELOG, residue-ledger, and unsafe-code updates.
 
 The canonical SIMD route ledger is `benches/simd_ledger.json`, validated by
-`benches/simd_ledger.py`. `just simd-ledger` runs schema-only validation and
-the Python unit test suite. The ledger is distinct from the unsafe residue
-ledger in `AGENTS.md`.
+`benches/simd_ledger.py`. `just simd-ledger` checks callable classification
+and the schema, runs the Python unit tests, and compiles the field and map
+fixtures. The ledger is distinct from the unsafe residue ledger in `AGENTS.md`.
 
 ## Before opening a PR
 
