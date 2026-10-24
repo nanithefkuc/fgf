@@ -7,6 +7,10 @@
 //! an `X64V3Token` and validating their own geometry.
 
 use super::src_tail_avx2;
+#[cfg(test)]
+use crate::kernel::Backend;
+#[cfg(test)]
+use crate::kernel::trace::{Substage, Unit, emit};
 
 // ---------------------------------------------------------------------------
 // Byte fixed-coefficient (nibble-table lookups)
@@ -74,6 +78,14 @@ pub fn mul_into_u8_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8]
         let sub = _mm256_sub_epi8(sum, cp);
         _mm256_storeu_si256(d, _mm256_min_epu8(sum, sub));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx2.mul_into",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 32,
+        Backend::V3,
+    );
     for (d, s) in dst_tail.iter_mut().zip(src_tail_avx2(src)) {
         let t = lo[*s as usize & 15].wrapping_add(hi[*s as usize >> 4]);
         *d = if t >= p { t - p } else { t };
@@ -139,6 +151,14 @@ pub fn mul_add_u8_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8],
         let sum = _mm256_add_epi8(normed, prod);
         _mm256_storeu_si256(d, _mm256_min_epu8(sum, _mm256_sub_epi8(sum, cp)));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx2.mul_add",
+        Substage::MulAdd,
+        Unit::Elements,
+        dst_lanes.len() * 32,
+        Backend::V3,
+    );
     for (d, s) in dst_tail.iter_mut().zip(src_tail_avx2(src)) {
         let acc = *d % p;
         let t = lo[*s as usize & 15].wrapping_add(hi[*s as usize >> 4]);
@@ -175,6 +195,14 @@ pub fn mul_assign_u8_avx2(_token: archmage::X64V3Token, dst: &mut [u8], c: u8, p
         let sum = _mm256_add_epi8(rlo, rhi);
         _mm256_storeu_si256(d, _mm256_min_epu8(sum, _mm256_sub_epi8(sum, cp)));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx2.mul_assign",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 32,
+        Backend::V3,
+    );
     for d in dst_tail.iter_mut() {
         let t = lo[*d as usize & 15].wrapping_add(hi[*d as usize >> 4]);
         *d = if t >= p { t - p } else { t };

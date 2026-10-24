@@ -20,6 +20,8 @@ use crate::field::Elem;
 use crate::field::mersenne31;
 use crate::field::quad_mersenne31::QuadMersenne31;
 use crate::kernel::proven_checks::{check_elem_multiple, check_equal};
+#[cfg(test)]
+use crate::kernel::trace::{Substage, Unit, emit};
 use crate::kernel::x86::mersenne31::P;
 
 #[cfg(target_arch = "x86_64")]
@@ -173,6 +175,14 @@ pub fn mul_into_avx512(
             _mm512_storeu_si512(dst_lane, cmul(s, cr_v, ci_v, nci, p));
         }
     }
+    #[cfg(test)]
+    emit(
+        "quad_mersenne31.avx512.mul_into",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         super::mul_into_avx2(token.v3(), dst_tail, coeff, src_tail);
     }
@@ -245,6 +255,14 @@ pub fn mul_add_avx512(
         let d = min_chain(_mm512_loadu_si512(&*dst_lane), p);
         _mm512_storeu_si512(dst_lane, addmod(d, cmul(s, cr_v, ci_v, nci, p), p));
     }
+    #[cfg(test)]
+    emit(
+        "quad_mersenne31.avx512.mul_add",
+        Substage::MulAdd,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         super::mul_add_avx2(token.v3(), dst_tail, coeff, src_tail);
     }
@@ -296,6 +314,14 @@ pub fn mul_elementwise_avx512(token: archmage::X64V4Token, dst: &mut [u8], a: &[
             _mm512_storeu_si512(dst_lane, cmul_vec(va, vb, p));
         }
     }
+    #[cfg(test)]
+    emit(
+        "quad_mersenne31.avx512.mul_elementwise",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         super::mul_elementwise_avx2(token.v3(), dst_tail, a_tail, b_tail);
     }

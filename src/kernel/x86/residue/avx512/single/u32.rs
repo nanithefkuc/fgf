@@ -12,7 +12,11 @@
 use core::arch::x86_64::*;
 
 use super::super::{combine_halves_avx512, narrow_avx512, normalize_avx512, widen_add_avx512};
+#[cfg(test)]
+use crate::kernel::Backend;
 use crate::kernel::proven_checks::check_equal;
+#[cfg(test)]
+use crate::kernel::trace::{Substage, Unit, emit};
 use crate::kernel::x86::residue::U32Params;
 
 // ---------------------------------------------------------------------------
@@ -70,6 +74,14 @@ pub fn mul_elementwise_u32_avx512(
         let vb = normalize_avx512(_mm512_loadu_si512(b_lane), norm_mu, p32);
         _mm512_storeu_si512(dst_lane, multiply(va, vb, mu, p, shift));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx512.mul_elementwise",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_lanes.len() * 16,
+        Backend::V4x,
+    );
     tail_mul(dst_tail, a_tail, b_tail, params.p);
 }
 
@@ -113,6 +125,14 @@ pub fn mul_elementwise_assign_u32_avx512(
         let vs = normalize_avx512(_mm512_loadu_si512(src_lane), norm_mu, p32);
         _mm512_storeu_si512(dst_lane, multiply(vd, vs, mu, p, shift));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx512.mul_elementwise_assign",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_lanes.len() * 16,
+        Backend::V4x,
+    );
     tail_mul_assign(dst_tail, src_tail, params.p);
 }
 
@@ -160,6 +180,14 @@ pub fn mul_into_u32_avx512(
         );
         _mm512_storeu_si512(d, combine_halves_avx512(re, ro));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx512.mul_into",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 16,
+        Backend::V4x,
+    );
     for (d, s) in dst_tail.chunks_exact_mut(4).zip(src_tail_u32(src)) {
         let x = u32::from_le_bytes(s.as_ref().try_into().unwrap());
         d.copy_from_slice(&scalar_shoup32(x, c, q, p).to_le_bytes());
@@ -212,6 +240,14 @@ pub fn mul_add_u32_avx512(
         // below `2P < 2^33` and one unsigned comparison canonicalizes it.
         _mm512_storeu_si512(d, widen_add_avx512(normed, prod, p64, p_m1));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx512.mul_add",
+        Substage::MulAdd,
+        Unit::Elements,
+        dst_lanes.len() * 16,
+        Backend::V4x,
+    );
     let wide = u64::from(p);
     for (d, s) in dst_tail.chunks_exact_mut(4).zip(src_tail_u32(src)) {
         let acc = u64::from(u32::from_le_bytes(d.as_ref().try_into().unwrap())) % wide;
@@ -258,6 +294,14 @@ pub fn mul_assign_u32_avx512(_token: archmage::X64V4Token, dst: &mut [u8], c: u3
         );
         _mm512_storeu_si512(d, combine_halves_avx512(re, ro));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx512.mul_assign",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 16,
+        Backend::V4x,
+    );
     for d in dst_tail.chunks_exact_mut(4) {
         let x = u32::from_le_bytes(d.as_ref().try_into().unwrap());
         d.copy_from_slice(&scalar_shoup32(x, c, q, p).to_le_bytes());

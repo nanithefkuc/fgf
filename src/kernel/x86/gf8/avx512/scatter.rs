@@ -167,6 +167,8 @@ fn scatter_rows4(group: &Group<4>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
     // One 256-byte source window feeds all four rows, and each row runs four
     // independent multiply chains over it.
     let mut offset = head;
+    #[cfg(test)]
+    let tile_start = offset;
     while offset + 256 <= len {
         // SAFETY:
         // MEMORY VALIDITY
@@ -198,6 +200,16 @@ fn scatter_rows4(group: &Group<4>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
         }
         offset += 256;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.scatter",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        (offset - tile_start) * 4,
+        crate::kernel::Backend::V4x,
+    );
+    #[cfg(test)]
+    let lane_start = offset;
     while offset + 64 <= len {
         // SAFETY:
         // MEMORY VALIDITY
@@ -220,6 +232,14 @@ fn scatter_rows4(group: &Group<4>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
         }
         offset += 64;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.scatter",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        (offset - lane_start) * 4,
+        crate::kernel::Backend::V4x,
+    );
 
     scatter_span(group, coeffs, offset, len, src);
 }
@@ -246,6 +266,8 @@ fn scatter_rows2(group: &Group<2>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
 
     // With only two rows the 256-byte window leaves room for eight chains.
     let mut offset = head;
+    #[cfg(test)]
+    let tile_start = offset;
     while offset + 256 <= len {
         // SAFETY:
         // MEMORY VALIDITY
@@ -277,6 +299,16 @@ fn scatter_rows2(group: &Group<2>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
         }
         offset += 256;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.scatter",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        (offset - tile_start) * 2,
+        crate::kernel::Backend::V4x,
+    );
+    #[cfg(test)]
+    let lane_start = offset;
     while offset + 64 <= len {
         // SAFETY:
         // MEMORY VALIDITY
@@ -299,6 +331,14 @@ fn scatter_rows2(group: &Group<2>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
         }
         offset += 64;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.scatter",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        (offset - lane_start) * 2,
+        crate::kernel::Backend::V4x,
+    );
 
     scatter_span(group, coeffs, offset, len, src);
 }

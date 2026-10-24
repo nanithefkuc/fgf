@@ -55,6 +55,18 @@ fn fold_term<const NATIVE: bool, const ROWS: usize, const LANES: usize>(
             };
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.matrix",
+        if first {
+            crate::kernel::trace::Substage::Mul
+        } else {
+            crate::kernel::trace::Substage::MulAdd
+        },
+        crate::kernel::trace::Unit::Elements,
+        ROWS * LANES * 32,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
 }
 
 /// Fold one chunk of resolved terms into `ROWS` rows, `LANES` 32-byte lanes
@@ -174,6 +186,8 @@ fn rows_body<
         }
         tile += step;
     }
+    #[cfg(test)]
+    let lane_start = tile;
     while tile + 32 <= vector_len {
         let mut acc = [_mm256_setzero_si256(); ROWS];
         if !OVERWRITE {
@@ -217,6 +231,14 @@ fn rows_body<
         }
         tile += 32;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        (tile - lane_start) * ROWS * maps.len(),
+        crate::kernel::Backend::V3GfniCrypto,
+    );
 }
 
 /// Resolve a row group's coefficients chunk by chunk, run the tile loops over

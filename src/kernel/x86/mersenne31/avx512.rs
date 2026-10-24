@@ -27,6 +27,8 @@ use super::{
 use crate::field::Elem;
 use crate::field::mersenne31::Mersenne31;
 use crate::kernel::proven_checks::{check_elem_multiple, check_equal};
+#[cfg(test)]
+use crate::kernel::trace::{Substage, Unit, emit};
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
@@ -109,6 +111,14 @@ pub fn add_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], src: &[u8]
         let sum = _mm512_add_epi32(d, s); // <= 2p - 2
         _mm512_storeu_si512(dst_lane, _mm512_min_epu32(sum, _mm512_sub_epi32(sum, p)));
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx512.add_assign",
+        Substage::Add,
+        Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         add_assign_avx2(token.v3(), dst_tail, src_tail);
     }
@@ -139,6 +149,14 @@ pub fn sub_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], src: &[u8]
         let diff = _mm512_sub_epi32(d, s); // wraps iff negative
         _mm512_storeu_si512(dst_lane, _mm512_min_epu32(diff, _mm512_add_epi32(diff, p)));
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx512.sub_assign",
+        Substage::Sub,
+        Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         sub_assign_avx2(token.v3(), dst_tail, src_tail);
     }
@@ -212,6 +230,14 @@ pub fn mul_add_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, s
         let sum = _mm512_add_epi32(d, prod); // <= 2p - 1
         _mm512_storeu_si512(dst_lane, _mm512_min_epu32(sum, _mm512_sub_epi32(sum, p)));
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx512.mul_add",
+        Substage::MulAdd,
+        Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         mul_add_avx2(token.v3(), dst_tail, coeff, src_tail);
     }
@@ -265,6 +291,14 @@ pub fn mul_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32
         let d = min_chain(_mm512_loadu_si512(&*dst_lane), p);
         _mm512_storeu_si512(dst_lane, mulmod(cred, d, p));
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx512.mul_assign",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         mul_assign_avx2(token.v3(), dst_tail, coeff);
     }
@@ -307,6 +341,14 @@ pub fn mul_into_avx512(token: archmage::X64V4Token, dst: &mut [u8], coeff: u32, 
             _mm512_storeu_si512(dst_lane, mulmod(cred, s, p));
         }
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx512.mul_into",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         mul_into_avx2(token.v3(), dst_tail, coeff, src_tail);
     }
@@ -358,6 +400,14 @@ pub fn mul_elementwise_avx512(token: archmage::X64V4Token, dst: &mut [u8], a: &[
             _mm512_storeu_si512(dst_lane, mulmod(va, vb, p));
         }
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx512.mul_elementwise",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         mul_elementwise_avx2(token.v3(), dst_tail, a_tail, b_tail);
     }
@@ -415,6 +465,14 @@ pub fn mul_elementwise_assign_avx512(token: archmage::X64V4Token, dst: &mut [u8]
         let vs = min_chain(_mm512_loadu_si512(src_lane), p);
         _mm512_storeu_si512(dst_lane, mulmod(vd, vs, p));
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx512.mul_elementwise_assign",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         mul_elementwise_assign_avx2(token.v3(), dst_tail, src_tail);
     }
@@ -432,11 +490,21 @@ pub fn add_assign_scalar_avx512(token: archmage::X64V4Token, dst: &mut [u8], val
     let p = _mm512_set1_epi32(P);
     let svec = _mm512_set1_epi32(Elem::<Mersenne31>::from_raw(value).to_raw().cast_signed());
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
+    #[cfg(test)]
+    let num_lanes = dst_lanes.len();
     for dst_lane in dst_lanes {
         let d = min_chain(_mm512_loadu_si512(&*dst_lane), p);
         let sum = _mm512_add_epi32(d, svec); // <= 2p - 2
         _mm512_storeu_si512(dst_lane, _mm512_min_epu32(sum, _mm512_sub_epi32(sum, p)));
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx512.add_assign_scalar",
+        Substage::Add,
+        Unit::Elements,
+        num_lanes * 16,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         add_assign_scalar_avx2(token.v3(), dst_tail, value);
     }
@@ -455,11 +523,21 @@ pub fn sub_assign_scalar_avx512(token: archmage::X64V4Token, dst: &mut [u8], val
     let p = _mm512_set1_epi32(P);
     let svec = _mm512_set1_epi32(Elem::<Mersenne31>::from_raw(value).to_raw().cast_signed());
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<64>();
+    #[cfg(test)]
+    let num_lanes = dst_lanes.len();
     for dst_lane in dst_lanes {
         let d = min_chain(_mm512_loadu_si512(&*dst_lane), p);
         let diff = _mm512_sub_epi32(d, svec); // wraps iff negative
         _mm512_storeu_si512(dst_lane, _mm512_min_epu32(diff, _mm512_add_epi32(diff, p)));
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx512.sub_assign_scalar",
+        Substage::Sub,
+        Unit::Elements,
+        num_lanes * 16,
+        crate::kernel::Backend::V4x,
+    );
     if !dst_tail.is_empty() {
         sub_assign_scalar_avx2(token.v3(), dst_tail, value);
     }

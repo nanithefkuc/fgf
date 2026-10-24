@@ -13,6 +13,8 @@ use super::P;
 use crate::field::Elem;
 use crate::field::mersenne31::Mersenne31;
 use crate::kernel::proven_checks::{check_elem_multiple, check_equal};
+#[cfg(test)]
+use crate::kernel::trace::{Substage, Unit, emit};
 use crate::kernel::{prime, scalar};
 
 #[cfg(target_arch = "x86_64")]
@@ -96,6 +98,14 @@ pub fn add_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8])
             _mm256_storeu_si256(dst_lane, _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p)));
         }
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.add_assign",
+        Substage::Add,
+        Unit::Elements,
+        dst_tiles.len() * 32,
+        crate::kernel::Backend::V3,
+    );
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src_rest.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
@@ -104,6 +114,14 @@ pub fn add_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8])
         let sum = _mm256_add_epi32(d, s); // <= 2p - 2
         _mm256_storeu_si256(dst_lane, _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p)));
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.add_assign",
+        Substage::Add,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V3,
+    );
     prime::add_assign::<Mersenne31>(dst_tail, src_tail);
 }
 
@@ -141,6 +159,14 @@ pub fn sub_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8])
             _mm256_storeu_si256(dst_lane, _mm256_min_epu32(diff, _mm256_add_epi32(diff, p)));
         }
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.sub_assign",
+        Substage::Sub,
+        Unit::Elements,
+        dst_tiles.len() * 32,
+        crate::kernel::Backend::V3,
+    );
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src_rest.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
@@ -149,6 +175,14 @@ pub fn sub_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8])
         let diff = _mm256_sub_epi32(d, s); // wraps iff negative
         _mm256_storeu_si256(dst_lane, _mm256_min_epu32(diff, _mm256_add_epi32(diff, p)));
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.sub_assign",
+        Substage::Sub,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V3,
+    );
     prime::sub_assign::<Mersenne31>(dst_tail, src_tail);
 }
 
@@ -201,6 +235,14 @@ pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u32, sr
             _mm256_storeu_si256(dst_lane, u);
         }
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.mul_add",
+        Substage::MulAdd,
+        Unit::Elements,
+        dst_tiles.len() * 32,
+        crate::kernel::Backend::V3,
+    );
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src_rest.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
@@ -210,6 +252,14 @@ pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u32, sr
         let u = _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p));
         _mm256_storeu_si256(dst_lane, u);
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.mul_add",
+        Substage::MulAdd,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V3,
+    );
     prime::mul_add::<Mersenne31>(dst_tail, Elem::<Mersenne31>::from_raw(coeff), src_tail);
 }
 
@@ -239,6 +289,8 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u32)
     let p = _mm256_set1_epi32(P);
     let cred = _mm256_set1_epi32(c as i32);
     let (dst_tiles, dst_rest) = dst.as_chunks_mut::<128>();
+    #[cfg(test)]
+    let num_tiles = dst_tiles.len();
     for dst_tile in dst_tiles {
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
         for dst_lane in dst_lanes {
@@ -246,11 +298,29 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u32)
             _mm256_storeu_si256(dst_lane, mulmod_avx2(cred, d, p));
         }
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.mul_assign",
+        Substage::Mul,
+        Unit::Elements,
+        num_tiles * 32,
+        crate::kernel::Backend::V3,
+    );
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
+    #[cfg(test)]
+    let num_tail_lanes = dst_lanes.len();
     for dst_lane in dst_lanes {
         let d = mul_input(_mm256_loadu_si256(&*dst_lane), p);
         _mm256_storeu_si256(dst_lane, mulmod_avx2(cred, d, p));
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.mul_assign",
+        Substage::Mul,
+        Unit::Elements,
+        num_tail_lanes * 8,
+        crate::kernel::Backend::V3,
+    );
     prime::mul_assign::<Mersenne31>(dst_tail, Elem::<Mersenne31>::from_raw(coeff));
 }
 
@@ -287,12 +357,28 @@ pub fn mul_into_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u32, s
             _mm256_storeu_si256(dst_lane, mulmod_avx2(cred, s, p));
         }
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.mul_into",
+        Substage::Mul,
+        Unit::Elements,
+        dst_tiles.len() * 32,
+        crate::kernel::Backend::V3,
+    );
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src_rest.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
         let s = mul_input(_mm256_loadu_si256(src_lane), p);
         _mm256_storeu_si256(dst_lane, mulmod_avx2(cred, s, p));
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.mul_into",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V3,
+    );
     // Scalar tail.
     for (d, s) in dst_tail.chunks_exact_mut(4).zip(src_tail.chunks_exact(4)) {
         let v = Elem::<Mersenne31>::from_raw(coeff)
@@ -364,6 +450,14 @@ pub fn mul_elementwise_avx2(_token: archmage::X64V3Token, dst: &mut [u8], a: &[u
             }
         }
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.mul_elementwise",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_tiles.len() * 32,
+        crate::kernel::Backend::V3,
+    );
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
     let (a_lanes, a_tail) = a_rest.as_chunks::<32>();
     let (b_lanes, b_tail) = b_rest.as_chunks::<32>();
@@ -372,6 +466,14 @@ pub fn mul_elementwise_avx2(_token: archmage::X64V3Token, dst: &mut [u8], a: &[u
         let vb = mul_input(_mm256_loadu_si256(b_lane), p);
         _mm256_storeu_si256(dst_lane, mulmod_avx2(va, vb, p));
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.mul_elementwise",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V3,
+    );
     prime::mul_elementwise::<Mersenne31>(dst_tail, a_tail, b_tail);
 }
 
@@ -405,6 +507,14 @@ pub fn mul_elementwise_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8],
             _mm256_storeu_si256(dst_lane, mulmod_avx2(vd, vs, p));
         }
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.mul_elementwise_assign",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_tiles.len() * 32,
+        crate::kernel::Backend::V3,
+    );
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
     let (src_lanes, src_tail) = src_rest.as_chunks::<32>();
     for (dst_lane, src_lane) in dst_lanes.iter_mut().zip(src_lanes) {
@@ -412,6 +522,14 @@ pub fn mul_elementwise_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8],
         let vs = mul_input(_mm256_loadu_si256(src_lane), p);
         _mm256_storeu_si256(dst_lane, mulmod_avx2(vd, vs, p));
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.mul_elementwise_assign",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        crate::kernel::Backend::V3,
+    );
     scalar::mul_elementwise_assign::<Mersenne31>(dst_tail, src_tail);
 }
 
@@ -432,6 +550,8 @@ pub fn add_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], valu
     // The broadcast value is loop-invariant: canonicalize the raw word once.
     let svec = _mm256_set1_epi32(Elem::<Mersenne31>::from_raw(value).to_raw().cast_signed());
     let (dst_tiles, dst_rest) = dst.as_chunks_mut::<128>();
+    #[cfg(test)]
+    let num_tiles = dst_tiles.len();
     for dst_tile in dst_tiles {
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
         for dst_lane in dst_lanes {
@@ -440,12 +560,30 @@ pub fn add_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], valu
             _mm256_storeu_si256(dst_lane, _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p)));
         }
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.add_assign_scalar",
+        Substage::Add,
+        Unit::Elements,
+        num_tiles * 32,
+        crate::kernel::Backend::V3,
+    );
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
+    #[cfg(test)]
+    let num_tail_lanes = dst_lanes.len();
     for dst_lane in dst_lanes {
         let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
         let sum = _mm256_add_epi32(d, svec); // <= 2p - 2
         _mm256_storeu_si256(dst_lane, _mm256_min_epu32(sum, _mm256_sub_epi32(sum, p)));
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.add_assign_scalar",
+        Substage::Add,
+        Unit::Elements,
+        num_tail_lanes * 8,
+        crate::kernel::Backend::V3,
+    );
     prime::add_assign_scalar::<Mersenne31>(dst_tail, Elem::<Mersenne31>::from_raw(value));
 }
 
@@ -465,6 +603,8 @@ pub fn sub_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], valu
     let p = _mm256_set1_epi32(P);
     let svec = _mm256_set1_epi32(Elem::<Mersenne31>::from_raw(value).to_raw().cast_signed());
     let (dst_tiles, dst_rest) = dst.as_chunks_mut::<128>();
+    #[cfg(test)]
+    let num_tiles = dst_tiles.len();
     for dst_tile in dst_tiles {
         let (dst_lanes, _) = dst_tile.as_chunks_mut::<32>();
         for dst_lane in dst_lanes {
@@ -473,11 +613,29 @@ pub fn sub_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], valu
             _mm256_storeu_si256(dst_lane, _mm256_min_epu32(diff, _mm256_add_epi32(diff, p)));
         }
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.sub_assign_scalar",
+        Substage::Sub,
+        Unit::Elements,
+        num_tiles * 32,
+        crate::kernel::Backend::V3,
+    );
     let (dst_lanes, dst_tail) = dst_rest.as_chunks_mut::<32>();
+    #[cfg(test)]
+    let num_tail_lanes = dst_lanes.len();
     for dst_lane in dst_lanes {
         let d = min_chain_avx2(_mm256_loadu_si256(&*dst_lane), p);
         let diff = _mm256_sub_epi32(d, svec); // wraps iff negative
         _mm256_storeu_si256(dst_lane, _mm256_min_epu32(diff, _mm256_add_epi32(diff, p)));
     }
+    #[cfg(test)]
+    emit(
+        "mersenne31.avx2.sub_assign_scalar",
+        Substage::Sub,
+        Unit::Elements,
+        num_tail_lanes * 8,
+        crate::kernel::Backend::V3,
+    );
     prime::sub_assign_scalar::<Mersenne31>(dst_tail, Elem::<Mersenne31>::from_raw(value));
 }
