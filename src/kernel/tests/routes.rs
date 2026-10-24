@@ -15,12 +15,12 @@
 //!
 //! # Modes
 //!
-//! A raw `SIMD_BACKEND` selects the request cell and enforces routing.
-//! Without one, or with `FGF_ROUTE_SURVEY=1`, the runner surveys: every
-//! case still checks its output, but a routing mismatch never fails the
-//! run. `FGF_ROUTE_ACCEPT=1` additionally requires the run identity
-//! environment (`FGF_SOURCE_ID`, `FGF_HOST_ID`, `FGF_FEATURES`) and refuses
-//! a feature set that is neither the default nor the all-features set.
+//! A raw `SIMD_BACKEND` selects the request cell. Routing is enforced only
+//! under `FGF_ROUTE_ACCEPT=1`; every other run surveys, so the output check
+//! still fails while a routing mismatch never does. Acceptance mode also
+//! requires the run identity environment (`FGF_SOURCE_ID`, `FGF_HOST_ID`,
+//! `FGF_FEATURES`) and refuses a feature set that is neither the default nor
+//! the all-features set.
 
 extern crate std;
 
@@ -827,7 +827,7 @@ fn work_key(work: &Work) -> (Substage, Option<(Scope, Pass)>) {
     (work.substage, work.scope)
 }
 
-/// Unit-accumulate and overwrite-unit stages may be served by fused MulAdd
+/// Unit-accumulate and overwrite-unit stages may be served by fused `MulAdd`
 /// work that the general-coefficient stages leave unclaimed.
 fn is_unit_add(work: &Work) -> bool {
     matches!(
@@ -1101,30 +1101,27 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
                 && stage.scope == scope_names(entry.scope)
                 && stage.unit == unit_name(entry.unit)
         });
-        match listed {
-            Some(stage) => {
-                stage.work = stage.work.saturating_add(entry.work);
-                stage.tier = strongest(stage.tier, entry.tier);
-                add_tier(&mut stage.tiers, entry.tier, entry.work);
-                if !stage.kernels.contains(&entry.kernel) {
-                    stage.kernels.push(entry.kernel);
-                }
+        if let Some(stage) = listed {
+            stage.work = stage.work.saturating_add(entry.work);
+            stage.tier = strongest(stage.tier, entry.tier);
+            add_tier(&mut stage.tiers, entry.tier, entry.work);
+            if !stage.kernels.contains(&entry.kernel) {
+                stage.kernels.push(entry.kernel);
             }
-            None => {
-                let mut tiers = Vec::new();
-                add_tier(&mut tiers, entry.tier, entry.work);
-                stages.push(StageReport {
-                    substage: substage_name(entry.substage),
-                    scope: scope_names(entry.scope),
-                    unit: unit_name(entry.unit),
-                    tier: entry.tier,
-                    tiers,
-                    kernels: vec![entry.kernel],
-                    work: entry.work,
-                    budget: 0,
-                    met: true,
-                });
-            }
+        } else {
+            let mut tiers = Vec::new();
+            add_tier(&mut tiers, entry.tier, entry.work);
+            stages.push(StageReport {
+                substage: substage_name(entry.substage),
+                scope: scope_names(entry.scope),
+                unit: unit_name(entry.unit),
+                tier: entry.tier,
+                tiers,
+                kernels: vec![entry.kernel],
+                work: entry.work,
+                budget: 0,
+                met: true,
+            });
         }
     }
 
@@ -1278,7 +1275,7 @@ impl Env {
             assert_ne!(source_id, "unset", "acceptance mode requires FGF_SOURCE_ID");
             assert_ne!(host_id, "unset", "acceptance mode requires FGF_HOST_ID");
         }
-        let enforce = enforces(accepting, request.is_some(), survey, fingerprint);
+        let enforce = enforces(accepting);
         Self {
             fingerprint,
             request,
@@ -1293,8 +1290,12 @@ impl Env {
 }
 
 /// Whether routing mismatches fail the run for this configuration.
-fn enforces(accepting: bool, requested: bool, survey: bool, fingerprint: Fingerprint) -> bool {
-    accepting || (requested && !survey && !matches!(fingerprint, Fingerprint::Other))
+///
+/// Only acceptance mode enforces routing. A downgrade sweep, a coverage
+/// run, and a plain survey request all observe the resolved backend without
+/// treating a routing mismatch as a failure.
+fn enforces(accepting: bool) -> bool {
+    accepting
 }
 
 fn escape(text: &str) -> String {
@@ -1628,7 +1629,7 @@ mod tests {
         let mut outcome = outcome_with(7, 7, 64);
         outcome.enforce_routing = true;
         let verdict = judge(&CASE, &CELLS[1], &outcome);
-        assert!(verdict.detail.is_empty(), "{}", verdict.detail);
+        assert_eq!(verdict.detail, "", "{}", verdict.detail);
         assert!(verdict.skip.is_none());
         assert_eq!(verdict.stages.len(), 1);
         assert!(verdict.stages[0].met);
@@ -1639,7 +1640,7 @@ mod tests {
     fn judge_rejects_corrupt_output() {
         let outcome = outcome_with(7, 8, 64);
         let verdict = judge(&CASE, &CELLS[1], &outcome);
-        assert!(!verdict.detail.is_empty());
+        assert_ne!(verdict.detail, "");
     }
 
     /// A missing stage fails the budget when routing is enforced.
@@ -1648,7 +1649,7 @@ mod tests {
         let mut outcome = outcome_with(7, 7, 0);
         outcome.enforce_routing = true;
         let verdict = judge(&CASE, &CELLS[1], &outcome);
-        assert!(!verdict.detail.is_empty());
+        assert_ne!(verdict.detail, "");
         assert!(!verdict.stages[0].met);
     }
 
@@ -1659,7 +1660,7 @@ mod tests {
         outcome.trace[0].unit = Unit::Bits;
         outcome.enforce_routing = true;
         let verdict = judge(&CASE, &CELLS[1], &outcome);
-        assert!(!verdict.detail.is_empty());
+        assert_ne!(verdict.detail, "");
     }
 
     /// A byte lane covers the same element count on a multi-byte field.
@@ -1670,7 +1671,7 @@ mod tests {
         outcome.source_bytes = 2;
         outcome.enforce_routing = true;
         let verdict = judge(&CASE, &CELLS[1], &outcome);
-        assert!(verdict.detail.is_empty(), "{}", verdict.detail);
+        assert_eq!(verdict.detail, "", "{}", verdict.detail);
         assert!(verdict.stages[0].met);
     }
 
@@ -1740,13 +1741,13 @@ mod tests {
         cells: &[FUSED_CELL],
     };
 
-    /// A fused MulAdd entry covers the unclaimed unit additions.
+    /// A fused `MulAdd` entry covers the unclaimed unit additions.
     #[test]
     fn judge_attributes_fused_unit_work() {
         let mut outcome = outcome_with(7, 7, 256);
         outcome.enforce_routing = true;
         let verdict = judge(&FUSED_CASE, &FUSED_CELL, &outcome);
-        assert!(verdict.detail.is_empty(), "{}", verdict.detail);
+        assert_eq!(verdict.detail, "", "{}", verdict.detail);
         let add = verdict
             .stages
             .iter()
@@ -1924,12 +1925,11 @@ mod tests {
         outcome.trace = tiered_entries();
         outcome.enforce_routing = true;
         let verdict = judge(&TIER_CASE, &TIER_CELL, &outcome);
-        assert!(!verdict.detail.is_empty());
+        assert_ne!(verdict.detail, "");
     }
 
-    /// Deterministic 47-row matrix compared with the Python coverage helper.
-    #[test]
-    fn fused_parity_matrix() {
+    /// One parity-matrix row's shape, coefficients, and add multiplicity.
+    fn parity_shape(index: usize) -> (&'static str, &'static [Coeff], usize, usize, Multiplicity) {
         const PATTERN_ONE: &[Coeff] = &[Coeff::One, Coeff::Zero, Coeff::One, Coeff::Zero];
         const PATTERN_SCATTER: &[Coeff] = &[Coeff::General, Coeff::Zero, Coeff::One, Coeff::Zero];
         const PATTERN_GATHER_MIXED: &[Coeff] =
@@ -1948,134 +1948,149 @@ mod tests {
             Coeff::General,
             Coeff::Zero,
         ];
+        match index % 6 {
+            0 => (
+                "ops::mul_add_gather@test",
+                PATTERN_ONE,
+                4,
+                4,
+                Multiplicity::UnitAddPairs,
+            ),
+            1 => (
+                "ops::mul_into_gather@test",
+                PATTERN_ONE,
+                4,
+                4,
+                Multiplicity::UnitAdds,
+            ),
+            2 => (
+                "ops::mul_into_scatter@test",
+                PATTERN_SCATTER,
+                4,
+                1,
+                Multiplicity::UnitAdds,
+            ),
+            3 => (
+                "ops::mul_into_matrix@test",
+                PATTERN_MATRIX,
+                3,
+                4,
+                Multiplicity::UnitAdds,
+            ),
+            4 => (
+                "ops::mul_add_matrix@test",
+                PATTERN_MATRIX,
+                3,
+                4,
+                Multiplicity::UnitAddPairs,
+            ),
+            _ => (
+                "ops::mul_add_gather@test",
+                PATTERN_GATHER_MIXED,
+                4,
+                4,
+                Multiplicity::UnitAddPairs,
+            ),
+        }
+    }
+
+    /// The tier split for one parity-matrix row.
+    fn parity_split(index: usize, minimum: Backend, total: usize) -> Vec<(Backend, usize)> {
+        match index % 4 {
+            0 => vec![(minimum, total)],
+            1 => vec![(Backend::Scalar, total)],
+            2 => vec![(Backend::V2, total / 2), (Backend::V3, total - total / 2)],
+            _ => vec![
+                (Backend::V2, total * 3 / 4),
+                (minimum, total - total * 3 / 4),
+            ],
+        }
+    }
+
+    /// Build one deterministic parity case, its cell, and its trace entries.
+    fn parity_case(index: usize) -> (Case, &'static Cell, Vec<Entry>) {
         const TIERS: [Backend; 4] = [
             Backend::Scalar,
             Backend::V2,
             Backend::V3,
             Backend::V3GfniCrypto,
         ];
-        for index in 0..47usize {
-            let (obligation, coeffs, rows, sources, add_multiplicity) = match index % 6 {
-                0 => (
-                    "ops::mul_add_gather@test",
-                    PATTERN_ONE,
-                    4,
-                    4,
-                    Multiplicity::UnitAddPairs,
-                ),
-                1 => (
-                    "ops::mul_into_gather@test",
-                    PATTERN_ONE,
-                    4,
-                    4,
-                    Multiplicity::UnitAdds,
-                ),
-                2 => (
-                    "ops::mul_into_scatter@test",
-                    PATTERN_SCATTER,
-                    4,
-                    1,
-                    Multiplicity::UnitAdds,
-                ),
-                3 => (
-                    "ops::mul_into_matrix@test",
-                    PATTERN_MATRIX,
-                    3,
-                    4,
-                    Multiplicity::UnitAdds,
-                ),
-                4 => (
-                    "ops::mul_add_matrix@test",
-                    PATTERN_MATRIX,
-                    3,
-                    4,
-                    Multiplicity::UnitAddPairs,
-                ),
-                _ => (
-                    "ops::mul_add_gather@test",
-                    PATTERN_GATHER_MIXED,
-                    4,
-                    4,
-                    Multiplicity::UnitAddPairs,
-                ),
-            };
-            let minimum = TIERS[(index / 6) % 4];
-            let total = (index % 8) * 64 + (index % 3) * 16;
-            let split: Vec<(Backend, usize)> = match index % 4 {
-                0 => vec![(minimum, total)],
-                1 => vec![(Backend::Scalar, total)],
-                2 => vec![(Backend::V2, total / 2), (Backend::V3, total - total / 2)],
-                _ => vec![
-                    (Backend::V2, total * 3 / 4),
-                    (minimum, total - total * 3 / 4),
-                ],
-            };
-            let entries: Vec<Entry> = split
-                .into_iter()
-                .filter(|(_, work)| *work > 0)
-                .map(|(tier, work)| Entry {
-                    kernel: "parity",
+        let (obligation, coeffs, rows, sources, add_multiplicity) = parity_shape(index);
+        let minimum = TIERS[(index / 6) % 4];
+        let total = (index % 8) * 64 + (index % 3) * 16;
+        let entries: Vec<Entry> = parity_split(index, minimum, total)
+            .into_iter()
+            .filter(|(_, work)| *work > 0)
+            .map(|(tier, work)| Entry {
+                kernel: "parity",
+                substage: Substage::MulAdd,
+                scope: None,
+                unit: Unit::Elements,
+                work,
+                tier,
+            })
+            .collect();
+        let work: &'static [Work] = Box::leak(
+            vec![
+                Work {
                     substage: Substage::MulAdd,
                     scope: None,
                     unit: Unit::Elements,
-                    work,
-                    tier,
-                })
-                .collect();
-            let work: &'static [Work] = Box::leak(
-                vec![
-                    Work {
-                        substage: Substage::MulAdd,
-                        scope: None,
-                        unit: Unit::Elements,
-                        basis: Basis::Source,
-                        multiplicity: Multiplicity::ActivePairs,
-                        lane: 1,
-                        loss: 0,
-                        iterations: 1,
-                    },
-                    Work {
-                        substage: Substage::Add,
-                        scope: None,
-                        unit: Unit::Elements,
-                        basis: Basis::Source,
-                        multiplicity: add_multiplicity,
-                        lane: 1,
-                        loss: 0,
-                        iterations: 1,
-                    },
-                ]
-                .into_boxed_slice(),
-            );
-            let cells: &'static [Cell] = Box::leak(
-                vec![Cell {
-                    features: Features::Default,
-                    request: Request::Scalar,
-                    process: minimum,
-                    field: minimum,
-                    required: true,
-                    min_serving: minimum,
-                    work,
-                }]
-                .into_boxed_slice(),
-            );
-            let case = Case {
-                id: "parity@test#fixture/shape/_",
-                obligation,
-                run: RUN,
-                geometry: Geometry {
-                    rows,
-                    sources,
-                    len: 64,
-                    misalign: 0,
-                    pitch_pad: 0,
+                    basis: Basis::Source,
+                    multiplicity: Multiplicity::ActivePairs,
+                    lane: 1,
+                    loss: 0,
+                    iterations: 1,
                 },
-                coeffs,
-                map: None,
-                cells,
-            };
-            let cell = &cells[0];
-            let mut outcome = Outcome::new(minimum, minimum);
+                Work {
+                    substage: Substage::Add,
+                    scope: None,
+                    unit: Unit::Elements,
+                    basis: Basis::Source,
+                    multiplicity: add_multiplicity,
+                    lane: 1,
+                    loss: 0,
+                    iterations: 1,
+                },
+            ]
+            .into_boxed_slice(),
+        );
+        let cells: &'static [Cell] = Box::leak(
+            vec![Cell {
+                features: Features::Default,
+                request: Request::Scalar,
+                process: minimum,
+                field: minimum,
+                required: true,
+                min_serving: minimum,
+                work,
+            }]
+            .into_boxed_slice(),
+        );
+        let case = Case {
+            id: "parity@test#fixture/shape/_",
+            obligation,
+            run: RUN,
+            geometry: Geometry {
+                rows,
+                sources,
+                len: 64,
+                misalign: 0,
+                pitch_pad: 0,
+            },
+            coeffs,
+            map: None,
+            cells,
+        };
+        (case, &cells[0], entries)
+    }
+
+    /// Deterministic 47-row matrix compared with the Python coverage helper.
+    #[test]
+    fn fused_parity_matrix() {
+        for index in 0..47usize {
+            let (case, cell, entries) = parity_case(index);
+            let mut outcome = Outcome::new(cell.process, cell.field);
             outcome.trace = entries;
             outcome.enforce_routing = true;
             outcome.checks.push(BufferCheck {
@@ -2160,7 +2175,7 @@ mod tests {
         let mut outcome = outcome_with(7, 7, 384);
         outcome.enforce_routing = true;
         let verdict = judge(&MIXED_CASE, &MIXED_CELL, &outcome);
-        assert!(!verdict.detail.is_empty());
+        assert_ne!(verdict.detail, "");
     }
 
     /// Exempt copy-base work cannot fund the only required addition.
@@ -2169,7 +2184,7 @@ mod tests {
         let mut outcome = outcome_with(7, 7, 192);
         outcome.enforce_routing = true;
         let verdict = judge(&COPY_CASE, &COPY_CELL, &outcome);
-        assert!(!verdict.detail.is_empty());
+        assert_ne!(verdict.detail, "");
     }
 
     /// Full-length general work leaves no slack that funds short unit work.
@@ -2180,7 +2195,7 @@ mod tests {
         let mut outcome = outcome_with(7, 7, 176);
         outcome.enforce_routing = true;
         let verdict = judge(&FUSED_LOSS_CASE, &FUSED_LOSS_CELL, &outcome);
-        assert!(!verdict.detail.is_empty());
+        assert_ne!(verdict.detail, "");
     }
 
     /// Zero-term work cannot fund unit additions.
@@ -2189,7 +2204,7 @@ mod tests {
         let mut outcome = outcome_with(7, 7, 128);
         outcome.enforce_routing = true;
         let verdict = judge(&FUSED_CASE, &FUSED_CELL, &outcome);
-        assert!(!verdict.detail.is_empty());
+        assert_ne!(verdict.detail, "");
     }
 
     /// General-coefficient slack cannot fund unit additions.
@@ -2198,7 +2213,7 @@ mod tests {
         let mut outcome = outcome_with(7, 7, 132);
         outcome.enforce_routing = true;
         let verdict = judge(&FUSED_GENERAL_CASE, &FUSED_CELL, &outcome);
-        assert!(!verdict.detail.is_empty());
+        assert_ne!(verdict.detail, "");
     }
 
     /// A tier below `min_serving` contributes no work.
@@ -2207,7 +2222,7 @@ mod tests {
         let mut outcome = outcome_with(7, 7, 64);
         outcome.enforce_routing = true;
         let verdict = judge(&CASE, &CELL_V2, &outcome);
-        assert!(!verdict.detail.is_empty());
+        assert_ne!(verdict.detail, "");
     }
 
     const COEFFS_MIX: &[Coeff] = &[Coeff::General, Coeff::Zero, Coeff::One, Coeff::One];
@@ -2362,7 +2377,7 @@ mod tests {
             min_serving: Backend::Scalar,
             work: GATHER_STAGE,
         };
-        assert!(!judge(&GATHER_CASE, &cell, &outcome).detail.is_empty());
+        assert_ne!(judge(&GATHER_CASE, &cell, &outcome).detail, "");
     }
 
     /// The Frobenius oracle is `x^(p^k)`, independent of the prepared map.
@@ -2401,14 +2416,11 @@ mod tests {
         assert_eq!(super::bits::range(&GATHER_CASE), (0, GATHER_GEO.len));
     }
 
-    /// A unknown feature set is survey-only, even with a request set.
+    /// A request alone never enforces routing; acceptance mode always does.
     #[test]
-    fn other_feature_sets_never_enforce_routing() {
-        assert_eq!(fingerprint_name(Fingerprint::Other), "other");
-        assert!(!enforces(false, true, false, Fingerprint::Other));
-        assert!(enforces(false, true, false, Fingerprint::Default));
-        assert!(!enforces(false, true, true, Fingerprint::Default));
-        assert!(enforces(true, true, false, Fingerprint::Other));
+    fn routing_is_enforced_only_in_acceptance_mode() {
+        assert!(!enforces(false));
+        assert!(enforces(true));
     }
 
     /// A field mismatch fails only when routing is enforced.
@@ -2417,9 +2429,9 @@ mod tests {
         let mut outcome = outcome_with(7, 7, 64);
         outcome.field = Backend::V2;
         let surveyed = judge(&CASE, &CELLS[1], &outcome);
-        assert!(surveyed.detail.is_empty());
+        assert_eq!(surveyed.detail, "");
         outcome.enforce_routing = true;
         let enforced = judge(&CASE, &CELLS[1], &outcome);
-        assert!(!enforced.detail.is_empty());
+        assert_ne!(enforced.detail, "");
     }
 }

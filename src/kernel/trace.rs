@@ -281,7 +281,7 @@ mod tests {
     fn zero_work_records_nothing() {
         clear();
         emit("k", super::Substage::Mul, Unit::Elements, 0, Backend::V3);
-        assert!(snapshot().is_empty());
+        assert_eq!(snapshot().len(), 0);
     }
 
     #[test]
@@ -289,7 +289,7 @@ mod tests {
         emit("k", super::Substage::Mul, Unit::Elements, 8, Backend::V3);
         assert_eq!(snapshot().len(), 1);
         clear();
-        assert!(snapshot().is_empty());
+        assert_eq!(snapshot().len(), 0);
         emit("k", super::Substage::Add, Unit::Bytes, 4, Backend::V2);
         assert_eq!(snapshot().len(), 1);
     }
