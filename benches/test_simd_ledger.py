@@ -962,6 +962,59 @@ class TestFullCitations(unittest.TestCase):
                 sl.KNOWN_CALLABLES = old
 
 
+class TestCrossCheck(unittest.TestCase):
+    """Cross-check records validate against primary claims without evidence."""
+
+    def _fixture(self, d, *, stages=None):
+        ledger = _required_tiny()
+        derived = sl.cases(ledger, sl.obligations(ledger))
+        case = next(c for c in derived
+                    if c["obligation"] == "ops::mul_add@gf8-aes")
+        cell = case["cells"]["default/v3"]
+        receipt = {
+            "id": case["id"], "obligation": case["obligation"],
+            "features": "default", "request_raw": "v3",
+            "process": cell["process"], "field": cell["field"],
+            "required": cell["required"], "min_serving": cell["min_serving"],
+            "stages": _budget_stages(case) if stages is None else stages,
+            "result": "pass", "source_id": "src-1", "host_id": "host-1",
+        }
+        log = Path(d) / "cross.log"
+        log.write_text(
+            "ROUTE_RECEIPT\t" + _json(receipt) + "\n"
+            "ROUTE_DONE\t" + _json(_good_done(1)) + "\n")
+        ledger["cross_check"] = [{
+            "record": "cross.log", "source_id": "src-1",
+            "host_id": "host-1"}]
+        return ledger, derived, Path(d)
+
+    def test_consistent_cross_check_is_accepted(self):
+        with tempfile.TemporaryDirectory() as d:
+            ledger, derived, records = self._fixture(d)
+            sl._check_cross_check(ledger, derived, records)
+
+    def test_cross_check_tier_disagreement_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            ledger = _required_tiny()
+            derived = sl.cases(ledger, sl.obligations(ledger))
+            case = next(c for c in derived
+                        if c["obligation"] == "ops::mul_add@gf8-aes")
+            stages = _budget_stages(case)
+            for stage in stages:
+                stage["tiers"] = {"v2": stage["budget"]}
+                stage["tier"] = "v2"
+            ledger, derived, records = self._fixture(d, stages=stages)
+            with self.assertRaisesRegex(ValidationError, "cross_check"):
+                sl._check_cross_check(ledger, derived, records)
+
+    def test_cross_check_never_supplies_primary_evidence(self):
+        with tempfile.TemporaryDirectory() as d:
+            ledger, derived, records = self._fixture(d)
+            with self.assertRaisesRegex(ValidationError,
+                                        "missing_primary_evidence"):
+                sl._check_evidence(ledger, sl.obligations(ledger),
+                                   derived, records)
+
 # ---------------------------------------------------------------------------
 # Behavior 5: pattern selection per actual fixture and callable shape
 # ---------------------------------------------------------------------------

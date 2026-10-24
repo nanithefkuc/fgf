@@ -2034,6 +2034,106 @@ def _validate_route_semantics(expanded: dict, derived: list[dict]) -> None:
                               f"requires work for case {case['id']!r}")
 
 
+def _check_cross_check(ledger: dict, case_list_derived: list[dict],
+                       records: Path | None,
+                       runner_case_ids: set[str] | None = None) -> None:
+    """Validate optional cross-check records without deriving any status.
+
+    Each entry names a record and its identity. A cross-check receipt must
+    agree with the ledger's claims and with the primary-derived minimum for
+    the cell it covers; a record never supplies evidence for a status.
+    """
+    entries = ledger.get("cross_check")
+    if entries is None:
+        return
+    if not isinstance(entries, list):
+        _fail("cross_check must be a list")
+    by_case = {case["id"]: case for case in case_list_derived}
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            _fail(f"cross_check[{index}] must be a dict")
+        for field in ("record", "source_id", "host_id"):
+            value = entry.get(field)
+            if not isinstance(value, str) or not value:
+                _fail(f"cross_check[{index}]: {field} must be a non-empty string")
+    if records is None:
+        return
+    if not records.is_dir():
+        _fail(f"--records {records} is not a directory")
+
+    cases_by_ob: dict[str, list[dict]] = {}
+    for case in case_list_derived:
+        cases_by_ob.setdefault(case["obligation"], []).append(case)
+
+    for index, entry in enumerate(entries):
+        label = f"cross_check[{index}]"
+        done, receipts = _read_evidence_record(
+            label, {"record": entry["record"]}, records)
+        identity = _evidence_identity(done, "ROUTE_DONE", label)
+        if (identity["source_id"] != entry["source_id"]
+                or identity["host_id"] != entry["host_id"]):
+            _fail(f"{label}: record identity differs from its entry")
+        features = identity["features"]
+        request = identity["request"]
+        key = f"{features}/{request}"
+        by_key: dict[str, dict] = {}
+        for rec in receipts:
+            rid = rec.get("id")
+            if not isinstance(rid, str) or not rid:
+                _fail(f"{label}: receipt without id")
+            if rid in by_key:
+                _fail(f"{label}: duplicate receipt {rid!r}")
+            case = by_case.get(rid)
+            if case is None:
+                _fail(f"{label}: receipt {rid} is not a generated case")
+            receipt_identity = _receipt_identity(rec, label)
+            if receipt_identity != identity:
+                _fail(f"{label}: receipt {rid} identity differs from ROUTE_DONE")
+            mismatch = _route_claim_mismatch(rec, case, features, request)
+            if mismatch is not None:
+                _fail(f"{label}: receipt {rid} disagrees with the primary "
+                      f"cell ({mismatch})")
+            cell = case["cells"].get(key)
+            if not isinstance(cell, dict):
+                _fail(f"{label}: receipt {rid} names no cell {key!r}")
+            if cell.get("status") in ("direct", "composition"):
+                stages = rec.get("stages")
+                if not isinstance(stages, list):
+                    stages = []
+                problem = _case_coverage_error(
+                    case, key, stages, _strength(cell["min_serving"]))
+                if problem is not None:
+                    _fail(f"{label}: receipt {rid} disagrees with the primary "
+                          f"budget ({problem})")
+            by_key[rid] = rec
+
+        for oid, cases in sorted(cases_by_ob.items()):
+            covered = [case for case in cases if case["id"] in by_key]
+            if not covered:
+                continue
+            cell = covered[0]["cells"].get(key, {})
+            if cell.get("status") not in ("direct", "composition"):
+                continue
+            required = [case for case in covered if _case_required(case, key)]
+            if not required:
+                continue
+            all_required = [
+                case for case in cases
+                if _case_required(case, key)
+            ]
+            if {case["id"] for case in required} != {
+                    case["id"] for case in all_required}:
+                continue
+            stages_by_case = {
+                case["id"]: by_key[case["id"]].get("stages", [])
+                for case in required
+            }
+            strongest = _strongest_cell_tier(required, key, stages_by_case)
+            if strongest != cell["min_serving"]:
+                _fail(f"{label}: {oid!r} derives {strongest} but primary "
+                      f"declares {cell['min_serving']}")
+
+
 def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
                     records: Path | None,
                     runner_case_ids: set[str] | None = None) -> None:
@@ -2044,6 +2144,7 @@ def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
     served tier is compared against the declared minimum. A receipt's ``met``
     flag is never trusted as coverage.
     """
+    _check_cross_check(ledger, case_list_derived, records, runner_case_ids)
     evidence = ledger.get("evidence", {})
     required_keys = sorted({
         key
@@ -2055,7 +2156,7 @@ def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
         _fail(f"--records {records} is not a directory")
     if not evidence:
         if required_keys:
-            _fail(f"evidence missing for {required_keys[0]!r}")
+            _fail(f"missing_primary_evidence {required_keys[0]!r}")
         return
     if records is None:
         # Fresh acceptance does not audit historical records; the route gate
@@ -2106,7 +2207,7 @@ def _check_evidence(ledger: dict, expanded: dict, case_list_derived: list[dict],
             if status == "unverified":
                 continue
             if key not in parsed:
-                _fail(f"evidence missing for {key!r}")
+                _fail(f"missing_primary_evidence {key!r}")
             _, receipts = parsed[key]
             features, request = key.split("/", 1)
             cases = cases_by_ob.get(oid, [])
