@@ -713,6 +713,7 @@ _route-inventories FEATURES DIR:
         *) printf 'route_inventory: unsupported features %s\n' "{{FEATURES}}" >&2; exit 2 ;;
     esac
     cargo +{{API_NIGHTLY}} rustdoc --all-features --lib -- -Z unstable-options --output-format json
+    cp target/doc/fgf.json "{{DIR}}/fgf.json"
     cargo test --lib "${flags[@]}" -- --list >"{{DIR}}/tests.txt"
     FGF_ROUTE_LIST=1 FGF_ROUTE_SURVEY=1 cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture >"{{DIR}}/cases.txt"
     FGF_ROUTE_LIST=1 FGF_ROUTE_SURVEY=1 cargo test --lib --all-features kernel::tests::routes::accept -- --nocapture >"{{DIR}}/cases-all.txt"
@@ -762,7 +763,7 @@ route-accept REQUEST FEATURES:
     # Fresh acceptance audits the ledger's own shape and the run it is about
     # to make; the historical record replay belongs to `route-gate`.
     python3 benches/simd_ledger.py check --full \
-        --rustdoc target/doc/fgf.json \
+        --rustdoc "$scratch/fgf.json" \
         --test-list "$scratch/tests.txt" \
         --case-list "$scratch/cases.txt" \
         --surface-inventory "$scratch/surfaces.txt"
@@ -1044,7 +1045,7 @@ route-check:
     trap 'rm -rf "$scratch"' EXIT
     just _route-inventories default "$scratch"
     python3 benches/simd_ledger.py check --full \
-        --rustdoc target/doc/fgf.json \
+        --rustdoc "$scratch/fgf.json" \
         --test-list "$scratch/tests.txt" \
         --case-list "$scratch/cases.txt" \
         --case-list-all "$scratch/cases-all.txt" \
@@ -1065,7 +1066,7 @@ route-gate:
     trap 'rm -rf "$scratch"' EXIT
     just _route-inventories default "$scratch"
     python3 benches/simd_ledger.py check --full \
-        --rustdoc target/doc/fgf.json \
+        --rustdoc "$scratch/fgf.json" \
         --test-list "$scratch/tests.txt" \
         --case-list "$scratch/cases.txt" \
         --case-list-all "$scratch/cases-all.txt" \
