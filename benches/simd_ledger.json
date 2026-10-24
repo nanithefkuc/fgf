@@ -6033,57 +6033,59 @@
     "ops::unpack_to_vec@residue-u8-low": "ops::unpack_to_vec has no SIMD arm for this rule; scalar dispatch at src/ops/packing.rs:86; uncovered: r3/elementwise-4k/general-1, r3/elementwise-4k/zero-1; v4x: ops::unpack_to_vec has no SIMD arm for this rule; scalar dispatch at src/ops/packing.rs:86; uncovered: r3/elementwise-4k/general-1, r3/elementwise-4k/zero-1; v4x: ops::unpack_to_vec has no SIMD arm for this rule; scalar dispatch at src/ops/packing.rs:86; uncovered: r3/elementwise-4k/general-1, r3/elementwise-4k/zero-1"
   },
   "evidence": {
-    "all/scalar": {
-      "record": "bench-records/routes/all-scalar.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
-      "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
-    },
-    "all/v2": {
-      "record": "bench-records/routes/all-v2.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
-      "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
-    },
-    "all/v3": {
-      "record": "bench-records/routes/all-v3.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
-      "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
-    },
-    "all/v3_gfni_crypto": {
-      "record": "bench-records/routes/all-v3_gfni_crypto.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
-      "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
-    },
-    "default/scalar": {
-      "record": "bench-records/routes/default-scalar.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
-      "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
-    },
-    "default/v2": {
-      "record": "bench-records/routes/default-v2.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
-      "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
-    },
-    "default/v3": {
-      "record": "bench-records/routes/default-v3.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
-      "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
-    },
-    "default/v3_gfni_crypto": {
-      "record": "bench-records/routes/default-v3_gfni_crypto.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
-      "host_id": "Hoshi|Intel(R) Core(TM) Ultra 7 258V"
-    },
     "all/v4x": {
-      "record": "bench-records/routes/zbox-all-v4x.log",
+      "record": "bench-records/routes/willow-cove-all-v4x.log",
       "source_id": "235cb20f7fe98829f225ba1f62d5c093b58047bf22046a3b6c981fd895f077e9",
-      "host_id": "zbox|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
+      "host_id": "Willow Cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
     },
     "default/v4x": {
-      "record": "bench-records/routes/zbox-default-v4x.log",
+      "record": "bench-records/routes/willow-cove-default-v4x.log",
       "source_id": "235cb20f7fe98829f225ba1f62d5c093b58047bf22046a3b6c981fd895f077e9",
-      "host_id": "zbox|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
+      "host_id": "Willow Cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
     }
   },
+  "cross_check": [
+    {
+      "record": "bench-records/routes/lunar-lake-all-scalar.log",
+      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
+    },
+    {
+      "record": "bench-records/routes/lunar-lake-all-v2.log",
+      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
+    },
+    {
+      "record": "bench-records/routes/lunar-lake-all-v3.log",
+      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
+    },
+    {
+      "record": "bench-records/routes/lunar-lake-all-v3_gfni_crypto.log",
+      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
+    },
+    {
+      "record": "bench-records/routes/lunar-lake-default-scalar.log",
+      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
+    },
+    {
+      "record": "bench-records/routes/lunar-lake-default-v2.log",
+      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
+    },
+    {
+      "record": "bench-records/routes/lunar-lake-default-v3.log",
+      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
+    },
+    {
+      "record": "bench-records/routes/lunar-lake-default-v3_gfni_crypto.log",
+      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
+    }
+  ],
   "fields": {
     "bits::and_assign@bits-gf2": "default/v3_gfni_crypto=v3_gfni_crypto default/v3=v3 default/v2=v2 all/v3_gfni_crypto=v3_gfni_crypto all/v3=v3 all/v2=v2 all/v4x=v4x default/v4x=v3_gfni_crypto",
     "bits::and_into@bits-gf2": "default/v3_gfni_crypto=v3_gfni_crypto default/v3=v3 default/v2=v2 all/v3_gfni_crypto=v3_gfni_crypto all/v3=v3 all/v2=v2 all/v4x=v4x default/v4x=v3_gfni_crypto",

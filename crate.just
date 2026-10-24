@@ -728,6 +728,10 @@ route-survey FEATURES LOG:
         *) printf 'route_survey: unsupported features %s\n' "{{FEATURES}}" >&2; exit 2 ;;
     esac
     export FGF_ROUTE_SURVEY=1
+    if [[ -n ${FGF_HOST_ARCH:-} ]]; then
+        cpu=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')
+        export FGF_HOST_ID="${FGF_HOST_ARCH}|${cpu}"
+    fi
     mkdir -p "$(dirname "{{LOG}}")"
     cargo test --lib "${flags[@]}" kernel::tests::routes::accept -- --nocapture 2>&1 | tee "{{LOG}}"
 
@@ -764,9 +768,9 @@ route-accept REQUEST FEATURES:
             git ls-files --others --exclude-standard -z | xargs -0 -r sha256sum
         } | sha256sum | cut -d' ' -f1
     )
+    : "${FGF_HOST_ARCH:?route_accept requires FGF_HOST_ARCH (CPU microarchitecture)}"
     cpu=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')
-    node=$(cat /proc/sys/kernel/hostname 2>/dev/null || uname -n)
-    host_id="${node}|${cpu}"
+    host_id="${FGF_HOST_ARCH}|${cpu}"
     log="$scratch/route.log"
     SIMD_BACKEND="{{REQUEST}}" FGF_ROUTE_ACCEPT=1 \
         FGF_SOURCE_ID="$source_id" FGF_HOST_ID="$host_id" \
