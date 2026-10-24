@@ -6216,94 +6216,124 @@
   "evidence": {
     "default/v3_gfni_crypto": {
       "record": "bench-records/routes/golden-cove-default-v3_gfni_crypto.log",
-      "source_id": "47ffa6cf038608daf2e779590d5d8958baa95a2c3545d2706e6cb1c4b319f7ec",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Golden Cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "all/v3_gfni_crypto": {
       "record": "bench-records/routes/golden-cove-all-v3_gfni_crypto.log",
-      "source_id": "47ffa6cf038608daf2e779590d5d8958baa95a2c3545d2706e6cb1c4b319f7ec",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Golden Cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "default/v3": {
       "record": "bench-records/routes/golden-cove-default-v3.log",
-      "source_id": "47ffa6cf038608daf2e779590d5d8958baa95a2c3545d2706e6cb1c4b319f7ec",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Golden Cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "all/v3": {
       "record": "bench-records/routes/golden-cove-all-v3.log",
-      "source_id": "47ffa6cf038608daf2e779590d5d8958baa95a2c3545d2706e6cb1c4b319f7ec",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Golden Cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "default/v2": {
       "record": "bench-records/routes/golden-cove-default-v2.log",
-      "source_id": "47ffa6cf038608daf2e779590d5d8958baa95a2c3545d2706e6cb1c4b319f7ec",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Golden Cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "all/v2": {
       "record": "bench-records/routes/golden-cove-all-v2.log",
-      "source_id": "47ffa6cf038608daf2e779590d5d8958baa95a2c3545d2706e6cb1c4b319f7ec",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Golden Cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "default/scalar": {
       "record": "bench-records/routes/golden-cove-default-scalar.log",
-      "source_id": "47ffa6cf038608daf2e779590d5d8958baa95a2c3545d2706e6cb1c4b319f7ec",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Golden Cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "all/scalar": {
       "record": "bench-records/routes/golden-cove-all-scalar.log",
-      "source_id": "47ffa6cf038608daf2e779590d5d8958baa95a2c3545d2706e6cb1c4b319f7ec",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Golden Cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "default/v4x": {
       "record": "bench-records/routes/willow-cove-default-v4x.log",
-      "source_id": "47ffa6cf038608daf2e779590d5d8958baa95a2c3545d2706e6cb1c4b319f7ec",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Willow Cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
     },
     "all/v4x": {
       "record": "bench-records/routes/willow-cove-all-v4x.log",
-      "source_id": "47ffa6cf038608daf2e779590d5d8958baa95a2c3545d2706e6cb1c4b319f7ec",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Willow Cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
     }
   },
   "cross_check": [
     {
+      "record": "bench-records/routes/willow-cove-default-v3_gfni_crypto.log",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
+      "host_id": "Willow Cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
+    },
+    {
+      "record": "bench-records/routes/willow-cove-default-v3.log",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
+      "host_id": "Willow Cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
+    },
+    {
+      "record": "bench-records/routes/willow-cove-default-v2.log",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
+      "host_id": "Willow Cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
+    },
+    {
+      "record": "bench-records/routes/willow-cove-all-v3_gfni_crypto.log",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
+      "host_id": "Willow Cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
+    },
+    {
+      "record": "bench-records/routes/willow-cove-all-v3.log",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
+      "host_id": "Willow Cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
+    },
+    {
+      "record": "bench-records/routes/willow-cove-all-v2.log",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
+      "host_id": "Willow Cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
+    },
+    {
       "record": "bench-records/routes/lunar-lake-default-scalar.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
     },
     {
       "record": "bench-records/routes/lunar-lake-default-v2.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
     },
     {
       "record": "bench-records/routes/lunar-lake-default-v3.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
     },
     {
       "record": "bench-records/routes/lunar-lake-default-v3_gfni_crypto.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
     },
     {
       "record": "bench-records/routes/lunar-lake-all-scalar.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
     },
     {
       "record": "bench-records/routes/lunar-lake-all-v2.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
     },
     {
       "record": "bench-records/routes/lunar-lake-all-v3.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
     },
     {
       "record": "bench-records/routes/lunar-lake-all-v3_gfni_crypto.log",
-      "source_id": "2a02cdac0faa8118acede5ee0ba948c6a0e6bc092f51481d2cec8abdb7a35b80",
+      "source_id": "8cc8e636089b9e09cb13604402957fd757e5556ee00560c8985e56bfe2af6f9e",
       "host_id": "Lunar Lake|Intel(R) Core(TM) Ultra 7 258V"
     }
   ],
