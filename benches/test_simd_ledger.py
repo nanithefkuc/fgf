@@ -1753,6 +1753,8 @@ use crate::kernel::Backend;
 pub(super) struct Case {
     pub id: &'static str,
     pub obligation: &'static str,
+    pub adapter: &'static str,
+    pub group: &'static str,
     pub run: fn(&Case, &Cell) -> Outcome,
     pub geometry: Geometry,
     pub coeffs: &'static [Coeff],

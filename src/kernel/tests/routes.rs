@@ -55,6 +55,10 @@ mod scalars;
 pub(super) struct Case {
     pub id: &'static str,
     pub obligation: &'static str,
+    /// The unmonomorphized adapter function that runs this case.
+    pub adapter: &'static str,
+    /// The rule group of the case's field family.
+    pub group: &'static str,
     pub run: fn(&Case, &Cell) -> Outcome,
     pub geometry: Geometry,
     pub coeffs: &'static [Coeff],
@@ -1234,6 +1238,7 @@ struct Env {
     host_id: String,
     fault: Option<Fault>,
     list: bool,
+    full: bool,
 }
 
 fn env_string(name: &str) -> Option<String> {
@@ -1276,6 +1281,7 @@ impl Env {
             assert_ne!(host_id, "unset", "acceptance mode requires FGF_HOST_ID");
         }
         let enforce = enforces(accepting);
+        let full = accepting || survey;
         Self {
             fingerprint,
             request,
@@ -1285,6 +1291,7 @@ impl Env {
             host_id,
             fault: fault_from_env(),
             list: env_string("FGF_ROUTE_LIST").as_deref() == Some("1"),
+            full,
         }
     }
 }
@@ -1423,6 +1430,22 @@ fn list_cases() {
     }
 }
 
+/// The deterministic ordinary-run subset: one case per adapter and rule group.
+///
+/// Table order selects the representative, so repeated runs execute the same
+/// cases. Full route recipes bypass this subset through `FGF_ROUTE_ACCEPT` or
+/// `FGF_ROUTE_SURVEY`.
+fn stratified_cases() -> Vec<&'static Case> {
+    let mut selected = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for case in all_cases() {
+        if seen.insert((case.adapter, case.group)) {
+            selected.push(case);
+        }
+    }
+    selected
+}
+
 /// Run every case for the selected configuration and print receipts.
 #[test]
 fn accept() {
@@ -1443,9 +1466,17 @@ fn accept() {
         }
     };
 
+    let cases: Vec<&'static Case> = if env.full {
+        all_cases().collect()
+    } else {
+        stratified_cases()
+    };
+
     let mut drop_target: Option<&'static str> = None;
     if env.fault == Some(Fault::DropReceipt) {
-        drop_target = all_cases()
+        drop_target = cases
+            .iter()
+            .copied()
             .find(|case| {
                 let cell = cell_for(case, lookup, env.request.unwrap_or(Request::Scalar));
                 cell.required
@@ -1456,7 +1487,7 @@ fn accept() {
     let mut cases_run = 0usize;
     let mut dropped = false;
     let mut failures: Vec<String> = Vec::new();
-    for case in all_cases() {
+    for case in cases {
         cases_run += 1;
         let request = env.request.unwrap_or(Request::Scalar);
         let initial = cell_for(case, lookup, request);
@@ -1591,6 +1622,8 @@ mod tests {
     const CASE: Case = Case {
         id: "judge@test#fixture/geometry/_",
         obligation: "judge@test",
+        adapter: "test",
+        group: "test",
         run: RUN,
         geometry: GEO,
         coeffs: COEFFS,
@@ -1710,6 +1743,8 @@ mod tests {
     const FUSED_CASE: Case = Case {
         id: "ops::mul_into_gather@test#fixture/gather/_",
         obligation: "ops::mul_into_gather@test",
+        adapter: "test",
+        group: "test",
         run: RUN,
         geometry: Geometry {
             rows: 4,
@@ -1728,6 +1763,8 @@ mod tests {
     const FUSED_GENERAL_CASE: Case = Case {
         id: "ops::mul_into_gather@test#fixture/gather-general/_",
         obligation: "ops::mul_into_gather@test",
+        adapter: "test",
+        group: "test",
         run: RUN,
         geometry: Geometry {
             rows: 4,
@@ -1791,6 +1828,8 @@ mod tests {
     const FUSED_LOSS_CASE: Case = Case {
         id: "ops::mul_into_gather@test#fixture/gather-loss/_",
         obligation: "ops::mul_into_gather@test",
+        adapter: "test",
+        group: "test",
         run: RUN,
         geometry: Geometry {
             rows: 4,
@@ -1838,6 +1877,8 @@ mod tests {
     const TIER_CASE: Case = Case {
         id: "ops::mul_add_gather@test#fixture/gather-tier/_",
         obligation: "ops::mul_add_gather@test",
+        adapter: "test",
+        group: "test",
         run: RUN,
         geometry: Geometry {
             rows: 4,
@@ -1884,6 +1925,8 @@ mod tests {
     const COPY_CASE: Case = Case {
         id: "ops::mul_into_gather@test#fixture/gather-copy/_",
         obligation: "ops::mul_into_gather@test",
+        adapter: "test",
+        group: "test",
         run: RUN,
         geometry: Geometry {
             rows: 4,
@@ -2070,6 +2113,8 @@ mod tests {
         let case = Case {
             id: "parity@test#fixture/shape/_",
             obligation,
+            adapter: "test",
+            group: "test",
             run: RUN,
             geometry: Geometry {
                 rows,
@@ -2154,6 +2199,8 @@ mod tests {
     const MIXED_CASE: Case = Case {
         id: "ops::mul_into_matrix@test#fixture/mixed/_",
         obligation: "ops::mul_into_matrix@test",
+        adapter: "test",
+        group: "test",
         run: RUN,
         geometry: Geometry {
             rows: 3,
@@ -2236,6 +2283,8 @@ mod tests {
     const CASE_MIX: Case = Case {
         id: "judge@mix#fixture/geometry/_",
         obligation: "judge@mix",
+        adapter: "test",
+        group: "test",
         run: RUN,
         geometry: GEO_MIX,
         coeffs: COEFFS_MIX,
@@ -2327,6 +2376,8 @@ mod tests {
     const GATHER_CASE: Case = Case {
         id: "bits::xor_gather@bits-gf2#gf2/bits-gather-8x4096/_",
         obligation: "bits::xor_gather@bits-gf2",
+        adapter: "test",
+        group: "test",
         run: RUN,
         geometry: GATHER_GEO,
         coeffs: EMPTY,
@@ -2347,6 +2398,8 @@ mod tests {
     const MAP_CASE: Case = Case {
         id: "map::frobenius_into_with@map-frobenius-residue-column#frob_rc/_",
         obligation: "map::frobenius_into_with@map-frobenius-residue-column",
+        adapter: "test",
+        group: "test",
         run: RUN,
         geometry: MAP_GEO,
         coeffs: EMPTY,
@@ -2414,6 +2467,32 @@ mod tests {
     #[test]
     fn bit_range_matches_the_declared_geometry() {
         assert_eq!(super::bits::range(&GATHER_CASE), (0, GATHER_GEO.len));
+    }
+
+    /// Ordinary runs select one deterministic case per adapter and group.
+    #[test]
+    fn ordinary_runs_use_a_stratified_subset() {
+        let full: Vec<&Case> = all_cases().collect();
+        let subset = stratified_cases();
+        assert!(subset.len() * 4 < full.len());
+        let pairs: std::collections::BTreeSet<_> = subset
+            .iter()
+            .map(|case| (case.adapter, case.group))
+            .collect();
+        assert_eq!(pairs.len(), subset.len());
+        let subset_adapters: std::collections::BTreeSet<_> =
+            subset.iter().map(|case| case.adapter).collect();
+        let full_adapters: std::collections::BTreeSet<_> =
+            full.iter().map(|case| case.adapter).collect();
+        assert_eq!(subset_adapters, full_adapters);
+        let subset_groups: std::collections::BTreeSet<_> =
+            subset.iter().map(|case| case.group).collect();
+        let full_groups: std::collections::BTreeSet<_> =
+            full.iter().map(|case| case.group).collect();
+        assert_eq!(subset_groups, full_groups);
+        let ids: Vec<&str> = subset.iter().map(|case| case.id).collect();
+        let again: Vec<&str> = stratified_cases().iter().map(|case| case.id).collect();
+        assert_eq!(ids, again);
     }
 
     /// A request alone never enforces routing; acceptance mode always does.

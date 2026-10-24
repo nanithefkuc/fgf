@@ -2802,6 +2802,8 @@ def _generate_cases(ledger: dict, expanded: dict | None = None) -> str:
         case_records.append({
             "id": case["id"],
             "obligation": oid,
+            "adapter": f"{adapter}::{fn}",
+            "group": rule.get("group", ""),
             "run_ref": run_defs[run_fn],
             "cells_ref": cells_map[cells_key],
             "geo_ref": geos_map[geo_key],
@@ -2814,6 +2816,7 @@ def _generate_cases(ledger: dict, expanded: dict | None = None) -> str:
     for rec in case_records:
         case_lines.append(
             f"    Case {{ id: \"{rec['id']}\", obligation: \"{rec['obligation']}\", "
+            f"adapter: \"{rec['adapter']}\", group: \"{rec['group']}\", "
             f"run: {rec['run_ref']}, geometry: {rec['geo_ref']}, "
             f"coeffs: {rec['coeffs_ref']}, map: {rec['map_expr']}, "
             f"cells: {rec['cells_ref']} }},")
