@@ -2083,6 +2083,10 @@ def _check_cross_check(ledger: dict, case_list_derived: list[dict],
                 _fail(f"{label}: receipt without id")
             if rid in by_key:
                 _fail(f"{label}: duplicate receipt {rid!r}")
+            result = rec.get("result")
+            if result != "pass":
+                _fail(f"cross_check_failed_receipt {label}: receipt {rid} "
+                      f"result={result!r}")
             case = by_case.get(rid)
             if case is None:
                 _fail(f"{label}: receipt {rid} is not a generated case")

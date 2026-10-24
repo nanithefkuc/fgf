@@ -965,7 +965,7 @@ class TestFullCitations(unittest.TestCase):
 class TestCrossCheck(unittest.TestCase):
     """Cross-check records validate against primary claims without evidence."""
 
-    def _fixture(self, d, *, stages=None):
+    def _fixture(self, d, *, stages=None, result="pass"):
         ledger = _required_tiny()
         derived = sl.cases(ledger, sl.obligations(ledger))
         case = next(c for c in derived
@@ -977,7 +977,7 @@ class TestCrossCheck(unittest.TestCase):
             "process": cell["process"], "field": cell["field"],
             "required": cell["required"], "min_serving": cell["min_serving"],
             "stages": _budget_stages(case) if stages is None else stages,
-            "result": "pass", "source_id": "src-1", "host_id": "host-1",
+            "result": result, "source_id": "src-1", "host_id": "host-1",
         }
         log = Path(d) / "cross.log"
         log.write_text(
@@ -1006,6 +1006,14 @@ class TestCrossCheck(unittest.TestCase):
             ledger, derived, records = self._fixture(d, stages=stages)
             with self.assertRaisesRegex(ValidationError, "cross_check"):
                 sl._check_cross_check(ledger, derived, records)
+
+    def test_failed_cross_check_receipt_rejected(self):
+        for result in ("fail", "skip"):
+            with tempfile.TemporaryDirectory() as d:
+                ledger, derived, records = self._fixture(d, result=result)
+                with self.assertRaisesRegex(
+                        ValidationError, "cross_check_failed_receipt"):
+                    sl._check_cross_check(ledger, derived, records)
 
     def test_cross_check_never_supplies_primary_evidence(self):
         with tempfile.TemporaryDirectory() as d:
