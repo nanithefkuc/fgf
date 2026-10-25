@@ -14,6 +14,11 @@ All notable changes to this project are documented here. The format follows
 - Native negative acceptance restores the canonical route table before
   suppressing vector-work evidence and requires the receipt auditor to
   reject the run. Portable CI checks route inventories and generated cases.
+- Conversion benchmarks make complete packed and unpacked output slices
+  observable, retain allocation and destruction in owned-result timings,
+  and verify destination contents outside the timed region.
+- Route-tooling checks rely on compiled field and prepared-map fixture
+  consumers instead of a duplicated synthetic route-type harness.
 
 ## [3.0.2] - 2026-10-20
 

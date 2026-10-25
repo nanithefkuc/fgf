@@ -11,6 +11,10 @@
 //! rejected with [`RangeError`] rather than narrowed. Each case body
 //! re-derives its fixtures from the case's registered label, so the run
 //! entry points stay plain function pointers with deterministic state.
+//!
+//! Timed packing calls pass their complete output slices through the
+//! optimization barrier. Allocating variants keep allocation and destruction
+//! inside the timed body.
 
 use std::hint::black_box;
 
@@ -267,8 +271,9 @@ fn register_pack<F: FieldBuffer>(label: &'static str) {
                 // `pack` overwrites every byte, so the preallocated buffer
                 // needs no refill between calls.
                 fgf::ops::pack::<F>(&mut steady, black_box(&elems));
-                fixture::observe(steady.len());
+                fixture::observe(steady.as_slice());
             });
+            fixture::assert_bytes_equal(&case.case, &steady, &packed);
         },
     };
     registry::add(case);
@@ -300,8 +305,9 @@ fn register_unpack<F: FieldBuffer>(label: &'static str) {
                 // `unpack` overwrites every element, so the preallocated
                 // destination needs no refill between calls.
                 fgf::ops::unpack::<F>(&mut steady, black_box(&packed));
-                fixture::observe(steady.len());
+                fixture::observe(steady.as_slice());
             });
+            assert_eq!(steady, elems, "{}: timed unpack oracle", case.case);
         },
     };
     registry::add(case);
@@ -333,7 +339,7 @@ fn register_unpack_to_vec<F: FieldBuffer>(label: &'static str) {
             let backend = fields::scalar_backend_name();
             registry::time(case, ctx, &backend, || {
                 let round_trip = fgf::ops::unpack_to_vec::<F>(black_box(&packed));
-                fixture::observe(round_trip.len());
+                fixture::observe(round_trip.as_slice());
             });
         },
     };
@@ -357,12 +363,17 @@ fn register_pack_to_vec<F: FieldBuffer>(label: &'static str) {
             let mut seed = seed_for(case.field.as_str());
             let elems = fixture::elements::<F>(LANES, &mut seed);
             let expected = fgf::ops::pack_to_vec::<F>(&elems);
+            assert_eq!(
+                fgf::ops::unpack_to_vec::<F>(&expected),
+                elems,
+                "{}: pack_to_vec oracle",
+                case.case
+            );
             let backend = fields::scalar_backend_name();
             registry::time(case, ctx, &backend, || {
                 let packed = fgf::ops::pack_to_vec::<F>(black_box(&elems));
-                fixture::observe(packed.len());
+                fixture::observe(packed.as_slice());
             });
-            drop(expected);
         },
     };
     registry::add(case);
