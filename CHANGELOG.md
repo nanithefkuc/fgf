@@ -35,6 +35,10 @@ All notable changes to this project are documented here. The format follows
   bytes across unprepared and prepared row compositions.
 - `backend_for` documents its field-strategy meaning separately from individual
   operation routes.
+- Route acceptance credits multiplication work once when its emitting call has
+  already excluded zero and unit coefficients. Unqualified work keeps the
+  conservative zero/unit reserve, qualified work is capped by the general
+  terms present, and it never funds unit additions.
 
 ### Removed
 
