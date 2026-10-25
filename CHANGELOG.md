@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- SIMD coverage accounting includes odd-characteristic and wide field maps,
+  requires explicit callable exclusions, and separates relative norm's
+  conjugate, product, and projection work budgets.
+- Route-tooling checks rely on compiled field and prepared-map fixture
+  consumers instead of a duplicated synthetic route-type harness.
+
 ## [3.0.2] - 2026-10-20
 
 Equal-degree maps use `Isomorphism`; `Embedding` accepts proper inclusions

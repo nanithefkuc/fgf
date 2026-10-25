@@ -30,6 +30,7 @@ just backend-report    # requested, resolved, and representative field backends
 just isa-accept TIER   # fail-closed native execution evidence and tier sweep
 just benchmark-check  # portable fixtures and compiler-derived API coverage
 just benchmark-check-native # native GF16 fixtures on capable hosts
+just simd-ledger       # schema-only route-ledger validation and Python tests
 just example NAME [ARGS] # one educational example, with Cargo options
 just examples [ARGS]     # all educational examples, excluding timing probes
 just examples-portable   # examples with the library's alloc/std features disabled
@@ -136,6 +137,13 @@ hardware, and the public per-shape measurements are recorded in
 measured thresholds with a benchmark
 record and misaligned-row coverage
 in kernel tests.
+
+## SIMD route ledger
+
+The canonical machine-readable SIMD route ledger is `benches/simd_ledger.json`,
+validated by `benches/simd_ledger.py`. It is distinct from the unsafe residue
+ledger below. SIMD kernel, routing, and ledger PRs follow the contributor policy
+in `CONTRIBUTING.md`.
 
 ## Residue ledger
 
