@@ -31,6 +31,10 @@ just isa-accept TIER   # fail-closed native execution evidence and tier sweep
 just benchmark-check  # portable fixtures and compiler-derived API coverage
 just benchmark-check-native # native GF16 fixtures on capable hosts
 just simd-ledger       # schema-only route-ledger validation and Python tests
+just route-survey default LOG        # every route case, receipts only
+just route-accept REQUEST FEATURES   # fail-closed required-case audit
+just route-accept-negative REQUEST   # prove every injected fault is rejected
+just route-gate        # full ledger resolution, generation check, Python tests
 just example NAME [ARGS] # one educational example, with Cargo options
 just examples [ARGS]     # all educational examples, excluding timing probes
 just examples-portable   # examples with the library's alloc/std features disabled
@@ -170,6 +174,33 @@ initialization, alignment, or aliasing. Each listed item has a per-item
 | `kernel/x86/gf8/avx512/matrix.rs`: `matrix_block`, `matrix_rows1`, `rows_tile4`, `rows_lane4`, `rows_tile2`, `rows_lane2`, `rows_tile1`, `rows_lane1`, `rows_resolved`, `rows_body`, `matrix_tail`, `matrix_at_block` | 64-byte byte-field matrix groups address rows by checked offsets into one region (contiguous or scattered), advanced to the start of a column block that lies inside each row. The entries prove each row in-bounds and pairwise disjoint; the tile bodies and tails preserve disjointness across 64-byte reference loads/stores. Direct tile and lane bodies use checked indexing on each captured provider source. `rows_resolved` additionally stages only the occupied prefix of `MaybeUninit` map-word/source arrays; it reinterprets exactly the prefix written before reading it. Dispatched on `V4x` under `simd512`. |
 | `external/gf16-bench/src/native.rs`: foreign declarations, `Native::new`, `complete_mul`, `leopard_mul`, `complete_region`, `complete_assign`, `leopard_region`, `Drop` | Benchmark-only C ABI calls require a live uniquely owned GF-Complete context, initialized Leopard tables, a retained CPU capability token, and checked buffer geometry. Native contexts cannot cross threads. The declaration proof matches the bridge ABI; each wrapper proves its memory, aliasing and feature obligations. |
 
+## Public-route acceptance
+
+`src/kernel/tests/routes.rs` runs the generated case table from
+`benches/simd_ledger.json`. Every case calls the public `crate::ops`,
+`crate::bits`, or map operation on deterministic inputs and judges two
+things: the output against an independent element-wise reference, and the
+test-only trace against each stage budget the ledger cell declares. The
+adapters beside it are named for the operation family they exercise and
+carry one runner per callable.
+
+`just route-survey FEATURES LOG` runs every case and prints one
+`ROUTE_RECEIPT` line per case plus a final `ROUTE_DONE`. A routing
+mismatch never fails a survey; a wrong output does. `just route-accept
+REQUEST FEATURES` first resolves every ledger reference, then runs the
+required cases under a complete run identity and audits the log with
+`benches/simd_ledger.py accept`. `just route-accept-negative REQUEST`
+compiles against a temporary ledger copy with one required cell, injects
+each `FGF_ROUTE_FAULT` value in turn plus a forced weaker `SIMD_BACKEND`,
+and requires the audit to reject every one with its reason code. The
+canonical ledger and generated case table are restored afterwards.
+
+The trace-acceptance exception is narrow: a case whose cell explicitly
+requires vector work may consult the test-only trace to detect a silent
+scalar fallback, because output equality alone cannot observe it. That is a
+coverage contract. It does not permit pinning a kernel helper name, an
+emission site, or an internal call path in an assertion.
+
 ## Tests
 
 Tests must defend observable contracts, not implementation wiring.
@@ -205,6 +236,14 @@ Tests must defend observable contracts, not implementation wiring.
   small fields and sampled at full width.
 - `src/kernel/tests.rs`: direct scalar-versus-architecture differentials across
   lane, tail, row, and source-count boundaries.
+- `src/kernel/tests/routes.rs`: the public-route runner, judge, receipts,
+  fault injection, and feature/request mode checks.
+- `src/kernel/tests/routes/`: one adapter per operation family (`rows`,
+  `fans`, `elementwise`, `scalars`, `reductions`, `packing`, `bits`, `maps`,
+  `map_bits`), the generated `cases.rs`, and the custom extension
+  specifications those cases name.
+- `tests/route_smoke.rs`: one production-library public call per bulk family
+  at a vector-sized geometry against an independent element-wise reference.
 - `tests/prepared_maps.rs`: prepared embedding and isomorphism scalar
   acceptance against the compact maps.
 - `tests/prepared_map_rows.rs`: prepared row equality, bitmap discipline,

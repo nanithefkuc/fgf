@@ -154,6 +154,8 @@ fn scatter_rows4<const NATIVE: bool>(ptrs: [*mut u8; 4], coeffs: [Prepared; 4], 
 
     // One 128-byte source window feeds all four rows, and each row runs four
     // independent multiply chains over it.
+    #[cfg(test)]
+    let tile_start = offset;
     while offset + 128 <= len {
         // SAFETY:
         // MEMORY VALIDITY
@@ -188,6 +190,16 @@ fn scatter_rows4<const NATIVE: bool>(ptrs: [*mut u8; 4], coeffs: [Prepared; 4], 
         }
         offset += 128;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.scatter",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        (offset - tile_start) * 4,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
+    #[cfg(test)]
+    let lane_start = offset;
     while offset + 32 <= len {
         // SAFETY:
         // MEMORY VALIDITY
@@ -211,6 +223,14 @@ fn scatter_rows4<const NATIVE: bool>(ptrs: [*mut u8; 4], coeffs: [Prepared; 4], 
         }
         offset += 32;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.scatter",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        (offset - lane_start) * 4,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
 
     // The four rows are distinct, in-bounds, and `src.len()` bytes long; no
     // slice into them is live here.
@@ -244,6 +264,8 @@ fn scatter_rows2<const NATIVE: bool>(ptrs: [*mut u8; 2], coeffs: [Prepared; 2], 
     let mut offset = head;
 
     // With only two rows the 128-byte window leaves room for eight chains.
+    #[cfg(test)]
+    let tile_start = offset;
     while offset + 128 <= len {
         // SAFETY:
         // MEMORY VALIDITY
@@ -278,6 +300,16 @@ fn scatter_rows2<const NATIVE: bool>(ptrs: [*mut u8; 2], coeffs: [Prepared; 2], 
         }
         offset += 128;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.scatter",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        (offset - tile_start) * 2,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
+    #[cfg(test)]
+    let lane_start = offset;
     while offset + 32 <= len {
         // SAFETY:
         // MEMORY VALIDITY
@@ -301,6 +333,14 @@ fn scatter_rows2<const NATIVE: bool>(ptrs: [*mut u8; 2], coeffs: [Prepared; 2], 
         }
         offset += 32;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.scatter",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        (offset - lane_start) * 2,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
 
     // The two rows are distinct, in-bounds, and `src.len()` bytes long; no
     // slice into them is live here.
@@ -326,7 +366,13 @@ fn scatter_span<'a, const NATIVE: bool>(
         return;
     }
     let vector_end = start + ((end - start) & !15);
+    #[cfg(test)]
+    let mut row_count = 0usize;
     for (&row, &coeff) in rows {
+        #[cfg(test)]
+        {
+            row_count += 1;
+        }
         let factor = bfactor_half_gfni::<NATIVE>(coeff);
         let mut offset = start;
         while offset < vector_end {
@@ -363,4 +409,12 @@ fn scatter_span<'a, const NATIVE: bool>(
             mul_add_nibble(dst, coeff.table, &src[vector_end..end]);
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.scatter",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        (vector_end - start) * row_count,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
 }

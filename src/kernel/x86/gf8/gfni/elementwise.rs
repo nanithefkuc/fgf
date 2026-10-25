@@ -90,6 +90,14 @@ pub fn mul_elementwise_gfni<const NATIVE: bool>(
         let y = _mm256_loadu_si256(blane);
         _mm256_storeu_si256(dlane, multiply_vectors_gfni::<NATIVE>(x, y, iso));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.mul_elementwise",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 32,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     if NATIVE {
         let (dst16, dst_tail) = dst_rest.as_chunks_mut::<16>();
         let (a16, a_tail) = a_rest.as_chunks::<16>();
@@ -99,6 +107,14 @@ pub fn mul_elementwise_gfni<const NATIVE: bool>(
             let y = _mm_loadu_si128(b16s);
             _mm_storeu_si128(d16, multiply_vectors_half_gfni::<NATIVE>(x, y, iso));
         }
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf8.gfni.mul_elementwise",
+            crate::kernel::trace::Substage::MulElementwise,
+            crate::kernel::trace::Unit::Elements,
+            dst16.len() * 16,
+            crate::kernel::Backend::V3GfniCrypto,
+        );
         for ((d, &x), &y) in dst_tail.iter_mut().zip(a_tail).zip(b_tail) {
             // `NATIVE` means the encoding is the AES polynomial basis, so the
             // caller's reduction byte is 0x1b by construction.
@@ -136,6 +152,14 @@ pub fn mul_elementwise_assign_gfni<const NATIVE: bool>(
         let y = _mm256_loadu_si256(slane);
         _mm256_storeu_si256(dlane, multiply_vectors_gfni::<NATIVE>(x, y, iso));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.gfni.mul_elementwise_assign",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 32,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     if NATIVE {
         let (dst16, dst_tail) = dst_rest.as_chunks_mut::<16>();
         let (src16, src_tail) = src_rest.as_chunks::<16>();
@@ -144,6 +168,14 @@ pub fn mul_elementwise_assign_gfni<const NATIVE: bool>(
             let y = _mm_loadu_si128(s16);
             _mm_storeu_si128(d16, multiply_vectors_half_gfni::<NATIVE>(x, y, iso));
         }
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf8.gfni.mul_elementwise_assign",
+            crate::kernel::trace::Substage::MulElementwise,
+            crate::kernel::trace::Unit::Elements,
+            dst16.len() * 16,
+            crate::kernel::Backend::V3GfniCrypto,
+        );
         for (d, &s) in dst_tail.iter_mut().zip(src_tail) {
             *d = super::super::ssse3::gf_mul_ref(*d, s, reduction);
         }

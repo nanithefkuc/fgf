@@ -61,6 +61,11 @@ The canonical SIMD route ledger is `benches/simd_ledger.json`, validated by
 and the schema, runs the Python unit tests, and compiles the field and map
 fixtures. The ledger is distinct from the unsafe residue ledger in `AGENTS.md`.
 
+`just route-check` validates executable case and benchmark inventories and
+generated-table freshness without native records. CI runs both portable
+gates. `just route-gate` additionally replays retained native evidence;
+`just route-accept REQUEST FEATURES` collects and audits a fresh native run.
+
 ## Before opening a PR
 
 ```sh

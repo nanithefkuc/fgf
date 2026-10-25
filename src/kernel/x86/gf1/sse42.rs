@@ -111,6 +111,14 @@ pub fn expand_sse42(
             dst_units.len() * 2
         }
     };
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf1.sse42.expand",
+        crate::kernel::trace::Substage::Unpack,
+        crate::kernel::trace::Unit::Bits,
+        lanes,
+        crate::kernel::Backend::V2,
+    );
     // Remainder lanes run the portable indexing.
     for i in lanes..bits {
         let bit = (src[i / 8] >> (i % 8)) & 1;
@@ -273,6 +281,14 @@ fn compress_eq_inner(
         }
         lane += lanes_here;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf1.sse42.compress",
+        crate::kernel::trace::Substage::Pack,
+        crate::kernel::trace::Unit::Bits,
+        lane,
+        crate::kernel::Backend::V2,
+    );
     // Remainder lanes: scalar word compares.
     for i in lane..bits {
         let mut word = 0u64;
@@ -358,6 +374,14 @@ fn compress_parity_sse42(dst: &mut [u8], src: &[u8], bits: usize, bytes: usize, 
         }
         lane += lanes_here;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf1.sse42.compress_parity",
+        crate::kernel::trace::Substage::BitParity,
+        crate::kernel::trace::Unit::Bits,
+        lane,
+        crate::kernel::Backend::V2,
+    );
     for i in lane..bits {
         let mut word = 0u64;
         for (shift, &byte) in src[i * bytes..(i + 1) * bytes].iter().enumerate() {
@@ -476,6 +500,14 @@ fn restrict_inner(
         }
         lane += lanes_here;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf1.sse42.restrict",
+        crate::kernel::trace::Substage::Linear,
+        crate::kernel::trace::Unit::Bits,
+        lane,
+        crate::kernel::Backend::V2,
+    );
     for i in lane..bits {
         let mut word = 0u64;
         for (shift, &byte) in src[i * bytes..(i + 1) * bytes].iter().enumerate() {

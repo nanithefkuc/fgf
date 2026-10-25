@@ -12,6 +12,8 @@ use super::{EPS, P, PM1};
 use crate::field::Elem;
 use crate::field::goldilocks::Goldilocks;
 use crate::kernel::proven_checks::{check_elem_multiple, check_equal};
+#[cfg(test)]
+use crate::kernel::trace::{Substage, Unit, emit};
 use crate::kernel::{prime, scalar};
 
 #[cfg(target_arch = "x86_64")]
@@ -151,6 +153,14 @@ pub fn add_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8])
         let s = canon(_mm256_loadu_si256(src_lane), pcst, pm1);
         _mm256_storeu_si256(dst_lane, addmod(d, s, pcst, pm1, eps));
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx2.add_assign",
+        Substage::Add,
+        Unit::Elements,
+        dst_lanes.len() * 4,
+        crate::kernel::Backend::V3,
+    );
     prime::add_assign::<Goldilocks>(dst_tail, src_tail);
 }
 
@@ -179,6 +189,14 @@ pub fn sub_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], src: &[u8])
         let s = canon(_mm256_loadu_si256(src_lane), pcst, pm1);
         _mm256_storeu_si256(dst_lane, submod(d, s, pcst, eps));
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx2.sub_assign",
+        Substage::Sub,
+        Unit::Elements,
+        dst_lanes.len() * 4,
+        crate::kernel::Backend::V3,
+    );
     prime::sub_assign::<Goldilocks>(dst_tail, src_tail);
 }
 
@@ -244,6 +262,14 @@ pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u64, sr
         );
         _mm256_storeu_si256(dst_lane, res);
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx2.mul_add",
+        Substage::MulAdd,
+        Unit::Elements,
+        dst_lanes.len() * 4,
+        crate::kernel::Backend::V3,
+    );
     prime::mul_add::<Goldilocks>(dst_tail, Elem::<Goldilocks>::from_raw(coeff), src_tail);
 }
 
@@ -273,6 +299,8 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u64)
     let sp_c = _mm256_set1_epi64x(SHIFTED_P);
     let cvec = _mm256_set1_epi64x(c as i64);
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    #[cfg(test)]
+    let num_lanes = dst_lanes.len();
     for dst_lane in dst_lanes {
         let (hi, lo) = mul_wide(cvec, _mm256_loadu_si256(&*dst_lane));
         let res_s = reduce_wide_s(hi, lo, eps);
@@ -283,6 +311,14 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u64)
         );
         _mm256_storeu_si256(dst_lane, res);
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx2.mul_assign",
+        Substage::Mul,
+        Unit::Elements,
+        num_lanes * 4,
+        crate::kernel::Backend::V3,
+    );
     prime::mul_assign::<Goldilocks>(dst_tail, Elem::<Goldilocks>::from_raw(coeff));
 }
 
@@ -324,6 +360,14 @@ pub fn mul_elementwise_avx2(_token: archmage::X64V3Token, dst: &mut [u8], a: &[u
         );
         _mm256_storeu_si256(dst_lane, res);
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx2.mul_elementwise",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_lanes.len() * 4,
+        crate::kernel::Backend::V3,
+    );
     prime::mul_elementwise::<Goldilocks>(dst_tail, a_tail, b_tail);
 }
 
@@ -357,6 +401,14 @@ pub fn mul_into_avx2(_token: archmage::X64V3Token, dst: &mut [u8], coeff: u64, s
         let res = _mm256_xor_si256(res, _mm256_set1_epi64x(SIGN));
         _mm256_storeu_si256(dst_lane, res);
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx2.mul_into",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 4,
+        crate::kernel::Backend::V3,
+    );
     // Scalar tail.
     for (d, s) in dst_tail.chunks_exact_mut(8).zip(src_tail.chunks_exact(8)) {
         let v = Elem::<Goldilocks>::from_raw(coeff)
@@ -395,6 +447,14 @@ pub fn mul_elementwise_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8],
         );
         _mm256_storeu_si256(dst_lane, res);
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx2.mul_elementwise_assign",
+        Substage::MulElementwise,
+        Unit::Elements,
+        dst_lanes.len() * 4,
+        crate::kernel::Backend::V3,
+    );
     scalar::mul_elementwise_assign::<Goldilocks>(dst_tail, src_tail);
 }
 
@@ -416,10 +476,20 @@ pub fn add_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], valu
     // The broadcast value is loop-invariant: canonicalize the raw word once.
     let svec = _mm256_set1_epi64x(Elem::<Goldilocks>::from_raw(value).to_raw().cast_signed());
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    #[cfg(test)]
+    let num_lanes = dst_lanes.len();
     for dst_lane in dst_lanes {
         let d = canon(_mm256_loadu_si256(&*dst_lane), pcst, pm1);
         _mm256_storeu_si256(dst_lane, addmod(d, svec, pcst, pm1, eps));
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx2.add_assign_scalar",
+        Substage::Add,
+        Unit::Elements,
+        num_lanes * 4,
+        crate::kernel::Backend::V3,
+    );
     prime::add_assign_scalar::<Goldilocks>(dst_tail, Elem::<Goldilocks>::from_raw(value));
 }
 
@@ -440,9 +510,19 @@ pub fn sub_assign_scalar_avx2(_token: archmage::X64V3Token, dst: &mut [u8], valu
     let eps = _mm256_set1_epi64x(EPS);
     let svec = _mm256_set1_epi64x(Elem::<Goldilocks>::from_raw(value).to_raw().cast_signed());
     let (dst_lanes, dst_tail) = dst.as_chunks_mut::<32>();
+    #[cfg(test)]
+    let num_lanes = dst_lanes.len();
     for dst_lane in dst_lanes {
         let d = canon(_mm256_loadu_si256(&*dst_lane), pcst, pm1);
         _mm256_storeu_si256(dst_lane, submod(d, svec, pcst, eps));
     }
+    #[cfg(test)]
+    emit(
+        "goldilocks.avx2.sub_assign_scalar",
+        Substage::Sub,
+        Unit::Elements,
+        num_lanes * 4,
+        crate::kernel::Backend::V3,
+    );
     prime::sub_assign_scalar::<Goldilocks>(dst_tail, Elem::<Goldilocks>::from_raw(value));
 }

@@ -427,6 +427,14 @@ fn rows_tile4<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
             }
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        4 * 256 * terms.len(),
+        crate::kernel::Backend::V4x,
+    );
 }
 
 /// Provider-generic four-row lane.
@@ -475,6 +483,14 @@ fn rows_lane4<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
             }
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        4 * 64 * terms.len(),
+        crate::kernel::Backend::V4x,
+    );
 }
 
 /// Provider-generic two-row tile.
@@ -539,6 +555,14 @@ fn rows_tile2<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
             }
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        2 * 256 * terms.len(),
+        crate::kernel::Backend::V4x,
+    );
 }
 
 /// Provider-generic two-row lane.
@@ -587,6 +611,14 @@ fn rows_lane2<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
             }
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        2 * 64 * terms.len(),
+        crate::kernel::Backend::V4x,
+    );
 }
 
 /// One row by one 256-byte tile.
@@ -636,6 +668,14 @@ fn rows_tile1<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
             }
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        256 * terms.len(),
+        crate::kernel::Backend::V4x,
+    );
 }
 
 /// One row by one 64-byte lane.
@@ -676,6 +716,14 @@ fn rows_lane1<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
             _mm512_storeu_si512(&mut rc[0], acc);
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        64 * terms.len(),
+        crate::kernel::Backend::V4x,
+    );
 }
 
 /// Resolve a row group's coefficients chunk by chunk and run the 256-byte
@@ -883,6 +931,16 @@ fn rows_body<const ROWS: usize, const OVERWRITE: bool>(
         }
         tile += 256;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        (tile - head) * ROWS * maps.len(),
+        crate::kernel::Backend::V4x,
+    );
+    #[cfg(test)]
+    let lane_start = tile;
     while tile + 64 <= end {
         let mut acc = [_mm512_setzero_si512(); ROWS];
         if !OVERWRITE {
@@ -954,6 +1012,14 @@ fn rows_body<const ROWS: usize, const OVERWRITE: bool>(
         }
         tile += 64;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx512.matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        (tile - lane_start) * ROWS * maps.len(),
+        crate::kernel::Backend::V4x,
+    );
 }
 
 /// Hierarchical remainder shared by the 512-bit matrix row groups.

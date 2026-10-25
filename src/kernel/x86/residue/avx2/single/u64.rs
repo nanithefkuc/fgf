@@ -9,6 +9,10 @@
 use core::arch::x86_64::*;
 
 use super::src_tail_avx2;
+#[cfg(test)]
+use crate::kernel::Backend;
+#[cfg(test)]
+use crate::kernel::trace::{Substage, Unit, emit};
 
 /// Negative inverse of an odd modulus modulo `2^64`: `p*ninv = -1
 /// (mod 2^64)`, by Newton doubling from one correct bit.
@@ -171,6 +175,14 @@ pub fn mul_into_u64_avx2(
         let (t_hi, t_lo) = mul_wide(_mm256_loadu_si256(s_lane), cm_v);
         _mm256_storeu_si256(d, redc64_lanes(t_hi, t_lo, ninv_v, p_v, pm1_v));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx2.mul_into",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 4,
+        Backend::V3,
+    );
     let (dt, _) = dst_tail.as_chunks_mut::<8>();
     let (st, _) = src_tail_avx2(src).as_chunks::<8>();
     for (d, x) in dt.iter_mut().zip(st) {
@@ -232,6 +244,14 @@ pub fn mul_add_u64_avx2(
         let prod = redc64_lanes(t_hi, t_lo, ninv_v, p_v, pm1_v);
         _mm256_storeu_si256(d, addmod64(normed, prod, p_v, pm1_v));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx2.mul_add",
+        Substage::MulAdd,
+        Unit::Elements,
+        dst_lanes.len() * 4,
+        Backend::V3,
+    );
     let (dt, _) = dst_tail.as_chunks_mut::<8>();
     let (st, _) = src_tail_avx2(src).as_chunks::<8>();
     for (d, x) in dt.iter_mut().zip(st) {
@@ -282,6 +302,14 @@ pub fn mul_assign_u64_avx2(_token: archmage::X64V3Token, dst: &mut [u8], c_mont:
         let (t_hi, t_lo) = mul_wide(_mm256_loadu_si256(&*d), cm_v);
         _mm256_storeu_si256(d, redc64_lanes(t_hi, t_lo, ninv_v, p_v, pm1_v));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx2.mul_assign",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 4,
+        Backend::V3,
+    );
     let (dt, _) = dst_tail.as_chunks_mut::<8>();
     for d in dt.iter_mut() {
         let t = u128::from(u64::from_le_bytes(*d)) * u128::from(c_mont);

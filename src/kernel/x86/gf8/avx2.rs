@@ -43,6 +43,14 @@ pub fn mul_add_avx2(_token: archmage::X64V3Token, dst: &mut [u8], table: &ScaleT
         let product = _mm256_xor_si256(lo, hi);
         _mm256_storeu_si256(dlane, _mm256_xor_si256(d, product));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx2.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 32,
+        crate::kernel::Backend::V3,
+    );
 
     // AVX2 implies SSSE3; the remainders keep equal lengths.
     mul_add_ssse3(_token.v2(), dst_rest, table, src_rest);
@@ -57,12 +65,22 @@ pub fn mul_assign_avx2(_token: archmage::X64V3Token, dst: &mut [u8], table: &Sca
     let hi_tbl = _mm256_broadcastsi128_si256(_mm_loadu_si128(&table.hi));
     let mask = _mm256_set1_epi8(0x0f);
     let (lanes, rest) = dst.as_chunks_mut::<32>();
+    #[cfg(test)]
+    let __nlanes = lanes.len() * 32;
     for lane in lanes {
         let x = _mm256_loadu_si256(&*lane);
         let lo = _mm256_shuffle_epi8(lo_tbl, _mm256_and_si256(x, mask));
         let hi = _mm256_shuffle_epi8(hi_tbl, _mm256_and_si256(_mm256_srli_epi16::<4>(x), mask));
         _mm256_storeu_si256(lane, _mm256_xor_si256(lo, hi));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx2.mul_assign",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        __nlanes,
+        crate::kernel::Backend::V3,
+    );
 
     // AVX2 implies SSSE3; the remainders keep equal lengths.
     mul_assign_ssse3(_token.v2(), rest, table);
@@ -138,6 +156,14 @@ fn mul_into_impl<const NT: bool>(dst: &mut [u8], table: &ScaleTable, src: &[u8])
                 _mm256_storeu_si256(dlane, product);
             }
         }
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf8.avx2.mul_into",
+            crate::kernel::trace::Substage::Mul,
+            crate::kernel::trace::Unit::Elements,
+            dst_lanes.len() * 32,
+            crate::kernel::Backend::V3,
+        );
         drest = dnext;
         srest = snext;
     }
@@ -162,6 +188,14 @@ fn mul_into_impl<const NT: bool>(dst: &mut [u8], table: &ScaleTable, src: &[u8])
             _mm256_storeu_si256(dlane, product);
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx2.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 32,
+        crate::kernel::Backend::V3,
+    );
 
     mul_into_ssse3_impl::<false>(dst_rest, table, src_rest);
 }
@@ -241,6 +275,14 @@ pub fn mul_add_scatter_avx2(
                 }
             }
         }
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf8.avx2.scatter",
+            crate::kernel::trace::Substage::MulAdd,
+            crate::kernel::trace::Unit::Elements,
+            src_lanes.len() * 32 * count,
+            crate::kernel::Backend::V3,
+        );
         for slot in 0..count {
             // SAFETY:
             // MEMORY VALIDITY
@@ -453,6 +495,14 @@ fn matrix_tiles<M: crate::kernel::Matrix<Prepared> + ?Sized>(
         }
         offset += 64;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx2.matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        tile_len * count * terms.len(),
+        crate::kernel::Backend::V3,
+    );
 }
 
 /// Fold every term into one 32-byte window of a group of up to four rows.
@@ -526,6 +576,14 @@ fn matrix_vector<M: crate::kernel::Matrix<Prepared> + ?Sized>(
             );
         }
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx2.matrix",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        count * 32 * terms.len(),
+        crate::kernel::Backend::V3,
+    );
 }
 
 /// Many sources into one destination using AVX2 nibble shuffles.
@@ -583,6 +641,14 @@ pub fn mul_add_gather_avx2(
             _mm256_storeu_si256(&mut d2[0], acc0);
             _mm256_storeu_si256(&mut d2[1], acc1);
         }
+        #[cfg(test)]
+        crate::kernel::trace::emit(
+            "gf8.avx2.gather",
+            crate::kernel::trace::Substage::MulAdd,
+            crate::kernel::trace::Unit::Elements,
+            tiles.len() * 64 * count,
+            crate::kernel::Backend::V3,
+        );
         for slot in 0..count {
             // The destination and source remainders keep equal lengths.
             mul_add_avx2(
@@ -653,6 +719,14 @@ pub fn mul_elementwise_avx2(
         let y = _mm256_loadu_si256(blane);
         _mm256_storeu_si256(dlane, multiply_vectors_avx2(x, y, reduction));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx2.mul_elementwise",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 32,
+        crate::kernel::Backend::V3,
+    );
 
     // AVX2 implies SSSE3; the remainders keep equal lengths.
     mul_elementwise_ssse3(_token.v2(), reduction, dst_rest, a_rest, b_rest);
@@ -682,6 +756,14 @@ pub fn mul_elementwise_assign_avx2(
         let y = _mm256_loadu_si256(slane);
         _mm256_storeu_si256(dlane, multiply_vectors_avx2(x, y, reduction));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx2.mul_elementwise_assign",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 32,
+        crate::kernel::Backend::V3,
+    );
 
     // AVX2 implies SSSE3; the remainders keep equal lengths.
     mul_elementwise_assign_ssse3(_token.v2(), reduction, dst_rest, src_rest);

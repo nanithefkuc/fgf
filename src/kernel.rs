@@ -54,6 +54,9 @@ pub(crate) use matrix_provider::FlatMatrix;
 pub(crate) use matrix_provider::Matrix;
 
 #[cfg(test)]
+pub(crate) mod trace;
+
+#[cfg(test)]
 mod tests;
 
 use crate::field::{FieldBuffer, PrimeIdentity, Residue};

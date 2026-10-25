@@ -9,6 +9,10 @@
 use core::arch::x86_64::*;
 
 use super::src_tail_avx512;
+#[cfg(test)]
+use crate::kernel::Backend;
+#[cfg(test)]
+use crate::kernel::trace::{Substage, Unit, emit};
 
 /// `dst[i] = REDC64(src[i] * cR)` over eight-byte lanes.
 ///
@@ -61,6 +65,14 @@ pub fn mul_into_u64_avx512(
         let (t_hi, t_lo) = mul_wide(_mm512_loadu_si512(s_lane), cm_v);
         _mm512_storeu_si512(d, redc64_lanes(t_hi, t_lo, ninv_v, p_v, pm1_v));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx512.mul_into",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        Backend::V4x,
+    );
     let (dt, _) = dst_tail.as_chunks_mut::<8>();
     let (st, _) = src_tail_avx512(src).as_chunks::<8>();
     for (d, x) in dt.iter_mut().zip(st) {
@@ -122,6 +134,14 @@ pub fn mul_add_u64_avx512(
         let prod = redc64_lanes(t_hi, t_lo, ninv_v, p_v, pm1_v);
         _mm512_storeu_si512(d, addmod64(normed, prod, p_v, pm1_v));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx512.mul_add",
+        Substage::MulAdd,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        Backend::V4x,
+    );
     let (dt, _) = dst_tail.as_chunks_mut::<8>();
     let (st, _) = src_tail_avx512(src).as_chunks::<8>();
     for (d, x) in dt.iter_mut().zip(st) {
@@ -172,6 +192,14 @@ pub fn mul_assign_u64_avx512(_token: archmage::X64V4Token, dst: &mut [u8], c_mon
         let (t_hi, t_lo) = mul_wide(_mm512_loadu_si512(&*d), cm_v);
         _mm512_storeu_si512(d, redc64_lanes(t_hi, t_lo, ninv_v, p_v, pm1_v));
     }
+    #[cfg(test)]
+    emit(
+        "residue.avx512.mul_assign",
+        Substage::Mul,
+        Unit::Elements,
+        dst_lanes.len() * 8,
+        Backend::V4x,
+    );
     let (dt, _) = dst_tail.as_chunks_mut::<8>();
     for d in dt.iter_mut() {
         let t = u128::from(u64::from_le_bytes(*d)) * u128::from(c_mont);

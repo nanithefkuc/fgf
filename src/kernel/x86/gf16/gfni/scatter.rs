@@ -194,6 +194,14 @@ unsafe fn scatter_group<const N: usize>(
         }
         offset += 32;
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf16.gfni.mul_add_scatter",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        ((offset - head) / 32) * 16 * N,
+        crate::kernel::Backend::V3GfniCrypto,
+    );
     if offset < row_len {
         for (k, coeff) in coeffs.iter().enumerate() {
             // SAFETY:

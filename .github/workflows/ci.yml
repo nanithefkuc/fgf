@@ -176,6 +176,7 @@ jobs:
       - uses: extractions/setup-just@v2
       - run: just benchmark-check
       - run: just simd-ledger
+      - run: just route-check
 
   lint:
     name: fmt + clippy + docs

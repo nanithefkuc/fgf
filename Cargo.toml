@@ -138,6 +138,12 @@ required-features = ["std", "simd", "internals"]
 name = "zero_alloc_internals"
 required-features = ["std", "simd", "internals"]
 
+[[test]]
+name = "route_smoke"
+# The public-route smoke cases exercise the prepared maps and packing
+# conversions beside the dispatched operations they compare against.
+required-features = ["std", "simd", "alloc"]
+
 # Release codegen a profiler can attribute: opt-level 3 with full debug info
 # and no symbol stripping. Frame pointers come from RUSTFLAGS in `just
 # profile-perf`, since they are not a Cargo profile key.

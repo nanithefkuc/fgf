@@ -44,6 +44,14 @@ pub fn mul_add_avx2_fp16(
         let scaled = scale_avx2(x, &vectors);
         _mm256_storeu_si256(dst_lane, _mm256_xor_si256(d, scaled));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "fan_paar.avx2.mul_add_fp16",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        lanes.len() * 16,
+        crate::kernel::Backend::V3,
+    );
     // One 128-bit step down before the scalar tail; SSSE3 is implied by AVX2.
     let (narrow, dst_tail) = dst_rest.as_chunks_mut::<16>();
     let (src_narrow, src_tail) = src_rest.as_chunks::<16>();
@@ -53,6 +61,16 @@ pub fn mul_add_avx2_fp16(
         let d = _mm_loadu_si128(&*dst_lane);
         let scaled = scale_ssse3(x, &table);
         _mm_storeu_si128(dst_lane, _mm_xor_si128(d, scaled));
+    }
+    #[cfg(test)]
+    if !narrow.is_empty() {
+        crate::kernel::trace::emit(
+            "fan_paar.ssse3.mul_add_fp16",
+            crate::kernel::trace::Substage::MulAdd,
+            crate::kernel::trace::Unit::Elements,
+            narrow.len().min(1) * 8,
+            crate::kernel::Backend::V2,
+        );
     }
     // Both steps above are a whole number of 2-byte elements, so the tail
     // starts on an element boundary. Recover the coefficient from the tables
@@ -78,12 +96,30 @@ pub fn mul_assign_avx2_fp16(_token: archmage::X64V3Token, dst: &mut [u8], tables
         let x = _mm256_loadu_si256(&*dst_lane);
         _mm256_storeu_si256(dst_lane, scale_avx2(x, &vectors));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "fan_paar.avx2.mul_assign_fp16",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        lanes.len() * 16,
+        crate::kernel::Backend::V3,
+    );
     // One 128-bit step down before the scalar tail; SSSE3 is implied by AVX2.
     let (narrow, dst_tail) = dst_rest.as_chunks_mut::<16>();
     if let Some(dst_lane) = narrow.first_mut() {
         let table = nibble_ssse3(tables);
         let x = _mm_loadu_si128(&*dst_lane);
         _mm_storeu_si128(dst_lane, scale_ssse3(x, &table));
+    }
+    #[cfg(test)]
+    if !narrow.is_empty() {
+        crate::kernel::trace::emit(
+            "fan_paar.ssse3.mul_assign_fp16",
+            crate::kernel::trace::Substage::Mul,
+            crate::kernel::trace::Unit::Elements,
+            narrow.len().min(1) * 8,
+            crate::kernel::Backend::V2,
+        );
     }
     scalar::mul_assign::<FanPaar16Field>(dst_tail, tables.coeff);
 }
@@ -119,6 +155,14 @@ pub fn mul_into_avx2_fp16(
         let x = _mm256_loadu_si256(src_lane);
         _mm256_storeu_si256(dst_lane, scale_avx2(x, &vectors));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "fan_paar.avx2.mul_into_fp16",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        lanes.len() * 16,
+        crate::kernel::Backend::V3,
+    );
     // One 128-bit step down before the scalar tail; SSSE3 is implied by AVX2.
     let (narrow, dst_tail) = dst_rest.as_chunks_mut::<16>();
     let (src_narrow, src_tail) = src_rest.as_chunks::<16>();
@@ -126,6 +170,16 @@ pub fn mul_into_avx2_fp16(
         let table = nibble_ssse3(tables);
         let x = _mm_loadu_si128(&src_narrow[0]);
         _mm_storeu_si128(dst_lane, scale_ssse3(x, &table));
+    }
+    #[cfg(test)]
+    if !narrow.is_empty() {
+        crate::kernel::trace::emit(
+            "fan_paar.ssse3.mul_into_fp16",
+            crate::kernel::trace::Substage::Mul,
+            crate::kernel::trace::Unit::Elements,
+            narrow.len().min(1) * 8,
+            crate::kernel::Backend::V2,
+        );
     }
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its
     // own source, so seeding it with `src` first matches the fused body.
@@ -217,6 +271,14 @@ pub fn mul_add_avx2_fp32(
         let r = scale_fp32(x, &l);
         _mm256_storeu_si256(dst_lane, _mm256_xor_si256(d, r));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "fan_paar.avx2.mul_add_fp32",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        lanes.len() * 8,
+        crate::kernel::Backend::V3,
+    );
     // Every 32-byte lane is a whole number of 4-byte elements, so the tail
     // starts on an element boundary.
     scalar::mul_add::<FanPaar32Field>(dst_tail, coeff, src_tail);
@@ -244,6 +306,14 @@ pub fn mul_assign_avx2_fp32(
         let x = _mm256_loadu_si256(&*dst_lane);
         _mm256_storeu_si256(dst_lane, scale_fp32(x, &l));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "fan_paar.avx2.mul_assign_fp32",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        lanes.len() * 8,
+        crate::kernel::Backend::V3,
+    );
     scalar::mul_assign::<FanPaar32Field>(dst_tail, coeff);
 }
 
@@ -278,6 +348,14 @@ pub fn mul_into_avx2_fp32(
         let x = _mm256_loadu_si256(src_lane);
         _mm256_storeu_si256(dst_lane, scale_fp32(x, &l));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "fan_paar.avx2.mul_into_fp32",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        lanes.len() * 8,
+        crate::kernel::Backend::V3,
+    );
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its
     // own source, so seeding it with `src` first matches the fused body.
     dst_tail.copy_from_slice(src_tail);
@@ -366,6 +444,14 @@ pub fn mul_add_avx2_fp64(
         let r = scale_fp64(x, &l);
         _mm256_storeu_si256(dst_lane, _mm256_xor_si256(d, r));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "fan_paar.avx2.mul_add_fp64",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        lanes.len() * 4,
+        crate::kernel::Backend::V3,
+    );
     // Every 32-byte lane is a whole number of 8-byte elements, so the tail
     // starts on an element boundary.
     scalar::mul_add::<FanPaar64Field>(dst_tail, coeff, src_tail);
@@ -393,6 +479,14 @@ pub fn mul_assign_avx2_fp64(
         let x = _mm256_loadu_si256(&*dst_lane);
         _mm256_storeu_si256(dst_lane, scale_fp64(x, &l));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "fan_paar.avx2.mul_assign_fp64",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        lanes.len() * 4,
+        crate::kernel::Backend::V3,
+    );
     scalar::mul_assign::<FanPaar64Field>(dst_tail, coeff);
 }
 
@@ -427,6 +521,14 @@ pub fn mul_into_avx2_fp64(
         let x = _mm256_loadu_si256(src_lane);
         _mm256_storeu_si256(dst_lane, scale_fp64(x, &l));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "fan_paar.avx2.mul_into_fp64",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        lanes.len() * 4,
+        crate::kernel::Backend::V3,
+    );
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its
     // own source, so seeding it with `src` first matches the fused body.
     dst_tail.copy_from_slice(src_tail);

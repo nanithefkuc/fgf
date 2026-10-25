@@ -37,6 +37,14 @@ pub fn mul_add_ssse3_fp16(
         let scaled = scale_ssse3(x, &vectors);
         _mm_storeu_si128(dst_lane, _mm_xor_si128(d, scaled));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "fan_paar.ssse3.mul_add",
+        crate::kernel::trace::Substage::MulAdd,
+        crate::kernel::trace::Unit::Elements,
+        lanes.len() * 8,
+        crate::kernel::Backend::V2,
+    );
     scalar::mul_add::<FanPaar16Field>(dst_tail, tables.coeff, src_tail);
 }
 
@@ -58,6 +66,14 @@ pub fn mul_assign_ssse3_fp16(_token: archmage::X64V2Token, dst: &mut [u8], table
         let x = _mm_loadu_si128(&*dst_lane);
         _mm_storeu_si128(dst_lane, scale_ssse3(x, &vectors));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "fan_paar.ssse3.mul_assign",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        lanes.len() * 8,
+        crate::kernel::Backend::V2,
+    );
     scalar::mul_assign::<FanPaar16Field>(dst_tail, tables.coeff);
 }
 
@@ -92,6 +108,14 @@ pub fn mul_into_ssse3_fp16(
         let x = _mm_loadu_si128(src_lane);
         _mm_storeu_si128(dst_lane, scale_ssse3(x, &vectors));
     }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "fan_paar.ssse3.mul_into",
+        crate::kernel::trace::Substage::Mul,
+        crate::kernel::trace::Unit::Elements,
+        lanes.len() * 8,
+        crate::kernel::Backend::V2,
+    );
     // Copy-then-scale the sub-lane tail: the scalar kernel reads `dst` as its
     // own source, so seeding it with `src` first matches the fused body.
     dst_tail.copy_from_slice(src_tail);
