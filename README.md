@@ -114,8 +114,12 @@ fallback everywhere. `fgf::backend()` reports the selection, and setting
 a weaker backend; requests the host cannot support are ignored.
 
 Which operations accelerate depends on the field, the operation, and the
-buffer geometry; `backend_for::<F>()` reports the backend implemented for a
-field. Release acceptance runs the per-tier differentials on dedicated Willow
+buffer geometry; `backend_for::<F>()` summarizes a field's strategy, not each
+operation's serving tier. Generic component rows reuse base-field addition, and
+exact-modulus residue rows reuse specialized-prime addition, even when their
+multiplication strategy reports `Scalar`.
+
+Release acceptance runs the per-tier differentials on dedicated Willow
 Cove (`v4x`) and Golden Cove (`v3_gfni_crypto`) hosts; GitHub-hosted runners
 only cover tiers they can prove. Routing notes are in the
 [deployment guide](https://github.com/nanithefkuc/fgf/wiki/Features-and-deployment),

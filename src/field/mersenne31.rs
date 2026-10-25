@@ -42,6 +42,7 @@
 use super::extension::Descriptor;
 use super::extension::descriptor::PrimePresentation;
 use super::finite_field::{FiniteField, FiniteFieldRepr, checked_order};
+use super::private;
 use super::{Elem, Field, FieldBuffer, HasGenerator, PrimeCharacteristic, RangeError, Validate};
 
 /// The field modulus, the Mersenne prime `2^31 − 1`.
@@ -238,6 +239,18 @@ impl FieldBuffer for Mersenne31 {
             "GF(2^31 - 1) element has the wrong byte width"
         );
         bytes.copy_from_slice(&value.to_raw().to_le_bytes());
+    }
+}
+
+impl private::BufferDispatch for Mersenne31 {
+    #[inline]
+    fn add_assign_bytes(proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
+        <Self as crate::kernel::KernelDispatch>::add_assign(proof, dst, src);
+    }
+
+    #[inline]
+    fn sub_assign_bytes(proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
+        <Self as crate::kernel::KernelDispatch>::sub_assign(proof, dst, src);
     }
 }
 

@@ -8,8 +8,8 @@
 //! prepared form is simply its canonical lane word, which the kernels
 //! broadcast on entry.
 
-use crate::field::Elem;
 use crate::field::mersenne31::Mersenne31;
+use crate::field::{Elem, FieldElem};
 #[allow(unused_imports)]
 use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, prime, scalar};
 
@@ -107,6 +107,15 @@ impl KernelDispatch for Mersenne31 {
     }
 
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem<Mersenne31>, src: &[u8]) {
+        if coeff.is_zero() {
+            return;
+        }
+        if coeff.is_one() {
+            return Self::add_assign(RawDispatch, dst, src);
+        }
+        // Canonical zero and unit comparisons exclude both trivial coefficients.
+        #[cfg(test)]
+        let _general_trace = crate::kernel::trace::general_mul_add();
         match backend() {
             #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => x86::mersenne31::mul_add_avx512(v4(), dst, coeff.to_raw(), src),
@@ -191,7 +200,7 @@ impl KernelDispatch for Mersenne31 {
         coeffs: &[Elem<Mersenne31>],
         src: &[u8],
     ) {
-        prime::mul_add_scatter::<Mersenne31>(rows, row_len, coeffs, src);
+        crate::kernel::fallback::mul_add_scatter::<Mersenne31>(rows, row_len, coeffs, src);
     }
 
     fn mul_add_gather(
@@ -200,7 +209,7 @@ impl KernelDispatch for Mersenne31 {
         coeffs: &[Elem<Mersenne31>],
         srcs: &[&[u8]],
     ) {
-        prime::mul_add_gather::<Mersenne31>(dst, coeffs, srcs);
+        crate::kernel::fallback::mul_add_gather::<Mersenne31>(dst, coeffs, srcs);
     }
 
     fn mul_add_matrix(
@@ -210,7 +219,7 @@ impl KernelDispatch for Mersenne31 {
         nrows: usize,
         terms: &[(&[Elem<Mersenne31>], &[u8])],
     ) {
-        prime::mul_add_matrix::<Mersenne31>(rows, row_len, nrows, terms);
+        crate::kernel::fallback::mul_add_matrix::<Mersenne31>(rows, row_len, nrows, terms);
     }
 
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {

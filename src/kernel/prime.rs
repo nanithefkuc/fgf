@@ -92,39 +92,6 @@ pub fn mul_into<F: FieldBuffer>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
     }
 }
 
-/// `rows[j] += coeffs[j] * src` for every row `j`.
-pub fn mul_add_scatter<F: FieldBuffer>(
-    rows: &mut [u8],
-    row_len: usize,
-    coeffs: &[Elem<F>],
-    src: &[u8],
-) {
-    for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-        mul_add::<F>(row, coeff, src);
-    }
-}
-
-/// `dst += sum(coeffs[i] * srcs[i])`.
-pub fn mul_add_gather<F: FieldBuffer>(dst: &mut [u8], coeffs: &[Elem<F>], srcs: &[&[u8]]) {
-    for (&coeff, &src) in coeffs.iter().zip(srcs) {
-        mul_add::<F>(dst, coeff, src);
-    }
-}
-
-/// Apply every `(coeffs, src)` term to all `nrows` rows.
-pub fn mul_add_matrix<F: FieldBuffer>(
-    rows: &mut [u8],
-    row_len: usize,
-    nrows: usize,
-    terms: &[(&[Elem<F>], &[u8])],
-) {
-    for &(coeffs, src) in terms {
-        for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
-            mul_add::<F>(row, coeff, src);
-        }
-    }
-}
-
 /// `dst[i] = a[i] * b[i]`, elementwise.
 pub fn mul_elementwise<F: FieldBuffer>(dst: &mut [u8], a: &[u8], b: &[u8]) {
     debug_assert_eq!(dst.len(), a.len());

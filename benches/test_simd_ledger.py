@@ -1418,6 +1418,55 @@ class TestBudgets(unittest.TestCase):
              "tier": "v3", "tiers": {}, "work": 0, "budget": 64},
         ]
 
+    def _qualified_case(self):
+        case = self._fused_case(
+            ["General", "Zero", "One"], callable="ops::mul_add_gather",
+            multiplicity="UnitAddPairs")
+        case["cell_work"]["default/v3"][0]["budget"] = 64
+        stages = self._fused_stages(64)
+        stages[0]["general_tiers"] = {"v3": 64}
+        stages[1]["tiers"] = {"v3": 64}
+        return case, stages
+
+    def test_general_qualification_preserves_independent_unit_requirement(self):
+        case, stages = self._qualified_case()
+        self.assertIsNone(sl._case_coverage_error(case, "default/v3", stages, 2))
+        del stages[0]["general_tiers"]
+        self.assertIsNotNone(sl._case_coverage_error(case, "default/v3", stages, 2))
+        stages[0]["general_tiers"] = {"v3": 64}
+        stages[1]["tiers"] = {}
+        self.assertIsNotNone(sl._case_coverage_error(case, "default/v3", stages, 2))
+
+    def test_general_qualification_rejects_forged_and_cross_tier_credit(self):
+        case, stages = self._qualified_case()
+        stages[0]["tiers"] = {"v2": 64, "v3": 64}
+        stages[0]["general_tiers"] = {"v2": 64, "v3": 64}
+        with self.assertRaises(ValidationError):
+            sl._case_coverage_error(case, "default/v3", stages, 2)
+        stages[0]["tiers"] = {"v2": 64}
+        stages[0]["general_tiers"] = {"v2": 64}
+        self.assertIsNotNone(sl._case_coverage_error(case, "default/v3", stages, 2))
+        self.assertIsNone(sl._case_coverage_error(case, "default/v3", stages, 1))
+
+    def test_general_qualification_validates_each_physical_tier(self):
+        for qualifier in ({"v3": 65}, {"v3": -1}, {"v3": True},
+                          {"v4x": 1}, {"unknown": 1}):
+            with self.subTest(qualifier=qualifier):
+                case, stages = self._qualified_case()
+                stages[0]["general_tiers"] = qualifier
+                with self.assertRaises(ValidationError):
+                    sl._case_coverage_error(case, "default/v3", stages, 2)
+        case, stages = self._qualified_case()
+        stages[1]["general_tiers"] = {}
+        with self.assertRaises(ValidationError):
+            sl._case_coverage_error(case, "default/v3", stages, 2)
+
+    def test_qualified_byte_fragments_do_not_round_into_complete_elements(self):
+        stage = {"substage": "MulAdd", "unit": "Bytes",
+                 "tiers": {"v3": 6}, "general_tiers": {"v3": 3}}
+        item = {"unit": "Elements", "elem_size": 4}
+        self.assertEqual(sl._general_work_parts(stage, item, 2), (0, 0))
+
     def test_zero_term_work_cannot_fund_unit_adds(self):
         case = self._fused_case(["One", "Zero", "One", "Zero"],
                                 add_budget=64, per_term=64)
@@ -1560,6 +1609,8 @@ class TestBudgets(unittest.TestCase):
              "tier": minimum, "tiers": {}, "work": 0,
              "budget": add_budget},
         ]
+        if (index // 6) % 2 == 1:
+            stages[0]["general_tiers"] = dict(split)
         return case, stages, minimum
 
     @unittest.skipUnless(shutil.which("cargo"), "cargo not on PATH")
@@ -1579,8 +1630,12 @@ class TestBudgets(unittest.TestCase):
         self.assertEqual(len(rows), 47)
         for index, passed in sorted(rows.items()):
             case, stages, minimum = self._parity_row(index)
-            tool = sl._case_coverage_error(
-                case, "default/v3", stages, sl._strength(minimum)) is None
+            try:
+                tool = sl._case_coverage_error(
+                    case, "default/v3", stages, sl._strength(minimum)) is None
+            except ValidationError as error:
+                self.assertEqual(error.code, "general_attribution")
+                tool = False
             self.assertEqual(tool, bool(passed), f"row {index}")
 
     def _tier_case(self, budget, tiers):

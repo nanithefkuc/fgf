@@ -21,6 +21,27 @@ All notable changes to this project are documented here. The format follows
   consumers instead of a duplicated synthetic route-type harness.
 - Native route-evidence references identify measurement hosts by processor
   architecture rather than local connection names.
+- Unprepared prime and residue scatter, gather, and contiguous matrix operations
+  compose the existing single-row kernels. Scalar residue routes avoid unused
+  coefficient preparation.
+- Component-row addition, subtraction, and unit accumulation reuse whole-buffer
+  base-field dispatch without strengthening `FieldBuffer` bounds. Raw dispatch
+  remains inaccessible without the crate-private proof.
+- Residue rows at the Mersenne31 and Goldilocks moduli reuse the corresponding
+  prime add/sub kernels, including unit accumulation and row/offset siblings.
+  Their backend query remains a fixed-coefficient multiplication summary.
+- Unit-coefficient overwrite scatter preserves noncanonical source bytes for
+  specialized prime and quadratic rows; zero accumulation preserves destination
+  bytes across unprepared and prepared row compositions.
+- `backend_for` documents its field-strategy meaning separately from individual
+  operation routes.
+
+### Removed
+
+- **Breaking:** The unstable `internals::kernel::prime` multi-row
+  `mul_add_scatter`, `mul_add_gather`, and `mul_add_matrix` entries are removed.
+  Consumers use the checked `ops` operations; scalar single-row references
+  remain under the unstable facade.
 
 ## [3.0.2] - 2026-10-20
 

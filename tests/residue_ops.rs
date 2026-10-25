@@ -685,6 +685,20 @@ fn alias_lanes_canonicalize_through_packed_ops() {
         Elem::<PWide>::from_raw(0xFFFF_FFFF_FFFF_FFC4),
     );
     check_alias_lanes::<P2>(2, &[2, 3, 4, u64::MAX], Elem::<P2>::ONE);
+    type MersenneResidue = FiniteField<0x7fff_ffff, 1, Residue>;
+    let aliases = [0x7fff_ffff, 0x8000_0000, u64::MAX].repeat(65);
+    check_alias_lanes::<MersenneResidue>(
+        0x7fff_ffff,
+        &aliases,
+        Elem::<MersenneResidue>::from_raw(2),
+    );
+    type GoldilocksResidue = FiniteField<0xffff_ffff_0000_0001, 1, Residue>;
+    let aliases = [0xffff_ffff_0000_0001, 0xffff_ffff_0000_0002, u64::MAX].repeat(65);
+    check_alias_lanes::<GoldilocksResidue>(
+        0xffff_ffff_0000_0001,
+        &aliases,
+        Elem::<GoldilocksResidue>::from_raw(2),
+    );
 }
 
 /// Every packed kernel must leave the characteristic-two row's lanes
@@ -1375,6 +1389,65 @@ fn matrix_accumulate_all_zero_row_matches_portable() {
     check::<1_000_000_007>();
     check::<858_993_433>();
     check::<4_294_967_291>();
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn delayed_unit_row_matches_dispatched_composition_over_aliases() {
+    type F = FiniteField<0x7fff_ffff, 1, Residue>;
+    let modulus = u128::from(0x7fff_ffff_u64);
+    let nrows = 4;
+    let nterms = 8;
+    let coefficients: Vec<_> = (0..nterms)
+        .flat_map(|term| {
+            [
+                Elem::<F>::ONE,
+                Elem::<F>::from_raw(0x7fff_fffe),
+                Elem::<F>::from_raw(if term % 2 == 0 { 1 } else { 3 }),
+                Elem::<F>::from_raw(5 * (u64::try_from(term).unwrap() + 2)),
+            ]
+        })
+        .collect();
+    let plan = ops::CoeffMatrix::<F>::from_source_major(nterms, nrows, &coefficients);
+    for row_len in [256, 260, 512] {
+        let sources: Vec<_> = (0..nterms)
+            .map(|term| {
+                let mut source = noise(row_len, 0xa00 + u64::try_from(term).unwrap());
+                source[..4].fill(0xff);
+                source
+            })
+            .collect();
+        let references: Vec<_> = sources.iter().map(Vec::as_slice).collect();
+        let terms: Vec<_> = sources
+            .iter()
+            .enumerate()
+            .map(|(term, source)| {
+                (
+                    &coefficients[term * nrows..(term + 1) * nrows],
+                    source.as_slice(),
+                )
+            })
+            .collect();
+        let mut prepared = vec![0xff; nrows * row_len];
+        let mut composed = prepared.clone();
+        let mut expected = prepared.clone();
+        for (row, destination) in expected.chunks_exact_mut(row_len).enumerate() {
+            for (lane, word) in destination.chunks_exact_mut(4).enumerate() {
+                let mut sum = u128::from(u32::MAX) % modulus;
+                for (term, source) in sources.iter().enumerate() {
+                    let value =
+                        u32::from_le_bytes(source[4 * lane..4 * lane + 4].try_into().unwrap());
+                    let coefficient = coefficients[term * nrows + row].to_raw();
+                    sum = (sum + u128::from(value) * u128::from(coefficient)) % modulus;
+                }
+                word.copy_from_slice(&u32::try_from(sum).unwrap().to_le_bytes());
+            }
+        }
+        ops::mul_add_matrix_with::<F>(&mut prepared, row_len, &plan, &references);
+        ops::mul_add_matrix::<F>(&mut composed, row_len, nrows, &terms);
+        assert_eq!(prepared, expected, "prepared unit row at {row_len}");
+        assert_eq!(composed, expected, "dispatched unit row at {row_len}");
+    }
 }
 
 /// Overwrite gathers ignore the prior destination and treat their

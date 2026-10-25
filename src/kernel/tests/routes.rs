@@ -531,6 +531,7 @@ pub(super) struct StageReport {
     pub unit: &'static str,
     pub tier: Backend,
     pub tiers: Vec<(Backend, usize)>,
+    pub general_tiers: Vec<(Backend, usize)>,
     pub kernels: Vec<&'static str>,
     pub work: usize,
     pub budget: usize,
@@ -900,6 +901,22 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
     let mut stages = Vec::new();
     let mut routing_ok = true;
     let mut routing_detail = String::new();
+    let mut attribution_ok = true;
+    for entry in &outcome.trace {
+        if entry.general_only
+            && (entry.substage != Substage::MulAdd
+                || !cell
+                    .work
+                    .iter()
+                    .any(|work| work_key(work) == entry_key(entry)))
+        {
+            attribution_ok = false;
+            let _ = write!(
+                routing_detail,
+                "general qualification has no matching MulAdd budget; "
+            );
+        }
+    }
     if enforce {
         if outcome.process != cell.process {
             routing_ok = false;
@@ -1000,6 +1017,9 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
         let mut served = 0usize;
         let mut tier = Backend::Scalar;
         let mut tiers: Vec<(Backend, usize)> = Vec::new();
+        let mut general_tiers: Vec<(Backend, usize)> = Vec::new();
+        let mut general_served = 0usize;
+        let mut general_total = 0usize;
         let mut kernels: Vec<&'static str> = Vec::new();
         let mut wrong_unit = false;
         let width_bytes = match work.basis {
@@ -1016,6 +1036,13 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
                 continue;
             };
             add_tier(&mut tiers, entry.tier, units);
+            if entry.general_only {
+                add_tier(&mut general_tiers, entry.tier, units);
+                general_total = general_total.saturating_add(units);
+                if eligible {
+                    general_served = general_served.saturating_add(units);
+                }
+            }
             if eligible {
                 served = served.saturating_add(units);
                 tier = strongest(tier, entry.tier);
@@ -1025,15 +1052,28 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
             }
         }
         let required = budget(case, work, outcome);
+        if work.substage == Substage::MulAdd
+            && general_total > general_terms.saturating_mul(per_term_max(case, work, outcome))
+        {
+            attribution_ok = false;
+            let _ = write!(
+                routing_detail,
+                "general qualification exceeds all general terms; "
+            );
+        }
         let direct = served;
-        // General-coefficient coverage may only use work left after the
-        // maximal zero and unit terms: those never fund ActivePairs.
+        // Only unqualified work reserves maximal zero/unit terms.
+        // Locally checked general work funds this budget exactly once.
         if matches!(work.multiplicity, Multiplicity::ActivePairs) {
             let maximum = per_term_max(case, work, outcome);
             let reserved = zero_terms
                 .saturating_add(unit_terms)
                 .saturating_mul(maximum);
-            served = served.saturating_sub(reserved);
+            served = general_served.saturating_add(
+                served
+                    .saturating_sub(general_served)
+                    .saturating_sub(reserved),
+            );
         }
         if is_unit_add(work) && served < required {
             let slot = unit_slot(work.unit);
@@ -1086,6 +1126,7 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
             unit: unit_name(work.unit),
             tier,
             tiers,
+            general_tiers,
             kernels,
             work: direct,
             budget: required,
@@ -1109,18 +1150,26 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
             stage.work = stage.work.saturating_add(entry.work);
             stage.tier = strongest(stage.tier, entry.tier);
             add_tier(&mut stage.tiers, entry.tier, entry.work);
+            if entry.general_only {
+                add_tier(&mut stage.general_tiers, entry.tier, entry.work);
+            }
             if !stage.kernels.contains(&entry.kernel) {
                 stage.kernels.push(entry.kernel);
             }
         } else {
             let mut tiers = Vec::new();
             add_tier(&mut tiers, entry.tier, entry.work);
+            let mut general_tiers = Vec::new();
+            if entry.general_only {
+                add_tier(&mut general_tiers, entry.tier, entry.work);
+            }
             stages.push(StageReport {
                 substage: substage_name(entry.substage),
                 scope: scope_names(entry.scope),
                 unit: unit_name(entry.unit),
                 tier: entry.tier,
                 tiers,
+                general_tiers,
                 kernels: vec![entry.kernel],
                 work: entry.work,
                 budget: 0,
@@ -1129,7 +1178,7 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
         }
     }
 
-    if output_ok && (!enforce || routing_ok) {
+    if output_ok && attribution_ok && (!enforce || routing_ok) {
         Verdict::pass(stages)
     } else {
         detail.push_str(&routing_detail);
@@ -1148,6 +1197,8 @@ enum Fault {
     HalveWork,
     LowerTier,
     DropReceipt,
+    SuppressGeneral,
+    TagAllMulAdd,
 }
 
 fn fault_from_env() -> Option<Fault> {
@@ -1161,6 +1212,8 @@ fn fault_from_env() -> Option<Fault> {
         "halve-work" => Fault::HalveWork,
         "lower-tier" => Fault::LowerTier,
         "drop-receipt" => Fault::DropReceipt,
+        "suppress-general" => Fault::SuppressGeneral,
+        "tag-all-muladd" => Fault::TagAllMulAdd,
         other => panic!("FGF_ROUTE_FAULT names no known fault: {other}"),
     };
     Some(fault)
@@ -1191,6 +1244,16 @@ fn apply_fault(fault: Fault, outcome: &mut Outcome) {
                     Backend::V3 => Backend::V2,
                     _ => Backend::Scalar,
                 };
+            }
+        }
+        Fault::SuppressGeneral => {
+            for entry in &mut outcome.trace {
+                entry.general_only = false;
+            }
+        }
+        Fault::TagAllMulAdd => {
+            for entry in &mut outcome.trace {
+                entry.general_only = entry.substage == Substage::MulAdd;
             }
         }
         Fault::DropReceipt => {}
@@ -1349,14 +1412,26 @@ fn stages_json(stages: &[StageReport]) -> String {
             .map(|(tier, work)| format!("{}:{}", quote(tier.name()), work))
             .collect::<Vec<_>>()
             .join(",");
+        let general = if stage.substage == "MulAdd" {
+            let tiers = stage
+                .general_tiers
+                .iter()
+                .map(|(tier, work)| format!("{}:{}", quote(tier.name()), work))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!(",\"general_tiers\":{{{tiers}}}")
+        } else {
+            String::new()
+        };
         let _ = write!(
             out,
-            "{{\"substage\":{},\"scope\":{},\"unit\":{},\"tier\":{},\"tiers\":{{{}}},\"kernels\":[{}],\"work\":{},\"budget\":{},\"met\":{}}}",
+            "{{\"substage\":{},\"scope\":{},\"unit\":{},\"tier\":{},\"tiers\":{{{}}}{},\"kernels\":[{}],\"work\":{},\"budget\":{},\"met\":{}}}",
             quote(stage.substage),
             scope,
             quote(stage.unit),
             quote(stage.tier.name()),
             tiers,
+            general,
             kernels,
             stage.work,
             stage.budget,
@@ -1643,6 +1718,7 @@ mod tests {
             unit: Unit::Elements,
             work,
             tier: Backend::Scalar,
+            general_only: false,
         }]
     }
 
@@ -1949,6 +2025,7 @@ mod tests {
                 unit: Unit::Elements,
                 work: 16_384,
                 tier: Backend::V2,
+                general_only: false,
             },
             Entry {
                 kernel: "test-v3",
@@ -1957,6 +2034,7 @@ mod tests {
                 unit: Unit::Elements,
                 work: 128,
                 tier: Backend::V3,
+                general_only: false,
             },
         ]
     }
@@ -2071,6 +2149,7 @@ mod tests {
                 unit: Unit::Elements,
                 work,
                 tier,
+                general_only: (index / 6) % 2 == 1,
             })
             .collect();
         let work: &'static [Work] = Box::leak(
@@ -2213,6 +2292,35 @@ mod tests {
         map: None,
         cells: &[MIXED_CELL],
     };
+
+    /// Checked general work is credited once, with a strict full-length cap.
+    #[test]
+    fn judge_qualifies_general_work_without_relaxing_trivial_reserves() {
+        let mut outcome = outcome_with(7, 7, 384);
+        outcome.enforce_routing = true;
+        outcome.trace[0].general_only = true;
+        assert_eq!(judge(&MIXED_CASE, &MIXED_CELL, &outcome).detail, "");
+        outcome.trace[0].general_only = false;
+        assert_ne!(judge(&MIXED_CASE, &MIXED_CELL, &outcome).detail, "");
+        outcome.trace[0].general_only = true;
+        outcome.trace[0].work += 1;
+        assert_ne!(judge(&MIXED_CASE, &MIXED_CELL, &outcome).detail, "");
+    }
+
+    /// Qualified multiplication never replaces a required unit addition.
+    #[test]
+    fn judge_requires_independent_unit_work_with_qualified_general_work() {
+        let mut outcome = outcome_with(7, 7, 128);
+        outcome.enforce_routing = true;
+        outcome.trace[0].general_only = true;
+        assert_ne!(judge(&FUSED_GENERAL_CASE, &FUSED_CELL, &outcome).detail, "");
+        let mut addition = entries(64).pop().unwrap();
+        addition.substage = Substage::Add;
+        outcome.trace.push(addition);
+        assert_eq!(judge(&FUSED_GENERAL_CASE, &FUSED_CELL, &outcome).detail, "");
+        outcome.trace[0].work += 1;
+        assert_ne!(judge(&FUSED_GENERAL_CASE, &FUSED_CELL, &outcome).detail, "");
+    }
 
     /// Zero and exempt unit terms never fund the general-coefficient budget.
     #[test]

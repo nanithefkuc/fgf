@@ -16,12 +16,16 @@
 //! and `SCALAR\t{label}\t{ns_per_scalar_op:.9}` for scalar element chains.
 //! Process entry prints `FIELD_BACKEND\t{label}\t{backend_name}` for every
 //! measured field — each field's own routing, not the process backend —
-//! plus the host's actual CPU affinity and scheduler policy. Each process
-//! times an unchanged byte-XOR control at start and end
+//! plus the host's actual CPU affinity and scheduler policy. Each timed process
+//! runs an unchanged byte-XOR control at start and end
 //! (`control byte xor start`, `control byte xor end`), so campaign drift is
 //! separable from field speed. `--blocked-diagnostic` runs the
 //! internals-only blocked-versus-AXPY probe; the public panels never
 //! invoke it.
+//!
+//! `--compositions` selects public row compositions; `--compositions-controls`
+//! selects their duplicate elementwise controls. `--compositions-check` validates
+//! the composition oracles without collecting timings.
 
 // Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
@@ -33,6 +37,9 @@ use fgf::{
     Elem, Extension, ExtensionSpec, FieldBuffer, FieldElem, FiniteField, Goldilocks, Mersenne31,
     Packed, Polynomial, QuadMersenne31, RS, Relation, backend, backend_for, ops,
 };
+
+#[path = "kernels/compositions.rs"]
+mod compositions;
 
 type Gf16 = fgf::FiniteField<2, 16, fgf::Extension<fgf::Rijndael16, 2>>;
 type Gf32 = fgf::FiniteField<2, 32, fgf::Extension<fgf::Rijndael32, 2>>;
@@ -1009,6 +1016,10 @@ fn main() {
     println!("fgf kernel benchmark — backend: {}", backend().name());
     print_host_lines();
     print_field_backends();
+    if std::env::args().any(|arg| arg == "--compositions-check") {
+        run_panels();
+        return;
+    }
     println!("control byte xor — drift check:");
     let control_src = noise(CONTROL_BYTES, 0x57a7);
     let mut control_dst = noise(CONTROL_BYTES, 0x57a8);
@@ -2564,6 +2575,10 @@ fn run_panels() {
     let m31 = !named || has("--m31");
     let gf2 = !named || has("--gf2");
     let prime = !named || has("--prime");
+    if has("--compositions") || has("--compositions-check") || has("--compositions-controls") {
+        compositions::run();
+        return;
+    }
     if has("--network-diagnostic") {
         bench_network_alignment();
         return;

@@ -54,7 +54,7 @@
 use crate::field::extension::Descriptor;
 use crate::field::extension::descriptor::PrimePresentation;
 use crate::field::{
-    Elem, Field, FieldBuffer, PrimeCharacteristic, PrimeIdentity, RangeError, Validate,
+    Elem, Field, FieldBuffer, PrimeCharacteristic, PrimeIdentity, RangeError, Validate, private,
 };
 
 use super::{FiniteField, FiniteFieldRepr, checked_order};
@@ -338,6 +338,18 @@ impl<const P: u64> FieldBuffer for FiniteField<P, 1, Residue> {
         );
         let raw = value.to_raw().to_le_bytes();
         bytes.copy_from_slice(&raw[..Self::BYTES]);
+    }
+}
+
+impl<const P: u64> private::BufferDispatch for FiniteField<P, 1, Residue> {
+    #[inline]
+    fn add_assign_bytes(proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
+        <Self as crate::kernel::KernelDispatch>::add_assign(proof, dst, src);
+    }
+
+    #[inline]
+    fn sub_assign_bytes(proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
+        <Self as crate::kernel::KernelDispatch>::sub_assign(proof, dst, src);
     }
 }
 

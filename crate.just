@@ -283,6 +283,36 @@ bench-build NAME:
             '[.[] | select(.reason == "compiler-artifact" and .target.name == $name and .target.kind == ["bench"] and .executable != null)] | if length == 1 then .[0].executable else error("expected one benchmark executable") end' \
             >"target/fgf-bench/{{NAME}}.path"
 
+# Run public row-composition measurements from a prebuilt artifact.
+# ARTIFACT defaults to the all-features compositions build. Explicit artifacts
+# preserve the original binary in paired campaigns. Requires FEC_GOLDEN_CORE.
+[group('bench')]
+bench-compositions ARTIFACT="" *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${FEC_GOLDEN_CORE:?FEC_GOLDEN_CORE must be set}"
+    if [[ -z "{{ARTIFACT}}" ]]; then
+        artifact="$(cat target/fgf-bench/compositions-all.path)"
+    else
+        artifact="{{ARTIFACT}}"
+    fi
+    taskset -c "${FEC_GOLDEN_CORE}" "${artifact}" --compositions {{ARGS}}
+
+# Build the same compositions panel at either SIMD feature configuration.
+[group('bench')]
+bench-compositions-build FEATURES="all":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{FEATURES}}" in
+        all) features=(--all-features) ;;
+        default) features=(--features internals) ;;
+        *) echo "expected all or default features" >&2; exit 2 ;;
+    esac
+    mkdir -p target/fgf-bench
+    cargo bench "${features[@]}" --bench kernels --no-run --message-format=json-render-diagnostics |
+        jq -ers '[.[] | select(.reason == "compiler-artifact" and .target.name == "kernels" and .target.kind == ["bench"] and .executable != null)] | if length == 1 then .[0].executable else error("expected one benchmark executable") end' \
+            >"target/fgf-bench/compositions-{{FEATURES}}.path"
+
 # Miri over the dispatched GFNI paths: the owned-unsafe residue that the
 # scalar configuration does not compile. Runtime detection reports nothing
 # under the interpreter, so the tier is promoted at compile time; MIRIFLAGS
@@ -1013,6 +1043,82 @@ route-accept-negative REQUEST:
         exit 1
     }
     expect_reject fail_receipt "$fused_halve" "$scratch/fused-halve.err"
+    ledger="$saved_ledger"
+    # Qualified general work must be necessary and bounded independently of
+    # the fused unit credit in a loop with no general coefficients.
+    qualified_ledger="$scratch/qualified-ledger.json"
+    python3 - "$qualified_ledger" "{{REQUEST}}" "$features" "$serving" <<'PY'
+    import json
+    import sys
+
+    out, request, features, serving = sys.argv[1:5]
+    ledger = json.load(open("benches/simd_ledger.json"))
+    prime = "ops::mul_add_matrix@mersenne31"
+    fused = "ops::mul_add_matrix@gf8-poly-aes"
+    key = f"{features}/{request}"
+    fused_route = next(token for token in ledger["routes"][fused].split()
+                       if token.startswith(key + "="))
+    ledger["routes"] = {prime: f"{key}=composition@{serving}", fused: fused_route}
+    ledger["route_notes"] = {}
+    ledger["obligations"] = {obligation: {"cells": {key: {
+        "work": ["matrix-mul-add", "unit-accumulate"]}}}
+        for obligation in (prime, fused)}
+    json.dump(ledger, open(out, "w"), indent=1)
+    PY
+    python3 benches/simd_ledger.py --ledger "$qualified_ledger" generate --out "$cases"
+    ledger="$qualified_ledger"
+    qualified_base="$scratch/qualified-base.log"
+    rc=$(run_negative "{{REQUEST}}" "" "$qualified_base" negative)
+    [[ "$rc" -eq 0 ]] || {
+        printf 'route_accept_negative: qualified baseline failed rc=%s\n' "$rc" >&2
+        cat "$qualified_base" >&2
+        exit 1
+    }
+    python3 benches/simd_ledger.py --ledger "$ledger" accept --log "$qualified_base" \
+        --features "$features" --request "{{REQUEST}}" \
+        --source-id negative --host-id negative
+    for fault in suppress-general tag-all-muladd; do
+        poisoned="$scratch/$fault.log"
+        rc=$(run_negative "{{REQUEST}}" "$fault" "$poisoned" negative)
+        [[ "$rc" -ne 0 ]] || {
+            printf 'route_accept_negative: %s was not rejected\n' "$fault" >&2
+            exit 1
+        }
+        expect_reject fail_receipt "$poisoned" "$scratch/$fault.err"
+    done
+    python3 - "$scratch/suppress-general.log" "$scratch/tag-all-muladd.log" <<'PY'
+    import json
+    import sys
+
+    for path, obligation, pattern in (
+            (sys.argv[1], "ops::mul_add_matrix@mersenne31", "mixed-3x4"),
+            (sys.argv[2], "ops::mul_add_matrix@gf8-poly-aes", "gf2-matrix-3x4")):
+        receipts = [json.loads(line.split("\t", 1)[1]) for line in open(path)
+                    if line.startswith("ROUTE_RECEIPT\t")]
+        assert any(rec["obligation"] == obligation and rec["id"].endswith("/" + pattern)
+                   and rec["result"] == "fail" for rec in receipts), path
+    PY
+    forged="$scratch/forged-general.log"
+    python3 - "$qualified_base" "$forged" <<'PY'
+    import json
+    import sys
+
+    changed = False
+    with open(sys.argv[2], "w") as output:
+        for line in open(sys.argv[1]):
+            if line.startswith("ROUTE_RECEIPT\t"):
+                rec = json.loads(line.split("\t", 1)[1])
+                if (rec["obligation"] == "ops::mul_add_matrix@gf8-poly-aes"
+                        and rec["id"].endswith("/gf2-matrix-3x4")):
+                    for stage in rec["stages"]:
+                        if stage["substage"] == "MulAdd":
+                            stage["general_tiers"] = dict(stage["tiers"])
+                            changed = changed or any(stage["tiers"].values())
+                    line = "ROUTE_RECEIPT\t" + json.dumps(rec) + "\n"
+            output.write(line)
+    assert changed
+    PY
+    expect_reject general_attribution "$forged" "$scratch/forged-general.err"
     ledger="$saved_ledger"
     python3 benches/simd_ledger.py generate --out "$cases"
     python3 benches/simd_ledger.py generate --check --out "$cases"

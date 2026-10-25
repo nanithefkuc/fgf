@@ -177,6 +177,20 @@ pub(crate) trait StorageBuffer<B: Field, const D: usize>: StorageRepr<B, D> {
     ///
     /// Panics when `bytes` holds the wrong width.
     fn encode(bytes: &mut [u8], raw: &Self::Raw);
+
+    /// `dst += src` on the byte encoding of this storage.
+    ///
+    /// Operates on whole-element byte slices whose length is a multiple of
+    /// [`Self::BYTES`]. Component storage presents contiguous base lanes to one
+    /// base-field call; packed binary storage XORs the bytes.
+    fn add_assign_bytes(dst: &mut [u8], src: &[u8]);
+
+    /// `dst -= src` on the byte encoding of this storage.
+    ///
+    /// Identical to [`add_assign_bytes`](Self::add_assign_bytes) for packed
+    /// binary storage; delegates to the base field's subtraction hooks for
+    /// component storage.
+    fn sub_assign_bytes(dst: &mut [u8], src: &[u8]);
 }
 
 /// The display form of one storage.
@@ -248,6 +262,18 @@ impl<B: FieldBuffer, const D: usize> StorageBuffer<B, D> for Components {
             let element = Elem::<B> { raw: *component };
             <B as FieldBuffer>::encode(&mut bytes[i * width..(i + 1) * width], element);
         }
+    }
+
+    fn add_assign_bytes(dst: &mut [u8], src: &[u8]) {
+        #[cfg(test)]
+        let _trace_width = crate::kernel::trace::element_bytes(B::BYTES);
+        B::add_assign_bytes(crate::kernel::RawDispatch, dst, src);
+    }
+
+    fn sub_assign_bytes(dst: &mut [u8], src: &[u8]) {
+        #[cfg(test)]
+        let _trace_width = crate::kernel::trace::element_bytes(B::BYTES);
+        B::sub_assign_bytes(crate::kernel::RawDispatch, dst, src);
     }
 }
 
@@ -381,6 +407,14 @@ macro_rules! packed_buffer {
 
             fn encode(bytes: &mut [u8], raw: &Self::Raw) {
                 bytes.copy_from_slice(&raw.to_le_bytes());
+            }
+
+            fn add_assign_bytes(dst: &mut [u8], src: &[u8]) {
+                crate::kernel::xor(dst, src);
+            }
+
+            fn sub_assign_bytes(dst: &mut [u8], src: &[u8]) {
+                crate::kernel::xor(dst, src);
             }
         }
     };
