@@ -19,6 +19,8 @@ All notable changes to this project are documented here. The format follows
   and verify destination contents outside the timed region.
 - Route-tooling checks rely on compiled field and prepared-map fixture
   consumers instead of a duplicated synthetic route-type harness.
+- Native route-evidence references identify measurement hosts by processor
+  architecture rather than local connection names.
 
 ## [3.0.2] - 2026-10-20
 
