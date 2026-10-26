@@ -914,7 +914,7 @@ pub(crate) mod fallback {
         }
         // Canonical zero and unit comparisons exclude both trivial coefficients.
         #[cfg(test)]
-        let _general_trace = crate::kernel::trace::general_mul_add();
+        let _general_trace = crate::kernel::trace::term(crate::kernel::trace::Term::General);
         F::mul_add_unprepared(RawDispatch, dst, coeff, src);
     }
 
@@ -1003,10 +1003,13 @@ pub(crate) mod fallback {
         }
     }
 
-    /// Overwrites one row with weighted sources term by term: the first term
-    /// seeds the row through [`mul_into_row`], later zero terms are skipped,
-    /// unit terms add their source, and only general terms multiply.
-    pub(crate) fn mul_into_gather_checked<F: KernelDispatch>(
+    /// Overwrites one row with weighted sources term by term, by coefficient
+    /// class: the first term seeds the row through [`mul_into_row`], later
+    /// zero terms are skipped, unit terms add their source, and only general
+    /// terms multiply. Every term runs the field's dispatched row body; the
+    /// portable short-row cutoff of the prime and component compositions is
+    /// not applied, as no measurement sets one for these rows.
+    pub(crate) fn mul_into_gather_by_class<F: KernelDispatch>(
         dst: &mut [u8],
         coeffs: &[Elem<F>],
         srcs: &[&[u8]],
@@ -1027,15 +1030,15 @@ pub(crate) mod fallback {
             }
             // Canonical zero and unit comparisons exclude both trivial coefficients.
             #[cfg(test)]
-            let _general_trace = crate::kernel::trace::general_mul_add();
+            let _general_trace = crate::kernel::trace::term(crate::kernel::trace::Term::General);
             F::mul_add_unprepared(RawDispatch, dst, coeff, src);
         }
     }
 
-    /// [`mul_into_gather_checked`] over prepared coefficients, classified by
+    /// [`mul_into_gather_by_class`] over prepared coefficients, classified by
     /// the value each prepared form was built from.
     #[cfg(any(feature = "alloc", test))]
-    pub(crate) fn mul_into_gather_checked_with<F: KernelDispatch>(
+    pub(crate) fn mul_into_gather_by_class_with<F: KernelDispatch>(
         dst: &mut [u8],
         coeffs: &[F::Prepared],
         srcs: &[&[u8]],
@@ -1064,7 +1067,7 @@ pub(crate) mod fallback {
             }
             // Canonical zero and unit comparisons exclude both trivial coefficients.
             #[cfg(test)]
-            let _general_trace = crate::kernel::trace::general_mul_add();
+            let _general_trace = crate::kernel::trace::term(crate::kernel::trace::Term::General);
             F::mul_add(RawDispatch, dst, coeff, src);
         }
     }

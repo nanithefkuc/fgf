@@ -108,7 +108,7 @@ impl KernelDispatch for Goldilocks {
         }
         // Canonical zero and unit comparisons exclude both trivial coefficients.
         #[cfg(test)]
-        let _general_trace = crate::kernel::trace::general_mul_add();
+        let _general_trace = crate::kernel::trace::term(crate::kernel::trace::Term::General);
         match backend() {
             #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => x86::goldilocks::mul_add_avx512(v4(), dst, coeff.to_raw(), src),

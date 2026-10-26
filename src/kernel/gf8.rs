@@ -695,7 +695,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
         srcs: &[&[u8]],
     ) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
-            return crate::kernel::fallback::mul_into_gather_checked::<Self>(dst, coeffs, srcs);
+            return crate::kernel::fallback::mul_into_gather_by_class::<Self>(dst, coeffs, srcs);
         }
         // One destination pass instead of the fill-then-accumulate pair: the
         // one-row overwrite matrix holds the tile in registers from zero.
@@ -734,7 +734,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
             Self::mul_add_gather(RawDispatch, dst, coeffs, srcs);
             return;
         }
-        crate::kernel::fallback::mul_into_gather_checked::<Self>(dst, coeffs, srcs);
+        crate::kernel::fallback::mul_into_gather_by_class::<Self>(dst, coeffs, srcs);
     }
 
     #[cfg(any(feature = "alloc", test))]
@@ -744,7 +744,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        crate::kernel::fallback::mul_into_gather_checked_with::<Self>(dst, coeffs, srcs);
+        crate::kernel::fallback::mul_into_gather_by_class_with::<Self>(dst, coeffs, srcs);
     }
 
     #[cfg(feature = "alloc")]

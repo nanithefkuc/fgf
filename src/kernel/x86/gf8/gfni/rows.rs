@@ -35,8 +35,7 @@ const MATRIX_PREFETCH_DISTANCE: usize = 1024;
 pub(crate) const MATRIX_PREFETCH_MIN: usize = 8192;
 
 /// Fold one term's source lanes `x` into a `ROWS` x `LANES` accumulator tile:
-/// `acc[row][lane] ^= map[row] * x[lane]`, or `=` when `first` is set. A
-/// seeding fold is the accumulation onto zero, so it records like any term.
+/// `acc[row][lane] ^= map[row] * x[lane]`, or `=` when `first` is set.
 #[inline]
 #[archmage::rite(v3_gfni_crypto)]
 fn fold_term<const NATIVE: bool, const ROWS: usize, const LANES: usize>(
@@ -56,15 +55,28 @@ fn fold_term<const NATIVE: bool, const ROWS: usize, const LANES: usize>(
             };
         }
     }
+    // A seeding fold writes onto zero, so its terms record like accumulated
+    // ones, except that a unit seed is the copy base.
     #[cfg(test)]
-    crate::kernel::trace::emit_terms(
-        "gf8.gfni.matrix",
-        crate::kernel::trace::Unit::Elements,
-        LANES * 32,
-        map.iter()
-            .map(|&word| crate::kernel::trace::Term::of_byte_word(word, NATIVE)),
-        crate::kernel::Backend::V3GfniCrypto,
-    );
+    if first {
+        crate::kernel::trace::emit_seed_terms(
+            "gf8.gfni.matrix",
+            crate::kernel::trace::Unit::Elements,
+            LANES * 32,
+            map.iter()
+                .map(|&word| super::word_term_gfni::<NATIVE>(word)),
+            crate::kernel::Backend::V3GfniCrypto,
+        );
+    } else {
+        crate::kernel::trace::emit_terms(
+            "gf8.gfni.matrix",
+            crate::kernel::trace::Unit::Elements,
+            LANES * 32,
+            map.iter()
+                .map(|&word| super::word_term_gfni::<NATIVE>(word)),
+            crate::kernel::Backend::V3GfniCrypto,
+        );
+    }
 }
 
 /// Fold one chunk of resolved terms into `ROWS` rows, `LANES` 32-byte lanes
@@ -236,7 +248,7 @@ fn rows_body<
         tile - lane_start,
         maps.iter()
             .flatten()
-            .map(|&word| crate::kernel::trace::Term::of_byte_word(word, NATIVE)),
+            .map(|&word| super::word_term_gfni::<NATIVE>(word)),
         crate::kernel::Backend::V3GfniCrypto,
     );
 }

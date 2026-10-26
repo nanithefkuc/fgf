@@ -132,7 +132,7 @@ fn mul_add_scatter_impl(rows: &mut [u8], coeffs: &(impl Coeffs + ?Sized), src: &
             affine: group.maps[last],
         };
         #[cfg(test)]
-        let _term = crate::kernel::trace::term(map_term(group.maps[last]));
+        let _term = crate::kernel::trace::term(super::term_avx512(group.maps[last]));
         brem_avx512(row, coeff, src);
     }
 }
@@ -362,15 +362,9 @@ fn scatter_span<const N: usize>(
             affine,
         };
         #[cfg(test)]
-        let _term = crate::kernel::trace::term(map_term(affine));
+        let _term = crate::kernel::trace::term(super::term_avx512(affine));
         brem_half_avx512(dst, coeff, &src[start..end]);
     }
-}
-
-/// The coefficient class of a staged affine map qword.
-#[cfg(test)]
-fn map_term(map: u64) -> crate::kernel::trace::Term {
-    crate::kernel::trace::Term::of_byte_word(map, false)
 }
 
 /// Record `work` per staged row of `group`, by coefficient class.
@@ -380,7 +374,7 @@ fn emit_group<const N: usize>(group: &Group<N>, work: usize) {
         "gf8.avx512.scatter",
         crate::kernel::trace::Unit::Elements,
         work,
-        group.maps.map(map_term),
+        group.maps.map(super::term_avx512),
         crate::kernel::Backend::V4x,
     );
 }

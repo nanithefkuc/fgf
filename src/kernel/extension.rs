@@ -687,7 +687,7 @@ where
         }
         // Canonical zero and unit comparisons exclude both trivial coefficients.
         #[cfg(test)]
-        let _general_trace = crate::kernel::trace::general_mul_add();
+        let _general_trace = crate::kernel::trace::term(crate::kernel::trace::Term::General);
         if is_quad_mersenne::<F>() {
             return quad_mersenne31::mul_add(dst, quad::<B, D>(*coeff), src);
         }

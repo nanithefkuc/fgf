@@ -964,7 +964,7 @@ pub mod gf16 {
             coeffs: &[Elem<F>],
             srcs: &[&[u8]],
         ) {
-            crate::kernel::fallback::mul_into_gather_checked::<F>(dst, coeffs, srcs);
+            crate::kernel::fallback::mul_into_gather_by_class::<F>(dst, coeffs, srcs);
         }
 
         #[cfg(any(feature = "alloc", test))]
@@ -974,7 +974,7 @@ pub mod gf16 {
             coeffs: &[Prepared],
             srcs: &[&[u8]],
         ) {
-            crate::kernel::fallback::mul_into_gather_checked_with::<F>(dst, coeffs, srcs);
+            crate::kernel::fallback::mul_into_gather_by_class_with::<F>(dst, coeffs, srcs);
         }
 
         fn mul_add_matrix<F: StorageRow<B, D, Self>>(
@@ -1545,7 +1545,7 @@ pub mod gf32 {
             coeffs: &[Elem<F>],
             srcs: &[&[u8]],
         ) {
-            crate::kernel::fallback::mul_into_gather_checked::<F>(dst, coeffs, srcs);
+            crate::kernel::fallback::mul_into_gather_by_class::<F>(dst, coeffs, srcs);
         }
 
         #[cfg(any(feature = "alloc", test))]
@@ -1555,7 +1555,7 @@ pub mod gf32 {
             coeffs: &[Prepared],
             srcs: &[&[u8]],
         ) {
-            crate::kernel::fallback::mul_into_gather_checked_with::<F>(dst, coeffs, srcs);
+            crate::kernel::fallback::mul_into_gather_by_class_with::<F>(dst, coeffs, srcs);
         }
 
         fn mul_add_matrix<F: StorageRow<B, D, Self>>(
@@ -1860,7 +1860,7 @@ pub mod gf64 {
             coeffs: &[Elem<F>],
             srcs: &[&[u8]],
         ) {
-            crate::kernel::fallback::mul_into_gather_checked::<F>(dst, coeffs, srcs);
+            crate::kernel::fallback::mul_into_gather_by_class::<F>(dst, coeffs, srcs);
         }
 
         #[cfg(any(feature = "alloc", test))]
@@ -1870,7 +1870,7 @@ pub mod gf64 {
             coeffs: &[Prepared],
             srcs: &[&[u8]],
         ) {
-            crate::kernel::fallback::mul_into_gather_checked_with::<F>(dst, coeffs, srcs);
+            crate::kernel::fallback::mul_into_gather_by_class_with::<F>(dst, coeffs, srcs);
         }
 
         fn mul_add_matrix<F: StorageRow<B, D, Self>>(

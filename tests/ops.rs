@@ -1371,6 +1371,11 @@ fn overwrite_gather_with_trivial_terms_matches_oracle_for<F: FieldKernels>() {
     let sources: Vec<Vec<u8>> = (0..4).map(|i| noise(len, 0x3a0 + i)).collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
     let general = F::decode(&noise(F::BYTES, 0x3a8));
+    assert!(
+        !general.is_zero() && !general.is_one(),
+        "{} fixture",
+        F::NAME
+    );
     let (zero, one) = (Elem::<F>::ZERO, Elem::<F>::ONE);
     let patterns: [&[Elem<F>]; 6] = [
         &[zero, general, one, general],

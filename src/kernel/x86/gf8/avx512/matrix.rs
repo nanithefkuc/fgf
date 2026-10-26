@@ -354,7 +354,7 @@ fn matrix_rows1<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool, const DIREC
         let coeff = terms.coefficient(term, g);
         if !coeff.is_zero() {
             #[cfg(test)]
-            let _term = crate::kernel::trace::term(affine_term(coeff.affine));
+            let _term = crate::kernel::trace::term(super::term_avx512(coeff.affine));
             brem_half_avx512(tail, coeff, &terms.source(term)[tile..]);
         }
     }
@@ -692,12 +692,6 @@ fn rows_lane1<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
     emit_rows(1, g, terms, 64);
 }
 
-/// The coefficient class of an affine map word.
-#[cfg(test)]
-fn affine_term(word: u64) -> crate::kernel::trace::Term {
-    crate::kernel::trace::Term::of_byte_word(word, false)
-}
-
 /// Record `work` per term for rows `g..g + rows` of every term, by class.
 #[cfg(test)]
 fn emit_rows<M: Matrix<Prepared> + ?Sized>(rows: usize, g: usize, terms: &M, work: usize) {
@@ -706,7 +700,7 @@ fn emit_rows<M: Matrix<Prepared> + ?Sized>(rows: usize, g: usize, terms: &M, wor
         crate::kernel::trace::Unit::Elements,
         work,
         (0..terms.len()).flat_map(|term| {
-            (g..g + rows).map(move |row| affine_term(terms.coefficient(term, row).affine))
+            (g..g + rows).map(move |row| super::term_avx512(terms.coefficient(term, row).affine))
         }),
         crate::kernel::Backend::V4x,
     );
@@ -922,7 +916,7 @@ fn rows_body<const ROWS: usize, const OVERWRITE: bool>(
         "gf8.avx512.matrix",
         crate::kernel::trace::Unit::Elements,
         tile - head,
-        maps.iter().flatten().map(|&word| affine_term(word)),
+        maps.iter().flatten().map(|&word| super::term_avx512(word)),
         crate::kernel::Backend::V4x,
     );
     #[cfg(test)]
@@ -1003,7 +997,7 @@ fn rows_body<const ROWS: usize, const OVERWRITE: bool>(
         "gf8.avx512.matrix",
         crate::kernel::trace::Unit::Elements,
         tile - lane_start,
-        maps.iter().flatten().map(|&word| affine_term(word)),
+        maps.iter().flatten().map(|&word| super::term_avx512(word)),
         crate::kernel::Backend::V4x,
     );
 }
@@ -1051,7 +1045,7 @@ fn matrix_tail<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
             let coeff = terms.coefficient(term, g + slot);
             if !coeff.is_zero() {
                 #[cfg(test)]
-                let _term = crate::kernel::trace::term(affine_term(coeff.affine));
+                let _term = crate::kernel::trace::term(super::term_avx512(coeff.affine));
                 brem_half_avx512(tail, coeff, &terms.source(term)[tile..row_len]);
             }
         }

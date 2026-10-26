@@ -149,11 +149,6 @@ pub(crate) enum Term {
     General,
 }
 
-/// The `VGF2P8AFFINEQB` matrix of the identity byte map: multiplication by
-/// one in every GF(2^8) presentation.
-#[allow(dead_code)]
-const IDENTITY_AFFINE: u64 = 0x0102_0408_1020_4080;
-
 impl Term {
     /// Class of a byte-field factor word: the coefficient byte itself when
     /// `native`, the coefficient's affine matrix qword otherwise.
@@ -161,7 +156,7 @@ impl Term {
     pub(crate) fn of_byte_word(word: u64, native: bool) -> Self {
         match (word, native) {
             (0, _) => Self::Zero,
-            (1, true) | (IDENTITY_AFFINE, false) => Self::One,
+            (1, true) | (crate::kernel::tables::IDENTITY_AFFINE, false) => Self::One,
             _ => Self::General,
         }
     }
@@ -181,6 +176,30 @@ pub(crate) fn emit_terms(
     terms: impl IntoIterator<Item = Term>,
     tier: Backend,
 ) {
+    record_terms(kernel, unit, work, terms, tier, Substage::Add);
+}
+
+/// [`emit_terms`] for the fold that seeds an overwrite: a unit seed is the
+/// copy base, so its work is unqualified `MulAdd` rather than `Add`.
+#[allow(dead_code)]
+pub(crate) fn emit_seed_terms(
+    kernel: &'static str,
+    unit: Unit,
+    work: usize,
+    terms: impl IntoIterator<Item = Term>,
+    tier: Backend,
+) {
+    record_terms(kernel, unit, work, terms, tier, Substage::MulAdd);
+}
+
+fn record_terms(
+    kernel: &'static str,
+    unit: Unit,
+    work: usize,
+    terms: impl IntoIterator<Item = Term>,
+    tier: Backend,
+    unit_substage: Substage,
+) {
     let mut counts = [0usize; 3];
     for term in terms {
         counts[term as usize] += 1;
@@ -188,7 +207,7 @@ pub(crate) fn emit_terms(
     let [zero, one, general] =
         counts.map(|count| count.checked_mul(work).expect("trace term work overflow"));
     push(kernel, Substage::MulAdd, unit, zero, tier, false);
-    push(kernel, Substage::Add, unit, one, tier, false);
+    push(kernel, unit_substage, unit, one, tier, false);
     push(kernel, Substage::MulAdd, unit, general, tier, true);
 }
 
@@ -289,13 +308,6 @@ pub(crate) fn term(class: Term) -> TermGuard {
     TermGuard {
         previous: TERM.with(|term| term.replace(Some(class))),
     }
-}
-
-/// Qualify multiplication work after local zero and unit checks: the
-/// [`Term::General`] class of [`term`].
-#[must_use]
-pub(crate) fn general_mul_add() -> TermGuard {
-    term(Term::General)
 }
 
 /// Restores the enclosing coefficient class on return or unwind.
@@ -494,9 +506,9 @@ mod tests {
             Backend::V3,
         );
         {
-            let _outer = super::general_mul_add();
+            let _outer = super::term(super::Term::General);
             {
-                let _inner = super::general_mul_add();
+                let _inner = super::term(super::Term::General);
                 emit(
                     "inner",
                     super::Substage::MulAdd,
@@ -515,7 +527,7 @@ mod tests {
             emit("add", super::Substage::Add, Unit::Elements, 4, Backend::V3);
         }
         let caught = std::panic::catch_unwind(|| {
-            let _guard = super::general_mul_add();
+            let _guard = super::term(super::Term::General);
             panic!("unwind through coefficient qualification");
         });
         assert!(caught.is_err());
@@ -532,7 +544,7 @@ mod tests {
         assert!(entries[2].general_only);
         assert!(!entries[3].general_only);
         assert!(!entries[4].general_only);
-        let guard = super::general_mul_add();
+        let guard = super::term(super::Term::General);
         clear();
         emit(
             "cleared",
@@ -543,6 +555,63 @@ mod tests {
         );
         assert!(!snapshot()[0].general_only);
         drop(guard);
+    }
+
+    /// The substage, qualification, and work of every recorded entry.
+    fn kinds() -> std::vec::Vec<(super::Substage, bool, usize)> {
+        snapshot()
+            .iter()
+            .map(|entry| (entry.substage, entry.general_only, entry.work))
+            .collect()
+    }
+
+    #[test]
+    fn unit_class_records_nested_multiply_add_as_addition() {
+        clear();
+        {
+            let _unit = super::term(super::Term::One);
+            emit("k", super::Substage::MulAdd, Unit::Elements, 7, Backend::V3);
+            emit("k", super::Substage::Mul, Unit::Elements, 3, Backend::V3);
+            {
+                let _zero = super::term(super::Term::Zero);
+                emit("k", super::Substage::MulAdd, Unit::Elements, 2, Backend::V3);
+            }
+        }
+        assert_eq!(
+            kinds(),
+            [
+                (super::Substage::Add, false, 7),
+                (super::Substage::Mul, false, 3),
+                (super::Substage::MulAdd, false, 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn fused_terms_split_work_by_coefficient_class() {
+        use super::Term::{General, One, Zero};
+        clear();
+        super::emit_terms(
+            "k",
+            Unit::Elements,
+            10,
+            [General, One, Zero, General, One, General],
+            Backend::V3,
+        );
+        super::emit_seed_terms("k", Unit::Elements, 4, [One, General, Zero], Backend::V3);
+        super::emit_terms("k", Unit::Elements, 5, [Zero, Zero], Backend::V3);
+        assert_eq!(
+            kinds(),
+            [
+                (super::Substage::MulAdd, false, 10),
+                (super::Substage::Add, false, 20),
+                (super::Substage::MulAdd, true, 30),
+                (super::Substage::MulAdd, false, 4),
+                (super::Substage::MulAdd, false, 4),
+                (super::Substage::MulAdd, true, 4),
+                (super::Substage::MulAdd, false, 10),
+            ]
+        );
     }
 
     #[test]
