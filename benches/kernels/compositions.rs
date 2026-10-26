@@ -278,13 +278,14 @@ const NSOURCES: usize = 3;
 
 fn lane_counts<F: FieldBuffer>() -> Vec<usize> {
     let mut lanes = LANE_COUNTS.to_vec();
-    let mut boundaries = vec![16_usize, 32, 64];
     #[cfg(target_arch = "x86_64")]
-    if matches!(F::BYTES, 1 | 4 | 8) {
+    let simd_floor = matches!(F::BYTES, 1 | 4 | 8).then(|| {
         use fgf::internals::kernel::residue::{VectorOp, avx2_floor_op_len};
-        boundaries.push(avx2_floor_op_len(F::BYTES, VectorOp::Add));
-    }
-    for bytes in boundaries {
+        avx2_floor_op_len(F::BYTES, VectorOp::Add)
+    });
+    #[cfg(not(target_arch = "x86_64"))]
+    let simd_floor: Option<usize> = None;
+    for bytes in [16_usize, 32, 64].into_iter().chain(simd_floor) {
         let boundary = bytes.div_ceil(F::BYTES);
         lanes.extend([boundary.saturating_sub(1).max(1), boundary, boundary + 1]);
     }
