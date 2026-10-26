@@ -779,6 +779,105 @@ impl<E: crate::field::FieldElem> Tower2Coeff<E> {
     }
 }
 
+// S2 feasibility spike: per-row const banks and column derivation. Not for merge.
+
+/// Images of the raw basis bits under multiplication by `coeff`.
+pub const fn spike_columns(
+    descriptor: &crate::field::extension::descriptor::Descriptor,
+    coeff: u64,
+    bits: u32,
+) -> [u64; 64] {
+    let mut out = [0u64; 64];
+    let root = descriptor.root_index();
+    let mut k = 0;
+    while k < bits as usize {
+        out[k] = crate::field::extension::arithmetic::word_mul(descriptor, root, coeff, 1u64 << k);
+        k += 1;
+    }
+    out
+}
+
+/// Nibble tables and affine word of one byte coefficient, from its columns.
+#[allow(clippy::cast_possible_truncation)]
+const fn spike_byte_entry(columns: &[u64; 64], coeff: u8) -> (ScaleTable, u64) {
+    let mut lo = [0u8; 16];
+    let mut hi = [0u8; 16];
+    let mut i = 0;
+    while i < 16 {
+        let mut l = 0u8;
+        let mut h = 0u8;
+        let mut k = 0;
+        while k < 4 {
+            if (i >> k) & 1 == 1 {
+                l ^= columns[k] as u8;
+                h ^= columns[k + 4] as u8;
+            }
+            k += 1;
+        }
+        lo[i] = l;
+        hi[i] = h;
+        i += 1;
+    }
+    let mut bytes = [0u8; 8];
+    let mut k = 0;
+    while k < 8 {
+        bytes[k] = columns[k] as u8;
+        k += 1;
+    }
+    (ScaleTable { coeff, lo, hi }, linear_map(bytes))
+}
+
+/// Every coefficient's nibble tables and affine word for a byte-wide row.
+#[allow(clippy::cast_possible_truncation)]
+pub const fn spike_byte_bank(
+    descriptor: &crate::field::extension::descriptor::Descriptor,
+) -> ([ScaleTable; 256], [u64; 256]) {
+    let mut scale = [ScaleTable { coeff: 0, lo: [0; 16], hi: [0; 16] }; 256];
+    let mut affine = [0u64; 256];
+    let mut c = 0;
+    while c < 256 {
+        let columns = spike_columns(descriptor, c as u64, 8);
+        let (table, word) = spike_byte_entry(&columns, c as u8);
+        scale[c] = table;
+        affine[c] = word;
+        c += 1;
+    }
+    (scale, affine)
+}
+
+/// A byte-wide row's banks, evaluated once per row type.
+pub struct SpikeBank<F>(core::marker::PhantomData<F>);
+
+impl<F: crate::field::Field> SpikeBank<F> {
+    /// Nibble tables and affine words of every coefficient.
+    pub const BANK: &'static ([ScaleTable; 256], [u64; 256]) = &spike_byte_bank(F::DESCRIPTOR);
+}
+
+/// Fold a row's banks into a word so a caller forces their evaluation.
+#[must_use]
+pub fn spike_bank_digest<F: crate::field::Field>() -> u64 {
+    let (scale, affine) = SpikeBank::<F>::BANK;
+    let mut acc = 0u64;
+    for (table, word) in scale.iter().zip(affine) {
+        acc = acc.rotate_left(7) ^ word ^ u64::from(table.lo[3]) ^ (u64::from(table.hi[9]) << 8);
+    }
+    acc
+}
+
+/// Multiplication columns of a fixed coefficient, evaluated at compile time.
+pub struct SpikeWide<F, const C: u64>(core::marker::PhantomData<F>);
+
+impl<F: crate::field::Field, const C: u64> SpikeWide<F, C> {
+    /// The columns.
+    pub const COLUMNS: [u64; 64] = spike_columns(F::DESCRIPTOR, C, F::DEGREE);
+}
+
+/// Multiplication columns of `coeff` derived at run time.
+#[must_use]
+pub fn spike_runtime_columns<F: crate::field::Field>(coeff: u64) -> [u64; 64] {
+    spike_columns(F::DESCRIPTOR, coeff, F::DEGREE)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,0 +1,17 @@
+
+[package]
+name = "s2-spike-consumer"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+fgf = { path = "..", features = ["internals"] }
+
+[features]
+banks = []
+wide = []
+rows = []
+
+[profile.release]
+debug = false
