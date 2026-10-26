@@ -1967,6 +1967,19 @@ def _overwrite_copy_bases(case: dict) -> int:
         if "One" in slots[row * sources:(row + 1) * sources])
 
 
+def _general_seed(case: dict, items: list) -> bool:
+    """Whether an overwrite gather's general first coefficient may serve one
+    ``MulAdd`` term through the overwriting multiply that seeds the row.
+
+    Cells that budget ``Mul`` themselves keep that work for their own item.
+    """
+    base = case.get("callable", "").split("::")[-1]
+    slots = case.get("pattern", {}).get("slots", [])
+    return (base.startswith("mul_into") and "gather" in base
+            and bool(slots) and slots[0] == "General"
+            and not any(item.get("substage") == "Mul" for item in items))
+
+
 def _case_coverage_error(case: dict, key: str, stages: list,
                          minimum: int) -> str | None:
     """Derived-budget coverage with tier- and coefficient-aware fused credit.
@@ -2017,6 +2030,11 @@ def _case_coverage_error(case: dict, key: str, stages: list,
             maximum = max(0, int(item.get("per_term_max", 0)))
             reserved = (zero + ones) * maximum
             served = qualified + max(0, unqualified - reserved)
+            if item.get("substage") == "MulAdd" and _general_seed(case, items):
+                seed_item = {**item, "substage": "Mul"}
+                seed = sum(_stage_eligible_work(stage, item, minimum)
+                           for stage in stages if _item_matches(seed_item, stage))
+                served += min(seed, maximum)
         if served < budget:
             return (f"needs {item['substage']}/{item['unit']} "
                     f"budget={budget} served={served}")

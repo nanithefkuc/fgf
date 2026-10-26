@@ -45,6 +45,9 @@ All notable changes to this project are documented here. The format follows
   already excluded zero and unit coefficients. Unqualified work keeps the
   conservative zero/unit reserve, qualified work is capped by the general
   terms present, and it never funds unit additions.
+- Route acceptance credits an overwrite gather's general first term to the
+  overwriting multiply that seeds its destination, once per call, at the
+  required tier; cells that budget their own multiply keep that work.
 
 ### Removed
 

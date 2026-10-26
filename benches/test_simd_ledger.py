@@ -1467,6 +1467,34 @@ class TestBudgets(unittest.TestCase):
         item = {"unit": "Elements", "elem_size": 4}
         self.assertEqual(sl._general_work_parts(stage, item, 2), (0, 0))
 
+    def test_overwrite_gather_credits_one_general_seed_term(self):
+        def case(slots):
+            built = self._fused_case(slots, add_budget=64, per_term=64,
+                                     callable="ops::mul_into_gather",
+                                     multiplicity="UnitAdds")
+            built["cell_work"]["default/v3"][0]["budget"] = 128
+            return built
+
+        def stage(substage, work, tier="v3"):
+            built = {"substage": substage, "scope": None, "unit": "Elements",
+                     "tier": tier, "tiers": {tier: work} if work else {},
+                     "work": work, "budget": 0}
+            if substage == "MulAdd":
+                built["general_tiers"] = dict(built["tiers"])
+            return built
+
+        seeded = case(["General", "General", "One", "One"])
+        stages = [stage("Mul", 64), stage("MulAdd", 64), stage("Add", 64)]
+        self.assertIsNone(sl._case_coverage_error(seeded, "default/v3", stages, 2))
+        unit_first = case(["One", "General", "General", "One"])
+        self.assertIsNotNone(sl._case_coverage_error(unit_first, "default/v3", stages, 2))
+        self.assertIsNotNone(sl._case_coverage_error(
+            seeded, "default/v3", stages[1:], 2))
+        oversized = [stage("Mul", 128), stage("Add", 64)]
+        self.assertIsNotNone(sl._case_coverage_error(seeded, "default/v3", oversized, 2))
+        weaker = [stage("Mul", 64, "v2"), stage("MulAdd", 64), stage("Add", 64)]
+        self.assertIsNotNone(sl._case_coverage_error(seeded, "default/v3", weaker, 2))
+
     def test_zero_term_work_cannot_fund_unit_adds(self):
         case = self._fused_case(["One", "Zero", "One", "Zero"],
                                 add_budget=64, per_term=64)

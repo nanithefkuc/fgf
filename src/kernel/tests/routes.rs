@@ -701,6 +701,25 @@ fn overwrite_copy_bases(case: &Case) -> usize {
         .count()
 }
 
+/// Whether an overwrite gather's general first coefficient may serve one
+/// `MulAdd` term through the overwriting multiply that seeds the destination.
+///
+/// Cells that budget `Mul` themselves keep that work for their own item.
+fn general_seed(case: &Case, cell: &Cell) -> bool {
+    let base = case
+        .obligation
+        .split('@')
+        .next()
+        .unwrap_or("")
+        .rsplit("::")
+        .next()
+        .unwrap_or("");
+    is_gather_case(case)
+        && base.starts_with("mul_into")
+        && matches!(case.coeffs.first(), Some(Coeff::General))
+        && !cell.work.iter().any(|work| work.substage == Substage::Mul)
+}
+
 /// Unit additions for an overwrite: selected unit terms minus the copy base,
 /// counted per destination row. A gather folds every coefficient into one row.
 fn unit_adds(case: &Case) -> usize {
@@ -1074,6 +1093,21 @@ pub(super) fn judge(case: &Case, cell: &Cell, outcome: &Outcome) -> Verdict {
                     .saturating_sub(general_served)
                     .saturating_sub(reserved),
             );
+            if work.substage == Substage::MulAdd && general_seed(case, cell) {
+                let mut seed = 0usize;
+                for entry in &outcome.trace {
+                    if entry.substage != Substage::Mul || entry.scope != work.scope {
+                        continue;
+                    }
+                    if let Some((units, true)) =
+                        entry_work(entry, work, width_bytes, cell.min_serving)
+                    {
+                        seed = seed.saturating_add(units);
+                        tier = strongest(tier, entry.tier);
+                    }
+                }
+                served = served.saturating_add(seed.min(maximum));
+            }
         }
         if is_unit_add(work) && served < required {
             let slot = unit_slot(work.unit);
@@ -2319,6 +2353,36 @@ mod tests {
         outcome.trace.push(addition);
         assert_eq!(judge(&FUSED_GENERAL_CASE, &FUSED_CELL, &outcome).detail, "");
         outcome.trace[0].work += 1;
+        assert_ne!(judge(&FUSED_GENERAL_CASE, &FUSED_CELL, &outcome).detail, "");
+    }
+
+    /// An overwrite gather's general first coefficient may be served by the
+    /// overwriting multiply that seeds the row, for that one term only.
+    #[test]
+    fn judge_credits_one_general_seed_term_in_overwrite_gathers() {
+        const UNIT_FIRST: &[Coeff] = &[Coeff::One, Coeff::General, Coeff::General, Coeff::One];
+        let unit_first = Case {
+            coeffs: UNIT_FIRST,
+            ..FUSED_GENERAL_CASE
+        };
+        let stage = |substage: Substage, work: usize| {
+            let mut entry = entries(work).pop().unwrap();
+            entry.substage = substage;
+            entry.general_only = substage == Substage::MulAdd;
+            entry
+        };
+        let mut outcome = outcome_with(7, 7, 0);
+        outcome.enforce_routing = true;
+        outcome.trace = vec![
+            stage(Substage::Mul, 64),
+            stage(Substage::MulAdd, 64),
+            stage(Substage::Add, 64),
+        ];
+        assert_eq!(judge(&FUSED_GENERAL_CASE, &FUSED_CELL, &outcome).detail, "");
+        assert_ne!(judge(&unit_first, &FUSED_CELL, &outcome).detail, "");
+        outcome.trace.remove(0);
+        assert_ne!(judge(&FUSED_GENERAL_CASE, &FUSED_CELL, &outcome).detail, "");
+        outcome.trace = vec![stage(Substage::Mul, 128), stage(Substage::Add, 64)];
         assert_ne!(judge(&FUSED_GENERAL_CASE, &FUSED_CELL, &outcome).detail, "");
     }
 
