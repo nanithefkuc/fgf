@@ -5,8 +5,10 @@
 
 ``DIR`` holds ``meta.json`` and, per host, ``paired-<host>.json`` and
 ``pilot-<host>.json`` for the adopted campaign plus ``boundary-<host>.json``
-for the campaign that set the routing boundaries. Factors are base latency
-over candidate latency from unrounded per-cell aggregates.
+for the campaign that set the routing boundaries. ``DIR/binary-gathers``
+holds the same ``meta.json``, paired, and pilot records for the binary
+overwrite-gather campaign. Factors are base latency over candidate latency
+from unrounded per-cell aggregates.
 """
 
 from __future__ import annotations
@@ -83,6 +85,20 @@ MULTI_ROW = {"mul_add_scatter", "mul_into_scatter", "mul_add_gather", "mul_into_
              "mul_into_matrix_at"}
 ADDITIVE = {"add_assign", "sub_assign", "add_assign_rows", "sub_assign_rows",
             "add_gather_offsets"}
+BINARY = "binary-gathers"
+BINARY_FIELDS = (
+    ("gf8aes", "AES GF(2^8)"),
+    ("gf8rs", "GF(2^8) modulo x^8 + x^4 + x^3 + x^2 + 1"),
+    ("fp16r", "Rijndael GF(2^16)"),
+    ("fp16f", "Fan-Paar GF(2^16)"),
+    ("fp32r", "Rijndael GF(2^32)"),
+    ("fp32f", "Fan-Paar GF(2^32)"),
+    ("fp64r", "Rijndael GF(2^64)"),
+    ("fp64f", "Fan-Paar GF(2^64)"),
+)
+BINARY_OPERATIONS = ("mul_into_gather", "mul_into_gather_with")
+BINARY_TIERS = (("scalar", "Scalar"), ("v2", "SSE4.2"), ("v3", "AVX2"),
+                ("primary", "GFNI and wider"))
 
 
 class PublishError(Exception):
@@ -116,11 +132,12 @@ def config(summary: dict, features: str, tier: str, host: str) -> dict:
     return found[0]
 
 
-def factor_table(per_host: dict, operation: str, patterns: tuple) -> str:
+def factor_table(per_host: dict, operation: str, patterns: tuple,
+                 fields: tuple = FIELDS) -> str:
     header = ["Field"] + (["Pattern"] if len(patterns) > 1 else []) + [
         f"{lanes} lanes (factor)" for lanes in LANES]
     rows = []
-    for label, _ in FIELDS:
+    for label, _ in fields:
         for pattern in patterns:
             values = [tuple(per_host[host].get((label, operation, pattern, lanes),
                                                (None, None))[0] for host in HOSTS)
@@ -179,28 +196,69 @@ def boundary_tables(boundary: dict, layouts: dict) -> list[str]:
     return out
 
 
-def outcome_table(summaries: dict) -> str:
+def outcome_table(summaries: dict, tiers: tuple = TIERS, fields: tuple | None = None) -> str:
     header = ["Features", "Request", "Win", "Tie", "Slower", "Unresolved"]
+    labels = None if fields is None else {label for label, _ in fields}
     rows = []
     for features in ("default", "all"):
-        for tier, title in TIERS:
-            counts = {host: Counter(c for _, c in cells(
-                config(summaries[host], features, tier, host)).values()) for host in HOSTS}
+        for tier, title in tiers:
+            counts = {host: Counter(
+                classification for (field, *_), (_, classification) in cells(
+                    config(summaries[host], features, tier, host)).items()
+                if labels is None or field in labels) for host in HOSTS}
             rows.append([features, title] + [
                 " / ".join(str(counts[host][kind]) for host in HOSTS)
                 for kind in ("win", "tie", "slower", "unresolved")])
     return render_markdown_table(header, rows)
 
 
-def render(records: Path) -> str:
-    meta = load(records / "meta.json")
-    paired = {host: load(records / f"paired-{host}.json") for host in HOSTS}
-    pilots = {host: load(records / f"pilot-{host}.json") for host in HOSTS}
-    boundary = {host: load(records / f"boundary-{host}.json") for host in HOSTS}
+def accepted(directory: Path) -> tuple[dict, dict]:
+    """The campaign metadata and paired summaries, after both hosts' gates."""
+    meta = load(directory / "meta.json")
+    paired = {host: load(directory / f"paired-{host}.json") for host in HOSTS}
+    pilots = {host: load(directory / f"pilot-{host}.json") for host in HOSTS}
     for host in HOSTS:
         if paired[host]["status"] == "rejected" or pilots[host]["status"] != "passing":
             raise PublishError(f"{host}: campaign or pilot not accepted")
-    layouts = meta["field_layouts"]
+    return meta, paired
+
+
+def binary_section(records: Path) -> list[str]:
+    meta, paired = accepted(records / BINARY)
+    layouts = {label: width for label, width in meta["field_layouts"].items()
+               if label in {binary for binary, _ in BINARY_FIELDS}}
+    if set(layouts) != {label for label, _ in BINARY_FIELDS}:
+        raise PublishError("binary field layout inventory differs from the field definitions")
+    per_host = {host: cells(config(paired[host], "all", "primary", host)) for host in HOSTS}
+    out = [
+        "## Binary overwrite gathers\n",
+        "Overwrite gathers over binary rows, from a separate campaign whose candidate "
+        "skips zero terms and adds unit terms instead of multiplying them. "
+        f"{meta['sources']} sources per gather.\n",
+        render_markdown_table(["Setting", "Value"], [
+            ["Base revision", f"`{meta['base_revision']}`"],
+            ["Candidate revision", f"`{meta['candidate_revision']}`"],
+            ["Toolchain", meta["toolchain"]],
+        ]) + "\n",
+        outcome_table(paired, BINARY_TIERS, BINARY_FIELDS) + "\n",
+    ]
+    for operation in BINARY_OPERATIONS:
+        out.append(f"### Binary {operation}\n")
+        out.append(factor_table(per_host, operation, PATTERNS, BINARY_FIELDS) + "\n")
+    out.append(render_markdown_table(
+        ["Label", "Field", "Lane bytes"],
+        [[label, text, str(layouts[label])] for label, text in BINARY_FIELDS]) + "\n")
+    out.append("<details>\n<summary>Binary campaign hosts, controls, and classification"
+               "</summary>\n\n" + "".join(f"- {line}\n" for line in meta["caveats"])
+               + "\n</details>\n")
+    return out
+
+
+def render(records: Path) -> str:
+    meta, paired = accepted(records)
+    boundary = {host: load(records / f"boundary-{host}.json") for host in HOSTS}
+    layouts = {label: width for label, width in meta["field_layouts"].items()
+               if label not in {binary for binary, _ in BINARY_FIELDS}}
     if set(layouts) != {label for label, _ in FIELDS}:
         raise PublishError("field layout inventory differs from the field definitions")
     per_host = {host: cells(config(paired[host], "all", "primary", host)) for host in HOSTS}
@@ -219,6 +277,7 @@ def render(records: Path) -> str:
         + "".join(f"- [{title}](#{title.lower().replace(' ', '-')})\n"
                   for title, _ in SECTIONS)
         + "- [Routing boundaries](#routing-boundaries)\n"
+        "- [Binary overwrite gathers](#binary-overwrite-gathers)\n"
         "- [Field definitions](#field-definitions)\n"
         "- [Measurement details](#measurement-details)\n",
         "## Setup\n",
@@ -260,6 +319,7 @@ def render(records: Path) -> str:
         "operations, feature sets, and coefficient patterns that reach that route. "
         "The candidate's routing thresholds cite these tables.\n")
     out.extend(boundary_tables(boundary, layouts))
+    out.extend(binary_section(records))
     out.append("## Field definitions\n")
     out.append(render_markdown_table(
         ["Label", "Field", "Lane bytes"],

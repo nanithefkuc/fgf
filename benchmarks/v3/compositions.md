@@ -15,6 +15,7 @@ Each factor is base latency divided by candidate latency for the same public cal
 - [Single row](#single-row)
 - [Row addition](#row-addition)
 - [Routing boundaries](#routing-boundaries)
+- [Binary overwrite gathers](#binary-overwrite-gathers)
 - [Field definitions](#field-definitions)
 - [Measurement details](#measurement-details)
 
@@ -2394,6 +2395,125 @@ Revision `70ba24f26e0448952c57c3eb2734adc467baec3c` routed every row length. Eac
 | 512 | 0.4959 / 0.4480 | 0.8606 / 0.6331 | 1.5699 / 1.4493 |
 | 4096 | 0.4781 / 0.4383 | 0.6492 / 0.6108 | 0.6531 / 0.8061 |
 | 32768 | 0.5162 / 0.4242 | 0.9719 / 0.5955 | 1.0025 / 0.9971 |
+
+## Binary overwrite gathers
+
+Overwrite gathers over binary rows, from a separate campaign whose candidate skips zero terms and adds unit terms instead of multiplying them. 3 sources per gather.
+
+| Setting | Value |
+| --- | --- |
+| Base revision | `cbf4d7c` |
+| Candidate revision | `0702f3e` |
+| Toolchain | 1.98.1 |
+
+| Features | Request | Win | Tie | Slower | Unresolved |
+| --- | --- | --- | --- | --- | --- |
+| default | Scalar | 29 / 42 | 40 / 65 | 2 / 5 | 761 / 720 |
+| default | SSE4.2 | 4 / 22 | 11 / 48 | 1 / 0 | 816 / 762 |
+| default | AVX2 | 0 / 8 | 0 / 20 | 0 / 3 | 832 / 801 |
+| default | GFNI and wider | 0 / 0 | 15 / 30 | 1 / 0 | 816 / 802 |
+| all | Scalar | 18 / 12 | 16 / 13 | 5 / 5 | 793 / 802 |
+| all | SSE4.2 | 6 / 42 | 9 / 65 | 1 / 11 | 816 / 714 |
+| all | AVX2 | 11 / 6 | 2 / 16 | 1 / 1 | 818 / 809 |
+| all | GFNI and wider | 4 / 20 | 11 / 41 | 1 / 2 | 816 / 769 |
+
+### Binary mul_into_gather
+
+| Field | Pattern | 8 lanes (factor) | 64 lanes (factor) | 512 lanes (factor) | 4096 lanes (factor) |
+| --- | --- | --- | --- | --- | --- |
+| gf8aes | general | 1.0351 / 1.0000 | 0.9937 / 1.0003 | 1.0189 / 0.9382 | 1.0343 / 0.9941 |
+| gf8aes | mixed | 1.0068 / 0.9998 | 0.9990 / 1.0001 | 1.0102 / 0.9386 | 1.0362 / 0.9959 |
+| gf8aes | one | 0.9803 / 0.9998 | 0.9952 / 0.9919 | 1.0207 / 0.9356 | 1.0329 / 0.9948 |
+| gf8aes | zero | 1.0095 / 1.0000 | 1.0002 / 1.0006 | 0.7929 / 0.7281 | 0.9982 / 1.0001 |
+| gf8rs | general | 1.0140 / 0.9967 | 0.9998 / 1.0112 | 1.0287 / 0.9930 | 1.0805 / 0.9889 |
+| gf8rs | mixed | 0.9988 / 0.9910 | 1.0008 / 1.0121 | 1.0084 / 0.9910 | 1.0798 / 0.9889 |
+| gf8rs | one | 0.9729 / 0.9959 | 0.9949 / 0.9974 | 1.0212 / 0.9886 | 1.0749 / 0.9955 |
+| gf8rs | zero | 1.0002 / 1.0005 | 0.9632 / 0.9996 | 0.8041 / 0.7433 | 1.0475 / 0.9966 |
+| fp16r | general | 1.0028 / 0.9967 | 1.0324 / 0.9903 | 1.0688 / 1.0146 | 1.0057 / 0.9931 |
+| fp16r | mixed | 1.7034 / 2.1110 | 1.8046 / 1.9454 | 1.6172 / 1.6755 | 1.4803 / 1.5355 |
+| fp16r | one | 3.0822 / 3.2695 | 2.3032 / 2.4815 | 1.8620 / 1.9897 | 1.2200 / 1.8564 |
+| fp16r | zero | 0.9629 / 1.0000 | 1.1636 / 0.9574 | 1.1596 / 1.2667 | 0.9886 / 1.0048 |
+| fp16f | general | 1.0485 / 1.0546 | 1.0189 / 1.0838 | 1.0023 / 1.0121 | 1.0003 / 1.0027 |
+| fp16f | mixed | 2.1574 / 2.3708 | 2.1333 / 2.2671 | 2.4819 / 2.3794 | 2.4093 / 2.4408 |
+| fp16f | one | 4.6255 / 4.1244 | 4.9792 / 4.5426 | 6.7575 / 6.5550 | 5.9615 / 7.0196 |
+| fp16f | zero | 1.1664 / 1.0015 | 1.1624 / 1.0904 | 1.2173 / 1.2873 | 1.0236 / 1.0297 |
+| fp32r | general | 0.9932 / 0.9981 | 0.9872 / 1.0030 | 0.9442 / 0.9716 | 0.9674 / 0.9426 |
+| fp32r | mixed | 1.7701 / 1.6379 | 1.7626 / 1.7681 | 2.0408 / 1.8958 | 2.0285 / 1.8172 |
+| fp32r | one | 2.4302 / 1.9238 | 1.9912 / 2.8297 | 4.1887 / 3.2536 | 2.7692 / 2.6279 |
+| fp32r | zero | 1.2184 / 1.0473 | 1.9955 / 2.2595 | 0.9472 / 0.8667 | 0.9932 / 0.9812 |
+| fp32f | general | 0.9962 / 0.9317 | 1.0044 / 1.0008 | 1.0059 / 0.9837 | 1.0236 / 0.9824 |
+| fp32f | mixed | 2.3589 / 2.2716 | 2.6077 / 2.5743 | 2.7897 / 2.7267 | 2.6382 / 2.7062 |
+| fp32f | one | 6.8033 / 6.0275 | 7.8523 / 11.774 | 19.250 / 18.176 | 12.947 / 14.459 |
+| fp32f | zero | 1.0724 / 1.0478 | 1.7338 / 2.1722 | 1.1226 / 1.1642 | 1.0032 / 1.0012 |
+| fp64r | general | 0.9978 / 0.9934 | 1.0193 / 0.9977 | 0.9982 / 0.9992 | 0.9708 / 1.0015 |
+| fp64r | mixed | 1.9685 / 2.0103 | 2.0892 / 2.1804 | 2.2848 / 2.3493 | 2.2263 / 2.3194 |
+| fp64r | one | 6.2711 / 4.6582 | 6.4373 / 7.5207 | 6.5567 / 6.8908 | 4.2116 / 3.8848 |
+| fp64r | zero | 0.9087 / 1.0473 | 0.8114 / 0.8061 | 1.0083 / 0.9909 | 0.9984 / 1.0037 |
+| fp64f | general | 1.0035 / 1.0328 | 1.0040 / 1.0074 | 1.0015 / 1.0042 | 1.0151 / 1.0032 |
+| fp64f | mixed | 2.8945 / 2.9203 | 2.8978 / 2.9780 | 2.9100 / 2.9390 | 2.9174 / 2.9099 |
+| fp64f | one | 28.449 / 27.730 | 44.320 / 65.939 | 56.087 / 76.180 | 36.652 / 43.922 |
+| fp64f | zero | 1.0417 / 1.0476 | 0.8624 / 0.8671 | 1.0464 / 1.1307 | 1.0037 / 1.0122 |
+
+### Binary mul_into_gather_with
+
+| Field | Pattern | 8 lanes (factor) | 64 lanes (factor) | 512 lanes (factor) | 4096 lanes (factor) |
+| --- | --- | --- | --- | --- | --- |
+| gf8aes | general | 0.9785 / 0.9986 | 0.9985 / 1.0002 | 1.0079 / 1.0520 | 1.0722 / 1.1255 |
+| gf8aes | mixed | 1.0049 / 1.0007 | 1.0001 / 1.0001 | 1.0195 / 1.0352 | 1.0748 / 1.1245 |
+| gf8aes | one | 0.9709 / 0.9998 | 1.0003 / 1.0002 | 1.0046 / 1.0543 | 1.0716 / 1.1223 |
+| gf8aes | zero | 1.0776 / 1.0004 | 1.0804 / 1.0550 | 1.1815 / 1.3726 | 1.0762 / 1.0867 |
+| gf8rs | general | 1.0021 / 0.9957 | 1.0099 / 0.9963 | 1.0237 / 1.0213 | 1.0113 / 0.8681 |
+| gf8rs | mixed | 1.0126 / 1.0029 | 0.9992 / 0.9850 | 1.0222 / 1.0109 | 1.0155 / 0.8660 |
+| gf8rs | one | 0.9997 / 0.9986 | 1.0182 / 1.0003 | 1.0192 / 1.0160 | 1.0106 / 0.8688 |
+| gf8rs | zero | 0.9638 / 1.0042 | 0.9602 / 1.0524 | 1.1593 / 1.3569 | 0.9558 / 0.9598 |
+| fp16r | general | 0.9607 / 0.9273 | 0.9705 / 0.9592 | 0.8691 / 0.9506 | 1.0374 / 0.9880 |
+| fp16r | mixed | 1.5446 / 1.3080 | 1.5556 / 1.3334 | 1.1296 / 1.3979 | 1.2949 / 1.4927 |
+| fp16r | one | 1.9722 / 1.5992 | 1.6959 / 1.3437 | 1.2888 / 1.7373 | 1.1311 / 1.7610 |
+| fp16r | zero | 0.8089 / 1.0006 | 0.7876 / 1.1243 | 0.8119 / 0.7888 | 1.0115 / 1.0384 |
+| fp16f | general | 0.9921 / 0.9672 | 0.9716 / 0.9856 | 0.9918 / 0.9904 | 0.9814 / 0.9959 |
+| fp16f | mixed | 1.6865 / 1.6764 | 1.8857 / 1.9909 | 2.3752 / 2.2446 | 2.1267 / 2.3739 |
+| fp16f | one | 2.4851 / 2.0932 | 3.2375 / 3.0032 | 6.0890 / 6.2623 | 4.6427 / 6.8782 |
+| fp16f | zero | 1.0771 / 0.9998 | 1.0729 / 0.9213 | 0.8934 / 0.7822 | 0.9833 / 0.9605 |
+| fp32r | general | 0.9665 / 0.9741 | 0.9939 / 0.9797 | 1.0031 / 1.0327 | 1.0602 / 1.0309 |
+| fp32r | mixed | 1.4929 / 1.2114 | 1.6554 / 1.6907 | 2.0982 / 1.9716 | 1.8404 / 1.9045 |
+| fp32r | one | 1.4407 / 1.0810 | 2.4999 / 2.0111 | 4.0347 / 3.5025 | 2.3680 / 2.5993 |
+| fp32r | zero | 0.9972 / 1.1356 | 0.9647 / 0.7885 | 1.1234 / 1.1663 | 1.0001 / 1.0001 |
+| fp32f | general | 0.9962 / 1.0626 | 1.0009 / 0.9960 | 1.0008 / 0.9979 | 0.9715 / 0.9896 |
+| fp32f | mixed | 2.3329 / 2.5420 | 2.5972 / 2.6405 | 2.7224 / 2.7403 | 2.4382 / 2.6466 |
+| fp32f | one | 7.1195 / 6.7055 | 12.516 / 12.331 | 20.275 / 19.426 | 10.591 / 14.152 |
+| fp32f | zero | 1.2471 / 1.0005 | 1.0419 / 0.8009 | 0.8709 / 0.8567 | 1.0001 / 1.0150 |
+| fp64r | general | 0.9882 / 0.9904 | 0.9945 / 1.0028 | 1.0122 / 1.0042 | 1.0527 / 1.0022 |
+| fp64r | mixed | 1.6700 / 1.5071 | 2.1804 / 2.2530 | 2.2514 / 2.3890 | 2.2967 / 2.2687 |
+| fp64r | one | 2.0872 / 1.4035 | 5.1683 / 4.8000 | 4.8039 / 6.5865 | 3.7811 / 3.9787 |
+| fp64r | zero | 1.0932 / 1.0000 | 1.2218 / 1.3601 | 1.0265 / 1.1835 | 1.0053 / 1.0111 |
+| fp64f | general | 0.9818 / 0.9905 | 0.9949 / 1.0074 | 0.9946 / 0.9976 | 0.9839 / 0.9945 |
+| fp64f | mixed | 2.8356 / 3.0134 | 2.9169 / 2.9945 | 2.8700 / 2.9264 | 2.6998 / 2.8924 |
+| fp64f | one | 29.348 / 27.166 | 62.910 / 66.202 | 45.061 / 76.106 | 33.381 / 44.858 |
+| fp64f | zero | 0.9640 / 1.0008 | 1.1575 / 1.0900 | 0.9575 / 0.8447 | 0.9963 / 0.9836 |
+
+| Label | Field | Lane bytes |
+| --- | --- | --- |
+| gf8aes | AES GF(2^8) | 1 |
+| gf8rs | GF(2^8) modulo x^8 + x^4 + x^3 + x^2 + 1 | 1 |
+| fp16r | Rijndael GF(2^16) | 2 |
+| fp16f | Fan-Paar GF(2^16) | 2 |
+| fp32r | Rijndael GF(2^32) | 4 |
+| fp32f | Fan-Paar GF(2^32) | 4 |
+| fp64r | Rijndael GF(2^64) | 8 |
+| fp64f | Fan-Paar GF(2^64) | 8 |
+
+<details>
+<summary>Binary campaign hosts, controls, and classification</summary>
+
+- Willow Cove (i5-1135G7) runs on core 3 with the `v4x` primary request, which default features resolve to `v3_gfni_crypto`; Golden Cove (i7-12700K) runs on core 8 with the `v3_gfni_crypto` primary request. Both hosts also time the `v3`, `v2`, and `scalar` requests under default and all features.
+- Turbo is disabled, campaign shells use normal scheduling, and every run is pinned to its core; artifacts use the release benchmark profile built with Rust 1.98.1.
+- Five shuffled base/candidate pairs per host, feature set, and request; each factor uses the median of five per-run medians, from unrounded aggregates.
+- Each field and row length's band is twice the larger of its duplicate elementwise-control gap in a base-only pilot and the largest base-versus-candidate movement of unchanged controls in the previous compositions campaign at that row length. A field or request that campaign did not time takes the largest movement among all its fields at that row length, across the feature set's requests. Cells whose band exceeds 5% are unresolved; others are a win or slower only when the aggregate exceeds the band and at least four of five pairs agree.
+- The AES field's overwrite gathers and every all-zero coefficient pattern execute identical code in both artifacts; their cells measure layout differences between the two binaries.
+- Unprepared gathers include per-call coefficient preparation; prepared coefficients are built outside timing. Every result is checked against element arithmetic before timing.
+- Non-polynomial GF(2^8) rows keep their overwrite-gather route and are not compared.
+
+</details>
 
 ## Field definitions
 
