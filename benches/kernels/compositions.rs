@@ -1294,62 +1294,76 @@ where
 }
 
 /// Run the compositions panel. Called from `run_panels` when `--compositions`
-/// is given.
+/// is given; `--compositions-binary` restricts it to the binary overwrite
+/// gathers.
 pub(crate) fn run() {
     println!("Public row-composition measurements:");
     println!("COMPOSITIONS_GEOMETRY\trows\t{NROWS}\tsources\t{NSOURCES}");
 
-    println!("\nQuadratic prime rows:");
-    prime_panel::<QuadMersenne31>("qm31", 0x10_0000, ALL_PATTERNS);
+    if !std::env::args().any(|arg| arg == "--compositions-binary") {
+        println!("\nQuadratic prime rows:");
+        prime_panel::<QuadMersenne31>("qm31", 0x10_0000, ALL_PATTERNS);
 
-    println!("\nPrime fields:");
-    prime_panel::<Mersenne31>("m31", 0x20_0000, ALL_PATTERNS);
-    prime_panel::<Goldilocks>("gld", 0x30_0000, ALL_PATTERNS);
+        println!("\nPrime fields:");
+        prime_panel::<Mersenne31>("m31", 0x20_0000, ALL_PATTERNS);
+        prime_panel::<Goldilocks>("gld", 0x30_0000, ALL_PATTERNS);
 
-    // Residue prime fields
-    prime_panel::<FiniteField<101, 1>>("gf101", 0x40_0000, ALL_PATTERNS);
-    prime_panel::<FiniteField<127, 1>>("gf127", 0x41_0000, ALL_PATTERNS);
-    prime_panel::<FiniteField<131, 1>>("gf131", 0x42_0000, ALL_PATTERNS);
-    prime_panel::<FiniteField<65_521, 1>>("gf65521", 0x43_0000, ALL_PATTERNS);
-    prime_panel::<FiniteField<65_537, 1>>("gf65537", 0x44_0000, ALL_PATTERNS);
-    prime_panel::<FiniteField<1_000_000_007, 1>>("gf1e9p7", 0x45_0000, ALL_PATTERNS);
-    prime_panel::<FiniteField<1_280_000_003, 1>>("gf1280000003", 0x46_0000, ALL_PATTERNS);
-    prime_panel::<FiniteField<4_294_967_291, 1>>("gf4294967291", 0x47_0000, ALL_PATTERNS);
-    prime_panel::<FiniteField<MAX_PRIME, 1>>("gfmaxprime", 0x48_0000, ALL_PATTERNS);
+        // Residue prime fields
+        prime_panel::<FiniteField<101, 1>>("gf101", 0x40_0000, ALL_PATTERNS);
+        prime_panel::<FiniteField<127, 1>>("gf127", 0x41_0000, ALL_PATTERNS);
+        prime_panel::<FiniteField<131, 1>>("gf131", 0x42_0000, ALL_PATTERNS);
+        prime_panel::<FiniteField<65_521, 1>>("gf65521", 0x43_0000, ALL_PATTERNS);
+        prime_panel::<FiniteField<65_537, 1>>("gf65537", 0x44_0000, ALL_PATTERNS);
+        prime_panel::<FiniteField<1_000_000_007, 1>>("gf1e9p7", 0x45_0000, ALL_PATTERNS);
+        prime_panel::<FiniteField<1_280_000_003, 1>>("gf1280000003", 0x46_0000, ALL_PATTERNS);
+        prime_panel::<FiniteField<4_294_967_291, 1>>("gf4294967291", 0x47_0000, ALL_PATTERNS);
+        prime_panel::<FiniteField<MAX_PRIME, 1>>("gfmaxprime", 0x48_0000, ALL_PATTERNS);
 
-    // Residue variants
-    prime_panel::<FiniteField<0x7FFF_FFFF, 1, fgf::Residue>>("m31r", 0x50_0000, ALL_PATTERNS);
-    prime_panel::<FiniteField<0xFFFF_FFFF_0000_0001, 1, fgf::Residue>>(
-        "gldr",
-        0x51_0000,
-        ALL_PATTERNS,
-    );
+        // Residue variants
+        prime_panel::<FiniteField<0x7FFF_FFFF, 1, fgf::Residue>>("m31r", 0x50_0000, ALL_PATTERNS);
+        prime_panel::<FiniteField<0xFFFF_FFFF_0000_0001, 1, fgf::Residue>>(
+            "gldr",
+            0x51_0000,
+            ALL_PATTERNS,
+        );
 
-    // GF(2) shortcut
-    prime_panel::<FiniteField<2, 1>>("gf2", 0x52_0000, ALL_PATTERNS);
+        // GF(2) shortcut
+        prime_panel::<FiniteField<2, 1>>("gf2", 0x52_0000, ALL_PATTERNS);
 
-    println!("\nComponent additive routes:");
-    component_panel::<M31Quad>("m31quad", 0x60_0000);
-    component_panel::<GldQuad>("gldquad", 0x61_0000);
-    component_panel::<Aes8Quad>("aes8quad", 0x62_0000);
-    component_panel::<Aes8NormalQuad>("aes8nquad", 0x63_0000);
-    component_panel::<Gf81>("gf81", 0x64_0000);
-    component_panel::<MaxPrimeQuad>("maxprimequad", 0x65_0000);
-    component_panel::<MersenneCube>("m31cube", 0x66_0000);
-    component_panel::<OverQuad>("over-quad", 0x67_0000);
-    component_panel::<PackedBase>("packed-base", 0x68_0000);
-    component_panel::<Residue3Pair>("residue3-pair", 0x69_0000);
-    component_panel::<Residue131Pair>("residue131-pair", 0x6a_0000);
-    component_panel::<Residue257Pair>("residue257-pair", 0x6b_0000);
-    component_panel::<Residue65537Pair>("residue65537-pair", 0x6c_0000);
-    component_panel::<Residue7Cube>("residue7-cube", 0x6d_0000);
-    component_panel::<Residue3Quartic>("residue3-quartic", 0x6e_0000);
-    component_panel::<Residue2Pair>("residue2-pair", 0x6f_0000);
-    component_panel::<ResidueDegree8>("residue-degree8", 0x70_0000);
-    component_panel::<CantorPair>("cantor-pair", 0x71_0000);
-    component_panel::<Degree64>("degree64", 0x72_0000);
-    component_panel::<Packed32Base>("packed32-base", 0x73_0000);
-    component_panel::<Packed8Base>("packed8-base", 0x74_0000);
+        println!("\nComponent additive routes:");
+        component_panel::<M31Quad>("m31quad", 0x60_0000);
+        component_panel::<GldQuad>("gldquad", 0x61_0000);
+        component_panel::<Aes8Quad>("aes8quad", 0x62_0000);
+        component_panel::<Aes8NormalQuad>("aes8nquad", 0x63_0000);
+        component_panel::<Gf81>("gf81", 0x64_0000);
+        component_panel::<MaxPrimeQuad>("maxprimequad", 0x65_0000);
+        component_panel::<MersenneCube>("m31cube", 0x66_0000);
+        component_panel::<OverQuad>("over-quad", 0x67_0000);
+        component_panel::<PackedBase>("packed-base", 0x68_0000);
+        component_panel::<Residue3Pair>("residue3-pair", 0x69_0000);
+        component_panel::<Residue131Pair>("residue131-pair", 0x6a_0000);
+        component_panel::<Residue257Pair>("residue257-pair", 0x6b_0000);
+        component_panel::<Residue65537Pair>("residue65537-pair", 0x6c_0000);
+        component_panel::<Residue7Cube>("residue7-cube", 0x6d_0000);
+        component_panel::<Residue3Quartic>("residue3-quartic", 0x6e_0000);
+        component_panel::<Residue2Pair>("residue2-pair", 0x6f_0000);
+        component_panel::<ResidueDegree8>("residue-degree8", 0x70_0000);
+        component_panel::<CantorPair>("cantor-pair", 0x71_0000);
+        component_panel::<Degree64>("degree64", 0x72_0000);
+        component_panel::<Packed32Base>("packed32-base", 0x73_0000);
+        component_panel::<Packed8Base>("packed8-base", 0x74_0000);
+    }
+
+    println!("\nBinary overwrite gathers:");
+    binary_gather_panel::<Aes8>("gf8aes", 0x80_0000);
+    binary_gather_panel::<FiniteField<2, 8, Polynomial<0x11D>>>("gf8rs", 0x81_0000);
+    binary_gather_panel::<Aes8Normal>("gf8n", 0x82_0000);
+    binary_gather_panel::<FiniteField<2, 16, Extension<fgf::Rijndael16, 2>>>("fp16r", 0x83_0000);
+    binary_gather_panel::<FiniteField<2, 16, Extension<fgf::FanPaar16, 2>>>("fp16f", 0x84_0000);
+    binary_gather_panel::<FiniteField<2, 32, Extension<fgf::Rijndael32, 2>>>("fp32r", 0x85_0000);
+    binary_gather_panel::<FiniteField<2, 32, Extension<fgf::FanPaar32, 2>>>("fp32f", 0x86_0000);
+    binary_gather_panel::<FiniteField<2, 64, Extension<fgf::Rijndael64, 2>>>("fp64r", 0x87_0000);
+    binary_gather_panel::<FiniteField<2, 64, Extension<fgf::FanPaar64, 2>>>("fp64f", 0x88_0000);
     let mode = if controls_only() {
         "controls"
     } else if std::env::args().any(|arg| arg == "--compositions-check") {
@@ -1362,4 +1376,105 @@ pub(crate) fn run() {
 
 fn component_panel<F: fgf::FieldKernels>(label: &str, seed: u64) {
     prime_panel::<F>(label, seed, ADDITIVE_PATTERNS);
+}
+
+/// Build `n` coefficients of `pattern` for a binary row: general
+/// coefficients decode from noise and are never zero or one.
+fn build_binary_coeffs<F: FieldBuffer>(pattern: Pattern, n: usize, seed: u64) -> Vec<Elem<F>>
+where
+    Elem<F>: FieldElem,
+{
+    let general = |i: usize| -> Elem<F> {
+        let mut salt = 0u64;
+        loop {
+            let bytes = noise(F::BYTES, seed ^ ((i as u64) << 16) ^ salt);
+            let value = F::decode(&bytes);
+            if !value.is_zero() && !value.is_one() {
+                return value;
+            }
+            salt += 1;
+        }
+    };
+    (0..n)
+        .map(|i| match pattern {
+            Pattern::Zero => Elem::<F>::ZERO,
+            Pattern::One => Elem::<F>::ONE,
+            Pattern::Mixed if i % 3 == 0 => Elem::<F>::ZERO,
+            Pattern::Mixed if i % 3 == 1 => Elem::<F>::ONE,
+            Pattern::General | Pattern::Mixed => general(i),
+        })
+        .collect()
+}
+
+/// Overwrite gathers over one binary row, one-shot and prepared, with the
+/// row's elementwise product as the unchanged control.
+fn binary_gather_panel<F>(label: &str, seed: u64)
+where
+    F: fgf::FieldKernels + FieldBuffer,
+    Elem<F>: FieldElem,
+{
+    println!(
+        "FIELD_BACKEND\tcompositions/{label}\t{}",
+        backend_for::<F>().name()
+    );
+    println!("FIELD_LAYOUT\tcompositions/{label}\t{}", F::BYTES);
+    println!(
+        "compositions binary {label} — backend {}:",
+        backend_for::<F>().name()
+    );
+    for lanes in lane_counts::<F>() {
+        let len = lanes * F::BYTES;
+        println!("  lanes {lanes} ({len} B):");
+        elementwise_controls::<F>(label, lanes, seed);
+        if controls_only() {
+            continue;
+        }
+        let sources: Vec<Vec<u8>> = (0..NSOURCES)
+            .map(|i| canonical_noise::<F>(len, seed ^ 0x1100 ^ i as u64))
+            .collect();
+        let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+        for &pattern in ALL_PATTERNS {
+            let pat = pattern.label();
+            let coeffs = build_binary_coeffs::<F>(pattern, NSOURCES, seed ^ 0x2200);
+            let prepared = ops::CoeffVec::<F>::new(&coeffs);
+            let mut expected = vec![Elem::<F>::ZERO; lanes];
+            for (&coeff, src) in coeffs.iter().zip(&refs) {
+                for (acc, value) in expected.iter_mut().zip(elems_from_buf::<F>(src, lanes)) {
+                    *acc = acc.add(coeff.mul(value));
+                }
+            }
+            let expected = elems_to_buf::<F>(&expected);
+            let traffic = len * (NSOURCES + 1);
+
+            let mut dst = canonical_noise::<F>(len, seed ^ 0x3300);
+            ops::mul_into_gather::<F>(&mut dst, &coeffs, &refs);
+            assert_eq!(dst, expected, "{label}: mul_into_gather {pat} {lanes}");
+            bench(
+                &format!("compositions/{label}/mul_into_gather/{pat}/lanes-{lanes}"),
+                traffic,
+                || {
+                    let dst = black_box(&mut dst);
+                    ops::mul_into_gather::<F>(dst, black_box(&coeffs), black_box(&refs));
+                    black_box(&dst[..]);
+                },
+            );
+
+            let mut dst = canonical_noise::<F>(len, seed ^ 0x4400);
+            ops::mul_into_gather_with::<F>(&mut dst, prepared.as_ref(), &refs);
+            assert_eq!(dst, expected, "{label}: mul_into_gather_with {pat} {lanes}");
+            bench(
+                &format!("compositions/{label}/mul_into_gather_with/{pat}/lanes-{lanes}"),
+                traffic,
+                || {
+                    let dst = black_box(&mut dst);
+                    ops::mul_into_gather_with::<F>(
+                        dst,
+                        black_box(prepared.as_ref()),
+                        black_box(&refs),
+                    );
+                    black_box(&dst[..]);
+                },
+            );
+        }
+    }
 }

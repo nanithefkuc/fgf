@@ -25,7 +25,8 @@
 //!
 //! `--compositions` selects public row compositions; `--compositions-controls`
 //! selects their duplicate elementwise controls. `--compositions-check` validates
-//! the composition oracles without collecting timings.
+//! the composition oracles without collecting timings. `--compositions-binary`
+//! restricts any of these to the binary overwrite gathers.
 
 // Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
