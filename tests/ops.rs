@@ -2484,6 +2484,23 @@ fn prime_multirow_dispatch_preserves_zeros_and_overwrites() {
         gld(0xFFFF_FFFF_0000_0000),
         0xfd03,
     );
+    // Rows on both sides of the per-row composition boundary.
+    for row_len in [120, 128, 136, 512] {
+        check_prime_multirow_dispatch::<Mersenne31>(
+            row_len,
+            m31(0),
+            m31(1),
+            m31(0x7FFF_FFFE),
+            0xfd10 ^ row_len as u64,
+        );
+        check_prime_multirow_dispatch::<Goldilocks>(
+            row_len,
+            gld(0),
+            gld(1),
+            gld(0xFFFF_FFFF_0000_0000),
+            0xfd20 ^ row_len as u64,
+        );
+    }
 }
 
 fn check_residue_multirow<const P: u64>() {

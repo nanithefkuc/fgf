@@ -426,6 +426,40 @@ pub fn delayed_matrix_backend(
     }
 }
 
+/// Smallest Mersenne31-modulus row, in bytes, whose addition reuses the
+/// Mersenne31 vector kernels. Set by the paired composition record in
+/// `benchmarks/v3/compositions.md`.
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+const MERSENNE31_ADD_MIN_BYTES: usize = 60;
+
+/// Smallest Goldilocks-modulus row, in bytes, whose addition reuses the
+/// Goldilocks AVX2 and AVX-512 kernels. Set by the same record.
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+const GOLDILOCKS_ADD_MIN_BYTES: usize = 248;
+
+/// Whether an exact-modulus row of `len` bytes reuses the specialized
+/// prime field's addition kernels. Scalar tiers keep the residue loop;
+/// Goldilocks-modulus rows also keep it on SSE4.2.
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+fn reuses_prime_addition<const P: u64>(len: usize) -> bool {
+    match P {
+        0x7fff_ffff => backend() != Backend::Scalar && len >= MERSENNE31_ADD_MIN_BYTES,
+        0xffff_ffff_0000_0001 => {
+            matches!(
+                backend(),
+                Backend::V4x | Backend::V3GfniCrypto | Backend::V3
+            ) && len >= GOLDILOCKS_ADD_MIN_BYTES
+        }
+        _ => false,
+    }
+}
+
+/// Portable builds keep the residue loop for every modulus.
+#[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
+const fn reuses_prime_addition<const P: u64>(_len: usize) -> bool {
+    false
+}
+
 impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
     type Prepared = PreparedResidue;
 
@@ -441,8 +475,10 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
 
     fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         match P {
-            0x7fff_ffff => <crate::Mersenne31 as KernelDispatch>::add_assign(RawDispatch, dst, src),
-            0xffff_ffff_0000_0001 => {
+            0x7fff_ffff if reuses_prime_addition::<P>(dst.len()) => {
+                <crate::Mersenne31 as KernelDispatch>::add_assign(RawDispatch, dst, src);
+            }
+            0xffff_ffff_0000_0001 if reuses_prime_addition::<P>(dst.len()) => {
                 <crate::Goldilocks as KernelDispatch>::add_assign(RawDispatch, dst, src);
             }
             _ => prime::add_assign::<Self>(dst, src),
@@ -451,8 +487,10 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
 
     fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         match P {
-            0x7fff_ffff => <crate::Mersenne31 as KernelDispatch>::sub_assign(RawDispatch, dst, src),
-            0xffff_ffff_0000_0001 => {
+            0x7fff_ffff if reuses_prime_addition::<P>(dst.len()) => {
+                <crate::Mersenne31 as KernelDispatch>::sub_assign(RawDispatch, dst, src);
+            }
+            0xffff_ffff_0000_0001 if reuses_prime_addition::<P>(dst.len()) => {
                 <crate::Goldilocks as KernelDispatch>::sub_assign(RawDispatch, dst, src);
             }
             _ => prime::sub_assign::<Self>(dst, src),

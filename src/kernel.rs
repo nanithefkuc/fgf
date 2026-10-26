@@ -463,6 +463,18 @@ pub(crate) trait KernelDispatch: FieldBuffer {
         Self::mul_add(RawDispatch, dst, &Self::prepare(RawDispatch, coeff), src);
     }
 
+    /// Applies one composed row through the field's portable row body.
+    ///
+    /// Compositions use it below [`fallback::COMPOSED_ROW_MIN_BYTES`].
+    fn mul_add_portable(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeff: crate::field::Elem<Self>,
+        src: &[u8],
+    ) {
+        prime::mul_add::<Self>(dst, coeff, src);
+    }
+
     /// `dst = coeff * src`, out of place.
     ///
     /// The default copies `src` into `dst` and scales in place — two passes
@@ -897,10 +909,19 @@ pub(crate) mod fallback {
         F::mul_assign(RawDispatch, dst, coeff);
     }
 
+    /// Smallest row, in bytes, that a composition dispatches row by row;
+    /// shorter rows run the field's portable row body. Set by the paired
+    /// composition record in `benchmarks/v3/compositions.md`.
+    pub(crate) const COMPOSED_ROW_MIN_BYTES: usize = 128;
+
     /// Dispatches one row, preserving zero destinations byte-for-byte.
     #[inline]
     fn mul_add_row<F: KernelDispatch>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
         if coeff.is_zero() {
+            return;
+        }
+        if dst.len() < COMPOSED_ROW_MIN_BYTES {
+            F::mul_add_portable(RawDispatch, dst, coeff, src);
             return;
         }
         if coeff.is_one() {

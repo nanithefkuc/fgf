@@ -736,3 +736,58 @@ fn residue_add_sub_matches_elementwise() {
         assert_eq!(unpacked2[i], a2[i] - b2[i], "sub at index {i}");
     }
 }
+
+struct BinaryPairSpec;
+impl ExtensionSpec<2> for BinaryPairSpec {
+    type Base = FiniteField<2, 1>;
+    type Storage = Components;
+    const NAME: &'static str = "GF(4) over residue GF(2)";
+    const RELATION: Relation = Relation::from_coordinates(&[1, 1]);
+}
+
+type BinaryPair = FiniteField<2, 2, Extension<BinaryPairSpec, 2>>;
+
+/// Component add/sub over raw lanes equals the decode/combine/encode loop on
+/// either side of the length where base-field dispatch takes over, including
+/// an order-two base that keeps the component loop.
+fn check_component_add_sub_lanes<F: fgf::FieldKernels>(raw: impl Fn(usize) -> u8)
+where
+    Elem<F>: FieldElem,
+{
+    let boundary = 2048 / F::BYTES;
+    for elements in [1, boundary - 1, boundary, boundary + 1] {
+        let len = elements * F::BYTES;
+        let a: Vec<u8> = (0..len).map(&raw).collect();
+        let b: Vec<u8> = (0..len).map(|i| raw(i + 7)).collect();
+        for subtract in [false, true] {
+            let mut got = a.clone();
+            if subtract {
+                ops::sub_assign::<F>(&mut got, &b);
+            } else {
+                ops::add_assign::<F>(&mut got, &b);
+            }
+            let mut want = a.clone();
+            for (dst, src) in want
+                .chunks_exact_mut(F::BYTES)
+                .zip(b.chunks_exact(F::BYTES))
+            {
+                let (x, y) = (F::decode(dst), F::decode(src));
+                F::encode(dst, if subtract { x.sub(y) } else { x.add(y) });
+            }
+            assert_eq!(got, want, "{} bytes, subtract {subtract}", len);
+        }
+    }
+}
+
+#[test]
+fn component_add_sub_match_elementwise_across_base_dispatch_length() {
+    // Every third Mersenne31 component lane is the `2^31 - 1` alias of zero.
+    check_component_add_sub_lanes::<MersenneSquare>(|i| match ((i / 4) % 3, i % 4) {
+        (0, 3) => 0x7f,
+        (0, _) => 0xff,
+        (_, 3) => (i as u8) & 0x7f,
+        _ => i as u8,
+    });
+    check_component_add_sub_lanes::<Gf49>(|i| (i % 7) as u8);
+    check_component_add_sub_lanes::<BinaryPair>(|i| (i % 2) as u8);
+}

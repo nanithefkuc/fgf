@@ -9380,12 +9380,12 @@ const CELLS_48: &[Cell] = &[
 #[rustfmt::skip]
 const CELLS_49: &[Cell] = &[
     Cell { features: Features::All, request: Request::Scalar, process: Backend::Scalar, field: Backend::Scalar, required: false, min_serving: Backend::Scalar, work: &[] },
-    Cell { features: Features::All, request: Request::V2, process: Backend::V2, field: Backend::Scalar, required: true, min_serving: Backend::V2, work: &[WORK_68] },
+    Cell { features: Features::All, request: Request::V2, process: Backend::V2, field: Backend::Scalar, required: false, min_serving: Backend::V2, work: &[WORK_68] },
     Cell { features: Features::All, request: Request::V3, process: Backend::V3, field: Backend::V3, required: true, min_serving: Backend::V3, work: &[WORK_69] },
     Cell { features: Features::All, request: Request::V3GfniCrypto, process: Backend::V3GfniCrypto, field: Backend::V3, required: true, min_serving: Backend::V3, work: &[WORK_69] },
     Cell { features: Features::All, request: Request::V4x, process: Backend::V4x, field: Backend::V4x, required: true, min_serving: Backend::V4x, work: &[WORK_70] },
     Cell { features: Features::Default, request: Request::Scalar, process: Backend::Scalar, field: Backend::Scalar, required: false, min_serving: Backend::Scalar, work: &[] },
-    Cell { features: Features::Default, request: Request::V2, process: Backend::V2, field: Backend::Scalar, required: true, min_serving: Backend::V2, work: &[WORK_68] },
+    Cell { features: Features::Default, request: Request::V2, process: Backend::V2, field: Backend::Scalar, required: false, min_serving: Backend::V2, work: &[WORK_68] },
     Cell { features: Features::Default, request: Request::V3, process: Backend::V3, field: Backend::V3, required: true, min_serving: Backend::V3, work: &[WORK_69] },
     Cell { features: Features::Default, request: Request::V3GfniCrypto, process: Backend::V3GfniCrypto, field: Backend::V3, required: true, min_serving: Backend::V3, work: &[WORK_69] },
     Cell { features: Features::Default, request: Request::V4x, process: Backend::V3GfniCrypto, field: Backend::V3, required: true, min_serving: Backend::V3, work: &[WORK_70] },
@@ -9898,12 +9898,12 @@ const CELLS_85: &[Cell] = &[
 #[rustfmt::skip]
 const CELLS_86: &[Cell] = &[
     Cell { features: Features::All, request: Request::Scalar, process: Backend::Scalar, field: Backend::Scalar, required: false, min_serving: Backend::Scalar, work: &[] },
-    Cell { features: Features::All, request: Request::V2, process: Backend::V2, field: Backend::Scalar, required: true, min_serving: Backend::V2, work: &[WORK_82] },
+    Cell { features: Features::All, request: Request::V2, process: Backend::V2, field: Backend::Scalar, required: false, min_serving: Backend::V2, work: &[WORK_82] },
     Cell { features: Features::All, request: Request::V3, process: Backend::V3, field: Backend::V3, required: true, min_serving: Backend::V3, work: &[WORK_83] },
     Cell { features: Features::All, request: Request::V3GfniCrypto, process: Backend::V3GfniCrypto, field: Backend::V3, required: true, min_serving: Backend::V3, work: &[WORK_83] },
     Cell { features: Features::All, request: Request::V4x, process: Backend::V4x, field: Backend::V4x, required: true, min_serving: Backend::V4x, work: &[WORK_84] },
     Cell { features: Features::Default, request: Request::Scalar, process: Backend::Scalar, field: Backend::Scalar, required: false, min_serving: Backend::Scalar, work: &[] },
-    Cell { features: Features::Default, request: Request::V2, process: Backend::V2, field: Backend::Scalar, required: true, min_serving: Backend::V2, work: &[WORK_82] },
+    Cell { features: Features::Default, request: Request::V2, process: Backend::V2, field: Backend::Scalar, required: false, min_serving: Backend::V2, work: &[WORK_82] },
     Cell { features: Features::Default, request: Request::V3, process: Backend::V3, field: Backend::V3, required: true, min_serving: Backend::V3, work: &[WORK_83] },
     Cell { features: Features::Default, request: Request::V3GfniCrypto, process: Backend::V3GfniCrypto, field: Backend::V3, required: true, min_serving: Backend::V3, work: &[WORK_83] },
     Cell { features: Features::Default, request: Request::V4x, process: Backend::V3GfniCrypto, field: Backend::V3, required: true, min_serving: Backend::V3, work: &[WORK_84] },
@@ -12460,12 +12460,12 @@ const CELLS_268: &[Cell] = &[
 #[rustfmt::skip]
 const CELLS_269: &[Cell] = &[
     Cell { features: Features::All, request: Request::Scalar, process: Backend::Scalar, field: Backend::Scalar, required: false, min_serving: Backend::Scalar, work: &[] },
-    Cell { features: Features::All, request: Request::V2, process: Backend::V2, field: Backend::Scalar, required: true, min_serving: Backend::V2, work: &[WORK_209] },
+    Cell { features: Features::All, request: Request::V2, process: Backend::V2, field: Backend::Scalar, required: false, min_serving: Backend::V2, work: &[WORK_209] },
     Cell { features: Features::All, request: Request::V3, process: Backend::V3, field: Backend::V3, required: true, min_serving: Backend::V3, work: &[WORK_210] },
     Cell { features: Features::All, request: Request::V3GfniCrypto, process: Backend::V3GfniCrypto, field: Backend::V3, required: true, min_serving: Backend::V3, work: &[WORK_210] },
     Cell { features: Features::All, request: Request::V4x, process: Backend::V4x, field: Backend::V4x, required: true, min_serving: Backend::V4x, work: &[WORK_211] },
     Cell { features: Features::Default, request: Request::Scalar, process: Backend::Scalar, field: Backend::Scalar, required: false, min_serving: Backend::Scalar, work: &[] },
-    Cell { features: Features::Default, request: Request::V2, process: Backend::V2, field: Backend::Scalar, required: true, min_serving: Backend::V2, work: &[WORK_209] },
+    Cell { features: Features::Default, request: Request::V2, process: Backend::V2, field: Backend::Scalar, required: false, min_serving: Backend::V2, work: &[WORK_209] },
     Cell { features: Features::Default, request: Request::V3, process: Backend::V3, field: Backend::V3, required: true, min_serving: Backend::V3, work: &[WORK_210] },
     Cell { features: Features::Default, request: Request::V3GfniCrypto, process: Backend::V3GfniCrypto, field: Backend::V3, required: true, min_serving: Backend::V3, work: &[WORK_210] },
     Cell { features: Features::Default, request: Request::V4x, process: Backend::V3GfniCrypto, field: Backend::V3, required: true, min_serving: Backend::V3, work: &[WORK_211] },

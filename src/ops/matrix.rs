@@ -4,7 +4,7 @@
 //! one coefficient per `(source, row)` pair — contiguous rows for staging,
 //! offset-addressed rows for writes straight into a codeword buffer.
 
-use crate::field::Elem;
+use crate::field::{Elem, FieldElem};
 use crate::kernel::{FieldKernels, RawDispatch};
 
 use super::check_width;
@@ -57,7 +57,7 @@ pub fn mul_add_matrix<F: FieldKernels>(
             src.len()
         );
     }
-    if nrows == 0 || row_len == 0 || terms.is_empty() {
+    if nrows == 0 || row_len == 0 || terms.is_empty() || all_zero(terms) {
         return;
     }
     F::mul_add_matrix(RawDispatch, &mut rows[..used], row_len, nrows, terms);
@@ -278,7 +278,7 @@ pub fn mul_add_matrix_at<F: FieldKernels>(
             src.len()
         );
     }
-    if nrows == 0 || row_len == 0 || terms.is_empty() {
+    if nrows == 0 || row_len == 0 || terms.is_empty() || all_zero(terms) {
         return;
     }
     F::mul_add_matrix_at(RawDispatch, dst, row_len, row_starts, terms);
@@ -498,6 +498,14 @@ fn check_at<F: FieldKernels>(name: &str, dst_len: usize, row_len: usize, row_sta
             );
         }
     }
+}
+
+/// Whether every term's coefficients are zero: accumulation is then a no-op
+/// that leaves the destination bytes untouched.
+fn all_zero<F: FieldKernels>(terms: &[(&[Elem<F>], &[u8])]) -> bool {
+    terms
+        .iter()
+        .all(|(coeffs, _)| coeffs.iter().all(|coeff| coeff.is_zero()))
 }
 
 #[cfg(all(test, feature = "alloc"))]

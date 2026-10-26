@@ -22,14 +22,20 @@ All notable changes to this project are documented here. The format follows
 - Native route-evidence references identify measurement hosts by processor
   architecture rather than local connection names.
 - Unprepared prime and residue scatter, gather, and contiguous matrix operations
-  compose the existing single-row kernels. Scalar residue routes avoid unused
+  compose the existing single-row kernels for rows from a measured length;
+  shorter rows keep the portable row body. Scalar residue routes avoid unused
   coefficient preparation.
 - Component-row addition, subtraction, and unit accumulation reuse whole-buffer
-  base-field dispatch without strengthening `FieldBuffer` bounds. Raw dispatch
-  remains inaccessible without the crate-private proof.
+  base-field dispatch from a measured row length, without strengthening
+  `FieldBuffer` bounds. Rows over an order-two base keep the component loop.
+  Raw dispatch remains inaccessible without the crate-private proof.
 - Residue rows at the Mersenne31 and Goldilocks moduli reuse the corresponding
-  prime add/sub kernels, including unit accumulation and row/offset siblings.
-  Their backend query remains a fixed-coefficient multiplication summary.
+  prime add/sub kernels on vector tiers from measured row lengths (Goldilocks
+  on AVX2 and AVX-512 only), including unit accumulation and row/offset
+  siblings. Their backend query remains a fixed-coefficient multiplication
+  summary.
+- `mul_add_matrix` and `mul_add_matrix_at` return after validation when every
+  coefficient is zero, leaving the destination untouched.
 - Unit-coefficient overwrite scatter preserves noncanonical source bytes for
   specialized prime and quadratic rows; zero accumulation preserves destination
   bytes across unprepared and prepared row compositions.
