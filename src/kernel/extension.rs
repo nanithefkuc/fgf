@@ -152,6 +152,27 @@ pub(crate) trait StorageKernels<B: Field, const D: usize>: StorageBuffer<B, D> {
         srcs: &[&[u8]],
     );
 
+    /// `KernelDispatch::mul_into_gather`.
+    fn mul_into_gather<F: StorageRow<B, D, Self>>(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Elem<F>],
+        srcs: &[&[u8]],
+    ) {
+        fallback::mul_into_gather::<F>(dst, coeffs, srcs);
+    }
+
+    /// `KernelDispatch::mul_into_gather_with`.
+    #[cfg(any(feature = "alloc", test))]
+    fn mul_into_gather_with<F: StorageRow<B, D, Self>>(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        fallback::mul_into_gather_with::<F>(dst, coeffs, srcs);
+    }
+
     /// `KernelDispatch::mul_add_matrix`.
     fn mul_add_matrix<F: StorageRow<B, D, Self>>(
         proof: RawDispatch,
@@ -339,6 +360,26 @@ where
     #[inline]
     fn mul_add_gather(proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem<Self>], srcs: &[&[u8]]) {
         <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_add_gather::<Self>(
+            proof, dst, coeffs, srcs,
+        );
+    }
+
+    #[inline]
+    fn mul_into_gather(proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem<Self>], srcs: &[&[u8]]) {
+        <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_into_gather::<Self>(
+            proof, dst, coeffs, srcs,
+        );
+    }
+
+    #[cfg(any(feature = "alloc", test))]
+    #[inline]
+    fn mul_into_gather_with(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_into_gather_with::<Self>(
             proof, dst, coeffs, srcs,
         );
     }

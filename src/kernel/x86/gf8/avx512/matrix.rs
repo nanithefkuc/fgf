@@ -353,6 +353,8 @@ fn matrix_rows1<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool, const DIREC
     for term in 0..terms.len() {
         let coeff = terms.coefficient(term, g);
         if !coeff.is_zero() {
+            #[cfg(test)]
+            let _term = crate::kernel::trace::term(affine_term(coeff.affine));
             brem_half_avx512(tail, coeff, &terms.source(term)[tile..]);
         }
     }
@@ -428,13 +430,7 @@ fn rows_tile4<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
         }
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.avx512.matrix",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        4 * 256 * terms.len(),
-        crate::kernel::Backend::V4x,
-    );
+    emit_rows(4, g, terms, 256);
 }
 
 /// Provider-generic four-row lane.
@@ -484,13 +480,7 @@ fn rows_lane4<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
         }
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.avx512.matrix",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        4 * 64 * terms.len(),
-        crate::kernel::Backend::V4x,
-    );
+    emit_rows(4, g, terms, 64);
 }
 
 /// Provider-generic two-row tile.
@@ -556,13 +546,7 @@ fn rows_tile2<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
         }
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.avx512.matrix",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        2 * 256 * terms.len(),
-        crate::kernel::Backend::V4x,
-    );
+    emit_rows(2, g, terms, 256);
 }
 
 /// Provider-generic two-row lane.
@@ -612,13 +596,7 @@ fn rows_lane2<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
         }
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.avx512.matrix",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        2 * 64 * terms.len(),
-        crate::kernel::Backend::V4x,
-    );
+    emit_rows(2, g, terms, 64);
 }
 
 /// One row by one 256-byte tile.
@@ -669,13 +647,7 @@ fn rows_tile1<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
         }
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.avx512.matrix",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        256 * terms.len(),
-        crate::kernel::Backend::V4x,
-    );
+    emit_rows(1, g, terms, 256);
 }
 
 /// One row by one 64-byte lane.
@@ -717,11 +689,25 @@ fn rows_lane1<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
         }
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
+    emit_rows(1, g, terms, 64);
+}
+
+/// The coefficient class of an affine map word.
+#[cfg(test)]
+fn affine_term(word: u64) -> crate::kernel::trace::Term {
+    crate::kernel::trace::Term::of_byte_word(word, false)
+}
+
+/// Record `work` per term for rows `g..g + rows` of every term, by class.
+#[cfg(test)]
+fn emit_rows<M: Matrix<Prepared> + ?Sized>(rows: usize, g: usize, terms: &M, work: usize) {
+    crate::kernel::trace::emit_terms(
         "gf8.avx512.matrix",
-        crate::kernel::trace::Substage::MulAdd,
         crate::kernel::trace::Unit::Elements,
-        64 * terms.len(),
+        work,
+        (0..terms.len()).flat_map(|term| {
+            (g..g + rows).map(move |row| affine_term(terms.coefficient(term, row).affine))
+        }),
         crate::kernel::Backend::V4x,
     );
 }
@@ -932,11 +918,11 @@ fn rows_body<const ROWS: usize, const OVERWRITE: bool>(
         tile += 256;
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
+    crate::kernel::trace::emit_terms(
         "gf8.avx512.matrix",
-        crate::kernel::trace::Substage::MulAdd,
         crate::kernel::trace::Unit::Elements,
-        (tile - head) * ROWS * maps.len(),
+        tile - head,
+        maps.iter().flatten().map(|&word| affine_term(word)),
         crate::kernel::Backend::V4x,
     );
     #[cfg(test)]
@@ -1013,11 +999,11 @@ fn rows_body<const ROWS: usize, const OVERWRITE: bool>(
         tile += 64;
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
+    crate::kernel::trace::emit_terms(
         "gf8.avx512.matrix",
-        crate::kernel::trace::Substage::MulAdd,
         crate::kernel::trace::Unit::Elements,
-        (tile - lane_start) * ROWS * maps.len(),
+        tile - lane_start,
+        maps.iter().flatten().map(|&word| affine_term(word)),
         crate::kernel::Backend::V4x,
     );
 }
@@ -1064,6 +1050,8 @@ fn matrix_tail<M: Matrix<Prepared> + ?Sized, const OVERWRITE: bool>(
         for term in 0..terms.len() {
             let coeff = terms.coefficient(term, g + slot);
             if !coeff.is_zero() {
+                #[cfg(test)]
+                let _term = crate::kernel::trace::term(affine_term(coeff.affine));
                 brem_half_avx512(tail, coeff, &terms.source(term)[tile..row_len]);
             }
         }

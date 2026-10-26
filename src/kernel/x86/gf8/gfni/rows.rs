@@ -35,7 +35,8 @@ const MATRIX_PREFETCH_DISTANCE: usize = 1024;
 pub(crate) const MATRIX_PREFETCH_MIN: usize = 8192;
 
 /// Fold one term's source lanes `x` into a `ROWS` x `LANES` accumulator tile:
-/// `acc[row][lane] ^= map[row] * x[lane]`, or `=` when `first` is set.
+/// `acc[row][lane] ^= map[row] * x[lane]`, or `=` when `first` is set. A
+/// seeding fold is the accumulation onto zero, so it records like any term.
 #[inline]
 #[archmage::rite(v3_gfni_crypto)]
 fn fold_term<const NATIVE: bool, const ROWS: usize, const LANES: usize>(
@@ -56,15 +57,12 @@ fn fold_term<const NATIVE: bool, const ROWS: usize, const LANES: usize>(
         }
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
+    crate::kernel::trace::emit_terms(
         "gf8.gfni.matrix",
-        if first {
-            crate::kernel::trace::Substage::Mul
-        } else {
-            crate::kernel::trace::Substage::MulAdd
-        },
         crate::kernel::trace::Unit::Elements,
-        ROWS * LANES * 32,
+        LANES * 32,
+        map.iter()
+            .map(|&word| crate::kernel::trace::Term::of_byte_word(word, NATIVE)),
         crate::kernel::Backend::V3GfniCrypto,
     );
 }
@@ -232,11 +230,13 @@ fn rows_body<
         tile += 32;
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
+    crate::kernel::trace::emit_terms(
         "gf8.gfni.matrix",
-        crate::kernel::trace::Substage::MulAdd,
         crate::kernel::trace::Unit::Elements,
-        (tile - lane_start) * ROWS * maps.len(),
+        tile - lane_start,
+        maps.iter()
+            .flatten()
+            .map(|&word| crate::kernel::trace::Term::of_byte_word(word, NATIVE)),
         crate::kernel::Backend::V3GfniCrypto,
     );
 }
@@ -481,6 +481,8 @@ fn matrix_tail<const NATIVE: bool, M: Matrix<Prepared> + ?Sized, const OVERWRITE
             let src = terms.source(term);
             let coeff = terms.coefficient(term, g + slot);
             if !coeff.is_zero() {
+                #[cfg(test)]
+                let _term = crate::kernel::trace::term(super::term_gfni::<NATIVE>(coeff));
                 brem_gfni::<NATIVE>(tail, coeff, &src[tile..]);
             }
         }

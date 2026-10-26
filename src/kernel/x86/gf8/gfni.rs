@@ -114,6 +114,12 @@ fn factor_word_gfni<const NATIVE: bool>(coeff: Prepared) -> u64 {
     }
 }
 
+/// The coefficient class of the factor word the multiply broadcasts.
+#[cfg(test)]
+fn term_gfni<const NATIVE: bool>(coeff: Prepared) -> crate::kernel::trace::Term {
+    crate::kernel::trace::Term::of_byte_word(factor_word_gfni::<NATIVE>(coeff), NATIVE)
+}
+
 /// Broadcast a resolved factor word into a 256-bit multiply factor.
 #[inline]
 #[archmage::rite(v3_gfni_crypto)]

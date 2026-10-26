@@ -106,7 +106,7 @@ std::thread_local! {
     static ENTRIES: RefCell<Vec<Entry>> = const { RefCell::new(Vec::new()) };
     static SCOPE: RefCell<Vec<(Scope, Pass)>> = const { RefCell::new(Vec::new()) };
     static ELEMENT_BYTES: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
-    static GENERAL_MUL_ADD: Cell<bool> = const { Cell::new(false) };
+    static TERM: Cell<Option<Term>> = const { Cell::new(None) };
 }
 
 /// Discard this thread's recorded entries and scope path.
@@ -114,10 +114,13 @@ pub fn clear() {
     ENTRIES.with(|entries| entries.borrow_mut().clear());
     SCOPE.with(|scope| scope.borrow_mut().clear());
     ELEMENT_BYTES.with(|widths| widths.borrow_mut().clear());
-    GENERAL_MUL_ADD.with(|general| general.set(false));
+    TERM.with(|term| term.set(None));
 }
 
 /// Record one stretch of vector work. Zero work records nothing.
+///
+/// Inside a [`term`] guard, `MulAdd` work takes the guard's class: unit-term
+/// work records as `Add`, general-term work as qualified `MulAdd`.
 #[allow(dead_code)]
 pub(crate) fn emit(
     kernel: &'static str,
@@ -125,6 +128,77 @@ pub(crate) fn emit(
     unit: Unit,
     work: usize,
     tier: Backend,
+) {
+    let (substage, general) = match (substage, TERM.with(Cell::get)) {
+        (Substage::MulAdd, Some(Term::One)) => (Substage::Add, false),
+        (Substage::MulAdd, Some(Term::General)) => (Substage::MulAdd, true),
+        _ => (substage, false),
+    };
+    push(kernel, substage, unit, work, tier, general);
+}
+
+/// Coefficient class of one term a fused multi-row kernel multiplies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum Term {
+    /// The canonical zero: the term adds nothing.
+    Zero,
+    /// The canonical one: the term adds its source.
+    One,
+    /// Any other coefficient: the term multiplies.
+    General,
+}
+
+/// The `VGF2P8AFFINEQB` matrix of the identity byte map: multiplication by
+/// one in every GF(2^8) presentation.
+#[allow(dead_code)]
+const IDENTITY_AFFINE: u64 = 0x0102_0408_1020_4080;
+
+impl Term {
+    /// Class of a byte-field factor word: the coefficient byte itself when
+    /// `native`, the coefficient's affine matrix qword otherwise.
+    #[allow(dead_code)]
+    pub(crate) fn of_byte_word(word: u64, native: bool) -> Self {
+        match (word, native) {
+            (0, _) => Self::Zero,
+            (1, true) | (IDENTITY_AFFINE, false) => Self::One,
+            _ => Self::General,
+        }
+    }
+}
+
+/// Record `work` per term for a fused multi-term stretch, split by class.
+///
+/// A fused kernel multiplies every staged term alike, so the class comes
+/// from the coefficient word it multiplied by: zero-term work is unqualified
+/// `MulAdd`, unit-term work is `Add` (the vector unit added the source), and
+/// general-term work is `MulAdd` qualified as general.
+#[allow(dead_code)]
+pub(crate) fn emit_terms(
+    kernel: &'static str,
+    unit: Unit,
+    work: usize,
+    terms: impl IntoIterator<Item = Term>,
+    tier: Backend,
+) {
+    let mut counts = [0usize; 3];
+    for term in terms {
+        counts[term as usize] += 1;
+    }
+    let [zero, one, general] =
+        counts.map(|count| count.checked_mul(work).expect("trace term work overflow"));
+    push(kernel, Substage::MulAdd, unit, zero, tier, false);
+    push(kernel, Substage::Add, unit, one, tier, false);
+    push(kernel, Substage::MulAdd, unit, general, tier, true);
+}
+
+fn push(
+    kernel: &'static str,
+    substage: Substage,
+    unit: Unit,
+    work: usize,
+    tier: Backend,
+    general_only: bool,
 ) {
     if work == 0 {
         return;
@@ -150,7 +224,7 @@ pub(crate) fn emit(
             unit,
             work,
             tier,
-            general_only: substage == Substage::MulAdd && GENERAL_MUL_ADD.with(Cell::get),
+            general_only,
         });
     });
 }
@@ -205,26 +279,33 @@ impl Drop for ElementBytesGuard {
     }
 }
 
-/// Qualify multiplication work after local zero and unit checks.
+/// Classify nested `MulAdd` emissions by the coefficient a caller checked.
 ///
-/// The caller checks the coefficient against its field's canonical zero
-/// and one in the same function before opening this guard. Only `MulAdd`
-/// emissions receive the qualifier; nested guards restore the prior value.
+/// The caller compares the coefficient against its field's canonical zero
+/// and one, or its prepared form against their maps, in the same function
+/// before opening this guard. Nested guards restore the prior class.
 #[must_use]
-pub(crate) fn general_mul_add() -> GeneralMulAddGuard {
-    GeneralMulAddGuard {
-        previous: GENERAL_MUL_ADD.with(|general| general.replace(true)),
+pub(crate) fn term(class: Term) -> TermGuard {
+    TermGuard {
+        previous: TERM.with(|term| term.replace(Some(class))),
     }
 }
 
-/// Restores the enclosing coefficient qualification on return or unwind.
-pub(crate) struct GeneralMulAddGuard {
-    previous: bool,
+/// Qualify multiplication work after local zero and unit checks: the
+/// [`Term::General`] class of [`term`].
+#[must_use]
+pub(crate) fn general_mul_add() -> TermGuard {
+    term(Term::General)
 }
 
-impl Drop for GeneralMulAddGuard {
+/// Restores the enclosing coefficient class on return or unwind.
+pub(crate) struct TermGuard {
+    previous: Option<Term>,
+}
+
+impl Drop for TermGuard {
     fn drop(&mut self) {
-        GENERAL_MUL_ADD.with(|general| general.set(self.previous));
+        TERM.with(|term| term.set(self.previous));
     }
 }
 

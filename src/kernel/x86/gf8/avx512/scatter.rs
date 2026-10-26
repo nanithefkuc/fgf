@@ -131,6 +131,8 @@ fn mul_add_scatter_impl(rows: &mut [u8], coeffs: &(impl Coeffs + ?Sized), src: &
             table: coeffs.table(group.picks[last]),
             affine: group.maps[last],
         };
+        #[cfg(test)]
+        let _term = crate::kernel::trace::term(map_term(group.maps[last]));
         brem_avx512(row, coeff, src);
     }
 }
@@ -201,13 +203,7 @@ fn scatter_rows4(group: &Group<4>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
         offset += 256;
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.avx512.scatter",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        (offset - tile_start) * 4,
-        crate::kernel::Backend::V4x,
-    );
+    emit_group(group, offset - tile_start);
     #[cfg(test)]
     let lane_start = offset;
     while offset + 64 <= len {
@@ -233,13 +229,7 @@ fn scatter_rows4(group: &Group<4>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
         offset += 64;
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.avx512.scatter",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        (offset - lane_start) * 4,
-        crate::kernel::Backend::V4x,
-    );
+    emit_group(group, offset - lane_start);
 
     scatter_span(group, coeffs, offset, len, src);
 }
@@ -300,13 +290,7 @@ fn scatter_rows2(group: &Group<2>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
         offset += 256;
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.avx512.scatter",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        (offset - tile_start) * 2,
-        crate::kernel::Backend::V4x,
-    );
+    emit_group(group, offset - tile_start);
     #[cfg(test)]
     let lane_start = offset;
     while offset + 64 <= len {
@@ -332,13 +316,7 @@ fn scatter_rows2(group: &Group<2>, coeffs: &(impl Coeffs + ?Sized), src: &[u8]) 
         offset += 64;
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.avx512.scatter",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        (offset - lane_start) * 2,
-        crate::kernel::Backend::V4x,
-    );
+    emit_group(group, offset - lane_start);
 
     scatter_span(group, coeffs, offset, len, src);
 }
@@ -383,6 +361,26 @@ fn scatter_span<const N: usize>(
             table: coeffs.table(pick),
             affine,
         };
+        #[cfg(test)]
+        let _term = crate::kernel::trace::term(map_term(affine));
         brem_half_avx512(dst, coeff, &src[start..end]);
     }
+}
+
+/// The coefficient class of a staged affine map qword.
+#[cfg(test)]
+fn map_term(map: u64) -> crate::kernel::trace::Term {
+    crate::kernel::trace::Term::of_byte_word(map, false)
+}
+
+/// Record `work` per staged row of `group`, by coefficient class.
+#[cfg(test)]
+fn emit_group<const N: usize>(group: &Group<N>, work: usize) {
+    crate::kernel::trace::emit_terms(
+        "gf8.avx512.scatter",
+        crate::kernel::trace::Unit::Elements,
+        work,
+        group.maps.map(map_term),
+        crate::kernel::Backend::V4x,
+    );
 }

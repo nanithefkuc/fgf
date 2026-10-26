@@ -1362,6 +1362,58 @@ fn empty_and_zero_mul_into_gathers_zero_the_destination() {
     assert!(zero_coefficients.iter().all(|&value| value == 0));
 }
 
+/// `dst = sum(coeffs[i] * srcs[i])` over term patterns that lead with,
+/// interleave, and consist only of zero and unit coefficients, one-shot and
+/// prepared, against the per-element oracle. The row spans whole vector
+/// tiles plus a sub-lane tail.
+fn overwrite_gather_with_trivial_terms_matches_oracle_for<F: FieldKernels>() {
+    let len = 4136;
+    let sources: Vec<Vec<u8>> = (0..4).map(|i| noise(len, 0x3a0 + i)).collect();
+    let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+    let general = F::decode(&noise(F::BYTES, 0x3a8));
+    let (zero, one) = (Elem::<F>::ZERO, Elem::<F>::ONE);
+    let patterns: [&[Elem<F>]; 6] = [
+        &[zero, general, one, general],
+        &[one, zero, general, one],
+        &[general, one, zero, zero],
+        &[one, one, one, one],
+        &[zero, one, zero, one],
+        &[zero, zero, zero, general],
+    ];
+    for coeffs in patterns {
+        let terms = &refs[..coeffs.len()];
+        let mut want = vec![0u8; len];
+        for (&coeff, src) in coeffs.iter().zip(terms) {
+            oracle_mul_add::<F>(&mut want, coeff, src);
+        }
+        let mut got = noise(len, 0x3a9);
+        ops::mul_into_gather::<F>(&mut got, coeffs, terms);
+        assert_eq!(got, want, "{} mul_into_gather {coeffs:?}", F::NAME);
+        #[cfg(feature = "alloc")]
+        {
+            let vector = ops::CoeffVec::<F>::new(coeffs);
+            let mut got = noise(len, 0x3aa);
+            ops::mul_into_gather_with::<F>(&mut got, vector.as_ref(), terms);
+            assert_eq!(got, want, "{} mul_into_gather_with {coeffs:?}", F::NAME);
+        }
+    }
+}
+
+#[test]
+fn overwrite_gathers_with_trivial_terms_match_the_oracle_on_binary_rows() {
+    overwrite_gather_with_trivial_terms_matches_oracle_for::<FiniteField<2, 8, Polynomial<AES>>>();
+    overwrite_gather_with_trivial_terms_matches_oracle_for::<FiniteField<2, 8, Polynomial<RS>>>();
+    overwrite_gather_with_trivial_terms_matches_oracle_for::<FiniteField<2, 8, Normal<0x11B, 0x20>>>(
+    );
+    overwrite_gather_with_trivial_terms_matches_oracle_for::<Gf16>();
+    overwrite_gather_with_trivial_terms_matches_oracle_for::<Gf32>();
+    overwrite_gather_with_trivial_terms_matches_oracle_for::<Gf64>();
+    overwrite_gather_with_trivial_terms_matches_oracle_for::<FanPaar16Field>();
+    overwrite_gather_with_trivial_terms_matches_oracle_for::<FanPaar32Field>();
+    overwrite_gather_with_trivial_terms_matches_oracle_for::<FanPaar64Field>();
+    overwrite_gather_with_trivial_terms_matches_oracle_for::<Custom16Row>();
+}
+
 fn prepared_coefficients_match_one_shot_for_gf8<const POLY: u128>() {
     let src8 = noise(258, 0x350);
     for coeff in [0u8, 1, 2, 0x53, 0xff].map(Elem::<FiniteField<2, 8, Polynomial<POLY>>>::from_raw)

@@ -551,15 +551,7 @@ pub(crate) trait KernelDispatch: FieldBuffer {
         coeffs: &[crate::field::Elem<Self>],
         srcs: &[&[u8]],
     ) {
-        let mut pairs = coeffs.iter().copied().zip(srcs.iter().copied());
-        let Some((first, src)) = pairs.next() else {
-            dst.fill(0);
-            return;
-        };
-        Self::mul_into(RawDispatch, dst, &Self::prepare(RawDispatch, first), src);
-        for (coeff, src) in pairs {
-            Self::mul_add(RawDispatch, dst, &Self::prepare(RawDispatch, coeff), src);
-        }
+        fallback::mul_into_gather::<Self>(dst, coeffs, srcs);
     }
 
     /// Many sources into many rows: for each `(coeffs, src)` term,
@@ -652,15 +644,7 @@ pub(crate) trait KernelDispatch: FieldBuffer {
         coeffs: &[Self::Prepared],
         srcs: &[&[u8]],
     ) {
-        let mut pairs = coeffs.iter().zip(srcs.iter().copied());
-        let Some((first, src)) = pairs.next() else {
-            dst.fill(0);
-            return;
-        };
-        Self::mul_into(RawDispatch, dst, first, src);
-        for (coeff, src) in pairs {
-            Self::mul_add(RawDispatch, dst, coeff, src);
-        }
+        fallback::mul_into_gather_with::<Self>(dst, coeffs, srcs);
     }
 
     /// Prepared-plan dot product with original and resolved coefficients.
@@ -980,6 +964,108 @@ pub(crate) mod fallback {
             dst.copy_from_slice(src);
         } else {
             F::mul_into(RawDispatch, dst, &F::prepare(RawDispatch, coeff), src);
+        }
+    }
+
+    /// Overwrites one row with weighted sources: a fused single-source
+    /// `mul_into` seeds the row, then each later term accumulates.
+    pub(crate) fn mul_into_gather<F: KernelDispatch>(
+        dst: &mut [u8],
+        coeffs: &[Elem<F>],
+        srcs: &[&[u8]],
+    ) {
+        let mut pairs = coeffs.iter().copied().zip(srcs.iter().copied());
+        let Some((first, src)) = pairs.next() else {
+            dst.fill(0);
+            return;
+        };
+        F::mul_into(RawDispatch, dst, &F::prepare(RawDispatch, first), src);
+        for (coeff, src) in pairs {
+            F::mul_add(RawDispatch, dst, &F::prepare(RawDispatch, coeff), src);
+        }
+    }
+
+    /// [`mul_into_gather`] over prepared coefficients.
+    #[cfg(any(feature = "alloc", test))]
+    pub(crate) fn mul_into_gather_with<F: KernelDispatch>(
+        dst: &mut [u8],
+        coeffs: &[F::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        let mut pairs = coeffs.iter().zip(srcs.iter().copied());
+        let Some((first, src)) = pairs.next() else {
+            dst.fill(0);
+            return;
+        };
+        F::mul_into(RawDispatch, dst, first, src);
+        for (coeff, src) in pairs {
+            F::mul_add(RawDispatch, dst, coeff, src);
+        }
+    }
+
+    /// Overwrites one row with weighted sources term by term: the first term
+    /// seeds the row through [`mul_into_row`], later zero terms are skipped,
+    /// unit terms add their source, and only general terms multiply.
+    pub(crate) fn mul_into_gather_checked<F: KernelDispatch>(
+        dst: &mut [u8],
+        coeffs: &[Elem<F>],
+        srcs: &[&[u8]],
+    ) {
+        let mut terms = coeffs.iter().copied().zip(srcs.iter().copied());
+        let Some((first, src)) = terms.next() else {
+            dst.fill(0);
+            return;
+        };
+        mul_into_row::<F>(dst, first, src);
+        for (coeff, src) in terms {
+            if coeff.is_zero() {
+                continue;
+            }
+            if coeff.is_one() {
+                F::add_assign(RawDispatch, dst, src);
+                continue;
+            }
+            // Canonical zero and unit comparisons exclude both trivial coefficients.
+            #[cfg(test)]
+            let _general_trace = crate::kernel::trace::general_mul_add();
+            F::mul_add_unprepared(RawDispatch, dst, coeff, src);
+        }
+    }
+
+    /// [`mul_into_gather_checked`] over prepared coefficients, classified by
+    /// the value each prepared form was built from.
+    #[cfg(any(feature = "alloc", test))]
+    pub(crate) fn mul_into_gather_checked_with<F: KernelDispatch>(
+        dst: &mut [u8],
+        coeffs: &[F::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        let mut terms = coeffs.iter().zip(srcs.iter().copied());
+        let Some((first, src)) = terms.next() else {
+            dst.fill(0);
+            return;
+        };
+        let value = F::prepared_coeff(RawDispatch, first);
+        if value.is_zero() {
+            dst.fill(0);
+        } else if value.is_one() {
+            dst.copy_from_slice(src);
+        } else {
+            F::mul_into(RawDispatch, dst, first, src);
+        }
+        for (coeff, src) in terms {
+            let value = F::prepared_coeff(RawDispatch, coeff);
+            if value.is_zero() {
+                continue;
+            }
+            if value.is_one() {
+                F::add_assign(RawDispatch, dst, src);
+                continue;
+            }
+            // Canonical zero and unit comparisons exclude both trivial coefficients.
+            #[cfg(test)]
+            let _general_trace = crate::kernel::trace::general_mul_add();
+            F::mul_add(RawDispatch, dst, coeff, src);
         }
     }
 
