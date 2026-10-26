@@ -8,8 +8,12 @@
 //! geometry contract; the row-group bodies keep the offset-addressed-row
 //! residue in [`archmage::rite`] helpers.
 
+#[cfg(test)]
+use super::term_gfni;
 use super::{bfactor_gfni, bfactor_half_gfni, bmul_gfni, bmul_half_gfni, brem_gfni};
 use crate::kernel::gf8::{Coeffs, Prepared, mul_add_nibble};
+#[cfg(test)]
+use crate::kernel::trace::{Unit, emit_terms};
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
@@ -111,6 +115,8 @@ fn mul_add_scatter_impl<const NATIVE: bool>(
         //        are disjoint.
         // THUS: the mutable borrow conflicts with no live row window.
         let row = unsafe { core::slice::from_raw_parts_mut(ptrs[last], src.len()) };
+        #[cfg(test)]
+        let _term = crate::kernel::trace::term(term_gfni::<NATIVE>(group[last]));
         brem_gfni::<NATIVE>(row, group[last], src);
     }
 }
@@ -191,11 +197,11 @@ fn scatter_rows4<const NATIVE: bool>(ptrs: [*mut u8; 4], coeffs: [Prepared; 4], 
         offset += 128;
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
+    emit_terms(
         "gf8.gfni.scatter",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        (offset - tile_start) * 4,
+        Unit::Elements,
+        offset - tile_start,
+        coeffs.map(term_gfni::<NATIVE>),
         crate::kernel::Backend::V3GfniCrypto,
     );
     #[cfg(test)]
@@ -224,11 +230,11 @@ fn scatter_rows4<const NATIVE: bool>(ptrs: [*mut u8; 4], coeffs: [Prepared; 4], 
         offset += 32;
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
+    emit_terms(
         "gf8.gfni.scatter",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        (offset - lane_start) * 4,
+        Unit::Elements,
+        offset - lane_start,
+        coeffs.map(term_gfni::<NATIVE>),
         crate::kernel::Backend::V3GfniCrypto,
     );
 
@@ -301,11 +307,11 @@ fn scatter_rows2<const NATIVE: bool>(ptrs: [*mut u8; 2], coeffs: [Prepared; 2], 
         offset += 128;
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
+    emit_terms(
         "gf8.gfni.scatter",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        (offset - tile_start) * 2,
+        Unit::Elements,
+        offset - tile_start,
+        coeffs.map(term_gfni::<NATIVE>),
         crate::kernel::Backend::V3GfniCrypto,
     );
     #[cfg(test)]
@@ -334,11 +340,11 @@ fn scatter_rows2<const NATIVE: bool>(ptrs: [*mut u8; 2], coeffs: [Prepared; 2], 
         offset += 32;
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
+    emit_terms(
         "gf8.gfni.scatter",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        (offset - lane_start) * 2,
+        Unit::Elements,
+        offset - lane_start,
+        coeffs.map(term_gfni::<NATIVE>),
         crate::kernel::Backend::V3GfniCrypto,
     );
 
@@ -366,13 +372,7 @@ fn scatter_span<'a, const NATIVE: bool>(
         return;
     }
     let vector_end = start + ((end - start) & !15);
-    #[cfg(test)]
-    let mut row_count = 0usize;
     for (&row, &coeff) in rows {
-        #[cfg(test)]
-        {
-            row_count += 1;
-        }
         let factor = bfactor_half_gfni::<NATIVE>(coeff);
         let mut offset = start;
         while offset < vector_end {
@@ -393,6 +393,14 @@ fn scatter_span<'a, const NATIVE: bool>(
             }
             offset += 16;
         }
+        #[cfg(test)]
+        emit_terms(
+            "gf8.gfni.scatter",
+            Unit::Elements,
+            vector_end - start,
+            [term_gfni::<NATIVE>(coeff)],
+            crate::kernel::Backend::V3GfniCrypto,
+        );
         if vector_end < end {
             // SAFETY:
             // MEMORY VALIDITY
@@ -409,12 +417,4 @@ fn scatter_span<'a, const NATIVE: bool>(
             mul_add_nibble(dst, coeff.table, &src[vector_end..end]);
         }
     }
-    #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.gfni.scatter",
-        crate::kernel::trace::Substage::MulAdd,
-        crate::kernel::trace::Unit::Elements,
-        (vector_end - start) * row_count,
-        crate::kernel::Backend::V3GfniCrypto,
-    );
 }

@@ -695,16 +695,7 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
         srcs: &[&[u8]],
     ) {
         if const { !R::DESCRIPTION.is_polynomial_root() } {
-            let mut pairs = coeffs.iter().copied().zip(srcs.iter().copied());
-            let Some((first, src)) = pairs.next() else {
-                dst.fill(0);
-                return;
-            };
-            Self::mul_into(RawDispatch, dst, &Prepared::new(first), src);
-            for (coeff, src) in pairs {
-                Self::mul_add(RawDispatch, dst, &Prepared::new(coeff), src);
-            }
-            return;
+            return crate::kernel::fallback::mul_into_gather::<Self>(dst, coeffs, srcs);
         }
         // One destination pass instead of the fill-then-accumulate pair: the
         // one-row overwrite matrix holds the tile in registers from zero.
@@ -743,15 +734,20 @@ impl<R: Gf8Data> KernelDispatch for FiniteField<2, 8, R> {
             Self::mul_add_gather(RawDispatch, dst, coeffs, srcs);
             return;
         }
-        let mut pairs = coeffs.iter().copied().zip(srcs.iter().copied());
-        let Some((first, src)) = pairs.next() else {
-            dst.fill(0);
-            return;
-        };
-        Self::mul_into(RawDispatch, dst, &Prepared::new(first), src);
-        for (coeff, src) in pairs {
-            Self::mul_add(RawDispatch, dst, &Prepared::new(coeff), src);
+        crate::kernel::fallback::mul_into_gather_by_class::<Self>(dst, coeffs, srcs);
+    }
+
+    #[cfg(any(feature = "alloc", test))]
+    fn mul_into_gather_with(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeffs: &[Self::Prepared],
+        srcs: &[&[u8]],
+    ) {
+        if const { !R::DESCRIPTION.is_polynomial_root() } {
+            return crate::kernel::fallback::mul_into_gather_with::<Self>(dst, coeffs, srcs);
         }
+        crate::kernel::fallback::mul_into_gather_by_class_with::<Self>(dst, coeffs, srcs);
     }
 
     #[cfg(feature = "alloc")]

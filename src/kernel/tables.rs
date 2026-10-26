@@ -134,6 +134,11 @@ const fn linear_map(columns: [u8; 8]) -> u64 {
     map
 }
 
+/// The `VGF2P8AFFINEQB` matrix of the identity byte map: multiplication by
+/// one in every GF(2^8) presentation.
+#[cfg(any(test, all(feature = "simd", target_arch = "x86_64")))]
+pub(crate) const IDENTITY_AFFINE: u64 = 0x0102_0408_1020_4080;
+
 /// The per-representation table banks, one entry per coefficient.
 struct Bank<const POLY: u128>;
 
@@ -303,8 +308,8 @@ impl<const P: u128, const E: u8> Gf8Data for Normal<P, E> {
     const AFFINE: &'static [u64; 256] = &DUMMY_AFFINE;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const ISOMORPHISM: Isomorphism = Isomorphism {
-        forward: 0x0102_0408_1020_4080,
-        inverse: 0x0102_0408_1020_4080,
+        forward: IDENTITY_AFFINE,
+        inverse: IDENTITY_AFFINE,
     };
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const REDUCTION_LOW: u8 = 0;
@@ -316,8 +321,8 @@ impl<const P: u128, const SEED: u8> Gf8Data for Cantor<P, SEED> {
     const AFFINE: &'static [u64; 256] = &DUMMY_AFFINE;
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const ISOMORPHISM: Isomorphism = Isomorphism {
-        forward: 0x0102_0408_1020_4080,
-        inverse: 0x0102_0408_1020_4080,
+        forward: IDENTITY_AFFINE,
+        inverse: IDENTITY_AFFINE,
     };
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     const REDUCTION_LOW: u8 = 0;
@@ -844,6 +849,31 @@ mod tests {
         check_bank::<RS>();
         check_bank::<0x12D>();
         check_bank::<0x187>();
+    }
+
+    fn check_term_classes<const P: u128>() {
+        use crate::kernel::trace::Term;
+        for raw in 0..=u8::MAX {
+            let want = match raw {
+                0 => Term::Zero,
+                1 => Term::One,
+                _ => Term::General,
+            };
+            let coeff = Elem::<FiniteField<2, 8, Polynomial<P>>>::from_raw(raw);
+            assert_eq!(
+                Term::of_byte_word(affine_map::<P>(coeff), false),
+                want,
+                "{raw:#04x}"
+            );
+            assert_eq!(Term::of_byte_word(u64::from(raw), true), want, "{raw:#04x}");
+        }
+    }
+
+    #[test]
+    fn factor_words_classify_exactly_the_canonical_zero_and_one() {
+        check_term_classes::<AES>();
+        check_term_classes::<RS>();
+        check_term_classes::<0x12D>();
     }
 
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]

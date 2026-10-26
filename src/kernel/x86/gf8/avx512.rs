@@ -49,6 +49,12 @@ pub(super) fn bfactor_avx512(map: u64) -> __m512i {
     _mm512_set1_epi64(map.cast_signed())
 }
 
+/// The coefficient class of a map qword.
+#[cfg(test)]
+fn term_avx512(map: u64) -> crate::kernel::trace::Term {
+    crate::kernel::trace::Term::of_byte_word(map, false)
+}
+
 /// `map * x` over a 512-bit lane: the affine map applied per 8-byte group.
 ///
 /// The `<0>` immediate is the XOR constant (zero: pure multiply), not a lane

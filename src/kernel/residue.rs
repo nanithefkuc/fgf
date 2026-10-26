@@ -758,7 +758,7 @@ fn mul_add_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue, src: &
     }
     // Canonical zero and unit comparisons exclude both trivial coefficients.
     #[cfg(test)]
-    let _general_trace = crate::kernel::trace::general_mul_add();
+    let _general_trace = crate::kernel::trace::term(crate::kernel::trace::Term::General);
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     match single_row_backend(
         <Row<P> as crate::field::FieldBuffer>::BYTES,

@@ -55,18 +55,28 @@ fn fold_term<const NATIVE: bool, const ROWS: usize, const LANES: usize>(
             };
         }
     }
+    // A seeding fold writes onto zero, so its terms record like accumulated
+    // ones, except that a unit seed is the copy base.
     #[cfg(test)]
-    crate::kernel::trace::emit(
-        "gf8.gfni.matrix",
-        if first {
-            crate::kernel::trace::Substage::Mul
-        } else {
-            crate::kernel::trace::Substage::MulAdd
-        },
-        crate::kernel::trace::Unit::Elements,
-        ROWS * LANES * 32,
-        crate::kernel::Backend::V3GfniCrypto,
-    );
+    if first {
+        crate::kernel::trace::emit_seed_terms(
+            "gf8.gfni.matrix",
+            crate::kernel::trace::Unit::Elements,
+            LANES * 32,
+            map.iter()
+                .map(|&word| super::word_term_gfni::<NATIVE>(word)),
+            crate::kernel::Backend::V3GfniCrypto,
+        );
+    } else {
+        crate::kernel::trace::emit_terms(
+            "gf8.gfni.matrix",
+            crate::kernel::trace::Unit::Elements,
+            LANES * 32,
+            map.iter()
+                .map(|&word| super::word_term_gfni::<NATIVE>(word)),
+            crate::kernel::Backend::V3GfniCrypto,
+        );
+    }
 }
 
 /// Fold one chunk of resolved terms into `ROWS` rows, `LANES` 32-byte lanes
@@ -232,11 +242,13 @@ fn rows_body<
         tile += 32;
     }
     #[cfg(test)]
-    crate::kernel::trace::emit(
+    crate::kernel::trace::emit_terms(
         "gf8.gfni.matrix",
-        crate::kernel::trace::Substage::MulAdd,
         crate::kernel::trace::Unit::Elements,
-        (tile - lane_start) * ROWS * maps.len(),
+        tile - lane_start,
+        maps.iter()
+            .flatten()
+            .map(|&word| super::word_term_gfni::<NATIVE>(word)),
         crate::kernel::Backend::V3GfniCrypto,
     );
 }
@@ -481,6 +493,8 @@ fn matrix_tail<const NATIVE: bool, M: Matrix<Prepared> + ?Sized, const OVERWRITE
             let src = terms.source(term);
             let coeff = terms.coefficient(term, g + slot);
             if !coeff.is_zero() {
+                #[cfg(test)]
+                let _term = crate::kernel::trace::term(super::term_gfni::<NATIVE>(coeff));
                 brem_gfni::<NATIVE>(tail, coeff, &src[tile..]);
             }
         }

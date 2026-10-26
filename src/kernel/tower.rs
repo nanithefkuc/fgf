@@ -958,6 +958,25 @@ pub mod gf16 {
             F::mul_add_gather_with(RawDispatch, dst, coeffs, srcs);
         }
 
+        fn mul_into_gather<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            coeffs: &[Elem<F>],
+            srcs: &[&[u8]],
+        ) {
+            crate::kernel::fallback::mul_into_gather_by_class::<F>(dst, coeffs, srcs);
+        }
+
+        #[cfg(any(feature = "alloc", test))]
+        fn mul_into_gather_with<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            coeffs: &[Prepared],
+            srcs: &[&[u8]],
+        ) {
+            crate::kernel::fallback::mul_into_gather_by_class_with::<F>(dst, coeffs, srcs);
+        }
+
         fn mul_add_matrix<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             rows: &mut [u8],
@@ -1520,6 +1539,25 @@ pub mod gf32 {
             }
         }
 
+        fn mul_into_gather<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            coeffs: &[Elem<F>],
+            srcs: &[&[u8]],
+        ) {
+            crate::kernel::fallback::mul_into_gather_by_class::<F>(dst, coeffs, srcs);
+        }
+
+        #[cfg(any(feature = "alloc", test))]
+        fn mul_into_gather_with<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            coeffs: &[Prepared],
+            srcs: &[&[u8]],
+        ) {
+            crate::kernel::fallback::mul_into_gather_by_class_with::<F>(dst, coeffs, srcs);
+        }
+
         fn mul_add_matrix<F: StorageRow<B, D, Self>>(
             _proof: RawDispatch,
             rows: &mut [u8],
@@ -1814,6 +1852,25 @@ pub mod gf64 {
             for (&coeff, &src) in coeffs.iter().zip(srcs) {
                 F::mul_add(RawDispatch, dst, &F::prepare(RawDispatch, coeff), src);
             }
+        }
+
+        fn mul_into_gather<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            coeffs: &[Elem<F>],
+            srcs: &[&[u8]],
+        ) {
+            crate::kernel::fallback::mul_into_gather_by_class::<F>(dst, coeffs, srcs);
+        }
+
+        #[cfg(any(feature = "alloc", test))]
+        fn mul_into_gather_with<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            coeffs: &[Prepared],
+            srcs: &[&[u8]],
+        ) {
+            crate::kernel::fallback::mul_into_gather_by_class_with::<F>(dst, coeffs, srcs);
         }
 
         fn mul_add_matrix<F: StorageRow<B, D, Self>>(

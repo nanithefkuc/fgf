@@ -48,6 +48,15 @@ All notable changes to this project are documented here. The format follows
 - Route acceptance credits an overwrite gather's general first term to the
   overwriting multiply that seeds its destination, once per call, at the
   required tier; cells that budget their own multiply keep that work.
+- Overwrite gathers over binary packed towers (`Packed<u16>`, `Packed<u32>`,
+  and `Packed<u64>` rows) and over polynomial-basis GF(2^8) rows outside the
+  AES-native gather and the GFNI and AVX-512 matrix routes skip zero terms and
+  add unit terms instead of multiplying by them, unprepared and prepared.
+- Route acceptance attributes the fused GF(2^8) GFNI and AVX-512 scatter and
+  matrix kernels' work by coefficient: unit terms count as vector addition and
+  general terms as qualified multiplication. A matrix row group's seeding term
+  counts as qualified multiplication when general and as the copy base when
+  unit.
 
 ### Removed
 
