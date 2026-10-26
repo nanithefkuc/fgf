@@ -108,6 +108,20 @@ mod private {
     /// every implementor is a crate-owned row.
     pub trait FieldSeal {}
 
+    /// Byte-level add/sub dispatch for buffer composition.
+    ///
+    /// Crate-private seam: every [`super::FieldBuffer`] provides byte add
+    /// and subtract hooks that component storage and recursive extension
+    /// encoding decompose into. The methods take raw byte slices — no
+    /// prepared coefficients, no backend tokens — so they compose without
+    /// allocation or unsafe.
+    pub(crate) trait BufferDispatch {
+        /// `dst += src` on raw field-element bytes.
+        fn add_assign_bytes(proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]);
+        /// `dst -= src` on raw field-element bytes.
+        fn sub_assign_bytes(proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]);
+    }
+
     /// Marks the degree-one rows eligible for prime-field membership.
     pub trait PrimeFieldSeal {}
 
@@ -925,7 +939,8 @@ impl<'a, F: Field> core::iter::Product<&'a Elem<F>> for Elem<F> {
 /// little-endian coordinates; decoders canonicalize accepted aliases.
 /// Buffers hold fixed-width coordinates, not prepared coefficients or native
 /// scratch. The trait is sealed: the crate's rows define every byte layout.
-pub trait FieldBuffer: Field + private::FieldSeal {
+#[allow(private_bounds)]
+pub trait FieldBuffer: Field + private::FieldSeal + private::BufferDispatch {
     /// Width of the stable byte representation of one element.
     const BYTES: usize;
     /// Storage bit width of one element: `8 * BYTES`.

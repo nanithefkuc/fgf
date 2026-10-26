@@ -2379,6 +2379,180 @@ fn mersenne31_public_ops_match_oracle() {
     check_prime_recovery::<Mersenne31>(64, m31(3), m31(0x1234_5678));
 }
 
+// ---------------------------------------------------------------------------
+// Prime multi-row dispatch: zero rows, overwrite matrix, mixed coefficients
+// ---------------------------------------------------------------------------
+
+/// Zero coefficients in scatter keep the row bytes untouched (noncanonical
+/// preserved), unit coefficients fold through the field's addition, and
+/// general coefficients dispatch through the field's multiply. The overwrite
+/// matrix ignores prior destination bytes and matches an oracle from zero.
+fn check_prime_multirow_dispatch<F: FieldKernels>(
+    row_len: usize,
+    zero: Elem<F>,
+    one: Elem<F>,
+    general: Elem<F>,
+    seed: u64,
+) {
+    let coeffs = [zero, one, general, zero];
+    let nsrc = coeffs.len();
+
+    let mut src = noise(row_len, seed);
+    src[..F::BYTES].fill(0xff);
+
+    // Zero-coefficient rows preserve noncanonical bytes; nonzero rows
+    // match the independent elementwise oracle.
+    {
+        let mut rows = noise(row_len * nsrc, seed + 1);
+        rows[..row_len].fill(0xff);
+        rows[3 * row_len..4 * row_len].fill(0xff);
+        let before = rows.clone();
+        ops::mul_add_scatter::<F>(&mut rows, row_len, &coeffs, &src);
+        // rows 0 and 3 (zero coefficients): exactly as they were
+        assert_eq!(
+            &rows[0..row_len],
+            &before[0..row_len],
+            "scatter zero-coeff row 0 untouched"
+        );
+        assert_eq!(
+            &rows[3 * row_len..4 * row_len],
+            &before[3 * row_len..4 * row_len],
+            "scatter zero-coeff row 3 untouched"
+        );
+        // rows 1 and 2: oracle-summed
+        let mut want = before.clone();
+        oracle_mul_add::<F>(&mut want[row_len..2 * row_len], one, &src);
+        oracle_mul_add::<F>(&mut want[2 * row_len..3 * row_len], general, &src);
+        assert_eq!(rows, want, "scatter mixed zero/one/general");
+    }
+
+    // Matrix overwrite ignores prior destination bytes.
+    {
+        let nrows = 2;
+        let first = [one, general];
+        let second = [general, zero];
+        let terms = [
+            (first.as_slice(), src.as_slice()),
+            (second.as_slice(), src.as_slice()),
+        ];
+        let mut rows = noise(row_len * nrows, seed + 2);
+        ops::mul_into_matrix::<F>(&mut rows, row_len, nrows, &terms);
+        let mut want = vec![0u8; row_len * nrows];
+        oracle_mul_add::<F>(&mut want[0..row_len], one, &src);
+        oracle_mul_add::<F>(&mut want[0..row_len], general, &src);
+        oracle_mul_add::<F>(&mut want[row_len..2 * row_len], general, &src);
+        // second term's row-1 coefficient is zero: no-op
+        assert_eq!(rows, want, "overwrite matrix ignores prior contents");
+    }
+
+    // Gather with mixed zero, one, and general coefficients.
+    {
+        let srcs: Vec<Vec<u8>> = (0..nsrc)
+            .map(|i| {
+                let mut s = noise(row_len, seed + 3 + i as u64);
+                s[..F::BYTES].fill(0xff);
+                s
+            })
+            .collect();
+        let src_refs: Vec<&[u8]> = srcs.iter().map(Vec::as_slice).collect();
+
+        let mut got = noise(row_len, seed + 7);
+        let mut want = got.clone();
+        ops::mul_add_gather::<F>(&mut got, &coeffs, &src_refs);
+        for (&c, s) in coeffs.iter().zip(&src_refs) {
+            oracle_mul_add::<F>(&mut want, c, s);
+        }
+        assert_eq!(got, want, "gather with mixed zero/one/general");
+    }
+}
+
+#[test]
+fn prime_multirow_dispatch_preserves_zeros_and_overwrites() {
+    check_prime_multirow_dispatch::<Mersenne31>(64, m31(0), m31(1), m31(0x1234_5678), 0xfd00);
+    check_prime_multirow_dispatch::<Mersenne31>(20, m31(0), m31(1), m31(0x7FFF_FFFE), 0xfd01);
+    check_prime_multirow_dispatch::<Goldilocks>(
+        64,
+        gld(0),
+        gld(1),
+        gld(0x1234_5678_9abc_def0),
+        0xfd02,
+    );
+    check_prime_multirow_dispatch::<Goldilocks>(
+        24,
+        gld(0),
+        gld(1),
+        gld(0xFFFF_FFFF_0000_0000),
+        0xfd03,
+    );
+    // Rows on both sides of the per-row composition boundary.
+    for row_len in [120, 128, 136, 512] {
+        check_prime_multirow_dispatch::<Mersenne31>(
+            row_len,
+            m31(0),
+            m31(1),
+            m31(0x7FFF_FFFE),
+            0xfd10 ^ row_len as u64,
+        );
+        check_prime_multirow_dispatch::<Goldilocks>(
+            row_len,
+            gld(0),
+            gld(1),
+            gld(0xFFFF_FFFF_0000_0000),
+            0xfd20 ^ row_len as u64,
+        );
+    }
+}
+
+fn check_residue_multirow<const P: u64>() {
+    type Row<const Q: u64> = FiniteField<Q, 1, Residue>;
+    for lanes in [1, 17, 64, 129] {
+        check_prime_multirow_dispatch::<Row<P>>(
+            lanes * Row::<P>::BYTES,
+            Elem::<Row<P>>::ZERO,
+            Elem::<Row<P>>::ONE,
+            Elem::<Row<P>>::from_raw(3 % P),
+            P ^ lanes as u64,
+        );
+    }
+}
+
+#[test]
+fn residue_multirow_preserves_aliases_and_zero_rows() {
+    check_residue_multirow::<101>();
+    check_residue_multirow::<127>();
+    check_residue_multirow::<131>();
+    check_residue_multirow::<65_521>();
+    check_residue_multirow::<65_537>();
+    check_residue_multirow::<1_000_000_007>();
+    check_residue_multirow::<4_294_967_291>();
+    check_residue_multirow::<0x7fff_ffff>();
+    check_residue_multirow::<0xffff_ffff_0000_0001>();
+    check_residue_multirow::<0xffff_ffff_ffff_ffc5>();
+    check_residue_multirow::<2>();
+}
+
+fn check_overwrite_scatter_aliases<F: FieldKernels>() {
+    let coeffs = [Elem::<F>::ZERO, Elem::<F>::ONE];
+    for lanes in [1, 7, 8, 9, 16, 17, 64, 65] {
+        let row_len = lanes * F::BYTES;
+        let src = vec![0xff; row_len];
+        let mut rows = vec![0xa5; 3 * row_len];
+        ops::mul_into_scatter::<F>(&mut rows, row_len, &coeffs, &src);
+        assert!(rows[..row_len].iter().all(|&byte| byte == 0));
+        assert_eq!(&rows[row_len..2 * row_len], &src);
+        assert!(rows[2 * row_len..].iter().all(|&byte| byte == 0xa5));
+    }
+}
+
+#[test]
+fn overwrite_scatter_unit_rows_preserve_noncanonical_source_bytes() {
+    check_overwrite_scatter_aliases::<Mersenne31>();
+    check_overwrite_scatter_aliases::<Goldilocks>();
+    check_overwrite_scatter_aliases::<QuadMersenne31>();
+    check_overwrite_scatter_aliases::<FiniteField<101, 1, Residue>>();
+    check_overwrite_scatter_aliases::<FiniteField<2, 1, Residue>>();
+}
+
 fn qm(re: u32, im: u32) -> Elem<QuadMersenne31> {
     Elem::<QuadMersenne31>::from_raw([re, im])
 }

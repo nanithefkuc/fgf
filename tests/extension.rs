@@ -117,7 +117,7 @@ fn packed16_mul_ref(a: (u8, u8), b: (u8, u8)) -> (u8, u8) {
     let low = gf8_mul_ref(a.0, b.0);
     let cross = gf8_mul_ref(a.0, b.1) ^ gf8_mul_ref(a.1, b.0);
     let high = gf8_mul_ref(a.1, b.1);
-    // `t^2 = t + 0x21` folds the high component into both.
+    // `t^2 = t + 0x21` folds the high component into bth.
     (low ^ gf8_mul_ref(high, 0x21), cross ^ high)
 }
 
@@ -162,7 +162,7 @@ impl Sample {
     }
 }
 
-// ---------------------------------------------------------------------------
+// --------------------------------------------------------------------------
 // GF(49): components over the residue row, exhaustively
 // ---------------------------------------------------------------------------
 
@@ -263,7 +263,7 @@ fn gf49_bytes_and_backend() {
     assert_eq!(unpacked[1], a + coeff * a);
 }
 
-// ---------------------------------------------------------------------------
+// --------------------------------------------------------------------------
 // GF(7^3): the Euclid inversion path at relative degree three
 // ---------------------------------------------------------------------------
 
@@ -285,7 +285,7 @@ fn gf343_relation_holds() {
     assert_eq!(t * t * t, two);
 }
 
-// ---------------------------------------------------------------------------
+// --------------------------------------------------------------------------
 // GF(p^2) over the Mersenne fold row
 // ---------------------------------------------------------------------------
 
@@ -588,4 +588,206 @@ fn quad_mersenne31_is_the_spelled_extension_row() {
         TypeId::of::<Elem<QuadMersenne31>>(),
         TypeId::of::<Elem<Spelled>>()
     );
+}
+
+// ---------------------------------------------------------------------------
+// BufferDispatch: component add/sub through ops matches elementwise reference
+// ---------------------------------------------------------------------------
+
+/// Packed add/sub on GF(343) (degree-3 components, Euclid inversion path)
+/// matches elementwise reference.
+#[test]
+fn gf343_add_sub_matches_elementwise() {
+    let a: [Elem<Gf343>; 4] = core::array::from_fn(|i| {
+        let raw: [u64; 3] = [(i as u64) % 7, ((i + 1) as u64) % 7, ((i + 2) as u64) % 7];
+        Elem::<Gf343>::from_raw(raw)
+    });
+    let b: [Elem<Gf343>; 4] = core::array::from_fn(|i| {
+        let raw: [u64; 3] = [
+            ((i + 3) as u64) % 7,
+            ((i + 4) as u64) % 7,
+            ((i + 5) as u64) % 7,
+        ];
+        Elem::<Gf343>::from_raw(raw)
+    });
+    let mut a_bytes = vec![0u8; 4 * Gf343::BYTES];
+    let mut b_bytes = vec![0u8; 4 * Gf343::BYTES];
+    ops::pack(&mut a_bytes, &a);
+    ops::pack(&mut b_bytes, &b);
+
+    let mut sum = a_bytes.clone();
+    ops::add_assign::<Gf343>(&mut sum, &b_bytes);
+    let mut unpacked = [Elem::<Gf343>::ZERO; 4];
+    ops::unpack(&mut unpacked, &sum);
+    for i in 0..4 {
+        assert_eq!(unpacked[i], a[i] + b[i], "add at index {i}");
+    }
+
+    let mut diff = a_bytes.clone();
+    ops::sub_assign::<Gf343>(&mut diff, &b_bytes);
+    ops::unpack(&mut unpacked, &diff);
+    for i in 0..4 {
+        assert_eq!(unpacked[i], a[i] - b[i], "sub at index {i}");
+    }
+}
+
+/// Component add/sub on the Mersenne-square extension matches
+/// elementwise arithmetic.
+#[test]
+fn mersenne_square_add_sub_matches_elementwise() {
+    let a: [Elem<MersenneSquare>; 4] = core::array::from_fn(|i| {
+        let x = Elem::<Mersenne31>::from_raw((i as u32) * 100_000);
+        let y = Elem::<Mersenne31>::from_raw(((i + 1) as u32) * 200_000);
+        Elem::<MersenneSquare>::from_raw([x.to_raw(), y.to_raw()])
+    });
+    let b: [Elem<MersenneSquare>; 4] = core::array::from_fn(|i| {
+        let x = Elem::<Mersenne31>::from_raw(((i + 3) as u32) * 50_000);
+        let y = Elem::<Mersenne31>::from_raw(((i + 4) as u32) * 75_000);
+        Elem::<MersenneSquare>::from_raw([x.to_raw(), y.to_raw()])
+    });
+    let mut a_bytes = vec![0u8; 4 * MersenneSquare::BYTES];
+    let mut b_bytes = vec![0u8; 4 * MersenneSquare::BYTES];
+    ops::pack(&mut a_bytes, &a);
+    ops::pack(&mut b_bytes, &b);
+
+    let mut sum = a_bytes.clone();
+    ops::add_assign::<MersenneSquare>(&mut sum, &b_bytes);
+    let mut unpacked = [Elem::<MersenneSquare>::ZERO; 4];
+    ops::unpack(&mut unpacked, &sum);
+    for i in 0..4 {
+        assert_eq!(unpacked[i], a[i] + b[i], "add at index {i}");
+    }
+
+    let mut diff = a_bytes.clone();
+    ops::sub_assign::<MersenneSquare>(&mut diff, &b_bytes);
+    ops::unpack(&mut unpacked, &diff);
+    for i in 0..4 {
+        assert_eq!(unpacked[i], a[i] - b[i], "sub at index {i}");
+    }
+}
+
+/// Add/sub on residue rows of different widths covers all
+/// BufferDispatch base-field implementations.
+#[test]
+fn residue_add_sub_matches_elementwise() {
+    // Characteristic-2 one-byte residue row: add/sub is XOR.
+    type Gf2 = FiniteField<2, 1>;
+    let a: [Elem<Gf2>; 4] = [
+        Elem::<Gf2>::from_raw(0),
+        Elem::<Gf2>::from_raw(1),
+        Elem::<Gf2>::from_raw(0),
+        Elem::<Gf2>::from_raw(1),
+    ];
+    let b: [Elem<Gf2>; 4] = [
+        Elem::<Gf2>::from_raw(0),
+        Elem::<Gf2>::from_raw(0),
+        Elem::<Gf2>::from_raw(1),
+        Elem::<Gf2>::from_raw(1),
+    ];
+    let mut a_bytes = vec![0u8; 4 * Gf2::BYTES];
+    let mut b_bytes = vec![0u8; 4 * Gf2::BYTES];
+    ops::pack(&mut a_bytes, &a);
+    ops::pack(&mut b_bytes, &b);
+
+    let mut sum = a_bytes.clone();
+    ops::add_assign::<Gf2>(&mut sum, &b_bytes);
+    let mut unpacked = [Elem::<Gf2>::ZERO; 4];
+    ops::unpack(&mut unpacked, &sum);
+    for i in 0..4 {
+        assert_eq!(unpacked[i], a[i] + b[i], "add at index {i}");
+    }
+
+    let mut diff = a_bytes.clone();
+    ops::sub_assign::<Gf2>(&mut diff, &b_bytes);
+    ops::unpack(&mut unpacked, &diff);
+    for i in 0..4 {
+        assert_eq!(unpacked[i], a[i] - b[i], "sub at index {i}");
+    }
+
+    // Four-byte residue row: characteristic 2 with 4-byte lane.
+    type Gf2w = FiniteField<2, 1>;
+    let a2: [Elem<Gf2w>; 3] = [
+        Elem::<Gf2w>::from_raw(0),
+        Elem::<Gf2w>::from_raw(1),
+        Elem::<Gf2w>::from_raw(0xFF),
+    ];
+    let b2: [Elem<Gf2w>; 3] = [
+        Elem::<Gf2w>::from_raw(0xFF),
+        Elem::<Gf2w>::from_raw(0),
+        Elem::<Gf2w>::from_raw(1),
+    ];
+    let mut a2_bytes = vec![0u8; 3 * Gf2w::BYTES];
+    let mut b2_bytes = vec![0u8; 3 * Gf2w::BYTES];
+    ops::pack(&mut a2_bytes, &a2);
+    ops::pack(&mut b2_bytes, &b2);
+
+    let mut sum2 = a2_bytes.clone();
+    ops::add_assign::<Gf2w>(&mut sum2, &b2_bytes);
+    let mut unpacked2 = [Elem::<Gf2w>::ZERO; 3];
+    ops::unpack(&mut unpacked2, &sum2);
+    for i in 0..3 {
+        assert_eq!(unpacked2[i], a2[i] + b2[i], "add at index {i}");
+    }
+
+    let mut diff2 = a2_bytes.clone();
+    ops::sub_assign::<Gf2w>(&mut diff2, &b2_bytes);
+    ops::unpack(&mut unpacked2, &diff2);
+    for i in 0..3 {
+        assert_eq!(unpacked2[i], a2[i] - b2[i], "sub at index {i}");
+    }
+}
+
+struct BinaryPairSpec;
+impl ExtensionSpec<2> for BinaryPairSpec {
+    type Base = FiniteField<2, 1>;
+    type Storage = Components;
+    const NAME: &'static str = "GF(4) over residue GF(2)";
+    const RELATION: Relation = Relation::from_coordinates(&[1, 1]);
+}
+
+type BinaryPair = FiniteField<2, 2, Extension<BinaryPairSpec, 2>>;
+
+/// Component add/sub over raw lanes equals the decode/combine/encode loop on
+/// either side of the length where base-field dispatch takes over, including
+/// an order-two base that keeps the component loop.
+fn check_component_add_sub_lanes<F: fgf::FieldKernels>(raw: impl Fn(usize) -> u8)
+where
+    Elem<F>: FieldElem,
+{
+    let boundary = 2048 / F::BYTES;
+    for elements in [1, boundary - 1, boundary, boundary + 1] {
+        let len = elements * F::BYTES;
+        let a: Vec<u8> = (0..len).map(&raw).collect();
+        let b: Vec<u8> = (0..len).map(|i| raw(i + 7)).collect();
+        for subtract in [false, true] {
+            let mut got = a.clone();
+            if subtract {
+                ops::sub_assign::<F>(&mut got, &b);
+            } else {
+                ops::add_assign::<F>(&mut got, &b);
+            }
+            let mut want = a.clone();
+            for (dst, src) in want
+                .chunks_exact_mut(F::BYTES)
+                .zip(b.chunks_exact(F::BYTES))
+            {
+                let (x, y) = (F::decode(dst), F::decode(src));
+                F::encode(dst, if subtract { x.sub(y) } else { x.add(y) });
+            }
+            assert_eq!(got, want, "{} bytes, subtract {subtract}", len);
+        }
+    }
+}
+
+#[test]
+fn component_add_sub_match_elementwise_across_base_dispatch_length() {
+    // Every third Mersenne31 component lane is the `2^31 - 1` alias of zero.
+    check_component_add_sub_lanes::<MersenneSquare>(|i| match ((i / 4) % 3, i % 4) {
+        (0, 3) => 0x7f,
+        (0, _) => 0xff,
+        (_, 3) => (i as u8) & 0x7f,
+        _ => i as u8,
+    });
+    check_component_add_sub_lanes::<Gf49>(|i| (i % 7) as u8);
+    check_component_add_sub_lanes::<BinaryPair>(|i| (i % 2) as u8);
 }

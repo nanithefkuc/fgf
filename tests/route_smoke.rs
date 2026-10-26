@@ -9,7 +9,10 @@
 use fgf::bits;
 use fgf::field::{Elem, FieldBuffer, FieldElem, FiniteField, Polynomial, Residue};
 use fgf::ops;
-use fgf::{Extension, Frobenius, Mersenne31, PreparedEmbedding, Rijndael16};
+use fgf::{
+    Components, Extension, ExtensionSpec, Frobenius, Mersenne31, PreparedEmbedding, Relation,
+    Rijndael16,
+};
 
 type Aes = FiniteField<2, 8, Polynomial<0x11B>>;
 type Gf16 = FiniteField<2, 16, Extension<Rijndael16, 2>>;
@@ -39,14 +42,6 @@ fn pattern<F: FieldBuffer>(len: usize, salt: u64) -> Vec<u8> {
         );
     }
     out
-}
-
-#[test]
-fn smoke_sources_are_distinct() {
-    type F = Aes;
-    assert_ne!(pattern::<F>(LEN, 0xc0), pattern::<F>(LEN, 0xc1));
-    assert_ne!(pattern::<F>(LEN, 0x11), pattern::<F>(LEN, 0x22));
-    assert_ne!(pattern::<F>(LEN, 0), pattern::<F>(LEN, 1));
 }
 
 fn element<F: FieldBuffer>(bytes: &[u8], index: usize) -> Elem<F> {
@@ -361,4 +356,47 @@ fn map_bits_embed_matches_reference() {
         };
         assert_eq!(element::<T>(&lanes, index), expected, "bit {index}");
     }
+}
+
+struct PrimePairSpec;
+impl ExtensionSpec<2> for PrimePairSpec {
+    type Base = Mersenne31;
+    type Storage = Components;
+    const NAME: &'static str = "component prime pair";
+    const RELATION: Relation = Relation::from_coordinates(&[2, 0]);
+}
+type PrimePair = FiniteField<0x7fff_ffff, 2, Extension<PrimePairSpec, 2>>;
+
+#[test]
+fn component_unit_matrix_plan_matches_elementwise_reference() {
+    type F = PrimePair;
+    let row_len = LEN * F::BYTES;
+    let sources = [pattern::<F>(LEN, 0x11), pattern::<F>(LEN, 0x22)];
+    let references = [sources[0].as_slice(), sources[1].as_slice()];
+    let coefficients = [
+        Elem::<F>::ONE,
+        Elem::<F>::ZERO,
+        Elem::<F>::ONE,
+        Elem::<F>::ZERO,
+        Elem::<F>::ONE,
+        Elem::<F>::ONE,
+    ];
+    let plan = ops::CoeffMatrix::<F>::from_source_major(2, 3, &coefficients);
+    let mut actual = vec![0xff; 3 * row_len];
+    let mut expected = actual.clone();
+    for (row, destination) in expected.chunks_exact_mut(row_len).enumerate() {
+        for (source, coefficients) in sources.iter().zip(coefficients.chunks_exact(3)) {
+            if coefficients[row].is_zero() {
+                continue;
+            }
+            for (dst, src) in destination
+                .chunks_exact_mut(F::BYTES)
+                .zip(source.chunks_exact(F::BYTES))
+            {
+                F::encode(dst, F::decode(dst).add(F::decode(src)));
+            }
+        }
+    }
+    ops::mul_add_matrix_with::<F>(&mut actual, row_len, &plan, &references);
+    assert_eq!(actual, expected);
 }

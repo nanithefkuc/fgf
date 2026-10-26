@@ -37,12 +37,12 @@
 //! Byte-preserving shortcuts: a zero coefficient fills zero lanes in
 //! overwrite and leaves the destination untouched in accumulation; a unit
 //! coefficient copies the source bytes unchanged in overwrite, adds them
-//! in accumulation, and leaves the destination untouched in place. Those
-//! three paths preserve noncanonical lane bytes instead of canonicalizing
-//! them; every other coefficient decodes, multiplies, and encodes
-//! canonical lanes. The vector arms apply the same shortcuts before
-//! dispatch, so routed output matches the portable composition byte for
-//! byte on every input.
+//! in accumulation, and leaves the destination untouched in place.
+//! Zero accumulation, unit overwrite, and unit in-place execution preserve
+//! existing or copied noncanonical bytes. Additive operations, including
+//! unit accumulation, canonicalize the lanes they write. General coefficients
+//! decode, multiply, and encode canonical lanes. Vector arms preserve these
+//! same rules.
 //!
 //! Broadcast add/sub route through the modular path for every
 //! characteristic. The characteristic-two XOR default is a binary-field
@@ -154,8 +154,8 @@ impl<const P: u64> FieldKernels for FiniteField<P, 1, Residue> {
     fn backend() -> Backend {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
-            // Reports the implemented tier for nibble-table u8 rows,
-            // every u32 row, and u64 rows at odd moduli.
+            // Reports the fixed-coefficient multiplication strategy. Exact
+            // prime add/sub can vectorize while this summary is Scalar.
             if routes_vector(<Self as FieldBuffer>::BYTES, P) {
                 vector_tier()
             } else {
@@ -340,10 +340,10 @@ pub const fn delay_depth<const P: u64>() -> u64 {
 /// Whether delayed accumulation reproduces the repeated single-row
 /// composition byte for byte for this coefficient matrix.
 ///
-/// The fallback composes one portable `mul_add` per (term, row) pair, and
-/// the portable `mul_add` leaves a row's bytes untouched when its
-/// coefficient is zero while every other coefficient stores canonical
-/// lanes. An output row whose coefficients are all zero therefore keeps
+/// The fallback composes one dispatched `mul_add` per (term, row) pair.
+/// Zero coefficients preserve incoming bytes, and nonzero coefficients
+/// produce canonical lanes, including unit coefficients routed through addition.
+/// An output row whose coefficients are all zero therefore keeps
 /// its incoming bytes exactly — aliases included — but the delayed
 /// accumulate kernel normalizes the destination up front and always
 /// stores canonical lanes. The two agree on every input iff no output
@@ -426,6 +426,40 @@ pub fn delayed_matrix_backend(
     }
 }
 
+/// Smallest Mersenne31-modulus row, in bytes, whose addition reuses the
+/// Mersenne31 vector kernels. Set by the paired composition record in
+/// `benchmarks/v3/compositions.md`.
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+const MERSENNE31_ADD_MIN_BYTES: usize = 60;
+
+/// Smallest Goldilocks-modulus row, in bytes, whose addition reuses the
+/// Goldilocks AVX2 and AVX-512 kernels. Set by the same record.
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+const GOLDILOCKS_ADD_MIN_BYTES: usize = 248;
+
+/// Whether an exact-modulus row of `len` bytes reuses the specialized
+/// prime field's addition kernels. Scalar tiers keep the residue loop;
+/// Goldilocks-modulus rows also keep it on SSE4.2.
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+fn reuses_prime_addition<const P: u64>(len: usize) -> bool {
+    match P {
+        0x7fff_ffff => backend() != Backend::Scalar && len >= MERSENNE31_ADD_MIN_BYTES,
+        0xffff_ffff_0000_0001 => {
+            matches!(
+                backend(),
+                Backend::V4x | Backend::V3GfniCrypto | Backend::V3
+            ) && len >= GOLDILOCKS_ADD_MIN_BYTES
+        }
+        _ => false,
+    }
+}
+
+/// Portable builds keep the residue loop for every modulus.
+#[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
+const fn reuses_prime_addition<const P: u64>(_len: usize) -> bool {
+    false
+}
+
 impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
     type Prepared = PreparedResidue;
 
@@ -440,15 +474,46 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
     }
 
     fn add_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
-        prime::add_assign::<Self>(dst, src);
+        match P {
+            0x7fff_ffff if reuses_prime_addition::<P>(dst.len()) => {
+                <crate::Mersenne31 as KernelDispatch>::add_assign(RawDispatch, dst, src);
+            }
+            0xffff_ffff_0000_0001 if reuses_prime_addition::<P>(dst.len()) => {
+                <crate::Goldilocks as KernelDispatch>::add_assign(RawDispatch, dst, src);
+            }
+            _ => prime::add_assign::<Self>(dst, src),
+        }
     }
 
     fn sub_assign(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
-        prime::sub_assign::<Self>(dst, src);
+        match P {
+            0x7fff_ffff if reuses_prime_addition::<P>(dst.len()) => {
+                <crate::Mersenne31 as KernelDispatch>::sub_assign(RawDispatch, dst, src);
+            }
+            0xffff_ffff_0000_0001 if reuses_prime_addition::<P>(dst.len()) => {
+                <crate::Goldilocks as KernelDispatch>::sub_assign(RawDispatch, dst, src);
+            }
+            _ => prime::sub_assign::<Self>(dst, src),
+        }
     }
 
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         mul_add_prepared::<P>(dst, *coeff, src);
+    }
+
+    fn mul_add_unprepared(_proof: RawDispatch, dst: &mut [u8], coeff: Elem<Self>, src: &[u8]) {
+        #[cfg(all(feature = "simd", target_arch = "x86_64"))]
+        if single_row_backend(
+            <Self as crate::field::FieldBuffer>::BYTES,
+            P,
+            dst.len(),
+            VectorOp::Add,
+        ) != Backend::Scalar
+        {
+            Self::mul_add(RawDispatch, dst, &Self::prepare(RawDispatch, coeff), src);
+            return;
+        }
+        prime::mul_add::<Self>(dst, coeff, src);
     }
 
     fn mul_into(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
@@ -466,11 +531,11 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
         coeffs: &[Elem<Self>],
         src: &[u8],
     ) {
-        prime::mul_add_scatter::<Self>(rows, row_len, coeffs, src);
+        crate::kernel::fallback::mul_add_scatter::<Self>(rows, row_len, coeffs, src);
     }
 
     fn mul_add_gather(_proof: RawDispatch, dst: &mut [u8], coeffs: &[Elem<Self>], srcs: &[&[u8]]) {
-        prime::mul_add_gather::<Self>(dst, coeffs, srcs);
+        crate::kernel::fallback::mul_add_gather::<Self>(dst, coeffs, srcs);
     }
 
     fn mul_add_matrix(
@@ -480,7 +545,7 @@ impl<const P: u64> KernelDispatch for FiniteField<P, 1, Residue> {
         nrows: usize,
         terms: &[(&[Elem<Self>], &[u8])],
     ) {
-        prime::mul_add_matrix::<Self>(rows, row_len, nrows, terms);
+        crate::kernel::fallback::mul_add_matrix::<Self>(rows, row_len, nrows, terms);
     }
     #[cfg(feature = "alloc")]
     #[allow(clippy::cast_possible_truncation)]
@@ -688,9 +753,12 @@ fn mul_add_prepared<const P: u64>(dst: &mut [u8], coeff: PreparedResidue, src: &
         return;
     }
     if c.is_one() {
-        prime::add_assign::<Row<P>>(dst, src);
+        Row::<P>::add_assign(RawDispatch, dst, src);
         return;
     }
+    // Canonical zero and unit comparisons exclude both trivial coefficients.
+    #[cfg(test)]
+    let _general_trace = crate::kernel::trace::general_mul_add();
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     match single_row_backend(
         <Row<P> as crate::field::FieldBuffer>::BYTES,

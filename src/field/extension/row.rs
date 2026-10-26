@@ -20,6 +20,7 @@ use crate::field::binary::binary_private;
 use crate::field::binary::description::BinaryDescription;
 use crate::field::binary::{BinaryDegree, BinaryField};
 use crate::field::finite_field::{FiniteField, FiniteFieldRepr, checked_order};
+use crate::field::private::BufferDispatch;
 use crate::field::private::RowAccess;
 use crate::field::{Elem, Field, FieldBuffer, PrimeCharacteristic, Validate};
 
@@ -654,6 +655,24 @@ where
             "extension element has the wrong byte width"
         );
         <S::Storage as StorageBuffer<S::Base, D>>::encode(bytes, &value.raw);
+    }
+}
+
+impl<const P: u64, const N: u32, const D: usize, S: ExtensionSpec<D>> BufferDispatch
+    for FiniteField<P, N, Extension<S, D>>
+where
+    S::Storage: StorageBuffer<S::Base, D>,
+{
+    #[inline]
+    fn add_assign_bytes(_proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
+        let () = Validate::<Self>::OK;
+        <S::Storage as StorageBuffer<S::Base, D>>::add_assign_bytes(dst, src);
+    }
+
+    #[inline]
+    fn sub_assign_bytes(_proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
+        let () = Validate::<Self>::OK;
+        <S::Storage as StorageBuffer<S::Base, D>>::sub_assign_bytes(dst, src);
     }
 }
 

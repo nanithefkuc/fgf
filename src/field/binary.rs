@@ -36,6 +36,7 @@ pub use poly::{AES, Polynomial, RS};
 use core::fmt;
 
 use super::finite_field::{FiniteField, FiniteFieldRepr, checked_order};
+use super::private;
 use super::{Elem, Field, FieldBuffer, PrimeCharacteristic, RangeError, Validate};
 
 pub(crate) mod binary_private {
@@ -512,6 +513,18 @@ impl<R: BinaryRepr<8>> FieldBuffer for FiniteField<2, 8, R> {
     fn encode(bytes: &mut [u8], value: Elem<Self>) {
         assert_eq!(bytes.len(), 1, "GF(2^8) element has the wrong byte width");
         bytes.copy_from_slice(&value.to_bytes());
+    }
+}
+
+impl<R: BinaryRepr<8>> private::BufferDispatch for FiniteField<2, 8, R> {
+    #[inline]
+    fn add_assign_bytes(_proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
+    }
+
+    #[inline]
+    fn sub_assign_bytes(_proof: crate::kernel::RawDispatch, dst: &mut [u8], src: &[u8]) {
+        crate::kernel::xor(dst, src);
     }
 }
 

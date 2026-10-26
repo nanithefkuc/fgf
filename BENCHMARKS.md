@@ -2,9 +2,10 @@
 
 Public results use the complete **2026-10-19** two-host campaign over the
 3.0.1 source; prepared field maps come from a separate campaign at revision
-`f10e59d`. Library changes absent from those measured sources have no figures
-here. Choose a workload or field family below, then use its operation links to
-find a figure.
+`f10e59d`, and row compositions from a separate paired base/candidate
+campaign whose revisions its page lists. Library changes absent from those
+measured sources have no figures here. Choose a workload or field family
+below, then use its operation links to find a figure.
 Cells use **Willow Cove / Golden Cove** order. Higher **GiB/s** is better;
 lower **ns/op** is better. A dash means no measurement.
 
@@ -16,6 +17,7 @@ lower **ns/op** is better. A dash means no measurement.
 | Embeddings, isomorphisms, restrictions, conversion loops | [Field maps](benchmarks/v3/maps.md) |
 | Native GF16 encodings and matched competitors | [GF16 presentations](benchmarks/v3/gf16-presentations.md) |
 | Prepared maps, Frobenius, and bit-packed map rows | [Prepared field maps](benchmarks/v3/field-maps.md) |
+| Prime, residue, and component scatter, gather, matrix, and row addition | [Row compositions](benchmarks/v3/compositions.md) — paired base/candidate factors and routing boundaries |
 
 | Field family | Size sweeps and competitors |
 | --- | --- |

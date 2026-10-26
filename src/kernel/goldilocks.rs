@@ -8,8 +8,8 @@
 //! reports `Scalar` there. The prepared form is the canonical lane word,
 //! broadcast by the kernels on entry.
 
-use crate::field::Elem;
 use crate::field::goldilocks::Goldilocks;
+use crate::field::{Elem, FieldElem};
 #[allow(unused_imports)]
 use crate::kernel::{Backend, FieldKernels, KernelDispatch, RawDispatch, backend, prime, scalar};
 
@@ -100,6 +100,15 @@ impl KernelDispatch for Goldilocks {
     }
 
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Elem<Goldilocks>, src: &[u8]) {
+        if coeff.is_zero() {
+            return;
+        }
+        if coeff.is_one() {
+            return Self::add_assign(RawDispatch, dst, src);
+        }
+        // Canonical zero and unit comparisons exclude both trivial coefficients.
+        #[cfg(test)]
+        let _general_trace = crate::kernel::trace::general_mul_add();
         match backend() {
             #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => x86::goldilocks::mul_add_avx512(v4(), dst, coeff.to_raw(), src),
@@ -184,7 +193,7 @@ impl KernelDispatch for Goldilocks {
         coeffs: &[Elem<Goldilocks>],
         src: &[u8],
     ) {
-        prime::mul_add_scatter::<Goldilocks>(rows, row_len, coeffs, src);
+        crate::kernel::fallback::mul_add_scatter::<Goldilocks>(rows, row_len, coeffs, src);
     }
 
     fn mul_add_gather(
@@ -193,7 +202,7 @@ impl KernelDispatch for Goldilocks {
         coeffs: &[Elem<Goldilocks>],
         srcs: &[&[u8]],
     ) {
-        prime::mul_add_gather::<Goldilocks>(dst, coeffs, srcs);
+        crate::kernel::fallback::mul_add_gather::<Goldilocks>(dst, coeffs, srcs);
     }
 
     fn mul_add_matrix(
@@ -203,7 +212,7 @@ impl KernelDispatch for Goldilocks {
         nrows: usize,
         terms: &[(&[Elem<Goldilocks>], &[u8])],
     ) {
-        prime::mul_add_matrix::<Goldilocks>(rows, row_len, nrows, terms);
+        crate::kernel::fallback::mul_add_matrix::<Goldilocks>(rows, row_len, nrows, terms);
     }
 
     fn mul_elementwise(_proof: RawDispatch, dst: &mut [u8], a: &[u8], b: &[u8]) {

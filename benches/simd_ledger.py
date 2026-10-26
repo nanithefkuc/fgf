@@ -1892,6 +1892,60 @@ def _stage_eligible_work(stage: dict, item: dict, minimum: int) -> int:
         total += _convert_work(value, item, stage)
     return total
 
+def _general_tiers(stage: dict) -> dict:
+    """Validate qualified work as a subset of the same physical loop counts."""
+    if "general_tiers" not in stage:
+        return {}
+    general = stage["general_tiers"]
+    raw = stage.get("tiers")
+    if (stage.get("substage") != "MulAdd" or not isinstance(general, dict)
+            or not isinstance(raw, dict)):
+        _fail("general_attribution invalid qualified stage")
+    for tier, count in general.items():
+        total = raw.get(tier)
+        if (tier not in TIER_ORDER or tier not in raw
+                or not isinstance(count, int) or isinstance(count, bool) or count < 0
+                or not isinstance(total, int) or isinstance(total, bool)
+                or count > total):
+            _fail("general_attribution invalid per-tier subset")
+    return general
+
+
+def _general_work_parts(stage: dict, item: dict, minimum: int) -> tuple[int, int]:
+    """Convert qualified and unqualified counts separately before summing."""
+    general = _general_tiers(stage)
+    raw = stage.get("tiers")
+    if not isinstance(raw, dict):
+        return 0, 0
+    qualified = unqualified = 0
+    for tier, total in raw.items():
+        if (_strength(tier) < minimum or not isinstance(total, int)
+                or isinstance(total, bool)):
+            continue
+        count = general.get(tier, 0)
+        qualified += _convert_work(count, item, stage)
+        unqualified += _convert_work(total - count, item, stage)
+    return qualified, unqualified
+
+
+def _check_general_attribution(case: dict, key: str, stages: list) -> None:
+    """Bound all qualified tiers by the case's actual general coefficients."""
+    items = case.get("cell_work", {}).get(key, [])
+    general_terms = case.get("pattern", {}).get("slots", []).count("General")
+    for stage in stages:
+        qualified = _general_tiers(stage)
+        if qualified and not any(_item_matches(item, stage) for item in items):
+            _fail("general_attribution no matching work budget")
+    for item in items:
+        if item.get("substage") != "MulAdd":
+            continue
+        total = sum(_convert_work(count, item, stage)
+                    for stage in stages if _item_matches(item, stage)
+                    for count in _general_tiers(stage).values())
+        maximum = general_terms * max(0, int(item.get("per_term_max", 0)))
+        if total > maximum:
+            _fail("general_attribution exceeds all general terms")
+
 
 def _overwrite_copy_bases(case: dict) -> int:
     """Destination rows whose overwrite starts from an exempt unit copy."""
@@ -1913,6 +1967,19 @@ def _overwrite_copy_bases(case: dict) -> int:
         if "One" in slots[row * sources:(row + 1) * sources])
 
 
+def _general_seed(case: dict, items: list) -> bool:
+    """Whether an overwrite gather's general first coefficient may serve one
+    ``MulAdd`` term through the overwriting multiply that seeds the row.
+
+    Cells that budget ``Mul`` themselves keep that work for their own item.
+    """
+    base = case.get("callable", "").split("::")[-1]
+    slots = case.get("pattern", {}).get("slots", [])
+    return (base.startswith("mul_into") and "gather" in base
+            and bool(slots) and slots[0] == "General"
+            and not any(item.get("substage") == "Mul" for item in items))
+
+
 def _case_coverage_error(case: dict, key: str, stages: list,
                          minimum: int) -> str | None:
     """Derived-budget coverage with tier- and coefficient-aware fused credit.
@@ -1921,6 +1988,7 @@ def _case_coverage_error(case: dict, key: str, stages: list,
     overwrite copy-base term are subtracted at their full-length maximum; the
     remainder, capped by the non-copy unit terms, may fund Add.
     """
+    _check_general_attribution(case, key, stages)
     items = case.get("cell_work", {}).get(key, [])
     slots = case.get("pattern", {}).get("slots", [])
     general = slots.count("General")
@@ -1946,9 +2014,13 @@ def _case_coverage_error(case: dict, key: str, stages: list,
         if not isinstance(budget, int) or budget <= 0:
             continue
         served = 0
+        qualified = unqualified = 0
         for stage in stages:
             if _item_matches(item, stage):
                 served += _stage_eligible_work(stage, item, minimum)
+                general_work, other_work = _general_work_parts(stage, item, minimum)
+                qualified += general_work
+                unqualified += other_work
         if item.get("multiplicity") in UNIT_ADD_MULTIPLICITIES:
             unit = item.get("unit")
             credit = min(pools.get(unit, 0), max(0, budget - served))
@@ -1957,7 +2029,12 @@ def _case_coverage_error(case: dict, key: str, stages: list,
         elif item.get("multiplicity") == "ActivePairs":
             maximum = max(0, int(item.get("per_term_max", 0)))
             reserved = (zero + ones) * maximum
-            served = max(0, served - reserved)
+            served = qualified + max(0, unqualified - reserved)
+            if item.get("substage") == "MulAdd" and _general_seed(case, items):
+                seed_item = {**item, "substage": "Mul"}
+                seed = sum(_stage_eligible_work(stage, item, minimum)
+                           for stage in stages if _item_matches(seed_item, stage))
+                served += min(seed, maximum)
         if served < budget:
             return (f"needs {item['substage']}/{item['unit']} "
                     f"budget={budget} served={served}")
@@ -2026,6 +2103,7 @@ def _check_budget_parity(case: dict, key: str, rec: dict, cid: str) -> None:
                 or budget < 0):
             _fail(f"budget_parity case {cid!r}: invalid stage budget {budget!r}")
     used: set[int] = set()
+    _check_general_attribution(case, key, stages)
     for item in items:
         item_key = _parity_key(item.get("substage"), item.get("scope"),
                                item.get("unit"))

@@ -22,7 +22,7 @@ use crate::field::extension::storage::{StorageBuffer, StorageRepr};
 use crate::field::extension::{Components, Extension, ExtensionSpec, ExtensionStorage, Packed};
 use crate::field::finite_field::FiniteField;
 use crate::field::quad_mersenne31::QuadMersenne31;
-use crate::field::{Elem, Field, FieldBuffer};
+use crate::field::{Elem, Field, FieldBuffer, FieldElem};
 use crate::kernel::{
     Backend, FieldKernels, KernelDispatch, RawDispatch, fallback, prime, quad_mersenne31, scalar,
 };
@@ -96,6 +96,27 @@ pub(crate) trait StorageKernels<B: Field, const D: usize>: StorageBuffer<B, D> {
         coeff: &Self::Prepared,
         src: &[u8],
     );
+
+    /// Applies a nonzero, non-unit coefficient value without unnecessary preparation.
+    fn mul_add_unprepared<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        coeff: Elem<F>,
+        src: &[u8],
+    ) {
+        let prepared = Self::prepare::<F>(proof, coeff);
+        Self::mul_add::<F>(RawDispatch, dst, &prepared, src);
+    }
+
+    /// `KernelDispatch::mul_add_portable`.
+    fn mul_add_portable<F: StorageRow<B, D, Self>>(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeff: Elem<F>,
+        src: &[u8],
+    ) {
+        prime::mul_add::<F>(dst, coeff, src);
+    }
 
     /// `KernelDispatch::mul_into`.
     fn mul_into<F: StorageRow<B, D, Self>>(
@@ -276,6 +297,20 @@ where
     #[inline]
     fn mul_add(proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]) {
         <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_add::<Self>(proof, dst, coeff, src);
+    }
+
+    #[inline]
+    fn mul_add_unprepared(proof: RawDispatch, dst: &mut [u8], coeff: Elem<Self>, src: &[u8]) {
+        <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_add_unprepared::<Self>(
+            proof, dst, coeff, src,
+        );
+    }
+
+    #[inline]
+    fn mul_add_portable(proof: RawDispatch, dst: &mut [u8], coeff: Elem<Self>, src: &[u8]) {
+        <StorageOf<S, D> as StorageKernels<S::Base, D>>::mul_add_portable::<Self>(
+            proof, dst, coeff, src,
+        );
     }
 
     #[inline]
@@ -522,6 +557,18 @@ fn quad<B: Field, const D: usize>(
     Elem { raw: limbs }
 }
 
+/// Smallest component row, in bytes, whose addition and subtraction reuse
+/// the base field's whole-buffer dispatch. Shorter rows keep the component
+/// loop. Set by the paired composition record in `benchmarks/v3/compositions.md`.
+const COMPONENT_BASE_ADD_MIN_BYTES: usize = 2048;
+
+/// Whether a component row of `len` bytes reuses base-field addition.
+///
+/// Order-two bases keep the component loop at every length.
+const fn reuses_base_addition<B: Field>(len: usize) -> bool {
+    B::ORDER != 2 && len >= COMPONENT_BASE_ADD_MIN_BYTES
+}
+
 /// The portable [`prime`] path, or the QM31 kernels for the shipped prime
 /// extension. The prepared coefficient is the raw component array.
 impl<B: FieldBuffer, const D: usize> StorageKernels<B, D> for Components
@@ -568,12 +615,18 @@ where
         if is_quad_mersenne::<F>() {
             return quad_mersenne31::add_assign(dst, src);
         }
+        if reuses_base_addition::<B>(dst.len()) {
+            return F::add_assign_bytes(RawDispatch, dst, src);
+        }
         prime::add_assign::<F>(dst, src);
     }
 
     fn sub_assign<F: StorageRow<B, D, Self>>(_proof: RawDispatch, dst: &mut [u8], src: &[u8]) {
         if is_quad_mersenne::<F>() {
             return quad_mersenne31::sub_assign(dst, src);
+        }
+        if reuses_base_addition::<B>(dst.len()) {
+            return F::sub_assign_bytes(RawDispatch, dst, src);
         }
         prime::sub_assign::<F>(dst, src);
     }
@@ -584,10 +637,43 @@ where
         coeff: &[B::Raw; D],
         src: &[u8],
     ) {
+        let value = Elem::<F> { raw: *coeff };
+        if value.is_zero() {
+            return;
+        }
+        if value.is_one() {
+            return F::add_assign(RawDispatch, dst, src);
+        }
+        // Canonical zero and unit comparisons exclude both trivial coefficients.
+        #[cfg(test)]
+        let _general_trace = crate::kernel::trace::general_mul_add();
         if is_quad_mersenne::<F>() {
             return quad_mersenne31::mul_add(dst, quad::<B, D>(*coeff), src);
         }
-        prime::mul_add::<F>(dst, Elem { raw: *coeff }, src);
+        prime::mul_add::<F>(dst, value, src);
+    }
+
+    fn mul_add_unprepared<F: StorageRow<B, D, Self>>(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeff: Elem<F>,
+        src: &[u8],
+    ) {
+        if is_quad_mersenne::<F>() {
+            return quad_mersenne31::mul_add(dst, quad::<B, D>(coeff.raw), src);
+        }
+        prime::mul_add::<F>(dst, coeff, src);
+    }
+
+    /// The unprepared row body is already portable and accepts every
+    /// coefficient, including zero and one.
+    fn mul_add_portable<F: StorageRow<B, D, Self>>(
+        proof: RawDispatch,
+        dst: &mut [u8],
+        coeff: Elem<F>,
+        src: &[u8],
+    ) {
+        Self::mul_add_unprepared::<F>(proof, dst, coeff, src);
     }
 
     /// One pass: decode, multiply, encode, never reading the old
@@ -622,13 +708,7 @@ where
         coeffs: &[Elem<F>],
         src: &[u8],
     ) {
-        if is_quad_mersenne::<F>() {
-            for (row, coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-                quad_mersenne31::mul_add(row, quad::<B, D>(coeff.raw), src);
-            }
-            return;
-        }
-        prime::mul_add_scatter::<F>(rows, row_len, coeffs, src);
+        fallback::mul_add_scatter::<F>(rows, row_len, coeffs, src);
     }
 
     fn mul_add_gather<F: StorageRow<B, D, Self>>(
@@ -637,13 +717,7 @@ where
         coeffs: &[Elem<F>],
         srcs: &[&[u8]],
     ) {
-        if is_quad_mersenne::<F>() {
-            for (coeff, &src) in coeffs.iter().zip(srcs) {
-                quad_mersenne31::mul_add(dst, quad::<B, D>(coeff.raw), src);
-            }
-            return;
-        }
-        prime::mul_add_gather::<F>(dst, coeffs, srcs);
+        fallback::mul_add_gather::<F>(dst, coeffs, srcs);
     }
 
     fn mul_add_matrix<F: StorageRow<B, D, Self>>(
@@ -653,15 +727,7 @@ where
         nrows: usize,
         terms: &[(&[Elem<F>], &[u8])],
     ) {
-        if is_quad_mersenne::<F>() {
-            for &(coeffs, src) in terms {
-                for (row, coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
-                    quad_mersenne31::mul_add(row, quad::<B, D>(coeff.raw), src);
-                }
-            }
-            return;
-        }
-        prime::mul_add_matrix::<F>(rows, row_len, nrows, terms);
+        fallback::mul_add_matrix::<F>(rows, row_len, nrows, terms);
     }
 
     fn mul_elementwise<F: StorageRow<B, D, Self>>(

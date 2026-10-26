@@ -11,7 +11,7 @@
 
 extern crate std;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::vec::Vec;
 
 use crate::kernel::Backend;
@@ -98,17 +98,23 @@ pub(crate) struct Entry {
     pub work: usize,
     /// Instruction tier of the loop that ran.
     pub tier: Backend,
+    /// The emitting call has checked that its coefficient is neither zero nor one.
+    pub general_only: bool,
 }
 
 std::thread_local! {
     static ENTRIES: RefCell<Vec<Entry>> = const { RefCell::new(Vec::new()) };
     static SCOPE: RefCell<Vec<(Scope, Pass)>> = const { RefCell::new(Vec::new()) };
+    static ELEMENT_BYTES: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    static GENERAL_MUL_ADD: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Discard this thread's recorded entries and scope path.
 pub fn clear() {
     ENTRIES.with(|entries| entries.borrow_mut().clear());
     SCOPE.with(|scope| scope.borrow_mut().clear());
+    ELEMENT_BYTES.with(|widths| widths.borrow_mut().clear());
+    GENERAL_MUL_ADD.with(|general| general.set(false));
 }
 
 /// Record one stretch of vector work. Zero work records nothing.
@@ -124,6 +130,18 @@ pub(crate) fn emit(
         return;
     }
     let scope = SCOPE.with(|scope| scope.borrow().last().copied());
+    let (unit, work) = if unit == Unit::Elements {
+        ELEMENT_BYTES.with(|widths| match widths.borrow().last().copied() {
+            Some(width) => (
+                Unit::Bytes,
+                work.checked_mul(width)
+                    .expect("trace element byte count overflow"),
+            ),
+            None => (unit, work),
+        })
+    } else {
+        (unit, work)
+    };
     ENTRIES.with(|entries| {
         entries.borrow_mut().push(Entry {
             kernel,
@@ -132,6 +150,7 @@ pub(crate) fn emit(
             unit,
             work,
             tier,
+            general_only: substage == Substage::MulAdd && GENERAL_MUL_ADD.with(Cell::get),
         });
     });
 }
@@ -160,6 +179,52 @@ impl Drop for ScopeGuard {
         SCOPE.with(|scopes| {
             scopes.borrow_mut().pop();
         });
+    }
+}
+
+/// Express nested element-kernel emissions as bytes of their actual layout.
+///
+/// Component compositions may use a base field with a different element
+/// width. The innermost guard supplies that base width; byte emissions
+/// already carry a layout-independent count and remain unchanged.
+#[must_use]
+pub(crate) fn element_bytes(width: usize) -> ElementBytesGuard {
+    assert!(width > 0, "trace element width must be positive");
+    ELEMENT_BYTES.with(|widths| widths.borrow_mut().push(width));
+    ElementBytesGuard {}
+}
+
+/// Restores the enclosing element width when a component call returns.
+pub(crate) struct ElementBytesGuard {}
+
+impl Drop for ElementBytesGuard {
+    fn drop(&mut self) {
+        ELEMENT_BYTES.with(|widths| {
+            widths.borrow_mut().pop();
+        });
+    }
+}
+
+/// Qualify multiplication work after local zero and unit checks.
+///
+/// The caller checks the coefficient against its field's canonical zero
+/// and one in the same function before opening this guard. Only `MulAdd`
+/// emissions receive the qualifier; nested guards restore the prior value.
+#[must_use]
+pub(crate) fn general_mul_add() -> GeneralMulAddGuard {
+    GeneralMulAddGuard {
+        previous: GENERAL_MUL_ADD.with(|general| general.replace(true)),
+    }
+}
+
+/// Restores the enclosing coefficient qualification on return or unwind.
+pub(crate) struct GeneralMulAddGuard {
+    previous: bool,
+}
+
+impl Drop for GeneralMulAddGuard {
+    fn drop(&mut self) {
+        GENERAL_MUL_ADD.with(|general| general.set(self.previous));
     }
 }
 
@@ -335,6 +400,136 @@ mod tests {
         let entries = snapshot();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[1].scope, None);
+    }
+
+    #[test]
+    fn general_qualification_restores_nested_and_unwound_contexts() {
+        clear();
+        emit(
+            "plain",
+            super::Substage::MulAdd,
+            Unit::Elements,
+            1,
+            Backend::V3,
+        );
+        {
+            let _outer = super::general_mul_add();
+            {
+                let _inner = super::general_mul_add();
+                emit(
+                    "inner",
+                    super::Substage::MulAdd,
+                    Unit::Elements,
+                    2,
+                    Backend::V3,
+                );
+            }
+            emit(
+                "outer",
+                super::Substage::MulAdd,
+                Unit::Elements,
+                3,
+                Backend::V3,
+            );
+            emit("add", super::Substage::Add, Unit::Elements, 4, Backend::V3);
+        }
+        let caught = std::panic::catch_unwind(|| {
+            let _guard = super::general_mul_add();
+            panic!("unwind through coefficient qualification");
+        });
+        assert!(caught.is_err());
+        emit(
+            "after",
+            super::Substage::MulAdd,
+            Unit::Elements,
+            5,
+            Backend::V3,
+        );
+        let entries = snapshot();
+        assert!(!entries[0].general_only);
+        assert!(entries[1].general_only);
+        assert!(entries[2].general_only);
+        assert!(!entries[3].general_only);
+        assert!(!entries[4].general_only);
+        let guard = super::general_mul_add();
+        clear();
+        emit(
+            "cleared",
+            super::Substage::MulAdd,
+            Unit::Elements,
+            6,
+            Backend::V3,
+        );
+        assert!(!snapshot()[0].general_only);
+        drop(guard);
+    }
+
+    #[test]
+    fn component_widths_normalize_nested_work_to_bytes() {
+        clear();
+        {
+            let _outer = super::element_bytes(8);
+            emit(
+                "outer",
+                super::Substage::Add,
+                Unit::Elements,
+                2,
+                Backend::V3,
+            );
+            {
+                let _inner = super::element_bytes(4);
+                emit("base", super::Substage::Add, Unit::Elements, 3, Backend::V3);
+                emit("bytes", super::Substage::Add, Unit::Bytes, 5, Backend::V3);
+            }
+            emit(
+                "outer",
+                super::Substage::Sub,
+                Unit::Elements,
+                1,
+                Backend::V3,
+            );
+        }
+        emit(
+            "direct",
+            super::Substage::Add,
+            Unit::Elements,
+            1,
+            Backend::V3,
+        );
+        let observed: std::vec::Vec<_> = snapshot()
+            .iter()
+            .map(|entry| (entry.unit, entry.work))
+            .collect();
+        assert_eq!(
+            observed,
+            [
+                (Unit::Bytes, 16),
+                (Unit::Bytes, 12),
+                (Unit::Bytes, 5),
+                (Unit::Bytes, 8),
+                (Unit::Elements, 1)
+            ]
+        );
+    }
+
+    #[test]
+    fn component_width_restores_after_unwind() {
+        clear();
+        let _outer = super::element_bytes(8);
+        let caught = std::panic::catch_unwind(|| {
+            let _inner = super::element_bytes(4);
+            panic!("unwind through component width guard");
+        });
+        assert!(caught.is_err());
+        emit(
+            "outer",
+            super::Substage::Add,
+            Unit::Elements,
+            2,
+            Backend::V3,
+        );
+        let entries = snapshot();
+        assert_eq!((entries[0].unit, entries[0].work), (Unit::Bytes, 16));
     }
 
     #[test]

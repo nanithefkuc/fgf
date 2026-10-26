@@ -962,3 +962,161 @@ fn characteristic_two_extension_rows_join_the_binary_capability() {
         16
     );
 }
+
+struct ComponentStorage<S>(core::marker::PhantomData<S>);
+
+impl<S: ExtensionSpec<D>, const D: usize> ExtensionSpec<D> for ComponentStorage<S>
+where
+    S::Base: FieldBuffer,
+{
+    type Base = S::Base;
+    type Storage = Components;
+    const NAME: &'static str = S::NAME;
+    const RELATION: Relation = S::RELATION;
+}
+
+fn exercise_component_buffer<const P: u64, const N: u32, S>(components: [Elem<S::Base>; 2])
+where
+    S: ExtensionSpec<2, Storage = Components>,
+    S::Base: FieldBuffer,
+{
+    let value =
+        <FiniteField<P, N, Extension<S, 2>> as ExtensionField<2>>::from_components(components);
+    exercise_buffer::<FiniteField<P, N, Extension<S, 2>>>(value);
+}
+
+#[test]
+fn component_byte_consumers_require_only_field_buffer_bases() {
+    exercise_component_buffer::<0x7fff_ffff, 2, CustomComplexMersenneSpec>([
+        Elem::<Mersenne31>::from_raw(7),
+        Elem::<Mersenne31>::from_raw(11),
+    ]);
+    exercise_component_buffer::<0x7fff_ffff, 4, OverQuadMersenneSpec>([
+        Elem::<QuadMersenne31>::from_raw([3, 5]),
+        Elem::<QuadMersenne31>::from_raw([7, 11]),
+    ]);
+    exercise_component_buffer::<2, 16, ComponentStorage<OverNormalSpec>>([
+        Elem::<FiniteField<2, 8, Normal<0x11b, 0x20>>>::from_raw(0x53),
+        Elem::<FiniteField<2, 8, Normal<0x11b, 0x20>>>::from_raw(0xa7),
+    ]);
+}
+
+fn component_add_reference<F: FieldBuffer>(dst: &mut [u8], src: &[u8], subtract: bool) {
+    for (dst, src) in dst
+        .chunks_exact_mut(F::BYTES)
+        .zip(src.chunks_exact(F::BYTES))
+    {
+        let value = if subtract {
+            F::decode(dst).sub(F::decode(src))
+        } else {
+            F::decode(dst).add(F::decode(src))
+        };
+        F::encode(dst, value);
+    }
+}
+
+fn exercise_component_additive_routes<F: FieldKernels>() {
+    let len = 64 * F::BYTES;
+    let initial = vec![0xff; len];
+    let source = vec![0x55; len];
+    for subtract in [false, true] {
+        let mut expected = initial.clone();
+        component_add_reference::<F>(&mut expected, &source, subtract);
+        let mut actual = initial.clone();
+        if subtract {
+            ops::sub_assign::<F>(&mut actual, &source);
+        } else {
+            ops::add_assign::<F>(&mut actual, &source);
+        }
+        assert_eq!(actual, expected, "{}: add/sub raw aliases", F::NAME);
+        actual.copy_from_slice(&initial);
+        if subtract {
+            ops::sub_assign_rows::<F>(&mut actual, len / 2, &source);
+        } else {
+            ops::add_assign_rows::<F>(&mut actual, len / 2, &source);
+        }
+        assert_eq!(actual, expected, "{}: row add/sub raw aliases", F::NAME);
+    }
+
+    let other = vec![0xa7; len];
+    let mut region = source.clone();
+    region.extend_from_slice(&other);
+    let mut expected = initial.clone();
+    component_add_reference::<F>(&mut expected, &source, false);
+    component_add_reference::<F>(&mut expected, &other, false);
+    let mut actual = initial.clone();
+    ops::add_gather_offsets::<F>(&mut actual, &region, &[0, u32::try_from(len).unwrap()]);
+    assert_eq!(actual, expected, "{}: offset source addition", F::NAME);
+
+    let mut unit_expected = initial.clone();
+    component_add_reference::<F>(&mut unit_expected, &source, false);
+    let coefficient = ops::Coeff::<F>::new(Elem::<F>::ONE);
+    actual.copy_from_slice(&initial);
+    ops::mul_add_with::<F>(&mut actual, &coefficient, &source);
+    assert_eq!(actual, unit_expected, "{}: prepared unit row", F::NAME);
+
+    let coefficients = [Elem::<F>::ZERO, Elem::<F>::ONE];
+    let mut rows = initial.repeat(2);
+    let mut expected_rows = initial.clone();
+    expected_rows.extend_from_slice(&unit_expected);
+    ops::mul_add_scatter::<F>(&mut rows, len, &coefficients, &source);
+    assert_eq!(rows, expected_rows, "{}: zero/unit scatter", F::NAME);
+    actual.copy_from_slice(&initial);
+    ops::mul_add_gather::<F>(&mut actual, &coefficients, &[&source, &source]);
+    assert_eq!(actual, unit_expected, "{}: zero/unit gather", F::NAME);
+
+    let terms = [(coefficients.as_slice(), source.as_slice())];
+    rows.copy_from_slice(&initial.repeat(2));
+    ops::mul_add_matrix::<F>(&mut rows, len, 2, &terms);
+    assert_eq!(rows, expected_rows, "{}: zero/unit matrix", F::NAME);
+    let mut scattered = initial.repeat(3);
+    let mut scattered_expected = initial.repeat(2);
+    scattered_expected.extend_from_slice(&unit_expected);
+    ops::mul_add_matrix_at::<F>(&mut scattered, len, &[0, 2 * len], &terms);
+    assert_eq!(
+        scattered,
+        scattered_expected,
+        "{}: zero/unit matrix offsets",
+        F::NAME
+    );
+
+    #[cfg(feature = "alloc")]
+    {
+        let vector = ops::CoeffVec::<F>::new(&coefficients);
+        rows.copy_from_slice(&initial.repeat(2));
+        ops::mul_add_scatter_with::<F>(&mut rows, len, vector.as_ref(), &source);
+        assert_eq!(
+            rows,
+            expected_rows,
+            "{}: prepared zero/unit scatter",
+            F::NAME
+        );
+        actual.copy_from_slice(&initial);
+        ops::mul_add_gather_with::<F>(&mut actual, vector.as_ref(), &[&source, &source]);
+        assert_eq!(
+            actual,
+            unit_expected,
+            "{}: prepared zero/unit gather",
+            F::NAME
+        );
+    }
+}
+
+#[test]
+fn component_additive_routes_preserve_alias_and_unit_semantics() {
+    exercise_component_additive_routes::<MersenneCube>();
+    exercise_component_additive_routes::<GoldilocksSquare>();
+    exercise_component_additive_routes::<OverQuadMersenne>();
+    exercise_component_additive_routes::<OverCustomMersenne>();
+    exercise_component_additive_routes::<WidePrimeSquare>();
+    exercise_component_additive_routes::<ResidueTwoSquare>();
+    exercise_component_additive_routes::<
+        FiniteField<2, 16, Extension<ComponentStorage<CustomSpec>, 2>>,
+    >();
+    exercise_component_additive_routes::<
+        FiniteField<2, 16, Extension<ComponentStorage<OverNormalSpec>, 2>>,
+    >();
+    exercise_component_additive_routes::<
+        FiniteField<2, 32, Extension<ComponentStorage<Rijndael32>, 2>>,
+    >();
+}

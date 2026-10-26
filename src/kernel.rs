@@ -288,15 +288,19 @@ pub(crate) fn x86_v2_token() -> archmage::X64V2Token {
     }
 }
 
-/// The backend used for a particular field's bulk operations.
+/// The field's bulk-kernel strategy summary.
 ///
-/// Presentations without a kernel strategy on the selected tier report
-/// [`Backend::Scalar`] and run the typed scalar fallback: ordered-basis byte
-/// fields, degree-eight towers, custom tower specs, and pinned towers on a
-/// tier their kernels do not serve. SIMD kernels are x86-64 only, so on
-/// `AArch64` and `Wasm32` every field reports [`Backend::Scalar`] and runs the
-/// portable scalar bodies (`backend()` itself still reports `simdispatch`'s
-/// process selection).
+/// This is not a per-operation serving-tier guarantee: operation, coefficient,
+/// and buffer geometry determine the executed body. Generic component rows
+/// report their multiplication strategy, while addition, subtraction, and unit
+/// accumulation reuse the base field's kernels. Residue rows summarize their
+/// fixed-coefficient multiplication strategy; exact Mersenne31 and Goldilocks
+/// moduli can reuse vector addition even when that strategy reports
+/// [`Backend::Scalar`]. A scalar summary is not a blanket scalar-execution claim.
+///
+/// SIMD kernels are x86-64 only. On `AArch64` and `Wasm32` every field reports
+/// [`Backend::Scalar`] and uses portable bodies; [`backend()`] still reports
+/// the process selection.
 #[inline]
 #[must_use]
 pub fn backend_for<F: FieldKernels>() -> Backend {
@@ -334,7 +338,7 @@ pub fn vector_elementwise_min_bytes<F: FieldKernels>() -> usize {
 // Raw dispatch is sealed behind a private proof argument.
 #[allow(private_bounds)]
 pub trait FieldKernels: FieldBuffer + private::Sealed + KernelDispatch {
-    /// Backend used by this field's kernels.
+    /// Field-strategy summary, with the operation caveats of [`backend_for`].
     #[inline]
     #[must_use]
     fn backend() -> Backend {
@@ -449,6 +453,28 @@ pub(crate) trait KernelDispatch: FieldBuffer {
     /// `dst += coeff * src`. The workhorse AXPY.
     fn mul_add(_proof: RawDispatch, dst: &mut [u8], coeff: &Self::Prepared, src: &[u8]);
 
+    /// Applies a nonzero, non-unit value, preparing only the state its route needs.
+    fn mul_add_unprepared(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeff: crate::field::Elem<Self>,
+        src: &[u8],
+    ) {
+        Self::mul_add(RawDispatch, dst, &Self::prepare(RawDispatch, coeff), src);
+    }
+
+    /// Applies one composed row through the field's portable row body.
+    ///
+    /// Compositions use it below [`fallback::COMPOSED_ROW_MIN_BYTES`].
+    fn mul_add_portable(
+        _proof: RawDispatch,
+        dst: &mut [u8],
+        coeff: crate::field::Elem<Self>,
+        src: &[u8],
+    ) {
+        prime::mul_add::<Self>(dst, coeff, src);
+    }
+
     /// `dst = coeff * src`, out of place.
     ///
     /// The default copies `src` into `dst` and scales in place — two passes
@@ -494,7 +520,7 @@ pub(crate) trait KernelDispatch: FieldBuffer {
         src: &[u8],
     ) {
         for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
-            Self::mul_into(RawDispatch, row, &Self::prepare(RawDispatch, coeff), src);
+            fallback::mul_into_row::<Self>(row, coeff, src);
         }
     }
 
@@ -859,7 +885,7 @@ pub(crate) trait KernelDispatch: FieldBuffer {
 /// exactly the trait's own defaults.
 pub(crate) mod fallback {
     use super::{KernelDispatch, PrimeIdentity, RawDispatch, bytes, prime};
-    use crate::field::Field;
+    use crate::field::{Elem, Field, FieldElem};
 
     /// Folds byte-offset sources one at a time through `add_assign`.
     pub(crate) fn add_gather_offsets<F: KernelDispatch>(
@@ -881,6 +907,80 @@ pub(crate) mod fallback {
     pub(crate) fn mul_into<F: KernelDispatch>(dst: &mut [u8], coeff: &F::Prepared, src: &[u8]) {
         dst.copy_from_slice(src);
         F::mul_assign(RawDispatch, dst, coeff);
+    }
+
+    /// Smallest row, in bytes, that a composition dispatches row by row;
+    /// shorter rows run the field's portable row body. Set by the paired
+    /// composition record in `benchmarks/v3/compositions.md`.
+    pub(crate) const COMPOSED_ROW_MIN_BYTES: usize = 128;
+
+    /// Dispatches one row, preserving zero destinations byte-for-byte.
+    #[inline]
+    fn mul_add_row<F: KernelDispatch>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
+        if coeff.is_zero() {
+            return;
+        }
+        if dst.len() < COMPOSED_ROW_MIN_BYTES {
+            F::mul_add_portable(RawDispatch, dst, coeff, src);
+            return;
+        }
+        if coeff.is_one() {
+            F::add_assign(RawDispatch, dst, src);
+            return;
+        }
+        // Canonical zero and unit comparisons exclude both trivial coefficients.
+        #[cfg(test)]
+        let _general_trace = crate::kernel::trace::general_mul_add();
+        F::mul_add_unprepared(RawDispatch, dst, coeff, src);
+    }
+
+    /// Accumulates one source into coefficient-addressed destination rows.
+    pub(crate) fn mul_add_scatter<F: KernelDispatch>(
+        rows: &mut [u8],
+        row_len: usize,
+        coeffs: &[Elem<F>],
+        src: &[u8],
+    ) {
+        for (row, &coeff) in rows.chunks_exact_mut(row_len).zip(coeffs) {
+            mul_add_row::<F>(row, coeff, src);
+        }
+    }
+
+    /// Accumulates weighted sources into one destination row.
+    pub(crate) fn mul_add_gather<F: KernelDispatch>(
+        dst: &mut [u8],
+        coeffs: &[Elem<F>],
+        srcs: &[&[u8]],
+    ) {
+        for (&coeff, &src) in coeffs.iter().zip(srcs) {
+            mul_add_row::<F>(dst, coeff, src);
+        }
+    }
+
+    /// Applies every coefficient/source term to the destination rows.
+    pub(crate) fn mul_add_matrix<F: KernelDispatch>(
+        rows: &mut [u8],
+        row_len: usize,
+        nrows: usize,
+        terms: &[(&[Elem<F>], &[u8])],
+    ) {
+        for &(coeffs, src) in terms {
+            for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
+                mul_add_row::<F>(row, coeff, src);
+            }
+        }
+    }
+
+    /// Overwrites one row, preserving source bytes for a unit coefficient.
+    #[inline]
+    pub(crate) fn mul_into_row<F: KernelDispatch>(dst: &mut [u8], coeff: Elem<F>, src: &[u8]) {
+        if coeff.is_zero() {
+            dst.fill(0);
+        } else if coeff.is_one() {
+            dst.copy_from_slice(src);
+        } else {
+            F::mul_into(RawDispatch, dst, &F::prepare(RawDispatch, coeff), src);
+        }
     }
 
     /// Allocation-free repeated prepared AXPY over flat row-major

@@ -358,6 +358,7 @@ fn assert_prime_steady_state_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
     let sources: Vec<Vec<u8>> = (0..4).map(|i| noise(len, 0x400 + i)).collect();
     let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
     let coeffs = vec![coeff; 4];
+    let terms: Vec<_> = refs.iter().map(|&src| (coeffs.as_slice(), src)).collect();
 
     // Warm dispatch and every code path before counting.
     ops::mul_add::<F>(&mut dst, coeff, &src);
@@ -369,6 +370,7 @@ fn assert_prime_steady_state_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
     let mut scatter_rows = noise(4 * len, 0x444);
     ops::mul_add_scatter::<F>(&mut scatter_rows, len, &coeffs, &src);
     ops::mul_into_scatter::<F>(&mut scatter_rows, len, &coeffs, &src);
+    ops::mul_add_matrix::<F>(&mut scatter_rows, len, 4, &terms);
     let allocations = count_allocations(|| {
         ops::mul_add::<F>(&mut dst, coeff, &src);
         ops::mul_assign::<F>(&mut dst, coeff);
@@ -376,6 +378,8 @@ fn assert_prime_steady_state_zero_alloc<F: FieldKernels>(coeff: Elem<F>) {
         ops::sub_assign::<F>(&mut dst, &src);
         ops::mul_add_gather::<F>(&mut dst, &coeffs, &refs);
         ops::mul_elementwise::<F>(&mut ew, &src, &b);
+        ops::mul_add_scatter::<F>(&mut scatter_rows, len, &coeffs, &src);
+        ops::mul_add_matrix::<F>(&mut scatter_rows, len, 4, &terms);
         ops::mul_into_scatter::<F>(&mut scatter_rows, len, &coeffs, &src);
     });
     assert_eq!(allocations, 0, "prime steady-state op allocated");
@@ -727,6 +731,16 @@ impl ExtensionSpec<2> for Packed16Spec {
 }
 type Packed16Row = FiniteField<2, 16, Extension<Packed16Spec, 2>>;
 
+#[derive(Clone, Copy)]
+struct MersennePairSpec;
+impl ExtensionSpec<2> for MersennePairSpec {
+    type Base = Mersenne31;
+    type Storage = Components;
+    const NAME: &'static str = "component Mersenne31 pair";
+    const RELATION: Relation = Relation::from_coordinates(&[2, 0]);
+}
+type MersennePair = FiniteField<0x7fff_ffff, 2, Extension<MersennePairSpec, 2>>;
+
 /// The whole checked packed surface the generic family serves, inside one
 /// counted window per row: every borrowed operation, the scatter, matrix,
 /// and offset-addressed forms, the broadcast scalar forms, and the
@@ -844,6 +858,8 @@ fn generic_extension_rows_steady_state_allocate_nothing() {
     assert_extension_packed_surface_zero_alloc::<Gf49Row>(odd_coeff);
     let binary_coeff = Elem::<Packed16Row>::from_raw(0x1B70);
     assert_extension_packed_surface_zero_alloc::<Packed16Row>(binary_coeff);
+    let component_coeff = Elem::<MersennePair>::from_raw([3, 5]);
+    assert_extension_packed_surface_zero_alloc::<MersennePair>(component_coeff);
 }
 
 /// Byte-lane dot products return by value and fold scalar lanes, so steady

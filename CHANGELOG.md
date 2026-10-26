@@ -21,6 +21,40 @@ All notable changes to this project are documented here. The format follows
   consumers instead of a duplicated synthetic route-type harness.
 - Native route-evidence references identify measurement hosts by processor
   architecture rather than local connection names.
+- Unprepared prime and residue scatter, gather, and contiguous matrix operations
+  compose the existing single-row kernels for rows from a measured length;
+  shorter rows keep the portable row body. Scalar residue routes avoid unused
+  coefficient preparation.
+- Component-row addition, subtraction, and unit accumulation reuse whole-buffer
+  base-field dispatch from a measured row length, without strengthening
+  `FieldBuffer` bounds. Rows over an order-two base keep the component loop.
+  Raw dispatch remains inaccessible without the crate-private proof.
+- Residue rows at the Mersenne31 and Goldilocks moduli reuse the corresponding
+  prime add/sub kernels on vector tiers from measured row lengths (Goldilocks
+  on AVX2 and AVX-512 only), including unit accumulation and row/offset
+  siblings. Their backend query remains a fixed-coefficient multiplication
+  summary.
+- `mul_add_matrix` and `mul_add_matrix_at` return after validation when every
+  coefficient is zero, leaving the destination untouched.
+- Unit-coefficient overwrite scatter preserves noncanonical source bytes for
+  specialized prime and quadratic rows; zero accumulation preserves destination
+  bytes across unprepared and prepared row compositions.
+- `backend_for` documents its field-strategy meaning separately from individual
+  operation routes.
+- Route acceptance credits multiplication work once when its emitting call has
+  already excluded zero and unit coefficients. Unqualified work keeps the
+  conservative zero/unit reserve, qualified work is capped by the general
+  terms present, and it never funds unit additions.
+- Route acceptance credits an overwrite gather's general first term to the
+  overwriting multiply that seeds its destination, once per call, at the
+  required tier; cells that budget their own multiply keep that work.
+
+### Removed
+
+- **Breaking:** The unstable `internals::kernel::prime` multi-row
+  `mul_add_scatter`, `mul_add_gather`, and `mul_add_matrix` entries are removed.
+  Consumers use the checked `ops` operations; scalar single-row references
+  remain under the unstable facade.
 
 ## [3.0.2] - 2026-10-20
 
