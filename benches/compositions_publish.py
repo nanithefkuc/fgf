@@ -6,9 +6,9 @@
 ``DIR`` holds ``meta.json`` and, per host, ``paired-<host>.json`` and
 ``pilot-<host>.json`` for the adopted campaign plus ``boundary-<host>.json``
 for the campaign that set the routing boundaries. ``DIR/binary-gathers``
-holds the same ``meta.json``, paired, and pilot records for the binary
-overwrite-gather campaign. Factors are base latency over candidate latency
-from unrounded per-cell aggregates.
+and ``DIR/byte-rows`` hold the same ``meta.json``, paired, and pilot records
+for the binary overwrite-gather and byte-wide row campaigns. Factors are
+base latency over candidate latency from unrounded per-cell aggregates.
 """
 
 from __future__ import annotations
@@ -99,6 +99,17 @@ BINARY_FIELDS = (
 BINARY_OPERATIONS = ("mul_into_gather", "mul_into_gather_with")
 BINARY_TIERS = (("scalar", "Scalar"), ("v2", "SSE4.2"), ("v3", "AVX2"),
                 ("primary", "GFNI and wider"))
+BYTES = "byte-rows"
+BYTE_FIELDS = (
+    ("gf8n", "normal-basis AES GF(2^8)"),
+    ("gf8c", "Cantor-basis GF(2^8)"),
+    ("fp8", "Fan-Paar GF(2^8), packed degree 2 over GF(2^4)"),
+    ("pu8c", "GF(2^8) as t^2 + t + 8 over GF(2^4), packed"),
+)
+BYTE_SINGLE = ("mul_add", "mul_add_with", "mul_into", "mul_assign", "mul_elementwise",
+               "mul_elementwise_assign")
+BYTE_MULTI = ("mul_add_scatter", "mul_add_gather", "mul_into_gather", "mul_add_matrix",
+              "mul_into_matrix")
 
 
 class PublishError(Exception):
@@ -253,6 +264,72 @@ def binary_section(records: Path) -> list[str]:
                + "\n</details>\n")
     return out
 
+def byte_no_win_table(paired: dict) -> str:
+    """List every slower byte-row geometry, including lane-boundary probes."""
+    rows = []
+    for features in ("default", "all"):
+        for tier, title in BINARY_TIERS:
+            slower = defaultdict(lambda: defaultdict(list))
+            for host in HOSTS:
+                for (field, operation, pattern, lanes), (_, classification) in cells(
+                        config(paired[host], features, tier, host)).items():
+                    if classification == "slower":
+                        slower[(field, operation, pattern)][host].append(lanes)
+            for (field, operation, pattern), hosts in sorted(slower.items()):
+                geometries = [
+                    ", ".join(str(n) for n in sorted(hosts[host])) or "-"
+                    for host in HOSTS
+                ]
+                rows.append([features, title, field, operation, pattern,
+                             " / ".join(geometries)])
+    return render_markdown_table(
+        ["Features", "Request", "Field", "Operation", "Pattern",
+         "Slower lane counts (Willow / Golden)"], rows)
+
+
+def byte_section(records: Path) -> list[str]:
+    meta, paired = accepted(records / BYTES)
+    layouts = {label: width for label, width in meta["field_layouts"].items()
+               if label in {byte for byte, _ in BYTE_FIELDS}}
+    if set(layouts) != {label for label, _ in BYTE_FIELDS}:
+        raise PublishError("byte-row layout inventory differs from the field definitions")
+    per_host = {host: cells(config(paired[host], "all", "primary", host)) for host in HOSTS}
+    out = [
+        "## Byte-wide rows\n",
+        "Fixed-coefficient, multi-row, and elementwise operations over byte-wide "
+        "rows outside the polynomial presentation, from a separate campaign whose "
+        "candidate routes them through the GF(2^8) vector kernels and whose base "
+        "runs them on the scalar path. "
+        f"{meta['rows']} destination rows and {meta['sources']} sources per "
+        "multi-row call.\n",
+        render_markdown_table(["Setting", "Value"], [
+            ["Base revision", f"`{meta['base_revision']}`"],
+            ["Candidate revision", f"`{meta['candidate_revision']}`"],
+            ["Toolchain", meta["toolchain"]],
+        ]) + "\n",
+        outcome_table(paired, BINARY_TIERS, BYTE_FIELDS) + "\n",
+    ]
+    for operation in BYTE_SINGLE:
+        out.append(f"### Byte {operation}\n")
+        if operation not in ("mul_elementwise", "mul_elementwise_assign"):
+            out.append("General coefficient.\n")
+        out.append(factor_table(per_host, operation, ("general",), BYTE_FIELDS) + "\n")
+    for operation in BYTE_MULTI:
+        out.append(f"### Byte {operation}\n")
+        out.append(factor_table(per_host, operation, ("general", "mixed"), BYTE_FIELDS)
+                   + "\n")
+    out.append("<details>\n<summary>Open no-win geometries across all requests"
+               "</summary>\n\n"
+               + byte_no_win_table(paired) + "\n\n</details>\n")
+    out.append(render_markdown_table(
+        ["Label", "Field", "Lane bytes"],
+        [[label, text, str(layouts[label])] for label, text in BYTE_FIELDS]) + "\n")
+    out.append("<details>\n<summary>Byte-row campaign hosts, controls, and classification"
+               "</summary>\n\n" + "".join(f"- {line}\n" for line in meta["caveats"])
+               + "\n</details>\n")
+    return out
+
+
 
 def render(records: Path) -> str:
     meta, paired = accepted(records)
@@ -278,6 +355,7 @@ def render(records: Path) -> str:
                   for title, _ in SECTIONS)
         + "- [Routing boundaries](#routing-boundaries)\n"
         "- [Binary overwrite gathers](#binary-overwrite-gathers)\n"
+        "- [Byte-wide rows](#byte-wide-rows)\n"
         "- [Field definitions](#field-definitions)\n"
         "- [Measurement details](#measurement-details)\n",
         "## Setup\n",
@@ -320,6 +398,7 @@ def render(records: Path) -> str:
         "The candidate's routing thresholds cite these tables.\n")
     out.extend(boundary_tables(boundary, layouts))
     out.extend(binary_section(records))
+    out.extend(byte_section(records))
     out.append("## Field definitions\n")
     out.append(render_markdown_table(
         ["Label", "Field", "Lane bytes"],

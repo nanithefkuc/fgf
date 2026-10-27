@@ -6601,95 +6601,95 @@
   },
   "evidence": {
     "default/scalar": {
-      "record": "bench-records/routes/s2-57b21e3/golden-cove/golden-cove-default-scalar.log",
-      "source_id": "0c2d2e651b0f654759e0f979f7f5cbde8ab29e0c76d278af0a92191245230506",
+      "record": "bench-records/routes/s2-bytes-83895fb/golden-cove/golden-cove-default-scalar.log",
+      "source_id": "1fb11caad5a9bebbf9a501c8e889abda628eff8c4c5464f97a5a6360531d3fed",
       "host_id": "golden-cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "default/v2": {
-      "record": "bench-records/routes/s2-57b21e3/golden-cove/golden-cove-default-v2.log",
-      "source_id": "0c2d2e651b0f654759e0f979f7f5cbde8ab29e0c76d278af0a92191245230506",
+      "record": "bench-records/routes/s2-bytes-83895fb/golden-cove/golden-cove-default-v2.log",
+      "source_id": "1fb11caad5a9bebbf9a501c8e889abda628eff8c4c5464f97a5a6360531d3fed",
       "host_id": "golden-cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "default/v3": {
-      "record": "bench-records/routes/s2-57b21e3/golden-cove/golden-cove-default-v3.log",
-      "source_id": "0c2d2e651b0f654759e0f979f7f5cbde8ab29e0c76d278af0a92191245230506",
+      "record": "bench-records/routes/s2-bytes-83895fb/golden-cove/golden-cove-default-v3.log",
+      "source_id": "1fb11caad5a9bebbf9a501c8e889abda628eff8c4c5464f97a5a6360531d3fed",
       "host_id": "golden-cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "default/v3_gfni_crypto": {
-      "record": "bench-records/routes/s2-57b21e3/golden-cove/golden-cove-default-v3_gfni_crypto.log",
-      "source_id": "0c2d2e651b0f654759e0f979f7f5cbde8ab29e0c76d278af0a92191245230506",
+      "record": "bench-records/routes/s2-bytes-83895fb/golden-cove/golden-cove-default-v3_gfni_crypto.log",
+      "source_id": "1fb11caad5a9bebbf9a501c8e889abda628eff8c4c5464f97a5a6360531d3fed",
       "host_id": "golden-cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "default/v4x": {
-      "record": "bench-records/routes/s2-57b21e3/willow-cove/willow-cove-default-v4x.log",
-      "source_id": "b161c53937f4bc12aa57470e6ee7646d9190bba49386a9b73c2759f02eb59b22",
+      "record": "bench-records/routes/s2-bytes-83895fb/willow-cove/willow-cove-default-v4x.log",
+      "source_id": "4fc061734ed265a589d427e6fb8a06e19951ceae76d69e23d5e51a2dbc75bbe5",
       "host_id": "willow-cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
     },
     "all/scalar": {
-      "record": "bench-records/routes/s2-57b21e3/golden-cove/golden-cove-all-scalar.log",
-      "source_id": "0c2d2e651b0f654759e0f979f7f5cbde8ab29e0c76d278af0a92191245230506",
+      "record": "bench-records/routes/s2-bytes-83895fb/golden-cove/golden-cove-all-scalar.log",
+      "source_id": "1fb11caad5a9bebbf9a501c8e889abda628eff8c4c5464f97a5a6360531d3fed",
       "host_id": "golden-cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "all/v2": {
-      "record": "bench-records/routes/s2-57b21e3/golden-cove/golden-cove-all-v2.log",
-      "source_id": "0c2d2e651b0f654759e0f979f7f5cbde8ab29e0c76d278af0a92191245230506",
+      "record": "bench-records/routes/s2-bytes-83895fb/golden-cove/golden-cove-all-v2.log",
+      "source_id": "1fb11caad5a9bebbf9a501c8e889abda628eff8c4c5464f97a5a6360531d3fed",
       "host_id": "golden-cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "all/v3": {
-      "record": "bench-records/routes/s2-57b21e3/golden-cove/golden-cove-all-v3.log",
-      "source_id": "0c2d2e651b0f654759e0f979f7f5cbde8ab29e0c76d278af0a92191245230506",
+      "record": "bench-records/routes/s2-bytes-83895fb/golden-cove/golden-cove-all-v3.log",
+      "source_id": "1fb11caad5a9bebbf9a501c8e889abda628eff8c4c5464f97a5a6360531d3fed",
       "host_id": "golden-cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "all/v3_gfni_crypto": {
-      "record": "bench-records/routes/s2-57b21e3/golden-cove/golden-cove-all-v3_gfni_crypto.log",
-      "source_id": "0c2d2e651b0f654759e0f979f7f5cbde8ab29e0c76d278af0a92191245230506",
+      "record": "bench-records/routes/s2-bytes-83895fb/golden-cove/golden-cove-all-v3_gfni_crypto.log",
+      "source_id": "1fb11caad5a9bebbf9a501c8e889abda628eff8c4c5464f97a5a6360531d3fed",
       "host_id": "golden-cove|12th Gen Intel(R) Core(TM) i7-12700K"
     },
     "all/v4x": {
-      "record": "bench-records/routes/s2-57b21e3/willow-cove/willow-cove-all-v4x.log",
-      "source_id": "b161c53937f4bc12aa57470e6ee7646d9190bba49386a9b73c2759f02eb59b22",
+      "record": "bench-records/routes/s2-bytes-83895fb/willow-cove/willow-cove-all-v4x.log",
+      "source_id": "4fc061734ed265a589d427e6fb8a06e19951ceae76d69e23d5e51a2dbc75bbe5",
       "host_id": "willow-cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
     }
   },
   "cross_check": [
     {
-      "record": "bench-records/routes/s2-57b21e3/willow-cove/willow-cove-default-scalar.log",
-      "source_id": "b161c53937f4bc12aa57470e6ee7646d9190bba49386a9b73c2759f02eb59b22",
+      "record": "bench-records/routes/s2-bytes-83895fb/willow-cove/willow-cove-default-scalar.log",
+      "source_id": "4fc061734ed265a589d427e6fb8a06e19951ceae76d69e23d5e51a2dbc75bbe5",
       "host_id": "willow-cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
     },
     {
-      "record": "bench-records/routes/s2-57b21e3/willow-cove/willow-cove-default-v2.log",
-      "source_id": "b161c53937f4bc12aa57470e6ee7646d9190bba49386a9b73c2759f02eb59b22",
+      "record": "bench-records/routes/s2-bytes-83895fb/willow-cove/willow-cove-default-v2.log",
+      "source_id": "4fc061734ed265a589d427e6fb8a06e19951ceae76d69e23d5e51a2dbc75bbe5",
       "host_id": "willow-cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
     },
     {
-      "record": "bench-records/routes/s2-57b21e3/willow-cove/willow-cove-default-v3.log",
-      "source_id": "b161c53937f4bc12aa57470e6ee7646d9190bba49386a9b73c2759f02eb59b22",
+      "record": "bench-records/routes/s2-bytes-83895fb/willow-cove/willow-cove-default-v3.log",
+      "source_id": "4fc061734ed265a589d427e6fb8a06e19951ceae76d69e23d5e51a2dbc75bbe5",
       "host_id": "willow-cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
     },
     {
-      "record": "bench-records/routes/s2-57b21e3/willow-cove/willow-cove-default-v3_gfni_crypto.log",
-      "source_id": "b161c53937f4bc12aa57470e6ee7646d9190bba49386a9b73c2759f02eb59b22",
+      "record": "bench-records/routes/s2-bytes-83895fb/willow-cove/willow-cove-default-v3_gfni_crypto.log",
+      "source_id": "4fc061734ed265a589d427e6fb8a06e19951ceae76d69e23d5e51a2dbc75bbe5",
       "host_id": "willow-cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
     },
     {
-      "record": "bench-records/routes/s2-57b21e3/willow-cove/willow-cove-all-scalar.log",
-      "source_id": "b161c53937f4bc12aa57470e6ee7646d9190bba49386a9b73c2759f02eb59b22",
+      "record": "bench-records/routes/s2-bytes-83895fb/willow-cove/willow-cove-all-scalar.log",
+      "source_id": "4fc061734ed265a589d427e6fb8a06e19951ceae76d69e23d5e51a2dbc75bbe5",
       "host_id": "willow-cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
     },
     {
-      "record": "bench-records/routes/s2-57b21e3/willow-cove/willow-cove-all-v2.log",
-      "source_id": "b161c53937f4bc12aa57470e6ee7646d9190bba49386a9b73c2759f02eb59b22",
+      "record": "bench-records/routes/s2-bytes-83895fb/willow-cove/willow-cove-all-v2.log",
+      "source_id": "4fc061734ed265a589d427e6fb8a06e19951ceae76d69e23d5e51a2dbc75bbe5",
       "host_id": "willow-cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
     },
     {
-      "record": "bench-records/routes/s2-57b21e3/willow-cove/willow-cove-all-v3.log",
-      "source_id": "b161c53937f4bc12aa57470e6ee7646d9190bba49386a9b73c2759f02eb59b22",
+      "record": "bench-records/routes/s2-bytes-83895fb/willow-cove/willow-cove-all-v3.log",
+      "source_id": "4fc061734ed265a589d427e6fb8a06e19951ceae76d69e23d5e51a2dbc75bbe5",
       "host_id": "willow-cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
     },
     {
-      "record": "bench-records/routes/s2-57b21e3/willow-cove/willow-cove-all-v3_gfni_crypto.log",
-      "source_id": "b161c53937f4bc12aa57470e6ee7646d9190bba49386a9b73c2759f02eb59b22",
+      "record": "bench-records/routes/s2-bytes-83895fb/willow-cove/willow-cove-all-v3_gfni_crypto.log",
+      "source_id": "4fc061734ed265a589d427e6fb8a06e19951ceae76d69e23d5e51a2dbc75bbe5",
       "host_id": "willow-cove|11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz"
     }
   ],

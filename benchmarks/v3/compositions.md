@@ -16,6 +16,7 @@ Each factor is base latency divided by candidate latency for the same public cal
 - [Row addition](#row-addition)
 - [Routing boundaries](#routing-boundaries)
 - [Binary overwrite gathers](#binary-overwrite-gathers)
+- [Byte-wide rows](#byte-wide-rows)
 - [Field definitions](#field-definitions)
 - [Measurement details](#measurement-details)
 
@@ -2512,6 +2513,397 @@ Overwrite gathers over binary rows, from a separate campaign whose candidate ski
 - The AES field's overwrite gathers and every all-zero coefficient pattern execute identical code in both artifacts; their cells measure layout differences between the two binaries.
 - Unprepared gathers include per-call coefficient preparation; prepared coefficients are built outside timing. Every result is checked against element arithmetic before timing.
 - Non-polynomial GF(2^8) rows keep their overwrite-gather route and are not compared.
+
+</details>
+
+## Byte-wide rows
+
+Fixed-coefficient, multi-row, and elementwise operations over byte-wide rows outside the polynomial presentation, from a separate campaign whose candidate routes them through the GF(2^8) vector kernels and whose base runs them on the scalar path. 4 destination rows and 3 sources per multi-row call.
+
+| Setting | Value |
+| --- | --- |
+| Base revision | `30f5c23` |
+| Candidate revision | `83895fb` |
+| Toolchain | 1.98.1 |
+
+| Features | Request | Win | Tie | Slower | Unresolved |
+| --- | --- | --- | --- | --- | --- |
+| default | Scalar | 224 / 243 | 167 / 217 | 92 / 80 | 413 / 356 |
+| default | SSE4.2 | 632 / 675 | 1 / 5 | 36 / 69 | 227 / 147 |
+| default | AVX2 | 571 / 565 | 3 / 1 | 86 / 71 | 236 / 259 |
+| default | GFNI and wider | 370 / 554 | 2 / 2 | 71 / 84 | 453 / 256 |
+| all | Scalar | 99 / 124 | 73 / 120 | 50 / 60 | 674 / 592 |
+| all | SSE4.2 | 629 / 549 | 7 / 4 | 67 / 83 | 193 / 260 |
+| all | AVX2 | 582 / 644 | 3 / 2 | 53 / 104 | 258 / 146 |
+| all | GFNI and wider | 607 / 625 | 0 / 2 | 113 / 108 | 176 / 161 |
+
+### Byte mul_add
+
+General coefficient.
+
+| Field | 8 lanes (factor) | 64 lanes (factor) | 512 lanes (factor) | 4096 lanes (factor) |
+| --- | --- | --- | --- | --- |
+| gf8n | 0.7781 / 0.8840 | 9.1917 / 10.297 | 56.371 / 47.438 | 116.11 / 65.163 |
+| gf8c | 0.7816 / 0.8904 | 8.9063 / 12.028 | 54.981 / 49.270 | 140.69 / 73.285 |
+| fp8 | 505.24 / 508.23 | 7086.8 / 7231.0 | 39725 / 31604 | 110220 / 49996 |
+| pu8c | 53.615 / 55.509 | 671.15 / 793.26 | 4813.5 / 3750.0 | 12342 / 5777.7 |
+
+### Byte mul_add_with
+
+General coefficient.
+
+| Field | 8 lanes (factor) | 64 lanes (factor) | 512 lanes (factor) | 4096 lanes (factor) |
+| --- | --- | --- | --- | --- |
+| gf8n | 0.7351 / 0.8769 | 9.1523 / 10.179 | 56.488 / 49.127 | 119.53 / 64.842 |
+| gf8c | 0.7265 / 0.8838 | 8.9604 / 12.415 | 56.026 / 50.802 | 137.91 / 70.823 |
+| fp8 | 499.15 / 528.80 | 7211.4 / 7590.1 | 40678 / 31572 | 108459 / 48534 |
+| pu8c | 53.293 / 57.134 | 691.87 / 871.99 | 5006.6 / 3876.6 | 11937 / 5596.4 |
+
+### Byte mul_into
+
+General coefficient.
+
+| Field | 8 lanes (factor) | 64 lanes (factor) | 512 lanes (factor) | 4096 lanes (factor) |
+| --- | --- | --- | --- | --- |
+| gf8n | 0.8186 / 1.0001 | 8.5350 / 9.6584 | 55.265 / 53.066 | 120.74 / 85.020 |
+| gf8c | 0.8691 / 1.0262 | 8.3652 / 11.065 | 55.392 / 54.432 | 163.38 / 97.216 |
+| fp8 | 527.24 / 563.28 | 6958.3 / 6902.6 | 41674 / 36929 | 138123 / 73183 |
+| pu8c | 56.275 / 61.362 | 672.23 / 826.54 | 4925.7 / 4348.7 | 15625 / 8304.0 |
+
+### Byte mul_assign
+
+General coefficient.
+
+| Field | 8 lanes (factor) | 64 lanes (factor) | 512 lanes (factor) | 4096 lanes (factor) |
+| --- | --- | --- | --- | --- |
+| gf8n | 0.9701 / 1.1711 | 10.786 / 12.684 | 80.142 / 69.105 | 174.61 / 119.50 |
+| gf8c | 0.9892 / 1.1742 | 10.729 / 12.669 | 78.974 / 68.202 | 174.57 / 118.87 |
+| fp8 | 724.31 / 757.59 | 9113.9 / 9484.9 | 51350 / 43472 | 149699 / 89465 |
+| pu8c | 83.130 / 88.712 | 950.53 / 1093.4 | 5976.1 / 5953.2 | 16847 / 10330 |
+
+### Byte mul_elementwise
+
+| Field | 8 lanes (factor) | 64 lanes (factor) | 512 lanes (factor) | 4096 lanes (factor) |
+| --- | --- | --- | --- | --- |
+| gf8n | 0.1248 / 0.1454 | 7.5119 / 6.4155 | 40.214 / 33.890 | 55.621 / 43.695 |
+| gf8c | 0.1418 / 0.1457 | 7.6742 / 7.2960 | 44.662 / 34.748 | 64.273 / 42.782 |
+| fp8 | 84.340 / 82.324 | 4783.0 / 4180.3 | 29564 / 21209 | 43130 / 26841 |
+| pu8c | 9.0264 / 8.8819 | 539.16 / 476.37 | 3296.7 / 2426.1 | 4870.8 / 3085.3 |
+
+### Byte mul_elementwise_assign
+
+| Field | 8 lanes (factor) | 64 lanes (factor) | 512 lanes (factor) | 4096 lanes (factor) |
+| --- | --- | --- | --- | --- |
+| gf8n | 0.1285 / 0.1474 | 10.582 / 9.1209 | 50.932 / 38.977 | 55.913 / 55.450 |
+| gf8c | 0.1392 / 0.1473 | 10.379 / 10.403 | 54.619 / 40.217 | 67.073 / 48.235 |
+| fp8 | 86.250 / 82.500 | 6079.5 / 5811.6 | 35472 / 23474 | 44779 / 30991 |
+| pu8c | 9.1291 / 8.8198 | 729.86 / 652.27 | 3944.2 / 2736.7 | 4963.4 / 3524.4 |
+
+### Byte mul_add_scatter
+
+| Field | Pattern | 8 lanes (factor) | 64 lanes (factor) | 512 lanes (factor) | 4096 lanes (factor) |
+| --- | --- | --- | --- | --- | --- |
+| gf8n | general | 0.9831 / 1.0775 | 16.724 / 13.314 | 60.032 / 52.388 | 128.76 / 76.036 |
+| gf8n | mixed | 0.6348 / 0.5877 | 4.6475 / 3.0069 | 25.296 / 17.804 | 70.754 / 35.226 |
+| gf8c | general | 0.9853 / 1.0746 | 15.388 / 14.791 | 60.433 / 54.590 | 100.73 / 75.889 |
+| gf8c | mixed | 0.6462 / 0.5874 | 4.4852 / 3.4953 | 19.950 / 18.120 | 40.144 / 33.965 |
+| fp8 | general | 606.11 / 639.08 | 11340 / 9633.6 | 46090 / 39615 | 78839 / 57698 |
+| fp8 | mixed | 226.03 / 196.03 | 2872.6 / 1979.0 | 14775 / 12724 | 30253 / 25102 |
+| pu8c | general | 65.377 / 70.217 | 1255.5 / 1096.0 | 5232.8 / 4570.3 | 8832.4 / 6637.1 |
+| pu8c | mixed | 24.271 / 21.722 | 323.79 / 227.87 | 1637.2 / 1461.0 | 3393.7 / 2853.0 |
+
+### Byte mul_add_gather
+
+| Field | Pattern | 8 lanes (factor) | 64 lanes (factor) | 512 lanes (factor) | 4096 lanes (factor) |
+| --- | --- | --- | --- | --- | --- |
+| gf8n | general | 0.5652 / 0.7994 | 6.5546 / 13.827 | 82.740 / 52.612 | 91.806 / 70.625 |
+| gf8n | mixed | 0.3204 / 0.3862 | 2.2229 / 5.3873 | 28.457 / 19.037 | 31.934 / 23.759 |
+| gf8c | general | 0.5882 / 0.7987 | 6.6923 / 13.982 | 89.953 / 54.851 | 106.26 / 74.667 |
+| gf8c | mixed | 0.2727 / 0.3716 | 2.3900 / 4.7115 | 27.543 / 17.502 | 33.897 / 24.796 |
+| fp8 | general | 392.18 / 471.76 | 4533.9 / 9545.1 | 66824 / 35569 | 79668 / 50133 |
+| fp8 | mixed | 130.52 / 155.82 | 1542.5 / 3104.1 | 21892 / 11851 | 26421 / 16956 |
+| pu8c | general | 42.421 / 52.254 | 568.95 / 1087.5 | 7241.1 / 4043.8 | 8965.0 / 5786.3 |
+| pu8c | mixed | 14.569 / 17.819 | 172.87 / 356.29 | 2275.2 / 1361.7 | 2962.4 / 1918.0 |
+
+### Byte mul_into_gather
+
+| Field | Pattern | 8 lanes (factor) | 64 lanes (factor) | 512 lanes (factor) | 4096 lanes (factor) |
+| --- | --- | --- | --- | --- | --- |
+| gf8n | general | 0.8256 / 0.8035 | 9.4544 / 10.925 | 48.921 / 50.406 | 116.27 / 74.136 |
+| gf8n | mixed | 0.5769 / 0.6533 | 4.0253 / 4.8371 | 18.685 / 18.439 | 43.162 / 26.736 |
+| gf8c | general | 0.8371 / 0.7998 | 9.6063 / 12.921 | 49.066 / 51.704 | 101.18 / 75.814 |
+| gf8c | mixed | 0.6241 / 0.6305 | 4.3303 / 4.2990 | 18.479 / 17.892 | 36.767 / 26.742 |
+| fp8 | general | 510.18 / 439.95 | 6663.2 / 8290.9 | 38802 / 39037 | 81337 / 59443 |
+| fp8 | mixed | 210.01 / 180.69 | 2523.2 / 2686.6 | 14199 / 12846 | 27570 / 19880 |
+| pu8c | general | 55.742 / 50.004 | 769.01 / 946.29 | 4259.5 / 4342.9 | 9164.4 / 6717.1 |
+| pu8c | mixed | 24.310 / 21.046 | 284.22 / 312.28 | 1564.1 / 1458.0 | 3117.8 / 2238.6 |
+
+### Byte mul_add_matrix
+
+| Field | Pattern | 8 lanes (factor) | 64 lanes (factor) | 512 lanes (factor) | 4096 lanes (factor) |
+| --- | --- | --- | --- | --- | --- |
+| gf8n | general | 1.1323 / 0.8378 | 51.817 / 26.650 | 131.48 / 95.079 | 144.48 / 132.43 |
+| gf8n | mixed | 0.7132 / 0.5006 | 13.497 / 6.7290 | 34.581 / 24.675 | 36.831 / 34.294 |
+| gf8c | general | 1.1366 / 0.8398 | 53.130 / 26.188 | 148.17 / 96.056 | 140.77 / 124.99 |
+| gf8c | mixed | 0.6817 / 0.4985 | 14.138 / 6.7194 | 37.780 / 24.780 | 35.728 / 32.350 |
+| fp8 | general | 753.86 / 511.11 | 31609 / 18056 | 114576 / 65205 | 109857 / 87752 |
+| fp8 | mixed | 314.52 / 198.14 | 8937.7 / 4463.5 | 28636 / 16229 | 27436 / 22077 |
+| pu8c | general | 79.345 / 54.484 | 3245.9 / 1940.8 | 11960 / 7022.0 | 11534 / 9386.0 |
+| pu8c | mixed | 34.501 / 22.388 | 858.43 / 508.89 | 3146.5 / 1849.1 | 3056.3 / 2488.9 |
+
+### Byte mul_into_matrix
+
+| Field | Pattern | 8 lanes (factor) | 64 lanes (factor) | 512 lanes (factor) | 4096 lanes (factor) |
+| --- | --- | --- | --- | --- | --- |
+| gf8n | general | 1.1637 / 0.8413 | 58.846 / 27.089 | 149.61 / 108.49 | 161.30 / 160.08 |
+| gf8n | mixed | 0.7657 / 0.5223 | 16.035 / 7.0185 | 38.332 / 28.562 | 41.069 / 41.560 |
+| gf8c | general | 1.1600 / 0.8402 | 57.161 / 26.669 | 155.43 / 109.05 | 153.23 / 151.59 |
+| gf8c | mixed | 0.7387 / 0.5160 | 15.546 / 6.9626 | 39.729 / 28.210 | 39.007 / 39.528 |
+| fp8 | general | 770.12 / 495.82 | 37882 / 18175 | 121256 / 74337 | 119553 / 105730 |
+| fp8 | mixed | 307.01 / 190.24 | 10075 / 4523.1 | 30386 / 18369 | 29767 / 26613 |
+| pu8c | general | 79.226 / 52.840 | 3819.7 / 1963.8 | 12490 / 7940.4 | 12570 / 11414 |
+| pu8c | mixed | 33.089 / 21.299 | 964.69 / 522.15 | 3292.9 / 2092.1 | 3317.7 / 2997.2 |
+
+<details>
+<summary>Open no-win geometries across all requests</summary>
+
+| Features | Request | Field | Operation | Pattern | Slower lane counts (Willow / Golden) |
+| --- | --- | --- | --- | --- | --- |
+| default | Scalar | fp8 | mul_add_gather | mixed | 4096 / - |
+| default | Scalar | fp8 | mul_add_matrix | mixed | 4096 / - |
+| default | Scalar | fp8 | mul_add_scatter | general | - / 9 |
+| default | Scalar | fp8 | mul_elementwise | general | - / 16 |
+| default | Scalar | fp8 | mul_into_matrix | mixed | 4096 / - |
+| default | Scalar | gf8c | mul_add_gather | general | 8, 9 / 7, 9 |
+| default | Scalar | gf8c | mul_add_gather | mixed | 8, 9, 15, 17, 4096 / 7, 9, 16, 17, 65 |
+| default | Scalar | gf8c | mul_add_matrix | general | 8, 9, 15, 17, 512, 4096 / 7, 9, 16, 17, 512, 4096 |
+| default | Scalar | gf8c | mul_add_matrix | mixed | 9, 512, 4096 / 7, 9, 16, 17, 64, 65, 512, 4096 |
+| default | Scalar | gf8c | mul_add_scatter | general | 8, 9, 17 / 64, 512 |
+| default | Scalar | gf8c | mul_add_scatter | mixed | 8, 9, 15, 17, 512 / 7, 16, 512 |
+| default | Scalar | gf8c | mul_elementwise | general | 8, 9, 15, 17 / 7, 9, 16, 17, 64, 65 |
+| default | Scalar | gf8c | mul_elementwise_assign | general | 8, 9, 15, 17 / 7, 9, 16, 17 |
+| default | Scalar | gf8c | mul_into_matrix | general | 8, 9, 15, 17, 512, 4096 / 7, 9, 16, 17, 512, 4096 |
+| default | Scalar | gf8c | mul_into_matrix | mixed | 8, 9, 17, 512 / 7, 9, 16, 17, 63, 64, 512, 4096 |
+| default | Scalar | gf8n | mul_add_gather | general | 8, 9, 512, 4096 / 7 |
+| default | Scalar | gf8n | mul_add_gather | mixed | 8, 9, 15, 16, 31, 4096 / 7, 17 |
+| default | Scalar | gf8n | mul_add_matrix | general | 8, 9, 15, 16, 31, 512, 4096 / 7, 17, 512, 4096 |
+| default | Scalar | gf8n | mul_add_matrix | mixed | 8, 9, 16, 512, 4096 / 7, 17, 512, 4096 |
+| default | Scalar | gf8n | mul_add_scatter | general | 8, 9, 16, 512 / 7 |
+| default | Scalar | gf8n | mul_add_scatter | mixed | 8, 9, 15, 16, 512 / 7, 17, 63 |
+| default | Scalar | gf8n | mul_elementwise | general | 8, 9, 15, 16 / 7, 17 |
+| default | Scalar | gf8n | mul_elementwise_assign | general | 8, 9 / 7 |
+| default | Scalar | gf8n | mul_into_matrix | general | 8, 9, 15, 16, 512, 4096 / 7, 17, 512, 4096 |
+| default | Scalar | gf8n | mul_into_matrix | mixed | - / 7, 17, 512, 4096 |
+| default | Scalar | pu8c | mul_add_gather | general | 7, 9 / 7, 9 |
+| default | Scalar | pu8c | mul_add_gather | mixed | 7, 8 / - |
+| default | SSE4.2 | gf8c | mul_add | general | - / 7 |
+| default | SSE4.2 | gf8c | mul_add_gather | general | - / 7, 9 |
+| default | SSE4.2 | gf8c | mul_add_gather | mixed | 8, 9, 15, 31 / 7, 9, 15, 31 |
+| default | SSE4.2 | gf8c | mul_add_matrix | general | 8 / 7 |
+| default | SSE4.2 | gf8c | mul_add_matrix | mixed | 8, 9, 15, 31 / 7, 9, 15, 31 |
+| default | SSE4.2 | gf8c | mul_add_scatter | general | - / 7 |
+| default | SSE4.2 | gf8c | mul_add_scatter | mixed | 8, 9, 15, 31 / 7, 9, 15, 31 |
+| default | SSE4.2 | gf8c | mul_add_with | general | 8 / 7 |
+| default | SSE4.2 | gf8c | mul_elementwise | general | 8, 9, 15, 31, 63 / 7, 9, 15, 31, 63 |
+| default | SSE4.2 | gf8c | mul_elementwise_assign | general | 8, 9, 15, 31, 63 / 7, 9, 15, 17, 31, 63 |
+| default | SSE4.2 | gf8c | mul_into_matrix | general | 8 / 7 |
+| default | SSE4.2 | gf8c | mul_into_matrix | mixed | 8, 9, 15, 31 / 7, 9, 15, 31 |
+| default | SSE4.2 | gf8n | mul_add | general | - / 7 |
+| default | SSE4.2 | gf8n | mul_add_gather | general | - / 7, 8 |
+| default | SSE4.2 | gf8n | mul_add_gather | mixed | - / 7, 8, 9 |
+| default | SSE4.2 | gf8n | mul_add_matrix | general | - / 7, 8 |
+| default | SSE4.2 | gf8n | mul_add_matrix | mixed | 31 / 7, 8, 9, 31 |
+| default | SSE4.2 | gf8n | mul_add_scatter | general | - / 7, 8 |
+| default | SSE4.2 | gf8n | mul_add_scatter | mixed | 31 / 7, 8, 9, 31 |
+| default | SSE4.2 | gf8n | mul_add_with | general | - / 7, 8 |
+| default | SSE4.2 | gf8n | mul_elementwise | general | 31, 63 / 7, 8, 9, 31 |
+| default | SSE4.2 | gf8n | mul_elementwise_assign | general | 31, 63 / 7, 8, 9, 17, 31 |
+| default | SSE4.2 | gf8n | mul_into_matrix | general | - / 7, 8 |
+| default | SSE4.2 | gf8n | mul_into_matrix | mixed | 31 / 7, 8, 9, 31 |
+| default | AVX2 | gf8c | mul_add | general | - / 7 |
+| default | AVX2 | gf8c | mul_add_gather | general | 7, 8 / 7 |
+| default | AVX2 | gf8c | mul_add_gather | mixed | 7, 8, 9, 15, 31 / 7, 15, 31 |
+| default | AVX2 | gf8c | mul_add_matrix | general | 7, 8, 9 / 7 |
+| default | AVX2 | gf8c | mul_add_matrix | mixed | 7, 8, 9, 15, 31 / 7, 15, 31 |
+| default | AVX2 | gf8c | mul_add_scatter | general | 7 / 7 |
+| default | AVX2 | gf8c | mul_add_scatter | mixed | 7, 8, 9, 15, 31 / 7, 15, 31 |
+| default | AVX2 | gf8c | mul_add_with | general | 7, 8 / 7 |
+| default | AVX2 | gf8c | mul_elementwise | general | 7, 8, 9, 15, 17, 31, 63 / 7, 15, 31, 63 |
+| default | AVX2 | gf8c | mul_elementwise_assign | general | 7, 8, 9, 15, 31, 63 / 7, 15, 31, 63 |
+| default | AVX2 | gf8c | mul_into | general | - / 7 |
+| default | AVX2 | gf8c | mul_into_gather | general | 7 / 7 |
+| default | AVX2 | gf8c | mul_into_matrix | general | 7, 8 / 7 |
+| default | AVX2 | gf8c | mul_into_matrix | mixed | 7, 8, 9, 15, 31 / 7, 15, 31 |
+| default | AVX2 | gf8n | mul_add | general | - / 7, 8 |
+| default | AVX2 | gf8n | mul_add_gather | general | 7, 8 / 7, 8, 9 |
+| default | AVX2 | gf8n | mul_add_gather | mixed | 7, 8, 9, 15 / 7, 8, 9, 15 |
+| default | AVX2 | gf8n | mul_add_matrix | general | 7, 8, 9 / 7, 8, 9 |
+| default | AVX2 | gf8n | mul_add_matrix | mixed | 7, 8, 9, 15, 31 / 7, 8, 9, 15 |
+| default | AVX2 | gf8n | mul_add_scatter | general | 7 / 7, 8, 9 |
+| default | AVX2 | gf8n | mul_add_scatter | mixed | 7, 8, 9, 15, 31 / 7, 8, 9, 15 |
+| default | AVX2 | gf8n | mul_add_with | general | 7 / 8 |
+| default | AVX2 | gf8n | mul_elementwise | general | 7, 8, 9, 15, 17, 31, 63 / 7, 8, 9, 15, 63 |
+| default | AVX2 | gf8n | mul_elementwise_assign | general | 7, 8, 9, 15, 31, 63 / 7, 8, 9, 15, 17, 63 |
+| default | AVX2 | gf8n | mul_into | general | 7 / - |
+| default | AVX2 | gf8n | mul_into_gather | general | - / 7, 8 |
+| default | AVX2 | gf8n | mul_into_matrix | general | 7, 8 / 7, 8 |
+| default | AVX2 | gf8n | mul_into_matrix | mixed | 7, 8, 9, 15, 31 / 7, 8, 9, 15 |
+| default | GFNI and wider | gf8c | mul_add | general | 8 / 7, 9 |
+| default | GFNI and wider | gf8c | mul_add_gather | general | 8, 9 / 7, 9 |
+| default | GFNI and wider | gf8c | mul_add_gather | mixed | 8, 9, 15, 31 / 7, 9, 15, 31 |
+| default | GFNI and wider | gf8c | mul_add_matrix | general | 8, 9 / 7, 9 |
+| default | GFNI and wider | gf8c | mul_add_matrix | mixed | 8, 9, 15 / 7, 9, 15 |
+| default | GFNI and wider | gf8c | mul_add_scatter | general | - / 7 |
+| default | GFNI and wider | gf8c | mul_add_scatter | mixed | 8, 9, 15 / 7, 9, 15 |
+| default | GFNI and wider | gf8c | mul_add_with | general | 8 / 7, 9 |
+| default | GFNI and wider | gf8c | mul_elementwise | general | 8, 9, 15, 31, 63 / 7, 9, 15, 31, 63 |
+| default | GFNI and wider | gf8c | mul_elementwise_assign | general | 8, 9, 15, 31, 63 / 7, 9, 15, 31, 63 |
+| default | GFNI and wider | gf8c | mul_into | general | - / 7 |
+| default | GFNI and wider | gf8c | mul_into_gather | general | 8, 9 / 7, 9 |
+| default | GFNI and wider | gf8c | mul_into_gather | mixed | 8, 9, 15 / 7, 9, 15 |
+| default | GFNI and wider | gf8c | mul_into_matrix | general | 8, 9 / 7, 9 |
+| default | GFNI and wider | gf8c | mul_into_matrix | mixed | 8, 9, 15 / 7, 9, 15 |
+| default | GFNI and wider | gf8n | mul_add | general | 8 / 7, 8 |
+| default | GFNI and wider | gf8n | mul_add_gather | general | 8, 9 / 7, 8 |
+| default | GFNI and wider | gf8n | mul_add_gather | mixed | 8, 9, 15, 31 / 7, 8, 15, 17, 31 |
+| default | GFNI and wider | gf8n | mul_add_matrix | general | 8, 9 / 7, 8 |
+| default | GFNI and wider | gf8n | mul_add_matrix | mixed | 8, 9, 15 / 7, 8, 15 |
+| default | GFNI and wider | gf8n | mul_add_scatter | general | - / 7 |
+| default | GFNI and wider | gf8n | mul_add_scatter | mixed | 8, 9, 15 / 7, 8, 15 |
+| default | GFNI and wider | gf8n | mul_add_with | general | - / 7, 8 |
+| default | GFNI and wider | gf8n | mul_elementwise | general | 8, 9, 15, 31, 63 / 7, 8, 15, 17, 31, 63 |
+| default | GFNI and wider | gf8n | mul_elementwise_assign | general | 8, 9, 15, 31, 63 / 7, 8, 15, 31, 63 |
+| default | GFNI and wider | gf8n | mul_into | general | - / 7, 8 |
+| default | GFNI and wider | gf8n | mul_into_gather | general | 8, 9 / 7, 8, 15 |
+| default | GFNI and wider | gf8n | mul_into_gather | mixed | 8, 9, 15 / 7, 8, 15 |
+| default | GFNI and wider | gf8n | mul_into_matrix | general | 8, 9 / 7, 8 |
+| default | GFNI and wider | gf8n | mul_into_matrix | mixed | 8, 9, 15 / 7, 8, 15 |
+| all | Scalar | gf8c | mul_add_gather | general | 8 / 9 |
+| all | Scalar | gf8c | mul_add_gather | mixed | 8, 33, 63, 65 / 9, 16, 17 |
+| all | Scalar | gf8c | mul_add_matrix | general | 8, 33, 63, 65, 512 / 9, 16, 17 |
+| all | Scalar | gf8c | mul_add_matrix | mixed | 8, 33, 65, 512 / 9, 16, 17 |
+| all | Scalar | gf8c | mul_add_scatter | general | 8, 33 / 9, 16 |
+| all | Scalar | gf8c | mul_add_scatter | mixed | 8, 33, 63, 512 / 9, 16, 17 |
+| all | Scalar | gf8c | mul_elementwise | general | 8 / 9, 16, 17 |
+| all | Scalar | gf8c | mul_elementwise_assign | general | 8 / 9, 17 |
+| all | Scalar | gf8c | mul_into_matrix | general | 8, 33, 63, 65, 512 / 9, 16, 17 |
+| all | Scalar | gf8c | mul_into_matrix | mixed | 8, 33, 65, 512 / 9, 16, 17 |
+| all | Scalar | gf8n | mul_add_gather | general | 8, 16 / 7, 8, 9, 31 |
+| all | Scalar | gf8n | mul_add_gather | mixed | 8, 16 / 7, 8, 9 |
+| all | Scalar | gf8n | mul_add_matrix | general | 8, 16 / 7, 8, 9, 31, 63 |
+| all | Scalar | gf8n | mul_add_matrix | mixed | 8, 16 / 7, 8, 9, 63 |
+| all | Scalar | gf8n | mul_add_scatter | general | 8 / - |
+| all | Scalar | gf8n | mul_add_scatter | mixed | 8, 16 / 7, 8, 9 |
+| all | Scalar | gf8n | mul_elementwise | general | 8, 16 / 7, 8, 9 |
+| all | Scalar | gf8n | mul_elementwise_assign | general | 8, 16 / 7, 8, 9 |
+| all | Scalar | gf8n | mul_into_matrix | general | 8, 16 / 7, 8, 9, 31, 63 |
+| all | Scalar | gf8n | mul_into_matrix | mixed | 8, 16 / 7, 8, 9, 63 |
+| all | SSE4.2 | gf8c | mul_add | general | - / 7 |
+| all | SSE4.2 | gf8c | mul_add_gather | general | 8 / 7, 8, 9 |
+| all | SSE4.2 | gf8c | mul_add_gather | mixed | 8, 15, 31 / 7, 8, 9, 15 |
+| all | SSE4.2 | gf8c | mul_add_matrix | general | 8 / 7, 8 |
+| all | SSE4.2 | gf8c | mul_add_matrix | mixed | 8, 15, 31 / 7, 8, 9, 15, 31 |
+| all | SSE4.2 | gf8c | mul_add_scatter | general | - / 7, 8, 9 |
+| all | SSE4.2 | gf8c | mul_add_scatter | mixed | 8, 15, 31 / 7, 8, 9, 15, 31 |
+| all | SSE4.2 | gf8c | mul_add_with | general | 8 / 7, 8 |
+| all | SSE4.2 | gf8c | mul_elementwise | general | 8, 15, 31, 63 / 7, 8, 9, 15, 31, 63 |
+| all | SSE4.2 | gf8c | mul_elementwise_assign | general | 8, 15, 31, 63 / 7, 8, 9, 15, 31, 63 |
+| all | SSE4.2 | gf8c | mul_into_gather | general | - / 7 |
+| all | SSE4.2 | gf8c | mul_into_matrix | general | 8 / 7, 8 |
+| all | SSE4.2 | gf8c | mul_into_matrix | mixed | 8, 15, 31 / 7, 8, 9, 15, 31 |
+| all | SSE4.2 | gf8n | mul_add | general | 7 / 7 |
+| all | SSE4.2 | gf8n | mul_add_gather | general | 7, 8, 9 / 7, 8 |
+| all | SSE4.2 | gf8n | mul_add_gather | mixed | 7, 8, 9, 15 / 7, 8, 15 |
+| all | SSE4.2 | gf8n | mul_add_matrix | general | 7, 8 / 7, 8 |
+| all | SSE4.2 | gf8n | mul_add_matrix | mixed | 7, 8, 9, 15, 17, 31 / 7, 8, 15, 17, 31 |
+| all | SSE4.2 | gf8n | mul_add_scatter | general | - / 7, 8 |
+| all | SSE4.2 | gf8n | mul_add_scatter | mixed | 7, 8, 9, 15, 31 / 7, 8, 15, 31 |
+| all | SSE4.2 | gf8n | mul_add_with | general | 7, 8 / - |
+| all | SSE4.2 | gf8n | mul_elementwise | general | 7, 8, 9, 15, 31, 63 / 7, 8, 15, 31, 63 |
+| all | SSE4.2 | gf8n | mul_elementwise_assign | general | 7, 8, 9, 15, 31, 63 / 7, 8, 15, 17, 31, 63 |
+| all | SSE4.2 | gf8n | mul_into_gather | general | - / 7 |
+| all | SSE4.2 | gf8n | mul_into_matrix | general | 7, 8 / 7, 8 |
+| all | SSE4.2 | gf8n | mul_into_matrix | mixed | 7, 8, 9, 15, 17, 31 / 7, 8, 15, 17, 31 |
+| all | AVX2 | gf8c | mul_add | general | - / 7, 8 |
+| all | AVX2 | gf8c | mul_add_gather | general | - / 7, 8, 9 |
+| all | AVX2 | gf8c | mul_add_gather | mixed | 15, 31 / 7, 8, 9, 15 |
+| all | AVX2 | gf8c | mul_add_matrix | general | - / 7, 8, 9 |
+| all | AVX2 | gf8c | mul_add_matrix | mixed | 15, 31 / 7, 8, 9, 15, 31 |
+| all | AVX2 | gf8c | mul_add_scatter | general | - / 7, 8, 9 |
+| all | AVX2 | gf8c | mul_add_scatter | mixed | 15, 31 / 7, 8, 9, 15, 31 |
+| all | AVX2 | gf8c | mul_add_with | general | - / 7, 8, 9 |
+| all | AVX2 | gf8c | mul_elementwise | general | 15, 31, 63 / 7, 8, 9, 15, 31, 63 |
+| all | AVX2 | gf8c | mul_elementwise_assign | general | 15, 31, 63 / 7, 8, 9, 15, 17, 31, 63 |
+| all | AVX2 | gf8c | mul_into_gather | general | - / 7, 8, 9 |
+| all | AVX2 | gf8c | mul_into_matrix | general | - / 7, 8, 9 |
+| all | AVX2 | gf8c | mul_into_matrix | mixed | 15, 31 / 7, 8, 9, 15, 31 |
+| all | AVX2 | gf8n | mul_add | general | 7 / 7, 8 |
+| all | AVX2 | gf8n | mul_add_gather | general | 7, 8 / 7, 8, 9 |
+| all | AVX2 | gf8n | mul_add_gather | mixed | 7, 8, 15 / 7, 8, 9, 15 |
+| all | AVX2 | gf8n | mul_add_matrix | general | 7, 8 / 7, 8, 9 |
+| all | AVX2 | gf8n | mul_add_matrix | mixed | 7, 8, 15, 16, 17, 31 / 7, 8, 9, 15, 31 |
+| all | AVX2 | gf8n | mul_add_scatter | general | 7 / 7, 8, 9 |
+| all | AVX2 | gf8n | mul_add_scatter | mixed | 7, 8, 15, 31 / 7, 8, 9, 15, 31 |
+| all | AVX2 | gf8n | mul_add_with | general | 7, 8 / 7, 8, 9 |
+| all | AVX2 | gf8n | mul_elementwise | general | 7, 8, 15, 17, 31, 63 / 7, 8, 9, 15, 31, 63 |
+| all | AVX2 | gf8n | mul_elementwise_assign | general | 7, 8, 15, 31, 63 / 7, 8, 9, 15, 17, 31, 63 |
+| all | AVX2 | gf8n | mul_into | general | - / 7 |
+| all | AVX2 | gf8n | mul_into_gather | general | 7 / 7, 8, 9 |
+| all | AVX2 | gf8n | mul_into_matrix | general | 7, 8 / 7, 8 |
+| all | AVX2 | gf8n | mul_into_matrix | mixed | 7, 8, 15, 31 / 7, 8, 9, 15, 31 |
+| all | GFNI and wider | gf8c | mul_add | general | 7, 8, 9 / 7, 8, 9 |
+| all | GFNI and wider | gf8c | mul_add_gather | general | 7, 8, 9, 15 / 7, 8, 9 |
+| all | GFNI and wider | gf8c | mul_add_gather | mixed | 7, 8, 9, 15, 16, 17, 31 / 7, 8, 9, 15, 31 |
+| all | GFNI and wider | gf8c | mul_add_matrix | general | - / 7, 8, 9 |
+| all | GFNI and wider | gf8c | mul_add_matrix | mixed | 7, 8, 9, 15 / 7, 8, 9, 15 |
+| all | GFNI and wider | gf8c | mul_add_scatter | general | 7, 8 / 7 |
+| all | GFNI and wider | gf8c | mul_add_scatter | mixed | 7, 8, 9, 15 / 7, 8, 9, 15 |
+| all | GFNI and wider | gf8c | mul_add_with | general | 7, 8, 9 / 7, 8, 9 |
+| all | GFNI and wider | gf8c | mul_assign | general | 7, 8 / - |
+| all | GFNI and wider | gf8c | mul_elementwise | general | 7, 8, 9, 15, 31, 63 / 7, 8, 9, 15, 31 |
+| all | GFNI and wider | gf8c | mul_elementwise_assign | general | 7, 8, 9, 15, 31, 63 / 7, 8, 9, 15, 31 |
+| all | GFNI and wider | gf8c | mul_into | general | 7, 8, 9 / 7 |
+| all | GFNI and wider | gf8c | mul_into_gather | general | 7, 8, 9 / 7, 8, 9, 15 |
+| all | GFNI and wider | gf8c | mul_into_gather | mixed | 7, 8, 9, 15 / 7, 8, 9, 15 |
+| all | GFNI and wider | gf8c | mul_into_matrix | general | - / 7, 8, 9 |
+| all | GFNI and wider | gf8c | mul_into_matrix | mixed | 7, 8, 9, 15 / 7, 8, 9, 15 |
+| all | GFNI and wider | gf8n | mul_add | general | 7, 8, 9 / 7, 8, 9 |
+| all | GFNI and wider | gf8n | mul_add_gather | general | 7, 8, 9, 15 / 7, 8, 9 |
+| all | GFNI and wider | gf8n | mul_add_gather | mixed | 7, 8, 9, 15, 16, 17, 31 / 7, 8, 9, 15, 31 |
+| all | GFNI and wider | gf8n | mul_add_matrix | general | - / 7, 8, 9 |
+| all | GFNI and wider | gf8n | mul_add_matrix | mixed | 7, 8, 9, 15 / 7, 8, 9, 15 |
+| all | GFNI and wider | gf8n | mul_add_scatter | general | 7, 8 / 7 |
+| all | GFNI and wider | gf8n | mul_add_scatter | mixed | 7, 8, 9, 15 / 7, 8, 9, 15 |
+| all | GFNI and wider | gf8n | mul_add_with | general | 7, 8, 9, 15 / 7, 8, 9 |
+| all | GFNI and wider | gf8n | mul_assign | general | 7, 8 / - |
+| all | GFNI and wider | gf8n | mul_elementwise | general | 7, 8, 9, 15, 17, 31, 63 / 7, 8, 9, 15, 17, 31, 63 |
+| all | GFNI and wider | gf8n | mul_elementwise_assign | general | 7, 8, 9, 15, 17, 31, 63 / 7, 8, 9, 15, 17, 31, 63 |
+| all | GFNI and wider | gf8n | mul_into | general | 7, 8, 9 / 7 |
+| all | GFNI and wider | gf8n | mul_into_gather | general | 7, 8, 9 / 7, 8, 9, 15 |
+| all | GFNI and wider | gf8n | mul_into_gather | mixed | 7, 8, 9, 15 / 7, 8, 9, 15 |
+| all | GFNI and wider | gf8n | mul_into_matrix | general | - / 7, 8, 9 |
+| all | GFNI and wider | gf8n | mul_into_matrix | mixed | 7, 8, 9, 15 / 7, 8, 9, 15 |
+
+</details>
+
+| Label | Field | Lane bytes |
+| --- | --- | --- |
+| gf8n | normal-basis AES GF(2^8) | 1 |
+| gf8c | Cantor-basis GF(2^8) | 1 |
+| fp8 | Fan-Paar GF(2^8), packed degree 2 over GF(2^4) | 1 |
+| pu8c | GF(2^8) as t^2 + t + 8 over GF(2^4), packed | 1 |
+
+<details>
+<summary>Byte-row campaign hosts, controls, and classification</summary>
+
+- Willow Cove (i5-1135G7) uses core 3 and the v4x primary request; default features resolve that request to v3_gfni_crypto. Golden Cove (i7-12700K) uses core 8 and v3_gfni_crypto. Both hosts also measure v3, v2, and scalar with default and all features.
+- Turbo is disabled during measurements; shells use SCHED_OTHER and runs are pinned. Both artifacts use Rust 1.98.1 and the portable release benchmark profile.
+- Each factor uses the median of five per-run medians from five shuffled base/candidate pairs, computed from unrounded aggregates.
+- The pilot interleaves two separately built copies of the base. The second copy uses __CARGO_DEFAULT_LIB_METADATA=fgf-drift; sources, harness, lock, profile and RUSTFLAGS match. Binary digests differ.
+- Each field and row length uses twice the larger of its duplicate-control gap and its cross-binary control movement in that pilot as its frozen band. Bands above 5% remain unresolved. A win or slower classification requires four of five pairs agreeing in direction outside that band. Control movement beyond the frozen band also leaves that geometry unresolved.
+- The unchanged duplicate controls use the AES polynomial row elementwise product, recorded under each measured row label.
+- Unprepared operations include coefficient preparation. Prepared coefficients and fixture allocations are outside timing. Element arithmetic checks every result before timing.
+- Slower and unresolved cells remain open no-win regions; the campaign does not establish adoption for those cells.
 
 </details>
 
