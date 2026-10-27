@@ -1081,6 +1081,8 @@ mod tests {
     fn check_row_bank<F: crate::field::Field<Raw = u8>, D: Gf8Data>() {
         use crate::field::FieldElem;
         let elem = |raw: u8| Elem::<F> { raw };
+        let descriptor = core::hint::black_box(F::DESCRIPTOR);
+        let (built_scale, built_affine) = row_bank(descriptor);
         for c in 0..=u8::MAX {
             let table = &D::SCALE[usize::from(c)];
             assert_eq!(table.coeff, c, "{} coefficient byte", F::NAME);
@@ -1088,6 +1090,14 @@ mod tests {
                 let product = elem(x).mul(elem(c)).raw;
                 let split = table.lo[usize::from(x & 0x0f)] ^ table.hi[usize::from(x >> 4)];
                 assert_eq!(split, product, "{} nibbles {c:#04x} * {x:#04x}", F::NAME);
+                let built = &built_scale[usize::from(c)];
+                assert_eq!(
+                    built.lo[usize::from(x & 0x0f)] ^ built.hi[usize::from(x >> 4)],
+                    product,
+                    "{} constructed nibbles {c:#04x} * {x:#04x}",
+                    F::NAME
+                );
+                assert_eq!(apply(built_affine[usize::from(c)], x), product);
                 assert_eq!(
                     apply(D::AFFINE[usize::from(c)], x),
                     product,
@@ -1098,8 +1108,12 @@ mod tests {
         }
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
-            let iso = D::ISOMORPHISM;
-            let conjugation = D::CONJUGATION;
+            let columns = row_isomorphism_columns(descriptor, F::ONE_RAW);
+            let iso = Isomorphism {
+                forward: linear_map(columns.0),
+                inverse: linear_map(columns.1),
+            };
+            let conjugation = Conjugation::new(columns.0, columns.1);
             assert_eq!(
                 apply(iso.forward, F::ONE_RAW),
                 1,
