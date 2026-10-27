@@ -1295,12 +1295,18 @@ where
 
 /// Run the compositions panel. Called from `run_panels` when `--compositions`
 /// is given; `--compositions-binary` restricts it to the binary overwrite
-/// gathers.
+/// gathers and `--compositions-bytes` to the byte-wide row operations.
 pub(crate) fn run() {
     println!("Public row-composition measurements:");
     println!("COMPOSITIONS_GEOMETRY\trows\t{NROWS}\tsources\t{NSOURCES}");
 
-    if !std::env::args().any(|arg| arg == "--compositions-binary") {
+    if std::env::args().any(|arg| arg == "--compositions-bytes") {
+        println!("\nByte-wide rows:");
+        byte_row_panel::<Aes8Normal>("gf8n", 0x90_0000);
+        byte_row_panel::<Cantor8>("gf8c", 0x91_0000);
+        byte_row_panel::<FiniteField<2, 8, Extension<fgf::FanPaar8, 2>>>("fp8", 0x92_0000);
+        byte_row_panel::<NibbleTower>("pu8c", 0x93_0000);
+    } else if !std::env::args().any(|arg| arg == "--compositions-binary") {
         println!("\nQuadratic prime rows:");
         prime_panel::<QuadMersenne31>("qm31", 0x10_0000, ALL_PATTERNS);
 
@@ -1353,17 +1359,24 @@ pub(crate) fn run() {
         component_panel::<Packed32Base>("packed32-base", 0x73_0000);
         component_panel::<Packed8Base>("packed8-base", 0x74_0000);
     }
-
-    println!("\nBinary overwrite gathers:");
-    binary_gather_panel::<Aes8>("gf8aes", 0x80_0000);
-    binary_gather_panel::<FiniteField<2, 8, Polynomial<0x11D>>>("gf8rs", 0x81_0000);
-    binary_gather_panel::<Aes8Normal>("gf8n", 0x82_0000);
-    binary_gather_panel::<FiniteField<2, 16, Extension<fgf::Rijndael16, 2>>>("fp16r", 0x83_0000);
-    binary_gather_panel::<FiniteField<2, 16, Extension<fgf::FanPaar16, 2>>>("fp16f", 0x84_0000);
-    binary_gather_panel::<FiniteField<2, 32, Extension<fgf::Rijndael32, 2>>>("fp32r", 0x85_0000);
-    binary_gather_panel::<FiniteField<2, 32, Extension<fgf::FanPaar32, 2>>>("fp32f", 0x86_0000);
-    binary_gather_panel::<FiniteField<2, 64, Extension<fgf::Rijndael64, 2>>>("fp64r", 0x87_0000);
-    binary_gather_panel::<FiniteField<2, 64, Extension<fgf::FanPaar64, 2>>>("fp64f", 0x88_0000);
+    if !std::env::args().any(|arg| arg == "--compositions-bytes") {
+        println!("\nBinary overwrite gathers:");
+        binary_gather_panel::<Aes8>("gf8aes", 0x80_0000);
+        binary_gather_panel::<FiniteField<2, 8, Polynomial<0x11D>>>("gf8rs", 0x81_0000);
+        binary_gather_panel::<Aes8Normal>("gf8n", 0x82_0000);
+        binary_gather_panel::<FiniteField<2, 16, Extension<fgf::Rijndael16, 2>>>(
+            "fp16r", 0x83_0000,
+        );
+        binary_gather_panel::<FiniteField<2, 16, Extension<fgf::FanPaar16, 2>>>("fp16f", 0x84_0000);
+        binary_gather_panel::<FiniteField<2, 32, Extension<fgf::Rijndael32, 2>>>(
+            "fp32r", 0x85_0000,
+        );
+        binary_gather_panel::<FiniteField<2, 32, Extension<fgf::FanPaar32, 2>>>("fp32f", 0x86_0000);
+        binary_gather_panel::<FiniteField<2, 64, Extension<fgf::Rijndael64, 2>>>(
+            "fp64r", 0x87_0000,
+        );
+        binary_gather_panel::<FiniteField<2, 64, Extension<fgf::FanPaar64, 2>>>("fp64f", 0x88_0000);
+    }
     let mode = if controls_only() {
         "controls"
     } else if std::env::args().any(|arg| arg == "--compositions-check") {
@@ -1473,6 +1486,282 @@ where
                         black_box(&refs),
                     );
                     black_box(&dst[..]);
+                },
+            );
+        }
+    }
+}
+
+/// GF(2^8) as `t^2 + t + 8` over GF(2^4), packed in a byte word.
+struct NibbleTowerSpec;
+impl ExtensionSpec<2> for NibbleTowerSpec {
+    type Base = FiniteField<2, 4, Polynomial<0x13>>;
+    type Storage = fgf::Packed<u8>;
+    const NAME: &'static str = "GF(2^8) over GF(2^4)";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 4, Polynomial<0x13>>>(&[0x8, 0x1]);
+}
+type NibbleTower = FiniteField<2, 8, Extension<NibbleTowerSpec, 2>>;
+
+/// Check one destination-writing operation against `expected`, then time it.
+#[allow(clippy::too_many_arguments)]
+fn timed_op(
+    label: &str,
+    op: &str,
+    pat: &str,
+    lanes: usize,
+    bytes: usize,
+    init: &[u8],
+    expected: &[u8],
+    mut body: impl FnMut(&mut [u8]),
+) {
+    let mut dst = init.to_vec();
+    body(&mut dst);
+    assert_eq!(dst, expected, "{label}: {op} {pat} lanes {lanes}");
+    dst.copy_from_slice(init);
+    bench(
+        &format!("compositions/{label}/{op}/{pat}/lanes-{lanes}"),
+        bytes,
+        || {
+            body(black_box(&mut dst));
+            black_box(dst.as_slice());
+        },
+    );
+}
+
+/// Fixed-coefficient, multi-row, and elementwise operations over one
+/// byte-wide row, with the AES row's elementwise product as the unchanged
+/// control under the row's label.
+#[allow(clippy::too_many_lines)]
+fn byte_row_panel<F>(label: &str, seed: u64)
+where
+    F: fgf::FieldKernels + FieldBuffer,
+    Elem<F>: FieldElem,
+{
+    println!(
+        "FIELD_BACKEND\tcompositions/{label}\t{}",
+        backend_for::<F>().name()
+    );
+    println!("FIELD_LAYOUT\tcompositions/{label}\t{}", F::BYTES);
+    println!(
+        "compositions bytes {label} — backend {}:",
+        backend_for::<F>().name()
+    );
+    let to_buf = |values: &[Elem<F>]| elems_to_buf::<F>(values);
+    for lanes in lane_counts::<F>() {
+        let len = lanes * F::BYTES;
+        println!("  lanes {lanes} ({len} B):");
+        elementwise_controls::<Aes8>(label, lanes, seed);
+        if controls_only() {
+            continue;
+        }
+        let elems = |buf: &[u8]| elems_from_buf::<F>(buf, lanes);
+        let sources: Vec<Vec<u8>> = (0..NSOURCES)
+            .map(|i| canonical_noise::<F>(len, seed ^ 0x1100 ^ i as u64))
+            .collect();
+        let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
+        let (src, other) = (&sources[0], &sources[1]);
+        let dst0 = canonical_noise::<F>(len, seed ^ 0x3300);
+
+        // Single rows under one general coefficient.
+        let c = build_binary_coeffs::<F>(Pattern::General, 1, seed ^ 0x2200)[0];
+        let prepared = ops::Coeff::<F>::new(c);
+        let scaled: Vec<Elem<F>> = elems(src).iter().map(|&s| c.mul(s)).collect();
+        let added: Vec<Elem<F>> = elems(&dst0)
+            .iter()
+            .zip(&scaled)
+            .map(|(&d, &p)| d.add(p))
+            .collect();
+        let assigned: Vec<Elem<F>> = elems(&dst0).iter().map(|&d| c.mul(d)).collect();
+        let products: Vec<Elem<F>> = elems(src)
+            .iter()
+            .zip(elems(other))
+            .map(|(&a, b)| a.mul(b))
+            .collect();
+        let general = Pattern::General.label();
+        timed_op(
+            label,
+            "mul_add",
+            general,
+            lanes,
+            2 * len,
+            &dst0,
+            &to_buf(&added),
+            |d| {
+                ops::mul_add::<F>(d, black_box(c), src);
+            },
+        );
+        timed_op(
+            label,
+            "mul_add_with",
+            general,
+            lanes,
+            2 * len,
+            &dst0,
+            &to_buf(&added),
+            |d| {
+                ops::mul_add_with::<F>(d, black_box(&prepared), src);
+            },
+        );
+        timed_op(
+            label,
+            "mul_into",
+            general,
+            lanes,
+            2 * len,
+            &dst0,
+            &to_buf(&scaled),
+            |d| {
+                ops::mul_into::<F>(d, black_box(c), src);
+            },
+        );
+        timed_op(
+            label,
+            "mul_assign",
+            general,
+            lanes,
+            len,
+            &dst0,
+            &to_buf(&assigned),
+            |d| {
+                ops::mul_assign::<F>(d, black_box(c));
+            },
+        );
+        timed_op(
+            label,
+            "mul_elementwise",
+            general,
+            lanes,
+            3 * len,
+            &dst0,
+            &to_buf(&products),
+            |d| {
+                ops::mul_elementwise::<F>(d, src, other);
+            },
+        );
+        timed_op(
+            label,
+            "mul_elementwise_assign",
+            general,
+            lanes,
+            2 * len,
+            src,
+            &to_buf(&products),
+            |d| {
+                ops::mul_elementwise_assign::<F>(d, other);
+            },
+        );
+
+        // Multi-row shapes under general and mixed coefficients.
+        for pattern in [Pattern::General, Pattern::Mixed] {
+            let pat = pattern.label();
+            let row_coeffs = build_binary_coeffs::<F>(pattern, NROWS, seed ^ 0x4400);
+            let rows0 = canonical_noise::<F>(len * NROWS, seed ^ 0x5500);
+            let scattered: Vec<Elem<F>> = rows0
+                .chunks_exact(len)
+                .zip(&row_coeffs)
+                .flat_map(|(row, &c)| {
+                    elems(row)
+                        .into_iter()
+                        .zip(elems(src))
+                        .map(move |(d, s)| d.add(c.mul(s)))
+                })
+                .collect();
+            timed_op(
+                label,
+                "mul_add_scatter",
+                pat,
+                lanes,
+                len * (NROWS + 1),
+                &rows0,
+                &to_buf(&scattered),
+                |rows| {
+                    ops::mul_add_scatter::<F>(rows, len, black_box(&row_coeffs), src);
+                },
+            );
+
+            let gather_coeffs = build_binary_coeffs::<F>(pattern, NSOURCES, seed ^ 0x6600);
+            let mut sum = vec![Elem::<F>::ZERO; lanes];
+            for (&c, source) in gather_coeffs.iter().zip(&refs) {
+                for (acc, s) in sum.iter_mut().zip(elems(source)) {
+                    *acc = acc.add(c.mul(s));
+                }
+            }
+            let gathered: Vec<Elem<F>> = elems(&dst0)
+                .iter()
+                .zip(&sum)
+                .map(|(&d, &s)| d.add(s))
+                .collect();
+            let traffic = len * (NSOURCES + 1);
+            timed_op(
+                label,
+                "mul_add_gather",
+                pat,
+                lanes,
+                traffic,
+                &dst0,
+                &to_buf(&gathered),
+                |d| {
+                    ops::mul_add_gather::<F>(d, black_box(&gather_coeffs), &refs);
+                },
+            );
+            timed_op(
+                label,
+                "mul_into_gather",
+                pat,
+                lanes,
+                traffic,
+                &dst0,
+                &to_buf(&sum),
+                |d| {
+                    ops::mul_into_gather::<F>(d, black_box(&gather_coeffs), &refs);
+                },
+            );
+
+            let matrix_coeffs: Vec<Vec<Elem<F>>> = (0..NSOURCES)
+                .map(|t| build_binary_coeffs::<F>(pattern, NROWS, seed ^ 0x7700 ^ t as u64))
+                .collect();
+            let terms: Vec<(&[Elem<F>], &[u8])> = matrix_coeffs
+                .iter()
+                .zip(&refs)
+                .map(|(cs, &s)| (cs.as_slice(), s))
+                .collect();
+            let mut into = vec![Elem::<F>::ZERO; lanes * NROWS];
+            for &(cs, s) in &terms {
+                for (row, &c) in into.chunks_exact_mut(lanes).zip(cs) {
+                    for (acc, v) in row.iter_mut().zip(elems(s)) {
+                        *acc = acc.add(c.mul(v));
+                    }
+                }
+            }
+            let accumulated: Vec<Elem<F>> = elems_from_buf::<F>(&rows0, lanes * NROWS)
+                .iter()
+                .zip(&into)
+                .map(|(&d, &s)| d.add(s))
+                .collect();
+            let traffic = len * (NROWS + NSOURCES);
+            timed_op(
+                label,
+                "mul_add_matrix",
+                pat,
+                lanes,
+                traffic,
+                &rows0,
+                &to_buf(&accumulated),
+                |rows| {
+                    ops::mul_add_matrix::<F>(rows, len, NROWS, black_box(&terms));
+                },
+            );
+            timed_op(
+                label,
+                "mul_into_matrix",
+                pat,
+                lanes,
+                traffic,
+                &rows0,
+                &to_buf(&into),
+                |rows| {
+                    ops::mul_into_matrix::<F>(rows, len, NROWS, black_box(&terms));
                 },
             );
         }
