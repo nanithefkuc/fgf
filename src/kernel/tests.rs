@@ -1130,6 +1130,64 @@ mod x86 {
         Some(X64V4xToken::summon().expect("the selected V4x tier must supply its token"))
     }
 
+    /// The conjugated shuffle-tier elementwise kernels against each
+    /// non-polynomial byte row's own scalar product, in and out of place, at
+    /// lengths straddling every lane and tail boundary.
+    #[test]
+    fn conjugated_byte_elementwise_kernels_match_scalar() {
+        use crate::kernel::tables::{Conjugation, Gf8Data, RowBank};
+        type FanPaar8 = crate::field::binary::tower::FanPaar8Field;
+
+        fn check<F: crate::field::FieldBuffer>(map: &Conjugation) {
+            let v2 = host_supports(&[Backend::V2])
+                .then(|| X64V2Token::summon().expect("the V2 tier supplies its token"));
+            let v3 = host_supports(&[Backend::V3])
+                .then(|| X64V3Token::summon().expect("the V3 tier supplies its token"));
+            if v2.is_none() {
+                eprintln!("skipping: no SSSE3 tier on this host");
+                return;
+            }
+            for &len in LENGTHS {
+                let a = noise(len, 0x1c1);
+                let b = noise(len, 0x1c2);
+                let mut want = vec![0; len];
+                scalar::mul_elementwise::<F>(&mut want, &a, &b);
+                let mut out = noise(len, 0x1c3);
+                let mut assign = a.clone();
+                if let Some(token) = v2 {
+                    x86::gf8::mul_elementwise_conjugated_ssse3(token, map, &mut out, &a, &b);
+                    x86::gf8::mul_elementwise_assign_conjugated_ssse3(token, map, &mut assign, &b);
+                    assert_eq!(out, want, "{} ssse3 conjugated, len {len}", F::NAME);
+                    assert_eq!(
+                        assign,
+                        want,
+                        "{} ssse3 conjugated assign, len {len}",
+                        F::NAME
+                    );
+                }
+                if let Some(token) = v3 {
+                    let mut out = noise(len, 0x1c4);
+                    let mut assign = a.clone();
+                    x86::gf8::mul_elementwise_conjugated_avx2(token, map, &mut out, &a, &b);
+                    x86::gf8::mul_elementwise_assign_conjugated_avx2(token, map, &mut assign, &b);
+                    assert_eq!(out, want, "{} avx2 conjugated, len {len}", F::NAME);
+                    assert_eq!(
+                        assign,
+                        want,
+                        "{} avx2 conjugated assign, len {len}",
+                        F::NAME
+                    );
+                }
+            }
+        }
+
+        check::<FiniteField<2, 8, Normal<AES, 0x20>>>(&<Normal<AES, 0x20> as Gf8Data>::CONJUGATION);
+        check::<FiniteField<2, 8, crate::field::Cantor<AES, 0x20>>>(
+            &<crate::field::Cantor<AES, 0x20> as Gf8Data>::CONJUGATION,
+        );
+        check::<FanPaar8>(&<RowBank<FanPaar8> as Gf8Data>::CONJUGATION);
+    }
+
     /// Checks the token-proven tower lanes directly against scalar arithmetic.
     #[cfg(feature = "simd512")]
     #[test]

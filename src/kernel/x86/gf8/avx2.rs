@@ -12,11 +12,12 @@
 
 use super::check_gather;
 use super::ssse3::{
-    mul_add_ssse3, mul_assign_ssse3, mul_elementwise_assign_ssse3, mul_elementwise_ssse3,
+    mul_add_ssse3, mul_assign_ssse3, mul_elementwise_assign_conjugated_ssse3,
+    mul_elementwise_assign_ssse3, mul_elementwise_conjugated_ssse3, mul_elementwise_ssse3,
     mul_into_ssse3_impl,
 };
 use crate::kernel::gf8::{Coeffs, Prepared};
-use crate::kernel::tables::ScaleTable;
+use crate::kernel::tables::{Conjugation, ScaleTable};
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
@@ -767,4 +768,131 @@ pub fn mul_elementwise_assign_avx2(
 
     // AVX2 implies SSSE3; the remainders keep equal lengths.
     mul_elementwise_assign_ssse3(_token.v2(), reduction, dst_rest, src_rest);
+}
+
+/// The AES field's reduction byte: the conjugated kernels multiply there.
+const AES_REDUCTION: u8 =
+    crate::field::binary::Polynomial::<{ crate::field::binary::AES }>::REDUCTION_LOW;
+
+/// A byte-linear map given as split-nibble tables broadcast to both 128-bit
+/// halves, applied to every lane.
+#[inline]
+#[archmage::rite(v3)]
+fn map_lanes_avx2(x: __m256i, lo: __m256i, hi: __m256i) -> __m256i {
+    let mask = _mm256_set1_epi8(0x0f);
+    let low = _mm256_and_si256(x, mask);
+    let high = _mm256_and_si256(_mm256_srli_epi16::<4>(x), mask);
+    _mm256_xor_si256(_mm256_shuffle_epi8(lo, low), _mm256_shuffle_epi8(hi, high))
+}
+
+/// `φ⁻¹(φx · φy)` over a 256-bit lane, with `maps` holding `φ` low and high
+/// then `φ⁻¹` low and high.
+#[inline]
+#[archmage::rite(v3)]
+fn multiply_conjugated_avx2(x: __m256i, y: __m256i, maps: &[__m256i; 4]) -> __m256i {
+    let px = map_lanes_avx2(x, maps[0], maps[1]);
+    let py = map_lanes_avx2(y, maps[0], maps[1]);
+    map_lanes_avx2(
+        multiply_vectors_avx2(px, py, AES_REDUCTION),
+        maps[2],
+        maps[3],
+    )
+}
+
+/// The conjugation tables broadcast to both 128-bit halves.
+#[inline]
+#[archmage::rite(v3, import_intrinsics)]
+fn conjugation_avx2(map: &Conjugation) -> [__m256i; 4] {
+    [
+        _mm256_broadcastsi128_si256(_mm_loadu_si128(&map.forward_lo)),
+        _mm256_broadcastsi128_si256(_mm_loadu_si128(&map.forward_hi)),
+        _mm256_broadcastsi128_si256(_mm_loadu_si128(&map.inverse_lo)),
+        _mm256_broadcastsi128_si256(_mm_loadu_si128(&map.inverse_hi)),
+    ]
+}
+
+/// `dst[i] = a[i] * b[i]` for a row whose raw bytes are not polynomial
+/// coordinates: both operands map into the AES field through `map`, multiply
+/// there by shift/reduce over 32-byte lanes, and map back.
+///
+/// # Panics
+/// Panics unless all three buffers match in length.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_elementwise_conjugated_avx2(
+    _token: archmage::X64V3Token,
+    map: &Conjugation,
+    dst: &mut [u8],
+    a: &[u8],
+    b: &[u8],
+) {
+    assert_eq!(
+        dst.len(),
+        a.len(),
+        "mul_elementwise_conjugated_avx2: dst and a differ in length"
+    );
+    assert_eq!(
+        dst.len(),
+        b.len(),
+        "mul_elementwise_conjugated_avx2: dst and b differ in length"
+    );
+    let maps = conjugation_avx2(map);
+    let (dst_lanes, dst_rest) = dst.as_chunks_mut::<32>();
+    let (a_lanes, a_rest) = a.as_chunks::<32>();
+    let (b_lanes, b_rest) = b.as_chunks::<32>();
+    for ((dlane, alane), blane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
+        let x = _mm256_loadu_si256(alane);
+        let y = _mm256_loadu_si256(blane);
+        _mm256_storeu_si256(dlane, multiply_conjugated_avx2(x, y, &maps));
+    }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx2.mul_elementwise_conjugated",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 32,
+        crate::kernel::Backend::V3,
+    );
+
+    // AVX2 implies SSSE3; the remainders keep equal lengths.
+    mul_elementwise_conjugated_ssse3(_token.v2(), map, dst_rest, a_rest, b_rest);
+}
+
+/// `dst[i] = dst[i] * src[i]` for a row whose raw bytes are not polynomial
+/// coordinates, conjugated as in [`mul_elementwise_conjugated_avx2`].
+///
+/// # Panics
+/// Panics if the slices differ in length.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_elementwise_assign_conjugated_avx2(
+    _token: archmage::X64V3Token,
+    map: &Conjugation,
+    dst: &mut [u8],
+    src: &[u8],
+) {
+    assert_eq!(
+        dst.len(),
+        src.len(),
+        "mul_elementwise_assign_conjugated_avx2: dst and src differ in length"
+    );
+    let maps = conjugation_avx2(map);
+    let (dst_lanes, dst_rest) = dst.as_chunks_mut::<32>();
+    let (src_lanes, src_rest) = src.as_chunks::<32>();
+    for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
+        let x = _mm256_loadu_si256(&*dlane);
+        let y = _mm256_loadu_si256(slane);
+        _mm256_storeu_si256(dlane, multiply_conjugated_avx2(x, y, &maps));
+    }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.avx2.mul_elementwise_assign_conjugated",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 32,
+        crate::kernel::Backend::V3,
+    );
+
+    // AVX2 implies SSSE3; the remainders keep equal lengths.
+    mul_elementwise_assign_conjugated_ssse3(_token.v2(), map, dst_rest, src_rest);
 }

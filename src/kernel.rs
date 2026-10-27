@@ -71,7 +71,10 @@ use simdispatch::Selection;
 mod private {
     pub trait Sealed {}
 }
-impl<R: crate::kernel::tables::Gf8Data> private::Sealed for crate::field::FiniteField<2, 8, R> {}
+impl<R: crate::field::binary::BinaryRepr<8> + crate::kernel::tables::Gf8Data> private::Sealed
+    for crate::field::FiniteField<2, 8, R>
+{
+}
 impl private::Sealed for crate::field::mersenne31::Mersenne31 {}
 impl private::Sealed for crate::field::goldilocks::Goldilocks {}
 impl<const P: u64> private::Sealed for crate::field::FiniteField<P, 1, Residue> {}
