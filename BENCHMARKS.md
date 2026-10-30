@@ -17,7 +17,7 @@ lower **ns/op** is better. A dash means no measurement.
 | Embeddings, isomorphisms, restrictions, conversion loops | [Field maps](benchmarks/v3/maps.md) |
 | Native GF16 encodings and matched competitors | [GF16 presentations](benchmarks/v3/gf16-presentations.md) |
 | Prepared maps, Frobenius, and bit-packed map rows | [Prepared field maps](benchmarks/v3/field-maps.md) |
-| Prime, residue, and component scatter, gather, matrix, and row addition | [Row compositions](benchmarks/v3/compositions.md) — paired base/candidate factors and routing boundaries |
+| Prime, residue, component, and binary row operations | [Row compositions](benchmarks/v3/compositions.md) — paired base/candidate factors, byte-wide presentations, and routing boundaries |
 
 | Field family | Size sweeps and competitors |
 | --- | --- |

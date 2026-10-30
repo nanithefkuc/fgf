@@ -14,7 +14,7 @@
 use super::check_gather;
 use crate::kernel::Matrix;
 use crate::kernel::gf8::{Coeffs, Prepared, mul_add_nibble, mul_assign_nibble, mul_into_nibble};
-use crate::kernel::tables::ScaleTable;
+use crate::kernel::tables::{Conjugation, ScaleTable};
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
@@ -576,5 +576,138 @@ pub fn mul_elementwise_assign_ssse3(
     );
     for (d, &s) in dst_rest.iter_mut().zip(src_rest) {
         *d = gf_mul_ref(*d, s, reduction);
+    }
+}
+
+/// The AES field's reduction byte: the conjugated kernels multiply there.
+const AES_REDUCTION: u8 =
+    crate::field::binary::Polynomial::<{ crate::field::binary::AES }>::REDUCTION_LOW;
+
+/// A byte-linear map given as split-nibble tables, applied to every lane.
+#[inline]
+#[archmage::rite(v2)]
+pub(super) fn map_lanes_ssse3(x: __m128i, lo: __m128i, hi: __m128i) -> __m128i {
+    let mask = _mm_set1_epi8(0x0f);
+    let low = _mm_and_si128(x, mask);
+    let high = _mm_and_si128(_mm_srli_epi16::<4>(x), mask);
+    _mm_xor_si128(_mm_shuffle_epi8(lo, low), _mm_shuffle_epi8(hi, high))
+}
+
+/// `φ⁻¹(φx · φy)` over a 128-bit lane: the shift/reduce product in the AES
+/// field, conjugated by the row's isomorphism.
+#[inline]
+#[archmage::rite(v2)]
+fn multiply_conjugated_ssse3(x: __m128i, y: __m128i, maps: &[__m128i; 4]) -> __m128i {
+    let px = map_lanes_ssse3(x, maps[0], maps[1]);
+    let py = map_lanes_ssse3(y, maps[0], maps[1]);
+    map_lanes_ssse3(
+        multiply_vectors_ssse3(px, py, AES_REDUCTION),
+        maps[2],
+        maps[3],
+    )
+}
+
+/// The conjugation tables as 128-bit vectors: `φ` low and high, then `φ⁻¹`
+/// low and high.
+#[inline]
+#[archmage::rite(v2, import_intrinsics)]
+fn conjugation_ssse3(map: &Conjugation) -> [__m128i; 4] {
+    [
+        _mm_loadu_si128(&map.forward_lo),
+        _mm_loadu_si128(&map.forward_hi),
+        _mm_loadu_si128(&map.inverse_lo),
+        _mm_loadu_si128(&map.inverse_hi),
+    ]
+}
+
+/// `φ⁻¹(φa · φb)` per byte in scalar: the sub-lane tail of the conjugated
+/// kernels.
+pub(super) fn gf_mul_conjugated_ref(map: &Conjugation, a: u8, b: u8) -> u8 {
+    map.inverse(gf_mul_ref(map.forward(a), map.forward(b), AES_REDUCTION))
+}
+
+/// `dst[i] = a[i] * b[i]` for a row whose raw bytes are not polynomial
+/// coordinates: both operands map into the AES field through `map`, multiply
+/// there by shift/reduce over 16-byte lanes, and map back.
+///
+/// # Panics
+/// Panics unless all three buffers match in length.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_elementwise_conjugated_ssse3(
+    _token: archmage::X64V2Token,
+    map: &Conjugation,
+    dst: &mut [u8],
+    a: &[u8],
+    b: &[u8],
+) {
+    assert_eq!(
+        dst.len(),
+        a.len(),
+        "mul_elementwise_conjugated_ssse3: dst and a differ in length"
+    );
+    assert_eq!(
+        dst.len(),
+        b.len(),
+        "mul_elementwise_conjugated_ssse3: dst and b differ in length"
+    );
+    let maps = conjugation_ssse3(map);
+    let (dst_lanes, dst_rest) = dst.as_chunks_mut::<16>();
+    let (a_lanes, a_rest) = a.as_chunks::<16>();
+    let (b_lanes, b_rest) = b.as_chunks::<16>();
+    for ((dlane, alane), blane) in dst_lanes.iter_mut().zip(a_lanes).zip(b_lanes) {
+        let x = _mm_loadu_si128(alane);
+        let y = _mm_loadu_si128(blane);
+        _mm_storeu_si128(dlane, multiply_conjugated_ssse3(x, y, &maps));
+    }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.ssse3.mul_elementwise_conjugated",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V2,
+    );
+    for ((d, &x), &y) in dst_rest.iter_mut().zip(a_rest).zip(b_rest) {
+        *d = gf_mul_conjugated_ref(map, x, y);
+    }
+}
+
+/// `dst[i] = dst[i] * src[i]` for a row whose raw bytes are not polynomial
+/// coordinates, conjugated as in [`mul_elementwise_conjugated_ssse3`].
+///
+/// # Panics
+/// Panics if the slices differ in length.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_elementwise_assign_conjugated_ssse3(
+    _token: archmage::X64V2Token,
+    map: &Conjugation,
+    dst: &mut [u8],
+    src: &[u8],
+) {
+    assert_eq!(
+        dst.len(),
+        src.len(),
+        "mul_elementwise_assign_conjugated_ssse3: dst and src differ in length"
+    );
+    let maps = conjugation_ssse3(map);
+    let (dst_lanes, dst_rest) = dst.as_chunks_mut::<16>();
+    let (src_lanes, src_rest) = src.as_chunks::<16>();
+    for (dlane, slane) in dst_lanes.iter_mut().zip(src_lanes) {
+        let x = _mm_loadu_si128(&*dlane);
+        let y = _mm_loadu_si128(slane);
+        _mm_storeu_si128(dlane, multiply_conjugated_ssse3(x, y, &maps));
+    }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "gf8.ssse3.mul_elementwise_assign_conjugated",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst_lanes.len() * 16,
+        crate::kernel::Backend::V2,
+    );
+    for (d, &s) in dst_rest.iter_mut().zip(src_rest) {
+        *d = gf_mul_conjugated_ref(map, *d, s);
     }
 }

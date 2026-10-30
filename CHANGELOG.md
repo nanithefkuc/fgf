@@ -58,6 +58,20 @@ All notable changes to this project are documented here. The format follows
   counts as qualified multiplication when general and as the copy base when
   unit.
 
+### Changed
+
+- Normal- and Cantor-basis GF(2^8) rows and every `Packed<u8>` extension row
+  run the GF(2^8) vector kernels for fixed-coefficient, multi-row, and
+  elementwise operations on every x86 tier, with tables and an isomorphism
+  onto the AES field built at compile time from the row's own product.
+  `backend_for` and `has_vector_elementwise` report the process tier for
+  these rows instead of `Scalar`.
+- **Breaking:** `ops::Coeff`, `CoeffVec`, and `CoeffMatrix` entries over
+  `Packed<u8>` extension rows hold the GF(2^8) prepared form (a table
+  reference and an affine word) instead of the raw byte, growing each entry
+  from one byte to two words. Code that relies on the prepared size
+  recomputes it with `core::mem::size_of`.
+
 ### Removed
 
 - **Breaking:** The unstable `internals::kernel::prime` multi-row

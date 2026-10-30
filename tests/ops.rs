@@ -4372,17 +4372,24 @@ fn add_gather_accepts_empty_destination() {
 // ---------------------------------------------------------------------------
 
 /// Single-row basis operations agree with the scalar reference at
-/// lane-straddling lengths while `backend_for` reports the scalar fallback.
+/// lane-straddling lengths while `backend_for` reports the byte-field tier:
+/// the process tier on x86 SIMD tiers, scalar elsewhere.
 fn basis_bulk_matches_scalar_for<F: FieldKernels>() {
-    use fgf::{Backend, backend_for, has_vector_elementwise};
+    use fgf::{Backend, backend, backend_for, has_vector_elementwise};
+    let process = backend();
+    let x86_tier = matches!(
+        process,
+        Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2
+    );
     assert_eq!(
         backend_for::<F>(),
-        Backend::Scalar,
-        "basis bulk operations must report the scalar fallback"
+        if x86_tier { process } else { Backend::Scalar },
+        "basis bulk operations report the byte-field tier"
     );
-    assert!(
-        !has_vector_elementwise::<F>(),
-        "basis elementwise multiplication is scalar"
+    assert_eq!(
+        has_vector_elementwise::<F>(),
+        x86_tier,
+        "basis elementwise multiplication follows the byte-field tier"
     );
     let coeffs = [0u8, 1, 0x53, 0xFF, 0x20, 0x07].map(|raw| {
         let mut bytes = [0u8; 1];
@@ -4528,7 +4535,7 @@ fn basis_prepared_matches_one_shot_for<F: FieldKernels>() {
 }
 
 #[test]
-fn normal_bulk_matches_scalar_and_reports_scalar() {
+fn normal_bulk_matches_scalar_on_the_byte_tier() {
     basis_bulk_matches_scalar_for::<FiniteField<2, 8, Normal<0x11B, 0x20>>>();
     basis_scatter_gather_matrix_for::<FiniteField<2, 8, Normal<0x11B, 0x20>>>();
     #[cfg(feature = "alloc")]
@@ -4536,11 +4543,24 @@ fn normal_bulk_matches_scalar_and_reports_scalar() {
 }
 
 #[test]
-fn cantor_bulk_matches_scalar_and_reports_scalar() {
+fn cantor_bulk_matches_scalar_on_the_byte_tier() {
     basis_bulk_matches_scalar_for::<FiniteField<2, 8, Cantor<0x11B, 0x20>>>();
     basis_scatter_gather_matrix_for::<FiniteField<2, 8, Cantor<0x11B, 0x20>>>();
     #[cfg(feature = "alloc")]
     basis_prepared_matches_one_shot_for::<FiniteField<2, 8, Cantor<0x11B, 0x20>>>();
+}
+
+#[test]
+fn packed_byte_rows_match_scalar_on_the_byte_tier() {
+    basis_bulk_matches_scalar_for::<FanPaar8Field>();
+    basis_scatter_gather_matrix_for::<FanPaar8Field>();
+    basis_bulk_matches_scalar_for::<Custom8Row>();
+    basis_scatter_gather_matrix_for::<Custom8Row>();
+    #[cfg(feature = "alloc")]
+    {
+        basis_prepared_matches_one_shot_for::<FanPaar8Field>();
+        basis_prepared_matches_one_shot_for::<Custom8Row>();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -4638,36 +4658,33 @@ fn backend_reports_match_family_routes() {
             );
         )+};
     }
-    scalar_fallback!(
+    scalar_fallback!(Custom16Row, Custom32Row, Custom64Row, NormalBase16Row);
+
+    // Every byte-wide row — polynomial, ordered-basis, and `Packed<u8>` —
+    // follows the process backend on the x86 tiers its kernels serve; other
+    // targets run the portable scalar bodies.
+    let tier_or_scalar = |served: bool| if served { process } else { Backend::Scalar };
+    macro_rules! byte_tier {
+        ($($field:ty),+ $(,)?) => {$(
+            assert_eq!(
+                backend_for::<$field>(),
+                tier_or_scalar(x86_tier),
+                concat!(stringify!($field), " must report the byte-field tier"),
+            );
+            assert_eq!(
+                has_vector_elementwise::<$field>(),
+                x86_tier,
+                concat!(stringify!($field), " elementwise follows the byte-field tier"),
+            );
+        )+};
+    }
+    byte_tier!(
+        FiniteField<2, 8, Polynomial<AES>>,
+        FiniteField<2, 8, Polynomial<RS>>,
         FiniteField<2, 8, Normal<0x11B, 0x20>>,
         FiniteField<2, 8, Cantor<0x11B, 0x20>>,
         FanPaar8Field,
         Custom8Row,
-        Custom16Row,
-        Custom32Row,
-        Custom64Row,
-        NormalBase16Row,
-    );
-
-    // Fan–Paar towers and polynomial byte fields follow the process backend
-    // on the x86 tiers their kernels serve; other targets run the portable
-    // scalar bodies.
-    let tier_or_scalar = |served: bool| if served { process } else { Backend::Scalar };
-    assert_eq!(
-        backend_for::<FiniteField<2, 8, Polynomial<AES>>>(),
-        tier_or_scalar(x86_tier)
-    );
-    assert_eq!(
-        has_vector_elementwise::<FiniteField<2, 8, Polynomial<AES>>>(),
-        x86_tier,
-    );
-    assert_eq!(
-        backend_for::<FiniteField<2, 8, Polynomial<RS>>>(),
-        tier_or_scalar(x86_tier)
-    );
-    assert_eq!(
-        has_vector_elementwise::<FiniteField<2, 8, Polynomial<RS>>>(),
-        x86_tier,
     );
 
     // Rijndael towers: byte-multiply kernels on GFNI x86, nibble kernels on
