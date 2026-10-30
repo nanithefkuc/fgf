@@ -1,6 +1,6 @@
 //! Irreducibility of a relation node over its base, decided exactly in
-//! const: the quadratic criteria as a fast path, and the generalized Ben-Or
-//! test for every higher relative degree.
+//! const: quadratic criteria, packed Rabin tests over GF(2), and the
+//! generalized Ben-Or test over larger bases.
 //!
 //! The quadratic test reads nonzero `c_1` plus the absolute trace of
 //! `c_0 / c_1^2` equal to one in characteristic two — against the base
@@ -16,9 +16,10 @@ use super::arithmetic::{
 use super::descriptor::{Descriptor, Node};
 use super::pinned;
 
-/// Whether the relation node at `index` is irreducible over its base, by
-/// the quadratic fast path at relative degree two and the generalized
-/// Ben-Or test otherwise.
+/// Whether the relation node at `index` is irreducible over its base.
+///
+/// Uses the quadratic criterion at relative degree two, packed Rabin
+/// validation over GF(2), and generalized Ben-Or validation otherwise.
 ///
 /// # Panics
 ///
@@ -27,10 +28,16 @@ use super::pinned;
 pub const fn node_relation_irreducible(descriptor: &Descriptor, index: u8) -> bool {
     match descriptor.node(index) {
         Node::Extension {
-            relative_degree, ..
+            relative_degree,
+            characteristic,
+            base_degree,
+            coefficients,
+            ..
         } => {
             if *relative_degree == 2 {
                 quadratic_relation_holds(descriptor, index)
+            } else if *characteristic == 2 && *base_degree == 1 {
+                binary_rabin_irreducible(coefficients, *relative_degree)
             } else {
                 ben_or_irreducible(descriptor, index)
             }
@@ -119,6 +126,70 @@ pub const fn quadratic_relation_holds(descriptor: &Descriptor, index: u8) -> boo
     }
 }
 
+/// Rabin's criterion for a monic relation over GF(2), packed into bits.
+///
+/// The descriptor bounds the degree by 64. Residues have degree below 64,
+/// so their squares fit in `u128`, including the degree-64 modulus's leading
+/// bit. Each distinct prime divisor `p` of `degree` requires a unit GCD at
+/// Frobenius step `degree / p`; the final step must return the indeterminate.
+const fn binary_rabin_irreducible(coefficients: &[u64], degree: usize) -> bool {
+    let mut modulus = 1u128 << degree;
+    let mut i = 0;
+    while i < degree {
+        modulus |= (coefficients[i] as u128) << i;
+        i += 1;
+    }
+    let mut checkpoints = 0u64;
+    let mut remaining = degree;
+    let mut prime = 2;
+    while prime * prime <= remaining {
+        if remaining.is_multiple_of(prime) {
+            checkpoints |= 1u64 << (degree / prime);
+            while remaining.is_multiple_of(prime) {
+                remaining /= prime;
+            }
+        }
+        prime += 1;
+    }
+    if remaining > 1 {
+        checkpoints |= 1u64 << (degree / remaining);
+    }
+    let mut power = 2u128;
+    let mut step = 1;
+    while step <= degree {
+        let mut square = 0u128;
+        let mut bits = power;
+        while bits != 0 {
+            square |= 1u128 << (2 * bits.trailing_zeros());
+            bits &= bits - 1;
+        }
+        power = binary_remainder(square, modulus);
+        if step < degree && checkpoints & (1u64 << step) != 0 {
+            let mut a = modulus;
+            let mut b = power ^ 2;
+            while b != 0 {
+                let remainder = binary_remainder(a, b);
+                a = b;
+                b = remainder;
+            }
+            if a != 1 {
+                return false;
+            }
+        }
+        step += 1;
+    }
+    power == 2
+}
+
+/// Remainder of packed binary polynomials with a nonzero divisor.
+const fn binary_remainder(mut dividend: u128, divisor: u128) -> u128 {
+    let degree = divisor.ilog2();
+    while dividend != 0 && dividend.ilog2() >= degree {
+        dividend ^= divisor << (dividend.ilog2() - degree);
+    }
+    dividend
+}
+
 /// The generalized Ben-Or test for a relation node of relative degree at
 /// least three: `gcd(f, t^(q^i) - t)` must be a unit for every
 /// `1 <= i <= floor(D/2)`, `q` the base order.
@@ -203,6 +274,56 @@ mod tests {
     const GOLDILOCKS: u64 = 0xFFFF_FFFF_0000_0001;
     const BABY_BEAR: u64 = 2_013_265_921;
     const KOALA_BEAR: u64 = 2_130_706_433;
+
+    #[test]
+    fn binary_rabin_matches_exhaustive_trial_division() {
+        for degree in 3..=10 {
+            for low in 0..1u128 << degree {
+                let coefficients: [u64; 64] =
+                    core::array::from_fn(|i| u64::from(low & (1u128 << i) != 0));
+                assert_eq!(
+                    binary_rabin_irreducible(&coefficients, degree),
+                    crate::field::binary::description::poly_irreducible(
+                        (1u128 << degree) | low,
+                        u32::try_from(degree).unwrap(),
+                    ),
+                    "degree={degree} low={low:#x}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn binary_rabin_boundary_relations_match_generic_ben_or() {
+        for (degree, low) in [
+            (64, 0x1bu64),
+            (64, 0xa1c6_7ae0_5c18_5c83),
+            (64, (1 << 32) | 1),
+            (64, 2),
+            (63, 3),
+            (61, 0x5b),
+        ] {
+            let relation: [u64; 64] = core::array::from_fn(|i| (low >> i) & 1);
+            for base in [
+                Descriptor::prime(2, PrimePresentation::Residue),
+                Descriptor::polynomial(1, 3),
+            ] {
+                let descriptor = Descriptor::extension(
+                    &base,
+                    2,
+                    u32::try_from(degree).unwrap(),
+                    degree,
+                    &relation[..degree],
+                    Storage::Components,
+                );
+                assert_eq!(
+                    descriptor.is_irreducible(),
+                    ben_or_irreducible(&descriptor, descriptor.root_index()),
+                    "degree={degree} low={low:#x}",
+                );
+            }
+        }
+    }
 
     /// `modulus - value % modulus` for a relation coefficient.
     const fn neg_mod(value: u64, modulus: u64) -> u64 {

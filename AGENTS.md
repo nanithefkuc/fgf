@@ -15,6 +15,7 @@ just features          # no-default, default, all-features
 just features-alloc    # alloc without std
 just cross-check       # AArch64 and Wasm library compilation
 just compile-fail      # negative consumer snippets must fail to compile
+just binary-relation-accept [TOOLCHAIN] [FEATURES] [ROUNDS] # standalone degree-64 consumer
 just msrv-accept       # compile-fail plus the consumer matrix on the MSRV
 just msrv-locked       # locked published dependencies, outside umbrella patches
 just package-check     # isolated archive build and portable example execution
@@ -48,6 +49,11 @@ Publication dry-run and native tier acceptance remain explicit final steps.
 Native GF16 fixture execution requires the documented AVX2/GFNI/crypto host.
 `benchmark-check` uses nightly rustdoc JSON to derive the stable callable set
 independently of the benchmark's advertised inventory.
+
+`binary-relation-accept` compiles and executes sparse and dense degree-64
+relations directly over GF(2) with default compiler lints. It accepts
+`portable`, `default`, or `all` features, defaults to the MSRV, and reports
+fresh consumer compilation times separately from library construction.
 
 Run `just validate` before submitting a change. Do not replace a recipe with a
 bare Cargo command; fix the recipe when its supported behavior is insufficient.
