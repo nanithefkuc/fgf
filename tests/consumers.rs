@@ -962,3 +962,11 @@ fn characteristic_two_extension_rows_join_the_binary_capability() {
         16
     );
 }
+
+#[path = "compile_pass/binary_degree64.rs"]
+mod binary_degree64;
+
+#[test]
+fn binary_degree64_relations_support_bulk_arithmetic() {
+    binary_degree64::exercise();
+}
