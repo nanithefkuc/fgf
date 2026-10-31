@@ -184,6 +184,41 @@ impl ExtensionSpec<2> for Packed8BaseSpec {
 }
 type Packed8Base = FiniteField<2, 16, Extension<Packed8BaseSpec, 2>>;
 
+/// GF(2^16) as `t^2 + 2*t + 0x80` over GF(2^8)/`0x11D`, packed in a `u16`.
+struct CustomPacked16Spec;
+impl ExtensionSpec<2> for CustomPacked16Spec {
+    type Base = FiniteField<2, 8, Polynomial<0x11D>>;
+    type Storage = fgf::Packed<u16>;
+    const NAME: &'static str = "custom GF(2^16) extension";
+    const RELATION: Relation =
+        Relation::from_binary_words::<FiniteField<2, 8, Polynomial<0x11D>>>(&[0x80, 0x2]);
+}
+type CustomPacked16 = FiniteField<2, 16, Extension<CustomPacked16Spec, 2>>;
+
+/// GF(2^32) as `t^2 + t + 0x2001` over Rijndael GF(2^16), packed in a `u32`.
+struct CustomPacked32Spec;
+impl ExtensionSpec<2> for CustomPacked32Spec {
+    type Base = FiniteField<2, 16, Extension<fgf::Rijndael16, 2>>;
+    type Storage = fgf::Packed<u32>;
+    const NAME: &'static str = "custom GF(2^32) extension";
+    const RELATION: Relation = Relation::from_binary_words::<
+        FiniteField<2, 16, Extension<fgf::Rijndael16, 2>>,
+    >(&[0x2001, 0x0001]);
+}
+type CustomPacked32 = FiniteField<2, 32, Extension<CustomPacked32Spec, 2>>;
+
+/// GF(2^64) as `t^2 + t + 0x2ada7f36` over Rijndael GF(2^32), packed in a `u64`.
+struct CustomPacked64Spec;
+impl ExtensionSpec<2> for CustomPacked64Spec {
+    type Base = FiniteField<2, 32, Extension<fgf::Rijndael32, 2>>;
+    type Storage = fgf::Packed<u64>;
+    const NAME: &'static str = "custom GF(2^64) extension";
+    const RELATION: Relation = Relation::from_binary_words::<
+        FiniteField<2, 32, Extension<fgf::Rijndael32, 2>>,
+    >(&[0x2ada_7f36, 0x0000_0001]);
+}
+type CustomPacked64 = FiniteField<2, 64, Extension<CustomPacked64Spec, 2>>;
+
 #[derive(Clone, Copy, Debug)]
 enum Pattern {
     /// Every coefficient is nonzero and non-unit; varies by row/source.
@@ -288,6 +323,12 @@ fn lane_counts<F: FieldBuffer>() -> Vec<usize> {
     for bytes in [16_usize, 32, 64].into_iter().chain(simd_floor) {
         let boundary = bytes.div_ceil(F::BYTES);
         lanes.extend([boundary.saturating_sub(1).max(1), boundary, boundary + 1]);
+    }
+    if std::env::args().any(|arg| arg == "--compositions-packed") {
+        for bytes in [128_usize, 256, 512, 1024, 2048, 4096, 8192] {
+            let boundary = bytes.div_ceil(F::BYTES);
+            lanes.extend([boundary - 1, boundary, boundary + 1]);
+        }
     }
     lanes.sort_unstable();
     lanes.dedup();
@@ -1294,18 +1335,35 @@ where
 }
 
 /// Run the compositions panel. Called from `run_panels` when `--compositions`
-/// is given; `--compositions-binary` restricts it to the binary overwrite
-/// gathers and `--compositions-bytes` to the byte-wide row operations.
+/// is given; `--compositions-packed` restricts it to the packed binary row
+/// panel, `--compositions-resources` reports element and prepared-collection
+/// resource costs for those packed fields, `--compositions-binary` restricts
+/// it to the binary overwrite gathers, and `--compositions-bytes` to the
+/// byte-wide row operations.
 pub(crate) fn run() {
     println!("Public row-composition measurements:");
     println!("COMPOSITIONS_GEOMETRY\trows\t{NROWS}\tsources\t{NSOURCES}");
 
-    if std::env::args().any(|arg| arg == "--compositions-bytes") {
+    let packed = std::env::args().any(|arg| arg == "--compositions-packed");
+    let resources =
+        std::env::args().any(|arg| arg == "--compositions-resources") && !controls_only();
+    if packed {
+        println!("\nPacked rows:");
+        binary_row_panel::<FiniteField<2, 16, Extension<fgf::Rijndael16, 2>>>("fp16r", 0xa0_0000);
+        binary_row_panel::<FiniteField<2, 16, Extension<fgf::FanPaar16, 2>>>("fp16f", 0xa1_0000);
+        binary_row_panel::<FiniteField<2, 32, Extension<fgf::Rijndael32, 2>>>("fp32r", 0xa2_0000);
+        binary_row_panel::<FiniteField<2, 32, Extension<fgf::FanPaar32, 2>>>("fp32f", 0xa3_0000);
+        binary_row_panel::<FiniteField<2, 64, Extension<fgf::Rijndael64, 2>>>("fp64r", 0xa4_0000);
+        binary_row_panel::<FiniteField<2, 64, Extension<fgf::FanPaar64, 2>>>("fp64f", 0xa5_0000);
+        binary_row_panel::<CustomPacked16>("pu16c", 0xa6_0000);
+        binary_row_panel::<CustomPacked32>("pu32c", 0xa7_0000);
+        binary_row_panel::<CustomPacked64>("pu64c", 0xa8_0000);
+    } else if std::env::args().any(|arg| arg == "--compositions-bytes") {
         println!("\nByte-wide rows:");
-        byte_row_panel::<Aes8Normal>("gf8n", 0x90_0000);
-        byte_row_panel::<Cantor8>("gf8c", 0x91_0000);
-        byte_row_panel::<FiniteField<2, 8, Extension<fgf::FanPaar8, 2>>>("fp8", 0x92_0000);
-        byte_row_panel::<NibbleTower>("pu8c", 0x93_0000);
+        binary_row_panel::<Aes8Normal>("gf8n", 0x90_0000);
+        binary_row_panel::<Cantor8>("gf8c", 0x91_0000);
+        binary_row_panel::<FiniteField<2, 8, Extension<fgf::FanPaar8, 2>>>("fp8", 0x92_0000);
+        binary_row_panel::<NibbleTower>("pu8c", 0x93_0000);
     } else if !std::env::args().any(|arg| arg == "--compositions-binary") {
         println!("\nQuadratic prime rows:");
         prime_panel::<QuadMersenne31>("qm31", 0x10_0000, ALL_PATTERNS);
@@ -1359,7 +1417,19 @@ pub(crate) fn run() {
         component_panel::<Packed32Base>("packed32-base", 0x73_0000);
         component_panel::<Packed8Base>("packed8-base", 0x74_0000);
     }
-    if !std::env::args().any(|arg| arg == "--compositions-bytes") {
+    if resources {
+        println!("\nPrepared-collection resources:");
+        resources_panel::<FiniteField<2, 16, Extension<fgf::Rijndael16, 2>>>("fp16r", 0xb0_0000);
+        resources_panel::<FiniteField<2, 16, Extension<fgf::FanPaar16, 2>>>("fp16f", 0xb1_0000);
+        resources_panel::<FiniteField<2, 32, Extension<fgf::Rijndael32, 2>>>("fp32r", 0xb2_0000);
+        resources_panel::<FiniteField<2, 32, Extension<fgf::FanPaar32, 2>>>("fp32f", 0xb3_0000);
+        resources_panel::<FiniteField<2, 64, Extension<fgf::Rijndael64, 2>>>("fp64r", 0xb4_0000);
+        resources_panel::<FiniteField<2, 64, Extension<fgf::FanPaar64, 2>>>("fp64f", 0xb5_0000);
+        resources_panel::<CustomPacked16>("pu16c", 0xb6_0000);
+        resources_panel::<CustomPacked32>("pu32c", 0xb7_0000);
+        resources_panel::<CustomPacked64>("pu64c", 0xb8_0000);
+    }
+    if !packed && !resources && !std::env::args().any(|arg| arg == "--compositions-bytes") {
         println!("\nBinary overwrite gathers:");
         binary_gather_panel::<Aes8>("gf8aes", 0x80_0000);
         binary_gather_panel::<FiniteField<2, 8, Polynomial<0x11D>>>("gf8rs", 0x81_0000);
@@ -1530,10 +1600,10 @@ fn timed_op(
 }
 
 /// Fixed-coefficient, multi-row, and elementwise operations over one
-/// byte-wide row, with the AES row's elementwise product as the unchanged
+/// binary-field row, with the AES row's elementwise product as the unchanged
 /// control under the row's label.
 #[allow(clippy::too_many_lines)]
-fn byte_row_panel<F>(label: &str, seed: u64)
+fn binary_row_panel<F>(label: &str, seed: u64)
 where
     F: fgf::FieldKernels + FieldBuffer,
     Elem<F>: FieldElem,
@@ -1562,6 +1632,11 @@ where
         let refs: Vec<&[u8]> = sources.iter().map(Vec::as_slice).collect();
         let (src, other) = (&sources[0], &sources[1]);
         let dst0 = canonical_noise::<F>(len, seed ^ 0x3300);
+        // Offset rows live in one region with gap bytes between rows; starts
+        // are whole elements and the rows are pairwise disjoint.
+        let row_stride = len + F::BYTES;
+        let region0 = canonical_noise::<F>(row_stride * NROWS + F::BYTES, seed ^ 0x9900);
+        let row_starts: Vec<usize> = (0..NROWS).map(|r| r * row_stride).collect();
 
         // Single rows under one general coefficient.
         let c = build_binary_coeffs::<F>(Pattern::General, 1, seed ^ 0x2200)[0];
@@ -1617,6 +1692,18 @@ where
         );
         timed_op(
             label,
+            "mul_into_with",
+            general,
+            lanes,
+            2 * len,
+            &dst0,
+            &to_buf(&scaled),
+            |d| {
+                ops::mul_into_with::<F>(d, black_box(&prepared), src);
+            },
+        );
+        timed_op(
+            label,
             "mul_assign",
             general,
             lanes,
@@ -1625,6 +1712,18 @@ where
             &to_buf(&assigned),
             |d| {
                 ops::mul_assign::<F>(d, black_box(c));
+            },
+        );
+        timed_op(
+            label,
+            "mul_assign_with",
+            general,
+            lanes,
+            len,
+            &dst0,
+            &to_buf(&assigned),
+            |d| {
+                ops::mul_assign_with::<F>(d, black_box(&prepared));
             },
         );
         timed_op(
@@ -1652,11 +1751,16 @@ where
             },
         );
 
-        // Multi-row shapes under general and mixed coefficients.
-        for pattern in [Pattern::General, Pattern::Mixed] {
+        // Multi-row shapes under every coefficient pattern; the pure
+        // zero/one degeneracies are diagnostic, not adoption evidence.
+        for &pattern in ALL_PATTERNS {
             let pat = pattern.label();
             let row_coeffs = build_binary_coeffs::<F>(pattern, NROWS, seed ^ 0x4400);
             let rows0 = canonical_noise::<F>(len * NROWS, seed ^ 0x5500);
+            let mut region0 = region0.clone();
+            for (row, &start) in row_starts.iter().enumerate() {
+                region0[start..start + len].copy_from_slice(&rows0[row * len..][..len]);
+            }
             let scattered: Vec<Elem<F>> = rows0
                 .chunks_exact(len)
                 .zip(&row_coeffs)
@@ -1667,6 +1771,11 @@ where
                         .map(move |(d, s)| d.add(c.mul(s)))
                 })
                 .collect();
+            let scattered_into: Vec<Elem<F>> = row_coeffs
+                .iter()
+                .flat_map(|&c| elems(src).into_iter().map(move |s| c.mul(s)))
+                .collect();
+            let row_prepared = ops::CoeffVec::<F>::new(&row_coeffs);
             timed_op(
                 label,
                 "mul_add_scatter",
@@ -1679,8 +1788,38 @@ where
                     ops::mul_add_scatter::<F>(rows, len, black_box(&row_coeffs), src);
                 },
             );
+            timed_op(
+                label,
+                "mul_into_scatter",
+                pat,
+                lanes,
+                len * (NROWS + 1),
+                &rows0,
+                &to_buf(&scattered_into),
+                |rows| {
+                    ops::mul_into_scatter::<F>(rows, len, black_box(&row_coeffs), src);
+                },
+            );
+            timed_op(
+                label,
+                "mul_add_scatter_with",
+                pat,
+                lanes,
+                len * (NROWS + 1),
+                &rows0,
+                &to_buf(&scattered),
+                |rows| {
+                    ops::mul_add_scatter_with::<F>(
+                        rows,
+                        len,
+                        black_box(row_prepared.as_ref()),
+                        src,
+                    );
+                },
+            );
 
             let gather_coeffs = build_binary_coeffs::<F>(pattern, NSOURCES, seed ^ 0x6600);
+            let gather_prepared = ops::CoeffVec::<F>::new(&gather_coeffs);
             let mut sum = vec![Elem::<F>::ZERO; lanes];
             for (&c, source) in gather_coeffs.iter().zip(&refs) {
                 for (acc, s) in sum.iter_mut().zip(elems(source)) {
@@ -1715,6 +1854,30 @@ where
                 &to_buf(&sum),
                 |d| {
                     ops::mul_into_gather::<F>(d, black_box(&gather_coeffs), &refs);
+                },
+            );
+            timed_op(
+                label,
+                "mul_add_gather_with",
+                pat,
+                lanes,
+                traffic,
+                &dst0,
+                &to_buf(&gathered),
+                |d| {
+                    ops::mul_add_gather_with::<F>(d, black_box(gather_prepared.as_ref()), &refs);
+                },
+            );
+            timed_op(
+                label,
+                "mul_into_gather_with",
+                pat,
+                lanes,
+                traffic,
+                &dst0,
+                &to_buf(&sum),
+                |d| {
+                    ops::mul_into_gather_with::<F>(d, black_box(gather_prepared.as_ref()), &refs);
                 },
             );
 
@@ -1764,6 +1927,210 @@ where
                     ops::mul_into_matrix::<F>(rows, len, NROWS, black_box(&terms));
                 },
             );
+
+            // Prepared matrix forms consume one source-major CoeffMatrix.
+            let matrix_flat: Vec<Elem<F>> = matrix_coeffs.iter().flatten().copied().collect();
+            let matrix_prepared =
+                ops::CoeffMatrix::<F>::from_source_major(NSOURCES, NROWS, &matrix_flat);
+            timed_op(
+                label,
+                "mul_add_matrix_with",
+                pat,
+                lanes,
+                traffic,
+                &rows0,
+                &to_buf(&accumulated),
+                |rows| {
+                    ops::mul_add_matrix_with::<F>(rows, len, black_box(&matrix_prepared), &refs);
+                },
+            );
+            timed_op(
+                label,
+                "mul_into_matrix_with",
+                pat,
+                lanes,
+                traffic,
+                &rows0,
+                &to_buf(&into),
+                |rows| {
+                    ops::mul_into_matrix_with::<F>(rows, len, black_box(&matrix_prepared), &refs);
+                },
+            );
+
+            // Offset-addressed rows inside one region: accumulate, overwrite,
+            // and their prepared counterparts reuse the same expected values
+            // placed at each row start; gap bytes must stay untouched.
+            let mut offset_accumulated = region0.clone();
+            let accumulated_buf = to_buf(&accumulated);
+            let mut offset_into = region0.clone();
+            let into_buf = to_buf(&into);
+            for (r, &start) in row_starts.iter().enumerate() {
+                offset_accumulated[start..start + len]
+                    .copy_from_slice(&accumulated_buf[r * len..][..len]);
+                offset_into[start..start + len].copy_from_slice(&into_buf[r * len..][..len]);
+            }
+            timed_op(
+                label,
+                "mul_add_matrix_at",
+                pat,
+                lanes,
+                traffic,
+                &region0,
+                &offset_accumulated,
+                |region| {
+                    ops::mul_add_matrix_at::<F>(region, len, &row_starts, black_box(&terms));
+                },
+            );
+            timed_op(
+                label,
+                "mul_into_matrix_at",
+                pat,
+                lanes,
+                traffic,
+                &region0,
+                &offset_into,
+                |region| {
+                    ops::mul_into_matrix_at::<F>(region, len, &row_starts, black_box(&terms));
+                },
+            );
+            timed_op(
+                label,
+                "mul_add_matrix_at_with",
+                pat,
+                lanes,
+                traffic,
+                &region0,
+                &offset_accumulated,
+                |region| {
+                    ops::mul_add_matrix_at_with::<F>(
+                        region,
+                        len,
+                        &row_starts,
+                        black_box(&matrix_prepared),
+                        &refs,
+                    );
+                },
+            );
+            timed_op(
+                label,
+                "mul_into_matrix_at_with",
+                pat,
+                lanes,
+                traffic,
+                &region0,
+                &offset_into,
+                |region| {
+                    ops::mul_into_matrix_at_with::<F>(
+                        region,
+                        len,
+                        &row_starts,
+                        black_box(&matrix_prepared),
+                        &refs,
+                    );
+                },
+            );
         }
     }
+}
+
+/// Public coefficient value sizes, clone costs, and collection construction.
+fn resources_panel<F>(label: &str, seed: u64)
+where
+    F: fgf::FieldKernels + FieldBuffer,
+    Elem<F>: FieldElem,
+{
+    println!(
+        "FIELD_BACKEND\tcompositions/{label}\t{}",
+        backend_for::<F>().name()
+    );
+    println!("FIELD_LAYOUT\tcompositions/{label}\t{}", F::BYTES);
+    println!(
+        "compositions resources {label} — backend {}:",
+        backend_for::<F>().name()
+    );
+    let elem_bytes = std::mem::size_of::<Elem<F>>();
+    println!(
+        "RESOURCES\tcompositions/{label}\telem\t{elem_bytes}\tlayout\t{}",
+        F::BYTES
+    );
+
+    let count = 512;
+    let values: Vec<Elem<F>> = build_binary_coeffs::<F>(Pattern::General, count, seed ^ 0xcc00);
+    let coefficients: Vec<ops::Coeff<F>> = values.iter().copied().map(ops::Coeff::new).collect();
+    let coefficient_bytes = std::mem::size_of::<ops::Coeff<F>>();
+    println!(
+        "RESOURCES\tcompositions/{label}\tcoefficient\t{coefficient_bytes}\tcollection-capacity\t{}\tcollection-heap\t{}",
+        coefficients.capacity(),
+        coefficients.capacity() * coefficient_bytes,
+    );
+    bench(
+        &format!("compositions/{label}/resources/coefficient-new"),
+        coefficient_bytes,
+        || {
+            black_box(ops::Coeff::<F>::new(black_box(values[0])));
+        },
+    );
+    bench(
+        &format!("compositions/{label}/resources/clone-coefficient"),
+        coefficient_bytes,
+        || {
+            black_box(black_box(&coefficients[0]).clone());
+        },
+    );
+    bench(
+        &format!("compositions/{label}/resources/clone-coefficient-collection-{count}"),
+        count * coefficient_bytes,
+        || {
+            black_box(black_box(&coefficients).clone());
+        },
+    );
+    bench(
+        &format!("compositions/{label}/resources/clone-elem-array-{count}"),
+        count * elem_bytes,
+        || {
+            black_box(values.clone());
+        },
+    );
+    bench(
+        &format!("compositions/{label}/resources/clone-elem"),
+        elem_bytes,
+        || {
+            black_box(values[0]);
+        },
+    );
+    bench(
+        &format!("compositions/{label}/resources/coeff-vec-new-{count}"),
+        count * elem_bytes,
+        || {
+            black_box(ops::CoeffVec::<F>::new(black_box(&values)));
+        },
+    );
+    let matrix_count = NSOURCES * NROWS;
+    let matrix_values = &values[..matrix_count];
+    bench(
+        &format!("compositions/{label}/resources/coeff-matrix-new-{matrix_count}"),
+        matrix_count * elem_bytes,
+        || {
+            black_box(ops::CoeffMatrix::<F>::from_source_major(
+                NSOURCES,
+                NROWS,
+                black_box(matrix_values),
+            ));
+        },
+    );
+
+    let prepared_vec = ops::CoeffVec::<F>::new(&values);
+    let prepared_matrix = ops::CoeffMatrix::<F>::from_source_major(NSOURCES, NROWS, matrix_values);
+    println!(
+        "RESOURCES\tcompositions/{label}\tcoeff-vec\tcount {}\tvalues-heap\t{}\tstruct\t{}",
+        prepared_vec.len(),
+        prepared_vec.len() * elem_bytes,
+        std::mem::size_of_val(&prepared_vec),
+    );
+    println!(
+        "RESOURCES\tcompositions/{label}\tcoeff-matrix\tcount {}\tvalues-heap\t{}\tstruct\t{}",
+        prepared_matrix.len(),
+        prepared_matrix.len() * elem_bytes,
+        std::mem::size_of_val(&prepared_matrix),
+    );
 }

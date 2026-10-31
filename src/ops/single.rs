@@ -223,10 +223,10 @@ pub fn mul_assign_with<F: FieldKernels>(dst: &mut [u8], coeff: &impl PreparedCoe
 
 /// Elementwise product: `dst[i] = a[i] * b[i]`.
 ///
-/// Both operands vary per lane, so there is no coefficient to broadcast and
-/// no nibble table to index. GFNI multiplies the vectors directly; the AVX-512
-/// and AVX2 backends use a lane-parallel shift/reduce sequence. Shuffle-only
-/// x86 backends and non-x86 targets fall back to the scalar reference path.
+/// Both operands vary per lane. Binary rows use byte-field, specialized tower,
+/// or descriptor-based vector products on compatible x86 tiers; residue and
+/// component rows retain their field-specific strategies. Short rows, scalar
+/// configurations, and non-x86 targets can use portable arithmetic.
 ///
 /// # Panics
 /// Panics on a length mismatch or a partial trailing element.

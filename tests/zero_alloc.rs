@@ -31,6 +31,24 @@ impl ExtensionSpec<2> for Custom32Spec {
 }
 type Custom32Row = FiniteField<2, 32, Extension<Custom32Spec, 2>>;
 
+struct Custom16Spec;
+impl ExtensionSpec<2> for Custom16Spec {
+    type Base = FiniteField<2, 8, Polynomial<RS>>;
+    type Storage = Packed<u16>;
+    const NAME: &'static str = "custom GF(2^16) extension";
+    const RELATION: Relation = Relation::from_binary_words::<Self::Base>(&[0x80, 2]);
+}
+type Custom16Row = FiniteField<2, 16, Extension<Custom16Spec, 2>>;
+
+struct Custom64Spec;
+impl ExtensionSpec<2> for Custom64Spec {
+    type Base = FiniteField<2, 32, Extension<fgf::Rijndael32, 2>>;
+    type Storage = Packed<u64>;
+    const NAME: &'static str = "custom GF(2^64) extension";
+    const RELATION: Relation = Relation::from_binary_words::<Self::Base>(&[0x2ada_7f36, 1]);
+}
+type Custom64Row = FiniteField<2, 64, Extension<Custom64Spec, 2>>;
+
 /// Steady-state prepared application over one fallback class: preparation
 /// allocates by contract, application must not.
 #[allow(clippy::too_many_lines)]
@@ -90,6 +108,43 @@ fn custom_tower32_prepared_steady_state_allocates_nothing() {
         .map(|index| Elem::<Custom32Row>::from_raw(index.wrapping_mul(0x1F3B_5A79)))
         .collect();
     assert_fallback_steady_state_zero_alloc(&coeffs);
+}
+
+#[test]
+fn custom_packed_products_steady_state_allocate_nothing() {
+    let _guard = TEST_LOCK
+        .lock()
+        .expect("zero-allocation test lock poisoned");
+    let small = [
+        Elem::<Custom16Row>::ZERO,
+        Elem::<Custom16Row>::ONE,
+        Elem::<Custom16Row>::from_raw(0x1234),
+    ];
+    let wide = [
+        Elem::<Custom64Row>::ZERO,
+        Elem::<Custom64Row>::ONE,
+        Elem::<Custom64Row>::from_raw(0x1234_5678_9abc_def0),
+    ];
+    assert_fallback_steady_state_zero_alloc(&small);
+    assert_fallback_steady_state_zero_alloc(&wide);
+    assert_prime_steady_state_zero_alloc::<Custom16Row>(small[2]);
+    assert_prime_steady_state_zero_alloc::<Custom32Row>(Elem::<Custom32Row>::from_raw(0x1234_5678));
+    assert_prime_steady_state_zero_alloc::<Custom64Row>(wide[2]);
+
+    let src = noise(1024, 0x792);
+    let mut dst = noise(1024, 0x793);
+    ops::mul_elementwise_assign::<Custom16Row>(&mut dst, &src);
+    ops::mul_elementwise_assign::<Custom32Row>(&mut dst, &src);
+    ops::mul_elementwise_assign::<Custom64Row>(&mut dst, &src);
+    assert_eq!(
+        count_allocations(|| {
+            ops::mul_elementwise_assign::<Custom16Row>(&mut dst, &src);
+            ops::mul_elementwise_assign::<Custom32Row>(&mut dst, &src);
+            ops::mul_elementwise_assign::<Custom64Row>(&mut dst, &src);
+        }),
+        0,
+        "in-place packed products allocated"
+    );
 }
 
 #[test]

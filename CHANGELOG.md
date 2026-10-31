@@ -64,6 +64,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Wider packed binary rows compose shared SSSE3 and AVX2 linear kernels
+  for fixed-coefficient multiplication on compatible x86 tiers, including
+  custom `Packed<u16>`, `Packed<u32>`, and `Packed<u64>` relations.
+  Prepared and unprepared single-row, scatter, gather, contiguous-matrix,
+  and offset-matrix forms share these routes without enlarging prepared
+  coefficient entries.
+- Fan-Paar and custom packed binary rows use descriptor-recursive SSSE3
+  and AVX2 kernels for varying products and their in-place forms.
+  Backend queries distinguish the fixed-coefficient strategy from
+  varying-product capability and its row-length floor.
 - Normal- and Cantor-basis GF(2^8) rows and every `Packed<u8>` extension row
   run the GF(2^8) vector kernels for fixed-coefficient, multi-row, and
   elementwise operations on every x86 tier, with tables and an isomorphism

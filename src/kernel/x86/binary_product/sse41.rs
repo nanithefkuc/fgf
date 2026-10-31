@@ -1,0 +1,168 @@
+//! SSE4.1 descriptor-recursive binary varying products over 16-byte lanes.
+//!
+//! One module per lane width expands the shared
+//! [`binary_product_lanes!`](crate::kernel::x86::binary_product)
+//! algorithm over the SSE4.1 vector ops; the entries check the geometry and
+//! hand whole `BYTES`-byte lanes to the matching module.
+
+use crate::field::extension::Descriptor;
+use crate::kernel::x86::binary_product::check_entry_geometry;
+
+mod lanes16 {
+    // The invocation names the intrinsics, so the namespace must be in
+    // scope inside this module.
+    use core::arch::x86_64::*;
+
+    use crate::kernel::x86::binary_product::binary_product_lanes;
+
+    binary_product_lanes!(
+        v2,
+        __m128i,
+        16,
+        2,
+        zero: _mm_setzero_si128,
+        xor: _mm_xor_si128,
+        and: _mm_and_si128,
+        or: _mm_or_si128,
+        cmpeq: _mm_cmpeq_epi16,
+        splat: _mm_set1_epi16,
+        shl: _mm_slli_epi16,
+        shr: _mm_srli_epi16,
+        load: _mm_loadu_si128,
+        store: _mm_storeu_si128
+    );
+}
+
+mod lanes32 {
+    // The invocation names the intrinsics, so the namespace must be in
+    // scope inside this module.
+    use core::arch::x86_64::*;
+
+    use crate::kernel::x86::binary_product::binary_product_lanes;
+
+    binary_product_lanes!(
+        v2,
+        __m128i,
+        16,
+        4,
+        zero: _mm_setzero_si128,
+        xor: _mm_xor_si128,
+        and: _mm_and_si128,
+        or: _mm_or_si128,
+        cmpeq: _mm_cmpeq_epi32,
+        splat: _mm_set1_epi32,
+        shl: _mm_slli_epi32,
+        shr: _mm_srli_epi32,
+        load: _mm_loadu_si128,
+        store: _mm_storeu_si128
+    );
+}
+
+mod lanes64 {
+    // The invocation names the intrinsics, so the namespace must be in
+    // scope inside this module.
+    use core::arch::x86_64::*;
+
+    use crate::kernel::x86::binary_product::binary_product_lanes;
+
+    binary_product_lanes!(
+        v2,
+        __m128i,
+        16,
+        8,
+        zero: _mm_setzero_si128,
+        xor: _mm_xor_si128,
+        and: _mm_and_si128,
+        or: _mm_or_si128,
+        cmpeq: _mm_cmpeq_epi64,
+        splat: _mm_set1_epi64x,
+        shl: _mm_slli_epi64,
+        shr: _mm_srli_epi64,
+        load: _mm_loadu_si128,
+        store: _mm_storeu_si128
+    );
+}
+
+/// `dst[i] = a[i] * b[i]` under `descriptor`, 16-byte lanes (SSE4.1).
+///
+/// One full raw element occupies one lane of `BYTES` bytes, `BYTES` in
+/// `{2, 4, 8}`. The recursion is the descriptor's own presentation, and the
+/// scalar tail multiplies through the same descriptor.
+///
+/// # Panics
+///
+/// Panics unless all three buffers match in length, hold whole elements,
+/// and the descriptor is characteristic two with its degree inside the
+/// lane width.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_elementwise_sse41<const BYTES: usize>(
+    _token: archmage::X64V2Token,
+    descriptor: &Descriptor,
+    dst: &mut [u8],
+    a: &[u8],
+    b: &[u8],
+) {
+    check_entry_geometry::<BYTES>(
+        "binary_product::mul_elementwise_sse41",
+        descriptor,
+        dst.len(),
+        a.len(),
+        b.len(),
+    );
+    match BYTES {
+        2 => lanes16::mul_elementwise_impl::<BYTES>(descriptor, dst, a, b),
+        4 => lanes32::mul_elementwise_impl::<BYTES>(descriptor, dst, a, b),
+        8 => lanes64::mul_elementwise_impl::<BYTES>(descriptor, dst, a, b),
+        _ => unreachable!("check_entry_geometry rejects other lane widths"),
+    }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "binary_product.sse41.mul_elementwise",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst.len() / 16 * (16 / BYTES),
+        crate::kernel::Backend::V2,
+    );
+}
+
+/// `dst[i] *= src[i]` under `descriptor`, 16-byte lanes (SSE4.1).
+///
+/// The destination is read and rewritten in place; no copy of the
+/// destination is taken and nothing is allocated.
+///
+/// # Panics
+///
+/// Panics unless both buffers match in length and hold whole elements, and
+/// the descriptor is characteristic two with its degree inside the lane
+/// width.
+#[allow(clippy::used_underscore_binding)]
+#[archmage::arcane(import_intrinsics)]
+pub fn mul_elementwise_assign_sse41<const BYTES: usize>(
+    _token: archmage::X64V2Token,
+    descriptor: &Descriptor,
+    dst: &mut [u8],
+    src: &[u8],
+) {
+    check_entry_geometry::<BYTES>(
+        "binary_product::mul_elementwise_assign_sse41",
+        descriptor,
+        dst.len(),
+        src.len(),
+        src.len(),
+    );
+    match BYTES {
+        2 => lanes16::mul_elementwise_assign_impl::<BYTES>(descriptor, dst, src),
+        4 => lanes32::mul_elementwise_assign_impl::<BYTES>(descriptor, dst, src),
+        8 => lanes64::mul_elementwise_assign_impl::<BYTES>(descriptor, dst, src),
+        _ => unreachable!("check_entry_geometry rejects other lane widths"),
+    }
+    #[cfg(test)]
+    crate::kernel::trace::emit(
+        "binary_product.sse41.mul_elementwise_assign",
+        crate::kernel::trace::Substage::MulElementwise,
+        crate::kernel::trace::Unit::Elements,
+        dst.len() / 16 * (16 / BYTES),
+        crate::kernel::Backend::V2,
+    );
+}

@@ -23,6 +23,8 @@
 
 #![allow(clippy::incompatible_msrv)]
 
+pub mod binary_linear;
+pub mod binary_product;
 pub mod bytes;
 pub mod fan_paar;
 #[cfg(feature = "alloc")]

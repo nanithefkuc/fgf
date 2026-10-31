@@ -131,6 +131,12 @@ order operation, ISA, `_with` (`mul_add_matrix_at_gfni`,
 polynomial or its typed prepared coefficient, without field-specific suffixes.
 The `gf1` family holds the bit-packed GF(2) kernels beside the byte-field
 families.
+The `binary_linear` and `binary_product` families hold the descriptor-derived
+packed-row engines, each with `sse41.rs` and `avx2.rs` children. Their parents
+own the shared map construction or lane-arithmetic macro. Fixed coefficients
+derive bounded per-call maps; prepared entries retain their scalar word rather
+than storing those maps. The product engine traverses the field presentation
+inside vector lanes and uses the descriptor scalar operation only for tails.
 Residue single-row kernels split by arithmetic lane type into `u8.rs`,
 `u32.rs`, and `u64.rs`; reduction parameters and source-provider windows
 shared by AVX2 and AVX-512 remain in `kernel/x86/residue.rs`.

@@ -1,16 +1,10 @@
-//! Kernel dispatch for the two-byte, four-byte, and eight-byte packed
-//! extension storages.
+//! Kernel dispatch for two-byte, four-byte, and eight-byte packed extensions.
 //!
-//! One storage implementation per width serves every packed extension row
-//! of that width, branching on the row's descriptor: rows structurally
-//! equal to the shipped Rijndael instances route to their byte-multiply
-//! kernels, those equal to the shipped Fan-Paar instances to the Fan-Paar
-//! shuffle and lane kernels, and every other row — custom specs and
-//! extensions over basis bases — routes every bulk operation and tail to the
-//! typed scalar fallback, reporting [`Backend::Scalar`]. The trait defaults
-//! compose multi-row and prepared operations from the single-row multiply,
-//! so the vector wins reach scatter/gather/matrix over a prepared
-//! [`crate::ops::CoeffVec`] without a per-shape kernel.
+//! Specialized Rijndael and Fan-Paar fixed-coefficient kernels coexist with
+//! coordinate-linear multiplication for other rows and compatible narrower
+//! tiers. Per-call linear maps preserve prepared coefficient sizes. Shared
+//! vector product bodies serve varying operands; trait compositions propagate
+//! the single-row primitives through prepared and unprepared row shapes.
 
 pub mod gf16 {
     //! GF(2^16) kernel dispatch for every `Packed<u16>` extension row.
@@ -97,7 +91,7 @@ pub mod gf16 {
         /// nibble tables over the Fan-Paar byte subfield.
         #[allow(dead_code)]
         Fp(FpTowerTables),
-        /// No vector unit: the raw coefficient word.
+        /// Raw coefficient for per-call linear maps or portable arithmetic.
         Plain(u16),
     }
 
@@ -547,23 +541,25 @@ pub mod gf16 {
                     _ => Backend::Scalar,
                 };
             }
-            Backend::Scalar
+            crate::kernel::packed::serving_backend()
         }
 
         #[inline]
         fn has_vector_elementwise<F: StorageRow<B, D, Self>>() -> bool {
-            // The vector elementwise formulas fold the relation's linear
-            // term into the Karatsuba cross sum, which holds only when that
-            // coefficient is the base's multiplicative identity: the
-            // Rijndael relation's `c1 = 1`. Every other row runs the scalar
-            // path.
-            if !rijndael16::<F>() {
-                return false;
+            rijndael16::<F>()
+                && matches!(
+                    backend(),
+                    Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2
+                )
+                || crate::kernel::packed::serving_backend() != Backend::Scalar
+        }
+
+        fn vector_elementwise_min_bytes<F: StorageRow<B, D, Self>>() -> usize {
+            if rijndael16::<F>() {
+                0
+            } else {
+                crate::kernel::packed::elementwise_min_bytes()
             }
-            matches!(
-                backend(),
-                Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2
-            )
         }
 
         fn prepare<F: StorageRow<B, D, Self>>(_proof: RawDispatch, coeff: Elem<F>) -> Prepared {
@@ -674,6 +670,13 @@ pub mod gf16 {
                     ),
                 },
                 other => {
+                    if crate::kernel::packed::try_fixed::<F, 2>(
+                        dst,
+                        u64::from(other.coeff()),
+                        crate::kernel::packed::Fixed::Add(src),
+                    ) {
+                        return;
+                    }
                     let coeff = Elem::<F> { raw: other.coeff() };
                     if rijndael16::<F>() {
                         // Not `scalar::mul_add`: the nibble tables amortize
@@ -729,6 +732,13 @@ pub mod gf16 {
                     }
                 },
                 other => {
+                    if crate::kernel::packed::try_fixed::<F, 2>(
+                        dst,
+                        u64::from(other.coeff()),
+                        crate::kernel::packed::Fixed::Assign,
+                    ) {
+                        return;
+                    }
                     let coeff = Elem::<F> { raw: other.coeff() };
                     if rijndael16::<F>() {
                         mul_assign_scalar(dst, &rijndael_tables(other.coeff()));
@@ -788,9 +798,15 @@ pub mod gf16 {
                         src,
                     ),
                 },
-                // Every other prepared form is a scalar coefficient: copying and
-                // scaling in place is one pass either way.
+                // Raw coefficients retain bounded per-call map preparation.
                 other => {
+                    if crate::kernel::packed::try_fixed::<F, 2>(
+                        dst,
+                        u64::from(other.coeff()),
+                        crate::kernel::packed::Fixed::Into(src),
+                    ) {
+                        return;
+                    }
                     dst.copy_from_slice(src);
                     F::mul_assign(RawDispatch, dst, other);
                 }
@@ -852,7 +868,7 @@ pub mod gf16 {
                 }
                 return;
             }
-            scalar::mul_add_scatter::<F>(rows, row_len, coeffs, src);
+            crate::kernel::fallback::mul_add_scatter::<F>(rows, row_len, coeffs, src);
         }
 
         #[cfg(feature = "alloc")]
@@ -925,7 +941,7 @@ pub mod gf16 {
                 }
                 return;
             }
-            scalar::mul_add_gather::<F>(dst, coeffs, srcs);
+            crate::kernel::fallback::mul_add_gather::<F>(dst, coeffs, srcs);
         }
 
         #[cfg(feature = "alloc")]
@@ -1039,7 +1055,7 @@ pub mod gf16 {
                 }
                 return;
             }
-            scalar::mul_add_matrix::<F>(rows, row_len, nrows, terms);
+            crate::kernel::fallback::mul_add_matrix::<F>(rows, row_len, nrows, terms);
         }
 
         #[cfg(feature = "alloc")]
@@ -1117,11 +1133,12 @@ pub mod gf16 {
             a: &[u8],
             b: &[u8],
         ) {
-            // The vector bodies below fold the relation's linear term into
-            // the Karatsuba cross sum, which holds only for the Rijndael
-            // relation (`c1 = 1`); every other row runs the portable
-            // scalar path.
+            // The specialized Rijndael body folds the unit linear term into
+            // the cross sum; other relations use the shared product engine.
             if !rijndael16::<F>() {
+                if crate::kernel::packed::try_elementwise::<F, 2>(dst, a, b) {
+                    return;
+                }
                 return scalar::mul_elementwise::<F>(dst, a, b);
             }
             #[cfg(all(feature = "simd", target_arch = "x86_64"))]
@@ -1195,10 +1212,11 @@ pub mod gf16 {
             dst: &mut [u8],
             src: &[u8],
         ) {
-            // As `mul_elementwise`: the vector assign formulas hold only
-            // for the Rijndael relation; the other tiers take the scalar
-            // default.
+            // The specialized Rijndael formula folds the unit linear term.
             if !rijndael16::<F>() {
+                if crate::kernel::packed::try_elementwise_assign::<F, 2>(dst, src) {
+                    return;
+                }
                 return scalar::mul_elementwise_assign::<F>(dst, src);
             }
             // The vector assign kernels are x86-only; the other tiers take
@@ -1273,8 +1291,8 @@ pub mod gf32 {
     //! identity of the GF(2^16) dispatch: two GF(2^16) lane multiplies
     //! under a period-2 coefficient, each itself two byte-wide multiplies —
     //! four `GF2P8MULB` per 32-byte lane. The Fan-Paar instance runs its
-    //! AVX2 lane scales. Everywhere else, and for every other row, the
-    //! portable scalar kernel applies.
+    //! AVX2 lane scales. Other vector routes use the shared linear engine;
+    //! scalar configurations and sub-vector tails use portable arithmetic.
 
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::field::binary::tower::{FanPaar32Field, Rijndael32Field};
@@ -1317,7 +1335,7 @@ pub mod gf32 {
     /// in coefficient preparation, so a prepared [`crate::ops::Coeff`] or
     /// [`crate::ops::CoeffVec`] reuses them across the whole buffer. `Fp`
     /// carries the raw word for the Fan-Paar AVX2 lane scales. `Plain`
-    /// hands the element to the portable scalar kernel.
+    /// carries the coefficient for per-call linear maps or portable arithmetic.
     #[derive(Clone, Copy, Debug)]
     pub enum Prepared {
         /// GFNI: the four 4-byte broadcast tiles, plus the raw word for the
@@ -1332,7 +1350,7 @@ pub mod gf32 {
         /// AVX2 Fan-Paar lane scales: the raw word.
         #[allow(dead_code)]
         Fp(u32),
-        /// No vector backend: the raw word, for the portable scalar kernel.
+        /// Raw coefficient for per-call linear maps or portable arithmetic.
         Plain(u32),
     }
 
@@ -1356,17 +1374,25 @@ pub mod gf32 {
                 return match backend() {
                     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x | Backend::V3GfniCrypto => backend(),
-                    _ => Backend::Scalar,
+                    _ => crate::kernel::packed::serving_backend(),
                 };
             }
             if fanpaar32::<F>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => backend(),
-                    _ => Backend::Scalar,
+                    _ => crate::kernel::packed::serving_backend(),
                 };
             }
-            Backend::Scalar
+            crate::kernel::packed::serving_backend()
+        }
+
+        fn has_vector_elementwise<F: StorageRow<B, D, Self>>() -> bool {
+            crate::kernel::packed::serving_backend() != Backend::Scalar
+        }
+
+        fn vector_elementwise_min_bytes<F: StorageRow<B, D, Self>>() -> usize {
+            crate::kernel::packed::elementwise_min_bytes()
         }
 
         fn prepare<F: StorageRow<B, D, Self>>(_proof: RawDispatch, coeff: Elem<F>) -> Prepared {
@@ -1447,7 +1473,15 @@ pub mod gf32 {
                         src,
                     );
                 }
-                other => scalar::mul_add::<F>(dst, Elem { raw: other.coeff() }, src),
+                other => {
+                    if !crate::kernel::packed::try_fixed::<F, 4>(
+                        dst,
+                        u64::from(other.coeff()),
+                        crate::kernel::packed::Fixed::Add(src),
+                    ) {
+                        scalar::mul_add::<F>(dst, Elem { raw: other.coeff() }, src);
+                    }
+                }
             }
         }
 
@@ -1474,7 +1508,15 @@ pub mod gf32 {
                         Elem::<FanPaar32Field> { raw: *coeff },
                     );
                 }
-                other => scalar::mul_assign::<F>(dst, Elem { raw: other.coeff() }),
+                other => {
+                    if !crate::kernel::packed::try_fixed::<F, 4>(
+                        dst,
+                        u64::from(other.coeff()),
+                        crate::kernel::packed::Fixed::Assign,
+                    ) {
+                        scalar::mul_assign::<F>(dst, Elem { raw: other.coeff() });
+                    }
+                }
             }
         }
 
@@ -1505,6 +1547,13 @@ pub mod gf32 {
                     );
                 }
                 other => {
+                    if crate::kernel::packed::try_fixed::<F, 4>(
+                        dst,
+                        u64::from(other.coeff()),
+                        crate::kernel::packed::Fixed::Into(src),
+                    ) {
+                        return;
+                    }
                     dst.copy_from_slice(src);
                     F::mul_assign(RawDispatch, dst, other);
                 }
@@ -1578,10 +1627,19 @@ pub mod gf32 {
             a: &[u8],
             b: &[u8],
         ) {
-            // Both operands vary per lane, so there is no fixed
-            // coefficient to broadcast; no elementwise vector path serves
-            // the degree-32 rows.
-            scalar::mul_elementwise::<F>(dst, a, b);
+            if !crate::kernel::packed::try_elementwise::<F, 4>(dst, a, b) {
+                scalar::mul_elementwise::<F>(dst, a, b);
+            }
+        }
+
+        fn mul_elementwise_assign<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            src: &[u8],
+        ) {
+            if !crate::kernel::packed::try_elementwise_assign::<F, 4>(dst, src) {
+                scalar::mul_elementwise_assign::<F>(dst, src);
+            }
         }
     }
 }
@@ -1593,8 +1651,8 @@ pub mod gf64 {
     //! identity — two GF(2^32) lane multiplies under a period-2
     //! coefficient, each itself the four-`GF2P8MULB`
     //! [`crate::kernel::tower::gf32`] scale, so eight `GF2P8MULB` per 32-byte
-    //! lane. The Fan-Paar instance runs its AVX2 lane scales. Everywhere
-    //! else, and for every other row, the portable scalar kernel applies.
+    //! lane. The Fan-Paar instance runs its AVX2 lane scales. Other vector
+    //! routes use the shared linear engine, with portable scalar tails.
 
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     use crate::field::binary::tower::{FanPaar64Field, Rijndael64Field};
@@ -1634,8 +1692,8 @@ pub mod gf64 {
     /// wants.
     ///
     /// `Compact` carries the eight 8-byte GFNI broadcast tiles, `Fp` the
-    /// raw word for the Fan-Paar AVX2 lane scales, and `Plain` the raw word
-    /// for the portable scalar kernel.
+    /// raw word for the Fan-Paar AVX2 lane scales, and `Plain` the coefficient
+    /// for per-call linear maps or portable arithmetic.
     #[derive(Clone, Copy, Debug)]
     pub enum Prepared {
         /// GFNI: the eight 8-byte broadcast tiles, plus the raw word for
@@ -1650,7 +1708,7 @@ pub mod gf64 {
         /// AVX2 Fan-Paar lane scales: the raw word.
         #[allow(dead_code)]
         Fp(u64),
-        /// No vector backend: the raw word, for the portable scalar kernel.
+        /// Raw coefficient for per-call linear maps or portable arithmetic.
         Plain(u64),
     }
 
@@ -1674,17 +1732,25 @@ pub mod gf64 {
                 return match backend() {
                     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x | Backend::V3GfniCrypto => backend(),
-                    _ => Backend::Scalar,
+                    _ => crate::kernel::packed::serving_backend(),
                 };
             }
             if fanpaar64::<F>() {
                 return match backend() {
                     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 => backend(),
-                    _ => Backend::Scalar,
+                    _ => crate::kernel::packed::serving_backend(),
                 };
             }
-            Backend::Scalar
+            crate::kernel::packed::serving_backend()
+        }
+
+        fn has_vector_elementwise<F: StorageRow<B, D, Self>>() -> bool {
+            crate::kernel::packed::serving_backend() != Backend::Scalar
+        }
+
+        fn vector_elementwise_min_bytes<F: StorageRow<B, D, Self>>() -> usize {
+            crate::kernel::packed::elementwise_min_bytes()
         }
 
         fn prepare<F: StorageRow<B, D, Self>>(_proof: RawDispatch, coeff: Elem<F>) -> Prepared {
@@ -1765,7 +1831,15 @@ pub mod gf64 {
                         src,
                     );
                 }
-                other => scalar::mul_add::<F>(dst, Elem { raw: other.coeff() }, src),
+                other => {
+                    if !crate::kernel::packed::try_fixed::<F, 8>(
+                        dst,
+                        other.coeff(),
+                        crate::kernel::packed::Fixed::Add(src),
+                    ) {
+                        scalar::mul_add::<F>(dst, Elem { raw: other.coeff() }, src);
+                    }
+                }
             }
         }
 
@@ -1792,7 +1866,15 @@ pub mod gf64 {
                         Elem::<FanPaar64Field> { raw: *coeff },
                     );
                 }
-                other => scalar::mul_assign::<F>(dst, Elem { raw: other.coeff() }),
+                other => {
+                    if !crate::kernel::packed::try_fixed::<F, 8>(
+                        dst,
+                        other.coeff(),
+                        crate::kernel::packed::Fixed::Assign,
+                    ) {
+                        scalar::mul_assign::<F>(dst, Elem { raw: other.coeff() });
+                    }
+                }
             }
         }
 
@@ -1823,6 +1905,13 @@ pub mod gf64 {
                     );
                 }
                 other => {
+                    if crate::kernel::packed::try_fixed::<F, 8>(
+                        dst,
+                        other.coeff(),
+                        crate::kernel::packed::Fixed::Into(src),
+                    ) {
+                        return;
+                    }
                     dst.copy_from_slice(src);
                     F::mul_assign(RawDispatch, dst, other);
                 }
@@ -1893,10 +1982,19 @@ pub mod gf64 {
             a: &[u8],
             b: &[u8],
         ) {
-            // Both operands vary per lane, so there is no fixed
-            // coefficient to broadcast; no elementwise vector path serves
-            // the degree-64 rows.
-            scalar::mul_elementwise::<F>(dst, a, b);
+            if !crate::kernel::packed::try_elementwise::<F, 8>(dst, a, b) {
+                scalar::mul_elementwise::<F>(dst, a, b);
+            }
+        }
+
+        fn mul_elementwise_assign<F: StorageRow<B, D, Self>>(
+            _proof: RawDispatch,
+            dst: &mut [u8],
+            src: &[u8],
+        ) {
+            if !crate::kernel::packed::try_elementwise_assign::<F, 8>(dst, src) {
+                scalar::mul_elementwise_assign::<F>(dst, src);
+            }
         }
     }
 }

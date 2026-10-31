@@ -16,12 +16,14 @@ extern crate std;
 use std::vec;
 use std::vec::Vec;
 
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+use crate::field::FieldElem as _;
 use crate::field::binary::tower::{
     FanPaar8Field, FanPaar16Field, FanPaar32Field, FanPaar64Field, Rijndael16Field,
     Rijndael32Field, Rijndael64Field,
 };
 use crate::field::binary::{AES, RS};
-use crate::field::{Elem, FieldElem as _, FiniteField, Polynomial};
+use crate::field::{Elem, FiniteField, Polynomial};
 use crate::field::{Goldilocks, quad_mersenne31};
 use crate::field::{Packed, Relation};
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
@@ -55,7 +57,7 @@ const XOR_LENGTHS: &[usize] = &[
     255, 256, 257, 511, 512, 513, 1023,
 ];
 
-fn noise(len: usize, seed: u64) -> Vec<u8> {
+pub(super) fn noise(len: usize, seed: u64) -> Vec<u8> {
     let mut state = seed | 1;
     (0..len)
         .map(|_| {
@@ -65,6 +67,28 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
             (state >> 33) as u8
         })
         .collect()
+}
+
+/// Requires the operation-specific panic fragment without changing the global hook.
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+pub(super) fn expect_geometry_panic(body: impl FnOnce(), fragment: &str) {
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(body));
+    let message = match outcome {
+        Err(payload) => payload
+            .downcast_ref::<std::string::String>()
+            .cloned()
+            .or_else(|| {
+                payload
+                    .downcast_ref::<&'static str>()
+                    .map(|s| std::string::String::from(*s))
+            })
+            .unwrap_or_else(|| std::string::String::from("non-string panic payload")),
+        Ok(()) => std::string::String::new(),
+    };
+    assert!(
+        message.contains(fragment),
+        "panic message {message:?} lacks the fragment {fragment:?}",
+    );
 }
 
 /// GF(2^8) coefficients worth testing: the two short-circuits, the extremes,
@@ -106,9 +130,7 @@ fn delta_table() -> &'static ScaleTable {
 const AES_REDUCTION: u8 = Polynomial::<AES>::REDUCTION_LOW;
 
 /// A custom degree-16 extension over the Reed-Solomon base: the relation
-/// `t^2 + 2*t + 0x80` (the absolute trace of `0x80 / 2^2` is one). It is
-/// not a pinned presentation, so every bulk operation routes through the
-/// typed scalar fallback and `backend_for` reports `Scalar`.
+/// `t^2 + 2*t + 0x80` has absolute trace of `0x80 / 2^2` equal to one.
 #[derive(Clone, Copy)]
 pub(crate) struct RsExtension;
 
@@ -973,43 +995,6 @@ fn gf64_into_reference(dst: &mut [u8], coeff: Elem<Rijndael64Field>, src: &[u8])
 // ---------------------------------------------------------------------------
 // Backend-independent
 // ---------------------------------------------------------------------------
-
-/// A custom extension is not a pinned presentation: every tier routes it to
-/// the typed scalar fallback, `backend_for` reports `Scalar`, and
-/// elementwise stays on the scalar path.
-#[test]
-fn rs_extension_routing_reports_serving_tiers() {
-    use crate::kernel::FieldKernels;
-
-    assert_eq!(
-        <RsExtField as FieldKernels>::backend(),
-        crate::kernel::Backend::Scalar,
-        "a custom extension routes to the typed scalar fallback"
-    );
-    assert!(
-        !<RsExtField as FieldKernels>::has_vector_elementwise(),
-        "a custom extension keeps elementwise scalar"
-    );
-    assert!(
-        <Rijndael16Field as FieldKernels>::has_vector_elementwise()
-            || matches!(crate::kernel::backend(), crate::kernel::Backend::Scalar),
-        "the Rijndael tower keeps its vector elementwise"
-    );
-}
-
-/// A prepared GF(2^16) coefficient for a custom tower carries the raw word
-/// on every host: the scalar fallback is the only route.
-#[test]
-fn rs_extension_prepared_form_matches_serving_route() {
-    use crate::kernel::tower::gf16::Prepared;
-
-    let prepared =
-        <RsExtField as KernelDispatch>::prepare(RawDispatch, Elem::<RsExtField>::from_raw(0x0100));
-    assert!(
-        matches!(prepared, Prepared::Plain(_)),
-        "a custom extension prepares the raw coefficient word"
-    );
-}
 
 #[test]
 fn scalar_nibble_paths_match_the_generic_reference() {
@@ -8569,10 +8554,8 @@ mod x86 {
         );
     }
 
-    /// Differential coverage for the Reed-Solomon-rooted custom extension: a
-    /// description without a pinned strategy routes every dispatched
-    /// single-row operation through the typed scalar fallback, at lengths
-    /// straddling the 32-byte lane boundaries the vector kernels would use.
+    /// The custom Reed-Solomon-rooted extension matches scalar arithmetic
+    /// across vector lane and tail boundaries.
     #[test]
     fn rs_extension_kernels_match_scalar() {
         let coeffs: Vec<RsExtElem> = [0u16, 1, 2, 0x00ff, 0x0100, 0xff00, 0xffff, 0xbeef]
@@ -8762,25 +8745,10 @@ mod x86 {
         assert_eq!(got, want, "rs16 dispatch overwrite scatter");
     }
 
-    /// The AES-base tower with a non-unit linear coefficient: the only
-    /// spec that drives the GFNI `Compact` route with a general relation.
-    /// Every dispatched entry runs, against the portable scalar reference.
+    /// Every dispatched operation over an AES-base tower with a non-unit
+    /// linear coefficient matches the scalar reference.
     #[test]
     fn aes_tower_dispatch_matches_scalar() {
-        use crate::kernel::tower::gf16::Prepared;
-
-        // A custom extension takes the scalar fallback on every tier: the
-        // backend reports `Scalar` and the prepared form is the raw word.
-        assert_eq!(
-            <AesExtField as crate::kernel::FieldKernels>::backend(),
-            crate::kernel::Backend::Scalar
-        );
-        assert!(matches!(
-            <AesExtField as KernelDispatch>::prepare(RawDispatch, AesExtElem::from_raw(0x0104)),
-            Prepared::Plain(_)
-        ));
-        assert!(!<AesExtField as crate::kernel::FieldKernels>::has_vector_elementwise());
-
         if !host_supports(&[Backend::V2]) {
             eprintln!("skipping: no SSSE3 on this host");
             return;
@@ -8837,9 +8805,8 @@ mod x86 {
         aes_tower_multi_row_matches_scalar();
     }
 
-    /// A custom extension over a normal-basis degree-8 base: bulk
-    /// operations run the typed scalar fallback on every tier and
-    /// `backend_for` reports `Scalar`.
+    /// A custom extension over a normal-basis base preserves its relation
+    /// across dispatched bulk operations.
     #[test]
     fn custom_normal_base_tower_bulk_matches_scalar() {
         type NormalBase = FiniteField<2, 8, Normal<0x11B, 0x20>>;
@@ -8860,11 +8827,6 @@ mod x86 {
 
         type Field = FiniteField<2, 16, crate::field::Extension<OverNormal, 2>>;
         assert_eq!(Elem::<NormalBase>::ONE.to_raw(), 0xFF);
-
-        assert_eq!(
-            <Field as crate::kernel::FieldKernels>::backend(),
-            crate::kernel::Backend::Scalar
-        );
 
         let row_len = 34;
         let src = noise(row_len, 0x3a1);

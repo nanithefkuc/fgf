@@ -27,7 +27,9 @@
 //! selects their duplicate elementwise controls. `--compositions-check` validates
 //! the composition oracles without collecting timings. `--compositions-binary`
 //! restricts any of these to the binary overwrite gathers and
-//! `--compositions-bytes` to the byte-wide row operations.
+//! `--compositions-bytes` to byte-wide rows and `--compositions-packed` to
+//! wider packed binary rows. `--compositions-resources` measures public
+//! coefficient values and collections.
 
 // Toolchain-drift lint (not in the MSRV); see `src/lib.rs`.
 #![allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
@@ -2577,7 +2579,12 @@ fn run_panels() {
     let m31 = !named || has("--m31");
     let gf2 = !named || has("--gf2");
     let prime = !named || has("--prime");
-    if has("--compositions") || has("--compositions-check") || has("--compositions-controls") {
+    if has("--compositions")
+        || has("--compositions-check")
+        || has("--compositions-controls")
+        || has("--compositions-packed")
+        || has("--compositions-resources")
+    {
         compositions::run();
         return;
     }

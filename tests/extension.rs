@@ -371,9 +371,7 @@ fn packed16_relation_bytes_backend() {
     assert_eq!(bytes, 0x0100u16.to_le_bytes());
     assert_eq!(<Packed16 as FieldBuffer>::decode(&bytes), t);
 
-    // One packed call through the checked surface, reporting the scalar
-    // backend.
-    assert_eq!(backend_for::<Packed16>(), Backend::Scalar);
+    // The checked packed operation preserves the relation's arithmetic.
     let mut row = [0u8; 4];
     ops::pack(&mut row, &[Elem::<Packed16>::ONE, t]);
     let before = row;

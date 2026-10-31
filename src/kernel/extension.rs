@@ -5,19 +5,19 @@
 //! storage through the crate-private [`StorageKernels`]. The storage decides
 //! the prepared coefficient and the arms a row can reach:
 //!
-//! - `Packed<u16>`, `Packed<u32>`, and `Packed<u64>` rows run the tower
-//!   dispatch in [`super::tower`], whose vector arms serve the rows
-//!   structurally equal to a shipped Rijndael or Fan-Paar instance and whose
-//!   portable arm serves every other row.
+//! - Wider `Packed` rows use [`super::tower`]: specialized fixed-coefficient
+//!   kernels for shipped instances, the shared linear engine for other rows
+//!   and compatible tiers, and vector products for varying operands.
 //! - `Packed<u8>` rows run the GF(2^8) dispatch in [`super::gf8`] on banks
 //!   built from the row's own product.
 //! - `Components` rows structurally equal to the shipped prime extension run
 //!   the QM31 kernels in [`super::quad_mersenne31`]; every other component
 //!   row runs the portable [`prime`] path.
 //!
-//! A wider packed or component row outside the shipped instances reports
-//! [`Backend::Scalar`], no vector elementwise capability, and a zero
-//! vector-elementwise threshold.
+//! A generic component row reports its portable multiplication strategy
+//! separately from base-field addition reuse. Packed rows report their
+//! fixed-coefficient strategy and expose varying-product capability and its
+//! row-length floor independently.
 
 use crate::field::extension::pinned::{self, Instance};
 use crate::field::extension::storage::{StorageBuffer, StorageRepr};

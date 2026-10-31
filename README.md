@@ -119,6 +119,10 @@ operation's serving tier. Generic component rows reuse base-field addition, and
 exact-modulus residue rows reuse specialized-prime addition, even when their
 multiplication strategy reports `Scalar`.
 
+Packed binary extensions use compatible fixed-coefficient and varying-product
+kernels on x86 tiers; their per-call linear-map workspace does not enlarge
+prepared coefficients.
+
 Release acceptance runs the per-tier differentials on dedicated Willow
 Cove (`v4x`) and Golden Cove (`v3_gfni_crypto`) hosts; GitHub-hosted runners
 only cover tiers they can prove. Routing notes are in the

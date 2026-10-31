@@ -32,6 +32,7 @@ pub(crate) mod gf1;
 pub(crate) mod gf8;
 pub(crate) mod goldilocks;
 pub(crate) mod mersenne31;
+pub(crate) mod packed;
 pub(crate) mod prime;
 pub(crate) mod quad_mersenne31;
 pub(crate) mod residue;
@@ -300,6 +301,12 @@ pub(crate) fn x86_v2_token() -> archmage::X64V2Token {
 /// fixed-coefficient multiplication strategy; exact Mersenne31 and Goldilocks
 /// moduli can reuse vector addition even when that strategy reports
 /// [`Backend::Scalar`]. A scalar summary is not a blanket scalar-execution claim.
+///
+/// Packed binary rows summarize fixed-coefficient multiplication. Specialized
+/// tower kernels can serve a stronger tier than the compatible shared linear
+/// or varying-product bodies used by other operations. Custom packed rows
+/// derive their bounded linear-map workspace during each application without
+/// enlarging the reusable coefficient value.
 ///
 /// SIMD kernels are x86-64 only. On `AArch64` and `Wasm32` every field reports
 /// [`Backend::Scalar`] and uses portable bodies; [`backend()`] still reports
