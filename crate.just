@@ -234,6 +234,32 @@ compile-fail:
         exit 1
     fi
 
+# Compile and execute a standalone degree-64 binary consumer under default
+# lints. Library construction is outside the reported consumer compile times.
+[group('test')]
+binary-relation-accept TOOLCHAIN=MSRV FEATURES="portable" ROUNDS="5":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{FEATURES}}" in
+        portable) flags=(--no-default-features) ;;
+        default) flags=() ;;
+        all) flags=(--all-features) ;;
+        *) printf 'unsupported features: %s\n' "{{FEATURES}}" >&2; exit 2 ;;
+    esac
+    scratch=$(mktemp -d)
+    trap 'rm -rf "$scratch"' EXIT
+    rustc +"{{TOOLCHAIN}}" --version
+    rlib=$(cargo +"{{TOOLCHAIN}}" build --lib "${flags[@]}" --target-dir "$scratch/library" --message-format=json | jq -ers '[.[] | select(.reason == "compiler-artifact" and .target.name == "fgf") | .filenames[]? | select(endswith(".rlib"))] | first')
+    TIMEFORMAT='consumer_compile wall_s=%3R user_s=%3U system_s=%3S'
+    for ((round = 1; round <= {{ROUNDS}}; round++)); do
+        mkdir -p "$scratch/$round"
+        printf 'consumer_compile features=%s round=%s\n' "{{FEATURES}}" "$round"
+        time rustc +"{{TOOLCHAIN}}" --edition 2024 \
+            --extern "fgf=$rlib" -L "dependency=$scratch/library/debug/deps" \
+            --out-dir "$scratch/$round" tests/compile_pass/binary_degree64.rs
+        "$scratch/$round/binary_degree64"
+    done
+
 # MSRV acceptance: every negative consumer snippet rejects and the positive
 # consumer matrix runs on the crate MSRV toolchain.
 [group('test')]

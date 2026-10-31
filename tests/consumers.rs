@@ -1120,3 +1120,11 @@ fn component_additive_routes_preserve_alias_and_unit_semantics() {
         FiniteField<2, 32, Extension<ComponentStorage<Rijndael32>, 2>>,
     >();
 }
+
+#[path = "compile_pass/binary_degree64.rs"]
+mod binary_degree64;
+
+#[test]
+fn binary_degree64_relations_support_bulk_arithmetic() {
+    binary_degree64::exercise();
+}
