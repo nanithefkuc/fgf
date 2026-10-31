@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- macOS CI uses the supported macOS 15 runner image.
 - Binary extension relations directly over GF(2) use packed Rabin
   irreducibility validation, allowing degree-64 `Packed<u64>` rows to
   compile under the default const-evaluation lint while retaining
