@@ -425,13 +425,6 @@ impl<F: ByteRow, D: Gf8Data> ByteDispatch<F, D> {
     }
 
     pub(crate) fn mul_add(dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
-        let value = coeff.table.coeff;
-        if value == F::ZERO_RAW {
-            return;
-        }
-        if value == F::ONE_RAW {
-            return Self::add_assign(dst, src);
-        }
         match Self::backend() {
             #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => {
@@ -465,6 +458,17 @@ impl<F: ByteRow, D: Gf8Data> ByteDispatch<F, D> {
             }
             _ => mul_add_nibble(dst, coeff.table, src),
         }
+    }
+
+    fn mul_add_by_class(dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
+        let value = coeff.table.coeff;
+        if value == F::ZERO_RAW {
+            return;
+        }
+        if value == F::ONE_RAW {
+            return Self::add_assign(dst, src);
+        }
+        Self::mul_add(dst, coeff, src);
     }
 
     pub(crate) fn mul_assign(dst: &mut [u8], coeff: &Prepared) {
@@ -870,7 +874,7 @@ impl<F: ByteRow, D: Gf8Data> ByteDispatch<F, D> {
             _ => {
                 for &(coeffs, src) in terms {
                     for (row, &coeff) in rows.chunks_exact_mut(row_len).take(nrows).zip(coeffs) {
-                        Self::mul_add(row, &Prepared::of::<D>(coeff.raw), src);
+                        Self::mul_add_by_class(row, &Prepared::of::<D>(coeff.raw), src);
                     }
                 }
             }
@@ -955,7 +959,7 @@ impl<F: ByteRow, D: Gf8Data> ByteDispatch<F, D> {
                 .take(nrows)
                 .zip(&coeffs[start..start + nrows])
             {
-                Self::mul_add(row, coeff, src);
+                Self::mul_add_by_class(row, coeff, src);
             }
         }
     }
@@ -1090,7 +1094,17 @@ impl<F: ByteRow, D: Gf8Data> ByteDispatch<F, D> {
             }
             // The shuffle and non-x86 backends have no blocked scattered
             // kernel.
-            _ => F::mul_add_matrix_at_rows(RawDispatch, dst, row_len, row_starts, terms),
+            _ => {
+                for &(coeffs, src) in terms {
+                    for (&at, &coeff) in row_starts.iter().zip(coeffs) {
+                        Self::mul_add_by_class(
+                            &mut dst[at..at + row_len],
+                            &Prepared::of::<D>(coeff.raw),
+                            src,
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -1147,9 +1161,13 @@ impl<F: ByteRow, D: Gf8Data> ByteDispatch<F, D> {
                 _ => {}
             }
         }
-        crate::kernel::fallback::mul_add_matrix_at_plan::<F>(
-            dst, row_len, row_starts, coeffs, srcs,
-        );
+        let nrows = row_starts.len();
+        for (term, &src) in srcs.iter().enumerate() {
+            let start = term * nrows;
+            for (&at, coeff) in row_starts.iter().zip(&coeffs[start..start + nrows]) {
+                Self::mul_add_by_class(&mut dst[at..at + row_len], coeff, src);
+            }
+        }
     }
 
     pub(crate) fn mul_into_matrix_at(
