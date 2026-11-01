@@ -425,6 +425,13 @@ impl<F: ByteRow, D: Gf8Data> ByteDispatch<F, D> {
     }
 
     pub(crate) fn mul_add(dst: &mut [u8], coeff: &Prepared, src: &[u8]) {
+        let value = coeff.table.coeff;
+        if value == F::ZERO_RAW {
+            return;
+        }
+        if value == F::ONE_RAW {
+            return Self::add_assign(dst, src);
+        }
         match Self::backend() {
             #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
             Backend::V4x => {
