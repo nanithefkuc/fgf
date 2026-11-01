@@ -339,6 +339,11 @@ bench-compositions-build FEATURES="all":
         jq -ers '[.[] | select(.reason == "compiler-artifact" and .target.name == "kernels" and .target.kind == ["bench"] and .executable != null)] | if length == 1 then .[0].executable else error("expected one benchmark executable") end' \
             >"target/fgf-bench/compositions-{{FEATURES}}.path"
 
+# Render or verify the public row-composition record from retained campaigns.
+[group('bench')]
+bench-compositions-publish RECORDS *ARGS:
+    python3 benches/compositions_publish.py --records "{{RECORDS}}" --output benchmarks {{ARGS}}
+
 # Miri over the dispatched GFNI paths: the owned-unsafe residue that the
 # scalar configuration does not compile. Runtime detection reports nothing
 # under the interpreter, so the tier is promoted at compile time; MIRIFLAGS

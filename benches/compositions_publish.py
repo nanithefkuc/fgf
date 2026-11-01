@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """Render the row-composition comparison page from paired campaign summaries.
 
-    python3 benches/compositions_publish.py --records DIR --output PATH [--verify]
+    just bench-compositions-publish DIR [--verify]
 
 ``DIR`` holds ``meta.json`` and, per host, ``paired-<host>.json`` and
 ``pilot-<host>.json`` for the adopted campaign plus ``boundary-<host>.json``
-for the campaign that set the routing boundaries. ``DIR/binary-gathers``
-and ``DIR/byte-rows`` hold the same ``meta.json``, paired, and pilot records
-for the binary overwrite-gather and byte-wide row campaigns. Factors are
+for the campaign that set the routing boundaries. ``DIR/binary-gathers``,
+``DIR/byte-rows``, and ``DIR/packed-rows`` hold the same ``meta.json``, paired,
+and pilot records for their respective binary multiplication campaigns. Factors are
 base latency over candidate latency from unrounded per-cell aggregates.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -110,6 +112,13 @@ BYTE_SINGLE = ("mul_add", "mul_add_with", "mul_into", "mul_assign", "mul_element
                "mul_elementwise_assign")
 BYTE_MULTI = ("mul_add_scatter", "mul_add_gather", "mul_into_gather", "mul_add_matrix",
               "mul_into_matrix")
+
+PACKED = "packed-rows"
+PACKED_FIELDS = BINARY_FIELDS[2:] + (
+    ("pu16c", "packed degree 2 over GF(2^8)/0x11D, relation [0x80, 2]"),
+    ("pu32c", "packed degree 2 over Rijndael GF(2^16), relation [0x2001, 1]"),
+    ("pu64c", "packed degree 2 over Rijndael GF(2^32), relation [0x2ada7f36, 1]"),
+)
 
 
 class PublishError(Exception):
@@ -330,6 +339,88 @@ def byte_section(records: Path) -> list[str]:
     return out
 
 
+def packed_section(records: Path) -> list[str]:
+    """Render packed-row results without dropping measured lane boundaries."""
+    meta, paired = accepted(records / PACKED)
+    layouts = meta["field_layouts"]
+    labels = {label for label, _ in PACKED_FIELDS}
+    if set(layouts) != labels:
+        raise PublishError("packed-row layout inventory differs from the field definitions")
+    per_host = {host: cells(config(paired[host], "all", "primary", host))
+                for host in HOSTS}
+    inventories = {host: set(per_host[host]) for host in HOSTS}
+    if inventories[HOSTS[0]] != inventories[HOSTS[1]]:
+        raise PublishError("packed-row host geometry inventories differ")
+    inventory = inventories[HOSTS[0]]
+    if {field for field, _, _, _ in inventory} != labels:
+        raise PublishError("packed-row measured field inventory differs from the definitions")
+    inventory_labels = sorted(f"compositions/{field}/{operation}/{pattern}/lanes-{lanes}"
+                              for field, operation, pattern, lanes in inventory)
+    inventory_digest = hashlib.sha256(
+        ("\n".join(inventory_labels) + "\n").encode()).hexdigest()
+    if inventory_digest != meta["non_control_inventory_sha256"]:
+        raise PublishError("packed-row measured geometry differs from the frozen inventory")
+    for host in HOSTS:
+        for features in ("default", "all"):
+            for tier, _ in BINARY_TIERS:
+                measured = cells(config(paired[host], features, tier, host))
+                if set(measured) != inventory:
+                    raise PublishError(f"{host}: packed-row geometry inventory differs "
+                                       f"for {features}/{tier}")
+                if any(not math.isfinite(factor) or factor <= 0
+                       for factor, _ in measured.values()):
+                    raise PublishError(f"{host}: invalid packed-row latency factor")
+    operations = sorted({operation for _, operation, _, _ in per_host[HOSTS[0]]})
+    out = [
+        "## Packed binary rows\n",
+        render_markdown_table(["Setting", "Value"], [
+            ["Base revision", f"`{meta['base_revision']}`"],
+            ["Candidate source SHA-256", f"`{meta['candidate_sha256']}`"],
+            ["Toolchain", meta["toolchain"]],
+            ["Geometry", f"{meta['rows']} destination rows, {meta['sources']} sources"],
+        ]) + "\n",
+        outcome_table(paired, BINARY_TIERS, PACKED_FIELDS) + "\n",
+        "### Packed fixed-coefficient floors\n",
+        "The shared linear engine serves a whole-vector prefix from these floors. "
+        "The field's scalar operation finishes the tail. Zero and unit coefficients "
+        "retain their semantic fill, copy, no-op, or XOR paths.\n",
+        render_markdown_table(
+            ["Serving tier", "Element width (bytes)", "Floor (elements)",
+             "Prefix floor (bytes)"],
+            [[tier, str(width), str(elements), str(width * elements)]
+             for tier, width, elements in meta["fixed_floors"]]) + "\n",
+    ]
+    for operation in operations:
+        out.append(f"### Packed {operation}\n")
+        for pattern in PATTERNS:
+            geometries = sorted({lanes for _, op, pat, lanes in per_host[HOSTS[0]]
+                                 if op == operation and pat == pattern})
+            if not geometries:
+                continue
+            rows = []
+            for label, _ in PACKED_FIELDS:
+                for lanes in geometries:
+                    values = [per_host[host].get((label, operation, pattern, lanes))
+                              for host in HOSTS]
+                    if all(value is None for value in values):
+                        continue
+                    rows.append([label, str(lanes), fmt_ratio_pair(
+                        *(value[0] if value is not None else None for value in values))])
+            out.append(f"<details>\n<summary>{pattern.capitalize()} coefficients; "
+                       "all measured lane counts</summary>\n\n"
+                       + render_markdown_table(["Field", "Lanes", "Factor"], rows)
+                       + "\n\n</details>\n")
+    out.append("<details>\n<summary>Open no-win geometries across all requests"
+               "</summary>\n\n" + byte_no_win_table(paired) + "\n\n</details>\n")
+    out.append(render_markdown_table(
+        ["Label", "Field", "Lane bytes"],
+        [[label, text, str(layouts[label])] for label, text in PACKED_FIELDS]) + "\n")
+    out.append("<details>\n<summary>Packed-row campaign hosts, controls, and classification"
+               "</summary>\n\n" + "".join(f"- {line}\n" for line in meta["caveats"])
+               + "\n</details>\n")
+    return out
+
+
 
 def render(records: Path) -> str:
     meta, paired = accepted(records)
@@ -356,6 +447,7 @@ def render(records: Path) -> str:
         + "- [Routing boundaries](#routing-boundaries)\n"
         "- [Binary overwrite gathers](#binary-overwrite-gathers)\n"
         "- [Byte-wide rows](#byte-wide-rows)\n"
+        "- [Packed binary rows](#packed-binary-rows)\n"
         "- [Field definitions](#field-definitions)\n"
         "- [Measurement details](#measurement-details)\n",
         "## Setup\n",
@@ -399,6 +491,7 @@ def render(records: Path) -> str:
     out.extend(boundary_tables(boundary, layouts))
     out.extend(binary_section(records))
     out.extend(byte_section(records))
+    out.extend(packed_section(records))
     out.append("## Field definitions\n")
     out.append(render_markdown_table(
         ["Label", "Field", "Lane bytes"],

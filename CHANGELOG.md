@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- macOS CI uses the supported macOS 15 runner image.
 - Binary extension relations directly over GF(2) use packed Rabin
   irreducibility validation, allowing degree-64 `Packed<u64>` rows to
   compile under the default const-evaluation lint while retaining
@@ -73,10 +74,10 @@ All notable changes to this project are documented here. The format follows
   contiguous-matrix, and offset-matrix forms share these routes without
   enlarging prepared coefficient entries.
 - Fan-Paar GF(2^16) and custom `Packed<u16>` rows use a descriptor-recursive
-  AVX2 kernel for varying products and their in-place forms over whole
-  32-byte vectors, with scalar tails. Backend queries distinguish the
-  fixed-coefficient strategy from varying-product capability and its
-  row-length floor; wider packed rows keep the portable varying product.
+  AVX2 kernel for varying products and their in-place forms over whole-vector
+  prefixes from a measured row length. Short rows and tails stay scalar.
+  Backend queries distinguish the fixed-coefficient strategy from varying-product
+  capability and its row-length floor; wider packed rows keep the portable product.
 - Normal- and Cantor-basis GF(2^8) rows and every `Packed<u8>` extension row
   run the GF(2^8) vector kernels for fixed-coefficient, multi-row, and
   elementwise operations on every x86 tier, with tables and an isomorphism

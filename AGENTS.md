@@ -428,24 +428,29 @@ as evidence. A source or harness change after capture requires new evidence.
 `benchmarks/v3/compositions.md` is a paired base/candidate record for the
 public row compositions (scatter, gather, matrix, offset matrix, and row
 addition) over prime, residue, and component fields, with separate campaigns
-for binary overwrite gathers and byte-wide rows. `just
+for binary overwrite gathers, byte-wide rows, and packed binary rows. `just
 bench-compositions-build FEATURES` builds the panel and `just
 bench-compositions ARTIFACT` runs a frozen artifact; `--compositions-check`
-runs every element oracle without timing, `--compositions-controls` runs
-only the duplicate elementwise controls, and `--compositions-binary` or
-`--compositions-bytes` selects one of the separate campaigns' panels. Both
-artifacts are built from identical benchmark sources, recipes, compiler, and
+runs every element oracle without timing, and `--compositions-controls` runs
+only the duplicate elementwise controls. `--compositions-binary`,
+`--compositions-bytes`, and `--compositions-packed` select their row panels.
+The packed panel's `--compositions-varying16` selector retains every length
+and both varying products for its two-byte fields, including their controls.
+`--compositions-resources` reports prepared-value and collection costs.
+
+Both artifacts are built from identical benchmark sources, recipes, compiler, and
 lock, and runs alternate in shuffled pairs. Each field geometry is classified
 against a band frozen before candidate timing. The band comes from the
 field geometry's duplicate controls in a pilot, which alternates the base
 with a second base build that differs only in Cargo's metadata seed. The
 controls' movement between the two builds measures binary-layout drift in
 the same session.
-`benches/compositions_publish.py` renders the page from campaign summaries
-in `bench-records/compositions-publish/` and checks its bytes with
-`--verify`. The composition routing thresholds in `src/kernel.rs`,
-`src/kernel/extension.rs`, and `src/kernel/residue.rs` cite its
-routing-boundary tables; changing a threshold needs a new boundary campaign.
+`just bench-compositions-publish bench-records/compositions-publish/` renders
+the page from retained campaign summaries; `--verify` checks its bytes.
+The composition routing thresholds in `src/kernel.rs`,
+`src/kernel/extension.rs`, `src/kernel/residue.rs`, and `src/kernel/packed.rs`
+cite its routing-boundary and packed-floor tables; changing a threshold
+needs a new boundary campaign.
 
 `benchmarks/labels.md` defines canonical field labels, exact API mappings,
 recursive tower coefficients, and packing conventions.

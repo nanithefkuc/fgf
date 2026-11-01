@@ -6,12 +6,14 @@
 //!
 //! Each entry serves a whole-vector prefix of the row and returns its length
 //! in bytes. The caller finishes the remaining bytes with the field's own
-//! scalar body, so tails never run slower than the portable path. A prefix
-//! shorter than the entry's measured floor is not served at all; the floors
-//! are the crossovers recorded in `BENCHMARKS.md`.
+//! scalar body. A prefix shorter than the entry's measured floor is not served
+//! at all; the floors are the crossovers recorded in `BENCHMARKS.md`.
 
 use crate::field::Field;
 use crate::kernel::Backend;
+
+/// Minimum row size accepted by the shared varying-product entries.
+const PRODUCT_MIN_BYTES: usize = 64;
 
 /// Compatible serving tier of the shared packed kernels.
 pub(crate) fn serving_backend() -> Backend {
@@ -25,6 +27,7 @@ pub(crate) fn serving_backend() -> Backend {
 }
 
 /// Vector width in bytes of a serving tier.
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
 const fn vector_bytes(tier: Backend) -> usize {
     match tier {
         Backend::V2 => 16,
@@ -44,8 +47,7 @@ const fn fixed_floor_elements(bytes: usize, tier: Backend) -> usize {
 
 /// Whether the varying-product kernels serve this element width.
 ///
-/// Only two-byte rows on the AVX2 tier meet their scalar body; every other
-/// row keeps the portable product.
+/// The shared AVX2 body serves two-byte rows; other widths use portable products.
 fn product_serves(bytes: usize) -> bool {
     bytes == 2 && serving_backend() == Backend::V3
 }
@@ -58,7 +60,7 @@ pub(crate) fn has_vector_elementwise(bytes: usize) -> bool {
 /// Smallest row containing a vector product body, or zero without one.
 pub(crate) fn elementwise_min_bytes(bytes: usize) -> usize {
     if product_serves(bytes) {
-        vector_bytes(Backend::V3)
+        PRODUCT_MIN_BYTES
     } else {
         0
     }
@@ -165,9 +167,9 @@ pub(crate) fn try_elementwise<F: Field, const BYTES: usize>(
     b: &[u8],
 ) -> usize {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    if product_serves(BYTES) {
+    {
         let head = dst.len() - dst.len() % vector_bytes(Backend::V3);
-        if head != 0 {
+        if head >= PRODUCT_MIN_BYTES && product_serves(BYTES) {
             super::x86::binary_product::avx2::mul_elementwise_avx2(
                 super::x86_v3_token(),
                 F::DESCRIPTOR,
@@ -175,8 +177,8 @@ pub(crate) fn try_elementwise<F: Field, const BYTES: usize>(
                 &a[..head],
                 &b[..head],
             );
+            return head;
         }
-        return head;
     }
     let _ = (core::marker::PhantomData::<F>, dst, a, b);
     0
@@ -192,17 +194,17 @@ pub(crate) fn try_elementwise_assign<F: Field, const BYTES: usize>(
     src: &[u8],
 ) -> usize {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    if product_serves(BYTES) {
+    {
         let head = dst.len() - dst.len() % vector_bytes(Backend::V3);
-        if head != 0 {
+        if head >= PRODUCT_MIN_BYTES && product_serves(BYTES) {
             super::x86::binary_product::avx2::mul_elementwise_assign_avx2(
                 super::x86_v3_token(),
                 F::DESCRIPTOR,
                 &mut dst[..head],
                 &src[..head],
             );
+            return head;
         }
-        return head;
     }
     let _ = (core::marker::PhantomData::<F>, dst, src);
     0

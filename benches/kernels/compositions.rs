@@ -243,6 +243,13 @@ fn controls_only() -> bool {
     std::env::args().any(|arg| arg == "--compositions-controls")
 }
 
+/// Whether the two-byte varying-product confirmation panel is selected.
+fn varying16_only() -> bool {
+    static SELECTED: std::sync::LazyLock<bool> =
+        std::sync::LazyLock::new(|| std::env::args().any(|arg| arg == "--compositions-varying16"));
+    *SELECTED
+}
+
 fn bench(label: &str, bytes: usize, mut body: impl FnMut()) -> f64 {
     if std::env::args().any(|arg| arg == "--compositions-check") {
         body();
@@ -1339,7 +1346,8 @@ where
 /// panel, `--compositions-resources` reports element and prepared-collection
 /// resource costs for those packed fields, `--compositions-binary` restricts
 /// it to the binary overwrite gathers, and `--compositions-bytes` to the
-/// byte-wide row operations.
+/// byte-wide row operations. `--compositions-varying16` selects both varying
+/// products and every row length for the packed two-byte fields.
 pub(crate) fn run() {
     println!("Public row-composition measurements:");
     println!("COMPOSITIONS_GEOMETRY\trows\t{NROWS}\tsources\t{NSOURCES}");
@@ -1351,13 +1359,25 @@ pub(crate) fn run() {
         println!("\nPacked rows:");
         binary_row_panel::<FiniteField<2, 16, Extension<fgf::Rijndael16, 2>>>("fp16r", 0xa0_0000);
         binary_row_panel::<FiniteField<2, 16, Extension<fgf::FanPaar16, 2>>>("fp16f", 0xa1_0000);
-        binary_row_panel::<FiniteField<2, 32, Extension<fgf::Rijndael32, 2>>>("fp32r", 0xa2_0000);
-        binary_row_panel::<FiniteField<2, 32, Extension<fgf::FanPaar32, 2>>>("fp32f", 0xa3_0000);
-        binary_row_panel::<FiniteField<2, 64, Extension<fgf::Rijndael64, 2>>>("fp64r", 0xa4_0000);
-        binary_row_panel::<FiniteField<2, 64, Extension<fgf::FanPaar64, 2>>>("fp64f", 0xa5_0000);
+        if !varying16_only() {
+            binary_row_panel::<FiniteField<2, 32, Extension<fgf::Rijndael32, 2>>>(
+                "fp32r", 0xa2_0000,
+            );
+            binary_row_panel::<FiniteField<2, 32, Extension<fgf::FanPaar32, 2>>>(
+                "fp32f", 0xa3_0000,
+            );
+            binary_row_panel::<FiniteField<2, 64, Extension<fgf::Rijndael64, 2>>>(
+                "fp64r", 0xa4_0000,
+            );
+            binary_row_panel::<FiniteField<2, 64, Extension<fgf::FanPaar64, 2>>>(
+                "fp64f", 0xa5_0000,
+            );
+        }
         binary_row_panel::<CustomPacked16>("pu16c", 0xa6_0000);
-        binary_row_panel::<CustomPacked32>("pu32c", 0xa7_0000);
-        binary_row_panel::<CustomPacked64>("pu64c", 0xa8_0000);
+        if !varying16_only() {
+            binary_row_panel::<CustomPacked32>("pu32c", 0xa7_0000);
+            binary_row_panel::<CustomPacked64>("pu64c", 0xa8_0000);
+        }
     } else if std::env::args().any(|arg| arg == "--compositions-bytes") {
         println!("\nByte-wide rows:");
         binary_row_panel::<Aes8Normal>("gf8n", 0x90_0000);
@@ -1489,8 +1509,8 @@ where
         .collect()
 }
 
-/// Overwrite gathers over one binary row, one-shot and prepared, with the
-/// row's elementwise product as the unchanged control.
+/// Overwrite gathers over one binary row, one-shot and prepared, with
+/// unchanged AES elementwise products as the duplicated control.
 fn binary_gather_panel<F>(label: &str, seed: u64)
 where
     F: fgf::FieldKernels + FieldBuffer,
@@ -1508,7 +1528,7 @@ where
     for lanes in lane_counts::<F>() {
         let len = lanes * F::BYTES;
         println!("  lanes {lanes} ({len} B):");
-        elementwise_controls::<F>(label, lanes, seed);
+        elementwise_controls::<Aes8>(label, lanes, seed);
         if controls_only() {
             continue;
         }
@@ -1573,7 +1593,7 @@ impl ExtensionSpec<2> for NibbleTowerSpec {
 }
 type NibbleTower = FiniteField<2, 8, Extension<NibbleTowerSpec, 2>>;
 
-/// Check one destination-writing operation against `expected`, then time it.
+/// Check one selected destination-writing operation against `expected`, then time it.
 #[allow(clippy::too_many_arguments)]
 fn timed_op(
     label: &str,
@@ -1585,6 +1605,9 @@ fn timed_op(
     expected: &[u8],
     mut body: impl FnMut(&mut [u8]),
 ) {
+    if varying16_only() && !matches!(op, "mul_elementwise" | "mul_elementwise_assign") {
+        return;
+    }
     let mut dst = init.to_vec();
     body(&mut dst);
     assert_eq!(dst, expected, "{label}: {op} {pat} lanes {lanes}");
