@@ -468,6 +468,9 @@ impl<F: ByteRow, D: Gf8Data> ByteDispatch<F, D> {
         if value == F::ONE_RAW {
             return Self::add_assign(dst, src);
         }
+        // Canonical zero and unit comparisons exclude both trivial coefficients.
+        #[cfg(test)]
+        let _general_trace = crate::kernel::trace::term(crate::kernel::trace::Term::General);
         Self::mul_add(dst, coeff, src);
     }
 
@@ -890,8 +893,9 @@ impl<F: ByteRow, D: Gf8Data> ByteDispatch<F, D> {
         coeffs: &[Prepared],
         srcs: &[&[u8]],
     ) {
-        #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
-        let _ = values;
+        if values.iter().all(|value| value.raw == F::ZERO_RAW) {
+            return;
+        }
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             let terms = FlatResolved::<F, D>::new(values, nrows, srcs);
@@ -970,6 +974,17 @@ impl<F: ByteRow, D: Gf8Data> ByteDispatch<F, D> {
         nrows: usize,
         terms: &[(&[Elem<F>], &[u8])],
     ) {
+        if terms.iter().all(|(coeffs, _)| {
+            coeffs
+                .iter()
+                .take(nrows)
+                .all(|value| value.raw == F::ZERO_RAW)
+        }) {
+            for row in rows.chunks_exact_mut(row_len).take(nrows) {
+                row.fill(0);
+            }
+            return;
+        }
         // Overwrite seeds accumulators from zero in registers: one write pass,
         // no destination read, no separate fill.
         #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
@@ -1016,6 +1031,12 @@ impl<F: ByteRow, D: Gf8Data> ByteDispatch<F, D> {
         coeffs: &[Prepared],
         srcs: &[&[u8]],
     ) {
+        if values.iter().all(|value| value.raw == F::ZERO_RAW) {
+            for row in rows.chunks_exact_mut(row_len).take(nrows) {
+                row.fill(0);
+            }
+            return;
+        }
         #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
         if Self::backend() == Backend::V4x {
             let prepared = crate::kernel::FlatMatrix {
@@ -1117,8 +1138,9 @@ impl<F: ByteRow, D: Gf8Data> ByteDispatch<F, D> {
         coeffs: &[Prepared],
         srcs: &[&[u8]],
     ) {
-        #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
-        let _ = values;
+        if values.iter().all(|value| value.raw == F::ZERO_RAW) {
+            return;
+        }
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
         {
             // The prepared tables carry their affine maps, so the blocked
@@ -1176,6 +1198,17 @@ impl<F: ByteRow, D: Gf8Data> ByteDispatch<F, D> {
         row_starts: &[usize],
         terms: &[(&[Elem<F>], &[u8])],
     ) {
+        if terms.iter().all(|(coeffs, _)| {
+            coeffs
+                .iter()
+                .take(row_starts.len())
+                .all(|value| value.raw == F::ZERO_RAW)
+        }) {
+            for &start in row_starts {
+                dst[start..start + row_len].fill(0);
+            }
+            return;
+        }
         // Overwrite seeds accumulators from zero in registers: one write pass,
         // no destination read, no separate fill.
         #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
@@ -1222,6 +1255,12 @@ impl<F: ByteRow, D: Gf8Data> ByteDispatch<F, D> {
         coeffs: &[Prepared],
         srcs: &[&[u8]],
     ) {
+        if values.iter().all(|value| value.raw == F::ZERO_RAW) {
+            for &start in row_starts {
+                dst[start..start + row_len].fill(0);
+            }
+            return;
+        }
         #[cfg(all(feature = "simd512", target_arch = "x86_64"))]
         if Self::backend() == Backend::V4x {
             let terms = crate::kernel::FlatMatrix {
