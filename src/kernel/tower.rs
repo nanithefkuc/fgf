@@ -1133,6 +1133,9 @@ pub mod gf16 {
             // The specialized Rijndael body folds the unit linear term into
             // the cross sum; other relations use the shared product engine.
             if !rijndael16::<F>() {
+                if dst.len() < crate::kernel::packed::PRODUCT_MIN_BYTES {
+                    return scalar::mul_elementwise::<F>(dst, a, b);
+                }
                 let done = crate::kernel::packed::try_elementwise::<F, 2>(dst, a, b);
                 return scalar::mul_elementwise::<F>(&mut dst[done..], &a[done..], &b[done..]);
             }
@@ -1209,6 +1212,9 @@ pub mod gf16 {
         ) {
             // The specialized Rijndael formula folds the unit linear term.
             if !rijndael16::<F>() {
+                if dst.len() < crate::kernel::packed::PRODUCT_MIN_BYTES {
+                    return scalar::mul_elementwise_assign::<F>(dst, src);
+                }
                 let done = crate::kernel::packed::try_elementwise_assign::<F, 2>(dst, src);
                 return scalar::mul_elementwise_assign::<F>(&mut dst[done..], &src[done..]);
             }

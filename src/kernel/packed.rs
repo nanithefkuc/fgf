@@ -13,7 +13,7 @@ use crate::field::Field;
 use crate::kernel::Backend;
 
 /// Minimum row size accepted by the shared varying-product entries.
-const PRODUCT_MIN_BYTES: usize = 64;
+pub(crate) const PRODUCT_MIN_BYTES: usize = 64;
 
 /// Compatible serving tier of the shared packed kernels.
 pub(crate) fn serving_backend() -> Backend {
