@@ -551,14 +551,14 @@ pub mod gf16 {
                     backend(),
                     Backend::V4x | Backend::V3GfniCrypto | Backend::V3 | Backend::V2
                 )
-                || crate::kernel::packed::serving_backend() != Backend::Scalar
+                || crate::kernel::packed::has_vector_elementwise(2)
         }
 
         fn vector_elementwise_min_bytes<F: StorageRow<B, D, Self>>() -> usize {
             if rijndael16::<F>() {
                 0
             } else {
-                crate::kernel::packed::elementwise_min_bytes()
+                crate::kernel::packed::elementwise_min_bytes(2)
             }
         }
 
@@ -670,13 +670,12 @@ pub mod gf16 {
                     ),
                 },
                 other => {
-                    if crate::kernel::packed::try_fixed::<F, 2>(
+                    let done = crate::kernel::packed::try_fixed::<F, 2>(
                         dst,
                         u64::from(other.coeff()),
                         crate::kernel::packed::Fixed::Add(src),
-                    ) {
-                        return;
-                    }
+                    );
+                    let (dst, src) = (&mut dst[done..], &src[done..]);
                     let coeff = Elem::<F> { raw: other.coeff() };
                     if rijndael16::<F>() {
                         // Not `scalar::mul_add`: the nibble tables amortize
@@ -732,13 +731,12 @@ pub mod gf16 {
                     }
                 },
                 other => {
-                    if crate::kernel::packed::try_fixed::<F, 2>(
+                    let done = crate::kernel::packed::try_fixed::<F, 2>(
                         dst,
                         u64::from(other.coeff()),
                         crate::kernel::packed::Fixed::Assign,
-                    ) {
-                        return;
-                    }
+                    );
+                    let dst = &mut dst[done..];
                     let coeff = Elem::<F> { raw: other.coeff() };
                     if rijndael16::<F>() {
                         mul_assign_scalar(dst, &rijndael_tables(other.coeff()));
@@ -800,14 +798,13 @@ pub mod gf16 {
                 },
                 // Raw coefficients retain bounded per-call map preparation.
                 other => {
-                    if crate::kernel::packed::try_fixed::<F, 2>(
+                    let done = crate::kernel::packed::try_fixed::<F, 2>(
                         dst,
                         u64::from(other.coeff()),
                         crate::kernel::packed::Fixed::Into(src),
-                    ) {
-                        return;
-                    }
-                    dst.copy_from_slice(src);
+                    );
+                    let dst = &mut dst[done..];
+                    dst.copy_from_slice(&src[done..]);
                     F::mul_assign(RawDispatch, dst, other);
                 }
             }
@@ -1136,10 +1133,8 @@ pub mod gf16 {
             // The specialized Rijndael body folds the unit linear term into
             // the cross sum; other relations use the shared product engine.
             if !rijndael16::<F>() {
-                if crate::kernel::packed::try_elementwise::<F, 2>(dst, a, b) {
-                    return;
-                }
-                return scalar::mul_elementwise::<F>(dst, a, b);
+                let done = crate::kernel::packed::try_elementwise::<F, 2>(dst, a, b);
+                return scalar::mul_elementwise::<F>(&mut dst[done..], &a[done..], &b[done..]);
             }
             #[cfg(all(feature = "simd", target_arch = "x86_64"))]
             let b_raw = RIJNDAEL16_B;
@@ -1214,10 +1209,8 @@ pub mod gf16 {
         ) {
             // The specialized Rijndael formula folds the unit linear term.
             if !rijndael16::<F>() {
-                if crate::kernel::packed::try_elementwise_assign::<F, 2>(dst, src) {
-                    return;
-                }
-                return scalar::mul_elementwise_assign::<F>(dst, src);
+                let done = crate::kernel::packed::try_elementwise_assign::<F, 2>(dst, src);
+                return scalar::mul_elementwise_assign::<F>(&mut dst[done..], &src[done..]);
             }
             // The vector assign kernels are x86-only; the other tiers take
             // the scalar default.
@@ -1387,14 +1380,6 @@ pub mod gf32 {
             crate::kernel::packed::serving_backend()
         }
 
-        fn has_vector_elementwise<F: StorageRow<B, D, Self>>() -> bool {
-            crate::kernel::packed::serving_backend() != Backend::Scalar
-        }
-
-        fn vector_elementwise_min_bytes<F: StorageRow<B, D, Self>>() -> usize {
-            crate::kernel::packed::elementwise_min_bytes()
-        }
-
         fn prepare<F: StorageRow<B, D, Self>>(_proof: RawDispatch, coeff: Elem<F>) -> Prepared {
             let raw = coeff.to_raw();
             if rijndael32::<F>() {
@@ -1474,13 +1459,16 @@ pub mod gf32 {
                     );
                 }
                 other => {
-                    if !crate::kernel::packed::try_fixed::<F, 4>(
+                    let done = crate::kernel::packed::try_fixed::<F, 4>(
                         dst,
                         u64::from(other.coeff()),
                         crate::kernel::packed::Fixed::Add(src),
-                    ) {
-                        scalar::mul_add::<F>(dst, Elem { raw: other.coeff() }, src);
-                    }
+                    );
+                    scalar::mul_add::<F>(
+                        &mut dst[done..],
+                        Elem { raw: other.coeff() },
+                        &src[done..],
+                    );
                 }
             }
         }
@@ -1509,13 +1497,12 @@ pub mod gf32 {
                     );
                 }
                 other => {
-                    if !crate::kernel::packed::try_fixed::<F, 4>(
+                    let done = crate::kernel::packed::try_fixed::<F, 4>(
                         dst,
                         u64::from(other.coeff()),
                         crate::kernel::packed::Fixed::Assign,
-                    ) {
-                        scalar::mul_assign::<F>(dst, Elem { raw: other.coeff() });
-                    }
+                    );
+                    scalar::mul_assign::<F>(&mut dst[done..], Elem { raw: other.coeff() });
                 }
             }
         }
@@ -1547,14 +1534,13 @@ pub mod gf32 {
                     );
                 }
                 other => {
-                    if crate::kernel::packed::try_fixed::<F, 4>(
+                    let done = crate::kernel::packed::try_fixed::<F, 4>(
                         dst,
                         u64::from(other.coeff()),
                         crate::kernel::packed::Fixed::Into(src),
-                    ) {
-                        return;
-                    }
-                    dst.copy_from_slice(src);
+                    );
+                    let dst = &mut dst[done..];
+                    dst.copy_from_slice(&src[done..]);
                     F::mul_assign(RawDispatch, dst, other);
                 }
             }
@@ -1627,19 +1613,10 @@ pub mod gf32 {
             a: &[u8],
             b: &[u8],
         ) {
-            if !crate::kernel::packed::try_elementwise::<F, 4>(dst, a, b) {
-                scalar::mul_elementwise::<F>(dst, a, b);
-            }
-        }
-
-        fn mul_elementwise_assign<F: StorageRow<B, D, Self>>(
-            _proof: RawDispatch,
-            dst: &mut [u8],
-            src: &[u8],
-        ) {
-            if !crate::kernel::packed::try_elementwise_assign::<F, 4>(dst, src) {
-                scalar::mul_elementwise_assign::<F>(dst, src);
-            }
+            // Both operands vary per lane, so there is no fixed
+            // coefficient to broadcast; no elementwise vector path serves
+            // the degree-32 rows.
+            scalar::mul_elementwise::<F>(dst, a, b);
         }
     }
 }
@@ -1745,14 +1722,6 @@ pub mod gf64 {
             crate::kernel::packed::serving_backend()
         }
 
-        fn has_vector_elementwise<F: StorageRow<B, D, Self>>() -> bool {
-            crate::kernel::packed::serving_backend() != Backend::Scalar
-        }
-
-        fn vector_elementwise_min_bytes<F: StorageRow<B, D, Self>>() -> usize {
-            crate::kernel::packed::elementwise_min_bytes()
-        }
-
         fn prepare<F: StorageRow<B, D, Self>>(_proof: RawDispatch, coeff: Elem<F>) -> Prepared {
             let raw = coeff.to_raw();
             if rijndael64::<F>() {
@@ -1832,13 +1801,16 @@ pub mod gf64 {
                     );
                 }
                 other => {
-                    if !crate::kernel::packed::try_fixed::<F, 8>(
+                    let done = crate::kernel::packed::try_fixed::<F, 8>(
                         dst,
                         other.coeff(),
                         crate::kernel::packed::Fixed::Add(src),
-                    ) {
-                        scalar::mul_add::<F>(dst, Elem { raw: other.coeff() }, src);
-                    }
+                    );
+                    scalar::mul_add::<F>(
+                        &mut dst[done..],
+                        Elem { raw: other.coeff() },
+                        &src[done..],
+                    );
                 }
             }
         }
@@ -1867,13 +1839,12 @@ pub mod gf64 {
                     );
                 }
                 other => {
-                    if !crate::kernel::packed::try_fixed::<F, 8>(
+                    let done = crate::kernel::packed::try_fixed::<F, 8>(
                         dst,
                         other.coeff(),
                         crate::kernel::packed::Fixed::Assign,
-                    ) {
-                        scalar::mul_assign::<F>(dst, Elem { raw: other.coeff() });
-                    }
+                    );
+                    scalar::mul_assign::<F>(&mut dst[done..], Elem { raw: other.coeff() });
                 }
             }
         }
@@ -1905,14 +1876,13 @@ pub mod gf64 {
                     );
                 }
                 other => {
-                    if crate::kernel::packed::try_fixed::<F, 8>(
+                    let done = crate::kernel::packed::try_fixed::<F, 8>(
                         dst,
                         other.coeff(),
                         crate::kernel::packed::Fixed::Into(src),
-                    ) {
-                        return;
-                    }
-                    dst.copy_from_slice(src);
+                    );
+                    let dst = &mut dst[done..];
+                    dst.copy_from_slice(&src[done..]);
                     F::mul_assign(RawDispatch, dst, other);
                 }
             }
@@ -1982,19 +1952,10 @@ pub mod gf64 {
             a: &[u8],
             b: &[u8],
         ) {
-            if !crate::kernel::packed::try_elementwise::<F, 8>(dst, a, b) {
-                scalar::mul_elementwise::<F>(dst, a, b);
-            }
-        }
-
-        fn mul_elementwise_assign<F: StorageRow<B, D, Self>>(
-            _proof: RawDispatch,
-            dst: &mut [u8],
-            src: &[u8],
-        ) {
-            if !crate::kernel::packed::try_elementwise_assign::<F, 8>(dst, src) {
-                scalar::mul_elementwise_assign::<F>(dst, src);
-            }
+            // Both operands vary per lane, so there is no fixed
+            // coefficient to broadcast; no elementwise vector path serves
+            // the degree-64 rows.
+            scalar::mul_elementwise::<F>(dst, a, b);
         }
     }
 }

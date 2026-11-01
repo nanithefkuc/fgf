@@ -7,7 +7,8 @@
 //!
 //! - Wider `Packed` rows use [`super::tower`]: specialized fixed-coefficient
 //!   kernels for shipped instances, the shared linear engine for other rows
-//!   and compatible tiers, and vector products for varying operands.
+//!   and compatible tiers, and two-byte vector products for varying
+//!   operands.
 //! - `Packed<u8>` rows run the GF(2^8) dispatch in [`super::gf8`] on banks
 //!   built from the row's own product.
 //! - `Components` rows structurally equal to the shipped prime extension run

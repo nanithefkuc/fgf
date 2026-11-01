@@ -3,6 +3,12 @@
 //! Existing specialized tower kernels retain their routes. These entries serve
 //! the remaining packed rows without enlarging their prepared coefficients;
 //! coefficient maps are bounded per-execution stack state, not prepared values.
+//!
+//! Each entry serves a whole-vector prefix of the row and returns its length
+//! in bytes. The caller finishes the remaining bytes with the field's own
+//! scalar body, so tails never run slower than the portable path. A prefix
+//! shorter than the entry's measured floor is not served at all; the floors
+//! are the crossovers recorded in `BENCHMARKS.md`.
 
 use crate::field::Field;
 use crate::kernel::Backend;
@@ -18,12 +24,43 @@ pub(crate) fn serving_backend() -> Backend {
     Backend::Scalar
 }
 
-/// Smallest row containing a shared vector product body.
-pub(crate) fn elementwise_min_bytes() -> usize {
-    if serving_backend() == Backend::Scalar {
-        0
+/// Vector width in bytes of a serving tier.
+const fn vector_bytes(tier: Backend) -> usize {
+    match tier {
+        Backend::V2 => 16,
+        _ => 32,
+    }
+}
+
+/// Smallest fixed-coefficient prefix, in elements, that the linear kernels
+/// serve for one element width and tier.
+#[cfg(all(feature = "simd", target_arch = "x86_64"))]
+const fn fixed_floor_elements(bytes: usize, tier: Backend) -> usize {
+    match (bytes, tier) {
+        (4 | 8, Backend::V2) => 128,
+        _ => 64,
+    }
+}
+
+/// Whether the varying-product kernels serve this element width.
+///
+/// Only two-byte rows on the AVX2 tier meet their scalar body; every other
+/// row keeps the portable product.
+fn product_serves(bytes: usize) -> bool {
+    bytes == 2 && serving_backend() == Backend::V3
+}
+
+/// Whether a varying product of this element width has a vector body.
+pub(crate) fn has_vector_elementwise(bytes: usize) -> bool {
+    product_serves(bytes)
+}
+
+/// Smallest row containing a vector product body, or zero without one.
+pub(crate) fn elementwise_min_bytes(bytes: usize) -> usize {
+    if product_serves(bytes) {
+        vector_bytes(Backend::V3)
     } else {
-        16
+        0
     }
 }
 
@@ -38,29 +75,30 @@ pub(crate) enum Fixed<'a> {
     Assign,
 }
 
-/// Runs a fixed product when a compatible vector body can execute.
+/// Runs a fixed product over the longest servable whole-vector prefix.
 ///
-/// Geometry is checked by the public operation. A false result leaves the
-/// destination untouched and asks the caller to retain its scalar row body.
+/// Geometry is checked by the public operation. Returns the number of bytes
+/// written; the caller applies its scalar row body to the rest. Zero and unit
+/// coefficients are served over the whole row on every vector tier.
 pub(crate) fn try_fixed<F: Field, const BYTES: usize>(
     dst: &mut [u8],
     coefficient: u64,
     operation: Fixed<'_>,
-) -> bool {
+) -> usize {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
     {
         use super::x86::binary_linear;
         use crate::field::extension::arithmetic::word_one;
 
         let tier = serving_backend();
-        if tier == Backend::Scalar || dst.len() < 16 {
-            return false;
+        if tier == Backend::Scalar {
+            return 0;
         }
         if coefficient == 0 {
             if !matches!(operation, Fixed::Add(_)) {
                 dst.fill(0);
             }
-            return true;
+            return dst.len();
         }
         if coefficient == word_one(F::DESCRIPTOR, F::DESCRIPTOR.root_index()) {
             match operation {
@@ -68,28 +106,41 @@ pub(crate) fn try_fixed<F: Field, const BYTES: usize>(
                 Fixed::Into(src) => dst.copy_from_slice(src),
                 Fixed::Assign => {}
             }
-            return true;
+            return dst.len();
+        }
+        let head = dst.len() - dst.len() % vector_bytes(tier);
+        if head < fixed_floor_elements(BYTES, tier) * BYTES {
+            return 0;
         }
         #[cfg(test)]
         let _general = matches!(operation, Fixed::Add(_))
             .then(|| super::trace::term(super::trace::Term::General));
         let map = binary_linear::multiplication(F::DESCRIPTOR, coefficient);
-        if tier == Backend::V3 && dst.len() >= 32 {
+        let dst = &mut dst[..head];
+        if tier == Backend::V3 {
             let token = super::x86_v3_token();
             match operation {
-                Fixed::Add(src) => binary_linear::mul_add_avx2::<BYTES>(token, dst, &map, src),
-                Fixed::Into(src) => binary_linear::mul_into_avx2::<BYTES>(token, dst, &map, src),
+                Fixed::Add(src) => {
+                    binary_linear::mul_add_avx2::<BYTES>(token, dst, &map, &src[..head]);
+                }
+                Fixed::Into(src) => {
+                    binary_linear::mul_into_avx2::<BYTES>(token, dst, &map, &src[..head]);
+                }
                 Fixed::Assign => binary_linear::mul_assign_avx2::<BYTES>(token, dst, &map),
             }
         } else {
             let token = super::x86_v2_token();
             match operation {
-                Fixed::Add(src) => binary_linear::mul_add_sse41::<BYTES>(token, dst, &map, src),
-                Fixed::Into(src) => binary_linear::mul_into_sse41::<BYTES>(token, dst, &map, src),
+                Fixed::Add(src) => {
+                    binary_linear::mul_add_sse41::<BYTES>(token, dst, &map, &src[..head]);
+                }
+                Fixed::Into(src) => {
+                    binary_linear::mul_into_sse41::<BYTES>(token, dst, &map, &src[..head]);
+                }
                 Fixed::Assign => binary_linear::mul_assign_sse41::<BYTES>(token, dst, &map),
             }
         }
-        true
+        head
     }
     #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
     {
@@ -100,78 +151,59 @@ pub(crate) fn try_fixed<F: Field, const BYTES: usize>(
             }
             Fixed::Assign => {}
         }
+        0
     }
-    #[cfg(not(all(feature = "simd", target_arch = "x86_64")))]
-    false
 }
 
-/// Runs a varying product when a compatible vector body can execute.
+/// Runs a two-byte varying product over the longest whole-vector prefix.
+///
+/// Returns the number of bytes written; the caller applies its scalar
+/// product to the rest.
 pub(crate) fn try_elementwise<F: Field, const BYTES: usize>(
     dst: &mut [u8],
     a: &[u8],
     b: &[u8],
-) -> bool {
+) -> usize {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    {
-        use super::x86::binary_product::{avx2, sse41};
-        match serving_backend() {
-            Backend::V3 if dst.len() >= 32 => {
-                avx2::mul_elementwise_avx2::<BYTES>(
-                    super::x86_v3_token(),
-                    F::DESCRIPTOR,
-                    dst,
-                    a,
-                    b,
-                );
-                return true;
-            }
-            Backend::V3 | Backend::V2 if dst.len() >= 16 => {
-                sse41::mul_elementwise_sse41::<BYTES>(
-                    super::x86_v2_token(),
-                    F::DESCRIPTOR,
-                    dst,
-                    a,
-                    b,
-                );
-                return true;
-            }
-            _ => {}
+    if product_serves(BYTES) {
+        let head = dst.len() - dst.len() % vector_bytes(Backend::V3);
+        if head != 0 {
+            super::x86::binary_product::avx2::mul_elementwise_avx2(
+                super::x86_v3_token(),
+                F::DESCRIPTOR,
+                &mut dst[..head],
+                &a[..head],
+                &b[..head],
+            );
         }
+        return head;
     }
     let _ = (core::marker::PhantomData::<F>, dst, a, b);
-    false
+    0
 }
 
-/// Runs an in-place varying product without staging a destination copy.
+/// Runs a two-byte in-place varying product over the longest whole-vector
+/// prefix, without staging a destination copy.
+///
+/// Returns the number of bytes written; the caller applies its scalar
+/// product to the rest.
 pub(crate) fn try_elementwise_assign<F: Field, const BYTES: usize>(
     dst: &mut [u8],
     src: &[u8],
-) -> bool {
+) -> usize {
     #[cfg(all(feature = "simd", target_arch = "x86_64"))]
-    {
-        use super::x86::binary_product::{avx2, sse41};
-        match serving_backend() {
-            Backend::V3 if dst.len() >= 32 => {
-                avx2::mul_elementwise_assign_avx2::<BYTES>(
-                    super::x86_v3_token(),
-                    F::DESCRIPTOR,
-                    dst,
-                    src,
-                );
-                return true;
-            }
-            Backend::V3 | Backend::V2 if dst.len() >= 16 => {
-                sse41::mul_elementwise_assign_sse41::<BYTES>(
-                    super::x86_v2_token(),
-                    F::DESCRIPTOR,
-                    dst,
-                    src,
-                );
-                return true;
-            }
-            _ => {}
+    if product_serves(BYTES) {
+        let head = dst.len() - dst.len() % vector_bytes(Backend::V3);
+        if head != 0 {
+            super::x86::binary_product::avx2::mul_elementwise_assign_avx2(
+                super::x86_v3_token(),
+                F::DESCRIPTOR,
+                &mut dst[..head],
+                &src[..head],
+            );
         }
+        return head;
     }
     let _ = (core::marker::PhantomData::<F>, dst, src);
-    false
+    0
 }

@@ -1,8 +1,8 @@
-//! Descriptor-recursive varying products for the binary fields, in lanes.
+//! Descriptor-recursive varying products for two-byte binary fields, in lanes.
 //!
 //! These kernels multiply two varying vectors of raw binary-field elements,
-//! one full element per SIMD lane, for any `Descriptor` whose root
-//! presentation is characteristic two and whose degree fits the lane width.
+//! one full element per 16-bit SIMD lane, for any `Descriptor` whose root
+//! presentation is characteristic two and whose degree fits the lane.
 //! Unlike the pinned-tower families, the arithmetic is derived from the
 //! descriptor at call time: prime leaves AND their lanes, polynomial and
 //! GF(2)-relation leaves run the bit-serial shift/reduce loop, basis nodes
@@ -14,22 +14,19 @@
 //!
 //! # Backends
 //!
-//! `sse41` serves 16-byte vectors on `Backend::V2`; `avx2` serves
-//! 32-byte vectors on `Backend::V3`. Both children expand the shared
-//! `binary_product_lanes!` macro once per lane width, so one algorithm
-//! source serves every `BYTES` in `{2, 4, 8}` on both instruction sets.
+//! `avx2` serves 32-byte vectors on `Backend::V3` by expanding the
+//! `binary_product_lanes!` macro over the AVX2 16-bit lane operations.
 
 use crate::field::extension::arithmetic::word_one;
 use crate::field::extension::descriptor::{Descriptor, NODES};
 
 pub(crate) mod avx2;
-pub(crate) mod sse41;
 
 /// Buffer geometry every entry checks before any write.
 ///
-/// The lane width must be one of the packed widths, the compared buffers
-/// must match in length and hold whole elements, and the descriptor must be
-/// characteristic two with its root degree inside the lane width.
+/// The compared buffers must match in length and hold whole `BYTES`-byte
+/// elements, and the descriptor must be characteristic two with its root
+/// degree inside the element.
 ///
 /// # Panics
 ///
@@ -41,10 +38,6 @@ pub(crate) fn check_entry_geometry<const BYTES: usize>(
     other_len: usize,
     third_len: usize,
 ) {
-    assert!(
-        matches!(BYTES, 2 | 4 | 8),
-        "{name}: {BYTES} is not a packed lane width",
-    );
     assert_eq!(
         dst_len, other_len,
         "{name}: dst is {dst_len} bytes but a is {other_len} bytes",
@@ -698,11 +691,10 @@ pub(crate) use binary_product_lanes;
 mod tests {
     use std::vec;
 
-    use archmage::{SimdToken, X64V2Token, X64V3Token};
+    use archmage::{SimdToken, X64V3Token};
 
     use crate::field::binary::tower::{
-        FanPaar4Field, FanPaar8Field, FanPaar16Field, FanPaar32Field, FanPaar64Field,
-        Rijndael16Field, Rijndael32Field,
+        FanPaar4Field, FanPaar8Field, FanPaar16Field, FanPaar32Field, Rijndael16Field,
     };
     use crate::field::binary::{AES, Normal, RS};
     use crate::field::{Extension, ExtensionSpec, FiniteField, Packed, Polynomial, Relation};
@@ -710,21 +702,12 @@ mod tests {
     use crate::kernel::scalar;
     use crate::kernel::tests::{expect_geometry_panic, noise};
 
-    use super::{avx2, check_entry_geometry, sse41};
+    use super::{avx2, check_entry_geometry};
 
-    /// Row lengths straddling every 16- and 32-byte lane boundary, all even
-    /// for the two-byte fields.
-    const LENGTHS_2: &[usize] = &[
+    /// Row lengths straddling every 32-byte lane boundary, all even.
+    const LENGTHS: &[usize] = &[
         0, 2, 4, 8, 14, 16, 18, 30, 32, 34, 62, 64, 66, 96, 126, 128, 130, 254, 256, 258, 512, 1022,
     ];
-
-    /// Lengths for four-byte elements, still straddling both lane widths.
-    const LENGTHS_4: &[usize] = &[
-        0, 4, 8, 12, 16, 28, 32, 36, 60, 64, 68, 124, 128, 132, 252, 256, 260, 508, 512,
-    ];
-
-    /// Lengths for eight-byte elements.
-    const LENGTHS_8: &[usize] = &[0, 8, 16, 24, 32, 40, 72, 128, 136, 248, 256, 264, 504, 512];
 
     /// Whether the host resolves to one of `supported`, honoring
     /// `SIMD_BACKEND`; the shared substitute for feature-detection gates.
@@ -740,13 +723,6 @@ mod tests {
             );
         }
         resolved != Backend::Scalar
-    }
-
-    fn v2_token() -> Option<X64V2Token> {
-        if !host_supports(&[Backend::V2]) {
-            return None;
-        }
-        Some(X64V2Token::summon().expect("the selected V2 tier must supply its token"))
     }
 
     fn v3_token() -> Option<X64V3Token> {
@@ -818,209 +794,48 @@ mod tests {
     }
     type Fp4QuarticField = FiniteField<2, 16, Extension<Fp4Quartic, 4>>;
 
-    /// A quadratic over the Fan-Paar GF(2^16) row: `t^2 + t + 0x100`.
-    #[derive(Clone, Copy)]
-    struct FpQuad32;
-    impl ExtensionSpec<2> for FpQuad32 {
-        type Base = FanPaar16Field;
-        type Storage = Packed<u32>;
-        const NAME: &'static str = "custom GF(2^32) over Fan-Paar GF(2^16)";
-        const RELATION: Relation = Relation::from_binary_words::<Self::Base>(&[0x100, 0x0001]);
-    }
-    type FpQuad32Field = FiniteField<2, 32, Extension<FpQuad32, 2>>;
-
-    /// A quadratic over the Rijndael GF(2^16) row: `t^2 + t + 0x2000`.
-    #[derive(Clone, Copy)]
-    struct R16Quad32;
-    impl ExtensionSpec<2> for R16Quad32 {
-        type Base = Rijndael16Field;
-        type Storage = Packed<u32>;
-        const NAME: &'static str = "custom GF(2^32) over Rijndael GF(2^16)";
-        const RELATION: Relation = Relation::from_binary_words::<Self::Base>(&[0x2000, 0x0001]);
-    }
-    type R16Quad32Field = FiniteField<2, 32, Extension<R16Quad32, 2>>;
-
-    /// GF(2^32) as a quartic relation over the AES leaf:
-    /// `t^4 + t^3 + t + 7`. This is the schoolbook path at four-byte lanes.
-    #[derive(Clone, Copy)]
-    struct AesQuartic;
-    impl ExtensionSpec<4> for AesQuartic {
-        type Base = FiniteField<2, 8, Polynomial<AES>>;
-        type Storage = Packed<u32>;
-        const NAME: &'static str = "custom GF(2^32) quartic over AES";
-        const RELATION: Relation = Relation::from_binary_words::<Self::Base>(&[0x7, 0x1, 0x0, 0x1]);
-    }
-    type AesQuarticField = FiniteField<2, 32, Extension<AesQuartic, 4>>;
-
-    /// A quadratic over the Fan-Paar GF(2^32) row: `t^2 + t + 0x2000_0000`.
-    #[derive(Clone, Copy)]
-    struct FpQuad64;
-    impl ExtensionSpec<2> for FpQuad64 {
-        type Base = FanPaar32Field;
-        type Storage = Packed<u64>;
-        const NAME: &'static str = "custom GF(2^64) over Fan-Paar GF(2^32)";
-        const RELATION: Relation =
-            Relation::from_binary_words::<Self::Base>(&[0x2000_0000, 0x0000_0001]);
-    }
-    type FpQuad64Field = FiniteField<2, 64, Extension<FpQuad64, 2>>;
-
-    /// A quadratic over the Rijndael GF(2^32) row: `t^2 + t + 0x2000_0000`.
-    #[derive(Clone, Copy)]
-    struct R32Quad64;
-    impl ExtensionSpec<2> for R32Quad64 {
-        type Base = Rijndael32Field;
-        type Storage = Packed<u64>;
-        const NAME: &'static str = "custom GF(2^64) over Rijndael GF(2^32)";
-        const RELATION: Relation =
-            Relation::from_binary_words::<Self::Base>(&[0x2000_0000, 0x0000_0001]);
-    }
-    type R32Quad64Field = FiniteField<2, 64, Extension<R32Quad64, 2>>;
-
-    /// GF(2^64) directly over GF(2) by `x^64 + x^4 + x^3 + x + 1`: the
-    /// degree-64 edge of the bit-serial path.
-    #[derive(Clone, Copy)]
-    struct Gf2Tower64;
-    impl ExtensionSpec<64> for Gf2Tower64 {
-        type Base = FiniteField<2, 1, Polynomial<3>>;
-        type Storage = Packed<u64>;
-        const NAME: &'static str = "GF(2^64) over GF(2)";
-        const RELATION: Relation = Relation::from_binary_words::<Self::Base>(&GF2_64_WORDS);
-    }
-    type Gf2Tower64Field = FiniteField<2, 64, Extension<Gf2Tower64, 64>>;
-
-    /// The degree-64 relation's non-leading coefficients, constant first.
-    const GF2_64_WORDS: [u64; 64] = {
-        let mut words = [0u64; 64];
-        words[0] = 1;
-        words[1] = 1;
-        words[3] = 1;
-        words[4] = 1;
-        words
-    };
-
-    /// GF(2^64) as an octic relation over the AES leaf:
-    /// `t^8 + t^3 + 3*t + 1`. This is the schoolbook path at eight-byte
-    /// lanes.
-    #[derive(Clone, Copy)]
-    struct AesOctic;
-    impl ExtensionSpec<8> for AesOctic {
-        type Base = FiniteField<2, 8, Polynomial<AES>>;
-        type Storage = Packed<u64>;
-        const NAME: &'static str = "custom GF(2^64) octic over AES";
-        const RELATION: Relation =
-            Relation::from_binary_words::<Self::Base>(&[0x1, 0x3, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0]);
-    }
-    type AesOcticField = FiniteField<2, 64, Extension<AesOctic, 8>>;
-
     fn field_descriptor<F: crate::field::Field>() -> &'static crate::field::extension::Descriptor {
         F::DESCRIPTOR
     }
 
     /// Checks whole outputs and untouched guards at aligned and misaligned starts.
-    fn check_field<F: crate::field::FieldBuffer, const BYTES: usize>(
-        lengths: &[usize],
-        v2: Option<X64V2Token>,
-        v3: Option<X64V3Token>,
-    ) {
+    fn check_field<F: crate::field::FieldBuffer>(token: X64V3Token) {
         let descriptor = field_descriptor::<F>();
-        for &len in lengths {
+        for &len in LENGTHS {
             for offset in [0, 1, 3, 15, 31] {
                 let a = noise(len + offset + 37, 0x1A1);
                 let b = noise(len + offset + 37, 0x1B2);
                 let window = offset..offset + len;
                 let mut want = vec![0u8; len];
                 scalar::mul_elementwise::<F>(&mut want, &a[window.clone()], &b[window.clone()]);
-                for tier in [Backend::V2, Backend::V3] {
-                    if (tier == Backend::V2 && v2.is_none())
-                        || (tier == Backend::V3 && v3.is_none())
-                    {
-                        continue;
-                    }
-                    let mut got = noise(a.len(), 0x1C3);
-                    let mut expected = got.clone();
-                    expected[window.clone()].copy_from_slice(&want);
-                    let mut assign = a.clone();
-                    let mut expected_assign = a.clone();
-                    expected_assign[window.clone()].copy_from_slice(&want);
-                    match tier {
-                        Backend::V2 => {
-                            let token = v2.expect("checked tier availability");
-                            sse41::mul_elementwise_sse41::<BYTES>(
-                                token,
-                                descriptor,
-                                &mut got[window.clone()],
-                                &a[window.clone()],
-                                &b[window.clone()],
-                            );
-                            sse41::mul_elementwise_assign_sse41::<BYTES>(
-                                token,
-                                descriptor,
-                                &mut assign[window.clone()],
-                                &b[window.clone()],
-                            );
-                        }
-                        Backend::V3 => {
-                            let token = v3.expect("checked tier availability");
-                            avx2::mul_elementwise_avx2::<BYTES>(
-                                token,
-                                descriptor,
-                                &mut got[window.clone()],
-                                &a[window.clone()],
-                                &b[window.clone()],
-                            );
-                            avx2::mul_elementwise_assign_avx2::<BYTES>(
-                                token,
-                                descriptor,
-                                &mut assign[window.clone()],
-                                &b[window.clone()],
-                            );
-                        }
-                        _ => unreachable!("only tested tiers are enumerated"),
-                    }
-                    assert_eq!(
-                        got,
-                        expected,
-                        "{} {tier:?}, len {len}, offset {offset}",
-                        F::NAME
-                    );
-                    assert_eq!(
-                        assign,
-                        expected_assign,
-                        "{} {tier:?} assign, len {len}, offset {offset}",
-                        F::NAME,
-                    );
-                }
+                let mut got = noise(a.len(), 0x1C3);
+                let mut expected = got.clone();
+                expected[window.clone()].copy_from_slice(&want);
+                avx2::mul_elementwise_avx2(
+                    token,
+                    descriptor,
+                    &mut got[window.clone()],
+                    &a[window.clone()],
+                    &b[window.clone()],
+                );
+                assert_eq!(got, expected, "{} len {len}, offset {offset}", F::NAME);
+                let mut assign = a.clone();
+                let mut expected_assign = a.clone();
+                expected_assign[window.clone()].copy_from_slice(&want);
+                avx2::mul_elementwise_assign_avx2(
+                    token,
+                    descriptor,
+                    &mut assign[window.clone()],
+                    &b[window.clone()],
+                );
+                assert_eq!(
+                    assign,
+                    expected_assign,
+                    "{} assign, len {len}, offset {offset}",
+                    F::NAME,
+                );
             }
         }
-    }
-
-    fn check_all_widths(v2: Option<X64V2Token>, v3: Option<X64V3Token>) {
-        check_field::<FanPaar16Field, 2>(LENGTHS_2, v2, v3);
-        check_field::<Rijndael16Field, 2>(LENGTHS_2, v2, v3);
-        check_field::<FpQuad16Field, 2>(LENGTHS_2, v2, v3);
-        check_field::<RsQuad16Field, 2>(LENGTHS_2, v2, v3);
-        check_field::<NormalQuad16Field, 2>(LENGTHS_2, v2, v3);
-        check_field::<Gf2Tower16Field, 2>(LENGTHS_2, v2, v3);
-        check_field::<Fp4QuarticField, 2>(LENGTHS_2, v2, v3);
-        check_field::<FanPaar32Field, 4>(LENGTHS_4, v2, v3);
-        check_field::<FpQuad32Field, 4>(LENGTHS_4, v2, v3);
-        check_field::<R16Quad32Field, 4>(LENGTHS_4, v2, v3);
-        check_field::<AesQuarticField, 4>(LENGTHS_4, v2, v3);
-        check_field::<FanPaar64Field, 8>(LENGTHS_8, v2, v3);
-        check_field::<FpQuad64Field, 8>(LENGTHS_8, v2, v3);
-        check_field::<R32Quad64Field, 8>(LENGTHS_8, v2, v3);
-        check_field::<Gf2Tower64Field, 8>(LENGTHS_8, v2, v3);
-        check_field::<AesOcticField, 8>(LENGTHS_8, v2, v3);
-    }
-
-    /// SSE4.1 bodies against the reference on every shipped and custom row.
-    #[test]
-    fn sse41_lanes_match_reference() {
-        let Some(token) = v2_token() else {
-            eprintln!("skipping: no SSE4.1 tier on this host");
-            return;
-        };
-        check_all_widths(Some(token), None);
     }
 
     /// AVX2 bodies against the reference on every shipped and custom row.
@@ -1030,11 +845,17 @@ mod tests {
             eprintln!("skipping: no AVX2 tier on this host");
             return;
         };
-        check_all_widths(None, Some(token));
+        check_field::<FanPaar16Field>(token);
+        check_field::<Rijndael16Field>(token);
+        check_field::<FpQuad16Field>(token);
+        check_field::<RsQuad16Field>(token);
+        check_field::<NormalQuad16Field>(token);
+        check_field::<Gf2Tower16Field>(token);
+        check_field::<Fp4QuarticField>(token);
     }
 
-    /// The geometry checks reject mismatches, partial elements, unsupported
-    /// lane widths, odd characteristics, and degrees above the lane width.
+    /// The geometry checks reject mismatches, partial elements, odd
+    /// characteristics, and degrees above the element.
     #[test]
     fn geometry_checks_fail_loudly() {
         let descriptor = field_descriptor::<FanPaar16Field>();
@@ -1049,16 +870,12 @@ mod tests {
             || check_entry_geometry::<2>(name, descriptor, 3, 3, 3),
             "binary_product::test: buffer",
         );
-        expect_geometry_panic(
-            || check_entry_geometry::<3>(name, descriptor, 3, 3, 3),
-            "binary_product::test: 3 is not a packed lane width",
-        );
         let odd = field_descriptor::<crate::field::QuadMersenne31>();
         expect_geometry_panic(
             || check_entry_geometry::<2>(name, odd, 4, 4, 4),
             "binary_product::test: descriptor is not characteristic two",
         );
-        let wide = field_descriptor::<Gf2Tower64Field>();
+        let wide = field_descriptor::<FanPaar32Field>();
         expect_geometry_panic(
             || check_entry_geometry::<2>(name, wide, 8, 8, 8),
             "binary_product::test: degree",
