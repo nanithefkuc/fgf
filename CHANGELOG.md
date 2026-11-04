@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Competitor benchmark campaigns run through one recipe,
+  `just bench-comp FAMILY` (`gf`, `gdl`, `m31`, or `gf16`), which requires
+  `FEC_GOLDEN_CORE`. It replaces `bench-gf-comp`, `bench-gdl-comp`,
+  `bench-m31-comp`, and `bench-gf16-comp`; `bench-gf2-comp` is removed
+  because bit-packed GF(2) has no competitor harness.
+- `just examples` runs every example in each feature configuration and
+  replaces `examples-portable`; `just example NAME [ARGS]` runs one.
+- Removed recipes: the single-family aliases `bench-gf`, `bench-gdl`,
+  `bench-m31`, `bench-gf2`, and `bench-field-maps` (use `just bench` with the
+  bench name and family flag), `backend-report` (use
+  `just example backend_report --all-features`), `binary-relation-accept`
+  (the consumer matrix compiles and executes the degree-64 relations),
+  `bench-maps-publisher`, `gf16-smoke`, `gf16-fmt`, and `gf16-lint`.
+
 ### Fixed
 
 - macOS CI uses the supported macOS 15 runner image.

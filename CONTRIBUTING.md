@@ -9,7 +9,7 @@ and why belong in the PR and in `CHANGELOG.md`.
 just test        # host's selected backend
 just test-tiers  # every supported backend tier
 just features    # no-default, default, all-features
-just examples-portable  # educational examples against the library without std or alloc
+just examples    # every educational example in each feature configuration
 ```
 
 Backend dispatch resolves once per process, so a single run only covers the
@@ -21,7 +21,7 @@ downgrade-only `SIMD_BACKEND` override.
 ```sh
 FEC_GOLDEN_CORE=<cpu> just bench kernels
 FEC_GOLDEN_CORE=<cpu> just bench compare
-FEC_GOLDEN_CORE=<cpu> just bench-gf-comp
+FEC_GOLDEN_CORE=<cpu> just bench-comp gf
 ```
 
 Pin the run to one core and record the CPU, operating system, Rust version,
@@ -60,8 +60,9 @@ code with overflow checks disabled. Native release acceptance uses dedicated
 Willow Cove (`v4x`) and Golden Cove (`v3_gfni_crypto`) hosts. GitHub-hosted
 runners cover only tiers they can prove.
 
-New public items need doc comments. MSRV is 1.93 and is checked in CI; do not
-reach for newer standard-library APIs without raising it deliberately.
+New public items need doc comments. MSRV is 1.93 and is checked in CI; it
+rises only in a minor release, never in a patch release, so do not reach for
+newer standard-library APIs without raising it deliberately.
 
 ## Commit messages
 

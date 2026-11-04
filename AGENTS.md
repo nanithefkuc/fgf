@@ -9,31 +9,29 @@ in rustdoc and `README.md`; measurements belong in `BENCHMARKS.md` and
 Work from the crate root and use `just` for routine commands.
 
 ```sh
-just test [ARGS]       # host's selected backend
-just test-tiers        # every supported backend tier
-just features          # no-default, default, all-features
-just features-alloc    # alloc without std
-just cross-check       # AArch64 and Wasm library compilation
-just compile-fail      # negative consumer snippets must fail to compile
-just binary-relation-accept [TOOLCHAIN] [FEATURES] [ROUNDS] # standalone degree-64 consumer
-just msrv-accept       # compile-fail plus the consumer matrix on the MSRV
-just msrv-locked       # locked published dependencies, outside umbrella patches
-just package-check     # isolated archive build and portable example execution
-just lint              # rustfmt and clippy at both feature ends
-just doc               # rustdoc with warnings denied
-just unsafe-check-gfni # owned-unsafe GFNI Miri cases
-just cover             # merged per-tier coverage, 95% minimum
-just cover-lcov        # export merged coverage profiles to coverage.lcov
-just validate          # shared correctness and coverage gate
-just release-accept    # crate-specific release checks, including native fixtures
+just test [ARGS]           # host's selected backend
+just test-tiers            # every supported backend tier
+just features              # no-default, default, all-features
+just features-alloc        # alloc without std
+just features-internals    # internals exposure closure across SIMD feature sets
+just cross-check           # AArch64 and Wasm library compilation
+just compile-fail          # negative consumer snippets must fail to compile
+just msrv-accept           # compile-fail plus the consumer matrix on the MSRV
+just msrv-locked           # locked published dependencies, outside umbrella patches
+just package-check         # isolated archive build and portable example execution
+just external-check        # type-check every package under external/
+just lint                  # rustfmt and clippy at both feature ends
+just doc                   # rustdoc with warnings denied
+just unsafe-check-gfni     # owned-unsafe GFNI Miri cases
+just cover                 # merged per-tier coverage, 95% minimum
+just validate              # shared correctness and coverage gate
+just release-accept        # crate-specific release checks, including native fixtures
 just test-gather-validation-32 # i686 release regression, overflow checks disabled
-just backend-report    # requested, resolved, and representative field backends
-just isa-accept TIER   # fail-closed native execution evidence and tier sweep
-just benchmark-check  # portable fixtures and compiler-derived API coverage
+just isa-accept TIER       # fail-closed native execution evidence and tier sweep
+just benchmark-check       # portable fixtures and compiler-derived API coverage
 just benchmark-check-native # native GF16 fixtures on capable hosts
-just example NAME [ARGS] # one educational example, with Cargo options
-just examples [ARGS]     # all educational examples, excluding timing probes
-just examples-portable   # examples with the library's alloc/std features disabled
+just example NAME [ARGS]   # one educational example, with Cargo options
+just examples              # every educational example in each feature configuration
 ```
 
 `just validate` is the shared gate, not every crate-specific CI or release
@@ -45,14 +43,15 @@ Native GF16 fixture execution requires the documented AVX2/GFNI/crypto host.
 `benchmark-check` uses nightly rustdoc JSON to derive the stable callable set
 independently of the benchmark's advertised inventory.
 
-`binary-relation-accept` compiles and executes sparse and dense degree-64
-relations directly over GF(2) with default compiler lints. It accepts
-`portable`, `default`, or `all` features, defaults to the MSRV, and reports
-fresh consumer compilation times separately from library construction.
+`just example backend_report --all-features` prints the requested, resolved,
+and representative field backends. Degree-64 relations directly over GF(2)
+compile and execute through `tests/compile_pass/binary_degree64.rs`, which the
+consumer matrix includes.
 
 Run `just validate` before submitting a change. Do not replace a recipe with a
 bare Cargo command; fix the recipe when its supported behavior is insufficient.
-The MSRV is Rust 1.93.
+The MSRV is Rust 1.93. It rises only in a minor release, with a `CHANGELOG.md`
+entry, never in a patch release.
 
 CI's locked MSRV check uses published dependencies. Run `just msrv-locked`
 from an isolated checkout outside the umbrella patch table; regenerate a
@@ -61,10 +60,227 @@ publication lock there with `just msrv`, not by changing pins or patch entries.
 `justfile` is vendored unchanged from a shared template. Do not edit it here.
 Crate-specific values and recipes belong in `crate.just`.
 
-The example recipes default to the normal library features. Run
-`just examples --no-default-features --features alloc` for the portable
-prepared-operation surface; scalar arithmetic, extension arithmetic,
-embedding, and binary-syndrome examples also run without `alloc`.
+`just examples` runs every example under the default features and under
+`alloc` without `std`, then the allocation-free subset (scalar arithmetic,
+extension arithmetic, embedding, binary-syndrome, and packed examples) with
+every library feature disabled.
+
+## Stable public surface
+
+Every stable item has exactly one public path, and the module set is closed
+for the whole major version. The table is the 4.x contract. Where the source
+tree disagrees with it, the source is wrong: move it toward the table in a
+change of its own, and never extend the disagreement.
+
+| Module | Holds | Items |
+|---|---|---|
+| `fgf` | Field-independent type model and process query | `FiniteField`, `FiniteFieldRepr`, `Elem`, `Field`, `FieldElem`, `FieldBuffer`, `HasGenerator`, `RangeError`, `Backend` (re-export of `simdispatch::Backend`), `backend`, `backend_for` |
+| `fgf::prime` | Shipped degree-one fields | `Residue`, `Mersenne31`, `MersenneFold`, `Goldilocks`, `GoldilocksFold`, `PrimeField`, `PrimeIdentity`, `PrimeCharacteristic`, `is_prime` |
+| `fgf::binary` | Shipped characteristic-two presentations | `Polynomial`, `AES`, `RS`, `Normal`, `Cantor`, `BinaryRepr`, `BinaryField`, `BinaryDegree`, `Rijndael16`, `Rijndael32`, `Rijndael64`, `FanPaar2`, `FanPaar4`, `FanPaar8`, `FanPaar16`, `FanPaar32`, `FanPaar64` |
+| `fgf::extension` | The kit for user-defined fields and the shipped odd-characteristic extensions | `Extension`, `ExtensionSpec`, `ExtensionField`, `ExtensionStorage`, `Relation`, `Components`, `Packed`, `PackedPadded`, `PackedWord`, `QuadMersenne31`, `ComplexMersenne31` |
+| `fgf::maps` | Maps between fields | `Embedding`, `Isomorphism`, `Postcompose`, `ImageError` |
+| `fgf::ops` | Bulk operations over byte lanes and their prepared operands | the row functions; `Coeff`, `CoeffVec`, `CoeffMatrix`, `CoeffRef`, `CoeffVecRef`, `PreparedCoefficient` |
+| `fgf::ops::bits` | Bulk operations over bit-packed GF(2) | `bytes_for`, `xor_assign`, `xor_range`, `XorRange`, `xor_range_with`, `xor_gather`, `and_into`, `and_assign`, `andnot_assign`, `clear_range`, `set_range`, `weight`, `dot_product` |
+| `fgf::internals` | Feature-gated and visibility-only, with no compatibility promise | kernels, tiers, thresholds, tables, descriptors, raw-lane helpers |
+
+`FieldBuffer` is the sole stable bound for byte-lane operations: for arbitrary
+downstream generic code, `F: FieldBuffer` suffices for every applicable `ops`
+function and coefficient type, with no additional private bound. That
+includes generic `R: BinaryRepr<8>`, custom `ExtensionSpec` component storage,
+and every supported packed storage. `Field::Raw` is `Send + Sync`.
+
+Internally, the public modules are facades over private implementation
+layers, and production dependencies point strictly downward:
+
+| Layer | Contents | Depends on |
+|---|---|---|
+| Facades | `lib.rs`, `prime`, `binary`, `extension`, `maps`, `ops`, `ops::bits`, and `internals` behind its feature | the layers below, by re-export only |
+| `ops`, `ops::bits` implementations | validation and composition | field implementation, engine |
+| `maps` implementation | scalar embeddings and isomorphisms | field implementation |
+| Engine | detection proof, the one routing table holding every threshold, kernels per primitive and ISA, prepared forms | field implementation |
+| Field implementation | type model, presentations, scalar arithmetic, descriptors, const validation | nothing in the crate |
+
+The field implementation declares the private dispatch contract, its proof
+types, and its associated prepared-type contract; the engine implements it.
+`FieldBuffer` implies that contract, and the contract never extends
+`FieldBuffer` back. Field-implementation declarations name no engine-owned
+types, and engine implementations name no upper-layer coefficient wrappers.
+Documentation links and tests may reference public facades. Sibling modules
+inside one layer may depend on one another where their parent's module doc
+permits it. A shared helper such as `bytes_for` has one lower-layer owner and
+is re-exported, never duplicated. Backend policy stays with
+`simdispatch::Selection`.
+
+### Public API rules
+
+- **A1. One path per item.** Each stable exported item has exactly one
+  canonical module-export path. Count explicit module membership and
+  re-export paths, including documentation-hidden public exports. Exclude
+  `internals`, equivalent qualification through type aliases, and inherited
+  trait or inherent-item lookup spellings. Named type aliases are distinct
+  declared items, not duplicate exports. Stable re-exports are explicit,
+  never globbed.
+- **A2. Facades.** Public module files contain documentation, attributes,
+  module declarations, conditional allocator linkage where required, and
+  explicit re-exports, and no concrete operation bodies. Implementation
+  modules are private. `src/internals.rs` keeps the visibility-only facade
+  pattern.
+- **A3. Placement.** Apply the first rule that matches:
+  1. Field-independent type model or process query: the crate root.
+  2. Shipped presentation or named field: characteristic two goes to
+     `binary`; degree one goes to `prime`; anything else goes to `extension`.
+  3. A type or trait a user-written `ExtensionSpec` must name: `extension`.
+  4. A map between fields: `maps`.
+  5. A bulk operation: `ops::bits` when any operand is bit-packed, otherwise
+     `ops`.
+  6. Stable prepared operation state, borrowed views, and their public
+     capability traits follow their operation's module. Their backend
+     representations stay private or unstable.
+  7. Kernels, tiers, thresholds, tables, descriptors, and raw-lane helpers:
+     `internals`, never the stable surface.
+
+  If nothing matches, stop and ask the maintainer.
+- **A4. Closed module set.** The modules in the table above are the stable
+  modules for the whole major version.
+- **A5. API inventory.** The committed API inventory records the source-level
+  surface; rustdoc contracts and behavioral fixtures record semantics.
+  Inventory generation records its toolchain and tools and covers the
+  portable, alloc-without-std, default, and all-feature configurations. The
+  stable surface is identical on every supported target, and the check
+  compares the x86_64, aarch64, and wasm32 inventories. CI rejects unapproved
+  changes. The one-path check traverses every stable export edge without
+  collapsing alternate paths. Regenerate the inventory only as part of an
+  explicitly authorized API change.
+- **A6. Compatibility.** Within 4.x, existing stable items keep their
+  signatures, effective public bounds, supported trait implementations, and
+  documented behavior. Approved additions land in minor releases; no approval
+  waives a breaking change or the closed module set. Private implementation
+  requirements may change without altering those guarantees. A new item on a
+  sealed trait is reviewed as an API addition, not presumed compatible because
+  the trait is sealed. Publication compares against the latest published 4.x
+  release.
+- **A7. Backend facts.** The stable API exposes no backend-policy facts beyond
+  `backend()`, `backend_for()`, and the `simdispatch::Backend` re-export. That
+  re-export also exposes the upstream type's inherent items and trait
+  implementations. It does not promise that every upstream backend is
+  implemented here or that the reported field strategy identifies every
+  operation's serving tier.
+- **A8. External re-exports.** Only types appearing in public signatures are
+  re-exported: `Backend` alone.
+- **A9. Sealing.** Every public trait is sealed except `ExtensionSpec`, the one
+  trait users implement. Items only the crate calls live on private
+  supertraits. Moving plumbing behind a private supertrait removes its
+  supported public access, not merely its documentation path; negative
+  consumer cases cover generic public bounds as well as concrete types.
+  Stable signatures never require `internals`.
+- **A10. Inherent `const` counterparts.** A concrete `Elem` family may provide
+  inherent `const fn` counterparts of `FieldElem` methods and
+  `ExtensionField::{from_components, to_components}`. Each counterpart keeps
+  the operation's name, meaning, validation, and component ordering. A trait
+  function taking an element may use the equivalent inherent `self` receiver.
+  These counterparts are not aliases; alternative names for the same trait
+  operation are prohibited.
+
+### Error rules
+
+- **E1.** Enumerated, inexpensive type-constant validity checks are mandatory
+  const assertions, evaluated before a value or operation can bypass
+  validation. Merely naming an invalid type is not promised to trigger
+  evaluation.
+- **E2.** Enumerated type-dependent checks designated for runtime construction
+  panic on failure and document that condition under `# Panics`. Checks are
+  never reclassified by estimating their cost. Existing promised const
+  validation stays const.
+- **E3.** Violations of a consuming operation's runtime preconditions panic,
+  naming the operation and the offending operand. This does not override APIs
+  defined as total queries or data validators.
+- **E4.** Data-dependent outcomes return `Result` or `Option`. Each error type
+  represents one documented validation condition; unrelated conditions are
+  never collected into a catch-all enum. `ImageError` covers rejection of a
+  supplied generator-image sequence, including a wrong count or a failed
+  transported relation.
+
+The classification below is part of the API: changing a row is an API change
+under A6.
+
+| Check | Class |
+|---|---|
+| Characteristic is prime and in range | E1 |
+| Absolute degree satisfies `1 ≤ N ≤ 64`; field order equals the characteristic raised to that degree and is below `2^128` | E1 |
+| Binary presentation validity: irreducible polynomial, valid normal or Cantor basis | E1 |
+| Extension base validity; base and row characteristic agreement; relative degree `D ≥ 2`; absolute degree equals base degree times `D`; defining relation has the required coefficient count and in-range coordinates and is irreducible; storage admissibility; descriptor capacity | E1 |
+| Shipped `GENERATOR` has full multiplicative order | E1 |
+| `Embedding`: source degree divides target degree and differs from it | E1 |
+| `Isomorphism`: source and target degrees are equal | E1 |
+| A canonical map exists for the pair (`Embedding::new`, `Isomorphism::new`) | E2 |
+| Row geometry, lengths, offsets, overlap, coefficient counts | E3 |
+| Residue or index range | E4, `RangeError` |
+| Supplied generator images: count and transported relations | E4, `ImageError` |
+| Partial restriction, prime-subfield readout, collection lookups | E4, `Option` |
+
+`Embedding::new` and `Isomorphism::new` return `Self` and document their
+construction panics.
+
+### Frozen for 4.x
+
+These guarantees hold for every 4.x release; changing one needs 5.0.
+
+1. Every existing stable module path, trait, item, required trait member, and
+   inherent const-callability guarantee stays available. Minor releases may
+   add approved items within the closed module set. `ExtensionSpec` gains no
+   required members, and provided additions undergo compatibility review.
+   Existing trait seals stay sealed.
+2. The type model: `FiniteField<const P: u64, const N: u32, R = Residue>` and
+   `Elem<F>` as the one element type. Public generic defaults, named alias
+   expansions, associated-type identities and equalities (including
+   `Field::Raw` and the raw-word types exposed by scalar and storage APIs),
+   public constant values other than explicitly variable backend facts, and
+   the supported presentation and storage combinations.
+3. Capacity: total degree at most 64, field order below `2^128`, `u128`
+   `ORDER`, indices, and `pow` exponents; descriptor-node and coordinate
+   capacities; `PackedPadded` has no byte form. Accepted geometry or
+   presentations never become rejected in a minor release.
+4. Arithmetic: `inv(0) == 0`, `x / 0 == 0`, `0^0 == 1`; `Eq`, `Hash`, and `Ord`
+   by canonical storage, with `Ord` as presentation order.
+5. Encodings and conventions: fixed-width little-endian lanes and each field's
+   `BYTES`; the bit-packed LSB-first layout with caller-maintained zero
+   padding; presentation data (AES `0x11B`, RS `0x11D`, the tower, normal, and
+   Cantor bases); `GENERATOR` values; canonical embedding images from the
+   reference ladder; explicit map-image and generator ordering and map
+   algebra; `from_index` coordinate order; `from_residue` semantics.
+6. The accepted input domain and documented output behavior: alias decoding
+   and canonicalization, byte-preserving zero and unit shortcuts, empty and
+   zero-work shapes, source and coefficient ordering, untouched destination
+   regions, bit-padding behavior, validation-before-write guarantees, and
+   allocation guarantees.
+7. Every stable function signature: argument order, effective bounds, suffix
+   semantics, and geometry contracts.
+8. The E1–E4 classification of every API and check.
+9. Error-type identity, documented conditions, implemented public traits, and
+   externally matchable or constructible structure. `RangeError` and
+   `ImageError` are opaque or `#[non_exhaustive]`; that never authorizes
+   changing an existing error's meaning.
+10. Feature defaults and implication edges, stable item availability under
+    every supported feature combination, `no_std` and alloc-without-std
+    support, and supported-target portability. New optional features may be
+    added; existing items never acquire stricter requirements.
+11. A dependency update that changes the exposed `Backend` type incompatibly,
+    including a semver-breaking pre-1.0 `simdispatch` release, requires an
+    fgf major release. The backend-query semantics and the downgrade-only
+    request contract are preserved; exact routing results, implemented-tier
+    sets, and thresholds are not.
+12. Existing explicit trait implementations, their generic applicability,
+    associated outputs, and positive auto-trait guarantees of public types and
+    opaque return values: operators, `Default`, iterator contracts, `Error`,
+    and the applicable `Send`, `Sync`, `Unpin`, and unwind-safety guarantees.
+    Stable `Display` contracts are preserved; `Debug` output is unspecified.
+
+Private implementation structure, `internals`, routing, thresholds,
+performance, and unspecified prepared-value layout may change only while
+every stable source, semantic, feature, const-callability, allocation, and
+auto-trait guarantee above holds. Panic text and `Debug` output are
+unspecified unless an individual contract says otherwise. "Documented
+behavior" means the rustdoc contract text.
 
 ## Change discipline
 
@@ -247,19 +463,16 @@ Keep `COV_IGNORE` narrow and document every exclusion here.
 Use only the benchmark recipes, pinned to an identified core:
 
 ```sh
-FEC_GOLDEN_CORE=<cpu> just bench-gf-comp
-FEC_GOLDEN_CORE=<cpu> just bench-gdl-comp
-FEC_GOLDEN_CORE=<cpu> just bench-m31-comp
-FEC_GOLDEN_CORE=<cpu> just bench-gf2-comp
-FEC_GOLDEN_CORE=<cpu> just bench-gf16-comp
+FEC_GOLDEN_CORE=<cpu> just bench-comp gf          # binary tower fields
+FEC_GOLDEN_CORE=<cpu> just bench-comp gdl         # Goldilocks
+FEC_GOLDEN_CORE=<cpu> just bench-comp m31         # Mersenne31 and QuadMersenne31
+FEC_GOLDEN_CORE=<cpu> just bench-comp gf16 [ARGS] # native GF16 harness alone
 ```
 
-The `bench-<field>` recipes run that family's self benchmarks in one pass;
-`bench-<field>-comp` runs five complete rounds interleaving the self suite
+`bench-comp` runs five complete rounds interleaving the family's self suite
 with every wired competitor harness, shuffling the unit order within each
-round and printing the realized order. `gf` is the binary tower fields,
-`gdl` Goldilocks, `m31` Mersenne31 and QuadMersenne31, `gf2` bit-packed
-GF(2). The granular self entry points stay available:
+round and printing the realized order. Bit-packed GF(2) has no competitor
+harness. The granular self entry points stay available:
 
 ```sh
 FEC_GOLDEN_CORE=<cpu> just bench kernels [--gf|--gdl|--m31|--gf2|--prime]
@@ -298,7 +511,7 @@ itself must never carry one; the package allowlist keeps `external/` out of
 klauspost/reedsolomon as a Go C archive and interleaves all three arms —
 `fgf`, ISA-L, klauspost — over one GF(2^8)/`0x11D` fixture set, rotating
 through all six arm orders; the klauspost coding matrix arrives through
-`WithCustomMatrix`. It runs through `bench-gf-comp` inside its shuffled
+`WithCustomMatrix`. It runs through `bench-comp gf` inside its shuffled
 rounds, validates every arm against the competitor's own output before
 timing, and opens with a control row that must read 1.00x. ISA-L needs
 `libisal` discoverable through pkg-config and the klauspost arm needs the
@@ -313,7 +526,7 @@ against the other library's output before timing, and the table opens with
 a control row that must read 1.00x. Layout conversion is excluded from
 every timed region, so the comparison is between kernels rather than
 encodings, and throughput counts one operand pair per element. It runs
-through `bench-gdl-comp` and `bench-m31-comp` inside their shuffled rounds;
+through `bench-comp gdl` and `bench-comp m31` inside their shuffled rounds;
 a single rerun is `RUSTFLAGS="-C target-cpu=native" cargo run --release`
 from its directory with a `gdl` or `m31` family argument. The package
 builds with `-C target-cpu=native` because Plonky3 selects its packed
@@ -333,12 +546,11 @@ Williams balanced Latin square: within one cycle every arm takes every
 position and directly follows every other arm equally often. Each arm warms
 immediately before its timed batch, and sampling stops only at a cycle
 boundary.
-`bench-gf16-comp` runs the targeted five-round campaign; `bench-gf-comp`
-includes the same harness in its shuffled binary-field rounds. `gf16-check`
-validates all geometries without timing, `gf16-smoke` exercises a short panel,
-and `gf16-lint` checks the external package. The native build requires Git,
-C/C++ compilers and an x86-64 AVX2/GFNI/crypto host; missing inputs fail rather
-than remove an arm. `gf16-fmt` formats only that package.
+`bench-comp gf16` runs the targeted five-round campaign; `bench-comp gf`
+includes the same harness in its shuffled binary-field rounds.
+`benchmark-check-native` validates every geometry without timing. The native
+build requires Git, C/C++ compilers and an x86-64 AVX2/GFNI/crypto host;
+missing inputs fail rather than remove an arm.
 
 Benchmark setup, allocation, coefficient construction, and input generation
 must stay outside the timed region. Record the CPU, OS, Rust version, selected

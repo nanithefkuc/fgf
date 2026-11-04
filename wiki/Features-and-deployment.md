@@ -79,8 +79,8 @@ portable scalar bodies. Cross-compilation is not execution proof.
 
 ```sh
 just doctor
-just examples --no-default-features --features alloc
-just examples --all-features
+just examples
+just example NAME --all-features
 just cross-check
 ```
 

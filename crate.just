@@ -22,6 +22,8 @@ MIRI := ''
 COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/x86/residue/avx512(/|\.rs$)|kernel/x86/gf1/avx512\.rs$|kernel/gf1/dispatch\.rs$|kernel/(gf8|tower)\.rs$"'
 
 # Export the existing merged profiles, including after a failed coverage gate.
+# CI uploads the export; run `just cover` first.
+[private]
 [group('cover')]
 cover-lcov:
     cargo llvm-cov report --lcov --output-path coverage.lcov --ignore-filename-regex {{COV_IGNORE}}
@@ -32,24 +34,24 @@ cover-lcov:
 example NAME *ARGS:
     cargo run --example {{NAME}} {{ARGS}}
 
-# Run all educational examples; the timing probe is a separate diagnostic.
+# Every example runs under the default features and under `alloc` without
+# `std`; the allocation-free subset also runs with every library feature
+# disabled. Timing probes are separate diagnostics.
+# Run every educational example in each feature configuration.
 [group('examples')]
-examples *ARGS:
+examples:
     #!/usr/bin/env bash
     set -euo pipefail
-    for name in field_arithmetic shard_recovery streaming_encode binary_syndrome extension_fields embeddings prime_vectors generic_prime custom_extensions basis_maps packed_no_alloc; do
-        cargo run --example "${name}" {{ARGS}}
+    all=(field_arithmetic shard_recovery streaming_encode binary_syndrome extension_fields embeddings prime_vectors generic_prime custom_extensions basis_maps packed_no_alloc)
+    portable=(field_arithmetic binary_syndrome extension_fields embeddings custom_extensions basis_maps packed_no_alloc)
+    for name in "${all[@]}"; do
+        cargo run --example "${name}"
     done
-
-# The library-noalloc examples: they run with every feature off, the
-# strongest portability claim an example can make. The prepared-collection
-# and timing-probe examples stay out because they need `alloc` or `std`.
-[group('examples')]
-examples-portable *ARGS:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    for name in field_arithmetic binary_syndrome extension_fields embeddings custom_extensions basis_maps packed_no_alloc; do
-        cargo run --example "${name}" --no-default-features {{ARGS}}
+    for name in "${all[@]}"; do
+        cargo run --example "${name}" --no-default-features --features alloc
+    done
+    for name in "${portable[@]}"; do
+        cargo run --example "${name}" --no-default-features
     done
 
 # The shared `features` recipe walks `--no-default-features`, default, and
@@ -116,15 +118,6 @@ external-check:
         echo "external-check: ${manifest%/Cargo.toml}"
         cargo check --manifest-path "${manifest}" --all-targets
     done
-
-# Print process and representative-field backends without inferring execution
-# coverage from a downgrade request.
-[group('test')]
-backend-report:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    bin=$(cargo build --all-features --example backend_report --message-format=json-render-diagnostics | jq -rs '[.[] | select(.executable != null) | .executable] | last')
-    "${bin}"
 
 # Require an actual tier and positive direct-kernel execution evidence before
 # sweeping downgrade requests. Dedicated acceptance hosts supply their real tier.
@@ -226,32 +219,6 @@ compile-fail:
         exit 1
     fi
 
-# Compile and execute a standalone degree-64 binary consumer under default
-# lints. Library construction is outside the reported consumer compile times.
-[group('test')]
-binary-relation-accept TOOLCHAIN=MSRV FEATURES="portable" ROUNDS="5":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case "{{FEATURES}}" in
-        portable) flags=(--no-default-features) ;;
-        default) flags=() ;;
-        all) flags=(--all-features) ;;
-        *) printf 'unsupported features: %s\n' "{{FEATURES}}" >&2; exit 2 ;;
-    esac
-    scratch=$(mktemp -d)
-    trap 'rm -rf "$scratch"' EXIT
-    rustc +"{{TOOLCHAIN}}" --version
-    rlib=$(cargo +"{{TOOLCHAIN}}" build --lib "${flags[@]}" --target-dir "$scratch/library" --message-format=json | jq -ers '[.[] | select(.reason == "compiler-artifact" and .target.name == "fgf") | .filenames[]? | select(endswith(".rlib"))] | first')
-    TIMEFORMAT='consumer_compile wall_s=%3R user_s=%3U system_s=%3S'
-    for ((round = 1; round <= {{ROUNDS}}; round++)); do
-        mkdir -p "$scratch/$round"
-        printf 'consumer_compile features=%s round=%s\n' "{{FEATURES}}" "$round"
-        time rustc +"{{TOOLCHAIN}}" --edition 2024 \
-            --extern "fgf=$rlib" -L "dependency=$scratch/library/debug/deps" \
-            --out-dir "$scratch/$round" tests/compile_pass/binary_degree64.rs
-        "$scratch/$round/binary_degree64"
-    done
-
 # MSRV acceptance: every negative consumer snippet rejects and the positive
 # consumer matrix runs on the crate MSRV toolchain.
 [group('test')]
@@ -334,169 +301,80 @@ MIRI_GFNI := '''--test ops gf8_matrix_scattered_matches_contiguous -- --exact
 --features internals --test internals proven_gf16_kernels_match_scalar -- --exact
 --features internals --test internals proven_gf16_degenerate_boundaries -- --exact'''
 
-# Field-family benchmark suites. `bench-<field>` runs that family's self
-# benchmarks in one pass. `bench-<field>-comp` runs five complete rounds
-# interleaving the family's self suite with every wired competitor harness,
-# shuffling the unit order within each round and printing the realized
-# order; the benchmark record aggregates across rounds. `gf` is the binary
-# tower fields, `gdl` Goldilocks, `m31` Mersenne31 and QuadMersenne31,
-# `gf2` bit-packed GF(2). The competitor harnesses live in `external/` as
-# separate, unpublished packages — the link to the system ISA-L and the Go
-# c-archive needs a build script, and `fgf` itself carries none.
+# Each round shuffles the family's units and prints the realized order, so no
+# unit owns the warm or cold position. `gf` interleaves the binary-field self
+# suite, the ISA-L and klauspost trio, and the native GF16 harness; `gdl`
+# (Goldilocks) and `m31` (Mersenne31 and QuadMersenne31) interleave the self
+# suite with the Plonky3 harness; `gf16` repeats the native GF16 harness alone
+# and passes ARGS to it. The harnesses live in `external/` as separate
+# unpublished packages: linking a competitor needs a build script, and `fgf`
+# itself carries none. Every unit runs pinned to `FEC_GOLDEN_CORE`.
+# Five-round competitor campaign for one family: gf, gdl, m31, or gf16.
 [group('bench')]
-bench-gf:
-    just bench kernels --gf
-    just bench compare
+bench-comp FAMILY *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${FEC_GOLDEN_CORE:?set FEC_GOLDEN_CORE to an isolated core}"
+    pin=(taskset -c "${FEC_GOLDEN_CORE}")
+    case "{{FAMILY}}" in
+        gf)
+            pkg-config --modversion libisal >/dev/null || {
+                echo "libisal not found through pkg-config; install Intel ISA-L" >&2
+                exit 1
+            }
+            command -v go >/dev/null || {
+                echo "go not found in PATH; install the Go toolchain" >&2
+                exit 1
+            }
+            just _trio-build
+            just gf16-build
+            units=(self trio gf16)
+            ;;
+        gdl|m31)
+            RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml --features fgf/simd512
+            units=(self prime)
+            ;;
+        gf16)
+            just gf16-build
+            units=(gf16)
+            pin=(chrt --idle 0 taskset -c "${FEC_GOLDEN_CORE}")
+            ;;
+        *)
+            printf 'unsupported_family family=%s\n' "{{FAMILY}}" >&2
+            exit 2
+            ;;
+    esac
+    echo "pinned to core ${FEC_GOLDEN_CORE}"
+    for run in 1 2 3 4 5; do
+        echo "== round ${run}"
+        printf '%s\n' "${units[@]}" | shuf | while read -r unit; do
+            echo "-- round ${run} unit ${unit}"
+            case "${unit}" in
+                self)
+                    just bench kernels --{{FAMILY}}
+                    if [[ "{{FAMILY}}" == gf ]]; then
+                        just bench compare
+                    fi
+                    ;;
+                trio) "${pin[@]}" external/bench-trio/target/release/fgf-bench-trio ;;
+                gf16) "${pin[@]}" external/gf16-bench/target/release/fgf-gf16-bench {{ARGS}} ;;
+                prime) "${pin[@]}" external/prime-bench/target/release/fgf-bench-prime {{FAMILY}} ;;
+            esac
+        done
+    done
 
 # Build the byte-field competitor harness without running a timing campaign.
 [private]
 _trio-build:
     cargo build --release --manifest-path external/bench-trio/Cargo.toml
 
-# The binary-field competitor trio. `external/bench-trio/` links the system
-# Intel ISA-L (pkg-config `libisal`) and klauspost/reedsolomon as a Go C
-# archive (Go toolchain in PATH) into one binary that interleaves `fgf`,
-# ISA-L, and klauspost over one fixture set, rotating through all six arm
-# orders. The build fails loudly when a toolchain is absent rather than
-# dropping the arm. Each round shuffles the self suite, the byte-field trio,
-# and the native GF16 harness so no unit owns the warm or cold position.
-[group('bench')]
-bench-gf-comp:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    pkg-config --modversion libisal >/dev/null || {
-        echo "libisal not found through pkg-config; install Intel ISA-L" >&2
-        exit 1
-    }
-    command -v go >/dev/null || {
-        echo "go not found in PATH; install the Go toolchain" >&2
-        exit 1
-    }
-    just _trio-build
-    just gf16-build
-    pin=()
-    if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
-        pin=(taskset -c "${FEC_GOLDEN_CORE}")
-        echo "pinned to core ${FEC_GOLDEN_CORE}"
-    else
-        echo "warning: FEC_GOLDEN_CORE unset; the run is not core-pinned" >&2
-    fi
-    for run in 1 2 3 4 5; do
-        echo "== round ${run}"
-        printf '%s\n' self trio gf16 | shuf | while read -r unit; do
-            echo "-- round ${run} unit ${unit}"
-            case "${unit}" in
-                self)
-                    just bench kernels --gf
-                    just bench compare
-                    ;;
-                trio)
-                    "${pin[@]}" external/bench-trio/target/release/fgf-bench-trio
-                    ;;
-                gf16)
-                    "${pin[@]}" external/gf16-bench/target/release/fgf-gf16-bench
-                    ;;
-            esac
-        done
-    done
-
-[group('bench')]
-bench-gdl:
-    just bench kernels --gdl
-
-# Field-map operations across every measured pair geometry: scalar chains,
-# region rows over the compact-map control loop, and construction
-# amortization, with machine records for the `maps` publisher suite.
-[group('bench')]
-bench-field-maps:
-    just bench field_maps
-
-# The prime-field competitor: `external/prime-bench/` compares `fgf`
-# against Plonky3 on each library's native layout, built with
-# `-C target-cpu=native` because Plonky3 selects its packed kernels at
-# compile time. Each round shuffles its units — the self suite and the
-# harness — so no unit systematically owns the warm or cold position.
-[group('bench')]
-bench-gdl-comp:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml --features fgf/simd512
-    echo "bench-gdl-comp: five rounds, units self p3"
-    pin=()
-    if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
-        pin=(taskset -c "${FEC_GOLDEN_CORE}")
-        echo "pinned to core ${FEC_GOLDEN_CORE}"
-    else
-        echo "warning: FEC_GOLDEN_CORE unset; the run is not core-pinned" >&2
-    fi
-    for run in 1 2 3 4 5; do
-        echo "== round ${run}"
-        printf '%s\n' self p3 | shuf | while read -r unit; do
-            echo "-- round ${run} unit ${unit}"
-            case "${unit}" in
-                self)
-                    just bench kernels --gdl
-                    ;;
-                p3)
-                    "${pin[@]}" external/prime-bench/target/release/fgf-bench-prime gdl
-                    ;;
-            esac
-        done
-    done
-
-[group('bench')]
-bench-m31:
-    just bench kernels --m31
-    just bench-save prime_ntt
-    just bench prime_ntt
-
-[group('bench')]
-bench-m31-comp:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml --features fgf/simd512
-    echo "bench-m31-comp: five rounds, units self p3"
-    pin=()
-    if [[ -n "${FEC_GOLDEN_CORE:-}" ]]; then
-        pin=(taskset -c "${FEC_GOLDEN_CORE}")
-        echo "pinned to core ${FEC_GOLDEN_CORE}"
-    else
-        echo "warning: FEC_GOLDEN_CORE unset; the run is not core-pinned" >&2
-    fi
-    for run in 1 2 3 4 5; do
-        echo "== round ${run}"
-        printf '%s\n' self p3 | shuf | while read -r unit; do
-            echo "-- round ${run} unit ${unit}"
-            case "${unit}" in
-                self)
-                    just bench kernels --m31
-                    ;;
-                p3)
-                    "${pin[@]}" external/prime-bench/target/release/fgf-bench-prime m31
-                    ;;
-            esac
-        done
-    done
-
-[group('bench')]
-bench-gf2:
-    just bench kernels --gf2
-
-[group('bench')]
-bench-gf2-comp:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "bench-gf2-comp: no competitor harness is wired for bit-packed GF(2) yet"
-    for run in 1 2 3 4 5; do
-        echo "== round ${run} order self"
-        just bench kernels --gf2
-    done
-
 # Native GF16 field comparison; every arm is required and validated before timing.
+[private]
 [group('bench')]
 gf16-build:
     cargo build --release --manifest-path external/gf16-bench/Cargo.toml
 
+[private]
 [group('bench')]
 gf16-check *ARGS: gf16-build
     external/gf16-bench/target/release/fgf-gf16-bench --check {{ARGS}}
@@ -516,6 +394,7 @@ benchmark-check:
     python3 benches/check_surfaces.py --rustdoc target/doc/fgf.json --check-log "$scratch/check.log"
 
 # Compiler-derived stable callable set: no hand-maintained source-text manifest.
+[private]
 [group('bench')]
 benchmark-api-json:
     cargo +{{API_NIGHTLY}} rustdoc --all-features --lib -- -Z unstable-options --output-format json
@@ -527,30 +406,8 @@ benchmark-check-native: gf16-build
     external/gf16-bench/target/release/fgf-gf16-bench --presentations --check
     just gf16-check
 
-[group('bench')]
-gf16-smoke *ARGS: gf16-build
-    external/gf16-bench/target/release/fgf-gf16-bench --smoke {{ARGS}}
-
-[group('bench')]
-gf16-fmt:
-    cargo fmt --manifest-path external/gf16-bench/Cargo.toml
-
-[group('bench')]
-gf16-lint:
-    cargo fmt --manifest-path external/gf16-bench/Cargo.toml --check
-    cargo clippy --release --manifest-path external/gf16-bench/Cargo.toml --all-targets -- -D warnings
-
-[group('bench')]
-bench-gf16-comp *ARGS: gf16-build
-    #!/usr/bin/env bash
-    set -euo pipefail
-    : "${FEC_GOLDEN_CORE:?set FEC_GOLDEN_CORE to an isolated core}"
-    for run in 1 2 3 4 5; do
-        echo "== GF16 round ${run}"
-        chrt --idle 0 taskset -c "$FEC_GOLDEN_CORE" external/gf16-bench/target/release/fgf-gf16-bench {{ARGS}}
-    done
-
 # Build all artifacts before the paired version campaign begins.
+[private]
 [group('bench')]
 bench-refresh-build SURFACES="yes":
     #!/usr/bin/env bash
@@ -567,6 +424,7 @@ bench-refresh-build SURFACES="yes":
     RUSTFLAGS="-C target-cpu=native" cargo build --release --manifest-path external/prime-bench/Cargo.toml --features fgf/simd512
 
 # Run one prebuilt family round; the paired runner owns repetition and version order.
+[private]
 [group('bench')]
 bench-refresh-round FAMILY:
     #!/usr/bin/env bash
@@ -694,21 +552,6 @@ bench-prepare-v2 DESTINATION:
 bench-publish RECORDS OUTPUT *ARGS:
     python3 benches/publish.py --records "{{RECORDS}}" --output "{{OUTPUT}}" {{ARGS}}
 
-# Publisher regression: feed real `field_maps` producer output through the
-# maps grammar (per-record checks plus the completeness inventory), so a
-# grammar change that wrongly requires lane-region or pow-control rows for
-# scalar-only or bits-only pairs fails here instead of in a campaign.
-# Builds the bench, captures its `--list-labels` inventory (label grammar
-# only, no timing), and validates the full producer inventory.
-[group('bench')]
-bench-maps-publisher:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cargo build --release --bench field_maps
-    bin=$(ls -t target/release/deps/field_maps-* | grep -v '\.d$' | head -n 1)
-    "$bin" --list-labels > "$bin-maps-inventory.txt"
-    python3 benches/test_maps_publisher.py "$bin-maps-inventory.txt"
-
 # The full release gate: the shared pull-request gate, the promoted GFNI
 # Miri residue that CI runs as a separate job, and every crate-specific
 # acceptance recipe. Cross-compilation needs the aarch64 and wasm32 targets
@@ -729,8 +572,6 @@ release-accept:
     just external-check
     just test-gather-validation-32
     just examples
-    just examples --no-default-features --features alloc
-    just examples-portable
     just benchmark-check
     just benchmark-check-native
     just package-check

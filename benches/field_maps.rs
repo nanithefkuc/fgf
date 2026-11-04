@@ -181,7 +181,7 @@ const MAX_SCALAR_OPS: usize = 1 << 20;
 /// Staging length of every scalar panel's deterministic input cycle.
 const SCALAR_STAGE: usize = 256;
 
-/// Inventory mode for the publisher regression (`just bench-maps-publisher`):
+/// Inventory mode for the publisher regression (`benches/test_maps_publisher.py`):
 /// print every `SCALAR`/`SAMPLE` label with a placeholder value and return,
 /// so the full producer inventory feeds the grammar without timing. Staging,
 /// validation, and headings still run; unknown flags pass through harmlessly.

@@ -39,7 +39,7 @@ jobs:
         run: |
           for tier in v4x v3_gfni_crypto v3 v2 scalar; do
             echo "── SIMD_BACKEND=${tier}"
-            SIMD_BACKEND="${tier}" just backend-report
+            SIMD_BACKEND="${tier}" just example backend_report --all-features
           done
       - name: fail closed, then tier differentials
         run: just isa-accept v3
@@ -134,9 +134,8 @@ jobs:
       - uses: extractions/setup-just@v2
       - run: just test-gather-validation-32
 
-  # All educational examples under the default features, then the prepared
-  # surface under alloc-only (no std), then the library-noalloc examples
-  # with no features at all.
+  # All educational examples under the default features and under alloc-only
+  # (no std), then the library-noalloc examples with no features at all.
   examples:
     name: examples
     runs-on: ubuntu-latest
@@ -145,8 +144,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: extractions/setup-just@v2
       - run: just examples
-      - run: just examples --no-default-features --features alloc
-      - run: just examples-portable
 
   # Every standalone comparison package type-checks against the working
   # copy. The native toolchains the build scripts require: Go and Intel

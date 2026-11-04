@@ -37,7 +37,7 @@
 //! # Running
 //!
 //! ```sh
-//! FEC_GOLDEN_CORE=<p-core> just bench-gf-comp   # from the fgf crate directory
+//! FEC_GOLDEN_CORE=<p-core> just bench-comp gf   # from the fgf crate directory
 //! ```
 //!
 //! Record the output in `benchmarks/v3/gf8.md` with the host, the resolved `fgf`
