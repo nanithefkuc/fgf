@@ -99,9 +99,9 @@ bare Cargo command; fix the recipe when its supported behavior is insufficient.
 The MSRV is Rust 1.93. It rises only in a minor release, with a `CHANGELOG.md`
 entry, never in a patch release.
 
-CI's locked MSRV check uses published dependencies. Run `just msrv-locked`
-from an isolated checkout outside the umbrella patch table; regenerate a
-publication lock there with `just msrv`, not by changing pins or patch entries.
+CI's locked MSRV check uses published dependencies. `just msrv-locked`
+checks the committed lock; regenerate a publication lock with `just msrv`,
+not by changing pins.
 
 `justfile` is vendored unchanged from a shared template. Do not edit it here.
 Crate-specific values and recipes belong in `crate.just`.
