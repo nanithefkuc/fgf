@@ -3606,7 +3606,7 @@ class Renderer:
     def setup_rows(self, family: str, version: str) -> list[list[str]]:
         campaign = self.campaign
         if family == "field-maps":
-            campaign_text = "`just bench-field-maps` (family round `maps`)"
+            campaign_text = "`just bench field_maps` (family round `maps`)"
             fields = MAP_BACKEND_FIELDS
         else:
             campaign_text = "`just bench-paired`"

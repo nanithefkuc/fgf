@@ -6629,3 +6629,8 @@ pub fn fgf::has_vector_elementwise<F: fgf::kernel::FieldKernels>() -> bool
 pub type fgf::Goldilocks = fgf::field::finite_field::FiniteField<0xFFFF_FFFF_0000_0001, 1, fgf::field::goldilocks::GoldilocksFold>
 pub type fgf::Mersenne31 = fgf::field::finite_field::FiniteField<0x7FFF_FFFF, 1, fgf::field::mersenne31::MersenneFold>
 pub type fgf::QuadMersenne31 = fgf::field::finite_field::FiniteField<0x7FFF_FFFF, 2, fgf::field::extension::Extension<fgf::field::quad_mersenne31::ComplexMersenne31, 2>>
+# external re-exports
+reexport fgf::Backend = simdispatch::backend::Backend
+reexport fgf::ParseBackendError = simdispatch::backend::ParseBackendError
+reexport fgf::kernel::Backend = simdispatch::backend::Backend
+reexport fgf::kernel::ParseBackendError = simdispatch::backend::ParseBackendError

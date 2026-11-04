@@ -1,7 +1,9 @@
 """Behavioral tests for `api/surface.py` over fixture crates.
 
 The fixtures compile with the pinned nightly named by `API_NIGHTLY`, so the
-checker reads the same rustdoc JSON format the inventory recipes produce.
+checker reads the same rustdoc JSON format the inventory recipes produce, and
+every subcommand that loads a document is passed `API_FORMAT`. Both variables
+come from the environment; the suite refuses to run without them.
 """
 
 from __future__ import annotations
@@ -15,15 +17,20 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE / "surface.py"
-NIGHTLY = os.environ.get("API_NIGHTLY", "nightly-2026-09-30")
+NIGHTLY = os.environ.get("API_NIGHTLY")
+FORMAT = os.environ.get("API_FORMAT")
+if not NIGHTLY or not FORMAT:
+    sys.exit(
+        "api/test_surface.py: set API_NIGHTLY and API_FORMAT; the api recipes export both"
+    )
 
 
-def rustdoc_json(source: Path, out: Path) -> Path:
+def rustdoc_json(source: Path, out: Path, *extra: str) -> Path:
     subprocess.run(
         [
             "rustdoc", f"+{NIGHTLY}", "--edition", "2024", "--crate-type", "lib",
             "--crate-name", "fixture", "-Z", "unstable-options", "--output-format", "json",
-            "--document-hidden-items", "-o", str(out), str(source),
+            "--document-hidden-items", *extra, "-o", str(out), str(source),
         ],
         check=True,
     )
@@ -49,7 +56,7 @@ class OnePath(unittest.TestCase):
         cls.tmp.cleanup()
 
     def test_reports_exactly_the_duplicate_paths(self) -> None:
-        result = run("paths", str(self.duplicates), "--mode", "report")
+        result = run("paths", str(self.duplicates), "--mode", "report", "--format", FORMAT)
         self.assertEqual(result.returncode, 0, result.stderr)
         violations = sorted(line for line in result.stdout.splitlines() if not line.startswith("surface:"))
         self.assertEqual(
@@ -62,48 +69,86 @@ class OnePath(unittest.TestCase):
                     "duplicate item (2 paths): fixture::Cell | fixture::ext::Cell",
                     "duplicate item (2 paths): fixture::Hidden | fixture::hidden_again::Hidden",
                     "duplicate item (2 paths): fixture::globbed::Globbed | fixture::regathered::Globbed",
-                    "glob re-export: fixture::regathered::super::globbed::*",
+                    "glob re-export: fixture::regathered::* (from fixture::globbed)",
                 ]
             ),
         )
 
     def test_counts_owned_and_external_items(self) -> None:
-        result = run("paths", str(self.duplicates), "--mode", "report")
+        result = run("paths", str(self.duplicates), "--mode", "report", "--format", FORMAT)
         self.assertIn(
             "surface: 7 crate-owned items through 11 paths; 1 external items through 2 paths",
             result.stdout,
         )
 
     def test_enforce_fails_on_violations(self) -> None:
-        self.assertEqual(run("paths", str(self.duplicates), "--mode", "enforce").returncode, 1)
+        self.assertEqual(
+            run("paths", str(self.duplicates), "--mode", "enforce", "--format", FORMAT).returncode, 1
+        )
 
     def test_enforce_passes_without_violations(self) -> None:
-        result = run("paths", str(self.clean), "--mode", "enforce")
+        result = run("paths", str(self.clean), "--mode", "enforce", "--format", FORMAT)
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("surface: 0 one-path violation(s)", result.stdout)
 
 
-class Projection(unittest.TestCase):
-    def test_drops_lines_naming_internals_and_items_of_unstable_impls(self) -> None:
-        stdin = "\n".join(
-            [
-                "pub fn fgf::ops::mul_add(&mut [u8])",
-                "pub fn fgf::internals::kernel::xor(&mut [u8], &[u8])",
-                "impl<C: core::marker::Copy> fgf::internals::kernel::Matrix<C> for [(&[C], &[u8])]",
-                "pub fn [(&[C], &[u8])]::coefficient(&self, usize, usize) -> C",
-                "pub fn [(&[C], &[u8])]::len(&self) -> usize",
-                "impl core::clone::Clone for fgf::Coeff",
-                "pub fn fgf::Coeff::clone(&self) -> fgf::Coeff",
-                "",
-            ]
+class StablePathsEqual(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        cls.equal_stable = rustdoc_json(HERE / "fixtures" / "internals_module.rs", out / "equal-stable")
+        cls.equal_internals = rustdoc_json(
+            HERE / "fixtures" / "internals_module.rs", out / "equal-internals",
+            "--cfg", 'feature="internals"',
         )
-        result = run("project", stdin=stdin)
-        self.assertEqual(
-            result.stdout,
-            "pub fn fgf::ops::mul_add(&mut [u8])\n"
-            "impl core::clone::Clone for fgf::Coeff\n"
-            "pub fn fgf::Coeff::clone(&self) -> fgf::Coeff\n",
+        cls.leak_stable = rustdoc_json(HERE / "fixtures" / "internals_leak.rs", out / "leak-stable")
+        cls.leak_internals = rustdoc_json(
+            HERE / "fixtures" / "internals_leak.rs", out / "leak-internals",
+            "--cfg", 'feature="internals"',
         )
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.tmp.cleanup()
+
+    def test_internals_adding_only_the_facade_keeps_sets_equal(self) -> None:
+        result = run(
+            "stable-paths-equal", str(self.equal_internals), str(self.equal_stable), "--format", FORMAT
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("stable export sets equal", result.stdout)
+
+    def test_internals_leaking_a_root_item_fails(self) -> None:
+        result = run(
+            "stable-paths-equal", str(self.leak_internals), str(self.leak_stable), "--format", FORMAT
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("fixture::leaked", result.stdout)
+
+
+class Reexports(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.tmp = tempfile.TemporaryDirectory()
+        out = Path(cls.tmp.name)
+        cls.cell = rustdoc_json(HERE / "fixtures" / "reexport_cell.rs", out / "cell")
+        cls.refcell = rustdoc_json(HERE / "fixtures" / "reexport_refcell.rs", out / "refcell")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.tmp.cleanup()
+
+    def test_names_the_reexported_crate_and_path(self) -> None:
+        result = run("reexports", str(self.cell), "--format", FORMAT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "reexport fixture::Handle = core::cell::Cell\n")
+
+    def test_a_different_target_changes_the_line(self) -> None:
+        cell = run("reexports", str(self.cell), "--format", FORMAT).stdout
+        refcell = run("reexports", str(self.refcell), "--format", FORMAT).stdout
+        self.assertEqual(refcell, "reexport fixture::Handle = core::cell::RefCell\n")
+        self.assertNotEqual(cell, refcell)
 
 
 class TargetEquality(unittest.TestCase):

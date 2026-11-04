@@ -18,6 +18,11 @@ API_TARGETS := 'x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu wasm32-unknow
 API_PATHS_MODE := 'report'
 API_MAJOR := '4'
 
+# Every Cargo feature except `default` and `internals`; `_api-generate` fails
+# when it disagrees with the manifest, so a new feature cannot drop out of the
+# `all` inventory cell and the `stable-max` semver set.
+API_STABLE_FEATURES := 'alloc,std,simd,simd512'
+
 # Backend tiers this crate dispatches over, strongest first. `just test-tiers`
 # and `just cover` re-run once per tier, because dispatch resolves one backend
 # per process. Empty means the crate owns no dispatch surface.
@@ -591,10 +596,16 @@ release-accept:
     just api-semver-release
 
 # Generate the stable inventories, their metadata, and the one-path report
-# into `target/api/generated`. Every configuration builds unchanged; lines
-# naming `fgf::internals` are dropped from the inventory. Tool versions are
-# checked before anything is generated. It runs as a dependency so variable
-# overrides on the command line reach it.
+# into `target/api/generated`. Every configuration builds unchanged and no
+# inventory line is filtered: the `all` cell builds every feature except
+# `internals`, and a separate `--all-features` rustdoc document must have the
+# same stable export path set. The rustdoc JSON is deleted before
+# each run and copied to `$out/json` after it, so a skipped rustdoc pass
+# fails instead of reusing a stale document. Each inventory closes with the
+# external re-export section, and the metadata records the resolved version
+# of every re-exported dependency. Tool versions are checked before anything
+# is generated. It runs as a dependency so variable overrides on the command
+# line reach it.
 [private]
 _api-generate:
     #!/usr/bin/env bash
@@ -609,12 +620,19 @@ _api-generate:
         printf 'api: need cargo-semver-checks %s, found "%s"; run: cargo binstall cargo-semver-checks@%s\n' "{{API_SEMVER_CHECKS}}" "$have" "{{API_SEMVER_CHECKS}}" >&2
         exit 2
     }
-    API_NIGHTLY="{{API_NIGHTLY}}" python3 -m unittest -q api/test_surface.py
+    API_NIGHTLY="{{API_NIGHTLY}}" API_FORMAT="{{API_FORMAT}}" python3 -m unittest -q api/test_surface.py
+    declared=$(cargo metadata --no-deps --format-version 1 \
+        | jq -r '.packages[0].features | keys - ["default", "internals"] | sort | join(",")')
+    pinned=$(tr ',' '\n' <<<"{{API_STABLE_FEATURES}}" | sort | paste -sd,)
+    [[ "$declared" == "$pinned" ]] || {
+        printf 'api: API_STABLE_FEATURES is %s but the manifest declares %s\n' "$pinned" "$declared" >&2
+        exit 2
+    }
     out=target/api/generated
     rm -rf "$out"
-    mkdir -p "$out/inventory"
+    mkdir -p "$out/inventory" "$out/json"
     export RUSTDOCFLAGS="-Z unstable-options --document-hidden-items"
-    configs=("portable|--no-default-features" "alloc|--no-default-features --features alloc" "default|" "all|--all-features")
+    configs=("portable|--no-default-features" "alloc|--no-default-features --features alloc" "default|" "all|--no-default-features --features {{API_STABLE_FEATURES}}")
     {
         printf 'nightly %s\n' "{{API_NIGHTLY}}"
         printf 'rustdoc-json-format %s\n' "{{API_FORMAT}}"
@@ -630,22 +648,62 @@ _api-generate:
             config="${entry%%|*}"
             # shellcheck disable=SC2206
             flags=(${entry#*|})
+            doc="target/api/$target/doc/fgf.json"
+            rm -f "$doc"
             cargo +{{API_NIGHTLY}} public-api -s --color never --target "$target" \
-                --target-dir target/api "${flags[@]}" 2>"$out/$config-$target.log" \
-                | python3 api/surface.py project >"$out/inventory/$config-$target.txt" || {
+                --target-dir target/api "${flags[@]}" >"$out/inventory/$config-$target.txt" \
+                2>"$out/$config-$target.log" || {
                 cat "$out/$config-$target.log" >&2
                 exit 1
             }
-            json="target/api/$target/doc/fgf.json"
-            if ! report=$(python3 api/surface.py paths "$json" --mode {{API_PATHS_MODE}}); then
+            [[ -f "$doc" ]] || {
+                printf 'api: %s %s: rustdoc JSON missing after the run\n' "$config" "$target" >&2
+                exit 1
+            }
+            cp "$doc" "$out/json/$config-$target.json"
+            printf '# external re-exports\n' >>"$out/inventory/$config-$target.txt"
+            python3 api/surface.py reexports --format {{API_FORMAT}} \
+                "$out/json/$config-$target.json" >>"$out/inventory/$config-$target.txt"
+            if ! report=$(python3 api/surface.py paths --format {{API_FORMAT}} \
+                "$out/json/$config-$target.json" --mode {{API_PATHS_MODE}}); then
                 printf '%s\n' "$report"
                 failed=1
             fi
             printf 'api: %-8s %-26s %s\n' "$config" "$target" "$(head -n 1 <<<"$report" | sed 's/^surface: //')"
             [[ "$config-$target" == all-x86_64-unknown-linux-gnu ]] && printf '%s\n' "$report" >"$out/paths.txt"
         done
+        doc="target/api/$target/doc/fgf.json"
+        rm -f "$doc"
+        cargo +{{API_NIGHTLY}} rustdoc --lib --all-features --target "$target" \
+            --target-dir target/api -- -Z unstable-options --output-format json --document-hidden-items \
+            2>"$out/all-features-$target.log" || {
+            cat "$out/all-features-$target.log" >&2
+            exit 1
+        }
+        [[ -f "$doc" ]] || {
+            printf 'api: all-features %s: rustdoc JSON missing after the run\n' "$target" >&2
+            exit 1
+        }
+        cp "$doc" "$out/json/all-features-$target.json"
+        python3 api/surface.py stable-paths-equal --format {{API_FORMAT}} \
+            "$out/json/all-features-$target.json" "$out/json/all-$target.json" || failed=1
     done
-    tail -n 1 "$out/paths.txt"
+    metadata=$(cargo metadata --format-version 1)
+    while IFS= read -r dep; do
+        # Versions come from fgf's own normal dependency edges, matched on the
+        # rustdoc crate name, so another copy elsewhere in the graph is ignored.
+        versions=$(jq -r --arg name "$dep" '
+            .resolve.root as $root
+            | (.resolve.nodes[] | select(.id == $root) | .deps[]
+               | select(any(.dep_kinds[]; .kind == null)) | select(.name == $name) | .pkg) as $pkg
+            | .packages[] | select(.id == $pkg) | .version' <<<"$metadata" | sort -u)
+        [[ -n "$versions" && $(wc -l <<<"$versions") -eq 1 ]] || {
+            printf 'api: re-exported crate %s does not resolve to exactly one normal dependency of fgf (found: %s)\n' "$dep" "${versions:-none}" >&2
+            exit 1
+        }
+        printf 'dependency %s %s\n' "$dep" "$versions"
+    done < <(grep -h '^reexport ' "$out"/inventory/*.txt | sed 's/^reexport [^=]*= //' | cut -d: -f1 | sort -u) >>"$out/metadata.txt"
+    if [[ "{{API_PATHS_MODE}}" == report ]]; then cat "$out/paths.txt"; else tail -n 1 "$out/paths.txt"; fi
     for entry in "${configs[@]}"; do
         config="${entry%%|*}"
         files=()
@@ -678,8 +736,9 @@ api-update: _api-generate
     cp target/api/generated/metadata.txt api/metadata.txt
     echo "api: inventory rewritten; review git diff -- api/"
 
-# Semver check of the stable feature sets against the latest published
-# non-prerelease `API_MAJOR`.x release, or against BASELINE when given for
+# Semver check of the stable feature sets against the highest published
+# non-yanked, non-prerelease `API_MAJOR`.x release, sorted numerically
+# whatever order crates.io returns, or against BASELINE when given for
 # development verification. `internals` is never enabled.
 [group('gate')]
 api-semver BASELINE="":
@@ -692,11 +751,18 @@ api-semver BASELINE="":
     }
     baseline="{{BASELINE}}"
     if [[ -z "$baseline" ]]; then
-        baseline=$(curl -fsS -A "fgf-api-semver" "https://crates.io/api/v1/crates/{{CRATE}}/versions?per_page=100" \
-            | jq -r --arg major "{{API_MAJOR}}" '[.versions[] | select(.yanked | not) | .num | select(test("^" + $major + "\\.[0-9]+\\.[0-9]+$"))] | first // empty') || {
-            printf 'api-semver: could not query crates.io for the published baseline\n' >&2
-            exit 1
-        }
+        listing=$(mktemp)
+        trap 'rm -f "$listing"' EXIT
+        page="?per_page=100"
+        while [[ -n "$page" ]]; do
+            body=$(curl -fsS -A "fgf-api-semver" "https://crates.io/api/v1/crates/{{CRATE}}/versions$page") || {
+                printf 'api-semver: could not query crates.io for the published baseline\n' >&2
+                exit 1
+            }
+            jq -r '.versions[] | select(.yanked | not) | .num' <<<"$body" >>"$listing"
+            page=$(jq -r '.meta.next_page // empty' <<<"$body")
+        done
+        baseline=$(grep -E "^{{API_MAJOR}}\.[0-9]+\.[0-9]+$" "$listing" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 || true)
         [[ -n "$baseline" ]] || {
             printf 'api-semver: no published non-prerelease %s.x release to compare against\n' "{{API_MAJOR}}" >&2
             exit 1
@@ -704,7 +770,7 @@ api-semver BASELINE="":
     fi
     current=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
     printf 'api-semver: candidate %s against published %s\n' "$current" "$baseline"
-    configs=("portable|--only-explicit-features" "alloc|--only-explicit-features --features alloc" "default|--default-features" "stable-max|--only-explicit-features --features alloc,std,simd,simd512")
+    configs=("portable|--only-explicit-features" "alloc|--only-explicit-features --features alloc" "default|--default-features" "stable-max|--only-explicit-features --features {{API_STABLE_FEATURES}}")
     for entry in "${configs[@]}"; do
         # shellcheck disable=SC2206
         flags=(${entry#*|})
@@ -712,17 +778,31 @@ api-semver BASELINE="":
         cargo +{{API_NIGHTLY}} semver-checks check-release --baseline-version "$baseline" "${flags[@]}"
     done
 
-# Release gate for `api-semver`: the first release of `API_MAJOR` has no
-# published baseline of its own major and is skipped, as is every other
-# version string; later `API_MAJOR`.x releases run the check.
+# Release gate for `api-semver`, decided by the version's major number: a
+# major below `API_MAJOR` is skipped, `API_MAJOR.0.0` and its prereleases are
+# skipped because the first release of a major has no baseline of its own,
+# every other `API_MAJOR` version including prereleases runs the check, and a
+# major above `API_MAJOR` fails until the constant is raised.
 [private]
 api-semver-release VERSION="":
     #!/usr/bin/env bash
     set -euo pipefail
     version="{{VERSION}}"
     [[ -n "$version" ]] || version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
-    if [[ "$version" =~ ^{{API_MAJOR}}\.[0-9]+\.[0-9]+$ && "$version" != "{{API_MAJOR}}.0.0" ]]; then
-        just api-semver
+    if [[ ! "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+        printf 'api-semver: cannot parse version %s\n' "$version" >&2
+        exit 2
+    fi
+    major="${BASH_REMATCH[1]}"
+    minor="${BASH_REMATCH[2]}"
+    patch="${BASH_REMATCH[3]}"
+    if (( major > {{API_MAJOR}} )); then
+        printf 'api-semver: %s is above API_MAJOR %s; raise API_MAJOR in crate.just\n' "$version" "{{API_MAJOR}}" >&2
+        exit 1
+    fi
+    if (( major < {{API_MAJOR}} || (minor == 0 && patch == 0) )); then
+        printf 'api-semver: skipped for %s; releases before %s and the first %s.0.0 of the major have no published %s.x baseline\n' \
+            "$version" "{{API_MAJOR}}" "{{API_MAJOR}}" "{{API_MAJOR}}"
     else
-        printf 'api-semver: skipped for %s; only %s.x releases after %s.0.0 have a published baseline of their major\n' "$version" "{{API_MAJOR}}" "{{API_MAJOR}}"
+        just api-semver
     fi

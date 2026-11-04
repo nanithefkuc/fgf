@@ -57,7 +57,18 @@ commits the regenerated `api/` diff with the source change; the maintainer's
 review of that diff authorizes the change. `just api` checks that the
 committed inventory matches the source and is part of CI and
 `just release-accept`. It needs the nightly, targets, and tool versions
-pinned in `crate.just`; `AGENTS.md` lists them.
+pinned in `crate.just`, which holds their values.
+
+`just api-semver` checks the stable feature sets — `internals` is never
+enabled — against the published baseline, and accepts an optional baseline
+version for development checks. The release gate that `just release-accept`
+calls decides by the version's major number: releases below the current
+major and the first release of the major with its prereleases are skipped,
+every later release of the major including prereleases runs the check, and a
+higher major fails until `API_MAJOR` in `crate.just` is raised.
+`API_PATHS_MODE` in `crate.just` is `report` until every stable item has one
+path, then `enforce`. `just api` never writes `api/`; only `just api-update`
+rewrites it, inside an authorized change.
 
 Release work runs the crate-specific acceptance, including the PR gate:
 `just release-accept`. Its pieces also stand alone — `just isa-accept EXPECTED`

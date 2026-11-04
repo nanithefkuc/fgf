@@ -7,4 +7,5 @@ targets x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu wasm32-unknown-unknow
 config portable --no-default-features
 config alloc --no-default-features --features alloc
 config default
-config all --all-features
+config all --no-default-features --features alloc,std,simd,simd512
+dependency simdispatch 0.2.0

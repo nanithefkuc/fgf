@@ -6,7 +6,7 @@ Paired-run snapshot for v3. Every result cell reports Willow Cove (i5-1135G7) / 
 
 | Setting | Value |
 | --- | --- |
-| Campaign | `just bench-field-maps` (family round `maps`) |
+| Campaign | `just bench field_maps` (family round `maps`) |
 | Revision | `f10e59ddcf1a3c48f28116f3c49795e04a724a51` |
 | Toolchain | 1.98.1 |
 | Resolved process backend | `v4x` / `v3_gfni_crypto` |
