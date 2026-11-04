@@ -33,10 +33,9 @@ MIRI := ''
 
 # Coverage excludes the full x86 binary-field kernel subtrees and the complete
 # gf8/tower dispatch files, including their portable and narrower-ISA branches.
-# AVX-512 QuadMersenne31, residue, and GF(2) interop bodies and the GF(2)
-# interop dispatch are also excluded. AVX2 residue kernels and mixed-ISA prime
-# dispatch modules remain included.
-COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/x86/residue/avx512(/|\.rs$)|kernel/x86/gf1/avx512\.rs$|kernel/gf1/dispatch\.rs$|kernel/(gf8|tower)\.rs$"'
+# AVX-512 QuadMersenne31 and residue bodies are also excluded. AVX2 residue
+# kernels and mixed-ISA prime dispatch modules remain included.
+COV_IGNORE := '"kernel/x86/(gf8|gf16|gf32|gf64)(/|\.rs$)|kernel/x86/quad_mersenne31/avx512\.rs$|kernel/x86/residue/avx512(/|\.rs$)|kernel/(gf8|tower)\.rs$"'
 
 # Export the existing merged profiles, including after a failed coverage gate.
 # CI uploads the export; run `just cover` first.

@@ -386,8 +386,6 @@ by fan shape only when it outgrows one file (`gf8/gfni/`, `gf8/avx512/`,
 order operation, ISA, `_with` (`mul_add_matrix_at_gfni`,
 `mul_add_matrix_avx512_with`). Byte-field entries are generic over the
 polynomial or its typed prepared coefficient, without field-specific suffixes.
-The `gf1` family holds the bit-packed GF(2) kernels beside the byte-field
-families.
 Residue single-row kernels split by arithmetic lane type into `u8.rs`,
 `u32.rs`, and `u64.rs`; reduction parameters and source-provider windows
 shared by AVX2 and AVX-512 remain in `kernel/x86/residue.rs`.
@@ -444,17 +442,6 @@ Tests must defend observable contracts, not implementation wiring.
   tower packing against the shipped tower identities.
 - `tests/embedding.rs`: reference-ladder forward fixtures, inverse and
   commuting-triangle contracts, trace/norm, and failed restriction.
-- `tests/frobenius_rows.rs`: prepared Frobenius row acceptance against the
-  per-element scalar loop, alias lanes, and geometry failures.
-- `tests/frobenius_alloc.rs`: prepared Frobenius steady-state
-  zero-allocation contracts.
-- `tests/prepared_maps.rs`: prepared embedding/isomorphism scalar
-  agreement against the compact maps, including the normal-basis tower
-  where raw 1 is not field one.
-- `tests/prepared_map_rows.rs`: prepared-map row acceptance (decode,
-  bitmap discipline, geometry) against the scalar surface.
-- `tests/prepared_maps_alloc.rs`: prepared-map steady-state
-  zero-allocation contracts.
 - `tests/binary_bases.rs`: ordered-basis and custom extension-spec arithmetic against
   base-field schoolbook oracles.
 - `tests/prime_fields.rs`: primality, prime-field bulk operations on raw
@@ -466,11 +453,6 @@ Tests must defend observable contracts, not implementation wiring.
   small fields and sampled at full width.
 - `src/kernel/tests.rs`: direct scalar-versus-architecture differentials across
   lane, tail, row, and source-count boundaries.
-- `tests/prepared_maps.rs`: prepared embedding and isomorphism scalar
-  acceptance against the compact maps.
-- `tests/prepared_map_rows.rs`: prepared row equality, bitmap discipline,
-  mixed restriction, and geometry panics.
-- `tests/prepared_maps_alloc.rs`: allocation-free prepared-map steady state.
 - `tests/zero_alloc.rs`: allocation-free steady-state contracts.
 - `tests/internals.rs`: explicitly unstable direct-kernel surfaces.
 
@@ -492,17 +474,14 @@ Coverage excludes the complete x86 binary-field kernel subtrees
 `kernel/tower.rs` dispatch modules. These file-level exclusions also omit
 SSSE3/AVX2 kernels and portable dispatch branches; they are not a claim that
 every excluded line requires GFNI. The 95% gate applies to the remaining scope.
-`kernel/x86/quad_mersenne31/avx512.rs`, `kernel/x86/gf1/avx512.rs`, and
+`kernel/x86/quad_mersenne31/avx512.rs` and
 `kernel/x86/residue/avx512.rs` with its child subtree are also excluded because
 their AVX-512 instructions cannot execute on the hosted coverage runner.
-`kernel/gf1/dispatch.rs` (the GF(2) interop tier dispatch, whose
-`V3GfniCrypto` and `V4x` arms need GFNI or AVX-512) is excluded the same way.
 The V4x weight arm in `kernel/gf1.rs` cannot execute on the coverage runner
-either (documented, not excluded). The AVX2 residue kernels, the GF(2) interop
-`sse42`/`avx2` kernels and portable seam, and the mixed-ISA prime dispatch
-modules remain included. Direct differentials, with positive execution markers
-and resolved-backend checks, provide separate acceptance evidence on capable
-hosts.
+either (documented, not excluded). The AVX2 residue kernels and the mixed-ISA
+prime dispatch modules remain included. Direct differentials, with positive
+execution markers and resolved-backend checks, provide separate acceptance
+evidence on capable hosts.
 Keep `COV_IGNORE` narrow and document every exclusion here.
 
 ## Benchmarks

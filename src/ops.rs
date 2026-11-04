@@ -1,14 +1,12 @@
 //! The public vector operation surface.
 //!
 //! Every arithmetic entry is generic over [`FieldKernels`] and monomorphizes
-//! to that row's dispatched SIMD kernel. Encoding and map rows are
-//! [`FieldBuffer`]-only instead: packing (`pack`,
-//! `unpack`, `pack_to_vec`) and the prepared maps in `map` work over the
-//! stable little-endian byte form, never a kernel operand. Buffers are plain
-//! `&[u8]` holding packed elements in that representation. Canonically
-//! encoded payloads need no repacking; Section "Prime fields" below states
-//! the packed-lane contract. GF(2)-endpoint map rows over the bit-packed
-//! [`crate::bits`] representation live in `map_bits`.
+//! to that row's dispatched SIMD kernel. Encoding rows are
+//! [`FieldBuffer`]-only instead: packing (`pack`, `unpack`, `pack_to_vec`)
+//! works over the stable little-endian byte form, never a kernel operand.
+//! Buffers are plain `&[u8]` holding packed elements in that representation.
+//! Canonically encoded payloads need no repacking; Section "Prime fields"
+//! below states the packed-lane contract.
 //!
 //! Implementations split by operation shape: single-row, scatter, gather,
 //! and matrix. Coefficient storage and packing conversions have separate
@@ -75,10 +73,6 @@ use crate::kernel::{FieldKernels, KernelDispatch, RawDispatch};
 mod coefficient;
 mod dot;
 mod gather;
-#[cfg(feature = "alloc")]
-pub mod map;
-#[cfg(feature = "alloc")]
-pub mod map_bits;
 mod matrix;
 mod packing;
 mod recip;
@@ -102,11 +96,6 @@ pub use single::{
 pub use coefficient::{CoeffMatrix, CoeffRef, CoeffVec, CoeffVecRef};
 #[cfg(feature = "alloc")]
 pub use gather::{mul_add_gather_with, mul_into_gather_with};
-#[cfg(feature = "alloc")]
-pub use map::{
-    apply_into_with, contains_into_with, embed_into_with, frobenius_assign_with,
-    frobenius_into_with, norm_into_with, restrict_into_with, trace_into_with, unapply_into_with,
-};
 #[cfg(feature = "alloc")]
 pub use matrix::{
     mul_add_matrix_at_with, mul_add_matrix_with, mul_into_matrix_at_with, mul_into_matrix_with,

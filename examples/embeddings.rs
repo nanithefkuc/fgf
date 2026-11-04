@@ -5,7 +5,7 @@
 //! proper inclusion through the frozen reference ladder, and
 //! `Isomorphism<S, T>` names the equal-degree map; construction and
 //! application allocate nothing, and repeated application reuses the
-//! prepared columns without rebuilding them. Stored images rebuild a map
+//! stored images without rebuilding them. Stored images rebuild a map
 //! through `from_images`, and `then` composes inclusions by image
 //! transport.
 
@@ -118,7 +118,7 @@ fn main() {
     println!("Gf16 z={z} lifts into GF(2^64) as {lifted}; four Frobenius steps return it.");
 
     // Stored images rebuild the map: from_images accepts to_images's
-    // order, and the rebuilt embedding agrees with the prepared one.
+    // order, and the rebuilt embedding agrees with the original one.
     let rebuilt = Embedding::<Aes, Gf16>::from_images(tower.to_images()).unwrap();
     assert_eq!(rebuilt.embed(lo), tower.embed(lo));
 
@@ -131,27 +131,6 @@ fn main() {
         Embedding::<Aes, Gf64>::new().unwrap().embed(lo)
     );
     println!("tower.then(&wide) composes into one AES-into-GF(2^64) inclusion.");
-
-    // The prepared absolute Frobenius reuses one compiled map: each power
-    // of two is a squaring, so preparing once and applying repeatedly
-    // matches the compact spelling lane for lane. Prepared maps need the
-    // allocation feature; the no-alloc build skips this section.
-    #[cfg(feature = "alloc")]
-    {
-        let absolute_frobenius = fgf::Frobenius::<Gf64>::new(1);
-        let prepared_first = lifted.frobenius_with(&absolute_frobenius);
-        assert_eq!(prepared_first, lifted.square());
-
-        // The prepared embedding compiles the same inclusion once and
-        // applies it across whole rows: one `new` call, then checked
-        // row functions over stable byte lanes.
-        let prepared = fgf::PreparedEmbedding::new(&tower);
-        let mut lane = [0u8; 1];
-        <Aes as fgf::FieldBuffer>::encode(&mut lane, lo);
-        let mut image = [0u8; 2];
-        fgf::ops::embed_into_with(&mut image, &prepared, &lane);
-        assert_eq!(<Gf16 as fgf::FieldBuffer>::decode(&image), tower.embed(lo));
-    }
 
     // Embedding<Gf1, T> carries the absolute trace and norm.
     let absolute = Embedding::<Gf1, Gf16>::new().unwrap();

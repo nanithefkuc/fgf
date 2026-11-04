@@ -28,6 +28,20 @@ All notable changes to this project are documented here. The format follows
 
 ### Removed
 
+- **Breaking:** The prepared field maps: `Frobenius`, `PreparedEmbedding`,
+  `PreparedIsomorphism`, `Elem::frobenius_with`, the nine `ops::map` row
+  functions with their `ops` re-exports, and the five `ops::map_bits` row
+  functions over packed GF(2) bits. Migration: call the per-element
+  `Embedding` and `Isomorphism` methods (`embed`, `contains`, `restrict`,
+  `frobenius`, `trace`, `norm`, `apply`, `unapply`) in a loop, or a compact
+  map method inside a decode/encode lane loop. `Embedding::frobenius`
+  replaces the relative Frobenius `x^|S|`; an absolute power
+  `Frobenius::new(k)` or `frobenius_with` becomes `x.pow(p^(k mod N))`, or
+  `k` applications of the prime-subfield embedding's `frobenius`. The
+  restriction rows' validity bitmap becomes the `Option` that `restrict`
+  returns per element. The GF(2) bit/lane interop kernels behind
+  `ops::map_bits` go with them; the bit-buffer operations in `bits` are
+  unchanged.
 - The 3.x benchmark record: `BENCHMARKS.md`, the `benchmarks/` pages and
   charts, the publisher scripts behind them (`benches/publish.py`,
   `surface_publish.py`, `residue_publish.py`, `benchmark_chart.py`,

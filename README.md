@@ -54,14 +54,8 @@ assert_eq!(
 ```
 
 `ops` scales and combines rows of packed elements, with prepared coefficients
-for repeated calls. Prepared Frobenius, embedding, and isomorphism maps apply
-one compiled map across scalar elements and byte rows alike, with a validity
-bitmap for partial restriction; `ops::map_bits` carries the GF(2) bit/lane
-interop rows over packed bits. The prepared maps, `ops::map` and
-`ops::map_bits`, and the prepared `_with` forms require the `alloc` feature.
-Byte lanes are fixed-width and
-little-endian; their size depends on the field representation. Bit-packed
-GF(2) vectors use `bits`.
+for repeated calls. Byte lanes are fixed-width and little-endian; their size
+depends on the field representation. Bit-packed GF(2) vectors use `bits`.
 
 ```rust
 use fgf::{FiniteField, Elem, Polynomial, poly::AES, ops};
@@ -97,7 +91,7 @@ migration from 2.x are in
 | --- | --- | --- |
 | `std` | yes | runtime backend detection and shared lookup tables; implies `alloc` |
 | `simd` | yes | runtime-dispatched SIMD kernels; implies `std` |
-| `alloc` | via `std` | prepared maps (`Frobenius`, `PreparedEmbedding`, `PreparedIsomorphism`), `ops::map` and `ops::map_bits`, prepared coefficient collections (`CoeffVec`, `CoeffMatrix`), the prepared scatter/gather/matrix `_with` forms, and `pack_to_vec` |
+| `alloc` | via `std` | prepared coefficient collections (`CoeffVec`, `CoeffMatrix`), the prepared scatter/gather/matrix `_with` forms, and `pack_to_vec` |
 | `simd512` | no | AVX-512 kernels; implies `simd` |
 | `internals` | no | direct access to kernels and tables; unstable, no compatibility guarantee |
 

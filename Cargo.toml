@@ -22,9 +22,7 @@ include = [
 
 [features]
 default = ["std", "simd"]
-# Allocation. Required for the prepared maps (`Frobenius`,
-# `PreparedEmbedding`, `PreparedIsomorphism`), the `ops::map` and
-# `ops::map_bits` modules, the prepared coefficient collections (`CoeffVec`,
+# Allocation. Required for the prepared coefficient collections (`CoeffVec`,
 # `CoeffMatrix`), the prepared scatter/gather/matrix `_with` forms, and
 # `pack_to_vec`. This is deliberately separate from `std`: a heap without an
 # operating system is enough for every prepared form in the crate.
@@ -83,9 +81,8 @@ required-features = ["std", "simd", "internals"]
 [[bench]]
 name = "field_maps"
 harness = false
-# The field-map panels time with `std` only: every map body is scalar —
-# the GF(2) bit/lane interop rows included — so no kernel dispatch or
-# internal access is needed.
+# The field-map panels time with `std` only: every map body is scalar, so
+# no kernel dispatch or internal access is needed.
 required-features = ["std"]
 
 [[bench]]
@@ -118,12 +115,6 @@ required-features = ["alloc"]
 [[example]]
 name = "peel_probe"
 # The prepared CoeffVec gather form needs the allocation feature.
-required-features = ["std", "alloc"]
-
-[[example]]
-name = "gf1_floors"
-# The floor probe times the prepared interop entry points, which need
-# the allocation feature; `std` covers the process clock.
 required-features = ["std", "alloc"]
 
 [[test]]

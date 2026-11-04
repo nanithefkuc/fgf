@@ -29,10 +29,9 @@ use std::time::{Duration, Instant};
 
 use fgf::poly::{AES, RS};
 use fgf::{
-    BinaryField, Components, Elem, Embedding, Extension, ExtensionSpec, Field, FieldBuffer,
-    FieldElem, FiniteField, Frobenius, Goldilocks, Isomorphism, Mersenne31, Normal, Polynomial,
-    PreparedEmbedding, PreparedIsomorphism, PrimeCharacteristic, PrimeField, QuadMersenne31,
-    Relation, Residue, backend, backend_for, ops,
+    Components, Elem, Embedding, Extension, ExtensionSpec, Field, FieldBuffer, FieldElem,
+    FiniteField, Goldilocks, Isomorphism, Mersenne31, Normal, Polynomial, QuadMersenne31, Relation,
+    Residue, backend, backend_for,
 };
 use fgf::{FanPaar8, FanPaar16, FanPaar64, Rijndael16, Rijndael32, Rijndael64};
 
@@ -602,137 +601,6 @@ fn validate_isomorphism<S: Field, T: Field<Characteristic = S::Characteristic>>(
 // Buffer staging for the region panels
 // ---------------------------------------------------------------------------
 
-/// Verify one prepared restriction row before timing: run the prepared
-/// row body over `count` lanes, then check every lane, bitmap bit, and tail
-/// bit against the compact map's own `restrict`/`contains` answers.
-#[allow(clippy::too_many_arguments)]
-fn check_prepared_restrict_row<
-    S: FieldBuffer,
-    T: Field<Characteristic = S::Characteristic> + FieldBuffer,
->(
-    pair: &str,
-    operation: &str,
-    map: &Embedding<S, T>,
-    prepared: &PreparedEmbedding<S, T>,
-    src: &[u8],
-    dst: &mut [u8],
-    valid: &mut [u8],
-    count: usize,
-) {
-    let mask_len = fgf::bits::bytes_for(count);
-    ops::restrict_into_with(
-        &mut dst[..count * S::BYTES],
-        &mut valid[..mask_len],
-        prepared,
-        &src[..count * T::BYTES],
-    );
-    for (i, lane_src) in src.chunks_exact(T::BYTES).enumerate().take(count) {
-        let value = T::decode(lane_src);
-        let lane = &dst[i * S::BYTES..(i + 1) * S::BYTES];
-        match map.restrict(value) {
-            Some(preimage) => {
-                let mut expect = vec![0u8; S::BYTES];
-                S::encode(&mut expect, preimage);
-                assert_eq!(
-                    lane,
-                    expect.as_slice(),
-                    "field-maps {pair} {operation} lane {i}"
-                );
-                assert_eq!(
-                    valid[i / 8] & (1 << (i % 8)),
-                    1 << (i % 8),
-                    "field-maps {pair} {operation} bit {i}"
-                );
-            }
-            None => {
-                let mut expect = vec![0u8; S::BYTES];
-                S::encode(&mut expect, Elem::<S>::ZERO);
-                assert_eq!(
-                    lane,
-                    expect.as_slice(),
-                    "field-maps {pair} {operation} zero lane {i}"
-                );
-                assert_eq!(
-                    valid[i / 8] & (1 << (i % 8)),
-                    0,
-                    "field-maps {pair} {operation} cleared bit {i}"
-                );
-                assert!(
-                    !map.contains(value),
-                    "field-maps {pair} {operation} member {i}"
-                );
-            }
-        }
-    }
-    if mask_len * 8 > count {
-        let tail = valid[mask_len - 1] >> (count % 8);
-        assert_eq!(tail, 0, "field-maps {pair} {operation} tail bits");
-    }
-}
-
-/// Verify one prepared membership row before timing: run the prepared
-/// bitmap body over `count` lanes, then check every bit and tail bit
-/// against the compact map's `contains` answers.
-fn check_prepared_contains_row<
-    S: FieldBuffer,
-    T: Field<Characteristic = S::Characteristic> + FieldBuffer,
->(
-    pair: &str,
-    operation: &str,
-    map: &Embedding<S, T>,
-    prepared: &PreparedEmbedding<S, T>,
-    src: &[u8],
-    valid: &mut [u8],
-    count: usize,
-) {
-    let mask_len = fgf::bits::bytes_for(count);
-    ops::contains_into_with(&mut valid[..mask_len], prepared, &src[..count * T::BYTES]);
-    for (i, lane_src) in src.chunks_exact(T::BYTES).enumerate().take(count) {
-        let expect = map.contains(T::decode(lane_src));
-        assert_eq!(
-            valid[i / 8] & (1 << (i % 8)),
-            if expect { 1 << (i % 8) } else { 0 },
-            "field-maps {pair} {operation} bit {i}"
-        );
-    }
-    if mask_len * 8 > count {
-        let tail = valid[mask_len - 1] >> (count % 8);
-        assert_eq!(tail, 0, "field-maps {pair} {operation} tail bits");
-    }
-}
-
-/// Verify one prepared element row before timing: run the prepared row
-/// body over `count` lanes, then check every lane against the compact
-/// scalar method applied to the same decoded lane.
-fn check_prepared_element_row<
-    S: FieldBuffer,
-    T: Field<Characteristic = S::Characteristic> + FieldBuffer,
->(
-    pair: &str,
-    operation: &str,
-    row: impl Fn(&mut [u8], &[u8]),
-    scalar: impl Fn(Elem<T>) -> Elem<S>,
-    src: &[u8],
-    dst: &mut [u8],
-    count: usize,
-) {
-    row(&mut dst[..count * S::BYTES], &src[..count * T::BYTES]);
-    for (i, (lane_src, lane_dst)) in src
-        .chunks_exact(T::BYTES)
-        .zip(dst.chunks_exact(S::BYTES))
-        .enumerate()
-        .take(count)
-    {
-        let mut expect = vec![0u8; S::BYTES];
-        S::encode(&mut expect, scalar(T::decode(lane_src)));
-        assert_eq!(
-            lane_dst,
-            expect.as_slice(),
-            "field-maps {pair} {operation} lane {i}"
-        );
-    }
-}
-
 /// Encode staged elements into bytes, verifying the decode round-trip so a
 /// staging bug aborts before timing.
 fn encode_staged<F: FieldBuffer>(pair: &str, operation: &str, elems: &[Elem<F>]) -> Vec<u8> {
@@ -863,22 +731,6 @@ fn emb_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
             ops as u64
         },
     );
-    {
-        // Same map as the compact `frobenius` row beside it: the relative
-        // σ_m with m = S::DEGREE, prepared once outside the timed chain.
-        let prepared = Frobenius::<T>::new(S::DEGREE);
-        bench_scalar(
-            &format!("field-maps/{pair}/frobenius-prepared/scalar-chain"),
-            |ops| {
-                let mut value = chain_seed;
-                for _ in 0..ops {
-                    value = black_box(value.frobenius_with(&prepared));
-                }
-                black_box(value);
-                ops as u64
-            },
-        );
-    }
     bench_scalar(&format!("field-maps/{pair}/trace/scalar-chain"), |ops| {
         let mut acc = Elem::<S>::ZERO;
         for i in 0..ops {
@@ -895,106 +747,6 @@ fn emb_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
         black_box(acc);
         ops as u64
     });
-    // Prepared scalar application beside every compact chain above: the
-    // same staged inputs through the compiled map, preparation hoisted
-    // out of the timed chain. Seeds match the compact panels lane for
-    // lane, so each prepared chain times the same workload.
-    let prepared = PreparedEmbedding::<S, T>::new(map);
-    bench_scalar(
-        &format!("field-maps/{pair}/embed-prepared/scalar-chain"),
-        |ops| {
-            let mut acc = Elem::<T>::ZERO;
-            for i in 0..ops {
-                acc = black_box(prepared.embed(sources[i & stage]));
-            }
-            black_box(acc);
-            ops as u64
-        },
-    );
-    bench_scalar(
-        &format!("field-maps/{pair}/restrict-member-prepared/scalar-chain"),
-        |ops| {
-            let mut acc = Elem::<S>::ZERO;
-            for i in 0..ops {
-                acc = black_box(
-                    prepared
-                        .restrict(members[i & stage])
-                        .expect("an image member restricts"),
-                );
-            }
-            black_box(acc);
-            ops as u64
-        },
-    );
-    bench_scalar(
-        &format!("field-maps/{pair}/restrict-nonmember-prepared/scalar-chain"),
-        |ops| {
-            let mut misses = 0u64;
-            for i in 0..ops {
-                misses += prepared.restrict(outsiders[i & stage]).is_none() as u64;
-            }
-            black_box(misses);
-            ops as u64
-        },
-    );
-    if with_mixed {
-        bench_scalar(
-            &format!("field-maps/{pair}/restrict-mixed-prepared/scalar-chain"),
-            |ops| {
-                let mut hits = 0u64;
-                let mut acc = Elem::<S>::ZERO;
-                for i in 0..ops {
-                    let y = if (i + 0x5A) % 2 == 0 {
-                        members[(i / 2) & (SCALAR_STAGE / 2 - 1)]
-                    } else {
-                        outsiders[(i / 2) & (SCALAR_STAGE / 2 - 1)]
-                    };
-                    match prepared.restrict(y) {
-                        Some(preimage) => {
-                            acc = black_box(preimage);
-                            hits += 1;
-                        }
-                        None => acc = black_box(Elem::<S>::ZERO),
-                    }
-                }
-                black_box((acc, hits));
-                ops as u64
-            },
-        );
-    }
-    bench_scalar(
-        &format!("field-maps/{pair}/contains-prepared/scalar-chain"),
-        |ops| {
-            let mut hits = 0u64;
-            for i in 0..ops {
-                hits += prepared.contains(mixed[i & stage]) as u64;
-            }
-            black_box(hits);
-            ops as u64
-        },
-    );
-    bench_scalar(
-        &format!("field-maps/{pair}/trace-prepared/scalar-chain"),
-        |ops| {
-            let mut acc = Elem::<S>::ZERO;
-            for i in 0..ops {
-                acc = black_box(prepared.trace(mixed[i & stage]));
-            }
-            black_box(acc);
-            ops as u64
-        },
-    );
-    bench_scalar(
-        &format!("field-maps/{pair}/norm-prepared/scalar-chain"),
-        |ops| {
-            let mut acc = Elem::<S>::ZERO;
-            for i in 0..ops {
-                acc = black_box(prepared.norm(mixed[i & stage]));
-            }
-            black_box(acc);
-            ops as u64
-        },
-    );
 }
 
 /// Region panels for one embedding pair: the compact-map control loops of
@@ -1003,8 +755,6 @@ fn emb_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
 /// membership-reporting operations, per the `bits.rs` convention), the
 /// baseline every future kernel PR must beat. All buffers are allocated
 /// once outside timing; the timed bodies borrow black-boxed slices only.
-/// The `frobenius-prepared` rows time the prepared row entry point instead,
-/// with preparation hoisted out of the timed region.
 #[allow(clippy::too_many_lines)]
 fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic> + FieldBuffer>(
     pair: &str,
@@ -1059,34 +809,6 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
             black_box(dst);
         });
     }
-    let prepared = PreparedEmbedding::<S, T>::new(map);
-    for &count in region_counts() {
-        let label = format!("field-maps/{pair}/embed-prepared/row-{count}");
-        let bytes = count * elem_traffic;
-        let src = &source_bytes[..count * S::BYTES];
-        let mut dst = vec![0u8; top * T::BYTES];
-        for (i, (x, lane)) in src
-            .chunks_exact(S::BYTES)
-            .zip(dst.chunks_exact_mut(T::BYTES))
-            .enumerate()
-            .take(count)
-        {
-            let mut expect = vec![0u8; T::BYTES];
-            T::encode(&mut expect, map.embed(S::decode(x)));
-            ops::embed_into_with(lane, &prepared, x);
-            assert_eq!(
-                lane,
-                expect.as_slice(),
-                "field-maps {pair} embed-prepared lane {i}"
-            );
-        }
-        bench_region(&label, bytes, || {
-            let src = black_box(src);
-            let dst = black_box(&mut dst[..count * T::BYTES]);
-            ops::embed_into_with(dst, black_box(&prepared), src);
-            black_box(dst);
-        });
-    }
     for &count in region_counts() {
         let label = format!("field-maps/{pair}/restrict-member/row-{count}");
         let bytes = count * elem_traffic + fgf::bits::bytes_for(count);
@@ -1112,30 +834,6 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
                 }
             }
             black_box((dst, mask));
-        });
-    }
-    for &count in region_counts() {
-        let label = format!("field-maps/{pair}/restrict-member-prepared/row-{count}");
-        let bytes = count * elem_traffic + fgf::bits::bytes_for(count);
-        let src = &member_bytes[..count * T::BYTES];
-        let mut dst = vec![0u8; top * S::BYTES];
-        let mut valid = vec![0u8; mask_bytes];
-        check_prepared_restrict_row(
-            pair,
-            "restrict-member-prepared",
-            map,
-            &prepared,
-            src,
-            &mut dst,
-            &mut valid,
-            count,
-        );
-        bench_region(&label, bytes, || {
-            let src = black_box(src);
-            let dst = black_box(&mut dst[..count * S::BYTES]);
-            let valid = black_box(&mut valid[..fgf::bits::bytes_for(count)]);
-            ops::restrict_into_with(dst, valid, black_box(&prepared), src);
-            black_box((dst, valid));
         });
     }
     for &count in region_counts() {
@@ -1254,54 +952,6 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
         });
     }
     for &count in region_counts() {
-        let label = format!("field-maps/{pair}/restrict-nonmember-prepared/row-{count}");
-        let bytes = count * elem_traffic + fgf::bits::bytes_for(count);
-        let src = &outsider_bytes[..count * T::BYTES];
-        let mut dst = vec![0u8; top * S::BYTES];
-        let mut valid = vec![0u8; mask_bytes];
-        check_prepared_restrict_row(
-            pair,
-            "restrict-nonmember-prepared",
-            map,
-            &prepared,
-            src,
-            &mut dst,
-            &mut valid,
-            count,
-        );
-        bench_region(&label, bytes, || {
-            let src = black_box(src);
-            let dst = black_box(&mut dst[..count * S::BYTES]);
-            let valid = black_box(&mut valid[..fgf::bits::bytes_for(count)]);
-            ops::restrict_into_with(dst, valid, black_box(&prepared), src);
-            black_box((dst, valid));
-        });
-    }
-    for &count in region_counts() {
-        let label = format!("field-maps/{pair}/restrict-mixed-prepared/row-{count}");
-        let bytes = count * elem_traffic + fgf::bits::bytes_for(count);
-        let src = &mixed_restrict_bytes[..count * T::BYTES];
-        let mut dst = vec![0u8; top * S::BYTES];
-        let mut valid = vec![0u8; mask_bytes];
-        check_prepared_restrict_row(
-            pair,
-            "restrict-mixed-prepared",
-            map,
-            &prepared,
-            src,
-            &mut dst,
-            &mut valid,
-            count,
-        );
-        bench_region(&label, bytes, || {
-            let src = black_box(src);
-            let dst = black_box(&mut dst[..count * S::BYTES]);
-            let valid = black_box(&mut valid[..fgf::bits::bytes_for(count)]);
-            ops::restrict_into_with(dst, valid, black_box(&prepared), src);
-            black_box((dst, valid));
-        });
-    }
-    for &count in region_counts() {
         let label = format!("field-maps/{pair}/contains/row-{count}");
         let bytes = count * T::BYTES + fgf::bits::bytes_for(count);
         let src = &mixed_bytes[..count * T::BYTES];
@@ -1319,27 +969,6 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
         });
     }
     for &count in region_counts() {
-        let label = format!("field-maps/{pair}/contains-prepared/row-{count}");
-        let bytes = count * T::BYTES + fgf::bits::bytes_for(count);
-        let src = &mixed_bytes[..count * T::BYTES];
-        let mut valid = vec![0u8; mask_bytes];
-        check_prepared_contains_row(
-            pair,
-            "contains-prepared",
-            map,
-            &prepared,
-            src,
-            &mut valid,
-            count,
-        );
-        bench_region(&label, bytes, || {
-            let src = black_box(src);
-            let valid = black_box(&mut valid[..fgf::bits::bytes_for(count)]);
-            ops::contains_into_with(valid, black_box(&prepared), src);
-            black_box(valid);
-        });
-    }
-    for &count in region_counts() {
         let label = format!("field-maps/{pair}/frobenius/row-{count}");
         let bytes = 2 * count * T::BYTES;
         let src = &mixed_bytes[..count * T::BYTES];
@@ -1353,23 +982,6 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
             {
                 T::encode(d, map.frobenius(T::decode(s)));
             }
-            black_box(dst);
-        });
-    }
-    for &count in region_counts() {
-        let label = format!("field-maps/{pair}/frobenius-prepared/row-{count}");
-        // Frobenius is T → T: one target element each way, unlike the
-        // S → T traffic of the embedding panels beside it.
-        let bytes = count * 2 * T::BYTES;
-        // Same relative map as the compact row, prepared once outside the
-        // timed region; the destination is reused across batches.
-        let prepared = Frobenius::<T>::new(S::DEGREE);
-        let src = &mixed_bytes[..count * T::BYTES];
-        let mut dst = vec![0u8; top * T::BYTES];
-        bench_region(&label, bytes, || {
-            let src = black_box(src);
-            let dst = black_box(&mut dst[..count * T::BYTES]);
-            ops::frobenius_into_with(dst, black_box(&prepared), src);
             black_box(dst);
         });
     }
@@ -1391,27 +1003,6 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
         });
     }
     for &count in region_counts() {
-        let label = format!("field-maps/{pair}/trace-prepared/row-{count}");
-        let bytes = count * elem_traffic;
-        let src = &mixed_bytes[..count * T::BYTES];
-        let mut dst = vec![0u8; top * S::BYTES];
-        check_prepared_element_row(
-            pair,
-            "trace-prepared",
-            |d, x| ops::trace_into_with(d, &prepared, x),
-            |y| map.trace(y),
-            src,
-            &mut dst,
-            count,
-        );
-        bench_region(&label, bytes, || {
-            let src = black_box(src);
-            let dst = black_box(&mut dst[..count * S::BYTES]);
-            ops::trace_into_with(dst, black_box(&prepared), src);
-            black_box(dst);
-        });
-    }
-    for &count in region_counts() {
         let label = format!("field-maps/{pair}/norm/row-{count}");
         let bytes = count * elem_traffic;
         let src = &mixed_bytes[..count * T::BYTES];
@@ -1425,27 +1016,6 @@ fn emb_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
             {
                 S::encode(d, map.norm(T::decode(s)));
             }
-            black_box(dst);
-        });
-    }
-    for &count in region_counts() {
-        let label = format!("field-maps/{pair}/norm-prepared/row-{count}");
-        let bytes = count * elem_traffic;
-        let src = &mixed_bytes[..count * T::BYTES];
-        let mut dst = vec![0u8; top * S::BYTES];
-        check_prepared_element_row(
-            pair,
-            "norm-prepared",
-            |d, x| ops::norm_into_with(d, &prepared, x),
-            |y| map.norm(y),
-            src,
-            &mut dst,
-            count,
-        );
-        bench_region(&label, bytes, || {
-            let src = black_box(src);
-            let dst = black_box(&mut dst[..count * S::BYTES]);
-            ops::norm_into_with(dst, black_box(&prepared), src);
             black_box(dst);
         });
     }
@@ -1466,28 +1036,6 @@ fn emb_construct_panels<
         }
         ops as u64
     });
-    // Isolated preparation cost for the PR-4 amortization decision: the
-    // compact map is built once outside timing, so the row times
-    // `PreparedEmbedding::new` alone, not combined construction.
-    let compact = Embedding::<S, T>::new().expect("a validated pair constructs");
-    bench_scalar(
-        &format!("field-maps/{pair}/construct-embedding/once"),
-        |ops| {
-            for _ in 0..ops {
-                black_box(PreparedEmbedding::<S, T>::new(black_box(&compact)));
-            }
-            ops as u64
-        },
-    );
-    bench_scalar(
-        &format!("field-maps/{pair}/frobenius-prepared/once"),
-        |ops| {
-            for _ in 0..ops {
-                black_box(Frobenius::<T>::new(S::DEGREE));
-            }
-            ops as u64
-        },
-    );
     if smoke() {
         return;
     }
@@ -1522,29 +1070,6 @@ fn emb_construct_once<S: Field, T: Field<Characteristic = S::Characteristic>>(pa
         }
         ops as u64
     });
-    let compact = Embedding::<S, T>::new().expect("a validated pair constructs");
-    bench_scalar(
-        &format!("field-maps/{pair}/construct-embedding/once"),
-        |ops| {
-            for _ in 0..ops {
-                black_box(PreparedEmbedding::<S, T>::new(black_box(&compact)));
-            }
-            ops as u64
-        },
-    );
-}
-
-/// Scalar-only Frobenius preparation panel for pairs with no byte form.
-fn frob_construct_once<T: Field>(pair: &str, m: u32) {
-    bench_scalar(
-        &format!("field-maps/{pair}/frobenius-prepared/once"),
-        |ops| {
-            for _ in 0..ops {
-                black_box(Frobenius::<T>::new(m));
-            }
-            ops as u64
-        },
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1579,29 +1104,6 @@ fn iso_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
         black_box(acc);
         ops as u64
     });
-    let prepared = PreparedIsomorphism::<S, T>::new(map);
-    bench_scalar(
-        &format!("field-maps/{pair}/apply-prepared/scalar-chain"),
-        |ops| {
-            let mut acc = Elem::<T>::ZERO;
-            for i in 0..ops {
-                acc = black_box(prepared.apply(staged_sources[i & stage]));
-            }
-            black_box(acc);
-            ops as u64
-        },
-    );
-    bench_scalar(
-        &format!("field-maps/{pair}/unapply-prepared/scalar-chain"),
-        |ops| {
-            let mut acc = Elem::<S>::ZERO;
-            for i in 0..ops {
-                acc = black_box(prepared.unapply(staged_targets[i & stage]));
-            }
-            black_box(acc);
-            ops as u64
-        },
-    );
 }
 
 /// Region panels for one isomorphism pair: the same compact-map control
@@ -1616,8 +1118,6 @@ fn iso_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
     let source_bytes = encode_staged::<S>(pair, "apply", &sources);
     let image_bytes = encode_staged::<T>(pair, "unapply", &images);
     let traffic = S::BYTES + T::BYTES;
-    let prepared = PreparedIsomorphism::<S, T>::new(map);
-
     for &count in region_counts() {
         let label = format!("field-maps/{pair}/apply/row-{count}");
         let bytes = count * traffic;
@@ -1652,60 +1152,6 @@ fn iso_region_panels<S: FieldBuffer, T: Field<Characteristic = S::Characteristic
             black_box(dst);
         });
     }
-    for &count in region_counts() {
-        let label = format!("field-maps/{pair}/apply-prepared/row-{count}");
-        let bytes = count * traffic;
-        let src = &source_bytes[..count * S::BYTES];
-        let mut dst = vec![0u8; top * T::BYTES];
-        ops::apply_into_with(&mut dst[..count * T::BYTES], &prepared, src);
-        for (i, (x, lane)) in src
-            .chunks_exact(S::BYTES)
-            .zip(dst.chunks_exact(T::BYTES))
-            .enumerate()
-            .take(count)
-        {
-            let mut expect = vec![0u8; T::BYTES];
-            T::encode(&mut expect, map.apply(S::decode(x)));
-            assert_eq!(
-                lane,
-                expect.as_slice(),
-                "field-maps {pair} apply-prepared lane {i}"
-            );
-        }
-        bench_region(&label, bytes, || {
-            let src = black_box(src);
-            let dst = black_box(&mut dst[..count * T::BYTES]);
-            ops::apply_into_with(dst, black_box(&prepared), src);
-            black_box(dst);
-        });
-    }
-    for &count in region_counts() {
-        let label = format!("field-maps/{pair}/unapply-prepared/row-{count}");
-        let bytes = count * traffic;
-        let src = &image_bytes[..count * T::BYTES];
-        let mut dst = vec![0u8; top * S::BYTES];
-        ops::unapply_into_with(&mut dst[..count * S::BYTES], &prepared, src);
-        for (i, (y, lane)) in src
-            .chunks_exact(T::BYTES)
-            .zip(dst.chunks_exact(S::BYTES))
-            .enumerate()
-            .take(count)
-        {
-            let mut expect = vec![0u8; S::BYTES];
-            S::encode(&mut expect, map.unapply(T::decode(y)));
-            assert_eq!(
-                lane,
-                expect.as_slice(),
-                "field-maps {pair} unapply-prepared lane {i}"
-            );
-        }
-        bench_region(&label, bytes, || {
-            let src = black_box(src);
-            let dst = black_box(&mut dst[..count * S::BYTES]);
-            ops::unapply_into_with(dst, black_box(&prepared), src);
-            black_box(dst);
-        });
-    }
 }
 
 /// Isomorphism construction timed separately, plus construction with 16384
@@ -1723,16 +1169,6 @@ fn iso_construct_panels<
         }
         ops as u64
     });
-    let compact = Isomorphism::<S, T>::new().expect("a validated pair constructs");
-    bench_scalar(
-        &format!("field-maps/{pair}/construct-isomorphism/once"),
-        |ops| {
-            for _ in 0..ops {
-                black_box(PreparedIsomorphism::<S, T>::new(black_box(&compact)));
-            }
-            ops as u64
-        },
-    );
     if smoke() {
         return;
     }
@@ -1797,354 +1233,6 @@ fn run_emb_pair_scalar<S: Field, T: Field<Characteristic = S::Characteristic>>(p
     println!("field-maps panel: {pair} (embedding)");
     emb_scalar_panels(pair, &map, true);
     emb_construct_once::<S, T>(pair);
-    frob_construct_once::<T>(pair, S::DEGREE);
-}
-
-/// One GF(2)-sourced bit/lane interop pair: the compact scalar chains and
-/// construction panels, then the `ops::map_bits` packed-bit rows beside
-/// them. The bits rows read packed GF(2) bits LSB-first on one side and
-/// stable target lanes on the other, per the `ops::map_bits`
-/// representation contract. The panel heading declares the bit-width
-/// source (`endpoint bits 1 -> B`); the scalar chains underneath time the
-/// same compact methods as every other pair.
-#[allow(clippy::too_many_lines)]
-fn run_emb_pair_bits<
-    S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
-    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
->(
-    pair: &str,
-) {
-    let map = Embedding::<S, T>::new()
-        .unwrap_or_else(|error| panic!("field-maps {pair}: construction failed: {error:?}"));
-    validate_embedding(pair, &map);
-    println!(
-        "field-maps panel: {pair} (embedding) endpoint bits 1 -> {}",
-        T::BYTES,
-    );
-    emb_scalar_panels(pair, &map, true);
-    emb_construct_once::<S, T>(pair);
-    frob_construct_once::<T>(pair, S::DEGREE);
-    emb_bits_panels(pair, &map);
-}
-
-/// Bits rows appended to a pair the scalar runner already emitted: the
-/// same `emb_bits_panels` rows under a second bits-form heading, without
-/// repeating the scalar chains. Used for `gf1-gf64`, whose scalar-only
-/// pair stays intact.
-fn run_emb_pair_bits_append<
-    S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
-    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
->(
-    pair: &str,
-) {
-    let map = Embedding::<S, T>::new()
-        .unwrap_or_else(|error| panic!("field-maps {pair}: construction failed: {error:?}"));
-    validate_embedding(pair, &map);
-    println!(
-        "field-maps panel: {pair} (embedding) endpoint bits 1 -> {}",
-        T::BYTES,
-    );
-    emb_bits_panels(pair, &map);
-}
-
-/// Packed-bit rows for one GF(2)-sourced pair: each `*-bits` arm times an
-/// `ops::map_bits` row, and each `*-bits-control` arm times the matching
-/// per-bit read plus prepared scalar method plus write loop. The row must
-/// equal the control before timing (full packed outputs including tails)
-/// and beat it. Construction (`Embedding::new`,
-/// `PreparedEmbedding::new`), staging, and allocation stay outside the
-/// timed regions.
-#[allow(clippy::too_many_lines)]
-fn emb_bits_panels<
-    S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
-    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
->(
-    pair: &str,
-    map: &Embedding<S, T>,
-) {
-    let prepared = PreparedEmbedding::<S, T>::new(map);
-    let top = region_counts().iter().max().copied().unwrap_or(1);
-    let pack_len = fgf::bits::bytes_for(top);
-    // Staged target lanes: the mixed member/outsider rotation the
-    // byte-form panels use, so every op sees both outcomes at each count.
-    let sources: Vec<Elem<S>> = field_samples(top, 0x860);
-    let members: Vec<Elem<T>> = sources.iter().map(|x| map.embed(*x)).collect();
-    let outsiders = synthesize_outsiders(pair, map, &members, top);
-    let mixed: Vec<Elem<T>> = (0..top)
-        .map(|i| {
-            if (i + 0x5A) % 2 == 0 {
-                members[i % members.len()]
-            } else {
-                outsiders[i % outsiders.len()]
-            }
-        })
-        .collect();
-    let lane_bytes = encode_staged::<T>(pair, "bits", &mixed);
-    let member_bytes = encode_staged::<T>(pair, "bits-member", &members);
-    // Staged packed source bits: member preimages when the lane is in the
-    // image, zero otherwise (a valid zero keeps its membership; every
-    // embed row validates against the per-bit oracle below).
-    let mut pack_src = vec![0u8; pack_len];
-    fgf::bits::clear_range(&mut pack_src, top, 0, top);
-    for (i, y) in mixed.iter().enumerate() {
-        if let Some(x) = map.restrict(*y)
-            && x.is_one()
-        {
-            fgf::bits::set_range(&mut pack_src, top, i, i + 1);
-        }
-    }
-    let packed_traffic = |count: usize| count * T::BYTES + fgf::bits::bytes_for(count);
-    // Decode one packed bit the way the control loop reads it: the scalar
-    // oracle each `*-bits` row must equal.
-    let read_bit = |packed: &[u8], i: usize| {
-        if packed[i / 8] & (1 << (i % 8)) == 0 {
-            Elem::<S>::ZERO
-        } else {
-            Elem::<S>::ONE
-        }
-    };
-    for &count in region_counts() {
-        let mask_len = fgf::bits::bytes_for(count);
-        // --- embed-bits: packed bits into target lanes. ---
-        {
-            let label = format!("field-maps/{pair}/embed-bits/row-{count}");
-            let bytes = packed_traffic(count);
-            let src = &pack_src[..mask_len];
-            let mut dst = vec![0u8; top * T::BYTES];
-            let mut control = vec![0u8; top * T::BYTES];
-            ops::map_bits::embed_into_with(&mut dst[..count * T::BYTES], &prepared, src, count);
-            for (i, d) in control.chunks_exact_mut(T::BYTES).enumerate().take(count) {
-                T::encode(d, prepared.embed(read_bit(src, i)));
-            }
-            assert_eq!(
-                &dst[..count * T::BYTES],
-                &control[..count * T::BYTES],
-                "field-maps {pair} embed-bits row differs from its control"
-            );
-            bench_region(&label, bytes, || {
-                let src = black_box(src);
-                let dst = black_box(&mut dst[..count * T::BYTES]);
-                ops::map_bits::embed_into_with(dst, black_box(&prepared), src, count);
-                black_box(dst);
-            });
-        }
-        {
-            let label = format!("field-maps/{pair}/embed-bits-control/row-{count}");
-            let bytes = packed_traffic(count);
-            let src = &pack_src[..mask_len];
-            let mut dst = vec![0u8; top * T::BYTES];
-            bench_region(&label, bytes, || {
-                let src = black_box(src);
-                let dst = black_box(&mut dst[..count * T::BYTES]);
-                for (i, d) in dst.chunks_exact_mut(T::BYTES).enumerate() {
-                    T::encode(d, black_box(&prepared).embed(read_bit(black_box(src), i)));
-                }
-                black_box(dst);
-            });
-        }
-        // --- trace-bits / norm-bits: lanes into packed bits. ---
-        for (op, is_trace) in [("trace-bits", true), ("norm-bits", false)] {
-            let label = format!("field-maps/{pair}/{op}/row-{count}");
-            let bytes = packed_traffic(count);
-            let src = &lane_bytes[..count * T::BYTES];
-            let mut dst = vec![0u8; pack_len];
-            let mut control = vec![0u8; pack_len];
-            if is_trace {
-                ops::map_bits::trace_into_with(&mut dst[..mask_len], &prepared, src, count);
-            } else {
-                ops::map_bits::norm_into_with(&mut dst[..mask_len], &prepared, src, count);
-            }
-            fgf::bits::clear_range(&mut control[..mask_len], count, 0, count);
-            for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
-                let bit = if is_trace {
-                    prepared.trace(T::decode(s))
-                } else {
-                    prepared.norm(T::decode(s))
-                };
-                if bit.is_one() {
-                    fgf::bits::set_range(&mut control[..mask_len], count, i, i + 1);
-                }
-            }
-            assert_eq!(
-                &dst[..mask_len],
-                &control[..mask_len],
-                "field-maps {pair} {op} row differs from its control"
-            );
-            bench_region(&label, bytes, || {
-                let src = black_box(src);
-                let dst = black_box(&mut dst[..mask_len]);
-                if is_trace {
-                    ops::map_bits::trace_into_with(
-                        dst,
-                        black_box(&prepared),
-                        black_box(src),
-                        count,
-                    );
-                } else {
-                    ops::map_bits::norm_into_with(dst, black_box(&prepared), black_box(src), count);
-                }
-                black_box(dst);
-            });
-            let control_label = format!("field-maps/{pair}/{op}-control/row-{count}");
-            let mut control_dst = vec![0u8; pack_len];
-            bench_region(&control_label, bytes, || {
-                let src = black_box(src);
-                let dst = black_box(&mut control_dst[..mask_len]);
-                fgf::bits::clear_range(dst, count, 0, count);
-                for (i, s) in black_box(src).chunks_exact(T::BYTES).enumerate() {
-                    let bit = if is_trace {
-                        black_box(&prepared).trace(T::decode(s))
-                    } else {
-                        black_box(&prepared).norm(T::decode(s))
-                    };
-                    if bit.is_one() {
-                        fgf::bits::set_range(dst, count, i, i + 1);
-                    }
-                }
-                black_box(dst);
-            });
-        }
-        // --- restrict-bits-member / restrict-bits-mixed / contains-bits. ---
-        for (op, staged) in [
-            ("restrict-bits-member", member_bytes.as_slice()),
-            ("restrict-bits-mixed", lane_bytes.as_slice()),
-            ("contains-bits", lane_bytes.as_slice()),
-        ] {
-            let label = format!("field-maps/{pair}/{op}/row-{count}");
-            let src = &staged[..count * T::BYTES];
-            if op == "contains-bits" {
-                let bytes = packed_traffic(count);
-                let mut dst = vec![0u8; pack_len];
-                let mut control = vec![0u8; pack_len];
-                ops::map_bits::contains_into_with(&mut dst[..mask_len], &prepared, src, count);
-                fgf::bits::clear_range(&mut control[..mask_len], count, 0, count);
-                for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
-                    if prepared.contains(T::decode(s)) {
-                        fgf::bits::set_range(&mut control[..mask_len], count, i, i + 1);
-                    }
-                }
-                assert_eq!(
-                    &dst[..mask_len],
-                    &control[..mask_len],
-                    "field-maps {pair} {op} row differs from its control"
-                );
-                bench_region(&label, bytes, || {
-                    let src = black_box(src);
-                    let dst = black_box(&mut dst[..mask_len]);
-                    ops::map_bits::contains_into_with(dst, black_box(&prepared), src, count);
-                    black_box(dst);
-                });
-                let control_label = format!("field-maps/{pair}/{op}-control/row-{count}");
-                let mut control_dst = vec![0u8; pack_len];
-                bench_region(&control_label, bytes, || {
-                    let src = black_box(src);
-                    let dst = black_box(&mut control_dst[..mask_len]);
-                    fgf::bits::clear_range(dst, count, 0, count);
-                    for (i, s) in black_box(src).chunks_exact(T::BYTES).enumerate() {
-                        if black_box(&prepared).contains(T::decode(s)) {
-                            fgf::bits::set_range(dst, count, i, i + 1);
-                        }
-                    }
-                    black_box(dst);
-                });
-            } else {
-                let bytes = packed_traffic(count) + fgf::bits::bytes_for(count);
-                let mut dst = vec![0u8; pack_len];
-                let mut valid = vec![0u8; pack_len];
-                let mut control_dst = vec![0u8; pack_len];
-                let mut control_valid = vec![0u8; pack_len];
-                ops::map_bits::restrict_into_with(
-                    &mut dst[..mask_len],
-                    &mut valid[..mask_len],
-                    &prepared,
-                    src,
-                    count,
-                );
-                fgf::bits::clear_range(&mut control_dst[..mask_len], count, 0, count);
-                fgf::bits::clear_range(&mut control_valid[..mask_len], count, 0, count);
-                for (i, s) in src.chunks_exact(T::BYTES).enumerate() {
-                    if let Some(x) = prepared.restrict(T::decode(s)) {
-                        if x.is_one() {
-                            fgf::bits::set_range(&mut control_dst[..mask_len], count, i, i + 1);
-                        }
-                        fgf::bits::set_range(&mut control_valid[..mask_len], count, i, i + 1);
-                    }
-                }
-                assert_eq!(
-                    &dst[..mask_len],
-                    &control_dst[..mask_len],
-                    "field-maps {pair} {op} row differs from its control"
-                );
-                assert_eq!(
-                    &valid[..mask_len],
-                    &control_valid[..mask_len],
-                    "field-maps {pair} {op} validity differs from its control"
-                );
-                bench_region(&label, bytes, || {
-                    let src = black_box(src);
-                    let dst = black_box(&mut dst[..mask_len]);
-                    let valid = black_box(&mut valid[..mask_len]);
-                    ops::map_bits::restrict_into_with(dst, valid, black_box(&prepared), src, count);
-                    black_box((dst, valid));
-                });
-                let control_label = format!("field-maps/{pair}/{op}-control/row-{count}");
-                let mut control_timed_dst = vec![0u8; pack_len];
-                let mut control_timed_valid = vec![0u8; pack_len];
-                bench_region(&control_label, bytes, || {
-                    let src = black_box(src);
-                    let dst = black_box(&mut control_timed_dst[..mask_len]);
-                    let valid = black_box(&mut control_timed_valid[..mask_len]);
-                    fgf::bits::clear_range(dst, count, 0, count);
-                    fgf::bits::clear_range(valid, count, 0, count);
-                    for (i, s) in black_box(src).chunks_exact(T::BYTES).enumerate() {
-                        if let Some(x) = black_box(&prepared).restrict(T::decode(s)) {
-                            if x.is_one() {
-                                fgf::bits::set_range(dst, count, i, i + 1);
-                            }
-                            fgf::bits::set_range(valid, count, i, i + 1);
-                        }
-                    }
-                    black_box((dst, valid));
-                });
-            }
-        }
-    }
-}
-
-/// Validation-only arm over the normal-basis target: the `gf1-normal8`
-/// pair runs the same bits kernel through the oracle checks and times
-/// nothing. It prints no `field-maps panel` line: `gf1-normal8` is not a
-/// measured pair.
-fn run_emb_pair_bits_validate_only<
-    S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
-    T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,
->(
-    pair: &str,
-) {
-    let map = Embedding::<S, T>::new()
-        .unwrap_or_else(|error| panic!("field-maps {pair}: construction failed: {error:?}"));
-    validate_embedding(pair, &map);
-    let prepared = PreparedEmbedding::<S, T>::new(&map);
-    for &count in region_counts() {
-        let pack_len = fgf::bits::bytes_for(count);
-        let targets: Vec<Elem<T>> = field_samples(count, 0xB17);
-        let lanes = encode_staged::<T>(pair, "bits-validate", &targets);
-        let mut packed = vec![0u8; pack_len.max(1)];
-        let mut control = vec![0u8; pack_len.max(1)];
-        let slice_len = pack_len;
-        ops::map_bits::trace_into_with(&mut packed[..slice_len], &prepared, &lanes, count);
-        fgf::bits::clear_range(&mut control[..slice_len], count, 0, count);
-        for (i, s) in lanes.chunks_exact(T::BYTES).enumerate() {
-            if prepared.trace(T::decode(s)).is_one() {
-                fgf::bits::set_range(&mut control[..slice_len], count, i, i + 1);
-            }
-        }
-        assert_eq!(
-            &packed[..slice_len],
-            &control[..slice_len],
-            "field-maps {pair} validation-only trace row differs from its oracle"
-        );
-    }
 }
 
 /// One isomorphism pair: construct, validate, then run the apply/unapply
@@ -2284,7 +1372,6 @@ fn main() {
 fn run_panels() {
     if smoke() {
         run_emb_pair::<Gf16, Gf64>("gf16-gf64");
-        run_emb_pair_bits::<Gf1, Gf16>("gf1-gf16");
         run_iso_pair::<Fp64, Gf64>("fp64-gf64-iso");
         return;
     }
@@ -2313,12 +1400,10 @@ fn run_panels() {
     run_emb_pair::<R7, G343>("r7-g343");
     run_emb_pair::<R3, G340>("r3-g3-40");
     run_emb_pair_scalar::<Ref2, Ref8>("ref2-ref8");
+    run_emb_pair_scalar::<Gf1, Aes8>("gf1-aes8");
+    run_emb_pair_scalar::<Gf1, Gf16>("gf1-gf16");
+    run_emb_pair_scalar::<Gf1, Gf32>("gf1-gf32");
     run_emb_pair_scalar::<Gf1, Gf64>("gf1-gf64");
-    run_emb_pair_bits::<Gf1, Aes8>("gf1-aes8");
-    run_emb_pair_bits::<Gf1, Gf16>("gf1-gf16");
-    run_emb_pair_bits::<Gf1, Gf32>("gf1-gf32");
-    run_emb_pair_bits_append::<Gf1, Gf64>("gf1-gf64");
-    run_emb_pair_bits_validate_only::<Gf1, Normal8>("gf1-normal8");
     run_iso_pair::<Fp64, Gf64>("fp64-gf64-iso");
     run_iso_pair::<Normal8, Aes8>("normal8-aes8-iso");
 }

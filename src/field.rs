@@ -86,8 +86,6 @@ pub use binary::{
     Polynomial, RS,
 };
 pub use embedding::{Embedding, EmbeddingError, Isomorphism, Postcompose};
-#[cfg(feature = "alloc")]
-pub use embedding::{Frobenius, PreparedEmbedding, PreparedIsomorphism};
 pub use extension::{
     Components, Extension, ExtensionField, ExtensionSpec, ExtensionStorage, Packed, PackedPadded,
     PackedWord, Relation,
@@ -113,10 +111,9 @@ mod private {
 
     /// The ordinary-residue row of a prime characteristic.
     ///
-    /// The private counterpart of the public characteristic query: each
-    /// prime identity names the degree-one row its compiled odd maps
-    /// accumulate through. `PrimeCharacteristic<P>` is the sole
-    /// implementor.
+    /// Names the degree-one ordinary-residue row of a prime characteristic;
+    /// a sealed supertrait of `PrimeIdentity`. `PrimeCharacteristic<P>` is
+    /// the sole implementor.
     pub trait ResidueRowOf: Sealed {
         /// The degree-one ordinary-residue row of this characteristic.
         type Row: crate::kernel::FieldKernels + super::Field<Characteristic = Self>;
@@ -174,12 +171,12 @@ mod private {
         /// the descriptor's coordinate order. Flat rows cast their word;
         /// packed rows read the pinned word; component rows convert
         /// recursively through `RowAccess`, including residue-two leaves.
-        /// The engine behind `Frobenius` is the only production caller;
-        /// builds without it still run these hooks through the tests.
+        /// The closed-form quadratic maps in
+        /// [`embedding::quadratic`](crate::field::embedding::quadratic) are
+        /// the production caller.
         ///
         /// # Panics
         /// Panics on any row of odd characteristic.
-        #[cfg_attr(not(feature = "alloc"), allow(dead_code))]
         fn coordinate_word(raw: <Self as Field>::Raw) -> u64
         where
             Self: Field;
@@ -191,7 +188,6 @@ mod private {
         ///
         /// # Panics
         /// Panics on any row of odd characteristic.
-        #[cfg_attr(not(feature = "alloc"), allow(dead_code))]
         fn from_coordinate_word(word: u64) -> <Self as Field>::Raw
         where
             Self: Field;
@@ -361,6 +357,10 @@ pub struct PrimeCharacteristic<const P: u64>;
 
 impl<const P: u64> private::Sealed for PrimeCharacteristic<P> {}
 
+impl<const P: u64> private::ResidueRowOf for PrimeCharacteristic<P> {
+    type Row = FiniteField<P, 1, Residue>;
+}
+
 impl<const P: u64> PrimeIdentity for PrimeCharacteristic<P> {
     const CHARACTERISTIC: u64 = {
         assert!(is_prime(P), "characteristic is not prime");
@@ -382,16 +382,6 @@ impl<const P: u64> PrimeIdentity for PrimeCharacteristic<P> {
         (P % 8) as u8
     };
 }
-
-impl<const P: u64> private::ResidueRowOf for PrimeCharacteristic<P> {
-    type Row = FiniteField<P, 1, Residue>;
-}
-
-/// The ordinary-residue row of a field's characteristic.
-///
-/// The degree-one row the compiled odd maps of `F` accumulate through.
-#[cfg(feature = "alloc")]
-pub(crate) type ResidueRow<F> = <<F as Field>::Characteristic as private::ResidueRowOf>::Row;
 
 /// A finite field supported by this crate.
 ///

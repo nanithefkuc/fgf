@@ -44,16 +44,8 @@
 //! assert_eq!(embedding.frobenius(lifted), lifted);
 //! ```
 
-#[cfg(feature = "alloc")]
-mod frobenius;
 mod ladder;
-#[cfg(feature = "alloc")]
-mod prepared;
 pub(crate) mod quadratic;
-#[cfg(feature = "alloc")]
-pub use frobenius::Frobenius;
-#[cfg(feature = "alloc")]
-pub use prepared::{PreparedEmbedding, PreparedIsomorphism};
 
 use core::marker::PhantomData;
 
@@ -1415,10 +1407,6 @@ impl<S: Field, T: Field<Characteristic = S::Characteristic>> Embedding<S, T> {
     /// other pair keeps exponentiation. The arm resolves at compile time
     /// through the degree-2 shape, with no per-call cost, and applies only to
     /// the structural inclusion (see the structural check).
-    ///
-    /// This pow spelling remains the reference behaviour the prepared
-    /// maps must match: `Frobenius`, `PreparedEmbedding`, and
-    /// `PreparedIsomorphism` agree with it element by element.
     #[must_use]
     pub fn frobenius(&self, value: Elem<T>) -> Elem<T> {
         if Self::QUAD_FROBENIUS

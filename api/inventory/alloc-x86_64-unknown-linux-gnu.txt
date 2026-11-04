@@ -175,19 +175,6 @@ impl<S, T> core::marker::Unpin for fgf::field::embedding::Embedding<S, T> where 
 impl<S, T> core::marker::UnsafeUnpin for fgf::field::embedding::Embedding<S, T> where [fgf::field::Elem<T>; 8]: core::marker::UnsafeUnpin, core::marker::PhantomData<fn() -> (S, T)>: core::marker::UnsafeUnpin
 impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::field::embedding::Embedding<S, T> where [fgf::field::Elem<T>; 8]: core::panic::unwind_safe::RefUnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::RefUnwindSafe
 impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::field::embedding::Embedding<S, T> where [fgf::field::Elem<T>; 8]: core::panic::unwind_safe::UnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::UnwindSafe
-pub struct fgf::embedding::Frobenius<F: fgf::field::Field>
-impl<F: fgf::field::Field> fgf::Frobenius<F>
-pub fn fgf::Frobenius<F>::new(u32) -> Self
-pub fn fgf::Frobenius<F>::power(&self) -> u32
-impl<F: fgf::field::Field> core::clone::Clone for fgf::Frobenius<F>
-pub fn fgf::Frobenius<F>::clone(&self) -> Self
-impl<F> core::marker::Freeze for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Freeze
-impl<F> core::marker::Send for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Send
-impl<F> core::marker::Sync for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Sync
-impl<F> core::marker::Unpin for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Unpin
-impl<F> core::marker::UnsafeUnpin for fgf::Frobenius<F> where CompiledMap<F>: core::marker::UnsafeUnpin
-impl<F> core::panic::unwind_safe::RefUnwindSafe for fgf::Frobenius<F> where CompiledMap<F>: core::panic::unwind_safe::RefUnwindSafe
-impl<F> core::panic::unwind_safe::UnwindSafe for fgf::Frobenius<F> where CompiledMap<F>: core::panic::unwind_safe::UnwindSafe
 pub struct fgf::embedding::Isomorphism<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>>
 impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> fgf::field::embedding::Isomorphism<S, T>
 pub fn fgf::field::embedding::Isomorphism<S, T>::apply(&self, fgf::field::Elem<S>) -> fgf::field::Elem<T>
@@ -210,45 +197,6 @@ impl<S, T> core::marker::Unpin for fgf::field::embedding::Isomorphism<S, T> wher
 impl<S, T> core::marker::UnsafeUnpin for fgf::field::embedding::Isomorphism<S, T> where [fgf::field::Elem<T>; 8]: core::marker::UnsafeUnpin, [fgf::field::Elem<S>; 8]: core::marker::UnsafeUnpin, core::marker::PhantomData<fn() -> (S, T)>: core::marker::UnsafeUnpin
 impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::field::embedding::Isomorphism<S, T> where [fgf::field::Elem<T>; 8]: core::panic::unwind_safe::RefUnwindSafe, [fgf::field::Elem<S>; 8]: core::panic::unwind_safe::RefUnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::RefUnwindSafe
 impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::field::embedding::Isomorphism<S, T> where [fgf::field::Elem<T>; 8]: core::panic::unwind_safe::UnwindSafe, [fgf::field::Elem<S>; 8]: core::panic::unwind_safe::UnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::UnwindSafe
-pub struct fgf::embedding::PreparedEmbedding<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> fgf::PreparedEmbedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::contains(&self, fgf::field::Elem<T>) -> bool
-pub fn fgf::PreparedEmbedding<S, T>::embed(&self, fgf::field::Elem<S>) -> fgf::field::Elem<T>
-pub fn fgf::PreparedEmbedding<S, T>::embedding(&self) -> fgf::field::embedding::Embedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::frobenius(&self, fgf::field::Elem<T>) -> fgf::field::Elem<T>
-pub fn fgf::PreparedEmbedding<S, T>::new(&fgf::field::embedding::Embedding<S, T>) -> Self
-pub fn fgf::PreparedEmbedding<S, T>::norm(&self, fgf::field::Elem<T>) -> fgf::field::Elem<S>
-pub fn fgf::PreparedEmbedding<S, T>::relative_degree(&self) -> u32
-pub fn fgf::PreparedEmbedding<S, T>::restrict(&self, fgf::field::Elem<T>) -> core::option::Option<fgf::field::Elem<S>>
-pub fn fgf::PreparedEmbedding<S, T>::trace(&self, fgf::field::Elem<T>) -> fgf::field::Elem<S>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::clone::Clone for fgf::PreparedEmbedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::clone(&self) -> Self
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::fmt::Debug for fgf::PreparedEmbedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<S, T> core::marker::Freeze for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Freeze, PreparedArm<T>: core::marker::Freeze, fgf::Frobenius<T>: core::marker::Freeze, TraceColumns<T>: core::marker::Freeze
-impl<S, T> core::marker::Send for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Send, PreparedArm<T>: core::marker::Send, fgf::Frobenius<T>: core::marker::Send, TraceColumns<T>: core::marker::Send
-impl<S, T> core::marker::Sync for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Sync, PreparedArm<T>: core::marker::Sync, fgf::Frobenius<T>: core::marker::Sync, TraceColumns<T>: core::marker::Sync
-impl<S, T> core::marker::Unpin for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Unpin, PreparedArm<T>: core::marker::Unpin, fgf::Frobenius<T>: core::marker::Unpin, TraceColumns<T>: core::marker::Unpin
-impl<S, T> core::marker::UnsafeUnpin for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::UnsafeUnpin, PreparedArm<T>: core::marker::UnsafeUnpin, fgf::Frobenius<T>: core::marker::UnsafeUnpin, TraceColumns<T>: core::marker::UnsafeUnpin
-impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::panic::unwind_safe::RefUnwindSafe, PreparedArm<T>: core::panic::unwind_safe::RefUnwindSafe, fgf::Frobenius<T>: core::panic::unwind_safe::RefUnwindSafe, TraceColumns<T>: core::panic::unwind_safe::RefUnwindSafe
-impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::panic::unwind_safe::UnwindSafe, PreparedArm<T>: core::panic::unwind_safe::UnwindSafe, fgf::Frobenius<T>: core::panic::unwind_safe::UnwindSafe, TraceColumns<T>: core::panic::unwind_safe::UnwindSafe
-pub struct fgf::embedding::PreparedIsomorphism<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> fgf::PreparedIsomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::apply(&self, fgf::field::Elem<S>) -> fgf::field::Elem<T>
-pub fn fgf::PreparedIsomorphism<S, T>::isomorphism(&self) -> fgf::field::embedding::Isomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::new(&fgf::field::embedding::Isomorphism<S, T>) -> Self
-pub fn fgf::PreparedIsomorphism<S, T>::unapply(&self, fgf::field::Elem<T>) -> fgf::field::Elem<S>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::clone::Clone for fgf::PreparedIsomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::clone(&self) -> Self
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::fmt::Debug for fgf::PreparedIsomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<S, T> core::marker::Freeze for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Freeze, PreparedIsoArm<T>: core::marker::Freeze, PreparedIsoArm<S>: core::marker::Freeze
-impl<S, T> core::marker::Send for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Send, PreparedIsoArm<T>: core::marker::Send, PreparedIsoArm<S>: core::marker::Send
-impl<S, T> core::marker::Sync for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Sync, PreparedIsoArm<T>: core::marker::Sync, PreparedIsoArm<S>: core::marker::Sync
-impl<S, T> core::marker::Unpin for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Unpin, PreparedIsoArm<T>: core::marker::Unpin, PreparedIsoArm<S>: core::marker::Unpin
-impl<S, T> core::marker::UnsafeUnpin for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::UnsafeUnpin, PreparedIsoArm<T>: core::marker::UnsafeUnpin, PreparedIsoArm<S>: core::marker::UnsafeUnpin
-impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::panic::unwind_safe::RefUnwindSafe, PreparedIsoArm<T>: core::panic::unwind_safe::RefUnwindSafe, PreparedIsoArm<S>: core::panic::unwind_safe::RefUnwindSafe
-impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::panic::unwind_safe::UnwindSafe, PreparedIsoArm<T>: core::panic::unwind_safe::UnwindSafe, PreparedIsoArm<S>: core::panic::unwind_safe::UnwindSafe
 pub trait fgf::embedding::Postcompose<Mid: fgf::field::Field, Out: fgf::field::Field>: fgf::field::embedding::compose::Postcompose<Mid, Out>
 impl<Mid: fgf::field::Field, Out: fgf::field::Field, M: fgf::field::embedding::compose::Postcompose<Mid, Out>> fgf::field::embedding::Postcompose<Mid, Out> for M
 pub mod fgf::extension
@@ -1247,19 +1195,6 @@ impl<S, T> core::marker::Unpin for fgf::field::embedding::Embedding<S, T> where 
 impl<S, T> core::marker::UnsafeUnpin for fgf::field::embedding::Embedding<S, T> where [fgf::field::Elem<T>; 8]: core::marker::UnsafeUnpin, core::marker::PhantomData<fn() -> (S, T)>: core::marker::UnsafeUnpin
 impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::field::embedding::Embedding<S, T> where [fgf::field::Elem<T>; 8]: core::panic::unwind_safe::RefUnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::RefUnwindSafe
 impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::field::embedding::Embedding<S, T> where [fgf::field::Elem<T>; 8]: core::panic::unwind_safe::UnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::UnwindSafe
-pub struct fgf::field::embedding::Frobenius<F: fgf::field::Field>
-impl<F: fgf::field::Field> fgf::Frobenius<F>
-pub fn fgf::Frobenius<F>::new(u32) -> Self
-pub fn fgf::Frobenius<F>::power(&self) -> u32
-impl<F: fgf::field::Field> core::clone::Clone for fgf::Frobenius<F>
-pub fn fgf::Frobenius<F>::clone(&self) -> Self
-impl<F> core::marker::Freeze for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Freeze
-impl<F> core::marker::Send for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Send
-impl<F> core::marker::Sync for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Sync
-impl<F> core::marker::Unpin for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Unpin
-impl<F> core::marker::UnsafeUnpin for fgf::Frobenius<F> where CompiledMap<F>: core::marker::UnsafeUnpin
-impl<F> core::panic::unwind_safe::RefUnwindSafe for fgf::Frobenius<F> where CompiledMap<F>: core::panic::unwind_safe::RefUnwindSafe
-impl<F> core::panic::unwind_safe::UnwindSafe for fgf::Frobenius<F> where CompiledMap<F>: core::panic::unwind_safe::UnwindSafe
 pub struct fgf::field::embedding::Isomorphism<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>>
 impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> fgf::field::embedding::Isomorphism<S, T>
 pub fn fgf::field::embedding::Isomorphism<S, T>::apply(&self, fgf::field::Elem<S>) -> fgf::field::Elem<T>
@@ -1282,45 +1217,6 @@ impl<S, T> core::marker::Unpin for fgf::field::embedding::Isomorphism<S, T> wher
 impl<S, T> core::marker::UnsafeUnpin for fgf::field::embedding::Isomorphism<S, T> where [fgf::field::Elem<T>; 8]: core::marker::UnsafeUnpin, [fgf::field::Elem<S>; 8]: core::marker::UnsafeUnpin, core::marker::PhantomData<fn() -> (S, T)>: core::marker::UnsafeUnpin
 impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::field::embedding::Isomorphism<S, T> where [fgf::field::Elem<T>; 8]: core::panic::unwind_safe::RefUnwindSafe, [fgf::field::Elem<S>; 8]: core::panic::unwind_safe::RefUnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::RefUnwindSafe
 impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::field::embedding::Isomorphism<S, T> where [fgf::field::Elem<T>; 8]: core::panic::unwind_safe::UnwindSafe, [fgf::field::Elem<S>; 8]: core::panic::unwind_safe::UnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::UnwindSafe
-pub struct fgf::field::embedding::PreparedEmbedding<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> fgf::PreparedEmbedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::contains(&self, fgf::field::Elem<T>) -> bool
-pub fn fgf::PreparedEmbedding<S, T>::embed(&self, fgf::field::Elem<S>) -> fgf::field::Elem<T>
-pub fn fgf::PreparedEmbedding<S, T>::embedding(&self) -> fgf::field::embedding::Embedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::frobenius(&self, fgf::field::Elem<T>) -> fgf::field::Elem<T>
-pub fn fgf::PreparedEmbedding<S, T>::new(&fgf::field::embedding::Embedding<S, T>) -> Self
-pub fn fgf::PreparedEmbedding<S, T>::norm(&self, fgf::field::Elem<T>) -> fgf::field::Elem<S>
-pub fn fgf::PreparedEmbedding<S, T>::relative_degree(&self) -> u32
-pub fn fgf::PreparedEmbedding<S, T>::restrict(&self, fgf::field::Elem<T>) -> core::option::Option<fgf::field::Elem<S>>
-pub fn fgf::PreparedEmbedding<S, T>::trace(&self, fgf::field::Elem<T>) -> fgf::field::Elem<S>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::clone::Clone for fgf::PreparedEmbedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::clone(&self) -> Self
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::fmt::Debug for fgf::PreparedEmbedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<S, T> core::marker::Freeze for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Freeze, PreparedArm<T>: core::marker::Freeze, fgf::Frobenius<T>: core::marker::Freeze, TraceColumns<T>: core::marker::Freeze
-impl<S, T> core::marker::Send for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Send, PreparedArm<T>: core::marker::Send, fgf::Frobenius<T>: core::marker::Send, TraceColumns<T>: core::marker::Send
-impl<S, T> core::marker::Sync for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Sync, PreparedArm<T>: core::marker::Sync, fgf::Frobenius<T>: core::marker::Sync, TraceColumns<T>: core::marker::Sync
-impl<S, T> core::marker::Unpin for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Unpin, PreparedArm<T>: core::marker::Unpin, fgf::Frobenius<T>: core::marker::Unpin, TraceColumns<T>: core::marker::Unpin
-impl<S, T> core::marker::UnsafeUnpin for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::UnsafeUnpin, PreparedArm<T>: core::marker::UnsafeUnpin, fgf::Frobenius<T>: core::marker::UnsafeUnpin, TraceColumns<T>: core::marker::UnsafeUnpin
-impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::panic::unwind_safe::RefUnwindSafe, PreparedArm<T>: core::panic::unwind_safe::RefUnwindSafe, fgf::Frobenius<T>: core::panic::unwind_safe::RefUnwindSafe, TraceColumns<T>: core::panic::unwind_safe::RefUnwindSafe
-impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::panic::unwind_safe::UnwindSafe, PreparedArm<T>: core::panic::unwind_safe::UnwindSafe, fgf::Frobenius<T>: core::panic::unwind_safe::UnwindSafe, TraceColumns<T>: core::panic::unwind_safe::UnwindSafe
-pub struct fgf::field::embedding::PreparedIsomorphism<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> fgf::PreparedIsomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::apply(&self, fgf::field::Elem<S>) -> fgf::field::Elem<T>
-pub fn fgf::PreparedIsomorphism<S, T>::isomorphism(&self) -> fgf::field::embedding::Isomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::new(&fgf::field::embedding::Isomorphism<S, T>) -> Self
-pub fn fgf::PreparedIsomorphism<S, T>::unapply(&self, fgf::field::Elem<T>) -> fgf::field::Elem<S>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::clone::Clone for fgf::PreparedIsomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::clone(&self) -> Self
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::fmt::Debug for fgf::PreparedIsomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<S, T> core::marker::Freeze for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Freeze, PreparedIsoArm<T>: core::marker::Freeze, PreparedIsoArm<S>: core::marker::Freeze
-impl<S, T> core::marker::Send for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Send, PreparedIsoArm<T>: core::marker::Send, PreparedIsoArm<S>: core::marker::Send
-impl<S, T> core::marker::Sync for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Sync, PreparedIsoArm<T>: core::marker::Sync, PreparedIsoArm<S>: core::marker::Sync
-impl<S, T> core::marker::Unpin for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Unpin, PreparedIsoArm<T>: core::marker::Unpin, PreparedIsoArm<S>: core::marker::Unpin
-impl<S, T> core::marker::UnsafeUnpin for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::UnsafeUnpin, PreparedIsoArm<T>: core::marker::UnsafeUnpin, PreparedIsoArm<S>: core::marker::UnsafeUnpin
-impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::panic::unwind_safe::RefUnwindSafe, PreparedIsoArm<T>: core::panic::unwind_safe::RefUnwindSafe, PreparedIsoArm<S>: core::panic::unwind_safe::RefUnwindSafe
-impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::panic::unwind_safe::UnwindSafe, PreparedIsoArm<T>: core::panic::unwind_safe::UnwindSafe, PreparedIsoArm<S>: core::panic::unwind_safe::UnwindSafe
 pub trait fgf::field::embedding::Postcompose<Mid: fgf::field::Field, Out: fgf::field::Field>: fgf::field::embedding::compose::Postcompose<Mid, Out>
 impl<Mid: fgf::field::Field, Out: fgf::field::Field, M: fgf::field::embedding::compose::Postcompose<Mid, Out>> fgf::field::embedding::Postcompose<Mid, Out> for M
 pub mod fgf::field::extension
@@ -2612,8 +2508,6 @@ impl<F: fgf::field::Field> fgf::field::Elem<F>
 pub const fgf::field::Elem<F>::ONE: Self
 pub const fgf::field::Elem<F>::ZERO: Self
 pub const fn fgf::field::Elem<F>::to_raw(self) -> <F as fgf::field::Field>::Raw
-impl<F: fgf::field::Field> fgf::field::Elem<F>
-pub fn fgf::field::Elem<F>::frobenius_with(self, &fgf::Frobenius<F>) -> Self
 impl<F: fgf::field::HasGenerator> fgf::field::Elem<F>
 pub const fgf::field::Elem<F>::GENERATOR: Self
 impl<R: fgf::field::binary::BinaryRepr<1>> fgf::field::Elem<fgf::field::finite_field::FiniteField<2, 1, R>>
@@ -3190,19 +3084,6 @@ impl<const P: u64, const N: u32, R> core::marker::Unpin for fgf::field::finite_f
 impl<const P: u64, const N: u32, R> core::marker::UnsafeUnpin for fgf::field::finite_field::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::marker::UnsafeUnpin
 impl<const P: u64, const N: u32, R> core::panic::unwind_safe::RefUnwindSafe for fgf::field::finite_field::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::panic::unwind_safe::RefUnwindSafe
 impl<const P: u64, const N: u32, R> core::panic::unwind_safe::UnwindSafe for fgf::field::finite_field::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::panic::unwind_safe::UnwindSafe
-pub struct fgf::field::Frobenius<F: fgf::field::Field>
-impl<F: fgf::field::Field> fgf::Frobenius<F>
-pub fn fgf::Frobenius<F>::new(u32) -> Self
-pub fn fgf::Frobenius<F>::power(&self) -> u32
-impl<F: fgf::field::Field> core::clone::Clone for fgf::Frobenius<F>
-pub fn fgf::Frobenius<F>::clone(&self) -> Self
-impl<F> core::marker::Freeze for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Freeze
-impl<F> core::marker::Send for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Send
-impl<F> core::marker::Sync for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Sync
-impl<F> core::marker::Unpin for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Unpin
-impl<F> core::marker::UnsafeUnpin for fgf::Frobenius<F> where CompiledMap<F>: core::marker::UnsafeUnpin
-impl<F> core::panic::unwind_safe::RefUnwindSafe for fgf::Frobenius<F> where CompiledMap<F>: core::panic::unwind_safe::RefUnwindSafe
-impl<F> core::panic::unwind_safe::UnwindSafe for fgf::Frobenius<F> where CompiledMap<F>: core::panic::unwind_safe::UnwindSafe
 pub struct fgf::field::GoldilocksFold
 impl core::clone::Clone for fgf::field::goldilocks::GoldilocksFold
 pub fn fgf::field::goldilocks::GoldilocksFold::clone(&self) -> Self
@@ -3425,45 +3306,6 @@ impl<const P: u128> core::marker::Unpin for fgf::field::binary::poly::Polynomial
 impl<const P: u128> core::marker::UnsafeUnpin for fgf::field::binary::poly::Polynomial<P>
 impl<const P: u128> core::panic::unwind_safe::RefUnwindSafe for fgf::field::binary::poly::Polynomial<P>
 impl<const P: u128> core::panic::unwind_safe::UnwindSafe for fgf::field::binary::poly::Polynomial<P>
-pub struct fgf::field::PreparedEmbedding<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> fgf::PreparedEmbedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::contains(&self, fgf::field::Elem<T>) -> bool
-pub fn fgf::PreparedEmbedding<S, T>::embed(&self, fgf::field::Elem<S>) -> fgf::field::Elem<T>
-pub fn fgf::PreparedEmbedding<S, T>::embedding(&self) -> fgf::field::embedding::Embedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::frobenius(&self, fgf::field::Elem<T>) -> fgf::field::Elem<T>
-pub fn fgf::PreparedEmbedding<S, T>::new(&fgf::field::embedding::Embedding<S, T>) -> Self
-pub fn fgf::PreparedEmbedding<S, T>::norm(&self, fgf::field::Elem<T>) -> fgf::field::Elem<S>
-pub fn fgf::PreparedEmbedding<S, T>::relative_degree(&self) -> u32
-pub fn fgf::PreparedEmbedding<S, T>::restrict(&self, fgf::field::Elem<T>) -> core::option::Option<fgf::field::Elem<S>>
-pub fn fgf::PreparedEmbedding<S, T>::trace(&self, fgf::field::Elem<T>) -> fgf::field::Elem<S>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::clone::Clone for fgf::PreparedEmbedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::clone(&self) -> Self
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::fmt::Debug for fgf::PreparedEmbedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<S, T> core::marker::Freeze for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Freeze, PreparedArm<T>: core::marker::Freeze, fgf::Frobenius<T>: core::marker::Freeze, TraceColumns<T>: core::marker::Freeze
-impl<S, T> core::marker::Send for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Send, PreparedArm<T>: core::marker::Send, fgf::Frobenius<T>: core::marker::Send, TraceColumns<T>: core::marker::Send
-impl<S, T> core::marker::Sync for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Sync, PreparedArm<T>: core::marker::Sync, fgf::Frobenius<T>: core::marker::Sync, TraceColumns<T>: core::marker::Sync
-impl<S, T> core::marker::Unpin for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Unpin, PreparedArm<T>: core::marker::Unpin, fgf::Frobenius<T>: core::marker::Unpin, TraceColumns<T>: core::marker::Unpin
-impl<S, T> core::marker::UnsafeUnpin for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::UnsafeUnpin, PreparedArm<T>: core::marker::UnsafeUnpin, fgf::Frobenius<T>: core::marker::UnsafeUnpin, TraceColumns<T>: core::marker::UnsafeUnpin
-impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::panic::unwind_safe::RefUnwindSafe, PreparedArm<T>: core::panic::unwind_safe::RefUnwindSafe, fgf::Frobenius<T>: core::panic::unwind_safe::RefUnwindSafe, TraceColumns<T>: core::panic::unwind_safe::RefUnwindSafe
-impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::panic::unwind_safe::UnwindSafe, PreparedArm<T>: core::panic::unwind_safe::UnwindSafe, fgf::Frobenius<T>: core::panic::unwind_safe::UnwindSafe, TraceColumns<T>: core::panic::unwind_safe::UnwindSafe
-pub struct fgf::field::PreparedIsomorphism<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> fgf::PreparedIsomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::apply(&self, fgf::field::Elem<S>) -> fgf::field::Elem<T>
-pub fn fgf::PreparedIsomorphism<S, T>::isomorphism(&self) -> fgf::field::embedding::Isomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::new(&fgf::field::embedding::Isomorphism<S, T>) -> Self
-pub fn fgf::PreparedIsomorphism<S, T>::unapply(&self, fgf::field::Elem<T>) -> fgf::field::Elem<S>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::clone::Clone for fgf::PreparedIsomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::clone(&self) -> Self
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::fmt::Debug for fgf::PreparedIsomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<S, T> core::marker::Freeze for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Freeze, PreparedIsoArm<T>: core::marker::Freeze, PreparedIsoArm<S>: core::marker::Freeze
-impl<S, T> core::marker::Send for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Send, PreparedIsoArm<T>: core::marker::Send, PreparedIsoArm<S>: core::marker::Send
-impl<S, T> core::marker::Sync for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Sync, PreparedIsoArm<T>: core::marker::Sync, PreparedIsoArm<S>: core::marker::Sync
-impl<S, T> core::marker::Unpin for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Unpin, PreparedIsoArm<T>: core::marker::Unpin, PreparedIsoArm<S>: core::marker::Unpin
-impl<S, T> core::marker::UnsafeUnpin for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::UnsafeUnpin, PreparedIsoArm<T>: core::marker::UnsafeUnpin, PreparedIsoArm<S>: core::marker::UnsafeUnpin
-impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::panic::unwind_safe::RefUnwindSafe, PreparedIsoArm<T>: core::panic::unwind_safe::RefUnwindSafe, PreparedIsoArm<S>: core::panic::unwind_safe::RefUnwindSafe
-impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::panic::unwind_safe::UnwindSafe, PreparedIsoArm<T>: core::panic::unwind_safe::UnwindSafe, PreparedIsoArm<S>: core::panic::unwind_safe::UnwindSafe
 pub struct fgf::field::PrimeCharacteristic<const P: u64>
 impl<const P: u64> core::clone::Clone for fgf::field::PrimeCharacteristic<P>
 pub fn fgf::field::PrimeCharacteristic<P>::clone(&self) -> Self
@@ -4247,22 +4089,6 @@ impl<const P: u128, const E: u8> core::marker::UnsafeUnpin for fgf::field::binar
 impl<const P: u128, const E: u8> core::panic::unwind_safe::RefUnwindSafe for fgf::field::binary::normal::Normal<P, E>
 impl<const P: u128, const E: u8> core::panic::unwind_safe::UnwindSafe for fgf::field::binary::normal::Normal<P, E>
 pub mod fgf::ops
-pub mod fgf::ops::map
-pub fn fgf::ops::map::apply_into_with<S, T>(&mut [u8], &fgf::PreparedIsomorphism<S, T>, &[u8]) where S: fgf::field::FieldBuffer, T: fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
-pub fn fgf::ops::map::contains_into_with<S, T>(&mut [u8], &fgf::PreparedEmbedding<S, T>, &[u8]) where S: fgf::field::FieldBuffer, T: fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
-pub fn fgf::ops::map::embed_into_with<S, T>(&mut [u8], &fgf::PreparedEmbedding<S, T>, &[u8]) where S: fgf::field::FieldBuffer, T: fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
-pub fn fgf::ops::map::frobenius_assign_with<F: fgf::field::FieldBuffer>(&mut [u8], &fgf::Frobenius<F>)
-pub fn fgf::ops::map::frobenius_into_with<F: fgf::field::FieldBuffer>(&mut [u8], &fgf::Frobenius<F>, &[u8])
-pub fn fgf::ops::map::norm_into_with<S, T>(&mut [u8], &fgf::PreparedEmbedding<S, T>, &[u8]) where S: fgf::field::FieldBuffer, T: fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
-pub fn fgf::ops::map::restrict_into_with<S, T>(&mut [u8], &mut [u8], &fgf::PreparedEmbedding<S, T>, &[u8]) where S: fgf::field::FieldBuffer, T: fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
-pub fn fgf::ops::map::trace_into_with<S, T>(&mut [u8], &fgf::PreparedEmbedding<S, T>, &[u8]) where S: fgf::field::FieldBuffer, T: fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
-pub fn fgf::ops::map::unapply_into_with<S, T>(&mut [u8], &fgf::PreparedIsomorphism<S, T>, &[u8]) where S: fgf::field::FieldBuffer, T: fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
-pub mod fgf::ops::map_bits
-pub fn fgf::ops::map_bits::contains_into_with<S, T>(&mut [u8], &fgf::PreparedEmbedding<S, T>, &[u8], usize) where S: fgf::field::prime::PrimeField<Characteristic = fgf::field::PrimeCharacteristic<2>>, T: fgf::field::binary::BinaryField + fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
-pub fn fgf::ops::map_bits::embed_into_with<S, T>(&mut [u8], &fgf::PreparedEmbedding<S, T>, &[u8], usize) where S: fgf::field::prime::PrimeField<Characteristic = fgf::field::PrimeCharacteristic<2>>, T: fgf::field::binary::BinaryField + fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
-pub fn fgf::ops::map_bits::norm_into_with<S, T>(&mut [u8], &fgf::PreparedEmbedding<S, T>, &[u8], usize) where S: fgf::field::prime::PrimeField<Characteristic = fgf::field::PrimeCharacteristic<2>>, T: fgf::field::binary::BinaryField + fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
-pub fn fgf::ops::map_bits::restrict_into_with<S, T>(&mut [u8], &mut [u8], &fgf::PreparedEmbedding<S, T>, &[u8], usize) where S: fgf::field::prime::PrimeField<Characteristic = fgf::field::PrimeCharacteristic<2>>, T: fgf::field::binary::BinaryField + fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
-pub fn fgf::ops::map_bits::trace_into_with<S, T>(&mut [u8], &fgf::PreparedEmbedding<S, T>, &[u8], usize) where S: fgf::field::prime::PrimeField<Characteristic = fgf::field::PrimeCharacteristic<2>>, T: fgf::field::binary::BinaryField + fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
 pub struct fgf::ops::Coeff<F: fgf::kernel::FieldKernels>
 impl<F: fgf::kernel::FieldKernels> fgf::ops::Coeff<F>
 pub fn fgf::ops::Coeff<F>::new(fgf::field::Elem<F>) -> Self
@@ -4367,14 +4193,9 @@ pub fn fgf::ops::add_assign<F: fgf::kernel::FieldKernels>(&mut [u8], &[u8])
 pub fn fgf::ops::add_assign_rows<F: fgf::kernel::FieldKernels>(&mut [u8], usize, &[u8])
 pub fn fgf::ops::add_assign_scalar<F: fgf::kernel::FieldKernels>(&mut [u8], fgf::field::Elem<F>)
 pub fn fgf::ops::add_gather_offsets<F: fgf::kernel::FieldKernels>(&mut [u8], &[u8], &[u32])
-pub fn fgf::ops::apply_into_with<S, T>(&mut [u8], &fgf::PreparedIsomorphism<S, T>, &[u8]) where S: fgf::field::FieldBuffer, T: fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
-pub fn fgf::ops::contains_into_with<S, T>(&mut [u8], &fgf::PreparedEmbedding<S, T>, &[u8]) where S: fgf::field::FieldBuffer, T: fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
 pub fn fgf::ops::div_elementwise<F: fgf::kernel::FieldKernels>(&mut [u8], &[u8], &[u8])
 pub fn fgf::ops::div_elementwise_assign<F: fgf::kernel::FieldKernels>(&mut [u8], &[u8])
 pub fn fgf::ops::dot_product<F: fgf::kernel::FieldKernels>(&[u8], &[u8]) -> fgf::field::Elem<F>
-pub fn fgf::ops::embed_into_with<S, T>(&mut [u8], &fgf::PreparedEmbedding<S, T>, &[u8]) where S: fgf::field::FieldBuffer, T: fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
-pub fn fgf::ops::frobenius_assign_with<F: fgf::field::FieldBuffer>(&mut [u8], &fgf::Frobenius<F>)
-pub fn fgf::ops::frobenius_into_with<F: fgf::field::FieldBuffer>(&mut [u8], &fgf::Frobenius<F>, &[u8])
 pub fn fgf::ops::inv_assign<F: fgf::kernel::FieldKernels>(&mut [u8])
 pub fn fgf::ops::inv_into<F: fgf::kernel::FieldKernels>(&mut [u8], &[u8])
 pub fn fgf::ops::mul_add<F: fgf::kernel::FieldKernels>(&mut [u8], fgf::field::Elem<F>, &[u8])
@@ -4400,15 +4221,11 @@ pub fn fgf::ops::mul_into_matrix_at_with<F: fgf::kernel::FieldKernels>(&mut [u8]
 pub fn fgf::ops::mul_into_matrix_with<F: fgf::kernel::FieldKernels>(&mut [u8], usize, &fgf::ops::CoeffMatrix<F>, &[&[u8]])
 pub fn fgf::ops::mul_into_scatter<F: fgf::kernel::FieldKernels>(&mut [u8], usize, &[fgf::field::Elem<F>], &[u8])
 pub fn fgf::ops::mul_into_with<F: fgf::kernel::FieldKernels>(&mut [u8], &impl fgf::ops::PreparedCoefficient<F>, &[u8])
-pub fn fgf::ops::norm_into_with<S, T>(&mut [u8], &fgf::PreparedEmbedding<S, T>, &[u8]) where S: fgf::field::FieldBuffer, T: fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
 pub fn fgf::ops::pack<F: fgf::field::FieldBuffer>(&mut [u8], &[fgf::field::Elem<F>])
 pub fn fgf::ops::pack_to_vec<F: fgf::field::FieldBuffer>(&[fgf::field::Elem<F>]) -> alloc::vec::Vec<u8>
-pub fn fgf::ops::restrict_into_with<S, T>(&mut [u8], &mut [u8], &fgf::PreparedEmbedding<S, T>, &[u8]) where S: fgf::field::FieldBuffer, T: fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
 pub fn fgf::ops::sub_assign<F: fgf::kernel::FieldKernels>(&mut [u8], &[u8])
 pub fn fgf::ops::sub_assign_rows<F: fgf::kernel::FieldKernels>(&mut [u8], usize, &[u8])
 pub fn fgf::ops::sub_assign_scalar<F: fgf::kernel::FieldKernels>(&mut [u8], fgf::field::Elem<F>)
-pub fn fgf::ops::trace_into_with<S, T>(&mut [u8], &fgf::PreparedEmbedding<S, T>, &[u8]) where S: fgf::field::FieldBuffer, T: fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
-pub fn fgf::ops::unapply_into_with<S, T>(&mut [u8], &fgf::PreparedIsomorphism<S, T>, &[u8]) where S: fgf::field::FieldBuffer, T: fgf::field::FieldBuffer<Characteristic = <S as fgf::field::Field>::Characteristic>
 pub fn fgf::ops::unpack<F: fgf::field::FieldBuffer>(&mut [fgf::field::Elem<F>], &[u8])
 pub fn fgf::ops::unpack_to_vec<F: fgf::field::FieldBuffer>(&[u8]) -> alloc::vec::Vec<fgf::field::Elem<F>>
 pub mod fgf::poly
@@ -5112,8 +4929,6 @@ impl<F: fgf::field::Field> fgf::field::Elem<F>
 pub const fgf::field::Elem<F>::ONE: Self
 pub const fgf::field::Elem<F>::ZERO: Self
 pub const fn fgf::field::Elem<F>::to_raw(self) -> <F as fgf::field::Field>::Raw
-impl<F: fgf::field::Field> fgf::field::Elem<F>
-pub fn fgf::field::Elem<F>::frobenius_with(self, &fgf::Frobenius<F>) -> Self
 impl<F: fgf::field::HasGenerator> fgf::field::Elem<F>
 pub const fgf::field::Elem<F>::GENERATOR: Self
 impl<R: fgf::field::binary::BinaryRepr<1>> fgf::field::Elem<fgf::field::finite_field::FiniteField<2, 1, R>>
@@ -5690,19 +5505,6 @@ impl<const P: u64, const N: u32, R> core::marker::Unpin for fgf::field::finite_f
 impl<const P: u64, const N: u32, R> core::marker::UnsafeUnpin for fgf::field::finite_field::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::marker::UnsafeUnpin
 impl<const P: u64, const N: u32, R> core::panic::unwind_safe::RefUnwindSafe for fgf::field::finite_field::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::panic::unwind_safe::RefUnwindSafe
 impl<const P: u64, const N: u32, R> core::panic::unwind_safe::UnwindSafe for fgf::field::finite_field::FiniteField<P, N, R> where core::marker::PhantomData<fn() -> R>: core::panic::unwind_safe::UnwindSafe
-pub struct fgf::Frobenius<F: fgf::field::Field>
-impl<F: fgf::field::Field> fgf::Frobenius<F>
-pub fn fgf::Frobenius<F>::new(u32) -> Self
-pub fn fgf::Frobenius<F>::power(&self) -> u32
-impl<F: fgf::field::Field> core::clone::Clone for fgf::Frobenius<F>
-pub fn fgf::Frobenius<F>::clone(&self) -> Self
-impl<F> core::marker::Freeze for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Freeze
-impl<F> core::marker::Send for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Send
-impl<F> core::marker::Sync for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Sync
-impl<F> core::marker::Unpin for fgf::Frobenius<F> where CompiledMap<F>: core::marker::Unpin
-impl<F> core::marker::UnsafeUnpin for fgf::Frobenius<F> where CompiledMap<F>: core::marker::UnsafeUnpin
-impl<F> core::panic::unwind_safe::RefUnwindSafe for fgf::Frobenius<F> where CompiledMap<F>: core::panic::unwind_safe::RefUnwindSafe
-impl<F> core::panic::unwind_safe::UnwindSafe for fgf::Frobenius<F> where CompiledMap<F>: core::panic::unwind_safe::UnwindSafe
 pub struct fgf::GoldilocksFold
 impl core::clone::Clone for fgf::field::goldilocks::GoldilocksFold
 pub fn fgf::field::goldilocks::GoldilocksFold::clone(&self) -> Self
@@ -5925,45 +5727,6 @@ impl<const P: u128> core::marker::Unpin for fgf::field::binary::poly::Polynomial
 impl<const P: u128> core::marker::UnsafeUnpin for fgf::field::binary::poly::Polynomial<P>
 impl<const P: u128> core::panic::unwind_safe::RefUnwindSafe for fgf::field::binary::poly::Polynomial<P>
 impl<const P: u128> core::panic::unwind_safe::UnwindSafe for fgf::field::binary::poly::Polynomial<P>
-pub struct fgf::PreparedEmbedding<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> fgf::PreparedEmbedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::contains(&self, fgf::field::Elem<T>) -> bool
-pub fn fgf::PreparedEmbedding<S, T>::embed(&self, fgf::field::Elem<S>) -> fgf::field::Elem<T>
-pub fn fgf::PreparedEmbedding<S, T>::embedding(&self) -> fgf::field::embedding::Embedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::frobenius(&self, fgf::field::Elem<T>) -> fgf::field::Elem<T>
-pub fn fgf::PreparedEmbedding<S, T>::new(&fgf::field::embedding::Embedding<S, T>) -> Self
-pub fn fgf::PreparedEmbedding<S, T>::norm(&self, fgf::field::Elem<T>) -> fgf::field::Elem<S>
-pub fn fgf::PreparedEmbedding<S, T>::relative_degree(&self) -> u32
-pub fn fgf::PreparedEmbedding<S, T>::restrict(&self, fgf::field::Elem<T>) -> core::option::Option<fgf::field::Elem<S>>
-pub fn fgf::PreparedEmbedding<S, T>::trace(&self, fgf::field::Elem<T>) -> fgf::field::Elem<S>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::clone::Clone for fgf::PreparedEmbedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::clone(&self) -> Self
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::fmt::Debug for fgf::PreparedEmbedding<S, T>
-pub fn fgf::PreparedEmbedding<S, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<S, T> core::marker::Freeze for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Freeze, PreparedArm<T>: core::marker::Freeze, fgf::Frobenius<T>: core::marker::Freeze, TraceColumns<T>: core::marker::Freeze
-impl<S, T> core::marker::Send for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Send, PreparedArm<T>: core::marker::Send, fgf::Frobenius<T>: core::marker::Send, TraceColumns<T>: core::marker::Send
-impl<S, T> core::marker::Sync for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Sync, PreparedArm<T>: core::marker::Sync, fgf::Frobenius<T>: core::marker::Sync, TraceColumns<T>: core::marker::Sync
-impl<S, T> core::marker::Unpin for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::Unpin, PreparedArm<T>: core::marker::Unpin, fgf::Frobenius<T>: core::marker::Unpin, TraceColumns<T>: core::marker::Unpin
-impl<S, T> core::marker::UnsafeUnpin for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::marker::UnsafeUnpin, PreparedArm<T>: core::marker::UnsafeUnpin, fgf::Frobenius<T>: core::marker::UnsafeUnpin, TraceColumns<T>: core::marker::UnsafeUnpin
-impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::panic::unwind_safe::RefUnwindSafe, PreparedArm<T>: core::panic::unwind_safe::RefUnwindSafe, fgf::Frobenius<T>: core::panic::unwind_safe::RefUnwindSafe, TraceColumns<T>: core::panic::unwind_safe::RefUnwindSafe
-impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::PreparedEmbedding<S, T> where fgf::field::embedding::Embedding<S, T>: core::panic::unwind_safe::UnwindSafe, PreparedArm<T>: core::panic::unwind_safe::UnwindSafe, fgf::Frobenius<T>: core::panic::unwind_safe::UnwindSafe, TraceColumns<T>: core::panic::unwind_safe::UnwindSafe
-pub struct fgf::PreparedIsomorphism<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> fgf::PreparedIsomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::apply(&self, fgf::field::Elem<S>) -> fgf::field::Elem<T>
-pub fn fgf::PreparedIsomorphism<S, T>::isomorphism(&self) -> fgf::field::embedding::Isomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::new(&fgf::field::embedding::Isomorphism<S, T>) -> Self
-pub fn fgf::PreparedIsomorphism<S, T>::unapply(&self, fgf::field::Elem<T>) -> fgf::field::Elem<S>
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::clone::Clone for fgf::PreparedIsomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::clone(&self) -> Self
-impl<S: fgf::field::Field, T: fgf::field::Field<Characteristic = <S as fgf::field::Field>::Characteristic>> core::fmt::Debug for fgf::PreparedIsomorphism<S, T>
-pub fn fgf::PreparedIsomorphism<S, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<S, T> core::marker::Freeze for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Freeze, PreparedIsoArm<T>: core::marker::Freeze, PreparedIsoArm<S>: core::marker::Freeze
-impl<S, T> core::marker::Send for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Send, PreparedIsoArm<T>: core::marker::Send, PreparedIsoArm<S>: core::marker::Send
-impl<S, T> core::marker::Sync for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Sync, PreparedIsoArm<T>: core::marker::Sync, PreparedIsoArm<S>: core::marker::Sync
-impl<S, T> core::marker::Unpin for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::Unpin, PreparedIsoArm<T>: core::marker::Unpin, PreparedIsoArm<S>: core::marker::Unpin
-impl<S, T> core::marker::UnsafeUnpin for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::marker::UnsafeUnpin, PreparedIsoArm<T>: core::marker::UnsafeUnpin, PreparedIsoArm<S>: core::marker::UnsafeUnpin
-impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::panic::unwind_safe::RefUnwindSafe, PreparedIsoArm<T>: core::panic::unwind_safe::RefUnwindSafe, PreparedIsoArm<S>: core::panic::unwind_safe::RefUnwindSafe
-impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::PreparedIsomorphism<S, T> where fgf::field::embedding::Isomorphism<S, T>: core::panic::unwind_safe::UnwindSafe, PreparedIsoArm<T>: core::panic::unwind_safe::UnwindSafe, PreparedIsoArm<S>: core::panic::unwind_safe::UnwindSafe
 pub struct fgf::PrimeCharacteristic<const P: u64>
 impl<const P: u64> core::clone::Clone for fgf::field::PrimeCharacteristic<P>
 pub fn fgf::field::PrimeCharacteristic<P>::clone(&self) -> Self

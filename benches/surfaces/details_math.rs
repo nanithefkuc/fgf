@@ -14,7 +14,7 @@
 use std::hint::black_box;
 
 use fgf::field::binary::tower::{fp_invert, fp_mul_alpha, fp_multiply, fp_square};
-use fgf::{BinaryField, ByteLogExp, Elem, Field, Frobenius};
+use fgf::{BinaryField, ByteLogExp, Elem, Field};
 
 use crate::fixture;
 use crate::registry::{self, Case, CaseCtx, Scope};
@@ -37,8 +37,6 @@ const API_FP_MULTIPLY: &[&str] = &["fgf::field::binary::tower::fp_multiply"];
 const API_FP_SQUARE: &[&str] = &["fgf::field::binary::tower::fp_square"];
 const API_FP_MUL_ALPHA: &[&str] = &["fgf::field::binary::tower::fp_mul_alpha"];
 const API_FP_INVERT: &[&str] = &["fgf::field::binary::tower::fp_invert"];
-const API_FROBENIUS_PREPARE: &[&str] = &["fgf::Frobenius::new", "fgf::Frobenius::power"];
-const API_ELEM_FROBENIUS_WITH: &[&str] = &["fgf::Elem::frobenius_with", "fgf::Frobenius::new"];
 
 /// Repeated hot-loop work over prebuilt scalar fixtures.
 fn steady_case(
@@ -844,82 +842,6 @@ pub fn register() {
             assert_eq!(fp_invert(0, 64), 0, "{}: zero maps to zero", case.case);
             registry::time(case, ctx, "scalar", || {
                 fixture::observe(fp_invert(black_box(value), 64));
-            });
-        },
-    ));
-
-    // --- prepared Frobenius maps over the specialized primes -----------------
-
-    registry::add(setup_case(
-        API_FROBENIUS_PREPARE,
-        "m31",
-        "frobenius-prepare",
-        "frobenius prepare",
-        |case, ctx| {
-            type F = M31;
-            const P: u64 = 0x7FFF_FFFF;
-            let map = Frobenius::<F>::new(1);
-            assert_eq!(
-                map.power(),
-                0,
-                "{}: the power normalizes modulo degree one",
-                case.case
-            );
-            assert_eq!(
-                Frobenius::<F>::new(0).power(),
-                0,
-                "{}: zeroth power stays zero",
-                case.case
-            );
-            let mut seed = seed_for(&case.case);
-            let value = fixture::elements::<F>(4, &mut seed).remove(0);
-            assert_eq!(
-                value.frobenius_with(&map),
-                value.pow(u128::from(P)),
-                "{}: prepared map against exponentiation",
-                case.case
-            );
-            let backend = crate::fields::scalar_backend_name();
-            registry::time(case, ctx, &backend, || {
-                let prepared = Frobenius::<F>::new(black_box(1));
-                fixture::observe(prepared.power());
-            });
-        },
-    ));
-
-    registry::add(steady_case(
-        API_ELEM_FROBENIUS_WITH,
-        "goldilocks",
-        "elem-frobenius-with",
-        "elem frobenius with",
-        1,
-        |case, ctx| {
-            type F = Gld;
-            const P: u64 = 0xFFFF_FFFF_0000_0001;
-            let map = Frobenius::<F>::new(1);
-            let mut seed = seed_for(&case.case);
-            let elems = fixture::elements::<F>(4, &mut seed);
-            let value = elems[0];
-            assert_eq!(
-                value.frobenius_with(&map),
-                value.pow(u128::from(P)),
-                "{}: prepared map against exponentiation",
-                case.case
-            );
-            assert_eq!(
-                Elem::<F>::ZERO.frobenius_with(&map),
-                Elem::<F>::ZERO,
-                "{}: zero is a fixed point",
-                case.case
-            );
-            assert_eq!(
-                Elem::<F>::ONE.frobenius_with(&map),
-                Elem::<F>::ONE,
-                "{}: one is a fixed point",
-                case.case
-            );
-            registry::time(case, ctx, "scalar", || {
-                fixture::observe(black_box(value).frobenius_with(&map).to_raw());
             });
         },
     ));
