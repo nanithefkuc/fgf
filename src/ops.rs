@@ -227,3 +227,6 @@ mod tests {
         assert_eq!(rows16, [0x5A; 4]);
     }
 }
+
+/// Probe for the API inventory gate; never merged.
+pub fn api_gate_probe() {}
