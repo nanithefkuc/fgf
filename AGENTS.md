@@ -30,6 +30,9 @@ just test-gather-validation-32 # i686 release regression, overflow checks disabl
 just isa-accept TIER       # fail-closed native execution evidence and tier sweep
 just benchmark-check       # portable fixtures and compiler-derived API coverage
 just benchmark-check-native # native GF16 fixtures on capable hosts
+just api                   # stable API inventory matches api/, one-path report
+just api-update            # rewrite api/; only inside an authorized API change
+just api-semver [BASELINE] # semver check of the stable feature sets
 just example NAME [ARGS]   # one educational example, with Cargo options
 just examples              # every educational example in each feature configuration
 ```
@@ -47,6 +50,30 @@ independently of the benchmark's advertised inventory.
 and representative field backends. Degree-64 relations directly over GF(2)
 compile and execute through `tests/compile_pass/binary_degree64.rs`, which the
 consumer matrix includes.
+
+`just api` regenerates the stable inventory for portable, alloc-only,
+default, and all-feature builds on `x86_64-unknown-linux-gnu`,
+`aarch64-unknown-linux-gnu`, and `wasm32-unknown-unknown`, drops every line
+naming `fgf::internals`, requires the three targets to agree within each
+configuration, and diffs the result against `api/inventory/` and
+`api/metadata.txt`. It runs the one-path check from `api/surface.py` on the
+same rustdoc JSON, in the mode `API_PATHS_MODE` names in `crate.just`
+(`report` until the facade restructure lands, then `enforce`). It needs the
+pinned `API_NIGHTLY` with the aarch64 and wasm32 targets, and exactly the
+`cargo-public-api` and `cargo-semver-checks` versions pinned in `crate.just`
+(`cargo binstall cargo-public-api@<version> cargo-semver-checks@<version>`);
+it checks those versions before generating anything. `just api` never writes
+`api/`; CI proves the committed inventory matches the source, and the
+maintainer's review authorizes an inventory change. `just api-update` is run
+only inside an explicitly authorized API change, and the regenerated diff is
+part of that change.
+
+`just api-semver` runs `cargo-semver-checks` for the portable, alloc-only,
+default, and maximal stable feature sets with `internals` disabled, against
+the latest published non-prerelease `API_MAJOR`.x release; `BASELINE`
+overrides only that selection for development checks. `release-accept`
+skips it for the first release of the major (4.0.0) and for any other
+version string, and runs it from 4.0.1 on.
 
 Run `just validate` before submitting a change. Do not replace a recipe with a
 bare Cargo command; fix the recipe when its supported behavior is insufficient.

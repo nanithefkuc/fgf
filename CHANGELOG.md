@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A committed stable API inventory under `api/`, generated for the portable,
+  alloc-only, default, and all-feature builds on x86_64, aarch64, and wasm32.
+  `just api` checks it in CI and `just release-accept`, requires every target
+  to expose the same stable surface, and reports every stable item reachable
+  through more than one public path. `just api-update` regenerates it inside
+  an authorized API change, and `just api-semver` checks the stable feature
+  sets against the latest published release of the major version.
+
 ### Changed
 
 - Competitor benchmark campaigns run through one recipe,

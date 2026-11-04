@@ -1,0 +1,10 @@
+nightly nightly-2026-09-30
+rustdoc-json-format 61
+cargo-public-api 0.52.0 (-s: blanket impls omitted)
+cargo-semver-checks 0.51.0
+rustdocflags -Z unstable-options --document-hidden-items
+targets x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu wasm32-unknown-unknown
+config portable --no-default-features
+config alloc --no-default-features --features alloc
+config default
+config all --all-features

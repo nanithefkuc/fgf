@@ -173,6 +173,23 @@ jobs:
       - uses: extractions/setup-just@v2
       - run: just benchmark-check
 
+  # The committed stable API inventory: twelve feature/target cells, the
+  # cross-target equality check, and the one-path report. Read-only; an
+  # authorized API change commits the regenerated inventory with the source.
+  # Tool versions match API_PUBLIC_API and API_SEMVER_CHECKS in crate.just.
+  api:
+    name: api inventory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install nightly-2026-09-30 --profile minimal --target aarch64-unknown-linux-gnu,wasm32-unknown-unknown
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-public-api@0.52.0,cargo-semver-checks@0.51.0
+      - uses: extractions/setup-just@v2
+      - run: just api
+
   lint:
     name: fmt + clippy + docs
     runs-on: ubuntu-latest

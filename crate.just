@@ -6,6 +6,18 @@ CRATE := 'fgf'
 MSRV := '1.93'
 API_NIGHTLY := 'nightly-2026-09-30'
 
+# Stable public-surface gate. The inventory tools are external development
+# tools pinned here and in the CI installer; both read the rustdoc JSON format
+# `API_NIGHTLY` emits. `API_PATHS_MODE` is `report` until every stable item
+# has one path, then `enforce`. `API_MAJOR` is the major version whose
+# published releases form the semver baseline.
+API_PUBLIC_API := '0.52.0'
+API_SEMVER_CHECKS := '0.51.0'
+API_FORMAT := '61'
+API_TARGETS := 'x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu wasm32-unknown-unknown'
+API_PATHS_MODE := 'report'
+API_MAJOR := '4'
+
 # Backend tiers this crate dispatches over, strongest first. `just test-tiers`
 # and `just cover` re-run once per tier, because dispatch resolves one backend
 # per process. Empty means the crate owns no dispatch surface.
@@ -575,3 +587,142 @@ release-accept:
     just benchmark-check
     just benchmark-check-native
     just package-check
+    just api
+    just api-semver-release
+
+# Generate the stable inventories, their metadata, and the one-path report
+# into `target/api/generated`. Every configuration builds unchanged; lines
+# naming `fgf::internals` are dropped from the inventory. Tool versions are
+# checked before anything is generated. It runs as a dependency so variable
+# overrides on the command line reach it.
+[private]
+_api-generate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    have=$(cargo public-api --version 2>/dev/null || true)
+    [[ "$have" == "cargo-public-api {{API_PUBLIC_API}}" ]] || {
+        printf 'api: need cargo-public-api %s, found "%s"; run: cargo binstall cargo-public-api@%s\n' "{{API_PUBLIC_API}}" "$have" "{{API_PUBLIC_API}}" >&2
+        exit 2
+    }
+    have=$(cargo semver-checks --version 2>/dev/null || true)
+    [[ "$have" == "cargo-semver-checks {{API_SEMVER_CHECKS}}" ]] || {
+        printf 'api: need cargo-semver-checks %s, found "%s"; run: cargo binstall cargo-semver-checks@%s\n' "{{API_SEMVER_CHECKS}}" "$have" "{{API_SEMVER_CHECKS}}" >&2
+        exit 2
+    }
+    API_NIGHTLY="{{API_NIGHTLY}}" python3 -m unittest -q api/test_surface.py
+    out=target/api/generated
+    rm -rf "$out"
+    mkdir -p "$out/inventory"
+    export RUSTDOCFLAGS="-Z unstable-options --document-hidden-items"
+    configs=("portable|--no-default-features" "alloc|--no-default-features --features alloc" "default|" "all|--all-features")
+    {
+        printf 'nightly %s\n' "{{API_NIGHTLY}}"
+        printf 'rustdoc-json-format %s\n' "{{API_FORMAT}}"
+        printf 'cargo-public-api %s (-s: blanket impls omitted)\n' "{{API_PUBLIC_API}}"
+        printf 'cargo-semver-checks %s\n' "{{API_SEMVER_CHECKS}}"
+        printf 'rustdocflags %s\n' "$RUSTDOCFLAGS"
+        printf 'targets %s\n' "{{API_TARGETS}}"
+        for entry in "${configs[@]}"; do flags="${entry#*|}"; printf 'config %s%s\n' "${entry%%|*}" "${flags:+ $flags}"; done
+    } >"$out/metadata.txt"
+    failed=0
+    for target in {{API_TARGETS}}; do
+        for entry in "${configs[@]}"; do
+            config="${entry%%|*}"
+            # shellcheck disable=SC2206
+            flags=(${entry#*|})
+            cargo +{{API_NIGHTLY}} public-api -s --color never --target "$target" \
+                --target-dir target/api "${flags[@]}" 2>"$out/$config-$target.log" \
+                | python3 api/surface.py project >"$out/inventory/$config-$target.txt" || {
+                cat "$out/$config-$target.log" >&2
+                exit 1
+            }
+            json="target/api/$target/doc/fgf.json"
+            if ! report=$(python3 api/surface.py paths "$json" --mode {{API_PATHS_MODE}}); then
+                printf '%s\n' "$report"
+                failed=1
+            fi
+            printf 'api: %-8s %-26s %s\n' "$config" "$target" "$(head -n 1 <<<"$report" | sed 's/^surface: //')"
+            [[ "$config-$target" == all-x86_64-unknown-linux-gnu ]] && printf '%s\n' "$report" >"$out/paths.txt"
+        done
+    done
+    tail -n 1 "$out/paths.txt"
+    for entry in "${configs[@]}"; do
+        config="${entry%%|*}"
+        files=()
+        for target in {{API_TARGETS}}; do files+=("$out/inventory/$config-$target.txt"); done
+        python3 api/surface.py same "$config" "${files[@]}" || failed=1
+    done
+    exit "$failed"
+
+# Check the committed stable API inventory: regenerate every inventory and
+# fail on any difference from `api/`. Read-only.
+[group('gate')]
+api: _api-generate
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out=target/api/generated
+    if ! diff -u api/metadata.txt "$out/metadata.txt" || ! diff -ru api/inventory "$out/inventory"; then
+        printf 'api: the public surface differs from the committed inventory; an authorized API change runs `just api-update`\n' >&2
+        exit 1
+    fi
+    echo "api: stable surface matches the committed inventory"
+
+# Rewrite the committed inventory. Run only inside an explicitly authorized
+# API change; review the resulting diff.
+[group('gate')]
+api-update: _api-generate
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf api/inventory
+    cp -r target/api/generated/inventory api/inventory
+    cp target/api/generated/metadata.txt api/metadata.txt
+    echo "api: inventory rewritten; review git diff -- api/"
+
+# Semver check of the stable feature sets against the latest published
+# non-prerelease `API_MAJOR`.x release, or against BASELINE when given for
+# development verification. `internals` is never enabled.
+[group('gate')]
+api-semver BASELINE="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    have=$(cargo semver-checks --version 2>/dev/null || true)
+    [[ "$have" == "cargo-semver-checks {{API_SEMVER_CHECKS}}" ]] || {
+        printf 'api-semver: need cargo-semver-checks %s, found "%s"\n' "{{API_SEMVER_CHECKS}}" "$have" >&2
+        exit 2
+    }
+    baseline="{{BASELINE}}"
+    if [[ -z "$baseline" ]]; then
+        baseline=$(curl -fsS -A "fgf-api-semver" "https://crates.io/api/v1/crates/{{CRATE}}/versions?per_page=100" \
+            | jq -r --arg major "{{API_MAJOR}}" '[.versions[] | select(.yanked | not) | .num | select(test("^" + $major + "\\.[0-9]+\\.[0-9]+$"))] | first // empty') || {
+            printf 'api-semver: could not query crates.io for the published baseline\n' >&2
+            exit 1
+        }
+        [[ -n "$baseline" ]] || {
+            printf 'api-semver: no published non-prerelease %s.x release to compare against\n' "{{API_MAJOR}}" >&2
+            exit 1
+        }
+    fi
+    current=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+    printf 'api-semver: candidate %s against published %s\n' "$current" "$baseline"
+    configs=("portable|--only-explicit-features" "alloc|--only-explicit-features --features alloc" "default|--default-features" "stable-max|--only-explicit-features --features alloc,std,simd,simd512")
+    for entry in "${configs[@]}"; do
+        # shellcheck disable=SC2206
+        flags=(${entry#*|})
+        printf 'api-semver: %s\n' "${entry%%|*}"
+        cargo +{{API_NIGHTLY}} semver-checks check-release --baseline-version "$baseline" "${flags[@]}"
+    done
+
+# Release gate for `api-semver`: the first release of `API_MAJOR` has no
+# published baseline of its own major and is skipped, as is every other
+# version string; later `API_MAJOR`.x releases run the check.
+[private]
+api-semver-release VERSION="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version="{{VERSION}}"
+    [[ -n "$version" ]] || version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+    if [[ "$version" =~ ^{{API_MAJOR}}\.[0-9]+\.[0-9]+$ && "$version" != "{{API_MAJOR}}.0.0" ]]; then
+        just api-semver
+    else
+        printf 'api-semver: skipped for %s; only %s.x releases after %s.0.0 have a published baseline of their major\n' "$version" "{{API_MAJOR}}" "{{API_MAJOR}}"
+    fi

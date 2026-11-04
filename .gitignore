@@ -4,3 +4,4 @@
 /external/*/target
 /external/*/Cargo.lock
 /coverage.lcov
+__pycache__/

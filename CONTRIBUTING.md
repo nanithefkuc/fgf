@@ -52,6 +52,13 @@ just validate
 This runs formatting, clippy at both feature ends, the dependency allowlist,
 rustdoc, the feature matrix, the backend-tier tests, Miri, and coverage.
 
+A pull request that changes the public API also runs `just api-update` and
+commits the regenerated `api/` diff with the source change; the maintainer's
+review of that diff authorizes the change. `just api` checks that the
+committed inventory matches the source and is part of CI and
+`just release-accept`. It needs the nightly, targets, and tool versions
+pinned in `crate.just`; `AGENTS.md` lists them.
+
 Release work runs the crate-specific acceptance, including the PR gate:
 `just release-accept`. Its pieces also stand alone — `just isa-accept EXPECTED`
 requires the requested process backend and positive kernel execution evidence;
