@@ -181,13 +181,6 @@ const MAX_SCALAR_OPS: usize = 1 << 20;
 /// Staging length of every scalar panel's deterministic input cycle.
 const SCALAR_STAGE: usize = 256;
 
-/// Inventory mode for the publisher regression (`benches/test_maps_publisher.py`):
-/// print every `SCALAR`/`SAMPLE` label with a placeholder value and return,
-/// so the full producer inventory feeds the grammar without timing. Staging,
-/// validation, and headings still run; unknown flags pass through harmlessly.
-static LIST_LABELS: std::sync::LazyLock<bool> =
-    std::sync::LazyLock::new(|| std::env::args().any(|arg| arg == "--list-labels"));
-
 static SMOKE: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::args().any(|arg| arg == "--smoke"));
 
@@ -325,10 +318,6 @@ fn fmt_ns(ns: f64) -> String {
 }
 
 fn bench_region(label: &str, bytes: usize, mut body: impl FnMut()) {
-    if *LIST_LABELS {
-        println!("SAMPLE\t{label}\t{bytes}\t0.000000001");
-        return;
-    }
     let warmup = if smoke() { 2 } else { 16 };
     for _ in 0..warmup {
         body();
@@ -365,10 +354,6 @@ fn bench_region(label: &str, bytes: usize, mut body: impl FnMut()) {
 /// reports one timed call per sample. Emits a `SCALAR` machine record
 /// instead of `SAMPLE`; a chain has no logical byte count.
 fn bench_scalar(label: &str, mut body: impl FnMut(usize) -> u64) {
-    if *LIST_LABELS {
-        println!("SCALAR\t{label}\t0.000000001");
-        return;
-    }
     let warmup = if smoke() { 1 } else { 4 };
     for _ in 0..warmup {
         body(8);
@@ -825,8 +810,8 @@ fn emb_scalar_panels<S: Field, T: Field<Characteristic = S::Characteristic>>(
             ops as u64
         },
     );
-    // The publisher grammar accepts mixed scalar chains only from the
-    // scalar-only pairs; byte-form pairs emit region rows only.
+    // Mixed scalar chains run only for the scalar-only pairs; byte-form
+    // pairs emit region rows only.
     if with_mixed {
         bench_scalar(
             &format!("field-maps/{pair}/restrict-mixed/scalar-chain"),
@@ -2129,8 +2114,7 @@ fn emb_bits_panels<
 /// Validation-only arm over the normal-basis target: the `gf1-normal8`
 /// pair runs the same bits kernel through the oracle checks and times
 /// nothing. It prints no `field-maps panel` line: `gf1-normal8` is not a
-/// measured pair in the publisher grammar, so a bare panel line would
-/// fail closed on full runs.
+/// measured pair.
 fn run_emb_pair_bits_validate_only<
     S: PrimeField<Characteristic = PrimeCharacteristic<2>>,
     T: BinaryField + FieldBuffer<Characteristic = S::Characteristic>,

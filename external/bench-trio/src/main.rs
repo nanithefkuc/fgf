@@ -40,8 +40,8 @@
 //! FEC_GOLDEN_CORE=<p-core> just bench-comp gf   # from the fgf crate directory
 //! ```
 //!
-//! Record the output in `benchmarks/v3/gf8.md` with the host, the resolved `fgf`
-//! backend, the versions printed in the header, and the pinning core.
+//! Raw captures include the host, the resolved `fgf` backend, the
+//! versions printed in the header, and the pinning core.
 
 use std::hint::black_box;
 use std::time::{Duration, Instant};

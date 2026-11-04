@@ -25,8 +25,8 @@ FEC_GOLDEN_CORE=<cpu> just bench-comp gf
 ```
 
 Pin the run to one core and record the CPU, operating system, Rust version,
-selected backend, and geometry with any quoted number. `BENCHMARKS.md` indexes
-the current measurements in `benchmarks/`. `just benchmark-check` validates
+selected backend, and geometry with any quoted number; raw captures stay in
+git-ignored `bench-records/`. `just benchmark-check` validates
 portable fixtures and their compiler-derived public API inventory;
 `just benchmark-check-native` validates native GF16 fixtures on capable hosts.
 

@@ -29,7 +29,8 @@
 //! rows whose prepared fixed-coefficient operations vectorize: `V4x` with
 //! `simd512` on capable hosts, otherwise `V3` on AVX2-capable hosts. Other
 //! widths report [`Backend::Scalar`]. Short rows use the measured AVX2 or
-//! portable paths; routing evidence is recorded in `benchmarks/v3/residue.md`.
+//! portable paths; routing evidence is the 3.0.2 record at
+//! <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
 //! Preparation computes one `u64` value with `u128` arithmetic, allocates
 //! nothing, and needs no `alloc`; every packed application runs
 //! allocation-free, and no workspace carries meaning between calls.
@@ -184,8 +185,9 @@ impl<const P: u64> FieldKernels for FiniteField<P, 1, Residue> {
 /// Whether this row's prepared fixed-coefficient path can vectorize:
 /// byte rows at `P <= 127`, any four-byte row, eight-byte odd rows.
 /// This predicate only names the classes the kernels cover. The routing
-/// evidence is recorded under `benchmarks/v3/residue.md`. The benchmark
-/// routing report calls this instead of copying the class list.
+/// evidence is the 3.0.2 record at
+/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
+/// The benchmark routing report calls this instead of copying the class list.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 pub const fn routes_vector(bytes: usize, p: u64) -> bool {
@@ -193,7 +195,7 @@ pub const fn routes_vector(bytes: usize, p: u64) -> bool {
 }
 
 /// Shortest AVX2 overwrite row, in lanes, for this width class.
-/// The paired measurement is recorded in `benchmarks/v3/residue.md`.
+/// The paired measurement is the 3.0.2 record at <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 #[allow(clippy::match_same_arms)]
@@ -205,7 +207,7 @@ pub const fn vector_floor_into_lanes(bytes: usize) -> usize {
     }
 }
 /// Shortest AVX2 in-place-scale row, in lanes, for this width class.
-/// The paired measurement is recorded in `benchmarks/v3/residue.md`.
+/// The paired measurement is the 3.0.2 record at <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 pub const fn vector_floor_assign_lanes(bytes: usize) -> usize {
@@ -216,7 +218,7 @@ pub const fn vector_floor_assign_lanes(bytes: usize) -> usize {
     }
 }
 /// Shortest AVX2 accumulation row, in lanes, for this width class.
-/// The paired measurement is recorded in `benchmarks/v3/residue.md`.
+/// The paired measurement is the 3.0.2 record at <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 #[allow(clippy::match_same_arms)]
@@ -246,7 +248,7 @@ pub enum VectorOp {
     ElementwiseAssign,
 }
 /// Shortest AVX2 elementwise row, in lanes, for this operation.
-/// The paired measurement is recorded in `benchmarks/v3/residue.md`.
+/// The paired measurement is the 3.0.2 record at <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 pub const fn vector_floor_elementwise_lanes(op: VectorOp) -> usize {
@@ -259,7 +261,7 @@ pub const fn vector_floor_elementwise_lanes(op: VectorOp) -> usize {
     }
 }
 /// Shortest AVX2 row, in bytes, for this width class and operation.
-/// The paired measurement is recorded in `benchmarks/v3/residue.md`.
+/// The paired measurement is the 3.0.2 record at <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 pub const fn avx2_floor_op_len(bytes: usize, op: VectorOp) -> usize {
@@ -294,7 +296,7 @@ fn vector_tier() -> Backend {
 /// AVX-512 requires `simd512` and a capable process backend. Shorter rows
 /// retain their AVX2 or portable route. Elementwise vectors require u32
 /// lanes. Coefficient zero/unit shortcuts apply before this selector.
-/// Routing evidence is recorded in `benchmarks/v3/residue.md`.
+/// Routing evidence is the 3.0.2 record at <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 #[inline]
@@ -372,8 +374,9 @@ fn delayed_add_matches_composition<const P: u64>(
 /// [`DELAYED_MIN_SOURCES`] sources, with the accumulation composition
 /// check at the call site. Shallower depths, fewer sources, and every
 /// other shape stay on the repeated single-row path. The routing evidence
-/// is recorded under `benchmarks/v3/residue.md`. The benchmark routing
-/// report calls this instead of copying the floors.
+/// is the 3.0.2 record at
+/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
+/// The benchmark routing report calls this instead of copying the floors.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 #[must_use]
 pub const fn routes_delayed(
@@ -392,12 +395,14 @@ pub const fn routes_delayed(
 }
 
 /// Fewest sources routed into the delayed tile, set by the paired
-/// measurement recorded under `benchmarks/v3/residue.md`.
+/// measurement in the 3.0.2 record at
+/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub const DELAYED_MIN_SOURCES: usize = 8;
 
 /// Smallest delay depth routed for overwrite, set by the paired measurement
-/// recorded under `benchmarks/v3/residue.md`.
+/// in the 3.0.2 record at
+/// <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>.
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 pub const DELAYED_INTO_MIN_DEPTH: u64 = 4;
 

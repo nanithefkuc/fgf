@@ -1,8 +1,8 @@
 # Repository Guidelines
 
 This file is the operational manual for changing `fgf`. Public behavior belongs
-in rustdoc and `README.md`; measurements belong in `BENCHMARKS.md` and
-`benchmarks/`; user-visible changes belong in `CHANGELOG.md`.
+in rustdoc and `README.md`; measurements belong in git-ignored
+`bench-records/` captures; user-visible changes belong in `CHANGELOG.md`.
 
 ## Required workflow
 
@@ -397,13 +397,14 @@ suffix (`bmul_gfni`, `store_avx2`, `fold_avx2`), and a half-width variant
 inside a wider tier is `_half`. The
 AVX-512 kernels dispatch on `V4x` under `simd512`; `FiniteField<2, 16, Extension<Rijndael16, 2>>` scatter and gather
 retain the narrower GFNI path. Direct differentials execute on AVX-512
-hardware, and the public per-shape measurements are recorded in
-`benchmarks/v3/gf8.md`, `benchmarks/v3/gf16.md`, and
-`benchmarks/v3/residue.md`. The byte-field and
-`FiniteField<2, 16, Extension<Rijndael16, 2>>` `mul_add` alignment peel floors remain
-measured thresholds with a benchmark
-record and misaligned-row coverage
-in kernel tests.
+hardware, and the per-shape measurements behind the routing floors are the
+3.0.2 record's gf8, gf16, and residue pages
+(<https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/gf8.md>,
+<https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/gf16.md>, and
+<https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md>).
+The byte-field and `FiniteField<2, 16, Extension<Rijndael16, 2>>` `mul_add`
+alignment peel floors remain measured thresholds, justified by that record,
+with misaligned-row coverage in kernel tests.
 
 ## Residue ledger
 
@@ -536,8 +537,7 @@ family. Its `--peel-diagnostic` flag isolates matched source and destination
 offsets around the AVX-512 peel floors.
 `prime_ntt` interleaves the QuadMersenne31 scalar control against the AVX2
 kernels per row length; it measures the dispatch thresholds in
-`src/kernel/quad_mersenne31.rs` and is not part of the public benchmark
-record.
+`src/kernel/quad_mersenne31.rs`.
 
 `surfaces` covers the stable scalar, representation, packing, bit-buffer,
 prepared-coefficient, row-operation, capability-query, and map callables.
@@ -576,8 +576,8 @@ through `bench-comp gdl` and `bench-comp m31` inside their shuffled rounds;
 a single rerun is `RUSTFLAGS="-C target-cpu=native" cargo run --release`
 from its directory with a `gdl` or `m31` family argument. The package
 builds with `-C target-cpu=native` because Plonky3 selects its packed
-kernels at compile time. The banner reports packing widths; the record
-states the flag and widths alongside the resolved `fgf` backends.
+kernels at compile time. The banner reports packing widths; the captured
+log states the flag and widths alongside the resolved `fgf` backends.
 
 `external/gf16-bench/` compares native GF16 field operations against pinned
 GF-Complete, reed-solomon-erasure, reed-solomon-simd and Leopard-RS 1.x
@@ -600,59 +600,12 @@ missing inputs fail rather than remove an arm.
 
 Benchmark setup, allocation, coefficient construction, and input generation
 must stay outside the timed region. Record the CPU, OS, Rust version, selected
-backend, geometry, command, and aggregation rule in the benchmark record. Never
+backend, geometry, command, and aggregation rule in the captured output. Never
 reuse an old number or claim a performance change from an unpinned run.
 
-The public benchmark record contains current snapshots, not an appended tuning
-ledger. `bench-paired` captures all four released-v2 and current-v3 families,
-their competitors, the v3-only residue and field-map families, and the
-current-only public, map, and GF16-presentation surfaces in one session. The
-campaign manifest's `families` list names the families a record holds.
-Five rounds interleave versions; residue rounds rotate one current artifact
-through the requested tier, AVX2, and scalar requests. New public surfaces
-have no artificial released-v2 counterpart.
-Every published case is the median of five per-run medians. Competitor arms
-interleave inside their harness. Direct-kernel timings and threshold
-investigations stay out of the public record.
-
-`BENCHMARKS.md` indexes the current library's field families, public operations,
-maps, and GF16 presentations under `benchmarks/v3/`. Public results exclude
-released-v2 snapshots and version/backend-factor tables; raw samples remain.
-Root metadata fixes Willow/Golden display order and explicitly
-marks unavailable hosts with `available: false` and a reason; those hosts
-have no fabricated logs or reused historical cells. Available hosts must
-provide every round. Environment, source/build digests, original logs,
-completion markers, and generated cell evidence remain in `bench-records/`.
-Native acceptance runs on the identified Willow Cove/V4x and
-Golden Cove/V3GfniCrypto hosts. Backend requests must resolve as expected;
-positive differential markers establish execution instead of treating skips
-as evidence. A source or harness change after capture requires new evidence.
-
-`benchmarks/labels.md` defines canonical field labels, exact API mappings,
-recursive tower coefficients, and packing conventions.
-
-Snapshot pages lead with operation navigation and keep setup/backend details
-expandable. Shared geometry is prose; varying counts occupy named columns.
-Public operations split into task pages with fields down the rows and exact
-callables in expandable details. Preserve every measured case and native arm.
-Family pages without competitor measurements say so. Wide size sweeps split
-without dropping geometries. SVG overviews under `benchmarks/charts/` use
-shared zero-based scales and explicitly label their workload and size.
-
-The publisher generates all current pages and charts together and verifies
-their bytes and cell evidence with `--verify`. It rejects incomplete
-available-host runs, changed workload inventories, invalid timing values,
-missing controls or competitors, and backend mismatches.
-
-Every result cell lists the hosts in the order `BENCHMARKS.md` declares. Within one
-table every value has the same digit count, counting leading zeros, so
-paired cells line up down each column. The count is the fewest digits that
-give the table's smallest value three significant figures, capped by the
-resolution the harness prints for that table's values. Trailing zeros are
-printed (`32.0`, `0.70`), integer parts are never rounded or written in
-scientific notation, and ratios keep five digits. Different tables may use
-different counts. Cells are generated from raw per-run values with
-round-half-up at that count, never padded from previously published cells.
+Measured thresholds cite the 3.0.2 record by its `v3.0.2` tag URL; new
+measurements are kept in git-ignored `bench-records/` until a public record
+exists.
 
 A performance change requires an unchanged callable control, differential
 correctness, and interleaved before/after measurements in one session. Do not
@@ -664,11 +617,11 @@ change dispatch or a crossover from reasoning alone.
 - `README.md` is the short public overview: scope, a minimal example,
   features, platforms, safety, building, and license. Guides and background
   belong in the wiki, not the README.
-- `BENCHMARKS.md` and `benchmarks/` own reproducible current measurements.
+- Raw benchmark captures live in git-ignored `bench-records/`.
 - `CHANGELOG.md` owns user-visible changes and migration notes.
 - Public files and source comments must not reference planning artifacts.
 - Use third person and present tense. Avoid history, temporal status, marketing,
-  and benchmark numbers outside `benchmarks/`.
+  and benchmark numbers outside a measurement capture.
 - Every public item and module needs a one-line summary; `just doc` treats
   warnings as errors.
 

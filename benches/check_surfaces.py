@@ -1,50 +1,76 @@
 #!/usr/bin/env python3
-"""Validate surfaces benchmark inventories against the declared public API.
+"""Validate surfaces benchmark check captures against the declared public API.
 
     python3 benches/check_surfaces.py --manifest benches/surface_manifest.json \
-        --rustdoc target/doc/fgf.json [--records RECORDS] [--check-log LOG]...
+        --rustdoc target/doc/fgf.json [--check-log LOG]...
 
-The surfaces campaign registers every measured case twice: once as a
-``SURFACE_INVENTORY`` line without timing and once as a ``SURFACE`` or
-``GF16_SURFACE`` record with timing. This tool is the inventory-side gate. It
+The surfaces harness registers every measured case once as a
+``SURFACE_INVENTORY`` line. A ``--check`` run executes every registered
+case's correctness oracle without timing and prints one ``SURFACE_CHECKED``
+line per case plus a completion marker. This tool is that capture's gate. It
 fails closed on a case whose ``api`` paths do not resolve against the crate's
 declared stable public API (plus the manifest's explicit additions), on a
 compiler-declared callable that no case covers, on duplicate case strings or
-duplicate identities, and on a timed round whose records disagree with its
-inventory.
+duplicate identities, and on a capture whose mode or completion markers do
+not prove a full ``--check`` execution.
 
 The public callable universe comes from pinned nightly rustdoc JSON, including
 macro-generated methods and reachable re-exports. The supplemental manifest
 names only foreign/operator spellings and non-callable observations; it never
 defines the required fgf-owned callable set.
 
-``--records`` validates the campaign record tree: every
-``round-{1..5}-v3-surfaces.log`` under each available host directory must
-parse, hold identical inventories across rounds and hosts, match the
-manifest-declared process backend and pinned core, and cover the manifest's
-required APIs. ``--check-log`` validates one captured ``--check`` /
-``--presentations --check`` stdout: the full inventory with no timing
-records and the harness completion marker. Required-API coverage spans the
-union of all given inputs. Every failure exits nonzero with a diagnostic;
-nothing is silently dropped.
+``--check-log`` validates one captured ``--check`` /
+``--presentations --check`` stdout. Required-API coverage spans the union of
+all given logs. Every failure exits nonzero with a diagnostic; nothing is
+silently dropped.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import sys
 from pathlib import Path
 
-from publish import (
-    PublishError,
-    check_positive,
-    fail,
-    is_noise,
-    normalize_backend,
+
+class CheckError(Exception):
+    """A fail-closed condition: the input does not match the checker contract."""
+
+
+def fail(message: str) -> None:
+    raise CheckError(message)
+
+
+def normalize_backend(name: str) -> str:
+    """Normalize enum Debug spellings to Backend.name() tags."""
+    return re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name).lower()
+
+
+# Invocation chatter that the recipes echo into captured logs. These lines
+# carry no measurement content; any other unrecognized line fails closed.
+NOISE_PREFIXES = (
+    "cargo ", "taskset ", "chrt ", "echo ", "printf ",
+    "warning:", "Compiling ", "Finished ", "Running ", "Blocking ", "Downloading ",
+    "Downloaded ", "pinned to core", "── ",
 )
+
+
+def is_noise(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return True
+    return stripped.startswith(NOISE_PREFIXES) or stripped.split(" ")[0] in ("just", "cargo")
+
+
+# The frozen CHECK statements the native GF16 harness prints after its
+# differential validation passes; an altered statement fails closed.
+GF16_CHECK_LINES = frozenset({
+    "CHECK field maps: all 65536 values, all 256 basis products; native scalar oracles; "
+    "all-value regions with zero/unit/full-field coefficients; repeated calls; legal tile "
+    "boundaries and offset alignment passed.",
+    "CHECK every measured geometry and coefficient schedule passed exact differential validation.",
+})
 
 # Sections in their fixed order inside one log; the surfaces section is
 # implicit from the first record, the presentations section starts at its
@@ -53,30 +79,24 @@ SURFACE_SECTIONS = ("surfaces", "gf16-presentations")
 SURFACE_SCOPES = ("setup", "steady", "query", "end_to_end")
 PRESENTATION_SCOPES = ("native", "end_to_end", "setup")
 CONTROL_PHASES = ("entry", "exit")
-# Dispatch tags a current artifact may report for an fgf arm or surface record.
+# Dispatch tags a current artifact may report for an fgf arm or inventory
+# entry.
 KNOWN_BACKENDS = frozenset({"v2", "v3", "v3_gfni_crypto", "v4x", "neon_aes",
                             "neon", "wasm128", "scalar"})
 
-# Surfaces-section payload: the inventory omits the backend; the record adds
-# ns, backend, and the sample count. `control`/`phase` are always present.
+# Surfaces-section payload: no backend, no timing; `control`/`phase` are
+# always present.
 SURFACE_INVENTORY_KEYS = ("api", "bytes", "case", "control", "destinations",
                           "field", "lanes", "operation", "phase", "scope",
                           "sources")
-SURFACE_RECORD_KEYS = SURFACE_INVENTORY_KEYS + ("backend", "ns", "samples")
-SURFACE_OPTIONAL_KEYS = ("p10_ns", "p90_ns")
-# Presentations payloads carry arm and backend in both forms.
+# Presentations payloads carry arm and backend.
 GF16_INVENTORY_KEYS = ("api", "arm", "backend", "bytes", "case",
                        "destinations", "field", "lanes", "operation", "scope",
                        "sources")
-GF16_RECORD_KEYS = GF16_INVENTORY_KEYS + ("ns", "p10_ns", "p90_ns", "samples")
-# Timed presentation records additionally carry `batch_reps`: the positive
-# integer of public calls inside one timed batch. It is timing metadata, not
-# case identity, so it stays out of every key tuple above.
-GF16_TIMED_KEYS = ("batch_reps",)
 GF16_FGF_ARMS = ("fgf", "fgf-control")
-# One BENCHMARK_MODE marker follows each process header. Campaign rounds run
-# full; smoke and check declare themselves; the surfaces harness also prints
-# inventory-only runs.
+# One BENCHMARK_MODE marker follows each process header. A check capture
+# declares check; the other markers parse so a non-check log fails on its
+# mode rather than as an unrecognized line.
 BENCHMARK_MODES = ("full", "smoke", "check")
 SURFACES_ONLY_MODES = ("inventory",)
 
@@ -84,8 +104,6 @@ SURFACES_BANNER_RE = re.compile(r"fgf surfaces benchmark — backend: (\S+)")
 SURFACES_PROCESS_RECORD_RE = re.compile(
     r"FIELD_BACKEND\tprocess\t(\S+)\tnative_mul=(true|false)"
     r"\tblocked_rows=(true|false)")
-SURFACES_PANEL_RE = re.compile(
-    r"^.+\s[0-9.]+(ns|µs|ms)\s+(setup|steady|query|end_to_end)$")
 PRESENTATIONS_HEADER_RE = re.compile(
     r"^GF16 presentations; fgf=(\S+) process_backend=(\S+); "
     r"rss=([\d.]+) AVX2; rse=([\d.]+) scalar GF16; "
@@ -102,7 +120,7 @@ HOST_RECORD_RE = re.compile(
     r"HOST\tcpus_allowed_list=([0-9,-]+)\tsched_policy=(\d+) (\S+)")
 # Map work: surfaces cases reserve the `maps/` case prefix (composite
 # `S->T` presentation fields, scalar caller loops); the presentations'
-# `end_to_end` conversion caller loops page under v3/maps.md too.
+# `end_to_end` conversion caller loops are map work too.
 MAP_CASE_PREFIX = "maps/"
 
 
@@ -113,16 +131,10 @@ def is_surfaces_map_case(obj: dict) -> bool:
     )
 
 
-def is_presentation_map_record(obj: dict) -> bool:
-    """Presentations scope end_to_end is exactly the public scalar caller
-    loops over the validated exact maps."""
-    return obj["scope"] == "end_to_end"
-
-
-def identity_keys(section: str, timed: bool) -> tuple:
+def identity_keys(section: str) -> tuple:
     if section == "gf16-presentations":
-        return GF16_RECORD_KEYS if timed else GF16_INVENTORY_KEYS
-    return SURFACE_RECORD_KEYS if timed else SURFACE_INVENTORY_KEYS
+        return GF16_INVENTORY_KEYS
+    return SURFACE_INVENTORY_KEYS
 
 
 def workload_keys(section: str) -> tuple:
@@ -137,51 +149,11 @@ def workload_of(obj: dict, section: str) -> tuple:
                  for key in workload_keys(section))
 
 
-def presentation_schedule(obj: dict) -> str:
-    """Coefficient schedule from the frozen presentation case grammar
-    ``gf16-presentations/<field>/<operation>/<schedule>/<shape>/<bytes>/<scope>/<arm>``."""
-    parts = obj["case"].split("/")
-    if len(parts) < 4:
-        fail(f"presentation case {obj['case']!r} does not follow the frozen "
-             f"gf16-presentations case grammar")
-    return parts[3]
-
-
-def williams_period(arms: int) -> int:
-    """Orders in one balanced Latin-square cycle: n for even n, 2n for odd."""
-    return arms if arms % 2 == 0 else 2 * arms
-
-
-def check_balanced_samples(samples: dict[str, int], full: bool, error) -> None:
-    """All arms of one interleaved case ran the same whole number of balanced
-    cycles; full runs keep at least 30 samples per arm."""
-    counts = set(samples.values())
-    if len(counts) != 1:
-        error(f"arms report unequal sample counts {samples!r}")
-        return
-    count = counts.pop()
-    period = williams_period(len(samples))
-    if count % period:
-        error(f"{count} samples per arm is not a whole number of "
-              f"{period}-order balanced cycles")
-    if full and count < 30:
-        error(f"{count} samples per arm is below the 30-sample full-mode floor")
-
-
 def group_of(obj: dict) -> tuple:
     """Group matching arms while preserving schedule and every case parameter."""
     keys = tuple(key for key in GF16_INVENTORY_KEYS
                  if key not in ("api", "arm", "backend", "case"))
     return tuple(obj[key] for key in keys) + (obj["case"].rsplit("/", 1)[0],)
-
-
-def identity_digest(entries: list[dict]) -> str:
-    """Stable digest of one inventory's canonical identity payloads."""
-    canonical = json.dumps(
-        sorted(json.dumps(entry, sort_keys=True, ensure_ascii=False)
-               for entry in entries),
-        ensure_ascii=False, sort_keys=True)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -204,38 +176,14 @@ def _count(obj: dict, key: str, where: str) -> int:
     return value
 
 
-def _number(obj: dict, key: str, where: str) -> float:
-    value = obj[key]
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        fail(f"{where}: {key} must be a JSON number, got {value!r}")
-    check_positive(float(value), f"{where}: {key}")
-    return float(value)
-
-
-def _validate_timing(obj: dict, where: str) -> None:
-    obj["ns"] = _number(obj, "ns", where)
-    if _count(obj, "samples", where) < 1:
-        fail(f"{where}: samples must be at least one")
-    for key in ("p10_ns", "p90_ns"):
-        if key in obj:
-            obj[key] = _number(obj, key, where)
-    if ("p10_ns" in obj) != ("p90_ns" in obj):
-        fail(f"{where}: p10_ns and p90_ns must be reported together")
-    if "p10_ns" in obj and not obj["p10_ns"] <= obj["ns"] <= obj["p90_ns"]:
-        fail(f"{where}: ns lies outside its reported decile band")
-
-
-def surface_object(raw: dict, *, section: str, timed: bool, where: str) -> dict:
-    """Validate one SURFACE_INVENTORY / SURFACE / GF16_SURFACE JSON object."""
+def surface_object(raw: dict, *, section: str, where: str) -> dict:
+    """Validate one SURFACE_INVENTORY JSON object."""
     if not isinstance(raw, dict):
-        fail(f"{where}: inventory and record payloads must be JSON objects")
+        fail(f"{where}: inventory payloads must be JSON objects")
     present = set(raw)
-    required = set(identity_keys(section, timed))
-    optional = set(SURFACE_OPTIONAL_KEYS) if timed else set()
-    if section == "gf16-presentations" and timed:
-        required.update(GF16_TIMED_KEYS)
+    required = set(identity_keys(section))
     missing = sorted(required - present)
-    unknown = sorted(present - required - optional)
+    unknown = sorted(present - required)
     if missing:
         fail(f"{where}: missing keys {missing}")
     if unknown:
@@ -271,17 +219,6 @@ def surface_object(raw: dict, *, section: str, timed: bool, where: str) -> dict:
             fail(f"{where}: native arm {arm!r} needs a backend")
         if arm in GF16_FGF_ARMS and backend not in KNOWN_BACKENDS:
             fail(f"{where}: arm {arm!r} reports unsupported backend {backend!r}")
-    if timed:
-        if section == "gf16-presentations":
-            reps = raw["batch_reps"]
-            if type(reps) is not int or reps < 1:
-                fail(f"{where}: batch_reps must be a positive integer, got {reps!r}")
-        if section == "surfaces":
-            backend = normalize_backend(_string(raw, "backend", where))
-            raw["backend"] = backend
-            if backend not in KNOWN_BACKENDS:
-                fail(f"{where}: unsupported backend {backend!r}")
-        _validate_timing(raw, where)
     return raw
 
 
@@ -295,10 +232,9 @@ from api_inventory import canonical_api, declared_callables
 class Universe:
     """Compiler-declared callables and explicit supplemental observations."""
 
-    def __init__(self, names: frozenset, literal: frozenset, sha256: str) -> None:
+    def __init__(self, names: frozenset, literal: frozenset) -> None:
         self.names = names
         self.literal = literal
-        self.sha256 = sha256
 
     def resolve(self, path: str) -> None:
         if path not in self.literal and canonical_api(path) not in self.names:
@@ -327,8 +263,7 @@ def load_manifest(path: Path) -> dict:
 def public_universe(rustdoc: Path, manifest: dict) -> Universe:
     """Derive the stable callable set from compiler visibility and ownership."""
     try:
-        payload = rustdoc.read_bytes()
-        document = json.loads(payload)
+        document = json.loads(rustdoc.read_bytes())
         names = frozenset(declared_callables(document))
     except (OSError, ValueError, KeyError) as exc:
         fail(f"unreadable compiler API inventory {rustdoc}: {exc}")
@@ -336,7 +271,7 @@ def public_universe(rustdoc: Path, manifest: dict) -> Universe:
     redundant = sorted(path for path in literal if canonical_api(path) in names)
     if redundant:
         fail(f"supplemental manifest duplicates compiler-declared APIs: {redundant}")
-    return Universe(names, literal, hashlib.sha256(payload).hexdigest())
+    return Universe(names, literal)
 
 
 def validate_case_api(obj: dict, universe: Universe, where: str) -> None:
@@ -345,7 +280,7 @@ def validate_case_api(obj: dict, universe: Universe, where: str) -> None:
     for path in obj["api"]:
         try:
             universe.resolve(path)
-        except PublishError as exc:
+        except CheckError as exc:
             fail(f"{where}: case {obj['case']!r}: {exc}")
 
 
@@ -366,7 +301,7 @@ def validate_required_coverage(cases: list[dict], manifest: dict,
 # ---------------------------------------------------------------------------
 
 class SurfacesLog:
-    """Parse one surfaces-family log: campaign round or --check capture.
+    """Parse one surfaces-family ``--check`` capture.
 
     The log opens in the implicit surfaces section; the presentations section
     starts at its ``GF16 presentations;`` process header.
@@ -377,20 +312,15 @@ class SurfacesLog:
         self.section = "surfaces"
         self.inventories: dict[str, list[dict]] = {section: []
                                                    for section in SURFACE_SECTIONS}
-        self.records: dict[str, list[dict]] = {section: []
-                                               for section in SURFACE_SECTIONS}
         self.banners: list[dict] = []
         self.modes: dict[str, str] = {}
         self.process_evidence: dict[str, set[str]] = {section: set()
                                                       for section in SURFACE_SECTIONS}
-        self.host_placements: list[dict] = []
         self.presentations_header: dict | None = None
         self.presentations_complete: tuple[int, int, bool] | None = None
-        self.surfaces_complete: int | None = None
-        self.timer_floor: dict | None = None
-        self.check_lines: list[str] = []
         self.checked_cases: list[str] = []
         self.checked_complete: int | None = None
+        self.check_lines: list[str] = []
         self._banner_fields: dict[str, list[str]] = {section: []
                                                      for section in SURFACE_SECTIONS}
 
@@ -401,7 +331,7 @@ class SurfacesLog:
         for lineno, raw in enumerate(text.splitlines(), 1):
             try:
                 self.line(raw)
-            except PublishError:
+            except CheckError:
                 raise
             except Exception as exc:
                 fail(f"{self.path.name}:{lineno}: unsupported parser input "
@@ -420,32 +350,10 @@ class SurfacesLog:
             except ValueError:
                 self.error(f"malformed check completion: {raw!r}")
             return
-        if raw.startswith("SURFACES\t"):
-            match = re.fullmatch(r"SURFACES\tcases=(\d+)\telapsed_s=([0-9.]+)", raw)
-            if match is None or self.surfaces_complete is not None:
-                self.error(f"malformed or duplicate timing completion: {raw!r}")
-            check_positive(float(match.group(2)), "surfaces elapsed seconds")
-            self.surfaces_complete = int(match.group(1))
-            return
-        if raw.startswith("TIMER_FLOOR\t"):
-            if self.section != "surfaces" or self.timer_floor is not None:
-                self.error("misplaced or duplicate timer-floor measurement")
-            value = json.loads(raw.split("\t", 1)[1])
-            if not isinstance(value, dict) or set(value) != {"ns", "samples"}:
-                self.error("malformed timer-floor measurement")
-            if type(value["ns"]) not in (int, float):
-                self.error("timer-floor latency must be a JSON number")
-            check_positive(float(value["ns"]), "timer-floor nanoseconds")
-            if type(value["samples"]) is not int or value["samples"] < 1:
-                self.error("invalid timer-floor sample count")
-            self.timer_floor = value
-            return
         for prefix, handler in (
             ("BENCHMARK_MODE\t", self.mode_line),
             ("FIELD_BACKEND\t", self.banner_line),
-            ("SURFACE_INVENTORY\t", lambda line: self.json_line(line, "inventory")),
-            ("SURFACE\t", lambda line: self.json_line(line, "record")),
-            ("GF16_SURFACE\t", lambda line: self.json_line(line, "record")),
+            ("SURFACE_INVENTORY\t", self.inventory_line),
             ("CHECK ", self.check_line),
             ("HOST\t", self.host_line),
         ):
@@ -487,44 +395,28 @@ class SurfacesLog:
         self.banners.append({"section": self.section, "label": label,
                              "backend": backend})
 
-    def json_line(self, line: str, kind: str) -> None:
-        tag, _, payload = line.partition("\t")
+    def inventory_line(self, line: str) -> None:
+        _, _, payload = line.partition("\t")
         if not payload.strip():
-            self.error(f"malformed {kind}: {line!r}")
+            self.error(f"malformed inventory: {line!r}")
         try:
             raw = json.loads(payload)
         except json.JSONDecodeError as exc:
-            self.error(f"malformed {kind} JSON: {exc}")
-        if kind == "record" and tag == "SURFACE" and self.section != "surfaces":
-            self.error(f"SURFACE record outside the surfaces section: {line!r}")
-        if tag == "GF16_SURFACE" or (kind == "inventory"
-                                     and self.section == "gf16-presentations"):
-            if self.section != "gf16-presentations":
-                self.error(f"{tag or 'GF16 inventory'} outside the "
-                           f"presentations section: {line!r}")
-            section = "gf16-presentations"
-        else:
-            section = "surfaces"
-        record = surface_object(raw, section=section, timed=kind == "record",
-                                where=f"{self.path.name}: {kind}")
-        if kind == "inventory":
-            self.inventories[section].append(record)
-        else:
-            self.records[section].append(record)
+            self.error(f"malformed inventory JSON: {exc}")
+        section = ("gf16-presentations" if self.section == "gf16-presentations"
+                   else "surfaces")
+        record = surface_object(raw, section=section,
+                                where=f"{self.path.name}: inventory")
+        self.inventories[section].append(record)
 
     def check_line(self, line: str) -> None:
-        from publish import GF16_CHECK_LINES
         if line not in GF16_CHECK_LINES:
             self.error(f"altered surfaces CHECK statement: {line!r}")
         self.check_lines.append(line)
 
     def host_line(self, line: str) -> None:
-        match = HOST_RECORD_RE.fullmatch(line)
-        if match is None:
+        if HOST_RECORD_RE.fullmatch(line) is None:
             self.error(f"malformed HOST record: {line!r}")
-        self.host_placements.append({
-            "section": self.section, "cpus": match.group(1),
-            "policy": int(match.group(2)), "policy_name": match.group(3)})
 
     def context_line(self, raw: str) -> None:
         stripped = raw.strip()
@@ -552,8 +444,6 @@ class SurfacesLog:
                 self.presentations_header["backend"])
             return
         if self.section == "surfaces":
-            if SURFACES_PANEL_RE.match(stripped):
-                return
             self.error(f"unsupported line in the surfaces section: "
                        f"{stripped!r}")
             return
@@ -569,8 +459,8 @@ class SurfacesLog:
                    f"{stripped!r}")
 
     def finish(self) -> None:
-        if not any(self.inventories[section] or self.records[section]
-                   or self.banners for section in SURFACE_SECTIONS):
+        if not any(self.inventories[section] or self.banners
+                   for section in SURFACE_SECTIONS):
             self.error("log holds no surfaces content")
         present = set(self.sections)
         for section in SURFACE_SECTIONS:
@@ -580,8 +470,7 @@ class SurfacesLog:
             if section in self.modes and section not in present:
                 self.error(f"benchmark mode marker without {section!r} content")
         for section in SURFACE_SECTIONS:
-            if (self.records[section] or self._banners_of(section)) \
-                    and not self.inventories[section]:
+            if self._banners_of(section) and not self.inventories[section]:
                 self.error(f"section {section!r} holds no inventory entries")
             if self.inventories[section] \
                     and not self.process_evidence[section]:
@@ -608,72 +497,17 @@ class SurfacesLog:
     @property
     def sections(self) -> list[str]:
         return [section for section in SURFACE_SECTIONS
-                if self.inventories[section] or self.records[section]
-                or self._banners_of(section)]
-
-    def process_backends(self) -> dict[str, str]:
-        return {section: next(iter(evidence))
-                for section, evidence in self.process_evidence.items()
-                if evidence}
-
-    def require_full(self) -> None:
-        """Campaign rounds measure every present section in full mode; smoke
-        and check runs parse structurally but are never campaign inputs."""
-        for section in self.sections:
-            mode = self.modes.get(section)
-            if mode != "full":
-                self.error(f"section {section!r} ran in {mode!r} mode; "
-                           f"campaign rounds require full mode")
+                if self.inventories[section] or self._banners_of(section)]
 
     def _banners_of(self, section: str) -> dict[str, str]:
         return {banner["label"]: banner["backend"] for banner in self.banners
                 if banner["section"] == section}
 
-    # -- per-log invariants shared by the checker and the publisher ----------
+    # -- per-log invariants ----------------------------------------------------
 
-    def validate_batch_reps(self, section: str) -> None:
-        """Timed presentation records carry the public-call count of one timed
-        batch: native fgf and fgf-control arms calibrate identical batches,
-        and cycling16 native batches hold whole coefficient cycles. Native
-        groups also prove the balanced stop rule ran: every arm reports the
-        same sample count, a whole number of Williams cycles, and at least
-        30 samples in full mode."""
-        groups: dict[tuple, dict[str, int]] = {}
-        native_samples: dict[tuple, dict[str, int]] = {}
-        for record in self.records[section]:
-            group = group_of(record)
-            groups.setdefault(group, {})[record["arm"]] = record["batch_reps"]
-            if record["scope"] == "native":
-                native_samples.setdefault(group, {})[record["arm"]] = record["samples"]
-            if (record["scope"] == "native"
-                    and presentation_schedule(record) == "cycling16"
-                    and record["batch_reps"] % 16):
-                self.error(f"presentation group {group!r}: cycling16 "
-                           f"batch_reps {record['batch_reps']!r} is not a "
-                           f"multiple of 16")
-        for group, arms in groups.items():
-            if ("fgf" in arms and "fgf-control" in arms
-                    and arms["fgf"] != arms["fgf-control"]):
-                self.error(f"presentation group {group!r}: fgf and fgf-control "
-                           f"batch_reps differ ({arms['fgf']} vs "
-                           f"{arms['fgf-control']})")
-        full = self.modes.get(section) == "full"
-        for group, arms in native_samples.items():
-            # Single-arm native records (the scalar chain) use the
-            # single-body sampler, not the interleaved balanced design.
-            if len(arms) > 1:
-                check_balanced_samples(arms, full, lambda message, group=group:
-                                       self.error(f"presentation group {group!r}: {message}"))
-
-    def validate_section(self, section: str, timed: bool = True) -> None:
-        """Structural checks run on inventories so that --check captures
-        validate identically; backend rules and record bijections run only
-        on timed campaign logs."""
+    def validate_section(self, section: str) -> None:
+        """Structural checks over one section's registered inventories."""
         inventories = self.inventories[section]
-        records = self.records[section]
-        if not timed and records:
-            self.error(f"{self.path.name}: a --check capture carries no "
-                       f"timing records")
         seen_cases: set[str] = set()
         seen_workloads: dict[tuple, str] = {}
         for entry in inventories:
@@ -737,79 +571,6 @@ class SurfacesLog:
                     self.error(f"{self.path.name}: presentation group "
                                f"{group[0]!r} reports conflicting fgf backends "
                                f"{sorted(backends)}")
-        if not timed:
-            return
-        identities = [workload_of(record, section) for record in records]
-        if len(identities) != len(set(identities)):
-            self.error(f"duplicate timing records in {section}")
-        if sum(placement["section"] == section for placement in self.host_placements) != 1:
-            self.error(f"{section} must report exactly one host placement")
-        if section == "surfaces":
-            if self.surfaces_complete != len(inventories):
-                self.error("surfaces timings lack an exact completion marker")
-            if self.timer_floor is None:
-                self.error("surfaces timings lack their timer-floor control")
-        process = next(iter(self.process_evidence[section]), None)
-        for record in records:
-            if section == "surfaces":
-                case = record["case"]
-                if (record.get("control") or is_surfaces_map_case(record)
-                        or case.startswith(("scalar/", "convert/", "details-math/", "query/description/"))):
-                    expected = "scalar"
-                elif case.startswith("bits/"):
-                    if record["operation"] in {"xor-assign", "xor-range", "xor-range-prepared", "xor-gather"}:
-                        expected = process
-                    elif record["operation"] == "weight" and process == "v4x":
-                        expected = "v4x"
-                    else:
-                        expected = "scalar"
-                elif case in {"query/backend/tiers", "query/backend/parse"}:
-                    expected = "scalar"
-                elif record["field"] == "process":
-                    expected = process
-                else:
-                    expected = banners.get(record["field"])
-                if record["backend"] != expected:
-                    self.error(f"{self.path.name}: case {case!r} reports backend "
-                               f"{record['backend']!r} against expected {expected!r}")
-        if section == "gf16-presentations":
-            inventory_ids = {workload_of(entry, section)
-                             for entry in inventories}
-            record_ids = {workload_of(record, section) for record in records}
-            full_ids = {(record["case"], record["arm"], record["backend"])
-                        for record in records}
-            if len(full_ids) != len(records):
-                self.error(f"{self.path.name}: duplicate presentation record "
-                           f"identity")
-            for entry in inventories:
-                marker = (entry["case"], entry["arm"], entry["backend"])
-                if marker not in full_ids:
-                    self.error(f"{self.path.name}: presentation case "
-                               f"{entry['case']!r} ({entry['arm']!r}) has no "
-                               f"record with its registered backend")
-            self.validate_batch_reps(section)
-        else:
-            inventory_ids = {workload_of(entry, section)
-                             for entry in inventories}
-            record_ids = {workload_of(record, section) for record in records}
-        case_at = workload_keys(section).index("case")
-        if inventory_ids != record_ids:
-            dropped = sorted(identity[case_at]
-                             for identity in inventory_ids - record_ids)
-            stray = sorted(identity[case_at]
-                           for identity in record_ids - inventory_ids)
-            self.error(f"{self.path.name}: inventory and records disagree in "
-                       f"{section!r}; inventories without records {dropped[:4]}, "
-                       f"records without inventories {stray[:4]}")
-        if section == "surfaces":
-            controls = [record for record in records if record.get("control")]
-            phases = sorted(control["phase"] for control in controls)
-            if phases != sorted(CONTROL_PHASES):
-                self.error(f"{self.path.name}: the surfaces control must bracket "
-                           f"the process with one entry and one exit, got {phases}")
-            if len({control["case"] for control in controls}) != 2:
-                self.error(f"{self.path.name}: entry and exit control records "
-                           f"must carry distinct case strings")
 
     def validate_check_capture(self) -> None:
         """A --check capture: the full inventory, no timing records."""
@@ -817,7 +578,7 @@ class SurfacesLog:
             if self.modes.get(section) != "check":
                 self.error(f"section {section!r} must run in check mode for a "
                            f"check capture, got {self.modes.get(section)!r}")
-            self.validate_section(section, timed=False)
+            self.validate_section(section)
         if self.inventories["surfaces"]:
             expected = {entry["case"] for entry in self.inventories["surfaces"]}
             if (self.checked_complete != len(expected)
@@ -826,131 +587,6 @@ class SurfacesLog:
                 self.error("check completion must prove execution of every registered case")
         if self.inventories["gf16-presentations"] and not self.presentations_complete[2]:
             self.error("presentations completion must identify --check execution")
-
-
-# ---------------------------------------------------------------------------
-# Campaign record-tree validation
-# ---------------------------------------------------------------------------
-
-def campaign_round_logs(records: Path, hosts: list[str]) -> dict:
-    trees = {}
-    for host in hosts:
-        logs = []
-        for rnd in range(1, 6):
-            path = records / host / f"round-{rnd}-v3-surfaces.log"
-            if not path.is_file():
-                fail(f"missing surfaces round log {path}")
-            logs.append((rnd, path))
-        trees[host] = logs
-    return trees
-
-
-def parse_campaign_logs(records: Path, hosts: list[str]) -> dict:
-    """Parse every available host's five surfaces round logs and check the
-    process backend evidence against the campaign manifest."""
-    metadata_path = records / "metadata.json"
-    if not metadata_path.is_file():
-        fail(f"missing campaign manifest: {metadata_path}")
-    try:
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        fail(f"unreadable campaign manifest {metadata_path}: {exc}")
-    declared = metadata.get("hosts")
-    if not isinstance(declared, dict):
-        fail(f"{metadata_path}: hosts must be an object")
-    trees = campaign_round_logs(records, hosts)
-    parsed: dict[str, list[tuple[int, SurfacesLog]]] = {}
-    for host in hosts:
-        details = declared.get(host)
-        if not isinstance(details, dict):
-            fail(f"{metadata_path}: host {host!r} is not declared")
-        requested = details.get("requested_backend")
-        rounds = []
-        for rnd, path in trees[host]:
-            parser = SurfacesLog(path)
-            parser.parse(path.read_text(encoding="utf-8", errors="replace"))
-            parser.require_full()
-            if sorted(parser.sections) != sorted(SURFACE_SECTIONS):
-                fail(f"{path.name}: a campaign round log must hold both "
-                     f"{sorted(SURFACE_SECTIONS)} sections")
-            for section, backend in parser.process_backends().items():
-                if backend != requested:
-                    fail(f"{path.name}: {section} process backend {backend!r} "
-                         f"does not match the requested {requested!r}")
-            for placement in parser.host_placements:
-                if (placement["cpus"] != str(details.get("core"))
-                        or placement["policy"] != 5):
-                    fail(f"{path.name}: a surfaces-family process is not pinned to "
-                         f"the declared core under SCHED_IDLE: {placement}")
-            for section in parser.sections:
-                parser.validate_section(section)
-            rounds.append((rnd, parser))
-        parsed[host] = rounds
-    return parsed
-
-
-def validate_campaign(records: Path, manifest: dict, universe: Universe,
-                      hosts: list[str] | None = None) -> dict:
-    """Validate every available host's surfaces round logs.
-
-    Returns the per-host inventory digests and the merged unique case list.
-    """
-    metadata_path = records / "metadata.json"
-    try:
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        fail(f"unreadable campaign manifest {metadata_path}: {exc}")
-    if metadata.get("rustdoc_json_sha256") != universe.sha256:
-        fail("campaign rustdoc JSON digest does not match its compiler-derived API inventory")
-    declared = metadata.get("hosts")
-    if not isinstance(declared, dict):
-        fail(f"{metadata_path}: hosts must be an object")
-    available = []
-    for host, details in declared.items():
-        if not isinstance(details, dict) or type(details.get("available", True)) is not bool:
-            fail(f"{metadata_path}: malformed host availability for {host!r}")
-        if details.get("available", True):
-            available.append(host)
-    if not available:
-        fail(f"{metadata_path}: no available measurement hosts")
-    if hosts is not None and set(hosts) != set(available):
-        fail("requested hosts differ from the available campaign hosts")
-    hosts = available
-    present = sorted(path.name for path in records.iterdir() if path.is_dir())
-    if present != sorted(hosts):
-        fail(f"record host directories {present} differ from available hosts {sorted(hosts)}")
-    parsed = parse_campaign_logs(records, hosts)
-    digests: dict[str, dict[str, str]] = {}
-    workloads: dict[str, dict[str, frozenset]] = {}
-    cases: list[dict] = []
-    for host, rounds in parsed.items():
-        round_digests = []
-        section_sets: dict[str, set] = {section: set()
-                                        for section in SURFACE_SECTIONS}
-        for rnd, parser in rounds:
-            round_digests.append({
-                section: identity_digest(parser.inventories[section])
-                for section in parser.sections})
-            for section in parser.sections:
-                section_sets[section].update(
-                    workload_of(entry, section)
-                    for entry in parser.inventories[section])
-                validate_required_and_api(parser.inventories[section], manifest,
-                                          universe, parser.path.name)
-                cases.extend(parser.inventories[section])
-        for index, digest_entry in enumerate(round_digests[1:], 2):
-            if digest_entry != round_digests[0]:
-                fail(f"{host}: surfaces inventories changed at round {index}")
-        digests[host] = round_digests[0]
-        workloads[host] = {section: frozenset(section_sets[section])
-                           for section in SURFACE_SECTIONS}
-    reference = workloads[hosts[0]]
-    for host in hosts[1:]:
-        if workloads[host] != reference:
-            fail(f"{host}: surfaces workloads differ from {hosts[0]}")
-    unique = _unique_cases(cases)
-    validate_required_coverage(unique, manifest, universe)
-    return {"hosts": digests, "cases": unique}
 
 
 def _unique_cases(cases: list[dict]) -> list[dict]:
@@ -978,8 +614,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rustdoc", type=Path,
                         default=Path(__file__).resolve().parent.parent / "target/doc/fgf.json",
                         help="pinned nightly rustdoc JSON for the measured source")
-    parser.add_argument("--records", type=Path, default=None,
-                        help="campaign records root with per-host directories")
     parser.add_argument("--check-log", type=Path, action="append", default=[],
                         help="captured --check or --presentations --check stdout; "
                              "repeatable")
@@ -989,10 +623,6 @@ def main(argv: list[str] | None = None) -> int:
         universe = public_universe(arguments.rustdoc, manifest)
         union: list[dict] = []
         inputs = 0
-        if arguments.records is not None:
-            result = validate_campaign(arguments.records, manifest, universe)
-            union.extend(result["cases"])
-            inputs += 1
         for path in arguments.check_log:
             log = SurfacesLog(path)
             log.parse(path.read_text(encoding="utf-8", errors="replace"))
@@ -1003,12 +633,12 @@ def main(argv: list[str] | None = None) -> int:
                 union.extend(log.inventories[section])
             inputs += 1
         if inputs == 0:
-            parser.error("nothing to validate: pass --records or --check-log")
+            parser.error("nothing to validate: pass --check-log")
         validate_required_coverage(_unique_cases(union), manifest, universe)
-    except PublishError as exc:
+    except CheckError as exc:
         print(f"check-surfaces: {exc}", file=sys.stderr)
         return 1
-    print(f"check-surfaces: {inputs} input tree(s) validated against the "
+    print(f"check-surfaces: {inputs} input log(s) validated against the "
           f"declared public API")
     return 0
 

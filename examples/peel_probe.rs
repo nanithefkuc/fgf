@@ -1,5 +1,5 @@
 //! Offset-sweep and overwrite-gather probe for the half-lane peel and
-//! gather-dispatch records in `benchmarks/v3/gf8.md` and `benchmarks/v3/gf16.md`.
+//! the gather-dispatch paths.
 //!
 //! ```sh
 //! taskset -c <core> cargo run --release --all-features --example peel_probe

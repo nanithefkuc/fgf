@@ -118,9 +118,7 @@ buffer geometry; `backend_for::<F>()` reports the backend implemented for a
 field. Release acceptance runs the per-tier differentials on dedicated Willow
 Cove (`v4x`) and Golden Cove (`v3_gfni_crypto`) hosts; GitHub-hosted runners
 only cover tiers they can prove. Routing notes are in the
-[deployment guide](https://github.com/nanithefkuc/fgf/wiki/Features-and-deployment),
-and measured results live in
-[`BENCHMARKS.md`](https://github.com/nanithefkuc/fgf/blob/main/BENCHMARKS.md).
+[deployment guide](https://github.com/nanithefkuc/fgf/wiki/Features-and-deployment).
 
 ## Safety
 

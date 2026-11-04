@@ -95,5 +95,6 @@ written output before a later call fails; it is not transactional. Arithmetic
 is variable-time and requires an independent audit before handling secrets.
 
 The [kernel reference](https://docs.rs/fgf/3.0.2/fgf/kernel/index.html) owns backend
-query contracts. [BENCHMARKS.md](https://github.com/nanithefkuc/fgf/blob/main/BENCHMARKS.md)
-owns measured results and reproduction, including per-operation residue routes.
+query contracts. The 3.0.2 measurement record owns measured results and
+reproduction, including per-operation residue routes:
+[residues](https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/residue.md).

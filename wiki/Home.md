@@ -56,7 +56,6 @@ Rust blocks are self-contained unless marked as historical text; pages identify
 The [example programs](https://github.com/nanithefkuc/fgf/tree/v3.0.2/examples)
 run from a checkout with `just example NAME` or `just examples`.
 
-[Installation](https://github.com/nanithefkuc/fgf/blob/main/README.md),
-[release changes](https://github.com/nanithefkuc/fgf/blob/main/CHANGELOG.md), and
-[measurements](https://github.com/nanithefkuc/fgf/blob/main/BENCHMARKS.md)
+[Installation](https://github.com/nanithefkuc/fgf/blob/main/README.md) and
+[release changes](https://github.com/nanithefkuc/fgf/blob/main/CHANGELOG.md)
 each have their own reference page.

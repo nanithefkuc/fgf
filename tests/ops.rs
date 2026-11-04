@@ -3472,7 +3472,8 @@ fn unpack_rejects_source_mismatch() {
 #[test]
 fn gf8_reed_solomon_large_buffer_mul_assign_matches_oracle() {
     // Past 64 KiB the GFNI in-place scale takes its shuffle variant
-    // (benchmarks/v3/gf8.md); hold both sides of the crossover to the oracle.
+    // (3.0.2 record: <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/gf8.md>);
+    // hold both sides of the crossover to the oracle.
     for len in [65_536 - 8, 65_536 + 7] {
         let mut got = noise(len, 0x62);
         let mut want = got.clone();

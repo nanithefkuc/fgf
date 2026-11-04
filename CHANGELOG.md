@@ -25,6 +25,19 @@ All notable changes to this project are documented here. The format follows
   because bit-packed GF(2) has no competitor harness.
 - `just examples` runs every example in each feature configuration and
   replaces `examples-portable`; `just example NAME [ARGS]` runs one.
+
+### Removed
+
+- The 3.x benchmark record: `BENCHMARKS.md`, the `benchmarks/` pages and
+  charts, the publisher scripts behind them (`benches/publish.py`,
+  `surface_publish.py`, `residue_publish.py`, `benchmark_chart.py`,
+  `test_maps_publisher.py`), the released-v2 comparison tooling
+  (`benches/prepare_v2.py` and `benches/v2.patch`), and the `bench-paired`,
+  `bench-prepare-v2`, `bench-publish`, `bench-refresh-build`, and
+  `bench-refresh-round` recipes. Benchmark targets, competitor harnesses,
+  `bench-comp`, and the surfaces coverage check stay. Measured thresholds in
+  source comments cite the 3.0.2 record by its tag URL, and new measurements
+  stay in git-ignored `bench-records/` until a fresh record is published.
 - Removed recipes: the single-family aliases `bench-gf`, `bench-gdl`,
   `bench-m31`, `bench-gf2`, and `bench-field-maps` (use `just bench` with the
   bench name and family flag), `backend-report` (use

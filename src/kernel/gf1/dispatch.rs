@@ -11,7 +11,8 @@
 //! body; from one full unit up every tier wins. Each arm therefore requires
 //! one full vector unit of row coverage: 16 bytes at `V2`, 32 at `V3` and
 //! `V3GfniCrypto`, 64 at `V4x`. The floor benchmark record is the bit interop
-//! tier-floors panel in `benchmarks/v3/gf1.md`.
+//! tier-floors panel of the 3.0.2 record at
+//! <https://github.com/nanithefkuc/fgf/blob/v3.0.2/benchmarks/v3/gf1.md>.
 
 use super::super::{X86Proof, x86, x86_proof};
 
