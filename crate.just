@@ -188,9 +188,9 @@ isa-accept EXPECTED:
 
 # Negative consumer snippets under `tests/compile_fail/`: each must fail to
 # compile on the crate MSRV. The first line names the expectation: a
-# crate-owned panic fragment (`expect:`) that must appear in the error, or
-# `expect-rejection` for trait-bound and privacy rejections, where only the
-# failure itself is the contract. A rejection case fails when stderr holds
+# panic fragment or rustc diagnostic code/text (`expect:`) that must appear
+# in the error, or `expect-rejection` when only rejection is the contract.
+# A rejection-only case fails when stderr holds
 # an unresolved-name error (`E0405`, `E0412`, `E0422`, `E0423`, `E0425`,
 # `E0432`, `E0433`): such a snippet was rejected for a missing import, not the
 # bound under test. Every case also fails when it trips on a private module

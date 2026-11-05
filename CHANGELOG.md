@@ -80,12 +80,27 @@ All notable changes to this project are documented here. The format follows
   files `src/prime.rs`, `src/binary.rs`, `src/extension.rs`, and `src/maps.rs`
   carry the public module documentation.
 
+- **Breaking:** Raw arithmetic and validation plumbing moves behind
+  crate-private supertraits. `Field` no longer carries `canonical_raw`,
+  `add_raw`, `sub_raw`, `neg_raw`, `mul_raw`, `inv_raw`, `ZERO_RAW`,
+  `ONE_RAW`, or `VALID`; `HasGenerator` no longer carries `GENERATOR_RAW`;
+  `BinaryRepr` no longer carries `DESCRIPTION` or `LOG_EXP`; `BinaryField`
+  no longer carries `DESCRIPTION`; `FiniteFieldRepr` no longer carries
+  `VALID`; `PrimeIdentity` no longer carries `VALID`; and `Postcompose`
+  no longer carries its `postcompose` callback. Use `Elem::from_raw` and
+  `Elem::to_raw` for raw-word conversion, `FieldElem` operations for scalar
+  arithmetic, and `Elem::ZERO`, `Elem::ONE`, and `Elem::GENERATOR` for
+  identities and the generator. Map application uses `Embedding::embed` or
+  `Isomorphism::apply`; composition uses `Embedding::then` or
+  `Isomorphism::then`. `VALID` has no replacement: element constants and
+  constructors evaluate validation. `DESCRIPTION` and `LOG_EXP` have no
+  stable replacement. `PrimeIdentity` no longer exposes `C::Row`; generic
+  callers take an explicit row parameter such as
+  `F: PrimeField<Characteristic = C>`, or name the intended concrete row.
   `FieldKernels` and its members, including `backend`,
   `has_vector_elementwise`, and `vector_elementwise_min_bytes`, remain
-  reachable from stable code in this release and change in a later breaking
-  release. `BinaryRepr::{DESCRIPTION, LOG_EXP}` and
-  `BinaryField::DESCRIPTION` likewise remain reachable in this release and
-  change in a later breaking release.
+  reachable from stable code in this release and change in a later
+  breaking release.
 - The generic extension test suite is one binary: `tests/extension.rs`
   holds the shared rows and splits into `rows` (per-field laws, encodings,
   and the packed surface) and `reference` (arithmetic against the

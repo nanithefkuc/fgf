@@ -40,6 +40,9 @@ impl super::private::Sealed for MersenneFold {}
 
 impl FiniteFieldRepr<0x7FFF_FFFF, 1> for MersenneFold {
     const NAME: &'static str = "mersenne-fold";
+}
+
+impl super::private::FiniteFieldReprValidation<0x7FFF_FFFF, 1> for MersenneFold {
     const VALID: () = {
         checked_order::<0x7FFF_FFFF, 1>();
     };
@@ -73,9 +76,13 @@ impl Field for Mersenne31 {
     const NAME: &'static str = "GF(2^31 - 1)";
     const DEGREE: u32 = 1;
     const ORDER: u128 = MODULUS as u128;
+}
+
+impl super::private::RawArithmetic<u32> for Mersenne31 {
     const ZERO_RAW: u32 = 0;
     const ONE_RAW: u32 = 1;
-    const VALID: () = <MersenneFold as FiniteFieldRepr<0x7FFF_FFFF, 1>>::VALID;
+    const VALID: () =
+        <MersenneFold as super::private::FiniteFieldReprValidation<0x7FFF_FFFF, 1>>::VALID;
 
     #[inline]
     fn canonical_raw(raw: u32) -> u32 {
@@ -173,7 +180,7 @@ impl super::private::RowAccess for Mersenne31 {
     }
 }
 
-impl HasGenerator for Mersenne31 {
+impl super::private::GeneratorRaw for Mersenne31 {
     const GENERATOR_RAW: u32 = {
         assert!(
             is_primitive(7),
@@ -182,6 +189,8 @@ impl HasGenerator for Mersenne31 {
         7
     };
 }
+
+impl HasGenerator for Mersenne31 {}
 
 impl FieldBuffer for Mersenne31 {
     const BYTES: usize = 4;
@@ -356,7 +365,7 @@ impl core::fmt::Display for Elem<Mersenne31> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Elem, HasGenerator, MODULUS, Mersenne31, is_primitive, reduce};
+    use super::{Elem, MODULUS, Mersenne31, is_primitive, reduce};
 
     /// The Mersenne fold reduces every non-canonical lane branchlessly.
     #[test]
@@ -377,8 +386,9 @@ mod tests {
     /// check must accept and reject powers of the generator by that rule.
     #[test]
     fn primitivity_follows_generator_power_coprimality() {
-        let generator =
-            Elem::<Mersenne31>::from_raw(core::hint::black_box(Mersenne31::GENERATOR_RAW));
+        let generator = Elem::<Mersenne31>::from_raw(core::hint::black_box(
+            Elem::<Mersenne31>::GENERATOR.to_raw(),
+        ));
         for k in 1..=96u64 {
             let candidate = u64::from(generator.pow(u128::from(k)).to_raw());
             assert_eq!(

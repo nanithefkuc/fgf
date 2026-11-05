@@ -8,7 +8,7 @@
 use core::any::TypeId;
 
 use fgf::prime::{Goldilocks, GoldilocksFold, Mersenne31, MersenneFold, PrimeField};
-use fgf::{Elem, Field, FieldBuffer, FiniteField, FiniteFieldRepr, HasGenerator, RangeError};
+use fgf::{Elem, Field, FieldBuffer, FiniteField, FiniteFieldRepr, RangeError};
 
 const M31: u64 = 0x7FFF_FFFF;
 const GOLDILOCKS: u64 = 0xFFFF_FFFF_0000_0001;
@@ -155,6 +155,6 @@ fn residue_conversions_are_const() {
     };
     assert_eq!(G, Some(49));
     assert_eq!(H, Some(1));
-    assert_eq!(Mersenne31::GENERATOR_RAW, 7);
-    assert_eq!(Goldilocks::GENERATOR_RAW, 7);
+    assert_eq!(Elem::<Mersenne31>::GENERATOR.to_raw(), 7);
+    assert_eq!(Elem::<Goldilocks>::GENERATOR.to_raw(), 7);
 }

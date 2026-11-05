@@ -35,22 +35,55 @@ mod private {
     /// Marks the degree-one rows eligible for prime-field membership.
     pub trait PrimeFieldSeal {}
 
-    /// The ordinary-residue row of a prime characteristic.
+    /// The scalar arithmetic every field row provides.
     ///
-    /// Names the degree-one ordinary-residue row of a prime characteristic;
-    /// a sealed supertrait of `PrimeIdentity`. `PrimeCharacteristic<P>` is
-    /// the sole implementor.
-    pub trait ResidueRowOf: Sealed {
-        /// The degree-one ordinary-residue row of this characteristic.
-        type Row: crate::kernel::FieldKernels + super::Field<Characteristic = Self>;
+    /// Crate-private: raw words are a row's storage representation, and
+    /// callers work with [`super::Elem`] and [`super::FieldElem`] instead.
+    pub(crate) trait RawArithmetic<Raw>: 'static {
+        /// Raw word of the additive identity, in canonical coordinates.
+        const ZERO_RAW: Raw;
+        /// Raw word of the multiplicative identity, in canonical coordinates.
+        const ONE_RAW: Raw;
+        /// Use-time validity check for the field's defining data.
+        const VALID: ();
+        /// Reduce a raw word to canonical coordinates.
+        fn canonical_raw(raw: Raw) -> Raw;
+        /// Raw field addition, over canonical inputs.
+        fn add_raw(left: Raw, right: Raw) -> Raw;
+        /// Raw field subtraction, over canonical inputs.
+        fn sub_raw(left: Raw, right: Raw) -> Raw;
+        /// Raw additive inverse, over a canonical input.
+        fn neg_raw(value: Raw) -> Raw;
+        /// Raw field multiplication, over canonical inputs.
+        fn mul_raw(left: Raw, right: Raw) -> Raw;
+        /// Raw multiplicative inverse. Maps zero to zero by convention.
+        fn inv_raw(value: Raw) -> Raw;
+    }
+
+    /// The selected multiplicative generator of a field row.
+    pub(crate) trait GeneratorRaw: Field {
+        /// Raw word of the selected generator, of full multiplicative order.
+        const GENERATOR_RAW: <Self as Field>::Raw;
+    }
+
+    /// Use-time primality proof for a characteristic identity.
+    pub(crate) trait PrimeIdentityValidation {
+        /// Use-time primality proof for the characteristic.
+        const VALID: ();
+    }
+
+    /// Use-time validity proof for a representation's defining data.
+    pub(crate) trait FiniteFieldReprValidation<const P: u64, const N: u32> {
+        /// Use-time validity proof for the representation's defining data.
+        const VALID: ();
     }
 
     /// The row hooks behind the `Field` seal: the presentation access the
     /// crate's relation algorithms share.
     ///
     /// Every hook evaluates the row's central validation first, as the raw
-    /// methods do, and canonicalizes `raw` inputs through
-    /// `Field::canonical_raw` before reading them.
+    /// methods do, and canonicalizes `raw` inputs through the row's
+    /// raw-arithmetic canonicalization hook before reading them.
     pub(crate) trait RowAccess: 'static {
         /// Descriptor of the row's presentation.
         const DESCRIPTOR: &'static Descriptor;
@@ -258,11 +291,11 @@ pub const fn is_prime(candidate: u64) -> bool {
 /// One identity type per prime, independent of coordinates or a named
 /// modulus. This is not an arithmetic backend.
 #[allow(private_bounds)]
-pub trait PrimeIdentity: private::Sealed + private::ResidueRowOf + Copy + 'static {
+pub trait PrimeIdentity:
+    private::Sealed + private::PrimeIdentityValidation + Copy + 'static
+{
     /// The prime characteristic value, checked primality on read.
     const CHARACTERISTIC: u64;
-    /// Use-time primality proof for the characteristic.
-    const VALID: ();
     /// Bit width of the characteristic: `64 - P.leading_zeros()`. Two at
     /// `P = 2`, sixty-four at the widest `u64` primes.
     const BITS: u32;
@@ -275,16 +308,16 @@ pub trait PrimeIdentity: private::Sealed + private::ResidueRowOf + Copy + 'stati
 
 /// The checked identity of the prime characteristic `P`.
 ///
-/// Both [`PrimeIdentity::CHARACTERISTIC`] and [`PrimeIdentity::VALID`] assert
-/// the const deterministic Miller-Rabin check, so prime queries validate
-/// themselves even if an implementation is incorrect.
+/// Reading [`PrimeIdentity::CHARACTERISTIC`] runs the const deterministic
+/// Miller-Rabin check, so prime queries validate themselves even if an
+/// implementation is incorrect.
 #[derive(Clone, Copy, Debug)]
 pub struct PrimeCharacteristic<const P: u64>;
 
 impl<const P: u64> private::Sealed for PrimeCharacteristic<P> {}
 
-impl<const P: u64> private::ResidueRowOf for PrimeCharacteristic<P> {
-    type Row = FiniteField<P, 1, Residue>;
+impl<const P: u64> private::PrimeIdentityValidation for PrimeCharacteristic<P> {
+    const VALID: () = assert!(is_prime(P), "characteristic is not prime");
 }
 
 impl<const P: u64> PrimeIdentity for PrimeCharacteristic<P> {
@@ -292,7 +325,6 @@ impl<const P: u64> PrimeIdentity for PrimeCharacteristic<P> {
         assert!(is_prime(P), "characteristic is not prime");
         P
     };
-    const VALID: () = assert!(is_prime(P), "characteristic is not prime");
     #[allow(clippy::cast_possible_truncation)]
     const BITS: u32 = {
         assert!(is_prime(P), "characteristic is not prime");
@@ -313,10 +345,12 @@ impl<const P: u64> PrimeIdentity for PrimeCharacteristic<P> {
 ///
 /// The marker carries only compile-time facts. `Raw` describes a single
 /// scalar's representation, not buffer pitch, alignment, byte order, or
-/// vector packing. The trait is sealed to the crate's own rows: the raw
-/// arithmetic methods are a row's scalar body, and ordinary callers work
-/// with [`Elem<F>`] and its operations. Generic code reads the characteristic
-/// as `<F::Characteristic as PrimeIdentity>::CHARACTERISTIC`.
+/// vector packing. The trait is sealed to the crate's own rows, and raw
+/// arithmetic stays crate-private: ordinary callers work with [`Elem<F>`],
+/// [`FieldElem`], and [`Elem::from_raw`] / [`Elem::to_raw`]. Identity and
+/// generator words read through [`Elem::ZERO`], [`Elem::ONE`], and
+/// [`Elem::GENERATOR`]. Generic code reads the characteristic as
+/// `<F::Characteristic as PrimeIdentity>::CHARACTERISTIC`.
 ///
 /// Every safely constructed element holds canonical raw coordinates, so
 /// [`PartialEq`], [`Eq`], [`Hash`], and [`Ord`] compare raw words directly.
@@ -328,7 +362,13 @@ impl<const P: u64> PrimeIdentity for PrimeCharacteristic<P> {
 /// convention chosen so hot loops never branch on an impossible case; it is
 /// not a claim that zero is invertible.
 #[allow(private_bounds)]
-pub trait Field: private::RowAccess + Copy + core::fmt::Debug + 'static {
+pub trait Field:
+    private::RowAccess
+    + private::RawArithmetic<<Self as Field>::Raw>
+    + Copy
+    + core::fmt::Debug
+    + 'static
+{
     /// The raw word of one scalar element.
     type Raw: Copy + Eq + Ord + core::hash::Hash + core::fmt::Debug + 'static;
     /// The prime characteristic identity of the field.
@@ -341,24 +381,6 @@ pub trait Field: private::RowAccess + Copy + core::fmt::Debug + 'static {
     /// Number of elements in the field: the characteristic raised to
     /// [`Field::DEGREE`].
     const ORDER: u128;
-    /// Raw word of the additive identity, in canonical coordinates.
-    const ZERO_RAW: Self::Raw;
-    /// Raw word of the multiplicative identity, in canonical coordinates.
-    const ONE_RAW: Self::Raw;
-    /// Use-time validity check for the field's defining data.
-    const VALID: ();
-    /// Reduce a raw word to canonical coordinates.
-    fn canonical_raw(raw: Self::Raw) -> Self::Raw;
-    /// Raw field addition, over canonical inputs.
-    fn add_raw(left: Self::Raw, right: Self::Raw) -> Self::Raw;
-    /// Raw field subtraction, over canonical inputs.
-    fn sub_raw(left: Self::Raw, right: Self::Raw) -> Self::Raw;
-    /// Raw additive inverse, over a canonical input.
-    fn neg_raw(value: Self::Raw) -> Self::Raw;
-    /// Raw field multiplication, over canonical inputs.
-    fn mul_raw(left: Self::Raw, right: Self::Raw) -> Self::Raw;
-    /// Raw multiplicative inverse. Maps zero to zero by convention.
-    fn inv_raw(value: Self::Raw) -> Self::Raw;
 }
 
 /// Central metadata validation for a field.
@@ -374,7 +396,7 @@ impl<F: Field> Validate<F> {
         let characteristic = <F::Characteristic as PrimeIdentity>::CHARACTERISTIC;
         let order = finite_field::metadata_order(characteristic, F::DEGREE);
         assert!(order == F::ORDER, "ORDER is not CHARACTERISTIC^DEGREE");
-        let () = F::VALID;
+        let () = <F as private::RawArithmetic<<F as Field>::Raw>>::VALID;
     };
 }
 
@@ -466,12 +488,10 @@ impl<F: Field> Elem<F> {
 ///
 /// The trait is sealed: only the crate's shipped rows implement it, each
 /// with its frozen generator. Raw canonicality and full multiplicative order
-/// hold inside the constant: each provider verifies the full order against
-/// the factorization of the group order.
-pub trait HasGenerator: Field + private::FieldSeal {
-    /// Raw word of the selected generator, of full multiplicative order.
-    const GENERATOR_RAW: Self::Raw;
-}
+/// hold for [`Elem::GENERATOR`]: each provider verifies the full order
+/// against the factorization of the group order.
+#[allow(private_bounds)]
+pub trait HasGenerator: Field + private::FieldSeal + private::GeneratorRaw {}
 
 impl<F: HasGenerator> Elem<F> {
     /// The selected generator of the multiplicative group.
@@ -524,8 +544,8 @@ pub trait FieldElem:
     type Field: Field;
     /// Wrap a raw word, canonicalizing it into storage.
     ///
-    /// Runs the central field validation, then
-    /// [`Field::canonical_raw`].
+    /// Runs the central field validation, then canonicalizes the word into
+    /// storage.
     fn from_raw(raw: <Self::Field as Field>::Raw) -> Self;
     /// The additive identity, and the absorbing element for multiplication.
     const ZERO: Self;
@@ -704,7 +724,7 @@ impl<F: Field> FieldElem for Elem<F> {
     #[inline]
     fn from_residue(value: u64) -> Result<Self, RangeError> {
         let characteristic = <F::Characteristic as PrimeIdentity>::CHARACTERISTIC;
-        let () = <F::Characteristic as PrimeIdentity>::VALID;
+        let () = <F::Characteristic as private::PrimeIdentityValidation>::VALID;
         check_residue(value, characteristic)?;
         Ok(Elem {
             raw: F::canonical_raw(F::from_prime(value)),

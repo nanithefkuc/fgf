@@ -49,12 +49,12 @@ fn case_id(label: &str, op: &str) -> String {
     format!("scalar/{op}/{label}")
 }
 
-const API_ADD: &[&str] = &["fgf::FieldElem::add", "fgf::Field::add_raw"];
-const API_SUB: &[&str] = &["fgf::FieldElem::sub", "fgf::Field::sub_raw"];
-const API_NEG: &[&str] = &["fgf::FieldElem::neg", "fgf::Field::neg_raw"];
-const API_MUL: &[&str] = &["fgf::FieldElem::mul", "fgf::Field::mul_raw"];
+const API_ADD: &[&str] = &["fgf::FieldElem::add"];
+const API_SUB: &[&str] = &["fgf::FieldElem::sub"];
+const API_NEG: &[&str] = &["fgf::FieldElem::neg"];
+const API_MUL: &[&str] = &["fgf::FieldElem::mul"];
 const API_SQUARE: &[&str] = &["fgf::FieldElem::square"];
-const API_INV: &[&str] = &["fgf::FieldElem::inv", "fgf::Field::inv_raw"];
+const API_INV: &[&str] = &["fgf::FieldElem::inv"];
 const API_DIV: &[&str] = &["fgf::FieldElem::div"];
 const API_POW: &[&str] = &["fgf::FieldElem::pow"];
 const API_OPERATORS: &[&str] = &[

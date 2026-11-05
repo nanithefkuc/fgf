@@ -16,7 +16,9 @@ pub use cantor::Cantor;
 pub use normal::Normal;
 pub use poly::{AES, Polynomial, RS};
 
-use description::{BinaryDescription, ByteLogExp};
+use description::BinaryDescription;
+
+use crate::field::private::RawArithmetic;
 
 use core::fmt;
 
@@ -24,19 +26,33 @@ use super::finite_field::{FiniteField, FiniteFieldRepr, checked_order};
 use super::{Elem, Field, FieldBuffer, PrimeCharacteristic, RangeError, Validate};
 
 pub(crate) mod binary_private {
+    use super::description::{BinaryDescription, ByteLogExp};
+
     pub trait Sealed {}
+
+    /// Per-presentation data the byte-operation dispatch reads.
+    pub(crate) trait BinaryReprData<const N: u32> {
+        /// The opaque descriptor of this presentation.
+        const DESCRIPTION: &'static BinaryDescription;
+        /// Discrete-logarithm tables, present only for degree-eight strategies.
+        const LOG_EXP: Option<&'static ByteLogExp>;
+    }
+
+    /// The descriptor of a binary field row's presentation.
+    pub(crate) trait BinaryFieldData {
+        /// The opaque descriptor of this field's presentation.
+        const DESCRIPTION: &'static BinaryDescription;
+    }
 }
 
 /// A sealed binary representation of GF(2^N).
 ///
-/// The presentation label and the defining-data proof are the family's
-/// [`FiniteFieldRepr::NAME`] and [`FiniteFieldRepr::VALID`]; this trait adds
-/// the binary descriptor and the optional degree-eight log/exp tables.
-pub trait BinaryRepr<const N: u32>: FiniteFieldRepr<2, N> {
-    /// The opaque descriptor of this presentation.
-    const DESCRIPTION: &'static BinaryDescription;
-    /// Discrete-logarithm tables, present only for degree-eight strategies.
-    const LOG_EXP: Option<&'static ByteLogExp>;
+/// The presentation label is the family's [`FiniteFieldRepr::NAME`]; the
+/// defining-data proof and the binary descriptor stay crate-private.
+#[allow(private_bounds)]
+pub trait BinaryRepr<const N: u32>:
+    FiniteFieldRepr<2, N> + binary_private::BinaryReprData<N>
+{
 }
 
 /// A binary field: characteristic two with a canonical coordinate word.
@@ -46,10 +62,10 @@ pub trait BinaryRepr<const N: u32>: FiniteFieldRepr<2, N> {
 /// on [`FieldElem`](super::FieldElem).
 #[allow(private_bounds)]
 pub trait BinaryField:
-    Field<Characteristic = PrimeCharacteristic<2>> + binary_private::Sealed
+    Field<Characteristic = PrimeCharacteristic<2>>
+    + binary_private::Sealed
+    + binary_private::BinaryFieldData
 {
-    /// The opaque descriptor of this field's presentation.
-    const DESCRIPTION: &'static BinaryDescription;
 }
 
 /// Implemented by `FiniteField<2, N, R>` at its exact supported degree.
@@ -103,7 +119,7 @@ macro_rules! prime_hooks {
 
         fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
             let () = Validate::<Self>::OK;
-            $crate::field::binary::residue_row_value::<R>(<Self as Field>::canonical_raw(raw))
+            $crate::field::binary::residue_row_value::<R>(Self::canonical_raw(raw))
         }
     };
     ($n:literal) => {
@@ -112,20 +128,20 @@ macro_rules! prime_hooks {
             // An odd value reduces to the identity, an even one to
             // zero.
             if value % 2 == 0 {
-                <Self as Field>::ZERO_RAW
+                Self::ZERO_RAW
             } else {
-                <Self as Field>::ONE_RAW
+                Self::ONE_RAW
             }
         }
 
         fn to_prime(raw: <Self as Field>::Raw) -> Option<u64> {
             let () = Validate::<Self>::OK;
-            let raw = <Self as Field>::canonical_raw(raw);
+            let raw = Self::canonical_raw(raw);
             // The prime subfield holds zero and the identity, and an
             // ordered-basis row's identity word need not be one.
-            if raw == <Self as Field>::ZERO_RAW {
+            if raw == Self::ZERO_RAW {
                 Some(0)
-            } else if raw == <Self as Field>::ONE_RAW {
+            } else if raw == Self::ONE_RAW {
                 Some(1)
             } else {
                 None
@@ -150,22 +166,27 @@ macro_rules! degree_row {
             const NAME: &'static str = <R as FiniteFieldRepr<2, $n>>::NAME;
             const DEGREE: u32 = $n;
             const ORDER: u128 = checked_order::<2, $n>();
+        }
+
+        impl<R: BinaryRepr<$n>> $crate::field::private::RawArithmetic<$raw>
+            for FiniteField<2, $n, R>
+        {
             // The identity words evaluate the row's validity first and then
             // read row-local data, never the reverse.
             const ZERO_RAW: $raw = {
-                let () = <Self as Field>::VALID;
+                let () = <Self as $crate::field::private::RawArithmetic<$raw>>::VALID;
                 0
             };
             // The descriptor's identity holds at most `N` bits here.
             #[allow(clippy::cast_possible_truncation)]
             const ONE_RAW: $raw = {
-                let () = <Self as Field>::VALID;
+                let () = <Self as $crate::field::private::RawArithmetic<$raw>>::VALID;
                 R::DESCRIPTION.one() as $raw
             };
             // Metadata first, then the representation's defining data.
             const VALID: () = {
                 checked_order::<2, $n>();
-                let () = <R as FiniteFieldRepr<2, $n>>::VALID;
+                let () = <R as $crate::field::private::FiniteFieldReprValidation<2, $n>>::VALID;
             };
 
             #[inline]
@@ -225,7 +246,7 @@ macro_rules! degree_row {
                 // Widening the canonical word to the coordinate word is
                 // exact.
                 #[allow(clippy::cast_lossless)]
-                let word = <Self as Field>::canonical_raw(raw) as u64;
+                let word = Self::canonical_raw(raw) as u64;
                 let mut i: u32 = 0;
                 while i < $n {
                     dst[i as usize] = (word >> i) & 1;
@@ -265,7 +286,7 @@ macro_rules! degree_row {
                 // Widening the canonical word to the coordinate word is
                 // exact.
                 #[allow(clippy::cast_lossless)]
-                let word = <Self as Field>::canonical_raw(raw) as u64;
+                let word = Self::canonical_raw(raw) as u64;
                 word
             }
 
@@ -280,12 +301,15 @@ macro_rules! degree_row {
                 // holds exactly.
                 #[allow(clippy::cast_possible_truncation)]
                 let raw = word as $raw;
-                <Self as Field>::canonical_raw(raw)
+                Self::canonical_raw(raw)
             }
         }
-        impl<R: BinaryRepr<$n>> BinaryField for FiniteField<2, $n, R> {
+        impl<R: BinaryRepr<$n>> $crate::field::binary::binary_private::BinaryFieldData
+            for FiniteField<2, $n, R>
+        {
             const DESCRIPTION: &'static BinaryDescription = R::DESCRIPTION;
         }
+        impl<R: BinaryRepr<$n>> BinaryField for FiniteField<2, $n, R> {}
         impl<R: BinaryRepr<$n>> BinaryDegree<$n> for FiniteField<2, $n, R> {}
     };
 }

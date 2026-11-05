@@ -298,10 +298,7 @@ fn check_mutual_isomorphism<S, T>(
             );
         }
     }
-    assert_eq!(
-        forward.apply(Elem::<S>::from_index(S::DESCRIPTION.one() as u128).unwrap()),
-        Elem::<T>::from_index(T::DESCRIPTION.one() as u128).unwrap()
-    );
+    assert_eq!(forward.apply(Elem::<S>::ONE), Elem::<T>::ONE);
 }
 
 #[test]
@@ -579,10 +576,14 @@ fn absolute_trace_and_norm_through_gf2() {
         let y = Elem::<Gf16>::from_raw(word as u16);
         let trace = absolute16.trace(y);
         assert!(trace == Elem::<Gf1>::ZERO || trace == Elem::<Gf1>::ONE);
-        assert_eq!(
-            trace.to_raw() as u64,
-            <Gf16 as BinaryField>::DESCRIPTION.trace(word)
-        );
+        let mut oracle = Elem::<Gf16>::ZERO;
+        let mut power = y;
+        for _ in 0..16 {
+            oracle = oracle.add(power);
+            power = power.square();
+        }
+        assert!(oracle == Elem::<Gf16>::ZERO || oracle == Elem::<Gf16>::ONE);
+        assert_eq!(absolute16.embed(trace), oracle);
         let norm = absolute16.norm(y);
         let expected = if y.is_zero() {
             Elem::<Gf1>::ZERO
@@ -595,10 +596,14 @@ fn absolute_trace_and_norm_through_gf2() {
         let y = Elem::<Gf64>::from_raw(word);
         let trace = absolute64.trace(y);
         assert!(trace == Elem::<Gf1>::ZERO || trace == Elem::<Gf1>::ONE);
-        assert_eq!(
-            trace.to_raw() as u64,
-            <Gf64 as BinaryField>::DESCRIPTION.trace(word)
-        );
+        let mut oracle = Elem::<Gf64>::ZERO;
+        let mut power = y;
+        for _ in 0..64 {
+            oracle = oracle.add(power);
+            power = power.square();
+        }
+        assert!(oracle == Elem::<Gf64>::ZERO || oracle == Elem::<Gf64>::ONE);
+        assert_eq!(absolute64.embed(trace), oracle);
         assert_eq!(
             absolute64.norm(y),
             if y.is_zero() {

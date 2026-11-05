@@ -549,14 +549,18 @@ mod tests {
 
     #[test]
     fn shipped_tower_reference_maps_satisfy_their_relations() {
-        use super::super::super::binary::BinaryField;
-
         check_tower_phi(tower::RIJNDAEL16_DESC);
         check_tower_phi(tower::RIJNDAEL32_DESC);
         check_tower_phi(tower::RIJNDAEL64_DESC);
-        check_tower_phi(<tower::FanPaar16Field as BinaryField>::DESCRIPTION);
-        check_tower_phi(<tower::FanPaar32Field as BinaryField>::DESCRIPTION);
-        check_tower_phi(<tower::FanPaar64Field as BinaryField>::DESCRIPTION);
+        check_tower_phi(
+            <tower::FanPaar16Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION,
+        );
+        check_tower_phi(
+            <tower::FanPaar32Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION,
+        );
+        check_tower_phi(
+            <tower::FanPaar64Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION,
+        );
     }
 
     #[test]

@@ -66,6 +66,9 @@ impl super::private::Sealed for GoldilocksFold {}
 
 impl FiniteFieldRepr<0xFFFF_FFFF_0000_0001, 1> for GoldilocksFold {
     const NAME: &'static str = "goldilocks-fold";
+}
+
+impl super::private::FiniteFieldReprValidation<0xFFFF_FFFF_0000_0001, 1> for GoldilocksFold {
     const VALID: () = {
         checked_order::<0xFFFF_FFFF_0000_0001, 1>();
     };
@@ -99,9 +102,15 @@ impl Field for Goldilocks {
     const NAME: &'static str = "GF(2^64 - 2^32 + 1)";
     const DEGREE: u32 = 1;
     const ORDER: u128 = MODULUS as u128;
+}
+
+impl super::private::RawArithmetic<u64> for Goldilocks {
     const ZERO_RAW: u64 = 0;
     const ONE_RAW: u64 = 1;
-    const VALID: () = <GoldilocksFold as FiniteFieldRepr<0xFFFF_FFFF_0000_0001, 1>>::VALID;
+    const VALID: () = <GoldilocksFold as super::private::FiniteFieldReprValidation<
+        0xFFFF_FFFF_0000_0001,
+        1,
+    >>::VALID;
 
     #[inline]
     fn canonical_raw(raw: u64) -> u64 {
@@ -202,7 +211,7 @@ impl super::private::RowAccess for Goldilocks {
     }
 }
 
-impl HasGenerator for Goldilocks {
+impl super::private::GeneratorRaw for Goldilocks {
     const GENERATOR_RAW: u64 = {
         assert!(
             is_primitive(7),
@@ -211,6 +220,8 @@ impl HasGenerator for Goldilocks {
         7
     };
 }
+
+impl HasGenerator for Goldilocks {}
 
 impl FieldBuffer for Goldilocks {
     const BYTES: usize = 8;
@@ -393,7 +404,7 @@ impl core::fmt::Display for Elem<Goldilocks> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Elem, Goldilocks, HasGenerator, MODULUS, is_primitive, reduce, reduce_wide};
+    use super::{Elem, Goldilocks, MODULUS, is_primitive, reduce, reduce_wide};
 
     /// The Goldilocks split reduction chain lands on its published
     /// constants.
@@ -416,8 +427,9 @@ mod tests {
     /// check must accept and reject powers of the generator by that rule.
     #[test]
     fn primitivity_follows_generator_power_coprimality() {
-        let generator =
-            Elem::<Goldilocks>::from_raw(core::hint::black_box(Goldilocks::GENERATOR_RAW));
+        let generator = Elem::<Goldilocks>::from_raw(core::hint::black_box(
+            Elem::<Goldilocks>::GENERATOR.to_raw(),
+        ));
         for k in 1..=96u64 {
             let candidate = generator.pow(u128::from(k)).to_raw();
             assert_eq!(

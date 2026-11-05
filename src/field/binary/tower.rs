@@ -5,7 +5,6 @@
 //! and a specialized `const` surface. The public packing convention,
 //! identities, and examples live on the [`binary`](crate::binary) facade.
 
-use super::BinaryField;
 use super::description::BinaryDescription;
 use super::poly::{AES, Polynomial};
 use crate::field::extension::{Extension, ExtensionSpec, Packed, PackedPadded, Relation};
@@ -281,14 +280,17 @@ pub(crate) type FanPaar64Field = FiniteField<2, 64, Extension<FanPaar64, 2>>;
 // of the small Fan-Paar rows, the embedding reference ladder, and the
 // kernel tests' structural checks.
 pub(crate) const RIJNDAEL16_DESC: &BinaryDescription =
-    <Rijndael16Field as BinaryField>::DESCRIPTION;
+    <Rijndael16Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION;
 pub(crate) const RIJNDAEL32_DESC: &BinaryDescription =
-    <Rijndael32Field as BinaryField>::DESCRIPTION;
+    <Rijndael32Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION;
 pub(crate) const RIJNDAEL64_DESC: &BinaryDescription =
-    <Rijndael64Field as BinaryField>::DESCRIPTION;
-pub(crate) const FANPAAR2_DESC: &BinaryDescription = <FanPaar2Field as BinaryField>::DESCRIPTION;
-pub(crate) const FANPAAR4_DESC: &BinaryDescription = <FanPaar4Field as BinaryField>::DESCRIPTION;
-pub(crate) const FANPAAR8_DESC: &BinaryDescription = <FanPaar8Field as BinaryField>::DESCRIPTION;
+    <Rijndael64Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION;
+pub(crate) const FANPAAR2_DESC: &BinaryDescription =
+    <FanPaar2Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION;
+pub(crate) const FANPAAR4_DESC: &BinaryDescription =
+    <FanPaar4Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION;
+pub(crate) const FANPAAR8_DESC: &BinaryDescription =
+    <FanPaar8Field as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION;
 
 // ---------------------------------------------------------------------------
 // Rijndael specialized helpers over concrete bases.
@@ -659,7 +661,7 @@ macro_rules! instance_components {
 /// const against the prime factors of the group order.
 macro_rules! instance_generator {
     ($field:ty, $raw:ty, $generator:literal, $order:expr, $factors:expr) => {
-        impl HasGenerator for $field {
+        impl super::super::private::GeneratorRaw for $field {
             const GENERATOR_RAW: $raw = {
                 // Direct storage construction keeps the proof independent
                 // of `Elem::GENERATOR`, which reads this constant.
@@ -682,6 +684,8 @@ macro_rules! instance_generator {
                 $generator
             };
         }
+
+        impl HasGenerator for $field {}
     };
 }
 
@@ -804,6 +808,7 @@ mod tests {
     use std::vec::Vec;
 
     use super::*;
+    use crate::field::private::RawArithmetic;
     use crate::field::{Field, FieldElem};
 
     /// Independent schoolbook product over one degree-16 instance's base,
@@ -886,7 +891,7 @@ mod tests {
     fn rijndael16_matches_schoolbook() {
         check_matches_schoolbook16::<Rijndael16Field>(
             rijndael16_mul,
-            <FiniteField<2, 8, Polynomial<AES>> as BinaryField>::DESCRIPTION,
+            <FiniteField<2, 8, Polynomial<AES>> as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION,
             1,
             0x20,
             0x0108,
@@ -1133,7 +1138,7 @@ mod tests {
         type F = FiniteField<2, 16, Extension<CustomNormal8, 2>>;
         assert_eq!(Elem::<F>::ZERO.to_raw(), 0);
         // The actual one holds the base one in the low component.
-        let base_one = <CustomNormal8 as ExtensionSpec<2>>::Base::DESCRIPTION.one();
+        let base_one = <<CustomNormal8 as ExtensionSpec<2>>::Base as crate::field::binary::binary_private::BinaryFieldData>::DESCRIPTION.one();
         assert_eq!(base_one, 0xFF);
         assert_eq!(Elem::<F>::ONE.to_raw(), 0xFF);
         let mut state = 0x1357_9bdf_0246_8aceu64;

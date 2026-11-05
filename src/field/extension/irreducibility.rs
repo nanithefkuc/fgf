@@ -800,8 +800,8 @@ mod tests {
     #[test]
     fn basis_row_relations_have_no_root_independent_of_the_interpreter() {
         for row in [
-            <crate::field::binary::Normal<0x13, 8> as crate::field::binary::BinaryRepr<4>>::DESCRIPTION,
-            <crate::field::binary::Cantor<0x13, 8> as crate::field::binary::BinaryRepr<4>>::DESCRIPTION,
+            <crate::field::binary::Normal<0x13, 8> as crate::field::binary::binary_private::BinaryReprData<4>>::DESCRIPTION,
+            <crate::field::binary::Cantor<0x13, 8> as crate::field::binary::binary_private::BinaryReprData<4>>::DESCRIPTION,
         ] {
             let descriptor = row.as_descriptor();
             let to_base = match descriptor.node(descriptor.root_index()) {
@@ -975,7 +975,7 @@ mod tests {
 
     /// `t^2 + 0x2*t + 0x5` over the shipped normal GF(2^4) row.
     const fn normal_row_extension() -> bool {
-        let row = <crate::field::binary::Normal<0x13, 8> as crate::field::binary::BinaryRepr<4>>::DESCRIPTION;
+        let row = <crate::field::binary::Normal<0x13, 8> as crate::field::binary::binary_private::BinaryReprData<4>>::DESCRIPTION;
         let base = row.as_descriptor();
         let mut relation = [0u64; 8];
         // Constant word 0x5 (bits 0 and 2), linear word 0x2 (bit 1).
@@ -988,7 +988,7 @@ mod tests {
 
     /// `t^2 + 0x2*t + 0x5` over the shipped Cantor GF(2^4) row.
     const fn cantor_row_extension() -> bool {
-        let row = <crate::field::binary::Cantor<0x13, 8> as crate::field::binary::BinaryRepr<4>>::DESCRIPTION;
+        let row = <crate::field::binary::Cantor<0x13, 8> as crate::field::binary::binary_private::BinaryReprData<4>>::DESCRIPTION;
         let base = row.as_descriptor();
         let mut relation = [0u64; 8];
         relation[0] = 1;

@@ -344,10 +344,8 @@ fn row_metadata_matches_modulus() {
         <<Res<WIDE> as Field>::Characteristic as PrimeIdentity>::CHARACTERISTIC,
         WIDE
     );
-    assert_eq!(<Res<7> as Field>::ZERO_RAW, 0);
-    assert_eq!(<Res<7> as Field>::ONE_RAW, 1);
-    let () = <Res<7> as Field>::VALID;
-    let () = <Residue as FiniteFieldRepr<7, 1>>::VALID;
+    assert_eq!(Elem::<Res<7>>::ZERO.to_raw(), 0);
+    assert_eq!(Elem::<Res<7>>::ONE.to_raw(), 1);
 }
 
 #[test]

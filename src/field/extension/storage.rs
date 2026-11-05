@@ -109,7 +109,7 @@ pub trait ExtensionStorage<B: Field, const D: usize>: Sealed + 'static {
 impl Sealed for Components {}
 
 impl<B: Field, const D: usize> ExtensionStorage<B, D> for Components {
-    type Raw = [<B as Field>::Raw; D];
+    type Raw = [B::Raw; D];
 }
 
 /// The component and raw-word conversions of one storage, behind the
@@ -129,9 +129,9 @@ pub(crate) trait StorageRepr<B: Field, const D: usize>: ExtensionStorage<B, D> {
     /// The canonical form of a raw word.
     fn canonical(raw: Self::Raw) -> Self::Raw;
     /// The base components of a raw word, in component order.
-    fn split(raw: Self::Raw) -> [<B as Field>::Raw; D];
+    fn split(raw: Self::Raw) -> [B::Raw; D];
     /// The raw word of base components, canonicalized on the way in.
-    fn join(components: [<B as Field>::Raw; D]) -> Self::Raw;
+    fn join(components: [B::Raw; D]) -> Self::Raw;
     /// The shipped-instance word of a raw value: the coordinate word of a
     /// packed storage, and `re | im << 32` for the component limbs of the
     /// shipped prime extension.
@@ -188,23 +188,23 @@ pub(crate) trait StorageDisplay<B: Field, const D: usize>: StorageRepr<B, D> {
 
 impl<B: Field, const D: usize> StorageRepr<B, D> for Components {
     const TAG: Storage = Storage::Components;
-    const ZERO: Self::Raw = [<B as Field>::ZERO_RAW; D];
+    const ZERO: Self::Raw = [B::ZERO_RAW; D];
     const ONE: Self::Raw = {
-        let mut components = [<B as Field>::ZERO_RAW; D];
-        components[0] = <B as Field>::ONE_RAW;
+        let mut components = [B::ZERO_RAW; D];
+        components[0] = B::ONE_RAW;
         components
     };
 
     fn canonical(raw: Self::Raw) -> Self::Raw {
-        raw.map(<B as Field>::canonical_raw)
+        raw.map(B::canonical_raw)
     }
 
-    fn split(raw: Self::Raw) -> [<B as Field>::Raw; D] {
+    fn split(raw: Self::Raw) -> [B::Raw; D] {
         raw
     }
 
-    fn join(components: [<B as Field>::Raw; D]) -> Self::Raw {
-        components.map(<B as Field>::canonical_raw)
+    fn join(components: [B::Raw; D]) -> Self::Raw {
+        components.map(B::canonical_raw)
     }
 
     // The shipped component instance stores two `u32` limbs; the checked
@@ -299,9 +299,9 @@ macro_rules! packed_storage {
             }
 
             #[allow(clippy::cast_lossless)]
-            fn split(raw: Self::Raw) -> [<B as Field>::Raw; D] {
+            fn split(raw: Self::Raw) -> [B::Raw; D] {
                 let word = raw as u64;
-                let degree = <B as Field>::DEGREE as usize;
+                let degree = B::DEGREE as usize;
                 core::array::from_fn(|i| {
                     let component = extract_bits(word, i * degree, degree);
                     // The extracted word holds at most the base's degree
@@ -313,12 +313,12 @@ macro_rules! packed_storage {
             }
 
             #[allow(clippy::cast_possible_truncation)]
-            fn join(components: [<B as Field>::Raw; D]) -> Self::Raw {
-                let degree = <B as Field>::DEGREE as usize;
+            fn join(components: [B::Raw; D]) -> Self::Raw {
+                let degree = B::DEGREE as usize;
                 let mut word = 0u64;
                 for (i, component) in components.iter().enumerate() {
                     let element = Elem::<B> {
-                        raw: <B as Field>::canonical_raw(*component),
+                        raw: B::canonical_raw(*component),
                     };
                     // A packed row places component `i` at the bits
                     // `[i*degree, (i+1)*degree)`; the base index is a

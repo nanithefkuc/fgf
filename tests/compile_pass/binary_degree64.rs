@@ -2,7 +2,7 @@
 
 use fgf::binary::Polynomial;
 use fgf::extension::{Extension, ExtensionSpec, Packed, Relation};
-use fgf::{Elem, Field, FieldElem, FiniteField, ops};
+use fgf::{Elem, FieldElem, FiniteField, ops};
 
 type Gf2 = FiniteField<2, 1, Polynomial<3>>;
 
@@ -23,8 +23,8 @@ impl<const LOW: u64> ExtensionSpec<64> for Spec<LOW> {
 }
 
 type Row<const LOW: u64> = FiniteField<2, 64, Extension<Spec<LOW>, 64>>;
-const _: () = <Row<0x1b> as Field>::VALID;
-const _: () = <Row<0xa1c6_7ae0_5c18_5c83> as Field>::VALID;
+const _: Elem<Row<0x1b>> = Elem::<Row<0x1b>>::ZERO;
+const _: Elem<Row<0xa1c6_7ae0_5c18_5c83>> = Elem::<Row<0xa1c6_7ae0_5c18_5c83>>::ZERO;
 
 // Carryless multiplication and long division supply a reference independent
 // of the descriptor's component arithmetic and relation validator.

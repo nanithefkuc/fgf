@@ -1,7 +1,7 @@
 // expect: characteristic is not prime
-//! A direct validity query on an extension row whose characteristic is not
-//! prime: family metadata rejects the row before base validation runs.
-use fgf::{Field, FiniteField};
+//! An extension row whose characteristic is not prime: central metadata
+//! validation rejects it before any base or descriptor validation.
+use fgf::{Elem, FiniteField};
 use fgf::extension::{Components, Extension, ExtensionSpec, Relation};
 use fgf::prime::Residue;
 
@@ -14,5 +14,5 @@ impl ExtensionSpec<2> for Spec {
 }
 
 fn main() {
-    let () = <FiniteField<4, 2, Extension<Spec, 2>> as Field>::VALID;
+    let _ = Elem::<FiniteField<4, 2, Extension<Spec, 2>>>::ZERO;
 }

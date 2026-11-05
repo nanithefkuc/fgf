@@ -194,22 +194,32 @@ fn degree_one_rows_are_prime_fields() {
 
 #[test]
 fn binary_rows_keep_fixed_raw_words_under_generic_presentations() {
-    // Generic over the presentation at a fixed binary degree: the raw word
-    // stays the row's primitive, and both characteristic-two degree-one
-    // presentations coexist with their own widths.
-    fn one_raw<R: BinaryRepr<8>>() -> u8 {
-        <FiniteField<2, 8, R> as Field>::ONE_RAW
+    // Generic over the presentation at a fixed binary degree:
+    // `R: BinaryRepr<8>` alone supplies scalar arithmetic, byte encoding,
+    // and the `u8` raw word.
+    fn exercise_byte_row<R: BinaryRepr<8>>(x: u8, y: u8) -> u8 {
+        exercise_field::<FiniteField<2, 8, R>>(x, y);
+        let zero: u8 = Elem::<FiniteField<2, 8, R>>::ZERO.to_raw();
+        assert_eq!(zero, 0);
+        let left = Elem::<FiniteField<2, 8, R>>::from_raw(x);
+        let right = Elem::<FiniteField<2, 8, R>>::from_raw(y);
+        if !right.is_zero() {
+            assert_eq!(left.mul(right).mul(right.inv()), left);
+        }
+        exercise_buffer::<FiniteField<2, 8, R>>(left.mul(right));
+        Elem::<FiniteField<2, 8, R>>::ONE.to_raw()
     }
     fn degree_one<R: BinaryRepr<1>>() -> u8 {
-        <FiniteField<2, 1, R> as Field>::ONE_RAW
+        Elem::<FiniteField<2, 1, R>>::ONE.to_raw()
     }
     fn label<const N: u32, R: BinaryRepr<N>>() -> &'static str {
         <R as FiniteFieldRepr<2, N>>::NAME
     }
-    assert_eq!(one_raw::<Polynomial<AES>>(), 1);
-    assert_eq!(one_raw::<Normal<0x11B, 0x20>>(), 0xFF);
+    assert_eq!(exercise_byte_row::<Polynomial<AES>>(0x53, 0xca), 1);
+    assert_eq!(exercise_byte_row::<Normal<0x11B, 0x20>>(0x53, 0xca), 0xFF);
+    assert_eq!(exercise_byte_row::<Cantor<0x11B, 0x20>>(0x53, 0xca), 1);
     assert_eq!(degree_one::<Polynomial<3>>(), 1);
-    assert_eq!(<Residue2 as Field>::ONE_RAW, 1u64);
+    assert_eq!(Elem::<Residue2>::ONE.to_raw(), 1u64);
     assert_eq!(label::<8, Polynomial<AES>>(), "GF(2^8)/0x11B");
     assert_eq!(label::<4, Cantor<0x13, 0xE>>(), "cantor");
 }
@@ -859,7 +869,7 @@ fn extension_rows_exercise_arithmetic_and_relations() {
         Elem::<OverNormal>::from_raw(0x0108),
     );
     assert_eq!(
-        <OverNormal as Field>::ONE_RAW,
+        Elem::<OverNormal>::ONE.to_raw(),
         <OverNormal as ExtensionField<2>>::from_components([
             Elem::<FiniteField<2, 8, Normal<0x11B, 0x20>>>::ONE,
             Elem::<FiniteField<2, 8, Normal<0x11B, 0x20>>>::ZERO,
@@ -877,7 +887,7 @@ fn extension_rows_exercise_arithmetic_and_relations() {
         Elem::<OverCantor>::from_raw(0x0108),
     );
     assert_eq!(
-        <OverCantor as Field>::ONE_RAW,
+        Elem::<OverCantor>::ONE.to_raw(),
         <OverCantor as ExtensionField<2>>::from_components([
             Elem::<FiniteField<2, 8, Cantor<0x11B, 0x20>>>::ONE,
             Elem::<FiniteField<2, 8, Cantor<0x11B, 0x20>>>::ZERO,

@@ -107,27 +107,34 @@ macro_rules! poly_degree8 {
                 Ok(name) => name,
                 Err(_) => panic!("Polynomial field names are ASCII"),
             };
+        }
+        impl<const P: u128> super::super::private::FiniteFieldReprValidation<2, 8>
+            for Polynomial<P>
+        {
             const VALID: () = {
                 assert!(
                     super::description::poly_degree(P) == 8,
                     "polynomial degree does not match field degree"
                 );
-                <Self as BinaryRepr<8>>::DESCRIPTION.validate();
+                <Self as super::binary_private::BinaryReprData<8>>::DESCRIPTION.validate();
                 assert!(
-                    <Self as BinaryRepr<8>>::DESCRIPTION.is_generator(
-                        Polynomial::<P>::smallest_generator(<Self as BinaryRepr<8>>::DESCRIPTION)
+                    <Self as super::binary_private::BinaryReprData<8>>::DESCRIPTION.is_generator(
+                        Polynomial::<P>::smallest_generator(
+                            <Self as super::binary_private::BinaryReprData<8>>::DESCRIPTION
+                        )
                     ),
                     "byte representation generator does not have full order"
                 );
             };
         }
-        impl<const P: u128> BinaryRepr<8> for Polynomial<P> {
+        impl<const P: u128> super::binary_private::BinaryReprData<8> for Polynomial<P> {
             const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::polynomial(8, P);
             const LOG_EXP: Option<&'static ByteLogExp> = Some(&ByteLogExp::build(
                 &BinaryDescription::polynomial(8, P),
                 Polynomial::<P>::smallest_generator(&BinaryDescription::polynomial(8, P)),
             ));
         }
+        impl<const P: u128> BinaryRepr<8> for Polynomial<P> {}
     };
 }
 
@@ -138,60 +145,78 @@ impl<const P: u128> FiniteFieldRepr<2, 4> for Polynomial<P> {
         Ok(name) => name,
         Err(_) => panic!("Polynomial field names are ASCII"),
     };
+}
+
+impl<const P: u128> super::super::private::FiniteFieldReprValidation<2, 4> for Polynomial<P> {
     const VALID: () = {
         assert!(
             super::description::poly_degree(P) == 4,
             "polynomial degree does not match field degree"
         );
-        <Self as BinaryRepr<4>>::DESCRIPTION.validate();
+        <Self as super::binary_private::BinaryReprData<4>>::DESCRIPTION.validate();
     };
 }
 
-impl<const P: u128> BinaryRepr<4> for Polynomial<P> {
+impl<const P: u128> super::binary_private::BinaryReprData<4> for Polynomial<P> {
     const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::polynomial(4, P);
     const LOG_EXP: Option<&'static ByteLogExp> = None;
 }
+
+impl<const P: u128> BinaryRepr<4> for Polynomial<P> {}
 
 impl<const P: u128> FiniteFieldRepr<2, 2> for Polynomial<P> {
     const NAME: &'static str = match core::str::from_utf8(&Polynomial::<P>::NAME_BYTES2) {
         Ok(name) => name,
         Err(_) => panic!("Polynomial field names are ASCII"),
     };
+}
+
+impl<const P: u128> super::super::private::FiniteFieldReprValidation<2, 2> for Polynomial<P> {
     const VALID: () = {
         assert!(
             super::description::poly_degree(P) == 2,
             "polynomial degree does not match field degree"
         );
-        <Self as BinaryRepr<2>>::DESCRIPTION.validate();
+        <Self as super::binary_private::BinaryReprData<2>>::DESCRIPTION.validate();
     };
 }
 
-impl<const P: u128> BinaryRepr<2> for Polynomial<P> {
+impl<const P: u128> super::binary_private::BinaryReprData<2> for Polynomial<P> {
     const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::polynomial(2, P);
     const LOG_EXP: Option<&'static ByteLogExp> = None;
 }
 
+impl<const P: u128> BinaryRepr<2> for Polynomial<P> {}
+
 impl<const P: u128> FiniteFieldRepr<2, 1> for Polynomial<P> {
     const NAME: &'static str = "GF(2)";
+}
+
+impl<const P: u128> super::super::private::FiniteFieldReprValidation<2, 1> for Polynomial<P> {
     const VALID: () = {
         assert!(P == 3, "Polynomial<3> is the only degree-one form");
-        <Self as BinaryRepr<1>>::DESCRIPTION.validate();
+        <Self as super::binary_private::BinaryReprData<1>>::DESCRIPTION.validate();
     };
 }
 
-impl<const P: u128> BinaryRepr<1> for Polynomial<P> {
+impl<const P: u128> super::binary_private::BinaryReprData<1> for Polynomial<P> {
     const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::polynomial(1, P);
     const LOG_EXP: Option<&'static ByteLogExp> = None;
 }
 
+impl<const P: u128> BinaryRepr<1> for Polynomial<P> {}
+
 use super::super::HasGenerator;
 use crate::field::FiniteField;
 
-impl<const P: u128> HasGenerator for FiniteField<2, 8, Polynomial<P>> {
+impl<const P: u128> super::super::private::GeneratorRaw for FiniteField<2, 8, Polynomial<P>> {
     const GENERATOR_RAW: u8 = {
-        let g = Polynomial::<P>::smallest_generator(<Polynomial<P> as BinaryRepr<8>>::DESCRIPTION);
+        let g = Polynomial::<P>::smallest_generator(
+            <Polynomial<P> as super::binary_private::BinaryReprData<8>>::DESCRIPTION,
+        );
         assert!(
-            <Polynomial<P> as BinaryRepr<8>>::DESCRIPTION.is_generator(g),
+            <Polynomial<P> as super::binary_private::BinaryReprData<8>>::DESCRIPTION
+                .is_generator(g),
             "byte representation generator does not have full order"
         );
         #[allow(clippy::cast_possible_truncation)]
@@ -200,11 +225,16 @@ impl<const P: u128> HasGenerator for FiniteField<2, 8, Polynomial<P>> {
     };
 }
 
-impl<const P: u128> HasGenerator for FiniteField<2, 4, Polynomial<P>> {
+impl<const P: u128> HasGenerator for FiniteField<2, 8, Polynomial<P>> {}
+
+impl<const P: u128> super::super::private::GeneratorRaw for FiniteField<2, 4, Polynomial<P>> {
     const GENERATOR_RAW: u8 = {
-        let g = Polynomial::<P>::smallest_generator(<Polynomial<P> as BinaryRepr<4>>::DESCRIPTION);
+        let g = Polynomial::<P>::smallest_generator(
+            <Polynomial<P> as super::binary_private::BinaryReprData<4>>::DESCRIPTION,
+        );
         assert!(
-            <Polynomial<P> as BinaryRepr<4>>::DESCRIPTION.is_generator(g),
+            <Polynomial<P> as super::binary_private::BinaryReprData<4>>::DESCRIPTION
+                .is_generator(g),
             "representation generator does not have full order"
         );
         #[allow(clippy::cast_possible_truncation)]
@@ -213,11 +243,16 @@ impl<const P: u128> HasGenerator for FiniteField<2, 4, Polynomial<P>> {
     };
 }
 
-impl<const P: u128> HasGenerator for FiniteField<2, 2, Polynomial<P>> {
+impl<const P: u128> HasGenerator for FiniteField<2, 4, Polynomial<P>> {}
+
+impl<const P: u128> super::super::private::GeneratorRaw for FiniteField<2, 2, Polynomial<P>> {
     const GENERATOR_RAW: u8 = {
-        let g = Polynomial::<P>::smallest_generator(<Polynomial<P> as BinaryRepr<2>>::DESCRIPTION);
+        let g = Polynomial::<P>::smallest_generator(
+            <Polynomial<P> as super::binary_private::BinaryReprData<2>>::DESCRIPTION,
+        );
         assert!(
-            <Polynomial<P> as BinaryRepr<2>>::DESCRIPTION.is_generator(g),
+            <Polynomial<P> as super::binary_private::BinaryReprData<2>>::DESCRIPTION
+                .is_generator(g),
             "representation generator does not have full order"
         );
         #[allow(clippy::cast_possible_truncation)]
@@ -226,9 +261,13 @@ impl<const P: u128> HasGenerator for FiniteField<2, 2, Polynomial<P>> {
     };
 }
 
-impl<const P: u128> HasGenerator for FiniteField<2, 1, Polynomial<P>> {
+impl<const P: u128> HasGenerator for FiniteField<2, 2, Polynomial<P>> {}
+
+impl<const P: u128> super::super::private::GeneratorRaw for FiniteField<2, 1, Polynomial<P>> {
     const GENERATOR_RAW: u8 = 1;
 }
+
+impl<const P: u128> HasGenerator for FiniteField<2, 1, Polynomial<P>> {}
 
 #[cfg(test)]
 pub(super) mod tests {

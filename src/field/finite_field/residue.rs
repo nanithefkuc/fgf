@@ -74,6 +74,9 @@ impl super::private::Sealed for Residue {}
 
 impl<const P: u64> FiniteFieldRepr<P, 1> for Residue {
     const NAME: &'static str = "residue";
+}
+
+impl<const P: u64> super::super::private::FiniteFieldReprValidation<P, 1> for Residue {
     // The defining data of the residue presentation is the characteristic
     // itself; the shared metadata check validates it before any remainder
     // arithmetic can run.
@@ -199,19 +202,22 @@ impl<const P: u64> Field for FiniteField<P, 1, Residue> {
         1
     };
     const ORDER: u128 = checked_order::<P, 1>();
+}
+
+impl<const P: u64> super::super::private::RawArithmetic<u64> for FiniteField<P, 1, Residue> {
     // The identity words evaluate the row's validity first and then read
     // their row-local data, never the reverse.
     const ZERO_RAW: u64 = {
-        let () = <Self as Field>::VALID;
+        let () = <Self as super::super::private::RawArithmetic<u64>>::VALID;
         0
     };
     const ONE_RAW: u64 = {
-        let () = <Self as Field>::VALID;
+        let () = <Self as super::super::private::RawArithmetic<u64>>::VALID;
         1
     };
     const VALID: () = {
         checked_order::<P, 1>();
-        let () = <Residue as FiniteFieldRepr<P, 1>>::VALID;
+        let () = <Residue as super::super::private::FiniteFieldReprValidation<P, 1>>::VALID;
     };
 
     #[inline]

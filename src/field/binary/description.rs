@@ -146,6 +146,7 @@ impl BinaryDescription {
 
     /// Whether the root node is an ordered-basis presentation.
     #[must_use]
+    #[allow(dead_code)]
     pub const fn is_basis_root(&self) -> bool {
         matches!(self.inner.node(self.inner.root_index()), Node::Basis { .. })
     }
@@ -321,6 +322,7 @@ impl BinaryDescription {
     /// Strategy selection compares complete descriptions through this
     /// comparator; hashes alone do not prove arithmetic equality.
     #[must_use]
+    #[allow(dead_code)]
     pub const fn same_structure(&self, other: &BinaryDescription) -> bool {
         self.inner.same_structure(&other.inner)
     }

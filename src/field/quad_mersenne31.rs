@@ -225,7 +225,7 @@ const fn is_primitive(candidate: [u32; 2]) -> bool {
     true
 }
 
-impl HasGenerator for QuadMersenne31 {
+impl super::private::GeneratorRaw for QuadMersenne31 {
     const GENERATOR_RAW: [u32; 2] = {
         assert!(
             is_primitive([1, 12]),
@@ -234,6 +234,8 @@ impl HasGenerator for QuadMersenne31 {
         [1, 12]
     };
 }
+
+impl HasGenerator for QuadMersenne31 {}
 
 impl Elem<QuadMersenne31> {
     /// The imaginary unit `i` with `i² = −1`.
@@ -426,7 +428,7 @@ impl Elem<QuadMersenne31> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Elem, HasGenerator, MODULUS, QuadMersenne31, is_primitive};
+    use super::{Elem, MODULUS, QuadMersenne31, is_primitive};
 
     #[test]
     fn deferred_product_sums_match_integer_remainders() {
@@ -451,8 +453,9 @@ mod tests {
     /// the check must accept and reject powers of the generator by that rule.
     #[test]
     fn primitivity_follows_generator_power_coprimality() {
-        let generator =
-            Elem::<QuadMersenne31>::from_raw(core::hint::black_box(QuadMersenne31::GENERATOR_RAW));
+        let generator = Elem::<QuadMersenne31>::from_raw(core::hint::black_box(
+            Elem::<QuadMersenne31>::GENERATOR.to_raw(),
+        ));
         let order = u64::from(MODULUS) * u64::from(MODULUS) - 1;
         for k in 1..=48u64 {
             let candidate = generator.pow(u128::from(k)).to_raw();

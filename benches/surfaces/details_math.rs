@@ -10,7 +10,7 @@
 
 use std::hint::black_box;
 
-use fgf::{Elem, Field};
+use fgf::Elem;
 
 use crate::fixture;
 use crate::registry::{self, Case, CaseCtx, Scope};
@@ -23,8 +23,6 @@ const API_NORM: &[&str] = &["fgf::Elem::norm (inherent const)"];
 const API_MUL_ALPHA: &[&str] = &["fgf::Elem::mul_alpha (inherent const)"];
 const API_FROM_RESIDUE: &[&str] = &["fgf::Elem::from_residue (inherent const)"];
 const API_TO_RESIDUE: &[&str] = &["fgf::Elem::to_residue (inherent const)"];
-const API_CANONICAL_RAW: &[&str] = &["fgf::Field::canonical_raw"];
-
 /// Repeated hot-loop work over prebuilt scalar fixtures.
 fn steady_case(
     api: &'static [&'static str],
@@ -54,8 +52,7 @@ fn steady_case(
 /// presentations expose each callable.
 pub fn register() {
     use crate::fields::{
-        Gf1e9p7, Gf2p8Aes, Gf2p8FanPaar, Gf2p16FanPaar, Gf2p16Rijndael, Gf2p32FanPaar, Gld, M31,
-        Qm31,
+        Gf1e9p7, Gf2p8Aes, Gf2p8FanPaar, Gf2p16FanPaar, Gf2p16Rijndael, Gf2p32FanPaar, M31, Qm31,
     };
 
     // --- component conversions over the shipped quadratic instances ----------
@@ -460,85 +457,6 @@ pub fn register() {
             );
             registry::time(case, ctx, "scalar", || {
                 fixture::observe(black_box(value).to_residue());
-            });
-        },
-    ));
-
-    // --- canonical raw-word fold over three presentations --------------------
-
-    registry::add(steady_case(
-        API_CANONICAL_RAW,
-        "gf2p8-aes",
-        "canonical-raw",
-        "canonical raw",
-        1,
-        |case, ctx| {
-            type F = Gf2p8Aes;
-            let raw = 0x53u8;
-            assert_eq!(
-                <F as Field>::canonical_raw(raw),
-                Elem::<F>::from_raw(raw).to_raw(),
-                "{}: matches the element word",
-                case.case
-            );
-            registry::time(case, ctx, "scalar", || {
-                fixture::observe(<F as Field>::canonical_raw(black_box(raw)));
-            });
-        },
-    ));
-
-    registry::add(steady_case(
-        API_CANONICAL_RAW,
-        "m31",
-        "canonical-raw",
-        "canonical raw",
-        1,
-        |case, ctx| {
-            type F = M31;
-            const MODULUS: u64 = 0x7FFF_FFFF;
-            let raw = 0x1234_5678u32;
-            assert_eq!(
-                <F as Field>::canonical_raw(raw),
-                raw,
-                "{}: canonical words hold",
-                case.case
-            );
-            assert_eq!(
-                u64::from(<F as Field>::canonical_raw(u32::MAX)),
-                u64::from(u32::MAX) % MODULUS,
-                "{}: reduction matches modular arithmetic",
-                case.case
-            );
-            registry::time(case, ctx, "scalar", || {
-                fixture::observe(<F as Field>::canonical_raw(black_box(raw)));
-            });
-        },
-    ));
-
-    registry::add(steady_case(
-        API_CANONICAL_RAW,
-        "goldilocks",
-        "canonical-raw",
-        "canonical raw",
-        1,
-        |case, ctx| {
-            type F = Gld;
-            const MODULUS: u64 = 0xFFFF_FFFF_0000_0001;
-            let raw = 0x1234_5678_9ABC_DEF0u64;
-            assert_eq!(
-                <F as Field>::canonical_raw(raw),
-                raw,
-                "{}: canonical words hold",
-                case.case
-            );
-            assert_eq!(
-                <F as Field>::canonical_raw(MODULUS + 5),
-                5,
-                "{}: reduction matches modular arithmetic",
-                case.case
-            );
-            registry::time(case, ctx, "scalar", || {
-                fixture::observe(<F as Field>::canonical_raw(black_box(raw)));
             });
         },
     ));

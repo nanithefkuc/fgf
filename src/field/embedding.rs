@@ -1465,7 +1465,7 @@ mod compose {
     /// A right-hand operand of composition: a map out of the middle row
     /// that transports prepared images into its own target. Private, so
     /// only [`Embedding`] and [`Isomorphism`] qualify.
-    pub trait Postcompose<Mid: Field, Out: Field> {
+    pub(crate) trait Postcompose<Mid: Field, Out: Field> {
         /// Map `image`: one prepared image of the left-hand map, seen as
         /// an element of the middle row.
         fn postcompose(&self, image: Elem<Mid>) -> Elem<Out>;

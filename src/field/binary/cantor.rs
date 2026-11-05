@@ -41,16 +41,22 @@ macro_rules! cantor_row {
     ($n:literal) => {
         impl<const P: u128, const SEED: u8> FiniteFieldRepr<2, $n> for Cantor<P, SEED> {
             const NAME: &'static str = "cantor";
+        }
+        impl<const P: u128, const SEED: u8> super::super::private::FiniteFieldReprValidation<2, $n>
+            for Cantor<P, SEED>
+        {
             const VALID: () = {
                 assert!((SEED as u64) < (1u64 << $n), "cantor seed has excess bits");
                 assert!(
                     to_base::<P, SEED, $n>()[0] == 1,
                     "cantor chain does not reach one"
                 );
-                <Self as BinaryRepr<$n>>::DESCRIPTION.validate();
+                <Self as super::binary_private::BinaryReprData<$n>>::DESCRIPTION.validate();
             };
         }
-        impl<const P: u128, const SEED: u8> BinaryRepr<$n> for Cantor<P, SEED> {
+        impl<const P: u128, const SEED: u8> super::binary_private::BinaryReprData<$n>
+            for Cantor<P, SEED>
+        {
             const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::append_basis(
                 &BinaryDescription::polynomial($n, P),
                 to_base::<P, SEED, $n>(),
@@ -58,6 +64,7 @@ macro_rules! cantor_row {
             );
             const LOG_EXP: Option<&'static ByteLogExp> = None;
         }
+        impl<const P: u128, const SEED: u8> BinaryRepr<$n> for Cantor<P, SEED> {}
     };
 }
 
@@ -83,11 +90,14 @@ pub(crate) const fn transported_generator<const P: u128, const SEED: u8, const N
 use super::super::HasGenerator;
 use crate::field::FiniteField;
 
-impl<const P: u128, const SEED: u8> HasGenerator for FiniteField<2, 2, Cantor<P, SEED>> {
+impl<const P: u128, const SEED: u8> super::super::private::GeneratorRaw
+    for FiniteField<2, 2, Cantor<P, SEED>>
+{
     const GENERATOR_RAW: u8 = {
         let g = transported_generator::<P, SEED, 2>();
         assert!(
-            <Cantor<P, SEED> as BinaryRepr<2>>::DESCRIPTION.is_generator(g),
+            <Cantor<P, SEED> as super::binary_private::BinaryReprData<2>>::DESCRIPTION
+                .is_generator(g),
             "basis generator does not have full order"
         );
         #[allow(clippy::cast_possible_truncation)]
@@ -96,11 +106,16 @@ impl<const P: u128, const SEED: u8> HasGenerator for FiniteField<2, 2, Cantor<P,
     };
 }
 
-impl<const P: u128, const SEED: u8> HasGenerator for FiniteField<2, 4, Cantor<P, SEED>> {
+impl<const P: u128, const SEED: u8> HasGenerator for FiniteField<2, 2, Cantor<P, SEED>> {}
+
+impl<const P: u128, const SEED: u8> super::super::private::GeneratorRaw
+    for FiniteField<2, 4, Cantor<P, SEED>>
+{
     const GENERATOR_RAW: u8 = {
         let g = transported_generator::<P, SEED, 4>();
         assert!(
-            <Cantor<P, SEED> as BinaryRepr<4>>::DESCRIPTION.is_generator(g),
+            <Cantor<P, SEED> as super::binary_private::BinaryReprData<4>>::DESCRIPTION
+                .is_generator(g),
             "basis generator does not have full order"
         );
         #[allow(clippy::cast_possible_truncation)]
@@ -109,11 +124,16 @@ impl<const P: u128, const SEED: u8> HasGenerator for FiniteField<2, 4, Cantor<P,
     };
 }
 
-impl<const P: u128, const SEED: u8> HasGenerator for FiniteField<2, 8, Cantor<P, SEED>> {
+impl<const P: u128, const SEED: u8> HasGenerator for FiniteField<2, 4, Cantor<P, SEED>> {}
+
+impl<const P: u128, const SEED: u8> super::super::private::GeneratorRaw
+    for FiniteField<2, 8, Cantor<P, SEED>>
+{
     const GENERATOR_RAW: u8 = {
         let g = transported_generator::<P, SEED, 8>();
         assert!(
-            <Cantor<P, SEED> as BinaryRepr<8>>::DESCRIPTION.is_generator(g),
+            <Cantor<P, SEED> as super::binary_private::BinaryReprData<8>>::DESCRIPTION
+                .is_generator(g),
             "basis generator does not have full order"
         );
         #[allow(clippy::cast_possible_truncation)]
@@ -122,7 +142,9 @@ impl<const P: u128, const SEED: u8> HasGenerator for FiniteField<2, 8, Cantor<P,
     };
 }
 
-impl<const P: u128, const SEED: u8> BinaryRepr<8> for Cantor<P, SEED> {
+impl<const P: u128, const SEED: u8> HasGenerator for FiniteField<2, 8, Cantor<P, SEED>> {}
+
+impl<const P: u128, const SEED: u8> super::binary_private::BinaryReprData<8> for Cantor<P, SEED> {
     const DESCRIPTION: &'static BinaryDescription = &BinaryDescription::append_basis(
         &BinaryDescription::polynomial(8, P),
         to_base::<P, SEED, 8>(),
@@ -151,16 +173,23 @@ impl<const P: u128, const SEED: u8> BinaryRepr<8> for Cantor<P, SEED> {
     ));
 }
 
+impl<const P: u128, const SEED: u8> BinaryRepr<8> for Cantor<P, SEED> {}
+
 impl<const P: u128, const SEED: u8> FiniteFieldRepr<2, 8> for Cantor<P, SEED> {
     const NAME: &'static str = "cantor";
+}
+
+impl<const P: u128, const SEED: u8> super::super::private::FiniteFieldReprValidation<2, 8>
+    for Cantor<P, SEED>
+{
     const VALID: () = {
         assert!(
             to_base::<P, SEED, 8>()[0] == 1,
             "cantor chain does not reach one"
         );
-        <Self as BinaryRepr<8>>::DESCRIPTION.validate();
+        <Self as super::binary_private::BinaryReprData<8>>::DESCRIPTION.validate();
         assert!(
-            <Self as BinaryRepr<8>>::DESCRIPTION.is_generator({
+            <Self as super::binary_private::BinaryReprData<8>>::DESCRIPTION.is_generator({
                 let poly_desc = BinaryDescription::polynomial(8, P);
                 let poly_gen = Polynomial::<P>::smallest_generator(&poly_desc);
                 let mut image = 0u64;

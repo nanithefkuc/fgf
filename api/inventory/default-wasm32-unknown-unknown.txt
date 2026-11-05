@@ -22,22 +22,13 @@ impl<const P: u128, const SEED: u8> core::marker::Copy for fgf::binary::Cantor<P
 impl<const P: u128, const SEED: u8> core::marker::StructuralPartialEq for fgf::binary::Cantor<P, SEED>
 impl<const P: u128, const SEED: u8> fgf::FiniteFieldRepr<2, 2> for fgf::binary::Cantor<P, SEED>
 pub const fgf::binary::Cantor<P, SEED>::NAME: &'static str
-pub const fgf::binary::Cantor<P, SEED>::VALID: ()
 impl<const P: u128, const SEED: u8> fgf::FiniteFieldRepr<2, 4> for fgf::binary::Cantor<P, SEED>
 pub const fgf::binary::Cantor<P, SEED>::NAME: &'static str
-pub const fgf::binary::Cantor<P, SEED>::VALID: ()
 impl<const P: u128, const SEED: u8> fgf::FiniteFieldRepr<2, 8> for fgf::binary::Cantor<P, SEED>
 pub const fgf::binary::Cantor<P, SEED>::NAME: &'static str
-pub const fgf::binary::Cantor<P, SEED>::VALID: ()
 impl<const P: u128, const SEED: u8> fgf::binary::BinaryRepr<2> for fgf::binary::Cantor<P, SEED>
-pub const fgf::binary::Cantor<P, SEED>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Cantor<P, SEED>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128, const SEED: u8> fgf::binary::BinaryRepr<4> for fgf::binary::Cantor<P, SEED>
-pub const fgf::binary::Cantor<P, SEED>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Cantor<P, SEED>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128, const SEED: u8> fgf::binary::BinaryRepr<8> for fgf::binary::Cantor<P, SEED>
-pub const fgf::binary::Cantor<P, SEED>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Cantor<P, SEED>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128, const SEED: u8> core::marker::Freeze for fgf::binary::Cantor<P, SEED>
 impl<const P: u128, const SEED: u8> core::marker::Send for fgf::binary::Cantor<P, SEED>
 impl<const P: u128, const SEED: u8> core::marker::Sync for fgf::binary::Cantor<P, SEED>
@@ -228,22 +219,13 @@ impl<const P: u128, const E: u8> core::marker::Copy for fgf::binary::Normal<P, E
 impl<const P: u128, const E: u8> core::marker::StructuralPartialEq for fgf::binary::Normal<P, E>
 impl<const P: u128, const E: u8> fgf::FiniteFieldRepr<2, 2> for fgf::binary::Normal<P, E>
 pub const fgf::binary::Normal<P, E>::NAME: &'static str
-pub const fgf::binary::Normal<P, E>::VALID: ()
 impl<const P: u128, const E: u8> fgf::FiniteFieldRepr<2, 4> for fgf::binary::Normal<P, E>
 pub const fgf::binary::Normal<P, E>::NAME: &'static str
-pub const fgf::binary::Normal<P, E>::VALID: ()
 impl<const P: u128, const E: u8> fgf::FiniteFieldRepr<2, 8> for fgf::binary::Normal<P, E>
 pub const fgf::binary::Normal<P, E>::NAME: &'static str
-pub const fgf::binary::Normal<P, E>::VALID: ()
 impl<const P: u128, const E: u8> fgf::binary::BinaryRepr<2> for fgf::binary::Normal<P, E>
-pub const fgf::binary::Normal<P, E>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Normal<P, E>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128, const E: u8> fgf::binary::BinaryRepr<4> for fgf::binary::Normal<P, E>
-pub const fgf::binary::Normal<P, E>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Normal<P, E>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128, const E: u8> fgf::binary::BinaryRepr<8> for fgf::binary::Normal<P, E>
-pub const fgf::binary::Normal<P, E>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Normal<P, E>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128, const E: u8> core::marker::Freeze for fgf::binary::Normal<P, E>
 impl<const P: u128, const E: u8> core::marker::Send for fgf::binary::Normal<P, E>
 impl<const P: u128, const E: u8> core::marker::Sync for fgf::binary::Normal<P, E>
@@ -274,28 +256,16 @@ impl<const P: u128> core::marker::Copy for fgf::binary::Polynomial<P>
 impl<const P: u128> core::marker::StructuralPartialEq for fgf::binary::Polynomial<P>
 impl<const P: u128> fgf::FiniteFieldRepr<2, 1> for fgf::binary::Polynomial<P>
 pub const fgf::binary::Polynomial<P>::NAME: &'static str
-pub const fgf::binary::Polynomial<P>::VALID: ()
 impl<const P: u128> fgf::FiniteFieldRepr<2, 2> for fgf::binary::Polynomial<P>
 pub const fgf::binary::Polynomial<P>::NAME: &'static str
-pub const fgf::binary::Polynomial<P>::VALID: ()
 impl<const P: u128> fgf::FiniteFieldRepr<2, 4> for fgf::binary::Polynomial<P>
 pub const fgf::binary::Polynomial<P>::NAME: &'static str
-pub const fgf::binary::Polynomial<P>::VALID: ()
 impl<const P: u128> fgf::FiniteFieldRepr<2, 8> for fgf::binary::Polynomial<P>
 pub const fgf::binary::Polynomial<P>::NAME: &'static str
-pub const fgf::binary::Polynomial<P>::VALID: ()
 impl<const P: u128> fgf::binary::BinaryRepr<1> for fgf::binary::Polynomial<P>
-pub const fgf::binary::Polynomial<P>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Polynomial<P>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128> fgf::binary::BinaryRepr<2> for fgf::binary::Polynomial<P>
-pub const fgf::binary::Polynomial<P>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Polynomial<P>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128> fgf::binary::BinaryRepr<4> for fgf::binary::Polynomial<P>
-pub const fgf::binary::Polynomial<P>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Polynomial<P>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128> fgf::binary::BinaryRepr<8> for fgf::binary::Polynomial<P>
-pub const fgf::binary::Polynomial<P>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Polynomial<P>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128> core::marker::Freeze for fgf::binary::Polynomial<P>
 impl<const P: u128> core::marker::Send for fgf::binary::Polynomial<P>
 impl<const P: u128> core::marker::Sync for fgf::binary::Polynomial<P>
@@ -392,51 +362,23 @@ impl<R: fgf::binary::BinaryRepr<2>> fgf::binary::BinaryDegree<2> for fgf::Finite
 impl<R: fgf::binary::BinaryRepr<4>> fgf::binary::BinaryDegree<4> for fgf::FiniteField<2, 4, R>
 impl<R: fgf::binary::BinaryRepr<8>> fgf::binary::BinaryDegree<8> for fgf::FiniteField<2, 8, R>
 impl<const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::binary::BinaryDegree<N> for fgf::FiniteField<2, N, fgf::extension::Extension<S, D>> where <S as fgf::extension::ExtensionSpec>::Storage: StorageRepr<<S as fgf::extension::ExtensionSpec>::Base, D>, <S as fgf::extension::ExtensionSpec>::Base: fgf::binary::BinaryField
-pub trait fgf::binary::BinaryField: fgf::Field<Characteristic = fgf::prime::PrimeCharacteristic<2>> + fgf::field::binary::binary_private::Sealed
-pub const fgf::binary::BinaryField::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
+pub trait fgf::binary::BinaryField: fgf::Field<Characteristic = fgf::prime::PrimeCharacteristic<2>> + fgf::field::binary::binary_private::Sealed + binary_private::BinaryFieldData
 impl<R: fgf::binary::BinaryRepr<1>> fgf::binary::BinaryField for fgf::FiniteField<2, 1, R>
-pub const fgf::FiniteField<2, 1, R>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
 impl<R: fgf::binary::BinaryRepr<2>> fgf::binary::BinaryField for fgf::FiniteField<2, 2, R>
-pub const fgf::FiniteField<2, 2, R>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
 impl<R: fgf::binary::BinaryRepr<4>> fgf::binary::BinaryField for fgf::FiniteField<2, 4, R>
-pub const fgf::FiniteField<2, 4, R>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
 impl<R: fgf::binary::BinaryRepr<8>> fgf::binary::BinaryField for fgf::FiniteField<2, 8, R>
-pub const fgf::FiniteField<2, 8, R>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
 impl<const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::binary::BinaryField for fgf::FiniteField<2, N, fgf::extension::Extension<S, D>> where <S as fgf::extension::ExtensionSpec>::Storage: StorageRepr<<S as fgf::extension::ExtensionSpec>::Base, D>, <S as fgf::extension::ExtensionSpec>::Base: fgf::binary::BinaryField
-pub const fgf::FiniteField<2, N, fgf::extension::Extension<S, D>>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub trait fgf::binary::BinaryRepr<const N: u32>: fgf::FiniteFieldRepr<2, N>
-pub const fgf::binary::BinaryRepr::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::BinaryRepr::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
+pub trait fgf::binary::BinaryRepr<const N: u32>: fgf::FiniteFieldRepr<2, N> + binary_private::BinaryReprData<N>
 impl<const P: u128, const E: u8> fgf::binary::BinaryRepr<2> for fgf::binary::Normal<P, E>
-pub const fgf::binary::Normal<P, E>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Normal<P, E>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128, const E: u8> fgf::binary::BinaryRepr<4> for fgf::binary::Normal<P, E>
-pub const fgf::binary::Normal<P, E>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Normal<P, E>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128, const E: u8> fgf::binary::BinaryRepr<8> for fgf::binary::Normal<P, E>
-pub const fgf::binary::Normal<P, E>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Normal<P, E>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128, const SEED: u8> fgf::binary::BinaryRepr<2> for fgf::binary::Cantor<P, SEED>
-pub const fgf::binary::Cantor<P, SEED>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Cantor<P, SEED>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128, const SEED: u8> fgf::binary::BinaryRepr<4> for fgf::binary::Cantor<P, SEED>
-pub const fgf::binary::Cantor<P, SEED>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Cantor<P, SEED>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128, const SEED: u8> fgf::binary::BinaryRepr<8> for fgf::binary::Cantor<P, SEED>
-pub const fgf::binary::Cantor<P, SEED>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Cantor<P, SEED>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128> fgf::binary::BinaryRepr<1> for fgf::binary::Polynomial<P>
-pub const fgf::binary::Polynomial<P>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Polynomial<P>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128> fgf::binary::BinaryRepr<2> for fgf::binary::Polynomial<P>
-pub const fgf::binary::Polynomial<P>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Polynomial<P>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128> fgf::binary::BinaryRepr<4> for fgf::binary::Polynomial<P>
-pub const fgf::binary::Polynomial<P>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Polynomial<P>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 impl<const P: u128> fgf::binary::BinaryRepr<8> for fgf::binary::Polynomial<P>
-pub const fgf::binary::Polynomial<P>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
-pub const fgf::binary::Polynomial<P>::LOG_EXP: core::option::Option<&'static fgf::field::binary::description::ByteLogExp>
 pub mod fgf::extension
 pub struct fgf::extension::ComplexMersenne31
 impl core::clone::Clone for fgf::extension::ComplexMersenne31
@@ -492,7 +434,6 @@ pub fn fgf::extension::Extension<S, D>::fmt(&self, &mut core::fmt::Formatter<'_>
 impl<S: fgf::extension::ExtensionSpec<D>, const D: usize> core::marker::Copy for fgf::extension::Extension<S, D>
 impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::FiniteFieldRepr<P, N> for fgf::extension::Extension<S, D>
 pub const fgf::extension::Extension<S, D>::NAME: &'static str
-pub const fgf::extension::Extension<S, D>::VALID: ()
 impl<S, const D: usize> core::marker::Freeze for fgf::extension::Extension<S, D> where core::marker::PhantomData<fn() -> S>: core::marker::Freeze
 impl<S, const D: usize> core::marker::Send for fgf::extension::Extension<S, D> where core::marker::PhantomData<fn() -> S>: core::marker::Send
 impl<S, const D: usize> core::marker::Sync for fgf::extension::Extension<S, D> where core::marker::PhantomData<fn() -> S>: core::marker::Sync
@@ -737,8 +678,8 @@ impl<S, T> core::marker::Unpin for fgf::maps::Isomorphism<S, T> where [fgf::Elem
 impl<S, T> core::marker::UnsafeUnpin for fgf::maps::Isomorphism<S, T> where [fgf::Elem<T>; 8]: core::marker::UnsafeUnpin, [fgf::Elem<S>; 8]: core::marker::UnsafeUnpin, core::marker::PhantomData<fn() -> (S, T)>: core::marker::UnsafeUnpin
 impl<S, T> core::panic::unwind_safe::RefUnwindSafe for fgf::maps::Isomorphism<S, T> where [fgf::Elem<T>; 8]: core::panic::unwind_safe::RefUnwindSafe, [fgf::Elem<S>; 8]: core::panic::unwind_safe::RefUnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::RefUnwindSafe
 impl<S, T> core::panic::unwind_safe::UnwindSafe for fgf::maps::Isomorphism<S, T> where [fgf::Elem<T>; 8]: core::panic::unwind_safe::UnwindSafe, [fgf::Elem<S>; 8]: core::panic::unwind_safe::UnwindSafe, core::marker::PhantomData<fn() -> (S, T)>: core::panic::unwind_safe::UnwindSafe
-pub trait fgf::maps::Postcompose<Mid: fgf::Field, Out: fgf::Field>: fgf::field::embedding::compose::Postcompose<Mid, Out>
-impl<Mid: fgf::Field, Out: fgf::Field, M: fgf::field::embedding::compose::Postcompose<Mid, Out>> fgf::maps::Postcompose<Mid, Out> for M
+pub trait fgf::maps::Postcompose<Mid: fgf::Field, Out: fgf::Field>: compose::Postcompose<Mid, Out>
+impl<Mid: fgf::Field, Out: fgf::Field, M: compose::Postcompose<Mid, Out>> fgf::maps::Postcompose<Mid, Out> for M
 pub mod fgf::ops
 pub mod fgf::ops::bits
 pub struct fgf::ops::bits::XorRange
@@ -935,7 +876,6 @@ impl core::marker::Copy for fgf::prime::GoldilocksFold
 impl core::marker::StructuralPartialEq for fgf::prime::GoldilocksFold
 impl fgf::FiniteFieldRepr<18446744069414584321, 1> for fgf::prime::GoldilocksFold
 pub const fgf::prime::GoldilocksFold::NAME: &'static str
-pub const fgf::prime::GoldilocksFold::VALID: ()
 impl core::marker::Freeze for fgf::prime::GoldilocksFold
 impl core::marker::Send for fgf::prime::GoldilocksFold
 impl core::marker::Sync for fgf::prime::GoldilocksFold
@@ -964,7 +904,6 @@ impl core::marker::Copy for fgf::prime::MersenneFold
 impl core::marker::StructuralPartialEq for fgf::prime::MersenneFold
 impl fgf::FiniteFieldRepr<2147483647, 1> for fgf::prime::MersenneFold
 pub const fgf::prime::MersenneFold::NAME: &'static str
-pub const fgf::prime::MersenneFold::VALID: ()
 impl core::marker::Freeze for fgf::prime::MersenneFold
 impl core::marker::Send for fgf::prime::MersenneFold
 impl core::marker::Sync for fgf::prime::MersenneFold
@@ -984,7 +923,6 @@ pub const fgf::prime::PrimeCharacteristic<P>::BITS: u32
 pub const fgf::prime::PrimeCharacteristic<P>::CHARACTERISTIC: u64
 pub const fgf::prime::PrimeCharacteristic<P>::RESIDUE_MOD_8: u8
 pub const fgf::prime::PrimeCharacteristic<P>::TWO_ADICITY: u32
-pub const fgf::prime::PrimeCharacteristic<P>::VALID: ()
 impl<const P: u64> core::marker::Freeze for fgf::prime::PrimeCharacteristic<P>
 impl<const P: u64> core::marker::Send for fgf::prime::PrimeCharacteristic<P>
 impl<const P: u64> core::marker::Sync for fgf::prime::PrimeCharacteristic<P>
@@ -1013,7 +951,6 @@ impl core::marker::Copy for fgf::prime::Residue
 impl core::marker::StructuralPartialEq for fgf::prime::Residue
 impl<const P: u64> fgf::FiniteFieldRepr<P, 1> for fgf::prime::Residue
 pub const fgf::prime::Residue::NAME: &'static str
-pub const fgf::prime::Residue::VALID: ()
 impl core::marker::Freeze for fgf::prime::Residue
 impl core::marker::Send for fgf::prime::Residue
 impl core::marker::Sync for fgf::prime::Residue
@@ -1026,18 +963,16 @@ impl fgf::prime::PrimeField for fgf::prime::Goldilocks
 impl fgf::prime::PrimeField for fgf::prime::Mersenne31
 impl<R: fgf::binary::BinaryRepr<1>> fgf::prime::PrimeField for fgf::FiniteField<2, 1, R>
 impl<const P: u64> fgf::prime::PrimeField for fgf::FiniteField<P, 1, fgf::prime::Residue>
-pub trait fgf::prime::PrimeIdentity: fgf::field::private::Sealed + fgf::field::private::ResidueRowOf + core::marker::Copy + 'static
+pub trait fgf::prime::PrimeIdentity: fgf::field::private::Sealed + private::PrimeIdentityValidation + core::marker::Copy + 'static
 pub const fgf::prime::PrimeIdentity::BITS: u32
 pub const fgf::prime::PrimeIdentity::CHARACTERISTIC: u64
 pub const fgf::prime::PrimeIdentity::RESIDUE_MOD_8: u8
 pub const fgf::prime::PrimeIdentity::TWO_ADICITY: u32
-pub const fgf::prime::PrimeIdentity::VALID: ()
 impl<const P: u64> fgf::prime::PrimeIdentity for fgf::prime::PrimeCharacteristic<P>
 pub const fgf::prime::PrimeCharacteristic<P>::BITS: u32
 pub const fgf::prime::PrimeCharacteristic<P>::CHARACTERISTIC: u64
 pub const fgf::prime::PrimeCharacteristic<P>::RESIDUE_MOD_8: u8
 pub const fgf::prime::PrimeCharacteristic<P>::TWO_ADICITY: u32
-pub const fgf::prime::PrimeCharacteristic<P>::VALID: ()
 pub const fn fgf::prime::is_prime(u64) -> bool
 pub type fgf::prime::Goldilocks = fgf::FiniteField<0xFFFF_FFFF_0000_0001, 1, fgf::prime::GoldilocksFold>
 pub type fgf::prime::Mersenne31 = fgf::FiniteField<0x7FFF_FFFF, 1, fgf::prime::MersenneFold>
@@ -1426,23 +1361,14 @@ impl<F> core::panic::unwind_safe::RefUnwindSafe for fgf::Elem<F> where <F as fgf
 impl<F> core::panic::unwind_safe::UnwindSafe for fgf::Elem<F> where <F as fgf::Field>::Raw: core::panic::unwind_safe::UnwindSafe
 pub struct fgf::FiniteField<const P: u64, const N: u32, R: fgf::FiniteFieldRepr<P, N>>(_)
 impl fgf::HasGenerator for fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>
-pub const fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>::GENERATOR_RAW: u16
 impl fgf::HasGenerator for fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>
-pub const fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>::GENERATOR_RAW: u16
 impl fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>
-pub const fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>::GENERATOR_RAW: u8
 impl fgf::HasGenerator for fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>
-pub const fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>::GENERATOR_RAW: u32
 impl fgf::HasGenerator for fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>
-pub const fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>::GENERATOR_RAW: u32
 impl fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>
-pub const fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>::GENERATOR_RAW: u8
 impl fgf::HasGenerator for fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>
-pub const fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>::GENERATOR_RAW: u64
 impl fgf::HasGenerator for fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>
-pub const fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>::GENERATOR_RAW: u64
 impl fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>
-pub const fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>::GENERATOR_RAW: u8
 impl<R: Gf8Data> fgf::FieldKernels for fgf::FiniteField<2, 8, R>
 pub fn fgf::FiniteField<2, 8, R>::backend() -> simdispatch::backend::Backend
 pub fn fgf::FiniteField<2, 8, R>::has_vector_elementwise() -> bool
@@ -1452,71 +1378,32 @@ pub type fgf::FiniteField<2, 1, R>::Characteristic = fgf::prime::PrimeCharacteri
 pub type fgf::FiniteField<2, 1, R>::Raw = u8
 pub const fgf::FiniteField<2, 1, R>::DEGREE: u32
 pub const fgf::FiniteField<2, 1, R>::NAME: &'static str
-pub const fgf::FiniteField<2, 1, R>::ONE_RAW: u8
 pub const fgf::FiniteField<2, 1, R>::ORDER: u128
-pub const fgf::FiniteField<2, 1, R>::VALID: ()
-pub const fgf::FiniteField<2, 1, R>::ZERO_RAW: u8
-pub fn fgf::FiniteField<2, 1, R>::add_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 1, R>::canonical_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 1, R>::inv_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 1, R>::mul_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 1, R>::neg_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 1, R>::sub_raw(u8, u8) -> u8
 impl<R: fgf::binary::BinaryRepr<1>> fgf::binary::BinaryDegree<1> for fgf::FiniteField<2, 1, R>
 impl<R: fgf::binary::BinaryRepr<1>> fgf::binary::BinaryField for fgf::FiniteField<2, 1, R>
-pub const fgf::FiniteField<2, 1, R>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
 impl<R: fgf::binary::BinaryRepr<1>> fgf::prime::PrimeField for fgf::FiniteField<2, 1, R>
 impl<R: fgf::binary::BinaryRepr<2>> fgf::Field for fgf::FiniteField<2, 2, R>
 pub type fgf::FiniteField<2, 2, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
 pub type fgf::FiniteField<2, 2, R>::Raw = u8
 pub const fgf::FiniteField<2, 2, R>::DEGREE: u32
 pub const fgf::FiniteField<2, 2, R>::NAME: &'static str
-pub const fgf::FiniteField<2, 2, R>::ONE_RAW: u8
 pub const fgf::FiniteField<2, 2, R>::ORDER: u128
-pub const fgf::FiniteField<2, 2, R>::VALID: ()
-pub const fgf::FiniteField<2, 2, R>::ZERO_RAW: u8
-pub fn fgf::FiniteField<2, 2, R>::add_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 2, R>::canonical_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 2, R>::inv_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 2, R>::mul_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 2, R>::neg_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 2, R>::sub_raw(u8, u8) -> u8
 impl<R: fgf::binary::BinaryRepr<2>> fgf::binary::BinaryDegree<2> for fgf::FiniteField<2, 2, R>
 impl<R: fgf::binary::BinaryRepr<2>> fgf::binary::BinaryField for fgf::FiniteField<2, 2, R>
-pub const fgf::FiniteField<2, 2, R>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
 impl<R: fgf::binary::BinaryRepr<4>> fgf::Field for fgf::FiniteField<2, 4, R>
 pub type fgf::FiniteField<2, 4, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
 pub type fgf::FiniteField<2, 4, R>::Raw = u8
 pub const fgf::FiniteField<2, 4, R>::DEGREE: u32
 pub const fgf::FiniteField<2, 4, R>::NAME: &'static str
-pub const fgf::FiniteField<2, 4, R>::ONE_RAW: u8
 pub const fgf::FiniteField<2, 4, R>::ORDER: u128
-pub const fgf::FiniteField<2, 4, R>::VALID: ()
-pub const fgf::FiniteField<2, 4, R>::ZERO_RAW: u8
-pub fn fgf::FiniteField<2, 4, R>::add_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 4, R>::canonical_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 4, R>::inv_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 4, R>::mul_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 4, R>::neg_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 4, R>::sub_raw(u8, u8) -> u8
 impl<R: fgf::binary::BinaryRepr<4>> fgf::binary::BinaryDegree<4> for fgf::FiniteField<2, 4, R>
 impl<R: fgf::binary::BinaryRepr<4>> fgf::binary::BinaryField for fgf::FiniteField<2, 4, R>
-pub const fgf::FiniteField<2, 4, R>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
 impl<R: fgf::binary::BinaryRepr<8>> fgf::Field for fgf::FiniteField<2, 8, R>
 pub type fgf::FiniteField<2, 8, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
 pub type fgf::FiniteField<2, 8, R>::Raw = u8
 pub const fgf::FiniteField<2, 8, R>::DEGREE: u32
 pub const fgf::FiniteField<2, 8, R>::NAME: &'static str
-pub const fgf::FiniteField<2, 8, R>::ONE_RAW: u8
 pub const fgf::FiniteField<2, 8, R>::ORDER: u128
-pub const fgf::FiniteField<2, 8, R>::VALID: ()
-pub const fgf::FiniteField<2, 8, R>::ZERO_RAW: u8
-pub fn fgf::FiniteField<2, 8, R>::add_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 8, R>::canonical_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 8, R>::inv_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 8, R>::mul_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 8, R>::neg_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 8, R>::sub_raw(u8, u8) -> u8
 impl<R: fgf::binary::BinaryRepr<8>> fgf::FieldBuffer for fgf::FiniteField<2, 8, R>
 pub const fgf::FiniteField<2, 8, R>::BYTES: usize
 pub const fgf::FiniteField<2, 8, R>::STORAGE_BITS: u32
@@ -1524,30 +1411,18 @@ pub fn fgf::FiniteField<2, 8, R>::decode(&[u8]) -> fgf::Elem<Self>
 pub fn fgf::FiniteField<2, 8, R>::encode(&mut [u8], fgf::Elem<Self>)
 impl<R: fgf::binary::BinaryRepr<8>> fgf::binary::BinaryDegree<8> for fgf::FiniteField<2, 8, R>
 impl<R: fgf::binary::BinaryRepr<8>> fgf::binary::BinaryField for fgf::FiniteField<2, 8, R>
-pub const fgf::FiniteField<2, 8, R>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
 impl<const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::binary::BinaryDegree<N> for fgf::FiniteField<2, N, fgf::extension::Extension<S, D>> where <S as fgf::extension::ExtensionSpec>::Storage: StorageRepr<<S as fgf::extension::ExtensionSpec>::Base, D>, <S as fgf::extension::ExtensionSpec>::Base: fgf::binary::BinaryField
 impl<const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::binary::BinaryField for fgf::FiniteField<2, N, fgf::extension::Extension<S, D>> where <S as fgf::extension::ExtensionSpec>::Storage: StorageRepr<<S as fgf::extension::ExtensionSpec>::Base, D>, <S as fgf::extension::ExtensionSpec>::Base: fgf::binary::BinaryField
-pub const fgf::FiniteField<2, N, fgf::extension::Extension<S, D>>::DESCRIPTION: &'static fgf::field::binary::description::BinaryDescription
 impl<const P: u128, const E: u8> fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::binary::Normal<P, E>>
-pub const fgf::FiniteField<2, 2, fgf::binary::Normal<P, E>>::GENERATOR_RAW: u8
 impl<const P: u128, const E: u8> fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::binary::Normal<P, E>>
-pub const fgf::FiniteField<2, 4, fgf::binary::Normal<P, E>>::GENERATOR_RAW: u8
 impl<const P: u128, const E: u8> fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::binary::Normal<P, E>>
-pub const fgf::FiniteField<2, 8, fgf::binary::Normal<P, E>>::GENERATOR_RAW: u8
 impl<const P: u128, const SEED: u8> fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::binary::Cantor<P, SEED>>
-pub const fgf::FiniteField<2, 2, fgf::binary::Cantor<P, SEED>>::GENERATOR_RAW: u8
 impl<const P: u128, const SEED: u8> fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::binary::Cantor<P, SEED>>
-pub const fgf::FiniteField<2, 4, fgf::binary::Cantor<P, SEED>>::GENERATOR_RAW: u8
 impl<const P: u128, const SEED: u8> fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::binary::Cantor<P, SEED>>
-pub const fgf::FiniteField<2, 8, fgf::binary::Cantor<P, SEED>>::GENERATOR_RAW: u8
 impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 1, fgf::binary::Polynomial<P>>
-pub const fgf::FiniteField<2, 1, fgf::binary::Polynomial<P>>::GENERATOR_RAW: u8
 impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::binary::Polynomial<P>>
-pub const fgf::FiniteField<2, 2, fgf::binary::Polynomial<P>>::GENERATOR_RAW: u8
 impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::binary::Polynomial<P>>
-pub const fgf::FiniteField<2, 4, fgf::binary::Polynomial<P>>::GENERATOR_RAW: u8
 impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::binary::Polynomial<P>>
-pub const fgf::FiniteField<2, 8, fgf::binary::Polynomial<P>>::GENERATOR_RAW: u8
 impl<const P: u64, const N: u32, R: fgf::FiniteFieldRepr<P, N>> core::clone::Clone for fgf::FiniteField<P, N, R>
 pub fn fgf::FiniteField<P, N, R>::clone(&self) -> Self
 impl<const P: u64, const N: u32, R: fgf::FiniteFieldRepr<P, N>> core::cmp::Eq for fgf::FiniteField<P, N, R>
@@ -1569,16 +1444,7 @@ pub type fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::Characteristic
 pub type fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::Raw = <<S as fgf::extension::ExtensionSpec<D>>::Storage as fgf::extension::ExtensionStorage<<S as fgf::extension::ExtensionSpec<D>>::Base, D>>::Raw
 pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::DEGREE: u32
 pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::NAME: &'static str
-pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::ONE_RAW: Self::Raw
 pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::ORDER: u128
-pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::VALID: ()
-pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::ZERO_RAW: Self::Raw
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::add_raw(Self::Raw, Self::Raw) -> Self::Raw
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::canonical_raw(Self::Raw) -> Self::Raw
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::inv_raw(Self::Raw) -> Self::Raw
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::mul_raw(Self::Raw, Self::Raw) -> Self::Raw
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::neg_raw(Self::Raw) -> Self::Raw
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::sub_raw(Self::Raw, Self::Raw) -> Self::Raw
 impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::FieldBuffer for fgf::FiniteField<P, N, fgf::extension::Extension<S, D>> where <S as fgf::extension::ExtensionSpec>::Storage: StorageBuffer<<S as fgf::extension::ExtensionSpec>::Base, D>
 pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::BYTES: usize
 pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::STORAGE_BITS: u32
@@ -1597,16 +1463,7 @@ pub type fgf::FiniteField<P, 1, fgf::prime::Residue>::Characteristic = fgf::prim
 pub type fgf::FiniteField<P, 1, fgf::prime::Residue>::Raw = u64
 pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::DEGREE: u32
 pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::NAME: &'static str
-pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::ONE_RAW: u64
 pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::ORDER: u128
-pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::VALID: ()
-pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::ZERO_RAW: u64
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::add_raw(u64, u64) -> u64
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::canonical_raw(u64) -> u64
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::inv_raw(u64) -> u64
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::mul_raw(u64, u64) -> u64
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::neg_raw(u64) -> u64
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::sub_raw(u64, u64) -> u64
 impl<const P: u64> fgf::FieldBuffer for fgf::FiniteField<P, 1, fgf::prime::Residue>
 pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::BYTES: usize
 pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::STORAGE_BITS: u32
@@ -1645,141 +1502,60 @@ impl core::marker::Unpin for fgf::RangeError
 impl core::marker::UnsafeUnpin for fgf::RangeError
 impl core::panic::unwind_safe::RefUnwindSafe for fgf::RangeError
 impl core::panic::unwind_safe::UnwindSafe for fgf::RangeError
-pub trait fgf::Field: private::RowAccess + core::marker::Copy + core::fmt::Debug + 'static
+pub trait fgf::Field: private::RowAccess + private::RawArithmetic<<Self as fgf::Field>::Raw> + core::marker::Copy + core::fmt::Debug + 'static
 pub type fgf::Field::Characteristic: fgf::prime::PrimeIdentity
 pub type fgf::Field::Raw: core::marker::Copy + core::cmp::Eq + core::cmp::Ord + core::hash::Hash + core::fmt::Debug + 'static
 pub const fgf::Field::DEGREE: u32
 pub const fgf::Field::NAME: &'static str
-pub const fgf::Field::ONE_RAW: Self::Raw
 pub const fgf::Field::ORDER: u128
-pub const fgf::Field::VALID: ()
-pub const fgf::Field::ZERO_RAW: Self::Raw
-pub fn fgf::Field::add_raw(Self::Raw, Self::Raw) -> Self::Raw
-pub fn fgf::Field::canonical_raw(Self::Raw) -> Self::Raw
-pub fn fgf::Field::inv_raw(Self::Raw) -> Self::Raw
-pub fn fgf::Field::mul_raw(Self::Raw, Self::Raw) -> Self::Raw
-pub fn fgf::Field::neg_raw(Self::Raw) -> Self::Raw
-pub fn fgf::Field::sub_raw(Self::Raw, Self::Raw) -> Self::Raw
 impl fgf::Field for fgf::prime::Goldilocks
 pub type fgf::prime::Goldilocks::Characteristic = fgf::prime::PrimeCharacteristic<MODULUS>
 pub type fgf::prime::Goldilocks::Raw = u64
 pub const fgf::prime::Goldilocks::DEGREE: u32
 pub const fgf::prime::Goldilocks::NAME: &'static str
-pub const fgf::prime::Goldilocks::ONE_RAW: u64
 pub const fgf::prime::Goldilocks::ORDER: u128
-pub const fgf::prime::Goldilocks::VALID: ()
-pub const fgf::prime::Goldilocks::ZERO_RAW: u64
-pub fn fgf::prime::Goldilocks::add_raw(u64, u64) -> u64
-pub fn fgf::prime::Goldilocks::canonical_raw(u64) -> u64
-pub fn fgf::prime::Goldilocks::inv_raw(u64) -> u64
-pub fn fgf::prime::Goldilocks::mul_raw(u64, u64) -> u64
-pub fn fgf::prime::Goldilocks::neg_raw(u64) -> u64
-pub fn fgf::prime::Goldilocks::sub_raw(u64, u64) -> u64
 impl fgf::Field for fgf::prime::Mersenne31
 pub type fgf::prime::Mersenne31::Characteristic = fgf::prime::PrimeCharacteristic<{ MODULUS as u64 }>
 pub type fgf::prime::Mersenne31::Raw = u32
 pub const fgf::prime::Mersenne31::DEGREE: u32
 pub const fgf::prime::Mersenne31::NAME: &'static str
-pub const fgf::prime::Mersenne31::ONE_RAW: u32
 pub const fgf::prime::Mersenne31::ORDER: u128
-pub const fgf::prime::Mersenne31::VALID: ()
-pub const fgf::prime::Mersenne31::ZERO_RAW: u32
-pub fn fgf::prime::Mersenne31::add_raw(u32, u32) -> u32
-pub fn fgf::prime::Mersenne31::canonical_raw(u32) -> u32
-pub fn fgf::prime::Mersenne31::inv_raw(u32) -> u32
-pub fn fgf::prime::Mersenne31::mul_raw(u32, u32) -> u32
-pub fn fgf::prime::Mersenne31::neg_raw(u32) -> u32
-pub fn fgf::prime::Mersenne31::sub_raw(u32, u32) -> u32
 impl<R: fgf::binary::BinaryRepr<1>> fgf::Field for fgf::FiniteField<2, 1, R>
 pub type fgf::FiniteField<2, 1, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
 pub type fgf::FiniteField<2, 1, R>::Raw = u8
 pub const fgf::FiniteField<2, 1, R>::DEGREE: u32
 pub const fgf::FiniteField<2, 1, R>::NAME: &'static str
-pub const fgf::FiniteField<2, 1, R>::ONE_RAW: u8
 pub const fgf::FiniteField<2, 1, R>::ORDER: u128
-pub const fgf::FiniteField<2, 1, R>::VALID: ()
-pub const fgf::FiniteField<2, 1, R>::ZERO_RAW: u8
-pub fn fgf::FiniteField<2, 1, R>::add_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 1, R>::canonical_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 1, R>::inv_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 1, R>::mul_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 1, R>::neg_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 1, R>::sub_raw(u8, u8) -> u8
 impl<R: fgf::binary::BinaryRepr<2>> fgf::Field for fgf::FiniteField<2, 2, R>
 pub type fgf::FiniteField<2, 2, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
 pub type fgf::FiniteField<2, 2, R>::Raw = u8
 pub const fgf::FiniteField<2, 2, R>::DEGREE: u32
 pub const fgf::FiniteField<2, 2, R>::NAME: &'static str
-pub const fgf::FiniteField<2, 2, R>::ONE_RAW: u8
 pub const fgf::FiniteField<2, 2, R>::ORDER: u128
-pub const fgf::FiniteField<2, 2, R>::VALID: ()
-pub const fgf::FiniteField<2, 2, R>::ZERO_RAW: u8
-pub fn fgf::FiniteField<2, 2, R>::add_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 2, R>::canonical_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 2, R>::inv_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 2, R>::mul_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 2, R>::neg_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 2, R>::sub_raw(u8, u8) -> u8
 impl<R: fgf::binary::BinaryRepr<4>> fgf::Field for fgf::FiniteField<2, 4, R>
 pub type fgf::FiniteField<2, 4, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
 pub type fgf::FiniteField<2, 4, R>::Raw = u8
 pub const fgf::FiniteField<2, 4, R>::DEGREE: u32
 pub const fgf::FiniteField<2, 4, R>::NAME: &'static str
-pub const fgf::FiniteField<2, 4, R>::ONE_RAW: u8
 pub const fgf::FiniteField<2, 4, R>::ORDER: u128
-pub const fgf::FiniteField<2, 4, R>::VALID: ()
-pub const fgf::FiniteField<2, 4, R>::ZERO_RAW: u8
-pub fn fgf::FiniteField<2, 4, R>::add_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 4, R>::canonical_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 4, R>::inv_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 4, R>::mul_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 4, R>::neg_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 4, R>::sub_raw(u8, u8) -> u8
 impl<R: fgf::binary::BinaryRepr<8>> fgf::Field for fgf::FiniteField<2, 8, R>
 pub type fgf::FiniteField<2, 8, R>::Characteristic = fgf::prime::PrimeCharacteristic<2>
 pub type fgf::FiniteField<2, 8, R>::Raw = u8
 pub const fgf::FiniteField<2, 8, R>::DEGREE: u32
 pub const fgf::FiniteField<2, 8, R>::NAME: &'static str
-pub const fgf::FiniteField<2, 8, R>::ONE_RAW: u8
 pub const fgf::FiniteField<2, 8, R>::ORDER: u128
-pub const fgf::FiniteField<2, 8, R>::VALID: ()
-pub const fgf::FiniteField<2, 8, R>::ZERO_RAW: u8
-pub fn fgf::FiniteField<2, 8, R>::add_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 8, R>::canonical_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 8, R>::inv_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 8, R>::mul_raw(u8, u8) -> u8
-pub fn fgf::FiniteField<2, 8, R>::neg_raw(u8) -> u8
-pub fn fgf::FiniteField<2, 8, R>::sub_raw(u8, u8) -> u8
 impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::Field for fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>
 pub type fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::Characteristic = fgf::prime::PrimeCharacteristic<P>
 pub type fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::Raw = <<S as fgf::extension::ExtensionSpec<D>>::Storage as fgf::extension::ExtensionStorage<<S as fgf::extension::ExtensionSpec<D>>::Base, D>>::Raw
 pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::DEGREE: u32
 pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::NAME: &'static str
-pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::ONE_RAW: Self::Raw
 pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::ORDER: u128
-pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::VALID: ()
-pub const fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::ZERO_RAW: Self::Raw
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::add_raw(Self::Raw, Self::Raw) -> Self::Raw
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::canonical_raw(Self::Raw) -> Self::Raw
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::inv_raw(Self::Raw) -> Self::Raw
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::mul_raw(Self::Raw, Self::Raw) -> Self::Raw
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::neg_raw(Self::Raw) -> Self::Raw
-pub fn fgf::FiniteField<P, N, fgf::extension::Extension<S, D>>::sub_raw(Self::Raw, Self::Raw) -> Self::Raw
 impl<const P: u64> fgf::Field for fgf::FiniteField<P, 1, fgf::prime::Residue>
 pub type fgf::FiniteField<P, 1, fgf::prime::Residue>::Characteristic = fgf::prime::PrimeCharacteristic<P>
 pub type fgf::FiniteField<P, 1, fgf::prime::Residue>::Raw = u64
 pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::DEGREE: u32
 pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::NAME: &'static str
-pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::ONE_RAW: u64
 pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::ORDER: u128
-pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::VALID: ()
-pub const fgf::FiniteField<P, 1, fgf::prime::Residue>::ZERO_RAW: u64
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::add_raw(u64, u64) -> u64
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::canonical_raw(u64) -> u64
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::inv_raw(u64) -> u64
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::mul_raw(u64, u64) -> u64
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::neg_raw(u64) -> u64
-pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::sub_raw(u64, u64) -> u64
 pub trait fgf::FieldBuffer: fgf::Field + fgf::field::private::FieldSeal
 pub const fgf::FieldBuffer::BYTES: usize
 pub const fgf::FieldBuffer::STORAGE_BITS: u32
@@ -1872,97 +1648,59 @@ impl<const P: u64> fgf::FieldKernels for fgf::FiniteField<P, 1, fgf::prime::Resi
 pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::backend() -> simdispatch::backend::Backend
 pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::has_vector_elementwise() -> bool
 pub fn fgf::FiniteField<P, 1, fgf::prime::Residue>::vector_elementwise_min_bytes() -> usize
-pub trait fgf::FiniteFieldRepr<const P: u64, const N: u32>: fgf::field::private::Sealed + 'static
+pub trait fgf::FiniteFieldRepr<const P: u64, const N: u32>: fgf::field::private::Sealed + private::FiniteFieldReprValidation<P, N> + 'static
 pub const fgf::FiniteFieldRepr::NAME: &'static str
-pub const fgf::FiniteFieldRepr::VALID: ()
 impl fgf::FiniteFieldRepr<18446744069414584321, 1> for fgf::prime::GoldilocksFold
 pub const fgf::prime::GoldilocksFold::NAME: &'static str
-pub const fgf::prime::GoldilocksFold::VALID: ()
 impl fgf::FiniteFieldRepr<2147483647, 1> for fgf::prime::MersenneFold
 pub const fgf::prime::MersenneFold::NAME: &'static str
-pub const fgf::prime::MersenneFold::VALID: ()
 impl<const P: u128, const E: u8> fgf::FiniteFieldRepr<2, 2> for fgf::binary::Normal<P, E>
 pub const fgf::binary::Normal<P, E>::NAME: &'static str
-pub const fgf::binary::Normal<P, E>::VALID: ()
 impl<const P: u128, const E: u8> fgf::FiniteFieldRepr<2, 4> for fgf::binary::Normal<P, E>
 pub const fgf::binary::Normal<P, E>::NAME: &'static str
-pub const fgf::binary::Normal<P, E>::VALID: ()
 impl<const P: u128, const E: u8> fgf::FiniteFieldRepr<2, 8> for fgf::binary::Normal<P, E>
 pub const fgf::binary::Normal<P, E>::NAME: &'static str
-pub const fgf::binary::Normal<P, E>::VALID: ()
 impl<const P: u128, const SEED: u8> fgf::FiniteFieldRepr<2, 2> for fgf::binary::Cantor<P, SEED>
 pub const fgf::binary::Cantor<P, SEED>::NAME: &'static str
-pub const fgf::binary::Cantor<P, SEED>::VALID: ()
 impl<const P: u128, const SEED: u8> fgf::FiniteFieldRepr<2, 4> for fgf::binary::Cantor<P, SEED>
 pub const fgf::binary::Cantor<P, SEED>::NAME: &'static str
-pub const fgf::binary::Cantor<P, SEED>::VALID: ()
 impl<const P: u128, const SEED: u8> fgf::FiniteFieldRepr<2, 8> for fgf::binary::Cantor<P, SEED>
 pub const fgf::binary::Cantor<P, SEED>::NAME: &'static str
-pub const fgf::binary::Cantor<P, SEED>::VALID: ()
 impl<const P: u128> fgf::FiniteFieldRepr<2, 1> for fgf::binary::Polynomial<P>
 pub const fgf::binary::Polynomial<P>::NAME: &'static str
-pub const fgf::binary::Polynomial<P>::VALID: ()
 impl<const P: u128> fgf::FiniteFieldRepr<2, 2> for fgf::binary::Polynomial<P>
 pub const fgf::binary::Polynomial<P>::NAME: &'static str
-pub const fgf::binary::Polynomial<P>::VALID: ()
 impl<const P: u128> fgf::FiniteFieldRepr<2, 4> for fgf::binary::Polynomial<P>
 pub const fgf::binary::Polynomial<P>::NAME: &'static str
-pub const fgf::binary::Polynomial<P>::VALID: ()
 impl<const P: u128> fgf::FiniteFieldRepr<2, 8> for fgf::binary::Polynomial<P>
 pub const fgf::binary::Polynomial<P>::NAME: &'static str
-pub const fgf::binary::Polynomial<P>::VALID: ()
 impl<const P: u64, const N: u32, const D: usize, S: fgf::extension::ExtensionSpec<D>> fgf::FiniteFieldRepr<P, N> for fgf::extension::Extension<S, D>
 pub const fgf::extension::Extension<S, D>::NAME: &'static str
-pub const fgf::extension::Extension<S, D>::VALID: ()
 impl<const P: u64> fgf::FiniteFieldRepr<P, 1> for fgf::prime::Residue
 pub const fgf::prime::Residue::NAME: &'static str
-pub const fgf::prime::Residue::VALID: ()
-pub trait fgf::HasGenerator: fgf::Field + fgf::field::private::FieldSeal
-pub const fgf::HasGenerator::GENERATOR_RAW: Self::Raw
+pub trait fgf::HasGenerator: fgf::Field + fgf::field::private::FieldSeal + private::GeneratorRaw
 impl fgf::HasGenerator for fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>
-pub const fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::FanPaar16, 2>>::GENERATOR_RAW: u16
 impl fgf::HasGenerator for fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>
-pub const fgf::FiniteField<2, 16, fgf::extension::Extension<fgf::binary::Rijndael16, 2>>::GENERATOR_RAW: u16
 impl fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>
-pub const fgf::FiniteField<2, 2, fgf::extension::Extension<fgf::binary::FanPaar2, 2>>::GENERATOR_RAW: u8
 impl fgf::HasGenerator for fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>
-pub const fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::FanPaar32, 2>>::GENERATOR_RAW: u32
 impl fgf::HasGenerator for fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>
-pub const fgf::FiniteField<2, 32, fgf::extension::Extension<fgf::binary::Rijndael32, 2>>::GENERATOR_RAW: u32
 impl fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>
-pub const fgf::FiniteField<2, 4, fgf::extension::Extension<fgf::binary::FanPaar4, 2>>::GENERATOR_RAW: u8
 impl fgf::HasGenerator for fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>
-pub const fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::FanPaar64, 2>>::GENERATOR_RAW: u64
 impl fgf::HasGenerator for fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>
-pub const fgf::FiniteField<2, 64, fgf::extension::Extension<fgf::binary::Rijndael64, 2>>::GENERATOR_RAW: u64
 impl fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>
-pub const fgf::FiniteField<2, 8, fgf::extension::Extension<fgf::binary::FanPaar8, 2>>::GENERATOR_RAW: u8
 impl fgf::HasGenerator for fgf::extension::QuadMersenne31
-pub const fgf::extension::QuadMersenne31::GENERATOR_RAW: [u32; 2]
 impl fgf::HasGenerator for fgf::prime::Goldilocks
-pub const fgf::prime::Goldilocks::GENERATOR_RAW: u64
 impl fgf::HasGenerator for fgf::prime::Mersenne31
-pub const fgf::prime::Mersenne31::GENERATOR_RAW: u32
 impl<const P: u128, const E: u8> fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::binary::Normal<P, E>>
-pub const fgf::FiniteField<2, 2, fgf::binary::Normal<P, E>>::GENERATOR_RAW: u8
 impl<const P: u128, const E: u8> fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::binary::Normal<P, E>>
-pub const fgf::FiniteField<2, 4, fgf::binary::Normal<P, E>>::GENERATOR_RAW: u8
 impl<const P: u128, const E: u8> fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::binary::Normal<P, E>>
-pub const fgf::FiniteField<2, 8, fgf::binary::Normal<P, E>>::GENERATOR_RAW: u8
 impl<const P: u128, const SEED: u8> fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::binary::Cantor<P, SEED>>
-pub const fgf::FiniteField<2, 2, fgf::binary::Cantor<P, SEED>>::GENERATOR_RAW: u8
 impl<const P: u128, const SEED: u8> fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::binary::Cantor<P, SEED>>
-pub const fgf::FiniteField<2, 4, fgf::binary::Cantor<P, SEED>>::GENERATOR_RAW: u8
 impl<const P: u128, const SEED: u8> fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::binary::Cantor<P, SEED>>
-pub const fgf::FiniteField<2, 8, fgf::binary::Cantor<P, SEED>>::GENERATOR_RAW: u8
 impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 1, fgf::binary::Polynomial<P>>
-pub const fgf::FiniteField<2, 1, fgf::binary::Polynomial<P>>::GENERATOR_RAW: u8
 impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 2, fgf::binary::Polynomial<P>>
-pub const fgf::FiniteField<2, 2, fgf::binary::Polynomial<P>>::GENERATOR_RAW: u8
 impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 4, fgf::binary::Polynomial<P>>
-pub const fgf::FiniteField<2, 4, fgf::binary::Polynomial<P>>::GENERATOR_RAW: u8
 impl<const P: u128> fgf::HasGenerator for fgf::FiniteField<2, 8, fgf::binary::Polynomial<P>>
-pub const fgf::FiniteField<2, 8, fgf::binary::Polynomial<P>>::GENERATOR_RAW: u8
 pub fn fgf::backend() -> simdispatch::backend::Backend
 pub fn fgf::backend_for<F: fgf::FieldKernels>() -> simdispatch::backend::Backend
 # external re-exports

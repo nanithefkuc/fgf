@@ -138,12 +138,13 @@ impl<const P: u64, const N: u32, R: FiniteFieldRepr<P, N>> core::fmt::Debug
 /// and downstream code names a row with its public type rather than
 /// implementing this trait. `NAME` is a human-readable presentation label,
 /// distinct from the field name a [`Field`](crate::field::Field) row
-/// reports. `VALID` is the use-time proof of the representation's defining
-/// data; it must not read the row's field identities, and it runs before any
+/// reports. The representation's defining-data proof stays crate-private; it
+/// must not read the row's field identities, and it runs before any
 /// [`Field`](crate::field::Field) validation that chains it.
-pub trait FiniteFieldRepr<const P: u64, const N: u32>: private::Sealed + 'static {
+#[allow(private_bounds)]
+pub trait FiniteFieldRepr<const P: u64, const N: u32>:
+    private::Sealed + private::FiniteFieldReprValidation<P, N> + 'static
+{
     /// Human-readable presentation label.
     const NAME: &'static str;
-    /// Use-time validity proof for the representation's defining data.
-    const VALID: ();
 }
